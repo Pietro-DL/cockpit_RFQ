@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -186,6 +187,17 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 		}
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
+
+			if al.Stato != db.StatoAllegatoGrezzo && al.PathStaging.Valid && al.PathStaging.String != "" {
+				if _, errStat := os.Stat(al.PathStaging.String); os.IsNotExist(errStat) {
+					al.Stato = db.StatoAllegatoGrezzo
+					_, err = tx.Exec(ctx, `UPDATE allegato SET stato = 'grezzo', path_staging = NULL WHERE allegato_id = $1`, al.AllegatoID)
+					if err != nil {
+						return esito, fmt.Errorf("reset grezzo allegato %d: %w", a.Indice, err)
+					}
+				}
+			}
+
 			if al.Stato == db.StatoAllegatoGrezzo {
 				_, err := jobs.Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
 					AllegatoID: al.AllegatoID, EntryID: m.EntryID, StoreID: m.StoreID, Indice: a.Indice, NomeFile: a.NomeFile, Cartella: cartellaStaging,
