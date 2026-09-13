@@ -1,0 +1,22 @@
+{{define "contenuto"}}
+<h1>Coda job</h1>
+<div class="conta">
+  {{range .Dati.Conta}}<a class="chip {{.Stato}}" href="/admin/job?stato={{.Stato}}">{{.WorkerTipo}} · {{.Stato}}: {{.N}}</a> {{end}}
+  <a class="chip" href="/admin/job">tutti</a>
+</div>
+<div id="job" hx-get="/admin/job?stato={{.Dati.Stato}}" hx-trigger="every 5s" hx-swap="innerHTML">{{template "job_tabella" .}}</div>
+{{end}}
+
+{{define "job_tabella"}}
+<table class="tabella">
+  <tr><th>#</th><th>Tipo</th><th>Worker</th><th>Stato</th><th>Tent.</th><th>Creato</th><th>Lease</th><th>Errore / risultato</th><th></th></tr>
+  {{range .Dati.Job}}
+  <tr class="{{.Stato}}">
+    <td>{{.JobID}}</td><td>{{.Tipo}}</td><td>{{.WorkerTipo}}</td><td>{{.Stato}}</td><td>{{.Tentativi}}/{{.MaxTentativi}}</td>
+    <td>{{data .CreatoIl}}</td><td>{{if .LeaseFinoA}}{{data .LeaseFinoA}}{{end}}</td>
+    <td class="mono">{{if .Errore.Valid}}<span class="errore">{{.Errore.String}}</span>{{else if .Risultato}}{{printf "%.160s" (printf "%s" .Risultato)}}{{end}}</td>
+    <td>{{if eq .Stato "fallito"}}<button hx-post="/admin/job/{{.JobID}}/riaccoda">riaccoda</button>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}

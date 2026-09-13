@@ -1,0 +1,11 @@
+{{define "contenuto"}}
+<div class="login">
+  <h1>Cockpit RFQ</h1>
+  {{if .Dati.Errore}}<p class="errore">Sigla o password non validi.</p>{{end}}
+  <form method="post" action="/login">
+    <label>Sigla <input name="sigla" autofocus autocomplete="username" required></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Entra</button>
+  </form>
+</div>
+{{end}}

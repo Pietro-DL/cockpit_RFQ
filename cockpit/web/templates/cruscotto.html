@@ -1,0 +1,21 @@
+{{define "contenuto"}}
+<h1>Cruscotto RFQ</h1>
+<div id="cruscotto" hx-get="/cruscotto" hx-trigger="every 30s" hx-swap="innerHTML">{{template "cruscotto_tabella" .}}</div>
+{{end}}
+
+{{define "cruscotto_tabella"}}
+{{if not .Dati}}<p class="muto">Nessun thread. I thread nascono dal triage dell'Inbox (blocco 4).</p>{{end}}
+<table class="tabella">
+  <tr><th>Cliente</th><th>Buyer</th><th>Oggetto</th><th>Codici</th><th>Fase</th><th>SLA</th><th>Scadenza</th><th>Bloccanti</th><th>Da smistare</th><th>Msg</th><th>Ultimo</th></tr>
+  {{range .Dati}}
+  <tr>
+    <td>{{.Cliente}}</td><td>{{.Buyer.String}}</td><td>{{.Oggetto.String}}</td><td>{{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}</td>
+    <td>{{if .NomeFase.Valid}}{{.NomeFase.Fase}}{{end}}</td>
+    <td><span class="semaforo {{.Semaforo.String}}"></span> {{if .GgInFase.Valid}}{{.GgInFase.Int32}} gg{{end}}</td>
+    <td>{{if .DataScadenza}}{{.DataScadenza.Format "02/01/2006"}}{{end}}</td>
+    <td>{{.NBloccanti.Int64}}</td><td>{{.NDaSmistare}}</td><td>{{.NMessaggi}}</td>
+    <td>{{if .UltimoAggiornamento}}{{data .UltimoAggiornamento}}{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}

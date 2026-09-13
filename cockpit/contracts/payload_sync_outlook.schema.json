@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "CartellaCursore": {
+      "properties": {
+        "cartella": {
+          "title": "Cartella",
+          "type": "string"
+        },
+        "ultimo_received": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ultimo Received"
+        }
+      },
+      "required": [
+        "cartella"
+      ],
+      "title": "CartellaCursore",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "cartelle": {
+      "items": {
+        "$ref": "#/$defs/CartellaCursore"
+      },
+      "title": "Cartelle",
+      "type": "array"
+    },
+    "dal": {
+      "format": "date-time",
+      "title": "Dal",
+      "type": "string"
+    },
+    "al": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Al"
+    },
+    "sovrapposizione_s": {
+      "default": 600,
+      "title": "Sovrapposizione S",
+      "type": "integer"
+    },
+    "lotto": {
+      "default": 50,
+      "title": "Lotto",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cartelle",
+    "dal"
+  ],
+  "title": "PayloadSyncOutlook",
+  "type": "object",
+  "$id": "cockpit/payload_sync_outlook"
+}

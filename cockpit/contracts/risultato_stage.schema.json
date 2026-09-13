@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "allegato_id": {
+      "format": "uuid",
+      "title": "Allegato Id",
+      "type": "string"
+    },
+    "path_staging": {
+      "title": "Path Staging",
+      "type": "string"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "allegato_id",
+    "path_staging",
+    "sha256",
+    "bytes"
+  ],
+  "title": "RisultatoStage",
+  "type": "object",
+  "$id": "cockpit/risultato_stage"
+}

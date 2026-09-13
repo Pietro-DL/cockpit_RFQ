@@ -1,0 +1,28 @@
+{
+  "properties": {
+    "worker": {
+      "enum": [
+        "outlook",
+        "analisi"
+      ],
+      "title": "Worker",
+      "type": "string"
+    },
+    "worker_id": {
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "attesa_s": {
+      "default": 20,
+      "title": "Attesa S",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "worker",
+    "worker_id"
+  ],
+  "title": "ClaimRichiesta",
+  "type": "object",
+  "$id": "cockpit/claim_richiesta"
+}

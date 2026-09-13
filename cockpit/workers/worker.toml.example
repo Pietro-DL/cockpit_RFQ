@@ -1,0 +1,8 @@
+# Configurazione di esempio per i worker Cockpit RFQ (worker_outlook e worker_analisi).
+# Copiare questo file in worker.toml.
+# Il token deve coincidere con [server].token_worker di cockpit.toml.
+
+server_url     = "http://127.0.0.1:8080"
+token          = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
+staging        = 'C:\promatec\_staging'
+consenti_invio = false

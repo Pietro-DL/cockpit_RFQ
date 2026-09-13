@@ -1,0 +1,14 @@
+{
+  "properties": {
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry_id"
+  ],
+  "title": "RisultatoSposta",
+  "type": "object",
+  "$id": "cockpit/risultato_sposta"
+}

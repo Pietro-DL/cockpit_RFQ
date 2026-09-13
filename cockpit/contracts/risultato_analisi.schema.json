@@ -1,0 +1,45 @@
+{
+  "properties": {
+    "allegato_id": {
+      "format": "uuid",
+      "title": "Allegato Id",
+      "type": "string"
+    },
+    "tipo_proposto": {
+      "title": "Tipo Proposto",
+      "type": "string"
+    },
+    "codice": {
+      "default": "",
+      "title": "Codice",
+      "type": "string"
+    },
+    "rev": {
+      "default": "",
+      "title": "Rev",
+      "type": "string"
+    },
+    "confidenza": {
+      "default": 50,
+      "title": "Confidenza",
+      "type": "integer"
+    },
+    "fonte": {
+      "default": "cartiglio",
+      "title": "Fonte",
+      "type": "string"
+    },
+    "dettagli": {
+      "additionalProperties": true,
+      "title": "Dettagli",
+      "type": "object"
+    }
+  },
+  "required": [
+    "allegato_id",
+    "tipo_proposto"
+  ],
+  "title": "RisultatoAnalisi",
+  "type": "object",
+  "$id": "cockpit/risultato_analisi"
+}

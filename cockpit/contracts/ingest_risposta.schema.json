@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "EsitoMessaggio": {
+      "properties": {
+        "message_id": {
+          "title": "Message Id",
+          "type": "string"
+        },
+        "messaggio_id": {
+          "format": "uuid",
+          "title": "Messaggio Id",
+          "type": "string"
+        },
+        "inserito": {
+          "title": "Inserito",
+          "type": "boolean"
+        },
+        "thread_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thread Id"
+        },
+        "aggancio": {
+          "default": "nessuno",
+          "title": "Aggancio",
+          "type": "string"
+        },
+        "allegati_da_stage": {
+          "default": 0,
+          "title": "Allegati Da Stage",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_id",
+        "messaggio_id",
+        "inserito"
+      ],
+      "title": "EsitoMessaggio",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "inseriti": {
+      "title": "Inseriti",
+      "type": "integer"
+    },
+    "aggiornati": {
+      "title": "Aggiornati",
+      "type": "integer"
+    },
+    "esiti": {
+      "items": {
+        "$ref": "#/$defs/EsitoMessaggio"
+      },
+      "title": "Esiti",
+      "type": "array"
+    }
+  },
+  "required": [
+    "inseriti",
+    "aggiornati",
+    "esiti"
+  ],
+  "title": "IngestRisposta",
+  "type": "object",
+  "$id": "cockpit/ingest_risposta"
+}

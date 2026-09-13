@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "Destinatario": {
+      "properties": {
+        "nome": {
+          "default": "",
+          "title": "Nome",
+          "type": "string"
+        },
+        "indirizzo": {
+          "default": "",
+          "title": "Indirizzo",
+          "type": "string"
+        },
+        "tipo": {
+          "default": "a",
+          "enum": [
+            "a",
+            "cc",
+            "ccn"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "title": "Destinatario",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "bozza_id": {
+      "format": "uuid",
+      "title": "Bozza Id",
+      "type": "string"
+    },
+    "tipo": {
+      "enum": [
+        "risposta",
+        "rispondi_tutti",
+        "inoltro",
+        "nuovo",
+        "sollecito"
+      ],
+      "title": "Tipo",
+      "type": "string"
+    },
+    "entry_id": {
+      "default": "",
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "default": "",
+      "title": "Store Id",
+      "type": "string"
+    },
+    "destinatari": {
+      "items": {
+        "$ref": "#/$defs/Destinatario"
+      },
+      "title": "Destinatari",
+      "type": "array"
+    },
+    "oggetto": {
+      "default": "",
+      "title": "Oggetto",
+      "type": "string"
+    },
+    "corpo_html": {
+      "default": "",
+      "title": "Corpo Html",
+      "type": "string"
+    },
+    "corpo_testo": {
+      "default": "",
+      "title": "Corpo Testo",
+      "type": "string"
+    },
+    "allegati": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allegati",
+      "type": "array"
+    },
+    "mostra": {
+      "default": true,
+      "title": "Mostra",
+      "type": "boolean"
+    },
+    "invia": {
+      "default": false,
+      "title": "Invia",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "bozza_id",
+    "tipo"
+  ],
+  "title": "PayloadCreaBozza",
+  "type": "object",
+  "$id": "cockpit/payload_crea_bozza"
+}

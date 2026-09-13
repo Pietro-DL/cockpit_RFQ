@@ -1,0 +1,35 @@
+{
+  "properties": {
+    "job_id": {
+      "title": "Job Id",
+      "type": "integer"
+    },
+    "tipo": {
+      "title": "Tipo",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "tentativi": {
+      "default": 1,
+      "title": "Tentativi",
+      "type": "integer"
+    },
+    "lease_s": {
+      "default": 120,
+      "title": "Lease S",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "job_id",
+    "tipo",
+    "payload"
+  ],
+  "title": "Job",
+  "type": "object",
+  "$id": "cockpit/job"
+}

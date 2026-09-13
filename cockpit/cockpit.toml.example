@@ -1,0 +1,30 @@
+# Configurazione di esempio per Cockpit RFQ
+# Copiare questo file in cockpit.toml e compilare i campi richiesti.
+# I percorsi Windows vanno in stringhe letterali TOML ('...'), così i backslash non richiedono escape.
+
+[server]
+indirizzo = "127.0.0.1:8080"
+token_worker = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
+log_livello = "info" # debug | info | warn
+
+[db]
+dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
+
+[nas]
+radice = 'C:\promatec\_nas_test' # sandbox locale o percorso UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
+dry_run = true
+staging = 'C:\promatec\_staging'
+
+[outlook]
+cartelle = ["Inbox", "Sent Items"]
+intervallo_sync_s = 60
+dal = "2026-08-01" # facoltativo: se non specificato usa il cursore o un mese fa
+lotto = 50
+consenti_invio = false
+
+[[utenti]]
+sigla = "PS"
+nome = "Pietro Spinozzi"
+ufficio = "Sviluppo"
+ruolo = "admin"
+password = "INSERISCI_PASSWORD_INIZIALE"

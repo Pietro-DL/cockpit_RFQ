@@ -1,0 +1,73 @@
+{{define "messaggio_pannello"}}
+{{with .Dati}}
+<article class="messaggio">
+  <header>
+    <h2>{{.M.Oggetto.String}}</h2>
+    <div class="meta">
+      <div><b>{{if eq .M.Direzione "uscita"}}A{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
+        {{if .Riga.Cliente.Valid}}<span class="chip">{{.Riga.Cliente.String}}</span>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}</div>
+      <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}} {{if .Outlook}}· <b>Cartella:</b> {{.Outlook.Cartella.String}}{{end}}</div>
+      <div><b>Thread:</b> {{if .M.ThreadID.Valid}}RFQ {{uuidBreve .M.ThreadID.UUID}} <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
+        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
+          <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}</div>
+    </div>
+    <div class="azioni">
+      {{if .Outlook}}
+      <button hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML">Apri in Outlook</button>
+      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Outlook.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione">
+        {{if .Outlook.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
+      {{end}}
+      <span class="separatore"></span>
+      <button disabled title="Blocco 4: triage">Nuova RFQ</button>
+      <button disabled title="Blocco 4: triage">Aggancia a…</button>
+    </div>
+    <div id="esito-azione"></div>
+  </header>
+
+  {{if .Outlook}}
+  <details class="rispondi">
+    <summary>Rispondi (bozza in Outlook)</summary>
+    <form hx-post="/messaggio/{{.M.MessaggioID}}/bozza" hx-target="#esito-azione">
+      <label>Tipo
+        <select name="tipo"><option value="risposta">Rispondi</option><option value="rispondi_tutti">Rispondi a tutti</option><option value="inoltro">Inoltra</option></select>
+      </label>
+      <textarea name="corpo" rows="5" placeholder="Testo della risposta (viene messo sopra la citazione; firma e catena le aggiunge Outlook)"></textarea>
+      <button type="submit">Crea bozza in Outlook</button>
+      <small>L'invio resta manuale: la bozza si apre in Outlook, la rileggi e premi Invia lì.</small>
+    </form>
+  </details>
+  {{end}}
+
+  {{if .Portale}}
+  <section class="portale">
+    <h3>Riferimenti portale rilevati</h3>
+    <ul>{{range .Portale}}<li><b>{{.Codice.String}}</b> <span class="muto">— «{{.TestoCitato}}»</span> <span class="chip">{{.Stato}}</span></li>{{end}}</ul>
+  </section>
+  {{end}}
+
+  {{if .Allegati}}
+  <section class="allegati">
+    <h3>Allegati</h3>
+    <table>
+      <tr><th>#</th><th>File</th><th>Natura</th><th>Dimensione</th><th>Staging</th><th>Proposta</th></tr>
+      {{range .Allegati}}
+      <tr class="{{if eq .Natura "inline"}}muto{{end}}">
+        <td>{{.Indice}}</td><td>{{.NomeFile}}</td><td>{{.Natura}}</td><td>{{kb .Bytes}}</td>
+        <td>{{.Stato}}{{if .Sha256.Valid}} <small title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}</td>
+        <td>{{with index $.Dati.Proposte .AllegatoID}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small>{{.Confidenza}}% · {{.Fonte}}</small>{{end}}</td>
+      </tr>
+      {{end}}
+    </table>
+  </section>
+  {{end}}
+
+  {{if .Bozze}}
+  <section class="bozze"><h3>Bozze create dal Cockpit</h3>
+    <ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span>{{if .Errore.Valid}} <small class="errore">{{.Errore.String}}</small>{{end}}</li>{{end}}</ul>
+  </section>
+  {{end}}
+
+  <section class="corpo"><pre>{{.M.CorpoTesto.String}}</pre></section>
+</article>
+{{end}}
+{{end}}

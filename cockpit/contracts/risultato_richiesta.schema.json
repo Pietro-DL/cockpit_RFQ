@@ -1,0 +1,41 @@
+{
+  "properties": {
+    "esito": {
+      "enum": [
+        "ok",
+        "errore"
+      ],
+      "title": "Esito",
+      "type": "string"
+    },
+    "dati": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dati"
+    },
+    "errore": {
+      "default": "",
+      "title": "Errore",
+      "type": "string"
+    },
+    "definitivo": {
+      "default": false,
+      "title": "Definitivo",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "esito"
+  ],
+  "title": "RisultatoRichiesta",
+  "type": "object",
+  "$id": "cockpit/risultato_richiesta"
+}

@@ -1,0 +1,42 @@
+# Documenti e specifiche riservate
+docs/
+specs/
+
+# Directory di filesystem locali e sandbox
+_staging/
+_nas_test/
+staging/
+
+# File di configurazione con credenziali e token (usare i relativi *.example)
+cockpit.toml
+worker.toml
+*.local.toml
+.env
+.env.*
+cookies.txt
+
+# Binari e compilati
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Log
+*.log
+
+# Python cache e test
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Editor e OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.tmp

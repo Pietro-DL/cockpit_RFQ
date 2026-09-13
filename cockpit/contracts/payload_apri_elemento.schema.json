@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "title": "Store Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry_id",
+    "store_id"
+  ],
+  "title": "PayloadApriElemento",
+  "type": "object",
+  "$id": "cockpit/payload_apri_elemento"
+}

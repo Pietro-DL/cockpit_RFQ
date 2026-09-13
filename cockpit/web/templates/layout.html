@@ -1,0 +1,26 @@
+{{define "layout"}}<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Titolo}} · Cockpit RFQ</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<header class="barra">
+  <a class="logo" href="/inbox">Cockpit RFQ</a>
+  <nav>
+    <a href="/inbox" {{if eq .Titolo "Inbox"}}class="attivo"{{end}}>Inbox</a>
+    <a href="/cruscotto" {{if eq .Titolo "Cruscotto"}}class="attivo"{{end}}>Cruscotto</a>
+    <a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
+  </nav>
+  <span class="spazio"></span>
+  {{if .Utente}}<span class="utente">{{.Utente.Nome}} · {{.Utente.Ruolo}}</span>
+  <form method="post" action="/logout"><button class="link">esci</button></form>{{end}}
+</header>
+<main>
+{{template "contenuto" .}}
+</main>
+</body>
+</html>{{end}}

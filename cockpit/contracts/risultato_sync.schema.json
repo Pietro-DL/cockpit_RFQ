@@ -1,0 +1,55 @@
+{
+  "$defs": {
+    "CartellaEsito": {
+      "properties": {
+        "cartella": {
+          "title": "Cartella",
+          "type": "string"
+        },
+        "ultimo_received": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ultimo Received"
+        },
+        "n_messaggi": {
+          "default": 0,
+          "title": "N Messaggi",
+          "type": "integer"
+        },
+        "errore": {
+          "default": "",
+          "title": "Errore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cartella"
+      ],
+      "title": "CartellaEsito",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "cartelle": {
+      "items": {
+        "$ref": "#/$defs/CartellaEsito"
+      },
+      "title": "Cartelle",
+      "type": "array"
+    }
+  },
+  "required": [
+    "cartelle"
+  ],
+  "title": "RisultatoSync",
+  "type": "object",
+  "$id": "cockpit/risultato_sync"
+}

@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "inviata": {
+      "default": false,
+      "title": "Inviata",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "entry_id"
+  ],
+  "title": "RisultatoBozza",
+  "type": "object",
+  "$id": "cockpit/risultato_bozza"
+}

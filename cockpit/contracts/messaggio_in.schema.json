@@ -1,0 +1,210 @@
+{
+  "$defs": {
+    "AllegatoIn": {
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "nome_file": {
+          "title": "Nome File",
+          "type": "string"
+        },
+        "estensione": {
+          "default": "",
+          "title": "Estensione",
+          "type": "string"
+        },
+        "content_type": {
+          "default": "",
+          "title": "Content Type",
+          "type": "string"
+        },
+        "natura": {
+          "default": "file",
+          "enum": [
+            "file",
+            "inline",
+            "elemento_outlook",
+            "collegamento"
+          ],
+          "title": "Natura",
+          "type": "string"
+        },
+        "bytes": {
+          "default": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "content_id": {
+          "default": "",
+          "title": "Content Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "indice",
+        "nome_file"
+      ],
+      "title": "AllegatoIn",
+      "type": "object"
+    },
+    "Destinatario": {
+      "properties": {
+        "nome": {
+          "default": "",
+          "title": "Nome",
+          "type": "string"
+        },
+        "indirizzo": {
+          "default": "",
+          "title": "Indirizzo",
+          "type": "string"
+        },
+        "tipo": {
+          "default": "a",
+          "enum": [
+            "a",
+            "cc",
+            "ccn"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "title": "Destinatario",
+      "type": "object"
+    }
+  },
+  "description": "Un elemento Outlook letto via COM. Identità = message_id (Internet Message-ID), non entry_id.",
+  "properties": {
+    "message_id": {
+      "title": "Message Id",
+      "type": "string"
+    },
+    "parent_message_id": {
+      "default": "",
+      "title": "Parent Message Id",
+      "type": "string"
+    },
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "title": "Store Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "default": "",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "conversation_index": {
+      "default": "",
+      "title": "Conversation Index",
+      "type": "string"
+    },
+    "in_reply_to": {
+      "default": "",
+      "title": "In Reply To",
+      "type": "string"
+    },
+    "riferimenti": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Riferimenti",
+      "type": "array"
+    },
+    "cartella": {
+      "title": "Cartella",
+      "type": "string"
+    },
+    "direzione": {
+      "enum": [
+        "entrata",
+        "uscita"
+      ],
+      "title": "Direzione",
+      "type": "string"
+    },
+    "data_evento": {
+      "format": "date-time",
+      "title": "Data Evento",
+      "type": "string"
+    },
+    "mittente_nome": {
+      "default": "",
+      "title": "Mittente Nome",
+      "type": "string"
+    },
+    "mittente_indirizzo": {
+      "default": "",
+      "title": "Mittente Indirizzo",
+      "type": "string"
+    },
+    "destinatari": {
+      "items": {
+        "$ref": "#/$defs/Destinatario"
+      },
+      "title": "Destinatari",
+      "type": "array"
+    },
+    "oggetto": {
+      "default": "",
+      "title": "Oggetto",
+      "type": "string"
+    },
+    "corpo_testo": {
+      "default": "",
+      "title": "Corpo Testo",
+      "type": "string"
+    },
+    "corpo_html": {
+      "default": "",
+      "title": "Corpo Html",
+      "type": "string"
+    },
+    "importanza": {
+      "default": 1,
+      "title": "Importanza",
+      "type": "integer"
+    },
+    "non_letto": {
+      "default": false,
+      "title": "Non Letto",
+      "type": "boolean"
+    },
+    "flag_stato": {
+      "default": 0,
+      "title": "Flag Stato",
+      "type": "integer"
+    },
+    "categorie": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Categorie",
+      "type": "array"
+    },
+    "allegati": {
+      "items": {
+        "$ref": "#/$defs/AllegatoIn"
+      },
+      "title": "Allegati",
+      "type": "array"
+    }
+  },
+  "required": [
+    "message_id",
+    "entry_id",
+    "store_id",
+    "cartella",
+    "direzione",
+    "data_evento"
+  ],
+  "title": "MessaggioIn",
+  "type": "object",
+  "$id": "cockpit/messaggio_in"
+}

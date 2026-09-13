@@ -1,0 +1,26 @@
+# File di configurazione con credenziali
+cockpit.toml
+workers/worker.toml
+*.local.toml
+.env
+.env.*
+
+# Binari
+cockpit.exe
+*.exe
+*.exe~
+
+# Log e staging
+*.log
+/staging/
+cookies.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Editor
+.vscode/
+.idea/

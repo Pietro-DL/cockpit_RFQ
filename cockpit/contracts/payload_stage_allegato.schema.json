@@ -1,0 +1,40 @@
+{
+  "properties": {
+    "allegato_id": {
+      "format": "uuid",
+      "title": "Allegato Id",
+      "type": "string"
+    },
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "title": "Store Id",
+      "type": "string"
+    },
+    "indice": {
+      "title": "Indice",
+      "type": "integer"
+    },
+    "nome_file": {
+      "title": "Nome File",
+      "type": "string"
+    },
+    "cartella": {
+      "title": "Cartella",
+      "type": "string"
+    }
+  },
+  "required": [
+    "allegato_id",
+    "entry_id",
+    "store_id",
+    "indice",
+    "nome_file",
+    "cartella"
+  ],
+  "title": "PayloadStageAllegato",
+  "type": "object",
+  "$id": "cockpit/payload_stage_allegato"
+}

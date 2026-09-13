@@ -1,0 +1,46 @@
+{{define "contenuto"}}
+<div class="inbox">
+  <section class="colonna lista">
+    <div class="filtri">
+      {{range $f := list "orfani" "agganciati" "tutti"}}
+      <a href="/inbox?filtro={{$f}}" hx-get="/inbox?filtro={{$f}}" hx-target="#lista" hx-push-url="true"
+         class="{{if eq $.Dati.Filtro $f}}attivo{{end}}">{{$f}}
+         <small>{{if eq $f "orfani"}}{{$.Dati.Conta.Orfani}}{{else if eq $f "agganciati"}}{{$.Dati.Conta.Agganciati}}{{else}}{{$.Dati.Conta.Tutti}}{{end}}</small></a>
+      {{end}}
+      <span class="spazio"></span>
+      <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica le email dei 30 giorni precedenti">Carica Precedenti</button>
+    </div>
+    <div id="sync-status" class="sync-status"></div>
+    <div id="lista" hx-get="/inbox?filtro={{.Dati.Filtro}}" hx-trigger="every 15s" hx-swap="innerHTML">
+      {{template "inbox_lista" .}}
+    </div>
+  </section>
+  <section class="colonna pannello" id="pannello"
+           {{if .Dati.Selezion}}hx-get="/messaggio/{{.Dati.Selezion}}" hx-trigger="load"{{end}}>
+    <p class="muto">Seleziona un messaggio.</p>
+  </section>
+</div>
+{{end}}
+
+{{define "inbox_lista"}}
+{{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}. Il worker Outlook sincronizza ogni minuto.</p>{{end}}
+{{range .Dati.Righe}}
+<a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto.Bool}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
+   href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&sel={{.MessaggioID}}">
+  <div class="r1">
+    <span class="canale">{{if eq .Direzione "uscita"}}↗{{else}}✉{{end}}</span>
+    <span class="mittente">{{if .MittenteNome.Valid}}{{.MittenteNome.String}}{{else}}{{.MittenteIndirizzo.String}}{{end}}</span>
+    <span class="cliente">{{if .Cliente.Valid}}→ {{.Cliente.String}}{{else}}<em class="sconosciuto">sconosciuto</em>{{end}}</span>
+    <span class="data">{{data .DataEvento}}</span>
+  </div>
+  <div class="r2">
+    <span class="oggetto">{{.Oggetto.String}}</span>
+    {{if gt .NAllegati 0}}<span class="chip">📎 {{.NAllegati}}</span>{{end}}
+    {{if gt .NCad 0}}<span class="chip cad">CAD {{.NCad}}</span>{{end}}
+    {{if gt .NRifPortale 0}}<span class="chip portale">portale {{.NRifPortale}}</span>{{end}}
+    {{if .ThreadID.Valid}}<span class="chip thread" title="{{.Aggancio}}">RFQ {{uuidBreve .ThreadID.UUID}}</span>{{end}}
+    {{if .TriageEsito.Valid}}<span class="chip triage" title="{{range motivi .TriageMotivi}}{{.}}; {{end}}">{{.TriageEsito.String}} {{.TriageConfidenza.Int16}}%</span>{{end}}
+  </div>
+</a>
+{{end}}
+{{end}}
