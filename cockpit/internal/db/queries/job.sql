@@ -1,7 +1,7 @@
 -- name: InsertJob :one
 INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di)
 VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(non_prima_di)::timestamptz, now()))
-ON CONFLICT (chiave_idempotenza) DO NOTHING
+ON CONFLICT (chiave_idempotenza) WHERE stato IN ('pronto','in_corso') DO NOTHING
 RETURNING *;
 
 -- name: ClaimJob :one
@@ -57,3 +57,18 @@ SELECT worker_tipo, stato, count(*) AS n FROM job GROUP BY worker_tipo, stato OR
 
 -- name: EsisteJobPronto :one
 SELECT EXISTS (SELECT 1 FROM job WHERE tipo = $1 AND stato IN ('pronto','in_corso'));
+
+-- name: JobPendentePerChiave :one
+SELECT * FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1;
+
+-- name: UltimoJobPerChiavePrefisso :one
+SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%' ORDER BY job_id DESC LIMIT 1;
+
+-- name: UpsertWorkerPresenza :exec
+INSERT INTO worker_presenza (worker_tipo, worker_id, ultimo_claim, ultimo_job_il)
+VALUES ($1, $2, now(), CASE WHEN sqlc.arg(con_job)::boolean THEN now() END)
+ON CONFLICT (worker_tipo) DO UPDATE SET worker_id = EXCLUDED.worker_id, ultimo_claim = now(),
+    ultimo_job_il = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il);
+
+-- name: ListWorkerPresenza :many
+SELECT * FROM worker_presenza ORDER BY worker_tipo;

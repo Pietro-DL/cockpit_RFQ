@@ -68,13 +68,51 @@ func (q *Queries) GetBloccantiThread(ctx context.Context, threadID uuid.UUID) (V
 }
 
 const getCartellaDocumento = `-- name: GetCartellaDocumento :one
-SELECT tipo, sottocartella, per_codice FROM cartella_documento WHERE tipo = $1
+SELECT tipo, sottocartella, per_codice, crea_sempre FROM cartella_documento WHERE tipo = $1
 `
 
 func (q *Queries) GetCartellaDocumento(ctx context.Context, tipo TipoDocumento) (CartellaDocumento, error) {
 	row := q.db.QueryRow(ctx, getCartellaDocumento, tipo)
 	var i CartellaDocumento
-	err := row.Scan(&i.Tipo, &i.Sottocartella, &i.PerCodice)
+	err := row.Scan(
+		&i.Tipo,
+		&i.Sottocartella,
+		&i.PerCodice,
+		&i.CreaSempre,
+	)
+	return i, err
+}
+
+const getComponentePerCodice = `-- name: GetComponentePerCodice :one
+SELECT componente_id, thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2) ORDER BY padre_id NULLS FIRST LIMIT 1
+`
+
+type GetComponentePerCodiceParams struct {
+	ThreadID uuid.UUID   `json:"thread_id"`
+	Upper    interface{} `json:"upper"`
+}
+
+func (q *Queries) GetComponentePerCodice(ctx context.Context, arg GetComponentePerCodiceParams) (Componente, error) {
+	row := q.db.QueryRow(ctx, getComponentePerCodice, arg.ThreadID, arg.Upper)
+	var i Componente
+	err := row.Scan(
+		&i.ComponenteID,
+		&i.ThreadID,
+		&i.PadreID,
+		&i.Codice,
+		&i.Rev,
+		&i.Descrizione,
+		&i.Qta,
+		&i.Tipo,
+		&i.Origine,
+		&i.MaterialeTesto,
+		&i.SpessoreMm,
+		&i.PesoKg,
+		&i.EsitoFattibilita,
+		&i.NoteFattibilita,
+		&i.ConfermatoDa,
+		&i.CreatoIl,
+	)
 	return i, err
 }
 
@@ -230,6 +268,38 @@ func (q *Queries) InsertDocumento(ctx context.Context, arg InsertDocumentoParams
 	return i, err
 }
 
+const insertPropostaSeAssente = `-- name: InsertPropostaSeAssente :exec
+INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (allegato_id) DO NOTHING
+`
+
+type InsertPropostaSeAssenteParams struct {
+	AllegatoID   uuid.UUID       `json:"allegato_id"`
+	ThreadID     uuid.NullUUID   `json:"thread_id"`
+	TipoProposto TipoDocumento   `json:"tipo_proposto"`
+	Codice       pgtype.Text     `json:"codice"`
+	Rev          pgtype.Text     `json:"rev"`
+	Confidenza   int16           `json:"confidenza"`
+	Fonte        FonteProposta   `json:"fonte"`
+	Dettagli     json.RawMessage `json:"dettagli"`
+}
+
+// prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata
+func (q *Queries) InsertPropostaSeAssente(ctx context.Context, arg InsertPropostaSeAssenteParams) error {
+	_, err := q.db.Exec(ctx, insertPropostaSeAssente,
+		arg.AllegatoID,
+		arg.ThreadID,
+		arg.TipoProposto,
+		arg.Codice,
+		arg.Rev,
+		arg.Confidenza,
+		arg.Fonte,
+		arg.Dettagli,
+	)
+	return err
+}
+
 const insertProvenienza = `-- name: InsertProvenienza :exec
 INSERT INTO documento_provenienza (documento_id, allegato_id, rif_id, messaggio_id, ricevuto_il, caricato_da)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -258,7 +328,7 @@ func (q *Queries) InsertProvenienza(ctx context.Context, arg InsertProvenienzaPa
 }
 
 const listCartellaDocumento = `-- name: ListCartellaDocumento :many
-SELECT tipo, sottocartella, per_codice FROM cartella_documento ORDER BY tipo
+SELECT tipo, sottocartella, per_codice, crea_sempre FROM cartella_documento ORDER BY tipo
 `
 
 func (q *Queries) ListCartellaDocumento(ctx context.Context) ([]CartellaDocumento, error) {
@@ -270,7 +340,63 @@ func (q *Queries) ListCartellaDocumento(ctx context.Context) ([]CartellaDocument
 	items := []CartellaDocumento{}
 	for rows.Next() {
 		var i CartellaDocumento
-		if err := rows.Scan(&i.Tipo, &i.Sottocartella, &i.PerCodice); err != nil {
+		if err := rows.Scan(
+			&i.Tipo,
+			&i.Sottocartella,
+			&i.PerCodice,
+			&i.CreaSempre,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDocumentiMessaggio = `-- name: ListDocumentiMessaggio :many
+SELECT d.documento_id, d.thread_id, d.componente_id, d.tipo, d.codice, d.rev, d.nome_file, d.estensione, d.sha256, d.bytes, d.path_relativo, d.stato_nas, d.errore_nas, d.scritto_il, d.confermato_da, d.confermato_il, d.sostituito_da, d.nota, dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
+WHERE dp.messaggio_id = $1::uuid
+`
+
+type ListDocumentiMessaggioRow struct {
+	Documento  Documento     `json:"documento"`
+	AllegatoID uuid.NullUUID `json:"allegato_id"`
+}
+
+// documenti confermati a partire dagli allegati di questo messaggio (per mostrare "sul NAS" accanto all'allegato)
+func (q *Queries) ListDocumentiMessaggio(ctx context.Context, messaggioID uuid.UUID) ([]ListDocumentiMessaggioRow, error) {
+	rows, err := q.db.Query(ctx, listDocumentiMessaggio, messaggioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDocumentiMessaggioRow{}
+	for rows.Next() {
+		var i ListDocumentiMessaggioRow
+		if err := rows.Scan(
+			&i.Documento.DocumentoID,
+			&i.Documento.ThreadID,
+			&i.Documento.ComponenteID,
+			&i.Documento.Tipo,
+			&i.Documento.Codice,
+			&i.Documento.Rev,
+			&i.Documento.NomeFile,
+			&i.Documento.Estensione,
+			&i.Documento.Sha256,
+			&i.Documento.Bytes,
+			&i.Documento.PathRelativo,
+			&i.Documento.StatoNas,
+			&i.Documento.ErroreNas,
+			&i.Documento.ScrittoIl,
+			&i.Documento.ConfermatoDa,
+			&i.Documento.ConfermatoIl,
+			&i.Documento.SostituitoDa,
+			&i.Documento.Nota,
+			&i.AllegatoID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -451,6 +577,88 @@ type ListProposteBulkParams struct {
 
 func (q *Queries) ListProposteBulk(ctx context.Context, arg ListProposteBulkParams) ([]DocumentoProposta, error) {
 	rows, err := q.db.Query(ctx, listProposteBulk, arg.ThreadID, arg.Confidenza)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DocumentoProposta{}
+	for rows.Next() {
+		var i DocumentoProposta
+		if err := rows.Scan(
+			&i.PropostaID,
+			&i.AllegatoID,
+			&i.ThreadID,
+			&i.TipoProposto,
+			&i.Codice,
+			&i.Rev,
+			&i.ComponenteID,
+			&i.Confidenza,
+			&i.Fonte,
+			&i.RegolaID,
+			&i.Dettagli,
+			&i.Stato,
+			&i.DecisoDa,
+			&i.DecisoIl,
+			&i.CreatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProposteMessaggio = `-- name: ListProposteMessaggio :many
+SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1
+`
+
+func (q *Queries) ListProposteMessaggio(ctx context.Context, messaggioID uuid.UUID) ([]DocumentoProposta, error) {
+	rows, err := q.db.Query(ctx, listProposteMessaggio, messaggioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DocumentoProposta{}
+	for rows.Next() {
+		var i DocumentoProposta
+		if err := rows.Scan(
+			&i.PropostaID,
+			&i.AllegatoID,
+			&i.ThreadID,
+			&i.TipoProposto,
+			&i.Codice,
+			&i.Rev,
+			&i.ComponenteID,
+			&i.Confidenza,
+			&i.Fonte,
+			&i.RegolaID,
+			&i.Dettagli,
+			&i.Stato,
+			&i.DecisoDa,
+			&i.DecisoIl,
+			&i.CreatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProposteThreadTutte = `-- name: ListProposteThreadTutte :many
+SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+WHERE m.thread_id = $1
+`
+
+// tutte le proposte (aperte e decise) degli allegati dei messaggi del thread, per la schermata B
+func (q *Queries) ListProposteThreadTutte(ctx context.Context, threadID uuid.NullUUID) ([]DocumentoProposta, error) {
+	rows, err := q.db.Query(ctx, listProposteThreadTutte, threadID)
 	if err != nil {
 		return nil, err
 	}

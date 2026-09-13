@@ -302,7 +302,8 @@ CREATE INDEX ix_msgout_conv ON messaggio_outlook (conversation_id);
 
 CREATE TABLE sync_cursore (                              -- cursore per cartella Outlook letta dal worker
     cartella        varchar(200) PRIMARY KEY,            -- es. 'Inbox', 'Sent Items'
-    ultimo_received timestamptz,
+    ultimo_received timestamptz,                         -- limite superiore già letto (sync ordinario)
+    storico_fino_a  timestamptz,                         -- limite inferiore già coperto dai sync storici ("Carica precedenti")
     ultimo_sync     timestamptz,
     n_messaggi      int NOT NULL DEFAULT 0,
     errore          text
@@ -434,13 +435,14 @@ CREATE TABLE documento_provenienza (                     -- da dove è arrivata 
 CREATE TABLE cartella_documento (                        -- layout NAS: sottocartella per tipo, sotto la cartella del thread
     tipo          tipo_documento PRIMARY KEY,
     sottocartella varchar(80) NOT NULL,                  -- '' = radice della cartella RFQ
-    per_codice    boolean NOT NULL DEFAULT false         -- ulteriore sottocartella per codice
+    per_codice    boolean NOT NULL DEFAULT false,        -- ulteriore sottocartella per codice
+    crea_sempre   boolean NOT NULL DEFAULT false         -- creata con la cartella del thread; le altre nascono alla prima copia
 );
 INSERT INTO cartella_documento VALUES
- ('cad_3d','ELENCO DISEGNI',true), ('disegno_2d','ELENCO DISEGNI',true), ('sviluppo_dxf','ELENCO DISEGNI',true),
- ('distinta_cliente','ELENCO DISEGNI',false), ('capitolato','CAPITOLATI',false), ('commerciale','',false),
- ('offerta_fornitore','OFFERTE FORNITORI',false), ('offerta_promatec','',false),
- ('ordine_cliente','ORDINE',false), ('corrispondenza','MAIL',false), ('rumore','',false), ('altro','ALTRO',false);
+ ('cad_3d','ELENCO DISEGNI',true,true), ('disegno_2d','ELENCO DISEGNI',true,true), ('sviluppo_dxf','ELENCO DISEGNI',true,true),
+ ('distinta_cliente','ELENCO DISEGNI',false,true), ('capitolato','CAPITOLATI',false,false), ('commerciale','',false,false),
+ ('offerta_fornitore','OFFERTE FORNITORI',false,true), ('offerta_promatec','',false,false),
+ ('ordine_cliente','ORDINE',false,false), ('corrispondenza','MAIL',false,false), ('rumore','',false,false), ('altro','ALTRO',false,false);
 
 CREATE TABLE fabbisogno_documento (                      -- cosa deve esserci nel fascicolo perché la fattibilità possa iniziare
     fabbisogno_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -491,7 +493,7 @@ CREATE TABLE job (
     tipo               tipo_job NOT NULL,
     worker_tipo        worker_tipo NOT NULL,
     payload            jsonb NOT NULL DEFAULT '{}',
-    chiave_idempotenza varchar(300) UNIQUE,
+    chiave_idempotenza varchar(300),                      -- unica solo fra i job PENDENTI (indice parziale sotto)
     stato              stato_job NOT NULL DEFAULT 'pronto',
     priorita           smallint NOT NULL DEFAULT 5,      -- 1 = urgente (azione utente), 9 = fondo
     tentativi          int NOT NULL DEFAULT 0,
@@ -507,6 +509,15 @@ CREATE TABLE job (
 );
 CREATE INDEX ix_job_pronti  ON job (worker_tipo, priorita, job_id) WHERE stato = 'pronto';
 CREATE INDEX ix_job_incorso ON job (lease_fino_a) WHERE stato = 'in_corso';
+-- idempotenza = "al più un job pendente per chiave": un job fatto o fallito non impedisce di riaccodarne uno uguale
+CREATE UNIQUE INDEX ux_job_chiave_pendente ON job (chiave_idempotenza) WHERE stato IN ('pronto','in_corso');
+
+CREATE TABLE worker_presenza (                           -- ultimo claim per tipo di worker: la UI mostra "OFFLINE"
+    worker_tipo   worker_tipo PRIMARY KEY,
+    worker_id     varchar(80) NOT NULL,
+    ultimo_claim  timestamptz NOT NULL DEFAULT now(),
+    ultimo_job_il timestamptz
+);
 
 -- ============================================================================ 9. FUNZIONI E TRIGGER
 -- fase_log → thread.stato (CHIUSA se la fase aperta è terminale)
@@ -628,6 +639,7 @@ SELECT m.messaggio_id, m.canale, m.direzione, m.data_evento, m.thread_id, m.agga
        (SELECT count(*) FROM allegato a WHERE a.messaggio_id = m.messaggio_id AND a.contenitore_id IS NULL
           AND a.natura = 'file' AND lower(a.estensione) IN ('stp','step','sldprt','sldasm','igs','iges','dxf','dwg','pdf','tif','tiff','zip','7z','rar')) AS n_cad,
        pt.esito AS triage_esito, pt.confidenza AS triage_confidenza, pt.motivi AS triage_motivi, pt.thread_proposto,
+       EXISTS (SELECT 1 FROM proposta_triage x WHERE x.messaggio_id = m.messaggio_id AND x.stato = 'rifiutata') AS ignorato,
        mo.non_letto, mo.cartella AS cartella_outlook, mo.entry_id
 FROM messaggio m
 LEFT JOIN thread_offerta t ON t.thread_id = m.thread_id

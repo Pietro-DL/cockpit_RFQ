@@ -11,8 +11,9 @@ log_livello = "info" # debug | info | warn
 dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 
 [nas]
-radice = 'C:\promatec\_nas_test' # sandbox locale o percorso UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
-dry_run = true
+# La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
+radice = 'C:\promatec\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
+dry_run = false                                      # true = calcola i percorsi senza scrivere
 staging = 'C:\promatec\_staging'
 
 [outlook]

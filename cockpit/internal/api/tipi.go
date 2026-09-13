@@ -65,7 +65,7 @@ type EsitoMessaggio struct {
 	Inserito        bool       `json:"inserito"`
 	ThreadID        *uuid.UUID `json:"thread_id,omitempty"`
 	Aggancio        string     `json:"aggancio"`
-	AllegatiDaStage int        `json:"allegati_da_stage"`
+	AllegatiDaStage int        `json:"allegati_da_stage"` // sempre 0 dal 13/09: lo staging è su richiesta dell'operatore
 }
 
 type IngestRisposta struct {
@@ -111,7 +111,7 @@ type CartellaCursore struct {
 type PayloadSyncOutlook struct {
 	Cartelle         []CartellaCursore `json:"cartelle"`
 	Dal              time.Time         `json:"dal"`               // limite inferiore assoluto (cursore vuoto)
-	Al               *time.Time        `json:"al,omitempty"`     // limite superiore opzionale (sync storico)
+	Al               *time.Time        `json:"al,omitempty"`      // limite superiore opzionale (sync storico)
 	SovrapposizioneS int               `json:"sovrapposizione_s"` // rilettura di sicurezza dietro al cursore
 	Lotto            int               `json:"lotto"`
 }
@@ -127,6 +127,21 @@ type RisultatoSync struct {
 	Cartelle []CartellaEsito `json:"cartelle"`
 }
 
+// Riferimento a un elemento Outlook. entry_id/store_id sono la via rapida (GetItemFromID); se l'elemento è
+// stato spostato l'EntryID non vale più e il worker lo ricerca per message_id (Internet Message-ID) in tutte
+// le cartelle. messaggio_id serve al server per riallineare messaggio_outlook con l'EntryID nuovo.
+type RiferimentoElemento struct {
+	MessaggioID *uuid.UUID `json:"messaggio_id,omitempty"`
+	MessageID   string     `json:"message_id,omitempty"`
+}
+
+// RisultatoElemento è restituito dai job che toccano un elemento: EntryID/cartella dove è stato trovato davvero.
+type RisultatoElemento struct {
+	EntryID  string `json:"entry_id,omitempty"`
+	StoreID  string `json:"store_id,omitempty"`
+	Cartella string `json:"cartella,omitempty"`
+}
+
 type PayloadStageAllegato struct {
 	AllegatoID uuid.UUID `json:"allegato_id"`
 	EntryID    string    `json:"entry_id"`
@@ -134,6 +149,7 @@ type PayloadStageAllegato struct {
 	Indice     int       `json:"indice"`
 	NomeFile   string    `json:"nome_file"`
 	Cartella   string    `json:"cartella"` // sottocartella di staging (hash del message_id)
+	RiferimentoElemento
 }
 
 type RisultatoStage struct {
@@ -141,6 +157,7 @@ type RisultatoStage struct {
 	PathStaging string    `json:"path_staging"`
 	Sha256      string    `json:"sha256"`
 	Bytes       int64     `json:"bytes"`
+	RisultatoElemento
 }
 
 type PayloadCreaBozza struct {
@@ -155,6 +172,7 @@ type PayloadCreaBozza struct {
 	Allegati    []string       `json:"allegati"` // percorsi assoluti leggibili dal worker
 	Mostra      bool           `json:"mostra"`   // Display() in Outlook
 	Invia       bool           `json:"invia"`    // Send(): solo se il worker ha consenti_invio
+	RiferimentoElemento
 }
 
 type RisultatoBozza struct {
@@ -165,22 +183,26 @@ type RisultatoBozza struct {
 type PayloadApriElemento struct {
 	EntryID string `json:"entry_id"`
 	StoreID string `json:"store_id"`
+	RiferimentoElemento
 }
 
 type PayloadSpostaCartella struct {
 	EntryID  string `json:"entry_id"`
 	StoreID  string `json:"store_id"`
 	Cartella string `json:"cartella"`
+	RiferimentoElemento
 }
 
 type RisultatoSposta struct {
 	EntryID string `json:"entry_id"`
+	StoreID string `json:"store_id,omitempty"`
 }
 
 type PayloadSegnaLetto struct {
 	EntryID string `json:"entry_id"`
 	StoreID string `json:"store_id"`
 	Letto   bool   `json:"letto"`
+	RiferimentoElemento
 }
 
 type PayloadCopiaNAS struct {

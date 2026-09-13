@@ -83,8 +83,12 @@ func TestIngestIdempotente(t *testing.T) {
 	if r1.Inseriti != 2 || r1.Aggiornati != 0 {
 		t.Fatalf("primo ingest: %+v", r1)
 	}
-	if r1.Esiti[0].AllegatiDaStage != 1 {
-		t.Errorf("l'inline non va in staging: %+v", r1.Esiti[0])
+	// nessun download automatico: zero job stage_allegato, ma una proposta (dal nome) per ogni allegato non inline
+	var nStage, nProposte int
+	_ = p.QueryRow(ctx, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato' AND stato IN ('pronto','in_corso')`).Scan(&nStage)
+	_ = p.QueryRow(ctx, `SELECT count(*) FROM documento_proposta d JOIN allegato a USING (allegato_id) JOIN messaggio m USING (messaggio_id) WHERE m.chiave_esterna LIKE '<test-ingest-%'`).Scan(&nProposte)
+	if nStage != 0 || nProposte != 2 {
+		t.Errorf("staging automatico=%d (atteso 0), proposte=%d (attese 2: inline escluso)", nStage, nProposte)
 	}
 	msg, all, rif, tri := conta()
 	if msg != 2 || all != 3 || rif != 2 || tri != 2 {

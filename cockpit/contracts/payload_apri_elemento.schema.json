@@ -1,5 +1,23 @@
 {
   "properties": {
+    "messaggio_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Messaggio Id"
+    },
+    "message_id": {
+      "default": "",
+      "title": "Message Id",
+      "type": "string"
+    },
     "entry_id": {
       "title": "Entry Id",
       "type": "string"

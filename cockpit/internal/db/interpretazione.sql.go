@@ -75,6 +75,50 @@ func (q *Queries) GetBozza(ctx context.Context, bozzaID uuid.UUID) (Bozza, error
 	return i, err
 }
 
+const getTriageMessaggio = `-- name: GetTriageMessaggio :one
+SELECT triage_id, messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi, scadenza_proposta, confidenza, motivi, fonte, stato, deciso_da, deciso_il, creato_il FROM proposta_triage WHERE messaggio_id = $1 ORDER BY (fonte = 'agente') DESC, creato_il DESC LIMIT 1
+`
+
+func (q *Queries) GetTriageMessaggio(ctx context.Context, messaggioID uuid.UUID) (PropostaTriage, error) {
+	row := q.db.QueryRow(ctx, getTriageMessaggio, messaggioID)
+	var i PropostaTriage
+	err := row.Scan(
+		&i.TriageID,
+		&i.MessaggioID,
+		&i.Esito,
+		&i.ThreadProposto,
+		&i.ClienteProposto,
+		&i.BuyerProposto,
+		&i.Identificativi,
+		&i.ScadenzaProposta,
+		&i.Confidenza,
+		&i.Motivi,
+		&i.Fonte,
+		&i.Stato,
+		&i.DecisoDa,
+		&i.DecisoIl,
+		&i.CreatoIl,
+	)
+	return i, err
+}
+
+const ignoraMessaggio = `-- name: IgnoraMessaggio :exec
+INSERT INTO proposta_triage (messaggio_id, esito, confidenza, motivi, fonte, stato, deciso_da, deciso_il)
+VALUES ($1, 'ignora', 100, '["ignorato dall''operatore"]', 'deterministico', 'rifiutata', $2, now())
+ON CONFLICT (messaggio_id, fonte) DO UPDATE SET stato = 'rifiutata', deciso_da = EXCLUDED.deciso_da, deciso_il = now()
+`
+
+type IgnoraMessaggioParams struct {
+	MessaggioID uuid.UUID     `json:"messaggio_id"`
+	DecisoDa    uuid.NullUUID `json:"deciso_da"`
+}
+
+// "Ignora" dall'Inbox: chiude la proposta se c'è, altrimenti registra la decisione come proposta rifiutata
+func (q *Queries) IgnoraMessaggio(ctx context.Context, arg IgnoraMessaggioParams) error {
+	_, err := q.db.Exec(ctx, ignoraMessaggio, arg.MessaggioID, arg.DecisoDa)
+	return err
+}
+
 const insertBozza = `-- name: InsertBozza :one
 INSERT INTO bozza (thread_id, in_risposta_a, tipo, destinatari, oggetto, corpo, documenti, creata_da)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING bozza_id, thread_id, in_risposta_a, tipo, destinatari, oggetto, corpo, documenti, entry_id, stato, errore, inviata_messaggio_id, creata_da, creata_il

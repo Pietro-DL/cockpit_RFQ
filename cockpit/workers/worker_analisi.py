@@ -8,8 +8,10 @@ e la struttura dei file (STEP), senza mai basarsi su nomi di clienti per evitare
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import logging
+import logging.handlers
 import os
 import re
 import socket
@@ -25,8 +27,11 @@ import pymupdf
 
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("worker-analisi")
+
+# errori di rete = server giù o riavviato: si aspetta e si riprova (ConnectionResetError è un OSError non incapsulato)
+ERRORI_RETE = (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout, OSError,
+               http.client.RemoteDisconnected, http.client.HTTPException)
 
 # Parole chiave cartiglio tecnico CAD 2D (da specifiche utente)
 TERMINI_CARTIGLIO_CAD = [
@@ -36,14 +41,23 @@ TERMINI_CARTIGLIO_CAD = [
     "SCALA",
 ]
 
-# Parole chiave offerte commerciali (da specifiche utente)
-TERMINI_OFFERTE_COMMERCIALI = [
+# Parole chiave offerte commerciali (da specifiche utente).
+# I termini "forti" bastano da soli; "PAGAMENTO"/"INCOTERMS" compaiono anche in contratti e convenzioni
+# (es. un PDF di tirocinio) e contano solo se ne ricorrono almeno due.
+TERMINI_OFFERTE_FORTI = [
     "SPETT. LE OFFERTA",
     "SPETT.LE OFFERTA",
     "CONDIZIONI GENERALI DI VENDITA",
+]
+TERMINI_OFFERTE_DEBOLI = [
     "PAGAMENTO",
     "INCOTERMS",
+    "OFFERTA N",
+    "VALIDITA' OFFERTA",
+    "VALIDITÀ OFFERTA",
+    "RESA",
 ]
+TERMINI_OFFERTE_COMMERCIALI = TERMINI_OFFERTE_FORTI + TERMINI_OFFERTE_DEBOLI
 
 STOP_CODICI = {
     "SCREENSHOT", "WHATSAPP", "IMAGE", "PHOTO", "IMG", "DOCUMENT", "OFFERTA",
@@ -154,7 +168,9 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
     # Se il PDF contiene "Spett. le Offerta", "CONDIZIONI GENERALI DI VENDITA", "Pagamento" o "Incoterms",
     # oppure il nome file inizia per "SO "
     trovati_comm = [t for t in TERMINI_OFFERTE_COMMERCIALI if t in testo_norm]
-    if nome_upper.startswith("SO ") or trovati_comm:
+    forti = [t for t in trovati_comm if t in TERMINI_OFFERTE_FORTI]
+    e_offerta = nome_upper.startswith("SO ") or forti or len(trovati_comm) >= 2
+    if e_offerta:
         log.info("Riconosciuta offerta commerciale in %s (termini: %s)", nome_file, trovati_comm)
         return {
             "tipo_proposto": "offerta_promatec",
@@ -180,25 +196,6 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
             "fonte": "cartiglio",
             "dettagli": {"cartiglio": True, "termini_trovati": trovati_cad},
         }
-
-    if codice:
-        return {
-            "tipo_proposto": "disegno_2d",
-            "codice": codice,
-            "rev": rev,
-            "confidenza": 70,
-            "fonte": "nome_file",
-            "dettagli": {"codice_riconosciuto": codice},
-        }
-
-    return {
-        "tipo_proposto": "altro",
-        "codice": "",
-        "rev": "",
-        "confidenza": 30,
-        "fonte": "estensione",
-        "dettagli": {},
-    }
 
     if codice:
         return {
@@ -313,12 +310,15 @@ class WorkerAnalisi:
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
         log.info("worker %s collegato a %s", self.worker_id, self.api.url)
+        attesa = 5
         while True:
             try:
                 job = self.api.claim(self.worker_id)
-            except (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout) as e:
-                log.warning("server non raggiungibile: %s", e)
-                time.sleep(5)
+                attesa = 5
+            except ERRORI_RETE as e:
+                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
+                time.sleep(attesa)
+                attesa = min(attesa * 2, 30)
                 continue
 
             if job is None:
@@ -351,7 +351,7 @@ class WorkerAnalisi:
             ris = RisultatoRichiesta(esito="ok", dati=ris_analisi.model_dump(mode="json"))
         except FileNotFoundError as e:
             log.error("job %d file non trovato: %s", job.job_id, e)
-            ris = RisultatoRichiesta(esito="errore", errore=str(e), definitivo=True)
+            ris = RisultatoRichiesta(esito="errore", errore=f"file mancante in staging: usa Riscarica ({e})", definitivo=True)
         except Exception as e:
             log.exception("job %d errore: %s", job.job_id, e)
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
@@ -364,22 +364,45 @@ class WorkerAnalisi:
 
 
 def carica_config(percorso: str) -> dict:
-    if os.path.exists(percorso):
+    cfg = {"server_url": "http://127.0.0.1:8080", "token": "", "staging": os.path.join("..", "_staging")}
+    if os.path.isfile(percorso):
         with open(percorso, "rb") as f:
-            return tomllib.load(f)
-    return {
-        "server_url": "http://127.0.0.1:8080",
-        "token": "dev-token-cambiami-in-produzione",
-    }
+            cfg.update(tomllib.load(f))
+    for k, env in (("server_url", "COCKPIT_URL"), ("token", "COCKPIT_TOKEN"), ("staging", "COCKPIT_STAGING")):
+        if os.environ.get(env):
+            cfg[k] = os.environ[env]
+    if not cfg["token"]:
+        sys.exit("token mancante: worker.toml [token] o variabile COCKPIT_TOKEN")
+    return cfg
+
+
+def configura_log(debug: bool, cfg: dict, nome: str) -> None:
+    """Console + file rotante in <staging>/log/<nome>.log (5 x 5 MB)."""
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    radice = logging.getLogger()
+    radice.setLevel(logging.DEBUG if debug else logging.INFO)
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    radice.addHandler(console)
+    try:
+        cartella = os.path.join(os.path.abspath(cfg["staging"]), "log")
+        os.makedirs(cartella, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(os.path.join(cartella, nome + ".log"), maxBytes=5 << 20, backupCount=5, encoding="utf-8")
+        fh.setFormatter(fmt)
+        radice.addHandler(fh)
+    except OSError as e:
+        radice.warning("log su file non disponibile: %s", e)
 
 
 def main():
     p = argparse.ArgumentParser(description="Worker Analisi per Cockpit RFQ")
-    p.add_argument("--config", default="worker.toml", help="percorso file di configurazione")
+    p.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "worker.toml"), help="percorso file di configurazione")
     p.add_argument("--una-volta", action="store_true", help="esegui un solo job ed esci")
+    p.add_argument("--debug", action="store_true")
     args = p.parse_args()
 
     cfg = carica_config(args.config)
+    configura_log(args.debug, cfg, "worker_analisi")
     w = WorkerAnalisi(cfg)
     w.esegui_per_sempre(una_volta=args.una_volta)
 

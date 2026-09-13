@@ -217,9 +217,9 @@ const getThread = `-- name: GetThread :one
 SELECT thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il FROM thread_offerta WHERE thread_id = $1
 `
 
-func (q *Queries) GetThread(ctx context.Context, threadID uuid.UUID) (ThreadOffertum, error) {
+func (q *Queries) GetThread(ctx context.Context, threadID uuid.UUID) (ThreadOfferta, error) {
 	row := q.db.QueryRow(ctx, getThread, threadID)
-	var i ThreadOffertum
+	var i ThreadOfferta
 	err := row.Scan(
 		&i.ThreadID,
 		&i.ClienteID,
@@ -318,7 +318,7 @@ type InsertThreadParams struct {
 	CreatoDa         uuid.NullUUID       `json:"creato_da"`
 }
 
-func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (ThreadOffertum, error) {
+func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (ThreadOfferta, error) {
 	row := q.db.QueryRow(ctx, insertThread,
 		arg.ClienteID,
 		arg.BuyerID,
@@ -333,7 +333,7 @@ func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (Thr
 		arg.Note,
 		arg.CreatoDa,
 	)
-	var i ThreadOffertum
+	var i ThreadOfferta
 	err := row.Scan(
 		&i.ThreadID,
 		&i.ClienteID,
@@ -517,6 +517,20 @@ func (q *Queries) ListIdentificativi(ctx context.Context, threadID uuid.UUID) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setBuyerThread = `-- name: SetBuyerThread :exec
+UPDATE thread_offerta SET buyer_id = $2 WHERE thread_id = $1 AND buyer_id IS NULL
+`
+
+type SetBuyerThreadParams struct {
+	ThreadID uuid.UUID     `json:"thread_id"`
+	BuyerID  uuid.NullUUID `json:"buyer_id"`
+}
+
+func (q *Queries) SetBuyerThread(ctx context.Context, arg SetBuyerThreadParams) error {
+	_, err := q.db.Exec(ctx, setBuyerThread, arg.ThreadID, arg.BuyerID)
+	return err
 }
 
 const setCartellaCreata = `-- name: SetCartellaCreata :exec

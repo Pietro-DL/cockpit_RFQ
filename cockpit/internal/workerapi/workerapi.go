@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/api"
+	"promatec/cockpit/internal/archivio"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
@@ -92,6 +93,10 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		errore(w, 500, err)
 		return
+	}
+	// presenza: la UI mostra "OFFLINE" se un worker non fa claim da più di un minuto
+	if err := db.New(s.Pool).UpsertWorkerPresenza(r.Context(), db.UpsertWorkerPresenzaParams{WorkerTipo: wt, WorkerID: req.WorkerID, ConJob: j != nil}); err != nil {
+		s.Log.Warn("worker_presenza", "err", err)
 	}
 	if j == nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -223,9 +228,17 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if err := json.Unmarshal(dati, &r); err != nil {
 			return err
 		}
+		var p api.PayloadSyncOutlook
+		_ = json.Unmarshal(j.Payload, &p)
 		for _, c := range r.Cartelle {
 			if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{Cartella: c.Cartella, UltimoReceived: c.UltimoReceived, NMessaggi: int32(c.NMessaggi), Errore: txt(c.Errore)}); err != nil {
 				return err
+			}
+			// sync storico riuscito per la cartella: la finestra [dal, al] è coperta, il prossimo "Carica precedenti" parte da dal
+			if p.Al != nil && c.Errore == "" {
+				if err := q.SetStoricoFinoA(ctx, db.SetStoricoFinoAParams{Cartella: c.Cartella, StoricoFinoA: &p.Dal}); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -244,6 +257,10 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: r.AllegatoID, PathStaging: txt(r.PathStaging), Sha256: txt(r.Sha256), Bytes: pgtype.Int8{Int64: r.Bytes, Valid: true}}); err != nil {
 			return err
 		}
+		var p api.PayloadStageAllegato
+		if json.Unmarshal(j.Payload, &p) == nil {
+			s.riallineaEntryID(ctx, q, p.RiferimentoElemento, p.EntryID, r.RisultatoElemento)
+		}
 		return s.dopoStaging(ctx, q, r)
 
 	case db.TipoJobAnalizzaAllegato:
@@ -252,19 +269,29 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			return err
 		}
 		var threadID uuid.NullUUID
+		var entrata bool
 		a, err := q.GetAllegato(ctx, r.AllegatoID)
 		if err == nil {
 			m, err := q.GetMessaggio(ctx, a.MessaggioID)
-			if err == nil && m.ThreadID.Valid {
+			if err == nil {
 				threadID = m.ThreadID
+				entrata = m.Direzione == db.DirezioneEntrata
 			}
 		}
 		codice := r.Codice
 		rev := r.Rev
 		tipo := db.TipoDocumento(r.TipoProposto)
+		conf := r.Confidenza
 		if tipo == db.TipoDocumentoOffertaPromatec {
 			codice = ""
 			rev = ""
+			// un'offerta Promatec la mandiamo noi: in entrata (senza "SO " nel nome) è un documento commerciale del cliente
+			if entrata && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(a.NomeFile)), "SO ") {
+				tipo, conf = db.TipoDocumentoCommerciale, conf-30
+			}
+		}
+		if conf < 0 {
+			conf = 0
 		}
 		dett := r.Dettagli
 		if len(dett) == 0 {
@@ -276,7 +303,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			TipoProposto: tipo,
 			Codice:       txt(codice),
 			Rev:          txt(rev),
-			Confidenza:   int16(r.Confidenza),
+			Confidenza:   int16(conf),
 			Fonte:        db.FonteProposta(r.Fonte),
 			Dettagli:     dett,
 		}); err != nil {
@@ -297,12 +324,38 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			return err
 		}
 		return q.SetBozzaAperta(ctx, db.SetBozzaApertaParams{BozzaID: p.BozzaID, EntryID: txt(r.EntryID)})
+
+	case db.TipoJobApriElementoOutlook, db.TipoJobSegnaLetto, db.TipoJobSpostaInCartella:
+		// nessun effetto sul dominio; se il worker ha ritrovato l'elemento altrove, si riallinea l'EntryID
+		var p struct {
+			EntryID string `json:"entry_id"`
+			api.RiferimentoElemento
+		}
+		var r api.RisultatoElemento
+		if json.Unmarshal(j.Payload, &p) == nil && json.Unmarshal(dati, &r) == nil {
+			s.riallineaEntryID(ctx, q, p.RiferimentoElemento, p.EntryID, r)
+		}
+		return nil
 	}
-	return nil // apri_elemento, sposta, segna_letto: nessun effetto persistente (il prossimo sync riallinea)
+	return nil
 }
 
-// dopoStaging: prima INTERPRETAZIONE economica lato server (estensione + nome file + rumore),
-// poi accoda l'analisi Python che la raffina (STEP, cartiglio, regole cliente) finché la proposta è aperta.
+// riallineaEntryID aggiorna messaggio_outlook quando il worker ha trovato l'elemento con un EntryID diverso
+// da quello del payload (elemento spostato di cartella dopo l'ultimo sync).
+func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.RiferimentoElemento, entryPayload string, r api.RisultatoElemento) {
+	if rif.MessaggioID == nil || r.EntryID == "" || r.EntryID == entryPayload {
+		return
+	}
+	if err := q.SetEntryIDMessaggio(ctx, db.SetEntryIDMessaggioParams{MessaggioID: *rif.MessaggioID, EntryID: r.EntryID, StoreID: r.StoreID, Cartella: txt(r.Cartella)}); err != nil {
+		s.Log.Warn("riallinea entry_id", "messaggio", rif.MessaggioID, "err", err)
+		return
+	}
+	s.Log.Info("entry_id riallineato", "messaggio", rif.MessaggioID, "cartella", r.Cartella)
+}
+
+// dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa
+// (hash → rumore già scartato), si estraggono gli zip in allegati figli e si accoda l'analisi Python
+// (cartiglio, STEP) che raffina ancora finché la proposta resta aperta.
 func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage) error {
 	a, err := q.GetAllegato(ctx, r.AllegatoID)
 	if err != nil {
@@ -318,77 +371,82 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.Risultato
 			dominio = m.MittenteIndirizzo.String[i+1:]
 		}
 	}
+	pr := domain.PropostaDaNome(a.NomeFile, r.Bytes, string(m.Direzione))
 	ext := strings.ToLower(a.Estensione.String)
-	tipo, fonte, conf := propostaDaEstensione(ext)
-	codice, rev := "", ""
-	if c, rv := domain.CodiceRev(strings.TrimSuffix(a.NomeFile, filepath.Ext(a.NomeFile))); len(domain.EstraiCodici(c)) > 0 {
-		codice, rev = c, rv
-		if tipo == db.TipoDocumentoDisegno2d || tipo == db.TipoDocumentoCad3d || tipo == db.TipoDocumentoSviluppoDxf {
-			conf += 20
-			fonte = db.FontePropostaNomeFile
-		}
-	} else if tipo == db.TipoDocumentoDisegno2d && ext == "pdf" {
-		tipo, conf = db.TipoDocumentoAltro, 30
-	}
-	// rumore: immagini piccole, o hash già scartato / visto ≥ 3 volte dallo stesso dominio
-	if dominio != "" {
+	// rumore: hash già scartato da un operatore, o immagine vista ≥ 3 volte dallo stesso dominio (firme, loghi)
+	if dominio != "" && pr.Tipo != "rumore" {
 		if seen, _ := q.IsHashRumore(ctx, db.IsHashRumoreParams{Sha256: r.Sha256, Lower: dominio}); seen {
-			tipo, fonte, conf = db.TipoDocumentoRumore, db.FontePropostaRumore, 95
-		} else if n, _ := q.ContaHashVisto(ctx, db.ContaHashVistoParams{Sha256: txt(r.Sha256), Lower: dominio}); n >= 3 && estImmagine(ext) {
-			tipo, fonte, conf = db.TipoDocumentoRumore, db.FontePropostaRumore, 85
+			pr = domain.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 95}
+		} else if n, _ := q.ContaHashVisto(ctx, db.ContaHashVistoParams{Sha256: txt(r.Sha256), Lower: dominio}); n >= 3 && domain.EstImmagine(ext) {
+			pr = domain.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 85}
 		}
 	}
-	if estImmagine(ext) && r.Bytes < 100*1024 && tipo != db.TipoDocumentoRumore {
-		tipo, fonte, conf = db.TipoDocumentoRumore, db.FontePropostaRumore, 70
+	if err := s.scriviProposta(ctx, q, a, m.ThreadID, pr, map[string]any{"estensione": ext, "bytes": r.Bytes}); err != nil {
+		return err
 	}
-	// offerta Promatec in uscita: "SO 5467.pdf"
-	if m.Direzione == db.DirezioneUscita && ext == "pdf" && strings.HasPrefix(strings.ToUpper(a.NomeFile), "SO ") {
-		tipo, fonte, conf, codice, rev = db.TipoDocumentoOffertaPromatec, db.FontePropostaDirezione, 90, "", ""
-	}
-	if conf > 100 {
-		conf = 100
-	}
-	dett, _ := json.Marshal(map[string]any{"estensione": ext, "bytes": r.Bytes})
-	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-		AllegatoID: a.AllegatoID, ThreadID: m.ThreadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
-		Confidenza: int16(conf), Fonte: fonte, Dettagli: dett,
-	}); err != nil {
-		return fmt.Errorf("proposta: %w", err)
-	}
-	if tipo == db.TipoDocumentoRumore {
+	if pr.Tipo == "rumore" {
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 	}
-	_, err = jobs.Accoda(ctx, q, db.TipoJobAnalizzaAllegato, map[string]any{
-		"allegato_id": a.AllegatoID, "path_staging": r.PathStaging, "sha256": r.Sha256, "nome_file": a.NomeFile,
-		"thread_id": nullUUID(m.ThreadID), "messaggio_id": m.MessaggioID,
-	}, "analizza:"+a.AllegatoID.String(), 6)
+	if ext == "zip" {
+		return s.estraiZip(ctx, q, a, m, r)
+	}
+	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID)
 	return err
 }
 
-func propostaDaEstensione(ext string) (db.TipoDocumento, db.FonteProposta, int) {
-	switch ext {
-	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm":
-		return db.TipoDocumentoCad3d, db.FontePropostaEstensione, 70
-	case "dxf":
-		return db.TipoDocumentoSviluppoDxf, db.FontePropostaEstensione, 70
-	case "dwg", "tif", "tiff", "pdf":
-		return db.TipoDocumentoDisegno2d, db.FontePropostaEstensione, 50
-	case "xls", "xlsx", "csv":
-		return db.TipoDocumentoCommerciale, db.FontePropostaEstensione, 50
-	case "zip", "7z", "rar":
-		return db.TipoDocumentoAltro, db.FontePropostaEstensione, 20 // il worker-analisi lo appiattisce
-	case "msg", "eml":
-		return db.TipoDocumentoCorrispondenza, db.FontePropostaEstensione, 60
+func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr domain.Proposta, dettagli map[string]any) error {
+	dett, _ := json.Marshal(dettagli)
+	_, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
+		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txt(pr.Codice), Rev: txt(pr.Rev),
+		Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
+	})
+	if err != nil {
+		return fmt.Errorf("proposta: %w", err)
 	}
-	return db.TipoDocumentoAltro, db.FontePropostaEstensione, 20
+	return nil
 }
 
-func estImmagine(ext string) bool {
-	switch ext {
-	case "png", "jpg", "jpeg", "gif", "bmp", "svg", "webp", "ico":
-		return true
+// estraiZip appiattisce lo zip in allegati figli (contenitore_id = zip), ognuno con hash, proposta e analisi.
+// Lo zip stesso resta come contenitore: non va sul NAS a meno di conferma esplicita.
+func (s *Server) estraiZip(ctx context.Context, q *db.Queries, a db.Allegato, m db.Messaggio, r api.RisultatoStage) error {
+	dest := filepath.Join(filepath.Dir(r.PathStaging), fmt.Sprintf("%02d_zip", a.Indice))
+	voci, err := archivio.Estrai(r.PathStaging, dest)
+	if err != nil && !errors.Is(err, archivio.ErrLimite) {
+		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: txt("zip non leggibile: " + err.Error())})
 	}
-	return false
+	for i, v := range voci {
+		figlio, err := q.UpsertAllegato(ctx, db.UpsertAllegatoParams{
+			MessaggioID: a.MessaggioID, ContenitoreID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true}, Indice: int16(i + 1),
+			NomeFile: v.NomeFile, PathInterno: txt(v.PathInterno), Estensione: txt(strings.ToLower(strings.TrimPrefix(filepath.Ext(v.NomeFile), "."))),
+			Natura: db.NaturaAllegatoFile, Origine: a.Origine, Bytes: pgtype.Int8{Int64: v.Bytes, Valid: true}, Sha256: txt(v.Sha256), RicevutoIl: a.RicevutoIl,
+		})
+		if err != nil {
+			return fmt.Errorf("voce zip %s: %w", v.NomeFile, err)
+		}
+		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: figlio.AllegatoID, PathStaging: txt(v.Path), Sha256: txt(v.Sha256), Bytes: pgtype.Int8{Int64: v.Bytes, Valid: true}}); err != nil {
+			return err
+		}
+		figlio.PathStaging, figlio.Sha256 = txt(v.Path), txt(v.Sha256)
+		pr := domain.PropostaDaNome(v.NomeFile, v.Bytes, string(m.Direzione))
+		if err := s.scriviProposta(ctx, q, figlio, m.ThreadID, pr, map[string]any{"path_interno": v.PathInterno, "bytes": v.Bytes, "zip": a.NomeFile}); err != nil {
+			return err
+		}
+		if pr.Tipo == "rumore" {
+			_ = q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
+			continue
+		}
+		if _, err := jobs.AccodaAnalisi(ctx, q, figlio, m.ThreadID); err != nil {
+			return err
+		}
+	}
+	dettagli := map[string]any{"voci": len(voci), "estensione": "zip", "bytes": r.Bytes}
+	if errors.Is(err, archivio.ErrLimite) {
+		dettagli["troncato"] = true
+	}
+	if err := s.scriviProposta(ctx, q, a, m.ThreadID, domain.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {
+		return err
+	}
+	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 }
 
 func nullUUID(u uuid.NullUUID) *uuid.UUID {

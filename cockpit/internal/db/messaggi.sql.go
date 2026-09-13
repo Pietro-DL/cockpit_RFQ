@@ -36,6 +36,39 @@ func (q *Queries) AgganciaMessaggio(ctx context.Context, arg AgganciaMessaggioPa
 	return err
 }
 
+const agganciaOrfaniConversazione = `-- name: AgganciaOrfaniConversazione :many
+UPDATE messaggio SET thread_id = $2, aggancio = 'auto_conversazione', agganciato_il = now()
+WHERE conversazione_id = $1 AND thread_id IS NULL AND messaggio_id <> $3
+RETURNING messaggio_id
+`
+
+type AgganciaOrfaniConversazioneParams struct {
+	ConversazioneID uuid.UUID     `json:"conversazione_id"`
+	ThreadID        uuid.NullUUID `json:"thread_id"`
+	MessaggioID     uuid.UUID     `json:"messaggio_id"`
+}
+
+// quando l'operatore crea/aggancia una RFQ, gli altri messaggi orfani della stessa conversazione la seguono
+func (q *Queries) AgganciaOrfaniConversazione(ctx context.Context, arg AgganciaOrfaniConversazioneParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, agganciaOrfaniConversazione, arg.ConversazioneID, arg.ThreadID, arg.MessaggioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var messaggio_id uuid.UUID
+		if err := rows.Scan(&messaggio_id); err != nil {
+			return nil, err
+		}
+		items = append(items, messaggio_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const collegaConversazione = `-- name: CollegaConversazione :exec
 UPDATE conversazione SET thread_id = $2, collegata_da = $3 WHERE conversazione_id = $1
 `
@@ -52,22 +85,29 @@ func (q *Queries) CollegaConversazione(ctx context.Context, arg CollegaConversaz
 }
 
 const contaInbox = `-- name: ContaInbox :one
-SELECT count(*) FILTER (WHERE thread_id IS NULL)     AS orfani,
-       count(*) FILTER (WHERE thread_id IS NOT NULL) AS agganciati,
-       count(*)                                      AS tutti
+SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
+       count(*) FILTER (WHERE thread_id IS NOT NULL)             AS agganciati,
+       count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
+       count(*)                                                  AS tutti
 FROM v_inbox
 `
 
 type ContaInboxRow struct {
 	Orfani     int64 `json:"orfani"`
 	Agganciati int64 `json:"agganciati"`
+	Ignorati   int64 `json:"ignorati"`
 	Tutti      int64 `json:"tutti"`
 }
 
 func (q *Queries) ContaInbox(ctx context.Context) (ContaInboxRow, error) {
 	row := q.db.QueryRow(ctx, contaInbox)
 	var i ContaInboxRow
-	err := row.Scan(&i.Orfani, &i.Agganciati, &i.Tutti)
+	err := row.Scan(
+		&i.Orfani,
+		&i.Agganciati,
+		&i.Ignorati,
+		&i.Tutti,
+	)
 	return i, err
 }
 
@@ -90,7 +130,7 @@ func (q *Queries) GetConversazione(ctx context.Context, conversazioneID uuid.UUI
 }
 
 const getInboxRiga = `-- name: GetInboxRiga :one
-SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, non_letto, cartella_outlook, entry_id FROM v_inbox WHERE messaggio_id = $1
+SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, non_letto, cartella_outlook, entry_id FROM v_inbox WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInbox, error) {
@@ -119,6 +159,7 @@ func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInb
 		&i.TriageConfidenza,
 		&i.TriageMotivi,
 		&i.ThreadProposto,
+		&i.Ignorato,
 		&i.NonLetto,
 		&i.CartellaOutlook,
 		&i.EntryID,
@@ -228,7 +269,7 @@ func (q *Queries) GetMessaggioPerChiave(ctx context.Context, arg GetMessaggioPer
 }
 
 const getSyncCursore = `-- name: GetSyncCursore :one
-SELECT cartella, ultimo_received, ultimo_sync, n_messaggi, errore FROM sync_cursore WHERE cartella = $1
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore FROM sync_cursore WHERE cartella = $1
 `
 
 func (q *Queries) GetSyncCursore(ctx context.Context, cartella string) (SyncCursore, error) {
@@ -237,6 +278,7 @@ func (q *Queries) GetSyncCursore(ctx context.Context, cartella string) (SyncCurs
 	err := row.Scan(
 		&i.Cartella,
 		&i.UltimoReceived,
+		&i.StoricoFinoA,
 		&i.UltimoSync,
 		&i.NMessaggi,
 		&i.Errore,
@@ -245,10 +287,11 @@ func (q *Queries) GetSyncCursore(ctx context.Context, cartella string) (SyncCurs
 }
 
 const listInbox = `-- name: ListInbox :many
-SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, non_letto, cartella_outlook, entry_id FROM v_inbox
+SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, non_letto, cartella_outlook, entry_id FROM v_inbox
 WHERE ($1::text = 'tutti'
-    OR ($1::text = 'orfani'     AND thread_id IS NULL)
-    OR ($1::text = 'agganciati' AND thread_id IS NOT NULL))
+    OR ($1::text = 'orfani'     AND thread_id IS NULL AND NOT ignorato)
+    OR ($1::text = 'agganciati' AND thread_id IS NOT NULL)
+    OR ($1::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
 ORDER BY data_evento DESC
 LIMIT $3 OFFSET $2
 `
@@ -291,6 +334,7 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 			&i.TriageConfidenza,
 			&i.TriageMotivi,
 			&i.ThreadProposto,
+			&i.Ignorato,
 			&i.NonLetto,
 			&i.CartellaOutlook,
 			&i.EntryID,
@@ -404,7 +448,7 @@ func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID
 }
 
 const listSyncCursori = `-- name: ListSyncCursori :many
-SELECT cartella, ultimo_received, ultimo_sync, n_messaggi, errore FROM sync_cursore ORDER BY cartella
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore FROM sync_cursore ORDER BY cartella
 `
 
 func (q *Queries) ListSyncCursori(ctx context.Context) ([]SyncCursore, error) {
@@ -419,6 +463,7 @@ func (q *Queries) ListSyncCursori(ctx context.Context) ([]SyncCursore, error) {
 		if err := rows.Scan(
 			&i.Cartella,
 			&i.UltimoReceived,
+			&i.StoricoFinoA,
 			&i.UltimoSync,
 			&i.NMessaggi,
 			&i.Errore,
@@ -448,6 +493,56 @@ func (q *Queries) SetBuyerMessaggiPerIndirizzo(ctx context.Context, arg SetBuyer
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setBuyerMessaggio = `-- name: SetBuyerMessaggio :exec
+UPDATE messaggio SET buyer_id = $2 WHERE messaggio_id = $1
+`
+
+type SetBuyerMessaggioParams struct {
+	MessaggioID uuid.UUID     `json:"messaggio_id"`
+	BuyerID     uuid.NullUUID `json:"buyer_id"`
+}
+
+func (q *Queries) SetBuyerMessaggio(ctx context.Context, arg SetBuyerMessaggioParams) error {
+	_, err := q.db.Exec(ctx, setBuyerMessaggio, arg.MessaggioID, arg.BuyerID)
+	return err
+}
+
+const setEntryIDMessaggio = `-- name: SetEntryIDMessaggio :exec
+UPDATE messaggio_outlook SET entry_id = $2, store_id = $3, cartella = COALESCE($4, cartella), aggiornato_il = now()
+WHERE messaggio_id = $1
+`
+
+type SetEntryIDMessaggioParams struct {
+	MessaggioID uuid.UUID   `json:"messaggio_id"`
+	EntryID     string      `json:"entry_id"`
+	StoreID     string      `json:"store_id"`
+	Cartella    pgtype.Text `json:"cartella"`
+}
+
+func (q *Queries) SetEntryIDMessaggio(ctx context.Context, arg SetEntryIDMessaggioParams) error {
+	_, err := q.db.Exec(ctx, setEntryIDMessaggio,
+		arg.MessaggioID,
+		arg.EntryID,
+		arg.StoreID,
+		arg.Cartella,
+	)
+	return err
+}
+
+const setStoricoFinoA = `-- name: SetStoricoFinoA :exec
+UPDATE sync_cursore SET storico_fino_a = LEAST(COALESCE(storico_fino_a, $2), $2) WHERE cartella = $1
+`
+
+type SetStoricoFinoAParams struct {
+	Cartella     string     `json:"cartella"`
+	StoricoFinoA *time.Time `json:"storico_fino_a"`
+}
+
+func (q *Queries) SetStoricoFinoA(ctx context.Context, arg SetStoricoFinoAParams) error {
+	_, err := q.db.Exec(ctx, setStoricoFinoA, arg.Cartella, arg.StoricoFinoA)
+	return err
 }
 
 const sgangiaMessaggio = `-- name: SgangiaMessaggio :exec

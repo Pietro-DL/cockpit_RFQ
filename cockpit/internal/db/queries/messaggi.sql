@@ -52,15 +52,17 @@ SELECT * FROM v_inbox WHERE messaggio_id = $1;
 -- name: ListInbox :many
 SELECT * FROM v_inbox
 WHERE (sqlc.arg(filtro)::text = 'tutti'
-    OR (sqlc.arg(filtro)::text = 'orfani'     AND thread_id IS NULL)
-    OR (sqlc.arg(filtro)::text = 'agganciati' AND thread_id IS NOT NULL))
+    OR (sqlc.arg(filtro)::text = 'orfani'     AND thread_id IS NULL AND NOT ignorato)
+    OR (sqlc.arg(filtro)::text = 'agganciati' AND thread_id IS NOT NULL)
+    OR (sqlc.arg(filtro)::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
 ORDER BY data_evento DESC
 LIMIT sqlc.arg(limite) OFFSET sqlc.arg(salta);
 
 -- name: ContaInbox :one
-SELECT count(*) FILTER (WHERE thread_id IS NULL)     AS orfani,
-       count(*) FILTER (WHERE thread_id IS NOT NULL) AS agganciati,
-       count(*)                                      AS tutti
+SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
+       count(*) FILTER (WHERE thread_id IS NOT NULL)             AS agganciati,
+       count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
+       count(*)                                                  AS tutti
 FROM v_inbox;
 
 -- name: ListMessaggiThread :many
@@ -97,3 +99,19 @@ VALUES ($1, $2, now(), $3, $4)
 ON CONFLICT (cartella) DO UPDATE SET
     ultimo_received = GREATEST(COALESCE(sync_cursore.ultimo_received, EXCLUDED.ultimo_received), EXCLUDED.ultimo_received),
     ultimo_sync = now(), n_messaggi = sync_cursore.n_messaggi + EXCLUDED.n_messaggi, errore = EXCLUDED.errore;
+
+-- name: SetStoricoFinoA :exec
+UPDATE sync_cursore SET storico_fino_a = LEAST(COALESCE(storico_fino_a, $2), $2) WHERE cartella = $1;
+
+-- name: SetEntryIDMessaggio :exec
+UPDATE messaggio_outlook SET entry_id = $2, store_id = $3, cartella = COALESCE(sqlc.narg(cartella), cartella), aggiornato_il = now()
+WHERE messaggio_id = $1;
+
+-- name: SetBuyerMessaggio :exec
+UPDATE messaggio SET buyer_id = $2 WHERE messaggio_id = $1;
+
+-- name: AgganciaOrfaniConversazione :many
+-- quando l'operatore crea/aggancia una RFQ, gli altri messaggi orfani della stessa conversazione la seguono
+UPDATE messaggio SET thread_id = $2, aggancio = 'auto_conversazione', agganciato_il = now()
+WHERE conversazione_id = $1 AND thread_id IS NULL AND messaggio_id <> $3
+RETURNING messaggio_id;

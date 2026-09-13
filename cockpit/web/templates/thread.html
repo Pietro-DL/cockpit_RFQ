@@ -1,0 +1,71 @@
+{{define "contenuto"}}
+<div id="thread">{{template "thread_corpo" .}}</div>
+{{end}}
+
+{{define "thread_corpo"}}
+{{with .Dati}}
+{{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
+<header class="thread-testata">
+  <div>
+    <h1>{{.Riga.Cliente}} · {{.T.Oggetto.String}}</h1>
+    <div class="meta">
+      <div><b>Cartella:</b> <code>{{.T.CartellaRelativa.String}}</code> {{if .T.CartellaCreata}}<span class="chip fatto">creata</span>{{else}}<span class="chip pronto">in creazione</span>{{end}}</div>
+      <div><b>Buyer:</b> {{if .Riga.Buyer.Valid}}{{.Riga.Buyer.String}}{{else}}<em class="muto">—</em>{{end}}
+        · <b>Ricevuta:</b> {{dataLunga .T.DataInizio}}
+        {{if .T.DataScadenza}} · <b>Scadenza:</b> {{.T.DataScadenza.Format "02/01/2006"}}{{end}}
+        · <b>Fase:</b> {{if .Riga.NomeFase.Valid}}{{.Riga.NomeFase.Fase}} <span class="semaforo {{.Riga.Semaforo.String}}"></span> {{.Riga.GgInFase.Int32}} gg{{else}}—{{end}}
+        · <b>Stato:</b> {{.T.Stato}}</div>
+      <div><b>Codici:</b> {{range .Identificativi}}<span class="chip">{{.Codice}}</span> {{else}}<em class="muto">nessuno</em>{{end}}
+        {{if .Riga.NBloccanti.Valid}} · <b>Bloccanti:</b> {{.Riga.NBloccanti.Int64}}{{end}} · <b>Da smistare:</b> {{.NDaSmistare}}</div>
+    </div>
+  </div>
+</header>
+
+<div class="thread-griglia">
+  <section class="colonna chat">
+    <h3>Messaggi ({{len .Messaggi}})</h3>
+    {{range .Messaggi}}
+    <article class="msg-thread {{.M.Direzione}}">
+      <div class="r1">
+        <span class="canale">{{if eq .M.Direzione "uscita"}}↗{{else}}✉{{end}}</span>
+        <span class="mittente">{{if .M.MittenteNome.Valid}}{{.M.MittenteNome.String}}{{else}}{{.M.MittenteIndirizzo.String}}{{end}}</span>
+        <span class="muto">{{.M.Aggancio}}</span>
+        <span class="data">{{dataLunga .M.DataEvento}}</span>
+      </div>
+      <div class="oggetto">{{.M.Oggetto.String}}</div>
+      <details><summary class="muto">testo</summary><pre class="corpo-msg">{{.M.CorpoTesto.String}}</pre></details>
+      {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String)}}{{end}}
+      <div class="azioni-msg">
+        {{if .Outlook}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}">Apri in Outlook</button>{{end}}
+        <a class="piccolo" href="/inbox?filtro=tutti&sel={{.M.MessaggioID}}">Apri in Inbox</a>
+        <span id="esito-{{.M.MessaggioID}}"></span>
+      </div>
+    </article>
+    {{else}}<p class="muto">Nessun messaggio agganciato.</p>{{end}}
+  </section>
+
+  <section class="colonna lato">
+    <h3>Documenti sul NAS ({{len .Documenti}})</h3>
+    {{if .Documenti}}
+    <table>
+      <tr><th>Tipo</th><th>Codice</th><th>Percorso</th><th>NAS</th></tr>
+      {{range .Documenti}}<tr><td><span class="chip {{.Tipo}}">{{.Tipo}}</span></td><td>{{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}</td>
+        <td><small>{{.PathRelativo}}</small></td>
+        <td><span class="chip {{if eq .StatoNas "scritto"}}fatto{{else if eq .StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.ErroreNas.String}}">{{.StatoNas}}</span></td></tr>{{end}}
+    </table>
+    {{else}}<p class="muto">Nessun documento confermato. Conferma le proposte degli allegati nella chat.</p>{{end}}
+
+    <h3>Fascicolo</h3>
+    {{if .Fascicolo}}
+    <table>
+      <tr><th>Componente</th><th>Richiesto</th><th>Esito</th></tr>
+      {{range .Fascicolo}}<tr><td>{{.Codice}} <small class="muto">{{.TipoComponente}}</small></td><td>{{.TipoDocumento}}{{if .Bloccante}} <small class="muto">bloccante</small>{{end}}</td>
+        <td><span class="chip {{if eq .Esito "ok"}}fatto{{else if eq .Esito "manca"}}fallito{{else}}in_corso{{end}}">{{.Esito}}</span></td></tr>{{end}}
+    </table>
+    {{else}}<p class="muto">Il fascicolo si popola quando i disegni confermati creano i componenti.</p>{{end}}
+
+    {{if .Bozze}}<h3>Bozze</h3><ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span></li>{{end}}</ul>{{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

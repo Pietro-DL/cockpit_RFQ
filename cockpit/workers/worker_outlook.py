@@ -4,13 +4,16 @@
 
 Loop: POST /api/v1/jobs/claim (long-poll) → esegue → POST /api/v1/jobs/{id}/result.
 Un solo thread: le chiamate COM sono serializzate per costruzione. Se Outlook non risponde il job
-fallisce (ritentato dal server con backoff) e il worker resta vivo.
+fallisce (ritentato dal server con backoff) e il worker resta vivo. Se il server è giù o si riavvia,
+il worker aspetta e riprova: non termina mai da solo.
 """
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import logging
+import logging.handlers
 import os
 import socket
 import sys
@@ -24,10 +27,15 @@ import pywintypes
 
 from contratti import (CartellaEsito, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
-                       RisultatoBozza, RisultatoRichiesta, RisultatoSposta, RisultatoStage, RisultatoSync)
+                       RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
 from outlook_com import ErroreDefinitivo, Outlook
 
 log = logging.getLogger("worker")
+
+# errori di rete che significano "server giù o riavviato": si aspetta e si riprova, il worker non muore.
+# ConnectionResetError/ConnectionRefusedError sono OSError NON incapsulati da urllib quando arrivano da getresponse().
+ERRORI_RETE = (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout, OSError,
+               http.client.RemoteDisconnected, http.client.HTTPException)
 
 
 class Cockpit:
@@ -82,12 +90,15 @@ class Worker:
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
         log.info("worker %s → %s", self.worker_id, self.api.url)
+        attesa = 5
         while True:
             try:
                 job = self.api.claim(self.worker_id)
-            except (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout) as e:
-                log.warning("server non raggiungibile: %s", e)
-                time.sleep(5)
+                attesa = 5
+            except ERRORI_RETE as e:
+                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
+                time.sleep(attesa)
+                attesa = min(attesa * 2, 30)
                 continue
             if job is None:
                 if una_volta:
@@ -115,7 +126,7 @@ class Worker:
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
         try:
             self.api.risultato(job.job_id, ris)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - il lease scade e il server lo rimette in coda
             log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
         log.info("job %d %s → %s in %.1fs", job.job_id, job.tipo, ris.esito, time.time() - t0)
 
@@ -126,23 +137,22 @@ class Worker:
                 return self.sync(job.job_id, PayloadSyncOutlook.model_validate(p))
             case "stage_allegato":
                 s = PayloadStageAllegato.model_validate(p)
-                dest, sha, n = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file, os.path.join(self.staging, s.cartella))
-                return RisultatoStage(allegato_id=s.allegato_id, path_staging=dest, sha256=sha, bytes=n).model_dump(mode="json")
+                dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file,
+                                                              os.path.join(self.staging, s.cartella), s.message_id)
+                return RisultatoStage(allegato_id=s.allegato_id, path_staging=dest, sha256=sha, bytes=n, **dove).model_dump(mode="json")
             case "crea_bozza_outlook":
                 b = PayloadCreaBozza.model_validate(p)
                 entry_id, inviata = self.ol().crea_bozza(b)
                 return RisultatoBozza(entry_id=entry_id, inviata=inviata).model_dump(mode="json")
             case "apri_elemento_outlook":
                 a = PayloadApriElemento.model_validate(p)
-                self.ol().apri(a.entry_id, a.store_id)
-                return {}
+                return RisultatoElemento(**self.ol().apri(a.entry_id, a.store_id, a.message_id)).model_dump(mode="json")
             case "sposta_in_cartella":
                 s = PayloadSpostaCartella.model_validate(p)
-                return RisultatoSposta(entry_id=self.ol().sposta(s.entry_id, s.store_id, s.cartella)).model_dump(mode="json")
+                return RisultatoElemento(**self.ol().sposta(s.entry_id, s.store_id, s.cartella, s.message_id)).model_dump(mode="json")
             case "segna_letto":
                 l = PayloadSegnaLetto.model_validate(p)
-                self.ol().segna_letto(l.entry_id, l.store_id, l.letto)
-                return {}
+                return RisultatoElemento(**self.ol().segna_letto(l.entry_id, l.store_id, l.letto, l.message_id)).model_dump(mode="json")
         raise ErroreDefinitivo(f"tipo job sconosciuto per il worker outlook: {job.tipo}")
 
     # ------------------------------------------------------------ sync
@@ -186,7 +196,7 @@ class Worker:
 
 
 def carica_config(percorso: str) -> dict:
-    cfg = {"server_url": "http://127.0.0.1:8080", "token": "", "staging": "..\\_staging", "consenti_invio": False}
+    cfg = {"server_url": "http://127.0.0.1:8080", "token": "", "staging": os.path.join("..", "_staging"), "consenti_invio": False}
     if os.path.isfile(percorso):
         with open(percorso, "rb") as f:
             cfg.update(tomllib.load(f))
@@ -198,6 +208,24 @@ def carica_config(percorso: str) -> dict:
     return cfg
 
 
+def configura_log(debug: bool, cfg: dict, nome: str) -> None:
+    """Console + file rotante in <staging>/log/<nome>.log (5 x 5 MB): il log sopravvive alla chiusura del terminale."""
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    radice = logging.getLogger()
+    radice.setLevel(logging.DEBUG if debug else logging.INFO)
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    radice.addHandler(console)
+    try:
+        cartella = os.path.join(os.path.abspath(cfg["staging"]), "log")
+        os.makedirs(cartella, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(os.path.join(cartella, nome + ".log"), maxBytes=5 << 20, backupCount=5, encoding="utf-8")
+        fh.setFormatter(fmt)
+        radice.addHandler(fh)
+    except OSError as e:
+        radice.warning("log su file non disponibile: %s", e)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "worker.toml"))
@@ -205,8 +233,8 @@ def main() -> None:
     ap.add_argument("--cartelle", action="store_true", help="stampa l'albero delle cartelle Outlook ed esce")
     ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
-    logging.basicConfig(level=logging.DEBUG if a.debug else logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s")
     cfg = carica_config(a.config)
+    configura_log(a.debug, cfg, "worker_outlook")
     w = Worker(cfg)
     if a.cartelle:
         print("\n".join(w.ol().elenca_cartelle()))

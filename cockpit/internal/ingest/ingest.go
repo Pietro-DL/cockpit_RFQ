@@ -5,13 +5,10 @@ package ingest
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -23,7 +20,6 @@ import (
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
-	"promatec/cockpit/internal/jobs"
 )
 
 type Servizio struct {
@@ -154,8 +150,8 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 		return esito, fmt.Errorf("messaggio_outlook: %w", err)
 	}
 
-	// FATTO: allegati. Per ogni allegato diretto non inline si accoda lo staging (idempotente per allegato).
-	cartellaStaging := hashBreve(m.MessageID)
+	// FATTO: allegati. Nessun download automatico: sul disco vanno solo i file che l'operatore chiede
+	// (SPEC: staging su richiesta). Qui si registra l'allegato e la prima proposta dal solo nome file.
 	var nomiAllegati []string
 	for _, a := range m.Allegati {
 		nat := db.NaturaAllegatoFile
@@ -187,25 +183,13 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 		}
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
-
-			if al.Stato != db.StatoAllegatoGrezzo && al.PathStaging.Valid && al.PathStaging.String != "" {
-				if _, errStat := os.Stat(al.PathStaging.String); os.IsNotExist(errStat) {
-					al.Stato = db.StatoAllegatoGrezzo
-					_, err = tx.Exec(ctx, `UPDATE allegato SET stato = 'grezzo', path_staging = NULL WHERE allegato_id = $1`, al.AllegatoID)
-					if err != nil {
-						return esito, fmt.Errorf("reset grezzo allegato %d: %w", a.Indice, err)
-					}
-				}
-			}
-
-			if al.Stato == db.StatoAllegatoGrezzo {
-				_, err := jobs.Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
-					AllegatoID: al.AllegatoID, EntryID: m.EntryID, StoreID: m.StoreID, Indice: a.Indice, NomeFile: a.NomeFile, Cartella: cartellaStaging,
-				}, "stage:"+al.AllegatoID.String(), 4)
-				if err != nil {
-					return esito, err
-				}
-				esito.AllegatiDaStage++
+			pr := domain.PropostaDaNome(a.NomeFile, a.Bytes, m.Direzione)
+			dett, _ := json.Marshal(map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta})
+			if err := q.InsertPropostaSeAssente(ctx, db.InsertPropostaSeAssenteParams{
+				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txtN(pr.Codice, 60),
+				Rev: txtN(pr.Rev, 10), Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
+			}); err != nil {
+				return esito, fmt.Errorf("proposta allegato %d: %w", a.Indice, err)
 			}
 		}
 	}
@@ -314,9 +298,4 @@ func senzaEstensione(nomi []string) []string {
 		out = append(out, n)
 	}
 	return out
-}
-
-func hashBreve(s string) string {
-	h := sha1.Sum([]byte(s))
-	return hex.EncodeToString(h[:])[:12]
 }

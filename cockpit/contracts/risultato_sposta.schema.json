@@ -3,6 +3,11 @@
     "entry_id": {
       "title": "Entry Id",
       "type": "string"
+    },
+    "store_id": {
+      "default": "",
+      "title": "Store Id",
+      "type": "string"
     }
   },
   "required": [

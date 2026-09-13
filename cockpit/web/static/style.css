@@ -38,3 +38,21 @@ tr.fallito td{background:#fff5f4}tr.in_corso td{background:#fffbea}.conta{margin
 .login{max-width:340px;margin:60px auto;background:var(--carta);border:1px solid var(--bordo);border-radius:10px;padding:24px}
 .login form{display:grid;gap:10px}.login label{display:grid;gap:4px;color:var(--muto)}.login input{font:inherit;padding:8px;border:1px solid var(--bordo);border-radius:6px}
 @media (max-width:900px){.inbox{grid-template-columns:1fr;height:auto}}
+.stato-worker{display:inline-flex;gap:4px;margin-right:12px}
+.badge{display:inline-block;padding:3px 8px;border-radius:6px;font-size:12px}.badge.verde{background:#e3f1e8;color:#1f6b3d}.badge.avviso{background:#fff5d6;color:#8a6a00}.badge.errore{background:#fbe3e1;color:var(--rosso)}
+button.primario,.bottone.primario{background:var(--acc);color:#fff;border-color:var(--acc)}button.piccolo,.piccolo,summary.bottone{font-size:12px;padding:2px 8px}
+a.bottone,.bottone{display:inline-block;padding:6px 12px;border:1px solid var(--bordo);border-radius:6px;background:var(--carta);color:var(--testo)}
+.form-triage{display:grid;gap:10px}.form-triage fieldset{border:1px solid var(--bordo);border-radius:8px;padding:10px 12px;display:grid;gap:8px}
+.form-triage legend{color:var(--muto);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.form-triage label{display:grid;gap:3px;color:var(--muto);font-size:12px}.form-triage input,.form-triage select{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;color:var(--testo)}
+.griglia3{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}.anteprima code{background:#f0f4fa;padding:2px 6px;border-radius:4px}
+.errore-box{background:#fbe3e1;color:var(--rosso)}.risultati{list-style:none;padding:0;margin:0;max-height:40vh;overflow:auto}.risultati li{padding:6px 4px;border-bottom:1px solid var(--bordo)}
+.allegati-form table{margin-bottom:6px}tr.figlio td{background:#fafbfc}.azioni-riga{white-space:nowrap}
+details.conferma{display:inline-block}details.conferma summary{list-style:none;cursor:pointer;display:inline-block}.conferma-form{display:flex;gap:6px;align-items:end;margin:6px 0;flex-wrap:wrap}
+.conferma-form label{display:grid;font-size:11px;color:var(--muto)}.conferma-form input,.conferma-form select{font:inherit;padding:3px 5px;border:1px solid var(--bordo);border-radius:4px}
+.thread-testata{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;padding:12px 16px;margin-bottom:12px}.thread-testata .meta{color:var(--muto);font-size:13px;display:grid;gap:2px}
+.thread-griglia{display:grid;grid-template-columns:1fr minmax(320px,38%);gap:12px}.thread-griglia .colonna{padding:12px}
+.msg-thread{border:1px solid var(--bordo);border-radius:8px;padding:8px 10px;margin-bottom:10px}.msg-thread.uscita{background:#f7fbf8}.msg-thread .oggetto{font-weight:600;margin:2px 0 4px}
+.corpo-msg{white-space:pre-wrap;font:inherit;background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:8px;max-height:30vh;overflow:auto}
+.azioni-msg{display:flex;gap:6px;align-items:center;margin-top:6px}
+@media (max-width:900px){.thread-griglia{grid-template-columns:1fr}}

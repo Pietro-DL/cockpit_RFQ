@@ -74,16 +74,17 @@ func NomeFileSicuro(nome string) string {
 	return NomeSicuro(base, 150) + strings.ToLower(NomeSicuro(ext, 10))
 }
 
-// UNC compone radice + relativo per l'accesso reale al NAS; aggiunge il prefisso \?\ quando il percorso
-// supera i 260 caratteri (limite MAX_PATH di Windows).
+// UNC compone radice + relativo per l'accesso reale al NAS; aggiunge il prefisso \\?\ quando il percorso
+// supera i 260 caratteri (limite MAX_PATH di Windows). Per i percorsi di rete (\\server\share) il prefisso
+// long-path è \\?\UNC\server\share.
 func UNC(radice, relativo string) string {
 	radice = strings.TrimRight(radice, `\`)
 	p := radice + `\` + strings.TrimLeft(relativo, `\`)
-	if len(p) >= 250 && !strings.HasPrefix(p, `\?\`) {
-		if strings.HasPrefix(p, `\`) {
-			return `\?\UNC\` + strings.TrimPrefix(p, `\`)
+	if len(p) >= 250 && !strings.HasPrefix(p, `\\?\`) {
+		if strings.HasPrefix(p, `\\`) {
+			return `\\?\UNC\` + strings.TrimPrefix(p, `\\`)
 		}
-		return `\?\` + p
+		return `\\?\` + p
 	}
 	return p
 }

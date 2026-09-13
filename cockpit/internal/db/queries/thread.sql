@@ -78,3 +78,6 @@ UPDATE fase_log SET fine = $2, esito = $3, note = COALESCE(sqlc.narg(note), note
 
 -- name: ApriFase :one
 INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note) VALUES ($1, $2, $3, $4, $5) RETURNING *;
+
+-- name: SetBuyerThread :exec
+UPDATE thread_offerta SET buyer_id = $2 WHERE thread_id = $1 AND buyer_id IS NULL;

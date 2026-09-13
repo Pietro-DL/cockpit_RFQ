@@ -2107,6 +2107,7 @@ type CartellaDocumento struct {
 	Tipo          TipoDocumento `json:"tipo"`
 	Sottocartella string        `json:"sottocartella"`
 	PerCodice     bool          `json:"per_codice"`
+	CreaSempre    bool          `json:"crea_sempre"`
 }
 
 type Cliente struct {
@@ -2379,12 +2380,13 @@ type Sessione struct {
 type SyncCursore struct {
 	Cartella       string      `json:"cartella"`
 	UltimoReceived *time.Time  `json:"ultimo_received"`
+	StoricoFinoA   *time.Time  `json:"storico_fino_a"`
 	UltimoSync     *time.Time  `json:"ultimo_sync"`
 	NMessaggi      int32       `json:"n_messaggi"`
 	Errore         pgtype.Text `json:"errore"`
 }
 
-type ThreadOffertum struct {
+type ThreadOfferta struct {
 	ThreadID            uuid.UUID           `json:"thread_id"`
 	ClienteID           uuid.UUID           `json:"cliente_id"`
 	BuyerID             uuid.NullUUID       `json:"buyer_id"`
@@ -2491,6 +2493,7 @@ type VInbox struct {
 	TriageConfidenza  pgtype.Int2      `json:"triage_confidenza"`
 	TriageMotivi      *json.RawMessage `json:"triage_motivi"`
 	ThreadProposto    uuid.NullUUID    `json:"thread_proposto"`
+	Ignorato          bool             `json:"ignorato"`
 	NonLetto          pgtype.Bool      `json:"non_letto"`
 	CartellaOutlook   pgtype.Text      `json:"cartella_outlook"`
 	EntryID           pgtype.Text      `json:"entry_id"`
@@ -2515,4 +2518,11 @@ type VThreadFase struct {
 	Terminale      bool          `json:"terminale"`
 	GgInFase       int32         `json:"gg_in_fase"`
 	Semaforo       string        `json:"semaforo"`
+}
+
+type WorkerPresenza struct {
+	WorkerTipo  WorkerTipo `json:"worker_tipo"`
+	WorkerID    string     `json:"worker_id"`
+	UltimoClaim time.Time  `json:"ultimo_claim"`
+	UltimoJobIl *time.Time `json:"ultimo_job_il"`
 }

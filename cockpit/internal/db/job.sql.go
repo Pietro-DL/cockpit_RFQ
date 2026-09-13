@@ -225,7 +225,7 @@ func (q *Queries) HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int
 const insertJob = `-- name: InsertJob :one
 INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di)
 VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()))
-ON CONFLICT (chiave_idempotenza) DO NOTHING
+ON CONFLICT (chiave_idempotenza) WHERE stato IN ('pronto','in_corso') DO NOTHING
 RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il
 `
 
@@ -247,6 +247,35 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 		arg.Priorita,
 		arg.NonPrimaDi,
 	)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+	)
+	return i, err
+}
+
+const jobPendentePerChiave = `-- name: JobPendentePerChiave :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1
+`
+
+func (q *Queries) JobPendentePerChiave(ctx context.Context, chiaveIdempotenza pgtype.Text) (Job, error) {
+	row := q.db.QueryRow(ctx, jobPendentePerChiave, chiaveIdempotenza)
 	var i Job
 	err := row.Scan(
 		&i.JobID,
@@ -319,6 +348,35 @@ func (q *Queries) ListJob(ctx context.Context, arg ListJobParams) ([]Job, error)
 	return items, nil
 }
 
+const listWorkerPresenza = `-- name: ListWorkerPresenza :many
+SELECT worker_tipo, worker_id, ultimo_claim, ultimo_job_il FROM worker_presenza ORDER BY worker_tipo
+`
+
+func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]WorkerPresenza, error) {
+	rows, err := q.db.Query(ctx, listWorkerPresenza)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkerPresenza{}
+	for rows.Next() {
+		var i WorkerPresenza
+		if err := rows.Scan(
+			&i.WorkerTipo,
+			&i.WorkerID,
+			&i.UltimoClaim,
+			&i.UltimoJobIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const riaccodaJob = `-- name: RiaccodaJob :exec
 UPDATE job SET stato = 'pronto', tentativi = 0, errore = NULL, non_prima_di = now(), chiuso_il = NULL
 WHERE job_id = $1 AND stato = 'fallito'
@@ -343,4 +401,51 @@ func (q *Queries) RilasciaLeaseScaduti(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const ultimoJobPerChiavePrefisso = `-- name: UltimoJobPerChiavePrefisso :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job WHERE chiave_idempotenza LIKE $1::text || '%' ORDER BY job_id DESC LIMIT 1
+`
+
+func (q *Queries) UltimoJobPerChiavePrefisso(ctx context.Context, prefisso string) (Job, error) {
+	row := q.db.QueryRow(ctx, ultimoJobPerChiavePrefisso, prefisso)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+	)
+	return i, err
+}
+
+const upsertWorkerPresenza = `-- name: UpsertWorkerPresenza :exec
+INSERT INTO worker_presenza (worker_tipo, worker_id, ultimo_claim, ultimo_job_il)
+VALUES ($1, $2, now(), CASE WHEN $3::boolean THEN now() END)
+ON CONFLICT (worker_tipo) DO UPDATE SET worker_id = EXCLUDED.worker_id, ultimo_claim = now(),
+    ultimo_job_il = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il)
+`
+
+type UpsertWorkerPresenzaParams struct {
+	WorkerTipo WorkerTipo `json:"worker_tipo"`
+	WorkerID   string     `json:"worker_id"`
+	ConJob     bool       `json:"con_job"`
+}
+
+func (q *Queries) UpsertWorkerPresenza(ctx context.Context, arg UpsertWorkerPresenzaParams) error {
+	_, err := q.db.Exec(ctx, upsertWorkerPresenza, arg.WorkerTipo, arg.WorkerID, arg.ConJob)
+	return err
 }

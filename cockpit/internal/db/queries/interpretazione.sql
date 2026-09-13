@@ -32,6 +32,15 @@ ON CONFLICT (messaggio_id, fonte) DO UPDATE SET
 WHERE proposta_triage.stato = 'proposta'
 RETURNING *;
 
+-- name: GetTriageMessaggio :one
+SELECT * FROM proposta_triage WHERE messaggio_id = $1 ORDER BY (fonte = 'agente') DESC, creato_il DESC LIMIT 1;
+
+-- name: IgnoraMessaggio :exec
+-- "Ignora" dall'Inbox: chiude la proposta se c'è, altrimenti registra la decisione come proposta rifiutata
+INSERT INTO proposta_triage (messaggio_id, esito, confidenza, motivi, fonte, stato, deciso_da, deciso_il)
+VALUES ($1, 'ignora', 100, '["ignorato dall''operatore"]', 'deterministico', 'rifiutata', $2, now())
+ON CONFLICT (messaggio_id, fonte) DO UPDATE SET stato = 'rifiutata', deciso_da = EXCLUDED.deciso_da, deciso_il = now();
+
 -- name: DecidiTriage :execrows
 UPDATE proposta_triage SET stato = $2, deciso_da = $3, deciso_il = now() WHERE messaggio_id = $1 AND stato = 'proposta';
 

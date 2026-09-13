@@ -16,7 +16,8 @@
     <a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
   </nav>
   <span class="spazio"></span>
-  {{if .Utente}}<span class="utente">{{.Utente.Nome}} · {{.Utente.Ruolo}}</span>
+  {{if .Utente}}{{template "stato_worker" .}}
+  <span class="utente">{{.Utente.Nome}} · {{.Utente.Ruolo}}</span>
   <form method="post" action="/logout"><button class="link">esci</button></form>{{end}}
 </header>
 <main>

@@ -132,7 +132,21 @@ class RisultatoSync(Base):
     cartelle: list[CartellaEsito]
 
 
-class PayloadStageAllegato(Base):
+class RiferimentoElemento(Base):
+    """Riferimento stabile a un elemento Outlook: se l'EntryID è stantio (elemento spostato) il worker
+    lo ricerca per message_id; messaggio_id serve al server per riallineare messaggio_outlook."""
+    messaggio_id: UUID | None = None
+    message_id: str = ""
+
+
+class RisultatoElemento(Base):
+    """Dove l'elemento è stato trovato davvero."""
+    entry_id: str = ""
+    store_id: str = ""
+    cartella: str = ""
+
+
+class PayloadStageAllegato(RiferimentoElemento):
     allegato_id: UUID
     entry_id: str
     store_id: str
@@ -141,14 +155,14 @@ class PayloadStageAllegato(Base):
     cartella: str
 
 
-class RisultatoStage(Base):
+class RisultatoStage(RisultatoElemento):
     allegato_id: UUID
     path_staging: str
     sha256: str
     bytes: int
 
 
-class PayloadCreaBozza(Base):
+class PayloadCreaBozza(RiferimentoElemento):
     bozza_id: UUID
     tipo: Literal["risposta", "rispondi_tutti", "inoltro", "nuovo", "sollecito"]
     entry_id: str = ""
@@ -167,12 +181,12 @@ class RisultatoBozza(Base):
     inviata: bool = False
 
 
-class PayloadApriElemento(Base):
+class PayloadApriElemento(RiferimentoElemento):
     entry_id: str
     store_id: str
 
 
-class PayloadSpostaCartella(Base):
+class PayloadSpostaCartella(RiferimentoElemento):
     entry_id: str
     store_id: str
     cartella: str
@@ -180,9 +194,10 @@ class PayloadSpostaCartella(Base):
 
 class RisultatoSposta(Base):
     entry_id: str
+    store_id: str = ""
 
 
-class PayloadSegnaLetto(Base):
+class PayloadSegnaLetto(RiferimentoElemento):
     entry_id: str
     store_id: str
     letto: bool = True
@@ -218,6 +233,7 @@ CONTRATTI = {
     "risultato_sync": RisultatoSync,
     "payload_stage_allegato": PayloadStageAllegato,
     "risultato_stage": RisultatoStage,
+    "risultato_elemento": RisultatoElemento,
     "payload_crea_bozza": PayloadCreaBozza,
     "risultato_bozza": RisultatoBozza,
     "payload_apri_elemento": PayloadApriElemento,

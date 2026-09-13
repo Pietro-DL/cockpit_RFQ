@@ -72,9 +72,12 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job) 
 		if err != nil {
 			return nil, err
 		}
+		// solo le sottocartelle della convenzione (ELENCO DISEGNI, OFFERTE FORNITORI); le altre nascono alla prima copia
 		var sotto []string
 		for _, l := range layout {
-			sotto = append(sotto, l.Sottocartella)
+			if l.CreaSempre {
+				sotto = append(sotto, l.Sottocartella)
+			}
 		}
 		base, err := e.NAS.CreaCartella(t.CartellaRelativa.String, sotto)
 		if err != nil {

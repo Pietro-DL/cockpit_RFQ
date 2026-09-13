@@ -1,15 +1,17 @@
 {{define "messaggio_pannello"}}
 {{with .Dati}}
 <article class="messaggio">
+  {{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
   <header>
     <h2>{{.M.Oggetto.String}}</h2>
     <div class="meta">
       <div><b>{{if eq .M.Direzione "uscita"}}A{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
         {{if .Riga.Cliente.Valid}}<span class="chip">{{.Riga.Cliente.String}}</span>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}</div>
       <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}} {{if .Outlook}}· <b>Cartella:</b> {{.Outlook.Cartella.String}}{{end}}</div>
-      <div><b>Thread:</b> {{if .M.ThreadID.Valid}}RFQ {{uuidBreve .M.ThreadID.UUID}} <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
+      <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
         {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
-          <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}</div>
+          <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
+        {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
     </div>
     <div class="azioni">
       {{if .Outlook}}
@@ -18,8 +20,13 @@
         {{if .Outlook.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
       {{end}}
       <span class="separatore"></span>
-      <button disabled title="Blocco 4: triage">Nuova RFQ</button>
-      <button disabled title="Blocco 4: triage">Aggancia a…</button>
+      {{if .Thread}}
+      <a class="bottone" href="/thread/{{.Thread.ThreadID}}">Apri RFQ →</a>
+      {{else}}
+      <button class="primario" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=nuova" hx-target="#pannello">Nuova RFQ</button>
+      <button hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Aggancia a…</button>
+      {{if not .Riga.Ignorato}}<button hx-post="/messaggio/{{.M.MessaggioID}}/ignora" hx-target="#pannello" hx-confirm="Ignorare questo messaggio? Resta in archivio nel filtro «ignorati».">Ignora</button>{{end}}
+      {{end}}
     </div>
     <div id="esito-azione"></div>
   </header>
@@ -48,29 +55,7 @@
   {{if .Allegati}}
   <section class="allegati">
     <h3>Allegati</h3>
-    <table>
-      <tr><th>#</th><th>File</th><th>Natura</th><th>Dimensione</th><th>Staging</th><th>Proposta</th><th>Azione</th></tr>
-      {{range $a := .Allegati}}
-      <tr class="{{if eq $a.Natura "inline"}}muto{{end}}">
-        <td>{{$a.Indice}}</td><td>{{$a.NomeFile}}</td><td>{{$a.Natura}}</td><td>{{kb $a.Bytes}}</td>
-        <td>
-          {{if $a.FileMancante}}
-            <span class="chip fallito" title="Il file è stato eliminato dalla cartella di staging">File non trovato su disco</span>
-          {{else}}
-            {{$a.Stato}}{{if $a.Sha256.Valid}} <small title="{{$a.Sha256.String}}">{{slice $a.Sha256.String 0 8}}</small>{{end}}
-          {{end}}
-        </td>
-        <td>{{with index $.Dati.Proposte $a.AllegatoID}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small>{{.Confidenza}}% · {{.Fonte}}</small>{{end}}</td>
-        <td>
-          {{if not (eq $a.Natura "inline")}}
-            {{with index $.Dati.Proposte $a.AllegatoID}}
-              <button {{if $a.FileMancante}}disabled title="File non trovato su disco"{{else}}title="Conferma smistamento"{{end}}>Conferma</button>
-            {{end}}
-          {{end}}
-        </td>
-      </tr>
-      {{end}}
-    </table>
+    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "")}}
   </section>
   {{end}}
 
@@ -83,4 +68,213 @@
   <section class="corpo"><pre>{{.M.CorpoTesto.String}}</pre></section>
 </article>
 {{end}}
+{{end}}
+
+{{/* ---------------------------------------------------------------- tabella allegati (pannello e schermata B) */}}
+{{define "allegati_tabella"}}
+<form class="allegati-form" hx-post="/messaggio/{{.MessaggioID}}/scarica" hx-target="{{if .RitornaThread}}#thread{{else}}#pannello{{end}}">
+  {{if .RitornaThread}}<input type="hidden" name="ritorna_thread" value="{{.RitornaThread}}">{{end}}
+  <table>
+    <tr><th></th><th>File</th><th>Dim.</th><th>Proposta</th><th>Stato</th><th>Azioni</th></tr>
+    {{range $a := .Allegati}}
+    {{template "allegato_riga" (rigaAllegato $a $.Agganciato $.RitornaThread false)}}
+    {{range $f := $a.Figli}}{{template "allegato_riga" (rigaAllegato $f $.Agganciato $.RitornaThread true)}}{{end}}
+    {{end}}
+  </table>
+  {{if .NScaricabili}}
+    {{if .Agganciato}}
+    <button type="submit" class="primario">Scarica selezionati</button>
+    <small class="muto">Solo i file spuntati vengono salvati su disco (staging), poi analizzati e proposti per il NAS.</small>
+    {{else}}
+    <small class="muto">Per scaricare gli allegati crea prima la RFQ (o aggancia il messaggio): i file vanno nella sua cartella.</small>
+    {{end}}
+  {{end}}
+</form>
+{{/* i form di conferma stanno FUORI dal form di download (i form non si annidano): i campi li raggiungono con form="c-…" */}}
+{{if .Agganciato}}{{range $a := .Allegati}}
+  {{if $a.Confermabile}}{{template "conferma_form" (rigaAllegato $a true $.RitornaThread false)}}{{end}}
+  {{range $f := $a.Figli}}{{if $f.Confermabile}}{{template "conferma_form" (rigaAllegato $f true $.RitornaThread true)}}{{end}}{{end}}
+{{end}}{{end}}
+{{end}}
+
+{{define "conferma_form"}}
+<form id="c-{{.A.Proposta.PropostaID}}" hx-post="/proposta/{{.A.Proposta.PropostaID}}/conferma" hx-target="{{if .RitornaThread}}#thread{{else}}#pannello{{end}}">
+  {{if .RitornaThread}}<input type="hidden" name="ritorna_thread" value="{{.RitornaThread}}">{{end}}</form>
+{{end}}
+
+{{define "allegato_riga"}}
+{{with .A}}
+<tr class="{{if eq .Natura "inline"}}muto{{end}} {{if $.Figlio}}figlio{{end}}">
+  <td>{{if and .Scaricabile $.Agganciato}}<input type="checkbox" name="allegato_id" value="{{.AllegatoID}}" {{if .PreSpunta}}checked{{end}}>{{else if .Scaricabile}}<input type="checkbox" disabled {{if .PreSpunta}}checked{{end}}>{{end}}</td>
+  <td>{{if $.Figlio}}<span class="muto">↳</span> {{end}}{{.NomeFile}}{{if eq .Natura "inline"}} <small class="muto">inline</small>{{end}}
+    {{if .PathInterno.Valid}}<br><small class="muto">{{.PathInterno.String}}</small>{{end}}</td>
+  <td>{{kb .Bytes}}</td>
+  <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small class="muto">{{.Confidenza}}% · {{.Fonte}}</small>
+      {{if ne .Stato "aperta"}}<span class="chip">{{.Stato}}</span>{{end}}{{end}}</td>
+  <td>
+    {{if .Documento}}<span class="chip {{if eq .Documento.StatoNas "scritto"}}fatto{{else if eq .Documento.StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.Documento.PathRelativo}}">NAS: {{.Documento.StatoNas}}</span>
+    {{else if .FileMancante}}<span class="chip fallito" title="Il file non è più nella cartella di staging">file mancante</span>
+    {{else if .InCoda}}<span class="chip in_corso">in coda</span>
+    {{else if eq .Stato "errore"}}<span class="chip fallito" title="{{.Errore.String}}">errore</span>
+    {{else if eq .Stato "grezzo"}}<span class="chip">da scaricare</span>
+    {{else}}<span class="chip {{if eq .Stato "analizzato"}}fatto{{else}}pronto{{end}}">{{.Stato}}</span>{{if .Sha256.Valid}} <small class="muto" title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}{{end}}
+  </td>
+  <td class="azioni-riga">
+    {{if and .Confermabile $.Agganciato}}
+      <details class="conferma">
+        <summary class="bottone piccolo">Conferma…</summary>
+        <div class="conferma-form">
+          <label>Tipo <select name="tipo" form="c-{{.Proposta.PropostaID}}">{{range tipiDocumento}}<option value="{{.}}" {{if eq . (printf "%s" $.A.Proposta.TipoProposto)}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+          <label>Codice <input name="codice" form="c-{{.Proposta.PropostaID}}" value="{{.Proposta.Codice.String}}" size="12"></label>
+          <label>Rev <input name="rev" form="c-{{.Proposta.PropostaID}}" value="{{.Proposta.Rev.String}}" size="3"></label>
+          <button form="c-{{.Proposta.PropostaID}}" class="primario piccolo">Conferma → NAS</button>
+        </div>
+      </details>
+    {{end}}
+    {{if and .Proposta (eq .Proposta.Stato "aperta") (ne .Natura "inline")}}
+      <button type="button" class="piccolo" hx-post="/proposta/{{.Proposta.PropostaID}}/scarta" hx-vals='{"rumore":"{{if eq (printf "%s" .Proposta.TipoProposto) "rumore"}}1{{else}}0{{end}}"{{if $.RitornaThread}},"ritorna_thread":"{{$.RitornaThread}}"{{end}}}' hx-target="{{if $.RitornaThread}}#thread{{else}}#pannello{{end}}" title="Chiude la proposta senza salvare nulla sul NAS">Scarta</button>
+    {{end}}
+    {{if and .FileMancante $.Agganciato (not .ContenitoreID.Valid)}}
+      <button type="button" class="piccolo" hx-post="/allegato/{{.AllegatoID}}/riscarica" hx-vals='{{if $.RitornaThread}}{"ritorna_thread":"{{$.RitornaThread}}"}{{end}}' hx-target="{{if $.RitornaThread}}#thread{{else}}#pannello{{end}}">Riscarica</button>
+    {{end}}
+  </td>
+</tr>
+{{end}}
+{{end}}
+
+{{/* ---------------------------------------------------------------- triage (blocco 4) */}}
+{{define "triage_form"}}
+{{with .Dati}}
+<article class="messaggio triage">
+  <header>
+    <h2>{{if eq .Azione "nuova"}}Nuova RFQ{{else}}Aggancia a una RFQ aperta{{end}}</h2>
+    <div class="meta"><div><b>Da:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt; · {{dataLunga .M.DataEvento}}</div>
+      <div><b>Oggetto:</b> {{.M.Oggetto.String}}</div></div>
+    {{if .Errore}}<div class="avviso errore-box">{{.Errore}}</div>{{end}}
+  </header>
+
+  {{if eq .Azione "nuova"}}
+  <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/rfq" hx-target="#pannello">
+    <fieldset>
+      <legend>Cliente</legend>
+      <label>Cliente
+        <select name="cliente_id" hx-get="/anagrafica/buyer" hx-target="#buyer-select" hx-trigger="change" hx-include="this"
+                onchange="document.getElementById('cliente-nuovo').hidden = this.value !== '__nuovo__'">
+          {{range .Clienti}}<option value="{{.ClienteID}}" {{if and $.Dati.ClienteID.Valid (eq .ClienteID $.Dati.ClienteID.UUID)}}selected{{end}}>{{.CartellaNas}} — {{.RagioneSociale}}</option>{{end}}
+          <option value="__nuovo__" {{if not .ClienteID.Valid}}selected{{end}}>➕ nuovo cliente…</option>
+        </select>
+      </label>
+      <div id="cliente-nuovo" class="griglia3" {{if .ClienteID.Valid}}hidden{{end}}>
+        <label>Ragione sociale <input name="cliente_nome" placeholder="es. Landini Argo Tractors"></label>
+        <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"></label>
+        <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Buyer (mittente)</legend>
+      <div id="buyer-select">{{template "buyer_select" $}}</div>
+      <div id="buyer-nuovo" class="griglia3">
+        <label>Cognome <input name="buyer_cognome" value="{{.Cognome}}"></label>
+        <label>Nome <input name="buyer_nome" value="{{.Nome}}"></label>
+        <label>E-mail <input name="buyer_email" value="{{.Email}}"></label>
+        <label>Telefono <input name="buyer_telefono" placeholder="per note WhatsApp"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>RFQ</legend>
+      <label>Oggetto (nome cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
+      <label>Codici prodotto finito <input name="identificativi" value="{{.Identificativi}}" placeholder="separati da virgola"> <small class="muto">proposti dal triage: modificabili</small></label>
+      <div class="griglia3">
+        <label>Scadenza <input type="date" name="scadenza" value="{{.Scadenza}}"></label>
+        <label>Priorità <select name="priorita"><option value="1">normale</option><option value="2">alta</option><option value="3">urgente</option></select></label>
+        <label><input type="checkbox" name="campionatura" value="1"> campionatura</label>
+      </div>
+      <label>Note <input name="note"></label>
+      <p class="muto anteprima">Cartella: <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»; per un cliente nuovo «CLIENTE» diventa la sua cartella NAS)</small></p>
+    </fieldset>
+
+    {{template "triage_allegati" $}}
+
+    <div class="azioni">
+      <button type="submit" class="primario">Crea RFQ{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    </div>
+  </form>
+
+  {{else}}
+  <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello">
+    <fieldset>
+      <legend>RFQ aperta</legend>
+      <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…" autofocus
+             hx-get="/thread/cerca" hx-trigger="load, keyup changed delay:300ms" hx-target="#thread-risultati">
+      <div id="thread-risultati"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Mittente</legend>
+      <label><input type="checkbox" name="crea_buyer" value="1" {{if not .BuyerID.Valid}}checked{{end}}> censisci il mittente come buyer del cliente della RFQ</label>
+      <input type="hidden" name="buyer_id" value="__nuovo__">
+      <div class="griglia3">
+        <label>Cognome <input name="buyer_cognome" value="{{.Cognome}}"></label>
+        <label>Nome <input name="buyer_nome" value="{{.Nome}}"></label>
+        <label>E-mail <input name="buyer_email" value="{{.Email}}"></label>
+      </div>
+    </fieldset>
+    {{template "triage_allegati" $}}
+    <div class="azioni">
+      <button type="submit" class="primario">Aggancia{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    </div>
+  </form>
+  {{end}}
+</article>
+{{end}}
+{{end}}
+
+{{define "triage_allegati"}}
+{{with .Dati}}
+{{if .Allegati}}
+<fieldset>
+  <legend>Allegati da scaricare</legend>
+  <table>
+    {{range .Allegati}}{{if ne .Natura "inline"}}
+    <tr><td><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}" {{if .PreSpunta}}checked{{end}}></td>
+        <td>{{.NomeFile}}</td><td>{{kb .Bytes}}</td>
+        <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}{{end}}</td></tr>
+    {{end}}{{end}}
+  </table>
+  <small class="muto">Pre-spuntati: CAD, disegni, offerte, fogli di calcolo, zip. Immagini e PDF anonimi no. Nulla viene scaricato senza spunta.</small>
+</fieldset>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "buyer_select"}}
+{{with .Dati}}
+<label>Buyer
+  <select name="buyer_id" onchange="document.getElementById('buyer-nuovo').hidden = this.value !== '__nuovo__'">
+    {{range .Buyers}}<option value="{{.BuyerID}}" {{if and $.Dati.BuyerID.Valid (eq .BuyerID $.Dati.BuyerID.UUID)}}selected{{end}}>{{.Cognome}} {{.Nome.String}}{{if .Email.Valid}} &lt;{{.Email.String}}&gt;{{end}}</option>{{end}}
+    <option value="__nuovo__" {{if not .BuyerID.Valid}}selected{{end}}>➕ nuovo buyer (mittente)…</option>
+    <option value="__nessuno__">nessun buyer</option>
+  </select>
+</label>
+{{end}}
+{{end}}
+
+{{define "thread_risultati"}}
+{{if not .Dati}}<p class="muto">Nessuna RFQ aperta corrisponde.</p>{{end}}
+<ul class="risultati">
+{{range .Dati}}
+  <li><label><input type="radio" name="thread_id" value="{{.ThreadID}}" required>
+    <b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
+    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}</label></li>
+{{end}}
+</ul>
+{{end}}
+
+{{define "stato_worker"}}
+<span id="stato-worker" class="stato-worker" hx-get="/stato/worker" hx-trigger="every 15s" hx-swap="outerHTML">
+  {{range .Worker}}<span class="chip {{if .Online}}fatto{{else}}fallito{{end}}" title="worker {{.Tipo}}: ultimo contatto {{if .Mai}}mai{{else}}{{.Secondi}} s fa{{end}}">{{.Tipo}} {{if .Mai}}mai avviato{{else if .Online}}attivo{{else}}OFFLINE{{end}}</span> {{end}}
+</span>
 {{end}}

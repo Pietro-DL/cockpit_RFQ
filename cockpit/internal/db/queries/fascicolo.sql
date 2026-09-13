@@ -17,6 +17,12 @@ ON CONFLICT (allegato_id) DO UPDATE SET
     dettagli = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.dettagli ELSE documento_proposta.dettagli END
 RETURNING *;
 
+-- name: InsertPropostaSeAssente :exec
+-- prima proposta a ingest (solo nome file): non tocca mai una proposta esistente, che può essere già raffinata
+INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (allegato_id) DO NOTHING;
+
 -- name: GetProposta :one
 SELECT * FROM documento_proposta WHERE proposta_id = $1;
 
@@ -67,3 +73,19 @@ SELECT * FROM cartella_documento WHERE tipo = $1;
 
 -- name: ListCartellaDocumento :many
 SELECT * FROM cartella_documento ORDER BY tipo;
+
+-- name: ListProposteThreadTutte :many
+-- tutte le proposte (aperte e decise) degli allegati dei messaggi del thread, per la schermata B
+SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+WHERE m.thread_id = $1;
+
+-- name: ListProposteMessaggio :many
+SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1;
+
+-- name: GetComponentePerCodice :one
+SELECT * FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2) ORDER BY padre_id NULLS FIRST LIMIT 1;
+
+-- name: ListDocumentiMessaggio :many
+-- documenti confermati a partire dagli allegati di questo messaggio (per mostrare "sul NAS" accanto all'allegato)
+SELECT sqlc.embed(d), dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
+WHERE dp.messaggio_id = sqlc.arg(messaggio_id)::uuid;

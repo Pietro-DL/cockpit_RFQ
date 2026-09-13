@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +67,25 @@ var funzioni = template.FuncMap{
 		return out
 	},
 	"uuidBreve": func(u uuid.UUID) string { return u.String()[:8] },
+	"tipiDocumento": func() []string {
+		out := make([]string, 0, len(db.AllTipoDocumentoValues()))
+		for _, t := range db.AllTipoDocumentoValues() {
+			out = append(out, string(t))
+		}
+		return out
+	},
+	"vistaAllegati": func(a []AllegatoUI, messaggioID uuid.UUID, agganciato bool, ritornaThread string) allegatiVista {
+		v := allegatiVista{Allegati: a, MessaggioID: messaggioID, Agganciato: agganciato, RitornaThread: ritornaThread}
+		for _, x := range a {
+			if x.Scaricabile() {
+				v.NScaricabili++
+			}
+		}
+		return v
+	},
+	"rigaAllegato": func(a AllegatoUI, agganciato bool, ritornaThread string, figlio bool) rigaAllegato {
+		return rigaAllegato{A: a, Agganciato: agganciato, RitornaThread: ritornaThread, Figlio: figlio}
+	},
 	"colore": func(esito pgtype.Text, conf pgtype.Int2) string {
 		if !esito.Valid {
 			return ""
@@ -91,7 +109,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "cruscotto.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "cruscotto.html", "thread.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -110,10 +128,25 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.autenticato(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/inbox", http.StatusFound) }))
 	mux.HandleFunc("GET /inbox", s.autenticato(s.inbox))
 	mux.HandleFunc("POST /inbox/sync-storico", s.autenticato(s.syncStorico))
+	mux.HandleFunc("GET /inbox/sync-storico/stato", s.autenticato(s.syncStoricoStato))
+	mux.HandleFunc("GET /stato/worker", s.autenticato(s.statoWorker))
 	mux.HandleFunc("GET /messaggio/{id}", s.autenticato(s.messaggio))
 	mux.HandleFunc("POST /messaggio/{id}/apri", s.autenticato(s.apriInOutlook))
 	mux.HandleFunc("POST /messaggio/{id}/bozza", s.autenticato(s.bozza))
 	mux.HandleFunc("POST /messaggio/{id}/letto", s.autenticato(s.segnaLetto))
+	// blocco 4: triage
+	mux.HandleFunc("GET /messaggio/{id}/triage", s.autenticato(s.triageForm))
+	mux.HandleFunc("POST /messaggio/{id}/rfq", s.autenticato(s.nuovaRFQ))
+	mux.HandleFunc("POST /messaggio/{id}/aggancia", s.autenticato(s.agganciaEsistente))
+	mux.HandleFunc("POST /messaggio/{id}/ignora", s.autenticato(s.ignora))
+	mux.HandleFunc("GET /anagrafica/buyer", s.autenticato(s.buyerSelect))
+	mux.HandleFunc("GET /thread/cerca", s.autenticato(s.cercaThread))
+	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
+	// download su richiesta e smistamento (blocco 5)
+	mux.HandleFunc("POST /messaggio/{id}/scarica", s.autenticato(s.scarica))
+	mux.HandleFunc("POST /allegato/{id}/riscarica", s.autenticato(s.riscarica))
+	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
+	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /admin/job", s.autenticato(s.adminJob))
 	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.autenticato(s.riaccodaJob))
@@ -126,11 +159,47 @@ type vista struct {
 	Titolo    string
 	Dati      any
 	Frammento bool
+	Worker    []presenzaUI
+}
+
+// presenzaUI è lo stato di un worker per la testata: un worker che non fa claim da più di 60 s è offline.
+type presenzaUI struct {
+	Tipo    string
+	Online  bool
+	Mai     bool
+	Secondi int
+}
+
+func (s *Server) presenzaWorker(ctx context.Context) []presenzaUI {
+	out := []presenzaUI{{Tipo: "outlook", Mai: true}, {Tipo: "analisi", Mai: true}}
+	righe, err := db.New(s.Pool).ListWorkerPresenza(ctx)
+	if err != nil {
+		return out
+	}
+	for _, r := range righe {
+		for i := range out {
+			if out[i].Tipo == string(r.WorkerTipo) {
+				sec := int(time.Since(r.UltimoClaim).Seconds())
+				out[i] = presenzaUI{Tipo: out[i].Tipo, Online: sec <= 60, Secondi: sec}
+			}
+		}
+	}
+	return out
+}
+
+func (s *Server) statoWorker(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.pagine["inbox.html"].ExecuteTemplate(w, "stato_worker", vista{Worker: s.presenzaWorker(r.Context()), Frammento: true}); err != nil {
+		s.Log.Error("template", "frammento", "stato_worker", "err", err)
+	}
 }
 
 func (s *Server) rendi(w http.ResponseWriter, r *http.Request, pagina, frammento string, titolo string, dati any) {
 	t := s.pagine[pagina]
 	v := vista{Utente: utenteDa(r.Context()), Titolo: titolo, Dati: dati, Frammento: r.Header.Get("HX-Request") == "true"}
+	if !v.Frammento {
+		v.Worker = s.presenzaWorker(r.Context())
+	}
 	nome := "layout"
 	if v.Frammento && frammento != "" {
 		nome = frammento
@@ -262,7 +331,7 @@ type inboxDati struct {
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	filtro := r.URL.Query().Get("filtro")
-	if filtro != "agganciati" && filtro != "tutti" {
+	if filtro != "agganciati" && filtro != "tutti" && filtro != "ignorati" {
 		filtro = "orfani"
 	}
 	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Limite: 200, Salta: 0})
@@ -275,58 +344,90 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
 }
 
+// syncStorico accoda una finestra di 30 giorni PRIMA di quanto già coperto: il limite superiore è il cursore
+// storico_fino_a (se un "Carica precedenti" è già riuscito) oppure la mail più vecchia in archivio.
+// Chiave per finestra: un solo job pendente alla volta; a job concluso il click successivo prende la finestra prima.
 func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var minData time.Time
-	err := s.Pool.QueryRow(ctx, "SELECT COALESCE(MIN(data_evento), now()) FROM messaggio").Scan(&minData)
-	if err != nil {
-		s.Log.Error("query min data_evento", "err", err)
-		minData = time.Now()
-	}
-	al := minData
-	dal := minData.AddDate(0, 0, -30)
-
 	q := db.New(s.Pool)
-	cursori, _ := q.ListSyncCursori(ctx)
-	var cartelle []api.CartellaCursore
-	if len(cursori) > 0 {
-		for _, c := range cursori {
-			cartelle = append(cartelle, api.CartellaCursore{Cartella: c.Cartella, UltimoReceived: nil})
-		}
-	} else {
-		cartelle = []api.CartellaCursore{
-			{Cartella: "Inbox", UltimoReceived: nil},
-			{Cartella: "Sent Items", UltimoReceived: nil},
-		}
+	if j, err := q.JobPendentePerChiave(ctx, pgtype.Text{String: "sync_storico", Valid: true}); err == nil {
+		s.badgeStorico(w, &j)
+		return
 	}
-
-	payload := api.PayloadSyncOutlook{
-		Cartelle:         cartelle,
-		Dal:              dal,
-		Al:               &al,
-		SovrapposizioneS: 600,
-		Lotto:            50,
+	al, dal, cartelle, err := s.finestraStorico(ctx, q)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
-
-	chiave := fmt.Sprintf("sync_storico:%d", dal.Unix())
-	job, err := jobs.Accoda(ctx, q, db.TipoJobSyncOutlook, payload, chiave, 2)
+	payload := api.PayloadSyncOutlook{Cartelle: cartelle, Dal: dal, Al: &al, SovrapposizioneS: 600, Lotto: 50}
+	// la chiave è fissa: l'indice parziale garantisce al più un sync storico pendente, e a job chiuso se ne può accodare un altro
+	job, err := jobs.Accoda(ctx, q, db.TipoJobSyncOutlook, payload, "sync_storico", 2)
 	if err != nil {
 		s.Log.Error("accoda sync storico", "err", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if job == nil {
-		fmt.Fprintf(w, `<span class="badge avviso">Sync storico già in coda [%s - %s]</span>`, dal.Format("02/01/2006"), al.Format("02/01/2006"))
-		return
-	}
-	fmt.Fprintf(w, `<span class="badge verde">Accodato sync storico #%d [%s - %s]</span>`, job.JobID, dal.Format("02/01/2006"), al.Format("02/01/2006"))
+	s.badgeStorico(w, job)
 }
 
-type AllegatoUI struct {
-	db.Allegato
-	FileMancante bool
+// finestraStorico calcola [al-30gg, al] e le cartelle da leggere (senza cursore: finestra esatta).
+func (s *Server) finestraStorico(ctx context.Context, q *db.Queries) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
+	cursori, _ := q.ListSyncCursori(ctx)
+	for _, c := range cursori {
+		cartelle = append(cartelle, api.CartellaCursore{Cartella: c.Cartella})
+		if c.StoricoFinoA != nil && (al.IsZero() || c.StoricoFinoA.Before(al)) {
+			al = *c.StoricoFinoA
+		}
+	}
+	if len(cartelle) == 0 {
+		cartelle = []api.CartellaCursore{{Cartella: "Inbox"}, {Cartella: "Sent Items"}}
+	}
+	if al.IsZero() {
+		var minData *time.Time
+		if err = s.Pool.QueryRow(ctx, "SELECT min(data_evento) FROM messaggio WHERE canale = 'outlook' AND parent_messaggio_id IS NULL").Scan(&minData); err != nil {
+			return
+		}
+		if minData != nil {
+			al = *minData
+		} else {
+			al = time.Now()
+		}
+	}
+	dal = al.AddDate(0, 0, -30)
+	return
+}
+
+// syncStoricoStato è il frammento che il badge ricarica finché il job non è chiuso.
+func (s *Server) syncStoricoStato(w http.ResponseWriter, r *http.Request) {
+	q := db.New(s.Pool)
+	if j, err := q.JobPendentePerChiave(r.Context(), pgtype.Text{String: "sync_storico", Valid: true}); err == nil {
+		s.badgeStorico(w, &j)
+		return
+	}
+	j, err := q.UltimoJobPerChiavePrefisso(r.Context(), "sync_storico")
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	s.badgeStorico(w, &j)
+}
+
+func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
+	var p api.PayloadSyncOutlook
+	_ = json.Unmarshal(j.Payload, &p)
+	finestra := p.Dal.Local().Format("02/01/2006")
+	if p.Al != nil {
+		finestra += " – " + p.Al.Local().Format("02/01/2006")
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	switch j.Stato {
+	case db.StatoJobPronto, db.StatoJobInCorso:
+		fmt.Fprintf(w, `<span class="badge avviso" hx-get="/inbox/sync-storico/stato" hx-trigger="every 3s" hx-swap="outerHTML">Sync storico #%d %s [%s]…</span>`, j.JobID, j.Stato, finestra)
+	case db.StatoJobFatto:
+		fmt.Fprintf(w, `<span class="badge verde">Sync storico #%d completato [%s]. Premi di nuovo per il mese precedente.</span>`, j.JobID, finestra)
+	default:
+		fmt.Fprintf(w, `<span class="badge errore">Sync storico #%d fallito: %s</span>`, j.JobID, template.HTMLEscapeString(j.Errore.String))
+	}
 }
 
 type messaggioDati struct {
@@ -334,10 +435,30 @@ type messaggioDati struct {
 	Riga     db.VInbox
 	Outlook  *db.MessaggioOutlook
 	Allegati []AllegatoUI
-	Proposte map[uuid.UUID]db.DocumentoProposta
 	Portale  []db.RiferimentoPortale
 	Bozze    []db.Bozza
+	Thread   *db.ThreadOfferta
 	Avviso   string
+}
+
+// Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
+func (d *messaggioDati) Agganciato() bool { return d.Thread != nil }
+
+// allegatiVista e rigaAllegato sono i dati passati ai frammenti "allegati_tabella" e "allegato_riga",
+// condivisi fra il pannello del messaggio e la schermata B.
+type allegatiVista struct {
+	Allegati      []AllegatoUI
+	MessaggioID   uuid.UUID
+	Agganciato    bool
+	RitornaThread string
+	NScaricabili  int
+}
+
+type rigaAllegato struct {
+	A             AllegatoUI
+	Agganciato    bool
+	RitornaThread string
+	Figlio        bool
 }
 
 func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
@@ -364,33 +485,17 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioD
 	if err != nil {
 		return nil, err
 	}
-	d := &messaggioDati{M: m, Proposte: map[uuid.UUID]db.DocumentoProposta{}}
+	d := &messaggioDati{M: m}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
 	if o, err := q.GetMessaggioOutlook(ctx, id); err == nil {
 		d.Outlook = &o
 	}
-	allegati, _ := q.ListAllegatiMessaggio(ctx, id)
-	for _, a := range allegati {
-		var mancante bool
-		if a.PathStaging.Valid && a.PathStaging.String != "" {
-			if _, err := os.Stat(a.PathStaging.String); err != nil {
-				mancante = true
-			}
-		} else if a.Stato == db.StatoAllegatoInStaging || a.Stato == db.StatoAllegatoAnalizzato {
-			mancante = true
-		}
-		d.Allegati = append(d.Allegati, AllegatoUI{
-			Allegato:     a,
-			FileMancante: mancante,
-		})
-	}
-	rows, _ := s.Pool.Query(ctx, `SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1`, id)
-	if rows != nil {
-		props, _ := pgx.CollectRows(rows, pgx.RowToStructByName[db.DocumentoProposta])
-		for _, p := range props {
-			d.Proposte[p.AllegatoID] = p
+	if m.ThreadID.Valid {
+		if t, err := q.GetThread(ctx, m.ThreadID.UUID); err == nil {
+			d.Thread = &t
 		}
 	}
+	d.Allegati, _ = s.allegatiUI(ctx, q, id)
 	rp, _ := s.Pool.Query(ctx, `SELECT * FROM riferimento_portale WHERE messaggio_id = $1 ORDER BY creato_il`, id)
 	if rp != nil {
 		d.Portale, _ = pgx.CollectRows(rp, pgx.RowToStructByName[db.RiferimentoPortale])
@@ -415,7 +520,8 @@ func (s *Server) apriInOutlook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "messaggio non Outlook", 404)
 		return
 	}
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: o.EntryID, StoreID: o.StoreID}, "", 1); err != nil {
+	m, _ := q.GetMessaggio(r.Context(), id)
+	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: o.EntryID, StoreID: o.StoreID, RiferimentoElemento: rif(m)}, "", 1); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -435,7 +541,8 @@ func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	letto := r.FormValue("letto") != "0"
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobSegnaLetto, api.PayloadSegnaLetto{EntryID: o.EntryID, StoreID: o.StoreID, Letto: letto}, "", 2); err != nil {
+	m, _ := q.GetMessaggio(r.Context(), id)
+	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobSegnaLetto, api.PayloadSegnaLetto{EntryID: o.EntryID, StoreID: o.StoreID, Letto: letto, RiferimentoElemento: rif(m)}, "", 2); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -488,7 +595,7 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := jobs.Accoda(ctx, q, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
 		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: o.EntryID, StoreID: o.StoreID, Destinatari: []api.Destinatario{},
-		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false,
+		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rif(m),
 	}, "bozza:"+b.BozzaID.String(), 1); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -498,6 +605,12 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.avviso(w, "Bozza in preparazione: si apre in Outlook tra pochi secondi. Rileggi e premi Invia lì.")
+}
+
+// rif costruisce il riferimento stabile all'elemento (Message-ID) per i job che lo devono ritrovare in Outlook.
+func rif(m db.Messaggio) api.RiferimentoElemento {
+	id := m.MessaggioID
+	return api.RiferimentoElemento{MessaggioID: &id, MessageID: m.ChiaveEsterna}
 }
 
 func (s *Server) avviso(w http.ResponseWriter, testo string) {

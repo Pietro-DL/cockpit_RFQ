@@ -1,0 +1,23 @@
+{
+  "description": "Dove l'elemento è stato trovato davvero.",
+  "properties": {
+    "entry_id": {
+      "default": "",
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "default": "",
+      "title": "Store Id",
+      "type": "string"
+    },
+    "cartella": {
+      "default": "",
+      "title": "Cartella",
+      "type": "string"
+    }
+  },
+  "title": "RisultatoElemento",
+  "type": "object",
+  "$id": "cockpit/risultato_elemento"
+}

@@ -28,6 +28,24 @@
     }
   },
   "properties": {
+    "messaggio_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Messaggio Id"
+    },
+    "message_id": {
+      "default": "",
+      "title": "Message Id",
+      "type": "string"
+    },
     "bozza_id": {
       "format": "uuid",
       "title": "Bozza Id",

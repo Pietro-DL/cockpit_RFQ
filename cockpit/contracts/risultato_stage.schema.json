@@ -1,5 +1,20 @@
 {
   "properties": {
+    "entry_id": {
+      "default": "",
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "store_id": {
+      "default": "",
+      "title": "Store Id",
+      "type": "string"
+    },
+    "cartella": {
+      "default": "",
+      "title": "Cartella",
+      "type": "string"
+    },
     "allegato_id": {
       "format": "uuid",
       "title": "Allegato Id",

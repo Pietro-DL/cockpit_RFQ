@@ -287,8 +287,9 @@ class Outlook:
 
     # ------------------------------------------------------------ allegati → staging
 
-    def salva_allegato(self, entry_id: str, store_id: str, indice: int, nome_file: str, cartella_staging: str) -> tuple[str, str, int]:
-        it = self._item(entry_id, store_id)
+    def salva_allegato(self, entry_id: str, store_id: str, indice: int, nome_file: str, cartella_staging: str,
+                       message_id: str = "") -> tuple[str, str, int, dict]:
+        it = self._item(entry_id, store_id, message_id)
         if indice < 1 or indice > it.Attachments.Count:
             raise ErroreDefinitivo(f"allegato {indice} non presente (l'elemento ne ha {it.Attachments.Count})")
         a = it.Attachments.Item(indice)
@@ -301,37 +302,95 @@ class Outlook:
         except pywintypes.com_error as e:
             raise ErroreDefinitivo(f"SaveAsFile fallito: {e}") from e
         sha, n = sha256_file(dest)
-        return dest, sha, n
+        return dest, sha, n, self.dove(it)
 
     # ------------------------------------------------------------ comandi
 
-    def _item(self, entry_id: str, store_id: str):
+    def _item(self, entry_id: str, store_id: str, message_id: str = ""):
+        """Ritrova l'elemento: prima per EntryID (veloce), poi per Message-ID in tutte le cartelle dello store
+        (l'EntryID cambia quando l'elemento viene spostato dopo l'ultimo sync)."""
         try:
             return self.ns.GetItemFromID(entry_id, store_id)
         except pywintypes.com_error as e:
-            if e.hresult == MAPI_E_NOT_FOUND or (e.excepinfo and e.excepinfo[5] == MAPI_E_NOT_FOUND):
-                raise ErroreDefinitivo("elemento non trovato (spostato o eliminato?)") from e
-            raise
+            if not (e.hresult == MAPI_E_NOT_FOUND or (e.excepinfo and e.excepinfo[5] == MAPI_E_NOT_FOUND)):
+                raise
+        if message_id:
+            it = self._cerca_per_message_id(message_id)
+            if it is not None:
+                log.info("elemento ritrovato per Message-ID in %s", it.Parent.Name)
+                return it
+        raise ErroreDefinitivo("elemento non trovato in nessuna cartella (eliminato?)")
 
-    def apri(self, entry_id: str, store_id: str) -> None:
-        self._item(entry_id, store_id).Display(False)
+    def _cerca_per_message_id(self, message_id: str):
+        """DASL Find sulla proprietà PR_INTERNET_MESSAGE_ID, cartella per cartella (locale-indipendente)."""
+        filtro = "@SQL=\"%s\" = '%s'" % (PR_INTERNET_MESSAGE_ID, message_id.replace("'", "''"))
+        for cartella in self._tutte_le_cartelle():
+            try:
+                if cartella.DefaultItemType != 0:
+                    continue
+                it = cartella.Items.Find(filtro)
+                if it is not None:
+                    return it
+            except pywintypes.com_error:
+                continue
+        return None
 
-    def segna_letto(self, entry_id: str, store_id: str, letto: bool) -> None:
-        it = self._item(entry_id, store_id)
+    def _tutte_le_cartelle(self):
+        """Cartelle di posta dello store predefinito, in profondità (Inbox e Posta inviata per prime)."""
+        radice = self.ns.GetDefaultFolder(6).Parent
+        prime = []
+        for idx in (6, 5, 3, 16):
+            try:
+                prime.append(self.ns.GetDefaultFolder(idx))
+            except pywintypes.com_error:
+                pass
+        visti = set()
+        pila = prime + [radice]
+        while pila:
+            c = pila.pop(0)
+            try:
+                eid = c.EntryID
+            except pywintypes.com_error:
+                continue
+            if eid in visti:
+                continue
+            visti.add(eid)
+            yield c
+            try:
+                pila.extend(list(c.Folders))
+            except pywintypes.com_error:
+                pass
+
+    @staticmethod
+    def dove(it) -> dict:
+        """EntryID/StoreID/cartella effettivi dell'elemento: il server riallinea messaggio_outlook."""
+        try:
+            return {"entry_id": it.EntryID, "store_id": it.Parent.StoreID, "cartella": it.Parent.Name}
+        except pywintypes.com_error:
+            return {}
+
+    def apri(self, entry_id: str, store_id: str, message_id: str = "") -> dict:
+        it = self._item(entry_id, store_id, message_id)
+        it.Display(False)
+        return self.dove(it)
+
+    def segna_letto(self, entry_id: str, store_id: str, letto: bool, message_id: str = "") -> dict:
+        it = self._item(entry_id, store_id, message_id)
         it.UnRead = not letto
         it.Save()
+        return self.dove(it)
 
-    def sposta(self, entry_id: str, store_id: str, cartella: str) -> str:
-        it = self._item(entry_id, store_id)
+    def sposta(self, entry_id: str, store_id: str, cartella: str, message_id: str = "") -> dict:
+        it = self._item(entry_id, store_id, message_id)
         nuovo = it.Move(self.cartella(cartella))
-        return nuovo.EntryID
+        return self.dove(nuovo)
 
     def crea_bozza(self, p: PayloadCreaBozza) -> tuple[str, bool]:
         """Prepara la mail e la lascia come bozza aperta in Outlook. Send() solo con consenti_invio."""
         if p.tipo == "nuovo":
             item = self.app.CreateItem(0)
         else:
-            orig = self._item(p.entry_id, p.store_id)
+            orig = self._item(p.entry_id, p.store_id, p.message_id)
             if p.tipo in ("risposta", "sollecito"):
                 item = orig.Reply()
             elif p.tipo == "rispondi_tutti":
