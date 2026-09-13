@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -323,11 +324,16 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `<span class="badge verde">Accodato sync storico #%d [%s - %s]</span>`, job.JobID, dal.Format("02/01/2006"), al.Format("02/01/2006"))
 }
 
+type AllegatoUI struct {
+	db.Allegato
+	FileMancante bool
+}
+
 type messaggioDati struct {
 	M        db.Messaggio
 	Riga     db.VInbox
 	Outlook  *db.MessaggioOutlook
-	Allegati []db.Allegato
+	Allegati []AllegatoUI
 	Proposte map[uuid.UUID]db.DocumentoProposta
 	Portale  []db.RiferimentoPortale
 	Bozze    []db.Bozza
@@ -363,7 +369,21 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioD
 	if o, err := q.GetMessaggioOutlook(ctx, id); err == nil {
 		d.Outlook = &o
 	}
-	d.Allegati, _ = q.ListAllegatiMessaggio(ctx, id)
+	allegati, _ := q.ListAllegatiMessaggio(ctx, id)
+	for _, a := range allegati {
+		var mancante bool
+		if a.PathStaging.Valid && a.PathStaging.String != "" {
+			if _, err := os.Stat(a.PathStaging.String); err != nil {
+				mancante = true
+			}
+		} else if a.Stato == db.StatoAllegatoInStaging || a.Stato == db.StatoAllegatoAnalizzato {
+			mancante = true
+		}
+		d.Allegati = append(d.Allegati, AllegatoUI{
+			Allegato:     a,
+			FileMancante: mancante,
+		})
+	}
 	rows, _ := s.Pool.Query(ctx, `SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1`, id)
 	if rows != nil {
 		props, _ := pgx.CollectRows(rows, pgx.RowToStructByName[db.DocumentoProposta])

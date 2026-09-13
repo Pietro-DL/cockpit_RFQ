@@ -28,32 +28,21 @@ from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoR
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("worker-analisi")
 
-# Parole chiave cartiglio tecnico (CAD 2D/3D)
-TERMINI_CARTIGLIO = [
-    "TOLLERANZE",
-    "TOLLERANZA",
-    "MATERIALE",
-    "SCALA",
-    "PESO",
-    "TRATTAMENTO",
+# Parole chiave cartiglio tecnico CAD 2D (da specifiche utente)
+TERMINI_CARTIGLIO_CAD = [
     "ZONA ESENTE DA SALDATURA",
-    "DISEGNO",
-    "DRAWING",
-    "TITLE BLOCK",
-    "PROPRIETA' RISERVATA",
-    "CONFIDENTIAL PROPERTY",
+    "TOLLERANZE GENERALI",
+    "PESO KG",
+    "SCALA",
 ]
 
-# Parole chiave offerte commerciali
-TERMINI_COMMERCIALI = [
+# Parole chiave offerte commerciali (da specifiche utente)
+TERMINI_OFFERTE_COMMERCIALI = [
     "SPETT. LE OFFERTA",
     "SPETT.LE OFFERTA",
     "CONDIZIONI GENERALI DI VENDITA",
     "PAGAMENTO",
     "INCOTERMS",
-    "CONDIZIONI GENERALI",
-    "PREZZO UNITARIO",
-    "PRZ. UNIT.",
 ]
 
 STOP_CODICI = {
@@ -143,7 +132,7 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
         with pymupdf.open(percorso) as doc:
             for i, pag in enumerate(doc):
                 testo_completo += pag.get_text() + "\n"
-                if i >= 10:  # non serve scorrere documenti enormi oltre 10 pagine
+                if i >= 10:  # non serve scorrere oltre 10 pagine
                     break
     except Exception as e:
         log.warning("impossibile leggere PDF %s con pymupdf: %s", percorso, e)
@@ -156,14 +145,16 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
             "dettagli": {"errore_pdf": str(e)},
         }
 
-    testo_upper = testo_completo.upper()
+    # Normalizza spaziature e newline per ricerca esatta case-insensitive
+    testo_norm = re.sub(r"\s+", " ", testo_completo).upper()
     nome_upper = nome_file.upper().strip()
     nome_senza_ext = Path(nome_file).stem
 
-    # 1. Regola Offerte Commerciali
-    # Se il nome file inizia per "SO " o il testo contiene pattern commerciali
-    trovati_comm = [t for t in TERMINI_COMMERCIALI if t in testo_upper]
-    if nome_upper.startswith("SO ") or len(trovati_comm) >= 2 or "SPETT. LE OFFERTA" in testo_upper or "SPETT.LE OFFERTA" in testo_upper or "CONDIZIONI GENERALI DI VENDITA" in testo_upper:
+    # 1. Regola Offerte Commerciali:
+    # Se il PDF contiene "Spett. le Offerta", "CONDIZIONI GENERALI DI VENDITA", "Pagamento" o "Incoterms",
+    # oppure il nome file inizia per "SO "
+    trovati_comm = [t for t in TERMINI_OFFERTE_COMMERCIALI if t in testo_norm]
+    if nome_upper.startswith("SO ") or trovati_comm:
         log.info("Riconosciuta offerta commerciale in %s (termini: %s)", nome_file, trovati_comm)
         return {
             "tipo_proposto": "offerta_promatec",
@@ -174,32 +165,40 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
             "dettagli": {"commerciale": True, "termini_trovati": trovati_comm},
         }
 
-    # 2. Regola CAD 2D/3D (Cartiglio tecnico)
-    # Campi tipici cartiglio + rispetto pattern codice nel nome file
-    trovati_cart = [t for t in TERMINI_CARTIGLIO if t in testo_upper]
+    # 2. Regola CAD 2D:
+    # Se il PDF contiene "ZONA ESENTE DA SALDATURA", "TOLLERANZE GENERALI", "PESO kG" o "SCALA"
+    trovati_cad = [t for t in TERMINI_CARTIGLIO_CAD if t in testo_norm]
     codice, rev = separa_codice_rev(nome_senza_ext)
 
-    if trovati_cart and codice:
-        log.info("Riconosciuto cartiglio CAD in %s: codice=%s rev=%s (termini: %s)", nome_file, codice, rev, trovati_cart)
+    if trovati_cad:
+        log.info("Riconosciuto cartiglio CAD 2D in %s: codice=%s rev=%s (termini: %s)", nome_file, codice, rev, trovati_cad)
         return {
             "tipo_proposto": "disegno_2d",
             "codice": codice,
             "rev": rev,
             "confidenza": 95,
             "fonte": "cartiglio",
-            "dettagli": {"cartiglio": True, "termini_trovati": trovati_cart},
+            "dettagli": {"cartiglio": True, "termini_trovati": trovati_cad},
         }
 
-    if trovati_cart:
-        log.info("Trovati termini cartiglio ma nome file non e un codice valido (%s)", nome_file)
+    if codice:
         return {
             "tipo_proposto": "disegno_2d",
-            "codice": "",
-            "rev": "",
-            "confidenza": 75,
-            "fonte": "cartiglio",
-            "dettagli": {"cartiglio": True, "termini_trovati": trovati_cart},
+            "codice": codice,
+            "rev": rev,
+            "confidenza": 70,
+            "fonte": "nome_file",
+            "dettagli": {"codice_riconosciuto": codice},
         }
+
+    return {
+        "tipo_proposto": "altro",
+        "codice": "",
+        "rev": "",
+        "confidenza": 30,
+        "fonte": "estensione",
+        "dettagli": {},
+    }
 
     if codice:
         return {

@@ -49,12 +49,23 @@
   <section class="allegati">
     <h3>Allegati</h3>
     <table>
-      <tr><th>#</th><th>File</th><th>Natura</th><th>Dimensione</th><th>Staging</th><th>Proposta</th></tr>
+      <tr><th>#</th><th>File</th><th>Natura</th><th>Dimensione</th><th>Staging</th><th>Proposta</th><th>Azione</th></tr>
       {{range .Allegati}}
       <tr class="{{if eq .Natura "inline"}}muto{{end}}">
         <td>{{.Indice}}</td><td>{{.NomeFile}}</td><td>{{.Natura}}</td><td>{{kb .Bytes}}</td>
-        <td>{{.Stato}}{{if .Sha256.Valid}} <small title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}</td>
+        <td>
+          {{if .FileMancante}}
+            <span class="chip fallito" title="Il file è stato eliminato dalla cartella di staging">File non trovato su disco</span>
+          {{else}}
+            {{.Stato}}{{if .Sha256.Valid}} <small title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}
+          {{end}}
+        </td>
         <td>{{with index $.Dati.Proposte .AllegatoID}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small>{{.Confidenza}}% · {{.Fonte}}</small>{{end}}</td>
+        <td>
+          {{if and (not (eq .Natura "inline")) (with index $.Dati.Proposte .AllegatoID)}}
+            <button {{if .FileMancante}}disabled title="File non trovato su disco"{{else}}title="Conferma smistamento"{{end}}>Conferma</button>
+          {{end}}
+        </td>
       </tr>
       {{end}}
     </table>
