@@ -1,4 +1,4 @@
-# Ambiente di test isolato del Cockpit (piano di correzione, voce 0.5).
+﻿# Ambiente di test isolato del Cockpit (piano di correzione, voce 0.5).
 #
 # Un cluster PostgreSQL tutto suo, sotto %LOCALAPPDATA%, su una porta diversa da quella di sviluppo:
 # i test possono distruggere e ricreare lo schema senza avvicinarsi ai dati di lavoro. Il database si
@@ -11,6 +11,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Ferma
 #   powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Ricrea     # svuota il database
 #   powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Dsn        # stampa il DSN e basta
+#   powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Versione   # stampa la versione di PostgreSQL
 #
 # I binari sono quelli "senza installazione" di EnterpriseDB: non toccano il registro, non creano
 # servizi e non interferiscono con un PostgreSQL già installato sul PC.
@@ -21,6 +22,7 @@ param(
     [switch]$Stato,
     [switch]$Ricrea,
     [switch]$Dsn,
+    [switch]$Versione,
     [int]$Porta = 5433,
     [string]$VersionePg = "16.10-1"
 )
@@ -92,6 +94,12 @@ function Ricrea-Database {
 }
 
 if ($Dsn)      { Write-Output $indirizzoDsn; exit 0 }
+if ($Versione) {
+    # Serve al registro degli esiti: la versione va scritta, non ricordata a memoria.
+    if (Test-Path (Join-Path $binari "postgres.exe")) { & "$binari\postgres.exe" --version }
+    else { Write-Output "PostgreSQL non installato in $binari (usare -Installa)" }
+    exit 0
+}
 if ($Installa) { Assicura-Binari; Assicura-Cluster; exit 0 }
 if ($Ferma)    { if (In-Esecuzione) { & "$binari\pg_ctl.exe" -D $cluster -m fast -w stop | Out-Null; Write-Host "fermato" -ForegroundColor Green } else { Write-Host "non era in esecuzione" }; exit 0 }
 if ($Ricrea)   { Ricrea-Database; exit 0 }
@@ -108,4 +116,4 @@ if ($Avvia) {
     exit 0
 }
 
-Write-Host "uso: db-test.ps1 -Installa | -Avvia | -Ferma | -Stato | -Ricrea | -Dsn"
+Write-Host "uso: db-test.ps1 -Installa | -Avvia | -Ferma | -Stato | -Ricrea | -Dsn | -Versione"

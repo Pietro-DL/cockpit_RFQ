@@ -1,4 +1,4 @@
-# Backup del database del Cockpit con prova di ripristino (piano, voce 9.4; N39).
+﻿# Backup del database del Cockpit con prova di ripristino (piano, voce 9.4; N39).
 #
 # Un backup vale quanto il ripristino che è stato provato. Qui il backup non è considerato riuscito
 # perché il file esiste o perché è più grande di zero byte: viene ripristinato davvero in un database

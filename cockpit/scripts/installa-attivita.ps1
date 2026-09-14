@@ -1,4 +1,4 @@
-# Avvio automatico e riavvio dei worker come attività pianificate (piano, voce 9.1).
+﻿# Avvio automatico e riavvio dei worker come attività pianificate (piano, voce 9.1).
 #
 # I worker devono ripartire da soli dopo un riavvio del PC, un crash o un arresto volontario
 # (`os._exit(3)` quando il lease è perso, fase 1 voce 1.5): senza riavvio automatico il recupero del
@@ -22,8 +22,11 @@ param(
 $ErrorActionPreference = "Stop"
 $radice = Split-Path -Parent $PSScriptRoot
 $workers = Join-Path $radice "workers"
-$python = (Get-Command python -ErrorAction SilentlyContinue)?.Source
-if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue)?.Source }
+# Niente operatore ?. : Windows PowerShell 5.1, che è quello installato sui PC, non lo conosce
+# e il file non verrebbe nemmeno letto.
+$cmd = Get-Command python -ErrorAction SilentlyContinue
+if (-not $cmd) { $cmd = Get-Command py -ErrorAction SilentlyContinue }
+$python = if ($cmd) { $cmd.Source } else { $null }
 
 $attivita = @(
     @{ Nome = "$Prefisso - worker Outlook"; Script = "worker_outlook.py" },

@@ -13,6 +13,8 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
 `cockpit.exe` (Go) è l'unico che parla con il database e con il NAS. I worker Python non hanno
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
+Che cosa introduce l'ultima fase di lavoro e che cosa resta non verificato: [FASE_0.md](FASE_0.md).
+
 **Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
 fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.
 
@@ -138,9 +140,14 @@ rotazione), così resta leggibile anche dopo aver chiuso il terminale.
 ### Tutto insieme, in sviluppo
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1   # compila e apre tre finestre
-powershell -ExecutionPolicy Bypass -File scripts\ferma-dev.ps1   # ferma tutto
+powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1               # server + worker analisi
+powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1 -ConOutlook   # anche il worker Outlook
+powershell -ExecutionPolicy Bypass -File scripts\ferma-dev.ps1               # ferma tutto
 ```
+
+Il worker Outlook non parte da solo: si attacca via COM alla casella vera del profilo di questo
+PC, quindi avviarlo è un accesso alla posta reale e serve chiederlo esplicitamente con
+`-ConOutlook`.
 
 ### In produzione, all'accensione del PC
 
@@ -151,7 +158,8 @@ powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Mostra  
 ```
 
 Le attività girano nella sessione interattiva dell'utente, perché Outlook classico lo richiede, e
-riavviano il worker se termina.
+riavviano il worker se termina. `-Installa` mette in avvio automatico **anche** il worker Outlook:
+va fatto solo su una postazione dove leggere quella casella è già stato autorizzato.
 
 ---
 
@@ -198,9 +206,17 @@ Tutto in una volta, con il registro degli esiti:
 powershell -ExecutionPolicy Bypass -File scripts\prova-tutto.ps1
 ```
 
-Scrive `docs\esiti\esiti_simulati.md` distinguendo PASSATO, FALLITO e SALTATO. Le prove che
+Scrive `docs\esiti\esiti_simulati.md` con il commit completo, le versioni degli strumenti e
+l'esito di ogni prova, distinguendo PASSATO, FALLITO, SALTATO e NON ESEGUITO. Le prove che
 richiedono Outlook, Exchange o due postazioni vere si annotano a mano in `docs\esiti\esiti_reali.md` e
 non si deducono mai da una prova simulata.
+
+Due avvertenze sulla lettura degli esiti:
+
+- `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic
+  rispettino gli schemi di `contracts/`. Quel livello di prova non esiste ancora e nel
+  registro compare come NON ESEGUITO.
+- un test **saltato** non è un test superato: è una verifica che non è stata fatta.
 
 ## Manutenzione
 
