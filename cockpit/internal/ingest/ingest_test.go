@@ -11,6 +11,7 @@ import (
 
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/testutil"
 )
 
 // Test d'integrazione su DB reale (SPEC blocco 2): richiede COCKPIT_TEST_DSN, altrimenti viene saltato.
@@ -27,6 +28,7 @@ func pool(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testutil.SchemaPresente(t, p) // l'ordine dei pacchetti non è garantito: lo schema può essere stato ricreato
 	t.Cleanup(func() {
 		ctx := context.Background()
 		_, _ = p.Exec(ctx, `DELETE FROM job WHERE chiave_idempotenza LIKE 'stage:%' AND payload->>'entry_id' LIKE 'ENTRY-TEST-%'`)

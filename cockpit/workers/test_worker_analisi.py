@@ -1,6 +1,22 @@
 import os
 from pathlib import Path
+
+import pytest
+
 from worker_analisi import analizza_file, sembra_codice, separa_codice_rev
+
+# I due test sui PDF veri hanno bisogno del corpus riservato, che non sta nel repository.
+# Se manca vengono SALTATI, non passati in silenzio: un test che non verifica nulla ma si dichiara
+# verde è peggio di un test assente, perché toglie il segnale senza togliere la fiducia.
+# La fase 5 del piano (voce 5.5) li sostituirà con PDF generati, che il repository può contenere.
+CORPUS = Path(os.environ.get("COCKPIT_CORPUS", r"C:\promatec\docs"))
+
+
+def corpus(nome: str) -> Path:
+    p = CORPUS / nome
+    if not p.exists():
+        pytest.skip(f"corpus assente: {p} (impostare COCKPIT_CORPUS)")
+    return p
 
 
 def test_sembra_codice():
@@ -18,24 +34,22 @@ def test_separa_codice_rev():
 
 
 def test_analisi_offerta_promatec():
-    doc_path = Path(r"C:\promatec\docs\SO 5467.pdf")
-    if doc_path.exists():
-        res = analizza_file(str(doc_path), "SO 5467.pdf")
-        assert res["tipo_proposto"] == "offerta_promatec"
-        assert res["codice"] == ""
-        assert res["rev"] == ""
-        assert res["confidenza"] == 95
-        assert res["fonte"] == "cartiglio"
-        assert res["dettagli"].get("commerciale") is True
+    doc_path = corpus("SO 5467.pdf")
+    res = analizza_file(str(doc_path), "SO 5467.pdf")
+    assert res["tipo_proposto"] == "offerta_promatec"
+    assert res["codice"] == ""
+    assert res["rev"] == ""
+    assert res["confidenza"] == 95
+    assert res["fonte"] == "cartiglio"
+    assert res["dettagli"].get("commerciale") is True
 
 
 def test_analisi_cad_2d():
-    doc_path = Path(r"C:\promatec\docs\6674611A_4.pdf")
-    if doc_path.exists():
-        res = analizza_file(str(doc_path), "6674611A_4.pdf")
-        assert res["tipo_proposto"] == "disegno_2d"
-        assert res["codice"] == "6674611A"
-        assert res["rev"] == "4"
-        assert res["confidenza"] == 95
-        assert res["fonte"] == "cartiglio"
-        assert res["dettagli"].get("cartiglio") is True
+    doc_path = corpus("6674611A_4.pdf")
+    res = analizza_file(str(doc_path), "6674611A_4.pdf")
+    assert res["tipo_proposto"] == "disegno_2d"
+    assert res["codice"] == "6674611A"
+    assert res["rev"] == "4"
+    assert res["confidenza"] == 95
+    assert res["fonte"] == "cartiglio"
+    assert res["dettagli"].get("cartiglio") is True

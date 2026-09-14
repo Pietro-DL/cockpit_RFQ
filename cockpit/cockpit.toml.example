@@ -12,9 +12,9 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 
 [nas]
 # La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
-radice = 'C:\promatec\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
+radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
 dry_run = false                                      # true = calcola i percorsi senza scrivere
-staging = 'C:\promatec\_staging'
+staging = '...\_staging'
 
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
@@ -22,6 +22,9 @@ intervallo_sync_s = 60
 dal = "2026-08-01" # facoltativo: se non specificato usa il cursore o un mese fa
 lotto = 50
 consenti_invio = false
+# Casella attribuita ai messaggi che non la dichiarano (fase 1, finché il contratto non porta
+# casella_id). Con una sola [[casella]] si deduce da sola; con più di una è obbligatoria.
+casella_default = "nome.cognome@azienda.it"
 
 [[utenti]]
 sigla = "PS"
@@ -29,3 +32,42 @@ nome = "Pietro Spinozzi"
 ufficio = "Sviluppo"
 ruolo = "admin"
 password = "INSERISCI_PASSWORD_INIZIALE"
+
+# ---------------------------------------------------------------------------
+# Fondazioni (migrazione 0002): caselle, postazioni, worker.
+# Seminate a ogni avvio in modo NON distruttivo: una riga tolta da qui non viene disattivata,
+# viene solo segnalata nel log. Gli indirizzi sono normalizzati in minuscolo, i nomi host in
+# maiuscolo: la stessa casella scritta in due modi resta una casella sola.
+# ---------------------------------------------------------------------------
+
+# Una casella condivisa Exchange NON ha proprietario: `utente` va lasciato fuori.
+[[casella]]
+indirizzo = "commerciale@azienda.it"
+nome      = "Commerciale"
+condivisa = true
+
+# Una casella personale ha come proprietario la sigla di un utente dichiarato in [[utenti]].
+[[casella]]
+indirizzo = "nome.cognome@azienda.it"
+nome      = "Nome Cognome"
+utente    = "NC"
+
+[[postazione]]
+nome_host   = "PC-NOME"
+descrizione = "portatile commerciale"
+utente      = "NC"
+
+# Un worker per postazione e per tipo. Il token sta solo qui: nel database finisce il suo sha256.
+# `caselle` è l'autorizzazione: il server interseca con quello che il worker dichiara al claim.
+[[worker]]
+nome       = "outlook@PC-NOME"
+tipo       = "outlook"
+token      = "INSERISCI_TOKEN_DI_QUESTO_WORKER"
+postazione = "PC-NOME"
+caselle    = ["nome.cognome@azienda.it", "commerciale@azienda.it"]
+
+[[worker]]
+nome       = "analisi@PC-NOME"
+tipo       = "analisi"
+token      = "INSERISCI_TOKEN_DI_QUESTO_WORKER"
+postazione = "PC-NOME"

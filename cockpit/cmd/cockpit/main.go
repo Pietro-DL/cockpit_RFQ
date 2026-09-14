@@ -19,8 +19,10 @@ import (
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/migrazioni"
 	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/web"
 	"promatec/cockpit/internal/workerapi"
@@ -28,14 +30,15 @@ import (
 
 func main() {
 	cfgPath := flag.String("config", "cockpit.toml", "percorso di cockpit.toml")
+	soloMigrazioni := flag.Bool("migra", false, "applica le migrazioni e il seed, poi esce (nessun ascolto HTTP)")
 	flag.Parse()
-	if err := run(*cfgPath); err != nil {
+	if err := run(*cfgPath, *soloMigrazioni); err != nil {
 		fmt.Fprintln(os.Stderr, "errore:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfgPath string) error {
+func run(cfgPath string, soloMigrazioni bool) error {
 	cfg, err := config.Carica(cfgPath)
 	if err != nil {
 		return err
@@ -55,7 +58,7 @@ func run(cfgPath string) error {
 		return fmt.Errorf("db: %w", err)
 	}
 	defer pool.Close()
-	if err := migra(ctx, pool, log); err != nil {
+	if _, err := migrazioni.Applica(ctx, pool, risorse.FS, log); err != nil {
 		return err
 	}
 	q := db.New(pool)
@@ -65,6 +68,13 @@ func run(cfgPath string) error {
 	}
 	if err := web.SeedUtenti(ctx, q, utenti); err != nil {
 		return err
+	}
+	if _, err := fondazioni.Semina(ctx, q, cfg, log); err != nil {
+		return err
+	}
+	if soloMigrazioni {
+		log.Info("migrazioni e seed completati (-migra): esco senza mettermi in ascolto")
+		return nil
 	}
 
 	scrittore := &nas.Scrittore{Radice: cfg.NAS.Radice, DryRun: cfg.NAS.DryRun}
@@ -107,31 +117,6 @@ func run(cfgPath string) error {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	return nil
-}
-
-// migra applica migrations/0001_schema.sql se schema_versione è assente/vuota. Idempotente.
-func migra(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) error {
-	var esiste bool
-	if err := pool.QueryRow(ctx, "SELECT to_regclass('public.schema_versione') IS NOT NULL").Scan(&esiste); err != nil {
-		return fmt.Errorf("verifica schema: %w", err)
-	}
-	if esiste {
-		var v *int
-		_ = pool.QueryRow(ctx, "SELECT max(versione) FROM schema_versione").Scan(&v)
-		if v != nil {
-			log.Info("schema presente", "versione", *v)
-			return nil
-		}
-	}
-	sql, err := risorse.FS.ReadFile("migrations/0001_schema.sql")
-	if err != nil {
-		return err
-	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		return fmt.Errorf("migrazione: %w", err)
-	}
-	log.Info("migrazione applicata", "file", "0001_schema.sql")
 	return nil
 }
 

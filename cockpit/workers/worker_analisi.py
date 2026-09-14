@@ -8,30 +8,19 @@ e la struttura dei file (STEP), senza mai basarsi su nomi di clienti per evitare
 from __future__ import annotations
 
 import argparse
-import http.client
-import json
 import logging
-import logging.handlers
 import os
 import re
-import socket
-import sys
 import time
-import tomllib
-import urllib.error
-import urllib.request
 from pathlib import Path
 from uuid import UUID
 
 import pymupdf
 
+from cockpit_client import ERRORI_RETE, Cockpit, ErroreHTTP, carica_config, configura_log, nome_worker
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
 
 log = logging.getLogger("worker-analisi")
-
-# errori di rete = server giù o riavviato: si aspetta e si riprova (ConnectionResetError è un OSError non incapsulato)
-ERRORI_RETE = (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout, OSError,
-               http.client.RemoteDisconnected, http.client.HTTPException)
 
 # Parole chiave cartiglio tecnico CAD 2D (da specifiche utente)
 TERMINI_CARTIGLIO_CAD = [
@@ -97,46 +86,6 @@ def separa_codice_rev(nome_base: str) -> tuple[str, str]:
     if sembra_codice(nome_base):
         return nome_base, ""
     return "", ""
-
-
-class CockpitClient:
-    """Client minimale HTTP per cockpit.exe."""
-
-    def __init__(self, url: str, token: str):
-        self.url = url.rstrip("/")
-        self.token = token
-
-    def _chiama(self, metodo: str, percorso: str, corpo: dict | None = None, timeout: int = 60):
-        dati = json.dumps(corpo).encode("utf-8") if corpo is not None else None
-        req = urllib.request.Request(
-            self.url + percorso,
-            data=dati,
-            method=metodo,
-            headers={"Content-Type": "application/json", "X-Cockpit-Token": self.token},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                if r.status == 204:
-                    return None
-                return json.loads(r.read().decode("utf-8") or "null")
-        except urllib.error.HTTPError as e:
-            testo = e.read().decode("utf-8", "ignore")
-            raise RuntimeError(f"{metodo} {percorso} -> {e.code}: {testo[:500]}") from None
-
-    def claim(self, worker_id: str, attesa_s: int = 20) -> Job | None:
-        r = self._chiama(
-            "POST",
-            "/api/v1/jobs/claim",
-            {"worker": "analisi", "worker_id": worker_id, "attesa_s": attesa_s},
-            timeout=attesa_s + 15,
-        )
-        return Job.model_validate(r) if r else None
-
-    def heartbeat(self, job_id: int, worker_id: str) -> None:
-        self._chiama("POST", f"/api/v1/jobs/{job_id}/heartbeat", {"worker_id": worker_id})
-
-    def risultato(self, job_id: int, r: RisultatoRichiesta) -> None:
-        self._chiama("POST", f"/api/v1/jobs/{job_id}/result", r.model_dump(mode="json"))
 
 
 def analizza_pdf(percorso: str, nome_file: str) -> dict:
@@ -305,17 +254,18 @@ def analizza_file(path_staging: str, nome_file: str) -> dict:
 class WorkerAnalisi:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.api = CockpitClient(cfg["server_url"], cfg["token"])
-        self.worker_id = cfg.get("worker_id") or f"analisi@{socket.gethostname()}#{os.getpid()}"
+        self.api = Cockpit(cfg["server_url"], cfg["token"])
+        self.worker_id = nome_worker("analisi", cfg)
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
         log.info("worker %s collegato a %s", self.worker_id, self.api.url)
         attesa = 5
         while True:
             try:
-                job = self.api.claim(self.worker_id)
+                r = self.api.claim("analisi", self.worker_id)
+                job = Job.model_validate(r) if r else None
                 attesa = 5
-            except ERRORI_RETE as e:
+            except (*ERRORI_RETE, ErroreHTTP) as e:
                 log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
                 time.sleep(attesa)
                 attesa = min(attesa * 2, 30)
@@ -357,41 +307,10 @@ class WorkerAnalisi:
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
 
         try:
-            self.api.risultato(job.job_id, ris)
+            self.api.risultato(job.job_id, ris.model_dump(mode="json"))
         except Exception as e:
             log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
         log.info("job %d completato in %.2fs -> %s", job.job_id, time.time() - t0, ris.esito)
-
-
-def carica_config(percorso: str) -> dict:
-    cfg = {"server_url": "http://127.0.0.1:8080", "token": "", "staging": os.path.join("..", "_staging")}
-    if os.path.isfile(percorso):
-        with open(percorso, "rb") as f:
-            cfg.update(tomllib.load(f))
-    for k, env in (("server_url", "COCKPIT_URL"), ("token", "COCKPIT_TOKEN"), ("staging", "COCKPIT_STAGING")):
-        if os.environ.get(env):
-            cfg[k] = os.environ[env]
-    if not cfg["token"]:
-        sys.exit("token mancante: worker.toml [token] o variabile COCKPIT_TOKEN")
-    return cfg
-
-
-def configura_log(debug: bool, cfg: dict, nome: str) -> None:
-    """Console + file rotante in <staging>/log/<nome>.log (5 x 5 MB)."""
-    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-    radice = logging.getLogger()
-    radice.setLevel(logging.DEBUG if debug else logging.INFO)
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    radice.addHandler(console)
-    try:
-        cartella = os.path.join(os.path.abspath(cfg["staging"]), "log")
-        os.makedirs(cartella, exist_ok=True)
-        fh = logging.handlers.RotatingFileHandler(os.path.join(cartella, nome + ".log"), maxBytes=5 << 20, backupCount=5, encoding="utf-8")
-        fh.setFormatter(fmt)
-        radice.addHandler(fh)
-    except OSError as e:
-        radice.warning("log su file non disponibile: %s", e)
 
 
 def main():

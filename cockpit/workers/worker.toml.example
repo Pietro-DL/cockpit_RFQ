@@ -4,5 +4,10 @@
 
 server_url     = "http://127.0.0.1:8080"
 token          = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
-staging        = 'C:\promatec\_staging'
+staging        = '..\_staging'
 consenti_invio = false
+
+# Nome del worker: deve coincidere con [[worker]].nome di cockpit.toml, perché è la chiave con cui il
+# server riconosce credenziale, postazione e caselle autorizzate. Se manca, il worker usa
+# "<tipo>@<NOME-HOST>", che è la forma attesa. Non contiene il PID: deve restare uguale fra i riavvii.
+# worker_id = "outlook@PC-NOME"

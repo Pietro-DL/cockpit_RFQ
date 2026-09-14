@@ -1,64 +1,252 @@
-# Cockpit RFQ — repository
+# Cockpit RFQ
 
-Implementazione di `SPEC_Architettura_Cockpit_RFQ.md`: blocchi 0–3 (toolchain, schema, ingest + worker Outlook,
-worker analisi), blocco 4 (triage in UI: Nuova RFQ / Aggancia / Ignora) e il nucleo del blocco 5 (download su
-richiesta, conferma → documento → copia sul NAS). Stato al 13/09/2026, verificato sul PC di sviluppo contro la
-casella `pietro.spinozzi@studio.unibo.it` in **Outlook classico**. Stato dettagliato in `../specs/STATO.md`.
+Il Cockpit trasforma le richieste d'offerta che arrivano via mail in fascicoli ordinati: legge la
+posta da Outlook classico, registra messaggi e allegati, propone a quale RFQ appartengono e, su
+decisione dell'operatore, copia i file nella cartella del NAS. È fatto di tre pezzi:
 
-**Regola cardine dal 13/09:** nessun file viene scaricato automaticamente. Il sync registra gli allegati (FATTO)
-e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.
+```
+Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─pgx─▶ PostgreSQL
+                        worker_analisi.py ─HTTP─▶     │
+                                   browser (HTML+HTMX) ◀┘   (cookie di sessione, DB)
+```
 
-## Avvio in sviluppo
+`cockpit.exe` (Go) è l'unico che parla con il database e con il NAS. I worker Python non hanno
+credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
-Prerequisiti già presenti su questo PC: Go 1.27, PostgreSQL 18 (DB `cockpit_dev`, ruolo `cockpit`),
-`sqlc` in `%USERPROFILE%\go\bin`, Python 3.11 con `pywin32`, `pydantic`, `pymupdf`, Outlook classico con profilo configurato.
+**Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
+fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.
+
+---
+
+## Prerequisiti
+
+| Serve | Versione | Come si verifica | Note |
+|---|---|---|---|
+| Go | 1.26 o successivo (toolchain 1.27) | `go version` | solo per compilare; in produzione basta `cockpit.exe` |
+| PostgreSQL | 16 o successivo | `psql --version` | server raggiungibile, un database e un ruolo per il Cockpit |
+| Python | 3.11 o successivo | `python --version` | sui PC dove gira un worker |
+| Outlook | classico (desktop), con profilo configurato | deve essere **aperto** | solo dove gira `worker_outlook.py` |
+| sqlc | 1.31 o successivo | `sqlc version` | solo se si toccano `migrations/` o `internal/db/queries/` |
+
+Le dipendenze Python sono tre: `pip install -r workers\requirements.txt` (`pywin32` per COM,
+`pydantic` per i contratti, `pymupdf` per leggere i PDF).
+
+---
+
+## Installazione da zero
+
+### 1. Database
 
 ```powershell
-cd C:\promatec\cockpit
-powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1   # compila e apre 3 finestre: cockpit.exe, worker Outlook, worker analisi
+psql -U postgres -c "CREATE ROLE cockpit LOGIN PASSWORD 'scegli-una-password';"
+psql -U postgres -c "CREATE DATABASE cockpit_dev OWNER cockpit;"
+```
+
+Lo schema non va creato a mano: lo applica il server al primo avvio, migrazione per migrazione.
+
+### 2. Configurazione del server
+
+```powershell
+copy cockpit.toml.example cockpit.toml
+```
+
+Poi si compilano, in `cockpit.toml`:
+
+- `[db].dsn` — il database appena creato;
+- `[server].token_worker` — un segreto qualsiasi, lo stesso che finirà nei worker;
+- `[nas].radice` — in sviluppo una cartella locale, in produzione il percorso UNC di «PREVENTIVI DA
+  FARE»; `[nas].staging` — cartella locale dove atterrano gli allegati scaricati;
+- `[[utenti]]` — almeno un utente con `ruolo = "admin"` e una password iniziale;
+- `[[casella]]`, `[[postazione]]`, `[[worker]]` — quali caselle il Cockpit conosce, su quali PC girano
+  i worker e con quale token ciascuno. Gli indirizzi sono normalizzati in minuscolo e i nomi host in
+  maiuscolo: la stessa casella scritta in due modi resta una casella sola. Il file di esempio contiene
+  una casella condivisa e una personale già pronte da adattare.
+
+Il seed di queste sezioni è **non distruttivo**: togliere una riga dal file non disattiva nulla nel
+database, lo scrive soltanto nel log.
+
+### 3. Configurazione dei worker
+
+```powershell
+copy workers\worker.toml.example workers\worker.toml
+```
+
+`token` deve coincidere con `[server].token_worker`; `staging` con `[nas].staging` **se il worker gira
+sullo stesso PC del server**. `worker_id`, se presente, deve coincidere con `[[worker]].nome` di
+`cockpit.toml`.
+
+### 4. Compilazione
+
+```powershell
+go build -o cockpit.exe .\cmd\cockpit
+```
+
+---
+
+## Avviare il server Go
+
+```powershell
+.\cockpit.exe -config cockpit.toml
+```
+
+All'avvio il server, in quest'ordine: legge la configurazione; applica le migrazioni mancanti (una
+transazione per file, in ordine, saltando quelle già registrate in `schema_versione`); semina utenti,
+caselle, postazioni e credenziali dei worker; avvia lo scheduler e l'esecutore dei job; si mette in
+ascolto su `[server].indirizzo` (`http://127.0.0.1:8080` in sviluppo).
+
+Il browser si apre su quell'indirizzo: login con la sigla e la password di `[[utenti]]`.
+
+Opzioni:
+
+```powershell
+.\cockpit.exe -config cockpit.toml -migra   # applica migrazioni e seed, poi esce (nessun ascolto HTTP)
+.\cockpit.exe -h                            # elenco delle opzioni
+```
+
+`-migra` è il modo giusto di aggiornare il database prima di sostituire il binario su una postazione.
+
+## Avviare i worker Python
+
+Ogni worker è un processo a sé e si può fermare e riavviare in qualsiasi momento: chiede lavoro al
+server, non riceve comandi. Se il server è fermo aspetta e riprova, senza terminare.
+
+```powershell
+cd workers
+python worker_outlook.py                # legge la posta e agisce su Outlook
+python worker_analisi.py                # legge PDF e STEP degli allegati scaricati
+```
+
+Opzioni comuni a entrambi:
+
+| Opzione | Che cosa fa |
+|---|---|
+| `--config <percorso>` | usa un `worker.toml` diverso da quello accanto allo script |
+| `--una-volta` | esegue al più un job ed esce (utile per provare) |
+| `--debug` | log più fitto sulla console |
+| `--cartelle` | *(solo Outlook)* stampa l'albero delle cartelle Outlook ed esce |
+
+Variabili d'ambiente che vincono sul file: `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_STAGING`,
+`COCKPIT_WORKER_ID`.
+
+**Il worker Outlook richiede che Outlook classico sia aperto**, con il profilo giusto, nella sessione
+dello stesso utente. Se Outlook è chiuso i job falliscono con `COM:` e il server li rimette in coda:
+basta aprirlo, senza riavviare nulla.
+
+Il log di entrambi finisce sulla console e in `<staging>\log\worker_*.log` (5 file da 5 MB a
+rotazione), così resta leggibile anche dopo aver chiuso il terminale.
+
+### Tutto insieme, in sviluppo
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1   # compila e apre tre finestre
 powershell -ExecutionPolicy Bypass -File scripts\ferma-dev.ps1   # ferma tutto
 ```
 
-Equivalente a mano: `go build -o cockpit.exe .\cmd\cockpit`, `.\cockpit.exe -config cockpit.toml`
-(http://127.0.0.1:8080, login `PS` / `cockpit`), `python workers\worker_outlook.py`, `python workers\worker_analisi.py`.
-Log: `..\_staging\log\{cockpit,worker_outlook,worker_analisi}.log`. La testata del browser mostra se i worker
-sono **attivi** o **OFFLINE** (nessun claim da più di 60 s); i worker sopravvivono al riavvio del server.
-
-Il server accoda `sync_outlook` ogni 60 s (`[outlook].intervallo_sync_s`); il worker legge `Inbox` e `Sent Items`
-dal cursore (prima volta: da `[outlook].dal`) e invia i messaggi a `POST /api/v1/ingest/messaggi`.
-**Carica precedenti** in Inbox accoda una finestra di 30 giorni prima di quanto già coperto (cursore `storico_fino_a`).
-
-Flusso operativo dall'Inbox del browser:
-
-1. messaggio orfano → **Nuova RFQ** (cliente/buyer anche creati inline, codici proposti, cartella calcolata,
-   checklist allegati pre-spuntata) oppure **Aggancia a…** (ricerca sui thread aperti) oppure **Ignora**;
-2. la RFQ nasce con la cartella `<radice>\<CLIENTE>\WIP\<aaaa mm gg Cognome Oggetto>\{ELENCO DISEGNI, OFFERTE FORNITORI}`
-   e tutti i messaggi della stessa conversazione la seguono (anche i successivi, in automatico);
-3. gli allegati spuntati vengono scaricati in staging (zip estratti voce per voce), analizzati (cartiglio, STEP)
-   e proposti; **Conferma → NAS** crea il `documento` e la copia verificata con hash; **Scarta** chiude la proposta;
-4. `/thread/{id}` (schermata B) mostra la chat della RFQ, i documenti sul NAS e il fascicolo.
-
-Restano **Apri in Outlook**, **Segna letto**, **Rispondi → bozza in Outlook** (l'invio resta manuale: `consenti_invio = false`).
-
-Utilità:
+### In produzione, all'accensione del PC
 
 ```powershell
-bash scripts/db-reset.sh                   # ricrea lo schema da zero (una sola migrazione fino alla produzione)
-sqlc generate                              # rigenera internal/db dopo aver toccato migrations/ o internal/db/queries/
-go test ./...                              # unitari (dominio, NAS, zip, template)
-$env:COCKPIT_TEST_DSN="postgres://cockpit:cockpit_dev@localhost:5432/cockpit_dev"; go test ./internal/ingest/   # integrazione su DB
-python -m pytest -q workers/test_worker_analisi.py
-python workers/genera_contratti.py         # rigenera contracts/*.schema.json dai modelli pydantic
+powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1            # mostra cosa farebbe
+powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Installa  # crea le attività pianificate
+powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Mostra    # stato e ultimo esito
 ```
+
+Le attività girano nella sessione interattiva dell'utente, perché Outlook classico lo richiede, e
+riavviano il worker se termina.
+
+---
+
+## Come funziona, in breve
+
+Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker legge le cartelle
+indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].dal`) e manda i
+messaggi a lotti. Dall'Inbox del browser l'operatore decide: **Nuova RFQ**, **Aggancia a…**,
+**Ignora**. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
+proposti; con **Conferma → NAS** diventano documenti copiati nella cartella della RFQ con verifica
+dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
+l'invio non è mai automatico.
+
+---
+
+## Prove
+
+```powershell
+go test ./...                        # unitari: dominio, zip, NAS, template, migrazioni, configurazione
+python -m pytest -q workers          # unitari Python: modulo comune, ciclo dei worker, analisi
+```
+
+I test che hanno bisogno di PostgreSQL vengono **saltati** se manca `COCKPIT_TEST_DSN`. Un test
+saltato non è un test passato: per eseguirli serve il database di prova.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Installa   # scarica PostgreSQL portatile (una volta)
+powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Avvia      # cluster isolato sulla porta 5433
+$env:COCKPIT_TEST_DSN = "postgres://cockpit_test:cockpit_test@127.0.0.1:5433/cockpit_test"
+go test -tags integrazione -count=1 -p 1 ./...
+```
+
+`-p 1` non è un dettaglio: i pacchetti condividono un solo database e alcuni test ricreano lo schema,
+quindi devono girare in serie. Senza, si distruggono lo schema a vicenda e gli errori che ne escono
+non hanno niente a che vedere con il codice in prova.
+
+È un cluster tutto suo, su una porta diversa, sotto `%LOCALAPPDATA%`: i test distruggono e ricreano lo
+schema a ogni esecuzione e non possono toccare il database di sviluppo. Per sicurezza il codice di
+test rifiuta un DSN il cui nome di database non contiene «test».
+
+Tutto in una volta, con il registro degli esiti:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prova-tutto.ps1
+```
+
+Scrive `docs\esiti\esiti_simulati.md` distinguendo PASSATO, FALLITO e SALTATO. Le prove che
+richiedono Outlook, Exchange o due postazioni vere si annotano a mano in `docs\esiti\esiti_reali.md` e
+non si deducono mai da una prova simulata.
+
+## Manutenzione
+
+```powershell
+sqlc generate                                       # dopo aver toccato migrations/ o internal/db/queries/
+python workers\genera_contratti.py                  # rigenera contracts/*.schema.json dai modelli pydantic
+powershell -File scripts\backup-db.ps1 -Dsn "..."   # backup + prova di ripristino vera
+powershell -File scripts\db-test.ps1 -Ricrea        # svuota il database di prova
+```
+
+### Aggiungere una migrazione
+
+1. creare `migrations/NNNN_nome.sql` con il numero successivo, senza buchi;
+2. l'ultima riga del file deve essere `INSERT INTO schema_versione (versione) VALUES (NNNN);` — senza,
+   la migrazione viene annullata e il server non parte;
+3. non usare, nello stesso file, un valore di enum aggiunto con `ALTER TYPE … ADD VALUE`: PostgreSQL
+   non lo accetta prima del commit, va usato dal file successivo;
+4. non referenziare tabelle create in un file successivo;
+5. `sqlc generate`, poi `go test ./internal/migrazioni/`, che controlla i punti 2, 3 e 4 senza database.
+
+Un file già applicato non va più modificato: una migrazione registrata non viene riapplicata.
+
+### Se qualcosa non va
+
+| Sintomo | Causa probabile | Rimedio |
+|---|---|---|
+| `config: [db].dsn mancante` | manca `cockpit.toml` accanto all'eseguibile | copiarlo dall'esempio o passare `-config` |
+| `migrazioni: il DB è alla versione N…` | database aggiornato da un binario più recente | aggiornare `cockpit.exe` |
+| il worker logga `COM:` in continuazione | Outlook chiuso o su un altro utente | aprire Outlook nella stessa sessione |
+| il worker logga `401` | `token` diverso da `[server].token_worker` | allineare i due file |
+| la testata del browser dice OFFLINE | nessun claim da oltre un minuto | il worker è fermo: vedere il suo log |
+| i job restano `pronto` | nessun worker di quel tipo è in esecuzione | avviare il worker corrispondente |
+
+---
 
 ## Struttura
 
 ```
-cmd/cockpit/main.go        avvio: config, pool, migrazione, seed utenti, scheduler, esecutore server, router
+cmd/cockpit/main.go        avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
 embed.go                   embed.FS di migrations/, web/templates, web/static
-internal/config            cockpit.toml
+internal/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
 internal/api               contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
 internal/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
+internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
+internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
+internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
@@ -67,10 +255,12 @@ internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascriv
 internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, /api/v1/ingest/messaggi (token X-Cockpit-Token); dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login, /inbox, /messaggio/{id} (+triage, scarica), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
-migrations/0001_schema.sql l'unica migrazione (30 tabelle, 5 viste, 31 enum)
+migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
-workers/                   worker_outlook.py, worker_analisi.py (loop resilienti, log rotante), outlook_com.py (COM), contratti.py (pydantic), worker.toml
-scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-reset.sh
+workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
+                           outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server), worker.toml
+scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
+                           backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
 ```
 
 ## Come si parlano i pezzi
@@ -84,6 +274,9 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
 - **Identità del messaggio** = Internet Message-ID (`messaggio.chiave_esterna`); `entry_id`/`store_id` stanno nel
   satellite `messaggio_outlook`. I job verso Outlook portano anche il Message-ID: se l'EntryID non vale più
   (elemento spostato) il worker lo ritrova per Message-ID e il server riallinea `messaggio_outlook`.
+- **Caselle e postazioni** (dalla migrazione 0002): una casella è una sola riga anche quando più PC la
+  aprono; `casella_store` registra come ogni postazione la vede nel proprio profilo Outlook, perché lo
+  StoreID appartiene al profilo e non è un riferimento valido su un altro PC.
 - **Coda job** in PostgreSQL: `FOR UPDATE SKIP LOCKED`, lease per tipo (120 s / 300 s), 5 tentativi con backoff,
   `chiave_idempotenza` unica **fra i job pendenti** (indice parziale: un job fatto non impedisce di riaccodarne uno
   uguale). Priorità 1 = azione dell'utente (apri, bozza, download, cartella, copia NAS), 2 = sync storico, 5 = sync, 6 = analisi.

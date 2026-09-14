@@ -2110,6 +2110,28 @@ type CartellaDocumento struct {
 	CreaSempre    bool          `json:"crea_sempre"`
 }
 
+// Casella di posta: un solo UUID anche quando più postazioni la aprono (piano §2.1).
+type Casella struct {
+	CasellaID uuid.UUID `json:"casella_id"`
+	Canale    Canale    `json:"canale"`
+	Indirizzo string    `json:"indirizzo"`
+	Nome      string    `json:"nome"`
+	Condivisa bool      `json:"condivisa"`
+	// Proprietario di una casella personale; NULL per una condivisa (vincolo ck_casella_condivisa_senza_utente).
+	UtenteID     uuid.NullUUID `json:"utente_id"`
+	Attiva       bool          `json:"attiva"`
+	CreatoIl     time.Time     `json:"creato_il"`
+	AggiornatoIl time.Time     `json:"aggiornato_il"`
+}
+
+// N44: lo StoreID appartiene al profilo, non alla casella. Ogni worker registra qui come vede le proprie caselle; i payload dei job portano casella_id + entry_id, mai uno store_id estraneo.
+type CasellaStore struct {
+	PostazioneID uuid.UUID `json:"postazione_id"`
+	CasellaID    uuid.UUID `json:"casella_id"`
+	StoreID      string    `json:"store_id"`
+	RilevatoIl   time.Time `json:"rilevato_il"`
+}
+
 type Cliente struct {
 	ClienteID      uuid.UUID       `json:"cliente_id"`
 	CartellaNas    string          `json:"cartella_nas"`
@@ -2322,6 +2344,17 @@ type MessaggioOutlook struct {
 	AggiornatoIl      time.Time   `json:"aggiornato_il"`
 }
 
+// PC con Outlook classico e un worker: i job interattivi vanno alla postazione del richiedente (piano §2.2).
+type Postazione struct {
+	PostazioneID uuid.UUID     `json:"postazione_id"`
+	NomeHost     string        `json:"nome_host"`
+	Descrizione  string        `json:"descrizione"`
+	UtenteID     uuid.NullUUID `json:"utente_id"`
+	Attiva       bool          `json:"attiva"`
+	CreatoIl     time.Time     `json:"creato_il"`
+	AggiornatoIl time.Time     `json:"aggiornato_il"`
+}
+
 type PropostaTriage struct {
 	TriageID         uuid.UUID       `json:"triage_id"`
 	MessaggioID      uuid.UUID       `json:"messaggio_id"`
@@ -2518,6 +2551,18 @@ type VThreadFase struct {
 	Terminale      bool          `json:"terminale"`
 	GgInFase       int32         `json:"gg_in_fase"`
 	Semaforo       string        `json:"semaforo"`
+}
+
+type WorkerCredenziale struct {
+	WorkerNome   string        `json:"worker_nome"`
+	WorkerTipo   WorkerTipo    `json:"worker_tipo"`
+	TokenHash    string        `json:"token_hash"`
+	PostazioneID uuid.NullUUID `json:"postazione_id"`
+	// Autorizzazione: il server interseca con le caselle dichiarate dal claim e non si fida del JSON (piano §2.2).
+	Caselle      []uuid.UUID `json:"caselle"`
+	Attivo       bool        `json:"attivo"`
+	CreatoIl     time.Time   `json:"creato_il"`
+	AggiornatoIl time.Time   `json:"aggiornato_il"`
 }
 
 type WorkerPresenza struct {

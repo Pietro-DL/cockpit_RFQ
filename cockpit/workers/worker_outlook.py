@@ -10,21 +10,14 @@ il worker aspetta e riprova: non termina mai da solo.
 from __future__ import annotations
 
 import argparse
-import http.client
-import json
 import logging
-import logging.handlers
 import os
-import socket
-import sys
 import time
-import tomllib
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import pywintypes
 
+from cockpit_client import ERRORI_RETE, Cockpit, ErroreHTTP, carica_config, configura_log, nome_worker
 from contratti import (CartellaEsito, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
@@ -32,51 +25,12 @@ from outlook_com import ErroreDefinitivo, Outlook
 
 log = logging.getLogger("worker")
 
-# errori di rete che significano "server giù o riavviato": si aspetta e si riprova, il worker non muore.
-# ConnectionResetError/ConnectionRefusedError sono OSError NON incapsulati da urllib quando arrivano da getresponse().
-ERRORI_RETE = (RuntimeError, urllib.error.URLError, TimeoutError, socket.timeout, OSError,
-               http.client.RemoteDisconnected, http.client.HTTPException)
-
-
-class Cockpit:
-    """Client minimale dell'API worker (urllib: nessuna dipendenza)."""
-
-    def __init__(self, url: str, token: str):
-        self.url = url.rstrip("/")
-        self.token = token
-
-    def _chiama(self, metodo: str, percorso: str, corpo: dict | None = None, timeout: int = 60):
-        dati = json.dumps(corpo).encode("utf-8") if corpo is not None else None
-        req = urllib.request.Request(self.url + percorso, data=dati, method=metodo,
-                                     headers={"Content-Type": "application/json", "X-Cockpit-Token": self.token})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                if r.status == 204:
-                    return None
-                return json.loads(r.read().decode("utf-8") or "null")
-        except urllib.error.HTTPError as e:
-            testo = e.read().decode("utf-8", "ignore")
-            raise RuntimeError(f"{metodo} {percorso} → {e.code}: {testo[:500]}") from None
-
-    def claim(self, worker_id: str, attesa_s: int = 20) -> Job | None:
-        r = self._chiama("POST", "/api/v1/jobs/claim", {"worker": "outlook", "worker_id": worker_id, "attesa_s": attesa_s}, timeout=attesa_s + 15)
-        return Job.model_validate(r) if r else None
-
-    def heartbeat(self, job_id: int, worker_id: str) -> None:
-        self._chiama("POST", f"/api/v1/jobs/{job_id}/heartbeat", {"worker_id": worker_id})
-
-    def risultato(self, job_id: int, r: RisultatoRichiesta) -> None:
-        self._chiama("POST", f"/api/v1/jobs/{job_id}/result", r.model_dump(mode="json"))
-
-    def ingest(self, richiesta: IngestRichiesta) -> dict:
-        return self._chiama("POST", "/api/v1/ingest/messaggi", richiesta.model_dump(mode="json"), timeout=300)
-
 
 class Worker:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.api = Cockpit(cfg["server_url"], cfg["token"])
-        self.worker_id = cfg.get("worker_id") or f"outlook@{socket.gethostname()}#{os.getpid()}"
+        self.worker_id = nome_worker("outlook", cfg)
         self.staging = os.path.abspath(cfg["staging"])
         os.makedirs(self.staging, exist_ok=True)
         self.outlook: Outlook | None = None
@@ -93,9 +47,10 @@ class Worker:
         attesa = 5
         while True:
             try:
-                job = self.api.claim(self.worker_id)
+                r = self.api.claim("outlook", self.worker_id)
+                job = Job.model_validate(r) if r else None
                 attesa = 5
-            except ERRORI_RETE as e:
+            except (*ERRORI_RETE, ErroreHTTP) as e:
                 log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
                 time.sleep(attesa)
                 attesa = min(attesa * 2, 30)
@@ -125,7 +80,7 @@ class Worker:
             log.exception("job %d errore", job.job_id)
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
         try:
-            self.api.risultato(job.job_id, ris)
+            self.api.risultato(job.job_id, ris.model_dump(mode="json"))
         except Exception as e:  # noqa: BLE001 - il lease scade e il server lo rimette in coda
             log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
         log.info("job %d %s → %s in %.1fs", job.job_id, job.tipo, ris.esito, time.time() - t0)
@@ -190,40 +145,9 @@ class Worker:
         return RisultatoSync(cartelle=esiti).model_dump(mode="json")
 
     def _invia(self, lotto: list) -> int:
-        r = self.api.ingest(IngestRichiesta(messaggi=lotto))
+        r = self.api.ingest(IngestRichiesta(messaggi=lotto).model_dump(mode="json"))
         log.info("ingest: %d inseriti, %d aggiornati", r.get("inseriti", 0), r.get("aggiornati", 0))
         return len(lotto)
-
-
-def carica_config(percorso: str) -> dict:
-    cfg = {"server_url": "http://127.0.0.1:8080", "token": "", "staging": os.path.join("..", "_staging"), "consenti_invio": False}
-    if os.path.isfile(percorso):
-        with open(percorso, "rb") as f:
-            cfg.update(tomllib.load(f))
-    for k, env in (("server_url", "COCKPIT_URL"), ("token", "COCKPIT_TOKEN"), ("staging", "COCKPIT_STAGING")):
-        if os.environ.get(env):
-            cfg[k] = os.environ[env]
-    if not cfg["token"]:
-        sys.exit("token mancante: worker.toml [token] o variabile COCKPIT_TOKEN")
-    return cfg
-
-
-def configura_log(debug: bool, cfg: dict, nome: str) -> None:
-    """Console + file rotante in <staging>/log/<nome>.log (5 x 5 MB): il log sopravvive alla chiusura del terminale."""
-    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-    radice = logging.getLogger()
-    radice.setLevel(logging.DEBUG if debug else logging.INFO)
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    radice.addHandler(console)
-    try:
-        cartella = os.path.join(os.path.abspath(cfg["staging"]), "log")
-        os.makedirs(cartella, exist_ok=True)
-        fh = logging.handlers.RotatingFileHandler(os.path.join(cartella, nome + ".log"), maxBytes=5 << 20, backupCount=5, encoding="utf-8")
-        fh.setFormatter(fmt)
-        radice.addHandler(fh)
-    except OSError as e:
-        radice.warning("log su file non disponibile: %s", e)
 
 
 def main() -> None:
@@ -233,7 +157,7 @@ def main() -> None:
     ap.add_argument("--cartelle", action="store_true", help="stampa l'albero delle cartelle Outlook ed esce")
     ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
-    cfg = carica_config(a.config)
+    cfg = carica_config(a.config, {"consenti_invio": False})
     configura_log(a.debug, cfg, "worker_outlook")
     w = Worker(cfg)
     if a.cartelle:

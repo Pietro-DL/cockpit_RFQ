@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -27,11 +28,27 @@ type Servizio struct {
 	Log  *slog.Logger
 }
 
+// forzaErrore è il gancio di prova della voce 0.5: se COCKPIT_INGEST_FORZA_ERRORE contiene una
+// sottostringa, ogni messaggio il cui Message-ID la contiene fallisce come se il DB l'avesse
+// rifiutato. Serve ai test del poison pill (§8 del piano di test) per provocare un errore su un
+// elemento preciso senza costruire dati corrotti a mano. Fuori dai test la variabile non esiste e la
+// funzione costa un confronto con la stringa vuota.
+func forzaErrore(messageID string) error {
+	spia := os.Getenv("COCKPIT_INGEST_FORZA_ERRORE")
+	if spia == "" || !strings.Contains(messageID, spia) {
+		return nil
+	}
+	return fmt.Errorf("errore forzato da COCKPIT_INGEST_FORZA_ERRORE=%q (solo test)", spia)
+}
+
 // Ingerisci elabora un lotto: una transazione per messaggio, così un elemento anomalo non blocca gli altri.
 func (s *Servizio) Ingerisci(ctx context.Context, msgs []api.MessaggioIn) (api.IngestRisposta, error) {
 	var out api.IngestRisposta
 	for i := range msgs {
 		e, err := s.uno(ctx, &msgs[i])
+		if err == nil {
+			err = forzaErrore(msgs[i].MessageID)
+		}
 		if err != nil {
 			s.Log.Error("ingest messaggio", "message_id", msgs[i].MessageID, "err", err)
 			return out, fmt.Errorf("messaggio %s: %w", msgs[i].MessageID, err)
