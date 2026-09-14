@@ -31,6 +31,8 @@ func pool(t *testing.T) *pgxpool.Pool {
 	testutil.SchemaPresente(t, p) // l'ordine dei pacchetti non è garantito: lo schema può essere stato ricreato
 	t.Cleanup(func() {
 		ctx := context.Background()
+		_, _ = p.Exec(ctx, `DELETE FROM ingest_scarto WHERE casella_id IN (SELECT casella_id FROM casella WHERE indirizzo = 'prova-ingest@azienda.it')`)
+		_, _ = p.Exec(ctx, `DELETE FROM messaggio_aggancio_log WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM job WHERE chiave_idempotenza LIKE 'stage:%' AND payload->>'entry_id' LIKE 'ENTRY-TEST-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM proposta_triage WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM riferimento_portale WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
@@ -41,6 +43,21 @@ func pool(t *testing.T) *pgxpool.Pool {
 		p.Close()
 	})
 	return p
+}
+
+// casellaProva assicura che esista la casella a cui appartengono i lotti dei test. Dalla fase 1 un
+// lotto senza casella non esiste: la casella è il perimetro entro cui il messaggio viene acquisito.
+func casellaProva(t *testing.T, p *pgxpool.Pool) db.Casella {
+	t.Helper()
+	ctx := context.Background()
+	q := db.New(p)
+	c, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
+		Canale: db.CanaleOutlook, Indirizzo: "prova-ingest@azienda.it", Nome: "Prova ingest",
+	})
+	if err != nil {
+		t.Fatalf("casella di prova: %v", err)
+	}
+	return c
 }
 
 func lotto() []api.MessaggioIn {
@@ -78,7 +95,8 @@ func TestIngestIdempotente(t *testing.T) {
 		return
 	}
 
-	r1, err := s.Ingerisci(ctx, lotto())
+	casella := casellaProva(t, p)
+	r1, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: lotto()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +117,7 @@ func TestIngestIdempotente(t *testing.T) {
 
 	// stesso lotto altre due volte → nessuna riga in più
 	for i := 0; i < 2; i++ {
-		r, err := s.Ingerisci(ctx, lotto())
+		r, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: lotto()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +133,7 @@ func TestIngestIdempotente(t *testing.T) {
 	mosso := lotto()
 	mosso[0].EntryID = "ENTRY-TEST-1-MOSSO"
 	mosso[0].Cartella = "RFQ archiviate"
-	if _, err := s.Ingerisci(ctx, mosso[:1]); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: mosso[:1]}); err != nil {
 		t.Fatal(err)
 	}
 	var entry, cart string

@@ -22,6 +22,29 @@
       "default": 120,
       "title": "Lease S",
       "type": "integer"
+    },
+    "lease_token": {
+      "default": "",
+      "title": "Lease Token",
+      "type": "string"
+    },
+    "durata_max_s": {
+      "default": 1800,
+      "title": "Durata Max S",
+      "type": "integer"
+    },
+    "casella_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Casella Id"
     }
   },
   "required": [

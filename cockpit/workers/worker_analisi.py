@@ -307,7 +307,7 @@ class WorkerAnalisi:
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
 
         try:
-            self.api.risultato(job.job_id, ris.model_dump(mode="json"))
+            self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
         except Exception as e:
             log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
         log.info("job %d completato in %.2fs -> %s", job.job_id, time.time() - t0, ris.esito)

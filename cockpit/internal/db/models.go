@@ -1251,10 +1251,11 @@ func AllStatoBozzaValues() []StatoBozza {
 type StatoJob string
 
 const (
-	StatoJobPronto  StatoJob = "pronto"
-	StatoJobInCorso StatoJob = "in_corso"
-	StatoJobFatto   StatoJob = "fatto"
-	StatoJobFallito StatoJob = "fallito"
+	StatoJobPronto    StatoJob = "pronto"
+	StatoJobInCorso   StatoJob = "in_corso"
+	StatoJobFatto     StatoJob = "fatto"
+	StatoJobFallito   StatoJob = "fallito"
+	StatoJobAnnullato StatoJob = "annullato"
 )
 
 func (e *StatoJob) Scan(src interface{}) error {
@@ -1297,7 +1298,8 @@ func (e StatoJob) Valid() bool {
 	case StatoJobPronto,
 		StatoJobInCorso,
 		StatoJobFatto,
-		StatoJobFallito:
+		StatoJobFallito,
+		StatoJobAnnullato:
 		return true
 	}
 	return false
@@ -1309,6 +1311,7 @@ func AllStatoJobValues() []StatoJob {
 		StatoJobInCorso,
 		StatoJobFatto,
 		StatoJobFallito,
+		StatoJobAnnullato,
 	}
 }
 
@@ -1919,6 +1922,7 @@ const (
 	TipoJobSpostaInCartella    TipoJob = "sposta_in_cartella"
 	TipoJobSegnaLetto          TipoJob = "segna_letto"
 	TipoJobBackupDb            TipoJob = "backup_db"
+	TipoJobRileggiElemento     TipoJob = "rileggi_elemento"
 )
 
 func (e *TipoJob) Scan(src interface{}) error {
@@ -1967,7 +1971,8 @@ func (e TipoJob) Valid() bool {
 		TipoJobApriElementoOutlook,
 		TipoJobSpostaInCartella,
 		TipoJobSegnaLetto,
-		TipoJobBackupDb:
+		TipoJobBackupDb,
+		TipoJobRileggiElemento:
 		return true
 	}
 	return false
@@ -1985,6 +1990,7 @@ func AllTipoJobValues() []TipoJob {
 		TipoJobSpostaInCartella,
 		TipoJobSegnaLetto,
 		TipoJobBackupDb,
+		TipoJobRileggiElemento,
 	}
 }
 
@@ -2067,6 +2073,15 @@ type Allegato struct {
 	Errore        pgtype.Text     `json:"errore"`
 	RicevutoIl    time.Time       `json:"ricevuto_il"`
 	CaricatoDa    uuid.NullUUID   `json:"caricato_da"`
+}
+
+// Lo stesso file analizzato due volte dà gli stessi fatti: si calcolano una volta per (contenuto, versione, configurazione) e si distribuiscono a tutte le proposte aperte. La tabella nasce qui perché la migrazione precede il codice che la usa.
+type AnalisiFatti struct {
+	Sha256               string          `json:"sha256"`
+	VersioneAnalizzatore int16           `json:"versione_analizzatore"`
+	HashConfigurazione   string          `json:"hash_configurazione"`
+	Fatti                json.RawMessage `json:"fatti"`
+	CalcolatoIl          time.Time       `json:"calcolato_il"`
 }
 
 type Bozza struct {
@@ -2282,6 +2297,23 @@ type IdentificativoThread struct {
 	CreatoIl     time.Time             `json:"creato_il"`
 }
 
+// Un elemento che il database rifiuta non fa fallire il lotto: viene annullato fino al savepoint e registrato qui. Con origine=ingest il payload basta a riprovarlo senza Outlook; con origine=lettura serve rileggere l'elemento dalla casella.
+type IngestScarto struct {
+	ScartoID   int64           `json:"scarto_id"`
+	CasellaID  uuid.UUID       `json:"casella_id"`
+	EntryID    string          `json:"entry_id"`
+	Cartella   pgtype.Text     `json:"cartella"`
+	MessageID  pgtype.Text     `json:"message_id"`
+	RicevutoIl *time.Time      `json:"ricevuto_il"`
+	Oggetto    pgtype.Text     `json:"oggetto"`
+	Origine    string          `json:"origine"`
+	Payload    json.RawMessage `json:"payload"`
+	Errore     string          `json:"errore"`
+	Tentativi  int32           `json:"tentativi"`
+	PrimoIl    time.Time       `json:"primo_il"`
+	UltimoIl   time.Time       `json:"ultimo_il"`
+}
+
 type Job struct {
 	JobID             int64            `json:"job_id"`
 	Tipo              TipoJob          `json:"tipo"`
@@ -2300,6 +2332,16 @@ type Job struct {
 	CreatoIl          time.Time        `json:"creato_il"`
 	AggiornatoIl      time.Time        `json:"aggiornato_il"`
 	ChiusoIl          *time.Time       `json:"chiuso_il"`
+	CasellaID         uuid.NullUUID    `json:"casella_id"`
+	PostazioneID      uuid.NullUUID    `json:"postazione_id"`
+	RichiestoDa       uuid.NullUUID    `json:"richiesto_da"`
+	LeaseS            int32            `json:"lease_s"`
+	// Un worker che rinnova il lease ogni 30 s potrebbe tenere un job per sempre. Oltre avviato_il + durata_max_s il tentativo non vale più, anche con il lease fresco.
+	DurataMaxS int32 `json:"durata_max_s"`
+	// Identifica il tentativo. Ogni scrittura che arriva da un worker deve esibirlo: un result tardivo di un tentativo scaduto trova zero righe e riceve 409, invece di applicarsi al tentativo nuovo.
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	AvviatoIl  *time.Time    `json:"avviato_il"`
+	ScadeIl    *time.Time    `json:"scade_il"`
 }
 
 type Messaggio struct {
@@ -2327,6 +2369,16 @@ type Messaggio struct {
 	NAllegati         int16           `json:"n_allegati"`
 	RegistratoIl      time.Time       `json:"registrato_il"`
 	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
+}
+
+type MessaggioAggancioLog struct {
+	LogID       int64         `json:"log_id"`
+	MessaggioID uuid.UUID     `json:"messaggio_id"`
+	ThreadID    uuid.NullUUID `json:"thread_id"`
+	Azione      string        `json:"azione"`
+	UtenteID    uuid.NullUUID `json:"utente_id"`
+	Motivo      pgtype.Text   `json:"motivo"`
+	EseguitoIl  time.Time     `json:"eseguito_il"`
 }
 
 type MessaggioOutlook struct {

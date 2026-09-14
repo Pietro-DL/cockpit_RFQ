@@ -60,22 +60,54 @@ class MessaggioIn(Base):
     allegati: list[AllegatoIn] = Field(default_factory=list)
 
 
+class CursoreLotto(Base):
+    """Fin dove arriva questo lotto. Il server lo scrive nella stessa transazione degli elementi:
+    o avanzano insieme o non avanza niente."""
+
+    cartella: str
+    ultimo_received: datetime
+
+
+class ElementoSaltato(Base):
+    """Elemento visto ma non convertito (com_error sul Body, elemento non-mail, ...). Non si butta:
+    finisce in scarto con origine 'lettura' e si rilegge con un job dedicato, perché il payload
+    completo qui non c'è."""
+
+    entry_id: str
+    cartella: str = ""
+    message_id: str = ""
+    ricevuto_il: datetime | None = None
+    oggetto: str = ""
+    errore: str
+
+
 class IngestRichiesta(Base):
     messaggi: list[MessaggioIn]
+    # Il lotto appartiene a una casella sola: casella_id sta qui, non nei singoli elementi.
+    casella_id: UUID | None = None
+    # Il tentativo che sta consegnando il lotto: senza, il server non potrebbe distinguere un worker
+    # vivo da uno scaduto che sta ancora scrivendo.
+    job_id: int = 0
+    lease_token: str = ""
+    worker_id: str = ""
+    cursore: CursoreLotto | None = None
+    saltati: list[ElementoSaltato] = Field(default_factory=list)
 
 
 class EsitoMessaggio(Base):
     message_id: str
-    messaggio_id: UUID
-    inserito: bool
+    messaggio_id: UUID | None = None
+    inserito: bool = False
     thread_id: UUID | None = None
     aggancio: str = "nessuno"
     allegati_da_stage: int = 0
+    errore: str = ""      # valorizzato = elemento scartato, non acquisito
 
 
 class IngestRisposta(Base):
     inseriti: int
     aggiornati: int
+    falliti: int = 0
     esiti: list[EsitoMessaggio]
 
 
@@ -93,10 +125,16 @@ class Job(Base):
     payload: dict
     tentativi: int = 1
     lease_s: int = 120
+    # Identifica QUESTO tentativo: va rimandato in heartbeat, result e ingest. È l'unica cosa che
+    # distingue il tentativo in corso da uno scaduto che sta ancora lavorando.
+    lease_token: str = ""
+    durata_max_s: int = 1800
+    casella_id: UUID | None = None
 
 
 class HeartbeatRichiesta(Base):
     worker_id: str
+    lease_token: str = ""
 
 
 class RisultatoRichiesta(Base):
@@ -104,6 +142,8 @@ class RisultatoRichiesta(Base):
     dati: dict | None = None
     errore: str = ""
     definitivo: bool = False
+    worker_id: str = ""
+    lease_token: str = ""
 
 
 # ---------------------------------------------------------------- payload e risultati per tipo di job
@@ -114,6 +154,7 @@ class CartellaCursore(Base):
 
 
 class PayloadSyncOutlook(Base):
+    casella_id: UUID | None = None
     cartelle: list[CartellaCursore]
     dal: datetime
     al: datetime | None = None
@@ -130,6 +171,15 @@ class CartellaEsito(Base):
 
 class RisultatoSync(Base):
     cartelle: list[CartellaEsito]
+
+
+class PayloadRileggiElemento(Base):
+    """Rilettura mirata di un solo elemento, dopo che il worker non era riuscito a convertirlo."""
+
+    casella_id: UUID
+    entry_id: str
+    cartella: str = ""
+    message_id: str = ""
 
 
 class RiferimentoElemento(Base):
@@ -240,6 +290,8 @@ CONTRATTI = {
     "payload_sposta_cartella": PayloadSpostaCartella,
     "risultato_sposta": RisultatoSposta,
     "payload_segna_letto": PayloadSegnaLetto,
+    "payload_rileggi_elemento": PayloadRileggiElemento,
+    "heartbeat_richiesta": HeartbeatRichiesta,
     "payload_analizza_allegato": PayloadAnalizzaAllegato,
     "risultato_analisi": RisultatoAnalisi,
 }

@@ -17,8 +17,9 @@ from datetime import datetime, timedelta, timezone
 
 import pywintypes
 
-from cockpit_client import ERRORI_RETE, Cockpit, ErroreHTTP, carica_config, configura_log, nome_worker
-from contratti import (CartellaEsito, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
+from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Cockpit, ErroreHTTP, carica_config,
+                            configura_log, nome_worker)
+from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
 from outlook_com import ErroreDefinitivo, Outlook
@@ -80,7 +81,14 @@ class Worker:
             log.exception("job %d errore", job.job_id)
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
         try:
-            self.api.risultato(job.job_id, ris.model_dump(mode="json"))
+            self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
+        except ErroreHTTP as e:
+            if e.tentativo_non_valido:
+                # il lease era già perso: il job è tornato in coda ed è stato ripreso da un altro
+                # tentativo. Riportare il risultato adesso sarebbe scriverlo sopra al lavoro altrui.
+                log.warning("job %d: risultato scartato dal server (409): il tentativo non era più valido", job.job_id)
+            else:
+                log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
         except Exception as e:  # noqa: BLE001 - il lease scade e il server lo rimette in coda
             log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
         log.info("job %d %s → %s in %.1fs", job.job_id, job.tipo, ris.esito, time.time() - t0)
@@ -89,7 +97,7 @@ class Worker:
         p = job.payload
         match job.tipo:
             case "sync_outlook":
-                return self.sync(job.job_id, PayloadSyncOutlook.model_validate(p))
+                return self.sync(job, PayloadSyncOutlook.model_validate(p))
             case "stage_allegato":
                 s = PayloadStageAllegato.model_validate(p)
                 dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file,
@@ -112,7 +120,8 @@ class Worker:
 
     # ------------------------------------------------------------ sync
 
-    def sync(self, job_id: int, p: PayloadSyncOutlook) -> dict:
+    def sync(self, job: Job, p: PayloadSyncOutlook) -> dict:
+        job_id = job.job_id
         esiti = []
         ultimo_hb = time.time()
         for c in p.cartelle:
@@ -130,13 +139,13 @@ class Worker:
                     if al is None and m.data_evento and (esito.ultimo_received is None or m.data_evento > esito.ultimo_received):
                         esito.ultimo_received = m.data_evento
                     if len(lotto) >= p.lotto:
-                        esito.n_messaggi += self._invia(lotto)
+                        esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
                         lotto = []
                     if time.time() - ultimo_hb > 60:
-                        self.api.heartbeat(job_id, self.worker_id)
+                        self.api.heartbeat(job_id, self.worker_id, job.lease_token)
                         ultimo_hb = time.time()
                 if lotto:
-                    esito.n_messaggi += self._invia(lotto)
+                    esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
             except ErroreDefinitivo as e:
                 esito.errore = str(e)
                 log.error("cartella %s: %s", c.cartella, e)
@@ -144,9 +153,34 @@ class Worker:
             esiti.append(esito)
         return RisultatoSync(cartelle=esiti).model_dump(mode="json")
 
-    def _invia(self, lotto: list) -> int:
-        r = self.api.ingest(IngestRichiesta(messaggi=lotto).model_dump(mode="json"))
-        log.info("ingest: %d inseriti, %d aggiornati", r.get("inseriti", 0), r.get("aggiornati", 0))
+    def _invia(self, job: Job, p: PayloadSyncOutlook, cartella: str, lotto: list, fin_qui) -> int:
+        """Manda un lotto e fa avanzare il cursore INSIEME a esso.
+
+        Il cursore viaggia nella stessa richiesta degli elementi perché il server lo scrive nella
+        stessa transazione: se il lotto non entra, il cursore non si muove e il lotto si ripete
+        identico. Il contrario — cursore avanzato e lotto perso — vorrebbe dire messaggi mai
+        acquisiti che nessuno andrà più a cercare.
+        """
+        richiesta = IngestRichiesta(
+            messaggi=lotto,
+            casella_id=p.casella_id,
+            job_id=job.job_id,
+            lease_token=job.lease_token,
+            worker_id=self.worker_id,
+            cursore=CursoreLotto(cartella=cartella, ultimo_received=fin_qui) if fin_qui else None,
+        )
+        try:
+            r = self.api.ingest(richiesta.model_dump(mode="json"))
+        except ErroreHTTP as e:
+            if e.tentativo_non_valido:
+                raise ArrestoRichiesto(f"ingest rifiutato: {e.corpo[:200]}") from e
+            raise
+        falliti = r.get("falliti", 0)
+        if falliti:
+            log.warning("ingest: %d inseriti, %d aggiornati, %d SCARTATI (vedi /admin/scarti)",
+                        r.get("inseriti", 0), r.get("aggiornati", 0), falliti)
+        else:
+            log.info("ingest: %d inseriti, %d aggiornati", r.get("inseriti", 0), r.get("aggiornati", 0))
         return len(lotto)
 
 

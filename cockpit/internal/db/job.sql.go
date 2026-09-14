@@ -10,29 +10,44 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimJob = `-- name: ClaimJob :one
-UPDATE job SET stato = 'in_corso',
-    lease_fino_a = now() + make_interval(secs => $1::int),
-    worker_id = $2, tentativi = tentativi + 1
-WHERE job_id = (
-    SELECT j.job_id FROM job j
-    WHERE j.stato = 'pronto' AND j.worker_tipo = $3 AND j.non_prima_di <= now()
-    ORDER BY j.priorita, j.job_id
-    FOR UPDATE SKIP LOCKED LIMIT 1)
-RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il
+const annullaJobScaduti = `-- name: AnnullaJobScaduti :execrows
+UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    chiuso_il = now(), errore = concat_ws(' ', errore, '[scaduto prima di essere eseguito]')
+WHERE scade_il IS NOT NULL AND scade_il <= now() AND stato IN ('pronto','in_corso')
 `
 
-type ClaimJobParams struct {
-	LeaseSecondi int32       `json:"lease_secondi"`
-	WorkerID     pgtype.Text `json:"worker_id"`
-	WorkerTipo   WorkerTipo  `json:"worker_tipo"`
+// Job interattivi che non servono più: nessuno li eseguirà, e restare 'pronto' li farebbe apparire
+// come lavoro arretrato.
+func (q *Queries) AnnullaJobScaduti(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, annullaJobScaduti)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-func (q *Queries) ClaimJob(ctx context.Context, arg ClaimJobParams) (Job, error) {
-	row := q.db.QueryRow(ctx, claimJob, arg.LeaseSecondi, arg.WorkerID, arg.WorkerTipo)
+const bloccaTentativo = `-- name: BloccaTentativo :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job
+WHERE job_id = $1
+  AND stato = 'in_corso' AND lease_token = $2 AND worker_id = $3
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+FOR UPDATE
+`
+
+type BloccaTentativoParams struct {
+	JobID      int64         `json:"job_id"`
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
+}
+
+// Usata dall'ingest: blocca la riga del job per tutta la transazione del lotto, così un tentativo
+// concorrente non può diventare valido a metà scrittura.
+func (q *Queries) BloccaTentativo(ctx context.Context, arg BloccaTentativoParams) (Job, error) {
+	row := q.db.QueryRow(ctx, bloccaTentativo, arg.JobID, arg.LeaseToken, arg.WorkerID)
 	var i Job
 	err := row.Scan(
 		&i.JobID,
@@ -52,23 +67,97 @@ func (q *Queries) ClaimJob(ctx context.Context, arg ClaimJobParams) (Job, error)
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
+}
+
+const claimJob = `-- name: ClaimJob :one
+UPDATE job SET stato = 'in_corso',
+    lease_token  = gen_random_uuid(),
+    avviato_il   = now(),
+    lease_fino_a = now() + make_interval(secs => lease_s),
+    worker_id    = $1,
+    tentativi    = tentativi + 1
+WHERE job_id = (
+    SELECT j.job_id FROM job j
+    WHERE j.stato = 'pronto' AND j.worker_tipo = $2 AND j.non_prima_di <= now()
+      AND (j.scade_il IS NULL OR j.scade_il > now())
+    ORDER BY j.priorita, j.job_id
+    FOR UPDATE SKIP LOCKED LIMIT 1)
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
+`
+
+type ClaimJobParams struct {
+	WorkerID   pgtype.Text `json:"worker_id"`
+	WorkerTipo WorkerTipo  `json:"worker_tipo"`
+}
+
+// Un solo UPDATE: il tentativo nasce qui con un token nuovo e con avviato_il, che fissa l'inizio da
+// cui si misura durata_max_s. Un job interattivo già scaduto non viene assegnato a nessuno.
+func (q *Queries) ClaimJob(ctx context.Context, arg ClaimJobParams) (Job, error) {
+	row := q.db.QueryRow(ctx, claimJob, arg.WorkerID, arg.WorkerTipo)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
 
 const completaJob = `-- name: CompletaJob :one
-UPDATE job SET stato = 'fatto', risultato = $2, errore = NULL, lease_fino_a = NULL, chiuso_il = now()
-WHERE job_id = $1 AND stato = 'in_corso'
-RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il
+UPDATE job SET stato = 'fatto', risultato = $1, errore = NULL,
+    lease_fino_a = NULL, lease_token = NULL, chiuso_il = now()
+WHERE job_id = $2
+  AND stato = 'in_corso' AND lease_token = $3 AND worker_id = $4
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
 type CompletaJobParams struct {
-	JobID     int64            `json:"job_id"`
-	Risultato *json.RawMessage `json:"risultato"`
+	Risultato  *json.RawMessage `json:"risultato"`
+	JobID      int64            `json:"job_id"`
+	LeaseToken uuid.NullUUID    `json:"lease_token"`
+	WorkerID   pgtype.Text      `json:"worker_id"`
 }
 
 func (q *Queries) CompletaJob(ctx context.Context, arg CompletaJobParams) (Job, error) {
-	row := q.db.QueryRow(ctx, completaJob, arg.JobID, arg.Risultato)
+	row := q.db.QueryRow(ctx, completaJob,
+		arg.Risultato,
+		arg.JobID,
+		arg.LeaseToken,
+		arg.WorkerID,
+	)
 	var i Job
 	err := row.Scan(
 		&i.JobID,
@@ -88,6 +177,14 @@ func (q *Queries) CompletaJob(ctx context.Context, arg CompletaJobParams) (Job, 
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
@@ -122,6 +219,20 @@ func (q *Queries) ContaJobPerStato(ctx context.Context) ([]ContaJobPerStatoRow, 
 	return items, nil
 }
 
+const eliminaJobVecchi = `-- name: EliminaJobVecchi :execrows
+DELETE FROM job
+WHERE stato IN ('fatto','fallito','annullato') AND chiuso_il IS NOT NULL
+  AND chiuso_il < now() - make_interval(days => $1::int)
+`
+
+func (q *Queries) EliminaJobVecchi(ctx context.Context, giorni int32) (int64, error) {
+	result, err := q.db.Exec(ctx, eliminaJobVecchi, giorni)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const esisteJobPronto = `-- name: EsisteJobPronto :one
 SELECT EXISTS (SELECT 1 FROM job WHERE tipo = $1 AND stato IN ('pronto','in_corso'))
 `
@@ -137,20 +248,30 @@ const fallisciJob = `-- name: FallisciJob :one
 UPDATE job SET
     stato        = CASE WHEN tentativi >= max_tentativi OR $1::boolean THEN 'fallito'::stato_job ELSE 'pronto'::stato_job END,
     non_prima_di = now() + make_interval(secs => LEAST(600, 15 * power(2, tentativi))::int),
-    lease_fino_a = NULL, worker_id = NULL, errore = $2,
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL, errore = $2,
     chiuso_il    = CASE WHEN tentativi >= max_tentativi OR $1::boolean THEN now() END
-WHERE job_id = $3 AND stato = 'in_corso'
-RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il
+WHERE job_id = $3
+  AND stato = 'in_corso' AND lease_token = $4 AND worker_id = $5
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
 type FallisciJobParams struct {
-	Definitivo bool        `json:"definitivo"`
-	Errore     pgtype.Text `json:"errore"`
-	JobID      int64       `json:"job_id"`
+	Definitivo bool          `json:"definitivo"`
+	Errore     pgtype.Text   `json:"errore"`
+	JobID      int64         `json:"job_id"`
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
 }
 
 func (q *Queries) FallisciJob(ctx context.Context, arg FallisciJobParams) (Job, error) {
-	row := q.db.QueryRow(ctx, fallisciJob, arg.Definitivo, arg.Errore, arg.JobID)
+	row := q.db.QueryRow(ctx, fallisciJob,
+		arg.Definitivo,
+		arg.Errore,
+		arg.JobID,
+		arg.LeaseToken,
+		arg.WorkerID,
+	)
 	var i Job
 	err := row.Scan(
 		&i.JobID,
@@ -170,12 +291,20 @@ func (q *Queries) FallisciJob(ctx context.Context, arg FallisciJobParams) (Job, 
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
 
 const getJob = `-- name: GetJob :one
-SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job WHERE job_id = $1
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job WHERE job_id = $1
 `
 
 func (q *Queries) GetJob(ctx context.Context, jobID int64) (Job, error) {
@@ -199,23 +328,33 @@ func (q *Queries) GetJob(ctx context.Context, jobID int64) (Job, error) {
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
 
 const heartbeatJob = `-- name: HeartbeatJob :execrows
-UPDATE job SET lease_fino_a = now() + make_interval(secs => $1::int)
-WHERE job_id = $2 AND stato = 'in_corso' AND worker_id = $3
+UPDATE job SET lease_fino_a = now() + make_interval(secs => lease_s)
+WHERE job_id = $1
+  AND stato = 'in_corso' AND lease_token = $2 AND worker_id = $3
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
 `
 
 type HeartbeatJobParams struct {
-	LeaseSecondi int32       `json:"lease_secondi"`
-	JobID        int64       `json:"job_id"`
-	WorkerID     pgtype.Text `json:"worker_id"`
+	JobID      int64         `json:"job_id"`
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
 }
 
 func (q *Queries) HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int64, error) {
-	result, err := q.db.Exec(ctx, heartbeatJob, arg.LeaseSecondi, arg.JobID, arg.WorkerID)
+	result, err := q.db.Exec(ctx, heartbeatJob, arg.JobID, arg.LeaseToken, arg.WorkerID)
 	if err != nil {
 		return 0, err
 	}
@@ -223,10 +362,14 @@ func (q *Queries) HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int
 }
 
 const insertJob = `-- name: InsertJob :one
-INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di)
-VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()))
+
+INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di,
+                 lease_s, durata_max_s, casella_id, postazione_id, richiesto_da, scade_il)
+VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()),
+        $7, $8, $9, $10,
+        $11, $12)
 ON CONFLICT (chiave_idempotenza) WHERE stato IN ('pronto','in_corso') DO NOTHING
-RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
 type InsertJobParams struct {
@@ -236,8 +379,25 @@ type InsertJobParams struct {
 	ChiaveIdempotenza pgtype.Text     `json:"chiave_idempotenza"`
 	Priorita          int16           `json:"priorita"`
 	NonPrimaDi        *time.Time      `json:"non_prima_di"`
+	LeaseS            int32           `json:"lease_s"`
+	DurataMaxS        int32           `json:"durata_max_s"`
+	CasellaID         uuid.NullUUID   `json:"casella_id"`
+	PostazioneID      uuid.NullUUID   `json:"postazione_id"`
+	RichiestoDa       uuid.NullUUID   `json:"richiesto_da"`
+	ScadeIl           *time.Time      `json:"scade_il"`
 }
 
+// Coda dei job.
+//
+// Il PREDICATO DI VALIDITÀ DEL TENTATIVO (piano §2.3) compare identico in HeartbeatJob, CompletaJob,
+// FallisciJob e BloccaTentativo:
+//
+//	stato = 'in_corso' AND lease_token = $token AND worker_id = $worker
+//	AND lease_fino_a > now() AND now() <= avviato_il + durata_max_s
+//
+// Zero righe significa «questo tentativo non vale più» e il chiamante risponde 409 senza applicare
+// nulla. Non va rilassato in nessuno dei quattro punti: basta un punto scoperto perché il risultato
+// di un tentativo scaduto si applichi al lavoro di quello nuovo.
 func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, error) {
 	row := q.db.QueryRow(ctx, insertJob,
 		arg.Tipo,
@@ -246,6 +406,12 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 		arg.ChiaveIdempotenza,
 		arg.Priorita,
 		arg.NonPrimaDi,
+		arg.LeaseS,
+		arg.DurataMaxS,
+		arg.CasellaID,
+		arg.PostazioneID,
+		arg.RichiestoDa,
+		arg.ScadeIl,
 	)
 	var i Job
 	err := row.Scan(
@@ -266,12 +432,20 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
 
 const jobPendentePerChiave = `-- name: JobPendentePerChiave :one
-SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1
 `
 
 func (q *Queries) JobPendentePerChiave(ctx context.Context, chiaveIdempotenza pgtype.Text) (Job, error) {
@@ -295,12 +469,20 @@ func (q *Queries) JobPendentePerChiave(ctx context.Context, chiaveIdempotenza pg
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }
 
 const listJob = `-- name: ListJob :many
-SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job
 WHERE ($2::stato_job IS NULL OR stato = $2::stato_job)
 ORDER BY job_id DESC LIMIT $1
 `
@@ -337,6 +519,14 @@ func (q *Queries) ListJob(ctx context.Context, arg ListJobParams) ([]Job, error)
 			&i.CreatoIl,
 			&i.AggiornatoIl,
 			&i.ChiusoIl,
+			&i.CasellaID,
+			&i.PostazioneID,
+			&i.RichiestoDa,
+			&i.LeaseS,
+			&i.DurataMaxS,
+			&i.LeaseToken,
+			&i.AvviatoIl,
+			&i.ScadeIl,
 		); err != nil {
 			return nil, err
 		}
@@ -377,22 +567,61 @@ func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]WorkerPresenza, err
 	return items, nil
 }
 
-const riaccodaJob = `-- name: RiaccodaJob :exec
-UPDATE job SET stato = 'pronto', tentativi = 0, errore = NULL, non_prima_di = now(), chiuso_il = NULL
-WHERE job_id = $1 AND stato = 'fallito'
+const riaccodaJob = `-- name: RiaccodaJob :one
+UPDATE job SET stato = 'pronto', tentativi = 0, errore = NULL, non_prima_di = now(), chiuso_il = NULL,
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL
+WHERE job.job_id = $1 AND job.stato IN ('fallito','annullato')
+  AND NOT EXISTS (
+      SELECT 1 FROM job p
+      WHERE p.chiave_idempotenza IS NOT NULL AND p.chiave_idempotenza = job.chiave_idempotenza
+        AND p.stato IN ('pronto','in_corso'))
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
-func (q *Queries) RiaccodaJob(ctx context.Context, jobID int64) error {
-	_, err := q.db.Exec(ctx, riaccodaJob, jobID)
-	return err
+// Zero righe = non riaccodabile: o non è chiuso, o esiste già un job pendente con la stessa chiave di
+// idempotenza. Il secondo caso violerebbe l'indice unico parziale: qui diventa un avviso, non un 500.
+func (q *Queries) RiaccodaJob(ctx context.Context, jobID int64) (Job, error) {
+	row := q.db.QueryRow(ctx, riaccodaJob, jobID)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
 }
 
 const rilasciaLeaseScaduti = `-- name: RilasciaLeaseScaduti :execrows
 UPDATE job SET
     stato = CASE WHEN tentativi >= max_tentativi THEN 'fallito'::stato_job ELSE 'pronto'::stato_job END,
-    lease_fino_a = NULL, worker_id = NULL, errore = concat_ws(' ', errore, '[lease scaduto]'),
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    errore = concat_ws(' ', errore, CASE WHEN avviato_il IS NOT NULL AND now() > avviato_il + make_interval(secs => durata_max_s)
+                                         THEN '[durata massima superata]' ELSE '[lease scaduto]' END),
     chiuso_il = CASE WHEN tentativi >= max_tentativi THEN now() END
-WHERE stato = 'in_corso' AND lease_fino_a < now()
+WHERE stato = 'in_corso'
+  AND (lease_fino_a < now() OR (avviato_il IS NOT NULL AND now() > avviato_il + make_interval(secs => durata_max_s)))
 `
 
 func (q *Queries) RilasciaLeaseScaduti(ctx context.Context) (int64, error) {
@@ -403,8 +632,25 @@ func (q *Queries) RilasciaLeaseScaduti(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const scadutoPerDurataMassima = `-- name: ScadutoPerDurataMassima :execrows
+UPDATE job SET stato = 'pronto', lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    non_prima_di = now(), errore = 'durata massima superata'
+WHERE job_id = $1 AND stato = 'in_corso' AND avviato_il IS NOT NULL
+  AND now() > avviato_il + make_interval(secs => durata_max_s)
+`
+
+// Chiamata quando il predicato fallisce: se il motivo è la durata massima il job torna disponibile
+// con il motivo scritto, invece di restare appeso fino alla scadenza del lease.
+func (q *Queries) ScadutoPerDurataMassima(ctx context.Context, jobID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, scadutoPerDurataMassima, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const ultimoJobPerChiavePrefisso = `-- name: UltimoJobPerChiavePrefisso :one
-SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il FROM job WHERE chiave_idempotenza LIKE $1::text || '%' ORDER BY job_id DESC LIMIT 1
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job WHERE chiave_idempotenza LIKE $1::text || '%' ORDER BY job_id DESC LIMIT 1
 `
 
 func (q *Queries) UltimoJobPerChiavePrefisso(ctx context.Context, prefisso string) (Job, error) {
@@ -428,6 +674,14 @@ func (q *Queries) UltimoJobPerChiavePrefisso(ctx context.Context, prefisso strin
 		&i.CreatoIl,
 		&i.AggiornatoIl,
 		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
 	)
 	return i, err
 }

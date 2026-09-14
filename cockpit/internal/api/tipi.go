@@ -55,8 +55,37 @@ type MessaggioIn struct {
 	Allegati          []AllegatoIn   `json:"allegati"`
 }
 
+// CursoreLotto: fin dove arriva questo lotto. Il server lo scrive nella stessa transazione degli
+// elementi, quindi o avanzano insieme o non avanza niente.
+type CursoreLotto struct {
+	Cartella       string    `json:"cartella"`
+	UltimoReceived time.Time `json:"ultimo_received"`
+}
+
+// ElementoSaltato: il worker ha visto l'elemento ma non è riuscito a convertirlo (com_error su Body,
+// elemento non-mail, ...). Non è un dato da buttare: finisce in scarto con origine 'lettura' e si
+// rilegge con un job dedicato, perché il payload qui non c'è.
+type ElementoSaltato struct {
+	EntryID    string     `json:"entry_id"`
+	Cartella   string     `json:"cartella,omitempty"`
+	MessageID  string     `json:"message_id,omitempty"`
+	RicevutoIl *time.Time `json:"ricevuto_il,omitempty"`
+	Oggetto    string     `json:"oggetto,omitempty"`
+	Errore     string     `json:"errore"`
+}
+
 type IngestRichiesta struct {
 	Messaggi []MessaggioIn `json:"messaggi"`
+	// Il lotto appartiene a una casella sola: casella_id sta qui, non nei singoli elementi, e viene
+	// verificato prima di aprire la transazione.
+	CasellaID *uuid.UUID `json:"casella_id,omitempty"`
+	// Il tentativo che sta consegnando il lotto. Senza, il server non ha modo di distinguere un
+	// tentativo vivo da uno scaduto e accetterebbe scritture di un tentativo che non esiste più.
+	JobID      int64             `json:"job_id"`
+	LeaseToken string            `json:"lease_token"`
+	WorkerID   string            `json:"worker_id"`
+	Cursore    *CursoreLotto     `json:"cursore,omitempty"`
+	Saltati    []ElementoSaltato `json:"saltati,omitempty"`
 }
 
 type EsitoMessaggio struct {
@@ -66,11 +95,13 @@ type EsitoMessaggio struct {
 	ThreadID        *uuid.UUID `json:"thread_id,omitempty"`
 	Aggancio        string     `json:"aggancio"`
 	AllegatiDaStage int        `json:"allegati_da_stage"` // sempre 0 dal 13/09: lo staging è su richiesta dell'operatore
+	Errore          string     `json:"errore,omitempty"`  // valorizzato = elemento scartato, non acquisito
 }
 
 type IngestRisposta struct {
 	Inseriti   int              `json:"inseriti"`
 	Aggiornati int              `json:"aggiornati"`
+	Falliti    int              `json:"falliti"`
 	Esiti      []EsitoMessaggio `json:"esiti"`
 }
 
@@ -88,10 +119,16 @@ type Job struct {
 	Payload   json.RawMessage `json:"payload"`
 	Tentativi int             `json:"tentativi"`
 	LeaseS    int             `json:"lease_s"`
+	// LeaseToken identifica QUESTO tentativo. Va rimandato indietro in heartbeat, result e ingest:
+	// è l'unica cosa che distingue il tentativo in corso da uno scaduto che sta ancora lavorando.
+	LeaseToken string     `json:"lease_token"`
+	DurataMaxS int        `json:"durata_max_s"` // oltre questa durata il tentativo non vale più, lease fresco o no
+	CasellaID  *uuid.UUID `json:"casella_id,omitempty"`
 }
 
 type HeartbeatRichiesta struct {
-	WorkerID string `json:"worker_id"`
+	WorkerID   string `json:"worker_id"`
+	LeaseToken string `json:"lease_token"`
 }
 
 type RisultatoRichiesta struct {
@@ -99,6 +136,8 @@ type RisultatoRichiesta struct {
 	Dati       json.RawMessage `json:"dati,omitempty"`
 	Errore     string          `json:"errore,omitempty"`
 	Definitivo bool            `json:"definitivo,omitempty"` // true = non ritentare
+	WorkerID   string          `json:"worker_id"`
+	LeaseToken string          `json:"lease_token"`
 }
 
 // ---------------------------------------------------------------- payload e risultati per tipo di job
@@ -109,6 +148,9 @@ type CartellaCursore struct {
 }
 
 type PayloadSyncOutlook struct {
+	// La casella da sincronizzare: il worker la rimanda nell'ingest, così il lotto ha una casella
+	// sola e verificabile invece di ereditarla da una configurazione locale.
+	CasellaID        *uuid.UUID        `json:"casella_id,omitempty"`
 	Cartelle         []CartellaCursore `json:"cartelle"`
 	Dal              time.Time         `json:"dal"`               // limite inferiore assoluto (cursore vuoto)
 	Al               *time.Time        `json:"al,omitempty"`      // limite superiore opzionale (sync storico)
@@ -125,6 +167,15 @@ type CartellaEsito struct {
 
 type RisultatoSync struct {
 	Cartelle []CartellaEsito `json:"cartelle"`
+}
+
+// PayloadRileggiElemento: rilettura mirata di un solo elemento di una casella, dopo che il worker non
+// era riuscito a convertirlo. Il worker risponde con un lotto da uno.
+type PayloadRileggiElemento struct {
+	CasellaID uuid.UUID `json:"casella_id"`
+	EntryID   string    `json:"entry_id"`
+	Cartella  string    `json:"cartella,omitempty"`
+	MessageID string    `json:"message_id,omitempty"`
 }
 
 // Riferimento a un elemento Outlook. entry_id/store_id sono la via rapida (GetItemFromID); se l'elemento è

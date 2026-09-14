@@ -104,10 +104,19 @@ class Cockpit:
             timeout=attesa_s + 15,
         )
 
-    def heartbeat(self, job_id: int, worker_id: str) -> None:
-        self.chiama("POST", f"/api/v1/jobs/{job_id}/heartbeat", {"worker_id": worker_id})
+    def heartbeat(self, job_id: int, worker_id: str, lease_token: str) -> None:
+        self.chiama(
+            "POST",
+            f"/api/v1/jobs/{job_id}/heartbeat",
+            {"worker_id": worker_id, "lease_token": lease_token},
+        )
 
-    def risultato(self, job_id: int, corpo: dict) -> None:
+    def risultato(self, job_id: int, corpo: dict, worker_id: str = "", lease_token: str = "") -> None:
+        # worker_id e lease_token dicono al server QUALE tentativo sta riportando il risultato:
+        # senza, il risultato di un tentativo scaduto si applicherebbe al tentativo subentrato.
+        corpo = dict(corpo)
+        corpo.setdefault("worker_id", worker_id or self.worker_id)
+        corpo.setdefault("lease_token", lease_token)
         self.chiama("POST", f"/api/v1/jobs/{job_id}/result", corpo)
 
     def ingest(self, richiesta: dict, timeout: int = 300) -> dict:
@@ -119,7 +128,7 @@ class Battito:
 
     Uso:
 
-        with Battito(api, job_id, worker_id, ogni_s=30) as b:
+        with Battito(api, job_id, worker_id, job.lease_token, ogni_s=30) as b:
             fai_il_lavoro(controlla=b.controlla)     # b.controlla() alza ArrestoRichiesto dopo un 409
         if b.arresto.is_set():
             return                                   # niente result: il tentativo non è più nostro
@@ -128,10 +137,11 @@ class Battito:
     rete è giù riprova, perché un buco di rete non significa aver perso il lease.
     """
 
-    def __init__(self, api: Cockpit, job_id: int, worker_id: str, ogni_s: float = 30.0):
+    def __init__(self, api: Cockpit, job_id: int, worker_id: str, lease_token: str = "", ogni_s: float = 30.0):
         self.api = api
         self.job_id = job_id
         self.worker_id = worker_id
+        self.lease_token = lease_token
         self.ogni_s = ogni_s
         self.arresto = threading.Event()
         self.motivo = ""
@@ -160,7 +170,7 @@ class Battito:
     def _loop(self) -> None:
         while not self._ferma.wait(self.ogni_s):
             try:
-                self.api.heartbeat(self.job_id, self.worker_id)
+                self.api.heartbeat(self.job_id, self.worker_id, self.lease_token)
             except ErroreHTTP as e:
                 if e.tentativo_non_valido:
                     self.motivo = e.corpo[:200] or "409 dal server"

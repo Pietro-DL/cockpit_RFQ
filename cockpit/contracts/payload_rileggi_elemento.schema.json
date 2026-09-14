@@ -1,0 +1,31 @@
+{
+  "description": "Rilettura mirata di un solo elemento, dopo che il worker non era riuscito a convertirlo.",
+  "properties": {
+    "casella_id": {
+      "format": "uuid",
+      "title": "Casella Id",
+      "type": "string"
+    },
+    "entry_id": {
+      "title": "Entry Id",
+      "type": "string"
+    },
+    "cartella": {
+      "default": "",
+      "title": "Cartella",
+      "type": "string"
+    },
+    "message_id": {
+      "default": "",
+      "title": "Message Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "casella_id",
+    "entry_id"
+  ],
+  "title": "PayloadRileggiElemento",
+  "type": "object",
+  "$id": "cockpit/payload_rileggi_elemento"
+}

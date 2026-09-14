@@ -19,6 +19,13 @@ type Config struct {
 	Caselle    []Casella    `toml:"casella"`    // [[casella]] — fase 0, voce 0.6
 	Postazioni []Postazione `toml:"postazione"` // [[postazione]]
 	Worker     []Worker     `toml:"worker"`     // [[worker]] — credenziali individuali
+	Retention  Retention    `toml:"retention"`  // [retention] — fase 1, voce 1.6
+}
+
+// Retention: per quanto si tengono i job chiusi. Una coda che non si svuota mai diventa illeggibile e
+// rallenta le interrogazioni di amministrazione; 0 = non cancellare nulla.
+type Retention struct {
+	GiorniJob int `toml:"giorni_job"`
 }
 
 type Server struct {
@@ -88,6 +95,7 @@ func Carica(percorso string) (*Config, error) {
 	c.Outlook.Cartelle = []string{"Inbox", "Sent Items"}
 	c.Outlook.IntervalloSyncS = 60
 	c.Outlook.Lotto = 50
+	c.Retention.GiorniJob = 30
 	if _, err := toml.DecodeFile(percorso, c); err != nil {
 		return nil, fmt.Errorf("config %s: %w", percorso, err)
 	}

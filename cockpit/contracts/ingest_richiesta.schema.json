@@ -49,6 +49,26 @@
       "title": "AllegatoIn",
       "type": "object"
     },
+    "CursoreLotto": {
+      "description": "Fin dove arriva questo lotto. Il server lo scrive nella stessa transazione degli elementi:\no avanzano insieme o non avanza niente.",
+      "properties": {
+        "cartella": {
+          "title": "Cartella",
+          "type": "string"
+        },
+        "ultimo_received": {
+          "format": "date-time",
+          "title": "Ultimo Received",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cartella",
+        "ultimo_received"
+      ],
+      "title": "CursoreLotto",
+      "type": "object"
+    },
     "Destinatario": {
       "properties": {
         "nome": {
@@ -73,6 +93,53 @@
         }
       },
       "title": "Destinatario",
+      "type": "object"
+    },
+    "ElementoSaltato": {
+      "description": "Elemento visto ma non convertito (com_error sul Body, elemento non-mail, ...). Non si butta:\nfinisce in scarto con origine 'lettura' e si rilegge con un job dedicato, perché il payload\ncompleto qui non c'è.",
+      "properties": {
+        "entry_id": {
+          "title": "Entry Id",
+          "type": "string"
+        },
+        "cartella": {
+          "default": "",
+          "title": "Cartella",
+          "type": "string"
+        },
+        "message_id": {
+          "default": "",
+          "title": "Message Id",
+          "type": "string"
+        },
+        "ricevuto_il": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ricevuto Il"
+        },
+        "oggetto": {
+          "default": "",
+          "title": "Oggetto",
+          "type": "string"
+        },
+        "errore": {
+          "title": "Errore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_id",
+        "errore"
+      ],
+      "title": "ElementoSaltato",
       "type": "object"
     },
     "MessaggioIn": {
@@ -214,6 +281,52 @@
         "$ref": "#/$defs/MessaggioIn"
       },
       "title": "Messaggi",
+      "type": "array"
+    },
+    "casella_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Casella Id"
+    },
+    "job_id": {
+      "default": 0,
+      "title": "Job Id",
+      "type": "integer"
+    },
+    "lease_token": {
+      "default": "",
+      "title": "Lease Token",
+      "type": "string"
+    },
+    "worker_id": {
+      "default": "",
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "cursore": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CursoreLotto"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "saltati": {
+      "items": {
+        "$ref": "#/$defs/ElementoSaltato"
+      },
+      "title": "Saltati",
       "type": "array"
     }
   },

@@ -14,6 +14,7 @@
     <a href="/inbox" {{if eq .Titolo "Inbox"}}class="attivo"{{end}}>Inbox</a>
     <a href="/cruscotto" {{if eq .Titolo "Cruscotto"}}class="attivo"{{end}}>Cruscotto</a>
     <a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
+    <a href="/admin/scarti" {{if eq .Titolo "Scarti"}}class="attivo"{{end}}>Scarti</a>
   </nav>
   <span class="spazio"></span>
   {{if .Utente}}{{template "stato_worker" .}}

@@ -34,6 +34,10 @@ type Server struct {
 	Token   string
 	Ingest  *ingest.Servizio
 	Staging string
+	// CasellaDefault: indirizzo attribuito ai lotti che non dichiarano una casella. Serve finché il
+	// worker non manda sempre casella_id (fase 2); una casella sbagliata qui è meglio di una assente,
+	// perché almeno è dichiarata e verificabile.
+	CasellaDefault string
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
@@ -105,6 +109,30 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	scriviJSON(w, 200, jobs.InJob(j))
 }
 
+// tentativo estrae dalla richiesta l'identità del tentativo. Senza token non si prosegue: accettare
+// una scrittura «di qualcuno che dice di essere il worker» vanificherebbe tutto il resto.
+func tentativo(jobID int64, workerID, token string) (jobs.Tentativo, error) {
+	if workerID == "" {
+		return jobs.Tentativo{}, errors.New("worker_id mancante")
+	}
+	t, err := uuid.Parse(strings.TrimSpace(token))
+	if err != nil {
+		return jobs.Tentativo{}, fmt.Errorf("lease_token mancante o non valido: %w", err)
+	}
+	return jobs.Tentativo{JobID: jobID, LeaseToken: t, WorkerID: workerID}, nil
+}
+
+// nonValido risponde 409 e, se il tentativo è caduto per durata massima, riporta il job a 'pronto'
+// con il motivo scritto: altrimenti resterebbe «in corso» senza che nessuno lo stia eseguendo.
+func (s *Server) nonValido(w http.ResponseWriter, ctx context.Context, jobID int64) {
+	if jobs.ChiudiSeDurataSuperata(ctx, db.New(s.Pool), jobID) {
+		s.Log.Warn("tentativo oltre la durata massima: job riaccodato", "job", jobID)
+		errore(w, 409, errors.New("durata massima superata: il tentativo non vale più"))
+		return
+	}
+	errore(w, 409, errors.New("tentativo non più valido (lease perso o job ripreso da un altro tentativo)"))
+}
+
 func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -113,22 +141,19 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	var req api.HeartbeatRichiesta
 	_ = leggi(r, &req)
-	q := db.New(s.Pool)
-	j, err := q.GetJob(r.Context(), id)
+	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
 	if err != nil {
-		errore(w, 404, err)
+		errore(w, 400, err)
 		return
 	}
-	n, err := q.HeartbeatJob(r.Context(), db.HeartbeatJobParams{LeaseSecondi: int32(jobs.LeaseSecondi(j.Tipo)), JobID: id, WorkerID: pgtype.Text{String: req.WorkerID, Valid: true}})
-	if err != nil {
+	switch err := jobs.Batte(r.Context(), db.New(s.Pool), t); {
+	case errors.Is(err, jobs.ErrTentativoNonValido):
+		s.nonValido(w, r.Context(), id)
+	case err != nil:
 		errore(w, 500, err)
-		return
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
-	if n == 0 {
-		errore(w, 409, errors.New("job non in corso per questo worker (lease perso?)"))
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) result(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +164,11 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	var req api.RisultatoRichiesta
 	if err := leggi(r, &req); err != nil {
+		errore(w, 400, err)
+		return
+	}
+	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
+	if err != nil {
 		errore(w, 400, err)
 		return
 	}
@@ -155,21 +185,26 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		errore(w, 404, err)
 		return
 	}
-	if j.Stato != db.StatoJobInCorso {
-		errore(w, 409, fmt.Errorf("job %d in stato %s", id, j.Stato))
-		return
-	}
+
+	// --------------------------------------------------- il worker riporta un errore
 	if req.Esito != "ok" {
 		msg := req.Errore
 		if msg == "" {
 			msg = "errore non specificato"
 		}
-		if req.Definitivo {
-			s.fallimentoDefinitivo(ctx, q, &j, msg)
-		}
-		if _, err := q.FallisciJob(ctx, db.FallisciJobParams{Definitivo: req.Definitivo, Errore: pgtype.Text{String: msg, Valid: true}, JobID: id}); err != nil {
+		// Prima si verifica il tentativo, poi si tocca l'entità del job: un fallimento riportato da un
+		// tentativo scaduto non deve marcare in errore un allegato che il tentativo nuovo sta
+		// scaricando bene (Q19).
+		if _, err := jobs.Fallisci(ctx, q, t, msg, req.Definitivo); err != nil {
+			if errors.Is(err, jobs.ErrTentativoNonValido) {
+				s.nonValido(w, ctx, id)
+				return
+			}
 			errore(w, 500, err)
 			return
+		}
+		if req.Definitivo {
+			s.fallimentoDefinitivo(ctx, q, &j, msg)
 		}
 		if err := tx.Commit(ctx); err != nil {
 			errore(w, 500, err)
@@ -179,15 +214,36 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+
+	// --------------------------------------------------- il worker riporta un successo
 	if err := s.applicaRisultato(ctx, q, &j, req.Dati); err != nil {
-		errore(w, 422, fmt.Errorf("risultato %s non applicabile: %w", j.Tipo, err))
+		// Il risultato non è applicabile: il contenuto è sbagliato, non la rete. Ritentarlo darebbe lo
+		// stesso esito all'infinito. Si annulla la transazione e si chiude il job in una nuova (N6):
+		// senza questo il job restava «in corso» fino alla scadenza del lease, e l'operatore non
+		// vedeva nessun motivo.
+		_ = tx.Rollback(ctx)
+		motivo := fmt.Sprintf("risultato %s non applicabile: %v", j.Tipo, err)
+		fuori := db.New(s.Pool)
+		if _, e := jobs.Fallisci(ctx, fuori, t, motivo, true); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
+			s.Log.Error("fallimento dopo 422 non registrato", "job", id, "err", e)
+		} else if e == nil {
+			s.fallimentoDefinitivo(ctx, fuori, &j, motivo)
+		}
+		s.Log.Warn("risultato non applicabile", "job", id, "tipo", j.Tipo, "err", err)
+		errore(w, 422, errors.New(motivo))
 		return
 	}
 	dati := req.Dati
 	if len(dati) == 0 {
 		dati = json.RawMessage("{}")
 	}
-	if _, err := q.CompletaJob(ctx, db.CompletaJobParams{JobID: id, Risultato: &dati}); err != nil {
+	if _, err := jobs.Completa(ctx, q, t, dati); err != nil {
+		if errors.Is(err, jobs.ErrTentativoNonValido) {
+			// tutto ciò che applicaRisultato ha scritto sparisce con il rollback: «nulla applicato»
+			// non è una promessa, è la transazione (Q15, Q20)
+			s.nonValido(w, ctx, id)
+			return
+		}
 		errore(w, 500, err)
 		return
 	}
@@ -471,17 +527,57 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, err)
 		return
 	}
-	if len(req.Messaggi) == 0 {
-		scriviJSON(w, 200, api.IngestRisposta{Esiti: []api.EsitoMessaggio{}})
+	// Un lotto arriva sempre dentro un tentativo di sync: senza, il server non potrebbe distinguere
+	// un worker vivo da uno scaduto che sta ancora scrivendo (precisazione P5).
+	t, err := tentativo(req.JobID, req.WorkerID, req.LeaseToken)
+	if err != nil {
+		errore(w, 400, fmt.Errorf("ingest senza tentativo valido: %w", err))
 		return
 	}
-	res, err := s.Ingest.Ingerisci(r.Context(), req.Messaggi)
+	ctx := r.Context()
+
+	// La casella si verifica PRIMA della transazione: se non è censita è un errore di configurazione
+	// che riguarda tutto il lotto, non un dato da scartare elemento per elemento (I23).
+	casella, err := ingest.RisolviCasella(ctx, db.New(s.Pool), req.CasellaID, s.CasellaDefault)
 	if err != nil {
-		errore(w, 422, err)
+		if errors.Is(err, ingest.ErrCasellaNonCensita) {
+			// il sync di questa casella non può funzionare finché qualcuno non corregge la
+			// configurazione: farlo ritentare cinque volte non serve a nulla
+			if _, e := jobs.Fallisci(ctx, db.New(s.Pool), t, err.Error(), true); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
+				s.Log.Error("fallimento per casella non censita non registrato", "job", req.JobID, "err", e)
+			}
+			s.Log.Error("lotto rifiutato", "job", req.JobID, "err", err)
+			errore(w, 422, err)
+			return
+		}
+		errore(w, 500, err)
+		return
+	}
+
+	res, err := s.Ingest.Ingerisci(ctx, ingest.Lotto{
+		Casella:   casella,
+		Tentativo: &ingest.Tentativo{JobID: t.JobID, LeaseToken: t.LeaseToken, WorkerID: t.WorkerID},
+		Messaggi:  req.Messaggi,
+		Saltati:   req.Saltati,
+		Cursore:   req.Cursore,
+	})
+	switch {
+	case errors.Is(err, ingest.ErrTentativoNonValido):
+		s.nonValido(w, ctx, req.JobID)
+		return
+	case err != nil:
+		// Un errore qui è un guasto (database irraggiungibile, commit fallito), non un dato sbagliato:
+		// un dato sbagliato finisce in scarto e il lotto continua. 5xx dice al worker di ripetere il
+		// lotto identico, ed è sicuro farlo perché non è stato scritto niente (I16).
+		s.Log.Error("ingest lotto", "job", req.JobID, "casella", casella.Indirizzo, "err", err)
+		errore(w, 500, err)
 		return
 	}
 	if res.Esiti == nil {
 		res.Esiti = []api.EsitoMessaggio{}
+	}
+	if res.Falliti > 0 {
+		s.Log.Warn("lotto con scarti", "job", req.JobID, "inseriti", res.Inseriti, "aggiornati", res.Aggiornati, "falliti", res.Falliti)
 	}
 	scriviJSON(w, 200, res)
 }

@@ -1,0 +1,19 @@
+{
+  "properties": {
+    "worker_id": {
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "lease_token": {
+      "default": "",
+      "title": "Lease Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "worker_id"
+  ],
+  "title": "HeartbeatRichiesta",
+  "type": "object",
+  "$id": "cockpit/heartbeat_richiesta"
+}

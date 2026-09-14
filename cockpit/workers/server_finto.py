@@ -23,6 +23,7 @@ class ServerFinto:
         self.job: list[dict] = []              # coda dei job da consegnare al claim
         self.claim_fatti: list[dict] = []      # corpi delle richieste di claim ricevute
         self.battiti: list[int] = []           # job_id di ogni heartbeat ricevuto
+        self.battiti_corpo: list[dict] = []    # corpo di ogni heartbeat: serve a vedere il lease_token
         self.risultati: dict[int, dict] = {}   # job_id → corpo del result
         self.lotti: list[dict] = []            # corpi di ogni POST /ingest/messaggi
         self.stato_heartbeat = 204             # forzabile a 409 per simulare il lease perso
@@ -72,6 +73,7 @@ class ServerFinto:
                 elif percorso.endswith("/heartbeat"):
                     with padrone.lock:
                         padrone.battiti.append(int(percorso.split("/")[-2]))
+                        padrone.battiti_corpo.append(corpo)
                         stato = padrone.stato_heartbeat
                     if stato == 204:
                         self._rispondi(204)
@@ -90,7 +92,7 @@ class ServerFinto:
                     if stato != 200:
                         self._rispondi(stato, {"errore": "ingest non disponibile"})
                     else:
-                        self._rispondi(200, risposta or {"inseriti": len(corpo.get("messaggi", [])), "aggiornati": 0, "esiti": []})
+                        self._rispondi(200, risposta or {"inseriti": len(corpo.get("messaggi", [])), "aggiornati": 0, "falliti": 0, "esiti": []})
                 else:
                     self._rispondi(404, {"errore": "rotta sconosciuta: " + percorso})
 

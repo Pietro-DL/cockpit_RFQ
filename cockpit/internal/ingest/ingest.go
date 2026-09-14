@@ -1,6 +1,14 @@
 // Package ingest scrive il FATTO (messaggio, messaggio_outlook, allegato), esegue l'aggancio automatico
 // deterministico e produce le prime INTERPRETAZIONI (proposta_triage, riferimento_portale).
 // Non scrive mai sul NAS e non prende decisioni: ogni proposta è revocabile dall'operatore.
+//
+// Il lotto è UNA transazione con un savepoint per elemento (piano §2.4, D15). Prima era una
+// transazione per elemento e il primo errore interrompeva il lotto: bastava un messaggio che il
+// database rifiutava per fermare il sync e far ripartire la scansione dallo stesso punto, all'infinito.
+// Ora l'elemento rotto viene annullato fino al suo savepoint e registrato in ingest_scarto, gli altri
+// entrano, e il cursore avanza nella stessa transazione. Così «200 ⇔ tutto durevole» è una proprietà
+// del codice, non una convenzione: se il commit fallisce la risposta è 5xx e in database non è rimasto
+// nulla di parziale, quindi il worker può ripetere il lotto identico senza duplicare niente.
 package ingest
 
 import (
@@ -23,10 +31,40 @@ import (
 	"promatec/cockpit/internal/domain"
 )
 
+// MaxIdentificativo: oltre questa lunghezza un Message-ID non è più un identificativo utilizzabile.
+// Troncarlo sarebbe peggio che scartarlo: due messaggi diversi diventerebbero lo stesso (N34).
+const MaxIdentificativo = 1000
+
 type Servizio struct {
 	Pool *pgxpool.Pool
 	Log  *slog.Logger
 }
+
+// Tentativo identifica il tentativo di esecuzione del job che sta consegnando il lotto. Ogni scrittura
+// che arriva da un worker deve esibirlo: senza, un tentativo scaduto potrebbe ancora scrivere messaggi
+// e far avanzare il cursore del tentativo che gli è subentrato (precisazione P5).
+type Tentativo struct {
+	JobID      int64
+	LeaseToken uuid.UUID
+	WorkerID   string
+}
+
+// Lotto è ciò che il worker consegna in una sola chiamata: gli elementi convertiti, quelli che non è
+// riuscito a leggere, il cursore raggiunto e il tentativo che li sta consegnando.
+type Lotto struct {
+	Casella   db.Casella
+	Tentativo *Tentativo // nil = chiamata interna (replay da admin): nessun job da validare
+	Messaggi  []api.MessaggioIn
+	Saltati   []api.ElementoSaltato
+	Cursore   *api.CursoreLotto
+}
+
+var (
+	// ErrTentativoNonValido: il job non è più in corso con questo token. Chi chiama risponde 409.
+	ErrTentativoNonValido = errors.New("tentativo non più valido")
+	// ErrCasellaNonCensita: errore di configurazione, non di dato. Non produce scarti (I23).
+	ErrCasellaNonCensita = errors.New("casella non censita")
+)
 
 // forzaErrore è il gancio di prova della voce 0.5: se COCKPIT_INGEST_FORZA_ERRORE contiene una
 // sottostringa, ogni messaggio il cui Message-ID la contiene fallisce come se il DB l'avesse
@@ -41,26 +79,161 @@ func forzaErrore(messageID string) error {
 	return fmt.Errorf("errore forzato da COCKPIT_INGEST_FORZA_ERRORE=%q (solo test)", spia)
 }
 
-// Ingerisci elabora un lotto: una transazione per messaggio, così un elemento anomalo non blocca gli altri.
-func (s *Servizio) Ingerisci(ctx context.Context, msgs []api.MessaggioIn) (api.IngestRisposta, error) {
-	var out api.IngestRisposta
-	for i := range msgs {
-		e, err := s.uno(ctx, &msgs[i])
-		if err == nil {
-			err = forzaErrore(msgs[i].MessageID)
+// RisolviCasella traduce il casella_id del lotto in una casella viva. Va chiamata PRIMA di aprire la
+// transazione: una casella sconosciuta o disattivata è un errore di configurazione che riguarda tutto
+// il lotto, non un dato da scartare elemento per elemento.
+func RisolviCasella(ctx context.Context, q *db.Queries, casellaID *uuid.UUID, predefinita string) (db.Casella, error) {
+	var c db.Casella
+	var err error
+	switch {
+	case casellaID != nil && *casellaID != uuid.Nil:
+		c, err = q.GetCasella(ctx, *casellaID)
+	case predefinita != "":
+		c, err = q.GetCasellaPerIndirizzo(ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: predefinita})
+	default:
+		return c, fmt.Errorf("%w: né casella_id nel lotto né [outlook].casella_default", ErrCasellaNonCensita)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, fmt.Errorf("%w: %v", ErrCasellaNonCensita, casellaOId(casellaID, predefinita))
+	}
+	if err != nil {
+		return c, err
+	}
+	if !c.Attiva {
+		return c, fmt.Errorf("%w: %s è disattivata", ErrCasellaNonCensita, c.Indirizzo)
+	}
+	return c, nil
+}
+
+func casellaOId(id *uuid.UUID, predefinita string) string {
+	if id != nil {
+		return id.String()
+	}
+	return predefinita
+}
+
+// Ingerisci elabora un lotto in una sola transazione, con un savepoint per elemento.
+func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, error) {
+	out := api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+
+	// Il tentativo si verifica DENTRO la transazione e con la riga del job bloccata: così non può
+	// scadere a metà scrittura e due tentativi diversi non possono scrivere lo stesso lotto insieme.
+	if l.Tentativo != nil {
+		_, err := q.BloccaTentativo(ctx, db.BloccaTentativoParams{
+			JobID:      l.Tentativo.JobID,
+			LeaseToken: uuid.NullUUID{UUID: l.Tentativo.LeaseToken, Valid: true},
+			WorkerID:   pgtype.Text{String: l.Tentativo.WorkerID, Valid: true},
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return out, ErrTentativoNonValido
 		}
 		if err != nil {
-			s.Log.Error("ingest messaggio", "message_id", msgs[i].MessageID, "err", err)
-			return out, fmt.Errorf("messaggio %s: %w", msgs[i].MessageID, err)
+			return out, err
 		}
-		if e.Inserito {
+	}
+
+	for i := range l.Messaggi {
+		m := &l.Messaggi[i]
+		sp, err := tx.Begin(ctx) // SAVEPOINT
+		if err != nil {
+			return out, err
+		}
+		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, m)
+		if errEl == nil {
+			errEl = forzaErrore(m.MessageID)
+		}
+		if errEl != nil {
+			// ROLLBACK TO SAVEPOINT: l'elemento sparisce, il lotto continua, la transazione resta viva
+			_ = sp.Rollback(ctx)
+			if err := s.scarta(ctx, q, l.Casella, m, errEl); err != nil {
+				return out, fmt.Errorf("scarto di %s: %w", m.MessageID, err)
+			}
+			s.Log.Warn("elemento scartato", "message_id", m.MessageID, "entry_id", m.EntryID, "err", errEl)
+			out.Falliti++
+			out.Esiti = append(out.Esiti, api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno", Errore: errEl.Error()})
+			continue
+		}
+		if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
+			return out, err
+		}
+		if esito.Inserito {
 			out.Inseriti++
 		} else {
 			out.Aggiornati++
 		}
-		out.Esiti = append(out.Esiti, e)
+		// un elemento che era in scarto ed è entrato non è più in scarto
+		if _, err := q.EliminaScartoPerElemento(ctx, db.EliminaScartoPerElementoParams{CasellaID: l.Casella.CasellaID, EntryID: m.EntryID}); err != nil {
+			return out, err
+		}
+		out.Esiti = append(out.Esiti, esito)
+	}
+
+	// elementi che il worker non è riuscito nemmeno a leggere: si registrano per poterli rileggere
+	for _, sal := range l.Saltati {
+		if err := s.scartaLettura(ctx, q, l.Casella, sal); err != nil {
+			return out, err
+		}
+		out.Falliti++
+	}
+
+	// Il cursore avanza NELLA STESSA TRANSAZIONE del lotto: se il commit non riesce, il cursore non si
+	// muove e il lotto viene ripetuto per intero. GREATEST impedisce che due tentativi lo facciano
+	// arretrare (Q22).
+	if l.Cursore != nil && l.Cursore.Cartella != "" {
+		if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
+			Cartella: l.Cursore.Cartella, UltimoReceived: &l.Cursore.UltimoReceived,
+			NMessaggi: int32(out.Inseriti + out.Aggiornati),
+		}); err != nil {
+			return out, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return out, err
 	}
 	return out, nil
+}
+
+// scarta registra un elemento che il database ha rifiutato. Il payload completo resta in DB: il replay
+// non deve ripassare da Outlook, che nel frattempo potrebbe non avere più l'elemento.
+func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *api.MessaggioIn, errEl error) error {
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	entry := m.EntryID
+	if entry == "" {
+		entry = "noentry:" + m.MessageID
+	}
+	ric := m.DataEvento
+	_, err = q.UpsertIngestScarto(ctx, db.UpsertIngestScartoParams{
+		CasellaID: c.CasellaID, EntryID: entry, Cartella: txtN(m.Cartella, 200), MessageID: txt(m.MessageID),
+		RicevutoIl: &ric, Oggetto: txtN(m.Oggetto, 500), Origine: "ingest", Payload: payload,
+		Errore: errEl.Error(),
+	})
+	return err
+}
+
+func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casella, sal api.ElementoSaltato) error {
+	payload, err := json.Marshal(sal)
+	if err != nil {
+		return err
+	}
+	if sal.EntryID == "" {
+		return errors.New("elemento saltato senza entry_id: non sarebbe rileggibile")
+	}
+	_, err = q.UpsertIngestScarto(ctx, db.UpsertIngestScartoParams{
+		CasellaID: c.CasellaID, EntryID: sal.EntryID, Cartella: txtN(sal.Cartella, 200), MessageID: txt(sal.MessageID),
+		RicevutoIl: sal.RicevutoIl, Oggetto: txtN(sal.Oggetto, 500), Origine: "lettura", Payload: payload,
+		Errore: sal.Errore,
+	})
+	return err
 }
 
 func txt(s string) pgtype.Text {
@@ -78,26 +251,40 @@ func txtN(s string, max int) pgtype.Text {
 	return txt(s)
 }
 
-func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
+// naturaAllegato traduce il campo del contratto nell'enum. Un valore fuori enum non viene ricondotto
+// al più vicino: sarebbe un dato inventato dal server. L'elemento va in scarto e si vede (N7).
+func naturaAllegato(v string) (db.NaturaAllegato, error) {
+	n := db.NaturaAllegato(strings.TrimSpace(v))
+	if v == "" {
+		return db.NaturaAllegatoFile, nil
+	}
+	if !n.Valid() {
+		return "", fmt.Errorf("natura allegato non valida: %q", v)
+	}
+	return n, nil
+}
+
+func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
 	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
 	}
-	if m.Direzione != "entrata" && m.Direzione != "uscita" {
+	if len(m.MessageID) > MaxIdentificativo {
+		return esito, fmt.Errorf("message_id di %d caratteri: oltre %d non è un identificativo utilizzabile", len(m.MessageID), MaxIdentificativo)
+	}
+	dir := db.Direzione(m.Direzione)
+	if !dir.Valid() {
 		return esito, fmt.Errorf("direzione non valida: %q", m.Direzione)
 	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return esito, err
-	}
-	defer tx.Rollback(ctx)
-	q := db.New(tx)
 
 	chiaveConv := m.ConversationID
 	if chiaveConv == "" {
 		chiaveConv = "msg:" + m.MessageID
 	}
-	conv, err := q.UpsertConversazione(ctx, db.UpsertConversazioneParams{Canale: db.CanaleOutlook, ChiaveEsterna: txtN(chiaveConv, 255).String, PrimoMessaggioIl: m.DataEvento})
+	if len(chiaveConv) > MaxIdentificativo {
+		return esito, fmt.Errorf("conversation_id di %d caratteri: oltre %d", len(chiaveConv), MaxIdentificativo)
+	}
+	conv, err := q.UpsertConversazione(ctx, db.UpsertConversazioneParams{Canale: db.CanaleOutlook, ChiaveEsterna: chiaveConv, PrimoMessaggioIl: m.DataEvento})
 	if err != nil {
 		return esito, fmt.Errorf("conversazione: %w", err)
 	}
@@ -106,7 +293,7 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 	var buyer *db.Buyer
 	var clienteID uuid.NullUUID
 	indirizzo := strings.ToLower(strings.TrimSpace(m.MittenteIndirizzo))
-	if m.Direzione == "entrata" && indirizzo != "" {
+	if dir == db.DirezioneEntrata && indirizzo != "" {
 		if b, err := q.GetBuyerPerEmail(ctx, indirizzo); err == nil {
 			buyer = &b
 			clienteID = uuid.NullUUID{UUID: b.ClienteID, Valid: true}
@@ -143,8 +330,8 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 		imp = pgtype.Int2{Int16: int16(m.Importanza), Valid: true}
 	}
 	row, err := q.UpsertMessaggio(ctx, db.UpsertMessaggioParams{
-		Canale: db.CanaleOutlook, ChiaveEsterna: txtN(m.MessageID, 255).String, ConversazioneID: conv.ConversazioneID,
-		ParentMessaggioID: parent, Direzione: db.Direzione(m.Direzione), DataEvento: m.DataEvento,
+		Canale: db.CanaleOutlook, ChiaveEsterna: m.MessageID, ConversazioneID: conv.ConversazioneID,
+		ParentMessaggioID: parent, Direzione: dir, DataEvento: m.DataEvento,
 		MittenteNome: txtN(m.MittenteNome, 150), MittenteIndirizzo: txtN(indirizzo, 200), BuyerID: buyerID,
 		Destinatari: dest, Oggetto: txtN(m.Oggetto, 500), CorpoTesto: txt(m.CorpoTesto), CorpoHtml: txt(m.CorpoHTML),
 		Importanza: imp,
@@ -171,14 +358,9 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 	// (SPEC: staging su richiesta). Qui si registra l'allegato e la prima proposta dal solo nome file.
 	var nomiAllegati []string
 	for _, a := range m.Allegati {
-		nat := db.NaturaAllegatoFile
-		switch a.Natura {
-		case "inline":
-			nat = db.NaturaAllegatoInline
-		case "elemento_outlook":
-			nat = db.NaturaAllegatoElementoOutlook
-		case "collegamento":
-			nat = db.NaturaAllegatoCollegamento
+		nat, err := naturaAllegato(a.Natura)
+		if err != nil {
+			return esito, fmt.Errorf("allegato %d: %w", a.Indice, err)
 		}
 		ext := strings.ToLower(strings.TrimPrefix(a.Estensione, "."))
 		if ext == "" {
@@ -237,6 +419,12 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 			if err := q.AgganciaMessaggio(ctx, db.AgganciaMessaggioParams{MessaggioID: row.MessaggioID, ThreadID: threadID, Aggancio: db.Aggancio(esito.Aggancio)}); err != nil {
 				return esito, err
 			}
+			// ogni decisione di aggancio lascia una traccia: qui l'autore è il sistema (utente NULL)
+			if err := q.InsertAgganciaLog(ctx, db.InsertAgganciaLogParams{
+				MessaggioID: row.MessaggioID, ThreadID: threadID, Azione: "aggancia", Motivo: txt(esito.Aggancio),
+			}); err != nil {
+				return esito, fmt.Errorf("log aggancio: %w", err)
+			}
 			if !conv.ThreadID.Valid {
 				_ = q.CollegaConversazione(ctx, db.CollegaConversazioneParams{ConversazioneID: conv.ConversazioneID, ThreadID: threadID, CollegataDa: db.Aggancio(esito.Aggancio)})
 			}
@@ -264,7 +452,7 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 				}
 			}
 		}
-		if !threadID.Valid && m.Direzione == "entrata" {
+		if !threadID.Valid && dir == db.DirezioneEntrata {
 			tr := domain.Triage(domain.IngressoTriage{
 				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: m.Direzione,
 				ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, ConversazioneNota: conv.ThreadID.Valid,
@@ -284,10 +472,6 @@ func (s *Servizio) uno(ctx context.Context, m *api.MessaggioIn) (api.EsitoMessag
 				return esito, fmt.Errorf("triage: %w", err)
 			}
 		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return esito, err
 	}
 	return esito, nil
 }

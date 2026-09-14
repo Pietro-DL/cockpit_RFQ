@@ -38,7 +38,7 @@ def test_409_e_riconoscibile_e_5xx_e_ritentabile():
         api = Cockpit(s.url, s.token)
         s.stato_heartbeat = 409
         with pytest.raises(ErroreHTTP) as e:
-            api.heartbeat(1, "outlook@PC")
+            api.heartbeat(1, "outlook@PC", "t-1")
         assert e.value.tentativo_non_valido and not e.value.ritentabile
 
         s.stato_ingest = 503
@@ -50,12 +50,33 @@ def test_409_e_riconoscibile_e_5xx_e_ritentabile():
 def test_il_battito_manda_heartbeat_mentre_il_lavoro_gira():
     with ServerFinto() as s:
         api = Cockpit(s.url, s.token)
-        with Battito(api, 42, "outlook@PC", ogni_s=0.05) as b:
+        with Battito(api, 42, "outlook@PC", "tok-42", ogni_s=0.05) as b:
             time.sleep(0.35)
             b.controlla()                      # lease valido: non deve alzare nulla
         assert len(s.battiti) >= 3, f"attesi almeno 3 battiti, ricevuti {len(s.battiti)}"
         assert set(s.battiti) == {42}
         assert not b.arresto.is_set()
+        # senza il token il server non potrebbe distinguere questo tentativo da uno scaduto
+        assert {c.get("lease_token") for c in s.battiti_corpo} == {"tok-42"}
+
+
+def test_il_risultato_porta_sempre_il_tentativo():
+    """Il result senza tentativo sarebbe indistinguibile da quello di un tentativo già scaduto."""
+    with ServerFinto() as s:
+        api = Cockpit(s.url, s.token, worker_id="outlook@PC")
+        api.risultato(9, {"esito": "ok", "dati": {}}, "outlook@PC", "tok-9")
+        assert s.risultati[9]["worker_id"] == "outlook@PC"
+        assert s.risultati[9]["lease_token"] == "tok-9"
+
+
+def test_il_risultato_rifiutato_con_409_e_riconoscibile():
+    """Il worker deve poter distinguere «non ti ascolto più» da «riprova»."""
+    with ServerFinto() as s:
+        api = Cockpit(s.url, s.token)
+        s.stato_result = 409
+        with pytest.raises(ErroreHTTP) as e:
+            api.risultato(10, {"esito": "ok"}, "outlook@PC", "tok-vecchio")
+        assert e.value.tentativo_non_valido and not e.value.ritentabile
 
 
 def test_il_battito_chiede_arresto_dopo_un_409():
@@ -63,7 +84,7 @@ def test_il_battito_chiede_arresto_dopo_un_409():
     with ServerFinto() as s:
         api = Cockpit(s.url, s.token)
         s.stato_heartbeat = 409
-        with Battito(api, 43, "outlook@PC", ogni_s=0.05) as b:
+        with Battito(api, 43, "outlook@PC", "tok-43", ogni_s=0.05) as b:
             scadenza = time.time() + 3
             while not b.arresto.is_set() and time.time() < scadenza:
                 time.sleep(0.02)
@@ -78,7 +99,7 @@ def test_il_battito_sopravvive_alla_rete_giu():
     with ServerFinto() as s:
         url_morto = s.url
     api = Cockpit(url_morto, "token-di-prova")   # server chiuso: connessione rifiutata
-    with Battito(api, 44, "outlook@PC", ogni_s=0.05) as b:
+    with Battito(api, 44, "outlook@PC", "tok-44", ogni_s=0.05) as b:
         time.sleep(0.3)
         assert not b.arresto.is_set()
         b.controlla()

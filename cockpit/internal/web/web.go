@@ -25,6 +25,7 @@ import (
 
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/nas"
 )
@@ -33,8 +34,9 @@ type Server struct {
 	Pool   *pgxpool.Pool
 	Log    *slog.Logger
 	NAS    *nas.Scrittore
-	Templ  fs.FS // web/templates
-	Static fs.FS // web/static
+	Ingest *ingest.Servizio // riprova degli scarti dell'ingest
+	Templ  fs.FS            // web/templates
+	Static fs.FS            // web/static
 	pagine map[string]*template.Template
 }
 
@@ -109,7 +111,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "cruscotto.html", "thread.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -150,6 +152,8 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /admin/job", s.autenticato(s.adminJob))
 	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.autenticato(s.riaccodaJob))
+	mux.HandleFunc("GET /admin/scarti", s.autenticato(s.adminScarti))
+	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.autenticato(s.riprovaScarto))
 }
 
 // ---------------------------------------------------------------- rendering
@@ -613,6 +617,8 @@ func rif(m db.Messaggio) api.RiferimentoElemento {
 	return api.RiferimentoElemento{MessaggioID: &id, MessageID: m.ChiaveEsterna}
 }
 
+// avviso risponde con un frammento al posto del pulsante che è stato premuto: chi ha premuto legge
+// che cosa è successo, invece di vedere una pagina che non cambia.
 func (s *Server) avviso(w http.ResponseWriter, testo string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="avviso">%s</div>`, template.HTMLEscapeString(testo))
@@ -656,10 +662,64 @@ func (s *Server) riaccodaJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id", 400)
 		return
 	}
-	if err := db.New(s.Pool).RiaccodaJob(r.Context(), id); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	_, err = db.New(s.Pool).RiaccodaJob(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// C'è già un job pendente con la stessa chiave di idempotenza (o il job non è chiuso).
+		// Riaccodarlo violerebbe l'indice unico parziale: prima era un 500, adesso è una frase.
+		s.avviso(w, "non riaccodato: ce n'è già uno in coda con la stessa chiave")
+		return
+	}
+	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	w.Header().Set("HX-Refresh", "true")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type scartiDati struct {
+	Conta   []db.ContaIngestScartiPerOrigineRow
+	Scarti  []db.IngestScarto
+	Origine string
+}
+
+// adminScarti mostra gli elementi che l'ingest ha rifiutato. Le due origini sono due sezioni diverse
+// perché si riprovano in due modi diversi: dal payload in database, o rileggendo da Outlook.
+func (s *Server) adminScarti(w http.ResponseWriter, r *http.Request) {
+	q := db.New(s.Pool)
+	var origine pgtype.Text
+	if o := r.URL.Query().Get("origine"); o == "ingest" || o == "lettura" {
+		origine = pgtype.Text{String: o, Valid: true}
+	}
+	lista, err := q.ListIngestScarti(r.Context(), db.ListIngestScartiParams{Origine: origine, Limit: 200})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	conta, _ := q.ContaIngestScartiPerOrigine(r.Context())
+	s.rendi(w, r, "scarti.html", "scarti_tabella", "Scarti", scartiDati{Conta: conta, Scarti: lista, Origine: r.URL.Query().Get("origine")})
+}
+
+func (s *Server) riprovaScarto(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "id", 400)
+		return
+	}
+	if s.Ingest == nil {
+		http.Error(w, "servizio di ingest non disponibile", 500)
+		return
+	}
+	esito, err := s.Ingest.Riprova(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.avviso(w, "scarto non trovato: forse è già stato ripreso")
+		return
+	}
+	if err != nil {
+		s.Log.Error("riprova scarto", "scarto", id, "err", err)
+		s.avviso(w, "non riuscita: "+err.Error())
+		return
+	}
+	s.Log.Info("scarto ripreso", "scarto", id, "esito", esito)
+	s.avviso(w, esito)
 }

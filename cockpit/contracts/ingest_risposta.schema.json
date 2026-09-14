@@ -7,11 +7,20 @@
           "type": "string"
         },
         "messaggio_id": {
-          "format": "uuid",
-          "title": "Messaggio Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Messaggio Id"
         },
         "inserito": {
+          "default": false,
           "title": "Inserito",
           "type": "boolean"
         },
@@ -37,12 +46,15 @@
           "default": 0,
           "title": "Allegati Da Stage",
           "type": "integer"
+        },
+        "errore": {
+          "default": "",
+          "title": "Errore",
+          "type": "string"
         }
       },
       "required": [
-        "message_id",
-        "messaggio_id",
-        "inserito"
+        "message_id"
       ],
       "title": "EsitoMessaggio",
       "type": "object"
@@ -55,6 +67,11 @@
     },
     "aggiornati": {
       "title": "Aggiornati",
+      "type": "integer"
+    },
+    "falliti": {
+      "default": 0,
+      "title": "Falliti",
       "type": "integer"
     },
     "esiti": {

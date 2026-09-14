@@ -1,0 +1,34 @@
+{{define "contenuto"}}
+<h1>Scarti dell'ingest</h1>
+<p class="nota">
+  Elementi che non sono entrati. Non sono persi: quelli con origine <b>ingest</b> hanno il messaggio
+  intero qui in database e si riprovano senza Outlook; quelli con origine <b>lettura</b> il worker non
+  era riuscito a leggerli, quindi «riprova» accoda una rilettura di quel solo elemento.
+</p>
+<div class="conta">
+  {{range .Dati.Conta}}<a class="chip" href="/admin/scarti?origine={{.Origine}}">{{.Origine}}: {{.N}}</a> {{end}}
+  <a class="chip" href="/admin/scarti">tutti</a>
+</div>
+<div id="scarti" hx-get="/admin/scarti?origine={{.Dati.Origine}}" hx-trigger="every 10s" hx-swap="innerHTML">{{template "scarti_tabella" .}}</div>
+{{end}}
+
+{{define "scarti_tabella"}}
+<table class="tabella">
+  <tr><th>#</th><th>Origine</th><th>Oggetto</th><th>Message-ID</th><th>Cartella</th><th>Tent.</th><th>Ultimo</th><th>Errore</th><th></th></tr>
+  {{range .Dati.Scarti}}
+  <tr>
+    <td>{{.ScartoID}}</td>
+    <td>{{.Origine}}</td>
+    <td>{{txt .Oggetto}}</td>
+    <td class="mono">{{printf "%.60s" (txt .MessageID)}}</td>
+    <td>{{txt .Cartella}}</td>
+    <td>{{.Tentativi}}</td>
+    <td>{{data .UltimoIl}}</td>
+    <td class="mono"><span class="errore">{{printf "%.200s" .Errore}}</span></td>
+    <td><button hx-post="/admin/scarti/{{.ScartoID}}/riprova" hx-swap="outerHTML">riprova</button></td>
+  </tr>
+  {{else}}
+  <tr><td colspan="9">nessuno scarto: tutti gli elementi dei lotti sono entrati.</td></tr>
+  {{end}}
+</table>
+{{end}}

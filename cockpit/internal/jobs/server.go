@@ -39,15 +39,19 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 			if j == nil {
 				continue
 			}
+			// anche l'esecutore interno passa dal tentativo: se il suo lease scade mentre scrive sul
+			// NAS, il risultato non deve applicarsi al tentativo che nel frattempo ha ripreso il job
+			t := Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: id}
 			res, err := e.esegui(ctx, q, j)
 			if err != nil {
 				e.Log.Error("job server fallito", "job", j.JobID, "tipo", j.Tipo, "err", err)
-				_, _ = q.FallisciJob(ctx, db.FallisciJobParams{Definitivo: errors.Is(err, nas.ErrConflitto), Errore: pgtype.Text{String: err.Error(), Valid: true}, JobID: j.JobID})
+				if _, err := Fallisci(ctx, q, t, err.Error(), errors.Is(err, nas.ErrConflitto)); err != nil {
+					e.Log.Warn("fallimento non registrato", "job", j.JobID, "err", err)
+				}
 				continue
 			}
 			raw, _ := json.Marshal(res)
-			ris := json.RawMessage(raw)
-			if _, err := q.CompletaJob(ctx, db.CompletaJobParams{JobID: j.JobID, Risultato: &ris}); err != nil {
+			if _, err := Completa(ctx, q, t, json.RawMessage(raw)); err != nil {
 				e.Log.Error("completa job", "job", j.JobID, "err", err)
 			}
 		}

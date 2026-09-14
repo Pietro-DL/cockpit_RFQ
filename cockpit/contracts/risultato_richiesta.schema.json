@@ -30,6 +30,16 @@
       "default": false,
       "title": "Definitivo",
       "type": "boolean"
+    },
+    "worker_id": {
+      "default": "",
+      "title": "Worker Id",
+      "type": "string"
+    },
+    "lease_token": {
+      "default": "",
+      "title": "Lease Token",
+      "type": "string"
     }
   },
   "required": [

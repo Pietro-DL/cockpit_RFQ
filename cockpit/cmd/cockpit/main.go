@@ -90,17 +90,26 @@ func run(cfgPath string, soloMigrazioni bool) error {
 			dal = d
 		}
 	}
-	(&jobs.Scheduler{Q: q, Log: log, Cartelle: cfg.Outlook.Cartelle, IntervalloSync: time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second, Dal: dal, Lotto: cfg.Outlook.Lotto}).Avvia(ctx)
+	(&jobs.Scheduler{
+		Q: q, Log: log, Cartelle: cfg.Outlook.Cartelle,
+		IntervalloSync: time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second,
+		Dal:            dal, Lotto: cfg.Outlook.Lotto,
+		CasellaDefault: cfg.Outlook.CasellaDefault, RetentionGiorni: cfg.Retention.GiorniJob,
+	}).Avvia(ctx)
 	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log}).Avvia(ctx)
 
 	templ, _ := fs.Sub(risorse.FS, "web/templates")
 	static, _ := fs.Sub(risorse.FS, "web/static")
-	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Templ: templ, Static: static}
+	servizioIngest := &ingest.Servizio{Pool: pool, Log: log}
+	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static}
 	if err := ws.Init(); err != nil {
 		return err
 	}
 	staging, _ := filepath.Abs(cfg.NAS.Staging)
-	wa := &workerapi.Server{Pool: pool, Log: log, Token: cfg.Server.TokenWorker, Ingest: &ingest.Servizio{Pool: pool, Log: log}, Staging: staging}
+	wa := &workerapi.Server{
+		Pool: pool, Log: log, Token: cfg.Server.TokenWorker, Ingest: servizioIngest,
+		Staging: staging, CasellaDefault: cfg.Outlook.CasellaDefault,
+	}
 
 	mux := http.NewServeMux()
 	ws.Registra(mux)
