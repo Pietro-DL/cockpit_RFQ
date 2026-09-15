@@ -69,6 +69,48 @@ func (q *Queries) AgganciaOrfaniConversazione(ctx context.Context, arg AgganciaO
 	return items, nil
 }
 
+const bloccaMessaggio = `-- name: BloccaMessaggio :one
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
+`
+
+// Come GetMessaggio, ma la riga resta bloccata fino alla fine della transazione (voce 1.9, T13).
+// Serve a ogni percorso che DECIDE qualcosa sul messaggio: nuova RFQ, aggancio, sgancio, ignora.
+// Senza, due operatori che premono "Nuova RFQ" sullo stesso messaggio nello stesso momento leggono
+// entrambi thread_id NULL, creano due RFQ e solo una resta agganciata: l'altra rimane in giro vuota,
+// con la sua cartella sul NAS, e nessuno dei due operatori vede un errore. Con il blocco il secondo
+// aspetta, rilegge il messaggio già agganciato e riceve un esito esplicito.
+func (q *Queries) BloccaMessaggio(ctx context.Context, messaggioID uuid.UUID) (Messaggio, error) {
+	row := q.db.QueryRow(ctx, bloccaMessaggio, messaggioID)
+	var i Messaggio
+	err := row.Scan(
+		&i.MessaggioID,
+		&i.Canale,
+		&i.ChiaveEsterna,
+		&i.ConversazioneID,
+		&i.ParentMessaggioID,
+		&i.ThreadID,
+		&i.Aggancio,
+		&i.AgganciatoDa,
+		&i.AgganciatoIl,
+		&i.Direzione,
+		&i.DataEvento,
+		&i.MittenteNome,
+		&i.MittenteIndirizzo,
+		&i.BuyerID,
+		&i.Destinatari,
+		&i.Oggetto,
+		&i.CorpoTesto,
+		&i.CorpoHtml,
+		&i.Lingua,
+		&i.Importanza,
+		&i.NotaOperatore,
+		&i.NAllegati,
+		&i.RegistratoIl,
+		&i.RegistratoDa,
+	)
+	return i, err
+}
+
 const collegaConversazione = `-- name: CollegaConversazione :exec
 UPDATE conversazione SET thread_id = $2, collegata_da = $3 WHERE conversazione_id = $1
 `

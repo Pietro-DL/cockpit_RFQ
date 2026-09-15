@@ -271,6 +271,12 @@ type PayloadAnalizzaAllegato struct {
 	NomeFile    string     `json:"nome_file"`
 	ThreadID    *uuid.UUID `json:"thread_id,omitempty"`
 	MessaggioID uuid.UUID  `json:"messaggio_id"`
+	// Con che cosa va analizzato (voce 1.12). Il worker li rimanda indietro tali e quali: servono al
+	// server per sapere sotto quale chiave conservare i fatti, e per accorgersi se a rispondere è
+	// stato un worker con una configurazione diversa da quella richiesta.
+	VersioneAnalizzatore int            `json:"versione_analizzatore"`
+	HashConfigurazione   string         `json:"hash_configurazione"`
+	Parametri            map[string]any `json:"parametri,omitempty"`
 }
 
 type RisultatoAnalisi struct {
@@ -281,6 +287,12 @@ type RisultatoAnalisi struct {
 	Confidenza   int             `json:"confidenza"`
 	Fonte        string          `json:"fonte"`
 	Dettagli     json.RawMessage `json:"dettagli,omitempty"`
+	// Rimandati indietro dal payload: identificano la combinazione (contenuto, versione,
+	// configurazione) sotto cui questi fatti valgono. Un risultato che dichiara una combinazione
+	// diversa da quella chiesta non viene applicato: sarebbe un fatto archiviato sotto la chiave
+	// sbagliata, e verrebbe riusato per file che non c’entrano.
+	VersioneAnalizzatore int    `json:"versione_analizzatore"`
+	HashConfigurazione   string `json:"hash_configurazione"`
 }
 
 // ---------------------------------------------------------------- healthz

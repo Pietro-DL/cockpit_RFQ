@@ -135,16 +135,33 @@ class Battito:
 
     Il thread non tocca mai COM: chiama solo HTTP. Se il server risponde 409 alza `arresto`; se la
     rete è giù riprova, perché un buco di rete non significa aver perso il lease.
+
+    USCITA FORZATA (C16). Alzare il flag non basta, ed è il punto delicato: una chiamata COM non è
+    interrompibile: se Outlook è fermo dentro una finestra modale, il thread di lavoro non arriverà mai
+    al prossimo punto di ripresa, e il flag resterebbe alzato per sempre. Nel frattempo il server ha
+    già rimesso il job in coda e un altro tentativo lo sta rifacendo: questo processo, che nessuno
+    aspetta più, continuerebbe a tenere aperto Outlook e a non prendere altri job.
+    Quindi dopo `arresto_forzato_s` secondi di attesa il processo termina con codice 3, dopo aver
+    scritto nel log quale job e quale fase lo tenevano bloccato. Il rilancio è dell'attività
+    pianificata (fase 9.1), che ha il riavvio automatico proprio per questo.
     """
 
-    def __init__(self, api: Cockpit, job_id: int, worker_id: str, lease_token: str = "", ogni_s: float = 30.0):
+    def __init__(self, api: Cockpit, job_id: int, worker_id: str, lease_token: str = "", ogni_s: float = 30.0,
+                 arresto_forzato_s: float = 15.0, uscita=None):
         self.api = api
         self.job_id = job_id
         self.worker_id = worker_id
         self.lease_token = lease_token
         self.ogni_s = ogni_s
+        self.arresto_forzato_s = arresto_forzato_s
+        # os._exit e non sys.exit: sys.exit alza un'eccezione nel thread del battito, dove non serve a
+        # niente, e comunque l'interprete aspetterebbe il thread bloccato in COM. Qui si deve uscire.
+        self.uscita = uscita or (lambda codice: os._exit(codice))
         self.arresto = threading.Event()
         self.motivo = ""
+        self.fase = ""          # dove si trovava il lavoro: finisce nel log dell'uscita forzata
+        self.uscita_forzata = False
+        self._lavoro_finito = threading.Event()
         self._ferma = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -157,10 +174,17 @@ class Battito:
         self.chiudi()
 
     def chiudi(self, attesa_s: float = 5.0) -> None:
+        # prima di tutto: il lavoro è finito, quindi il conto alla rovescia dell'uscita forzata si ferma
+        self._lavoro_finito.set()
         self._ferma.set()
         if self._thread is not None:
             self._thread.join(timeout=attesa_s)
             self._thread = None
+
+    def segna_fase(self, fase: str) -> None:
+        """Dichiara che cosa sta facendo il lavoro. Serve solo al log dell'uscita forzata, ma è la
+        differenza fra «il worker si è riavviato» e «il worker si è riavviato mentre leggeva Inbox»."""
+        self.fase = fase
 
     def controlla(self) -> None:
         """Da chiamare ai punti di ripresa del lavoro: alza ArrestoRichiesto se il lease è perso."""
@@ -176,11 +200,23 @@ class Battito:
                     self.motivo = e.corpo[:200] or "409 dal server"
                     log.warning("job %d: lease perso (%s): chiedo l'arresto del lavoro", self.job_id, self.motivo)
                     self.arresto.set()
+                    self._attendi_o_esci()
                     return
                 log.warning("job %d: heartbeat rifiutato (%s)", self.job_id, e)
             except ERRORI_RETE as e:
                 # rete giù: non è la perdita del lease, si riprova al battito successivo
                 log.debug("job %d: heartbeat non recapitato (%s)", self.job_id, e)
+
+    def _attendi_o_esci(self) -> None:
+        """Concede al lavoro il tempo di fermarsi da solo; scaduto quello, termina il processo (C16)."""
+        if self._lavoro_finito.wait(self.arresto_forzato_s):
+            return                      # il lavoro ha visto il flag e si è fermato: tutto regolare
+        log.error(
+            "job %d: il lavoro non si è fermato entro %.0f s dalla perdita del lease (fase: %s). "
+            "Il job è già tornato in coda lato server: esco con codice 3 e lascio riavviare l'attività pianificata.",
+            self.job_id, self.arresto_forzato_s, self.fase or "sconosciuta")
+        self.uscita_forzata = True
+        self.uscita(3)
 
 
 # ---------------------------------------------------------------- configurazione e log

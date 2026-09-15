@@ -297,6 +297,8 @@ class WorkerAnalisi:
                 confidenza=esito.get("confidenza", 50),
                 fonte=esito.get("fonte", "cartiglio"),
                 dettagli=esito.get("dettagli", {}),
+                versione_analizzatore=p.versione_analizzatore,
+                hash_configurazione=p.hash_configurazione,
             )
             ris = RisultatoRichiesta(esito="ok", dati=ris_analisi.model_dump(mode="json"))
         except FileNotFoundError as e:

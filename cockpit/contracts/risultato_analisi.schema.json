@@ -33,6 +33,16 @@
       "additionalProperties": true,
       "title": "Dettagli",
       "type": "object"
+    },
+    "versione_analizzatore": {
+      "default": 0,
+      "title": "Versione Analizzatore",
+      "type": "integer"
+    },
+    "hash_configurazione": {
+      "default": "",
+      "title": "Hash Configurazione",
+      "type": "string"
     }
   },
   "required": [

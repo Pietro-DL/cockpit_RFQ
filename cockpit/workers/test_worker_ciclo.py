@@ -148,7 +148,14 @@ def test_il_lotto_porta_il_tentativo_e_il_cursore(tmp_path, monkeypatch):
 
 def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
     """Se il tentativo non vale più, continuare a mandare lotti significa scrivere sopra al lavoro
-    del tentativo che è subentrato: il worker si ferma al primo rifiuto."""
+    del tentativo che è subentrato: il worker si ferma al primo rifiuto e NON riporta niente.
+
+    L'asserzione sul risultato è cambiata il 15/09 insieme a C16, e vale la pena dire perché: prima il
+    worker, dopo il 409, mandava comunque un `/result` con esito "errore". È esattamente ciò che Q19
+    vieta — un tentativo scaduto che fa fallire il job di un altro — e il server lo respinge con un
+    altro 409. Non riportare niente non è un'omissione: è la conseguenza del fatto che il job, lato
+    server, appartiene già a qualcun altro.
+    """
     with ServerFinto() as s:
         s.stato_ingest = 409
         s.metti_job(_job_sync(lotto=2))
@@ -157,4 +164,4 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
         w.esegui_per_sempre(una_volta=True)
 
         assert len(s.lotti) == 1, f"dopo un 409 il worker ha continuato a mandare ({len(s.lotti)} lotti)"
-        assert s.risultati[20]["esito"] == "errore"
+        assert 20 not in s.risultati, f"il worker ha riportato un risultato di un tentativo non più valido: {s.risultati.get(20)}"

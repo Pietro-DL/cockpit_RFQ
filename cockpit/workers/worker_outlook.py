@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pywintypes
 
-from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Cockpit, ErroreHTTP, carica_config,
+from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, carica_config,
                             configura_log, nome_worker)
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
@@ -35,6 +35,19 @@ class Worker:
         self.staging = os.path.abspath(cfg["staging"])
         os.makedirs(self.staging, exist_ok=True)
         self.outlook: Outlook | None = None
+        self.battito: Battito | None = None
+        # quanto si concede al lavoro per fermarsi da solo dopo un 409, prima dell'uscita forzata (C16)
+        self.arresto_forzato_s = float(cfg.get("arresto_forzato_s", 15))
+
+    def controlla(self) -> None:
+        """Punto di ripresa: se il battito ha perso il lease, il lavoro si ferma qui.
+
+        Va chiamata dove il lavoro NON è dentro una chiamata COM, cioè dove fermarsi è possibile e non
+        lascia niente a metà. Dove invece COM non ritorna, a fermare il processo è l'uscita forzata del
+        battito dopo 15 secondi (C16): sono i due mezzi dello stesso meccanismo, non alternative.
+        """
+        if self.battito is not None:
+            self.battito.controlla()
 
     def ol(self) -> Outlook:
         if self.outlook is None:
@@ -67,19 +80,40 @@ class Worker:
     def esegui(self, job: Job) -> None:
         t0 = time.time()
         log.info("job %d %s (tentativo %d)", job.job_id, job.tipo, job.tentativi)
-        try:
-            dati = self.dispatch(job)
-            ris = RisultatoRichiesta(esito="ok", dati=dati)
-        except ErroreDefinitivo as e:
-            log.error("job %d errore definitivo: %s", job.job_id, e)
-            ris = RisultatoRichiesta(esito="errore", errore=str(e), definitivo=True)
-        except pywintypes.com_error as e:
-            log.exception("job %d errore COM", job.job_id)
-            self.outlook = None  # riconnette al prossimo job (Outlook chiuso/riavviato)
-            ris = RisultatoRichiesta(esito="errore", errore=f"COM: {e}")
-        except Exception as e:  # noqa: BLE001 - il worker non deve mai morire per un job
-            log.exception("job %d errore", job.job_id)
-            ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
+        # Il battito sta su un thread suo per tutta la durata del job, non solo durante il sync: una
+        # chiamata COM lunga (salva_allegato su un allegato da 200 MB, crea_bozza con Outlook occupato)
+        # farebbe scadere il lease esattamente come una scansione lunga. Se il server risponde 409, il
+        # thread alza il flag e concede 15 secondi al lavoro per fermarsi da solo; scaduti quelli, il
+        # processo esce con codice 3 e l'attività pianificata lo riavvia (C16).
+        with Battito(self.api, job.job_id, self.worker_id, job.lease_token,
+                     ogni_s=max(5.0, job.lease_s / 4), arresto_forzato_s=self.arresto_forzato_s) as b:
+            self.battito = b
+            b.segna_fase(job.tipo)
+            try:
+                dati = self.dispatch(job)
+                ris = RisultatoRichiesta(esito="ok", dati=dati)
+            except ArrestoRichiesto as e:
+                # Il tentativo non è più nostro: il job è già tornato in coda lato server e qualcun altro
+                # lo sta rifacendo. Riportare qualcosa adesso significherebbe scrivere sopra al suo
+                # lavoro, quindi non si riporta niente: si passa al job successivo.
+                log.warning("job %d interrotto: %s", job.job_id, e)
+                self.battito = None
+                return
+            except ErroreDefinitivo as e:
+                log.error("job %d errore definitivo: %s", job.job_id, e)
+                ris = RisultatoRichiesta(esito="errore", errore=str(e), definitivo=True)
+            except pywintypes.com_error as e:
+                log.exception("job %d errore COM", job.job_id)
+                self.outlook = None  # riconnette al prossimo job (Outlook chiuso/riavviato)
+                ris = RisultatoRichiesta(esito="errore", errore=f"COM: {e}")
+            except Exception as e:  # noqa: BLE001 - il worker non deve mai morire per un job
+                log.exception("job %d errore", job.job_id)
+                ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
+            perso = b.arresto.is_set()
+        self.battito = None
+        if perso:
+            log.warning("job %d: lease perso durante il lavoro, risultato non riportato", job.job_id)
+            return
         try:
             self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
         except ErroreHTTP as e:
@@ -121,9 +155,7 @@ class Worker:
     # ------------------------------------------------------------ sync
 
     def sync(self, job: Job, p: PayloadSyncOutlook) -> dict:
-        job_id = job.job_id
         esiti = []
-        ultimo_hb = time.time()
         for c in p.cartelle:
             dal = (c.ultimo_received - timedelta(seconds=p.sovrapposizione_s)) if c.ultimo_received else p.dal
             if dal.tzinfo is None:
@@ -131,19 +163,29 @@ class Worker:
             al = p.al
             if al is not None and al.tzinfo is None:
                 al = al.replace(tzinfo=timezone.utc)
+            if self.battito is not None:
+                self.battito.segna_fase(f"sync {c.cartella}")
             esito = CartellaEsito(cartella=c.cartella, ultimo_received=c.ultimo_received)
             lotto: list = []
             try:
+                self.controlla()
                 for m in self.ol().leggi(c.cartella, dal, al=al):
+                    # punto di ripresa: fra un elemento e l'altro il lavoro è fuori da COM, quindi qui
+                    # un arresto chiesto dal battito si può rispettare senza lasciare niente a metà
+                    self.controlla()
                     lotto.append(m)
+                    # W2, ANCORA APERTO (avvertenza della revisione del 15/09). Il cursore avanza su
+                    # data_evento, che per la Posta inviata è SentOn, mentre il filtro della scansione
+                    # usa ReceivedTime. Per la Posta in arrivo i due coincidono e non si vede niente;
+                    # per la Posta inviata no, e un messaggio inviato molto dopo essere stato scritto
+                    # può spingere il cursore oltre elementi non ancora letti. Si chiude in fase 2, con
+                    # MessaggioIn.ricevuto_il e messaggio_casella.ricevuto_il (voce 2.1): finché il
+                    # contratto non porta ricevuto_il, qui non c’è il dato giusto da usare.
                     if al is None and m.data_evento and (esito.ultimo_received is None or m.data_evento > esito.ultimo_received):
                         esito.ultimo_received = m.data_evento
                     if len(lotto) >= p.lotto:
                         esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
                         lotto = []
-                    if time.time() - ultimo_hb > 60:
-                        self.api.heartbeat(job_id, self.worker_id, job.lease_token)
-                        ultimo_hb = time.time()
                 if lotto:
                     esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
             except ErroreDefinitivo as e:

@@ -38,6 +38,8 @@ type Server struct {
 	// worker non manda sempre casella_id (fase 2); una casella sbagliata qui è meglio di una assente,
 	// perché almeno è dichiarata e verificabile.
 	CasellaDefault string
+	// Analizzatore: versione e configurazione con cui si chiedono le analisi (voce 1.12).
+	Analizzatore jobs.Analizzatore
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
@@ -173,6 +175,21 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	// Il job si legge PRIMA di aprire la transazione, perché l'eventuale estrazione di uno zip va
+	// fatta fuori (voce 1.4). La lettura non ha bisogno di essere nella stessa transazione delle
+	// scritture: ciò che protegge il job è il predicato del tentativo, verificato al momento di
+	// scrivere, non l'istante in cui si è letta la riga.
+	j, err := db.New(s.Pool).GetJob(ctx, id)
+	if err != nil {
+		errore(w, 404, err)
+		return
+	}
+	est, err := s.estraiFuoriTransazione(ctx, &j, req)
+	if err != nil {
+		errore(w, 500, err)
+		return
+	}
+
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		errore(w, 500, err)
@@ -180,11 +197,6 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
-	j, err := q.GetJob(ctx, id)
-	if err != nil {
-		errore(w, 404, err)
-		return
-	}
 
 	// --------------------------------------------------- il worker riporta un errore
 	if req.Esito != "ok" {
@@ -216,7 +228,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --------------------------------------------------- il worker riporta un successo
-	if err := s.applicaRisultato(ctx, q, &j, req.Dati); err != nil {
+	if err := s.applicaRisultato(ctx, q, &j, req.Dati, &est); err != nil {
 		// Il risultato non è applicabile: il contenuto è sbagliato, non la rete. Ritentarlo darebbe lo
 		// stesso esito all'infinito. Si annulla la transazione e si chiude il job in una nuova (N6):
 		// senza questo il job restava «in corso» fino alla scadenza del lease, e l'operatore non
@@ -276,8 +288,82 @@ func (s *Server) fallimentoDefinitivo(ctx context.Context, q *db.Queries, j *db.
 	}
 }
 
+// estrazione è il risultato del lavoro su disco fatto PRIMA di aprire la transazione (voce 1.4, G1).
+//
+// Estrarre uno zip dentro la transazione del risultato era il difetto: un archivio da qualche centinaio
+// di megabyte tiene aperta una transazione per tutto il tempo della scrittura su disco, con la riga del
+// job bloccata e lo snapshot fermo. In una coda che ha già i suoi vincoli di lease, una transazione
+// lunga quanto un'operazione di I/O è il modo più semplice per far scadere il tentativo che la sta
+// eseguendo. Ora l'estrazione avviene fuori: la transazione contiene solo scritture in database e dura
+// quanto quelle.
+//
+// Un'estrazione ripetuta non fa danno: le voci finiscono nella stessa cartella con gli stessi nomi e
+// gli stessi hash, e le righe si riscrivono per upsert. È la condizione che rende sicuro farla fuori
+// dalla transazione che poi potrebbe non essere confermata.
+type estrazione struct {
+	fatta    bool            // false = questo risultato non richiedeva nessuna estrazione
+	voci     []archivio.Voce //
+	troncato bool            // l'archivio ha superato i limiti: le voci sono quelle entrate
+	errore   error           // zip illeggibile: l'allegato va in errore, il job no
+}
+
+// estraiFuoriTransazione riconosce il solo caso che richiede lavoro su disco — un allegato .zip appena
+// messo in staging — e lo svolge. Per tutti gli altri risultati non fa niente.
+func (s *Server) estraiFuoriTransazione(ctx context.Context, j *db.Job, req api.RisultatoRichiesta) (estrazione, error) {
+	var est estrazione
+	if j.Tipo != db.TipoJobStageAllegato || req.Esito != "ok" {
+		return est, nil
+	}
+	var r api.RisultatoStage
+	if err := json.Unmarshal(req.Dati, &r); err != nil || r.PathStaging == "" {
+		return est, nil // il risultato è malformato: lo dirà applicaRisultato, con il suo 422
+	}
+	q := db.New(s.Pool)
+	a, err := q.GetAllegato(ctx, r.AllegatoID)
+	if err != nil {
+		return est, nil // idem: l'errore va riportato dove si applica il risultato, non qui
+	}
+	if strings.ToLower(a.Estensione.String) != "zip" {
+		return est, nil
+	}
+	dest := filepath.Join(filepath.Dir(r.PathStaging), fmt.Sprintf("%02d_zip", a.Indice))
+	voci, err := archivio.Estrai(r.PathStaging, dest)
+	est.fatta = true
+	est.voci = voci
+	switch {
+	case errors.Is(err, archivio.ErrLimite):
+		est.troncato = true
+	case err != nil:
+		est.errore = err
+	}
+	return est, nil
+}
+
+// enumValido converte una stringa del contratto in un valore dell'enum del database, rifiutando ciò
+// che l'enum non prevede (N7, voce 1.3).
+//
+// Prima questa conversione era un cast e basta. Un `tipo_proposto: "boh"` arrivava così com'era fino
+// a PostgreSQL, che lo rifiutava con «invalid input value for enum»: il comportamento finale era
+// giusto per caso, ma il motivo era illeggibile e — cosa peggiore — dipendeva dal fatto che la
+// colonna fosse davvero un enum. Il giorno in cui diventasse `text`, il valore inventato entrerebbe
+// in database senza che nessuno se ne accorga.
+//
+// Non esiste un valore «più vicino» a cui ricondurre un termine fuori enum: sarebbe un dato inventato
+// dal server. Il risultato non è applicabile, quindi il job fallisce in modo definitivo (Q9):
+// ritentarlo darebbe all'infinito lo stesso esito.
+func enumValido[T interface {
+	~string
+	Valid() bool
+}](campo, v string) (T, error) {
+	e := T(v)
+	if !e.Valid() {
+		return "", fmt.Errorf("%s fuori enum: %q", campo, v)
+	}
+	return e, nil
+}
+
 // applicaRisultato scrive nel DB gli effetti di un job riuscito.
-func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage) error {
+func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, est *estrazione) error {
 	switch j.Tipo {
 	case db.TipoJobSyncOutlook:
 		var r api.RisultatoSync
@@ -317,58 +403,80 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if json.Unmarshal(j.Payload, &p) == nil {
 			s.riallineaEntryID(ctx, q, p.RiferimentoElemento, p.EntryID, r.RisultatoElemento)
 		}
-		return s.dopoStaging(ctx, q, r)
+		return s.dopoStaging(ctx, q, r, est)
 
 	case db.TipoJobAnalizzaAllegato:
 		var r api.RisultatoAnalisi
 		if err := json.Unmarshal(dati, &r); err != nil {
 			return err
 		}
-		var threadID uuid.NullUUID
-		var entrata bool
-		a, err := q.GetAllegato(ctx, r.AllegatoID)
-		if err == nil {
-			m, err := q.GetMessaggio(ctx, a.MessaggioID)
-			if err == nil {
-				threadID = m.ThreadID
-				entrata = m.Direzione == db.DirezioneEntrata
-			}
+		var p api.PayloadAnalizzaAllegato
+		if err := json.Unmarshal(j.Payload, &p); err != nil {
+			return err
 		}
-		codice := r.Codice
-		rev := r.Rev
-		tipo := db.TipoDocumento(r.TipoProposto)
-		conf := r.Confidenza
-		if tipo == db.TipoDocumentoOffertaPromatec {
-			codice = ""
-			rev = ""
-			// un'offerta Promatec la mandiamo noi: in entrata (senza "SO " nel nome) è un documento commerciale del cliente
-			if entrata && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(a.NomeFile)), "SO ") {
-				tipo, conf = db.TipoDocumentoCommerciale, conf-30
-			}
+		// Il worker deve rimandare indietro la combinazione che gli era stata chiesta. Se dichiara una
+		// versione o una configurazione diverse, i suoi fatti finirebbero archiviati sotto una chiave
+		// che non descrive come sono stati ottenuti, e verrebbero riusati per file che non c’entrano.
+		// È un errore di contenuto: il risultato non è applicabile e il job fallisce in modo definitivo.
+		if r.VersioneAnalizzatore != p.VersioneAnalizzatore || r.HashConfigurazione != p.HashConfigurazione {
+			return fmt.Errorf("il risultato dichiara analizzatore v%d/%.8s ma era stato chiesto v%d/%.8s",
+				r.VersioneAnalizzatore, r.HashConfigurazione, p.VersioneAnalizzatore, p.HashConfigurazione)
 		}
-		if conf < 0 {
-			conf = 0
+		tipo, err := enumValido[db.TipoDocumento]("tipo_proposto", r.TipoProposto)
+		if err != nil {
+			return err
+		}
+		fonte, err := enumValido[db.FonteProposta]("fonte", r.Fonte)
+		if err != nil {
+			return err
 		}
 		dett := r.Dettagli
 		if len(dett) == 0 {
 			dett = json.RawMessage("{}")
 		}
-		if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-			AllegatoID:   r.AllegatoID,
-			ThreadID:     threadID,
-			TipoProposto: tipo,
-			Codice:       txt(codice),
-			Rev:          txt(rev),
-			Confidenza:   int16(conf),
-			Fonte:        db.FonteProposta(r.Fonte),
-			Dettagli:     dett,
-		}); err != nil {
-			return fmt.Errorf("upsert proposta da analisi: %w", err)
+
+		// I FATTI si conservano per (contenuto, versione, configurazione): non appartengono
+		// all’allegato che ha fatto partire l’analisi, ma al file. È ciò che rende possibile non
+		// rianalizzare lo stesso disegno per ogni RFQ in cui compare.
+		a, err := q.GetAllegato(ctx, r.AllegatoID)
+		if err != nil {
+			return fmt.Errorf("allegato dell'analisi: %w", err)
 		}
-		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{
-			AllegatoID: r.AllegatoID,
-			Stato:      db.StatoAllegatoAnalizzato,
-		})
+		if a.Sha256.Valid && a.Sha256.String != "" {
+			if _, err := q.UpsertAnalisiFatti(ctx, db.UpsertAnalisiFattiParams{
+				Sha256: a.Sha256.String, VersioneAnalizzatore: int16(r.VersioneAnalizzatore),
+				HashConfigurazione: r.HashConfigurazione, Fatti: dett,
+			}); err != nil {
+				return fmt.Errorf("analisi_fatti: %w", err)
+			}
+		}
+
+		// L’INTERPRETAZIONE, invece, è di ogni singola proposta: dipende dalla direzione del messaggio
+		// e dalle regole del cliente di quella RFQ. Gli stessi fatti danno proposte diverse in RFQ
+		// diverse, e ognuna va scritta con le sue regole (A15).
+		destinatari := []db.Allegato{a}
+		if a.Sha256.Valid && a.Sha256.String != "" {
+			altre, err := q.ListProposteAperteStessoFile(ctx, a.Sha256)
+			if err != nil {
+				return fmt.Errorf("proposte aperte con lo stesso contenuto: %w", err)
+			}
+			for _, pr := range altre {
+				if pr.AllegatoID == a.AllegatoID {
+					continue
+				}
+				al, err := q.GetAllegato(ctx, pr.AllegatoID)
+				if err != nil {
+					return err
+				}
+				destinatari = append(destinatari, al)
+			}
+		}
+		for _, al := range destinatari {
+			if err := s.propostaDaAnalisi(ctx, q, al, tipo, fonte, r, dett); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	case db.TipoJobCreaBozzaOutlook:
 		var p api.PayloadCreaBozza
@@ -396,6 +504,37 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 	return nil
 }
 
+// propostaDaAnalisi scrive la proposta di UN allegato a partire dai fatti dell’analisi. È separata
+// perché gli stessi fatti vengono applicati a più allegati con lo stesso contenuto, ciascuno nel suo
+// messaggio: la direzione del messaggio può cambiare la lettura, e va riletta per ognuno (A15).
+func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato,
+	tipo db.TipoDocumento, fonte db.FonteProposta, r api.RisultatoAnalisi, dett json.RawMessage) error {
+	var threadID uuid.NullUUID
+	entrata := false
+	if m, err := q.GetMessaggio(ctx, a.MessaggioID); err == nil {
+		threadID = m.ThreadID
+		entrata = m.Direzione == db.DirezioneEntrata
+	}
+	codice, rev, conf := r.Codice, r.Rev, r.Confidenza
+	if tipo == db.TipoDocumentoOffertaPromatec {
+		codice, rev = "", ""
+		// un'offerta Promatec la mandiamo noi: in entrata (senza "SO " nel nome) è un documento commerciale del cliente
+		if entrata && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(a.NomeFile)), "SO ") {
+			tipo, conf = db.TipoDocumentoCommerciale, conf-30
+		}
+	}
+	if conf < 0 {
+		conf = 0
+	}
+	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
+		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
+		Confidenza: int16(conf), Fonte: fonte, Dettagli: dett,
+	}); err != nil {
+		return fmt.Errorf("upsert proposta da analisi: %w", err)
+	}
+	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
+}
+
 // riallineaEntryID aggiorna messaggio_outlook quando il worker ha trovato l'elemento con un EntryID diverso
 // da quello del payload (elemento spostato di cartella dopo l'ultimo sync).
 func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.RiferimentoElemento, entryPayload string, r api.RisultatoElemento) {
@@ -412,7 +551,7 @@ func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.Ri
 // dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa
 // (hash → rumore già scartato), si estraggono gli zip in allegati figli e si accoda l'analisi Python
 // (cartiglio, STEP) che raffina ancora finché la proposta resta aperta.
-func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage) error {
+func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage, est *estrazione) error {
 	a, err := q.GetAllegato(ctx, r.AllegatoID)
 	if err != nil {
 		return err
@@ -444,19 +583,29 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.Risultato
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 	}
 	if ext == "zip" {
-		return s.estraiZip(ctx, q, a, m, r)
+		return s.registraVociZip(ctx, q, a, m, r, est)
 	}
-	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID)
+	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
 	return err
 }
 
 func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr domain.Proposta, dettagli map[string]any) error {
-	dett, _ := json.Marshal(dettagli)
-	_, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txt(pr.Codice), Rev: txt(pr.Rev),
-		Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
-	})
+	// pr arriva dal nostro dominio, non da un worker: qui un valore fuori enum sarebbe un errore di
+	// programmazione. Si controlla lo stesso, perché è il punto in cui un tipo nuovo aggiunto al
+	// dominio e dimenticato nella migrazione si vedrebbe subito e con il nome giusto.
+	tipo, err := enumValido[db.TipoDocumento]("tipo_proposto", pr.Tipo)
 	if err != nil {
+		return err
+	}
+	fonte, err := enumValido[db.FonteProposta]("fonte", pr.Fonte)
+	if err != nil {
+		return err
+	}
+	dett, _ := json.Marshal(dettagli)
+	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
+		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(pr.Codice), Rev: txt(pr.Rev),
+		Confidenza: int16(pr.Confidenza), Fonte: fonte, Dettagli: dett,
+	}); err != nil {
 		return fmt.Errorf("proposta: %w", err)
 	}
 	return nil
@@ -464,12 +613,14 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 
 // estraiZip appiattisce lo zip in allegati figli (contenitore_id = zip), ognuno con hash, proposta e analisi.
 // Lo zip stesso resta come contenitore: non va sul NAS a meno di conferma esplicita.
-func (s *Server) estraiZip(ctx context.Context, q *db.Queries, a db.Allegato, m db.Messaggio, r api.RisultatoStage) error {
-	dest := filepath.Join(filepath.Dir(r.PathStaging), fmt.Sprintf("%02d_zip", a.Indice))
-	voci, err := archivio.Estrai(r.PathStaging, dest)
-	if err != nil && !errors.Is(err, archivio.ErrLimite) {
-		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: txt("zip non leggibile: " + err.Error())})
+func (s *Server) registraVociZip(ctx context.Context, q *db.Queries, a db.Allegato, m db.Messaggio, r api.RisultatoStage, est *estrazione) error {
+	if est == nil || !est.fatta {
+		return fmt.Errorf("estrazione dello zip %s non eseguita prima della transazione", a.NomeFile)
 	}
+	if est.errore != nil {
+		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: txt("zip non leggibile: " + est.errore.Error())})
+	}
+	voci := est.voci
 	for i, v := range voci {
 		figlio, err := q.UpsertAllegato(ctx, db.UpsertAllegatoParams{
 			MessaggioID: a.MessaggioID, ContenitoreID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true}, Indice: int16(i + 1),
@@ -491,12 +642,12 @@ func (s *Server) estraiZip(ctx context.Context, q *db.Queries, a db.Allegato, m 
 			_ = q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 			continue
 		}
-		if _, err := jobs.AccodaAnalisi(ctx, q, figlio, m.ThreadID); err != nil {
+		if _, err := jobs.AccodaAnalisi(ctx, q, figlio, m.ThreadID, s.Analizzatore); err != nil {
 			return err
 		}
 	}
 	dettagli := map[string]any{"voci": len(voci), "estensione": "zip", "bytes": r.Bytes}
-	if errors.Is(err, archivio.ErrLimite) {
+	if est.troncato {
 		dettagli["troncato"] = true
 	}
 	if err := s.scriviProposta(ctx, q, a, m.ThreadID, domain.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {

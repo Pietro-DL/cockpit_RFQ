@@ -128,3 +128,24 @@ Due precisazioni che valgono anche per chi legge solo questo file:
   il test L3 non esiste, quel livello resta scoperto.
 - un test **saltato** non è un test superato. Se il corpus o il database mancano, la verifica
   corrispondente non è stata fatta, e il registro lo scrive con quella parola.
+
+# Schema logico:
+| Percorso               | Ruolo nell'architettura             | Esempio concreto                                 |
+| ---------------------- | ----------------------------------- | ------------------------------------------------ |
+| `cmd/cockpit/`         | Avvio e assemblaggio del server     | apre DB, migra schema, crea servizi, avvia HTTP  |
+| `internal/config/`     | Legge configurazione                | DB, Outlook, retention, analizzatore             |
+| `internal/migrazioni/` | Mantiene lo schema DB versionato    | `0001 → 0002 → 0003 → 0004`                      |
+| `internal/fondazioni/` | Configurazione strutturale iniziale | caselle, PC, worker, vincoli di sicurezza        |
+| `internal/api/`        | Tipi JSON del protocollo            | ciò che server e worker si mandano               |
+| `contracts/`           | Schema formale di quei JSON         | impedisce che Go/Python parlino lingue diverse   |
+| `internal/db/queries/` | SQL scritto dagli sviluppatori      | query PostgreSQL                                 |
+| `internal/db/*.sql.go` | Codice Go generato da sqlc          | wrapper Go delle query SQL                       |
+| `internal/ingest/`     | Ingresso delle email nel sistema    | trasforma lotto Outlook in messaggi DB           |
+| `internal/jobs/`       | Crea e orchestra lavori asincroni   | scarica allegato, analizza file, sync Outlook    |
+| `internal/workerapi/`  | Porta d'ingresso dei worker         | claim, heartbeat, result, ingest                 |
+| `internal/web/`        | Azioni dell'utente e UI             | Nuova RFQ, aggancia, conferma documento          |
+| `internal/domain/`     | Regole di business pure             | riconoscimento codici, proposte, classificazione |
+| `internal/archivio/`   | Gestione file compressi             | ZIP, hash, zip-slip, zip bomb                    |
+| `internal/nas/`        | Scrittura dei documenti finali      | fascicolo RFQ sul NAS                            |
+| `workers/`             | Programmi Python esterni al server  | Outlook COM e analisi documenti                  |
+

@@ -26,6 +26,13 @@ ON CONFLICT (allegato_id) DO NOTHING;
 -- name: GetProposta :one
 SELECT * FROM documento_proposta WHERE proposta_id = $1;
 
+-- name: BloccaProposta :one
+-- La proposta bloccata per la durata della transazione (voce 1.9, T14). Due conferme concorrenti sullo
+-- stesso allegato leggerebbero entrambe stato='aperta' e creerebbero due documenti nel fascicolo, con
+-- lo stesso file copiato due volte sul NAS. Con il blocco la seconda trova la proposta già decisa e
+-- lo dice.
+SELECT * FROM documento_proposta WHERE proposta_id = $1 FOR UPDATE;
+
 -- name: ListProposteAperteThread :many
 SELECT p.*, a.nome_file, a.estensione, a.bytes, a.sha256, a.path_staging, a.messaggio_id, a.contenitore_id
 FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id

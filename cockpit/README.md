@@ -8,12 +8,57 @@ decisione dell'operatore, copia i file nella cartella del NAS. È fatto di tre p
 Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─pgx─▶ PostgreSQL
                         worker_analisi.py ─HTTP─▶     │
                                    browser (HTML+HTMX) ◀┘   (cookie di sessione, DB)
+
+                         ┌─────────────────────┐
+                         │       Browser       │
+                         │ Francesco / utenti  │
+                         └─────────┬───────────┘
+                                   │ HTTP
+                                   ▼
+                         ┌─────────────────────┐
+                         │    internal/web     │
+                         │ UI + decisioni RFQ  │
+                         └─────────┬───────────┘
+                                   │
+                    ┌──────────────┴──────────────┐
+                    ▼                             ▼
+             internal/jobs                 internal/db
+             crea "ordini"                 legge/scrive
+             di lavoro                     PostgreSQL
+                    │                             ▲
+                    ▼                             │
+             ┌──────────────┐                     │
+             │ tabella job  │─────────────────────┘
+             └──────┬───────┘
+                    │
+                    ▼
+             internal/workerapi
+             API per i worker
+                    │
+             ┌──────┴────────────┐
+             ▼                   ▼
+       worker_outlook.py   worker_analisi.py
+             │                   │
+             ▼                   ▼
+         Outlook COM        PDF / STEP / file
+             │                   │
+             └───── risultato ───┘
+                    │
+                    ▼
+             internal/workerapi
+                    │
+                    ├── internal/ingest
+                    ├── internal/archivio
+                    ├── internal/jobs
+                    └── internal/db
 ```
 
 `cockpit.exe` (Go) è l'unico che parla con il database e con il NAS. I worker Python non hanno
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
-Che cosa introduce l'ultima fase di lavoro e che cosa resta non verificato: [FASE_0.md](FASE_0.md).
+Che cosa introduce ogni fase di lavoro e che cosa resta non verificato:
+[FASE_0.md](FASE_0.md) (fondazioni, migrazioni, ambiente di prova) e
+[FASE_1.md](FASE_1.md) (coda, tentativo, ingest a prova di poison pill).
 
 **Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
 fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.

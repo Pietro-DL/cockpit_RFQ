@@ -148,3 +148,69 @@ func TestConfigurazioneSenzaFondazioni(t *testing.T) {
 		t.Errorf("sezioni assenti non devono inventare righe: %+v", c)
 	}
 }
+
+// `attiva` assente deve valere true. È il default pericoloso: un booleano Go non distingue «non l'ho
+// scritto» da «false», e una casella che si spegne da sola sarebbe un sync che non parte più senza
+// che nessuno abbia chiesto niente.
+func TestCasellaAttivaPerDefault(t *testing.T) {
+	c, err := Carica(scrivi(t, `
+[outlook]
+casella_default = "commerciale@azienda.it"
+
+[[casella]]
+indirizzo = "commerciale@azienda.it"
+nome      = "Commerciale"
+condivisa = true
+
+[[casella]]
+indirizzo = "francesco@azienda.it"
+nome      = "Francesco"
+attiva    = false
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Caselle) != 2 {
+		t.Fatalf("caselle lette = %d", len(c.Caselle))
+	}
+	if !c.Caselle[0].EAttiva() {
+		t.Error("una casella senza `attiva` nel file deve risultare attiva")
+	}
+	if c.Caselle[1].EAttiva() {
+		t.Error("`attiva = false` nel file non è stato letto")
+	}
+}
+
+// Versione e parametri dell'analizzatore: senza sezione [analisi] vale la versione 1, altrimenti ciò
+// che dice il file. Da qui esce la chiave con cui i fatti vengono conservati e riusati (voce 1.12).
+func TestAnalisiVersioneEParametri(t *testing.T) {
+	c, err := Carica(scrivi(t, "\n[[casella]]\nindirizzo = \"c@a.it\"\nnome = \"C\"\ncondivisa = true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Analisi.Versione != 1 {
+		t.Errorf("versione predefinita = %d, attesa 1", c.Analisi.Versione)
+	}
+
+	c2, err := Carica(scrivi(t, `
+[[casella]]
+indirizzo = "c@a.it"
+nome = "C"
+condivisa = true
+
+[analisi]
+versione = 3
+
+[analisi.parametri]
+termini = ["scala", "materiale"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.Analisi.Versione != 3 {
+		t.Errorf("versione = %d, attesa 3", c2.Analisi.Versione)
+	}
+	if len(c2.Analisi.Parametri) != 1 {
+		t.Errorf("parametri = %v", c2.Analisi.Parametri)
+	}
+}

@@ -26,6 +26,23 @@ consenti_invio = false
 # casella_id). Con una sola [[casella]] si deduce da sola; con più di una è obbligatoria.
 casella_default = "nome.cognome@azienda.it"
 
+[retention]
+# Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si
+# svuota mai diventa illeggibile e rallenta le pagine di amministrazione.
+giorni_job = 30
+
+[analisi]
+# CON CHE COSA si analizza (fase 1, voce 1.12). Versione e sha256 di [analisi.parametri] formano,
+# insieme allo sha256 del file, la chiave sotto cui i fatti vengono conservati e riusati: lo stesso
+# disegno in tre RFQ fa partire una sola analisi. Cambiare un termine qui basta a far rianalizzare
+# tutto, senza toccare il codice — ed è il motivo per cui i parametri stanno qui e non nel worker.
+versione = 1
+
+[analisi.parametri]
+# I termini restano oggi dentro worker_analisi.py: qui si dichiara la configurazione che identifica
+# l'analisi. Il worker li riceve e li rimanda indietro; usarli davvero è lavoro della fase 5.
+termini_cartiglio = ["scala", "materiale", "tolleranze", "trattamento"]
+
 [[utenti]]
 sigla = "PS"
 nome = "Pietro Spinozzi"
@@ -47,10 +64,15 @@ nome      = "Commerciale"
 condivisa = true
 
 # Una casella personale ha come proprietario la sigla di un utente dichiarato in [[utenti]].
+# `attiva = false` la tiene censita ma fuori uso. Serve davvero: finché lo schema è alla 0003 il
+# cursore di sincronizzazione ha per chiave la sola cartella, quindi due caselle attive con una
+# cartella «Inbox» si sovrascriverebbero il cursore a vicenda perdendo messaggi in silenzio. Il server
+# rifiuta di partire in quel caso; dalla 0004 (fase 2) il limite non c'è più.
 [[casella]]
 indirizzo = "nome.cognome@azienda.it"
 nome      = "Nome Cognome"
 utente    = "NC"
+attiva    = false
 
 [[postazione]]
 nome_host   = "PC-NOME"

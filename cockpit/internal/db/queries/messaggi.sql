@@ -40,6 +40,15 @@ ON CONFLICT (messaggio_id) DO UPDATE SET
 -- name: GetMessaggio :one
 SELECT * FROM messaggio WHERE messaggio_id = $1;
 
+-- name: BloccaMessaggio :one
+-- Come GetMessaggio, ma la riga resta bloccata fino alla fine della transazione (voce 1.9, T13).
+-- Serve a ogni percorso che DECIDE qualcosa sul messaggio: nuova RFQ, aggancio, sgancio, ignora.
+-- Senza, due operatori che premono "Nuova RFQ" sullo stesso messaggio nello stesso momento leggono
+-- entrambi thread_id NULL, creano due RFQ e solo una resta agganciata: l'altra rimane in giro vuota,
+-- con la sua cartella sul NAS, e nessuno dei due operatori vede un errore. Con il blocco il secondo
+-- aspetta, rilegge il messaggio già agganciato e riceve un esito esplicito.
+SELECT * FROM messaggio WHERE messaggio_id = $1 FOR UPDATE;
+
 -- name: GetMessaggioPerChiave :one
 SELECT * FROM messaggio WHERE canale = $1 AND chiave_esterna = $2;
 

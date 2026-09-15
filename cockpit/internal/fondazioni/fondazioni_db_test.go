@@ -159,8 +159,8 @@ func TestCasellaTolaDalFileNonVieneDisattivata(t *testing.T) {
 	atteso := map[string]bool{
 		"casella luigi@azienda.example":   true,
 		"casella filippo@azienda.example": true,
-		"worker outlook@PC-LUIGI":           true,
-		"worker analisi@PC-FRANCESCO":       true,
+		"worker outlook@PC-LUIGI":         true,
+		"worker analisi@PC-FRANCESCO":     true,
 	}
 	if len(e.NonPiuNelFile) != len(atteso) {
 		t.Fatalf("segnalazioni %v, attese %d", e.NonPiuNelFile, len(atteso))
@@ -241,4 +241,56 @@ func TestStoreIDDiversiPerPostazione(t *testing.T) {
 	if n := testutil.Conta(t, p, "casella_store"); n != 2 {
 		t.Errorf("righe in casella_store %d, attese 2", n)
 	}
+}
+
+// Avvertenza 1 della revisione del 15/09: con lo schema alla 0003 il cursore di sincronizzazione è per
+// sola cartella, quindi due caselle attive se lo sovrascriverebbero a vicenda perdendo messaggi in
+// silenzio. Il server deve rifiutarsi di partire, non arrangiarsi.
+func TestPiuCaselleAttiveRifiutateFinoAllaVersione4(t *testing.T) {
+	p := testutil.Pool(t)
+	testutil.SchemaPulito(t, p)
+	ctx := context.Background()
+	q := db.New(p)
+
+	prima, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
+		Canale: db.CanaleOutlook, Indirizzo: "francesco@azienda.it", Nome: "Francesco"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, 3); err != nil {
+		t.Fatalf("una sola casella attiva alla versione 3 deve bastare: %v", err)
+	}
+
+	seconda, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
+		Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Condivisa: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = fondazioni.UnaSolaCasellaAttiva(ctx, q, 3)
+	if err == nil {
+		t.Fatal("due caselle attive alla versione 3 sono state accettate: i due cursori si sovrascriverebbero")
+	}
+	// l'errore deve dire quali caselle e perché: chi lo legge alle 8 del mattino deve poter agire
+	for _, atteso := range []string{"francesco@azienda.it", "commerciale@azienda.it", "cursore"} {
+		if !strings.Contains(err.Error(), atteso) {
+			t.Errorf("il messaggio non contiene %q: %v", atteso, err)
+		}
+	}
+
+	// disattivarne una basta a ripartire
+	if _, err := p.Exec(ctx, `UPDATE casella SET attiva = false WHERE casella_id = $1`, seconda.CasellaID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, 3); err != nil {
+		t.Errorf("con una sola casella attiva: %v", err)
+	}
+
+	// dalla 0004 in poi il controllo non interviene più: il cursore è per (casella, cartella)
+	if _, err := p.Exec(ctx, `UPDATE casella SET attiva = true WHERE casella_id = $1`, seconda.CasellaID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, 4); err != nil {
+		t.Errorf("alla versione 4 le caselle multiple sono previste: %v", err)
+	}
+	_ = prima
 }

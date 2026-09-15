@@ -229,7 +229,10 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
-	p, err := q.GetProposta(ctx, pid)
+	// BloccaProposta, non GetProposta: due conferme concorrenti sullo stesso allegato leggerebbero
+	// entrambe stato='aperta' e creerebbero due documenti nel fascicolo, con lo stesso file copiato
+	// due volte sul NAS. La seconda si ferma qui, poi rilegge e trova la proposta già decisa (T14).
+	p, err := q.BloccaProposta(ctx, pid)
 	if err != nil {
 		http.Error(w, "proposta non trovata", 404)
 		return
@@ -351,22 +354,49 @@ func (s *Server) scarta(w http.ResponseWriter, r *http.Request) {
 	}
 	u := utenteDa(r.Context())
 	ctx := r.Context()
-	q := db.New(s.Pool)
-	p, err := q.GetProposta(ctx, pid)
+	// Una transazione sola: la decisione sulla proposta e la memoria del rumore sono la stessa scelta
+	// dell'operatore, e non devono poter restare a metà (N19).
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+	p, err := q.BloccaProposta(ctx, pid)
 	if err != nil {
 		http.Error(w, "proposta non trovata", 404)
 		return
 	}
-	a, _ := q.GetAllegato(ctx, p.AllegatoID)
-	m, _ := q.GetMessaggio(ctx, a.MessaggioID)
+	a, err := q.GetAllegato(ctx, p.AllegatoID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	m, err := q.GetMessaggio(ctx, a.MessaggioID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if p.Stato != db.StatoPropostaAperta {
+		s.pannelloConAvviso(w, r, m.MessaggioID, "La proposta era già stata decisa: nessun cambiamento.")
+		return
+	}
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: pid, Stato: db.StatoPropostaScartata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	if r.FormValue("rumore") == "1" && a.Sha256.Valid && m.MittenteIndirizzo.Valid {
 		if i := strings.LastIndex(m.MittenteIndirizzo.String, "@"); i >= 0 {
-			_ = q.UpsertHashRumore(ctx, db.UpsertHashRumoreParams{Sha256: a.Sha256.String, Lower: m.MittenteIndirizzo.String[i+1:], ScartatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}})
+			if err := q.UpsertHashRumore(ctx, db.UpsertHashRumoreParams{Sha256: a.Sha256.String, Lower: m.MittenteIndirizzo.String[i+1:], ScartatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	s.pannelloConAvviso(w, r, m.MessaggioID, "Proposta scartata.")
 }

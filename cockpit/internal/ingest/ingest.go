@@ -12,6 +12,7 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,16 @@ const MaxIdentificativo = 1000
 type Servizio struct {
 	Pool *pgxpool.Pool
 	Log  *slog.Logger
+
+	// PrimaDelCommit, se valorizzato, viene chiamato con la transazione del lotto ancora aperta,
+	// dopo gli elementi e dopo il cursore, subito prima del COMMIT. In produzione è nil.
+	//
+	// Non è una comodità: è l'unico modo di dimostrare due proprietà che il piano richiede e che
+	// dall'esterno sarebbero invisibili. (1) §8.1 punto 3: una seconda connessione, mentre il gancio
+	// è dentro, non deve vedere NIENTE — né messaggi, né scarti, né cursore. (2) I16: se il commit
+	// non riesce, la risposta è 5xx e in database non resta nulla di parziale; il gancio può abortire
+	// la transazione con un errore SQL vero, così il COMMIT fallisce davvero e non per finta.
+	PrimaDelCommit func(context.Context, pgx.Tx) error
 }
 
 // Tentativo identifica il tentativo di esecuzione del job che sta consegnando il lotto. Ogni scrittura
@@ -194,8 +205,18 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		}
 	}
 
+	if s.PrimaDelCommit != nil {
+		if err := s.PrimaDelCommit(ctx, tx); err != nil {
+			return api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
-		return out, err
+		// Il commit non è riuscito: niente di questo lotto è durevole, nemmeno gli elementi che erano
+		// andati a buon fine. La risposta deve essere un errore (5xx) e mai un 200 parziale, perché il
+		// worker decide se ripetere il lotto proprio da lì. Si azzerano anche i conteggi: riportare
+		// «inseriti 2» dopo un commit fallito sarebbe una bugia sul contenuto del database (I16).
+		return api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}, fmt.Errorf("commit del lotto: %w", err)
 	}
 	return out, nil
 }
@@ -203,7 +224,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 // scarta registra un elemento che il database ha rifiutato. Il payload completo resta in DB: il replay
 // non deve ripassare da Outlook, che nel frattempo potrebbe non avere più l'elemento.
 func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *api.MessaggioIn, errEl error) error {
-	payload, err := json.Marshal(m)
+	payload, err := payloadScarto(m)
 	if err != nil {
 		return err
 	}
@@ -234,6 +255,54 @@ func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casell
 		Errore: sal.Errore,
 	})
 	return err
+}
+
+// payloadScarto serializza l'elemento per la colonna jsonb dello scarto.
+//
+// Non è un json.Marshal e basta. Un elemento finisce in scarto proprio perché ha qualcosa che il
+// database rifiuta, e il caso più frequente — un byte NUL nel corpo, che Outlook produce con certi
+// messaggi malformati — sarebbe rifiutato una seconda volta qui: PostgreSQL non accetta \u0000
+// nemmeno dentro jsonb (SQLSTATE 22P05). Il risultato sarebbe il peggiore possibile: l'errore dello
+// scarto abortisce la transazione del lotto, quindi un solo messaggio rotto farebbe di nuovo fallire
+// tutti gli altri — cioè esattamente il poison pill che questa fase deve eliminare.
+//
+// I byte NUL vengono quindi sostituiti con U+FFFD, il carattere che significa «qui c'era qualcosa di
+// non rappresentabile». Il payload resta fedele in tutto il resto e il replay funziona.
+func payloadScarto(m *api.MessaggioIn) ([]byte, error) {
+	grezzo, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Contains(grezzo, []byte{0}) && !bytes.Contains(grezzo, []byte(`\u0000`)) {
+		return grezzo, nil
+	}
+	var albero any
+	if err := json.Unmarshal(grezzo, &albero); err != nil {
+		return nil, err
+	}
+	return json.Marshal(senzaNul(albero))
+}
+
+// senzaNul ripulisce ricorsivamente le stringhe di un albero JSON decodificato. Si lavora sull'albero
+// e non sul testo serializzato perché in JSON \u0000 è indistinguibile, a colpo d'occhio, dalla
+// sequenza letterale «\u0000» che un utente può aver scritto nel corpo: sostituirla nel testo
+// corromperebbe un messaggio legittimo.
+func senzaNul(v any) any {
+	switch t := v.(type) {
+	case string:
+		return strings.ReplaceAll(t, "\x00", "�")
+	case []any:
+		for i := range t {
+			t[i] = senzaNul(t[i])
+		}
+		return t
+	case map[string]any:
+		for k, el := range t {
+			t[k] = senzaNul(el)
+		}
+		return t
+	}
+	return v
 }
 
 func txt(s string) pgtype.Text {
@@ -356,6 +425,18 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 
 	// FATTO: allegati. Nessun download automatico: sul disco vanno solo i file che l'operatore chiede
 	// (SPEC: staging su richiesta). Qui si registra l'allegato e la prima proposta dal solo nome file.
+	// Due allegati con lo stesso indice nello stesso messaggio non sono un doppione innocuo: l'upsert
+	// di `allegato` ha come chiave (messaggio_id, contenitore_id, indice), quindi il secondo
+	// sovrascriverebbe il primo e un allegato sparirebbe in silenzio. Meglio uno scarto visibile che
+	// un messaggio acquisito senza uno dei suoi file (voce 1.11).
+	visti := make(map[int]string, len(m.Allegati))
+	for _, a := range m.Allegati {
+		if gia, dup := visti[a.Indice]; dup {
+			return esito, fmt.Errorf("due allegati con lo stesso indice %d (%q e %q): il secondo sovrascriverebbe il primo", a.Indice, gia, a.NomeFile)
+		}
+		visti[a.Indice] = a.NomeFile
+	}
+
 	var nomiAllegati []string
 	for _, a := range m.Allegati {
 		nat, err := naturaAllegato(a.Natura)

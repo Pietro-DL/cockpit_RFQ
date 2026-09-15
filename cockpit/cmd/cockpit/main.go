@@ -72,6 +72,22 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	if _, err := fondazioni.Semina(ctx, q, cfg, log); err != nil {
 		return err
 	}
+	// Finché lo schema è alla 0003 il cursore di sincronizzazione è per sola cartella: più di una
+	// casella attiva farebbe perdere messaggi in silenzio. Meglio non partire (vedi il commento sulla
+	// funzione: il perché è tutto lì).
+	applicate, err := migrazioni.Applicate(ctx, pool)
+	if err != nil {
+		return err
+	}
+	versione := 0
+	for v := range applicate {
+		if v > versione {
+			versione = v
+		}
+	}
+	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, versione); err != nil {
+		return fmt.Errorf("configurazione delle caselle: %w", err)
+	}
 	if soloMigrazioni {
 		log.Info("migrazioni e seed completati (-migra): esco senza mettermi in ascolto")
 		return nil
@@ -109,6 +125,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	wa := &workerapi.Server{
 		Pool: pool, Log: log, Token: cfg.Server.TokenWorker, Ingest: servizioIngest,
 		Staging: staging, CasellaDefault: cfg.Outlook.CasellaDefault,
+		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 	}
 
 	mux := http.NewServeMux()

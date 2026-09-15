@@ -32,6 +32,37 @@ func (q *Queries) AssegnaThreadProposte(ctx context.Context, arg AssegnaThreadPr
 	return result.RowsAffected(), nil
 }
 
+const bloccaProposta = `-- name: BloccaProposta :one
+SELECT proposta_id, allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli, stato, deciso_da, deciso_il, creato_il FROM documento_proposta WHERE proposta_id = $1 FOR UPDATE
+`
+
+// La proposta bloccata per la durata della transazione (voce 1.9, T14). Due conferme concorrenti sullo
+// stesso allegato leggerebbero entrambe stato='aperta' e creerebbero due documenti nel fascicolo, con
+// lo stesso file copiato due volte sul NAS. Con il blocco la seconda trova la proposta già decisa e
+// lo dice.
+func (q *Queries) BloccaProposta(ctx context.Context, propostaID uuid.UUID) (DocumentoProposta, error) {
+	row := q.db.QueryRow(ctx, bloccaProposta, propostaID)
+	var i DocumentoProposta
+	err := row.Scan(
+		&i.PropostaID,
+		&i.AllegatoID,
+		&i.ThreadID,
+		&i.TipoProposto,
+		&i.Codice,
+		&i.Rev,
+		&i.ComponenteID,
+		&i.Confidenza,
+		&i.Fonte,
+		&i.RegolaID,
+		&i.Dettagli,
+		&i.Stato,
+		&i.DecisoDa,
+		&i.DecisoIl,
+		&i.CreatoIl,
+	)
+	return i, err
+}
+
 const decidiProposta = `-- name: DecidiProposta :execrows
 UPDATE documento_proposta SET stato = $2, deciso_da = $3, deciso_il = now() WHERE proposta_id = $1 AND stato = 'aperta'
 `

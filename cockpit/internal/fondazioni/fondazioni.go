@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
@@ -78,6 +79,7 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, log *slog.Lo
 			Nome:      k.Nome,
 			Condivisa: k.Condivisa,
 			UtenteID:  risolviUtente(k.Utente, "casella "+k.Indirizzo),
+			Attiva:    pgtype.Bool{Bool: k.EAttiva(), Valid: true},
 		})
 		if err != nil {
 			return e, fmt.Errorf("fondazioni: casella %s: %w", k.Indirizzo, err)
@@ -195,4 +197,43 @@ func CasellaPerIndirizzo(ctx context.Context, q *db.Queries, canale, indirizzo s
 		return uuid.Nil, err
 	}
 	return riga.CasellaID, nil
+}
+
+// VersioneCaselleMultiple è la versione di schema a partire dalla quale il cursore di sincronizzazione
+// è per (casella, cartella) e non più per sola cartella: la 0004 della fase 2.
+const VersioneCaselleMultiple = 4
+
+// UnaSolaCasellaAttiva rifiuta l'avvio con più di una casella attiva finché lo schema non è arrivato
+// alla 0004.
+//
+// Il motivo è preciso e vale la pena scriverlo per esteso, perché il danno sarebbe silenzioso. Alla
+// versione 3 `sync_cursore` ha per chiave la sola CARTELLA. Il lotto porta già `casella_id` e tutto il
+// resto è pronto per più caselle, ma il cursore no: due caselle che hanno entrambe una cartella
+// «Inbox» scriverebbero sulla stessa riga. Ognuna farebbe avanzare il cursore dell'altra, e ogni
+// avanzamento di troppo è una finestra di tempo che la seconda casella non leggerà mai — messaggi mai
+// acquisiti, senza nessun errore da nessuna parte, e senza che nessuno se ne accorga finché qualcuno
+// non cerca una RFQ che non c'è.
+//
+// Meglio non partire. È una condizione temporanea, verificata a ogni avvio: applicata la 0004, il
+// controllo smette da solo di intervenire.
+func UnaSolaCasellaAttiva(ctx context.Context, q *db.Queries, versioneSchema int) error {
+	if versioneSchema >= VersioneCaselleMultiple {
+		return nil
+	}
+	attive, err := q.ListCaselleAttive(ctx)
+	if err != nil {
+		return err
+	}
+	if len(attive) <= 1 {
+		return nil
+	}
+	nomi := make([]string, 0, len(attive))
+	for _, c := range attive {
+		nomi = append(nomi, c.Indirizzo)
+	}
+	return fmt.Errorf(
+		"%d caselle attive (%s) ma lo schema è alla versione %d: il cursore di sincronizzazione è ancora "+
+			"per sola cartella, quindi due caselle si sovrascriverebbero il cursore a vicenda e perderebbero "+
+			"messaggi in silenzio. Disattivarne tutte tranne una, oppure applicare la migrazione %04d (fase 2)",
+		len(attive), strings.Join(nomi, ", "), versioneSchema, VersioneCaselleMultiple)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getCasella = `-- name: GetCasella :one
@@ -297,11 +298,11 @@ func (q *Queries) ListWorkerCredenziali(ctx context.Context) ([]WorkerCredenzial
 
 const upsertCasella = `-- name: UpsertCasella :one
 
-INSERT INTO casella (canale, indirizzo, nome, condivisa, utente_id)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO casella (canale, indirizzo, nome, condivisa, utente_id, attiva)
+VALUES ($1, $2, $3, $4, $5, COALESCE($6::boolean, true))
 ON CONFLICT (canale, indirizzo) DO UPDATE SET
     nome = EXCLUDED.nome, condivisa = EXCLUDED.condivisa,
-    utente_id = EXCLUDED.utente_id, attiva = true, aggiornato_il = now()
+    utente_id = EXCLUDED.utente_id, attiva = EXCLUDED.attiva, aggiornato_il = now()
 RETURNING casella_id, canale, indirizzo, nome, condivisa, utente_id, attiva, creato_il, aggiornato_il
 `
 
@@ -311,11 +312,19 @@ type UpsertCasellaParams struct {
 	Nome      string        `json:"nome"`
 	Condivisa bool          `json:"condivisa"`
 	UtenteID  uuid.NullUUID `json:"utente_id"`
+	Attiva    pgtype.Bool   `json:"attiva"`
 }
 
 // Fondazioni (migrazione 0002): caselle, postazioni, credenziali dei worker, store locali.
 // Il seed da cockpit.toml è non distruttivo: aggiorna l'esistente per chiave naturale e non
 // disattiva mai ciò che non è più nel file (lo segnala soltanto).
+// `attiva` viene dal file di configurazione, non forzata a true.
+// Prima l'upsert riattivava a ogni avvio una casella disattivata a mano, e la disattivazione durava
+// fino al riavvio successivo. Con lo schema alla 0003 il server rifiuta di partire con più di una
+// casella attiva (il cursore di sincronizzazione è ancora per sola cartella): una disattivazione che
+// non tiene sarebbe quindi un avvio che non riesce, senza che il file dica niente di sbagliato.
+// `attiva` è opzionale e assente vale true: un parametro booleano obbligatorio avrebbe reso
+// «dimenticarsene» indistinguibile da «disattivala», e lo zero di Go è proprio false.
 func (q *Queries) UpsertCasella(ctx context.Context, arg UpsertCasellaParams) (Casella, error) {
 	row := q.db.QueryRow(ctx, upsertCasella,
 		arg.Canale,
@@ -323,6 +332,7 @@ func (q *Queries) UpsertCasella(ctx context.Context, arg UpsertCasellaParams) (C
 		arg.Nome,
 		arg.Condivisa,
 		arg.UtenteID,
+		arg.Attiva,
 	)
 	var i Casella
 	err := row.Scan(

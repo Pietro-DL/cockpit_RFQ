@@ -20,12 +20,30 @@ type Config struct {
 	Postazioni []Postazione `toml:"postazione"` // [[postazione]]
 	Worker     []Worker     `toml:"worker"`     // [[worker]] — credenziali individuali
 	Retention  Retention    `toml:"retention"`  // [retention] — fase 1, voce 1.6
+	Analisi    Analisi      `toml:"analisi"`    // [analisi] — fase 1, voce 1.12
 }
 
 // Retention: per quanto si tengono i job chiusi. Una coda che non si svuota mai diventa illeggibile e
 // rallenta le interrogazioni di amministrazione; 0 = non cancellare nulla.
 type Retention struct {
 	GiorniJob int `toml:"giorni_job"`
+}
+
+// Analisi identifica CON CHE COSA un file è stato analizzato (voce 1.12, A15).
+//
+// I fatti estratti da un file dipendono da tre cose e solo da tre: il contenuto del file, la versione
+// dell'analizzatore e la configurazione che gli è stata data. A parità di tutte e tre, rifare
+// l'analisi è lavoro sprecato e il risultato è per definizione lo stesso; se cambia una delle tre, il
+// risultato precedente non vale più. Senza queste due informazioni il server non può distinguere i
+// due casi, e finisce per fare sempre la scelta sbagliata: o rianalizza tutto ogni volta, o riusa
+// fatti calcolati con un dizionario che non è più quello.
+//
+// Parametri è il blocco che viene mandato al worker; il suo sha256, insieme alla versione, è la
+// chiave con cui i fatti vengono conservati e ritrovati. Cambiare un termine qui basta a far
+// rianalizzare tutto, senza toccare il codice.
+type Analisi struct {
+	Versione  int            `toml:"versione"`
+	Parametri map[string]any `toml:"parametri"`
 }
 
 type Server struct {
@@ -61,7 +79,13 @@ type Casella struct {
 	Canale    string `toml:"canale"`    // default 'outlook'
 	Condivisa bool   `toml:"condivisa"` // true = cassetta condivisa Exchange (nessun proprietario)
 	Utente    string `toml:"utente"`    // sigla del proprietario; vuoto o ignorato se condivisa
+	// Attiva: assente = true. Serve a dichiarare nel file quale casella è in uso, invece di doverlo
+	// fare a mano in database a ogni avvio. Finché lo schema è alla 0003 ne può essere attiva una sola.
+	Attiva *bool `toml:"attiva"`
 }
+
+// EAttiva risolve il default: una casella senza `attiva` nel file è attiva.
+func (c Casella) EAttiva() bool { return c.Attiva == nil || *c.Attiva }
 
 // Postazione è una voce [[postazione]]: un PC con Outlook e un worker.
 type Postazione struct {
@@ -96,6 +120,7 @@ func Carica(percorso string) (*Config, error) {
 	c.Outlook.IntervalloSyncS = 60
 	c.Outlook.Lotto = 50
 	c.Retention.GiorniJob = 30
+	c.Analisi.Versione = 1
 	if _, err := toml.DecodeFile(percorso, c); err != nil {
 		return nil, fmt.Errorf("config %s: %w", percorso, err)
 	}

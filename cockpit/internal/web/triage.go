@@ -123,6 +123,21 @@ func (s *Server) cercaThread(w http.ResponseWriter, r *http.Request) {
 
 // ---------------------------------------------------------------- decisioni
 
+// messaggioDaDecidere apre la decisione su un messaggio: lo blocca per la durata della transazione e
+// dice se qualcuno ha già deciso.
+//
+// Ogni percorso che decide passa di qui — nuova RFQ, aggancio a una RFQ esistente, ignora — e non
+// perché faccia risparmiare righe: perché il blocco è la garanzia, e una garanzia ripetuta in tre
+// punti è una garanzia che prima o poi resta in due. Il secondo valore è true quando il messaggio
+// risulta già agganciato: chi lo riceve deve dare un esito esplicito, mai proseguire (T13).
+func messaggioDaDecidere(ctx context.Context, q *db.Queries, id uuid.UUID) (db.Messaggio, bool, error) {
+	m, err := q.BloccaMessaggio(ctx, id)
+	if err != nil {
+		return m, false, err
+	}
+	return m, m.ThreadID.Valid, nil
+}
+
 // nuovaRFQ: una transazione che crea (se serve) cliente e buyer, il thread con la sua cartella, gli identificativi,
 // la fase RICEVUTA, aggancia messaggio e conversazione, chiude il triage e accoda cartella + download richiesti.
 func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
@@ -144,13 +159,18 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
-	m, err := q.GetMessaggio(ctx, id)
+	// BloccaMessaggio, non GetMessaggio: da qui in poi si decide, e la decisione deve essere una sola
+	// (voce 1.9, T13). Un secondo operatore che preme "Nuova RFQ" sullo stesso messaggio si ferma qui
+	// finché questa transazione non ha finito, poi rilegge e trova il messaggio già agganciato.
+	m, deciso, err := messaggioDaDecidere(ctx, q, id)
 	if err != nil {
 		http.Error(w, "messaggio non trovato", 404)
 		return
 	}
-	if m.ThreadID.Valid {
-		s.pannelloConAvviso(w, r, id, "Il messaggio è già agganciato a una RFQ.")
+	if deciso {
+		// Esito esplicito, non silenzio: chi ha perso la corsa deve sapere dov'è finito il messaggio,
+		// altrimenti riprova e crea la seconda RFQ a mano.
+		s.avvisoRFQEsistente(w, r, ctx, q, m)
 		return
 	}
 
@@ -252,9 +272,13 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
-	m, err := q.GetMessaggio(ctx, id)
+	m, deciso, err := messaggioDaDecidere(ctx, q, id)
 	if err != nil {
 		http.Error(w, "messaggio non trovato", 404)
+		return
+	}
+	if deciso && m.ThreadID.UUID != tid {
+		s.avvisoRFQEsistente(w, r, ctx, q, m)
 		return
 	}
 	t, err := q.GetThread(ctx, tid)
@@ -294,11 +318,61 @@ func (s *Server) ignora(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := utenteDa(r.Context())
-	if err := db.New(s.Pool).IgnoraMessaggio(r.Context(), db.IgnoraMessaggioParams{MessaggioID: id, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+	ctx := r.Context()
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+	m, deciso, err := messaggioDaDecidere(ctx, q, id)
+	if err != nil {
+		http.Error(w, "messaggio non trovato", 404)
+		return
+	}
+	if deciso {
+		s.avvisoRFQEsistente(w, r, ctx, q, m)
+		return
+	}
+	if err := q.IgnoraMessaggio(ctx, db.IgnoraMessaggioParams{MessaggioID: id, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := logDecisione(ctx, q, id, uuid.NullUUID{}, "ignora", u, "chiuso senza RFQ"); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	s.pannelloConAvviso(w, r, id, "Messaggio ignorato (lo ritrovi nel filtro «ignorati»).")
+}
+
+// avvisoRFQEsistente è l'esito esplicito di chi ha perso una corsa: dice dov'è finito il messaggio,
+// invece di lasciare l'operatore davanti a un pannello che non è cambiato (T13).
+func (s *Server) avvisoRFQEsistente(w http.ResponseWriter, r *http.Request, ctx context.Context, q *db.Queries, m db.Messaggio) {
+	dove := "un'altra RFQ"
+	if t, err := q.GetThread(ctx, m.ThreadID.UUID); err == nil && t.CartellaRelativa.Valid {
+		dove = t.CartellaRelativa.String
+	}
+	s.pannelloConAvviso(w, r, m.MessaggioID, fmt.Sprintf(
+		"Nel frattempo il messaggio è stato agganciato a %s: non ne è stata creata una seconda. Ricarica per vedere la RFQ.", dove))
+}
+
+// logDecisione scrive in messaggio_aggancio_log. Ogni decisione di aggancio lascia una traccia con chi
+// l'ha presa e perché: è il materiale con cui, mesi dopo, si ricostruisce come un messaggio sia
+// arrivato dov'è — e, dalla fase 3, la base della propagazione ai messaggi annidati.
+func logDecisione(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, threadID uuid.NullUUID, azione string, u *db.Utente, motivo string) error {
+	var utente uuid.NullUUID
+	if u != nil {
+		utente = uuid.NullUUID{UUID: u.UtenteID, Valid: true}
+	}
+	return q.InsertAgganciaLog(ctx, db.InsertAgganciaLogParams{
+		MessaggioID: messaggioID, ThreadID: threadID, Azione: azione, UtenteID: utente,
+		Motivo: pgtype.Text{String: motivo, Valid: motivo != ""},
+	})
 }
 
 // ---------------------------------------------------------------- pezzi della transazione
@@ -309,6 +383,9 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 	tid := uuid.NullUUID{UUID: threadID, Valid: true}
 	op := uuid.NullUUID{UUID: u.UtenteID, Valid: true}
 	if err := q.AgganciaMessaggio(ctx, db.AgganciaMessaggioParams{MessaggioID: m.MessaggioID, ThreadID: tid, Aggancio: db.AggancioOperatore, AgganciatoDa: op}); err != nil {
+		return err
+	}
+	if err := logDecisione(ctx, q, m.MessaggioID, tid, "aggancia", u, "decisione dell'operatore"); err != nil {
 		return err
 	}
 	if _, err := q.AssegnaThreadProposte(ctx, db.AssegnaThreadProposteParams{MessaggioID: m.MessaggioID, ThreadID: tid}); err != nil {
@@ -335,6 +412,11 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 		_, _ = q.AssegnaThreadProposte(ctx, db.AssegnaThreadProposteParams{MessaggioID: mid, ThreadID: tid})
 		_, _ = q.AssegnaThreadRiferimenti(ctx, db.AssegnaThreadRiferimentiParams{MessaggioID: mid, ThreadID: tid})
 		_, _ = q.DecidiTriage(ctx, db.DecidiTriageParams{MessaggioID: mid, Stato: db.StatoTriageAccettata, DecisoDa: op})
+		// l'operatore ha deciso su uno solo: gli altri sono stati trascinati dalla conversazione, e la
+		// differenza va registrata, altrimenti sembrerebbero decisioni prese una per una
+		if err := logDecisione(ctx, q, mid, tid, "propaga", u, "orfano della stessa conversazione"); err != nil {
+			return err
+		}
 	}
 	if buyerID.Valid {
 		if !m.BuyerID.Valid {

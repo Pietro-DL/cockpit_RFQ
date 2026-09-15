@@ -34,6 +34,21 @@
       "format": "uuid",
       "title": "Messaggio Id",
       "type": "string"
+    },
+    "versione_analizzatore": {
+      "default": 0,
+      "title": "Versione Analizzatore",
+      "type": "integer"
+    },
+    "hash_configurazione": {
+      "default": "",
+      "title": "Hash Configurazione",
+      "type": "string"
+    },
+    "parametri": {
+      "additionalProperties": true,
+      "title": "Parametri",
+      "type": "object"
     }
   },
   "required": [

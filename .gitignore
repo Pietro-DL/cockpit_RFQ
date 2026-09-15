@@ -1,6 +1,9 @@
 # Documenti e specifiche riservate
 docs/
 specs/
+# I piani vivono nell'archivio privato: se qualcuno li copia qui per comodità, non finiscono
+# comunque in un commit. Il riepilogo pubblicabile di ogni fase è cockpit/FASE_N.md.
+PIANO_*.md
 
 # Directory di filesystem locali e sandbox
 _staging/

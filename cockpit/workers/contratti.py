@@ -260,6 +260,11 @@ class PayloadAnalizzaAllegato(Base):
     nome_file: str
     thread_id: UUID | None = None
     messaggio_id: UUID
+    # Con che cosa il server chiede di analizzare (voce 1.12). Il worker li rimanda indietro tali e
+    # quali: sono la chiave sotto cui i fatti vengono conservati e ritrovati.
+    versione_analizzatore: int = 0
+    hash_configurazione: str = ""
+    parametri: dict = Field(default_factory=dict)
 
 
 class RisultatoAnalisi(Base):
@@ -270,6 +275,10 @@ class RisultatoAnalisi(Base):
     confidenza: int = 50
     fonte: str = "cartiglio"
     dettagli: dict = Field(default_factory=dict)
+    # Eco del payload: il server rifiuta un risultato che dichiara una combinazione diversa da quella
+    # richiesta, perché archivierebbe i fatti sotto una chiave che non li descrive.
+    versione_analizzatore: int = 0
+    hash_configurazione: str = ""
 
 
 CONTRATTI = {

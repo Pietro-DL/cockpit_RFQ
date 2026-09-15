@@ -3,11 +3,18 @@
 -- disattiva mai ciò che non è più nel file (lo segnala soltanto).
 
 -- name: UpsertCasella :one
-INSERT INTO casella (canale, indirizzo, nome, condivisa, utente_id)
-VALUES ($1, $2, $3, $4, $5)
+-- `attiva` viene dal file di configurazione, non forzata a true.
+-- Prima l'upsert riattivava a ogni avvio una casella disattivata a mano, e la disattivazione durava
+-- fino al riavvio successivo. Con lo schema alla 0003 il server rifiuta di partire con più di una
+-- casella attiva (il cursore di sincronizzazione è ancora per sola cartella): una disattivazione che
+-- non tiene sarebbe quindi un avvio che non riesce, senza che il file dica niente di sbagliato.
+-- `attiva` è opzionale e assente vale true: un parametro booleano obbligatorio avrebbe reso
+-- «dimenticarsene» indistinguibile da «disattivala», e lo zero di Go è proprio false.
+INSERT INTO casella (canale, indirizzo, nome, condivisa, utente_id, attiva)
+VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(attiva)::boolean, true))
 ON CONFLICT (canale, indirizzo) DO UPDATE SET
     nome = EXCLUDED.nome, condivisa = EXCLUDED.condivisa,
-    utente_id = EXCLUDED.utente_id, attiva = true, aggiornato_il = now()
+    utente_id = EXCLUDED.utente_id, attiva = EXCLUDED.attiva, aggiornato_il = now()
 RETURNING *;
 
 -- name: GetCasella :one
