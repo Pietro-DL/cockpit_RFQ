@@ -137,7 +137,9 @@ func TestS2FondazioniSuDBConDati(t *testing.T) {
 	primaUtenti := testutil.Conta(t, p, "utente")
 	primaClienti := testutil.Conta(t, p, "cliente")
 
-	n, err := migrazioni.Applica(ctx, p, risorse.FS, testutil.LogSilenzioso())
+	// FINO ALLA 0002 e non oltre: questo test riguarda che cosa fa la 0002, e le migrazioni
+	// successive toccano `messaggio` di proposito (la 0004 aggiunge `interno`).
+	n, err := migrazioni.ApplicaFinoA(ctx, p, risorse.FS, 2, testutil.LogSilenzioso())
 	if err != nil {
 		t.Fatalf("0002: %v", err)
 	}

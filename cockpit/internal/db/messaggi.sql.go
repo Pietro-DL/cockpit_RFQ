@@ -70,7 +70,7 @@ func (q *Queries) AgganciaOrfaniConversazione(ctx context.Context, arg AgganciaO
 }
 
 const bloccaMessaggio = `-- name: BloccaMessaggio :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
 `
 
 // Come GetMessaggio, ma la riga resta bloccata fino alla fine della transazione (voce 1.9, T13).
@@ -107,6 +107,7 @@ func (q *Queries) BloccaMessaggio(ctx context.Context, messaggioID uuid.UUID) (M
 		&i.NAllegati,
 		&i.RegistratoIl,
 		&i.RegistratoDa,
+		&i.Interno,
 	)
 	return i, err
 }
@@ -132,6 +133,7 @@ SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
        count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
        count(*)                                                  AS tutti
 FROM v_inbox
+WHERE $1::uuid IS NULL OR $1::uuid = ANY (caselle_id)
 `
 
 type ContaInboxRow struct {
@@ -141,8 +143,8 @@ type ContaInboxRow struct {
 	Tutti      int64 `json:"tutti"`
 }
 
-func (q *Queries) ContaInbox(ctx context.Context) (ContaInboxRow, error) {
-	row := q.db.QueryRow(ctx, contaInbox)
+func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaInboxRow, error) {
+	row := q.db.QueryRow(ctx, contaInbox, casella)
 	var i ContaInboxRow
 	err := row.Scan(
 		&i.Orfani,
@@ -172,7 +174,7 @@ func (q *Queries) GetConversazione(ctx context.Context, conversazioneID uuid.UUI
 }
 
 const getInboxRiga = `-- name: GetInboxRiga :one
-SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, non_letto, cartella_outlook, entry_id FROM v_inbox WHERE messaggio_id = $1
+SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id FROM v_inbox WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInbox, error) {
@@ -182,6 +184,7 @@ func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInb
 		&i.MessaggioID,
 		&i.Canale,
 		&i.Direzione,
+		&i.Interno,
 		&i.DataEvento,
 		&i.ThreadID,
 		&i.Aggancio,
@@ -202,7 +205,12 @@ func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInb
 		&i.TriageMotivi,
 		&i.ThreadProposto,
 		&i.Ignorato,
+		&i.Caselle,
+		&i.CaselleID,
+		&i.NCaselle,
 		&i.NonLetto,
+		&i.RicevutoIl,
+		&i.CasellaID,
 		&i.CartellaOutlook,
 		&i.EntryID,
 	)
@@ -210,7 +218,7 @@ func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInb
 }
 
 const getMessaggio = `-- name: GetMessaggio :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE messaggio_id = $1
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetMessaggio(ctx context.Context, messaggioID uuid.UUID) (Messaggio, error) {
@@ -241,12 +249,13 @@ func (q *Queries) GetMessaggio(ctx context.Context, messaggioID uuid.UUID) (Mess
 		&i.NAllegati,
 		&i.RegistratoIl,
 		&i.RegistratoDa,
+		&i.Interno,
 	)
 	return i, err
 }
 
 const getMessaggioOutlook = `-- name: GetMessaggioOutlook :one
-SELECT messaggio_id, entry_id, store_id, conversation_id, conversation_index, in_reply_to, riferimenti, cartella, categorie, non_letto, flag_stato, aggiornato_il FROM messaggio_outlook WHERE messaggio_id = $1
+SELECT messaggio_id, conversation_id, conversation_index, in_reply_to, riferimenti, aggiornato_il FROM messaggio_outlook WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetMessaggioOutlook(ctx context.Context, messaggioID uuid.UUID) (MessaggioOutlook, error) {
@@ -254,23 +263,17 @@ func (q *Queries) GetMessaggioOutlook(ctx context.Context, messaggioID uuid.UUID
 	var i MessaggioOutlook
 	err := row.Scan(
 		&i.MessaggioID,
-		&i.EntryID,
-		&i.StoreID,
 		&i.ConversationID,
 		&i.ConversationIndex,
 		&i.InReplyTo,
 		&i.Riferimenti,
-		&i.Cartella,
-		&i.Categorie,
-		&i.NonLetto,
-		&i.FlagStato,
 		&i.AggiornatoIl,
 	)
 	return i, err
 }
 
 const getMessaggioPerChiave = `-- name: GetMessaggioPerChiave :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE canale = $1 AND chiave_esterna = $2
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE canale = $1 AND chiave_esterna = $2
 `
 
 type GetMessaggioPerChiaveParams struct {
@@ -306,16 +309,53 @@ func (q *Queries) GetMessaggioPerChiave(ctx context.Context, arg GetMessaggioPer
 		&i.NAllegati,
 		&i.RegistratoIl,
 		&i.RegistratoDa,
+		&i.Interno,
+	)
+	return i, err
+}
+
+const getPresenza = `-- name: GetPresenza :one
+SELECT messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il, non_letto, flag_stato, categorie, aggiornato_il FROM messaggio_casella WHERE messaggio_id = $1 AND casella_id = $2
+`
+
+type GetPresenzaParams struct {
+	MessaggioID uuid.UUID `json:"messaggio_id"`
+	CasellaID   uuid.UUID `json:"casella_id"`
+}
+
+func (q *Queries) GetPresenza(ctx context.Context, arg GetPresenzaParams) (MessaggioCasella, error) {
+	row := q.db.QueryRow(ctx, getPresenza, arg.MessaggioID, arg.CasellaID)
+	var i MessaggioCasella
+	err := row.Scan(
+		&i.MessaggioID,
+		&i.CasellaID,
+		&i.EntryID,
+		&i.StoreIDLocale,
+		&i.Cartella,
+		&i.RicevutoIl,
+		&i.NonLetto,
+		&i.FlagStato,
+		&i.Categorie,
+		&i.AggiornatoIl,
 	)
 	return i, err
 }
 
 const getSyncCursore = `-- name: GetSyncCursore :one
-SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore FROM sync_cursore WHERE cartella = $1
+
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id FROM sync_cursore WHERE casella_id = $1 AND cartella = $2
 `
 
-func (q *Queries) GetSyncCursore(ctx context.Context, cartella string) (SyncCursore, error) {
-	row := q.db.QueryRow(ctx, getSyncCursore, cartella)
+type GetSyncCursoreParams struct {
+	CasellaID uuid.UUID `json:"casella_id"`
+	Cartella  string    `json:"cartella"`
+}
+
+// Il cursore ha per chiave (casella, cartella) dalla 0004. Con la sola cartella due caselle che hanno
+// entrambe una «Posta in arrivo» si facevano avanzare il cursore a vicenda, e ogni avanzamento di
+// troppo è una finestra di tempo che l'altra casella non legge mai: messaggi persi in silenzio.
+func (q *Queries) GetSyncCursore(ctx context.Context, arg GetSyncCursoreParams) (SyncCursore, error) {
+	row := q.db.QueryRow(ctx, getSyncCursore, arg.CasellaID, arg.Cartella)
 	var i SyncCursore
 	err := row.Scan(
 		&i.Cartella,
@@ -324,28 +364,38 @@ func (q *Queries) GetSyncCursore(ctx context.Context, cartella string) (SyncCurs
 		&i.UltimoSync,
 		&i.NMessaggi,
 		&i.Errore,
+		&i.CasellaID,
 	)
 	return i, err
 }
 
 const listInbox = `-- name: ListInbox :many
-SELECT messaggio_id, canale, direzione, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, non_letto, cartella_outlook, entry_id FROM v_inbox
+SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id FROM v_inbox
 WHERE ($1::text = 'tutti'
     OR ($1::text = 'orfani'     AND thread_id IS NULL AND NOT ignorato)
     OR ($1::text = 'agganciati' AND thread_id IS NOT NULL)
     OR ($1::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
+  AND ($2::uuid IS NULL OR $2::uuid = ANY (caselle_id))
 ORDER BY data_evento DESC
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListInboxParams struct {
-	Filtro string `json:"filtro"`
-	Salta  int32  `json:"salta"`
-	Limite int32  `json:"limite"`
+	Filtro  string        `json:"filtro"`
+	Casella uuid.NullUUID `json:"casella"`
+	Salta   int32         `json:"salta"`
+	Limite  int32         `json:"limite"`
 }
 
+// `casella` vuoto = tutte le caselle. NON è un controllo di autorizzazione: è il filtro della
+// schermata. Chi può vedere che cosa è la voce 2.2 (puoVedere) e resta restrittivo fino ad allora.
 func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox, error) {
-	rows, err := q.db.Query(ctx, listInbox, arg.Filtro, arg.Salta, arg.Limite)
+	rows, err := q.db.Query(ctx, listInbox,
+		arg.Filtro,
+		arg.Casella,
+		arg.Salta,
+		arg.Limite,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -357,6 +407,7 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 			&i.MessaggioID,
 			&i.Canale,
 			&i.Direzione,
+			&i.Interno,
 			&i.DataEvento,
 			&i.ThreadID,
 			&i.Aggancio,
@@ -377,7 +428,12 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 			&i.TriageMotivi,
 			&i.ThreadProposto,
 			&i.Ignorato,
+			&i.Caselle,
+			&i.CaselleID,
+			&i.NCaselle,
 			&i.NonLetto,
+			&i.RicevutoIl,
+			&i.CasellaID,
 			&i.CartellaOutlook,
 			&i.EntryID,
 		); err != nil {
@@ -392,7 +448,7 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 }
 
 const listMessaggiConversazione = `-- name: ListMessaggiConversazione :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE conversazione_id = $1 ORDER BY data_evento
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE conversazione_id = $1 ORDER BY data_evento
 `
 
 func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID uuid.UUID) ([]Messaggio, error) {
@@ -429,6 +485,7 @@ func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID
 			&i.NAllegati,
 			&i.RegistratoIl,
 			&i.RegistratoDa,
+			&i.Interno,
 		); err != nil {
 			return nil, err
 		}
@@ -441,7 +498,7 @@ func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID
 }
 
 const listMessaggiThread = `-- name: ListMessaggiThread :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da FROM messaggio WHERE thread_id = $1 ORDER BY data_evento
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE thread_id = $1 ORDER BY data_evento
 `
 
 func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID) ([]Messaggio, error) {
@@ -478,6 +535,63 @@ func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID
 			&i.NAllegati,
 			&i.RegistratoIl,
 			&i.RegistratoDa,
+			&i.Interno,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPresenze = `-- name: ListPresenze :many
+SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.store_id_locale, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo, c.condivisa
+FROM messaggio_casella mc JOIN casella c ON c.casella_id = mc.casella_id
+WHERE mc.messaggio_id = $1 ORDER BY c.nome
+`
+
+type ListPresenzeRow struct {
+	MessaggioID      uuid.UUID   `json:"messaggio_id"`
+	CasellaID        uuid.UUID   `json:"casella_id"`
+	EntryID          string      `json:"entry_id"`
+	StoreIDLocale    string      `json:"store_id_locale"`
+	Cartella         pgtype.Text `json:"cartella"`
+	RicevutoIl       time.Time   `json:"ricevuto_il"`
+	NonLetto         bool        `json:"non_letto"`
+	FlagStato        pgtype.Int2 `json:"flag_stato"`
+	Categorie        []string    `json:"categorie"`
+	AggiornatoIl     time.Time   `json:"aggiornato_il"`
+	CasellaNome      string      `json:"casella_nome"`
+	CasellaIndirizzo string      `json:"casella_indirizzo"`
+	Condivisa        bool        `json:"condivisa"`
+}
+
+func (q *Queries) ListPresenze(ctx context.Context, messaggioID uuid.UUID) ([]ListPresenzeRow, error) {
+	rows, err := q.db.Query(ctx, listPresenze, messaggioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPresenzeRow{}
+	for rows.Next() {
+		var i ListPresenzeRow
+		if err := rows.Scan(
+			&i.MessaggioID,
+			&i.CasellaID,
+			&i.EntryID,
+			&i.StoreIDLocale,
+			&i.Cartella,
+			&i.RicevutoIl,
+			&i.NonLetto,
+			&i.FlagStato,
+			&i.Categorie,
+			&i.AggiornatoIl,
+			&i.CasellaNome,
+			&i.CasellaIndirizzo,
+			&i.Condivisa,
 		); err != nil {
 			return nil, err
 		}
@@ -490,11 +604,59 @@ func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID
 }
 
 const listSyncCursori = `-- name: ListSyncCursori :many
-SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore FROM sync_cursore ORDER BY cartella
+SELECT sc.cartella, sc.ultimo_received, sc.storico_fino_a, sc.ultimo_sync, sc.n_messaggi, sc.errore, sc.casella_id, c.indirizzo AS casella_indirizzo, c.nome AS casella_nome
+FROM sync_cursore sc JOIN casella c ON c.casella_id = sc.casella_id
+ORDER BY c.indirizzo, sc.cartella
 `
 
-func (q *Queries) ListSyncCursori(ctx context.Context) ([]SyncCursore, error) {
+type ListSyncCursoriRow struct {
+	Cartella         string      `json:"cartella"`
+	UltimoReceived   *time.Time  `json:"ultimo_received"`
+	StoricoFinoA     *time.Time  `json:"storico_fino_a"`
+	UltimoSync       *time.Time  `json:"ultimo_sync"`
+	NMessaggi        int32       `json:"n_messaggi"`
+	Errore           pgtype.Text `json:"errore"`
+	CasellaID        uuid.UUID   `json:"casella_id"`
+	CasellaIndirizzo string      `json:"casella_indirizzo"`
+	CasellaNome      string      `json:"casella_nome"`
+}
+
+func (q *Queries) ListSyncCursori(ctx context.Context) ([]ListSyncCursoriRow, error) {
 	rows, err := q.db.Query(ctx, listSyncCursori)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSyncCursoriRow{}
+	for rows.Next() {
+		var i ListSyncCursoriRow
+		if err := rows.Scan(
+			&i.Cartella,
+			&i.UltimoReceived,
+			&i.StoricoFinoA,
+			&i.UltimoSync,
+			&i.NMessaggi,
+			&i.Errore,
+			&i.CasellaID,
+			&i.CasellaIndirizzo,
+			&i.CasellaNome,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSyncCursoriCasella = `-- name: ListSyncCursoriCasella :many
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id FROM sync_cursore WHERE casella_id = $1 ORDER BY cartella
+`
+
+func (q *Queries) ListSyncCursoriCasella(ctx context.Context, casellaID uuid.UUID) ([]SyncCursore, error) {
+	rows, err := q.db.Query(ctx, listSyncCursoriCasella, casellaID)
 	if err != nil {
 		return nil, err
 	}
@@ -509,6 +671,7 @@ func (q *Queries) ListSyncCursori(ctx context.Context) ([]SyncCursore, error) {
 			&i.UltimoSync,
 			&i.NMessaggi,
 			&i.Errore,
+			&i.CasellaID,
 		); err != nil {
 			return nil, err
 		}
@@ -518,6 +681,56 @@ func (q *Queries) ListSyncCursori(ctx context.Context) ([]SyncCursore, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const presenzaDaAprire = `-- name: PresenzaDaAprire :one
+SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.store_id_locale, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo
+FROM messaggio_casella mc
+JOIN casella c ON c.casella_id = mc.casella_id
+WHERE mc.messaggio_id = $1 AND c.attiva
+ORDER BY mc.ricevuto_il, mc.casella_id
+LIMIT 1
+`
+
+type PresenzaDaAprireRow struct {
+	MessaggioID      uuid.UUID   `json:"messaggio_id"`
+	CasellaID        uuid.UUID   `json:"casella_id"`
+	EntryID          string      `json:"entry_id"`
+	StoreIDLocale    string      `json:"store_id_locale"`
+	Cartella         pgtype.Text `json:"cartella"`
+	RicevutoIl       time.Time   `json:"ricevuto_il"`
+	NonLetto         bool        `json:"non_letto"`
+	FlagStato        pgtype.Int2 `json:"flag_stato"`
+	Categorie        []string    `json:"categorie"`
+	AggiornatoIl     time.Time   `json:"aggiornato_il"`
+	CasellaNome      string      `json:"casella_nome"`
+	CasellaIndirizzo string      `json:"casella_indirizzo"`
+}
+
+// Quale copia aprire quando l'operatore preme «Apri in Outlook» o chiede un allegato.
+// Finché il routing per postazione non esiste (voci 2.2 e 2.7) la scelta è la copia più vecchia, a
+// parità la casella con l'uuid minore: arbitraria ma RIPETIBILE, così due clic di seguito aprono lo
+// stesso elemento invece di due elementi diversi a seconda di come il database ha ordinato le righe.
+// Lo store_id_locale è il ponte dichiarato fino alla voce 2.6 (N44): vale finché a sincronizzare è
+// una sola postazione, ed è per COPIA perché due caselle dello stesso profilo hanno due store diversi.
+func (q *Queries) PresenzaDaAprire(ctx context.Context, messaggioID uuid.UUID) (PresenzaDaAprireRow, error) {
+	row := q.db.QueryRow(ctx, presenzaDaAprire, messaggioID)
+	var i PresenzaDaAprireRow
+	err := row.Scan(
+		&i.MessaggioID,
+		&i.CasellaID,
+		&i.EntryID,
+		&i.StoreIDLocale,
+		&i.Cartella,
+		&i.RicevutoIl,
+		&i.NonLetto,
+		&i.FlagStato,
+		&i.Categorie,
+		&i.AggiornatoIl,
+		&i.CasellaNome,
+		&i.CasellaIndirizzo,
+	)
+	return i, err
 }
 
 const setBuyerMessaggiPerIndirizzo = `-- name: SetBuyerMessaggiPerIndirizzo :execrows
@@ -551,39 +764,63 @@ func (q *Queries) SetBuyerMessaggio(ctx context.Context, arg SetBuyerMessaggioPa
 	return err
 }
 
-const setEntryIDMessaggio = `-- name: SetEntryIDMessaggio :exec
-UPDATE messaggio_outlook SET entry_id = $2, store_id = $3, cartella = COALESCE($4, cartella), aggiornato_il = now()
-WHERE messaggio_id = $1
+const setEntryIDPresenza = `-- name: SetEntryIDPresenza :exec
+UPDATE messaggio_casella SET entry_id = $1, cartella = COALESCE($2, cartella),
+    store_id_locale = CASE WHEN $3::text <> '' THEN $3::text ELSE store_id_locale END,
+    aggiornato_il = now()
+WHERE messaggio_id = $4 AND casella_id = $5
 `
 
-type SetEntryIDMessaggioParams struct {
-	MessaggioID uuid.UUID   `json:"messaggio_id"`
-	EntryID     string      `json:"entry_id"`
-	StoreID     string      `json:"store_id"`
-	Cartella    pgtype.Text `json:"cartella"`
+type SetEntryIDPresenzaParams struct {
+	EntryID       string      `json:"entry_id"`
+	Cartella      pgtype.Text `json:"cartella"`
+	StoreIDLocale string      `json:"store_id_locale"`
+	MessaggioID   uuid.UUID   `json:"messaggio_id"`
+	CasellaID     uuid.UUID   `json:"casella_id"`
 }
 
-func (q *Queries) SetEntryIDMessaggio(ctx context.Context, arg SetEntryIDMessaggioParams) error {
-	_, err := q.db.Exec(ctx, setEntryIDMessaggio,
-		arg.MessaggioID,
+// Lo store non si azzera mai con una stringa vuota: un worker che non lo riporta cancellerebbe
+// l'unico valore con cui si riapre l'elemento.
+func (q *Queries) SetEntryIDPresenza(ctx context.Context, arg SetEntryIDPresenzaParams) error {
+	_, err := q.db.Exec(ctx, setEntryIDPresenza,
 		arg.EntryID,
-		arg.StoreID,
 		arg.Cartella,
+		arg.StoreIDLocale,
+		arg.MessaggioID,
+		arg.CasellaID,
 	)
 	return err
 }
 
+const setNonLettoPresenza = `-- name: SetNonLettoPresenza :exec
+UPDATE messaggio_casella SET non_letto = $3, aggiornato_il = now()
+WHERE messaggio_id = $1 AND casella_id = $2
+`
+
+type SetNonLettoPresenzaParams struct {
+	MessaggioID uuid.UUID `json:"messaggio_id"`
+	CasellaID   uuid.UUID `json:"casella_id"`
+	NonLetto    bool      `json:"non_letto"`
+}
+
+func (q *Queries) SetNonLettoPresenza(ctx context.Context, arg SetNonLettoPresenzaParams) error {
+	_, err := q.db.Exec(ctx, setNonLettoPresenza, arg.MessaggioID, arg.CasellaID, arg.NonLetto)
+	return err
+}
+
 const setStoricoFinoA = `-- name: SetStoricoFinoA :exec
-UPDATE sync_cursore SET storico_fino_a = LEAST(COALESCE(storico_fino_a, $2), $2) WHERE cartella = $1
+UPDATE sync_cursore SET storico_fino_a = LEAST(COALESCE(storico_fino_a, $3), $3)
+WHERE casella_id = $1 AND cartella = $2
 `
 
 type SetStoricoFinoAParams struct {
+	CasellaID    uuid.UUID  `json:"casella_id"`
 	Cartella     string     `json:"cartella"`
 	StoricoFinoA *time.Time `json:"storico_fino_a"`
 }
 
 func (q *Queries) SetStoricoFinoA(ctx context.Context, arg SetStoricoFinoAParams) error {
-	_, err := q.db.Exec(ctx, setStoricoFinoA, arg.Cartella, arg.StoricoFinoA)
+	_, err := q.db.Exec(ctx, setStoricoFinoA, arg.CasellaID, arg.Cartella, arg.StoricoFinoA)
 	return err
 }
 
@@ -646,17 +883,20 @@ func (q *Queries) UpsertConversazione(ctx context.Context, arg UpsertConversazio
 const upsertMessaggio = `-- name: UpsertMessaggio :one
 INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, parent_messaggio_id, direzione, data_evento,
                        mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html,
-                       lingua, importanza, nota_operatore, registrato_da)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                       lingua, importanza, nota_operatore, registrato_da, interno)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (canale, chiave_esterna) DO UPDATE SET
     conversazione_id = EXCLUDED.conversazione_id,
+    direzione        = CASE WHEN 'uscita' IN (messaggio.direzione, EXCLUDED.direzione)
+                            THEN 'uscita'::direzione ELSE EXCLUDED.direzione END,
+    interno          = EXCLUDED.interno,
     mittente_nome    = COALESCE(EXCLUDED.mittente_nome, messaggio.mittente_nome),
     destinatari      = EXCLUDED.destinatari,
     corpo_testo      = COALESCE(EXCLUDED.corpo_testo, messaggio.corpo_testo),
     corpo_html       = COALESCE(EXCLUDED.corpo_html, messaggio.corpo_html),
     importanza       = COALESCE(EXCLUDED.importanza, messaggio.importanza),
     buyer_id         = COALESCE(messaggio.buyer_id, EXCLUDED.buyer_id)
-RETURNING messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, (xmax = 0) AS inserito
+RETURNING messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, (xmax = 0) AS inserito
 `
 
 type UpsertMessaggioParams struct {
@@ -677,6 +917,7 @@ type UpsertMessaggioParams struct {
 	Importanza        pgtype.Int2     `json:"importanza"`
 	NotaOperatore     pgtype.Text     `json:"nota_operatore"`
 	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
+	Interno           bool            `json:"interno"`
 }
 
 type UpsertMessaggioRow struct {
@@ -704,9 +945,14 @@ type UpsertMessaggioRow struct {
 	NAllegati         int16           `json:"n_allegati"`
 	RegistratoIl      time.Time       `json:"registrato_il"`
 	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
+	Interno           bool            `json:"interno"`
 	Inserito          bool            `json:"inserito"`
 }
 
+// La direzione si CONSOLIDA: la stessa mail può arrivare da due caselle, e una copia che ci risulta
+// in entrata non deve cancellare il fatto che l'abbiamo mandata noi. «Uscita» vince (voce 2.1, D10).
+// `interno` è separato dalla direzione: una mail fra colleghi è in uscita ma non è traffico con il
+// cliente, e confondere le due cose farebbe nascere RFQ da conversazioni interne.
 func (q *Queries) UpsertMessaggio(ctx context.Context, arg UpsertMessaggioParams) (UpsertMessaggioRow, error) {
 	row := q.db.QueryRow(ctx, upsertMessaggio,
 		arg.Canale,
@@ -726,6 +972,7 @@ func (q *Queries) UpsertMessaggio(ctx context.Context, arg UpsertMessaggioParams
 		arg.Importanza,
 		arg.NotaOperatore,
 		arg.RegistratoDa,
+		arg.Interno,
 	)
 	var i UpsertMessaggioRow
 	err := row.Scan(
@@ -753,18 +1000,16 @@ func (q *Queries) UpsertMessaggio(ctx context.Context, arg UpsertMessaggioParams
 		&i.NAllegati,
 		&i.RegistratoIl,
 		&i.RegistratoDa,
+		&i.Interno,
 		&i.Inserito,
 	)
 	return i, err
 }
 
 const upsertMessaggioOutlook = `-- name: UpsertMessaggioOutlook :exec
-INSERT INTO messaggio_outlook (messaggio_id, entry_id, store_id, conversation_id, conversation_index, in_reply_to,
-                               riferimenti, cartella, categorie, non_letto, flag_stato)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO messaggio_outlook (messaggio_id, conversation_id, conversation_index, in_reply_to, riferimenti)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (messaggio_id) DO UPDATE SET
-    entry_id = EXCLUDED.entry_id, store_id = EXCLUDED.store_id, cartella = EXCLUDED.cartella,
-    categorie = EXCLUDED.categorie, non_letto = EXCLUDED.non_letto, flag_stato = EXCLUDED.flag_stato,
     in_reply_to = COALESCE(EXCLUDED.in_reply_to, messaggio_outlook.in_reply_to),
     riferimenti = COALESCE(EXCLUDED.riferimenti, messaggio_outlook.riferimenti),
     aggiornato_il = now()
@@ -772,44 +1017,75 @@ ON CONFLICT (messaggio_id) DO UPDATE SET
 
 type UpsertMessaggioOutlookParams struct {
 	MessaggioID       uuid.UUID   `json:"messaggio_id"`
-	EntryID           string      `json:"entry_id"`
-	StoreID           string      `json:"store_id"`
 	ConversationID    pgtype.Text `json:"conversation_id"`
 	ConversationIndex pgtype.Text `json:"conversation_index"`
 	InReplyTo         pgtype.Text `json:"in_reply_to"`
 	Riferimenti       []string    `json:"riferimenti"`
-	Cartella          pgtype.Text `json:"cartella"`
-	Categorie         []string    `json:"categorie"`
-	NonLetto          bool        `json:"non_letto"`
-	FlagStato         pgtype.Int2 `json:"flag_stato"`
 }
 
+// Solo ciò che è del MESSAGGIO. Entry_id, cartella, categorie, non_letto e flag_stato sono della
+// COPIA e stanno in messaggio_casella dalla 0004: tenerli qui significava che la seconda casella
+// sovrascriveva l'EntryID della prima, e «Apri in Outlook» apriva l'elemento sbagliato.
 func (q *Queries) UpsertMessaggioOutlook(ctx context.Context, arg UpsertMessaggioOutlookParams) error {
 	_, err := q.db.Exec(ctx, upsertMessaggioOutlook,
 		arg.MessaggioID,
-		arg.EntryID,
-		arg.StoreID,
 		arg.ConversationID,
 		arg.ConversationIndex,
 		arg.InReplyTo,
 		arg.Riferimenti,
+	)
+	return err
+}
+
+const upsertPresenza = `-- name: UpsertPresenza :exec
+INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il, non_letto, flag_stato, categorie)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (messaggio_id, casella_id) DO UPDATE SET
+    entry_id = EXCLUDED.entry_id, cartella = EXCLUDED.cartella, ricevuto_il = EXCLUDED.ricevuto_il,
+    store_id_locale = CASE WHEN EXCLUDED.store_id_locale <> '' THEN EXCLUDED.store_id_locale ELSE messaggio_casella.store_id_locale END,
+    non_letto = EXCLUDED.non_letto, flag_stato = EXCLUDED.flag_stato, categorie = EXCLUDED.categorie,
+    aggiornato_il = now()
+`
+
+type UpsertPresenzaParams struct {
+	MessaggioID   uuid.UUID   `json:"messaggio_id"`
+	CasellaID     uuid.UUID   `json:"casella_id"`
+	EntryID       string      `json:"entry_id"`
+	StoreIDLocale string      `json:"store_id_locale"`
+	Cartella      pgtype.Text `json:"cartella"`
+	RicevutoIl    time.Time   `json:"ricevuto_il"`
+	NonLetto      bool        `json:"non_letto"`
+	FlagStato     pgtype.Int2 `json:"flag_stato"`
+	Categorie     []string    `json:"categorie"`
+}
+
+// La presenza di un messaggio in una casella (voce 2.1). Due caselle = due righe, ognuna con il suo
+// EntryID, la sua cartella e il suo stato di lettura: sono fatti di quella copia, non del messaggio.
+func (q *Queries) UpsertPresenza(ctx context.Context, arg UpsertPresenzaParams) error {
+	_, err := q.db.Exec(ctx, upsertPresenza,
+		arg.MessaggioID,
+		arg.CasellaID,
+		arg.EntryID,
+		arg.StoreIDLocale,
 		arg.Cartella,
-		arg.Categorie,
+		arg.RicevutoIl,
 		arg.NonLetto,
 		arg.FlagStato,
+		arg.Categorie,
 	)
 	return err
 }
 
 const upsertSyncCursore = `-- name: UpsertSyncCursore :exec
-INSERT INTO sync_cursore (cartella, ultimo_received, ultimo_sync, n_messaggi, errore)
-VALUES ($1, $2, now(), $3, $4)
-ON CONFLICT (cartella) DO UPDATE SET
+INSERT INTO sync_cursore (casella_id, cartella, ultimo_received, ultimo_sync, n_messaggi, errore)
+VALUES ($1, $2, $3, now(), $4, $5)
+ON CONFLICT (casella_id, cartella) DO UPDATE SET
     ultimo_received = GREATEST(COALESCE(sync_cursore.ultimo_received, EXCLUDED.ultimo_received), EXCLUDED.ultimo_received),
     ultimo_sync = now(), n_messaggi = sync_cursore.n_messaggi + EXCLUDED.n_messaggi, errore = EXCLUDED.errore
 `
 
 type UpsertSyncCursoreParams struct {
+	CasellaID      uuid.UUID   `json:"casella_id"`
 	Cartella       string      `json:"cartella"`
 	UltimoReceived *time.Time  `json:"ultimo_received"`
 	NMessaggi      int32       `json:"n_messaggi"`
@@ -818,6 +1094,7 @@ type UpsertSyncCursoreParams struct {
 
 func (q *Queries) UpsertSyncCursore(ctx context.Context, arg UpsertSyncCursoreParams) error {
 	_, err := q.db.Exec(ctx, upsertSyncCursore,
+		arg.CasellaID,
 		arg.Cartella,
 		arg.UltimoReceived,
 		arg.NMessaggi,

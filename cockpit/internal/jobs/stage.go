@@ -72,7 +72,11 @@ const (
 // I due allegati che condividono il contenuto condividono anche il percorso in staging: chi cancella
 // quel file li lascia entrambi senza, ed entrambi hanno "Riscarica". È la stessa condizione in cui si
 // trova oggi un allegato solo, quindi non introduce un modo nuovo di rompersi.
-func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, o db.MessaggioOutlook, priorita int16) (EsitoStage, *db.Job, error) {
+//
+// `pr` è la PRESENZA da cui scaricare: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni
+// casella, quindi «da quale copia» non è una domanda che si possa saltare. Chi chiama la ottiene da
+// PresenzaDaAprire; la scelta diventa una decisione della postazione del richiedente con la 2.7.
+func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, pr db.PresenzaDaAprireRow, priorita int16) (EsitoStage, *db.Job, error) {
 	if a.PathStaging.Valid && st.Presente(a.PathStaging.String) {
 		return StageGiaPresente, nil, nil
 	}
@@ -99,9 +103,11 @@ func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, 
 		return "", nil, err
 	}
 	mid := m.MessaggioID
+	cid := pr.CasellaID
 	j, err := Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
-		AllegatoID: a.AllegatoID, EntryID: o.EntryID, StoreID: o.StoreID, Indice: int(a.Indice), NomeFile: a.NomeFile,
-		Cartella: CartellaStaging(m.ChiaveEsterna), RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, MessageID: m.ChiaveEsterna},
+		AllegatoID: a.AllegatoID, EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Indice: int(a.Indice), NomeFile: a.NomeFile,
+		Cartella:            CartellaStaging(m.ChiaveEsterna),
+		RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, CasellaID: &cid, MessageID: m.ChiaveEsterna},
 	}, "stage:"+a.AllegatoID.String(), priorita)
 	if err != nil {
 		return "", nil, err

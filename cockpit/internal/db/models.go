@@ -2369,6 +2369,8 @@ type Messaggio struct {
 	NAllegati         int16           `json:"n_allegati"`
 	RegistratoIl      time.Time       `json:"registrato_il"`
 	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
+	// Traffico fra caselle nostre: mittente e destinatari sono tutti di un nostro dominio. Separato dalla direzione (D10): una mail fra colleghi e un'offerta al cliente sono entrambe in uscita, ma solo la seconda è traffico con il cliente.
+	Interno bool `json:"interno"`
 }
 
 type MessaggioAggancioLog struct {
@@ -2381,18 +2383,28 @@ type MessaggioAggancioLog struct {
 	EseguitoIl  time.Time     `json:"eseguito_il"`
 }
 
+// Una riga per COPIA: la stessa mail in due caselle è un solo messaggio e due presenze. entry_id e cartella sono di questa casella; lo store_id NON sta qui perché appartiene al profilo Outlook della postazione (casella_store, N44).
+type MessaggioCasella struct {
+	MessaggioID   uuid.UUID   `json:"messaggio_id"`
+	CasellaID     uuid.UUID   `json:"casella_id"`
+	EntryID       string      `json:"entry_id"`
+	StoreIDLocale string      `json:"store_id_locale"`
+	Cartella      pgtype.Text `json:"cartella"`
+	// ReceivedTime in questa casella: la stessa grandezza su cui filtra la scansione. Il cursore avanza su questo e non su messaggio.data_evento, che per la Posta inviata è SentOn (W2).
+	RicevutoIl   time.Time   `json:"ricevuto_il"`
+	NonLetto     bool        `json:"non_letto"`
+	FlagStato    pgtype.Int2 `json:"flag_stato"`
+	Categorie    []string    `json:"categorie"`
+	AggiornatoIl time.Time   `json:"aggiornato_il"`
+}
+
+// Ciò che è del MESSAGGIO e non della copia: conversation_id, conversation_index, in_reply_to, riferimenti. Tutto il resto — EntryID, store locale, cartella, stato di lettura — è della copia e sta in messaggio_casella.
 type MessaggioOutlook struct {
 	MessaggioID       uuid.UUID   `json:"messaggio_id"`
-	EntryID           string      `json:"entry_id"`
-	StoreID           string      `json:"store_id"`
 	ConversationID    pgtype.Text `json:"conversation_id"`
 	ConversationIndex pgtype.Text `json:"conversation_index"`
 	InReplyTo         pgtype.Text `json:"in_reply_to"`
 	Riferimenti       []string    `json:"riferimenti"`
-	Cartella          pgtype.Text `json:"cartella"`
-	Categorie         []string    `json:"categorie"`
-	NonLetto          bool        `json:"non_letto"`
-	FlagStato         pgtype.Int2 `json:"flag_stato"`
 	AggiornatoIl      time.Time   `json:"aggiornato_il"`
 }
 
@@ -2462,6 +2474,7 @@ type Sessione struct {
 	UltimoAccesso *time.Time `json:"ultimo_accesso"`
 }
 
+// Un cursore per (casella, cartella). Con la sola cartella due caselle si sovrascrivevano il cursore a vicenda e perdevano messaggi in silenzio.
 type SyncCursore struct {
 	Cartella       string      `json:"cartella"`
 	UltimoReceived *time.Time  `json:"ultimo_received"`
@@ -2469,6 +2482,7 @@ type SyncCursore struct {
 	UltimoSync     *time.Time  `json:"ultimo_sync"`
 	NMessaggi      int32       `json:"n_messaggi"`
 	Errore         pgtype.Text `json:"errore"`
+	CasellaID      uuid.UUID   `json:"casella_id"`
 }
 
 type ThreadOfferta struct {
@@ -2559,6 +2573,7 @@ type VInbox struct {
 	MessaggioID       uuid.UUID        `json:"messaggio_id"`
 	Canale            Canale           `json:"canale"`
 	Direzione         Direzione        `json:"direzione"`
+	Interno           bool             `json:"interno"`
 	DataEvento        time.Time        `json:"data_evento"`
 	ThreadID          uuid.NullUUID    `json:"thread_id"`
 	Aggancio          Aggancio         `json:"aggancio"`
@@ -2579,7 +2594,12 @@ type VInbox struct {
 	TriageMotivi      *json.RawMessage `json:"triage_motivi"`
 	ThreadProposto    uuid.NullUUID    `json:"thread_proposto"`
 	Ignorato          bool             `json:"ignorato"`
-	NonLetto          pgtype.Bool      `json:"non_letto"`
+	Caselle           []string         `json:"caselle"`
+	CaselleID         []uuid.UUID      `json:"caselle_id"`
+	NCaselle          int32            `json:"n_caselle"`
+	NonLetto          bool             `json:"non_letto"`
+	RicevutoIl        *time.Time       `json:"ricevuto_il"`
+	CasellaID         uuid.NullUUID    `json:"casella_id"`
 	CartellaOutlook   pgtype.Text      `json:"cartella_outlook"`
 	EntryID           pgtype.Text      `json:"entry_id"`
 }

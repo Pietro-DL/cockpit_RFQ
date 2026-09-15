@@ -29,6 +29,17 @@ SELECT * FROM casella ORDER BY nome;
 -- name: ListCaselleAttive :many
 SELECT * FROM casella WHERE attiva ORDER BY nome;
 
+-- name: DominiNostri :many
+-- I domini delle caselle censite: è da qui che il SERVER decide la direzione e il flag `interno`
+-- (voce 2.1), invece di fidarsi di ciò che il worker deduce dal proprio profilo Outlook.
+-- Il worker sa solo «questa cartella è la Posta inviata» e «questo indirizzo è mio»: su una casella
+-- condivisa entrambe le cose sono ambigue, e la direzione sbagliata cambia la lettura di tutto il
+-- messaggio (proposte, triage, fascicolo). Le caselle censite invece sono un elenco dichiarato.
+-- Anche una casella disattivata conta: resta un nostro indirizzo, e ciò che decide qui è di chi è il
+-- dominio, non quale casella stiamo sincronizzando.
+SELECT DISTINCT lower(split_part(indirizzo, '@', 2))::text AS dominio
+FROM casella WHERE indirizzo LIKE '%@%' ORDER BY 1;
+
 -- name: UpsertPostazione :one
 INSERT INTO postazione (nome_host, descrizione, utente_id)
 VALUES ($1, $2, $3)

@@ -57,8 +57,9 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
 Che cosa introduce ogni fase di lavoro e che cosa resta non verificato:
-[FASE_0.md](_fases/FASE_0.md) (fondazioni, migrazioni, ambiente di prova) e
-[FASE_1.md](_fases/FASE_1.md) (coda, tentativo, ingest a prova di poison pill).
+[FASE_0.md](_fases/FASE_0.md) (fondazioni, migrazioni, ambiente di prova),
+[FASE_1.md](_fases/FASE_1.md) (coda, tentativo, ingest a prova di poison pill) e
+[FASE_2.md](_fases/FASE_2.md) (più caselle, presenza, cursore per casella — in corso).
 
 **Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
 fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.
@@ -91,26 +92,136 @@ psql -U postgres -c "CREATE DATABASE cockpit_dev OWNER cockpit;"
 
 Lo schema non va creato a mano: lo applica il server al primo avvio, migrazione per migrazione.
 
-### 2. Configurazione del server
+### 2. Configurazione del server: `cockpit.toml`
 
 ```powershell
 copy cockpit.toml.example cockpit.toml
 ```
 
-Poi si compilano, in `cockpit.toml`:
+`cockpit.toml` sta accanto a `cockpit.exe` (oppure lo si indica con `-config`) e **non va nel
+repository**: è già in `.gitignore`, perché contiene la password del database e i token dei worker.
 
-- `[db].dsn` — il database appena creato;
-- `[server].token_worker` — un segreto qualsiasi, lo stesso che finirà nei worker;
-- `[nas].radice` — in sviluppo una cartella locale, in produzione il percorso UNC di «PREVENTIVI DA
-  FARE»; `[nas].staging` — cartella locale dove atterrano gli allegati scaricati;
-- `[[utenti]]` — almeno un utente con `ruolo = "admin"` e una password iniziale;
-- `[[casella]]`, `[[postazione]]`, `[[worker]]` — quali caselle il Cockpit conosce, su quali PC girano
-  i worker e con quale token ciascuno. Gli indirizzi sono normalizzati in minuscolo e i nomi host in
-  maiuscolo: la stessa casella scritta in due modi resta una casella sola. Il file di esempio contiene
-  una casella condivisa e una personale già pronte da adattare.
+Due regole di scrittura, prima del contenuto:
+
+- i percorsi Windows vanno fra **apici singoli** (`'C:\cartella'`): in TOML sono stringhe letterali e i
+  backslash non vanno raddoppiati. Fra virgolette doppie, `"C:\nas"` diventerebbe un'altra cosa;
+- il file si legge tutto all'avvio e **un errore qui impedisce l'avvio**, di proposito: meglio non
+  partire che partire con un routing sbagliato e accorgersene fra una settimana.
+
+#### Le sezioni, una per una
+
+**`[db].dsn`** — il database creato al passo 1. È obbligatorio: senza, il server esce subito con
+`config: [db].dsn mancante`.
+
+```toml
+[db]
+dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
+```
+
+**`[server]`**
+
+| Campo | Che cosa mettere |
+|---|---|
+| `indirizzo` | `127.0.0.1:8080` in sviluppo. `0.0.0.0:8080` espone il Cockpit in LAN: finché non arrivano TLS e credenziali individuali (voci 2.4 e 2.5) è una cosa da fare solo per le prove |
+| `token_worker` | un segreto qualsiasi, lungo. È lo stesso che va in `workers\worker.toml`: se i due non coincidono il worker logga `401` e non prende lavoro |
+| `log_livello` | `info`; `debug` stampa anche ogni claim |
+
+**`[nas]`**
+
+| Campo | Che cosa mettere |
+|---|---|
+| `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
+| `dry_run` | `true` calcola i percorsi e li scrive nel log senza toccare il disco: è il modo di provare la copia sul NAS aziendale senza scriverci |
+| `staging` | cartella locale dove atterrano gli allegati scaricati. Se manca, il server ne crea una accanto al file di configurazione. Deve coincidere con `staging` di `worker.toml` **se worker e server girano sullo stesso PC** |
+
+**`[outlook]`**
+
+| Campo | Che cosa mettere |
+|---|---|
+| `cartelle` | i nomi **come si vedono in Outlook**, nella lingua del profilo: su un Outlook italiano `["Posta in arrivo", "Posta inviata"]`, non `["Inbox", "Sent Items"]`. Una cartella scritta male non è un errore di avvio: è un sync che non legge niente da lì, in silenzio |
+| `intervallo_sync_s` | ogni quanto accodare un sync. 60 va bene: i sync non si accumulano, ne resta al più uno pendente per casella |
+| `dal` | `"2026-08-01"`: da quando leggere **al primo avvio**, quando il cursore è vuoto. Dopo non conta più, comanda il cursore |
+| `lotto` | quanti messaggi per invio. 50 è il compromesso fra una transazione corta e troppe chiamate |
+| `consenti_invio` | lasciare `false`. `true` permetterebbe al worker di premere Invia al posto dell'operatore |
+| `casella_default` | la casella attribuita a un lotto che non dichiara la propria. Dalla fase 2 il lotto porta sempre il `casella_id` del job: questa è il ripiego per un worker più vecchio del server, non il modo normale |
+
+**`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
+niente; una coda che non si svuota mai diventa illeggibile.
+
+**`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
+insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
+RFQ fa partire una sola analisi. Cambiare un termine qui fa rianalizzare tutto senza toccare il
+codice — ed è il motivo per cui i termini stanno qui e non dentro il worker.
+
+**`[[utenti]]`** — almeno uno, con `ruolo = "admin"`. `password` serve solo al primo seed: nel
+database va l'hash bcrypt, e chi ha già una password non se la vede sovrascritta.
+
+```toml
+[[utenti]]
+sigla = "NC"          # è il nome utente del login
+nome = "Nome Cognome"
+ufficio = "Commerciale"
+ruolo = "admin"       # admin | operatore | tecnico | consultazione
+password = "password-iniziale"
+```
+
+**`[[casella]]`, `[[postazione]]`, `[[worker]]`** — le *fondazioni*: quali caselle il Cockpit conosce,
+su quali PC girano i worker e con quale token ciascuno.
+
+```toml
+# Una casella condivisa Exchange NON ha proprietario: `utente` va lasciato fuori.
+[[casella]]
+indirizzo = "commerciale@azienda.it"
+nome      = "Commerciale"
+condivisa = true
+
+# Una personale ha come proprietario la sigla di un utente dichiarato in [[utenti]].
+[[casella]]
+indirizzo = "nome.cognome@azienda.it"
+nome      = "Nome Cognome"
+utente    = "NC"
+# attiva  = false   # la tiene censita ma fuori uso, senza cancellarla
+
+[[postazione]]
+nome_host   = "PC-NOME"    # il nome del PC, come lo stampa `hostname`
+descrizione = "portatile commerciale"
+utente      = "NC"
+
+# Un worker per postazione e per tipo. Il token sta solo qui: in database va il suo sha256.
+[[worker]]
+nome       = "outlook@PC-NOME"     # <tipo>@<NOME_HOST>
+tipo       = "outlook"             # outlook | analisi
+token      = "segreto-di-questo-worker"
+postazione = "PC-NOME"
+caselle    = ["nome.cognome@azienda.it", "commerciale@azienda.it"]
+```
+
+Che cosa il server verifica all'avvio, e perché rifiuta di partire invece di arrangiarsi:
+
+| Controllo | Perché |
+|---|---|
+| indirizzi normalizzati in minuscolo, nomi host in maiuscolo | la stessa casella scritta in due modi resterebbe due caselle, con due cursori e due volte lo stesso messaggio |
+| una casella `condivisa = true` non può avere `utente` | una cassetta condivisa non ha un proprietario: dargliene uno falserebbe le autorizzazioni |
+| `utente`, `postazione` e `caselle` devono esistere altrove nel file | un worker autorizzato su una casella mai dichiarata è autorizzato su niente, e lo si scoprirebbe solo quando un job non parte |
+| la stessa casella dichiarata due volte | idem: due righe, due identità |
+
+**Più di una casella attiva** si può, dalla migrazione `0004` (fase 2, voce 2.1): ognuna ha il proprio
+cursore. Con lo schema fermo alla `0003` il server rifiutava l'avvio dicendo quale disattivare, perché
+due caselle si sarebbero sovrascritte il cursore a vicenda **perdendo messaggi in silenzio**.
 
 Il seed di queste sezioni è **non distruttivo**: togliere una riga dal file non disattiva nulla nel
-database, lo scrive soltanto nel log.
+database, lo scrive soltanto nel log. Per spegnere una casella si usa `attiva = false`, che invece
+viene applicato.
+
+#### Provare il file senza mettersi in ascolto
+
+```powershell
+.\cockpit.exe -config cockpit.toml -migra
+```
+
+Legge la configurazione, applica le migrazioni, semina utenti e fondazioni e **esce**. È il modo di
+verificare che il file sia giusto — ed è anche il modo giusto di aggiornare il database prima di
+sostituire il binario su una postazione.
 
 ### 3. Configurazione dei worker
 
@@ -258,9 +369,10 @@ non si deducono mai da una prova simulata.
 
 Due avvertenze sulla lettura degli esiti:
 
-- `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic
-  rispettino gli schemi di `contracts/`. Quel livello di prova non esiste ancora e nel
-  registro compare come NON ESEGUITO.
+- `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic rispettino gli
+  schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/api` per il
+  Go, `workers/test_contratti.py` per la premessa che gli schemi su disco siano quelli dei modelli di
+  oggi). Confronta i campi e i loro generi, non l'obbligatorietà;
 - un test **saltato** non è un test superato: è una verifica che non è stata fatta.
 
 ## Manutenzione
@@ -316,7 +428,9 @@ internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascriv
 internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, /api/v1/ingest/messaggi (token X-Cockpit-Token); dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login, /inbox, /messaggio/{id} (+triage, scarica), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
-migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker)
+migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
+                           0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
+                           0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                            outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server), worker.toml
@@ -332,13 +446,17 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
                                    browser (HTML+HTMX) ◀────────────┘  (cookie di sessione, DB)
 ```
 
-- **Identità del messaggio** = Internet Message-ID (`messaggio.chiave_esterna`); `entry_id`/`store_id` stanno nel
-  satellite `messaggio_outlook`. I job verso Outlook portano anche il Message-ID: se l'EntryID non vale più
-  (elemento spostato) il worker lo ritrova per Message-ID e il server riallinea `messaggio_outlook`.
+- **Identità del messaggio** = Internet Message-ID (`messaggio.chiave_esterna`). Dove quel messaggio SI TROVA è
+  un'altra cosa: `messaggio_casella` ha una riga per ogni casella in cui è arrivato, con l'EntryID, la cartella e
+  lo stato di lettura di quella copia (migrazione 0004). I job verso Outlook portano anche il Message-ID: se
+  l'EntryID non vale più (elemento spostato) il worker lo ritrova per Message-ID e il server riallinea la presenza
+  di quella casella. `messaggio_outlook` conserva solo ciò che è del messaggio: catena di conversazione,
+  `in_reply_to`, `riferimenti`.
 - **Caselle e postazioni** (dalla migrazione 0002): una casella è una sola riga anche quando più PC la
   aprono; `casella_store` registra come ogni postazione la vede nel proprio profilo Outlook, perché lo
   StoreID appartiene al profilo e non è un riferimento valido su un altro PC.
-- **Coda job** in PostgreSQL: `FOR UPDATE SKIP LOCKED`, lease per tipo (120 s / 300 s), 5 tentativi con backoff,
+- **Coda job** in PostgreSQL: `FOR UPDATE SKIP LOCKED`, lease per tipo (120 s / 300 s), 5 tentativi con backoff
+  (50 per le scritture sul NAS, che non falliscono perché sono sbagliate ma perché il NAS in quel momento non c'è),
   `chiave_idempotenza` unica **fra i job pendenti** (indice parziale: un job fatto non impedisce di riaccodarne uno
   uguale). Priorità 1 = azione dell'utente (apri, bozza, download, cartella, copia NAS), 2 = sync storico, 5 = sync, 6 = analisi.
   `worker_presenza` registra l'ultimo claim per tipo di worker (badge in testata).
@@ -369,12 +487,13 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 |---|---|
 | `schema_versione` | SPEC §4.1: migrazione applicata all'avvio solo se assente |
 | `utente.password_hash`, `utente.ruolo`, `sessione` | SPEC §5.4 (login bcrypt, cookie) ma nessuna tabella lo prevedeva |
-| `sync_cursore` (+ `storico_fino_a`) | SPEC §3.2 passo 1: «chiede al server il cursore della casella»; il sync storico ricorda fin dove è arrivato |
+| `sync_cursore` (+ `storico_fino_a`) | SPEC §3.2 passo 1: «chiede al server il cursore della casella»; il sync storico ricorda fin dove è arrivato. Dalla 0004 la chiave è **(casella, cartella)**: con la sola cartella due caselle si sovrascrivevano il cursore a vicenda |
 | `worker_presenza` | ultimo claim per worker: la UI segnala «OFFLINE» invece di lasciar crescere la coda in silenzio |
 | `bozza` | Le mail preparate dal Cockpit (risposte, solleciti) vanno tracciate: stato, EntryID, poi collegate alla mail inviata |
 | `messaggio.corpo_html` | Per rendere il Cockpit un vero frontend di Outlook serve l'HTML (da sanificare prima del rendering) |
 | `messaggio.parent_messaggio_id` | SPEC §3.2: i `.msg` annidati producono messaggi figli |
-| `messaggio_outlook.categorie/non_letto/flag_stato` | Stato di lettura e flag visibili in Inbox senza aprire Outlook |
+| `messaggio_casella` (0004) | La stessa mail in due caselle è un messaggio e due presenze: EntryID, cartella, stato di lettura, categorie e `ricevuto_il` sono di ogni copia. Con una riga sola la seconda casella sovrascriveva la prima |
+| `messaggio.interno` (0004) | «Da noi» e «fra noi» sono cose diverse: una mail fra colleghi è in uscita, ma non è traffico con il cliente (D10) |
 | `thread_offerta.cartella_creata` | Esito del job `crea_cartella_thread` |
 | `documento.stato_nas/errore_nas/scritto_il` | SPEC §4.2 e §5.3 (in_coda → scritto/errore) |
 | `cartella_documento.crea_sempre` | quali sottocartelle nascono con la cartella RFQ (convenzione: ELENCO DISEGNI, OFFERTE FORNITORI) |

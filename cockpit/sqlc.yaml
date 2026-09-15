@@ -76,3 +76,22 @@ sql:
             go_type: "github.com/jackc/pgx/v5/pgtype.Int2"
           - column: "v_inbox.triage_motivi"
             go_type: { import: "encoding/json", type: "RawMessage", pointer: true }
+          # 0004: gli aggregati delle presenze. COALESCE li rende non nulli, ma sqlc non lo vede
+          # dentro una vista: senza questi override uscirebbero come puntatori da controllare a ogni
+          # uso, e un `if` in più in ogni template è il modo più sicuro per dimenticarne uno.
+          - column: "v_inbox.caselle"
+            go_type: { type: "[]string" }
+          - column: "v_inbox.caselle_id"
+            go_type: { import: "github.com/google/uuid", type: "UUID", slice: true }
+          - column: "v_inbox.n_caselle"
+            go_type: { type: "int32" }
+          - column: "v_inbox.non_letto"
+            go_type: { type: "bool" }
+          - column: "v_inbox.ricevuto_il"
+            go_type: { import: "time", type: "Time", pointer: true }
+          - column: "v_inbox.casella_id"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
+          - column: "v_inbox.cartella_outlook"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Text"
+          - column: "v_inbox.entry_id"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Text"

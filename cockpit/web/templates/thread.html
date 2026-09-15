@@ -36,7 +36,7 @@
       <details><summary class="muto">testo</summary><pre class="corpo-msg">{{.M.CorpoTesto.String}}</pre></details>
       {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String)}}{{end}}
       <div class="azioni-msg">
-        {{if .Outlook}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}">Apri in Outlook</button>{{end}}
+        {{if .Presenza}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}">Apri in Outlook</button>{{end}}
         <a class="piccolo" href="/inbox?filtro=tutti&sel={{.M.MessaggioID}}">Apri in Inbox</a>
         <span id="esito-{{.M.MessaggioID}}"></span>
       </div>

@@ -136,8 +136,9 @@ func TestIngestIdempotente(t *testing.T) {
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: mosso[:1]}); err != nil {
 		t.Fatal(err)
 	}
+	// dalla 0004 entry_id e cartella stanno nella PRESENZA: sono fatti della copia in quella casella
 	var entry, cart string
-	_ = p.QueryRow(ctx, `SELECT o.entry_id, o.cartella FROM messaggio_outlook o JOIN messaggio m USING (messaggio_id) WHERE m.chiave_esterna = '<test-ingest-1@acme.example>'`).Scan(&entry, &cart)
+	_ = p.QueryRow(ctx, `SELECT mc.entry_id, mc.cartella FROM messaggio_casella mc JOIN messaggio m USING (messaggio_id) WHERE m.chiave_esterna = '<test-ingest-1@acme.example>'`).Scan(&entry, &cart)
 	if entry != "ENTRY-TEST-1-MOSSO" || cart != "RFQ archiviate" {
 		t.Errorf("entry_id non aggiornato: %s %s", entry, cart)
 	}

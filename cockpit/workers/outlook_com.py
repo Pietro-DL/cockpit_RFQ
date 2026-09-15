@@ -197,7 +197,14 @@ class Outlook:
                 riferimenti = (h.get("References") or "").split()
             except Exception:  # noqa: BLE001
                 pass
+        # E solo un'ipotesi del worker, ed e fragile: su una casella condivisa "la Posta inviata" e
+        # "i miei indirizzi" dipendono da come e configurato QUESTO profilo. Dalla voce 2.1 decide il
+        # server, confrontando il mittente con le caselle censite; qui resta perche serve a scegliere
+        # data_evento e perche un worker deve poter parlare anche con un server piu vecchio.
         direzione = "uscita" if (e_inviata or mittente in self.indirizzi_propri) else "entrata"
+        # data_evento e QUANDO E SUCCESSO (SentOn per la posta inviata); ricevuto_il e QUANDO E
+        # ARRIVATO IN QUESTA CASELLA, ed e il valore su cui il server fa avanzare il cursore, perche
+        # e lo stesso su cui filtra la scansione qui sopra (W2).
         data = it.SentOn if direzione == "uscita" else it.ReceivedTime
         try:
             corpo = it.Body or ""
@@ -212,7 +219,8 @@ class Outlook:
             message_id=message_id, entry_id=it.EntryID, store_id=store_id,
             conversation_id=it.ConversationID or "", conversation_index=it.ConversationIndex or "",
             in_reply_to=in_reply_to, riferimenti=riferimenti, cartella=nome_cartella, direzione=direzione,
-            data_evento=_utc(data), mittente_nome=it.SenderName or "", mittente_indirizzo=mittente,
+            data_evento=_utc(data), ricevuto_il=_utc(it.ReceivedTime),
+            mittente_nome=it.SenderName or "", mittente_indirizzo=mittente,
             destinatari=self._destinatari(it), oggetto=it.Subject or "", corpo_testo=corpo, corpo_html=html,
             importanza=int(it.Importance), non_letto=bool(it.UnRead), flag_stato=int(it.FlagStatus or 0),
             categorie=categorie, allegati=self._allegati(it, html),

@@ -7,6 +7,13 @@
          class="{{if eq $.Dati.Filtro $f}}attivo{{end}}">{{$f}}
          <small>{{if eq $f "orfani"}}{{$.Dati.Conta.Orfani}}{{else if eq $f "agganciati"}}{{$.Dati.Conta.Agganciati}}{{else if eq $f "ignorati"}}{{$.Dati.Conta.Ignorati}}{{else}}{{$.Dati.Conta.Tutti}}{{end}}</small></a>
       {{end}}
+      {{if gt (len .Dati.Caselle) 1}}
+      <select class="filtro-casella" name="casella" hx-get="/inbox" hx-target="#lista" hx-include="this"
+              hx-vals='{"filtro":"{{.Dati.Filtro}}"}' hx-push-url="true" title="Filtro della schermata, non un permesso">
+        <option value="">tutte le caselle</option>
+        {{range .Dati.Caselle}}<option value="{{.CasellaID}}" {{if eq $.Dati.Casella (.CasellaID.String)}}selected{{end}}>{{.Nome}}</option>{{end}}
+      </select>
+      {{end}}
       <span class="spazio"></span>
       <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica le email dei 30 giorni precedenti">Carica Precedenti</button>
     </div>
@@ -25,7 +32,7 @@
 {{define "inbox_lista"}}
 {{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}. Il worker Outlook sincronizza ogni minuto.</p>{{end}}
 {{range .Dati.Righe}}
-<a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto.Bool}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
+<a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
    href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&sel={{.MessaggioID}}">
   <div class="r1">
     <span class="canale">{{if eq .Direzione "uscita"}}↗{{else}}✉{{end}}</span>
@@ -40,6 +47,7 @@
     {{if gt .NRifPortale 0}}<span class="chip portale">portale {{.NRifPortale}}</span>{{end}}
     {{if .ThreadID.Valid}}<span class="chip thread" title="{{.Aggancio}}">RFQ {{uuidBreve .ThreadID.UUID}}</span>{{end}}
     {{if .Ignorato}}<span class="chip">ignorato</span>{{end}}
+    {{if gt .NCaselle 1}}<span class="chip casella" title="{{range .Caselle}}{{.}} {{end}}">{{.NCaselle}} caselle</span>{{end}}
     {{if .TriageEsito.Valid}}<span class="chip triage" title="{{range motivi .TriageMotivi}}{{.}}; {{end}}">{{.TriageEsito.String}} {{.TriageConfidenza.Int16}}%</span>{{end}}
   </div>
 </a>

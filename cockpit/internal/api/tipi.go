@@ -31,17 +31,23 @@ type AllegatoIn struct {
 // MessaggioIn è un elemento Outlook letto via COM. L'identità è message_id (Internet Message-ID),
 // non entry_id, che cambia quando l'elemento viene spostato di cartella.
 type MessaggioIn struct {
-	MessageID         string         `json:"message_id"`
-	ParentMessageID   string         `json:"parent_message_id,omitempty"`
-	EntryID           string         `json:"entry_id"`
-	StoreID           string         `json:"store_id"`
-	ConversationID    string         `json:"conversation_id,omitempty"`
-	ConversationIndex string         `json:"conversation_index,omitempty"`
-	InReplyTo         string         `json:"in_reply_to,omitempty"`
-	Riferimenti       []string       `json:"riferimenti"`
-	Cartella          string         `json:"cartella"`
-	Direzione         string         `json:"direzione"` // entrata | uscita
-	DataEvento        time.Time      `json:"data_evento"`
+	MessageID         string    `json:"message_id"`
+	ParentMessageID   string    `json:"parent_message_id,omitempty"`
+	EntryID           string    `json:"entry_id"`
+	StoreID           string    `json:"store_id"`
+	ConversationID    string    `json:"conversation_id,omitempty"`
+	ConversationIndex string    `json:"conversation_index,omitempty"`
+	InReplyTo         string    `json:"in_reply_to,omitempty"`
+	Riferimenti       []string  `json:"riferimenti"`
+	Cartella          string    `json:"cartella"`
+	Direzione         string    `json:"direzione"` // entrata | uscita — il server lo ricalcola dalle caselle censite
+	DataEvento        time.Time `json:"data_evento"`
+	// RicevutoIl è il ReceivedTime dell'elemento IN QUESTA CASELLA, sempre, anche per la posta
+	// inviata. Chiude W2: il cursore avanzava su data_evento, che per la Posta inviata è SentOn,
+	// mentre il filtro della scansione usa ReceivedTime. Sono grandezze diverse, e una mail scritta
+	// lunedì e inviata giovedì poteva spingere il cursore oltre elementi non ancora letti.
+	// Assente (worker vecchio) = si usa data_evento, che è ciò che si faceva prima.
+	RicevutoIl        *time.Time     `json:"ricevuto_il,omitempty"`
 	MittenteNome      string         `json:"mittente_nome"`
 	MittenteIndirizzo string         `json:"mittente_indirizzo"`
 	Destinatari       []Destinatario `json:"destinatari"`
@@ -180,9 +186,12 @@ type PayloadRileggiElemento struct {
 
 // Riferimento a un elemento Outlook. entry_id/store_id sono la via rapida (GetItemFromID); se l'elemento è
 // stato spostato l'EntryID non vale più e il worker lo ricerca per message_id (Internet Message-ID) in tutte
-// le cartelle. messaggio_id serve al server per riallineare messaggio_outlook con l'EntryID nuovo.
+// le cartelle. messaggio_id e casella_id servono al server per riallineare la PRESENZA giusta con l'EntryID
+// nuovo: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni casella, e scrivere quello trovato
+// nella copia sbagliata significherebbe rompere l'accesso all'elemento nell'altra casella.
 type RiferimentoElemento struct {
 	MessaggioID *uuid.UUID `json:"messaggio_id,omitempty"`
+	CasellaID   *uuid.UUID `json:"casella_id,omitempty"`
 	MessageID   string     `json:"message_id,omitempty"`
 }
 

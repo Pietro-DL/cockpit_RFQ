@@ -7,17 +7,21 @@
     <div class="meta">
       <div><b>{{if eq .M.Direzione "uscita"}}A{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
         {{if .Riga.Cliente.Valid}}<span class="chip">{{.Riga.Cliente.String}}</span>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}</div>
-      <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}} {{if .Outlook}}· <b>Cartella:</b> {{.Outlook.Cartella.String}}{{end}}</div>
+      <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}}{{if .M.Interno}} · <span class="chip">interna</span>{{end}}</div>
+      {{if .Presenze}}<div><b>{{if gt (len .Presenze) 1}}Caselle{{else}}Casella{{end}}:</b>
+        {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
       <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
         {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
           <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
     </div>
     <div class="azioni">
-      {{if .Outlook}}
-      <button hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML">Apri in Outlook</button>
-      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Outlook.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione">
-        {{if .Outlook.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
+      {{if .Presenza}}
+      <button hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML"
+              title="Si apre la copia in {{.Presenza.CasellaNome}}">Apri in Outlook</button>
+      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Presenza.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione"
+              title="Vale per la copia in {{.Presenza.CasellaNome}}">
+        {{if .Presenza.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
       {{end}}
       <span class="separatore"></span>
       {{if .Thread}}
@@ -31,7 +35,7 @@
     <div id="esito-azione"></div>
   </header>
 
-  {{if .Outlook}}
+  {{if .Presenza}}
   <details class="rispondi">
     <summary>Rispondi (bozza in Outlook)</summary>
     <form hx-post="/messaggio/{{.M.MessaggioID}}/bozza" hx-target="#esito-azione">

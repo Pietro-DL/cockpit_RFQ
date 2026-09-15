@@ -13,6 +13,19 @@
       "default": null,
       "title": "Messaggio Id"
     },
+    "casella_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Casella Id"
+    },
     "message_id": {
       "default": "",
       "title": "Message Id",

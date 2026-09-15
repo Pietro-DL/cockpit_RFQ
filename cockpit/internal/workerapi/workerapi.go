@@ -372,13 +372,26 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		}
 		var p api.PayloadSyncOutlook
 		_ = json.Unmarshal(j.Payload, &p)
+		// Il cursore è per (casella, cartella): senza sapere di quale casella sia questo sync, il
+		// risultato non è applicabile. Non si sceglie una casella per difetto — sarebbe il cursore di
+		// una casella fatto avanzare dal sync di un'altra, cioè il difetto che la 0004 elimina.
+		cas := j.CasellaID
+		if !cas.Valid && p.CasellaID != nil {
+			cas = uuid.NullUUID{UUID: *p.CasellaID, Valid: true}
+		}
+		if !cas.Valid {
+			return fmt.Errorf("risultato di sync senza casella: il cursore è per (casella, cartella) e non si può attribuire")
+		}
 		for _, c := range r.Cartelle {
-			if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{Cartella: c.Cartella, UltimoReceived: c.UltimoReceived, NMessaggi: int32(c.NMessaggi), Errore: txt(c.Errore)}); err != nil {
+			if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
+				CasellaID: cas.UUID, Cartella: c.Cartella, UltimoReceived: c.UltimoReceived,
+				NMessaggi: int32(c.NMessaggi), Errore: txt(c.Errore),
+			}); err != nil {
 				return err
 			}
 			// sync storico riuscito per la cartella: la finestra [dal, al] è coperta, il prossimo "Carica precedenti" parte da dal
 			if p.Al != nil && c.Errore == "" {
-				if err := q.SetStoricoFinoA(ctx, db.SetStoricoFinoAParams{Cartella: c.Cartella, StoricoFinoA: &p.Dal}); err != nil {
+				if err := q.SetStoricoFinoA(ctx, db.SetStoricoFinoAParams{CasellaID: cas.UUID, Cartella: c.Cartella, StoricoFinoA: &p.Dal}); err != nil {
 					return err
 				}
 			}
@@ -535,17 +548,32 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 }
 
-// riallineaEntryID aggiorna messaggio_outlook quando il worker ha trovato l'elemento con un EntryID diverso
+// riallineaEntryID aggiorna la PRESENZA quando il worker ha trovato l'elemento con un EntryID diverso
 // da quello del payload (elemento spostato di cartella dopo l'ultimo sync).
+//
+// Dalla 0004 l'EntryID è per copia, quindi serve sapere in QUALE casella il worker ha cercato: senza
+// casella_id si scriverebbe l'EntryID trovato in una casella sopra a quello di un'altra, e da quel
+// momento l'elemento nell'altra casella non si aprirebbe più. Un payload senza casella_id — un worker
+// più vecchio del server — non viene indovinato: si lascia la presenza com'è e lo si scrive nel log,
+// perché un EntryID stantio fa fallire un'operazione e si vede, mentre uno sbagliato ne fa fallire
+// un'altra, in un altro momento, senza che nessuno colleghi le due cose.
 func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.RiferimentoElemento, entryPayload string, r api.RisultatoElemento) {
 	if rif.MessaggioID == nil || r.EntryID == "" || r.EntryID == entryPayload {
 		return
 	}
-	if err := q.SetEntryIDMessaggio(ctx, db.SetEntryIDMessaggioParams{MessaggioID: *rif.MessaggioID, EntryID: r.EntryID, StoreID: r.StoreID, Cartella: txt(r.Cartella)}); err != nil {
+	if rif.CasellaID == nil {
+		s.Log.Warn("entry_id nuovo senza casella_id nel payload: presenza non riallineata",
+			"messaggio", rif.MessaggioID, "entry_id", r.EntryID)
+		return
+	}
+	if err := q.SetEntryIDPresenza(ctx, db.SetEntryIDPresenzaParams{
+		MessaggioID: *rif.MessaggioID, CasellaID: *rif.CasellaID, EntryID: r.EntryID,
+		Cartella: txt(r.Cartella), StoreIDLocale: r.StoreID,
+	}); err != nil {
 		s.Log.Warn("riallinea entry_id", "messaggio", rif.MessaggioID, "err", err)
 		return
 	}
-	s.Log.Info("entry_id riallineato", "messaggio", rif.MessaggioID, "cartella", r.Cartella)
+	s.Log.Info("entry_id riallineato", "messaggio", rif.MessaggioID, "casella", rif.CasellaID, "cartella", r.Cartella)
 }
 
 // dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa

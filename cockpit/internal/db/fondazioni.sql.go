@@ -13,6 +13,38 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const dominiNostri = `-- name: DominiNostri :many
+SELECT DISTINCT lower(split_part(indirizzo, '@', 2))::text AS dominio
+FROM casella WHERE indirizzo LIKE '%@%' ORDER BY 1
+`
+
+// I domini delle caselle censite: è da qui che il SERVER decide la direzione e il flag `interno`
+// (voce 2.1), invece di fidarsi di ciò che il worker deduce dal proprio profilo Outlook.
+// Il worker sa solo «questa cartella è la Posta inviata» e «questo indirizzo è mio»: su una casella
+// condivisa entrambe le cose sono ambigue, e la direzione sbagliata cambia la lettura di tutto il
+// messaggio (proposte, triage, fascicolo). Le caselle censite invece sono un elenco dichiarato.
+// Anche una casella disattivata conta: resta un nostro indirizzo, e ciò che decide qui è di chi è il
+// dominio, non quale casella stiamo sincronizzando.
+func (q *Queries) DominiNostri(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, dominiNostri)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var dominio string
+		if err := rows.Scan(&dominio); err != nil {
+			return nil, err
+		}
+		items = append(items, dominio)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCasella = `-- name: GetCasella :one
 SELECT casella_id, canale, indirizzo, nome, condivisa, utente_id, attiva, creato_il, aggiornato_il FROM casella WHERE casella_id = $1
 `

@@ -256,8 +256,7 @@ type Scheduler struct {
 	IntervalloSync  time.Duration
 	Dal             time.Time
 	Lotto           int
-	CasellaDefault  string // indirizzo: il sync periodico è per casella (chiave fissa)
-	RetentionGiorni int    // 0 = nessuna cancellazione
+	RetentionGiorni int // 0 = nessuna cancellazione
 }
 
 func (s *Scheduler) Avvia(ctx context.Context) {
@@ -311,24 +310,39 @@ func (s *Scheduler) loop(ctx context.Context, ogni time.Duration, nome string, f
 	}
 }
 
-// accodaSync crea il job sync_outlook con i cursori correnti.
+// accodaSync crea un job sync_outlook PER CASELLA ATTIVA, con i cursori di quella casella.
 //
-// La chiave è FISSA per casella, non per finestra temporale: se il worker è fermo dieci minuti, i tick
-// dello scheduler non accumulano dieci job da smaltire uno dopo l'altro: ne resta al più uno pendente,
-// e al tick successivo alla chiusura se ne accoda uno nuovo con i cursori aggiornati (N48, test Q13).
+// Dalla 0004 le caselle attive possono essere più di una, e ognuna ha i suoi cursori: un job solo,
+// con i cursori di un'altra casella, farebbe rileggere la finestra sbagliata — o salterebbe del
+// tutto i messaggi arrivati nel frattempo nella casella non sincronizzata.
+//
+// La chiave resta FISSA per casella, non per finestra temporale: se il worker è fermo dieci minuti,
+// i tick dello scheduler non accumulano dieci job da smaltire uno dopo l'altro; ne resta al più uno
+// pendente per casella, e al tick successivo alla chiusura se ne accoda uno nuovo con i cursori
+// aggiornati (N48, test Q13).
 func (s *Scheduler) accodaSync(ctx context.Context) error {
-	if s.CasellaDefault == "" {
-		return nil // nessuna casella censita: niente da sincronizzare
-	}
-	casella, err := s.Q.GetCasellaPerIndirizzo(ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: s.CasellaDefault})
-	if errors.Is(err, pgx.ErrNoRows) {
-		s.Log.Warn("sync non accodato: casella predefinita non censita", "casella", s.CasellaDefault)
-		return nil
-	}
+	caselle, err := s.Q.ListCaselleAttive(ctx)
 	if err != nil {
 		return err
 	}
-	cursori, err := s.Q.ListSyncCursori(ctx)
+	if len(caselle) == 0 {
+		return nil // nessuna casella attiva: niente da sincronizzare
+	}
+	for _, casella := range caselle {
+		if casella.Canale != db.CanaleOutlook {
+			continue
+		}
+		if err := s.accodaSyncCasella(ctx, casella); err != nil {
+			// una casella che non riesce non deve impedire il sync delle altre: è lo stesso principio
+			// del lotto che non si ferma al primo elemento rotto
+			s.Log.Error("sync non accodato", "casella", casella.Indirizzo, "err", err)
+		}
+	}
+	return nil
+}
+
+func (s *Scheduler) accodaSyncCasella(ctx context.Context, casella db.Casella) error {
+	cursori, err := s.Q.ListSyncCursoriCasella(ctx, casella.CasellaID)
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ type threadDati struct {
 
 type messaggioThread struct {
 	M        db.Messaggio
-	Outlook  *db.MessaggioOutlook
+	Presenza *db.PresenzaDaAprireRow // nil = messaggio non Outlook, o non più in nessuna casella attiva
 	Allegati []AllegatoUI
 }
 
@@ -79,8 +79,8 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID) (*threadDati, e
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	for _, m := range msgs {
 		mt := messaggioThread{M: m}
-		if o, err := q.GetMessaggioOutlook(ctx, m.MessaggioID); err == nil {
-			mt.Outlook = &o
+		if pr, err := q.PresenzaDaAprire(ctx, m.MessaggioID); err == nil {
+			mt.Presenza = &pr
 		}
 		mt.Allegati, _ = s.allegatiUI(ctx, q, m.MessaggioID)
 		for _, a := range mt.Allegati {

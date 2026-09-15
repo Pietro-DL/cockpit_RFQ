@@ -89,7 +89,7 @@ const cartellaContratti = "../../contracts"
 // confrontano i tipi nativi (string di Go e str di Python non sono la stessa cosa) ma ciò che finisce
 // nel JSON, che è l'unica cosa che le due parti si scambiano davvero.
 type forma struct {
-	genere string  // stringa | intero | numero | booleano | elenco | oggetto | qualunque
+	genere  string // stringa | intero | numero | booleano | elenco | oggetto | qualunque
 	modello string // nome del modello annidato, se il campo è un oggetto strutturato
 	voce    *forma // per gli elenchi: la forma degli elementi
 	valori  []string

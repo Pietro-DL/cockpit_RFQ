@@ -139,12 +139,12 @@ func (s *Server) scarica(w http.ResponseWriter, r *http.Request) {
 		s.pannelloConAvviso(w, r, id, "Prima crea la RFQ o aggancia il messaggio a una RFQ esistente: i file scaricati vanno nella sua cartella.")
 		return
 	}
-	o, err := q.GetMessaggioOutlook(ctx, id)
+	pr, err := q.PresenzaDaAprire(ctx, id)
 	if err != nil {
-		http.Error(w, "messaggio non Outlook", 404)
+		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
-	esiti, err := s.accodaDownload(ctx, q, m, o, r.Form["allegato_id"])
+	esiti, err := s.accodaDownload(ctx, q, m, pr, r.Form["allegato_id"])
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -180,7 +180,7 @@ func (c contiDownload) frase() string {
 // accodaDownload accoda stage_allegato per gli id passati (solo allegati del messaggio, diretti, scaricabili).
 // Non tutti diventano un job: la guardia della voce 1.11 sta dentro jobs.AccodaStage, non qui, così vale
 // per qualunque punto del server chieda un download.
-func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, o db.MessaggioOutlook, ids []string) (contiDownload, error) {
+func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, pr db.PresenzaDaAprireRow, ids []string) (contiDownload, error) {
 	var c contiDownload
 	for _, raw := range ids {
 		aid, err := uuid.Parse(raw)
@@ -191,7 +191,7 @@ func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messagg
 		if err != nil || a.MessaggioID != m.MessaggioID || a.ContenitoreID.Valid || a.Natura == db.NaturaAllegatoInline {
 			continue
 		}
-		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, o, 1)
+		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, pr, 1)
 		if err != nil {
 			return c, err
 		}
@@ -230,12 +230,12 @@ func (s *Server) riscarica(w http.ResponseWriter, r *http.Request) {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "Prima crea o aggancia la RFQ.")
 		return
 	}
-	o, err := q.GetMessaggioOutlook(ctx, a.MessaggioID)
+	pr, err := q.PresenzaDaAprire(ctx, a.MessaggioID)
 	if err != nil {
-		http.Error(w, "messaggio non Outlook", 404)
+		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
-	esiti, err := s.accodaDownload(ctx, q, m, o, []string{aid.String()})
+	esiti, err := s.accodaDownload(ctx, q, m, pr, []string{aid.String()})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

@@ -201,6 +201,19 @@
           "title": "Data Evento",
           "type": "string"
         },
+        "ricevuto_il": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ricevuto Il"
+        },
         "mittente_nome": {
           "default": "",
           "title": "Mittente Nome",

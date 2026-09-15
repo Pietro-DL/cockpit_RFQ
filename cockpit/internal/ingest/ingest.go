@@ -123,6 +123,77 @@ func casellaOId(id *uuid.UUID, predefinita string) string {
 	return predefinita
 }
 
+// ---------------------------------------------------------------- di chi è questo indirizzo
+
+// Nostri è l'insieme dei domini delle caselle censite. Da qui il SERVER decide la direzione di un
+// messaggio e se è traffico interno (voce 2.1), invece di fidarsi di ciò che il worker deduce dal
+// proprio profilo Outlook.
+//
+// Il worker sa due cose, e sono due cose fragili: «questa cartella è la Posta inviata del profilo» e
+// «questo indirizzo è fra i miei». Su una casella condivisa la prima è ambigua (la Posta inviata di
+// chi?) e la seconda dipende da come il profilo è configurato su QUEL PC. La direzione sbagliata non
+// è un dettaglio: cambia la lettura dell'intero messaggio — niente triage, nessun cliente
+// riconosciuto, proposte diverse sugli allegati — e il difetto viaggia fino al fascicolo.
+// Le caselle censite, invece, sono un elenco dichiarato e uguale per tutti i worker.
+type Nostri map[string]bool
+
+// CaricaNostri legge i domini delle caselle censite. Una volta per lotto: sono poche righe e non
+// cambiano durante un sync.
+func CaricaNostri(ctx context.Context, q *db.Queries) (Nostri, error) {
+	domini, err := q.DominiNostri(ctx)
+	if err != nil {
+		return nil, err
+	}
+	n := make(Nostri, len(domini))
+	for _, d := range domini {
+		if d = strings.TrimSpace(strings.ToLower(d)); d != "" {
+			n[d] = true
+		}
+	}
+	return n, nil
+}
+
+// Nostro dice se l'indirizzo appartiene a un dominio che è nostro.
+func (n Nostri) Nostro(indirizzo string) bool {
+	i := strings.LastIndex(indirizzo, "@")
+	if i < 0 || i == len(indirizzo)-1 {
+		return false
+	}
+	return n[strings.ToLower(indirizzo[i+1:])]
+}
+
+// DirezioneEInterno decide le due cose che il piano tiene separate (D10).
+//
+//   - DIREZIONE: «uscita» se il messaggio è partito da un nostro indirizzo, «entrata» altrimenti. È
+//     una proprietà del MESSAGGIO, non della copia: vale uguale in tutte le caselle in cui arriva, e
+//     non dipende da quale casella ha sincronizzato per prima. La consolidazione nell'upsert («uscita
+//     vince») serve solo a non perdere il fatto se una copia dovesse risultare diversa.
+//   - INTERNO: mittente e TUTTI i destinatari sono nostri. È il collega che gira una mail al collega:
+//     tecnicamente parte da noi, ma non è traffico con il cliente. Senza un flag separato finirebbe
+//     confuso con un'offerta inviata, e un terzo valore nell'enum `direzione` avrebbe costretto a
+//     rispondere insieme a due domande che restano distinte.
+//
+// `dichiarata` è ciò che dice il worker e resta la riserva: quando l'elenco delle caselle non aiuta
+// (indirizzo vuoto, o un indirizzo Exchange in forma di DN senza chiocciola) si usa quella, che è
+// esattamente ciò che si faceva prima di questa voce.
+func (n Nostri) DirezioneEInterno(mittente string, destinatari []api.Destinatario, dichiarata db.Direzione) (db.Direzione, bool) {
+	mittente = strings.ToLower(strings.TrimSpace(mittente))
+	if len(n) == 0 || !strings.Contains(mittente, "@") {
+		return dichiarata, false
+	}
+	if !n.Nostro(mittente) {
+		return db.DirezioneEntrata, false
+	}
+	interno := len(destinatari) > 0
+	for _, d := range destinatari {
+		if !n.Nostro(strings.ToLower(strings.TrimSpace(d.Indirizzo))) {
+			interno = false
+			break
+		}
+	}
+	return db.DirezioneUscita, interno
+}
+
 // Ingerisci elabora un lotto in una sola transazione, con un savepoint per elemento.
 func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, error) {
 	out := api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}
@@ -132,6 +203,13 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
+
+	// I domini nostri si leggono una volta per lotto: servono a ogni elemento per decidere direzione
+	// e `interno` (voce 2.1), e sono le stesse poche righe per tutto il sync.
+	nostri, err := CaricaNostri(ctx, q)
+	if err != nil {
+		return out, err
+	}
 
 	// Il tentativo si verifica DENTRO la transazione e con la riga del job bloccata: così non può
 	// scadere a metà scrittura e due tentativi diversi non possono scrivere lo stesso lotto insieme.
@@ -155,7 +233,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		if err != nil {
 			return out, err
 		}
-		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, m)
+		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, m)
 		if errEl == nil {
 			errEl = forzaErrore(m.MessageID)
 		}
@@ -197,8 +275,11 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 	// muove e il lotto viene ripetuto per intero. GREATEST impedisce che due tentativi lo facciano
 	// arretrare (Q22).
 	if l.Cursore != nil && l.Cursore.Cartella != "" {
+		// Il cursore è di QUESTA casella: la cartella da sola non basta più. Due caselle con una
+		// «Posta in arrivo» scrivevano sulla stessa riga e si facevano avanzare il cursore a vicenda,
+		// e un cursore avanzato di troppo è una finestra che l'altra casella non rilegge mai (2.1).
 		if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
-			Cartella: l.Cursore.Cartella, UltimoReceived: &l.Cursore.UltimoReceived,
+			CasellaID: l.Casella.CasellaID, Cartella: l.Cursore.Cartella, UltimoReceived: &l.Cursore.UltimoReceived,
 			NMessaggi: int32(out.Inseriti + out.Aggiornati),
 		}); err != nil {
 			return out, err
@@ -305,6 +386,24 @@ func senzaNul(v any) any {
 	return v
 }
 
+// RicevutoIn è il ReceivedTime dell'elemento nella casella: il valore su cui avanza il cursore.
+//
+// Chiude W2. Il cursore avanzava su `data_evento`, che per la Posta inviata è SentOn, mentre il
+// filtro della scansione usa ReceivedTime: due grandezze diverse spacciate per una. Per la Posta in
+// arrivo coincidono e il difetto non si vede mai; per la Posta inviata no, e una mail scritta lunedì
+// e inviata giovedì può spingere il cursore oltre elementi che nessuno ha ancora letto — persi senza
+// che niente lo segnali.
+//
+// Un worker che non manda ancora `ricevuto_il` continua a funzionare com'era: si usa `data_evento`.
+// Preferire un valore assente a uno sbagliato non è prudenza generica: fra i due, quello che rompe
+// l'ordinamento del cursore è il secondo.
+func RicevutoIn(m *api.MessaggioIn) time.Time {
+	if m.RicevutoIl != nil && !m.RicevutoIl.IsZero() {
+		return *m.RicevutoIl
+	}
+	return m.DataEvento
+}
+
 func txt(s string) pgtype.Text {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -333,7 +432,7 @@ func naturaAllegato(v string) (db.NaturaAllegato, error) {
 	return n, nil
 }
 
-func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
+func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
 	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
@@ -341,10 +440,14 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 	if len(m.MessageID) > MaxIdentificativo {
 		return esito, fmt.Errorf("message_id di %d caratteri: oltre %d non è un identificativo utilizzabile", len(m.MessageID), MaxIdentificativo)
 	}
-	dir := db.Direzione(m.Direzione)
-	if !dir.Valid() {
+	// La direzione dichiarata dal worker viene comunque validata prima di essere sostituita: un
+	// valore fuori enum è un difetto del worker, e lasciarlo passare in silenzio perché tanto il
+	// server ricalcola vorrebbe dire nasconderlo per sempre (N7). Poi decide il server (voce 2.1).
+	dichiarata := db.Direzione(m.Direzione)
+	if !dichiarata.Valid() {
 		return esito, fmt.Errorf("direzione non valida: %q", m.Direzione)
 	}
+	dir, interno := nostri.DirezioneEInterno(m.MittenteIndirizzo, m.Destinatari, dichiarata)
 
 	chiaveConv := m.ConversationID
 	if chiaveConv == "" {
@@ -403,7 +506,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 		ParentMessaggioID: parent, Direzione: dir, DataEvento: m.DataEvento,
 		MittenteNome: txtN(m.MittenteNome, 150), MittenteIndirizzo: txtN(indirizzo, 200), BuyerID: buyerID,
 		Destinatari: dest, Oggetto: txtN(m.Oggetto, 500), CorpoTesto: txt(m.CorpoTesto), CorpoHtml: txt(m.CorpoHTML),
-		Importanza: imp,
+		Importanza: imp, Interno: interno,
 	})
 	if err != nil {
 		return esito, fmt.Errorf("messaggio: %w", err)
@@ -415,12 +518,26 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 	if m.FlagStato > 0 {
 		flag = pgtype.Int2{Int16: int16(m.FlagStato), Valid: true}
 	}
+	// Ciò che è del MESSAGGIO (la catena di conversazione) e ciò che è della COPIA (dove sta, com'è
+	// stato letto) vanno in due tabelle diverse dalla 0004. Prima stavano insieme, e la seconda
+	// casella sovrascriveva l'EntryID della prima: da quel momento «Apri in Outlook» apriva
+	// l'elemento sbagliato, o non lo trovava, e nessuno collegava le due cose.
 	if err := q.UpsertMessaggioOutlook(ctx, db.UpsertMessaggioOutlookParams{
-		MessaggioID: row.MessaggioID, EntryID: m.EntryID, StoreID: m.StoreID, ConversationID: txtN(m.ConversationID, 255),
+		MessaggioID: row.MessaggioID, ConversationID: txtN(m.ConversationID, 255),
 		ConversationIndex: txtN(m.ConversationIndex, 600), InReplyTo: txtN(m.InReplyTo, 255), Riferimenti: m.Riferimenti,
-		Cartella: txtN(m.Cartella, 200), Categorie: m.Categorie, NonLetto: m.NonLetto, FlagStato: flag,
 	}); err != nil {
 		return esito, fmt.Errorf("messaggio_outlook: %w", err)
+	}
+	if m.EntryID == "" {
+		return esito, errors.New("entry_id vuoto: senza non si ritrova l'elemento nella casella")
+	}
+	if err := q.UpsertPresenza(ctx, db.UpsertPresenzaParams{
+		MessaggioID: row.MessaggioID, CasellaID: casella.CasellaID, EntryID: m.EntryID,
+		StoreIDLocale: m.StoreID,
+		Cartella:      txtN(m.Cartella, 200), RicevutoIl: RicevutoIn(m), NonLetto: m.NonLetto,
+		FlagStato: flag, Categorie: m.Categorie,
+	}); err != nil {
+		return esito, fmt.Errorf("presenza in %s: %w", casella.Indirizzo, err)
 	}
 
 	// FATTO: allegati. Nessun download automatico: sul disco vanno solo i file che l'operatore chiede
@@ -463,7 +580,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 		}
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
-			pr := domain.PropostaDaNome(a.NomeFile, a.Bytes, m.Direzione)
+			pr := domain.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
 			dett, _ := json.Marshal(map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta})
 			if err := q.InsertPropostaSeAssente(ctx, db.InsertPropostaSeAssenteParams{
 				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txtN(pr.Codice, 60),
@@ -533,9 +650,15 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, m
 				}
 			}
 		}
-		if !threadID.Valid && dir == db.DirezioneEntrata {
+		// Il triage vale per ciò che ARRIVA a noi: la posta in entrata e la posta interna. Una mail
+		// interna è in uscita per definizione (parte da un nostro indirizzo), ma «te la giro» è uno
+		// dei modi in cui una richiesta arriva davvero sul tavolo: escluderla perché il mittente è un
+		// collega significherebbe non proporre niente proprio sui messaggi che qualcuno ha inoltrato
+		// apposta perché qualcun altro li guardasse.
+		if !threadID.Valid && (dir == db.DirezioneEntrata || interno) {
 			tr := domain.Triage(domain.IngressoTriage{
-				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: m.Direzione,
+				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: string(dir),
+				Interno:     interno,
 				ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, ConversazioneNota: conv.ThreadID.Valid,
 			})
 			motivi, _ := json.Marshal(tr.Motivi)

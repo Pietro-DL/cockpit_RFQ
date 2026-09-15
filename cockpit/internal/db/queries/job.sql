@@ -166,6 +166,12 @@ SELECT EXISTS (SELECT 1 FROM job WHERE tipo = $1 AND stato IN ('pronto','in_cors
 -- name: JobPendentePerChiave :one
 SELECT * FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1;
 
+-- name: JobPendenteConPrefisso :one
+-- Il sync storico è per casella dalla 0004 (chiave `sync_storico:<casella_id>`): il badge della
+-- schermata deve poter chiedere «ce n'è uno in corso, di chiunque» senza conoscerne la casella.
+SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%'
+  AND stato IN ('pronto','in_corso') ORDER BY job_id DESC LIMIT 1;
+
 -- name: UltimoJobPerChiavePrefisso :one
 SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%' ORDER BY job_id DESC LIMIT 1;
 

@@ -33,7 +33,7 @@ func (s stagingFinto) Presente(percorso string) bool { return s[percorso] }
 
 // messaggioConAllegato crea messaggio, satellite Outlook e un allegato. `path` e `sha` valorizzati
 // significano «già sceso una volta»; se `path` è vuoto l'allegato non è mai stato scaricato.
-func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiave, sha, path string) (db.Allegato, db.Messaggio, db.MessaggioOutlook) {
+func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiave, sha, path string) (db.Allegato, db.Messaggio, db.PresenzaDaAprireRow) {
 	t.Helper()
 	var convID, msgID, allID uuid.UUID
 	if err := p.QueryRow(ctx, `INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il)
@@ -45,8 +45,16 @@ func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, ch
 		"<"+chiave+"@acme.example>", convID).Scan(&msgID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Exec(ctx, `INSERT INTO messaggio_outlook (messaggio_id, entry_id, store_id, cartella)
-		VALUES ($1, $2, 'STORE-1', 'Posta in arrivo')`, msgID, "ENTRY-"+chiave); err != nil {
+	if _, err := p.Exec(ctx, `INSERT INTO messaggio_outlook (messaggio_id) VALUES ($1)`, msgID); err != nil {
+		t.Fatal(err)
+	}
+	var casellaID uuid.UUID
+	if err := p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.it','Commerciale',true)
+		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casellaID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Exec(ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il)
+		VALUES ($1, $2, $3, 'STORE-1', 'Posta in arrivo', now())`, msgID, casellaID, "ENTRY-"+chiave); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.QueryRow(ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine,
@@ -65,11 +73,11 @@ func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, ch
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := q.GetMessaggioOutlook(ctx, msgID)
+	pr, err := q.PresenzaDaAprire(ctx, msgID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return a, m, o
+	return a, m, pr
 }
 
 func contaJobStage(t *testing.T, ctx context.Context, p *pgxpool.Pool, allegatoID uuid.UUID) int {
@@ -89,10 +97,10 @@ func contaJobStage(t *testing.T, ctx context.Context, p *pgxpool.Pool, allegatoI
 func TestNienteDownloadSeIlFileEGiaInStaging(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	percorso := `C:\staging\abc\disegno.pdf`
-	a, m, o := messaggioConAllegato(t, ctx, p, "gia-presente", shaProva, percorso)
+	a, m, pr := messaggioConAllegato(t, ctx, p, "gia-presente", shaProva, percorso)
 	st := stagingFinto{percorso: true}
 
-	esito, j, err := AccodaStage(ctx, q, st, a, m, o, 1)
+	esito, j, err := AccodaStage(ctx, q, st, a, m, pr, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,12 +130,12 @@ func TestStessoContenutoGiaInStagingNonSiScaricaDueVolte(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	percorso := `C:\staging\primo\disegno.pdf`
 	_, _, _ = messaggioConAllegato(t, ctx, p, "primo", shaProva, percorso)
-	secondo, m2, o2 := messaggioConAllegato(t, ctx, p, "secondo", shaProva, `C:\staging\secondo\disegno.pdf`)
+	secondo, m2, pr2 := messaggioConAllegato(t, ctx, p, "secondo", shaProva, `C:\staging\secondo\disegno.pdf`)
 
 	// solo il file del PRIMO esiste davvero
 	st := stagingFinto{percorso: true}
 
-	esito, j, err := AccodaStage(ctx, q, st, secondo, m2, o2, 1)
+	esito, j, err := AccodaStage(ctx, q, st, secondo, m2, pr2, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,9 +162,9 @@ func TestStessoContenutoGiaInStagingNonSiScaricaDueVolte(t *testing.T) {
 func TestFileSparitoDalloStagingSiRiscarica(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	_, _, _ = messaggioConAllegato(t, ctx, p, "gemello-sparito", shaProva, `C:\staging\x\disegno.pdf`)
-	a, m, o := messaggioConAllegato(t, ctx, p, "da-riscaricare", shaProva, `C:\staging\y\disegno.pdf`)
+	a, m, pr := messaggioConAllegato(t, ctx, p, "da-riscaricare", shaProva, `C:\staging\y\disegno.pdf`)
 
-	esito, j, err := AccodaStage(ctx, q, stagingFinto{}, a, m, o, 1) // nessun file esiste
+	esito, j, err := AccodaStage(ctx, q, stagingFinto{}, a, m, pr, 1) // nessun file esiste
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,16 +185,16 @@ func TestFileSparitoDalloStagingSiRiscarica(t *testing.T) {
 // mandare due volte lo stesso lavoro al worker.
 func TestUnSoloDownloadPendentePerAllegato(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	a, m, o := messaggioConAllegato(t, ctx, p, "mai-sceso", "", "")
+	a, m, pr := messaggioConAllegato(t, ctx, p, "mai-sceso", "", "")
 
-	esito, j, err := AccodaStage(ctx, q, stagingFinto{}, a, m, o, 1)
+	esito, j, err := AccodaStage(ctx, q, stagingFinto{}, a, m, pr, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if esito != StageAccodato || j == nil {
 		t.Fatalf("primo download: esito = %q, job = %v", esito, j)
 	}
-	esito2, j2, err := AccodaStage(ctx, q, stagingFinto{}, a, m, o, 1)
+	esito2, j2, err := AccodaStage(ctx, q, stagingFinto{}, a, m, pr, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

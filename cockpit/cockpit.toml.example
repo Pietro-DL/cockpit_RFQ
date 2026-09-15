@@ -24,6 +24,8 @@ lotto = 50
 consenti_invio = false
 # Casella attribuita ai messaggi che non la dichiarano (fase 1, finché il contratto non porta
 # casella_id). Con una sola [[casella]] si deduce da sola; con più di una è obbligatoria.
+# Dalla fase 2 il lotto porta sempre il casella_id del job: questa resta il ripiego per un worker più
+# vecchio del server, non il modo normale di attribuire la posta.
 casella_default = "nome.cognome@azienda.it"
 
 [retention]
@@ -64,15 +66,15 @@ nome      = "Commerciale"
 condivisa = true
 
 # Una casella personale ha come proprietario la sigla di un utente dichiarato in [[utenti]].
-# `attiva = false` la tiene censita ma fuori uso. Serve davvero: finché lo schema è alla 0003 il
-# cursore di sincronizzazione ha per chiave la sola cartella, quindi due caselle attive con una
-# cartella «Inbox» si sovrascriverebbero il cursore a vicenda perdendo messaggi in silenzio. Il server
-# rifiuta di partire in quel caso; dalla 0004 (fase 2) il limite non c'è più.
+# `attiva = false` la tiene censita ma fuori uso: è il modo di spegnerne una senza cancellarla.
+# Dalla 0004 (fase 2) le caselle attive possono essere più di una: il cursore di sincronizzazione ha
+# per chiave (casella, cartella), quindi ognuna avanza per conto proprio. Fino alla 0003 il cursore
+# era per sola cartella e il server si rifiutava di partire con più di una casella attiva, perché due
+# caselle si sarebbero sovrascritte il cursore a vicenda perdendo messaggi in silenzio.
 [[casella]]
 indirizzo = "nome.cognome@azienda.it"
 nome      = "Nome Cognome"
 utente    = "NC"
-attiva    = false
 
 [[postazione]]
 nome_host   = "PC-NOME"

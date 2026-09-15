@@ -505,11 +505,11 @@ func (s *Server) downloadDaForm(ctx context.Context, q *db.Queries, m db.Messagg
 	if len(ids) == 0 {
 		return contiDownload{}, nil
 	}
-	o, err := q.GetMessaggioOutlook(ctx, m.MessaggioID)
+	pr, err := q.PresenzaDaAprire(ctx, m.MessaggioID)
 	if err != nil {
 		return contiDownload{}, nil // messaggio non Outlook (telefono/whatsapp): niente da scaricare
 	}
-	return s.accodaDownload(ctx, q, m, o, ids)
+	return s.accodaDownload(ctx, q, m, pr, ids)
 }
 
 func (s *Server) triageErrore(w http.ResponseWriter, r *http.Request, id uuid.UUID, azione, msg string) {

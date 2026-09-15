@@ -449,6 +449,46 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 	return i, err
 }
 
+const jobPendenteConPrefisso = `-- name: JobPendenteConPrefisso :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job WHERE chiave_idempotenza LIKE $1::text || '%'
+  AND stato IN ('pronto','in_corso') ORDER BY job_id DESC LIMIT 1
+`
+
+// Il sync storico è per casella dalla 0004 (chiave `sync_storico:<casella_id>`): il badge della
+// schermata deve poter chiedere «ce n'è uno in corso, di chiunque» senza conoscerne la casella.
+func (q *Queries) JobPendenteConPrefisso(ctx context.Context, prefisso string) (Job, error) {
+	row := q.db.QueryRow(ctx, jobPendenteConPrefisso, prefisso)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
+}
+
 const jobPendentePerChiave = `-- name: JobPendentePerChiave :one
 SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job WHERE chiave_idempotenza = $1 AND stato IN ('pronto','in_corso') LIMIT 1
 `

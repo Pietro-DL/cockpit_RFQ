@@ -115,4 +115,23 @@ func TestTriage(t *testing.T) {
 	if e.Esito != "ignora" {
 		t.Errorf("triage uscita = %+v", e)
 	}
+
+	// Voce 2.1, D10: una mail INTERNA è in uscita (parte da un nostro indirizzo) ma non è roba già
+	// vista da noi: «ti giro questa richiesta» è uno dei modi in cui una RFQ arriva sul tavolo.
+	// Ignorarla per il mittente vorrebbe dire non proporre niente proprio sui messaggi che un collega
+	// ha inoltrato apposta perché qualcuno li guardasse.
+	e = Triage(IngressoTriage{Direzione: "uscita", Interno: true, Oggetto: "I: RFQ 6674611A",
+		Corpo: "ti giro la richiesta", NomiAllegati: []string{"6674611A_4.pdf"}})
+	if e.Esito == "ignora" {
+		t.Errorf("triage di una mail interna ignorato per il mittente: %+v", e)
+	}
+	var detto bool
+	for _, m := range e.Motivi {
+		if strings.Contains(m, "interna") {
+			detto = true
+		}
+	}
+	if !detto {
+		t.Errorf("il triage non dice che si tratta di una mail interna: %+v", e.Motivi)
+	}
 }

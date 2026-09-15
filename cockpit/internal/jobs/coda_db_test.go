@@ -294,7 +294,7 @@ func TestSyncNonSiAccumulaPerCasella(t *testing.T) {
 	).Scan(&casellaID); err != nil {
 		t.Fatal(err)
 	}
-	s := &Scheduler{Q: q, Log: testutil.LogSilenzioso(), Cartelle: []string{"Inbox"}, Lotto: 50, CasellaDefault: "prova@azienda.it"}
+	s := &Scheduler{Q: q, Log: testutil.LogSilenzioso(), Cartelle: []string{"Inbox"}, Lotto: 50}
 
 	for tick := 0; tick < 5; tick++ {
 		if err := s.accodaSync(ctx); err != nil {

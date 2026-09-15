@@ -330,6 +330,11 @@ type inboxDati struct {
 	Righe    []db.VInbox
 	Conta    db.ContaInboxRow
 	Selezion string
+	// Caselle sono quelle attive; Casella è quella scelta nel selettore (vuoto = tutte). È un FILTRO
+	// della schermata, non un'autorizzazione: che cosa un utente possa vedere è la voce 2.2, e fino
+	// ad allora resta la regola restrittiva di D12.
+	Caselle []db.Casella
+	Casella string
 }
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
@@ -338,45 +343,84 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	if filtro != "agganciati" && filtro != "tutti" && filtro != "ignorati" {
 		filtro = "orfani"
 	}
-	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Limite: 200, Salta: 0})
+	caselle, _ := q.ListCaselleAttive(r.Context())
+	var scelta uuid.NullUUID
+	grezzo := r.URL.Query().Get("casella")
+	if id, err := uuid.Parse(grezzo); err == nil {
+		for _, c := range caselle {
+			if c.CasellaID == id {
+				scelta = uuid.NullUUID{UUID: id, Valid: true}
+			}
+		}
+	}
+	if !scelta.Valid {
+		grezzo = ""
+	}
+	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Limite: 200, Salta: 0})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	conta, _ := q.ContaInbox(r.Context())
-	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel")}
+	conta, _ := q.ContaInbox(r.Context(), scelta)
+	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
+		Caselle: caselle, Casella: grezzo}
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
 }
 
 // syncStorico accoda una finestra di 30 giorni PRIMA di quanto già coperto: il limite superiore è il cursore
 // storico_fino_a (se un "Carica precedenti" è già riuscito) oppure la mail più vecchia in archivio.
-// Chiave per finestra: un solo job pendente alla volta; a job concluso il click successivo prende la finestra prima.
+//
+// Dalla 0004 è PER CASELLA: ogni casella ha i suoi cursori e la sua storia, e un unico job storico
+// avrebbe letto l'archivio di una casella sola facendo credere di averle coperte tutte. Un job per
+// casella attiva, chiave `sync_storico:<casella_id>`: al più uno pendente per ciascuna.
 func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := db.New(s.Pool)
-	if j, err := q.JobPendentePerChiave(ctx, pgtype.Text{String: "sync_storico", Valid: true}); err == nil {
-		s.badgeStorico(w, &j)
-		return
-	}
-	al, dal, cartelle, err := s.finestraStorico(ctx, q)
+	caselle, err := q.ListCaselleAttive(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	payload := api.PayloadSyncOutlook{Cartelle: cartelle, Dal: dal, Al: &al, SovrapposizioneS: 600, Lotto: 50}
-	// la chiave è fissa: l'indice parziale garantisce al più un sync storico pendente, e a job chiuso se ne può accodare un altro
-	job, err := jobs.Accoda(ctx, q, db.TipoJobSyncOutlook, payload, "sync_storico", 2)
-	if err != nil {
-		s.Log.Error("accoda sync storico", "err", err)
-		http.Error(w, err.Error(), 500)
+	var ultimo *db.Job
+	for _, c := range caselle {
+		if c.Canale != db.CanaleOutlook {
+			continue
+		}
+		chiave := "sync_storico:" + c.CasellaID.String()
+		if j, err := q.JobPendentePerChiave(ctx, pgtype.Text{String: chiave, Valid: true}); err == nil {
+			ultimo = &j
+			continue
+		}
+		al, dal, cartelle, err := s.finestraStorico(ctx, q, c.CasellaID)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		cid := c.CasellaID
+		payload := api.PayloadSyncOutlook{CasellaID: &cid, Cartelle: cartelle, Dal: dal, Al: &al, SovrapposizioneS: 600, Lotto: 50}
+		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, 2,
+			jobs.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
+		if err != nil {
+			s.Log.Error("accoda sync storico", "casella", c.Indirizzo, "err", err)
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if job != nil {
+			ultimo = job
+		}
+	}
+	if ultimo == nil {
+		s.avviso(w, "Nessuna casella attiva da cui caricare l'archivio.")
 		return
 	}
-	s.badgeStorico(w, job)
+	s.badgeStorico(w, ultimo)
 }
 
-// finestraStorico calcola [al-30gg, al] e le cartelle da leggere (senza cursore: finestra esatta).
-func (s *Server) finestraStorico(ctx context.Context, q *db.Queries) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
-	cursori, _ := q.ListSyncCursori(ctx)
+// finestraStorico calcola [al-30gg, al] e le cartelle da leggere per UNA casella (senza cursore:
+// finestra esatta). «Quanto indietro siamo già andati» è una proprietà della casella: mescolare le
+// storie di due caselle farebbe ripartire l'una da dove è arrivata l'altra.
+func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
+	cursori, _ := q.ListSyncCursoriCasella(ctx, casella)
 	for _, c := range cursori {
 		cartelle = append(cartelle, api.CartellaCursore{Cartella: c.Cartella})
 		if c.StoricoFinoA != nil && (al.IsZero() || c.StoricoFinoA.Before(al)) {
@@ -388,7 +432,7 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries) (al, dal ti
 	}
 	if al.IsZero() {
 		var minData *time.Time
-		if err = s.Pool.QueryRow(ctx, "SELECT min(data_evento) FROM messaggio WHERE canale = 'outlook' AND parent_messaggio_id IS NULL").Scan(&minData); err != nil {
+		if err = s.Pool.QueryRow(ctx, `SELECT min(mc.ricevuto_il) FROM messaggio_casella mc WHERE mc.casella_id = $1`, casella).Scan(&minData); err != nil {
 			return
 		}
 		if minData != nil {
@@ -404,7 +448,7 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries) (al, dal ti
 // syncStoricoStato è il frammento che il badge ricarica finché il job non è chiuso.
 func (s *Server) syncStoricoStato(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
-	if j, err := q.JobPendentePerChiave(r.Context(), pgtype.Text{String: "sync_storico", Valid: true}); err == nil {
+	if j, err := q.JobPendenteConPrefisso(r.Context(), "sync_storico"); err == nil {
 		s.badgeStorico(w, &j)
 		return
 	}
@@ -435,9 +479,13 @@ func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
 }
 
 type messaggioDati struct {
-	M        db.Messaggio
-	Riga     db.VInbox
-	Outlook  *db.MessaggioOutlook
+	M    db.Messaggio
+	Riga db.VInbox
+	// Presenza è la copia su cui agiscono i pulsanti («Apri in Outlook», «Segna letto»): dalla 0004
+	// lo stesso messaggio può stare in più caselle, e agire «sul messaggio» non vuol più dire niente.
+	// Presenze è l'elenco completo, che è ciò che l'operatore deve vedere per capire da dove arriva.
+	Presenza *db.PresenzaDaAprireRow
+	Presenze []db.ListPresenzeRow
 	Allegati []AllegatoUI
 	Portale  []db.RiferimentoPortale
 	Bozze    []db.Bozza
@@ -491,9 +539,10 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioD
 	}
 	d := &messaggioDati{M: m}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
-	if o, err := q.GetMessaggioOutlook(ctx, id); err == nil {
-		d.Outlook = &o
+	if pr, err := q.PresenzaDaAprire(ctx, id); err == nil {
+		d.Presenza = &pr
 	}
+	d.Presenze, _ = q.ListPresenze(ctx, id)
 	if m.ThreadID.Valid {
 		if t, err := q.GetThread(ctx, m.ThreadID.UUID); err == nil {
 			d.Thread = &t
@@ -519,13 +568,13 @@ func (s *Server) apriInOutlook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := db.New(s.Pool)
-	o, err := q.GetMessaggioOutlook(r.Context(), id)
+	pr, err := q.PresenzaDaAprire(r.Context(), id)
 	if err != nil {
-		http.Error(w, "messaggio non Outlook", 404)
+		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
 	m, _ := q.GetMessaggio(r.Context(), id)
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: o.EntryID, StoreID: o.StoreID, RiferimentoElemento: rif(m)}, "", 1); err != nil {
+	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, RiferimentoElemento: rifIn(m, pr.CasellaID)}, "", 1); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -539,19 +588,23 @@ func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := db.New(s.Pool)
-	o, err := q.GetMessaggioOutlook(r.Context(), id)
+	pr, err := q.PresenzaDaAprire(r.Context(), id)
 	if err != nil {
-		http.Error(w, "messaggio non Outlook", 404)
+		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
 	letto := r.FormValue("letto") != "0"
 	m, _ := q.GetMessaggio(r.Context(), id)
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobSegnaLetto, api.PayloadSegnaLetto{EntryID: o.EntryID, StoreID: o.StoreID, Letto: letto, RiferimentoElemento: rif(m)}, "", 2); err != nil {
+	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobSegnaLetto, api.PayloadSegnaLetto{EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Letto: letto, RiferimentoElemento: rifIn(m, pr.CasellaID)}, "", 2); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `UPDATE messaggio_outlook SET non_letto = $2 WHERE messaggio_id = $1`, id, !letto)
-	s.avviso(w, "Aggiornato in Outlook.")
+	// Si segna letta la COPIA su cui si è agito, non «il messaggio»: le altre caselle hanno il loro
+	// stato di lettura e nessuno ha chiesto di toccarlo.
+	if err := q.SetNonLettoPresenza(r.Context(), db.SetNonLettoPresenzaParams{MessaggioID: id, CasellaID: pr.CasellaID, NonLetto: !letto}); err != nil {
+		s.Log.Warn("stato di lettura non aggiornato", "messaggio", id, "err", err)
+	}
+	s.avviso(w, "Aggiornato in Outlook ("+pr.CasellaNome+").")
 }
 
 // bozza prepara la risposta nel Cockpit e la apre come bozza in Outlook (l'invio resta manuale, SPEC §6.1).
@@ -580,9 +633,9 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "messaggio non trovato", 404)
 		return
 	}
-	o, err := q.GetMessaggioOutlook(ctx, id)
+	pr, err := q.PresenzaDaAprire(ctx, id)
 	if err != nil {
-		http.Error(w, "messaggio non Outlook", 404)
+		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
 	b, err := q.InsertBozza(ctx, db.InsertBozzaParams{
@@ -598,8 +651,8 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		html = "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
 	}
 	if _, err := jobs.Accoda(ctx, q, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
-		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: o.EntryID, StoreID: o.StoreID, Destinatari: []api.Destinatario{},
-		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rif(m),
+		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Destinatari: []api.Destinatario{},
+		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
 	}, "bozza:"+b.BozzaID.String(), 1); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -615,6 +668,15 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 func rif(m db.Messaggio) api.RiferimentoElemento {
 	id := m.MessaggioID
 	return api.RiferimentoElemento{MessaggioID: &id, MessageID: m.ChiaveEsterna}
+}
+
+// rifIn è rif per un'azione su UNA copia: porta anche la casella, così quando il worker ritrova
+// l'elemento a un EntryID diverso il server riallinea quella presenza e non un'altra.
+func rifIn(m db.Messaggio, casella uuid.UUID) api.RiferimentoElemento {
+	r := rif(m)
+	c := casella
+	r.CasellaID = &c
+	return r
 }
 
 // avviso risponde con un frammento al posto del pulsante che è stato premuto: chi ha premuto legge

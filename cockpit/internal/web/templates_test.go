@@ -50,14 +50,18 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 			Proposta: &db.DocumentoProposta{PropostaID: uuid.New(), TipoProposto: db.TipoDocumentoAltro, Stato: db.StatoPropostaAperta, Confidenza: 20, Fonte: db.FontePropostaEstensione}, PreSpunta: true},
 	}
 	th := db.ThreadOfferta{ThreadID: tid, CartellaRelativa: txtT(`ACME\WIP\2026 09 08 Rossi RFQ 6674611A`), Oggetto: txtT("RFQ 6674611A"), DataInizio: time.Now(), Stato: db.StatoThreadAPERTA}
-	md := &messaggioDati{M: m, Riga: db.VInbox{MessaggioID: mid, TriageEsito: txtT("nuova_rfq"), TriageConfidenza: pgtype.Int2{Int16: 80, Valid: true}}, Outlook: &db.MessaggioOutlook{},
+	presenza := db.PresenzaDaAprireRow{MessaggioID: mid, EntryID: "E1", StoreIDLocale: "S1", CasellaNome: "Commerciale",
+		Cartella: txtT("Posta in arrivo"), NonLetto: true}
+	md := &messaggioDati{M: m, Riga: db.VInbox{MessaggioID: mid, TriageEsito: txtT("nuova_rfq"), TriageConfidenza: pgtype.Int2{Int16: 80, Valid: true}}, Presenza: &presenza,
+		Presenze: []db.ListPresenzeRow{{MessaggioID: mid, EntryID: "E1", CasellaNome: "Commerciale", Cartella: txtT("Posta in arrivo"), NonLetto: true},
+			{MessaggioID: mid, EntryID: "E2", CasellaNome: "Francesco", Cartella: txtT("Posta in arrivo")}},
 		Allegati: allegati, Thread: &th, Avviso: "ok"}
 	td := &triageDati{M: m, Riga: md.Riga, Azione: "nuova", Clienti: []db.Cliente{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme"}},
 		Buyers: []db.Buyer{{BuyerID: uuid.New(), Cognome: "Rossi", Nome: txtT("Mario"), Email: txtT("mario.rossi@acme.example")}},
 		Nome:   "Mario", Cognome: "Rossi", Email: "mario.rossi@acme.example", Dominio: "acme.example", Oggetto: "RFQ 6674611A", Identificativi: "6674611A", Allegati: allegati, Anteprima: `ACME\WIP\x`}
 	thd := &threadDati{T: th, Riga: db.VCruscotto{Cliente: "ACME", NomeFase: db.NullFase{Fase: db.FaseRICEVUTA, Valid: true}, Semaforo: txtT("verde")},
 		Identificativi: []db.IdentificativoThread{{Codice: "6674611A"}},
-		Messaggi:       []messaggioThread{{M: m, Outlook: &db.MessaggioOutlook{}, Allegati: allegati}},
+		Messaggi:       []messaggioThread{{M: m, Presenza: &presenza, Allegati: allegati}},
 		Documenti:      []db.Documento{{Tipo: db.TipoDocumentoDisegno2d, Codice: txtT("6674611A"), PathRelativo: "x", StatoNas: db.StatoNasInCoda}},
 		Fascicolo:      []db.VFascicolo{{Codice: "6674611A", TipoComponente: db.TipoComponenteSciolto, TipoDocumento: db.TipoDocumentoDisegno2d, Bloccante: true, Esito: "manca"}},
 		Avviso:         "ok"}

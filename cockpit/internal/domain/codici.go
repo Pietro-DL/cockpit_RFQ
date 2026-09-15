@@ -183,6 +183,7 @@ type IngressoTriage struct {
 	Corpo             string
 	NomiAllegati      []string
 	Direzione         string // entrata | uscita
+	Interno           bool   // mittente e destinatari tutti nostri: il collega che gira una mail
 	ClienteNoto       bool   // dominio mittente censito
 	BuyerNoto         bool   // indirizzo mittente censito come buyer
 	ThreadTrovato     bool   // aggancio automatico già riuscito
@@ -205,8 +206,16 @@ var estensioniCAD = map[string]bool{"stp": true, "step": true, "sldprt": true, "
 func Triage(in IngressoTriage) EsitoTriage {
 	var motivi []string
 	punti := 0
-	if in.Direzione == "uscita" {
+	// Una mail in uscita è roba nostra già vista: non c'è niente da smistare. Una mail INTERNA è in
+	// uscita anch'essa — parte da un nostro indirizzo — ma «ti giro questa richiesta» è uno dei modi
+	// in cui una RFQ arriva davvero sul tavolo, e ignorarla per il mittente significherebbe non
+	// proporre niente proprio sui messaggi che un collega ha inoltrato apposta perché qualcuno li
+	// guardasse (voce 2.1, D10).
+	if in.Direzione == "uscita" && !in.Interno {
 		return EsitoTriage{Esito: "ignora", Confidenza: 60, Motivi: []string{"messaggio in uscita"}}
+	}
+	if in.Interno {
+		motivi = append(motivi, "mail interna: inoltrata da un collega")
 	}
 	if in.ThreadTrovato {
 		return EsitoTriage{Esito: "aggancia", Confidenza: 95, Motivi: []string{"agganciato automaticamente"}}

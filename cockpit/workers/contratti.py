@@ -47,6 +47,10 @@ class MessaggioIn(Base):
     cartella: str
     direzione: Literal["entrata", "uscita"]
     data_evento: datetime
+    # ReceivedTime in QUESTA casella, anche per la posta inviata. Chiude W2: il cursore avanzava su
+    # data_evento (SentOn per la Posta inviata) mentre il filtro della scansione usa ReceivedTime, e
+    # una mail scritta lunedi e inviata giovedi poteva spingere il cursore oltre elementi non letti.
+    ricevuto_il: datetime | None = None
     mittente_nome: str = ""
     mittente_indirizzo: str = ""
     destinatari: list[Destinatario] = Field(default_factory=list)
@@ -184,8 +188,10 @@ class PayloadRileggiElemento(Base):
 
 class RiferimentoElemento(Base):
     """Riferimento stabile a un elemento Outlook: se l'EntryID è stantio (elemento spostato) il worker
-    lo ricerca per message_id; messaggio_id serve al server per riallineare messaggio_outlook."""
+    lo ricerca per message_id; messaggio_id e casella_id servono al server per riallineare la PRESENZA
+    giusta: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni casella."""
     messaggio_id: UUID | None = None
+    casella_id: UUID | None = None
     message_id: str = ""
 
 

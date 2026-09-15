@@ -174,15 +174,14 @@ class Worker:
                     # un arresto chiesto dal battito si può rispettare senza lasciare niente a metà
                     self.controlla()
                     lotto.append(m)
-                    # W2, ANCORA APERTO (avvertenza della revisione del 15/09). Il cursore avanza su
-                    # data_evento, che per la Posta inviata è SentOn, mentre il filtro della scansione
-                    # usa ReceivedTime. Per la Posta in arrivo i due coincidono e non si vede niente;
-                    # per la Posta inviata no, e un messaggio inviato molto dopo essere stato scritto
-                    # può spingere il cursore oltre elementi non ancora letti. Si chiude in fase 2, con
-                    # MessaggioIn.ricevuto_il e messaggio_casella.ricevuto_il (voce 2.1): finché il
-                    # contratto non porta ricevuto_il, qui non c’è il dato giusto da usare.
-                    if al is None and m.data_evento and (esito.ultimo_received is None or m.data_evento > esito.ultimo_received):
-                        esito.ultimo_received = m.data_evento
+                    # W2 CHIUSO (voce 2.1). Il cursore avanza su ricevuto_il, che è il ReceivedTime in
+                    # questa casella: lo stesso valore su cui filtra la scansione qui sopra. Prima
+                    # avanzava su data_evento, che per la Posta inviata è SentOn — un'altra grandezza —
+                    # e una mail scritta lunedì e inviata giovedì poteva spingere il cursore oltre
+                    # elementi non ancora letti, che nessuno avrebbe più riletto.
+                    quando = m.ricevuto_il or m.data_evento
+                    if al is None and quando and (esito.ultimo_received is None or quando > esito.ultimo_received):
+                        esito.ultimo_received = quando
                     if len(lotto) >= p.lotto:
                         esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
                         lotto = []

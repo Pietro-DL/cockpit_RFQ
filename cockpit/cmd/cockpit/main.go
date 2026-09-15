@@ -110,7 +110,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		Q: q, Log: log, Cartelle: cfg.Outlook.Cartelle,
 		IntervalloSync: time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second,
 		Dal:            dal, Lotto: cfg.Outlook.Lotto,
-		CasellaDefault: cfg.Outlook.CasellaDefault, RetentionGiorni: cfg.Retention.GiorniJob,
+		RetentionGiorni: cfg.Retention.GiorniJob,
 	}).Avvia(ctx)
 	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log}).Avvia(ctx)
 
