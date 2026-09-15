@@ -6,6 +6,9 @@
 indirizzo = "127.0.0.1:8080"
 token_worker = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
 log_livello = "info" # debug | info | warn
+# Limite di un singolo allegato caricato dal worker (PUT /api/v1/allegati/{id}/file). Oltre, il server
+# risponde 413 prima di ricevere il file e l'allegato compare in errore con il motivo. Default 64.
+max_upload_mb = 64
 
 [db]
 dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"

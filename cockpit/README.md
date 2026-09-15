@@ -125,6 +125,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `indirizzo` | `127.0.0.1:8080` in sviluppo. `0.0.0.0:8080` espone il Cockpit in LAN: finché non arrivano TLS e credenziali individuali (voci 2.4 e 2.5) è una cosa da fare solo per le prove |
 | `token_worker` | un segreto qualsiasi, lungo. È lo stesso che va in `workers\worker.toml`: se i due non coincidono il worker logga `401` e non prende lavoro |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
+| `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
 
 **`[nas]`**
 
@@ -132,7 +133,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
 | `dry_run` | `true` calcola i percorsi e li scrive nel log senza toccare il disco: è il modo di provare la copia sul NAS aziendale senza scriverci |
-| `staging` | cartella locale dove atterrano gli allegati scaricati. Se manca, il server ne crea una accanto al file di configurazione. Deve coincidere con `staging` di `worker.toml` **se worker e server girano sullo stesso PC** |
+| `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
 
 **`[outlook]`**
 
@@ -229,9 +230,10 @@ sostituire il binario su una postazione.
 copy workers\worker.toml.example workers\worker.toml
 ```
 
-`token` deve coincidere con `[server].token_worker`; `staging` con `[nas].staging` **se il worker gira
-sullo stesso PC del server**. `worker_id`, se presente, deve coincidere con `[[worker]].nome` di
-`cockpit.toml`.
+`token` deve coincidere con `[server].token_worker`. `staging` è una cartella locale **del worker**: ci
+passano i file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al server) e ci resta
+il log; può stare su un PC diverso dal server e non deve coincidere con `[nas].staging`. `worker_id`,
+se presente, deve coincidere con `[[worker]].nome` di `cockpit.toml`.
 
 ### 4. Compilazione
 
@@ -425,7 +427,8 @@ internal/ingest            FATTO (messaggio, allegato) + proposta economica + ag
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
-internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, /api/v1/ingest/messaggi (token X-Cockpit-Token); dopo-staging (zip, rumore, analisi)
+internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file (token X-Cockpit-Token);
+                           il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login, /inbox, /messaggio/{id} (+triage, scarica), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),

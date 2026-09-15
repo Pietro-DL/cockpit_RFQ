@@ -4,6 +4,9 @@
 
 server_url     = "http://127.0.0.1:8080"
 token          = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
+# Cartella locale DEL WORKER: file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al
+# server con PUT) e il log. Non deve coincidere con [nas].staging del server: il worker può stare su
+# un altro PC.
 staging        = '..\_staging'
 consenti_invio = false
 

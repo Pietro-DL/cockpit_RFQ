@@ -133,10 +133,7 @@ class Worker:
             case "sync_outlook":
                 return self.sync(job, PayloadSyncOutlook.model_validate(p))
             case "stage_allegato":
-                s = PayloadStageAllegato.model_validate(p)
-                dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file,
-                                                              os.path.join(self.staging, s.cartella), s.message_id)
-                return RisultatoStage(allegato_id=s.allegato_id, path_staging=dest, sha256=sha, bytes=n, **dove).model_dump(mode="json")
+                return self.stage(job, PayloadStageAllegato.model_validate(p))
             case "crea_bozza_outlook":
                 b = PayloadCreaBozza.model_validate(p)
                 entry_id, inviata = self.ol().crea_bozza(b)
@@ -151,6 +148,48 @@ class Worker:
                 l = PayloadSegnaLetto.model_validate(p)
                 return RisultatoElemento(**self.ol().segna_letto(l.entry_id, l.store_id, l.letto, l.message_id)).model_dump(mode="json")
         raise ErroreDefinitivo(f"tipo job sconosciuto per il worker outlook: {job.tipo}")
+
+    # ------------------------------------------------------------ download di un allegato (voce 2.3)
+
+    def stage(self, job: Job, s: PayloadStageAllegato) -> dict:
+        """Salva l'allegato da Outlook in una cartella temporanea locale e lo CARICA al server.
+
+        Fino alla fase 1 il file veniva scritto direttamente nello staging del server e il result ne
+        dichiarava il percorso: funzionava solo con worker e server sullo stesso PC. Ora il file
+        viaggia con PUT, legato al tentativo (job_id + lease_token), e il server lo promuove ad
+        allegato solo con il result valido dello stesso tentativo: un tentativo scaduto a metà upload
+        non consegna niente. Il file locale si cancella in ogni caso: qui è solo di passaggio.
+        """
+        locale = os.path.join(self.staging, "tmp", str(job.job_id))
+        if self.battito is not None:
+            self.battito.segna_fase(f"salva allegato {s.indice} di {s.message_id or s.entry_id[:16]}")
+        dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file, locale, s.message_id)
+        try:
+            self.controlla()                       # punto di ripresa: fuori da COM, prima del trasferimento
+            if self.battito is not None:
+                self.battito.segna_fase(f"upload allegato {s.allegato_id} ({n} byte)")
+            self._carica(job, str(s.allegato_id), dest, n)
+        finally:
+            try:
+                os.remove(dest)
+                os.rmdir(locale)
+            except OSError:
+                pass
+        return RisultatoStage(allegato_id=s.allegato_id, sha256=sha, bytes=n, **dove).model_dump(mode="json")
+
+    def _carica(self, job: Job, allegato_id: str, percorso: str, n: int) -> None:
+        try:
+            self.api.carica_file(allegato_id, job.job_id, job.lease_token, self.worker_id, percorso)
+        except ErroreHTTP as e:
+            if e.tentativo_non_valido:
+                raise ArrestoRichiesto(f"upload rifiutato: {e.corpo[:200]}") from e
+            if e.stato == 413:
+                # il limite è del server (max_upload_mb) e ricaricare non cambia la dimensione del file
+                raise ErroreDefinitivo(f"allegato di {n} byte oltre il limite di upload del server: {e.corpo[:300]}") from e
+            if not e.ritentabile:
+                raise ErroreDefinitivo(f"upload non accettato dal server: {e}") from e
+            raise                                   # 5xx: il job fallisce senza «definitivo» e viene ritentato
+        log.info("allegato %s caricato al server (%d byte)", allegato_id, n)
 
     # ------------------------------------------------------------ sync
 

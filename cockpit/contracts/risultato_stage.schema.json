@@ -1,4 +1,5 @@
 {
+  "description": "Chiude un download. Il file è già stato caricato con PUT /api/v1/allegati/{id}/file dallo\nstesso tentativo (voce 2.3): il server lo promuove a definitivo solo se questo result è valido e\nlo sha256 coincide. Nessun path_staging: un percorso sul disco del worker non dice niente al\nserver, che può stare su un altro PC.",
   "properties": {
     "entry_id": {
       "default": "",
@@ -20,10 +21,6 @@
       "title": "Allegato Id",
       "type": "string"
     },
-    "path_staging": {
-      "title": "Path Staging",
-      "type": "string"
-    },
     "sha256": {
       "title": "Sha256",
       "type": "string"
@@ -35,7 +32,6 @@
   },
   "required": [
     "allegato_id",
-    "path_staging",
     "sha256",
     "bytes"
   ],

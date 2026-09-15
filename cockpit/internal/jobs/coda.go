@@ -210,6 +210,28 @@ func Rinvia(ctx context.Context, q *db.Queries, t Tentativo, fra time.Duration, 
 	return j, err
 }
 
+// Verifica dice se il tentativo vale ancora, senza bloccare la riga. È il controllo dell'upload
+// (voce 2.3): prima e dopo un trasferimento che non può stare dentro una transazione.
+func Verifica(ctx context.Context, q *db.Queries, t Tentativo) (db.Job, error) {
+	j, err := q.VerificaTentativo(ctx, db.VerificaTentativoParams{JobID: t.JobID, LeaseToken: t.token(), WorkerID: t.worker()})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return j, ErrTentativoNonValido
+	}
+	return j, err
+}
+
+// Blocca verifica il tentativo E blocca la riga del job fino alla fine della transazione: da qui al
+// commit nessun altro tentativo può diventare valido. È ciò che rende sicura la promozione di un
+// file da .parte a definitivo dentro il result (voce 2.3): la rinomina non si può annullare con un
+// rollback, quindi deve avvenire quando nessun altro può più vincere il job.
+func Blocca(ctx context.Context, q *db.Queries, t Tentativo) (db.Job, error) {
+	j, err := q.BloccaTentativo(ctx, db.BloccaTentativoParams{JobID: t.JobID, LeaseToken: t.token(), WorkerID: t.worker()})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return j, ErrTentativoNonValido
+	}
+	return j, err
+}
+
 // Batte rinnova il lease. Restituisce ErrTentativoNonValido se il tentativo non vale più: è il segnale
 // che il worker usa per fermare il lavoro in corso invece di portarlo a termine per niente.
 func Batte(ctx context.Context, q *db.Queries, t Tentativo) error {
@@ -257,6 +279,8 @@ type Scheduler struct {
 	Dal             time.Time
 	Lotto           int
 	RetentionGiorni int // 0 = nessuna cancellazione
+	// Staging: dove stanno i file caricati dai worker. Vuoto = nessuna pulizia dei .parte orfani.
+	Staging string
 }
 
 func (s *Scheduler) Avvia(ctx context.Context) {
@@ -281,6 +305,15 @@ func (s *Scheduler) Avvia(ctx context.Context) {
 		_, err := s.Q.EliminaSessioniScadute(ctx)
 		return err
 	})
+	if s.Staging != "" {
+		go s.loop(ctx, 15*time.Minute, "parti", func(ctx context.Context) error {
+			n, err := PulisciParti(ctx, s.Q, s.Staging, 10*time.Minute, s.Log)
+			if n > 0 {
+				s.Log.Info("file parziali orfani rimossi dallo staging", "n", n)
+			}
+			return err
+		})
+	}
 	if s.RetentionGiorni > 0 {
 		go s.loop(ctx, 6*time.Hour, "retention", func(ctx context.Context) error {
 			n, err := s.Q.EliminaJobVecchi(ctx, int32(s.RetentionGiorni))

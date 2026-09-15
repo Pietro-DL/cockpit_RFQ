@@ -6,6 +6,8 @@ test_worker_analisi.py.
 """
 from __future__ import annotations
 
+import hashlib
+import os
 from datetime import datetime, timezone
 
 import pytest
@@ -165,3 +167,91 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
 
         assert len(s.lotti) == 1, f"dopo un 409 il worker ha continuato a mandare ({len(s.lotti)} lotti)"
         assert 20 not in s.risultati, f"il worker ha riportato un risultato di un tentativo non più valido: {s.risultati.get(20)}"
+
+
+# ---------------------------------------------------------------- download di un allegato: upload al server (voce 2.3)
+
+
+class OutlookFintoAllegato:
+    """Sostituisce l'adattatore COM per il solo salva_allegato: scrive un file nella cartella chiesta."""
+
+    def __init__(self, contenuto: bytes):
+        self.contenuto = contenuto
+        self.salvati: list[str] = []
+
+    def salva_allegato(self, entry_id, store_id, indice, nome_file, cartella_staging, message_id=""):
+        os.makedirs(cartella_staging, exist_ok=True)
+        dest = os.path.join(cartella_staging, f"{indice:02d}_{nome_file}")
+        with open(dest, "wb") as f:
+            f.write(self.contenuto)
+        self.salvati.append(dest)
+        return dest, hashlib.sha256(self.contenuto).hexdigest(), len(self.contenuto), {"entry_id": entry_id, "cartella": "Posta in arrivo"}
+
+
+def _job_stage() -> dict:
+    return {
+        "job_id": 30, "tipo": "stage_allegato", "tentativi": 1, "lease_s": 120,
+        "lease_token": "tok-30", "durata_max_s": 600,
+        "payload": {
+            "allegato_id": "22222222-2222-2222-2222-222222222222", "entry_id": "E1", "store_id": "S",
+            "indice": 1, "nome_file": "disegno.pdf", "cartella": "abc123abc123", "message_id": "<m1@prova>",
+        },
+    }
+
+
+def test_lo_stage_carica_il_file_al_server_prima_del_result(tmp_path, monkeypatch):
+    """M7, lato worker: il file va al server con PUT, legato al tentativo, PRIMA del result; il result
+    porta sha256 e byte e nessun percorso locale; il file temporaneo non resta sul disco del worker."""
+    contenuto = b"%PDF-1.4 " + bytes(range(256)) * 40
+    with ServerFinto() as s:
+        s.metti_job(_job_stage())
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFintoAllegato(contenuto)
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+        assert s.eventi == ["upload", "result"], f"ordine delle chiamate: {s.eventi}"
+        assert len(s.caricamenti) == 1
+        c = s.caricamenti[0]
+        assert c["allegato_id"] == "22222222-2222-2222-2222-222222222222"
+        assert c["query"]["job_id"] == "30" and c["query"]["lease_token"] == "tok-30"
+        assert c["query"]["worker_id"].startswith("outlook@")
+        assert c["bytes"] == len(contenuto) and c["sha256"] == hashlib.sha256(contenuto).hexdigest()
+
+        r = s.risultati[30]
+        assert r["esito"] == "ok"
+        assert r["dati"]["sha256"] == c["sha256"] and r["dati"]["bytes"] == len(contenuto)
+        assert "path_staging" not in r["dati"], "il result dichiara ancora un percorso locale"
+        assert not os.path.exists(finto.salvati[0]), "il file temporaneo del worker non è stato rimosso"
+
+
+def test_un_413_sull_upload_e_un_errore_definitivo(tmp_path, monkeypatch):
+    """M8, lato worker: il limite è del server e ricaricare non rimpicciolisce il file."""
+    with ServerFinto() as s:
+        s.stato_upload = 413
+        s.metti_job(_job_stage())
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFintoAllegato(b"x" * 1000)
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+        r = s.risultati[30]
+        assert r["esito"] == "errore" and r["definitivo"] is True
+        assert "limite" in r["errore"]
+        assert not os.path.exists(finto.salvati[0])
+
+
+def test_un_409_sull_upload_non_riporta_niente(tmp_path, monkeypatch):
+    """M13, lato worker: se l'upload è rifiutato perché il tentativo non vale più, il job appartiene
+    a un altro tentativo e questo worker non deve riportare nulla."""
+    with ServerFinto() as s:
+        s.stato_upload = 409
+        s.metti_job(_job_stage())
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFintoAllegato(b"x" * 1000)
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+        assert 30 not in s.risultati, f"riportato un risultato con il tentativo non più valido: {s.risultati.get(30)}"
+        assert s.eventi == ["upload"]
+        assert not os.path.exists(finto.salvati[0])

@@ -38,6 +38,9 @@ type Server struct {
 	Templ  fs.FS            // web/templates
 	Static fs.FS            // web/static
 	pagine map[string]*template.Template
+	// IntervalloSync: ogni quanto lo scheduler accoda il sync (0 = mai). Serve solo a dirlo
+	// all'operatore nella schermata, con parole che corrispondono alla configurazione.
+	IntervalloSync time.Duration
 }
 
 type chiaveCtx int
@@ -326,6 +329,9 @@ func SeedUtenti(ctx context.Context, q *db.Queries, utenti []struct{ Sigla, Nome
 // ---------------------------------------------------------------- inbox (schermata A, versione minima)
 
 type inboxDati struct {
+	// Sync dice all'operatore se e ogni quanto il server accoda il sync: prima la schermata diceva
+	// «ogni minuto» qualunque fosse la configurazione, e con intervallo_sync_s = 0 era falso.
+	Sync     string
 	Filtro   string
 	Righe    []db.VInbox
 	Conta    db.ContaInboxRow
@@ -335,6 +341,14 @@ type inboxDati struct {
 	// ad allora resta la regola restrittiva di D12.
 	Caselle []db.Casella
 	Casella string
+}
+
+// descrizioneSync è la frase della schermata sullo stato della sincronizzazione automatica.
+func (s *Server) descrizioneSync() string {
+	if s.IntervalloSync <= 0 {
+		return "Sincronizzazione automatica disattivata (intervallo_sync_s = 0): nessun sync viene accodato; «Carica precedenti» resta disponibile."
+	}
+	return fmt.Sprintf("Il worker Outlook sincronizza ogni %d s.", int(s.IntervalloSync/time.Second))
 }
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +377,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	conta, _ := q.ContaInbox(r.Context(), scelta)
 	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
-		Caselle: caselle, Casella: grezzo}
+		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync()}
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
 }
 

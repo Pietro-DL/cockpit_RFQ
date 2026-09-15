@@ -93,7 +93,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.applicaRisultato(ctx, db.New(tx), &j, dati, &estrazione{}); err != nil {
+	if err := s.applicaRisultato(ctx, db.New(tx), &j, dati, nil); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("applica risultato: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRisultatoConConfigurazioneDiversaNonSiApplica(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer tx.Rollback(ctx)
-			err = s.applicaRisultato(ctx, db.New(tx), &j, dati, &estrazione{})
+			err = s.applicaRisultato(ctx, db.New(tx), &j, dati, nil)
 			if err == nil {
 				t.Fatalf("il risultato è stato applicato: doveva essere rifiutato (422, job fallito definitivo)")
 			}

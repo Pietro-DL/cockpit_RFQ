@@ -1,4 +1,4 @@
-// Package workerapi espone su loopback le rotte usate dai worker Python: coda job e ingest.
+// Package workerapi espone le rotte usate dai worker Python: coda job, ingest, upload degli allegati.
 // Autenticazione: header X-Cockpit-Token uguale a [server].token_worker.
 package workerapi
 
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/nas"
 )
 
 type Server struct {
@@ -40,6 +42,9 @@ type Server struct {
 	CasellaDefault string
 	// Analizzatore: versione e configurazione con cui si chiedono le analisi (voce 1.12).
 	Analizzatore jobs.Analizzatore
+	// MaxUpload: byte massimi di un singolo file caricato con PUT /api/v1/allegati/{id}/file
+	// (voce 2.3). Zero = 64 MB.
+	MaxUpload int64
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
@@ -47,6 +52,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/jobs/{id}/heartbeat", s.auth(s.heartbeat))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/result", s.auth(s.result))
 	mux.HandleFunc("POST /api/v1/ingest/messaggi", s.auth(s.ingest))
+	mux.HandleFunc("PUT /api/v1/allegati/{id}/file", s.auth(s.caricaFile))
 	mux.HandleFunc("GET /api/v1/sync/cursori", s.auth(s.cursori))
 }
 
@@ -184,10 +190,27 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		errore(w, 404, err)
 		return
 	}
-	est, err := s.estraiFuoriTransazione(ctx, &j, req)
-	if err != nil {
-		errore(w, 500, err)
-		return
+	var prep *stagePronto
+	if j.Tipo == db.TipoJobStageAllegato && req.Esito == "ok" {
+		// Prima il tentativo, poi il disco: un result di un tentativo scaduto è 409 qualunque cosa
+		// contenga (M13), e non vale la pena fare l'hash di un file che nessuno promuoverà. La
+		// verifica vera, con la riga bloccata, resta quella dentro la transazione.
+		if _, err := jobs.Verifica(ctx, db.New(s.Pool), t); err != nil {
+			if errors.Is(err, jobs.ErrTentativoNonValido) {
+				if parte := s.parteDi(ctx, db.New(s.Pool), id, allegatoDi(req.Dati), t.LeaseToken); parte != "" {
+					jobs.RimuoviParte(parte)
+				}
+				s.nonValido(w, ctx, id)
+				return
+			}
+			errore(w, 500, err)
+			return
+		}
+		prep, err = s.preparaStage(ctx, &j, t, req.Dati)
+		if err != nil {
+			s.risultatoNonApplicabile(w, ctx, &j, t, err, errors.Is(err, errHashDiverso))
+			return
+		}
 	}
 
 	tx, err := s.Pool.Begin(ctx)
@@ -197,6 +220,21 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
+	// Il tentativo si verifica e si blocca QUI, prima di ogni scrittura, non solo alla fine con
+	// Completa: la promozione di un file da .parte a definitivo è una rinomina sul disco, che il
+	// rollback non annulla. Con la riga bloccata nessun altro tentativo può diventare valido fra
+	// la rinomina e il commit (voce 2.3, M13).
+	if _, err := jobs.Blocca(ctx, q, t); err != nil {
+		if errors.Is(err, jobs.ErrTentativoNonValido) {
+			if prep != nil {
+				jobs.RimuoviParte(prep.parte)
+			}
+			s.nonValido(w, ctx, id)
+			return
+		}
+		errore(w, 500, err)
+		return
+	}
 
 	// --------------------------------------------------- il worker riporta un errore
 	if req.Esito != "ok" {
@@ -228,21 +266,9 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --------------------------------------------------- il worker riporta un successo
-	if err := s.applicaRisultato(ctx, q, &j, req.Dati, &est); err != nil {
-		// Il risultato non è applicabile: il contenuto è sbagliato, non la rete. Ritentarlo darebbe lo
-		// stesso esito all'infinito. Si annulla la transazione e si chiude il job in una nuova (N6):
-		// senza questo il job restava «in corso» fino alla scadenza del lease, e l'operatore non
-		// vedeva nessun motivo.
+	if err := s.applicaRisultato(ctx, q, &j, req.Dati, prep); err != nil {
 		_ = tx.Rollback(ctx)
-		motivo := fmt.Sprintf("risultato %s non applicabile: %v", j.Tipo, err)
-		fuori := db.New(s.Pool)
-		if _, e := jobs.Fallisci(ctx, fuori, t, motivo, true); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
-			s.Log.Error("fallimento dopo 422 non registrato", "job", id, "err", e)
-		} else if e == nil {
-			s.fallimentoDefinitivo(ctx, fuori, &j, motivo)
-		}
-		s.Log.Warn("risultato non applicabile", "job", id, "tipo", j.Tipo, "err", err)
-		errore(w, 422, errors.New(motivo))
+		s.risultatoNonApplicabile(w, ctx, &j, t, err, false)
 		return
 	}
 	dati := req.Dati
@@ -265,6 +291,32 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("job fatto", "job", id, "tipo", j.Tipo)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// allegatoDi legge il solo allegato_id da un RisultatoStage grezzo; uuid zero se non c'è.
+func allegatoDi(dati json.RawMessage) uuid.UUID {
+	var r struct {
+		AllegatoID uuid.UUID `json:"allegato_id"`
+	}
+	_ = json.Unmarshal(dati, &r)
+	return r.AllegatoID
+}
+
+// risultatoNonApplicabile chiude un result il cui contenuto è sbagliato: non la rete, il contenuto.
+// Ritentarlo darebbe lo stesso esito all'infinito, quindi il job fallisce in modo definitivo in una
+// transazione nuova (N6): senza, restava «in corso» fino alla scadenza del lease e l'operatore non
+// vedeva nessun motivo. `ritentabile` è l'eccezione per l'hash che non torna (voce 2.3): un file
+// corrotto nel trasferimento si ricarica, non si dichiara perso.
+func (s *Server) risultatoNonApplicabile(w http.ResponseWriter, ctx context.Context, j *db.Job, t jobs.Tentativo, err error, ritentabile bool) {
+	motivo := fmt.Sprintf("risultato %s non applicabile: %v", j.Tipo, err)
+	fuori := db.New(s.Pool)
+	if _, e := jobs.Fallisci(ctx, fuori, t, motivo, !ritentabile); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
+		s.Log.Error("fallimento dopo 422 non registrato", "job", j.JobID, "err", e)
+	} else if e == nil && !ritentabile {
+		s.fallimentoDefinitivo(ctx, fuori, j, motivo)
+	}
+	s.Log.Warn("risultato non applicabile", "job", j.JobID, "tipo", j.Tipo, "ritentabile", ritentabile, "err", err)
+	errore(w, 422, errors.New(motivo))
 }
 
 // fallimentoDefinitivo scrive gli effetti di un errore non recuperabile sull'entità del job.
@@ -307,36 +359,71 @@ type estrazione struct {
 	errore   error           // zip illeggibile: l'allegato va in errore, il job no
 }
 
-// estraiFuoriTransazione riconosce il solo caso che richiede lavoro su disco — un allegato .zip appena
-// messo in staging — e lo svolge. Per tutti gli altri risultati non fa niente.
-func (s *Server) estraiFuoriTransazione(ctx context.Context, j *db.Job, req api.RisultatoRichiesta) (estrazione, error) {
-	var est estrazione
-	if j.Tipo != db.TipoJobStageAllegato || req.Esito != "ok" {
-		return est, nil
+// stagePronto è tutto ciò che il result di un download ha bisogno di sapere e che si calcola PRIMA
+// della transazione: dove sta il file caricato dal tentativo, dove deve finire, l'hash verificato,
+// l'eventuale estrazione dello zip.
+type stagePronto struct {
+	r          api.RisultatoStage
+	p          api.PayloadStageAllegato
+	a          db.Allegato
+	definitivo string // dove il file sta una volta promosso
+	parte      string // <definitivo>.parte.<lease_token>: dove il tentativo ha caricato
+	est        estrazione
+}
+
+// errHashDiverso: il file caricato non ha lo sha256 che il worker dichiara. Non è un contenuto
+// sbagliato ma un trasferimento andato male: il job torna in coda e si ricarica.
+var errHashDiverso = errors.New("sha256 del file caricato diverso da quello dichiarato")
+
+// preparaStage fa il lavoro su disco del result di un download (voce 2.3), fuori dalla transazione:
+// trova il .parte.<token> di questo tentativo, ne verifica lo sha256, estrae lo zip se è uno zip.
+// Un errore qui è un result non applicabile (422); l'unico ritentabile è l'hash che non torna.
+//
+// Estrarre e verificare l'hash dentro la transazione era il difetto della voce 1.4: un archivio da
+// qualche centinaio di megabyte teneva bloccata la riga del job per tutto il tempo dell'I/O. Qui la
+// transazione arriva dopo, e contiene solo la rinomina e le scritture in database.
+func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, dati json.RawMessage) (*stagePronto, error) {
+	var pr stagePronto
+	if err := json.Unmarshal(dati, &pr.r); err != nil {
+		return nil, err
 	}
-	var r api.RisultatoStage
-	if err := json.Unmarshal(req.Dati, &r); err != nil || r.PathStaging == "" {
-		return est, nil // il risultato è malformato: lo dirà applicaRisultato, con il suo 422
+	if pr.r.Sha256 == "" {
+		return nil, errors.New("sha256 obbligatorio")
 	}
 	q := db.New(s.Pool)
-	a, err := q.GetAllegato(ctx, r.AllegatoID)
+	p, a, err := s.stageDelJob(ctx, q, j, pr.r.AllegatoID)
 	if err != nil {
-		return est, nil // idem: l'errore va riportato dove si applica il risultato, non qui
+		return nil, err
 	}
-	if strings.ToLower(a.Estensione.String) != "zip" {
-		return est, nil
+	pr.p, pr.a = p, a
+	pr.definitivo, pr.parte, err = jobs.PercorsiStaging(s.Staging, p, a, t.LeaseToken)
+	if err != nil {
+		return nil, err
 	}
-	dest := filepath.Join(filepath.Dir(r.PathStaging), fmt.Sprintf("%02d_zip", a.Indice))
-	voci, err := archivio.Estrai(r.PathStaging, dest)
-	est.fatta = true
-	est.voci = voci
-	switch {
-	case errors.Is(err, archivio.ErrLimite):
-		est.troncato = true
-	case err != nil:
-		est.errore = err
+	if _, err := os.Stat(pr.parte); err != nil {
+		return nil, fmt.Errorf("nessun file caricato da questo tentativo per l'allegato %s: il worker deve fare PUT /api/v1/allegati/{id}/file prima del result", a.AllegatoID)
 	}
-	return est, nil
+	h, n, err := nas.Sha256File(pr.parte)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(h, pr.r.Sha256) || n != pr.r.Bytes {
+		jobs.RimuoviParte(pr.parte)
+		return nil, fmt.Errorf("%w: caricato %.12s (%d byte), dichiarato %.12s (%d byte)", errHashDiverso, h, n, strings.ToLower(pr.r.Sha256), pr.r.Bytes)
+	}
+	if strings.ToLower(a.Estensione.String) == "zip" {
+		dest := filepath.Join(filepath.Dir(pr.definitivo), fmt.Sprintf("%02d_zip", a.Indice))
+		voci, err := archivio.Estrai(pr.parte, dest)
+		pr.est.fatta = true
+		pr.est.voci = voci
+		switch {
+		case errors.Is(err, archivio.ErrLimite):
+			pr.est.troncato = true
+		case err != nil:
+			pr.est.errore = err
+		}
+	}
+	return &pr, nil
 }
 
 // enumValido converte una stringa del contratto in un valore dell'enum del database, rifiutando ciò
@@ -362,8 +449,9 @@ func enumValido[T interface {
 	return e, nil
 }
 
-// applicaRisultato scrive nel DB gli effetti di un job riuscito.
-func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, est *estrazione) error {
+// applicaRisultato scrive nel DB gli effetti di un job riuscito. `prep` è valorizzato solo per un
+// download di allegato, ed è stato calcolato fuori dalla transazione.
+func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, prep *stagePronto) error {
 	switch j.Tipo {
 	case db.TipoJobSyncOutlook:
 		var r api.RisultatoSync
@@ -399,24 +487,20 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		return nil
 
 	case db.TipoJobStageAllegato:
-		var r api.RisultatoStage
-		if err := json.Unmarshal(dati, &r); err != nil {
+		if prep == nil {
+			return errors.New("download senza preparazione: il file non è stato verificato")
+		}
+		// da qui in poi il file è dell'allegato: la riga del job è bloccata (Blocca), quindi nessun
+		// altro tentativo può promuovere il suo nel frattempo
+		if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
 			return err
 		}
-		if r.Sha256 == "" || r.PathStaging == "" {
-			return errors.New("sha256 e path_staging obbligatori")
-		}
-		if !filepath.IsAbs(r.PathStaging) || !strings.HasPrefix(strings.ToLower(filepath.Clean(r.PathStaging)), strings.ToLower(filepath.Clean(s.Staging))) {
-			return fmt.Errorf("path_staging fuori dalla cartella di staging: %s", r.PathStaging)
-		}
-		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: r.AllegatoID, PathStaging: txt(r.PathStaging), Sha256: txt(r.Sha256), Bytes: pgtype.Int8{Int64: r.Bytes, Valid: true}}); err != nil {
+		r := prep.r
+		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: r.AllegatoID, PathStaging: txt(prep.definitivo), Sha256: txt(strings.ToLower(r.Sha256)), Bytes: pgtype.Int8{Int64: r.Bytes, Valid: true}}); err != nil {
 			return err
 		}
-		var p api.PayloadStageAllegato
-		if json.Unmarshal(j.Payload, &p) == nil {
-			s.riallineaEntryID(ctx, q, p.RiferimentoElemento, p.EntryID, r.RisultatoElemento)
-		}
-		return s.dopoStaging(ctx, q, r, est)
+		s.riallineaEntryID(ctx, q, prep.p.RiferimentoElemento, prep.p.EntryID, r.RisultatoElemento)
+		return s.dopoStaging(ctx, q, r, &prep.est)
 
 	case db.TipoJobAnalizzaAllegato:
 		var r api.RisultatoAnalisi

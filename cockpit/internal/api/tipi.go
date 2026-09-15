@@ -212,11 +212,16 @@ type PayloadStageAllegato struct {
 	RiferimentoElemento
 }
 
+// RisultatoStage chiude un download. Il FILE non viaggia qui: il worker lo ha già caricato con
+// PUT /api/v1/allegati/{id}/file, legato allo stesso tentativo (voce 2.3, D8), e il server lo tiene
+// come .parte.<lease_token> finché questo result — valido — non lo promuove a definitivo dopo aver
+// verificato lo sha256. Non c'è più un path_staging dichiarato dal worker: un percorso sul disco di
+// un altro PC non dice niente al server, e un worker sullo stesso PC non ha motivo di essere un caso
+// a parte.
 type RisultatoStage struct {
-	AllegatoID  uuid.UUID `json:"allegato_id"`
-	PathStaging string    `json:"path_staging"`
-	Sha256      string    `json:"sha256"`
-	Bytes       int64     `json:"bytes"`
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	Sha256     string    `json:"sha256"`
+	Bytes      int64     `json:"bytes"`
 	RisultatoElemento
 }
 

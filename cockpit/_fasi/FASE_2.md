@@ -5,9 +5,9 @@ verificato**. Come per [FASE_0.md](FASE_0.md) e [FASE_1.md](FASE_1.md), la docum
 completa (piani, decisioni aperte, registri degli esiti, richieste all'IT) vive fuori da questo
 repository.
 
-**Stato: in corso.** Di questa fase è chiusa la sola **voce 2.1**. Le voci successive (upload degli
-allegati legato al tentativo, claim per postazione, risoluzione dello store locale, TLS e credenziali
-individuali) non sono state fatte e sono elencate in fondo.
+**Stato: in corso.** Di questa fase sono chiuse le voci **2.1** e **2.3**. Le voci successive (claim per
+postazione, risoluzione dello store locale, postazione della sessione, TLS e credenziali individuali)
+non sono state fatte e sono elencate in fondo.
 
 ## Perimetro
 
@@ -78,6 +78,50 @@ parte con più di una. Se la `0004` non riesce a dire con certezza di **chi** so
 di assegnarle a caso e dice che cosa fare: una presenza attribuita alla casella sbagliata è un EntryID
 che non apre niente, e non lo scoprirebbe nessuno fino al primo clic su «Apri in Outlook».
 
+## 2.3 — l'allegato viaggia dentro il tentativo (`PUT /api/v1/allegati/{id}/file`)
+
+### Il problema
+
+Fino alla fase 1 il worker salvava l'allegato **direttamente nella cartella di staging del server** e
+nel result ne dichiarava il percorso. Funzionava per un motivo solo: worker e server erano sullo stesso
+PC. Con il worker su un'altra postazione quel percorso è su un altro disco, e il server non ha niente
+in mano. E c'era un secondo difetto, meno visibile (N45): il file arrivava sul disco **prima** che il
+server verificasse il tentativo. Un tentativo scaduto a metà download, che finiva di scrivere in
+ritardo, poteva sovrascrivere il file appena consegnato dal tentativo che gli era subentrato — e il
+result di quest'ultimo avrebbe dichiarato un hash che sul disco non c'era più.
+
+### Che cosa cambia
+
+| | Prima | Ora |
+|---|---|---|
+| dove scrive il worker | nello staging del server, per percorso | in una cartella temporanea propria, poi `PUT` al server |
+| che cosa porta il result | `path_staging`, `sha256`, `bytes` | `sha256`, `bytes`: il file c'è già, legato al tentativo |
+| nome sul disco | deciso dal worker | deciso dal server: `<indice>_<nome>` sotto la cartella del messaggio |
+| chi consegna il file | l'upload | **il result valido dello stesso tentativo**, dopo aver verificato lo sha256 |
+| limite | nessuno | `[server].max_upload_mb` (64): `413` prima di leggere il corpo, allegato in errore con il motivo |
+
+Il `PUT` porta `job_id`, `lease_token` e `worker_id`. Il server verifica il tentativo **prima** di
+scrivere un byte e **di nuovo** dopo l'ultimo, senza tenere una transazione aperta nel mezzo (un
+trasferimento dura quanto dura). Il file va in `<definitivo>.parte.<lease_token>`: il token nel nome
+non è un dettaglio, è ciò che tiene separati i file di due tentativi dello stesso job. A diventare
+definitivo — rinomina atomica — è solo il file del result che passa il predicato di validità con la
+riga del job **bloccata**, così nessun altro tentativo può diventare valido fra la rinomina e il
+commit. Un tentativo scaduto durante il trasferimento riceve `409` e il suo `.parte` viene rimosso; il
+suo result tardivo riceve `409` prima ancora che il server guardi il disco (M13).
+
+Lo sha256 del file ricevuto si confronta con quello dichiarato dal worker **fuori** dalla transazione,
+come l'estrazione degli zip (voce 1.4). Un hash che non torna non è un contenuto sbagliato ma un
+trasferimento andato male: il job torna in coda invece di fallire per sempre, e il file sparisce.
+
+I `.parte.<token>` dei tentativi che non esistono più (upload interrotti, result mai arrivati) li
+rimuove lo scheduler ogni quarto d'ora, lasciando stare quelli dei tentativi in corso qualunque età
+abbiano e quelli più giovani di dieci minuti (N8, parte).
+
+### Che cosa NON cambia
+
+Il worker continua a salvare l'allegato da Outlook con `SaveAsFile` e a calcolarne lo sha256 in locale:
+la parte COM è identica. Cambia solo dove il file va dopo, e chi decide che è arrivato.
+
 ## Come verificare
 
 ```powershell
@@ -93,10 +137,11 @@ un'ottimizzazione, è una condizione di correttezza.
 
 | Livello | Copertura di questa voce | Stato |
 |---|---|---|
-| L1 unitari Go | triage di una mail interna, verifica statica della `0004` | eseguiti |
-| L3 contratti | `MessaggioIn.ricevuto_il` e `RiferimentoElemento.casella_id` sui due lati | eseguiti |
-| L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle | eseguiti |
-| L5–L9 | due caselle vere in Outlook, casella condivisa Exchange, due postazioni | **non eseguiti** |
+| L1 unitari Go | triage di una mail interna, verifica statica della `0004`; nome nello staging e cartelle rifiutate (2.3) | eseguiti |
+| L2 worker Python | lo stage carica con `PUT` prima del result; `413` → errore definitivo; `409` → nessun result | eseguiti |
+| L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging` sui due lati | eseguiti |
+| L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**, hash diverso, result senza upload, pulizia dei `.parte` orfani | eseguiti |
+| L5–L9 | due caselle vere in Outlook, casella condivisa Exchange, due postazioni (anche l'upload fra due PC) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -128,6 +173,13 @@ postazione del richiedente con le **voci 2.2 e 2.7**.
 che cosa è la voce 2.2 (`puoVedere`), e fino ad allora vale la regola restrittiva di D12: l'aggancio a
 una RFQ non amplia la visibilità della posta personale.
 
+**Il worker di analisi e le bozze leggono ancora lo staging del server.** La voce 2.3 porta al server
+il file *scaricato da Outlook*; il worker di analisi riceve ancora `path_staging` e lo apre dal disco,
+e una bozza con allegati riceve percorsi assoluti. Finché non hanno una via di ritorno (un `GET` del
+file), il worker di analisi va sullo stesso PC del server e le bozze con allegati richiedono che il
+worker Outlook veda lo staging del server. È un limite dichiarato, non un difetto nascosto: il caso
+d'uso della 2.3 è il worker Outlook su un'altra postazione, e quello è coperto.
+
 **`parent_messaggio_id` resta.** Il piano lo elimina insieme alle occorrenze (fase 3, §3.5), e il test
 S2 lo dice esplicitamente per la `0005`. Toglierlo adesso cancellerebbe l'unico legame fra un messaggio
 annidato e il suo contenitore senza avere ancora ciò che lo sostituisce. Per questo la regola
@@ -136,9 +188,6 @@ dichiarato — un messaggio ricevuto non sparisce perché arriva anche come alle
 
 ## Che cosa resta aperto in questa fase
 
-- **2.3** upload degli allegati al server legato al tentativo (`PUT /api/v1/allegati/{id}/file` con
-  `job_id` e `lease_token`, file `.parte.<token>`, `max_upload_mb`) — test M7, M8, M13. È ciò che
-  permette al worker di stare su un PC diverso dal server.
 - **2.2 + 2.6 + 2.7** claim con postazione e caselle intersecate con `worker_credenziale`,
   `casella_store` risolto nello store locale, job interattivi alla postazione del richiedente senza
   ripieghi, postazione della sessione UI — test Q8, Q18, M1–M4, M9, M10, M12, W14.

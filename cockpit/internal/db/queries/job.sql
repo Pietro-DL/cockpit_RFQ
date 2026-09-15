@@ -54,6 +54,22 @@ WHERE job_id = sqlc.arg(job_id)
   AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
 FOR UPDATE;
 
+-- name: VerificaTentativo :one
+-- Il predicato di validità SENZA blocco della riga: serve all'upload di un file (voce 2.3), che dura
+-- quanto un trasferimento e non può tenere una transazione aperta. Si verifica prima di cominciare a
+-- scrivere e di nuovo alla fine: un tentativo scaduto a metà trasferimento riceve 409 e il suo
+-- .parte.<token> viene rimosso. Non promuove nulla: la promozione a definitivo la fa solo il result,
+-- dentro la transazione, con BloccaTentativo.
+SELECT * FROM job
+WHERE job_id = sqlc.arg(job_id)
+  AND stato = 'in_corso' AND lease_token = sqlc.arg(lease_token) AND worker_id = sqlc.arg(worker_id)
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s);
+
+-- name: ListLeaseTokenInCorso :many
+-- I token dei tentativi vivi: un file .parte.<token> il cui token non è qui appartiene a un tentativo
+-- che non esiste più e va rimosso dallo scheduler (voce 2.3, N8).
+SELECT lease_token FROM job WHERE stato = 'in_corso' AND lease_token IS NOT NULL;
+
 -- name: GetJob :one
 SELECT * FROM job WHERE job_id = $1;
 

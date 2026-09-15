@@ -51,6 +51,11 @@ type Server struct {
 	TokenWorker     string `toml:"token_worker"`     // condiviso con i worker Python (header X-Cockpit-Token)
 	SegretoSessione string `toml:"segreto_sessione"` // riservato a usi futuri (firma cookie); le sessioni vivono nel DB
 	LogLivello      string `toml:"log_livello"`      // debug | info | warn
+	// MaxUploadMB è il limite di un singolo allegato caricato dal worker con
+	// PUT /api/v1/allegati/{id}/file (voce 2.3). Oltre, il server risponde 413 prima di leggere il
+	// corpo e l'allegato va in errore con il motivo visibile; senza un limite un allegato da qualche
+	// gigabyte riempirebbe lo staging del server in silenzio. Zero = il default (64).
+	MaxUploadMB int `toml:"max_upload_mb"`
 }
 
 type DB struct {
@@ -116,6 +121,7 @@ func Carica(percorso string) (*Config, error) {
 	c := &Config{}
 	c.Server.Indirizzo = "127.0.0.1:8080"
 	c.Server.LogLivello = "info"
+	c.Server.MaxUploadMB = 64
 	c.Outlook.Cartelle = []string{"Inbox", "Sent Items"}
 	c.Outlook.IntervalloSyncS = 60
 	c.Outlook.Lotto = 50
@@ -129,6 +135,9 @@ func Carica(percorso string) (*Config, error) {
 	}
 	if c.Server.TokenWorker == "" {
 		return nil, fmt.Errorf("config: [server].token_worker mancante")
+	}
+	if c.Server.MaxUploadMB < 1 {
+		return nil, fmt.Errorf("config: [server].max_upload_mb = %d non valido (almeno 1)", c.Server.MaxUploadMB)
 	}
 	if c.NAS.Staging == "" {
 		c.NAS.Staging = filepath.Join(filepath.Dir(percorso), "staging")

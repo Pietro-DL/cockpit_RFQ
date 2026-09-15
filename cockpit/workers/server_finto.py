@@ -11,8 +11,10 @@ invia, che cosa riporta, come si comporta quando una risposta è 409, 503 o non 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
+from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -29,6 +31,9 @@ class ServerFinto:
         self.stato_heartbeat = 204             # forzabile a 409 per simulare il lease perso
         self.stato_ingest = 200                # forzabile a 503 per simulare il server occupato
         self.stato_result = 204
+        self.stato_upload = 204                # forzabile a 409 / 413 per provare l'upload (voce 2.3)
+        self.caricamenti: list[dict] = []      # ogni PUT /allegati/{id}/file: id, query, bytes, sha256
+        self.eventi: list[str] = []            # ordine delle chiamate che contano: "upload", "result"
         self.risposta_ingest: dict | None = None
         self.non_autorizzati = 0
         self._srv: ThreadingHTTPServer | None = None
@@ -82,6 +87,7 @@ class ServerFinto:
                 elif percorso.endswith("/result"):
                     with padrone.lock:
                         padrone.risultati[int(percorso.split("/")[-2])] = corpo
+                        padrone.eventi.append("result")
                         stato = padrone.stato_result
                     self._rispondi(stato) if stato == 204 else self._rispondi(stato, {"errore": "result rifiutato"})
                 elif percorso == "/api/v1/ingest/messaggi":
@@ -95,6 +101,46 @@ class ServerFinto:
                         self._rispondi(200, risposta or {"inseriti": len(corpo.get("messaggi", [])), "aggiornati": 0, "falliti": 0, "esiti": []})
                 else:
                     self._rispondi(404, {"errore": "rotta sconosciuta: " + percorso})
+
+            def do_PUT(self):  # noqa: N802
+                """PUT /api/v1/allegati/{id}/file?job_id=&lease_token=&worker_id= (voce 2.3): registra
+                che cosa il worker ha caricato e con quale tentativo. Il corpo si legge tutto, come
+                fa il server vero, e se ne calcola lo sha256 per confrontarlo con il result."""
+                if self.headers.get("X-Cockpit-Token") != padrone.token:
+                    with padrone.lock:
+                        padrone.non_autorizzati += 1
+                    self._rispondi(401, {"errore": "token worker non valido"})
+                    return
+                parti = urlsplit(self.path)
+                pezzi = parti.path.split("/")
+                if not (parti.path.startswith("/api/v1/allegati/") and parti.path.endswith("/file")):
+                    self._rispondi(404, {"errore": "rotta sconosciuta: " + self.path})
+                    return
+                n = int(self.headers.get("Content-Length") or 0)
+                h = hashlib.sha256()
+                letti = 0
+                while letti < n:
+                    blocco = self.rfile.read(min(1 << 16, n - letti))
+                    if not blocco:
+                        break
+                    h.update(blocco)
+                    letti += len(blocco)
+                with padrone.lock:
+                    padrone.caricamenti.append({
+                        "allegato_id": pezzi[4],
+                        "query": {k: v[0] for k, v in parse_qs(parti.query).items()},
+                        "bytes": letti, "sha256": h.hexdigest(),
+                    })
+                    padrone.eventi.append("upload")
+                    stato = padrone.stato_upload
+                if stato == 204:
+                    self._rispondi(204)
+                elif stato == 413:
+                    self._rispondi(413, {"errore": "file oltre il limite di upload di 64 MB (max_upload_mb)"})
+                elif stato == 409:
+                    self._rispondi(409, {"errore": "tentativo non più valido (lease perso o job ripreso da un altro tentativo)"})
+                else:
+                    self._rispondi(stato, {"errore": "upload rifiutato"})
 
         self._srv = ThreadingHTTPServer(("127.0.0.1", 0), Gestore)
         self._thread = threading.Thread(target=self._srv.serve_forever, daemon=True)

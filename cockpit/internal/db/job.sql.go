@@ -583,6 +583,32 @@ func (q *Queries) ListJob(ctx context.Context, arg ListJobParams) ([]Job, error)
 	return items, nil
 }
 
+const listLeaseTokenInCorso = `-- name: ListLeaseTokenInCorso :many
+SELECT lease_token FROM job WHERE stato = 'in_corso' AND lease_token IS NOT NULL
+`
+
+// I token dei tentativi vivi: un file .parte.<token> il cui token non è qui appartiene a un tentativo
+// che non esiste più e va rimosso dallo scheduler (voce 2.3, N8).
+func (q *Queries) ListLeaseTokenInCorso(ctx context.Context) ([]uuid.NullUUID, error) {
+	rows, err := q.db.Query(ctx, listLeaseTokenInCorso)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.NullUUID{}
+	for rows.Next() {
+		var lease_token uuid.NullUUID
+		if err := rows.Scan(&lease_token); err != nil {
+			return nil, err
+		}
+		items = append(items, lease_token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkerPresenza = `-- name: ListWorkerPresenza :many
 SELECT worker_tipo, worker_id, ultimo_claim, ultimo_job_il FROM worker_presenza ORDER BY worker_tipo
 `
@@ -850,4 +876,55 @@ type UpsertWorkerPresenzaParams struct {
 func (q *Queries) UpsertWorkerPresenza(ctx context.Context, arg UpsertWorkerPresenzaParams) error {
 	_, err := q.db.Exec(ctx, upsertWorkerPresenza, arg.WorkerTipo, arg.WorkerID, arg.ConJob)
 	return err
+}
+
+const verificaTentativo = `-- name: VerificaTentativo :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job
+WHERE job_id = $1
+  AND stato = 'in_corso' AND lease_token = $2 AND worker_id = $3
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+`
+
+type VerificaTentativoParams struct {
+	JobID      int64         `json:"job_id"`
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
+}
+
+// Il predicato di validità SENZA blocco della riga: serve all'upload di un file (voce 2.3), che dura
+// quanto un trasferimento e non può tenere una transazione aperta. Si verifica prima di cominciare a
+// scrivere e di nuovo alla fine: un tentativo scaduto a metà trasferimento riceve 409 e il suo
+// .parte.<token> viene rimosso. Non promuove nulla: la promozione a definitivo la fa solo il result,
+// dentro la transazione, con BloccaTentativo.
+func (q *Queries) VerificaTentativo(ctx context.Context, arg VerificaTentativoParams) (Job, error) {
+	row := q.db.QueryRow(ctx, verificaTentativo, arg.JobID, arg.LeaseToken, arg.WorkerID)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
 }

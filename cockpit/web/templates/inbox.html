@@ -30,7 +30,7 @@
 {{end}}
 
 {{define "inbox_lista"}}
-{{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}. Il worker Outlook sincronizza ogni minuto.</p>{{end}}
+{{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}. {{.Dati.Sync}}</p>{{end}}
 {{range .Dati.Righe}}
 <a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
    href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&sel={{.MessaggioID}}">

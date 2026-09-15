@@ -212,8 +212,12 @@ class PayloadStageAllegato(RiferimentoElemento):
 
 
 class RisultatoStage(RisultatoElemento):
+    """Chiude un download. Il file è già stato caricato con PUT /api/v1/allegati/{id}/file dallo
+    stesso tentativo (voce 2.3): il server lo promuove a definitivo solo se questo result è valido e
+    lo sha256 coincide. Nessun path_staging: un percorso sul disco del worker non dice niente al
+    server, che può stare su un altro PC."""
+
     allegato_id: UUID
-    path_staging: str
     sha256: str
     bytes: int
 

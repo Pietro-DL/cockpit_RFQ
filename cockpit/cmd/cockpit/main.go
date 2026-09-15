@@ -106,26 +106,33 @@ func run(cfgPath string, soloMigrazioni bool) error {
 			dal = d
 		}
 	}
+	staging, _ := filepath.Abs(cfg.NAS.Staging)
+	intervalloSync := time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second
+	if intervalloSync <= 0 {
+		log.Warn("sincronizzazione automatica disattivata: nessun sync viene accodato finché intervallo_sync_s resta 0")
+	}
 	(&jobs.Scheduler{
 		Q: q, Log: log, Cartelle: cfg.Outlook.Cartelle,
-		IntervalloSync: time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second,
+		IntervalloSync: intervalloSync,
 		Dal:            dal, Lotto: cfg.Outlook.Lotto,
 		RetentionGiorni: cfg.Retention.GiorniJob,
+		Staging:         staging,
 	}).Avvia(ctx)
 	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log}).Avvia(ctx)
 
 	templ, _ := fs.Sub(risorse.FS, "web/templates")
 	static, _ := fs.Sub(risorse.FS, "web/static")
 	servizioIngest := &ingest.Servizio{Pool: pool, Log: log}
-	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static}
+	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
+		IntervalloSync: intervalloSync}
 	if err := ws.Init(); err != nil {
 		return err
 	}
-	staging, _ := filepath.Abs(cfg.NAS.Staging)
 	wa := &workerapi.Server{
 		Pool: pool, Log: log, Token: cfg.Server.TokenWorker, Ingest: servizioIngest,
 		Staging: staging, CasellaDefault: cfg.Outlook.CasellaDefault,
 		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
+		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
 	}
 
 	mux := http.NewServeMux()
@@ -139,7 +146,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		defer c()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("cockpit in ascolto", "indirizzo", "http://"+cfg.Server.Indirizzo, "staging", staging)
+	log.Info("cockpit in ascolto", "indirizzo", "http://"+cfg.Server.Indirizzo, "staging", staging, "max_upload_mb", cfg.Server.MaxUploadMB)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

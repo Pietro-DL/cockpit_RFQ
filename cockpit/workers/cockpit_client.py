@@ -21,6 +21,7 @@ import sys
 import threading
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 
 log = logging.getLogger("cockpit")
@@ -121,6 +122,36 @@ class Cockpit:
 
     def ingest(self, richiesta: dict, timeout: int = 300) -> dict:
         return self.chiama("POST", "/api/v1/ingest/messaggi", richiesta, timeout=timeout)
+
+    # ------------------------------------------------------------ upload (voce 2.3)
+
+    def carica_file(self, allegato_id: str, job_id: int, lease_token: str, worker_id: str, percorso: str,
+                    timeout: int = 900) -> None:
+        """PUT /api/v1/allegati/{id}/file: il file scaricato da Outlook va al server, legato al tentativo.
+
+        Il server lo tiene come .parte.<lease_token> e lo promuove ad allegato solo con il result
+        valido dello stesso tentativo. Quindi: 409 = il tentativo non vale più, fermarsi e non riportare
+        niente; 413 = oltre max_upload_mb, errore definitivo (ricaricare non lo rimpicciolisce);
+        5xx = trasferimento interrotto, si ripete tale e quale.
+
+        Il corpo è il file letto a blocchi: non si carica tutto in memoria, e Content-Length è
+        dichiarato così il server può rifiutare un file troppo grande prima di riceverlo.
+        """
+        n = os.path.getsize(percorso)
+        percorso_api = f"/api/v1/allegati/{allegato_id}/file?" + urllib.parse.urlencode(
+            {"job_id": str(job_id), "lease_token": lease_token, "worker_id": worker_id or self.worker_id})
+        with open(percorso, "rb") as f:
+            req = urllib.request.Request(
+                self.url + percorso_api, data=f, method="PUT",
+                headers={"Content-Type": "application/octet-stream", "Content-Length": str(n),
+                         "X-Cockpit-Token": self.token},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout):
+                    return None
+            except urllib.error.HTTPError as e:
+                testo = e.read().decode("utf-8", "ignore")
+                raise ErroreHTTP("PUT", percorso_api, e.code, testo) from None
 
 
 class Battito:
