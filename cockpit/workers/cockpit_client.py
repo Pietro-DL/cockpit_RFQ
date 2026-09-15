@@ -97,13 +97,21 @@ class Cockpit:
 
     # ------------------------------------------------------------ coda
 
-    def claim(self, worker: str, worker_id: str, attesa_s: int = 20) -> dict | None:
-        return self.chiama(
-            "POST",
-            "/api/v1/jobs/claim",
-            {"worker": worker, "worker_id": worker_id, "attesa_s": attesa_s},
-            timeout=attesa_s + 15,
-        )
+    def claim(self, worker: str, worker_id: str, attesa_s: int = 20, extra: dict | None = None) -> dict | None:
+        """POST /api/v1/jobs/claim. `extra` porta ciò che la voce 2.2 aggiunge alla richiesta:
+        postazione, outlook_ok, caselle_aperte, ultimo_arresto. Il server interseca le caselle
+        con la credenziale del worker e assegna solo job che questo worker può eseguire."""
+        corpo = {"worker": worker, "worker_id": worker_id, "attesa_s": attesa_s}
+        if extra:
+            corpo.update(extra)
+        return self.chiama("POST", "/api/v1/jobs/claim", corpo, timeout=attesa_s + 15)
+
+    def caselle_worker(self, worker_id: str) -> list[dict]:
+        """GET /api/v1/worker/caselle: le caselle censite che QUESTO worker deve risolvere nel
+        proprio profilo Outlook (voce 2.6). È l'elenco da cui il worker parte: uno store del profilo
+        che non è qui non viene aperto né censito."""
+        r = self.chiama("GET", "/api/v1/worker/caselle?" + urllib.parse.urlencode({"worker_id": worker_id}))
+        return list(r or [])
 
     def heartbeat(self, job_id: int, worker_id: str, lease_token: str) -> None:
         self.chiama(
@@ -188,6 +196,9 @@ class Battito:
         # os._exit e non sys.exit: sys.exit alza un'eccezione nel thread del battito, dove non serve a
         # niente, e comunque l'interprete aspetterebbe il thread bloccato in COM. Qui si deve uscire.
         self.uscita = uscita or (lambda codice: os._exit(codice))
+        # Dove lasciare il motivo dell'uscita forzata: al riavvio il worker lo legge e lo riporta
+        # nel primo claim (worker_presenza.ultimo_arresto), poi lo cancella. None = non scrivere.
+        self.marcatore_arresto: str | None = None
         self.arresto = threading.Event()
         self.motivo = ""
         self.fase = ""          # dove si trovava il lavoro: finisce nel log dell'uscita forzata
@@ -242,12 +253,39 @@ class Battito:
         """Concede al lavoro il tempo di fermarsi da solo; scaduto quello, termina il processo (C16)."""
         if self._lavoro_finito.wait(self.arresto_forzato_s):
             return                      # il lavoro ha visto il flag e si è fermato: tutto regolare
+        motivo = (f"job {self.job_id}: il lavoro non si è fermato entro {self.arresto_forzato_s:.0f} s dalla "
+                  f"perdita del lease (fase: {self.fase or 'sconosciuta'}; {self.motivo or '409'})")
         log.error(
-            "job %d: il lavoro non si è fermato entro %.0f s dalla perdita del lease (fase: %s). "
-            "Il job è già tornato in coda lato server: esco con codice 3 e lascio riavviare l'attività pianificata.",
-            self.job_id, self.arresto_forzato_s, self.fase or "sconosciuta")
+            "%s. Il job è già tornato in coda lato server: esco con codice 3 e lascio riavviare l'attività pianificata.",
+            motivo)
+        scrivi_marcatore_arresto(self.marcatore_arresto, motivo)
         self.uscita_forzata = True
         self.uscita(3)
+
+
+def scrivi_marcatore_arresto(percorso: str | None, motivo: str) -> None:
+    """Lascia sul disco il motivo dell'uscita forzata (C16): il processo sta per terminare e non può
+    dirlo al server; lo dirà il worker al riavvio, nel primo claim."""
+    if not percorso:
+        return
+    try:
+        with open(percorso, "w", encoding="utf-8") as f:
+            f.write(motivo)
+    except OSError:
+        pass
+
+
+def leggi_marcatore_arresto(percorso: str | None) -> str:
+    """Il motivo lasciato dall'ultima uscita forzata, se c'è; il file viene rimosso."""
+    if not percorso or not os.path.isfile(percorso):
+        return ""
+    try:
+        with open(percorso, encoding="utf-8") as f:
+            motivo = f.read().strip()
+        os.remove(percorso)
+        return motivo[:500]
+    except OSError:
+        return ""
 
 
 # ---------------------------------------------------------------- configurazione e log

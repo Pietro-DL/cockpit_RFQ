@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -45,10 +47,17 @@ type Server struct {
 	// MaxUpload: byte massimi di un singolo file caricato con PUT /api/v1/allegati/{id}/file
 	// (voce 2.3). Zero = 64 MB.
 	MaxUpload int64
+	// IndirizzoClient dice da quale IP arriva una richiesta: finisce in worker_presenza.indirizzo_ip
+	// ed è ciò su cui la voce 2.7 abbina una sessione UI a una postazione. Nil = RemoteAddr. Un
+	// proxy davanti al server non c'è e non deve esserci (P7.1): X-Forwarded-For NON viene letto in
+	// produzione, perché chiunque potrebbe scriverci dentro l'IP di un'altra postazione. I test lo
+	// sostituiscono per simulare due PC.
+	IndirizzoClient func(*http.Request) string
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/jobs/claim", s.auth(s.claim))
+	mux.HandleFunc("GET /api/v1/worker/caselle", s.auth(s.caselleWorker))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/heartbeat", s.auth(s.heartbeat))
 	mux.HandleFunc("POST /api/v1/jobs/{id}/result", s.auth(s.result))
 	mux.HandleFunc("POST /api/v1/ingest/messaggi", s.auth(s.ingest))
@@ -84,6 +93,67 @@ func leggi(r *http.Request, v any) error {
 
 // ---------------------------------------------------------------- coda
 
+// indirizzoDi è l'IP del chiamante, senza porta; nil se non è un IP.
+func (s *Server) indirizzoDi(r *http.Request) *netip.Addr {
+	grezzo := r.RemoteAddr
+	if s.IndirizzoClient != nil {
+		grezzo = s.IndirizzoClient(r)
+	}
+	if h, _, err := net.SplitHostPort(grezzo); err == nil {
+		grezzo = h
+	}
+	a, err := netip.ParseAddr(strings.TrimSpace(grezzo))
+	if err != nil {
+		return nil
+	}
+	a = a.Unmap()
+	return &a
+}
+
+// destinazione è ciò che il claim decide su un worker PRIMA di cercare un job: la credenziale, la
+// postazione (dalla credenziale, mai dal JSON), le caselle che serve davvero e l'avviso da mostrare
+// quando dichiara più di quanto gli è permesso.
+type destinazione struct {
+	cred     db.WorkerCredenziale
+	dest     jobs.Destinazione
+	aperte   []api.CasellaAperta // dichiarate E autorizzate: finiscono in casella_store
+	ignorate []uuid.UUID         // dichiarate e NON autorizzate: avviso (Q18)
+	avviso   string
+}
+
+// risolviDestinazione interseca ciò che il worker dichiara con ciò che la credenziale autorizza
+// (voce 2.2). Il server non si fida del JSON: una casella dichiarata e non autorizzata non entra
+// nel claim, viene scritta nell'avviso della presenza e nel log, e il worker continua a lavorare
+// sulle altre. Un worker senza credenziale non ha una destinazione e non prende niente.
+func risolviDestinazione(cred db.WorkerCredenziale, req api.ClaimRichiesta) destinazione {
+	d := destinazione{cred: cred, dest: jobs.Destinazione{Postazione: cred.PostazioneID}}
+	autorizzate := map[uuid.UUID]bool{}
+	for _, c := range cred.Caselle {
+		autorizzate[c] = true
+	}
+	viste := map[uuid.UUID]bool{}
+	for _, c := range req.CaselleAperte {
+		if viste[c.CasellaID] {
+			continue
+		}
+		viste[c.CasellaID] = true
+		if !autorizzate[c.CasellaID] {
+			d.ignorate = append(d.ignorate, c.CasellaID)
+			continue
+		}
+		d.dest.Caselle = append(d.dest.Caselle, c.CasellaID)
+		d.aperte = append(d.aperte, c)
+	}
+	if len(d.ignorate) > 0 {
+		ids := make([]string, 0, len(d.ignorate))
+		for _, c := range d.ignorate {
+			ids = append(ids, c.String()[:8])
+		}
+		d.avviso = fmt.Sprintf("%d caselle dichiarate ma non autorizzate per questo worker (%s): ignorate", len(d.ignorate), strings.Join(ids, ", "))
+	}
+	return d
+}
+
 func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	var req api.ClaimRichiesta
 	if err := leggi(r, &req); err != nil {
@@ -95,19 +165,72 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, fmt.Errorf("worker non valido: %q", req.Worker))
 		return
 	}
+	if strings.TrimSpace(req.WorkerID) == "" {
+		errore(w, 400, errors.New("worker_id mancante"))
+		return
+	}
+	q := db.New(s.Pool)
+	// La credenziale decide che cosa il worker può fare: senza, non c'è una destinazione e non c'è
+	// un claim. Un nome sconosciuto è un worker non censito in [[worker]] di cockpit.toml, e il modo
+	// giusto di dirglielo è un 403 con il nome, non una coda che non gli dà mai niente.
+	cred, err := q.GetWorkerCredenziale(r.Context(), req.WorkerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		errore(w, 403, fmt.Errorf("worker %q non censito o disattivato: aggiungerlo a [[worker]] in cockpit.toml", req.WorkerID))
+		return
+	}
+	if err != nil {
+		errore(w, 500, err)
+		return
+	}
+	if cred.WorkerTipo != wt {
+		errore(w, 403, fmt.Errorf("worker %q è censito come %s, non %s", req.WorkerID, cred.WorkerTipo, wt))
+		return
+	}
+	// Un worker.toml copiato su un altro PC farebbe eseguire lì i job interattivi destinati alla
+	// postazione della credenziale: la finestra si aprirebbe sul PC sbagliato, senza errori.
+	if req.Postazione != "" && cred.PostazioneID.Valid {
+		if p, err := q.GetPostazione(r.Context(), cred.PostazioneID.UUID); err == nil && !strings.EqualFold(p.NomeHost, req.Postazione) {
+			errore(w, 403, fmt.Errorf("worker %q gira su %s ma la sua credenziale è della postazione %s: worker.toml copiato su un altro PC?", req.WorkerID, strings.ToUpper(req.Postazione), p.NomeHost))
+			return
+		}
+	}
+	d := risolviDestinazione(cred, req)
+	if d.avviso != "" {
+		s.Log.Warn("claim con caselle non autorizzate", "worker", req.WorkerID, "ignorate", d.ignorate)
+	}
+	// Lo store locale di ogni casella servita si registra PRIMA di cercare un job: è così che un'altra
+	// postazione — o questa, dopo un cambio di profilo — trova come aprire la casella (voce 2.6, M1).
+	if cred.PostazioneID.Valid {
+		for _, c := range d.aperte {
+			if c.StoreID == "" {
+				continue
+			}
+			if n, err := q.UpsertCasellaStore(r.Context(), db.UpsertCasellaStoreParams{PostazioneID: cred.PostazioneID.UUID, CasellaID: c.CasellaID, StoreID: c.StoreID}); err != nil {
+				s.Log.Warn("casella_store", "worker", req.WorkerID, "casella", c.CasellaID, "err", err)
+			} else if n > 0 {
+				s.Log.Info("store locale registrato", "worker", req.WorkerID, "casella", c.CasellaID, "store", fmt.Sprintf("%.24s…", c.StoreID))
+			}
+		}
+	}
+
 	attesa := time.Duration(req.AttesaS) * time.Second
 	if attesa <= 0 || attesa > 25*time.Second {
 		attesa = 20 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), attesa+5*time.Second)
 	defer cancel()
-	j, err := jobs.Claim(ctx, db.New(s.Pool), wt, req.WorkerID, attesa)
+	j, err := jobs.Claim(ctx, q, wt, req.WorkerID, d.dest, attesa)
 	if err != nil {
 		errore(w, 500, err)
 		return
 	}
-	// presenza: la UI mostra "OFFLINE" se un worker non fa claim da più di un minuto
-	if err := db.New(s.Pool).UpsertWorkerPresenza(r.Context(), db.UpsertWorkerPresenzaParams{WorkerTipo: wt, WorkerID: req.WorkerID, ConJob: j != nil}); err != nil {
+	// presenza per WORKER: postazione, IP, Outlook, caselle servite. È da qui che la testata dice lo
+	// stato per casella e che la voce 2.7 abbina la sessione alla postazione.
+	if err := q.UpsertWorkerPresenza(r.Context(), db.UpsertWorkerPresenzaParams{
+		WorkerNome: req.WorkerID, WorkerTipo: wt, PostazioneID: cred.PostazioneID, IndirizzoIp: s.indirizzoDi(r),
+		OutlookOk: req.OutlookOk || wt != db.WorkerTipoOutlook, CaselleAperte: nonNil(d.dest.Caselle), ConJob: j != nil,
+		UltimoArresto: txt(req.UltimoArresto), Avviso: txt(d.avviso),
+	}); err != nil {
 		s.Log.Warn("worker_presenza", "err", err)
 	}
 	if j == nil {
@@ -115,6 +238,47 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scriviJSON(w, 200, jobs.InJob(j))
+}
+
+func nonNil(u []uuid.UUID) []uuid.UUID {
+	if u == nil {
+		return []uuid.UUID{}
+	}
+	return u
+}
+
+// caselleWorker dice a un worker QUALI caselle deve risolvere nel proprio profilo Outlook: quelle
+// attive su cui la sua credenziale è autorizzata (voce 2.6, M1). Il worker parte da questo elenco e
+// non dal profilo: uno store che c'è nel profilo e non c'è qui — la casella di un collega, un archivio
+// — non viene aperto, letto né censito. È il motivo per cui il terzo store del profilo di prova
+// (non censito) deve restare invisibile al Cockpit.
+func (s *Server) caselleWorker(w http.ResponseWriter, r *http.Request) {
+	nome := strings.TrimSpace(r.URL.Query().Get("worker_id"))
+	if nome == "" {
+		errore(w, 400, errors.New("worker_id mancante"))
+		return
+	}
+	q := db.New(s.Pool)
+	if _, err := q.GetWorkerCredenziale(r.Context(), nome); errors.Is(err, pgx.ErrNoRows) {
+		errore(w, 403, fmt.Errorf("worker %q non censito o disattivato", nome))
+		return
+	} else if err != nil {
+		errore(w, 500, err)
+		return
+	}
+	righe, err := q.ListCaselleAutorizzate(r.Context(), nome)
+	if err != nil {
+		errore(w, 500, err)
+		return
+	}
+	out := make([]api.CasellaServita, 0, len(righe))
+	for _, c := range righe {
+		if c.Canale != db.CanaleOutlook {
+			continue
+		}
+		out = append(out, api.CasellaServita{CasellaID: c.CasellaID, Indirizzo: c.Indirizzo, Nome: c.Nome, Condivisa: c.Condivisa})
+	}
+	scriviJSON(w, 200, out)
 }
 
 // tentativo estrae dalla richiesta l'identità del tentativo. Senza token non si prosegue: accettare
@@ -652,7 +816,7 @@ func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.Ri
 	}
 	if err := q.SetEntryIDPresenza(ctx, db.SetEntryIDPresenzaParams{
 		MessaggioID: *rif.MessaggioID, CasellaID: *rif.CasellaID, EntryID: r.EntryID,
-		Cartella: txt(r.Cartella), StoreIDLocale: r.StoreID,
+		Cartella: txt(r.Cartella),
 	}); err != nil {
 		s.Log.Warn("riallinea entry_id", "messaggio", rif.MessaggioID, "err", err)
 		return

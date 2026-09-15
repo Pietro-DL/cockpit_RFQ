@@ -54,6 +54,26 @@ SELECT * FROM postazione WHERE nome_host = $1;
 -- name: ListPostazioni :many
 SELECT * FROM postazione ORDER BY nome_host;
 
+-- name: ListPostazioniAttive :many
+SELECT * FROM postazione WHERE attiva ORDER BY nome_host;
+
+-- name: GetPostazione :one
+SELECT * FROM postazione WHERE postazione_id = $1;
+
+-- name: ListCaselleAutorizzate :many
+-- Le caselle ATTIVE su cui una credenziale è autorizzata: è ciò che il worker chiede all'avvio per
+-- sapere che cosa deve risolvere nel proprio profilo (voce 2.6, M1). Uno store che non è qui non
+-- viene toccato dal worker, qualunque cosa ci sia nel profilo.
+SELECT c.* FROM casella c
+JOIN worker_credenziale w ON c.casella_id = ANY (w.caselle)
+WHERE w.worker_nome = $1 AND w.attivo AND c.attiva
+ORDER BY c.nome;
+
+-- name: ListCredenzialiOutlookAttive :many
+-- I worker Outlook censiti con la loro postazione: servono alla testata (stato per casella) e al
+-- routing (quale postazione serve quale casella).
+SELECT * FROM worker_credenziale WHERE attivo AND worker_tipo = 'outlook' ORDER BY worker_nome;
+
 -- name: UpsertWorkerCredenziale :one
 INSERT INTO worker_credenziale (worker_nome, worker_tipo, token_hash, postazione_id, caselle)
 VALUES ($1, $2, $3, $4, $5)
@@ -69,12 +89,15 @@ SELECT * FROM worker_credenziale WHERE worker_nome = $1 AND attivo;
 -- name: ListWorkerCredenziali :many
 SELECT * FROM worker_credenziale ORDER BY worker_nome;
 
--- name: UpsertCasellaStore :one
+-- name: UpsertCasellaStore :execrows
+-- Scritta a ogni claim dal worker che ha risolto la casella nel proprio profilo (voce 2.6, M1).
+-- rilevato_il si muove solo se lo StoreID è cambiato: un claim ogni venti secondi non deve riscrivere
+-- la riga per dire la stessa cosa.
 INSERT INTO casella_store (postazione_id, casella_id, store_id)
 VALUES ($1, $2, $3)
 ON CONFLICT (postazione_id, casella_id) DO UPDATE SET
     store_id = EXCLUDED.store_id, rilevato_il = now()
-RETURNING *;
+WHERE casella_store.store_id IS DISTINCT FROM EXCLUDED.store_id;
 
 -- name: GetCasellaStore :one
 SELECT * FROM casella_store WHERE postazione_id = $1 AND casella_id = $2;

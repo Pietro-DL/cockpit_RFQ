@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/jobs"
 )
 
 // Schermata B — il thread RFQ: la "chat" (tutti i messaggi agganciati, dal DB), gli allegati da smistare,
@@ -28,8 +29,11 @@ type threadDati struct {
 }
 
 type messaggioThread struct {
-	M        db.Messaggio
-	Presenza *db.PresenzaDaAprireRow // nil = messaggio non Outlook, o non più in nessuna casella attiva
+	M db.Messaggio
+	// Copia: quella servita dalla postazione della sessione; nil = «Apri» non disponibile, e Motivo
+	// dice perché (messaggio non Outlook, nessuna postazione, nessun worker idoneo).
+	Copia    *jobs.Copia
+	Motivo   string
 	Allegati []AllegatoUI
 }
 
@@ -39,7 +43,7 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	d, err := s.caricaThread(r.Context(), id)
+	d, err := s.caricaThread(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, "thread non trovato", 404)
 		return
@@ -50,7 +54,7 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 
 // threadFrammento ri-renderizza il corpo della pagina thread dopo un'azione (conferma, scarta, download).
 func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid.UUID, avviso string) {
-	d, err := s.caricaThread(r.Context(), id)
+	d, err := s.caricaThread(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, "thread non trovato", 404)
 		return
@@ -62,7 +66,7 @@ func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid
 	}
 }
 
-func (s *Server) caricaThread(ctx context.Context, id uuid.UUID) (*threadDati, error) {
+func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI) (*threadDati, error) {
 	q := db.New(s.Pool)
 	t, err := q.GetThread(ctx, id)
 	if err != nil {
@@ -79,8 +83,8 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID) (*threadDati, e
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	for _, m := range msgs {
 		mt := messaggioThread{M: m}
-		if pr, err := q.PresenzaDaAprire(ctx, m.MessaggioID); err == nil {
-			mt.Presenza = &pr
+		if presenze, _ := q.ListPresenze(ctx, m.MessaggioID); len(presenze) > 0 {
+			mt.Copia, mt.Motivo = s.copiaInterattiva(ctx, q, m.MessaggioID, sess)
 		}
 		mt.Allegati, _ = s.allegatiUI(ctx, q, m.MessaggioID)
 		for _, a := range mt.Allegati {

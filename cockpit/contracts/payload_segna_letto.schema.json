@@ -35,10 +35,6 @@
       "title": "Entry Id",
       "type": "string"
     },
-    "store_id": {
-      "title": "Store Id",
-      "type": "string"
-    },
     "letto": {
       "default": true,
       "title": "Letto",
@@ -46,8 +42,7 @@
     }
   },
   "required": [
-    "entry_id",
-    "store_id"
+    "entry_id"
   ],
   "title": "PayloadSegnaLetto",
   "type": "object",

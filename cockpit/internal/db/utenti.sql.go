@@ -14,7 +14,7 @@ import (
 )
 
 const creaSessione = `-- name: CreaSessione :one
-INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso
+INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine
 `
 
 type CreaSessioneParams struct {
@@ -32,6 +32,42 @@ func (q *Queries) CreaSessione(ctx context.Context, arg CreaSessioneParams) (Ses
 		&i.CreataIl,
 		&i.ScadeIl,
 		&i.UltimoAccesso,
+		&i.PostazioneID,
+		&i.PostazioneOrigine,
+	)
+	return i, err
+}
+
+const creaSessioneConPostazione = `-- name: CreaSessioneConPostazione :one
+INSERT INTO sessione (token, utente_id, scade_il, postazione_id, postazione_origine)
+VALUES ($1, $2, $3, $4, $5) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine
+`
+
+type CreaSessioneConPostazioneParams struct {
+	Token             string        `json:"token"`
+	UtenteID          uuid.UUID     `json:"utente_id"`
+	ScadeIl           time.Time     `json:"scade_il"`
+	PostazioneID      uuid.NullUUID `json:"postazione_id"`
+	PostazioneOrigine pgtype.Text   `json:"postazione_origine"`
+}
+
+func (q *Queries) CreaSessioneConPostazione(ctx context.Context, arg CreaSessioneConPostazioneParams) (Sessione, error) {
+	row := q.db.QueryRow(ctx, creaSessioneConPostazione,
+		arg.Token,
+		arg.UtenteID,
+		arg.ScadeIl,
+		arg.PostazioneID,
+		arg.PostazioneOrigine,
+	)
+	var i Sessione
+	err := row.Scan(
+		&i.Token,
+		&i.UtenteID,
+		&i.CreataIl,
+		&i.ScadeIl,
+		&i.UltimoAccesso,
+		&i.PostazioneID,
+		&i.PostazioneOrigine,
 	)
 	return i, err
 }
@@ -55,6 +91,41 @@ func (q *Queries) EliminaSessioniScadute(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getSessione = `-- name: GetSessione :one
+SELECT s.postazione_id, s.postazione_origine, p.nome_host, u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il
+FROM sessione s
+JOIN utente u ON u.utente_id = s.utente_id
+LEFT JOIN postazione p ON p.postazione_id = s.postazione_id
+WHERE s.token = $1 AND s.scade_il > now() AND u.attivo
+`
+
+type GetSessioneRow struct {
+	PostazioneID      uuid.NullUUID `json:"postazione_id"`
+	PostazioneOrigine pgtype.Text   `json:"postazione_origine"`
+	NomeHost          pgtype.Text   `json:"nome_host"`
+	Utente            Utente        `json:"utente"`
+}
+
+// Utente E postazione della sessione (voce 2.7): la postazione decide dove vanno i job interattivi.
+func (q *Queries) GetSessione(ctx context.Context, token string) (GetSessioneRow, error) {
+	row := q.db.QueryRow(ctx, getSessione, token)
+	var i GetSessioneRow
+	err := row.Scan(
+		&i.PostazioneID,
+		&i.PostazioneOrigine,
+		&i.NomeHost,
+		&i.Utente.UtenteID,
+		&i.Utente.Sigla,
+		&i.Utente.Nome,
+		&i.Utente.Ufficio,
+		&i.Utente.Ruolo,
+		&i.Utente.PasswordHash,
+		&i.Utente.Attivo,
+		&i.Utente.CreatoIl,
+	)
+	return i, err
 }
 
 const getSessioneUtente = `-- name: GetSessioneUtente :one
@@ -149,6 +220,24 @@ func (q *Queries) ListUtenti(ctx context.Context) ([]Utente, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setSessionePostazione = `-- name: SetSessionePostazione :exec
+UPDATE sessione SET postazione_id = $1, postazione_origine = $2
+WHERE token = $3
+`
+
+type SetSessionePostazioneParams struct {
+	PostazioneID      uuid.NullUUID `json:"postazione_id"`
+	PostazioneOrigine pgtype.Text   `json:"postazione_origine"`
+	Token             string        `json:"token"`
+}
+
+// La scelta esplicita dell'operatore ('scelta') o la rimozione (NULL, NULL). Chi chiama ha già
+// verificato che l'utente sia abilitato a quella postazione (P1).
+func (q *Queries) SetSessionePostazione(ctx context.Context, arg SetSessionePostazioneParams) error {
+	_, err := q.db.Exec(ctx, setSessionePostazione, arg.PostazioneID, arg.PostazioneOrigine, arg.Token)
+	return err
 }
 
 const toccaSessione = `-- name: ToccaSessione :exec

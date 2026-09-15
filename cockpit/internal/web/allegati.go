@@ -139,12 +139,12 @@ func (s *Server) scarica(w http.ResponseWriter, r *http.Request) {
 		s.pannelloConAvviso(w, r, id, "Prima crea la RFQ o aggancia il messaggio a una RFQ esistente: i file scaricati vanno nella sua cartella.")
 		return
 	}
-	pr, err := q.PresenzaDaAprire(ctx, id)
+	c, err := s.copiaDownload(ctx, q, id, sessioneDa(ctx))
 	if err != nil {
 		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
-	esiti, err := s.accodaDownload(ctx, q, m, pr, r.Form["allegato_id"])
+	esiti, err := s.accodaDownload(ctx, q, m, c, r.Form["allegato_id"])
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -177,10 +177,21 @@ func (c contiDownload) frase() string {
 	return strings.Join(parti, ", ") + "."
 }
 
+// copiaDownload sceglie da quale copia scaricare: quella servita dalla postazione della sessione se
+// c'è, altrimenti la copia di riferimento. Un download non apre finestre e non è legato al PC del
+// richiedente: lo esegue qualunque worker autorizzato sulla casella (voce 2.6).
+func (s *Server) copiaDownload(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (jobs.Copia, error) {
+	var richiedente uuid.UUID
+	if sess.Utente != nil {
+		richiedente = sess.Utente.UtenteID
+	}
+	return jobs.CopiaPerDownload(ctx, q, id, sess.Postazione, richiedente)
+}
+
 // accodaDownload accoda stage_allegato per gli id passati (solo allegati del messaggio, diretti, scaricabili).
 // Non tutti diventano un job: la guardia della voce 1.11 sta dentro jobs.AccodaStage, non qui, così vale
 // per qualunque punto del server chieda un download.
-func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, pr db.PresenzaDaAprireRow, ids []string) (contiDownload, error) {
+func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, copia jobs.Copia, ids []string) (contiDownload, error) {
 	var c contiDownload
 	for _, raw := range ids {
 		aid, err := uuid.Parse(raw)
@@ -191,7 +202,7 @@ func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messagg
 		if err != nil || a.MessaggioID != m.MessaggioID || a.ContenitoreID.Valid || a.Natura == db.NaturaAllegatoInline {
 			continue
 		}
-		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, pr, 1)
+		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, copia, 1)
 		if err != nil {
 			return c, err
 		}
@@ -230,12 +241,12 @@ func (s *Server) riscarica(w http.ResponseWriter, r *http.Request) {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "Prima crea o aggancia la RFQ.")
 		return
 	}
-	pr, err := q.PresenzaDaAprire(ctx, a.MessaggioID)
+	c, err := s.copiaDownload(ctx, q, a.MessaggioID, sessioneDa(ctx))
 	if err != nil {
 		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
 		return
 	}
-	esiti, err := s.accodaDownload(ctx, q, m, pr, []string{aid.String()})
+	esiti, err := s.accodaDownload(ctx, q, m, c, []string{aid.String()})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -444,7 +455,7 @@ func (s *Server) pannelloConAvviso(w http.ResponseWriter, r *http.Request, messa
 			return
 		}
 	}
-	d, err := s.caricaMessaggio(r.Context(), messaggioID)
+	d, err := s.caricaMessaggio(r.Context(), messaggioID, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return

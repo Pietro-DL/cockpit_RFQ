@@ -113,6 +113,25 @@ func (q *Queries) GetCasellaStore(ctx context.Context, arg GetCasellaStoreParams
 	return i, err
 }
 
+const getPostazione = `-- name: GetPostazione :one
+SELECT postazione_id, nome_host, descrizione, utente_id, attiva, creato_il, aggiornato_il FROM postazione WHERE postazione_id = $1
+`
+
+func (q *Queries) GetPostazione(ctx context.Context, postazioneID uuid.UUID) (Postazione, error) {
+	row := q.db.QueryRow(ctx, getPostazione, postazioneID)
+	var i Postazione
+	err := row.Scan(
+		&i.PostazioneID,
+		&i.NomeHost,
+		&i.Descrizione,
+		&i.UtenteID,
+		&i.Attiva,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+	)
+	return i, err
+}
+
 const getPostazionePerHost = `-- name: GetPostazionePerHost :one
 SELECT postazione_id, nome_host, descrizione, utente_id, attiva, creato_il, aggiornato_il FROM postazione WHERE nome_host = $1
 `
@@ -263,12 +282,119 @@ func (q *Queries) ListCaselleAttive(ctx context.Context) ([]Casella, error) {
 	return items, nil
 }
 
+const listCaselleAutorizzate = `-- name: ListCaselleAutorizzate :many
+SELECT c.casella_id, c.canale, c.indirizzo, c.nome, c.condivisa, c.utente_id, c.attiva, c.creato_il, c.aggiornato_il FROM casella c
+JOIN worker_credenziale w ON c.casella_id = ANY (w.caselle)
+WHERE w.worker_nome = $1 AND w.attivo AND c.attiva
+ORDER BY c.nome
+`
+
+// Le caselle ATTIVE su cui una credenziale è autorizzata: è ciò che il worker chiede all'avvio per
+// sapere che cosa deve risolvere nel proprio profilo (voce 2.6, M1). Uno store che non è qui non
+// viene toccato dal worker, qualunque cosa ci sia nel profilo.
+func (q *Queries) ListCaselleAutorizzate(ctx context.Context, workerNome string) ([]Casella, error) {
+	rows, err := q.db.Query(ctx, listCaselleAutorizzate, workerNome)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Casella{}
+	for rows.Next() {
+		var i Casella
+		if err := rows.Scan(
+			&i.CasellaID,
+			&i.Canale,
+			&i.Indirizzo,
+			&i.Nome,
+			&i.Condivisa,
+			&i.UtenteID,
+			&i.Attiva,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCredenzialiOutlookAttive = `-- name: ListCredenzialiOutlookAttive :many
+SELECT worker_nome, worker_tipo, token_hash, postazione_id, caselle, attivo, creato_il, aggiornato_il FROM worker_credenziale WHERE attivo AND worker_tipo = 'outlook' ORDER BY worker_nome
+`
+
+// I worker Outlook censiti con la loro postazione: servono alla testata (stato per casella) e al
+// routing (quale postazione serve quale casella).
+func (q *Queries) ListCredenzialiOutlookAttive(ctx context.Context) ([]WorkerCredenziale, error) {
+	rows, err := q.db.Query(ctx, listCredenzialiOutlookAttive)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkerCredenziale{}
+	for rows.Next() {
+		var i WorkerCredenziale
+		if err := rows.Scan(
+			&i.WorkerNome,
+			&i.WorkerTipo,
+			&i.TokenHash,
+			&i.PostazioneID,
+			&i.Caselle,
+			&i.Attivo,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPostazioni = `-- name: ListPostazioni :many
 SELECT postazione_id, nome_host, descrizione, utente_id, attiva, creato_il, aggiornato_il FROM postazione ORDER BY nome_host
 `
 
 func (q *Queries) ListPostazioni(ctx context.Context) ([]Postazione, error) {
 	rows, err := q.db.Query(ctx, listPostazioni)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Postazione{}
+	for rows.Next() {
+		var i Postazione
+		if err := rows.Scan(
+			&i.PostazioneID,
+			&i.NomeHost,
+			&i.Descrizione,
+			&i.UtenteID,
+			&i.Attiva,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPostazioniAttive = `-- name: ListPostazioniAttive :many
+SELECT postazione_id, nome_host, descrizione, utente_id, attiva, creato_il, aggiornato_il FROM postazione WHERE attiva ORDER BY nome_host
+`
+
+func (q *Queries) ListPostazioniAttive(ctx context.Context) ([]Postazione, error) {
+	rows, err := q.db.Query(ctx, listPostazioniAttive)
 	if err != nil {
 		return nil, err
 	}
@@ -381,12 +507,12 @@ func (q *Queries) UpsertCasella(ctx context.Context, arg UpsertCasellaParams) (C
 	return i, err
 }
 
-const upsertCasellaStore = `-- name: UpsertCasellaStore :one
+const upsertCasellaStore = `-- name: UpsertCasellaStore :execrows
 INSERT INTO casella_store (postazione_id, casella_id, store_id)
 VALUES ($1, $2, $3)
 ON CONFLICT (postazione_id, casella_id) DO UPDATE SET
     store_id = EXCLUDED.store_id, rilevato_il = now()
-RETURNING postazione_id, casella_id, store_id, rilevato_il
+WHERE casella_store.store_id IS DISTINCT FROM EXCLUDED.store_id
 `
 
 type UpsertCasellaStoreParams struct {
@@ -395,16 +521,15 @@ type UpsertCasellaStoreParams struct {
 	StoreID      string    `json:"store_id"`
 }
 
-func (q *Queries) UpsertCasellaStore(ctx context.Context, arg UpsertCasellaStoreParams) (CasellaStore, error) {
-	row := q.db.QueryRow(ctx, upsertCasellaStore, arg.PostazioneID, arg.CasellaID, arg.StoreID)
-	var i CasellaStore
-	err := row.Scan(
-		&i.PostazioneID,
-		&i.CasellaID,
-		&i.StoreID,
-		&i.RilevatoIl,
-	)
-	return i, err
+// Scritta a ogni claim dal worker che ha risolto la casella nel proprio profilo (voce 2.6, M1).
+// rilevato_il si muove solo se lo StoreID è cambiato: un claim ogni venti secondi non deve riscrivere
+// la riga per dire la stessa cosa.
+func (q *Queries) UpsertCasellaStore(ctx context.Context, arg UpsertCasellaStoreParams) (int64, error) {
+	result, err := q.db.Exec(ctx, upsertCasellaStore, arg.PostazioneID, arg.CasellaID, arg.StoreID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertPostazione = `-- name: UpsertPostazione :one

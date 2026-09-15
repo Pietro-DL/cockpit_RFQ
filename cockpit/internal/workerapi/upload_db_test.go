@@ -48,7 +48,8 @@ type banco struct {
 	staging  string
 	allegato db.Allegato
 	msg      db.Messaggio
-	job      db.Job // il job accodato, ancora 'pronto'
+	casella  uuid.UUID // la casella della presenza: il claim deve dichiararla (voce 2.2)
+	job      db.Job    // il job accodato, ancora 'pronto'
 }
 
 func preparaBanco(t *testing.T, maxUpload int64) *banco {
@@ -70,7 +71,8 @@ func preparaBanco(t *testing.T, maxUpload int64) *banco {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, j, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, b.allegato, b.msg, pr, 1)
+	b.casella = pr.CasellaID
+	_, j, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, b.allegato, b.msg, copiaDi(pr), 1)
 	if err != nil || j == nil {
 		t.Fatalf("accoda stage: job=%v err=%v", j, err)
 	}
@@ -98,8 +100,8 @@ func (b *banco) messaggioConAllegato(nome, ext string) (db.Allegato, db.Messaggi
 		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casellaID); err != nil {
 		b.t.Fatal(err)
 	}
-	if _, err := b.pool.Exec(b.ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il)
-		VALUES ($1, $2, $3, 'STORE-1', 'Posta in arrivo', now())`, msgID, casellaID, "ENTRY-"+nome); err != nil {
+	if _, err := b.pool.Exec(b.ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, cartella, ricevuto_il)
+		VALUES ($1, $2, $3, 'Posta in arrivo', now())`, msgID, casellaID, "ENTRY-"+nome); err != nil {
 		b.t.Fatal(err)
 	}
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine, bytes, ricevuto_il)
@@ -118,9 +120,15 @@ func (b *banco) messaggioConAllegato(nome, ext string) (db.Allegato, db.Messaggi
 }
 
 // claim prende il job come farebbe il worker: nasce un tentativo con il suo token.
+func copiaDi(pr db.PresenzaDaAprireRow) jobs.Copia {
+	return jobs.Copia{CasellaID: pr.CasellaID, CasellaNome: pr.CasellaNome, EntryID: pr.EntryID}
+}
+
+// claim prende il job come farebbe un worker che SERVE la casella della presenza: dalla voce 2.2 un
+// job di una casella va solo a chi la dichiara.
 func (b *banco) claim(worker string) jobs.Tentativo {
 	b.t.Helper()
-	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, 0)
+	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, jobs.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("claim: job=%v err=%v", j, err)
 	}
@@ -293,7 +301,7 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	esito, j2, err := jobs.AccodaStage(b.ctx, b.q, jobs.FileStaging{}, b.allegatoOra(), b.msg, pr, 1)
+	esito, j2, err := jobs.AccodaStage(b.ctx, b.q, jobs.FileStaging{}, b.allegatoOra(), b.msg, copiaDi(pr), 1)
 	if err != nil || esito != jobs.StageAccodato || j2 == nil {
 		t.Fatalf("riscarica: esito=%s job=%v err=%v", esito, j2, err)
 	}

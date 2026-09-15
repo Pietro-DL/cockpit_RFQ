@@ -80,11 +80,6 @@
       "title": "Entry Id",
       "type": "string"
     },
-    "store_id": {
-      "default": "",
-      "title": "Store Id",
-      "type": "string"
-    },
     "destinatari": {
       "items": {
         "$ref": "#/$defs/Destinatario"

@@ -38,7 +38,10 @@ tr.fallito td{background:#fff5f4}tr.in_corso td{background:#fffbea}.conta{margin
 .login{max-width:340px;margin:60px auto;background:var(--carta);border:1px solid var(--bordo);border-radius:10px;padding:24px}
 .login form{display:grid;gap:10px}.login label{display:grid;gap:4px;color:var(--muto)}.login input{font:inherit;padding:8px;border:1px solid var(--bordo);border-radius:6px}
 @media (max-width:900px){.inbox{grid-template-columns:1fr;height:auto}}
-.stato-worker{display:inline-flex;gap:4px;margin-right:12px}
+.stato-worker{display:inline-flex;gap:4px;margin-right:12px;align-items:center;flex-wrap:wrap}
+.stato-worker form.postazione{display:inline-flex;gap:4px;align-items:center;margin-right:6px;font-size:12px;color:var(--muto)}
+.stato-worker select{font:inherit;font-size:12px;padding:1px 4px;border:1px solid var(--bordo);border-radius:6px}.stato-worker select.manca{border-color:var(--rosso)}
+.azioni-motivo{font-size:12px;max-width:520px}
 .badge{display:inline-block;padding:3px 8px;border-radius:6px;font-size:12px}.badge.verde{background:#e3f1e8;color:#1f6b3d}.badge.avviso{background:#fff5d6;color:#8a6a00}.badge.errore{background:#fbe3e1;color:var(--rosso)}
 button.primario,.bottone.primario{background:var(--acc);color:#fff;border-color:var(--acc)}button.piccolo,.piccolo,summary.bottone{font-size:12px;padding:2px 8px}
 a.bottone,.bottone{display:inline-block;padding:6px 12px;border:1px solid var(--bordo);border-radius:6px;background:var(--carta);color:var(--testo)}

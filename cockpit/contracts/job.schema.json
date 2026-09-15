@@ -45,6 +45,19 @@
       ],
       "default": null,
       "title": "Casella Id"
+    },
+    "postazione_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Postazione Id"
     }
   },
   "required": [

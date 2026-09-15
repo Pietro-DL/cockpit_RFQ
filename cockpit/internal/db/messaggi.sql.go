@@ -112,6 +112,45 @@ func (q *Queries) BloccaMessaggio(ctx context.Context, messaggioID uuid.UUID) (M
 	return i, err
 }
 
+const caselleServiteDaPostazione = `-- name: CaselleServiteDaPostazione :many
+SELECT DISTINCT c.casella_id, c.canale, c.indirizzo, c.nome, c.condivisa, c.utente_id, c.attiva, c.creato_il, c.aggiornato_il
+FROM worker_credenziale w JOIN casella c ON c.casella_id = ANY (w.caselle)
+WHERE w.attivo AND w.worker_tipo = 'outlook' AND w.postazione_id = $1
+ORDER BY c.nome
+`
+
+// Le caselle su cui i worker Outlook di una postazione sono autorizzati: serve a dire PERCHÉ un'azione
+// non parte («il worker di PC-FRANCESCO non serve Commerciale»), non solo che non parte.
+func (q *Queries) CaselleServiteDaPostazione(ctx context.Context, postazioneID uuid.NullUUID) ([]Casella, error) {
+	rows, err := q.db.Query(ctx, caselleServiteDaPostazione, postazioneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Casella{}
+	for rows.Next() {
+		var i Casella
+		if err := rows.Scan(
+			&i.CasellaID,
+			&i.Canale,
+			&i.Indirizzo,
+			&i.Nome,
+			&i.Condivisa,
+			&i.UtenteID,
+			&i.Attiva,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const collegaConversazione = `-- name: CollegaConversazione :exec
 UPDATE conversazione SET thread_id = $2, collegata_da = $3 WHERE conversazione_id = $1
 `
@@ -151,6 +190,64 @@ func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaI
 		&i.Agganciati,
 		&i.Ignorati,
 		&i.Tutti,
+	)
+	return i, err
+}
+
+const copiaPerPostazione = `-- name: CopiaPerPostazione :one
+SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo, w.worker_nome
+FROM messaggio_casella mc
+JOIN casella c ON c.casella_id = mc.casella_id
+JOIN worker_credenziale w ON w.attivo AND w.worker_tipo = 'outlook'
+     AND w.postazione_id = $1 AND mc.casella_id = ANY (w.caselle)
+WHERE mc.messaggio_id = $2 AND c.attiva
+ORDER BY (c.utente_id IS NOT NULL AND c.utente_id = $3::uuid) DESC, mc.ricevuto_il, mc.casella_id
+LIMIT 1
+`
+
+type CopiaPerPostazioneParams struct {
+	PostazioneID uuid.NullUUID `json:"postazione_id"`
+	MessaggioID  uuid.UUID     `json:"messaggio_id"`
+	Richiedente  uuid.NullUUID `json:"richiedente"`
+}
+
+type CopiaPerPostazioneRow struct {
+	MessaggioID      uuid.UUID   `json:"messaggio_id"`
+	CasellaID        uuid.UUID   `json:"casella_id"`
+	EntryID          string      `json:"entry_id"`
+	Cartella         pgtype.Text `json:"cartella"`
+	RicevutoIl       time.Time   `json:"ricevuto_il"`
+	NonLetto         bool        `json:"non_letto"`
+	FlagStato        pgtype.Int2 `json:"flag_stato"`
+	Categorie        []string    `json:"categorie"`
+	AggiornatoIl     time.Time   `json:"aggiornato_il"`
+	CasellaNome      string      `json:"casella_nome"`
+	CasellaIndirizzo string      `json:"casella_indirizzo"`
+	WorkerNome       string      `json:"worker_nome"`
+}
+
+// ROUTING DEI JOB INTERATTIVI (voci 2.2 e 2.7, M3). La copia del messaggio che il worker Outlook di
+// QUESTA postazione serve: presente in una casella attiva su cui la credenziale del worker della
+// postazione è autorizzata. Se il messaggio è in più caselle servite, si preferisce la casella
+// personale del richiedente, poi la copia più vecchia. Zero righe = nessun worker idoneo su quella
+// postazione: il job NON si crea e l'operatore legge il motivo (M4, M10). Non si ripiega su un'altra
+// postazione: una finestra aperta su un altro PC non è un'azione riuscita, è un'azione sbagliata.
+func (q *Queries) CopiaPerPostazione(ctx context.Context, arg CopiaPerPostazioneParams) (CopiaPerPostazioneRow, error) {
+	row := q.db.QueryRow(ctx, copiaPerPostazione, arg.PostazioneID, arg.MessaggioID, arg.Richiedente)
+	var i CopiaPerPostazioneRow
+	err := row.Scan(
+		&i.MessaggioID,
+		&i.CasellaID,
+		&i.EntryID,
+		&i.Cartella,
+		&i.RicevutoIl,
+		&i.NonLetto,
+		&i.FlagStato,
+		&i.Categorie,
+		&i.AggiornatoIl,
+		&i.CasellaNome,
+		&i.CasellaIndirizzo,
+		&i.WorkerNome,
 	)
 	return i, err
 }
@@ -315,7 +412,7 @@ func (q *Queries) GetMessaggioPerChiave(ctx context.Context, arg GetMessaggioPer
 }
 
 const getPresenza = `-- name: GetPresenza :one
-SELECT messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il, non_letto, flag_stato, categorie, aggiornato_il FROM messaggio_casella WHERE messaggio_id = $1 AND casella_id = $2
+SELECT messaggio_id, casella_id, entry_id, cartella, ricevuto_il, non_letto, flag_stato, categorie, aggiornato_il FROM messaggio_casella WHERE messaggio_id = $1 AND casella_id = $2
 `
 
 type GetPresenzaParams struct {
@@ -330,7 +427,6 @@ func (q *Queries) GetPresenza(ctx context.Context, arg GetPresenzaParams) (Messa
 		&i.MessaggioID,
 		&i.CasellaID,
 		&i.EntryID,
-		&i.StoreIDLocale,
 		&i.Cartella,
 		&i.RicevutoIl,
 		&i.NonLetto,
@@ -548,7 +644,7 @@ func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID
 }
 
 const listPresenze = `-- name: ListPresenze :many
-SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.store_id_locale, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo, c.condivisa
+SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo, c.condivisa
 FROM messaggio_casella mc JOIN casella c ON c.casella_id = mc.casella_id
 WHERE mc.messaggio_id = $1 ORDER BY c.nome
 `
@@ -557,7 +653,6 @@ type ListPresenzeRow struct {
 	MessaggioID      uuid.UUID   `json:"messaggio_id"`
 	CasellaID        uuid.UUID   `json:"casella_id"`
 	EntryID          string      `json:"entry_id"`
-	StoreIDLocale    string      `json:"store_id_locale"`
 	Cartella         pgtype.Text `json:"cartella"`
 	RicevutoIl       time.Time   `json:"ricevuto_il"`
 	NonLetto         bool        `json:"non_letto"`
@@ -582,7 +677,6 @@ func (q *Queries) ListPresenze(ctx context.Context, messaggioID uuid.UUID) ([]Li
 			&i.MessaggioID,
 			&i.CasellaID,
 			&i.EntryID,
-			&i.StoreIDLocale,
 			&i.Cartella,
 			&i.RicevutoIl,
 			&i.NonLetto,
@@ -684,7 +778,7 @@ func (q *Queries) ListSyncCursoriCasella(ctx context.Context, casellaID uuid.UUI
 }
 
 const presenzaDaAprire = `-- name: PresenzaDaAprire :one
-SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.store_id_locale, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo
+SELECT mc.messaggio_id, mc.casella_id, mc.entry_id, mc.cartella, mc.ricevuto_il, mc.non_letto, mc.flag_stato, mc.categorie, mc.aggiornato_il, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo
 FROM messaggio_casella mc
 JOIN casella c ON c.casella_id = mc.casella_id
 WHERE mc.messaggio_id = $1 AND c.attiva
@@ -696,7 +790,6 @@ type PresenzaDaAprireRow struct {
 	MessaggioID      uuid.UUID   `json:"messaggio_id"`
 	CasellaID        uuid.UUID   `json:"casella_id"`
 	EntryID          string      `json:"entry_id"`
-	StoreIDLocale    string      `json:"store_id_locale"`
 	Cartella         pgtype.Text `json:"cartella"`
 	RicevutoIl       time.Time   `json:"ricevuto_il"`
 	NonLetto         bool        `json:"non_letto"`
@@ -707,12 +800,11 @@ type PresenzaDaAprireRow struct {
 	CasellaIndirizzo string      `json:"casella_indirizzo"`
 }
 
-// Quale copia aprire quando l'operatore preme «Apri in Outlook» o chiede un allegato.
-// Finché il routing per postazione non esiste (voci 2.2 e 2.7) la scelta è la copia più vecchia, a
-// parità la casella con l'uuid minore: arbitraria ma RIPETIBILE, così due clic di seguito aprono lo
-// stesso elemento invece di due elementi diversi a seconda di come il database ha ordinato le righe.
-// Lo store_id_locale è il ponte dichiarato fino alla voce 2.6 (N44): vale finché a sincronizzare è
-// una sola postazione, ed è per COPIA perché due caselle dello stesso profilo hanno due store diversi.
+// La copia «di riferimento» di un messaggio quando NON c'è una postazione da cui decidere: la più
+// vecchia, a parità la casella con l'uuid minore. Arbitraria ma RIPETIBILE. Dalla voce 2.7 le azioni
+// interattive non la usano più: usano CopiaPerPostazione, e senza postazione non partono. Resta per
+// il download (che non apre finestre e può farlo qualunque worker autorizzato sulla casella) e per la
+// lettura del pannello.
 func (q *Queries) PresenzaDaAprire(ctx context.Context, messaggioID uuid.UUID) (PresenzaDaAprireRow, error) {
 	row := q.db.QueryRow(ctx, presenzaDaAprire, messaggioID)
 	var i PresenzaDaAprireRow
@@ -720,7 +812,6 @@ func (q *Queries) PresenzaDaAprire(ctx context.Context, messaggioID uuid.UUID) (
 		&i.MessaggioID,
 		&i.CasellaID,
 		&i.EntryID,
-		&i.StoreIDLocale,
 		&i.Cartella,
 		&i.RicevutoIl,
 		&i.NonLetto,
@@ -766,26 +857,21 @@ func (q *Queries) SetBuyerMessaggio(ctx context.Context, arg SetBuyerMessaggioPa
 
 const setEntryIDPresenza = `-- name: SetEntryIDPresenza :exec
 UPDATE messaggio_casella SET entry_id = $1, cartella = COALESCE($2, cartella),
-    store_id_locale = CASE WHEN $3::text <> '' THEN $3::text ELSE store_id_locale END,
     aggiornato_il = now()
-WHERE messaggio_id = $4 AND casella_id = $5
+WHERE messaggio_id = $3 AND casella_id = $4
 `
 
 type SetEntryIDPresenzaParams struct {
-	EntryID       string      `json:"entry_id"`
-	Cartella      pgtype.Text `json:"cartella"`
-	StoreIDLocale string      `json:"store_id_locale"`
-	MessaggioID   uuid.UUID   `json:"messaggio_id"`
-	CasellaID     uuid.UUID   `json:"casella_id"`
+	EntryID     string      `json:"entry_id"`
+	Cartella    pgtype.Text `json:"cartella"`
+	MessaggioID uuid.UUID   `json:"messaggio_id"`
+	CasellaID   uuid.UUID   `json:"casella_id"`
 }
 
-// Lo store non si azzera mai con una stringa vuota: un worker che non lo riporta cancellerebbe
-// l'unico valore con cui si riapre l'elemento.
 func (q *Queries) SetEntryIDPresenza(ctx context.Context, arg SetEntryIDPresenzaParams) error {
 	_, err := q.db.Exec(ctx, setEntryIDPresenza,
 		arg.EntryID,
 		arg.Cartella,
-		arg.StoreIDLocale,
 		arg.MessaggioID,
 		arg.CasellaID,
 	)
@@ -1038,35 +1124,34 @@ func (q *Queries) UpsertMessaggioOutlook(ctx context.Context, arg UpsertMessaggi
 }
 
 const upsertPresenza = `-- name: UpsertPresenza :exec
-INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il, non_letto, flag_stato, categorie)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, cartella, ricevuto_il, non_letto, flag_stato, categorie)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (messaggio_id, casella_id) DO UPDATE SET
     entry_id = EXCLUDED.entry_id, cartella = EXCLUDED.cartella, ricevuto_il = EXCLUDED.ricevuto_il,
-    store_id_locale = CASE WHEN EXCLUDED.store_id_locale <> '' THEN EXCLUDED.store_id_locale ELSE messaggio_casella.store_id_locale END,
     non_letto = EXCLUDED.non_letto, flag_stato = EXCLUDED.flag_stato, categorie = EXCLUDED.categorie,
     aggiornato_il = now()
 `
 
 type UpsertPresenzaParams struct {
-	MessaggioID   uuid.UUID   `json:"messaggio_id"`
-	CasellaID     uuid.UUID   `json:"casella_id"`
-	EntryID       string      `json:"entry_id"`
-	StoreIDLocale string      `json:"store_id_locale"`
-	Cartella      pgtype.Text `json:"cartella"`
-	RicevutoIl    time.Time   `json:"ricevuto_il"`
-	NonLetto      bool        `json:"non_letto"`
-	FlagStato     pgtype.Int2 `json:"flag_stato"`
-	Categorie     []string    `json:"categorie"`
+	MessaggioID uuid.UUID   `json:"messaggio_id"`
+	CasellaID   uuid.UUID   `json:"casella_id"`
+	EntryID     string      `json:"entry_id"`
+	Cartella    pgtype.Text `json:"cartella"`
+	RicevutoIl  time.Time   `json:"ricevuto_il"`
+	NonLetto    bool        `json:"non_letto"`
+	FlagStato   pgtype.Int2 `json:"flag_stato"`
+	Categorie   []string    `json:"categorie"`
 }
 
 // La presenza di un messaggio in una casella (voce 2.1). Due caselle = due righe, ognuna con il suo
 // EntryID, la sua cartella e il suo stato di lettura: sono fatti di quella copia, non del messaggio.
+// Nessuno store_id (0005): lo StoreID è del profilo Outlook della postazione, non della copia, e sta
+// in casella_store dove ogni worker lo scrive per sé (voce 2.6, N44).
 func (q *Queries) UpsertPresenza(ctx context.Context, arg UpsertPresenzaParams) error {
 	_, err := q.db.Exec(ctx, upsertPresenza,
 		arg.MessaggioID,
 		arg.CasellaID,
 		arg.EntryID,
-		arg.StoreIDLocale,
 		arg.Cartella,
 		arg.RicevutoIl,
 		arg.NonLetto,

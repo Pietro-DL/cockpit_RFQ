@@ -8,6 +8,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -2139,7 +2140,7 @@ type Casella struct {
 	AggiornatoIl time.Time     `json:"aggiornato_il"`
 }
 
-// N44: lo StoreID appartiene al profilo, non alla casella. Ogni worker registra qui come vede le proprie caselle; i payload dei job portano casella_id + entry_id, mai uno store_id estraneo.
+// N44: lo StoreID appartiene al profilo, non alla casella. Ogni worker lo registra a ogni claim (postazione, casella → store); i payload dei job portano casella_id + entry_id + Message-ID, mai uno store_id. Uno store del profilo non censito in `casella` non compare qui: viene ignorato, non censito d'ufficio.
 type CasellaStore struct {
 	PostazioneID uuid.UUID `json:"postazione_id"`
 	CasellaID    uuid.UUID `json:"casella_id"`
@@ -2383,13 +2384,12 @@ type MessaggioAggancioLog struct {
 	EseguitoIl  time.Time     `json:"eseguito_il"`
 }
 
-// Una riga per COPIA: la stessa mail in due caselle è un solo messaggio e due presenze. entry_id e cartella sono di questa casella; lo store_id NON sta qui perché appartiene al profilo Outlook della postazione (casella_store, N44).
+// Una riga per COPIA: la stessa mail in due caselle è un solo messaggio e due presenze. entry_id e cartella sono di questa casella. Lo StoreID NON sta qui: appartiene al profilo Outlook della postazione (casella_store, N44) e ogni worker lo risolve da sé.
 type MessaggioCasella struct {
-	MessaggioID   uuid.UUID   `json:"messaggio_id"`
-	CasellaID     uuid.UUID   `json:"casella_id"`
-	EntryID       string      `json:"entry_id"`
-	StoreIDLocale string      `json:"store_id_locale"`
-	Cartella      pgtype.Text `json:"cartella"`
+	MessaggioID uuid.UUID   `json:"messaggio_id"`
+	CasellaID   uuid.UUID   `json:"casella_id"`
+	EntryID     string      `json:"entry_id"`
+	Cartella    pgtype.Text `json:"cartella"`
 	// ReceivedTime in questa casella: la stessa grandezza su cui filtra la scansione. Il cursore avanza su questo e non su messaggio.data_evento, che per la Posta inviata è SentOn (W2).
 	RicevutoIl   time.Time   `json:"ricevuto_il"`
 	NonLetto     bool        `json:"non_letto"`
@@ -2472,6 +2472,10 @@ type Sessione struct {
 	CreataIl      time.Time  `json:"creata_il"`
 	ScadeIl       time.Time  `json:"scade_il"`
 	UltimoAccesso *time.Time `json:"ultimo_accesso"`
+	// Il PC da cui l'operatore sta usando il Cockpit: i job interattivi (apri, bozza, segna letto) vanno al worker di QUESTA postazione, senza ripiego su altre. NULL = azioni interattive disabilitate.
+	PostazioneID uuid.NullUUID `json:"postazione_id"`
+	// ip = abbinata al login per coincidenza con worker_presenza.indirizzo_ip di una postazione autorizzata; scelta = scelta dall'operatore in testata. Un IP sconosciuto non abilita nulla (P1).
+	PostazioneOrigine pgtype.Text `json:"postazione_origine"`
 }
 
 // Un cursore per (casella, cartella). Con la sola cartella due caselle si sovrascrivevano il cursore a vicenda e perdevano messaggi in silenzio.
@@ -2637,9 +2641,17 @@ type WorkerCredenziale struct {
 	AggiornatoIl time.Time   `json:"aggiornato_il"`
 }
 
+// Una riga per worker (non per tipo): postazione, IP dell'ultimo claim, Outlook raggiungibile, caselle risolte nel profilo locale. La testata mostra lo stato PER CASELLA da qui; l'abbinamento sessione→postazione per IP legge indirizzo_ip.
 type WorkerPresenza struct {
-	WorkerTipo  WorkerTipo `json:"worker_tipo"`
-	WorkerID    string     `json:"worker_id"`
-	UltimoClaim time.Time  `json:"ultimo_claim"`
-	UltimoJobIl *time.Time `json:"ultimo_job_il"`
+	WorkerNome   string        `json:"worker_nome"`
+	WorkerTipo   WorkerTipo    `json:"worker_tipo"`
+	PostazioneID uuid.NullUUID `json:"postazione_id"`
+	IndirizzoIp  *netip.Addr   `json:"indirizzo_ip"`
+	UltimoClaim  time.Time     `json:"ultimo_claim"`
+	OutlookOk    bool          `json:"outlook_ok"`
+	// Intersezione fra le caselle che il worker dichiara di aver risolto nel proprio profilo Outlook e quelle autorizzate in worker_credenziale.caselle. Il claim assegna a un worker solo job di queste caselle (M12).
+	CaselleAperte []uuid.UUID `json:"caselle_aperte"`
+	UltimoJobIl   *time.Time  `json:"ultimo_job_il"`
+	UltimoArresto pgtype.Text `json:"ultimo_arresto"`
+	Avviso        pgtype.Text `json:"avviso"`
 }

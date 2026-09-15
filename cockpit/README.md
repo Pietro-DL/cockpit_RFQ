@@ -233,7 +233,16 @@ copy workers\worker.toml.example workers\worker.toml
 `token` deve coincidere con `[server].token_worker`. `staging` è una cartella locale **del worker**: ci
 passano i file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al server) e ci resta
 il log; può stare su un PC diverso dal server e non deve coincidere con `[nas].staging`. `worker_id`,
-se presente, deve coincidere con `[[worker]].nome` di `cockpit.toml`.
+se presente, deve coincidere con `[[worker]].nome` di `cockpit.toml`: **è la chiave con cui il server
+riconosce il worker**. Un nome che non compare in `[[worker]]` riceve `403` al claim e non prende
+lavoro; un worker il cui nome host non è la postazione della sua credenziale riceve `403` anche lui
+(è il caso di un `worker.toml` copiato su un altro PC).
+
+Il worker Outlook non decide da solo che cosa leggere: all'avvio chiede al server le caselle su cui
+la sua credenziale è autorizzata (`GET /api/v1/worker/caselle`), le cerca nel profilo Outlook del PC
+e dichiara al claim solo quelle che ha trovato, con lo StoreID locale. Uno store presente nel profilo
+ma non censito in `[[casella]]` **viene ignorato**: non viene letto e non viene censito d'ufficio.
+`python worker_outlook.py --caselle` mostra questa risoluzione senza prendere nessun job.
 
 ### 4. Compilazione
 
@@ -284,6 +293,7 @@ Opzioni comuni a entrambi:
 | `--una-volta` | esegue al più un job ed esce (utile per provare) |
 | `--debug` | log più fitto sulla console |
 | `--cartelle` | *(solo Outlook)* stampa l'albero delle cartelle Outlook ed esce |
+| `--caselle` | *(solo Outlook)* chiede al server le caselle da servire, le risolve nel profilo Outlook e stampa l'esito (M1) senza prendere job |
 
 Variabili d'ambiente che vincono sul file: `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_STAGING`,
 `COCKPIT_WORKER_ID`.
@@ -330,6 +340,15 @@ messaggi a lotti. Dall'Inbox del browser l'operatore decide: **Nuova RFQ**, **Ag
 proposti; con **Conferma → NAS** diventano documenti copiati nella cartella della RFQ con verifica
 dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
 l'invio non è mai automatico.
+
+**Su quale PC.** Un job va solo a un worker che serve la casella del job — cioè che l'ha trovata nel
+proprio profilo Outlook ed è autorizzato a leggerla — e, se è un'azione interattiva (Apri, Segna
+letto, Bozza), solo al worker della **postazione da cui l'operatore sta lavorando**. La sessione del
+browser sa qual è: al login, se un worker attivo di una postazione autorizzata ha fatto claim dallo
+stesso indirizzo IP, la prende da lì; altrimenti l'operatore la sceglie dalla testata («Sei su: …»).
+Senza postazione le azioni su Outlook sono disabilitate con il motivo: una finestra aperta su un altro
+PC non è un'azione riuscita. La testata dice anche, per ogni casella, se c'è un worker che la serve
+(**attiva** su quale PC, **OFFLINE**, **non risolta** nel profilo, **non configurata**).
 
 ---
 
@@ -406,8 +425,13 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | `migrazioni: il DB è alla versione N…` | database aggiornato da un binario più recente | aggiornare `cockpit.exe` |
 | il worker logga `COM:` in continuazione | Outlook chiuso o su un altro utente | aprire Outlook nella stessa sessione |
 | il worker logga `401` | `token` diverso da `[server].token_worker` | allineare i due file |
-| la testata del browser dice OFFLINE | nessun claim da oltre un minuto | il worker è fermo: vedere il suo log |
-| i job restano `pronto` | nessun worker di quel tipo è in esecuzione | avviare il worker corrispondente |
+| il worker logga `403` | il suo nome non è in `[[worker]]`, o gira su un PC diverso dalla sua `postazione` | correggere `cockpit.toml` o `worker_id` in `worker.toml` |
+| una casella in testata è **OFFLINE** | il worker che la serve non fa claim da oltre un minuto | il worker di quel PC è fermo: vedere il suo log |
+| una casella in testata è **non risolta** | il worker è attivo ma non trova la casella nel profilo Outlook del suo PC (o Outlook non risponde) | aggiungere la casella al profilo, o aprire Outlook; `python worker_outlook.py --caselle` dice che cosa vede |
+| una casella in testata è **non configurata** | nessun `[[worker]]` la elenca fra le proprie `caselle` | aggiungerla al worker della postazione che deve servirla |
+| «Apri in Outlook» dice *nessuna postazione* | la sessione non è abbinata a nessun PC | scegliere il PC dalla testata («Sei su:») |
+| «Apri in Outlook» dice *non viene dirottata* | il worker della postazione scelta non serve nessuna casella in cui il messaggio è presente | autorizzare quella casella al worker, o lavorare dalla postazione che la serve |
+| i job restano `pronto` | nessun worker che serva quella casella (o quella postazione) è in esecuzione | avviare il worker corrispondente; la testata dice quale |
 
 ---
 
@@ -427,13 +451,16 @@ internal/ingest            FATTO (messaggio, allegato) + proposta economica + ag
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
-internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file (token X-Cockpit-Token);
+internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
+                           (token X-Cockpit-Token); il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store;
                            il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
-internal/web               HTML+HTMX: login, /inbox, /messaggio/{id} (+triage, scarica), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job
+internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
+                           instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla)
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
-                           0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox)
+                           0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
+                           0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                            outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server), worker.toml

@@ -8,11 +8,55 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const annullaJob = `-- name: AnnullaJob :one
+UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    chiuso_il = now(), errore = concat_ws(' ', errore, '[annullato dall''operatore]')
+WHERE job_id = $1 AND stato IN ('pronto','in_corso')
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
+`
+
+// «Annulla» dalla UI (Q17): un job interattivo che l'operatore non vuole più. Se è in corso, il
+// tentativo che lo sta eseguendo riceve 409 al prossimo heartbeat e si ferma: il predicato di
+// validità richiede stato = 'in_corso', quindi non serve altro.
+func (q *Queries) AnnullaJob(ctx context.Context, jobID int64) (Job, error) {
+	row := q.db.QueryRow(ctx, annullaJob, jobID)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
+}
 
 const annullaJobScaduti = `-- name: AnnullaJobScaduti :execrows
 UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
@@ -90,20 +134,36 @@ WHERE job_id = (
     SELECT j.job_id FROM job j
     WHERE j.stato = 'pronto' AND j.worker_tipo = $2 AND j.non_prima_di <= now()
       AND (j.scade_il IS NULL OR j.scade_il > now())
+      AND (j.casella_id IS NULL OR j.casella_id = ANY ($3::uuid[]))
+      AND (j.postazione_id IS NULL OR j.postazione_id = $4::uuid)
     ORDER BY j.priorita, j.job_id
     FOR UPDATE SKIP LOCKED LIMIT 1)
 RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
 type ClaimJobParams struct {
-	WorkerID   pgtype.Text `json:"worker_id"`
-	WorkerTipo WorkerTipo  `json:"worker_tipo"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
+	WorkerTipo WorkerTipo    `json:"worker_tipo"`
+	Caselle    []uuid.UUID   `json:"caselle"`
+	Postazione uuid.NullUUID `json:"postazione"`
 }
 
 // Un solo UPDATE: il tentativo nasce qui con un token nuovo e con avviato_il, che fissa l'inizio da
-// cui si misura durata_max_s. Un job interattivo già scaduto non viene assegnato a nessuno.
+// cui si misura durata_max_s. Un job interattivo già scaduto non viene assegnato a nessuno (Q21).
+//
+// ROUTING (voce 2.2). `caselle` sono le caselle che il worker serve DAVVERO: quelle che ha risolto nel
+// proprio profilo Outlook, intersecate con quelle autorizzate dalla sua credenziale. Un job con
+// casella_id va solo a un worker che ce l'ha; un job con postazione_id va solo al worker di QUELLA
+// postazione. Nessun ripiego: un job interattivo per PC-FRANCESCO resta in coda finché il worker di
+// PC-FRANCESCO non lo prende, e se non arriva scade (M10). Un job senza casella e senza postazione
+// (analisi, server) lo prende chiunque del tipo giusto.
 func (q *Queries) ClaimJob(ctx context.Context, arg ClaimJobParams) (Job, error) {
-	row := q.db.QueryRow(ctx, claimJob, arg.WorkerID, arg.WorkerTipo)
+	row := q.db.QueryRow(ctx, claimJob,
+		arg.WorkerID,
+		arg.WorkerTipo,
+		arg.Caselle,
+		arg.Postazione,
+	)
 	var i Job
 	err := row.Scan(
 		&i.JobID,
@@ -336,6 +396,28 @@ func (q *Queries) GetJob(ctx context.Context, jobID int64) (Job, error) {
 		&i.LeaseToken,
 		&i.AvviatoIl,
 		&i.ScadeIl,
+	)
+	return i, err
+}
+
+const getWorkerPresenza = `-- name: GetWorkerPresenza :one
+SELECT worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok, caselle_aperte, ultimo_job_il, ultimo_arresto, avviso FROM worker_presenza WHERE worker_nome = $1
+`
+
+func (q *Queries) GetWorkerPresenza(ctx context.Context, workerNome string) (WorkerPresenza, error) {
+	row := q.db.QueryRow(ctx, getWorkerPresenza, workerNome)
+	var i WorkerPresenza
+	err := row.Scan(
+		&i.WorkerNome,
+		&i.WorkerTipo,
+		&i.PostazioneID,
+		&i.IndirizzoIp,
+		&i.UltimoClaim,
+		&i.OutlookOk,
+		&i.CaselleAperte,
+		&i.UltimoJobIl,
+		&i.UltimoArresto,
+		&i.Avviso,
 	)
 	return i, err
 }
@@ -610,23 +692,90 @@ func (q *Queries) ListLeaseTokenInCorso(ctx context.Context) ([]uuid.NullUUID, e
 }
 
 const listWorkerPresenza = `-- name: ListWorkerPresenza :many
-SELECT worker_tipo, worker_id, ultimo_claim, ultimo_job_il FROM worker_presenza ORDER BY worker_tipo
+SELECT wp.worker_nome, wp.worker_tipo, wp.postazione_id, wp.indirizzo_ip, wp.ultimo_claim, wp.outlook_ok, wp.caselle_aperte, wp.ultimo_job_il, wp.ultimo_arresto, wp.avviso, p.nome_host
+FROM worker_presenza wp LEFT JOIN postazione p ON p.postazione_id = wp.postazione_id
+ORDER BY wp.worker_nome
 `
 
-func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]WorkerPresenza, error) {
+type ListWorkerPresenzaRow struct {
+	WorkerNome    string        `json:"worker_nome"`
+	WorkerTipo    WorkerTipo    `json:"worker_tipo"`
+	PostazioneID  uuid.NullUUID `json:"postazione_id"`
+	IndirizzoIp   *netip.Addr   `json:"indirizzo_ip"`
+	UltimoClaim   time.Time     `json:"ultimo_claim"`
+	OutlookOk     bool          `json:"outlook_ok"`
+	CaselleAperte []uuid.UUID   `json:"caselle_aperte"`
+	UltimoJobIl   *time.Time    `json:"ultimo_job_il"`
+	UltimoArresto pgtype.Text   `json:"ultimo_arresto"`
+	Avviso        pgtype.Text   `json:"avviso"`
+	NomeHost      pgtype.Text   `json:"nome_host"`
+}
+
+func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]ListWorkerPresenzaRow, error) {
 	rows, err := q.db.Query(ctx, listWorkerPresenza)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WorkerPresenza{}
+	items := []ListWorkerPresenzaRow{}
 	for rows.Next() {
-		var i WorkerPresenza
+		var i ListWorkerPresenzaRow
 		if err := rows.Scan(
+			&i.WorkerNome,
 			&i.WorkerTipo,
-			&i.WorkerID,
+			&i.PostazioneID,
+			&i.IndirizzoIp,
 			&i.UltimoClaim,
+			&i.OutlookOk,
+			&i.CaselleAperte,
 			&i.UltimoJobIl,
+			&i.UltimoArresto,
+			&i.Avviso,
+			&i.NomeHost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const postazioniConWorkerAllIndirizzo = `-- name: PostazioniConWorkerAllIndirizzo :many
+SELECT DISTINCT p.postazione_id, p.nome_host, p.descrizione, p.utente_id, p.attiva, p.creato_il, p.aggiornato_il
+FROM worker_presenza wp JOIN postazione p ON p.postazione_id = wp.postazione_id
+WHERE wp.indirizzo_ip = $1::inet AND p.attiva
+  AND wp.ultimo_claim > now() - make_interval(secs => $2::int)
+ORDER BY p.nome_host
+`
+
+type PostazioniConWorkerAllIndirizzoParams struct {
+	IndirizzoIp netip.Addr `json:"indirizzo_ip"`
+	EntroS      int32      `json:"entro_s"`
+}
+
+// Abbinamento sessione → postazione per IP (voce 2.7, N50): le postazioni ATTIVE da cui un worker ha
+// fatto claim con questo indirizzo di recente. L'IP è una comodità, non un'autorizzazione: chi
+// chiama verifica ancora che l'utente sia abilitato alla postazione trovata (P1).
+func (q *Queries) PostazioniConWorkerAllIndirizzo(ctx context.Context, arg PostazioniConWorkerAllIndirizzoParams) ([]Postazione, error) {
+	rows, err := q.db.Query(ctx, postazioniConWorkerAllIndirizzo, arg.IndirizzoIp, arg.EntroS)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Postazione{}
+	for rows.Next() {
+		var i Postazione
+		if err := rows.Scan(
+			&i.PostazioneID,
+			&i.NomeHost,
+			&i.Descrizione,
+			&i.UtenteID,
+			&i.Attiva,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
 		); err != nil {
 			return nil, err
 		}
@@ -861,20 +1010,47 @@ func (q *Queries) UltimoJobPerChiavePrefisso(ctx context.Context, prefisso strin
 }
 
 const upsertWorkerPresenza = `-- name: UpsertWorkerPresenza :exec
-INSERT INTO worker_presenza (worker_tipo, worker_id, ultimo_claim, ultimo_job_il)
-VALUES ($1, $2, now(), CASE WHEN $3::boolean THEN now() END)
-ON CONFLICT (worker_tipo) DO UPDATE SET worker_id = EXCLUDED.worker_id, ultimo_claim = now(),
-    ultimo_job_il = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il)
+INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok,
+                             caselle_aperte, ultimo_job_il, ultimo_arresto, avviso)
+VALUES ($1, $2, $3, $4, now(),
+        $5, $6::uuid[],
+        CASE WHEN $7::boolean THEN now() END, $8, $9)
+ON CONFLICT (worker_nome) DO UPDATE SET
+    worker_tipo = EXCLUDED.worker_tipo, postazione_id = EXCLUDED.postazione_id,
+    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_claim = now(), outlook_ok = EXCLUDED.outlook_ok,
+    caselle_aperte = EXCLUDED.caselle_aperte,
+    ultimo_job_il  = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il),
+    ultimo_arresto = COALESCE(EXCLUDED.ultimo_arresto, worker_presenza.ultimo_arresto),
+    avviso         = EXCLUDED.avviso
 `
 
 type UpsertWorkerPresenzaParams struct {
-	WorkerTipo WorkerTipo `json:"worker_tipo"`
-	WorkerID   string     `json:"worker_id"`
-	ConJob     bool       `json:"con_job"`
+	WorkerNome    string        `json:"worker_nome"`
+	WorkerTipo    WorkerTipo    `json:"worker_tipo"`
+	PostazioneID  uuid.NullUUID `json:"postazione_id"`
+	IndirizzoIp   *netip.Addr   `json:"indirizzo_ip"`
+	OutlookOk     bool          `json:"outlook_ok"`
+	CaselleAperte []uuid.UUID   `json:"caselle_aperte"`
+	ConJob        bool          `json:"con_job"`
+	UltimoArresto pgtype.Text   `json:"ultimo_arresto"`
+	Avviso        pgtype.Text   `json:"avviso"`
 }
 
+// Una riga per WORKER (0005): postazione e caselle vengono dalla credenziale intersecata con ciò che
+// il worker dichiara, mai dal solo JSON. ultimo_arresto e avviso si conservano se il claim non ne
+// porta di nuovi: sono informazioni che l'operatore deve poter leggere anche dopo il riavvio.
 func (q *Queries) UpsertWorkerPresenza(ctx context.Context, arg UpsertWorkerPresenzaParams) error {
-	_, err := q.db.Exec(ctx, upsertWorkerPresenza, arg.WorkerTipo, arg.WorkerID, arg.ConJob)
+	_, err := q.db.Exec(ctx, upsertWorkerPresenza,
+		arg.WorkerNome,
+		arg.WorkerTipo,
+		arg.PostazioneID,
+		arg.IndirizzoIp,
+		arg.OutlookOk,
+		arg.CaselleAperte,
+		arg.ConJob,
+		arg.UltimoArresto,
+		arg.Avviso,
+	)
 	return err
 }
 

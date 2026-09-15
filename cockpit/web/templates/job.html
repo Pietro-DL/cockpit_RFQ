@@ -9,13 +9,16 @@
 
 {{define "job_tabella"}}
 <table class="tabella">
-  <tr><th>#</th><th>Tipo</th><th>Worker</th><th>Stato</th><th>Tent.</th><th>Creato</th><th>Lease</th><th>Errore / risultato</th><th></th></tr>
+  <tr><th>#</th><th>Tipo</th><th>Worker</th><th>Destinazione</th><th>Stato</th><th>Tent.</th><th>Creato</th><th>Lease</th><th>Errore / risultato</th><th></th></tr>
   {{range .Dati.Job}}
   <tr class="{{.Stato}}">
-    <td>{{.JobID}}</td><td>{{.Tipo}}</td><td>{{.WorkerTipo}}</td><td>{{.Stato}}</td><td>{{.Tentativi}}/{{.MaxTentativi}}</td>
+    <td>{{.JobID}}</td><td>{{.Tipo}}</td><td>{{.WorkerTipo}}{{if .WorkerID.Valid}} <small class="muto">{{.WorkerID.String}}</small>{{end}}</td>
+    <td class="muto">{{if .CasellaID.Valid}}casella {{uuidBreve .CasellaID.UUID}}{{end}}{{if .PostazioneID.Valid}} · postazione {{uuidBreve .PostazioneID.UUID}}{{end}}{{if .ScadeIl}} · scade {{data .ScadeIl}}{{end}}</td>
+    <td>{{.Stato}}</td><td>{{.Tentativi}}/{{.MaxTentativi}}</td>
     <td>{{data .CreatoIl}}</td><td>{{if .LeaseFinoA}}{{data .LeaseFinoA}}{{end}}</td>
     <td class="mono">{{if .Errore.Valid}}<span class="errore">{{.Errore.String}}</span>{{else if .Risultato}}{{printf "%.160s" (printf "%s" .Risultato)}}{{end}}</td>
-    <td>{{if or (eq .Stato "fallito") (eq .Stato "annullato")}}<button hx-post="/admin/job/{{.JobID}}/riaccoda" hx-swap="outerHTML">riaccoda</button>{{end}}</td>
+    <td>{{if or (eq .Stato "fallito") (eq .Stato "annullato")}}<button hx-post="/admin/job/{{.JobID}}/riaccoda" hx-swap="outerHTML">riaccoda</button>{{end}}
+        {{if or (eq .Stato "pronto") (eq .Stato "in_corso")}}<button hx-post="/admin/job/{{.JobID}}/annulla" hx-swap="outerHTML" hx-confirm="Annullare il job #{{.JobID}}?">annulla</button>{{end}}</td>
   </tr>
   {{end}}
 </table>

@@ -35,6 +35,10 @@ class ServerFinto:
         self.caricamenti: list[dict] = []      # ogni PUT /allegati/{id}/file: id, query, bytes, sha256
         self.eventi: list[str] = []            # ordine delle chiamate che contano: "upload", "result"
         self.risposta_ingest: dict | None = None
+        # GET /api/v1/worker/caselle (voce 2.6): le caselle che il server chiede al worker di
+        # risolvere. Vuoto = il worker non ha niente da risolvere e non apre Outlook.
+        self.caselle_worker: list[dict] = []
+        self.richieste_caselle: list[str] = []      # worker_id di ogni GET /worker/caselle
         self.non_autorizzati = 0
         self._srv: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -101,6 +105,21 @@ class ServerFinto:
                         self._rispondi(200, risposta or {"inseriti": len(corpo.get("messaggi", [])), "aggiornati": 0, "falliti": 0, "esiti": []})
                 else:
                     self._rispondi(404, {"errore": "rotta sconosciuta: " + percorso})
+
+            def do_GET(self):  # noqa: N802
+                if self.headers.get("X-Cockpit-Token") != padrone.token:
+                    with padrone.lock:
+                        padrone.non_autorizzati += 1
+                    self._rispondi(401, {"errore": "token worker non valido"})
+                    return
+                parti = urlsplit(self.path)
+                if parti.path == "/api/v1/worker/caselle":
+                    with padrone.lock:
+                        padrone.richieste_caselle.append(parse_qs(parti.query).get("worker_id", [""])[0])
+                        caselle = list(padrone.caselle_worker)
+                    self._rispondi(200, caselle)
+                else:
+                    self._rispondi(404, {"errore": "rotta sconosciuta: " + self.path})
 
             def do_PUT(self):  # noqa: N802
                 """PUT /api/v1/allegati/{id}/file?job_id=&lease_token=&worker_id= (voce 2.3): registra

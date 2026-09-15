@@ -33,7 +33,7 @@ func (s stagingFinto) Presente(percorso string) bool { return s[percorso] }
 
 // messaggioConAllegato crea messaggio, satellite Outlook e un allegato. `path` e `sha` valorizzati
 // significano «già sceso una volta»; se `path` è vuoto l'allegato non è mai stato scaricato.
-func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiave, sha, path string) (db.Allegato, db.Messaggio, db.PresenzaDaAprireRow) {
+func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiave, sha, path string) (db.Allegato, db.Messaggio, Copia) {
 	t.Helper()
 	var convID, msgID, allID uuid.UUID
 	if err := p.QueryRow(ctx, `INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il)
@@ -53,8 +53,8 @@ func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, ch
 		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casellaID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Exec(ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il)
-		VALUES ($1, $2, $3, 'STORE-1', 'Posta in arrivo', now())`, msgID, casellaID, "ENTRY-"+chiave); err != nil {
+	if _, err := p.Exec(ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, cartella, ricevuto_il)
+		VALUES ($1, $2, $3, 'Posta in arrivo', now())`, msgID, casellaID, "ENTRY-"+chiave); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.QueryRow(ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine,
@@ -77,7 +77,7 @@ func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, ch
 	if err != nil {
 		t.Fatal(err)
 	}
-	return a, m, pr
+	return a, m, Copia{CasellaID: pr.CasellaID, CasellaNome: pr.CasellaNome, EntryID: pr.EntryID}
 }
 
 func contaJobStage(t *testing.T, ctx context.Context, p *pgxpool.Pool, allegatoID uuid.UUID) int {

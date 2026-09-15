@@ -73,10 +73,13 @@ const (
 // quel file li lascia entrambi senza, ed entrambi hanno "Riscarica". È la stessa condizione in cui si
 // trova oggi un allegato solo, quindi non introduce un modo nuovo di rompersi.
 //
-// `pr` è la PRESENZA da cui scaricare: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni
-// casella, quindi «da quale copia» non è una domanda che si possa saltare. Chi chiama la ottiene da
-// PresenzaDaAprire; la scelta diventa una decisione della postazione del richiedente con la 2.7.
-func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, pr db.PresenzaDaAprireRow, priorita int16) (EsitoStage, *db.Job, error) {
+// `c` è la COPIA da cui scaricare: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni
+// casella, quindi «da quale copia» non è una domanda che si possa saltare. Il job porta casella_id
+// (vincolo del claim: lo prende solo un worker che serve quella casella) ed entry_id; MAI uno
+// store_id, che il worker risolve nel proprio profilo (voce 2.6, M12). Un download non apre finestre,
+// quindi non è legato alla postazione del richiedente: lo fa qualunque worker autorizzato sulla
+// casella. Quale copia preferire, quando ce n'è più d'una, lo decide chi chiama (CopiaPerDownload).
+func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, c Copia, priorita int16) (EsitoStage, *db.Job, error) {
 	if a.PathStaging.Valid && st.Presente(a.PathStaging.String) {
 		return StageGiaPresente, nil, nil
 	}
@@ -103,12 +106,12 @@ func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, 
 		return "", nil, err
 	}
 	mid := m.MessaggioID
-	cid := pr.CasellaID
-	j, err := Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
-		AllegatoID: a.AllegatoID, EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Indice: int(a.Indice), NomeFile: a.NomeFile,
+	cid := c.CasellaID
+	j, err := AccodaCon(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
+		AllegatoID: a.AllegatoID, EntryID: c.EntryID, Indice: int(a.Indice), NomeFile: a.NomeFile,
 		Cartella:            CartellaStaging(m.ChiaveEsterna),
 		RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, CasellaID: &cid, MessageID: m.ChiaveEsterna},
-	}, "stage:"+a.AllegatoID.String(), priorita)
+	}, "stage:"+a.AllegatoID.String(), priorita, Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 	if err != nil {
 		return "", nil, err
 	}

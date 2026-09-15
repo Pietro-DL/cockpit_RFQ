@@ -6,11 +6,6 @@
       "title": "Entry Id",
       "type": "string"
     },
-    "store_id": {
-      "default": "",
-      "title": "Store Id",
-      "type": "string"
-    },
     "cartella": {
       "default": "",
       "title": "Cartella",

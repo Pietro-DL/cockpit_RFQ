@@ -39,7 +39,9 @@ class MessaggioIn(Base):
     message_id: str
     parent_message_id: str = ""
     entry_id: str
-    store_id: str
+    # Accettato ma IGNORATO dal server (voce 2.6): lo StoreID è del profilo Outlook di questa
+    # postazione, non della copia, e il server lo apprende dal claim (casella_store).
+    store_id: str = ""
     conversation_id: str = ""
     conversation_index: str = ""
     in_reply_to: str = ""
@@ -117,10 +119,37 @@ class IngestRisposta(Base):
 
 # ---------------------------------------------------------------- coda job
 
+class CasellaAperta(Base):
+    """Come il worker vede una casella censita nel PROPRIO profilo Outlook (voce 2.6): lo store_id
+    ha senso solo su questa postazione; il server lo registra in casella_store e non lo mette mai
+    in un payload."""
+    casella_id: UUID
+    store_id: str
+
+
+class CasellaServita(Base):
+    """Una casella che il server chiede al worker di risolvere nel proprio profilo (risposta di
+    GET /api/v1/worker/caselle). Il worker tocca solo queste: uno store del profilo che non è qui
+    viene ignorato, non censito d'ufficio (M1)."""
+    casella_id: UUID
+    indirizzo: str
+    nome: str = ""
+    condivisa: bool = False
+
+
 class ClaimRichiesta(Base):
     worker: Literal["outlook", "analisi"]
     worker_id: str
     attesa_s: int = 20
+    # Nome host da cui il worker gira: il server lo CONFRONTA con la postazione della credenziale
+    # (un worker.toml copiato su un altro PC viene rifiutato), ma il routing usa la credenziale.
+    postazione: str = ""
+    outlook_ok: bool = True
+    # Le caselle censite risolte nel profilo locale: il server interseca con l'autorizzazione (Q18)
+    # e assegna solo job di queste (M12).
+    caselle_aperte: list[CasellaAperta] = Field(default_factory=list)
+    # Motivo dell'ultima uscita forzata (C16), letto dal marcatore al riavvio.
+    ultimo_arresto: str = ""
 
 
 class Job(Base):
@@ -134,6 +163,8 @@ class Job(Base):
     lease_token: str = ""
     durata_max_s: int = 1800
     casella_id: UUID | None = None
+    # Job interattivo destinato a QUESTA postazione (voce 2.2): il claim lo ha già filtrato.
+    postazione_id: UUID | None = None
 
 
 class HeartbeatRichiesta(Base):
@@ -187,25 +218,26 @@ class PayloadRileggiElemento(Base):
 
 
 class RiferimentoElemento(Base):
-    """Riferimento stabile a un elemento Outlook: se l'EntryID è stantio (elemento spostato) il worker
-    lo ricerca per message_id; messaggio_id e casella_id servono al server per riallineare la PRESENZA
-    giusta: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni casella."""
+    """Riferimento stabile a un elemento Outlook: IDENTITÀ LOGICHE, mai uno StoreID (voce 2.6, M12).
+
+    casella_id dice in quale casella cercare: il worker la traduce nello store del PROPRIO profilo.
+    Se l'EntryID è stantio (elemento spostato) il worker lo ricerca per message_id DENTRO quello
+    store; messaggio_id e casella_id servono al server per riallineare la PRESENZA giusta: dalla
+    0004 lo stesso messaggio ha un EntryID diverso in ogni casella."""
     messaggio_id: UUID | None = None
     casella_id: UUID | None = None
     message_id: str = ""
 
 
 class RisultatoElemento(Base):
-    """Dove l'elemento è stato trovato davvero."""
+    """Dove l'elemento è stato trovato davvero. Nessuno store_id: al server non direbbe niente."""
     entry_id: str = ""
-    store_id: str = ""
     cartella: str = ""
 
 
 class PayloadStageAllegato(RiferimentoElemento):
     allegato_id: UUID
     entry_id: str
-    store_id: str
     indice: int
     nome_file: str
     cartella: str
@@ -226,7 +258,6 @@ class PayloadCreaBozza(RiferimentoElemento):
     bozza_id: UUID
     tipo: Literal["risposta", "rispondi_tutti", "inoltro", "nuovo", "sollecito"]
     entry_id: str = ""
-    store_id: str = ""
     destinatari: list[Destinatario] = Field(default_factory=list)
     oggetto: str = ""
     corpo_html: str = ""
@@ -243,23 +274,19 @@ class RisultatoBozza(Base):
 
 class PayloadApriElemento(RiferimentoElemento):
     entry_id: str
-    store_id: str
 
 
 class PayloadSpostaCartella(RiferimentoElemento):
     entry_id: str
-    store_id: str
     cartella: str
 
 
 class RisultatoSposta(Base):
     entry_id: str
-    store_id: str = ""
 
 
 class PayloadSegnaLetto(RiferimentoElemento):
     entry_id: str
-    store_id: str
     letto: bool = True
 
 
@@ -296,6 +323,7 @@ CONTRATTI = {
     "ingest_richiesta": IngestRichiesta,
     "ingest_risposta": IngestRisposta,
     "claim_richiesta": ClaimRichiesta,
+    "casella_servita": CasellaServita,
     "job": Job,
     "risultato_richiesta": RisultatoRichiesta,
     "payload_sync_outlook": PayloadSyncOutlook,

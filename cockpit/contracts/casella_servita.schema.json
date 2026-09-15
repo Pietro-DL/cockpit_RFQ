@@ -1,0 +1,31 @@
+{
+  "description": "Una casella che il server chiede al worker di risolvere nel proprio profilo (risposta di\nGET /api/v1/worker/caselle). Il worker tocca solo queste: uno store del profilo che non è qui\nviene ignorato, non censito d'ufficio (M1).",
+  "properties": {
+    "casella_id": {
+      "format": "uuid",
+      "title": "Casella Id",
+      "type": "string"
+    },
+    "indirizzo": {
+      "title": "Indirizzo",
+      "type": "string"
+    },
+    "nome": {
+      "default": "",
+      "title": "Nome",
+      "type": "string"
+    },
+    "condivisa": {
+      "default": false,
+      "title": "Condivisa",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "casella_id",
+    "indirizzo"
+  ],
+  "title": "CasellaServita",
+  "type": "object",
+  "$id": "cockpit/casella_servita"
+}

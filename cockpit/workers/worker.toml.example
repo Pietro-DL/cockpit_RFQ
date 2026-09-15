@@ -13,4 +13,11 @@ consenti_invio = false
 # Nome del worker: deve coincidere con [[worker]].nome di cockpit.toml, perché è la chiave con cui il
 # server riconosce credenziale, postazione e caselle autorizzate. Se manca, il worker usa
 # "<tipo>@<NOME-HOST>", che è la forma attesa. Non contiene il PID: deve restare uguale fra i riavvii.
+# Un nome non censito riceve 403 al claim; un worker il cui nome host non è la postazione della sua
+# credenziale riceve 403 anche lui (worker.toml copiato su un altro PC).
 # worker_id = "outlook@PC-NOME"
+
+# Le caselle da servire NON si configurano qui: il worker le chiede al server (quelle autorizzate alla
+# sua credenziale) e le risolve nel profilo Outlook di questo PC. Ogni quanti secondi rifare la
+# risoluzione (una cassetta aggiunta al profilo viene vista senza riavviare). Default 300.
+# risolvi_caselle_ogni_s = 300

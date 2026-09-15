@@ -46,6 +46,7 @@ var tipiContratto = map[string]any{
 	"ingest_richiesta":          IngestRichiesta{},
 	"ingest_risposta":           IngestRisposta{},
 	"claim_richiesta":           ClaimRichiesta{},
+	"casella_servita":           CasellaServita{},
 	"job":                       Job{},
 	"risultato_richiesta":       RisultatoRichiesta{},
 	"heartbeat_richiesta":       HeartbeatRichiesta{},
@@ -78,6 +79,7 @@ var tipiAnnidati = map[string]any{
 	"CartellaCursore":     CartellaCursore{},
 	"CartellaEsito":       CartellaEsito{},
 	"RiferimentoElemento": RiferimentoElemento{},
+	"CasellaAperta":       CasellaAperta{},
 	"RisultatoElemento":   RisultatoElemento{},
 }
 

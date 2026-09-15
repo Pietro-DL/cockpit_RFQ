@@ -1,14 +1,9 @@
 {
-  "description": "Dove l'elemento è stato trovato davvero.",
+  "description": "Dove l'elemento è stato trovato davvero. Nessuno store_id: al server non direbbe niente.",
   "properties": {
     "entry_id": {
       "default": "",
       "title": "Entry Id",
-      "type": "string"
-    },
-    "store_id": {
-      "default": "",
-      "title": "Store Id",
       "type": "string"
     },
     "cartella": {

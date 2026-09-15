@@ -40,6 +40,8 @@ PR_ATTACH_MIME_TAG = P + "0x370E001F"
 OL_MAIL = 43
 OL_FOLDER = {"inbox": 6, "posta in arrivo": 6, "sent items": 5, "posta inviata": 5, "drafts": 16, "bozze": 16,
              "deleted items": 3, "posta eliminata": 3, "junk": 23, "posta indesiderata": 23}
+OL_INBOX = 6
+PR_SMTP_ADDRESS_STORE = P + "0x39FE001F"   # sullo store: SMTP del proprietario, quando Outlook lo espone
 OL_ATT_BYVALUE, OL_ATT_BYREF, OL_ATT_EMBEDDED, OL_ATT_OLE = 1, 4, 5, 6
 OL_TO, OL_CC, OL_BCC = 1, 2, 3
 MAPI_E_NOT_FOUND = -2147221233  # 0x8004010F
@@ -99,20 +101,115 @@ class Outlook:
             pass
         log.info("Outlook %s, profilo %s, account %s", self.app.Version, self.ns.CurrentProfileName, sorted(self.indirizzi_propri))
 
+    # ------------------------------------------------------------ caselle → store locale (voce 2.6, N44)
+
+    def risolvi_caselle(self, caselle: list[dict]) -> tuple[dict[str, str], list[str]]:
+        """Per ogni casella censita che il server chiede di servire, trova lo store del PROFILO
+        LOCALE che la contiene. Restituisce {casella_id: store_id} e l'elenco delle non trovate.
+
+        Si parte dall'elenco del server, MAI dal profilo: uno store che c'è nel profilo e non è in
+        elenco (la casella di un collega, un archivio) non viene aperto, letto né censito (M1).
+
+        D5 è aperta — Commerciale può essere una cassetta condivisa con delega oppure un account
+        con credenziali proprie — quindi non si assume nessuna delle due forme: si prova, in
+        ordine, ciò che funziona per entrambe.
+          1. un account del profilo con quello SMTP → il suo DeliveryStore (account dedicato);
+          2. uno store del profilo il cui proprietario/nome corrisponde all'indirizzo (cassetta
+             aggiunta o automappata: compare in ns.Stores);
+          3. CreateRecipient(indirizzo) + GetSharedDefaultFolder(Inbox).Store (delega Exchange).
+        Il log dice quale strada ha funzionato: è ciò che M1 chiede di leggere.
+        """
+        trovate: dict[str, str] = {}
+        mancanti: list[str] = []
+        for c in caselle:
+            cid, ind = str(c.get("casella_id", "")), str(c.get("indirizzo", "")).lower()
+            if not cid or not ind:
+                continue
+            store_id, via = self._store_di(ind)
+            if store_id:
+                trovate[cid] = store_id
+                log.info("servo: %s → store %.24s… (%s)", c.get("nome") or ind, store_id, via)
+            else:
+                mancanti.append(c.get("nome") or ind)
+                log.warning("casella %s (%s) non trovata nel profilo Outlook di questo PC: non la servo", c.get("nome") or ind, ind)
+        return trovate, mancanti
+
+    def _store_di(self, indirizzo: str) -> tuple[str, str]:
+        # 1. account dedicato
+        try:
+            for i in range(1, self.ns.Accounts.Count + 1):
+                a = self.ns.Accounts.Item(i)
+                if (a.SmtpAddress or "").lower() == indirizzo:
+                    st = a.DeliveryStore
+                    if st is not None and st.StoreID:
+                        return st.StoreID, "account del profilo"
+        except pywintypes.com_error:
+            pass
+        # 2. store presente nel profilo (cassetta aggiunta o automappata)
+        try:
+            for i in range(1, self.ns.Stores.Count + 1):
+                st = self.ns.Stores.Item(i)
+                nome = (st.DisplayName or "").lower()
+                smtp = _prop(st, PR_SMTP_ADDRESS_STORE)
+                if nome == indirizzo or (isinstance(smtp, str) and smtp.lower() == indirizzo):
+                    return st.StoreID, "store del profilo"
+        except pywintypes.com_error:
+            pass
+        # 3. cassetta condivisa con delega
+        try:
+            r = self.ns.CreateRecipient(indirizzo)
+            if r.Resolve():
+                cart = self.ns.GetSharedDefaultFolder(r, OL_INBOX)
+                st = cart.Store
+                if st is not None and st.StoreID:
+                    return st.StoreID, "cassetta condivisa (delega)"
+        except pywintypes.com_error:
+            pass
+        return "", ""
+
+    def _store(self, store_id: str):
+        """Lo Store con quello StoreID nel profilo corrente; None se non c'è (StoreID di un altro PC)."""
+        if not store_id:
+            return None
+        try:
+            for i in range(1, self.ns.Stores.Count + 1):
+                st = self.ns.Stores.Item(i)
+                if st.StoreID == store_id:
+                    return st
+        except pywintypes.com_error:
+            pass
+        return None
+
     # ------------------------------------------------------------ cartelle
 
-    def cartella(self, nome: str):
-        """'Inbox' / 'Sent Items' / 'Bozze' oppure un percorso 'Store\\Cartella\\Sotto'."""
+    def cartella(self, nome: str, store_id: str = ""):
+        """'Inbox' / 'Sent Items' / 'Bozze' oppure un percorso 'Store\\Cartella\\Sotto'.
+
+        Con `store_id` la cartella è cercata DENTRO quello store (la casella risolta per il job):
+        'Posta in arrivo' di Commerciale non è la Posta in arrivo del profilo. Senza, vale il
+        comportamento di prima: lo store predefinito.
+        """
         chiave = nome.strip().lower()
+        st = self._store(store_id)
+        if store_id and st is None:
+            raise ErroreDefinitivo(f"store {store_id[:24]}… non presente nel profilo Outlook di questo PC")
         if chiave in OL_FOLDER:
+            if st is not None:
+                try:
+                    return st.GetDefaultFolder(OL_FOLDER[chiave])
+                except pywintypes.com_error as e:
+                    raise ErroreDefinitivo(f"cartella predefinita {nome!r} non disponibile nello store {st.DisplayName!r}: {e}") from e
             return self.ns.GetDefaultFolder(OL_FOLDER[chiave])
         parti = [p for p in re.split(r"[\\/]", nome) if p]
         radice = None
-        for i in range(1, self.ns.Folders.Count + 1):
-            st = self.ns.Folders.Item(i)
-            if st.Name.lower() == parti[0].lower():
-                radice, parti = st, parti[1:]
-                break
+        if st is not None:
+            radice = st.GetRootFolder()
+        else:
+            for i in range(1, self.ns.Folders.Count + 1):
+                s = self.ns.Folders.Item(i)
+                if s.Name.lower() == parti[0].lower():
+                    radice, parti = s, parti[1:]
+                    break
         if radice is None:
             radice = self.ns.GetDefaultFolder(6).Parent
         f = radice
@@ -145,15 +242,21 @@ class Outlook:
 
     # ------------------------------------------------------------ lettura
 
-    def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None) -> Iterator[MessaggioIn]:
+    def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None, store_id: str = "") -> Iterator[MessaggioIn]:
         """Elementi MailItem della cartella con ReceivedTime >= dal (e <= al se specificato), in ordine cronologico.
 
         Scorre gli elementi ordinati per data decrescente e si ferma al primo più vecchio di `dal`:
         costa O(nuovi), è indipendente dal locale (niente Restrict con date formattate) e la
         deduplica per Message-ID lato server rende innocua la sovrapposizione.
+        `store_id` è lo store della casella del job (voce 2.6): la cartella è la SUA.
         """
-        cart = self.cartella(nome_cartella)
-        e_inviata = cart.DefaultItemType == 0 and cart.EntryID == self.ns.GetDefaultFolder(5).EntryID
+        cart = self.cartella(nome_cartella, store_id)
+        e_inviata = False
+        try:
+            inviata = self._store(store_id).GetDefaultFolder(5) if store_id else self.ns.GetDefaultFolder(5)
+            e_inviata = cart.DefaultItemType == 0 and cart.EntryID == inviata.EntryID
+        except (pywintypes.com_error, AttributeError):
+            pass
         items = cart.Items
         items.Sort("[ReceivedTime]", True)
         store_id = cart.StoreID
@@ -315,24 +418,28 @@ class Outlook:
     # ------------------------------------------------------------ comandi
 
     def _item(self, entry_id: str, store_id: str, message_id: str = ""):
-        """Ritrova l'elemento: prima per EntryID (veloce), poi per Message-ID in tutte le cartelle dello store
-        (l'EntryID cambia quando l'elemento viene spostato dopo l'ultimo sync)."""
+        """Ritrova l'elemento: prima per EntryID (veloce), poi per Message-ID in tutte le cartelle DI
+        QUELLO STORE (l'EntryID cambia quando l'elemento viene spostato dopo l'ultimo sync).
+
+        `store_id` è lo store della casella risolto in QUESTO profilo (voce 2.6): non arriva dal
+        server, che non conosce gli store di questo PC."""
         try:
             return self.ns.GetItemFromID(entry_id, store_id)
         except pywintypes.com_error as e:
             if not (e.hresult == MAPI_E_NOT_FOUND or (e.excepinfo and e.excepinfo[5] == MAPI_E_NOT_FOUND)):
                 raise
         if message_id:
-            it = self._cerca_per_message_id(message_id)
+            it = self._cerca_per_message_id(message_id, store_id)
             if it is not None:
                 log.info("elemento ritrovato per Message-ID in %s", it.Parent.Name)
                 return it
-        raise ErroreDefinitivo("elemento non trovato in nessuna cartella (eliminato?)")
+        raise ErroreDefinitivo("elemento non trovato in nessuna cartella della casella (eliminato?)")
 
-    def _cerca_per_message_id(self, message_id: str):
-        """DASL Find sulla proprietà PR_INTERNET_MESSAGE_ID, cartella per cartella (locale-indipendente)."""
+    def _cerca_per_message_id(self, message_id: str, store_id: str = ""):
+        """DASL Find sulla proprietà PR_INTERNET_MESSAGE_ID, cartella per cartella (locale-indipendente),
+        dentro lo store indicato."""
         filtro = "@SQL=\"%s\" = '%s'" % (PR_INTERNET_MESSAGE_ID, message_id.replace("'", "''"))
-        for cartella in self._tutte_le_cartelle():
+        for cartella in self._tutte_le_cartelle(store_id):
             try:
                 if cartella.DefaultItemType != 0:
                     continue
@@ -343,13 +450,19 @@ class Outlook:
                 continue
         return None
 
-    def _tutte_le_cartelle(self):
-        """Cartelle di posta dello store predefinito, in profondità (Inbox e Posta inviata per prime)."""
-        radice = self.ns.GetDefaultFolder(6).Parent
+    def _tutte_le_cartelle(self, store_id: str = ""):
+        """Cartelle di posta di UNO store (quello della casella; senza, il predefinito), in profondità,
+        Inbox e Posta inviata per prime. Non si esce mai dallo store: cercare un Message-ID negli
+        altri store del profilo troverebbe la copia di un'altra casella, e l'EntryID riportato al
+        server finirebbe sulla presenza sbagliata."""
+        st = self._store(store_id)
+        if store_id and st is None:
+            return
+        radice = st.GetRootFolder() if st is not None else self.ns.GetDefaultFolder(6).Parent
         prime = []
         for idx in (6, 5, 3, 16):
             try:
-                prime.append(self.ns.GetDefaultFolder(idx))
+                prime.append(st.GetDefaultFolder(idx) if st is not None else self.ns.GetDefaultFolder(idx))
             except pywintypes.com_error:
                 pass
         visti = set()
@@ -371,9 +484,10 @@ class Outlook:
 
     @staticmethod
     def dove(it) -> dict:
-        """EntryID/StoreID/cartella effettivi dell'elemento: il server riallinea messaggio_outlook."""
+        """EntryID e cartella effettivi dell'elemento: il server riallinea la presenza. Nessuno
+        store_id: al server non direbbe niente (è di questo profilo)."""
         try:
-            return {"entry_id": it.EntryID, "store_id": it.Parent.StoreID, "cartella": it.Parent.Name}
+            return {"entry_id": it.EntryID, "cartella": it.Parent.Name}
         except pywintypes.com_error:
             return {}
 
@@ -390,15 +504,16 @@ class Outlook:
 
     def sposta(self, entry_id: str, store_id: str, cartella: str, message_id: str = "") -> dict:
         it = self._item(entry_id, store_id, message_id)
-        nuovo = it.Move(self.cartella(cartella))
+        nuovo = it.Move(self.cartella(cartella, store_id))
         return self.dove(nuovo)
 
-    def crea_bozza(self, p: PayloadCreaBozza) -> tuple[str, bool]:
-        """Prepara la mail e la lascia come bozza aperta in Outlook. Send() solo con consenti_invio."""
+    def crea_bozza(self, p: PayloadCreaBozza, store_id: str = "") -> tuple[str, bool]:
+        """Prepara la mail e la lascia come bozza aperta in Outlook. Send() solo con consenti_invio.
+        `store_id` è lo store locale della casella dell'originale (voce 2.6)."""
         if p.tipo == "nuovo":
             item = self.app.CreateItem(0)
         else:
-            orig = self._item(p.entry_id, p.store_id, p.message_id)
+            orig = self._item(p.entry_id, store_id, p.message_id)
             if p.tipo in ("risposta", "sollecito"):
                 item = orig.Reply()
             elif p.tipo == "rispondi_tutti":

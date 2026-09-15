@@ -35,10 +35,6 @@
       "title": "Entry Id",
       "type": "string"
     },
-    "store_id": {
-      "title": "Store Id",
-      "type": "string"
-    },
     "cartella": {
       "title": "Cartella",
       "type": "string"
@@ -46,7 +42,6 @@
   },
   "required": [
     "entry_id",
-    "store_id",
     "cartella"
   ],
   "title": "PayloadSpostaCartella",

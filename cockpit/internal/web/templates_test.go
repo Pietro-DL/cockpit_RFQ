@@ -13,6 +13,7 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/jobs"
 )
 
 // I template vengono compilati in Init, ma gli errori di campo (nome sbagliato, metodo mancante) escono solo
@@ -50,9 +51,8 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 			Proposta: &db.DocumentoProposta{PropostaID: uuid.New(), TipoProposto: db.TipoDocumentoAltro, Stato: db.StatoPropostaAperta, Confidenza: 20, Fonte: db.FontePropostaEstensione}, PreSpunta: true},
 	}
 	th := db.ThreadOfferta{ThreadID: tid, CartellaRelativa: txtT(`ACME\WIP\2026 09 08 Rossi RFQ 6674611A`), Oggetto: txtT("RFQ 6674611A"), DataInizio: time.Now(), Stato: db.StatoThreadAPERTA}
-	presenza := db.PresenzaDaAprireRow{MessaggioID: mid, EntryID: "E1", StoreIDLocale: "S1", CasellaNome: "Commerciale",
-		Cartella: txtT("Posta in arrivo"), NonLetto: true}
-	md := &messaggioDati{M: m, Riga: db.VInbox{MessaggioID: mid, TriageEsito: txtT("nuova_rfq"), TriageConfidenza: pgtype.Int2{Int16: 80, Valid: true}}, Presenza: &presenza,
+	copia := jobs.Copia{CasellaID: uuid.New(), EntryID: "E1", CasellaNome: "Commerciale", NonLetto: true, WorkerNome: "outlook@PC-FRANCESCO"}
+	md := &messaggioDati{M: m, Riga: db.VInbox{MessaggioID: mid, TriageEsito: txtT("nuova_rfq"), TriageConfidenza: pgtype.Int2{Int16: 80, Valid: true}}, Copia: &copia,
 		Presenze: []db.ListPresenzeRow{{MessaggioID: mid, EntryID: "E1", CasellaNome: "Commerciale", Cartella: txtT("Posta in arrivo"), NonLetto: true},
 			{MessaggioID: mid, EntryID: "E2", CasellaNome: "Francesco", Cartella: txtT("Posta in arrivo")}},
 		Allegati: allegati, Thread: &th, Avviso: "ok"}
@@ -61,7 +61,7 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 		Nome:   "Mario", Cognome: "Rossi", Email: "mario.rossi@acme.example", Dominio: "acme.example", Oggetto: "RFQ 6674611A", Identificativi: "6674611A", Allegati: allegati, Anteprima: `ACME\WIP\x`}
 	thd := &threadDati{T: th, Riga: db.VCruscotto{Cliente: "ACME", NomeFase: db.NullFase{Fase: db.FaseRICEVUTA, Valid: true}, Semaforo: txtT("verde")},
 		Identificativi: []db.IdentificativoThread{{Codice: "6674611A"}},
-		Messaggi:       []messaggioThread{{M: m, Presenza: &presenza, Allegati: allegati}},
+		Messaggi:       []messaggioThread{{M: m, Copia: &copia, Allegati: allegati}, {M: m, Motivo: "nessuna postazione associata alla sessione"}},
 		Documenti:      []db.Documento{{Tipo: db.TipoDocumentoDisegno2d, Codice: txtT("6674611A"), PathRelativo: "x", StatoNas: db.StatoNasInCoda}},
 		Fascicolo:      []db.VFascicolo{{Codice: "6674611A", TipoComponente: db.TipoComponenteSciolto, TipoDocumento: db.TipoDocumentoDisegno2d, Bloccante: true, Esito: "manca"}},
 		Avviso:         "ok"}
@@ -82,11 +82,20 @@ func TestFrammentiEseguono(t *testing.T) {
 		{"inbox.html", "buyer_select", td, []string{"Rossi Mario"}},
 		{"inbox.html", "thread_risultati", []db.VCruscotto{{ThreadID: uuid.New(), Cliente: "ACME", Oggetto: txtT("x"), DataInizio: time.Now()}}, []string{"ACME"}},
 		{"thread.html", "thread_corpo", thd, []string{"Documenti sul NAS", "Fascicolo", "RICEVUTA", "Scarica selezionati"}},
-		{"inbox.html", "stato_worker", nil, []string{"stato-worker"}},
+		{"inbox.html", "stato_worker", nil, []string{"stato-worker", "Sei su:", "PC-FRANCESCO", "Francesco attiva", "Commerciale OFFLINE", "Luigi non configurata", "analisi mai avviata"}},
+		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
+			x := *md
+			x.Copia, x.MotivoAzioni = nil, "nessuna postazione associata a questa sessione"
+			return &x
+		}(), []string{"azioni Outlook non disponibili", "nessuna postazione associata"}},
 	}
+	stato := &statoUI{Postazione: "PC-FRANCESCO", PostazioneID: uuid.NullUUID{UUID: uuid.New(), Valid: true}, Origine: "ip",
+		Scelte:  []db.Postazione{{PostazioneID: uuid.New(), NomeHost: "PC-FRANCESCO"}},
+		Caselle: []statoCasella{{Nome: "Francesco", Stato: "attiva", Classe: "fatto"}, {Nome: "Commerciale", Stato: "offline", Classe: "fallito"}, {Nome: "Luigi", Stato: "non_configurata"}},
+		Analisi: statoChip{Etichetta: "analisi mai avviata", Classe: "fallito"}}
 	for _, c := range casi {
 		var buf bytes.Buffer
-		v := vista{Dati: c.dati, Frammento: true, Worker: []presenzaUI{{Tipo: "outlook", Online: true}}}
+		v := vista{Dati: c.dati, Frammento: true, Stato: stato}
 		if err := s.pagine[c.pagina].ExecuteTemplate(&buf, c.nome, v); err != nil {
 			t.Errorf("%s: %v", c.nome, err)
 			continue

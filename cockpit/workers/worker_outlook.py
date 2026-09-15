@@ -1,30 +1,42 @@
 """worker-outlook: client HTTP di cockpit.exe che esegue i job di tipo 'outlook' via COM.
 
-    python worker_outlook.py [--config worker.toml] [--una-volta] [--cartelle]
+    python worker_outlook.py [--config worker.toml] [--una-volta] [--cartelle] [--caselle]
 
 Loop: POST /api/v1/jobs/claim (long-poll) → esegue → POST /api/v1/jobs/{id}/result.
 Un solo thread: le chiamate COM sono serializzate per costruzione. Se Outlook non risponde il job
 fallisce (ritentato dal server con backoff) e il worker resta vivo. Se il server è giù o si riavvia,
 il worker aspetta e riprova: non termina mai da solo.
+
+Dalla voce 2.6 il worker, prima di chiedere lavoro, chiede al server QUALI caselle deve servire
+(GET /api/v1/worker/caselle) e le risolve nello store del proprio profilo Outlook: il claim dichiara
+le caselle risolte e il server gli assegna solo job di quelle. Uno store del profilo che il server
+non ha censito viene ignorato. I payload dei job portano casella_id + entry_id + Message-ID, mai uno
+StoreID: lo store lo mette il worker, dal proprio profilo.
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import os
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 
 import pywintypes
 
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, carica_config,
-                            configura_log, nome_worker)
+                            configura_log, leggi_marcatore_arresto, nome_worker)
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
 from outlook_com import ErroreDefinitivo, Outlook
 
 log = logging.getLogger("worker")
+
+
+class ErroreStoreLocale(Exception):
+    """La casella del job non è risolta nel profilo Outlook di questo PC: il job non è eseguibile
+    QUI, ma può esserlo altrove (o qui, dopo aver sistemato il profilo). Non definitivo."""
 
 
 class Worker:
@@ -38,6 +50,15 @@ class Worker:
         self.battito: Battito | None = None
         # quanto si concede al lavoro per fermarsi da solo dopo un 409, prima dell'uscita forzata (C16)
         self.arresto_forzato_s = float(cfg.get("arresto_forzato_s", 15))
+        self.postazione = str(cfg.get("postazione") or socket.gethostname()).upper()
+        # voce 2.6: casella_id → store_id nel PROFILO DI QUESTO PC, risolto da risolvi_caselle
+        self.store: dict[str, str] = {}
+        self.caselle: list[dict] = []            # ciò che il server chiede di servire
+        self.outlook_ok = True
+        self._risolte_il = 0.0
+        self.risolvi_ogni_s = float(cfg.get("risolvi_caselle_ogni_s", 300))
+        self.marcatore_arresto = os.path.join(self.staging, "ultimo_arresto.txt")
+        self.ultimo_arresto = leggi_marcatore_arresto(self.marcatore_arresto)
 
     def controlla(self) -> None:
         """Punto di ripresa: se il battito ha perso il lease, il lavoro si ferma qui.
@@ -54,17 +75,86 @@ class Worker:
             self.outlook = Outlook(consenti_invio=bool(self.cfg.get("consenti_invio", False)))
         return self.outlook
 
+    # ------------------------------------------------------------ caselle → store locale (voce 2.6)
+
+    def risolvi_caselle(self, forza: bool = False) -> None:
+        """Chiede al server le caselle da servire e le risolve nel profilo Outlook di questo PC.
+
+        Si ripete ogni `risolvi_ogni_s` (una cassetta aggiunta al profilo viene vista senza
+        riavviare) e a ogni errore di store. Con zero caselle da servire Outlook NON viene aperto:
+        non c'è niente da risolvere e niente che il worker possa eseguire.
+        """
+        if not forza and self.store and time.time() - self._risolte_il < self.risolvi_ogni_s:
+            return
+        self.caselle = self.api.caselle_worker(self.worker_id)
+        self._risolte_il = time.time()
+        if not self.caselle:
+            log.warning("il server non mi assegna nessuna casella: controllare [[worker]].caselle per %s", self.worker_id)
+            self.store = {}
+            return
+        try:
+            trovate, mancanti = self.ol().risolvi_caselle(self.caselle)
+            self.outlook_ok = True
+        except pywintypes.com_error as e:
+            log.error("Outlook non risponde, nessuna casella risolta: %s", e)
+            self.outlook = None
+            self.outlook_ok = False
+            self.store = {}
+            return
+        self.store = trovate
+        if mancanti:
+            log.warning("caselle censite non trovate in questo profilo: %s (il server non mi assegnerà i loro job)", ", ".join(mancanti))
+
+    def store_di(self, casella_id) -> str:
+        """Lo store locale della casella di un job. Se non è risolto, riprova una volta: il profilo
+        può essere cambiato. Se ancora manca, il job non è eseguibile QUI — e non doveva arrivare,
+        perché il claim dichiara solo le caselle risolte."""
+        cid = str(casella_id or "")
+        if cid in self.store:
+            return self.store[cid]
+        self.risolvi_caselle(forza=True)
+        if cid in self.store:
+            return self.store[cid]
+        raise ErroreStoreLocale(f"la casella {cid[:8]} non è risolta nel profilo Outlook di {self.postazione}")
+
+    def dichiarazione(self) -> dict:
+        """Che cosa il claim dichiara di questo worker (voce 2.2): il server interseca con la
+        credenziale e non si fida di ciò che c'è qui."""
+        d = {
+            "postazione": self.postazione,
+            "outlook_ok": self.outlook_ok,
+            "caselle_aperte": [{"casella_id": cid, "store_id": sid} for cid, sid in sorted(self.store.items())],
+        }
+        if self.ultimo_arresto:
+            d["ultimo_arresto"] = self.ultimo_arresto
+        return d
+
     # ------------------------------------------------------------ loop
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
-        log.info("worker %s → %s", self.worker_id, self.api.url)
+        log.info("worker %s su %s → %s", self.worker_id, self.postazione, self.api.url)
         attesa = 5
         while True:
             try:
-                r = self.api.claim("outlook", self.worker_id)
+                self.risolvi_caselle()
+                r = self.api.claim("outlook", self.worker_id, extra=self.dichiarazione())
+                self.ultimo_arresto = ""            # riportato una volta: il server lo conserva
                 job = Job.model_validate(r) if r else None
                 attesa = 5
-            except (*ERRORI_RETE, ErroreHTTP) as e:
+            except ErroreHTTP as e:
+                if e.stato == 403:
+                    # credenziale assente o postazione sbagliata: non si risolve aspettando, ma
+                    # nemmeno uscendo — chi corregge cockpit.toml deve trovare il worker vivo
+                    log.error("il server rifiuta questo worker: %s", e.corpo[:300])
+                    if una_volta:
+                        return
+                    time.sleep(30)
+                    continue
+                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
+                time.sleep(attesa)
+                attesa = min(attesa * 2, 30)
+                continue
+            except ERRORI_RETE as e:
                 log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
                 time.sleep(attesa)
                 attesa = min(attesa * 2, 30)
@@ -87,6 +177,7 @@ class Worker:
         # processo esce con codice 3 e l'attività pianificata lo riavvia (C16).
         with Battito(self.api, job.job_id, self.worker_id, job.lease_token,
                      ogni_s=max(5.0, job.lease_s / 4), arresto_forzato_s=self.arresto_forzato_s) as b:
+            b.marcatore_arresto = self.marcatore_arresto
             self.battito = b
             b.segna_fase(job.tipo)
             try:
@@ -102,6 +193,11 @@ class Worker:
             except ErroreDefinitivo as e:
                 log.error("job %d errore definitivo: %s", job.job_id, e)
                 ris = RisultatoRichiesta(esito="errore", errore=str(e), definitivo=True)
+            except ErroreStoreLocale as e:
+                # non definitivo: un altro worker che serve quella casella (o questo, dopo che il
+                # profilo è stato sistemato) può farcela. Il claim non dovrebbe assegnarlo più qui.
+                log.error("job %d: %s", job.job_id, e)
+                ris = RisultatoRichiesta(esito="errore", errore=str(e))
             except pywintypes.com_error as e:
                 log.exception("job %d errore COM", job.job_id)
                 self.outlook = None  # riconnette al prossimo job (Outlook chiuso/riavviato)
@@ -129,6 +225,9 @@ class Worker:
 
     def dispatch(self, job: Job) -> dict:
         p = job.payload
+        # Il payload porta casella_id, mai uno store_id (M12): lo store è di questo profilo e lo
+        # mette il worker. Un job senza casella non è eseguibile: non si «prova» sullo store
+        # predefinito, che potrebbe essere la casella sbagliata.
         match job.tipo:
             case "sync_outlook":
                 return self.sync(job, PayloadSyncOutlook.model_validate(p))
@@ -136,17 +235,18 @@ class Worker:
                 return self.stage(job, PayloadStageAllegato.model_validate(p))
             case "crea_bozza_outlook":
                 b = PayloadCreaBozza.model_validate(p)
-                entry_id, inviata = self.ol().crea_bozza(b)
+                store = self.store_di(b.casella_id) if b.tipo != "nuovo" or b.casella_id else ""
+                entry_id, inviata = self.ol().crea_bozza(b, store)
                 return RisultatoBozza(entry_id=entry_id, inviata=inviata).model_dump(mode="json")
             case "apri_elemento_outlook":
                 a = PayloadApriElemento.model_validate(p)
-                return RisultatoElemento(**self.ol().apri(a.entry_id, a.store_id, a.message_id)).model_dump(mode="json")
+                return RisultatoElemento(**self.ol().apri(a.entry_id, self.store_di(a.casella_id), a.message_id)).model_dump(mode="json")
             case "sposta_in_cartella":
                 s = PayloadSpostaCartella.model_validate(p)
-                return RisultatoElemento(**self.ol().sposta(s.entry_id, s.store_id, s.cartella, s.message_id)).model_dump(mode="json")
+                return RisultatoElemento(**self.ol().sposta(s.entry_id, self.store_di(s.casella_id), s.cartella, s.message_id)).model_dump(mode="json")
             case "segna_letto":
                 l = PayloadSegnaLetto.model_validate(p)
-                return RisultatoElemento(**self.ol().segna_letto(l.entry_id, l.store_id, l.letto, l.message_id)).model_dump(mode="json")
+                return RisultatoElemento(**self.ol().segna_letto(l.entry_id, self.store_di(l.casella_id), l.letto, l.message_id)).model_dump(mode="json")
         raise ErroreDefinitivo(f"tipo job sconosciuto per il worker outlook: {job.tipo}")
 
     # ------------------------------------------------------------ download di un allegato (voce 2.3)
@@ -161,9 +261,10 @@ class Worker:
         non consegna niente. Il file locale si cancella in ogni caso: qui è solo di passaggio.
         """
         locale = os.path.join(self.staging, "tmp", str(job.job_id))
+        store = self.store_di(s.casella_id)
         if self.battito is not None:
             self.battito.segna_fase(f"salva allegato {s.indice} di {s.message_id or s.entry_id[:16]}")
-        dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, s.store_id, s.indice, s.nome_file, locale, s.message_id)
+        dest, sha, n, dove = self.ol().salva_allegato(s.entry_id, store, s.indice, s.nome_file, locale, s.message_id)
         try:
             self.controlla()                       # punto di ripresa: fuori da COM, prima del trasferimento
             if self.battito is not None:
@@ -194,6 +295,11 @@ class Worker:
     # ------------------------------------------------------------ sync
 
     def sync(self, job: Job, p: PayloadSyncOutlook) -> dict:
+        # La casella del job decide QUALE store leggere (voce 2.6): «Posta in arrivo» di Commerciale
+        # non è la Posta in arrivo del profilo. Senza casella il sync non sa che cosa leggere.
+        if p.casella_id is None:
+            raise ErroreDefinitivo("sync senza casella_id: non so quale store leggere")
+        store = self.store_di(p.casella_id)
         esiti = []
         for c in p.cartelle:
             dal = (c.ultimo_received - timedelta(seconds=p.sovrapposizione_s)) if c.ultimo_received else p.dal
@@ -208,7 +314,7 @@ class Worker:
             lotto: list = []
             try:
                 self.controlla()
-                for m in self.ol().leggi(c.cartella, dal, al=al):
+                for m in self.ol().leggi(c.cartella, dal, al=al, store_id=store):
                     # punto di ripresa: fra un elemento e l'altro il lavoro è fuori da COM, quindi qui
                     # un arresto chiesto dal battito si può rispettare senza lasciare niente a metà
                     self.controlla()
@@ -269,6 +375,9 @@ def main() -> None:
     ap.add_argument("--config", default=os.path.join(os.path.dirname(__file__), "worker.toml"))
     ap.add_argument("--una-volta", action="store_true", help="esegue al più un job ed esce")
     ap.add_argument("--cartelle", action="store_true", help="stampa l'albero delle cartelle Outlook ed esce")
+    ap.add_argument("--caselle", action="store_true",
+                    help="M1: chiede al server le caselle da servire, le risolve nel profilo Outlook e stampa "
+                         "l'esito senza prendere nessun job")
     ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
     cfg = carica_config(a.config, {"consenti_invio": False})
@@ -276,6 +385,14 @@ def main() -> None:
     w = Worker(cfg)
     if a.cartelle:
         print("\n".join(w.ol().elenca_cartelle()))
+        return
+    if a.caselle:
+        w.risolvi_caselle(forza=True)
+        for c in w.caselle:
+            cid = str(c["casella_id"])
+            print(f"{c.get('nome') or c['indirizzo']:<20} {c['indirizzo']:<45} "
+                  f"{'store ' + w.store[cid][:24] + '…' if cid in w.store else 'NON TROVATA nel profilo'}")
+        print(f"dichiarazione al claim: {w.dichiarazione()}")
         return
     w.esegui_per_sempre(una_volta=a.una_volta)
 

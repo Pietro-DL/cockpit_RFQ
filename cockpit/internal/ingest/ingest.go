@@ -533,8 +533,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	}
 	if err := q.UpsertPresenza(ctx, db.UpsertPresenzaParams{
 		MessaggioID: row.MessaggioID, CasellaID: casella.CasellaID, EntryID: m.EntryID,
-		StoreIDLocale: m.StoreID,
-		Cartella:      txtN(m.Cartella, 200), RicevutoIl: RicevutoIn(m), NonLetto: m.NonLetto,
+		Cartella: txtN(m.Cartella, 200), RicevutoIl: RicevutoIn(m), NonLetto: m.NonLetto,
 		FlagStato: flag, Categorie: m.Categorie,
 	}); err != nil {
 		return esito, fmt.Errorf("presenza in %s: %w", casella.Indirizzo, err)

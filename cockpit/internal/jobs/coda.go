@@ -134,11 +134,26 @@ func AccodaCon(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any,
 	return &j, nil
 }
 
-// Claim prova a prendere un job per il worker indicato, con long-poll fino a attesa.
-func Claim(ctx context.Context, q *db.Queries, worker db.WorkerTipo, workerID string, attesa time.Duration) (*db.Job, error) {
+// Destinazione è ciò che un worker può eseguire: le caselle che serve davvero (risolte nel suo
+// profilo E autorizzate dalla credenziale) e la postazione su cui gira. Lo zero vale «nessuna
+// casella, nessuna postazione»: prende solo job senza vincoli (analisi, server).
+type Destinazione struct {
+	Caselle    []uuid.UUID
+	Postazione uuid.NullUUID
+}
+
+// Claim prova a prendere un job per il worker indicato, con long-poll fino a attesa. Il job deve
+// essere eseguibile da QUESTA destinazione (voce 2.2): un job di una casella che il worker non serve,
+// o di un'altra postazione, non gli viene assegnato nemmeno se è l'unico worker acceso.
+func Claim(ctx context.Context, q *db.Queries, worker db.WorkerTipo, workerID string, d Destinazione, attesa time.Duration) (*db.Job, error) {
 	scadenza := time.Now().Add(attesa)
+	caselle := d.Caselle
+	if caselle == nil {
+		caselle = []uuid.UUID{} // un array vuoto, non NULL: `= ANY (NULL)` non è mai vero né falso
+	}
 	for {
-		j, err := q.ClaimJob(ctx, db.ClaimJobParams{WorkerID: pgtype.Text{String: workerID, Valid: true}, WorkerTipo: worker})
+		j, err := q.ClaimJob(ctx, db.ClaimJobParams{WorkerID: pgtype.Text{String: workerID, Valid: true}, WorkerTipo: worker,
+			Caselle: caselle, Postazione: d.Postazione})
 		if err == nil {
 			return &j, nil
 		}
@@ -265,6 +280,10 @@ func InJob(j *db.Job) api.Job {
 	if j.CasellaID.Valid {
 		c := j.CasellaID.UUID
 		out.CasellaID = &c
+	}
+	if j.PostazioneID.Valid {
+		p := j.PostazioneID.UUID
+		out.PostazioneID = &p
 	}
 	return out
 }

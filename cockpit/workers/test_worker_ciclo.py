@@ -92,13 +92,53 @@ def test_server_giu_al_claim_non_uccide_il_worker(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- sync: tentativo e cursore
 
 
-class OutlookFinto:
+CASELLA_FRANCESCO = "11111111-1111-1111-1111-111111111111"
+CASELLA_COMMERCIALE = "33333333-3333-3333-3333-333333333333"
+CASELLA_LUIGI = "44444444-4444-4444-4444-444444444444"
+
+# Il profilo Outlook finto di questa postazione: tre store, come sul PC di prova reale (Francesco,
+# Commerciale e un terzo — Filippo — che il Cockpit NON censisce e deve ignorare, M1).
+PROFILO_FINTO = {
+    "francesco@azienda.example": "STORE-FRANCESCO-LOCALE",
+    "commerciale@azienda.example": "STORE-COMMERCIALE-LOCALE",
+    "filippo@azienda.example": "STORE-FILIPPO-NON-CENSITO",
+}
+
+CASELLE_SERVITE = [
+    {"casella_id": CASELLA_FRANCESCO, "indirizzo": "francesco@azienda.example", "nome": "Francesco", "condivisa": False},
+    {"casella_id": CASELLA_COMMERCIALE, "indirizzo": "commerciale@azienda.example", "nome": "Commerciale", "condivisa": True},
+]
+
+
+class ProfiloFinto:
+    """La parte dell'adattatore COM che risolve le caselle nel profilo locale (voce 2.6), finta:
+    risponde solo per gli indirizzi che il server chiede, come farebbe Outlook con CreateRecipient."""
+
+    def __init__(self, profilo: dict | None = None):
+        self.profilo = dict(PROFILO_FINTO if profilo is None else profilo)
+        self.chieste: list[str] = []      # indirizzi che il worker ha chiesto di risolvere
+
+    def risolvi_caselle(self, caselle):
+        trovate, mancanti = {}, []
+        for c in caselle:
+            self.chieste.append(c["indirizzo"])
+            if c["indirizzo"] in self.profilo:
+                trovate[str(c["casella_id"])] = self.profilo[c["indirizzo"]]
+            else:
+                mancanti.append(c.get("nome") or c["indirizzo"])
+        return trovate, mancanti
+
+
+class OutlookFinto(ProfiloFinto):
     """Sostituisce l'adattatore COM: restituisce messaggi già pronti, senza Outlook."""
 
-    def __init__(self, messaggi):
+    def __init__(self, messaggi, profilo: dict | None = None):
+        super().__init__(profilo)
         self.messaggi = messaggi
+        self.letture: list[tuple[str, str]] = []   # (cartella, store_id) di ogni leggi()
 
-    def leggi(self, cartella, dal, al=None):
+    def leggi(self, cartella, dal, al=None, store_id=""):
+        self.letture.append((cartella, store_id))
         for m in self.messaggi:
             yield m
 
@@ -130,10 +170,15 @@ def test_il_lotto_porta_il_tentativo_e_il_cursore(tmp_path, monkeypatch):
     E il cursore viaggia con il lotto, non dopo: il server li scrive nella stessa transazione.
     """
     with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
         s.metti_job(_job_sync(lotto=2))
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
-        monkeypatch.setattr(w, "ol", lambda: OutlookFinto([_messaggio(1), _messaggio(2), _messaggio(3)]))
+        finto = OutlookFinto([_messaggio(1), _messaggio(2), _messaggio(3)])
+        monkeypatch.setattr(w, "ol", lambda: finto)
         w.esegui_per_sempre(una_volta=True)
+
+        # voce 2.6: la cartella letta è quella dello STORE della casella del job, non del profilo
+        assert finto.letture == [("Inbox", "STORE-FRANCESCO-LOCALE")], finto.letture
 
         assert len(s.lotti) == 2, f"attesi 2 lotti da 2+1, ricevuti {len(s.lotti)}"
         primo = s.lotti[0]
@@ -159,6 +204,7 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
     server, appartiene già a qualcun altro.
     """
     with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
         s.stato_ingest = 409
         s.metti_job(_job_sync(lotto=2))
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
@@ -172,14 +218,17 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- download di un allegato: upload al server (voce 2.3)
 
 
-class OutlookFintoAllegato:
+class OutlookFintoAllegato(ProfiloFinto):
     """Sostituisce l'adattatore COM per il solo salva_allegato: scrive un file nella cartella chiesta."""
 
     def __init__(self, contenuto: bytes):
+        super().__init__()
         self.contenuto = contenuto
         self.salvati: list[str] = []
+        self.store_usati: list[str] = []
 
     def salva_allegato(self, entry_id, store_id, indice, nome_file, cartella_staging, message_id=""):
+        self.store_usati.append(store_id)
         os.makedirs(cartella_staging, exist_ok=True)
         dest = os.path.join(cartella_staging, f"{indice:02d}_{nome_file}")
         with open(dest, "wb") as f:
@@ -192,9 +241,11 @@ def _job_stage() -> dict:
     return {
         "job_id": 30, "tipo": "stage_allegato", "tentativi": 1, "lease_s": 120,
         "lease_token": "tok-30", "durata_max_s": 600,
+        "casella_id": CASELLA_COMMERCIALE,
         "payload": {
-            "allegato_id": "22222222-2222-2222-2222-222222222222", "entry_id": "E1", "store_id": "S",
+            "allegato_id": "22222222-2222-2222-2222-222222222222", "entry_id": "E1",
             "indice": 1, "nome_file": "disegno.pdf", "cartella": "abc123abc123", "message_id": "<m1@prova>",
+            "casella_id": CASELLA_COMMERCIALE,
         },
     }
 
@@ -204,11 +255,15 @@ def test_lo_stage_carica_il_file_al_server_prima_del_result(tmp_path, monkeypatc
     porta sha256 e byte e nessun percorso locale; il file temporaneo non resta sul disco del worker."""
     contenuto = b"%PDF-1.4 " + bytes(range(256)) * 40
     with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
         s.metti_job(_job_stage())
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
         finto = OutlookFintoAllegato(contenuto)
         monkeypatch.setattr(w, "ol", lambda: finto)
         w.esegui_per_sempre(una_volta=True)
+
+        # M12, lato worker: il payload non porta store_id; lo store lo mette il worker dal SUO profilo
+        assert finto.store_usati == ["STORE-COMMERCIALE-LOCALE"], finto.store_usati
 
         assert s.eventi == ["upload", "result"], f"ordine delle chiamate: {s.eventi}"
         assert len(s.caricamenti) == 1
@@ -228,6 +283,7 @@ def test_lo_stage_carica_il_file_al_server_prima_del_result(tmp_path, monkeypatc
 def test_un_413_sull_upload_e_un_errore_definitivo(tmp_path, monkeypatch):
     """M8, lato worker: il limite è del server e ricaricare non rimpicciolisce il file."""
     with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
         s.stato_upload = 413
         s.metti_job(_job_stage())
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
@@ -245,6 +301,7 @@ def test_un_409_sull_upload_non_riporta_niente(tmp_path, monkeypatch):
     """M13, lato worker: se l'upload è rifiutato perché il tentativo non vale più, il job appartiene
     a un altro tentativo e questo worker non deve riportare nulla."""
     with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
         s.stato_upload = 409
         s.metti_job(_job_stage())
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
@@ -255,3 +312,92 @@ def test_un_409_sull_upload_non_riporta_niente(tmp_path, monkeypatch):
         assert 30 not in s.risultati, f"riportato un risultato con il tentativo non più valido: {s.risultati.get(30)}"
         assert s.eventi == ["upload"]
         assert not os.path.exists(finto.salvati[0])
+
+
+# ---------------------------------------------------------------- caselle → store locale (voce 2.6, M1 e M12 lato worker)
+
+
+def test_il_worker_risolve_solo_le_caselle_censite_e_le_dichiara_al_claim(tmp_path, monkeypatch):
+    """M1 (parte L2): il worker parte dall'elenco del SERVER, non dal profilo. Il profilo finto ha tre
+    store — come il PC di prova reale, dove il terzo è Filippo — ma il server ne censisce due: il
+    terzo non viene chiesto, risolto né dichiarato. Il claim porta le due caselle con lo StoreID
+    LOCALE, la postazione e outlook_ok."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)         # nessun job: un claim solo, poi esce
+
+        assert s.richieste_caselle == [w.worker_id]
+        assert sorted(finto.chieste) == ["commerciale@azienda.example", "francesco@azienda.example"]
+        assert "filippo@azienda.example" not in finto.chieste, "lo store non censito è stato toccato"
+
+        c = s.claim_fatti[0]
+        assert c["postazione"] == w.postazione and c["outlook_ok"] is True
+        aperte = {a["casella_id"]: a["store_id"] for a in c["caselle_aperte"]}
+        assert aperte == {CASELLA_FRANCESCO: "STORE-FRANCESCO-LOCALE", CASELLA_COMMERCIALE: "STORE-COMMERCIALE-LOCALE"}
+        assert "STORE-FILIPPO-NON-CENSITO" not in aperte.values()
+
+
+def test_una_casella_censita_ma_assente_dal_profilo_non_viene_dichiarata(tmp_path, monkeypatch):
+    """Il server censisce Luigi, ma questo profilo non ce l'ha: il worker non la dichiara (il server
+    non gli assegnerà i suoi job, M12) e non inventa uno store."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE + [
+            {"casella_id": CASELLA_LUIGI, "indirizzo": "luigi@azienda.example", "nome": "Luigi", "condivisa": False}]
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        monkeypatch.setattr(w, "ol", lambda: OutlookFinto([]))
+        w.esegui_per_sempre(una_volta=True)
+
+        aperte = {a["casella_id"] for a in s.claim_fatti[0]["caselle_aperte"]}
+        assert aperte == {CASELLA_FRANCESCO, CASELLA_COMMERCIALE}
+        assert CASELLA_LUIGI not in aperte
+
+
+def test_senza_caselle_da_servire_il_worker_non_apre_outlook(tmp_path):
+    """Con zero caselle assegnate non c'è niente da risolvere: Outlook non si apre e il claim dichiara
+    caselle_aperte vuoto. È anche il motivo per cui il primo test di questo file resta valido."""
+    with ServerFinto() as s:
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+        assert w.outlook is None
+        assert s.claim_fatti[0]["caselle_aperte"] == []
+
+
+def test_un_job_di_una_casella_non_risolta_fallisce_senza_definitivo(tmp_path, monkeypatch):
+    """Se — nonostante il claim — arriva un job di una casella che questo profilo non ha, il worker
+    non «prova» sullo store predefinito: riporta un errore NON definitivo, così un altro worker che
+    la serve può farcela."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        job = _job_sync(lotto=2)
+        job["casella_id"] = job["payload"]["casella_id"] = CASELLA_LUIGI
+        s.metti_job(job)
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([_messaggio(1)])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+        assert finto.letture == [], "ha letto una cartella pur non avendo lo store della casella"
+        assert s.lotti == []
+        r = s.risultati[20]
+        assert r["esito"] == "errore" and r["definitivo"] is False
+        assert "non è risolta nel profilo" in r["errore"]
+
+
+def test_il_worker_rifiutato_con_403_non_muore_e_lo_dice(tmp_path, monkeypatch, caplog):
+    """Un worker non censito (o su un'altra postazione) riceve 403 al claim: resta vivo, lo scrive
+    nel log e riprova più tardi, perché chi corregge cockpit.toml deve trovarlo acceso."""
+    import logging
+    with ServerFinto() as s:
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        from cockpit_client import ErroreHTTP
+
+        def claim_403(*a, **k):
+            raise ErroreHTTP("POST", "/api/v1/jobs/claim", 403, '{"errore":"worker \"outlook@X\" non censito"}')
+
+        monkeypatch.setattr(w.api, "claim", claim_403)
+        with caplog.at_level(logging.ERROR):
+            w.esegui_per_sempre(una_volta=True)
+        assert any("rifiuta questo worker" in r.message for r in caplog.records)

@@ -92,6 +92,7 @@
       "type": "string"
     },
     "store_id": {
+      "default": "",
       "title": "Store Id",
       "type": "string"
     },
@@ -212,7 +213,6 @@
   "required": [
     "message_id",
     "entry_id",
-    "store_id",
     "cartella",
     "direzione",
     "data_evento"

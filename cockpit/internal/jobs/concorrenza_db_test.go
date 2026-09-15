@@ -49,7 +49,7 @@ func TestClaimEsclusivoSottoConcorrenza(t *testing.T) {
 			qw := db.New(p) // ogni worker con la propria connessione dal pool
 			via.Wait()
 			for {
-				j, err := Claim(ctx, qw, db.WorkerTipoOutlook, nome, 0)
+				j, err := Claim(ctx, qw, db.WorkerTipoOutlook, nome, Destinazione{}, 0)
 				if err != nil {
 					t.Errorf("claim di %s: %v", nome, err)
 					return

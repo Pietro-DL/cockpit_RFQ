@@ -16,12 +16,15 @@
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
     </div>
     <div class="azioni">
-      {{if .Presenza}}
+      {{if .Copia}}
       <button hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML"
-              title="Si apre la copia in {{.Presenza.CasellaNome}}">Apri in Outlook</button>
-      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Presenza.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione"
-              title="Vale per la copia in {{.Presenza.CasellaNome}}">
-        {{if .Presenza.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
+              title="Si apre la copia in {{.Copia.CasellaNome}} sul PC di questa sessione">Apri in Outlook</button>
+      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Copia.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione"
+              title="Vale per la copia in {{.Copia.CasellaNome}}">
+        {{if .Copia.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
+      {{else if .Presenze}}
+      <button disabled title="{{.MotivoAzioni}}">Apri in Outlook</button>
+      <span class="muto azioni-motivo" title="{{.MotivoAzioni}}">azioni Outlook non disponibili: {{.MotivoAzioni}}</span>
       {{end}}
       <span class="separatore"></span>
       {{if .Thread}}
@@ -35,7 +38,7 @@
     <div id="esito-azione"></div>
   </header>
 
-  {{if .Presenza}}
+  {{if .Copia}}
   <details class="rispondi">
     <summary>Rispondi (bozza in Outlook)</summary>
     <form hx-post="/messaggio/{{.M.MessaggioID}}/bozza" hx-target="#esito-azione">
@@ -279,6 +282,17 @@
 
 {{define "stato_worker"}}
 <span id="stato-worker" class="stato-worker" hx-get="/stato/worker" hx-trigger="every 15s" hx-swap="outerHTML">
-  {{range .Worker}}<span class="chip {{if .Online}}fatto{{else}}fallito{{end}}" title="worker {{.Tipo}}: ultimo contatto {{if .Mai}}mai{{else}}{{.Secondi}} s fa{{end}}">{{.Tipo}} {{if .Mai}}mai avviato{{else if .Online}}attivo{{else}}OFFLINE{{end}}</span> {{end}}
+  {{with .Stato}}
+  <form class="postazione" hx-post="/sessione/postazione" hx-trigger="change" title="{{if .SenzaPostazione}}{{.SenzaPostazione}}{{else}}Postazione della sessione (origine: {{.Origine}}): le azioni su Outlook aprono finestre qui{{end}}">
+    <label>Sei su:
+      <select name="postazione_id" class="{{if not .PostazioneID.Valid}}manca{{end}}">
+        <option value="" {{if not .PostazioneID.Valid}}selected{{end}}>—</option>
+        {{range .Scelte}}<option value="{{.PostazioneID}}" {{if and $.Stato.PostazioneID.Valid (eq .PostazioneID $.Stato.PostazioneID.UUID)}}selected{{end}}>{{.NomeHost}}</option>{{end}}
+      </select></label>
+    {{if .SenzaPostazione}}<span class="chip fallito" title="{{.SenzaPostazione}}">senza postazione</span>{{end}}
+  </form>
+  {{range .Caselle}}<span class="chip {{.Classe}}" title="{{.Dettaglio}}">{{.Nome}} {{if eq .Stato "attiva"}}attiva{{else if eq .Stato "offline"}}OFFLINE{{else if eq .Stato "non_risolta"}}non risolta{{else}}non configurata{{end}}</span> {{end}}
+  <span class="chip {{.Analisi.Classe}}" title="{{.Analisi.Dettaglio}}">{{.Analisi.Etichetta}}</span>
+  {{end}}
 </span>
 {{end}}

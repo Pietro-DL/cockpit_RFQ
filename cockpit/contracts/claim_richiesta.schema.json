@@ -1,4 +1,26 @@
 {
+  "$defs": {
+    "CasellaAperta": {
+      "description": "Come il worker vede una casella censita nel PROPRIO profilo Outlook (voce 2.6): lo store_id\nha senso solo su questa postazione; il server lo registra in casella_store e non lo mette mai\nin un payload.",
+      "properties": {
+        "casella_id": {
+          "format": "uuid",
+          "title": "Casella Id",
+          "type": "string"
+        },
+        "store_id": {
+          "title": "Store Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "casella_id",
+        "store_id"
+      ],
+      "title": "CasellaAperta",
+      "type": "object"
+    }
+  },
   "properties": {
     "worker": {
       "enum": [
@@ -16,6 +38,28 @@
       "default": 20,
       "title": "Attesa S",
       "type": "integer"
+    },
+    "postazione": {
+      "default": "",
+      "title": "Postazione",
+      "type": "string"
+    },
+    "outlook_ok": {
+      "default": true,
+      "title": "Outlook Ok",
+      "type": "boolean"
+    },
+    "caselle_aperte": {
+      "items": {
+        "$ref": "#/$defs/CasellaAperta"
+      },
+      "title": "Caselle Aperte",
+      "type": "array"
+    },
+    "ultimo_arresto": {
+      "default": "",
+      "title": "Ultimo Arresto",
+      "type": "string"
     }
   },
   "required": [

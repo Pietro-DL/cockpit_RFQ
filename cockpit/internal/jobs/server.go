@@ -44,7 +44,7 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 	go func() {
 		id := "server"
 		for ctx.Err() == nil {
-			j, err := Claim(ctx, q, db.WorkerTipoServer, id, 20*time.Second)
+			j, err := Claim(ctx, q, db.WorkerTipoServer, id, Destinazione{}, 20*time.Second)
 			if err != nil {
 				e.Log.Error("claim server", "err", err)
 				time.Sleep(5 * time.Second)

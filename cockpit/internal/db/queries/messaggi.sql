@@ -47,11 +47,12 @@ ON CONFLICT (messaggio_id) DO UPDATE SET
 -- name: UpsertPresenza :exec
 -- La presenza di un messaggio in una casella (voce 2.1). Due caselle = due righe, ognuna con il suo
 -- EntryID, la sua cartella e il suo stato di lettura: sono fatti di quella copia, non del messaggio.
-INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, store_id_locale, cartella, ricevuto_il, non_letto, flag_stato, categorie)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+-- Nessuno store_id (0005): lo StoreID è del profilo Outlook della postazione, non della copia, e sta
+-- in casella_store dove ogni worker lo scrive per sé (voce 2.6, N44).
+INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, cartella, ricevuto_il, non_letto, flag_stato, categorie)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (messaggio_id, casella_id) DO UPDATE SET
     entry_id = EXCLUDED.entry_id, cartella = EXCLUDED.cartella, ricevuto_il = EXCLUDED.ricevuto_il,
-    store_id_locale = CASE WHEN EXCLUDED.store_id_locale <> '' THEN EXCLUDED.store_id_locale ELSE messaggio_casella.store_id_locale END,
     non_letto = EXCLUDED.non_letto, flag_stato = EXCLUDED.flag_stato, categorie = EXCLUDED.categorie,
     aggiornato_il = now();
 
@@ -64,12 +65,11 @@ WHERE mc.messaggio_id = $1 ORDER BY c.nome;
 SELECT * FROM messaggio_casella WHERE messaggio_id = $1 AND casella_id = $2;
 
 -- name: PresenzaDaAprire :one
--- Quale copia aprire quando l'operatore preme «Apri in Outlook» o chiede un allegato.
--- Finché il routing per postazione non esiste (voci 2.2 e 2.7) la scelta è la copia più vecchia, a
--- parità la casella con l'uuid minore: arbitraria ma RIPETIBILE, così due clic di seguito aprono lo
--- stesso elemento invece di due elementi diversi a seconda di come il database ha ordinato le righe.
--- Lo store_id_locale è il ponte dichiarato fino alla voce 2.6 (N44): vale finché a sincronizzare è
--- una sola postazione, ed è per COPIA perché due caselle dello stesso profilo hanno due store diversi.
+-- La copia «di riferimento» di un messaggio quando NON c'è una postazione da cui decidere: la più
+-- vecchia, a parità la casella con l'uuid minore. Arbitraria ma RIPETIBILE. Dalla voce 2.7 le azioni
+-- interattive non la usano più: usano CopiaPerPostazione, e senza postazione non partono. Resta per
+-- il download (che non apre finestre e può farlo qualunque worker autorizzato sulla casella) e per la
+-- lettura del pannello.
 SELECT mc.*, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo
 FROM messaggio_casella mc
 JOIN casella c ON c.casella_id = mc.casella_id
@@ -77,11 +77,32 @@ WHERE mc.messaggio_id = $1 AND c.attiva
 ORDER BY mc.ricevuto_il, mc.casella_id
 LIMIT 1;
 
+-- name: CopiaPerPostazione :one
+-- ROUTING DEI JOB INTERATTIVI (voci 2.2 e 2.7, M3). La copia del messaggio che il worker Outlook di
+-- QUESTA postazione serve: presente in una casella attiva su cui la credenziale del worker della
+-- postazione è autorizzata. Se il messaggio è in più caselle servite, si preferisce la casella
+-- personale del richiedente, poi la copia più vecchia. Zero righe = nessun worker idoneo su quella
+-- postazione: il job NON si crea e l'operatore legge il motivo (M4, M10). Non si ripiega su un'altra
+-- postazione: una finestra aperta su un altro PC non è un'azione riuscita, è un'azione sbagliata.
+SELECT mc.*, c.nome AS casella_nome, c.indirizzo AS casella_indirizzo, w.worker_nome
+FROM messaggio_casella mc
+JOIN casella c ON c.casella_id = mc.casella_id
+JOIN worker_credenziale w ON w.attivo AND w.worker_tipo = 'outlook'
+     AND w.postazione_id = sqlc.arg(postazione_id) AND mc.casella_id = ANY (w.caselle)
+WHERE mc.messaggio_id = sqlc.arg(messaggio_id) AND c.attiva
+ORDER BY (c.utente_id IS NOT NULL AND c.utente_id = sqlc.narg(richiedente)::uuid) DESC, mc.ricevuto_il, mc.casella_id
+LIMIT 1;
+
+-- name: CaselleServiteDaPostazione :many
+-- Le caselle su cui i worker Outlook di una postazione sono autorizzati: serve a dire PERCHÉ un'azione
+-- non parte («il worker di PC-FRANCESCO non serve Commerciale»), non solo che non parte.
+SELECT DISTINCT c.*
+FROM worker_credenziale w JOIN casella c ON c.casella_id = ANY (w.caselle)
+WHERE w.attivo AND w.worker_tipo = 'outlook' AND w.postazione_id = $1
+ORDER BY c.nome;
+
 -- name: SetEntryIDPresenza :exec
--- Lo store non si azzera mai con una stringa vuota: un worker che non lo riporta cancellerebbe
--- l'unico valore con cui si riapre l'elemento.
 UPDATE messaggio_casella SET entry_id = sqlc.arg(entry_id), cartella = COALESCE(sqlc.narg(cartella), cartella),
-    store_id_locale = CASE WHEN sqlc.arg(store_id_locale)::text <> '' THEN sqlc.arg(store_id_locale)::text ELSE store_id_locale END,
     aggiornato_il = now()
 WHERE messaggio_id = sqlc.arg(messaggio_id) AND casella_id = sqlc.arg(casella_id);
 

@@ -5,9 +5,9 @@ verificato**. Come per [FASE_0.md](FASE_0.md) e [FASE_1.md](FASE_1.md), la docum
 completa (piani, decisioni aperte, registri degli esiti, richieste all'IT) vive fuori da questo
 repository.
 
-**Stato: in corso.** Di questa fase sono chiuse le voci **2.1** e **2.3**. Le voci successive (claim per
-postazione, risoluzione dello store locale, postazione della sessione, TLS e credenziali individuali)
-non sono state fatte e sono elencate in fondo.
+**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3** e il blocco **2.2 + 2.6 + 2.7**.
+Le voci successive (TLS e credenziali individuali, 2.8–2.15) non sono state fatte e sono elencate in
+fondo.
 
 ## Perimetro
 
@@ -122,6 +122,67 @@ abbiano e quelli più giovani di dieci minuti (N8, parte).
 Il worker continua a salvare l'allegato da Outlook con `SaveAsFile` e a calcolarne lo sha256 in locale:
 la parte COM è identica. Cambia solo dove il file va dopo, e chi decide che è arrivato.
 
+## 2.2 + 2.6 + 2.7 — su quale PC (migrazione `0005`)
+
+### Il problema
+
+Tre difetti con la stessa radice: il server non sapeva **dove** far succedere le cose.
+
+- Il claim dava un job a qualunque worker del tipo giusto. Con due worker Outlook su due PC, «Apri in
+  Outlook» apriva la finestra sul primo che chiedeva lavoro — non sul PC di chi aveva premuto il
+  pulsante — e un sync di Commerciale poteva finire su un worker che Commerciale non l'aveva mai vista.
+- Lo StoreID viaggiava nei payload e in `messaggio_casella.store_id_locale`. È locale al **profilo**
+  Outlook che l'ha letto (N44): su un altro PC non è un riferimento, è un numero a caso. Con due
+  postazioni, l'ultima che sincronizzava vinceva e le azioni dell'altra non trovavano l'elemento.
+- La testata diceva «outlook attivo» con una riga sola per tipo: con due PC non diceva di chi.
+
+### Che cosa cambia
+
+| | Prima | Ora |
+|---|---|---|
+| claim | tipo di worker | tipo **e** caselle che il worker serve davvero (dichiarate nel claim ∩ `worker_credenziale.caselle`) **e** postazione della credenziale, se il job ne ha una |
+| chi dice le caselle | il file di configurazione del worker | il **server** (`GET /api/v1/worker/caselle`): il worker le risolve nel proprio profilo e dichiara solo quelle trovate |
+| StoreID | nei payload e in `messaggio_casella` | in `casella_store` (postazione, casella), scritto dal worker a ogni claim; i payload portano `casella_id + entry_id + Message-ID` |
+| job interattivi | al primo worker Outlook | alla **postazione della sessione**, con casella, richiedente e scadenza (10 min; bozza 60). Senza postazione o senza worker idoneo: **nessun job**, motivo esplicito |
+| download | alla «prima copia» | alla copia servita dalla postazione della sessione se c'è, altrimenti quella di riferimento; lo esegue qualunque worker autorizzato sulla casella |
+| sessione UI | utente | utente **e postazione**: abbinata per IP a un worker attivo di una postazione autorizzata (`ip`), o scelta in testata (`scelta`) |
+| presenza | una riga per tipo | una riga per **worker**: postazione, IP dell'ultimo claim, Outlook raggiungibile, caselle risolte, avviso, ultimo arresto |
+| testata | «outlook attivo / OFFLINE» | «Sei su: PC-…» + per ogni casella **attiva** su quale PC / **OFFLINE** / **non risolta** / **non configurata** |
+| «Annulla» | — | `POST /admin/job/{id}/annulla`: un job pronto o in corso diventa `annullato` (il tentativo in corso riceve 409 al battito) |
+
+Il server **non si fida del JSON** del claim: una casella dichiarata ma non autorizzata viene ignorata,
+scritta nell'avviso della presenza e nel log (Q18); un worker non censito, o censito su un'altra
+postazione, riceve `403` con il motivo. La postazione di un worker è quella della sua credenziale,
+mai quella che dichiara: dichiararne un'altra è un `worker.toml` copiato sul PC sbagliato, e il claim
+lo rifiuta.
+
+L'abbinamento per IP della sessione è una comodità, **non un'autorizzazione** (P1): vale solo verso
+una postazione attiva e abilitata all'utente (la sua, o qualunque per un admin), registrata da un
+worker nelle ultime 24 ore. Un IP sconosciuto non abilita nulla; una postazione altrui scelta a mano è
+`403`. `X-Forwarded-For` non viene letto: il server non sta dietro a un proxy e quell'header lo scrive
+chiunque. I test simulano gli IP con un gancio (`IndirizzoClient`) che in produzione non esiste.
+
+### D5 resta aperta, e il codice non la chiude
+
+Commerciale può essere una cassetta condivisa con delega o un account con credenziali proprie. Il
+worker non assume nessuna delle due forme: per ogni casella censita prova, nell'ordine, un account del
+profilo con quello SMTP, uno store del profilo che le corrisponde, `CreateRecipient` +
+`GetSharedDefaultFolder`. Il log dice quale strada ha funzionato. Quale sia quella vera per la
+Commerciale reale si vede solo con M1 sul profilo vero.
+
+### Il profilo reale come banco di prova
+
+Sul profilo Outlook della postazione di prova sono visibili tre store: Francesco, Commerciale e Filippo. Filippo **non
+è censito** e deve restare invisibile al Cockpit: il worker parte dall'elenco del server, non dal
+profilo, quindi non lo chiede, non lo risolve, non lo dichiara e non lo legge. Il test L2 riproduce
+esattamente questa situazione (tre store finti, due censiti); la prova reale è M1, con
+`python worker_outlook.py --caselle`, **da eseguire solo come prova concordata**.
+
+### Che cosa NON cambia
+
+Il predicato di validità del tentativo, l'upload legato al tentativo (2.3), la chiave di sync per
+casella (2.1). Il token condiviso resta: le credenziali individuali sono la 2.5.
+
 ## Come verificare
 
 ```powershell
@@ -137,11 +198,11 @@ un'ottimizzazione, è una condizione di correttezza.
 
 | Livello | Copertura di questa voce | Stato |
 |---|---|---|
-| L1 unitari Go | triage di una mail interna, verifica statica della `0004`; nome nello staging e cartelle rifiutate (2.3) | eseguiti |
-| L2 worker Python | lo stage carica con `PUT` prima del result; `413` → errore definitivo; `409` → nessun result | eseguiti |
-| L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging` sui due lati | eseguiti |
-| L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**, hash diverso, result senza upload, pulizia dei `.parte` orfani | eseguiti |
-| L5–L9 | due caselle vere in Outlook, casella condivisa Exchange, due postazioni (anche l'upload fra due PC) | **non eseguiti** |
+| L1 unitari Go | triage di una mail interna, verifica statica della `0004`; nome nello staging e cartelle rifiutate (2.3); tre stati della testata e autorizzazione alla postazione (M2, P1) | eseguiti |
+| L2 worker Python | lo stage carica con `PUT` prima del result; `413` → errore definitivo; `409` → nessun result; il worker risolve solo le caselle censite e le dichiara al claim, ignora il terzo store, legge lo store della casella del job, non usa `store_id` dal payload (M1, M12) | eseguiti |
+| L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging`, `ClaimRichiesta` con `caselle_aperte`, payload senza `store_id`, `CasellaServita` sui due lati | eseguiti |
+| L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**; **Q8, Q17, Q18, Q21, M2, M3, M4, M6, M9, M10, M12, W14, P1** | eseguiti |
+| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), casella condivisa Exchange, due postazioni (M11, upload fra due PC), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -156,18 +217,16 @@ Tre precisazioni che valgono anche per chi legge solo questo file:
 
 ## Limiti dichiarati di questa voce
 
-**Lo store locale.** Lo StoreID è locale al **profilo** Outlook che lo ha letto (N44). Sta in
-`messaggio_casella.store_id_locale` ed è un **ponte**, non il modello: il piano non lo vuole lì proprio
-perché non è universale. Tenerlo su `messaggio` sarebbe però già sbagliato oggi, con due caselle dello
-stesso profilo che hanno due store diversi. Finché a sincronizzare è **una sola postazione** il valore
-è giusto; con due, l'ultima che sincronizza vince e le azioni dell'altra non trovano l'elemento. Lo
-sostituisce la **voce 2.6** risolvendo la casella nello store locale di ogni postazione
-(`casella_store`).
+**Chi può usare una postazione.** Il proprietario (`postazione.utente_id`) e gli admin. Non esiste
+ancora una tabella di abilitazioni per postazione: se servirà «Luigi può lavorare anche da
+PC-FRANCESCO», è un'estensione di `puoUsarePostazione`, non un cambio di modello.
 
-**Quale copia si apre.** Con più presenze, «Apri in Outlook», «Scarica» e «Segna letto» agiscono sulla
-copia più vecchia (a parità, la casella con l'uuid minore): arbitraria ma **ripetibile**, così due
-clic di seguito aprono lo stesso elemento. Quale copia aprire davvero diventa una decisione della
-postazione del richiedente con le **voci 2.2 e 2.7**.
+**Il worker di analisi non risolve caselle.** Dichiara la postazione e nient'altro: prende job senza
+casella né postazione. È corretto per ciò che fa oggi (legge file dallo staging del server).
+
+**La risoluzione dello store è provata solo in forma simulata.** Le tre strade (account, store del
+profilo, cassetta condivisa con delega) sono scritte contro l'Object Model di Outlook ma nessuna è
+stata eseguita su un profilo vero: M1 è la prova, e resta NON ESEGUITA finché non viene concordata.
 
 **Il filtro per casella nell'Inbox non è un permesso.** È il filtro della schermata. Chi può vedere
 che cosa è la voce 2.2 (`puoVedere`), e fino ad allora vale la regola restrittiva di D12: l'aggancio a
@@ -188,9 +247,6 @@ dichiarato — un messaggio ricevuto non sparisce perché arriva anche come alle
 
 ## Che cosa resta aperto in questa fase
 
-- **2.2 + 2.6 + 2.7** claim con postazione e caselle intersecate con `worker_credenziale`,
-  `casella_store` risolto nello store locale, job interattivi alla postazione del richiedente senza
-  ripieghi, postazione della sessione UI — test Q8, Q18, M1–M4, M9, M10, M12, W14.
 - **2.4 + 2.5** TLS con impronta in `worker.toml`, credenziale individuale al posto del token
   condiviso, CSRF — test W4, W10, W11. Prima di questa il server resta esposto sulla LAN solo per le
   prove.

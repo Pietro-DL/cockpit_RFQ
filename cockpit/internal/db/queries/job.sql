@@ -24,7 +24,14 @@ RETURNING *;
 
 -- name: ClaimJob :one
 -- Un solo UPDATE: il tentativo nasce qui con un token nuovo e con avviato_il, che fissa l'inizio da
--- cui si misura durata_max_s. Un job interattivo già scaduto non viene assegnato a nessuno.
+-- cui si misura durata_max_s. Un job interattivo già scaduto non viene assegnato a nessuno (Q21).
+--
+-- ROUTING (voce 2.2). `caselle` sono le caselle che il worker serve DAVVERO: quelle che ha risolto nel
+-- proprio profilo Outlook, intersecate con quelle autorizzate dalla sua credenziale. Un job con
+-- casella_id va solo a un worker che ce l'ha; un job con postazione_id va solo al worker di QUELLA
+-- postazione. Nessun ripiego: un job interattivo per PC-FRANCESCO resta in coda finché il worker di
+-- PC-FRANCESCO non lo prende, e se non arriva scade (M10). Un job senza casella e senza postazione
+-- (analisi, server) lo prende chiunque del tipo giusto.
 UPDATE job SET stato = 'in_corso',
     lease_token  = gen_random_uuid(),
     avviato_il   = now(),
@@ -35,6 +42,8 @@ WHERE job_id = (
     SELECT j.job_id FROM job j
     WHERE j.stato = 'pronto' AND j.worker_tipo = sqlc.arg(worker_tipo) AND j.non_prima_di <= now()
       AND (j.scade_il IS NULL OR j.scade_il > now())
+      AND (j.casella_id IS NULL OR j.casella_id = ANY (sqlc.arg(caselle)::uuid[]))
+      AND (j.postazione_id IS NULL OR j.postazione_id = sqlc.narg(postazione)::uuid)
     ORDER BY j.priorita, j.job_id
     FOR UPDATE SKIP LOCKED LIMIT 1)
 RETURNING *;
@@ -117,6 +126,15 @@ UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token 
     chiuso_il = now(), errore = concat_ws(' ', errore, '[scaduto prima di essere eseguito]')
 WHERE scade_il IS NOT NULL AND scade_il <= now() AND stato IN ('pronto','in_corso');
 
+-- name: AnnullaJob :one
+-- «Annulla» dalla UI (Q17): un job interattivo che l'operatore non vuole più. Se è in corso, il
+-- tentativo che lo sta eseguendo riceve 409 al prossimo heartbeat e si ferma: il predicato di
+-- validità richiede stato = 'in_corso', quindi non serve altro.
+UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    chiuso_il = now(), errore = concat_ws(' ', errore, '[annullato dall''operatore]')
+WHERE job_id = sqlc.arg(job_id) AND stato IN ('pronto','in_corso')
+RETURNING *;
+
 -- name: RiaccodaJob :one
 -- Zero righe = non riaccodabile: o non è chiuso, o esiste già un job pendente con la stessa chiave di
 -- idempotenza. Il secondo caso violerebbe l'indice unico parziale: qui diventa un avviso, non un 500.
@@ -192,10 +210,36 @@ SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%'
 SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%' ORDER BY job_id DESC LIMIT 1;
 
 -- name: UpsertWorkerPresenza :exec
-INSERT INTO worker_presenza (worker_tipo, worker_id, ultimo_claim, ultimo_job_il)
-VALUES ($1, $2, now(), CASE WHEN sqlc.arg(con_job)::boolean THEN now() END)
-ON CONFLICT (worker_tipo) DO UPDATE SET worker_id = EXCLUDED.worker_id, ultimo_claim = now(),
-    ultimo_job_il = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il);
+-- Una riga per WORKER (0005): postazione e caselle vengono dalla credenziale intersecata con ciò che
+-- il worker dichiara, mai dal solo JSON. ultimo_arresto e avviso si conservano se il claim non ne
+-- porta di nuovi: sono informazioni che l'operatore deve poter leggere anche dopo il riavvio.
+INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok,
+                             caselle_aperte, ultimo_job_il, ultimo_arresto, avviso)
+VALUES (sqlc.arg(worker_nome), sqlc.arg(worker_tipo), sqlc.narg(postazione_id), sqlc.narg(indirizzo_ip), now(),
+        sqlc.arg(outlook_ok), sqlc.arg(caselle_aperte)::uuid[],
+        CASE WHEN sqlc.arg(con_job)::boolean THEN now() END, sqlc.narg(ultimo_arresto), sqlc.narg(avviso))
+ON CONFLICT (worker_nome) DO UPDATE SET
+    worker_tipo = EXCLUDED.worker_tipo, postazione_id = EXCLUDED.postazione_id,
+    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_claim = now(), outlook_ok = EXCLUDED.outlook_ok,
+    caselle_aperte = EXCLUDED.caselle_aperte,
+    ultimo_job_il  = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il),
+    ultimo_arresto = COALESCE(EXCLUDED.ultimo_arresto, worker_presenza.ultimo_arresto),
+    avviso         = EXCLUDED.avviso;
 
 -- name: ListWorkerPresenza :many
-SELECT * FROM worker_presenza ORDER BY worker_tipo;
+SELECT wp.*, p.nome_host
+FROM worker_presenza wp LEFT JOIN postazione p ON p.postazione_id = wp.postazione_id
+ORDER BY wp.worker_nome;
+
+-- name: GetWorkerPresenza :one
+SELECT * FROM worker_presenza WHERE worker_nome = $1;
+
+-- name: PostazioniConWorkerAllIndirizzo :many
+-- Abbinamento sessione → postazione per IP (voce 2.7, N50): le postazioni ATTIVE da cui un worker ha
+-- fatto claim con questo indirizzo di recente. L'IP è una comodità, non un'autorizzazione: chi
+-- chiama verifica ancora che l'utente sia abilitato alla postazione trovata (P1).
+SELECT DISTINCT p.*
+FROM worker_presenza wp JOIN postazione p ON p.postazione_id = wp.postazione_id
+WHERE wp.indirizzo_ip = sqlc.arg(indirizzo_ip)::inet AND p.attiva
+  AND wp.ultimo_claim > now() - make_interval(secs => sqlc.arg(entro_s)::int)
+ORDER BY p.nome_host;

@@ -31,10 +31,13 @@ type AllegatoIn struct {
 // MessaggioIn è un elemento Outlook letto via COM. L'identità è message_id (Internet Message-ID),
 // non entry_id, che cambia quando l'elemento viene spostato di cartella.
 type MessaggioIn struct {
-	MessageID         string    `json:"message_id"`
-	ParentMessageID   string    `json:"parent_message_id,omitempty"`
-	EntryID           string    `json:"entry_id"`
-	StoreID           string    `json:"store_id"`
+	MessageID       string `json:"message_id"`
+	ParentMessageID string `json:"parent_message_id,omitempty"`
+	EntryID         string `json:"entry_id"`
+	// StoreID è accettato per compatibilità con un worker più vecchio e IGNORATO dal server: lo
+	// StoreID è del profilo Outlook della postazione, non della copia (voce 2.6, N44), e il server
+	// lo apprende dal claim del worker (casella_store), non dal lotto.
+	StoreID           string    `json:"store_id,omitempty"`
 	ConversationID    string    `json:"conversation_id,omitempty"`
 	ConversationIndex string    `json:"conversation_index,omitempty"`
 	InReplyTo         string    `json:"in_reply_to,omitempty"`
@@ -113,10 +116,39 @@ type IngestRisposta struct {
 
 // ---------------------------------------------------------------- coda job
 
+// CasellaAperta: come il worker vede una casella censita nel PROPRIO profilo Outlook (voce 2.6).
+// Lo store_id ha senso solo su quella postazione: il server lo registra in casella_store e non lo
+// mette mai in un payload.
+type CasellaAperta struct {
+	CasellaID uuid.UUID `json:"casella_id"`
+	StoreID   string    `json:"store_id"`
+}
+
+// CasellaServita è una casella che il server chiede al worker di risolvere nel proprio profilo:
+// risposta di GET /api/v1/worker/caselle. Il worker tocca solo queste; uno store del profilo che non
+// è qui viene ignorato, non censito d'ufficio (M1).
+type CasellaServita struct {
+	CasellaID uuid.UUID `json:"casella_id"`
+	Indirizzo string    `json:"indirizzo"`
+	Nome      string    `json:"nome"`
+	Condivisa bool      `json:"condivisa"`
+}
+
 type ClaimRichiesta struct {
 	Worker   string `json:"worker"`    // outlook | analisi
-	WorkerID string `json:"worker_id"` // es. "outlook@PC-PIETRO#1234"
+	WorkerID string `json:"worker_id"` // es. "outlook@PC-FRANCESCO": la chiave di worker_credenziale
 	AttesaS  int    `json:"attesa_s"`  // long-poll massimo (il server tronca a 25 s)
+	// Postazione è il nome host da cui il worker gira. Il server NON la usa per il routing — usa la
+	// postazione della credenziale — ma la confronta: un worker.toml copiato su un altro PC farebbe
+	// eseguire su PC-B i job interattivi di PC-A, e il claim lo rifiuta.
+	Postazione string `json:"postazione,omitempty"`
+	// OutlookOk: false = il worker gira ma COM non risponde. La testata lo mostra così com'è.
+	OutlookOk bool `json:"outlook_ok"`
+	// CaselleAperte: le caselle censite che il worker ha risolto nel proprio profilo. Il server le
+	// interseca con worker_credenziale.caselle (Q18) e assegna solo job di quelle (M12).
+	CaselleAperte []CasellaAperta `json:"caselle_aperte,omitempty"`
+	// UltimoArresto: motivo dell'ultima uscita forzata (C16), letto dal marcatore al riavvio.
+	UltimoArresto string `json:"ultimo_arresto,omitempty"`
 }
 
 type Job struct {
@@ -130,6 +162,9 @@ type Job struct {
 	LeaseToken string     `json:"lease_token"`
 	DurataMaxS int        `json:"durata_max_s"` // oltre questa durata il tentativo non vale più, lease fresco o no
 	CasellaID  *uuid.UUID `json:"casella_id,omitempty"`
+	// PostazioneID: job interattivo destinato a QUESTA postazione (voce 2.2). Il claim lo ha già
+	// filtrato; qui è informazione per il log del worker.
+	PostazioneID *uuid.UUID `json:"postazione_id,omitempty"`
 }
 
 type HeartbeatRichiesta struct {
@@ -184,28 +219,30 @@ type PayloadRileggiElemento struct {
 	MessageID string    `json:"message_id,omitempty"`
 }
 
-// Riferimento a un elemento Outlook. entry_id/store_id sono la via rapida (GetItemFromID); se l'elemento è
-// stato spostato l'EntryID non vale più e il worker lo ricerca per message_id (Internet Message-ID) in tutte
-// le cartelle. messaggio_id e casella_id servono al server per riallineare la PRESENZA giusta con l'EntryID
-// nuovo: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni casella, e scrivere quello trovato
-// nella copia sbagliata significherebbe rompere l'accesso all'elemento nell'altra casella.
+// Riferimento a un elemento Outlook: IDENTITÀ LOGICHE, mai uno StoreID (voce 2.6, M12).
+//
+// casella_id dice in quale casella cercare: il worker la traduce nello store del PROPRIO profilo
+// (casella_store), che è l'unico modo in cui uno StoreID può avere senso su una postazione diversa da
+// quella che ha sincronizzato. entry_id è la via rapida (GetItemFromID); se l'elemento è stato spostato
+// l'EntryID non vale più e il worker lo ricerca per message_id (Internet Message-ID) DENTRO quello
+// store. messaggio_id e casella_id servono anche al server per riallineare la PRESENZA giusta con
+// l'EntryID nuovo: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni casella.
 type RiferimentoElemento struct {
 	MessaggioID *uuid.UUID `json:"messaggio_id,omitempty"`
 	CasellaID   *uuid.UUID `json:"casella_id,omitempty"`
 	MessageID   string     `json:"message_id,omitempty"`
 }
 
-// RisultatoElemento è restituito dai job che toccano un elemento: EntryID/cartella dove è stato trovato davvero.
+// RisultatoElemento è restituito dai job che toccano un elemento: EntryID/cartella dove è stato
+// trovato davvero. Nessuno store_id: al server non direbbe niente.
 type RisultatoElemento struct {
 	EntryID  string `json:"entry_id,omitempty"`
-	StoreID  string `json:"store_id,omitempty"`
 	Cartella string `json:"cartella,omitempty"`
 }
 
 type PayloadStageAllegato struct {
 	AllegatoID uuid.UUID `json:"allegato_id"`
 	EntryID    string    `json:"entry_id"`
-	StoreID    string    `json:"store_id"`
 	Indice     int       `json:"indice"`
 	NomeFile   string    `json:"nome_file"`
 	Cartella   string    `json:"cartella"` // sottocartella di staging (hash del message_id)
@@ -229,7 +266,6 @@ type PayloadCreaBozza struct {
 	BozzaID     uuid.UUID      `json:"bozza_id"`
 	Tipo        string         `json:"tipo"` // risposta | rispondi_tutti | inoltro | nuovo | sollecito
 	EntryID     string         `json:"entry_id,omitempty"`
-	StoreID     string         `json:"store_id,omitempty"`
 	Destinatari []Destinatario `json:"destinatari"`
 	Oggetto     string         `json:"oggetto,omitempty"`
 	CorpoHTML   string         `json:"corpo_html,omitempty"`
@@ -247,25 +283,21 @@ type RisultatoBozza struct {
 
 type PayloadApriElemento struct {
 	EntryID string `json:"entry_id"`
-	StoreID string `json:"store_id"`
 	RiferimentoElemento
 }
 
 type PayloadSpostaCartella struct {
 	EntryID  string `json:"entry_id"`
-	StoreID  string `json:"store_id"`
 	Cartella string `json:"cartella"`
 	RiferimentoElemento
 }
 
 type RisultatoSposta struct {
 	EntryID string `json:"entry_id"`
-	StoreID string `json:"store_id,omitempty"`
 }
 
 type PayloadSegnaLetto struct {
 	EntryID string `json:"entry_id"`
-	StoreID string `json:"store_id"`
 	Letto   bool   `json:"letto"`
 	RiferimentoElemento
 }

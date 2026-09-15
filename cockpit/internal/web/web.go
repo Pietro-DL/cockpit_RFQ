@@ -41,6 +41,9 @@ type Server struct {
 	// IntervalloSync: ogni quanto lo scheduler accoda il sync (0 = mai). Serve solo a dirlo
 	// all'operatore nella schermata, con parole che corrispondono alla configurazione.
 	IntervalloSync time.Duration
+	// IndirizzoClient: da quale IP arriva il browser (voce 2.7, abbinamento sessione → postazione).
+	// Nil = RemoteAddr. X-Forwarded-For non si legge in produzione: lo scriverebbe chiunque.
+	IndirizzoClient func(*http.Request) string
 }
 
 type chiaveCtx int
@@ -135,6 +138,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /inbox/sync-storico", s.autenticato(s.syncStorico))
 	mux.HandleFunc("GET /inbox/sync-storico/stato", s.autenticato(s.syncStoricoStato))
 	mux.HandleFunc("GET /stato/worker", s.autenticato(s.statoWorker))
+	mux.HandleFunc("POST /sessione/postazione", s.autenticato(s.scegliPostazione))
 	mux.HandleFunc("GET /messaggio/{id}", s.autenticato(s.messaggio))
 	mux.HandleFunc("POST /messaggio/{id}/apri", s.autenticato(s.apriInOutlook))
 	mux.HandleFunc("POST /messaggio/{id}/bozza", s.autenticato(s.bozza))
@@ -155,6 +159,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /admin/job", s.autenticato(s.adminJob))
 	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.autenticato(s.riaccodaJob))
+	mux.HandleFunc("POST /admin/job/{id}/annulla", s.autenticato(s.annullaJob))
 	mux.HandleFunc("GET /admin/scarti", s.autenticato(s.adminScarti))
 	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.autenticato(s.riprovaScarto))
 }
@@ -166,37 +171,13 @@ type vista struct {
 	Titolo    string
 	Dati      any
 	Frammento bool
-	Worker    []presenzaUI
-}
-
-// presenzaUI è lo stato di un worker per la testata: un worker che non fa claim da più di 60 s è offline.
-type presenzaUI struct {
-	Tipo    string
-	Online  bool
-	Mai     bool
-	Secondi int
-}
-
-func (s *Server) presenzaWorker(ctx context.Context) []presenzaUI {
-	out := []presenzaUI{{Tipo: "outlook", Mai: true}, {Tipo: "analisi", Mai: true}}
-	righe, err := db.New(s.Pool).ListWorkerPresenza(ctx)
-	if err != nil {
-		return out
-	}
-	for _, r := range righe {
-		for i := range out {
-			if out[i].Tipo == string(r.WorkerTipo) {
-				sec := int(time.Since(r.UltimoClaim).Seconds())
-				out[i] = presenzaUI{Tipo: out[i].Tipo, Online: sec <= 60, Secondi: sec}
-			}
-		}
-	}
-	return out
+	// Stato è la testata: postazione della sessione, stato per casella, worker di analisi (M2).
+	Stato *statoUI
 }
 
 func (s *Server) statoWorker(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.pagine["inbox.html"].ExecuteTemplate(w, "stato_worker", vista{Worker: s.presenzaWorker(r.Context()), Frammento: true}); err != nil {
+	if err := s.pagine["inbox.html"].ExecuteTemplate(w, "stato_worker", vista{Utente: utenteDa(r.Context()), Stato: s.stato(r.Context(), sessioneDa(r.Context())), Frammento: true}); err != nil {
 		s.Log.Error("template", "frammento", "stato_worker", "err", err)
 	}
 }
@@ -204,8 +185,8 @@ func (s *Server) statoWorker(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rendi(w http.ResponseWriter, r *http.Request, pagina, frammento string, titolo string, dati any) {
 	t := s.pagine[pagina]
 	v := vista{Utente: utenteDa(r.Context()), Titolo: titolo, Dati: dati, Frammento: r.Header.Get("HX-Request") == "true"}
-	if !v.Frammento {
-		v.Worker = s.presenzaWorker(r.Context())
+	if !v.Frammento && v.Utente != nil {
+		v.Stato = s.stato(r.Context(), sessioneDa(r.Context()))
 	}
 	nome := "layout"
 	if v.Frammento && frammento != "" {
@@ -255,13 +236,17 @@ func (s *Server) autenticato(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		q := db.New(s.Pool)
-		u, err := q.GetSessioneUtente(r.Context(), c.Value)
+		riga, err := q.GetSessione(r.Context(), c.Value)
 		if err != nil {
 			s.aLogin(w, r)
 			return
 		}
 		_ = q.ToccaSessione(r.Context(), c.Value)
-		h(w, r.WithContext(context.WithValue(r.Context(), ctxUtente, &u)))
+		u := riga.Utente
+		sess := sessioneUI{Token: c.Value, Utente: &u, Postazione: riga.PostazioneID, NomeHost: riga.NomeHost.String, Origine: riga.PostazioneOrigine.String}
+		ctx := context.WithValue(r.Context(), ctxUtente, &u)
+		ctx = context.WithValue(ctx, ctxSessione, sess)
+		h(w, r.WithContext(ctx))
 	}
 }
 
@@ -288,7 +273,23 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	tok := hex.EncodeToString(b)
-	if _, err := q.CreaSessione(r.Context(), db.CreaSessioneParams{Token: tok, UtenteID: u.UtenteID, ScadeIl: time.Now().Add(12 * time.Hour)}); err != nil {
+	// Abbinamento per IP (voce 2.7): se un worker attivo di una postazione autorizzata ha fatto
+	// claim da questo stesso indirizzo, la sessione nasce su quella postazione ('ip'). Altrimenti
+	// nasce senza, e l'operatore sceglie dalla testata.
+	var post uuid.NullUUID
+	var origine pgtype.Text
+	if ip, ok := s.indirizzoDi(r); ok {
+		id, motivo := s.abbinaPostazione(r.Context(), q, &u, ip)
+		if id.Valid {
+			post, origine = id, pgtype.Text{String: "ip", Valid: true}
+			s.Log.Info("sessione abbinata alla postazione per IP", "utente", u.Sigla, "postazione", motivo, "ip", ip.String())
+		} else {
+			s.Log.Info("sessione senza postazione", "utente", u.Sigla, "ip", ip.String(), "motivo", motivo)
+		}
+	}
+	if _, err := q.CreaSessioneConPostazione(r.Context(), db.CreaSessioneConPostazioneParams{
+		Token: tok, UtenteID: u.UtenteID, ScadeIl: time.Now().Add(12 * time.Hour), PostazioneID: post, PostazioneOrigine: origine,
+	}); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -495,16 +496,18 @@ func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
 type messaggioDati struct {
 	M    db.Messaggio
 	Riga db.VInbox
-	// Presenza è la copia su cui agiscono i pulsanti («Apri in Outlook», «Segna letto»): dalla 0004
-	// lo stesso messaggio può stare in più caselle, e agire «sul messaggio» non vuol più dire niente.
+	// Copia è la copia su cui agiscono i pulsanti («Apri in Outlook», «Segna letto», «Bozza»): quella
+	// che il worker della POSTAZIONE DELLA SESSIONE serve (voci 2.2 e 2.7). Nil = le azioni non sono
+	// disponibili, e MotivoAzioni dice perché (nessuna postazione, o nessun worker idoneo su quella).
 	// Presenze è l'elenco completo, che è ciò che l'operatore deve vedere per capire da dove arriva.
-	Presenza *db.PresenzaDaAprireRow
-	Presenze []db.ListPresenzeRow
-	Allegati []AllegatoUI
-	Portale  []db.RiferimentoPortale
-	Bozze    []db.Bozza
-	Thread   *db.ThreadOfferta
-	Avviso   string
+	Copia        *jobs.Copia
+	MotivoAzioni string
+	Presenze     []db.ListPresenzeRow
+	Allegati     []AllegatoUI
+	Portale      []db.RiferimentoPortale
+	Bozze        []db.Bozza
+	Thread       *db.ThreadOfferta
+	Avviso       string
 }
 
 // Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
@@ -533,7 +536,7 @@ func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	d, err := s.caricaMessaggio(r.Context(), id)
+	d, err := s.caricaMessaggio(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -545,7 +548,7 @@ func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
 	s.frammento(w, "messaggio_pannello", d)
 }
 
-func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioDati, error) {
+func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess sessioneUI) (*messaggioDati, error) {
 	q := db.New(s.Pool)
 	m, err := q.GetMessaggio(ctx, id)
 	if err != nil {
@@ -553,10 +556,10 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioD
 	}
 	d := &messaggioDati{M: m}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
-	if pr, err := q.PresenzaDaAprire(ctx, id); err == nil {
-		d.Presenza = &pr
-	}
 	d.Presenze, _ = q.ListPresenze(ctx, id)
+	if len(d.Presenze) > 0 {
+		d.Copia, d.MotivoAzioni = s.copiaInterattiva(ctx, q, id, sess)
+	}
 	if m.ThreadID.Valid {
 		if t, err := q.GetThread(ctx, m.ThreadID.UUID); err == nil {
 			d.Thread = &t
@@ -574,25 +577,68 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID) (*messaggioD
 	return d, nil
 }
 
-// apriInOutlook accoda apri_elemento_outlook con priorità massima: il worker fa Display() sull'item.
+// copiaInterattiva decide su quale copia agisce un job interattivo chiesto in QUESTA sessione, o
+// spiega perché non può: senza postazione, o senza un worker idoneo su quella postazione. Il motivo
+// è per l'operatore, quindi è una frase e non un codice.
+func (s *Server) copiaInterattiva(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (*jobs.Copia, string) {
+	var richiedente uuid.UUID
+	if sess.Utente != nil {
+		richiedente = sess.Utente.UtenteID
+	}
+	c, err := jobs.CopiaPerPostazione(ctx, q, id, sess.Postazione, richiedente)
+	switch {
+	case err == nil:
+		return &c, ""
+	case errors.Is(err, jobs.ErrNessunaPostazione):
+		return nil, "nessuna postazione associata a questa sessione: scegli dalla testata il PC su cui stai lavorando"
+	}
+	var nessuno *jobs.ErrNessunWorkerIdoneo
+	if errors.As(err, &nessuno) {
+		return nil, nessuno.Motivo()
+	}
+	return nil, err.Error()
+}
+
+// accodaInterattivo è il percorso comune di «Apri in Outlook» e «Segna letto» (voci 2.2, 2.7, M3):
+// la copia servita dalla postazione della sessione, il job con casella + postazione + richiedente +
+// scadenza. Se non c'è una copia servibile NON accoda niente e restituisce il motivo (M4, M10): un
+// job «alla prima copia disponibile» aprirebbe la finestra su un altro PC.
+func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI, tipo db.TipoJob, payload func(jobs.Copia, db.Messaggio) any, priorita int16) (*jobs.Copia, string, error) {
+	c, motivo := s.copiaInterattiva(ctx, q, id, sess)
+	if c == nil {
+		return nil, motivo, nil
+	}
+	m, err := q.GetMessaggio(ctx, id)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := jobs.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, jobs.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
+		return nil, "", err
+	}
+	return c, "", nil
+}
+
+// apriInOutlook accoda apri_elemento_outlook con priorità massima: il worker della postazione della
+// sessione fa Display() sull'elemento nella casella che serve.
 func (s *Server) apriInOutlook(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	q := db.New(s.Pool)
-	pr, err := q.PresenzaDaAprire(r.Context(), id)
+	sess := sessioneDa(r.Context())
+	c, motivo, err := s.accodaInterattivo(r.Context(), db.New(s.Pool), id, sess, db.TipoJobApriElementoOutlook, func(c jobs.Copia, m db.Messaggio) any {
+		return api.PayloadApriElemento{EntryID: c.EntryID, RiferimentoElemento: rifIn(m, c.CasellaID)}
+	}, 1)
 	if err != nil {
-		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
-		return
-	}
-	m, _ := q.GetMessaggio(r.Context(), id)
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, RiferimentoElemento: rifIn(m, pr.CasellaID)}, "", 1); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.avviso(w, "Richiesta inviata a Outlook: l'elemento si apre sul PC Cockpit.")
+	if c == nil {
+		s.avvisoErrore(w, "Non aperto: "+motivo)
+		return
+	}
+	s.avviso(w, fmt.Sprintf("Richiesta inviata a Outlook: la copia in %s si apre su %s.", c.CasellaNome, sess.NomeHost))
 }
 
 func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
@@ -602,23 +648,25 @@ func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := db.New(s.Pool)
-	pr, err := q.PresenzaDaAprire(r.Context(), id)
+	letto := r.FormValue("letto") != "0"
+	sess := sessioneDa(r.Context())
+	c, motivo, err := s.accodaInterattivo(r.Context(), q, id, sess, db.TipoJobSegnaLetto, func(c jobs.Copia, m db.Messaggio) any {
+		return api.PayloadSegnaLetto{EntryID: c.EntryID, Letto: letto, RiferimentoElemento: rifIn(m, c.CasellaID)}
+	}, 2)
 	if err != nil {
-		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
+		http.Error(w, err.Error(), 500)
 		return
 	}
-	letto := r.FormValue("letto") != "0"
-	m, _ := q.GetMessaggio(r.Context(), id)
-	if _, err := jobs.Accoda(r.Context(), q, db.TipoJobSegnaLetto, api.PayloadSegnaLetto{EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Letto: letto, RiferimentoElemento: rifIn(m, pr.CasellaID)}, "", 2); err != nil {
-		http.Error(w, err.Error(), 500)
+	if c == nil {
+		s.avvisoErrore(w, "Non aggiornato: "+motivo)
 		return
 	}
 	// Si segna letta la COPIA su cui si è agito, non «il messaggio»: le altre caselle hanno il loro
 	// stato di lettura e nessuno ha chiesto di toccarlo.
-	if err := q.SetNonLettoPresenza(r.Context(), db.SetNonLettoPresenzaParams{MessaggioID: id, CasellaID: pr.CasellaID, NonLetto: !letto}); err != nil {
+	if err := q.SetNonLettoPresenza(r.Context(), db.SetNonLettoPresenzaParams{MessaggioID: id, CasellaID: c.CasellaID, NonLetto: !letto}); err != nil {
 		s.Log.Warn("stato di lettura non aggiornato", "messaggio", id, "err", err)
 	}
-	s.avviso(w, "Aggiornato in Outlook ("+pr.CasellaNome+").")
+	s.avviso(w, "Aggiornato in Outlook ("+c.CasellaNome+").")
 }
 
 // bozza prepara la risposta nel Cockpit e la apre come bozza in Outlook (l'invio resta manuale, SPEC §6.1).
@@ -629,6 +677,7 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := utenteDa(r.Context())
+	sess := sessioneDa(r.Context())
 	tipo := db.TipoBozza(r.FormValue("tipo"))
 	if !tipo.Valid() || tipo == db.TipoBozzaNuovo {
 		tipo = db.TipoBozzaRisposta
@@ -647,9 +696,10 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "messaggio non trovato", 404)
 		return
 	}
-	pr, err := q.PresenzaDaAprire(ctx, id)
-	if err != nil {
-		http.Error(w, "messaggio non presente in nessuna casella attiva", 404)
+	// La bozza si apre in Outlook sul PC del richiedente: stessa regola di «Apri», nessun ripiego.
+	pr, motivo := s.copiaInterattiva(ctx, q, id, sess)
+	if pr == nil {
+		s.avvisoErrore(w, "Bozza non preparata: "+motivo)
 		return
 	}
 	b, err := q.InsertBozza(ctx, db.InsertBozzaParams{
@@ -664,10 +714,10 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 	if corpo != "" {
 		html = "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
 	}
-	if _, err := jobs.Accoda(ctx, q, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
-		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, StoreID: pr.StoreIDLocale, Destinatari: []api.Destinatario{},
+	if _, err := jobs.AccodaCon(ctx, q, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
+		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []api.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
-	}, "bozza:"+b.BozzaID.String(), 1); err != nil {
+	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -675,7 +725,7 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.avviso(w, "Bozza in preparazione: si apre in Outlook tra pochi secondi. Rileggi e premi Invia lì.")
+	s.avviso(w, fmt.Sprintf("Bozza in preparazione: si apre in Outlook su %s tra pochi secondi. Rileggi e premi Invia lì.", sess.NomeHost))
 }
 
 // rif costruisce il riferimento stabile all'elemento (Message-ID) per i job che lo devono ritrovare in Outlook.
@@ -698,6 +748,13 @@ func rifIn(m db.Messaggio, casella uuid.UUID) api.RiferimentoElemento {
 func (s *Server) avviso(w http.ResponseWriter, testo string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<div class="avviso">%s</div>`, template.HTMLEscapeString(testo))
+}
+
+// avvisoErrore è avviso per un'azione che NON è partita: stesso posto, colore diverso. Risponde 200
+// perché è un frammento HTMX da mostrare, non un errore del server.
+func (s *Server) avvisoErrore(w http.ResponseWriter, testo string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<div class="avviso errore-box">%s</div>`, template.HTMLEscapeString(testo))
 }
 
 // ---------------------------------------------------------------- cruscotto e admin
@@ -749,6 +806,28 @@ func (s *Server) riaccodaJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	w.Header().Set("HX-Refresh", "true")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// annullaJob è «Annulla» (Q17): un job pronto o in corso che l'operatore non vuole più. Se è in
+// corso il tentativo lo scopre al prossimo heartbeat (409) e si ferma.
+func (s *Server) annullaJob(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "id", 400)
+		return
+	}
+	_, err = db.New(s.Pool).AnnullaJob(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.avviso(w, "non annullato: il job è già chiuso")
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Log.Info("job annullato dall'operatore", "job", id, "utente", utenteDa(r.Context()).Sigla)
 	w.Header().Set("HX-Refresh", "true")
 	w.WriteHeader(http.StatusNoContent)
 }

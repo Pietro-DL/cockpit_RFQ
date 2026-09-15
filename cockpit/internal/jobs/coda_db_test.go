@@ -44,7 +44,7 @@ func accoda(t *testing.T, ctx context.Context, q *db.Queries, tipo db.TipoJob, c
 
 func claim(t *testing.T, ctx context.Context, q *db.Queries, worker db.WorkerTipo, id string) *db.Job {
 	t.Helper()
-	j, err := Claim(ctx, q, worker, id, 0)
+	j, err := Claim(ctx, q, worker, id, Destinazione{}, 0)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}

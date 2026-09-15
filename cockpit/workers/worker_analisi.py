@@ -11,6 +11,7 @@ import argparse
 import logging
 import os
 import re
+import socket
 import time
 from pathlib import Path
 from uuid import UUID
@@ -262,7 +263,7 @@ class WorkerAnalisi:
         attesa = 5
         while True:
             try:
-                r = self.api.claim("analisi", self.worker_id)
+                r = self.api.claim("analisi", self.worker_id, extra={"postazione": socket.gethostname().upper()})
                 job = Job.model_validate(r) if r else None
                 attesa = 5
             except (*ERRORI_RETE, ErroreHTTP) as e:
