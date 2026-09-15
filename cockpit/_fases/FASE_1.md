@@ -97,6 +97,14 @@ significherebbe far fallire il job di qualcun altro.
   riga in `messaggio_aggancio_log`.
 - Due allegati con lo stesso indice nello stesso messaggio non sono più un doppione innocuo: il
   secondo sovrascriveva il primo e un allegato spariva in silenzio. Ora l'elemento va in scarto.
+- Lo stesso contenuto non si scarica due volte. Prima di accodare un download il server guarda se il
+  file di quell'allegato è già in staging, e se non c'è cerca un altro allegato con lo stesso sha256
+  che ce l'abbia: ogni download è un giro in COM su Outlook, la parte più lenta e più fragile della
+  catena. La guardia sta nell'accodamento, non nei gestori HTTP, perché i punti che chiedono un
+  download sono tre e in due su tre nessuno si sarebbe accorto del doppione: il secondo scaricamento
+  riesce benissimo.
+- Il sync non annulla le decisioni già prese. Un messaggio agganciato o ignorato la mattina non torna
+  fra gli orfani il pomeriggio perché una scansione gli ha rimesso sopra una proposta nuova.
 
 ## 5. Altre correzioni
 
@@ -107,6 +115,7 @@ significherebbe far fallire il job di qualcun altro.
 | percorso dentro lo staging | confronto per prefisso di stringa | `filepath.Rel` |
 | enum in arrivo dai worker | cast diretto: a rifiutare era PostgreSQL | `.Valid()` esplicito, errore leggibile, job fallito in modo definitivo |
 | identificativi | `varchar(255)`: un Message-ID più lungo veniva troncato, cioè due messaggi diversi diventavano lo stesso | `text`; oltre 1000 caratteri l'elemento va in scarto |
+| copie sul NAS | 5 tentativi, consumati anche quando il NAS non c'era: poco più di mezz'ora di copertura, poi la copia risultava persa in silenzio | 50 tentativi, nessuno consumato mentre il NAS è irraggiungibile, e riaccodo automatico quando torna |
 
 ## 6. Un limite dichiarato: una sola casella attiva
 
@@ -137,7 +146,7 @@ un'ottimizzazione, è una condizione di correttezza.
 |---|---|---|
 | L1 unitari Go | dominio, percorsi NAS, archivi (budget e percorsi), template, verifica statica delle migrazioni, configurazione | eseguiti |
 | L2 unitari Python | modulo comune, ciclo dei worker, **arresto e uscita forzata**, analisi documenti | eseguiti; i casi sul corpus riservato risultano **saltati** |
-| L3 contratti | conformità fra gli schemi JSON di `contracts/`, i tipi Go e i modelli pydantic | **non eseguito**: il test non esiste ancora |
+| L3 contratti | conformità fra gli schemi JSON di `contracts/`, i tipi Go e i modelli pydantic | eseguiti (anticipati dalla fase 5) |
 | L4 integrazione | coda e tentativo, ingest e scarti, decisioni concorrenti, deduplica dell'analisi, migrazioni e seed | eseguiti |
 | L5–L9 | Outlook via COM, Exchange, due postazioni, posta reale, caos | **non eseguiti**: richiedono account e macchine non disponibili qui |
 
@@ -149,16 +158,22 @@ Tre precisazioni che valgono anche per chi legge solo questo file:
 - il commit fallito è provato abortendo la transazione con un errore SQL vero, non fermando
   PostgreSQL: la garanzia «niente di parziale» è dimostrata, la prova con il servizio fermato è L8 e
   non è stata fatta;
+- il confronto dei contratti è sui campi e sui loro generi, non sull'obbligatorietà: pydantic sa dire
+  «questo campo non ha un default», in Go ogni campo ha il suo zero e la differenza non esiste.
+  Confrontare i `required` darebbe una lista di disallineamenti finti, che è il modo più rapido per
+  far ignorare un test;
 - un test **saltato** non è un test superato. Se il corpus o il database mancano, la verifica
   corrispondente non è stata fatta, e il registro lo scrive con quella parola.
 
-## 9. Voci della fase 1 ancora aperte
+## 9. Che cosa resta aperto
 
-| Voce | Cosa manca |
-|---|---|
-| 1.7 | copie NAS resilienti: 50 tentativi e riaccodo al ritorno del NAS (oggi si fermano dopo 5) |
-| 1.11 | guardie di elaborazione singola oltre a quella sugli indici duplicati: nessun `stage_allegato` se il file è già in staging con lo stesso hash |
+Le voci 1.1–1.12 sono chiuse. Restano due cose dichiarate, nessuna delle due è un lavoro della fase 1:
 
-Resta inoltre aperto **W2**: il cursore del worker avanza su `data_evento`, che per la Posta inviata è
-`SentOn`, mentre il filtro della scansione usa `ReceivedTime`. È annotato nel codice nel punto in cui
-si trova e si chiude in fase 2, insieme a `messaggio_casella.ricevuto_il`.
+**W2** — il cursore del worker avanza su `data_evento`, che per la Posta inviata è `SentOn`, mentre il
+filtro della scansione usa `ReceivedTime`. È annotato nel codice nel punto in cui si trova e si chiude
+in fase 2 con `MessaggioIn.ricevuto_il` (voce 2.1), insieme a `messaggio_casella.ricevuto_il`.
+
+**I3 e I18** — la stessa mail in due o quattro caselle, elaborata una sola volta. Il piano li elenca
+sotto la voce 1.11, ma senza `messaggio_casella` lo stesso messaggio in due caselle non è nemmeno
+rappresentabile: appartengono alla fase 2 e non sono un debito di questa. La guardia che la 1.11 chiede
+— nessun download se il file è già in staging con lo stesso hash — c'è già e vale anche per loro.

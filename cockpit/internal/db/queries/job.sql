@@ -11,11 +11,14 @@
 -- di un tentativo scaduto si applichi al lavoro di quello nuovo.
 
 -- name: InsertJob :one
+-- max_tentativi è narg con COALESCE e non un parametro obbligatorio: uno zero Go passato per
+-- distrazione varrebbe «nessun tentativo» e il job non partirebbe mai. Omesso = il default dello
+-- schema (5); jobs.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
 INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di,
-                 lease_s, durata_max_s, casella_id, postazione_id, richiesto_da, scade_il)
+                 lease_s, durata_max_s, max_tentativi, casella_id, postazione_id, richiesto_da, scade_il)
 VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(non_prima_di)::timestamptz, now()),
-        sqlc.arg(lease_s), sqlc.arg(durata_max_s), sqlc.narg(casella_id), sqlc.narg(postazione_id),
-        sqlc.narg(richiesto_da), sqlc.narg(scade_il))
+        sqlc.arg(lease_s), sqlc.arg(durata_max_s), COALESCE(sqlc.narg(max_tentativi)::int, 5),
+        sqlc.narg(casella_id), sqlc.narg(postazione_id), sqlc.narg(richiesto_da), sqlc.narg(scade_il))
 ON CONFLICT (chiave_idempotenza) WHERE stato IN ('pronto','in_corso') DO NOTHING
 RETURNING *;
 
@@ -109,6 +112,40 @@ WHERE job.job_id = sqlc.arg(job_id) AND job.stato IN ('fallito','annullato')
       WHERE p.chiave_idempotenza IS NOT NULL AND p.chiave_idempotenza = job.chiave_idempotenza
         AND p.stato IN ('pronto','in_corso'))
 RETURNING *;
+
+-- name: RinviaJob :one
+-- Rimette in coda un tentativo che non è nemmeno cominciato e RESTITUISCE il tentativo consumato dal
+-- claim. Serve quando il NAS non è raggiungibile: contare come fallimento un tentativo che non
+-- abbiamo nemmeno provato brucerebbe il budget dei 50 in poche ore di rete assente, cioè proprio nel
+-- caso per cui il budget esiste (voce 1.7). Vale il predicato di validità del tentativo: un tentativo
+-- scaduto non può rinviare il job che nel frattempo è passato a un altro.
+UPDATE job SET stato = 'pronto', tentativi = GREATEST(0, tentativi - 1),
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL, avviato_il = NULL,
+    non_prima_di = now() + make_interval(secs => sqlc.arg(fra_s)::int), errore = sqlc.arg(motivo)
+WHERE job_id = sqlc.arg(job_id)
+  AND stato = 'in_corso' AND lease_token = sqlc.arg(lease_token) AND worker_id = sqlc.arg(worker_id)
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+RETURNING *;
+
+-- name: RiaccodaScrittureNasEsaurite :many
+-- Al ritorno del NAS le copie che avevano finito i tentativi tornano in coda da sole (N3): senza,
+-- l'unico modo di recuperarle sarebbe che qualcuno se ne accorgesse e premesse «riprova», e una copia
+-- persa non si vede da nessuna parte finché non serve il file.
+--
+-- Solo quelle ESAURITE: un fallimento dichiarato definitivo - il conflitto di hash sulla destinazione,
+-- cioè un file già lì con un contenuto diverso - chiude il job con tentativi < max_tentativi e non
+-- va rimesso in coda, perché il NAS che torna non lo risolve. La condizione NOT EXISTS è la stessa
+-- di RiaccodaJob: due job pendenti con la stessa chiave violerebbero l'indice unico parziale.
+UPDATE job SET stato = 'pronto', tentativi = 0, non_prima_di = now(), chiuso_il = NULL,
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    errore = concat_ws(' ', errore, '[riaccodato al ritorno del NAS]')
+WHERE job.stato = 'fallito' AND job.tipo IN ('copia_nas','crea_cartella_thread')
+  AND job.tentativi >= job.max_tentativi
+  AND NOT EXISTS (
+      SELECT 1 FROM job p
+      WHERE p.chiave_idempotenza IS NOT NULL AND p.chiave_idempotenza = job.chiave_idempotenza
+        AND p.stato IN ('pronto','in_corso'))
+RETURNING job_id;
 
 -- name: EliminaJobVecchi :execrows
 DELETE FROM job

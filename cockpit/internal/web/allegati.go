@@ -144,7 +144,7 @@ func (s *Server) scarica(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "messaggio non Outlook", 404)
 		return
 	}
-	n, err := s.accodaDownload(ctx, q, m, o, r.Form["allegato_id"])
+	esiti, err := s.accodaDownload(ctx, q, m, o, r.Form["allegato_id"])
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -153,12 +153,35 @@ func (s *Server) scarica(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("%d download richiesti al worker Outlook.", n))
+	s.pannelloConAvviso(w, r, id, esiti.frase())
+}
+
+// contiDownload tiene separato ciò che è stato chiesto al worker da ciò che c'era già. Dire «3 download
+// richiesti» quando i file erano già sul disco è una bugia piccola che però fa aspettare l'operatore.
+type contiDownload struct{ accodati, gia, riusati int }
+
+func (c contiDownload) frase() string {
+	var parti []string
+	if c.accodati > 0 {
+		parti = append(parti, fmt.Sprintf("%d download richiesti al worker Outlook", c.accodati))
+	}
+	if c.gia > 0 {
+		parti = append(parti, fmt.Sprintf("%d già in staging", c.gia))
+	}
+	if c.riusati > 0 {
+		parti = append(parti, fmt.Sprintf("%d riusati da un allegato con lo stesso contenuto", c.riusati))
+	}
+	if len(parti) == 0 {
+		return "Nessun allegato da scaricare."
+	}
+	return strings.Join(parti, ", ") + "."
 }
 
 // accodaDownload accoda stage_allegato per gli id passati (solo allegati del messaggio, diretti, scaricabili).
-func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, o db.MessaggioOutlook, ids []string) (int, error) {
-	n := 0
+// Non tutti diventano un job: la guardia della voce 1.11 sta dentro jobs.AccodaStage, non qui, così vale
+// per qualunque punto del server chieda un download.
+func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, o db.MessaggioOutlook, ids []string) (contiDownload, error) {
+	var c contiDownload
 	for _, raw := range ids {
 		aid, err := uuid.Parse(raw)
 		if err != nil {
@@ -168,12 +191,20 @@ func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messagg
 		if err != nil || a.MessaggioID != m.MessaggioID || a.ContenitoreID.Valid || a.Natura == db.NaturaAllegatoInline {
 			continue
 		}
-		if _, err := jobs.AccodaStage(ctx, q, a, m, o, 1); err != nil {
-			return n, err
+		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, o, 1)
+		if err != nil {
+			return c, err
 		}
-		n++
+		switch esito {
+		case jobs.StageGiaPresente:
+			c.gia++
+		case jobs.StageRiusato:
+			c.riusati++
+		default: // accodato o già in coda: per l'operatore è la stessa attesa
+			c.accodati++
+		}
 	}
-	return n, nil
+	return c, nil
 }
 
 // riscarica rimette in coda un singolo allegato (file sparito dallo staging, errore del worker).
@@ -204,11 +235,12 @@ func (s *Server) riscarica(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "messaggio non Outlook", 404)
 		return
 	}
-	if _, err := s.accodaDownload(ctx, q, m, o, []string{aid.String()}); err != nil {
+	esiti, err := s.accodaDownload(ctx, q, m, o, []string{aid.String()})
+	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, m.MessaggioID, "Download richiesto di nuovo al worker Outlook.")
+	s.pannelloConAvviso(w, r, m.MessaggioID, esiti.frase())
 }
 
 // ---------------------------------------------------------------- DECISIONE: conferma / scarta

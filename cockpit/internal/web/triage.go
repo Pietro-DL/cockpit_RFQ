@@ -235,7 +235,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	n, err := s.downloadDaForm(ctx, q, m, r)
+	esiti, err := s.downloadDaForm(ctx, q, m, r)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -244,7 +244,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. Cartella in creazione, %d download richiesti.", t.CartellaRelativa.String, n))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. Cartella in creazione. %s", t.CartellaRelativa.String, esiti.frase()))
 }
 
 // agganciaEsistente collega il messaggio (e gli orfani della sua conversazione) a un thread scelto dall'operatore.
@@ -298,7 +298,7 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	n, err := s.downloadDaForm(ctx, q, m, r)
+	esiti, err := s.downloadDaForm(ctx, q, m, r)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -307,7 +307,7 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s. %d download richiesti.", t.CartellaRelativa.String, n))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s. %s", t.CartellaRelativa.String, esiti.frase()))
 }
 
 // ignora chiude il triage senza RFQ: il messaggio esce da "orfani" e finisce nel filtro "ignorati".
@@ -500,14 +500,14 @@ func (s *Server) buyerDaForm(ctx context.Context, q *db.Queries, r *http.Request
 }
 
 // downloadDaForm accoda lo staging degli allegati spuntati nel form di triage.
-func (s *Server) downloadDaForm(ctx context.Context, q *db.Queries, m db.Messaggio, r *http.Request) (int, error) {
+func (s *Server) downloadDaForm(ctx context.Context, q *db.Queries, m db.Messaggio, r *http.Request) (contiDownload, error) {
 	ids := r.Form["allegato_id"]
 	if len(ids) == 0 {
-		return 0, nil
+		return contiDownload{}, nil
 	}
 	o, err := q.GetMessaggioOutlook(ctx, m.MessaggioID)
 	if err != nil {
-		return 0, nil // messaggio non Outlook (telefono/whatsapp): niente da scaricare
+		return contiDownload{}, nil // messaggio non Outlook (telefono/whatsapp): niente da scaricare
 	}
 	return s.accodaDownload(ctx, q, m, o, ids)
 }

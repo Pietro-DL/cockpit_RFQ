@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,19 +25,91 @@ func CartellaStaging(messageID string) string {
 	return hex.EncodeToString(h[:])[:12]
 }
 
+// Staging risponde a una sola domanda: quel file c'è ancora sul disco?
+//
+// È un'interfaccia e non una chiamata a os.Stat dentro AccodaStage perché altrimenti la guardia della
+// voce 1.11 sarebbe verificabile solo costruendo alberi di file veri, e un test che dipende da che
+// cosa c'è davvero nello staging della macchina non prova quasi niente.
+type Staging interface {
+	Presente(percorso string) bool
+}
+
+// FileStaging è lo staging vero: il disco.
+type FileStaging struct{}
+
+func (FileStaging) Presente(percorso string) bool {
+	if strings.TrimSpace(percorso) == "" {
+		return false
+	}
+	st, err := os.Stat(percorso)
+	return err == nil && !st.IsDir()
+}
+
+// EsitoStage dice che cosa è successo alla richiesta di download. Serve a chi la chiama per dire
+// all'operatore la verità: «scaricato» e «c'era già» non sono la stessa frase.
+type EsitoStage string
+
+const (
+	StageAccodato    EsitoStage = "accodato"     // job creato, il worker lo scaricherà
+	StageGiaInCoda   EsitoStage = "gia_in_coda"  // un download per questo allegato è già pendente
+	StageGiaPresente EsitoStage = "gia_presente" // il file di questo allegato è già in staging
+	StageRiusato     EsitoStage = "riusato"      // stesso contenuto già sceso per un altro allegato
+)
+
 // AccodaStage accoda il download di un allegato diretto (non dentro uno zip) dal suo elemento Outlook.
 // È sempre conseguenza di un'azione dell'operatore: priorità alta. Chiave per allegato: un solo download
 // pendente alla volta, ma riaccodabile dopo (file cancellato dallo staging → "Riscarica").
-func AccodaStage(ctx context.Context, q *db.Queries, a db.Allegato, m db.Messaggio, o db.MessaggioOutlook, priorita int16) (*db.Job, error) {
+//
+// Prima di accodare guarda se il file c'è già (voce 1.11, elaborazione singola). Due controlli, non uno:
+//
+//  1. il file di QUESTO allegato è al suo posto → non c'è niente da scaricare. Senza questo controllo un
+//     secondo clic su «Scarica» rimetteva l'allegato a 'grezzo', cancellava il marcatore di stato e
+//     rifaceva il giro in COM per riportare esattamente lo stesso file;
+//  2. lo STESSO CONTENUTO è già sceso per un altro allegato → si riusa quel percorso. È il caso dello
+//     stesso disegno allegato a richieste diverse: scaricarlo una seconda volta significa un'altra
+//     apertura di Outlook e un'altra copia identica sul disco.
+//
+// I due allegati che condividono il contenuto condividono anche il percorso in staging: chi cancella
+// quel file li lascia entrambi senza, ed entrambi hanno "Riscarica". È la stessa condizione in cui si
+// trova oggi un allegato solo, quindi non introduce un modo nuovo di rompersi.
+func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, o db.MessaggioOutlook, priorita int16) (EsitoStage, *db.Job, error) {
+	if a.PathStaging.Valid && st.Presente(a.PathStaging.String) {
+		return StageGiaPresente, nil, nil
+	}
+	if a.Sha256.Valid && a.Sha256.String != "" {
+		gemello, err := q.AllegatoInStagingPerHash(ctx, db.AllegatoInStagingPerHashParams{Sha256: a.Sha256, Escluso: a.AllegatoID})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, fmt.Errorf("allegato già in staging con lo stesso hash: %w", err)
+		}
+		if err == nil && st.Presente(gemello.PathStaging.String) {
+			dim := gemello.Bytes
+			if !dim.Valid {
+				dim = a.Bytes
+			}
+			if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{
+				AllegatoID: a.AllegatoID, PathStaging: gemello.PathStaging, Sha256: a.Sha256, Bytes: dim,
+			}); err != nil {
+				return "", nil, err
+			}
+			return StageRiusato, nil, nil
+		}
+	}
 	// "in coda" in errore è il marcatore letto dalla UI finché il worker non consegna il file (SetAllegatoStaging lo azzera)
 	if err := q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoGrezzo, Errore: pgtype.Text{String: "in coda", Valid: true}}); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	mid := m.MessaggioID
-	return Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
+	j, err := Accoda(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
 		AllegatoID: a.AllegatoID, EntryID: o.EntryID, StoreID: o.StoreID, Indice: int(a.Indice), NomeFile: a.NomeFile,
 		Cartella: CartellaStaging(m.ChiaveEsterna), RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, MessageID: m.ChiaveEsterna},
 	}, "stage:"+a.AllegatoID.String(), priorita)
+	if err != nil {
+		return "", nil, err
+	}
+	if j == nil {
+		return StageGiaInCoda, nil, nil
+	}
+	return StageAccodato, j, nil
 }
 
 // Analizzatore descrive con che cosa si analizza: versione e configurazione mandata al worker. Il suo

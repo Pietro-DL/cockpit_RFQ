@@ -8,7 +8,8 @@
 #   - un test saltato NON conta come superato: conta come non verificato;
 #   - `go build` dimostra che il codice compila. NON dimostra la conformità agli schemi JSON di
 #     contracts\ (livello L3): i tipi Go e i modelli pydantic possono compilare benissimo ed essere
-#     comunque incoerenti con lo schema. L3 resta NON ESEGUITO finché non esiste il test apposito;
+#     comunque incoerenti con lo schema. L3 ha ora un test suo, in due metà (Go e Python), ed è quello
+#     che decide: senza, un contratto può essere cambiato da una parte sola senza che nulla protesti;
 #   - qui finiscono solo gli esiti SIMULATI. Le prove su Outlook, Exchange e su due postazioni
 #     (L5-L9) si annotano a mano in docs\esiti\esiti_reali.md e non si deducono mai da un test
 #     simulato equivalente.
@@ -50,8 +51,16 @@ Esegui "L1 script PS" "sintassi degli script di servizio sulla PowerShell instal
     $global:LASTEXITCODE = if ($problemi -gt 0) { 1 } else { 0 }
 }
 
-Annota "L3 contratti" "conformita fra gli schemi JSON di contracts, i tipi Go e i modelli pydantic" "-" "NON ESEGUITO" `
-    'Nessun test di conformita agli schemi esiste ancora. go build e pytest non lo sostituiscono: dimostrano che i due lati compilano, non che descrivono lo stesso contratto.'
+Esegui "L3 contratti (Go)" "i tipi Go corrispondono agli schemi di contracts (K1, K2, K3, K4)" "go test ./internal/api" { go test -count=1 ./internal/api/ }
+
+if (-not $SenzaPython) {
+    # La metà Python verifica la premessa dell'altra: che gli schemi su disco descrivano i modelli
+    # pydantic di oggi. Senza, il confronto Go girerebbe contro uno schema vecchio e sarebbe verde
+    # proprio mentre le due parti si allontanano.
+    Esegui "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/test_contratti.py" { python -m pytest -q workers/test_contratti.py }
+} else {
+    Annota "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/test_contratti.py" "SALTATO" "richiesto -SenzaPython: non verificato"
+}
 
 if (-not $SenzaDB) {
     $dsn = & "$PSScriptRoot\db-test.ps1" -Dsn

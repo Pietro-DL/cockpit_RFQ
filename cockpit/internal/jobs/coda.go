@@ -61,6 +61,26 @@ func DurataMassimaS(t db.TipoJob) int {
 	}
 }
 
+// MaxTentativiPer dice quante volte vale la pena riprovare un job prima di darlo per perso.
+//
+// Cinque tentativi vanno bene per un lavoro che fallisce perché è sbagliato: riprovarlo all'infinito
+// non lo farebbe riuscire. Una scrittura sul NAS invece non fallisce quasi mai per questo, ma perché
+// il NAS o la rete in quel momento non ci sono, e con il backoff limitato a dieci minuti cinque
+// tentativi coprono poco più di mezz'ora: un fermo notturno del NAS bastava a far chiudere la copia
+// come 'fallito', e il file non arrivava mai nel fascicolo senza che nessuno se ne accorgesse (N8).
+//
+// Cinquanta tentativi coprono circa otto ore. Oltre a quelle c'è il riaccodo automatico al ritorno
+// del NAS, e i tentativi non consumati mentre il NAS è irraggiungibile (RinviaJob): è l'insieme dei
+// tre a fare la voce 1.7, non il numero da solo.
+func MaxTentativiPer(t db.TipoJob) int {
+	switch t {
+	case db.TipoJobCopiaNas, db.TipoJobCreaCartellaThread:
+		return 50
+	default:
+		return 5
+	}
+}
+
 // Opzioni sono i vincoli di destinazione e di durata di un job. Lo zero vale «come da tipo».
 type Opzioni struct {
 	Casella     uuid.NullUUID // NULL = nessun vincolo di casella
@@ -69,6 +89,9 @@ type Opzioni struct {
 	ScadeIl     *time.Time // oltre questa ora il job non serve più: annullato, mai eseguito
 	LeaseS      int
 	DurataMaxS  int
+	// MaxTentativi: zero = come da tipo (MaxTentativiPer). Non è un puntatore perché zero tentativi
+	// non è una richiesta sensata, quindi non serve distinguerlo da «non l'ho scritto».
+	MaxTentativi int
 }
 
 // Accoda inserisce un job nella transazione corrente. chiave vuota = nessuna idempotenza.
@@ -93,10 +116,14 @@ func AccodaCon(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any,
 	if o.DurataMaxS <= 0 {
 		o.DurataMaxS = DurataMassimaS(tipo)
 	}
+	if o.MaxTentativi <= 0 {
+		o.MaxTentativi = MaxTentativiPer(tipo)
+	}
 	j, err := q.InsertJob(ctx, db.InsertJobParams{
 		Tipo: tipo, WorkerTipo: WorkerPer(tipo), Payload: raw, ChiaveIdempotenza: ch, Priorita: priorita,
 		LeaseS: int32(o.LeaseS), DurataMaxS: int32(o.DurataMaxS),
-		CasellaID: o.Casella, PostazioneID: o.Postazione, RichiestoDa: o.RichiestoDa, ScadeIl: o.ScadeIl,
+		MaxTentativi: pgtype.Int4{Int32: int32(o.MaxTentativi), Valid: true},
+		CasellaID:    o.Casella, PostazioneID: o.Postazione, RichiestoDa: o.RichiestoDa, ScadeIl: o.ScadeIl,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil // già in coda
@@ -159,6 +186,23 @@ func Fallisci(ctx context.Context, q *db.Queries, t Tentativo, errore string, de
 	j, err := q.FallisciJob(ctx, db.FallisciJobParams{
 		JobID: t.JobID, LeaseToken: t.token(), WorkerID: t.worker(),
 		Errore: pgtype.Text{String: errore, Valid: true}, Definitivo: definitivo,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return j, ErrTentativoNonValido
+	}
+	return j, err
+}
+
+// Rinvia rimette il job in coda senza consumare il tentativo: il lavoro non è nemmeno cominciato.
+//
+// È diverso da Fallisci con definitivo=false, che invece il tentativo lo conta. La differenza pesa
+// solo in un caso, ma è il caso per cui la voce 1.7 esiste: se il NAS manca per ore, contare ogni
+// giro a vuoto come un fallimento esaurisce il budget dei tentativi mentre il problema è fuori dal
+// nostro programma, e la copia viene dichiarata persa proprio perché ci abbiamo provato tante volte.
+func Rinvia(ctx context.Context, q *db.Queries, t Tentativo, fra time.Duration, motivo string) (db.Job, error) {
+	j, err := q.RinviaJob(ctx, db.RinviaJobParams{
+		JobID: t.JobID, LeaseToken: t.token(), WorkerID: t.worker(),
+		FraS: int32(fra / time.Second), Motivo: pgtype.Text{String: motivo, Valid: true},
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, ErrTentativoNonValido

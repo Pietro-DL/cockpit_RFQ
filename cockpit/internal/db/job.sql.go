@@ -364,10 +364,10 @@ func (q *Queries) HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int
 const insertJob = `-- name: InsertJob :one
 
 INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di,
-                 lease_s, durata_max_s, casella_id, postazione_id, richiesto_da, scade_il)
+                 lease_s, durata_max_s, max_tentativi, casella_id, postazione_id, richiesto_da, scade_il)
 VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()),
-        $7, $8, $9, $10,
-        $11, $12)
+        $7, $8, COALESCE($9::int, 5),
+        $10, $11, $12, $13)
 ON CONFLICT (chiave_idempotenza) WHERE stato IN ('pronto','in_corso') DO NOTHING
 RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
@@ -381,6 +381,7 @@ type InsertJobParams struct {
 	NonPrimaDi        *time.Time      `json:"non_prima_di"`
 	LeaseS            int32           `json:"lease_s"`
 	DurataMaxS        int32           `json:"durata_max_s"`
+	MaxTentativi      pgtype.Int4     `json:"max_tentativi"`
 	CasellaID         uuid.NullUUID   `json:"casella_id"`
 	PostazioneID      uuid.NullUUID   `json:"postazione_id"`
 	RichiestoDa       uuid.NullUUID   `json:"richiesto_da"`
@@ -398,6 +399,9 @@ type InsertJobParams struct {
 // Zero righe significa «questo tentativo non vale più» e il chiamante risponde 409 senza applicare
 // nulla. Non va rilassato in nessuno dei quattro punti: basta un punto scoperto perché il risultato
 // di un tentativo scaduto si applichi al lavoro di quello nuovo.
+// max_tentativi è narg con COALESCE e non un parametro obbligatorio: uno zero Go passato per
+// distrazione varrebbe «nessun tentativo» e il job non partirebbe mai. Omesso = il default dello
+// schema (5); jobs.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
 func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, error) {
 	row := q.db.QueryRow(ctx, insertJob,
 		arg.Tipo,
@@ -408,6 +412,7 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, erro
 		arg.NonPrimaDi,
 		arg.LeaseS,
 		arg.DurataMaxS,
+		arg.MaxTentativi,
 		arg.CasellaID,
 		arg.PostazioneID,
 		arg.RichiestoDa,
@@ -613,6 +618,47 @@ func (q *Queries) RiaccodaJob(ctx context.Context, jobID int64) (Job, error) {
 	return i, err
 }
 
+const riaccodaScrittureNasEsaurite = `-- name: RiaccodaScrittureNasEsaurite :many
+UPDATE job SET stato = 'pronto', tentativi = 0, non_prima_di = now(), chiuso_il = NULL,
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    errore = concat_ws(' ', errore, '[riaccodato al ritorno del NAS]')
+WHERE job.stato = 'fallito' AND job.tipo IN ('copia_nas','crea_cartella_thread')
+  AND job.tentativi >= job.max_tentativi
+  AND NOT EXISTS (
+      SELECT 1 FROM job p
+      WHERE p.chiave_idempotenza IS NOT NULL AND p.chiave_idempotenza = job.chiave_idempotenza
+        AND p.stato IN ('pronto','in_corso'))
+RETURNING job_id
+`
+
+// Al ritorno del NAS le copie che avevano finito i tentativi tornano in coda da sole (N3): senza,
+// l'unico modo di recuperarle sarebbe che qualcuno se ne accorgesse e premesse «riprova», e una copia
+// persa non si vede da nessuna parte finché non serve il file.
+//
+// Solo quelle ESAURITE: un fallimento dichiarato definitivo - il conflitto di hash sulla destinazione,
+// cioè un file già lì con un contenuto diverso - chiude il job con tentativi < max_tentativi e non
+// va rimesso in coda, perché il NAS che torna non lo risolve. La condizione NOT EXISTS è la stessa
+// di RiaccodaJob: due job pendenti con la stessa chiave violerebbero l'indice unico parziale.
+func (q *Queries) RiaccodaScrittureNasEsaurite(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, riaccodaScrittureNasEsaurite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var job_id int64
+		if err := rows.Scan(&job_id); err != nil {
+			return nil, err
+		}
+		items = append(items, job_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const rilasciaLeaseScaduti = `-- name: RilasciaLeaseScaduti :execrows
 UPDATE job SET
     stato = CASE WHEN tentativi >= max_tentativi THEN 'fallito'::stato_job ELSE 'pronto'::stato_job END,
@@ -630,6 +676,68 @@ func (q *Queries) RilasciaLeaseScaduti(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const rinviaJob = `-- name: RinviaJob :one
+UPDATE job SET stato = 'pronto', tentativi = GREATEST(0, tentativi - 1),
+    lease_fino_a = NULL, lease_token = NULL, worker_id = NULL, avviato_il = NULL,
+    non_prima_di = now() + make_interval(secs => $1::int), errore = $2
+WHERE job_id = $3
+  AND stato = 'in_corso' AND lease_token = $4 AND worker_id = $5
+  AND lease_fino_a > now() AND now() <= avviato_il + make_interval(secs => durata_max_s)
+RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
+`
+
+type RinviaJobParams struct {
+	FraS       int32         `json:"fra_s"`
+	Motivo     pgtype.Text   `json:"motivo"`
+	JobID      int64         `json:"job_id"`
+	LeaseToken uuid.NullUUID `json:"lease_token"`
+	WorkerID   pgtype.Text   `json:"worker_id"`
+}
+
+// Rimette in coda un tentativo che non è nemmeno cominciato e RESTITUISCE il tentativo consumato dal
+// claim. Serve quando il NAS non è raggiungibile: contare come fallimento un tentativo che non
+// abbiamo nemmeno provato brucerebbe il budget dei 50 in poche ore di rete assente, cioè proprio nel
+// caso per cui il budget esiste (voce 1.7). Vale il predicato di validità del tentativo: un tentativo
+// scaduto non può rinviare il job che nel frattempo è passato a un altro.
+func (q *Queries) RinviaJob(ctx context.Context, arg RinviaJobParams) (Job, error) {
+	row := q.db.QueryRow(ctx, rinviaJob,
+		arg.FraS,
+		arg.Motivo,
+		arg.JobID,
+		arg.LeaseToken,
+		arg.WorkerID,
+	)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
 }
 
 const scadutoPerDurataMassima = `-- name: ScadutoPerDurataMassima :execrows

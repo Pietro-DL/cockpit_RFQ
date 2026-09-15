@@ -57,8 +57,8 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
 Che cosa introduce ogni fase di lavoro e che cosa resta non verificato:
-[FASE_0.md](FASE_0.md) (fondazioni, migrazioni, ambiente di prova) e
-[FASE_1.md](FASE_1.md) (coda, tentativo, ingest a prova di poison pill).
+[FASE_0.md](_fases/FASE_0.md) (fondazioni, migrazioni, ambiente di prova) e
+[FASE_1.md](_fases/FASE_1.md) (coda, tentativo, ingest a prova di poison pill).
 
 **Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
 fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.

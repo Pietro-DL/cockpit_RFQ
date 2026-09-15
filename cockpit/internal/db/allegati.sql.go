@@ -13,6 +13,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const allegatoInStagingPerHash = `-- name: AllegatoInStagingPerHash :one
+SELECT allegato_id, messaggio_id, contenitore_id, indice, nome_file, path_interno, estensione, content_type, natura, origine, bytes, sha256, stato, path_staging, errore, ricevuto_il, caricato_da FROM allegato
+WHERE sha256 = $1 AND path_staging IS NOT NULL AND path_staging <> ''
+  AND allegato_id <> $2
+ORDER BY (stato = 'in_staging') DESC, ricevuto_il
+LIMIT 1
+`
+
+type AllegatoInStagingPerHashParams struct {
+	Sha256  pgtype.Text `json:"sha256"`
+	Escluso uuid.UUID   `json:"escluso"`
+}
+
+// Un ALTRO allegato con lo stesso contenuto già sceso in staging (voce 1.11). Lo stesso disegno
+// allegato a tre richieste diverse è lo stesso file: scaricarlo tre volte significa tre giri in COM su
+// Outlook e tre copie identiche sul disco. Si esclude l'allegato di partenza, altrimenti troverebbe
+// se stesso e non risponderebbe mai alla domanda che gli viene fatta.
+func (q *Queries) AllegatoInStagingPerHash(ctx context.Context, arg AllegatoInStagingPerHashParams) (Allegato, error) {
+	row := q.db.QueryRow(ctx, allegatoInStagingPerHash, arg.Sha256, arg.Escluso)
+	var i Allegato
+	err := row.Scan(
+		&i.AllegatoID,
+		&i.MessaggioID,
+		&i.ContenitoreID,
+		&i.Indice,
+		&i.NomeFile,
+		&i.PathInterno,
+		&i.Estensione,
+		&i.ContentType,
+		&i.Natura,
+		&i.Origine,
+		&i.Bytes,
+		&i.Sha256,
+		&i.Stato,
+		&i.PathStaging,
+		&i.Errore,
+		&i.RicevutoIl,
+		&i.CaricatoDa,
+	)
+	return i, err
+}
+
 const contaHashVisto = `-- name: ContaHashVisto :one
 SELECT count(DISTINCT a.messaggio_id) FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
 WHERE a.sha256 = $1 AND lower(split_part(m.mittente_indirizzo, '@', 2)) = lower($2)

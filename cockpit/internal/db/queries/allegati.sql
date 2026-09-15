@@ -21,6 +21,17 @@ WHERE m.thread_id = $1 ORDER BY m.data_evento, a.indice;
 UPDATE allegato SET path_staging = $2, sha256 = $3, bytes = $4, stato = 'in_staging', errore = NULL
 WHERE allegato_id = $1;
 
+-- name: AllegatoInStagingPerHash :one
+-- Un ALTRO allegato con lo stesso contenuto già sceso in staging (voce 1.11). Lo stesso disegno
+-- allegato a tre richieste diverse è lo stesso file: scaricarlo tre volte significa tre giri in COM su
+-- Outlook e tre copie identiche sul disco. Si esclude l'allegato di partenza, altrimenti troverebbe
+-- se stesso e non risponderebbe mai alla domanda che gli viene fatta.
+SELECT * FROM allegato
+WHERE sha256 = sqlc.arg(sha256) AND path_staging IS NOT NULL AND path_staging <> ''
+  AND allegato_id <> sqlc.arg(escluso)
+ORDER BY (stato = 'in_staging') DESC, ricevuto_il
+LIMIT 1;
+
 -- name: SetAllegatoStato :exec
 UPDATE allegato SET stato = $2, errore = $3 WHERE allegato_id = $1;
 
