@@ -5,9 +5,9 @@ verificato**. Come per [FASE_0.md](FASE_0.md) e [FASE_1.md](FASE_1.md), la docum
 completa (piani, decisioni aperte, registri degli esiti, richieste all'IT) vive fuori da questo
 repository.
 
-**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3** e il blocco **2.2 + 2.6 + 2.7**.
-Le voci successive (TLS e credenziali individuali, 2.8–2.15) non sono state fatte e sono elencate in
-fondo.
+**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3** e il blocco **2.2 + 2.6 + 2.7**,
+più la **correzione del 15/09/2026** (il risultato dei job non arrivava al server). Le voci successive
+(TLS e credenziali individuali, 2.8–2.15) non sono state fatte e sono elencate in fondo.
 
 ## Perimetro
 
@@ -183,6 +183,90 @@ esattamente questa situazione (tre store finti, due censiti); la prova reale è 
 Il predicato di validità del tentativo, l'upload legato al tentativo (2.3), la chiave di sync per
 casella (2.1). Il token condiviso resta: le credenziali individuali sono la 2.5.
 
+## Correzione del 15/09/2026 — il risultato non arrivava al server
+
+Prima volta che il worker vero ha parlato con il server vero, ed è uscito subito. Non c'entra il
+modello dei dati di questa fase: è un difetto di due righe nel client, e vale la pena scriverlo qui
+soprattutto per il motivo per cui nessuna prova lo aveva visto.
+
+### Il sintomo
+
+Nel log del worker, a ogni job: `POST /api/v1/jobs/N/result → 400 {"errore":"worker_id mancante"}`.
+Il worker faceva il lavoro — leggeva la posta, scaricava l'allegato, apriva l'elemento — e il server
+non lo sapeva. Il job restava `in_corso`, il lease scadeva dopo 120–300 secondi, lo scheduler lo
+rimetteva `pronto` e il worker lo rifaceva da capo. Da fuori si vedeva questo: gli stati non
+cambiavano mai, lo stesso sync di Commerciale partiva quattro volte, e «Apri in Outlook» apriva la
+stessa finestra quattro volte. Persino un errore definitivo veniva ritentato, perché nemmeno il
+fallimento riusciva a essere registrato.
+
+### La causa
+
+In `workers/cockpit_client.py`, `Cockpit.risultato`:
+
+```python
+corpo.setdefault("worker_id", worker_id or self.worker_id)   # non fa niente
+corpo.setdefault("lease_token", lease_token)                 # non fa niente
+```
+
+`corpo` arriva da `RisultatoRichiesta.model_dump()`, e il modello dichiara `worker_id: str = ""` e
+`lease_token: str = ""`. Le chiavi **esistono già**, vuote: `setdefault` le trova presenti e non le
+tocca. Il server riceve `worker_id=""`, `tentativo()` lo rifiuta con 400, e il predicato che protegge
+il job — quello che impedisce a un tentativo scaduto di scrivere sopra al lavoro di un altro — non
+viene nemmeno raggiunto. La correzione è un'assegnazione al posto di `setdefault`: chi chiama conosce
+il tentativo, e vince sempre su ciò che il modello ha lasciato vuoto.
+
+### Perché quattro livelli verdi non l'hanno visto
+
+Perché nessuno di loro faceva parlare il client vero con il server vero.
+
+| Livello | Che cosa provava | Perché passava |
+|---|---|---|
+| L2 worker | il ciclo del worker contro `server_finto.py` | il server finto accettava qualunque `/result`, senza guardare i campi |
+| L3 contratti | che i tipi Go e i modelli pydantic descrivano lo stesso schema | gli schemi erano identici: il difetto non era nel contratto, ma in come il client lo compilava |
+| L4 integrazione | il server contro PostgreSQL, con un client Go scritto nel test | il client Go i campi li metteva |
+| L1 | compilazione e unitari | fuori tema |
+
+Il difetto stava esattamente nel punto cieco comune: **come il client vero riempie il contratto**.
+
+### Che cosa è cambiato
+
+1. **La correzione**, due righe in `cockpit_client.py`, con una prova di regressione in L2 che passa
+   il corpo *come lo passa il worker* (già completo di chiavi vuote) e verifica che l'identità del
+   tentativo arrivi comunque.
+2. **Il server finto ora rifiuta ciò che rifiuta quello vero.** `claim`, `heartbeat`, `result`,
+   `ingest` e l'upload pretendono `worker_id` e `lease_token` (400 senza) e rispondono 409 a chi si
+   presenta con un tentativo diverso da quello consegnato dal claim, come il predicato SQL del server.
+   `metti_job` assegna sempre un `lease_token`, perché il claim vero lo fa. Un banco di prova che
+   accetta ciò che il vero rifiuta non è un banco di prova: è un test che passa per costruzione.
+3. **Un livello che non c'era: il client vero contro il server vero.** `TestE2E…` in
+   `internal/workerapi` avvia `python workers/prova_e2e.py` — cioè `worker_outlook.main()` con
+   `--una-volta`, con la sola classe `Outlook` sostituita — contro i gestori HTTP veri e PostgreSQL,
+   e verifica che il job arrivi a `fatto`: un download completo (claim → `PUT` → result → file
+   promosso nello staging) e un job interattivo lungo, durante il quale il battito rinnova davvero il
+   lease. Rimettendo il `setdefault`, tutti e due diventano rossi con il sintomo di produzione:
+   *job in stato in_corso*.
+4. **Il server scrive il proprio log su file.** Fino a ieri esisteva solo quello dei worker: del lato
+   server — chi ha risposto 400, a chi, quante volte — non restava niente appena si chiudeva la
+   finestra, e questo è costato metà della diagnosi. Ora va anche in `<nas.staging>\log\cockpit.log`
+   (5 file da 5 MB, come i worker; `[server].log_file` lo sposta, `"-"` lo disattiva), accanto a
+   `worker_outlook.log`. E un `result` rifiutato per tentativo non dichiarato viene scritto come
+   avviso, con il nome del worker e il job: la prossima volta si legge da questa parte.
+
+### Strumenti per la diagnosi
+
+| | |
+|---|---|
+| `scripts\query-debug.sql` | le sei domande della diagnosi di un job: la coda come la vede il server, i cursori, chi è collegato e che cosa serve, una mail in due caselle (I3), gli scarti, gli allegati |
+| `scripts\azzera-dati.ps1` | ricrea lo schema di **sviluppo** e cancella i log, per ripartire da una riga pulita. Senza `-Conferma` dice soltanto che cosa farebbe; si rifiuta di partire se il server o un worker sono in esecuzione, e non tocca mai NAS, posta e database di test |
+
+### Che cosa questa prova NON dimostra
+
+- **L'avvio di `cockpit.exe`**: il test monta gli stessi gestori HTTP su un server di prova, non
+  lancia l'eseguibile. Configurazione, migrazioni e scheduler restano materia di `main.go`.
+- **Outlook**: l'adattatore COM è sostituito. Che cosa succede con Outlook vero è L5.
+- **Il sync**: qui girano un download e un job interattivo. Il sync completo contro la posta vera
+  resta una prova reale concordata.
+
 ## Come verificare
 
 ```powershell
@@ -198,10 +282,11 @@ un'ottimizzazione, è una condizione di correttezza.
 
 | Livello | Copertura di questa voce | Stato |
 |---|---|---|
-| L1 unitari Go | triage di una mail interna, verifica statica della `0004`; nome nello staging e cartelle rifiutate (2.3); tre stati della testata e autorizzazione alla postazione (M2, P1) | eseguiti |
-| L2 worker Python | lo stage carica con `PUT` prima del result; `413` → errore definitivo; `409` → nessun result; il worker risolve solo le caselle censite e le dichiara al claim, ignora il terzo store, legge lo store della casella del job, non usa `store_id` dal payload (M1, M12) | eseguiti |
+| L1 unitari Go | triage di una mail interna, verifica statica della `0004`; nome nello staging e cartelle rifiutate (2.3); tre stati della testata e autorizzazione alla postazione (M2, P1); rotazione del log del server | eseguiti |
+| L2 worker Python | lo stage carica con `PUT` prima del result; `413` → errore definitivo; `409` → nessun result; il worker risolve solo le caselle censite e le dichiara al claim, ignora il terzo store, legge lo store della casella del job, non usa `store_id` dal payload (M1, M12); il result porta il tentativo anche quando il modello lo dichiara vuoto, e il server finto rifiuta come quello vero | eseguiti |
 | L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging`, `ClaimRichiesta` con `caselle_aperte`, payload senza `store_id`, `CasellaServita` sui due lati | eseguiti |
 | L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**; **Q8, Q17, Q18, Q21, M2, M3, M4, M6, M9, M10, M12, W14, P1** | eseguiti |
+| L4 end-to-end | il worker **vero** (Python, senza COM) contro il server **vero** su PostgreSQL: un download completo fino a `fatto` e il battito che rinnova il lease durante un job lungo | eseguiti |
 | L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), casella condivisa Exchange, due postazioni (M11, upload fra due PC), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:

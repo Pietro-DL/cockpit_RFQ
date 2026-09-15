@@ -125,6 +125,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `indirizzo` | `127.0.0.1:8080` in sviluppo. `0.0.0.0:8080` espone il Cockpit in LAN: finché non arrivano TLS e credenziali individuali (voci 2.4 e 2.5) è una cosa da fare solo per le prove |
 | `token_worker` | un segreto qualsiasi, lungo. È lo stesso che va in `workers\worker.toml`: se i due non coincidono il worker logga `401` e non prende lavoro |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
+| `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
 | `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
 
 **`[nas]`**
@@ -265,6 +266,10 @@ ascolto su `[server].indirizzo` (`http://127.0.0.1:8080` in sviluppo).
 
 Il browser si apre su quell'indirizzo: login con la sigla e la password di `[[utenti]]`.
 
+Il log del server va sulla finestra **e** su `<nas.staging>\log\cockpit.log` (5 file da 5 MB a
+rotazione, come i worker): chiusa la finestra, di ciò che il server ha risposto ai worker resta
+comunque traccia, ed è metà della diagnosi di un job. Si cambia con `[server].log_file`.
+
 Opzioni:
 
 ```powershell
@@ -377,6 +382,14 @@ non hanno niente a che vedere con il codice in prova.
 schema a ogni esecuzione e non possono toccare il database di sviluppo. Per sicurezza il codice di
 test rifiuta un DSN il cui nome di database non contiene «test».
 
+Fra i test d'integrazione ce n'è uno che non prova il server ma i due insieme: `TestE2E…` in
+`internal/workerapi` avvia il **worker vero** (`python workers\prova_e2e.py`, cioè worker_outlook
+con `--una-volta` e il solo adattatore COM sostituito) contro i gestori HTTP veri e PostgreSQL. È
+l'unico livello in cui il client e il server si parlano davvero: gli altri provano una metà sola,
+e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa
+indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
+`prova-tutto.ps1 -SenzaPython` viene saltato e il registro lo annota come non verificato.
+
 Tutto in una volta, con il registro degli esiti:
 
 ```powershell
@@ -432,6 +445,8 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | «Apri in Outlook» dice *nessuna postazione* | la sessione non è abbinata a nessun PC | scegliere il PC dalla testata («Sei su:») |
 | «Apri in Outlook» dice *non viene dirottata* | il worker della postazione scelta non serve nessuna casella in cui il messaggio è presente | autorizzare quella casella al worker, o lavorare dalla postazione che la serve |
 | i job restano `pronto` | nessun worker che serva quella casella (o quella postazione) è in esecuzione | avviare il worker corrispondente; la testata dice quale |
+| un job torna `in_corso` e si ripete, il worker logga `400 worker_id mancante` | il worker riporta il risultato senza dire quale tentativo sta chiudendo | difetto corretto il 15/09/2026: aggiornare i worker insieme al server |
+| lo stesso sync parte più volte con la stessa finestra | il `result` non viene accettato, il lease scade e lo scheduler riaccoda | leggere `cockpit.log`: il server scrive il motivo del rifiuto con il nome del worker |
 
 ---
 
@@ -461,10 +476,13 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
                            0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
                            0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale)
+internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
-                           outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server), worker.toml
+                           outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
+                           prova_e2e.py (il worker vero senza COM, per il test end-to-end), worker.toml
 scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
+                           azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                            backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
 ```
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/logfile"
 	"promatec/cockpit/internal/migrazioni"
 	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/web"
@@ -47,8 +49,28 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	if cfg.Server.LogLivello == "debug" {
 		lvl = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	// Il log va sullo stdout E su un file ([server].log_file, di default <staging>\log\cockpit.log).
+	// Solo sullo stdout durava quanto la finestra che aveva avviato il server: chiusa quella, di ciò
+	// che il server aveva risposto ai worker non restava niente da leggere.
+	var dove io.Writer = os.Stdout
+	var avvisoLog string
+	percorsoLog := cfg.PercorsoLog()
+	if percorsoLog != "" {
+		f, err := logfile.Apri(percorsoLog, logfile.MaxByteDefault, logfile.CopieDefault)
+		if err != nil {
+			// un log che non si apre non è un motivo per non partire: si dice e si va avanti
+			avvisoLog = fmt.Sprintf("log su file non disponibile (%s): %v", percorsoLog, err)
+			percorsoLog = ""
+		} else {
+			defer f.Close()
+			dove = io.MultiWriter(os.Stdout, f)
+		}
+	}
+	log := slog.New(slog.NewTextHandler(dove, &slog.HandlerOptions{Level: lvl}))
 	slog.SetDefault(log)
+	if avvisoLog != "" {
+		log.Warn(avvisoLog)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -146,7 +168,8 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		defer c()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("cockpit in ascolto", "indirizzo", "http://"+cfg.Server.Indirizzo, "staging", staging, "max_upload_mb", cfg.Server.MaxUploadMB)
+	log.Info("cockpit in ascolto", "indirizzo", "http://"+cfg.Server.Indirizzo, "staging", staging,
+		"max_upload_mb", cfg.Server.MaxUploadMB, "log", percorsoLog, "livello", lvl)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

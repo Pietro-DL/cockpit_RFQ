@@ -6,6 +6,10 @@
 indirizzo = "127.0.0.1:8080"
 token_worker = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
 log_livello = "info" # debug | info | warn
+# Dove il server scrive il PROPRIO log, oltre che nella finestra da cui è stato avviato (5 file da
+# 5 MB, come i worker). Assente = <nas.staging>\log\cockpit.log, cioè accanto a worker_outlook.log:
+# la diagnosi di un job si fa leggendo le due metà una accanto all'altra. "-" = solo a schermo.
+# log_file = '...\_staging\log\cockpit.log'
 # Limite di un singolo allegato caricato dal worker (PUT /api/v1/allegati/{id}/file). Oltre, il server
 # risponde 413 prima di ricevere il file e l'allegato compare in errore con il motivo. Default 64.
 max_upload_mb = 64

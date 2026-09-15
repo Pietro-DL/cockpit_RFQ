@@ -315,6 +315,8 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	_ = leggi(r, &req)
 	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
 	if err != nil {
+		s.Log.Warn("battito senza tentativo dichiarato: il lease non viene rinnovato",
+			"job", id, "worker_id", req.WorkerID, "err", err)
 		errore(w, 400, err)
 		return
 	}
@@ -341,6 +343,12 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
 	if err != nil {
+		// Va detto forte, perché il worker ha già fatto il lavoro e nessuno lo saprà: il job resta
+		// in corso finché il lease non scade, poi torna in coda e viene rifatto da capo. È il
+		// difetto del 15/09/2026, e in un log di sole righe del worker era invisibile da questa
+		// parte.
+		s.Log.Warn("result rifiutato: il tentativo non è dichiarato, il lavoro andrà perso e il job sarà ripetuto",
+			"job", id, "worker_id", req.WorkerID, "esito", req.Esito, "err", err)
 		errore(w, 400, err)
 		return
 	}

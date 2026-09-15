@@ -1,0 +1,65 @@
+-- Le query della sessione di debug, una per passo, nell'ordine in cui servono.
+--
+--   psql "postgres://cockpit:PASSWORD@127.0.0.1:5433/cockpit_dev" -f scripts\query-debug.sql
+--
+-- oppure, per lanciarne una sola, aprire psql e usare \i. Sono di sola lettura: nessuna di queste
+-- righe scrive niente.
+--
+-- Il file sta nel repository perché la diagnosi di un job si fa sempre con le stesse cinque
+-- domande, e ricordarsele a memoria a schermo condiviso è tempo perso.
+
+\echo '== 1. la coda, come la vede il server =========================================='
+-- ha_token e lease_fino_a dicono se il job è davvero in mano a qualcuno; tentativi > 1 significa
+-- che qualcosa lo sta facendo ripetere (lease scaduto, oppure un result che non viene accettato).
+SELECT job_id, tipo, stato, tentativi, worker_id, lease_token IS NOT NULL AS ha_token,
+       lease_fino_a, avviato_il, non_prima_di, left(coalesce(errore, ''), 80) AS errore
+FROM job
+ORDER BY job_id DESC
+LIMIT 20;
+
+\echo '== 2. i cursori: si muovono solo con il sync ordinario ========================='
+-- Un sync storico (finestra [dal, al] chiusa) NON fa avanzare il cursore: è voluto. Se il cursore
+-- non si muove mai, o il sync ordinario non parte (intervallo_sync_s = 0) o non arriva al result.
+SELECT c.nome, s.cartella, s.ultimo_received
+FROM sync_cursore s
+JOIN casella c USING (casella_id)
+ORDER BY c.nome, s.cartella;
+
+\echo '== 3. chi è collegato e che cosa vede =========================================='
+-- caselle_aperte è ciò che il worker ha risolto nel proprio profilo Outlook E che la sua
+-- credenziale autorizza. avviso elenca quelle dichiarate ma non autorizzate.
+SELECT worker_nome, p.nome_host AS postazione, w.indirizzo_ip, w.outlook_ok,
+       array_length(w.caselle_aperte, 1) AS n_caselle, w.ultimo_claim, w.ultimo_job_il,
+       left(coalesce(w.avviso, ''), 60) AS avviso, left(coalesce(w.ultimo_arresto, ''), 60) AS ultimo_arresto
+FROM worker_presenza w
+LEFT JOIN postazione p USING (postazione_id)
+ORDER BY w.worker_nome;
+
+\echo '== 4. una mail, due presenze: il controllo I3 =================================='
+-- La stessa mail arrivata a due caselle censite deve stare in UNA riga di messaggio con DUE righe
+-- di messaggio_casella. Se compare due volte in messaggio, la deduplicazione non ha funzionato.
+SELECT m.messaggio_id, left(m.oggetto, 50) AS oggetto, m.data_evento,
+       array_agg(c.nome ORDER BY c.nome) AS caselle
+FROM messaggio m
+JOIN messaggio_casella mc USING (messaggio_id)
+JOIN casella c USING (casella_id)
+GROUP BY m.messaggio_id, m.oggetto, m.data_evento
+HAVING count(*) > 1
+ORDER BY m.data_evento DESC
+LIMIT 10;
+
+\echo '== 5. che cosa è stato scartato in ingest ======================================'
+SELECT scarto_id, origine, casella_id, left(coalesce(oggetto, ''), 40) AS oggetto,
+       left(errore, 80) AS errore, tentativi, ultimo_il
+FROM ingest_scarto
+ORDER BY ultimo_il DESC
+LIMIT 10;
+
+\echo '== 6. gli allegati scaricati e il loro stato ==================================='
+-- Il passo «Scarica» è finito quando lo stato non è più grezzo e path_staging punta a un file che
+-- esiste davvero sul disco del SERVER (il worker lo ha caricato con PUT, non copiato).
+SELECT a.allegato_id, a.nome_file, a.stato, a.bytes, left(coalesce(a.sha256, ''), 12) AS sha,
+       a.path_staging IS NOT NULL AS in_staging, left(coalesce(a.errore, ''), 60) AS errore
+FROM allegato a
+ORDER BY a.ricevuto_il DESC
+LIMIT 15;

@@ -66,6 +66,16 @@ if (-not $SenzaDB) {
     $dsn = & "$PSScriptRoot\db-test.ps1" -Dsn
     & "$PSScriptRoot\db-test.ps1" -Avvia | Out-Null
     $env:COCKPIT_TEST_DSN = $dsn
+    # Dentro L4 c'e' anche la prova end-to-end, che avvia il worker VERO: e' Python, e
+    # senza interprete non si puo' eseguire. Saltarla in silenzio la farebbe sparire dentro un
+    # "L4 integrazione: PASSATO", quindi si annota a parte come non verificata.
+    $env:COCKPIT_TEST_SENZA_PYTHON = ""
+    if ($SenzaPython) {
+        $env:COCKPIT_TEST_SENZA_PYTHON = "1"
+        Annota "L4 E2E worker" "il client vero (worker Python) contro il server vero" `
+            "go test -tags integrazione -run TestE2E ./internal/workerapi" "SALTATO" `
+            "richiesto -SenzaPython: non verificato"
+    }
     Esegui "L4 integrazione" "test su PostgreSQL di test, pacchetti in serie" "go test -tags integrazione -count=1 -p 1 ./..." { go test -tags integrazione -count=1 -p 1 ./... }
 } else {
     Annota "L4 integrazione" "test su PostgreSQL di test" "go test -tags integrazione -count=1 -p 1 ./..." "SALTATO" "richiesto -SenzaDB: non verificato"

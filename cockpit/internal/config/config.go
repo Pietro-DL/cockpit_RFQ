@@ -51,6 +51,9 @@ type Server struct {
 	TokenWorker     string `toml:"token_worker"`     // condiviso con i worker Python (header X-Cockpit-Token)
 	SegretoSessione string `toml:"segreto_sessione"` // riservato a usi futuri (firma cookie); le sessioni vivono nel DB
 	LogLivello      string `toml:"log_livello"`      // debug | info | warn
+	// LogFile: dove il server scrive il proprio log, oltre che sullo stdout della finestra.
+	// Vuoto = <nas.staging>\log\cockpit.log; "-" = solo stdout, nessun file.
+	LogFile string `toml:"log_file"`
 	// MaxUploadMB è il limite di un singolo allegato caricato dal worker con
 	// PUT /api/v1/allegati/{id}/file (voce 2.3). Oltre, il server risponde 413 prima di leggere il
 	// corpo e l'allegato va in errore con il motivo visibile; senza un limite un allegato da qualche
@@ -60,6 +63,24 @@ type Server struct {
 
 type DB struct {
 	DSN string `toml:"dsn"`
+}
+
+// PercorsoLog dice dove va il log del server; "" significa «solo sullo stdout».
+//
+// Il default non è una cartella qualsiasi: è la stessa <staging>\log dove scrivono i worker, perché
+// la diagnosi di un job si fa mettendo le due metà una accanto all'altra — chi ha chiesto che cosa e
+// che cosa ha risposto il server — e cercarle in due posti diversi è metà del lavoro.
+func (c *Config) PercorsoLog() string {
+	switch {
+	case c.Server.LogFile == "-":
+		return ""
+	case c.Server.LogFile != "":
+		return c.Server.LogFile
+	case c.NAS.Staging != "":
+		return filepath.Join(c.NAS.Staging, "log", "cockpit.log")
+	default:
+		return ""
+	}
 }
 
 type NAS struct {

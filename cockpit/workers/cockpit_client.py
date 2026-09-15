@@ -121,11 +121,22 @@ class Cockpit:
         )
 
     def risultato(self, job_id: int, corpo: dict, worker_id: str = "", lease_token: str = "") -> None:
-        # worker_id e lease_token dicono al server QUALE tentativo sta riportando il risultato:
-        # senza, il risultato di un tentativo scaduto si applicherebbe al tentativo subentrato.
+        """POST /api/v1/jobs/{id}/result: l'esito del lavoro, firmato dal tentativo che l'ha fatto.
+
+        worker_id e lease_token dicono al server QUALE tentativo sta riportando il risultato: senza,
+        il risultato di un tentativo scaduto si applicherebbe al tentativo subentrato. Il server li
+        pretende (400 senza worker_id, 400 senza un lease_token che sia un UUID).
+
+        ASSEGNAZIONE, non setdefault. `corpo` arriva da RisultatoRichiesta.model_dump(), e il modello
+        dichiara `worker_id: str = ""` e `lease_token: str = ""`: le chiavi CI SONO GIÀ, vuote.
+        setdefault le vedeva presenti e non le toccava, il server riceveva worker_id="" e rispondeva
+        400; il job restava in_corso, il lease scadeva, lo scheduler lo rimetteva pronto e il worker
+        lo rifaceva da capo, all'infinito. Chi passa qui il valore vero è il chiamante, che conosce
+        il tentativo: è lui a vincere, sempre.
+        """
         corpo = dict(corpo)
-        corpo.setdefault("worker_id", worker_id or self.worker_id)
-        corpo.setdefault("lease_token", lease_token)
+        corpo["worker_id"] = worker_id or corpo.get("worker_id") or self.worker_id
+        corpo["lease_token"] = lease_token or corpo.get("lease_token") or ""
         self.chiama("POST", f"/api/v1/jobs/{job_id}/result", corpo)
 
     def ingest(self, richiesta: dict, timeout: int = 300) -> dict:
