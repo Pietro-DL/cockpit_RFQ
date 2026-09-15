@@ -30,7 +30,10 @@ $log = Join-Path $radice "..\_staging\log"
 New-Item -ItemType Directory -Force $log | Out-Null
 
 Write-Host "== cockpit.exe" -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle='cockpit.exe'; Set-Location '$radice'; .\cockpit.exe -config cockpit.toml 2>&1 | Tee-Object -FilePath '$log\cockpit.log'"
+# Niente Tee-Object: da oggi il log su file lo scrive il server ([server].log_file, di default
+# <nas.staging>\log\cockpit.log). Due scrittori sullo stesso file si contendono l'handle e si
+# mescolano le righe; qui resta solo la finestra.
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle='cockpit.exe'; Set-Location '$radice'; .\cockpit.exe -config cockpit.toml"
 Start-Sleep -Seconds 2
 
 if ($ConOutlook) {
@@ -45,4 +48,4 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.W
 
 Write-Host ""
 Write-Host "Cockpit: http://127.0.0.1:8080  (login PS / cockpit)" -ForegroundColor Green
-Write-Host "Log worker: $log"
+Write-Host "Log (server e worker): $log"
