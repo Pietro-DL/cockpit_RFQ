@@ -109,6 +109,16 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 		}
 		switch len(cred) {
 		case 1:
+			// Una credenziale censita ma MAI generata non fa entrare nessuno, ed è irraggiungibile per
+			// costruzione: l'impronta del segnaposto è quella della stringa vuota, e un header vuoto è
+			// già stato scartato qui sopra. Il caso resta scritto perché è ciò che rende il segnaposto
+			// sicuro anche se un domani questa funzione cambia forma.
+			if cred[0].TokenHash == rete.ImprontaNonGenerata {
+				s.Log.Warn("credenziale senza segreto", "worker", cred[0].WorkerNome)
+				http.Error(w, `{"errore":"la credenziale di questo worker esiste ma non ha ancora un segreto: generare il pacchetto dalla pagina Postazioni"}`,
+					http.StatusUnauthorized)
+				return
+			}
 			h(w, r.WithContext(context.WithValue(r.Context(), ctxCredenziale, cred[0])))
 		case 0:
 			s.Log.Warn("credenziale non riconosciuta", "ip", r.RemoteAddr, "percorso", r.URL.Path)

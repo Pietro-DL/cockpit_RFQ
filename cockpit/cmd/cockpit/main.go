@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -93,8 +94,17 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	if err := web.SeedUtenti(ctx, q, utenti); err != nil {
 		return err
 	}
-	if _, err := fondazioni.Semina(ctx, q, cfg, log); err != nil {
+	semi, err := fondazioni.Semina(ctx, q, cfg, log)
+	if err != nil {
 		return err
+	}
+	// Un worker che non può collegarsi è un avviso d'avvio, non una scoperta del primo 401: il seed ha
+	// già scritto riga per riga il perché, qui resta l'indirizzo a cui si sistema. Non è un motivo per
+	// non partire — è dalla pagina Postazioni che si genera il pacchetto, e per aprirla il server deve
+	// essere acceso.
+	if len(semi.CredenzialiDaGenerare) > 0 {
+		log.Warn("credenziali da rigenerare: questi worker riceveranno 401 finché non si scarica il pacchetto della loro postazione",
+			"worker", strings.Join(semi.CredenzialiDaGenerare, ", "), "dove", "/admin/postazioni")
 	}
 	// Finché lo schema è alla 0003 il cursore di sincronizzazione è per sola cartella: più di una
 	// casella attiva farebbe perdere messaggi in silenzio. Meglio non partire (vedi il commento sulla

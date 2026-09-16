@@ -24,8 +24,8 @@ from datetime import datetime, timedelta, timezone
 
 import pywintypes
 
-from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, carica_config,
-                            configura_log, leggi_marcatore_arresto, nome_worker)
+from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, ImprontaSbagliata,
+                            carica_config, configura_log, diagnosi, leggi_marcatore_arresto, nome_worker)
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
@@ -196,23 +196,19 @@ class Worker:
                 self.ultimo_arresto = ""            # riportato una volta: il server lo conserva
                 job = Job.model_validate(r) if r else None
                 attesa = 5
-            except ErroreHTTP as e:
-                if e.stato == 403:
-                    # credenziale assente o postazione sbagliata: non si risolve aspettando, ma
-                    # nemmeno uscendo — chi corregge cockpit.toml deve trovare il worker vivo
-                    log.error("il server rifiuta questo worker: %s", e.corpo[:300])
-                    if una_volta:
-                        return
-                    time.sleep(30)
-                    continue
-                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
-                time.sleep(attesa)
-                attesa = min(attesa * 2, 30)
-                continue
-            except ERRORI_RETE as e:
-                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
-                time.sleep(attesa)
-                attesa = min(attesa * 2, 30)
+            except (ImprontaSbagliata, ErroreHTTP, *ERRORI_RETE) as e:
+                # Una risposta del server NON è un server irraggiungibile, ed è la distinzione che fa
+                # cercare nel posto giusto: 401 è un token, 403 è una riga di cockpit.toml, 5xx è il
+                # server, un errore di rete è la rete. Chi non si risolve aspettando (401, 403,
+                # certificato, 4xx) non fa crescere il backoff: aspetta il suo tempo e lo ridice,
+                # perché chi corregge la configurazione deve trovare il worker ancora vivo.
+                d = diagnosi(e)
+                (log.error if d.grave else log.warning)(
+                    "%s: riprovo fra %d s", d.testo, d.pausa_s or attesa)
+                if una_volta and d.grave:
+                    return
+                time.sleep(d.pausa_s or attesa)
+                attesa = 5 if d.pausa_s else min(attesa * 2, 30)
                 continue
             if job is None:
                 if una_volta:

@@ -54,6 +54,18 @@ type bancoWeb struct {
 	srv                           *httptest.Server
 	commerciale, francesco, luigi uuid.UUID
 	pcFrancesco, pcLuigi          uuid.UUID
+	// cfg: la configurazione da cui sono nate le fondazioni. La tiene il banco perché «riavviare il
+	// server» significa esattamente riapplicarla (b.riavvia): è così che si prova che cosa succede ai
+	// segreti già in database al riavvio successivo.
+	cfg *config.Config
+}
+
+// riavvia rifà il seed con la configurazione corrente: è ciò che fa cockpit.exe a ogni avvio.
+func (b *bancoWeb) riavvia() {
+	b.t.Helper()
+	if _, err := fondazioni.Semina(b.ctx, b.q, b.cfg, testutil.LogSilenzioso()); err != nil {
+		b.t.Fatal(err)
+	}
 }
 
 func preparaBancoWeb(t *testing.T) *bancoWeb {
@@ -110,7 +122,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	t.Cleanup(srv.Close)
 	// L'indirizzo lo si sa solo dopo l'avvio: è quello che finisce nel worker.toml del pacchetto.
 	ws.Indirizzo = strings.TrimPrefix(srv.URL, "http://")
-	b := &bancoWeb{t: t, ctx: ctx, pool: pool, q: q, srv: srv}
+	b := &bancoWeb{t: t, ctx: ctx, pool: pool, q: q, srv: srv, cfg: cfg}
 	casella := func(ind string) uuid.UUID {
 		c, err := q.GetCasellaPerIndirizzo(ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: ind})
 		if err != nil {

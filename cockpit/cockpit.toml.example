@@ -1,6 +1,29 @@
 # Configurazione di esempio per Cockpit RFQ
 # Copiare questo file in cockpit.toml e compilare i campi richiesti.
 # I percorsi Windows vanno in stringhe letterali TOML ('...'), così i backslash non richiedono escape.
+#
+# ============================================================================
+# COME SI PARTE, in ordine
+# ============================================================================
+#
+#  1. [db].dsn, [nas].radice e [nas].staging: cartelle che esistono, database che risponde.
+#  2. [[utenti]]: almeno un `ruolo = "admin"`, perché il pacchetto dei worker lo genera solo un
+#     amministratore.
+#  3. [[casella]], [[postazione]], [[worker]]: chi c'è e chi serve che cosa. È QUI che si dichiarano
+#     le autorizzazioni, non in una schermata: questo file è versionato e uguale a ogni avvio.
+#  4. Nei [[worker]] lasciare `token = ""`. Vuol dire «il segreto lo tiene il database», ed è la via
+#     consigliata: il seed non lo tocca più, e al primo avvio quelle credenziali risultano «da
+#     generare» (il server lo scrive nel log e la pagina Postazioni lo mostra in cima).
+#  5. Avviare il server, aprire **Postazioni**, premere «genera e scarica il pacchetto» per ogni PC.
+#     Lo zip contiene un worker.toml già pronto — indirizzo, impronta del certificato, un token
+#     DIVERSO per ogni worker di quel PC — più i file del worker.
+#  6. Scompattare il pacchetto sul PC, in `workers\`, e avviare i worker.
+#
+# SE SI ARRIVA DA UN TOKEN CONDIVISO (un solo segreto copiato in tutti i [[worker]]): svuotare i
+# `token` qui è la mossa giusta ma NON basta, perché il seed non riscrive un token che il file non
+# dichiara — le impronte duplicate restano in database e i worker continuano a ricevere 401. Serve
+# il passo 5: «Rigenera credenziali della postazione». La pagina Postazioni segnala da sola quali PC
+# sono in quello stato.
 
 [server]
 # In sviluppo: 127.0.0.1:8080, e basta. Fuori da questo PC (VM, banco a due PC) il server si RIFIUTA
@@ -137,6 +160,10 @@ utente      = "NC"
 # consigliata — il pacchetto scaricato da lì contiene già indirizzo, impronta del certificato e
 # token, e nessuno li copia a mano. Un token scritto qui invece vince a ogni avvio: è il file la
 # verità, e va bene per il banco di prova.
+#
+# Svuotare un token NON cancella quello che c'è già in database: sarebbe il modo di far smettere di
+# funzionare stanotte il pacchetto scaricato ieri. Per cambiare davvero un segreto si rigenera il
+# pacchetto della postazione, e i token precedenti smettono di valere in quel momento.
 [[worker]]
 nome       = "outlook@PC-NOME"
 tipo       = "outlook"

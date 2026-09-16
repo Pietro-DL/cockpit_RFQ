@@ -26,6 +26,7 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import NamedTuple
 
 log = logging.getLogger("cockpit")
 
@@ -83,6 +84,59 @@ class ImprontaSbagliata(RuntimeError):
 def normalizza_impronta(s: str) -> str:
     """Un'impronta si copia in tanti modi: con i due punti, in maiuscolo, con gli spazi."""
     return "".join(c for c in (s or "").lower() if c in "0123456789abcdef")
+
+
+class Diagnosi(NamedTuple):
+    """Che cosa è andato storto e che cosa si fa, in una riga sola di log.
+
+    Prima il loop dei due worker scriveva «server non raggiungibile» per QUALUNQUE errore, compresi i
+    401 e i 403 — cioè proprio i casi in cui il server risponde benissimo e sta dicendo qualcosa di
+    preciso. Chi leggeva il log andava a cercare la rete, il firewall o il servizio spento, mentre il
+    problema era un token: è successo davvero, sul banco di prova, con le credenziali individuali
+    appena introdotte. Un messaggio sbagliato non è un dettaglio estetico: manda a cercare altrove.
+
+    categoria: rete | credenziale | autorizzazione | tentativo | server | richiesta | certificato
+    grave:     True  → aspettare non lo risolve: lo risolve una persona (log.error)
+    pausa_s:   0     → lasciare al chiamante il suo backoff; >0 → aspettare questo, senza raddoppiare
+    """
+
+    categoria: str
+    grave: bool
+    testo: str
+    pausa_s: float
+
+
+def diagnosi(e: BaseException) -> Diagnosi:
+    """Classifica un errore del ciclo di lavoro di un worker.
+
+    Sta qui e non nei due worker perché la distinzione è la stessa per tutti e due, e perché è
+    provabile senza server: le sei righe che seguono sono i sei modi in cui una richiesta può non
+    riuscire, e ognuna dice che cosa fare.
+    """
+    if isinstance(e, ImprontaSbagliata):
+        return Diagnosi("certificato", True, f"IMPRONTA DEL CERTIFICATO SBAGLIATA: {e}", 60)
+    if isinstance(e, ErroreHTTP):
+        corpo = (e.corpo or "").strip()[:300]
+        if e.stato == 401:
+            return Diagnosi("credenziale", True,
+                            f"credenziale RIFIUTATA dal server (401): {corpo}. Il server risponde, ma non "
+                            "riconosce il token di questo worker: scaricare il pacchetto della postazione "
+                            "dalla pagina Postazioni del Cockpit e sostituire worker.toml", 30)
+        if e.stato == 403:
+            return Diagnosi("autorizzazione", True,
+                            f"il server rifiuta questo worker (403): {corpo}. La credenziale è valida ma non "
+                            "autorizza ciò che sta chiedendo: controllare [[worker]] in cockpit.toml "
+                            "(nome, postazione, caselle)", 30)
+        if e.stato == 409:
+            return Diagnosi("tentativo", False,
+                            f"questo tentativo non è più valido (409): {corpo}. Il job è già tornato in coda "
+                            "lato server: non c'è niente da riportare", 0)
+        if e.stato >= 500:
+            return Diagnosi("server", False, f"errore del server ({e.stato}): {corpo}", 0)
+        return Diagnosi("richiesta", True,
+                        f"richiesta rifiutata ({e.stato}): {corpo}. Ripeterla identica non cambia l'esito: "
+                        "è un difetto da correggere, non un'attesa", 30)
+    return Diagnosi("rete", False, f"server non raggiungibile ({e})", 0)
 
 
 class _ConnessioneFissata(http.client.HTTPSConnection):

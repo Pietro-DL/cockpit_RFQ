@@ -18,7 +18,8 @@ from uuid import UUID
 
 import pymupdf
 
-from cockpit_client import ERRORI_RETE, Cockpit, ErroreHTTP, carica_config, configura_log, nome_worker
+from cockpit_client import (ERRORI_RETE, Cockpit, ErroreHTTP, ImprontaSbagliata, carica_config, configura_log,
+                            diagnosi, nome_worker)
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
 
 log = logging.getLogger("worker-analisi")
@@ -266,10 +267,16 @@ class WorkerAnalisi:
                 r = self.api.claim("analisi", self.worker_id, extra={"postazione": socket.gethostname().upper()})
                 job = Job.model_validate(r) if r else None
                 attesa = 5
-            except (*ERRORI_RETE, ErroreHTTP) as e:
-                log.warning("server non raggiungibile (%s): riprovo fra %d s", e, attesa)
-                time.sleep(attesa)
-                attesa = min(attesa * 2, 30)
+            except (ImprontaSbagliata, ErroreHTTP, *ERRORI_RETE) as e:
+                # Stessa regola del worker Outlook: il log deve dire se il server ha risposto (e che
+                # cosa) o se non si è fatto trovare. Sono due indagini diverse.
+                d = diagnosi(e)
+                (log.error if d.grave else log.warning)(
+                    "%s: riprovo fra %d s", d.testo, d.pausa_s or attesa)
+                if una_volta and d.grave:
+                    return
+                time.sleep(d.pausa_s or attesa)
+                attesa = 5 if d.pausa_s else min(attesa * 2, 30)
                 continue
 
             if job is None:

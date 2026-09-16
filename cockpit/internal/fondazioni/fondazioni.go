@@ -32,6 +32,9 @@ type Esito struct {
 	CasellaDefault uuid.NullUUID
 	NonPiuNelFile  []string // righe presenti in DB e assenti dal file: mai disattivate d'ufficio
 	UtentiMancanti []string // sigle citate dal file e non presenti in `utente`
+	// CredenzialiDaGenerare: worker che NON potranno collegarsi finché non si rigenera il pacchetto
+	// della loro postazione — token mai generato, oppure condiviso con un altro worker (voce 2.4).
+	CredenzialiDaGenerare []string
 }
 
 // HashToken calcola l'impronta con cui il server riconosce il token di un worker.
@@ -138,15 +141,13 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, log *slog.Lo
 		} else {
 			// Alla prima creazione serve comunque un hash, e dev'essere uno che nessuno può presentare:
 			// la credenziale esiste e dice quali caselle serve, ma non autentica finché il token non
-			// viene generato dalla pagina.
-			casuale, err := rete.TokenNuovo()
-			if err != nil {
-				return e, err
-			}
+			// viene generato dalla pagina. Il segnaposto è riconoscibile di proposito (rete.ImprontaNonGenerata):
+			// è così che la pagina Postazioni può dire «questa credenziale è da generare» invece di
+			// lasciarlo scoprire al primo 401 del worker.
 			if _, err := q.UpsertWorkerCredenzialeMantieniToken(ctx, db.UpsertWorkerCredenzialeMantieniTokenParams{
 				WorkerNome:   w.Nome,
 				WorkerTipo:   tipo,
-				TokenHash:    HashToken(casuale),
+				TokenHash:    rete.ImprontaNonGenerata,
 				PostazioneID: post,
 				Caselle:      caselle,
 			}); err != nil {
@@ -192,6 +193,29 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, log *slog.Lo
 		}
 	}
 
+	// Chi non potrà entrare, detto adesso e non al primo 401. Il caso che conta è la migrazione dal
+	// token condiviso: svuotare i `token` in cockpit.toml è la mossa giusta, ma da sola non cambia
+	// niente in database — le impronte duplicate restano, e i worker continuano a ricevere 401.
+	stato := StatoCredenziali(credenziali)
+	for _, w := range credenziali {
+		if !w.Attivo {
+			continue
+		}
+		if d := stato[w.WorkerNome]; !d.Utilizzabile() {
+			e.CredenzialiDaGenerare = append(e.CredenzialiDaGenerare, w.WorkerNome)
+			if log != nil {
+				switch d.Stato {
+				case CredenzialeCondivisa:
+					log.Warn("credenziale NON individuale: questo worker riceverà 401 finché non si rigenera il pacchetto dalla pagina Postazioni",
+						"worker", w.WorkerNome, "stesso_token_di", strings.Join(d.ConChi, ", "))
+				default:
+					log.Warn("credenziale senza segreto: il worker non può collegarsi finché non si genera il pacchetto dalla pagina Postazioni",
+						"worker", w.WorkerNome)
+				}
+			}
+		}
+	}
+
 	if log != nil {
 		log.Info("fondazioni", "caselle", e.Caselle, "postazioni", e.Postazioni, "worker", e.Worker,
 			"casella_default", cfg.Outlook.CasellaDefault)
@@ -203,6 +227,71 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, log *slog.Lo
 		}
 	}
 	return e, nil
+}
+
+// ---------------------------------------------------------------- stato delle credenziali (voce 2.4)
+
+// StatoCredenziale dice se una credenziale può identificare qualcuno.
+//
+// Serve perché fra «c'è una riga in worker_credenziale» e «quel worker può lavorare» ci sono due
+// stati intermedi, e finora si scoprivano tutti e due allo stesso modo: un 401 al primo claim, con un
+// motivo che parla del token e non di ciò che va fatto.
+type StatoCredenziale string
+
+const (
+	// CredenzialeOk: un segreto suo, diverso da quello di tutti gli altri.
+	CredenzialeOk StatoCredenziale = "ok"
+	// CredenzialeDaGenerare: censita in cockpit.toml con `token` vuoto e mai generata dalla pagina
+	// Postazioni. Esiste, dice quali caselle serve, e non autentica nessuno.
+	CredenzialeDaGenerare StatoCredenziale = "da_generare"
+	// CredenzialeCondivisa: lo stesso segreto di un altro worker. È lo stato in cui si trova chi
+	// arriva dal token condiviso di prima della voce 2.4: il seed non riscrive i token che non sono
+	// nel file, quindi le due impronte uguali restano in database anche dopo aver svuotato i `token`,
+	// e tutti e due i worker prendono 401 — «questo token è di più worker».
+	CredenzialeCondivisa StatoCredenziale = "condivisa"
+)
+
+// DiagnosiCredenziale è lo stato di una credenziale con, quando serve, chi le sta rubando l'identità.
+type DiagnosiCredenziale struct {
+	Stato  StatoCredenziale
+	ConChi []string // gli altri worker che hanno lo stesso segreto (solo per CredenzialeCondivisa)
+}
+
+// Utilizzabile: questa credenziale può far entrare qualcuno.
+func (d DiagnosiCredenziale) Utilizzabile() bool { return d.Stato == CredenzialeOk }
+
+// StatoCredenziali guarda le credenziali in blocco e dice quali non funzioneranno, PRIMA che un
+// worker ci sbatta contro.
+//
+// È una funzione pura sulle righe già lette: la stessa risposta la usano l'avvio del server (che la
+// scrive nel log) e la pagina Postazioni (che ci mette il pulsante accanto). Le credenziali
+// disattivate non contano: non autenticano comunque, e non tolgono l'identità a nessuno.
+func StatoCredenziali(righe []db.WorkerCredenziale) map[string]DiagnosiCredenziale {
+	perImpronta := map[string][]string{}
+	for _, c := range righe {
+		if !c.Attivo || c.TokenHash == rete.ImprontaNonGenerata {
+			continue
+		}
+		perImpronta[c.TokenHash] = append(perImpronta[c.TokenHash], c.WorkerNome)
+	}
+	out := make(map[string]DiagnosiCredenziale, len(righe))
+	for _, c := range righe {
+		switch {
+		case c.TokenHash == rete.ImprontaNonGenerata:
+			out[c.WorkerNome] = DiagnosiCredenziale{Stato: CredenzialeDaGenerare}
+		case len(perImpronta[c.TokenHash]) > 1:
+			altri := make([]string, 0, len(perImpronta[c.TokenHash])-1)
+			for _, n := range perImpronta[c.TokenHash] {
+				if n != c.WorkerNome {
+					altri = append(altri, n)
+				}
+			}
+			out[c.WorkerNome] = DiagnosiCredenziale{Stato: CredenzialeCondivisa, ConChi: altri}
+		default:
+			out[c.WorkerNome] = DiagnosiCredenziale{Stato: CredenzialeOk}
+		}
+	}
+	return out
 }
 
 // CasellaPerIndirizzo risolve un indirizzo (case-insensitive) in casella_id.

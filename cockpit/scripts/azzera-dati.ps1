@@ -89,9 +89,18 @@ if (-not $Conferma) {
 
 Write-Host ""
 Write-Host "== schema" -ForegroundColor Cyan
-& $Psql $dsn -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+# -d $dsn e NON il DSN come primo argomento: psql prende il primo positional come nome del database e
+# poi IGNORA le opzioni che seguono, avvisando su stderr e uscendo con codice 0. Il 16/09/2026 questo
+# script ha detto «schema public ricreato» senza aver eseguito niente, e le 43 tabelle erano ancora
+# lì. Uno script di azzeramento che riesce senza azzerare è peggio di uno che non c'è: da qui anche
+# la verifica qui sotto.
+& $Psql -v ON_ERROR_STOP=1 -q -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" -d $dsn
 if ($LASTEXITCODE -ne 0) { throw "psql ha restituito ${LASTEXITCODE}: schema NON azzerato" }
-Write-Host "schema public ricreato su $database"
+
+$rimaste = (& $Psql -t -A -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'" -d $dsn)
+if ($LASTEXITCODE -ne 0) { throw "psql ha restituito ${LASTEXITCODE}: impossibile verificare l'azzeramento" }
+if ([int]$rimaste -ne 0) { throw "lo schema public contiene ancora $rimaste tabelle: azzeramento NON riuscito" }
+Write-Host "schema public ricreato su ${database}: 0 tabelle"
 
 if ($log -and (Test-Path $log)) {
     Write-Host "== log" -ForegroundColor Cyan

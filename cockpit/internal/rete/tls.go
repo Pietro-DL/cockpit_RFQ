@@ -233,6 +233,20 @@ func ImprontaToken(token string) string {
 	return hex.EncodeToString(somma[:])
 }
 
+// ImprontaNonGenerata è l'impronta che marca una credenziale ESISTENTE ma SENZA SEGRETO: il worker è
+// censito in cockpit.toml con `token` vuoto, dice quali caselle serve, e non autentica finché
+// qualcuno non genera il pacchetto dalla pagina Postazioni.
+//
+// È lo sha256 della stringa vuota, e la scelta non è estetica: `auth` scarta l'header vuoto PRIMA di
+// calcolare l'impronta, quindi questo valore non può essere prodotto da nessuna richiesta: è un
+// segnaposto che nessuno può presentare. Prima qui ci finiva un token casuale, che aveva la stessa
+// proprietà ma era indistinguibile da un segreto vero: la pagina Postazioni non poteva dire «questa
+// credenziale è ancora da generare», e lo si scopriva soltanto dal primo 401 del worker.
+//
+// Resta comunque un hash valido per il vincolo della colonna (64 esadecimali minuscoli), così una
+// credenziale senza segreto è una riga normale e non un caso speciale dello schema.
+var ImprontaNonGenerata = ImprontaToken("")
+
 // TokenNuovo genera un segreto per un worker: 32 byte casuali in base64url, senza caratteri che si
 // rompano dentro un TOML o in un copia-incolla.
 func TokenNuovo() (string, error) {

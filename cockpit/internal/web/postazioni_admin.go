@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/rete"
 )
 
@@ -47,13 +48,23 @@ type credenzialeUI struct {
 	UltimoClaim *time.Time
 	IP          string
 	OutlookOk   bool
+	// Stato e Problema: se questa credenziale può far entrare qualcuno, e se no perché (voce 2.4).
+	// Senza, l'unico modo di scoprire che un token è condiviso o non è mai stato generato è il primo
+	// 401 del worker — che parla del token e non dice che cosa fare.
+	Stato    fondazioni.StatoCredenziale
+	Problema string
 }
+
+func (c credenzialeUI) Guasta() bool { return c.Stato != "" && c.Stato != fondazioni.CredenzialeOk }
 
 type postazioneUI struct {
 	NomeHost    string
 	Descrizione string
 	Attiva      bool
 	Worker      []credenzialeUI
+	// DaSistemare: almeno un worker di questo PC non può collegarsi. È ciò che trasforma il pulsante
+	// da «genera e scarica il pacchetto» in «rigenera le credenziali della postazione».
+	DaSistemare bool
 }
 
 type postazioniDati struct {
@@ -68,6 +79,9 @@ type postazioniDati struct {
 	// Admin: solo un amministratore può generare le credenziali. Agli altri la pagina resta leggibile
 	// — sapere quale PC è acceso serve a tutti — senza il pulsante.
 	Admin bool
+	// DaSistemare: i PC con almeno una credenziale che non fa entrare nessuno. Sta in cima alla
+	// pagina perché è l'unica cosa che, se c'è, va fatta prima di tutto il resto.
+	DaSistemare []string
 }
 
 // URLServer è l'indirizzo che un worker deve chiamare per arrivare qui.
@@ -116,6 +130,14 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 			presenze[p.WorkerNome] = p
 		}
 	}
+	// Lo stato si calcola su TUTTE le credenziali, non su quelle di una postazione alla volta: un
+	// token condiviso può esserlo anche fra due PC diversi, ed è proprio il caso che si vede peggio.
+	tutte, err := q.ListWorkerCredenziali(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	stato := fondazioni.StatoCredenziali(tutte)
 	d.URL = s.URLServer()
 	d.TLS = s.TLS != nil
 	if u := utenteDa(ctx); u != nil {
@@ -133,6 +155,18 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 		}
 		for _, c := range cred {
 			cu := credenzialeUI{Nome: c.WorkerNome, Tipo: string(c.WorkerTipo), Attivo: c.Attivo, Aggiornato: c.AggiornatoIl}
+			sc := stato[c.WorkerNome]
+			cu.Stato = sc.Stato
+			switch sc.Stato {
+			case fondazioni.CredenzialeDaGenerare:
+				cu.Problema = "credenziale mai generata: questo worker non può collegarsi"
+			case fondazioni.CredenzialeCondivisa:
+				cu.Problema = "stesso token di " + strings.Join(sc.ConChi, ", ") +
+					": un segreto che è di due non identifica nessuno, e il server risponde 401 a tutti e due"
+			}
+			if cu.Guasta() && c.Attivo {
+				u.DaSistemare = true
+			}
 			if caselle, err := q.ListCaselleAutorizzate(ctx, c.WorkerNome); err == nil {
 				for _, x := range caselle {
 					cu.Caselle = append(cu.Caselle, x.Nome)
@@ -146,6 +180,9 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 				}
 			}
 			u.Worker = append(u.Worker, cu)
+		}
+		if u.DaSistemare {
+			d.DaSistemare = append(d.DaSistemare, u.NomeHost)
 		}
 		d.Postazioni = append(d.Postazioni, u)
 	}

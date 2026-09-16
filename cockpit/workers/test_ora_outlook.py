@@ -117,7 +117,7 @@ class ElementoFinto:
 def converti(item, e_inviata=False, fuso=ROMA_LEGALE, monkeypatch=None):
     """`_converti` con il PC fermo su un fuso noto, e senza costruire un `Outlook` vero (che aprirebbe COM)."""
     ol = outlook_com.Outlook.__new__(outlook_com.Outlook)
-    ol.indirizzi_propri = {"noi@proma-tec.it"}
+    ol.indirizzi_propri = {"noi@azienda.example"}
     vera = outlook_com._utc          # va presa PRIMA, o la lambda richiamerebbe se stessa
     monkeypatch.setattr(outlook_com, "_utc", lambda d: vera(d, fuso))
     return ol._converti(item, "STORE-1", "Posta in arrivo", e_inviata)

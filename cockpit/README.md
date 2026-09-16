@@ -87,7 +87,9 @@ Le dipendenze Python sono tre: `pip install -r workers\requirements.txt` (`pywin
 
 ```powershell
 psql -U postgres -c "CREATE ROLE cockpit LOGIN PASSWORD 'scegli-una-password';"
-psql -U postgres -c "CREATE DATABASE cockpit_dev OWNER cockpit;"
+psql -U postgres -c "CREATE DATABASE cockpit_dev OWNER cockpit;"  
+  
+powershell -ExecutionPolicy Bypass -File scripts\azzera-dati.ps1 -Conferma 2>&1 | Select-Object -Last 15
 ```
 
 Lo schema non va creato a mano: lo applica il server al primo avvio, migrazione per migrazione.
@@ -421,6 +423,14 @@ Un `token` scritto a mano in `[[worker]]` vince a ogni avvio: va bene sul banco 
 è la verità e non c'è niente da proteggere. Lasciarlo vuoto significa «il segreto lo tiene il
 database», che è quello che serve in azienda.
 
+**Se si arriva da un token condiviso** — un solo segreto copiato in tutti i `[[worker]]`, com'era
+prima della voce 2.4 — svuotare i `token` in `cockpit.toml` è la mossa giusta ma **non basta**: il
+seed non riscrive un token che il file non dichiara (è la regola che tiene in vita il pacchetto
+scaricato ieri), quindi le impronte duplicate restano in database e i due worker continuano a
+ricevere `401`. Serve il passo 3: **«Rigenera credenziali della postazione»**. La pagina *Postazioni*
+segnala da sola i PC in quello stato — `token condiviso` e `credenziale da generare` — invece di
+lasciarlo scoprire al primo `401`.
+
 ### Banco a due PC
 
 La prova minima che il blocco 2 regge: server su un PC, worker su un altro.
@@ -566,6 +576,8 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | il worker logga `COM:` in continuazione | Outlook chiuso o su un altro utente | aprire Outlook nella stessa sessione |
 | il worker logga `401 credenziale non riconosciuta` | dalla voce 2.4 il token è individuale, e quello del worker non è in `worker_credenziale` | scaricare il pacchetto di quel PC dalla pagina *Postazioni*, oppure scrivere il token in `[[worker]].token` e riavviare il server |
 | il worker logga `401 questo token è di più worker` | lo stesso segreto è di due `[[worker]]`: non identifica nessuno | dare a ciascuno il suo (o lasciare `token = ""` e generare il pacchetto dalla pagina *Postazioni*) |
+| la pagina *Postazioni* dice `credenziale da generare` | quel `[[worker]]` ha `token = ""` e il pacchetto non è mai stato scaricato: la credenziale esiste, dice quali caselle serve, e non autentica nessuno | **«Rigenera credenziali della postazione»** su quel PC, e copiarci il pacchetto |
+| la pagina *Postazioni* dice `token condiviso` | due `[[worker]]` hanno la stessa impronta in database — di solito si arriva dal token unico di prima. Svuotare i `token` nel file non la cancella | **«Rigenera credenziali della postazione»**: è l'unico passo che cambia davvero i segreti |
 | il worker si ferma con `il server ha presentato un certificato diverso da quello atteso` | il certificato del server è stato rifatto, oppure dall'altra parte c'è qualcun altro | scaricare il pacchetto nuovo da *Postazioni*. **Non** togliere `impronta` da `worker.toml`: senza, non si sa più con chi si parla |
 | il server non parte: «ascolta fuori da questo PC e tls_cert non c'è» | si sta esponendo il Cockpit in chiaro sulla LAN (voce 2.4) | indicare `tls_cert`/`tls_key` (se i file non esistono li genera lui), o dichiarare `consenti_lan_in_chiaro = true` se il collegamento è già cifrato |
 | il browser dice «connessione non privata» | il certificato è autofirmato e il PC non lo conosce | accettare l'eccezione, o installare `cert.pem` fra i certificati attendibili. I worker non passano di qui: verificano l'impronta |

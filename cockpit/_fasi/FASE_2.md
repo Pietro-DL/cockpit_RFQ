@@ -7,9 +7,10 @@ repository.
 
 **Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3**, il blocco
 **2.2 + 2.6 + 2.7**, il **blocco 1 dell'addendum** (2.9, 2.16, 9.5 — con la correzione del fuso del
-16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*),
-più le due correzioni del 15 e del 16/09/2026. Restano le voci **2.8** e **2.10–2.15**, elencate in
-fondo: entrano nei blocchi dove servono.
+16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*,
+con la correzione del 16/09 sul passaggio dal token condiviso), più le correzioni del 15 e del
+16/09/2026. Restano le voci **2.8** e **2.10–2.15**, elencate in fondo: entrano nei blocchi dove
+servono.
 
 ## Perimetro
 
@@ -568,6 +569,85 @@ Verificate anche **al contrario**, rimettendo il difetto:
 - **il browser: NON PROVATO.** Che un certificato autofirmato dia l'avviso atteso, e che
   l'eccezione basti, si vede solo aprendo il Cockpit da un altro PC (L7).
 
+### La correzione del 16/09/2026 — dal token condiviso alle credenziali individuali
+
+Il blocco 2 è stato messo sul banco vero subito dopo, ed è uscito il passaggio che nessun test
+copriva: non la sicurezza del meccanismo, ma **come ci si arriva** da ciò che c'era prima.
+
+In database c'erano i due worker di quella postazione — Outlook e analisi — con la **stessa impronta**: il token
+unico di prima, copiato in tutti i `[[worker]]`. La mossa giusta — svuotare i `token` in
+`cockpit.toml` — è stata fatta, e **non è successo niente**: il seed non riscrive un token che il file
+non dichiara (è la regola che impedisce al pacchetto scaricato ieri di morire stanotte), quindi le due
+impronte duplicate sono rimaste dov'erano e il vecchio `worker.toml` continuava a prendere `401`.
+
+Il comportamento del server è corretto e non va toccato: **`worker_id` non disambigua due worker che
+presentano lo stesso token**. Se lo facesse, il segreto smetterebbe di essere l'identità e tornerebbe
+a essere un lasciapassare, che è esattamente il difetto che la voce 2.4 ha chiuso. Quello che mancava
+è tutto intorno.
+
+**Tre cose, e una quarta trovata per strada.**
+
+1. **Una credenziale senza segreto adesso si riconosce.** Alla prima creazione con `token = ""` il
+   seed scriveva un hash *casuale*: nessuno poteva presentarlo — giusto — ma era indistinguibile da un
+   segreto vero, quindi nessuno poteva nemmeno dire «questa credenziale è da generare». Ora ci va un
+   segnaposto dichiarato (`rete.ImprontaNonGenerata`, lo sha256 della stringa vuota): resta
+   impresentabile — un header vuoto è già «credenziale mancante», prima ancora del calcolo — e in più
+   è **leggibile** da chi guarda.
+2. **La pagina *Postazioni* dice lo stato.** In cima, i PC da sistemare; accanto a ogni worker,
+   `credenziale da generare` oppure `token condiviso con …`; e il pulsante diventa **«Rigenera
+   credenziali della postazione»**. Lo stesso conto lo fa il server all'avvio e lo scrive nel log: un
+   difetto che si scopre soltanto dal primo `401` di un worker è un difetto che si scopre nel momento
+   peggiore, cioè mentre si sta provando altro.
+3. **Il log del worker non mente più sul motivo.** `except (ErroreHTTP, *ERRORI_RETE)` scriveva
+   *«server non raggiungibile»* per qualunque cosa, compresi i `401` e i `403` — proprio i casi in cui
+   il server risponde benissimo e sta dicendo qualcosa di preciso. Sul banco si leggeva
+   `server non raggiungibile (POST /api/v1/jobs/claim → 401 …)` e si andava a cercare la rete. Ora la
+   classificazione è una funzione sola (`cockpit_client.diagnosi`), uguale per i due worker: rete,
+   credenziale (401), autorizzazione (403), tentativo (409), server (5xx), richiesta (4xx),
+   certificato. Ciò che non si risolve aspettando viene scritto come **errore** e non fa crescere il
+   backoff: si ripete ogni 30 secondi, perché chi corregge la configurazione deve trovare il worker
+   ancora vivo.
+4. **`scripts\azzera-dati.ps1` diceva di aver azzerato senza azzerare.** Il DSN era il primo argomento
+   posizionale di `psql`, che da lì in poi **ignora le opzioni** — `-c` compreso — avvisa su stderr ed
+   esce con codice 0. Lo script scriveva «schema public ricreato» e le 43 tabelle erano ancora al loro
+   posto. Ora il DSN passa da `-d` e, dopo il drop, lo script **conta le tabelle** e fallisce se non
+   sono zero: un azzeramento che riesce senza azzerare è peggio di uno che non c'è.
+
+### Come è stato verificato
+
+| Prova | Che cosa mostra |
+|---|---|
+| `internal/web` — **PK2** (L4) | l'intero percorso di migrazione in un test solo: due worker sulla stessa postazione con lo stesso token → `401` per tutti e due; svuotati i `token` nel file, le due impronte duplicate **restano** in database e il `401` pure; la pagina segnala lo stato; rigenerato il pacchetto, i due token sono **diversi**, ognuno identifica **una** credenziale, il vecchio token è `401`, il token dell'uno sull'identità dell'altro è `403`, e i due worker fanno claim e `GET /worker/caselle` con le proprie caselle e non con quelle di Luigi; **riavviato il server con i token ancora vuoti, le credenziali appena generate valgono ancora** e la pagina non segnala più niente |
+| `internal/web` — credenziale mai generata (L4) | il segnaposto è in database, il claim senza token e con un token di soli spazi è `401`, la pagina lo dice, e dopo il pacchetto quel worker lavora |
+| `internal/web` — `StatoCredenziali` (L1) | token condiviso riconosciuto **con i nomi**, credenziale da generare riconosciuta, e una credenziale sana non viene dichiarata guasta perché un worker **disattivato** ha lo stesso token |
+| `workers/test_credenziali.py` (8 nuove, L1/L2) | le sei categorie di errore, una per una; e il **ciclo vero** del worker che riceve `401`: lo registra come *errore*, non dice «non raggiungibile», nomina la pagina *Postazioni* e aspetta 30 secondi fissi invece di raddoppiare |
+
+Verificate anche **al contrario**, rimettendo il difetto: il seed che riscrive il token anche quando
+il file lo lascia vuoto → PK2 rosso («svuotare i token nel file ha cambiato i segreti in database»);
+il pacchetto che genera **un** token per tutta la postazione → PK2 rosso («lo STESSO token ai due
+worker»); la diagnosi che non guarda i duplicati → PK2 rosso su tutte e tre le frasi della pagina, e
+rosso il test L1; la vecchia riga di log del worker → rosso il test del ciclo, con nel log catturato
+esattamente il sintomo del banco: `server non raggiungibile (… → 401 …)`.
+
+Un controllo **non** è verificabile dall'esterno, e va detto: il rifiuto del segnaposto dentro `auth`
+è irraggiungibile per costruzione (nessuna richiesta può produrre lo sha256 della stringa vuota,
+perché l'header vuoto viene scartato prima). Resta scritto come guardia — se un domani quella
+funzione cambia forma, il segnaposto continua a non far entrare nessuno — ma è una dichiarazione, non
+un comportamento provato.
+
+### Provato sul banco (non simulato)
+
+Database di sviluppo **azzerato e ricostruito** dalle sei migrazioni, con le fondazioni riseminate da
+`cockpit.toml`: 2 caselle, 1 postazione, 2 worker, entrambi con il segnaposto. All'avvio il server ha
+scritto *«credenziali da rigenerare … dove=/admin/postazioni»*; la pagina mostrava «Credenziali da
+rigenerare», «credenziale da generare» e il pulsante «Rigenera credenziali della postazione»; il
+pacchetto scaricato conteneva 8 file e **due token diversi**, uno per worker; dopo la generazione la
+pagina non segnalava più niente. Modalità **shadow** e `intervallo_sync_s = 0` per tutto il tempo.
+
+Restano **non eseguiti** i passi che toccano la posta: avvio del worker Outlook con la credenziale
+nuova, «Aggiorna ora» su Francesco e Commerciale, i due job a `fatto`, l'Inbox aggiornata e l'avvio
+del worker di analisi con la sua credenziale. Sono righe del registro reale.
+
 ## Come verificare
 
 ```powershell
@@ -590,7 +670,8 @@ un'ottimizzazione, è una condizione di correttezza.
 | L4 end-to-end | il worker **vero** (Python, senza COM) contro il server **vero** su PostgreSQL: un download completo fino a `fatto` e il battito che rinnova il lease durante un job lungo | eseguiti |
 | L1/L2 + L4 blocco 1 | voce 2.9: filtro DASL in UTC e self-test per insieme (13 prove L1/L2); voce 2.16: SV1, SV2, SV3; voce 9.5: SH1, SH2, SH3 (a) in L4, SH3 (b) in L1; correzione del fuso del 16/09: 6 prove L1/L2 sulla conversione e 5 L4 sulle guardie (elemento, cursore del lotto, cursore già in database) | eseguiti |
 | L1 + L4 blocco 2 | voce 2.4: `SuLoopback`, il rifiuto del chiaro in LAN, mezzo TLS, percorsi relativi, SH3 (b) POSIX (7 L1); W4 e il claim che non accetta il nome di un altro; **W11 con il client Python vero contro un server TLS vero**; voce 2.5: W10 (403 cross-site, 200 stessa origine, GET libera, worker non toccati); D22: PK1, il pacchetto e la rotazione del token; 9 prove L1/L2 sulle credenziali lato worker | eseguiti |
-| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, TZ2 (l'ora di Outlook accanto a quella in database), casella condivisa Exchange, **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
+| L1 + L4 correzione del 16/09 (credenziali) | **PK2**: token condiviso → token vuoti → rigenerazione → due credenziali individuali, con il riavvio che non le sovrascrive; la credenziale mai generata e il suo segnaposto; `StatoCredenziali` (L1); 8 prove L1/L2 sul log del worker (401 ≠ «server non raggiungibile») | eseguiti |
+| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, TZ2 (l'ora di Outlook accanto a quella in database), casella condivisa Exchange, **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14 L7), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -637,9 +718,10 @@ dichiarato — un messaggio ricevuto non sparisce perché arriva anche come alle
 
 Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci ma quello dei blocchi:
 
-- ~~**blocco 2 — rete e VM**~~: **fatto**. Restano le prove reali che nessun test simulato può dare:
-  il banco a due PC, il NAS su una share SMB montata dalla VM Linux (N1) e il browser davanti a un
-  certificato autofirmato;
+- ~~**blocco 2 — rete e VM**~~: **fatto**, compresa la correzione del 16/09 sul passaggio dal token
+  condiviso. Restano le prove reali che nessun test simulato può dare: il worker Outlook che lavora
+  con la credenziale nuova sulla posta vera (CR1), il banco a due PC, il NAS su una share SMB montata
+  dalla VM Linux (N1) e il browser davanti a un certificato autofirmato;
 - **blocco 3 — anagrafica**: 6.6, 6.11 (`cliente.regole` con schema validato ed esempio obbligatorio
   per ogni regola), 8.8, seed dal foglio dei buyer; migrazione `0007_anagrafica`;
 - poi annidati, proposte per cliente, ingresso esterno, articoli e distinta, fatti e STEP, le tre

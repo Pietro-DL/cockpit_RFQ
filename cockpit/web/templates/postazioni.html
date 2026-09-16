@@ -21,6 +21,20 @@
 
 {{if .Dati.Errore}}<p class="errore">{{.Dati.Errore}}</p>{{end}}
 
+{{if .Dati.DaSistemare}}
+<div class="pannello errore-box">
+  <p><strong>Credenziali da rigenerare:</strong>
+    {{range .Dati.DaSistemare}}<span class="chip">{{.}}</span> {{end}}</p>
+  <p class="piccolo">Su questi PC c'è un worker che <strong>non può collegarsi</strong>: il suo token non è mai
+  stato generato, oppure è lo stesso di un altro worker — e un segreto che è di due non identifica
+  nessuno, quindi il server risponde <code>401</code> a tutti e due. È lo stato in cui si trova chi
+  arriva dal token condiviso di prima: svuotare i <code>token</code> in <code>cockpit.toml</code> è la mossa
+  giusta, ma da sola non cambia le impronte già in database.
+  {{if .Dati.Admin}}Si sistema con <strong>Rigenera credenziali della postazione</strong> qui sotto, e
+  copiando il pacchetto sul PC.{{else}}Lo può fare un amministratore.{{end}}</p>
+</div>
+{{end}}
+
 {{template "postazioni_elenco" .}}
 {{end}}
 
@@ -36,7 +50,9 @@
     </td>
     <td>
       {{if .Worker}}
-        {{range .Worker}}<div class="mono piccolo">{{.Nome}} <span class="muto">({{.Tipo}})</span>{{if not .Attivo}} <span class="errore">disattivato</span>{{end}}</div>{{end}}
+        {{range .Worker}}<div class="mono piccolo">{{.Nome}} <span class="muto">({{.Tipo}})</span>{{if not .Attivo}} <span class="errore">disattivato</span>{{end}}
+          {{if .Guasta}}<br><span class="chip guasta">{{if eq (printf "%s" .Stato) "da_generare"}}credenziale da generare{{else}}token condiviso{{end}}</span>
+            <span class="errore piccolo">{{.Problema}}</span>{{end}}</div>{{end}}
       {{else}}
         <span class="muto">nessuno: aggiungere un <code>[[worker]]</code> in cockpit.toml</span>
       {{end}}
@@ -56,7 +72,7 @@
       <form method="post" action="/admin/postazioni/{{.NomeHost}}/pacchetto">
         <button title="Genera un token nuovo per ogni worker di questo PC e scarica il pacchetto. I token precedenti smettono di funzionare."
                 onclick="return confirm('Generare credenziali nuove per {{.NomeHost}}?\n\nI token attuali di quel PC smettono subito di funzionare: il worker si fermerà con 401 finché non gli si copia il pacchetto nuovo.')">
-          genera e scarica il pacchetto
+          {{if .DaSistemare}}Rigenera credenziali della postazione{{else}}genera e scarica il pacchetto{{end}}
         </button>
       </form>
       {{else if .Worker}}<span class="muto piccolo">solo un amministratore</span>{{end}}

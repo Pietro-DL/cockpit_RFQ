@@ -7,6 +7,25 @@
 # dentro, e a compilarlo a mano quando serve (banco di prova).
 #
 # Copiare in worker.toml.
+#
+# ============================================================================
+# COME SI PARTE su un PC
+# ============================================================================
+#
+#  1. Sul Cockpit, pagina *Postazioni* → «genera e scarica il pacchetto» di QUESTO PC.
+#  2. Scompattare lo zip in `workers\`, sovrascrivendo worker.toml. Dentro ci sono già server_url,
+#     l'impronta del certificato e un token diverso per ogni worker di questo PC.
+#  3. Controllare che `staging` punti a una cartella che esiste SU QUESTO PC (è la cartella del
+#     worker: file temporanei e log, non lo staging del server).
+#  4. Prova senza prendere job:   python worker_outlook.py --caselle
+#     Deve elencare SOLO le caselle che il server assegna a questo PC.
+#  5. Avvio:                      python worker_outlook.py
+#                                 python worker_analisi.py   (se serve anche su questo PC)
+#
+# Se il worker si ferma dicendo «token mancante», il pacchetto non è mai stato scaricato o è stato
+# scompattato altrove. Se invece riceve 401, il token di questo file non è più quello del server —
+# di solito perché il pacchetto è stato rigenerato: se ne scarica uno nuovo. Dal blocco 2 il log del
+# worker distingue i casi: un 401 dice «credenziale rifiutata» e non «server non raggiungibile».
 
 server_url     = "http://127.0.0.1:8080"
 # server_url   = "https://cockpit.azienda:8443"
