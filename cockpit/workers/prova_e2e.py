@@ -52,8 +52,14 @@ class OutlookFintoE2E:
     passa il suo tempo, ed è mentre lo passa che il battito deve rinnovare il lease.
     """
 
-    def __init__(self, consenti_invio: bool = False):
+    def __init__(self, consenti_invio: bool = False, **opzioni):
         self.consenti_invio = consenti_invio
+        # Le opzioni della finestra temporale (voce 2.9: usa_restrict, autoprova_giorni) arrivano
+        # perché il worker vero le passa sempre. Qui non servono — non c'è nessuna cartella da
+        # filtrare — ma vanno ACCETTATE: questo test esiste per provare il worker vero, e il worker
+        # vero costruisce l'adattatore con i parametri che ha. Un `**opzioni` che le ignora è la
+        # differenza fra un doppione che segue il codice e uno che va aggiornato a mano ogni volta.
+        self.opzioni = opzioni
 
     @staticmethod
     def _lavora() -> None:

@@ -383,6 +383,12 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "", err
 	}
 	if _, err := jobs.Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: d.DocumentoID}, "nas:"+d.DocumentoID.String(), 1); err != nil {
+		// In shadow il documento si conferma lo stesso e resta `in_coda`: la decisione dell'operatore
+		// è registrata, è la SCRITTURA sul NAS che aspetta la produzione (SH1). Dirgli «errore»
+		// gliela farebbe rifare domani, e sarebbe due volte la stessa decisione.
+		if errors.Is(err, jobs.ErrShadow) {
+			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA DI PRODUZIONE (il server è in modalità shadow).", nil
+		}
 		return "", err
 	}
 	return "Confermato: " + pathRel + " (copia sul NAS in coda).", nil

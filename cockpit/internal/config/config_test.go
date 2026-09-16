@@ -9,10 +9,18 @@ import (
 
 func scrivi(t *testing.T, corpo string) string {
 	t.Helper()
+	return scriviCon(t, "", "", corpo)
+}
+
+// scriviCon è scrivi con righe in più dentro [server] e [nas]. Non basta metterle in `corpo`: in TOML
+// una tabella può comparire una volta sola, e un secondo [server] è un errore di sintassi — che nei
+// test si presenta come un panico a due righe di distanza dalla causa.
+func scriviCon(t *testing.T, server, nas, corpo string) string {
+	t.Helper()
 	d := t.TempDir()
 	p := filepath.Join(d, "cockpit.toml")
-	base := "[db]\ndsn = \"postgres://x@localhost/y\"\n[server]\ntoken_worker = \"t\"\n[nas]\nstaging = " +
-		"'" + filepath.Join(d, "staging") + "'\n"
+	base := "[db]\ndsn = \"postgres://x@localhost/y\"\n[server]\ntoken_worker = \"t\"\n" + server +
+		"[nas]\nstaging = '" + filepath.Join(d, "staging") + "'\n" + nas
 	if err := os.WriteFile(p, []byte(base+corpo), 0o600); err != nil {
 		t.Fatal(err)
 	}

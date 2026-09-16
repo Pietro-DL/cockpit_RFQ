@@ -94,7 +94,7 @@ func (q *Queries) EliminaSessioniScadute(ctx context.Context) (int64, error) {
 }
 
 const getSessione = `-- name: GetSessione :one
-SELECT s.postazione_id, s.postazione_origine, p.nome_host, u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il
+SELECT s.postazione_id, s.postazione_origine, p.nome_host, u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il, u.ultima_vista_inbox
 FROM sessione s
 JOIN utente u ON u.utente_id = s.utente_id
 LEFT JOIN postazione p ON p.postazione_id = s.postazione_id
@@ -124,12 +124,13 @@ func (q *Queries) GetSessione(ctx context.Context, token string) (GetSessioneRow
 		&i.Utente.PasswordHash,
 		&i.Utente.Attivo,
 		&i.Utente.CreatoIl,
+		&i.Utente.UltimaVistaInbox,
 	)
 	return i, err
 }
 
 const getSessioneUtente = `-- name: GetSessioneUtente :one
-SELECT u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il FROM sessione s JOIN utente u ON u.utente_id = s.utente_id
+SELECT u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il, u.ultima_vista_inbox FROM sessione s JOIN utente u ON u.utente_id = s.utente_id
 WHERE s.token = $1 AND s.scade_il > now() AND u.attivo
 `
 
@@ -145,12 +146,13 @@ func (q *Queries) GetSessioneUtente(ctx context.Context, token string) (Utente, 
 		&i.PasswordHash,
 		&i.Attivo,
 		&i.CreatoIl,
+		&i.UltimaVistaInbox,
 	)
 	return i, err
 }
 
 const getUtente = `-- name: GetUtente :one
-SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il FROM utente WHERE utente_id = $1
+SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il, ultima_vista_inbox FROM utente WHERE utente_id = $1
 `
 
 func (q *Queries) GetUtente(ctx context.Context, utenteID uuid.UUID) (Utente, error) {
@@ -165,12 +167,13 @@ func (q *Queries) GetUtente(ctx context.Context, utenteID uuid.UUID) (Utente, er
 		&i.PasswordHash,
 		&i.Attivo,
 		&i.CreatoIl,
+		&i.UltimaVistaInbox,
 	)
 	return i, err
 }
 
 const getUtentePerSigla = `-- name: GetUtentePerSigla :one
-SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il FROM utente WHERE sigla = $1 AND attivo
+SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il, ultima_vista_inbox FROM utente WHERE sigla = $1 AND attivo
 `
 
 func (q *Queries) GetUtentePerSigla(ctx context.Context, sigla string) (Utente, error) {
@@ -185,12 +188,13 @@ func (q *Queries) GetUtentePerSigla(ctx context.Context, sigla string) (Utente, 
 		&i.PasswordHash,
 		&i.Attivo,
 		&i.CreatoIl,
+		&i.UltimaVistaInbox,
 	)
 	return i, err
 }
 
 const listUtenti = `-- name: ListUtenti :many
-SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il FROM utente ORDER BY sigla
+SELECT utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il, ultima_vista_inbox FROM utente ORDER BY sigla
 `
 
 func (q *Queries) ListUtenti(ctx context.Context) ([]Utente, error) {
@@ -211,6 +215,7 @@ func (q *Queries) ListUtenti(ctx context.Context) ([]Utente, error) {
 			&i.PasswordHash,
 			&i.Attivo,
 			&i.CreatoIl,
+			&i.UltimaVistaInbox,
 		); err != nil {
 			return nil, err
 		}
@@ -254,7 +259,7 @@ INSERT INTO utente (sigla, nome, ufficio, ruolo, password_hash)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (sigla) DO UPDATE SET nome = EXCLUDED.nome, ufficio = EXCLUDED.ufficio, ruolo = EXCLUDED.ruolo,
     password_hash = COALESCE(EXCLUDED.password_hash, utente.password_hash), attivo = true
-RETURNING utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il
+RETURNING utente_id, sigla, nome, ufficio, ruolo, password_hash, attivo, creato_il, ultima_vista_inbox
 `
 
 type UpsertUtenteParams struct {
@@ -283,6 +288,7 @@ func (q *Queries) UpsertUtente(ctx context.Context, arg UpsertUtenteParams) (Ute
 		&i.PasswordHash,
 		&i.Attivo,
 		&i.CreatoIl,
+		&i.UltimaVistaInbox,
 	)
 	return i, err
 }

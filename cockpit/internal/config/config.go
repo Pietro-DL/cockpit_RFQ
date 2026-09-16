@@ -54,6 +54,17 @@ type Server struct {
 	// LogFile: dove il server scrive il proprio log, oltre che sullo stdout della finestra.
 	// Vuoto = <nas.staging>\log\cockpit.log; "-" = solo stdout, nessun file.
 	LogFile string `toml:"log_file"`
+	// Modalita è come gira il server: "shadow" oppure "produzione" (§2.7, D16, voce 9.5).
+	//
+	// In shadow il Cockpit LEGGE il mondo e non lo tocca: niente bozze, niente «segna letto», niente
+	// spostamenti di cartella, niente scritture sul NAS. Serve a far girare il sistema sulla posta
+	// vera senza che un difetto si trasformi in una mail modificata o in un file scritto dove non
+	// doveva. `dry_run` viene forzato a true e l'unica azione Outlook che resta è «Apri».
+	//
+	// Vuoto = shadow. È il default sicuro: un cockpit.toml scritto prima che questa opzione
+	// esistesse non contiene la riga, e fra le due letture possibili di un silenzio — «non scrivere
+	// niente» e «scrivi pure sul NAS di produzione» — solo una si può correggere dopo.
+	Modalita string `toml:"modalita"`
 	// MaxUploadMB è il limite di un singolo allegato caricato dal worker con
 	// PUT /api/v1/allegati/{id}/file (voce 2.3). Oltre, il server risponde 413 prima di leggere il
 	// corpo e l'allegato va in errore con il motivo visibile; senza un limite un allegato da qualche
@@ -87,6 +98,66 @@ type NAS struct {
 	Radice  string `toml:"radice"`  // \nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE  (in sviluppo: cartella locale)
 	DryRun  bool   `toml:"dry_run"` // true = nessuna scrittura reale, solo log
 	Staging string `toml:"staging"` // cartella locale dove il worker-outlook salva gli allegati
+	// RadiciProduzione sono le radici VERE, dichiarate una volta (elenco di percorsi UNC).
+	//
+	// Servono a una cosa sola: impedire che una prova in shadow parta puntata sul NAS di produzione
+	// (§2.7). Un `dry_run` dimenticato a false e una radice copia-incollata dal file di produzione
+	// sono due errori di battitura che insieme scrivono nel fascicolo di un cliente; dichiarare qui
+	// le radici vere trasforma quella combinazione in un errore all'avvio, che si legge.
+	RadiciProduzione []string `toml:"radici_produzione"`
+}
+
+// Modalità del server (§2.7). Non sono stringhe libere: un valore scritto male non deve poter
+// significare «produzione» per distrazione.
+const (
+	ModalitaShadow     = "shadow"
+	ModalitaProduzione = "produzione"
+)
+
+// EShadow dice se il server gira in sola lettura verso il mondo.
+func (c *Config) EShadow() bool { return c.Server.Modalita == ModalitaShadow }
+
+// RadiceDiProduzione restituisce la radice dichiarata di produzione che contiene (o coincide con)
+// `nas.radice`, oppure "" se non ce n'è nessuna. Il confronto ignora maiuscole, separatori e barre
+// finali, perché sono le tre cose che cambiano fra un file e l'altro senza cambiare la cartella.
+func (c *Config) RadiceDiProduzione() string {
+	r := normalizzaPercorso(c.NAS.Radice)
+	if r == "" {
+		return ""
+	}
+	for _, grezza := range c.RadiciProduzione() {
+		p := normalizzaPercorso(grezza)
+		if p == "" {
+			continue
+		}
+		if r == p || strings.HasPrefix(r, p+`\`) {
+			return grezza
+		}
+	}
+	return ""
+}
+
+// RadiciProduzione è l'elenco dichiarato, senza voci vuote.
+func (c *Config) RadiciProduzione() []string {
+	var out []string
+	for _, r := range c.NAS.RadiciProduzione {
+		if strings.TrimSpace(r) != "" {
+			out = append(out, strings.TrimSpace(r))
+		}
+	}
+	return out
+}
+
+func normalizzaPercorso(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	p = strings.ReplaceAll(p, "/", `\`)
+	for len(p) > 1 && strings.HasSuffix(p, `\`) {
+		p = strings.TrimSuffix(p, `\`)
+	}
+	return strings.ToLower(p)
 }
 
 type Outlook struct {
@@ -143,6 +214,7 @@ func Carica(percorso string) (*Config, error) {
 	c.Server.Indirizzo = "127.0.0.1:8080"
 	c.Server.LogLivello = "info"
 	c.Server.MaxUploadMB = 64
+	c.Server.Modalita = ModalitaShadow
 	c.Outlook.Cartelle = []string{"Inbox", "Sent Items"}
 	c.Outlook.IntervalloSyncS = 60
 	c.Outlook.Lotto = 50
@@ -160,6 +232,9 @@ func Carica(percorso string) (*Config, error) {
 	if c.Server.MaxUploadMB < 1 {
 		return nil, fmt.Errorf("config: [server].max_upload_mb = %d non valido (almeno 1)", c.Server.MaxUploadMB)
 	}
+	if err := c.normalizzaModalita(); err != nil {
+		return nil, err
+	}
 	if c.NAS.Staging == "" {
 		c.NAS.Staging = filepath.Join(filepath.Dir(percorso), "staging")
 	}
@@ -170,6 +245,32 @@ func Carica(percorso string) (*Config, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// normalizzaModalita valida [server].modalita e ne applica le conseguenze (§2.7, voce 9.5).
+//
+// Due conseguenze, e sono entrambe rifiuti: in shadow il server non parte se la radice del NAS è una
+// radice di produzione dichiarata, e `dry_run` viene forzato a true qualunque cosa dica il file. Un
+// avvio in shadow che scrive sul NAS vero non è una shadow: è una prova sulla produzione con un
+// badge rassicurante in testata.
+func (c *Config) normalizzaModalita() error {
+	c.Server.Modalita = strings.ToLower(strings.TrimSpace(c.Server.Modalita))
+	if c.Server.Modalita == "" {
+		c.Server.Modalita = ModalitaShadow
+	}
+	if c.Server.Modalita != ModalitaShadow && c.Server.Modalita != ModalitaProduzione {
+		return fmt.Errorf("config: [server].modalita = %q non valida (%s | %s)", c.Server.Modalita, ModalitaShadow, ModalitaProduzione)
+	}
+	if !c.EShadow() {
+		return nil
+	}
+	if r := c.RadiceDiProduzione(); r != "" {
+		return fmt.Errorf("config: [server].modalita = shadow ma [nas].radice (%s) è sotto la radice di produzione %q dichiarata in [nas].radici_produzione: "+
+			"una prova in shadow non si fa sul NAS vero. Cambiare radice, oppure passare a modalita = \"produzione\" se è ciò che si vuole davvero",
+			c.NAS.Radice, r)
+	}
+	c.NAS.DryRun = true
+	return nil
 }
 
 // normalizzaFondazioni mette in forma canonica [[casella]], [[postazione]], [[worker]] e

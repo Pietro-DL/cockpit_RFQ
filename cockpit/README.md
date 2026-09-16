@@ -124,6 +124,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `indirizzo` | `127.0.0.1:8080` in sviluppo. `0.0.0.0:8080` espone il Cockpit in LAN: finché non arrivano TLS e credenziali individuali (voci 2.4 e 2.5) è una cosa da fare solo per le prove |
 | `token_worker` | un segreto qualsiasi, lungo. È lo stesso che va in `workers\worker.toml`: se i due non coincidono il worker logga `401` e non prende lavoro |
+| `modalita` | `shadow` o `produzione` (voce 9.5). In shadow il Cockpit legge Outlook e il NAS ma non li modifica: bozze, «segna letto», spostamenti e copie sul NAS non si accodano e non si eseguono, nemmeno se erano già in coda; «Apri in Outlook» sì, e `dry_run` è forzato a `true`. **Assente = shadow**: il default sicuro è quello che non tocca niente. Al ritorno in produzione i job rimasti in coda durante la shadow vengono annullati |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
 | `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
 | `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
@@ -134,6 +135,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
 | `dry_run` | `true` calcola i percorsi e li scrive nel log senza toccare il disco: è il modo di provare la copia sul NAS aziendale senza scriverci |
+| `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow |
 | `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
 
 **`[outlook]`**
@@ -141,7 +143,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | Campo | Che cosa mettere |
 |---|---|
 | `cartelle` | i nomi **come si vedono in Outlook**, nella lingua del profilo: su un Outlook italiano `["Posta in arrivo", "Posta inviata"]`, non `["Inbox", "Sent Items"]`. Una cartella scritta male non è un errore di avvio: è un sync che non legge niente da lì, in silenzio |
-| `intervallo_sync_s` | ogni quanto accodare un sync. 60 va bene: i sync non si accumulano, ne resta al più uno pendente per casella |
+| `intervallo_sync_s` | ogni quanto accodare un sync per casella. `0` = mai (restano «Aggiorna ora» e «Carica precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi **30** è sostenibile su quattro caselle; i sync non si accumulano, ne resta al più uno pendente per casella |
 | `dal` | `"2026-08-01"`: da quando leggere **al primo avvio**, quando il cursore è vuoto. Dopo non conta più, comanda il cursore |
 | `lotto` | quanti messaggi per invio. 50 è il compromesso fra una transazione corta e troppe chiamate |
 | `consenti_invio` | lasciare `false`. `true` permetterebbe al worker di premere Invia al posto dell'operatore |
@@ -299,6 +301,7 @@ Opzioni comuni a entrambi:
 | `--debug` | log più fitto sulla console |
 | `--cartelle` | *(solo Outlook)* stampa l'albero delle cartelle Outlook ed esce |
 | `--caselle` | *(solo Outlook)* chiede al server le caselle da servire, le risolve nel profilo Outlook e stampa l'esito (M1) senza prendere job |
+| `--restrict [GIORNI]` | *(solo Outlook)* C2/C3: legge due volte gli ultimi GIORNI giorni di ogni cartella servita — una con il filtro `Restrict` in UTC e una scorrendo tutto — e confronta gli **insiemi** di EntryID, stampando anche i due tempi. Non prende job e non tocca niente. Default 7 giorni |
 
 Variabili d'ambiente che vincono sul file: `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_STAGING`,
 `COCKPIT_WORKER_ID`.
@@ -446,6 +449,9 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | «Apri in Outlook» dice *non viene dirottata* | il worker della postazione scelta non serve nessuna casella in cui il messaggio è presente | autorizzare quella casella al worker, o lavorare dalla postazione che la serve |
 | i job restano `pronto` | nessun worker che serva quella casella (o quella postazione) è in esecuzione | avviare il worker corrispondente; la testata dice quale |
 | un job torna `in_corso` e si ripete, il worker logga `400 worker_id mancante` | il worker riporta il risultato senza dire quale tentativo sta chiudendo | difetto corretto il 15/09/2026: aggiornare i worker insieme al server |
+| in testata c'è **SHADOW** e metà dei pulsanti dice «in attesa di produzione» | il server gira in sola lettura (voce 9.5) | è voluto finché si prova sulla posta vera; per riattivare le scritture: `[server].modalita = "produzione"` e riavvio |
+| una casella resta **in corso…** per minuti | il sync di quella casella è in coda o in esecuzione | normale al primo giro su una casella grande; se non finisce mai, il worker è fermo: vedere il suo log e `/admin/job` |
+| il sync dura minuti invece di secondi | `Restrict` è spento su quella cartella | il log del worker dice perché: `self-test Restrict FALLITO` (il filtro perdeva elementi) o `Restrict non disponibile`. `python worker_outlook.py --restrict 7` lo rimisura |
 | lo stesso sync parte più volte con la stessa finestra | il `result` non viene accettato, il lease scade e lo scheduler riaccoda | leggere `cockpit.log`: il server scrive il motivo del rifiuto con il nome del worker |
 
 ---
@@ -464,18 +470,21 @@ internal/testutil          pool e schema pulito per i test d'integrazione (COCKP
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
-internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi
+internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
+                           shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
                            (token X-Cockpit-Token); il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store;
                            il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
-                           instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla)
+                           instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
+                           inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16)
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
                            0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
-                           0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale)
+                           0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale),
+                           0006_inbox_viva.sql (utente.ultima_vista_inbox)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

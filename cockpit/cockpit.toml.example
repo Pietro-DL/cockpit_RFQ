@@ -6,6 +6,17 @@
 indirizzo = "127.0.0.1:8080"
 token_worker = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
 log_livello = "info" # debug | info | warn
+# Come gira il server (voce 9.5, §2.7 del piano):
+#   shadow      legge Outlook e il NAS, non li modifica. Niente bozze, niente «segna letto», niente
+#               spostamenti di cartella, niente scritture sul NAS: quei job non si accodano e non si
+#               eseguono nemmeno se sono già in coda. «Apri in Outlook» resta consentito (apre una
+#               finestra e basta) e `dry_run` viene forzato a true. Serve a far girare il sistema
+#               sulla posta vera senza che un difetto diventi una mail modificata;
+#   produzione  tutto attivo. Al passaggio da shadow a produzione i job che avevano aspettato
+#               vengono ANNULLATI: nulla parte a sorpresa. Le copie che servono si rimettono in coda
+#               dal fascicolo.
+# ASSENTE = shadow. Il default sicuro è quello che non tocca niente.
+modalita = "shadow"
 # Dove il server scrive il PROPRIO log, oltre che nella finestra da cui è stato avviato (5 file da
 # 5 MB, come i worker). Assente = <nas.staging>\log\cockpit.log, cioè accanto a worker_outlook.log:
 # la diagnosi di un job si fa leggendo le due metà una accanto all'altra. "-" = solo a schermo.
@@ -22,10 +33,17 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
 dry_run = false                                      # true = calcola i percorsi senza scrivere
 staging = '...\_staging'
+# Le radici VERE, dichiarate una volta. Servono a una cosa sola: in shadow il server si RIFIUTA di
+# partire se `radice` è una di queste (o una loro sottocartella). Una prova in shadow puntata sul NAS
+# di produzione non è una shadow, è una prova sulla produzione con un badge rassicurante in testata.
+radici_produzione = ['\\nas01\TECNICO - PREVENTIVI']
 
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
-intervallo_sync_s = 60
+# Ogni quanti secondi accodare un sync per casella. 0 = mai (solo «Aggiorna ora» e «Carica
+# precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi
+# 30 è sostenibile su quattro caselle; senza `Restrict` non lo sarebbe.
+intervallo_sync_s = 30
 dal = "2026-08-01" # facoltativo: se non specificato usa il cursore o un mese fa
 lotto = 50
 consenti_invio = false

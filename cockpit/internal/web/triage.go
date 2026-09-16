@@ -231,9 +231,15 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// La RFQ nasce comunque: è una decisione dell'operatore e vive nel database. In shadow resta
+	// senza la sua cartella sul NAS finché non si passa a produzione (SH1).
+	cartella := "Cartella in creazione."
 	if _, err := jobs.Accoda(ctx, q, db.TipoJobCreaCartellaThread, api.PayloadCreaCartellaThread{ThreadID: t.ThreadID}, "cartella:"+t.ThreadID.String(), 1); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		if !errors.Is(err, jobs.ErrShadow) {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		cartella = "Cartella sul NAS IN ATTESA DI PRODUZIONE (modalità shadow)."
 	}
 	esiti, err := s.downloadDaForm(ctx, q, m, r)
 	if err != nil {
@@ -244,7 +250,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. Cartella in creazione. %s", t.CartellaRelativa.String, esiti.frase()))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s %s", t.CartellaRelativa.String, cartella, esiti.frase()))
 }
 
 // agganciaEsistente collega il messaggio (e gli orfani della sua conversazione) a un thread scelto dall'operatore.

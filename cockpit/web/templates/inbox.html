@@ -15,6 +15,7 @@
       </select>
       {{end}}
       <span class="spazio"></span>
+      {{if gt .Dati.NNuove 0}}<span class="chip nuove" title="Messaggi registrati dopo la tua ultima apertura dell'Inbox: hanno il pallino nella lista">{{.Dati.NNuove}} nuove</span>{{end}}
       <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica le email dei 30 giorni precedenti">Carica Precedenti</button>
     </div>
     <div id="sync-status" class="sync-status"></div>
@@ -35,6 +36,7 @@
 <a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
    href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&sel={{.MessaggioID}}">
   <div class="r1">
+    {{if $.Dati.ENuovo .MessaggioID}}<span class="pallino" title="Arrivato dopo la tua ultima apertura dell'Inbox">●</span>{{end}}
     <span class="canale">{{if eq .Direzione "uscita"}}↗{{else}}✉{{end}}</span>
     <span class="mittente">{{if .MittenteNome.Valid}}{{.MittenteNome.String}}{{else}}{{.MittenteIndirizzo.String}}{{end}}</span>
     <span class="cliente">{{if .Cliente.Valid}}→ {{.Cliente.String}}{{else}}<em class="sconosciuto">sconosciuto</em>{{end}}</span>

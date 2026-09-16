@@ -2526,6 +2526,8 @@ type Utente struct {
 	PasswordHash pgtype.Text `json:"password_hash"`
 	Attivo       bool        `json:"attivo"`
 	CreatoIl     time.Time   `json:"creato_il"`
+	// Quando questo utente ha aperto l'Inbox l'ultima volta. I messaggi con registrato_il successivo sono «nuovi dall'ultima visita» (voce 2.16). NULL = mai aperta. Aggiornata al caricamento della pagina, non ai poll HTMX: altrimenti il conteggio sarebbe sempre zero.
+	UltimaVistaInbox *time.Time `json:"ultima_vista_inbox"`
 }
 
 type VCruscotto struct {

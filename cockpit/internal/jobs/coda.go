@@ -101,7 +101,15 @@ func Accoda(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any, ch
 }
 
 // AccodaCon è Accoda con i vincoli di destinazione e durata espliciti.
+//
+// In modalità shadow i job che toccano il mondo fuori dal Cockpit non entrano in coda e la funzione
+// restituisce ErrShadow: chi accoda su richiesta di un operatore lo riconosce e glielo dice. Non si
+// restituisce (nil, nil) — che qui significa «c'era già» — perché un blocco raccontato come successo
+// è un pulsante che non fa niente senza dirlo.
 func AccodaCon(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any, chiave string, priorita int16, o Opzioni) (*db.Job, error) {
+	if InShadow() && BloccatoInShadow(tipo) {
+		return nil, fmt.Errorf("%w: %s", ErrShadow, tipo)
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("payload %s: %w", tipo, err)
@@ -153,7 +161,7 @@ func Claim(ctx context.Context, q *db.Queries, worker db.WorkerTipo, workerID st
 	}
 	for {
 		j, err := q.ClaimJob(ctx, db.ClaimJobParams{WorkerID: pgtype.Text{String: workerID, Valid: true}, WorkerTipo: worker,
-			Caselle: caselle, Postazione: d.Postazione})
+			Caselle: caselle, Postazione: d.Postazione, TipiEsclusi: TipiBloccatiOra()})
 		if err == nil {
 			return &j, nil
 		}
@@ -384,7 +392,7 @@ func (s *Scheduler) accodaSync(ctx context.Context) error {
 		if casella.Canale != db.CanaleOutlook {
 			continue
 		}
-		if err := s.accodaSyncCasella(ctx, casella); err != nil {
+		if _, err := AccodaSyncCasella(ctx, s.Q, casella, SyncOpzioni{Cartelle: s.Cartelle, Dal: s.Dal, Lotto: s.Lotto}); err != nil {
 			// una casella che non riesce non deve impedire il sync delle altre: è lo stesso principio
 			// del lotto che non si ferma al primo elemento rotto
 			s.Log.Error("sync non accodato", "casella", casella.Indirizzo, "err", err)
@@ -393,10 +401,28 @@ func (s *Scheduler) accodaSync(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) accodaSyncCasella(ctx context.Context, casella db.Casella) error {
-	cursori, err := s.Q.ListSyncCursoriCasella(ctx, casella.CasellaID)
+// SyncOpzioni è ciò che serve per accodare un sync ordinario: le cartelle da leggere, la data
+// minima al primo giro (cursore vuoto) e la dimensione del lotto. Vengono da [outlook] di
+// cockpit.toml e sono le stesse per lo scheduler e per «Aggiorna ora» — di proposito: due sync della
+// stessa casella con cartelle diverse farebbero avanzare il cursore su una finestra che l'altro non
+// ha letto.
+type SyncOpzioni struct {
+	Cartelle []string
+	Dal      time.Time
+	Lotto    int
+}
+
+// ChiaveSyncCasella è la chiave di idempotenza del sync ordinario: FISSA per casella, senza la
+// finestra temporale. È il motivo per cui «Aggiorna ora» premuto dieci volte in dieci secondi accoda
+// un job solo (SV1), e per cui i tick dello scheduler non accumulano coda mentre il worker è fermo.
+func ChiaveSyncCasella(casella uuid.UUID) string { return "sync_outlook:" + casella.String() }
+
+// AccodaSyncCasella accoda il sync ordinario di UNA casella con i suoi cursori. Restituisce
+// (nil, nil) se ce n'è già uno in coda o in corso: non è un errore, è la stessa richiesta.
+func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o SyncOpzioni) (*db.Job, error) {
+	cursori, err := q.ListSyncCursoriCasella(ctx, casella.CasellaID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	perCartella := map[string]*time.Time{}
 	var piuVecchio *time.Time
@@ -408,7 +434,7 @@ func (s *Scheduler) accodaSyncCasella(ctx context.Context, casella db.Casella) e
 			}
 		}
 	}
-	dal := s.Dal
+	dal := o.Dal
 	if dal.IsZero() {
 		if piuVecchio != nil {
 			dal = *piuVecchio
@@ -416,12 +442,15 @@ func (s *Scheduler) accodaSyncCasella(ctx context.Context, casella db.Casella) e
 			dal = time.Now().AddDate(0, -1, 0)
 		}
 	}
+	cartelle := o.Cartelle
+	if len(cartelle) == 0 {
+		cartelle = []string{"Inbox", "Sent Items"}
+	}
 	cid := casella.CasellaID
-	p := api.PayloadSyncOutlook{Dal: dal, SovrapposizioneS: 600, Lotto: s.Lotto, CasellaID: &cid}
-	for _, c := range s.Cartelle {
+	p := api.PayloadSyncOutlook{Dal: dal, SovrapposizioneS: 600, Lotto: o.Lotto, CasellaID: &cid}
+	for _, c := range cartelle {
 		p.Cartelle = append(p.Cartelle, api.CartellaCursore{Cartella: c, UltimoReceived: perCartella[c]})
 	}
-	_, err = AccodaCon(ctx, s.Q, db.TipoJobSyncOutlook, p, "sync_outlook:"+cid.String(), 5,
+	return AccodaCon(ctx, q, db.TipoJobSyncOutlook, p, ChiaveSyncCasella(cid), 5,
 		Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
-	return err
 }

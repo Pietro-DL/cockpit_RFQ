@@ -33,7 +33,7 @@ function Annota($id, $descrizione, $comando, $esito, $nota) {
 
 Esegui "L1 go build"  "compilazione di tutti i pacchetti (NON copre L3)" "go build ./..." { go build ./... }
 Esegui "L1 go vet"    "analisi statica" "go vet ./..." { go vet ./... }
-Esegui "L1 go test"   "unitari Go (dominio, zip, NAS, template, migrazioni statiche, configurazione)" "go test ./..." { go test ./... }
+Esegui "L1 go test"   "unitari Go (dominio, zip, NAS, template, migrazioni statiche, configurazione e modalita, testata dell Inbox)" "go test ./..." { go test ./... }
 
 # Gli script di servizio girano su Windows PowerShell 5.1, non sulla 7: un operatore della 7
 # (per esempio ?.) rende il file illeggibile gia in fase di parsing. Qui si controlla che
@@ -82,7 +82,7 @@ if (-not $SenzaDB) {
 }
 
 if (-not $SenzaPython) {
-    Esegui "L2 pytest" "unitari Python (modulo comune, ciclo dei worker, analisi)" "python -m pytest -q workers" { python -m pytest -q workers }
+    Esegui "L2 pytest" "unitari Python (modulo comune, ciclo dei worker, analisi, finestra del sync con Restrict)" "python -m pytest -q workers" { python -m pytest -q workers }
 } else {
     Annota "L2 pytest" "unitari Python" "python -m pytest -q workers" "SALTATO" "richiesto -SenzaPython: non verificato"
 }

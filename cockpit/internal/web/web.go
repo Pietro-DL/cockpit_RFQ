@@ -41,6 +41,12 @@ type Server struct {
 	// IntervalloSync: ogni quanto lo scheduler accoda il sync (0 = mai). Serve solo a dirlo
 	// all'operatore nella schermata, con parole che corrispondono alla configurazione.
 	IntervalloSync time.Duration
+	// Sync sono cartelle, data minima e lotto del sync ordinario: le stesse dello scheduler, perché
+	// «Aggiorna ora» accoda esattamente il job che accoderebbe lui (voce 2.16).
+	Sync jobs.SyncOpzioni
+	// Modalita è "shadow" o "produzione" (§2.7): la testata lo dice sempre, perché in shadow metà
+	// dei pulsanti non fa quello che c'è scritto sopra, e va saputo prima di premerli.
+	Modalita string
 	// IndirizzoClient: da quale IP arriva il browser (voce 2.7, abbinamento sessione → postazione).
 	// Nil = RemoteAddr. X-Forwarded-For non si legge in produzione: lo scriverebbe chiunque.
 	IndirizzoClient func(*http.Request) string
@@ -56,7 +62,21 @@ var funzioni = template.FuncMap{
 	"list":      func(a ...string) []string { return a },
 	"data":      func(t time.Time) string { return t.Local().Format("02/01 15:04") },
 	"dataLunga": func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
-	"txt":       func(t pgtype.Text) string { return t.String },
+	// oraBreve/oraLunga accettano un istante che può non esserci (l'ultimo sync di una casella che
+	// non ha mai sincronizzato): il template deve poterle chiamare senza sapere se il valore c'è.
+	"oraBreve": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.Local().Format("15:04")
+	},
+	"oraLunga": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.Local().Format("02/01/2006 15:04")
+	},
+	"txt": func(t pgtype.Text) string { return t.String },
 	"kb": func(b pgtype.Int8) string {
 		if !b.Valid {
 			return ""
@@ -135,6 +155,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("GET /{$}", s.autenticato(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/inbox", http.StatusFound) }))
 	mux.HandleFunc("GET /inbox", s.autenticato(s.inbox))
+	mux.HandleFunc("POST /inbox/aggiorna", s.autenticato(s.aggiornaOra))
 	mux.HandleFunc("POST /inbox/sync-storico", s.autenticato(s.syncStorico))
 	mux.HandleFunc("GET /inbox/sync-storico/stato", s.autenticato(s.syncStoricoStato))
 	mux.HandleFunc("GET /stato/worker", s.autenticato(s.statoWorker))
@@ -342,7 +363,15 @@ type inboxDati struct {
 	// ad allora resta la regola restrittiva di D12.
 	Caselle []db.Casella
 	Casella string
+	// Nuovi sono i messaggi arrivati dopo l'ultima visita: la lista li segna con un pallino, e il
+	// numero sta in testata (voce 2.16, SV3). Vale per la pagina appena caricata: chi resta fermo
+	// sulla schermata vede crescere il contatore e comparire i pallini ai poll successivi.
+	Nuovi  map[uuid.UUID]bool
+	NNuove int
 }
+
+// ENuovo dice se una riga della lista è arrivata dopo l'ultima visita dell'operatore.
+func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
 
 // descrizioneSync è la frase della schermata sullo stato della sincronizzazione automatica.
 func (s *Server) descrizioneSync() string {
@@ -377,9 +406,16 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conta, _ := q.ContaInbox(r.Context(), scelta)
+	u := utenteDa(r.Context())
+	nov := s.novitaPer(r.Context(), q, u)
 	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
-		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync()}
+		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
+	// La visita si segna DOPO aver reso la pagina, e solo se è una pagina: il poll HTMX ogni 15 s
+	// chiede lo stesso indirizzo, e se azzerasse anche lui il contatore direbbe sempre zero (SV3).
+	if r.Header.Get("HX-Request") != "true" {
+		s.segnaVista(r.Context(), q, u)
+	}
 }
 
 // syncStorico accoda una finestra di 30 giorni PRIMA di quanto già coperto: il limite superiore è il cursore
@@ -613,9 +649,20 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 		return nil, "", err
 	}
 	if _, err := jobs.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, jobs.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
+		if errors.Is(err, jobs.ErrShadow) {
+			return nil, motivoShadow(tipo), nil
+		}
 		return nil, "", err
 	}
 	return c, "", nil
+}
+
+// motivoShadow è la frase che l'operatore legge quando preme un pulsante che in shadow non parte.
+// Dice tre cose: che cosa non è successo, perché, e dove si cambia — perché un rifiuto senza la
+// terza è indistinguibile da un guasto.
+func motivoShadow(tipo db.TipoJob) string {
+	return fmt.Sprintf("il server è in modalità shadow (sola lettura verso Outlook e NAS): %s non viene eseguito. "+
+		"Si cambia con [server].modalita = \"produzione\" in cockpit.toml", tipo)
 }
 
 // apriInOutlook accoda apri_elemento_outlook con priorità massima: il worker della postazione della
@@ -718,6 +765,12 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []api.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
 	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
+		if errors.Is(err, jobs.ErrShadow) {
+			// niente Commit: la bozza non è stata preparata, e una riga `bozza` senza la finestra in
+			// Outlook sarebbe una risposta che l'operatore crede di avere e non ha
+			s.avvisoErrore(w, "Bozza non preparata: "+motivoShadow(db.TipoJobCreaBozzaOutlook))
+			return
+		}
 		http.Error(w, err.Error(), 500)
 		return
 	}

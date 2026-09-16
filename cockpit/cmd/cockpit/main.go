@@ -110,6 +110,18 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, versione); err != nil {
 		return fmt.Errorf("configurazione delle caselle: %w", err)
 	}
+	// Modalità (§2.7, voce 9.5). Si fissa PRIMA che scheduler ed esecutore partano: il primo claim
+	// arriva pochi millisecondi dopo, e un claim fatto mentre la modalità è ancora quella di default
+	// eseguirebbe proprio i job che la shadow deve fermare.
+	modalita := jobs.Modalita(cfg.Server.Modalita)
+	jobs.ImpostaModalita(modalita)
+	if err := jobs.AllineaCoda(ctx, q, modalita, log); err != nil {
+		return err
+	}
+	if modalita == jobs.ModalitaShadow {
+		log.Warn("MODALITÀ SHADOW: sola lettura verso il mondo", "bloccati", jobs.TipiBloccatiOra(),
+			"nas_dry_run", cfg.NAS.DryRun, "nota", "«Apri in Outlook» resta l'unica azione consentita; si cambia con [server].modalita")
+	}
 	if soloMigrazioni {
 		log.Info("migrazioni e seed completati (-migra): esco senza mettermi in ascolto")
 		return nil
@@ -129,14 +141,17 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		}
 	}
 	staging, _ := filepath.Abs(cfg.NAS.Staging)
+	// Le stesse opzioni per lo scheduler e per «Aggiorna ora»: due sync della stessa casella con
+	// cartelle diverse farebbero avanzare il cursore su una finestra che l'altro non ha letto.
+	opzioniSync := jobs.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal, Lotto: cfg.Outlook.Lotto}
 	intervalloSync := time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second
 	if intervalloSync <= 0 {
 		log.Warn("sincronizzazione automatica disattivata: nessun sync viene accodato finché intervallo_sync_s resta 0")
 	}
 	(&jobs.Scheduler{
-		Q: q, Log: log, Cartelle: cfg.Outlook.Cartelle,
+		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
 		IntervalloSync: intervalloSync,
-		Dal:            dal, Lotto: cfg.Outlook.Lotto,
+		Dal:            opzioniSync.Dal, Lotto: opzioniSync.Lotto,
 		RetentionGiorni: cfg.Retention.GiorniJob,
 		Staging:         staging,
 	}).Avvia(ctx)
@@ -146,7 +161,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	static, _ := fs.Sub(risorse.FS, "web/static")
 	servizioIngest := &ingest.Servizio{Pool: pool, Log: log}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
-		IntervalloSync: intervalloSync}
+		IntervalloSync: intervalloSync, Sync: opzioniSync, Modalita: cfg.Server.Modalita}
 	if err := ws.Init(); err != nil {
 		return err
 	}

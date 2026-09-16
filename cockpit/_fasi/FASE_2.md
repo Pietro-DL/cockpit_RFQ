@@ -267,6 +267,134 @@ Il difetto stava esattamente nel punto cieco comune: **come il client vero riemp
 - **Il sync**: qui girano un download e un job interattivo. Il sync completo contro la posta vera
   resta una prova reale concordata.
 
+## Blocco 1 dell'addendum (16/09/2026) — Inbox viva e shadow (voci 2.9, 2.16, 9.5)
+
+Tre cose che stanno insieme per un motivo solo: l'Inbox del Cockpit deve essere il posto dove si
+guarda la posta, e oggi non lo è. Se mostra le stesse mail di un'ora fa, l'operatore non sa se non è
+arrivato niente o se il Cockpit è fermo, e nel dubbio riapre Outlook — e da quel momento il Cockpit
+è un doppione che nessuno guarda. La shadow sta nello stesso blocco perché è ciò che permette di
+tenere il sync acceso sulla posta vera senza rischiare di modificarla.
+
+### 2.9 — la finestra si chiede a Outlook, non si cerca a mano
+
+Il sync scorreva **tutta** la cartella dal messaggio più recente all'indietro, fermandosi al primo
+più vecchio della finestra. Su Commerciale sono circa cento secondi per giro, il che rende
+impossibile il sync al minuto: il worker farebbe solo quello.
+
+Ora la finestra si chiede con `Items.Restrict` e un filtro DASL su `urn:schemas:httpmail:datereceived`
+scritto **in UTC**. Il fuso non è un dettaglio: con la sintassi Jet (`[ReceivedTime] >= '15/09/2026'`)
+la stessa riga significa 15 settembre su un PC italiano e nulla su uno americano, e un filtro che non
+corrisponde a niente non dà errore — dà zero messaggi. I due estremi vengono arrotondati **verso
+l'esterno** al minuto, perché fra i due errori possibili solo uno si può correggere dopo: un
+messaggio letto due volte costa una deduplica per Message-ID, che il server fa comunque; un messaggio
+non letto non lo cerca più nessuno.
+
+**Il self-test (C3) è la parte che conta.** Un `Restrict` che perde un elemento non lascia tracce:
+nessun errore, nessun conteggio sbagliato, solo una mail che non esiste. Perciò la prima volta che
+legge una cartella il worker esegue **entrambi** i modi sulla stessa finestra e confronta gli
+**insiemi** di EntryID — non i conteggi, che coinciderebbero anche scambiando un messaggio con un
+altro. Se il filtro ne perde uno, viene spento per quella cartella e si continua con la scansione
+lineare: più lenta, ma completa. Il confronto tiene separate le due differenze, perché non pesano
+uguale: gli elementi *mancanti* bocciano, quelli *in più* (i bordi arrotondati al minuto) si
+segnalano e basta.
+
+La prova si fa sugli ultimi sette giorni della finestra (`autoprova_restrict_giorni`), non su tutto
+l'archivio: una scansione lineare su anni di posta costerebbe esattamente ciò che la voce 2.9 vuole
+evitare, e ciò che c'è da dimostrare — che il fuso e il formato siano quelli giusti — si dimostra su
+un campione come su tutto. Due insiemi vuoti non contano come prova superata: l'esito «non
+concludente» non viene memorizzato, e si riprova al giro dopo.
+
+Sul profilo vero questo è C2/C3, ed è una prova L5: `python worker_outlook.py --restrict 7` legge due
+volte ogni cartella servita, confronta gli insiemi e stampa i due tempi. Non prende job e non tocca
+niente.
+
+### 2.16 — l'Inbox dice che cosa sta succedendo
+
+- **«Aggiorna ora»** in testata accoda un `sync_outlook` per ogni casella attiva. Premuto dieci volte
+  accoda un job solo: la chiave di idempotenza è fissa per casella, la stessa che usa lo scheduler
+  (SV1). E dice sempre che cosa ha fatto, anche quando non ha fatto niente — un pulsante che non
+  risponde è un pulsante che si preme di nuovo;
+- **lo stato per casella** ha un quarto valore, *in corso*, che compare mentre un sync di quella
+  casella è in coda o in esecuzione, e solo su una casella **attiva**: se il worker è spento e un
+  sync è in coda, la verità è che è spento, e scrivere «in corso» prometterebbe qualcosa che non sta
+  per arrivare. La chip porta anche l'ora dell'ultimo sync **riuscito**, letta dal job e non dal
+  cursore (un sync che non trova niente di nuovo — il caso normale a regime — non muove il cursore, e
+  la testata direbbe «ultimo sync 12:11» per ore mentre il worker lavora regolarmente);
+- **«nuove dall'ultima visita»**: `utente.ultima_vista_inbox` (migrazione `0006`) e il conteggio dei
+  messaggi con `registrato_il` successivo, in testata, per casella, e come pallino sulle righe.
+  L'orologio si sposta solo quando la pagina viene **aperta**, mai ai poll HTMX ogni 15 secondi:
+  altrimenti il contatore direbbe sempre zero. È per utente e non per sessione, perché la visita è un
+  fatto della persona, non del cookie;
+- la testata si ricarica ogni 3 secondi finché un sync gira e ogni 15 quando non succede niente.
+
+**Numerazione delle migrazioni.** Nell'addendum il blocco 1 risultava senza migrazione e il numero
+`0006` era assegnato all'anagrafica del blocco 3. Una colonna serve comunque, e i numeri seguono
+l'ordine in cui le migrazioni vengono applicate, non l'ordine dei blocchi: l'anagrafica diventa
+`0007_anagrafica`, e a scalare le successive.
+
+### 9.5 — la modalità shadow
+
+`[server].modalita = "shadow" | "produzione"`. In shadow il Cockpit legge il mondo e non lo tocca:
+niente bozze, niente «segna letto», niente spostamenti di cartella, niente scritture sul NAS.
+`apri_elemento_outlook` resta consentito, perché apre una finestra e non modifica niente.
+
+Il blocco è in **due** punti, e servono entrambi:
+
+- **all'accodamento**: quei job non entrano in coda, e chi ha premuto il pulsante se lo sente dire.
+  La decisione dell'operatore però resta registrata: un documento confermato in shadow è confermato,
+  ed è la *copia* che aspetta (`stato_nas = 'in_coda'`); una RFQ creata in shadow esiste, ed è la sua
+  cartella sul NAS che aspetta;
+- **al claim**: quei job non si eseguono **nemmeno se sono già in coda**. La coda sopravvive al cambio
+  di modalità, e un `copia_nas` della settimana scorsa scriverebbe sul NAS vero appena un worker lo
+  prende. Il blocco all'accodamento da solo è una porta chiusa con la finestra aperta.
+
+All'avvio in shadow i job bloccati già in coda vengono **marcati** «in attesa di produzione»: restano
+visibili in admin con scritto perché non partono. Al ritorno in produzione quelli marcati vengono
+**annullati**: nulla che abbia aspettato durante la shadow si mette in moto da solo. Le copie che
+servono davvero si rimettono in coda a mano, che è un gesto di una persona. Una copia accodata dopo
+il ritorno in produzione non c'entra niente con la shadow e parte regolarmente: è il marcatore a
+distinguerle, e senza marcatore non si annulla niente — altrimenti ogni riavvio in produzione
+butterebbe via le copie in coda.
+
+**Due rifiuti all'avvio.** In shadow `dry_run` è forzato a `true`, e il server **non parte** se
+`[nas].radice` è (o sta sotto) una delle `[nas].radici_produzione` dichiarate: una prova in shadow
+sul NAS vero non è una prova in shadow, è una prova sulla produzione con un badge rassicurante in
+testata. Il confronto ignora maiuscole, barre e barra finale, perché sono i tre modi in cui lo stesso
+percorso viene scritto passando da un file all'altro.
+
+**Il default è shadow.** Un `cockpit.toml` scritto prima che questa opzione esistesse non contiene la
+riga, e fra le due letture possibili di quel silenzio ce n'è una sola che si può correggere dopo. In
+testata compare **SHADOW** con l'elenco di ciò che non succede e dove si cambia: un badge che avvisa
+e basta lascia l'operatore a chiedersi se è rotto qualcosa.
+
+### Come è stato verificato
+
+| Prova | Che cosa mostra |
+|---|---|
+| `workers/test_outlook_finestra.py` (13, L1/L2) | il filtro è DASL e in UTC anche partendo da un istante in `+02:00`; gli estremi si allargano al minuto; un `Restrict` che perde un messaggio viene smascherato dal self-test e **non** viene usato, e il ripiego li consegna tutti; una finestra vuota non conta come prova; l'ordine è crescente con tutti e due i modi |
+| `internal/config` (4, L1) | senza `modalita` vale shadow; una parola scritta male ferma l'avvio; SH3 (b): sei radici, fra cui maiuscole, barra finale e barre al contrario; `dry_run` forzato |
+| `internal/web` (4, L1) | SV2 puro: «in corso» solo su casella attiva, un sync in coda su una casella OFFLINE resta OFFLINE; il passo del poll; le parole di «Aggiorna ora»; l'avviso della shadow nomina ciò che non succede |
+| `internal/jobs` (4, L4) | SH1: solo i cinque tipi che toccano il mondo non si accodano, i cinque di sola lettura sì; SH2: i job in coda non vengono claimati da nessuno per tutta la shadow e sono `annullato` con `tentativi = 0` al ritorno; SH3 (a): «Apri in Outlook» si esegue; un avvio in produzione senza shadow alle spalle non annulla niente |
+| `internal/web` (3, L4) | SV1: dieci clic, un job per casella; SV2 dal vivo: `in corso…`, poi l'ora dell'ultimo sync, e il poll che si stringe e si allarga; SV3: conteggio, pallino, l'orologio che si sposta solo all'apertura e non al poll, e la visita di un utente che non azzera il contatore dell'altro |
+
+Verificate anche **al contrario**, rimettendo il difetto e controllando che il test diventi rosso: il
+filtro riscritto in ora locale (5 test rossi), il self-test che non boccia più (1), la chiave del
+sync diversa a ogni clic (SV1), il claim che non esclude i tipi bloccati (SH2), la visita segnata
+anche ai poll HTMX (SV3).
+
+### Che cosa questo blocco NON dimostra
+
+- **C2 e C3 sul profilo vero: NON ESEGUITI.** Qui Outlook non c'è: c'è una cartella finta che
+  interpreta il filtro in UTC come lo interpreterebbe Outlook. È abbastanza per bocciare l'errore che
+  conta (l'ora locale nel filtro), non per dire che Outlook si comporti così. Il comando è
+  `python worker_outlook.py --restrict 7`, ed è L5.
+- **Il tempo del sync**: che una casella vera scenda sotto i 5 secondi per giro è una misura da fare
+  sul banco, non un'affermazione di questo blocco.
+- **Che l'operatore se ne accorga**: che la chip, il pallino e il badge SHADOW si vedano davvero in un
+  browser è L7.
+- **`intervallo_sync_s` resta 0** nel `cockpit.toml` di sviluppo. Il valore 30 è nell'esempio e nel
+  README; metterlo in funzione sulla posta vera è la prova concordata del blocco.
+
 ## Come verificare
 
 ```powershell
@@ -287,7 +415,8 @@ un'ottimizzazione, è una condizione di correttezza.
 | L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging`, `ClaimRichiesta` con `caselle_aperte`, payload senza `store_id`, `CasellaServita` sui due lati | eseguiti |
 | L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**; **Q8, Q17, Q18, Q21, M2, M3, M4, M6, M9, M10, M12, W14, P1** | eseguiti |
 | L4 end-to-end | il worker **vero** (Python, senza COM) contro il server **vero** su PostgreSQL: un download completo fino a `fatto` e il battito che rinnova il lease durante un job lungo | eseguiti |
-| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), casella condivisa Exchange, due postazioni (M11, upload fra due PC), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
+| L1/L2 + L4 blocco 1 | voce 2.9: filtro DASL in UTC e self-test per insieme (13 prove L1/L2); voce 2.16: SV1, SV2, SV3; voce 9.5: SH1, SH2, SH3 (a) in L4, SH3 (b) in L1 | eseguiti |
+| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, casella condivisa Exchange, due postazioni (M11, upload fra due PC), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -332,7 +461,15 @@ dichiarato — un messaggio ricevuto non sparisce perché arriva anche come alle
 
 ## Che cosa resta aperto in questa fase
 
-- **2.4 + 2.5** TLS con impronta in `worker.toml`, credenziale individuale al posto del token
-  condiviso, CSRF — test W4, W10, W11. Prima di questa il server resta esposto sulla LAN solo per le
-  prove.
-- **2.8–2.15** come da piano.
+Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci ma quello dei blocchi:
+
+- **blocco 2 — rete**: 2.4 TLS con impronta in `worker.toml` e credenziale individuale al posto del
+  token condiviso, 2.5 CSRF (W4, W10, W11); build Linux del server e prova su share SMB montata;
+  pagina *Postazioni* con il pacchetto del worker. Prima di questo il server resta esposto sulla LAN
+  solo per le prove;
+- **blocco 3 — anagrafica**: 6.6, 6.11 (`cliente.regole` con schema validato ed esempio obbligatorio
+  per ogni regola), 8.8, seed dal foglio dei buyer; migrazione `0007_anagrafica`;
+- poi annidati, proposte per cliente, ingresso esterno, articoli e distinta, fatti e STEP, le tre
+  schermate, e l'igiene in parallelo dal blocco 3.
+
+Delle voci di questa fase restano **2.8, 2.10–2.15**, che entrano nei blocchi dove servono.

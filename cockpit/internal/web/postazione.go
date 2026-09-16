@@ -177,19 +177,32 @@ type statoUI struct {
 	Analisi      statoChip
 	// SenzaPostazione è la frase mostrata quando la sessione non ha una postazione.
 	SenzaPostazione string
+	// Nuove è il totale dei messaggi arrivati dopo l'ultima visita all'Inbox (voce 2.16, SV3).
+	Nuove int
+	// Avviso è l'esito dell'ultima azione fatta dalla testata («Aggiorna ora»): vive un frammento
+	// solo, finché il poll successivo non lo sostituisce.
+	Avviso string
+	// Shadow è la frase della modalità di sola lettura; vuota in produzione (voce 9.5).
+	Shadow string
 }
 
 // statoCasella è lo stato di UNA casella in testata.
 //
 //	attiva          un worker autorizzato l'ha risolta nel proprio profilo e fa claim (≤ 60 s)
+//	in_corso        attiva, e in questo momento un sync della casella è in coda o in esecuzione (2.16)
 //	offline         c'è un worker configurato per lei ma non fa claim (o non l'ha mai fatto)
 //	non_risolta     il worker è attivo ma non ha trovato la casella nel proprio profilo (o COM non risponde)
 //	non_configurata nessun [[worker]] la elenca fra le proprie caselle
 type statoCasella struct {
+	ID        uuid.UUID
 	Nome      string
 	Stato     string
 	Classe    string // classe CSS della chip
 	Dettaglio string // il testo del tooltip: chi, dove, da quanto
+	// UltimoSync è la fine dell'ultimo sync RIUSCITO di questa casella; nil = mai (voce 2.16).
+	UltimoSync *time.Time
+	// Nuove sono i messaggi entrati in questa casella dopo l'ultima visita all'Inbox.
+	Nuove int
 }
 
 type statoChip struct {
@@ -198,8 +211,9 @@ type statoChip struct {
 	Dettaglio string
 }
 
-// classiStato: attiva = verde, offline = rosso, non_risolta = giallo, non_configurata = grigio.
-var classiStato = map[string]string{"attiva": "fatto", "offline": "fallito", "non_risolta": "in_corso", "non_configurata": ""}
+// classiStato: attiva = verde, in corso = azzurro, offline = rosso, non_risolta = giallo,
+// non_configurata = grigio.
+var classiStato = map[string]string{"attiva": "fatto", "in_corso": "lavoro", "offline": "fallito", "non_risolta": "in_corso", "non_configurata": ""}
 
 const workerOnlineEntro = 60 * time.Second
 
@@ -221,6 +235,12 @@ func (s *Server) stato(ctx context.Context, sess sessioneUI) *statoUI {
 	caselle, _ := q.ListCaselleAttive(ctx)
 	postazioni, _ := q.ListPostazioni(ctx)
 	st.Caselle = statoCaselle(caselle, credenziali, presenze, postazioni, time.Now())
+	// voce 2.16: sopra lo stato del worker si sovrappone lo stato del LAVORO (sync in corso, ultimo
+	// sync riuscito) e ciò che è arrivato da quando l'operatore ha guardato l'ultima volta.
+	nov := s.novitaPer(ctx, q, sess.Utente)
+	st.Caselle = conSync(st.Caselle, s.lavoroSync(ctx, q), nov.PerCasella)
+	st.Nuove = nov.Totale
+	st.Shadow = s.avvisoShadow()
 	st.Analisi = statoAnalisi(credenziali, presenze, time.Now())
 	return st
 }
@@ -241,7 +261,7 @@ func statoCaselle(caselle []db.Casella, credenziali []db.WorkerCredenziale, pres
 		if c.Canale != db.CanaleOutlook {
 			continue
 		}
-		sc := statoCasella{Nome: c.Nome, Stato: "non_configurata", Dettaglio: "nessun [[worker]] in cockpit.toml elenca questa casella: nessuno la sincronizza"}
+		sc := statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "non_configurata", Dettaglio: "nessun [[worker]] in cockpit.toml elenca questa casella: nessuno la sincronizza"}
 		var ripiego *statoCasella // il primo stato non «attiva» trovato, se nessun worker è attivo
 		for _, w := range credenziali {
 			if !w.Attivo || w.WorkerTipo != db.WorkerTipoOutlook || !contiene(w.Caselle, c.CasellaID) {
@@ -257,15 +277,15 @@ func statoCaselle(caselle []db.Casella, credenziali []db.WorkerCredenziale, pres
 			var cand statoCasella
 			switch {
 			case !vista:
-				cand = statoCasella{Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("il worker %s non è mai stato avviato", w.WorkerNome)}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("il worker %s non è mai stato avviato", w.WorkerNome)}
 			case ora.Sub(p.UltimoClaim) > workerOnlineEntro:
-				cand = statoCasella{Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("worker su %s OFFLINE: ultimo contatto %s fa", dove, durataBreve(ora.Sub(p.UltimoClaim)))}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("worker su %s OFFLINE: ultimo contatto %s fa", dove, durataBreve(ora.Sub(p.UltimoClaim)))}
 			case contiene(p.CaselleAperte, c.CasellaID):
-				cand = statoCasella{Nome: c.Nome, Stato: "attiva", Dettaglio: fmt.Sprintf("attiva su %s (ultimo contatto %d s fa)", dove, int(ora.Sub(p.UltimoClaim).Seconds()))}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "attiva", Dettaglio: fmt.Sprintf("attiva su %s (ultimo contatto %d s fa)", dove, int(ora.Sub(p.UltimoClaim).Seconds()))}
 			case !p.OutlookOk:
-				cand = statoCasella{Nome: c.Nome, Stato: "non_risolta", Dettaglio: fmt.Sprintf("il worker su %s è attivo ma Outlook non risponde", dove)}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "non_risolta", Dettaglio: fmt.Sprintf("il worker su %s è attivo ma Outlook non risponde", dove)}
 			default:
-				cand = statoCasella{Nome: c.Nome, Stato: "non_risolta", Dettaglio: fmt.Sprintf("il worker su %s è attivo ma non trova questa casella nel proprio profilo Outlook", dove)}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "non_risolta", Dettaglio: fmt.Sprintf("il worker su %s è attivo ma non trova questa casella nel proprio profilo Outlook", dove)}
 			}
 			if p.Avviso.Valid && p.Avviso.String != "" {
 				cand.Dettaglio += " · " + p.Avviso.String

@@ -16,7 +16,8 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 import pythoncom
@@ -75,6 +76,75 @@ def _sicuro(nome: str, max_len: int = 120) -> str:
     return nome[:max_len]
 
 
+# ---------------------------------------------------------------- finestra temporale (voce 2.9, N40)
+
+# La proprietà DASL della data di ricezione. Con `@SQL=` e QUESTA proprietà il confronto lo fa
+# Outlook in UTC e il formato della data è fisso: 'AAAA-MM-GG HH:MM'. È l'unico modo di filtrare per
+# data che non dipenda dal locale del PC — con la sintassi Jet (`[ReceivedTime] >= '15/09/2026'`) la
+# stessa riga significa 15 settembre su un PC italiano e nulla su uno americano, e un filtro che non
+# corrisponde a niente non dà errore: dà zero messaggi.
+URN_RICEVUTA = "urn:schemas:httpmail:datereceived"
+
+
+def _utc_dasl(d: datetime) -> str:
+    """Un istante nel formato che Outlook si aspetta dentro un filtro DASL, in UTC."""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
+def filtro_finestra(dal: datetime, al: datetime | None = None) -> str:
+    """Il filtro `Restrict` della finestra [dal, al], in UTC (voce 2.9).
+
+    I due estremi vengono ALLARGATI al minuto: `dal` si arrotonda in giù, `al` in su. Il formato DASL
+    ha la risoluzione del minuto, e fra le due direzioni dell'errore ce n'è una sola che si può
+    correggere dopo: leggere un messaggio in più costa una deduplica per Message-ID, che il server fa
+    comunque; leggerne uno in meno significa non averlo mai visto, e nessuno andrà a cercarlo.
+    """
+    parti = ['"%s" >= \'%s\'' % (URN_RICEVUTA, _utc_dasl(dal.replace(second=0, microsecond=0)))]
+    if al is not None:
+        su = al.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        parti.append('"%s" <= \'%s\'' % (URN_RICEVUTA, _utc_dasl(su)))
+    return "@SQL=" + " AND ".join(parti)
+
+
+def confronta_insiemi(con_restrict: set, lineare: set) -> tuple[bool, list, list]:
+    """Il self-test della voce 2.9 (C3): i due insiemi di EntryID devono coincidere.
+
+    Le due differenze non pesano uguale, e il confronto le tiene separate apposta:
+
+      mancanti  elementi che la scansione lineare vede e `Restrict` no. È il caso grave: sono
+                messaggi che non entrerebbero mai nel Cockpit, in silenzio. Basta uno perché
+                `Restrict` vada spento per quella cartella;
+      in_più    elementi che `Restrict` restituisce e la lineare no. Succede al bordo della finestra,
+                perché il filtro è arrotondato al minuto: il server li deduplica per Message-ID e non
+                fanno danno. Si segnalano, non si contano come fallimento.
+    """
+    mancanti = sorted(lineare - con_restrict)
+    in_piu = sorted(con_restrict - lineare)
+    return (not mancanti), mancanti, in_piu
+
+
+def _scorri(items):
+    """Gli elementi di una collezione COM, uno alla volta. GetFirst/GetNext e non `for x in items`:
+    l'iteratore di pywin32 su una collezione Items grande è più lento e non rispetta sempre Sort."""
+    it = items.GetFirst()
+    while it is not None:
+        yield it
+        it = items.GetNext()
+
+
+def _entry_id(elementi) -> set:
+    """L'insieme degli EntryID di una sequenza di elementi, per il confronto del self-test."""
+    out = set()
+    for it in elementi:
+        try:
+            out.add(it.EntryID)
+        except pywintypes.com_error:
+            continue
+    return out
+
+
 def sha256_file(path: str) -> tuple[str, int]:
     h = hashlib.sha256()
     n = 0
@@ -86,11 +156,17 @@ def sha256_file(path: str) -> tuple[str, int]:
 
 
 class Outlook:
-    def __init__(self, consenti_invio: bool = False):
+    def __init__(self, consenti_invio: bool = False, usa_restrict: bool = True, autoprova_giorni: int = 7):
         pythoncom.CoInitialize()
         self.app = win32com.client.Dispatch("Outlook.Application")
         self.ns = self.app.GetNamespace("MAPI")
         self.consenti_invio = consenti_invio
+        # voce 2.9: `usa_restrict = false` in worker.toml spegne il filtro e lascia solo la scansione
+        # lineare. Non è un'opzione di comodo, è la via d'uscita se un giorno un profilo si comporta
+        # in modo che il self-test non prevede: meglio lento che incompleto.
+        self.usa_restrict = usa_restrict
+        self.autoprova_giorni = autoprova_giorni
+        self.restrict_ok: dict[tuple, bool] = {}
         self.indirizzi_propri = set()
         try:
             for i in range(1, self.ns.Accounts.Count + 1):
@@ -243,11 +319,26 @@ class Outlook:
     # ------------------------------------------------------------ lettura
 
     def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None, store_id: str = "") -> Iterator[MessaggioIn]:
-        """Elementi MailItem della cartella con ReceivedTime >= dal (e <= al se specificato), in ordine cronologico.
+        """Elementi MailItem della cartella con ReceivedTime >= dal (e <= al se specificato), in
+        ordine cronologico CRESCENTE, uno alla volta.
 
-        Scorre gli elementi ordinati per data decrescente e si ferma al primo più vecchio di `dal`:
-        costa O(nuovi), è indipendente dal locale (niente Restrict con date formattate) e la
-        deduplica per Message-ID lato server rende innocua la sovrapposizione.
+        Due modi di trovarli, e il primo è quello buono (voce 2.9):
+
+          Restrict   un filtro DASL in UTC: Outlook usa il proprio indice e restituisce solo la
+                     finestra. Costa quanto i messaggi della finestra, non quanti ne ha la cartella.
+                     Su Commerciale, con 20 000 elementi, è la differenza fra un secondo e due
+                     minuti — cioè fra un sync al minuto e un sync che non sta dietro a niente;
+          lineare    la scansione all'indietro dal più recente, che si ferma al primo più vecchio di
+                     `dal`. È il ripiego di quando il self-test dice che `Restrict` non è affidabile
+                     su questa cartella, e resta la definizione di «giusto» con cui il self-test
+                     confronta l'altro.
+
+        L'ordine crescente non è un dettaglio estetico: il cursore avanza mentre i lotti partono, e
+        con un ordine qualunque un lotto potrebbe portare un cursore più avanti di messaggi non
+        ancora spediti. Se il job muore lì, quei messaggi restano indietro al cursore e nessuno li
+        rilegge più. Perciò, quando non si riesce a ordinare in modo crescente, si usa la lineare —
+        che l'ordine ce l'ha per costruzione.
+
         `store_id` è lo store della casella del job (voce 2.6): la cartella è la SUA.
         """
         cart = self.cartella(nome_cartella, store_id)
@@ -257,33 +348,138 @@ class Outlook:
             e_inviata = cart.DefaultItemType == 0 and cart.EntryID == inviata.EntryID
         except (pywintypes.com_error, AttributeError):
             pass
-        items = cart.Items
-        items.Sort("[ReceivedTime]", True)
         store_id = cart.StoreID
-        raccolti: list[MessaggioIn] = []
         saltati = 0
-        item = items.GetFirst()
-        while item is not None:
+        for item in self._elementi(cart, dal, al):
             try:
                 if item.Class != OL_MAIL:
                     saltati += 1
-                    item = items.GetNext()
                     continue
+                yield self._converti(item, store_id, cart.Name, e_inviata)
+            except pywintypes.com_error as e:
+                log.warning("elemento saltato in %s: %s", nome_cartella, e)
+                saltati += 1
+        if saltati:
+            log.info("%s: %d elementi non-mail saltati", nome_cartella, saltati)
+
+    # ------------------------------------------------------------ i due modi di trovare la finestra
+
+    def _elementi(self, cart, dal: datetime, al: datetime | None):
+        """Gli elementi della finestra in ordine crescente, con Restrict se si può fidare."""
+        if self.usa_restrict and self._restrict_affidabile(cart, dal, al):
+            ristretti = self._ristretti(cart, dal, al)
+            if ristretti is not None:
+                return ristretti
+        return self._lineari(cart, dal, al)
+
+    def _ristretti(self, cart, dal: datetime, al: datetime | None):
+        """Items.Restrict + ordinamento crescente. None se una delle due cose non riesce: chi chiama
+        passa alla lineare invece di leggere in un ordine qualunque."""
+        try:
+            items = cart.Items.Restrict(filtro_finestra(dal, al))
+            items.Sort("[ReceivedTime]", False)
+        except pywintypes.com_error as e:
+            log.warning("Restrict non disponibile su %s (%s): scansione lineare", cart.Name, e)
+            return None
+        return _scorri(items)
+
+    def _lineari(self, cart, dal: datetime, al: datetime | None):
+        """La scansione all'indietro: dal più recente fino al primo più vecchio di `dal`.
+
+        Raccoglie e inverte, quindi tiene in memoria la finestra: è il motivo per cui non è il modo
+        buono su una cartella grande, oltre al tempo. Resta però quello di cui ci si fida.
+        """
+        items = cart.Items
+        items.Sort("[ReceivedTime]", True)
+        raccolti = []
+        item = items.GetFirst()
+        while item is not None:
+            try:
                 rt = _utc(item.ReceivedTime)
                 if al is not None and rt > al:
                     item = items.GetNext()
                     continue
                 if rt < dal:
                     break
-                raccolti.append(self._converti(item, store_id, cart.Name, e_inviata))
+                raccolti.append(item)
             except pywintypes.com_error as e:
-                log.warning("elemento saltato in %s: %s", nome_cartella, e)
-                saltati += 1
+                log.warning("elemento saltato in %s: %s", cart.Name, e)
             item = items.GetNext()
-        if saltati:
-            log.info("%s: %d elementi non-mail saltati", nome_cartella, saltati)
         raccolti.reverse()
-        yield from raccolti
+        return iter(raccolti)
+
+    def misura_finestra(self, cart, dal: datetime, al: datetime | None = None) -> dict:
+        """Esegue i DUE modi sulla stessa finestra e restituisce insiemi e tempi.
+
+        È il corpo di C2 e C3 insieme: gli insiemi rispondono a «trova le stesse cose», i tempi a
+        «quanto costa». Non converte niente e non tocca gli elementi: legge solo gli EntryID, così la
+        misura è del filtro e non della lettura dei corpi.
+        """
+        t0 = time.monotonic()
+        ristretti = self._ristretti(cart, dal, al)
+        con = _entry_id(ristretti) if ristretti is not None else set()
+        t1 = time.monotonic()
+        lineare = _entry_id(self._lineari(cart, dal, al))
+        t2 = time.monotonic()
+        return {"disponibile": ristretti is not None, "restrict": con, "lineare": lineare,
+                "t_restrict": t1 - t0, "t_lineare": t2 - t1, "filtro": filtro_finestra(dal, al)}
+
+    # ------------------------------------------------------------ self-test per insieme (C3)
+
+    def _restrict_affidabile(self, cart, dal: datetime, al: datetime | None) -> bool:
+        """Vero se su QUESTA cartella `Restrict` può essere usato: o l'ha già dimostrato in questo
+        processo, o lo dimostra adesso. Il risultato si ricorda per cartella, non per sync."""
+        try:
+            chiave = (cart.StoreID, cart.EntryID)
+        except pywintypes.com_error:
+            return False
+        if chiave in self.restrict_ok:
+            return self.restrict_ok[chiave]
+        esito = self.autoprova_restrict(cart, dal, al)
+        if esito is not None:
+            self.restrict_ok[chiave] = esito
+            return esito
+        return False        # prova non concludente: per questo giro si va di lineare, si riproverà
+
+    def autoprova_restrict(self, cart, dal: datetime, al: datetime | None) -> bool | None:
+        """C3: confronta gli INSIEMI di EntryID dei due modi sulla stessa finestra.
+
+        Non confronta i conteggi, che coinciderebbero anche scambiando un messaggio con un altro, e
+        non confronta il primo e l'ultimo: confronta chi c'è. È l'unico controllo che, se passa,
+        dice davvero «il filtro non sta perdendo niente».
+
+        La prova si fa sulla CODA della finestra (gli ultimi `autoprova_giorni` giorni): la scansione
+        lineare su trent'anni di archivio costerebbe esattamente ciò che la voce 2.9 vuole evitare, e
+        quello che c'è da dimostrare — che il fuso e il formato della data siano quelli giusti — si
+        dimostra su un campione come su tutto.
+
+        Restituisce None se la finestra di prova è vuota da entrambe le parti: due insiemi vuoti sono
+        uguali, ma non hanno dimostrato niente, e ricordarsi un «passata» ottenuto così sarebbe
+        peggio che non provare.
+        """
+        fine = al or datetime.now(timezone.utc)
+        inizio = dal
+        if self.autoprova_giorni > 0:
+            inizio = max(dal, fine - timedelta(days=self.autoprova_giorni))
+        m = self.misura_finestra(cart, inizio, al)
+        if not m["disponibile"]:
+            return False
+        con, lineare = m["restrict"], m["lineare"]
+        if not con and not lineare:
+            log.info("self-test Restrict su %s: finestra di prova vuota, non concludente", cart.Name)
+            return None
+        ok, mancanti, in_piu = confronta_insiemi(con, lineare)
+        if not ok:
+            log.error("self-test Restrict FALLITO su %s: %d elementi che la scansione trova e il filtro no. "
+                      "Uso la scansione lineare su questa cartella (più lenta, ma non perde niente). "
+                      "Finestra di prova [%s, %s], primi mancanti: %s",
+                      cart.Name, len(mancanti), inizio.isoformat(), fine.isoformat(), mancanti[:3])
+            return False
+        if in_piu:
+            log.info("self-test Restrict su %s: %d elementi in più ai bordi della finestra (arrotondamento al minuto): innocui",
+                     cart.Name, len(in_piu))
+        log.info("self-test Restrict su %s: insiemi uguali su %d elementi, filtro attendibile", cart.Name, len(lineare))
+        return True
 
     def _converti(self, it, store_id: str, nome_cartella: str, e_inviata: bool) -> MessaggioIn:
         message_id = (_prop(it, PR_INTERNET_MESSAGE_ID) or "").strip()

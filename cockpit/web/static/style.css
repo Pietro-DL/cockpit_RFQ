@@ -59,3 +59,10 @@ details.conferma{display:inline-block}details.conferma summary{list-style:none;c
 .corpo-msg{white-space:pre-wrap;font:inherit;background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:8px;max-height:30vh;overflow:auto}
 .azioni-msg{display:flex;gap:6px;align-items:center;margin-top:6px}
 @media (max-width:900px){.thread-griglia{grid-template-columns:1fr}}
+/* voce 2.16 (Inbox viva) e 9.5 (shadow): stato del lavoro, novita, modalita di sola lettura */
+.chip.lavoro{background:#e4eefb;color:var(--acc)}
+.chip.nuove{background:#e3f1e8;color:#1f6b3d;font-weight:600}
+.chip.shadow{background:#3a3f4b;color:#fff;font-weight:700;letter-spacing:.06em}
+.chip.avviso-testata{background:#fff5d6;color:#8a6a00;max-width:42ch;overflow:hidden;text-overflow:ellipsis}
+.stato-worker button.aggiorna{font-size:12px;padding:2px 8px}
+.riga .pallino{color:var(--acc);font-size:10px;line-height:1}

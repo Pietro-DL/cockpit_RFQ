@@ -1,6 +1,6 @@
 """worker-outlook: client HTTP di cockpit.exe che esegue i job di tipo 'outlook' via COM.
 
-    python worker_outlook.py [--config worker.toml] [--una-volta] [--cartelle] [--caselle]
+    python worker_outlook.py [--config worker.toml] [--una-volta] [--cartelle] [--caselle] [--restrict [GIORNI]]
 
 Loop: POST /api/v1/jobs/claim (long-poll) → esegue → POST /api/v1/jobs/{id}/result.
 Un solo thread: le chiamate COM sono serializzate per costruzione. Se Outlook non risponde il job
@@ -29,7 +29,7 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Err
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
-from outlook_com import ErroreDefinitivo, Outlook
+from outlook_com import ErroreDefinitivo, Outlook, confronta_insiemi, filtro_finestra
 
 log = logging.getLogger("worker")
 
@@ -72,7 +72,11 @@ class Worker:
 
     def ol(self) -> Outlook:
         if self.outlook is None:
-            self.outlook = Outlook(consenti_invio=bool(self.cfg.get("consenti_invio", False)))
+            self.outlook = Outlook(
+                consenti_invio=bool(self.cfg.get("consenti_invio", False)),
+                usa_restrict=bool(self.cfg.get("usa_restrict", True)),
+                autoprova_giorni=int(self.cfg.get("autoprova_restrict_giorni", 7)),
+            )
         return self.outlook
 
     # ------------------------------------------------------------ caselle → store locale (voce 2.6)
@@ -116,6 +120,57 @@ class Worker:
         if cid in self.store:
             return self.store[cid]
         raise ErroreStoreLocale(f"la casella {cid[:8]} non è risolta nel profilo Outlook di {self.postazione}")
+
+    # ------------------------------------------------------------ C2 / C3 sul profilo vero (voce 2.9)
+
+    def autoprova_restrict(self, giorni: int) -> int:
+        """Esegue C2 e C3 su ogni casella servita e ogni cartella configurata, e stampa l'esito.
+
+        Non prende job, non scrive niente, non modifica nessun elemento: legge due volte la stessa
+        finestra — una con il filtro e una scorrendo tutto — e confronta gli insiemi di EntryID.
+        Stampa anche i due tempi, che sono la misura chiesta prima di qualunque altra idea sulla
+        lentezza del sync. Restituisce 0 se nessuna cartella ha perso elementi, 1 altrimenti.
+        """
+        self.risolvi_caselle(forza=True)
+        if not self.store:
+            print("Nessuna casella risolta in questo profilo: non c'è niente da provare.")
+            return 1
+        nomi = self.cfg.get("cartelle") or ["Posta in arrivo", "Inbox", "Posta inviata", "Sent Items"]
+        dal = datetime.now(timezone.utc) - timedelta(days=giorni)
+        print(f"Finestra di prova: ultimi {giorni} giorni (dal {dal.isoformat()} UTC)")
+        guai = 0
+        provate = 0
+        for c in self.caselle:
+            cid = str(c.get("casella_id", ""))
+            if cid not in self.store:
+                continue
+            for nome in nomi:
+                try:
+                    cart = self.ol().cartella(nome, self.store[cid])
+                except (ErroreDefinitivo, pywintypes.com_error):
+                    continue                      # nome non presente in questo store: si prova il prossimo
+                m = self.ol().misura_finestra(cart, dal)
+                provate += 1
+                etichetta = f"{c.get('nome') or c['indirizzo']} · {cart.Name}"
+                if not m["disponibile"]:
+                    guai += 1
+                    print(f"{etichetta}: Restrict NON DISPONIBILE (si userà la scansione lineare)")
+                    continue
+                ok, mancanti, in_piu = confronta_insiemi(m["restrict"], m["lineare"])
+                esito = "PASSATA" if ok else "FALLITA"
+                if not m["restrict"] and not m["lineare"]:
+                    esito = "non concludente (finestra vuota)"
+                if not ok:
+                    guai += 1
+                print(f"{etichetta}: {esito} — {len(m['lineare'])} elementi nella finestra, "
+                      f"Restrict {m['t_restrict']:.2f}s / lineare {m['t_lineare']:.2f}s"
+                      + (f", MANCANTI {len(mancanti)}" if mancanti else "")
+                      + (f", in più {len(in_piu)} (bordi al minuto)" if in_piu else ""))
+        if provate == 0:
+            print("Nessuna cartella trovata con i nomi provati: dichiarare `cartelle` in worker.toml.")
+            return 1
+        print(f"\nFiltro usato: {filtro_finestra(dal)}")
+        return 1 if guai else 0
 
     def dichiarazione(self) -> dict:
         """Che cosa il claim dichiara di questo worker (voce 2.2): il server interseca con la
@@ -378,6 +433,9 @@ def main() -> None:
     ap.add_argument("--caselle", action="store_true",
                     help="M1: chiede al server le caselle da servire, le risolve nel profilo Outlook e stampa "
                          "l'esito senza prendere nessun job")
+    ap.add_argument("--restrict", nargs="?", type=int, const=7, metavar="GIORNI",
+                    help="C2/C3 (voce 2.9): confronta il filtro Restrict con la scansione lineare sugli ultimi "
+                         "GIORNI giorni (default 7) di ogni casella servita, stampa insiemi e tempi, non prende job")
     ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
     cfg = carica_config(a.config, {"consenti_invio": False})
@@ -394,6 +452,8 @@ def main() -> None:
                   f"{'store ' + w.store[cid][:24] + '…' if cid in w.store else 'NON TROVATA nel profilo'}")
         print(f"dichiarazione al claim: {w.dichiarazione()}")
         return
+    if a.restrict:
+        raise SystemExit(w.autoprova_restrict(a.restrict))
     w.esegui_per_sempre(una_volta=a.una_volta)
 
 

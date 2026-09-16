@@ -281,8 +281,9 @@
 {{end}}
 
 {{define "stato_worker"}}
-<span id="stato-worker" class="stato-worker" hx-get="/stato/worker" hx-trigger="every 15s" hx-swap="outerHTML">
+<span id="stato-worker" class="stato-worker" hx-get="/stato/worker" hx-trigger="every {{with .Stato}}{{.AttesaTestata}}{{else}}15s{{end}}" hx-swap="outerHTML">
   {{with .Stato}}
+  {{if .Shadow}}<span class="chip shadow" title="{{.Shadow}}">SHADOW</span>{{end}}
   <form class="postazione" hx-post="/sessione/postazione" hx-trigger="change" title="{{if .SenzaPostazione}}{{.SenzaPostazione}}{{else}}Postazione della sessione (origine: {{.Origine}}): le azioni su Outlook aprono finestre qui{{end}}">
     <label>Sei su:
       <select name="postazione_id" class="{{if not .PostazioneID.Valid}}manca{{end}}">
@@ -291,8 +292,15 @@
       </select></label>
     {{if .SenzaPostazione}}<span class="chip fallito" title="{{.SenzaPostazione}}">senza postazione</span>{{end}}
   </form>
-  {{range .Caselle}}<span class="chip {{.Classe}}" title="{{.Dettaglio}}">{{.Nome}} {{if eq .Stato "attiva"}}attiva{{else if eq .Stato "offline"}}OFFLINE{{else if eq .Stato "non_risolta"}}non risolta{{else}}non configurata{{end}}</span> {{end}}
+  {{range .Caselle}}<span class="chip {{.Classe}}" title="{{.Dettaglio}}{{if .UltimoSync}} · ultimo sync {{oraLunga .UltimoSync}}{{else}} · mai sincronizzata{{end}}">{{.Nome}}
+    {{- if eq .Stato "attiva"}} attiva{{else if eq .Stato "in_corso"}} in corso…{{else if eq .Stato "offline"}} OFFLINE{{else if eq .Stato "non_risolta"}} non risolta{{else}} non configurata{{end}}
+    {{- if .UltimoSync}} · {{oraBreve .UltimoSync}}{{end}}
+    {{- if gt .Nuove 0}} · <b>{{.Nuove}} nuove</b>{{end}}</span> {{end}}
+  <button class="aggiorna" hx-post="/inbox/aggiorna" hx-target="#stato-worker" hx-swap="outerHTML"
+          title="Accoda subito un sync per ogni casella attiva. Premerlo più volte non accoda più lavoro: la richiesta è una sola per casella.">Aggiorna ora</button>
+  {{if gt .Nuove 0}}<a class="chip nuove" href="/inbox" title="Messaggi registrati dopo la tua ultima apertura dell'Inbox. Riaprendo l'Inbox il conteggio riparte.">{{.Nuove}} nuove</a>{{end}}
   <span class="chip {{.Analisi.Classe}}" title="{{.Analisi.Dettaglio}}">{{.Analisi.Etichetta}}</span>
+  {{if .Avviso}}<span class="chip avviso-testata">{{.Avviso}}</span>{{end}}
   {{end}}
 </span>
 {{end}}

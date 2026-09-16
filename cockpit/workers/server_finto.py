@@ -95,6 +95,29 @@ class ServerFinto:
                 n = int(self.headers.get("Content-Length") or 0)
                 return json.loads(self.rfile.read(n) or b"{}") if n else {}
 
+            def _scarta_corpo(self) -> None:
+                """Legge e butta via il corpo della richiesta prima di rifiutarla.
+
+                Un server che risponde senza aver letto ciò che gli è stato mandato chiude la
+                connessione lasciando dati non consumati, e lo stack TCP manda un RST: su Windows il
+                client che sta ancora leggendo la risposta riceve «connessione interrotta» invece del
+                401. Il risultato è un test che fallisce una volta ogni tre per un motivo che non ha
+                niente a che vedere con quello che prova. Il server vero legge sempre la richiesta;
+                questo deve fare lo stesso.
+                """
+                n = int(self.headers.get("Content-Length") or 0)
+                while n > 0:
+                    letto = self.rfile.read(min(n, 1 << 16))
+                    if not letto:
+                        return
+                    n -= len(letto)
+
+            def _non_autorizzato(self) -> None:
+                self._scarta_corpo()
+                with padrone.lock:
+                    padrone.non_autorizzati += 1
+                self._rispondi(401, {"errore": "token worker non valido"})
+
             def _rispondi(self, stato: int, corpo=None):
                 dati = json.dumps(corpo).encode() if corpo is not None else b""
                 self.send_response(stato)
@@ -107,9 +130,7 @@ class ServerFinto:
 
             def do_POST(self):  # noqa: N802 (nome imposto da BaseHTTPRequestHandler)
                 if self.headers.get("X-Cockpit-Token") != padrone.token:
-                    with padrone.lock:
-                        padrone.non_autorizzati += 1
-                    self._rispondi(401, {"errore": "token worker non valido"})
+                    self._non_autorizzato()
                     return
                 corpo = self._corpo()
                 percorso = self.path
@@ -172,9 +193,7 @@ class ServerFinto:
 
             def do_GET(self):  # noqa: N802
                 if self.headers.get("X-Cockpit-Token") != padrone.token:
-                    with padrone.lock:
-                        padrone.non_autorizzati += 1
-                    self._rispondi(401, {"errore": "token worker non valido"})
+                    self._non_autorizzato()
                     return
                 parti = urlsplit(self.path)
                 if parti.path == "/api/v1/worker/caselle":
@@ -190,9 +209,7 @@ class ServerFinto:
                 che cosa il worker ha caricato e con quale tentativo. Il corpo si legge tutto, come
                 fa il server vero, e se ne calcola lo sha256 per confrontarlo con il result."""
                 if self.headers.get("X-Cockpit-Token") != padrone.token:
-                    with padrone.lock:
-                        padrone.non_autorizzati += 1
-                    self._rispondi(401, {"errore": "token worker non valido"})
+                    self._non_autorizzato()
                     return
                 parti = urlsplit(self.path)
                 pezzi = parti.path.split("/")

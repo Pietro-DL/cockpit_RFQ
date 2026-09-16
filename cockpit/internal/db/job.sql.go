@@ -58,6 +58,43 @@ func (q *Queries) AnnullaJob(ctx context.Context, jobID int64) (Job, error) {
 	return i, err
 }
 
+const annullaJobDellaShadow = `-- name: AnnullaJobDellaShadow :many
+UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
+    chiuso_il = now(), errore = concat_ws(' ', errore, '[annullato al ritorno in produzione: creato in shadow]')
+WHERE stato IN ('pronto','in_corso')
+  AND tipo::text = ANY ($1::text[])
+  AND errore LIKE '%[in attesa di produzione]%'
+RETURNING job_id, tipo
+`
+
+type AnnullaJobDellaShadowRow struct {
+	JobID int64   `json:"job_id"`
+	Tipo  TipoJob `json:"tipo"`
+}
+
+// Al passaggio shadow → produzione: nulla di ciò che ha aspettato durante la shadow parte a sorpresa
+// (§2.7, D16). Chi vuole davvero quelle copie le rimette in coda con «riprova copie», che è un gesto
+// esplicito di una persona; i documenti restano `in_coda` e non si perde niente.
+func (q *Queries) AnnullaJobDellaShadow(ctx context.Context, tipi []string) ([]AnnullaJobDellaShadowRow, error) {
+	rows, err := q.db.Query(ctx, annullaJobDellaShadow, tipi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AnnullaJobDellaShadowRow{}
+	for rows.Next() {
+		var i AnnullaJobDellaShadowRow
+		if err := rows.Scan(&i.JobID, &i.Tipo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const annullaJobScaduti = `-- name: AnnullaJobScaduti :execrows
 UPDATE job SET stato = 'annullato'::stato_job, lease_fino_a = NULL, lease_token = NULL, worker_id = NULL,
     chiuso_il = now(), errore = concat_ws(' ', errore, '[scaduto prima di essere eseguito]')
@@ -136,16 +173,18 @@ WHERE job_id = (
       AND (j.scade_il IS NULL OR j.scade_il > now())
       AND (j.casella_id IS NULL OR j.casella_id = ANY ($3::uuid[]))
       AND (j.postazione_id IS NULL OR j.postazione_id = $4::uuid)
+      AND j.tipo::text <> ALL ($5::text[])
     ORDER BY j.priorita, j.job_id
     FOR UPDATE SKIP LOCKED LIMIT 1)
 RETURNING job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il
 `
 
 type ClaimJobParams struct {
-	WorkerID   pgtype.Text   `json:"worker_id"`
-	WorkerTipo WorkerTipo    `json:"worker_tipo"`
-	Caselle    []uuid.UUID   `json:"caselle"`
-	Postazione uuid.NullUUID `json:"postazione"`
+	WorkerID    pgtype.Text   `json:"worker_id"`
+	WorkerTipo  WorkerTipo    `json:"worker_tipo"`
+	Caselle     []uuid.UUID   `json:"caselle"`
+	Postazione  uuid.NullUUID `json:"postazione"`
+	TipiEsclusi []string      `json:"tipi_esclusi"`
 }
 
 // Un solo UPDATE: il tentativo nasce qui con un token nuovo e con avviato_il, che fissa l'inizio da
@@ -157,12 +196,18 @@ type ClaimJobParams struct {
 // postazione. Nessun ripiego: un job interattivo per PC-FRANCESCO resta in coda finché il worker di
 // PC-FRANCESCO non lo prende, e se non arriva scade (M10). Un job senza casella e senza postazione
 // (analisi, server) lo prende chiunque del tipo giusto.
+//
+// MODALITÀ SHADOW (§2.7, D16). `tipi_esclusi` sono i tipi che in shadow non si eseguono nemmeno se
+// qualcuno li ha messi in coda prima: il blocco all'accodamento da solo non basta, perché la coda
+// sopravvive al cambio di modalità e un job della settimana scorsa scriverebbe sul NAS vero appena il
+// worker lo prende. Array vuoto in produzione: `<> ALL ('{}')` è vero per tutti.
 func (q *Queries) ClaimJob(ctx context.Context, arg ClaimJobParams) (Job, error) {
 	row := q.db.QueryRow(ctx, claimJob,
 		arg.WorkerID,
 		arg.WorkerTipo,
 		arg.Caselle,
 		arg.Postazione,
+		arg.TipiEsclusi,
 	)
 	var i Job
 	err := row.Scan(
@@ -741,6 +786,28 @@ func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]ListWorkerPresenzaR
 		return nil, err
 	}
 	return items, nil
+}
+
+const marcaJobInAttesaDiProduzione = `-- name: MarcaJobInAttesaDiProduzione :execrows
+UPDATE job SET errore = concat_ws(' ', errore, '[in attesa di produzione]')
+WHERE stato IN ('pronto','in_corso')
+  AND tipo::text = ANY ($1::text[])
+  AND (errore IS NULL OR errore NOT LIKE '%[in attesa di produzione]%')
+`
+
+// All'avvio in shadow: i job dei tipi bloccati che erano già in coda restano lì, visibili, ma con
+// scritto che cosa li tiene fermi. Senza questa riga in admin comparirebbero come lavoro arretrato e
+// qualcuno premerebbe «riaccoda» per settimane senza capire perché non parte niente (SH1).
+//
+// Il marcatore serve anche dopo: è la memoria di «questi job hanno attraversato una shadow», ed è ciò
+// che al ritorno in produzione permette di annullare quelli e soltanto quelli, invece di buttare via
+// anche le copie NAS accodate un minuto fa da un operatore.
+func (q *Queries) MarcaJobInAttesaDiProduzione(ctx context.Context, tipi []string) (int64, error) {
+	result, err := q.db.Exec(ctx, marcaJobInAttesaDiProduzione, tipi)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const postazioniConWorkerAllIndirizzo = `-- name: PostazioniConWorkerAllIndirizzo :many

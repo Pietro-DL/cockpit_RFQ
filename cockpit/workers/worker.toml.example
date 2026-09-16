@@ -21,3 +21,23 @@ consenti_invio = false
 # sua credenziale) e le risolve nel profilo Outlook di questo PC. Ogni quanti secondi rifare la
 # risoluzione (una cassetta aggiunta al profilo viene vista senza riavviare). Default 300.
 # risolvi_caselle_ogni_s = 300
+
+# ------------------------------------------------------------------ finestra temporale (voce 2.9)
+# Il sync chiede a Outlook solo la finestra che gli serve, con un filtro DASL in UTC (`Restrict`),
+# invece di scorrere tutta la cartella all'indietro. Su una casella con 20 000 elementi è la
+# differenza fra un secondo e due minuti.
+#
+# Prima di fidarsene, il worker lo PROVA: la prima volta che legge una cartella confronta gli insiemi
+# di EntryID trovati con il filtro e trovati scorrendo tutto. Se il filtro ne perde anche uno solo, lo
+# spegne per quella cartella e continua con la scansione lineare — più lenta, ma completa. L'esito è
+# nel log del worker.
+#
+# usa_restrict = false lascia solo la scansione lineare: la via d'uscita se un profilo si comportasse
+# in un modo che il self-test non prevede. Meglio lento che incompleto.
+# usa_restrict = true
+# Su quanti giorni fare la prova (0 = su tutta la finestra, cioè lento quanto ciò che vuole evitare).
+# autoprova_restrict_giorni = 7
+#
+# Per eseguire la prova a mano, senza prendere job:  python worker_outlook.py --restrict 7
+# Serve i nomi delle cartelle: se non sono quelli predefiniti, dichiararli qui.
+# cartelle = ["Posta in arrivo", "Posta inviata"]
