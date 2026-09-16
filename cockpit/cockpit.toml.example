@@ -19,6 +19,11 @@
 #     Lo zip contiene un worker.toml già pronto — indirizzo, impronta del certificato, un token
 #     DIVERSO per ogni worker di quel PC — più i file del worker.
 #  6. Scompattare il pacchetto sul PC, in `workers\`, e avviare i worker.
+#  7. L'anagrafica dei clienti NON sta in questo file: i clienti non sono configurazione, si
+#     aggiungono e si correggono mentre il Cockpit gira. Il primo caricamento si fa una volta sola
+#     da un file JSON esterno, `cockpit.exe -semina-anagrafica seme_anagrafica.json` (formato ed
+#     effetti nel README), e da li' in avanti si lavora da **Admin -> Anagrafica**, che e' anche
+#     l'unico posto in cui si scrivono peso, portale e regole di riconoscimento.
 #
 # SE SI ARRIVA DA UN TOKEN CONDIVISO (un solo segreto copiato in tutti i [[worker]]): svuotare i
 # `token` qui è la mossa giusta ma NON basta, perché il seed non riscrive un token che il file non
