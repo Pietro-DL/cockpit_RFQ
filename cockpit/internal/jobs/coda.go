@@ -426,7 +426,17 @@ func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o
 	}
 	perCartella := map[string]*time.Time{}
 	var piuVecchio *time.Time
+	adesso := time.Now()
 	for _, c := range cursori {
+		// Un cursore nel futuro non è utilizzabile: aprirebbe una finestra che comincia dopo
+		// l'orologio, e il sync non leggerebbe più niente finché quel futuro non è passato. Ce ne sono
+		// in database, scritti prima della correzione del 16/09/2026 (date di Outlook prese per UTC
+		// quando erano ora locale: due ore avanti). Qui si ignorano, così quella casella riparte dalla
+		// finestra predefinita e si rilegge — una rilettura costa una deduplica per Message-ID, che il
+		// server fa comunque; fidarsi di quel cursore costerebbe la posta di due ore.
+		if c.UltimoReceived != nil && api.NelFuturo(*c.UltimoReceived, adesso) {
+			continue
+		}
 		perCartella[c.Cartella] = c.UltimoReceived
 		if c.UltimoReceived != nil {
 			if piuVecchio == nil || c.UltimoReceived.Before(*piuVecchio) {

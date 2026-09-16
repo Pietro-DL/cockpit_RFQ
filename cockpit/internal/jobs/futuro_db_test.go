@@ -1,0 +1,105 @@
+//go:build integrazione
+
+// L4 — un cursore nel futuro non blocca la casella (correzione del 16/09/2026).
+//
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/jobs/
+//
+// La guardia dell'ingest impedisce che un cursore impossibile venga SCRITTO. Questo è l'altro lato:
+// in database ce ne sono già — quelli del 16/09, due ore avanti — e finché ci sono la finestra del
+// sync comincerebbe nel futuro e quella casella non leggerebbe più niente. Ignorarli qui è ciò che
+// fa ripartire il sync da solo, senza una correzione a mano su un database di produzione.
+package jobs
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+	"time"
+
+	"promatec/cockpit/internal/api"
+	"promatec/cockpit/internal/db"
+)
+
+func casellaDiProva(t *testing.T, ctx context.Context, q *db.Queries, indirizzo string) db.Casella {
+	t.Helper()
+	c, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
+		Canale: db.CanaleOutlook, Indirizzo: indirizzo, Nome: "Prova", Condivisa: false,
+	})
+	if err != nil {
+		t.Fatalf("casella: %v", err)
+	}
+	return c
+}
+
+func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
+	_, q, ctx := preparaDB(t)
+	casella := casellaDiProva(t, ctx, q, "commerciale@azienda.it")
+
+	futuro := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	sano := time.Now().Add(-30 * time.Minute).UTC().Truncate(time.Second)
+	scrivi := func(cartella string, quando time.Time) {
+		t.Helper()
+		if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
+			CasellaID: casella.CasellaID, Cartella: cartella, UltimoReceived: &quando,
+		}); err != nil {
+			t.Fatalf("cursore %s: %v", cartella, err)
+		}
+	}
+	scrivi("Inbox", futuro)    // scritto prima della correzione
+	scrivi("Sent Items", sano) // scritto bene
+
+	j, err := AccodaSyncCasella(ctx, q, casella, SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Lotto: 50})
+	if err != nil || j == nil {
+		t.Fatalf("il sync non è stato accodato: %v", err)
+	}
+	var p api.PayloadSyncOutlook
+	if err := json.Unmarshal(j.Payload, &p); err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	per := map[string]*time.Time{}
+	for _, c := range p.Cartelle {
+		per[c.Cartella] = c.UltimoReceived
+	}
+	if per["Inbox"] != nil {
+		t.Errorf("l'Inbox riparte dal cursore nel futuro (%v): la finestra comincerebbe fra due ore", per["Inbox"])
+	}
+	if per["Sent Items"] == nil || !per["Sent Items"].Equal(sano) {
+		t.Errorf("il cursore buono è stato buttato via: %v, atteso %v", per["Sent Items"], sano)
+	}
+	// `dal` è il limite inferiore quando il cursore manca: non deve essere il futuro, o non leggerebbe
+	// niente lo stesso.
+	if api.NelFuturo(p.Dal, time.Now()) {
+		t.Errorf("il limite inferiore della finestra è nel futuro: %v", p.Dal)
+	}
+	if !p.Dal.Equal(sano) {
+		t.Errorf("dal = %v, atteso il più vecchio dei cursori utilizzabili (%v)", p.Dal, sano)
+	}
+}
+
+func TestSenzaCursoriUtilizzabiliLaFinestraTornaQuellaPredefinita(t *testing.T) {
+	_, q, ctx := preparaDB(t)
+	casella := casellaDiProva(t, ctx, q, "francesco@azienda.it")
+	futuro := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
+	if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
+		CasellaID: casella.CasellaID, Cartella: "Inbox", UltimoReceived: &futuro,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	j, err := AccodaSyncCasella(ctx, q, casella, SyncOpzioni{Cartelle: []string{"Inbox"}, Lotto: 50})
+	if err != nil || j == nil {
+		t.Fatalf("il sync non è stato accodato: %v", err)
+	}
+	var p api.PayloadSyncOutlook
+	if err := json.Unmarshal(j.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	// L'unico cursore era inutilizzabile: si rilegge il mese, che costa una deduplica per Message-ID.
+	// L'alternativa — fidarsi — costa la posta finché il futuro non è passato.
+	if p.Dal.After(time.Now().AddDate(0, 0, -20)) {
+		t.Errorf("dal = %v: senza cursori utilizzabili la finestra deve tornare quella predefinita", p.Dal)
+	}
+	if p.CasellaID == nil || *p.CasellaID != casella.CasellaID {
+		t.Errorf("il payload non porta la casella: %v", p.CasellaID)
+	}
+}

@@ -64,6 +64,31 @@ type MessaggioIn struct {
 	Allegati          []AllegatoIn   `json:"allegati"`
 }
 
+// TolleranzaFuturo è quanto un messaggio può dichiarare di essere arrivato «dopo adesso» prima che
+// il server smetta di credergli.
+//
+// Un po' di futuro è normale: l'orologio del PC del worker e quello del server non sono lo stesso, e
+// fra la lettura in Outlook e la scrittura in database passa qualche istante. Due ore no. Il
+// 16/09/2026 ci sono arrivate esattamente due ore — pywin32 consegna le date di Outlook con i numeri
+// dell'ora locale e l'etichetta UTC — e il danno non è stato il valore sbagliato in sé: è stato il
+// CURSORE, che è avanzato con loro. Un cursore nel futuro apre una finestra che comincia fra due ore,
+// e da quel momento il sync non legge più niente senza che niente lo segnali.
+//
+// La correzione sta nel worker (`_utc` in outlook_com.py). Questa è la guardia: il server è l'ultimo
+// posto in cui il difetto si può fermare prima che diventi un cursore, e deve fermarlo anche quando
+// arriva da un worker più vecchio, o da un PC con l'orologio sbagliato.
+const TolleranzaFuturo = 5 * time.Minute
+
+// NelFuturo: `quando` è più avanti di `adesso` di quanto sia spiegabile con due orologi diversi. Un
+// istante vuoto non è nel futuro: è un dato che manca, e lo trattano gli altri controlli.
+//
+// Sta qui, in un file che altrimenti contiene solo tipi, perché la stessa domanda se la fanno tre
+// punti lontani fra loro — l'elemento in ingresso, il cursore che il lotto porta con sé, il cursore
+// già scritto in database quando si accoda il sync successivo — e la risposta deve essere una sola.
+func NelFuturo(quando, adesso time.Time) bool {
+	return !quando.IsZero() && quando.After(adesso.Add(TolleranzaFuturo))
+}
+
 // CursoreLotto: fin dove arriva questo lotto. Il server lo scrive nella stessa transazione degli
 // elementi, quindi o avanzano insieme o non avanza niente.
 type CursoreLotto struct {

@@ -275,14 +275,25 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 	// muove e il lotto viene ripetuto per intero. GREATEST impedisce che due tentativi lo facciano
 	// arretrare (Q22).
 	if l.Cursore != nil && l.Cursore.Cartella != "" {
-		// Il cursore è di QUESTA casella: la cartella da sola non basta più. Due caselle con una
-		// «Posta in arrivo» scrivevano sulla stessa riga e si facevano avanzare il cursore a vicenda,
-		// e un cursore avanzato di troppo è una finestra che l'altra casella non rilegge mai (2.1).
-		if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
-			CasellaID: l.Casella.CasellaID, Cartella: l.Cursore.Cartella, UltimoReceived: &l.Cursore.UltimoReceived,
-			NMessaggi: int32(out.Inseriti + out.Aggiornati),
-		}); err != nil {
-			return out, err
+		switch {
+		case api.NelFuturo(l.Cursore.UltimoReceived, time.Now()):
+			// Il cursore lo calcola il worker sulle stesse date dei messaggi: se quelle sono nel futuro
+			// lo è anche lui, e scriverlo significherebbe aprire la prossima finestra dopo l'orologio e
+			// non leggere più niente finché il futuro non è passato (16/09/2026). Fermo dov'è, la
+			// finestra viene riletta: costa una rilettura, che è l'errore che si corregge da solo.
+			s.Log.Warn("cursore nel futuro: non avanza", "casella", l.Casella.Indirizzo, "cartella", l.Cursore.Cartella,
+				"ultimo_received", l.Cursore.UltimoReceived.UTC().Format(time.RFC3339), "tolleranza", api.TolleranzaFuturo)
+		default:
+			// Il cursore è di QUESTA casella: la cartella da sola non basta più. Due caselle con una
+			// «Posta in arrivo» scrivevano sulla stessa riga e si facevano avanzare il cursore a
+			// vicenda, e un cursore avanzato di troppo è una finestra che l'altra casella non rilegge
+			// mai (2.1).
+			if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
+				CasellaID: l.Casella.CasellaID, Cartella: l.Cursore.Cartella, UltimoReceived: &l.Cursore.UltimoReceived,
+				NMessaggi: int32(out.Inseriti + out.Aggiornati),
+			}); err != nil {
+				return out, err
+			}
 		}
 	}
 
@@ -446,6 +457,18 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	dichiarata := db.Direzione(m.Direzione)
 	if !dichiarata.Valid() {
 		return esito, fmt.Errorf("direzione non valida: %q", m.Direzione)
+	}
+	// Un messaggio che dichiara di essere arrivato nel futuro non entra: finisce in scarto con il
+	// payload intero, e il cursore resta dov'è (vedi Ingerisci). Scartarlo non è pignoleria sul dato:
+	// è `ricevuto_il` che fa avanzare il cursore, quindi accettarlo vorrebbe dire spostare la
+	// finestra di lettura oltre l'orologio e smettere di leggere la posta. Quando l'ora torna
+	// plausibile — worker aggiornato, o orologio sistemato — lo stesso elemento rientra dal replay o
+	// dal sync successivo, e lo scarto sparisce da solo.
+	if ric := RicevutoIn(m); api.NelFuturo(ric, time.Now()) {
+		return esito, fmt.Errorf("ricevuto_il nel futuro: %s, oltre la tolleranza di %s sull'ora del server. "+
+			"O l'orologio del PC del worker è avanti, o le date di Outlook stanno arrivando come ora locale "+
+			"etichettata UTC (correzione del 16/09/2026 in outlook_com._utc)",
+			ric.UTC().Format(time.RFC3339), api.TolleranzaFuturo)
 	}
 	dir, interno := nostri.DirezioneEInterno(m.MittenteIndirizzo, m.Destinatari, dichiarata)
 

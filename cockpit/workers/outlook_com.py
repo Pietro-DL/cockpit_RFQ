@@ -54,10 +54,44 @@ class ErroreDefinitivo(Exception):
     """Errore che non ha senso ritentare (elemento eliminato, allegato non salvabile)."""
 
 
-def _utc(d) -> datetime:
-    """pywintypes.datetime → datetime UTC aware (il tzinfo COM è inaffidabile, timestamp() no)."""
+# Il tipo che pywin32 restituisce per ogni data che arriva da COM (`pywintypes.datetime`). Se una
+# versione di pywin32 non lo esportasse, la tupla vuota rende ogni `isinstance` falso: si torna al
+# comportamento di prima invece di fermare il worker.
+_TIPO_ORA_COM = getattr(pywintypes, "TimeType", ())
+
+
+def _utc(d, fuso_locale=None) -> datetime:
+    """Una data letta da Outlook → datetime UTC **vero**.
+
+    Difetto del 16/09/2026, e vale la pena scriverlo per esteso perché non si vede guardando il
+    codice. `ReceivedTime` e `SentOn` dell'Object Model sono VT_DATE: un numero SENZA fuso che porta
+    l'ora **locale** del PC. pywin32 lo converte in un `pywintypes.datetime` e gli attacca `tzinfo`
+    **UTC**, perché è la convenzione della sua conversione, non perché quel valore sia in UTC. Ne
+    esce un oggetto che dichiara UTC e porta i numeri dell'ora locale, e `timestamp()` lo prende in
+    parola: le 10:52 di Roma diventano le 10:52 UTC, cioè le 12:52 di Roma. Due ore nel futuro.
+
+    Non dà errore da nessuna parte. Si è visto nei cursori di sync — `ultimo_received` avanti di due
+    ore rispetto all'orologio del server, quindi una finestra che comincia nel futuro e un sync che
+    non legge più niente finché le due ore non sono passate — e in ogni `ricevuto_il` scritto in
+    database (log del 16/09, 08:52).
+
+    La correzione è prendere i CAMPI e leggerli nel fuso del PC, che è ciò che sono. Per i valori che
+    non vengono da COM (i test, un `datetime` costruito a mano) resta la conversione di prima: lì il
+    fuso dichiarato è quello vero e `timestamp()` è affidabile.
+
+    `fuso_locale` serve ai test per non dipendere dal fuso della macchina che li esegue; in
+    produzione è sempre None, cioè «il fuso di questo PC, con l'ora legale del giorno di quella
+    data».
+    """
     if d is None:
         return datetime.now(timezone.utc)
+    if isinstance(d, _TIPO_ORA_COM):
+        locale = datetime(d.year, d.month, d.day, d.hour, d.minute, d.second)
+        if fuso_locale is not None:
+            locale = locale.replace(tzinfo=fuso_locale)
+        else:
+            locale = locale.astimezone()   # naive → fuso di questo PC, ora legale compresa
+        return locale.astimezone(timezone.utc)
     return datetime.fromtimestamp(d.timestamp(), tz=timezone.utc).replace(microsecond=0)
 
 
