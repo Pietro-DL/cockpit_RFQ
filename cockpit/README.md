@@ -180,9 +180,11 @@ da quello: `ufficio` è organigramma, la `sigla` è il nome utente del login.
 | `tecnico` | oggi quanto l'operatore; esiste da adesso perché le azioni della fattibilità e dell'albero saranno sue |
 | `consultazione` | sola lettura: nessun POST, in nessuna schermata |
 
-**Almeno uno deve essere `admin`**: il pacchetto dei worker lo genera solo lui, e senza nessuno che
-possa aprire *Postazioni* non si aggiunge più un PC. Un ruolo scritto male non diventa `operatore` in
-silenzio: il server non parte e dice quale utente e quali parole sono ammesse.
+**Almeno uno deve essere `admin`**, e il server **non parte** senza: il pacchetto dei worker lo genera
+solo lui, e senza nessuno che possa aprire *Postazioni* non si aggiunge più un PC. Anche un ruolo
+scritto male ferma l'avvio invece di diventare `operatore` in silenzio, e dice quale utente e quali
+parole sono ammesse. (Un file **senza nessun** `[[utenti]]` parte: è un file a cui non sono ancora
+stati aggiunti, e lo dice l'impossibilità di entrare.)
 
 `password` serve solo a far **nascere** l'utente. Appena in database c'è un hash bcrypt valido, il
 file non lo sostituisce più — nemmeno riavviando con una password diversa scritta qui, e il server

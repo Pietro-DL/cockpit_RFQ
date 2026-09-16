@@ -91,3 +91,57 @@ ruolo = "admin"
 		t.Fatalf("due utenti con la stessa sigla: %v", err)
 	}
 }
+
+// Almeno un `admin` fra gli [[utenti]]. La regola è dichiarata nel README dalla voce 6.9, e una
+// regola dichiarata e non imposta è peggio di una che non c'è: un file con soli operatori è un
+// Cockpit in cui *Postazioni* non la apre più nessuno, cioè in cui non si può più aggiungere un PC —
+// e lo si scopre dal primo 403, mentre si sta facendo altro.
+func TestSenzaNessunAdminIlServerNonParte(t *testing.T) {
+	_, err := Carica(scrivi(t, `
+[[utenti]]
+sigla = "FP"
+nome = "Nome Cognome"
+ruolo = "operatore"
+[[utenti]]
+sigla = "LU"
+nome = "Nome Cognome"
+ruolo = "tecnico"
+`))
+	if err == nil {
+		t.Fatal("il server è partito senza nessun amministratore")
+	}
+	for _, atteso := range []string{"admin", "postazioni"} {
+		if !strings.Contains(err.Error(), atteso) {
+			t.Errorf("l'errore non dice %q: %v", atteso, err)
+		}
+	}
+}
+
+// Un solo admin basta, e gli altri restano quello che sono.
+func TestUnAdminBasta(t *testing.T) {
+	c, err := Carica(scrivi(t, `
+[[utenti]]
+sigla = "FP"
+nome = "Nome Cognome"
+ruolo = "operatore"
+[[utenti]]
+sigla = "PS"
+nome = "Nome Cognome"
+ruolo = "admin"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Utenti[0].Ruolo != "operatore" || c.Utenti[1].Ruolo != "admin" {
+		t.Errorf("i ruoli non sono quelli scritti nel file: %v", c.Utenti)
+	}
+}
+
+// Nessun utente configurato NON è un errore: è un file a cui non sono ancora stati aggiunti. Lo dice
+// l'impossibilità di entrare, non un avvio che si rifiuta — e i test che non parlano di utenti non
+// devono doverne dichiarare uno per far partire la configurazione.
+func TestSenzaUtentiLaConfigurazioneSiCaricaLoStesso(t *testing.T) {
+	if _, err := Carica(scrivi(t, "")); err != nil {
+		t.Fatalf("una configurazione senza [[utenti]] non si carica più: %v", err)
+	}
+}

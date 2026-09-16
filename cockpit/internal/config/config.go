@@ -314,6 +314,24 @@ func (c *Config) normalizzaUtenti() error {
 			return fmt.Errorf("config: utente %s: ruolo %q non valido (ammessi: %s)", u.Sigla, u.Ruolo, RuoliAmmessi())
 		}
 	}
+	// Almeno un `admin`, se qualcuno c'è. Le schermate tecniche — coda dei job, scarti, e soprattutto
+	// la generazione dei pacchetti dei worker — sono sue: un file con soli operatori è un Cockpit in
+	// cui nessuno può più aggiungere un PC, e lo si scopre dal primo 403 sulla pagina *Postazioni*,
+	// cioè mentre si sta facendo altro. Il README lo dichiara dalla voce 6.9: una regola scritta e
+	// non imposta è peggio di una regola che non c'è.
+	//
+	// Nessun utente configurato non è un errore qui: è un file a cui non sono ancora stati aggiunti,
+	// e lo dice l'impossibilità di entrare, non un avvio che si rifiuta.
+	if len(c.Utenti) > 0 {
+		admin := false
+		for _, u := range c.Utenti {
+			admin = admin || db.RuoloUtente(u.Ruolo) == db.RuoloUtenteAdmin
+		}
+		if !admin {
+			return fmt.Errorf("config: nessun utente con ruolo %q fra i %d [[utenti]]: le schermate tecniche (coda job, scarti, postazioni, pacchetti dei worker) non le aprirebbe nessuno",
+				db.RuoloUtenteAdmin, len(c.Utenti))
+		}
+	}
 	return nil
 }
 

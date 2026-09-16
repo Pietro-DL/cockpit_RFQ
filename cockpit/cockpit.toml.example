@@ -156,6 +156,7 @@ termini_cartiglio = ["scala", "materiale", "tolleranze", "trattamento"]
 # SERVE ALMENO UN `admin`, perché il pacchetto dei worker (passo 5 qui sopra) lo genera solo lui.
 # Senza nessuno che possa aprire Postazioni non si aggiunge più un PC — e se l'unico amministratore
 # viene declassato a operatore, quella porta si chiude mentre tutto il resto continua a funzionare.
+# Per questo il server NON PARTE se fra gli [[utenti]] non ce n'è nessuno con ruolo admin.
 #
 # `password` serve SOLO a far nascere l'utente. Appena in database c'è un hash valido il file non lo
 # sostituisce più: riavviare con una password diversa scritta qui non la cambia, e il server lo

@@ -5,13 +5,18 @@ verificato**. Come per [FASE_0.md](FASE_0.md) e [FASE_1.md](FASE_1.md), la docum
 completa (piani, decisioni aperte, registri degli esiti, richieste all'IT) vive fuori da questo
 repository.
 
-**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3**, il blocco
+**Stato: completata** (16/09/2026, dopo il test manuale del RBAC in un browser vero).
+Di questa fase sono chiuse le voci **2.1**, **2.3**, il blocco
 **2.2 + 2.6 + 2.7**, il **blocco 1 dell'addendum** (2.9, 2.16, 9.5 — con la correzione del fuso del
 16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*,
 con la correzione del 16/09 sul passaggio dal token condiviso), più le correzioni del 15 e del
 16/09/2026, il **checkpoint UI/RBAC** (6.9 e metà della 6.4, anticipate) e il **checkpoint sync**
-(voce 2.8: finestra iniziale e archivio a pezzi da due giorni). Restano le voci **2.10–2.15**,
-elencate in fondo: entrano nei blocchi dove servono.
+(voce 2.8: finestra iniziale e archivio a pezzi da due giorni).
+
+Completata **non** vuol dire che non resti niente di questi numeri: le voci **2.10–2.15** non sono
+state fatte qui perché l'addendum del 16/09 le ha spostate nei blocchi dove servono, e alcune prove
+reali restano aperte perché aspettano hardware o Exchange che ancora non c'è (il secondo PC, la VM
+Linux con il NAS montato, la casella condivisa). Sono elencate in fondo, una per una.
 
 Le prove reali su `4e2f68b` sono **passate**: M1, C2/C3, TZ2 e CR1 sono righe compilate di
 `esiti_reali.md`, che vive fuori da questo repository.
@@ -685,6 +690,7 @@ il cambio password, quando arriverà, sarebbe tornato indietro da solo la notte 
 | il 403 | testo grezzo | frammento HTMX dentro la pagina, pagina intera con la via d'uscita se l'indirizzo è scritto a mano; in tutti e due i casi dice quale ruolo serve, e finisce nel log |
 | `consultazione` | poteva tutto ciò che poteva un operatore | nessun metodo che scrive, **per tutte** le rotte dietro all'autenticazione, comprese quelle che non esistono ancora |
 | ruolo sconosciuto in `cockpit.toml` | diventava `operatore` | il server **non parte**: dice quale utente, che cosa c'era scritto e quali parole sono ammesse |
+| nessun `admin` fra gli `[[utenti]]` | partiva, e *Postazioni* non la apriva più nessuno | il server **non parte** (aggiunto il 16/09 dopo il test manuale: la regola era già scritta nel README e non era imposta) |
 | `password` nel TOML | riscritta a ogni avvio | fa **nascere** l'utente; se in database c'è un hash bcrypt valido, vince quello — e chi scrive una password nuova nel file lo legge nel log |
 | sessione senza postazione | restava tale fino al logout | si riabbina appena un worker di quel PC fa claim dallo stesso IP (W14 esteso) |
 
@@ -754,8 +760,10 @@ Verificate anche **al contrario**, rimettendo il difetto uno per volta:
 
 ### Che cosa questo checkpoint NON dimostra
 
-- **Il browser: NON PROVATO.** Che la barra si veda davvero senza le tre voci, e che il 403 si legga
-  dentro la pagina invece di sfigurarla, è L7;
+- ~~il browser~~: **PROVATO** il 16/09/2026 (RB1, registro reale). Con `cockpit.toml` portato ai due
+  utenti previsti — PS `admin`, FP `operatore` — e il server riavviato, il RBAC si comporta come
+  descritto. I singoli passi non sono stati trascritti uno per uno: nel registro resta ciò che è stato
+  riferito;
 - **la visibilità per casella (D12, voce 2.15): fuori perimetro.** Resta la regola restrittiva: un
   ruolo alto non amplia la visibilità della posta personale;
 - **il cambio password dalla UI (voce 6.4): NON FATTO.** Qui c'è solo la metà che protegge il
@@ -924,8 +932,8 @@ un'ottimizzazione, è una condizione di correttezza.
 | L1 + L4 correzione del 16/09 (credenziali) | **PK2**: token condiviso → token vuoti → rigenerazione → due credenziali individuali, con il riavvio che non le sovrascrive; la credenziale mai generata e il suo segnaposto; `StatoCredenziali` (L1); 8 prove L1/L2 sul log del worker (401 ≠ «server non raggiungibile») | eseguiti |
 | L1 + L4 checkpoint UI/RBAC | **W1** (sette rotte /admin, GET e POST, e nessun effetto), **W15** (barra per ruolo, dal vivo e nel template), **W16** (`consultazione` non scrive), **W12** (la password del file non sostituisce quella in database), **CF1** (ruolo sconosciuto → il server non parte), **W14 (d)** (riabbinamento della sessione dopo il claim), ordine dei ruoli (L1) | eseguiti |
 | L1 + L4 checkpoint sync | **SI1–SI4** (finestra iniziale, cursore che vince, riavvio che non riporta indietro, `dal` come override), **SS1–SS4** («Carica precedenti» a 48 ore esatte, due finestre contigue, nessun doppione, l'archivio in fondo alla coda), la configurazione (L1) e due prove sul worker (L1/L2: il cursore vince sul ripiego, lo storico non muove il cursore) | eseguiti |
-| L5–L9 — eseguite il 16/09 | **M1** (due caselle vere risolte, la terza ignorata), **C2/C3** (`--restrict 7` sulle due caselle e su Posta in arrivo e Posta inviata: nessun elemento perso), **TZ2** (l'ora di Outlook accanto a quella in UI), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) e la metà di **CR2** che riguarda le credenziali | **passate**, righe di `esiti_reali.md` |
-| L5–L9 — aperte | casella condivisa Exchange (I9, D5), **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione e ruoli da un browser vero (W14 e RB1, L7), il worker di analisi che esegue un `analizza_allegato` vero | **non eseguite** |
+| L5–L9 — eseguite il 16/09 | **RB1** (i due ruoli in un browser vero), **M1** (due caselle vere risolte, la terza ignorata), **C2/C3** (`--restrict 7` sulle due caselle e su Posta in arrivo e Posta inviata: nessun elemento perso), **TZ2** (l'ora di Outlook accanto a quella in UI), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) e la metà di **CR2** che riguarda le credenziali | **passate**, righe di `esiti_reali.md` |
+| L5–L9 — aperte | casella condivisa Exchange (I9, D5), **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14, L7), il worker di analisi che esegue un `analizza_allegato` vero | **non eseguite** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -976,9 +984,10 @@ Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci 
   condiviso. Restano le prove reali che nessun test simulato può dare: il worker Outlook che lavora
   con la credenziale nuova sulla posta vera (CR1), il banco a due PC, il NAS su una share SMB montata
   dalla VM Linux (N1) e il browser davanti a un certificato autofirmato;
-- ~~**checkpoint UI/RBAC**~~: **fatto** (6.9; della 6.4 resta la schermata `/profilo/password`).
-  Resta da vedere in un browser vero (L7) e resta fuori la visibilità per casella (D12, voce 2.15),
-  che è un'altra domanda e vive nei blocchi successivi;
+- ~~**checkpoint UI/RBAC**~~: **fatto** (6.9) e **provato in un browser vero** il 16/09 (RB1). Della
+  6.4 resta la schermata `/profilo/password`: finché non c'è, reimpostare una password vuol dire
+  azzerare `utente.password_hash` a mano. Resta fuori la visibilità per casella (D12, voce 2.15), che
+  è un'altra domanda e vive nei blocchi successivi;
 - ~~**checkpoint sync**~~: **fatto** (voce 2.8). Resta da misurare sul banco quanto costa davvero il
   primo caricamento di sette giorni con corpo e allegati: i tempi del 16/09 sono della sola
   enumerazione;
