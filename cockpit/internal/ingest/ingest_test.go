@@ -36,8 +36,17 @@ func pool(t *testing.T) *pgxpool.Pool {
 		_, _ = p.Exec(ctx, `DELETE FROM job WHERE chiave_idempotenza LIKE 'stage:%' AND payload->>'entry_id' LIKE 'ENTRY-TEST-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM proposta_triage WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM riferimento_portale WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
+		// `documento_proposta` PRIMA di `allegato`: ogni allegato non inline ne genera una, e senza
+		// questa riga la DELETE sull'allegato falliva sulla chiave esterna — in silenzio, perche'
+		// l'errore non si guarda — e con lei restavano in tabella anche i messaggi. Il test tornava
+		// a funzionare solo perche' qualche altro pacchetto, prima o poi, azzerava lo schema.
+		_, _ = p.Exec(ctx, `DELETE FROM documento_proposta WHERE allegato_id IN (SELECT allegato_id FROM allegato a JOIN messaggio m USING (messaggio_id) WHERE m.chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM allegato WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio_outlook WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
+		// `messaggio_casella` e' arrivata con la 0004 (una presenza per casella) e questa pulizia e'
+		// piu' vecchia di lei: senza questa riga la DELETE sul messaggio falliva sulla chiave
+		// esterna, e i messaggi restavano in tabella fino al prossimo azzeramento dello schema.
+		_, _ = p.Exec(ctx, `DELETE FROM messaggio_casella WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM conversazione WHERE chiave_esterna LIKE 'CONV-TEST-%'`)
 		p.Close()
@@ -82,6 +91,8 @@ func lotto() []api.MessaggioIn {
 	}
 }
 
+const stageInCoda = `SELECT count(*) FROM job WHERE tipo = 'stage_allegato' AND stato IN ('pronto','in_corso')`
+
 func TestIngestIdempotente(t *testing.T) {
 	p := pool(t)
 	ctx := context.Background()
@@ -96,6 +107,12 @@ func TestIngestIdempotente(t *testing.T) {
 	}
 
 	casella := casellaProva(t, p)
+	// Quanti `stage_allegato` c'erano PRIMA. Si misura la differenza e non il totale: `pool` qui non
+	// azzera lo schema, e un job lasciato da un'altra prova faceva cadere questa accusando l'ingest
+	// di un download automatico che non aveva fatto.
+	var stagePrima int
+	_ = p.QueryRow(ctx, stageInCoda).Scan(&stagePrima)
+
 	r1, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: lotto()})
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +122,8 @@ func TestIngestIdempotente(t *testing.T) {
 	}
 	// nessun download automatico: zero job stage_allegato, ma una proposta (dal nome) per ogni allegato non inline
 	var nStage, nProposte int
-	_ = p.QueryRow(ctx, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato' AND stato IN ('pronto','in_corso')`).Scan(&nStage)
+	_ = p.QueryRow(ctx, stageInCoda).Scan(&nStage)
+	nStage -= stagePrima
 	_ = p.QueryRow(ctx, `SELECT count(*) FROM documento_proposta d JOIN allegato a USING (allegato_id) JOIN messaggio m USING (messaggio_id) WHERE m.chiave_esterna LIKE '<test-ingest-%'`).Scan(&nProposte)
 	if nStage != 0 || nProposte != 2 {
 		t.Errorf("staging automatico=%d (atteso 0), proposte=%d (attese 2: inline escluso)", nStage, nProposte)
