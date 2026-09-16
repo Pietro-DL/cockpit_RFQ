@@ -3,6 +3,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,10 +49,32 @@ type Analisi struct {
 }
 
 type Server struct {
-	Indirizzo       string `toml:"indirizzo"`        // es. "127.0.0.1:8080" in sviluppo, "0.0.0.0:8080" in LAN
-	TokenWorker     string `toml:"token_worker"`     // condiviso con i worker Python (header X-Cockpit-Token)
+	Indirizzo string `toml:"indirizzo"` // es. "127.0.0.1:8080" in sviluppo, "0.0.0.0:8443" in LAN
+	// TokenWorker era il token CONDIVISO da tutti i worker. Dalla voce 2.4 non autentica più niente:
+	// la credenziale è individuale ([[worker]].token, sha256 in `worker_credenziale`). Resta letto
+	// per un motivo solo — dirlo a chi ce l'ha ancora nel file, invece di lasciarlo credere che
+	// protegga qualcosa.
+	TokenWorker     string `toml:"token_worker"`
 	SegretoSessione string `toml:"segreto_sessione"` // riservato a usi futuri (firma cookie); le sessioni vivono nel DB
 	LogLivello      string `toml:"log_livello"`      // debug | info | warn
+	// TLSCert e TLSKey: i due file PEM del listener (voce 2.4). Vuoti = niente TLS, e allora il
+	// server accetta solo di ascoltare su loopback. Percorsi relativi al file di configurazione.
+	//
+	// Se i due file non esistono il server ne genera uno **autofirmato** e li scrive: su una LAN
+	// aziendale senza CA interna un certificato autofirmato con l'impronta dichiarata nel worker.toml
+	// è più forte di una catena che nessuno verifica, e infinitamente più forte del testo in chiaro.
+	// L'impronta sha256 viene scritta nel log all'avvio e mostrata nella pagina *Postazioni*.
+	TLSCert string `toml:"tls_cert"`
+	TLSKey  string `toml:"tls_key"`
+	// TLSNomi sono i nomi e gli indirizzi per cui vale il certificato generato (SAN): il nome host
+	// della VM, il suo IP, gli alias con cui i worker la chiamano. Vuoto = nome host del server e
+	// l'indirizzo su cui ascolta, se è un IP.
+	TLSNomi []string `toml:"tls_nomi"`
+	// ConsentiLanInChiaro è la via d'uscita dichiarata, non il default: senza di lei il server si
+	// rifiuta di ascoltare fuori da loopback senza TLS. Un server in chiaro sulla LAN espone la posta
+	// dell'azienda e i token dei worker a chiunque sia attaccato allo stesso switch, e non se ne
+	// accorge nessuno: è esattamente il tipo di difetto che non dà errore.
+	ConsentiLanInChiaro bool `toml:"consenti_lan_in_chiaro"`
 	// LogFile: dove il server scrive il proprio log, oltre che sullo stdout della finestra.
 	// Vuoto = <nas.staging>\log\cockpit.log; "-" = solo stdout, nessun file.
 	LogFile string `toml:"log_file"`
@@ -226,8 +250,8 @@ func Carica(percorso string) (*Config, error) {
 	if c.DB.DSN == "" {
 		return nil, fmt.Errorf("config: [db].dsn mancante")
 	}
-	if c.Server.TokenWorker == "" {
-		return nil, fmt.Errorf("config: [server].token_worker mancante")
+	if err := c.normalizzaRete(filepath.Dir(percorso)); err != nil {
+		return nil, err
 	}
 	if c.Server.MaxUploadMB < 1 {
 		return nil, fmt.Errorf("config: [server].max_upload_mb = %d non valido (almeno 1)", c.Server.MaxUploadMB)
@@ -273,6 +297,82 @@ func (c *Config) normalizzaModalita() error {
 	return nil
 }
 
+// ETLS dice se il listener parla TLS: servono tutti e due i file, perché mezzo TLS non esiste.
+func (c *Config) ETLS() bool {
+	return strings.TrimSpace(c.Server.TLSCert) != "" && strings.TrimSpace(c.Server.TLSKey) != ""
+}
+
+// Schema è "https" o "http": serve a scrivere gli indirizzi (log, pagina Postazioni, worker.toml
+// generato) con lo schema che il server sta davvero usando, invece di uno scritto a mano.
+func (c *Config) Schema() string {
+	if c.ETLS() {
+		return "https"
+	}
+	return "http"
+}
+
+// SuLoopback dice se [server].indirizzo ascolta solo su questo PC. Un indirizzo senza host
+// ("":8080) ascolta su tutte le interfacce: è LAN a tutti gli effetti.
+func SuLoopback(indirizzo string) bool {
+	host := strings.TrimSpace(indirizzo)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	switch strings.ToLower(host) {
+	case "":
+		return false
+	case "localhost":
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		// Un nome che non è un IP: non si può dire che sia loopback, e nel dubbio non lo è.
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+// normalizzaRete applica la voce 2.4: TLS sul listener e credenziali individuali.
+//
+// Due conseguenze, e sono di natura diversa.
+//
+//  1. Un RIFIUTO: fuori da loopback senza TLS il server non parte. Il traffico che passa di qui è la
+//     posta dell'azienda, i token dei worker e il cookie di sessione dell'operatore; in chiaro su una
+//     LAN li legge chiunque sia attaccato allo stesso switch, e non se ne accorge nessuno mai. Chi ha
+//     davvero bisogno del chiaro (una prova, un tunnel che cifra già lui) lo dichiara con
+//     `consenti_lan_in_chiaro = true`, che si legge nel file e nel log.
+//  2. Un AVVISO che non ferma niente: `[server].token_worker` non autentica più. Toglierlo dal file è
+//     una riga in meno; lasciarlo credendo che serva è un segreto condiviso che resta in giro.
+func (c *Config) normalizzaRete(dirConfig string) error {
+	c.Server.TLSCert = assoluto(dirConfig, c.Server.TLSCert)
+	c.Server.TLSKey = assoluto(dirConfig, c.Server.TLSKey)
+	if strings.TrimSpace(c.Server.TLSCert) != "" && strings.TrimSpace(c.Server.TLSKey) == "" {
+		return fmt.Errorf("config: [server].tls_cert senza [server].tls_key (servono tutti e due)")
+	}
+	if strings.TrimSpace(c.Server.TLSKey) != "" && strings.TrimSpace(c.Server.TLSCert) == "" {
+		return fmt.Errorf("config: [server].tls_key senza [server].tls_cert (servono tutti e due)")
+	}
+	if !c.ETLS() && !SuLoopback(c.Server.Indirizzo) && !c.Server.ConsentiLanInChiaro {
+		return fmt.Errorf("config: [server].indirizzo = %q ascolta fuori da questo PC e [server].tls_cert non c'è. "+
+			"In chiaro sulla LAN viaggiano la posta, i token dei worker e il cookie di sessione. "+
+			"Indicare tls_cert/tls_key (se i file non esistono il server ne genera uno autofirmato e ne scrive l'impronta), "+
+			"oppure dichiarare consenti_lan_in_chiaro = true se il collegamento è già cifrato da qualcos'altro",
+			c.Server.Indirizzo)
+	}
+	return nil
+}
+
+// assoluto risolve un percorso relativo rispetto alla cartella del file di configurazione: i
+// percorsi in un file si leggono da dove sta il file, non da dove è stato lanciato l'eseguibile.
+func assoluto(dir, p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(dir, p)
+}
+
 // normalizzaFondazioni mette in forma canonica [[casella]], [[postazione]], [[worker]] e
 // [outlook].casella_default, e rifiuta i riferimenti incrociati che non esistono. Un errore qui
 // blocca l'avvio: meglio non partire che partire con un routing sbagliato.
@@ -313,6 +413,7 @@ func (c *Config) normalizzaFondazioni() error {
 		p.Utente = strings.ToUpper(strings.TrimSpace(p.Utente))
 	}
 	nomi := map[string]bool{}
+	tokenDi := map[string]string{} // token → il primo worker che l'ha dichiarato
 	for i := range c.Worker {
 		w := &c.Worker[i]
 		w.Nome = strings.TrimSpace(w.Nome)
@@ -326,8 +427,18 @@ func (c *Config) normalizzaFondazioni() error {
 		if w.Tipo != "outlook" && w.Tipo != "analisi" {
 			return fmt.Errorf("config: worker %q: tipo %q non valido (outlook | analisi)", w.Nome, w.Tipo)
 		}
-		if w.Token == "" {
-			return fmt.Errorf("config: worker %q senza token", w.Nome)
+		// Un worker senza `token` non è più un errore (voce 2.4): significa «il segreto lo genera la
+		// pagina Postazioni», che è la via consigliata in azienda — il pacchetto scaricato da lì
+		// contiene indirizzo, impronta e token, e nessuno li copia a mano. Un token scritto qui invece
+		// vince a ogni avvio. Quello che NON si può fare è darne uno solo a due worker: in quel caso
+		// il server non sa chi sta chiamando, e se ne accorge al primo claim con un 401.
+		if w.Token != "" {
+			if altro, gia := tokenDi[w.Token]; gia {
+				return fmt.Errorf("config: i worker %q e %q hanno lo stesso token: un segreto che è di due non identifica nessuno, "+
+					"e il server risponderà 401 a tutti e due. Darne uno diverso a ciascuno, oppure lasciarli vuoti e generare il "+
+					"pacchetto dalla pagina Postazioni", altro, w.Nome)
+			}
+			tokenDi[w.Token] = w.Nome
 		}
 		w.Postazione = strings.ToUpper(strings.TrimSpace(w.Postazione))
 		if w.Postazione != "" && !host[w.Postazione] {

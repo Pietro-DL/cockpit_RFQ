@@ -15,6 +15,7 @@
     <a href="/cruscotto" {{if eq .Titolo "Cruscotto"}}class="attivo"{{end}}>Cruscotto</a>
     <a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
     <a href="/admin/scarti" {{if eq .Titolo "Scarti"}}class="attivo"{{end}}>Scarti</a>
+    <a href="/admin/postazioni" {{if eq .Titolo "Postazioni"}}class="attivo"{{end}}>Postazioni</a>
   </nav>
   <span class="spazio"></span>
   {{if .Utente}}{{template "stato_worker" .}}

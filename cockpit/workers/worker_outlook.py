@@ -42,7 +42,7 @@ class ErroreStoreLocale(Exception):
 class Worker:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.api = Cockpit(cfg["server_url"], cfg["token"])
+        self.api = Cockpit(cfg["server_url"], cfg["token"], impronta=cfg.get("impronta", ""))
         self.worker_id = nome_worker("outlook", cfg)
         self.staging = os.path.abspath(cfg["staging"])
         os.makedirs(self.staging, exist_ok=True)
@@ -438,7 +438,7 @@ def main() -> None:
                          "GIORNI giorni (default 7) di ogni casella servita, stampa insiemi e tempi, non prende job")
     ap.add_argument("--debug", action="store_true")
     a = ap.parse_args()
-    cfg = carica_config(a.config, {"consenti_invio": False})
+    cfg = carica_config(a.config, {"consenti_invio": False}, sezione="outlook")
     configura_log(a.debug, cfg, "worker_outlook")
     w = Worker(cfg)
     if a.cartelle:

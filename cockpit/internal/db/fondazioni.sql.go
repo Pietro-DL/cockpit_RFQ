@@ -13,6 +13,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const credenzialiPerToken = `-- name: CredenzialiPerToken :many
+SELECT worker_nome, worker_tipo, token_hash, postazione_id, caselle, attivo, creato_il, aggiornato_il FROM worker_credenziale WHERE token_hash = $1 AND attivo ORDER BY worker_nome LIMIT 2
+`
+
+// Chi si sta presentando (voce 2.4). Il token non è in database: c'è il suo sha256, ed è per questo
+// che si cerca per hash e non si confronta un segreto.
+//
+// :many e non :one di proposito. Se due worker hanno lo stesso token — è la situazione da cui si
+// arriva, il token condiviso copiato in tutte le righe — le credenziali NON sono individuali, e chi
+// chiama deve poterlo dire con parole precise invece di assegnare l'identità a chi capita per primo.
+func (q *Queries) CredenzialiPerToken(ctx context.Context, tokenHash string) ([]WorkerCredenziale, error) {
+	rows, err := q.db.Query(ctx, credenzialiPerToken, tokenHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkerCredenziale{}
+	for rows.Next() {
+		var i WorkerCredenziale
+		if err := rows.Scan(
+			&i.WorkerNome,
+			&i.WorkerTipo,
+			&i.TokenHash,
+			&i.PostazioneID,
+			&i.Caselle,
+			&i.Attivo,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const dominiNostri = `-- name: DominiNostri :many
 SELECT DISTINCT lower(split_part(indirizzo, '@', 2))::text AS dominio
 FROM casella WHERE indirizzo LIKE '%@%' ORDER BY 1
@@ -171,6 +210,36 @@ func (q *Queries) GetWorkerCredenziale(ctx context.Context, workerNome string) (
 	return i, err
 }
 
+const impostaTokenWorker = `-- name: ImpostaTokenWorker :one
+UPDATE worker_credenziale SET token_hash = $2, attivo = true, aggiornato_il = now()
+WHERE worker_nome = $1
+RETURNING worker_nome, worker_tipo, token_hash, postazione_id, caselle, attivo, creato_il, aggiornato_il
+`
+
+type ImpostaTokenWorkerParams struct {
+	WorkerNome string `json:"worker_nome"`
+	TokenHash  string `json:"token_hash"`
+}
+
+// Rigenera il segreto di una credenziale esistente (pagina Postazioni). Non crea niente: se il
+// worker non è censito non c'è niente da rigenerare, e inventarlo qui vorrebbe dire creare
+// autorizzazioni da una schermata invece che dal file di configurazione.
+func (q *Queries) ImpostaTokenWorker(ctx context.Context, arg ImpostaTokenWorkerParams) (WorkerCredenziale, error) {
+	row := q.db.QueryRow(ctx, impostaTokenWorker, arg.WorkerNome, arg.TokenHash)
+	var i WorkerCredenziale
+	err := row.Scan(
+		&i.WorkerNome,
+		&i.WorkerTipo,
+		&i.TokenHash,
+		&i.PostazioneID,
+		&i.Caselle,
+		&i.Attivo,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+	)
+	return i, err
+}
+
 const listCasellaStorePerPostazione = `-- name: ListCasellaStorePerPostazione :many
 SELECT cs.postazione_id, cs.casella_id, cs.store_id, cs.rilevato_il, c.indirizzo, c.nome AS casella_nome
 FROM casella_store cs JOIN casella c ON c.casella_id = cs.casella_id
@@ -309,6 +378,40 @@ func (q *Queries) ListCaselleAutorizzate(ctx context.Context, workerNome string)
 			&i.Condivisa,
 			&i.UtenteID,
 			&i.Attiva,
+			&i.CreatoIl,
+			&i.AggiornatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCredenzialiDiPostazione = `-- name: ListCredenzialiDiPostazione :many
+SELECT worker_nome, worker_tipo, token_hash, postazione_id, caselle, attivo, creato_il, aggiornato_il FROM worker_credenziale WHERE postazione_id = $1 ORDER BY worker_tipo, worker_nome
+`
+
+// Le credenziali di una postazione, per la pagina Postazioni: chi è censito su quel PC e da quando.
+func (q *Queries) ListCredenzialiDiPostazione(ctx context.Context, postazioneID uuid.NullUUID) ([]WorkerCredenziale, error) {
+	rows, err := q.db.Query(ctx, listCredenzialiDiPostazione, postazioneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkerCredenziale{}
+	for rows.Next() {
+		var i WorkerCredenziale
+		if err := rows.Scan(
+			&i.WorkerNome,
+			&i.WorkerTipo,
+			&i.TokenHash,
+			&i.PostazioneID,
+			&i.Caselle,
+			&i.Attivo,
 			&i.CreatoIl,
 			&i.AggiornatoIl,
 		); err != nil {
@@ -582,6 +685,53 @@ type UpsertWorkerCredenzialeParams struct {
 
 func (q *Queries) UpsertWorkerCredenziale(ctx context.Context, arg UpsertWorkerCredenzialeParams) (WorkerCredenziale, error) {
 	row := q.db.QueryRow(ctx, upsertWorkerCredenziale,
+		arg.WorkerNome,
+		arg.WorkerTipo,
+		arg.TokenHash,
+		arg.PostazioneID,
+		arg.Caselle,
+	)
+	var i WorkerCredenziale
+	err := row.Scan(
+		&i.WorkerNome,
+		&i.WorkerTipo,
+		&i.TokenHash,
+		&i.PostazioneID,
+		&i.Caselle,
+		&i.Attivo,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+	)
+	return i, err
+}
+
+const upsertWorkerCredenzialeMantieniToken = `-- name: UpsertWorkerCredenzialeMantieniToken :one
+INSERT INTO worker_credenziale (worker_nome, worker_tipo, token_hash, postazione_id, caselle)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (worker_nome) DO UPDATE SET
+    worker_tipo = EXCLUDED.worker_tipo,
+    postazione_id = EXCLUDED.postazione_id, caselle = EXCLUDED.caselle,
+    attivo = true, aggiornato_il = now()
+RETURNING worker_nome, worker_tipo, token_hash, postazione_id, caselle, attivo, creato_il, aggiornato_il
+`
+
+type UpsertWorkerCredenzialeMantieniTokenParams struct {
+	WorkerNome   string        `json:"worker_nome"`
+	WorkerTipo   WorkerTipo    `json:"worker_tipo"`
+	TokenHash    string        `json:"token_hash"`
+	PostazioneID uuid.NullUUID `json:"postazione_id"`
+	Caselle      []uuid.UUID   `json:"caselle"`
+}
+
+// Come UpsertWorkerCredenziale, ma NON tocca il token di una credenziale che esiste già.
+//
+// È la regola della voce 2.4: un `token` scritto in [[worker]] vince a ogni avvio (è il file la
+// verità); lasciarlo vuoto significa «il segreto lo genera la pagina Postazioni», e allora il seed
+// non deve cancellarlo al riavvio successivo. Alla prima creazione il token_hash è un valore casuale
+// che nessuno conosce: la credenziale esiste, dice quali caselle serve, e non autentica finché
+// qualcuno non genera il pacchetto.
+func (q *Queries) UpsertWorkerCredenzialeMantieniToken(ctx context.Context, arg UpsertWorkerCredenzialeMantieniTokenParams) (WorkerCredenziale, error) {
+	row := q.db.QueryRow(ctx, upsertWorkerCredenzialeMantieniToken,
 		arg.WorkerNome,
 		arg.WorkerTipo,
 		arg.TokenHash,

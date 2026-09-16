@@ -47,6 +47,9 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, fmt.Errorf("job_id mancante o non valido"))
 		return
 	}
+	if _, ok := stessoWorker(w, r, par.Get("worker_id")); !ok {
+		return
+	}
 	t, err := tentativo(jobID, par.Get("worker_id"), par.Get("lease_token"))
 	if err != nil {
 		s.Log.Warn("upload senza tentativo dichiarato: il file non viene accettato",

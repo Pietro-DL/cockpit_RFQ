@@ -122,8 +122,11 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 
 | Campo | Che cosa mettere |
 |---|---|
-| `indirizzo` | `127.0.0.1:8080` in sviluppo. `0.0.0.0:8080` espone il Cockpit in LAN: finché non arrivano TLS e credenziali individuali (voci 2.4 e 2.5) è una cosa da fare solo per le prove |
-| `token_worker` | un segreto qualsiasi, lungo. È lo stesso che va in `workers\worker.toml`: se i due non coincidono il worker logga `401` e non prende lavoro |
+| `indirizzo` | `127.0.0.1:8080` in sviluppo. Per esporre il Cockpit fuori da questo PC serve TLS: **senza `tls_cert` il server si rifiuta di partire** su un indirizzo non di loopback (voce 2.4) |
+| `tls_cert`, `tls_key` | i due file PEM del listener. Se **non esistono**, il server ne genera uno autofirmato al primo avvio, li scrive e mette l'impronta sha256 nel log e nella pagina *Postazioni*: è quella che i worker verificano. Percorsi relativi a `cockpit.toml` |
+| `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP |
+| `consenti_lan_in_chiaro` | la via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è già cifrato da altro (un tunnel). Il server lo ripete a ogni avvio |
+| `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
 | `modalita` | `shadow` o `produzione` (voce 9.5). In shadow il Cockpit legge Outlook e il NAS ma non li modifica: bozze, «segna letto», spostamenti e copie sul NAS non si accodano e non si eseguono, nemmeno se erano già in coda; «Apri in Outlook» sì, e `dry_run` è forzato a `true`. **Assente = shadow**: il default sicuro è quello che non tocca niente. Al ritorno in produzione i job rimasti in coda durante la shadow vengono annullati |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
 | `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
@@ -233,7 +236,24 @@ sostituire il binario su una postazione.
 copy workers\worker.toml.example workers\worker.toml
 ```
 
-`token` deve coincidere con `[server].token_worker`. `staging` è una cartella locale **del worker**: ci
+Il modo consigliato non è compilarlo a mano: dalla pagina **Postazioni** del Cockpit si scarica il
+pacchetto di quel PC (`cockpit-worker-<nome>.zip`), che contiene un `worker.toml` già pronto —
+indirizzo del server, impronta del certificato e i token dei worker di quella postazione — le
+istruzioni e i file del worker presi dal server. Vedi «[Aggiungere una postazione](#aggiungere-una-postazione)».
+
+**Un token per worker (voce 2.4).** Il token non autorizza soltanto: *identifica*. Il server ne cerca
+lo sha256 in `worker_credenziale` e da lì ricava nome, postazione e caselle autorizzate; il
+`worker_id` dichiarato deve solo coincidere, e se non coincide è `403`. Due worker con lo **stesso**
+token ricevono `401` con i nomi di tutti e due: un segreto che è di due non identifica nessuno. Sullo
+stesso PC girano due worker, quindi i due token stanno nelle tabelle `[outlook]` e `[analisi]` di
+`worker.toml`, che vincono sulle chiavi in cima al file.
+
+**`impronta`** è lo sha256 del certificato del server: con `server_url` https il worker parla solo con
+chi presenta quel certificato e si ferma con un errore esplicito se ne trova un altro. È ciò che
+sostituisce la verifica di una CA, che in azienda non c'è. Toglierla per far ripartire un worker fermo
+significa non sapere più con chi si sta parlando.
+
+`staging` è una cartella locale **del worker**: ci
 passano i file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al server) e ci resta
 il log; può stare su un PC diverso dal server e non deve coincidere con `[nas].staging`. `worker_id`,
 se presente, deve coincidere con `[[worker]].nome` di `cockpit.toml`: **è la chiave con cui il server
@@ -336,6 +356,110 @@ powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Mostra  
 Le attività girano nella sessione interattiva dell'utente, perché Outlook classico lo richiede, e
 riavviano il worker se termina. `-Installa` mette in avvio automatico **anche** il worker Outlook:
 va fatto solo su una postazione dove leggere quella casella è già stato autorizzato.
+---
+
+## Mettere il Cockpit in rete
+
+Fino al blocco 1 il Cockpit girava tutto su un PC: server, worker e browser sullo stesso `127.0.0.1`,
+un token condiviso, nessuna cifratura. Da qui in poi il server sta da una parte e i worker dall'altra,
+e questo cambia tre cose: **come si cifra**, **come si riconosce un worker** e **come si aggiunge un
+PC**.
+
+### Perché il server non parte in chiaro fuori da questo PC
+
+`[server].indirizzo` diverso da loopback e nessun `tls_cert` = il server si ferma con un errore. Non è
+zelo: su quel collegamento passano la posta dell'azienda, il **token di ogni worker** e il **cookie di
+sessione** dell'operatore. In chiaro su una LAN aziendale li legge chiunque sia attaccato allo stesso
+switch, e non c'è niente — un log, un errore, un rallentamento — che lo segnali. È il tipo di difetto
+che si scopre dopo.
+
+Le due uscite sono dichiarate e si leggono nel file: `tls_cert` + `tls_key`, oppure
+`consenti_lan_in_chiaro = true` se il collegamento è già cifrato da qualcos'altro.
+
+### Il certificato: autofirmato, e i worker ne verificano l'impronta
+
+Non c'è una CA interna, e aspettarne una significherebbe restare in chiaro. Quindi:
+
+1. si scrivono `tls_cert` e `tls_key` in `[server]`, puntando a due file che **non esistono ancora**;
+2. al primo avvio il server genera un certificato autofirmato, lo scrive e mette l'impronta nel log:
+
+   ```
+   level=WARN msg="certificato TLS generato ora (autofirmato)" cert=... nomi=[...] scade=16/09/2036
+   level=INFO msg="TLS attivo" impronta=9f3c... scade=16/09/2036
+   ```
+3. quell'impronta finisce nel `worker.toml` di ogni postazione (la mette da sola la pagina
+   *Postazioni*). Da quel momento **il worker parla solo con quel certificato**.
+
+È il modello di SSH, ed è più forte di una catena che nessuno verifica: un impostore dovrebbe
+presentare *quel* certificato, non un certificato qualunque firmato da qualcuno di cui il PC si fida.
+Il browser invece dirà «connessione non privata» la prima volta: si accetta l'eccezione, oppure si
+installa il certificato fra quelli attendibili del PC.
+
+Se il certificato viene rifatto, i worker si fermano con un messaggio esplicito e vogliono un
+pacchetto nuovo. È voluto: un worker che riparte da solo dopo un cambio di certificato è un worker che
+non sta verificando niente.
+
+### Aggiungere una postazione
+
+Le **autorizzazioni** stanno in `cockpit.toml` — è un file versionato, leggibile, uguale a ogni avvio —
+e i **segreti** li genera il server. Nell'ordine:
+
+1. in `cockpit.toml`, un `[[postazione]]` con il nome host del PC e un `[[worker]]` per tipo, con
+   `caselle` = quelle che quel PC può leggere e **`token = ""`**;
+2. riavviare il server (le sezioni si applicano all'avvio);
+3. da *Postazioni*, come amministratore: **«genera e scarica il pacchetto»**. Esce
+   `cockpit-worker-<pc>.zip` con `worker.toml` (indirizzo, impronta, i token), `ISTRUZIONI.txt` e i
+   file del worker presi dal server;
+4. sul PC nuovo: scompattare, `python -m pip install -r requirements.txt`, poi
+   `python worker_outlook.py --caselle` per vedere che risolva le sue caselle e **solo** quelle.
+
+I token si vedono **una volta sola**: in database c'è il loro sha256. Rigenerare il pacchetto
+invalida i precedenti — il worker di quel PC riceverà `401` finché non gli si copia il file nuovo — e
+il pulsante lo chiede prima di farlo.
+
+Un `token` scritto a mano in `[[worker]]` vince a ogni avvio: va bene sul banco di prova, dove il file
+è la verità e non c'è niente da proteggere. Lasciarlo vuoto significa «il segreto lo tiene il
+database», che è quello che serve in azienda.
+
+### Banco a due PC
+
+La prova minima che il blocco 2 regge: server su un PC, worker su un altro.
+
+| | |
+|---|---|
+| Server | `indirizzo = "0.0.0.0:8443"`, `tls_cert`/`tls_key` come sopra. Aprire la porta 8443 nel firewall di Windows **in ingresso** |
+| Worker | il pacchetto scaricato da *Postazioni*, scompattato sul secondo PC |
+| Da guardare | il worker deve fare claim (`/admin/postazioni` mostra «ultimo contatto» e l'IP), e «Apri in Outlook» deve aprire la finestra **su quel PC**, non sul primo |
+| Da provare al contrario | cambiare una cifra dell'impronta nel `worker.toml`: il worker deve fermarsi con «il server ha presentato un certificato diverso da quello atteso» e **non** mandare il token |
+
+### Server su una VM Linux, worker sui PC (D23)
+
+Il posto del server è una VM Linux: PostgreSQL, il worker di analisi e la copia sul NAS via SMB stanno
+lì, e non hanno bisogno di una sessione interattiva. I worker Outlook restano sui PC degli operatori,
+perché COM non gira senza qualcuno collegato.
+
+```bash
+GOOS=linux GOARCH=amd64 go build -o cockpit ./cmd/cockpit
+```
+
+Il binario porta dentro migrazioni, template e i file dei worker: si copia un file solo.
+
+- **NAS**: la share si monta sulla VM (`cifs`, credenziali in un file a `0600`) e `[nas].radice`
+  diventa un percorso POSIX, per esempio `/mnt/nas/TECNICO - PREVENTIVI/PREVENTIVI DA FARE`. Il
+  confronto con `radici_produzione` ignora maiuscole, barre e barra finale, quindi la protezione della
+  shadow vale anche scritta alla maniera di Linux;
+- **VPN fra gli impianti**: serve **una sola regola di firewall**, in ingresso sulla VM, sulla porta
+  del Cockpit. I worker si collegano in uscita e il server non chiama nessuno: non c'è niente da
+  aprire sui PC degli operatori;
+- **la chiave privata** (`tls_key`) sta sulla VM con i permessi `0600` che il server le dà quando la
+  genera. Su Windows quei permessi non si applicano e restano le ACL della cartella: è un motivo in
+  più perché il posto del server sia la VM.
+
+**Non ancora provato:** la copia sul NAS attraverso una share SMB montata su Linux (N1 su share) e il
+banco a due PC vero. Il codice compila per Linux e i percorsi POSIX sono coperti dai test, ma né
+l'uno né l'altro è stato eseguito: sono prove reali, e finché non si fanno restano `NON ESEGUITO` in
+`docs\esiti\esiti_reali.md`.
+
 
 ---
 
@@ -440,7 +564,11 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | `config: [db].dsn mancante` | manca `cockpit.toml` accanto all'eseguibile | copiarlo dall'esempio o passare `-config` |
 | `migrazioni: il DB è alla versione N…` | database aggiornato da un binario più recente | aggiornare `cockpit.exe` |
 | il worker logga `COM:` in continuazione | Outlook chiuso o su un altro utente | aprire Outlook nella stessa sessione |
-| il worker logga `401` | `token` diverso da `[server].token_worker` | allineare i due file |
+| il worker logga `401 credenziale non riconosciuta` | dalla voce 2.4 il token è individuale, e quello del worker non è in `worker_credenziale` | scaricare il pacchetto di quel PC dalla pagina *Postazioni*, oppure scrivere il token in `[[worker]].token` e riavviare il server |
+| il worker logga `401 questo token è di più worker` | lo stesso segreto è di due `[[worker]]`: non identifica nessuno | dare a ciascuno il suo (o lasciare `token = ""` e generare il pacchetto dalla pagina *Postazioni*) |
+| il worker si ferma con `il server ha presentato un certificato diverso da quello atteso` | il certificato del server è stato rifatto, oppure dall'altra parte c'è qualcun altro | scaricare il pacchetto nuovo da *Postazioni*. **Non** togliere `impronta` da `worker.toml`: senza, non si sa più con chi si parla |
+| il server non parte: «ascolta fuori da questo PC e tls_cert non c'è» | si sta esponendo il Cockpit in chiaro sulla LAN (voce 2.4) | indicare `tls_cert`/`tls_key` (se i file non esistono li genera lui), o dichiarare `consenti_lan_in_chiaro = true` se il collegamento è già cifrato |
+| il browser dice «connessione non privata» | il certificato è autofirmato e il PC non lo conosce | accettare l'eccezione, o installare `cert.pem` fra i certificati attendibili. I worker non passano di qui: verificano l'impronta |
 | il worker logga `403` | il suo nome non è in `[[worker]]`, o gira su un PC diverso dalla sua `postazione` | correggere `cockpit.toml` o `worker_id` in `worker.toml` |
 | una casella in testata è **OFFLINE** | il worker che la serve non fa claim da oltre un minuto | il worker di quel PC è fermo: vedere il suo log |
 | una casella in testata è **non risolta** | il worker è attivo ma non trova la casella nel profilo Outlook del suo PC (o Outlook non risponde) | aggiungere la casella al profilo, o aprire Outlook; `python worker_outlook.py --caselle` dice che cosa vede |
@@ -460,7 +588,7 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 
 ```
 cmd/cockpit/main.go        avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
-embed.go                   embed.FS di migrations/, web/templates, web/static
+embed.go                   embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
 internal/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
 internal/api               contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
 internal/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
@@ -473,12 +601,16 @@ internal/archivio          estrazione zip in staging (zip-slip, limiti) → alle
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
+internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
+                           impronta e generazione dei token dei worker (voce 2.4)
 internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
-                           (token X-Cockpit-Token); il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store;
+                           (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
+                           il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store;
                            il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
-                           inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16)
+                           inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
+                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22)
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
@@ -489,7 +621,8 @@ internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                            outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
-                           prova_e2e.py (il worker vero senza COM, per il test end-to-end), worker.toml
+                           prova_e2e.py (il worker vero senza COM, per il test end-to-end), worker.toml.
+                           Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
 scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                            azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                            backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh

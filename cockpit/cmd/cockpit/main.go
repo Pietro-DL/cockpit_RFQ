@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"promatec/cockpit/internal/logfile"
 	"promatec/cockpit/internal/migrazioni"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/rete"
 	"promatec/cockpit/internal/web"
 	"promatec/cockpit/internal/workerapi"
 )
@@ -157,16 +159,50 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	}).Avvia(ctx)
 	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log}).Avvia(ctx)
 
+	// ---------------------------------------------------------------- rete (voce 2.4)
+	//
+	// Il materiale TLS si prepara PRIMA di registrare le rotte, perché l'impronta del certificato
+	// finisce in due posti che servono a farlo usare: il log dell'avvio e la pagina Postazioni, da cui
+	// si scarica il worker.toml che la contiene già. Un'impronta che va copiata a mano da un file di
+	// certificato è un'impronta che nessuno verifica.
+	var materiale *rete.Materiale
+	if cfg.ETLS() {
+		nomi := cfg.Server.TLSNomi
+		if len(nomi) == 0 {
+			nomi = rete.NomiPredefiniti(cfg.Server.Indirizzo)
+		}
+		materiale, err = rete.Prepara(cfg.Server.TLSCert, cfg.Server.TLSKey, nomi)
+		if err != nil {
+			return err
+		}
+		if materiale.Generato {
+			log.Warn("certificato TLS generato ora (autofirmato)", "cert", cfg.Server.TLSCert, "chiave", cfg.Server.TLSKey,
+				"nomi", materiale.Nomi, "scade", materiale.Scadenza.Format("02/01/2006"),
+				"nota", "va copiato nei worker.toml come impronta = ...")
+		}
+		log.Info("TLS attivo", "impronta", materiale.Impronta, "scade", materiale.Scadenza.Format("02/01/2006"))
+	} else if !config.SuLoopback(cfg.Server.Indirizzo) {
+		// Ci si arriva solo con consenti_lan_in_chiaro: la configurazione lo rifiuta da sola. Va
+		// ricordato a ogni avvio, perché una scelta presa una volta diventa lo stato normale.
+		log.Warn("IN CHIARO SULLA LAN: posta, token dei worker e cookie di sessione viaggiano leggibili",
+			"indirizzo", cfg.Server.Indirizzo, "nota", "consenti_lan_in_chiaro = true; togliere la riga e indicare tls_cert/tls_key")
+	}
+	if cfg.Server.TokenWorker != "" {
+		log.Warn("[server].token_worker è ancora nel file e non autentica più niente (voce 2.4): togliere la riga",
+			"nota", "ogni worker usa il token della sua [[worker]], e il server lo riconosce per sha256")
+	}
+
 	templ, _ := fs.Sub(risorse.FS, "web/templates")
 	static, _ := fs.Sub(risorse.FS, "web/static")
 	servizioIngest := &ingest.Servizio{Pool: pool, Log: log}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
-		IntervalloSync: intervalloSync, Sync: opzioniSync, Modalita: cfg.Server.Modalita}
+		IntervalloSync: intervalloSync, Sync: opzioniSync, Modalita: cfg.Server.Modalita,
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS}
 	if err := ws.Init(); err != nil {
 		return err
 	}
 	wa := &workerapi.Server{
-		Pool: pool, Log: log, Token: cfg.Server.TokenWorker, Ingest: servizioIngest,
+		Pool: pool, Log: log, Ingest: servizioIngest,
 		Staging: staging, CasellaDefault: cfg.Outlook.CasellaDefault,
 		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
@@ -176,16 +212,28 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	ws.Registra(mux)
 	wa.Registra(mux)
 
-	srv := &http.Server{Addr: cfg.Server.Indirizzo, Handler: logga(log, mux), ReadHeaderTimeout: 10 * time.Second}
+	// CSRF (voce 2.5): il perché sta su web.ProtezioneCSRF, che è la stessa funzione che i test
+	// montano — una protezione che in produzione e nei test passa da due strade diverse è una
+	// protezione che una delle due strade prima o poi perde.
+	srv := &http.Server{Addr: cfg.Server.Indirizzo, Handler: web.ProtezioneCSRF(logga(log, mux)), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("cockpit in ascolto", "indirizzo", "http://"+cfg.Server.Indirizzo, "staging", staging,
+	log.Info("cockpit in ascolto", "indirizzo", cfg.Schema()+"://"+cfg.Server.Indirizzo, "staging", staging,
 		"max_upload_mb", cfg.Server.MaxUploadMB, "log", percorsoLog, "livello", lvl)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if materiale != nil {
+		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{materiale.Certificato}, MinVersion: tls.VersionTLS12}
+		// I due percorsi sono vuoti di proposito: il certificato è già in TLSConfig, e rileggerlo dal
+		// disco qui vorrebbe dire poter servire qualcosa di diverso da ciò di cui abbiamo scritto
+		// l'impronta nel log.
+		err = srv.ListenAndServeTLS("", "")
+	} else {
+		err = srv.ListenAndServe()
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

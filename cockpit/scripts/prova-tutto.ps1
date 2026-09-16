@@ -33,7 +33,19 @@ function Annota($id, $descrizione, $comando, $esito, $nota) {
 
 Esegui "L1 go build"  "compilazione di tutti i pacchetti (NON copre L3)" "go build ./..." { go build ./... }
 Esegui "L1 go vet"    "analisi statica" "go vet ./..." { go vet ./... }
-Esegui "L1 go test"   "unitari Go (dominio, zip, NAS, template, migrazioni statiche, configurazione e modalita, testata dell Inbox)" "go test ./..." { go test ./... }
+
+# Il server va su una VM Linux (D23, blocco 2): che compili per Linux è una condizione, non un
+# dettaglio, e si scopre qui invece che sulla VM. NON dimostra che funzioni: il NAS su una share SMB
+# montata e il banco a due PC sono prove reali (L8), e stanno in esiti_reali.md.
+Esegui "L1 build Linux" "il server compila per la VM Linux (D23)" "GOOS=linux go build ./..." {
+    $vecchio = $env:GOOS
+    $env:GOOS = "linux"
+    go build ./...
+    $codice = $LASTEXITCODE
+    if ($vecchio) { $env:GOOS = $vecchio } else { Remove-Item Env:\GOOS -ErrorAction SilentlyContinue }
+    $global:LASTEXITCODE = $codice
+}
+Esegui "L1 go test"   "unitari Go (dominio, zip, NAS, template, migrazioni statiche, configurazione, modalita, rete e TLS, testata dell Inbox)" "go test ./..." { go test ./... }
 
 # Gli script di servizio girano su Windows PowerShell 5.1, non sulla 7: un operatore della 7
 # (per esempio ?.) rende il file illeggibile gia in fase di parsing. Qui si controlla che
@@ -76,13 +88,13 @@ if (-not $SenzaDB) {
             "go test -tags integrazione -run TestE2E ./internal/workerapi" "SALTATO" `
             "richiesto -SenzaPython: non verificato"
     }
-    Esegui "L4 integrazione" "test su PostgreSQL di test, pacchetti in serie" "go test -tags integrazione -count=1 -p 1 ./..." { go test -tags integrazione -count=1 -p 1 ./... }
+    Esegui "L4 integrazione" "test su PostgreSQL di test, pacchetti in serie (E2E, guardie sul futuro, W4/W10/W11, PK1)" "go test -tags integrazione -count=1 -p 1 ./..." { go test -tags integrazione -count=1 -p 1 ./... }
 } else {
     Annota "L4 integrazione" "test su PostgreSQL di test" "go test -tags integrazione -count=1 -p 1 ./..." "SALTATO" "richiesto -SenzaDB: non verificato"
 }
 
 if (-not $SenzaPython) {
-    Esegui "L2 pytest" "unitari Python (modulo comune, ciclo dei worker, analisi, finestra del sync con Restrict)" "python -m pytest -q workers" { python -m pytest -q workers }
+    Esegui "L2 pytest" "unitari Python (modulo comune, ciclo dei worker, analisi, finestra del sync, ora di Outlook, credenziali e impronta)" "python -m pytest -q workers" { python -m pytest -q workers }
 } else {
     Annota "L2 pytest" "unitari Python" "python -m pytest -q workers" "SALTATO" "richiesto -SenzaPython: non verificato"
 }

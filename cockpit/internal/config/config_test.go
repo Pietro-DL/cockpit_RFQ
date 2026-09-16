@@ -123,9 +123,13 @@ func TestConfigurazioniRifiutate(t *testing.T) {
 			"non dichiarata in [[casella]]",
 		},
 		{
-			"worker senza token",
-			"[[worker]]\nnome = \"w\"\ntipo = \"outlook\"\n",
-			"senza token",
+			// Dalla voce 2.4 un worker SENZA token è legittimo: significa «il segreto lo genera la
+			// pagina Postazioni». Due worker con lo STESSO token non lo sono, e non è un dettaglio
+			// formale: il server non saprebbe chi sta chiamando, e se ne accorgerebbe al primo claim.
+			"due worker con lo stesso token",
+			"[[worker]]\nnome = \"w1\"\ntipo = \"outlook\"\ntoken = \"uguale\"\n" +
+				"[[worker]]\nnome = \"w2\"\ntipo = \"analisi\"\ntoken = \"uguale\"\n",
+			"stesso token",
 		},
 		{
 			"tipo di worker inventato",

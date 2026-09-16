@@ -1,0 +1,72 @@
+{{define "contenuto"}}
+<h1>Postazioni</h1>
+
+<p class="muto">Un PC con Outlook e un worker. Quali PC esistono e quali caselle serve ognuno si dichiara in
+<code>cockpit.toml</code> (<code>[[postazione]]</code> e <code>[[worker]]</code>): da qui si genera il
+<strong>segreto</strong> di quel PC e si scarica il pacchetto già configurato.</p>
+
+<div class="pannello">
+  <table class="tabella stretta">
+    <tr><th>Indirizzo del server</th><td class="mono">{{.Dati.URL}}</td></tr>
+    {{if .Dati.TLS}}
+    <tr><th>Collegamento</th><td>cifrato (TLS)</td></tr>
+    <tr><th>Impronta del certificato</th><td class="mono piccolo">{{.Dati.Impronta}}</td></tr>
+    <tr><th>Il certificato scade</th><td>{{dataLunga .Dati.Scadenza}}</td></tr>
+    {{else}}
+    <tr><th>Collegamento</th><td><span class="errore">IN CHIARO</span> — token e posta viaggiano leggibili.
+      Va bene solo sul banco di prova: si cifra con <code>tls_cert</code> e <code>tls_key</code> in <code>[server]</code>.</td></tr>
+    {{end}}
+  </table>
+</div>
+
+{{if .Dati.Errore}}<p class="errore">{{.Dati.Errore}}</p>{{end}}
+
+{{template "postazioni_elenco" .}}
+{{end}}
+
+{{define "postazioni_elenco"}}
+<table class="tabella">
+  <tr><th>PC</th><th>Worker</th><th>Caselle servite</th><th>Ultimo contatto</th><th></th></tr>
+  {{range .Dati.Postazioni}}
+  <tr>
+    <td>
+      <strong>{{.NomeHost}}</strong>
+      {{if not .Attiva}}<span class="chip">disattivata</span>{{end}}
+      {{if .Descrizione}}<br><small class="muto">{{.Descrizione}}</small>{{end}}
+    </td>
+    <td>
+      {{if .Worker}}
+        {{range .Worker}}<div class="mono piccolo">{{.Nome}} <span class="muto">({{.Tipo}})</span>{{if not .Attivo}} <span class="errore">disattivato</span>{{end}}</div>{{end}}
+      {{else}}
+        <span class="muto">nessuno: aggiungere un <code>[[worker]]</code> in cockpit.toml</span>
+      {{end}}
+    </td>
+    <td>
+      {{range .Worker}}<div class="piccolo">{{if .Caselle}}{{range .Caselle}}<span class="chip">{{.}}</span> {{end}}{{else}}<span class="muto">—</span>{{end}}</div>{{end}}
+    </td>
+    <td class="piccolo">
+      {{range .Worker}}
+        <div>{{if .UltimoClaim}}{{dataLunga .UltimoClaim}}{{if .IP}} <span class="muto">da {{.IP}}</span>{{end}}
+             {{if not .OutlookOk}}<span class="errore">Outlook non risponde</span>{{end}}
+             {{else}}<span class="muto">mai</span>{{end}}</div>
+      {{end}}
+    </td>
+    <td>
+      {{if and $.Dati.Admin .Worker}}
+      <form method="post" action="/admin/postazioni/{{.NomeHost}}/pacchetto">
+        <button title="Genera un token nuovo per ogni worker di questo PC e scarica il pacchetto. I token precedenti smettono di funzionare."
+                onclick="return confirm('Generare credenziali nuove per {{.NomeHost}}?\n\nI token attuali di quel PC smettono subito di funzionare: il worker si fermerà con 401 finché non gli si copia il pacchetto nuovo.')">
+          genera e scarica il pacchetto
+        </button>
+      </form>
+      {{else if .Worker}}<span class="muto piccolo">solo un amministratore</span>{{end}}
+    </td>
+  </tr>
+  {{end}}
+</table>
+
+<p class="muto piccolo">Il pacchetto contiene <code>worker.toml</code> (indirizzo del server, impronta del
+certificato e i token di questo PC), le istruzioni e i file del worker presi dal server, così la
+versione del worker e quella del server non si allontanano. I token si vedono <strong>una volta
+sola</strong>: in database c'è solo la loro impronta.</p>
+{{end}}

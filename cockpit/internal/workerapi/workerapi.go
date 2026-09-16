@@ -1,10 +1,12 @@
 // Package workerapi espone le rotte usate dai worker Python: coda job, ingest, upload degli allegati.
-// Autenticazione: header X-Cockpit-Token uguale a [server].token_worker.
+//
+// Autenticazione (voce 2.4): header X-Cockpit-Token con il token INDIVIDUALE del worker. Il server ne
+// cerca lo sha256 in `worker_credenziale` e da lì ricava nome, tipo, postazione e caselle: il token
+// non autorizza soltanto, identifica. Il token condiviso di prima non autentica piu' niente.
 package workerapi
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,12 +32,14 @@ import (
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/rete"
 )
 
 type Server struct {
-	Pool    *pgxpool.Pool
-	Log     *slog.Logger
-	Token   string
+	Pool *pgxpool.Pool
+	Log  *slog.Logger
+	// Nessun campo Token: dalla voce 2.4 il server non ha un segreto suo da confrontare. Le
+	// credenziali stanno in `worker_credenziale`, una per worker, e ognuna dice anche chi è.
 	Ingest  *ingest.Servizio
 	Staging string
 	// CasellaDefault: indirizzo attribuito ai lotti che non dichiarano una casella. Serve finché il
@@ -65,15 +69,80 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/sync/cursori", s.auth(s.cursori))
 }
 
+type chiaveCtx int
+
+const ctxCredenziale chiaveCtx = 1
+
+// ImprontaToken è in `rete`: la calcolano anche le fondazioni quando seminano la credenziale, e due
+// copie che divergessero su uno spazio in fondo darebbero un 401 che nessuno spiega.
+func ImprontaToken(token string) string { return rete.ImprontaToken(token) }
+
+// credenzialeDa restituisce il worker autenticato da `auth`. Le rotte sotto `auth` ce l'hanno sempre.
+func credenzialeDa(ctx context.Context) (db.WorkerCredenziale, bool) {
+	c, ok := ctx.Value(ctxCredenziale).(db.WorkerCredenziale)
+	return c, ok
+}
+
+// auth riconosce CHI sta chiamando (voce 2.4).
+//
+// Fino al blocco 1 c'era un token solo, uguale per tutti i worker e scritto in chiaro in ogni
+// worker.toml: autenticava «un worker», non «questo worker». L'identità la dichiarava poi il JSON —
+// `worker_id` — e da lì venivano postazione e caselle autorizzate. Chiunque avesse il token, cioè
+// chiunque avesse letto un worker.toml, poteva presentarsi come il worker di un altro PC e farsi
+// assegnare i suoi job interattivi e la sua posta.
+//
+// Ora il token È l'identità: lo si cerca per sha256 in `worker_credenziale` e la riga trovata dice
+// nome, tipo, postazione e caselle. Il `worker_id` del JSON resta nel contratto ma non decide più
+// niente: deve solo coincidere, e se non coincide è 403 — un worker.toml con il nome di un altro è un
+// file copiato, e va detto invece che assecondato.
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		t := r.Header.Get("X-Cockpit-Token")
-		if t == "" || subtle.ConstantTimeCompare([]byte(t), []byte(s.Token)) != 1 {
-			http.Error(w, `{"errore":"token worker non valido"}`, http.StatusUnauthorized)
+		t := strings.TrimSpace(r.Header.Get("X-Cockpit-Token"))
+		if t == "" {
+			http.Error(w, `{"errore":"credenziale mancante: header X-Cockpit-Token"}`, http.StatusUnauthorized)
 			return
 		}
-		h(w, r)
+		cred, err := db.New(s.Pool).CredenzialiPerToken(r.Context(), ImprontaToken(t))
+		if err != nil {
+			errore(w, 500, err)
+			return
+		}
+		switch len(cred) {
+		case 1:
+			h(w, r.WithContext(context.WithValue(r.Context(), ctxCredenziale, cred[0])))
+		case 0:
+			s.Log.Warn("credenziale non riconosciuta", "ip", r.RemoteAddr, "percorso", r.URL.Path)
+			http.Error(w, `{"errore":"credenziale non riconosciuta: dalla voce 2.4 ogni worker ha il suo token ([[worker]].token in cockpit.toml). Il token condiviso [server].token_worker non autentica più"}`,
+				http.StatusUnauthorized)
+		default:
+			// Due credenziali con lo stesso segreto non sono credenziali individuali: assegnare
+			// l'identità alla prima riga in ordine alfabetico sarebbe peggio che rifiutare, perché
+			// funzionerebbe quasi sempre e sbaglierebbe senza dirlo.
+			nomi := make([]string, 0, len(cred))
+			for _, c := range cred {
+				nomi = append(nomi, c.WorkerNome)
+			}
+			s.Log.Error("token condiviso fra più worker", "worker", nomi)
+			http.Error(w, fmt.Sprintf(`{"errore":"questo token è di piu' worker (%s): non identifica nessuno. Dare a ciascun [[worker]] di cockpit.toml un token diverso e riportarlo nel worker.toml del suo PC"}`,
+				strings.Join(nomi, ", ")), http.StatusUnauthorized)
+		}
 	}
+}
+
+// stessoWorker verifica che il nome dichiarato nel JSON sia quello della credenziale che ha aperto la
+// richiesta. Scrive la risposta e restituisce false quando non lo è.
+func stessoWorker(w http.ResponseWriter, r *http.Request, dichiarato string) (db.WorkerCredenziale, bool) {
+	cred, ok := credenzialeDa(r.Context())
+	if !ok {
+		errore(w, 500, errors.New("rotta senza credenziale: difetto di registrazione delle rotte"))
+		return cred, false
+	}
+	if d := strings.TrimSpace(dichiarato); d != "" && !strings.EqualFold(d, cred.WorkerNome) {
+		errore(w, 403, fmt.Errorf("questa credenziale è di %q, ma la richiesta dichiara %q: worker.toml con il nome di un altro worker",
+			cred.WorkerNome, d))
+		return cred, false
+	}
+	return cred, true
 }
 
 func scriviJSON(w http.ResponseWriter, stato int, v any) {
@@ -170,16 +239,11 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := db.New(s.Pool)
-	// La credenziale decide che cosa il worker può fare: senza, non c'è una destinazione e non c'è
-	// un claim. Un nome sconosciuto è un worker non censito in [[worker]] di cockpit.toml, e il modo
-	// giusto di dirglielo è un 403 con il nome, non una coda che non gli dà mai niente.
-	cred, err := q.GetWorkerCredenziale(r.Context(), req.WorkerID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		errore(w, 403, fmt.Errorf("worker %q non censito o disattivato: aggiungerlo a [[worker]] in cockpit.toml", req.WorkerID))
-		return
-	}
-	if err != nil {
-		errore(w, 500, err)
+	// La credenziale decide che cosa il worker può fare, e dalla voce 2.4 non la cerca più il nome
+	// dichiarato nel JSON: è quella con cui la richiesta si è autenticata. Il nome dichiarato deve
+	// solo coincidere — un worker.toml con il nome di un altro è un file copiato.
+	cred, ok := stessoWorker(w, r, req.WorkerID)
+	if !ok {
 		return
 	}
 	if cred.WorkerTipo != wt {
@@ -253,19 +317,12 @@ func nonNil(u []uuid.UUID) []uuid.UUID {
 // — non viene aperto, letto né censito. È il motivo per cui il terzo store del profilo di prova
 // (non censito) deve restare invisibile al Cockpit.
 func (s *Server) caselleWorker(w http.ResponseWriter, r *http.Request) {
-	nome := strings.TrimSpace(r.URL.Query().Get("worker_id"))
-	if nome == "" {
-		errore(w, 400, errors.New("worker_id mancante"))
+	cred, ok := stessoWorker(w, r, r.URL.Query().Get("worker_id"))
+	if !ok {
 		return
 	}
+	nome := cred.WorkerNome
 	q := db.New(s.Pool)
-	if _, err := q.GetWorkerCredenziale(r.Context(), nome); errors.Is(err, pgx.ErrNoRows) {
-		errore(w, 403, fmt.Errorf("worker %q non censito o disattivato", nome))
-		return
-	} else if err != nil {
-		errore(w, 500, err)
-		return
-	}
 	righe, err := q.ListCaselleAutorizzate(r.Context(), nome)
 	if err != nil {
 		errore(w, 500, err)
@@ -313,6 +370,9 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	var req api.HeartbeatRichiesta
 	_ = leggi(r, &req)
+	if _, ok := stessoWorker(w, r, req.WorkerID); !ok {
+		return
+	}
 	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
 	if err != nil {
 		s.Log.Warn("battito senza tentativo dichiarato: il lease non viene rinnovato",
@@ -339,6 +399,9 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	var req api.RisultatoRichiesta
 	if err := leggi(r, &req); err != nil {
 		errore(w, 400, err)
+		return
+	}
+	if _, ok := stessoWorker(w, r, req.WorkerID); !ok {
 		return
 	}
 	t, err := tentativo(id, req.WorkerID, req.LeaseToken)
@@ -960,6 +1023,9 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	var req api.IngestRichiesta
 	if err := leggi(r, &req); err != nil {
 		errore(w, 400, err)
+		return
+	}
+	if _, ok := stessoWorker(w, r, req.WorkerID); !ok {
 		return
 	}
 	// Un lotto arriva sempre dentro un tentativo di sync: senza, il server non potrebbe distinguere

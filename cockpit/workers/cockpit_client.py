@@ -11,12 +11,15 @@ lavoro lo controlla ai punti di ripresa e smette senza riportare nulla.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import http.client
 import json
 import logging
 import logging.handlers
 import os
 import socket
+import ssl
 import sys
 import threading
 import tomllib
@@ -68,13 +71,89 @@ class ArrestoRichiesto(Exception):
     """Il tentativo corrente non è più valido: interrompere il lavoro senza riportare il risultato."""
 
 
-class Cockpit:
-    """Client dell'API worker di cockpit.exe (urllib: nessuna dipendenza)."""
+class ImprontaSbagliata(RuntimeError):
+    """Il certificato del server non è quello dichiarato in worker.toml (voce 2.4).
 
-    def __init__(self, url: str, token: str, worker_id: str = ""):
+    NON è un errore di rete e non si ritenta: o il certificato del server è stato rifatto — e allora
+    va scaricato un pacchetto nuovo dalla pagina Postazioni — oppure dall'altra parte c'è qualcun
+    altro. Nei due casi la cosa giusta è la stessa: fermarsi e dirlo.
+    """
+
+
+def normalizza_impronta(s: str) -> str:
+    """Un'impronta si copia in tanti modi: con i due punti, in maiuscolo, con gli spazi."""
+    return "".join(c for c in (s or "").lower() if c in "0123456789abcdef")
+
+
+class _ConnessioneFissata(http.client.HTTPSConnection):
+    """Una connessione TLS che accetta UN certificato solo: quello con l'impronta attesa."""
+
+    impronta_attesa = ""
+
+    def connect(self):
+        super().connect()
+        der = self.sock.getpeercert(binary_form=True)
+        vera = hashlib.sha256(der or b"").hexdigest()
+        if not hmac.compare_digest(vera, self.impronta_attesa):
+            self.close()
+            raise ImprontaSbagliata(
+                "il server ha presentato un certificato diverso da quello atteso.\n"
+                f"  atteso : {self.impronta_attesa}\n"
+                f"  ricevuto: {vera}\n"
+                "Se il certificato del server è stato rifatto, scaricare il pacchetto nuovo dalla pagina "
+                "Postazioni. Non togliere `impronta` da worker.toml per far ripartire il worker: "
+                "senza impronta non si sa più con chi si sta parlando."
+            )
+
+
+class _HandlerImpronta(urllib.request.HTTPSHandler):
+    """Aggancia il controllo dell'impronta a urllib.
+
+    La verifica della catena è spenta di proposito: il certificato del server è autofirmato, non c'è
+    nessuna CA da consultare, e il controllo che conta lo fa l'impronta — che è più stretto, non più
+    largo. Verificare la catena e NON l'impronta accetterebbe qualunque certificato firmato da
+    chiunque il PC si fidi; qui ne passa uno solo.
+    """
+
+    def __init__(self, impronta: str):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        super().__init__(context=ctx)
+        self._impronta = impronta
+
+    def https_open(self, req):
+        def costruisci(host, **kw):
+            c = _ConnessioneFissata(host, context=self._context, **kw)
+            c.impronta_attesa = self._impronta
+            return c
+        return self.do_open(costruisci, req)
+
+
+class Cockpit:
+    """Client dell'API worker di cockpit.exe (urllib: nessuna dipendenza).
+
+    `token` è il segreto INDIVIDUALE di questo worker (voce 2.4): il server lo cerca per sha256 in
+    `worker_credenziale` e da lì sa chi sta chiamando. Un token condiviso da due worker non identifica
+    nessuno e riceve 401.
+
+    `impronta` è lo sha256 del certificato del server, quando il collegamento è https. Senza, verso un
+    https si usa la verifica normale della catena — che su un certificato autofirmato non passa, ed è
+    giusto così: il modo di collegarsi al Cockpit è avere la sua impronta.
+    """
+
+    def __init__(self, url: str, token: str, worker_id: str = "", impronta: str = ""):
         self.url = url.rstrip("/")
         self.token = token
         self.worker_id = worker_id
+        self.impronta = normalizza_impronta(impronta)
+        if self.impronta and len(self.impronta) != 64:
+            raise ValueError(f"impronta non valida ({len(self.impronta)} caratteri esadecimali, attesi 64)")
+        if self.impronta and not self.url.lower().startswith("https://"):
+            raise ValueError("worker.toml dichiara un'impronta ma server_url non è https: "
+                             "l'impronta non verrebbe verificata da nessuno")
+        self._apri = urllib.request.build_opener(_HandlerImpronta(self.impronta)).open if self.impronta \
+            else urllib.request.urlopen
 
     # ------------------------------------------------------------ trasporto
 
@@ -87,7 +166,7 @@ class Cockpit:
             headers={"Content-Type": "application/json", "X-Cockpit-Token": self.token},
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with self._apri(req, timeout=timeout) as r:
                 if r.status == 204:
                     return None
                 return json.loads(r.read().decode("utf-8") or "null")
@@ -166,7 +245,7 @@ class Cockpit:
                          "X-Cockpit-Token": self.token},
             )
             try:
-                with urllib.request.urlopen(req, timeout=timeout):
+                with self._apri(req, timeout=timeout):
                     return None
             except urllib.error.HTTPError as e:
                 testo = e.read().decode("utf-8", "ignore")
@@ -302,11 +381,21 @@ def leggi_marcatore_arresto(percorso: str | None) -> str:
 # ---------------------------------------------------------------- configurazione e log
 
 
-def carica_config(percorso: str, predefiniti: dict | None = None) -> dict:
-    """worker.toml + variabili d'ambiente (che vincono sul file). Esce se manca il token."""
+def carica_config(percorso: str, predefiniti: dict | None = None, sezione: str = "") -> dict:
+    """worker.toml + variabili d'ambiente (che vincono sul file). Esce se manca il token.
+
+    `sezione` è il tipo di worker ("outlook", "analisi"). Dalla voce 2.4 ogni worker ha un token
+    SUO, e sullo stesso PC ne girano due: un file con un token solo non basta più. Le chiavi comuni
+    (server_url, impronta, staging) restano in cima e le due tabelle `[outlook]` e `[analisi]`
+    portano `token` e `worker_id` di ciascuno, sovrascrivendo ciò che c'è sopra.
+
+    Un worker.toml vecchio, con il solo `token` in cima, continua a essere letto: è il server che
+    dirà — con parole precise — che quel token è di due worker e non identifica nessuno.
+    """
     cfg = {
         "server_url": "http://127.0.0.1:8080",
         "token": "",
+        "impronta": "",
         "staging": os.path.join("..", "_staging"),
         "consenti_invio": False,
     }
@@ -314,17 +403,28 @@ def carica_config(percorso: str, predefiniti: dict | None = None) -> dict:
         cfg.update(predefiniti)
     if os.path.isfile(percorso):
         with open(percorso, "rb") as f:
-            cfg.update(tomllib.load(f))
+            letto = tomllib.load(f)
+        proprie = letto.pop(sezione, None) if sezione else None
+        # Le altre sezioni di worker non riguardano questo worker: se finissero in cfg, `token`
+        # dipenderebbe dall'ordine delle tabelle nel file.
+        for t in ("outlook", "analisi"):
+            letto.pop(t, None)
+        cfg.update(letto)
+        if isinstance(proprie, dict):
+            cfg.update(proprie)
     for chiave, env in (
         ("server_url", "COCKPIT_URL"),
         ("token", "COCKPIT_TOKEN"),
+        ("impronta", "COCKPIT_IMPRONTA"),
         ("staging", "COCKPIT_STAGING"),
         ("worker_id", "COCKPIT_WORKER_ID"),
     ):
         if os.environ.get(env):
             cfg[chiave] = os.environ[env]
     if not cfg["token"]:
-        sys.exit(f"token mancante: {percorso} [token] o variabile COCKPIT_TOKEN")
+        dove = f"[{sezione}].token" if sezione else "token"
+        sys.exit(f"token mancante: {percorso} {dove} o variabile COCKPIT_TOKEN. "
+                 "Il pacchetto con i token di questo PC si scarica dalla pagina Postazioni del Cockpit.")
     return cfg
 
 

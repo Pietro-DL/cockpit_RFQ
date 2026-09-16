@@ -3,8 +3,28 @@
 # I percorsi Windows vanno in stringhe letterali TOML ('...'), così i backslash non richiedono escape.
 
 [server]
+# In sviluppo: 127.0.0.1:8080, e basta. Fuori da questo PC (VM, banco a due PC) il server si RIFIUTA
+# di partire in chiaro: di qui passano la posta dell'azienda, i token dei worker e il cookie di
+# sessione dell'operatore, e su una LAN in chiaro li legge chiunque senza che niente lo segnali.
 indirizzo = "127.0.0.1:8080"
-token_worker = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
+# indirizzo = "0.0.0.0:8443"
+#
+# TLS (voce 2.4). Se i due file NON esistono, il server ne genera uno autofirmato al primo avvio e
+# scrive l'impronta sha256 nel log e nella pagina Postazioni: è quella che i worker mettono in
+# worker.toml, e da quel momento parlano solo con questo server. Percorsi relativi a questo file.
+# tls_cert = 'tls/cert.pem'
+# tls_key  = 'tls/key.pem'
+# I nomi per cui vale il certificato generato (SAN): il nome della VM, il suo IP, gli alias con cui i
+# worker la chiamano. Assente = nome host della macchina + l'indirizzo di ascolto se è un IP.
+# tls_nomi = ["cockpit", "cockpit.azienda.local", "10.0.0.7"]
+#
+# Via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è
+# già cifrato da qualcos'altro (un tunnel). Il server lo ripete a ogni avvio nel log.
+# consenti_lan_in_chiaro = false
+#
+# token_worker NON autentica più niente (voce 2.4): ogni worker ha il suo token, qui sotto in
+# [[worker]], e il server lo riconosce per sha256. Se la riga è ancora nel file, il server lo dice
+# all'avvio: va tolta.
 log_livello = "info" # debug | info | warn
 # Come gira il server (voce 9.5, §2.7 del piano):
 #   shadow      legge Outlook e il NAS, non li modifica. Niente bozze, niente «segna letto», niente
@@ -108,15 +128,24 @@ utente      = "NC"
 
 # Un worker per postazione e per tipo. Il token sta solo qui: nel database finisce il suo sha256.
 # `caselle` è l'autorizzazione: il server interseca con quello che il worker dichiara al claim.
+#
+# DUE WORKER NON POSSONO AVERE LO STESSO TOKEN (voce 2.4). Dal blocco 2 il token non autorizza
+# soltanto: identifica. Se lo stesso segreto è di due righe, il server non sa chi sta chiamando e
+# risponde 401 nominando tutti e due.
+#
+# `token` vuoto (o riga assente) significa: «il segreto lo genera la pagina Postazioni». È la via
+# consigliata — il pacchetto scaricato da lì contiene già indirizzo, impronta del certificato e
+# token, e nessuno li copia a mano. Un token scritto qui invece vince a ogni avvio: è il file la
+# verità, e va bene per il banco di prova.
 [[worker]]
 nome       = "outlook@PC-NOME"
 tipo       = "outlook"
-token      = "INSERISCI_TOKEN_DI_QUESTO_WORKER"
+token      = ""
 postazione = "PC-NOME"
 caselle    = ["nome.cognome@azienda.it", "commerciale@azienda.it"]
 
 [[worker]]
 nome       = "analisi@PC-NOME"
 tipo       = "analisi"
-token      = "INSERISCI_TOKEN_DI_QUESTO_WORKER"
+token      = ""
 postazione = "PC-NOME"

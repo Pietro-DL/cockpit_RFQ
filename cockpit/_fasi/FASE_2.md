@@ -5,9 +5,11 @@ verificato**. Come per [FASE_0.md](FASE_0.md) e [FASE_1.md](FASE_1.md), la docum
 completa (piani, decisioni aperte, registri degli esiti, richieste all'IT) vive fuori da questo
 repository.
 
-**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3** e il blocco **2.2 + 2.6 + 2.7**,
-più la **correzione del 15/09/2026** (il risultato dei job non arrivava al server). Le voci successive
-(TLS e credenziali individuali, 2.8–2.15) non sono state fatte e sono elencate in fondo.
+**Stato: in corso.** Di questa fase sono chiuse le voci **2.1**, **2.3**, il blocco
+**2.2 + 2.6 + 2.7**, il **blocco 1 dell'addendum** (2.9, 2.16, 9.5 — con la correzione del fuso del
+16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*),
+più le due correzioni del 15 e del 16/09/2026. Restano le voci **2.8** e **2.10–2.15**, elencate in
+fondo: entrano nei blocchi dove servono.
 
 ## Perimetro
 
@@ -367,10 +369,51 @@ riga, e fra le due letture possibili di quel silenzio ce n'è una sola che si pu
 testata compare **SHADOW** con l'elenco di ciò che non succede e dove si cambia: un badge che avvisa
 e basta lascia l'operatore a chiedersi se è rotto qualcosa.
 
+### La correzione del 16/09/2026 — l'ora che Outlook consegna non è l'ora che dichiara
+
+Il blocco 1 è stato provato sulle caselle vere il 16 settembre, ed è saltato fuori questo. Nel log del
+server delle 08:52 i cursori di sync erano **due ore nel futuro** rispetto all'orologio del PC, e con
+loro ogni `ricevuto_il` scritto in database.
+
+`ReceivedTime` e `SentOn` dell'Object Model sono VT_DATE: un numero **senza fuso** che porta l'ora
+locale del PC. pywin32 lo converte in un `pywintypes.datetime` e gli attacca `tzinfo` **UTC**, perché
+è la convenzione della sua conversione, non perché quel valore sia in UTC. Ne esce un oggetto che
+dichiara UTC e porta i numeri di Roma; `_utc` lo prendeva in parola con `timestamp()`, e le 10:52 di
+Roma diventavano le 10:52 UTC, cioè le 12:52. Due ore avanti.
+
+Non è un valore brutto in una colonna: è il **cursore**. Il cursore avanza su `ricevuto_il` (W2), e un
+cursore nel futuro apre la finestra successiva dopo l'orologio. Da quel momento il sync gira, non trova
+niente — non può — e non lo segnala nessuno: nessun errore, nessun conteggio strano, solo posta che non
+arriva più. È lo stesso modo di rompersi del `Restrict` che perde un messaggio, ed è il motivo per cui
+tutto il blocco 1 è costruito intorno a questa forma di guasto.
+
+La correzione è in tre punti, e i tre non sono ridondanti:
+
+1. **Nel worker** (`outlook_com._utc`): di una data che arriva da COM si prendono i **campi** e si
+   leggono nel fuso del PC, con l'ora legale del giorno di quella data. Ciò che non viene da COM
+   dichiara il fuso giusto e continua a convertirsi com'era: reinterpretare anche quello vorrebbe dire
+   spostare valori corretti;
+2. **All'ingresso** (`ingest`): un elemento con `ricevuto_il` oltre `now() + 5 minuti` non entra,
+   finisce in `ingest_scarto` con il payload intero e il motivo scritto in chiaro, e **il cursore non
+   avanza**. Cinque minuti perché fra due PC un po' di differenza è normale e non deve diventare posta
+   scartata; due ore no. Quando l'ora torna plausibile l'elemento rientra dal sync successivo o dal
+   replay, e lo scarto sparisce da solo;
+3. **Quando si accoda il sync** (`jobs`): un cursore già in database e già nel futuro viene **ignorato**
+   e quella cartella riparte dalla finestra predefinita. Senza questo, i cursori scritti il 16/09
+   resterebbero lì a bloccare la casella fino a che il futuro non è passato, e la correzione del worker
+   non basterebbe a farla ripartire.
+
+La guardia lato server non è il posto dove si corregge il difetto: è il posto dove si smette di
+crederci. Vale anche per un worker più vecchio, per un PC con l'orologio avanti e per il replay di uno
+scarto di ieri.
+
 ### Come è stato verificato
 
 | Prova | Che cosa mostra |
 |---|---|
+| `workers/test_ora_outlook.py` (6, L1/L2) | una data costruita come la costruisce pywin32 — `pywintypes.datetime` vero, campi dell'ora locale e `tzinfo` UTC — diventa l'istante giusto; un messaggio appena ricevuto non risulta nel futuro (il sintomo del log); l'offset è quello del giorno di quella data e non di oggi; un `datetime` con un fuso vero non viene spostato; e, passando da `_converti`, `ricevuto_il` e `data_evento` arrivano giusti anche per la Posta inviata |
+| `internal/ingest` (3, L4) | un elemento nel futuro non entra, finisce in scarto con il motivo leggibile e il payload, e **il cursore resta fermo**; due minuti di differenza fra gli orologi non sono un problema; un cursore nel futuro non si scrive nemmeno quando i messaggi sono in regola, e il lotto dopo lo scrive regolarmente |
+| `internal/jobs` (2, L4) | un cursore nel futuro già in database viene ignorato quando si accoda il sync, quello buono di un'altra cartella no; senza cursori utilizzabili la finestra torna quella predefinita |
 | `workers/test_outlook_finestra.py` (13, L1/L2) | il filtro è DASL e in UTC anche partendo da un istante in `+02:00`; gli estremi si allargano al minuto; un `Restrict` che perde un messaggio viene smascherato dal self-test e **non** viene usato, e il ripiego li consegna tutti; una finestra vuota non conta come prova; l'ordine è crescente con tutti e due i modi |
 | `internal/config` (4, L1) | senza `modalita` vale shadow; una parola scritta male ferma l'avvio; SH3 (b): sei radici, fra cui maiuscole, barra finale e barre al contrario; `dry_run` forzato |
 | `internal/web` (4, L1) | SV2 puro: «in corso» solo su casella attiva, un sync in coda su una casella OFFLINE resta OFFLINE; il passo del poll; le parole di «Aggiorna ora»; l'avviso della shadow nomina ciò che non succede |
@@ -380,7 +423,8 @@ e basta lascia l'operatore a chiedersi se è rotto qualcosa.
 Verificate anche **al contrario**, rimettendo il difetto e controllando che il test diventi rosso: il
 filtro riscritto in ora locale (5 test rossi), il self-test che non boccia più (1), la chiave del
 sync diversa a ogni clic (SV1), il claim che non esclude i tipi bloccati (SH2), la visita segnata
-anche ai poll HTMX (SV3).
+anche ai poll HTMX (SV3), la vecchia conversione delle date di Outlook (5 test rossi su 6) e le tre
+guardie sul futuro tolte una per una (l'elemento entra, il cursore avanza, la casella resta ferma).
 
 ### Che cosa questo blocco NON dimostra
 
@@ -394,6 +438,135 @@ anche ai poll HTMX (SV3).
   browser è L7.
 - **`intervallo_sync_s` resta 0** nel `cockpit.toml` di sviluppo. Il valore 30 è nell'esempio e nel
   README; metterlo in funzione sulla posta vera è la prova concordata del blocco.
+- **Che l'ora sia giusta su Outlook vero (TZ2): NON DIMOSTRATO.** Qui la data sbagliata è costruita a
+  mano, e il fatto che pywin32 consegni VT_DATE in ora locale è documentato, non osservato su quel
+  profilo. La prova è guardare la colonna **Ricevuto** in Outlook e la stessa riga in database: è una
+  riga del registro reale, e si compila a mano.
+
+## Blocco 2 dell'addendum (16/09/2026) — rete e VM (voci 2.4, 2.5, D22, D23)
+
+Finora il Cockpit girava su un PC solo: server, worker e browser sullo stesso `127.0.0.1`. Il blocco 2
+lo prepara a stare su una VM Linux con i worker sui PC degli operatori (D23), e questo cambia tre
+domande che prima non si ponevano: **chi ascolta**, **chi sta chiamando** e **come si aggiunge un PC**.
+
+### 2.4 — chi ascolta: il server non si espone in chiaro
+
+`[server].indirizzo` fuori da loopback senza `tls_cert` = il server **non parte**. Su quel
+collegamento passano la posta dell'azienda, il token di ogni worker e il cookie di sessione
+dell'operatore; in chiaro su una LAN aziendale li legge chiunque sia attaccato allo stesso switch, e
+non c'è niente che lo segnali. È il tipo di difetto che si scopre dopo, quando non c'è più niente da
+fare. Le due uscite sono dichiarate nel file: `tls_cert`/`tls_key`, oppure `consenti_lan_in_chiaro`
+per chi ha già un tunnel che cifra.
+
+**Il certificato lo genera il server.** Se i due file non esistono, al primo avvio ne scrive uno
+autofirmato per i nomi dichiarati (o per il nome host della macchina) e mette l'impronta sha256 nel
+log e nella pagina *Postazioni*. Generare invece di fermarsi non è comodità: un server che chiede di
+procurarsi un certificato prima di partire, su una macchina senza openssl, resta in chiaro — e il
+percorso di minor resistenza deve essere quello cifrato.
+
+Non c'è una CA interna e aspettarne una vorrebbe dire restare in chiaro, quindi i worker verificano
+l'**impronta**, come fa SSH. È più stretto di una catena, non più largo: un impostore dovrebbe
+presentare *quel* certificato, non un certificato qualunque firmato da qualcuno di cui il PC si fida.
+Nel client la catena è spenta di proposito e il confronto è su sha256 del DER; un'impronta che non
+corrisponde ferma il worker **prima** che mandi il token, che è l'unico errore irreparabile.
+
+### 2.4 — chi sta chiamando: la credenziale è individuale
+
+Il token condiviso autenticava «un worker», non «questo worker»: l'identità la dichiarava il JSON
+(`worker_id`), e da lì venivano postazione e caselle autorizzate. Chiunque avesse letto un
+`worker.toml` poteva presentarsi come il worker di un altro PC e farsi assegnare i suoi job
+interattivi e la sua posta.
+
+Ora il token **è** l'identità: il server ne cerca lo sha256 in `worker_credenziale` e la riga trovata
+dice nome, tipo, postazione e caselle. Il `worker_id` del JSON resta nel contratto ma deve solo
+coincidere — un `worker.toml` con il nome di un altro è un file copiato, e va detto invece che
+assecondato (403). Lo stesso controllo vale su claim, battito, result, ingest e upload.
+
+Due worker con lo **stesso** token ricevono 401 con i nomi di tutti e due: assegnare l'identità al
+primo in ordine alfabetico funzionerebbe quasi sempre e sbaglierebbe senza dirlo. `[server].token_worker`
+non autentica più niente; se è ancora nel file, il server lo dice a ogni avvio.
+
+**Dove nasce il segreto.** Un `token` scritto in `[[worker]]` vince a ogni avvio: è il file la verità,
+e va bene sul banco. Lasciarlo **vuoto** significa «il segreto lo tiene il database», e allora il seed
+non lo tocca più: altrimenti il pacchetto scaricato ieri smetterebbe di funzionare stanotte senza che
+nessuno abbia cambiato niente.
+
+### 2.5 — CSRF
+
+Il cookie di sessione viaggia da solo: una pagina qualsiasi aperta in un'altra scheda, mentre
+l'operatore è collegato, può mandare un POST al Cockpit e il browser ci attacca il cookie. Con
+«Conferma», «Apri in Outlook» e «Bozza» dietro a dei POST, basta questo a far succedere cose a nome
+suo. `http.CrossOriginProtection` guarda `Sec-Fetch-Site` (e `Origin` contro `Host` per i browser che
+non lo mandano) e blocca i metodi che scrivono quando sono dichiarati cross-site. Le letture passano:
+bloccarle romperebbe i link senza proteggere niente.
+
+Non è un token da mettere in ogni form, e per questo regge anche sulle pagine che verranno: non c'è
+niente da ricordarsi di aggiungere. Il cookie prende `Secure` quando il server parla TLS — e solo
+allora, perché metterlo sempre renderebbe impossibile il login in sviluppo, e la cura sarebbe toglierlo.
+
+I worker non sono browser: non mandano `Sec-Fetch-Site` né `Origin` e passano. La loro autenticazione
+è il token individuale, che una pagina esterna non ha.
+
+### D22 — la pagina *Postazioni* e il pacchetto del worker
+
+Aggiungere un PC voleva dire tre passaggi a mano — copiare il token condiviso, copiare i file del
+worker, scrivere l'indirizzo del server — e ognuno fallisce in silenzio. Ora il pacchetto lo costruisce
+il server, che è l'unico a sapere tutte e tre le cose: `cockpit-worker-<pc>.zip` con `worker.toml`
+(indirizzo, impronta, i token di quel PC), le istruzioni e i file del worker **presi dal binario**,
+così la versione del worker e quella del server non si allontanano.
+
+I token si vedono una volta sola: in database c'è il loro sha256, e una schermata che sapesse
+rileggerli sarebbe il posto da cui rubarli tutti insieme. Rigenerare invalida i precedenti, e il
+pulsante lo dice prima di farlo.
+
+**Che cosa la pagina NON fa, di proposito:** non crea postazioni né worker. Quale PC esiste e quali
+caselle serve resta in `cockpit.toml` — versionato, leggibile, uguale a ogni avvio. Una schermata che
+crea autorizzazioni è una schermata da cui si dà accesso alla posta di un collega con due clic e
+nessuna traccia nel file.
+
+### D23 — il server su una VM Linux
+
+`GOOS=linux go build ./cmd/cockpit` produce un binario unico, con dentro migrazioni, template e i file
+dei worker. Il NAS diventa una share SMB montata (`/mnt/nas/...`) e il confronto con
+`radici_produzione` — quello che impedisce a una shadow di partire sul NAS vero — ignora maiuscole,
+barre e barra finale, quindi vale anche scritto alla maniera POSIX. Con la VPN fra gli impianti serve
+**una sola regola di firewall**, in ingresso sulla VM: i worker si collegano in uscita e il server non
+chiama nessuno.
+
+### Come è stato verificato
+
+| Prova | Che cosa mostra |
+|---|---|
+| `internal/config` (7, L1) | `SuLoopback` su nove forme di indirizzo; il server non parte in chiaro fuori da questo PC e il rifiuto nomina tutte e due le uscite; su loopback in chiaro parte; mezzo TLS (solo cert o solo key) non esiste; i percorsi relativi si leggono da dove sta il file; SH3 (b) con percorsi POSIX, cioè sulla VM |
+| `internal/workerapi` (3, L4+L2) | W4: senza header, con header vuoto e con un token sconosciuto è 401 con il motivo; con il token giusto si entra. Un token di due worker è 401 che li nomina tutti e due. W11: il **client Python vero** contro un server TLS vero — con l'impronta giusta passa (401 dal server: il TLS ha retto), con una diversa si ferma e non manda il token, e l'impronta in maiuscolo con i due punti vale come quella minuscola; su un listener TLS una richiesta in chiaro non arriva a nessun gestore |
+| `internal/workerapi` (claim, L4) | la credenziale di un worker non permette di presentarsi come un altro (403), né di chiedere le caselle di un altro |
+| `internal/web` (5, L4) | W10: lo stesso POST passa dalla stessa origine e prende 403 dichiarato cross-site (con `Sec-Fetch-Site` e con `Origin`), mentre una GET cross-site passa; il claim di un worker non viene toccato dalla protezione. PK1: il pacchetto è uno zip con `worker.toml`, le istruzioni e i file del worker (senza i test), il token dentro è **davvero** la credenziale di quel worker e il claim con quello passa; rigenerare produce un token diverso e il precedente diventa 401; un operatore non amministratore riceve 403 e nessun token cambia |
+| `workers/test_credenziali.py` (9, L1/L2) | ogni worker legge il proprio token dalla sua tabella, il token dell'altro non arriva; un `worker.toml` vecchio si legge ancora; l'ambiente vince sul file; senza token il worker dice dove prenderlo; l'impronta si normalizza (due punti, maiuscole), mezza impronta non passa, e un'impronta senza https è un errore |
+| `scripts\prova-tutto.ps1` | `GOOS=linux go build ./...`: il server compila per la VM |
+
+Verificate anche **al contrario**, rimettendo il difetto:
+
+| Difetto rimesso | Effetto |
+|---|---|
+| `auth` che accetta qualunque token non vuoto | rossi i due test W4 |
+| il claim che non confronta il nome dichiarato con la credenziale | rosso `TestClaimRifiuta…` (un worker si presenta come un altro e ottiene un job) e rosso `TestCaselleWorker…` (si fa dare le caselle di un altro) |
+| il banco senza `ProtezioneCSRF` | rosso W10 su tutti e due i casi |
+| il client che non confronta più l'impronta | rosso W11 (accetta un certificato qualunque) |
+| il controllo del chiaro in LAN tolto dalla configurazione | rosso `TestInChiaroFuoriDaQuestoPC…` |
+| il pacchetto che non rigenera il token | rosso PK1 |
+
+### Che cosa questo blocco NON dimostra
+
+- **Il banco a due PC: NON ESEGUITO.** Qui client e server sono due processi sullo stesso computer, su
+  loopback. Che il worker di un altro PC faccia claim attraverso la LAN, che «Apri in Outlook» apra la
+  finestra **su quel PC** e che un allegato da decine di MB passi nei tempi del lease è M11/M7 **(2PC)**;
+- **il NAS su una share SMB montata su Linux (N1): NON ESEGUITO.** Il codice compila per Linux e i
+  percorsi POSIX sono coperti da un test, ma la copia verificata — hash uguale, nessun `.parte`
+  rimasto — attraverso `cifs` non è stata eseguita. È L8;
+- **la VM: NON ESISTE ancora.** `GOOS=linux go build` dice che compila, non che gira: PostgreSQL, il
+  montaggio del NAS e la regola di firewall sono lavoro d'infrastruttura, e vanno nella checklist IT;
+- **il browser: NON PROVATO.** Che un certificato autofirmato dia l'avviso atteso, e che
+  l'eccezione basti, si vede solo aprendo il Cockpit da un altro PC (L7).
 
 ## Come verificare
 
@@ -415,8 +588,9 @@ un'ottimizzazione, è una condizione di correttezza.
 | L3 contratti | `MessaggioIn.ricevuto_il`, `RiferimentoElemento.casella_id`, `RisultatoStage` senza `path_staging`, `ClaimRichiesta` con `caselle_aperte`, payload senza `store_id`, `CasellaServita` sui due lati | eseguiti |
 | L4 integrazione | I3, I4, I18, I21, S2 sulla `0004` con dati, cursore per casella, direzione dalle caselle; **M7, M8, M13**; **Q8, Q17, Q18, Q21, M2, M3, M4, M6, M9, M10, M12, W14, P1** | eseguiti |
 | L4 end-to-end | il worker **vero** (Python, senza COM) contro il server **vero** su PostgreSQL: un download completo fino a `fatto` e il battito che rinnova il lease durante un job lungo | eseguiti |
-| L1/L2 + L4 blocco 1 | voce 2.9: filtro DASL in UTC e self-test per insieme (13 prove L1/L2); voce 2.16: SV1, SV2, SV3; voce 9.5: SH1, SH2, SH3 (a) in L4, SH3 (b) in L1 | eseguiti |
-| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, casella condivisa Exchange, due postazioni (M11, upload fra due PC), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
+| L1/L2 + L4 blocco 1 | voce 2.9: filtro DASL in UTC e self-test per insieme (13 prove L1/L2); voce 2.16: SV1, SV2, SV3; voce 9.5: SH1, SH2, SH3 (a) in L4, SH3 (b) in L1; correzione del fuso del 16/09: 6 prove L1/L2 sulla conversione e 5 L4 sulle guardie (elemento, cursore del lotto, cursore già in database) | eseguiti |
+| L1 + L4 blocco 2 | voce 2.4: `SuLoopback`, il rifiuto del chiaro in LAN, mezzo TLS, percorsi relativi, SH3 (b) POSIX (7 L1); W4 e il claim che non accetta il nome di un altro; **W11 con il client Python vero contro un server TLS vero**; voce 2.5: W10 (403 cross-site, 200 stessa origine, GET libera, worker non toccati); D22: PK1, il pacchetto e la rotazione del token; 9 prove L1/L2 sulle credenziali lato worker | eseguiti |
+| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, TZ2 (l'ora di Outlook accanto a quella in database), casella condivisa Exchange, **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14 L7) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -463,10 +637,9 @@ dichiarato — un messaggio ricevuto non sparisce perché arriva anche come alle
 
 Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci ma quello dei blocchi:
 
-- **blocco 2 — rete**: 2.4 TLS con impronta in `worker.toml` e credenziale individuale al posto del
-  token condiviso, 2.5 CSRF (W4, W10, W11); build Linux del server e prova su share SMB montata;
-  pagina *Postazioni* con il pacchetto del worker. Prima di questo il server resta esposto sulla LAN
-  solo per le prove;
+- ~~**blocco 2 — rete e VM**~~: **fatto**. Restano le prove reali che nessun test simulato può dare:
+  il banco a due PC, il NAS su una share SMB montata dalla VM Linux (N1) e il browser davanti a un
+  certificato autofirmato;
 - **blocco 3 — anagrafica**: 6.6, 6.11 (`cliente.regole` con schema validato ed esempio obbligatorio
   per ogni regola), 8.8, seed dal foglio dei buyer; migrazione `0007_anagrafica`;
 - poi annidati, proposte per cliente, ingresso esterno, articoli e distinta, fatti e STEP, le tre

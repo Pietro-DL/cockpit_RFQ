@@ -28,6 +28,7 @@ import (
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/rete"
 )
 
 type Server struct {
@@ -50,6 +51,15 @@ type Server struct {
 	// IndirizzoClient: da quale IP arriva il browser (voce 2.7, abbinamento sessione → postazione).
 	// Nil = RemoteAddr. X-Forwarded-For non si legge in produzione: lo scriverebbe chiunque.
 	IndirizzoClient func(*http.Request) string
+	// TLS è il certificato del listener, o nil se il server è in chiaro (voce 2.4). Serve a due cose:
+	// mettere `Secure` sul cookie di sessione, e scrivere l'impronta nel worker.toml che la pagina
+	// *Postazioni* genera — così l'impronta non va copiata a mano da nessuna parte.
+	TLS *rete.Materiale
+	// Indirizzo è [server].indirizzo: da qui si ricava l'URL da scrivere nel worker.toml del pacchetto.
+	Indirizzo string
+	// Workers è il filesystem che contiene `workers/` (il pacchetto del worker, D22). Nil = la pagina
+	// *Postazioni* genera solo il worker.toml, senza i file del worker.
+	Workers fs.FS
 }
 
 type chiaveCtx int
@@ -137,7 +147,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -145,6 +155,27 @@ func (s *Server) Init() error {
 		s.pagine[p] = t
 	}
 	return nil
+}
+
+// ProtezioneCSRF avvolge il server con `http.CrossOriginProtection` (voce 2.5).
+//
+// Il cookie di sessione viaggia da solo: se una pagina qualsiasi, aperta dall'operatore mentre è
+// collegato, manda un POST al Cockpit, il browser ci attacca il cookie e il server non ha modo di
+// distinguerlo da un clic sulla schermata vera. Con «Conferma», «Apri in Outlook» e «Bozza» dietro a
+// dei POST, questo basta a far succedere cose a nome suo.
+//
+// `CrossOriginProtection` guarda `Sec-Fetch-Site` (e, per i browser che non lo mandano, `Origin`
+// contro `Host`) e blocca i metodi non sicuri dichiarati cross-site. Non è un token da mettere in
+// ogni form: non c'è niente da ricordarsi di aggiungere, ed è il motivo per cui regge anche sulle
+// pagine che verranno.
+//
+// I worker non sono browser: non mandano né `Sec-Fetch-Site` né `Origin`, e passano. La loro
+// autenticazione è il token individuale, che una pagina esterna non ha (voce 2.4).
+//
+// Sta qui, e non in main, perché il test deve poter provare ESATTAMENTE ciò che gira in produzione:
+// una protezione montata in due punti diversi è una protezione che in un punto prima o poi manca.
+func ProtezioneCSRF(h http.Handler) http.Handler {
+	return http.NewCrossOriginProtection().Handler(h)
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
@@ -181,6 +212,10 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/job", s.autenticato(s.adminJob))
 	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.autenticato(s.riaccodaJob))
 	mux.HandleFunc("POST /admin/job/{id}/annulla", s.autenticato(s.annullaJob))
+	mux.HandleFunc("GET /admin/postazioni", s.autenticato(s.adminPostazioni))
+	// POST perché genera segreti e invalida i precedenti: un GET lo farebbe il primo che ricarica la
+	// pagina, e una precaricamento del browser basterebbe a spegnere un worker acceso.
+	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.autenticato(s.pacchettoWorker))
 	mux.HandleFunc("GET /admin/scarti", s.autenticato(s.adminScarti))
 	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.autenticato(s.riprovaScarto))
 }
@@ -314,7 +349,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieSessione, Value: tok, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600})
+	// `Secure` solo quando il server parla davvero TLS (voce 2.5): metterlo sempre farebbe sparire il
+	// cookie su http, cioè renderebbe impossibile il login in sviluppo, e la cura sarebbe togliere
+	// l'attributo — che è peggio di non averlo mai messo. `SameSite=Lax` vale in tutti e due i casi.
+	http.SetCookie(w, &http.Cookie{Name: cookieSessione, Value: tok, Path: "/", HttpOnly: true,
+		Secure: s.TLS != nil, SameSite: http.SameSiteLaxMode, MaxAge: 12 * 3600})
 	http.Redirect(w, r, "/inbox", http.StatusFound)
 }
 

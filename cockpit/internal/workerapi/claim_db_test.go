@@ -43,10 +43,10 @@ func preparaBancoClaim(t *testing.T) *bancoClaim {
 	}
 	cfg.Postazioni = []config.Postazione{{NomeHost: "PC-FRANCESCO"}, {NomeHost: "PC-LUIGI"}}
 	cfg.Worker = []config.Worker{
-		{Nome: "outlook@PC-FRANCESCO", Tipo: "outlook", Token: "x", Postazione: "PC-FRANCESCO",
+		{Nome: "outlook@PC-FRANCESCO", Tipo: "outlook", Token: tokenDi("outlook@PC-FRANCESCO"), Postazione: "PC-FRANCESCO",
 			Caselle: []string{"francesco@azienda.example", "commerciale@azienda.it"}},
-		{Nome: "outlook@PC-LUIGI", Tipo: "outlook", Token: "y", Postazione: "PC-LUIGI", Caselle: []string{"luigi@azienda.example"}},
-		{Nome: "analisi@PC-FRANCESCO", Tipo: "analisi", Token: "z", Postazione: "PC-FRANCESCO"},
+		{Nome: "outlook@PC-LUIGI", Tipo: "outlook", Token: tokenDi("outlook@PC-LUIGI"), Postazione: "PC-LUIGI", Caselle: []string{"luigi@azienda.example"}},
+		{Nome: "analisi@PC-FRANCESCO", Tipo: "analisi", Token: tokenDi("analisi@PC-FRANCESCO"), Postazione: "PC-FRANCESCO"},
 	}
 	if _, err := fondazioni.Semina(b.ctx, b.q, cfg, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func (b *bancoClaim) claimHTTP(req api.ClaimRichiesta, ip string) (*http.Respons
 	corpo, _ := json.Marshal(req)
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", bytes.NewReader(corpo))
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-Cockpit-Token", tokenProva)
+	r.Header.Set("X-Cockpit-Token", tokenDi(req.WorkerID))
 	r.Header.Set("X-Prova-IP", ip)
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
@@ -184,17 +184,28 @@ func TestM2PresenzaPerWorker(t *testing.T) {
 // motivo, nessuna presenza, nessun job.
 func TestClaimRifiutaWorkerNonCensitoOSuAltraPostazione(t *testing.T) {
 	b := preparaBancoClaim(t)
+	// Dalla voce 2.4 il token È l'identità: un nome che non ha una credenziale non arriva nemmeno al
+	// gestore, perché non ha un token con cui presentarsi (401). Gli altri casi restano 403: la
+	// credenziale è buona, ma dice qualcosa di diverso da ciò che la richiesta dichiara.
 	casi := []struct {
+		nome   string
+		token  string
 		req    api.ClaimRichiesta
+		stato  int
 		attesa string
 	}{
-		{api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-IGNOTO"}, "non censito"},
-		{api.ClaimRichiesta{Worker: "analisi", WorkerID: "outlook@PC-FRANCESCO"}, "censito come outlook"},
-		{api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-LUIGI"}, "copiato su un altro PC"},
+		{"credenziale sconosciuta", tokenProva,
+			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-IGNOTO"}, 401, "credenziale non riconosciuta"},
+		{"tipo diverso da quello censito", tokenDi("outlook@PC-FRANCESCO"),
+			api.ClaimRichiesta{Worker: "analisi", WorkerID: "outlook@PC-FRANCESCO"}, 403, "censito come outlook"},
+		{"worker.toml copiato su un altro PC", tokenDi("outlook@PC-FRANCESCO"),
+			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-LUIGI"}, 403, "copiato su un altro PC"},
+		{"la credenziale di uno, il nome di un altro", tokenDi("outlook@PC-FRANCESCO"),
+			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-LUIGI"}, 403, "il nome di un altro worker"},
 	}
 	for _, c := range casi {
 		r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", bytes.NewReader(mustJSON(c.req)))
-		r.Header.Set("X-Cockpit-Token", tokenProva)
+		r.Header.Set("X-Cockpit-Token", c.token)
 		resp, err := http.DefaultClient.Do(r)
 		if err != nil {
 			t.Fatal(err)
@@ -202,8 +213,8 @@ func TestClaimRifiutaWorkerNonCensitoOSuAltraPostazione(t *testing.T) {
 		var corpo bytes.Buffer
 		_, _ = corpo.ReadFrom(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode != 403 || !strings.Contains(corpo.String(), c.attesa) {
-			t.Errorf("%s: %d %s (atteso 403 con %q)", c.req.WorkerID, resp.StatusCode, corpo.String(), c.attesa)
+		if resp.StatusCode != c.stato || !strings.Contains(corpo.String(), c.attesa) {
+			t.Errorf("%s: %d %s (atteso %d con %q)", c.nome, resp.StatusCode, corpo.String(), c.stato, c.attesa)
 		}
 	}
 	if n := testutil.Conta(t, b.pool, "worker_presenza"); n != 0 {
@@ -222,7 +233,7 @@ func TestCaselleWorkerSoloAutorizzateEAttive(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ := http.NewRequest(http.MethodGet, b.srv.URL+"/api/v1/worker/caselle?worker_id=outlook@PC-FRANCESCO", nil)
-	r.Header.Set("X-Cockpit-Token", tokenProva)
+	r.Header.Set("X-Cockpit-Token", tokenDi("outlook@PC-FRANCESCO"))
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +246,16 @@ func TestCaselleWorkerSoloAutorizzateEAttive(t *testing.T) {
 	if len(out) != 1 || out[0].CasellaID != b.commerciale || !out[0].Condivisa || out[0].Indirizzo != "commerciale@azienda.it" {
 		t.Fatalf("caselle servite: %+v (attesa la sola Commerciale: Francesco è disattivata, Luigi non è autorizzata)", out)
 	}
-	// worker sconosciuto: 403
-	r2, _ := http.NewRequest(http.MethodGet, b.srv.URL+"/api/v1/worker/caselle?worker_id=outlook@PC-IGNOTO", nil)
-	r2.Header.Set("X-Cockpit-Token", tokenProva)
+	// chiedere le caselle di un altro worker: 403, anche con una credenziale buona in mano
+	r2, _ := http.NewRequest(http.MethodGet, b.srv.URL+"/api/v1/worker/caselle?worker_id=outlook@PC-LUIGI", nil)
+	r2.Header.Set("X-Cockpit-Token", tokenDi("outlook@PC-FRANCESCO"))
 	if resp2, err := http.DefaultClient.Do(r2); err != nil || resp2.StatusCode != 403 {
-		t.Fatalf("worker ignoto: %v %v", resp2, err)
+		t.Fatalf("caselle di un altro worker: %v %v", resp2, err)
+	}
+	// e senza credenziale non si arriva nemmeno al gestore: 401
+	r3, _ := http.NewRequest(http.MethodGet, b.srv.URL+"/api/v1/worker/caselle?worker_id=outlook@PC-FRANCESCO", nil)
+	if resp3, err := http.DefaultClient.Do(r3); err != nil || resp3.StatusCode != 401 {
+		t.Fatalf("senza credenziale: %v %v", resp3, err)
 	}
 }
 

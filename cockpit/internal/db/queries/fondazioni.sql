@@ -83,8 +83,45 @@ ON CONFLICT (worker_nome) DO UPDATE SET
     attivo = true, aggiornato_il = now()
 RETURNING *;
 
+-- name: UpsertWorkerCredenzialeMantieniToken :one
+-- Come UpsertWorkerCredenziale, ma NON tocca il token di una credenziale che esiste già.
+--
+-- È la regola della voce 2.4: un `token` scritto in [[worker]] vince a ogni avvio (è il file la
+-- verità); lasciarlo vuoto significa «il segreto lo genera la pagina Postazioni», e allora il seed
+-- non deve cancellarlo al riavvio successivo. Alla prima creazione il token_hash è un valore casuale
+-- che nessuno conosce: la credenziale esiste, dice quali caselle serve, e non autentica finché
+-- qualcuno non genera il pacchetto.
+INSERT INTO worker_credenziale (worker_nome, worker_tipo, token_hash, postazione_id, caselle)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (worker_nome) DO UPDATE SET
+    worker_tipo = EXCLUDED.worker_tipo,
+    postazione_id = EXCLUDED.postazione_id, caselle = EXCLUDED.caselle,
+    attivo = true, aggiornato_il = now()
+RETURNING *;
+
 -- name: GetWorkerCredenziale :one
 SELECT * FROM worker_credenziale WHERE worker_nome = $1 AND attivo;
+
+-- name: CredenzialiPerToken :many
+-- Chi si sta presentando (voce 2.4). Il token non è in database: c'è il suo sha256, ed è per questo
+-- che si cerca per hash e non si confronta un segreto.
+--
+-- :many e non :one di proposito. Se due worker hanno lo stesso token — è la situazione da cui si
+-- arriva, il token condiviso copiato in tutte le righe — le credenziali NON sono individuali, e chi
+-- chiama deve poterlo dire con parole precise invece di assegnare l'identità a chi capita per primo.
+SELECT * FROM worker_credenziale WHERE token_hash = $1 AND attivo ORDER BY worker_nome LIMIT 2;
+
+-- name: ListCredenzialiDiPostazione :many
+-- Le credenziali di una postazione, per la pagina Postazioni: chi è censito su quel PC e da quando.
+SELECT * FROM worker_credenziale WHERE postazione_id = $1 ORDER BY worker_tipo, worker_nome;
+
+-- name: ImpostaTokenWorker :one
+-- Rigenera il segreto di una credenziale esistente (pagina Postazioni). Non crea niente: se il
+-- worker non è censito non c'è niente da rigenerare, e inventarlo qui vorrebbe dire creare
+-- autorizzazioni da una schermata invece che dal file di configurazione.
+UPDATE worker_credenziale SET token_hash = $2, attivo = true, aggiornato_il = now()
+WHERE worker_nome = $1
+RETURNING *;
 
 -- name: ListWorkerCredenziali :many
 SELECT * FROM worker_credenziale ORDER BY worker_nome;

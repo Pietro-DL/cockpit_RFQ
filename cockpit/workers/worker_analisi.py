@@ -255,7 +255,7 @@ def analizza_file(path_staging: str, nome_file: str) -> dict:
 class WorkerAnalisi:
     def __init__(self, cfg: dict):
         self.cfg = cfg
-        self.api = Cockpit(cfg["server_url"], cfg["token"])
+        self.api = Cockpit(cfg["server_url"], cfg["token"], impronta=cfg.get("impronta", ""))
         self.worker_id = nome_worker("analisi", cfg)
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
@@ -323,7 +323,7 @@ def main():
     p.add_argument("--debug", action="store_true")
     args = p.parse_args()
 
-    cfg = carica_config(args.config)
+    cfg = carica_config(args.config, sezione="analisi")
     configura_log(args.debug, cfg, "worker_analisi")
     w = WorkerAnalisi(cfg)
     w.esegui_per_sempre(una_volta=args.una_volta)

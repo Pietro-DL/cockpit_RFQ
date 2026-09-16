@@ -10,8 +10,6 @@ package fondazioni
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,6 +21,7 @@ import (
 
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/rete"
 )
 
 // Esito riassume cosa ha fatto il seed; il chiamante lo logga e i test lo verificano.
@@ -36,10 +35,7 @@ type Esito struct {
 }
 
 // HashToken calcola l'impronta con cui il server riconosce il token di un worker.
-func HashToken(token string) string {
-	somma := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(somma[:])
-}
+func HashToken(token string) string { return rete.ImprontaToken(token) }
 
 // Semina applica le sezioni di cockpit.toml al DB. Va chiamata dopo le migrazioni e dopo il seed
 // degli utenti, perché casella.utente_id e postazione.utente_id li referenziano per sigla.
@@ -125,14 +121,40 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, log *slog.Lo
 			}
 			caselle = append(caselle, id)
 		}
-		if _, err := q.UpsertWorkerCredenziale(ctx, db.UpsertWorkerCredenzialeParams{
-			WorkerNome:   w.Nome,
-			WorkerTipo:   tipo,
-			TokenHash:    HashToken(w.Token),
-			PostazioneID: post,
-			Caselle:      caselle,
-		}); err != nil {
-			return e, fmt.Errorf("fondazioni: worker %s: %w", w.Nome, err)
+		// Un token scritto nel file vince a ogni avvio: la configurazione è la verità. Un token VUOTO
+		// significa «il segreto lo genera la pagina Postazioni» (voce 2.4, D22), e allora il seed non
+		// deve sovrascriverlo al riavvio successivo — altrimenti il pacchetto scaricato ieri
+		// smetterebbe di funzionare stanotte, senza che nessuno abbia toccato niente.
+		if strings.TrimSpace(w.Token) != "" {
+			if _, err := q.UpsertWorkerCredenziale(ctx, db.UpsertWorkerCredenzialeParams{
+				WorkerNome:   w.Nome,
+				WorkerTipo:   tipo,
+				TokenHash:    HashToken(w.Token),
+				PostazioneID: post,
+				Caselle:      caselle,
+			}); err != nil {
+				return e, fmt.Errorf("fondazioni: worker %s: %w", w.Nome, err)
+			}
+		} else {
+			// Alla prima creazione serve comunque un hash, e dev'essere uno che nessuno può presentare:
+			// la credenziale esiste e dice quali caselle serve, ma non autentica finché il token non
+			// viene generato dalla pagina.
+			casuale, err := rete.TokenNuovo()
+			if err != nil {
+				return e, err
+			}
+			if _, err := q.UpsertWorkerCredenzialeMantieniToken(ctx, db.UpsertWorkerCredenzialeMantieniTokenParams{
+				WorkerNome:   w.Nome,
+				WorkerTipo:   tipo,
+				TokenHash:    HashToken(casuale),
+				PostazioneID: post,
+				Caselle:      caselle,
+			}); err != nil {
+				return e, fmt.Errorf("fondazioni: worker %s: %w", w.Nome, err)
+			}
+			if log != nil {
+				log.Info("worker senza token in cockpit.toml: il segreto si genera dalla pagina Postazioni", "worker", w.Nome)
+			}
 		}
 		e.Worker++
 	}

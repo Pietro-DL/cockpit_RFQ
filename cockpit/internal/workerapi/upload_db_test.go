@@ -59,7 +59,7 @@ func preparaBanco(t *testing.T, maxUpload int64) *banco {
 	ctx := context.Background()
 	q := db.New(pool)
 	staging := t.TempDir()
-	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Token: tokenProva, Staging: staging, MaxUpload: maxUpload,
+	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Staging: staging, MaxUpload: maxUpload,
 		Analizzatore: jobs.Analizzatore{Versione: 1}}
 	mux := http.NewServeMux()
 	s.Registra(mux)
@@ -124,10 +124,29 @@ func copiaDi(pr db.PresenzaDaAprireRow) jobs.Copia {
 	return jobs.Copia{CasellaID: pr.CasellaID, CasellaNome: pr.CasellaNome, EntryID: pr.EntryID}
 }
 
+// tokenDi è il segreto individuale di un worker in questi test (voce 2.4): uno per nome, mai lo
+// stesso per due. Il token condiviso non esiste più, e un banco che ne usasse uno solo proverebbe
+// una cosa che il server non fa più.
+func tokenDi(worker string) string { return "token-individuale-di-" + worker }
+
+// censisci crea (o aggiorna) la credenziale di un worker con il suo token individuale. Senza, il
+// worker non si autentica: dalla voce 2.4 il token È l'identità.
+func (b *banco) censisci(worker string, tipo db.WorkerTipo) {
+	b.t.Helper()
+	if _, err := b.q.UpsertWorkerCredenziale(b.ctx, db.UpsertWorkerCredenzialeParams{
+		WorkerNome: worker, WorkerTipo: tipo, TokenHash: ImprontaToken(tokenDi(worker)),
+		Caselle: []uuid.UUID{b.casella},
+	}); err != nil {
+		b.t.Fatalf("credenziale di %s: %v", worker, err)
+	}
+}
+
 // claim prende il job come farebbe un worker che SERVE la casella della presenza: dalla voce 2.2 un
-// job di una casella va solo a chi la dichiara.
+// job di una casella va solo a chi la dichiara. Censisce anche la credenziale, perché un worker che
+// non è censito non si autentica nemmeno.
 func (b *banco) claim(worker string) jobs.Tentativo {
 	b.t.Helper()
+	b.censisci(worker, db.WorkerTipoOutlook)
 	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, jobs.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("claim: job=%v err=%v", j, err)
@@ -145,7 +164,7 @@ func (b *banco) put(t jobs.Tentativo, allegato uuid.UUID, corpo io.Reader, conte
 		b.t.Fatal(err)
 	}
 	req.ContentLength = contentLength
-	req.Header.Set("X-Cockpit-Token", tokenProva)
+	req.Header.Set("X-Cockpit-Token", tokenDi(t.WorkerID))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -159,7 +178,7 @@ func (b *banco) result(t jobs.Tentativo, r api.RisultatoStage) *http.Response {
 	dati, _ := json.Marshal(r)
 	corpo, _ := json.Marshal(api.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: t.WorkerID, LeaseToken: t.LeaseToken.String()})
 	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/jobs/%d/result", b.srv.URL, t.JobID), bytes.NewReader(corpo))
-	req.Header.Set("X-Cockpit-Token", tokenProva)
+	req.Header.Set("X-Cockpit-Token", tokenDi(t.WorkerID))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -34,6 +34,18 @@ import (
 
 const tokenWorkerProva = "token-worker-di-prova"
 
+// tokenDelWorker: dalla voce 2.4 ogni worker ha il suo segreto, e il server lo usa per sapere CHI
+// sta chiamando. Un token solo per tutti non esiste più, nemmeno nei banchi di prova.
+func tokenDelWorker(nome string) string {
+	switch nome {
+	case "outlook@PC-FRANCESCO":
+		return tokenWorkerProva + "-francesco"
+	case "outlook@PC-LUIGI":
+		return tokenWorkerProva + "-luigi"
+	}
+	return tokenWorkerProva
+}
+
 type bancoWeb struct {
 	t                             *testing.T
 	ctx                           context.Context
@@ -64,9 +76,9 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	}
 	cfg.Postazioni = []config.Postazione{{NomeHost: "PC-FRANCESCO", Utente: "FP"}, {NomeHost: "PC-LUIGI", Utente: "LU"}}
 	cfg.Worker = []config.Worker{
-		{Nome: "outlook@PC-FRANCESCO", Tipo: "outlook", Token: "x", Postazione: "PC-FRANCESCO",
+		{Nome: "outlook@PC-FRANCESCO", Tipo: "outlook", Token: tokenWorkerProva + "-francesco", Postazione: "PC-FRANCESCO",
 			Caselle: []string{"francesco@azienda.example", "commerciale@azienda.example"}},
-		{Nome: "outlook@PC-LUIGI", Tipo: "outlook", Token: "y", Postazione: "PC-LUIGI", Caselle: []string{"luigi@azienda.example"}},
+		{Nome: "outlook@PC-LUIGI", Tipo: "outlook", Token: tokenWorkerProva + "-luigi", Postazione: "PC-LUIGI", Caselle: []string{"luigi@azienda.example"}},
 	}
 	utenti := make([]struct{ Sigla, Nome, Ufficio, Ruolo, Password string }, 0)
 	for _, u := range cfg.Utenti {
@@ -81,16 +93,23 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	ip := func(r *http.Request) string { return r.Header.Get("X-Prova-IP") }
 	templ, _ := fs.Sub(risorse.FS, "web/templates")
 	static, _ := fs.Sub(risorse.FS, "web/static")
-	ws := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Templ: templ, Static: static, IndirizzoClient: ip}
+	// Workers: il banco monta lo stesso filesystem incorporato del server vero, perché il pacchetto
+	// della postazione (D22) deve contenere i file del worker e non solo la configurazione.
+	ws := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Templ: templ, Static: static, IndirizzoClient: ip,
+		Workers: risorse.FS}
 	if err := ws.Init(); err != nil {
 		t.Fatal(err)
 	}
-	wa := &workerapi.Server{Pool: pool, Log: testutil.LogSilenzioso(), Token: tokenWorkerProva, Staging: t.TempDir(), IndirizzoClient: ip}
+	wa := &workerapi.Server{Pool: pool, Log: testutil.LogSilenzioso(), Staging: t.TempDir(), IndirizzoClient: ip}
 	mux := http.NewServeMux()
 	ws.Registra(mux)
 	wa.Registra(mux)
-	srv := httptest.NewServer(mux)
+	// Il banco monta la stessa protezione CSRF di produzione (voce 2.5): tutto ciò che questi test
+	// provano passa di lì, quindi nessuno può aggiungere una rotta che funziona solo senza.
+	srv := httptest.NewServer(ProtezioneCSRF(mux))
 	t.Cleanup(srv.Close)
+	// L'indirizzo lo si sa solo dopo l'avvio: è quello che finisce nel worker.toml del pacchetto.
+	ws.Indirizzo = strings.TrimPrefix(srv.URL, "http://")
 	b := &bancoWeb{t: t, ctx: ctx, pool: pool, q: q, srv: srv}
 	casella := func(ind string) uuid.UUID {
 		c, err := q.GetCasellaPerIndirizzo(ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: ind})
@@ -180,7 +199,7 @@ func (b *bancoWeb) workerClaim(nome, ip string, caselle ...uuid.UUID) {
 	}
 	corpo, _ := json.Marshal(api.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", strings.NewReader(string(corpo)))
-	r.Header.Set("X-Cockpit-Token", tokenWorkerProva)
+	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
 	r.Header.Set("X-Prova-IP", ip)
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {

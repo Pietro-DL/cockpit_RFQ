@@ -1,9 +1,28 @@
 # Configurazione di esempio per i worker Cockpit RFQ (worker_outlook e worker_analisi).
-# Copiare questo file in worker.toml.
-# Il token deve coincidere con [server].token_worker di cockpit.toml.
+#
+# NON SERVE COMPILARLO A MANO. Dalla pagina *Postazioni* del Cockpit si scarica il pacchetto di
+# questo PC: contiene un worker.toml già pronto — indirizzo del server, impronta del certificato e i
+# token dei worker di questa postazione — più i file del worker presi dal server, così la versione
+# del worker e quella del server non si allontanano. Questo esempio serve a capire che cosa c'è
+# dentro, e a compilarlo a mano quando serve (banco di prova).
+#
+# Copiare in worker.toml.
 
 server_url     = "http://127.0.0.1:8080"
-token          = "INSERISCI_TOKEN_SEGRETO_CONDIVISO"
+# server_url   = "https://cockpit.azienda:8443"
+#
+# IMPRONTA (voce 2.4). Lo sha256 del certificato del server: il worker parla SOLO con chi presenta
+# quel certificato, e si ferma con un errore esplicito se ne trova un altro. Si legge nel log
+# dell'avvio del server e nella pagina Postazioni; con `server_url` https è ciò che sostituisce la
+# verifica di una CA, che qui non esiste. Non toglierla per far ripartire un worker fermo: senza, non
+# si sa più con chi si sta parlando.
+# impronta     = "a1b2...64 caratteri esadecimali"
+#
+# TOKEN. Dal blocco 2 ogni worker ha il SUO: il server lo cerca per sha256 e da lì sa chi sta
+# chiamando. Sullo stesso PC girano due worker, quindi i token sono due e stanno nelle tabelle in
+# fondo a questo file ([outlook] e [analisi]). La riga qui sotto resta letta per compatibilità, ma
+# due worker con lo stesso token ricevono 401: non identifica nessuno.
+token          = ""
 # Cartella locale DEL WORKER: file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al
 # server con PUT) e il log. Non deve coincidere con [nas].staging del server: il worker può stare su
 # un altro PC.
@@ -41,3 +60,16 @@ consenti_invio = false
 # Per eseguire la prova a mano, senza prendere job:  python worker_outlook.py --restrict 7
 # Serve i nomi delle cartelle: se non sono quelli predefiniti, dichiararli qui.
 # cartelle = ["Posta in arrivo", "Posta inviata"]
+
+# ------------------------------------------------------------------ un token per worker (voce 2.4)
+# Sullo stesso PC girano due worker e ognuno ha la sua credenziale. Le chiavi qui sotto vincono su
+# quelle in cima al file: `worker_id` è la chiave con cui il server riconosce postazione e caselle
+# autorizzate, `token` è il segreto di QUEL worker.
+#
+# [outlook]
+# worker_id = "outlook@PC-NOME"
+# token     = "..."
+#
+# [analisi]
+# worker_id = "analisi@PC-NOME"
+# token     = "..."
