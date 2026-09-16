@@ -146,16 +146,20 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		log.Warn("NAS non raggiungibile: le copie resteranno in coda", "radice", cfg.NAS.Radice)
 	}
 
-	dal := time.Now().AddDate(0, -1, 0)
+	// `dal` è un override e basta: senza, il limite inferiore lo decide chi accoda il sync (il
+	// cursore della cartella, altrimenti la finestra iniziale) e lo decide AL MOMENTO. Calcolarlo qui
+	// una volta sola voleva dire che un server acceso da un mese apriva ancora la finestra di un mese
+	// fa. La data è già stata validata da config.Carica: qui non può più fallire.
+	var dal time.Time
 	if cfg.Outlook.Dal != "" {
-		if d, err := time.ParseInLocation("2006-01-02", cfg.Outlook.Dal, time.Local); err == nil {
-			dal = d
-		}
+		dal, _ = config.DataDal(cfg.Outlook.Dal)
+		log.Warn("finestra iniziale forzata da [outlook].dal: vale solo per le cartelle senza cursore", "dal", cfg.Outlook.Dal)
 	}
 	staging, _ := filepath.Abs(cfg.NAS.Staging)
 	// Le stesse opzioni per lo scheduler e per «Aggiorna ora»: due sync della stessa casella con
 	// cartelle diverse farebbero avanzare il cursore su una finestra che l'altro non ha letto.
-	opzioniSync := jobs.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal, Lotto: cfg.Outlook.Lotto}
+	opzioniSync := jobs.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal,
+		GiorniIniziali: cfg.Outlook.GiorniSyncIniziale, Lotto: cfg.Outlook.Lotto}
 	intervalloSync := time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second
 	if intervalloSync <= 0 {
 		log.Warn("sincronizzazione automatica disattivata: nessun sync viene accodato finché intervallo_sync_s resta 0")
@@ -163,7 +167,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	(&jobs.Scheduler{
 		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
 		IntervalloSync: intervalloSync,
-		Dal:            opzioniSync.Dal, Lotto: opzioniSync.Lotto,
+		Dal:            opzioniSync.Dal, GiorniIniziali: opzioniSync.GiorniIniziali, Lotto: opzioniSync.Lotto,
 		RetentionGiorni: cfg.Retention.GiorniJob,
 		Staging:         staging,
 	}).Avvia(ctx)

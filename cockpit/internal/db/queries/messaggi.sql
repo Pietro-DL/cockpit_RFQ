@@ -197,8 +197,17 @@ ON CONFLICT (casella_id, cartella) DO UPDATE SET
     ultimo_sync = now(), n_messaggi = sync_cursore.n_messaggi + EXCLUDED.n_messaggi, errore = EXCLUDED.errore;
 
 -- name: SetStoricoFinoA :exec
-UPDATE sync_cursore SET storico_fino_a = LEAST(COALESCE(storico_fino_a, $3), $3)
-WHERE casella_id = $1 AND cartella = $2;
+-- Quanto indietro è già arrivato "Carica precedenti" su quella (casella, cartella).
+--
+-- È un INSERT, non un UPDATE: la riga del cursore nasce con il primo sync ORDINARIO, e una casella
+-- da cui si carica l'archivio prima di averla mai sincronizzata non ce l'ha ancora. Con l'UPDATE non
+-- veniva scritto niente e non lo diceva nessuno: il clic dopo ricalcolava la stessa identica
+-- finestra, all'infinito. `ultimo_received` resta NULL - la riga dice fin dove si è scesi, non fin
+-- dove si è saliti - e il sync ordinario la riempirà quando toccherà a lui.
+INSERT INTO sync_cursore (casella_id, cartella, storico_fino_a)
+VALUES ($1, $2, $3)
+ON CONFLICT (casella_id, cartella) DO UPDATE SET
+    storico_fino_a = LEAST(COALESCE(sync_cursore.storico_fino_a, EXCLUDED.storico_fino_a), EXCLUDED.storico_fino_a);
 
 -- name: SetBuyerMessaggio :exec
 UPDATE messaggio SET buyer_id = $2 WHERE messaggio_id = $1;

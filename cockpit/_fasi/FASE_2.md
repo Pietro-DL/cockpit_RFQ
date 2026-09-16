@@ -9,15 +9,25 @@ repository.
 **2.2 + 2.6 + 2.7**, il **blocco 1 dell'addendum** (2.9, 2.16, 9.5 — con la correzione del fuso del
 16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*,
 con la correzione del 16/09 sul passaggio dal token condiviso), più le correzioni del 15 e del
-16/09/2026 e il **checkpoint UI/RBAC** (6.9 e metà della 6.4, anticipate). Restano le voci **2.8** e **2.10–2.15**, elencate in fondo: entrano nei blocchi dove
-servono.
+16/09/2026, il **checkpoint UI/RBAC** (6.9 e metà della 6.4, anticipate) e il **checkpoint sync**
+(voce 2.8: finestra iniziale e archivio a pezzi da due giorni). Restano le voci **2.10–2.15**,
+elencate in fondo: entrano nei blocchi dove servono.
+
+Le prove reali su `4e2f68b` sono **passate**: M1, C2/C3, TZ2 e CR1 sono righe compilate di
+`esiti_reali.md`, che vive fuori da questo repository.
 
 ## Perimetro
 
-Nessun collegamento a caselle di posta reali: tutto ciò che segue è stato provato su un database di
-prova usa e getta e con un finto server per i worker. Le migrazioni precedono il codice che le usa.
-La visibilità delle caselle personali resta al default restrittivo: nessuna regola di autorizzazione
-è stata allentata in questa voce.
+Tutto ciò che segue è stato provato su un database di prova usa e getta e con un finto server per i
+worker. Le migrazioni precedono il codice che le usa. La visibilità delle caselle personali resta al
+default restrittivo: nessuna regola di autorizzazione è stata allentata in questa fase.
+
+Le prove **sulle caselle di posta reali** sono un'altra cosa e vivono in un altro posto: si eseguono
+solo quando sono concordate, una alla volta, e si annotano a mano in `esiti_reali.md` (fuori da
+questo repository). Il 15 e il 16/09/2026 ne sono state eseguite alcune sul profilo Outlook di una
+postazione di prova — sono quelle che hanno trovato il difetto del risultato dei job, quello del fuso
+e il passaggio alle credenziali individuali. Un esito di questo file non ne sostituisce mai uno di
+quello: qui dentro Outlook non c'è.
 
 ## 2.1 — messaggio, casella, presenza (migrazione `0004`)
 
@@ -753,6 +763,142 @@ Verificate anche **al contrario**, rimettendo il difetto uno per volta:
   azzerare `utente.password_hash` a mano;
 - **la matrice ruolo × azione: rimandata**, come sopra.
 
+## Checkpoint sync del 16/09/2026 — il primo caricamento non è l'archivio (voce 2.8)
+
+Le prove reali su `4e2f68b` sono andate a buon fine (M1, C2/C3, TZ2, CR1: sono righe di
+`esiti_reali.md`), e hanno reso visibile una cosa che prima era solo un numero in un file: **quanta
+posta si chiede al primo giro**, e quanta se ne chiede quando si vuole risalire l'archivio.
+
+### Il problema
+
+Due lavori diversi condividevano un meccanismo solo, e le loro finestre erano tarate sulla misura
+sbagliata.
+
+- **Il primo sync** di una casella partiva da **un mese fa**. Il `Restrict` della voce 2.9 ha reso
+  veloce l'**enumerazione** — sul profilo vero, il 16/09, da qualche decimo di secondo a circa un
+  secondo per cartella — ma l'enumerazione non è l'ingest: corpo, destinatari e allegati di ogni
+  elemento sono un altro ordine di grandezza, e il 15/09 una singola finestra di Commerciale erano
+  ~100 secondi per 566 elementi. Un mese su una casella viva è il worker occupato per ore.
+- **«Carica precedenti»** accodava **trenta giorni** per clic, cioè lo stesso lavoro moltiplicato, e
+  la schermata prometteva «premi di nuovo per il mese precedente».
+
+Perché questo pesi più di quanto sembri serve una cosa sola, ed è la forma del worker: **il worker
+Outlook è seriale, e ce n'è uno per PC**. Finché macina un job storico non prende «Apri in Outlook»,
+non scarica un allegato e non fa il sync ordinario. Chi guarda la schermata non vede un lavoro in
+corso: vede dei pulsanti che non fanno niente, per un tempo che nessuno sa dire in anticipo.
+
+E il job storico stava a **priorità 2**, cioè davanti al sync ordinario e **alla pari con «segna
+letto»** — a parità vince il job più vecchio, che è sempre l'archivio, perché è in coda da prima.
+
+Una quarta cosa, trovata scrivendo il test delle due finestre consecutive: **`SetStoricoFinoA` era un
+`UPDATE`**. La riga di `sync_cursore` nasce con il primo sync *ordinario*; una casella da cui si carica
+l'archivio prima di averla mai sincronizzata quella riga non ce l'ha, l'`UPDATE` non scriveva niente e
+non lo diceva nessuno. Il clic successivo ricalcolava **la stessa identica finestra**, all'infinito.
+Con trenta giorni era lavoro sprecato; con due giorni sarebbe stato un pulsante che non avanza mai.
+
+### Che cosa cambia
+
+| | Prima | Ora |
+|---|---|---|
+| primo sync di una casella | un mese fa | `[outlook].giorni_sync_iniziale`, **7** di default |
+| `dal` | «la data minima al primo avvio» | **override esplicito** per gli import controllati; scritto male, il server non parte |
+| ripiego per una cartella senza cursore | il più vecchio dei cursori delle **altre** cartelle | la finestra iniziale |
+| quando si calcola la finestra | una volta all'avvio del server | a ogni accodamento |
+| «Carica precedenti» | 30 giorni per clic | **2 giorni** per clic e per casella |
+| priorità del sync storico | 2 (davanti al sync ordinario, alla pari con «segna letto») | **9**, il fondo della coda |
+| `storico_fino_a` | `UPDATE`: sulle caselle mai sincronizzate non scriveva | `INSERT … ON CONFLICT`: la riga nasce quando serve |
+| la schermata | «premi di nuovo per il mese precedente» | dice due giorni, e il perché sta nel tooltip |
+
+### La precedenza, in un posto solo
+
+Per ogni **(casella, cartella)**, e in quest'ordine:
+
+1. il **cursore** di quella cartella, quando c'è ed è utilizzabile: **vince sempre**. Viaggia nel
+   payload per cartella ed è il worker ad applicarlo, meno la sovrapposizione;
+2. **`dal`**, se `[outlook].dal` è scritto nel file: override esplicito;
+3. altrimenti la **finestra iniziale**, `adesso - giorni_sync_iniziale`.
+
+I punti 2 e 3 valgono **solo** per le cartelle che un cursore non ce l'hanno. Da qui segue la
+proprietà che conta: **un riavvio non riporta nessuna casella alla finestra iniziale**, perché il
+cursore sta in database e non nel processo. È il difetto che, se ci fosse, non si vedrebbe: nessun
+errore, nessun buco, solo una settimana riletta a ogni avvio e la deduplica per Message-ID a
+nascondere il sintomo lasciando il costo.
+
+Il vecchio ripiego — il più vecchio dei cursori delle altre cartelle — sembra prudente e non lo è.
+Una cartella aggiunta oggi a una casella sincronizzata da mesi sarebbe ripartita da mesi fa, cioè dal
+caricamento lungo che questa voce esiste per evitare; e una cartella il cui cursore è stato scartato
+perché nel futuro (la correzione del fuso, qui sopra) sarebbe ripartita dal cursore di un'altra, che
+su dove fosse arrivata lei non dice niente.
+
+`dal` ora è validato all'avvio. Prima un `dal = "01/09/2026"` veniva scartato senza una riga da
+nessuna parte, e chi credeva di stare importando settembre importava la finestra predefinita: se ne
+sarebbe accorto dalle mail che mancavano, che è il modo peggiore.
+
+### Due giorni, e nessuna catena
+
+Ogni clic su «Carica precedenti» copre **due giorni per casella**, a partire da dove era arrivato il
+clic precedente (`storico_fino_a`), e le finestre si incastrano esatte: il limite superiore della
+seconda è il limite inferiore della prima. Finché il job storico di una casella è in coda o in corso,
+premere ancora **non accoda niente** e riporta il badge di quello che sta girando.
+
+Un job storico **non ne accoda un altro**, di proposito. Una catena costruita da sola occuperebbe il
+worker per settimane di archivio senza che nessuno l'abbia chiesto: è il difetto di prima con un
+vestito nuovo. Chi vuole risalire preme ancora, e fra un pezzo e l'altro il worker torna al claim.
+
+Le finestre piccole da sole non basterebbero: se al claim l'archivio avesse la precedenza, il
+pulsante resterebbe muto lo stesso. Per questo il sync storico è l'**ultima** priorità della coda,
+dietro anche al sync ordinario — 1 e 2 restano di chi sta davanti allo schermo.
+
+### Come è stato verificato
+
+| Prova | Che cosa mostra |
+|---|---|
+| `internal/jobs` — **SI1, SI2** (L4) | una casella mai sincronizzata parte da sette giorni e da nient'altro (nessun cursore nel payload, nessun limite superiore); la finestra si configura |
+| `internal/jobs` — **SI3** (L4) | il cursore dell'Inbox viaggia nel payload; il worker lo usa e il server lo ritrova **dopo il riavvio** (Queries nuove, stesse opzioni del file); la Posta inviata, che non ha cursore, resta alla finestra iniziale |
+| `internal/jobs` — **SI4** (L4) | `dal` scritto nel file vale come limite inferiore e **non** cancella il cursore di chi ce l'ha |
+| `internal/jobs` — cursore nel futuro (L4, aggiornato) | l'Inbox con il cursore scartato riparte dalla finestra iniziale e **non** dal cursore della Posta inviata |
+| `internal/web` — **SS1, SS2** (L4) | un clic = una finestra di **48 ore esatte** per casella; due clic = due finestre contigue, senza buchi né sovrapposizioni oltre il microsecondo che PostgreSQL arrotonda |
+| `internal/web` — **SS3** (L4) | cinque clic mentre il job gira accodano un job per casella, non cinque |
+| `internal/web` — **SS4** (L4) | tre claim di fila consegnano «Apri in Outlook», poi «segna letto», poi l'archivio |
+| `internal/config` (L1) | la riga assente non porta un 7 di riserva nel file (il numero sta in un posto solo); si configura; negativa ferma l'avvio; `dal` scritto in tre modi sbagliati ferma l'avvio e dice come si scrive; uno valido si legge a mezzanotte locale |
+| `workers/test_worker_ciclo.py` (L1/L2) | è **qui** che la precedenza si applica: la cartella con il cursore riparte da lì meno la sovrapposizione, quella senza usa il ripiego del payload; e un job storico non sposta il cursore in avanti, né nel risultato né nei lotti |
+
+Verificate anche **al contrario**, rimettendo il difetto uno per volta — dodici, tutti rossi:
+
+| Difetto rimesso | Effetto |
+|---|---|
+| la finestra iniziale torna a un mese | rosso SI1 |
+| `giorni_sync_iniziale` del file ignorato | rosso SI2 |
+| il cursore non viaggia nel payload | rosso SI3 |
+| `dal` non fa più da override | rosso SI4 |
+| «Carica precedenti» torna a 30 giorni | rosso SS1 |
+| `storico_fino_a` torna un `UPDATE` | rosso SS2 |
+| la chiave dello storico porta la finestra (un clic, un job) | rosso SS3 |
+| il sync storico torna a priorità 2 | rosso SS4 |
+| il worker usa `dal` anche dove ha il cursore | rosso il test del worker |
+| il sync storico muove il cursore in avanti | rosso il test del worker |
+| una finestra iniziale negativa non ferma l'avvio | rosso il test di configurazione |
+| un `dal` scritto male torna a passare in silenzio | rosso il test di configurazione |
+
+Due controprove, al primo giro, sono uscite **verdi**, ed è il motivo per cui si fanno: SS1
+confrontava l'ampiezza della finestra con `GiorniStorico`, cioè con la costante che avrebbe dovuto
+sorvegliare — portata a 30, si spostava anche l'attesa; e SS4 provava il solo «Apri in Outlook»
+(priorità 1), che passava davanti all'archivio **anche** con il difetto. Ora il numero due è scritto
+a mano nel test, e SS4 prova il caso che discrimina, cioè «segna letto».
+
+### Che cosa questo checkpoint NON dimostra
+
+- **Che sette giorni siano la misura giusta: NON MISURATO.** I tempi del 16/09 (`--restrict 7`:
+  decimi di secondo, fino a circa un secondo sulla casella più popolata) sono la **sola
+  enumerazione**. Il costo dell'ingest completo — corpo e allegati — è un'altra grandezza, e si vede
+  al primo caricamento vero su una casella viva;
+- **che due giorni per clic siano comodi da usare: L7.** Che il badge dica la finestra giusta e che
+  premere più volte non confonda si vede in un browser;
+- **la cartella che fallisce in un sync storico**: `storico_fino_a` avanza solo per le cartelle
+  andate bene, e `al` è il minimo fra quelle che un valore ce l'hanno. Una cartella che fallisce
+  sempre dal primo clic resta indietro in silenzio. È un limite dichiarato, non un difetto nuovo: il
+  rimedio è la stessa finestra ripresa, ma nessuno oggi lo segnala.
+
 ## Come verificare
 
 ```powershell
@@ -777,7 +923,9 @@ un'ottimizzazione, è una condizione di correttezza.
 | L1 + L4 blocco 2 | voce 2.4: `SuLoopback`, il rifiuto del chiaro in LAN, mezzo TLS, percorsi relativi, SH3 (b) POSIX (7 L1); W4 e il claim che non accetta il nome di un altro; **W11 con il client Python vero contro un server TLS vero**; voce 2.5: W10 (403 cross-site, 200 stessa origine, GET libera, worker non toccati); D22: PK1, il pacchetto e la rotazione del token; 9 prove L1/L2 sulle credenziali lato worker | eseguiti |
 | L1 + L4 correzione del 16/09 (credenziali) | **PK2**: token condiviso → token vuoti → rigenerazione → due credenziali individuali, con il riavvio che non le sovrascrive; la credenziale mai generata e il suo segnaposto; `StatoCredenziali` (L1); 8 prove L1/L2 sul log del worker (401 ≠ «server non raggiungibile») | eseguiti |
 | L1 + L4 checkpoint UI/RBAC | **W1** (sette rotte /admin, GET e POST, e nessun effetto), **W15** (barra per ruolo, dal vivo e nel template), **W16** (`consultazione` non scrive), **W12** (la password del file non sostituisce quella in database), **CF1** (ruolo sconosciuto → il server non parte), **W14 (d)** (riabbinamento della sessione dopo il claim), ordine dei ruoli (L1) | eseguiti |
-| L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, TZ2 (l'ora di Outlook accanto a quella in database), casella condivisa Exchange, **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14 L7), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) | **non eseguiti** |
+| L1 + L4 checkpoint sync | **SI1–SI4** (finestra iniziale, cursore che vince, riavvio che non riporta indietro, `dal` come override), **SS1–SS4** («Carica precedenti» a 48 ore esatte, due finestre contigue, nessun doppione, l'archivio in fondo alla coda), la configurazione (L1) e due prove sul worker (L1/L2: il cursore vince sul ripiego, lo storico non muove il cursore) | eseguiti |
+| L5–L9 — eseguite il 16/09 | **M1** (due caselle vere risolte, la terza ignorata), **C2/C3** (`--restrict 7` sulle due caselle e su Posta in arrivo e Posta inviata: nessun elemento perso), **TZ2** (l'ora di Outlook accanto a quella in UI), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) e la metà di **CR2** che riguarda le credenziali | **passate**, righe di `esiti_reali.md` |
+| L5–L9 — aperte | casella condivisa Exchange (I9, D5), **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione e ruoli da un browser vero (W14 e RB1, L7), il worker di analisi che esegue un `analizza_allegato` vero | **non eseguite** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
 
@@ -831,9 +979,19 @@ Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci 
 - ~~**checkpoint UI/RBAC**~~: **fatto** (6.9; della 6.4 resta la schermata `/profilo/password`).
   Resta da vedere in un browser vero (L7) e resta fuori la visibilità per casella (D12, voce 2.15),
   che è un'altra domanda e vive nei blocchi successivi;
+- ~~**checkpoint sync**~~: **fatto** (voce 2.8). Resta da misurare sul banco quanto costa davvero il
+  primo caricamento di sette giorni con corpo e allegati: i tempi del 16/09 sono della sola
+  enumerazione;
+- **latenza al cambio casella nell'Inbox** — osservata sul banco vero il 16/09, **da chiudere nel
+  blocco 9 / UI definitiva**. Non serve introdurre HTMX sulla lista: **c'è già**, il filtro casella e
+  i filtri dell'Inbox fanno già uno swap su `#lista`. Quello che manca è il profilo del percorso
+  server/database del refresh: `ListInbox`, `ContaInbox`, il calcolo delle novità, la vista
+  `v_inbox` e gli indici delle tabelle sotto, con `EXPLAIN ANALYZE` su un volume realistico, per
+  ridurre il lavoro rifatto a ogni cambio casella — e semmai separare il refresh dei contatori da
+  quello della lista. Non si ottimizza alla cieca adesso;
 - **blocco 3 — anagrafica**: 6.6, 6.11 (`cliente.regole` con schema validato ed esempio obbligatorio
   per ogni regola), 8.8, seed dal foglio dei buyer; migrazione `0007_anagrafica`;
 - poi annidati, proposte per cliente, ingresso esterno, articoli e distinta, fatti e STEP, le tre
   schermate, e l'igiene in parallelo dal blocco 3.
 
-Delle voci di questa fase restano **2.8, 2.10–2.15**, che entrano nei blocchi dove servono.
+Delle voci di questa fase restano **2.10–2.15**, che entrano nei blocchi dove servono.

@@ -66,13 +66,18 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	if per["Sent Items"] == nil || !per["Sent Items"].Equal(sano) {
 		t.Errorf("il cursore buono è stato buttato via: %v, atteso %v", per["Sent Items"], sano)
 	}
-	// `dal` è il limite inferiore quando il cursore manca: non deve essere il futuro, o non leggerebbe
-	// niente lo stesso.
+	// `dal` è il limite inferiore delle cartelle SENZA cursore, e qui l'Inbox è una di quelle: il
+	// suo cursore è stato scartato. Dal checkpoint del 16/09/2026 riparte dalla finestra iniziale.
+	//
+	// Prima ripartiva dal più vecchio dei cursori delle ALTRE cartelle — qui la Posta inviata, mezz'ora
+	// fa — che su dove fosse arrivata l'Inbox non dice niente: le avrebbe fatto saltare tutto ciò che
+	// era entrato prima, cioè esattamente la posta che il cursore nel futuro aveva già nascosto.
 	if api.NelFuturo(p.Dal, time.Now()) {
 		t.Errorf("il limite inferiore della finestra è nel futuro: %v", p.Dal)
 	}
-	if !p.Dal.Equal(sano) {
-		t.Errorf("dal = %v, atteso il più vecchio dei cursori utilizzabili (%v)", p.Dal, sano)
+	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "limite inferiore dell'Inbox senza cursore")
+	if p.Dal.After(sano) {
+		t.Errorf("dal = %v: l'Inbox è ripartita dal cursore della Posta inviata (%v)", p.Dal, sano)
 	}
 }
 
@@ -94,11 +99,9 @@ func TestSenzaCursoriUtilizzabiliLaFinestraTornaQuellaPredefinita(t *testing.T) 
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		t.Fatal(err)
 	}
-	// L'unico cursore era inutilizzabile: si rilegge il mese, che costa una deduplica per Message-ID.
-	// L'alternativa — fidarsi — costa la posta finché il futuro non è passato.
-	if p.Dal.After(time.Now().AddDate(0, 0, -20)) {
-		t.Errorf("dal = %v: senza cursori utilizzabili la finestra deve tornare quella predefinita", p.Dal)
-	}
+	// L'unico cursore era inutilizzabile: si rilegge la finestra iniziale, che costa una deduplica per
+	// Message-ID. L'alternativa — fidarsi — costa la posta finché il futuro non è passato.
+	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "finestra senza cursori utilizzabili")
 	if p.CasellaID == nil || *p.CasellaID != casella.CasellaID {
 		t.Errorf("il payload non porta la casella: %v", p.CasellaID)
 	}

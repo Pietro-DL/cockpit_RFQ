@@ -88,7 +88,27 @@ cartelle = ["Inbox", "Sent Items"]
 # precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi
 # 30 è sostenibile su quattro caselle; senza `Restrict` non lo sarebbe.
 intervallo_sync_s = 30
-dal = "2026-08-01" # facoltativo: se non specificato usa il cursore o un mese fa
+
+# DA DOVE PARTE UN SYNC. La precedenza è una sola, per (casella, cartella):
+#
+#   1. il CURSORE di quella cartella, se c'è: vince sempre. Sta in database, quindi un riavvio del
+#      server non riporta indietro nessuna casella;
+#   2. `dal`, se scritto qui sotto: override esplicito, per un import controllato;
+#   3. altrimenti la FINESTRA INIZIALE, cioè `adesso - giorni_sync_iniziale`.
+#
+# Sette giorni e non trenta perché il primo caricamento è l'unico momento in cui il worker scarica
+# davvero tutto (corpo e allegati, non la sola enumerazione): su una casella viva un mese di archivio
+# lo occupa per ore, e finché è occupato non apre elementi in Outlook e non scarica allegati per chi
+# sta lavorando. L'archivio più vecchio si prende dopo, con «Carica precedenti»: due giorni per clic
+# e per casella, così fra un pezzo e l'altro il worker torna disponibile.
+giorni_sync_iniziale = 7
+
+# Override esplicito della finestra iniziale, per import controllati. NON tocca le cartelle che hanno
+# già un cursore: la posta di prima si prende con «Carica precedenti». Formato AAAA-MM-GG, letto nel
+# fuso del server; scritto male, il server non parte. Lasciarlo scritto tiene ferma la finestra
+# iniziale a quella data mentre i giorni passano.
+# dal = "2026-08-01"
+
 lotto = 50
 consenti_invio = false
 # Casella attribuita ai messaggi che non la dichiarano (fase 1, finché il contratto non porta

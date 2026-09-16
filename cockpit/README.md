@@ -149,10 +149,18 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `cartelle` | i nomi **come si vedono in Outlook**, nella lingua del profilo: su un Outlook italiano `["Posta in arrivo", "Posta inviata"]`, non `["Inbox", "Sent Items"]`. Una cartella scritta male non è un errore di avvio: è un sync che non legge niente da lì, in silenzio |
 | `intervallo_sync_s` | ogni quanto accodare un sync per casella. `0` = mai (restano «Aggiorna ora» e «Carica precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi **30** è sostenibile su quattro caselle; i sync non si accumulano, ne resta al più uno pendente per casella |
-| `dal` | `"2026-08-01"`: da quando leggere **al primo avvio**, quando il cursore è vuoto. Dopo non conta più, comanda il cursore |
+| `giorni_sync_iniziale` | da quanti giorni indietro parte una **(casella, cartella) senza cursore**. Default **7**. Vale una volta sola: appena il primo sync scrive un cursore comanda il cursore, e un riavvio non riporta indietro la casella. Sette e non trenta perché il primo caricamento è l'unico in cui il worker scarica davvero tutto (corpo e allegati), e finché è occupato non apre elementi e non scarica allegati per chi sta lavorando |
+| `dal` | `"2026-08-01"`: **override esplicito** della finestra iniziale, per import controllati. Non tocca le cartelle che hanno già un cursore, e scritto male ferma l'avvio. Lasciato scritto, tiene ferma la finestra iniziale a quella data mentre i giorni passano: per l'archivio più vecchio si usa «Carica precedenti» |
 | `lotto` | quanti messaggi per invio. 50 è il compromesso fra una transazione corta e troppe chiamate |
 | `consenti_invio` | lasciare `false`. `true` permetterebbe al worker di premere Invia al posto dell'operatore |
 | `casella_default` | la casella attribuita a un lotto che non dichiara la propria. Dalla fase 2 il lotto porta sempre il `casella_id` del job: questa è il ripiego per un worker più vecchio del server, non il modo normale |
+
+**«Carica precedenti»** non si configura: scarica **due giorni per clic e per casella**, a partire da
+dove era arrivato il clic precedente. Il worker Outlook è uno per PC ed è seriale: finché macina un
+job storico non apre elementi in Outlook e non scarica allegati, quindi le finestre sono piccole e
+fra l'una e l'altra torna a disposizione. Finché il job storico di una casella è in coda, premere
+ancora non ne accoda un altro; e in coda i job storici stanno in fondo, dietro anche al sync
+ordinario.
 
 **`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
 niente; una coda che non si svuota mai diventa illeggibile.

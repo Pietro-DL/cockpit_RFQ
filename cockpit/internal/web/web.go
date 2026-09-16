@@ -570,12 +570,28 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// syncStorico accoda una finestra di 30 giorni PRIMA di quanto già coperto: il limite superiore è il cursore
-// storico_fino_a (se un "Carica precedenti" è già riuscito) oppure la mail più vecchia in archivio.
+// GiorniStorico è quanto archivio scarica UN clic su «Carica precedenti», per casella: due giorni.
+//
+// Non è una misura di prudenza generica, è la forma del worker. Il worker Outlook è seriale e ce n'è
+// uno per PC: finché macina un job storico non prende «Apri in Outlook», non scarica un allegato e
+// non fa il sync ordinario. Un job da trenta giorni su una casella viva è il Cockpit che smette di
+// rispondere per un tempo che nessuno sa dire in anticipo — e l'operatore non vede un lavoro in
+// corso, vede dei pulsanti che non fanno niente.
+//
+// Due giorni per clic sono una scelta diversa: il worker torna al claim spesso, e chi vuole risalire
+// preme ancora. La catena non si costruisce da sola di proposito (nessun job storico ne accoda un
+// altro): una catena lunga occuperebbe il worker per settimane senza che nessuno l'abbia chiesto,
+// che è esattamente il difetto di prima con un vestito nuovo.
+const GiorniStorico = 2
+
+// syncStorico accoda la finestra di GiorniStorico PRIMA di quanto già coperto: il limite superiore è
+// il cursore storico_fino_a (se un "Carica precedenti" è già riuscito) oppure la mail più vecchia in
+// archivio.
 //
 // Dalla 0004 è PER CASELLA: ogni casella ha i suoi cursori e la sua storia, e un unico job storico
 // avrebbe letto l'archivio di una casella sola facendo credere di averle coperte tutte. Un job per
-// casella attiva, chiave `sync_storico:<casella_id>`: al più uno pendente per ciascuna.
+// casella attiva, chiave `sync_storico:<casella_id>`: al più uno pendente per ciascuna — il clic
+// dato mentre il precedente gira non accoda niente e riporta il badge di quello in corso.
 func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := db.New(s.Pool)
@@ -601,7 +617,7 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 		}
 		cid := c.CasellaID
 		payload := api.PayloadSyncOutlook{CasellaID: &cid, Cartelle: cartelle, Dal: dal, Al: &al, SovrapposizioneS: 600, Lotto: 50}
-		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, 2,
+		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, jobs.PrioritaSyncStorico,
 			jobs.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 		if err != nil {
 			s.Log.Error("accoda sync storico", "casella", c.Indirizzo, "err", err)
@@ -619,9 +635,13 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	s.badgeStorico(w, ultimo)
 }
 
-// finestraStorico calcola [al-30gg, al] e le cartelle da leggere per UNA casella (senza cursore:
-// finestra esatta). «Quanto indietro siamo già andati» è una proprietà della casella: mescolare le
-// storie di due caselle farebbe ripartire l'una da dove è arrivata l'altra.
+// finestraStorico calcola [al - GiorniStorico, al] e le cartelle da leggere per UNA casella (senza
+// cursore: finestra esatta). «Quanto indietro siamo già andati» è una proprietà della casella:
+// mescolare le storie di due caselle farebbe ripartire l'una da dove è arrivata l'altra.
+//
+// Le finestre si incastrano senza buchi: `al` è lo `storico_fino_a` lasciato dal clic precedente,
+// cioè il `dal` di quella finestra, quindi la successiva è [al-2gg, al] esatta. Il primo clic parte
+// dalla mail più vecchia che la casella ha in archivio (o da adesso, se non ne ha nessuna).
 func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
 	cursori, _ := q.ListSyncCursoriCasella(ctx, casella)
 	for _, c := range cursori {
@@ -644,7 +664,7 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uui
 			al = time.Now()
 		}
 	}
-	dal = al.AddDate(0, 0, -30)
+	dal = al.AddDate(0, 0, -GiorniStorico)
 	return
 }
 
@@ -675,7 +695,7 @@ func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
 	case db.StatoJobPronto, db.StatoJobInCorso:
 		fmt.Fprintf(w, `<span class="badge avviso" hx-get="/inbox/sync-storico/stato" hx-trigger="every 3s" hx-swap="outerHTML">Sync storico #%d %s [%s]…</span>`, j.JobID, j.Stato, finestra)
 	case db.StatoJobFatto:
-		fmt.Fprintf(w, `<span class="badge verde">Sync storico #%d completato [%s]. Premi di nuovo per il mese precedente.</span>`, j.JobID, finestra)
+		fmt.Fprintf(w, `<span class="badge verde">Sync storico #%d completato [%s]. Premi di nuovo per i %d giorni prima.</span>`, j.JobID, finestra, GiorniStorico)
 	default:
 		fmt.Fprintf(w, `<span class="badge errore">Sync storico #%d fallito: %s</span>`, j.JobID, template.HTMLEscapeString(j.Errore.String))
 	}

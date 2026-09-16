@@ -136,9 +136,11 @@ class OutlookFinto(ProfiloFinto):
         super().__init__(profilo)
         self.messaggi = messaggi
         self.letture: list[tuple[str, str]] = []   # (cartella, store_id) di ogni leggi()
+        self.finestre: dict[str, tuple] = {}       # cartella -> (dal, al): quale finestra è stata chiesta
 
     def leggi(self, cartella, dal, al=None, store_id=""):
         self.letture.append((cartella, store_id))
+        self.finestre[cartella] = (dal, al)
         for m in self.messaggi:
             yield m
 
@@ -213,6 +215,68 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
 
         assert len(s.lotti) == 1, f"dopo un 409 il worker ha continuato a mandare ({len(s.lotti)} lotti)"
         assert 20 not in s.risultati, f"il worker ha riportato un risultato di un tentativo non più valido: {s.risultati.get(20)}"
+
+
+# ---------------------------------------------------------------- la finestra: cursore o ripiego
+
+def _job_sync_due_cartelle(cursore_inbox, dal, al=None) -> dict:
+    j = _job_sync(lotto=50)
+    j["payload"]["cartelle"] = [
+        {"cartella": "Inbox", "ultimo_received": cursore_inbox},
+        {"cartella": "Sent Items", "ultimo_received": None},
+    ]
+    j["payload"]["dal"] = dal
+    if al is not None:
+        j["payload"]["al"] = al
+    return j
+
+
+def test_il_cursore_di_una_cartella_vince_sul_limite_del_payload(tmp_path, monkeypatch):
+    """SI3 dal lato del worker: è QUI che la precedenza si applica davvero.
+
+    Il server manda, per ogni cartella, il suo cursore (o niente) e un limite inferiore di ripiego —
+    la finestra iniziale di `giorni_sync_iniziale`. Una cartella che ha un cursore riparte da lì,
+    meno la sovrapposizione; una che non ce l'ha usa il ripiego. Se il worker prendesse `dal` per
+    tutte, ogni sync rileggerebbe la finestra iniziale da capo: nessun errore, nessun buco, solo il
+    worker occupato per niente a ogni giro — e la deduplica per Message-ID a nascondere il sintomo.
+    """
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(cursore_inbox="2026-09-15T08:00:00Z", dal="2026-09-09T00:00:00Z"))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+    assert set(finto.finestre) == {"Inbox", "Sent Items"}, finto.finestre
+    # il cursore, meno i 600 s di sovrapposizione dichiarati nel payload
+    assert finto.finestre["Inbox"][0] == datetime(2026, 9, 15, 7, 50, tzinfo=timezone.utc), finto.finestre["Inbox"]
+    # nessun cursore: il ripiego del payload, cioè la finestra iniziale calcolata dal server
+    assert finto.finestre["Sent Items"][0] == datetime(2026, 9, 9, 0, 0, tzinfo=timezone.utc), finto.finestre["Sent Items"]
+    # il sync ordinario non ha limite superiore: legge fino a adesso
+    assert [al for _dal, al in finto.finestre.values()] == [None, None]
+
+
+def test_un_sync_storico_non_sposta_il_cursore_in_avanti(tmp_path, monkeypatch):
+    """«Carica precedenti» legge una finestra CHIUSA nel passato: farle muovere il cursore
+    significherebbe dichiarare letto fino a due giorni fa tutto ciò che sta in mezzo, e la posta
+    arrivata nel frattempo non la rileggerebbe più nessuno."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(cursore_inbox=None, dal="2026-09-12T00:00:00Z",
+                                           al="2026-09-14T00:00:00Z"))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([_messaggio(1), _messaggio(2)])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+        assert finto.finestre["Inbox"] == (datetime(2026, 9, 12, tzinfo=timezone.utc),
+                                           datetime(2026, 9, 14, tzinfo=timezone.utc))
+        assert s.risultati[20]["esito"] == "ok"
+        for c in s.risultati[20]["dati"]["cartelle"]:
+            assert c["ultimo_received"] is None, f"{c['cartella']}: lo storico ha mosso il cursore a {c['ultimo_received']}"
+        for lotto in s.lotti:
+            assert lotto.get("cursore") is None, f"lo storico ha mandato un cursore: {lotto['cursore']}"
 
 
 # ---------------------------------------------------------------- download di un allegato: upload al server (voce 2.3)

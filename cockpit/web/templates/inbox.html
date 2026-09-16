@@ -16,7 +16,7 @@
       {{end}}
       <span class="spazio"></span>
       {{if gt .Dati.NNuove 0}}<span class="chip nuove" title="Messaggi registrati dopo la tua ultima apertura dell'Inbox: hanno il pallino nella lista">{{.Dati.NNuove}} nuove</span>{{end}}
-      <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica le email dei 30 giorni precedenti">Carica Precedenti</button>
+      <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica altri 2 giorni di archivio, per casella. Finestre piccole perché il worker Outlook è uno solo: mentre carica l'archivio non apre elementi e non scarica allegati.">Carica Precedenti</button>
     </div>
     <div id="sync-status" class="sync-status"></div>
     <div id="lista" hx-get="/inbox?filtro={{.Dati.Filtro}}" hx-trigger="every 15s, inbox-aggiorna from:body" hx-swap="innerHTML">

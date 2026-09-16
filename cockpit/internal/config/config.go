@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -189,7 +190,11 @@ func normalizzaPercorso(p string) string {
 type Outlook struct {
 	Cartelle        []string `toml:"cartelle"`          // es. ["Inbox", "Sent Items"]
 	IntervalloSyncS int      `toml:"intervallo_sync_s"` // ogni quanti secondi accodare sync_outlook
-	Dal             string   `toml:"dal"`               // "2026-09-01": data minima al primo avvio (cursore vuoto)
+	// GiorniSyncIniziale: quanto indietro guarda una (casella, cartella) che NON ha ancora un
+	// cursore. Vale una volta sola: appena il primo sync scrive un cursore decide il cursore, e un
+	// riavvio non riporta la casella qui. Assente (o 0) = jobs.GiorniSyncInizialeDefault.
+	GiorniSyncIniziale int    `toml:"giorni_sync_iniziale"`
+	Dal                string `toml:"dal"` // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
 	Lotto           int      `toml:"lotto"`             // messaggi per POST ingest
 	ConsentiInvio   bool     `toml:"consenti_invio"`    // false = solo bozze (regola aziendale)
 	CasellaDefault  string   `toml:"casella_default"`   // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
@@ -266,6 +271,9 @@ func Carica(percorso string) (*Config, error) {
 	}
 	if err := os.MkdirAll(c.NAS.Staging, 0o755); err != nil {
 		return nil, fmt.Errorf("staging %s: %w", c.NAS.Staging, err)
+	}
+	if err := c.normalizzaOutlook(); err != nil {
+		return nil, err
 	}
 	if err := c.normalizzaUtenti(); err != nil {
 		return nil, err
@@ -510,4 +518,36 @@ func (c *Config) normalizzaFondazioni() error {
 		return fmt.Errorf("config: con più [[casella]] serve [outlook].casella_default")
 	}
 	return nil
+}
+
+// normalizzaOutlook valida [outlook]: la finestra iniziale e l'eventuale override `dal`.
+//
+// `dal` non è più «la data minima»: è un OVERRIDE per gli import controllati (la precedenza sta in
+// jobs.AccodaSyncCasella), e un override scritto male non deve passare in silenzio. Prima un
+// `dal = "01/09/2026"` veniva scartato senza una riga da nessuna parte e il sync partiva dalla
+// finestra predefinita: chi credeva di stare importando settembre importava l'ultima settimana, e se
+// ne accorgeva dalle mail che mancavano.
+func (c *Config) normalizzaOutlook() error {
+	if c.Outlook.GiorniSyncIniziale < 0 {
+		return fmt.Errorf("config: [outlook].giorni_sync_iniziale = %d non valido (sono giorni: togli la riga per il valore predefinito)",
+			c.Outlook.GiorniSyncIniziale)
+	}
+	c.Outlook.Dal = strings.TrimSpace(c.Outlook.Dal)
+	if c.Outlook.Dal != "" {
+		if _, err := DataDal(c.Outlook.Dal); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DataDal legge `[outlook].dal` nel fuso locale del server. Sta in un posto solo perché la leggono in
+// due — la validazione all'avvio e chi accoda il sync — e due letture diverse della stessa riga
+// sarebbero due finestre diverse.
+func DataDal(s string) (time.Time, error) {
+	d, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("config: [outlook].dal = %q non è una data AAAA-MM-GG (per esempio 2026-09-01)", s)
+	}
+	return d, nil
 }

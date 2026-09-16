@@ -304,6 +304,7 @@ type Scheduler struct {
 	Cartelle        []string
 	IntervalloSync  time.Duration
 	Dal             time.Time
+	GiorniIniziali  int
 	Lotto           int
 	RetentionGiorni int // 0 = nessuna cancellazione
 	// Staging: dove stanno i file caricati dai worker. Vuoto = nessuna pulizia dei .parte orfani.
@@ -392,7 +393,7 @@ func (s *Scheduler) accodaSync(ctx context.Context) error {
 		if casella.Canale != db.CanaleOutlook {
 			continue
 		}
-		if _, err := AccodaSyncCasella(ctx, s.Q, casella, SyncOpzioni{Cartelle: s.Cartelle, Dal: s.Dal, Lotto: s.Lotto}); err != nil {
+		if _, err := AccodaSyncCasella(ctx, s.Q, casella, SyncOpzioni{Cartelle: s.Cartelle, Dal: s.Dal, GiorniIniziali: s.GiorniIniziali, Lotto: s.Lotto}); err != nil {
 			// una casella che non riesce non deve impedire il sync delle altre: è lo stesso principio
 			// del lotto che non si ferma al primo elemento rotto
 			s.Log.Error("sync non accodato", "casella", casella.Indirizzo, "err", err)
@@ -401,15 +402,38 @@ func (s *Scheduler) accodaSync(ctx context.Context) error {
 	return nil
 }
 
-// SyncOpzioni è ciò che serve per accodare un sync ordinario: le cartelle da leggere, la data
-// minima al primo giro (cursore vuoto) e la dimensione del lotto. Vengono da [outlook] di
-// cockpit.toml e sono le stesse per lo scheduler e per «Aggiorna ora» — di proposito: due sync della
-// stessa casella con cartelle diverse farebbero avanzare il cursore su una finestra che l'altro non
-// ha letto.
+// GiorniSyncInizialeDefault è la finestra del PRIMO sync di una (casella, cartella): sette giorni.
+//
+// Sette e non trenta perché il primo caricamento è l'unico momento in cui il worker legge davvero
+// tutto — corpo e allegati di ogni elemento, non la sola enumerazione, che è veloce — e su una
+// casella viva sono ore durante le quali il worker, che è seriale, non apre finestre in Outlook e
+// non scarica allegati per chi sta usando il Cockpit. L'archivio si prende dopo, a pezzi piccoli,
+// con «Carica precedenti» (voce 2.8).
+const GiorniSyncInizialeDefault = 7
+
+// PrioritaSyncStorico è l'ULTIMA priorità della coda: si claima in ordine crescente
+// (`ORDER BY j.priorita, j.job_id`), e l'archivio è ciò che può aspettare.
+//
+// Accanto ci sono 1 per i job interattivi («Apri in Outlook», bozza, copia sul NAS), 2 per «segna
+// letto» e 5 per il sync ordinario. Il sync storico stava a 2, cioè davanti al sync ordinario e alla
+// pari con i job di un operatore che sta guardando la schermata: con un worker Outlook solo per PC,
+// quello è un pulsante che non risponde finché l'archivio non ha finito.
+const PrioritaSyncStorico int16 = 9
+
+// SyncOpzioni è ciò che serve per accodare un sync ordinario: le cartelle da leggere, la finestra da
+// cui parte una cartella che non ha ancora un cursore e la dimensione del lotto. Vengono da
+// [outlook] di cockpit.toml e sono le stesse per lo scheduler e per «Aggiorna ora» — di proposito:
+// due sync della stessa casella con cartelle diverse farebbero avanzare il cursore su una finestra
+// che l'altro non ha letto.
 type SyncOpzioni struct {
 	Cartelle []string
-	Dal      time.Time
-	Lotto    int
+	// Dal: l'override esplicito [outlook].dal, per un import controllato. Zero = nessun override.
+	// Non tocca MAI una cartella che ha già un cursore: quello che si vuole importare a mano è la
+	// posta di prima, e la posta di prima è «Carica precedenti».
+	Dal time.Time
+	// GiorniIniziali: quanto indietro parte una cartella SENZA cursore. 0 = GiorniSyncInizialeDefault.
+	GiorniIniziali int
+	Lotto          int
 }
 
 // ChiaveSyncCasella è la chiave di idempotenza del sync ordinario: FISSA per casella, senza la
@@ -425,7 +449,6 @@ func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o
 		return nil, err
 	}
 	perCartella := map[string]*time.Time{}
-	var piuVecchio *time.Time
 	adesso := time.Now()
 	for _, c := range cursori {
 		// Un cursore nel futuro non è utilizzabile: aprirebbe una finestra che comincia dopo
@@ -438,19 +461,31 @@ func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o
 			continue
 		}
 		perCartella[c.Cartella] = c.UltimoReceived
-		if c.UltimoReceived != nil {
-			if piuVecchio == nil || c.UltimoReceived.Before(*piuVecchio) {
-				piuVecchio = c.UltimoReceived
-			}
-		}
 	}
+	// La precedenza della finestra, scritta in un posto solo (checkpoint del 16/09/2026):
+	//
+	//  1. il CURSORE di quella cartella, quando c'è ed è utilizzabile: vince sempre. Viaggia per
+	//     cartella in `p.Cartelle[].UltimoReceived` ed è il worker ad applicarlo. È anche il motivo
+	//     per cui un riavvio non riporta nessuna casella alla finestra iniziale: il cursore sta in
+	//     database, non nel processo;
+	//  2. `dal`, se [outlook].dal è scritto nel file: override esplicito, per un import controllato;
+	//  3. altrimenti la finestra iniziale, `adesso - giorni_sync_iniziale`.
+	//
+	// I punti 2 e 3 valgono solo per le cartelle che un cursore non ce l'hanno: qui si calcola il
+	// limite inferiore di ripiego che il payload porta in `Dal`, e il worker lo usa solo per quelle.
+	//
+	// Il ripiego era «il più vecchio dei cursori delle ALTRE cartelle». Sembra prudente e non lo è:
+	// una cartella aggiunta oggi a una casella sincronizzata da mesi sarebbe ripartita da mesi fa —
+	// cioè dal caricamento lungo che questa voce esiste per evitare — e una cartella il cui cursore è
+	// stato scartato perché nel futuro sarebbe ripartita dal cursore di un'altra, che su dove fosse
+	// arrivata lei non dice niente.
 	dal := o.Dal
 	if dal.IsZero() {
-		if piuVecchio != nil {
-			dal = *piuVecchio
-		} else {
-			dal = time.Now().AddDate(0, -1, 0)
+		giorni := o.GiorniIniziali
+		if giorni < 1 {
+			giorni = GiorniSyncInizialeDefault
 		}
+		dal = adesso.AddDate(0, 0, -giorni)
 	}
 	cartelle := o.Cartelle
 	if len(cartelle) == 0 {
