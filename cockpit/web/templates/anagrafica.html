@@ -1,0 +1,183 @@
+{{define "contenuto"}}
+<h1>Anagrafica</h1>
+<div id="anagrafica">{{template "anagrafica_corpo" .}}</div>
+{{end}}
+
+{{define "anagrafica_corpo"}}
+{{$d := .Dati}}
+<div class="tabs">
+  <a href="/admin/anagrafica{{if $d.Scelto}}?cliente={{$d.Scelto.ClienteID}}{{end}}" {{if eq $d.Tab "clienti"}}class="attivo"{{end}}>Clienti</a>
+  <a href="/admin/anagrafica/articoli" {{if eq $d.Tab "articoli"}}class="attivo"{{end}}>Articoli</a>
+</div>
+
+{{if $d.Errore}}<div class="pannello errore-box"><strong>Non salvato.</strong> {{$d.Errore}}</div>{{end}}
+{{if $d.Fatto}}<div class="avviso">{{$d.Fatto}}</div>{{end}}
+
+{{if eq $d.Tab "articoli"}}
+  {{/* Schermata vuota per scelta: il modello `articolo` (unico per cliente + codice, con le sue
+       revisioni) e' il blocco 5. Mostrare adesso i `componente` vorrebbe dire mostrare le istanze
+       dentro le singole RFQ chiamandole articoli: e' proprio la confusione che il blocco 5 toglie. */}}
+  <div class="scheda">
+    <h2>Articoli</h2>
+    <p class="muto">L'anagrafica tecnica degli articoli — un codice per cliente, con le sue revisioni,
+    materiale e spessore per revisione — arriva con il <strong>blocco 5</strong>. Oggi i codici
+    esistono solo come <code>componente</code> dentro una singola richiesta, e non sono la stessa
+    cosa: lo stesso codice quotato in due RFQ oggi e' due righe senza legame.</p>
+    <p class="muto">Questa scheda esiste adesso perche' la navigazione sia gia' quella definitiva:
+    quando il modello arrivera' non ci sara' da rifare la schermata intorno.</p>
+  </div>
+{{else}}
+<div class="ana">
+  <div class="elenco">
+    {{range $d.Clienti}}
+    <a href="/admin/anagrafica?cliente={{.ClienteID}}" class="{{if not .Attivo}}spento{{end}} {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}attivo{{end}}">
+      {{.RagioneSociale}}{{if not .Attivo}} <span class="chip">non attivo</span>{{end}}
+      <small>{{.CartellaNas}} · {{.NDomini}} domini · {{.NBuyer}} buyer · {{.NRichieste}} RFQ{{if .Peso}} · peso {{.Peso}}{{end}}</small>
+    </a>
+    {{else}}
+    <p class="vuoto">Nessun cliente.</p>
+    {{end}}
+    <form method="post" action="/admin/anagrafica" class="pannello">
+      <h3>Nuovo cliente</h3>
+      <label>Ragione sociale <input name="ragione_sociale" required></label>
+      <label>Cartella NAS <input name="cartella_nas" placeholder="MECCANICA NORD" required></label>
+      <label>Dominio <input name="dominio" placeholder="cliente.com"></label>
+      <label>Lingua <input name="lingua" maxlength="2" placeholder="it"></label>
+      <button class="primario">Crea</button>
+    </form>
+  </div>
+
+  {{if not $d.Scelto}}
+  <p class="vuoto">Scegli un cliente a sinistra.</p>
+  {{else}}
+  {{$c := $d.Scelto}}
+  <div class="schede">
+
+    <div class="scheda">
+      <h2>Identita</h2>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}">
+        <label>Ragione sociale <input name="ragione_sociale" value="{{$c.RagioneSociale}}"></label>
+        <label>Cartella NAS <input value="{{$c.CartellaNas}}" disabled></label>
+        <p class="muto" style="font-size:12px;margin:-4px 0 8px">La cartella NAS non si cambia da qui:
+        i disegni gia' scritti stanno la' dentro, e rinominarla li lascerebbe dove sono.</p>
+        <div class="riga-campi">
+          <label>Lingua <input name="lingua" maxlength="2" value="{{txt $c.Lingua}}"></label>
+          <label>Peso (0&ndash;15) <input name="peso" type="number" min="0" max="15" value="{{$c.Peso}}"></label>
+        </div>
+        <p class="muto" style="font-size:12px;margin:-4px 0 8px">Il peso ordina la lista
+        <em>Richieste</em>. 0 = nessuna priorita' dichiarata.</p>
+        <label>Portale <input name="portale_url" value="{{txt $c.PortaleUrl}}" placeholder="https://…"></label>
+        <label>Note sul portale <textarea name="portale_note" rows="2">{{txt $c.PortaleNote}}</textarea></label>
+        <p class="muto" style="font-size:12px;margin:-4px 0 8px">Istruzioni, mai credenziali.</p>
+        <label>Note <textarea name="note" rows="2">{{txt $c.Note}}</textarea></label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" name="attivo" value="1" {{if $c.Attivo}}checked{{end}} style="width:auto"> attivo</label>
+        <button class="primario">Salva</button>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Domini</h2>
+      <p class="muto" style="font-size:12px">Il dominio del mittente e' il modo in cui la posta viene
+      attribuita a questo cliente. Appartiene a un cliente solo: se e' gia' di un altro, il
+      Cockpit lo dice invece di spostarlo.</p>
+      <table>
+        {{range $d.Domini}}
+        <tr><td class="mono">{{.Dominio}}</td>
+          <td class="azioni-riga"><form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina">
+            <input type="hidden" name="dominio" value="{{.Dominio}}"><button class="link piccolo">togli</button></form></td></tr>
+        {{else}}<tr><td class="muto">Nessun dominio: la posta di questo cliente non viene riconosciuta dal mittente.</td></tr>{{end}}
+      </table>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" style="margin-top:8px;display:flex;gap:6px">
+        <input name="dominio" placeholder="cliente.com"><button>Aggiungi</button>
+      </form>
+
+      <h2 style="margin-top:16px">Persone</h2>
+      <table>
+        <tr><th>Cognome</th><th>Nome</th><th>Email</th><th>Tipo</th></tr>
+        {{range $d.Buyer}}<tr><td>{{.Cognome}}</td><td>{{txt .Nome}}</td><td class="mono">{{txt .Email}}</td><td>{{.Tipo}}</td></tr>
+        {{else}}<tr><td colspan="4" class="muto">Nessun buyer censito.</td></tr>{{end}}
+      </table>
+      <p class="muto" style="font-size:12px">I buyer si censiscono dal triage dell'Inbox, dove si vede
+      chi ha scritto davvero.</p>
+    </div>
+
+    <div class="scheda">
+      <h2>Riconoscimento <span class="muto" style="text-transform:none;letter-spacing:0">(cliente.regole)</span></h2>
+      {{/* Il ✓/✗ viene da `domain.Verifica`, la STESSA funzione che decide se il salvataggio passa:
+           una spunta verde e un salvataggio riuscito devono voler dire la stessa cosa. */}}
+      {{if $d.Diagnosi}}
+      <div style="margin-bottom:10px">
+        {{range $d.Diagnosi}}
+        <div class="regola">
+          <b>{{.Regola}}</b>
+          <span class="mono">{{.Dettaglio}}</span>
+          <span class="mono">{{.Esempio}}</span>
+          <span class="spunta {{if .Ok}}si{{else}}no{{end}}">{{if .Ok}}&#10003;{{else}}&#10007;{{end}}</span>
+          {{if not .Ok}}<div class="motivo">{{.Motivo}}</div>{{end}}
+        </div>
+        {{end}}
+        <p class="muto" style="font-size:12px;margin-top:6px">Una regola con &#10007; non viene usata dal
+        motore: non riconosce niente, e adesso si vede.</p>
+      </div>
+      {{else}}
+      <p class="muto">Nessuna regola. Il riconoscimento usa solo l'estrattore generico di codici.</p>
+      {{end}}
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/regole">
+        <textarea class="json" name="regole" spellcheck="false">{{$d.RegoleJSON}}</textarea>
+        <p class="muto" style="font-size:12px;margin:6px 0">Ogni regola con una regex vuole un esempio
+        che le corrisponda: senza, il giorno in cui la regex smette di riconoscere non se ne accorge
+        nessuno. Un JSON che non rispetta lo schema non viene salvato.</p>
+        <button class="primario">Salva regole</button>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Banco di prova</h2>
+      <p class="muto" style="font-size:12px">Prima riga = oggetto, il resto = corpo. Passa per lo stesso
+      riconoscimento dei messaggi veri: quello che si legge qui e' quello che l'Inbox proporra'.</p>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova">
+        <textarea name="testo" rows="5" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
+        <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="6745595A2_B.pdf 6745595A2.stp"></label>
+        <button>Prova il riconoscimento</button>
+      </form>
+      {{with $d.Prova}}
+      <div class="esito-prova" style="margin-top:10px">
+        {{$t := .Esito.Triage}}
+        <div>esito proposto <strong>{{$t.Esito}}</strong> &middot; punteggio <strong>{{$t.Confidenza}}</strong>
+          &middot; cliente <span class="chip">{{.Cliente}}</span></div>
+        {{if $t.Riferimento}}<div style="margin-top:4px">riferimento <span class="mono">{{$t.Riferimento}}</span>
+          <span class="muto">({{$t.RiferimentoNome}})</span></div>{{end}}
+        <div style="margin-top:4px">codici:
+          {{range $t.Trovati}}<span class="chip {{if eq .Origine "famiglia"}}cad{{end}}" title="{{if .Famiglia}}famiglia «{{.Famiglia}}»{{else}}estrattore generico{{end}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{else}}<span class="muto">nessuno</span>{{end}}
+        </div>
+        <div style="margin-top:4px" class="muto">{{range $t.Motivi}}&bull; {{.}}<br>{{end}}</div>
+        {{range .Esito.Portale}}<div style="margin-top:4px"><span class="chip portale">portale</span> {{.TestoCitato}}</div>{{end}}
+        {{if .Esito.Scadenza}}<div style="margin-top:4px">scadenza rilevata <strong>{{.Esito.Scadenza.Format "02/01/2006"}}</strong></div>{{end}}
+      </div>
+      {{end}}
+    </div>
+
+    <div class="scheda">
+      <h2>Fascicolo atteso</h2>
+      <p class="muto" style="font-size:12px">Che cosa deve esserci, per tipo di componente, perche' la
+      fattibilita' possa iniziare. Le righe in grigio sono ereditate dal fabbisogno predefinito;
+      quelle in nero le ha questo cliente. Si modificano dal database: la schermata del fascicolo
+      e' il blocco 10.</p>
+      <table>
+        <tr><th>Componente</th><th>Documento</th><th>Bloccante</th><th>Da dove</th><th></th></tr>
+        {{range $d.Fabbisogno}}
+        <tr {{if not .Proprio}}class="muto"{{end}}>
+          <td>{{.TipoComponente}}</td><td>{{.Tipo}}</td>
+          <td>{{if .Bloccante}}<span class="badge errore">bloccante</span>{{else}}<span class="badge avviso">non blocca</span>{{end}}</td>
+          <td>{{if .FonteAttesa.Valid}}{{.FonteAttesa.FonteFabbisogno}}{{else}}<span class="muto">cliente</span>{{end}}</td>
+          <td>{{if .Proprio}}<span class="chip">suo</span>{{else}}<span class="chip">predefinito</span>{{end}}</td>
+        </tr>
+        {{end}}
+      </table>
+    </div>
+
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}

@@ -100,12 +100,20 @@ var reURL = regexp.MustCompile(`https?://[^\s<>"']+`)
 
 // RilevaPortale cerca nel corpo le frasi tipo "vi abbiamo caricato i CAD sul portale" e restituisce
 // al più un riferimento per frase trovata, con i codici presenti nella stessa frase.
-func RilevaPortale(corpo string) []RiferimentoPortale {
+//
+// `extra` sono le frasi del cliente (`regole.frasi_portale`), che si AGGIUNGONO a quelle generiche
+// e non le sostituiscono: «caricato sul portale» resta vero anche per un cliente che ha frasi sue,
+// e un cliente con una frase sbagliata non deve smettere di riconoscere quelle di tutti.
+func RilevaPortale(corpo string, extra ...string) []RiferimentoPortale {
+	frasi := frasiPortale
+	if len(extra) > 0 {
+		frasi = append(append([]string{}, frasiPortale...), extra...)
+	}
 	var out []RiferimentoPortale
 	for _, frase := range spezzaFrasi(corpo) {
 		low := strings.ToLower(frase)
 		trovato := false
-		for _, f := range frasiPortale {
+		for _, f := range frasi {
 			if strings.Contains(low, f) {
 				trovato = true
 				break
@@ -188,6 +196,10 @@ type IngressoTriage struct {
 	BuyerNoto         bool   // indirizzo mittente censito come buyer
 	ThreadTrovato     bool   // aggancio automatico già riuscito
 	ConversazioneNota bool
+	// Motore sono le regole del cliente riconosciuto, già compilate (voce 6.11). Nil = cliente
+	// sconosciuto, o cliente senza regole: il triage continua a funzionare con il solo
+	// estrattore generico, perché un cliente non censito è il caso NORMALE del primo giorno.
+	Motore *Motore
 }
 
 type EsitoTriage struct {
@@ -195,6 +207,14 @@ type EsitoTriage struct {
 	Confidenza int    // 0–100
 	Motivi     []string
 	Codici     []string
+	// Trovati sono gli stessi codici con la loro provenienza (famiglia del cliente o generico):
+	// è l'evidenza che la schermata mostra accanto alla proposta. `Codici` resta l'elenco piatto
+	// perché è ciò che finisce in `proposta_triage.identificativi`.
+	Trovati []CodiceTrovato
+	// Riferimento è il numero della richiesta secondo il cliente (RDO, Anfrage, ODA), con il
+	// nome della regola che l'ha riconosciuto. Non è un codice prodotto.
+	Riferimento     string
+	RiferimentoNome string
 }
 
 // confini di parola: «rdo» e «rfq» compaiono dentro parole comuni (ricordo, bernardo)
@@ -242,18 +262,31 @@ func Triage(in IngressoTriage) EsitoTriage {
 		punti += 15
 		motivi = append(motivi, "dominio mittente è un cliente censito")
 	}
-	codici := EstraiCodici(in.Oggetto, in.Corpo)
+	testi := []string{in.Oggetto, in.Corpo}
 	for _, n := range in.NomiAllegati {
 		base := n
 		if i := strings.LastIndex(base, "."); i > 0 {
 			base = base[:i]
 		}
-		codici = append(codici, EstraiCodici(base)...)
+		testi = append(testi, base)
 	}
-	codici = dedup(codici)
+	trovati := in.Motore.Codici(testi...)
+	codici := dedup(SoloCodici(trovati))
 	if len(codici) > 0 {
 		punti += 10
 		motivi = append(motivi, "codici rilevati: "+strings.Join(primi(codici, 4), ", "))
+	}
+	// Un codice riconosciuto da una FAMIGLIA del cliente vale più di uno pescato dall'estrattore
+	// generico: il primo dice «questo è un codice DI QUESTO CLIENTE», il secondo dice «questo ha la forma di
+	// un codice». Sono due affermazioni diverse e non devono pesare uguale.
+	if f := primaFamiglia(trovati); f != "" {
+		punti += 10
+		motivi = append(motivi, "codici della famiglia «"+f+"» del cliente")
+	}
+	rif, rifNome := in.Motore.Riferimento(in.Oggetto, in.Corpo)
+	if rif != "" {
+		punti += 15
+		motivi = append(motivi, "riferimento "+rif+" ("+rifNome+")")
 	}
 	if punti > 100 {
 		punti = 100
@@ -268,7 +301,19 @@ func Triage(in IngressoTriage) EsitoTriage {
 	if len(motivi) == 0 {
 		motivi = []string{"nessun indizio RFQ"}
 	}
-	return EsitoTriage{Esito: esito, Confidenza: punti, Motivi: motivi, Codici: codici}
+	return EsitoTriage{Esito: esito, Confidenza: punti, Motivi: motivi, Codici: codici,
+		Trovati: trovati, Riferimento: rif, RiferimentoNome: rifNome}
+}
+
+// primaFamiglia restituisce la descrizione della prima famiglia del cliente che ha riconosciuto
+// qualcosa, o "" se hanno parlato solo le regole generiche.
+func primaFamiglia(in []CodiceTrovato) string {
+	for _, c := range in {
+		if c.Origine == "famiglia" {
+			return c.Famiglia
+		}
+	}
+	return ""
 }
 
 func dedup(in []string) []string {

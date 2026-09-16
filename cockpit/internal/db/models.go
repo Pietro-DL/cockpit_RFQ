@@ -478,6 +478,67 @@ func AllFaseValues() []Fase {
 	}
 }
 
+type FonteFabbisogno string
+
+const (
+	FonteFabbisognoCliente  FonteFabbisogno = "cliente"
+	FonteFabbisognoPortale  FonteFabbisogno = "portale"
+	FonteFabbisognoPromatec FonteFabbisogno = "promatec"
+)
+
+func (e *FonteFabbisogno) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = FonteFabbisogno(s)
+	case string:
+		*e = FonteFabbisogno(s)
+	default:
+		return fmt.Errorf("unsupported scan type for FonteFabbisogno: %T", src)
+	}
+	return nil
+}
+
+type NullFonteFabbisogno struct {
+	FonteFabbisogno FonteFabbisogno `json:"fonte_fabbisogno"`
+	Valid           bool            `json:"valid"` // Valid is true if FonteFabbisogno is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullFonteFabbisogno) Scan(value interface{}) error {
+	if value == nil {
+		ns.FonteFabbisogno, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.FonteFabbisogno.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullFonteFabbisogno) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.FonteFabbisogno), nil
+}
+
+func (e FonteFabbisogno) Valid() bool {
+	switch e {
+	case FonteFabbisognoCliente,
+		FonteFabbisognoPortale,
+		FonteFabbisognoPromatec:
+		return true
+	}
+	return false
+}
+
+func AllFonteFabbisognoValues() []FonteFabbisogno {
+	return []FonteFabbisogno{
+		FonteFabbisognoCliente,
+		FonteFabbisognoPortale,
+		FonteFabbisognoPromatec,
+	}
+}
+
 type FonteProposta string
 
 const (
@@ -2149,17 +2210,21 @@ type CasellaStore struct {
 }
 
 type Cliente struct {
-	ClienteID      uuid.UUID       `json:"cliente_id"`
-	CartellaNas    string          `json:"cartella_nas"`
-	RagioneSociale string          `json:"ragione_sociale"`
-	Profilo        pgtype.Text     `json:"profilo"`
-	Lingua         pgtype.Text     `json:"lingua"`
-	PortaleUrl     pgtype.Text     `json:"portale_url"`
-	PortaleNote    pgtype.Text     `json:"portale_note"`
-	Regole         json.RawMessage `json:"regole"`
-	Attivo         bool            `json:"attivo"`
-	Note           pgtype.Text     `json:"note"`
-	CreatoIl       time.Time       `json:"creato_il"`
+	ClienteID uuid.UUID `json:"cliente_id"`
+	// Nome della cartella sotto PREVENTIVI DA FARE (es. MECCANICA NORD). UNIQUE: due clienti nella stessa cartella vorrebbe dire due clienti che si sovrascrivono i disegni sul NAS. Non si riusa con un ON CONFLICT DO UPDATE (voce 6.6, T7).
+	CartellaNas    string      `json:"cartella_nas"`
+	RagioneSociale string      `json:"ragione_sociale"`
+	Profilo        pgtype.Text `json:"profilo"`
+	Lingua         pgtype.Text `json:"lingua"`
+	PortaleUrl     pgtype.Text `json:"portale_url"`
+	PortaleNote    pgtype.Text `json:"portale_note"`
+	// Regole di riconoscimento del cliente (D17): famiglie_codice, riferimento_rfq, canale_atteso, frasi_portale, lingua_risposta, richiede_cbd, numero_ordine_anticipato, finestra_aggancio_gg. Lo schema è `domain.Regole` e si valida in scrittura; ogni regola porta un esempio che deve corrispondere, altrimenti non viene usata.
+	Regole   json.RawMessage `json:"regole"`
+	Attivo   bool            `json:"attivo"`
+	Note     pgtype.Text     `json:"note"`
+	CreatoIl time.Time       `json:"creato_il"`
+	// Priorità commerciale del cliente, 0–15 (D27). Entra nell'ordinamento della lista Richieste. 0 = non dichiarata. NON è il punteggio della priorità dell'addendum 2: quella formula non esiste ancora.
+	Peso int16 `json:"peso"`
 }
 
 type Componente struct {
@@ -2248,17 +2313,21 @@ type DocumentoProvenienza struct {
 	CaricatoDa  uuid.NullUUID `json:"caricato_da"`
 }
 
+// Dominio del mittente → cliente. Il dominio è la PRIMARY KEY: appartiene a UN cliente solo. Assegnarlo a un secondo cliente è un errore che deve arrivare a chi lo sta facendo, non una UPDATE silenziosa che cambia il riconoscimento di tutta la posta passata (voce 6.6, T8).
 type DominioCliente struct {
 	Dominio   string    `json:"dominio"`
 	ClienteID uuid.UUID `json:"cliente_id"`
 }
 
+// Che cosa deve esserci nel fascicolo perche' la fattibilita' possa iniziare. RISOLUZIONE IN BLOCCO: per un dato tipo_componente valgono le righe del cliente SE NE HA ALMENO UNA, altrimenti i default (cliente_id IS NULL). Non si mescolano: scrivere una riga per un cliente significa prendersi in carico tutte le righe di quel tipo_componente per quel cliente. E' cosi' che la risolve v_fascicolo, ed e' cosi' che la mostra Admin - Anagrafica.
 type FabbisognoDocumento struct {
 	FabbisognoID   uuid.UUID      `json:"fabbisogno_id"`
 	ClienteID      uuid.NullUUID  `json:"cliente_id"`
 	TipoComponente TipoComponente `json:"tipo_componente"`
 	Tipo           TipoDocumento  `json:"tipo"`
 	Bloccante      bool           `json:"bloccante"`
+	// Da dove ci si aspetta il documento: cliente (arriva per mail e si sollecita), portale (link del cliente, cella azzurra del fascicolo), promatec (lo produciamo noi: non si sollecita). NULL = non dichiarato, ci si comporta come con «cliente».
+	FonteAttesa NullFonteFabbisogno `json:"fonte_attesa"`
 }
 
 type FaseCatalogo struct {

@@ -154,6 +154,34 @@ func CaricaNostri(ctx context.Context, q *db.Queries) (Nostri, error) {
 }
 
 // Nostro dice se l'indirizzo appartiene a un dominio che è nostro.
+// Motori è la cache per lotto dei motori di riconoscimento (voce 6.11).
+//
+// Le regole di un cliente sono regex, e compilarle costa. Un lotto di duecento messaggi che
+// vengono quasi tutti dagli stessi tre o quattro clienti compilerebbe le stesse espressioni
+// duecento volte: la cache vive quanto il lotto, quindi una regola cambiata in Anagrafica vale dal
+// lotto successivo — che è dopo pochi secondi — senza che nessuno debba invalidare niente.
+type Motori struct {
+	per map[uuid.UUID]*domain.Motore
+}
+
+func NuoviMotori() *Motori { return &Motori{per: map[uuid.UUID]*domain.Motore{}} }
+
+// Per restituisce il motore del cliente. Un cliente senza regole dà un motore vuoto e non nil:
+// un motore vuoto fa comunque funzionare l'estrattore generico, ed è il caso normale finché
+// l'anagrafica non è compilata.
+func (m *Motori) Per(ctx context.Context, q *db.Queries, id uuid.UUID) *domain.Motore {
+	if mo, ok := m.per[id]; ok {
+		return mo
+	}
+	var mo *domain.Motore
+	if c, err := q.GetCliente(ctx, id); err == nil {
+		regole, _ := domain.LeggiRegole(c.Regole)
+		mo = domain.Compila(c.RagioneSociale, regole)
+	}
+	m.per[id] = mo
+	return mo
+}
+
 func (n Nostri) Nostro(indirizzo string) bool {
 	i := strings.LastIndex(indirizzo, "@")
 	if i < 0 || i == len(indirizzo)-1 {
@@ -210,6 +238,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 	if err != nil {
 		return out, err
 	}
+	motori := NuoviMotori()
 
 	// Il tentativo si verifica DENTRO la transazione e con la riga del job bloccata: così non può
 	// scadere a metà scrittura e due tentativi diversi non possono scrivere lo stesso lotto insieme.
@@ -233,7 +262,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		if err != nil {
 			return out, err
 		}
-		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, m)
+		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, motori, m)
 		if errEl == nil {
 			errEl = forzaErrore(m.MessageID)
 		}
@@ -443,7 +472,7 @@ func naturaAllegato(v string) (db.NaturaAllegato, error) {
 	return n, nil
 }
 
-func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
+func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
 	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
@@ -613,8 +642,17 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		}
 	}
 
+	// Le regole del cliente riconosciuto (voce 6.11): le famiglie di codice dicono che cosa è un
+	// codice DI QUESTO cliente, mentre l'estrattore generico dice solo che cosa ha la forma di un
+	// codice. Cliente sconosciuto o senza regole → motore nil, e vale il solo generico.
+	var motore *domain.Motore
+	if clienteID.Valid {
+		motore = motori.Per(ctx, q, clienteID.UUID)
+	}
+
 	// aggancio automatico, solo per messaggi nuovi ancora orfani
-	codici := domain.EstraiCodici(append([]string{m.Oggetto, m.CorpoTesto}, senzaEstensione(nomiAllegati)...)...)
+	trovati := motore.Codici(append([]string{m.Oggetto, m.CorpoTesto}, senzaEstensione(nomiAllegati)...)...)
+	codici := domain.SoloCodici(trovati)
 	threadID := row.ThreadID
 	if row.Inserito && !row.ThreadID.Valid {
 		if tid, ok, err := s.threadPerConversazione(ctx, q, conv); err != nil {
@@ -659,7 +697,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 
 	// INTERPRETAZIONE: riferimenti portale e triage deterministico (solo alla prima vista del messaggio)
 	if row.Inserito {
-		for _, r := range domain.RilevaPortale(m.CorpoTesto) {
+		for _, r := range domain.RilevaPortale(m.CorpoTesto, motore.FrasiPortale()...) {
 			cod := r.Codici
 			if len(cod) == 0 {
 				cod = []string{""}
@@ -682,6 +720,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: string(dir),
 				Interno:     interno,
 				ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, ConversazioneNota: conv.ThreadID.Valid,
+				Motore: motore,
 			})
 			motivi, _ := json.Marshal(tr.Motivi)
 			if tr.Codici == nil {

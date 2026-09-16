@@ -147,7 +147,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html", "vietato.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -209,6 +209,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
 	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
+	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 	// Le schermate tecniche sono dell'amministratore (voce 6.9): `soloAdmin` è `autenticato` più il
 	// ruolo, e sta QUI e non dentro i gestori perché il posto in cui si montano le rotte è l'unico da
 	// cui si vede che nessuna è rimasta scoperta. Un gestore che si protegge da solo è un gestore che
@@ -222,6 +223,16 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.soloAdmin(s.pacchettoWorker))
 	mux.HandleFunc("GET /admin/scarti", s.soloAdmin(s.adminScarti))
 	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.soloAdmin(s.riprovaScarto))
+	// Anagrafica e' amministrativa (D29): le regole di riconoscimento di un cliente valgono per
+	// la posta di TUTTI, non per una richiesta. Stesso wrapper delle altre, stesso 403.
+	mux.HandleFunc("GET /admin/anagrafica", s.soloAdmin(s.adminAnagrafica))
+	mux.HandleFunc("GET /admin/anagrafica/articoli", s.soloAdmin(s.adminAnagraficaArticoli))
+	mux.HandleFunc("POST /admin/anagrafica", s.soloAdmin(s.nuovoCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}", s.soloAdmin(s.salvaCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/regole", s.soloAdmin(s.salvaRegole))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio", s.soloAdmin(s.aggiungiDominioCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio/elimina", s.soloAdmin(s.eliminaDominioCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/prova", s.soloAdmin(s.bancoProva))
 }
 
 // ---------------------------------------------------------------- rendering

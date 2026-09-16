@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
+	"promatec/cockpit/internal/anagrafica"
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fondazioni"
@@ -36,14 +37,15 @@ import (
 func main() {
 	cfgPath := flag.String("config", "cockpit.toml", "percorso di cockpit.toml")
 	soloMigrazioni := flag.Bool("migra", false, "applica le migrazioni e il seed, poi esce (nessun ascolto HTTP)")
+	semeAnagrafica := flag.String("semina-anagrafica", "", "file JSON di clienti, domini e buyer da seminare; poi esce")
 	flag.Parse()
-	if err := run(*cfgPath, *soloMigrazioni); err != nil {
+	if err := run(*cfgPath, *soloMigrazioni, *semeAnagrafica); err != nil {
 		fmt.Fprintln(os.Stderr, "errore:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfgPath string, soloMigrazioni bool) error {
+func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	cfg, err := config.Carica(cfgPath)
 	if err != nil {
 		return err
@@ -134,6 +136,33 @@ func run(cfgPath string, soloMigrazioni bool) error {
 		log.Warn("MODALITÀ SHADOW: sola lettura verso il mondo", "bloccati", jobs.TipiBloccatiOra(),
 			"nas_dry_run", cfg.NAS.DryRun, "nota", "«Apri in Outlook» resta l'unica azione consentita; si cambia con [server].modalita")
 	}
+	// Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
+	// regola di un solo cliente ha un esempio che non corrisponde alla propria regex, non parte
+	// niente. Un cliente gia' presente viene saltato per intero — il file e' una fotografia di un
+	// foglio, il database e' dove qualcuno ha gia' corretto a mano cio' che il foglio sbagliava.
+	if semeAnagrafica != "" {
+		seme, err := anagrafica.LeggiFile(semeAnagrafica)
+		if err != nil {
+			return err
+		}
+		esito, err := anagrafica.Semina(ctx, pool, seme)
+		if err != nil {
+			return err
+		}
+		log.Info("anagrafica seminata", "creati", len(esito.ClientiCreati), "gia_presenti", len(esito.ClientiPresenti),
+			"domini", esito.DominiAggiunti, "buyer", esito.BuyerCreati)
+		for _, c := range esito.ClientiCreati {
+			log.Info("cliente creato", "cliente", c)
+		}
+		for _, c := range esito.ClientiPresenti {
+			log.Info("cliente gia' presente: lasciato com'era", "cliente", c)
+		}
+		for _, a := range esito.Avvisi {
+			log.Warn("seme anagrafica", "avviso", a)
+		}
+		return nil
+	}
+
 	if soloMigrazioni {
 		log.Info("migrazioni e seed completati (-migra): esco senza mettermi in ascolto")
 		return nil

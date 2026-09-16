@@ -65,30 +65,57 @@ func TestQualiMetodiScrivono(t *testing.T) {
 	}
 }
 
-// W15 (L1) — la barra di navigazione porta le tre voci tecniche solo a chi può aprirle.
+// W15 (L1) — la rail porta la sezione *Admin* solo a chi può aprirla.
+//
+// L'elenco delle voci non è scritto qui: si legge da `navPer`, la stessa funzione che costruisce
+// la rail. Così una voce aggiunta domani entra automaticamente nel test — un elenco copiato a mano
+// resterebbe fermo, e la voce nuova sarebbe l'unica scoperta proprio perché è nuova.
 func TestW15LaBarraSiCostruiscePerRuolo(t *testing.T) {
 	s := serverTest(t)
-	tecniche := []string{"/admin/job", "/admin/scarti", "/admin/postazioni"}
-	operative := []string{"/inbox", "/cruscotto"}
-	for _, admin := range []bool{false, true} {
+	rendi := func(ruolo db.RuoloUtente) string {
+		t.Helper()
 		var buf bytes.Buffer
-		v := vista{Utente: &db.Utente{Sigla: "XX", Nome: "Nome Cognome", Ruolo: db.RuoloUtenteOperatore}, Titolo: "Inbox",
-			Dati: "", Admin: admin, Stato: &statoUI{}}
-		if admin {
-			v.Utente.Ruolo = db.RuoloUtenteAdmin
-		}
+		v := vista{Utente: &db.Utente{Sigla: "XX", Nome: "Nome Cognome", Ruolo: ruolo}, Titolo: "Inbox",
+			Dati: "", Admin: ruolo == db.RuoloUtenteAdmin, Stato: &statoUI{}}
 		if err := s.pagine["vietato.html"].ExecuteTemplate(&buf, "layout", v); err != nil {
 			t.Fatal(err)
 		}
-		html := buf.String()
-		for _, voce := range operative {
-			if !strings.Contains(html, `href="`+voce+`"`) {
-				t.Errorf("admin=%v: la barra non porta %s", admin, voce)
+		return buf.String()
+	}
+	operatore, admin := rendi(db.RuoloUtenteOperatore), rendi(db.RuoloUtenteAdmin)
+
+	// tutto ciò che `navPer` promette a un ruolo, la pagina di quel ruolo lo mostra davvero
+	for ruolo, html := range map[db.RuoloUtente]string{db.RuoloUtenteOperatore: operatore, db.RuoloUtenteAdmin: admin} {
+		for _, sez := range navPer(&db.Utente{Ruolo: ruolo}) {
+			for _, voce := range sez.Voci {
+				if !strings.Contains(html, `href="`+voce.Href+`"`) {
+					t.Errorf("%s: la rail non porta %s (%s)", ruolo, voce.Href, voce.Etichetta)
+				}
 			}
 		}
-		for _, voce := range tecniche {
-			if c := strings.Contains(html, `href="`+voce+`"`); c != admin {
-				t.Errorf("admin=%v: %s presente=%v", admin, voce, c)
+	}
+	// e niente della sezione Admin compare all'operatore
+	for _, sez := range navPer(&db.Utente{Ruolo: db.RuoloUtenteAdmin}) {
+		if sez.Nome != "Admin" {
+			continue
+		}
+		if !strings.Contains(admin, ">Admin<") {
+			t.Error("la rail dell'admin non mostra l'intestazione della sezione")
+		}
+		if strings.Contains(operatore, ">Admin<") {
+			t.Error("la rail dell'operatore mostra l'intestazione della sezione Admin")
+		}
+		for _, voce := range sez.Voci {
+			if strings.Contains(operatore, `href="`+voce.Href+`"`) {
+				t.Errorf("la rail dell'operatore porta %s", voce.Href)
+			}
+		}
+	}
+	// le tre operative ci sono per tutti: sono il lavoro, non l'amministrazione
+	for _, voce := range []string{"/inbox", "/richieste", "/cruscotto"} {
+		for nome, html := range map[string]string{"operatore": operatore, "admin": admin} {
+			if !strings.Contains(html, `href="`+voce+`"`) {
+				t.Errorf("%s: manca %s", nome, voce)
 			}
 		}
 	}

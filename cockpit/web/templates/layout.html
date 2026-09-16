@@ -8,24 +8,42 @@
 <script src="/static/htmx.min.js"></script>
 </head>
 <body>
+{{/* La testata porta il CONTESTO OPERATIVO: come sta il sistema adesso. La navigazione — dove
+     voglio andare — sta nella rail a sinistra. Erano la stessa riga, e sono due cose diverse. */}}
 <header class="barra">
+  <button class="rail-toggle" type="button" aria-label="Mostra o nascondi la navigazione">☰</button>
   <a class="logo" href="/inbox">Cockpit RFQ</a>
-  <nav>
-    <a href="/inbox" {{if eq .Titolo "Inbox"}}class="attivo"{{end}}>Inbox</a>
-    <a href="/cruscotto" {{if eq .Titolo "Cruscotto"}}class="attivo"{{end}}>Cruscotto</a>
-    {{/* Le schermate tecniche compaiono solo a chi puo' aprirle (voce 6.9). La barra NON e' il
-         controllo: quello e' `soloAdmin` sulle rotte. Qui si evita di offrire una porta chiusa. */}}
-    {{if .Admin}}<a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
-    <a href="/admin/scarti" {{if eq .Titolo "Scarti"}}class="attivo"{{end}}>Scarti</a>
-    <a href="/admin/postazioni" {{if eq .Titolo "Postazioni"}}class="attivo"{{end}}>Postazioni</a>{{end}}
-  </nav>
   <span class="spazio"></span>
   {{if .Utente}}{{template "stato_worker" .}}
   <span class="utente">{{.Utente.Nome}} · {{.Utente.Ruolo}}</span>
   <form method="post" action="/logout"><button class="link">esci</button></form>{{end}}
 </header>
-<main>
-{{template "contenuto" .}}
-</main>
+<div class="guscio">
+  {{/* La rail si costruisce da `navPer`, che chiama `almeno`: la stessa funzione del wrapper
+       delle rotte. Nascondere una voce non e' autorizzare — la porta la chiude `soloAdmin` —
+       ma cio' che si vede e cio' che si apre non devono poter divergere (voce 6.9, D29). */}}
+  <nav class="rail">
+    {{range .Nav}}
+    {{if .Nome}}<h3>{{.Nome}}</h3>{{end}}
+    {{range .Voci}}<a href="{{.Href}}" {{if eq $.Titolo .Titolo}}class="attivo" aria-current="page"{{end}}><span>{{.Etichetta}}</span></a>{{end}}
+    {{end}}
+  </nav>
+  <main>
+  {{template "contenuto" .}}
+  </main>
+</div>
+<script>
+// La rail chiusa resta chiusa: e' una preferenza di chi guarda, non uno stato del server.
+(function () {
+  var chiave = "cockpit.rail.chiusa";
+  try { if (localStorage.getItem(chiave) === "1") document.body.classList.add("rail-chiusa"); } catch (e) {}
+  var b = document.querySelector(".rail-toggle");
+  if (!b) return;
+  b.addEventListener("click", function () {
+    var chiusa = document.body.classList.toggle("rail-chiusa");
+    try { localStorage.setItem(chiave, chiusa ? "1" : "0"); } catch (e) {}
+  });
+})();
+</script>
 </body>
 </html>{{end}}

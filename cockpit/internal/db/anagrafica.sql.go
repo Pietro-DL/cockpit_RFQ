@@ -8,10 +8,25 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const eliminaDominioCliente = `-- name: EliminaDominioCliente :exec
+DELETE FROM dominio_cliente WHERE dominio = lower($1) AND cliente_id = $2
+`
+
+type EliminaDominioClienteParams struct {
+	Lower     string    `json:"lower"`
+	ClienteID uuid.UUID `json:"cliente_id"`
+}
+
+func (q *Queries) EliminaDominioCliente(ctx context.Context, arg EliminaDominioClienteParams) error {
+	_, err := q.db.Exec(ctx, eliminaDominioCliente, arg.Lower, arg.ClienteID)
+	return err
+}
 
 const getBuyer = `-- name: GetBuyer :one
 SELECT buyer_id, cliente_id, cognome, nome, email, telefono, ruolo, tipo, manda_file, lingua, confermato, origine, note, creato_il FROM buyer WHERE buyer_id = $1
@@ -66,7 +81,7 @@ func (q *Queries) GetBuyerPerEmail(ctx context.Context, lower string) (Buyer, er
 }
 
 const getCliente = `-- name: GetCliente :one
-SELECT cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il FROM cliente WHERE cliente_id = $1
+SELECT cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso FROM cliente WHERE cliente_id = $1
 `
 
 func (q *Queries) GetCliente(ctx context.Context, clienteID uuid.UUID) (Cliente, error) {
@@ -84,12 +99,37 @@ func (q *Queries) GetCliente(ctx context.Context, clienteID uuid.UUID) (Cliente,
 		&i.Attivo,
 		&i.Note,
 		&i.CreatoIl,
+		&i.Peso,
+	)
+	return i, err
+}
+
+const getClientePerCartella = `-- name: GetClientePerCartella :one
+SELECT cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso FROM cliente WHERE cartella_nas = $1
+`
+
+func (q *Queries) GetClientePerCartella(ctx context.Context, cartellaNas string) (Cliente, error) {
+	row := q.db.QueryRow(ctx, getClientePerCartella, cartellaNas)
+	var i Cliente
+	err := row.Scan(
+		&i.ClienteID,
+		&i.CartellaNas,
+		&i.RagioneSociale,
+		&i.Profilo,
+		&i.Lingua,
+		&i.PortaleUrl,
+		&i.PortaleNote,
+		&i.Regole,
+		&i.Attivo,
+		&i.Note,
+		&i.CreatoIl,
+		&i.Peso,
 	)
 	return i, err
 }
 
 const getClientePerDominio = `-- name: GetClientePerDominio :one
-SELECT c.cliente_id, c.cartella_nas, c.ragione_sociale, c.profilo, c.lingua, c.portale_url, c.portale_note, c.regole, c.attivo, c.note, c.creato_il FROM dominio_cliente d JOIN cliente c ON c.cliente_id = d.cliente_id WHERE d.dominio = lower($1)
+SELECT c.cliente_id, c.cartella_nas, c.ragione_sociale, c.profilo, c.lingua, c.portale_url, c.portale_note, c.regole, c.attivo, c.note, c.creato_il, c.peso FROM dominio_cliente d JOIN cliente c ON c.cliente_id = d.cliente_id WHERE d.dominio = lower($1)
 `
 
 func (q *Queries) GetClientePerDominio(ctx context.Context, lower string) (Cliente, error) {
@@ -107,6 +147,7 @@ func (q *Queries) GetClientePerDominio(ctx context.Context, lower string) (Clien
 		&i.Attivo,
 		&i.Note,
 		&i.CreatoIl,
+		&i.Peso,
 	)
 	return i, err
 }
@@ -180,6 +221,78 @@ func (q *Queries) InsertBuyer(ctx context.Context, arg InsertBuyerParams) (Buyer
 	return i, err
 }
 
+const insertCliente = `-- name: InsertCliente :one
+
+INSERT INTO cliente (cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, peso, regole)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso
+`
+
+type InsertClienteParams struct {
+	CartellaNas    string          `json:"cartella_nas"`
+	RagioneSociale string          `json:"ragione_sociale"`
+	Profilo        pgtype.Text     `json:"profilo"`
+	Lingua         pgtype.Text     `json:"lingua"`
+	PortaleUrl     pgtype.Text     `json:"portale_url"`
+	PortaleNote    pgtype.Text     `json:"portale_note"`
+	Peso           int16           `json:"peso"`
+	Regole         json.RawMessage `json:"regole"`
+}
+
+// ============================================================================
+//
+//	Blocco 3 — anagrafica non distruttiva (voce 6.6) e schermata Admin → Anagrafica (8.8)
+//
+//	Le query qui sotto sostituiscono `UpsertCliente` e `UpsertDominioCliente`, che erano
+//	distruttive: la prima, su una `cartella_nas` gia' presa, RINOMINAVA il cliente esistente
+//	lasciandogli domini, buyer e RFQ; la seconda spostava un dominio da un cliente all'altro in
+//	silenzio. Un INSERT che fallisce e' un errore che l'operatore legge; una UPDATE che riesce e'
+//	un errore che nessuno vede (T7, T8).
+//
+// ============================================================================
+func (q *Queries) InsertCliente(ctx context.Context, arg InsertClienteParams) (Cliente, error) {
+	row := q.db.QueryRow(ctx, insertCliente,
+		arg.CartellaNas,
+		arg.RagioneSociale,
+		arg.Profilo,
+		arg.Lingua,
+		arg.PortaleUrl,
+		arg.PortaleNote,
+		arg.Peso,
+		arg.Regole,
+	)
+	var i Cliente
+	err := row.Scan(
+		&i.ClienteID,
+		&i.CartellaNas,
+		&i.RagioneSociale,
+		&i.Profilo,
+		&i.Lingua,
+		&i.PortaleUrl,
+		&i.PortaleNote,
+		&i.Regole,
+		&i.Attivo,
+		&i.Note,
+		&i.CreatoIl,
+		&i.Peso,
+	)
+	return i, err
+}
+
+const insertDominioCliente = `-- name: InsertDominioCliente :exec
+INSERT INTO dominio_cliente (dominio, cliente_id) VALUES (lower($1), $2)
+`
+
+type InsertDominioClienteParams struct {
+	Lower     string    `json:"lower"`
+	ClienteID uuid.UUID `json:"cliente_id"`
+}
+
+func (q *Queries) InsertDominioCliente(ctx context.Context, arg InsertDominioClienteParams) error {
+	_, err := q.db.Exec(ctx, insertDominioCliente, arg.Lower, arg.ClienteID)
+	return err
+}
+
 const listBuyerCliente = `-- name: ListBuyerCliente :many
 SELECT buyer_id, cliente_id, cognome, nome, email, telefono, ruolo, tipo, manda_file, lingua, confermato, origine, note, creato_il FROM buyer WHERE cliente_id = $1 ORDER BY cognome, nome
 `
@@ -220,7 +333,7 @@ func (q *Queries) ListBuyerCliente(ctx context.Context, clienteID uuid.UUID) ([]
 }
 
 const listClienti = `-- name: ListClienti :many
-SELECT cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il FROM cliente WHERE attivo ORDER BY cartella_nas
+SELECT cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso FROM cliente WHERE attivo ORDER BY cartella_nas
 `
 
 func (q *Queries) ListClienti(ctx context.Context) ([]Cliente, error) {
@@ -244,6 +357,69 @@ func (q *Queries) ListClienti(ctx context.Context) ([]Cliente, error) {
 			&i.Attivo,
 			&i.Note,
 			&i.CreatoIl,
+			&i.Peso,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClientiTutti = `-- name: ListClientiTutti :many
+SELECT c.cliente_id, c.cartella_nas, c.ragione_sociale, c.profilo, c.lingua, c.portale_url, c.portale_note, c.regole, c.attivo, c.note, c.creato_il, c.peso,
+       (SELECT count(*) FROM dominio_cliente d WHERE d.cliente_id = c.cliente_id) AS n_domini,
+       (SELECT count(*) FROM buyer b WHERE b.cliente_id = c.cliente_id)           AS n_buyer,
+       (SELECT count(*) FROM thread_offerta t WHERE t.cliente_id = c.cliente_id)  AS n_richieste
+FROM cliente c ORDER BY c.attivo DESC, c.ragione_sociale
+`
+
+type ListClientiTuttiRow struct {
+	ClienteID      uuid.UUID       `json:"cliente_id"`
+	CartellaNas    string          `json:"cartella_nas"`
+	RagioneSociale string          `json:"ragione_sociale"`
+	Profilo        pgtype.Text     `json:"profilo"`
+	Lingua         pgtype.Text     `json:"lingua"`
+	PortaleUrl     pgtype.Text     `json:"portale_url"`
+	PortaleNote    pgtype.Text     `json:"portale_note"`
+	Regole         json.RawMessage `json:"regole"`
+	Attivo         bool            `json:"attivo"`
+	Note           pgtype.Text     `json:"note"`
+	CreatoIl       time.Time       `json:"creato_il"`
+	Peso           int16           `json:"peso"`
+	NDomini        int64           `json:"n_domini"`
+	NBuyer         int64           `json:"n_buyer"`
+	NRichieste     int64           `json:"n_richieste"`
+}
+
+func (q *Queries) ListClientiTutti(ctx context.Context) ([]ListClientiTuttiRow, error) {
+	rows, err := q.db.Query(ctx, listClientiTutti)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClientiTuttiRow{}
+	for rows.Next() {
+		var i ListClientiTuttiRow
+		if err := rows.Scan(
+			&i.ClienteID,
+			&i.CartellaNas,
+			&i.RagioneSociale,
+			&i.Profilo,
+			&i.Lingua,
+			&i.PortaleUrl,
+			&i.PortaleNote,
+			&i.Regole,
+			&i.Attivo,
+			&i.Note,
+			&i.CreatoIl,
+			&i.Peso,
+			&i.NDomini,
+			&i.NBuyer,
+			&i.NRichieste,
 		); err != nil {
 			return nil, err
 		}
@@ -269,6 +445,57 @@ func (q *Queries) ListDominiCliente(ctx context.Context, clienteID uuid.UUID) ([
 	for rows.Next() {
 		var i DominioCliente
 		if err := rows.Scan(&i.Dominio, &i.ClienteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFabbisognoEffettivo = `-- name: ListFabbisognoEffettivo :many
+SELECT f.tipo_componente, f.tipo, f.bloccante, f.fonte_attesa,
+       (f.cliente_id IS NOT NULL)::boolean AS proprio
+FROM fabbisogno_documento f
+WHERE f.cliente_id IS NOT DISTINCT FROM (
+        SELECT y.cliente_id FROM fabbisogno_documento y
+        WHERE y.tipo_componente = f.tipo_componente
+          AND (y.cliente_id = $1::uuid OR y.cliente_id IS NULL)
+        ORDER BY (y.cliente_id IS NOT NULL) DESC LIMIT 1)
+ORDER BY f.tipo_componente, f.tipo
+`
+
+type ListFabbisognoEffettivoRow struct {
+	TipoComponente TipoComponente      `json:"tipo_componente"`
+	Tipo           TipoDocumento       `json:"tipo"`
+	Bloccante      bool                `json:"bloccante"`
+	FonteAttesa    NullFonteFabbisogno `json:"fonte_attesa"`
+	Proprio        bool                `json:"proprio"`
+}
+
+// Il fabbisogno che vale per un cliente, risolto ESATTAMENTE come lo risolve `v_fascicolo`: per
+// ogni tipo_componente valgono le righe del cliente se ne ha almeno una, altrimenti i default. La
+// schermata Anagrafica e il fascicolo devono rispondere la stessa cosa; due risoluzioni diverse
+// della stessa regola sono una promessa che la UI fa e il fascicolo non mantiene.
+// `proprio` dice se la riga viene dal cliente o e' ereditata dal default: in UI si leggono diverse.
+func (q *Queries) ListFabbisognoEffettivo(ctx context.Context, clienteID uuid.NullUUID) ([]ListFabbisognoEffettivoRow, error) {
+	rows, err := q.db.Query(ctx, listFabbisognoEffettivo, clienteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFabbisognoEffettivoRow{}
+	for rows.Next() {
+		var i ListFabbisognoEffettivoRow
+		if err := rows.Scan(
+			&i.TipoComponente,
+			&i.Tipo,
+			&i.Bloccante,
+			&i.FonteAttesa,
+			&i.Proprio,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -342,6 +569,93 @@ func (q *Queries) ListRegole(ctx context.Context) ([]Regola, error) {
 	return items, nil
 }
 
+const listRichieste = `-- name: ListRichieste :many
+SELECT v.thread_id, v.cliente, v.buyer, v.oggetto, v.data_inizio, v.data_scadenza, v.scadenza_origine, v.ultimo_aggiornamento, v.stato_thread, v.cartella_relativa, v.priorita, v.identificativi, v.nome_fase, v.in_fase_dal, v.gg_in_fase, v.sla_gg, v.semaforo, v.in_carico_a, v.n_bloccanti, v.n_da_confermare, v.n_sul_portale, v.n_mancanti, v.n_messaggi, v.n_da_smistare, c.peso AS peso_cliente
+FROM v_cruscotto v
+JOIN thread_offerta t ON t.thread_id = v.thread_id
+JOIN cliente c        ON c.cliente_id = t.cliente_id
+WHERE v.stato_thread = 'APERTA'
+ORDER BY c.peso DESC, v.data_scadenza ASC NULLS LAST, COALESCE(v.ultimo_aggiornamento, v.data_inizio) DESC
+LIMIT $1
+`
+
+type ListRichiesteRow struct {
+	ThreadID            uuid.UUID           `json:"thread_id"`
+	Cliente             string              `json:"cliente"`
+	Buyer               pgtype.Text         `json:"buyer"`
+	Oggetto             pgtype.Text         `json:"oggetto"`
+	DataInizio          time.Time           `json:"data_inizio"`
+	DataScadenza        *time.Time          `json:"data_scadenza"`
+	ScadenzaOrigine     NullScadenzaOrigine `json:"scadenza_origine"`
+	UltimoAggiornamento *time.Time          `json:"ultimo_aggiornamento"`
+	StatoThread         StatoThread         `json:"stato_thread"`
+	CartellaRelativa    pgtype.Text         `json:"cartella_relativa"`
+	Priorita            int16               `json:"priorita"`
+	Identificativi      []string            `json:"identificativi"`
+	NomeFase            NullFase            `json:"nome_fase"`
+	InFaseDal           *time.Time          `json:"in_fase_dal"`
+	GgInFase            pgtype.Int4         `json:"gg_in_fase"`
+	SlaGg               pgtype.Int4         `json:"sla_gg"`
+	Semaforo            pgtype.Text         `json:"semaforo"`
+	InCaricoA           pgtype.Text         `json:"in_carico_a"`
+	NBloccanti          pgtype.Int8         `json:"n_bloccanti"`
+	NDaConfermare       pgtype.Int8         `json:"n_da_confermare"`
+	NSulPortale         pgtype.Int8         `json:"n_sul_portale"`
+	NMancanti           pgtype.Int8         `json:"n_mancanti"`
+	NMessaggi           int64               `json:"n_messaggi"`
+	NDaSmistare         int64               `json:"n_da_smistare"`
+	PesoCliente         int16               `json:"peso_cliente"`
+}
+
+// La lista delle Richieste: aperte, ordinate per peso del cliente e poi per scadenza. Il peso e'
+// un dato di anagrafica (D27), non il punteggio di priorita' dell'addendum 2: quella formula non
+// esiste ancora e qui non se ne inventa una.
+func (q *Queries) ListRichieste(ctx context.Context, limit int32) ([]ListRichiesteRow, error) {
+	rows, err := q.db.Query(ctx, listRichieste, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRichiesteRow{}
+	for rows.Next() {
+		var i ListRichiesteRow
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.Cliente,
+			&i.Buyer,
+			&i.Oggetto,
+			&i.DataInizio,
+			&i.DataScadenza,
+			&i.ScadenzaOrigine,
+			&i.UltimoAggiornamento,
+			&i.StatoThread,
+			&i.CartellaRelativa,
+			&i.Priorita,
+			&i.Identificativi,
+			&i.NomeFase,
+			&i.InFaseDal,
+			&i.GgInFase,
+			&i.SlaGg,
+			&i.Semaforo,
+			&i.InCaricoA,
+			&i.NBloccanti,
+			&i.NDaConfermare,
+			&i.NSulPortale,
+			&i.NMancanti,
+			&i.NMessaggi,
+			&i.NDaSmistare,
+			&i.PesoCliente,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTransizioniDa = `-- name: ListTransizioniDa :many
 SELECT da, a, automatica, fatto_richiesto FROM transizione WHERE da = $1
 `
@@ -371,33 +685,65 @@ func (q *Queries) ListTransizioniDa(ctx context.Context, da Fase) ([]Transizione
 	return items, nil
 }
 
-const upsertCliente = `-- name: UpsertCliente :one
-INSERT INTO cliente (cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (cartella_nas) DO UPDATE SET ragione_sociale = EXCLUDED.ragione_sociale, profilo = EXCLUDED.profilo,
-    lingua = EXCLUDED.lingua, portale_url = EXCLUDED.portale_url, portale_note = EXCLUDED.portale_note, regole = EXCLUDED.regole
-RETURNING cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il
+const setRegoleCliente = `-- name: SetRegoleCliente :one
+UPDATE cliente SET regole = $2 WHERE cliente_id = $1 RETURNING cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso
 `
 
-type UpsertClienteParams struct {
-	CartellaNas    string          `json:"cartella_nas"`
-	RagioneSociale string          `json:"ragione_sociale"`
-	Profilo        pgtype.Text     `json:"profilo"`
-	Lingua         pgtype.Text     `json:"lingua"`
-	PortaleUrl     pgtype.Text     `json:"portale_url"`
-	PortaleNote    pgtype.Text     `json:"portale_note"`
-	Regole         json.RawMessage `json:"regole"`
+type SetRegoleClienteParams struct {
+	ClienteID uuid.UUID       `json:"cliente_id"`
+	Regole    json.RawMessage `json:"regole"`
 }
 
-func (q *Queries) UpsertCliente(ctx context.Context, arg UpsertClienteParams) (Cliente, error) {
-	row := q.db.QueryRow(ctx, upsertCliente,
-		arg.CartellaNas,
+func (q *Queries) SetRegoleCliente(ctx context.Context, arg SetRegoleClienteParams) (Cliente, error) {
+	row := q.db.QueryRow(ctx, setRegoleCliente, arg.ClienteID, arg.Regole)
+	var i Cliente
+	err := row.Scan(
+		&i.ClienteID,
+		&i.CartellaNas,
+		&i.RagioneSociale,
+		&i.Profilo,
+		&i.Lingua,
+		&i.PortaleUrl,
+		&i.PortaleNote,
+		&i.Regole,
+		&i.Attivo,
+		&i.Note,
+		&i.CreatoIl,
+		&i.Peso,
+	)
+	return i, err
+}
+
+const updateCliente = `-- name: UpdateCliente :one
+UPDATE cliente SET ragione_sociale = $2, profilo = $3, lingua = $4, portale_url = $5,
+       portale_note = $6, peso = $7, attivo = $8, note = $9
+WHERE cliente_id = $1
+RETURNING cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso
+`
+
+type UpdateClienteParams struct {
+	ClienteID      uuid.UUID   `json:"cliente_id"`
+	RagioneSociale string      `json:"ragione_sociale"`
+	Profilo        pgtype.Text `json:"profilo"`
+	Lingua         pgtype.Text `json:"lingua"`
+	PortaleUrl     pgtype.Text `json:"portale_url"`
+	PortaleNote    pgtype.Text `json:"portale_note"`
+	Peso           int16       `json:"peso"`
+	Attivo         bool        `json:"attivo"`
+	Note           pgtype.Text `json:"note"`
+}
+
+func (q *Queries) UpdateCliente(ctx context.Context, arg UpdateClienteParams) (Cliente, error) {
+	row := q.db.QueryRow(ctx, updateCliente,
+		arg.ClienteID,
 		arg.RagioneSociale,
 		arg.Profilo,
 		arg.Lingua,
 		arg.PortaleUrl,
 		arg.PortaleNote,
-		arg.Regole,
+		arg.Peso,
+		arg.Attivo,
+		arg.Note,
 	)
 	var i Cliente
 	err := row.Scan(
@@ -412,21 +758,7 @@ func (q *Queries) UpsertCliente(ctx context.Context, arg UpsertClienteParams) (C
 		&i.Attivo,
 		&i.Note,
 		&i.CreatoIl,
+		&i.Peso,
 	)
 	return i, err
-}
-
-const upsertDominioCliente = `-- name: UpsertDominioCliente :exec
-INSERT INTO dominio_cliente (dominio, cliente_id) VALUES (lower($1), $2)
-ON CONFLICT (dominio) DO UPDATE SET cliente_id = EXCLUDED.cliente_id
-`
-
-type UpsertDominioClienteParams struct {
-	Lower     string    `json:"lower"`
-	ClienteID uuid.UUID `json:"cliente_id"`
-}
-
-func (q *Queries) UpsertDominioCliente(ctx context.Context, arg UpsertDominioClienteParams) error {
-	_, err := q.db.Exec(ctx, upsertDominioCliente, arg.Lower, arg.ClienteID)
-	return err
 }

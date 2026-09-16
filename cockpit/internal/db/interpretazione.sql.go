@@ -241,7 +241,7 @@ func (q *Queries) ListBozzeThread(ctx context.Context, threadID uuid.NullUUID) (
 }
 
 const listFabbisogno = `-- name: ListFabbisogno :many
-SELECT fabbisogno_id, cliente_id, tipo_componente, tipo, bloccante FROM fabbisogno_documento WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY cliente_id NULLS FIRST, tipo_componente, tipo
+SELECT fabbisogno_id, cliente_id, tipo_componente, tipo, bloccante, fonte_attesa FROM fabbisogno_documento WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY cliente_id NULLS FIRST, tipo_componente, tipo
 `
 
 func (q *Queries) ListFabbisogno(ctx context.Context, clienteID uuid.NullUUID) ([]FabbisognoDocumento, error) {
@@ -259,6 +259,7 @@ func (q *Queries) ListFabbisogno(ctx context.Context, clienteID uuid.NullUUID) (
 			&i.TipoComponente,
 			&i.Tipo,
 			&i.Bloccante,
+			&i.FonteAttesa,
 		); err != nil {
 			return nil, err
 		}

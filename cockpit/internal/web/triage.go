@@ -452,12 +452,15 @@ func (s *Server) clienteDaForm(ctx context.Context, q *db.Queries, r *http.Reque
 	if nome == "" || cartella == "" || cartella == "senza nome" {
 		return nil, errors.New("per un cliente nuovo servono ragione sociale e nome della cartella NAS")
 	}
-	c, err := q.UpsertCliente(ctx, db.UpsertClienteParams{CartellaNas: cartella, RagioneSociale: nome, Regole: []byte("{}")})
+	// Non un upsert (voce 6.6): se la cartella NAS e' gia' di un altro cliente questo INSERT
+	// fallisce e dice di chi e'. Prima rinominava quel cliente e gli lasciava domini, buyer e
+	// RFQ — cioe' chi credeva di crearne uno nuovo se ne portava via un altro, in silenzio.
+	c, err := CreaCliente(ctx, q, db.InsertClienteParams{CartellaNas: cartella, RagioneSociale: nome})
 	if err != nil {
 		return nil, fmt.Errorf("cliente: %w", err)
 	}
 	if dom := strings.ToLower(strings.TrimSpace(r.FormValue("cliente_dominio"))); dom != "" && !dominioPubblico(dom) {
-		if err := q.UpsertDominioCliente(ctx, db.UpsertDominioClienteParams{Lower: dom, ClienteID: c.ClienteID}); err != nil {
+		if err := AggiungiDominio(ctx, q, dom, c.ClienteID); err != nil {
 			return nil, fmt.Errorf("dominio: %w", err)
 		}
 	}

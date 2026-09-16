@@ -264,6 +264,53 @@ Legge la configurazione, applica le migrazioni, semina utenti e fondazioni e **e
 verificare che il file sia giusto — ed è anche il modo giusto di aggiornare il database prima di
 sostituire il binario su una postazione.
 
+#### Seminare l'anagrafica dei clienti (blocco 3)
+
+```powershell
+.\cockpit.exe -config cockpit.toml -semina-anagrafica seme_anagrafica.json
+```
+
+Legge un file JSON di clienti, domini e buyer, lo convalida **per intero** e poi scrive, e **esce**.
+
+Il file non sta nel repository: nomi dei clienti, domini, indirizzi dei buyer e forme dei loro codici
+sono dati dell'azienda. Lo tiene chi amministra il Cockpit, accanto a `cockpit.toml`.
+
+```json
+{
+  "clienti": [
+    {
+      "ragione_sociale": "ACME S.p.A.",
+      "cartella_nas": "ACME",
+      "lingua": "it",
+      "peso": 12,
+      "domini": ["acme.example"],
+      "buyer": [{"cognome": "Rossi", "nome": "Mario", "email": "mario.rossi@acme.example", "tipo": "buyer"}],
+      "regole": {
+        "famiglie_codice": [
+          {"regex": "\\bAC\\d{5}[A-Z]\\b", "descrizione": "codici ACME", "esempio": "AC12345B"}
+        ],
+        "lingua_risposta": "it",
+        "richiede_cbd": true
+      }
+    }
+  ]
+}
+```
+
+Due comportamenti da conoscere prima di lanciarlo.
+
+**Se una sola regola ha l'esempio sbagliato, non parte niente.** Non «quel cliente viene saltato»:
+l'intero seme si ferma e dice quale cliente e quale regola. Una regex sbagliata non fallisce, non
+riconosce — e senza questo controllo entrerebbe in database e ci resterebbe, in silenzio.
+
+**Un cliente già presente viene saltato per intero, non aggiornato.** Il file è la fotografia di un
+foglio; il database è dove qualcuno ha già corretto a mano quello che il foglio sbagliava. Rilanciarlo
+è quindi sicuro: aggiunge solo ciò che manca. I **domini** si aggiungono anche ai clienti esistenti,
+ma un dominio già assegnato a un altro cliente **non viene spostato**: il seme lo segnala e prosegue.
+
+Da lì in avanti si lavora dalla schermata **Admin → Anagrafica**, che è anche l'unico posto in cui si
+scrivono peso, portale e regole di riconoscimento.
+
 ### 3. Configurazione dei worker
 
 ```powershell
@@ -515,6 +562,19 @@ proposti; con **Conferma → NAS** diventano documenti copiati nella cartella de
 dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
 l'invio non è mai automatico.
 
+**L'anagrafica dei clienti.** *Admin → Anagrafica* e' dove un cliente prende un peso (0-15, che ordina
+la lista **Richieste**), i suoi domini e le sue **regole di riconoscimento**: le famiglie dei suoi
+codici, il formato del suo riferimento di richiesta, le frasi con cui dice «e' sul portale». Ogni
+regola con una regex porta un **esempio che deve corrispondere**, perche' una regex sbagliata non da'
+errore: smette di riconoscere, e in silenzio. Le regole con l'esempio sbagliato compaiono con una ✗ e
+il motore non le usa; un JSON che non rispetta lo schema non viene salvato.
+
+Nella stessa schermata c'e' un **banco di prova**: si incolla una mail e si vede che cosa il Cockpit
+ne capirebbe. Non e' una simulazione — chiama la stessa funzione che lavora sui messaggi veri.
+
+E' una schermata amministrativa: una regex cambiata li' cambia il riconoscimento della posta di tutti.
+Un operatore non ne vede la voce e riceve 403 se ne scrive l'indirizzo.
+
 **Su quale PC.** Un job va solo a un worker che serve la casella del job — cioè che l'ha trovata nel
 proprio profilo Outlook ed è autorizzato a leggerla — e, se è un'azione interattiva (Apri, Segna
 letto, Bozza), solo al worker della **postazione da cui l'operatore sta lavorando**. La sessione del
@@ -643,7 +703,11 @@ internal/db                sqlc: queries/*.sql → codice generato (non modifica
 internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
+internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS;
+                           regole.go: lo schema di `cliente.regole` (famiglie di codice con esempio obbligatorio) e l'UNICO
+                           ingresso al riconoscimento, `Riconosci`, che usano sia l'ingest sia il banco di prova dell'Anagrafica
+internal/anagrafica        seme di clienti, domini e buyer da file: convalida tutto prima di scrivere, crea cio' che manca
+                           e non tocca cio' che c'e' (voce 6.6)
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;

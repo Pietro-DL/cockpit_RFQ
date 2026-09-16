@@ -69,3 +69,50 @@ details.conferma{display:inline-block}details.conferma summary{list-style:none;c
 /* voce 2.4: una credenziale che non fa entrare nessuno si vede nella pagina Postazioni,
    non al primo 401 del worker */
 .chip.guasta{background:#fbe3e1;color:var(--rosso);font-weight:600}
+
+/* ---------------------------------------------------------------- guscio: rail + contenuto (8.8, D29)
+   La testata cresceva in larghezza a ogni schermata nuova. Da qui la navigazione sta a sinistra,
+   in sezioni, e la testata tiene solo il contesto operativo. Sotto i 900 px la rail torna una
+   striscia orizzontale sopra il contenuto: su uno schermo stretto una colonna fissa mangia meta'
+   della pagina proprio dove ce n'e' meno. */
+.guscio{display:grid;grid-template-columns:184px 1fr;align-items:start}
+.rail{position:sticky;top:0;padding:10px 8px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--bordo);background:var(--carta);min-height:calc(100vh - 41px)}
+.rail a{padding:6px 10px;border-radius:6px;color:var(--muto);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rail a:hover{background:#f0f4fa}
+.rail a.attivo{background:#e8f0fc;color:var(--acc);font-weight:600}
+.rail h3{margin:14px 0 4px;padding:0 10px}
+.rail-toggle{border:0;background:none;padding:2px 8px 2px 0;color:var(--muto);font-size:16px;line-height:1}
+.rail-toggle:hover{color:var(--acc);border-color:transparent}
+body.rail-chiusa .guscio{grid-template-columns:0 1fr}
+body.rail-chiusa .rail{display:none}
+@media (max-width:900px){
+  .guscio{grid-template-columns:1fr}
+  .rail{position:static;flex-direction:row;flex-wrap:wrap;min-height:0;border-right:0;border-bottom:1px solid var(--bordo)}
+  .rail h3{margin:0;align-self:center}
+  body.rail-chiusa .guscio{grid-template-columns:1fr}
+}
+
+/* ---------------------------------------------------------------- Admin - Anagrafica (6.11, 8.8) */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bordo);margin-bottom:12px}
+.tabs a{padding:6px 12px;color:var(--muto);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs a.attivo{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
+.ana{display:grid;grid-template-columns:minmax(200px,240px) 1fr;gap:12px;align-items:start}
+.ana .elenco{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;overflow:auto;max-height:calc(100vh - 160px)}
+.ana .elenco a{display:block;padding:7px 10px;border-bottom:1px solid var(--bordo);color:var(--testo)}
+.ana .elenco a:hover{background:#f0f4fa}.ana .elenco a.attivo{background:#e8f0fc}
+.ana .elenco a small{display:block;color:var(--muto);font-size:11px}
+.ana .elenco a.spento{opacity:.55}
+.schede{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start}
+.scheda{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;padding:12px 14px}
+.scheda h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muto);margin:0 0 8px}
+.scheda label{display:grid;gap:3px;color:var(--muto);font-size:12px;margin-bottom:8px}
+.scheda input,.scheda select,.scheda textarea{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;color:var(--testo);width:100%}
+.scheda textarea.json{font-family:Consolas,monospace;font-size:12px;min-height:220px;white-space:pre}
+.scheda .riga-campi{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.regola{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--bordo)}
+.regola b{font-weight:600;font-size:12px}
+.spunta{font-weight:700}.spunta.si{color:var(--verde)}.spunta.no{color:var(--rosso)}
+.motivo{grid-column:1/-1;color:var(--rosso);font-size:12px;margin:2px 0 4px}
+.esito-prova{background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;font-size:13px}
+.vuoto{color:var(--muto);padding:16px;text-align:center}
+@media (max-width:900px){.ana{grid-template-columns:1fr}.ana .elenco{max-height:220px}}
