@@ -141,7 +141,7 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 	d.URL = s.URLServer()
 	d.TLS = s.TLS != nil
 	if u := utenteDa(ctx); u != nil {
-		d.Admin = u.Ruolo == db.RuoloUtenteAdmin
+		d.Admin = almeno(u, db.RuoloUtenteAdmin)
 	}
 	if s.TLS != nil {
 		d.Impronta, d.Scadenza = s.TLS.Impronta, s.TLS.Scadenza
@@ -196,11 +196,11 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 // un modo di «rivedere» un token esistente, e non deve esserci: in database c'è solo lo sha256, e
 // una schermata che sapesse rileggere i segreti sarebbe il posto da cui rubarli tutti insieme.
 func (s *Server) pacchettoWorker(w http.ResponseWriter, r *http.Request) {
+	// L'autorizzazione non è qui: la rotta è montata con `soloAdmin` (ruoli.go), come le altre sei
+	// di /admin. Un gestore che si controlla da solo sposta la domanda «sono coperte tutte?» dentro
+	// sette file diversi, ed è lì che una resta scoperta. L'utente serve comunque: chi ha rigenerato
+	// dei segreti è una riga di log che si vuole avere.
 	u := utenteDa(r.Context())
-	if u == nil || u.Ruolo != db.RuoloUtenteAdmin {
-		http.Error(w, "solo un amministratore può generare le credenziali di una postazione", http.StatusForbidden)
-		return
-	}
 	host := strings.ToUpper(strings.TrimSpace(r.PathValue("host")))
 	q := db.New(s.Pool)
 	p, err := q.GetPostazionePerHost(r.Context(), host)

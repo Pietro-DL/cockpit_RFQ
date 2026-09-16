@@ -9,7 +9,7 @@ repository.
 **2.2 + 2.6 + 2.7**, il **blocco 1 dell'addendum** (2.9, 2.16, 9.5 — con la correzione del fuso del
 16/09) e il **blocco 2** (2.4 TLS e credenziali individuali, 2.5 CSRF, VM Linux, pagina *Postazioni*,
 con la correzione del 16/09 sul passaggio dal token condiviso), più le correzioni del 15 e del
-16/09/2026. Restano le voci **2.8** e **2.10–2.15**, elencate in fondo: entrano nei blocchi dove
+16/09/2026 e il **checkpoint UI/RBAC** (6.9 e metà della 6.4, anticipate). Restano le voci **2.8** e **2.10–2.15**, elencate in fondo: entrano nei blocchi dove
 servono.
 
 ## Perimetro
@@ -648,6 +648,111 @@ Restano **non eseguiti** i passi che toccano la posta: avvio del worker Outlook 
 nuova, «Aggiorna ora» su Francesco e Commerciale, i due job a `fatto`, l'Inbox aggiornata e l'avvio
 del worker di analisi con la sua credenziale. Sono righe del registro reale.
 
+## Checkpoint UI/RBAC del 16/09/2026 — l'interfaccia di lavoro e quella di amministrazione (6.9, 6.4)
+
+Non è lavoro nuovo: sono la voce **6.9** (ruoli, test W1) e la voce **6.4** (seed non distruttivo e
+cambio password, test W12), anticipate prima del blocco 3 perché il blocco 3 aggiunge schermate, e
+ogni schermata aggiunta senza una regola è una schermata da ricontrollare dopo.
+
+### Il problema
+
+Le sette rotte `/admin/*` avevano **solo** `autenticato`. L'unico confronto con `admin` in tutto il
+server stava dentro la generazione del pacchetto. Un operatore che scriveva `/admin/job` nella barra
+degli indirizzi entrava, riaccodava e annullava; `/admin/scarti` idem. La barra di navigazione le
+mostrava a tutti, il che rendeva la cosa un invito.
+
+E il seed degli utenti faceva due cose in silenzio: un `ruolo` che non riconosceva diventava
+`operatore`, e una `password` scritta nel TOML veniva rihashata e riscritta **a ogni avvio** — cioè
+il cambio password, quando arriverà, sarebbe tornato indietro da solo la notte dopo.
+
+### Che cosa cambia
+
+| | Prima | Ora |
+|---|---|---|
+| le sette rotte `/admin/*` | `autenticato` | `soloAdmin`, cioè autenticato **e** ruolo, montato dove si montano le rotte |
+| chi decide il permesso | `u.Ruolo == admin` dentro un gestore | una funzione sola (`almeno`), usata dal wrapper **e** dalla barra: la voce che si vede e la porta che si apre non possono allontanarsi |
+| barra di navigazione | tre voci tecniche a tutti | solo a chi le può aprire. La testata (stato delle caselle, «Aggiorna ora») resta a tutti: serve a lavorare |
+| il 403 | testo grezzo | frammento HTMX dentro la pagina, pagina intera con la via d'uscita se l'indirizzo è scritto a mano; in tutti e due i casi dice quale ruolo serve, e finisce nel log |
+| `consultazione` | poteva tutto ciò che poteva un operatore | nessun metodo che scrive, **per tutte** le rotte dietro all'autenticazione, comprese quelle che non esistono ancora |
+| ruolo sconosciuto in `cockpit.toml` | diventava `operatore` | il server **non parte**: dice quale utente, che cosa c'era scritto e quali parole sono ammesse |
+| `password` nel TOML | riscritta a ogni avvio | fa **nascere** l'utente; se in database c'è un hash bcrypt valido, vince quello — e chi scrive una password nuova nel file lo legge nel log |
+| sessione senza postazione | restava tale fino al logout | si riabbina appena un worker di quel PC fa claim dallo stesso IP (W14 esteso) |
+
+### I quattro ruoli, e perché la matrice è rimandata
+
+`consultazione < operatore < tecnico < admin`. Sono i quattro dell'enum `ruolo_utente`, che esiste
+dalla migrazione `0001`: **nessuna migrazione**, qui, e nessun ruolo nuovo.
+
+Sono definiti tutti e quattro adesso anche se oggi se ne usano due, perché la definizione mancante è
+ciò che fa entrare l'ufficio tecnico come «operatore» fra un mese, per poi doverlo cambiare. Oggi
+`tecnico` può esattamente quanto `operatore`: le azioni della fattibilità e dell'albero, che saranno
+sue, non esistono ancora.
+
+La **matrice ruolo × azione** — quale singola azione appartiene a chi — è rimandata di proposito, con
+gli utenti ancora da configurare e metà delle schermate da scrivere. Quello che c'è è un **ordine**,
+in un file solo (`internal/web/ruoli.go`), e il segno che non basterà più sarà un ruolo che può
+qualcosa che il ruolo sopra di lui non può. Fino ad allora una tabella scritta oggi sarebbe una
+tabella da riscrivere.
+
+**Ruolo e visibilità per casella restano due cose diverse.** Il ruolo dice *che cosa puoi fare*; la
+visibilità della posta personale altrui (D12, voce 2.15, default restrittivo) dice *che cosa puoi
+vedere*, e non è questo checkpoint. Un amministratore vede la coda dei job e le postazioni: non per
+questo vede la Posta in arrivo di un collega. Quando arriverà, `puoVedere` resterà l'unico punto di
+decisione su quello.
+
+### Il browser aperto prima che il worker si accenda (W14 esteso)
+
+È l'ordine normale di una mattina: prima il Cockpit, poi il worker. Al login l'IP non corrispondeva a
+nessuna postazione, la sessione nasceva senza, e restava così per dodici ore — con le azioni su
+Outlook spente — anche molto dopo che il worker si era acceso. Uscire e rientrare funzionava, ma
+nessuno sa che è quello il rimedio.
+
+Ora la sessione si riabbina alla prima richiesta utile. L'autorizzazione non cambia di una virgola:
+passa da `abbinaPostazione`, cioè da `puoUsarePostazione` (P1). L'IP dice **quale** postazione, mai
+che si possa usarla. E una postazione **scelta** in testata non viene mai sovrascritta: quella è una
+decisione, e una schermata che disfa al poll successivo la decisione appena presa è peggio di una che
+non aiuta.
+
+**Limite dichiarato:** il «—» della testata vuol dire «non lo so», non «non voglio». Riporta la
+sessione allo stato di partenza, e da un PC che ha il suo worker acceso l'IP torna a dirlo. Chi vuole
+lavorare da un'altra parte **sceglie** quell'altra postazione. Distinguere le due cose in database
+vorrebbe dire un terzo valore in `postazione_origine`, che il `CHECK` della `0005` non ammette: una
+migrazione per questo, oggi, sposterebbe la numerazione del blocco 3.
+
+### Come è stato verificato
+
+| Prova | Che cosa mostra |
+|---|---|
+| `internal/web` — **W1** (L4) | tutte e sette le rotte `/admin/*`, in GET e in POST, rispondono 403 a un operatore — che è anche il proprietario di quel PC —, il 403 è un frammento leggibile, e **niente è successo**: il job che aveva accodato è ancora `pronto` e lo scarto ha ancora un tentativo. L'altra metà: l'admin le apre tutte e sette, e «Annulla» annulla davvero |
+| `internal/web` — **W15** (L4 + L1) | dal vivo: l'operatore non trova nella barra `/admin/job`, `/admin/scarti`, `/admin/postazioni`, e trova tutto il resto; l'admin le trova. In L1, il template con e senza il ruolo |
+| `internal/web` — **W16** (L4) | `consultazione` legge Inbox, Cruscotto e testata, e riceve 403 su ogni POST provato, senza accodare niente; ma può uscire |
+| `internal/web` — **W12** (L4) | riavvio con una password **diversa** nel file: entra ancora quella vecchia, la nuova no, e il log lo dice. Un utente nuovo nasce regolarmente con la sua; nome, ufficio e ruolo restano allineati al file. E il seed rifiuta un ruolo inventato invece di declassarlo |
+| `internal/config` — **CF1** (L1) | ruolo inventato, mancante e vuoto: tre rifiuti all'avvio, ognuno con la sigla e i quattro ruoli ammessi. I quattro si configurano, `« Operatore »` si normalizza, `ufficio` no, e la stessa sigla due volte non passa |
+| `internal/web` — **W14 (d)** (L4) | la sessione nata senza postazione si riabbina appena il worker fa claim da quel IP, e «Apri» parte; una postazione scelta non si sposta nemmeno dopo tre poll della testata |
+| `internal/web` — ordine dei ruoli (L1) | admin > tecnico ≥ operatore > consultazione > un ruolo che non conosciamo; un utente assente non supera nessun controllo; e i metodi che scrivono sono gli stessi che la protezione CSRF chiama non sicuri |
+
+Verificate anche **al contrario**, rimettendo il difetto uno per volta:
+
+| Difetto rimesso | Effetto |
+|---|---|
+| le rotte `/admin` di nuovo solo `autenticato` | rosso W1 |
+| la barra che mostra le voci tecniche a tutti | rosso W15 |
+| `consultazione` che scrive come un operatore | rosso W16 |
+| il seed che riscrive la password a ogni avvio | rosso W12 |
+| il ruolo sconosciuto che torna a diventare `operatore` | rosso CF1 |
+| il riabbinamento della sessione tolto | rosso W14 (d) |
+
+### Che cosa questo checkpoint NON dimostra
+
+- **Il browser: NON PROVATO.** Che la barra si veda davvero senza le tre voci, e che il 403 si legga
+  dentro la pagina invece di sfigurarla, è L7;
+- **la visibilità per casella (D12, voce 2.15): fuori perimetro.** Resta la regola restrittiva: un
+  ruolo alto non amplia la visibilità della posta personale;
+- **il cambio password dalla UI (voce 6.4): NON FATTO.** Qui c'è solo la metà che protegge il
+  segreto già impostato. Finché `/profilo/password` non esiste, reimpostare una password vuol dire
+  azzerare `utente.password_hash` a mano;
+- **la matrice ruolo × azione: rimandata**, come sopra.
+
 ## Come verificare
 
 ```powershell
@@ -671,6 +776,7 @@ un'ottimizzazione, è una condizione di correttezza.
 | L1/L2 + L4 blocco 1 | voce 2.9: filtro DASL in UTC e self-test per insieme (13 prove L1/L2); voce 2.16: SV1, SV2, SV3; voce 9.5: SH1, SH2, SH3 (a) in L4, SH3 (b) in L1; correzione del fuso del 16/09: 6 prove L1/L2 sulla conversione e 5 L4 sulle guardie (elemento, cursore del lotto, cursore già in database) | eseguiti |
 | L1 + L4 blocco 2 | voce 2.4: `SuLoopback`, il rifiuto del chiaro in LAN, mezzo TLS, percorsi relativi, SH3 (b) POSIX (7 L1); W4 e il claim che non accetta il nome di un altro; **W11 con il client Python vero contro un server TLS vero**; voce 2.5: W10 (403 cross-site, 200 stessa origine, GET libera, worker non toccati); D22: PK1, il pacchetto e la rotazione del token; 9 prove L1/L2 sulle credenziali lato worker | eseguiti |
 | L1 + L4 correzione del 16/09 (credenziali) | **PK2**: token condiviso → token vuoti → rigenerazione → due credenziali individuali, con il riavvio che non le sovrascrive; la credenziale mai generata e il suo segnaposto; `StatoCredenziali` (L1); 8 prove L1/L2 sul log del worker (401 ≠ «server non raggiungibile») | eseguiti |
+| L1 + L4 checkpoint UI/RBAC | **W1** (sette rotte /admin, GET e POST, e nessun effetto), **W15** (barra per ruolo, dal vivo e nel template), **W16** (`consultazione` non scrive), **W12** (la password del file non sostituisce quella in database), **CF1** (ruolo sconosciuto → il server non parte), **W14 (d)** (riabbinamento della sessione dopo il claim), ordine dei ruoli (L1) | eseguiti |
 | L5–L9 | due caselle vere in Outlook (M1 con `--caselle`), **C2/C3 con `--restrict` sul profilo vero**, TZ2 (l'ora di Outlook accanto a quella in database), casella condivisa Exchange, **banco a due PC** (M11, upload fra due PC), **NAS su share SMB montata da Linux** (N1), postazione della sessione da un browser vero (W14 L7), **CR1** (worker Outlook con la credenziale nuova: «Aggiorna ora» su due caselle, i due job a `fatto`, l'Inbox aggiornata) | **non eseguiti** |
 
 Tre precisazioni che valgono anche per chi legge solo questo file:
@@ -722,6 +828,9 @@ Con l'addendum del 16/09/2026 l'ordine non è più quello dei numeri delle voci 
   condiviso. Restano le prove reali che nessun test simulato può dare: il worker Outlook che lavora
   con la credenziale nuova sulla posta vera (CR1), il banco a due PC, il NAS su una share SMB montata
   dalla VM Linux (N1) e il browser davanti a un certificato autofirmato;
+- ~~**checkpoint UI/RBAC**~~: **fatto** (6.9; della 6.4 resta la schermata `/profilo/password`).
+  Resta da vedere in un browser vero (L7) e resta fuori la visibilità per casella (D12, voce 2.15),
+  che è un'altra domanda e vive nei blocchi successivi;
 - **blocco 3 — anagrafica**: 6.6, 6.11 (`cliente.regole` con schema validato ed esempio obbligatorio
   per ogni regola), 8.8, seed dal foglio dei buyer; migrazione `0007_anagrafica`;
 - poi annidati, proposte per cliente, ingresso esterno, articoli e distinta, fatti e STEP, le tre

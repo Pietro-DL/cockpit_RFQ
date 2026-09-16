@@ -80,6 +80,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 		{Sigla: "FP", Nome: "Francesco", Ufficio: "Commerciale", Ruolo: "operatore", Password: "prova-fp"},
 		{Sigla: "LU", Nome: "Luigi", Ufficio: "Tecnico", Ruolo: "tecnico", Password: "prova-lu"},
 		{Sigla: "AD", Nome: "Admin", Ufficio: "IT", Ruolo: "admin", Password: "prova-ad"},
+		{Sigla: "CO", Nome: "Consultazione", Ufficio: "Direzione", Ruolo: "consultazione", Password: "prova-co"},
 	}
 	cfg.Caselle = []config.Casella{
 		{Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Canale: "outlook", Condivisa: true},
@@ -96,7 +97,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	for _, u := range cfg.Utenti {
 		utenti = append(utenti, struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{u.Sigla, u.Nome, u.Ufficio, u.Ruolo, u.Password})
 	}
-	if err := SeedUtenti(ctx, q, utenti); err != nil {
+	if err := SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fondazioni.Semina(ctx, q, cfg, testutil.LogSilenzioso()); err != nil {
@@ -347,6 +348,71 @@ func TestW14PostazioneDellaSessione(t *testing.T) {
 	}
 	if len(jobs) != 3 || perPostazione[b.pcLuigi] != 1 || perPostazione[b.pcFrancesco] != 2 {
 		t.Fatalf("(c) job per postazione: %v su %d job", perPostazione, len(jobs))
+	}
+}
+
+// W14 (d) — il browser aperto PRIMA che il worker si accenda.
+//
+// È l'ordine normale di una mattina: si apre il Cockpit, poi parte il worker. Al login l'IP non
+// corrispondeva a nessuna postazione, quindi la sessione è nata senza; senza riabbinamento
+// l'operatore resterebbe «sei su: —» per dodici ore, con le azioni su Outlook spente, e l'unico
+// rimedio (uscire e rientrare) non lo sa nessuno.
+func TestW14LaSessioneSiRiabbinaQuandoIlWorkerSiAccende(t *testing.T) {
+	b := preparaBancoWeb(t)
+	fp := b.browser("10.0.0.5:51000")
+	fp.login("FP", "prova-fp") // nessun worker ha ancora fatto claim da questo IP
+	if s := fp.sessione(); s.PostazioneID.Valid {
+		t.Fatalf("sessione abbinata senza nessun worker acceso: %v", s.PostazioneID)
+	}
+
+	// si accende il worker di quel PC, dallo stesso indirizzo
+	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
+
+	// la richiesta successiva del browser già aperto trova la postazione
+	_, pagina := fp.fai(http.MethodGet, "/inbox", nil, false)
+	if !strings.Contains(pagina, "selected>PC-FRANCESCO") {
+		t.Errorf("la testata non si è riabbinata: %s", estratto(pagina, "stato-worker"))
+	}
+	s := fp.sessione()
+	if !s.PostazioneID.Valid || s.PostazioneID.UUID != b.pcFrancesco || s.PostazioneOrigine.String != "ip" {
+		t.Fatalf("sessione dopo il claim: %v %q", s.PostazioneID, s.PostazioneOrigine.String)
+	}
+	// e adesso «Apri» parte davvero: è questo che l'operatore stava aspettando
+	msg := b.messaggioIn("<w14d@acme.example>", b.francesco)
+	if resp, corpo := fp.fai(http.MethodPost, "/messaggio/"+msg.String()+"/apri", nil, true); resp.StatusCode != 200 || strings.Contains(corpo, "Non aperto") {
+		t.Fatalf("apri dopo il riabbinamento: %d %s", resp.StatusCode, corpo)
+	}
+
+	// Una postazione SCELTA non si tocca: l'admin che sta all'IP di PC-FRANCESCO ma ha scelto
+	// PC-LUIGI continua a lavorare su PC-LUIGI. È la metà che conta: un riabbinamento che
+	// sovrascrivesse una scelta esplicita sposterebbe le finestre di Outlook su un altro PC mentre
+	// l'operatore guarda quello che ha scelto lui.
+	ad := b.browser("10.0.0.5:51000") // stesso IP del worker di PC-FRANCESCO
+	ad.login("AD", "prova-ad")
+	if resp, _ := ad.fai(http.MethodPost, "/sessione/postazione", url.Values{"postazione_id": {b.pcLuigi.String()}}, true); resp.StatusCode != 204 {
+		t.Fatal("scelta di PC-LUIGI")
+	}
+	for i := 0; i < 3; i++ { // tre poll della testata: nessuno deve cambiare idea
+		ad.fai(http.MethodGet, "/stato/worker", nil, true)
+	}
+	if s := ad.sessione(); !s.PostazioneID.Valid || s.PostazioneID.UUID != b.pcLuigi || s.PostazioneOrigine.String != "scelta" {
+		t.Errorf("la scelta esplicita è stata sovrascritta dall'IP: %v %q", s.PostazioneID, s.PostazioneOrigine.String)
+	}
+
+	// Il «—» invece vuol dire «non lo so», non «non voglio»: riporta la sessione allo stato di
+	// partenza, e da un PC che ha il suo worker acceso l'IP torna a dire quale è con certezza. Chi
+	// vuole lavorare altrove sceglie l'altra postazione, che è la riga qui sopra. (Distinguere le
+	// due cose in database vorrebbe dire un terzo valore in `postazione_origine`, che il CHECK della
+	// 0005 non ammette: è un limite dichiarato, non un difetto nascosto.)
+	if resp, _ := fp.fai(http.MethodPost, "/sessione/postazione", url.Values{"postazione_id": {""}}, true); resp.StatusCode != 204 {
+		t.Fatal("rimozione della postazione")
+	}
+	if s := fp.sessione(); s.PostazioneID.Valid {
+		t.Fatalf("la rimozione non ha tolto niente: %v", s.PostazioneID)
+	}
+	fp.fai(http.MethodGet, "/inbox", nil, false)
+	if s := fp.sessione(); !s.PostazioneID.Valid || s.PostazioneID.UUID != b.pcFrancesco {
+		t.Errorf("dopo il «—» l'IP non ha più ridetto dov'è la sessione: %v", s.PostazioneID)
 	}
 }
 

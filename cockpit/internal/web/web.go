@@ -147,7 +147,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html", "vietato.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -209,15 +209,19 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
 	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
-	mux.HandleFunc("GET /admin/job", s.autenticato(s.adminJob))
-	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.autenticato(s.riaccodaJob))
-	mux.HandleFunc("POST /admin/job/{id}/annulla", s.autenticato(s.annullaJob))
-	mux.HandleFunc("GET /admin/postazioni", s.autenticato(s.adminPostazioni))
+	// Le schermate tecniche sono dell'amministratore (voce 6.9): `soloAdmin` è `autenticato` più il
+	// ruolo, e sta QUI e non dentro i gestori perché il posto in cui si montano le rotte è l'unico da
+	// cui si vede che nessuna è rimasta scoperta. Un gestore che si protegge da solo è un gestore che
+	// il prossimo verrà scritto senza.
+	mux.HandleFunc("GET /admin/job", s.soloAdmin(s.adminJob))
+	mux.HandleFunc("POST /admin/job/{id}/riaccoda", s.soloAdmin(s.riaccodaJob))
+	mux.HandleFunc("POST /admin/job/{id}/annulla", s.soloAdmin(s.annullaJob))
+	mux.HandleFunc("GET /admin/postazioni", s.soloAdmin(s.adminPostazioni))
 	// POST perché genera segreti e invalida i precedenti: un GET lo farebbe il primo che ricarica la
 	// pagina, e una precaricamento del browser basterebbe a spegnere un worker acceso.
-	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.autenticato(s.pacchettoWorker))
-	mux.HandleFunc("GET /admin/scarti", s.autenticato(s.adminScarti))
-	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.autenticato(s.riprovaScarto))
+	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.soloAdmin(s.pacchettoWorker))
+	mux.HandleFunc("GET /admin/scarti", s.soloAdmin(s.adminScarti))
+	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.soloAdmin(s.riprovaScarto))
 }
 
 // ---------------------------------------------------------------- rendering
@@ -227,6 +231,11 @@ type vista struct {
 	Titolo    string
 	Dati      any
 	Frammento bool
+	// Admin costruisce la barra di navigazione: le voci tecniche esistono solo per chi può aprirle.
+	// Lo decide `almeno`, la stessa funzione del wrapper delle rotte, perché una barra che si
+	// calcola da sola prima o poi mostra una voce che porta a un 403 (o peggio, la nasconde a chi
+	// invece potrebbe).
+	Admin bool
 	// Stato è la testata: postazione della sessione, stato per casella, worker di analisi (M2).
 	Stato *statoUI
 }
@@ -241,6 +250,7 @@ func (s *Server) statoWorker(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rendi(w http.ResponseWriter, r *http.Request, pagina, frammento string, titolo string, dati any) {
 	t := s.pagine[pagina]
 	v := vista{Utente: utenteDa(r.Context()), Titolo: titolo, Dati: dati, Frammento: r.Header.Get("HX-Request") == "true"}
+	v.Admin = almeno(v.Utente, db.RuoloUtenteAdmin)
 	if !v.Frammento && v.Utente != nil {
 		v.Stato = s.stato(r.Context(), sessioneDa(r.Context()))
 	}
@@ -300,10 +310,54 @@ func (s *Server) autenticato(h http.HandlerFunc) http.HandlerFunc {
 		_ = q.ToccaSessione(r.Context(), c.Value)
 		u := riga.Utente
 		sess := sessioneUI{Token: c.Value, Utente: &u, Postazione: riga.PostazioneID, NomeHost: riga.NomeHost.String, Origine: riga.PostazioneOrigine.String}
+		s.riabbinaPostazione(r, q, &sess)
 		ctx := context.WithValue(r.Context(), ctxUtente, &u)
 		ctx = context.WithValue(ctx, ctxSessione, sess)
+		// `consultazione` e' sola lettura, e lo e' QUI: una regola per metodo, in un punto solo,
+		// invece di un permesso da ricordarsi su ogni rotta che scrive — e le rotte che scrivono
+		// sono destinate a moltiplicarsi. Vale su tutto cio' che sta dietro all'autenticazione;
+		// `/logout` non ci sta, e chi consulta deve comunque poter uscire.
+		if metodoCheScrive(r.Method) && !almeno(&u, db.RuoloUtenteOperatore) {
+			s.nega(w, r.WithContext(ctx), "Il ruolo «consultazione» vede il Cockpit e non lo cambia.")
+			return
+		}
 		h(w, r.WithContext(ctx))
 	}
+}
+
+// riabbinaPostazione ripara il caso piu' normale che ci sia: il browser aperto PRIMA che il worker
+// di quel PC facesse il suo primo claim. Al login l'IP non corrispondeva a niente, la sessione e'
+// nata senza postazione, e senza questo l'operatore resterebbe «Sei su: —» per dodici ore — con le
+// azioni su Outlook spente — anche molto dopo che il worker si e' acceso. Uscire e rientrare
+// funzionerebbe, ma nessuno sa che e' quello il rimedio.
+//
+// Ripara SOLO una sessione senza origine, cioè una che non ha mai saputo dove si trova (compresa
+// quella a cui l'operatore ha rimesso il «—», che vuol dire «non lo so»). Una postazione SCELTA in
+// testata — origine «scelta» — non si tocca mai: quella è una decisione, e una schermata che disfa
+// al poll successivo la decisione appena presa è peggio di una che non aiuta.
+//
+// L'autorizzazione resta quella di P1: passa da `abbinaPostazione`, cioe' da `puoUsarePostazione`.
+// L'IP e' un indizio su QUALE postazione, mai un permesso ad usarla.
+func (s *Server) riabbinaPostazione(r *http.Request, q *db.Queries, sess *sessioneUI) {
+	if sess.Postazione.Valid || sess.Origine != "" {
+		return
+	}
+	ip, ok := s.indirizzoDi(r)
+	if !ok {
+		return
+	}
+	id, nome := s.abbinaPostazione(r.Context(), q, sess.Utente, ip)
+	if !id.Valid {
+		return
+	}
+	if err := q.SetSessionePostazione(r.Context(), db.SetSessionePostazioneParams{
+		Token: sess.Token, PostazioneID: id, PostazioneOrigine: pgtype.Text{String: "ip", Valid: true},
+	}); err != nil {
+		s.Log.Error("riabbinamento della sessione", "utente", sess.Utente.Sigla, "err", err)
+		return
+	}
+	sess.Postazione, sess.NomeHost, sess.Origine = id, nome, "ip"
+	s.Log.Info("sessione riabbinata alla postazione per IP", "utente", sess.Utente.Sigla, "postazione", nome, "ip", ip.String())
 }
 
 func (s *Server) aLogin(w http.ResponseWriter, r *http.Request) {
@@ -365,26 +419,85 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-// SeedUtenti crea/aggiorna gli utenti iniziali da cockpit.toml (password → bcrypt).
-func SeedUtenti(ctx context.Context, q *db.Queries, utenti []struct{ Sigla, Nome, Ufficio, Ruolo, Password string }) error {
+// SeedUtenti crea gli utenti di cockpit.toml e li tiene allineati al file — tranne la password
+// (voce 6.4).
+//
+// # La password nel file serve a NASCERE, non a essere riscritta ogni notte
+//
+// Prima, un `password` nel TOML veniva rihashata e riscritta a ogni avvio: il file era la verita', e
+// una password cambiata dall'utente sarebbe tornata indietro al riavvio successivo — cioe' il cambio
+// password non poteva esistere. Ora il TOML e' il BOOTSTRAP: fa esistere un utente che altrimenti
+// non potrebbe entrare la prima volta, e appena in database c'e' un hash valido e' quello a vincere.
+// Il cambio si fa dalla UI (voce 6.4, `/profilo/password`), che e' l'unico posto in cui la password
+// nuova la conosce solo chi la sta scegliendo.
+//
+// La regola vale anche al contrario, e non e' un dettaglio: scrivere una password nuova nel file NON
+// e' piu' il modo di reimpostarla. Chi ci prova non vedrebbe nessun errore — vedrebbe un login che
+// continua a rifiutarlo — quindi il seed lo scrive nel log, una riga per utente.
+//
+// # Un ruolo che non esiste ferma l'avvio
+//
+// Prima diventava `operatore` in silenzio. Una parola sbagliata (`amministratore`, `Admin` con uno
+// spazio) dava quindi un utente convinto di essere amministratore e che non lo era; e nell'altro
+// verso, un errore di battitura in un ruolo qualunque che nessuno notava. Un ruolo che non sappiamo
+// leggere e' una frase che non sappiamo eseguire: si dice, e non si parte.
+func SeedUtenti(ctx context.Context, q *db.Queries, utenti []struct{ Sigla, Nome, Ufficio, Ruolo, Password string }, log *slog.Logger) error {
+	righe, err := q.ListUtenti(ctx)
+	if err != nil {
+		return fmt.Errorf("utenti gia' in database: %w", err)
+	}
+	esistenti := map[string]db.Utente{}
+	for _, u := range righe {
+		esistenti[strings.ToUpper(u.Sigla)] = u
+	}
 	for _, u := range utenti {
+		sigla := strings.ToUpper(strings.TrimSpace(u.Sigla))
+		ruolo := db.RuoloUtente(strings.ToLower(strings.TrimSpace(u.Ruolo)))
+		if !ruolo.Valid() {
+			return fmt.Errorf("utente %s: ruolo %q non valido (ammessi: %s)", sigla, u.Ruolo, RuoliAmmessi())
+		}
+		// hash non valido = nessuna scrittura: la query fa COALESCE(EXCLUDED, esistente), quindi
+		// lasciarlo vuoto e' esattamente «non toccare la password che c'e' gia'».
 		var hash pgtype.Text
-		if u.Password != "" {
+		switch {
+		case passwordImpostata(esistenti[sigla]):
+			if u.Password != "" {
+				log.Info("la password e' gia' impostata in database: quella in cockpit.toml non la sostituisce (serve solo al primo avvio)", "utente", sigla)
+			}
+		case u.Password != "":
 			h, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
 			if err != nil {
-				return err
+				return fmt.Errorf("utente %s: %w", sigla, err)
 			}
 			hash = pgtype.Text{String: string(h), Valid: true}
+		default:
+			log.Warn("utente senza password: non potra' entrare finche' non gliene viene data una in cockpit.toml", "utente", sigla)
 		}
-		ruolo := db.RuoloUtente(u.Ruolo)
-		if !ruolo.Valid() {
-			ruolo = db.RuoloUtenteOperatore
-		}
-		if _, err := q.UpsertUtente(ctx, db.UpsertUtenteParams{Sigla: strings.ToUpper(u.Sigla), Nome: u.Nome, Ufficio: u.Ufficio, Ruolo: ruolo, PasswordHash: hash}); err != nil {
-			return fmt.Errorf("utente %s: %w", u.Sigla, err)
+		if _, err := q.UpsertUtente(ctx, db.UpsertUtenteParams{Sigla: sigla, Nome: u.Nome, Ufficio: u.Ufficio, Ruolo: ruolo, PasswordHash: hash}); err != nil {
+			return fmt.Errorf("utente %s: %w", sigla, err)
 		}
 	}
 	return nil
+}
+
+// RuoliAmmessi e' l'elenco per i messaggi d'errore, preso dall'enum dello schema: se un domani i
+// ruoli diventano cinque, il messaggio lo dice da solo.
+func RuoliAmmessi() string {
+	nomi := make([]string, 0, len(db.AllRuoloUtenteValues()))
+	for _, r := range db.AllRuoloUtenteValues() {
+		nomi = append(nomi, string(r))
+	}
+	return strings.Join(nomi, ", ")
+}
+
+// passwordImpostata: in database c'e' un hash bcrypt leggibile. Una colonna vuota, o piena di
+// qualcosa che bcrypt non riconosce, non e' una password da proteggere: e' un utente che non entra.
+func passwordImpostata(u db.Utente) bool {
+	if !u.PasswordHash.Valid {
+		return false
+	}
+	_, err := bcrypt.Cost([]byte(u.PasswordHash.String))
+	return err == nil
 }
 
 // ---------------------------------------------------------------- inbox (schermata A, versione minima)

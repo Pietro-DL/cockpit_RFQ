@@ -63,3 +63,24 @@ SELECT a.allegato_id, a.nome_file, a.stato, a.bytes, left(coalesce(a.sha256, '')
 FROM allegato a
 ORDER BY a.ricevuto_il DESC
 LIMIT 15;
+
+\echo '== 7. TZ2: l ora che Outlook mostra accanto a quella in database =============='
+-- Si apre Outlook, si guarda la colonna «Ricevuto» della stessa riga (stesso oggetto, stesso
+-- mittente) e la si confronta con `ricevuto_locale`. Devono coincidere al minuto: è l'ultima riga
+-- che manca per dire che la correzione del fuso del 16/09 vale anche su Outlook vero, e non solo su
+-- una data costruita a mano in un test.
+--
+-- In database `ricevuto_il` è un timestamptz, cioè un ISTANTE, e psql lo mostra nel fuso della
+-- sessione: `AT TIME ZONE` lo riporta all'orologio di chi sta guardando Outlook, che è il confronto
+-- che conta. `nel_futuro` è il sintomo di quel difetto (due ore avanti): se compare un SI, l'ora non
+-- è plausibile e l'ingest ha fermato l'elemento invece di farlo entrare.
+SELECT c.nome AS casella, left(coalesce(m.oggetto, ''), 45) AS oggetto,
+       coalesce(m.mittente_indirizzo, '') AS mittente,
+       (mc.ricevuto_il AT TIME ZONE 'Europe/Rome')::timestamp(0) AS ricevuto_locale,
+       (now() AT TIME ZONE 'Europe/Rome')::timestamp(0) AS adesso_locale,
+       CASE WHEN mc.ricevuto_il > now() + interval '5 minutes' THEN 'SI' ELSE '' END AS nel_futuro
+FROM messaggio_casella mc
+JOIN messaggio m USING (messaggio_id)
+JOIN casella c USING (casella_id)
+ORDER BY mc.ricevuto_il DESC
+LIMIT 15;

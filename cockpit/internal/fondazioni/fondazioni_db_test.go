@@ -50,7 +50,7 @@ func seminaUtenti(t *testing.T, ctx context.Context, q *db.Queries, cfg *config.
 	for _, u := range cfg.Utenti {
 		utenti = append(utenti, struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{u.Sigla, u.Nome, u.Ufficio, u.Ruolo, u.Password})
 	}
-	if err := web.SeedUtenti(ctx, q, utenti); err != nil {
+	if err := web.SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}
 }

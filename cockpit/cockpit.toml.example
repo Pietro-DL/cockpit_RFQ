@@ -7,8 +7,9 @@
 # ============================================================================
 #
 #  1. [db].dsn, [nas].radice e [nas].staging: cartelle che esistono, database che risponde.
-#  2. [[utenti]]: almeno un `ruolo = "admin"`, perché il pacchetto dei worker lo genera solo un
-#     amministratore.
+#  2. [[utenti]]: chi entra e con quale `ruolo` (operatore | admin | tecnico | consultazione).
+#     Almeno uno deve essere `admin`: il pacchetto dei worker, la coda dei job e gli scarti sono
+#     schermate sue, e un operatore che ci prova riceve 403. `password` serve solo al primo avvio.
 #  3. [[casella]], [[postazione]], [[worker]]: chi c'è e chi serve che cosa. È QUI che si dichiarano
 #     le autorizzazioni, non in una schermata: questo file è versionato e uguale a ogni avvio.
 #  4. Nei [[worker]] lasciare `token = ""`. Vuol dire «il segreto lo tiene il database», ed è la via
@@ -113,10 +114,45 @@ versione = 1
 # l'analisi. Il worker li riceve e li rimanda indietro; usarli davvero è lavoro della fase 5.
 termini_cartiglio = ["scala", "materiale", "tolleranze", "trattamento"]
 
+# ---------------------------------------------------------------------------
+# UTENTI (voce 6.9): chi entra e che cosa può fare.
+#
+# Le autorizzazioni dipendono da `ruolo`, e SOLO da quello. `ufficio` è organigramma: non dà e non
+# toglie niente. La `sigla` nemmeno — un permesso legato alla sigla è un permesso che si eredita
+# insieme alla scrivania.
+#
+#   operatore      l'interfaccia di lavoro: Inbox, Cruscotto, messaggi e thread, triage, RFQ,
+#                  allegati, «Aggiorna ora». È il ruolo di chi usa il Cockpit tutto il giorno.
+#   admin          tutto quello dell'operatore PIÙ le schermate tecniche: Coda job, Scarti e
+#                  Postazioni — quindi anche la generazione del pacchetto dei worker.
+#   tecnico        oggi può esattamente quello che può l'operatore. Esiste da adesso perché le
+#                  azioni della fattibilità e dell'albero, quando arriveranno, saranno sue: senza,
+#                  fra un mese l'ufficio tecnico entrerebbe come «operatore» e poi andrebbe cambiato.
+#   consultazione  sola lettura: vede ciò che il suo ruolo vede, e non preme nessun pulsante.
+#
+# Un ruolo scritto male NON diventa più `operatore` in silenzio: il server non parte, e dice quale
+# utente e quali parole sono ammesse.
+#
+# SERVE ALMENO UN `admin`, perché il pacchetto dei worker (passo 5 qui sopra) lo genera solo lui.
+# Senza nessuno che possa aprire Postazioni non si aggiunge più un PC — e se l'unico amministratore
+# viene declassato a operatore, quella porta si chiude mentre tutto il resto continua a funzionare.
+#
+# `password` serve SOLO a far nascere l'utente. Appena in database c'è un hash valido il file non lo
+# sostituisce più: riavviare con una password diversa scritta qui non la cambia, e il server lo
+# scrive nel log invece di lasciare qualcuno a chiedersi perché non entra. Il cambio password si farà
+# dalla schermata del profilo (voce 6.4). Una volta che l'utente esiste, questa riga si può togliere.
+
+[[utenti]]
+sigla = "FP"
+nome = "Nome Cognome"
+ufficio = "Commerciale"
+ruolo = "operatore"
+password = "INSERISCI_PASSWORD_INIZIALE"
+
 [[utenti]]
 sigla = "PS"
-nome = "Pietro Spinozzi"
-ufficio = "Sviluppo"
+nome = "Nome Cognome"
+ufficio = "IT"
 ruolo = "admin"
 password = "INSERISCI_PASSWORD_INIZIALE"
 

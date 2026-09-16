@@ -91,7 +91,7 @@ func run(cfgPath string, soloMigrazioni bool) error {
 	for _, u := range cfg.Utenti {
 		utenti = append(utenti, struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{u.Sigla, u.Nome, u.Ufficio, u.Ruolo, u.Password})
 	}
-	if err := web.SeedUtenti(ctx, q, utenti); err != nil {
+	if err := web.SeedUtenti(ctx, q, utenti, log); err != nil {
 		return err
 	}
 	semi, err := fondazioni.Semina(ctx, q, cfg, log)

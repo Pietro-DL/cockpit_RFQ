@@ -13,9 +13,11 @@
   <nav>
     <a href="/inbox" {{if eq .Titolo "Inbox"}}class="attivo"{{end}}>Inbox</a>
     <a href="/cruscotto" {{if eq .Titolo "Cruscotto"}}class="attivo"{{end}}>Cruscotto</a>
-    <a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
+    {{/* Le schermate tecniche compaiono solo a chi puo' aprirle (voce 6.9). La barra NON e' il
+         controllo: quello e' `soloAdmin` sulle rotte. Qui si evita di offrire una porta chiusa. */}}
+    {{if .Admin}}<a href="/admin/job" {{if eq .Titolo "Coda job"}}class="attivo"{{end}}>Coda job</a>
     <a href="/admin/scarti" {{if eq .Titolo "Scarti"}}class="attivo"{{end}}>Scarti</a>
-    <a href="/admin/postazioni" {{if eq .Titolo "Postazioni"}}class="attivo"{{end}}>Postazioni</a>
+    <a href="/admin/postazioni" {{if eq .Titolo "Postazioni"}}class="attivo"{{end}}>Postazioni</a>{{end}}
   </nav>
   <span class="spazio"></span>
   {{if .Utente}}{{template "stato_worker" .}}

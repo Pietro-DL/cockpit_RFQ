@@ -162,15 +162,37 @@ insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo
 RFQ fa partire una sola analisi. Cambiare un termine qui fa rianalizzare tutto senza toccare il
 codice — ed è il motivo per cui i termini stanno qui e non dentro il worker.
 
-**`[[utenti]]`** — almeno uno, con `ruolo = "admin"`. `password` serve solo al primo seed: nel
-database va l'hash bcrypt, e chi ha già una password non se la vede sovrascritta.
+**`[[utenti]]`** — chi entra e che cosa può fare. Le autorizzazioni dipendono da **`ruolo`** e solo
+da quello: `ufficio` è organigramma, la `sigla` è il nome utente del login.
+
+| ruolo | che cosa apre |
+|---|---|
+| `operatore` | l'interfaccia di lavoro: Inbox, Cruscotto, messaggi e thread, triage, RFQ, allegati, «Aggiorna ora» |
+| `admin` | tutto quello dell'operatore **più** le schermate tecniche: *Coda job*, *Scarti*, *Postazioni* (e quindi il pacchetto dei worker) |
+| `tecnico` | oggi quanto l'operatore; esiste da adesso perché le azioni della fattibilità e dell'albero saranno sue |
+| `consultazione` | sola lettura: nessun POST, in nessuna schermata |
+
+**Almeno uno deve essere `admin`**: il pacchetto dei worker lo genera solo lui, e senza nessuno che
+possa aprire *Postazioni* non si aggiunge più un PC. Un ruolo scritto male non diventa `operatore` in
+silenzio: il server non parte e dice quale utente e quali parole sono ammesse.
+
+`password` serve solo a far **nascere** l'utente. Appena in database c'è un hash bcrypt valido, il
+file non lo sostituisce più — nemmeno riavviando con una password diversa scritta qui, e il server
+lo scrive nel log invece di lasciare qualcuno a chiedersi perché non entra.
 
 ```toml
 [[utenti]]
 sigla = "NC"          # è il nome utente del login
 nome = "Nome Cognome"
 ufficio = "Commerciale"
-ruolo = "admin"       # admin | operatore | tecnico | consultazione
+ruolo = "operatore"   # admin | operatore | tecnico | consultazione
+password = "password-iniziale"
+
+[[utenti]]
+sigla = "AM"
+nome = "Nome Cognome"
+ufficio = "IT"
+ruolo = "admin"
 password = "password-iniziale"
 ```
 
@@ -582,6 +604,10 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | il server non parte: «ascolta fuori da questo PC e tls_cert non c'è» | si sta esponendo il Cockpit in chiaro sulla LAN (voce 2.4) | indicare `tls_cert`/`tls_key` (se i file non esistono li genera lui), o dichiarare `consenti_lan_in_chiaro = true` se il collegamento è già cifrato |
 | il browser dice «connessione non privata» | il certificato è autofirmato e il PC non lo conosce | accettare l'eccezione, o installare `cert.pem` fra i certificati attendibili. I worker non passano di qui: verificano l'impronta |
 | il worker logga `403` | il suo nome non è in `[[worker]]`, o gira su un PC diverso dalla sua `postazione` | correggere `cockpit.toml` o `worker_id` in `worker.toml` |
+| in testata mancano *Coda job*, *Scarti*, *Postazioni* | sono schermate dell'amministratore: quell'utente è `operatore` (voce 6.9) | entrare con un utente `admin`; il ruolo si cambia in `[[utenti]]` e vale dal riavvio successivo |
+| una schermata `/admin/...` risponde **403 Non autorizzato** | stessa cosa scritta a mano nella barra degli indirizzi: nascondere la voce non era il controllo, il controllo è sulla rotta | come sopra. Se è sparito l'ultimo `admin`, rimetterne uno in `[[utenti]]` e riavviare |
+| un utente non può premere nessun pulsante | ha `ruolo = "consultazione"`, che è sola lettura | cambiare ruolo in `[[utenti]]` |
+| una password cambiata in `cockpit.toml` non ha effetto | è voluto: il file fa nascere l'utente, poi il segreto è in database (il log lo dice a ogni avvio) | finché non c'è la schermata del profilo (voce 6.4), azzerare a mano `utente.password_hash` e riavviare |
 | una casella in testata è **OFFLINE** | il worker che la serve non fa claim da oltre un minuto | il worker di quel PC è fermo: vedere il suo log |
 | una casella in testata è **non risolta** | il worker è attivo ma non trova la casella nel profilo Outlook del suo PC (o Outlook non risponde) | aggiungere la casella al profilo, o aprire Outlook; `python worker_outlook.py --caselle` dice che cosa vede |
 | una casella in testata è **non configurata** | nessun `[[worker]]` la elenca fra le proprie `caselle` | aggiungerla al worker della postazione che deve servirla |

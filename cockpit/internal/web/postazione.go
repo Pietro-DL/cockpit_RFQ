@@ -120,6 +120,10 @@ func (s *Server) scegliPostazione(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	grezzo := strings.TrimSpace(r.FormValue("postazione_id"))
 	if grezzo == "" {
+		// Il «—» della testata vuol dire «non lo so», non «non voglio»: torna allo stato di una
+		// sessione appena nata, e se più tardi l'IP dirà con certezza qual è il PC, il
+		// riabbinamento se lo riprenderà. Il modo di lavorare da un'altra parte è SCEGLIERE
+		// quell'altra postazione: quella è una decisione, e nessuno la sovrascrive.
 		if err := q.SetSessionePostazione(r.Context(), db.SetSessionePostazioneParams{Token: sess.Token}); err != nil {
 			http.Error(w, err.Error(), 500)
 			return

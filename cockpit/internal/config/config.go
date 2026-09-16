@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"promatec/cockpit/internal/db"
 )
 
 type Config struct {
@@ -265,10 +267,55 @@ func Carica(percorso string) (*Config, error) {
 	if err := os.MkdirAll(c.NAS.Staging, 0o755); err != nil {
 		return nil, fmt.Errorf("staging %s: %w", c.NAS.Staging, err)
 	}
+	if err := c.normalizzaUtenti(); err != nil {
+		return nil, err
+	}
 	if err := c.normalizzaFondazioni(); err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+// normalizzaUtenti valida [[utenti]] (voce 6.9). Un ruolo che non esiste ferma l'avvio.
+//
+// Prima diventava `operatore` in silenzio, e questo è il modo peggiore di sbagliare: chi scrive
+// `amministratore` invece di `admin` ottiene un utente che crede di amministrare il Cockpit e non
+// può aprire nessuna schermata tecnica, senza una riga da nessuna parte che gli dica perché. I
+// ruoli ammessi sono quelli dell'enum dello schema, non un elenco copiato qui: sono quattro dalla
+// migrazione 0001.
+//
+// `ufficio` resta informativo: è l'organigramma, non un permesso. Le autorizzazioni dipendono dal
+// ruolo, mai dalla sigla e mai dall'ufficio.
+func (c *Config) normalizzaUtenti() error {
+	viste := map[string]bool{}
+	for i := range c.Utenti {
+		u := &c.Utenti[i]
+		u.Sigla = strings.ToUpper(strings.TrimSpace(u.Sigla))
+		u.Ruolo = strings.ToLower(strings.TrimSpace(u.Ruolo))
+		if u.Sigla == "" {
+			return fmt.Errorf("config: [[utenti]] #%d senza sigla", i+1)
+		}
+		if viste[u.Sigla] {
+			return fmt.Errorf("config: utente %q dichiarato due volte", u.Sigla)
+		}
+		viste[u.Sigla] = true
+		if u.Ruolo == "" {
+			return fmt.Errorf("config: utente %s senza ruolo (ammessi: %s)", u.Sigla, RuoliAmmessi())
+		}
+		if !db.RuoloUtente(u.Ruolo).Valid() {
+			return fmt.Errorf("config: utente %s: ruolo %q non valido (ammessi: %s)", u.Sigla, u.Ruolo, RuoliAmmessi())
+		}
+	}
+	return nil
+}
+
+// RuoliAmmessi elenca i ruoli dell'enum, per i messaggi d'errore.
+func RuoliAmmessi() string {
+	nomi := make([]string, 0, len(db.AllRuoloUtenteValues()))
+	for _, r := range db.AllRuoloUtenteValues() {
+		nomi = append(nomi, string(r))
+	}
+	return strings.Join(nomi, ", ")
 }
 
 // normalizzaModalita valida [server].modalita e ne applica le conseguenze (§2.7, voce 9.5).
