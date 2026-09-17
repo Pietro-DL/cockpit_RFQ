@@ -40,7 +40,7 @@ func WorkerPer(t db.TipoJob) db.WorkerTipo {
 // LeaseSecondi per tipo: i job brevi hanno lease corto, sync e copie NAS più lungo.
 func LeaseSecondi(t db.TipoJob) int {
 	switch t {
-	case db.TipoJobSyncOutlook, db.TipoJobCopiaNas, db.TipoJobBackupDb:
+	case db.TipoJobSyncOutlook, db.TipoJobCopiaNas, db.TipoJobBackupDb, db.TipoJobEstraiArchivio:
 		return 300
 	default:
 		return 120

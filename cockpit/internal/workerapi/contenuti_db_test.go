@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,13 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 	stato(t, b.put(tZip, zipAllegato.AllegatoID, bytes.NewReader(archivio), int64(len(archivio))), 204)
 	stato(t, b.result(tZip, api.RisultatoStage{AllegatoID: zipAllegato.AllegatoID, Sha256: sha, Bytes: int64(len(archivio))}), 204)
 
+	// Il result NON ha estratto niente: ha accodato. Dal blocco 4A scompattare un archivio non si fa
+	// dentro la richiesta HTTP con cui il worker consegna il download, perche' il worker aspetta.
+	if len(b.figliDi(zipAllegato.AllegatoID)) != 0 {
+		t.Error("il result ha estratto l'archivio dentro la richiesta HTTP")
+	}
+	b.eseguiEstrazione(zipAllegato.AllegatoID)
+
 	figli := b.figliDi(zipAllegato.AllegatoID)
 	if len(figli) != 2 {
 		t.Fatalf("voci dello zip registrate: %d, attese 2", len(figli))
@@ -198,6 +206,30 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 			nomi = append(nomi, r.Name())
 		}
 		t.Errorf("dopo l'estrazione sono rimasti dei temporanei: %v", nomi)
+	}
+}
+
+// eseguiEstrazione fa quello che fa l'esecutore interno del server: prende il job `estrai_archivio`
+// che il result ha lasciato in coda e lo esegue. Il claim e' quello vero — `worker_tipo = 'server'` —
+// cosi' il test si accorge anche se il job venisse accodato per un worker che non esiste.
+func (b *banco) eseguiEstrazione(atteso uuid.UUID) {
+	b.t.Helper()
+	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoServer, "server", jobs.Destinazione{}, 0)
+	if err != nil || j == nil {
+		b.t.Fatalf("nessun job in coda per l'esecutore interno: job=%v err=%v", j, err)
+	}
+	if j.Tipo != db.TipoJobEstraiArchivio {
+		b.t.Fatalf("il job in coda e' %s, atteso %s", j.Tipo, db.TipoJobEstraiArchivio)
+	}
+	var p api.PayloadEstraiArchivio
+	if err := json.Unmarshal(j.Payload, &p); err != nil {
+		b.t.Fatal(err)
+	}
+	if p.AllegatoID != atteso {
+		b.t.Fatalf("il job estrae l'allegato %s invece di %s", p.AllegatoID, atteso)
+	}
+	if _, err := b.s.EstraiArchivio(b.ctx, p.AllegatoID, j.LeaseToken.UUID); err != nil {
+		b.t.Fatalf("estrazione: %v", err)
 	}
 }
 

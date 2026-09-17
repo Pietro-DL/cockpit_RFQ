@@ -2263,6 +2263,7 @@ const (
 	TipoJobBackupDb            TipoJob = "backup_db"
 	TipoJobRileggiElemento     TipoJob = "rileggi_elemento"
 	TipoJobAnalizzaMessaggioAi TipoJob = "analizza_messaggio_ai"
+	TipoJobEstraiArchivio      TipoJob = "estrai_archivio"
 )
 
 func (e *TipoJob) Scan(src interface{}) error {
@@ -2313,7 +2314,8 @@ func (e TipoJob) Valid() bool {
 		TipoJobSegnaLetto,
 		TipoJobBackupDb,
 		TipoJobRileggiElemento,
-		TipoJobAnalizzaMessaggioAi:
+		TipoJobAnalizzaMessaggioAi,
+		TipoJobEstraiArchivio:
 		return true
 	}
 	return false
@@ -2333,6 +2335,7 @@ func AllTipoJobValues() []TipoJob {
 		TipoJobBackupDb,
 		TipoJobRileggiElemento,
 		TipoJobAnalizzaMessaggioAi,
+		TipoJobEstraiArchivio,
 	}
 }
 

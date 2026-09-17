@@ -25,11 +25,29 @@ func ScrivePerNas(t db.TipoJob) bool {
 	return t == db.TipoJobCopiaNas || t == db.TipoJobCreaCartellaThread
 }
 
-// EsecutoreServer prende i job con worker_tipo='server' (scrittura NAS) e li esegue in una goroutine.
+// Estrattore sa scompattare un archivio gia' in staging e registrarne le voci.
+//
+// E' un'interfaccia dichiarata QUI, e implementata altrove, per un motivo di dipendenze: il resto
+// della pipeline dopo lo staging — proposte, rumore, analisi — vive nel pacchetto che riceve i
+// risultati dei worker, e quel pacchetto importa gia' questo. Spostare tutto qui per far girare
+// l'estrazione nell'esecutore sarebbe un trasloco molto piu' grande della correzione.
+//
+// `token` e' il lease del tentativo: la cartella temporanea in cui l'archivio si scompatta porta quel
+// token nel nome, cosi' e' roba di QUESTO tentativo e la pulizia sa di chi era se il tentativo non
+// arriva in fondo.
+type Estrattore interface {
+	EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token uuid.UUID) (int, error)
+}
+
+// EsecutoreServer prende i job con worker_tipo='server' (scrittura NAS, estrazione degli archivi) e
+// li esegue in una goroutine.
 type EsecutoreServer struct {
 	Pool *pgxpool.Pool
 	NAS  *nas.Scrittore
 	Log  *slog.Logger
+	// Archivi esegue i job `estrai_archivio`. Nil = quei job falliscono dicendolo, invece di restare
+	// in coda a tempo indeterminato mentre gli operatori aspettano le voci di uno zip.
+	Archivi Estrattore
 	// Agente esegue l'analisi semantica (checkpoint 3R §9). Nil o spento = i job di quel tipo
 	// falliscono dicendo che l'analisi non e' attiva, invece di restare in coda a tempo indeterminato.
 	Agente *agente.Servizio
@@ -63,7 +81,7 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 			if e.rinviaSeNasAssente(ctx, q, t, j) {
 				continue
 			}
-			res, err := e.esegui(ctx, q, j)
+			res, err := e.esegui(ctx, q, j, t)
 			if err != nil {
 				e.Log.Error("job server fallito", "job", j.JobID, "tipo", j.Tipo, "err", err)
 				if _, err := Fallisci(ctx, q, t, err.Error(), errors.Is(err, nas.ErrConflitto)); err != nil {
@@ -150,8 +168,22 @@ func (e *EsecutoreServer) RiaccodaAlRitornoDelNas(ctx context.Context, q *db.Que
 	return len(ids)
 }
 
-func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job) (any, error) {
+func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, t Tentativo) (any, error) {
 	switch j.Tipo {
+	case db.TipoJobEstraiArchivio:
+		var p api.PayloadEstraiArchivio
+		if err := json.Unmarshal(j.Payload, &p); err != nil {
+			return nil, err
+		}
+		if e.Archivi == nil {
+			return nil, errors.New("estrazione degli archivi non configurata su questo server")
+		}
+		voci, err := e.Archivi.EstraiArchivio(ctx, p.AllegatoID, t.LeaseToken)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"allegato_id": p.AllegatoID, "voci": voci}, nil
+
 	case db.TipoJobAnalizzaMessaggioAi:
 		var p api.PayloadAnalizzaMessaggioAI
 		if err := json.Unmarshal(j.Payload, &p); err != nil {

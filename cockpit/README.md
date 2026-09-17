@@ -737,8 +737,9 @@ internal/fondazioni        seed non distruttivo di caselle, postazioni e credenz
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
-internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
-internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
+internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
+internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
+                           estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti) e la sua pulizia;
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
@@ -747,7 +748,8 @@ internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/wo
                            (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
                            il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
                            `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
-                           il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
+                           il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
+                           analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
                            inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
@@ -760,7 +762,8 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
                            0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
-                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione)
+                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
+                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

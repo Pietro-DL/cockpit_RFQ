@@ -367,6 +367,16 @@ type RisultatoStage struct {
 	RisultatoElemento
 }
 
+// PayloadEstraiArchivio: scompatta un archivio gia' in staging (blocco 4A).
+//
+// Non viaggia verso nessun worker esterno: lo esegue l'esecutore interno del server, che sta accanto
+// al disco. Porta il solo identificativo dell'allegato perche' tutto il resto — dove sta il file, di
+// che messaggio e', a quale richiesta appartiene — e' in database e puo' essere cambiato fra
+// l'accodamento e l'esecuzione.
+type PayloadEstraiArchivio struct {
+	AllegatoID uuid.UUID `json:"allegato_id"`
+}
+
 type PayloadCreaBozza struct {
 	BozzaID     uuid.UUID      `json:"bozza_id"`
 	Tipo        string         `json:"tipo"` // risposta | rispondi_tutti | inoltro | nuovo | sollecito

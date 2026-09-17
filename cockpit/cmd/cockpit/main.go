@@ -224,7 +224,7 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	if servizioAgente.Attivo && servizioAgente.Modello != nil {
 		log.Info("analisi semantica attiva", "modello", servizioAgente.Modello.Nome(), "caselle", len(servizioAgente.Caselle))
 	}
-	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}).Avvia(ctx)
+	esecutore := &jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
 
 	// ---------------------------------------------------------------- rete (voce 2.4)
 	//
@@ -280,6 +280,11 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
 	}
+	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
+	// quel qualcuno e' la stessa parte che riceve i risultati dei worker: dal blocco 4A l'estrazione
+	// di uno zip e' un job, non un pezzo della richiesta HTTP con cui il download viene consegnato.
+	esecutore.Archivi = wa
+	esecutore.Avvia(ctx)
 
 	mux := http.NewServeMux()
 	ws.Registra(mux)
