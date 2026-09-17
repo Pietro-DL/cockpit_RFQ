@@ -28,6 +28,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/nas"
 )
 
 // documentoConContenuto prepara una RFQ con un allegato in staging e il documento confermato che lo
@@ -162,5 +165,40 @@ func TestSenzaNessunAllegatoLErroreNonParlaDiRiscarica(t *testing.T) {
 	}
 	if errors.Is(err, ErrContenutoMancante) {
 		t.Errorf("si consiglia «Riscarica» su un allegato che non esiste: %v", err)
+	}
+}
+
+// Il motivo deve finire NEL FASCICOLO, non solo nel log del server.
+//
+// Nella prova reale la frase giusta — quale contenuto manca e che si riprende con «Riscarica» — e'
+// finita nel log, mentre nella riga del documento restava l'errore del filesystem di ore prima. Chi
+// aspetta quel disegno guarda la RFQ, non il log: delle due versioni, l'unica visibile era quella che
+// non diceva niente.
+func TestIlMotivoFinisceSulDocumentoNonSoloNelLog(t *testing.T) {
+	p, q, ctx := preparaDB(t)
+	doc, percorso := documentoConContenuto(t, ctx, p, strings.Repeat("f", 64))
+	if err := os.Remove(percorso); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
+	j := db.Job{Tipo: db.TipoJobCopiaNas, Payload: []byte(`{"documento_id":"` + doc.String() + `"}`)}
+	if _, err := e.esegui(ctx, q, &j, Tentativo{}); err == nil {
+		t.Fatal("la copia di un contenuto sparito e' andata a buon fine")
+	}
+
+	var motivo, stato string
+	if err := p.QueryRow(ctx, `SELECT coalesce(errore_nas,''), stato_nas::text FROM documento WHERE documento_id = $1`,
+		doc).Scan(&motivo, &stato); err != nil {
+		t.Fatal(err)
+	}
+	if motivo == "" {
+		t.Fatal("il documento non porta nessun motivo: chi guarda la RFQ vede «errore» e basta")
+	}
+	if !strings.Contains(motivo, "Riscarica") {
+		t.Errorf("il motivo sul documento non dice come si riprende: %q", motivo)
+	}
+	if stato != "errore" {
+		t.Errorf("stato_nas = %q, atteso errore", stato)
 	}
 }

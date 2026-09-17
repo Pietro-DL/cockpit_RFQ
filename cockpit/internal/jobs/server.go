@@ -251,6 +251,13 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		}
 		src, err := e.sorgenteStaging(ctx, q, d)
 		if err != nil {
+			// Il motivo va SCRITTO SUL DOCUMENTO, non solo nel log: il log lo legge chi sta
+			// diagnosticando, il fascicolo lo guarda chi aspetta quel disegno. Nella prova reale la
+			// frase giusta — quale contenuto manca e che si riprende con «Riscarica» — e' finita nel
+			// log del server mentre nella riga del documento restava l'errore del filesystem di ore
+			// prima: due versioni della stessa cosa, e quella sbagliata era l'unica visibile.
+			_ = q.SetDocumentoErrore(ctx, db.SetDocumentoErroreParams{
+				DocumentoID: d.DocumentoID, ErroreNas: pgtype.Text{String: err.Error(), Valid: true}})
 			return nil, err
 		}
 		dst, err := e.NAS.Copia(src, t.CartellaRelativa.String, d.PathRelativo, d.Sha256)
