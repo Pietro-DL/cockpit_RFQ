@@ -625,6 +625,52 @@ l'uno né l'altro è stato eseguito: sono prove reali, e finché non si fanno re
 
 ---
 
+### Il taglio della catena di risposta
+
+Una mail alla quarta risposta contiene quattro messaggi, e tre sono già stati letti da qualcuno.
+L'interpretazione deterministica però li leggeva tutti insieme: da lì arrivano quasi tutti i falsi
+multi-codice — «questa richiesta parla di sei codici» quando ne nomina uno e cita gli altri cinque
+dalla conversazione di settembre.
+
+**Il corpo originale non viene mai modificato.** Resta intero in `messaggio.corpo_testo`, nella
+schermata e in Outlook. Quello che cambia è quale pezzo viene dato in pasto all'interpretazione:
+`domain.TagliaCatena` divide il corpo in *quello che è stato scritto adesso* e *la storia citata*, e
+`CorpoUtilePerInterpretazione` restituisce il primo.
+
+Il taglio scatta solo su qualcosa di non ambiguo:
+
+| Forma | Esempio |
+|---|---|
+| separatore esplicito | `-----Messaggio originale-----`, `-----Original Message-----`, `---------- Forwarded message ----------` |
+| apertura di citazione | `Il giorno … ha scritto:`, `On … wrote:`, `Am … schrieb:` — prefisso **e** chiusura |
+| blocco di intestazione | **due** intestazioni di ruolo diverso di seguito (`Da:`/`Inviato:`/`A:`/`Oggetto:`) che portano un indirizzo, una data o l'oggetto |
+| testo marcato | due righe consecutive che cominciano con `>` |
+
+Una riga `Da:` **da sola non taglia niente**, e nemmeno due che non portano né indirizzo né data né
+oggetto: `Da: tornitura` / `A: rettifica` è un ciclo di lavorazione, non un'intestazione citata. È la
+differenza fra togliere il rumore e far sparire in silenzio il messaggio di chi scrive così.
+
+Dove finiscono i due pezzi:
+
+- il corpo utile va nell'estrazione con l'etichetta `corpo`, e i suoi codici sono **proponibili**;
+- la storia citata va nell'estrazione con l'etichetta `storia citata`: i suoi codici si **vedono**
+  fra gli altri numeri trovati, e per entrare nella RFQ serve un clic. Non si buttano, perché sono
+  l'evidenza migliore per agganciare una risposta alla richiesta giusta;
+- il triage non conta né le parole (`richiesta d'offerta`) né il riferimento che stanno **solo** nella
+  storia: ci sono in ogni catena, e conterebbero trentacinque punti di «sembra una richiesta nuova» a
+  ogni «ricevuto, grazie»;
+- **non si applica ai nomi degli allegati**: lì non c'è nessuna catena di risposta.
+
+Un inoltro senza commento — «ti giro questa» e sotto la richiesta del cliente — diventerebbe un
+messaggio vuoto: in quel caso si tiene il corpo intero. Meglio un codice di troppo, che si vede e si
+toglie, che una richiesta che non arriva sul tavolo di nessuno.
+
+> Le prove del repository usano un corpus **sintetico** con le forme vere. La verifica sul corpus
+> reale — che sta fuori dal repository — è la condizione **A** del gate dell'agente AI, e resta
+> aperta.
+
+---
+
 ### Integrità NAS (Admin)
 
 `stato_nas = 'scritto'` è una promessa fatta **una volta sola**, nel momento in cui la copia è
@@ -806,7 +852,8 @@ internal/db                sqlc: queries/*.sql → codice generato (non modifica
 internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
+internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
+                           taglio della catena di risposta (catena.go)
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
