@@ -96,7 +96,7 @@ func datiIntegritaSintetici() *integritaDati {
 	}
 	ora := time.Now()
 	return &integritaDati{
-		Radice: `\\nas01\PROVA`, Raggiungibile: true, Scrittura: true, Automatico: 15 * time.Minute,
+		Radice: `\\server\PROVA`, Raggiungibile: true, Scrittura: true, Automatico: 15 * time.Minute,
 		Documenti: 9, Verificati: 9, UltimoControllo: &ora,
 		Conta: []db.ContaAnomalieNasRow{{Problema: db.ProblemaNasMancante, N: 1}, {Problema: db.ProblemaNasConflitto, N: 1}},
 		Righe: []rigaIntegrita{

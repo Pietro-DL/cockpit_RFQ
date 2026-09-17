@@ -40,7 +40,7 @@ func TestUnaRispostaItalianaSiFermaAllIntestazione(t *testing.T) {
 ________________________________
 Da: Mario Rossi <mario.rossi@acme.example>
 Inviato: giovedì 17 settembre 2026 09:12
-A: Francesco Petaseccadonati
+A: Ufficio Tecnico
 Oggetto: RICHIESTA D'OFFERTA 7781234
 
 Buongiorno, allego il disegno 7781234 per quotazione.`
