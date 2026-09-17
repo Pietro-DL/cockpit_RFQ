@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -267,16 +268,42 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 	return nil, fmt.Errorf("tipo job non gestito dal server: %s", j.Tipo)
 }
 
-// sorgenteStaging trova un allegato del thread con lo stesso hash del documento e un path_staging valido.
+// ErrContenutoMancante: il documento e' confermato, il suo contenuto non e' piu' nello staging.
+//
+// Non e' un guasto del NAS e non si risolve riprovando: il file da copiare non c'e'. Si riprende da
+// Outlook, che e' dove sta l'originale.
+var ErrContenutoMancante = errors.New("contenuto non piu' in staging")
+
+// sorgenteStaging trova il file da copiare: un allegato del thread con lo stesso hash del documento.
+//
+// Il file viene GUARDATO, non solo letto dal database. `path_staging` dice dove il contenuto e' stato
+// messo, non che ci sia ancora, e fra la conferma e la copia puo' passare molto tempo: con le
+// capacita' separate un documento confermato mentre `nas_scrittura` era spenta aspetta giorni, e in
+// mezzo ci sono la pulizia dello staging, un disco rifatto, una cartella svuotata a mano.
+//
+// Senza questo controllo il fascicolo si ferma con «open C:\...\_contenuti\73\739f....pdf:
+// Impossibile trovare il percorso specificato»: una frase che dice dove il file non c'era e non dice
+// a nessuno che cosa fare. Il contenuto si riprende con «Riscarica» sull'allegato, e la frase adesso
+// lo dice.
 func (e *EsecutoreServer) sorgenteStaging(ctx context.Context, q *db.Queries, d db.Documento) (string, error) {
 	all, err := q.ListAllegatiThread(ctx, uuid.NullUUID{UUID: d.ThreadID, Valid: true})
 	if err != nil {
 		return "", err
 	}
+	var sparito string
 	for _, a := range all {
-		if a.Sha256.Valid && a.Sha256.String == d.Sha256 && a.PathStaging.Valid {
+		if !a.Sha256.Valid || a.Sha256.String != d.Sha256 || !a.PathStaging.Valid {
+			continue
+		}
+		if st, err := os.Stat(a.PathStaging.String); err == nil && !st.IsDir() {
 			return a.PathStaging.String, nil
 		}
+		sparito = a.NomeFile
+	}
+	if sparito != "" {
+		return "", fmt.Errorf("%w: il contenuto di %q non e' piu' nello staging del server. "+
+			"Si riprende da Outlook: «Riscarica» sull'allegato nel messaggio, poi «Riprova copie» qui",
+			ErrContenutoMancante, sparito)
 	}
 	return "", fmt.Errorf("%w: nessun allegato in staging con sha256 %s", pgx.ErrNoRows, d.Sha256)
 }

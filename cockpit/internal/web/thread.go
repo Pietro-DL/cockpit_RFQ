@@ -27,14 +27,18 @@ type threadDati struct {
 	Bozze          []db.Bozza
 	Componenti     []db.Componente
 	NDaSmistare    int
-	// NInCoda: documenti confermati che NON sono ancora sul NAS. Sono la conseguenza normale di una
-	// conferma data mentre [sicurezza].nas_scrittura era spenta: la decisione dell'operatore e'
-	// registrata, la scrittura aspetta. Il conto sta qui perche' deve VEDERSI: un documento «in_coda»
-	// che nessuno puo' rimettere in coda e' uno stato incompleto senza un'azione, ed e' esattamente
-	// cio' che il checkpoint vieta.
-	NInCoda  int
-	Avviso   string
-	Selezion string
+	// NDaCopiare: documenti confermati che NON sono sul NAS — in attesa oppure in errore.
+	//
+	// «In attesa» e' la conseguenza normale di una conferma data mentre [sicurezza].nas_scrittura era
+	// spenta: la decisione dell'operatore e' registrata, la scrittura aspetta. «In errore» e' la copia
+	// che ci ha provato e non ce l'ha fatta — il NAS non c'era, il contenuto era sparito dallo staging.
+	//
+	// Contano insieme perche' per chi guarda sono la stessa cosa — quel disegno non e' nel fascicolo —
+	// e perche' un documento in errore senza un modo di riprovare sarebbe il secondo vicolo cieco dopo
+	// quello che questo pulsante e' nato per togliere.
+	NDaCopiare int
+	Avviso     string
+	Selezion   string
 }
 
 type messaggioThread struct {
@@ -103,7 +107,7 @@ func (s *Server) riprovaCopie(w http.ResponseWriter, r *http.Request) {
 	accodati, gia := 0, 0
 	var spenta string
 	for _, d := range documenti {
-		if d.StatoNas != db.StatoNasInCoda {
+		if !daCopiare(d.StatoNas) {
 			continue
 		}
 		j, err := jobs.Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: d.DocumentoID},
@@ -122,6 +126,13 @@ func (s *Server) riprovaCopie(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.threadFrammento(w, r, id, avvisoCopie(accodati, gia, spenta))
+}
+
+// daCopiare: un documento confermato che non e' sul NAS. In attesa perche' la scrittura era spenta,
+// oppure in errore perche' la copia non e' riuscita: in tutti e due i casi il file non c'e' e
+// qualcuno lo sta aspettando.
+func daCopiare(s db.StatoNas) bool {
+	return s == db.StatoNasInCoda || s == db.StatoNasErrore
 }
 
 // avvisoCopie e' la frase che legge l'operatore: dice che cosa e' successo, non solo che l'azione e'
@@ -160,8 +171,8 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d.Identificativi, _ = q.ListIdentificativi(ctx, id)
 	d.Documenti, _ = q.ListDocumentiThread(ctx, id)
 	for _, doc := range d.Documenti {
-		if doc.StatoNas == db.StatoNasInCoda {
-			d.NInCoda++
+		if daCopiare(doc.StatoNas) {
+			d.NDaCopiare++
 		}
 	}
 	d.Fascicolo, _ = q.ListFascicolo(ctx, id)

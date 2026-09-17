@@ -56,9 +56,10 @@
         <td><small>{{.PathRelativo}}</small></td>
         <td><span class="chip {{if eq .StatoNas "scritto"}}fatto{{else if eq .StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.ErroreNas.String}}">{{.StatoNas}}</span></td></tr>{{end}}
     </table>
-    {{if .NInCoda}}
-    <p class="muto">{{.NInCoda}} document{{if eq .NInCoda 1}}o confermato non e' ancora{{else}}i confermati non sono ancora{{end}}
-      sul NAS: la scrittura era spenta quando {{if eq .NInCoda 1}}e' stato{{else}}sono stati{{end}} confermat{{if eq .NInCoda 1}}o{{else}}i{{end}}.
+    {{if .NDaCopiare}}
+    <p class="muto">{{.NDaCopiare}} document{{if eq .NDaCopiare 1}}o confermato non e'{{else}}i confermati non sono{{end}}
+      sul NAS: {{if eq .NDaCopiare 1}}e' rimasto{{else}}sono rimasti{{end}} in attesa oppure la copia non e' riuscita.
+      Il motivo di ciascuno e' nella colonna «NAS» qui sopra.
       <button type="button" hx-post="/thread/{{.T.ThreadID}}/riprova-copie" hx-target="#thread">Riprova copie</button>
     </p>
     {{end}}
