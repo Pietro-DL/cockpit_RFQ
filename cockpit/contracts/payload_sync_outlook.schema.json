@@ -1,10 +1,42 @@
 {
   "$defs": {
     "CartellaCursore": {
+      "description": "Una cartella da leggere con la SUA finestra, decisa dal server all'accodamento.\n\nIl worker non calcola piu' nessun limite: due cartelle della stessa casella possono essere a\npunti diversi (una sincronizzata da mesi, una aggiunta stamattina), e il limite di ciascuna\ndipende dalla sua copertura, non da quella della vicina.",
       "properties": {
         "cartella": {
           "title": "Cartella",
           "type": "string"
+        },
+        "dal": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dal"
+        },
+        "al": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Al"
+        },
+        "bootstrap": {
+          "default": false,
+          "title": "Bootstrap",
+          "type": "boolean"
         },
         "ultimo_received": {
           "anyOf": [
@@ -18,6 +50,19 @@
           ],
           "default": null,
           "title": "Ultimo Received"
+        },
+        "coperto_fino_a": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coperto Fino A"
         }
       },
       "required": [
@@ -40,6 +85,11 @@
       ],
       "default": null,
       "title": "Casella Id"
+    },
+    "modo": {
+      "default": "",
+      "title": "Modo",
+      "type": "string"
     },
     "cartelle": {
       "items": {

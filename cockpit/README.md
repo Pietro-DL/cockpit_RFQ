@@ -730,6 +730,7 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale),
                            0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
+                           0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
@@ -797,7 +798,7 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 |---|---|
 | `schema_versione` | SPEC §4.1: migrazione applicata all'avvio solo se assente |
 | `utente.password_hash`, `utente.ruolo`, `sessione` | SPEC §5.4 (login bcrypt, cookie) ma nessuna tabella lo prevedeva |
-| `sync_cursore` (+ `storico_fino_a`) | SPEC §3.2 passo 1: «chiede al server il cursore della casella»; il sync storico ricorda fin dove è arrivato. Dalla 0004 la chiave è **(casella, cartella)**: con la sola cartella due caselle si sovrascrivevano il cursore a vicenda |
+| `sync_cursore` | SPEC §3.2 passo 1: «chiede al server il cursore della casella». Dalla 0004 la chiave è **(casella, cartella)**: con la sola cartella due caselle si sovrascrivevano il cursore a vicenda. Dalla 0010 ci sono **due frontiere e una misura**: `coperto_fino_a` è fin dove Outlook è stato scandito per intero (avanza solo a finestra conclusa, ed è lei a decidere la finestra successiva), `storico_fino_a` è fin dove indietro è arrivato «Carica precedenti», `ultimo_received` è la mail più recente che abbiamo — avanza per lotto e non decide niente |
 | `worker_presenza` | ultimo contatto e ultimo claim per worker: la UI segnala «OFFLINE» invece di lasciar crescere la coda in silenzio |
 | `bozza` | Le mail preparate dal Cockpit (risposte, solleciti) vanno tracciate: stato, EntryID, poi collegate alla mail inviata |
 | `messaggio.corpo_html` | Per rendere il Cockpit un vero frontend di Outlook serve l'HTML (da sanificare prima del rendering) |

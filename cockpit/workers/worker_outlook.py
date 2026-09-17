@@ -27,13 +27,22 @@ import pywintypes
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, ImprontaSbagliata,
                             cadenza_battito, carica_config, configura_log, diagnosi, leggi_marcatore_arresto,
                             nome_worker)
-from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
-                       PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
-                       RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
+from contratti import (MODO_STORICO, CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento,
+                       PayloadCreaBozza, PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato,
+                       PayloadSyncOutlook, RisultatoBozza, RisultatoElemento, RisultatoRichiesta,
+                       RisultatoStage, RisultatoSync)
 from outlook_com import (ERRORI_ELEMENTO, ErroreDefinitivo, LetturaIncompleta, MemoriaRestrict, Outlook,
                          Saltati, confronta_insiemi, filtro_finestra)
 
 log = logging.getLogger("worker")
+
+
+def _con_fuso(d: datetime | None) -> datetime | None:
+    """Un istante del payload, sempre con fuso. Senza, il confronto con un ReceivedTime consapevole
+    del fuso alza TypeError a meta' enumerazione — cioe' una finestra interrotta per una data."""
+    if d is None:
+        return None
+    return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d
 
 
 class ErroreStoreLocale(Exception):
@@ -372,19 +381,35 @@ class Worker:
     # ------------------------------------------------------------ sync
 
     def sync(self, job: Job, p: PayloadSyncOutlook) -> dict:
+        """Legge la finestra che il SERVER ha deciso, dal piu' recente al piu' vecchio, e dice se
+        l'ha percorsa tutta (blocco 3 del 3R).
+
+        Due cose che prima erano qui adesso non lo sono piu', ed e' la correzione:
+
+          la finestra   [dal, al] arriva gia' fatta, per ciascuna cartella. Prima il worker sottraeva
+                        da se' la sovrapposizione al cursore e usava «adesso» come limite superiore,
+                        cioe' un estremo che si spostava mentre il job girava. Una finestra che si
+                        allunga da sola non si puo' dichiarare conclusa;
+          la frontiera  non avanza piu' per lotto. Il server la sposta solo se qui sotto si arriva a
+                        `esito.completa = True`, cioe' se l'enumerazione e' finita da sola. In ordine
+                        decrescente il primo lotto contiene gia' la mail piu' nuova: farla avanzare
+                        li' vorrebbe dire dichiarare coperto un intervallo mai letto, e un worker che
+                        muore subito dopo lo lascerebbe invisibile per sempre.
+
+        Le riletture sono ammesse e costano una deduplica per Message-ID. I buchi no.
+        """
         # La casella del job decide QUALE store leggere (voce 2.6): «Posta in arrivo» di Commerciale
-        # non è la Posta in arrivo del profilo. Senza casella il sync non sa che cosa leggere.
+        # non e' la Posta in arrivo del profilo. Senza casella il sync non sa che cosa leggere.
         if p.casella_id is None:
             raise ErroreDefinitivo("sync senza casella_id: non so quale store leggere")
         store = self.store_di(p.casella_id)
+        storico = p.modo_effettivo() == MODO_STORICO
         esiti = []
         for c in p.cartelle:
-            dal = (c.ultimo_received - timedelta(seconds=p.sovrapposizione_s)) if c.ultimo_received else p.dal
-            if dal.tzinfo is None:
-                dal = dal.replace(tzinfo=timezone.utc)
-            al = p.al
-            if al is not None and al.tzinfo is None:
-                al = al.replace(tzinfo=timezone.utc)
+            # il limite della CARTELLA; quello del payload e' l'inviluppo, e serve solo ai job
+            # accodati prima del blocco 3 e rimasti in coda
+            dal = _con_fuso(c.dal or p.dal)
+            al = _con_fuso(c.al or p.al)
             if self.battito is not None:
                 self.battito.segna_fase(f"sync {c.cartella}")
             esito = CartellaEsito(cartella=c.cartella, ultimo_received=c.ultimo_received)
@@ -393,17 +418,21 @@ class Worker:
             try:
                 self.controlla()
                 for m in self.ol().leggi(c.cartella, dal, al=al, store_id=store, saltati=saltati):
-                    # punto di ripresa: fra un elemento e l'altro il lavoro è fuori da COM, quindi qui
-                    # un arresto chiesto dal battito si può rispettare senza lasciare niente a metà
+                    # punto di ripresa: fra un elemento e l'altro il lavoro e' fuori da COM, quindi qui
+                    # un arresto chiesto dal battito si puo' rispettare senza lasciare niente a meta'
                     self.controlla()
                     lotto.append(m)
-                    # W2 CHIUSO (voce 2.1). Il cursore avanza su ricevuto_il, che è il ReceivedTime in
-                    # questa casella: lo stesso valore su cui filtra la scansione qui sopra. Prima
-                    # avanzava su data_evento, che per la Posta inviata è SentOn — un'altra grandezza —
-                    # e una mail scritta lunedì e inviata giovedì poteva spingere il cursore oltre
-                    # elementi non ancora letti, che nessuno avrebbe più riletto.
+                    # W2 CHIUSO (voce 2.1). `ultimo_received` e' la mail piu' RECENTE che abbiamo, e
+                    # si misura su ricevuto_il — il ReceivedTime in questa casella, lo stesso valore
+                    # su cui filtra la scansione. Prima si misurava su data_evento, che per la Posta
+                    # inviata e' SentOn, un'altra grandezza. Dal blocco 3 non e' piu' una frontiera:
+                    # decide che cosa mostrare, non da dove ripartire.
+                    #
+                    # Nello storico non si tocca: quei messaggi sono piu' vecchi di tutto cio' che
+                    # abbiamo, e scriverli li' direbbe che la mail piu' recente della cartella e' di
+                    # due anni fa.
                     quando = m.ricevuto_il or m.data_evento
-                    if al is None and quando and (esito.ultimo_received is None or quando > esito.ultimo_received):
+                    if not storico and quando and (esito.ultimo_received is None or quando > esito.ultimo_received):
                         esito.ultimo_received = quando
                     if len(lotto) >= p.lotto:
                         esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
@@ -411,20 +440,23 @@ class Worker:
                 # anche a lotto vuoto: gli elementi saltati vanno riportati, o nessuno sa che ci sono
                 if lotto or saltati.elementi:
                     esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
+                # L'UNICA riga che fa muovere una frontiera. Sta dopo l'ultimo invio di proposito: se
+                # l'ingest dell'ultimo lotto non viene accettato, la finestra non e' conclusa.
+                esito.completa = True
             except ErroreDefinitivo as e:
                 esito.errore = str(e)
                 log.error("cartella %s: %s", c.cartella, e)
             except (LetturaIncompleta, *ERRORI_ELEMENTO) as e:
                 # 3R, blocco 1: una cartella che non si riesce a leggere resta un problema DI QUELLA
                 # cartella. Prima l'eccezione usciva dal ciclo e faceva fallire il job intero: le
-                # altre cartelle della stessa casella non venivano nemmeno provate. Il cursore non e
-                # avanzato oltre cio che e stato consegnato, quindi la finestra si rilegge.
+                # altre cartelle della stessa casella non venivano nemmeno provate.
                 esito.errore = "%s: %s" % (type(e).__name__, e)
                 log.error("cartella %s non letta per intero: %s", c.cartella, e)
             esito.saltati = saltati.totale
-            log.info("sync %s: finestra [%s, %s] → %d messaggi%s, cursore %s", c.cartella, dal.isoformat(),
-                     al.isoformat() if al else "now", esito.n_messaggi,
-                     (", %d saltati" % esito.saltati) if esito.saltati else "", esito.ultimo_received)
+            log.info("sync %s %s: finestra [%s, %s] -> %d messaggi%s, %s", p.modo_effettivo(), c.cartella,
+                     dal.isoformat() if dal else "?", al.isoformat() if al else "now", esito.n_messaggi,
+                     (", %d saltati" % esito.saltati) if esito.saltati else "",
+                     "COMPLETA (la frontiera avanza)" if esito.completa else "INCOMPLETA: la frontiera non avanza, la finestra si rilegge")
             esiti.append(esito)
         return RisultatoSync(cartelle=esiti).model_dump(mode="json")
 

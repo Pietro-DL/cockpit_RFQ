@@ -411,6 +411,20 @@ func (s *Scheduler) accodaSync(ctx context.Context) error {
 // con «Carica precedenti» (voce 2.8).
 const GiorniSyncInizialeDefault = 7
 
+// SovrapposizioneSync è quanto si riparte INDIETRO rispetto alla copertura già raggiunta, a ogni
+// aggiornamento ordinario. Dieci minuti.
+//
+// Non è prudenza generica: è la misura di quanto due orologi e un indice di Outlook possono non
+// essere d'accordo su «quando è arrivata questa mail». Il `ReceivedTime` che il worker legge, l'ora
+// del server che fissa il limite superiore della finestra e il momento in cui Exchange consegna
+// davvero non coincidono, e senza sovrapposizione una mail che si materializza appena sotto la
+// frontiera resta sotto per sempre.
+//
+// Il costo di riprenderla è una rilettura di dieci minuti di posta, che la deduplica per Message-ID
+// assorbe: la stessa mail rivista è un UPDATE. Il costo di non riprenderla è una mail persa in
+// silenzio, e questo blocco esiste perché quel costo non sia pagabile.
+const SovrapposizioneSync = 10 * time.Minute
+
 // PrioritaSyncStorico è l'ULTIMA priorità della coda: si claima in ordine crescente
 // (`ORDER BY j.priorita, j.job_id`), e l'archivio è ciò che può aspettare.
 //
@@ -441,60 +455,92 @@ type SyncOpzioni struct {
 // un job solo (SV1), e per cui i tick dello scheduler non accumulano coda mentre il worker è fermo.
 func ChiaveSyncCasella(casella uuid.UUID) string { return "sync_outlook:" + casella.String() }
 
-// AccodaSyncCasella accoda il sync ordinario di UNA casella con i suoi cursori. Restituisce
-// (nil, nil) se ce n'è già uno in coda o in corso: non è un errore, è la stessa richiesta.
+// AccodaSyncCasella accoda l'aggiornamento di UNA casella. Restituisce (nil, nil) se ce n'è già uno
+// in coda o in corso: non è un errore, è la stessa richiesta.
+//
+// LA FINESTRA SI DECIDE QUI, TUTTA, E NON CAMBIA PIÙ (blocco 3 del 3R). Prima il payload portava un
+// limite inferiore e nessun limite superiore: «da qui a adesso», dove «adesso» era l'istante in cui
+// il worker guardava l'orologio, cioè un estremo che si sposta mentre il job gira. Una finestra che
+// si allunga da sola non si può dichiarare conclusa, e senza quella dichiarazione non c'è nessun
+// punto in cui sia lecito far avanzare una frontiera.
+//
+// Adesso: `al` è fissato qui e vale per tutte le cartelle; `dal` è calcolato qui per CIASCUNA
+// cartella, dalla sua copertura meno la sovrapposizione. Il worker non calcola più niente: esegue
+// l'intervallo che gli è stato dato e dice se l'ha percorso tutto.
+//
+// La precedenza del limite inferiore, scritta in un posto solo:
+//
+//  1. la COPERTURA di quella cartella (`coperto_fino_a`), quando c'è ed è utilizzabile: vince
+//     sempre, meno la sovrapposizione. È anche il motivo per cui un riavvio non riporta nessuna
+//     casella alla finestra iniziale: la copertura sta in database, non nel processo;
+//  2. `dal`, se [outlook].dal è scritto nel file: override esplicito, per un import controllato;
+//  3. altrimenti la finestra iniziale, `al - giorni_sync_iniziale`.
+//
+// I punti 2 e 3 valgono SOLO per le cartelle senza copertura — quelle in bootstrap. Ciò che si vuole
+// importare a mano è la posta di prima, e la posta di prima è «Carica precedenti».
+//
+// Il ripiego era «il più vecchio dei cursori delle ALTRE cartelle». Sembra prudente e non lo è: una
+// cartella aggiunta oggi a una casella sincronizzata da mesi sarebbe ripartita da mesi fa — cioè dal
+// caricamento lungo che la finestra iniziale esiste per evitare — e una cartella la cui copertura è
+// stata scartata perché nel futuro sarebbe ripartita da quella di un'altra, che su dove fosse
+// arrivata lei non dice niente.
 func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o SyncOpzioni) (*db.Job, error) {
 	cursori, err := q.ListSyncCursoriCasella(ctx, casella.CasellaID)
 	if err != nil {
 		return nil, err
 	}
-	perCartella := map[string]*time.Time{}
 	adesso := time.Now()
+	perCartella := map[string]db.SyncCursore{}
 	for _, c := range cursori {
-		// Un cursore nel futuro non è utilizzabile: aprirebbe una finestra che comincia dopo
-		// l'orologio, e il sync non leggerebbe più niente finché quel futuro non è passato. Ce ne sono
-		// in database, scritti prima della correzione del 16/09/2026 (date di Outlook prese per UTC
-		// quando erano ora locale: due ore avanti). Qui si ignorano, così quella casella riparte dalla
-		// finestra predefinita e si rilegge — una rilettura costa una deduplica per Message-ID, che il
-		// server fa comunque; fidarsi di quel cursore costerebbe la posta di due ore.
-		if c.UltimoReceived != nil && api.NelFuturo(*c.UltimoReceived, adesso) {
-			continue
-		}
-		perCartella[c.Cartella] = c.UltimoReceived
-	}
-	// La precedenza della finestra, scritta in un posto solo (checkpoint del 16/09/2026):
-	//
-	//  1. il CURSORE di quella cartella, quando c'è ed è utilizzabile: vince sempre. Viaggia per
-	//     cartella in `p.Cartelle[].UltimoReceived` ed è il worker ad applicarlo. È anche il motivo
-	//     per cui un riavvio non riporta nessuna casella alla finestra iniziale: il cursore sta in
-	//     database, non nel processo;
-	//  2. `dal`, se [outlook].dal è scritto nel file: override esplicito, per un import controllato;
-	//  3. altrimenti la finestra iniziale, `adesso - giorni_sync_iniziale`.
-	//
-	// I punti 2 e 3 valgono solo per le cartelle che un cursore non ce l'hanno: qui si calcola il
-	// limite inferiore di ripiego che il payload porta in `Dal`, e il worker lo usa solo per quelle.
-	//
-	// Il ripiego era «il più vecchio dei cursori delle ALTRE cartelle». Sembra prudente e non lo è:
-	// una cartella aggiunta oggi a una casella sincronizzata da mesi sarebbe ripartita da mesi fa —
-	// cioè dal caricamento lungo che questa voce esiste per evitare — e una cartella il cui cursore è
-	// stato scartato perché nel futuro sarebbe ripartita dal cursore di un'altra, che su dove fosse
-	// arrivata lei non dice niente.
-	dal := o.Dal
-	if dal.IsZero() {
-		giorni := o.GiorniIniziali
-		if giorni < 1 {
-			giorni = GiorniSyncInizialeDefault
-		}
-		dal = adesso.AddDate(0, 0, -giorni)
+		perCartella[c.Cartella] = c
 	}
 	cartelle := o.Cartelle
 	if len(cartelle) == 0 {
 		cartelle = []string{"Inbox", "Sent Items"}
 	}
+	iniziale := o.Dal
+	if iniziale.IsZero() {
+		giorni := o.GiorniIniziali
+		if giorni < 1 {
+			giorni = GiorniSyncInizialeDefault
+		}
+		iniziale = adesso.AddDate(0, 0, -giorni)
+	}
+
+	al := adesso
 	cid := casella.CasellaID
-	p := api.PayloadSyncOutlook{Dal: dal, SovrapposizioneS: 600, Lotto: o.Lotto, CasellaID: &cid}
-	for _, c := range cartelle {
-		p.Cartelle = append(p.Cartelle, api.CartellaCursore{Cartella: c, UltimoReceived: perCartella[c]})
+	p := api.PayloadSyncOutlook{Modo: api.ModoBootstrap, Al: &al, CasellaID: &cid,
+		SovrapposizioneS: int(SovrapposizioneSync / time.Second), Lotto: o.Lotto}
+	for _, nome := range cartelle {
+		c := api.CartellaCursore{Cartella: nome, Al: &al}
+		cur, censita := perCartella[nome]
+		coperto := (*time.Time)(nil)
+		if censita {
+			c.UltimoReceived = cur.UltimoReceived
+			coperto = cur.CopertoFinoA
+		}
+		// Una copertura nel futuro non è utilizzabile: aprirebbe una finestra che comincia dopo
+		// l'orologio, e quella cartella non leggerebbe più niente finché quel futuro non è passato.
+		// Ce ne sono in database, scritte prima della correzione del 16/09/2026 (date di Outlook
+		// prese per UTC quando erano ora locale: due ore avanti). Qui si ignorano, così la cartella
+		// riparte dalla finestra iniziale e si rilegge — una rilettura costa una deduplica per
+		// Message-ID, che il server fa comunque; fidarsi di quella copertura costerebbe la posta di
+		// due ore.
+		if coperto != nil && api.NelFuturo(*coperto, adesso) {
+			coperto = nil
+		}
+		dal := iniziale
+		if coperto != nil {
+			c.CopertoFinoA, dal = coperto, coperto.Add(-SovrapposizioneSync)
+			p.Modo = api.ModoAggiornamento
+		} else {
+			c.Bootstrap = true
+		}
+		c.Dal = &dal
+		if p.Dal.IsZero() || dal.Before(p.Dal) {
+			p.Dal = dal
+		}
+		p.Cartelle = append(p.Cartelle, c)
 	}
 	return AccodaCon(ctx, q, db.TipoJobSyncOutlook, p, ChiaveSyncCasella(cid), 5,
 		Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})

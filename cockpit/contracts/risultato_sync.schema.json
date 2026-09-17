@@ -33,6 +33,11 @@
           "default": "",
           "title": "Errore",
           "type": "string"
+        },
+        "completa": {
+          "default": false,
+          "title": "Completa",
+          "type": "boolean"
         }
       },
       "required": [

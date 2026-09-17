@@ -46,14 +46,28 @@ func payloadSync(t *testing.T, j *db.Job) api.PayloadSyncOutlook {
 	return p
 }
 
-// cursoriNelPayload è ciò che il worker riceve per cartella: nil = «questa cartella non ha un
-// cursore, usa il limite inferiore del payload».
-func cursoriNelPayload(p api.PayloadSyncOutlook) map[string]*time.Time {
-	per := map[string]*time.Time{}
+// finestreNelPayload è ciò che il worker riceve per cartella: la finestra che deve leggere, già
+// fatta. Dal blocco 3 è questo il dato che conta — `UltimoReceived` viaggia ancora, ma per la
+// diagnosi: chi decide da dove si riparte è `Dal`, e chi lo decide è il server.
+func finestreNelPayload(p api.PayloadSyncOutlook) map[string]api.CartellaCursore {
+	per := map[string]api.CartellaCursore{}
 	for _, c := range p.Cartelle {
-		per[c.Cartella] = c.UltimoReceived
+		per[c.Cartella] = c
 	}
 	return per
+}
+
+// dalDi è il limite inferiore di una cartella del payload, con un messaggio utile se non c'è.
+func dalDi(t *testing.T, p api.PayloadSyncOutlook, cartella string) time.Time {
+	t.Helper()
+	c, ok := finestreNelPayload(p)[cartella]
+	if !ok {
+		t.Fatalf("%s non è nel payload: %v", cartella, p.Cartelle)
+	}
+	if c.Dal == nil {
+		t.Fatalf("%s: nessun limite inferiore nel payload. Il worker non lo calcola più da sé: senza, leggerebbe la cartella intera", cartella)
+	}
+	return *c.Dal
 }
 
 // chiudi porta un job a `fatto` senza passare da un worker: qui interessa solo che la chiave di
@@ -66,12 +80,20 @@ func chiudi(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID int64) 
 	}
 }
 
-func scriviCursore(t *testing.T, ctx context.Context, q *db.Queries, casella db.Casella, cartella string, quando time.Time) {
+// scriviCopertura simula un sync riuscito su quella cartella: la mail più recente consegnata E la
+// frontiera di copertura, che è quella su cui si decide la finestra successiva. Scriverne una sola
+// sarebbe uno stato che il sistema non produce.
+func scriviCopertura(t *testing.T, ctx context.Context, q *db.Queries, casella db.Casella, cartella string, quando time.Time) {
 	t.Helper()
 	if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
 		CasellaID: casella.CasellaID, Cartella: cartella, UltimoReceived: &quando,
 	}); err != nil {
 		t.Fatalf("cursore %s: %v", cartella, err)
+	}
+	if err := q.SetCopertoFinoA(ctx, db.SetCopertoFinoAParams{
+		CasellaID: casella.CasellaID, Cartella: cartella, CopertoFinoA: &quando,
+	}); err != nil {
+		t.Fatalf("copertura %s: %v", cartella, err)
 	}
 }
 
@@ -91,13 +113,27 @@ func TestSI1SenzaCursoreSiParteDallaFinestraIniziale(t *testing.T) {
 	}
 	p := payloadSync(t, j)
 	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "finestra iniziale")
-	if p.Al != nil {
-		t.Errorf("il sync ordinario non ha limite superiore: al = %v", p.Al)
+	// A: database nuovo = bootstrap. Non è un riavvio, non è un aggiornamento: di queste due cartelle
+	// non si sa ancora niente, e il modo lo deve dire — è quello che un operatore legge nel log
+	// quando si chiede perché il primo sync ci mette molto più degli altri.
+	if p.Modo != api.ModoBootstrap {
+		t.Errorf("modo = %q su una casella mai sincronizzata, atteso %q", p.Modo, api.ModoBootstrap)
 	}
-	for cartella, cur := range cursoriNelPayload(p) {
-		if cur != nil {
-			t.Errorf("%s: cursore %v su una casella mai sincronizzata", cartella, cur)
+	// Il limite superiore è FISSATO all'accodamento, anche nell'aggiornamento ordinario: una finestra
+	// che finisce a «adesso» si allunga mentre il job gira, e allora non esiste nessun istante di cui
+	// si possa dire «scandito fino a qui». Senza quello, nessuna frontiera potrebbe avanzare.
+	if p.Al == nil {
+		t.Fatal("il payload non ha un limite superiore: la finestra non è chiusa e non si può dichiarare conclusa")
+	}
+	attorno(t, *p.Al, time.Now(), "limite superiore fissato all'accodamento")
+	for cartella, c := range finestreNelPayload(p) {
+		if !c.Bootstrap {
+			t.Errorf("%s: non dichiarata in bootstrap su una casella mai sincronizzata", cartella)
 		}
+		if c.CopertoFinoA != nil {
+			t.Errorf("%s: copertura %v su una casella mai sincronizzata", cartella, c.CopertoFinoA)
+		}
+		attorno(t, dalDi(t, p, cartella), time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), cartella+": finestra iniziale")
 	}
 }
 
@@ -131,9 +167,9 @@ func TestSI3IlCursoreVinceEIlRiavvioNonRiportaAllaFinestraIniziale(t *testing.T)
 	}
 	attorno(t, payloadSync(t, primo).Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "finestra del primo sync")
 
-	// il worker lo esegue e lascia il cursore dell'Inbox; la Posta inviata non ha ancora niente
+	// il worker lo esegue e lascia la copertura dell'Inbox; la Posta inviata non ha ancora niente
 	arrivato := time.Now().Add(-90 * time.Minute).UTC().Truncate(time.Second)
-	scriviCursore(t, ctx, q, casella, "Inbox", arrivato)
+	scriviCopertura(t, ctx, q, casella, "Inbox", arrivato)
 	chiudi(t, ctx, pool, primo.JobID)
 
 	// il riavvio: un processo nuovo, quindi Queries nuove, e le stesse opzioni del file
@@ -143,16 +179,28 @@ func TestSI3IlCursoreVinceEIlRiavvioNonRiportaAllaFinestraIniziale(t *testing.T)
 		t.Fatal(err)
 	}
 	p := payloadSync(t, secondo)
-	per := cursoriNelPayload(p)
-	if per["Inbox"] == nil || !per["Inbox"].Equal(arrivato) {
-		t.Errorf("dopo il riavvio l'Inbox riparte da %v invece che dal suo cursore (%v)", per["Inbox"], arrivato)
+	// B: esiste una copertura, quindi è un AGGIORNAMENTO e non un bootstrap. La distinzione non è
+	// cosmetica: bootstrap vuol dire «di questa cartella non sappiamo niente», e se il riavvio la
+	// riportasse lí, ogni avvio del server rileggerebbe una settimana.
+	if p.Modo != api.ModoAggiornamento {
+		t.Errorf("modo = %q dopo il riavvio, atteso %q", p.Modo, api.ModoAggiornamento)
 	}
-	if per["Sent Items"] != nil {
-		t.Errorf("la Posta inviata non è mai stata sincronizzata: cursore %v", per["Sent Items"])
+	per := finestreNelPayload(p)
+	if per["Inbox"].Bootstrap {
+		t.Error("dopo il riavvio l'Inbox è tornata in bootstrap: la copertura sta in database, non nel processo")
 	}
-	// `Dal` resta la finestra iniziale perché serve ancora a QUALCUNO: la Posta inviata. Una cartella
-	// senza cursore parte da lì e non dal cursore dell'altra, che su di lei non dice niente.
-	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "limite inferiore dopo il riavvio")
+	// la copertura MENO la sovrapposizione, e la sottrazione la fa il server
+	if d := dalDi(t, p, "Inbox"); !d.Equal(arrivato.Add(-SovrapposizioneSync)) {
+		t.Errorf("dopo il riavvio l'Inbox riparte da %v, atteso %v (copertura %v meno la sovrapposizione)",
+			d, arrivato.Add(-SovrapposizioneSync), arrivato)
+	}
+	if !per["Sent Items"].Bootstrap {
+		t.Error("la Posta inviata non è mai stata sincronizzata: doveva essere in bootstrap")
+	}
+	// J: le due frontiere sono indipendenti. Una cartella senza copertura parte dalla finestra
+	// iniziale e non da quella dell'altra, che su di lei non dice niente.
+	attorno(t, dalDi(t, p, "Sent Items"), time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "Posta inviata, mai sincronizzata")
+	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "inviluppo dopo il riavvio")
 }
 
 // SI4 — `dal` è un override esplicito: vale per le cartelle senza cursore, e non ne sposta nessuna
@@ -161,7 +209,7 @@ func TestSI4DalEUnOverrideEsplicito(t *testing.T) {
 	_, q, ctx := preparaDB(t)
 	casella := casellaDiProva(t, ctx, q, "import@azienda.example")
 	arrivato := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
-	scriviCursore(t, ctx, q, casella, "Inbox", arrivato)
+	scriviCopertura(t, ctx, q, casella, "Inbox", arrivato)
 
 	voluto := time.Date(2026, 1, 15, 0, 0, 0, 0, time.Local)
 	j, err := AccodaSyncCasella(ctx, q, casella, SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Dal: voluto, Lotto: 50})
@@ -172,11 +220,13 @@ func TestSI4DalEUnOverrideEsplicito(t *testing.T) {
 	if !p.Dal.Equal(voluto) {
 		t.Errorf("dal = %v, atteso l'override %v", p.Dal, voluto)
 	}
-	per := cursoriNelPayload(p)
-	if per["Inbox"] == nil || !per["Inbox"].Equal(arrivato) {
-		t.Errorf("l'override ha cancellato il cursore dell'Inbox: %v", per["Inbox"])
+	if d := dalDi(t, p, "Sent Items"); !d.Equal(voluto) {
+		t.Errorf("la Posta inviata, che non ha copertura, non ha usato l'override: %v", d)
 	}
-	if per["Sent Items"] != nil {
-		t.Errorf("la Posta inviata non ha cursore: %v", per["Sent Items"])
+	if d := dalDi(t, p, "Inbox"); !d.Equal(arrivato.Add(-SovrapposizioneSync)) {
+		t.Errorf("l'override ha scavalcato la copertura dell'Inbox: %v, attesa %v", d, arrivato.Add(-SovrapposizioneSync))
+	}
+	if finestreNelPayload(p)["Inbox"].Bootstrap {
+		t.Error("l'Inbox ha una copertura: l'override non deve rimetterla in bootstrap")
 	}
 }

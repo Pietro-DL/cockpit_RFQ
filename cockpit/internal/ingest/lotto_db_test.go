@@ -722,3 +722,45 @@ func TestDueLottiIdenticiConcorrentiNonDuplicano(t *testing.T) {
 		t.Errorf("cursore = %v", cur)
 	}
 }
+
+// ---------------------------------------------------------------------------------------------
+// Blocco 3 del 3R — un lotto NON è una copertura.
+// ---------------------------------------------------------------------------------------------
+
+// Il confine fra le due colonne, provato dove passa il lotto.
+//
+// `ultimo_received` è la mail più recente che abbiamo, e il lotto la fa avanzare: viaggia nella
+// stessa transazione degli elementi, così o entrano insieme o non entra niente. `coperto_fino_a` è
+// fin dove Outlook è stato SCANDITO, e il lotto non ne sa niente: quel fatto lo può dichiarare solo
+// chi ha finito di percorrere la finestra.
+//
+// Dal blocco 3 la lettura è dal più recente al più vecchio, e questo trasforma la differenza in un
+// pericolo: il primo lotto contiene già la mail più nuova della finestra. Se il suo cursore facesse
+// avanzare anche la copertura, un worker che muore subito dopo lascerebbe la copertura in cima a una
+// finestra di cui ha letto solo il primo pezzo — e tutto quello che sta sotto non verrebbe più
+// chiesto a nessuno.
+func TestUnLottoFaAvanzareIlCursoreMaNonLaCopertura(t *testing.T) {
+	p, s, casella, ctx := preparaPP(t)
+
+	lotto := Lotto{
+		Casella:  casella,
+		Messaggi: tre(nil),
+		Cursore:  &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+	}
+	if _, err := s.Ingerisci(ctx, lotto); err != nil {
+		t.Fatalf("lotto: %v", err)
+	}
+
+	if c := cursore(t, p); c == nil || !c.Equal(cursoreFinale) {
+		t.Errorf("ultimo_received = %v, atteso %v: il lotto deve farlo avanzare", c, cursoreFinale)
+	}
+	var coperto *time.Time
+	if err := p.QueryRow(ctx, `SELECT coperto_fino_a FROM sync_cursore WHERE cartella = $1`, cartellaPP).Scan(&coperto); err != nil {
+		t.Fatalf("copertura: %v", err)
+	}
+	if coperto != nil {
+		t.Fatalf("un lotto ha dichiarato la copertura fino a %v. In lettura dal più recente al più "+
+			"vecchio il primo lotto è la cima della finestra: da qui in poi tutto ciò che sta sotto "+
+			"risulta già scandito e nessuno lo rileggerà", coperto)
+	}
+}

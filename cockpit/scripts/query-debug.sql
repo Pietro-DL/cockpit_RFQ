@@ -18,9 +18,21 @@ ORDER BY job_id DESC
 LIMIT 20;
 
 \echo '== 2. i cursori: si muovono solo con il sync ordinario ========================='
--- Un sync storico (finestra [dal, al] chiusa) NON fa avanzare il cursore: è voluto. Se il cursore
--- non si muove mai, o il sync ordinario non parte (intervallo_sync_s = 0) o non arriva al result.
-SELECT c.nome, s.cartella, s.ultimo_received
+-- Le due frontiere e la misura (0010). Si leggono cosi':
+--
+--   coperto_fino_a   fin dove Outlook e' stato SCANDITO per intero. E' lei a decidere da dove parte
+--                    il prossimo aggiornamento. Avanza solo a finestra conclusa: se resta ferma
+--                    mentre arrivano messaggi, le finestre si stanno interrompendo a meta' (cerca
+--                    "finestra non conclusa" nel log del server). NULL = mai sincronizzata: il
+--                    prossimo sync e' un bootstrap di giorni_sync_iniziale;
+--   storico_fino_a   fin dove indietro e' arrivato "Carica precedenti". Scende di GiorniStorico per
+--                    clic, e solo a finestra conclusa;
+--   ultimo_received  la mail piu' recente che abbiamo. Avanza per lotto e NON decide nessuna
+--                    finestra: puo' restare indietro rispetto alla copertura per giorni, e vuol dire
+--                    solo che in quei giorni non e' arrivato niente.
+--
+-- Un sync storico non tocca coperto_fino_a, e un aggiornamento non tocca storico_fino_a: e' voluto.
+SELECT c.nome, s.cartella, s.coperto_fino_a, s.storico_fino_a, s.ultimo_received, s.ultimo_sync, s.errore
 FROM sync_cursore s
 JOIN casella c USING (casella_id)
 ORDER BY c.nome, s.cartella;

@@ -37,16 +37,8 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 
 	futuro := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
 	sano := time.Now().Add(-30 * time.Minute).UTC().Truncate(time.Second)
-	scrivi := func(cartella string, quando time.Time) {
-		t.Helper()
-		if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
-			CasellaID: casella.CasellaID, Cartella: cartella, UltimoReceived: &quando,
-		}); err != nil {
-			t.Fatalf("cursore %s: %v", cartella, err)
-		}
-	}
-	scrivi("Inbox", futuro)    // scritto prima della correzione
-	scrivi("Sent Items", sano) // scritto bene
+	scriviCopertura(t, ctx, q, casella, "Inbox", futuro)    // scritta prima della correzione
+	scriviCopertura(t, ctx, q, casella, "Sent Items", sano) // scritta bene
 
 	j, err := AccodaSyncCasella(ctx, q, casella, SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Lotto: 50})
 	if err != nil || j == nil {
@@ -56,18 +48,18 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	per := map[string]*time.Time{}
-	for _, c := range p.Cartelle {
-		per[c.Cartella] = c.UltimoReceived
+	per := finestreNelPayload(p)
+	if !per["Inbox"].Bootstrap {
+		t.Errorf("l'Inbox riparte dalla copertura nel futuro (%v): la finestra comincerebbe fra due ore", per["Inbox"].Dal)
 	}
-	if per["Inbox"] != nil {
-		t.Errorf("l'Inbox riparte dal cursore nel futuro (%v): la finestra comincerebbe fra due ore", per["Inbox"])
+	if api.NelFuturo(dalDi(t, p, "Inbox"), time.Now()) {
+		t.Errorf("la finestra dell'Inbox comincia nel futuro: %v", dalDi(t, p, "Inbox"))
 	}
-	if per["Sent Items"] == nil || !per["Sent Items"].Equal(sano) {
-		t.Errorf("il cursore buono è stato buttato via: %v, atteso %v", per["Sent Items"], sano)
+	if d := dalDi(t, p, "Sent Items"); !d.Equal(sano.Add(-SovrapposizioneSync)) {
+		t.Errorf("la copertura buona è stata buttata via: la Posta inviata riparte da %v, atteso %v", d, sano.Add(-SovrapposizioneSync))
 	}
-	// `dal` è il limite inferiore delle cartelle SENZA cursore, e qui l'Inbox è una di quelle: il
-	// suo cursore è stato scartato. Dal checkpoint del 16/09/2026 riparte dalla finestra iniziale.
+	// `dal` è l'inviluppo, e qui lo decide l'Inbox: la sua copertura è stata scartata, quindi è in
+	// bootstrap. Dal checkpoint del 16/09/2026 riparte dalla finestra iniziale.
 	//
 	// Prima ripartiva dal più vecchio dei cursori delle ALTRE cartelle — qui la Posta inviata, mezz'ora
 	// fa — che su dove fosse arrivata l'Inbox non dice niente: le avrebbe fatto saltare tutto ciò che

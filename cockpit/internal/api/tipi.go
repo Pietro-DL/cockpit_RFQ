@@ -208,20 +208,67 @@ type RisultatoRichiesta struct {
 
 // ---------------------------------------------------------------- payload e risultati per tipo di job
 
+// I tre modi di un sync_outlook (blocco 3 del 3R). Non sono tre meccanismi: sono tre modi di
+// decidere la PRIMA finestra. Da lì in poi tutti e tre leggono un intervallo chiuso [dal, al] fissato
+// all'accodamento, dal più recente al più vecchio, e scrivono la propria frontiera solo quando la
+// finestra è stata percorsa per intero.
+//
+//	ModoAggiornamento  esiste già una copertura: dal = coperto_fino_a - sovrapposizione, al = adesso;
+//	ModoBootstrap      nessuna cartella di questa casella ha una copertura: al = adesso, dal = al - giorni_sync_iniziale.
+//	                   Bootstrap NON vuol dire «riavvio»: vuol dire «di questa (casella, cartella) non
+//	                   sappiamo ancora niente». Appena una finestra si chiude, non si torna più qui;
+//	ModoStorico        «Carica precedenti»: al = storico_fino_a, dal = al - GiorniStorico.
+//
+// Il modo decide QUALE frontiera avanza a fine finestra, e solo quella: storico muove
+// `storico_fino_a` verso il passato, gli altri due `coperto_fino_a` verso il presente.
+const (
+	ModoAggiornamento = "aggiornamento"
+	ModoBootstrap     = "bootstrap"
+	ModoStorico       = "storico"
+)
+
+// CartellaCursore è una cartella da leggere con la SUA finestra. `Dal` è calcolato dal server
+// all'accodamento e non si ricava sul worker: due cartelle della stessa casella possono essere a
+// punti diversi (una sincronizzata da mesi, una aggiunta stamattina), e il limite inferiore di
+// ciascuna dipende dalla sua copertura, non da quella della vicina.
 type CartellaCursore struct {
-	Cartella       string     `json:"cartella"`
+	Cartella string `json:"cartella"`
+	// Dal: limite inferiore di QUESTA cartella, sovrapposizione già sottratta. Zero solo nei payload
+	// accodati prima della 0010 e ancora in coda: il worker ripiega su PayloadSyncOutlook.Dal.
+	Dal *time.Time `json:"dal,omitempty"`
+	// Al: limite superiore di QUESTA cartella. Uguale per tutte nell'aggiornamento e nel bootstrap
+	// (è l'istante in cui il job è stato accodato), diverso per ciascuna nello storico, dove ognuna
+	// riprende da dove è arrivato il proprio `storico_fino_a`. Prendere il più vecchio dei limiti
+	// storici e applicarlo a tutte — come si faceva — lasciava scoperto, nella cartella più avanti,
+	// l'intervallo fra il proprio limite e quello della vicina, e lo dichiarava coperto lo stesso.
+	Al *time.Time `json:"al,omitempty"`
+	// Bootstrap: questa cartella non aveva ancora una frontiera di copertura, quindi `Dal` è la
+	// finestra iniziale e non un cursore. Serve a dirlo nel log e nei test: una cartella aggiunta
+	// oggi a una casella sincronizzata da mesi è in bootstrap mentre le sue vicine non lo sono.
+	Bootstrap bool `json:"bootstrap,omitempty"`
+	// UltimoReceived e CopertoFinoA viaggiano per diagnosi: il worker li scrive nel log della
+	// cartella. Il primo è la mail più recente che abbiamo, il secondo fin dove si era guardato.
 	UltimoReceived *time.Time `json:"ultimo_received,omitempty"`
+	CopertoFinoA   *time.Time `json:"coperto_fino_a,omitempty"`
 }
 
 type PayloadSyncOutlook struct {
 	// La casella da sincronizzare: il worker la rimanda nell'ingest, così il lotto ha una casella
 	// sola e verificabile invece di ereditarla da una configurazione locale.
-	CasellaID        *uuid.UUID        `json:"casella_id,omitempty"`
-	Cartelle         []CartellaCursore `json:"cartelle"`
-	Dal              time.Time         `json:"dal"`               // limite inferiore assoluto (cursore vuoto)
-	Al               *time.Time        `json:"al,omitempty"`      // limite superiore opzionale (sync storico)
-	SovrapposizioneS int               `json:"sovrapposizione_s"` // rilettura di sicurezza dietro al cursore
-	Lotto            int               `json:"lotto"`
+	CasellaID *uuid.UUID        `json:"casella_id,omitempty"`
+	Modo      string            `json:"modo,omitempty"` // aggiornamento | bootstrap | storico (vuoto = aggiornamento)
+	Cartelle  []CartellaCursore `json:"cartelle"`
+	// Dal: il limite inferiore della finestra COMPLESSIVA (il più vecchio dei `Cartelle[].Dal`). È
+	// quello che l'operatore legge nel badge; il worker usa quello della singola cartella, e ripiega
+	// su questo solo per un payload accodato prima della 0010.
+	Dal time.Time `json:"dal"`
+	// Al: limite superiore, FISSATO all'accodamento e uguale per tutte le cartelle. Dal blocco 3
+	// c'è sempre, anche per l'aggiornamento ordinario: una finestra il cui estremo superiore è
+	// «adesso» cambia mentre il job gira, e allora non si può dire di averla conclusa. Resta
+	// opzionale nel contratto per i payload già in coda, dove nil vuol dire «fino a adesso».
+	Al               *time.Time `json:"al,omitempty"`
+	SovrapposizioneS int        `json:"sovrapposizione_s"` // rilettura di sicurezza dietro alla copertura
+	Lotto            int        `json:"lotto"`
 }
 
 type CartellaEsito struct {
@@ -233,6 +280,15 @@ type CartellaEsito struct {
 	// il conto di tutti, compresi quelli che non hanno detto nemmeno chi fossero.
 	Saltati int    `json:"saltati"`
 	Errore  string `json:"errore,omitempty"`
+	// Completa: il worker dichiara di aver percorso la finestra [dal, al] per INTERO. È l'unica
+	// condizione che fa avanzare una frontiera, ed è una dichiarazione positiva, non l'assenza di un
+	// errore: un'enumerazione COM che si interrompe a metà può finire senza eccezioni e senza
+	// riempire `Errore`, e in lettura dal più recente al più vecchio ciò che resta fuori è la parte
+	// VECCHIA della finestra — esattamente quella che nessuno andrebbe più a rileggere.
+	//
+	// Assente = false = la frontiera non si muove. Un worker che non conosce questo campo fa
+	// rileggere la finestra; il contrario avrebbe fatto perdere posta.
+	Completa bool `json:"completa,omitempty"`
 }
 
 type RisultatoSync struct {

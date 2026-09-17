@@ -439,7 +439,7 @@ func (q *Queries) GetPresenza(ctx context.Context, arg GetPresenzaParams) (Messa
 
 const getSyncCursore = `-- name: GetSyncCursore :one
 
-SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id FROM sync_cursore WHERE casella_id = $1 AND cartella = $2
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id, coperto_fino_a FROM sync_cursore WHERE casella_id = $1 AND cartella = $2
 `
 
 type GetSyncCursoreParams struct {
@@ -461,6 +461,7 @@ func (q *Queries) GetSyncCursore(ctx context.Context, arg GetSyncCursoreParams) 
 		&i.NMessaggi,
 		&i.Errore,
 		&i.CasellaID,
+		&i.CopertoFinoA,
 	)
 	return i, err
 }
@@ -698,7 +699,7 @@ func (q *Queries) ListPresenze(ctx context.Context, messaggioID uuid.UUID) ([]Li
 }
 
 const listSyncCursori = `-- name: ListSyncCursori :many
-SELECT sc.cartella, sc.ultimo_received, sc.storico_fino_a, sc.ultimo_sync, sc.n_messaggi, sc.errore, sc.casella_id, c.indirizzo AS casella_indirizzo, c.nome AS casella_nome
+SELECT sc.cartella, sc.ultimo_received, sc.storico_fino_a, sc.ultimo_sync, sc.n_messaggi, sc.errore, sc.casella_id, sc.coperto_fino_a, c.indirizzo AS casella_indirizzo, c.nome AS casella_nome
 FROM sync_cursore sc JOIN casella c ON c.casella_id = sc.casella_id
 ORDER BY c.indirizzo, sc.cartella
 `
@@ -711,6 +712,7 @@ type ListSyncCursoriRow struct {
 	NMessaggi        int32       `json:"n_messaggi"`
 	Errore           pgtype.Text `json:"errore"`
 	CasellaID        uuid.UUID   `json:"casella_id"`
+	CopertoFinoA     *time.Time  `json:"coperto_fino_a"`
 	CasellaIndirizzo string      `json:"casella_indirizzo"`
 	CasellaNome      string      `json:"casella_nome"`
 }
@@ -732,6 +734,7 @@ func (q *Queries) ListSyncCursori(ctx context.Context) ([]ListSyncCursoriRow, er
 			&i.NMessaggi,
 			&i.Errore,
 			&i.CasellaID,
+			&i.CopertoFinoA,
 			&i.CasellaIndirizzo,
 			&i.CasellaNome,
 		); err != nil {
@@ -746,7 +749,7 @@ func (q *Queries) ListSyncCursori(ctx context.Context) ([]ListSyncCursoriRow, er
 }
 
 const listSyncCursoriCasella = `-- name: ListSyncCursoriCasella :many
-SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id FROM sync_cursore WHERE casella_id = $1 ORDER BY cartella
+SELECT cartella, ultimo_received, storico_fino_a, ultimo_sync, n_messaggi, errore, casella_id, coperto_fino_a FROM sync_cursore WHERE casella_id = $1 ORDER BY cartella
 `
 
 func (q *Queries) ListSyncCursoriCasella(ctx context.Context, casellaID uuid.UUID) ([]SyncCursore, error) {
@@ -766,6 +769,7 @@ func (q *Queries) ListSyncCursoriCasella(ctx context.Context, casellaID uuid.UUI
 			&i.NMessaggi,
 			&i.Errore,
 			&i.CasellaID,
+			&i.CopertoFinoA,
 		); err != nil {
 			return nil, err
 		}
@@ -852,6 +856,38 @@ type SetBuyerMessaggioParams struct {
 
 func (q *Queries) SetBuyerMessaggio(ctx context.Context, arg SetBuyerMessaggioParams) error {
 	_, err := q.db.Exec(ctx, setBuyerMessaggio, arg.MessaggioID, arg.BuyerID)
+	return err
+}
+
+const setCopertoFinoA = `-- name: SetCopertoFinoA :exec
+INSERT INTO sync_cursore (casella_id, cartella, coperto_fino_a)
+VALUES ($1, $2, $3)
+ON CONFLICT (casella_id, cartella) DO UPDATE SET
+    coperto_fino_a = GREATEST(COALESCE(sync_cursore.coperto_fino_a, EXCLUDED.coperto_fino_a), EXCLUDED.coperto_fino_a)
+`
+
+type SetCopertoFinoAParams struct {
+	CasellaID    uuid.UUID  `json:"casella_id"`
+	Cartella     string     `json:"cartella"`
+	CopertoFinoA *time.Time `json:"coperto_fino_a"`
+}
+
+// La frontiera RECENTE: fin dove Outlook e' stato scandito per intero (0010).
+//
+// La scrive un punto solo, `applicaRisultato`, e solo per le cartelle che il worker ha dichiarato
+// COMPLETE: non a ogni lotto, e non perche' il job HTTP e' finito senza eccezioni. In lettura dal
+// piu' recente al piu' vecchio il primo lotto contiene gia' la mail piu' nuova della finestra: farla
+// avanzare li' significherebbe dichiarare coperto tutto l'intervallo prima ancora di averlo letto,
+// e un worker che muore subito dopo lascerebbe invisibile per sempre tutto cio' che sta sotto.
+//
+// E' un INSERT come SetStoricoFinoA e per lo stesso motivo: una (casella, cartella) sincronizzata
+// per la prima volta in una finestra dove non c'era nessuna mail non ha ancora una riga, e proprio
+// quello e' il caso che questa colonna esiste per ricordare.
+//
+// GREATEST: due tentativi non possono farla arretrare. Arretrare sarebbe innocuo (si rilegge), ma
+// renderebbe illeggibile il significato della colonna.
+func (q *Queries) SetCopertoFinoA(ctx context.Context, arg SetCopertoFinoAParams) error {
+	_, err := q.db.Exec(ctx, setCopertoFinoA, arg.CasellaID, arg.Cartella, arg.CopertoFinoA)
 	return err
 }
 
@@ -1186,6 +1222,10 @@ type UpsertSyncCursoreParams struct {
 	Errore         pgtype.Text `json:"errore"`
 }
 
+// `ultimo_received` e' la mail piu' RECENTE che abbiamo di quella (casella, cartella), non fin dove
+// si e' guardato: avanza per lotto, in transazione con gli elementi, e GREATEST impedisce che due
+// tentativi la facciano arretrare (Q22). Dalla 0010 non decide piu' nessuna finestra — la frontiera
+// e' `coperto_fino_a`, che si scrive altrove e a condizioni molto piu' severe.
 func (q *Queries) UpsertSyncCursore(ctx context.Context, arg UpsertSyncCursoreParams) error {
 	_, err := q.db.Exec(ctx, upsertSyncCursore,
 		arg.CasellaID,

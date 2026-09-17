@@ -354,37 +354,37 @@ class MemoriaRestrict:
             log.warning("esito del self-test Restrict non memorizzato in %s: %s", self.percorso, e)
 
 
-def _scorri(items, dove: str = "", alza: bool = False):
+def _scorri(items, dove: str = ""):
     """Gli elementi di una collezione COM, uno alla volta. GetFirst/GetNext e non `for x in items`:
-    l'iteratore di pywin32 su una collezione Items grande è più lento e non rispetta sempre Sort.
+    l'iteratore di pywin32 su una collezione Items grande e' piu' lento e non rispetta sempre Sort.
 
-    L'avanzamento stesso è protetto: `GetNext` su una collezione che Outlook sta ricostruendo può
-    alzare `com_error`. Che cosa fare dopo dipende dall'ORDINE, ed è per questo che `alza` esiste:
+    L'avanzamento stesso e' protetto: `GetNext` su una collezione che Outlook sta ricostruendo puo'
+    alzare `com_error`. Che cosa fare dopo dipende dall'ORDINE, e con il blocco 3 del 3R l'ordine e'
+    cambiato in tutti e due i modi di leggere:
 
-      crescente (Restrict)  ciò che si è letto è il pezzo VECCHIO della finestra: fermarsi qui è
-                            sicuro, il cursore avanza solo su ciò che è stato consegnato e il resto
-                            si rilegge al giro dopo. Si registra un errore e si chiude;
-      decrescente (lineare) ciò che si è letto è il pezzo NUOVO: consegnarlo porterebbe il cursore
-                            oltre messaggi mai guardati. Chi chiama passa `alza=True` e la cartella
-                            fallisce senza consegnare niente.
+      prima, crescente    cio' che si era letto era il pezzo VECCHIO della finestra. Fermarsi li' era
+                          sicuro: il cursore avanzava solo su cio' che era stato consegnato, e il
+                          resto — la parte nuova — veniva riletto al giro dopo. Quindi si registrava
+                          l'errore e ci si chiudeva in silenzio;
+      adesso, decrescente cio' che si e' letto e' il pezzo NUOVO. Cio' che resta fuori e' il pezzo
+                          VECCHIO, e sopra ci passa un limite superiore di finestra che, se qualcuno
+                          dichiarasse conclusa quella finestra, coprirebbe anche la parte mai
+                          guardata: messaggi che nessuno andrebbe piu' a cercare.
+
+    Percio' adesso l'interruzione alza sempre. Non e' una precauzione in piu': e' l'unico modo in cui
+    chi ha chiesto la lettura puo' sapere di non aver visto tutto. Una finestra interrotta si
+    rilegge; una finestra interrotta e creduta completa e' posta persa.
     """
     try:
         it = items.GetFirst()
     except ERRORI_ELEMENTO as e:
-        if alza:
-            raise LetturaIncompleta("%s: la collezione non si apre (%s)" % (dove or "cartella", e)) from e
-        log.error("%s: la collezione non si apre (%s): nessun elemento letto", dove or "cartella", e)
-        return
+        raise LetturaIncompleta("%s: la collezione non si apre (%s)" % (dove or "cartella", e)) from e
     while it is not None:
         yield it
         try:
             it = items.GetNext()
         except ERRORI_ELEMENTO as e:
-            if alza:
-                raise LetturaIncompleta("%s: enumerazione interrotta (%s)" % (dove or "cartella", e)) from e
-            log.error("%s: enumerazione interrotta (%s): la finestra si rilegge al prossimo sync",
-                      dove or "cartella", e)
-            return
+            raise LetturaIncompleta("%s: enumerazione interrotta (%s)" % (dove or "cartella", e)) from e
 
 
 def _entry_id(elementi) -> set:
@@ -580,8 +580,7 @@ class Outlook:
 
     def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None, store_id: str = "",
               saltati: "Saltati | None" = None) -> Iterator[MessaggioIn]:
-        """Elementi MailItem della cartella con ReceivedTime >= dal (e <= al se specificato), in
-        ordine cronologico CRESCENTE, uno alla volta.
+        """Elementi MailItem della finestra [dal, al], dal piu’ RECENTE al piu’ vecchio, uno alla volta.
 
         Due modi di trovarli, e il primo è quello buono (voce 2.9):
 
@@ -594,11 +593,22 @@ class Outlook:
                      su questa cartella, e resta la definizione di «giusto» con cui il self-test
                      confronta l'altro.
 
-        L'ordine crescente non è un dettaglio estetico: il cursore avanza mentre i lotti partono, e
-        con un ordine qualunque un lotto potrebbe portare un cursore più avanti di messaggi non
-        ancora spediti. Se il job muore lì, quei messaggi restano indietro al cursore e nessuno li
-        rilegge più. Perciò, quando non si riesce a ordinare in modo crescente, si usa la lineare —
-        che l'ordine ce l'ha per costruzione.
+        L'ordine non è un dettaglio estetico, e dal blocco 3 del 3R è il contrario di prima.
+
+        Prima si leggeva in ordine CRESCENTE perché il cursore avanzava mentre i lotti partivano:
+        in quel modo un'interruzione lasciava indietro solo la parte nuova della finestra, e quella
+        si rileggeva al giro dopo. Il prezzo era che l'operatore vedeva comparire per prima la posta
+        più vecchia — su una notte intera, la mail delle 17:05 di ieri prima di quella delle 09:00.
+
+        Adesso si legge dal più recente, che è l'ordine in cui la posta serve, e la sicurezza non
+        viene più dall'ordine: viene dal fatto che NESSUNA frontiera si muove finché la finestra non
+        è stata percorsa tutta. I lotti partono comunque man mano — il lavoro fatto non si butta —
+        ma coprono, non promettono. Per questo un'enumerazione interrotta qui alza sempre
+        `LetturaIncompleta`: è il solo modo che ha chi chiama di non dichiarare completa una finestra
+        di cui ha visto solo la cima.
+
+        Quando non si riesce a ordinare in modo decrescente la cartella fallisce: senza ordine non
+        c'è né un inizio né una fine sicuri.
 
         `store_id` è lo store della casella del job (voce 2.6): la cartella è la SUA.
 
@@ -672,23 +682,23 @@ class Outlook:
         return self._lineari(cart, dal, al, saltati)
 
     def _ristretti(self, cart, dal: datetime, al: datetime | None):
-        """Items.Restrict + ordinamento crescente. None se una delle due cose non riesce: chi chiama
-        passa alla lineare invece di leggere in un ordine qualunque."""
+        """Items.Restrict + ordinamento DECRESCENTE. None se una delle due cose non riesce: chi
+        chiama passa alla lineare invece di leggere in un ordine qualunque."""
         try:
             items = cart.Items.Restrict(filtro_finestra(dal, al))
-            items.Sort("[ReceivedTime]", False)
+            items.Sort("[ReceivedTime]", True)
         except ERRORI_ELEMENTO as e:
             log.warning("Restrict non disponibile su %s (%s): scansione lineare", nome_di(cart), e)
             return None
-        # ordine crescente: un'enumerazione che si rompe a metà lascia indietro la parte NUOVA della
-        # finestra, che il cursore non ha ancora superato. Si registra e si chiude, non si alza.
         return _scorri(items, dove=nome_di(cart))
 
     def _lineari(self, cart, dal: datetime, al: datetime | None, saltati: "Saltati | None" = None):
         """La scansione all'indietro: dal più recente fino al primo più vecchio di `dal`.
 
-        Raccoglie e inverte, quindi tiene in memoria la finestra: è il motivo per cui non è il modo
-        buono su una cartella grande, oltre al tempo. Resta però quello di cui ci si fida.
+        Resta il modo lento — deve passare su tutta la cartella per trovare il bordo della finestra
+        — ma è quello di cui ci si fida, e dal blocco 3 non tiene più niente in memoria: prima
+        raccoglieva tutta la finestra in una lista per poterla invertire e restituirla in ordine
+        crescente, adesso l'ordine chiesto è quello in cui la collezione già si trova.
 
         Qui viveva il difetto del 3R: `item.ReceivedTime` veniva letto PRIMA di qualunque controllo
         sulla classe dell'elemento, e protetto dal solo `com_error`. Un elemento non-mail alza
@@ -703,8 +713,7 @@ class Outlook:
         except ERRORI_ELEMENTO as e:
             # senza ordinamento decrescente la scansione non ha né inizio né fine sicuri
             raise LetturaIncompleta("%s: ordinamento non riuscito (%s)" % (nome, e)) from e
-        raccolti = []
-        for item in _scorri(items, dove=nome, alza=True):
+        for item in _scorri(items, dove=nome):
             classe = classe_di(item)
             if classe is not None and classe != OL_MAIL:
                 self._registra_saltato(saltati, cart, item, "elemento non-mail", classe, rileggibile=False)
@@ -718,10 +727,8 @@ class Outlook:
             if al is not None and rt > al:
                 continue
             if rt < dal:
-                break
-            raccolti.append(item)
-        raccolti.reverse()
-        return iter(raccolti)
+                return
+            yield item
 
     def misura_finestra(self, cart, dal: datetime, al: datetime | None = None) -> dict:
         """Esegue i DUE modi sulla stessa finestra e restituisce insiemi e tempi.

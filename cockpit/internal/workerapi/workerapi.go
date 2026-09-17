@@ -726,6 +726,19 @@ func enumValido[T interface {
 	return e, nil
 }
 
+// modoDi legge il modo di un sync_outlook. Un payload accodato prima del blocco 3 non ce l'ha: lì
+// l'unico segnale era il limite superiore, presente solo nello storico. La regola vecchia si legge
+// ancora per i job rimasti in coda durante l'aggiornamento; i nuovi lo dichiarano.
+func modoDi(p api.PayloadSyncOutlook) string {
+	if p.Modo != "" {
+		return p.Modo
+	}
+	if p.Al != nil {
+		return api.ModoStorico
+	}
+	return api.ModoAggiornamento
+}
+
 // applicaRisultato scrive nel DB gli effetti di un job riuscito. `prep` è valorizzato solo per un
 // download di allegato, ed è stato calcolato fuori dalla transazione.
 func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, prep *stagePronto) error {
@@ -747,18 +760,57 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if !cas.Valid {
 			return fmt.Errorf("risultato di sync senza casella: il cursore è per (casella, cartella) e non si può attribuire")
 		}
+		finestre := map[string]api.CartellaCursore{}
+		for _, c := range p.Cartelle {
+			finestre[c.Cartella] = c
+		}
 		for _, c := range r.Cartelle {
+			// `ultimo_received` è la mail più recente che abbiamo di quella cartella, e si scrive
+			// comunque: è un fatto sui messaggi consegnati, non una promessa su ciò che è stato
+			// guardato. Anche una finestra interrotta a metà ha consegnato dei messaggi, e il più
+			// recente di quelli è il più recente che abbiamo.
 			if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
 				CasellaID: cas.UUID, Cartella: c.Cartella, UltimoReceived: c.UltimoReceived,
 				NMessaggi: int32(c.NMessaggi), Errore: txt(c.Errore),
 			}); err != nil {
 				return err
 			}
-			// sync storico riuscito per la cartella: la finestra [dal, al] è coperta, il prossimo "Carica precedenti" parte da dal
-			if p.Al != nil && c.Errore == "" {
-				if err := q.SetStoricoFinoA(ctx, db.SetStoricoFinoAParams{CasellaID: cas.UUID, Cartella: c.Cartella, StoricoFinoA: &p.Dal}); err != nil {
+			// Le FRONTIERE avanzano solo su dichiarazione esplicita del worker. Non «se il job non è
+			// esploso», non «se il campo errore è vuoto»: quelle due condizioni erano vere anche
+			// quando un'enumerazione COM si fermava a metà senza alzare niente, e in lettura dal più
+			// recente al più vecchio ciò che resta fuori è la parte VECCHIA della finestra — cioè
+			// proprio quella che, dichiarata coperta, nessuno riaprirebbe mai più (blocco 1 del 3R,
+			// il caso lasciato aperto dal revisore).
+			if !c.Completa {
+				s.Log.Warn("finestra non conclusa: la frontiera resta dov'era", "job", j.JobID,
+					"cartella", c.Cartella, "messaggi", c.NMessaggi, "errore", c.Errore)
+				continue
+			}
+			f := finestre[c.Cartella]
+			if modoDi(p) == api.ModoStorico {
+				// la finestra [dal, al] di QUESTA cartella è coperta: il prossimo «Carica precedenti»
+				// riparte dal suo dal
+				dal := p.Dal
+				if f.Dal != nil {
+					dal = *f.Dal
+				}
+				if err := q.SetStoricoFinoA(ctx, db.SetStoricoFinoAParams{CasellaID: cas.UUID, Cartella: c.Cartella, StoricoFinoA: &dal}); err != nil {
 					return err
 				}
+				continue
+			}
+			al := f.Al
+			if al == nil {
+				al = p.Al
+			}
+			if al == nil {
+				// payload accodato prima del blocco 3: non aveva un limite superiore fissato, quindi
+				// non esiste un istante di cui si possa dire «scandito fino a qui». Si rilegge.
+				s.Log.Warn("sync senza limite superiore: la copertura non avanza", "job", j.JobID, "cartella", c.Cartella)
+				continue
+			}
+			if err := q.SetCopertoFinoA(ctx, db.SetCopertoFinoAParams{CasellaID: cas.UUID, Cartella: c.Cartella, CopertoFinoA: al}); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -1133,7 +1185,7 @@ func (s *Server) cursori(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]api.CartellaCursore, 0, len(c))
 	for _, x := range c {
-		out = append(out, api.CartellaCursore{Cartella: x.Cartella, UltimoReceived: x.UltimoReceived})
+		out = append(out, api.CartellaCursore{Cartella: x.Cartella, UltimoReceived: x.UltimoReceived, CopertoFinoA: x.CopertoFinoA})
 	}
 	scriviJSON(w, 200, out)
 }

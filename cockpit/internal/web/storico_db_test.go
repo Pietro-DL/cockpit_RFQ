@@ -14,6 +14,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -58,6 +59,10 @@ func (b *bancoWeb) jobStorici() map[uuid.UUID]api.PayloadSyncOutlook {
 // finiscono fa quello che farebbe il worker quando un sync storico riesce: segna la finestra come
 // coperta (`storico_fino_a` = il `dal` di quella finestra) e chiude il job. È la stessa scrittura di
 // workerapi.applica, e senza di essa il clic successivo non saprebbe da dove ripartire.
+//
+// Scrive in database invece di passare dalla porta perché qui interessa il CALCOLO della finestra
+// successiva, non chi la scrive. Che sia il server a decidere se scriverla — e che non la scriva su
+// una finestra interrotta — lo prova SS5, che passa da claim e result veri.
 func (b *bancoWeb) finiscono() {
 	b.t.Helper()
 	for _, j := range b.jobInterattivi() {
@@ -74,6 +79,214 @@ func (b *bancoWeb) finiscono() {
 		}
 		if _, err := b.pool.Exec(b.ctx, "UPDATE job SET stato = 'fatto', chiuso_il = now() WHERE job_id = $1", j.JobID); err != nil {
 			b.t.Fatal(err)
+		}
+	}
+}
+
+// riportaJob manda un risultato dalla porta vera del worker, con il tentativo che il claim ha
+// consegnato. È il percorso completo — claim, lease, result, applicaRisultato — e serve dove la
+// scrittura diretta in database non proverebbe niente: la decisione su una frontiera la prende il
+// server guardando quel risultato.
+func (b *bancoWeb) riportaJob(nome string, j *api.Job, cartelle []api.CartellaEsito) {
+	b.t.Helper()
+	dati, err := json.Marshal(api.RisultatoSync{Cartelle: cartelle})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	corpo, _ := json.Marshal(api.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: nome, LeaseToken: j.LeaseToken})
+	r, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/jobs/%d/result", b.srv.URL, j.JobID), strings.NewReader(string(corpo)))
+	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
+	r.Header.Set("X-Prova-IP", "10.0.0.5:4000")
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		b.t.Fatalf("result del job %d: %d", j.JobID, resp.StatusCode)
+	}
+}
+
+// cartelleDel è l'elenco delle cartelle di un payload di sync, con l'esito che si vuole dichiarare.
+func cartelleDel(p api.PayloadSyncOutlook, completa bool, errore string) []api.CartellaEsito {
+	out := make([]api.CartellaEsito, 0, len(p.Cartelle))
+	for _, c := range p.Cartelle {
+		out = append(out, api.CartellaEsito{Cartella: c.Cartella, NMessaggi: 2, Completa: completa, Errore: errore})
+	}
+	return out
+}
+
+// G — blocco 3 del 3R: uno storico interrotto a metà non sposta il limite storico.
+//
+// È il caso che il revisore ha chiesto di aggiungere qui, e passa tutto dalla porta: clic, claim,
+// result. Il job HTTP finisce bene — `esito: ok` — e la cartella non riporta nemmeno un errore: solo
+// non dichiara di aver percorso la finestra. Se il limite storico avanzasse lo stesso, quei due
+// giorni resterebbero segnati come coperti e il clic successivo partirebbe da sotto, saltandoli.
+//
+// La condizione precedente era `c.Errore == ""`, cioè l'assenza di un guasto: qui il guasto non c'è,
+// e la finestra non è stata letta lo stesso.
+func TestSS5UnoStoricoInterrottoNonAvanzaIlLimiteStorico(t *testing.T) {
+	b := preparaBancoWeb(t)
+	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
+	chi := b.browser("10.0.0.5:4000")
+	chi.login("FP", "prova-fp")
+	clic := func() map[uuid.UUID]api.PayloadSyncOutlook {
+		t.Helper()
+		if resp, corpo := chi.fai(http.MethodPost, "/inbox/sync-storico", url.Values{}, true); resp.StatusCode != 200 {
+			t.Fatalf("carica precedenti: %d %s", resp.StatusCode, corpo)
+		}
+		return b.jobStorici()
+	}
+
+	prima := clic()
+	if len(prima) == 0 {
+		t.Fatal("nessun job storico accodato")
+	}
+	// il worker prende i job e ne riporta uno per volta, dichiarando le finestre NON percorse
+	for i := 0; i < len(prima)+2; i++ {
+		j := b.claimaUnJob("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
+		if j == nil {
+			break
+		}
+		if j.Tipo != string(db.TipoJobSyncOutlook) {
+			continue
+		}
+		var p api.PayloadSyncOutlook
+		if err := json.Unmarshal(j.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		b.riportaJob("outlook@PC-FRANCESCO", j, cartelleDel(p, false, ""))
+	}
+
+	// nessuna cartella può essersi dichiarata coperta
+	righe, err := b.q.ListSyncCursori(b.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range righe {
+		if r.StoricoFinoA != nil {
+			t.Errorf("%s/%s: limite storico a %v dopo una finestra mai percorsa: quei due giorni "+
+				"risultano coperti e il clic successivo li salterà", r.CasellaIndirizzo, r.Cartella, r.StoricoFinoA)
+		}
+		if r.CopertoFinoA != nil {
+			t.Errorf("%s/%s: uno storico ha mosso la copertura RECENTE a %v: sono due frontiere diverse",
+				r.CasellaIndirizzo, r.Cartella, r.CopertoFinoA)
+		}
+	}
+
+	// e il clic successivo ripropone la STESSA finestra, non quella di due giorni più in giù
+	dopo := clic()
+	for casella, seconda := range dopo {
+		primaFinestra, ok := prima[casella]
+		if !ok {
+			continue
+		}
+		// Se il limite storico fosse avanzato, la seconda finestra finirebbe esattamente dove
+		// cominciava la prima: e' la forma di SS2, cioe' di un clic che prosegue. Qui deve invece
+		// ricalcolare la stessa finestra.
+		if d := seconda.Al.Sub(primaFinestra.Dal); d > -time.Hour && d < time.Hour {
+			t.Errorf("%s: la seconda finestra finisce a %v, cioe' dove cominciava la prima (%v): il "+
+				"limite storico e' avanzato su due giorni mai letti", casella, *seconda.Al, primaFinestra.Dal)
+		}
+		// e' la stessa finestra, ricalcolata: il ripiego e' «adesso» e fra i due clic passa un attimo
+		if d := seconda.Dal.Sub(primaFinestra.Dal); d > time.Minute || d < -time.Minute {
+			t.Errorf("%s: dopo l'interruzione il clic riparte da %v invece che da %v: i due giorni "+
+				"non letti sono stati saltati", casella, seconda.Dal, primaFinestra.Dal)
+		}
+	}
+}
+
+// SS6 — J del blocco 3, dal lato dello storico: ogni (casella, cartella) ha il SUO limite storico,
+// e la finestra di un clic e' la sua, non quella della vicina.
+//
+// IL DIFETTO, che stava qui dal principio: `finestraStorico` prendeva il piu' VECCHIO degli
+// `storico_fino_a` della casella e applicava quella finestra a tutte le cartelle. Due cartelle che
+// scendono a velocita' diverse bastano a produrne il danno — succede appena una fallisce un giro, o
+// appena se ne aggiunge una a una casella gia' in archivio. La cartella rimasta piu' avanti riceveva
+// una finestra che non arrivava a toccare il proprio limite, e a fine job si scriveva lo stesso il
+// nuovo `storico_fino_a`: l'intervallo fra il proprio limite e quello della vicina risultava coperto
+// senza che nessuno l'avesse mai letto. Nessun errore, nessun avviso, e nessun modo di accorgersene
+// dopo.
+func TestSS6OgniCartellaScendeConLaSuaFinestra(t *testing.T) {
+	b := preparaBancoWeb(t)
+	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
+	chi := b.browser("10.0.0.5:4000")
+	chi.login("FP", "prova-fp")
+
+	// la Posta in arrivo e' gia' scesa di una settimana, la Posta inviata solo di un giorno
+	inbox := time.Now().AddDate(0, 0, -7).UTC().Truncate(time.Second)
+	inviata := time.Now().AddDate(0, 0, -1).UTC().Truncate(time.Second)
+	for cartella, fin := range map[string]time.Time{"Inbox": inbox, "Sent Items": inviata} {
+		q := fin
+		if err := b.q.SetStoricoFinoA(b.ctx, db.SetStoricoFinoAParams{
+			CasellaID: b.francesco, Cartella: cartella, StoricoFinoA: &q,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if resp, corpo := chi.fai(http.MethodPost, "/inbox/sync-storico", url.Values{}, true); resp.StatusCode != 200 {
+		t.Fatalf("carica precedenti: %d %s", resp.StatusCode, corpo)
+	}
+	p, ok := b.jobStorici()[b.francesco]
+	if !ok {
+		t.Fatal("nessun job storico per la casella con i due limiti")
+	}
+	atteso := map[string]time.Time{"Inbox": inbox, "Sent Items": inviata}
+	visti := map[string]bool{}
+	for _, c := range p.Cartelle {
+		fin, previsto := atteso[c.Cartella]
+		if !previsto {
+			continue
+		}
+		visti[c.Cartella] = true
+		if c.Al == nil || c.Dal == nil {
+			t.Fatalf("%s: finestra senza estremi nel payload", c.Cartella)
+		}
+		if d := c.Al.Sub(fin); d > time.Millisecond || d < -time.Millisecond {
+			t.Errorf("%s: la finestra finisce a %v invece che al suo limite storico %v. Con la finestra "+
+				"della cartella piu' indietro, l'intervallo fra i due limiti risulterebbe coperto senza "+
+				"essere stato letto", c.Cartella, *c.Al, fin)
+		}
+		if ampiezza := c.Al.Sub(*c.Dal); ampiezza != dueGiorni {
+			t.Errorf("%s: finestra di %v, attesi %v", c.Cartella, ampiezza, dueGiorni)
+		}
+	}
+	if len(visti) != 2 {
+		t.Fatalf("le due cartelle non sono tutte e due nel payload: %v", visti)
+	}
+
+	// e a finestra conclusa ciascuna scende AL SUO passo: il nuovo limite di una cartella e' il `dal`
+	// della SUA finestra. Scrivere per tutte l'inviluppo del payload — il piu' vecchio dei due `dal` —
+	// farebbe scendere la cartella piu' avanti di piu' di due giorni in un colpo solo, dichiarando
+	// coperto un tratto che quel job non ha letto.
+	for i := 0; i < 6; i++ {
+		j := b.claimaUnJob("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
+		if j == nil {
+			break
+		}
+		var q api.PayloadSyncOutlook
+		if j.Tipo != string(db.TipoJobSyncOutlook) || json.Unmarshal(j.Payload, &q) != nil {
+			continue
+		}
+		b.riportaJob("outlook@PC-FRANCESCO", j, cartelleDel(q, true, ""))
+	}
+	for _, c := range p.Cartelle {
+		fin, previsto := atteso[c.Cartella]
+		if !previsto || c.Dal == nil {
+			continue
+		}
+		cur, err := b.q.GetSyncCursore(b.ctx, db.GetSyncCursoreParams{CasellaID: b.francesco, Cartella: c.Cartella})
+		if err != nil {
+			t.Fatalf("%s: %v", c.Cartella, err)
+		}
+		if cur.StoricoFinoA == nil {
+			t.Fatalf("%s: finestra conclusa e limite storico non scritto", c.Cartella)
+		}
+		if d := cur.StoricoFinoA.Sub(*c.Dal); d > time.Millisecond || d < -time.Millisecond {
+			t.Errorf("%s: il nuovo limite storico e' %v invece del `dal` della sua finestra (%v). "+
+				"Era %v: e' sceso di %v invece dei %v letti", c.Cartella, *cur.StoricoFinoA, *c.Dal,
+				fin, fin.Sub(*cur.StoricoFinoA), dueGiorni)
 		}
 	}
 }

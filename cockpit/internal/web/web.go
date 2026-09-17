@@ -639,7 +639,8 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cid := c.CasellaID
-		payload := api.PayloadSyncOutlook{CasellaID: &cid, Cartelle: cartelle, Dal: dal, Al: &al, SovrapposizioneS: 600, Lotto: 50}
+		payload := api.PayloadSyncOutlook{CasellaID: &cid, Modo: api.ModoStorico, Cartelle: cartelle,
+			Dal: dal, Al: &al, SovrapposizioneS: 0, Lotto: 50}
 		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, jobs.PrioritaSyncStorico,
 			jobs.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 		if err != nil {
@@ -658,36 +659,67 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 	s.badgeStorico(w, ultimo)
 }
 
-// finestraStorico calcola [al - GiorniStorico, al] e le cartelle da leggere per UNA casella (senza
-// cursore: finestra esatta). «Quanto indietro siamo già andati» è una proprietà della casella:
-// mescolare le storie di due caselle farebbe ripartire l'una da dove è arrivata l'altra.
+// finestraStorico calcola la finestra di «Carica precedenti» per UNA casella: una PER CARTELLA, più
+// l'inviluppo [dal, al] che il badge mostra all'operatore.
 //
-// Le finestre si incastrano senza buchi: `al` è lo `storico_fino_a` lasciato dal clic precedente,
-// cioè il `dal` di quella finestra, quindi la successiva è [al-2gg, al] esatta. Il primo clic parte
-// dalla mail più vecchia che la casella ha in archivio (o da adesso, se non ne ha nessuna).
+// «Quanto indietro siamo già andati» è una proprietà di (casella, cartella), e va trattata come
+// tale. Prima si prendeva il più VECCHIO degli `storico_fino_a` della casella e lo si applicava a
+// tutte le cartelle: la cartella rimasta più avanti riceveva una finestra che non arrivava a
+// toccare la propria frontiera, e a fine job si scriveva lo stesso il nuovo limite — cioè si
+// dichiarava coperto un intervallo che quella cartella non aveva mai letto. Due cartelle che
+// scendono a velocità diverse bastavano a produrlo, e nessuno se ne sarebbe accorto.
+//
+// Le finestre si incastrano senza buchi perché ciascuna riparte esattamente dal proprio limite: `al`
+// è lo `storico_fino_a` lasciato dal clic precedente su QUELLA cartella, cioè il suo `dal`, quindi
+// la successiva è [al - GiorniStorico, al] esatta. Il primo clic parte dalla mail più vecchia che la
+// casella ha in archivio (o da adesso, se non ne ha nessuna).
 func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
 	cursori, _ := q.ListSyncCursoriCasella(ctx, casella)
+	// il fondo di ripiego, per le cartelle che non hanno ancora un limite storico: la mail più
+	// vecchia della casella, o adesso se non ce n'è nessuna
+	partenza := time.Time{}
 	for _, c := range cursori {
-		cartelle = append(cartelle, api.CartellaCursore{Cartella: c.Cartella})
-		if c.StoricoFinoA != nil && (al.IsZero() || c.StoricoFinoA.Before(al)) {
-			al = *c.StoricoFinoA
+		if c.StoricoFinoA != nil && (partenza.IsZero() || c.StoricoFinoA.Before(partenza)) {
+			partenza = *c.StoricoFinoA
 		}
 	}
-	if len(cartelle) == 0 {
-		cartelle = []api.CartellaCursore{{Cartella: "Inbox"}, {Cartella: "Sent Items"}}
-	}
-	if al.IsZero() {
+	if partenza.IsZero() {
 		var minData *time.Time
 		if err = s.Pool.QueryRow(ctx, `SELECT min(mc.ricevuto_il) FROM messaggio_casella mc WHERE mc.casella_id = $1`, casella).Scan(&minData); err != nil {
 			return
 		}
 		if minData != nil {
-			al = *minData
+			partenza = *minData
 		} else {
-			al = time.Now()
+			partenza = time.Now()
 		}
 	}
-	dal = al.AddDate(0, 0, -GiorniStorico)
+	nomi := make([]string, 0, len(cursori))
+	limite := map[string]time.Time{}
+	for _, c := range cursori {
+		nomi = append(nomi, c.Cartella)
+		if c.StoricoFinoA != nil {
+			limite[c.Cartella] = *c.StoricoFinoA
+		}
+	}
+	if len(nomi) == 0 {
+		nomi = []string{"Inbox", "Sent Items"}
+	}
+	for _, nome := range nomi {
+		fine, ok := limite[nome]
+		if !ok {
+			fine = partenza
+		}
+		inizio := fine.AddDate(0, 0, -GiorniStorico)
+		f, i := fine, inizio
+		cartelle = append(cartelle, api.CartellaCursore{Cartella: nome, Dal: &i, Al: &f})
+		if al.IsZero() || fine.After(al) {
+			al = fine
+		}
+		if dal.IsZero() || inizio.Before(dal) {
+			dal = inizio
+		}
+	}
 	return
 }
 

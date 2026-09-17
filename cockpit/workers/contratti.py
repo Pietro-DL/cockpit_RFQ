@@ -185,18 +185,49 @@ class RisultatoRichiesta(Base):
 
 # ---------------------------------------------------------------- payload e risultati per tipo di job
 
+# I tre modi di un sync_outlook (blocco 3 del 3R). Non sono tre meccanismi: sono tre modi di decidere
+# la PRIMA finestra. Da li' in poi tutti e tre leggono un intervallo chiuso [dal, al] fissato
+# all'accodamento, dal piu' recente al piu' vecchio, e il server sposta la frontiera solo quando il
+# worker dichiara di aver percorso la finestra per intero.
+MODO_AGGIORNAMENTO = "aggiornamento"
+MODO_BOOTSTRAP = "bootstrap"
+MODO_STORICO = "storico"
+
+
 class CartellaCursore(Base):
+    """Una cartella da leggere con la SUA finestra, decisa dal server all'accodamento.
+
+    Il worker non calcola piu' nessun limite: due cartelle della stessa casella possono essere a
+    punti diversi (una sincronizzata da mesi, una aggiunta stamattina), e il limite di ciascuna
+    dipende dalla sua copertura, non da quella della vicina.
+    """
+
     cartella: str
-    ultimo_received: datetime | None = None
+    dal: datetime | None = None          # limite inferiore di QUESTA cartella, sovrapposizione gia' sottratta
+    al: datetime | None = None           # limite superiore di QUESTA cartella
+    bootstrap: bool = False              # non aveva ancora una copertura: `dal` e' la finestra iniziale
+    ultimo_received: datetime | None = None   # diagnostica: la mail piu' recente che il server ha
+    coperto_fino_a: datetime | None = None    # diagnostica: fin dove si era gia' guardato
 
 
 class PayloadSyncOutlook(Base):
     casella_id: UUID | None = None
+    # vuoto = payload accodato prima del blocco 3 e rimasto in coda: si legge con modo_effettivo(),
+    # dove l'unico segnale era il limite superiore. Il server ha la stessa scaletta (`modoDi`), e
+    # devono restare d'accordo: se una parte credesse storico cio' che l'altra crede aggiornamento,
+    # si muoverebbe la frontiera sbagliata.
+    modo: str = ""
     cartelle: list[CartellaCursore]
-    dal: datetime
-    al: datetime | None = None
+    dal: datetime                        # inviluppo: il piu' vecchio dei `cartelle[].dal`
+    al: datetime | None = None           # inviluppo: fissato all'accodamento
     sovrapposizione_s: int = 600
     lotto: int = 50
+
+
+    def modo_effettivo(self) -> str:
+        if self.modo:
+            return self.modo
+        return MODO_STORICO if self.al is not None else MODO_AGGIORNAMENTO
 
 
 class CartellaEsito(Base):
@@ -207,6 +238,11 @@ class CartellaEsito(Base):
     # `saltati` dell'ingest e diventano scarti di lettura, questo e il conto di TUTTI.
     saltati: int = 0
     errore: str = ""
+    # completa: la finestra [dal, al] e' stata percorsa per INTERO. E' l'unica cosa che fa avanzare
+    # una frontiera, ed e' una dichiarazione positiva: un'enumerazione COM che si interrompe puo'
+    # finire senza eccezioni e con `errore` vuoto, e in lettura dal piu' recente al piu' vecchio cio'
+    # che resta fuori e' la parte VECCHIA della finestra. Assente = False = si rilegge.
+    completa: bool = False
 
 
 class RisultatoSync(Base):

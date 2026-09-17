@@ -190,11 +190,35 @@ ORDER BY c.indirizzo, sc.cartella;
 SELECT * FROM sync_cursore WHERE casella_id = $1 ORDER BY cartella;
 
 -- name: UpsertSyncCursore :exec
+-- `ultimo_received` e' la mail piu' RECENTE che abbiamo di quella (casella, cartella), non fin dove
+-- si e' guardato: avanza per lotto, in transazione con gli elementi, e GREATEST impedisce che due
+-- tentativi la facciano arretrare (Q22). Dalla 0010 non decide piu' nessuna finestra — la frontiera
+-- e' `coperto_fino_a`, che si scrive altrove e a condizioni molto piu' severe.
 INSERT INTO sync_cursore (casella_id, cartella, ultimo_received, ultimo_sync, n_messaggi, errore)
 VALUES ($1, $2, $3, now(), $4, $5)
 ON CONFLICT (casella_id, cartella) DO UPDATE SET
     ultimo_received = GREATEST(COALESCE(sync_cursore.ultimo_received, EXCLUDED.ultimo_received), EXCLUDED.ultimo_received),
     ultimo_sync = now(), n_messaggi = sync_cursore.n_messaggi + EXCLUDED.n_messaggi, errore = EXCLUDED.errore;
+
+-- name: SetCopertoFinoA :exec
+-- La frontiera RECENTE: fin dove Outlook e' stato scandito per intero (0010).
+--
+-- La scrive un punto solo, `applicaRisultato`, e solo per le cartelle che il worker ha dichiarato
+-- COMPLETE: non a ogni lotto, e non perche' il job HTTP e' finito senza eccezioni. In lettura dal
+-- piu' recente al piu' vecchio il primo lotto contiene gia' la mail piu' nuova della finestra: farla
+-- avanzare li' significherebbe dichiarare coperto tutto l'intervallo prima ancora di averlo letto,
+-- e un worker che muore subito dopo lascerebbe invisibile per sempre tutto cio' che sta sotto.
+--
+-- E' un INSERT come SetStoricoFinoA e per lo stesso motivo: una (casella, cartella) sincronizzata
+-- per la prima volta in una finestra dove non c'era nessuna mail non ha ancora una riga, e proprio
+-- quello e' il caso che questa colonna esiste per ricordare.
+--
+-- GREATEST: due tentativi non possono farla arretrare. Arretrare sarebbe innocuo (si rilegge), ma
+-- renderebbe illeggibile il significato della colonna.
+INSERT INTO sync_cursore (casella_id, cartella, coperto_fino_a)
+VALUES ($1, $2, $3)
+ON CONFLICT (casella_id, cartella) DO UPDATE SET
+    coperto_fino_a = GREATEST(COALESCE(sync_cursore.coperto_fino_a, EXCLUDED.coperto_fino_a), EXCLUDED.coperto_fino_a);
 
 -- name: SetStoricoFinoA :exec
 -- Quanto indietro è già arrivato "Carica precedenti" su quella (casella, cartella).

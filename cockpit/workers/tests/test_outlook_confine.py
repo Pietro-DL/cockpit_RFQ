@@ -82,7 +82,7 @@ def test_un_elemento_senza_received_time_non_ferma_la_scansione():
     cart = CartellaFinta(_tre_elementi())
     saltati = outlook_com.Saltati()
     letti = [e.EntryID for e in _outlook()._lineari(cart, BASE - timedelta(hours=1), None, saltati)]
-    assert letti == ["E001", "E003"], letti
+    assert letti == ["E003", "E001"], letti        # dal piu’ recente al piu’ vecchio (blocco 3)
     assert saltati.totale == 1
     assert saltati.elementi == [], "un elemento non-mail non è da rileggere: in scarto non ci va"
 
@@ -95,7 +95,7 @@ def test_un_com_error_su_una_proprieta_salta_solo_quell_elemento():
     ])
     saltati = outlook_com.Saltati()
     letti = [e.EntryID for e in _outlook()._lineari(cart, BASE - timedelta(hours=1), None, saltati)]
-    assert letti == ["E001", "E003"], letti
+    assert letti == ["E003", "E001"], letti
     assert saltati.totale == 1
 
 
@@ -104,7 +104,7 @@ def test_una_classe_illeggibile_non_fa_scartare_una_mail():
     cart = CartellaFinta([ElementoSenzaClasse("E001", BASE), MailFinta("E002", BASE + timedelta(hours=1))])
     saltati = outlook_com.Saltati()
     letti = [e.EntryID for e in _outlook()._lineari(cart, BASE - timedelta(hours=1), None, saltati)]
-    assert letti == ["E001", "E002"], letti
+    assert letti == ["E002", "E001"], letti
     assert saltati.totale == 0
 
 
@@ -173,8 +173,8 @@ def test_la_lettura_completa_consegna_le_due_mail_e_registra_l_anomalo():
     saltati = outlook_com.Saltati()
     o = _outlook(cart=cart)
     messaggi = list(o.leggi("Posta inviata", BASE - timedelta(hours=1), saltati=saltati))
-    assert [m.entry_id for m in messaggi] == ["E001", "E003"]
-    assert [m.oggetto for m in messaggi] == ["richiesta di offerta", "risposta"]
+    assert [m.entry_id for m in messaggi] == ["E003", "E001"]
+    assert [m.oggetto for m in messaggi] == ["risposta", "richiesta di offerta"]
     assert saltati.totale == 1
 
 
@@ -190,7 +190,7 @@ def test_un_elemento_non_mail_che_restrict_restituisce_viene_saltato_alla_lettur
     o = _outlook(usa_restrict=True, cart=cart)
     o.restrict_ok[(cart.StoreID, cart.EntryID)] = True        # self-test già passato
     messaggi = list(o.leggi("Posta in arrivo", BASE - timedelta(hours=1), saltati=saltati))
-    assert [m.entry_id for m in messaggi] == ["E001", "E003"]
+    assert [m.entry_id for m in messaggi] == ["E003", "E001"]
     assert saltati.totale == 1
     assert saltati.elementi == [], (
         "l'elemento non-mail è stato messo in scarto: vuol dire che è arrivato fino alla conversione, "
@@ -223,22 +223,40 @@ def test_l_elemento_non_mail_conta_come_in_piu_non_come_mancante():
 
 # ---------------------------------------------------------------- l'enumerazione che si rompe
 
-def test_un_enumerazione_rotta_in_discesa_non_consegna_niente():
-    """In ordine decrescente ciò che si è raccolto è la parte NUOVA della finestra: consegnarla
-    porterebbe il cursore oltre messaggi mai guardati, che nessuno rileggerebbe più."""
+def test_un_enumerazione_rotta_alza_sempre_anche_dopo_aver_consegnato():
+    """Blocco 3. Prima la garanzia era «non consegna niente»: la scansione decrescente raccoglieva
+    tutto in memoria, e un'interruzione buttava via il raccolto perche’ consegnarlo avrebbe portato
+    il cursore oltre messaggi mai guardati.
+
+    Adesso i lotti partono man mano — il lavoro fatto e’ lavoro fatto, e la deduplica lo assorbe — e
+    la garanzia si e’ spostata: l'interruzione ALZA, sempre. Quello che non deve succedere non e’
+    che dei messaggi arrivino, e’ che la finestra risulti conclusa avendone letta solo la cima.
+    """
     elementi = [MailFinta("E%03d" % i, BASE + timedelta(hours=i)) for i in range(6)]
     cart = CartellaFinta(elementi, rompe_dopo=2)
+    letti = []
     with pytest.raises(outlook_com.LetturaIncompleta):
-        _outlook()._lineari(cart, BASE - timedelta(hours=1), None)
+        for m in _outlook()._lineari(cart, BASE - timedelta(hours=1), None):
+            letti.append(m.EntryID)
+    assert letti == ["E005", "E004"], "i due piu’ recenti erano gia’ usciti: quelli si tengono"
 
 
-def test_un_enumerazione_rotta_in_salita_consegna_quello_che_ha_letto():
-    """In ordine crescente ciò che si è letto è la parte VECCHIA: fermarsi è sicuro, il cursore
-    avanza solo su ciò che è stato consegnato e il resto si rilegge al giro dopo."""
+def test_un_enumerazione_rotta_alza_anche_nel_modo_con_restrict():
+    """Il caso lasciato aperto dal revisore al blocco 1, chiuso qui.
+
+    Nel modo con Restrict l'interruzione veniva registrata nel log e basta: si chiudeva
+    l'enumerazione come se fosse finita. Era sicuro finche’ si leggeva in ordine crescente — cio’ che
+    restava fuori era la parte NUOVA, che il cursore non aveva superato. In ordine decrescente cio’
+    che resta fuori e’ la parte VECCHIA, e sopra passa il limite superiore della finestra: se
+    qualcuno dichiarasse conclusa quella finestra, coprirebbe anche cio’ che nessuno ha guardato.
+    """
     elementi = [MailFinta("E%03d" % i, BASE + timedelta(hours=i)) for i in range(6)]
     items = ItemsFinti(elementi, rompe_dopo=3)
-    letti = [e.EntryID for e in outlook_com._scorri(items, dove="Posta in arrivo")]
-    assert letti == ["E000", "E001", "E002"]
+    letti = []
+    with pytest.raises(outlook_com.LetturaIncompleta):
+        for e in outlook_com._scorri(items, dove="Posta in arrivo"):
+            letti.append(e.EntryID)
+    assert letti == ["E000", "E001", "E002"], "cio’ che era gia’ uscito resta uscito"
 
 
 # ---------------------------------------------------------------- la memoria del self-test (1.D)

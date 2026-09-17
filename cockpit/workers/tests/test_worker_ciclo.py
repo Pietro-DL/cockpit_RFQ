@@ -16,6 +16,7 @@ from server_finto import ServerFinto
 
 worker_analisi = pytest.importorskip("worker_analisi")
 worker_outlook = pytest.importorskip("worker_outlook", reason="serve pywin32 (solo su Windows)")
+LetturaIncompleta = pytest.importorskip("outlook_com").LetturaIncompleta
 
 
 def test_outlook_una_volta_esce_con_la_coda_vuota(tmp_path):
@@ -220,42 +221,117 @@ def test_un_409_sull_ingest_ferma_la_scansione(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- la finestra: cursore o ripiego
 
-def _job_sync_due_cartelle(cursore_inbox, dal, al=None) -> dict:
-    j = _job_sync(lotto=50)
+def _job_sync_due_cartelle(dal_inbox, dal, al=None, modo=None, lotto=50) -> dict:
+    """Un sync su due cartelle. Dal blocco 3 la finestra la decide il SERVER, una per cartella: qui
+    si scrive quello che il server avrebbe messo nel payload."""
+    j = _job_sync(lotto=lotto)
     j["payload"]["cartelle"] = [
-        {"cartella": "Inbox", "ultimo_received": cursore_inbox},
-        {"cartella": "Sent Items", "ultimo_received": None},
+        {"cartella": "Inbox", "dal": dal_inbox or dal, "al": al},
+        {"cartella": "Sent Items", "dal": dal, "al": al},
     ]
     j["payload"]["dal"] = dal
     if al is not None:
         j["payload"]["al"] = al
+    if modo is not None:
+        j["payload"]["modo"] = modo
     return j
 
 
-def test_il_cursore_di_una_cartella_vince_sul_limite_del_payload(tmp_path, monkeypatch):
-    """SI3 dal lato del worker: è QUI che la precedenza si applica davvero.
+def test_il_worker_legge_la_finestra_della_cartella_non_quella_del_payload(tmp_path, monkeypatch):
+    """Blocco 3: la finestra la decide il server, una per cartella, e il worker la esegue.
 
-    Il server manda, per ogni cartella, il suo cursore (o niente) e un limite inferiore di ripiego —
-    la finestra iniziale di `giorni_sync_iniziale`. Una cartella che ha un cursore riparte da lì,
-    meno la sovrapposizione; una che non ce l'ha usa il ripiego. Se il worker prendesse `dal` per
-    tutte, ogni sync rileggerebbe la finestra iniziale da capo: nessun errore, nessun buco, solo il
-    worker occupato per niente a ogni giro — e la deduplica per Message-ID a nascondere il sintomo.
+    Prima era il worker a comporla — cursore meno sovrapposizione, oppure il ripiego del payload — e
+    la stessa aritmetica viveva in due posti: quella del worker e quella che il server usava per
+    scrivere il ripiego. Adesso `cartelle[].dal` e `cartelle[].al` SONO la finestra, e l'inviluppo
+    `payload.dal` serve all'operatore e ai job accodati prima di questo blocco.
+
+    Due cartelle della stessa casella possono essere a punti diversi — una sincronizzata da mesi, una
+    aggiunta stamattina — e se il worker applicasse a tutte il limite del payload, la prima
+    rileggerebbe ogni volta la finestra iniziale da capo: nessun errore, nessun buco, solo il worker
+    occupato per niente a ogni giro, con la deduplica per Message-ID a nascondere il sintomo.
     """
     with ServerFinto() as s:
         s.caselle_worker = CASELLE_SERVITE
-        s.metti_job(_job_sync_due_cartelle(cursore_inbox="2026-09-15T08:00:00Z", dal="2026-09-09T00:00:00Z"))
+        s.metti_job(_job_sync_due_cartelle(dal_inbox="2026-09-15T07:50:00Z", dal="2026-09-09T00:00:00Z",
+                                           al="2026-09-16T09:00:00Z"))
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
         finto = OutlookFinto([])
         monkeypatch.setattr(w, "ol", lambda: finto)
         w.esegui_per_sempre(una_volta=True)
 
     assert set(finto.finestre) == {"Inbox", "Sent Items"}, finto.finestre
-    # il cursore, meno i 600 s di sovrapposizione dichiarati nel payload
-    assert finto.finestre["Inbox"][0] == datetime(2026, 9, 15, 7, 50, tzinfo=timezone.utc), finto.finestre["Inbox"]
-    # nessun cursore: il ripiego del payload, cioè la finestra iniziale calcolata dal server
-    assert finto.finestre["Sent Items"][0] == datetime(2026, 9, 9, 0, 0, tzinfo=timezone.utc), finto.finestre["Sent Items"]
-    # il sync ordinario non ha limite superiore: legge fino a adesso
-    assert [al for _dal, al in finto.finestre.values()] == [None, None]
+    atteso = datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc)
+    # la copertura della cartella, sovrapposizione già sottratta dal server
+    assert finto.finestre["Inbox"] == (datetime(2026, 9, 15, 7, 50, tzinfo=timezone.utc), atteso), finto.finestre["Inbox"]
+    # nessuna copertura: la finestra iniziale, sempre calcolata dal server
+    assert finto.finestre["Sent Items"] == (datetime(2026, 9, 9, 0, 0, tzinfo=timezone.utc), atteso), finto.finestre["Sent Items"]
+
+
+def test_il_limite_superiore_e_fissato_e_non_diventa_adesso(tmp_path, monkeypatch):
+    """Una finestra il cui estremo superiore è «adesso» cambia mentre il job gira, e allora non c'è
+    nessun istante di cui si possa dire «scandito fino a qui». Dal blocco 3 `al` c'è sempre, anche
+    nell'aggiornamento ordinario, ed è quello che il server ha fissato all'accodamento."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(dal_inbox=None, dal="2026-09-09T00:00:00Z",
+                                           al="2026-09-16T09:00:00Z", modo="aggiornamento"))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+
+    for cartella, finestra in finto.finestre.items():
+        assert finestra[1] == datetime(2026, 9, 16, 9, 0, tzinfo=timezone.utc), (cartella, finestra)
+
+
+def test_una_finestra_percorsa_per_intero_viene_dichiarata_completa(tmp_path, monkeypatch):
+    """`completa` è l'unica cosa che fa muovere una frontiera, e va detta esplicitamente: il server
+    non la deduce piu’ dal fatto che il job sia finito senza errori."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(dal_inbox=None, dal="2026-09-09T00:00:00Z", al="2026-09-16T09:00:00Z"))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        monkeypatch.setattr(w, "ol", lambda: OutlookFinto([_messaggio(1)]))
+        w.esegui_per_sempre(una_volta=True)
+
+        cartelle = s.risultati[20]["dati"]["cartelle"]
+    assert [c["completa"] for c in cartelle] == [True, True], cartelle
+
+
+def test_una_finestra_interrotta_a_meta_non_viene_dichiarata_completa(tmp_path, monkeypatch):
+    """Il caso che il revisore ha chiesto di aggiungere al blocco 3, dal lato del worker.
+
+    L'enumerazione si rompe a meta’ con un limite superiore finito. Il job HTTP finisce senza panic e
+    consegna anche dei messaggi — quelli che aveva gia’ letto — ma la cartella NON può risultare
+    completa: in ordine decrescente quello che è rimasto fuori è il pezzo VECCHIO della finestra, e
+    un `al` scritto sopra quel pezzo lo renderebbe invisibile per sempre.
+    """
+    class OutlookRotto(OutlookFinto):
+        """Consegna un lotto intero, poi la collezione si rompe. Con `lotto=1` il primo messaggio e’
+        gia’ partito quando arriva l'eccezione: e’ il caso che distingue «la finestra non e’
+        conclusa» da «non e’ stato fatto niente»."""
+
+        def leggi(self, cartella, dal, al=None, store_id="", saltati=None):
+            self.finestre[cartella] = (dal, al)
+            yield _messaggio(1)
+            raise LetturaIncompleta(cartella + ": enumerazione interrotta (com_error simulato)")
+
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(dal_inbox=None, dal="2026-09-09T00:00:00Z",
+                                           al="2026-09-16T09:00:00Z", lotto=1))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        monkeypatch.setattr(w, "ol", lambda: OutlookRotto([]))
+        w.esegui_per_sempre(una_volta=True)
+
+        assert s.risultati[20]["esito"] == "ok", "il job non fallisce: le altre cartelle vanno lette lo stesso"
+        cartelle = s.risultati[20]["dati"]["cartelle"]
+    for c in cartelle:
+        assert c["completa"] is False, "finestra interrotta dichiarata completa: " + repr(c)
+        assert "LetturaIncompleta" in c["errore"], c["errore"]
+    assert all(c["n_messaggi"] == 1 for c in cartelle), (
+        "il lotto gia’ consegnato prima dell'interruzione non si butta: rileggere non e’ un danno, "
+        "ma buttare via lavoro fatto per poi rifarlo identico sì")
 
 
 def test_un_sync_storico_non_sposta_il_cursore_in_avanti(tmp_path, monkeypatch):
@@ -264,8 +340,8 @@ def test_un_sync_storico_non_sposta_il_cursore_in_avanti(tmp_path, monkeypatch):
     arrivata nel frattempo non la rileggerebbe più nessuno."""
     with ServerFinto() as s:
         s.caselle_worker = CASELLE_SERVITE
-        s.metti_job(_job_sync_due_cartelle(cursore_inbox=None, dal="2026-09-12T00:00:00Z",
-                                           al="2026-09-14T00:00:00Z"))
+        s.metti_job(_job_sync_due_cartelle(dal_inbox=None, dal="2026-09-12T00:00:00Z",
+                                           al="2026-09-14T00:00:00Z", modo="storico"))
         w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
         finto = OutlookFinto([_messaggio(1), _messaggio(2)])
         monkeypatch.setattr(w, "ol", lambda: finto)
@@ -466,3 +542,26 @@ def test_il_worker_rifiutato_con_403_non_muore_e_lo_dice(tmp_path, monkeypatch, 
         with caplog.at_level(logging.ERROR):
             w.esegui_per_sempre(una_volta=True)
         assert any("rifiuta questo worker" in r.message for r in caplog.records)
+
+
+def test_il_worker_consegna_nell_ordine_in_cui_legge_il_piu_recente_per_primo(tmp_path, monkeypatch):
+    """D del blocco 3: la posta piu' recente arriva per PRIMA, ed e' questo che l'operatore vede.
+
+    L'ordine lo stabilisce l'enumerazione (test_outlook_finestra.py, con Restrict e con il ripiego);
+    qui si tiene fermo che il worker non lo rimescoli fra la lettura e la consegna. Con un lotto per
+    volta, il primo POST /ingest deve portare il messaggio piu' nuovo della finestra: se il worker
+    accumulasse e invertisse, la prima cosa che compare nell'Inbox dopo una notte sarebbe la mail
+    delle 17:05 di ieri invece di quella delle 09:00.
+    """
+    recenti = [_messaggio(9), _messaggio(5), _messaggio(1)]      # 10:09, 10:05, 10:01
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.metti_job(_job_sync_due_cartelle(dal_inbox=None, dal="2026-09-01T00:00:00Z",
+                                           al="2026-09-02T00:00:00Z", lotto=1))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        monkeypatch.setattr(w, "ol", lambda: OutlookFinto(recenti))
+        w.esegui_per_sempre(una_volta=True)
+
+        consegnati = [m["message_id"] for lotto in s.lotti for m in lotto["messaggi"]]
+    # due cartelle, tre messaggi ciascuna: conta l'ordine dentro la prima
+    assert consegnati[:3] == ["<m9@prova>", "<m5@prova>", "<m1@prova>"], consegnati

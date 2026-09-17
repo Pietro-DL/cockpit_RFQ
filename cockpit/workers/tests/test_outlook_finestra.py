@@ -137,16 +137,25 @@ def test_una_finestra_vuota_non_conta_come_prova_superata():
     assert o.restrict_ok == {}, "un esito non concludente non va memorizzato: si riproverà"
 
 
-def test_gli_elementi_arrivano_in_ordine_crescente_con_tutti_e_due_i_modi():
-    """Il cursore avanza insieme ai lotti: con un ordine qualunque, un lotto potrebbe portarlo oltre
-    messaggi non ancora spediti, e un job che muore lì li lascerebbe indietro per sempre."""
+def test_gli_elementi_arrivano_dal_piu_recente_con_tutti_e_due_i_modi():
+    """Blocco 3: si legge dal piu’ RECENTE al piu’ vecchio, ed e’ l'inverso di prima.
+
+    Prima l'ordine era crescente perche’ il cursore avanzava insieme ai lotti: in quel modo
+    un'interruzione lasciava fuori solo la parte nuova della finestra. Adesso la sicurezza non viene
+    piu’ dall'ordine — nessuna frontiera si muove prima che la finestra sia conclusa — e l'ordine puo’
+    essere quello in cui la posta serve: chi apre l'Inbox dopo una notte vuole vedere le 09:00, non
+    le 17:05 di ieri.
+
+    I DUE modi devono darlo uguale. Se il ripiego lineare tornasse crescente, una cartella su cui
+    Restrict non e’ attendibile mostrerebbe la posta al contrario senza che nessuno se ne accorga.
+    """
     base = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)
     dal = base - timedelta(hours=1)
     for perde in (None, {"E003"}):                     # con Restrict e con il ripiego
         cart = CartellaFinta(_posta(10, base), perde=perde)
         o = _outlook()
         tempi = [e.utc for e in o._elementi(cart, dal, None)]
-        assert tempi == sorted(tempi), f"ordine non crescente (perde={perde})"
+        assert tempi == sorted(tempi, reverse=True), f"ordine non decrescente (perde={perde})"
 
 
 def test_la_finestra_con_limite_superiore_esclude_il_futuro():
@@ -155,7 +164,7 @@ def test_la_finestra_con_limite_superiore_esclude_il_futuro():
     o = _outlook()
     al = base + timedelta(hours=4, minutes=30)
     letti = [e.EntryID for e in o._elementi(cart, base - timedelta(hours=1), al)]
-    assert letti == ["E000", "E001", "E002", "E003", "E004"], letti
+    assert letti == ["E004", "E003", "E002", "E001", "E000"], letti
 
 
 def test_usa_restrict_false_lascia_solo_la_scansione_lineare():

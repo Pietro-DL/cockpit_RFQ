@@ -2880,13 +2880,17 @@ type Sessione struct {
 
 // Un cursore per (casella, cartella). Con la sola cartella due caselle si sovrascrivevano il cursore a vicenda e perdevano messaggi in silenzio.
 type SyncCursore struct {
-	Cartella       string      `json:"cartella"`
-	UltimoReceived *time.Time  `json:"ultimo_received"`
-	StoricoFinoA   *time.Time  `json:"storico_fino_a"`
-	UltimoSync     *time.Time  `json:"ultimo_sync"`
-	NMessaggi      int32       `json:"n_messaggi"`
-	Errore         pgtype.Text `json:"errore"`
-	CasellaID      uuid.UUID   `json:"casella_id"`
+	Cartella string `json:"cartella"`
+	// La mail piu' recente che abbiamo di questa (casella, cartella). Avanza per lotto, in transazione con gli elementi. NON e' una frontiera di copertura e dalla 0010 non decide piu' le finestre: per quello c'e' coperto_fino_a.
+	UltimoReceived *time.Time `json:"ultimo_received"`
+	// Frontiera PASSATA: fin dove indietro e' arrivato «Carica precedenti». Ogni clic estende di GiorniStorico e la scrive solo a finestra conclusa. Indipendente da coperto_fino_a: le due frontiere si muovono in direzioni opposte e non si toccano mai, salvo il bootstrap che le stabilisce entrambe.
+	StoricoFinoA *time.Time  `json:"storico_fino_a"`
+	UltimoSync   *time.Time  `json:"ultimo_sync"`
+	NMessaggi    int32       `json:"n_messaggi"`
+	Errore       pgtype.Text `json:"errore"`
+	CasellaID    uuid.UUID   `json:"casella_id"`
+	// Frontiera RECENTE: fin dove questa (casella, cartella) e' stata scandita per intero, anche se nell'ultimo tratto non c'era nessuna mail. Avanza SOLO a finestra conclusa e solo su dichiarazione esplicita del worker (RisultatoSync.cartelle[].completa), mai per lotto: in lettura dal piu' recente al piu' vecchio un avanzamento per lotto salterebbe in cima alla finestra e renderebbe invisibile tutto cio' che sta sotto. NULL = mai sincronizzata: il prossimo sync e' un bootstrap.
+	CopertoFinoA *time.Time `json:"coperto_fino_a"`
 }
 
 type ThreadOfferta struct {
