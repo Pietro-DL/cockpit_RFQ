@@ -353,6 +353,55 @@ func TestTuttiGliSchemiSonoConfrontati(t *testing.T) {
 	}
 }
 
+// I TEMPI DEL PROTOCOLLO (blocco 2 del 3R). Non sono campi JSON: sono numeri che le due parti devono
+// avere uguali per forza, perché insieme formano una regola sola — «un worker vivo si fa riconoscere
+// almeno ogni attesa_claim_s; chi tace per il doppio è offline». Finché stavano in tre file senza
+// niente che li legasse, il server chiamava offline chi taceva da 60 secondi mentre il battito di un
+// job lungo arrivava ogni 150: nessuno dei tre numeri era sbagliato da solo.
+//
+// Il file lo scrive `python workers/genera_contratti.py` da workers/protocollo.py, come gli schemi:
+// cambiarne uno da una parte sola fa diventare rosso questo test invece di produrre, mesi dopo, una
+// testata che dice il falso.
+func TestITempiDelProtocolloSonoQuelliDeiWorker(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(cartellaContratti, "tempi_protocollo.json"))
+	if err != nil {
+		t.Fatalf("tempi del protocollo: %v (rigenera con `python workers/genera_contratti.py`)", err)
+	}
+	var py map[string]int
+	if err := json.Unmarshal(raw, &py); err != nil {
+		t.Fatal(err)
+	}
+	go_ := map[string]int{
+		"attesa_claim_s":          int(AttesaClaim / time.Second),
+		"attesa_claim_max_s":      int(AttesaClaimMax / time.Second),
+		"presenza_online_entro_s": int(PresenzaOnlineEntro / time.Second),
+		"battito_max_s":           int(BattitoMax / time.Second),
+	}
+	for nome, atteso := range go_ {
+		v, c := py[nome]
+		if !c {
+			t.Errorf("%s: in Go c'è (%d s) e in workers/protocollo.py no", nome, atteso)
+			continue
+		}
+		if v != atteso {
+			t.Errorf("%s: Go %d s, worker Python %d s — due processi che non sono d'accordo su quanto aspettarsi a vicenda", nome, atteso, v)
+		}
+	}
+	for nome := range py {
+		if _, c := go_[nome]; !c {
+			t.Errorf("%s: i worker lo dichiarano, il server non lo conosce", nome)
+		}
+	}
+	// La soglia non è un numero scelto: è due giri di claim. Se qualcuno la slegasse per far sparire
+	// un OFFLINE — che è esattamente la scorciatoia che il blocco 2 doveva evitare — questo lo dice.
+	if PresenzaOnlineEntro != 2*AttesaClaim {
+		t.Errorf("PresenzaOnlineEntro = %v: doveva essere due attese di claim (%v), non un numero a sé", PresenzaOnlineEntro, 2*AttesaClaim)
+	}
+	if BattitoMax > AttesaClaim {
+		t.Errorf("BattitoMax = %v > AttesaClaim = %v: dentro un job il worker batte più lentamente di quanto si farebbe vivo da fermo, quindi sparirebbe dalla testata mentre lavora", BattitoMax, AttesaClaim)
+	}
+}
+
 // K3 — gli enum. Un valore aggiunto da una parte sola è il difetto peggiore di tutti: il messaggio
 // arriva, il server lo rifiuta con un errore sull'enum, e il lotto — prima della fase 1 — si fermava.
 //

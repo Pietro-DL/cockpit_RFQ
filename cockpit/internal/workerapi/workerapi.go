@@ -119,6 +119,13 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 					http.StatusUnauthorized)
 				return
 			}
+			// Prova di vita (0009), qui e non dentro le rotte. `claim` resta appeso in long-poll
+			// fino ad api.AttesaClaim: una presenza scritta DOPO racconta il momento in cui il
+			// worker ha smesso di aspettare, non quello in cui si e' fatto vivo, e per tutta
+			// l'attesa — o per tutta la durata di un job — la testata lo dava per spento. Questo
+			// e' l'unico punto attraversato da tutte le rotte dei worker: nessuna rotta futura da
+			// ricordarsi di istruire.
+			s.contatto(r, cred[0])
 			h(w, r.WithContext(context.WithValue(r.Context(), ctxCredenziale, cred[0])))
 		case 0:
 			s.Log.Warn("credenziale non riconosciuta", "ip", r.RemoteAddr, "percorso", r.URL.Path)
@@ -136,6 +143,20 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf(`{"errore":"questo token è di piu' worker (%s): non identifica nessuno. Dare a ciascun [[worker]] di cockpit.toml un token diverso e riportarlo nel worker.toml del suo PC"}`,
 				strings.Join(nomi, ", ")), http.StatusUnauthorized)
 		}
+	}
+}
+
+// contatto registra che questo worker si e' appena fatto riconoscere: e' la sola cosa su cui si
+// decide online/offline (0009). Non crea la riga — un claim rifiutato non deve far comparire in
+// testata un worker che non servira' niente — e non tocca IP ne' postazione, che il claim scrive solo
+// dopo aver verificato che il worker sia dove dice di essere.
+//
+// Non fallisce mai la richiesta: se la presenza non si scrive il worker deve poter lavorare lo stesso.
+// La testata lo mostrerebbe spento, che e' un difetto di ciò che si vede, non una ragione per
+// smettere di sincronizzare la posta.
+func (s *Server) contatto(r *http.Request, cred db.WorkerCredenziale) {
+	if err := db.New(s.Pool).ContattoWorker(r.Context(), cred.WorkerNome); err != nil {
+		s.Log.Warn("presenza: contatto non registrato", "worker", cred.WorkerNome, "err", err)
 	}
 }
 
@@ -287,9 +308,23 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Che cosa questo worker e' e che cosa serve: si scrive ADESSO, prima di mettersi ad aspettare
+	// (0009). Tutto cio' che serve e' gia' noto — postazione dalla credenziale, caselle intersecate,
+	// Outlook raggiungibile, avviso — e registrarlo dopo il long-poll voleva dire che per venti
+	// secondi la testata raccontava di un worker «attivo ma che non trova questa casella nel proprio
+	// profilo»: falso, e allarmante per niente. E' anche cio' che la voce 2.7 usa per abbinare la
+	// sessione alla postazione.
+	if err := q.DichiarazioneWorker(r.Context(), db.DichiarazioneWorkerParams{
+		WorkerNome: req.WorkerID, WorkerTipo: wt, PostazioneID: cred.PostazioneID, IndirizzoIp: s.indirizzoDi(r),
+		OutlookOk: req.OutlookOk || wt != db.WorkerTipoOutlook, CaselleAperte: nonNil(d.dest.Caselle),
+		UltimoArresto: txt(req.UltimoArresto), Avviso: txt(d.avviso),
+	}); err != nil {
+		s.Log.Warn("worker_presenza: dichiarazione", "worker", req.WorkerID, "err", err)
+	}
+
 	attesa := time.Duration(req.AttesaS) * time.Second
-	if attesa <= 0 || attesa > 25*time.Second {
-		attesa = 20 * time.Second
+	if attesa <= 0 || attesa > api.AttesaClaimMax {
+		attesa = api.AttesaClaim
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), attesa+5*time.Second)
 	defer cancel()
@@ -298,14 +333,11 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		errore(w, 500, err)
 		return
 	}
-	// presenza per WORKER: postazione, IP, Outlook, caselle servite. È da qui che la testata dice lo
-	// stato per casella e che la voce 2.7 abbina la sessione alla postazione.
-	if err := q.UpsertWorkerPresenza(r.Context(), db.UpsertWorkerPresenzaParams{
-		WorkerNome: req.WorkerID, WorkerTipo: wt, PostazioneID: cred.PostazioneID, IndirizzoIp: s.indirizzoDi(r),
-		OutlookOk: req.OutlookOk || wt != db.WorkerTipoOutlook, CaselleAperte: nonNil(d.dest.Caselle), ConJob: j != nil,
-		UltimoArresto: txt(req.UltimoArresto), Avviso: txt(d.avviso),
-	}); err != nil {
-		s.Log.Warn("worker_presenza", "err", err)
+	// La fine del claim. Qui dentro non c'è più niente che riguardi l'essere vivi: quello è scritto
+	// due volte da prima che l'attesa cominciasse. Resta ultimo_claim, che serve a chi si chiede da
+	// quanto questo worker non riceve lavoro.
+	if err := q.ClaimConcluso(r.Context(), db.ClaimConclusoParams{WorkerNome: req.WorkerID, ConJob: j != nil}); err != nil {
+		s.Log.Warn("worker_presenza: fine del claim", "worker", req.WorkerID, "err", err)
 	}
 	if j == nil {
 		w.WriteHeader(http.StatusNoContent)

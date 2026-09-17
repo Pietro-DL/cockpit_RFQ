@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 )
 
@@ -219,8 +220,6 @@ type statoChip struct {
 // non_configurata = grigio.
 var classiStato = map[string]string{"attiva": "fatto", "in_corso": "lavoro", "offline": "fallito", "non_risolta": "in_corso", "non_configurata": ""}
 
-const workerOnlineEntro = 60 * time.Second
-
 // stato calcola la testata per la sessione corrente.
 func (s *Server) stato(ctx context.Context, sess sessioneUI) *statoUI {
 	q := db.New(s.Pool)
@@ -251,6 +250,11 @@ func (s *Server) stato(ctx context.Context, sess sessioneUI) *statoUI {
 
 // statoCaselle è la parte pura di stato: da caselle, credenziali e presenze ai tre stati. Separata
 // così il test M2 la prova senza HTTP.
+//
+// Vivo o spento si decide su `ultimo_contatto` e su api.PresenzaOnlineEntro, e su nient'altro (0009).
+// Prima si leggeva `ultimo_claim` con una soglia di 60 secondi scritta qui: ma un claim si conclude
+// solo quando il worker NON sta lavorando, e un worker dentro un sync di tre minuti risultava spento
+// proprio mentre faceva il suo mestiere.
 func statoCaselle(caselle []db.Casella, credenziali []db.WorkerCredenziale, presenze []db.ListWorkerPresenzaRow, postazioni []db.Postazione, ora time.Time) []statoCasella {
 	host := map[uuid.UUID]string{}
 	for _, p := range postazioni {
@@ -282,10 +286,10 @@ func statoCaselle(caselle []db.Casella, credenziali []db.WorkerCredenziale, pres
 			switch {
 			case !vista:
 				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("il worker %s non è mai stato avviato", w.WorkerNome)}
-			case ora.Sub(p.UltimoClaim) > workerOnlineEntro:
-				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("worker su %s OFFLINE: ultimo contatto %s fa", dove, durataBreve(ora.Sub(p.UltimoClaim)))}
+			case ora.Sub(p.UltimoContatto) > api.PresenzaOnlineEntro:
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("worker su %s OFFLINE: ultimo contatto %s fa", dove, durataBreve(ora.Sub(p.UltimoContatto)))}
 			case contiene(p.CaselleAperte, c.CasellaID):
-				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "attiva", Dettaglio: fmt.Sprintf("attiva su %s (ultimo contatto %d s fa)", dove, int(ora.Sub(p.UltimoClaim).Seconds()))}
+				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "attiva", Dettaglio: fmt.Sprintf("attiva su %s (ultimo contatto %d s fa)", dove, int(ora.Sub(p.UltimoContatto).Seconds()))}
 			case !p.OutlookOk:
 				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "non_risolta", Dettaglio: fmt.Sprintf("il worker su %s è attivo ma Outlook non risponde", dove)}
 			default:
@@ -324,15 +328,15 @@ func statoAnalisi(credenziali []db.WorkerCredenziale, presenze []db.ListWorkerPr
 		if p.WorkerTipo != db.WorkerTipoAnalisi {
 			continue
 		}
-		if ora.Sub(p.UltimoClaim) <= workerOnlineEntro {
-			return statoChip{Etichetta: "analisi attiva", Classe: "fatto", Dettaglio: fmt.Sprintf("%s, ultimo contatto %d s fa", p.WorkerNome, int(ora.Sub(p.UltimoClaim).Seconds()))}
+		if ora.Sub(p.UltimoContatto) <= api.PresenzaOnlineEntro {
+			return statoChip{Etichetta: "analisi attiva", Classe: "fatto", Dettaglio: fmt.Sprintf("%s, ultimo contatto %d s fa", p.WorkerNome, int(ora.Sub(p.UltimoContatto).Seconds()))}
 		}
-		return statoChip{Etichetta: "analisi OFFLINE", Classe: "fallito", Dettaglio: fmt.Sprintf("%s, ultimo contatto %s fa", p.WorkerNome, durataBreve(ora.Sub(p.UltimoClaim)))}
+		return statoChip{Etichetta: "analisi OFFLINE", Classe: "fallito", Dettaglio: fmt.Sprintf("%s, ultimo contatto %s fa", p.WorkerNome, durataBreve(ora.Sub(p.UltimoContatto)))}
 	}
 	if !configurato {
 		return statoChip{Etichetta: "analisi non configurata", Classe: "", Dettaglio: "nessun [[worker]] di tipo analisi in cockpit.toml"}
 	}
-	return statoChip{Etichetta: "analisi mai avviata", Classe: "fallito", Dettaglio: "il worker di analisi è censito ma non ha mai fatto claim"}
+	return statoChip{Etichetta: "analisi mai avviata", Classe: "fallito", Dettaglio: "il worker di analisi è censito ma non si è mai fatto vivo"}
 }
 
 func contiene(ids []uuid.UUID, id uuid.UUID) bool {

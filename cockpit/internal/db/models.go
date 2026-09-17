@@ -3053,11 +3053,14 @@ type WorkerPresenza struct {
 	WorkerTipo   WorkerTipo    `json:"worker_tipo"`
 	PostazioneID uuid.NullUUID `json:"postazione_id"`
 	IndirizzoIp  *netip.Addr   `json:"indirizzo_ip"`
-	UltimoClaim  time.Time     `json:"ultimo_claim"`
-	OutlookOk    bool          `json:"outlook_ok"`
+	// Ultimo claim CONCLUSO (con o senza job assegnato). NULL = il worker si e' fatto vivo ma nessun claim si e' ancora chiuso: e' lo stato dei primi venti secondi dopo l'accensione. NON usarla per online/offline — un worker dentro un job lungo non conclude claim e resta vivissimo: per quello c'e' ultimo_contatto.
+	UltimoClaim *time.Time `json:"ultimo_claim"`
+	OutlookOk   bool       `json:"outlook_ok"`
 	// Intersezione fra le caselle che il worker dichiara di aver risolto nel proprio profilo Outlook e quelle autorizzate in worker_credenziale.caselle. Il claim assegna a un worker solo job di queste caselle (M12).
 	CaselleAperte []uuid.UUID `json:"caselle_aperte"`
 	UltimoJobIl   *time.Time  `json:"ultimo_job_il"`
 	UltimoArresto pgtype.Text `json:"ultimo_arresto"`
 	Avviso        pgtype.Text `json:"avviso"`
+	// Ultima richiesta autenticata ricevuta da questo worker, scritta dal middleware di autenticazione PRIMA di servire la rotta: ingresso di un claim, heartbeat, caselle, ingest, upload, cursori. E' la sola colonna su cui si decide online/offline, con la soglia api.PresenzaOnlineEntro (2 x l'attesa del claim).
+	UltimoContatto time.Time `json:"ultimo_contatto"`
 }

@@ -1,0 +1,6 @@
+{
+  "attesa_claim_max_s": 25,
+  "attesa_claim_s": 20,
+  "battito_max_s": 20,
+  "presenza_online_entro_s": 40
+}

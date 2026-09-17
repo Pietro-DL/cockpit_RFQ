@@ -160,6 +160,26 @@ func (q *Queries) BloccaTentativo(ctx context.Context, arg BloccaTentativoParams
 	return i, err
 }
 
+const claimConcluso = `-- name: ClaimConcluso :exec
+UPDATE worker_presenza
+   SET ultimo_claim = now(), ultimo_contatto = now(),
+       ultimo_job_il = CASE WHEN $1::boolean THEN now() ELSE ultimo_job_il END
+ WHERE worker_nome = $2
+`
+
+type ClaimConclusoParams struct {
+	ConJob     bool   `json:"con_job"`
+	WorkerNome string `json:"worker_nome"`
+}
+
+// La FINE di un claim, con o senza job assegnato (0009). E' l'altra meta' di DichiarazioneWorker, e
+// la riga esiste gia' perche' quella l'ha scritta venti secondi fa. ultimo_claim serve alla diagnosi
+// — da quanto questo worker non riceve lavoro — non a dire se e' acceso.
+func (q *Queries) ClaimConcluso(ctx context.Context, arg ClaimConclusoParams) error {
+	_, err := q.db.Exec(ctx, claimConcluso, arg.ConJob, arg.WorkerNome)
+	return err
+}
+
 const claimJob = `-- name: ClaimJob :one
 UPDATE job SET stato = 'in_corso',
     lease_token  = gen_random_uuid(),
@@ -324,6 +344,79 @@ func (q *Queries) ContaJobPerStato(ctx context.Context) ([]ContaJobPerStatoRow, 
 	return items, nil
 }
 
+const contattoWorker = `-- name: ContattoWorker :exec
+UPDATE worker_presenza SET ultimo_contatto = now() WHERE worker_nome = $1
+`
+
+// L'unica cosa che decide online/offline (0009). La chiama il middleware di autenticazione PRIMA di
+// servire la rotta, quindi vale per tutte e sette: l'INGRESSO di un claim — non la sua fine, che puo'
+// arrivare venti secondi dopo — il heartbeat di un job lungo, la domanda sulle caselle, l'ingest,
+// l'upload, i cursori.
+//
+// UPDATE e non upsert, di proposito: questa riga non fa nascere nessuna presenza. Una presenza nasce
+// solo da un claim che ha passato i controlli (DichiarazioneWorker), perche' un claim RIFIUTATO — un
+// worker.toml copiato su un altro PC, un nome che non e' quello della credenziale — non deve poter
+// far comparire in testata un worker che non servira' niente. Il token e' valido (siamo dopo `auth`),
+// ma «autenticato» non e' ancora «ammesso», e la presenza racconta il secondo.
+//
+// Tocca una colonna sola. Tipo, postazione e IP restano affare del claim, che li scrive dopo aver
+// verificato che il worker sia dove dice di essere: l'IP e' anche cio' su cui la voce 2.7 abbina una
+// sessione a una postazione, e non deve poter essere spostato da una richiesta qualsiasi.
+func (q *Queries) ContattoWorker(ctx context.Context, workerNome string) error {
+	_, err := q.db.Exec(ctx, contattoWorker, workerNome)
+	return err
+}
+
+const dichiarazioneWorker = `-- name: DichiarazioneWorker :exec
+INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_contatto,
+                             outlook_ok, caselle_aperte, ultimo_arresto, avviso)
+VALUES ($1, $2, $3, $4, now(),
+        $5, $6::uuid[], $7, $8)
+ON CONFLICT (worker_nome) DO UPDATE SET
+    worker_tipo = EXCLUDED.worker_tipo, postazione_id = EXCLUDED.postazione_id,
+    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_contatto = now(), outlook_ok = EXCLUDED.outlook_ok,
+    caselle_aperte = EXCLUDED.caselle_aperte,
+    ultimo_arresto = COALESCE(EXCLUDED.ultimo_arresto, worker_presenza.ultimo_arresto),
+    avviso         = EXCLUDED.avviso
+`
+
+type DichiarazioneWorkerParams struct {
+	WorkerNome    string        `json:"worker_nome"`
+	WorkerTipo    WorkerTipo    `json:"worker_tipo"`
+	PostazioneID  uuid.NullUUID `json:"postazione_id"`
+	IndirizzoIp   *netip.Addr   `json:"indirizzo_ip"`
+	OutlookOk     bool          `json:"outlook_ok"`
+	CaselleAperte []uuid.UUID   `json:"caselle_aperte"`
+	UltimoArresto pgtype.Text   `json:"ultimo_arresto"`
+	Avviso        pgtype.Text   `json:"avviso"`
+}
+
+// Che cosa il worker dichiara di essere e di servire. Si scrive all'INGRESSO del claim, prima del
+// long-poll (0009): il server sa gia' tutto — postazione, caselle intersecate con la credenziale,
+// Outlook raggiungibile — e aspettare la fine dell'attesa per registrarlo vorrebbe dire che per venti
+// secondi la testata dice «il worker e' attivo ma non trova questa casella nel suo profilo», che e'
+// falso e allarma per niente.
+//
+// Non tocca ultimo_claim ne' ultimo_job_il: nessun claim si e' ancora concluso, e dirlo con un now()
+// sarebbe la stessa comoda bugia che questo blocco e' venuto a togliere.
+//
+// postazione e caselle vengono dalla credenziale intersecata con cio' che il worker dichiara, mai dal
+// solo JSON. ultimo_arresto si conserva se il claim non ne porta di nuovi: e' un'informazione che
+// l'operatore deve poter leggere anche dopo il riavvio.
+func (q *Queries) DichiarazioneWorker(ctx context.Context, arg DichiarazioneWorkerParams) error {
+	_, err := q.db.Exec(ctx, dichiarazioneWorker,
+		arg.WorkerNome,
+		arg.WorkerTipo,
+		arg.PostazioneID,
+		arg.IndirizzoIp,
+		arg.OutlookOk,
+		arg.CaselleAperte,
+		arg.UltimoArresto,
+		arg.Avviso,
+	)
+	return err
+}
+
 const eliminaJobVecchi = `-- name: EliminaJobVecchi :execrows
 DELETE FROM job
 WHERE stato IN ('fatto','fallito','annullato') AND chiuso_il IS NOT NULL
@@ -446,7 +539,7 @@ func (q *Queries) GetJob(ctx context.Context, jobID int64) (Job, error) {
 }
 
 const getWorkerPresenza = `-- name: GetWorkerPresenza :one
-SELECT worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok, caselle_aperte, ultimo_job_il, ultimo_arresto, avviso FROM worker_presenza WHERE worker_nome = $1
+SELECT worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok, caselle_aperte, ultimo_job_il, ultimo_arresto, avviso, ultimo_contatto FROM worker_presenza WHERE worker_nome = $1
 `
 
 func (q *Queries) GetWorkerPresenza(ctx context.Context, workerNome string) (WorkerPresenza, error) {
@@ -463,6 +556,7 @@ func (q *Queries) GetWorkerPresenza(ctx context.Context, workerNome string) (Wor
 		&i.UltimoJobIl,
 		&i.UltimoArresto,
 		&i.Avviso,
+		&i.UltimoContatto,
 	)
 	return i, err
 }
@@ -737,23 +831,24 @@ func (q *Queries) ListLeaseTokenInCorso(ctx context.Context) ([]uuid.NullUUID, e
 }
 
 const listWorkerPresenza = `-- name: ListWorkerPresenza :many
-SELECT wp.worker_nome, wp.worker_tipo, wp.postazione_id, wp.indirizzo_ip, wp.ultimo_claim, wp.outlook_ok, wp.caselle_aperte, wp.ultimo_job_il, wp.ultimo_arresto, wp.avviso, p.nome_host
+SELECT wp.worker_nome, wp.worker_tipo, wp.postazione_id, wp.indirizzo_ip, wp.ultimo_claim, wp.outlook_ok, wp.caselle_aperte, wp.ultimo_job_il, wp.ultimo_arresto, wp.avviso, wp.ultimo_contatto, p.nome_host
 FROM worker_presenza wp LEFT JOIN postazione p ON p.postazione_id = wp.postazione_id
 ORDER BY wp.worker_nome
 `
 
 type ListWorkerPresenzaRow struct {
-	WorkerNome    string        `json:"worker_nome"`
-	WorkerTipo    WorkerTipo    `json:"worker_tipo"`
-	PostazioneID  uuid.NullUUID `json:"postazione_id"`
-	IndirizzoIp   *netip.Addr   `json:"indirizzo_ip"`
-	UltimoClaim   time.Time     `json:"ultimo_claim"`
-	OutlookOk     bool          `json:"outlook_ok"`
-	CaselleAperte []uuid.UUID   `json:"caselle_aperte"`
-	UltimoJobIl   *time.Time    `json:"ultimo_job_il"`
-	UltimoArresto pgtype.Text   `json:"ultimo_arresto"`
-	Avviso        pgtype.Text   `json:"avviso"`
-	NomeHost      pgtype.Text   `json:"nome_host"`
+	WorkerNome     string        `json:"worker_nome"`
+	WorkerTipo     WorkerTipo    `json:"worker_tipo"`
+	PostazioneID   uuid.NullUUID `json:"postazione_id"`
+	IndirizzoIp    *netip.Addr   `json:"indirizzo_ip"`
+	UltimoClaim    *time.Time    `json:"ultimo_claim"`
+	OutlookOk      bool          `json:"outlook_ok"`
+	CaselleAperte  []uuid.UUID   `json:"caselle_aperte"`
+	UltimoJobIl    *time.Time    `json:"ultimo_job_il"`
+	UltimoArresto  pgtype.Text   `json:"ultimo_arresto"`
+	Avviso         pgtype.Text   `json:"avviso"`
+	UltimoContatto time.Time     `json:"ultimo_contatto"`
+	NomeHost       pgtype.Text   `json:"nome_host"`
 }
 
 func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]ListWorkerPresenzaRow, error) {
@@ -776,6 +871,7 @@ func (q *Queries) ListWorkerPresenza(ctx context.Context) ([]ListWorkerPresenzaR
 			&i.UltimoJobIl,
 			&i.UltimoArresto,
 			&i.Avviso,
+			&i.UltimoContatto,
 			&i.NomeHost,
 		); err != nil {
 			return nil, err
@@ -814,7 +910,7 @@ const postazioniConWorkerAllIndirizzo = `-- name: PostazioniConWorkerAllIndirizz
 SELECT DISTINCT p.postazione_id, p.nome_host, p.descrizione, p.utente_id, p.attiva, p.creato_il, p.aggiornato_il
 FROM worker_presenza wp JOIN postazione p ON p.postazione_id = wp.postazione_id
 WHERE wp.indirizzo_ip = $1::inet AND p.attiva
-  AND wp.ultimo_claim > now() - make_interval(secs => $2::int)
+  AND wp.ultimo_contatto > now() - make_interval(secs => $2::int)
 ORDER BY p.nome_host
 `
 
@@ -1074,51 +1170,6 @@ func (q *Queries) UltimoJobPerChiavePrefisso(ctx context.Context, prefisso strin
 		&i.ScadeIl,
 	)
 	return i, err
-}
-
-const upsertWorkerPresenza = `-- name: UpsertWorkerPresenza :exec
-INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok,
-                             caselle_aperte, ultimo_job_il, ultimo_arresto, avviso)
-VALUES ($1, $2, $3, $4, now(),
-        $5, $6::uuid[],
-        CASE WHEN $7::boolean THEN now() END, $8, $9)
-ON CONFLICT (worker_nome) DO UPDATE SET
-    worker_tipo = EXCLUDED.worker_tipo, postazione_id = EXCLUDED.postazione_id,
-    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_claim = now(), outlook_ok = EXCLUDED.outlook_ok,
-    caselle_aperte = EXCLUDED.caselle_aperte,
-    ultimo_job_il  = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il),
-    ultimo_arresto = COALESCE(EXCLUDED.ultimo_arresto, worker_presenza.ultimo_arresto),
-    avviso         = EXCLUDED.avviso
-`
-
-type UpsertWorkerPresenzaParams struct {
-	WorkerNome    string        `json:"worker_nome"`
-	WorkerTipo    WorkerTipo    `json:"worker_tipo"`
-	PostazioneID  uuid.NullUUID `json:"postazione_id"`
-	IndirizzoIp   *netip.Addr   `json:"indirizzo_ip"`
-	OutlookOk     bool          `json:"outlook_ok"`
-	CaselleAperte []uuid.UUID   `json:"caselle_aperte"`
-	ConJob        bool          `json:"con_job"`
-	UltimoArresto pgtype.Text   `json:"ultimo_arresto"`
-	Avviso        pgtype.Text   `json:"avviso"`
-}
-
-// Una riga per WORKER (0005): postazione e caselle vengono dalla credenziale intersecata con ciò che
-// il worker dichiara, mai dal solo JSON. ultimo_arresto e avviso si conservano se il claim non ne
-// porta di nuovi: sono informazioni che l'operatore deve poter leggere anche dopo il riavvio.
-func (q *Queries) UpsertWorkerPresenza(ctx context.Context, arg UpsertWorkerPresenzaParams) error {
-	_, err := q.db.Exec(ctx, upsertWorkerPresenza,
-		arg.WorkerNome,
-		arg.WorkerTipo,
-		arg.PostazioneID,
-		arg.IndirizzoIp,
-		arg.OutlookOk,
-		arg.CaselleAperte,
-		arg.ConJob,
-		arg.UltimoArresto,
-		arg.Avviso,
-	)
-	return err
 }
 
 const verificaTentativo = `-- name: VerificaTentativo :one

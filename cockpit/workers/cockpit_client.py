@@ -2,7 +2,8 @@
 
 Qui vivono le parti che worker_outlook.py e worker_analisi.py avevano copiato una per uno:
 client HTTP, lettura della configurazione, log rotante, thread di battito (heartbeat) con flag di
-arresto. Nessuna dipendenza esterna: solo la libreria standard, così il modulo si prova senza Outlook.
+arresto. Nessuna dipendenza esterna: solo la libreria standard (e protocollo.py, che e' altrettanto
+nuda), così il modulo si prova senza Outlook.
 
 Il thread di battito serve alla fase 1 (voce 1.5): il lavoro vero può bloccarsi dentro una chiamata
 COM che non ritorna, quindi il battito non può stare sullo stesso thread. Quando il server risponde
@@ -27,6 +28,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import NamedTuple
+
+from protocollo import ATTESA_CLAIM_S, BATTITO_MAX_S
 
 log = logging.getLogger("cockpit")
 
@@ -230,7 +233,7 @@ class Cockpit:
 
     # ------------------------------------------------------------ coda
 
-    def claim(self, worker: str, worker_id: str, attesa_s: int = 20, extra: dict | None = None) -> dict | None:
+    def claim(self, worker: str, worker_id: str, attesa_s: int = ATTESA_CLAIM_S, extra: dict | None = None) -> dict | None:
         """POST /api/v1/jobs/claim. `extra` porta ciò che la voce 2.2 aggiunge alla richiesta:
         postazione, outlook_ok, caselle_aperte, ultimo_arresto. Il server interseca le caselle
         con la credenziale del worker e assegna solo job che questo worker può eseguire."""
@@ -306,12 +309,20 @@ class Cockpit:
                 raise ErroreHTTP("PUT", percorso_api, e.code, testo) from None
 
 
+def cadenza_battito(lease_s: float) -> float:
+    """Ogni quanto battere durante un job: abbastanza spesso da rinnovare il lease PRIMA che scada, e
+    mai piu' lento di BATTITO_MAX_S, che e' quanto il server aspetta prima di dare il worker per
+    spento. I due vincoli sono diversi e vanno rispettati tutti e due: il primo protegge il lavoro,
+    il secondo protegge cio' che l'operatore vede."""
+    return min(max(5.0, lease_s / 4), BATTITO_MAX_S)
+
+
 class Battito:
     """Thread che manda il heartbeat mentre il lavoro gira su un altro thread.
 
     Uso:
 
-        with Battito(api, job_id, worker_id, job.lease_token, ogni_s=30) as b:
+        with Battito(api, job_id, worker_id, job.lease_token, ogni_s=cadenza_battito(job.lease_s)) as b:
             fai_il_lavoro(controlla=b.controlla)     # b.controlla() alza ArrestoRichiesto dopo un 409
         if b.arresto.is_set():
             return                                   # niente result: il tentativo non è più nostro
@@ -329,13 +340,19 @@ class Battito:
     pianificata (fase 9.1), che ha il riavvio automatico proprio per questo.
     """
 
-    def __init__(self, api: Cockpit, job_id: int, worker_id: str, lease_token: str = "", ogni_s: float = 30.0,
-                 arresto_forzato_s: float = 15.0, uscita=None):
+    def __init__(self, api: Cockpit, job_id: int, worker_id: str, lease_token: str = "",
+                 ogni_s: float = BATTITO_MAX_S, arresto_forzato_s: float = 15.0, uscita=None):
         self.api = api
         self.job_id = job_id
         self.worker_id = worker_id
         self.lease_token = lease_token
-        self.ogni_s = ogni_s
+        # Il tetto non e' negoziabile, e per questo sta qui e non nei chiamanti (blocco 2 del 3R):
+        # dentro un job il worker non entra piu' in claim, quindi il battito e' l'unica cosa che lo
+        # tiene riconoscibile dal server. Un battito piu' lento di BATTITO_MAX_S lo fa sparire dalla
+        # testata mentre lavora — che era esattamente il difetto: `lease_s / 4` su un sync con lease
+        # da dieci minuti voleva dire un battito ogni 150 secondi, e una soglia di 40. Piu' fitto va
+        # sempre bene: costa una riga di UPDATE, e i test lo usano a 0,05 s.
+        self.ogni_s = min(ogni_s, BATTITO_MAX_S)
         self.arresto_forzato_s = arresto_forzato_s
         # os._exit e non sys.exit: sys.exit alza un'eccezione nel thread del battito, dove non serve a
         # niente, e comunque l'interprete aspetterebbe il thread bloccato in COM. Qui si deve uscire.

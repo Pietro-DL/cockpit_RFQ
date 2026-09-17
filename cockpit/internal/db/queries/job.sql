@@ -239,22 +239,55 @@ SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%'
 -- name: UltimoJobPerChiavePrefisso :one
 SELECT * FROM job WHERE chiave_idempotenza LIKE sqlc.arg(prefisso)::text || '%' ORDER BY job_id DESC LIMIT 1;
 
--- name: UpsertWorkerPresenza :exec
--- Una riga per WORKER (0005): postazione e caselle vengono dalla credenziale intersecata con ciò che
--- il worker dichiara, mai dal solo JSON. ultimo_arresto e avviso si conservano se il claim non ne
--- porta di nuovi: sono informazioni che l'operatore deve poter leggere anche dopo il riavvio.
-INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_claim, outlook_ok,
-                             caselle_aperte, ultimo_job_il, ultimo_arresto, avviso)
+-- name: ContattoWorker :exec
+-- L'unica cosa che decide online/offline (0009). La chiama il middleware di autenticazione PRIMA di
+-- servire la rotta, quindi vale per tutte e sette: l'INGRESSO di un claim — non la sua fine, che puo'
+-- arrivare venti secondi dopo — il heartbeat di un job lungo, la domanda sulle caselle, l'ingest,
+-- l'upload, i cursori.
+--
+-- UPDATE e non upsert, di proposito: questa riga non fa nascere nessuna presenza. Una presenza nasce
+-- solo da un claim che ha passato i controlli (DichiarazioneWorker), perche' un claim RIFIUTATO — un
+-- worker.toml copiato su un altro PC, un nome che non e' quello della credenziale — non deve poter
+-- far comparire in testata un worker che non servira' niente. Il token e' valido (siamo dopo `auth`),
+-- ma «autenticato» non e' ancora «ammesso», e la presenza racconta il secondo.
+--
+-- Tocca una colonna sola. Tipo, postazione e IP restano affare del claim, che li scrive dopo aver
+-- verificato che il worker sia dove dice di essere: l'IP e' anche cio' su cui la voce 2.7 abbina una
+-- sessione a una postazione, e non deve poter essere spostato da una richiesta qualsiasi.
+UPDATE worker_presenza SET ultimo_contatto = now() WHERE worker_nome = sqlc.arg(worker_nome);
+
+-- name: DichiarazioneWorker :exec
+-- Che cosa il worker dichiara di essere e di servire. Si scrive all'INGRESSO del claim, prima del
+-- long-poll (0009): il server sa gia' tutto — postazione, caselle intersecate con la credenziale,
+-- Outlook raggiungibile — e aspettare la fine dell'attesa per registrarlo vorrebbe dire che per venti
+-- secondi la testata dice «il worker e' attivo ma non trova questa casella nel suo profilo», che e'
+-- falso e allarma per niente.
+--
+-- Non tocca ultimo_claim ne' ultimo_job_il: nessun claim si e' ancora concluso, e dirlo con un now()
+-- sarebbe la stessa comoda bugia che questo blocco e' venuto a togliere.
+--
+-- postazione e caselle vengono dalla credenziale intersecata con cio' che il worker dichiara, mai dal
+-- solo JSON. ultimo_arresto si conserva se il claim non ne porta di nuovi: e' un'informazione che
+-- l'operatore deve poter leggere anche dopo il riavvio.
+INSERT INTO worker_presenza (worker_nome, worker_tipo, postazione_id, indirizzo_ip, ultimo_contatto,
+                             outlook_ok, caselle_aperte, ultimo_arresto, avviso)
 VALUES (sqlc.arg(worker_nome), sqlc.arg(worker_tipo), sqlc.narg(postazione_id), sqlc.narg(indirizzo_ip), now(),
-        sqlc.arg(outlook_ok), sqlc.arg(caselle_aperte)::uuid[],
-        CASE WHEN sqlc.arg(con_job)::boolean THEN now() END, sqlc.narg(ultimo_arresto), sqlc.narg(avviso))
+        sqlc.arg(outlook_ok), sqlc.arg(caselle_aperte)::uuid[], sqlc.narg(ultimo_arresto), sqlc.narg(avviso))
 ON CONFLICT (worker_nome) DO UPDATE SET
     worker_tipo = EXCLUDED.worker_tipo, postazione_id = EXCLUDED.postazione_id,
-    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_claim = now(), outlook_ok = EXCLUDED.outlook_ok,
+    indirizzo_ip = EXCLUDED.indirizzo_ip, ultimo_contatto = now(), outlook_ok = EXCLUDED.outlook_ok,
     caselle_aperte = EXCLUDED.caselle_aperte,
-    ultimo_job_il  = COALESCE(EXCLUDED.ultimo_job_il, worker_presenza.ultimo_job_il),
     ultimo_arresto = COALESCE(EXCLUDED.ultimo_arresto, worker_presenza.ultimo_arresto),
     avviso         = EXCLUDED.avviso;
+
+-- name: ClaimConcluso :exec
+-- La FINE di un claim, con o senza job assegnato (0009). E' l'altra meta' di DichiarazioneWorker, e
+-- la riga esiste gia' perche' quella l'ha scritta venti secondi fa. ultimo_claim serve alla diagnosi
+-- — da quanto questo worker non riceve lavoro — non a dire se e' acceso.
+UPDATE worker_presenza
+   SET ultimo_claim = now(), ultimo_contatto = now(),
+       ultimo_job_il = CASE WHEN sqlc.arg(con_job)::boolean THEN now() ELSE ultimo_job_il END
+ WHERE worker_nome = sqlc.arg(worker_nome);
 
 -- name: ListWorkerPresenza :many
 SELECT wp.*, p.nome_host
@@ -271,5 +304,5 @@ SELECT * FROM worker_presenza WHERE worker_nome = $1;
 SELECT DISTINCT p.*
 FROM worker_presenza wp JOIN postazione p ON p.postazione_id = wp.postazione_id
 WHERE wp.indirizzo_ip = sqlc.arg(indirizzo_ip)::inet AND p.attiva
-  AND wp.ultimo_claim > now() - make_interval(secs => sqlc.arg(entro_s)::int)
+  AND wp.ultimo_contatto > now() - make_interval(secs => sqlc.arg(entro_s)::int)
 ORDER BY p.nome_host;

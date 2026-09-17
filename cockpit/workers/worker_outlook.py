@@ -25,7 +25,8 @@ from datetime import datetime, timedelta, timezone
 import pywintypes
 
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, ImprontaSbagliata,
-                            carica_config, configura_log, diagnosi, leggi_marcatore_arresto, nome_worker)
+                            cadenza_battito, carica_config, configura_log, diagnosi, leggi_marcatore_arresto,
+                            nome_worker)
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
@@ -252,7 +253,7 @@ class Worker:
         # thread alza il flag e concede 15 secondi al lavoro per fermarsi da solo; scaduti quelli, il
         # processo esce con codice 3 e l'attività pianificata lo riavvia (C16).
         with Battito(self.api, job.job_id, self.worker_id, job.lease_token,
-                     ogni_s=max(5.0, job.lease_s / 4), arresto_forzato_s=self.arresto_forzato_s) as b:
+                     ogni_s=cadenza_battito(job.lease_s), arresto_forzato_s=self.arresto_forzato_s) as b:
             b.marcatore_arresto = self.marcatore_arresto
             self.battito = b
             b.segna_fase(job.tipo)

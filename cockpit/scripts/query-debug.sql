@@ -28,8 +28,11 @@ ORDER BY c.nome, s.cartella;
 \echo '== 3. chi è collegato e che cosa vede =========================================='
 -- caselle_aperte è ciò che il worker ha risolto nel proprio profilo Outlook E che la sua
 -- credenziale autorizza. avviso elenca quelle dichiarate ma non autorizzate.
+-- ultimo_contatto = l'ultima richiesta autenticata ricevuta da quel worker: è su questa che la testata
+-- dice online/offline. ultimo_claim = l'ultimo claim CONCLUSO, NULL se non se n'è concluso ancora
+-- nessuno; un worker dentro un job lungo ha un ultimo_claim vecchio ed è vivissimo.
 SELECT worker_nome, p.nome_host AS postazione, w.indirizzo_ip, w.outlook_ok,
-       array_length(w.caselle_aperte, 1) AS n_caselle, w.ultimo_claim, w.ultimo_job_il,
+       array_length(w.caselle_aperte, 1) AS n_caselle, w.ultimo_contatto, w.ultimo_claim, w.ultimo_job_il,
        left(coalesce(w.avviso, ''), 60) AS avviso, left(coalesce(w.ultimo_arresto, ''), 60) AS ultimo_arresto
 FROM worker_presenza w
 LEFT JOIN postazione p USING (postazione_id)

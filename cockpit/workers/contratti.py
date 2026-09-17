@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from protocollo import ATTESA_CLAIM_S
+
 
 class Base(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
@@ -140,7 +142,7 @@ class CasellaServita(Base):
 class ClaimRichiesta(Base):
     worker: Literal["outlook", "analisi"]
     worker_id: str
-    attesa_s: int = 20
+    attesa_s: int = ATTESA_CLAIM_S
     # Nome host da cui il worker gira: il server lo CONFRONTA con la postazione della credenziale
     # (un worker.toml copiato su un altro PC viene rifiutato), ma il routing usa la credenziale.
     postazione: str = ""

@@ -44,10 +44,12 @@ type credenzialeUI struct {
 	Attivo     bool
 	Aggiornato time.Time
 	Caselle    []string
-	// UltimoClaim e IP vengono dalla presenza: dicono se quel worker si è mai fatto vivo, e da dove.
-	UltimoClaim *time.Time
-	IP          string
-	OutlookOk   bool
+	// UltimoContatto e IP vengono dalla presenza: dicono se quel worker si è mai fatto vivo, e da
+	// dove. È l'ultima richiesta autenticata di qualunque tipo (0009), non l'ultimo claim concluso:
+	// su questa pagina la colonna si chiama «Ultimo contatto» da sempre, e finalmente è quello.
+	UltimoContatto *time.Time
+	IP             string
+	OutlookOk      bool
 	// Stato e Problema: se questa credenziale può far entrare qualcuno, e se no perché (voce 2.4).
 	// Senza, l'unico modo di scoprire che un token è condiviso o non è mai stato generato è il primo
 	// 401 del worker — che parla del token e non dice che cosa fare.
@@ -173,8 +175,8 @@ func (s *Server) rendiPostazioni(w http.ResponseWriter, r *http.Request, d posta
 				}
 			}
 			if pr, ok := presenze[c.WorkerNome]; ok {
-				t := pr.UltimoClaim
-				cu.UltimoClaim, cu.OutlookOk = &t, pr.OutlookOk
+				t := pr.UltimoContatto
+				cu.UltimoContatto, cu.OutlookOk = &t, pr.OutlookOk
 				if pr.IndirizzoIp != nil {
 					cu.IP = pr.IndirizzoIp.String()
 				}

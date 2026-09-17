@@ -679,7 +679,7 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | una schermata `/admin/...` risponde **403 Non autorizzato** | stessa cosa scritta a mano nella barra degli indirizzi: nascondere la voce non era il controllo, il controllo è sulla rotta | come sopra. Se è sparito l'ultimo `admin`, rimetterne uno in `[[utenti]]` e riavviare |
 | un utente non può premere nessun pulsante | ha `ruolo = "consultazione"`, che è sola lettura | cambiare ruolo in `[[utenti]]` |
 | una password cambiata in `cockpit.toml` non ha effetto | è voluto: il file fa nascere l'utente, poi il segreto è in database (il log lo dice a ogni avvio) | finché non c'è la schermata del profilo (voce 6.4), azzerare a mano `utente.password_hash` e riavviare |
-| una casella in testata è **OFFLINE** | il worker che la serve non fa claim da oltre un minuto | il worker di quel PC è fermo: vedere il suo log |
+| una casella in testata è **OFFLINE** | quel worker non si fa sentire da oltre 40 secondi (due giri di claim, `api.PresenzaOnlineEntro`) | il worker di quel PC è fermo: vedere il suo log. Non conta da quanto non *conclude* un claim: un worker dentro un sync di tre minuti non ne conclude nessuno e resta online grazie al battito |
 | una casella in testata è **non risolta** | il worker è attivo ma non trova la casella nel profilo Outlook del suo PC (o Outlook non risponde) | aggiungere la casella al profilo, o aprire Outlook; `python worker_outlook.py --caselle` dice che cosa vede |
 | una casella in testata è **non configurata** | nessun `[[worker]]` la elenca fra le proprie `caselle` | aggiungerla al worker della postazione che deve servirla |
 | «Apri in Outlook» dice *nessuna postazione* | la sessione non è abbinata a nessun PC | scegliere il PC dalla testata («Sei su:») |
@@ -716,7 +716,8 @@ internal/rete              TLS del listener: carica o genera il certificato auto
                            impronta e generazione dei token dei worker (voce 2.4)
 internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
                            (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
-                           il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store;
+                           il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
+                           `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                            il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
@@ -727,7 +728,8 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
                            0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
                            0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale),
-                           0006_inbox_viva.sql (utente.ultima_vista_inbox)
+                           0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
+                           0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
@@ -763,7 +765,11 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   (50 per le scritture sul NAS, che non falliscono perché sono sbagliate ma perché il NAS in quel momento non c'è),
   `chiave_idempotenza` unica **fra i job pendenti** (indice parziale: un job fatto non impedisce di riaccodarne uno
   uguale). Priorità 1 = azione dell'utente (apri, bozza, download, cartella, copia NAS), 2 = sync storico, 5 = sync, 6 = analisi.
-  `worker_presenza` registra l'ultimo claim per tipo di worker (badge in testata).
+  `worker_presenza` tiene due tempi diversi per ogni worker: `ultimo_contatto` (l'ultima richiesta autenticata di
+  qualunque tipo — ingresso del claim, battito, ingest, upload — ed è l'unica cosa su cui si decide online/offline)
+  e `ultimo_claim` (l'ultimo claim concluso, NULL finché non se n'è concluso nessuno: diagnosi, non liveness).
+  I tempi del protocollo stanno in `internal/api/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
+  verifica che le due copie coincidano.
 - **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; niente su disco finché l'operatore non chiede)
   → `documento_proposta` (INTERPRETAZIONE: a ingest dal nome file, poi raffinata dopo il download da hash/zip e
   dal worker-analisi finché resta `aperta`) → `documento` (DECISIONE dell'operatore; solo questa accoda `copia_nas`).
@@ -792,7 +798,7 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 | `schema_versione` | SPEC §4.1: migrazione applicata all'avvio solo se assente |
 | `utente.password_hash`, `utente.ruolo`, `sessione` | SPEC §5.4 (login bcrypt, cookie) ma nessuna tabella lo prevedeva |
 | `sync_cursore` (+ `storico_fino_a`) | SPEC §3.2 passo 1: «chiede al server il cursore della casella»; il sync storico ricorda fin dove è arrivato. Dalla 0004 la chiave è **(casella, cartella)**: con la sola cartella due caselle si sovrascrivevano il cursore a vicenda |
-| `worker_presenza` | ultimo claim per worker: la UI segnala «OFFLINE» invece di lasciar crescere la coda in silenzio |
+| `worker_presenza` | ultimo contatto e ultimo claim per worker: la UI segnala «OFFLINE» invece di lasciar crescere la coda in silenzio |
 | `bozza` | Le mail preparate dal Cockpit (risposte, solleciti) vanno tracciate: stato, EntryID, poi collegate alla mail inviata |
 | `messaggio.corpo_html` | Per rendere il Cockpit un vero frontend di Outlook serve l'HTML (da sanificare prima del rendering) |
 | `messaggio.parent_messaggio_id` | SPEC §3.2: i `.msg` annidati producono messaggi figli |

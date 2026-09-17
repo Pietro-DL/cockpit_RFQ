@@ -62,7 +62,7 @@
     </td>
     <td class="piccolo">
       {{range .Worker}}
-        <div>{{if .UltimoClaim}}{{dataLunga .UltimoClaim}}{{if .IP}} <span class="muto">da {{.IP}}</span>{{end}}
+        <div>{{if .UltimoContatto}}{{dataLunga .UltimoContatto}}{{if .IP}} <span class="muto">da {{.IP}}</span>{{end}}
              {{if not .OutlookOk}}<span class="errore">Outlook non risponde</span>{{end}}
              {{else}}<span class="muto">mai</span>{{end}}</div>
       {{end}}
