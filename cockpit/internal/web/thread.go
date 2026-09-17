@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
 )
@@ -104,28 +104,57 @@ func (s *Server) riprovaCopie(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	accodati, gia := 0, 0
-	var spenta string
+	e := s.rimettiInCoda(ctx, q, id, documenti)
+	s.threadFrammento(w, r, id, e.Frase())
+}
+
+// rimettiInCoda accoda la copia dei documenti che ne hanno bisogno e CONTA che cosa e' successo a
+// ciascuno. Non si ferma al primo intoppo.
+//
+// Un singolo documento storto non deve poter fermare gli altri: e' lo stesso principio per cui un
+// elemento anomalo di Outlook non ferma la sincronizzazione della cartella. Prima, un errore del
+// database su un documento faceva uscire l'intera azione con un 500, e gli altri documenti della
+// stessa RFQ — che non avevano niente che non andasse — restavano fermi senza che nessuno lo
+// dicesse. Adesso quel documento diventa un numero nella frase, e gli altri partono.
+func (s *Server) rimettiInCoda(ctx context.Context, q *db.Queries, thread uuid.UUID, documenti []db.Documento) esitoCopie {
+	var e esitoCopie
 	for _, d := range documenti {
 		if !daCopiare(d.StatoNas) {
+			// gia' sul NAS: non c'e' niente da rimettere in coda, e non e' un errore
+			e.NonApplicabili++
 			continue
 		}
-		j, err := jobs.Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: d.DocumentoID},
-			"nas:"+d.DocumentoID.String(), 1)
+		j, err := jobs.AccodaCopia(ctx, q, d.DocumentoID)
 		switch {
 		case errors.Is(err, jobs.ErrCapacitaSpenta):
-			spenta = jobs.CapacitaMancante(err)
+			// la capacita' e' del server, non del documento: vale per tutti, e il giro finisce qui
+			e.Spenta = jobs.CapacitaMancante(err)
+			return e
 		case err != nil:
-			s.Log.Error("riprova copie", "thread", id, "documento", d.DocumentoID, "err", err)
-			http.Error(w, err.Error(), 500)
-			return
+			s.Log.Error("riprova copie", "thread", thread, "documento", d.DocumentoID, "err", err)
+			e.Errori++
+			if e.Motivo == "" {
+				e.Motivo = err.Error()
+			}
 		case j == nil:
-			gia++ // la copia di questo documento era gia' in coda: non se ne accoda una seconda
+			e.GiaInCoda++ // la copia di questo documento era gia' in coda: non se ne accoda una seconda
 		default:
-			accodati++
+			e.Accodati++
 		}
 	}
-	s.threadFrammento(w, r, id, avvisoCopie(accodati, gia, spenta))
+	return e
+}
+
+// esitoCopie e' che cosa e' successo a ogni documento guardato. I quattro numeri non sono un
+// dettaglio dell'implementazione: sono la differenza fra «ho premuto e non e' successo niente» e
+// «c'erano tre documenti, due erano gia' in coda e uno non si e' potuto accodare per questo motivo».
+type esitoCopie struct {
+	Accodati       int    // copie nuove entrate in coda adesso
+	GiaInCoda      int    // c'era gia' una copia pendente con la stessa chiave: non se ne fa una seconda
+	Errori         int    // l'accodamento di quel documento non e' riuscito; gli altri sono andati avanti
+	NonApplicabili int    // documenti gia' sul NAS: niente da rimettere in coda
+	Spenta         string // capacita' spenta: il giro non e' nemmeno cominciato
+	Motivo         string // il primo errore, per intero, cosi' non va cercato nel log
 }
 
 // daCopiare: un documento confermato che non e' sul NAS. In attesa perche' la scrittura era spenta,
@@ -135,21 +164,38 @@ func daCopiare(s db.StatoNas) bool {
 	return s == db.StatoNasInCoda || s == db.StatoNasErrore
 }
 
-// avvisoCopie e' la frase che legge l'operatore: dice che cosa e' successo, non solo che l'azione e'
-// riuscita. «Niente da rimettere in coda» e «due copie accodate» non sono la stessa notizia.
-func avvisoCopie(accodati, gia int, spenta string) string {
-	switch {
-	case spenta != "":
-		return fmt.Sprintf("Copie NON rimesse in coda: la capacita' [sicurezza].%s e' spenta su questo server.", spenta)
-	case accodati == 0 && gia == 0:
-		return "Nessun documento in attesa: sono tutti gia' sul NAS."
-	case accodati == 0:
-		return fmt.Sprintf("Nessuna copia nuova: %d erano gia' in coda.", gia)
-	case gia == 0:
-		return fmt.Sprintf("%d copi%s rimess%s in coda.", accodati, plurale(accodati, "a", "e"), plurale(accodati, "a", "e"))
+// Frase e' quello che legge l'operatore: dice che cosa e' successo, non solo che l'azione e'
+// riuscita. «Niente da rimettere in coda» e «due copie accodate» non sono la stessa notizia, e
+// «una non si e' potuta accodare» e' una notizia che prima non esisteva affatto — l'azione usciva
+// con un errore del server e le altre copie non partivano.
+func (e esitoCopie) Frase() string {
+	if e.Spenta != "" {
+		return fmt.Sprintf("Copie NON rimesse in coda: la capacita' [sicurezza].%s e' spenta su questo server.", e.Spenta)
 	}
-	return fmt.Sprintf("%d copi%s rimess%s in coda (%d erano gia' in attesa).",
-		accodati, plurale(accodati, "a", "e"), plurale(accodati, "a", "e"), gia)
+	var coda []string
+	if e.GiaInCoda > 0 {
+		coda = append(coda, fmt.Sprintf("%d gia' in attesa", e.GiaInCoda))
+	}
+	if e.Errori > 0 {
+		coda = append(coda, fmt.Sprintf("%d non accodat%s: %s", e.Errori, plurale(e.Errori, "o", "i"), e.Motivo))
+	}
+	if e.NonApplicabili > 0 {
+		coda = append(coda, fmt.Sprintf("%d gia' sul NAS", e.NonApplicabili))
+	}
+	dettaglio := ""
+	if len(coda) > 0 {
+		dettaglio = " (" + strings.Join(coda, ", ") + ")"
+	}
+	switch {
+	case e.Accodati == 0 && e.GiaInCoda == 0 && e.Errori == 0 && e.NonApplicabili == 0:
+		return "Nessun documento in attesa: questa RFQ non ha documenti confermati."
+	case e.Accodati == 0 && e.GiaInCoda == 0 && e.Errori == 0:
+		return fmt.Sprintf("Nessun documento in attesa: sono tutti gia' sul NAS (%d).", e.NonApplicabili)
+	case e.Accodati == 0:
+		return "Nessuna copia nuova" + dettaglio + "."
+	}
+	return fmt.Sprintf("%d copi%s rimess%s in coda", e.Accodati, plurale(e.Accodati, "a", "e"),
+		plurale(e.Accodati, "a", "e")) + dettaglio + "."
 }
 
 func plurale(n int, uno, molti string) string {

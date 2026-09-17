@@ -80,4 +80,10 @@ func TestRiprovaCopieNonToccaQuelliGiaScritti(t *testing.T) {
 	if n := len(b.copieInCoda()); n != 1 {
 		t.Errorf("copie accodate: %d, attesa 1 (quella già scritta non si riscrive)", n)
 	}
+	// blocco 5A: i documenti già sul NAS vanno CONTATI, non ignorati in silenzio. «Nessuna copia
+	// nuova» può voler dire «è tutto a posto» oppure «non ho guardato niente», e sono due notizie
+	// molto diverse per chi sta aspettando quel disegno.
+	if !strings.Contains(leggibile(html), "1 gia' sul NAS") {
+		t.Errorf("l'avviso non dice quanti documenti erano già sul NAS:\n%s", estrai(html, "avviso"))
+	}
 }
