@@ -141,6 +141,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
 | `dry_run` | **deprecata** (blocco 4): era esattamente «non scrivere sul NAS», che ora si dice con `[sicurezza].nas_scrittura = false`. Resta letta per i file già scritti — `true` spegne `nas_scrittura` — ma va tolta, e il server lo ripete nel log a ogni avvio |
 | `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow. In **produzione** non è vietata — è il posto dove il Cockpit lavorerà davvero — ma con `nas_scrittura = true` serve la seconda dichiarazione `[sicurezza].consenti_nas_produzione`. Il confronto ignora maiuscole, barre e barra finale |
+| `intervallo_integrita_s` | ogni quanti secondi il ricognitore confronta i documenti con i file veri sul NAS (blocco 5B). Assente = 900. `0` = nessuna passata automatica, e «Controlla ora» in *Admin > Integrità NAS* continua a funzionare. Ogni documento costa la **lettura intera** del file per ricalcolarne l'hash: su una condivisione lenta conviene allungarlo |
 | `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
 
 **`[sicurezza]`** — che cosa questo server può **modificare fuori da sé** (blocco 4).
@@ -621,6 +622,47 @@ banco a due PC vero. Il codice compila per Linux e i percorsi POSIX sono coperti
 l'uno né l'altro è stato eseguito: sono prove reali, e finché non si fanno restano `NON ESEGUITO` in
 `docs\esiti\esiti_reali.md`.
 
+
+---
+
+### Integrità NAS (Admin)
+
+`stato_nas = 'scritto'` è una promessa fatta **una volta sola**, nel momento in cui la copia è
+riuscita. Da allora la cartella può essere stata spostata, il file cancellato o sostituito a mano con
+un contenuto diverso: il fascicolo continuerebbe a dire di sì. E al contrario, un documento `in_coda`
+da tre settimane — perché la scrittura era spenta, o perché la copia è fallita e nessuno se n'è
+accorto — guardando la riga non si distingue da uno confermato cinque minuti fa.
+
+Un ricognitore va a guardare i file veri ogni `[nas].intervallo_integrita_s`, e quello che non torna
+finisce in *Admin > Integrità NAS*. Prende i documenti **controllati meno di recente per primi**, al
+massimo 200 per passata: a giro si arriva a tutti senza rileggere ogni volta l'intero fascicolo.
+
+| Problema | Che cosa vuol dire | Azione |
+|---|---|---|
+| `in_attesa` | confermato da più di mezz'ora, nessuna copia in coda. Il dettaglio dice se è perché `nas_scrittura` è spenta | **riaccoda** |
+| `errore` | la copia ha provato e non ce l'ha fatta; il dettaglio porta il motivo | **riaccoda** |
+| `mancante` | il database dice `scritto`, il file non c'è | **riaccoda** |
+| `gia_presente` | il file è già sul NAS **con l'hash giusto** e il documento risulta ancora da copiare: non c'è niente da copiare | **allinea** |
+| `conflitto` | sul NAS c'è un file **diverso** da questo documento | **nessuna**: va guardato |
+| `illeggibile` | il file c'è ma non si riesce a leggerlo, oppure al suo posto c'è una cartella con lo stesso nome | **nessuna**: va guardato |
+
+Tre regole che non cambiano:
+
+- **un conflitto non si sovrascrive mai.** Non c'è nessun pulsante che decida quale dei due file sia
+  quello buono: sovrascrivere vorrebbe dire buttare via il file di qualcun altro senza sapere di chi
+  fosse. La stessa cosa vale per la copia vera — anche riaccodandola a mano, il copiatore rifiuta;
+- **se il NAS non è raggiungibile la passata non si fa.** Farla direbbe che mancano *tutti* i file, e
+  da quel momento la volta in cui ne manca uno davvero non si distinguerebbe più dalle altre. La
+  schermata lo dice: «NON controllato»;
+- **il ricognitore non ripara niente da solo.** Scrive `documento.verificato_il` e le righe di
+  `nas_anomalia`, e basta. Le due azioni sono gesti di una persona, come «Riprova copie».
+
+Legge il NAS anche con `nas_scrittura` **spenta** — leggere è sempre consentito, e un server che non
+scrive può benissimo accorgersi che un file dichiarato nel fascicolo non c'è più. Con
+`intervallo_integrita_s = 0` non gira da solo, e resta «Controlla ora».
+
+La stessa notizia arriva **in fondo alla pagina della RFQ**, perché chi aspetta quel disegno guarda
+quella, non l'Admin.
 
 ---
 

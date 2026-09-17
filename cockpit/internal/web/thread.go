@@ -37,8 +37,16 @@ type threadDati struct {
 	// e perche' un documento in errore senza un modo di riprovare sarebbe il secondo vicolo cieco dopo
 	// quello che questo pulsante e' nato per togliere.
 	NDaCopiare int
-	Avviso     string
-	Selezion   string
+	// NAnomalie: segnalazioni aperte dell'integrita' NAS su questa RFQ (blocco 5B).
+	//
+	// Un documento dichiarato «scritto» il cui file non c'e' piu' e' l'unica riga della tabella qui
+	// sopra che MENTE, e mente in un modo che non si vede: lo stato dice scritto perche' la copia era
+	// riuscita, una volta. Chi aspetta quel disegno guarda questa pagina, non l'Admin — quindi la
+	// notizia deve arrivare qui, anche se il posto in cui la si risolve e' un altro.
+	NAnomalie int
+	Admin     bool
+	Avviso    string
+	Selezion  string
 }
 
 type messaggioThread struct {
@@ -212,6 +220,10 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 		return nil, err
 	}
 	d := &threadDati{T: t}
+	d.Admin = almeno(utenteDa(ctx), db.RuoloUtenteAdmin)
+	if n, err := q.ContaAnomalieThread(ctx, id); err == nil {
+		d.NAnomalie = int(n)
+	}
 	d.Riga, _ = q.GetCruscottoRiga(ctx, id)
 	d.Cliente, _ = q.GetCliente(ctx, t.ClienteID)
 	d.Identificativi, _ = q.ListIdentificativi(ctx, id)

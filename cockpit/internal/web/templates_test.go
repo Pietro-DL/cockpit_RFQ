@@ -80,6 +80,36 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 	return md, td, thd
 }
 
+// datiIntegritaSintetici: una riga per ogni problema che ha un'azione diversa dalle altre.
+func datiIntegritaSintetici() *integritaDati {
+	riga := func(p db.ProblemaNas, stato db.StatoNas, trovato string) rigaIntegrita {
+		return rigaIntegrita{db.ListAnomalieNasRow{
+			NasAnomalium: db.NasAnomalium{
+				DocumentoID: uuid.New(), ThreadID: uuid.New(), Problema: p, StatoDb: stato,
+				Percorso:  `ACME\WIP\2026 09 17 prova\ELENCO DISEGNI\6674611A_4.pdf`,
+				ShaAtteso: strings.Repeat("a", 64), ShaTrovato: txtT(trovato),
+				Dettaglio: "dettaglio di prova", RilevataIl: time.Now(), VistaIl: time.Now(),
+			},
+			NomeFile: "6674611A_4.pdf", Codice: txtT("6674611A"), Rev: txtT("4"),
+			Tipo: db.TipoDocumentoDisegno2d, Oggetto: txtT("RFQ 6674611A"), RagioneSociale: "Acme S.p.A.",
+		}}
+	}
+	ora := time.Now()
+	return &integritaDati{
+		Radice: `\\nas01\PROVA`, Raggiungibile: true, Scrittura: true, Automatico: 15 * time.Minute,
+		Documenti: 9, Verificati: 9, UltimoControllo: &ora,
+		Conta: []db.ContaAnomalieNasRow{{Problema: db.ProblemaNasMancante, N: 1}, {Problema: db.ProblemaNasConflitto, N: 1}},
+		Righe: []rigaIntegrita{
+			riga(db.ProblemaNasMancante, db.StatoNasScritto, ""),
+			riga(db.ProblemaNasConflitto, db.StatoNasScritto, strings.Repeat("b", 64)),
+			riga(db.ProblemaNasGiaPresente, db.StatoNasInCoda, strings.Repeat("a", 64)),
+			riga(db.ProblemaNasInAttesa, db.StatoNasInCoda, ""),
+			riga(db.ProblemaNasErrore, db.StatoNasErrore, ""),
+			riga(db.ProblemaNasIlleggibile, db.StatoNasScritto, ""),
+		},
+	}
+}
+
 func TestFrammentiEseguono(t *testing.T) {
 	s := serverTest(t)
 	md, td, thd := datiSintetici()
@@ -95,6 +125,12 @@ func TestFrammentiEseguono(t *testing.T) {
 		{"inbox.html", "thread_risultati", []db.VCruscotto{{ThreadID: uuid.New(), Cliente: "ACME", Oggetto: txtT("x"), DataInizio: time.Now()}}, []string{"ACME"}},
 		{"thread.html", "thread_corpo", thd, []string{"Documenti sul NAS", "Fascicolo", "RICEVUTA", "Scarica selezionati"}},
 		{"inbox.html", "stato_worker", nil, []string{"stato-worker", "Sei su:", "PC-FRANCESCO", "Francesco attiva", "Commerciale OFFLINE", "Luigi non configurata", "analisi mai avviata"}},
+		// blocco 5B: la schermata dell'integrita' con una riga per ogni tipo di problema. Un enum nuovo
+		// che non finisce ne' in StatoFilesystem ne' in Azione esce qui, e non davanti all'operatore.
+		{"integrita.html", "integrita_corpo", datiIntegritaSintetici(), []string{
+			"Integrità NAS", "Controlla ora", "mancante", "conflitto", "gia_presente",
+			"presente, contenuto DIVERSO", "presente, hash corretto",
+			"/riaccoda", "/allinea", "nessuna azione automatica"}},
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Copia, x.MotivoAzioni = nil, "nessuna postazione associata a questa sessione"

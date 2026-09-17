@@ -69,6 +69,11 @@ type Server struct {
 	// Workers è il filesystem che contiene `workers/` (il pacchetto del worker, D22). Nil = la pagina
 	// *Postazioni* genera solo il worker.toml, senza i file del worker.
 	Workers fs.FS
+	// Ricognitore confronta i documenti del database con i file veri sul NAS (blocco 5B). È lo stesso
+	// oggetto che gira a tempo: «Controlla ora» in Admin chiama la sua stessa funzione, perché un
+	// controllo che in produzione e a richiesta passa da due strade diverse è un controllo che in una
+	// delle due prima o poi si comporta in un altro modo. Nil = la schermata lo dice.
+	Ricognitore *jobs.Ricognitore
 }
 
 type chiaveCtx int
@@ -156,7 +161,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -232,6 +237,11 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	// POST perché genera segreti e invalida i precedenti: un GET lo farebbe il primo che ricarica la
 	// pagina, e una precaricamento del browser basterebbe a spegnere un worker acceso.
 	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.soloAdmin(s.pacchettoWorker))
+	// Integrita' NAS (blocco 5B): il confronto fra quello che il database promette e i file veri.
+	mux.HandleFunc("GET /admin/nas", s.soloAdmin(s.adminIntegrita))
+	mux.HandleFunc("POST /admin/nas/controlla", s.soloAdmin(s.controllaIntegrita))
+	mux.HandleFunc("POST /admin/nas/{id}/riaccoda", s.soloAdmin(s.riaccodaDocumento))
+	mux.HandleFunc("POST /admin/nas/{id}/allinea", s.soloAdmin(s.allineaDocumento))
 	mux.HandleFunc("GET /admin/scarti", s.soloAdmin(s.adminScarti))
 	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.soloAdmin(s.riprovaScarto))
 	// Anagrafica e' amministrativa (D29): le regole di riconoscimento di un cliente valgono per

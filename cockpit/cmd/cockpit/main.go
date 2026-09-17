@@ -241,6 +241,7 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		log.Info("analisi semantica attiva", "modello", servizioAgente.Modello.Nome(), "caselle", len(servizioAgente.Caselle))
 	}
 	esecutore := &jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
+	ricognitore := &jobs.Ricognitore{Pool: pool, NAS: scrittore, Log: log, Ogni: cfg.IntervalloIntegrita()}
 
 	// ---------------------------------------------------------------- rete (voce 2.4)
 	//
@@ -286,7 +287,8 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
 		IntervalloSync: intervalloSync, Sync: opzioniSync, SyncAperturaInbox: syncApertura, Modalita: cfg.Server.Modalita,
-		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente}
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente,
+		Ricognitore: ricognitore}
 	if err := ws.Init(); err != nil {
 		return err
 	}
@@ -301,6 +303,10 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	// di uno zip e' un job, non un pezzo della richiesta HTTP con cui il download viene consegnato.
 	esecutore.Archivi = wa
 	esecutore.Avvia(ctx)
+	// Il ricognitore dell'integrita' (blocco 5B). Parte SEMPRE, anche con la scrittura spenta: legge
+	// il NAS e basta, e un server che non scrive puo' benissimo accorgersi che un file dichiarato nel
+	// fascicolo non c'e' piu'. Si spegne solo con [nas].intervallo_integrita_s = 0.
+	ricognitore.Avvia(ctx)
 
 	mux := http.NewServeMux()
 	ws.Registra(mux)

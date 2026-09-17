@@ -148,7 +148,7 @@ func (q *Queries) GetComponentePerCodice(ctx context.Context, arg GetComponenteP
 }
 
 const getDocumento = `-- name: GetDocumento :one
-SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota FROM documento WHERE documento_id = $1
+SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il FROM documento WHERE documento_id = $1
 `
 
 func (q *Queries) GetDocumento(ctx context.Context, documentoID uuid.UUID) (Documento, error) {
@@ -173,12 +173,13 @@ func (q *Queries) GetDocumento(ctx context.Context, documentoID uuid.UUID) (Docu
 		&i.ConfermatoIl,
 		&i.SostituitoDa,
 		&i.Nota,
+		&i.VerificatoIl,
 	)
 	return i, err
 }
 
 const getDocumentoPerHash = `-- name: GetDocumentoPerHash :one
-SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota FROM documento WHERE thread_id = $1 AND sha256 = $2
+SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il FROM documento WHERE thread_id = $1 AND sha256 = $2
 `
 
 type GetDocumentoPerHashParams struct {
@@ -208,6 +209,7 @@ func (q *Queries) GetDocumentoPerHash(ctx context.Context, arg GetDocumentoPerHa
 		&i.ConfermatoIl,
 		&i.SostituitoDa,
 		&i.Nota,
+		&i.VerificatoIl,
 	)
 	return i, err
 }
@@ -242,7 +244,7 @@ func (q *Queries) GetProposta(ctx context.Context, propostaID uuid.UUID) (Docume
 const insertDocumento = `-- name: InsertDocumento :one
 INSERT INTO documento (thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, confermato_da, nota)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota
+RETURNING documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il
 `
 
 type InsertDocumentoParams struct {
@@ -295,6 +297,7 @@ func (q *Queries) InsertDocumento(ctx context.Context, arg InsertDocumentoParams
 		&i.ConfermatoIl,
 		&i.SostituitoDa,
 		&i.Nota,
+		&i.VerificatoIl,
 	)
 	return i, err
 }
@@ -388,7 +391,7 @@ func (q *Queries) ListCartellaDocumento(ctx context.Context) ([]CartellaDocument
 }
 
 const listDocumentiMessaggio = `-- name: ListDocumentiMessaggio :many
-SELECT d.documento_id, d.thread_id, d.componente_id, d.tipo, d.codice, d.rev, d.nome_file, d.estensione, d.sha256, d.bytes, d.path_relativo, d.stato_nas, d.errore_nas, d.scritto_il, d.confermato_da, d.confermato_il, d.sostituito_da, d.nota, dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
+SELECT d.documento_id, d.thread_id, d.componente_id, d.tipo, d.codice, d.rev, d.nome_file, d.estensione, d.sha256, d.bytes, d.path_relativo, d.stato_nas, d.errore_nas, d.scritto_il, d.confermato_da, d.confermato_il, d.sostituito_da, d.nota, d.verificato_il, dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
 WHERE dp.messaggio_id = $1::uuid
 `
 
@@ -426,6 +429,7 @@ func (q *Queries) ListDocumentiMessaggio(ctx context.Context, messaggioID uuid.U
 			&i.Documento.ConfermatoIl,
 			&i.Documento.SostituitoDa,
 			&i.Documento.Nota,
+			&i.Documento.VerificatoIl,
 			&i.AllegatoID,
 		); err != nil {
 			return nil, err
@@ -439,7 +443,7 @@ func (q *Queries) ListDocumentiMessaggio(ctx context.Context, messaggioID uuid.U
 }
 
 const listDocumentiThread = `-- name: ListDocumentiThread :many
-SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota FROM documento WHERE thread_id = $1 ORDER BY componente_id NULLS LAST, tipo, nome_file
+SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il FROM documento WHERE thread_id = $1 ORDER BY componente_id NULLS LAST, tipo, nome_file
 `
 
 func (q *Queries) ListDocumentiThread(ctx context.Context, threadID uuid.UUID) ([]Documento, error) {
@@ -470,6 +474,7 @@ func (q *Queries) ListDocumentiThread(ctx context.Context, threadID uuid.UUID) (
 			&i.ConfermatoIl,
 			&i.SostituitoDa,
 			&i.Nota,
+			&i.VerificatoIl,
 		); err != nil {
 			return nil, err
 		}

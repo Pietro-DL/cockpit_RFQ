@@ -76,6 +76,7 @@ func navPer(u *db.Utente) []sezioneNav {
 			{Etichetta: "Anagrafica", Href: "/admin/anagrafica", Titolo: "Anagrafica"},
 			{Etichetta: "Postazioni", Href: "/admin/postazioni", Titolo: "Postazioni"},
 			{Etichetta: "Coda job", Href: "/admin/job", Titolo: "Coda job"},
+			{Etichetta: "Integrità NAS", Href: "/admin/nas", Titolo: "Integrità NAS"},
 			{Etichetta: "Scarti", Href: "/admin/scarti", Titolo: "Scarti"},
 		}})
 	}

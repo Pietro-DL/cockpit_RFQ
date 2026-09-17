@@ -1127,6 +1127,76 @@ func AllOrigineIdentificativoValues() []OrigineIdentificativo {
 	}
 }
 
+type ProblemaNas string
+
+const (
+	ProblemaNasInAttesa    ProblemaNas = "in_attesa"
+	ProblemaNasErrore      ProblemaNas = "errore"
+	ProblemaNasMancante    ProblemaNas = "mancante"
+	ProblemaNasConflitto   ProblemaNas = "conflitto"
+	ProblemaNasGiaPresente ProblemaNas = "gia_presente"
+	ProblemaNasIlleggibile ProblemaNas = "illeggibile"
+)
+
+func (e *ProblemaNas) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProblemaNas(s)
+	case string:
+		*e = ProblemaNas(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProblemaNas: %T", src)
+	}
+	return nil
+}
+
+type NullProblemaNas struct {
+	ProblemaNas ProblemaNas `json:"problema_nas"`
+	Valid       bool        `json:"valid"` // Valid is true if ProblemaNas is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProblemaNas) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProblemaNas, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProblemaNas.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProblemaNas) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProblemaNas), nil
+}
+
+func (e ProblemaNas) Valid() bool {
+	switch e {
+	case ProblemaNasInAttesa,
+		ProblemaNasErrore,
+		ProblemaNasMancante,
+		ProblemaNasConflitto,
+		ProblemaNasGiaPresente,
+		ProblemaNasIlleggibile:
+		return true
+	}
+	return false
+}
+
+func AllProblemaNasValues() []ProblemaNas {
+	return []ProblemaNas{
+		ProblemaNasInAttesa,
+		ProblemaNasErrore,
+		ProblemaNasMancante,
+		ProblemaNasConflitto,
+		ProblemaNasGiaPresente,
+		ProblemaNasIlleggibile,
+	}
+}
+
 type RegolaAggancio string
 
 const (
@@ -2618,6 +2688,7 @@ type Documento struct {
 	ConfermatoIl time.Time     `json:"confermato_il"`
 	SostituitoDa uuid.NullUUID `json:"sostituito_da"`
 	Nota         pgtype.Text   `json:"nota"`
+	VerificatoIl *time.Time    `json:"verificato_il"`
 }
 
 type DocumentoProposta struct {
@@ -2809,6 +2880,21 @@ type MessaggioOutlook struct {
 	InReplyTo         pgtype.Text `json:"in_reply_to"`
 	Riferimenti       []string    `json:"riferimenti"`
 	AggiornatoIl      time.Time   `json:"aggiornato_il"`
+}
+
+type NasAnomalium struct {
+	AnomaliaID  int64       `json:"anomalia_id"`
+	DocumentoID uuid.UUID   `json:"documento_id"`
+	ThreadID    uuid.UUID   `json:"thread_id"`
+	Problema    ProblemaNas `json:"problema"`
+	StatoDb     StatoNas    `json:"stato_db"`
+	Percorso    string      `json:"percorso"`
+	ShaAtteso   string      `json:"sha_atteso"`
+	ShaTrovato  pgtype.Text `json:"sha_trovato"`
+	Dettaglio   string      `json:"dettaglio"`
+	RilevataIl  time.Time   `json:"rilevata_il"`
+	VistaIl     time.Time   `json:"vista_il"`
+	RisoltaIl   *time.Time  `json:"risolta_il"`
 }
 
 // PC con Outlook classico e un worker: i job interattivi vanno alla postazione del richiedente (piano §2.2).

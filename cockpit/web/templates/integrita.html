@@ -1,0 +1,58 @@
+{{define "contenuto"}}<div id="integrita">{{template "integrita_corpo" .}}</div>{{end}}
+
+{{define "integrita_corpo"}}
+<h1>Integrità NAS</h1>
+{{with .Dati}}
+<p class="nota">
+  Che cosa dice il database, e che cosa c'è davvero sul NAS. Un documento «scritto» è una promessa
+  fatta una volta sola, nel momento in cui la copia è riuscita: da allora la cartella può essere stata
+  spostata, il file cancellato o sostituito a mano con un altro. Qui si va a guardare.
+  <br>
+  <b>Un conflitto non si sovrascrive mai</b>: se sul NAS c'è un file diverso da questo documento,
+  quale dei due sia quello buono lo decide una persona, guardandoli.
+</p>
+
+<div class="conta">
+  <span class="chip {{if .Raggiungibile}}fatto{{else}}fallito{{end}}">NAS {{if .Raggiungibile}}raggiungibile{{else}}NON raggiungibile{{end}}</span>
+  <span class="chip {{if .Scrittura}}fatto{{else}}grigio{{end}}">scrittura {{if .Scrittura}}attiva{{else}}spenta{{end}}</span>
+  {{range .Conta}}<span class="chip {{if eq (printf "%s" .Problema) "conflitto"}}fallito{{else}}pronto{{end}}">{{.Problema}}: {{.N}}</span> {{end}}
+  {{if not .Conta}}<span class="chip fatto">nessuna segnalazione aperta</span>{{end}}
+</div>
+
+<p class="muto">
+  <small class="mono">{{.Radice}}</small><br>
+  {{.Verificati}} document{{if eq .Verificati 1}}o controllato{{else}}i controllati{{end}} su {{.Documenti}} confermat{{if eq .Documenti 1}}o{{else}}i{{end}}.
+  {{if .UltimoControllo}}Ultimo controllo: {{oraLunga .UltimoControllo}}.{{else}}<b>Mai controllato</b>: una schermata senza segnalazioni non vuol dire che vada tutto bene.{{end}}
+  {{if .Automatico}}Controllo automatico ogni {{.OgniQuanto}}.{{else}}<b>Nessun controllo automatico</b> ([nas].intervallo_integrita_s = 0): si guarda solo premendo qui sotto.{{end}}
+  <button type="button" hx-post="/admin/nas/controlla" hx-target="#integrita">Controlla ora</button>
+  {{if .Lotto}}<br><small>Ogni controllo guarda al massimo {{.Lotto}} documenti, quelli controllati meno di
+  recente: a giro si arriva a tutti. Ricalcola l'hash leggendo ogni file per intero, quindi su una
+  condivisione lenta puo' metterci.</small>{{end}}
+</p>
+
+{{if .Avviso}}<div class="avviso{{if .Errore}} errore-box{{end}}">{{.Avviso}}</div>{{end}}
+
+<table class="tabella">
+  <tr><th>Documento</th><th>RFQ</th><th>Percorso sul NAS</th><th>Stato DB</th><th>Stato filesystem</th><th>Problema</th><th>Azione</th></tr>
+  {{range .Righe}}
+  <tr>
+    <td>{{.NomeFile}}<br><small class="muto">{{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} · {{.Tipo}}</small></td>
+    <td><a href="/thread/{{.NasAnomalium.ThreadID}}">{{.RagioneSociale}}</a><br><small class="muto">{{printf "%.60s" .Oggetto.String}}</small></td>
+    <td class="mono"><small>{{.NasAnomalium.Percorso}}</small></td>
+    <td><span class="chip {{if eq (printf "%s" .NasAnomalium.StatoDb) "scritto"}}fatto{{else if eq (printf "%s" .NasAnomalium.StatoDb) "errore"}}fallito{{else}}pronto{{end}}">{{.NasAnomalium.StatoDb}}</span></td>
+    <td>{{.StatoFilesystem}}</td>
+    <td><b>{{.NasAnomalium.Problema}}</b><br><small class="muto">{{.NasAnomalium.Dettaglio}}</small>
+      {{if .NasAnomalium.ShaTrovato.Valid}}<br><small class="mono muto">sul NAS: {{printf "%.16s" .NasAnomalium.ShaTrovato.String}}… · atteso: {{printf "%.16s" .NasAnomalium.ShaAtteso}}…</small>{{end}}
+    </td>
+    <td>
+      {{if eq .Azione "riaccoda"}}<button hx-post="/admin/nas/{{.NasAnomalium.DocumentoID}}/riaccoda" hx-target="#integrita">riaccoda</button>
+      {{else if eq .Azione "allinea"}}<button hx-post="/admin/nas/{{.NasAnomalium.DocumentoID}}/allinea" hx-target="#integrita">allinea</button>
+      {{else}}<small class="muto">nessuna azione automatica: va guardato</small>{{end}}
+    </td>
+  </tr>
+  {{else}}
+  <tr><td colspan="7">{{if .Verificati}}Nessuna segnalazione aperta: i file controllati sono al loro posto.{{else}}Nessun controllo ancora fatto.{{end}}</td></tr>
+  {{end}}
+</table>
+{{end}}
+{{end}}

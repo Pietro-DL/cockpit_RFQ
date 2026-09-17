@@ -285,6 +285,22 @@ type NAS struct {
 	// sono due errori di battitura che insieme scrivono nel fascicolo di un cliente; dichiarare qui
 	// le radici vere trasforma quella combinazione in un errore all'avvio, che si legge.
 	RadiciProduzione []string `toml:"radici_produzione"`
+	// IntervalloIntegritaS: ogni quanti secondi il ricognitore confronta i documenti del database con
+	// i file veri sul NAS (blocco 5B). Assente = 900 (un quarto d'ora). Zero = nessuna passata
+	// automatica; «Controlla ora» in Admin funziona lo stesso, perche' leggere il NAS e' sempre
+	// consentito e spegnere il giro periodico non vuol dire rinunciare a guardare.
+	//
+	// Puntatore e non int perche' qui lo zero e' una scelta — «non guardare da solo» — e va distinto
+	// dal silenzio di chi non ha scritto la riga.
+	IntervalloIntegritaS *int `toml:"intervallo_integrita_s"`
+}
+
+// IntervalloIntegrita e' ogni quanto gira il ricognitore dell'integrita' del NAS.
+func (c *Config) IntervalloIntegrita() time.Duration {
+	if c.NAS.IntervalloIntegritaS == nil {
+		return 15 * time.Minute
+	}
+	return time.Duration(*c.NAS.IntervalloIntegritaS) * time.Second
 }
 
 // Modalità del server (§2.7). Non sono stringhe libere: un valore scritto male non deve poter

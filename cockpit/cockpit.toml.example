@@ -93,6 +93,17 @@ staging = '...\_staging'
 # riscritto passando da un file all'altro.
 radici_produzione = ['\\nas01\TECNICO - PREVENTIVI']
 
+# Ogni quanti secondi confrontare i documenti del database con i file VERI sul NAS (blocco 5B).
+# Assente = 900 (un quarto d'ora). 0 = nessuna passata automatica; «Controlla ora» nella schermata
+# Admin > Integrita' NAS funziona lo stesso, perche' leggere il NAS e' sempre consentito — anche con
+# nas_scrittura spenta — e spegnere il giro periodico non vuol dire rinunciare a guardare.
+#
+# Ogni documento controllato costa uno stat e la LETTURA INTERA del file per ricalcolarne l'hash: su
+# una condivisione di rete con molte migliaia di file conviene allungarlo, non accorciarlo. La
+# passata e' comunque limitata (200 documenti per volta, i meno controllati per primi), quindi a giro
+# si arriva a tutti senza rileggere tutto ogni volta.
+intervallo_integrita_s = 900
+
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
 # Ogni quanti secondi accodare un sync PERIODICO per casella. 0 = nessun sync a tempo. Con il
