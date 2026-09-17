@@ -235,11 +235,21 @@ type Outlook struct {
 	// GiorniSyncIniziale: quanto indietro guarda una (casella, cartella) che NON ha ancora un
 	// cursore. Vale una volta sola: appena il primo sync scrive un cursore decide il cursore, e un
 	// riavvio non riporta la casella qui. Assente (o 0) = jobs.GiorniSyncInizialeDefault.
-	GiorniSyncIniziale int    `toml:"giorni_sync_iniziale"`
-	Dal                string `toml:"dal"`             // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
-	Lotto              int    `toml:"lotto"`           // messaggi per POST ingest
-	ConsentiInvio      bool   `toml:"consenti_invio"`  // false = solo bozze (regola aziendale)
-	CasellaDefault     string `toml:"casella_default"` // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
+	GiorniSyncIniziale int `toml:"giorni_sync_iniziale"`
+	// SyncAperturaInbox: alla PRIMA apertura dell'Inbox di una sessione si accoda un aggiornamento,
+	// una volta sola. Assente = true.
+	//
+	// E' un puntatore perche' l'assenza e il `false` devono essere due cose diverse: con un `bool`
+	// normale un file che non nomina la voce e un file che la spegne sarebbero indistinguibili, e il
+	// valore predefinito non potrebbe essere `true`.
+	//
+	// Non c'entra con `intervallo_sync_s`, che governa il sync PERIODICO: a zero non si accoda
+	// niente da solo, ma chi apre l'Inbox sta per guardare quella posta e quel sync lo ha chiesto.
+	SyncAperturaInbox *bool  `toml:"sync_apertura_inbox"`
+	Dal               string `toml:"dal"`             // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
+	Lotto             int    `toml:"lotto"`           // messaggi per POST ingest
+	ConsentiInvio     bool   `toml:"consenti_invio"`  // false = solo bozze (regola aziendale)
+	CasellaDefault    string `toml:"casella_default"` // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
 }
 
 // Casella è una voce [[casella]]: una casella di posta censita, personale o condivisa.

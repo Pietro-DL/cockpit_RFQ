@@ -2876,6 +2876,8 @@ type Sessione struct {
 	PostazioneID uuid.NullUUID `json:"postazione_id"`
 	// ip = abbinata al login per coincidenza con worker_presenza.indirizzo_ip di una postazione autorizzata; scelta = scelta dall'operatore in testata. Un IP sconosciuto non abilita nulla (P1).
 	PostazioneOrigine pgtype.Text `json:"postazione_origine"`
+	// Quando questa sessione ha accodato l'aggiornamento automatico alla prima apertura dell'Inbox. NULL = non ancora, ed e' la condizione su cui si accoda: il refresh del browser e il poll HTMX non ne accodano un secondo. Si azzera con una sessione nuova, cioe' con un login nuovo.
+	SyncInboxIl *time.Time `json:"sync_inbox_il"`
 }
 
 // Un cursore per (casella, cartella). Con la sola cartella due caselle si sovrascrivevano il cursore a vicenda e perdevano messaggi in silenzio.

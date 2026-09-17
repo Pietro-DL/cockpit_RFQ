@@ -42,6 +42,16 @@ WHERE token = sqlc.arg(token);
 -- name: ToccaSessione :exec
 UPDATE sessione SET ultimo_accesso = now() WHERE token = $1;
 
+-- name: PrendiSyncAperturaInbox :execrows
+-- Chiede il diritto di accodare l'aggiornamento di apertura per QUESTA sessione, e lo concede una
+-- volta sola: 1 riga = «tocca a te», 0 righe = «l'ha gia' avuto».
+--
+-- E' un UPDATE condizionato e non una lettura seguita da una scrittura, di proposito. Due schede
+-- aperte nello stesso istante, o un browser che manda la stessa GET due volte, arrivano insieme:
+-- con un `SELECT` e poi un `UPDATE` passerebbero tutte e due. Qui la riga la prende uno solo, e
+-- l'altro riceve zero senza doversi coordinare con nessuno.
+UPDATE sessione SET sync_inbox_il = now() WHERE token = $1 AND sync_inbox_il IS NULL;
+
 -- name: EliminaSessione :exec
 DELETE FROM sessione WHERE token = $1;
 

@@ -46,6 +46,10 @@ type Server struct {
 	// Sync sono cartelle, data minima e lotto del sync ordinario: le stesse dello scheduler, perché
 	// «Aggiorna ora» accoda esattamente il job che accoderebbe lui (voce 2.16).
 	Sync jobs.SyncOpzioni
+	// SyncAperturaInbox: alla prima apertura dell'Inbox di una sessione si accoda un aggiornamento
+	// ([outlook].sync_apertura_inbox, predefinito true). È indipendente da IntervalloSync: quello
+	// governa il sync periodico, questo è una richiesta implicita di chi sta aprendo la schermata.
+	SyncAperturaInbox bool
 	// Modalita è "shadow" o "produzione" (§2.7): la testata lo dice sempre, perché in shadow metà
 	// dei pulsanti non fa quello che c'è scritto sopra, e va saputo prima di premerli.
 	Modalita string
@@ -550,10 +554,15 @@ func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
 
 // descrizioneSync è la frase della schermata sullo stato della sincronizzazione automatica.
 func (s *Server) descrizioneSync() string {
-	if s.IntervalloSync <= 0 {
-		return "Sincronizzazione automatica disattivata (intervallo_sync_s = 0): nessun sync viene accodato; «Carica precedenti» resta disponibile."
+	apertura := ""
+	if s.SyncAperturaInbox {
+		apertura = " Un aggiornamento parte da solo alla prima apertura di questa schermata."
 	}
-	return fmt.Sprintf("Il worker Outlook sincronizza ogni %d s.", int(s.IntervalloSync/time.Second))
+	if s.IntervalloSync <= 0 {
+		return "Sincronizzazione periodica disattivata (intervallo_sync_s = 0)." + apertura +
+			" «Aggiorna ora» e «Carica precedenti» restano disponibili."
+	}
+	return fmt.Sprintf("Il worker Outlook sincronizza ogni %d s.", int(s.IntervalloSync/time.Second)) + apertura
 }
 
 func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
@@ -586,10 +595,12 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
-	// La visita si segna DOPO aver reso la pagina, e solo se è una pagina: il poll HTMX ogni 15 s
-	// chiede lo stesso indirizzo, e se azzerasse anche lui il contatore direbbe sempre zero (SV3).
+	// Il seguito va fatto DOPO aver reso la pagina, e solo se è una pagina: il poll HTMX ogni 15 s
+	// chiede lo stesso indirizzo, e se contasse come una visita il contatore delle novità direbbe
+	// sempre zero (SV3); se contasse come un'apertura accoderebbe un sync ogni quindici secondi.
 	if r.Header.Get("HX-Request") != "true" {
 		s.segnaVista(r.Context(), q, u)
+		s.syncAllApertura(r.Context(), q, sessioneDa(r.Context()))
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 const creaSessione = `-- name: CreaSessione :one
-INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine
+INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine, sync_inbox_il
 `
 
 type CreaSessioneParams struct {
@@ -34,13 +34,14 @@ func (q *Queries) CreaSessione(ctx context.Context, arg CreaSessioneParams) (Ses
 		&i.UltimoAccesso,
 		&i.PostazioneID,
 		&i.PostazioneOrigine,
+		&i.SyncInboxIl,
 	)
 	return i, err
 }
 
 const creaSessioneConPostazione = `-- name: CreaSessioneConPostazione :one
 INSERT INTO sessione (token, utente_id, scade_il, postazione_id, postazione_origine)
-VALUES ($1, $2, $3, $4, $5) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine
+VALUES ($1, $2, $3, $4, $5) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine, sync_inbox_il
 `
 
 type CreaSessioneConPostazioneParams struct {
@@ -68,6 +69,7 @@ func (q *Queries) CreaSessioneConPostazione(ctx context.Context, arg CreaSession
 		&i.UltimoAccesso,
 		&i.PostazioneID,
 		&i.PostazioneOrigine,
+		&i.SyncInboxIl,
 	)
 	return i, err
 }
@@ -225,6 +227,25 @@ func (q *Queries) ListUtenti(ctx context.Context) ([]Utente, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const prendiSyncAperturaInbox = `-- name: PrendiSyncAperturaInbox :execrows
+UPDATE sessione SET sync_inbox_il = now() WHERE token = $1 AND sync_inbox_il IS NULL
+`
+
+// Chiede il diritto di accodare l'aggiornamento di apertura per QUESTA sessione, e lo concede una
+// volta sola: 1 riga = «tocca a te», 0 righe = «l'ha gia' avuto».
+//
+// E' un UPDATE condizionato e non una lettura seguita da una scrittura, di proposito. Due schede
+// aperte nello stesso istante, o un browser che manda la stessa GET due volte, arrivano insieme:
+// con un `SELECT` e poi un `UPDATE` passerebbero tutte e due. Qui la riga la prende uno solo, e
+// l'altro riceve zero senza doversi coordinare con nessuno.
+func (q *Queries) PrendiSyncAperturaInbox(ctx context.Context, token string) (int64, error) {
+	result, err := q.db.Exec(ctx, prendiSyncAperturaInbox, token)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setSessionePostazione = `-- name: SetSessionePostazione :exec

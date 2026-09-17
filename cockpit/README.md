@@ -731,6 +731,7 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
                            0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
+                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

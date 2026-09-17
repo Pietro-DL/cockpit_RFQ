@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
 )
@@ -184,6 +185,84 @@ func (s *Server) testata(w http.ResponseWriter, r *http.Request, avviso string) 
 	if err := s.pagine["inbox.html"].ExecuteTemplate(w, "stato_worker", vista{Utente: utenteDa(r.Context()), Stato: st, Frammento: true}); err != nil {
 		s.Log.Error("template", "frammento", "stato_worker", "err", err)
 	}
+}
+
+// syncAllApertura accoda un aggiornamento alla PRIMA apertura dell'Inbox di una sessione.
+//
+// Il difetto che chiude non e' tecnico, e' lo stesso della voce 2.16: se l'Inbox mostra la posta di
+// ieri, l'operatore riapre Outlook, e da li' in poi il Cockpit e' un doppione. Con
+// `intervallo_sync_s = 0` — che sul banco reale e' la configurazione voluta — la posta di ieri e'
+// quello che si vede finche' qualcuno non preme «Aggiorna ora».
+//
+// Tre condizioni, e ognuna esiste per una ragione diversa:
+//
+//	una volta per sessione   la prende `PrendiSyncAperturaInbox`, con un UPDATE condizionato. La
+//	                         chiave di idempotenza dei job non basterebbe: impedisce due job insieme,
+//	                         non dieci job in un'ora a furia di F5. E la domanda giusta non e' «c'e'
+//	                         gia' un job?», e' «questa sessione ha gia' avuto la sua apertura?»;
+//	solo dalla pagina vera   il poll HTMX chiede lo stesso indirizzo ogni quindici secondi, e chi
+//	                         lo chiama lo sa: la chiamata sta nel ramo che esclude HX-Request;
+//	solo se c'e' un worker   accodare un job che nessuno prendera' significa occupare la chiave di
+//	                         idempotenza con una finestra che invecchia. Non si perde niente — la
+//	                         finestra dopo riparte dalla copertura — ma l'aggiornamento vero
+//	                         arriverebbe piu' tardi di quanto sarebbe bastato.
+//
+// Non e' al login di proposito: un admin puo' entrare soltanto per l'Anagrafica, e non deve svegliare
+// nessun worker. Il momento e' quello in cui qualcuno sta per guardare quella posta.
+func (s *Server) syncAllApertura(ctx context.Context, q *db.Queries, sess sessioneUI) {
+	if !s.SyncAperturaInbox || sess.Token == "" {
+		return
+	}
+	if !s.cEUnWorkerOutlookVivo(ctx, q) {
+		return
+	}
+	preso, err := q.PrendiSyncAperturaInbox(ctx, sess.Token)
+	if err != nil {
+		s.Log.Warn("sync all'apertura: sessione non aggiornata", "err", err)
+		return
+	}
+	if preso == 0 {
+		return // questa sessione l'ha gia' avuto: un refresh non ne accoda un altro
+	}
+	caselle, err := q.ListCaselleAttive(ctx)
+	if err != nil {
+		s.Log.Error("sync all'apertura: caselle", "err", err)
+		return
+	}
+	accodati, gia := 0, 0
+	for _, c := range caselle {
+		if c.Canale != db.CanaleOutlook {
+			continue
+		}
+		j, err := jobs.AccodaSyncCasella(ctx, q, c, s.Sync)
+		switch {
+		case err != nil:
+			s.Log.Error("sync all'apertura: non accodato", "casella", c.Indirizzo, "err", err)
+		case j == nil:
+			gia++
+		default:
+			accodati++
+		}
+	}
+	s.Log.Info("apertura dell'Inbox: aggiornamento accodato", "accodati", accodati, "gia_in_corso", gia)
+}
+
+// cEUnWorkerOutlookVivo: almeno un worker Outlook si e' fatto vivo di recente. Stessa soglia della
+// testata (`api.PresenzaOnlineEntro`, cioe' due attese di claim) e stessa colonna: se la schermata
+// dice «attiva» e questo dicesse di no, sarebbero due verita' diverse sulla stessa cosa.
+func (s *Server) cEUnWorkerOutlookVivo(ctx context.Context, q *db.Queries) bool {
+	presenze, err := q.ListWorkerPresenza(ctx)
+	if err != nil {
+		s.Log.Warn("sync all'apertura: presenze", "err", err)
+		return false
+	}
+	ora := time.Now()
+	for _, p := range presenze {
+		if p.WorkerTipo == db.WorkerTipoOutlook && ora.Sub(p.UltimoContatto) <= api.PresenzaOnlineEntro {
+			return true
+		}
+	}
+	return false
 }
 
 // segnaVista sposta `ultima_vista_inbox` a adesso. La chiama SOLO il caricamento completo della

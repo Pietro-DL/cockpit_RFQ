@@ -28,6 +28,7 @@ import (
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fondazioni"
+	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/testutil"
 	"promatec/cockpit/internal/workerapi"
 )
@@ -52,6 +53,7 @@ type bancoWeb struct {
 	pool                          *pgxpool.Pool
 	q                             *db.Queries
 	srv                           *httptest.Server
+	ws                            *Server
 	commerciale, francesco, luigi uuid.UUID
 	pcFrancesco, pcLuigi          uuid.UUID
 	// cfg: la configurazione da cui sono nate le fondazioni. La tiene il banco perché «riavviare il
@@ -108,8 +110,12 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	static, _ := fs.Sub(risorse.FS, "web/static")
 	// Workers: il banco monta lo stesso filesystem incorporato del server vero, perché il pacchetto
 	// della postazione (D22) deve contenere i file del worker e non solo la configurazione.
+	// SyncAperturaInbox acceso come in produzione (assente in cockpit.toml = true): se accodare un
+	// sync alla prima apertura dell'Inbox disturbasse qualcosa, e' qui che si deve vedere, non sul
+	// banco reale.
 	ws := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Templ: templ, Static: static, IndirizzoClient: ip,
-		Workers: risorse.FS}
+		Workers: risorse.FS, SyncAperturaInbox: true,
+		Sync: jobs.SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Lotto: 50}}
 	if err := ws.Init(); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +129,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	t.Cleanup(srv.Close)
 	// L'indirizzo lo si sa solo dopo l'avvio: è quello che finisce nel worker.toml del pacchetto.
 	ws.Indirizzo = strings.TrimPrefix(srv.URL, "http://")
-	b := &bancoWeb{t: t, ctx: ctx, pool: pool, q: q, srv: srv, cfg: cfg}
+	b := &bancoWeb{t: t, ctx: ctx, pool: pool, q: q, srv: srv, ws: ws, cfg: cfg}
 	casella := func(ind string) uuid.UUID {
 		c, err := q.GetCasellaPerIndirizzo(ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: ind})
 		if err != nil {
@@ -253,6 +259,19 @@ func (b *bancoWeb) jobInterattivi() []db.Job {
 	return righe
 }
 
+// jobDiTipo filtra la coda per tipo. Serve da quando la prima apertura dell'Inbox accoda da sola un
+// aggiornamento per casella (blocco 3): la coda non contiene piu' solo cio' che il test ha chiesto.
+func (b *bancoWeb) jobDiTipo(tipo db.TipoJob) []db.Job {
+	b.t.Helper()
+	var out []db.Job
+	for _, j := range b.jobInterattivi() {
+		if j.Tipo == tipo {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
 // W14 — (a) login dall'IP registrato dal worker di PC-FRANCESCO → sessione con postazione PC-FRANCESCO,
 // origine ip; (b) login da un IP sconosciuto → «Sei su: —», «Apri» non parte con il motivo; scelta
 // esplicita → parte, origine scelta; (c) cambio scelta → i job successivi portano la nuova postazione.
@@ -276,8 +295,8 @@ func TestW14PostazioneDellaSessione(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(corpo, "PC-FRANCESCO") || strings.Contains(corpo, "Non aperto") {
 		t.Fatalf("(a) apri: %d %s", resp.StatusCode, corpo)
 	}
-	jobs := b.jobInterattivi()
-	if len(jobs) != 1 || jobs[0].Tipo != db.TipoJobApriElementoOutlook || !jobs[0].PostazioneID.Valid || jobs[0].PostazioneID.UUID != b.pcFrancesco ||
+	jobs := b.jobDiTipo(db.TipoJobApriElementoOutlook)
+	if len(jobs) != 1 || !jobs[0].PostazioneID.Valid || jobs[0].PostazioneID.UUID != b.pcFrancesco ||
 		!jobs[0].CasellaID.Valid || jobs[0].CasellaID.UUID != b.francesco || !jobs[0].RichiestoDa.Valid || jobs[0].ScadeIl == nil {
 		t.Fatalf("(a) job di apri: %+v", jobs)
 	}
@@ -303,7 +322,7 @@ func TestW14PostazioneDellaSessione(t *testing.T) {
 	if !strings.Contains(pannello, "azioni Outlook non disponibili") || !strings.Contains(pannello, `<button disabled`) {
 		t.Errorf("(b) il pannello non disabilita le azioni con il motivo: %s", estratto(pannello, "azioni"))
 	}
-	if n := len(b.jobInterattivi()); n != 1 {
+	if n := len(b.jobDiTipo(db.TipoJobApriElementoOutlook)); n != 1 {
 		t.Fatalf("(b) creati job senza postazione: %d", n)
 	}
 	// scelta esplicita di PC-LUIGI (la sua) → origine scelta; ma il messaggio non è in Luigi: M10,
@@ -319,7 +338,7 @@ func TestW14PostazioneDellaSessione(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(corpo, "Non aperto") || !strings.Contains(corpo, "PC-LUIGI") || !strings.Contains(corpo, "non viene dirottata") {
 		t.Fatalf("(b/M10) apri da PC-LUIGI su un messaggio che PC-LUIGI non serve: %d %s", resp.StatusCode, corpo)
 	}
-	if n := len(b.jobInterattivi()); n != 1 {
+	if n := len(b.jobDiTipo(db.TipoJobApriElementoOutlook)); n != 1 {
 		t.Fatalf("(b/M10) è stato creato un job di ripiego: %d job", n)
 	}
 
@@ -339,7 +358,8 @@ func TestW14PostazioneDellaSessione(t *testing.T) {
 	if resp, corpo := ad.fai(http.MethodPost, "/messaggio/"+msg.String()+"/apri", nil, true); resp.StatusCode != 200 || strings.Contains(corpo, "Non aperto") {
 		t.Fatalf("(c) apri da PC-FRANCESCO: %d %s", resp.StatusCode, corpo)
 	}
-	jobs = b.jobInterattivi()
+	// solo i job interattivi: i sync di apertura non hanno postazione e non c'entrano con W14
+	jobs = append(b.jobDiTipo(db.TipoJobApriElementoOutlook), b.jobDiTipo(db.TipoJobSegnaLetto)...)
 	perPostazione := map[uuid.UUID]int{}
 	for _, j := range jobs {
 		if j.PostazioneID.Valid {

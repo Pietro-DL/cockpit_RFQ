@@ -191,8 +191,12 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	opzioniSync := jobs.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal,
 		GiorniIniziali: cfg.Outlook.GiorniSyncIniziale, Lotto: cfg.Outlook.Lotto}
 	intervalloSync := time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second
+	// Assente = acceso. Il sync di apertura non è il sync periodico: `intervallo_sync_s = 0` dice che
+	// il server non accoda niente DA SOLO, non che debba ignorare chi sta aprendo l'Inbox adesso.
+	syncApertura := cfg.Outlook.SyncAperturaInbox == nil || *cfg.Outlook.SyncAperturaInbox
 	if intervalloSync <= 0 {
-		log.Warn("sincronizzazione automatica disattivata: nessun sync viene accodato finché intervallo_sync_s resta 0")
+		log.Warn("sincronizzazione periodica disattivata: nessun sync viene accodato a tempo finché intervallo_sync_s resta 0",
+			"sync_apertura_inbox", syncApertura)
 	}
 	(&jobs.Scheduler{
 		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
@@ -263,7 +267,7 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		StagingAutomatico: cfg.Staging.Automatico,
 		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
-		IntervalloSync: intervalloSync, Sync: opzioniSync, Modalita: cfg.Server.Modalita,
+		IntervalloSync: intervalloSync, Sync: opzioniSync, SyncAperturaInbox: syncApertura, Modalita: cfg.Server.Modalita,
 		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente}
 	if err := ws.Init(); err != nil {
 		return err
