@@ -708,7 +708,12 @@ internal/domain            regole pure + test: codici, proposta dal nome file, p
                            ingresso al riconoscimento, `Riconosci`, che usano sia l'ingest sia il banco di prova dell'Anagrafica
 internal/anagrafica        seme di clienti, domini e buyer da file: convalida tutto prima di scrivere, crea cio' che manca
                            e non tocca cio' che c'e' (voce 6.6)
-internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
+internal/ingest            FATTO (messaggio, allegato) + proposta economica + candidati (aggancio, codici) + triage/portale.
+                           NON aggancia: dal checkpoint 3R `messaggio.thread_id` lo scrive solo una decisione dell'operatore
+internal/aggancio          le regole R0-R5: da In-Reply-To, conversazione, riferimento del cliente, codice, oggetto e buyer
+                           calcola i CANDIDATI con punteggio ed evidenza. Nessuna di queste query decide niente
+internal/agente            analisi semantica (checkpoint 3R §9): schema JSON validato, grounding IN GO contro il testo del
+                           messaggio, idempotenza per (input, prompt, modello). Spenta se non accesa in [agente]
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
@@ -814,6 +819,45 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 
 Punto ancora aperto dalla SPEC §0: `scadenza_origine` è incluso come enum {mail, buyer, portale, stimata}; se la
 distinzione non serve al cruscotto, si toglie prima della produzione.
+
+## Checkpoint 3R (17/09/2026)
+
+La sequenza dell'addendum v2 e' **ferma dopo il blocco 3**. Il dettaglio sta in
+`_fasi/CHECKPOINT_3R.md`; qui le tre cose che cambiano il modo di usare il Cockpit.
+
+**L'aggancio e' sempre una decisione.** L'ingest non scrive piu' `messaggio.thread_id`: propone
+candidati (`candidato_aggancio`) con punteggio ed evidenza, e il pannello del messaggio li mostra
+tutti. Agganciare un messaggio non trascina piu' gli altri della stessa conversazione: quelli
+ricevono un candidato e restano in Inbox, uno per uno.
+
+**I numeri hanno un ruolo.** Il riferimento con cui il cliente chiama la richiesta (RDO, Anfrage,
+ODA) sta in `thread_offerta.riferimento_cliente` e non diventa mai un codice prodotto. Nel form
+*Nuova RFQ* i codici si spuntano: non c'e' piu' una barra precompilata che al submit confermava
+tutto. Se il cliente ha famiglie dichiarate, l'estrattore generico non propone niente.
+
+**Un PDF e' un PDF finche' nessuno l'ha aperto.** Il tipo si chiama `da_determinare`, e lo decide il
+worker-analisi leggendo il contenuto. Perche' possa leggerlo il file deve scendere: con
+`[staging] automatico = true` gli allegati di un mittente riconosciuto sotto i 20 MB arrivano nello
+staging del server da soli. Lo staging e' una cartella del server; il NAS non viene toccato.
+
+Due interruttori nuovi in `cockpit.toml`:
+
+```toml
+[staging]
+automatico = true    # allegati di clienti riconosciuti, sotto max_mb, scendono da soli
+max_mb = 20
+
+[agente]
+attivo = false       # analisi semantica: manda testo dei clienti a un servizio esterno
+modello = "claude-sonnet-5"
+chiave_env = "ANTHROPIC_API_KEY"   # il NOME della variabile, non la chiave
+caselle = []         # gli indirizzi su cui e' permessa; vuoto = nessuna
+```
+
+`[agente]` resta spento. Accenderlo significa mandare il testo delle mail dei clienti a un servizio
+esterno, ed e' una cosa da mettere per iscritto con l'IT e con chi segue la ISO 27001 — per casella,
+con la possibilita' di spegnerla — non una scelta di configurazione. Senza la variabile d'ambiente
+resta spento comunque, e l'avvio lo scrive nel log.
 
 ## Prossimi passi (ordine consigliato)
 
