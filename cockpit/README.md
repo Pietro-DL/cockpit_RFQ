@@ -268,13 +268,26 @@ sostituire il binario su una postazione.
 
 ```powershell
 cd cockpit
-.\cockpit.exe -config cockpit.toml -semina-anagrafica seme_anagrafica.json
+.\cockpit.exe -config cockpit.toml -semina-anagrafica ..\docs\seme_anagrafica.json
 ```
 
 Legge un file JSON di clienti, domini e buyer, lo convalida **per intero** e poi scrive, e **esce**.
 
+**Il percorso del seme è relativo alla cartella da cui si lancia, non a `cockpit.toml`.** Lanciato da
+`cockpit\` con il solo nome del file, il programma cerca `cockpit\seme_anagrafica.json`: se il seme
+sta altrove il comando fa tutto il resto — migrazioni, utenti, fondazioni — e poi si ferma con
+
+```
+errore: open seme_anagrafica.json: Impossibile trovare il file specificato.
+```
+
+Non è un errore di configurazione e non ha scritto niente dell'anagrafica: il file si legge e si
+convalida prima di aprire la transazione. Si rilancia con il percorso giusto.
+
 Il file non sta nel repository: nomi dei clienti, domini, indirizzi dei buyer e forme dei loro codici
-sono dati dell'azienda. Lo tiene chi amministra il Cockpit, accanto a `cockpit.toml`.
+sono dati dell'azienda. In questo ambiente sta in `docs\seme_anagrafica.json` (la cartella `docs\`
+è fuori dal repository pubblico); su una postazione lo tiene chi amministra il Cockpit, accanto a
+`cockpit.toml`.
 
 ```json
 {
