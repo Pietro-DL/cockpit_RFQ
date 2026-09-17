@@ -2,10 +2,13 @@ package web
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
 )
@@ -24,8 +27,14 @@ type threadDati struct {
 	Bozze          []db.Bozza
 	Componenti     []db.Componente
 	NDaSmistare    int
-	Avviso         string
-	Selezion       string
+	// NInCoda: documenti confermati che NON sono ancora sul NAS. Sono la conseguenza normale di una
+	// conferma data mentre [sicurezza].nas_scrittura era spenta: la decisione dell'operatore e'
+	// registrata, la scrittura aspetta. Il conto sta qui perche' deve VEDERSI: un documento «in_coda»
+	// che nessuno puo' rimettere in coda e' uno stato incompleto senza un'azione, ed e' esattamente
+	// cio' che il checkpoint vieta.
+	NInCoda  int
+	Avviso   string
+	Selezion string
 }
 
 type messaggioThread struct {
@@ -66,6 +75,79 @@ func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid
 	}
 }
 
+// riprovaCopie rimette in coda la copia sul NAS dei documenti di questa RFQ che sono rimasti
+// «in_coda» (checkpoint 3R, punto 6: uno stato incompleto deve potersi riconciliare con un'azione
+// VISIBILE).
+//
+// E' il gesto di una persona, ed e' voluto che lo sia. Quando una capacita' si accende, i job che
+// avevano aspettato vengono ANNULLATI e non eseguiti — nulla si mette in moto da solo perche'
+// qualcuno ha cambiato una riga in un file. Quei documenti restano pero' confermati, e senza questo
+// pulsante non esisteva nessun modo di portarli sul NAS: la conferma andava rifatta, cioe' la stessa
+// decisione presa due volte, oppure il file non ci arrivava mai.
+//
+// Se la capacita' e' ancora spenta non si finge niente: l'accodamento rifiuta, e l'avviso lo dice con
+// il nome della capacita'.
+func (s *Server) riprovaCopie(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id non valido", 400)
+		return
+	}
+	ctx := r.Context()
+	q := db.New(s.Pool)
+	documenti, err := q.ListDocumentiThread(ctx, id)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	accodati, gia := 0, 0
+	var spenta string
+	for _, d := range documenti {
+		if d.StatoNas != db.StatoNasInCoda {
+			continue
+		}
+		j, err := jobs.Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: d.DocumentoID},
+			"nas:"+d.DocumentoID.String(), 1)
+		switch {
+		case errors.Is(err, jobs.ErrCapacitaSpenta):
+			spenta = jobs.CapacitaMancante(err)
+		case err != nil:
+			s.Log.Error("riprova copie", "thread", id, "documento", d.DocumentoID, "err", err)
+			http.Error(w, err.Error(), 500)
+			return
+		case j == nil:
+			gia++ // la copia di questo documento era gia' in coda: non se ne accoda una seconda
+		default:
+			accodati++
+		}
+	}
+	s.threadFrammento(w, r, id, avvisoCopie(accodati, gia, spenta))
+}
+
+// avvisoCopie e' la frase che legge l'operatore: dice che cosa e' successo, non solo che l'azione e'
+// riuscita. «Niente da rimettere in coda» e «due copie accodate» non sono la stessa notizia.
+func avvisoCopie(accodati, gia int, spenta string) string {
+	switch {
+	case spenta != "":
+		return fmt.Sprintf("Copie NON rimesse in coda: la capacita' [sicurezza].%s e' spenta su questo server.", spenta)
+	case accodati == 0 && gia == 0:
+		return "Nessun documento in attesa: sono tutti gia' sul NAS."
+	case accodati == 0:
+		return fmt.Sprintf("Nessuna copia nuova: %d erano gia' in coda.", gia)
+	case gia == 0:
+		return fmt.Sprintf("%d copi%s rimess%s in coda.", accodati, plurale(accodati, "a", "e"), plurale(accodati, "a", "e"))
+	}
+	return fmt.Sprintf("%d copi%s rimess%s in coda (%d erano gia' in attesa).",
+		accodati, plurale(accodati, "a", "e"), plurale(accodati, "a", "e"), gia)
+}
+
+func plurale(n int, uno, molti string) string {
+	if n == 1 {
+		return uno
+	}
+	return molti
+}
+
 func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI) (*threadDati, error) {
 	q := db.New(s.Pool)
 	t, err := q.GetThread(ctx, id)
@@ -77,6 +159,11 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d.Cliente, _ = q.GetCliente(ctx, t.ClienteID)
 	d.Identificativi, _ = q.ListIdentificativi(ctx, id)
 	d.Documenti, _ = q.ListDocumentiThread(ctx, id)
+	for _, doc := range d.Documenti {
+		if doc.StatoNas == db.StatoNasInCoda {
+			d.NInCoda++
+		}
+	}
 	d.Fascicolo, _ = q.ListFascicolo(ctx, id)
 	d.Bozze, _ = q.ListBozzeThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	d.Componenti, _ = q.ListComponentiThread(ctx, id)

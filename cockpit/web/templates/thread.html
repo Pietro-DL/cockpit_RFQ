@@ -56,6 +56,12 @@
         <td><small>{{.PathRelativo}}</small></td>
         <td><span class="chip {{if eq .StatoNas "scritto"}}fatto{{else if eq .StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.ErroreNas.String}}">{{.StatoNas}}</span></td></tr>{{end}}
     </table>
+    {{if .NInCoda}}
+    <p class="muto">{{.NInCoda}} document{{if eq .NInCoda 1}}o confermato non e' ancora{{else}}i confermati non sono ancora{{end}}
+      sul NAS: la scrittura era spenta quando {{if eq .NInCoda 1}}e' stato{{else}}sono stati{{end}} confermat{{if eq .NInCoda 1}}o{{else}}i{{end}}.
+      <button type="button" hx-post="/thread/{{.T.ThreadID}}/riprova-copie" hx-target="#thread">Riprova copie</button>
+    </p>
+    {{end}}
     {{else}}<p class="muto">Nessun documento confermato. Conferma le proposte degli allegati nella chat.</p>{{end}}
 
     <h3>Struttura e Fascicolo</h3>

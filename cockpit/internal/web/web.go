@@ -213,6 +213,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /anagrafica/buyer", s.autenticato(s.buyerSelect))
 	mux.HandleFunc("GET /thread/cerca", s.autenticato(s.cercaThread))
 	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
+	mux.HandleFunc("POST /thread/{id}/riprova-copie", s.autenticato(s.riprovaCopie))
 	// download su richiesta e smistamento (blocco 5)
 	mux.HandleFunc("POST /messaggio/{id}/scarica", s.autenticato(s.scarica))
 	mux.HandleFunc("POST /allegato/{id}/riscarica", s.autenticato(s.riscarica))
