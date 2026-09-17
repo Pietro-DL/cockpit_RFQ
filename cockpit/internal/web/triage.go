@@ -36,8 +36,23 @@ type triageDati struct {
 	Oggetto        string
 	Scadenza       string
 	Allegati       []AllegatoUI
-	Anteprima      string
 	Errore         string
+
+	// CartellaCliente e Anteprima: DOVE finira' questa RFQ sul NAS.
+	//
+	// La cartella non e' un campo da riempire: sta in anagrafica, e per un cliente gia' censito il
+	// backend la usa gia' correttamente. Il difetto era tutto in interfaccia — la cartella non si
+	// vedeva da nessuna parte per un cliente esistente (il campo «Cartella NAS» compare solo nel
+	// riquadro «nuovo cliente», che per un cliente esistente e' nascosto), e l'anteprima veniva
+	// calcolata UNA VOLTA all'apertura del form. Cambiando cliente dalla tendina, HTMX ricaricava
+	// solo l'elenco dei buyer: l'anteprima restava quella di prima, oppure «<CLIENTE>\WIP\...».
+	// Chi guardava ne ricavava che il Cockpit non sapesse dove mettere i file di quel cliente.
+	CartellaCliente string
+	DaAnagrafica    bool // la cartella viene dall'anagrafica, non da cio' che si sta digitando
+	Anteprima       string
+	// Oob: questo frammento sta tornando da un cambio di cliente, quindi le due righe della cartella
+	// vanno sostituite dove sono (hx-swap-oob) invece di essere disegnate dentro il form.
+	Oob bool
 
 	// I candidati di codice, già divisi per ruolo (checkpoint 3R §4). Prima qui c'era una sola
 	// stringa, `Identificativi`, che il form mostrava in una casella di testo precompilata: al
@@ -136,23 +151,62 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	}
 	d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
 	d.Allegati, _ = s.allegatiUI(ctx, q, id)
-	cartellaCliente := "<CLIENTE>"
-	for _, c := range d.Clienti {
-		if d.ClienteID.Valid && c.ClienteID == d.ClienteID.UUID {
-			cartellaCliente = c.CartellaNas
-		}
-	}
-	d.Anteprima = domain.CartellaThread(cartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
+	d.cartella(ctx, q, "")
+	d.Anteprima = domain.CartellaThread(d.CartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
 	return d, nil
 }
 
-// buyerSelect è il frammento ricaricato quando cambia il cliente nel form.
-func (s *Server) buyerSelect(w http.ResponseWriter, r *http.Request) {
-	d := &triageDati{}
-	if cid, err := uuid.Parse(r.URL.Query().Get("cliente_id")); err == nil {
-		d.ClienteID = uuid.NullUUID{UUID: cid, Valid: true}
-		d.Buyers, _ = db.New(s.Pool).ListBuyerCliente(r.Context(), cid)
+// cartella stabilisce sotto quale cartella del NAS finira' questa RFQ.
+//
+// Per un cliente gia' censito la risposta e' in ANAGRAFICA e non altrove: `cliente.cartella_nas`, che
+// e' anche quella che il backend usa davvero quando crea la RFQ. Per un cliente nuovo e' quella che
+// si sta digitando nel riquadro «nuovo cliente»; finche' e' vuota si mostra `<CLIENTE>`, che e' un
+// segnaposto e si vede che lo e'.
+//
+// `digitata` serve solo al secondo caso: per un cliente esistente non viene nemmeno guardata. Non e'
+// una precauzione teorica — e' la regola che impedisce a un campo lasciato in pagina di scavalcare
+// l'anagrafica e portare i disegni di un cliente nella cartella di un altro.
+func (d *triageDati) cartella(ctx context.Context, q *db.Queries, digitata string) {
+	if d.ClienteID.Valid {
+		if c, err := q.GetCliente(ctx, d.ClienteID.UUID); err == nil {
+			d.CartellaCliente, d.DaAnagrafica = c.CartellaNas, true
+			return
+		}
 	}
+	d.DaAnagrafica = false
+	if n := strings.ToUpper(strings.TrimSpace(digitata)); n != "" {
+		d.CartellaCliente = n
+		return
+	}
+	d.CartellaCliente = "<CLIENTE>"
+}
+
+// buyerSelect è il frammento ricaricato quando cambia il cliente nel form.
+//
+// Ricarica TRE cose, non una: i buyer di quel cliente, la sua cartella NAS e l'anteprima della
+// destinazione. Prima ricaricava solo i buyer, e l'anteprima restava quella calcolata all'apertura —
+// cioe' la destinazione mostrata all'operatore non era la destinazione che la RFQ avrebbe avuto.
+func (s *Server) buyerSelect(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := db.New(s.Pool)
+	par := r.URL.Query()
+	d := &triageDati{Oob: true}
+	if cid, err := uuid.Parse(par.Get("cliente_id")); err == nil {
+		d.ClienteID = uuid.NullUUID{UUID: cid, Valid: true}
+		d.Buyers, _ = q.ListBuyerCliente(ctx, cid)
+	}
+	d.Oggetto = strings.TrimSpace(par.Get("oggetto"))
+	d.Cognome = strings.TrimSpace(par.Get("buyer_cognome"))
+	// La data e' quella del MESSAGGIO, non di oggi: e' lei a dare il nome alla cartella, e una RFQ
+	// aperta oggi su una mail di settimana scorsa si chiama con il giorno della mail.
+	quando := time.Now()
+	if mid, err := uuid.Parse(par.Get("messaggio")); err == nil {
+		if m, err := q.GetMessaggio(ctx, mid); err == nil {
+			quando = m.DataEvento.Local()
+		}
+	}
+	d.cartella(ctx, q, par.Get("cliente_cartella"))
+	d.Anteprima = domain.CartellaThread(d.CartellaCliente, quando, d.Cognome, d.Oggetto)
 	s.frammento(w, "buyer_select", d)
 }
 

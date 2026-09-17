@@ -207,15 +207,19 @@
     <fieldset>
       <legend>Cliente</legend>
       <label>Cliente
-        <select name="cliente_id" hx-get="/anagrafica/buyer" hx-target="#buyer-select" hx-trigger="change" hx-include="this"
+        <select name="cliente_id" hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="change"
+                hx-include="this,[name='oggetto'],[name='buyer_cognome'],[name='cliente_cartella']"
                 onchange="document.getElementById('cliente-nuovo').hidden = this.value !== '__nuovo__'">
           {{range .Clienti}}<option value="{{.ClienteID}}" {{if and $.Dati.ClienteID.Valid (eq .ClienteID $.Dati.ClienteID.UUID)}}selected{{end}}>{{.CartellaNas}} — {{.RagioneSociale}}</option>{{end}}
           <option value="__nuovo__" {{if not .ClienteID.Valid}}selected{{end}}>➕ nuovo cliente…</option>
         </select>
       </label>
+      {{template "cartella_cliente" $}}
       <div id="cliente-nuovo" class="griglia3" {{if .ClienteID.Valid}}hidden{{end}}>
         <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
-        <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"></label>
+        <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"
+               hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
+               hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
         <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
       </div>
     </fieldset>
@@ -243,7 +247,7 @@
         <label><input type="checkbox" name="campionatura" value="1"> campionatura</label>
       </div>
       <label>Note <input name="note"></label>
-      <p class="muto anteprima">Cartella: <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»; per un cliente nuovo «CLIENTE» diventa la sua cartella NAS)</small></p>
+      {{template "anteprima_cartella" $}}
     </fieldset>
 
     {{if .Candidati}}
@@ -318,6 +322,24 @@
 {{end}}
 {{end}}
 
+{{define "cartella_cliente"}}
+{{with .Dati}}
+<p class="muto" id="cartella-cliente" {{if .Oob}}hx-swap-oob="true"{{end}}>Cartella NAS:
+  <code>{{.CartellaCliente}}</code>
+  {{if .DaAnagrafica}}<small>dall’Anagrafica — non va riscritta</small>
+  {{else}}<small>cliente nuovo: la cartella è quella scritta qui sotto</small>{{end}}
+</p>
+{{end}}
+{{end}}
+
+{{define "anteprima_cartella"}}
+{{with .Dati}}
+<p class="muto anteprima" id="anteprima-cartella" {{if .Oob}}hx-swap-oob="true"{{end}}>Destinazione:
+  <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»)</small>
+</p>
+{{end}}
+{{end}}
+
 {{define "buyer_select"}}
 {{with .Dati}}
 <label>Buyer
@@ -328,6 +350,7 @@
   </select>
 </label>
 {{end}}
+{{if .Dati.Oob}}{{template "cartella_cliente" .}}{{template "anteprima_cartella" .}}{{end}}
 {{end}}
 
 {{define "thread_risultati"}}
