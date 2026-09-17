@@ -726,19 +726,6 @@ func enumValido[T interface {
 	return e, nil
 }
 
-// modoDi legge il modo di un sync_outlook. Un payload accodato prima del blocco 3 non ce l'ha: lì
-// l'unico segnale era il limite superiore, presente solo nello storico. La regola vecchia si legge
-// ancora per i job rimasti in coda durante l'aggiornamento; i nuovi lo dichiarano.
-func modoDi(p api.PayloadSyncOutlook) string {
-	if p.Modo != "" {
-		return p.Modo
-	}
-	if p.Al != nil {
-		return api.ModoStorico
-	}
-	return api.ModoAggiornamento
-}
-
 // applicaRisultato scrive nel DB gli effetti di un job riuscito. `prep` è valorizzato solo per un
 // download di allegato, ed è stato calcolato fuori dalla transazione.
 func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, prep *stagePronto) error {
@@ -787,7 +774,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 				continue
 			}
 			f := finestre[c.Cartella]
-			if modoDi(p) == api.ModoStorico {
+			if p.ModoEffettivo() == api.ModoStorico {
 				// la finestra [dal, al] di QUESTA cartella è coperta: il prossimo «Carica precedenti»
 				// riparte dal suo dal
 				dal := p.Dal

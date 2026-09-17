@@ -160,7 +160,9 @@ dove era arrivato il clic precedente. Il worker Outlook è uno per PC ed è seri
 job storico non apre elementi in Outlook e non scarica allegati, quindi le finestre sono piccole e
 fra l'una e l'altra torna a disposizione. Finché il job storico di una casella è in coda, premere
 ancora non ne accoda un altro; e in coda i job storici stanno in fondo, dietro anche al sync
-ordinario.
+ordinario. E **non scarica allegati**: lo storico rende consultabile la posta vecchia, non porta sul
+disco gli zip di due giorni di archivio per scompattarli e analizzarli. Se poi qualcuno apre una
+vecchia richiesta e vuole quei file, li scarica con «Scarica».
 
 **`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
 niente; una coda che non si svuota mai diventa illeggibile.

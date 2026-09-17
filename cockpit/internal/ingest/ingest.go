@@ -65,6 +65,17 @@ type Servizio struct {
 	// lo staging è una cartella del server.
 	StagingAutomatico bool
 	StagingMaxByte    int64
+
+	// StagingBootstrap: se lo staging automatico vale anche alla PRIMA sincronizzazione di una
+	// (casella, cartella), quella che porta dentro settimane di posta in un colpo solo. Assente =
+	// false, ed e' il default giusto: un bootstrap e' l'unico momento in cui «gli allegati recenti»
+	// sono migliaia, e accenderlo di fatto e' l'ordine di scaricare l'archivio.
+	//
+	// Non esiste la voce corrispondente per lo STORICO. «Carica precedenti» serve a rendere
+	// consultabile la posta vecchia; scaricarne gli allegati, scompattarli e analizzarli non e' una
+	// preferenza — e' il difetto che questo blocco toglie, e una voce di configurazione sarebbe il
+	// modo di rimetterlo.
+	StagingBootstrap bool
 }
 
 // Tentativo identifica il tentativo di esecuzione del job che sta consegnando il lotto. Ogni scrittura
@@ -258,8 +269,9 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 
 	// Il tentativo si verifica DENTRO la transazione e con la riga del job bloccata: così non può
 	// scadere a metà scrittura e due tentativi diversi non possono scrivere lo stesso lotto insieme.
+	var job *db.Job
 	if l.Tentativo != nil {
-		_, err := q.BloccaTentativo(ctx, db.BloccaTentativoParams{
+		j, err := q.BloccaTentativo(ctx, db.BloccaTentativoParams{
 			JobID:      l.Tentativo.JobID,
 			LeaseToken: uuid.NullUUID{UUID: l.Tentativo.LeaseToken, Valid: true},
 			WorkerID:   pgtype.Text{String: l.Tentativo.WorkerID, Valid: true},
@@ -270,6 +282,17 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		if err != nil {
 			return out, err
 		}
+		job = &j
+	}
+
+	// Il modo del sync si legge dal JOB, non dal lotto. La differenza conta: il payload lo ha scritto
+	// il server all'accodamento, e la riga e' bloccata qui sopra. Un campo nella richiesta del worker
+	// sarebbe invece una dichiarazione di chi esegue — e basterebbe un worker vecchio, o un worker
+	// riscritto male, per far passare un «Carica precedenti» come aggiornamento e riportare dentro il
+	// difetto insieme a mille download.
+	scendono, perche := s.scendonoDaSoli(job)
+	if !scendono && s.StagingAutomatico && s.Log != nil && len(l.Messaggi) > 0 {
+		s.Log.Info("staging automatico sospeso per questo lotto", "motivo", perche, "messaggi", len(l.Messaggi))
 	}
 
 	for i := range l.Messaggi {
@@ -278,7 +301,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		if err != nil {
 			return out, err
 		}
-		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, motori, m)
+		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, motori, m, scendono)
 		if errEl == nil {
 			errEl = forzaErrore(m.MessageID)
 		}
@@ -497,7 +520,38 @@ func (s *Servizio) sogliaStaging() int64 {
 	return domain.SogliaStagingAutomatico
 }
 
-func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
+// scendonoDaSoli dice se gli allegati di questo lotto possono finire in staging senza che nessuno
+// abbia premuto «Scarica», e perche' no quando la risposta e' no (la frase finisce nel log).
+//
+// `j` e' il job che sta consegnando il lotto: nil quando a chiamare e' l'amministratore che riprova
+// uno scarto, cioe' un gesto di una persona su un elemento solo.
+func (s *Servizio) scendonoDaSoli(j *db.Job) (bool, string) {
+	if !s.StagingAutomatico {
+		return false, "staging automatico spento"
+	}
+	if j == nil || j.Tipo != db.TipoJobSyncOutlook {
+		return true, "richiesta puntuale"
+	}
+	var p api.PayloadSyncOutlook
+	if err := json.Unmarshal(j.Payload, &p); err != nil {
+		// Un payload illeggibile non e' un permesso: qui si decide se aprire Outlook e scaricare file,
+		// e «non ho capito di che sync si tratta» deve valere no.
+		return false, "payload del job illeggibile"
+	}
+	switch p.ModoEffettivo() {
+	case api.ModoStorico:
+		return false, "storico: «Carica precedenti» rende consultabile la posta vecchia, non ne scarica gli allegati"
+	case api.ModoBootstrap:
+		if !s.StagingBootstrap {
+			return false, "bootstrap: prima sincronizzazione della casella (staging.bootstrap = false)"
+		}
+		return true, api.ModoBootstrap
+	default:
+		return true, api.ModoAggiornamento
+	}
+}
+
+func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *api.MessaggioIn, scendonoDaSoli bool) (api.EsitoMessaggio, error) {
 	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
@@ -699,9 +753,15 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	// soglia, e solo per ciò che varrebbe comunque la pena scaricare. «Riconosciuto» è la condizione
 	// che tiene: senza, la prima newsletter con un PDF allegato farebbe partire un download.
 	//
+	// E solo se QUESTO LOTTO può farlo (`scendonoDaSoli`). Le quattro condizioni qui sotto guardano il
+	// messaggio; nessuna di loro guarda il motivo per cui il messaggio sta entrando adesso. Finché
+	// mancava, «Carica precedenti» — che serve a rendere consultabile la posta vecchia — scaricava
+	// tutti gli zip di due giorni di archivio, li scompattava e accodava l'analisi di ogni disegno che
+	// c'era dentro: un clic per leggere il passato diventava ore di lavoro e qualche giga di disco.
+	//
 	// Un errore qui non deve far cadere l'ingest dell'elemento: il messaggio è un FATTO ed è già
 	// scritto, mentre lo staging è una comodità. Viene registrato e basta.
-	if s.StagingAutomatico && row.Inserito && clienteID.Valid && (dir == db.DirezioneEntrata || interno) {
+	if scendonoDaSoli && row.Inserito && clienteID.Valid && (dir == db.DirezioneEntrata || interno) {
 		for _, a := range daStaggiare {
 			esitoStage, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a,
 				db.Messaggio{MessaggioID: row.MessaggioID, ChiaveEsterna: m.MessageID},

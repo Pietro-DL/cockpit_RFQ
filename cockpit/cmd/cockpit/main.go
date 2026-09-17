@@ -265,6 +265,7 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	// puo' dire che cosa sono; spento, si comporta come prima del checkpoint 3R.
 	servizioIngest := &ingest.Servizio{Pool: pool, Log: log,
 		StagingAutomatico: cfg.Staging.Automatico,
+		StagingBootstrap:  cfg.Staging.Bootstrap,
 		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
 		IntervalloSync: intervalloSync, Sync: opzioniSync, SyncAperturaInbox: syncApertura, Modalita: cfg.Server.Modalita,

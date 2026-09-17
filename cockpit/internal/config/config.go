@@ -65,9 +65,17 @@ type Agente struct {
 // Il valore predefinito è FALSO: acceso, questo fa partire lavoro su Outlook senza che nessuno abbia
 // premuto niente, e una cosa del genere si accende scrivendola nel file di configurazione, non
 // perché è il default di un binario.
+//
+// Vale per l'AGGIORNAMENTO ordinario. Le altre due sincronizzazioni non sono la stessa cosa:
+//
+//	bootstrap   la prima volta di una casella porta dentro settimane di posta in un colpo solo:
+//	            `bootstrap = true` e' la dichiarazione esplicita di volerne anche gli allegati;
+//	storico     «Carica precedenti» non scarica mai niente da solo, e non c'e' una voce per
+//	            cambiarlo: serve a rendere consultabile la posta vecchia.
 type Staging struct {
 	Automatico bool `toml:"automatico"`
-	MaxMB      int  `toml:"max_mb"` // 0 = la soglia predefinita (20 MB)
+	Bootstrap  bool `toml:"bootstrap"` // anche alla prima sincronizzazione di una casella; assente = false
+	MaxMB      int  `toml:"max_mb"`    // 0 = la soglia predefinita (20 MB)
 }
 
 // Retention: per quanto si tengono i job chiusi. Una coda che non si svuota mai diventa illeggibile e

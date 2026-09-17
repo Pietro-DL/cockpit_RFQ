@@ -271,6 +271,26 @@ type PayloadSyncOutlook struct {
 	Lotto            int        `json:"lotto"`
 }
 
+// ModoEffettivo e' il modo di questo sync, risolvendo i payload che non lo dichiarano.
+//
+// Un payload accodato prima del blocco 3 non ha il campo: li' l'unico segnale era il limite
+// superiore, presente solo nello storico. La regola vecchia si legge ancora per i job rimasti in
+// coda durante l'aggiornamento; i nuovi lo dichiarano.
+//
+// Sta qui, sul tipo, e non in chi lo legge, perche' a leggerlo sono in tre — chi applica il
+// risultato, chi decide se gli allegati scendono da soli, e il worker in Python con
+// `modo_effettivo()` — e tre scalette scritte a mano sono tre occasioni di discordare su un payload
+// vecchio, cioe' proprio sul caso che nessuno riprodurra' mai in prova.
+func (p PayloadSyncOutlook) ModoEffettivo() string {
+	if p.Modo != "" {
+		return p.Modo
+	}
+	if p.Al != nil {
+		return ModoStorico
+	}
+	return ModoAggiornamento
+}
+
 type CartellaEsito struct {
 	Cartella       string     `json:"cartella"`
 	UltimoReceived *time.Time `json:"ultimo_received,omitempty"`
