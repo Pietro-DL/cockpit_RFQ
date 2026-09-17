@@ -202,7 +202,16 @@ func (s *Server) buyerSelect(w http.ResponseWriter, r *http.Request) {
 	quando := time.Now()
 	if mid, err := uuid.Parse(par.Get("messaggio")); err == nil {
 		if m, err := q.GetMessaggio(ctx, mid); err == nil {
+			// Il messaggio serve tutto, non solo la sua data: il riquadro «nuovo cliente» torna
+			// indietro con questo stesso frammento, e i suoi campi sono legati alla mail che si sta
+			// smistando (l'URL di ricarica, il dominio proposto). Senza, passare da un cliente
+			// esistente a «nuovo cliente» rimetteva in pagina tre campi senza mittente.
+			d.M = m
 			quando = m.DataEvento.Local()
+			d.Email = strings.ToLower(m.MittenteIndirizzo.String)
+			if i := strings.LastIndex(d.Email, "@"); i > 0 {
+				d.Dominio = d.Email[i+1:]
+			}
 		}
 	}
 	d.cartella(ctx, q, par.Get("cliente_cartella"))
