@@ -309,6 +309,14 @@ type Scheduler struct {
 	RetentionGiorni int // 0 = nessuna cancellazione
 	// Staging: dove stanno i file caricati dai worker. Vuoto = nessuna pulizia dei .parte orfani.
 	Staging string
+	// RetentionStagingGiorni: da quanti giorni un CONTENUTO deve essere fermo perche' la pulizia lo
+	// tolga, e solo se nessun allegato porta piu' quel sha256. 0 = non cancellare niente.
+	//
+	// E' una voce separata da RetentionGiorni perche' le due cose non si somigliano: quella toglie
+	// righe di coda gia' chiuse, questa toglie FILE. Un file cancellato per sbaglio si riscarica solo
+	// se l'elemento e' ancora in Outlook, quindi la soglia deve poterla decidere chi conosce
+	// l'azienda, e in assenza vale «non cancellare».
+	RetentionStagingGiorni int
 }
 
 func (s *Scheduler) Avvia(ctx context.Context) {
@@ -338,6 +346,17 @@ func (s *Scheduler) Avvia(ctx context.Context) {
 			n, err := PulisciParti(ctx, s.Q, s.Staging, 10*time.Minute, s.Log)
 			if n > 0 {
 				s.Log.Info("file parziali orfani rimossi dallo staging", "n", n)
+			}
+			return err
+		})
+	}
+	if s.Staging != "" && s.RetentionStagingGiorni > 0 {
+		// Sei ore, come la retention della coda: e' una pulizia, non una reazione. L'attesa di dieci
+		// minuti protegge il contenuto appena promosso, che per un istante non e' nominato da nessuno.
+		go s.loop(ctx, 6*time.Hour, "contenuti", func(ctx context.Context) error {
+			n, liberati, err := PulisciContenuti(ctx, s.Q, s.Staging, s.RetentionStagingGiorni, 10*time.Minute, s.Log)
+			if n > 0 {
+				s.Log.Info("contenuti rimossi dallo staging", "n", n, "MB", liberati>>20, "giorni", s.RetentionStagingGiorni)
 			}
 			return err
 		})

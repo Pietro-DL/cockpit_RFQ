@@ -167,6 +167,33 @@ vecchia richiesta e vuole quei file, li scarica con «Scarica».
 **`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
 niente; una coda che non si svuota mai diventa illeggibile.
 
+**`[retention].giorni_staging`** — per quanti giorni si tiene un **contenuto** che nessun allegato
+nomina più. `0` = non cancellare niente, ed è il valore predefinito: questa toglie file, non righe, e
+un file cancellato per sbaglio si riprende solo se quell'elemento è ancora in Outlook. La domanda si
+fa sullo `sha256`, che è il nome del file; lo staging vecchio (per messaggio) non viene toccato.
+
+### Com'è fatto lo staging
+
+Dal blocco 4A lo staging è organizzato **per contenuto**, non per messaggio, e ha due sole cartelle:
+
+```
+_staging\
+  _parti\        <allegato>.parte.<lease_token>   un trasferimento in corso
+  _contenuti\
+    ad\          ad644f0c….pdf                    un contenuto verificato: il nome è il suo sha256
+  log\
+```
+
+Prima ogni messaggio aveva la sua cartella e dentro ci finivano i suoi allegati, più una
+sottocartella con lo zip estratto. Lo stesso disegno allegato a cinque richieste stava sul disco
+cinque volte; uno zip da 6 MB con dentro 30 MB di file ne occupava 36 **per ogni messaggio** in cui
+compariva. Ora lo stesso contenuto è un file solo, e gli allegati che lo condividono condividono il
+percorso: chi cancella quel file li lascia senza tutti insieme, e tutti hanno «Riscarica».
+
+Conseguenza da conoscere: dopo un «Riscarica» che porta byte diversi, il contenuto vecchio **resta
+sul disco** finché non passa la pulizia — il file nuovo ha un nome nuovo, perché il nome è il
+contenuto. È il prezzo di non averne mai due copie, ed è esattamente ciò che `giorni_staging` regola.
+
 **`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
 insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
 RFQ fa partire una sola analisi. Cambiare un termine qui fa rianalizzare tutto senza toccare il

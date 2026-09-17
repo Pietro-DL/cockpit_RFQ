@@ -284,6 +284,40 @@ func (q *Queries) SetAllegatoStato(ctx context.Context, arg SetAllegatoStatoPara
 	return err
 }
 
+const shaAncoraUsati = `-- name: ShaAncoraUsati :many
+SELECT DISTINCT sha256 FROM allegato WHERE sha256 = ANY($1::char(64)[])
+`
+
+// Quali di questi contenuti servono ancora a qualcuno (blocco 4A, pulizia dello staging).
+//
+// La domanda si fa sull'HASH e non sul percorso. Il nome di un contenuto in staging E' il suo
+// sha256, quindi l'hash basta; il percorso invece e' una stringa che su Windows puo' differire per
+// maiuscole o per separatori senza indicare un file diverso, e una pulizia che sbaglia il confronto
+// cancella il disegno che stava per essere copiato sul NAS.
+//
+// Basta che UN allegato porti quell'hash: non si guarda il suo path_staging. Un allegato che ha
+// l'hash ma non il percorso e' uno che quel contenuto lo riotterrebbe senza riscaricarlo, ed e'
+// esattamente il caso che la deduplica serve a rendere gratuito.
+func (q *Queries) ShaAncoraUsati(ctx context.Context, sha []string) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, shaAncoraUsati, sha)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Text{}
+	for rows.Next() {
+		var sha256 pgtype.Text
+		if err := rows.Scan(&sha256); err != nil {
+			return nil, err
+		}
+		items = append(items, sha256)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertAllegato = `-- name: UpsertAllegato :one
 INSERT INTO allegato (messaggio_id, contenitore_id, indice, nome_file, path_interno, estensione, content_type,
                       natura, origine, bytes, sha256, ricevuto_il, caricato_da)

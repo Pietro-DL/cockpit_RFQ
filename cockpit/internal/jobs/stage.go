@@ -19,7 +19,11 @@ import (
 	"promatec/cockpit/internal/db"
 )
 
-// CartellaStaging è la sottocartella di staging di un messaggio: hash breve del Message-ID.
+// CartellaStaging era la sottocartella di staging di un messaggio: hash breve del Message-ID.
+//
+// Dal blocco 4A NON decide più dove va un file: un contenuto sta sotto _contenuti e si chiama come il
+// proprio sha256 (vedi upload.go). Resta nel payload perché il worker la scrive nel log, ed è l'unico
+// modo che ha chi legge quel log di risalire dal job al messaggio senza aprire il database.
 func CartellaStaging(messageID string) string {
 	h := sha1.Sum([]byte(messageID))
 	return hex.EncodeToString(h[:])[:12]
@@ -72,6 +76,12 @@ const (
 // I due allegati che condividono il contenuto condividono anche il percorso in staging: chi cancella
 // quel file li lascia entrambi senza, ed entrambi hanno "Riscarica". È la stessa condizione in cui si
 // trova oggi un allegato solo, quindi non introduce un modo nuovo di rompersi.
+//
+// Il controllo 2 arriva TARDI per costruzione, ed è il motivo per cui dal blocco 4A non è più solo:
+// prima di scaricare da Outlook lo sha256 non lo conosce nessuno, quindi due copie dello stesso file
+// possono essere accodate entrambe prima che la prima finisca. Questo risparmia il DOWNLOAD quando
+// si fa in tempo; la seconda rete è il nome del file in staging, che essendo l'hash fa arrivare le
+// due copie nello stesso posto anche quando scendono insieme.
 //
 // `c` è la COPIA da cui scaricare: dalla 0004 lo stesso messaggio ha un EntryID diverso in ogni
 // casella, quindi «da quale copia» non è una domanda che si possa saltare. Il job porta casella_id

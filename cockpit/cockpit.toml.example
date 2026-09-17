@@ -149,6 +149,15 @@ casella_default = "nome.cognome@azienda.it"
 # Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si
 # svuota mai diventa illeggibile e rallenta le pagine di amministrazione.
 giorni_job = 30
+# Per quanti giorni si tiene un CONTENUTO nello staging che nessun allegato nomina più (blocco 4A).
+# 0 = non cancellare niente, ed è il valore predefinito.
+#
+# Non è la stessa cosa della riga qui sopra, per quanto le due si somiglino: quella toglie righe di
+# coda, al peggio si perde una diagnosi; questa toglie FILE, e un file cancellato per sbaglio si
+# riprende soltanto se quell'elemento è ancora in Outlook. Viene tolto solo ciò che NESSUN allegato
+# nomina più — la domanda si fa sullo sha256, che è il nome del file — e mai lo staging vecchio,
+# quello organizzato per messaggio, dove un nome non dice niente sul contenuto.
+# giorni_staging = 90
 
 [analisi]
 # CON CHE COSA si analizza (fase 1, voce 1.12). Versione e sha256 di [analisi.parametri] formano,

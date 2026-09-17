@@ -202,8 +202,9 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
 		IntervalloSync: intervalloSync,
 		Dal:            opzioniSync.Dal, GiorniIniziali: opzioniSync.GiorniIniziali, Lotto: opzioniSync.Lotto,
-		RetentionGiorni: cfg.Retention.GiorniJob,
-		Staging:         staging,
+		RetentionGiorni:        cfg.Retention.GiorniJob,
+		Staging:                staging,
+		RetentionStagingGiorni: cfg.Retention.GiorniStaging,
 	}).Avvia(ctx)
 	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
 	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama

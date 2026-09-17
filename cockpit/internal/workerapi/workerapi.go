@@ -643,9 +643,14 @@ type stagePronto struct {
 	r          api.RisultatoStage
 	p          api.PayloadStageAllegato
 	a          db.Allegato
-	definitivo string // dove il file sta una volta promosso
-	parte      string // <definitivo>.parte.<lease_token>: dove il tentativo ha caricato
-	est        estrazione
+	definitivo string // <staging>\_contenuti\<ab>\<sha256>.<ext>: dove il contenuto sta o andra'
+	parte      string // <staging>\_parti\<allegato>.parte.<lease_token>: dove il tentativo ha caricato
+	// riusato: quel contenuto c'era già, con l'hash giusto. Non si scrive niente e il .parte si
+	// butta. E' il caso dello stesso disegno allegato a due richieste diverse, scaricate insieme
+	// prima che l'una sapesse dell'altra: la deduplica per hash di AccodaStage non poteva vederlo,
+	// perché prima di scaricare l'hash non lo conosce nessuno.
+	riusato bool
+	est     estrazione
 }
 
 // errHashDiverso: il file caricato non ha lo sha256 che il worker dichiara. Non è un contenuto
@@ -673,10 +678,7 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		return nil, err
 	}
 	pr.p, pr.a = p, a
-	pr.definitivo, pr.parte, err = jobs.PercorsiStaging(s.Staging, p, a, t.LeaseToken)
-	if err != nil {
-		return nil, err
-	}
+	pr.parte = jobs.PercorsoParte(s.Staging, pr.r.AllegatoID, t.LeaseToken)
 	if _, err := os.Stat(pr.parte); err != nil {
 		return nil, fmt.Errorf("nessun file caricato da questo tentativo per l'allegato %s: il worker deve fare PUT /api/v1/allegati/{id}/file prima del result", a.AllegatoID)
 	}
@@ -688,9 +690,24 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		jobs.RimuoviParte(pr.parte)
 		return nil, fmt.Errorf("%w: caricato %.12s (%d byte), dichiarato %.12s (%d byte)", errHashDiverso, h, n, strings.ToLower(pr.r.Sha256), pr.r.Bytes)
 	}
+	// Da qui il contenuto è verificato, e solo adesso si sa DOVE va: il suo nome è il suo hash.
+	pr.definitivo, err = jobs.PercorsoContenuto(s.Staging, h, a.NomeFile)
+	if err != nil {
+		return nil, err
+	}
+	// La cartella si crea QUI e non dentro la transazione: creare una cartella è I/O, e la transazione
+	// del risultato deve contenere solo scritture in database (voce 1.4). Là dentro resta la sola
+	// rinomina, che è atomica e non può fallire per una cartella che non c'è.
+	if err := os.MkdirAll(filepath.Dir(pr.definitivo), 0o755); err != nil {
+		return nil, err
+	}
+	pr.riusato = jobs.ContenutoGiaPresente(pr.definitivo, h)
+	if pr.riusato {
+		s.Log.Info("contenuto già in staging: non se ne scrive una seconda copia",
+			"allegato", a.AllegatoID, "file", a.NomeFile, "sha", h[:12], "byte", n)
+	}
 	if strings.ToLower(a.Estensione.String) == "zip" {
-		dest := filepath.Join(filepath.Dir(pr.definitivo), fmt.Sprintf("%02d_zip", a.Indice))
-		voci, err := archivio.Estrai(pr.parte, dest)
+		voci, err := s.estraiInContenuti(pr.parte, t.LeaseToken)
 		pr.est.fatta = true
 		pr.est.voci = voci
 		switch {
@@ -701,6 +718,42 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		}
 	}
 	return &pr, nil
+}
+
+// estraiInContenuti estrae uno zip e mette ogni voce fra i contenuti, con il suo hash per nome.
+//
+// L'estrazione passa per una cartella temporanea perché non c'è modo di fare altrimenti: il nome
+// definitivo di una voce è il suo sha256, e lo sha256 si conosce dopo averla scritta. La temporanea
+// sta sotto _parti, con il token del tentativo nel nome, così anche lei è di QUESTO tentativo e non
+// si confonde con quella di un altro che sta estraendo lo stesso archivio.
+//
+// Le voci già presenti non si riscrivono: è il caso dello stesso disegno dentro due archivi diversi,
+// che è la norma quando un cliente rimanda la stessa commessa con una revisione in più.
+func (s *Server) estraiInContenuti(zip string, token uuid.UUID) ([]archivio.Voce, error) {
+	tmp := jobs.PercorsoEstrazione(s.Staging, token)
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	voci, errEstrazione := archivio.Estrai(zip, tmp)
+	for i := range voci {
+		dest, err := jobs.PercorsoContenuto(s.Staging, voci[i].Sha256, voci[i].NomeFile)
+		if err != nil {
+			return voci, err
+		}
+		if jobs.ContenutoGiaPresente(dest, voci[i].Sha256) {
+			voci[i].Path = dest
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return voci, err
+		}
+		if err := os.Rename(voci[i].Path, dest); err != nil {
+			return voci, fmt.Errorf("voce %s dello zip: %w", voci[i].NomeFile, err)
+		}
+		voci[i].Path = dest
+	}
+	return voci, errEstrazione
 }
 
 // enumValido converte una stringa del contratto in un valore dell'enum del database, rifiutando ciò
@@ -808,7 +861,9 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		}
 		// da qui in poi il file è dell'allegato: la riga del job è bloccata (Blocca), quindi nessun
 		// altro tentativo può promuovere il suo nel frattempo
-		if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
+		if prep.riusato {
+			jobs.RimuoviParte(prep.parte)
+		} else if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
 			return err
 		}
 		r := prep.r

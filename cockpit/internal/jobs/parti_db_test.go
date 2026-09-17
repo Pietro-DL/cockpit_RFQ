@@ -65,3 +65,48 @@ func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {
 		t.Errorf("l'orfano vecchio è ancora lì: %s", orfano)
 	}
 }
+
+// Anche una cartella di estrazione rimasta a meta' e' un orfano. Non e' un file .parte, quindi la
+// camminata che cerca i .parte non la vedrebbe mai: un processo morto mentre scompattava un archivio
+// lascerebbe li' i suoi file per sempre.
+func TestPulisciPartiRimuoveLeEstrazioniInterrotte(t *testing.T) {
+	_, q, ctx := preparaDB(t)
+	staging := t.TempDir()
+
+	accoda(t, ctx, q, db.TipoJobStageAllegato, "stage:zip-vivo", Opzioni{})
+	vivo := claim(t, ctx, q, db.WorkerTipoOutlook, "outlook@PC")
+	if vivo == nil || !vivo.LeaseToken.Valid {
+		t.Fatal("nessun tentativo in corso")
+	}
+	vecchio := time.Now().Add(-2 * time.Hour)
+
+	cartella := func(token uuid.UUID, quando time.Time) string {
+		t.Helper()
+		d := PercorsoEstrazione(staging, token)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "001_disegno.pdf"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(d, quando, quando); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	inCorso := cartella(vivo.LeaseToken.UUID, vecchio) // il tentativo sta ancora estraendo: non si tocca
+	orfana := cartella(uuid.New(), vecchio)            // nessuno la finira' piu': via
+	fresca := cartella(uuid.New(), time.Now())         // appena nata: resta un giro
+
+	if _, err := PulisciParti(ctx, q, staging, 10*time.Minute, testutil.LogSilenzioso()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orfana); err == nil {
+		t.Errorf("l'estrazione interrotta e' ancora li': %s", orfana)
+	}
+	for nome, d := range map[string]string{"di un tentativo in corso": inCorso, "appena cominciata": fresca} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("l'estrazione %s e' stata rimossa: %s", nome, d)
+		}
+	}
+}

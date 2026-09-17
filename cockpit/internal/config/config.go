@@ -78,10 +78,15 @@ type Staging struct {
 	MaxMB      int  `toml:"max_mb"`    // 0 = la soglia predefinita (20 MB)
 }
 
-// Retention: per quanto si tengono i job chiusi. Una coda che non si svuota mai diventa illeggibile e
-// rallenta le interrogazioni di amministrazione; 0 = non cancellare nulla.
+// Retention: per quanto si tengono i job chiusi e i file nello staging. 0 = non cancellare nulla.
+//
+// Le due voci non si somigliano, per quanto stiano vicine. `giorni_job` toglie righe di coda gia'
+// chiuse: al peggio si perde una diagnosi. `giorni_staging` toglie FILE, e un file cancellato per
+// sbaglio si riprende solo se quell'elemento e' ancora in Outlook — quindi in assenza vale «non
+// cancellare», e viene tolto soltanto un contenuto che NESSUN allegato nomina piu'.
 type Retention struct {
-	GiorniJob int `toml:"giorni_job"`
+	GiorniJob     int `toml:"giorni_job"`
+	GiorniStaging int `toml:"giorni_staging"`
 }
 
 // Analisi identifica CON CHE COSA un file è stato analizzato (voce 1.12, A15).

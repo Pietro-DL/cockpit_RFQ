@@ -21,7 +21,7 @@ import (
 
 // caricaFile è PUT /api/v1/allegati/{id}/file?job_id=&lease_token=&worker_id= (voce 2.3).
 //
-// Il corpo è il file, così com'è. Il server lo scrive in <definitivo>.parte.<lease_token> e risponde
+// Il corpo è il file, così com'è. Il server lo scrive in <staging>\_parti, legato al tentativo, e risponde
 // 204: NON è ancora l'allegato. Lo diventa solo con il result valido dello stesso tentativo, che ne
 // verifica lo sha256 e lo rinomina. Perciò questo gestore non tocca né path_staging né lo stato
 // dell'allegato: un tentativo può caricare anche tre volte, e finché non chiude con un result
@@ -75,16 +75,15 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 	}
 	// 2. il tentativo deve essere QUELLO di questo allegato: un tentativo valido di un altro job
 	// non può depositare file a nome di un download che non è il suo
-	p, a, err := s.stageDelJob(ctx, q, &j, allegatoID)
+	_, a, err := s.stageDelJob(ctx, q, &j, allegatoID)
 	if err != nil {
 		errore(w, 422, err)
 		return
 	}
-	definitivo, parte, err := jobs.PercorsiStaging(s.Staging, p, a, t.LeaseToken)
-	if err != nil {
-		errore(w, 422, err)
-		return
-	}
+	// Dove finira' il file non si sa ancora: lo dira' il suo sha256, e lo sha256 si conosce quando il
+	// trasferimento e' finito. Qui si sa soltanto CHI sta caricando e DENTRO QUALE TENTATIVO, e tanto
+	// basta per dargli un posto suo in _parti.
+	parte := jobs.PercorsoParte(s.Staging, allegatoID, t.LeaseToken)
 
 	// 3. il limite si applica prima di leggere: con Content-Length dichiarato non si trasferisce
 	// niente, senza si legge fino al limite e poi si scarta (M8)
@@ -93,7 +92,7 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 		errore(w, http.StatusRequestEntityTooLarge, s.erroreLimite(r.ContentLength))
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(definitivo), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(parte), 0o755); err != nil {
 		errore(w, 500, err)
 		return
 	}
@@ -180,20 +179,16 @@ func (s *Server) stageDelJob(ctx context.Context, q *db.Queries, j *db.Job, alle
 	return p, a, nil
 }
 
-// parteDi ricostruisce il percorso del .parte di un token per un job che non vale più, così da poterlo
-// rimuovere. Vuoto se il job non è ricostruibile: in quel caso ci pensa la pulizia periodica.
+// parteDi è il percorso del .parte di un token per un job che non vale più, così da poterlo rimuovere.
+// Vuoto se il job non è quello di questo allegato: allora quel file non l'ha scritto questo
+// tentativo, e non tocca a noi toglierlo.
 func (s *Server) parteDi(ctx context.Context, q *db.Queries, jobID int64, allegatoID, token uuid.UUID) string {
 	j, err := q.GetJob(ctx, jobID)
 	if err != nil {
 		return ""
 	}
-	p, a, err := s.stageDelJob(ctx, q, &j, allegatoID)
-	if err != nil {
+	if _, _, err := s.stageDelJob(ctx, q, &j, allegatoID); err != nil {
 		return ""
 	}
-	_, parte, err := jobs.PercorsiStaging(s.Staging, p, a, token)
-	if err != nil {
-		return ""
-	}
-	return parte
+	return jobs.PercorsoParte(s.Staging, allegatoID, token)
 }
