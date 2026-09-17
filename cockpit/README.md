@@ -140,8 +140,37 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
 | `dry_run` | **deprecata** (blocco 4): era esattamente «non scrivere sul NAS», che ora si dice con `[sicurezza].nas_scrittura = false`. Resta letta per i file già scritti — `true` spegne `nas_scrittura` — ma va tolta, e il server lo ripete nel log a ogni avvio |
-| `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow |
+| `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow. In **produzione** non è vietata — è il posto dove il Cockpit lavorerà davvero — ma con `nas_scrittura = true` serve la seconda dichiarazione `[sicurezza].consenti_nas_produzione`. Il confronto ignora maiuscole, barre e barra finale |
 | `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
+
+**`[sicurezza]`** — che cosa questo server può **modificare fuori da sé** (blocco 4).
+
+Prima c'era un interruttore solo, `[server].modalita`, e quindi una domanda sola: «tocchiamo il
+mondo, sì o no?». Per provare la copia sul NAS di prova quella domanda si sdoppia — si vuole scrivere
+un file in una cartella di prova, e **non** si vuole che una mail vera diventi letta, si sposti o
+generi una bozza — e con un interruttore solo le due cose sono la stessa cosa.
+
+| Campo | Che cosa governa |
+|---|---|
+| `outlook_scrittura` | `segna_letto`, `sposta_in_cartella`, e ogni altra modifica a Outlook **tranne** le bozze |
+| `bozze` | `crea_bozza_outlook` |
+| `nas_scrittura` | `crea_cartella_thread`, `copia_nas` |
+| `consenti_nas_produzione` | la **seconda** dichiarazione, e serve solo quando le altre insieme varrebbero «scrivi nel fascicolo vero di un cliente»: `nas_scrittura = true` con `[nas].radice` dentro una `radici_produzione`. Senza, il server non parte e dice quale radice ha riconosciuto; con, parte e l'avvio lo annuncia nel log |
+
+**Sempre consentiti**, e non chiedono nessuna capacità: sync di Outlook, lettura, download in
+staging, estrazione degli archivi, analisi, «Apri in Outlook». Un tipo di job che non nomina una
+capacità è per definizione una lettura, e una capacità che il server non riconosce vale **no**.
+
+Tre regole, in quest'ordine: `modalita = "shadow"` è un **preset** e spegne tutte e tre qualunque
+cosa dica questa sezione; **il silenzio vale «non scrivere»**, quindi un file in `produzione` senza
+`[sicurezza]` non accende niente e il server lo scrive nel log con la riga da aggiungere;
+`[nas].dry_run = true` spegne `nas_scrittura` per compatibilità, ed è deprecata.
+
+Il blocco agisce in **due punti**: un job che chiede una capacità spenta non entra nemmeno in coda, e
+se c'era già non viene consegnato a nessun worker. Quando una capacità **si accende**, i job che
+avevano aspettato vengono **annullati**, non eseguiti: nulla si mette in moto perché qualcuno ha
+cambiato una riga in un file. Le copie che servono si rimettono in coda dal fascicolo, con «Riprova
+copie».
 
 **`[outlook]`**
 

@@ -45,9 +45,20 @@ type Config struct {
 // non dichiara niente, quindi non scrivo niente» — invece di comportarsi come se qualcuno avesse
 // scelto. Vedi Capacita().
 type Sicurezza struct {
-	OutlookScrittura *bool `toml:"outlook_scrittura"` // segna letto, sposta in cartella
-	Bozze            *bool `toml:"bozze"`             // crea_bozza_outlook
-	NasScrittura     *bool `toml:"nas_scrittura"`     // crea_cartella_thread, copia_nas
+	// ConsentiNasProduzione e' il SECONDO consenso, e serve solo quando i due precedenti insieme
+	// varrebbero «scrivi nel fascicolo vero di un cliente»: `nas_scrittura = true` con `[nas].radice`
+	// dentro una delle `radici_produzione` dichiarate. Senza, il server non parte e dice quale radice
+	// ha riconosciuto.
+	//
+	// Non e' una conferma per il gusto di chiederla due volte. Il giorno in cui questa riga passera'
+	// da `_nas_test` al percorso aziendale — copiando un file, tornando da una prova, cambiando una
+	// riga per sbaglio — la scrittura sul NAS vero comincerebbe senza che nessuno l'abbia decisa in
+	// quel momento: la radice e la capacita' sono due voci lontane fra loro, e ognuna delle due presa
+	// da sola sembra innocua. Questa terza le lega.
+	ConsentiNasProduzione *bool `toml:"consenti_nas_produzione"`
+	OutlookScrittura      *bool `toml:"outlook_scrittura"` // segna letto, sposta in cartella
+	Bozze                 *bool `toml:"bozze"`             // crea_bozza_outlook
+	NasScrittura          *bool `toml:"nas_scrittura"`     // crea_cartella_thread, copia_nas
 }
 
 // Capacita sono le tre capacita' RISOLTE, piu' le frasi da scrivere nel log di avvio.
@@ -100,6 +111,12 @@ func (c *Config) Capacita() Capacita {
 			cap.Avvisi = append(cap.Avvisi, "[nas].dry_run e' DEPRECATA e non serve piu': la scrittura sul NAS la governa [sicurezza].nas_scrittura")
 		}
 		cap.NasScrittura = false
+	}
+	if cap.NasScrittura {
+		if r := c.RadiceDiProduzione(); r != "" {
+			cap.Avvisi = append(cap.Avvisi, "questo server SCRIVE SUL NAS VERO: [nas].radice e' sotto la radice di produzione "+r+
+				" dichiarata in [nas].radici_produzione, e [sicurezza].consenti_nas_produzione = true lo consente")
+		}
 	}
 	return cap
 }
@@ -506,6 +523,18 @@ func (c *Config) normalizzaModalita() error {
 		return fmt.Errorf("config: [server].modalita = %q non valida (%s | %s)", c.Server.Modalita, ModalitaShadow, ModalitaProduzione)
 	}
 	if !c.EShadow() {
+		// In produzione una radice di produzione non e' vietata: e' il posto dove il Cockpit
+		// lavorera' davvero. Cio' che non deve costare un interruttore solo e' COMINCIARE a
+		// scriverci. Se la capacita' e' spenta non si controlla niente: un server che non scrive non
+		// puo' sbagliare cartella.
+		if c.Capacita().NasScrittura {
+			if r := c.RadiceDiProduzione(); r != "" && !vuole(c.Sicurezza.ConsentiNasProduzione) {
+				return fmt.Errorf("config: [sicurezza].nas_scrittura = true e [nas].radice (%s) è sotto la radice di produzione %q dichiarata in [nas].radici_produzione. "+
+					"Per scrivere sul NAS vero serve una seconda dichiarazione esplicita: [sicurezza].consenti_nas_produzione = true. "+
+					"Se questa doveva essere una prova, è la radice a essere sbagliata",
+					c.NAS.Radice, r)
+			}
+		}
 		return nil
 	}
 	if r := c.RadiceDiProduzione(); r != "" {

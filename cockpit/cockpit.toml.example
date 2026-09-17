@@ -85,9 +85,12 @@ radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\
 # fatto — e il server lo dice nel log a ogni avvio. Va tolta.
 # dry_run = false
 staging = '...\_staging'
-# Le radici VERE, dichiarate una volta. Servono a una cosa sola: in shadow il server si RIFIUTA di
-# partire se `radice` è una di queste (o una loro sottocartella). Una prova in shadow puntata sul NAS
-# di produzione non è una shadow, è una prova sulla produzione con un badge rassicurante in testata.
+# Le radici VERE, dichiarate una volta. In shadow il server si RIFIUTA di partire se `radice` è una di
+# queste (o una loro sottocartella): una prova in shadow puntata sul NAS di produzione non è una
+# shadow, è una prova sulla produzione con un badge rassicurante in testata. In produzione non è
+# vietata, ma con nas_scrittura = true serve [sicurezza].consenti_nas_produzione, piu' sotto.
+# Il confronto ignora maiuscole, barre e barra finale: sono i tre modi in cui lo stesso percorso viene
+# riscritto passando da un file all'altro.
 radici_produzione = ['\\nas01\TECNICO - PREVENTIVI']
 
 [outlook]
@@ -180,6 +183,15 @@ casella_default = "nome.cognome@azienda.it"
 outlook_scrittura = false
 bozze             = false
 nas_scrittura     = false
+# La SECONDA dichiarazione, e serve solo quando le altre insieme varrebbero «scrivi nel fascicolo vero
+# di un cliente»: nas_scrittura = true con [nas].radice dentro una delle [nas].radici_produzione.
+# Senza, il server NON PARTE e dice quale radice ha riconosciuto.
+#
+# Non e' una conferma per il gusto di chiederla due volte. Il giorno in cui [nas].radice passera' dal
+# NAS di prova al percorso aziendale — copiando un file da un PC all'altro, tornando da una prova,
+# cambiando una riga per sbaglio — nas_scrittura sara' gia' `true` da settimane e nessuno la stara'
+# guardando: sono due voci lontane fra loro, e ognuna presa da sola sembra innocua. Questa le lega.
+# consenti_nas_produzione = false
 
 [retention]
 # Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si
