@@ -59,7 +59,7 @@ log_livello = "info" # debug | info | warn
 #   shadow      legge Outlook e il NAS, non li modifica. Niente bozze, niente «segna letto», niente
 #               spostamenti di cartella, niente scritture sul NAS: quei job non si accodano e non si
 #               eseguono nemmeno se sono già in coda. «Apri in Outlook» resta consentito (apre una
-#               finestra e basta) e `dry_run` viene forzato a true. Serve a far girare il sistema
+#               finestra e basta). E' un PRESET di [sicurezza]. Serve a far girare il sistema
 #               sulla posta vera senza che un difetto diventi una mail modificata;
 #   produzione  tutto attivo. Al passaggio da shadow a produzione i job che avevano aspettato
 #               vengono ANNULLATI: nulla parte a sorpresa. Le copie che servono si rimettono in coda
@@ -80,7 +80,10 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 [nas]
 # La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
 radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
-dry_run = false                                      # true = calcola i percorsi senza scrivere
+# dry_run e' DEPRECATA (blocco 4): la scrittura sul NAS la governa [sicurezza].nas_scrittura, piu'
+# sotto. Se e' ancora nel file e vale `true` spegne nas_scrittura — cioe' fa quello che ha sempre
+# fatto — e il server lo dice nel log a ogni avvio. Va tolta.
+# dry_run = false
 staging = '...\_staging'
 # Le radici VERE, dichiarate una volta. Servono a una cosa sola: in shadow il server si RIFIUTA di
 # partire se `radice` è una di queste (o una loro sottocartella). Una prova in shadow puntata sul NAS
@@ -144,6 +147,39 @@ consenti_invio = false
 # Dalla fase 2 il lotto porta sempre il casella_id del job: questa resta il ripiego per un worker più
 # vecchio del server, non il modo normale di attribuire la posta.
 casella_default = "nome.cognome@azienda.it"
+
+[sicurezza]
+# CHE COSA QUESTO SERVER PUO' MODIFICARE FUORI DA SE' (blocco 4 del checkpoint 3R).
+#
+# Prima c'era un interruttore solo — `[server].modalita` — e quindi una domanda sola: «tocchiamo il
+# mondo, si' o no?». Ma per provare la copia sul NAS di prova quella domanda si sdoppia: si vuole
+# scrivere un file in una cartella di prova, e NON si vuole che una mail vera diventi letta, si sposti
+# o generi una bozza. Con un interruttore solo quelle due cose sono la stessa cosa.
+#
+#   outlook_scrittura   «Segna letto», «Sposta in cartella»: modifica elementi di posta VERI;
+#   bozze               «Rispondi»: apre una finestra di composizione sul PC di qualcuno;
+#   nas_scrittura       la cartella della RFQ e la copia dei documenti nel fascicolo del cliente.
+#
+# SEMPRE consentito, e non si spegne: sincronizzare, scaricare un allegato in staging, analizzarlo,
+# scompattare un archivio, «Apri in Outlook» (apre una finestra e non modifica niente).
+#
+# TRE REGOLE, in quest'ordine:
+#
+#  1. `[server].modalita = "shadow"` e' un PRESET: spegne tutte e tre, qualunque cosa ci sia scritto
+#     qui sotto. Chi scrive «shadow» sta dicendo «questo server non tocca niente».
+#  2. Il silenzio vale NO. Una voce assente e' spenta, e un file SENZA questa sezione non accende
+#     niente nemmeno con `modalita = "produzione"`: «produzione» non significa piu' «accendi tutto»,
+#     perche' quel file l'ha scritto qualcuno che non sapeva che queste voci esistessero. Il server
+#     lo scrive nel log all'avvio, con la riga da aggiungere.
+#  3. All'avvio il log dice per ciascuna capacita' se e' ATTIVA o SPENTA. Si cerca il nome della
+#     capacita', non un riassunto.
+#
+# `[nas].dry_run` NON serve piu': era esattamente «non scrivere sul NAS», che adesso si dice con
+# `nas_scrittura = false`. Resta letta per i file gia' scritti (se e' `true` spegne nas_scrittura) ma
+# e' DEPRECATA e va tolta; il server lo dice nel log ogni volta che la trova.
+outlook_scrittura = false
+bozze             = false
+nas_scrittura     = false
 
 [retention]
 # Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si

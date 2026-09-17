@@ -112,7 +112,7 @@ func TestEstrarreUnArchivioNonDipendeDalNas(t *testing.T) {
 	if ScrivePerNas(db.TipoJobEstraiArchivio) {
 		t.Error("estrai_archivio risulta una scrittura sul NAS: un NAS assente ne rinvierebbe l'esecuzione")
 	}
-	if BloccatoInShadow(db.TipoJobEstraiArchivio) {
+	if !Consentito(db.TipoJobEstraiArchivio) {
 		t.Error("estrai_archivio risulta bloccato in shadow: scompattare in staging non tocca il mondo fuori dal Cockpit")
 	}
 	if WorkerPer(db.TipoJobEstraiArchivio) != db.WorkerTipoServer {

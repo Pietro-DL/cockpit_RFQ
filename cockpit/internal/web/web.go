@@ -902,8 +902,8 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 		return nil, "", err
 	}
 	if _, err := jobs.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, jobs.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrShadow) {
-			return nil, motivoShadow(tipo), nil
+		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+			return nil, motivoCapacita(err, tipo), nil
 		}
 		return nil, "", err
 	}
@@ -913,9 +913,17 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 // motivoShadow è la frase che l'operatore legge quando preme un pulsante che in shadow non parte.
 // Dice tre cose: che cosa non è successo, perché, e dove si cambia — perché un rifiuto senza la
 // terza è indistinguibile da un guasto.
-func motivoShadow(tipo db.TipoJob) string {
-	return fmt.Sprintf("il server è in modalità shadow (sola lettura verso Outlook e NAS): %s non viene eseguito. "+
-		"Si cambia con [server].modalita = \"produzione\" in cockpit.toml", tipo)
+// motivoCapacita e' la frase che legge l'operatore quando un'azione non parte perche' la capacita'
+// che le serve e' spenta. Dice QUALE capacita' e DOVE si accende: prima diceva «il server e' in
+// modalita' shadow», che era vero ma non aiutava — spegneva tre cose insieme e non si capiva quale
+// riguardasse il pulsante appena premuto.
+func motivoCapacita(err error, tipo db.TipoJob) string {
+	cap := jobs.CapacitaMancante(err)
+	if cap == "" {
+		cap = jobs.CapacitaPer(tipo)
+	}
+	return fmt.Sprintf("%s non viene eseguito: la capacità [sicurezza].%s è spenta su questo server. "+
+		"Si accende in cockpit.toml (e richiede [server].modalita = \"produzione\")", tipo, cap)
 }
 
 // apriInOutlook accoda apri_elemento_outlook con priorità massima: il worker della postazione della
@@ -1018,10 +1026,10 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []api.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
 	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrShadow) {
+		if errors.Is(err, jobs.ErrCapacitaSpenta) {
 			// niente Commit: la bozza non è stata preparata, e una riga `bozza` senza la finestra in
 			// Outlook sarebbe una risposta che l'operatore crede di avere e non ha
-			s.avvisoErrore(w, "Bozza non preparata: "+motivoShadow(db.TipoJobCreaBozzaOutlook))
+			s.avvisoErrore(w, "Bozza non preparata: "+motivoCapacita(err, db.TipoJobCreaBozzaOutlook))
 			return
 		}
 		http.Error(w, err.Error(), 500)

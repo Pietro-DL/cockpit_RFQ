@@ -129,7 +129,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP |
 | `consenti_lan_in_chiaro` | la via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è già cifrato da altro (un tunnel). Il server lo ripete a ogni avvio |
 | `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
-| `modalita` | `shadow` o `produzione` (voce 9.5). In shadow il Cockpit legge Outlook e il NAS ma non li modifica: bozze, «segna letto», spostamenti e copie sul NAS non si accodano e non si eseguono, nemmeno se erano già in coda; «Apri in Outlook» sì, e `dry_run` è forzato a `true`. **Assente = shadow**: il default sicuro è quello che non tocca niente. Al ritorno in produzione i job rimasti in coda durante la shadow vengono annullati |
+| `modalita` | `shadow` o `produzione` (voce 9.5). **`shadow` è un preset di `[sicurezza]`**: spegne tutte e tre le capacità di scrittura, qualunque cosa dica quella sezione. «Apri in Outlook» resta consentito. **Assente = shadow**: il default sicuro è quello che non tocca niente. `produzione` NON accende niente da sola: serve `[sicurezza]`. Quando una capacità si accende, i job che avevano aspettato vengono annullati, non eseguiti |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
 | `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
 | `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
@@ -139,7 +139,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | Campo | Che cosa mettere |
 |---|---|
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
-| `dry_run` | `true` calcola i percorsi e li scrive nel log senza toccare il disco: è il modo di provare la copia sul NAS aziendale senza scriverci |
+| `dry_run` | **deprecata** (blocco 4): era esattamente «non scrivere sul NAS», che ora si dice con `[sicurezza].nas_scrittura = false`. Resta letta per i file già scritti — `true` spegne `nas_scrittura` — ma va tolta, e il server lo ripete nel log a ogni avvio |
 | `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow |
 | `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
 

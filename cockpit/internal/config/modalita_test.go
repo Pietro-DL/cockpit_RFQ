@@ -39,7 +39,10 @@ func TestUnaModalitaScrittaMaleNonPassaPerProduzione(t *testing.T) {
 }
 
 // SH3 (b) — in shadow il server non parte se la radice del NAS è (o sta sotto) una radice di
-// produzione dichiarata, e `dry_run` viene forzato a true qualunque cosa dica il file.
+// produzione dichiarata, e la scrittura sul NAS resta spenta qualunque cosa dica il file.
+//
+// Dal blocco 4 la seconda meta' non si legge piu' in `dry_run` ma in [sicurezza].nas_scrittura: la
+// garanzia e' la stessa — in shadow non si scrive — ma la decisione sta in un posto solo.
 //
 // I casi con le maiuscole, la barra finale e le barre al contrario non sono pignoleria: sono i tre
 // modi in cui lo stesso percorso viene scritto passando da un file all'altro, e un confronto fra
@@ -72,8 +75,8 @@ func TestSH3ShadowRifiutaLaRadiceDiProduzione(t *testing.T) {
 			t.Errorf("%s (%s): rifiutata una radice che non è di produzione: %v", c.nome, c.radice, err)
 			continue
 		}
-		if !cfg.NAS.DryRun {
-			t.Errorf("%s: in shadow dry_run va forzato a true anche se il file dice false", c.nome)
+		if cfg.Capacita().NasScrittura {
+			t.Errorf("%s: in shadow la scrittura sul NAS resta spenta anche se il file dice dry_run = false", c.nome)
 		}
 	}
 }
@@ -86,8 +89,15 @@ func TestInProduzioneLaRadiceDichiarataNonBloccaLAvvio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("in produzione la radice di produzione è quella giusta: %v", err)
 	}
-	if c.NAS.DryRun {
-		t.Error("in produzione dry_run non va forzato: lo decide il file")
+	// In produzione la scrittura sul NAS NON si accende da sola: la deve dichiarare [sicurezza]. E'
+	// il punto del blocco 4 — «produzione» non significa «accendi tutto» — e qui il file non la
+	// dichiara, quindi resta spenta e il server lo scrive nel log.
+	cap := c.Capacita()
+	if cap.NasScrittura {
+		t.Error("senza [sicurezza] la scrittura sul NAS si e' accesa da sola in produzione")
+	}
+	if len(cap.Avvisi) == 0 {
+		t.Error("un file senza [sicurezza] non scrive niente e nessuno lo dice: serve un avviso all'avvio")
 	}
 	if c.RadiceDiProduzione() == "" {
 		t.Error("la radice dichiarata deve restare riconoscibile anche in produzione")

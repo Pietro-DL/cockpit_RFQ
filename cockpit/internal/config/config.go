@@ -28,7 +28,84 @@ type Config struct {
 	Analisi    Analisi      `toml:"analisi"`    // [analisi] — fase 1, voce 1.12
 	Staging    Staging      `toml:"staging"`    // [staging] — checkpoint 3R, D30
 	Agente     Agente       `toml:"agente"`     // [agente] — checkpoint 3R §9
+	Sicurezza  Sicurezza    `toml:"sicurezza"`  // [sicurezza] — checkpoint 3R, blocco 4
 }
+
+// Sicurezza: che cosa questo server e' autorizzato a MODIFICARE fuori da se' (blocco 4).
+//
+// Prima c'era `[server].modalita`, che era un interruttore solo: o il Cockpit non toccava niente, o
+// toccava tutto. Serviva a far girare il sistema sulla posta vera senza che un difetto diventasse una
+// mail modificata, ed e' stata la scelta giusta finche' l'unica domanda era «possiamo fidarci?». Ma
+// per provare la copia sul NAS di prova quella domanda si sdoppia: si vuole scrivere un file in una
+// cartella di prova, e NON si vuole che una mail vera diventi letta o si sposti. Con un interruttore
+// solo quelle due cose sono la stessa cosa.
+//
+// Sono puntatori perche' l'assenza e il `false` devono restare distinguibili: un file scritto prima
+// che questa sezione esistesse non contiene le righe, e il server deve poterlo dire — «questo file
+// non dichiara niente, quindi non scrivo niente» — invece di comportarsi come se qualcuno avesse
+// scelto. Vedi Capacita().
+type Sicurezza struct {
+	OutlookScrittura *bool `toml:"outlook_scrittura"` // segna letto, sposta in cartella
+	Bozze            *bool `toml:"bozze"`             // crea_bozza_outlook
+	NasScrittura     *bool `toml:"nas_scrittura"`     // crea_cartella_thread, copia_nas
+}
+
+// Capacita sono le tre capacita' RISOLTE, piu' le frasi da scrivere nel log di avvio.
+type Capacita struct {
+	OutlookScrittura bool
+	Bozze            bool
+	NasScrittura     bool
+	// Avvisi: che cosa e' stato deciso e perche', quando la decisione non e' semplicemente «c'e'
+	// scritto nel file». Vanno nel log di avvio: una capacita' spenta per un motivo che nessuno vede
+	// diventa un sistema che «non funziona», e si passa un pomeriggio a cercare il difetto.
+	Avvisi []string
+}
+
+// Capacita risolve [sicurezza] in cio' che questo server puo' davvero fare.
+//
+// Tre regole, in quest'ordine:
+//
+//  1. SHADOW E' UN PRESET. `modalita = "shadow"` spegne tutto, qualunque cosa dica [sicurezza]. Chi
+//     scrive «shadow» sta dicendo «questo server non tocca niente», e quella frase non deve poter
+//     essere contraddetta tre righe piu' sotto.
+//  2. IL SILENZIO VALE «NON SCRIVERE». Una voce assente e' spenta. In particolare un file che dice
+//     `modalita = "produzione"` e non ha la sezione [sicurezza] NON accende niente: «produzione» non
+//     deve significare automaticamente «accendi tutto», perche' quel file l'ha scritto qualcuno che
+//     non sapeva che queste tre voci esistessero. Il server lo dice nel log, con la riga da aggiungere.
+//  3. `[nas].dry_run = true` SPEGNE `nas_scrittura`. E' la compatibilita' con i file scritti prima:
+//     quella voce significava esattamente «non scrivere sul NAS», e continua a significarlo. E'
+//     DEPRECATA — a regime la stessa cosa si dice con `nas_scrittura = false` — e il server lo scrive
+//     nel log ogni volta che la trova.
+func (c *Config) Capacita() Capacita {
+	cap := Capacita{}
+	if c.EShadow() {
+		cap.Avvisi = append(cap.Avvisi, "[server].modalita = shadow: tutte le capacita' di scrittura sono spente (preset). "+
+			"Per accenderne una servono [sicurezza] e modalita = \"produzione\"")
+		if vuole(c.Sicurezza.OutlookScrittura) || vuole(c.Sicurezza.Bozze) || vuole(c.Sicurezza.NasScrittura) {
+			cap.Avvisi = append(cap.Avvisi, "[sicurezza] chiede capacita' che la modalita' shadow spegne: in shadow il Cockpit legge il mondo e non lo tocca")
+		}
+		return cap
+	}
+	if c.Sicurezza.OutlookScrittura == nil && c.Sicurezza.Bozze == nil && c.Sicurezza.NasScrittura == nil {
+		cap.Avvisi = append(cap.Avvisi, "nessuna sezione [sicurezza] nel file: questo server NON modifica niente fuori da se'. "+
+			"«produzione» non accende piu' tutto da sola: aggiungere [sicurezza] con le voci che servono (outlook_scrittura, bozze, nas_scrittura)")
+		return cap
+	}
+	cap.OutlookScrittura, cap.Bozze, cap.NasScrittura = vuole(c.Sicurezza.OutlookScrittura), vuole(c.Sicurezza.Bozze), vuole(c.Sicurezza.NasScrittura)
+	if c.NAS.DryRun {
+		if cap.NasScrittura {
+			cap.Avvisi = append(cap.Avvisi, "[nas].dry_run = true spegne [sicurezza].nas_scrittura: la voce e' DEPRECATA e va tolta, "+
+				"la stessa cosa si dice con nas_scrittura = false")
+		} else {
+			cap.Avvisi = append(cap.Avvisi, "[nas].dry_run e' DEPRECATA e non serve piu': la scrittura sul NAS la governa [sicurezza].nas_scrittura")
+		}
+		cap.NasScrittura = false
+	}
+	return cap
+}
+
+// vuole risolve un puntatore assente in «no».
+func vuole(b *bool) bool { return b != nil && *b }
 
 // Agente: l'analisi semantica dei messaggi (checkpoint 3R §9).
 //
@@ -177,8 +254,12 @@ func (c *Config) PercorsoLog() string {
 }
 
 type NAS struct {
-	Radice  string `toml:"radice"`  // \nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE  (in sviluppo: cartella locale)
-	DryRun  bool   `toml:"dry_run"` // true = nessuna scrittura reale, solo log
+	Radice string `toml:"radice"` // \nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE  (in sviluppo: cartella locale)
+	// DryRun e' DEPRECATA dal blocco 4: la scrittura sul NAS la governa [sicurezza].nas_scrittura.
+	// Resta letta per compatibilita' con i file scritti prima — `true` spegne nas_scrittura, che e'
+	// esattamente cio' che quella voce ha sempre significato — e il server lo dice nel log ogni volta
+	// che la trova. Va tolta dai file.
+	DryRun  bool   `toml:"dry_run"`
 	Staging string `toml:"staging"` // cartella locale dove il worker-outlook salva gli allegati
 	// RadiciProduzione sono le radici VERE, dichiarate una volta (elenco di percorsi UNC).
 	//
@@ -432,7 +513,10 @@ func (c *Config) normalizzaModalita() error {
 			"una prova in shadow non si fa sul NAS vero. Cambiare radice, oppure passare a modalita = \"produzione\" se è ciò che si vuole davvero",
 			c.NAS.Radice, r)
 	}
-	c.NAS.DryRun = true
+	// `dry_run` NON viene piu' forzato qui: dal blocco 4 la scrittura sul NAS la decide
+	// [sicurezza].nas_scrittura, e in shadow Capacita() la spegne insieme alle altre due. Forzarla
+	// anche qui vorrebbe dire due sorgenti per la stessa decisione, e prima o poi una delle due
+	// verrebbe cambiata da sola.
 	return nil
 }
 

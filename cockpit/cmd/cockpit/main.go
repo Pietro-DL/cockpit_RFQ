@@ -125,17 +125,31 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, versione); err != nil {
 		return fmt.Errorf("configurazione delle caselle: %w", err)
 	}
-	// Modalità (§2.7, voce 9.5). Si fissa PRIMA che scheduler ed esecutore partano: il primo claim
-	// arriva pochi millisecondi dopo, e un claim fatto mentre la modalità è ancora quella di default
-	// eseguirebbe proprio i job che la shadow deve fermare.
-	modalita := jobs.Modalita(cfg.Server.Modalita)
-	jobs.ImpostaModalita(modalita)
-	if err := jobs.AllineaCoda(ctx, q, modalita, log); err != nil {
+	// CAPACITÀ DI SCRITTURA (blocco 4). Si fissano PRIMA che scheduler ed esecutore partano: il primo
+	// claim arriva pochi millisecondi dopo, e un claim fatto mentre le capacità sono ancora quelle di
+	// default eseguirebbe proprio i job che la configurazione vuole fermi.
+	sic := cfg.Capacita()
+	capacita := jobs.Capacita{OutlookScrittura: sic.OutlookScrittura, Bozze: sic.Bozze, NasScrittura: sic.NasScrittura}
+	jobs.ImpostaCapacita(capacita)
+	if err := jobs.AllineaCoda(ctx, q, capacita, log); err != nil {
 		return err
 	}
-	if modalita == jobs.ModalitaShadow {
-		log.Warn("MODALITÀ SHADOW: sola lettura verso il mondo", "bloccati", jobs.TipiBloccatiOra(),
-			"nas_dry_run", cfg.NAS.DryRun, "nota", "«Apri in Outlook» resta l'unica azione consentita; si cambia con [server].modalita")
+	// Una riga per capacità, con scritto ATTIVA o SPENTA. Un elenco solo non basta: chi legge il log
+	// per capire perché una copia non parte cerca il nome di quella capacità, non un riassunto.
+	for _, nome := range jobs.TutteLeCapacita {
+		stato := "SPENTA"
+		if capacita.Ha(nome) {
+			stato = "ATTIVA"
+		}
+		log.Warn("capacità di scrittura", "capacita", nome, "stato", stato)
+	}
+	if capacita.TuttoSpento() {
+		log.Warn("questo server NON modifica niente fuori da se'", "modalita", cfg.Server.Modalita,
+			"bloccati", jobs.TipiBloccatiOra(),
+			"nota", "sincronizzazione, download in staging, analisi e «Apri in Outlook» restano consentiti")
+	}
+	for _, a := range sic.Avvisi {
+		log.Warn("sicurezza", "avviso", a)
 	}
 	// Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
 	// regola di un solo cliente ha un esempio che non corrisponde alla propria regex, non parte
@@ -169,9 +183,11 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		return nil
 	}
 
-	scrittore := &nas.Scrittore{Radice: cfg.NAS.Radice, DryRun: cfg.NAS.DryRun}
+	// DryRun non viene piu' dal file: e' l'altra faccia di [sicurezza].nas_scrittura. Due voci per la
+	// stessa decisione sono due voci che prima o poi si contraddicono, e la piu' silenziosa vince.
+	scrittore := &nas.Scrittore{Radice: cfg.NAS.Radice, DryRun: !capacita.NasScrittura}
 	if scrittore.Raggiungibile() {
-		log.Info("NAS raggiungibile", "radice", cfg.NAS.Radice, "dry_run", cfg.NAS.DryRun)
+		log.Info("NAS raggiungibile", "radice", cfg.NAS.Radice, "scrittura", capacita.NasScrittura)
 	} else {
 		log.Warn("NAS non raggiungibile: le copie resteranno in coda", "radice", cfg.NAS.Radice)
 	}

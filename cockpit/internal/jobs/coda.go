@@ -102,13 +102,14 @@ func Accoda(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any, ch
 
 // AccodaCon è Accoda con i vincoli di destinazione e durata espliciti.
 //
-// In modalità shadow i job che toccano il mondo fuori dal Cockpit non entrano in coda e la funzione
-// restituisce ErrShadow: chi accoda su richiesta di un operatore lo riconosce e glielo dice. Non si
+// Se la capacità che serve a quel tipo di job è spenta ([sicurezza], blocco 4), il job non entra in
+// coda e la funzione restituisce un errore che avvolge ErrCapacitaSpenta e NOMINA la capacità: chi
+// accoda su richiesta di un operatore lo riconosce e glielo dice, con la riga da cambiare. Non si
 // restituisce (nil, nil) — che qui significa «c'era già» — perché un blocco raccontato come successo
 // è un pulsante che non fa niente senza dirlo.
 func AccodaCon(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any, chiave string, priorita int16, o Opzioni) (*db.Job, error) {
-	if InShadow() && BloccatoInShadow(tipo) {
-		return nil, fmt.Errorf("%w: %s", ErrShadow, tipo)
+	if cap := CapacitaPer(tipo); cap != "" && !CapacitaAttuali().Ha(cap) {
+		return nil, &erroreCapacita{capacita: cap, tipo: tipo}
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
