@@ -12,15 +12,18 @@ profilo vero (L5), e si esegue con `python worker_outlook.py --restrict`. Qui Ou
 una cartella che INTERPRETA il filtro come lo interpreterebbe Outlook, cioè in UTC. È proprio questo
 a rendere il test capace di bocciare l'errore che conta: se il codice scrivesse l'ora locale nel
 filtro, la cartella finta restituirebbe l'insieme sbagliato e il confronto se ne accorgerebbe.
+
+La cartella finta sta in `finti_outlook.py`, perché la usano anche i test del confine COM.
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 outlook_com = pytest.importorskip("outlook_com", reason="serve pywin32 (solo su Windows)")
+
+from finti_outlook import CartellaFinta, ElementoFinto   # noqa: E402  (dopo l'importorskip: serve pywin32)
 
 filtro_finestra = outlook_com.filtro_finestra
 confronta_insiemi = outlook_com.confronta_insiemi
@@ -28,89 +31,14 @@ confronta_insiemi = outlook_com.confronta_insiemi
 ROMA = timezone(timedelta(hours=2))          # ora legale italiana: +02:00
 
 
-# ---------------------------------------------------------------- una cartella che si comporta come Outlook
-
-def _quando(filtro: str) -> tuple[datetime, datetime | None]:
-    """Legge la finestra dal filtro DASL INTERPRETANDOLA IN UTC, come fa Outlook."""
-    ge = re.search(r">=\s*'([^']+)'", filtro)
-    le = re.search(r"<=\s*'([^']+)'", filtro)
-    def leggi(m):
-        if m is None:
-            return None
-        return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-    return leggi(ge), leggi(le)
-
-
-class ElementoFinto:
-    def __init__(self, entry_id: str, ricevuto: datetime, classe: int = 43):
-        self.EntryID = entry_id
-        self.ReceivedTime = ricevuto
-        self.Class = classe
-
-    @property
-    def utc(self) -> datetime:
-        return self.ReceivedTime.astimezone(timezone.utc)
-
-
-class ItemsFinti:
-    """La collezione Items di Outlook, ridotta a ciò che il codice usa: Sort, Restrict, GetFirst/GetNext."""
-
-    def __init__(self, elementi, perde: set | None = None):
-        self._elenco = list(elementi)
-        self._perde = perde or set()
-        self._i = 0
-        self.ordinata = None
-        self.filtro = None
-
-    def Sort(self, campo, decrescente):
-        assert campo == "[ReceivedTime]", campo
-        self._elenco.sort(key=lambda e: e.utc, reverse=bool(decrescente))
-        self.ordinata = "decrescente" if decrescente else "crescente"
-
-    def Restrict(self, filtro):
-        dal, al = _quando(filtro)
-        dentro = [e for e in self._elenco
-                  if (dal is None or e.utc >= dal) and (al is None or e.utc <= al)
-                  and e.EntryID not in self._perde]
-        fuori = ItemsFinti(dentro)
-        fuori.filtro = filtro
-        return fuori
-
-    def GetFirst(self):
-        self._i = 0
-        return self.GetNext()
-
-    def GetNext(self):
-        if self._i >= len(self._elenco):
-            return None
-        self._i += 1
-        return self._elenco[self._i - 1]
-
-
-class CartellaFinta:
-    def __init__(self, elementi, perde: set | None = None, nome="Posta in arrivo"):
-        self._elementi = list(elementi)
-        self._perde = perde or set()
-        self.Name = nome
-        self.StoreID = "store-finto"
-        self.EntryID = "cartella-finta"
-        self.ultimo_filtro = None
-
-    @property
-    def Items(self):
-        # una collezione NUOVA a ogni accesso, come fa Outlook: altrimenti il Sort di una lettura
-        # resterebbe addosso alla successiva e il test proverebbe qualcosa che non succede
-        i = ItemsFinti(self._elementi, self._perde)
-        self._ultima = i
-        return i
-
-
-def _outlook(usa_restrict=True, autoprova_giorni=0):
+def _outlook(usa_restrict=True, autoprova_ore=0, memoria=None, postazione="BANCO"):
     """Un adattatore senza COM: qui interessano solo le funzioni della finestra."""
     o = object.__new__(outlook_com.Outlook)
     o.usa_restrict = usa_restrict
-    o.autoprova_giorni = autoprova_giorni
+    o.autoprova_ore = autoprova_ore
     o.restrict_ok = {}
+    o.memoria = memoria
+    o.postazione = postazione
     return o
 
 
@@ -249,13 +177,13 @@ def test_la_misura_riporta_i_due_tempi_e_il_filtro_usato():
 
 
 def test_la_prova_si_fa_sulla_coda_della_finestra_non_su_tutto_l_archivio():
-    """`autoprova_giorni` limita la prova agli ultimi giorni: la scansione lineare su un archivio di
-    anni costerebbe esattamente ciò che la voce 2.9 vuole evitare."""
+    """`autoprova_ore` limita la prova alla coda della finestra: la scansione lineare su un archivio
+    di anni costerebbe esattamente ciò che la voce 2.9 vuole evitare."""
     ora = datetime.now(timezone.utc)
     vecchi = [ElementoFinto(f"V{i}", ora - timedelta(days=300 + i)) for i in range(5)]
     nuovi = [ElementoFinto(f"N{i}", ora - timedelta(hours=i + 1)) for i in range(3)]
     cart = CartellaFinta(vecchi + nuovi)
-    o = _outlook(autoprova_giorni=7)
+    o = _outlook(autoprova_ore=7 * 24)
     assert o.autoprova_restrict(cart, ora - timedelta(days=400), None) is True
     # la prova ha guardato solo i tre recenti, ma la lettura vera copre tutto l'archivio
     letti = [e.EntryID for e in o._elementi(cart, ora - timedelta(days=400), None)]

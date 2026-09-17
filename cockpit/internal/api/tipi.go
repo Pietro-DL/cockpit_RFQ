@@ -228,7 +228,11 @@ type CartellaEsito struct {
 	Cartella       string     `json:"cartella"`
 	UltimoReceived *time.Time `json:"ultimo_received,omitempty"`
 	NMessaggi      int        `json:"n_messaggi"`
-	Errore         string     `json:"errore,omitempty"`
+	// Saltati: elementi visti e non consegnati (non-mail, proprieta illeggibile). Quelli che hanno
+	// un EntryID arrivano anche in IngestRichiesta.Saltati e diventano scarti di lettura; questo e
+	// il conto di tutti, compresi quelli che non hanno detto nemmeno chi fossero.
+	Saltati int    `json:"saltati"`
+	Errore  string `json:"errore,omitempty"`
 }
 
 type RisultatoSync struct {

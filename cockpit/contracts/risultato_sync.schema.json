@@ -24,6 +24,11 @@
           "title": "N Messaggi",
           "type": "integer"
         },
+        "saltati": {
+          "default": 0,
+          "title": "Saltati",
+          "type": "integer"
+        },
         "errore": {
           "default": "",
           "title": "Errore",

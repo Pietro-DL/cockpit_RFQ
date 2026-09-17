@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import email.parser
 import hashlib
+import json
 import logging
 import os
 import re
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -24,7 +26,7 @@ import pythoncom
 import pywintypes
 import win32com.client
 
-from contratti import AllegatoIn, Destinatario, MessaggioIn, PayloadCreaBozza
+from contratti import AllegatoIn, Destinatario, ElementoSaltato, MessaggioIn, PayloadCreaBozza
 
 log = logging.getLogger("outlook")
 
@@ -105,6 +107,117 @@ def _prop(o, tag, default=""):
         return default
 
 
+# ---------------------------------------------------------------- il confine COM (3R, blocco 1)
+#
+# Regola unica: prima di leggere una proprieta di MailItem si guarda `Class`, e OGNI proprieta COM
+# si legge protetta. Non e prudenza generica, e il difetto visto sulla Posta inviata vera:
+#
+#     AttributeError: GetNext.ReceivedTime
+#
+# Con il late binding di pywin32 una proprieta che l oggetto NON HA non alza `com_error`: alza
+# `AttributeError`, e il nome nel messaggio e quello del METODO che ha prodotto l oggetto
+# (`GetNext`), non quello dell elemento - per questo la riga di errore non dice nemmeno quale
+# elemento fosse. Un solo elemento non-mail in una cartella (un rapporto di consegna, un
+# appuntamento, un elemento di Sync Issues) bastava a far cadere la scansione lineare, quindi il
+# self-test di Restrict che la usa, quindi il sync di TUTTA la cartella.
+#
+# Da qui in avanti: un elemento illeggibile si salta e si conta; una cartella non muore per colpa
+# di un suo elemento.
+ERRORI_ELEMENTO = (pywintypes.com_error, AttributeError)
+
+
+class LetturaIncompleta(Exception):
+    """L enumerazione della cartella si e rotta a meta.
+
+    Non e un elemento saltato: e un pezzo di finestra che nessuno ha guardato. La scansione lineare
+    va dal piu recente al piu vecchio, quindi cio che si e raccolto e la parte NUOVA: consegnarla
+    farebbe avanzare il cursore oltre messaggi mai visti, e nessuno andrebbe piu a cercarli. La
+    cartella fallisce e si rilegge tutta al giro dopo, che costa una rilettura e non una perdita.
+    """
+
+
+def classe_di(it) -> int | None:
+    """`OlObjectClass` dell elemento (43 = MailItem), None se non si riesce a leggerla.
+
+    None NON vuol dire "non e una mail": vuol dire "non lo so", e chi chiama deve provare a
+    trattarlo come tale invece di scartarlo per un dubbio.
+    """
+    try:
+        return int(it.Class)
+    except ERRORI_ELEMENTO:
+        return None
+    except (TypeError, ValueError):
+        return None
+
+
+def entryid_di(it) -> str:
+    """L EntryID, "" se non si riesce a leggerlo. Senza, l elemento non e nemmeno rileggibile: il
+    server rifiuta uno scarto senza entry_id, quindi qui resta solo la riga di log."""
+    try:
+        return str(it.EntryID or "")
+    except ERRORI_ELEMENTO:
+        return ""
+
+
+def oggetto_di(it) -> str:
+    try:
+        return str(it.Subject or "")
+    except ERRORI_ELEMENTO:
+        return ""
+
+
+def ricevuta_di(it, fuso_locale=None) -> datetime | None:
+    """`ReceivedTime` in UTC vero; None se l elemento non ce l ha o non la dà.
+
+    E la proprieta del difetto: un elemento non-mail non la espone e il suo accesso alza
+    `AttributeError`. None e una risposta, non un errore.
+    """
+    try:
+        v = it.ReceivedTime
+    except ERRORI_ELEMENTO:
+        return None
+    try:
+        return _utc(v, fuso_locale)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+
+
+class Saltati:
+    """Gli elementi visti e non consegnati (3R, blocco 1.C).
+
+    Due numeri diversi, e apposta: `elementi` sono quelli che il server può RILEGGERE, perché hanno
+    un EntryID e diventano scarti di lettura; `totale` sono tutti quelli visti, compresi quelli che
+    non hanno detto nemmeno chi fossero. Riportare solo i primi direbbe che ne sono stati saltati
+    meno di quanti ne sono stati saltati davvero, ed è il genere di conteggio che fa cercare nel
+    posto sbagliato.
+    """
+
+    def __init__(self) -> None:
+        self.elementi: list = []
+        self.totale: int = 0
+
+    def aggiungi(self, elemento=None) -> None:
+        self.totale += 1
+        if elemento is not None:
+            self.elementi.append(elemento)
+
+    def svuota(self) -> list:
+        """Gli elementi rileggibili raccolti finora, e la lista riparte: chi li prende li sta
+        consegnando al server, e consegnarli due volte li scriverebbe due volte."""
+        fuori, self.elementi = self.elementi, []
+        return fuori
+
+    def __len__(self) -> int:
+        return self.totale
+
+
+def nome_di(cart, default: str = "?") -> str:
+    try:
+        return str(cart.Name or default)
+    except ERRORI_ELEMENTO:
+        return default
+
+
 def _sicuro(nome: str, max_len: int = 120) -> str:
     nome = _NOME_VIETATI.sub("_", (nome or "").strip()) or "allegato"
     return nome[:max_len]
@@ -159,23 +272,128 @@ def confronta_insiemi(con_restrict: set, lineare: set) -> tuple[bool, list, list
     return (not mancanti), mancanti, in_piu
 
 
-def _scorri(items):
+class MemoriaRestrict:
+    """L'esito del self-test di `Restrict`, che sopravvive al riavvio del worker (3R, blocco 1.D).
+
+    Perché esista: la prova costa una scansione lineare della finestra di prova, cioè esattamente
+    ciò che `Restrict` serve a evitare. Tenerla solo in memoria significa rifarla su ogni cartella
+    a ogni riavvio — e il worker si riavvia spesso: attività pianificata, uscita forzata del battito
+    (C16), aggiornamento del pacchetto. L'esito però non dipende dal processo: dipende dall'indice
+    di Outlook di QUEL profilo su QUEL PC, e fra un riavvio e l'altro non cambia.
+
+    La chiave è `postazione + casella + cartella`, perché è di quello che l'esito parla: lo stesso
+    indice può essere sano su un PC e rotto su un altro. Store e cartella si accorciano in uno
+    sha256 — uno StoreID è lungo 600 caratteri — e accanto resta il nome leggibile, perché un file
+    di stato che non si riesce a leggere non aiuta chi deve capire.
+
+    Un esito NEGATIVO si ricorda come uno positivo: dice «su questa cartella si va di scansione
+    lineare», ed è altrettanto costoso da riscoprire. Un esito non concludente (finestra di prova
+    vuota) non si scrive: non ha dimostrato niente, e ricordarlo sarebbe peggio che non provare.
+
+    Il file è di comodo, non un dato: se manca, è illeggibile o ha un'altra forma, si riparte dalla
+    prova. Non deve mai fermare un sync.
+    """
+
+    VERSIONE = 1
+
+    def __init__(self, percorso: str, valide_ore: float = 168.0):
+        self.percorso = percorso
+        self.valide_ore = float(valide_ore)
+        self._dati: dict = {}
+        self._caricato = False
+
+    @staticmethod
+    def chiave(postazione: str, store_id: str, cartella_id: str) -> str:
+        grezza = "|".join([(postazione or "").upper(), store_id or "", cartella_id or ""])
+        return hashlib.sha256(grezza.encode("utf-8", "ignore")).hexdigest()[:32]
+
+    def _carica(self) -> None:
+        if self._caricato:
+            return
+        self._caricato = True
+        try:
+            with open(self.percorso, encoding="utf-8") as f:
+                dati = json.load(f)
+            if isinstance(dati, dict) and dati.get("versione") == self.VERSIONE:
+                voci = dati.get("cartelle")
+                self._dati = voci if isinstance(voci, dict) else {}
+        except (OSError, ValueError, TypeError):
+            self._dati = {}
+
+    def leggi(self, postazione: str, store_id: str, cartella_id: str) -> bool | None:
+        """L'esito ricordato, o None se non c'è, se è scaduto o se il file non si legge."""
+        self._carica()
+        voce = self._dati.get(self.chiave(postazione, store_id, cartella_id))
+        if not isinstance(voce, dict) or not isinstance(voce.get("esito"), bool):
+            return None
+        try:
+            quando = datetime.fromisoformat(str(voce.get("quando")))
+        except (TypeError, ValueError):
+            return None
+        if quando.tzinfo is None:
+            quando = quando.replace(tzinfo=timezone.utc)
+        if self.valide_ore > 0 and datetime.now(timezone.utc) - quando > timedelta(hours=self.valide_ore):
+            return None
+        return voce["esito"]
+
+    def scrivi(self, postazione: str, store_id: str, cartella_id: str, esito: bool, nome: str = "") -> None:
+        self._carica()
+        self._dati[self.chiave(postazione, store_id, cartella_id)] = {
+            "esito": bool(esito),
+            "quando": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "postazione": (postazione or "").upper(),
+            "cartella": nome,
+        }
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.percorso)), exist_ok=True)
+            tmp = self.percorso + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"versione": self.VERSIONE, "cartelle": self._dati}, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.percorso)
+        except OSError as e:
+            log.warning("esito del self-test Restrict non memorizzato in %s: %s", self.percorso, e)
+
+
+def _scorri(items, dove: str = "", alza: bool = False):
     """Gli elementi di una collezione COM, uno alla volta. GetFirst/GetNext e non `for x in items`:
-    l'iteratore di pywin32 su una collezione Items grande è più lento e non rispetta sempre Sort."""
-    it = items.GetFirst()
+    l'iteratore di pywin32 su una collezione Items grande è più lento e non rispetta sempre Sort.
+
+    L'avanzamento stesso è protetto: `GetNext` su una collezione che Outlook sta ricostruendo può
+    alzare `com_error`. Che cosa fare dopo dipende dall'ORDINE, ed è per questo che `alza` esiste:
+
+      crescente (Restrict)  ciò che si è letto è il pezzo VECCHIO della finestra: fermarsi qui è
+                            sicuro, il cursore avanza solo su ciò che è stato consegnato e il resto
+                            si rilegge al giro dopo. Si registra un errore e si chiude;
+      decrescente (lineare) ciò che si è letto è il pezzo NUOVO: consegnarlo porterebbe il cursore
+                            oltre messaggi mai guardati. Chi chiama passa `alza=True` e la cartella
+                            fallisce senza consegnare niente.
+    """
+    try:
+        it = items.GetFirst()
+    except ERRORI_ELEMENTO as e:
+        if alza:
+            raise LetturaIncompleta("%s: la collezione non si apre (%s)" % (dove or "cartella", e)) from e
+        log.error("%s: la collezione non si apre (%s): nessun elemento letto", dove or "cartella", e)
+        return
     while it is not None:
         yield it
-        it = items.GetNext()
+        try:
+            it = items.GetNext()
+        except ERRORI_ELEMENTO as e:
+            if alza:
+                raise LetturaIncompleta("%s: enumerazione interrotta (%s)" % (dove or "cartella", e)) from e
+            log.error("%s: enumerazione interrotta (%s): la finestra si rilegge al prossimo sync",
+                      dove or "cartella", e)
+            return
 
 
 def _entry_id(elementi) -> set:
     """L'insieme degli EntryID di una sequenza di elementi, per il confronto del self-test."""
     out = set()
     for it in elementi:
-        try:
-            out.add(it.EntryID)
-        except pywintypes.com_error:
-            continue
+        eid = entryid_di(it)
+        if eid:
+            out.add(eid)
     return out
 
 
@@ -190,7 +408,8 @@ def sha256_file(path: str) -> tuple[str, int]:
 
 
 class Outlook:
-    def __init__(self, consenti_invio: bool = False, usa_restrict: bool = True, autoprova_giorni: int = 7):
+    def __init__(self, consenti_invio: bool = False, usa_restrict: bool = True, autoprova_ore: float = 24.0,
+                 memoria: "MemoriaRestrict | None" = None, postazione: str = ""):
         pythoncom.CoInitialize()
         self.app = win32com.client.Dispatch("Outlook.Application")
         self.ns = self.app.GetNamespace("MAPI")
@@ -199,8 +418,15 @@ class Outlook:
         # lineare. Non è un'opzione di comodo, è la via d'uscita se un giorno un profilo si comporta
         # in modo che il self-test non prevede: meglio lento che incompleto.
         self.usa_restrict = usa_restrict
-        self.autoprova_giorni = autoprova_giorni
+        # La prova ORDINARIA guarda le ultime 24 ore (3R 1.D): è un campione, e ciò che deve
+        # dimostrare — che il fuso e il formato della data del filtro siano quelli giusti — si
+        # dimostra su un campione come su tutto. La prova larga resta a `--restrict GIORNI`, che
+        # è una richiesta esplicita di chi la sta facendo e sa quanto costa.
+        self.autoprova_ore = float(autoprova_ore)
         self.restrict_ok: dict[tuple, bool] = {}
+        # dove l'esito della prova sopravvive al riavvio; None = solo in memoria, come prima
+        self.memoria = memoria
+        self.postazione = (postazione or socket.gethostname()).upper()
         self.indirizzi_propri = set()
         try:
             for i in range(1, self.ns.Accounts.Count + 1):
@@ -352,7 +578,8 @@ class Outlook:
 
     # ------------------------------------------------------------ lettura
 
-    def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None, store_id: str = "") -> Iterator[MessaggioIn]:
+    def leggi(self, nome_cartella: str, dal: datetime, al: datetime | None = None, store_id: str = "",
+              saltati: "Saltati | None" = None) -> Iterator[MessaggioIn]:
         """Elementi MailItem della cartella con ReceivedTime >= dal (e <= al se specificato), in
         ordine cronologico CRESCENTE, uno alla volta.
 
@@ -374,37 +601,75 @@ class Outlook:
         che l'ordine ce l'ha per costruzione.
 
         `store_id` è lo store della casella del job (voce 2.6): la cartella è la SUA.
+
+        `saltati` è un `Saltati` dove finiscono gli elementi visti e non consegnati: chi chiama lo
+        passa se ha modo di registrarli (il worker li manda al server come scarti di lettura, e da
+        lì si rileggono uno per uno). Un elemento saltato NON ferma la cartella (3R, blocco 1).
         """
         cart = self.cartella(nome_cartella, store_id)
         e_inviata = False
         try:
             inviata = self._store(store_id).GetDefaultFolder(5) if store_id else self.ns.GetDefaultFolder(5)
             e_inviata = cart.DefaultItemType == 0 and cart.EntryID == inviata.EntryID
-        except (pywintypes.com_error, AttributeError):
+        except ERRORI_ELEMENTO:
             pass
         store_id = cart.StoreID
-        saltati = 0
-        for item in self._elementi(cart, dal, al):
+        nome = nome_di(cart, nome_cartella)
+        n_saltati = 0
+        for item in self._elementi(cart, dal, al, saltati):
+            # PRIMA la classe, POI le proprietà di MailItem: è la regola del confine COM, e l'ordine
+            # è tutta la correzione. `Class` non letta (None) non è «non è una mail»: si prova lo
+            # stesso a convertirlo, e se non si può diventa uno scarto invece di un dubbio.
+            classe = classe_di(item)
+            if classe is not None and classe != OL_MAIL:
+                n_saltati += self._registra_saltato(saltati, cart, item, "elemento non-mail", classe, rileggibile=False)
+                continue
             try:
-                if item.Class != OL_MAIL:
-                    saltati += 1
-                    continue
-                yield self._converti(item, store_id, cart.Name, e_inviata)
-            except pywintypes.com_error as e:
-                log.warning("elemento saltato in %s: %s", nome_cartella, e)
-                saltati += 1
-        if saltati:
-            log.info("%s: %d elementi non-mail saltati", nome_cartella, saltati)
+                yield self._converti(item, store_id, nome, e_inviata)
+            except ERRORI_ELEMENTO as e:
+                n_saltati += self._registra_saltato(saltati, cart, item, "conversione non riuscita: %s" % e, classe)
+        if n_saltati:
+            log.info("%s: %d elementi saltati (non-mail o illeggibili)", nome_cartella, n_saltati)
+
+    def _registra_saltato(self, saltati: "Saltati | None", cart, it, motivo: str, classe: int | None = None,
+                          rileggibile: bool = True) -> int:
+        """Un elemento che non entra: si conta sempre, si scrive sempre nel log, e diventa uno scarto
+        di lettura solo se rileggerlo può servire a qualcosa.
+
+        `rileggibile` separa due cose che prima si somigliavano, e la differenza l'ha mostrata il
+        profilo vero: nella Posta in arrivo di questa azienda ci sono rapporti di consegna
+        (`Class=46`), inviti (53) e appuntamenti (26) salvati fra la posta. Un elemento NON-MAIL non
+        entrerà mai, per quante volte lo si rilegga: metterlo in `ingest_scarto` riempirebbe
+        /admin/scarti di righe che nessuno potrà mai chiudere, e le righe che nessuno può chiudere
+        sono il modo più rapido per far smettere di guardare quella pagina. Un elemento ILLEGGIBILE
+        — `com_error` su una proprietà, conversione fallita — è invece una mail che OGGI non si è
+        riusciti a leggere: quello va in scarto, perché una rilettura mirata può farcela.
+
+        Lo skip non è mai silenzioso: la riga porta cartella, Class ed EntryID, cioè le tre cose con
+        cui si va a cercare l'elemento dentro Outlook. Senza EntryID resta solo la riga (il server
+        rifiuta uno scarto che non saprebbe rileggere), ma il conteggio c'è lo stesso.
+        """
+        eid = entryid_di(it)
+        nome = nome_di(cart)
+        errore = "lettura: %s (Class=%s)" % (motivo, classe if classe is not None else "?")
+        log.warning("%s: elemento saltato - %s, EntryID=%s", nome, errore, (eid[:24] + "...") if eid else "non leggibile")
+        if saltati is not None:
+            scarto = None
+            if rileggibile and eid:
+                scarto = ElementoSaltato(entry_id=eid, cartella=nome[:200], oggetto=oggetto_di(it)[:500],
+                                         ricevuto_il=ricevuta_di(it), errore=errore[:2000])
+            saltati.aggiungi(scarto)
+        return 1
 
     # ------------------------------------------------------------ i due modi di trovare la finestra
 
-    def _elementi(self, cart, dal: datetime, al: datetime | None):
+    def _elementi(self, cart, dal: datetime, al: datetime | None, saltati: "Saltati | None" = None):
         """Gli elementi della finestra in ordine crescente, con Restrict se si può fidare."""
         if self.usa_restrict and self._restrict_affidabile(cart, dal, al):
             ristretti = self._ristretti(cart, dal, al)
             if ristretti is not None:
                 return ristretti
-        return self._lineari(cart, dal, al)
+        return self._lineari(cart, dal, al, saltati)
 
     def _ristretti(self, cart, dal: datetime, al: datetime | None):
         """Items.Restrict + ordinamento crescente. None se una delle due cose non riesce: chi chiama
@@ -412,33 +677,49 @@ class Outlook:
         try:
             items = cart.Items.Restrict(filtro_finestra(dal, al))
             items.Sort("[ReceivedTime]", False)
-        except pywintypes.com_error as e:
-            log.warning("Restrict non disponibile su %s (%s): scansione lineare", cart.Name, e)
+        except ERRORI_ELEMENTO as e:
+            log.warning("Restrict non disponibile su %s (%s): scansione lineare", nome_di(cart), e)
             return None
-        return _scorri(items)
+        # ordine crescente: un'enumerazione che si rompe a metà lascia indietro la parte NUOVA della
+        # finestra, che il cursore non ha ancora superato. Si registra e si chiude, non si alza.
+        return _scorri(items, dove=nome_di(cart))
 
-    def _lineari(self, cart, dal: datetime, al: datetime | None):
+    def _lineari(self, cart, dal: datetime, al: datetime | None, saltati: "Saltati | None" = None):
         """La scansione all'indietro: dal più recente fino al primo più vecchio di `dal`.
 
         Raccoglie e inverte, quindi tiene in memoria la finestra: è il motivo per cui non è il modo
         buono su una cartella grande, oltre al tempo. Resta però quello di cui ci si fida.
+
+        Qui viveva il difetto del 3R: `item.ReceivedTime` veniva letto PRIMA di qualunque controllo
+        sulla classe dell'elemento, e protetto dal solo `com_error`. Un elemento non-mail alza
+        `AttributeError`, che usciva da questa funzione, attraversava `leggi`, faceva fallire il
+        self-test di Restrict che chiama questa stessa scansione, e portava con sé il sync di tutta
+        la cartella — per un elemento che non sarebbe mai entrato comunque.
         """
         items = cart.Items
-        items.Sort("[ReceivedTime]", True)
+        nome = nome_di(cart)
+        try:
+            items.Sort("[ReceivedTime]", True)
+        except ERRORI_ELEMENTO as e:
+            # senza ordinamento decrescente la scansione non ha né inizio né fine sicuri
+            raise LetturaIncompleta("%s: ordinamento non riuscito (%s)" % (nome, e)) from e
         raccolti = []
-        item = items.GetFirst()
-        while item is not None:
-            try:
-                rt = _utc(item.ReceivedTime)
-                if al is not None and rt > al:
-                    item = items.GetNext()
-                    continue
-                if rt < dal:
-                    break
-                raccolti.append(item)
-            except pywintypes.com_error as e:
-                log.warning("elemento saltato in %s: %s", cart.Name, e)
-            item = items.GetNext()
+        for item in _scorri(items, dove=nome, alza=True):
+            classe = classe_di(item)
+            if classe is not None and classe != OL_MAIL:
+                self._registra_saltato(saltati, cart, item, "elemento non-mail", classe, rileggibile=False)
+                continue
+            rt = ricevuta_di(item)
+            if rt is None:
+                # l'elemento c'è ma non dice quando è arrivato: non si può collocare nella finestra
+                # e non si può nemmeno usare per decidere dove fermarsi. Si salta, non si ferma.
+                self._registra_saltato(saltati, cart, item, "ReceivedTime non leggibile", classe)
+                continue
+            if al is not None and rt > al:
+                continue
+            if rt < dal:
+                break
+            raccolti.append(item)
         raccolti.reverse()
         return iter(raccolti)
 
@@ -462,16 +743,31 @@ class Outlook:
 
     def _restrict_affidabile(self, cart, dal: datetime, al: datetime | None) -> bool:
         """Vero se su QUESTA cartella `Restrict` può essere usato: o l'ha già dimostrato in questo
-        processo, o lo dimostra adesso. Il risultato si ricorda per cartella, non per sync."""
+        processo, o lo ha dimostrato in uno precedente (3R 1.D), o lo dimostra adesso.
+
+        Tre memorie in fila, dalla più economica: il dizionario di questo processo, il file di stato
+        della postazione, la prova vera. La prova costa una scansione lineare, cioè esattamente ciò
+        che `Restrict` serve a evitare: rifarla a ogni riavvio del worker su ogni cartella era un
+        costo pagato per sapere una cosa che non era cambiata.
+        """
         try:
             chiave = (cart.StoreID, cart.EntryID)
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             return False
         if chiave in self.restrict_ok:
             return self.restrict_ok[chiave]
+        if self.memoria is not None:
+            ricordato = self.memoria.leggi(self.postazione, chiave[0], chiave[1])
+            if ricordato is not None:
+                self.restrict_ok[chiave] = ricordato
+                log.info("self-test Restrict su %s: esito già noto (%s), non lo rifaccio",
+                         nome_di(cart), "attendibile" if ricordato else "NON attendibile")
+                return ricordato
         esito = self.autoprova_restrict(cart, dal, al)
         if esito is not None:
             self.restrict_ok[chiave] = esito
+            if self.memoria is not None:
+                self.memoria.scrivi(self.postazione, chiave[0], chiave[1], esito, nome=nome_di(cart))
             return esito
         return False        # prova non concludente: per questo giro si va di lineare, si riproverà
 
@@ -482,10 +778,10 @@ class Outlook:
         non confronta il primo e l'ultimo: confronta chi c'è. È l'unico controllo che, se passa,
         dice davvero «il filtro non sta perdendo niente».
 
-        La prova si fa sulla CODA della finestra (gli ultimi `autoprova_giorni` giorni): la scansione
-        lineare su trent'anni di archivio costerebbe esattamente ciò che la voce 2.9 vuole evitare, e
-        quello che c'è da dimostrare — che il fuso e il formato della data siano quelli giusti — si
-        dimostra su un campione come su tutto.
+        La prova si fa sulla CODA della finestra (le ultime `autoprova_ore` ore, 24 di regola): la
+        scansione lineare su trent'anni di archivio costerebbe esattamente ciò che la voce 2.9 vuole
+        evitare, e quello che c'è da dimostrare — che il fuso e il formato della data siano quelli
+        giusti — si dimostra su un campione come su tutto.
 
         Restituisce None se la finestra di prova è vuota da entrambe le parti: due insiemi vuoti sono
         uguali, ma non hanno dimostrato niente, e ricordarsi un «passata» ottenuto così sarebbe
@@ -493,8 +789,8 @@ class Outlook:
         """
         fine = al or datetime.now(timezone.utc)
         inizio = dal
-        if self.autoprova_giorni > 0:
-            inizio = max(dal, fine - timedelta(days=self.autoprova_giorni))
+        if self.autoprova_ore > 0:
+            inizio = max(dal, fine - timedelta(hours=self.autoprova_ore))
         m = self.misura_finestra(cart, inizio, al)
         if not m["disponibile"]:
             return False
@@ -541,11 +837,11 @@ class Outlook:
         data = it.SentOn if direzione == "uscita" else it.ReceivedTime
         try:
             corpo = it.Body or ""
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             corpo = ""
         try:
             html = it.HTMLBody or ""
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             html = ""
         categorie = [c.strip() for c in (it.Categories or "").split(",") if c.strip()]
         return MessaggioIn(
@@ -563,7 +859,7 @@ class Outlook:
         try:
             if it.SenderEmailType == "SMTP" and it.SenderEmailAddress:
                 return it.SenderEmailAddress.lower()
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             pass
         for tag in (PR_SENDER_SMTP, PR_SENT_REPR_SMTP):
             v = _prop(it, tag)
@@ -575,9 +871,12 @@ class Outlook:
                 eu = s.GetExchangeUser()
                 if eu is not None and eu.PrimarySmtpAddress:
                     return eu.PrimarySmtpAddress.lower()
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             pass
-        return (it.SenderEmailAddress or "").lower()
+        try:
+            return (it.SenderEmailAddress or "").lower()
+        except ERRORI_ELEMENTO:
+            return ""
 
     def _destinatari(self, it) -> list[Destinatario]:
         out = []
@@ -588,7 +887,7 @@ class Outlook:
                 if not (isinstance(smtp, str) and "@" in smtp):
                     smtp = r.Address if "@" in (r.Address or "") else ""
                 out.append(Destinatario(nome=r.Name or "", indirizzo=(smtp or "").lower(), tipo=tipi.get(r.Type, "a")))
-        except pywintypes.com_error:
+        except ERRORI_ELEMENTO:
             pass
         return out
 

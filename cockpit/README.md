@@ -267,6 +267,7 @@ sostituire il binario su una postazione.
 #### Seminare l'anagrafica dei clienti (blocco 3)
 
 ```powershell
+cd cockpit
 .\cockpit.exe -config cockpit.toml -semina-anagrafica seme_anagrafica.json
 ```
 
@@ -577,7 +578,7 @@ PC non è un'azione riuscita. La testata dice anche, per ogni casella, se c'è u
 
 ```powershell
 go test ./...                        # unitari: dominio, zip, NAS, template, migrazioni, configurazione
-python -m pytest -q workers          # unitari Python: modulo comune, ciclo dei worker, analisi
+python -m pytest -q workers          # unitari Python: stanno in workers\tests\ (i moduli provati sono una cartella sopra)
 ```
 
 I test che hanno bisogno di PostgreSQL vengono **saltati** se manca `COCKPIT_TEST_DSN`. Un test
@@ -621,8 +622,8 @@ Due avvertenze sulla lettura degli esiti:
 
 - `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic rispettino gli
   schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/api` per il
-  Go, `workers/test_contratti.py` per la premessa che gli schemi su disco siano quelli dei modelli di
-  oggi). Confronta i campi e i loro generi, non l'obbligatorietà;
+  Go, `workers/tests/test_contratti.py` per la premessa che gli schemi su disco siano quelli dei
+  modelli di oggi). Confronta i campi e i loro generi, non l'obbligatorietà;
 - un test **saltato** non è un test superato: è una verifica che non è stata fatta.
 
 ## Manutenzione
@@ -674,7 +675,9 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | un job torna `in_corso` e si ripete, il worker logga `400 worker_id mancante` | il worker riporta il risultato senza dire quale tentativo sta chiudendo | difetto corretto il 15/09/2026: aggiornare i worker insieme al server |
 | in testata c'è **SHADOW** e metà dei pulsanti dice «in attesa di produzione» | il server gira in sola lettura (voce 9.5) | è voluto finché si prova sulla posta vera; per riattivare le scritture: `[server].modalita = "produzione"` e riavvio |
 | una casella resta **in corso…** per minuti | il sync di quella casella è in coda o in esecuzione | normale al primo giro su una casella grande; se non finisce mai, il worker è fermo: vedere il suo log e `/admin/job` |
-| il sync dura minuti invece di secondi | `Restrict` è spento su quella cartella | il log del worker dice perché: `self-test Restrict FALLITO` (il filtro perdeva elementi) o `Restrict non disponibile`. `python worker_outlook.py --restrict 7` lo rimisura |
+| il sync dura minuti invece di secondi | `Restrict` è spento su quella cartella | il log del worker dice perché: `self-test Restrict FALLITO` (il filtro perdeva elementi) o `Restrict non disponibile`. `python worker_outlook.py --restrict 7` lo rimisura. L'esito è ricordato in `_staging\restrict.json`: cancellarlo fa rifare le prove |
+| una cartella porta molti meno messaggi di quelli che ha | un elemento anomalo fermava la scansione | corretto nel checkpoint 3R. Per vederlo su una cartella vera, senza server e senza database: `python prova_lettura.py --casella indirizzo --cartella "Posta in arrivo" --giorni 30 --vecchio-modo` — se il vecchio modo cade e il nuovo no, l'elemento c'è ed era lui |
+| in `/admin/scarti` compaiono elementi che non entreranno mai | erano `origine = lettura` di elementi non-mail | dal 3R un elemento non-mail (rapporto di consegna, invito, appuntamento) viene contato e scritto nel log, non messo in scarto: in scarto ci va solo ciò che ha senso rileggere |
 | lo stesso sync parte più volte con la stessa finestra | il `result` non viene accettato, il lease scade e lo scheduler riaccoda | leggere `cockpit.log`: il server scrive il motivo del rifiuto con il nome del worker |
 
 ---
@@ -716,8 +719,11 @@ internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                            outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
-                           prova_e2e.py (il worker vero senza COM, per il test end-to-end), worker.toml.
+                           prova_e2e.py (il worker vero senza COM, per il test end-to-end),
+                           prova_lettura.py (legge una cartella vera, sola lettura, senza server né database), worker.toml.
                            Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
+workers/tests/             i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
+                           finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
 scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                            azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                            backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh

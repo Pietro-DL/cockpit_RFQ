@@ -73,12 +73,34 @@ consenti_invio = false
 # usa_restrict = false lascia solo la scansione lineare: la via d'uscita se un profilo si comportasse
 # in un modo che il self-test non prevede. Meglio lento che incompleto.
 # usa_restrict = true
-# Su quanti giorni fare la prova (0 = su tutta la finestra, cioè lento quanto ciò che vuole evitare).
-# autoprova_restrict_giorni = 7
+#
+# Su quante ORE fare la prova ordinaria. Default 24: è un campione, e ciò che deve dimostrare — che il
+# fuso e il formato della data del filtro siano quelli giusti — si dimostra su un campione come su
+# tutto. 0 = su tutta la finestra, cioè lento quanto ciò che vuole evitare.
+# autoprova_restrict_ore = 24
+#
+# L'esito della prova si RICORDA fra un riavvio e l'altro, in `restrict.json` dentro `staging`: la
+# prova costa una scansione lineare, e rifarla a ogni avvio del worker su ogni cartella era il costo
+# che Restrict esiste per evitare, pagato per riscoprire una cosa che non era cambiata. La chiave è
+# postazione + casella + cartella, perché lo stesso indice può essere sano su un PC e rotto su un
+# altro. Per quante ore vale un esito prima di rifare la prova:
+# autoprova_restrict_valida_ore = 168
+#
+# Cancellare `restrict.json` fa rifare tutte le prove: è il modo di ripartire da zero dopo aver
+# ricostruito un profilo o riparato l'indice di Outlook.
+#
+# autoprova_restrict_giorni = 7   CHIAVE STORICA: viene ancora letta (×24 = ore) per i worker.toml
+#                                 già distribuiti, e sarà tolta quando i pacchetti saranno stati
+#                                 rigenerati. Se ci sono tutte e due, vince quella in ore.
 #
 # Per eseguire la prova a mano, senza prendere job:  python worker_outlook.py --restrict 7
 # Serve i nomi delle cartelle: se non sono quelli predefiniti, dichiararli qui.
 # cartelle = ["Posta in arrivo", "Posta inviata"]
+#
+# Per leggere una cartella vera senza server e senza database (diagnosi, sola lettura):
+#   python prova_lettura.py --casella indirizzo@azienda --cartella "Posta in arrivo" --giorni 7
+# Con --vecchio-modo rifà anche la scansione com'era prima della correzione del confine COM: se
+# quella cade e questa no, sulla stessa cartella e nello stesso momento, l'elemento anomalo c'è.
 
 # ------------------------------------------------------------------ un token per worker (voce 2.4)
 # Sullo stesso PC girano due worker e ognuno ha la sua credenziale. Le chiavi qui sotto vincono su

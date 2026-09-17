@@ -138,9 +138,10 @@ class OutlookFinto(ProfiloFinto):
         self.letture: list[tuple[str, str]] = []   # (cartella, store_id) di ogni leggi()
         self.finestre: dict[str, tuple] = {}       # cartella -> (dal, al): quale finestra è stata chiesta
 
-    def leggi(self, cartella, dal, al=None, store_id=""):
+    def leggi(self, cartella, dal, al=None, store_id="", saltati=None):
         self.letture.append((cartella, store_id))
         self.finestre[cartella] = (dal, al)
+        self.saltati_visti = saltati
         for m in self.messaggi:
             yield m
 

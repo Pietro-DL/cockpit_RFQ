@@ -29,7 +29,8 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Err
 from contratti import (CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento, PayloadCreaBozza,
                        PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato, PayloadSyncOutlook,
                        RisultatoBozza, RisultatoElemento, RisultatoRichiesta, RisultatoStage, RisultatoSync)
-from outlook_com import ErroreDefinitivo, Outlook, confronta_insiemi, filtro_finestra
+from outlook_com import (ERRORI_ELEMENTO, ErroreDefinitivo, LetturaIncompleta, MemoriaRestrict, Outlook,
+                         Saltati, confronta_insiemi, filtro_finestra)
 
 log = logging.getLogger("worker")
 
@@ -75,9 +76,33 @@ class Worker:
             self.outlook = Outlook(
                 consenti_invio=bool(self.cfg.get("consenti_invio", False)),
                 usa_restrict=bool(self.cfg.get("usa_restrict", True)),
-                autoprova_giorni=int(self.cfg.get("autoprova_restrict_giorni", 7)),
+                autoprova_ore=self.autoprova_ore(),
+                memoria=MemoriaRestrict(os.path.join(self.staging, "restrict.json"),
+                                        valide_ore=float(self.cfg.get("autoprova_restrict_valida_ore", 168))),
+                postazione=self.postazione,
             )
         return self.outlook
+
+    def autoprova_ore(self) -> float:
+        """La finestra del self-test ORDINARIO di Restrict: 24 ore (3R 1.D).
+
+        Prima erano 7 giorni, e siccome l'esito non sopravviveva al riavvio, ogni avvio del worker
+        pagava una scansione lineare di una settimana su ogni cartella — il costo che Restrict
+        esiste per evitare, pagato per riscoprire una cosa che non era cambiata. La prova larga
+        resta disponibile a mano (`--restrict GIORNI`), dove la chiede chi sa quanto costa.
+
+        `autoprova_restrict_giorni` continua a essere letto: i worker.toml gia distribuiti lo hanno,
+        e un file di configurazione che smette di significare qualcosa senza dirlo e peggio di un
+        valore vecchio. Sara deprecato quando i pacchetti saranno stati rigenerati.
+        """
+        if "autoprova_restrict_ore" in self.cfg:
+            return float(self.cfg["autoprova_restrict_ore"])
+        if "autoprova_restrict_giorni" in self.cfg:
+            giorni = float(self.cfg["autoprova_restrict_giorni"])
+            log.info("worker.toml: autoprova_restrict_giorni=%g (chiave storica) → %g ore di finestra di prova",
+                     giorni, giorni * 24)
+            return giorni * 24.0
+        return 24.0
 
     # ------------------------------------------------------------ caselle → store locale (voce 2.6)
 
@@ -363,9 +388,10 @@ class Worker:
                 self.battito.segna_fase(f"sync {c.cartella}")
             esito = CartellaEsito(cartella=c.cartella, ultimo_received=c.ultimo_received)
             lotto: list = []
+            saltati = Saltati()
             try:
                 self.controlla()
-                for m in self.ol().leggi(c.cartella, dal, al=al, store_id=store):
+                for m in self.ol().leggi(c.cartella, dal, al=al, store_id=store, saltati=saltati):
                     # punto di ripresa: fra un elemento e l'altro il lavoro è fuori da COM, quindi qui
                     # un arresto chiesto dal battito si può rispettare senza lasciare niente a metà
                     self.controlla()
@@ -379,18 +405,30 @@ class Worker:
                     if al is None and quando and (esito.ultimo_received is None or quando > esito.ultimo_received):
                         esito.ultimo_received = quando
                     if len(lotto) >= p.lotto:
-                        esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
+                        esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
                         lotto = []
-                if lotto:
-                    esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received)
+                # anche a lotto vuoto: gli elementi saltati vanno riportati, o nessuno sa che ci sono
+                if lotto or saltati.elementi:
+                    esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
             except ErroreDefinitivo as e:
                 esito.errore = str(e)
                 log.error("cartella %s: %s", c.cartella, e)
-            log.info("sync %s: finestra [%s, %s] → %d messaggi, cursore %s", c.cartella, dal.isoformat(), al.isoformat() if al else "now", esito.n_messaggi, esito.ultimo_received)
+            except (LetturaIncompleta, *ERRORI_ELEMENTO) as e:
+                # 3R, blocco 1: una cartella che non si riesce a leggere resta un problema DI QUELLA
+                # cartella. Prima l'eccezione usciva dal ciclo e faceva fallire il job intero: le
+                # altre cartelle della stessa casella non venivano nemmeno provate. Il cursore non e
+                # avanzato oltre cio che e stato consegnato, quindi la finestra si rilegge.
+                esito.errore = "%s: %s" % (type(e).__name__, e)
+                log.error("cartella %s non letta per intero: %s", c.cartella, e)
+            esito.saltati = saltati.totale
+            log.info("sync %s: finestra [%s, %s] → %d messaggi%s, cursore %s", c.cartella, dal.isoformat(),
+                     al.isoformat() if al else "now", esito.n_messaggi,
+                     (", %d saltati" % esito.saltati) if esito.saltati else "", esito.ultimo_received)
             esiti.append(esito)
         return RisultatoSync(cartelle=esiti).model_dump(mode="json")
 
-    def _invia(self, job: Job, p: PayloadSyncOutlook, cartella: str, lotto: list, fin_qui) -> int:
+    def _invia(self, job: Job, p: PayloadSyncOutlook, cartella: str, lotto: list, fin_qui,
+               saltati: Saltati | None = None) -> int:
         """Manda un lotto e fa avanzare il cursore INSIEME a esso.
 
         Il cursore viaggia nella stessa richiesta degli elementi perché il server lo scrive nella
@@ -405,6 +443,10 @@ class Worker:
             lease_token=job.lease_token,
             worker_id=self.worker_id,
             cursore=CursoreLotto(cartella=cartella, ultimo_received=fin_qui) if fin_qui else None,
+            # gli elementi che il worker ha visto e non e riuscito a consegnare: il server li mette
+            # in scarto con origine 'lettura' e da li si rileggono uno per uno. Si svuota la lista
+            # PRIMA della chiamata: consegnarli due volte li scriverebbe due volte.
+            saltati=saltati.svuota() if saltati is not None else [],
         )
         try:
             r = self.api.ingest(richiesta.model_dump(mode="json"))

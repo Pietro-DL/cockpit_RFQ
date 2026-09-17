@@ -201,6 +201,9 @@ class CartellaEsito(Base):
     cartella: str
     ultimo_received: datetime | None = None
     n_messaggi: int = 0
+    # elementi visti e non consegnati (non-mail, illeggibili): quelli con un EntryID viaggiano in
+    # `saltati` dell'ingest e diventano scarti di lettura, questo e il conto di TUTTI.
+    saltati: int = 0
     errore: str = ""
 
 
