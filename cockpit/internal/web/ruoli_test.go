@@ -111,11 +111,16 @@ func TestW15LaBarraSiCostruiscePerRuolo(t *testing.T) {
 			}
 		}
 	}
-	// le tre operative ci sono per tutti: sono il lavoro, non l'amministrazione
-	for _, voce := range []string{"/inbox", "/richieste", "/cruscotto"} {
+	// le operative ci sono per tutti: sono il lavoro, non l'amministrazione. Dal checkpoint 3R sono
+	// due e non tre: «Cruscotto» era la stessa lista di «Richieste» e adesso e' il cruscotto DI UNA
+	// richiesta, che si apre da li'.
+	for _, voce := range []string{"/inbox", "/richieste"} {
 		for nome, html := range map[string]string{"operatore": operatore, "admin": admin} {
 			if !strings.Contains(html, `href="`+voce+`"`) {
 				t.Errorf("%s: manca %s", nome, voce)
+			}
+			if strings.Contains(html, `href="/cruscotto"`) {
+				t.Errorf("%s: la rail porta ancora /cruscotto, che non e' piu' una schermata", nome)
 			}
 		}
 	}

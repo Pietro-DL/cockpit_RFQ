@@ -10,12 +10,6 @@ SELECT * FROM thread_offerta WHERE thread_id = $1;
 -- name: GetCruscottoRiga :one
 SELECT * FROM v_cruscotto WHERE thread_id = $1;
 
--- name: ListCruscotto :many
-SELECT * FROM v_cruscotto
-WHERE (sqlc.arg(solo_aperti)::boolean = false OR stato_thread = 'APERTA')
-ORDER BY COALESCE(ultimo_aggiornamento, data_inizio) DESC
-LIMIT $1;
-
 -- name: CercaThreadAperti :many
 SELECT v.* FROM v_cruscotto v
 WHERE v.stato_thread = 'APERTA'

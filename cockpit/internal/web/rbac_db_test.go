@@ -126,7 +126,7 @@ func TestW1UnOperatoreNonEntraInAdmin(t *testing.T) {
 	}
 
 	// L'interfaccia di lavoro invece è la sua, e resta intera.
-	for _, percorso := range []string{"/inbox", "/cruscotto", "/stato/worker"} {
+	for _, percorso := range []string{"/inbox", "/richieste", "/stato/worker"} {
 		if resp, _ := fp.fai(http.MethodGet, percorso, nil, false); resp.StatusCode != 200 {
 			t.Errorf("%s: %d per un operatore", percorso, resp.StatusCode)
 		}
@@ -177,7 +177,7 @@ func TestW15LaTestataDalVivo(t *testing.T) {
 			t.Errorf("l'operatore vede la voce %s", voce)
 		}
 	}
-	if !strings.Contains(pagina, "Sei su:") || !strings.Contains(pagina, `href="/cruscotto"`) {
+	if !strings.Contains(pagina, "Sei su:") || !strings.Contains(pagina, `href="/richieste"`) {
 		t.Errorf("all'operatore manca l'interfaccia di lavoro: %s", estratto(pagina, "barra"))
 	}
 
@@ -198,7 +198,7 @@ func TestW16ConsultazioneELaSolaLettura(t *testing.T) {
 	co := b.browser("10.0.0.5:51000")
 	co.login("CO", "prova-co")
 
-	for _, percorso := range []string{"/inbox", "/cruscotto", "/stato/worker"} {
+	for _, percorso := range []string{"/inbox", "/richieste", "/stato/worker"} {
 		if resp, _ := co.fai(http.MethodGet, percorso, nil, false); resp.StatusCode != 200 {
 			t.Errorf("%s: %d per chi consulta", percorso, resp.StatusCode)
 		}

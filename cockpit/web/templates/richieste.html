@@ -1,19 +1,21 @@
 {{define "contenuto"}}
 <h1>Richieste</h1>
 <p class="muto">Le richieste aperte, quelle dei clienti con il peso piu' alto in cima e, a parita' di
-peso, quelle che scadono prima. Il peso si mette in <a href="/admin/anagrafica">Anagrafica</a>.</p>
+peso, quelle che scadono prima. Il peso si mette in <a href="/admin/anagrafica">Anagrafica</a>.
+Aprire una richiesta porta al suo cruscotto, dove si lavora.</p>
 <div id="richieste" hx-get="/richieste" hx-trigger="every 60s" hx-swap="innerHTML">{{template "richieste_tabella" .}}</div>
 {{end}}
 
 {{define "richieste_tabella"}}
 {{if not .Dati}}<p class="muto">Nessuna richiesta aperta. Le richieste nascono dal triage dell'Inbox («Nuova RFQ»).</p>{{end}}
 <table class="tabella">
-  <tr><th>Peso</th><th>Cliente</th><th>Buyer</th><th>Oggetto</th><th>Codici</th><th>Fase</th><th>SLA</th><th>Scadenza</th><th>Bloccanti</th><th>Da smistare</th><th>Ultimo</th></tr>
+  <tr><th>Peso</th><th>Cliente</th><th>Buyer</th><th>Oggetto</th><th>Rif. cliente</th><th>Codici</th><th>Fase</th><th>SLA</th><th>Scadenza</th><th>Bloccanti</th><th>Da smistare</th><th>Ultimo</th></tr>
   {{range .Dati}}
   <tr>
     <td>{{if .PesoCliente}}{{.PesoCliente}}{{else}}<span class="muto">&mdash;</span>{{end}}</td>
     <td>{{.Cliente}}</td><td>{{txt .Buyer}}</td>
     <td><a href="/thread/{{.ThreadID}}">{{txt .Oggetto}}</a></td>
+    <td>{{if .RiferimentoCliente.Valid}}<code>{{.RiferimentoCliente.String}}</code>{{else}}<span class="muto">&mdash;</span>{{end}}</td>
     <td>{{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}</td>
     <td>{{if .NomeFase.Valid}}{{.NomeFase.Fase}}{{end}}</td>
     <td><span class="semaforo {{txt .Semaforo}}"></span> {{if .GgInFase.Valid}}{{.GgInFase.Int32}} gg{{end}}</td>

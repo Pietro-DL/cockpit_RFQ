@@ -139,6 +139,44 @@ versione = 1
 # l'analisi. Il worker li riceve e li rimanda indietro; usarli davvero è lavoro della fase 5.
 termini_cartiglio = ["scala", "materiale", "tolleranze", "trattamento"]
 
+[staging]
+# Checkpoint 3R, D30: gli allegati di un mittente RICONOSCIUTO scendono da soli nello staging del
+# server, cosi' il worker-analisi puo' dire che cosa sono.
+#
+# Perche' la domanda esiste. Il tipo di un PDF si sa solo aprendolo (cartiglio, termini, pagine), ma
+# la regola «nessun download automatico» faceva partire l'analisi solo dopo un clic su «Scarica»:
+# fino a quel clic ogni allegato si presentava come «PDF · da determinare», cioe' per sapere se
+# valeva la pena scaricarlo bisognava scaricarlo.
+#
+# Lo staging e' una cartella del server. La regola vera — «niente sul NAS senza una decisione» —
+# riguarda il NAS, e il NAS non viene toccato da qui. Restano fuori i mittenti non censiti (la prima
+# newsletter con un PDF farebbe partire un download) e i file oltre la soglia.
+#
+# Predefinito: SPENTO. Acceso, fa partire lavoro su Outlook senza che nessuno abbia premuto niente.
+automatico = true
+max_mb = 20
+
+[agente]
+# Checkpoint 3R §9: l'analisi semantica dei messaggi gia' ingeriti. Terzo strato dopo i fatti e il
+# triage deterministico. Propone e basta: non scrive thread_id, non conferma articoli, non tocca il
+# NAS, non invia posta.
+#
+# PRIMA DI ACCENDERLA. Il testo delle mail dei clienti esce verso un servizio esterno. E' una cosa da
+# mettere per iscritto con l'IT e con chi segue la ISO 27001 — per casella, con la possibilita' di
+# spegnerla — e non e' una decisione tecnica. Finche' quel passaggio non c'e', questa resta `false`.
+#
+# La chiave NON sta qui: `chiave_env` e' il NOME della variabile d'ambiente che la contiene. Un file
+# di configurazione finisce nei backup e ogni tanto in un repository; una variabile d'ambiente no.
+# Senza la variabile il servizio resta spento anche con attivo = true, e il log lo dice all'avvio.
+#
+# Che cosa esce: oggetto, corpo, nomi degli allegati, ragione sociale del cliente e i candidati gia'
+# calcolati dal deterministico. MAI il contenuto dei file, mai gli allegati, mai altri messaggi.
+attivo = false
+modello = "claude-sonnet-5"
+chiave_env = "ANTHROPIC_API_KEY"
+# url = ""                      # vuoto = quello predefinito del fornitore
+caselle = []                    # indirizzi su cui l'analisi e' permessa; vuoto = nessuna
+
 # ---------------------------------------------------------------------------
 # UTENTI (voce 6.9): chi entra e che cosa può fare.
 #

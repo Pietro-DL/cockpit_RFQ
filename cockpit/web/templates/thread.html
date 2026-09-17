@@ -7,7 +7,8 @@
 {{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
 <header class="thread-testata">
   <div>
-    <h1>{{.Riga.Cliente}} · {{.T.Oggetto.String}}</h1>
+    <p class="briciole"><a href="/richieste">Richieste</a> › {{.Riga.Cliente}}</p>
+    <h1>{{.T.Oggetto.String}}</h1>
     <div class="meta">
       <div><b>Cartella:</b> <code>{{.T.CartellaRelativa.String}}</code> {{if .T.CartellaCreata}}<span class="chip fatto">creata</span>{{else}}<span class="chip pronto">in creazione</span>{{end}}</div>
       <div><b>Buyer:</b> {{if .Riga.Buyer.Valid}}{{.Riga.Buyer.String}}{{else}}<em class="muto">—</em>{{end}}
@@ -15,7 +16,9 @@
         {{if .T.DataScadenza}} · <b>Scadenza:</b> {{.T.DataScadenza.Format "02/01/2006"}}{{end}}
         · <b>Fase:</b> {{if .Riga.NomeFase.Valid}}{{.Riga.NomeFase.Fase}} <span class="semaforo {{.Riga.Semaforo.String}}"></span> {{.Riga.GgInFase.Int32}} gg{{else}}—{{end}}
         · <b>Stato:</b> {{.T.Stato}}</div>
-      <div><b>Codici:</b> {{range .Identificativi}}<span class="chip">{{.Codice}}</span> {{else}}<em class="muto">nessuno</em>{{end}}
+      {{if .T.RiferimentoCliente.Valid}}<div><b>Riferimento del cliente:</b> <code>{{.T.RiferimentoCliente.String}}</code>
+        <small class="muto">e' il nome che il cliente da' a questa richiesta, non un codice prodotto</small></div>{{end}}
+      <div><b>Codici:</b> {{range .Identificativi}}<span class="chip" title="origine: {{.Origine}}">{{.Codice}}</span> {{else}}<em class="muto">nessuno</em>{{end}}
         {{if .Riga.NBloccanti.Valid}} · <b>Bloccanti:</b> {{.Riga.NBloccanti.Int64}}{{end}} · <b>Da smistare:</b> {{.NDaSmistare}}</div>
     </div>
   </div>
@@ -55,14 +58,30 @@
     </table>
     {{else}}<p class="muto">Nessun documento confermato. Conferma le proposte degli allegati nella chat.</p>{{end}}
 
-    <h3>Fascicolo</h3>
-    {{if .Fascicolo}}
-    <table>
-      <tr><th>Componente</th><th>Richiesto</th><th>Esito</th></tr>
-      {{range .Fascicolo}}<tr><td>{{.Codice}} <small class="muto">{{.TipoComponente}}</small></td><td>{{.TipoDocumento}}{{if .Bloccante}} <small class="muto">bloccante</small>{{end}}</td>
-        <td><span class="chip {{if eq .Esito "ok"}}fatto{{else if eq .Esito "manca"}}fallito{{else}}in_corso{{end}}">{{.Esito}}</span></td></tr>{{end}}
-    </table>
-    {{else}}<p class="muto">Il fascicolo si popola quando i disegni confermati creano i componenti.</p>{{end}}
+    <h3>Struttura e Fascicolo</h3>
+    {{/* checkpoint 3R §8: NON si rattoppa il fascicolo del modello vecchio per farlo sembrare
+         funzionante. `componente` e' un albero per RFQ con un padre solo e non regge i sottoassiemi;
+         `articolo`, `distinta` e `v_fascicolo_rfq` sono i blocchi 5 e 8. Finche' non esistono, la
+         schermata lo DICE — una funzione non ancora costruita e una funzione rotta si distinguono
+         solo se qualcuno lo scrive. */}}
+    <div class="non-disponibile">
+      <p><b>Non disponibili in questa versione.</b></p>
+      <p class="muto">La struttura della richiesta (assiemi e sottoassiemi) e il fascicolo per articolo
+        arrivano con il modello degli articoli e della distinta. Il modello di oggi tiene un albero per
+        richiesta con un padre solo, e su quello un sottoassieme condiviso fra due assiemi non si puo'
+        rappresentare senza raccontare una struttura falsa.</p>
+      {{if .Fascicolo}}
+      <details>
+        <summary class="muto">Fabbisogno documentale calcolato sul modello attuale ({{len .Fascicolo}} righe)</summary>
+        <table>
+          <tr><th>Componente</th><th>Richiesto</th><th>Esito</th></tr>
+          {{range .Fascicolo}}<tr><td>{{.Codice}} <small class="muto">{{.TipoComponente}}</small></td><td>{{.TipoDocumento}}{{if .Bloccante}} <small class="muto">bloccante</small>{{end}}</td>
+            <td><span class="chip {{if eq .Esito "ok"}}fatto{{else if eq .Esito "manca"}}fallito{{else}}in_corso{{end}}">{{.Esito}}</span></td></tr>{{end}}
+        </table>
+        <p class="muto">Parziale per costruzione: vale per i componenti piatti di questa richiesta.</p>
+      </details>
+      {{end}}
+    </div>
 
     {{if .Bozze}}<h3>Bozze</h3><ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span></li>{{end}}</ul>{{end}}
   </section>

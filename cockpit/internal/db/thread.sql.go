@@ -214,7 +214,7 @@ func (q *Queries) GetFaseCorrente(ctx context.Context, threadID uuid.UUID) (VThr
 }
 
 const getThread = `-- name: GetThread :one
-SELECT thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il FROM thread_offerta WHERE thread_id = $1
+SELECT thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il, riferimento_cliente FROM thread_offerta WHERE thread_id = $1
 `
 
 func (q *Queries) GetThread(ctx context.Context, threadID uuid.UUID) (ThreadOfferta, error) {
@@ -239,6 +239,7 @@ func (q *Queries) GetThread(ctx context.Context, threadID uuid.UUID) (ThreadOffe
 		&i.Note,
 		&i.CreatoDa,
 		&i.CreatoIl,
+		&i.RiferimentoCliente,
 	)
 	return i, err
 }
@@ -300,7 +301,7 @@ const insertThread = `-- name: InsertThread :one
 INSERT INTO thread_offerta (cliente_id, buyer_id, canale, data_inizio, data_scadenza, scadenza_origine, oggetto,
                             cartella_relativa, priorita, campionatura, note, creato_da)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il
+RETURNING thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il, riferimento_cliente
 `
 
 type InsertThreadParams struct {
@@ -353,6 +354,7 @@ func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (Thr
 		&i.Note,
 		&i.CreatoDa,
 		&i.CreatoIl,
+		&i.RiferimentoCliente,
 	)
 	return i, err
 }
@@ -387,63 +389,6 @@ func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) 
 			&i.NoteFattibilita,
 			&i.ConfermatoDa,
 			&i.CreatoIl,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listCruscotto = `-- name: ListCruscotto :many
-SELECT thread_id, cliente, buyer, oggetto, data_inizio, data_scadenza, scadenza_origine, ultimo_aggiornamento, stato_thread, cartella_relativa, priorita, identificativi, nome_fase, in_fase_dal, gg_in_fase, sla_gg, semaforo, in_carico_a, n_bloccanti, n_da_confermare, n_sul_portale, n_mancanti, n_messaggi, n_da_smistare FROM v_cruscotto
-WHERE ($2::boolean = false OR stato_thread = 'APERTA')
-ORDER BY COALESCE(ultimo_aggiornamento, data_inizio) DESC
-LIMIT $1
-`
-
-type ListCruscottoParams struct {
-	Limit      int32 `json:"limit"`
-	SoloAperti bool  `json:"solo_aperti"`
-}
-
-func (q *Queries) ListCruscotto(ctx context.Context, arg ListCruscottoParams) ([]VCruscotto, error) {
-	rows, err := q.db.Query(ctx, listCruscotto, arg.Limit, arg.SoloAperti)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []VCruscotto{}
-	for rows.Next() {
-		var i VCruscotto
-		if err := rows.Scan(
-			&i.ThreadID,
-			&i.Cliente,
-			&i.Buyer,
-			&i.Oggetto,
-			&i.DataInizio,
-			&i.DataScadenza,
-			&i.ScadenzaOrigine,
-			&i.UltimoAggiornamento,
-			&i.StatoThread,
-			&i.CartellaRelativa,
-			&i.Priorita,
-			&i.Identificativi,
-			&i.NomeFase,
-			&i.InFaseDal,
-			&i.GgInFase,
-			&i.SlaGg,
-			&i.Semaforo,
-			&i.InCaricoA,
-			&i.NBloccanti,
-			&i.NDaConfermare,
-			&i.NSulPortale,
-			&i.NMancanti,
-			&i.NMessaggi,
-			&i.NDaSmistare,
 		); err != nil {
 			return nil, err
 		}

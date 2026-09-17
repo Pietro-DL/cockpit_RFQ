@@ -1,6 +1,9 @@
-// Package ingest scrive il FATTO (messaggio, messaggio_outlook, allegato), esegue l'aggancio automatico
-// deterministico e produce le prime INTERPRETAZIONI (proposta_triage, riferimento_portale).
-// Non scrive mai sul NAS e non prende decisioni: ogni proposta è revocabile dall'operatore.
+// Package ingest scrive il FATTO (messaggio, messaggio_outlook, allegato) e produce le prime
+// INTERPRETAZIONI: candidati di aggancio, candidati di codice, riferimenti al portale, proposta di triage.
+//
+// Non aggancia niente. Dal checkpoint 3R `messaggio.thread_id` non viene scritto qui in nessun caso:
+// l'ingest propone e basta, e la decisione è un bottone premuto da un operatore (D9). Non scrive mai
+// sul NAS.
 //
 // Il lotto è UNA transazione con un savepoint per elemento (piano §2.4, D15). Prima era una
 // transazione per elemento e il primo errore interrompeva il lotto: bastava un messaggio che il
@@ -27,9 +30,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/aggancio"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/jobs"
 )
 
 // MaxIdentificativo: oltre questa lunghezza un Message-ID non è più un identificativo utilizzabile.
@@ -49,6 +54,17 @@ type Servizio struct {
 	// non riesce, la risposta è 5xx e in database non resta nulla di parziale; il gancio può abortire
 	// la transazione con un errore SQL vero, così il COMMIT fallisce davvero e non per finta.
 	PrimaDelCommit func(context.Context, pgx.Tx) error
+
+	// StagingAutomatico e StagingMaxByte: D30 (checkpoint 3R §5). Quando è acceso, gli allegati di un
+	// mittente RICONOSCIUTO, sotto la soglia, scendono nello staging del server appena il messaggio
+	// entra — senza che nessuno prema «Scarica» — così l'analisi può dire che cosa sono.
+	//
+	// Il motivo è che il tipo di un PDF si sa solo aprendolo, e finché non lo si apre ogni allegato si
+	// presenta come «PDF · da determinare»: per sapere se vale la pena scaricarlo bisognava
+	// scaricarlo. Resta spento se non lo si accende nel file di configurazione, e non tocca il NAS:
+	// lo staging è una cartella del server.
+	StagingAutomatico bool
+	StagingMaxByte    int64
 }
 
 // Tentativo identifica il tentativo di esecuzione del job che sta consegnando il lotto. Ogni scrittura
@@ -472,6 +488,15 @@ func naturaAllegato(v string) (db.NaturaAllegato, error) {
 	return n, nil
 }
 
+// sogliaStaging è la dimensione massima per lo staging automatico (D30), con il valore predefinito
+// quando la configurazione non lo dice.
+func (s *Servizio) sogliaStaging() int64 {
+	if s.StagingMaxByte > 0 {
+		return s.StagingMaxByte
+	}
+	return domain.SogliaStagingAutomatico
+}
+
 func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *api.MessaggioIn) (api.EsitoMessaggio, error) {
 	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
@@ -606,6 +631,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	}
 
 	var nomiAllegati []string
+	var daStaggiare []db.Allegato // D30: allegati che scendono da soli, se lo staging automatico è acceso
 	for _, a := range m.Allegati {
 		nat, err := naturaAllegato(a.Natura)
 		if err != nil {
@@ -632,6 +658,9 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
 			pr := domain.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
+			if nat == db.NaturaAllegatoFile && pr.PreSpunta && a.Bytes > 0 && a.Bytes <= s.sogliaStaging() {
+				daStaggiare = append(daStaggiare, al)
+			}
 			dett, _ := json.Marshal(map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta})
 			if err := q.InsertPropostaSeAssente(ctx, db.InsertPropostaSeAssenteParams{
 				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txtN(pr.Codice, 60),
@@ -650,49 +679,40 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		motore = motori.Per(ctx, q, clienteID.UUID)
 	}
 
-	// aggancio automatico, solo per messaggi nuovi ancora orfani
-	trovati := motore.Codici(append([]string{m.Oggetto, m.CorpoTesto}, senzaEstensione(nomiAllegati)...)...)
-	codici := domain.SoloCodici(trovati)
+	// NESSUN AGGANCIO AUTOMATICO (checkpoint 3R §2). Qui prima c'era un blocco che, per un messaggio
+	// nuovo e orfano, scriveva `messaggio.thread_id` se il ConversationID coincideva con quello di una
+	// conversazione già agganciata, oppure se un codice qualunque coincideva con un identificativo di
+	// una RFQ dello stesso cliente. Erano due decisioni prese da una coincidenza.
+	//
+	// «Rispondi» su una mail vecchia per parlare d'altro conserva il ConversationID; l'estrattore
+	// generico chiamava «codice» qualunque numero con tre cifre. Il messaggio finiva nella RFQ
+	// sbagliata, e ci restava, perché un aggancio non si annulla da solo. Ora quelle stesse
+	// informazioni diventano CANDIDATI, e chi decide è l'operatore (D9).
 	threadID := row.ThreadID
-	if row.Inserito && !row.ThreadID.Valid {
-		if tid, ok, err := s.threadPerConversazione(ctx, q, conv); err != nil {
-			return esito, err
-		} else if ok {
-			threadID = uuid.NullUUID{UUID: tid, Valid: true}
-			esito.Aggancio = string(db.AggancioAutoConversazione)
-		} else if clienteID.Valid {
-			for _, c := range codici {
-				tid, err := q.ThreadPerCodiceCliente(ctx, db.ThreadPerCodiceClienteParams{ClienteID: clienteID.UUID, Upper: c})
-				if err == nil {
-					threadID = uuid.NullUUID{UUID: tid, Valid: true}
-					esito.Aggancio = string(db.AggancioAutoIdentificativo)
-					break
-				}
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return esito, err
-				}
-			}
-		}
-		if threadID.Valid {
-			if err := q.AgganciaMessaggio(ctx, db.AgganciaMessaggioParams{MessaggioID: row.MessaggioID, ThreadID: threadID, Aggancio: db.Aggancio(esito.Aggancio)}); err != nil {
-				return esito, err
-			}
-			// ogni decisione di aggancio lascia una traccia: qui l'autore è il sistema (utente NULL)
-			if err := q.InsertAgganciaLog(ctx, db.InsertAgganciaLogParams{
-				MessaggioID: row.MessaggioID, ThreadID: threadID, Azione: "aggancia", Motivo: txt(esito.Aggancio),
-			}); err != nil {
-				return esito, fmt.Errorf("log aggancio: %w", err)
-			}
-			if !conv.ThreadID.Valid {
-				_ = q.CollegaConversazione(ctx, db.CollegaConversazioneParams{ConversazioneID: conv.ConversazioneID, ThreadID: threadID, CollegataDa: db.Aggancio(esito.Aggancio)})
-			}
-		}
-	} else if row.ThreadID.Valid {
+	if row.ThreadID.Valid {
 		esito.Aggancio = string(row.Aggancio)
-	}
-	if threadID.Valid {
 		t := threadID.UUID
 		esito.ThreadID = &t
+	}
+
+	// D30: staging automatico. Solo alla prima vista, solo da un mittente RICONOSCIUTO, solo sotto la
+	// soglia, e solo per ciò che varrebbe comunque la pena scaricare. «Riconosciuto» è la condizione
+	// che tiene: senza, la prima newsletter con un PDF allegato farebbe partire un download.
+	//
+	// Un errore qui non deve far cadere l'ingest dell'elemento: il messaggio è un FATTO ed è già
+	// scritto, mentre lo staging è una comodità. Viene registrato e basta.
+	if s.StagingAutomatico && row.Inserito && clienteID.Valid && (dir == db.DirezioneEntrata || interno) {
+		for _, a := range daStaggiare {
+			esitoStage, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a,
+				db.Messaggio{MessaggioID: row.MessaggioID, ChiaveEsterna: m.MessageID},
+				jobs.Copia{CasellaID: casella.CasellaID, EntryID: m.EntryID}, 3)
+			if err != nil && s.Log != nil {
+				s.Log.Warn("staging automatico non riuscito", "allegato", a.NomeFile, "errore", err)
+			}
+			if err == nil && s.Log != nil {
+				s.Log.Debug("staging automatico", "allegato", a.NomeFile, "esito", esitoStage)
+			}
+		}
 	}
 
 	// INTERPRETAZIONE: riferimenti portale e triage deterministico (solo alla prima vista del messaggio)
@@ -716,12 +736,31 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		// collega significherebbe non proporre niente proprio sui messaggi che qualcuno ha inoltrato
 		// apposta perché qualcun altro li guardasse.
 		if !threadID.Valid && (dir == db.DirezioneEntrata || interno) {
-			tr := domain.Triage(domain.IngressoTriage{
+			in := domain.IngressoTriage{
 				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: string(dir),
-				Interno:     interno,
-				ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, ConversazioneNota: conv.ThreadID.Valid,
-				Motore: motore,
+				Interno: interno, ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, Motore: motore,
+			}
+			// L'estrazione viene PRIMA del triage perché i candidati di aggancio si calcolano sui
+			// codici e sul riferimento, e il triage ha bisogno dei candidati per decidere l'esito:
+			// una risposta a una richiesta che esiste non può diventare «nuova_rfq» (§3). Le due
+			// chiamate partono dagli stessi `Testi()`, quindi non possono guardare testi diversi.
+			e := motore.Estrai(in.Testi()...)
+			cand, err := aggancio.CalcolaESalva(ctx, q, aggancio.Ingresso{
+				MessaggioID: row.MessaggioID, ConversazioneID: conv.ConversazioneID,
+				ClienteID: clienteID, BuyerID: buyerID,
+				InReplyTo: m.InReplyTo, Riferimenti: m.Riferimenti,
+				Oggetto: domain.OggettoPulito(m.Oggetto), DataEvento: m.DataEvento,
+				Codici: domain.SoloCodici(domain.DiFamiglia(e.Codici)), Riferimento: e.Riferimento,
+				FinestraGG: motore.Finestra(),
 			})
+			if err != nil {
+				return esito, fmt.Errorf("candidati di aggancio: %w", err)
+			}
+			in.Candidati = cand
+			tr := domain.Triage(in)
+			if err := aggancio.SalvaCandidatiCodice(ctx, q, row.MessaggioID, tr.Estrazione); err != nil {
+				return esito, fmt.Errorf("candidati di codice: %w", err)
+			}
 			motivi, _ := json.Marshal(tr.Motivi)
 			if tr.Codici == nil {
 				tr.Codici = []string{}
@@ -730,8 +769,17 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 			if d, ok := domain.RilevaScadenza(m.CorpoTesto, m.DataEvento); ok {
 				scad = &d
 			}
+			// `thread_proposto` è il candidato più forte, per comodità della lista: i candidati stanno
+			// tutti in `candidato_aggancio` e la schermata li mostra tutti (T16).
+			var proposto uuid.NullUUID
+			if tr.Candidato != nil {
+				if tid, err := uuid.Parse(tr.Candidato.ThreadID); err == nil {
+					proposto = uuid.NullUUID{UUID: tid, Valid: true}
+				}
+			}
 			if _, err := q.UpsertTriage(ctx, db.UpsertTriageParams{
 				MessaggioID: row.MessaggioID, Esito: db.EsitoTriage(tr.Esito), ClienteProposto: clienteID, BuyerProposto: buyerID,
+				ThreadProposto: proposto,
 				Identificativi: tr.Codici, ScadenzaProposta: scad, Confidenza: int16(tr.Confidenza), Motivi: motivi, Fonte: db.FonteTriageDeterministico,
 			}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return esito, fmt.Errorf("triage: %w", err)
@@ -739,29 +787,4 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		}
 	}
 	return esito, nil
-}
-
-func (s *Servizio) threadPerConversazione(ctx context.Context, q *db.Queries, conv db.Conversazione) (uuid.UUID, bool, error) {
-	if conv.ThreadID.Valid {
-		return conv.ThreadID.UUID, true, nil
-	}
-	tid, err := q.ThreadDellaConversazione(ctx, conv.ConversazioneID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return uuid.Nil, false, nil
-	}
-	if err != nil {
-		return uuid.Nil, false, err
-	}
-	return tid.UUID, tid.Valid, nil
-}
-
-func senzaEstensione(nomi []string) []string {
-	out := make([]string, 0, len(nomi))
-	for _, n := range nomi {
-		if i := strings.LastIndex(n, "."); i > 0 {
-			n = n[:i]
-		}
-		out = append(out, n)
-	}
-	return out
 }

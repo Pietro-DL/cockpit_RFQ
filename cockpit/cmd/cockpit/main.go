@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
+	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/anagrafica"
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
@@ -200,7 +201,25 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		RetentionGiorni: cfg.Retention.GiorniJob,
 		Staging:         staging,
 	}).Avvia(ctx)
-	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log}).Avvia(ctx)
+	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
+	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama
+	// nessuno. Il testo delle mail dei clienti esce verso un servizio esterno, e quella e' una cosa
+	// che si mette per iscritto prima.
+	servizioAgente := &agente.Servizio{
+		Attivo:  cfg.Agente.Attivo,
+		Modello: agente.DaAmbiente(cfg.Agente.URL, cfg.Agente.Modello, cfg.Agente.ChiaveEnv),
+		Caselle: map[string]bool{},
+	}
+	for _, c := range cfg.Agente.Caselle {
+		servizioAgente.Caselle[strings.ToLower(strings.TrimSpace(c))] = true
+	}
+	if cfg.Agente.Attivo && servizioAgente.Modello == nil {
+		log.Warn("analisi semantica richiesta ma spenta: manca la chiave", "variabile", cfg.Agente.ChiaveEnv)
+	}
+	if servizioAgente.Attivo && servizioAgente.Modello != nil {
+		log.Info("analisi semantica attiva", "modello", servizioAgente.Modello.Nome(), "caselle", len(servizioAgente.Caselle))
+	}
+	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}).Avvia(ctx)
 
 	// ---------------------------------------------------------------- rete (voce 2.4)
 	//
@@ -237,10 +256,15 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 
 	templ, _ := fs.Sub(risorse.FS, "web/templates")
 	static, _ := fs.Sub(risorse.FS, "web/static")
-	servizioIngest := &ingest.Servizio{Pool: pool, Log: log}
+	// D30: lo staging automatico si accende dal file di configurazione ([staging] automatico = true) e
+	// non dal binario. Acceso, gli allegati di un mittente riconosciuto scendono da soli e l'analisi
+	// puo' dire che cosa sono; spento, si comporta come prima del checkpoint 3R.
+	servizioIngest := &ingest.Servizio{Pool: pool, Log: log,
+		StagingAutomatico: cfg.Staging.Automatico,
+		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
 		IntervalloSync: intervalloSync, Sync: opzioniSync, Modalita: cfg.Server.Modalita,
-		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS}
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente}
 	if err := ws.Init(); err != nil {
 		return err
 	}

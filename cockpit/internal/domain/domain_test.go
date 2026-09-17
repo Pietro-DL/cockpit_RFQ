@@ -100,7 +100,9 @@ func TestRilevaScadenza(t *testing.T) {
 
 func TestTriage(t *testing.T) {
 	e := Triage(IngressoTriage{Oggetto: "RFQ 6674611A", Corpo: "in allegato i disegni", NomiAllegati: []string{"6674611A_4.pdf"}, BuyerNoto: true, Direzione: "entrata"})
-	if e.Esito != "nuova_rfq" || e.Confidenza < 90 {
+	// 80 e non piu' 95: un PDF non vale piu' «allegato tecnico» (25) ma «allegato di tipo da
+	// determinare» (10), perche' nessuno l'ha aperto. L'esito non cambia, ed e' l'esito che conta.
+	if e.Esito != "nuova_rfq" || e.Confidenza < 70 {
 		t.Errorf("triage RFQ = %+v", e)
 	}
 	e = Triage(IngressoTriage{Oggetto: "Newsletter settembre", Corpo: "offerte del mese", Direzione: "entrata"})

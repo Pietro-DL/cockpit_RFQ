@@ -35,6 +35,12 @@ func pool(t *testing.T) *pgxpool.Pool {
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio_aggancio_log WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM job WHERE chiave_idempotenza LIKE 'stage:%' AND payload->>'entry_id' LIKE 'ENTRY-TEST-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM proposta_triage WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
+		// Tabelle del checkpoint 3R. Vanno prima del messaggio come tutte le altre: una pulizia che
+		// non le conosce fa fallire in silenzio la DELETE sul messaggio, e la suite passa solo
+		// finche' qualcun altro azzera lo schema.
+		_, _ = p.Exec(ctx, `DELETE FROM candidato_aggancio WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
+		_, _ = p.Exec(ctx, `DELETE FROM candidato_codice WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
+		_, _ = p.Exec(ctx, `DELETE FROM analisi_messaggio WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM riferimento_portale WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		// `documento_proposta` PRIMA di `allegato`: ogni allegato non inline ne genera una, e senza
 		// questa riga la DELETE sull'allegato falliva sulla chiave esterna — in silenzio, perche'

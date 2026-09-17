@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/nas"
@@ -29,6 +30,9 @@ type EsecutoreServer struct {
 	Pool *pgxpool.Pool
 	NAS  *nas.Scrittore
 	Log  *slog.Logger
+	// Agente esegue l'analisi semantica (checkpoint 3R §9). Nil o spento = i job di quel tipo
+	// falliscono dicendo che l'analisi non e' attiva, invece di restare in coda a tempo indeterminato.
+	Agente *agente.Servizio
 	// RitardoNasAssente: fra quanto riprovare un job che tocca il NAS trovato irraggiungibile.
 	// Zero = un minuto. È un campo e non una costante perché il test non può aspettare un minuto.
 	RitardoNasAssente time.Duration
@@ -148,6 +152,20 @@ func (e *EsecutoreServer) RiaccodaAlRitornoDelNas(ctx context.Context, q *db.Que
 
 func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job) (any, error) {
 	switch j.Tipo {
+	case db.TipoJobAnalizzaMessaggioAi:
+		var p api.PayloadAnalizzaMessaggioAI
+		if err := json.Unmarshal(j.Payload, &p); err != nil {
+			return nil, err
+		}
+		a, err := e.Agente.Analizza(ctx, q, p.MessaggioID)
+		if err != nil {
+			return nil, err
+		}
+		// l'esito del job dice che cosa e' successo, compreso «rifiutata»: un output non conforme non
+		// e' un errore del sistema, ed e' una misura che va conservata
+		return map[string]any{"analisi_id": a.AnalisiID, "stato": a.Stato,
+			"scartati": len(a.Scartato), "token_in": a.TokenIn.Int32, "token_out": a.TokenOut.Int32}, nil
+
 	case db.TipoJobCreaCartellaThread:
 		var p api.PayloadCreaCartellaThread
 		if err := json.Unmarshal(j.Payload, &p); err != nil {

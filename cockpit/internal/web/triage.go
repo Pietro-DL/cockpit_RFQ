@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,11 +34,28 @@ type triageDati struct {
 	Nome, Cognome  string
 	Email, Dominio string
 	Oggetto        string
-	Identificativi string
 	Scadenza       string
 	Allegati       []AllegatoUI
 	Anteprima      string
 	Errore         string
+
+	// I candidati di codice, già divisi per ruolo (checkpoint 3R §4). Prima qui c'era una sola
+	// stringa, `Identificativi`, che il form mostrava in una casella di testo precompilata: al
+	// submit diventava TUTTA identificativi confermati con origine `manuale`. Nessuno li aveva
+	// digitati, e il sistema registrava che una persona li aveva scritti.
+	Proponibili []db.CandidatoCodice // spuntabili, e pre-spuntati: vengono dalle famiglie del cliente
+	Altri       []db.CandidatoCodice // visibili e NON spuntati: l'estrattore generico
+	Riferimento string               // il numero con cui il cliente chiama la richiesta: campo suo
+	// Candidati di aggancio (R0–R5) con evidenza: si vedono anche nel form «Nuova RFQ», perché la
+	// domanda «sei sicuro che non sia questa?» va fatta prima di creare un doppione, non dopo.
+	Candidati []db.ListCandidatiAggancioRow
+}
+
+// Spuntato dice se un candidato di codice nasce già spuntato nel form. Le famiglie del cliente sì,
+// l'estrattore generico no: «questo è un codice di questo cliente» e «questo ha la forma di un codice»
+// non possono entrare nella RFQ con lo stesso gesto.
+func (d *triageDati) Spuntato(c db.CandidatoCodice) bool {
+	return c.Origine == db.OrigineCodiceFamiglia
 }
 
 // triageForm prepara il form con tutto precompilato da mittente, triage deterministico e allegati.
@@ -82,7 +100,6 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 		d.Buyers, _ = q.ListBuyerCliente(ctx, d.ClienteID.UUID)
 	}
 	if tr, err := q.GetTriageMessaggio(ctx, id); err == nil {
-		d.Identificativi = strings.Join(tr.Identificativi, ", ")
 		if tr.ScadenzaProposta != nil {
 			d.Scadenza = tr.ScadenzaProposta.Format("2006-01-02")
 		}
@@ -90,6 +107,34 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 			d.BuyerID = tr.BuyerProposto
 		}
 	}
+	// I candidati di codice, divisi per ruolo. Il riferimento della richiesta è un campo suo e non
+	// compare fra i codici: è il nome che il cliente dà alla richiesta, non un pezzo.
+	cand, _ := q.ListCandidatiCodice(ctx, id)
+	for _, c := range cand {
+		switch c.Ruolo {
+		case db.RuoloCodiceRiferimentoRfq:
+			d.Riferimento = c.Codice
+		case db.RuoloCodiceProdotto:
+			d.Proponibili = append(d.Proponibili, c)
+		default:
+			d.Altri = append(d.Altri, c)
+		}
+	}
+	// Se il cliente non ha famiglie dichiarate, i numeri generici sono tutto quello che c'è: si
+	// possono spuntare, ma restano marcati come generici e non nascono spuntati.
+	if len(d.Proponibili) == 0 {
+		famiglie := false
+		if d.ClienteID.Valid {
+			if c, err := q.GetCliente(ctx, d.ClienteID.UUID); err == nil {
+				r, _ := domain.LeggiRegole(c.Regole)
+				famiglie = domain.Compila(c.RagioneSociale, r).HaFamiglie()
+			}
+		}
+		if !famiglie {
+			d.Proponibili, d.Altri = d.Altri, nil
+		}
+	}
+	d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
 	d.Allegati, _ = s.allegatiUI(ctx, q, id)
 	cartellaCliente := "<CLIENTE>"
 	for _, c := range d.Clienti {
@@ -215,9 +260,59 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// Gli identificativi della RFQ (checkpoint 3R §4). Due strade, e non si confondono:
+	//
+	//   `codice`         le caselle spuntate fra i candidati. Entrano con l'origine della PROPOSTA
+	//                    (famiglia del cliente o estrattore generico) e con il punteggio che avevano.
+	//                    Il giorno in cui si vuole misurare quanto il motore ci prende, la misura
+	//                    esiste solo se questa differenza è stata scritta.
+	//   `identificativi` quelli digitati a mano nella casella di testo: quelli sì, `manuale`, 100.
+	//
+	// Prima c'era solo la seconda strada, e ci passava anche la prima: la casella di testo arrivava
+	// PRECOMPILATA con tutto ciò che l'estrattore generico aveva visto, e al submit ogni numero
+	// diventava un identificativo confermato a mano. Bastava non guardare quella riga.
+	cand, _ := q.ListCandidatiCodice(ctx, id)
+	perCodice := map[string]db.CandidatoCodice{}
+	for _, c := range cand {
+		perCodice[strings.ToUpper(c.Codice)] = c
+	}
+	var riferimento string
+	visti := map[string]bool{}
+	for _, c := range r.Form["codice"] {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		k, ok := perCodice[c]
+		if !ok || visti[c] {
+			continue // spuntato qualcosa che non era fra i candidati: non si inventa
+		}
+		if k.Ruolo == db.RuoloCodiceRiferimentoRfq {
+			continue // un riferimento non diventa un codice prodotto nemmeno se qualcuno lo spunta
+		}
+		visti[c] = true
+		origine := db.OrigineIdentificativoPropostaGenerico
+		if k.Origine == db.OrigineCodiceFamiglia {
+			origine = db.OrigineIdentificativoPropostaFamiglia
+		}
+		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: t.ThreadID, Codice: k.Codice, Origine: origine,
+			Confidenza: pgtype.Int2{Int16: k.Punteggio, Valid: true}, ConfermatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
 	for _, c := range splitCodici(r.FormValue("identificativi")) {
+		if visti[strings.ToUpper(c)] {
+			continue
+		}
+		visti[strings.ToUpper(c)] = true
 		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: t.ThreadID, Codice: c, Origine: db.OrigineIdentificativoManuale,
 			Confidenza: pgtype.Int2{Int16: 100, Valid: true}, ConfermatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	}
+	// Il riferimento del cliente ha un campo suo: è il nome della richiesta, non un codice prodotto.
+	if riferimento = strings.TrimSpace(r.FormValue("riferimento_cliente")); riferimento != "" {
+		if err := q.SetRiferimentoCliente(ctx, db.SetRiferimentoClienteParams{
+			ThreadID: t.ThreadID, Riferimento: txtN(riferimento, 60)}); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -403,24 +498,50 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 	if _, err := q.DecidiTriage(ctx, db.DecidiTriageParams{MessaggioID: m.MessaggioID, Stato: db.StatoTriageAccettata, DecisoDa: op}); err != nil {
 		return err
 	}
+	// La conversazione viene COLLEGATA, perché collegarla è una decisione dell'operatore e da qui in
+	// avanti è l'evidenza su cui si regge la regola R1. Non è la stessa cosa che agganciare i messaggi:
+	// dice «questa catena di Outlook riguarda questa richiesta», non «questi messaggi sono di questa
+	// richiesta».
 	conv, err := q.GetConversazione(ctx, m.ConversazioneID)
 	if err == nil && !conv.ThreadID.Valid {
 		if err := q.CollegaConversazione(ctx, db.CollegaConversazioneParams{ConversazioneID: conv.ConversazioneID, ThreadID: tid, CollegataDa: db.AggancioOperatore}); err != nil {
 			return err
 		}
 	}
-	// gli altri messaggi orfani della stessa conversazione (es. la prima mail se si parte dalla risposta) seguono
-	altri, err := q.AgganciaOrfaniConversazione(ctx, db.AgganciaOrfaniConversazioneParams{ConversazioneID: m.ConversazioneID, ThreadID: tid, MessaggioID: m.MessaggioID})
+
+	// GLI ALTRI ORFANI DELLA CONVERSAZIONE NON SEGUONO (checkpoint 3R §2, T21).
+	//
+	// Qui prima c'era `AgganciaOrfaniConversazione`: una decisione su UN messaggio agganciava tutti gli
+	// altri orfani con lo stesso ConversationID, ne accettava il triage e ne assegnava proposte e
+	// riferimenti. Bastava che nella catena ci fosse una mail che parlava d'altro — e in una
+	// conversazione lunga c'è quasi sempre — perché finisse dentro una RFQ senza che nessuno l'avesse
+	// guardata; e un aggancio, una volta scritto, non si annulla da solo.
+	//
+	// Adesso quegli stessi messaggi ricevono un CANDIDATO R1 al 95 e restano in Inbox, con la proposta
+	// aggiornata. Sono un clic ciascuno, ed è un clic che qualcuno deve dare.
+	altri, err := q.ListOrfaniConversazione(ctx, db.ListOrfaniConversazioneParams{
+		ConversazioneID: m.ConversazioneID, MessaggioID: m.MessaggioID})
 	if err != nil {
 		return err
 	}
+	const evidenzaR1 = "la conversazione di Outlook è stata collegata a questa richiesta da un operatore"
 	for _, mid := range altri {
-		_, _ = q.AssegnaThreadProposte(ctx, db.AssegnaThreadProposteParams{MessaggioID: mid, ThreadID: tid})
-		_, _ = q.AssegnaThreadRiferimenti(ctx, db.AssegnaThreadRiferimentiParams{MessaggioID: mid, ThreadID: tid})
-		_, _ = q.DecidiTriage(ctx, db.DecidiTriageParams{MessaggioID: mid, Stato: db.StatoTriageAccettata, DecisoDa: op})
-		// l'operatore ha deciso su uno solo: gli altri sono stati trascinati dalla conversazione, e la
-		// differenza va registrata, altrimenti sembrerebbero decisioni prese una per una
-		if err := logDecisione(ctx, q, mid, tid, "propaga", u, "orfano della stessa conversazione"); err != nil {
+		if err := q.InsertCandidatoAggancio(ctx, db.InsertCandidatoAggancioParams{
+			MessaggioID: mid, ThreadID: threadID, Regola: db.RegolaAggancioR1Conversazione,
+			Punteggio: int16(domain.PuntiRegola[domain.R1Conversazione]), Evidenza: evidenzaR1,
+			ThreadStato: db.StatoThreadAPERTA,
+		}); err != nil {
+			return err
+		}
+		motivo, _ := json.Marshal([]string{evidenzaR1})
+		if _, err := q.AggiornaTriageCandidato(ctx, db.AggiornaTriageCandidatoParams{
+			MessaggioID: mid, ThreadProposto: tid,
+			Confidenza: int16(domain.PuntiRegola[domain.R1Conversazione]), Motivo: motivo,
+		}); err != nil {
+			return err
+		}
+		// la traccia dice che cos'è successo: una proposta, non una decisione presa per procura
+		if err := logDecisione(ctx, q, mid, tid, "candidato", u, "orfano della stessa conversazione: proposto, non agganciato"); err != nil {
 			return err
 		}
 	}

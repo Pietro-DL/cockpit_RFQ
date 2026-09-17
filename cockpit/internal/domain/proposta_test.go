@@ -2,6 +2,11 @@ package domain
 
 import "testing"
 
+// TestPropostaDaNome: la classificazione dal solo nome del file.
+//
+// Dal checkpoint 3R un PDF non e' piu' `disegno_2d`. Il tipo di un PDF si sa dopo averlo aperto, e
+// prima si dice `da_determinare`: il nome del file e' un indizio sul CODICE, non sul contenuto.
+// «6674611A.pdf» e' il disegno tanto quanto e' l'offerta del fornitore per quel pezzo.
 func TestPropostaDaNome(t *testing.T) {
 	casi := []struct {
 		nome      string
@@ -12,13 +17,14 @@ func TestPropostaDaNome(t *testing.T) {
 		rev       string
 		spunta    bool
 	}{
-		{"6674611A_4.pdf", 300_000, "entrata", "disegno_2d", "6674611A", "4", true},
+		{"6674611A_4.pdf", 300_000, "entrata", "da_determinare", "6674611A", "4", true},
 		{"6674611A.stp", 2_000_000, "entrata", "cad_3d", "6674611A", "", true},
 		{"assieme.STEP", 2_000_000, "entrata", "cad_3d", "", "", true},
-		{"Locandina.pdf", 300_000, "entrata", "altro", "", "", false},
-		{"TIROCINIO_PROMATEC-SRL.pdf", 200_000, "entrata", "altro", "", "", false},
+		{"Locandina.pdf", 300_000, "entrata", "da_determinare", "", "", true},
+		{"TIROCINIO_PROMATEC-SRL.pdf", 200_000, "entrata", "da_determinare", "", "", true},
 		{"SO 5467.pdf", 100_000, "uscita", "offerta_promatec", "", "", true},
-		{"SO 5467.pdf", 100_000, "entrata", "altro", "", "", false},
+		{"SO 5467.pdf", 100_000, "entrata", "da_determinare", "", "", true},
+		{"capitolato_generale.pdf", 60_000_000, "entrata", "da_determinare", "", "", false}, // troppo grande: si scarica a mano
 		{"image001.png", 12_000, "entrata", "rumore", "", "", false},
 		{"Screenshot_20260903_090239_Chrome.jpg", 776_662, "entrata", "rumore", "", "", false},
 		{"foto_pezzo.jpg", 3_000_000, "entrata", "altro", "", "", false},

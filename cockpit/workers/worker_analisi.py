@@ -50,6 +50,37 @@ TERMINI_OFFERTE_DEBOLI = [
 ]
 TERMINI_OFFERTE_COMMERCIALI = TERMINI_OFFERTE_FORTI + TERMINI_OFFERTE_DEBOLI
 
+# Capitolato / specifica tecnica: parla di requisiti e di come si collauda, non di un pezzo solo.
+# Ne servono almeno due, perche' «SPECIFICA TECNICA» da sola compare anche nel cartiglio di un disegno.
+TERMINI_CAPITOLATO = [
+    "CAPITOLATO",
+    "SPECIFICA TECNICA",
+    "REQUISITI GENERALI",
+    "PRESCRIZIONI",
+    "NORME DI RIFERIMENTO",
+    "PIANO DI CONTROLLO",
+    "CONDIZIONI DI FORNITURA",
+    "TECHNICAL SPECIFICATION",
+    "GENERAL REQUIREMENTS",
+    "QUALITY REQUIREMENTS",
+]
+
+# Distinta del cliente: l'intestazione di una tabella di codici con quantita'.
+TERMINI_DISTINTA = [
+    "DISTINTA BASE",
+    "DISTINTA MATERIALI",
+    "BILL OF MATERIAL",
+    "PARTS LIST",
+    "ELENCO PARTI",
+    "STUCKLISTE",
+    "POS.",
+    "Q.TA",
+    "QUANTITA",
+]
+
+# Una riga di distinta: qualcosa che sembra un codice, e poi un numero che sembra una quantita'.
+RE_RIGA_DISTINTA = re.compile(r"\b[A-Z0-9][A-Z0-9._\-/]{4,}\b[^\n]{0,40}?\b\d{1,4}(?:[.,]\d{1,3})?\b")
+
 STOP_CODICI = {
     "SCREENSHOT", "WHATSAPP", "IMAGE", "PHOTO", "IMG", "DOCUMENT", "OFFERTA",
     "DISEGNO", "ALLEGATO", "REV", "STEP", "STP", "PDF", "DXF", "DWG", "ZIP",
@@ -91,7 +122,14 @@ def separa_codice_rev(nome_base: str) -> tuple[str, str]:
 
 
 def analizza_pdf(percorso: str, nome_file: str) -> dict:
-    """Estrae testo con PyMuPDF e applica le regole commerciali e cartiglio tecnico."""
+    """Che cosa c'e' dentro questo PDF.
+
+    Checkpoint 3R §5. Un PDF non e' un disegno: e' un contenitore. In una richiesta d'offerta vera
+    contiene, con frequenze paragonabili, il disegno quotato, il capitolato, la distinta del cliente,
+    l'offerta di un fornitore, la conferma d'ordine o la firma di qualcuno. Fino a qui il tipo lo
+    decideva l'estensione, cioe' lo decideva prima di aprire il file; da qui lo decide il CONTENUTO, e
+    quando il contenuto non basta la risposta e' `da_determinare` — che e' una risposta, non un errore.
+    """
     testo_completo = ""
     try:
         with pymupdf.open(percorso) as doc:
@@ -100,12 +138,13 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
                 if i >= 10:  # non serve scorrere oltre 10 pagine
                     break
     except Exception as e:
+        # Un PDF che non si apre non e' un disegno con confidenza 40: e' un PDF che non si apre.
         log.warning("impossibile leggere PDF %s con pymupdf: %s", percorso, e)
         return {
-            "tipo_proposto": "disegno_2d",
+            "tipo_proposto": "da_determinare",
             "codice": "",
             "rev": "",
-            "confidenza": 40,
+            "confidenza": 20,
             "fonte": "estensione",
             "dettagli": {"errore_pdf": str(e)},
         }
@@ -148,24 +187,52 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
             "dettagli": {"cartiglio": True, "termini_trovati": trovati_cad},
         }
 
-    if codice:
+    # 3. Capitolato / specifica tecnica: parla di requisiti, non di un pezzo.
+    trovati_cap = [t for t in TERMINI_CAPITOLATO if t in testo_norm]
+    if len(trovati_cap) >= 2:
+        log.info("Riconosciuto capitolato in %s (termini: %s)", nome_file, trovati_cap)
         return {
-            "tipo_proposto": "disegno_2d",
-            "codice": codice,
-            "rev": rev,
-            "confidenza": 70,
-            "fonte": "nome_file",
-            "dettagli": {"codice_riconosciuto": codice},
+            "tipo_proposto": "capitolato",
+            "codice": "",
+            "rev": "",
+            "confidenza": 80,
+            "fonte": "cartiglio",
+            "dettagli": {"capitolato": True, "termini_trovati": trovati_cap},
         }
 
+    # 4. Distinta del cliente: un elenco di codici con quantita'.
+    trovati_dist = [t for t in TERMINI_DISTINTA if t in testo_norm]
+    if len(trovati_dist) >= 2 and conta_righe_codice(testo_completo) >= 5:
+        log.info("Riconosciuta distinta cliente in %s (termini: %s)", nome_file, trovati_dist)
+        return {
+            "tipo_proposto": "distinta_cliente",
+            "codice": "",
+            "rev": "",
+            "confidenza": 75,
+            "fonte": "cartiglio",
+            "dettagli": {"distinta": True, "termini_trovati": trovati_dist},
+        }
+
+    # 5. Nessun contenuto riconosciuto. Il codice nel nome NON basta a dire che e' un disegno: e'
+    #    esattamente cosi' che «6674611A.pdf» diventava un CAD al 70% mentre era l'offerta di un
+    #    fornitore per quel pezzo. Il codice si conserva, il tipo resta da determinare.
     return {
-        "tipo_proposto": "altro",
-        "codice": "",
-        "rev": "",
-        "confidenza": 30,
-        "fonte": "estensione",
-        "dettagli": {},
+        "tipo_proposto": "da_determinare",
+        "codice": codice,
+        "rev": rev,
+        "confidenza": 40 if codice else 30,
+        "fonte": "nome_file" if codice else "estensione",
+        "dettagli": {"codice_riconosciuto": codice, "testo_letto": len(testo_norm)},
     }
+
+
+def conta_righe_codice(testo: str) -> int:
+    """Quante righe sembrano una voce di distinta: un codice e una quantita'."""
+    n = 0
+    for riga in testo.splitlines():
+        if RE_RIGA_DISTINTA.search(riga):
+            n += 1
+    return n
 
 
 def analizza_step(percorso: str, nome_file: str) -> dict:
@@ -222,7 +289,8 @@ def analizza_file(path_staging: str, nome_file: str) -> dict:
             "fonte": "nome_file" if codice else "estensione",
             "dettagli": {},
         }
-    if ext in ("dwg", "tif", "tiff"):
+    if ext == "dwg":
+        # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone.
         codice, rev = separa_codice_rev(Path(nome_file).stem)
         return {
             "tipo_proposto": "disegno_2d",
@@ -231,6 +299,18 @@ def analizza_file(path_staging: str, nome_file: str) -> dict:
             "confidenza": 80 if codice else 60,
             "fonte": "nome_file" if codice else "estensione",
             "dettagli": {},
+        }
+    if ext in ("tif", "tiff"):
+        # Un'immagine scansionata puo' essere un disegno, ma anche un capitolato fotocopiato o un
+        # documento di trasporto. Senza OCR non lo sappiamo, e non lo diciamo (checkpoint 3R §5).
+        codice, rev = separa_codice_rev(Path(nome_file).stem)
+        return {
+            "tipo_proposto": "da_determinare",
+            "codice": codice,
+            "rev": rev,
+            "confidenza": 40 if codice else 30,
+            "fonte": "nome_file" if codice else "estensione",
+            "dettagli": {"nota": "immagine non letta: serve OCR"},
         }
     if ext in ("xls", "xlsx", "csv"):
         return {

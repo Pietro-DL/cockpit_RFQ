@@ -80,6 +80,14 @@ type FamigliaCodice struct {
 	//	"104453_A4" → (?P<codice>\d{6})_(?P<rev>A\d?)
 	RevNelCodice bool   `json:"rev_nel_codice,omitempty"`
 	Esempio      string `json:"esempio"`
+	// Ruolo dice che cosa sono i codici di questa famiglia: "prodotto" (il valore predefinito) o
+	// "parte", cioe' sottoassiemi e particolari. Lo dichiara l'anagrafica del cliente, non una
+	// regola scritta in Go su un cliente preciso: e' la differenza fra un sistema configurabile e
+	// un sistema con dentro i nomi dei clienti.
+	//
+	// «Finito» non e' un valore possibile, ed e' voluto (D19): finito e' il RUOLO di un articolo
+	// dentro una richiesta — la radice — e lo si sa dalla distinta, non dalla forma del codice.
+	Ruolo string `json:"ruolo,omitempty"`
 }
 
 // Riferimento è il numero della richiesta del cliente, con il suo esempio.
@@ -158,7 +166,15 @@ func (r Regole) Verifica() []Diagnostica {
 			Motivo: fmt.Sprintf("sono %d: il limite è %d, e un cliente con venti famiglie di codice di solito è due clienti", n, maxFamiglie)})
 	}
 	for i, f := range r.FamiglieCodice {
-		out = append(out, verificaRegex(fmt.Sprintf("famiglia %d", i+1), f.Descrizione, f.Regex, f.Esempio, f.RevNelCodice))
+		d := verificaRegex(fmt.Sprintf("famiglia %d", i+1), f.Descrizione, f.Regex, f.Esempio, f.RevNelCodice)
+		// Il ruolo, se dichiarato, deve essere uno dei due previsti. Un valore inventato passerebbe
+		// come «prodotto» in silenzio, e nessuno saprebbe che la dichiarazione non ha avuto effetto.
+		if d.Ok && f.Ruolo != "" && f.Ruolo != "prodotto" && f.Ruolo != "parte" {
+			d.Ok = false
+			d.Motivo = fmt.Sprintf("ruolo «%s» non previsto: i valori sono «prodotto» e «parte». "+
+				"«finito» non c'è di proposito: e' il ruolo di un articolo dentro una richiesta, e lo dice la distinta (D19)", f.Ruolo)
+		}
+		out = append(out, d)
 	}
 	if r.RiferimentoRFQ != nil {
 		out = append(out, verificaRegex("riferimento RFQ", r.RiferimentoRFQ.Descrizione, r.RiferimentoRFQ.Regex, r.RiferimentoRFQ.Esempio, false))
@@ -243,6 +259,7 @@ type Motore struct {
 type famigliaCompilata struct {
 	re      *regexp.Regexp
 	nome    string
+	ruolo   string
 	rev     bool
 	iCodice int // indice del gruppo `codice`, -1 se assente
 	iRev    int
@@ -271,8 +288,12 @@ func Compila(cliente string, r Regole) *Motore {
 		if nome == "" {
 			nome = f.Regex
 		}
+		ruolo := RuoloProdotto
+		if f.Ruolo == "parte" {
+			ruolo = RuoloParte
+		}
 		m.famiglie = append(m.famiglie, famigliaCompilata{
-			re: re, nome: nome, rev: f.RevNelCodice,
+			re: re, nome: nome, ruolo: ruolo, rev: f.RevNelCodice,
 			iCodice: indiceGruppo(re, "codice"), iRev: indiceGruppo(re, "rev"),
 		})
 	}
@@ -294,8 +315,90 @@ func Compila(cliente string, r Regole) *Motore {
 type CodiceTrovato struct {
 	Codice   string // il codice come si scrive nel sistema del cliente
 	Rev      string // la revisione, se la famiglia dice che sta dentro al codice
-	Origine  string // "famiglia" | "generico"
+	Origine  string // "famiglia" | "generico" | "riferimento"
 	Famiglia string // descrizione della famiglia che l'ha riconosciuto; vuota se generico
+	// Ruolo è che cosa questo numero È, non solo da dove viene: "riferimento_rfq" (il nome che il
+	// cliente dà alla richiesta), "prodotto" (una famiglia del cliente), "non_classificato"
+	// (l'estrattore generico ha visto qualcosa con la forma di un codice, e nient'altro).
+	Ruolo string
+	// Punteggio è quanto vale l'affermazione. «Questo è un codice DI QUESTO CLIENTE» e «questo ha
+	// la forma di un codice» non possono presentarsi con lo stesso numero accanto.
+	Punteggio int
+	// Dove è l'evidenza leggibile: «oggetto», «corpo», «allegato 6743449A_1.zip».
+	Dove string
+}
+
+// Ruoli di un candidato di codice. Sono le stesse stringhe dell'enum `ruolo_codice` in database:
+// il dominio non importa il pacchetto db, ma i valori sono uno solo e stanno scritti qui.
+const (
+	RuoloRiferimento = "riferimento_rfq"
+	RuoloProdotto    = "prodotto"
+	RuoloParte       = "parte" // mai proposto dal deterministico: serve la distinta (blocco 8)
+	RuoloIgnoto      = "non_classificato"
+)
+
+// Punteggi con cui si presenta un codice, per provenienza.
+const (
+	PuntiFamiglia  = 80
+	PuntiGenerico  = 30
+	PuntiRiferimen = 90
+)
+
+// Testo è un pezzo di messaggio con l'etichetta di dove sta. L'etichetta non è un lusso: senza,
+// l'evidenza di una proposta diventa «l'ho trovato da qualche parte», che non è un'evidenza.
+type Testo struct {
+	Dove  string
+	Corpo string
+}
+
+// Testi costruisce l'elenco con una sola etichetta, per i casi in cui non serve distinguere.
+func Testi(dove string, corpi ...string) []Testo {
+	out := make([]Testo, 0, len(corpi))
+	for _, c := range corpi {
+		out = append(out, Testo{Dove: dove, Corpo: c})
+	}
+	return out
+}
+
+// Estrazione è tutto ciò che un messaggio dice in fatto di numeri, già separato per ruolo.
+type Estrazione struct {
+	Riferimento     string // il numero della richiesta secondo il cliente
+	RiferimentoNome string // la regola che l'ha riconosciuto
+	RiferimentoDove string
+	Codici          []CodiceTrovato // riferimento escluso: un riferimento non è un codice prodotto
+	HaFamiglie      bool            // il cliente ha almeno una famiglia utilizzabile
+}
+
+// Proponibili sono i codici che possono diventare identificativi della RFQ se l'operatore li spunta.
+//
+// La regola, dal banco reale: se il cliente HA famiglie dichiarate, l'estrattore generico non
+// propone niente. Un cliente censito che manda un codice di forma nuova è un caso da guardare, non
+// da indovinare; e nel frattempo ogni CAP, numero d'ordine, data e misura del piè di pagina smette
+// di presentarsi come codice prodotto. I numeri generici restano visibili sotto «altri numeri
+// trovati», non spuntati: si vedono, e per entrare serve un clic.
+func (e Estrazione) Proponibili() []CodiceTrovato {
+	var out []CodiceTrovato
+	for _, c := range e.Codici {
+		if e.HaFamiglie && c.Origine != "famiglia" {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// Altri sono i numeri visti ma non proponibili: si mostrano, non si spuntano.
+func (e Estrazione) Altri() []CodiceTrovato {
+	if !e.HaFamiglie {
+		return nil
+	}
+	var out []CodiceTrovato
+	for _, c := range e.Codici {
+		if c.Origine != "famiglia" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Codici estrae i codici prodotto da uno o più testi usando PRIMA le famiglie del cliente e POI
@@ -308,13 +411,19 @@ type CodiceTrovato struct {
 // la schermata che dice «nessun codice». L'estrattore generico resta la rete sotto, marcata come
 // tale, e a decidere è comunque una persona.
 func (m *Motore) Codici(testi ...string) []CodiceTrovato {
+	return m.CodiciDa(Testi("testo", testi...)...)
+}
+
+// CodiciDa è la stessa cosa con l'etichetta di provenienza per ogni pezzo di testo.
+func (m *Motore) CodiciDa(testi ...Testo) []CodiceTrovato {
 	visti := map[string]bool{}
 	var out []CodiceTrovato
 	if m != nil {
 		for _, f := range m.famiglie {
 			for _, t := range testi {
-				for _, g := range f.re.FindAllStringSubmatch(senzaURL(t), -1) {
-					c := CodiceTrovato{Codice: g[0], Origine: "famiglia", Famiglia: f.nome}
+				for _, g := range f.re.FindAllStringSubmatch(senzaURL(t.Corpo), -1) {
+					c := CodiceTrovato{Codice: g[0], Origine: "famiglia", Famiglia: f.nome,
+						Ruolo: f.ruolo, Punteggio: PuntiFamiglia, Dove: t.Dove}
 					if f.iCodice > 0 && f.iCodice < len(g) {
 						c.Codice = g[f.iCodice]
 					}
@@ -331,22 +440,86 @@ func (m *Motore) Codici(testi ...string) []CodiceTrovato {
 			}
 		}
 	}
-	for _, c := range EstraiCodici(testi...) {
-		cod, rev := c, ""
-		if k, r := CodiceRev(c); r != "" {
-			cod, rev = k, r
+	for _, t := range testi {
+		for _, c := range EstraiCodici(t.Corpo) {
+			cod, rev := c, ""
+			if k, r := CodiceRev(c); r != "" {
+				cod, rev = k, r
+			}
+			if visti[cod+"\x00"+rev] || visti[c+"\x00"] {
+				continue
+			}
+			// un codice già riconosciuto da una famiglia, con o senza la sua revisione, non si ripete
+			if giaVisto(visti, cod) {
+				continue
+			}
+			visti[cod+"\x00"+rev] = true
+			out = append(out, CodiceTrovato{Codice: cod, Rev: rev, Origine: "generico",
+				Ruolo: RuoloIgnoto, Punteggio: PuntiGenerico, Dove: t.Dove})
 		}
-		if visti[cod+"\x00"+rev] || visti[c+"\x00"] {
-			continue
-		}
-		// un codice già riconosciuto da una famiglia, con o senza la sua revisione, non si ripete
-		if giaVisto(visti, cod) {
-			continue
-		}
-		visti[cod+"\x00"+rev] = true
-		out = append(out, CodiceTrovato{Codice: cod, Rev: rev, Origine: "generico"})
 	}
 	return out
+}
+
+// HaFamiglie dice se il cliente ha almeno una famiglia di codice utilizzabile (dichiarata e ✓).
+func (m *Motore) HaFamiglie() bool { return m != nil && len(m.famiglie) > 0 }
+
+// Finestra è `finestra_aggancio_gg` del cliente, 0 se non dichiarata (e allora vale il default di
+// internal/aggancio). Nil-safe come tutto il resto del motore: un cliente sconosciuto è il caso normale.
+func (m *Motore) Finestra() int {
+	if m == nil {
+		return 0
+	}
+	return m.Regole.FinestraAggancioGG
+}
+
+// DiFamiglia filtra i codici riconosciuti da una famiglia del cliente. È l'insieme su cui vale la regola
+// di aggancio R3: un codice pescato dall'estrattore generico non dice che quella richiesta esiste.
+func DiFamiglia(in []CodiceTrovato) []CodiceTrovato {
+	var out []CodiceTrovato
+	for _, c := range in {
+		if c.Origine == "famiglia" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// Estrai è l'unico posto in cui un messaggio diventa candidati di codice. Fa una cosa che il vecchio
+// `EstraiCodici` non faceva e che il banco reale ha reso obbligatoria: cerca PRIMA il riferimento
+// della richiesta secondo il cliente, e poi toglie quel numero dai codici prodotto.
+//
+// «RICHIESTA D'OFFERTA 490020618» conteneva un codice prodotto 490020618 che non esiste: è il numero
+// della RDO. Finiva fra gli identificativi della RFQ, e da lì nel nome della cartella e nelle
+// ricerche per codice. Sono due campi diversi perché sono due cose diverse.
+func (m *Motore) Estrai(testi ...Testo) Estrazione {
+	e := Estrazione{HaFamiglie: m.HaFamiglie()}
+	if m != nil && m.riferimento != nil {
+		for _, t := range testi {
+			if s := m.riferimento.FindString(t.Corpo); s != "" {
+				e.Riferimento, e.RiferimentoDove = s, t.Dove
+				if e.RiferimentoNome = m.rifNome; e.RiferimentoNome == "" {
+					e.RiferimentoNome = "regex del cliente"
+				}
+				break
+			}
+		}
+	}
+	for _, c := range m.CodiciDa(testi...) {
+		if e.Riferimento != "" && contieneStringa(e.Riferimento, c.Codice) {
+			continue // è il riferimento della richiesta, o un suo pezzo: non è un codice prodotto
+		}
+		e.Codici = append(e.Codici, c)
+	}
+	return e
+}
+
+// contieneStringa dice se `codice` è il riferimento o ne è una parte. Il confronto è largo apposta:
+// un riferimento «RDO 490020618» e un codice «490020618» sono lo stesso numero visto due volte, e
+// tenerne uno solo è il punto.
+func contieneStringa(riferimento, codice string) bool {
+	r, c := strings.ToUpper(riferimento), strings.ToUpper(codice)
+	return c != "" && (r == c || strings.Contains(r, c))
 }
 
 // Riferimento cerca il numero della richiesta del cliente (RDO, Anfrage, ODA). Restituisce il

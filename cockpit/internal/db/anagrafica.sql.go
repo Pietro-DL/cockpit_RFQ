@@ -14,6 +14,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const eliminaBuyer = `-- name: EliminaBuyer :execrows
+DELETE FROM buyer b WHERE b.buyer_id = $1
+  AND NOT EXISTS (SELECT 1 FROM messaggio m WHERE m.buyer_id = b.buyer_id)
+  AND NOT EXISTS (SELECT 1 FROM thread_offerta t WHERE t.buyer_id = b.buyer_id)
+`
+
+// Un buyer citato da un messaggio o da una richiesta NON si cancella: si perderebbe chi ha scritto.
+func (q *Queries) EliminaBuyer(ctx context.Context, buyerID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, eliminaBuyer, buyerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const eliminaDominioCliente = `-- name: EliminaDominioCliente :exec
 DELETE FROM dominio_cliente WHERE dominio = lower($1) AND cliente_id = $2
 `
@@ -26,6 +41,24 @@ type EliminaDominioClienteParams struct {
 func (q *Queries) EliminaDominioCliente(ctx context.Context, arg EliminaDominioClienteParams) error {
 	_, err := q.db.Exec(ctx, eliminaDominioCliente, arg.Lower, arg.ClienteID)
 	return err
+}
+
+const eliminaFabbisogno = `-- name: EliminaFabbisogno :execrows
+DELETE FROM fabbisogno_documento WHERE fabbisogno_id = $1 AND cliente_id = $2
+`
+
+type EliminaFabbisognoParams struct {
+	FabbisognoID uuid.UUID     `json:"fabbisogno_id"`
+	ClienteID    uuid.NullUUID `json:"cliente_id"`
+}
+
+// Solo le righe DI QUESTO cliente: i default (cliente_id NULL) valgono per tutti e non si tolgono da qui.
+func (q *Queries) EliminaFabbisogno(ctx context.Context, arg EliminaFabbisognoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, eliminaFabbisogno, arg.FabbisognoID, arg.ClienteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getBuyer = `-- name: GetBuyer :one
@@ -293,6 +326,39 @@ func (q *Queries) InsertDominioCliente(ctx context.Context, arg InsertDominioCli
 	return err
 }
 
+const insertFabbisogno = `-- name: InsertFabbisogno :one
+INSERT INTO fabbisogno_documento (cliente_id, tipo_componente, tipo, bloccante)
+VALUES ($1, $2::tipo_componente, $3::tipo_documento, $4)
+ON CONFLICT (cliente_id, tipo_componente, tipo) DO UPDATE SET bloccante = EXCLUDED.bloccante
+RETURNING fabbisogno_id, cliente_id, tipo_componente, tipo, bloccante, fonte_attesa
+`
+
+type InsertFabbisognoParams struct {
+	ClienteID      uuid.NullUUID  `json:"cliente_id"`
+	TipoComponente TipoComponente `json:"tipo_componente"`
+	Tipo           TipoDocumento  `json:"tipo"`
+	Bloccante      bool           `json:"bloccante"`
+}
+
+func (q *Queries) InsertFabbisogno(ctx context.Context, arg InsertFabbisognoParams) (FabbisognoDocumento, error) {
+	row := q.db.QueryRow(ctx, insertFabbisogno,
+		arg.ClienteID,
+		arg.TipoComponente,
+		arg.Tipo,
+		arg.Bloccante,
+	)
+	var i FabbisognoDocumento
+	err := row.Scan(
+		&i.FabbisognoID,
+		&i.ClienteID,
+		&i.TipoComponente,
+		&i.Tipo,
+		&i.Bloccante,
+		&i.FonteAttesa,
+	)
+	return i, err
+}
+
 const listBuyerCliente = `-- name: ListBuyerCliente :many
 SELECT buyer_id, cliente_id, cognome, nome, email, telefono, ruolo, tipo, manda_file, lingua, confermato, origine, note, creato_il FROM buyer WHERE cliente_id = $1 ORDER BY cognome, nome
 `
@@ -455,6 +521,37 @@ func (q *Queries) ListDominiCliente(ctx context.Context, clienteID uuid.UUID) ([
 	return items, nil
 }
 
+const listFabbisognoCliente = `-- name: ListFabbisognoCliente :many
+SELECT fabbisogno_id, cliente_id, tipo_componente, tipo, bloccante, fonte_attesa FROM fabbisogno_documento WHERE cliente_id = $1 ORDER BY tipo_componente, tipo
+`
+
+func (q *Queries) ListFabbisognoCliente(ctx context.Context, clienteID uuid.NullUUID) ([]FabbisognoDocumento, error) {
+	rows, err := q.db.Query(ctx, listFabbisognoCliente, clienteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FabbisognoDocumento{}
+	for rows.Next() {
+		var i FabbisognoDocumento
+		if err := rows.Scan(
+			&i.FabbisognoID,
+			&i.ClienteID,
+			&i.TipoComponente,
+			&i.Tipo,
+			&i.Bloccante,
+			&i.FonteAttesa,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFabbisognoEffettivo = `-- name: ListFabbisognoEffettivo :many
 SELECT f.tipo_componente, f.tipo, f.bloccante, f.fonte_attesa,
        (f.cliente_id IS NOT NULL)::boolean AS proprio
@@ -570,7 +667,7 @@ func (q *Queries) ListRegole(ctx context.Context) ([]Regola, error) {
 }
 
 const listRichieste = `-- name: ListRichieste :many
-SELECT v.thread_id, v.cliente, v.buyer, v.oggetto, v.data_inizio, v.data_scadenza, v.scadenza_origine, v.ultimo_aggiornamento, v.stato_thread, v.cartella_relativa, v.priorita, v.identificativi, v.nome_fase, v.in_fase_dal, v.gg_in_fase, v.sla_gg, v.semaforo, v.in_carico_a, v.n_bloccanti, v.n_da_confermare, v.n_sul_portale, v.n_mancanti, v.n_messaggi, v.n_da_smistare, c.peso AS peso_cliente
+SELECT v.thread_id, v.cliente, v.buyer, v.oggetto, v.data_inizio, v.data_scadenza, v.scadenza_origine, v.ultimo_aggiornamento, v.stato_thread, v.cartella_relativa, v.priorita, v.identificativi, v.nome_fase, v.in_fase_dal, v.gg_in_fase, v.sla_gg, v.semaforo, v.in_carico_a, v.n_bloccanti, v.n_da_confermare, v.n_sul_portale, v.n_mancanti, v.n_messaggi, v.n_da_smistare, c.peso AS peso_cliente, t.riferimento_cliente
 FROM v_cruscotto v
 JOIN thread_offerta t ON t.thread_id = v.thread_id
 JOIN cliente c        ON c.cliente_id = t.cliente_id
@@ -605,6 +702,7 @@ type ListRichiesteRow struct {
 	NMessaggi           int64               `json:"n_messaggi"`
 	NDaSmistare         int64               `json:"n_da_smistare"`
 	PesoCliente         int16               `json:"peso_cliente"`
+	RiferimentoCliente  pgtype.Text         `json:"riferimento_cliente"`
 }
 
 // La lista delle Richieste: aperte, ordinate per peso del cliente e poi per scadenza. Il peso e'
@@ -645,6 +743,7 @@ func (q *Queries) ListRichieste(ctx context.Context, limit int32) ([]ListRichies
 			&i.NMessaggi,
 			&i.NDaSmistare,
 			&i.PesoCliente,
+			&i.RiferimentoCliente,
 		); err != nil {
 			return nil, err
 		}
@@ -685,6 +784,21 @@ func (q *Queries) ListTransizioniDa(ctx context.Context, da Fase) ([]Transizione
 	return items, nil
 }
 
+const setFonteFabbisogno = `-- name: SetFonteFabbisogno :exec
+UPDATE fabbisogno_documento SET fonte_attesa = $3 WHERE fabbisogno_id = $1 AND cliente_id = $2
+`
+
+type SetFonteFabbisognoParams struct {
+	FabbisognoID uuid.UUID           `json:"fabbisogno_id"`
+	ClienteID    uuid.NullUUID       `json:"cliente_id"`
+	Fonte        NullFonteFabbisogno `json:"fonte"`
+}
+
+func (q *Queries) SetFonteFabbisogno(ctx context.Context, arg SetFonteFabbisognoParams) error {
+	_, err := q.db.Exec(ctx, setFonteFabbisogno, arg.FabbisognoID, arg.ClienteID, arg.Fonte)
+	return err
+}
+
 const setRegoleCliente = `-- name: SetRegoleCliente :one
 UPDATE cliente SET regole = $2 WHERE cliente_id = $1 RETURNING cliente_id, cartella_nas, ragione_sociale, profilo, lingua, portale_url, portale_note, regole, attivo, note, creato_il, peso
 `
@@ -710,6 +824,72 @@ func (q *Queries) SetRegoleCliente(ctx context.Context, arg SetRegoleClientePara
 		&i.Note,
 		&i.CreatoIl,
 		&i.Peso,
+	)
+	return i, err
+}
+
+const updateBuyer = `-- name: UpdateBuyer :one
+
+UPDATE buyer
+SET cognome    = $1,
+    nome       = $2,
+    email      = $3,
+    telefono   = $4,
+    ruolo      = $5,
+    tipo       = $6::tipo_buyer,
+    manda_file = $7,
+    lingua     = $8,
+    note       = $9
+WHERE buyer_id = $10
+RETURNING buyer_id, cliente_id, cognome, nome, email, telefono, ruolo, tipo, manda_file, lingua, confermato, origine, note, creato_il
+`
+
+type UpdateBuyerParams struct {
+	Cognome   string      `json:"cognome"`
+	Nome      pgtype.Text `json:"nome"`
+	Email     pgtype.Text `json:"email"`
+	Telefono  pgtype.Text `json:"telefono"`
+	Ruolo     pgtype.Text `json:"ruolo"`
+	Tipo      TipoBuyer   `json:"tipo"`
+	MandaFile bool        `json:"manda_file"`
+	Lingua    pgtype.Text `json:"lingua"`
+	Note      pgtype.Text `json:"note"`
+	BuyerID   uuid.UUID   `json:"buyer_id"`
+}
+
+// ---------------------------------------------------------------- amministrazione (checkpoint 3R §7)
+// Buyer e fabbisogno diventano amministrabili dalla schermata. Prima la tabella del fabbisogno si
+// vedeva ma la pagina diceva «si modificano dal database»: una tabella che sembra configurabile e non
+// lo e' e' peggio di una tabella assente.
+func (q *Queries) UpdateBuyer(ctx context.Context, arg UpdateBuyerParams) (Buyer, error) {
+	row := q.db.QueryRow(ctx, updateBuyer,
+		arg.Cognome,
+		arg.Nome,
+		arg.Email,
+		arg.Telefono,
+		arg.Ruolo,
+		arg.Tipo,
+		arg.MandaFile,
+		arg.Lingua,
+		arg.Note,
+		arg.BuyerID,
+	)
+	var i Buyer
+	err := row.Scan(
+		&i.BuyerID,
+		&i.ClienteID,
+		&i.Cognome,
+		&i.Nome,
+		&i.Email,
+		&i.Telefono,
+		&i.Ruolo,
+		&i.Tipo,
+		&i.MandaFile,
+		&i.Lingua,
+		&i.Confermato,
+		&i.Origine,
+		&i.Note,
+		&i.CreatoIl,
 	)
 	return i, err
 }

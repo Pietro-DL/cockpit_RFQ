@@ -17,6 +17,17 @@ type Proposta struct {
 	PreSpunta  bool // suggerimento: vale la pena scaricarlo (CAD, offerte, fogli di calcolo, zip)
 }
 
+// SogliaStagingAutomatico è la dimensione oltre la quale un allegato non scende da solo (D30).
+//
+// Venti megabyte. Sotto, un file di un cliente riconosciuto arriva nello staging del server senza che
+// nessuno prema niente, perché il tipo di un PDF si sa solo aprendolo e l'operatore ha bisogno di
+// vedere «disegno 2D, cartiglio 6674611A rev 4» invece di «PDF, da determinare, premi qui e aspetta».
+// Sopra, no: un pacco da mezzo giga lo si scarica quando qualcuno lo decide.
+//
+// Lo staging è una cartella del server. La regola «niente sul NAS senza una decisione» (D24, criterio E)
+// resta intatta: quella riguarda il NAS, e il NAS non viene toccato da qui.
+const SogliaStagingAutomatico int64 = 20 * 1024 * 1024
+
 // PropostaDaNome classifica un allegato dal solo nome file. direzione è "entrata" | "uscita".
 func PropostaDaNome(nomeFile string, bytes int64, direzione string) Proposta {
 	ext := strings.ToLower(strings.TrimPrefix(path.Ext(nomeFile), "."))
@@ -28,12 +39,17 @@ func PropostaDaNome(nomeFile string, bytes int64, direzione string) Proposta {
 		p.Codice, p.Rev = c, rv
 		switch tipo {
 		case "disegno_2d", "cad_3d", "sviluppo_dxf":
+			// Formati che SONO disegno: un .dxf o un .step non contengono altro. Qui il codice nel
+			// nome conferma qualcosa che l'estensione ha già detto.
 			p.Confidenza += 20
 			p.Fonte = "nome_file"
+		case "da_determinare":
+			// Un PDF con un codice nel nome resta un PDF con un codice nel nome (checkpoint 3R §5).
+			// Il codice si conserva, perché servirà; il TIPO no: «6674611A.pdf» è il disegno, ma
+			// anche l'offerta del fornitore per quel pezzo, e anche la conferma d'ordine. Chi lo
+			// stabilisce è il worker-analisi leggendo il cartiglio, non chi legge il nome.
+			p.Confidenza, p.Fonte = 50, "nome_file"
 		}
-	} else if tipo == "disegno_2d" && ext == "pdf" {
-		// un PDF senza codice nel nome è più spesso un documento qualunque che un disegno
-		p.Tipo, p.Confidenza = "altro", 30
 	}
 
 	// offerta Promatec in uscita: "SO 5467.pdf"
@@ -60,10 +76,17 @@ func daScaricare(p Proposta, ext string, bytes int64) bool {
 		return false
 	case "cad_3d", "disegno_2d", "sviluppo_dxf", "offerta_promatec", "commerciale", "distinta_cliente":
 		return true
+	case "da_determinare":
+		// Un tipo da determinare è il motivo per cui vale la pena scaricarlo: finché il file non
+		// scende, il tipo non si saprà mai, e la pre-spunta è un suggerimento di download, non
+		// un'affermazione su che cosa il file sia. Sopra la soglia no: un file enorme di cui non si
+		// sa niente si scarica quando qualcuno lo decide. È la stessa soglia dello staging
+		// automatico (D30), così «si scarica da solo» e «arriva pre-spuntato» non si contraddicono.
+		return bytes <= SogliaStagingAutomatico
 	}
 	switch ext {
-	case "zip", "7z", "rar", "pdf", "tif", "tiff", "dwg":
-		return ext != "pdf" || p.Codice != ""
+	case "zip", "7z", "rar", "dwg":
+		return true
 	}
 	return false
 }
@@ -75,8 +98,15 @@ func TipoDaEstensione(ext string) (tipo, fonte string, conf int) {
 		return "cad_3d", "estensione", 70
 	case "dxf":
 		return "sviluppo_dxf", "estensione", 70
-	case "dwg", "tif", "tiff", "pdf":
-		return "disegno_2d", "estensione", 50
+	case "dwg":
+		return "disegno_2d", "estensione", 70 // un DWG è un disegno CAD: l'estensione lo dice
+	case "pdf", "tif", "tiff":
+		// Checkpoint 3R §5: PDF NON significa disegno. Un PDF è un contenitore, e in una richiesta
+		// d'offerta vera contiene tanto spesso il capitolato, l'offerta o la conferma d'ordine quanto
+		// il disegno. Dire `disegno_2d` per estensione era un'affermazione tecnica su un file che
+		// nessuno aveva aperto, e si propagava: pre-spunta, punteggio del triage «allegato tecnico»,
+		// sottocartella ELENCO DISEGNI sul NAS. Prima dell'analisi il tipo non si sa, e si dice.
+		return "da_determinare", "estensione", 40
 	case "xls", "xlsx", "csv":
 		return "commerciale", "estensione", 50
 	case "zip", "7z", "rar":

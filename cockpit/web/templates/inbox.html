@@ -2,14 +2,17 @@
 <div class="inbox">
   <section class="colonna lista">
     <div class="filtri">
+      {{/* ogni link porta con se' casella e selezione: cambiare filtro non e' un motivo per cambiare
+           casella, e non e' un motivo per deselezionare il messaggio che si sta leggendo */}}
       {{range $f := list "orfani" "agganciati" "ignorati" "tutti"}}
-      <a href="/inbox?filtro={{$f}}" hx-get="/inbox?filtro={{$f}}" hx-target="#lista" hx-push-url="true"
+      <a href="/inbox?filtro={{$f}}&casella={{$.Dati.Casella}}&sel={{$.Dati.Selezion}}"
+         hx-get="/inbox?filtro={{$f}}&casella={{$.Dati.Casella}}&sel={{$.Dati.Selezion}}" hx-target="#lista" hx-push-url="true"
          class="{{if eq $.Dati.Filtro $f}}attivo{{end}}">{{$f}}
          <small>{{if eq $f "orfani"}}{{$.Dati.Conta.Orfani}}{{else if eq $f "agganciati"}}{{$.Dati.Conta.Agganciati}}{{else if eq $f "ignorati"}}{{$.Dati.Conta.Ignorati}}{{else}}{{$.Dati.Conta.Tutti}}{{end}}</small></a>
       {{end}}
       {{if gt (len .Dati.Caselle) 1}}
       <select class="filtro-casella" name="casella" hx-get="/inbox" hx-target="#lista" hx-include="this"
-              hx-vals='{"filtro":"{{.Dati.Filtro}}"}' hx-push-url="true" title="Filtro della schermata, non un permesso">
+              hx-vals='{"filtro":"{{.Dati.Filtro}}","sel":"{{.Dati.Selezion}}"}' hx-push-url="true" title="Filtro della schermata, non un permesso">
         <option value="">tutte le caselle</option>
         {{range .Dati.Caselle}}<option value="{{.CasellaID}}" {{if eq $.Dati.Casella (.CasellaID.String)}}selected{{end}}>{{.Nome}}</option>{{end}}
       </select>
@@ -19,7 +22,12 @@
       <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica altri 2 giorni di archivio, per casella. Finestre piccole perché il worker Outlook è uno solo: mentre carica l'archivio non apre elementi e non scarica allegati.">Carica Precedenti</button>
     </div>
     <div id="sync-status" class="sync-status"></div>
-    <div id="lista" hx-get="/inbox?filtro={{.Dati.Filtro}}" hx-trigger="every 15s, inbox-aggiorna from:body" hx-swap="innerHTML">
+    {{/* Il poll porta con se' TUTTO lo stato della schermata (checkpoint 3R §6). Prima chiedeva solo
+         `filtro`: ogni 15 secondi la lista tornava a «tutte le caselle» e perdeva il messaggio
+         selezionato, mentre la barra in alto continuava a mostrare la casella scelta. La schermata
+         diceva una cosa e mostrava l'altra. */}}
+    <div id="lista" hx-get="/inbox" hx-trigger="every 15s, inbox-aggiorna from:body" hx-swap="innerHTML"
+         hx-vals='{"filtro":"{{.Dati.Filtro}}","casella":"{{.Dati.Casella}}","sel":"{{.Dati.Selezion}}"}'>
       {{template "inbox_lista" .}}
     </div>
   </section>
@@ -33,8 +41,8 @@
 {{define "inbox_lista"}}
 {{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}. {{.Dati.Sync}}</p>{{end}}
 {{range .Dati.Righe}}
-<a class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
-   href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&sel={{.MessaggioID}}">
+<a id="msg-{{.MessaggioID}}" class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
+   href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?filtro={{$.Dati.Filtro}}&casella={{$.Dati.Casella}}&sel={{.MessaggioID}}">
   <div class="r1">
     {{if $.Dati.ENuovo .MessaggioID}}<span class="pallino" title="Arrivato dopo la tua ultima apertura dell'Inbox">●</span>{{end}}
     <span class="canale">{{if eq .Direzione "uscita"}}↗{{else}}✉{{end}}</span>

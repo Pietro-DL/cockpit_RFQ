@@ -316,6 +316,12 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if p.Stato != db.StatoPropostaAperta {
 		return "", errors.New("proposta già decisa")
 	}
+	// `da_determinare` non è una destinazione (checkpoint 3R §5): non ha una sottocartella sul NAS,
+	// perché «non so che cosa sia» non è una cartella. Il messaggio dice che cosa fare invece di
+	// lasciare fallire una query su `cartella_documento` con un errore che non significa niente.
+	if tipo == db.TipoDocumentoDaDeterminare {
+		return "", errors.New("il tipo di questo file non è ancora stato determinato: scegli il tipo, oppure lascia che il worker-analisi lo legga")
+	}
 	if !m.ThreadID.Valid {
 		return "", errors.New("il messaggio non è agganciato a una RFQ")
 	}

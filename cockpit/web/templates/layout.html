@@ -44,6 +44,38 @@
     try { localStorage.setItem(chiave, chiusa ? "1" : "0"); } catch (e) {}
   });
 })();
+
+// Il poll dell'Inbox non deve far saltare la lettura (checkpoint 3R §6, UI4).
+//
+// Ogni 15 secondi HTMX sostituisce il contenuto di #lista. La colonna che scorre e' il suo GENITORE
+// (.colonna.lista ha overflow:auto), e sostituire il contenuto di un figlio azzera lo scorrimento del
+// genitore appena l'altezza cambia: chi stava leggendo il ventesimo messaggio tornava in cima da solo,
+// ogni quindici secondi, senza aver toccato niente. Sotto i 900 px la colonna non scorre e scorre la
+// pagina, quindi si salvano tutti e due.
+(function () {
+  var salvato = null;
+  function contenitore(el) {
+    while (el && el !== document.body) {
+      if (el.classList && el.classList.contains("colonna")) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+  document.body.addEventListener("htmx:beforeSwap", function (e) {
+    var c = contenitore(e.target);
+    salvato = c ? { el: c, top: c.scrollTop, finestra: window.scrollY } : null;
+  });
+  document.body.addEventListener("htmx:afterSwap", function (e) {
+    if (!salvato || !salvato.el) return;
+    var s = salvato;
+    salvato = null;
+    // dopo il ridisegno, non durante: prima del frame successivo l'altezza nuova non e' ancora nota
+    requestAnimationFrame(function () {
+      if (s.top) s.el.scrollTop = s.top;
+      if (s.finestra) window.scrollTo(0, s.finestra);
+    });
+  });
+})();
 </script>
 </body>
 </html>{{end}}

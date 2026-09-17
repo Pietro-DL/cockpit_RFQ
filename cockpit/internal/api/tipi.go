@@ -335,6 +335,15 @@ type PayloadCreaCartellaThread struct {
 	ThreadID uuid.UUID `json:"thread_id"`
 }
 
+// PayloadAnalizzaMessaggioAI: l'analisi semantica di UN messaggio gia' in database (checkpoint 3R §9).
+//
+// Porta solo l'identificativo. Che cosa esca verso il servizio esterno lo decide il server leggendo
+// il database (agente.Servizio.Contesto), non chi accoda il job: se il testo viaggiasse nel payload,
+// la stessa decisione sarebbe presa in ogni punto che accoda, e prima o poi in uno sarebbe diversa.
+type PayloadAnalizzaMessaggioAI struct {
+	MessaggioID uuid.UUID `json:"messaggio_id"`
+}
+
 type PayloadAnalizzaAllegato struct {
 	AllegatoID  uuid.UUID  `json:"allegato_id"`
 	PathStaging string     `json:"path_staging"`

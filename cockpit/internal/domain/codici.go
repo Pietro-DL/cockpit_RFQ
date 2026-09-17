@@ -187,19 +187,38 @@ func parseData(g, m, a string) (time.Time, error) {
 // ---------------------------------------------------------------- triage deterministico (SPEC §6.3)
 
 type IngressoTriage struct {
-	Oggetto           string
-	Corpo             string
-	NomiAllegati      []string
-	Direzione         string // entrata | uscita
-	Interno           bool   // mittente e destinatari tutti nostri: il collega che gira una mail
-	ClienteNoto       bool   // dominio mittente censito
-	BuyerNoto         bool   // indirizzo mittente censito come buyer
-	ThreadTrovato     bool   // aggancio automatico già riuscito
-	ConversazioneNota bool
+	Oggetto      string
+	Corpo        string
+	NomiAllegati []string
+	Direzione    string // entrata | uscita
+	Interno      bool   // mittente e destinatari tutti nostri: il collega che gira una mail
+	ClienteNoto  bool   // dominio mittente censito
+	BuyerNoto    bool   // indirizzo mittente censito come buyer
 	// Motore sono le regole del cliente riconosciuto, già compilate (voce 6.11). Nil = cliente
 	// sconosciuto, o cliente senza regole: il triage continua a funzionare con il solo
 	// estrattore generico, perché un cliente non censito è il caso NORMALE del primo giorno.
 	Motore *Motore
+	// Candidati sono le proposte di aggancio già calcolate (R0–R5, internal/aggancio). La loro
+	// presenza è ciò che impedisce di valutare `nuova_rfq`: vedi la precedenza in Triage.
+	Candidati []Candidato
+}
+
+// Testi sono i pezzi di messaggio in cui si cercano numeri, ognuno con l'etichetta di dove sta.
+//
+// È un metodo e non tre righe dentro Triage perché lo usano in due: il triage, per proporre un esito,
+// e l'ingest, per calcolare i candidati di aggancio PRIMA di chiamare il triage. Se fossero due elenchi
+// scritti in due posti, il giorno in cui uno dei due impara a leggere un campo in più l'altro no, e i
+// candidati verrebbero calcolati su un testo diverso da quello su cui viene calcolato l'esito.
+func (in IngressoTriage) Testi() []Testo {
+	testi := []Testo{{Dove: "oggetto", Corpo: in.Oggetto}, {Dove: "corpo", Corpo: in.Corpo}}
+	for _, n := range in.NomiAllegati {
+		base := n
+		if i := strings.LastIndex(base, "."); i > 0 {
+			base = base[:i]
+		}
+		testi = append(testi, Testo{Dove: "allegato " + n, Corpo: base})
+	}
+	return testi
 }
 
 type EsitoTriage struct {
@@ -215,14 +234,46 @@ type EsitoTriage struct {
 	// nome della regola che l'ha riconosciuto. Non è un codice prodotto.
 	Riferimento     string
 	RiferimentoNome string
+	// Estrazione è tutto ciò che è stato trovato, già diviso per ruolo: è quello che la schermata
+	// mostra come «proponibili» e «altri numeri trovati».
+	Estrazione Estrazione
+	// Candidato è il candidato di aggancio più forte, quando ce n'è uno. Non è una scelta: è il
+	// primo della lista che l'operatore vede per intero.
+	Candidato *Candidato
 }
 
 // confini di parola: «rdo» e «rfq» compaiono dentro parole comuni (ricordo, bernardo)
 var reParoleRFQ = regexp.MustCompile(`\b(rfq|rdo|richiesta d'offerta|richiesta di offerta|richiesta offerta|quotazione|preventivo|quotation|request for quotation|offer request|angebot|devis)\b`)
-var estensioniCAD = map[string]bool{"stp": true, "step": true, "sldprt": true, "sldasm": true, "igs": true, "iges": true,
-	"dxf": true, "dwg": true, "pdf": true, "tif": true, "tiff": true, "zip": true, "7z": true, "rar": true}
+
+// estensioniTecniche sono i formati che DA SOLI dicono «qui dentro c'è del disegno»: un file STEP o un
+// DXF non è nient'altro. Gli archivi ci stanno perché un allegato compresso in una richiesta d'offerta
+// è quasi sempre un pacco di disegni, e comunque l'affermazione riguarda il messaggio, non il file.
+//
+// PDF, TIF e TIFF NON ci sono più, ed è il punto §5 del checkpoint. Un PDF può essere un disegno, un
+// capitolato, un'offerta del fornitore, una conferma d'ordine o la firma di qualcuno: dire «allegato
+// tecnico» prima di averlo aperto è un'affermazione su un file che nessuno ha letto. Contano lo stesso,
+// ma per quello che sono: allegati di tipo ancora da determinare.
+var estensioniTecniche = map[string]bool{"stp": true, "step": true, "sldprt": true, "sldasm": true,
+	"igs": true, "iges": true, "x_t": true, "x_b": true, "dxf": true, "dwg": true,
+	"zip": true, "7z": true, "rar": true}
+
+// estensioniDaDeterminare sono documenti che potrebbero essere tecnici e potrebbero non esserlo.
+var estensioniDaDeterminare = map[string]bool{"pdf": true, "tif": true, "tiff": true}
 
 // Triage propone un esito per un messaggio orfano. È solo un suggerimento: l'operatore resta l'ultimo a confermare.
+//
+// PRECEDENZA (checkpoint 3R §3). L'esito non è più il risultato di una somma che supera una soglia. Un
+// punteggio di contenuto misura quanto un messaggio SEMBRA una richiesta nuova; non può retrocedere una
+// risposta di cui esiste la prova. L'ordine è:
+//
+//  1. c'è evidenza di una RFQ esistente (un candidato R0–R3, o R2, sopra la soglia) → «aggancia», e
+//     `nuova_rfq` non viene nemmeno valutata;
+//  2. non c'è nessuna evidenza → si contano i punti del contenuto, e sopra 50 si propone `nuova_rfq`;
+//  3. sotto → «ignora», cioè «non ho niente da dire»: resta in Inbox, senza proposta.
+//
+// Il caso che ha aperto il checkpoint: «R: RICHIESTA OFFERTA COD 0.056.8238.3» con un PDF allegato
+// faceva 35 (parola «offerta») + 25 (allegato «tecnico») = 60, e diventava una richiesta NUOVA mentre
+// era la risposta a una richiesta nostra.
 func Triage(in IngressoTriage) EsitoTriage {
 	var motivi []string
 	punti := 0
@@ -237,23 +288,31 @@ func Triage(in IngressoTriage) EsitoTriage {
 	if in.Interno {
 		motivi = append(motivi, "mail interna: inoltrata da un collega")
 	}
-	if in.ThreadTrovato {
-		return EsitoTriage{Esito: "aggancia", Confidenza: 95, Motivi: []string{"agganciato automaticamente"}}
-	}
 	testo := strings.ToLower(in.Oggetto + "\n" + in.Corpo)
 	if m := reParoleRFQ.FindString(testo); m != "" {
 		punti += 35
 		motivi = append(motivi, "testo contiene «"+m+"»")
 	}
-	nCAD := 0
+	nTecnici, nIgnoti := 0, 0
 	for _, n := range in.NomiAllegati {
-		if i := strings.LastIndex(n, "."); i >= 0 && estensioniCAD[strings.ToLower(n[i+1:])] {
-			nCAD++
+		i := strings.LastIndex(n, ".")
+		if i < 0 {
+			continue
+		}
+		switch ext := strings.ToLower(n[i+1:]); {
+		case estensioniTecniche[ext]:
+			nTecnici++
+		case estensioniDaDeterminare[ext]:
+			nIgnoti++
 		}
 	}
-	if nCAD > 0 {
+	if nTecnici > 0 {
 		punti += 25
 		motivi = append(motivi, "allegati tecnici presenti")
+	}
+	if nIgnoti > 0 {
+		punti += 10
+		motivi = append(motivi, "allegati di tipo da determinare (l'analisi dirà che cosa sono)")
 	}
 	if in.BuyerNoto {
 		punti += 25
@@ -262,16 +321,10 @@ func Triage(in IngressoTriage) EsitoTriage {
 		punti += 15
 		motivi = append(motivi, "dominio mittente è un cliente censito")
 	}
-	testi := []string{in.Oggetto, in.Corpo}
-	for _, n := range in.NomiAllegati {
-		base := n
-		if i := strings.LastIndex(base, "."); i > 0 {
-			base = base[:i]
-		}
-		testi = append(testi, base)
-	}
-	trovati := in.Motore.Codici(testi...)
-	codici := dedup(SoloCodici(trovati))
+	e := in.Motore.Estrai(in.Testi()...)
+	// `Codici` è ciò che può diventare identificativo della RFQ se l'operatore lo spunta. Con un
+	// cliente che ha famiglie dichiarate, l'estrattore generico non ci entra (Proponibili).
+	codici := dedup(SoloCodici(e.Proponibili()))
 	if len(codici) > 0 {
 		punti += 10
 		motivi = append(motivi, "codici rilevati: "+strings.Join(primi(codici, 4), ", "))
@@ -279,30 +332,49 @@ func Triage(in IngressoTriage) EsitoTriage {
 	// Un codice riconosciuto da una FAMIGLIA del cliente vale più di uno pescato dall'estrattore
 	// generico: il primo dice «questo è un codice DI QUESTO CLIENTE», il secondo dice «questo ha la forma di
 	// un codice». Sono due affermazioni diverse e non devono pesare uguale.
-	if f := primaFamiglia(trovati); f != "" {
+	if f := primaFamiglia(e.Codici); f != "" {
 		punti += 10
 		motivi = append(motivi, "codici della famiglia «"+f+"» del cliente")
 	}
-	rif, rifNome := in.Motore.Riferimento(in.Oggetto, in.Corpo)
-	if rif != "" {
+	if e.Riferimento != "" {
 		punti += 15
-		motivi = append(motivi, "riferimento "+rif+" ("+rifNome+")")
+		motivi = append(motivi, "riferimento "+e.Riferimento+" ("+e.RiferimentoNome+")")
 	}
 	if punti > 100 {
 		punti = 100
 	}
-	esito := "ignora"
-	if in.ConversazioneNota && !in.ThreadTrovato {
-		esito = "ignora"
+
+	out := EsitoTriage{Confidenza: punti, Codici: codici, Trovati: e.Codici,
+		Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e}
+
+	// ---- la precedenza. Prima si guarda se la richiesta esiste già, POI se ne sembra una nuova.
+	if k, ok := MiglioreCandidato(in.Candidati); ok {
+		out.Candidato = &k
+		motivi = append(motivi, k.Evidenza)
+		if EvidenzaDiRFQEsistente(in.Candidati) {
+			out.Esito, out.Confidenza = "aggancia", k.Punteggio
+			out.Motivi = motivi
+			return out
+		}
+		// Nessuna evidenza verso una richiesta APERTA. Restano due casi, e in tutti e due il
+		// candidato si vede ma non decide: una richiesta chiusa (che è finita), oppure un indizio
+		// debole come R5, «stesso buyer di recente» — che ogni richiesta nuova di un buyer noto
+		// avrebbe, e che quindi non può impedire di proporne una nuova.
+		if c, chiuso := CandidatoChiuso(in.Candidati); chiuso {
+			motivi = append(motivi, "attenzione: esiste già una richiesta simile, ma è CHIUSA ("+c.Evidenza+")")
+		} else {
+			motivi = append(motivi, "l'indizio è debole: non basta a dire che la richiesta esiste già")
+		}
 	}
+	out.Esito = "ignora"
 	if punti >= 50 {
-		esito = "nuova_rfq"
+		out.Esito = "nuova_rfq"
 	}
 	if len(motivi) == 0 {
 		motivi = []string{"nessun indizio RFQ"}
 	}
-	return EsitoTriage{Esito: esito, Confidenza: punti, Motivi: motivi, Codici: codici,
-		Trovati: trovati, Riferimento: rif, RiferimentoNome: rifNome}
+	out.Motivi = motivi
+	return out
 }
 
 // primaFamiglia restituisce la descrizione della prima famiglia del cliente che ha riconosciuto

@@ -58,7 +58,19 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 		Allegati: allegati, Thread: &th, Avviso: "ok"}
 	td := &triageDati{M: m, Riga: md.Riga, Azione: "nuova", Clienti: []db.Cliente{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme"}},
 		Buyers: []db.Buyer{{BuyerID: uuid.New(), Cognome: "Rossi", Nome: txtT("Mario"), Email: txtT("mario.rossi@acme.example")}},
-		Nome:   "Mario", Cognome: "Rossi", Email: "mario.rossi@acme.example", Dominio: "acme.example", Oggetto: "RFQ 6674611A", Identificativi: "6674611A", Allegati: allegati, Anteprima: `ACME\WIP\x`}
+		Nome:   "Mario", Cognome: "Rossi", Email: "mario.rossi@acme.example", Dominio: "acme.example", Oggetto: "RFQ 6674611A", Allegati: allegati, Anteprima: `ACME\WIP\x`,
+		Riferimento: "RDO 490020618",
+		Proponibili: []db.CandidatoCodice{{MessaggioID: mid, Codice: "6674611A", Ruolo: db.RuoloCodiceProdotto,
+			Origine: db.OrigineCodiceFamiglia, Famiglia: "7 cifre + lettera", Punteggio: 80, Evidenza: "oggetto"}},
+		Altri: []db.CandidatoCodice{{MessaggioID: mid, Codice: "20260908", Ruolo: db.RuoloCodiceNonClassificato,
+			Origine: db.OrigineCodiceGenerico, Punteggio: 30, Evidenza: "corpo"}},
+		Candidati: []db.ListCandidatiAggancioRow{
+			{MessaggioID: mid, ThreadID: tid, Regola: db.RegolaAggancioR0Reply, Punteggio: 98,
+				Evidenza: "In-Reply-To punta a un messaggio agganciato", ThreadStato: db.StatoThreadAPERTA,
+				Oggetto: txtT("RFQ 6674611A"), DataInizio: time.Now(), Cliente: "Acme"},
+			{MessaggioID: mid, ThreadID: uuid.New(), Regola: db.RegolaAggancioR2Oggetto, Punteggio: 55,
+				Evidenza: "stesso oggetto", ThreadStato: db.StatoThreadCHIUSA,
+				Oggetto: txtT("RFQ 6674611A"), DataInizio: time.Now(), Cliente: "Acme"}}}
 	thd := &threadDati{T: th, Riga: db.VCruscotto{Cliente: "ACME", NomeFase: db.NullFase{Fase: db.FaseRICEVUTA, Valid: true}, Semaforo: txtT("verde")},
 		Identificativi: []db.IdentificativoThread{{Codice: "6674611A"}},
 		Messaggi:       []messaggioThread{{M: m, Copia: &copia, Allegati: allegati}, {M: m, Motivo: "nessuna postazione associata alla sessione"}},

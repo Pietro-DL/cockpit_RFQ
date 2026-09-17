@@ -103,17 +103,47 @@ func AggiungiDominio(ctx context.Context, q *db.Queries, dominio string, cliente
 // ---------------------------------------------------------------- la schermata
 
 type anagraficaDati struct {
-	Tab        string // "clienti" | "articoli"
+	Tab string // "clienti" | "articoli"
+	// Sez è la sezione del cliente scelto (checkpoint 3R §7). La schermata mostrava tutto insieme —
+	// identità, domini, persone, regole, banco di prova, fascicolo — in una colonna alta due schermi,
+	// e per correggere una regex bisognava scorrere oltre la tabella dei buyer.
+	Sez        string // generale | contatti | riconoscimento | fabbisogno | prova
 	Clienti    []db.ListClientiTuttiRow
 	Scelto     *db.Cliente
 	Domini     []db.DominioCliente
 	Buyer      []db.Buyer
 	RegoleJSON string
+	Regole     domain.Regole // le regole lette, per il form strutturato
 	Diagnosi   []domain.Diagnostica
 	Fabbisogno []db.ListFabbisognoEffettivoRow
+	Propri     []db.FabbisognoDocumento // solo le righe DI QUESTO cliente: quelle che si possono togliere
 	Prova      *provaDati
 	Errore     string
 	Fatto      string
+}
+
+// sezioniAnagrafica sono le schede del cliente, nell'ordine in cui si usano: prima chi è, poi da
+// quali indirizzi scrive, poi come si riconosce ciò che manda, poi che cosa deve consegnare, e
+// infine il banco su cui si prova tutto quanto.
+var sezioniAnagrafica = []struct{ Chiave, Nome string }{
+	{"generale", "Generale"},
+	{"contatti", "Domini e Buyer"},
+	{"riconoscimento", "Riconoscimento"},
+	{"fabbisogno", "Fabbisogno documentale"},
+	{"prova", "Banco di prova"},
+}
+
+// Sezioni serve al template: l'elenco sta qui e non nell'HTML, perché aggiungerne una deve essere
+// una riga sola e deve comparire anche nel test.
+func (d anagraficaDati) Sezioni() []struct{ Chiave, Nome string } { return sezioniAnagrafica }
+
+func sezioneValida(s string) string {
+	for _, v := range sezioniAnagrafica {
+		if v.Chiave == s {
+			return s
+		}
+	}
+	return "generale"
 }
 
 // provaDati è il banco di prova. `Motore` è lo stesso oggetto che userebbe l'ingest su un
@@ -138,6 +168,9 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 	if dati.Tab == "" {
 		dati.Tab = "clienti"
 	}
+	if dati.Sez == "" {
+		dati.Sez = sezioneValida(r.FormValue("sez"))
+	}
 	var err error
 	if dati.Clienti, err = q.ListClientiTutti(ctx); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -154,10 +187,10 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 		dati.Domini, _ = q.ListDominiCliente(ctx, c.ClienteID)
 		dati.Buyer, _ = q.ListBuyerCliente(ctx, c.ClienteID)
 		dati.Fabbisogno, _ = q.ListFabbisognoEffettivo(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
-		var regole domain.Regole
-		regole, dati.Diagnosi = domain.LeggiRegole(c.Regole)
+		dati.Propri, _ = q.ListFabbisognoCliente(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
+		dati.Regole, dati.Diagnosi = domain.LeggiRegole(c.Regole)
 		if dati.RegoleJSON == "" {
-			dati.RegoleJSON = indenta(c.Regole, regole)
+			dati.RegoleJSON = indenta(c.Regole, dati.Regole)
 		}
 	}
 	s.rendi(w, r, "anagrafica.html", "anagrafica_corpo", "Anagrafica", dati)
@@ -253,18 +286,18 @@ func (s *Server) salvaRegole(w http.ResponseWriter, r *http.Request) {
 	}
 	regole, err := domain.ValidaRegole([]byte(testo))
 	if err != nil {
-		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, RegoleJSON: testo, Errore: err.Error(),
+		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "riconoscimento", RegoleJSON: testo, Errore: err.Error(),
 			Diagnosi: diagnosiDiUnTestoRifiutato(testo)})
 		return
 	}
 	pulito, _ := json.Marshal(regole)
 	agg, err := q.SetRegoleCliente(r.Context(), db.SetRegoleClienteParams{ClienteID: c.ClienteID, Regole: pulito})
 	if err != nil {
-		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, RegoleJSON: testo, Errore: err.Error()})
+		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "riconoscimento", RegoleJSON: testo, Errore: err.Error()})
 		return
 	}
 	s.Log.Info("regole cliente salvate", "cliente", agg.RagioneSociale, "famiglie", len(regole.FamiglieCodice), "utente", siglaDa(r))
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &agg, Fatto: "Regole salvate: tutte le regole hanno un esempio che corrisponde."})
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &agg, Sez: "riconoscimento", Fatto: "Regole salvate: tutte le regole hanno un esempio che corrisponde."})
 }
 
 // diagnosiDiUnTestoRifiutato mostra il ✓/✗ anche quando il salvataggio è stato rifiutato: serve a
@@ -284,7 +317,7 @@ func (s *Server) aggiungiDominioCliente(w http.ResponseWriter, r *http.Request) 
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Errore: err.Error()})
 		return
 	}
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Fatto: "Dominio aggiunto."})
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: "Dominio aggiunto."})
 }
 
 func (s *Server) eliminaDominioCliente(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +332,7 @@ func (s *Server) eliminaDominioCliente(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("dominio rimosso", "dominio", dom, "cliente", c.RagioneSociale, "utente", siglaDa(r))
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Fatto: "Dominio rimosso da questo cliente."})
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: "Dominio rimosso da questo cliente."})
 }
 
 // bancoProva fa passare un testo incollato per lo STESSO riconoscimento dei messaggi veri
@@ -322,7 +355,7 @@ func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
 	if n := strings.TrimSpace(r.FormValue("allegati")); n != "" {
 		in.NomiAllegati = strings.Fields(n)
 	}
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c,
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "prova",
 		Prova: &provaDati{Testo: testo, Cliente: c.RagioneSociale, Esito: domain.Riconosci(in, time.Now())}})
 }
 

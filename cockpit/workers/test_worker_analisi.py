@@ -53,3 +53,92 @@ def test_analisi_cad_2d():
     assert res["confidenza"] == 95
     assert res["fonte"] == "cartiglio"
     assert res["dettagli"].get("cartiglio") is True
+
+
+# ---------------------------------------------------------------- checkpoint 3R §5: PDF non e' disegno
+#
+# Questi PDF vengono COSTRUITI qui, non presi dal corpus riservato: e' la voce 5.5 del piano
+# («test veri e contratti a due lati») applicata in anticipo, e serve perche' la regola da provare —
+# «il tipo lo dice il contenuto, non l'estensione» — si prova solo variando il contenuto.
+
+import pymupdf
+
+
+def scrivi_pdf(tmp_path, nome: str, testo: str) -> str:
+    doc = pymupdf.open()
+    pagina = doc.new_page()
+    y = 72
+    for riga in testo.splitlines():
+        pagina.insert_text((50, y), riga, fontsize=10)
+        y += 14
+    percorso = tmp_path / nome
+    doc.save(str(percorso))
+    doc.close()
+    return str(percorso)
+
+
+def test_pdf_generico_non_e_cad(tmp_path):
+    """Un PDF qualunque non e' un disegno, nemmeno se si chiama come un codice.
+
+    E' il difetto di §5: `pdf => disegno_2d` per estensione, e +20 di confidenza se il nome
+    assomigliava a un codice. «6674611A.pdf» diventava un CAD al 70% mentre poteva benissimo essere
+    l'offerta di un fornitore PER quel pezzo, o la conferma d'ordine.
+    """
+    p = scrivi_pdf(tmp_path, "6674611A.pdf", "Buongiorno,\nin allegato il documento richiesto.\nCordiali saluti")
+    res = analizza_file(p, "6674611A.pdf")
+    assert res["tipo_proposto"] == "da_determinare", res
+    assert res["codice"] == "6674611A"  # il codice si conserva: e' un indizio utile
+    assert res["confidenza"] <= 50
+
+
+def test_pdf_con_cartiglio_e_disegno(tmp_path):
+    """Con i termini del cartiglio, invece, il tipo si sa: e lo si sa perche' il file e' stato letto."""
+    p = scrivi_pdf(tmp_path, "6674611A_4.pdf",
+                   "TOLLERANZE GENERALI ISO 2768-mK\nSCALA 1:2\nPESO KG 1,340\nZONA ESENTE DA SALDATURA")
+    res = analizza_file(p, "6674611A_4.pdf")
+    assert res["tipo_proposto"] == "disegno_2d", res
+    assert res["codice"] == "6674611A" and res["rev"] == "4"
+    assert res["confidenza"] == 95
+    assert res["dettagli"].get("cartiglio") is True
+
+
+def test_pdf_capitolato(tmp_path):
+    p = scrivi_pdf(tmp_path, "allegato_tecnico.pdf",
+                   "CAPITOLATO DI FORNITURA\nREQUISITI GENERALI\nNORME DI RIFERIMENTO UNI EN ISO 9001\nPIANO DI CONTROLLO")
+    res = analizza_file(p, "allegato_tecnico.pdf")
+    assert res["tipo_proposto"] == "capitolato", res
+    assert res["dettagli"].get("capitolato") is True
+
+
+def test_pdf_distinta(tmp_path):
+    righe = ["DISTINTA BASE", "POS.  CODICE        DESCRIZIONE        Q.TA"]
+    for i in range(1, 8):
+        righe.append(f"{i}  667461{i}A  Particolare {i}  {i * 2}")
+    p = scrivi_pdf(tmp_path, "distinta.pdf", "\n".join(righe))
+    res = analizza_file(p, "distinta.pdf")
+    assert res["tipo_proposto"] == "distinta_cliente", res
+
+
+def test_pdf_offerta_resta_offerta(tmp_path):
+    p = scrivi_pdf(tmp_path, "offerta_fornitore.pdf",
+                   "CONDIZIONI GENERALI DI VENDITA\nPAGAMENTO 60 GG\nINCOTERMS EXW")
+    res = analizza_file(p, "offerta_fornitore.pdf")
+    assert res["tipo_proposto"] == "offerta_promatec", res
+
+
+def test_pdf_illeggibile_non_e_un_disegno(tmp_path):
+    """Un PDF che non si apre non e' «un disegno con confidenza 40»: e' un PDF che non si apre."""
+    percorso = tmp_path / "rotto.pdf"
+    percorso.write_bytes(b"%PDF-1.4 questo non e' un PDF valido")
+    res = analizza_file(str(percorso), "rotto.pdf")
+    assert res["tipo_proposto"] == "da_determinare", res
+    assert "errore_pdf" in res["dettagli"]
+
+
+def test_immagine_scansionata_resta_da_determinare(tmp_path):
+    """Un TIF puo' essere un disegno scansionato o un documento di trasporto: senza OCR non si sa."""
+    percorso = tmp_path / "6674611A.tif"
+    percorso.write_bytes(b"II*\x00")  # intestazione TIFF: basta, il file non viene letto
+    res = analizza_file(str(percorso), "6674611A.tif")
+    assert res["tipo_proposto"] == "da_determinare", res
+    assert res["codice"] == "6674611A"

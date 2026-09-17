@@ -116,3 +116,36 @@ body.rail-chiusa .rail{display:none}
 .esito-prova{background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;font-size:13px}
 .vuoto{color:var(--muto);padding:16px;text-align:center}
 @media (max-width:900px){.ana{grid-template-columns:1fr}.ana .elenco{max-height:220px}}
+
+/* ---------------------------------------------------------------- checkpoint 3R: candidati ed evidenza */
+.briciole{margin:0 0 4px;font-size:12px;color:var(--muto)}
+.candidati-codice{margin:8px 0}
+.candidati-codice .etichetta{margin:0 0 4px;font-weight:600}
+ul.candidati{list-style:none;margin:0;padding:0}
+ul.candidati li{padding:3px 0;border-bottom:1px dotted var(--bordo)}
+ul.candidati label{display:flex;gap:6px;align-items:baseline;cursor:pointer}
+.altri-numeri{margin:6px 0;padding:6px 8px;background:#fafafa;border:1px solid var(--bordo);border-radius:6px}
+.candidati-aggancio .candidato{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--bordo);
+  border-radius:6px;margin-bottom:6px;cursor:pointer}
+.candidati-aggancio .candidato:hover{background:#f0f4fa}
+.candidati-aggancio .candidato.chiuso{background:#fff8f0;border-color:#e0c0a0}
+.punteggio{display:inline-block;min-width:2.2em;text-align:center;font-weight:700;background:var(--grigio,#eef);
+  border-radius:4px;padding:1px 4px}
+.avviso-inline{color:#8a5a00}
+fieldset.avviso-candidati{border-color:#8a5a00;background:#fff8f0}
+.non-disponibile{padding:8px 10px;background:#fafafa;border:1px dashed var(--bordo);border-radius:6px}
+
+/* checkpoint 3R §7: anagrafica a sezioni */
+.tabs.sezioni{margin:0 0 10px;gap:2px}
+.muto.nota{font-size:12px;margin:-4px 0 8px}
+label.inline{display:flex;gap:6px;align-items:center}
+label.inline input{width:auto}
+form.riga-inline{margin-top:8px;display:flex;gap:6px}
+table.famiglie input{width:100%}
+table.famiglie td{padding:2px 4px}
+details.avanzato{margin-top:14px;border-top:1px solid var(--bordo);padding-top:8px}
+details.avanzato summary{cursor:pointer;color:var(--muto)}
+.avviso-blocco{margin:8px 0;padding:8px 10px;background:#fff8f0;border:1px solid #e0c0a0;border-radius:6px;font-size:13px}
+.riga-esito{margin-top:4px}
+.esito-prova{margin-top:10px}
+.diagnosi{margin-bottom:10px}

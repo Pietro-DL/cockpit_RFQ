@@ -52,6 +52,48 @@
   </details>
   {{end}}
 
+  {{if .Candidati}}
+  <section class="candidati">
+    <h3>Candidati di aggancio <small class="muto">il sistema propone, tu decidi</small></h3>
+    {{template "candidati_aggancio" .Candidati}}
+    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. Per agganciarlo usa
+      «Aggancia a…», che chiede quale.</p>
+  </section>
+  {{end}}
+
+  {{if or .Analisi.Presente .Analisi.Disponibile}}
+  <section class="analisi-ai">
+    <h3>Lettura dell'assistente <small class="muto">proposta, gia' verificata sul testo</small></h3>
+    {{if .Analisi.Presente}}
+      {{with .Analisi.Proposta}}
+      <div>intento proposto: <strong>{{.Intento}}</strong>{{if .Riferimento}} &middot; riferimento <span class="mono">{{.Riferimento}}</span>{{end}}</div>
+      {{if .Codici}}<div class="riga-esito">codici: {{range .Codici}}<span class="chip" title="{{.Ruolo}}{{if .Dove}} · {{.Dove}}{{end}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{end}}</div>{{end}}
+      {{if .CosaManca}}<div class="riga-esito">cosa manca: {{range .CosaManca}}<span class="chip avviso">{{.}}</span> {{end}}</div>{{end}}
+      {{if .Evidenze}}<details><summary class="muto">evidenze ({{len .Evidenze}})</summary>
+        <ul>{{range .Evidenze}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+      {{if .Bozza}}<details><summary class="muto">bozza di risposta proposta</summary>
+        <pre class="corpo-msg">{{.Bozza}}</pre>
+        <p class="muto">E' una bozza: per mandarla si passa da «Rispondi», che apre Outlook. L'invio resta manuale.</p>
+      </details>{{end}}
+      {{end}}
+      {{if .Analisi.Scarti}}
+      <details><summary class="muto">scartate dal controllo: {{len .Analisi.Scarti}}</summary>
+        <ul>{{range .Analisi.Scarti}}<li><code>{{.Campo}}</code> = <span class="mono">{{.Valore}}</span> — {{.Motivo}}</li>{{end}}</ul>
+        <p class="muto">Il server ricontrolla ogni codice e ogni riferimento contro il testo del messaggio:
+          quello che non trova riscontro non arriva qui.</p>
+      </details>
+      {{end}}
+    {{else}}
+      <p class="muto">Nessuna lettura ancora chiesta per questo messaggio.</p>
+    {{end}}
+    {{if .Analisi.Disponibile}}
+    <button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/analizza" hx-target="#pannello"
+            title="Manda oggetto, corpo e nomi degli allegati al servizio di analisi. Non manda i file.">
+      {{if .Analisi.Presente}}Rileggi{{else}}Fai leggere all'assistente{{end}}</button>
+    {{end}}
+  </section>
+  {{end}}
+
   {{if .Portale}}
   <section class="portale">
     <h3>Riferimenti portale rilevati</h3>
@@ -172,7 +214,7 @@
         </select>
       </label>
       <div id="cliente-nuovo" class="griglia3" {{if .ClienteID.Valid}}hidden{{end}}>
-        <label>Ragione sociale <input name="cliente_nome" placeholder="es. Landini Argo Tractors"></label>
+        <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
         <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"></label>
         <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
       </div>
@@ -192,7 +234,9 @@
     <fieldset>
       <legend>RFQ</legend>
       <label>Oggetto (nome cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
-      <label>Codici prodotto finito <input name="identificativi" value="{{.Identificativi}}" placeholder="separati da virgola"> <small class="muto">proposti dal triage: modificabili</small></label>
+      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 490020618, Anfrage_…">
+        <small class="muto">il numero con cui il cliente chiama questa richiesta. Non è un codice prodotto e non diventa un identificativo.</small></label>
+      {{template "candidati_codice" $}}
       <div class="griglia3">
         <label>Scadenza <input type="date" name="scadenza" value="{{.Scadenza}}"></label>
         <label>Priorità <select name="priorita"><option value="1">normale</option><option value="2">alta</option><option value="3">urgente</option></select></label>
@@ -201,6 +245,19 @@
       <label>Note <input name="note"></label>
       <p class="muto anteprima">Cartella: <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»; per un cliente nuovo «CLIENTE» diventa la sua cartella NAS)</small></p>
     </fieldset>
+
+    {{if .Candidati}}
+    <fieldset class="avviso-candidati">
+      <legend>Attenzione: potrebbe essere una richiesta che esiste già</legend>
+      <p class="muto">Le regole di aggancio hanno trovato {{len .Candidati}} candidat{{if eq (len .Candidati) 1}}o{{else}}i{{end}}.
+        Se è uno di questi, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
+      {{range .Candidati}}
+      <p><span class="punteggio">{{.Punteggio}}</span> <b>{{.Cliente}}</b> · {{txt .Oggetto}}
+        <small class="muto">{{.Regola}} — {{.Evidenza}}</small></p>
+      {{end}}
+      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
+    </fieldset>
+    {{end}}
 
     {{template "triage_allegati" $}}
 
@@ -213,9 +270,13 @@
   {{else}}
   <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello">
     <fieldset>
-      <legend>RFQ aperta</legend>
-      <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…" autofocus
-             hx-get="/thread/cerca" hx-trigger="load, keyup changed delay:300ms" hx-target="#thread-risultati">
+      <legend>Candidati proposti <small class="muto">regole R0–R5, con l'evidenza</small></legend>
+      {{template "candidati_aggancio" .Candidati}}
+    </fieldset>
+    <fieldset>
+      <legend>Oppure cerca fra le RFQ aperte</legend>
+      <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…"
+             hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms" hx-target="#thread-risultati">
       <div id="thread-risultati"></div>
     </fieldset>
     <fieldset>
@@ -303,4 +364,69 @@
   {{if .Avviso}}<span class="chip avviso-testata">{{.Avviso}}</span>{{end}}
   {{end}}
 </span>
+{{end}}
+
+{{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza.
+     Prima erano una sola casella di testo precompilata che al submit confermava tutto. */}}
+{{define "candidati_codice"}}
+{{with .Dati}}
+<div class="candidati-codice">
+  <p class="etichetta">Codici da mettere nella RFQ <small class="muto">il sistema propone, la spunta è tua</small></p>
+  {{if .Proponibili}}
+  <ul class="candidati">
+    {{range .Proponibili}}
+    <li>
+      <label>
+        <input type="checkbox" name="codice" value="{{.Codice}}" {{if eq .Origine "famiglia"}}checked{{end}}>
+        <code>{{.Codice}}</code>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
+        {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
+        {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
+        <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span>
+      </label>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muto">Nessun codice riconosciuto dalle regole del cliente. Scrivi qui sotto quelli che servono.</p>
+  {{end}}
+  {{if .Altri}}
+  <details class="altri-numeri">
+    <summary class="muto">Altri numeri trovati ({{len .Altri}}) — non sono codici di questo cliente</summary>
+    <p class="muto">Il cliente ha famiglie di codice dichiarate, e questi non ci rientrano: sono numeri con la forma
+      di un codice. Spuntane uno solo se sai che lo è.</p>
+    <ul class="candidati">
+      {{range .Altri}}
+      <li><label><input type="checkbox" name="codice" value="{{.Codice}}">
+        <code>{{.Codice}}</code> <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span></label></li>
+      {{end}}
+    </ul>
+  </details>
+  {{end}}
+  <label>Altri codici, scritti da te <input name="identificativi" placeholder="separati da virgola">
+    <small class="muto">questi risultano inseriti a mano</small></label>
+</div>
+{{end}}
+{{end}}
+
+{{/* candidati_aggancio — le proposte R0–R5 con l'evidenza. Si vedono TUTTE (T16): sceglierne una per
+     l'operatore è esattamente ciò che il checkpoint 3R toglie. */}}
+{{define "candidati_aggancio"}}
+{{if .}}
+<div class="candidati-aggancio">
+  {{range .}}
+  <label class="candidato {{if eq .ThreadStato "CHIUSA"}}chiuso{{end}}">
+    <input type="radio" name="thread_id" value="{{.ThreadID}}">
+    <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
+    <span class="testo">
+      <b>{{.Cliente}}</b> · {{txt .Oggetto}}{{if .RiferimentoCliente.Valid}} <span class="chip">{{.RiferimentoCliente.String}}</span>{{end}}
+      <span class="muto">{{data .DataInizio}}</span>
+      <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
+      {{if eq .ThreadStato "CHIUSA"}}<br><small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
+    </span>
+  </label>
+  {{end}}
+</div>
+{{else}}
+<p class="muto">Nessun candidato: nessuna regola di aggancio ha trovato una richiesta che corrisponda.</p>
+{{end}}
 {{end}}

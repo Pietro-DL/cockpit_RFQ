@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/ingest"
@@ -57,6 +58,10 @@ type Server struct {
 	TLS *rete.Materiale
 	// Indirizzo è [server].indirizzo: da qui si ricava l'URL da scrivere nel worker.toml del pacchetto.
 	Indirizzo string
+	// Agente è l'analisi semantica (checkpoint 3R §9). Nil o spenta: la schermata non offre il
+	// pulsante, e la rotta risponde che l'analisi non è attiva. Nascondere non è autorizzare, quindi
+	// il controllo sta in tutti e due i posti.
+	Agente *agente.Servizio
 	// Workers è il filesystem che contiene `workers/` (il pacchetto del worker, D22). Nil = la pagina
 	// *Postazioni* genera solo il worker.toml, senza i file del worker.
 	Workers fs.FS
@@ -147,7 +152,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "cruscotto.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -195,6 +200,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /messaggio/{id}/apri", s.autenticato(s.apriInOutlook))
 	mux.HandleFunc("POST /messaggio/{id}/bozza", s.autenticato(s.bozza))
 	mux.HandleFunc("POST /messaggio/{id}/letto", s.autenticato(s.segnaLetto))
+	mux.HandleFunc("POST /messaggio/{id}/analizza", s.autenticato(s.chiediAnalisi))
 	// blocco 4: triage
 	mux.HandleFunc("GET /messaggio/{id}/triage", s.autenticato(s.triageForm))
 	mux.HandleFunc("POST /messaggio/{id}/rfq", s.autenticato(s.nuovaRFQ))
@@ -230,6 +236,12 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/anagrafica", s.soloAdmin(s.nuovoCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}", s.soloAdmin(s.salvaCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/regole", s.soloAdmin(s.salvaRegole))
+	// checkpoint 3R §7: il form strutturato e le due entita' che erano visibili ma non modificabili
+	mux.HandleFunc("POST /admin/anagrafica/{id}/regole/form", s.soloAdmin(s.salvaRegoleDalForm))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/buyer", s.soloAdmin(s.nuovoBuyerCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/buyer/elimina", s.soloAdmin(s.eliminaBuyerCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/fabbisogno", s.soloAdmin(s.aggiungiFabbisogno))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/fabbisogno/elimina", s.soloAdmin(s.eliminaFabbisogno))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio", s.soloAdmin(s.aggiungiDominioCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio/elimina", s.soloAdmin(s.eliminaDominioCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/prova", s.soloAdmin(s.bancoProva))
@@ -727,6 +739,13 @@ type messaggioDati struct {
 	Bozze        []db.Bozza
 	Thread       *db.ThreadOfferta
 	Avviso       string
+	// Analisi è la proposta dell'agente semantico, già verificata contro il testo del messaggio
+	// (checkpoint 3R §9). Vuota finché nessuno l'ha chiesta; `Disponibile` dice se il pulsante ha
+	// senso su questa casella.
+	Analisi analisiUI
+	// Candidati sono le proposte di aggancio R0–R5 con l'evidenza: si vedono nel pannello, prima di
+	// aprire un form, perché è lì che si decide se questo messaggio è una richiesta nuova o no.
+	Candidati []db.ListCandidatiAggancioRow
 }
 
 // Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
@@ -793,6 +812,14 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 	if bz != nil {
 		d.Bozze, _ = pgx.CollectRows(bz, pgx.RowToStructByName[db.Bozza])
 	}
+	if !m.ThreadID.Valid {
+		d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
+	}
+	var caselle []string
+	for _, p := range d.Presenze {
+		caselle = append(caselle, p.CasellaIndirizzo)
+	}
+	d.Analisi = s.analisiPer(ctx, q, id, caselle)
 	return d, nil
 }
 
@@ -995,13 +1022,12 @@ func (s *Server) avvisoErrore(w http.ResponseWriter, testo string) {
 
 // ---------------------------------------------------------------- cruscotto e admin
 
+// cruscotto non esiste piu' come tabella globale (checkpoint 3R §1): era la stessa lista di
+// «Richieste» con le stesse colonne e un ordinamento diverso. Il cruscotto e' quello DI UNA
+// richiesta, e si apre da li'. La rotta resta e reindirizza, perche' chi aveva salvato il
+// segnalibro deve trovare qualcosa, non un 404.
 func (s *Server) cruscotto(w http.ResponseWriter, r *http.Request) {
-	righe, err := db.New(s.Pool).ListCruscotto(r.Context(), db.ListCruscottoParams{SoloAperti: r.URL.Query().Get("tutti") == "", Limit: 200})
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	s.rendi(w, r, "cruscotto.html", "cruscotto_tabella", "Cruscotto", righe)
+	http.Redirect(w, r, "/richieste", http.StatusSeeOther)
 }
 
 type jobDati struct {

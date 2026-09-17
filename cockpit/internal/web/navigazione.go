@@ -16,10 +16,23 @@ import "promatec/cockpit/internal/db"
 //
 // # Le sezioni
 //
-// L'operatore vede Inbox, Richieste, Cruscotto: il suo lavoro. L'amministratore vede quelle più
-// una sezione *Admin* con Anagrafica, Postazioni, Coda job, Scarti. La sezione nuova si aggiunge
-// qui e compare nella rail: è il punto della voce 8.8, e il motivo per cui questa funzione esiste
-// invece di una lista scritta dentro il template.
+// L'operatore vede Inbox e Richieste: il suo lavoro. L'amministratore vede quelle più una sezione
+// *Admin* con Anagrafica, Postazioni, Coda job, Scarti. La sezione nuova si aggiunge qui e compare
+// nella rail: è il punto della voce 8.8, e il motivo per cui questa funzione esiste invece di una
+// lista scritta dentro il template.
+//
+// # Il Cruscotto non è più una voce (checkpoint 3R §1)
+//
+// «Richieste» e «Cruscotto» erano due elenchi della stessa cosa, con le stesse colonne, in due
+// pagine diverse: l'unica differenza era l'ordinamento. Due tabelle globali quasi identiche non
+// sono due funzioni, sono una funzione e un doppione — e il doppione invecchia da solo, perché
+// nessuno si ricorda di aggiornare tutt'e due.
+//
+// Adesso *Richieste* è l'ELENCO delle RFQ, e aprirne una porta al suo cruscotto: la pagina di
+// lavoro di quella richiesta, dove nei blocchi 5, 8 e 10 arriveranno Struttura, Smistamento e
+// Fascicolo. «Cruscotto» resta come parola, ma vuol dire il cruscotto DI UNA RICHIESTA, non una
+// tabella di tutte. `/cruscotto` reindirizza a `/richieste`: i segnalibri di chi lo aveva salvato
+// continuano a funzionare.
 //
 // # Anagrafica è amministrativa (D29)
 //
@@ -57,7 +70,6 @@ func navPer(u *db.Utente) []sezioneNav {
 	nav := []sezioneNav{{Voci: []voceNav{
 		{Etichetta: "Inbox", Href: "/inbox", Titolo: "Inbox"},
 		{Etichetta: "Richieste", Href: "/richieste", Titolo: "Richieste"},
-		{Etichetta: "Cruscotto", Href: "/cruscotto", Titolo: "Cruscotto"},
 	}}}
 	if almeno(u, db.RuoloUtenteAdmin) {
 		nav = append(nav, sezioneNav{Nome: "Admin", Voci: []voceNav{

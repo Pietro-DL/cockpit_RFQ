@@ -923,6 +923,76 @@ func AllOrigineAnagraficaValues() []OrigineAnagrafica {
 	}
 }
 
+type OrigineCodice string
+
+const (
+	OrigineCodiceFamiglia    OrigineCodice = "famiglia"
+	OrigineCodiceRiferimento OrigineCodice = "riferimento"
+	OrigineCodiceGenerico    OrigineCodice = "generico"
+	OrigineCodiceNomeFile    OrigineCodice = "nome_file"
+	OrigineCodiceOperatore   OrigineCodice = "operatore"
+	OrigineCodiceAgente      OrigineCodice = "agente"
+)
+
+func (e *OrigineCodice) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrigineCodice(s)
+	case string:
+		*e = OrigineCodice(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrigineCodice: %T", src)
+	}
+	return nil
+}
+
+type NullOrigineCodice struct {
+	OrigineCodice OrigineCodice `json:"origine_codice"`
+	Valid         bool          `json:"valid"` // Valid is true if OrigineCodice is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrigineCodice) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrigineCodice, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrigineCodice.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrigineCodice) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrigineCodice), nil
+}
+
+func (e OrigineCodice) Valid() bool {
+	switch e {
+	case OrigineCodiceFamiglia,
+		OrigineCodiceRiferimento,
+		OrigineCodiceGenerico,
+		OrigineCodiceNomeFile,
+		OrigineCodiceOperatore,
+		OrigineCodiceAgente:
+		return true
+	}
+	return false
+}
+
+func AllOrigineCodiceValues() []OrigineCodice {
+	return []OrigineCodice{
+		OrigineCodiceFamiglia,
+		OrigineCodiceRiferimento,
+		OrigineCodiceGenerico,
+		OrigineCodiceNomeFile,
+		OrigineCodiceOperatore,
+		OrigineCodiceAgente,
+	}
+}
+
 type OrigineComponente string
 
 const (
@@ -992,6 +1062,8 @@ const (
 	OrigineIdentificativoPropostaNomeFile OrigineIdentificativo = "proposta_nome_file"
 	OrigineIdentificativoPropostaStep     OrigineIdentificativo = "proposta_step"
 	OrigineIdentificativoManuale          OrigineIdentificativo = "manuale"
+	OrigineIdentificativoPropostaFamiglia OrigineIdentificativo = "proposta_famiglia"
+	OrigineIdentificativoPropostaGenerico OrigineIdentificativo = "proposta_generico"
 )
 
 func (e *OrigineIdentificativo) Scan(src interface{}) error {
@@ -1035,7 +1107,9 @@ func (e OrigineIdentificativo) Valid() bool {
 		OrigineIdentificativoPropostaCorpo,
 		OrigineIdentificativoPropostaNomeFile,
 		OrigineIdentificativoPropostaStep,
-		OrigineIdentificativoManuale:
+		OrigineIdentificativoManuale,
+		OrigineIdentificativoPropostaFamiglia,
+		OrigineIdentificativoPropostaGenerico:
 		return true
 	}
 	return false
@@ -1048,6 +1122,142 @@ func AllOrigineIdentificativoValues() []OrigineIdentificativo {
 		OrigineIdentificativoPropostaNomeFile,
 		OrigineIdentificativoPropostaStep,
 		OrigineIdentificativoManuale,
+		OrigineIdentificativoPropostaFamiglia,
+		OrigineIdentificativoPropostaGenerico,
+	}
+}
+
+type RegolaAggancio string
+
+const (
+	RegolaAggancioR0Reply         RegolaAggancio = "R0_reply"
+	RegolaAggancioR1Conversazione RegolaAggancio = "R1_conversazione"
+	RegolaAggancioR2Oggetto       RegolaAggancio = "R2_oggetto"
+	RegolaAggancioR3Codice        RegolaAggancio = "R3_codice"
+	RegolaAggancioR4Riferimento   RegolaAggancio = "R4_riferimento"
+	RegolaAggancioR5Buyer         RegolaAggancio = "R5_buyer"
+)
+
+func (e *RegolaAggancio) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RegolaAggancio(s)
+	case string:
+		*e = RegolaAggancio(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RegolaAggancio: %T", src)
+	}
+	return nil
+}
+
+type NullRegolaAggancio struct {
+	RegolaAggancio RegolaAggancio `json:"regola_aggancio"`
+	Valid          bool           `json:"valid"` // Valid is true if RegolaAggancio is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRegolaAggancio) Scan(value interface{}) error {
+	if value == nil {
+		ns.RegolaAggancio, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RegolaAggancio.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRegolaAggancio) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RegolaAggancio), nil
+}
+
+func (e RegolaAggancio) Valid() bool {
+	switch e {
+	case RegolaAggancioR0Reply,
+		RegolaAggancioR1Conversazione,
+		RegolaAggancioR2Oggetto,
+		RegolaAggancioR3Codice,
+		RegolaAggancioR4Riferimento,
+		RegolaAggancioR5Buyer:
+		return true
+	}
+	return false
+}
+
+func AllRegolaAggancioValues() []RegolaAggancio {
+	return []RegolaAggancio{
+		RegolaAggancioR0Reply,
+		RegolaAggancioR1Conversazione,
+		RegolaAggancioR2Oggetto,
+		RegolaAggancioR3Codice,
+		RegolaAggancioR4Riferimento,
+		RegolaAggancioR5Buyer,
+	}
+}
+
+type RuoloCodice string
+
+const (
+	RuoloCodiceRiferimentoRfq  RuoloCodice = "riferimento_rfq"
+	RuoloCodiceProdotto        RuoloCodice = "prodotto"
+	RuoloCodiceParte           RuoloCodice = "parte"
+	RuoloCodiceNonClassificato RuoloCodice = "non_classificato"
+)
+
+func (e *RuoloCodice) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RuoloCodice(s)
+	case string:
+		*e = RuoloCodice(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RuoloCodice: %T", src)
+	}
+	return nil
+}
+
+type NullRuoloCodice struct {
+	RuoloCodice RuoloCodice `json:"ruolo_codice"`
+	Valid       bool        `json:"valid"` // Valid is true if RuoloCodice is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRuoloCodice) Scan(value interface{}) error {
+	if value == nil {
+		ns.RuoloCodice, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RuoloCodice.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRuoloCodice) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RuoloCodice), nil
+}
+
+func (e RuoloCodice) Valid() bool {
+	switch e {
+	case RuoloCodiceRiferimentoRfq,
+		RuoloCodiceProdotto,
+		RuoloCodiceParte,
+		RuoloCodiceNonClassificato:
+		return true
+	}
+	return false
+}
+
+func AllRuoloCodiceValues() []RuoloCodice {
+	return []RuoloCodice{
+		RuoloCodiceRiferimentoRfq,
+		RuoloCodiceProdotto,
+		RuoloCodiceParte,
+		RuoloCodiceNonClassificato,
 	}
 }
 
@@ -1243,6 +1453,70 @@ func AllStatoAllegatoValues() []StatoAllegato {
 		StatoAllegatoAnalizzato,
 		StatoAllegatoErrore,
 		StatoAllegatoIgnorato,
+	}
+}
+
+type StatoAnalisi string
+
+const (
+	StatoAnalisiInCorso    StatoAnalisi = "in_corso"
+	StatoAnalisiCompletata StatoAnalisi = "completata"
+	StatoAnalisiRifiutata  StatoAnalisi = "rifiutata"
+	StatoAnalisiErrore     StatoAnalisi = "errore"
+)
+
+func (e *StatoAnalisi) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StatoAnalisi(s)
+	case string:
+		*e = StatoAnalisi(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StatoAnalisi: %T", src)
+	}
+	return nil
+}
+
+type NullStatoAnalisi struct {
+	StatoAnalisi StatoAnalisi `json:"stato_analisi"`
+	Valid        bool         `json:"valid"` // Valid is true if StatoAnalisi is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStatoAnalisi) Scan(value interface{}) error {
+	if value == nil {
+		ns.StatoAnalisi, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StatoAnalisi.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStatoAnalisi) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StatoAnalisi), nil
+}
+
+func (e StatoAnalisi) Valid() bool {
+	switch e {
+	case StatoAnalisiInCorso,
+		StatoAnalisiCompletata,
+		StatoAnalisiRifiutata,
+		StatoAnalisiErrore:
+		return true
+	}
+	return false
+}
+
+func AllStatoAnalisiValues() []StatoAnalisi {
+	return []StatoAnalisi{
+		StatoAnalisiInCorso,
+		StatoAnalisiCompletata,
+		StatoAnalisiRifiutata,
+		StatoAnalisiErrore,
 	}
 }
 
@@ -1898,6 +2172,7 @@ const (
 	TipoDocumentoCorrispondenza   TipoDocumento = "corrispondenza"
 	TipoDocumentoRumore           TipoDocumento = "rumore"
 	TipoDocumentoAltro            TipoDocumento = "altro"
+	TipoDocumentoDaDeterminare    TipoDocumento = "da_determinare"
 )
 
 func (e *TipoDocumento) Scan(src interface{}) error {
@@ -1948,7 +2223,8 @@ func (e TipoDocumento) Valid() bool {
 		TipoDocumentoOrdineCliente,
 		TipoDocumentoCorrispondenza,
 		TipoDocumentoRumore,
-		TipoDocumentoAltro:
+		TipoDocumentoAltro,
+		TipoDocumentoDaDeterminare:
 		return true
 	}
 	return false
@@ -1968,6 +2244,7 @@ func AllTipoDocumentoValues() []TipoDocumento {
 		TipoDocumentoCorrispondenza,
 		TipoDocumentoRumore,
 		TipoDocumentoAltro,
+		TipoDocumentoDaDeterminare,
 	}
 }
 
@@ -1985,6 +2262,7 @@ const (
 	TipoJobSegnaLetto          TipoJob = "segna_letto"
 	TipoJobBackupDb            TipoJob = "backup_db"
 	TipoJobRileggiElemento     TipoJob = "rileggi_elemento"
+	TipoJobAnalizzaMessaggioAi TipoJob = "analizza_messaggio_ai"
 )
 
 func (e *TipoJob) Scan(src interface{}) error {
@@ -2034,7 +2312,8 @@ func (e TipoJob) Valid() bool {
 		TipoJobSpostaInCartella,
 		TipoJobSegnaLetto,
 		TipoJobBackupDb,
-		TipoJobRileggiElemento:
+		TipoJobRileggiElemento,
+		TipoJobAnalizzaMessaggioAi:
 		return true
 	}
 	return false
@@ -2053,6 +2332,7 @@ func AllTipoJobValues() []TipoJob {
 		TipoJobSegnaLetto,
 		TipoJobBackupDb,
 		TipoJobRileggiElemento,
+		TipoJobAnalizzaMessaggioAi,
 	}
 }
 
@@ -2146,6 +2426,28 @@ type AnalisiFatti struct {
 	CalcolatoIl          time.Time       `json:"calcolato_il"`
 }
 
+// Proposte dell'agente semantico. `risultato` e' gia' passato per lo schema e per il grounding in Go: ogni
+// codice e ogni riferimento citati sono stati ritrovati nel testo del messaggio, nei nomi degli allegati o nel
+// database. Cio' che non ha riscontro sta in `scartato` con il motivo, e non raggiunge la UI. Lo stato
+// `rifiutata` significa che l'output non rispettava lo schema: nessun effetto, e l'analisi resta come prova.
+type AnalisiMessaggio struct {
+	AnalisiID   uuid.UUID        `json:"analisi_id"`
+	MessaggioID uuid.UUID        `json:"messaggio_id"`
+	InputHash   string           `json:"input_hash"`
+	Versione    string           `json:"versione"`
+	Prompt      string           `json:"prompt"`
+	Modello     string           `json:"modello"`
+	Stato       StatoAnalisi     `json:"stato"`
+	Risultato   json.RawMessage  `json:"risultato"`
+	Grezzo      *json.RawMessage `json:"grezzo"`
+	Scartato    json.RawMessage  `json:"scartato"`
+	Errore      pgtype.Text      `json:"errore"`
+	TokenIn     pgtype.Int4      `json:"token_in"`
+	TokenOut    pgtype.Int4      `json:"token_out"`
+	DurataMs    pgtype.Int4      `json:"durata_ms"`
+	CreatoIl    time.Time        `json:"creato_il"`
+}
+
 type Bozza struct {
 	BozzaID            uuid.UUID       `json:"bozza_id"`
 	ThreadID           uuid.NullUUID   `json:"thread_id"`
@@ -2178,6 +2480,35 @@ type Buyer struct {
 	Origine    OrigineAnagrafica `json:"origine"`
 	Note       pgtype.Text       `json:"note"`
 	CreatoIl   time.Time         `json:"creato_il"`
+}
+
+// Proposte di aggancio con punteggio ed evidenza (fase 4.1, D9). NON e' una decisione: messaggio.thread_id
+// si scrive solo quando un operatore preme un bottone. Un messaggio puo' avere piu' candidati e li vede
+// tutti (T16); nessuno viene scelto dal sistema.
+type CandidatoAggancio struct {
+	MessaggioID uuid.UUID      `json:"messaggio_id"`
+	ThreadID    uuid.UUID      `json:"thread_id"`
+	Regola      RegolaAggancio `json:"regola"`
+	Punteggio   int16          `json:"punteggio"`
+	Evidenza    string         `json:"evidenza"`
+	ThreadStato StatoThread    `json:"thread_stato"`
+	CreatoIl    time.Time      `json:"creato_il"`
+}
+
+// Numeri trovati in un messaggio, con ruolo e provenienza. La chiave primaria e' (messaggio, codice) senza
+// il ruolo apposta: lo stesso testo non puo' essere insieme il riferimento della richiesta e un codice
+// prodotto. Le regole del cliente vengono prima dell'estrattore generico, quindi il ruolo lo decide la
+// precedenza, non l'ordine di inserimento.
+type CandidatoCodice struct {
+	MessaggioID uuid.UUID     `json:"messaggio_id"`
+	Codice      string        `json:"codice"`
+	Ruolo       RuoloCodice   `json:"ruolo"`
+	Rev         string        `json:"rev"`
+	Origine     OrigineCodice `json:"origine"`
+	Famiglia    string        `json:"famiglia"`
+	Punteggio   int16         `json:"punteggio"`
+	Evidenza    string        `json:"evidenza"`
+	CreatoIl    time.Time     `json:"creato_il"`
 }
 
 type CartellaDocumento struct {
@@ -2577,6 +2908,10 @@ type ThreadOfferta struct {
 	Note                pgtype.Text         `json:"note"`
 	CreatoDa            uuid.NullUUID       `json:"creato_da"`
 	CreatoIl            time.Time           `json:"creato_il"`
+	// Il numero con cui il cliente chiama questa richiesta (RDO, Anfrage, ODA), riconosciuto da
+	// cliente.regole.riferimento_rfq. Non e' un codice prodotto: alimenta la regola di aggancio R4, non
+	// identificativo_thread.
+	RiferimentoCliente pgtype.Text `json:"riferimento_cliente"`
 }
 
 type Transizione struct {

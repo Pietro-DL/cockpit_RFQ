@@ -26,6 +26,48 @@ type Config struct {
 	Worker     []Worker     `toml:"worker"`     // [[worker]] — credenziali individuali
 	Retention  Retention    `toml:"retention"`  // [retention] — fase 1, voce 1.6
 	Analisi    Analisi      `toml:"analisi"`    // [analisi] — fase 1, voce 1.12
+	Staging    Staging      `toml:"staging"`    // [staging] — checkpoint 3R, D30
+	Agente     Agente       `toml:"agente"`     // [agente] — checkpoint 3R §9
+}
+
+// Agente: l'analisi semantica dei messaggi (checkpoint 3R §9).
+//
+// Spenta se non la si accende qui, e comunque solo sulle caselle elencate. Il motivo non e' tecnico:
+// il testo delle mail dei clienti esce verso un servizio esterno, e questa e' una cosa da mettere per
+// iscritto con l'IT e con chi segue la ISO 27001 — per casella, con la possibilita' di spegnerla —
+// prima che parta la prima chiamata, non dopo.
+//
+// La CHIAVE non sta qui: `chiave_env` e' il NOME della variabile d'ambiente che la contiene. Un file
+// di configurazione finisce nei backup e ogni tanto in un repository; una variabile d'ambiente no.
+//
+// Che cosa esce, nella prima versione: oggetto, corpo, nomi degli allegati, ragione sociale del
+// cliente e i candidati gia' calcolati. Mai il contenuto dei file.
+type Agente struct {
+	Attivo    bool     `toml:"attivo"`
+	Modello   string   `toml:"modello"`    // es. "claude-sonnet-5"
+	URL       string   `toml:"url"`        // vuoto = quello predefinito del fornitore
+	ChiaveEnv string   `toml:"chiave_env"` // NOME della variabile d'ambiente, non la chiave
+	Caselle   []string `toml:"caselle"`    // indirizzi su cui l'analisi e' permessa; vuoto = nessuna
+}
+
+// Staging: se gli allegati di un cliente riconosciuto scendono da soli nello staging del server (D30).
+//
+// Perché la domanda esiste. Il tipo di un PDF si sa solo aprendolo: cartiglio, termini, numero di
+// pagine. Ma la regola «nessun download automatico» (D24) faceva partire l'analisi solo dopo un clic
+// su «Scarica», e fino a quel clic l'operatore vedeva «PDF · da determinare» su ogni allegato di ogni
+// messaggio — cioè doveva scaricare per sapere se valeva la pena scaricare.
+//
+// Con `automatico = true` gli allegati di un mittente riconosciuto, sotto `max_mb`, arrivano nello
+// staging appena il messaggio entra, e l'operatore li trova già classificati. Lo staging è una
+// cartella del server: la regola vera — «niente sul NAS senza una decisione» — riguarda il NAS, e il
+// NAS non lo tocca nessuno da qui.
+//
+// Il valore predefinito è FALSO: acceso, questo fa partire lavoro su Outlook senza che nessuno abbia
+// premuto niente, e una cosa del genere si accende scrivendola nel file di configurazione, non
+// perché è il default di un binario.
+type Staging struct {
+	Automatico bool `toml:"automatico"`
+	MaxMB      int  `toml:"max_mb"` // 0 = la soglia predefinita (20 MB)
 }
 
 // Retention: per quanto si tengono i job chiusi. Una coda che non si svuota mai diventa illeggibile e
@@ -194,10 +236,10 @@ type Outlook struct {
 	// cursore. Vale una volta sola: appena il primo sync scrive un cursore decide il cursore, e un
 	// riavvio non riporta la casella qui. Assente (o 0) = jobs.GiorniSyncInizialeDefault.
 	GiorniSyncIniziale int    `toml:"giorni_sync_iniziale"`
-	Dal                string `toml:"dal"` // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
-	Lotto           int      `toml:"lotto"`             // messaggi per POST ingest
-	ConsentiInvio   bool     `toml:"consenti_invio"`    // false = solo bozze (regola aziendale)
-	CasellaDefault  string   `toml:"casella_default"`   // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
+	Dal                string `toml:"dal"`             // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
+	Lotto              int    `toml:"lotto"`           // messaggi per POST ingest
+	ConsentiInvio      bool   `toml:"consenti_invio"`  // false = solo bozze (regola aziendale)
+	CasellaDefault     string `toml:"casella_default"` // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
 }
 
 // Casella è una voce [[casella]]: una casella di posta censita, personale o condivisa.
@@ -251,6 +293,7 @@ func Carica(percorso string) (*Config, error) {
 	c.Outlook.Lotto = 50
 	c.Retention.GiorniJob = 30
 	c.Analisi.Versione = 1
+	c.Staging.MaxMB = 20
 	if _, err := toml.DecodeFile(percorso, c); err != nil {
 		return nil, fmt.Errorf("config %s: %w", percorso, err)
 	}
