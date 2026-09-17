@@ -52,6 +52,14 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 	if n, e := strconv.Atoi(strings.TrimSpace(r.FormValue("finestra_aggancio_gg"))); e == nil {
 		reg.FinestraAggancioGG = n
 	}
+	if n, e := strconv.Atoi(strings.TrimSpace(r.FormValue("risposta_entro_gg"))); e == nil {
+		reg.RispostaEntroGG = n
+	}
+	for _, d := range strings.Split(r.FormValue("dati_richiesti"), "\n") {
+		if d = strings.TrimSpace(d); d != "" {
+			reg.DatiRichiesti = append(reg.DatiRichiesti, d)
+		}
+	}
 	for _, f := range strings.Split(r.FormValue("frasi_portale"), "\n") {
 		if f = strings.TrimSpace(f); f != "" {
 			reg.FrasiPortale = append(reg.FrasiPortale, f)

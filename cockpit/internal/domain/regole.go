@@ -66,6 +66,21 @@ type Regole struct {
 	// FinestraAggancioGG è entro quanti giorni un messaggio con lo stesso codice si considera
 	// ancora la stessa richiesta. 0 = non dichiarata.
 	FinestraAggancioGG int `json:"finestra_aggancio_gg,omitempty"`
+	// DatiRichiesti sono le informazioni che questo cliente pretende NELL'OFFERTA, oltre al prezzo.
+	//
+	// Non è una curiosità: un cliente scrive in fondo alla richiesta, evidenziato in giallo,
+	// «l'offerta dovrà essere completa dei dati sotto citati: Paese di Origine, Codice Nomenclatura
+	// Doganale, Peso Kg», e un'offerta che arriva senza quei dati viene rimandata indietro. Chi
+	// prepara l'offerta lo scopre rileggendo la mail; qui lo scopre guardando il cliente.
+	//
+	// Testo libero, un elemento per voce: serve a una persona, non a un ramo di codice. Un giorno
+	// diventerà una lista di controllo prima dell'invio — non oggi.
+	DatiRichiesti []string `json:"dati_richiesti,omitempty"`
+	// RispostaEntroGG è entro quanti giorni LAVORATIVI questo cliente si aspetta l'offerta. 0 = non
+	// dichiarato. È la finestra che il cliente dà a noi, ed è un'altra cosa da FinestraAggancioGG,
+	// che è la memoria del riconoscimento: confonderle vorrebbe dire agganciare le risposte con lo
+	// stesso numero con cui si misura il ritardo.
+	RispostaEntroGG int `json:"risposta_entro_gg,omitempty"`
 }
 
 // FamigliaCodice è una forma di codice prodotto del cliente, con l'esempio che la dimostra.
@@ -197,6 +212,22 @@ func (r Regole) Verifica() []Diagnostica {
 		d := Diagnostica{Regola: "lingua_risposta", Dettaglio: l, Ok: true}
 		if len(l) != 2 || strings.ToLower(l) != l {
 			d.Ok, d.Motivo = false, "va scritta con due lettere minuscole (it, en, de, fr)"
+		}
+		out = append(out, d)
+	}
+	for i, d := range r.DatiRichiesti {
+		dg := Diagnostica{Regola: fmt.Sprintf("dato richiesto %d", i+1), Dettaglio: d, Ok: true}
+		if strings.TrimSpace(d) == "" {
+			dg.Ok, dg.Motivo = false, "è vuoto"
+		} else if len(d) > 120 {
+			dg.Ok, dg.Motivo = false, "è lungo più di 120 caratteri: è una voce di elenco, non una nota"
+		}
+		out = append(out, dg)
+	}
+	if g := r.RispostaEntroGG; g != 0 {
+		d := Diagnostica{Regola: "risposta_entro_gg", Dettaglio: fmt.Sprint(g), Ok: true}
+		if g < 0 || g > 365 {
+			d.Ok, d.Motivo = false, fmt.Sprintf("sono giorni lavorativi: %d non è un numero possibile (da 1 a 365)", g)
 		}
 		out = append(out, d)
 	}

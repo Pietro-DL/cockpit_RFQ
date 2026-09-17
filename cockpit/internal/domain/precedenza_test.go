@@ -307,3 +307,35 @@ func contieneMotivo(motivi []string, frammento string) bool {
 	}
 	return false
 }
+
+// I due campi che nascono dagli screenshot del 17/09: che cosa il cliente pretende NELL'offerta, ed
+// entro quanti giorni lavorativi la vuole.
+//
+// Sono testo per una persona, non un ramo di codice, ma passano dallo stesso convalidatore di tutto
+// il resto: una voce vuota o un numero di giorni impossibile sono errori di battitura, e un errore di
+// battitura che entra in silenzio e' una regola che nessuno rilegge piu'.
+func TestDatiRichiestiERispostaEntro(t *testing.T) {
+	buono := `{"dati_richiesti":["Paese di origine","Codice nomenclatura doganale","Peso kg"],"risposta_entro_gg":5}`
+	r, err := ValidaRegole([]byte(buono))
+	if err != nil {
+		t.Fatalf("regole buone rifiutate: %v", err)
+	}
+	if len(r.DatiRichiesti) != 3 || r.RispostaEntroGG != 5 {
+		t.Fatalf("lette male: %+v", r)
+	}
+	// e sopravvivono al giro scrittura -> rilettura
+	riletto, _ := LeggiRegole([]byte(buono))
+	if len(riletto.DatiRichiesti) != 3 || riletto.RispostaEntroGG != 5 {
+		t.Errorf("perse alla rilettura: %+v", riletto)
+	}
+	for nome, cattivo := range map[string]string{
+		"voce vuota":         `{"dati_richiesti":["Peso kg",""]}`,
+		"voce lunghissima":   `{"dati_richiesti":["` + strings.Repeat("x", 130) + `"]}`,
+		"giorni negativi":    `{"risposta_entro_gg":-5}`,
+		"giorni impossibili": `{"risposta_entro_gg":5000}`,
+	} {
+		if _, err := ValidaRegole([]byte(cattivo)); err == nil {
+			t.Errorf("%s: accettato", nome)
+		}
+	}
+}

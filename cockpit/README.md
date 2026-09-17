@@ -287,7 +287,7 @@ sono dati dell'azienda. Lo tiene chi amministra il Cockpit, accanto a `cockpit.t
       "buyer": [{"cognome": "Rossi", "nome": "Mario", "email": "mario.rossi@acme.example", "tipo": "buyer"}],
       "regole": {
         "famiglie_codice": [
-          {"regex": "\\bAC\\d{5}[A-Z]\\b", "descrizione": "codici ACME", "esempio": "AC12345B"}
+          {"regex": "\bAC\d{5}[A-Z]\b", "descrizione": "codici ACME", "esempio": "AC12345B"}
         ],
         "lingua_risposta": "it",
         "richiede_cbd": true
@@ -562,19 +562,6 @@ proposti; con **Conferma → NAS** diventano documenti copiati nella cartella de
 dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
 l'invio non è mai automatico.
 
-**L'anagrafica dei clienti.** *Admin → Anagrafica* e' dove un cliente prende un peso (0-15, che ordina
-la lista **Richieste**), i suoi domini e le sue **regole di riconoscimento**: le famiglie dei suoi
-codici, il formato del suo riferimento di richiesta, le frasi con cui dice «e' sul portale». Ogni
-regola con una regex porta un **esempio che deve corrispondere**, perche' una regex sbagliata non da'
-errore: smette di riconoscere, e in silenzio. Le regole con l'esempio sbagliato compaiono con una ✗ e
-il motore non le usa; un JSON che non rispetta lo schema non viene salvato.
-
-Nella stessa schermata c'e' un **banco di prova**: si incolla una mail e si vede che cosa il Cockpit
-ne capirebbe. Non e' una simulazione — chiama la stessa funzione che lavora sui messaggi veri.
-
-E' una schermata amministrativa: una regex cambiata li' cambia il riconoscimento della posta di tutti.
-Un operatore non ne vede la voce e riceve 403 se ne scrive l'indirizzo.
-
 **Su quale PC.** Un job va solo a un worker che serve la casella del job — cioè che l'ha trovata nel
 proprio profilo Outlook ed è autorizzato a leggerla — e, se è un'azione interattiva (Apri, Segna
 letto, Bozza), solo al worker della **postazione da cui l'operatore sta lavorando**. La sessione del
@@ -703,17 +690,8 @@ internal/db                sqlc: queries/*.sql → codice generato (non modifica
 internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS;
-                           regole.go: lo schema di `cliente.regole` (famiglie di codice con esempio obbligatorio) e l'UNICO
-                           ingresso al riconoscimento, `Riconosci`, che usano sia l'ingest sia il banco di prova dell'Anagrafica
-internal/anagrafica        seme di clienti, domini e buyer da file: convalida tutto prima di scrivere, crea cio' che manca
-                           e non tocca cio' che c'e' (voce 6.6)
-internal/ingest            FATTO (messaggio, allegato) + proposta economica + candidati (aggancio, codici) + triage/portale.
-                           NON aggancia: dal checkpoint 3R `messaggio.thread_id` lo scrive solo una decisione dell'operatore
-internal/aggancio          le regole R0-R5: da In-Reply-To, conversazione, riferimento del cliente, codice, oggetto e buyer
-                           calcola i CANDIDATI con punteggio ed evidenza. Nessuna di queste query decide niente
-internal/agente            analisi semantica (checkpoint 3R §9): schema JSON validato, grounding IN GO contro il testo del
-                           messaggio, idempotenza per (input, prompt, modello). Spenta se non accesa in [agente]
+internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
+internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
@@ -819,45 +797,6 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 
 Punto ancora aperto dalla SPEC §0: `scadenza_origine` è incluso come enum {mail, buyer, portale, stimata}; se la
 distinzione non serve al cruscotto, si toglie prima della produzione.
-
-## Checkpoint 3R (17/09/2026)
-
-La sequenza dell'addendum v2 e' **ferma dopo il blocco 3**. Il dettaglio sta in
-`_fasi/CHECKPOINT_3R.md`; qui le tre cose che cambiano il modo di usare il Cockpit.
-
-**L'aggancio e' sempre una decisione.** L'ingest non scrive piu' `messaggio.thread_id`: propone
-candidati (`candidato_aggancio`) con punteggio ed evidenza, e il pannello del messaggio li mostra
-tutti. Agganciare un messaggio non trascina piu' gli altri della stessa conversazione: quelli
-ricevono un candidato e restano in Inbox, uno per uno.
-
-**I numeri hanno un ruolo.** Il riferimento con cui il cliente chiama la richiesta (RDO, Anfrage,
-ODA) sta in `thread_offerta.riferimento_cliente` e non diventa mai un codice prodotto. Nel form
-*Nuova RFQ* i codici si spuntano: non c'e' piu' una barra precompilata che al submit confermava
-tutto. Se il cliente ha famiglie dichiarate, l'estrattore generico non propone niente.
-
-**Un PDF e' un PDF finche' nessuno l'ha aperto.** Il tipo si chiama `da_determinare`, e lo decide il
-worker-analisi leggendo il contenuto. Perche' possa leggerlo il file deve scendere: con
-`[staging] automatico = true` gli allegati di un mittente riconosciuto sotto i 20 MB arrivano nello
-staging del server da soli. Lo staging e' una cartella del server; il NAS non viene toccato.
-
-Due interruttori nuovi in `cockpit.toml`:
-
-```toml
-[staging]
-automatico = true    # allegati di clienti riconosciuti, sotto max_mb, scendono da soli
-max_mb = 20
-
-[agente]
-attivo = false       # analisi semantica: manda testo dei clienti a un servizio esterno
-modello = "claude-sonnet-5"
-chiave_env = "ANTHROPIC_API_KEY"   # il NOME della variabile, non la chiave
-caselle = []         # gli indirizzi su cui e' permessa; vuoto = nessuna
-```
-
-`[agente]` resta spento. Accenderlo significa mandare il testo delle mail dei clienti a un servizio
-esterno, ed e' una cosa da mettere per iscritto con l'IT e con chi segue la ISO 27001 — per casella,
-con la possibilita' di spegnerla — non una scelta di configurazione. Senza la variabile d'ambiente
-resta spento comunque, e l'avvio lo scrive nel log.
 
 ## Prossimi passi (ordine consigliato)
 

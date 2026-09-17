@@ -213,6 +213,7 @@
           <label>Canale atteso <input name="canale_atteso" value="{{$d.Regole.CanaleAtteso}}" placeholder="mail con .msg annidato"></label>
           <label>Lingua della risposta <input name="lingua_risposta" maxlength="2" value="{{$d.Regole.LinguaRisposta}}"></label>
           <label>Finestra di aggancio (giorni) <input type="number" name="finestra_aggancio_gg" min="0" max="3650" value="{{$d.Regole.FinestraAggancioGG}}"></label>
+          <label>Risposta attesa entro (giorni lavorativi) <input type="number" name="risposta_entro_gg" min="0" max="365" value="{{$d.Regole.RispostaEntroGG}}"></label>
         </div>
         <p class="muto nota">La finestra dice entro quanti giorni un messaggio con lo stesso codice o lo
         stesso oggetto puo' ancora essere la stessa richiesta. 0 = quella predefinita (60 giorni). Senza
@@ -221,6 +222,12 @@
           <textarea name="frasi_portale" rows="3" spellcheck="false">{{range $d.Regole.FrasiPortale}}{{.}}
 {{end}}</textarea></label>
         <p class="muto nota">Si AGGIUNGONO a quelle generiche («caricato sul portale»…), non le sostituiscono.</p>
+        <label>Dati che l'offerta deve contenere (uno per riga)
+          <textarea name="dati_richiesti" rows="3" spellcheck="false">{{range $d.Regole.DatiRichiesti}}{{.}}
+{{end}}</textarea></label>
+        <p class="muto nota">Oltre al prezzo. Alcuni clienti scrivono in fondo alla richiesta, evidenziato,
+        «l'offerta dovra' essere completa dei dati sotto citati», e un'offerta che arriva senza quei dati
+        torna indietro. Qui si legge guardando il cliente, invece di rileggere la mail.</p>
         <div class="riga-campi">
           <label class="inline"><input type="checkbox" name="richiede_cbd" value="1" {{if $d.Regole.RichiedeCBD}}checked{{end}}> l'offerta vuole il cost breakdown</label>
           <label class="inline"><input type="checkbox" name="numero_ordine_anticipato" value="1" {{if $d.Regole.NumeroOrdineAnticipato}}checked{{end}}> emette il numero d'ordine prima dell'offerta</label>

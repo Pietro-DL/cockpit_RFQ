@@ -1,5 +1,6 @@
 # File di configurazione con credenziali
 cockpit.toml
+cockpit.*.toml
 workers/worker.toml
 # Il pacchetto della postazione, scompattato sul banco: worker.toml con i token, istruzioni
 # con l'indirizzo del server. Lo genera il server (D22), non il repository.
