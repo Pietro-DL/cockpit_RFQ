@@ -69,9 +69,9 @@ if (-not $SenzaPython) {
     # La metà Python verifica la premessa dell'altra: che gli schemi su disco descrivano i modelli
     # pydantic di oggi. Senza, il confronto Go girerebbe contro uno schema vecchio e sarebbe verde
     # proprio mentre le due parti si allontanano.
-    Esegui "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/test_contratti.py" { python -m pytest -q workers/test_contratti.py }
+    Esegui "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/tests/test_contratti.py" { python -m pytest -q workers/tests/test_contratti.py }
 } else {
-    Annota "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/test_contratti.py" "SALTATO" "richiesto -SenzaPython: non verificato"
+    Annota "L3 contratti (Python)" "rigenerare gli schemi non cambia nessun file" "python -m pytest -q workers/tests/test_contratti.py" "SALTATO" "richiesto -SenzaPython: non verificato"
 }
 
 if (-not $SenzaDB) {

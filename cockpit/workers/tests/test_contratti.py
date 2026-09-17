@@ -15,7 +15,7 @@ import os
 
 from contratti import CONTRATTI
 
-CARTELLA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "contracts")
+CARTELLA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "contracts")
 
 
 def _atteso(nome, modello):
