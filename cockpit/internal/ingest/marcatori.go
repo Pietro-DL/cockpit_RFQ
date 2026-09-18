@@ -33,7 +33,18 @@ const (
 // applicaMarcatori legge i marcatori del lotto e li applica alla riga del messaggio. Restituisce
 // true se il messaggio e' stato agganciato qui. Un marcatore che punta a niente (richiesta
 // cancellata, bozza di un altro banco) si registra nel log e non ferma l'ingest.
-func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.UpsertMessaggioRow, m *api.MessaggioIn) (bool, error) {
+//
+// Vale SOLO dove il Cockpit l'ha messo (7C.0, invariante 5). Cioe':
+//   - sulla nostra posta in USCITA: il Cockpit scrive le UserProperties sulla bozza che prepara, mai
+//     su una mail che arriva. Un marcatore su una mail in entrata non l'abbiamo messo noi — un
+//     inoltro dentro Exchange che si porta dietro le proprieta', o chiunque altro — e non vale;
+//   - su un messaggio che nessuno ha gia' messo in un'ALTRA RFQ: il risync di una mail decisa a mano
+//     non la sposta, e non lega nemmeno la richiesta, perche' una richiesta della RFQ A su una mail
+//     che sta nella RFQ B e' una contraddizione, non un legame.
+//
+// La direzione arriva da fuori perche' la decide il server dalle caselle censite (D8), non il
+// campo del worker.
+func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.UpsertMessaggioRow, m *api.MessaggioIn, dir db.Direzione) (bool, error) {
 	if len(m.Marcatori) == 0 {
 		return false, nil
 	}
@@ -42,6 +53,8 @@ func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.
 		rid, err := uuid.Parse(v)
 		if err != nil {
 			s.avvisa("marcatore richiesta non valido", "messaggio", m.MessageID, "valore", v)
+		} else if dir != db.DirezioneUscita {
+			s.avvisa("marcatore richiesta su una mail in entrata: ignorato, il Cockpit non lo ha messo lui", "messaggio", m.MessageID, "richiesta", rid)
 		} else {
 			r, err := q.GetRichiesta(ctx, rid)
 			switch {
@@ -49,6 +62,9 @@ func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.
 				s.avvisa("marcatore richiesta senza richiesta", "messaggio", m.MessageID, "richiesta", rid)
 			case err != nil:
 				return false, fmt.Errorf("marcatore richiesta: %w", err)
+			case row.ThreadID.Valid && row.ThreadID.UUID != r.ThreadID:
+				s.avvisa("marcatore richiesta su un messaggio gia' deciso in un'altra RFQ: ignorato", "messaggio", m.MessageID,
+					"richiesta", rid, "rfq_del_messaggio", row.ThreadID.UUID, "rfq_della_richiesta", r.ThreadID)
 			default:
 				n, err := q.SetRichiestaInviata(ctx, db.SetRichiestaInviataParams{RichiestaID: rid,
 					MessaggioID: uuid.NullUUID{UUID: row.MessaggioID, Valid: true}, InviataIl: &m.DataEvento})

@@ -265,9 +265,12 @@ type EsitoTriage struct {
 	// Candidato è il candidato di aggancio più forte, quando ce n'è uno. Non è una scelta: è il
 	// primo della lista che l'operatore vede per intero.
 	Candidato *Candidato
-	// Intento è che cosa il messaggio È (7B.3): uno degli Intento* di intento.go, vuoto se la
+	// Atto è che cosa sta facendo il mittente (7C.0): uno degli Atto* di atto.go, vuoto se la
 	// controparte non è stata dichiarata (prove che non la conoscono, messaggi di prima della 0014).
-	Intento string
+	// Legame è che cosa la mail è rispetto a ciò che il Cockpit conosce già: uno dei Legame*.
+	// Sono proposte, come l'esito; il deterministico dice quello che sa e «incerto» dove non sa.
+	Atto   string
+	Legame string
 	// CandidatoRichiesta è la richiesta ai fornitori più forte a cui questa posta risponde.
 	CandidatoRichiesta *CandidatoRichiesta
 }
@@ -328,15 +331,15 @@ func Triage(in IngressoTriage) EsitoTriage {
 		return triageFornitore(in, motivi)
 	case ControparteAmbiguo:
 		motivi = append(motivi, "controparte ambigua: l'indirizzo o il dominio sono censiti sia come cliente sia come fornitore. Decide una persona")
-		return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Intento: IntentoIncerto}
+		return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoIncerto, Legame: LegameIncerto}
 	case ControparteSconosciuto:
 		// Blocco 7B (D34): da un mittente non censito non nasce una proposta di RFQ. Prima si decide
 		// CHI è («Censisci come cliente / fornitore», che ricalcola), poi che cosa vuole.
 		return triageSconosciuto(in, motivi)
 	case ControparteCliente:
-		if si, m := NonRFQ(in.Mittente, in.Oggetto, in.Corpo); si {
-			motivi = append(motivi, m, "posta di un cliente che non è una richiesta: va in Da validare")
-			return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Intento: IntentoNonRfq}
+		if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
+			motivi = append(motivi, m, "posta di un cliente che non è di lavoro: se l'indirizzo è automatico, censiscilo come Altro")
+			return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoNonBusiness, Legame: LegameNessuno}
 		}
 	}
 	// Blocco 6: le parole «richiesta d'offerta» si cercano in quello che e' stato scritto ADESSO.
@@ -412,6 +415,7 @@ func Triage(in IngressoTriage) EsitoTriage {
 		if EvidenzaDiRFQEsistente(in.Candidati) {
 			out.Esito, out.Confidenza = "aggancia", k.Punteggio
 			out.Motivi = motivi
+			out.Atto, out.Legame = attoELegameCliente(in, out.Esito)
 			return out
 		}
 		// Nessuna evidenza verso una richiesta APERTA. Restano due casi, e in tutti e due il
@@ -432,23 +436,39 @@ func Triage(in IngressoTriage) EsitoTriage {
 		motivi = []string{"nessun indizio RFQ"}
 	}
 	out.Motivi = motivi
-	out.Intento = intentoCliente(in, out.Esito)
+	out.Atto, out.Legame = attoELegameCliente(in, out.Esito)
 	return out
 }
 
-// intentoCliente è l'intento del ramo «cliente» e del ramo «interno» (7B.3): una richiesta se
-// l'esito lo dice, un inoltro se è un collega, incerto altrimenti. Vuoto se la controparte non è
+// attoELegameCliente è l'atto e il legame del ramo «cliente» e del ramo «interno» (7C.0).
+//
+// Il deterministico sa poche cose e le dice: una mail che SEMBRA una richiesta nuova è una
+// richiesta d'offerta (legame: nuovo); una mail con l'evidenza di una RFQ esistente è una
+// risposta a quella RFQ, ma di che ATTO sia (una revisione, una domanda, un sollecito) dal
+// punteggio non si capisce, e l'atto resta «incerto»: prima della 0016 la chiamava rfq_cliente,
+// che era falso. Un collega che gira una mail fa un inoltro. Atto vuoto se la controparte non è
 // dichiarata: è il comportamento di prima della 0014, e le prove che non la conoscono lo tengono.
-func intentoCliente(in IngressoTriage, esito string) string {
+func attoELegameCliente(in IngressoTriage, esito string) (atto, legame string) {
+	switch esito {
+	case "nuova_rfq":
+		legame = LegameNuovo
+	case "aggancia":
+		legame = LegameRisposta
+	default:
+		legame = LegameNessuno
+		if len(in.Candidati) > 0 {
+			legame = LegameIncerto
+		}
+	}
 	switch {
 	case in.Controparte == ControparteInterno:
-		return IntentoInoltroInterno
+		return AttoInoltro, legame
 	case in.Controparte != ControparteCliente:
-		return ""
-	case esito == "nuova_rfq" || esito == "aggancia":
-		return IntentoRfqCliente
+		return "", ""
+	case esito == "nuova_rfq":
+		return AttoRichiestaOfferta, legame
 	}
-	return IntentoIncerto
+	return AttoIncerto, legame
 }
 
 // triageUscita: una nostra mail. A un fornitore è una richiesta d'offerta (o una risposta a lui):
@@ -459,7 +479,7 @@ func triageUscita(in IngressoTriage) EsitoTriage {
 	out := EsitoTriage{Esito: "ignora", Confidenza: 60, Motivi: []string{"messaggio in uscita"}, Codici: []string{}}
 	switch in.Controparte {
 	case ControparteFornitore:
-		out.Intento = IntentoRfqFornitore
+		out.Atto, out.Legame = AttoRichiestaOfferta, LegameNessuno
 		out.Motivi = []string{"nostra mail a un fornitore censito: una richiesta d'offerta a lui, o una risposta"}
 		e := in.Motore.Estrai(in.Testi()...)
 		out.Trovati, out.Estrazione = e.Codici, e
@@ -469,19 +489,22 @@ func triageUscita(in IngressoTriage) EsitoTriage {
 		}
 		if k, ok := MiglioreCandidato(in.RichiesteManuali); ok {
 			out.Candidato = &k
-			out.Esito, out.Confidenza = "aggancia", k.Punteggio
+			// nasce una richiesta (un oggetto nuovo) dentro una RFQ esistente: il legame è «nuovo»
+			out.Esito, out.Confidenza, out.Legame = "aggancia", k.Punteggio, LegameNuovo
 			out.Motivi = append(out.Motivi, k.Evidenza,
 				"se è la richiesta a questo fornitore per quella RFQ, confermala: nasce la richiesta, non una RFQ nuova")
 		}
 	case ControparteCliente:
-		out.Intento = IntentoOffertaPromatec
+		// la regola di sempre, rinominata: una nostra mail a un cliente si presume la nostra
+		// offerta. Il legame non si calcola sulla posta in uscita ai clienti: incerto.
+		out.Atto, out.Legame = AttoOfferta, LegameIncerto
 		out.Motivi = []string{"nostra mail a un cliente: la nostra offerta, o una risposta"}
 	}
 	return out
 }
 
 // triageFornitore: la posta in entrata di un fornitore censito. Mai `nuova_rfq`, per costruzione.
-// L'intento (offerta, domanda, risposta, non di lavoro) viene dal testo; l'esito è «aggancia» se
+// L'atto (offerta, domanda, conferma, non di lavoro) viene dal testo; l'esito è «aggancia» se
 // c'è una richiesta nostra a cui risponde (candidati richiesta) o una RFQ già collegata (R0/R1),
 // altrimenti «ignora» a zero: si vede, e decide una persona.
 func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
@@ -495,20 +518,21 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 	if out.Codici == nil {
 		out.Codici = []string{}
 	}
-	intento, perche := IntentoFornitore(in.Mittente, in.Oggetto, in.Corpo, in.NomiAllegati)
-	out.Intento = intento
+	atto, perche := AttoFornitore(in.Mittente, in.Oggetto, in.Corpo, in.NomiAllegati)
+	out.Atto, out.Legame = atto, LegameNessuno
 	motivi = append(motivi, "mittente censito come fornitore: non è una richiesta di un cliente, quindi mai una RFQ nuova", perche)
 	if k, ok := MiglioreCandidatoRichiesta(in.CandidatiRichiesta); ok {
 		out.CandidatoRichiesta = &k
 		motivi = append(motivi, k.Evidenza)
-		out.Esito, out.Confidenza, out.Motivi = "aggancia", k.Punteggio, motivi
+		out.Esito, out.Confidenza, out.Motivi, out.Legame = "aggancia", k.Punteggio, motivi, LegameRisposta
 		return out
 	}
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
 		out.Candidato = &k
 		motivi = append(motivi, k.Evidenza)
+		out.Legame = LegameIncerto
 		if EvidenzaDiRFQEsistente(in.Candidati) {
-			out.Esito, out.Confidenza, out.Motivi = "aggancia", k.Punteggio, motivi
+			out.Esito, out.Confidenza, out.Motivi, out.Legame = "aggancia", k.Punteggio, motivi, LegameRisposta
 			return out
 		}
 	}
@@ -523,20 +547,21 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 func triageSconosciuto(in IngressoTriage, motivi []string) EsitoTriage {
 	e := in.Motore.Estrai(in.Testi()...)
 	out := EsitoTriage{Esito: "ignora", Confidenza: 0, Codici: dedup(SoloCodici(e.Proponibili())), Trovati: e.Codici,
-		Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e, Intento: IntentoIncerto}
+		Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e, Atto: AttoIncerto, Legame: LegameNessuno}
 	if out.Codici == nil {
 		out.Codici = []string{}
 	}
-	if si, m := NonRFQ(in.Mittente, in.Oggetto, in.Corpo); si {
-		out.Intento = IntentoNonRfq
+	if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
+		out.Atto = AttoNonBusiness
 		motivi = append(motivi, m)
 	}
 	motivi = append(motivi, "mittente non censito: prima si decide chi è (Censisci come cliente o fornitore), poi che cosa vuole. Nessuna RFQ nuova da qui")
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
 		out.Candidato = &k
 		motivi = append(motivi, k.Evidenza)
+		out.Legame = LegameIncerto
 		if EvidenzaDiRFQEsistente(in.Candidati) {
-			out.Esito, out.Confidenza = "aggancia", k.Punteggio
+			out.Esito, out.Confidenza, out.Legame = "aggancia", k.Punteggio, LegameRisposta
 		}
 	}
 	out.Motivi = motivi

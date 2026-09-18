@@ -34,9 +34,16 @@ WHERE r.fornitore_id = $1 ORDER BY r.creata_il DESC LIMIT 50;
 UPDATE richiesta_fornitore SET messaggio_id = $2, stato = 'inviata', inviata_il = $3
 WHERE richiesta_id = $1 AND messaggio_id IS NULL AND stato IN ('bozza', 'inviata');
 
--- name: SetRichiestaRisposta :execrows
-UPDATE richiesta_fornitore SET stato = 'risposta', risposta_il = COALESCE(risposta_il, $2)
-WHERE richiesta_id = $1 AND stato IN ('inviata', 'risposta');
+-- name: SetRichiestaOffertaRicevuta :execrows
+-- Solo con la conferma di un atto `offerta` (7C.0): una mail collegata alla richiesta, da sola,
+-- non cambia lo stato.
+UPDATE richiesta_fornitore SET stato = 'offerta_ricevuta', offerta_ricevuta_il = COALESCE(offerta_ricevuta_il, $2)
+WHERE richiesta_id = $1 AND stato IN ('inviata', 'offerta_ricevuta');
+
+-- name: SetRichiestaDeclinata :execrows
+-- «Non quotiamo»: la richiesta e' chiusa senza offerta.
+UPDATE richiesta_fornitore SET stato = 'declinata', declinata_il = COALESCE(declinata_il, $2)
+WHERE richiesta_id = $1 AND stato = 'inviata';
 
 -- name: SetRichiestaStato :execrows
 UPDATE richiesta_fornitore SET stato = $2 WHERE richiesta_id = $1 AND thread_id = $3;
@@ -67,7 +74,7 @@ SELECT DISTINCT r.*, i.codice
 FROM richiesta_fornitore r
 JOIN thread_offerta t ON t.thread_id = r.thread_id
 JOIN identificativo_thread i ON i.thread_id = t.thread_id
-WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'risposta')
+WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'offerta_ricevuta')
   AND (upper(i.codice) = ANY(sqlc.arg(codici)::text[]) OR EXISTS (SELECT 1 FROM unnest(r.codici) c WHERE upper(c) = ANY(sqlc.arg(codici)::text[])))
 LIMIT 20;
 
@@ -78,7 +85,7 @@ SELECT DISTINCT c.*
 FROM richiesta_fornitore r
 JOIN thread_offerta t ON t.thread_id = r.thread_id
 JOIN cliente c ON c.cliente_id = t.cliente_id
-WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'risposta');
+WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'offerta_ricevuta');
 
 -- RF_oggetto: una nostra mail a un fornitore che cita un codice di una RFQ aperta (di qualunque
 -- cliente): la richiesta mandata a mano.
@@ -114,8 +121,8 @@ ORDER BY k.punteggio DESC, k.creato_il;
 -- name: AgganciaRispostaFornitore :exec
 UPDATE messaggio SET richiesta_fornitore_id = $2 WHERE messaggio_id = $1;
 
--- name: SetIntentoTriage :execrows
-UPDATE proposta_triage SET intento = $2, richiesta_proposta = $3, fornitore_proposto = $4
+-- name: SetAttoTriage :execrows
+UPDATE proposta_triage SET atto = $2, legame = $3, richiesta_proposta = $4, fornitore_proposto = $5
 WHERE messaggio_id = $1 AND fonte = 'deterministico' AND stato = 'proposta';
 
 -- name: InsertBozzaRichiesta :one

@@ -224,8 +224,13 @@ func (s *Server) annullaRichiestaFornitore(w http.ResponseWriter, r *http.Reques
 // ---------------------------------------------------------------- dall'Inbox: le conferme
 
 // rispostaFornitore: «è la risposta a questa richiesta». La mail entra nella RFQ cliente (stesso
-// aggancio di «Aggancia a…», con il suo log), la richiesta passa a `risposta`, e gli allegati
-// ancora da smistare vengono proposti come offerta del fornitore.
+// aggancio di «Aggancia a…», con il suo log) e viene legata alla richiesta.
+//
+// Lo STATO della richiesta cambia solo con l'atto che l'operatore conferma (7C.0, invariante 8):
+// `offerta` → offerta_ricevuta, e gli allegati ancora da smistare vengono proposti come offerta del
+// fornitore; `declinata` → il fornitore non quota. Senza atto (o «collegata») la mail è dentro e
+// la richiesta resta `inviata`: «ricevuto, vi rispondiamo domani» non chiude niente. Fino alla
+// 0015 qualunque aggancio la chiudeva.
 func (s *Server) rispostaFornitore(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -270,13 +275,27 @@ func (s *Server) rispostaFornitore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if _, err := q.SetRichiestaRisposta(ctx, db.SetRichiestaRispostaParams{RichiestaID: rid, RispostaIl: &m.DataEvento}); err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	n, err := q.RiproponiAllegatiComeOffertaFornitore(ctx, id)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
+	atto := r.FormValue("atto")
+	var n int64
+	switch atto {
+	case "offerta":
+		if _, err := q.SetRichiestaOffertaRicevuta(ctx, db.SetRichiestaOffertaRicevutaParams{RichiestaID: rid, OffertaRicevutaIl: &m.DataEvento}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if n, err = q.RiproponiAllegatiComeOffertaFornitore(ctx, id); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	case "declinata":
+		if _, err := q.SetRichiestaDeclinata(ctx, db.SetRichiestaDeclinataParams{RichiestaID: rid, DeclinataIl: &m.DataEvento}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+	case "", "collegata":
+		// solo il legame: la richiesta resta com'è
+	default:
+		s.pannelloConAvviso(w, r, id, "Atto non previsto: "+atto+".")
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -285,12 +304,27 @@ func (s *Server) rispostaFornitore(w http.ResponseWriter, r *http.Request) {
 	}
 	f, _ := db.New(s.Pool).GetFornitore(ctx, ric.FornitoreID)
 	t, _ := db.New(s.Pool).GetThread(ctx, ric.ThreadID)
-	s.Log.Info("risposta di fornitore agganciata", "messaggio", id, "richiesta", rid, "fornitore", f.RagioneSociale, "allegati_offerta", n, "utente", siglaDa(r))
+	s.Log.Info("risposta di fornitore agganciata", "messaggio", id, "richiesta", rid, "fornitore", f.RagioneSociale, "atto", primoNonVuoto(atto, "collegata"), "allegati_offerta", n, "utente", siglaDa(r))
 	frase := fmt.Sprintf("Agganciata come risposta di %s alla richiesta per la RFQ %s.", f.RagioneSociale, t.CartellaRelativa.String)
-	if n > 0 {
-		frase += fmt.Sprintf(" %d allegat%s propost%s come offerta del fornitore: confermali per portarli in OFFERTE FORNITORI.", n, plurale(int(n), "o", "i"), plurale(int(n), "o", "i"))
+	switch atto {
+	case "offerta":
+		frase += " Offerta ricevuta: la richiesta è chiusa."
+		if n > 0 {
+			frase += fmt.Sprintf(" %d allegat%s propost%s come offerta del fornitore: confermali per portarli in OFFERTE FORNITORI.", n, plurale(int(n), "o", "i"), plurale(int(n), "o", "i"))
+		}
+	case "declinata":
+		frase += " Il fornitore non quota: richiesta declinata."
+	default:
+		frase += " La richiesta resta aperta: quando arriva l'offerta, confermala come tale."
 	}
 	s.pannelloConAvviso(w, r, id, frase)
+}
+
+func primoNonVuoto(s, alt string) string {
+	if s == "" {
+		return alt
+	}
+	return s
 }
 
 // richiestaFornitoreManuale: «sì, è la richiesta a X per la RFQ Y» su una nostra mail mandata a

@@ -750,7 +750,7 @@ func (q *Queries) ListLavorazioniFornitore(ctx context.Context, fornitoreID uuid
 }
 
 const listMessaggiDaRitriage = `-- name: ListMessaggiDaRitriage :many
-SELECT m.messaggio_id, m.canale, m.chiave_esterna, m.conversazione_id, m.parent_messaggio_id, m.thread_id, m.aggancio, m.agganciato_da, m.agganciato_il, m.direzione, m.data_evento, m.mittente_nome, m.mittente_indirizzo, m.buyer_id, m.destinatari, m.oggetto, m.corpo_testo, m.corpo_html, m.lingua, m.importanza, m.nota_operatore, m.n_allegati, m.registrato_il, m.registrato_da, m.interno, m.controparte_tipo, m.controparte_cliente_id, m.controparte_fornitore_id, m.controparte_via, m.controparte_il, m.richiesta_fornitore_id FROM messaggio m
+SELECT m.messaggio_id, m.canale, m.chiave_esterna, m.conversazione_id, m.parent_messaggio_id, m.thread_id, m.aggancio, m.agganciato_da, m.agganciato_il, m.direzione, m.data_evento, m.mittente_nome, m.mittente_indirizzo, m.buyer_id, m.destinatari, m.oggetto, m.corpo_testo, m.corpo_html, m.lingua, m.importanza, m.nota_operatore, m.n_allegati, m.registrato_il, m.registrato_da, m.interno, m.controparte_tipo, m.controparte_cliente_id, m.controparte_fornitore_id, m.controparte_via, m.controparte_il, m.richiesta_fornitore_id, m.controparte_altro_id FROM messaggio m
 WHERE m.thread_id IS NULL
   AND NOT EXISTS (SELECT 1 FROM proposta_triage p WHERE p.messaggio_id = m.messaggio_id AND p.stato <> 'proposta')
   AND (   lower(m.mittente_indirizzo) = lower($1::text)
@@ -810,6 +810,7 @@ func (q *Queries) ListMessaggiDaRitriage(ctx context.Context, arg ListMessaggiDa
 			&i.ControparteVia,
 			&i.ControparteIl,
 			&i.RichiestaFornitoreID,
+			&i.ControparteAltroID,
 		); err != nil {
 			return nil, err
 		}
@@ -822,7 +823,7 @@ func (q *Queries) ListMessaggiDaRitriage(ctx context.Context, arg ListMessaggiDa
 }
 
 const listMessaggiPerControparteFornitore = `-- name: ListMessaggiPerControparteFornitore :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE controparte_fornitore_id = $1 ORDER BY data_evento DESC LIMIT 50
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id, controparte_altro_id FROM messaggio WHERE controparte_fornitore_id = $1 ORDER BY data_evento DESC LIMIT 50
 `
 
 func (q *Queries) ListMessaggiPerControparteFornitore(ctx context.Context, controparteFornitoreID uuid.NullUUID) ([]Messaggio, error) {
@@ -866,6 +867,7 @@ func (q *Queries) ListMessaggiPerControparteFornitore(ctx context.Context, contr
 			&i.ControparteVia,
 			&i.ControparteIl,
 			&i.RichiestaFornitoreID,
+			&i.ControparteAltroID,
 		); err != nil {
 			return nil, err
 		}
@@ -878,7 +880,7 @@ func (q *Queries) ListMessaggiPerControparteFornitore(ctx context.Context, contr
 }
 
 const listMessaggiSenzaControparte = `-- name: ListMessaggiSenzaControparte :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE controparte_il IS NULL ORDER BY registrato_il LIMIT $1
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id, controparte_altro_id FROM messaggio WHERE controparte_il IS NULL ORDER BY registrato_il LIMIT $1
 `
 
 // I messaggi entrati prima della 0014: la migrazione li lascia `sconosciuto` senza data, e il
@@ -924,6 +926,7 @@ func (q *Queries) ListMessaggiSenzaControparte(ctx context.Context, limit int32)
 			&i.ControparteVia,
 			&i.ControparteIl,
 			&i.RichiestaFornitoreID,
+			&i.ControparteAltroID,
 		); err != nil {
 			return nil, err
 		}
@@ -1029,9 +1032,10 @@ const setControparteMessaggio = `-- name: SetControparteMessaggio :execrows
 
 UPDATE messaggio
    SET controparte_tipo = $2, controparte_cliente_id = $3, controparte_fornitore_id = $4,
-       controparte_via = $5::via_controparte, controparte_il = now()
+       controparte_altro_id = $5,
+       controparte_via = $6::via_controparte, controparte_il = now()
  WHERE messaggio_id = $1
-   AND (controparte_via IS DISTINCT FROM 'manuale' OR $5::via_controparte = 'manuale')
+   AND (controparte_via IS DISTINCT FROM 'manuale' OR $6::via_controparte = 'manuale')
 `
 
 type SetControparteMessaggioParams struct {
@@ -1039,6 +1043,7 @@ type SetControparteMessaggioParams struct {
 	ControparteTipo        TipoControparte    `json:"controparte_tipo"`
 	ControparteClienteID   uuid.NullUUID      `json:"controparte_cliente_id"`
 	ControparteFornitoreID uuid.NullUUID      `json:"controparte_fornitore_id"`
+	ControparteAltroID     uuid.NullUUID      `json:"controparte_altro_id"`
 	Via                    NullViaControparte `json:"via"`
 }
 
@@ -1051,6 +1056,7 @@ func (q *Queries) SetControparteMessaggio(ctx context.Context, arg SetContropart
 		arg.ControparteTipo,
 		arg.ControparteClienteID,
 		arg.ControparteFornitoreID,
+		arg.ControparteAltroID,
 		arg.Via,
 	)
 	if err != nil {

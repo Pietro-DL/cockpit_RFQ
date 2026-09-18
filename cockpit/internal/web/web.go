@@ -26,6 +26,7 @@ import (
 	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/nas"
@@ -583,10 +584,11 @@ type inboxDati struct {
 	// «ogni minuto» qualunque fosse la configurazione, e con intervallo_sync_s = 0 era falso.
 	Sync   string
 	Filtro string
-	// Quadrante e Direzione sono l'Inbox del blocco 7 (D34): Buyer, Fornitori, Da validare, con la
-	// direzione come filtro. Un messaggio sta in UN quadrante, deciso dalla controparte che l'ingest
-	// ha scritto sul messaggio (7A): non c'è un secondo calcolo qui.
-	Quadrante string // buyer | fornitori | validare | "" (tutti)
+	// Quadrante e Direzione sono l'Inbox del blocco 7 (D34, 7C.0): Clienti, Fornitori, Interni,
+	// Altro, Da validare, con la direzione come filtro. Un messaggio sta in UN quadrante, deciso
+	// dalla sola controparte, e il calcolo sta in v_inbox (colonna `quadrante`): qui non c'è un
+	// secondo calcolo, e non c'è nemmeno più in messaggi.sql.
+	Quadrante string // clienti | fornitori | interni | altro | validare | "" (tutti)
 	Direzione string // entrata | uscita | "" (tutte)
 	Quadranti db.ContaQuadrantiRow
 	Righe     []db.VInbox
@@ -608,7 +610,7 @@ type inboxDati struct {
 func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
 
 // QuadranteURL è il quadrante come va scritto nei link: «tutti» e non vuoto, perché un `q` vuoto
-// tornerebbe al predefinito (Buyer) e la schermata cambierebbe quadrante da sola.
+// tornerebbe al predefinito (Clienti) e la schermata cambierebbe quadrante da sola.
 func (d inboxDati) QuadranteURL() string {
 	if d.Quadrante == "" {
 		return "tutti"
@@ -616,49 +618,47 @@ func (d inboxDati) QuadranteURL() string {
 	return d.Quadrante
 }
 
-// quadranti sono i tre riquadri dell'Inbox, nell'ordine in cui si mostrano.
+// quadranti sono i cinque riquadri dell'Inbox (7C.0), nell'ordine in cui si mostrano. Le chiavi
+// sono i valori della colonna `quadrante` di v_inbox.
 var quadranti = []struct{ Chiave, Nome, Aiuto string }{
-	{"buyer", "Buyer", "La posta dei clienti, in entrata e in uscita: le richieste d'offerta e tutto ciò che ci gira intorno."},
+	{"clienti", "Clienti", "La posta dei clienti, in entrata e in uscita: le richieste d'offerta e tutto ciò che ci gira intorno."},
 	{"fornitori", "Fornitori", "La posta dei fornitori censiti: offerte, domande, solleciti, e le nostre richieste a loro."},
-	{"validare", "Da validare", "Mittenti non censiti, indirizzi in entrambe le anagrafiche, posta interna: qui si decide chi sono, non che cosa vogliono."},
+	{"interni", "Interni", "Posta fra i nostri indirizzi: un collega che gira una richiesta, una nota interna."},
+	{"altro", "Altro", "Soggetti censiti come diversi da cliente, fornitore e interno: corrieri, banche, notifiche di un servizio."},
+	{"validare", "Da validare", "Mittenti non censiti e indirizzi in più anagrafiche: qui si decide chi sono, non che cosa vogliono."},
 }
 
 func (d inboxDati) QuadrantiDisponibili() []struct{ Chiave, Nome, Aiuto string } { return quadranti }
 
 func (d inboxDati) ContaQuadrante(chiave string) int64 {
 	switch chiave {
-	case "buyer":
-		return d.Quadranti.Buyer
+	case "clienti":
+		return d.Quadranti.Clienti
 	case "fornitori":
 		return d.Quadranti.Fornitori
+	case "interni":
+		return d.Quadranti.Interni
+	case "altro":
+		return d.Quadranti.Altro
 	case "validare":
 		return d.Quadranti.Validare
 	}
 	return 0
 }
 
-// quadranteValido normalizza il parametro: un valore sconosciuto è Buyer, che è l'Inbox di ieri.
-// "tutti" resta possibile (vuoto) per chi cerca un messaggio senza sapere di chi è.
+// quadranteValido normalizza il parametro: un valore sconosciuto è Clienti, che è l'Inbox di ieri.
+// "tutti" resta possibile (vuoto) per chi cerca un messaggio senza sapere di chi è. «buyer» era
+// il nome di Clienti fino al 7B: i link salvati continuano a funzionare.
 func quadranteValido(q string) string {
 	switch q {
-	case "buyer", "fornitori", "validare":
+	case "clienti", "fornitori", "interni", "altro", "validare":
 		return q
+	case "buyer":
+		return "clienti"
 	case "tutti":
 		return ""
 	}
-	return "buyer"
-}
-
-// quadranteDi dice in quale quadrante sta un messaggio con questa controparte: è l'inverso della
-// query, e serve a riaprire l'Inbox sul messaggio giusto.
-func quadranteDi(controparteTipo string) string {
-	switch controparteTipo {
-	case "cliente":
-		return "buyer"
-	case "fornitore":
-		return "fornitori"
-	}
-	return "validare"
+	return "clienti"
 }
 
 func direzioneValida(d string) string {
@@ -957,7 +957,7 @@ func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") != "true" {
 		// il link diretto riapre l'Inbox nel quadrante del messaggio, con «tutti» perché il
 		// messaggio potrebbe essere già agganciato o ignorato
-		http.Redirect(w, r, "/inbox?q="+quadranteDi(d.Riga.ControparteTipo)+"&filtro=tutti&sel="+id.String(), http.StatusFound)
+		http.Redirect(w, r, "/inbox?q="+d.Riga.Quadrante+"&filtro=tutti&sel="+id.String(), http.StatusFound)
 		return
 	}
 	// Aprire un messaggio cambia lo stato della schermata: la riga scelta va evidenziata, e il
@@ -1000,7 +1000,7 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 		d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
 		d.CandidatiRichiesta, _ = q.ListCandidatiRichiesta(ctx, id)
 		// «richiesta a X per la RFQ Y»: una nostra mail a un fornitore che cita una RFQ aperta (7B)
-		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Intento.Valid && p.Intento.IntentoMessaggio == db.IntentoMessaggioRfqFornitore &&
+		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Atto.String == domain.AttoRichiestaOfferta && m.Direzione == db.DirezioneUscita &&
 			p.ThreadProposto.Valid && p.FornitoreProposto.Valid && p.Stato == db.StatoTriageProposta {
 			if t, err := q.GetThread(ctx, p.ThreadProposto.UUID); err == nil {
 				if f, err := q.GetFornitore(ctx, p.FornitoreProposto.UUID); err == nil {

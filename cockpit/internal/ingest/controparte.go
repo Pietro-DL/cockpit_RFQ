@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/aggancio"
@@ -25,7 +26,7 @@ import (
 // del fatto sul messaggio, l'interpretazione riusabile (triage + candidati) e i due ricalcoli:
 // quello mirato dopo un «Censisci» e quello di tutti i messaggi entrati prima della 0014.
 
-// rubricaDB risponde alle quattro domande del resolver con l'anagrafica in database.
+// rubricaDB risponde alle cinque domande del resolver con l'anagrafica in database.
 type rubricaDB struct{ q *db.Queries }
 
 func (r rubricaDB) ContattiFornitore(ctx context.Context, email string) ([]domain.Voce, error) {
@@ -75,6 +76,19 @@ func (r rubricaDB) ClientePerDominio(ctx context.Context, dominio string) (domai
 		return domain.Voce{}, false, err
 	}
 	return domain.Voce{ID: c.ClienteID, Nome: c.CartellaNas}, true, nil
+}
+
+// AltroPerRecapito (7C.0): un indirizzo o un dominio censito come «altro». Solo i recapiti e i
+// soggetti attivi: uno spento non riconosce piu' niente.
+func (r rubricaDB) AltroPerRecapito(ctx context.Context, recapito string) (domain.Voce, bool, error) {
+	a, err := r.q.GetAltroPerRecapito(ctx, recapito)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Voce{}, false, nil
+	}
+	if err != nil {
+		return domain.Voce{}, false, err
+	}
+	return domain.Voce{ID: a.AltroID, Nome: a.Etichetta}, true, nil
 }
 
 // indirizziDi sono i soli indirizzi dei destinatari, nell'ordine in cui stanno nel messaggio.
@@ -137,6 +151,8 @@ func parametriControparte(id uuid.UUID, c domain.Controparte) db.SetControparteM
 		p.ControparteClienteID = uuid.NullUUID{UUID: c.ClienteID, Valid: true}
 	case domain.ControparteFornitore:
 		p.ControparteFornitoreID = uuid.NullUUID{UUID: c.FornitoreID, Valid: true}
+	case domain.ControparteAltro:
+		p.ControparteAltroID = uuid.NullUUID{UUID: c.AltroID, Valid: true}
 	}
 	return p
 }
@@ -237,16 +253,19 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 			richiestaProposta = uuid.NullUUID{UUID: rid, Valid: true}
 		}
 	}
-	if tr.Intento == domain.IntentoRfqFornitore && proposto.Valid {
+	// «richiesta a X per la RFQ Y»: la nostra mail a un fornitore con una RFQ aperta che la spiega
+	if in.Direzione == db.DirezioneUscita && in.Controparte.Tipo == domain.ControparteFornitore && proposto.Valid {
 		fornitoreProposto = uuid.NullUUID{UUID: in.FornitoreID, Valid: true}
 	}
-	var intento db.NullIntentoMessaggio
-	if tr.Intento != "" {
-		intento = db.NullIntentoMessaggio{IntentoMessaggio: db.IntentoMessaggio(tr.Intento), Valid: true}
+	// 7C.0: atto e legame sono proposte come l'esito; vuoti restano NULL (controparte non dichiarata)
+	atto := pgtype.Text{String: tr.Atto, Valid: tr.Atto != ""}
+	var legame db.NullLegameOperativo
+	if tr.Legame != "" {
+		legame = db.NullLegameOperativo{LegameOperativo: db.LegameOperativo(tr.Legame), Valid: true}
 	}
 	if _, err := q.UpsertTriage(ctx, db.UpsertTriageParams{
 		MessaggioID: in.MessaggioID, Esito: db.EsitoTriage(tr.Esito), ClienteProposto: in.ClienteID, BuyerProposto: in.BuyerID,
-		ThreadProposto: proposto, Intento: intento, RichiestaProposta: richiestaProposta, FornitoreProposto: fornitoreProposto,
+		ThreadProposto: proposto, Atto: atto, Legame: legame, RichiestaProposta: richiestaProposta, FornitoreProposto: fornitoreProposto,
 		Identificativi: tr.Codici, ScadenzaProposta: scad, Confidenza: int16(tr.Confidenza), Motivi: motivi, Fonte: db.FonteTriageDeterministico,
 	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return tr, fmt.Errorf("triage: %w", err)
@@ -387,12 +406,10 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
 	prima, err := q.GetTriageMessaggio(ctx, m.MessaggioID)
-	esitoPrima, intentoPrima := "", ""
+	esitoPrima, attoPrima := "", ""
 	if err == nil {
 		esitoPrima = string(prima.Esito)
-		if prima.Intento.Valid {
-			intentoPrima = string(prima.Intento.IntentoMessaggio)
-		}
+		attoPrima = prima.Atto.String
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}
@@ -449,8 +466,8 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 		if err != nil {
 			return "", "", err
 		}
-		if tr.Esito != esitoPrima || tr.Intento != intentoPrima {
-			cambioProposta = fmt.Sprintf("%s: proposta %s/%s → %s/%s", m.ChiaveEsterna, primo(esitoPrima, "nessuna"), primo(intentoPrima, "-"), tr.Esito, primo(tr.Intento, "-"))
+		if tr.Esito != esitoPrima || tr.Atto != attoPrima {
+			cambioProposta = fmt.Sprintf("%s: proposta %s/%s → %s/%s", m.ChiaveEsterna, primo(esitoPrima, "nessuna"), primo(attoPrima, "-"), tr.Esito, primo(tr.Atto, "-"))
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

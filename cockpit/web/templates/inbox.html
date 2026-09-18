@@ -38,7 +38,7 @@
      questo blocco, cosi' il salvataggio dello scorrimento in layout.html continua a valere. */}}
 {{define "inbox_stato"}}
 <div id="inbox-stato">
-  {{/* Blocco 7 (D34): tre quadranti, non uno. Un messaggio sta in UN quadrante, deciso dalla
+  {{/* Blocco 7 (D34, 7C.0): cinque quadranti, non uno. Un messaggio sta in UN quadrante, deciso dalla
        controparte scritta sul messaggio dall'ingest (7A): Buyer = cliente, Fornitori = fornitore,
        Da validare = sconosciuto, ambiguo, interno. Il numero e' quanti ne aspettano una decisione.
        Ogni link porta con se' TUTTO lo stato (direzione, filtro, casella, selezione): cambiare
@@ -91,7 +91,7 @@
 {{end}}
 
 {{define "inbox_lista"}}
-{{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}{{if eq .Dati.Quadrante "buyer"}} nel quadrante Buyer{{else if eq .Dati.Quadrante "fornitori"}} nel quadrante Fornitori{{else if eq .Dati.Quadrante "validare"}} da validare{{end}}. {{.Dati.Sync}}</p>{{end}}
+{{if not .Dati.Righe}}<p class="muto">Nessun messaggio{{if eq .Dati.Filtro "orfani"}} orfano{{end}}{{if eq .Dati.Quadrante "clienti"}} nel quadrante Clienti{{else if eq .Dati.Quadrante "fornitori"}} nel quadrante Fornitori{{else if eq .Dati.Quadrante "interni"}} nel quadrante Interni{{else if eq .Dati.Quadrante "altro"}} nel quadrante Altro{{else if eq .Dati.Quadrante "validare"}} da validare{{end}}. {{.Dati.Sync}}</p>{{end}}
 {{range .Dati.Righe}}
 <a id="msg-{{.MessaggioID}}" class="riga {{colore .TriageEsito .TriageConfidenza}} {{if .NonLetto}}nonletto{{end}} {{if eq $.Dati.Selezion (.MessaggioID.String)}}sel{{end}}"
    href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" hx-push-url="/inbox?q={{$.Dati.QuadranteURL}}&dir={{$.Dati.Direzione}}&filtro={{$.Dati.Filtro}}&casella={{$.Dati.Casella}}&sel={{.MessaggioID}}">
@@ -110,7 +110,7 @@
     {{if .ThreadID.Valid}}<span class="chip thread" title="{{.Aggancio}}">RFQ {{uuidBreve .ThreadID.UUID}}</span>{{end}}
     {{if .Ignorato}}<span class="chip">ignorato</span>{{end}}
     {{if gt .NCaselle 1}}<span class="chip casella" title="{{range .Caselle}}{{.}} {{end}}">{{.NCaselle}} caselle</span>{{end}}
-    {{if .TriageIntento}}<span class="chip intento {{.TriageIntento}}" title="che cosa è questo messaggio, secondo il triage">{{.TriageIntento}}</span>{{end}}
+    {{if .TriageAtto}}<span class="chip atto {{.TriageAtto}}" title="che cosa sta facendo il mittente, secondo il triage{{if .TriageLegame}} · legame: {{.TriageLegame}}{{end}}">{{.TriageAtto}}</span>{{end}}
     {{if .RichiestaFornitoreID.Valid}}<span class="chip richiesta" title="legato a una richiesta a un fornitore">richiesta</span>{{end}}
     {{if .TriageEsito.Valid}}<span class="chip triage" title="{{range motivi .TriageMotivi}}{{.}}; {{end}}">{{.TriageEsito.String}} {{.TriageConfidenza.Int16}}%</span>{{end}}
   </div>
@@ -118,7 +118,8 @@
 {{end}}
 {{end}}
 
-{{/* controparte_riga: chi c'e' dall'altra parte, come lo dice il messaggio (7A). Vale per una riga
-     di v_inbox. Un cliente si mostra con la cartella NAS, un fornitore con la ragione sociale;
-     «sconosciuto» e «ambiguo» sono in rosso perche' sono le cose da decidere. */}}
-{{define "controparte_riga"}}{{if eq .ControparteTipo "cliente"}}→ {{txt .Controparte}}{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore">fornitore</span> {{txt .Controparte}}{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori">ambiguo</em>{{else}}<em class="sconosciuto">sconosciuto</em>{{end}}{{end}}
+{{/* controparte_riga: chi c'e' dall'altra parte, come lo dice il messaggio (7A, 7C.0). Vale per una
+     riga di v_inbox. Un cliente si mostra con la cartella NAS, un fornitore con la ragione sociale,
+     un soggetto «altro» con la sua etichetta; «sconosciuto» e «ambiguo» sono in rosso perche' sono
+     le cose da decidere. */}}
+{{define "controparte_riga"}}{{if eq .ControparteTipo "cliente"}}→ {{txt .Controparte}}{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore">fornitore</span> {{txt .Controparte}}{{else if eq .ControparteTipo "altro"}}<span class="chip altro">altro</span> {{txt .Controparte}}{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno in più anagrafiche">ambiguo</em>{{else}}<em class="sconosciuto">sconosciuto</em>{{end}}{{end}}

@@ -668,7 +668,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	}
 	// Blocco 7B: i marcatori scritti dal Cockpit sulla bozza. CockpitRichiestaFornitore lega la nostra
 	// mail alla richiesta e la aggancia alla RFQ senza euristiche; CockpitBozza chiude la bozza.
-	if agganciato, err := s.applicaMarcatori(ctx, q, &row, m); err != nil {
+	if agganciato, err := s.applicaMarcatori(ctx, q, &row, m, dir); err != nil {
 		return esito, err
 	} else if agganciato {
 		esito.Aggancio = string(row.Aggancio)

@@ -250,7 +250,7 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	// IB3: la nostra mail a MGM, mandata a mano da Outlook
 	sent := b.postaMsg(b.mail("uscita", "commerciale@azienda.example", "RFQ TG FIORE 0D002622AD", "Buongiorno, vi chiediamo offerta per il particolare 0D002622AD in allegato.", "info@mgm.example"))
 	p := b.propostaDi(sent)
-	if p.Esito != db.EsitoTriageAggancia || p.Intento.IntentoMessaggio != db.IntentoMessaggioRfqFornitore || !p.ThreadProposto.Valid || p.ThreadProposto.UUID != thread ||
+	if p.Esito != db.EsitoTriageAggancia || p.Atto.String != "richiesta_offerta" || !p.ThreadProposto.Valid || p.ThreadProposto.UUID != thread ||
 		!p.FornitoreProposto.Valid || p.FornitoreProposto.UUID != mgm.FornitoreID {
 		t.Fatalf("IB3: la proposta non e' «richiesta a MGM per la RFQ»: %+v", p)
 	}
@@ -294,19 +294,33 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 		t.Fatalf("IB4: controparte %s", tipo)
 	}
 	p = b.propostaDi(rispID)
-	if p.Esito != db.EsitoTriageAggancia || p.Confidenza != 95 || !p.RichiestaProposta.Valid || p.RichiestaProposta.UUID != rid || p.Intento.IntentoMessaggio != db.IntentoMessaggioOffertaFornitore {
+	if p.Esito != db.EsitoTriageAggancia || p.Confidenza != 95 || !p.RichiestaProposta.Valid || p.RichiestaProposta.UUID != rid || p.Atto.String != "offerta" || p.Legame.LegameOperativo != db.LegameOperativoRisposta {
 		t.Fatalf("IB4: la proposta: %+v", p)
 	}
 	_, pannello = fp.fai(http.MethodGet, "/messaggio/"+rispID.String(), nil, true)
 	if !strings.Contains(pannello, "Risposta a una nostra richiesta?") || !strings.Contains(pannello, ">95<") || !strings.Contains(pannello, "R0_reply") || strings.Contains(pannello, "triage?azione=nuova") {
 		t.Fatalf("IB4: il pannello: %s", estratto(pannello, "candidati-richiesta"))
 	}
+	// 7C.0, invariante 8: agganciata SENZA atto, la mail e' dentro e la richiesta resta aperta
 	_, esito = fp.fai(http.MethodPost, "/messaggio/"+rispID.String()+"/risposta-fornitore", url.Values{"richiesta_id": {rid.String()}}, true)
-	if !strings.Contains(esito, "Agganciata come risposta di MGM") || !strings.Contains(esito, "1 allegato proposto come offerta del fornitore") {
-		t.Fatalf("IB4: la conferma: %s", estratto(esito, "avviso"))
+	if !strings.Contains(esito, "Agganciata come risposta di MGM") || !strings.Contains(esito, "La richiesta resta aperta") || strings.Contains(esito, "allegato proposto") {
+		t.Fatalf("IB4: la conferma senza atto: %s", estratto(esito, "avviso"))
 	}
-	if r := b.richiesta(rid); r.Stato != db.StatoRichiestaFornitoreRisposta || r.RispostaIl == nil {
-		t.Errorf("IB4: la richiesta non e' passata a risposta: %+v", r)
+	if r := b.richiesta(rid); r.Stato != db.StatoRichiestaFornitoreInviata || r.OffertaRicevutaIl != nil {
+		t.Errorf("IB4: una risposta collegata ha cambiato lo stato da sola: %+v", r)
+	}
+	var ridMsg uuid.NullUUID
+	_ = b.pool.QueryRow(b.ctx, `SELECT richiesta_fornitore_id FROM messaggio WHERE messaggio_id = $1`, rispID).Scan(&ridMsg)
+	if !ridMsg.Valid || ridMsg.UUID != rid {
+		t.Errorf("IB4: la mail non e' legata alla richiesta: %v", ridMsg)
+	}
+	// poi l'operatore conferma l'ATTO: e' l'offerta → offerta ricevuta, allegati proposti
+	_, esito = fp.fai(http.MethodPost, "/messaggio/"+rispID.String()+"/risposta-fornitore", url.Values{"richiesta_id": {rid.String()}, "atto": {"offerta"}}, true)
+	if !strings.Contains(esito, "Offerta ricevuta") || !strings.Contains(esito, "1 allegato proposto come offerta del fornitore") {
+		t.Fatalf("IB4: la conferma dell'offerta: %s", estratto(esito, "avviso"))
+	}
+	if r := b.richiesta(rid); r.Stato != db.StatoRichiestaFornitoreOffertaRicevuta || r.OffertaRicevutaIl == nil {
+		t.Errorf("IB4: la richiesta non e' passata a offerta_ricevuta: %+v", r)
 	}
 	var tipoProposto string
 	_ = b.pool.QueryRow(b.ctx, `SELECT p.tipo_proposto::text FROM documento_proposta p JOIN allegato a USING (allegato_id) WHERE a.messaggio_id = $1`, rispID).Scan(&tipoProposto)
@@ -392,36 +406,38 @@ func TestIB6IgnoraInDaValidareNonTornaConISync(t *testing.T) {
 
 // IB7 — una newsletter da un dominio sconosciuto con «RFQ» nel testo: non_rfq, Da validare, nessuna
 // proposta di RFQ. E la notifica automatica di un cliente censito va in Da validare, non in Buyer.
-func TestIB7LaNewsletterENonRfqEStaInDaValidare(t *testing.T) {
+// IB7 riletto con il 7C.0: la newsletter di uno sconosciuto e' non_business e sta in Da validare
+// (e' uno sconosciuto); la notifica automatica dal dominio di un CLIENTE e' non_business e sta fra i
+// Clienti, perche' il quadrante dipende solo dalla controparte. Per toglierla da li' si censisce
+// l'indirizzo come Altro (7C.0, decisione del 18/09/2026); fino alla 0015 andava in Da validare.
+func TestIB7LaNewsletterENonBusinessEIlQuadranteLoDiceLaControparte(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	news := b.postaMsg(b.mail("entrata", "newsletter@promo.example", "RFQ in un clic con il nostro portale!",
 		"Richiesta d'offerta automatica per tutti i tuoi fornitori. Iscriviti al webinar. Unsubscribe qui."))
 	p := b.propostaDi(news)
-	if p.Esito == db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioNonRfq {
+	if p.Esito == db.EsitoTriageNuovaRfq || p.Atto.String != "non_business" {
 		t.Fatalf("IB7: %+v", p)
 	}
 	notifica := b.postaMsg(b.mail("entrata", "noreply@acme.example", "Portale: nuova notifica", "Do not reply to this message."))
 	if tipo, _ := b.controparteDi(notifica); tipo != "cliente" {
 		t.Fatalf("la notifica viene da un dominio cliente: %s", tipo)
 	}
-	if p := b.propostaDi(notifica); p.Intento.IntentoMessaggio != db.IntentoMessaggioNonRfq {
+	if p := b.propostaDi(notifica); p.Atto.String != "non_business" || p.Esito == db.EsitoTriageNuovaRfq {
 		t.Fatalf("la notifica automatica del cliente: %+v", p)
 	}
 	fp := b.browser("10.0.0.5:51000")
 	fp.login("FP", "prova-fp")
 	_, validare := fp.fai(http.MethodGet, "/inbox?q=validare&filtro=orfani", nil, true)
-	_, buyer := fp.fai(http.MethodGet, "/inbox?q=buyer&filtro=orfani", nil, true)
-	for _, atteso := range []string{"RFQ in un clic", "Portale: nuova notifica", "non_rfq"} {
-		if !strings.Contains(validare, atteso) {
-			t.Errorf("Da validare non mostra %q", atteso)
-		}
-		if atteso != "non_rfq" && strings.Contains(buyer, atteso) {
-			t.Errorf("Buyer mostra %q, che non e' una richiesta", atteso)
-		}
+	_, clienti := fp.fai(http.MethodGet, "/inbox?q=clienti&filtro=orfani", nil, true)
+	if !strings.Contains(validare, "RFQ in un clic") || strings.Contains(validare, "Portale: nuova notifica") {
+		t.Errorf("Da validare deve avere lo sconosciuto e non la notifica del cliente: %s", primi400(validare))
+	}
+	if !strings.Contains(clienti, "Portale: nuova notifica") || !strings.Contains(clienti, `class="chip atto non_business"`) || strings.Contains(clienti, "RFQ in un clic") {
+		t.Errorf("Clienti deve avere la notifica del cliente con il chip non_business, e non lo sconosciuto: %s", primi400(clienti))
 	}
 	_, pagina := fp.fai(http.MethodGet, "/inbox", nil, false)
-	if !strings.Contains(pagina, `class="quadrante validare `) || !strings.Contains(estratto(pagina, `class="quadrante validare `), ">2<") {
-		t.Errorf("il conteggio di Da validare deve essere 2: %s", estratto(pagina, "quadrante validare"))
+	if !strings.Contains(pagina, `class="quadrante validare `) || !strings.Contains(estratto(pagina, `class="quadrante validare `), ">1<") {
+		t.Errorf("il conteggio di Da validare deve essere 1: %s", estratto(pagina, "quadrante validare"))
 	}
 }

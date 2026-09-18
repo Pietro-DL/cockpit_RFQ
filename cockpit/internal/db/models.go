@@ -673,82 +673,73 @@ func AllFonteTriageValues() []FonteTriage {
 	}
 }
 
-type IntentoMessaggio string
+type LegameOperativo string
 
 const (
-	IntentoMessaggioRfqCliente        IntentoMessaggio = "rfq_cliente"
-	IntentoMessaggioOffertaPromatec   IntentoMessaggio = "offerta_promatec"
-	IntentoMessaggioRfqFornitore      IntentoMessaggio = "rfq_fornitore"
-	IntentoMessaggioOffertaFornitore  IntentoMessaggio = "offerta_fornitore"
-	IntentoMessaggioRispostaFornitore IntentoMessaggio = "risposta_fornitore"
-	IntentoMessaggioDomandaFornitore  IntentoMessaggio = "domanda_fornitore"
-	IntentoMessaggioInoltroInterno    IntentoMessaggio = "inoltro_interno"
-	IntentoMessaggioNonRfq            IntentoMessaggio = "non_rfq"
-	IntentoMessaggioIncerto           IntentoMessaggio = "incerto"
+	LegameOperativoNuovo         LegameOperativo = "nuovo"
+	LegameOperativoRisposta      LegameOperativo = "risposta"
+	LegameOperativoAggiornamento LegameOperativo = "aggiornamento"
+	LegameOperativoInoltro       LegameOperativo = "inoltro"
+	LegameOperativoNessuno       LegameOperativo = "nessuno"
+	LegameOperativoIncerto       LegameOperativo = "incerto"
 )
 
-func (e *IntentoMessaggio) Scan(src interface{}) error {
+func (e *LegameOperativo) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = IntentoMessaggio(s)
+		*e = LegameOperativo(s)
 	case string:
-		*e = IntentoMessaggio(s)
+		*e = LegameOperativo(s)
 	default:
-		return fmt.Errorf("unsupported scan type for IntentoMessaggio: %T", src)
+		return fmt.Errorf("unsupported scan type for LegameOperativo: %T", src)
 	}
 	return nil
 }
 
-type NullIntentoMessaggio struct {
-	IntentoMessaggio IntentoMessaggio `json:"intento_messaggio"`
-	Valid            bool             `json:"valid"` // Valid is true if IntentoMessaggio is not NULL
+type NullLegameOperativo struct {
+	LegameOperativo LegameOperativo `json:"legame_operativo"`
+	Valid           bool            `json:"valid"` // Valid is true if LegameOperativo is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullIntentoMessaggio) Scan(value interface{}) error {
+func (ns *NullLegameOperativo) Scan(value interface{}) error {
 	if value == nil {
-		ns.IntentoMessaggio, ns.Valid = "", false
+		ns.LegameOperativo, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.IntentoMessaggio.Scan(value)
+	return ns.LegameOperativo.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullIntentoMessaggio) Value() (driver.Value, error) {
+func (ns NullLegameOperativo) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.IntentoMessaggio), nil
+	return string(ns.LegameOperativo), nil
 }
 
-func (e IntentoMessaggio) Valid() bool {
+func (e LegameOperativo) Valid() bool {
 	switch e {
-	case IntentoMessaggioRfqCliente,
-		IntentoMessaggioOffertaPromatec,
-		IntentoMessaggioRfqFornitore,
-		IntentoMessaggioOffertaFornitore,
-		IntentoMessaggioRispostaFornitore,
-		IntentoMessaggioDomandaFornitore,
-		IntentoMessaggioInoltroInterno,
-		IntentoMessaggioNonRfq,
-		IntentoMessaggioIncerto:
+	case LegameOperativoNuovo,
+		LegameOperativoRisposta,
+		LegameOperativoAggiornamento,
+		LegameOperativoInoltro,
+		LegameOperativoNessuno,
+		LegameOperativoIncerto:
 		return true
 	}
 	return false
 }
 
-func AllIntentoMessaggioValues() []IntentoMessaggio {
-	return []IntentoMessaggio{
-		IntentoMessaggioRfqCliente,
-		IntentoMessaggioOffertaPromatec,
-		IntentoMessaggioRfqFornitore,
-		IntentoMessaggioOffertaFornitore,
-		IntentoMessaggioRispostaFornitore,
-		IntentoMessaggioDomandaFornitore,
-		IntentoMessaggioInoltroInterno,
-		IntentoMessaggioNonRfq,
-		IntentoMessaggioIncerto,
+func AllLegameOperativoValues() []LegameOperativo {
+	return []LegameOperativo{
+		LegameOperativoNuovo,
+		LegameOperativoRisposta,
+		LegameOperativoAggiornamento,
+		LegameOperativoInoltro,
+		LegameOperativoNessuno,
+		LegameOperativoIncerto,
 	}
 }
 
@@ -2050,11 +2041,12 @@ func AllStatoPropostaValues() []StatoProposta {
 type StatoRichiestaFornitore string
 
 const (
-	StatoRichiestaFornitoreBozza     StatoRichiestaFornitore = "bozza"
-	StatoRichiestaFornitoreInviata   StatoRichiestaFornitore = "inviata"
-	StatoRichiestaFornitoreRisposta  StatoRichiestaFornitore = "risposta"
-	StatoRichiestaFornitoreScaduta   StatoRichiestaFornitore = "scaduta"
-	StatoRichiestaFornitoreAnnullata StatoRichiestaFornitore = "annullata"
+	StatoRichiestaFornitoreBozza           StatoRichiestaFornitore = "bozza"
+	StatoRichiestaFornitoreInviata         StatoRichiestaFornitore = "inviata"
+	StatoRichiestaFornitoreOffertaRicevuta StatoRichiestaFornitore = "offerta_ricevuta"
+	StatoRichiestaFornitoreDeclinata       StatoRichiestaFornitore = "declinata"
+	StatoRichiestaFornitoreScaduta         StatoRichiestaFornitore = "scaduta"
+	StatoRichiestaFornitoreAnnullata       StatoRichiestaFornitore = "annullata"
 )
 
 func (e *StatoRichiestaFornitore) Scan(src interface{}) error {
@@ -2096,7 +2088,8 @@ func (e StatoRichiestaFornitore) Valid() bool {
 	switch e {
 	case StatoRichiestaFornitoreBozza,
 		StatoRichiestaFornitoreInviata,
-		StatoRichiestaFornitoreRisposta,
+		StatoRichiestaFornitoreOffertaRicevuta,
+		StatoRichiestaFornitoreDeclinata,
 		StatoRichiestaFornitoreScaduta,
 		StatoRichiestaFornitoreAnnullata:
 		return true
@@ -2108,7 +2101,8 @@ func AllStatoRichiestaFornitoreValues() []StatoRichiestaFornitore {
 	return []StatoRichiestaFornitore{
 		StatoRichiestaFornitoreBozza,
 		StatoRichiestaFornitoreInviata,
-		StatoRichiestaFornitoreRisposta,
+		StatoRichiestaFornitoreOffertaRicevuta,
+		StatoRichiestaFornitoreDeclinata,
 		StatoRichiestaFornitoreScaduta,
 		StatoRichiestaFornitoreAnnullata,
 	}
@@ -2501,6 +2495,7 @@ const (
 	TipoControparteCliente     TipoControparte = "cliente"
 	TipoControparteFornitore   TipoControparte = "fornitore"
 	TipoControparteInterno     TipoControparte = "interno"
+	TipoControparteAltro       TipoControparte = "altro"
 	TipoControparteSconosciuto TipoControparte = "sconosciuto"
 	TipoControparteAmbiguo     TipoControparte = "ambiguo"
 )
@@ -2545,6 +2540,7 @@ func (e TipoControparte) Valid() bool {
 	case TipoControparteCliente,
 		TipoControparteFornitore,
 		TipoControparteInterno,
+		TipoControparteAltro,
 		TipoControparteSconosciuto,
 		TipoControparteAmbiguo:
 		return true
@@ -2557,6 +2553,7 @@ func AllTipoControparteValues() []TipoControparte {
 		TipoControparteCliente,
 		TipoControparteFornitore,
 		TipoControparteInterno,
+		TipoControparteAltro,
 		TipoControparteSconosciuto,
 		TipoControparteAmbiguo,
 	}
@@ -2981,6 +2978,13 @@ type AnalisiMessaggio struct {
 	CreatoIl    time.Time        `json:"creato_il"`
 }
 
+type AttoBusiness struct {
+	Codice      string `json:"codice"`
+	Descrizione string `json:"descrizione"`
+	Ordine      int16  `json:"ordine"`
+	Attivo      bool   `json:"attivo"`
+}
+
 type Bozza struct {
 	BozzaID              uuid.UUID       `json:"bozza_id"`
 	ThreadID             uuid.NullUUID   `json:"thread_id"`
@@ -3384,6 +3388,7 @@ type Messaggio struct {
 	ControparteVia         NullViaControparte `json:"controparte_via"`
 	ControparteIl          *time.Time         `json:"controparte_il"`
 	RichiestaFornitoreID   uuid.NullUUID      `json:"richiesta_fornitore_id"`
+	ControparteAltroID     uuid.NullUUID      `json:"controparte_altro_id"`
 }
 
 type MessaggioAggancioLog struct {
@@ -3447,24 +3452,32 @@ type Postazione struct {
 }
 
 type PropostaTriage struct {
-	TriageID          uuid.UUID            `json:"triage_id"`
-	MessaggioID       uuid.UUID            `json:"messaggio_id"`
-	Esito             EsitoTriage          `json:"esito"`
-	ThreadProposto    uuid.NullUUID        `json:"thread_proposto"`
-	ClienteProposto   uuid.NullUUID        `json:"cliente_proposto"`
-	BuyerProposto     uuid.NullUUID        `json:"buyer_proposto"`
-	Identificativi    []string             `json:"identificativi"`
-	ScadenzaProposta  *time.Time           `json:"scadenza_proposta"`
-	Confidenza        int16                `json:"confidenza"`
-	Motivi            json.RawMessage      `json:"motivi"`
-	Fonte             FonteTriage          `json:"fonte"`
-	Stato             StatoTriage          `json:"stato"`
-	DecisoDa          uuid.NullUUID        `json:"deciso_da"`
-	DecisoIl          *time.Time           `json:"deciso_il"`
-	CreatoIl          time.Time            `json:"creato_il"`
-	Intento           NullIntentoMessaggio `json:"intento"`
-	RichiestaProposta uuid.NullUUID        `json:"richiesta_proposta"`
-	FornitoreProposto uuid.NullUUID        `json:"fornitore_proposto"`
+	TriageID          uuid.UUID           `json:"triage_id"`
+	MessaggioID       uuid.UUID           `json:"messaggio_id"`
+	Esito             EsitoTriage         `json:"esito"`
+	ThreadProposto    uuid.NullUUID       `json:"thread_proposto"`
+	ClienteProposto   uuid.NullUUID       `json:"cliente_proposto"`
+	BuyerProposto     uuid.NullUUID       `json:"buyer_proposto"`
+	Identificativi    []string            `json:"identificativi"`
+	ScadenzaProposta  *time.Time          `json:"scadenza_proposta"`
+	Confidenza        int16               `json:"confidenza"`
+	Motivi            json.RawMessage     `json:"motivi"`
+	Fonte             FonteTriage         `json:"fonte"`
+	Stato             StatoTriage         `json:"stato"`
+	DecisoDa          uuid.NullUUID       `json:"deciso_da"`
+	DecisoIl          *time.Time          `json:"deciso_il"`
+	CreatoIl          time.Time           `json:"creato_il"`
+	RichiestaProposta uuid.NullUUID       `json:"richiesta_proposta"`
+	FornitoreProposto uuid.NullUUID       `json:"fornitore_proposto"`
+	Atto              pgtype.Text         `json:"atto"`
+	Legame            NullLegameOperativo `json:"legame"`
+}
+
+type RecapitoAltro struct {
+	Recapito string    `json:"recapito"`
+	AltroID  uuid.UUID `json:"altro_id"`
+	Attivo   bool      `json:"attivo"`
+	CreatoIl time.Time `json:"creato_il"`
 }
 
 type Regola struct {
@@ -3482,18 +3495,19 @@ type Regola struct {
 // inviata, o la conferma dell'operatore su una mail mandata a mano. La risposta del fornitore si aggancia alla
 // richiesta (messaggio.richiesta_fornitore_id) e alla RFQ (messaggio.thread_id) con una decisione.
 type RichiestaFornitore struct {
-	RichiestaID uuid.UUID               `json:"richiesta_id"`
-	ThreadID    uuid.UUID               `json:"thread_id"`
-	FornitoreID uuid.UUID               `json:"fornitore_id"`
-	Lavorazione pgtype.Text             `json:"lavorazione"`
-	Codici      []string                `json:"codici"`
-	MessaggioID uuid.NullUUID           `json:"messaggio_id"`
-	Stato       StatoRichiestaFornitore `json:"stato"`
-	InviataIl   *time.Time              `json:"inviata_il"`
-	RispostaIl  *time.Time              `json:"risposta_il"`
-	Note        pgtype.Text             `json:"note"`
-	CreataDa    uuid.NullUUID           `json:"creata_da"`
-	CreataIl    time.Time               `json:"creata_il"`
+	RichiestaID       uuid.UUID               `json:"richiesta_id"`
+	ThreadID          uuid.UUID               `json:"thread_id"`
+	FornitoreID       uuid.UUID               `json:"fornitore_id"`
+	Lavorazione       pgtype.Text             `json:"lavorazione"`
+	Codici            []string                `json:"codici"`
+	MessaggioID       uuid.NullUUID           `json:"messaggio_id"`
+	Stato             StatoRichiestaFornitore `json:"stato"`
+	InviataIl         *time.Time              `json:"inviata_il"`
+	OffertaRicevutaIl *time.Time              `json:"offerta_ricevuta_il"`
+	Note              pgtype.Text             `json:"note"`
+	CreataDa          uuid.NullUUID           `json:"creata_da"`
+	CreataIl          time.Time               `json:"creata_il"`
+	DeclinataIl       *time.Time              `json:"declinata_il"`
 }
 
 type RiferimentoPortale struct {
@@ -3527,6 +3541,14 @@ type Sessione struct {
 	PostazioneOrigine pgtype.Text `json:"postazione_origine"`
 	// Quando questa sessione ha accodato l'aggiornamento automatico alla prima apertura dell'Inbox. NULL = non ancora, ed e' la condizione su cui si accoda: il refresh del browser e il poll HTMX non ne accodano un secondo. Si azzera con una sessione nuova, cioe' con un login nuovo.
 	SyncInboxIl *time.Time `json:"sync_inbox_il"`
+}
+
+type SoggettoAltro struct {
+	AltroID   uuid.UUID   `json:"altro_id"`
+	Etichetta string      `json:"etichetta"`
+	Note      pgtype.Text `json:"note"`
+	Attivo    bool        `json:"attivo"`
+	CreatoIl  time.Time   `json:"creato_il"`
 }
 
 // Un cursore per (casella, cartella). Con la sola cartella due caselle si sovrascrivevano il cursore a vicenda e perdevano messaggi in silenzio.
@@ -3669,8 +3691,10 @@ type VInbox struct {
 	EntryID              pgtype.Text      `json:"entry_id"`
 	ControparteTipo      string           `json:"controparte_tipo"`
 	Controparte          pgtype.Text      `json:"controparte"`
-	TriageIntento        interface{}      `json:"triage_intento"`
+	TriageAtto           string           `json:"triage_atto"`
 	RichiestaFornitoreID uuid.NullUUID    `json:"richiesta_fornitore_id"`
+	TriageLegame         string           `json:"triage_legame"`
+	Quadrante            string           `json:"quadrante"`
 }
 
 type VThreadBloccanti struct {

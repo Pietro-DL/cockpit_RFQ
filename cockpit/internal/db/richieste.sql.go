@@ -44,7 +44,7 @@ SELECT DISTINCT c.cliente_id, c.cartella_nas, c.ragione_sociale, c.profilo, c.li
 FROM richiesta_fornitore r
 JOIN thread_offerta t ON t.thread_id = r.thread_id
 JOIN cliente c ON c.cliente_id = t.cliente_id
-WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'risposta')
+WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'offerta_ricevuta')
 `
 
 // I clienti che hanno richieste aperte a questo fornitore: le SOLE famiglie con cui si cercano codici
@@ -94,7 +94,7 @@ func (q *Queries) ContaRichiesteAperte(ctx context.Context, threadID uuid.UUID) 
 }
 
 const getRichiesta = `-- name: GetRichiesta :one
-SELECT richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, risposta_il, note, creata_da, creata_il FROM richiesta_fornitore WHERE richiesta_id = $1
+SELECT richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, offerta_ricevuta_il, note, creata_da, creata_il, declinata_il FROM richiesta_fornitore WHERE richiesta_id = $1
 `
 
 func (q *Queries) GetRichiesta(ctx context.Context, richiestaID uuid.UUID) (RichiestaFornitore, error) {
@@ -109,10 +109,11 @@ func (q *Queries) GetRichiesta(ctx context.Context, richiestaID uuid.UUID) (Rich
 		&i.MessaggioID,
 		&i.Stato,
 		&i.InviataIl,
-		&i.RispostaIl,
+		&i.OffertaRicevutaIl,
 		&i.Note,
 		&i.CreataDa,
 		&i.CreataIl,
+		&i.DeclinataIl,
 	)
 	return i, err
 }
@@ -190,7 +191,7 @@ const insertRichiestaFornitore = `-- name: InsertRichiestaFornitore :one
 
 
 INSERT INTO richiesta_fornitore (thread_id, fornitore_id, lavorazione, codici, note, creata_da, stato, messaggio_id, inviata_il)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, risposta_il, note, creata_da, creata_il
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, offerta_ricevuta_il, note, creata_da, creata_il, declinata_il
 `
 
 type InsertRichiestaFornitoreParams struct {
@@ -231,10 +232,11 @@ func (q *Queries) InsertRichiestaFornitore(ctx context.Context, arg InsertRichie
 		&i.MessaggioID,
 		&i.Stato,
 		&i.InviataIl,
-		&i.RispostaIl,
+		&i.OffertaRicevutaIl,
 		&i.Note,
 		&i.CreataDa,
 		&i.CreataIl,
+		&i.DeclinataIl,
 	)
 	return i, err
 }
@@ -306,7 +308,7 @@ func (q *Queries) ListCandidatiRichiesta(ctx context.Context, messaggioID uuid.U
 }
 
 const listRichiesteFornitore = `-- name: ListRichiesteFornitore :many
-SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.risposta_il, r.note, r.creata_da, r.creata_il, t.oggetto AS oggetto_rfq, t.cartella_relativa, c.cartella_nas AS cliente
+SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, t.oggetto AS oggetto_rfq, t.cartella_relativa, c.cartella_nas AS cliente
 FROM richiesta_fornitore r
 JOIN thread_offerta t ON t.thread_id = r.thread_id
 JOIN cliente c ON c.cliente_id = t.cliente_id
@@ -314,21 +316,22 @@ WHERE r.fornitore_id = $1 ORDER BY r.creata_il DESC LIMIT 50
 `
 
 type ListRichiesteFornitoreRow struct {
-	RichiestaID      uuid.UUID               `json:"richiesta_id"`
-	ThreadID         uuid.UUID               `json:"thread_id"`
-	FornitoreID      uuid.UUID               `json:"fornitore_id"`
-	Lavorazione      pgtype.Text             `json:"lavorazione"`
-	Codici           []string                `json:"codici"`
-	MessaggioID      uuid.NullUUID           `json:"messaggio_id"`
-	Stato            StatoRichiestaFornitore `json:"stato"`
-	InviataIl        *time.Time              `json:"inviata_il"`
-	RispostaIl       *time.Time              `json:"risposta_il"`
-	Note             pgtype.Text             `json:"note"`
-	CreataDa         uuid.NullUUID           `json:"creata_da"`
-	CreataIl         time.Time               `json:"creata_il"`
-	OggettoRfq       pgtype.Text             `json:"oggetto_rfq"`
-	CartellaRelativa pgtype.Text             `json:"cartella_relativa"`
-	Cliente          string                  `json:"cliente"`
+	RichiestaID       uuid.UUID               `json:"richiesta_id"`
+	ThreadID          uuid.UUID               `json:"thread_id"`
+	FornitoreID       uuid.UUID               `json:"fornitore_id"`
+	Lavorazione       pgtype.Text             `json:"lavorazione"`
+	Codici            []string                `json:"codici"`
+	MessaggioID       uuid.NullUUID           `json:"messaggio_id"`
+	Stato             StatoRichiestaFornitore `json:"stato"`
+	InviataIl         *time.Time              `json:"inviata_il"`
+	OffertaRicevutaIl *time.Time              `json:"offerta_ricevuta_il"`
+	Note              pgtype.Text             `json:"note"`
+	CreataDa          uuid.NullUUID           `json:"creata_da"`
+	CreataIl          time.Time               `json:"creata_il"`
+	DeclinataIl       *time.Time              `json:"declinata_il"`
+	OggettoRfq        pgtype.Text             `json:"oggetto_rfq"`
+	CartellaRelativa  pgtype.Text             `json:"cartella_relativa"`
+	Cliente           string                  `json:"cliente"`
 }
 
 func (q *Queries) ListRichiesteFornitore(ctx context.Context, fornitoreID uuid.UUID) ([]ListRichiesteFornitoreRow, error) {
@@ -349,10 +352,11 @@ func (q *Queries) ListRichiesteFornitore(ctx context.Context, fornitoreID uuid.U
 			&i.MessaggioID,
 			&i.Stato,
 			&i.InviataIl,
-			&i.RispostaIl,
+			&i.OffertaRicevutaIl,
 			&i.Note,
 			&i.CreataDa,
 			&i.CreataIl,
+			&i.DeclinataIl,
 			&i.OggettoRfq,
 			&i.CartellaRelativa,
 			&i.Cliente,
@@ -368,7 +372,7 @@ func (q *Queries) ListRichiesteFornitore(ctx context.Context, fornitoreID uuid.U
 }
 
 const listRichiesteThread = `-- name: ListRichiesteThread :many
-SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.risposta_il, r.note, r.creata_da, r.creata_il, f.ragione_sociale AS fornitore, l.descrizione AS lavorazione_descrizione,
+SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, f.ragione_sociale AS fornitore, l.descrizione AS lavorazione_descrizione,
        m.oggetto AS oggetto_mail, m.data_evento AS data_mail,
        (SELECT count(*) FROM messaggio x WHERE x.richiesta_fornitore_id = r.richiesta_id AND x.direzione = 'entrata') AS n_risposte
 FROM richiesta_fornitore r
@@ -387,10 +391,11 @@ type ListRichiesteThreadRow struct {
 	MessaggioID            uuid.NullUUID           `json:"messaggio_id"`
 	Stato                  StatoRichiestaFornitore `json:"stato"`
 	InviataIl              *time.Time              `json:"inviata_il"`
-	RispostaIl             *time.Time              `json:"risposta_il"`
+	OffertaRicevutaIl      *time.Time              `json:"offerta_ricevuta_il"`
 	Note                   pgtype.Text             `json:"note"`
 	CreataDa               uuid.NullUUID           `json:"creata_da"`
 	CreataIl               time.Time               `json:"creata_il"`
+	DeclinataIl            *time.Time              `json:"declinata_il"`
 	Fornitore              string                  `json:"fornitore"`
 	LavorazioneDescrizione pgtype.Text             `json:"lavorazione_descrizione"`
 	OggettoMail            pgtype.Text             `json:"oggetto_mail"`
@@ -416,10 +421,11 @@ func (q *Queries) ListRichiesteThread(ctx context.Context, threadID uuid.UUID) (
 			&i.MessaggioID,
 			&i.Stato,
 			&i.InviataIl,
-			&i.RispostaIl,
+			&i.OffertaRicevutaIl,
 			&i.Note,
 			&i.CreataDa,
 			&i.CreataIl,
+			&i.DeclinataIl,
 			&i.Fornitore,
 			&i.LavorazioneDescrizione,
 			&i.OggettoMail,
@@ -437,7 +443,7 @@ func (q *Queries) ListRichiesteThread(ctx context.Context, threadID uuid.UUID) (
 }
 
 const richiestaPerMarcatore = `-- name: RichiestaPerMarcatore :one
-SELECT richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, risposta_il, note, creata_da, creata_il FROM richiesta_fornitore WHERE richiesta_id = $1
+SELECT richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, offerta_ricevuta_il, note, creata_da, creata_il, declinata_il FROM richiesta_fornitore WHERE richiesta_id = $1
 `
 
 func (q *Queries) RichiestaPerMarcatore(ctx context.Context, richiestaID uuid.UUID) (RichiestaFornitore, error) {
@@ -452,17 +458,18 @@ func (q *Queries) RichiestaPerMarcatore(ctx context.Context, richiestaID uuid.UU
 		&i.MessaggioID,
 		&i.Stato,
 		&i.InviataIl,
-		&i.RispostaIl,
+		&i.OffertaRicevutaIl,
 		&i.Note,
 		&i.CreataDa,
 		&i.CreataIl,
+		&i.DeclinataIl,
 	)
 	return i, err
 }
 
 const richiestePerChiaviCitate = `-- name: RichiestePerChiaviCitate :many
 
-SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.risposta_il, r.note, r.creata_da, r.creata_il, m.chiave_esterna
+SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, m.chiave_esterna
 FROM richiesta_fornitore r
 JOIN messaggio m ON m.messaggio_id = r.messaggio_id
 WHERE m.chiave_esterna = ANY($1::text[]) AND r.fornitore_id = $2
@@ -474,19 +481,20 @@ type RichiestePerChiaviCitateParams struct {
 }
 
 type RichiestePerChiaviCitateRow struct {
-	RichiestaID   uuid.UUID               `json:"richiesta_id"`
-	ThreadID      uuid.UUID               `json:"thread_id"`
-	FornitoreID   uuid.UUID               `json:"fornitore_id"`
-	Lavorazione   pgtype.Text             `json:"lavorazione"`
-	Codici        []string                `json:"codici"`
-	MessaggioID   uuid.NullUUID           `json:"messaggio_id"`
-	Stato         StatoRichiestaFornitore `json:"stato"`
-	InviataIl     *time.Time              `json:"inviata_il"`
-	RispostaIl    *time.Time              `json:"risposta_il"`
-	Note          pgtype.Text             `json:"note"`
-	CreataDa      uuid.NullUUID           `json:"creata_da"`
-	CreataIl      time.Time               `json:"creata_il"`
-	ChiaveEsterna string                  `json:"chiave_esterna"`
+	RichiestaID       uuid.UUID               `json:"richiesta_id"`
+	ThreadID          uuid.UUID               `json:"thread_id"`
+	FornitoreID       uuid.UUID               `json:"fornitore_id"`
+	Lavorazione       pgtype.Text             `json:"lavorazione"`
+	Codici            []string                `json:"codici"`
+	MessaggioID       uuid.NullUUID           `json:"messaggio_id"`
+	Stato             StatoRichiestaFornitore `json:"stato"`
+	InviataIl         *time.Time              `json:"inviata_il"`
+	OffertaRicevutaIl *time.Time              `json:"offerta_ricevuta_il"`
+	Note              pgtype.Text             `json:"note"`
+	CreataDa          uuid.NullUUID           `json:"creata_da"`
+	CreataIl          time.Time               `json:"creata_il"`
+	DeclinataIl       *time.Time              `json:"declinata_il"`
+	ChiaveEsterna     string                  `json:"chiave_esterna"`
 }
 
 // ---------------------------------------------------------------- i candidati verso una richiesta (7B.2)
@@ -509,10 +517,11 @@ func (q *Queries) RichiestePerChiaviCitate(ctx context.Context, arg RichiestePer
 			&i.MessaggioID,
 			&i.Stato,
 			&i.InviataIl,
-			&i.RispostaIl,
+			&i.OffertaRicevutaIl,
 			&i.Note,
 			&i.CreataDa,
 			&i.CreataIl,
+			&i.DeclinataIl,
 			&i.ChiaveEsterna,
 		); err != nil {
 			return nil, err
@@ -526,11 +535,11 @@ func (q *Queries) RichiestePerChiaviCitate(ctx context.Context, arg RichiestePer
 }
 
 const richiestePerCodiciFornitore = `-- name: RichiestePerCodiciFornitore :many
-SELECT DISTINCT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.risposta_il, r.note, r.creata_da, r.creata_il, i.codice
+SELECT DISTINCT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, i.codice
 FROM richiesta_fornitore r
 JOIN thread_offerta t ON t.thread_id = r.thread_id
 JOIN identificativo_thread i ON i.thread_id = t.thread_id
-WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'risposta')
+WHERE r.fornitore_id = $1 AND r.stato IN ('inviata', 'offerta_ricevuta')
   AND (upper(i.codice) = ANY($2::text[]) OR EXISTS (SELECT 1 FROM unnest(r.codici) c WHERE upper(c) = ANY($2::text[])))
 LIMIT 20
 `
@@ -541,19 +550,20 @@ type RichiestePerCodiciFornitoreParams struct {
 }
 
 type RichiestePerCodiciFornitoreRow struct {
-	RichiestaID uuid.UUID               `json:"richiesta_id"`
-	ThreadID    uuid.UUID               `json:"thread_id"`
-	FornitoreID uuid.UUID               `json:"fornitore_id"`
-	Lavorazione pgtype.Text             `json:"lavorazione"`
-	Codici      []string                `json:"codici"`
-	MessaggioID uuid.NullUUID           `json:"messaggio_id"`
-	Stato       StatoRichiestaFornitore `json:"stato"`
-	InviataIl   *time.Time              `json:"inviata_il"`
-	RispostaIl  *time.Time              `json:"risposta_il"`
-	Note        pgtype.Text             `json:"note"`
-	CreataDa    uuid.NullUUID           `json:"creata_da"`
-	CreataIl    time.Time               `json:"creata_il"`
-	Codice      string                  `json:"codice"`
+	RichiestaID       uuid.UUID               `json:"richiesta_id"`
+	ThreadID          uuid.UUID               `json:"thread_id"`
+	FornitoreID       uuid.UUID               `json:"fornitore_id"`
+	Lavorazione       pgtype.Text             `json:"lavorazione"`
+	Codici            []string                `json:"codici"`
+	MessaggioID       uuid.NullUUID           `json:"messaggio_id"`
+	Stato             StatoRichiestaFornitore `json:"stato"`
+	InviataIl         *time.Time              `json:"inviata_il"`
+	OffertaRicevutaIl *time.Time              `json:"offerta_ricevuta_il"`
+	Note              pgtype.Text             `json:"note"`
+	CreataDa          uuid.NullUUID           `json:"creata_da"`
+	CreataIl          time.Time               `json:"creata_il"`
+	DeclinataIl       *time.Time              `json:"declinata_il"`
+	Codice            string                  `json:"codice"`
 }
 
 // R3f: un codice cliente citato che appartiene a una RFQ con una richiesta a QUESTO fornitore,
@@ -576,10 +586,11 @@ func (q *Queries) RichiestePerCodiciFornitore(ctx context.Context, arg Richieste
 			&i.MessaggioID,
 			&i.Stato,
 			&i.InviataIl,
-			&i.RispostaIl,
+			&i.OffertaRicevutaIl,
 			&i.Note,
 			&i.CreataDa,
 			&i.CreataIl,
+			&i.DeclinataIl,
 			&i.Codice,
 		); err != nil {
 			return nil, err
@@ -593,7 +604,7 @@ func (q *Queries) RichiestePerCodiciFornitore(ctx context.Context, arg Richieste
 }
 
 const richiestePerConversazione = `-- name: RichiestePerConversazione :many
-SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.risposta_il, r.note, r.creata_da, r.creata_il
+SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il
 FROM richiesta_fornitore r
 JOIN messaggio m ON m.messaggio_id = r.messaggio_id
 WHERE m.conversazione_id = $1 AND r.fornitore_id = $2
@@ -623,10 +634,11 @@ func (q *Queries) RichiestePerConversazione(ctx context.Context, arg RichiestePe
 			&i.MessaggioID,
 			&i.Stato,
 			&i.InviataIl,
-			&i.RispostaIl,
+			&i.OffertaRicevutaIl,
 			&i.Note,
 			&i.CreataDa,
 			&i.CreataIl,
+			&i.DeclinataIl,
 		); err != nil {
 			return nil, err
 		}
@@ -656,6 +668,33 @@ func (q *Queries) RiproponiAllegatiComeOffertaFornitore(ctx context.Context, mes
 	return result.RowsAffected(), nil
 }
 
+const setAttoTriage = `-- name: SetAttoTriage :execrows
+UPDATE proposta_triage SET atto = $2, legame = $3, richiesta_proposta = $4, fornitore_proposto = $5
+WHERE messaggio_id = $1 AND fonte = 'deterministico' AND stato = 'proposta'
+`
+
+type SetAttoTriageParams struct {
+	MessaggioID       uuid.UUID           `json:"messaggio_id"`
+	Atto              pgtype.Text         `json:"atto"`
+	Legame            NullLegameOperativo `json:"legame"`
+	RichiestaProposta uuid.NullUUID       `json:"richiesta_proposta"`
+	FornitoreProposto uuid.NullUUID       `json:"fornitore_proposto"`
+}
+
+func (q *Queries) SetAttoTriage(ctx context.Context, arg SetAttoTriageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAttoTriage,
+		arg.MessaggioID,
+		arg.Atto,
+		arg.Legame,
+		arg.RichiestaProposta,
+		arg.FornitoreProposto,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setBozzaInviata = `-- name: SetBozzaInviata :execrows
 UPDATE bozza SET stato = 'inviata', inviata_messaggio_id = $2 WHERE bozza_id = $1 AND inviata_messaggio_id IS NULL
 `
@@ -674,25 +713,19 @@ func (q *Queries) SetBozzaInviata(ctx context.Context, arg SetBozzaInviataParams
 	return result.RowsAffected(), nil
 }
 
-const setIntentoTriage = `-- name: SetIntentoTriage :execrows
-UPDATE proposta_triage SET intento = $2, richiesta_proposta = $3, fornitore_proposto = $4
-WHERE messaggio_id = $1 AND fonte = 'deterministico' AND stato = 'proposta'
+const setRichiestaDeclinata = `-- name: SetRichiestaDeclinata :execrows
+UPDATE richiesta_fornitore SET stato = 'declinata', declinata_il = COALESCE(declinata_il, $2)
+WHERE richiesta_id = $1 AND stato = 'inviata'
 `
 
-type SetIntentoTriageParams struct {
-	MessaggioID       uuid.UUID            `json:"messaggio_id"`
-	Intento           NullIntentoMessaggio `json:"intento"`
-	RichiestaProposta uuid.NullUUID        `json:"richiesta_proposta"`
-	FornitoreProposto uuid.NullUUID        `json:"fornitore_proposto"`
+type SetRichiestaDeclinataParams struct {
+	RichiestaID uuid.UUID  `json:"richiesta_id"`
+	DeclinataIl *time.Time `json:"declinata_il"`
 }
 
-func (q *Queries) SetIntentoTriage(ctx context.Context, arg SetIntentoTriageParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setIntentoTriage,
-		arg.MessaggioID,
-		arg.Intento,
-		arg.RichiestaProposta,
-		arg.FornitoreProposto,
-	)
+// «Non quotiamo»: la richiesta e' chiusa senza offerta.
+func (q *Queries) SetRichiestaDeclinata(ctx context.Context, arg SetRichiestaDeclinataParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setRichiestaDeclinata, arg.RichiestaID, arg.DeclinataIl)
 	if err != nil {
 		return 0, err
 	}
@@ -720,18 +753,20 @@ func (q *Queries) SetRichiestaInviata(ctx context.Context, arg SetRichiestaInvia
 	return result.RowsAffected(), nil
 }
 
-const setRichiestaRisposta = `-- name: SetRichiestaRisposta :execrows
-UPDATE richiesta_fornitore SET stato = 'risposta', risposta_il = COALESCE(risposta_il, $2)
-WHERE richiesta_id = $1 AND stato IN ('inviata', 'risposta')
+const setRichiestaOffertaRicevuta = `-- name: SetRichiestaOffertaRicevuta :execrows
+UPDATE richiesta_fornitore SET stato = 'offerta_ricevuta', offerta_ricevuta_il = COALESCE(offerta_ricevuta_il, $2)
+WHERE richiesta_id = $1 AND stato IN ('inviata', 'offerta_ricevuta')
 `
 
-type SetRichiestaRispostaParams struct {
-	RichiestaID uuid.UUID  `json:"richiesta_id"`
-	RispostaIl  *time.Time `json:"risposta_il"`
+type SetRichiestaOffertaRicevutaParams struct {
+	RichiestaID       uuid.UUID  `json:"richiesta_id"`
+	OffertaRicevutaIl *time.Time `json:"offerta_ricevuta_il"`
 }
 
-func (q *Queries) SetRichiestaRisposta(ctx context.Context, arg SetRichiestaRispostaParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setRichiestaRisposta, arg.RichiestaID, arg.RispostaIl)
+// Solo con la conferma di un atto `offerta` (7C.0): una mail collegata alla richiesta, da sola,
+// non cambia lo stato.
+func (q *Queries) SetRichiestaOffertaRicevuta(ctx context.Context, arg SetRichiestaOffertaRicevutaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setRichiestaOffertaRicevuta, arg.RichiestaID, arg.OffertaRicevutaIl)
 	if err != nil {
 		return 0, err
 	}

@@ -98,20 +98,31 @@ func (b *bancoWeb) unFornitore(nome string, tipo db.TipoFornitore, dominio strin
 	return f
 }
 
-// IB1 — quattro messaggi: cliente↓, cliente↑, fornitore↓, sconosciuto. Ciascuno sta nel suo
-// quadrante e in nessun altro; la direzione è un filtro dentro il quadrante; il pannello di un
-// fornitore non ha «Nuova RFQ».
+// IB1 — sei messaggi: cliente↓, cliente↑, fornitore↓, sconosciuto, e dal 7C.0 un interno e un
+// soggetto «altro». Ciascuno sta nel suo quadrante e in nessun altro; la direzione è un filtro
+// dentro il quadrante; il pannello di un fornitore non ha «Nuova RFQ».
 func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
+	// 7C.0: un soggetto censito come Altro, con il suo dominio
+	corriere, err := b.q.InsertSoggettoAltro(b.ctx, db.InsertSoggettoAltroParams{Etichetta: "Corriere di prova"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.q.InsertRecapitoAltro(b.ctx, db.InsertRecapitoAltroParams{Lower: "corriere.example", AltroID: corriere.AltroID}); err != nil {
+		t.Fatal(err)
+	}
 
 	clienteIn := b.posta("entrata", "acquisti@acme.example", "RFQ IB1 cliente in entrata", true)
 	clienteOut := b.posta("uscita", "commerciale@azienda.example", "Offerta IB1 cliente in uscita", false, "acquisti@acme.example")
 	fornitoreIn := b.posta("entrata", "info@euroforesi.example", "Offerta IB1 fornitore", true)
 	ignoto := b.posta("entrata", "nessuno@altrove.example", "Newsletter IB1 sconosciuto", false)
+	interna := b.posta("uscita", "commerciale@azienda.example", "Nota IB1 interna", false, "francesco@azienda.example")
+	corriereIn := b.posta("entrata", "ritiri@corriere.example", "Ritiro IB1 corriere", false)
 
-	for id, atteso := range map[uuid.UUID]string{clienteIn: "cliente", clienteOut: "cliente", fornitoreIn: "fornitore", ignoto: "sconosciuto"} {
+	for id, atteso := range map[uuid.UUID]string{clienteIn: "cliente", clienteOut: "cliente", fornitoreIn: "fornitore", ignoto: "sconosciuto",
+		interna: "interno", corriereIn: "altro"} {
 		if tipo, _ := b.controparteDi(id); tipo != atteso {
 			t.Fatalf("messaggio %s: controparte %s, attesa %s", id, tipo, atteso)
 		}
@@ -128,12 +139,16 @@ func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 		dentro    []string
 		fuori     []string
 	}{
-		{"buyer", []string{"RFQ IB1 cliente in entrata", "Offerta IB1 cliente in uscita"}, []string{"Offerta IB1 fornitore", "Newsletter IB1"}},
-		{"fornitori", []string{"Offerta IB1 fornitore", "chip fornitore"}, []string{"RFQ IB1 cliente", "Newsletter IB1"}},
-		{"validare", []string{"Newsletter IB1", "sconosciuto"}, []string{"RFQ IB1 cliente", "Offerta IB1 fornitore"}},
-		{"tutti", []string{"RFQ IB1 cliente in entrata", "Offerta IB1 fornitore", "Newsletter IB1"}, nil},
-		{"buyer&dir=entrata", []string{"RFQ IB1 cliente in entrata"}, []string{"Offerta IB1 cliente in uscita"}},
-		{"buyer&dir=uscita", []string{"Offerta IB1 cliente in uscita", "in uscita"}, []string{"RFQ IB1 cliente in entrata"}},
+		{"clienti", []string{"RFQ IB1 cliente in entrata", "Offerta IB1 cliente in uscita"}, []string{"Offerta IB1 fornitore", "Newsletter IB1", "Nota IB1 interna", "Ritiro IB1"}},
+		{"fornitori", []string{"Offerta IB1 fornitore", "chip fornitore"}, []string{"RFQ IB1 cliente", "Newsletter IB1", "Nota IB1 interna", "Ritiro IB1"}},
+		{"interni", []string{"Nota IB1 interna", "interna"}, []string{"RFQ IB1 cliente", "Offerta IB1 fornitore", "Newsletter IB1", "Ritiro IB1"}},
+		{"altro", []string{"Ritiro IB1 corriere", "Corriere di prova", "chip altro"}, []string{"RFQ IB1 cliente", "Offerta IB1 fornitore", "Newsletter IB1", "Nota IB1 interna"}},
+		{"validare", []string{"Newsletter IB1", "sconosciuto"}, []string{"RFQ IB1 cliente", "Offerta IB1 fornitore", "Nota IB1 interna", "Ritiro IB1"}},
+		{"tutti", []string{"RFQ IB1 cliente in entrata", "Offerta IB1 fornitore", "Newsletter IB1", "Nota IB1 interna", "Ritiro IB1 corriere"}, nil},
+		{"clienti&dir=entrata", []string{"RFQ IB1 cliente in entrata"}, []string{"Offerta IB1 cliente in uscita"}},
+		{"clienti&dir=uscita", []string{"Offerta IB1 cliente in uscita", "in uscita"}, []string{"RFQ IB1 cliente in entrata"}},
+		// il nome di ieri apre lo stesso quadrante: i link salvati non si rompono
+		{"buyer", []string{"RFQ IB1 cliente in entrata"}, []string{"Offerta IB1 fornitore"}},
 	}
 	for _, c := range casi {
 		corpo := lista(c.quadrante)
@@ -149,9 +164,9 @@ func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 		}
 	}
 
-	// la pagina intera ha i tre quadranti con i conteggi degli orfani: 2, 1, 1
+	// la pagina intera ha i cinque quadranti con i conteggi degli orfani: 2, 1, 1, 1, 1
 	_, pagina := fp.fai(http.MethodGet, "/inbox", nil, false)
-	for _, atteso := range []string{`class="quadrante buyer attivo"`, `class="quadrante fornitori `, `class="quadrante validare `, `<small class="pieno">2</small>`, `<small class="pieno">1</small>`} {
+	for _, atteso := range []string{`class="quadrante clienti attivo"`, `class="quadrante fornitori `, `class="quadrante interni `, `class="quadrante altro `, `class="quadrante validare `, `<small class="pieno">2</small>`, `<small class="pieno">1</small>`} {
 		if !strings.Contains(pagina, atteso) {
 			t.Errorf("la pagina non ha %q: %s", atteso, estratto(pagina, "quadranti"))
 		}
@@ -201,7 +216,7 @@ func TestCP5CensisciComeFornitoreRicalcolaSoloINonDecisi(t *testing.T) {
 		}
 	}
 	var proposte int
-	if err := b.pool.QueryRow(b.ctx, `SELECT count(*) FROM proposta_triage WHERE messaggio_id IN ($1,$2) AND esito = 'ignora' AND intento = 'incerto' AND stato = 'proposta'`, uno, due).Scan(&proposte); err != nil {
+	if err := b.pool.QueryRow(b.ctx, `SELECT count(*) FROM proposta_triage WHERE messaggio_id IN ($1,$2) AND esito = 'ignora' AND atto = 'incerto' AND stato = 'proposta'`, uno, due).Scan(&proposte); err != nil {
 		t.Fatal(err)
 	}
 	if proposte != 2 {

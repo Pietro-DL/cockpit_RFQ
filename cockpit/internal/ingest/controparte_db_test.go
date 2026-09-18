@@ -137,10 +137,10 @@ func TestCP1UnaRichiestaDOffertaDiUnFornitoreNonDiventaUnaRFQ(t *testing.T) {
 	mc := b.richiestaDOfferta("acquisti@clientecontrollo.example")
 	m0 := b.richiestaDOfferta("info@pftorniture.example")
 	b.ingerisci(mc, m0)
-	if p, ok := b.proposta(b.messaggio(mc.MessageID).MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioRfqCliente {
+	if p, ok := b.proposta(b.messaggio(mc.MessageID).MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq || p.Atto.String != "richiesta_offerta" {
 		t.Fatalf("da un cliente censito il messaggio e' una RFQ nuova, altrimenti la prova non prova niente: %+v", p)
 	}
-	if p, ok := b.proposta(b.messaggio(m0.MessageID).MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto {
+	if p, ok := b.proposta(b.messaggio(m0.MessageID).MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Atto.String != "incerto" {
 		t.Fatalf("da un mittente non censito: incerto e nessuna RFQ nuova (7B.3), non %+v", p)
 	}
 	f := b.fornitore("PF Torniture di prova", db.TipoFornitoreProcessi, "pftorniture.example")
@@ -236,7 +236,7 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 			t.Fatalf("prima del censimento: %s", r.ControparteTipo)
 		}
 		// 7B.3: da uno sconosciuto niente RFQ nuova; l'intento e' «incerto»
-		if p, ok := b.proposta(r.MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto {
+		if p, ok := b.proposta(r.MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Atto.String != "incerto" {
 			t.Fatalf("prima del censimento la proposta e' incerta, senza RFQ nuova: %+v", p)
 		}
 	}
@@ -275,15 +275,15 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 			t.Fatalf("la proposta ricalcolata non e' piu' una RFQ nuova: %+v", p)
 		}
 		// il ramo fornitore ha letto la mail: offerta (parla di offerta e allega un PDF)
-		if p.Intento.IntentoMessaggio != db.IntentoMessaggioOffertaFornitore {
-			t.Fatalf("intento dopo il censimento: %+v", p.Intento)
+		if p.Atto.String != "offerta" {
+			t.Fatalf("atto dopo il censimento: %+v", p.Atto)
 		}
 	}
 	dopo := b.messaggio(m3.MessageID)
 	if dopo.ControparteTipo != db.TipoControparteSconosciuto {
 		t.Fatalf("il deciso non si tocca: %s", dopo.ControparteTipo)
 	}
-	if p, _ := b.proposta(dopo.MessaggioID); p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto || p.Stato != db.StatoTriageAccettata {
+	if p, _ := b.proposta(dopo.MessaggioID); p.Atto.String != "incerto" || p.Stato != db.StatoTriageAccettata {
 		t.Fatalf("la decisione presa resta: %+v", p)
 	}
 	if r := b.messaggio(altro.MessageID); r.ControparteTipo != db.TipoControparteSconosciuto {

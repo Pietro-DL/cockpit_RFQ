@@ -131,10 +131,10 @@ func RichiesteManuali(ctx context.Context, q *db.Queries, codici []string) ([]do
 
 func rigaRichiesta(r db.RichiestePerChiaviCitateRow) db.RichiestaFornitore {
 	return db.RichiestaFornitore{RichiestaID: r.RichiestaID, ThreadID: r.ThreadID, FornitoreID: r.FornitoreID, Lavorazione: r.Lavorazione,
-		Codici: r.Codici, MessaggioID: r.MessaggioID, Stato: r.Stato, InviataIl: r.InviataIl, RispostaIl: r.RispostaIl, Note: r.Note, CreataDa: r.CreataDa, CreataIl: r.CreataIl}
+		Codici: r.Codici, MessaggioID: r.MessaggioID, Stato: r.Stato, InviataIl: r.InviataIl, OffertaRicevutaIl: r.OffertaRicevutaIl, DeclinataIl: r.DeclinataIl, Note: r.Note, CreataDa: r.CreataDa, CreataIl: r.CreataIl}
 }
 
 func rigaRichiestaCodice(r db.RichiestePerCodiciFornitoreRow) db.RichiestaFornitore {
 	return db.RichiestaFornitore{RichiestaID: r.RichiestaID, ThreadID: r.ThreadID, FornitoreID: r.FornitoreID, Lavorazione: r.Lavorazione,
-		Codici: r.Codici, MessaggioID: r.MessaggioID, Stato: r.Stato, InviataIl: r.InviataIl, RispostaIl: r.RispostaIl, Note: r.Note, CreataDa: r.CreataDa, CreataIl: r.CreataIl}
+		Codici: r.Codici, MessaggioID: r.MessaggioID, Stato: r.Stato, InviataIl: r.InviataIl, OffertaRicevutaIl: r.OffertaRicevutaIl, DeclinataIl: r.DeclinataIl, Note: r.Note, CreataDa: r.CreataDa, CreataIl: r.CreataIl}
 }

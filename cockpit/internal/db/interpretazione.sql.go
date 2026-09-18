@@ -77,9 +77,12 @@ func (q *Queries) GetBozza(ctx context.Context, bozzaID uuid.UUID) (Bozza, error
 }
 
 const getTriageMessaggio = `-- name: GetTriageMessaggio :one
-SELECT triage_id, messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi, scadenza_proposta, confidenza, motivi, fonte, stato, deciso_da, deciso_il, creato_il, intento, richiesta_proposta, fornitore_proposto FROM proposta_triage WHERE messaggio_id = $1 ORDER BY (fonte = 'agente') DESC, creato_il DESC LIMIT 1
+SELECT triage_id, messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi, scadenza_proposta, confidenza, motivi, fonte, stato, deciso_da, deciso_il, creato_il, richiesta_proposta, fornitore_proposto, atto, legame FROM proposta_triage WHERE messaggio_id = $1 AND fonte = 'deterministico'
 `
 
+// La proposta DETERMINISTICA. Prima sceglieva quella dell'agente quando c'era: una preferenza
+// implicita che non spetta a una query di lettura (7C.0). Il confronto fra le due fonti e' una
+// lettura a parte, quando servira'.
 func (q *Queries) GetTriageMessaggio(ctx context.Context, messaggioID uuid.UUID) (PropostaTriage, error) {
 	row := q.db.QueryRow(ctx, getTriageMessaggio, messaggioID)
 	var i PropostaTriage
@@ -99,9 +102,10 @@ func (q *Queries) GetTriageMessaggio(ctx context.Context, messaggioID uuid.UUID)
 		&i.DecisoDa,
 		&i.DecisoIl,
 		&i.CreatoIl,
-		&i.Intento,
 		&i.RichiestaProposta,
 		&i.FornitoreProposto,
+		&i.Atto,
+		&i.Legame,
 	)
 	return i, err
 }
@@ -400,35 +404,38 @@ func (q *Queries) UpsertRiferimentoPortale(ctx context.Context, arg UpsertRiferi
 
 const upsertTriage = `-- name: UpsertTriage :one
 INSERT INTO proposta_triage (messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi,
-                             scadenza_proposta, confidenza, motivi, fonte, intento, richiesta_proposta, fornitore_proposto)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                             scadenza_proposta, confidenza, motivi, fonte, atto, legame, richiesta_proposta, fornitore_proposto)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (messaggio_id, fonte) DO UPDATE SET
     esito = EXCLUDED.esito, thread_proposto = EXCLUDED.thread_proposto, cliente_proposto = EXCLUDED.cliente_proposto,
     buyer_proposto = EXCLUDED.buyer_proposto, identificativi = EXCLUDED.identificativi, scadenza_proposta = EXCLUDED.scadenza_proposta,
     confidenza = EXCLUDED.confidenza, motivi = EXCLUDED.motivi,
-    intento = EXCLUDED.intento, richiesta_proposta = EXCLUDED.richiesta_proposta, fornitore_proposto = EXCLUDED.fornitore_proposto
+    atto = EXCLUDED.atto, legame = EXCLUDED.legame, richiesta_proposta = EXCLUDED.richiesta_proposta, fornitore_proposto = EXCLUDED.fornitore_proposto
 WHERE proposta_triage.stato = 'proposta'
-RETURNING triage_id, messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi, scadenza_proposta, confidenza, motivi, fonte, stato, deciso_da, deciso_il, creato_il, intento, richiesta_proposta, fornitore_proposto
+RETURNING triage_id, messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi, scadenza_proposta, confidenza, motivi, fonte, stato, deciso_da, deciso_il, creato_il, richiesta_proposta, fornitore_proposto, atto, legame
 `
 
 type UpsertTriageParams struct {
-	MessaggioID       uuid.UUID            `json:"messaggio_id"`
-	Esito             EsitoTriage          `json:"esito"`
-	ThreadProposto    uuid.NullUUID        `json:"thread_proposto"`
-	ClienteProposto   uuid.NullUUID        `json:"cliente_proposto"`
-	BuyerProposto     uuid.NullUUID        `json:"buyer_proposto"`
-	Identificativi    []string             `json:"identificativi"`
-	ScadenzaProposta  *time.Time           `json:"scadenza_proposta"`
-	Confidenza        int16                `json:"confidenza"`
-	Motivi            json.RawMessage      `json:"motivi"`
-	Fonte             FonteTriage          `json:"fonte"`
-	Intento           NullIntentoMessaggio `json:"intento"`
-	RichiestaProposta uuid.NullUUID        `json:"richiesta_proposta"`
-	FornitoreProposto uuid.NullUUID        `json:"fornitore_proposto"`
+	MessaggioID       uuid.UUID           `json:"messaggio_id"`
+	Esito             EsitoTriage         `json:"esito"`
+	ThreadProposto    uuid.NullUUID       `json:"thread_proposto"`
+	ClienteProposto   uuid.NullUUID       `json:"cliente_proposto"`
+	BuyerProposto     uuid.NullUUID       `json:"buyer_proposto"`
+	Identificativi    []string            `json:"identificativi"`
+	ScadenzaProposta  *time.Time          `json:"scadenza_proposta"`
+	Confidenza        int16               `json:"confidenza"`
+	Motivi            json.RawMessage     `json:"motivi"`
+	Fonte             FonteTriage         `json:"fonte"`
+	Atto              pgtype.Text         `json:"atto"`
+	Legame            NullLegameOperativo `json:"legame"`
+	RichiestaProposta uuid.NullUUID       `json:"richiesta_proposta"`
+	FornitoreProposto uuid.NullUUID       `json:"fornitore_proposto"`
 }
 
-// Dalla 0015 porta anche l'INTENTO (che cosa il messaggio e') e, per la posta dei fornitori, il
-// bersaglio: una richiesta esistente o «richiesta a X per la RFQ Y» (fornitore_proposto + thread_proposto).
+// Dalla 0016 porta l'ATTO (che cosa sta facendo il mittente) e il LEGAME (nuovo, risposta,
+// aggiornamento...), tutti e due proposte; e per la posta dei fornitori il bersaglio: una richiesta
+// esistente o «richiesta a X per la RFQ Y» (fornitore_proposto + thread_proposto). L'esito resta
+// la proposta di azione per la schermata.
 func (q *Queries) UpsertTriage(ctx context.Context, arg UpsertTriageParams) (PropostaTriage, error) {
 	row := q.db.QueryRow(ctx, upsertTriage,
 		arg.MessaggioID,
@@ -441,7 +448,8 @@ func (q *Queries) UpsertTriage(ctx context.Context, arg UpsertTriageParams) (Pro
 		arg.Confidenza,
 		arg.Motivi,
 		arg.Fonte,
-		arg.Intento,
+		arg.Atto,
+		arg.Legame,
 		arg.RichiestaProposta,
 		arg.FornitoreProposto,
 	)
@@ -462,9 +470,10 @@ func (q *Queries) UpsertTriage(ctx context.Context, arg UpsertTriageParams) (Pro
 		&i.DecisoDa,
 		&i.DecisoIl,
 		&i.CreatoIl,
-		&i.Intento,
 		&i.RichiestaProposta,
 		&i.FornitoreProposto,
+		&i.Atto,
+		&i.Legame,
 	)
 	return i, err
 }

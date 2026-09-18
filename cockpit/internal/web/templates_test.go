@@ -191,17 +191,17 @@ func TestFrammentiEseguono(t *testing.T) {
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Thread = nil
-			x.Riga.ControparteTipo, x.Riga.Controparte, x.Riga.TriageIntento = "fornitore", txtT("MGM"), "offerta_fornitore"
+			x.Riga.ControparteTipo, x.Riga.Controparte, x.Riga.TriageAtto, x.Riga.TriageLegame = "fornitore", txtT("MGM"), "offerta", "risposta"
 			x.CandidatiRichiesta = []db.ListCandidatiRichiestaRow{
 				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR0Reply, Punteggio: 95, Evidenza: "In-Reply-To", Fornitore: "MGM", Cliente: "TECHNOGYM", OggettoRfq: txtT("RFQ 0D002622AD"), RichiestaStato: db.StatoRichiestaFornitoreInviata},
 				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR3fCodice, Punteggio: 60, Evidenza: "codice", Fornitore: "MGM", Cliente: "TECHNOGYM", OggettoRfq: txtT("RFQ bis"), RichiestaStato: db.StatoRichiestaFornitoreInviata}}
 			return &x
-		}(), []string{"Risposta a una nostra richiesta?", "risposta-fornitore", ">95<", ">60<", "R3f_codice", `class="chip intento offerta_fornitore"`}},
+		}(), []string{"Risposta a una nostra richiesta?", "risposta-fornitore", ">95<", ">60<", "R3f_codice", `class="chip atto offerta"`, `name="atto"`, `value="offerta" selected`, "legame: risposta"}},
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Thread = nil
 			x.M.Direzione = db.DirezioneUscita
-			x.Riga.ControparteTipo, x.Riga.TriageIntento = "fornitore", "rfq_fornitore"
+			x.Riga.ControparteTipo, x.Riga.TriageAtto = "fornitore", "richiesta_offerta"
 			x.PropostaThread = &db.ThreadOfferta{ThreadID: uuid.New(), CartellaRelativa: txtT(`TECHNOGYM\WIP\x`)}
 			x.PropostaFornitore = &db.Fornitore{FornitoreID: uuid.New(), RagioneSociale: "MGM"}
 			x.Lavorazioni = []db.Lavorazione{{Codice: "tornitura", Descrizione: "Tornitura"}}
@@ -209,10 +209,10 @@ func TestFrammentiEseguono(t *testing.T) {
 		}(), []string{"Richiesta mandata a mano?", "richiesta-fornitore", "Sì, è la richiesta a MGM", "tornitura"}},
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
-			x.Richiesta = &db.RichiestaFornitore{RichiestaID: uuid.New(), Stato: db.StatoRichiestaFornitoreRisposta}
+			x.Richiesta = &db.RichiestaFornitore{RichiestaID: uuid.New(), Stato: db.StatoRichiestaFornitoreOffertaRicevuta}
 			x.RichiestaFornitore = "MGM"
 			return &x
-		}(), []string{"<b>Richiesta:</b> a MGM", `class="chip richiesta risposta"`}},
+		}(), []string{"<b>Richiesta:</b> a MGM", `class="chip richiesta offerta_ricevuta"`}},
 		{"anagrafica.html", "anagrafica_corpo", anagraficaDati{Tab: "clienti", Sez: "lavorazioni",
 			Clienti: []db.ListClientiTuttiRow{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true}},
 			Scelto:  &db.Cliente{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true},

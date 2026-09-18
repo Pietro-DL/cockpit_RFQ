@@ -24,13 +24,21 @@ import (
 //
 //  1. il mittente e' NOSTRO (casella censita o dominio nostro): si guarda il primo destinatario
 //     esterno, con la stessa scala; se non ce n'e', e' traffico `interno`;
-//  2. l'indirizzo ESATTO e' un contatto di un fornitore, oppure un buyer di un cliente. In entrambi
-//     → `ambiguo`; in due fornitori diversi → `ambiguo`;
-//  3. il DOMINIO e' di un fornitore, oppure di un cliente. In entrambi → `ambiguo`;
+//  2. l'indirizzo ESATTO e' un contatto di un fornitore, un buyer di un cliente, oppure un recapito
+//     di un soggetto «altro» (7C.0). In piu' d'una di queste → `ambiguo`; in due fornitori diversi
+//     → `ambiguo`;
+//  3. il DOMINIO e' di un fornitore, di un cliente, oppure di un soggetto «altro». In piu' d'una →
+//     `ambiguo`;
 //  4. altrimenti `sconosciuto`.
 //
 // `ambiguo` non e' un errore di anagrafica: un gruppo che compra e vende puo' avere lo stesso
-// dominio nelle due liste. E' una risposta, e vuol dire «decide una persona».
+// dominio nelle due liste. E' una risposta, e vuol dire «decide una persona». A parita' di
+// specificita' non c'e' MAI una precedenza silenziosa fra le categorie: due che riconoscono lo
+// stesso recapito danno `ambiguo`. L'indirizzo esatto vince sul dominio, e questo basta perche'
+// «newsletter@cliente.example» censito come Altro non finisca fra i clienti.
+//
+// `altro` e' sempre censito da una persona: uno sconosciuto resta sconosciuto finche' qualcuno
+// non decide, e nessun automatismo (tanto meno l'agente) lo sposta qui.
 //
 // Il pacchetto non sa niente del database: chi chiama passa una Rubrica. Cosi' la tabella dei casi
 // (CP6) si prova con una rubrica in memoria, e l'ingest passa quella vera.
@@ -41,11 +49,12 @@ const (
 	ControparteCliente     = "cliente"
 	ControparteFornitore   = "fornitore"
 	ControparteInterno     = "interno"
+	ControparteAltro       = "altro" // un soggetto censito come diverso da cliente, fornitore e interno (0016)
 	ControparteSconosciuto = "sconosciuto"
 	ControparteAmbiguo     = "ambiguo"
 
-	ViaContatto = "contatto" // email esatta in contatto_fornitore o in buyer
-	ViaDominio  = "dominio"  // dominio in dominio_fornitore o in dominio_cliente
+	ViaContatto = "contatto" // email esatta in contatto_fornitore, in buyer o in recapito_altro
+	ViaDominio  = "dominio"  // dominio in dominio_fornitore, in dominio_cliente o in recapito_altro
 	ViaCasella  = "casella"  // mittente e destinatari sono nostri
 	ViaManuale  = "manuale"  // deciso da un operatore
 )
@@ -56,7 +65,7 @@ type Voce struct {
 	Nome string
 }
 
-// Rubrica sono le quattro domande che il resolver fa all'anagrafica. Ogni metodo risponde «trovato
+// Rubrica sono le cinque domande che il resolver fa all'anagrafica. Ogni metodo risponde «trovato
 // o no»: un errore e' un errore del database, e ferma la risoluzione invece di farla passare per
 // `sconosciuto`.
 type Rubrica interface {
@@ -66,6 +75,9 @@ type Rubrica interface {
 	BuyerCliente(ctx context.Context, email string) (Voce, bool, error)
 	FornitorePerDominio(ctx context.Context, dominio string) (Voce, bool, error)
 	ClientePerDominio(ctx context.Context, dominio string) (Voce, bool, error)
+	// AltroPerRecapito: il soggetto «altro» che ha questo recapito, che sia un indirizzo o un
+	// dominio (una domanda sola: la tabella e' una).
+	AltroPerRecapito(ctx context.Context, recapito string) (Voce, bool, error)
 }
 
 // IngressoControparte e' cio' che serve per decidere: da chi viene, a chi va, e chi siamo noi.
@@ -81,9 +93,11 @@ type IngressoControparte struct {
 type Controparte struct {
 	Tipo string // uno dei Controparte*
 	Via  string // uno dei Via*; vuota per `sconosciuto`
-	// ClienteID o FornitoreID: uno solo dei due e' valorizzato, e solo per `cliente` e `fornitore`.
+	// ClienteID, FornitoreID o AltroID: uno solo dei tre e' valorizzato, e solo per `cliente`,
+	// `fornitore` e `altro`.
 	ClienteID   uuid.UUID
 	FornitoreID uuid.UUID
+	AltroID     uuid.UUID
 	// Indirizzo e' quello su cui si e' deciso: il mittente, oppure il primo destinatario esterno
 	// di una mail nostra. In minuscolo.
 	Indirizzo string
@@ -131,10 +145,21 @@ func risolviIndirizzo(ctx context.Context, indirizzo string, r Rubrica) (Controp
 	if err != nil {
 		return out, fmt.Errorf("buyer: %w", err)
 	}
+	altro, eAltro, err := r.AltroPerRecapito(ctx, indirizzo)
+	if err != nil {
+		return out, fmt.Errorf("recapito altro: %w", err)
+	}
+	// quante categorie riconoscono l'indirizzo esatto: piu' d'una e' `ambiguo`, senza precedenze
+	categorie := 0
+	for _, si := range []bool{len(fornitori) > 0, eBuyer, eAltro} {
+		if si {
+			categorie++
+		}
+	}
 	switch {
-	case len(fornitori) > 0 && eBuyer:
+	case categorie > 1:
 		out.Tipo, out.Via = ControparteAmbiguo, ViaContatto
-		out.Motivo = fmt.Sprintf("%s è censito sia come contatto di %s sia come buyer di %s", indirizzo, fornitori[0].Nome, buyer.Nome)
+		out.Motivo = fmt.Sprintf("%s è censito in più anagrafiche (%s)", indirizzo, elencoCategorie(fornitori, eBuyer, buyer, eAltro, altro))
 		return out, nil
 	case len(fornitori) > 1:
 		out.Tipo, out.Via = ControparteAmbiguo, ViaContatto
@@ -148,6 +173,10 @@ func risolviIndirizzo(ctx context.Context, indirizzo string, r Rubrica) (Controp
 		out.Tipo, out.Via, out.ClienteID, out.Nome = ControparteCliente, ViaContatto, buyer.ID, buyer.Nome
 		out.Motivo = fmt.Sprintf("%s è un buyer censito di %s", indirizzo, buyer.Nome)
 		return out, nil
+	case eAltro:
+		out.Tipo, out.Via, out.AltroID, out.Nome = ControparteAltro, ViaContatto, altro.ID, altro.Nome
+		out.Motivo = fmt.Sprintf("%s è un recapito censito di «%s» (altro)", indirizzo, altro.Nome)
+		return out, nil
 	}
 	dominio := indirizzo[i+1:]
 	f, eF, err := r.FornitorePerDominio(ctx, dominio)
@@ -158,16 +187,29 @@ func risolviIndirizzo(ctx context.Context, indirizzo string, r Rubrica) (Controp
 	if err != nil {
 		return out, fmt.Errorf("dominio cliente: %w", err)
 	}
+	a, eA, err := r.AltroPerRecapito(ctx, dominio)
+	if err != nil {
+		return out, fmt.Errorf("dominio altro: %w", err)
+	}
+	categorie = 0
+	for _, si := range []bool{eF, eC, eA} {
+		if si {
+			categorie++
+		}
+	}
 	switch {
-	case eF && eC:
+	case categorie > 1:
 		out.Tipo, out.Via = ControparteAmbiguo, ViaDominio
-		out.Motivo = fmt.Sprintf("il dominio %s è censito sia per il fornitore %s sia per il cliente %s", dominio, f.Nome, c.Nome)
+		out.Motivo = fmt.Sprintf("il dominio %s è censito in più anagrafiche (%s)", dominio, elencoCategorie(dominioVoci(eF, f), eC, c, eA, a))
 	case eF:
 		out.Tipo, out.Via, out.FornitoreID, out.Nome = ControparteFornitore, ViaDominio, f.ID, f.Nome
 		out.Motivo = fmt.Sprintf("il dominio %s è censito per il fornitore %s", dominio, f.Nome)
 	case eC:
 		out.Tipo, out.Via, out.ClienteID, out.Nome = ControparteCliente, ViaDominio, c.ID, c.Nome
 		out.Motivo = fmt.Sprintf("il dominio %s è censito per il cliente %s", dominio, c.Nome)
+	case eA:
+		out.Tipo, out.Via, out.AltroID, out.Nome = ControparteAltro, ViaDominio, a.ID, a.Nome
+		out.Motivo = fmt.Sprintf("il dominio %s è censito per «%s» (altro)", dominio, a.Nome)
 	default:
 		out.Motivo = fmt.Sprintf("né %s né il dominio %s sono censiti", indirizzo, dominio)
 	}
@@ -176,12 +218,41 @@ func risolviIndirizzo(ctx context.Context, indirizzo string, r Rubrica) (Controp
 
 func normalizzaIndirizzo(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
+// elencoCategorie e' la frase del motivo quando un recapito sta in piu' anagrafiche: dice quali,
+// con i nomi, perche' e' cio' che l'operatore legge per decidere.
+func elencoCategorie(fornitori []Voce, eBuyer bool, buyer Voce, eAltro bool, altro Voce) string {
+	var parti []string
+	for _, f := range fornitori {
+		parti = append(parti, "fornitore "+f.Nome)
+	}
+	if eBuyer {
+		parti = append(parti, "cliente "+buyer.Nome)
+	}
+	if eAltro {
+		parti = append(parti, "altro «"+altro.Nome+"»")
+	}
+	return strings.Join(parti, ", ")
+}
+
+func dominioVoci(si bool, v Voce) []Voce {
+	if si {
+		return []Voce{v}
+	}
+	return nil
+}
+
 // RubricaFissa e' una rubrica in memoria: serve alle prove e al banco di prova dell'Anagrafica.
 type RubricaFissa struct {
 	Contatti        map[string][]Voce // email → fornitori
 	Buyer           map[string]Voce   // email → cliente
 	DominiFornitore map[string]Voce
 	DominiCliente   map[string]Voce
+	Altro           map[string]Voce // recapito (email o dominio) → soggetto altro
+}
+
+func (r RubricaFissa) AltroPerRecapito(_ context.Context, recapito string) (Voce, bool, error) {
+	v, ok := r.Altro[recapito]
+	return v, ok, nil
 }
 
 func (r RubricaFissa) ContattiFornitore(_ context.Context, email string) ([]Voce, error) {

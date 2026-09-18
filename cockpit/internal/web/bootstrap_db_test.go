@@ -119,7 +119,7 @@ func TestB75IlFrammentoInboxPortaComandiELista(t *testing.T) {
 	for _, c := range []struct{ q, riga, acceso string }{
 		{"fornitori", "DEL FORNITORE", `class="quadrante fornitori attivo"`},
 		{"validare", "DI NESSUNO", `class="quadrante validare attivo"`},
-		{"buyer", "DEL CLIENTE", `class="quadrante buyer attivo"`},
+		{"clienti", "DEL CLIENTE", `class="quadrante clienti attivo"`},
 	} {
 		_, frammento := fp.fai(http.MethodGet, "/inbox?q="+c.q+"&filtro=tutti", nil, true)
 		if !strings.Contains(frammento, c.acceso) {
@@ -136,7 +136,7 @@ func TestB75IlFrammentoInboxPortaComandiELista(t *testing.T) {
 	}
 
 	// e il frammento NON porta il pannello di destra: cambiare quadrante non chiude il messaggio
-	_, frammento := fp.fai(http.MethodGet, "/inbox?q=buyer", nil, true)
+	_, frammento := fp.fai(http.MethodGet, "/inbox?q=clienti", nil, true)
 	if strings.Contains(frammento, `id="pannello"`) {
 		t.Errorf("il frammento dell'Inbox si porta dietro il pannello del messaggio:\n%s", primi400(frammento))
 	}

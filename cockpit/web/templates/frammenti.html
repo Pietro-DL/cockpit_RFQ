@@ -12,7 +12,7 @@
         {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
       <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
         {{if .Richiesta}} · <b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip richiesta {{.Richiesta.Stato}}">{{.Richiesta.Stato}}</span>{{end}}
-        {{if .Riga.TriageIntento}} · <span class="chip intento {{.Riga.TriageIntento}}" title="che cosa è questo messaggio, secondo il triage">{{.Riga.TriageIntento}}</span>{{end}}
+        {{if .Riga.TriageAtto}} · <span class="chip atto {{.Riga.TriageAtto}}" title="che cosa sta facendo il mittente, secondo il triage{{if .Riga.TriageLegame}} · legame: {{.Riga.TriageLegame}}{{end}}">{{.Riga.TriageAtto}}</span>{{end}}
         {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
           <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
@@ -76,12 +76,19 @@
       <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
       <span class="testo"><b>{{.Fornitore}}</b> per la RFQ <b>{{.Cliente}}</b> · {{txt .OggettoRfq}}
         {{if .Lavorazione.Valid}}<span class="chip">{{.Lavorazione.String}}</span>{{end}} <span class="chip richiesta {{.RichiestaStato}}">{{.RichiestaStato}}</span>
-        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small></span>
+        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
+        <br><label class="inline">Che cos'è
+          <select name="atto">
+            <option value="collegata">una risposta: la richiesta resta aperta</option>
+            <option value="offerta" {{if eq $.Dati.Riga.TriageAtto "offerta"}}selected{{end}}>l'offerta del fornitore: offerta ricevuta</option>
+            <option value="declinata">il fornitore non quota: declinata</option>
+          </select></label></span>
       <button class="primario piccolo">È la risposta a questa richiesta</button>
     </form>
     {{end}}
-    <p class="muto">Alla conferma la mail entra nella RFQ cliente, la richiesta passa a «risposta» e gli allegati
-      vengono proposti come offerta del fornitore (OFFERTE FORNITORI).</p>
+    <p class="muto">Alla conferma la mail entra nella RFQ cliente e resta legata alla richiesta. Lo stato della richiesta
+      cambia solo con l'atto che scegli: «offerta ricevuta» propone anche gli allegati come offerta del fornitore
+      (OFFERTE FORNITORI); una risposta qualunque non chiude niente.</p>
   </section>
   {{end}}
 

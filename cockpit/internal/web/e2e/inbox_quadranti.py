@@ -47,7 +47,7 @@ def quadrante_acceso(page):
     n = accesi.count()
     verifica(n == 1, "linguette accese: %d (ne deve essere accesa una sola)" % n)
     classi = accesi.first.get_attribute("class").split()
-    for k in ("buyer", "fornitori", "validare", "tutti"):
+    for k in ("clienti", "fornitori", "interni", "altro", "validare", "tutti"):
         if k in classi:
             return k
     raise Rotto("linguetta accesa senza nome: %s" % classi)
@@ -135,34 +135,34 @@ def prova_b(page, base):
 @prova("C  clic su Buyer: stessa coerenza")
 def prova_c(page, base):
     vai(page, base, "/inbox?q=fornitori&filtro=tutti")
-    clic(page, ".quadranti a.quadrante.buyer")
-    coerente(page, "buyer", ["CLIENTE ENTRATA UNO", "CLIENTE USCITA"], ["FORNITORE ENTRATA", "SCONOSCIUTO UNO"], "C")
+    clic(page, ".quadranti a.quadrante.clienti")
+    coerente(page, "clienti", ["CLIENTE ENTRATA UNO", "CLIENTE USCITA"], ["FORNITORE ENTRATA", "SCONOSCIUTO UNO"], "C")
 
 
 @prova("D  direzione entrata/uscita: pillola e righe")
 def prova_d(page, base):
-    vai(page, base, "/inbox?q=buyer&filtro=tutti")
+    vai(page, base, "/inbox?q=clienti&filtro=tutti")
     clic(page, ".filtri .direzione a:has-text('entrata')")
     verifica(direzione_accesa(page) == "entrata", "D: la pillola accesa non e' «entrata» ma %r" % direzione_accesa(page))
     verifica(parametri(page).get("dir") == "entrata", "D: l'indirizzo non dice dir=entrata: %s" % parametri(page))
-    coerente(page, "buyer", ["CLIENTE ENTRATA UNO"], ["CLIENTE USCITA"], "D entrata")
+    coerente(page, "clienti", ["CLIENTE ENTRATA UNO"], ["CLIENTE USCITA"], "D entrata")
     clic(page, ".filtri .direzione a:has-text('uscita')")
     verifica(direzione_accesa(page) == "uscita", "D: la pillola accesa non e' «uscita» ma %r" % direzione_accesa(page))
-    coerente(page, "buyer", ["CLIENTE USCITA"], ["CLIENTE ENTRATA UNO"], "D uscita")
+    coerente(page, "clienti", ["CLIENTE USCITA"], ["CLIENTE ENTRATA UNO"], "D uscita")
 
 
 @prova("E  orfani / agganciati / ignorati: pillola e dati")
 def prova_e(page, base):
-    vai(page, base, "/inbox?q=buyer&filtro=tutti")
+    vai(page, base, "/inbox?q=clienti&filtro=tutti")
     clic(page, ".filtri > a:has-text('orfani')")
     verifica(filtro_acceso(page) == "orfani", "E: filtro acceso %r" % filtro_acceso(page))
-    coerente(page, "buyer", ["CLIENTE ENTRATA UNO"], ["CLIENTE AGGANCIATO", "CLIENTE IGNORATO"], "E orfani")
+    coerente(page, "clienti", ["CLIENTE ENTRATA UNO"], ["CLIENTE AGGANCIATO", "CLIENTE IGNORATO"], "E orfani")
     clic(page, ".filtri > a:has-text('agganciati')")
     verifica(filtro_acceso(page) == "agganciati", "E: filtro acceso %r" % filtro_acceso(page))
-    coerente(page, "buyer", ["CLIENTE AGGANCIATO"], ["CLIENTE ENTRATA UNO"], "E agganciati")
+    coerente(page, "clienti", ["CLIENTE AGGANCIATO"], ["CLIENTE ENTRATA UNO"], "E agganciati")
     clic(page, ".filtri > a:has-text('ignorati')")
     verifica(filtro_acceso(page) == "ignorati", "E: filtro acceso %r" % filtro_acceso(page))
-    coerente(page, "buyer", ["CLIENTE IGNORATO"], ["CLIENTE ENTRATA UNO"], "E ignorati")
+    coerente(page, "clienti", ["CLIENTE IGNORATO"], ["CLIENTE ENTRATA UNO"], "E ignorati")
 
 
 @prova("F  dopo un poll: linguetta, filtri, selezione e URL restano")
@@ -188,7 +188,7 @@ def prova_f(page, base):
 
 @prova("G  indietro / avanti del browser: visuale e lista seguono l'indirizzo")
 def prova_g(page, base):
-    vai(page, base, "/inbox?q=buyer&filtro=tutti")
+    vai(page, base, "/inbox?q=clienti&filtro=tutti")
     clic(page, ".quadranti a.quadrante.fornitori")
     clic(page, ".quadranti a.quadrante.validare")
     page.go_back()
@@ -196,7 +196,7 @@ def prova_g(page, base):
     coerente(page, "fornitori", ["FORNITORE ENTRATA"], ["SCONOSCIUTO UNO"], "G indietro")
     page.go_back()
     stabile(page)
-    coerente(page, "buyer", ["CLIENTE ENTRATA UNO"], ["FORNITORE ENTRATA"], "G indietro due")
+    coerente(page, "clienti", ["CLIENTE ENTRATA UNO"], ["FORNITORE ENTRATA"], "G indietro due")
     page.go_forward()
     stabile(page)
     coerente(page, "fornitori", ["FORNITORE ENTRATA"], ["CLIENTE ENTRATA UNO"], "G avanti")

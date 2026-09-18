@@ -794,10 +794,11 @@ Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker le
 indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].dal`) e manda i
 messaggi a lotti. A ogni messaggio l'ingest scrive **chi c'è dall'altra parte** (la controparte,
 blocco 7A): cliente, fornitore, interno, sconosciuto o ambiguo, risolta dall'anagrafica in
-quest'ordine — contatto esatto, poi dominio. L'Inbox è divisa in tre **quadranti**: **Buyer** (la posta
-dei clienti), **Fornitori** (offerte, domande, le nostre richieste) e **Da validare** (chi non è
-censito, chi sta in entrambe le anagrafiche, la posta interna); la direzione ↓/↑ è un filtro. Dal
-quadrante Buyer l'operatore decide: **Nuova RFQ**, **Aggancia a…**, **Ignora**. Un fornitore non
+quest'ordine — contatto esatto, poi dominio. L'Inbox è divisa in cinque **quadranti** (7C.0): **Clienti**,
+**Fornitori** (offerte, domande, le nostre richieste), **Interni** (posta fra i nostri indirizzi), **Altro**
+(soggetti censiti come diversi: corrieri, banche, notifiche) e **Da validare** (chi non è censito, chi sta
+in più anagrafiche); la direzione ↓/↑ è un filtro, e il quadrante dipende **solo** dalla controparte. Dal
+quadrante Clienti l'operatore decide: **Nuova RFQ**, **Aggancia a…**, **Ignora**. Un fornitore non
 apre mai una RFQ cliente: la sua posta si aggancia. Da «Da validare» si fa **Censisci come
 fornitore / cliente** con l'indirizzo e il dominio già scritti: al salvataggio i messaggi non ancora
 decisi con lo stesso indirizzo o dominio vengono ricalcolati (quadrante, controparte, proposta); le
@@ -862,11 +863,13 @@ scrivono dall'anagrafica, cliente per cliente.
 
 ## Richieste ai fornitori e intento del messaggio (blocco 7B, migrazione 0015)
 
-**L'intento** è che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_promatec`,
+> Dal 7C.0 (sotto) l'**intento** non esiste più: al suo posto ci sono l'**atto** e il **legame**. Questo
+> paragrafo resta per la storia del 7B; le regole valide sono quelle del 7C.0.
+
+**L'intento** era che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_promatec`,
 `rfq_fornitore`, `offerta_fornitore`, `risposta_fornitore`, `domanda_fornitore`, `inoltro_interno`, `non_rfq`,
 `incerto`. L'esito resta che cosa si propone di fare. Il ramo lo decide la controparte: da un **cliente** il
-triage di sempre (e una newsletter o notifica automatica del cliente è `non_rfq` e va in Da validare); da un
-**fornitore** l'intento viene dal testo (offerta, domanda, risposta, non di lavoro) e l'esito è «aggancia» verso
+triage di sempre; da un **fornitore** l'intento viene dal testo e l'esito è «aggancia» verso
 la nostra richiesta a lui, mai `nuova_rfq`; da un mittente **sconosciuto** o **ambiguo** solo `incerto` o
 `non_rfq`, senza proposta di RFQ: prima si decide chi è (Censisci), poi che cosa vuole (D34). Nella posta di un
 fornitore si cercano codici **solo** con le famiglie dei clienti che gli hanno mandato richieste: S235JR, ISO
@@ -916,6 +919,68 @@ mail nuova. Adesso l'import dei fornitori (schermata e riga di comando) e il sem
 chiudono con un **ritriage mirato** sulle sole chiavi appena scritte — domini e indirizzi — e dicono
 quanti messaggi hanno riguardato. Le decisioni prese non si toccano: un messaggio già in una RFQ, o
 già ignorato, non viene nemmeno letto.
+
+## Il contratto di classificazione (blocco 7C.0, migrazioni 0016–0017)
+
+Il 7C non collega ancora nessun modello: prima si fissa **che cosa** il server sa dire di una mail, e in
+che forma. Tre domande, tre risposte separate, che il triage fino a qui mescolava.
+
+**Chi scrive** è la **controparte**, un fatto scritto sul messaggio, ora a sei valori: `cliente`,
+`fornitore`, `interno`, **`altro`**, `sconosciuto`, `ambiguo`. «Altro» è un soggetto censito
+esplicitamente come diverso dagli altri tre (un corriere, una banca, le notifiche di un portale):
+un'anagrafica piccola, `soggetto_altro` con un'etichetta e i suoi `recapito_altro` (un indirizzo o un
+dominio, lo distingue la chiocciola). **Non è il cestino degli sconosciuti**: uno sconosciuto resta
+sconosciuto finché una persona non lo censisce, e nessun automatismo lo sposta lì. Il resolver applica la
+stessa scala di sempre — indirizzo esatto, poi dominio — e a parità di specificità due anagrafiche che
+riconoscono lo stesso recapito danno `ambiguo`, mai una precedenza silenziosa. Basta questo perché
+`newsletter@cliente.example` censito come Altro non finisca fra i Clienti: l'indirizzo vince sul dominio.
+
+**Che cosa sta facendo il mittente** è l'**atto business** (`proposta_triage.atto`, tabella
+`atto_business`): `richiesta_offerta`, `offerta`, `revisione_documenti`, `documenti_aggiuntivi`,
+`domanda_chiarimento`, `risposta_chiarimento`, `sollecito`, `ordine`, `accettazione`, `rifiuto`,
+`conferma_ricezione`, `inoltro`, `notifica`, `comunicazione_generica`, `non_business`, `incerto`. È neutro
+rispetto alla direzione: «cliente in entrata + richiesta_offerta» è una RFQ, «fornitore in uscita +
+richiesta_offerta» è la nostra richiesta a lui. Un vocabolario solo, per il deterministico e per l'agente:
+la 0015 ne aveva uno e il pacchetto agente un altro. È una **tabella** e non un enum perché il vocabolario è
+in evoluzione: un atto nuovo è un INSERT, un atto ritirato resta leggibile sulle proposte vecchie. Il
+deterministico dice quello che sa: una mail che sembra una richiesta nuova è `richiesta_offerta`; una
+risposta del cliente dentro una RFQ ha il legame ma l'atto è `incerto`, perché dal punteggio non si capisce
+se è una revisione, una domanda o un sollecito (prima la chiamava `rfq_cliente`, che era falso).
+
+**A che cosa appartiene** è il **legame operativo** (`proposta_triage.legame`, enum): `nuovo`, `risposta`,
+`aggiornamento`, `inoltro`, `nessuno`, `incerto`, con il bersaglio nelle colonne che già c'erano
+(`thread_proposto`, `richiesta_proposta`). È una **proposta**: il fatto resta `thread_id` /
+`richiesta_fornitore_id` dopo la decisione. L'**esito** del triage (`nuova_rfq`, `aggancia`, `ignora`) resta
+la proposta di azione per la schermata e non è una seconda rappresentazione del significato.
+
+**Il quadrante lo calcola la vista.** `v_inbox.quadrante` (`clienti`, `fornitori`, `interni`, `altro`,
+`validare`) dipende solo dalla controparte; Da validare = sconosciuto + ambiguo. Le tre query di
+`messaggi.sql` e il Go filtrano su quella colonna: il CASE non è più scritto in due posti. La regola 7B.3 che
+mandava in Da validare anche la newsletter dal dominio di un cliente **non c'è più**: quella posta sta fra i
+Clienti con il chip `non_business`, e la via giusta è censire l'indirizzo automatico come Altro. `q=buyer`
+nei link salvati apre ancora Clienti. La vista legge la proposta **deterministica**: prima sceglieva quella
+dell'agente quando c'era, una preferenza implicita che non spetta a una vista; il confronto fra le due fonti
+sarà una lettura dedicata.
+
+**Una risposta di un fornitore non è un'offerta** (invariante 8). Fino alla 0015 «È la risposta a questa
+richiesta» portava la richiesta a `risposta` qualunque cosa il fornitore avesse scritto: «ricevuto, vi
+rispondiamo domani» la chiudeva. Ora la conferma **lega** la mail alla richiesta e basta; lo stato cambia
+solo con l'atto scelto nel pannello: **offerta** → `offerta_ricevuta` (e gli allegati proposti come offerta
+del fornitore), **declinata** → `declinata` («non quotiamo»). Lo stato `risposta` è stato rinominato
+`offerta_ricevuta` (`risposta_il` → `offerta_ricevuta_il`); la 0016 **si ferma** se trova richieste già in
+quello stato, perché non sa se erano offerte: si riconciliano a mano. Il 18/09/2026 erano zero.
+
+**Gli invarianti provati** (`ingest/invarianti_7c_db_test.go`): R0 e R1 sulla posta di un fornitore sono
+candidati e non legami (I4); il marcatore `CockpitRichiestaFornitore` scrive il legame **solo** sulla nostra
+posta in uscita, verso una richiesta che esiste, su un messaggio che nessuno ha già messo in un'altra RFQ
+(I5). Il punto (b) di I5 era rosso: un marcatore su una mail **in entrata** veniva applicato. Corretto in
+`ingest/marcatori.go`.
+
+**Che cosa il 7C.0 non fa ancora**, e viene dopo: il Dossier (`internal/classificazione`, il pacchetto di
+fatti e candidati che si manderebbe all'agente, con lo stato di codici e revisioni nella RFQ candidata), il
+parser deterministico delle intestazioni citate (`origine_citata` di un inoltro), «Censisci come Altro»
+dall'Inbox, la schermata che mostra il JSON `classificazione_email.v1`, il segnale spam di Outlook nel
+worker, e il contratto nuovo dell'agente. Nessuna chiamata a un modello.
 
 ## Prove
 
@@ -1057,7 +1122,7 @@ internal/fondazioni        seed non distruttivo di caselle, postazioni e credenz
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
                            taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
-                           intento.go: che cosa il messaggio è, per ramo (7B.3); i candidati verso una richiesta;
+                           atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
                            convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
                            controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
@@ -1101,7 +1166,10 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
                            la controparte sul messaggio; v_inbox con controparte_tipo e controparte),
                            0015_richiesta_fornitore.sql (richiesta_fornitore, candidato_richiesta, intento e bersaglio della proposta,
-                           messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento)
+                           messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento),
+                           0016_classificazione.sql (controparte `altro` + soggetto_altro/recapito_altro, atto_business al posto di
+                           intento_messaggio, legame_operativo, richiesta risposta → offerta_ricevuta + declinata),
+                           0017_controparte_altro.sql (CHECK con altro; v_inbox con triage_atto, triage_legame e quadrante)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

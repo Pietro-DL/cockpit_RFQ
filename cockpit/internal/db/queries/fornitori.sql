@@ -137,6 +137,7 @@ DELETE FROM convenzione_codice WHERE convenzione_id = $1 AND cliente_id = $2;
 -- automatica: il ricalcolo passa oltre.
 UPDATE messaggio
    SET controparte_tipo = $2, controparte_cliente_id = $3, controparte_fornitore_id = $4,
+       controparte_altro_id = $5,
        controparte_via = sqlc.narg(via)::via_controparte, controparte_il = now()
  WHERE messaggio_id = $1
    AND (controparte_via IS DISTINCT FROM 'manuale' OR sqlc.narg(via)::via_controparte = 'manuale');
