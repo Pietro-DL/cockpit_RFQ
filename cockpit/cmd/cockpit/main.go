@@ -152,6 +152,13 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	for _, a := range sic.Avvisi {
 		log.Warn("sicurezza", "avviso", a)
 	}
+	// Blocco 7A (CP8): i messaggi entrati prima della 0014 non hanno una controparte. Si risolvono
+	// una volta, qui, con il conteggio per tipo prima/dopo nel log; le proposte non si toccano.
+	if n, err := ingest.RicalcolaControparti(ctx, pool, log); err != nil {
+		return fmt.Errorf("ricalcolo delle controparti: %w", err)
+	} else if n > 0 {
+		log.Info("controparti risolte al primo avvio dopo la 0014", "messaggi", n)
+	}
 	// Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
 	// regola di un solo cliente ha un esempio che non corrisponde alla propria regex, non parte
 	// niente. Un cliente gia' presente viene saltato per intero — il file e' una fotografia di un

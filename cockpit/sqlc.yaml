@@ -95,3 +95,9 @@ sql:
             go_type: "github.com/jackc/pgx/v5/pgtype.Text"
           - column: "v_inbox.entry_id"
             go_type: "github.com/jackc/pgx/v5/pgtype.Text"
+          # 0014: la controparte, in coda alla vista. `controparte_tipo` viene da una colonna NOT NULL
+          # castata a text; `controparte` e' un CASE e puo' essere NULL.
+          - column: "v_inbox.controparte_tipo"
+            go_type: { type: "string" }
+          - column: "v_inbox.controparte"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Text"

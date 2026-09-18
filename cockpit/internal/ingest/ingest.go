@@ -30,7 +30,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/aggancio"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
@@ -592,26 +591,17 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		return esito, fmt.Errorf("conversazione: %w", err)
 	}
 
-	// anagrafica: buyer per indirizzo, cliente per dominio (solo in entrata)
-	var buyer *db.Buyer
-	var clienteID uuid.NullUUID
+	// Blocco 7A (D33): chi c'e' dall'altra parte lo dice il resolver, con la precedenza contatto >
+	// dominio > sconosciuto e `ambiguo` se doppia. Il cliente per il triage e per le regole viene da
+	// li': un mittente riconosciuto come FORNITORE non ha un cliente, e non puo' averlo.
 	indirizzo := strings.ToLower(strings.TrimSpace(m.MittenteIndirizzo))
-	if dir == db.DirezioneEntrata && indirizzo != "" {
-		if b, err := q.GetBuyerPerEmail(ctx, indirizzo); err == nil {
-			buyer = &b
-			clienteID = uuid.NullUUID{UUID: b.ClienteID, Valid: true}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return esito, err
-		}
-		if !clienteID.Valid {
-			if i := strings.LastIndex(indirizzo, "@"); i > 0 {
-				if c, err := q.GetClientePerDominio(ctx, indirizzo[i+1:]); err == nil {
-					clienteID = uuid.NullUUID{UUID: c.ClienteID, Valid: true}
-				} else if !errors.Is(err, pgx.ErrNoRows) {
-					return esito, err
-				}
-			}
-		}
+	controparte, err := risolviControparte(ctx, q, nostri, m.MittenteIndirizzo, indirizziDi(m.Destinatari))
+	if err != nil {
+		return esito, err
+	}
+	buyer, clienteID, err := clienteDallaControparte(ctx, q, controparte, dir)
+	if err != nil {
+		return esito, err
 	}
 
 	var parent uuid.NullUUID
@@ -644,6 +634,9 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	}
 	esito.MessaggioID = row.MessaggioID
 	esito.Inserito = row.Inserito
+	if _, err := q.SetControparteMessaggio(ctx, parametriControparte(row.MessaggioID, controparte)); err != nil {
+		return esito, fmt.Errorf("controparte: %w", err)
+	}
 
 	var flag pgtype.Int2
 	if m.FlagStato > 0 {
@@ -796,53 +789,14 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		// collega significherebbe non proporre niente proprio sui messaggi che qualcuno ha inoltrato
 		// apposta perché qualcun altro li guardasse.
 		if !threadID.Valid && (dir == db.DirezioneEntrata || interno) {
-			in := domain.IngressoTriage{
-				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati, Direzione: string(dir),
-				Interno: interno, ClienteNoto: clienteID.Valid, BuyerNoto: buyer != nil, Motore: motore,
-			}
-			// L'estrazione viene PRIMA del triage perché i candidati di aggancio si calcolano sui
-			// codici e sul riferimento, e il triage ha bisogno dei candidati per decidere l'esito:
-			// una risposta a una richiesta che esiste non può diventare «nuova_rfq» (§3). Le due
-			// chiamate partono dagli stessi `Testi()`, quindi non possono guardare testi diversi.
-			e := motore.Estrai(in.Testi()...)
-			cand, err := aggancio.CalcolaESalva(ctx, q, aggancio.Ingresso{
+			if _, err := s.interpreta(ctx, q, interpretazione{
 				MessaggioID: row.MessaggioID, ConversazioneID: conv.ConversazioneID,
-				ClienteID: clienteID, BuyerID: buyerID,
-				InReplyTo: m.InReplyTo, Riferimenti: m.Riferimenti,
-				Oggetto: domain.OggettoPulito(m.Oggetto), DataEvento: m.DataEvento,
-				Codici: domain.SoloCodici(domain.DiFamiglia(e.Codici)), Riferimento: e.Riferimento,
-				FinestraGG: motore.Finestra(),
-			})
-			if err != nil {
-				return esito, fmt.Errorf("candidati di aggancio: %w", err)
-			}
-			in.Candidati = cand
-			tr := domain.Triage(in)
-			if err := aggancio.SalvaCandidatiCodice(ctx, q, row.MessaggioID, tr.Estrazione); err != nil {
-				return esito, fmt.Errorf("candidati di codice: %w", err)
-			}
-			motivi, _ := json.Marshal(tr.Motivi)
-			if tr.Codici == nil {
-				tr.Codici = []string{}
-			}
-			var scad *time.Time
-			if d, ok := domain.RilevaScadenza(m.CorpoTesto, m.DataEvento); ok {
-				scad = &d
-			}
-			// `thread_proposto` è il candidato più forte, per comodità della lista: i candidati stanno
-			// tutti in `candidato_aggancio` e la schermata li mostra tutti (T16).
-			var proposto uuid.NullUUID
-			if tr.Candidato != nil {
-				if tid, err := uuid.Parse(tr.Candidato.ThreadID); err == nil {
-					proposto = uuid.NullUUID{UUID: tid, Valid: true}
-				}
-			}
-			if _, err := q.UpsertTriage(ctx, db.UpsertTriageParams{
-				MessaggioID: row.MessaggioID, Esito: db.EsitoTriage(tr.Esito), ClienteProposto: clienteID, BuyerProposto: buyerID,
-				ThreadProposto: proposto,
-				Identificativi: tr.Codici, ScadenzaProposta: scad, Confidenza: int16(tr.Confidenza), Motivi: motivi, Fonte: db.FonteTriageDeterministico,
-			}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return esito, fmt.Errorf("triage: %w", err)
+				ClienteID: clienteID, BuyerID: buyerID, Controparte: controparte,
+				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati,
+				Direzione: dir, Interno: interno, InReplyTo: m.InReplyTo, Riferimenti: m.Riferimenti,
+				DataEvento: m.DataEvento, Motore: motore,
+			}); err != nil {
+				return esito, err
 			}
 		}
 	}

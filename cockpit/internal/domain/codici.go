@@ -194,6 +194,14 @@ type IngressoTriage struct {
 	Interno      bool   // mittente e destinatari tutti nostri: il collega che gira una mail
 	ClienteNoto  bool   // dominio mittente censito
 	BuyerNoto    bool   // indirizzo mittente censito come buyer
+	// Controparte è chi c'è dall'altra parte, risolta dall'anagrafica (blocco 7A, D33): uno dei
+	// Controparte* di controparte.go. Vuota = non risolta (messaggi di prima della 0014, o prove
+	// che non la dichiarano): vale come «sconosciuto», cioè il comportamento di sempre.
+	//
+	// Un `fornitore` in entrata NON può produrre `nuova_rfq`: non è un punteggio da superare, è
+	// un ramo che non arriva mai a contare i punti. `ambiguo` non produce nessuna proposta: decide
+	// una persona.
+	Controparte string
 	// Motore sono le regole del cliente riconosciuto, già compilate (voce 6.11). Nil = cliente
 	// sconosciuto, o cliente senza regole: il triage continua a funzionare con il solo
 	// estrattore generico, perché un cliente non censito è il caso NORMALE del primo giorno.
@@ -298,6 +306,34 @@ func Triage(in IngressoTriage) EsitoTriage {
 	}
 	if in.Interno {
 		motivi = append(motivi, "mail interna: inoltrata da un collega")
+	}
+	// Blocco 7A: la controparte viene PRIMA dei punti, e non è un punto. Un fornitore che scrive
+	// «richiesta d'offerta» con un PDF allegato sta rispondendo a una richiesta nostra, o ne sta
+	// facendo una a noi che non è una RFQ cliente: in nessuno dei due casi si apre una RFQ. Se c'è
+	// l'evidenza di una nostra richiesta esistente si propone l'aggancio (è la sua offerta),
+	// altrimenti non si propone niente. I codici si estraggono lo stesso: la schermata li mostra.
+	switch in.Controparte {
+	case ControparteFornitore:
+		e := in.Motore.Estrai(in.Testi()...)
+		out := EsitoTriage{Codici: dedup(SoloCodici(e.Proponibili())), Trovati: e.Codici,
+			Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e}
+		if out.Codici == nil {
+			out.Codici = []string{}
+		}
+		motivi = append(motivi, "mittente censito come fornitore: non è una richiesta di un cliente, quindi mai una RFQ nuova")
+		if k, ok := MiglioreCandidato(in.Candidati); ok {
+			out.Candidato = &k
+			motivi = append(motivi, k.Evidenza)
+			if EvidenzaDiRFQEsistente(in.Candidati) {
+				out.Esito, out.Confidenza, out.Motivi = "aggancia", k.Punteggio, motivi
+				return out
+			}
+		}
+		out.Esito, out.Confidenza, out.Motivi = "ignora", 0, motivi
+		return out
+	case ControparteAmbiguo:
+		motivi = append(motivi, "controparte ambigua: l'indirizzo o il dominio sono censiti sia come cliente sia come fornitore. Decide una persona")
+		return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}}
 	}
 	// Blocco 6: le parole «richiesta d'offerta» si cercano in quello che e' stato scritto ADESSO.
 	// In una catena di risposta quelle parole ci sono sempre — stanno nel primo messaggio — e

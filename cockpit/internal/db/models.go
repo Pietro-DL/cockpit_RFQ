@@ -673,6 +673,64 @@ func AllFonteTriageValues() []FonteTriage {
 	}
 }
 
+type ModoConvenzione string
+
+const (
+	ModoConvenzioneSuffisso ModoConvenzione = "suffisso"
+	ModoConvenzioneRegex    ModoConvenzione = "regex"
+)
+
+func (e *ModoConvenzione) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ModoConvenzione(s)
+	case string:
+		*e = ModoConvenzione(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ModoConvenzione: %T", src)
+	}
+	return nil
+}
+
+type NullModoConvenzione struct {
+	ModoConvenzione ModoConvenzione `json:"modo_convenzione"`
+	Valid           bool            `json:"valid"` // Valid is true if ModoConvenzione is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullModoConvenzione) Scan(value interface{}) error {
+	if value == nil {
+		ns.ModoConvenzione, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ModoConvenzione.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullModoConvenzione) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ModoConvenzione), nil
+}
+
+func (e ModoConvenzione) Valid() bool {
+	switch e {
+	case ModoConvenzioneSuffisso,
+		ModoConvenzioneRegex:
+		return true
+	}
+	return false
+}
+
+func AllModoConvenzioneValues() []ModoConvenzione {
+	return []ModoConvenzione{
+		ModoConvenzioneSuffisso,
+		ModoConvenzioneRegex,
+	}
+}
+
 type ModoRegola string
 
 const (
@@ -2227,6 +2285,73 @@ func AllTipoComponenteValues() []TipoComponente {
 	}
 }
 
+type TipoControparte string
+
+const (
+	TipoControparteCliente     TipoControparte = "cliente"
+	TipoControparteFornitore   TipoControparte = "fornitore"
+	TipoControparteInterno     TipoControparte = "interno"
+	TipoControparteSconosciuto TipoControparte = "sconosciuto"
+	TipoControparteAmbiguo     TipoControparte = "ambiguo"
+)
+
+func (e *TipoControparte) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TipoControparte(s)
+	case string:
+		*e = TipoControparte(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TipoControparte: %T", src)
+	}
+	return nil
+}
+
+type NullTipoControparte struct {
+	TipoControparte TipoControparte `json:"tipo_controparte"`
+	Valid           bool            `json:"valid"` // Valid is true if TipoControparte is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTipoControparte) Scan(value interface{}) error {
+	if value == nil {
+		ns.TipoControparte, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TipoControparte.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTipoControparte) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TipoControparte), nil
+}
+
+func (e TipoControparte) Valid() bool {
+	switch e {
+	case TipoControparteCliente,
+		TipoControparteFornitore,
+		TipoControparteInterno,
+		TipoControparteSconosciuto,
+		TipoControparteAmbiguo:
+		return true
+	}
+	return false
+}
+
+func AllTipoControparteValues() []TipoControparte {
+	return []TipoControparte{
+		TipoControparteCliente,
+		TipoControparteFornitore,
+		TipoControparteInterno,
+		TipoControparteSconosciuto,
+		TipoControparteAmbiguo,
+	}
+}
+
 type TipoDocumento string
 
 const (
@@ -2318,6 +2443,67 @@ func AllTipoDocumentoValues() []TipoDocumento {
 	}
 }
 
+type TipoFornitore string
+
+const (
+	TipoFornitoreMateriePrime TipoFornitore = "materie_prime"
+	TipoFornitoreProcessi     TipoFornitore = "processi"
+	TipoFornitoreVerniciatore TipoFornitore = "verniciatore"
+)
+
+func (e *TipoFornitore) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TipoFornitore(s)
+	case string:
+		*e = TipoFornitore(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TipoFornitore: %T", src)
+	}
+	return nil
+}
+
+type NullTipoFornitore struct {
+	TipoFornitore TipoFornitore `json:"tipo_fornitore"`
+	Valid         bool          `json:"valid"` // Valid is true if TipoFornitore is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTipoFornitore) Scan(value interface{}) error {
+	if value == nil {
+		ns.TipoFornitore, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TipoFornitore.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTipoFornitore) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TipoFornitore), nil
+}
+
+func (e TipoFornitore) Valid() bool {
+	switch e {
+	case TipoFornitoreMateriePrime,
+		TipoFornitoreProcessi,
+		TipoFornitoreVerniciatore:
+		return true
+	}
+	return false
+}
+
+func AllTipoFornitoreValues() []TipoFornitore {
+	return []TipoFornitore{
+		TipoFornitoreMateriePrime,
+		TipoFornitoreProcessi,
+		TipoFornitoreVerniciatore,
+	}
+}
+
 type TipoJob string
 
 const (
@@ -2406,6 +2592,70 @@ func AllTipoJobValues() []TipoJob {
 		TipoJobRileggiElemento,
 		TipoJobAnalizzaMessaggioAi,
 		TipoJobEstraiArchivio,
+	}
+}
+
+type ViaControparte string
+
+const (
+	ViaControparteContatto ViaControparte = "contatto"
+	ViaControparteDominio  ViaControparte = "dominio"
+	ViaControparteCasella  ViaControparte = "casella"
+	ViaControparteManuale  ViaControparte = "manuale"
+)
+
+func (e *ViaControparte) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ViaControparte(s)
+	case string:
+		*e = ViaControparte(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ViaControparte: %T", src)
+	}
+	return nil
+}
+
+type NullViaControparte struct {
+	ViaControparte ViaControparte `json:"via_controparte"`
+	Valid          bool           `json:"valid"` // Valid is true if ViaControparte is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullViaControparte) Scan(value interface{}) error {
+	if value == nil {
+		ns.ViaControparte, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ViaControparte.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullViaControparte) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ViaControparte), nil
+}
+
+func (e ViaControparte) Valid() bool {
+	switch e {
+	case ViaControparteContatto,
+		ViaControparteDominio,
+		ViaControparteCasella,
+		ViaControparteManuale:
+		return true
+	}
+	return false
+}
+
+func AllViaControparteValues() []ViaControparte {
+	return []ViaControparte{
+		ViaControparteContatto,
+		ViaControparteDominio,
+		ViaControparteCasella,
+		ViaControparteManuale,
 	}
 }
 
@@ -2631,6 +2881,12 @@ type Cliente struct {
 	Peso int16 `json:"peso"`
 }
 
+type ClienteFornitoreLavorazione struct {
+	ClienteID   uuid.UUID `json:"cliente_id"`
+	FornitoreID uuid.UUID `json:"fornitore_id"`
+	Lavorazione string    `json:"lavorazione"`
+}
+
 type Componente struct {
 	ComponenteID     uuid.UUID            `json:"componente_id"`
 	ThreadID         uuid.UUID            `json:"thread_id"`
@@ -2648,6 +2904,37 @@ type Componente struct {
 	NoteFattibilita  pgtype.Text          `json:"note_fattibilita"`
 	ConfermatoDa     uuid.NullUUID        `json:"confermato_da"`
 	CreatoIl         time.Time            `json:"creato_il"`
+}
+
+type ContattoFornitore struct {
+	ContattoID  uuid.UUID   `json:"contatto_id"`
+	FornitoreID uuid.UUID   `json:"fornitore_id"`
+	Nome        pgtype.Text `json:"nome"`
+	Email       string      `json:"email"`
+	Ruolo       pgtype.Text `json:"ruolo"`
+	Lingua      pgtype.Text `json:"lingua"`
+	Note        pgtype.Text `json:"note"`
+}
+
+// Come un cliente scrive la lavorazione nel codice del pezzo (D39). Ogni riga porta un esempio che deve
+// corrispondere e un controesempio che non deve; la regex si verifica in Go, in scrittura (rifiuto) e in
+// lettura (✗, non usata). Il risultato e' l'insieme delle lavorazioni di tutte le convenzioni attive che
+// corrispondono; poi cliente_fornitore_lavorazione dice chi e' qualificato. Nessun suffisso reale nel seme.
+type ConvenzioneCodice struct {
+	ConvenzioneID uuid.UUID       `json:"convenzione_id"`
+	ClienteID     uuid.UUID       `json:"cliente_id"`
+	Modo          ModoConvenzione `json:"modo"`
+	Espressione   string          `json:"espressione"`
+	Esempio       string          `json:"esempio"`
+	Controesempio pgtype.Text     `json:"controesempio"`
+	Descrizione   string          `json:"descrizione"`
+	Attiva        bool            `json:"attiva"`
+	CreatoIl      time.Time       `json:"creato_il"`
+}
+
+type ConvenzioneCodiceLavorazione struct {
+	ConvenzioneID uuid.UUID `json:"convenzione_id"`
+	Lavorazione   string    `json:"lavorazione"`
 }
 
 type Conversazione struct {
@@ -2724,6 +3011,11 @@ type DominioCliente struct {
 	ClienteID uuid.UUID `json:"cliente_id"`
 }
 
+type DominioFornitore struct {
+	Dominio     string    `json:"dominio"`
+	FornitoreID uuid.UUID `json:"fornitore_id"`
+}
+
 // Che cosa deve esserci nel fascicolo perche' la fattibilita' possa iniziare. RISOLUZIONE IN BLOCCO: per un dato tipo_componente valgono le righe del cliente SE NE HA ALMENO UNA, altrimenti i default (cliente_id IS NULL). Non si mescolano: scrivere una riga per un cliente significa prendersi in carico tutte le righe di quel tipo_componente per quel cliente. E' cosi' che la risolve v_fascicolo, ed e' cosi' che la mostra Admin - Anagrafica.
 type FabbisognoDocumento struct {
 	FabbisognoID   uuid.UUID      `json:"fabbisogno_id"`
@@ -2753,6 +3045,21 @@ type FaseLog struct {
 	Fine           *time.Time    `json:"fine"`
 	Esito          NullEsitoFase `json:"esito"`
 	Note           pgtype.Text   `json:"note"`
+}
+
+type Fornitore struct {
+	FornitoreID    uuid.UUID     `json:"fornitore_id"`
+	RagioneSociale string        `json:"ragione_sociale"`
+	Tipo           TipoFornitore `json:"tipo"`
+	Lingua         pgtype.Text   `json:"lingua"`
+	Note           pgtype.Text   `json:"note"`
+	Attivo         bool          `json:"attivo"`
+	CreatoIl       time.Time     `json:"creato_il"`
+}
+
+type FornitoreLavorazione struct {
+	FornitoreID uuid.UUID `json:"fornitore_id"`
+	Lavorazione string    `json:"lavorazione"`
 }
 
 type HashRumore struct {
@@ -2819,6 +3126,11 @@ type Job struct {
 	ScadeIl    *time.Time    `json:"scade_il"`
 }
 
+type Lavorazione struct {
+	Codice      string `json:"codice"`
+	Descrizione string `json:"descrizione"`
+}
+
 type Messaggio struct {
 	MessaggioID       uuid.UUID       `json:"messaggio_id"`
 	Canale            Canale          `json:"canale"`
@@ -2845,7 +3157,12 @@ type Messaggio struct {
 	RegistratoIl      time.Time       `json:"registrato_il"`
 	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
 	// Traffico fra caselle nostre: mittente e destinatari sono tutti di un nostro dominio. Separato dalla direzione (D10): una mail fra colleghi e un'offerta al cliente sono entrambe in uscita, ma solo la seconda è traffico con il cliente.
-	Interno bool `json:"interno"`
+	Interno                bool               `json:"interno"`
+	ControparteTipo        TipoControparte    `json:"controparte_tipo"`
+	ControparteClienteID   uuid.NullUUID      `json:"controparte_cliente_id"`
+	ControparteFornitoreID uuid.NullUUID      `json:"controparte_fornitore_id"`
+	ControparteVia         NullViaControparte `json:"controparte_via"`
+	ControparteIl          *time.Time         `json:"controparte_il"`
 }
 
 type MessaggioAggancioLog struct {
@@ -3107,6 +3424,8 @@ type VInbox struct {
 	CasellaID         uuid.NullUUID    `json:"casella_id"`
 	CartellaOutlook   pgtype.Text      `json:"cartella_outlook"`
 	EntryID           pgtype.Text      `json:"entry_id"`
+	ControparteTipo   string           `json:"controparte_tipo"`
+	Controparte       pgtype.Text      `json:"controparte"`
 }
 
 type VThreadBloccanti struct {
