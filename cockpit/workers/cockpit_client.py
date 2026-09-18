@@ -496,7 +496,36 @@ def carica_config(percorso: str, predefiniti: dict | None = None, sezione: str =
         dove = f"[{sezione}].token" if sezione else "token"
         sys.exit(f"token mancante: {percorso} {dove} o variabile COCKPIT_TOKEN. "
                  "Il pacchetto con i token di questo PC si scarica dalla pagina Postazioni del Cockpit.")
+    controlla_staging(cfg["staging"], percorso)
     return cfg
+
+
+# I nomi che il SERVER si riserva dentro il proprio staging: `_contenuti` e' il magazzino indirizzato
+# per contenuto (un file = uno sha256), `_parti` sono i trasferimenti in corso.
+CARTELLE_DEL_SERVER = ("_contenuti", "_parti")
+
+
+def controlla_staging(staging: str, percorso: str) -> None:
+    """Il `staging` del worker e' una cartella SUA: file temporanei, log, restrict.json.
+
+    Non e' lo staging del server, e soprattutto non e' una delle cartelle che il server si riserva
+    dentro il proprio. Puntarlo li' dentro non da' nessun errore — il worker lavora, il server lavora
+    — ma i due finiscono per scrivere nello stesso posto: i log e i file di appoggio del worker si
+    mescolano ai contenuti, e tutto cio' che pulisce la cartella di un worker cancella i contenuti a
+    cui i documenti confermati rimandano. Un fascicolo che aspetta la copia si trova il file sparito.
+
+    E' successo su questo banco, e non l'ha segnalato nessuno: per questo e' un rifiuto all'avvio e
+    non un avviso nel log.
+    """
+    parti = [p.lower() for p in os.path.normpath(os.path.abspath(staging)).split(os.sep)]
+    for riservata in CARTELLE_DEL_SERVER:
+        if riservata in parti:
+            sys.exit(
+                f"staging non valido: {staging}\n"
+                f"  contiene «{riservata}», che e' una cartella del SERVER (il magazzino dei contenuti).\n"
+                f"  Il worker deve avere una cartella sua, fuori dallo staging del server: e' li' che\n"
+                f"  tiene file temporanei, log e restrict.json, e tutto cio' che ci mette lo cancella.\n"
+                f"  Correggere `staging` in {percorso}.")
 
 
 def nome_worker(tipo: str, cfg: dict | None = None) -> str:

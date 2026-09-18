@@ -43,7 +43,11 @@ server_url     = "http://127.0.0.1:8080"
 # due worker con lo stesso token ricevono 401: non identifica nessuno.
 token          = ""
 # Cartella locale DEL WORKER: file temporanei (l'allegato salvato da Outlook, il tempo di caricarlo al
-# server con PUT) e il log. Non deve coincidere con [nas].staging del server: il worker può stare su
+# server con PUT) e il log. NON deve stare dentro lo staging del server, e in particolare mai dentro
+# `_contenuti` o `_parti`: sono cartelle del server, e il worker cancella cio' che mette nella propria.
+# Un worker puntato li' dentro non da' nessun errore e fa sparire i contenuti che i documenti
+# confermati aspettano. Il worker si rifiuta di partire se ci prova. Non deve coincidere con
+# [nas].staging del server: il worker può stare su
 # un altro PC.
 staging        = '..\_staging'
 consenti_invio = false

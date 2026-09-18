@@ -69,6 +69,11 @@ type Server struct {
 	// Workers è il filesystem che contiene `workers/` (il pacchetto del worker, D22). Nil = la pagina
 	// *Postazioni* genera solo il worker.toml, senza i file del worker.
 	Workers fs.FS
+	// Ricognitore confronta i documenti del database con i file veri sul NAS (blocco 5B). È lo stesso
+	// oggetto che gira a tempo: «Controlla ora» in Admin chiama la sua stessa funzione, perché un
+	// controllo che in produzione e a richiesta passa da due strade diverse è un controllo che in una
+	// delle due prima o poi si comporta in un altro modo. Nil = la schermata lo dice.
+	Ricognitore *jobs.Ricognitore
 }
 
 type chiaveCtx int
@@ -156,7 +161,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -213,6 +218,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /anagrafica/buyer", s.autenticato(s.buyerSelect))
 	mux.HandleFunc("GET /thread/cerca", s.autenticato(s.cercaThread))
 	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
+	mux.HandleFunc("POST /thread/{id}/riprova-copie", s.autenticato(s.riprovaCopie))
 	// download su richiesta e smistamento (blocco 5)
 	mux.HandleFunc("POST /messaggio/{id}/scarica", s.autenticato(s.scarica))
 	mux.HandleFunc("POST /allegato/{id}/riscarica", s.autenticato(s.riscarica))
@@ -231,6 +237,11 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	// POST perché genera segreti e invalida i precedenti: un GET lo farebbe il primo che ricarica la
 	// pagina, e una precaricamento del browser basterebbe a spegnere un worker acceso.
 	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.soloAdmin(s.pacchettoWorker))
+	// Integrita' NAS (blocco 5B): il confronto fra quello che il database promette e i file veri.
+	mux.HandleFunc("GET /admin/nas", s.soloAdmin(s.adminIntegrita))
+	mux.HandleFunc("POST /admin/nas/controlla", s.soloAdmin(s.controllaIntegrita))
+	mux.HandleFunc("POST /admin/nas/{id}/riaccoda", s.soloAdmin(s.riaccodaDocumento))
+	mux.HandleFunc("POST /admin/nas/{id}/allinea", s.soloAdmin(s.allineaDocumento))
 	mux.HandleFunc("GET /admin/scarti", s.soloAdmin(s.adminScarti))
 	mux.HandleFunc("POST /admin/scarti/{id}/riprova", s.soloAdmin(s.riprovaScarto))
 	// Anagrafica e' amministrativa (D29): le regole di riconoscimento di un cliente valgono per
@@ -902,8 +913,8 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 		return nil, "", err
 	}
 	if _, err := jobs.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, jobs.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrShadow) {
-			return nil, motivoShadow(tipo), nil
+		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+			return nil, motivoCapacita(err, tipo), nil
 		}
 		return nil, "", err
 	}
@@ -913,9 +924,17 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 // motivoShadow è la frase che l'operatore legge quando preme un pulsante che in shadow non parte.
 // Dice tre cose: che cosa non è successo, perché, e dove si cambia — perché un rifiuto senza la
 // terza è indistinguibile da un guasto.
-func motivoShadow(tipo db.TipoJob) string {
-	return fmt.Sprintf("il server è in modalità shadow (sola lettura verso Outlook e NAS): %s non viene eseguito. "+
-		"Si cambia con [server].modalita = \"produzione\" in cockpit.toml", tipo)
+// motivoCapacita e' la frase che legge l'operatore quando un'azione non parte perche' la capacita'
+// che le serve e' spenta. Dice QUALE capacita' e DOVE si accende: prima diceva «il server e' in
+// modalita' shadow», che era vero ma non aiutava — spegneva tre cose insieme e non si capiva quale
+// riguardasse il pulsante appena premuto.
+func motivoCapacita(err error, tipo db.TipoJob) string {
+	cap := jobs.CapacitaMancante(err)
+	if cap == "" {
+		cap = jobs.CapacitaPer(tipo)
+	}
+	return fmt.Sprintf("%s non viene eseguito: la capacità [sicurezza].%s è spenta su questo server. "+
+		"Si accende in cockpit.toml (e richiede [server].modalita = \"produzione\")", tipo, cap)
 }
 
 // apriInOutlook accoda apri_elemento_outlook con priorità massima: il worker della postazione della
@@ -1018,10 +1037,10 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []api.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
 	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrShadow) {
+		if errors.Is(err, jobs.ErrCapacitaSpenta) {
 			// niente Commit: la bozza non è stata preparata, e una riga `bozza` senza la finestra in
 			// Outlook sarebbe una risposta che l'operatore crede di avere e non ha
-			s.avvisoErrore(w, "Bozza non preparata: "+motivoShadow(db.TipoJobCreaBozzaOutlook))
+			s.avvisoErrore(w, "Bozza non preparata: "+motivoCapacita(err, db.TipoJobCreaBozzaOutlook))
 			return
 		}
 		http.Error(w, err.Error(), 500)

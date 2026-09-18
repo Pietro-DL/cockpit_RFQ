@@ -26,7 +26,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/archivio"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
@@ -617,25 +616,6 @@ func (s *Server) fallimentoDefinitivo(ctx context.Context, q *db.Queries, j *db.
 	}
 }
 
-// estrazione è il risultato del lavoro su disco fatto PRIMA di aprire la transazione (voce 1.4, G1).
-//
-// Estrarre uno zip dentro la transazione del risultato era il difetto: un archivio da qualche centinaio
-// di megabyte tiene aperta una transazione per tutto il tempo della scrittura su disco, con la riga del
-// job bloccata e lo snapshot fermo. In una coda che ha già i suoi vincoli di lease, una transazione
-// lunga quanto un'operazione di I/O è il modo più semplice per far scadere il tentativo che la sta
-// eseguendo. Ora l'estrazione avviene fuori: la transazione contiene solo scritture in database e dura
-// quanto quelle.
-//
-// Un'estrazione ripetuta non fa danno: le voci finiscono nella stessa cartella con gli stessi nomi e
-// gli stessi hash, e le righe si riscrivono per upsert. È la condizione che rende sicuro farla fuori
-// dalla transazione che poi potrebbe non essere confermata.
-type estrazione struct {
-	fatta    bool            // false = questo risultato non richiedeva nessuna estrazione
-	voci     []archivio.Voce //
-	troncato bool            // l'archivio ha superato i limiti: le voci sono quelle entrate
-	errore   error           // zip illeggibile: l'allegato va in errore, il job no
-}
-
 // stagePronto è tutto ciò che il result di un download ha bisogno di sapere e che si calcola PRIMA
 // della transazione: dove sta il file caricato dal tentativo, dove deve finire, l'hash verificato,
 // l'eventuale estrazione dello zip.
@@ -643,9 +623,13 @@ type stagePronto struct {
 	r          api.RisultatoStage
 	p          api.PayloadStageAllegato
 	a          db.Allegato
-	definitivo string // dove il file sta una volta promosso
-	parte      string // <definitivo>.parte.<lease_token>: dove il tentativo ha caricato
-	est        estrazione
+	definitivo string // <staging>\_contenuti\<ab>\<sha256>.<ext>: dove il contenuto sta o andra'
+	parte      string // <staging>\_parti\<allegato>.parte.<lease_token>: dove il tentativo ha caricato
+	// riusato: quel contenuto c'era già, con l'hash giusto. Non si scrive niente e il .parte si
+	// butta. E' il caso dello stesso disegno allegato a due richieste diverse, scaricate insieme
+	// prima che l'una sapesse dell'altra: la deduplica per hash di AccodaStage non poteva vederlo,
+	// perché prima di scaricare l'hash non lo conosce nessuno.
+	riusato bool
 }
 
 // errHashDiverso: il file caricato non ha lo sha256 che il worker dichiara. Non è un contenuto
@@ -653,12 +637,15 @@ type stagePronto struct {
 var errHashDiverso = errors.New("sha256 del file caricato diverso da quello dichiarato")
 
 // preparaStage fa il lavoro su disco del result di un download (voce 2.3), fuori dalla transazione:
-// trova il .parte.<token> di questo tentativo, ne verifica lo sha256, estrae lo zip se è uno zip.
+// trova il .parte.<token> di questo tentativo, ne verifica lo sha256, decide dove va il contenuto.
 // Un errore qui è un result non applicabile (422); l'unico ritentabile è l'hash che non torna.
 //
-// Estrarre e verificare l'hash dentro la transazione era il difetto della voce 1.4: un archivio da
-// qualche centinaio di megabyte teneva bloccata la riga del job per tutto il tempo dell'I/O. Qui la
-// transazione arriva dopo, e contiene solo la rinomina e le scritture in database.
+// Verificare l'hash dentro la transazione era il difetto della voce 1.4: un file da qualche centinaio
+// di megabyte teneva bloccata la riga del job per tutto il tempo dell'I/O. Qui la transazione arriva
+// dopo, e contiene solo la rinomina e le scritture in database.
+//
+// Dal blocco 4A qui NON si estrae più niente: scompattare un archivio dentro una richiesta HTTP tiene
+// fermo il worker che aspetta la risposta. L'estrazione è un job suo (archivi.go).
 func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, dati json.RawMessage) (*stagePronto, error) {
 	var pr stagePronto
 	if err := json.Unmarshal(dati, &pr.r); err != nil {
@@ -673,10 +660,7 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		return nil, err
 	}
 	pr.p, pr.a = p, a
-	pr.definitivo, pr.parte, err = jobs.PercorsiStaging(s.Staging, p, a, t.LeaseToken)
-	if err != nil {
-		return nil, err
-	}
+	pr.parte = jobs.PercorsoParte(s.Staging, pr.r.AllegatoID, t.LeaseToken)
 	if _, err := os.Stat(pr.parte); err != nil {
 		return nil, fmt.Errorf("nessun file caricato da questo tentativo per l'allegato %s: il worker deve fare PUT /api/v1/allegati/{id}/file prima del result", a.AllegatoID)
 	}
@@ -688,17 +672,21 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		jobs.RimuoviParte(pr.parte)
 		return nil, fmt.Errorf("%w: caricato %.12s (%d byte), dichiarato %.12s (%d byte)", errHashDiverso, h, n, strings.ToLower(pr.r.Sha256), pr.r.Bytes)
 	}
-	if strings.ToLower(a.Estensione.String) == "zip" {
-		dest := filepath.Join(filepath.Dir(pr.definitivo), fmt.Sprintf("%02d_zip", a.Indice))
-		voci, err := archivio.Estrai(pr.parte, dest)
-		pr.est.fatta = true
-		pr.est.voci = voci
-		switch {
-		case errors.Is(err, archivio.ErrLimite):
-			pr.est.troncato = true
-		case err != nil:
-			pr.est.errore = err
-		}
+	// Da qui il contenuto è verificato, e solo adesso si sa DOVE va: il suo nome è il suo hash.
+	pr.definitivo, err = jobs.PercorsoContenuto(s.Staging, h, a.NomeFile)
+	if err != nil {
+		return nil, err
+	}
+	// La cartella si crea QUI e non dentro la transazione: creare una cartella è I/O, e la transazione
+	// del risultato deve contenere solo scritture in database (voce 1.4). Là dentro resta la sola
+	// rinomina, che è atomica e non può fallire per una cartella che non c'è.
+	if err := os.MkdirAll(filepath.Dir(pr.definitivo), 0o755); err != nil {
+		return nil, err
+	}
+	pr.riusato = jobs.ContenutoGiaPresente(pr.definitivo, h)
+	if pr.riusato {
+		s.Log.Info("contenuto già in staging: non se ne scrive una seconda copia",
+			"allegato", a.AllegatoID, "file", a.NomeFile, "sha", h[:12], "byte", n)
 	}
 	return &pr, nil
 }
@@ -724,19 +712,6 @@ func enumValido[T interface {
 		return "", fmt.Errorf("%s fuori enum: %q", campo, v)
 	}
 	return e, nil
-}
-
-// modoDi legge il modo di un sync_outlook. Un payload accodato prima del blocco 3 non ce l'ha: lì
-// l'unico segnale era il limite superiore, presente solo nello storico. La regola vecchia si legge
-// ancora per i job rimasti in coda durante l'aggiornamento; i nuovi lo dichiarano.
-func modoDi(p api.PayloadSyncOutlook) string {
-	if p.Modo != "" {
-		return p.Modo
-	}
-	if p.Al != nil {
-		return api.ModoStorico
-	}
-	return api.ModoAggiornamento
 }
 
 // applicaRisultato scrive nel DB gli effetti di un job riuscito. `prep` è valorizzato solo per un
@@ -787,7 +762,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 				continue
 			}
 			f := finestre[c.Cartella]
-			if modoDi(p) == api.ModoStorico {
+			if p.ModoEffettivo() == api.ModoStorico {
 				// la finestra [dal, al] di QUESTA cartella è coperta: il prossimo «Carica precedenti»
 				// riparte dal suo dal
 				dal := p.Dal
@@ -821,7 +796,9 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		}
 		// da qui in poi il file è dell'allegato: la riga del job è bloccata (Blocca), quindi nessun
 		// altro tentativo può promuovere il suo nel frattempo
-		if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
+		if prep.riusato {
+			jobs.RimuoviParte(prep.parte)
+		} else if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
 			return err
 		}
 		r := prep.r
@@ -829,7 +806,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			return err
 		}
 		s.riallineaEntryID(ctx, q, prep.p.RiferimentoElemento, prep.p.EntryID, r.RisultatoElemento)
-		return s.dopoStaging(ctx, q, r, &prep.est)
+		return s.dopoStaging(ctx, q, r)
 
 	case db.TipoJobAnalizzaAllegato:
 		var r api.RisultatoAnalisi
@@ -992,7 +969,7 @@ func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.Ri
 // dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa
 // (hash → rumore già scartato), si estraggono gli zip in allegati figli e si accoda l'analisi Python
 // (cartiglio, STEP) che raffina ancora finché la proposta resta aperta.
-func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage, est *estrazione) error {
+func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage) error {
 	a, err := q.GetAllegato(ctx, r.AllegatoID)
 	if err != nil {
 		return err
@@ -1024,7 +1001,13 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.Risultato
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 	}
 	if ext == "zip" {
-		return s.registraVociZip(ctx, q, a, m, r, est)
+		// L'archivio si scompatta in un job suo: qui si sta ancora dentro la richiesta HTTP con cui il
+		// worker consegna il download, e il worker aspetta. La chiave di idempotenza è per allegato,
+		// quindi un «Riscarica» che rimette lo stesso zip non accoda una seconda estrazione finché la
+		// prima è in coda.
+		_, err := jobs.Accoda(ctx, q, db.TipoJobEstraiArchivio,
+			api.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, "estrai:"+a.AllegatoID.String(), 4)
+		return err
 	}
 	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
 	return err
@@ -1050,51 +1033,6 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 		return fmt.Errorf("proposta: %w", err)
 	}
 	return nil
-}
-
-// estraiZip appiattisce lo zip in allegati figli (contenitore_id = zip), ognuno con hash, proposta e analisi.
-// Lo zip stesso resta come contenitore: non va sul NAS a meno di conferma esplicita.
-func (s *Server) registraVociZip(ctx context.Context, q *db.Queries, a db.Allegato, m db.Messaggio, r api.RisultatoStage, est *estrazione) error {
-	if est == nil || !est.fatta {
-		return fmt.Errorf("estrazione dello zip %s non eseguita prima della transazione", a.NomeFile)
-	}
-	if est.errore != nil {
-		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: txt("zip non leggibile: " + est.errore.Error())})
-	}
-	voci := est.voci
-	for i, v := range voci {
-		figlio, err := q.UpsertAllegato(ctx, db.UpsertAllegatoParams{
-			MessaggioID: a.MessaggioID, ContenitoreID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true}, Indice: int16(i + 1),
-			NomeFile: v.NomeFile, PathInterno: txt(v.PathInterno), Estensione: txt(strings.ToLower(strings.TrimPrefix(filepath.Ext(v.NomeFile), "."))),
-			Natura: db.NaturaAllegatoFile, Origine: a.Origine, Bytes: pgtype.Int8{Int64: v.Bytes, Valid: true}, Sha256: txt(v.Sha256), RicevutoIl: a.RicevutoIl,
-		})
-		if err != nil {
-			return fmt.Errorf("voce zip %s: %w", v.NomeFile, err)
-		}
-		if err := q.SetAllegatoStaging(ctx, db.SetAllegatoStagingParams{AllegatoID: figlio.AllegatoID, PathStaging: txt(v.Path), Sha256: txt(v.Sha256), Bytes: pgtype.Int8{Int64: v.Bytes, Valid: true}}); err != nil {
-			return err
-		}
-		figlio.PathStaging, figlio.Sha256 = txt(v.Path), txt(v.Sha256)
-		pr := domain.PropostaDaNome(v.NomeFile, v.Bytes, string(m.Direzione))
-		if err := s.scriviProposta(ctx, q, figlio, m.ThreadID, pr, map[string]any{"path_interno": v.PathInterno, "bytes": v.Bytes, "zip": a.NomeFile}); err != nil {
-			return err
-		}
-		if pr.Tipo == "rumore" {
-			_ = q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
-			continue
-		}
-		if _, err := jobs.AccodaAnalisi(ctx, q, figlio, m.ThreadID, s.Analizzatore); err != nil {
-			return err
-		}
-	}
-	dettagli := map[string]any{"voci": len(voci), "estensione": "zip", "bytes": r.Bytes}
-	if est.troncato {
-		dettagli["troncato"] = true
-	}
-	if err := s.scriviProposta(ctx, q, a, m.ThreadID, domain.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {
-		return err
-	}
-	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 }
 
 func nullUUID(u uuid.NullUUID) *uuid.UUID {

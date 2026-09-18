@@ -129,7 +129,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP |
 | `consenti_lan_in_chiaro` | la via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è già cifrato da altro (un tunnel). Il server lo ripete a ogni avvio |
 | `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
-| `modalita` | `shadow` o `produzione` (voce 9.5). In shadow il Cockpit legge Outlook e il NAS ma non li modifica: bozze, «segna letto», spostamenti e copie sul NAS non si accodano e non si eseguono, nemmeno se erano già in coda; «Apri in Outlook» sì, e `dry_run` è forzato a `true`. **Assente = shadow**: il default sicuro è quello che non tocca niente. Al ritorno in produzione i job rimasti in coda durante la shadow vengono annullati |
+| `modalita` | `shadow` o `produzione` (voce 9.5). **`shadow` è un preset di `[sicurezza]`**: spegne tutte e tre le capacità di scrittura, qualunque cosa dica quella sezione. «Apri in Outlook» resta consentito. **Assente = shadow**: il default sicuro è quello che non tocca niente. `produzione` NON accende niente da sola: serve `[sicurezza]`. Quando una capacità si accende, i job che avevano aspettato vengono annullati, non eseguiti |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
 | `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
 | `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
@@ -139,9 +139,39 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | Campo | Che cosa mettere |
 |---|---|
 | `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
-| `dry_run` | `true` calcola i percorsi e li scrive nel log senza toccare il disco: è il modo di provare la copia sul NAS aziendale senza scriverci |
-| `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow |
+| `dry_run` | **deprecata** (blocco 4): era esattamente «non scrivere sul NAS», che ora si dice con `[sicurezza].nas_scrittura = false`. Resta letta per i file già scritti — `true` spegne `nas_scrittura` — ma va tolta, e il server lo ripete nel log a ogni avvio |
+| `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow. In **produzione** non è vietata — è il posto dove il Cockpit lavorerà davvero — ma con `nas_scrittura = true` serve la seconda dichiarazione `[sicurezza].consenti_nas_produzione`. Il confronto ignora maiuscole, barre e barra finale |
+| `intervallo_integrita_s` | ogni quanti secondi il ricognitore confronta i documenti con i file veri sul NAS (blocco 5B). Assente = 900. `0` = nessuna passata automatica, e «Controlla ora» in *Admin > Integrità NAS* continua a funzionare. Ogni documento costa la **lettura intera** del file per ricalcolarne l'hash: su una condivisione lenta conviene allungarlo |
 | `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
+
+**`[sicurezza]`** — che cosa questo server può **modificare fuori da sé** (blocco 4).
+
+Prima c'era un interruttore solo, `[server].modalita`, e quindi una domanda sola: «tocchiamo il
+mondo, sì o no?». Per provare la copia sul NAS di prova quella domanda si sdoppia — si vuole scrivere
+un file in una cartella di prova, e **non** si vuole che una mail vera diventi letta, si sposti o
+generi una bozza — e con un interruttore solo le due cose sono la stessa cosa.
+
+| Campo | Che cosa governa |
+|---|---|
+| `outlook_scrittura` | `segna_letto`, `sposta_in_cartella`, e ogni altra modifica a Outlook **tranne** le bozze |
+| `bozze` | `crea_bozza_outlook` |
+| `nas_scrittura` | `crea_cartella_thread`, `copia_nas` |
+| `consenti_nas_produzione` | la **seconda** dichiarazione, e serve solo quando le altre insieme varrebbero «scrivi nel fascicolo vero di un cliente»: `nas_scrittura = true` con `[nas].radice` dentro una `radici_produzione`. Senza, il server non parte e dice quale radice ha riconosciuto; con, parte e l'avvio lo annuncia nel log |
+
+**Sempre consentiti**, e non chiedono nessuna capacità: sync di Outlook, lettura, download in
+staging, estrazione degli archivi, analisi, «Apri in Outlook». Un tipo di job che non nomina una
+capacità è per definizione una lettura, e una capacità che il server non riconosce vale **no**.
+
+Tre regole, in quest'ordine: `modalita = "shadow"` è un **preset** e spegne tutte e tre qualunque
+cosa dica questa sezione; **il silenzio vale «non scrivere»**, quindi un file in `produzione` senza
+`[sicurezza]` non accende niente e il server lo scrive nel log con la riga da aggiungere;
+`[nas].dry_run = true` spegne `nas_scrittura` per compatibilità, ed è deprecata.
+
+Il blocco agisce in **due punti**: un job che chiede una capacità spenta non entra nemmeno in coda, e
+se c'era già non viene consegnato a nessun worker. Quando una capacità **si accende**, i job che
+avevano aspettato vengono **annullati**, non eseguiti: nulla si mette in moto perché qualcuno ha
+cambiato una riga in un file. Le copie che servono si rimettono in coda dal fascicolo, con «Riprova
+copie».
 
 **`[outlook]`**
 
@@ -160,10 +190,70 @@ dove era arrivato il clic precedente. Il worker Outlook è uno per PC ed è seri
 job storico non apre elementi in Outlook e non scarica allegati, quindi le finestre sono piccole e
 fra l'una e l'altra torna a disposizione. Finché il job storico di una casella è in coda, premere
 ancora non ne accoda un altro; e in coda i job storici stanno in fondo, dietro anche al sync
-ordinario.
+ordinario. E **non scarica allegati**: lo storico rende consultabile la posta vecchia, non porta sul
+disco gli zip di due giorni di archivio per scompattarli e analizzarli. Se poi qualcuno apre una
+vecchia richiesta e vuole quei file, li scarica con «Scarica».
 
 **`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
 niente; una coda che non si svuota mai diventa illeggibile.
+
+**`[retention].cache_gg`** e **`cache_max_mb`** — la politica della **cache dei contenuti** (Pre-7,
+D31). Un contenuto si toglie da `_contenuti` solo se nessuno ne ha bisogno adesso — nessun documento
+che aspetta la copia, nessuna proposta aperta, nessun job pendente, nessuna anomalia NAS — **e** da
+`cache_gg` giorni non lo tocca nessuno (assente = 30; `0` = mai per età), **oppure** quando la cache
+supera `cache_max_mb` (assente = nessun limite): allora si parte dal meno usato, e si toglie il
+minimo che basta. Un file tolto si riprende da Outlook o dall'archivio da cui era uscito, e la copia
+sul NAS lo fa da sola. `giorni_staging`, la voce di prima, vale come `cache_gg` se `cache_gg` manca.
+
+### Com'è fatto lo staging
+
+Dal blocco 4A lo staging è organizzato **per contenuto**, non per messaggio, e dal Pre-7 `_contenuti`
+è dichiaratamente una **cache**, non una coda:
+
+```
+_staging\
+  _parti\        <allegato>.parte.<lease_token>   un trasferimento in corso
+  _contenuti\
+    ad\          ad644f0c….pdf                    un contenuto verificato: il nome è il suo sha256
+  log\
+```
+
+Prima ogni messaggio aveva la sua cartella e dentro ci finivano i suoi allegati, più una
+sottocartella con lo zip estratto. Lo stesso disegno allegato a cinque richieste stava sul disco
+cinque volte; uno zip da 6 MB con dentro 30 MB di file ne occupava 36 **per ogni messaggio** in cui
+compariva. Ora lo stesso contenuto è un file solo, e gli allegati che lo condividono condividono il
+percorso: chi cancella quel file li lascia senza tutti insieme, e tutti hanno «Riscarica».
+
+| Cartella | Natura | Politica |
+|---|---|---|
+| `_parti\` | temporaneo (`<allegato>.parte.<token>`, `zip.<token>\`) | vuota a regime: lo scheduler toglie gli orfani dei tentativi finiti |
+| `_contenuti\` | **cache** per sha256 | **resta dopo la copia sul NAS**; il custode la svuota per età o per capienza, mai sotto a chi la usa |
+| `tmp\` (nello staging del **worker**) | di passaggio | svuotata a ogni avvio del worker |
+| `log\`, `restrict.json` | log e stato del self-test | non si toccano |
+
+Perché la cache resta dopo la copia: serve a non riscaricare da Outlook lo stesso file ricevuto
+un'altra volta, a rianalizzarlo quando cambia il dizionario, e a **ricopiarlo sul NAS** se un giorno
+il file sparisce (Admin › Integrità NAS). Prima del blocco 7 la pulizia toglieva solo i contenuti
+che nessun allegato nominava più — e gli allegati non si cancellano mai, quindi non toglieva niente.
+
+**I pin.** Il custode (`jobs.Cache`, una passata ogni sei ore) non toglie un contenuto finché: un
+documento confermato con quell'hash è `in_coda` o in `errore`; una proposta su un allegato con
+quell'hash è aperta; un job pendente lo cita (per hash, per allegato o per documento); un'anomalia
+NAS aperta riguarda un documento con quell'hash. E un **archivio** resta finché una sua voce è
+pinnata — anche una voce che sul disco non c'è più: è da lui che si riestrae. Alla rimozione tutti
+gli `allegato.path_staging` che puntavano a quel contenuto vanno a `NULL` nella stessa transazione;
+lo stato dell'allegato resta com'è. Ogni contenuto tolto lascia una riga di log con hash, byte,
+motivo e allegati toccati.
+
+**La ripresa.** Se una copia sul NAS trova il contenuto sparito, non si ferma a chiedere
+«Riscarica»: se la voce viene da un archivio ancora in cache accoda la riestrazione, altrimenti
+accoda il download da Outlook, e riprova da sola al tentativo dopo. Insiste una volta sola per copia:
+se quel download è già stato provato ed è fallito, torna il messaggio con «Riscarica», perché a quel
+punto serve una persona.
+
+Conseguenza da conoscere: dopo un «Riscarica» che porta byte diversi, il contenuto vecchio **resta
+sul disco** finché non passa il custode — il file nuovo ha un nome nuovo, perché il nome è il
+contenuto. È il prezzo di non averne mai due copie.
 
 **`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
 insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
@@ -566,6 +656,93 @@ l'uno né l'altro è stato eseguito: sono prove reali, e finché non si fanno re
 
 ---
 
+### Il taglio della catena di risposta
+
+Una mail alla quarta risposta contiene quattro messaggi, e tre sono già stati letti da qualcuno.
+L'interpretazione deterministica però li leggeva tutti insieme: da lì arrivano quasi tutti i falsi
+multi-codice — «questa richiesta parla di sei codici» quando ne nomina uno e cita gli altri cinque
+dalla conversazione di settembre.
+
+**Il corpo originale non viene mai modificato.** Resta intero in `messaggio.corpo_testo`, nella
+schermata e in Outlook. Quello che cambia è quale pezzo viene dato in pasto all'interpretazione:
+`domain.TagliaCatena` divide il corpo in *quello che è stato scritto adesso* e *la storia citata*, e
+`CorpoUtilePerInterpretazione` restituisce il primo.
+
+Il taglio scatta solo su qualcosa di non ambiguo:
+
+| Forma | Esempio |
+|---|---|
+| separatore esplicito | `-----Messaggio originale-----`, `-----Original Message-----`, `---------- Forwarded message ----------` |
+| apertura di citazione | `Il giorno … ha scritto:`, `On … wrote:`, `Am … schrieb:` — prefisso **e** chiusura |
+| blocco di intestazione | **due** intestazioni di ruolo diverso di seguito (`Da:`/`Inviato:`/`A:`/`Oggetto:`) che portano un indirizzo, una data o l'oggetto |
+| testo marcato | due righe consecutive che cominciano con `>` |
+
+Una riga `Da:` **da sola non taglia niente**, e nemmeno due che non portano né indirizzo né data né
+oggetto: `Da: tornitura` / `A: rettifica` è un ciclo di lavorazione, non un'intestazione citata. È la
+differenza fra togliere il rumore e far sparire in silenzio il messaggio di chi scrive così.
+
+Dove finiscono i due pezzi:
+
+- il corpo utile va nell'estrazione con l'etichetta `corpo`, e i suoi codici sono **proponibili**;
+- la storia citata va nell'estrazione con l'etichetta `storia citata`: i suoi codici si **vedono**
+  fra gli altri numeri trovati, e per entrare nella RFQ serve un clic. Non si buttano, perché sono
+  l'evidenza migliore per agganciare una risposta alla richiesta giusta;
+- il triage non conta né le parole (`richiesta d'offerta`) né il riferimento che stanno **solo** nella
+  storia: ci sono in ogni catena, e conterebbero trentacinque punti di «sembra una richiesta nuova» a
+  ogni «ricevuto, grazie»;
+- **non si applica ai nomi degli allegati**: lì non c'è nessuna catena di risposta.
+
+Un inoltro senza commento — «ti giro questa» e sotto la richiesta del cliente — diventerebbe un
+messaggio vuoto: in quel caso si tiene il corpo intero. Meglio un codice di troppo, che si vede e si
+toglie, che una richiesta che non arriva sul tavolo di nessuno.
+
+> Le prove del repository usano un corpus **sintetico** con le forme vere. La verifica sul corpus
+> reale — che sta fuori dal repository — è la condizione **A** del gate dell'agente AI, e resta
+> aperta.
+
+---
+
+### Integrità NAS (Admin)
+
+`stato_nas = 'scritto'` è una promessa fatta **una volta sola**, nel momento in cui la copia è
+riuscita. Da allora la cartella può essere stata spostata, il file cancellato o sostituito a mano con
+un contenuto diverso: il fascicolo continuerebbe a dire di sì. E al contrario, un documento `in_coda`
+da tre settimane — perché la scrittura era spenta, o perché la copia è fallita e nessuno se n'è
+accorto — guardando la riga non si distingue da uno confermato cinque minuti fa.
+
+Un ricognitore va a guardare i file veri ogni `[nas].intervallo_integrita_s`, e quello che non torna
+finisce in *Admin > Integrità NAS*. Prende i documenti **controllati meno di recente per primi**, al
+massimo 200 per passata: a giro si arriva a tutti senza rileggere ogni volta l'intero fascicolo.
+
+| Problema | Che cosa vuol dire | Azione |
+|---|---|---|
+| `in_attesa` | confermato da più di mezz'ora, nessuna copia in coda. Il dettaglio dice se è perché `nas_scrittura` è spenta | **riaccoda** |
+| `errore` | la copia ha provato e non ce l'ha fatta; il dettaglio porta il motivo | **riaccoda** |
+| `mancante` | il database dice `scritto`, il file non c'è | **riaccoda** |
+| `gia_presente` | il file è già sul NAS **con l'hash giusto** e il documento risulta ancora da copiare: non c'è niente da copiare | **allinea** |
+| `conflitto` | sul NAS c'è un file **diverso** da questo documento | **nessuna**: va guardato |
+| `illeggibile` | il file c'è ma non si riesce a leggerlo, oppure al suo posto c'è una cartella con lo stesso nome | **nessuna**: va guardato |
+
+Tre regole che non cambiano:
+
+- **un conflitto non si sovrascrive mai.** Non c'è nessun pulsante che decida quale dei due file sia
+  quello buono: sovrascrivere vorrebbe dire buttare via il file di qualcun altro senza sapere di chi
+  fosse. La stessa cosa vale per la copia vera — anche riaccodandola a mano, il copiatore rifiuta;
+- **se il NAS non è raggiungibile la passata non si fa.** Farla direbbe che mancano *tutti* i file, e
+  da quel momento la volta in cui ne manca uno davvero non si distinguerebbe più dalle altre. La
+  schermata lo dice: «NON controllato»;
+- **il ricognitore non ripara niente da solo.** Scrive `documento.verificato_il` e le righe di
+  `nas_anomalia`, e basta. Le due azioni sono gesti di una persona, come «Riprova copie».
+
+Legge il NAS anche con `nas_scrittura` **spenta** — leggere è sempre consentito, e un server che non
+scrive può benissimo accorgersi che un file dichiarato nel fascicolo non c'è più. Con
+`intervallo_integrita_s = 0` non gira da solo, e resta «Controlla ora».
+
+La stessa notizia arriva **in fondo alla pagina della RFQ**, perché chi aspetta quel disegno guarda
+quella, non l'Admin.
+
+---
+
 ## Come funziona, in breve
 
 Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker legge le cartelle
@@ -706,10 +883,12 @@ internal/db                sqlc: queries/*.sql → codice generato (non modifica
 internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS
+internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
+                           taglio della catena di risposta (catena.go)
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
-internal/archivio          estrazione zip in staging (zip-slip, limiti) → allegati figli
-internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS), stage/analisi;
+internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
+internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
+                           estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
@@ -718,7 +897,8 @@ internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/wo
                            (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
                            il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
                            `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
-                           il file caricato resta .parte.<lease_token> finché il result valido non lo promuove; dopo-staging (zip, rumore, analisi)
+                           il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
+                           analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
                            inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
@@ -731,7 +911,8 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
                            0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
-                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione)
+                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
+                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

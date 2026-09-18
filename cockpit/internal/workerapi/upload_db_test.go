@@ -187,17 +187,22 @@ func (b *banco) result(t jobs.Tentativo, r api.RisultatoStage) *http.Response {
 	return resp
 }
 
-func (b *banco) percorsi(t jobs.Tentativo) (definitivo, parte string) {
+// parte è dove QUESTO tentativo carica: si sa subito, perché dipende da chi carica e non da che
+// cosa sta caricando.
+func (b *banco) parte(t jobs.Tentativo) string {
 	b.t.Helper()
-	var p api.PayloadStageAllegato
-	if err := json.Unmarshal(b.job.Payload, &p); err != nil {
-		b.t.Fatal(err)
-	}
-	def, parte, err := jobs.PercorsiStaging(b.staging, p, b.allegato, t.LeaseToken)
+	return jobs.PercorsoParte(b.staging, b.allegato.AllegatoID, t.LeaseToken)
+}
+
+// contenuto è dove finisce un contenuto: lo dice il suo hash, quindi si sa solo quando il
+// trasferimento è finito. I test lo conoscono in anticipo perché sono loro a fabbricare i byte.
+func (b *banco) contenuto(sha string) string {
+	b.t.Helper()
+	p, err := jobs.PercorsoContenuto(b.staging, sha, b.allegato.NomeFile)
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	return def, parte
+	return p
 }
 
 func (b *banco) fileDiStaging() []string {
@@ -278,7 +283,7 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	b := preparaBanco(t, 0)
 	contenuto, sha := contenutoCasuale(300_000, 1)
 	tA := b.claim("outlook@PC-A")
-	def, parte := b.percorsi(tA)
+	parte, def := b.parte(tA), b.contenuto(sha)
 
 	// l'upload da solo NON consegna niente: c'è il .parte del tentativo, non l'allegato
 	stato(t, b.put(tA, b.allegato.AllegatoID, bytes.NewReader(contenuto), int64(len(contenuto))), 204)
@@ -312,7 +317,8 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	}
 
 	// RIPETIBILE (M7): un secondo download dello stesso allegato — «Riscarica» dopo che il file è
-	// sparito — rifà tutto il giro e lascia lo staging pulito, con il contenuto nuovo
+	// sparito — rifà tutto il giro. Dal blocco 4A il contenuto nuovo ha un nome nuovo, perché il nome
+	// E' il contenuto: non sostituisce il file di prima, ne prende uno suo.
 	if err := os.Remove(def); err != nil {
 		t.Fatal(err)
 	}
@@ -329,16 +335,17 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	tB := b.claim("outlook@PC-A")
 	stato(t, b.put(tB, b.allegato.AllegatoID, bytes.NewReader(contenuto2), int64(len(contenuto2))), 204)
 	stato(t, b.result(tB, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha2, Bytes: int64(len(contenuto2))}), 204)
-	if hashDi(t, def) != sha2 {
-		t.Errorf("il secondo download non ha sostituito il file")
+	def2 := b.contenuto(sha2)
+	if !esiste(def2) || hashDi(t, def2) != sha2 {
+		t.Fatalf("il secondo download non ha portato il contenuto nuovo: %v", b.fileDiStaging())
 	}
 	for _, f := range b.fileDiStaging() {
 		if strings.Contains(f, ".parte.") {
 			t.Errorf("file parziale rimasto nello staging: %s", f)
 		}
 	}
-	if a := b.allegatoOra(); a.Sha256.String != sha2 {
-		t.Errorf("sha256 dell'allegato = %s, atteso quello del secondo download", a.Sha256.String)
+	if a := b.allegatoOra(); a.Sha256.String != sha2 || a.PathStaging.String != def2 {
+		t.Errorf("allegato dopo la riscarica: sha=%s path=%q, atteso %s / %s", a.Sha256.String, a.PathStaging.String, sha2, def2)
 	}
 }
 
@@ -346,7 +353,7 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 func TestM8AllegatoOltreIlLimite(t *testing.T) {
 	b := preparaBanco(t, 64<<20)
 	tA := b.claim("outlook@PC-A")
-	_, parte := b.percorsi(tA)
+	parte := b.parte(tA)
 
 	// con Content-Length dichiarato il server rifiuta PRIMA di leggere il corpo
 	zeri := io.LimitReader(zeroReader{}, 80<<20)
@@ -391,7 +398,7 @@ func TestM13UploadConTokenVecchio(t *testing.T) {
 	contenutoA, _ := contenutoCasuale(200_000, 3)
 	contenutoB, shaB := contenutoCasuale(150_000, 4)
 	tA := b.claim("outlook@PC-A")
-	def, parteA := b.percorsi(tA)
+	parteA, def := b.parte(tA), b.contenuto(shaB)
 
 	// A comincia a caricare e si ferma a metà: il corpo resta aperto
 	pr, pw := io.Pipe()
@@ -409,7 +416,7 @@ func TestM13UploadConTokenVecchio(t *testing.T) {
 	if tB.LeaseToken == tA.LeaseToken {
 		t.Fatal("B ha lo stesso token di A: il tentativo non è stato rinnovato")
 	}
-	_, parteB := b.percorsi(tB)
+	parteB := b.parte(tB)
 	stato(t, b.put(tB, b.allegato.AllegatoID, bytes.NewReader(contenutoB), int64(len(contenutoB))), 204)
 	stato(t, b.result(tB, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: shaB, Bytes: int64(len(contenutoB))}), 204)
 	if !esiste(def) || hashDi(t, def) != shaB {
@@ -454,9 +461,9 @@ func TestM13UploadConTokenVecchio(t *testing.T) {
 // trasferimento andato male: il job torna in coda (non fallisce per sempre) e il .parte sparisce.
 func TestHashDiversoRimetteInCodaSenzaConsegnare(t *testing.T) {
 	b := preparaBanco(t, 0)
-	contenuto, _ := contenutoCasuale(50_000, 5)
+	contenuto, shaVero := contenutoCasuale(50_000, 5)
 	tA := b.claim("outlook@PC-A")
-	def, parte := b.percorsi(tA)
+	parte, def := b.parte(tA), b.contenuto(shaVero)
 	stato(t, b.put(tA, b.allegato.AllegatoID, bytes.NewReader(contenuto), int64(len(contenuto))), 204)
 	corpo := stato(t, b.result(tA, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: strings.Repeat("0", 64), Bytes: int64(len(contenuto))}), 422)
 	if !strings.Contains(corpo, "sha256") {

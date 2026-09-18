@@ -210,7 +210,18 @@ type IngressoTriage struct {
 // scritti in due posti, il giorno in cui uno dei due impara a leggere un campo in più l'altro no, e i
 // candidati verrebbero calcolati su un testo diverso da quello su cui viene calcolato l'esito.
 func (in IngressoTriage) Testi() []Testo {
-	testi := []Testo{{Dove: "oggetto", Corpo: in.Oggetto}, {Dove: "corpo", Corpo: in.Corpo}}
+	// Il corpo arriva TAGLIATO (blocco 6): quello che e' stato scritto adesso sta in «corpo», la
+	// catena di risposta precedente sta in «storia citata». Non si perde niente — i codici della
+	// storia sono l'evidenza migliore per agganciare una risposta alla sua richiesta — ma i due
+	// pezzi non pesano uguale: vedi Proponibili.
+	//
+	// Il taglio NON si applica ai nomi degli allegati: li' non c'e' nessuna catena di risposta, e un
+	// nome di file che comincia per «Da» o contiene «On» non e' una citazione di niente.
+	utile, storia := TagliaCatena(in.Corpo)
+	testi := []Testo{{Dove: "oggetto", Corpo: in.Oggetto}, {Dove: "corpo", Corpo: utile}}
+	if storia != "" {
+		testi = append(testi, Testo{Dove: DoveStoria, Corpo: storia})
+	}
 	for _, n := range in.NomiAllegati {
 		base := n
 		if i := strings.LastIndex(base, "."); i > 0 {
@@ -288,7 +299,11 @@ func Triage(in IngressoTriage) EsitoTriage {
 	if in.Interno {
 		motivi = append(motivi, "mail interna: inoltrata da un collega")
 	}
-	testo := strings.ToLower(in.Oggetto + "\n" + in.Corpo)
+	// Blocco 6: le parole «richiesta d'offerta» si cercano in quello che e' stato scritto ADESSO.
+	// In una catena di risposta quelle parole ci sono sempre — stanno nel primo messaggio — e
+	// contarle vorrebbe dire dare trentacinque punti di «sembra una richiesta nuova» a ogni
+	// «ricevuto, grazie».
+	testo := strings.ToLower(in.Oggetto + "\n" + CorpoUtilePerInterpretazione(in.Corpo))
 	if m := reParoleRFQ.FindString(testo); m != "" {
 		punti += 35
 		motivi = append(motivi, "testo contiene «"+m+"»")
@@ -336,7 +351,10 @@ func Triage(in IngressoTriage) EsitoTriage {
 		punti += 10
 		motivi = append(motivi, "codici della famiglia «"+f+"» del cliente")
 	}
-	if e.Riferimento != "" {
+	// Un riferimento trovato nella STORIA citata non dice che questo messaggio e' una richiesta
+	// nuova: dice a quale richiesta risponde, ed e' l'aggancio a occuparsene. Contarlo qui
+	// significherebbe far salire il punteggio di «nuova RFQ» proprio sulle risposte.
+	if e.Riferimento != "" && e.RiferimentoDove != DoveStoria {
 		punti += 15
 		motivi = append(motivi, "riferimento "+e.Riferimento+" ("+e.RiferimentoNome+")")
 	}

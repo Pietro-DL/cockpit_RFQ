@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,17 +126,31 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	if err := fondazioni.UnaSolaCasellaAttiva(ctx, q, versione); err != nil {
 		return fmt.Errorf("configurazione delle caselle: %w", err)
 	}
-	// Modalità (§2.7, voce 9.5). Si fissa PRIMA che scheduler ed esecutore partano: il primo claim
-	// arriva pochi millisecondi dopo, e un claim fatto mentre la modalità è ancora quella di default
-	// eseguirebbe proprio i job che la shadow deve fermare.
-	modalita := jobs.Modalita(cfg.Server.Modalita)
-	jobs.ImpostaModalita(modalita)
-	if err := jobs.AllineaCoda(ctx, q, modalita, log); err != nil {
+	// CAPACITÀ DI SCRITTURA (blocco 4). Si fissano PRIMA che scheduler ed esecutore partano: il primo
+	// claim arriva pochi millisecondi dopo, e un claim fatto mentre le capacità sono ancora quelle di
+	// default eseguirebbe proprio i job che la configurazione vuole fermi.
+	sic := cfg.Capacita()
+	capacita := jobs.Capacita{OutlookScrittura: sic.OutlookScrittura, Bozze: sic.Bozze, NasScrittura: sic.NasScrittura}
+	jobs.ImpostaCapacita(capacita)
+	if err := jobs.AllineaCoda(ctx, q, capacita, log); err != nil {
 		return err
 	}
-	if modalita == jobs.ModalitaShadow {
-		log.Warn("MODALITÀ SHADOW: sola lettura verso il mondo", "bloccati", jobs.TipiBloccatiOra(),
-			"nas_dry_run", cfg.NAS.DryRun, "nota", "«Apri in Outlook» resta l'unica azione consentita; si cambia con [server].modalita")
+	// Una riga per capacità, con scritto ATTIVA o SPENTA. Un elenco solo non basta: chi legge il log
+	// per capire perché una copia non parte cerca il nome di quella capacità, non un riassunto.
+	for _, nome := range jobs.TutteLeCapacita {
+		stato := "SPENTA"
+		if capacita.Ha(nome) {
+			stato = "ATTIVA"
+		}
+		log.Warn("capacità di scrittura", "capacita", nome, "stato", stato)
+	}
+	if capacita.TuttoSpento() {
+		log.Warn("questo server NON modifica niente fuori da se'", "modalita", cfg.Server.Modalita,
+			"bloccati", jobs.TipiBloccatiOra(),
+			"nota", "sincronizzazione, download in staging, analisi e «Apri in Outlook» restano consentiti")
+	}
+	for _, a := range sic.Avvisi {
+		log.Warn("sicurezza", "avviso", a)
 	}
 	// Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
 	// regola di un solo cliente ha un esempio che non corrisponde alla propria regex, non parte
@@ -169,9 +184,11 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		return nil
 	}
 
-	scrittore := &nas.Scrittore{Radice: cfg.NAS.Radice, DryRun: cfg.NAS.DryRun}
+	// DryRun non viene piu' dal file: e' l'altra faccia di [sicurezza].nas_scrittura. Due voci per la
+	// stessa decisione sono due voci che prima o poi si contraddicono, e la piu' silenziosa vince.
+	scrittore := &nas.Scrittore{Radice: cfg.NAS.Radice, DryRun: !capacita.NasScrittura}
 	if scrittore.Raggiungibile() {
-		log.Info("NAS raggiungibile", "radice", cfg.NAS.Radice, "dry_run", cfg.NAS.DryRun)
+		log.Info("NAS raggiungibile", "radice", cfg.NAS.Radice, "scrittura", capacita.NasScrittura)
 	} else {
 		log.Warn("NAS non raggiungibile: le copie resteranno in coda", "radice", cfg.NAS.Radice)
 	}
@@ -205,6 +222,13 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		RetentionGiorni: cfg.Retention.GiorniJob,
 		Staging:         staging,
 	}).Avvia(ctx)
+	// La cache dei contenuti (Pre-7, D31): `_contenuti` resta dopo la copia sul NAS, e si svuota per
+	// eta' o per capienza, mai sotto a chi la sta usando.
+	if cfg.Retention.GiorniStaging > 0 && cfg.Retention.CacheGiorni == nil {
+		log.Warn("[retention].giorni_staging e' deprecata: vale come cache_gg", "giorni", cfg.Retention.GiorniStaging,
+			"nota", "scrivere cache_gg = "+strconv.Itoa(cfg.Retention.GiorniStaging)+" e togliere la riga")
+	}
+	(&jobs.Cache{Pool: pool, Staging: staging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte()}).Avvia(ctx)
 	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
 	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama
 	// nessuno. Il testo delle mail dei clienti esce verso un servizio esterno, e quella e' una cosa
@@ -223,7 +247,8 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	if servizioAgente.Attivo && servizioAgente.Modello != nil {
 		log.Info("analisi semantica attiva", "modello", servizioAgente.Modello.Nome(), "caselle", len(servizioAgente.Caselle))
 	}
-	(&jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}).Avvia(ctx)
+	esecutore := &jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
+	ricognitore := &jobs.Ricognitore{Pool: pool, NAS: scrittore, Log: log, Ogni: cfg.IntervalloIntegrita()}
 
 	// ---------------------------------------------------------------- rete (voce 2.4)
 	//
@@ -265,10 +290,12 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	// puo' dire che cosa sono; spento, si comporta come prima del checkpoint 3R.
 	servizioIngest := &ingest.Servizio{Pool: pool, Log: log,
 		StagingAutomatico: cfg.Staging.Automatico,
+		StagingBootstrap:  cfg.Staging.Bootstrap,
 		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
 		IntervalloSync: intervalloSync, Sync: opzioniSync, SyncAperturaInbox: syncApertura, Modalita: cfg.Server.Modalita,
-		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente}
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente,
+		Ricognitore: ricognitore}
 	if err := ws.Init(); err != nil {
 		return err
 	}
@@ -278,6 +305,15 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
 	}
+	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
+	// quel qualcuno e' la stessa parte che riceve i risultati dei worker: dal blocco 4A l'estrazione
+	// di uno zip e' un job, non un pezzo della richiesta HTTP con cui il download viene consegnato.
+	esecutore.Archivi = wa
+	esecutore.Avvia(ctx)
+	// Il ricognitore dell'integrita' (blocco 5B). Parte SEMPRE, anche con la scrittura spenta: legge
+	// il NAS e basta, e un server che non scrive puo' benissimo accorgersi che un file dichiarato nel
+	// fascicolo non c'e' piu'. Si spegne solo con [nas].intervallo_integrita_s = 0.
+	ricognitore.Avvia(ctx)
 
 	mux := http.NewServeMux()
 	ws.Registra(mux)

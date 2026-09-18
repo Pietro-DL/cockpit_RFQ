@@ -207,17 +207,14 @@
     <fieldset>
       <legend>Cliente</legend>
       <label>Cliente
-        <select name="cliente_id" hx-get="/anagrafica/buyer" hx-target="#buyer-select" hx-trigger="change" hx-include="this"
-                onchange="document.getElementById('cliente-nuovo').hidden = this.value !== '__nuovo__'">
+        <select name="cliente_id" hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="change"
+                hx-include="this,[name='oggetto'],[name='buyer_cognome'],[name='cliente_cartella']">
           {{range .Clienti}}<option value="{{.ClienteID}}" {{if and $.Dati.ClienteID.Valid (eq .ClienteID $.Dati.ClienteID.UUID)}}selected{{end}}>{{.CartellaNas}} — {{.RagioneSociale}}</option>{{end}}
           <option value="__nuovo__" {{if not .ClienteID.Valid}}selected{{end}}>➕ nuovo cliente…</option>
         </select>
       </label>
-      <div id="cliente-nuovo" class="griglia3" {{if .ClienteID.Valid}}hidden{{end}}>
-        <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
-        <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"></label>
-        <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
-      </div>
+      {{template "cartella_cliente" $}}
+      {{template "cliente_nuovo" $}}
     </fieldset>
 
     <fieldset>
@@ -243,7 +240,7 @@
         <label><input type="checkbox" name="campionatura" value="1"> campionatura</label>
       </div>
       <label>Note <input name="note"></label>
-      <p class="muto anteprima">Cartella: <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»; per un cliente nuovo «CLIENTE» diventa la sua cartella NAS)</small></p>
+      {{template "anteprima_cartella" $}}
     </fieldset>
 
     {{if .Candidati}}
@@ -318,6 +315,49 @@
 {{end}}
 {{end}}
 
+{{define "cartella_cliente"}}
+{{with .Dati}}
+<p class="muto" id="cartella-cliente" {{if .Oob}}hx-swap-oob="true"{{end}}>Cartella NAS:
+  <code>{{.CartellaCliente}}</code>
+  {{if .DaAnagrafica}}<small>dall’Anagrafica — non va riscritta</small>
+  {{else}}<small>cliente nuovo: la cartella è quella scritta qui sotto</small>{{end}}
+</p>
+{{end}}
+{{end}}
+
+{{/* cliente_nuovo: i campi con cui si CENSISCE un cliente, e ci sono solo quando c'e' un cliente da
+     censire. Per un cliente gia' in Anagrafica non vengono nemmeno scritti nella pagina: non esiste
+     una casella «Cartella NAS» da riscrivere, quindi non esiste il gesto con cui i disegni di un
+     cliente finirebbero nella cartella di un altro. La cartella vera si legge sopra, in sola lettura.
+
+     Prima i tre campi c'erano sempre e si contava sull'attributo `hidden`. Su questo elemento
+     `hidden` non nascondeva niente: la regola d'autore `.griglia3{display:grid}` vince su
+     `[hidden]{display:none}` del browser — le regole dell'autore battono quelle dello user agent — e
+     i campi restavano in pagina, modificabili, accanto alla riga che diceva di non riscriverli. */}}
+{{define "cliente_nuovo"}}
+{{with .Dati}}
+<div id="cliente-nuovo" {{if .Oob}}hx-swap-oob="true"{{end}}>
+  {{if not .ClienteID.Valid}}
+  <div class="griglia3">
+    <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
+    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"
+           hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
+           hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
+    <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "anteprima_cartella"}}
+{{with .Dati}}
+<p class="muto anteprima" id="anteprima-cartella" {{if .Oob}}hx-swap-oob="true"{{end}}>Destinazione:
+  <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»)</small>
+</p>
+{{end}}
+{{end}}
+
 {{define "buyer_select"}}
 {{with .Dati}}
 <label>Buyer
@@ -328,6 +368,7 @@
   </select>
 </label>
 {{end}}
+{{if .Dati.Oob}}{{template "cartella_cliente" .}}{{template "anteprima_cartella" .}}{{template "cliente_nuovo" .}}{{end}}
 {{end}}
 
 {{define "thread_risultati"}}

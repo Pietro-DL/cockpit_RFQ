@@ -413,6 +413,13 @@ func (e Estrazione) Proponibili() []CodiceTrovato {
 		if e.HaFamiglie && c.Origine != "famiglia" {
 			continue
 		}
+		// Blocco 6: un codice che viene dalla catena di risposta precedente non si propone da solo.
+		// Era già stato deciso in un altro messaggio, e riproporlo a ogni risposta è il modo in cui
+		// un «ricevuto, grazie» diventa una richiesta di sei pezzi. Resta visibile fra gli altri
+		// numeri trovati: si vede, e per entrare serve un clic.
+		if c.Dove == DoveStoria {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out

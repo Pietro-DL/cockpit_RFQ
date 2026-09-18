@@ -59,7 +59,7 @@ log_livello = "info" # debug | info | warn
 #   shadow      legge Outlook e il NAS, non li modifica. Niente bozze, niente «segna letto», niente
 #               spostamenti di cartella, niente scritture sul NAS: quei job non si accodano e non si
 #               eseguono nemmeno se sono già in coda. «Apri in Outlook» resta consentito (apre una
-#               finestra e basta) e `dry_run` viene forzato a true. Serve a far girare il sistema
+#               finestra e basta). E' un PRESET di [sicurezza]. Serve a far girare il sistema
 #               sulla posta vera senza che un difetto diventi una mail modificata;
 #   produzione  tutto attivo. Al passaggio da shadow a produzione i job che avevano aspettato
 #               vengono ANNULLATI: nulla parte a sorpresa. Le copie che servono si rimettono in coda
@@ -80,12 +80,29 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 [nas]
 # La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
 radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
-dry_run = false                                      # true = calcola i percorsi senza scrivere
+# dry_run e' DEPRECATA (blocco 4): la scrittura sul NAS la governa [sicurezza].nas_scrittura, piu'
+# sotto. Se e' ancora nel file e vale `true` spegne nas_scrittura — cioe' fa quello che ha sempre
+# fatto — e il server lo dice nel log a ogni avvio. Va tolta.
+# dry_run = false
 staging = '...\_staging'
-# Le radici VERE, dichiarate una volta. Servono a una cosa sola: in shadow il server si RIFIUTA di
-# partire se `radice` è una di queste (o una loro sottocartella). Una prova in shadow puntata sul NAS
-# di produzione non è una shadow, è una prova sulla produzione con un badge rassicurante in testata.
+# Le radici VERE, dichiarate una volta. In shadow il server si RIFIUTA di partire se `radice` è una di
+# queste (o una loro sottocartella): una prova in shadow puntata sul NAS di produzione non è una
+# shadow, è una prova sulla produzione con un badge rassicurante in testata. In produzione non è
+# vietata, ma con nas_scrittura = true serve [sicurezza].consenti_nas_produzione, piu' sotto.
+# Il confronto ignora maiuscole, barre e barra finale: sono i tre modi in cui lo stesso percorso viene
+# riscritto passando da un file all'altro.
 radici_produzione = ['\\nas01\TECNICO - PREVENTIVI']
+
+# Ogni quanti secondi confrontare i documenti del database con i file VERI sul NAS (blocco 5B).
+# Assente = 900 (un quarto d'ora). 0 = nessuna passata automatica; «Controlla ora» nella schermata
+# Admin > Integrita' NAS funziona lo stesso, perche' leggere il NAS e' sempre consentito — anche con
+# nas_scrittura spenta — e spegnere il giro periodico non vuol dire rinunciare a guardare.
+#
+# Ogni documento controllato costa uno stat e la LETTURA INTERA del file per ricalcolarne l'hash: su
+# una condivisione di rete con molte migliaia di file conviene allungarlo, non accorciarlo. La
+# passata e' comunque limitata (200 documenti per volta, i meno controllati per primi), quindi a giro
+# si arriva a tutti senza rileggere tutto ogni volta.
+intervallo_integrita_s = 900
 
 [outlook]
 cartelle = ["Inbox", "Sent Items"]
@@ -145,10 +162,69 @@ consenti_invio = false
 # vecchio del server, non il modo normale di attribuire la posta.
 casella_default = "nome.cognome@azienda.it"
 
+[sicurezza]
+# CHE COSA QUESTO SERVER PUO' MODIFICARE FUORI DA SE' (blocco 4 del checkpoint 3R).
+#
+# Prima c'era un interruttore solo — `[server].modalita` — e quindi una domanda sola: «tocchiamo il
+# mondo, si' o no?». Ma per provare la copia sul NAS di prova quella domanda si sdoppia: si vuole
+# scrivere un file in una cartella di prova, e NON si vuole che una mail vera diventi letta, si sposti
+# o generi una bozza. Con un interruttore solo quelle due cose sono la stessa cosa.
+#
+#   outlook_scrittura   «Segna letto», «Sposta in cartella»: modifica elementi di posta VERI;
+#   bozze               «Rispondi»: apre una finestra di composizione sul PC di qualcuno;
+#   nas_scrittura       la cartella della RFQ e la copia dei documenti nel fascicolo del cliente.
+#
+# SEMPRE consentito, e non si spegne: sincronizzare, scaricare un allegato in staging, analizzarlo,
+# scompattare un archivio, «Apri in Outlook» (apre una finestra e non modifica niente).
+#
+# TRE REGOLE, in quest'ordine:
+#
+#  1. `[server].modalita = "shadow"` e' un PRESET: spegne tutte e tre, qualunque cosa ci sia scritto
+#     qui sotto. Chi scrive «shadow» sta dicendo «questo server non tocca niente».
+#  2. Il silenzio vale NO. Una voce assente e' spenta, e un file SENZA questa sezione non accende
+#     niente nemmeno con `modalita = "produzione"`: «produzione» non significa piu' «accendi tutto»,
+#     perche' quel file l'ha scritto qualcuno che non sapeva che queste voci esistessero. Il server
+#     lo scrive nel log all'avvio, con la riga da aggiungere.
+#  3. All'avvio il log dice per ciascuna capacita' se e' ATTIVA o SPENTA. Si cerca il nome della
+#     capacita', non un riassunto.
+#
+# `[nas].dry_run` NON serve piu': era esattamente «non scrivere sul NAS», che adesso si dice con
+# `nas_scrittura = false`. Resta letta per i file gia' scritti (se e' `true` spegne nas_scrittura) ma
+# e' DEPRECATA e va tolta; il server lo dice nel log ogni volta che la trova.
+outlook_scrittura = false
+bozze             = false
+nas_scrittura     = false
+# La SECONDA dichiarazione, e serve solo quando le altre insieme varrebbero «scrivi nel fascicolo vero
+# di un cliente»: nas_scrittura = true con [nas].radice dentro una delle [nas].radici_produzione.
+# Senza, il server NON PARTE e dice quale radice ha riconosciuto.
+#
+# Non e' una conferma per il gusto di chiederla due volte. Il giorno in cui [nas].radice passera' dal
+# NAS di prova al percorso aziendale — copiando un file da un PC all'altro, tornando da una prova,
+# cambiando una riga per sbaglio — nas_scrittura sara' gia' `true` da settimane e nessuno la stara'
+# guardando: sono due voci lontane fra loro, e ognuna presa da sola sembra innocua. Questa le lega.
+# consenti_nas_produzione = false
+
 [retention]
 # Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si
 # svuota mai diventa illeggibile e rallenta le pagine di amministrazione.
 giorni_job = 30
+# La CACHE dei contenuti (Pre-7, D31). `_contenuti` non si svuota quando la copia sul NAS è andata
+# bene: serve a non riscaricare da Outlook lo stesso file, a rianalizzarlo, a ricopiarlo sul NAS se
+# sparisce. Un contenuto si toglie solo se nessuno ne ha bisogno adesso — nessun documento che
+# aspetta la copia, nessuna proposta aperta, nessun job pendente, nessuna anomalia NAS — E da
+# cache_gg giorni non lo tocca nessuno, OPPURE quando la cache supera cache_max_mb (allora si parte
+# dal meno usato, e si toglie il minimo che basta). Un file tolto si riprende da solo, da Outlook o
+# dall'archivio da cui era uscito. Non è la stessa cosa della riga qui sopra: quella toglie righe
+# di coda, questa toglie FILE.
+#
+# cache_gg: assente = 30; 0 = non togliere mai per età (resta la capienza).
+# cache_max_mb: assente = nessun limite.
+cache_gg = 30
+# cache_max_mb = 4096
+#
+# giorni_staging è la voce di prima del blocco 7 ed è DEPRECATA: vale come cache_gg se cache_gg
+# manca, e il server lo dice nel log a ogni avvio. Va sostituita con cache_gg.
+# giorni_staging = 90
 
 [analisi]
 # CON CHE COSA si analizza (fase 1, voce 1.12). Versione e sha256 di [analisi.parametri] formano,
@@ -176,7 +252,21 @@ termini_cartiglio = ["scala", "materiale", "tolleranze", "trattamento"]
 # newsletter con un PDF farebbe partire un download) e i file oltre la soglia.
 #
 # Predefinito: SPENTO. Acceso, fa partire lavoro su Outlook senza che nessuno abbia premuto niente.
+#
+# QUALE SINCRONIZZAZIONE (blocco 4A). `automatico` vale per l'AGGIORNAMENTO ordinario, cioe' la posta
+# che arriva adesso. Le altre due non sono la stessa cosa:
+#
+#   bootstrap   la prima volta di una casella porta dentro settimane di posta in un colpo solo. E'
+#               l'unico momento in cui «gli allegati recenti» sono migliaia, quindi lo staging
+#               automatico li' e' spento salvo dichiararlo qui sotto;
+#   storico     «Carica precedenti» NON scarica mai niente da solo, e non c'e' una voce per
+#               cambiarlo. Serve a rendere consultabile la posta vecchia; se poi qualcuno apre una
+#               vecchia richiesta e vuole quei file, li scarica con «Scarica».
+#
+# Senza questa distinzione un clic su «Carica precedenti» scaricava tutti gli zip di due giorni di
+# archivio, li scompattava e accodava l'analisi di ogni disegno che c'era dentro.
 automatico = true
+bootstrap = false
 max_mb = 20
 
 [agente]

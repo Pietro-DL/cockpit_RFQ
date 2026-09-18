@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
@@ -388,12 +387,12 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaConfermata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		return "", err
 	}
-	if _, err := jobs.Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: d.DocumentoID}, "nas:"+d.DocumentoID.String(), 1); err != nil {
-		// In shadow il documento si conferma lo stesso e resta `in_coda`: la decisione dell'operatore
-		// è registrata, è la SCRITTURA sul NAS che aspetta la produzione (SH1). Dirgli «errore»
+	if _, err := jobs.AccodaCopia(ctx, q, d.DocumentoID); err != nil {
+		// Con `nas_scrittura` spenta il documento si conferma lo stesso e resta `in_coda`: la decisione
+		// dell'operatore è registrata, è la SCRITTURA sul NAS che aspetta (SH1). Dirgli «errore»
 		// gliela farebbe rifare domani, e sarebbe due volte la stessa decisione.
-		if errors.Is(err, jobs.ErrShadow) {
-			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA DI PRODUZIONE (il server è in modalità shadow).", nil
+		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA: la capacità [sicurezza].nas_scrittura è spenta.", nil
 		}
 		return "", err
 	}
