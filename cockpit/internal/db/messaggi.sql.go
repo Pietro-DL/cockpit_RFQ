@@ -177,8 +177,19 @@ SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
        count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
        count(*)                                                  AS tutti
 FROM v_inbox
-WHERE $1::uuid IS NULL OR $1::uuid = ANY (caselle_id)
+WHERE ($1::uuid IS NULL OR $1::uuid = ANY (caselle_id))
+  AND ($2::text = ''
+    OR ($2::text = 'buyer'     AND controparte_tipo = 'cliente')
+    OR ($2::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR ($2::text = 'validare'  AND controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')))
+  AND ($3::text = '' OR direzione::text = $3::text)
 `
+
+type ContaInboxParams struct {
+	Casella   uuid.NullUUID `json:"casella"`
+	Quadrante string        `json:"quadrante"`
+	Direzione string        `json:"direzione"`
+}
 
 type ContaInboxRow struct {
 	Orfani     int64 `json:"orfani"`
@@ -187,8 +198,10 @@ type ContaInboxRow struct {
 	Tutti      int64 `json:"tutti"`
 }
 
-func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaInboxRow, error) {
-	row := q.db.QueryRow(ctx, contaInbox, casella)
+// I numeri accanto ai filtri: del quadrante e della direzione scelti, così dicono quanti ne
+// vedresti premendo.
+func (q *Queries) ContaInbox(ctx context.Context, arg ContaInboxParams) (ContaInboxRow, error) {
+	row := q.db.QueryRow(ctx, contaInbox, arg.Casella, arg.Quadrante, arg.Direzione)
 	var i ContaInboxRow
 	err := row.Scan(
 		&i.Orfani,
@@ -196,6 +209,29 @@ func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaI
 		&i.Ignorati,
 		&i.Tutti,
 	)
+	return i, err
+}
+
+const contaQuadranti = `-- name: ContaQuadranti :one
+SELECT count(*) FILTER (WHERE controparte_tipo = 'cliente'   AND thread_id IS NULL AND NOT ignorato) AS buyer,
+       count(*) FILTER (WHERE controparte_tipo = 'fornitore' AND thread_id IS NULL AND NOT ignorato) AS fornitori,
+       count(*) FILTER (WHERE controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno') AND thread_id IS NULL AND NOT ignorato) AS validare
+FROM v_inbox
+WHERE $1::uuid IS NULL OR $1::uuid = ANY (caselle_id)
+`
+
+type ContaQuadrantiRow struct {
+	Buyer     int64 `json:"buyer"`
+	Fornitori int64 `json:"fornitori"`
+	Validare  int64 `json:"validare"`
+}
+
+// I numeri sui quadranti: gli ORFANI di ciascuno, cioè quello che aspetta una decisione. Un
+// quadrante con zero non è vuoto, è a posto.
+func (q *Queries) ContaQuadranti(ctx context.Context, casella uuid.NullUUID) (ContaQuadrantiRow, error) {
+	row := q.db.QueryRow(ctx, contaQuadranti, casella)
+	var i ContaQuadrantiRow
+	err := row.Scan(&i.Buyer, &i.Fornitori, &i.Validare)
 	return i, err
 }
 
@@ -490,23 +526,36 @@ WHERE ($1::text = 'tutti'
     OR ($1::text = 'agganciati' AND thread_id IS NOT NULL)
     OR ($1::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
   AND ($2::uuid IS NULL OR $2::uuid = ANY (caselle_id))
+  AND ($3::text = ''
+    OR ($3::text = 'buyer'     AND controparte_tipo = 'cliente')
+    OR ($3::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR ($3::text = 'validare'  AND controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')))
+  AND ($4::text = '' OR direzione::text = $4::text)
 ORDER BY data_evento DESC
-LIMIT $4 OFFSET $3
+LIMIT $6 OFFSET $5
 `
 
 type ListInboxParams struct {
-	Filtro  string        `json:"filtro"`
-	Casella uuid.NullUUID `json:"casella"`
-	Salta   int32         `json:"salta"`
-	Limite  int32         `json:"limite"`
+	Filtro    string        `json:"filtro"`
+	Casella   uuid.NullUUID `json:"casella"`
+	Quadrante string        `json:"quadrante"`
+	Direzione string        `json:"direzione"`
+	Salta     int32         `json:"salta"`
+	Limite    int32         `json:"limite"`
 }
 
 // `casella` vuoto = tutte le caselle. NON è un controllo di autorizzazione: è il filtro della
 // schermata. Chi può vedere che cosa è la voce 2.2 (puoVedere) e resta restrittivo fino ad allora.
+//
+// Blocco 7 (D34): `quadrante` è Buyer (controparte cliente), Fornitori (controparte fornitore) o
+// Da validare (sconosciuto, ambiguo, interno); vuoto = tutti, per chi cerca un messaggio senza
+// sapere di chi è. `direzione` vuota = entrata e uscita insieme.
 func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox, error) {
 	rows, err := q.db.Query(ctx, listInbox,
 		arg.Filtro,
 		arg.Casella,
+		arg.Quadrante,
+		arg.Direzione,
 		arg.Salta,
 		arg.Limite,
 	)

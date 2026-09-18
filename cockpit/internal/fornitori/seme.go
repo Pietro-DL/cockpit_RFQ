@@ -216,6 +216,11 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 		case err == nil:
 			id = uuid.NullUUID{UUID: esistente.FornitoreID, Valid: true}
 			p.FornitoriPresenti = append(p.FornitoriPresenti, nome)
+			// il seme non cambia nemmeno un campo di chi c'e' gia': se dice un tipo diverso, lo si
+			// legge qui e si decide a mano
+			if string(esistente.Tipo) != f.Tipo {
+				p.Avvisi = append(p.Avvisi, Riga{nome, "tipo", "il file dice «" + f.Tipo + "», in anagrafica e' «" + string(esistente.Tipo) + "»: non si cambia dall'import"})
+			}
 		case errors.Is(err, pgx.ErrNoRows):
 			p.FornitoriDaCreare = append(p.FornitoriDaCreare, nome)
 			p.crea = append(p.crea, f)

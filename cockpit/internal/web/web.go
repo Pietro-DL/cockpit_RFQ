@@ -161,7 +161,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -215,6 +215,9 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /messaggio/{id}/rfq", s.autenticato(s.nuovaRFQ))
 	mux.HandleFunc("POST /messaggio/{id}/aggancia", s.autenticato(s.agganciaEsistente))
 	mux.HandleFunc("POST /messaggio/{id}/ignora", s.autenticato(s.ignora))
+	// blocco 7A.3: «Censisci come fornitore / cliente» dal pannello, con il ritriage mirato
+	mux.HandleFunc("GET /messaggio/{id}/censisci", s.autenticato(s.censisciForm))
+	mux.HandleFunc("POST /messaggio/{id}/censisci", s.autenticato(s.censisci))
 	mux.HandleFunc("GET /anagrafica/buyer", s.autenticato(s.buyerSelect))
 	mux.HandleFunc("GET /thread/cerca", s.autenticato(s.cercaThread))
 	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
@@ -260,6 +263,26 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio", s.soloAdmin(s.aggiungiDominioCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/dominio/elimina", s.soloAdmin(s.eliminaDominioCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/prova", s.soloAdmin(s.bancoProva))
+	// blocco 7A (D39): convenzioni di codice e fornitori qualificati del cliente
+	mux.HandleFunc("POST /admin/anagrafica/{id}/convenzione", s.soloAdmin(s.nuovaConvenzione))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/convenzione/elimina", s.soloAdmin(s.eliminaConvenzione))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/convenzione/attiva", s.soloAdmin(s.attivaConvenzione))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/qualifica", s.soloAdmin(s.qualificaFornitore))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/qualifica/elimina", s.soloAdmin(s.eliminaQualificaCliente))
+	mux.HandleFunc("POST /admin/anagrafica/{id}/lavorazioni/prova", s.soloAdmin(s.provaCodiceCliente))
+	// blocco 7A.5: Anagrafica › Fornitori, e l'import del seme con anteprima
+	mux.HandleFunc("GET /admin/fornitori", s.soloAdmin(s.adminFornitori))
+	mux.HandleFunc("POST /admin/fornitori", s.soloAdmin(s.nuovoFornitore))
+	mux.HandleFunc("GET /admin/fornitori/importa", s.soloAdmin(s.importaFornitoriForm))
+	mux.HandleFunc("POST /admin/fornitori/importa", s.soloAdmin(s.importaFornitori))
+	mux.HandleFunc("POST /admin/fornitori/{id}", s.soloAdmin(s.salvaFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/dominio", s.soloAdmin(s.aggiungiDominioFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/dominio/elimina", s.soloAdmin(s.eliminaDominioFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/contatto", s.soloAdmin(s.nuovoContattoFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/contatto/elimina", s.soloAdmin(s.eliminaContattoFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/lavorazioni", s.soloAdmin(s.salvaLavorazioniFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/qualifica", s.soloAdmin(s.qualificaDalFornitore))
+	mux.HandleFunc("POST /admin/fornitori/{id}/qualifica/elimina", s.soloAdmin(s.eliminaQualificaDalFornitore))
 }
 
 // ---------------------------------------------------------------- rendering
@@ -543,11 +566,17 @@ func passwordImpostata(u db.Utente) bool {
 type inboxDati struct {
 	// Sync dice all'operatore se e ogni quanto il server accoda il sync: prima la schermata diceva
 	// «ogni minuto» qualunque fosse la configurazione, e con intervallo_sync_s = 0 era falso.
-	Sync     string
-	Filtro   string
-	Righe    []db.VInbox
-	Conta    db.ContaInboxRow
-	Selezion string
+	Sync   string
+	Filtro string
+	// Quadrante e Direzione sono l'Inbox del blocco 7 (D34): Buyer, Fornitori, Da validare, con la
+	// direzione come filtro. Un messaggio sta in UN quadrante, deciso dalla controparte che l'ingest
+	// ha scritto sul messaggio (7A): non c'è un secondo calcolo qui.
+	Quadrante string // buyer | fornitori | validare | "" (tutti)
+	Direzione string // entrata | uscita | "" (tutte)
+	Quadranti db.ContaQuadrantiRow
+	Righe     []db.VInbox
+	Conta     db.ContaInboxRow
+	Selezion  string
 	// Caselle sono quelle attive; Casella è quella scelta nel selettore (vuoto = tutte). È un FILTRO
 	// della schermata, non un'autorizzazione: che cosa un utente possa vedere è la voce 2.2, e fino
 	// ad allora resta la regola restrittiva di D12.
@@ -562,6 +591,67 @@ type inboxDati struct {
 
 // ENuovo dice se una riga della lista è arrivata dopo l'ultima visita dell'operatore.
 func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
+
+// QuadranteURL è il quadrante come va scritto nei link: «tutti» e non vuoto, perché un `q` vuoto
+// tornerebbe al predefinito (Buyer) e la schermata cambierebbe quadrante da sola.
+func (d inboxDati) QuadranteURL() string {
+	if d.Quadrante == "" {
+		return "tutti"
+	}
+	return d.Quadrante
+}
+
+// quadranti sono i tre riquadri dell'Inbox, nell'ordine in cui si mostrano.
+var quadranti = []struct{ Chiave, Nome, Aiuto string }{
+	{"buyer", "Buyer", "La posta dei clienti, in entrata e in uscita: le richieste d'offerta e tutto ciò che ci gira intorno."},
+	{"fornitori", "Fornitori", "La posta dei fornitori censiti: offerte, domande, solleciti, e le nostre richieste a loro."},
+	{"validare", "Da validare", "Mittenti non censiti, indirizzi in entrambe le anagrafiche, posta interna: qui si decide chi sono, non che cosa vogliono."},
+}
+
+func (d inboxDati) QuadrantiDisponibili() []struct{ Chiave, Nome, Aiuto string } { return quadranti }
+
+func (d inboxDati) ContaQuadrante(chiave string) int64 {
+	switch chiave {
+	case "buyer":
+		return d.Quadranti.Buyer
+	case "fornitori":
+		return d.Quadranti.Fornitori
+	case "validare":
+		return d.Quadranti.Validare
+	}
+	return 0
+}
+
+// quadranteValido normalizza il parametro: un valore sconosciuto è Buyer, che è l'Inbox di ieri.
+// "tutti" resta possibile (vuoto) per chi cerca un messaggio senza sapere di chi è.
+func quadranteValido(q string) string {
+	switch q {
+	case "buyer", "fornitori", "validare":
+		return q
+	case "tutti":
+		return ""
+	}
+	return "buyer"
+}
+
+// quadranteDi dice in quale quadrante sta un messaggio con questa controparte: è l'inverso della
+// query, e serve a riaprire l'Inbox sul messaggio giusto.
+func quadranteDi(controparteTipo string) string {
+	switch controparteTipo {
+	case "cliente":
+		return "buyer"
+	case "fornitore":
+		return "fornitori"
+	}
+	return "validare"
+}
+
+func direzioneValida(d string) string {
+	if d == "entrata" || d == "uscita" {
+		return d
+	}
+	return ""
+}
 
 // descrizioneSync è la frase della schermata sullo stato della sincronizzazione automatica.
 func (s *Server) descrizioneSync() string {
@@ -595,15 +685,19 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	if !scelta.Valid {
 		grezzo = ""
 	}
-	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Limite: 200, Salta: 0})
+	quadrante := quadranteValido(r.URL.Query().Get("q"))
+	direzione := direzioneValida(r.URL.Query().Get("dir"))
+	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione, Limite: 200, Salta: 0})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	conta, _ := q.ContaInbox(r.Context(), scelta)
+	conta, _ := q.ContaInbox(r.Context(), db.ContaInboxParams{Casella: scelta, Quadrante: quadrante, Direzione: direzione})
+	perQuadrante, _ := q.ContaQuadranti(r.Context(), scelta)
 	u := utenteDa(r.Context())
 	nov := s.novitaPer(r.Context(), q, u)
-	d := inboxDati{Filtro: filtro, Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
+	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
+		Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
 	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
 	// Il seguito va fatto DOPO aver reso la pagina, e solo se è una pagina: il poll HTMX ogni 15 s
@@ -834,7 +928,9 @@ func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Header.Get("HX-Request") != "true" {
-		http.Redirect(w, r, "/inbox?filtro=tutti&sel="+id.String(), http.StatusFound)
+		// il link diretto riapre l'Inbox nel quadrante del messaggio, con «tutti» perché il
+		// messaggio potrebbe essere già agganciato o ignorato
+		http.Redirect(w, r, "/inbox?q="+quadranteDi(d.Riga.ControparteTipo)+"&filtro=tutti&sel="+id.String(), http.StatusFound)
 		return
 	}
 	s.frammento(w, "messaggio_pannello", d)

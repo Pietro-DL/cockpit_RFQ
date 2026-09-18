@@ -126,8 +126,10 @@ func TestSV3NuoveDallUltimaVisita(t *testing.T) {
 	nuovo := b.messaggioIn("<nuova1@acme.example>", b.francesco, b.commerciale)
 	b.messaggioIn("<nuova2@acme.example>", b.commerciale)
 
-	// il POLL HTMX non deve azzerare il contatore: se lo facesse, il numero sarebbe sempre zero
-	_, lista := fp.fai(http.MethodGet, "/inbox?filtro=tutti", nil, true)
+	// il POLL HTMX non deve azzerare il contatore: se lo facesse, il numero sarebbe sempre zero.
+	// Dal blocco 7 la lista e' a quadranti e il predefinito e' Buyer: questi messaggi vengono da un
+	// dominio non censito, quindi stanno in «Da validare», e la prova chiede «tutti».
+	_, lista := fp.fai(http.MethodGet, "/inbox?q=tutti&filtro=tutti", nil, true)
 	if !strings.Contains(lista, "pallino") {
 		t.Errorf("le righe nuove non sono segnate: %s", estratto(lista, "riga"))
 	}

@@ -1,13 +1,21 @@
 {{define "contenuto"}}
-<h1>Anagrafica</h1>
 <div id="anagrafica">{{template "anagrafica_corpo" .}}</div>
 {{end}}
 
 {{define "anagrafica_corpo"}}
 {{$d := .Dati}}
-<div class="tabs">
-  <a href="/admin/anagrafica{{if $d.Scelto}}?cliente={{$d.Scelto.ClienteID}}{{end}}" {{if eq $d.Tab "clienti"}}class="attivo"{{end}}>Clienti</a>
-  <a href="/admin/anagrafica/articoli" {{if eq $d.Tab "articoli"}}class="attivo"{{end}}>Articoli</a>
+{{/* Blocco 7A.5: la schermata e' rifatta. Prima l'elenco e le schede stavano in una griglia che
+     affiancava due riquadri da 340 px, con i campi stretti quanto il riquadro e il form «nuovo
+     cliente» in fondo a un elenco che scorre. Da qui: elenco a sinistra con il «nuovo» in cima,
+     dettaglio a destra in UNA colonna larga, campi con l'etichetta a sinistra e l'input che prende
+     tutto il resto. Le sezioni restano quelle di Go (`Sezioni`). */}}
+<div class="ana-testa">
+  <h1>Anagrafica</h1>
+  <nav class="tabs">
+    <a href="/admin/anagrafica{{if $d.Scelto}}?cliente={{$d.Scelto.ClienteID}}{{end}}" class="{{if eq $d.Tab "clienti"}}attivo{{end}}">Clienti</a>
+    <a href="/admin/fornitori">Fornitori</a>
+    <a href="/admin/anagrafica/articoli" class="{{if eq $d.Tab "articoli"}}attivo{{end}}">Articoli</a>
+  </nav>
 </div>
 
 {{if $d.Errore}}<div class="pannello errore-box"><strong>Non salvato.</strong> {{$d.Errore}}</div>{{end}}
@@ -28,34 +36,46 @@
   </div>
 {{else}}
 <div class="ana">
-  <div class="elenco">
-    {{range $d.Clienti}}
-    <a href="/admin/anagrafica?cliente={{.ClienteID}}&sez={{$d.Sez}}" class="{{if not .Attivo}}spento{{end}} {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}attivo{{end}}">
-      {{.RagioneSociale}}{{if not .Attivo}} <span class="chip">non attivo</span>{{end}}
-      <small>{{.CartellaNas}} · {{.NDomini}} domini · {{.NBuyer}} buyer · {{.NRichieste}} RFQ{{if .Peso}} · peso {{.Peso}}{{end}}</small>
-    </a>
-    {{else}}
-    <p class="vuoto">Nessun cliente.</p>
-    {{end}}
-    <form method="post" action="/admin/anagrafica" class="pannello">
-      <h3>Nuovo cliente</h3>
-      <label>Ragione sociale <input name="ragione_sociale" required></label>
-      <label>Cartella NAS <input name="cartella_nas" placeholder="MECCANICA NORD" required></label>
-      <label>Dominio <input name="dominio" placeholder="cliente.com"></label>
-      <label>Lingua <input name="lingua" maxlength="2" placeholder="it"></label>
-      <button class="primario">Crea</button>
-    </form>
-  </div>
+  <aside class="elenco">
+    <details class="nuovo" {{if not $d.Clienti}}open{{end}}>
+      <summary>＋ Nuovo cliente</summary>
+      <form method="post" action="/admin/anagrafica">
+        <label>Ragione sociale <input name="ragione_sociale" required></label>
+        <label>Cartella NAS <input name="cartella_nas" placeholder="MECCANICA NORD" required></label>
+        <label>Dominio <input name="dominio" placeholder="cliente.com"></label>
+        <label>Lingua <input name="lingua" maxlength="2" placeholder="it" class="corto"></label>
+        <button class="primario">Crea</button>
+      </form>
+    </details>
+    <div class="voci">
+      {{range $d.Clienti}}
+      <a href="/admin/anagrafica?cliente={{.ClienteID}}&sez={{$d.Sez}}" class="{{if not .Attivo}}spento{{end}} {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}attivo{{end}}">
+        <span class="nome">{{.RagioneSociale}}</span>{{if not .Attivo}} <span class="chip">non attivo</span>{{end}}
+        <small>{{.CartellaNas}} · {{.NDomini}} domini · {{.NBuyer}} buyer · {{.NRichieste}} RFQ{{if .Peso}} · peso {{.Peso}}{{end}}</small>
+      </a>
+      {{else}}
+      <p class="vuoto">Nessun cliente.</p>
+      {{end}}
+    </div>
+  </aside>
 
+  <section class="dettaglio">
   {{if not $d.Scelto}}
-  <p class="vuoto">Scegli un cliente a sinistra.</p>
+  <p class="vuoto">Scegli un cliente a sinistra, o creane uno con «Nuovo cliente».</p>
   {{else}}
   {{$c := $d.Scelto}}
-  <div class="schede">
+    <header class="ana-intestazione">
+      <h2>{{$c.RagioneSociale}}</h2>
+      <div class="chips">
+        <span class="chip" title="cartella NAS">{{$c.CartellaNas}}</span>
+        {{if not $c.Attivo}}<span class="chip fallito">non attivo</span>{{end}}
+        {{if $c.Lingua.Valid}}<span class="chip">{{$c.Lingua.String}}</span>{{end}}
+        {{if $c.Peso}}<span class="chip">peso {{$c.Peso}}</span>{{end}}
+      </div>
+    </header>
 
-    {{/* checkpoint 3R §7: le sezioni. Prima era tutto in una colonna alta due schermi, e per
-         correggere una regex bisognava scorrere oltre la tabella dei buyer. L'elenco delle sezioni
-         viene da Go (`Sezioni`), non da questo file: aggiungerne una deve essere una riga sola. */}}
+    {{/* checkpoint 3R §7: le sezioni. L'elenco viene da Go (`Sezioni`), non da questo file:
+         aggiungerne una deve essere una riga sola. */}}
     <nav class="tabs sezioni">
       {{range $d.Sezioni}}
       <a href="/admin/anagrafica?cliente={{$c.ClienteID}}&sez={{.Chiave}}"
@@ -69,20 +89,17 @@
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}">
         <input type="hidden" name="sez" value="generale">
         <label>Ragione sociale <input name="ragione_sociale" value="{{$c.RagioneSociale}}"></label>
-        <label>Cartella NAS <input value="{{$c.CartellaNas}}" disabled></label>
-        <p class="muto nota">La cartella NAS non si cambia da qui: i disegni gia' scritti stanno la'
-        dentro, e rinominarla li lascerebbe dove sono.</p>
-        <div class="riga-campi">
-          <label>Lingua <input name="lingua" maxlength="2" value="{{txt $c.Lingua}}"></label>
-          <label>Peso (0&ndash;15) <input name="peso" type="number" min="0" max="15" value="{{$c.Peso}}"></label>
-        </div>
-        <p class="muto nota">Il peso ordina la lista <em>Richieste</em>. 0 = nessuna priorita' dichiarata.</p>
+        <label>Cartella NAS <span><input value="{{$c.CartellaNas}}" disabled>
+          <small class="muto">Non si cambia da qui: i disegni gia' scritti stanno la' dentro, e rinominarla li lascerebbe dove sono.</small></span></label>
+        <label>Lingua <input name="lingua" maxlength="2" value="{{txt $c.Lingua}}" class="corto"></label>
+        <label>Peso (0&ndash;15) <span><input name="peso" type="number" min="0" max="15" value="{{$c.Peso}}" class="corto">
+          <small class="muto">Ordina la lista <em>Richieste</em>. 0 = nessuna priorita' dichiarata.</small></span></label>
         <label>Portale <input name="portale_url" value="{{txt $c.PortaleUrl}}" placeholder="https://…"></label>
-        <label>Note sul portale <textarea name="portale_note" rows="2">{{txt $c.PortaleNote}}</textarea></label>
-        <p class="muto nota">Istruzioni, mai credenziali.</p>
-        <label>Note <textarea name="note" rows="2">{{txt $c.Note}}</textarea></label>
-        <label class="inline"><input type="checkbox" name="attivo" value="1" {{if $c.Attivo}}checked{{end}}> attivo</label>
-        <button class="primario">Salva</button>
+        <label>Note sul portale <span><textarea name="portale_note" rows="2">{{txt $c.PortaleNote}}</textarea>
+          <small class="muto">Istruzioni, mai credenziali.</small></span></label>
+        <label>Note <textarea name="note" rows="3">{{txt $c.Note}}</textarea></label>
+        <label>Stato <span class="inline"><input type="checkbox" name="attivo" value="1" {{if $c.Attivo}}checked{{end}}> attivo</span></label>
+        <div class="azioni-form"><button class="primario">Salva</button></div>
       </form>
     </div>
     {{end}}
@@ -92,7 +109,7 @@
       <h2>Domini</h2>
       <p class="muto nota">Il dominio del mittente e' il modo in cui la posta viene attribuita a questo
       cliente. Appartiene a un cliente solo: se e' gia' di un altro, il Cockpit lo dice invece di spostarlo.</p>
-      <table>
+      <table class="compatta">
         {{range $d.Domini}}
         <tr><td class="mono">{{.Dominio}}</td>
           <td class="azioni-riga"><form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina">
@@ -100,7 +117,7 @@
         {{else}}<tr><td class="muto">Nessun dominio: la posta di questo cliente non viene riconosciuta dal mittente.</td></tr>{{end}}
       </table>
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" class="riga-inline">
-        <input name="dominio" placeholder="cliente.com"><button>Aggiungi</button>
+        <input name="dominio" placeholder="cliente.com"><button>Aggiungi dominio</button>
       </form>
     </div>
 
@@ -122,14 +139,12 @@
       <p class="muto nota">Una persona che ha gia' scritto non si cancella: toglierla vorrebbe dire non
       sapere piu' chi aveva mandato quei messaggi. La maggior parte si censisce da sola dal triage
       dell'Inbox, dove si vede chi ha scritto davvero.</p>
-      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/buyer">
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/buyer" class="aggiungi">
         <h3>Aggiungi una persona</h3>
         <div class="riga-campi">
           <label>Cognome <input name="cognome" required></label>
           <label>Nome <input name="nome"></label>
           <label>E-mail <input name="email" type="email"></label>
-        </div>
-        <div class="riga-campi">
           <label>Telefono <input name="telefono"></label>
           <label>Ruolo <input name="ruolo" placeholder="es. ufficio acquisti"></label>
           <label>Tipo <select name="tipo">
@@ -137,7 +152,7 @@
             <option value="ordini">ordini</option><option value="funzionale">funzionale</option>
             <option value="altro">altro</option></select></label>
         </div>
-        <button>Aggiungi</button>
+        <div class="azioni-form"><button>Aggiungi</button></div>
       </form>
     </div>
     {{end}}
@@ -173,13 +188,14 @@
         <p class="muto nota">Come sono fatti i codici di questo cliente. Ogni famiglia vuole un esempio
         che le corrisponda: senza, il giorno in cui la regex smette di riconoscere non se ne accorge
         nessuno. Svuotare la regex di una riga la cancella.</p>
+        <div class="scorri">
         <table class="famiglie">
           <tr><th>Regex</th><th>Descrizione</th><th>Esempio</th><th>Rev nel codice</th><th>Ruolo</th></tr>
           {{range $d.Regole.FamiglieCodice}}
           <tr>
-            <td><input class="mono" name="fam_regex" value="{{.Regex}}" size="28"></td>
+            <td><input class="mono" name="fam_regex" value="{{.Regex}}"></td>
             <td><input name="fam_descrizione" value="{{.Descrizione}}"></td>
-            <td><input class="mono" name="fam_esempio" value="{{.Esempio}}" size="14"></td>
+            <td><input class="mono" name="fam_esempio" value="{{.Esempio}}"></td>
             <td><input type="checkbox" name="fam_rev" value="1" {{if .RevNelCodice}}checked{{end}}></td>
             <td><select name="fam_ruolo">
               <option value="prodotto" {{if ne .Ruolo "parte"}}selected{{end}}>prodotto</option>
@@ -187,13 +203,14 @@
           </tr>
           {{end}}
           <tr>
-            <td><input class="mono" name="fam_regex" placeholder="\b\d{7}[A-Z]\b" size="28"></td>
+            <td><input class="mono" name="fam_regex" placeholder="\b\d{7}[A-Z]\b"></td>
             <td><input name="fam_descrizione" placeholder="7 cifre + lettera"></td>
-            <td><input class="mono" name="fam_esempio" placeholder="6674611A" size="14"></td>
+            <td><input class="mono" name="fam_esempio" placeholder="6674611A"></td>
             <td><input type="checkbox" name="fam_rev" value="1"></td>
             <td><select name="fam_ruolo"><option value="prodotto">prodotto</option><option value="parte">parte</option></select></td>
           </tr>
         </table>
+        </div>
         <p class="muto nota">«Rev nel codice» vuole un gruppo <code>(?P&lt;rev&gt;…)</code> nella regex:
         e' l'unico modo di dire DOVE sta la revisione senza scrivere la convenzione di un cliente dentro
         il programma. Il ruolo «parte» dice che quei codici sono sottoassiemi o particolari; «finito» non
@@ -219,20 +236,18 @@
         stesso oggetto puo' ancora essere la stessa richiesta. 0 = quella predefinita (60 giorni). Senza
         finestra, una riquotazione dello stesso pezzo due anni dopo aggancerebbe la richiesta vecchia.</p>
         <label>Frasi che indicano il portale (una per riga)
-          <textarea name="frasi_portale" rows="3" spellcheck="false">{{range $d.Regole.FrasiPortale}}{{.}}
-{{end}}</textarea></label>
-        <p class="muto nota">Si AGGIUNGONO a quelle generiche («caricato sul portale»…), non le sostituiscono.</p>
+          <span><textarea name="frasi_portale" rows="3" spellcheck="false">{{range $d.Regole.FrasiPortale}}{{.}}
+{{end}}</textarea><small class="muto">Si AGGIUNGONO a quelle generiche («caricato sul portale»…), non le sostituiscono.</small></span></label>
         <label>Dati che l'offerta deve contenere (uno per riga)
-          <textarea name="dati_richiesti" rows="3" spellcheck="false">{{range $d.Regole.DatiRichiesti}}{{.}}
-{{end}}</textarea></label>
-        <p class="muto nota">Oltre al prezzo. Alcuni clienti scrivono in fondo alla richiesta, evidenziato,
+          <span><textarea name="dati_richiesti" rows="3" spellcheck="false">{{range $d.Regole.DatiRichiesti}}{{.}}
+{{end}}</textarea><small class="muto">Oltre al prezzo. Alcuni clienti scrivono in fondo alla richiesta, evidenziato,
         «l'offerta dovra' essere completa dei dati sotto citati», e un'offerta che arriva senza quei dati
-        torna indietro. Qui si legge guardando il cliente, invece di rileggere la mail.</p>
+        torna indietro. Qui si legge guardando il cliente, invece di rileggere la mail.</small></span></label>
         <div class="riga-campi">
           <label class="inline"><input type="checkbox" name="richiede_cbd" value="1" {{if $d.Regole.RichiedeCBD}}checked{{end}}> l'offerta vuole il cost breakdown</label>
           <label class="inline"><input type="checkbox" name="numero_ordine_anticipato" value="1" {{if $d.Regole.NumeroOrdineAnticipato}}checked{{end}}> emette il numero d'ordine prima dell'offerta</label>
         </div>
-        <button class="primario">Salva regole</button>
+        <div class="azioni-form"><button class="primario">Salva regole</button></div>
       </form>
 
       <details class="avanzato">
@@ -242,7 +257,7 @@
         quando non e' leggibile dal form, per esempio dopo un seed. Passa dallo stesso convalidatore.</p>
         <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/regole">
           <textarea class="json" name="regole" spellcheck="false">{{$d.RegoleJSON}}</textarea>
-          <button>Salva il JSON</button>
+          <div class="azioni-form"><button>Salva il JSON</button></div>
         </form>
       </details>
     </div>
@@ -276,7 +291,7 @@
         </tr>
         {{end}}
       </table>
-      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/fabbisogno">
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/fabbisogno" class="aggiungi">
         <h3>Aggiungi una riga per questo cliente</h3>
         <div class="riga-campi">
           <label>Componente <select name="tipo_componente">
@@ -288,8 +303,125 @@
             {{range $d.FontiAttesa}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
           <label class="inline"><input type="checkbox" name="bloccante" value="1" checked> bloccante</label>
         </div>
-        <button>Aggiungi</button>
+        <div class="azioni-form"><button>Aggiungi</button></div>
       </form>
+    </div>
+    {{end}}
+
+    {{if eq $d.Sez "lavorazioni"}}
+    {{/* Blocco 7A (D39): dal codice alla lavorazione, dalla lavorazione ai fornitori qualificati.
+         Il ✓/✗ viene da `domain.LeggiConvenzioni`, la stessa porta che l'ingest usera' per leggere:
+         una riga con ✗ non si usa, e si vede. */}}
+    <div class="scheda">
+      <h2>Convenzioni di codice</h2>
+      <p class="muto nota">Come questo cliente scrive la lavorazione superficiale nel codice del pezzo: un
+      suffisso, o una regex. Ogni convenzione vuole un esempio che le corrisponda e, se c'e', un
+      controesempio che NON le corrisponda: e' il modo di accorgersi il giorno in cui smette di funzionare.
+      Un codice che corrisponde a piu' convenzioni richiede TUTTE le loro lavorazioni: non c'e' una
+      precedenza nascosta.</p>
+      {{if $d.Convenzioni}}
+      <div class="scorri">
+      <table class="convenzioni">
+        <tr><th></th><th>Modo</th><th>Espressione</th><th>Esempio</th><th>Controesempio</th><th>Lavorazioni</th><th>Descrizione</th><th></th></tr>
+        {{range $i, $cv := $d.Convenzioni}}
+        {{$dg := index $d.DiagnosiConvenzioni $i}}
+        <tr class="{{if not $cv.Attiva}}muto{{end}}">
+          <td><span class="spunta {{if $dg.Ok}}si{{else}}no{{end}}">{{if $dg.Ok}}&#10003;{{else}}&#10007;{{end}}</span></td>
+          <td>{{$cv.Modo}}</td>
+          <td class="mono">{{$cv.Espressione}}</td>
+          <td class="mono">{{$cv.Esempio}}</td>
+          <td class="mono">{{txt $cv.Controesempio}}</td>
+          <td>{{range $cv.Lavorazioni}}<span class="chip">{{.}}</span> {{end}}</td>
+          <td>{{$cv.Descrizione}}{{if not $cv.Attiva}} <span class="chip">spenta</span>{{end}}
+            {{if not $dg.Ok}}<div class="motivo">{{$dg.Motivo}}</div>{{end}}</td>
+          <td class="azioni-riga">
+            <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/convenzione/attiva">
+              <input type="hidden" name="convenzione_id" value="{{$cv.ConvenzioneID}}">
+              <input type="hidden" name="attiva" value="{{if $cv.Attiva}}0{{else}}1{{end}}">
+              <button class="link piccolo">{{if $cv.Attiva}}spegni{{else}}accendi{{end}}</button></form>
+            <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/convenzione/elimina">
+              <input type="hidden" name="convenzione_id" value="{{$cv.ConvenzioneID}}">
+              <button class="link piccolo">togli</button></form>
+          </td>
+        </tr>
+        {{end}}
+      </table>
+      </div>
+      {{else}}
+      <p class="muto">Nessuna convenzione: dai codici di questo cliente non si ricava nessuna lavorazione.</p>
+      {{end}}
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/convenzione" class="aggiungi">
+        <h3>Aggiungi una convenzione</h3>
+        <div class="riga-campi">
+          <label>Modo <select name="modo"><option value="suffisso">suffisso</option><option value="regex">regex</option></select></label>
+          <label>Espressione <input class="mono" name="espressione" required placeholder="suffisso (max 12, senza spazi) o regex"></label>
+          <label>Esempio <input class="mono" name="esempio" required placeholder="un codice che corrisponde"></label>
+          <label>Controesempio <input class="mono" name="controesempio" placeholder="un codice che NON corrisponde"></label>
+        </div>
+        <label>Descrizione <input name="descrizione" placeholder="che cosa vuol dire"></label>
+        <p class="muto nota">Un suffisso si confronta alla fine del codice, senza distinguere le maiuscole.
+        Una regex si usa com'e'. Spunta le lavorazioni che quel suffisso richiede: almeno una.</p>
+        <div class="caselle-lavorazioni">
+          {{range $d.Lavorazioni}}<label><input type="checkbox" name="lavorazione" value="{{.Codice}}"> {{.Descrizione}} <small class="muto">{{.Codice}}</small></label>{{end}}
+        </div>
+        <div class="azioni-form"><button>Aggiungi convenzione</button></div>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Fornitori qualificati</h2>
+      <p class="muto nota">Chi e' abilitato a fare quale lavorazione PER QUESTO CLIENTE. Non e' la stessa cosa
+      delle capacita' del fornitore: un fornitore puo' fare la zincatura e non essere qualificato da questo
+      cliente per farla. Un cliente senza qualifiche non ha «tutti quelli che la fanno»: non ha nessuno.</p>
+      <table>
+        <tr><th>Lavorazione</th><th>Fornitore</th><th>Tipo</th><th></th></tr>
+        {{range $d.Qualifiche}}
+        <tr>
+          <td>{{.LavorazioneDescrizione}} <small class="muto">{{.Lavorazione}}</small></td>
+          <td><a href="/admin/fornitori?fornitore={{.FornitoreID}}">{{.Fornitore}}</a></td>
+          <td>{{.Tipo}}</td>
+          <td class="azioni-riga">
+            <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica/elimina">
+              <input type="hidden" name="fornitore_id" value="{{.FornitoreID}}">
+              <input type="hidden" name="lavorazione" value="{{.Lavorazione}}">
+              <button class="link piccolo">togli</button></form>
+          </td>
+        </tr>
+        {{else}}<tr><td colspan="4" class="muto">Nessun fornitore qualificato per questo cliente.</td></tr>{{end}}
+      </table>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica" class="aggiungi">
+        <h3>Qualifica un fornitore</h3>
+        <div class="riga-campi">
+          <label>Fornitore <select name="fornitore_id">
+            {{range $d.Fornitori}}<option value="{{.FornitoreID}}">{{.RagioneSociale}} ({{.Tipo}})</option>{{end}}</select></label>
+          <label>Lavorazione <select name="lavorazione">
+            {{range $d.Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label>
+        </div>
+        <p class="muto nota">Il fornitore deve avere quella lavorazione fra le sue capacita' (scheda del
+        fornitore): altrimenti la qualifica viene rifiutata, e la schermata lo dice.</p>
+        <div class="azioni-form"><button>Qualifica</button></div>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Prova un codice</h2>
+      <p class="muto nota">Dal codice alle lavorazioni e da queste ai fornitori qualificati, con lo stesso
+      codice che usera' l'ingest.</p>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/lavorazioni/prova" class="riga-inline">
+        <input class="mono" name="codice" value="{{with $d.ProvaCodice}}{{.Codice}}{{end}}" placeholder="un codice pezzo di questo cliente"><button>Prova</button>
+      </form>
+      {{with $d.ProvaCodice}}{{$p := .}}
+      <div class="esito-prova">
+        {{if .Trovate}}
+        {{range .Trovate}}
+        <div class="riga-esito"><b>{{.Lavorazione}}</b> <span class="muto">— {{.Descrizione}} (<span class="mono">{{.Espressione}}</span>)</span>
+          &middot; qualificati: {{range index $p.Qualificati .Lavorazione}}<span class="chip">{{.RagioneSociale}}</span> {{else}}<em class="sconosciuto">nessuno</em>{{end}}</div>
+        {{end}}
+        {{else}}
+        <p class="muto">Nessuna lavorazione: <span class="mono">{{.Codice}}</span> non corrisponde a nessuna convenzione attiva.</p>
+        {{end}}
+      </div>
+      {{end}}
     </div>
     {{end}}
 
@@ -299,9 +431,9 @@
       <p class="muto nota">Prima riga = oggetto, il resto = corpo. Passa per lo stesso riconoscimento dei
       messaggi veri: quello che si legge qui e' quello che l'Inbox proporra'.</p>
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova">
-        <textarea name="testo" rows="6" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
+        <textarea name="testo" rows="8" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
         <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="6745595A2_B.pdf 6745595A2.stp"></label>
-        <button>Prova il riconoscimento</button>
+        <div class="azioni-form"><button>Prova il riconoscimento</button></div>
       </form>
       {{with $d.Prova}}
       <div class="esito-prova">
@@ -326,8 +458,8 @@
     </div>
     {{end}}
 
-  </div>
   {{end}}
+  </section>
 </div>
 {{end}}
 {{end}}

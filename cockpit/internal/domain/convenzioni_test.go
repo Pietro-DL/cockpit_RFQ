@@ -83,7 +83,18 @@ func TestCP11LaRisoluzioneRestituisceLInsiemeDelleLavorazioniConLEvidenza(t *tes
 	q := conv(ModoSuffisso, "Q", "PROVA-1-Q", "", "zincatura")
 	zv := conv(ModoSuffisso, "-ZV", "PROVA-1-ZV", "", "zincatura", "verniciatura_polvere")
 	mezzo := conv(ModoRegex, `^PR-[0-9]+-K-`, "PR-12-K-9", "PR-12-9", "cataforesi")
-	cs, _ := LeggiConvenzioni([]Convenzione{q, zv, mezzo})
+	spenta := conv(ModoSuffisso, "-SP", "PROVA-1-SP", "", "sabbiatura")
+	spenta.Attiva = false
+	cs, diag := LeggiConvenzioni([]Convenzione{q, zv, mezzo, spenta})
+
+	t.Run("una convenzione spenta e' ✓ ma non si usa", func(t *testing.T) {
+		if got := cs.Lavorazioni("PROVA-9-SP"); len(got) != 0 {
+			t.Fatalf("la convenzione spenta ha risposto: %+v", got)
+		}
+		if len(diag) != 4 || !diag[3].Ok || !strings.Contains(diag[3].Motivo, "spenta") {
+			t.Fatalf("la diagnosi della spenta deve dire che e' spenta: %+v", diag)
+		}
+	})
 
 	t.Run("suffisso senza distinguere le maiuscole", func(t *testing.T) {
 		got := cs.Lavorazioni("prova-7-q")

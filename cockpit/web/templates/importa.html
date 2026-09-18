@@ -1,0 +1,86 @@
+{{define "contenuto"}}
+<div id="anagrafica">{{template "importa_corpo" .}}</div>
+{{end}}
+
+{{define "importa_corpo"}}
+{{$d := .Dati}}
+{{/* Blocco 7A.4: l'import del seme dei fornitori con ANTEPRIMA e CONFERMA (CP7, CP14). Non c'e' un
+     bottone che scriva senza essere passato dall'anteprima: prima si vede che cosa verrebbe creato,
+     che cosa c'e' gia' e che cosa NON si riesce a risolvere, poi si conferma. I nomi non risolti
+     restano tali: non si inventano. */}}
+<div class="ana-testa">
+  <h1>Anagrafica</h1>
+  <nav class="tabs">
+    <a href="/admin/anagrafica">Clienti</a>
+    <a href="/admin/fornitori" class="attivo">Fornitori</a>
+    <a href="/admin/anagrafica/articoli">Articoli</a>
+  </nav>
+</div>
+
+<p class="briciole"><a href="/admin/fornitori">Fornitori</a> › Importa da file</p>
+
+{{if $d.Errore}}<div class="pannello errore-box"><strong>Non importato.</strong> {{$d.Errore}}</div>{{end}}
+{{if $d.Applicato}}<div class="avviso">Seme applicato. Quello che segue e' cio' che e' stato scritto; un secondo import dello stesso file non scrive niente.</div>{{end}}
+
+<div class="scheda importa">
+  <h2>Seme dei fornitori</h2>
+  <p class="muto nota">Un file JSON con <code>{"fornitori": [...]}</code>: per ciascuno ragione sociale, tipo,
+  domini, contatti, lavorazioni e qualifiche (cliente = cartella NAS, lavorazione = codice). L'import
+  non sovrascrive un fornitore che c'e' gia', non sposta un dominio, non inventa una qualifica su una
+  lavorazione che il fornitore non fa: quelle righe finiscono fra i «non risolti».</p>
+  <form method="post" action="/admin/fornitori/importa" enctype="multipart/form-data">
+    <label>File <input type="file" name="file" accept=".json,application/json"></label>
+    <label>oppure incolla il JSON <textarea class="json" name="testo" spellcheck="false">{{$d.Testo}}</textarea></label>
+    <div class="azioni-form">
+      <button name="azione" value="anteprima">Anteprima</button>
+      {{if and $d.Anteprima (not $d.Applicato)}}
+      <button name="azione" value="applica" class="primario" {{if $d.Anteprima.Vuota}}disabled title="Niente da scrivere"{{end}}>Applica quello che vedi sotto</button>
+      {{end}}
+    </div>
+  </form>
+</div>
+
+{{with $d.Anteprima}}
+<div class="scheda">
+  <h2>{{if $d.Applicato}}Scritto{{else}}Anteprima: che cosa farebbe{{end}}</h2>
+  {{if .Vuota}}<p class="muto">Niente da scrivere: tutto quello che il file dice e' gia' in anagrafica{{if .NonRisolti}}, salvo i non risolti qui sotto{{end}}.</p>{{end}}
+
+  {{if .FornitoriDaCreare}}
+  <h3>Fornitori {{if $d.Applicato}}creati{{else}}da creare{{end}} ({{len .FornitoriDaCreare}})</h3>
+  <ul class="elenco-import">{{range .FornitoriDaCreare}}<li>{{.}}</li>{{end}}</ul>
+  {{end}}
+
+  {{if .DaAggiungere}}
+  <h3>Righe {{if $d.Applicato}}aggiunte{{else}}da aggiungere{{end}} ({{len .DaAggiungere}})</h3>
+  <table class="compatta">
+    {{range .DaAggiungere}}<tr><td>{{.Fornitore}}</td><td>{{.Cosa}}</td><td class="mono">{{.Dettaglio}}</td></tr>{{end}}
+  </table>
+  {{end}}
+
+  {{if .NonRisolti}}
+  <h3 class="errore">Non risolti ({{len .NonRisolti}}) — NON scritti</h3>
+  <p class="muto nota">Il file dice cose che l'anagrafica non sa risolvere: un cliente che non esiste con
+  quella cartella, una lavorazione che non e' nel catalogo, una qualifica su una lavorazione che il
+  fornitore non dichiara. Si correggono nel file o nell'anagrafica, non per inferenza.</p>
+  <table class="compatta">
+    {{range .NonRisolti}}<tr class="fallito"><td>{{.Fornitore}}</td><td>{{.Cosa}}</td><td>{{.Dettaglio}}</td></tr>{{end}}
+  </table>
+  {{end}}
+
+  {{if .Avvisi}}
+  <h3>Avvisi ({{len .Avvisi}})</h3>
+  <table class="compatta">
+    {{range .Avvisi}}<tr><td>{{.Fornitore}}</td><td>{{.Cosa}}</td><td>{{.Dettaglio}}</td></tr>{{end}}
+  </table>
+  {{end}}
+
+  {{if or .FornitoriPresenti .Presenti}}
+  <details class="avanzato">
+    <summary>Gia' in anagrafica, niente da fare: {{len .FornitoriPresenti}} fornitori, {{len .Presenti}} righe</summary>
+    {{if .FornitoriPresenti}}<ul class="elenco-import">{{range .FornitoriPresenti}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    {{if .Presenti}}<table class="compatta">{{range .Presenti}}<tr><td>{{.Fornitore}}</td><td>{{.Cosa}}</td><td class="mono">{{.Dettaglio}}</td></tr>{{end}}</table>{{end}}
+  </details>
+  {{end}}
+</div>
+{{end}}
+{{end}}

@@ -747,8 +747,16 @@ quella, non l'Admin.
 
 Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker legge le cartelle
 indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].dal`) e manda i
-messaggi a lotti. Dall'Inbox del browser l'operatore decide: **Nuova RFQ**, **Aggancia a…**,
-**Ignora**. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
+messaggi a lotti. A ogni messaggio l'ingest scrive **chi c'è dall'altra parte** (la controparte,
+blocco 7A): cliente, fornitore, interno, sconosciuto o ambiguo, risolta dall'anagrafica in
+quest'ordine — contatto esatto, poi dominio. L'Inbox è divisa in tre **quadranti**: **Buyer** (la posta
+dei clienti), **Fornitori** (offerte, domande, le nostre richieste) e **Da validare** (chi non è
+censito, chi sta in entrambe le anagrafiche, la posta interna); la direzione ↓/↑ è un filtro. Dal
+quadrante Buyer l'operatore decide: **Nuova RFQ**, **Aggancia a…**, **Ignora**. Un fornitore non
+apre mai una RFQ cliente: la sua posta si aggancia. Da «Da validare» si fa **Censisci come
+fornitore / cliente** con l'indirizzo e il dominio già scritti: al salvataggio i messaggi non ancora
+decisi con lo stesso indirizzo o dominio vengono ricalcolati (quadrante, controparte, proposta); le
+decisioni prese non si toccano. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
 proposti; con **Conferma → NAS** diventano documenti copiati nella cartella della RFQ con verifica
 dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
 l'invio non è mai automatico.
@@ -763,6 +771,49 @@ PC non è un'azione riuscita. La testata dice anche, per ogni casella, se c'è u
 (**attiva** su quale PC, **OFFLINE**, **non risolta** nel profilo, **non configurata**).
 
 ---
+
+## Fornitori, controparte e convenzioni di codice (blocco 7A, migrazione 0014)
+
+**Anagrafica › Fornitori** (`/admin/fornitori`, amministratore): ragione sociale (unica, a meno delle
+maiuscole), tipo (`materie_prime` | `processi` | `verniciatore`), lingua, note; **domini** (uno
+appartiene a un fornitore solo, come per i clienti: se è già di un altro la schermata dice di chi è)
+e **contatti** esatti (per chi scrive da gmail, o per un gruppo il cui dominio è anche di un cliente:
+il contatto esatto vince sul dominio); le **lavorazioni** che sa fare (caselle sulla tabella
+`lavorazione`: tornitura, fresatura, taglio laser, piega, curvatura tubi, saldatura, zincatura,
+cataforesi, verniciatura a polvere, lavaggio zinco, sabbiatura, trattamento termico, attrezzature); le
+**qualifiche per cliente** (`cliente_fornitore_lavorazione`: «questo cliente lo ha abilitato a fare
+questa lavorazione»; la chiave esterna composta impedisce una qualifica su una lavorazione che il
+fornitore non dichiara, e impedisce di togliere la capacità finché una qualifica la usa). Niente
+JSON: un fornitore non ha regole di codice.
+
+**Importa da file** (`/admin/fornitori/importa`): un JSON `{"fornitori": [...]}` con anteprima
+delle differenze — fornitori da creare, righe da aggiungere, righe già presenti, **non risolti**
+(un cliente che non esiste con quella cartella NAS, una lavorazione fuori catalogo, una qualifica su
+una capacità non dichiarata) — e conferma esplicita. L'import non sovrascrive un fornitore che c'è
+già, non sposta un dominio, non inventa: i non risolti restano tali. Un secondo import dello stesso
+file non scrive niente.
+
+**La controparte del messaggio** (`messaggio.controparte_*`, D33) è un fatto scritto dall'ingest,
+non un calcolo della vista: `interno` se il mittente è una nostra casella (in uscita si guarda il
+primo destinatario esterno), poi il contatto esatto (fornitore o buyer; in entrambe le anagrafiche →
+`ambiguo`), poi il dominio (fornitore o cliente; in entrambi → `ambiguo`), altrimenti `sconosciuto`.
+Per costruzione un fornitore in entrata non produce mai la proposta `nuova_rfq`. Una controparte
+decisa da una persona (`via = manuale`) non viene sovrascritta dal ricalcolo. Al primo avvio dopo la
+0014 il server ricalcola a lotti i messaggi già in database (log: conteggi per tipo prima e dopo).
+Aggiungere un dominio, un contatto o un buyer dall'anagrafica — o censire dall'Inbox — ricalcola i
+messaggi **non decisi** dello stesso indirizzo o dominio e dice quanti.
+
+**Convenzioni di codice** (scheda cliente › «Lavorazioni e fornitori», D39): come il cliente scrive la
+lavorazione superficiale nel codice del pezzo. Ogni convenzione ha un modo (`suffisso`, confrontato
+in fondo al codice senza distinguere le maiuscole, al massimo 12 caratteri senza spazi; oppure
+`regex`), un esempio che deve corrispondere, un controesempio facoltativo che non deve, e almeno una
+lavorazione. Le convenzioni passano dalla stessa doppia porta delle regole di riconoscimento: in
+scrittura ciò che non torna viene rifiutato (`domain.ValidaConvenzione`), in lettura una riga rotta
+scritta a mano in database si vede con ✗ e non si usa (`domain.LeggiConvenzioni`). Il risultato per
+un codice è l'**insieme** delle lavorazioni di tutte le convenzioni attive che corrispondono, con
+l'evidenza: nessuna precedenza nascosta. «Prova un codice» nella scheda cliente mostra lavorazioni e
+fornitori qualificati con lo stesso codice che userà l'ingest. Nessun suffisso reale è nel seme: si
+scrivono dall'anagrafica, cliente per cliente.
 
 ## Prove
 
@@ -884,12 +935,15 @@ internal/migrazioni        applica migrations/*.sql in ordine, una transazione p
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
-                           taglio della catena di risposta (catena.go)
-internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
+                           taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
+                           convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
+internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
+                           controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio
+internal/fornitori         l'import del seme dei fornitori con anteprima e conferma (7A.4)
 internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
                            estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
-                           shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
+                           capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che cosa si annulla quando si accendono (blocco 4)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
                            impronta e generazione dei token dei worker (voce 2.4)
@@ -902,7 +956,10 @@ internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/wo
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
                            inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
-                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22)
+                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
+                           anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
+                           fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
+                           integrita_admin.go: /admin/nas
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
@@ -912,7 +969,10 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
                            0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
                            0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
-                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP)
+                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP),
+                           0013_integrita_nas.sql (nas_anomalia: il ricognitore dell'integrità NAS, blocco 5B),
+                           0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
+                           la controparte sul messaggio; v_inbox con controparte_tipo e controparte)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

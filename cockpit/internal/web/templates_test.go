@@ -13,6 +13,8 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/fornitori"
 	"promatec/cockpit/internal/jobs"
 )
 
@@ -136,6 +138,57 @@ func TestFrammentiEseguono(t *testing.T) {
 			x.Copia, x.MotivoAzioni = nil, "nessuna postazione associata a questa sessione"
 			return &x
 		}(), []string{"azioni Outlook non disponibili", "nessuna postazione associata"}},
+		// blocco 7A: la lista a quadranti con una riga per controparte, il pannello di un fornitore
+		// (senza «Nuova RFQ»), il form di censimento, la scheda fornitore, l'import e la sezione
+		// «Lavorazioni e fornitori» del cliente.
+		{"inbox.html", "inbox_lista", inboxDati{Quadrante: "", Filtro: "tutti", Righe: []db.VInbox{
+			{MessaggioID: uuid.New(), Direzione: db.DirezioneEntrata, DataEvento: time.Now(), Oggetto: txtT("cliente"), ControparteTipo: "cliente", Controparte: txtT("ACME")},
+			{MessaggioID: uuid.New(), Direzione: db.DirezioneUscita, DataEvento: time.Now(), Oggetto: txtT("fornitore"), ControparteTipo: "fornitore", Controparte: txtT("Euroforesi")},
+			{MessaggioID: uuid.New(), Direzione: db.DirezioneEntrata, DataEvento: time.Now(), Oggetto: txtT("ambiguo"), ControparteTipo: "ambiguo"},
+			{MessaggioID: uuid.New(), Direzione: db.DirezioneEntrata, DataEvento: time.Now(), Oggetto: txtT("interno"), ControparteTipo: "interno"},
+			{MessaggioID: uuid.New(), Direzione: db.DirezioneEntrata, DataEvento: time.Now(), Oggetto: txtT("ignoto"), ControparteTipo: "sconosciuto"},
+		}}, []string{"→ ACME", "chip fornitore", "Euroforesi", ">ambiguo<", ">interna<", ">sconosciuto<", "q=tutti", "in uscita"}},
+		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
+			x := *md
+			x.Thread = nil
+			x.Riga.ControparteTipo, x.Riga.Controparte = "fornitore", txtT("Euroforesi")
+			return &x
+		}(), []string{"fornitore · Euroforesi", "triage?azione=aggancia", "niente «Nuova RFQ»"}},
+		{"inbox.html", "censisci_form", &censisciDati{M: md.M, Riga: md.Riga, Come: "fornitore", Indirizzo: "mario.rossi@acme.example", Dominio: "acme.example",
+			Lavorazioni: []db.Lavorazione{{Codice: "zincatura", Descrizione: "Zincatura"}}, Tipi: db.AllTipoFornitoreValues(), Tipo: "processi",
+			UsaDominio: true, Scelte: map[string]bool{"zincatura": true}, Errore: "prova di errore"},
+			[]string{"Censisci come fornitore", `name="usa_dominio" value="1" checked`, `value="zincatura" checked`, "Censisci e ricalcola", "prova di errore"}},
+		{"inbox.html", "censisci_form", &censisciDati{M: md.M, Come: "cliente", Indirizzo: "x@gmail.example", Dominio: "gmail.example", DominioPubblico: true,
+			Tipi: db.AllTipoFornitoreValues(), Scelte: map[string]bool{}},
+			[]string{"Censisci come cliente", "dominio pubblico", "cartella_nas", "un suo buyer"}},
+		{"fornitori.html", "fornitori_corpo", fornitoriDati{Sez: "lavorazioni",
+			Fornitori:   []db.ListFornitoriRow{{FornitoreID: uuid.New(), RagioneSociale: "Galvar", Tipo: db.TipoFornitoreProcessi, Attivo: true}},
+			Scelto:      &db.Fornitore{FornitoreID: uuid.New(), RagioneSociale: "Galvar", Tipo: db.TipoFornitoreProcessi, Attivo: true},
+			Lavorazioni: []db.Lavorazione{{Codice: "zincatura", Descrizione: "Zincatura"}, {Codice: "cataforesi", Descrizione: "Cataforesi"}},
+			Sue:         map[string]bool{"zincatura": true}, Tipi: db.AllTipoFornitoreValues(),
+			Qualifiche: []db.ListQualificheFornitoreRow{{ClienteID: uuid.New(), Lavorazione: "zincatura", CartellaNas: "ACME", Cliente: "Acme", LavorazioneDescrizione: "Zincatura"}},
+			Clienti:    []db.ListClientiTuttiRow{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme"}}},
+			[]string{"Lavorazioni e qualifiche", `value="zincatura" checked`, "Salva lavorazioni", "Qualifiche per cliente", "ACME", "Importa da file"}},
+		{"fornitori.html", "fornitori_corpo", fornitoriDati{Sez: "posta", Tipi: db.AllTipoFornitoreValues(),
+			Scelto:   &db.Fornitore{FornitoreID: uuid.New(), RagioneSociale: "Galvar", Tipo: db.TipoFornitoreProcessi, Attivo: true},
+			Messaggi: []db.Messaggio{md.M}}, []string{"RFQ 6674611A", "Mario Rossi"}},
+		{"importa.html", "importa_corpo", importDati{Testo: "{}", Anteprima: &fornitori.Anteprima{FornitoriDaCreare: []string{"Euroforesi"},
+			DaAggiungere: []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "dominio", Dettaglio: "euroforesi.example"}},
+			NonRisolti:   []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "qualifica", Dettaglio: "cliente CLIENTE-IGNOTO non in anagrafica"}}}},
+			[]string{"Anteprima: che cosa farebbe", "Euroforesi", "euroforesi.example", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`}},
+		{"anagrafica.html", "anagrafica_corpo", anagraficaDati{Tab: "clienti", Sez: "lavorazioni",
+			Clienti: []db.ListClientiTuttiRow{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true}},
+			Scelto:  &db.Cliente{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true},
+			Convenzioni: []db.ListConvenzioniClienteRow{
+				{ConvenzioneID: uuid.New(), Modo: db.ModoConvenzioneSuffisso, Espressione: "-ZN", Esempio: "AB-ZN", Descrizione: "zincato", Attiva: true, Lavorazioni: []string{"zincatura"}},
+				{ConvenzioneID: uuid.New(), Modo: db.ModoConvenzioneRegex, Espressione: "([", Esempio: "X", Descrizione: "rotta", Attiva: true}},
+			DiagnosiConvenzioni: []domain.Diagnostica{{Regola: "convenzione 1", Ok: true}, {Regola: "convenzione 2", Ok: false, Motivo: "la regex non compila"}},
+			Lavorazioni:         []db.Lavorazione{{Codice: "zincatura", Descrizione: "Zincatura"}},
+			Fornitori:           []db.Fornitore{{FornitoreID: uuid.New(), RagioneSociale: "Galvar", Tipo: db.TipoFornitoreProcessi}},
+			Qualifiche:          []db.ListQualificheClienteRow{{FornitoreID: uuid.New(), Lavorazione: "zincatura", Fornitore: "Galvar", Tipo: db.TipoFornitoreProcessi, LavorazioneDescrizione: "Zincatura"}},
+			ProvaCodice: &provaCodice{Codice: "AB-ZN", Trovate: []domain.LavorazioneTrovata{{Lavorazione: "zincatura", Descrizione: "zincato", Espressione: "-ZN"}},
+				Qualificati: map[string][]db.Fornitore{"zincatura": {{RagioneSociale: "Galvar"}}}}},
+			[]string{"Convenzioni di codice", `class="spunta si"`, `class="spunta no"`, "la regex non compila", "Fornitori qualificati", "Prova un codice", "<b>zincatura</b>", "Galvar", "Lavorazioni e fornitori"}},
 	}
 	stato := &statoUI{Postazione: "PC-FRANCESCO", PostazioneID: uuid.NullUUID{UUID: uuid.New(), Valid: true}, Origine: "ip",
 		Scelte:  []db.Postazione{{PostazioneID: uuid.New(), NomeHost: "PC-FRANCESCO"}},

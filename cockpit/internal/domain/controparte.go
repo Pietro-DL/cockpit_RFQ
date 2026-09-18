@@ -199,3 +199,22 @@ func (r RubricaFissa) ClientePerDominio(_ context.Context, d string) (Voce, bool
 	v, ok := r.DominiCliente[d]
 	return v, ok, nil
 }
+
+// dominiPubblici sono i domini di posta che non identificano nessuno: un contatto su gmail dice chi
+// e' la persona, non l'azienda. Chi censisce da un messaggio con uno di questi domini deve
+// censire l'INDIRIZZO, non il dominio, altrimenti il primo altro utente di gmail diventerebbe
+// quel fornitore. L'elenco e' volutamente corto e non pretende di essere completo: un dominio
+// pubblico che manca qui si vede perche' un giorno un fornitore ne assorbe un altro, e allora si
+// aggiunge.
+var dominiPubblici = map[string]bool{
+	"gmail.com": true, "googlemail.com": true, "outlook.com": true, "outlook.it": true, "hotmail.com": true,
+	"hotmail.it": true, "live.com": true, "live.it": true, "msn.com": true, "yahoo.com": true, "yahoo.it": true,
+	"libero.it": true, "virgilio.it": true, "alice.it": true, "tin.it": true, "tiscali.it": true,
+	"fastwebnet.it": true, "icloud.com": true, "me.com": true, "aol.com": true, "protonmail.com": true,
+	"proton.me": true, "pec.it": true, "legalmail.it": true, "arubapec.it": true, "postecert.it": true,
+}
+
+// DominioPubblico dice se un dominio di posta e' di un fornitore di caselle e non di un'azienda.
+func DominioPubblico(dominio string) bool {
+	return dominiPubblici[strings.ToLower(strings.TrimSpace(dominio))]
+}

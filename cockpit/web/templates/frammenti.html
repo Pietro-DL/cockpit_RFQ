@@ -5,8 +5,8 @@
   <header>
     <h2>{{.M.Oggetto.String}}</h2>
     <div class="meta">
-      <div><b>{{if eq .M.Direzione "uscita"}}A{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
-        {{if .Riga.Cliente.Valid}}<span class="chip">{{.Riga.Cliente.String}}</span>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}</div>
+      <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
+        {{template "chip_controparte" .Riga}}</div>
       <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}}{{if .M.Interno}} · <span class="chip">interna</span>{{end}}</div>
       {{if .Presenze}}<div><b>{{if gt (len .Presenze) 1}}Caselle{{else}}Casella{{end}}:</b>
         {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
@@ -29,10 +29,23 @@
       <span class="separatore"></span>
       {{if .Thread}}
       <a class="bottone" href="/thread/{{.Thread.ThreadID}}">Apri RFQ →</a>
+      {{else if eq .Riga.ControparteTipo "fornitore"}}
+      {{/* 7A: un fornitore non apre una RFQ cliente. Per costruzione, non per punteggio: il
+           pulsante non c'e', e il triage non lo propone. La sua posta si aggancia a una richiesta
+           che esiste (l'offerta per la RFQ X) o si ignora. */}}
+      <button class="primario" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Aggancia a…</button>
+      {{if not .Riga.Ignorato}}<button hx-post="/messaggio/{{.M.MessaggioID}}/ignora" hx-target="#pannello" hx-confirm="Ignorare questo messaggio? Resta in archivio nel filtro «ignorati».">Ignora</button>{{end}}
+      <span class="muto azioni-motivo" title="La posta di un fornitore si aggancia alla RFQ cliente per cui lavora: non ne apre una nuova">fornitore: niente «Nuova RFQ»</span>
       {{else}}
       <button class="primario" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=nuova" hx-target="#pannello">Nuova RFQ</button>
       <button hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Aggancia a…</button>
       {{if not .Riga.Ignorato}}<button hx-post="/messaggio/{{.M.MessaggioID}}/ignora" hx-target="#pannello" hx-confirm="Ignorare questo messaggio? Resta in archivio nel filtro «ignorati».">Ignora</button>{{end}}
+      {{if and (ne .Riga.ControparteTipo "cliente") (ne .Riga.ControparteTipo "interno")}}
+      <span class="censisci">
+        <button hx-get="/messaggio/{{.M.MessaggioID}}/censisci?come=fornitore" hx-target="#pannello" title="Crea il fornitore (o aggiunge a uno che esiste) e ricalcola i messaggi non decisi dello stesso indirizzo o dominio">Censisci come fornitore</button>
+        <button hx-get="/messaggio/{{.M.MessaggioID}}/censisci?come=cliente" hx-target="#pannello" title="Crea il cliente e ricalcola i messaggi non decisi dello stesso indirizzo o dominio">Censisci come cliente</button>
+      </span>
+      {{end}}
       {{end}}
     </div>
     <div id="esito-azione"></div>
@@ -469,5 +482,70 @@
 </div>
 {{else}}
 <p class="muto">Nessun candidato: nessuna regola di aggancio ha trovato una richiesta che corrisponda.</p>
+{{end}}
+{{end}}
+
+{{/* ---------------------------------------------------------------- blocco 7A: controparte e censimento */}}
+
+{{/* chip_controparte: la stessa cosa di `controparte_riga` nell'Inbox, per la testata del pannello.
+     Vale per una riga di v_inbox. */}}
+{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
+
+{{define "censisci_form"}}
+{{with .Dati}}
+<article class="messaggio triage">
+  <header>
+    <h2>{{if eq .Come "fornitore"}}Censisci come fornitore{{else}}Censisci come cliente{{end}}</h2>
+    <div class="meta">
+      <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt; · {{dataLunga .M.DataEvento}}</div>
+      <div><b>Oggetto:</b> {{.M.Oggetto.String}}</div>
+      <div><b>Indirizzo da censire:</b> <span class="mono">{{.Indirizzo}}</span>{{if .Dominio}} · dominio <span class="mono">{{.Dominio}}</span>{{if .DominioPubblico}} <span class="chip avviso">dominio pubblico</span>{{end}}{{end}}</div>
+    </div>
+    {{if .Errore}}<div class="avviso errore-box">{{.Errore}}</div>{{end}}
+  </header>
+  <form class="form-censisci" hx-post="/messaggio/{{.M.MessaggioID}}/censisci" hx-target="#pannello">
+    <input type="hidden" name="come" value="{{.Come}}">
+    <fieldset>
+      <legend>{{if eq .Come "fornitore"}}Fornitore{{else}}Cliente{{end}}</legend>
+      <label>Ragione sociale <input name="ragione_sociale" value="{{.RagioneSociale}}" required placeholder="come compare in fattura"></label>
+      {{if eq .Come "fornitore"}}
+      <div class="griglia3">
+        <label>Tipo <select name="tipo">{{range .Tipi}}<option value="{{.}}" {{if eq (printf "%s" .) $.Dati.Tipo}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+        <label>Lingua <input name="lingua" maxlength="2" value="{{.Lingua}}"></label>
+      </div>
+      <p class="muto nota">Se un fornitore con questa ragione sociale esiste già, dominio, contatto e lavorazioni si aggiungono a lui: non se ne crea un secondo.</p>
+      {{else}}
+      <div class="griglia3">
+        <label>Cartella NAS <input name="cartella_nas" value="{{.Cartella}}" required placeholder="MECCANICA NORD"></label>
+        <label>Lingua <input name="lingua" maxlength="2" value="{{.Lingua}}"></label>
+      </div>
+      <p class="muto nota">La cartella NAS è la chiave del cliente e non si cambia dopo: i disegni finiscono lì dentro.</p>
+      {{end}}
+    </fieldset>
+    <fieldset>
+      <legend>Come riconoscerlo</legend>
+      {{if .Dominio}}
+      <label class="inline"><input type="checkbox" name="usa_dominio" value="1" {{if .UsaDominio}}checked{{end}}> tutto il dominio <span class="mono">{{.Dominio}}</span> è suo</label>
+      {{if .DominioPubblico}}<p class="muto nota">È un dominio pubblico: chiunque può avere una casella lì. Censire il dominio farebbe diventare {{.Come}} chiunque scriva da quel servizio. Meglio l'indirizzo.</p>{{end}}
+      {{end}}
+      <label class="inline"><input type="checkbox" name="usa_contatto" value="1" {{if .UsaContatto}}checked{{end}}> l'indirizzo <span class="mono">{{.Indirizzo}}</span> è {{if eq .Come "fornitore"}}un suo contatto{{else}}un suo buyer{{end}}</label>
+      <label>Nome della persona <input name="contatto_nome" value="{{.ContattoNome}}" placeholder="Nome Cognome"></label>
+    </fieldset>
+    {{if eq .Come "fornitore"}}
+    <fieldset>
+      <legend>Che cosa fa</legend>
+      <div class="caselle-lavorazioni">
+        {{range .Lavorazioni}}<label><input type="checkbox" name="lavorazione" value="{{.Codice}}" {{if index $.Dati.Scelte .Codice}}checked{{end}}> {{.Descrizione}}</label>{{end}}
+      </div>
+      <p class="muto nota">Sono le capacità del fornitore. La qualifica per un cliente si dà dall'anagrafica, cliente per cliente.</p>
+    </fieldset>
+    {{end}}
+    <p class="muto nota">Al salvataggio i messaggi non ancora decisi con lo stesso indirizzo o dominio vengono ricalcolati: cambiano quadrante e proposta. Le decisioni già prese non si toccano.</p>
+    <div class="azioni">
+      <button type="submit" class="primario">Censisci e ricalcola</button>
+      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    </div>
+  </form>
+</article>
 {{end}}
 {{end}}

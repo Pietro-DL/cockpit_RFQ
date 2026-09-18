@@ -220,9 +220,10 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 	m1 := b.richiestaDOfferta("info@nuovofornitore.example")
 	m2 := b.richiestaDOfferta("vendite@nuovofornitore.example")
 	m3 := b.richiestaDOfferta("info@nuovofornitore.example")
+	m4 := b.richiestaDOfferta("ordini@nuovofornitore.example")
 	altro := b.richiestaDOfferta("acquisti@altrove.example")
-	b.ingerisci(m1, m2, m3, altro)
-	for _, m := range []api.MessaggioIn{m1, m2, m3} {
+	b.ingerisci(m1, m2, m3, m4, altro)
+	for _, m := range []api.MessaggioIn{m1, m2, m3, m4} {
 		r := b.messaggio(m.MessageID)
 		if r.ControparteTipo != db.TipoControparteSconosciuto {
 			t.Fatalf("prima del censimento: %s", r.ControparteTipo)
@@ -234,6 +235,17 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 	// il terzo e' gia' deciso: la proposta e' stata accettata
 	deciso := b.messaggio(m3.MessageID)
 	if _, err := b.q.DecidiTriage(b.ctx, db.DecidiTriageParams{MessaggioID: deciso.MessaggioID, Stato: db.StatoTriageAccettata}); err != nil {
+		t.Fatal(err)
+	}
+	// il quarto e' deciso in un altro modo: sta in una RFQ (thread_id), la proposta e' rimasta «proposta».
+	// Sono due decisioni diverse e il ritriage deve rispettarle tutte e due.
+	cl := b.cliente("ALTRO")
+	var thread uuid.UUID
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto) VALUES ($1, 'outlook', now(), 'decisa') RETURNING thread_id`, cl.ClienteID).Scan(&thread); err != nil {
+		t.Fatal(err)
+	}
+	inRFQ := b.messaggio(m4.MessageID)
+	if _, err := b.pool.Exec(b.ctx, `UPDATE messaggio SET thread_id = $2, aggancio = 'operatore' WHERE messaggio_id = $1`, inRFQ.MessaggioID, thread); err != nil {
 		t.Fatal(err)
 	}
 	// «Censisci come fornitore»
@@ -264,6 +276,9 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 	}
 	if r := b.messaggio(altro.MessageID); r.ControparteTipo != db.TipoControparteSconosciuto {
 		t.Fatal("un messaggio di un altro dominio non c'entra")
+	}
+	if r := b.messaggio(m4.MessageID); r.ControparteTipo != db.TipoControparteSconosciuto || !r.ThreadID.Valid {
+		t.Fatalf("il messaggio gia' in una RFQ non si tocca: controparte %s, thread %v", r.ControparteTipo, r.ThreadID.Valid)
 	}
 }
 

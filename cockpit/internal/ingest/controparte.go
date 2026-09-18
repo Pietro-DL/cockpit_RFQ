@@ -418,3 +418,23 @@ func contiPerTipo(righe []db.ContaContropartiRow) string {
 	}
 	return strings.Join(parti, " ")
 }
+
+// IndirizzoDaCensire e' l'indirizzo che un «Censisci» dal pannello del messaggio deve censire: il
+// mittente in entrata, il primo destinatario esterno in uscita — lo stesso che il resolver ha
+// guardato per decidere la controparte. Il dominio e' la parte dopo la chiocciola, vuoto se non
+// c'e' (un mittente Exchange senza chiocciola non ha un dominio da censire).
+func IndirizzoDaCensire(ctx context.Context, q *db.Queries, m db.Messaggio) (indirizzo, dominio string, err error) {
+	nostri, err := CaricaNostri(ctx, q)
+	if err != nil {
+		return "", "", err
+	}
+	c, err := risolviControparte(ctx, q, nostri, m.MittenteIndirizzo.String, indirizziDaJSON(m.Destinatari))
+	if err != nil {
+		return "", "", err
+	}
+	indirizzo = c.Indirizzo
+	if i := strings.LastIndex(indirizzo, "@"); i > 0 {
+		dominio = indirizzo[i+1:]
+	}
+	return indirizzo, dominio, nil
+}

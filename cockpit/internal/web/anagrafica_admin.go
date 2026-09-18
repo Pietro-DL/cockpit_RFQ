@@ -155,7 +155,11 @@ func (s *Server) nuovoBuyerCliente(w http.ResponseWriter, r *http.Request) {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Errore: err.Error()})
 		return
 	}
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: "Persona aggiunta."})
+	fatto := "Persona aggiunta."
+	if email := strings.ToLower(strings.TrimSpace(r.FormValue("email"))); email != "" {
+		fatto += s.ritriagePer(ctx, email, "")
+	}
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: fatto})
 }
 
 func (s *Server) eliminaBuyerCliente(w http.ResponseWriter, r *http.Request) {
