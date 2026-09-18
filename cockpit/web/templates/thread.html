@@ -40,7 +40,7 @@
       {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String)}}{{end}}
       <div class="azioni-msg">
         {{if .Copia}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}" title="Si apre la copia in {{.Copia.CasellaNome}}">Apri in Outlook</button>{{else if .Motivo}}<button class="piccolo" disabled title="{{.Motivo}}">Apri in Outlook</button>{{end}}
-        <a class="piccolo" href="/inbox?filtro=tutti&sel={{.M.MessaggioID}}">Apri in Inbox</a>
+        <a class="piccolo" href="/messaggio/{{.M.MessaggioID}}">Apri in Inbox</a>
         <span id="esito-{{.M.MessaggioID}}"></span>
       </div>
     </article>
@@ -97,7 +97,45 @@
       {{end}}
     </div>
 
-    {{if .Bozze}}<h3>Bozze</h3><ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span></li>{{end}}</ul>{{end}}
+    {{/* Blocco 7B: le richieste d'offerta ai fornitori, figlie di questa RFQ. La bozza porta il
+         marcatore CockpitRichiestaFornitore: quando la mail parte, il sync la lega da solo. */}}
+    <h3>Richieste ai fornitori ({{len .Richieste}})</h3>
+    {{if .Richieste}}
+    <table class="richieste">
+      <tr><th>Fornitore</th><th>Lavorazione</th><th>Codici</th><th>Stato</th><th>Mail</th><th></th></tr>
+      {{range .Richieste}}
+      <tr>
+        <td><a href="/admin/fornitori?fornitore={{.FornitoreID}}">{{.Fornitore}}</a></td>
+        <td>{{txt .LavorazioneDescrizione}}</td>
+        <td>{{range .Codici}}<span class="chip">{{.}}</span> {{else}}<span class="muto">—</span>{{end}}</td>
+        <td><span class="chip richiesta {{.Stato}}">{{.Stato}}</span>{{if .NRisposte}} <small class="muto">{{.NRisposte}} rispost{{if eq .NRisposte 1}}a{{else}}e{{end}}</small>{{end}}</td>
+        <td>{{if .MessaggioID.Valid}}<a href="/messaggio/{{.MessaggioID.UUID}}" title="{{txt .OggettoMail}}">{{if .DataMail}}{{data .DataMail}}{{else}}mail{{end}}</a>{{else}}<em class="muto">non ancora partita</em>{{end}}</td>
+        <td class="azioni-riga">{{if or (eq .Stato "bozza") (eq .Stato "inviata")}}
+          <button class="link piccolo" hx-post="/thread/{{$.Dati.T.ThreadID}}/richiesta/{{.RichiestaID}}/annulla" hx-target="#thread" hx-confirm="Annullare la richiesta a {{.Fornitore}}?">annulla</button>{{end}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}<p class="muto">Nessuna richiesta ai fornitori per questa RFQ.</p>{{end}}
+    <details class="rispondi">
+      <summary>Nuova richiesta a un fornitore</summary>
+      <form hx-post="/thread/{{.T.ThreadID}}/richiesta" hx-target="#thread" class="form-censisci">
+        <label>Fornitore
+          <select name="fornitore_id" required>
+            {{range .Fornitori}}<option value="{{.FornitoreID}}">{{.RagioneSociale}} ({{.Tipo}}){{with index $.Dati.QualificatoPer .FornitoreID}} — qualificato: {{.}}{{end}}</option>{{end}}
+          </select></label>
+        <label>Lavorazione
+          <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label>
+        {{if .Identificativi}}
+        <div class="caselle-lavorazioni">{{range .Identificativi}}<label><input type="checkbox" name="codice" value="{{.Codice}}" checked> {{.Codice}}</label>{{end}}</div>
+        {{end}}
+        <label>Note per il fornitore <input name="note" placeholder="quantità, tempi, materiale…"></label>
+        <label class="inline"><input type="checkbox" name="bozza" value="1" checked> prepara la bozza in Outlook (con il marcatore: al sync la mail si lega da sola)</label>
+        <button class="primario">Crea richiesta</button>
+        <small class="muto">Senza fornitori censiti la tendina è vuota: Anagrafica › Fornitori.</small>
+      </form>
+    </details>
+
+    {{if .Bozze}}<h3>Bozze</h3><ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span>{{if .RichiestaFornitoreID.Valid}} <small class="muto">richiesta a fornitore</small>{{end}}</li>{{end}}</ul>{{end}}
   </section>
 </div>
 {{end}}

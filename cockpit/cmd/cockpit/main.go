@@ -26,6 +26,7 @@ import (
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fondazioni"
+	"promatec/cockpit/internal/fornitori"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/logfile"
@@ -36,18 +37,41 @@ import (
 	"promatec/cockpit/internal/workerapi"
 )
 
+// opzioni sono i lavori amministrativi che si chiedono all'eseguibile dalla riga di comando. Ognuno
+// fa il suo, poi esce: nessuno di questi mette il server in ascolto, e nessuno parte da solo
+// all'avvio normale. Seminare un'anagrafica è una decisione, non un effetto collaterale (7B.5).
+type opzioni struct {
+	soloMigrazioni   bool
+	semeAnagrafica   string
+	semeFornitori    string
+	applicaFornitori bool
+	contaAnagrafiche bool
+}
+
 func main() {
 	cfgPath := flag.String("config", "cockpit.toml", "percorso di cockpit.toml")
-	soloMigrazioni := flag.Bool("migra", false, "applica le migrazioni e il seed, poi esce (nessun ascolto HTTP)")
-	semeAnagrafica := flag.String("semina-anagrafica", "", "file JSON di clienti, domini e buyer da seminare; poi esce")
+	var o opzioni
+	flag.BoolVar(&o.soloMigrazioni, "migra", false, "applica le migrazioni e il seed, poi esce (nessun ascolto HTTP)")
+	flag.StringVar(&o.semeAnagrafica, "semina-anagrafica", "", "file JSON di clienti, domini e buyer da seminare; poi esce")
+	anteprimaFornitori := flag.String("anteprima-fornitori", "", "file JSON del seme fornitori: dice che cosa scriverebbe e NON scrive; poi esce")
+	importaFornitori := flag.String("importa-fornitori", "", "file JSON del seme fornitori: lo applica davvero; poi esce")
+	flag.BoolVar(&o.contaAnagrafiche, "conta-anagrafiche", false, "stampa quante righe ci sono in anagrafica (clienti, buyer, fornitori...); poi esce")
 	flag.Parse()
-	if err := run(*cfgPath, *soloMigrazioni, *semeAnagrafica); err != nil {
+	o.semeFornitori, o.applicaFornitori = *anteprimaFornitori, false
+	if *importaFornitori != "" {
+		if o.semeFornitori != "" {
+			fmt.Fprintln(os.Stderr, "errore: -anteprima-fornitori e -importa-fornitori insieme non hanno senso: prima si guarda, poi si scrive")
+			os.Exit(1)
+		}
+		o.semeFornitori, o.applicaFornitori = *importaFornitori, true
+	}
+	if err := run(*cfgPath, o); err != nil {
 		fmt.Fprintln(os.Stderr, "errore:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
+func run(cfgPath string, o opzioni) error {
 	cfg, err := config.Carica(cfgPath)
 	if err != nil {
 		return err
@@ -152,12 +176,19 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 	for _, a := range sic.Avvisi {
 		log.Warn("sicurezza", "avviso", a)
 	}
+	// Blocco 7A (CP8): i messaggi entrati prima della 0014 non hanno una controparte. Si risolvono
+	// una volta, qui, con il conteggio per tipo prima/dopo nel log; le proposte non si toccano.
+	if n, err := ingest.RicalcolaControparti(ctx, pool, log); err != nil {
+		return fmt.Errorf("ricalcolo delle controparti: %w", err)
+	} else if n > 0 {
+		log.Info("controparti risolte al primo avvio dopo la 0014", "messaggi", n)
+	}
 	// Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
 	// regola di un solo cliente ha un esempio che non corrisponde alla propria regex, non parte
 	// niente. Un cliente gia' presente viene saltato per intero — il file e' una fotografia di un
 	// foglio, il database e' dove qualcuno ha gia' corretto a mano cio' che il foglio sbagliava.
-	if semeAnagrafica != "" {
-		seme, err := anagrafica.LeggiFile(semeAnagrafica)
+	if o.semeAnagrafica != "" {
+		seme, err := anagrafica.LeggiFile(o.semeAnagrafica)
 		if err != nil {
 			return err
 		}
@@ -176,10 +207,77 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		for _, a := range esito.Avvisi {
 			log.Warn("seme anagrafica", "avviso", a)
 		}
+		if err := ricalcola(ctx, pool, log, esito.IndirizziScritti, esito.DominiScritti); err != nil {
+			return err
+		}
 		return nil
 	}
 
-	if soloMigrazioni {
+	// Il seme dei fornitori (7A.4) dalla riga di comando: LO STESSO motore della schermata
+	// Admin > Anagrafica > Fornitori > Importa, cioe' `fornitori.Leggi`, `Calcola`, `Applica`. Non
+	// c'e' un secondo lettore del file e non c'e' un secondo importatore: PowerShell orchestra, Go
+	// convalida e scrive. Senza `-importa-fornitori` non viene scritta nemmeno una riga.
+	if o.semeFornitori != "" {
+		seme, err := fornitori.LeggiFile(o.semeFornitori)
+		if err != nil {
+			return err
+		}
+		var ant fornitori.Anteprima
+		if o.applicaFornitori {
+			ant, err = fornitori.Applica(ctx, pool, seme)
+		} else {
+			ant, err = fornitori.Calcola(ctx, db.New(pool), seme)
+		}
+		if err != nil {
+			return err
+		}
+		verbo := "da creare"
+		if o.applicaFornitori {
+			verbo = "creati"
+		}
+		log.Info("seme fornitori: "+verbo, "fornitori", len(ant.FornitoriDaCreare), "gia_presenti", len(ant.FornitoriPresenti),
+			"righe", len(ant.DaAggiungere), "gia_in_database", len(ant.Presenti), "non_risolti", len(ant.NonRisolti))
+		for _, f := range ant.FornitoriDaCreare {
+			log.Info("fornitore "+verbo, "fornitore", f)
+		}
+		for _, r := range ant.NonRisolti {
+			log.Warn("seme fornitori: NON risolto, non viene scritto", "riga", r.String())
+		}
+		for _, r := range ant.Avvisi {
+			log.Warn("seme fornitori", "avviso", r.String())
+		}
+		if !o.applicaFornitori {
+			fmt.Println("anteprima: non e' stato scritto niente. Per applicare: -importa-fornitori " + o.semeFornitori)
+			return nil
+		}
+		if err := ricalcola(ctx, pool, log, ant.IndirizziScritti, ant.DominiScritti); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if o.contaAnagrafiche {
+		c, err := db.New(pool).ContaAnagrafiche(ctx)
+		if err != nil {
+			return err
+		}
+		// Una riga per voce, `chiave=valore`: lo script di bootstrap le mostra e basta, senza dover
+		// sapere com'e' fatto lo schema.
+		for _, v := range []struct {
+			nome string
+			n    int32
+		}{
+			{"clienti", c.Clienti}, {"domini_cliente", c.DominiCliente}, {"buyer", c.Buyer},
+			{"fornitori", c.Fornitori}, {"domini_fornitore", c.DominiFornitore},
+			{"contatti_fornitore", c.ContattiFornitore}, {"lavorazioni_fornitore", c.LavorazioniFornitore},
+			{"qualifiche", c.Qualifiche},
+		} {
+			fmt.Printf("%s=%d\n", v.nome, v.n)
+		}
+		return nil
+	}
+
+	if o.soloMigrazioni {
 		log.Info("migrazioni e seed completati (-migra): esco senza mettermi in ascolto")
 		return nil
 	}
@@ -354,4 +452,27 @@ func logga(log *slog.Logger, h http.Handler) http.Handler {
 			log.Debug("http", "m", r.Method, "p", r.URL.Path, "ms", time.Since(t).Milliseconds())
 		}
 	})
+}
+
+// ricalcola riguarda i messaggi gia' arrivati dopo un seed: quelli che parlano con i domini e gli
+// indirizzi appena scritti, e che nessuno ha ancora deciso (7B.5).
+//
+// Senza questo passo, seminare l'anagrafica su un database che ha gia' dentro la posta non sposta
+// di un messaggio il quadrante Da validare: la controparte e' un FATTO scritto sul messaggio
+// all'ingest (0014), non una domanda che l'Inbox rifa' a ogni lettura. Riavviare il server non
+// basterebbe: il ricalcolo dell'avvio guarda solo i messaggi che una controparte non ce l'hanno.
+func ricalcola(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, indirizzi, domini []string) error {
+	if len(indirizzi) == 0 && len(domini) == 0 {
+		log.Info("niente da riguardare: il seme non ha scritto nessun dominio e nessun indirizzo")
+		return nil
+	}
+	esito, err := (&ingest.Servizio{Pool: pool, Log: log}).RitriageMolti(ctx, indirizzi, domini)
+	if err != nil {
+		return fmt.Errorf("ricalcolo dei messaggi gia' arrivati: %w", err)
+	}
+	log.Info("messaggi gia' arrivati riguardati", "esito", esito.String())
+	for _, d := range esito.Dettagli {
+		log.Info("ricalcolo", "cambiato", d)
+	}
+	return nil
 }

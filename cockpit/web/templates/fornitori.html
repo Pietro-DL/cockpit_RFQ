@@ -1,0 +1,199 @@
+{{define "contenuto"}}
+<div id="anagrafica">{{template "fornitori_corpo" .}}</div>
+{{end}}
+
+{{define "fornitori_corpo"}}
+{{$d := .Dati}}
+{{/* Blocco 7A.5: Admin → Anagrafica → Fornitori. Stessa forma della scheda cliente: elenco a
+     sinistra con il «nuovo» in cima, dettaglio a destra in una colonna, sezioni da Go (`Sezioni`).
+     Niente JSON: un fornitore non ha regole di codice. */}}
+<div class="ana-testa">
+  <h1>Anagrafica</h1>
+  <nav class="tabs">
+    <a href="/admin/anagrafica">Clienti</a>
+    <a href="/admin/fornitori{{if $d.Scelto}}?fornitore={{$d.Scelto.FornitoreID}}{{end}}" class="attivo">Fornitori</a>
+    <a href="/admin/anagrafica/articoli">Articoli</a>
+  </nav>
+  <a class="bottone piccolo importa" href="/admin/fornitori/importa" title="Carica il seme dei fornitori con anteprima delle differenze e conferma">Importa da file…</a>
+</div>
+
+{{if $d.Errore}}<div class="pannello errore-box"><strong>Non salvato.</strong> {{$d.Errore}}</div>{{end}}
+{{if $d.Fatto}}<div class="avviso">{{$d.Fatto}}</div>{{end}}
+
+<div class="ana">
+  <aside class="elenco">
+    <details class="nuovo" {{if not $d.Fornitori}}open{{end}}>
+      <summary>＋ Nuovo fornitore</summary>
+      <form method="post" action="/admin/fornitori">
+        <label>Ragione sociale <input name="ragione_sociale" required></label>
+        <label>Tipo <select name="tipo">{{range $d.Tipi}}<option value="{{.}}" {{if eq (printf "%s" .) "processi"}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+        <label>Dominio <input name="dominio" placeholder="fornitore.com"></label>
+        <label>Lingua <input name="lingua" maxlength="2" placeholder="it" class="corto"></label>
+        <button class="primario">Crea</button>
+      </form>
+    </details>
+    <div class="voci">
+      {{range $d.Fornitori}}
+      <a href="/admin/fornitori?fornitore={{.FornitoreID}}&sez={{$d.Sez}}" class="{{if not .Attivo}}spento{{end}} {{if and $d.Scelto (eq .FornitoreID $d.Scelto.FornitoreID)}}attivo{{end}}">
+        <span class="nome">{{.RagioneSociale}}</span> <span class="chip {{.Tipo}}">{{.Tipo}}</span>{{if not .Attivo}} <span class="chip">non attivo</span>{{end}}
+        <small>{{.NDomini}} domini · {{.NContatti}} contatti · {{.NLavorazioni}} lavorazioni · {{.NMessaggi}} messaggi</small>
+      </a>
+      {{else}}
+      <p class="vuoto">Nessun fornitore. Creane uno qui, importa il seme, o censiscilo dall'Inbox con «Censisci come fornitore».</p>
+      {{end}}
+    </div>
+  </aside>
+
+  <section class="dettaglio">
+  {{if not $d.Scelto}}
+  <p class="vuoto">Scegli un fornitore a sinistra, o creane uno con «Nuovo fornitore».</p>
+  {{else}}
+  {{$f := $d.Scelto}}
+    <header class="ana-intestazione">
+      <h2>{{$f.RagioneSociale}}</h2>
+      <div class="chips">
+        <span class="chip {{$f.Tipo}}">{{$f.Tipo}}</span>
+        {{if not $f.Attivo}}<span class="chip fallito">non attivo</span>{{end}}
+        {{if $f.Lingua.Valid}}<span class="chip">{{$f.Lingua.String}}</span>{{end}}
+      </div>
+    </header>
+
+    <nav class="tabs sezioni">
+      {{range $d.Sezioni}}
+      <a href="/admin/fornitori?fornitore={{$f.FornitoreID}}&sez={{.Chiave}}"
+         class="{{if eq $d.Sez .Chiave}}attivo{{end}}">{{.Nome}}</a>
+      {{end}}
+    </nav>
+
+    {{if eq $d.Sez "generale"}}
+    <div class="scheda">
+      <h2>Generale</h2>
+      <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}">
+        <label>Ragione sociale <input name="ragione_sociale" value="{{$f.RagioneSociale}}"></label>
+        <label>Tipo <span><select name="tipo">{{range $d.Tipi}}<option value="{{.}}" {{if eq . $f.Tipo}}selected{{end}}>{{.}}</option>{{end}}</select>
+          <small class="muto">materie_prime = chi vende il materiale; processi = lavorazioni meccaniche e trattamenti; verniciatore = verniciatura e cataforesi.</small></span></label>
+        <label>Lingua <input name="lingua" maxlength="2" value="{{txt $f.Lingua}}" class="corto"></label>
+        <label>Note <textarea name="note" rows="3">{{txt $f.Note}}</textarea></label>
+        <label>Stato <span class="inline"><input type="checkbox" name="attivo" value="1" {{if $f.Attivo}}checked{{end}}> attivo</span></label>
+        <div class="azioni-form"><button class="primario">Salva</button></div>
+      </form>
+    </div>
+    {{end}}
+
+    {{if eq $d.Sez "contatti"}}
+    <div class="scheda">
+      <h2>Domini</h2>
+      <p class="muto nota">Tutta la posta da questi domini e' di questo fornitore. Un dominio appartiene a
+      un fornitore solo: se e' gia' di un altro, il Cockpit lo dice invece di spostarlo. Se lo stesso
+      dominio e' anche di un cliente, la posta risulta «ambigua» finche' un contatto esatto non decide.</p>
+      <table class="compatta">
+        {{range $d.Domini}}
+        <tr><td class="mono">{{.Dominio}}</td>
+          <td class="azioni-riga"><form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/dominio/elimina">
+            <input type="hidden" name="dominio" value="{{.Dominio}}"><button class="link piccolo">togli</button></form></td></tr>
+        {{else}}<tr><td class="muto">Nessun dominio: la posta di questo fornitore viene riconosciuta solo dai contatti esatti.</td></tr>{{end}}
+      </table>
+      <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/dominio" class="riga-inline">
+        <input name="dominio" placeholder="fornitore.com"><button>Aggiungi dominio</button>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Contatti</h2>
+      <p class="muto nota">Gli indirizzi esatti. Servono quando il dominio non basta: una persona che scrive
+      da gmail, o un gruppo il cui dominio e' anche di un cliente. Un contatto esatto vince sul dominio.</p>
+      <table>
+        <tr><th>Nome</th><th>E-mail</th><th>Ruolo</th><th>Lingua</th><th></th></tr>
+        {{range $d.Contatti}}
+        <tr>
+          <td>{{txt .Nome}}</td><td class="mono">{{.Email}}</td><td>{{txt .Ruolo}}</td><td>{{txt .Lingua}}</td>
+          <td class="azioni-riga">
+            <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/contatto/elimina">
+              <input type="hidden" name="contatto_id" value="{{.ContattoID}}"><button class="link piccolo">togli</button></form>
+          </td>
+        </tr>
+        {{else}}<tr><td colspan="5" class="muto">Nessun contatto.</td></tr>{{end}}
+      </table>
+      <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/contatto" class="aggiungi">
+        <h3>Aggiungi un contatto</h3>
+        <div class="riga-campi">
+          <label>Nome <input name="nome"></label>
+          <label>E-mail <input name="email" type="email" required></label>
+          <label>Ruolo <input name="ruolo" placeholder="es. ufficio commerciale"></label>
+          <label>Lingua <input name="lingua" maxlength="2"></label>
+        </div>
+        <div class="azioni-form"><button>Aggiungi</button></div>
+      </form>
+    </div>
+    {{end}}
+
+    {{if eq $d.Sez "lavorazioni"}}
+    <div class="scheda">
+      <h2>Lavorazioni</h2>
+      <p class="muto nota">Che cosa sa fare. Sono le CAPACITA' del fornitore, valide per tutti i clienti; la
+      qualifica per un cliente e' un'altra cosa e sta qui sotto.</p>
+      <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/lavorazioni">
+        <div class="caselle-lavorazioni">
+          {{range $d.Lavorazioni}}<label><input type="checkbox" name="lavorazione" value="{{.Codice}}" {{if index $d.Sue .Codice}}checked{{end}}> {{.Descrizione}} <small class="muto">{{.Codice}}</small></label>{{end}}
+        </div>
+        <p class="muto nota">Togliere una lavorazione su cui il fornitore e' qualificato per un cliente
+        viene rifiutato: prima si toglie la qualifica.</p>
+        <div class="azioni-form"><button class="primario">Salva lavorazioni</button></div>
+      </form>
+    </div>
+
+    <div class="scheda">
+      <h2>Qualifiche per cliente</h2>
+      <p class="muto nota">Per quali clienti e su quali lavorazioni questo fornitore e' abilitato. E'
+      <code>cliente_fornitore_lavorazione</code>: lo stesso elenco si vede dalla scheda del cliente.</p>
+      <table>
+        <tr><th>Cliente</th><th>Lavorazione</th><th></th></tr>
+        {{range $d.Qualifiche}}
+        <tr>
+          <td><a href="/admin/anagrafica?cliente={{.ClienteID}}&sez=lavorazioni">{{.CartellaNas}}</a> <small class="muto">{{.Cliente}}</small></td>
+          <td>{{.LavorazioneDescrizione}} <small class="muto">{{.Lavorazione}}</small></td>
+          <td class="azioni-riga">
+            <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/qualifica/elimina">
+              <input type="hidden" name="cliente_id" value="{{.ClienteID}}">
+              <input type="hidden" name="lavorazione" value="{{.Lavorazione}}">
+              <button class="link piccolo">togli</button></form>
+          </td>
+        </tr>
+        {{else}}<tr><td colspan="3" class="muto">Nessuna qualifica: nessun cliente lo ha abilitato.</td></tr>{{end}}
+      </table>
+      <form method="post" action="/admin/fornitori/{{$f.FornitoreID}}/qualifica" class="aggiungi">
+        <h3>Qualifica per un cliente</h3>
+        <div class="riga-campi">
+          <label>Cliente <select name="cliente_id">
+            {{range $d.Clienti}}<option value="{{.ClienteID}}">{{.CartellaNas}} — {{.RagioneSociale}}</option>{{end}}</select></label>
+          <label>Lavorazione <select name="lavorazione">
+            {{range $d.Lavorazioni}}{{if index $d.Sue .Codice}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}{{end}}</select></label>
+        </div>
+        <p class="muto nota">Nella tendina ci sono solo le lavorazioni che il fornitore fa.</p>
+        <div class="azioni-form"><button>Qualifica</button></div>
+      </form>
+    </div>
+    {{end}}
+
+    {{if eq $d.Sez "posta"}}
+    <div class="scheda">
+      <h2>Posta</h2>
+      <p class="muto nota">Gli ultimi messaggi con questo fornitore come controparte, in entrata e in uscita.
+      Si aprono nell'Inbox, quadrante Fornitori.</p>
+      <table>
+        <tr><th></th><th>Data</th><th>Da</th><th>Oggetto</th></tr>
+        {{range $d.Messaggi}}
+        <tr>
+          <td>{{if eq .Direzione "uscita"}}↑{{else}}↓{{end}}</td>
+          <td class="muto">{{data .DataEvento}}</td>
+          <td>{{if .MittenteNome.Valid}}{{.MittenteNome.String}}{{else}}{{.MittenteIndirizzo.String}}{{end}}</td>
+          <td><a href="/messaggio/{{.MessaggioID}}">{{.Oggetto.String}}</a>{{if .ThreadID.Valid}} <span class="chip thread">RFQ</span>{{end}}</td>
+        </tr>
+        {{else}}<tr><td colspan="4" class="muto">Nessun messaggio con questa controparte.</td></tr>{{end}}
+      </table>
+    </div>
+    {{end}}
+  {{end}}
+  </section>
+</div>
+{{end}}

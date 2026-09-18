@@ -70,7 +70,7 @@ func (q *Queries) AgganciaOrfaniConversazione(ctx context.Context, arg AgganciaO
 }
 
 const bloccaMessaggio = `-- name: BloccaMessaggio :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
 `
 
 // Come GetMessaggio, ma la riga resta bloccata fino alla fine della transazione (voce 1.9, T13).
@@ -108,6 +108,12 @@ func (q *Queries) BloccaMessaggio(ctx context.Context, messaggioID uuid.UUID) (M
 		&i.RegistratoIl,
 		&i.RegistratoDa,
 		&i.Interno,
+		&i.ControparteTipo,
+		&i.ControparteClienteID,
+		&i.ControparteFornitoreID,
+		&i.ControparteVia,
+		&i.ControparteIl,
+		&i.RichiestaFornitoreID,
 	)
 	return i, err
 }
@@ -172,8 +178,20 @@ SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
        count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
        count(*)                                                  AS tutti
 FROM v_inbox
-WHERE $1::uuid IS NULL OR $1::uuid = ANY (caselle_id)
+WHERE ($1::uuid IS NULL OR $1::uuid = ANY (caselle_id))
+  AND ($2::text = ''
+    OR ($2::text = 'buyer'     AND controparte_tipo = 'cliente' AND (triage_intento IS DISTINCT FROM 'non_rfq' OR thread_id IS NOT NULL))
+    OR ($2::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR ($2::text = 'validare'  AND (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')
+                                                     OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq' AND thread_id IS NULL))))
+  AND ($3::text = '' OR direzione::text = $3::text)
 `
+
+type ContaInboxParams struct {
+	Casella   uuid.NullUUID `json:"casella"`
+	Quadrante string        `json:"quadrante"`
+	Direzione string        `json:"direzione"`
+}
 
 type ContaInboxRow struct {
 	Orfani     int64 `json:"orfani"`
@@ -182,8 +200,10 @@ type ContaInboxRow struct {
 	Tutti      int64 `json:"tutti"`
 }
 
-func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaInboxRow, error) {
-	row := q.db.QueryRow(ctx, contaInbox, casella)
+// I numeri accanto ai filtri: del quadrante e della direzione scelti, così dicono quanti ne
+// vedresti premendo.
+func (q *Queries) ContaInbox(ctx context.Context, arg ContaInboxParams) (ContaInboxRow, error) {
+	row := q.db.QueryRow(ctx, contaInbox, arg.Casella, arg.Quadrante, arg.Direzione)
 	var i ContaInboxRow
 	err := row.Scan(
 		&i.Orfani,
@@ -191,6 +211,30 @@ func (q *Queries) ContaInbox(ctx context.Context, casella uuid.NullUUID) (ContaI
 		&i.Ignorati,
 		&i.Tutti,
 	)
+	return i, err
+}
+
+const contaQuadranti = `-- name: ContaQuadranti :one
+SELECT count(*) FILTER (WHERE controparte_tipo = 'cliente' AND triage_intento IS DISTINCT FROM 'non_rfq' AND thread_id IS NULL AND NOT ignorato) AS buyer,
+       count(*) FILTER (WHERE controparte_tipo = 'fornitore' AND thread_id IS NULL AND NOT ignorato) AS fornitori,
+       count(*) FILTER (WHERE (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno') OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq'))
+                          AND thread_id IS NULL AND NOT ignorato) AS validare
+FROM v_inbox
+WHERE $1::uuid IS NULL OR $1::uuid = ANY (caselle_id)
+`
+
+type ContaQuadrantiRow struct {
+	Buyer     int64 `json:"buyer"`
+	Fornitori int64 `json:"fornitori"`
+	Validare  int64 `json:"validare"`
+}
+
+// I numeri sui quadranti: gli ORFANI di ciascuno, cioè quello che aspetta una decisione. Un
+// quadrante con zero non è vuoto, è a posto.
+func (q *Queries) ContaQuadranti(ctx context.Context, casella uuid.NullUUID) (ContaQuadrantiRow, error) {
+	row := q.db.QueryRow(ctx, contaQuadranti, casella)
+	var i ContaQuadrantiRow
+	err := row.Scan(&i.Buyer, &i.Fornitori, &i.Validare)
 	return i, err
 }
 
@@ -271,7 +315,7 @@ func (q *Queries) GetConversazione(ctx context.Context, conversazioneID uuid.UUI
 }
 
 const getInboxRiga = `-- name: GetInboxRiga :one
-SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id FROM v_inbox WHERE messaggio_id = $1
+SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id, controparte_tipo, controparte, triage_intento, richiesta_fornitore_id FROM v_inbox WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInbox, error) {
@@ -310,12 +354,16 @@ func (q *Queries) GetInboxRiga(ctx context.Context, messaggioID uuid.UUID) (VInb
 		&i.CasellaID,
 		&i.CartellaOutlook,
 		&i.EntryID,
+		&i.ControparteTipo,
+		&i.Controparte,
+		&i.TriageIntento,
+		&i.RichiestaFornitoreID,
 	)
 	return i, err
 }
 
 const getMessaggio = `-- name: GetMessaggio :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE messaggio_id = $1
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE messaggio_id = $1
 `
 
 func (q *Queries) GetMessaggio(ctx context.Context, messaggioID uuid.UUID) (Messaggio, error) {
@@ -347,6 +395,12 @@ func (q *Queries) GetMessaggio(ctx context.Context, messaggioID uuid.UUID) (Mess
 		&i.RegistratoIl,
 		&i.RegistratoDa,
 		&i.Interno,
+		&i.ControparteTipo,
+		&i.ControparteClienteID,
+		&i.ControparteFornitoreID,
+		&i.ControparteVia,
+		&i.ControparteIl,
+		&i.RichiestaFornitoreID,
 	)
 	return i, err
 }
@@ -370,7 +424,7 @@ func (q *Queries) GetMessaggioOutlook(ctx context.Context, messaggioID uuid.UUID
 }
 
 const getMessaggioPerChiave = `-- name: GetMessaggioPerChiave :one
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE canale = $1 AND chiave_esterna = $2
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE canale = $1 AND chiave_esterna = $2
 `
 
 type GetMessaggioPerChiaveParams struct {
@@ -407,6 +461,12 @@ func (q *Queries) GetMessaggioPerChiave(ctx context.Context, arg GetMessaggioPer
 		&i.RegistratoIl,
 		&i.RegistratoDa,
 		&i.Interno,
+		&i.ControparteTipo,
+		&i.ControparteClienteID,
+		&i.ControparteFornitoreID,
+		&i.ControparteVia,
+		&i.ControparteIl,
+		&i.RichiestaFornitoreID,
 	)
 	return i, err
 }
@@ -467,29 +527,43 @@ func (q *Queries) GetSyncCursore(ctx context.Context, arg GetSyncCursoreParams) 
 }
 
 const listInbox = `-- name: ListInbox :many
-SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id FROM v_inbox
+SELECT messaggio_id, canale, direzione, interno, data_evento, thread_id, aggancio, conversazione_id, mittente_nome, mittente_indirizzo, oggetto, n_allegati, buyer_id, dominio, cliente_id, cliente, buyer_cognome, n_rif_portale, n_cad, triage_esito, triage_confidenza, triage_motivi, thread_proposto, ignorato, caselle, caselle_id, n_caselle, non_letto, ricevuto_il, casella_id, cartella_outlook, entry_id, controparte_tipo, controparte, triage_intento, richiesta_fornitore_id FROM v_inbox
 WHERE ($1::text = 'tutti'
     OR ($1::text = 'orfani'     AND thread_id IS NULL AND NOT ignorato)
     OR ($1::text = 'agganciati' AND thread_id IS NOT NULL)
     OR ($1::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
   AND ($2::uuid IS NULL OR $2::uuid = ANY (caselle_id))
+  AND ($3::text = ''
+    OR ($3::text = 'buyer'     AND controparte_tipo = 'cliente' AND (triage_intento IS DISTINCT FROM 'non_rfq' OR thread_id IS NOT NULL))
+    OR ($3::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR ($3::text = 'validare'  AND (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')
+                                                     OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq' AND thread_id IS NULL))))
+  AND ($4::text = '' OR direzione::text = $4::text)
 ORDER BY data_evento DESC
-LIMIT $4 OFFSET $3
+LIMIT $6 OFFSET $5
 `
 
 type ListInboxParams struct {
-	Filtro  string        `json:"filtro"`
-	Casella uuid.NullUUID `json:"casella"`
-	Salta   int32         `json:"salta"`
-	Limite  int32         `json:"limite"`
+	Filtro    string        `json:"filtro"`
+	Casella   uuid.NullUUID `json:"casella"`
+	Quadrante string        `json:"quadrante"`
+	Direzione string        `json:"direzione"`
+	Salta     int32         `json:"salta"`
+	Limite    int32         `json:"limite"`
 }
 
 // `casella` vuoto = tutte le caselle. NON è un controllo di autorizzazione: è il filtro della
 // schermata. Chi può vedere che cosa è la voce 2.2 (puoVedere) e resta restrittivo fino ad allora.
+//
+// Blocco 7 (D34): `quadrante` è Buyer (controparte cliente), Fornitori (controparte fornitore) o
+// Da validare (sconosciuto, ambiguo, interno); vuoto = tutti, per chi cerca un messaggio senza
+// sapere di chi è. `direzione` vuota = entrata e uscita insieme.
 func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox, error) {
 	rows, err := q.db.Query(ctx, listInbox,
 		arg.Filtro,
 		arg.Casella,
+		arg.Quadrante,
+		arg.Direzione,
 		arg.Salta,
 		arg.Limite,
 	)
@@ -533,6 +607,10 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 			&i.CasellaID,
 			&i.CartellaOutlook,
 			&i.EntryID,
+			&i.ControparteTipo,
+			&i.Controparte,
+			&i.TriageIntento,
+			&i.RichiestaFornitoreID,
 		); err != nil {
 			return nil, err
 		}
@@ -545,7 +623,7 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 }
 
 const listMessaggiConversazione = `-- name: ListMessaggiConversazione :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE conversazione_id = $1 ORDER BY data_evento
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE conversazione_id = $1 ORDER BY data_evento
 `
 
 func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID uuid.UUID) ([]Messaggio, error) {
@@ -583,6 +661,12 @@ func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID
 			&i.RegistratoIl,
 			&i.RegistratoDa,
 			&i.Interno,
+			&i.ControparteTipo,
+			&i.ControparteClienteID,
+			&i.ControparteFornitoreID,
+			&i.ControparteVia,
+			&i.ControparteIl,
+			&i.RichiestaFornitoreID,
 		); err != nil {
 			return nil, err
 		}
@@ -595,7 +679,7 @@ func (q *Queries) ListMessaggiConversazione(ctx context.Context, conversazioneID
 }
 
 const listMessaggiThread = `-- name: ListMessaggiThread :many
-SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno FROM messaggio WHERE thread_id = $1 ORDER BY data_evento
+SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id FROM messaggio WHERE thread_id = $1 ORDER BY data_evento
 `
 
 func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID) ([]Messaggio, error) {
@@ -633,6 +717,12 @@ func (q *Queries) ListMessaggiThread(ctx context.Context, threadID uuid.NullUUID
 			&i.RegistratoIl,
 			&i.RegistratoDa,
 			&i.Interno,
+			&i.ControparteTipo,
+			&i.ControparteClienteID,
+			&i.ControparteFornitoreID,
+			&i.ControparteVia,
+			&i.ControparteIl,
+			&i.RichiestaFornitoreID,
 		); err != nil {
 			return nil, err
 		}
@@ -1027,7 +1117,7 @@ ON CONFLICT (canale, chiave_esterna) DO UPDATE SET
     corpo_html       = COALESCE(EXCLUDED.corpo_html, messaggio.corpo_html),
     importanza       = COALESCE(EXCLUDED.importanza, messaggio.importanza),
     buyer_id         = COALESCE(messaggio.buyer_id, EXCLUDED.buyer_id)
-RETURNING messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, (xmax = 0) AS inserito
+RETURNING messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id, (xmax = 0) AS inserito
 `
 
 type UpsertMessaggioParams struct {
@@ -1052,32 +1142,38 @@ type UpsertMessaggioParams struct {
 }
 
 type UpsertMessaggioRow struct {
-	MessaggioID       uuid.UUID       `json:"messaggio_id"`
-	Canale            Canale          `json:"canale"`
-	ChiaveEsterna     string          `json:"chiave_esterna"`
-	ConversazioneID   uuid.UUID       `json:"conversazione_id"`
-	ParentMessaggioID uuid.NullUUID   `json:"parent_messaggio_id"`
-	ThreadID          uuid.NullUUID   `json:"thread_id"`
-	Aggancio          Aggancio        `json:"aggancio"`
-	AgganciatoDa      uuid.NullUUID   `json:"agganciato_da"`
-	AgganciatoIl      *time.Time      `json:"agganciato_il"`
-	Direzione         Direzione       `json:"direzione"`
-	DataEvento        time.Time       `json:"data_evento"`
-	MittenteNome      pgtype.Text     `json:"mittente_nome"`
-	MittenteIndirizzo pgtype.Text     `json:"mittente_indirizzo"`
-	BuyerID           uuid.NullUUID   `json:"buyer_id"`
-	Destinatari       json.RawMessage `json:"destinatari"`
-	Oggetto           pgtype.Text     `json:"oggetto"`
-	CorpoTesto        pgtype.Text     `json:"corpo_testo"`
-	CorpoHtml         pgtype.Text     `json:"corpo_html"`
-	Lingua            pgtype.Text     `json:"lingua"`
-	Importanza        pgtype.Int2     `json:"importanza"`
-	NotaOperatore     pgtype.Text     `json:"nota_operatore"`
-	NAllegati         int16           `json:"n_allegati"`
-	RegistratoIl      time.Time       `json:"registrato_il"`
-	RegistratoDa      uuid.NullUUID   `json:"registrato_da"`
-	Interno           bool            `json:"interno"`
-	Inserito          bool            `json:"inserito"`
+	MessaggioID            uuid.UUID          `json:"messaggio_id"`
+	Canale                 Canale             `json:"canale"`
+	ChiaveEsterna          string             `json:"chiave_esterna"`
+	ConversazioneID        uuid.UUID          `json:"conversazione_id"`
+	ParentMessaggioID      uuid.NullUUID      `json:"parent_messaggio_id"`
+	ThreadID               uuid.NullUUID      `json:"thread_id"`
+	Aggancio               Aggancio           `json:"aggancio"`
+	AgganciatoDa           uuid.NullUUID      `json:"agganciato_da"`
+	AgganciatoIl           *time.Time         `json:"agganciato_il"`
+	Direzione              Direzione          `json:"direzione"`
+	DataEvento             time.Time          `json:"data_evento"`
+	MittenteNome           pgtype.Text        `json:"mittente_nome"`
+	MittenteIndirizzo      pgtype.Text        `json:"mittente_indirizzo"`
+	BuyerID                uuid.NullUUID      `json:"buyer_id"`
+	Destinatari            json.RawMessage    `json:"destinatari"`
+	Oggetto                pgtype.Text        `json:"oggetto"`
+	CorpoTesto             pgtype.Text        `json:"corpo_testo"`
+	CorpoHtml              pgtype.Text        `json:"corpo_html"`
+	Lingua                 pgtype.Text        `json:"lingua"`
+	Importanza             pgtype.Int2        `json:"importanza"`
+	NotaOperatore          pgtype.Text        `json:"nota_operatore"`
+	NAllegati              int16              `json:"n_allegati"`
+	RegistratoIl           time.Time          `json:"registrato_il"`
+	RegistratoDa           uuid.NullUUID      `json:"registrato_da"`
+	Interno                bool               `json:"interno"`
+	ControparteTipo        TipoControparte    `json:"controparte_tipo"`
+	ControparteClienteID   uuid.NullUUID      `json:"controparte_cliente_id"`
+	ControparteFornitoreID uuid.NullUUID      `json:"controparte_fornitore_id"`
+	ControparteVia         NullViaControparte `json:"controparte_via"`
+	ControparteIl          *time.Time         `json:"controparte_il"`
+	RichiestaFornitoreID   uuid.NullUUID      `json:"richiesta_fornitore_id"`
+	Inserito               bool               `json:"inserito"`
 }
 
 // La direzione si CONSOLIDA: la stessa mail può arrivare da due caselle, e una copia che ci risulta
@@ -1132,6 +1228,12 @@ func (q *Queries) UpsertMessaggio(ctx context.Context, arg UpsertMessaggioParams
 		&i.RegistratoIl,
 		&i.RegistratoDa,
 		&i.Interno,
+		&i.ControparteTipo,
+		&i.ControparteClienteID,
+		&i.ControparteFornitoreID,
+		&i.ControparteVia,
+		&i.ControparteIl,
+		&i.RichiestaFornitoreID,
 		&i.Inserito,
 	)
 	return i, err

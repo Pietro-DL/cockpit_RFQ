@@ -379,6 +379,51 @@ sono dati dell'azienda. In questo ambiente sta in `docs\seme_anagrafica.json` (l
 è fuori dal repository pubblico); su una postazione lo tiene chi amministra il Cockpit, accanto a
 `cockpit.toml`.
 
+#### Seminare i fornitori (blocco 7A.4)
+
+```powershell
+.\cockpit.exe -config cockpit.toml -anteprima-fornitori ..\docs\seme_fornitori.json   # guarda e NON scrive
+.\cockpit.exe -config cockpit.toml -importa-fornitori   ..\docs\seme_fornitori.json   # scrive
+```
+
+È **lo stesso motore** della schermata Admin › Anagrafica › Fornitori › Importa: stesso lettore del
+file, stessa anteprima, stessa scrittura. Non esiste un secondo importatore. L'anteprima dice che
+cosa verrebbe creato, che cosa c'è già e che cosa **non** si riesce a risolvere (una lavorazione che
+non esiste, un cliente che in anagrafica non c'è): quelle righe non vengono scritte, né adesso né
+alla conferma. Un fornitore che c'è già non viene toccato, nemmeno un campo.
+
+#### I numeri dell'anagrafica
+
+```powershell
+.\cockpit.exe -config cockpit.toml -conta-anagrafiche
+```
+
+Stampa `clienti=…`, `domini_cliente=…`, `buyer=…`, `fornitori=…`, `domini_fornitore=…`,
+`contatti_fornitore=…`, `lavorazioni_fornitore=…`, `qualifiche=…`, una riga per voce, ed esce.
+
+#### Tutto il bootstrap in un comando
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1            # chiede conferma prima dei fornitori
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1 -Conferma  # non chiede niente
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1 -SoloAnteprima
+```
+
+Verifica che i due file esistano, dice su quale database sta per scrivere (senza la password),
+applica le migrazioni, carica clienti/domini/buyer, mostra l'anteprima dei fornitori, li scrive solo
+dopo conferma esplicita e mostra i numeri finali. Rilanciarlo non raddoppia niente. Se uno dei due
+file è invalido esce con codice ≠ 0 senza aver scritto la parte che segue.
+
+**Lo lancia anche `scripts\avvia-dev.ps1`**, prima di mettere in piedi server e worker: dopo un
+`azzera-dati.ps1` il database ha lo schema ma non sa chi è nessuno, e senza anagrafiche ogni mail
+arriva da uno sconosciuto. Con `-NoSemina` si salta. **Il server non semina niente da solo**: né
+all'avvio né mai. Caricare un'anagrafica è una decisione, non un effetto collaterale.
+
+**Un fornitore senza domini e senza contatti non fa cambiare quadrante a nessuna mail**: la posta si
+riconosce dall'indirizzo, non dalla ragione sociale. Il seme dei fornitori nasce da un foglio dove
+gli indirizzi non ci sono: o si aggiungono i domini al file, o si censiscono dall'Inbox con
+«Censisci come fornitore», che è la strada pensata per questo.
+
 ```json
 {
   "clienti": [
@@ -747,8 +792,16 @@ quella, non l'Admin.
 
 Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker legge le cartelle
 indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].dal`) e manda i
-messaggi a lotti. Dall'Inbox del browser l'operatore decide: **Nuova RFQ**, **Aggancia a…**,
-**Ignora**. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
+messaggi a lotti. A ogni messaggio l'ingest scrive **chi c'è dall'altra parte** (la controparte,
+blocco 7A): cliente, fornitore, interno, sconosciuto o ambiguo, risolta dall'anagrafica in
+quest'ordine — contatto esatto, poi dominio. L'Inbox è divisa in tre **quadranti**: **Buyer** (la posta
+dei clienti), **Fornitori** (offerte, domande, le nostre richieste) e **Da validare** (chi non è
+censito, chi sta in entrambe le anagrafiche, la posta interna); la direzione ↓/↑ è un filtro. Dal
+quadrante Buyer l'operatore decide: **Nuova RFQ**, **Aggancia a…**, **Ignora**. Un fornitore non
+apre mai una RFQ cliente: la sua posta si aggancia. Da «Da validare» si fa **Censisci come
+fornitore / cliente** con l'indirizzo e il dominio già scritti: al salvataggio i messaggi non ancora
+decisi con lo stesso indirizzo o dominio vengono ricalcolati (quadrante, controparte, proposta); le
+decisioni prese non si toccano. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
 proposti; con **Conferma → NAS** diventano documenti copiati nella cartella della RFQ con verifica
 dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
 l'invio non è mai automatico.
@@ -763,6 +816,106 @@ PC non è un'azione riuscita. La testata dice anche, per ogni casella, se c'è u
 (**attiva** su quale PC, **OFFLINE**, **non risolta** nel profilo, **non configurata**).
 
 ---
+
+## Fornitori, controparte e convenzioni di codice (blocco 7A, migrazione 0014)
+
+**Anagrafica › Fornitori** (`/admin/fornitori`, amministratore): ragione sociale (unica, a meno delle
+maiuscole), tipo (`materie_prime` | `processi` | `verniciatore`), lingua, note; **domini** (uno
+appartiene a un fornitore solo, come per i clienti: se è già di un altro la schermata dice di chi è)
+e **contatti** esatti (per chi scrive da gmail, o per un gruppo il cui dominio è anche di un cliente:
+il contatto esatto vince sul dominio); le **lavorazioni** che sa fare (caselle sulla tabella
+`lavorazione`: tornitura, fresatura, taglio laser, piega, curvatura tubi, saldatura, zincatura,
+cataforesi, verniciatura a polvere, lavaggio zinco, sabbiatura, trattamento termico, attrezzature); le
+**qualifiche per cliente** (`cliente_fornitore_lavorazione`: «questo cliente lo ha abilitato a fare
+questa lavorazione»; la chiave esterna composta impedisce una qualifica su una lavorazione che il
+fornitore non dichiara, e impedisce di togliere la capacità finché una qualifica la usa). Niente
+JSON: un fornitore non ha regole di codice.
+
+**Importa da file** (`/admin/fornitori/importa`): un JSON `{"fornitori": [...]}` con anteprima
+delle differenze — fornitori da creare, righe da aggiungere, righe già presenti, **non risolti**
+(un cliente che non esiste con quella cartella NAS, una lavorazione fuori catalogo, una qualifica su
+una capacità non dichiarata) — e conferma esplicita. L'import non sovrascrive un fornitore che c'è
+già, non sposta un dominio, non inventa: i non risolti restano tali. Un secondo import dello stesso
+file non scrive niente.
+
+**La controparte del messaggio** (`messaggio.controparte_*`, D33) è un fatto scritto dall'ingest,
+non un calcolo della vista: `interno` se il mittente è una nostra casella (in uscita si guarda il
+primo destinatario esterno), poi il contatto esatto (fornitore o buyer; in entrambe le anagrafiche →
+`ambiguo`), poi il dominio (fornitore o cliente; in entrambi → `ambiguo`), altrimenti `sconosciuto`.
+Per costruzione un fornitore in entrata non produce mai la proposta `nuova_rfq`. Una controparte
+decisa da una persona (`via = manuale`) non viene sovrascritta dal ricalcolo. Al primo avvio dopo la
+0014 il server ricalcola a lotti i messaggi già in database (log: conteggi per tipo prima e dopo).
+Aggiungere un dominio, un contatto o un buyer dall'anagrafica — o censire dall'Inbox — ricalcola i
+messaggi **non decisi** dello stesso indirizzo o dominio e dice quanti.
+
+**Convenzioni di codice** (scheda cliente › «Lavorazioni e fornitori», D39): come il cliente scrive la
+lavorazione superficiale nel codice del pezzo. Ogni convenzione ha un modo (`suffisso`, confrontato
+in fondo al codice senza distinguere le maiuscole, al massimo 12 caratteri senza spazi; oppure
+`regex`), un esempio che deve corrispondere, un controesempio facoltativo che non deve, e almeno una
+lavorazione. Le convenzioni passano dalla stessa doppia porta delle regole di riconoscimento: in
+scrittura ciò che non torna viene rifiutato (`domain.ValidaConvenzione`), in lettura una riga rotta
+scritta a mano in database si vede con ✗ e non si usa (`domain.LeggiConvenzioni`). Il risultato per
+un codice è l'**insieme** delle lavorazioni di tutte le convenzioni attive che corrispondono, con
+l'evidenza: nessuna precedenza nascosta. «Prova un codice» nella scheda cliente mostra lavorazioni e
+fornitori qualificati con lo stesso codice che userà l'ingest. Nessun suffisso reale è nel seme: si
+scrivono dall'anagrafica, cliente per cliente.
+
+## Richieste ai fornitori e intento del messaggio (blocco 7B, migrazione 0015)
+
+**L'intento** è che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_promatec`,
+`rfq_fornitore`, `offerta_fornitore`, `risposta_fornitore`, `domanda_fornitore`, `inoltro_interno`, `non_rfq`,
+`incerto`. L'esito resta che cosa si propone di fare. Il ramo lo decide la controparte: da un **cliente** il
+triage di sempre (e una newsletter o notifica automatica del cliente è `non_rfq` e va in Da validare); da un
+**fornitore** l'intento viene dal testo (offerta, domanda, risposta, non di lavoro) e l'esito è «aggancia» verso
+la nostra richiesta a lui, mai `nuova_rfq`; da un mittente **sconosciuto** o **ambiguo** solo `incerto` o
+`non_rfq`, senza proposta di RFQ: prima si decide chi è (Censisci), poi che cosa vuole (D34). Nella posta di un
+fornitore si cercano codici **solo** con le famiglie dei clienti che gli hanno mandato richieste: S235JR, ISO
+2768, DIN 933 non sono codici di nessuno.
+
+**Le richieste ai fornitori** (`richiesta_fornitore`, figlie della RFQ cliente: fornitore, lavorazione, codici,
+stato `bozza` → `inviata` → `risposta` | `scaduta` | `annullata`). Dalla pagina della RFQ: «Nuova richiesta a un
+fornitore» (la tendina dice per quali lavorazioni il cliente lo ha qualificato) e, se si vuole, la **bozza in
+Outlook** con oggetto `RFQ <cliente> <buyer> <codici>`, i contatti del fornitore come destinatari e il marcatore
+`CockpitRichiestaFornitore` scritto dal worker (UserProperties). Quando la mail compare nella Posta inviata il
+sync rilegge il marcatore: la richiesta prende la sua mail e passa a `inviata`, la mail entra nella RFQ, la
+bozza risulta partita (`CockpitBozza`). Nessuna euristica sull'oggetto. Se la mail è stata **mandata a mano**,
+una nostra mail a un fornitore che cita un codice identificativo di una RFQ aperta propone «richiesta a X per la
+RFQ Y» (regola `RF_oggetto`) e l'operatore conferma: nasce la richiesta, mai un thread.
+
+**La risposta del fornitore**: candidati verso la richiesta, sempre come proposta e tutti visibili — `R0`
+(In-Reply-To/References verso la nostra mail, 95), `R1` (stessa conversazione, 80), `R3f` (un codice cliente che
+appartiene a una RFQ con una richiesta a quel fornitore, 60; due RFQ con quel codice → due candidati). «È la
+risposta a questa richiesta» aggancia la mail alla RFQ cliente, porta la richiesta a `risposta` e propone gli
+allegati (PDF, fogli, documenti) come `offerta_fornitore`, il tipo che alla conferma li copia in
+`OFFERTE FORNITORI`.
+
+Richiede `[sicurezza].bozze` per la bozza; la richiesta nasce comunque e la frase dice perché la bozza no.
+L'invio resta manuale: la bozza si apre in Outlook, si rilegge, si preme Invia lì.
+
+## Inbox coerente e bootstrap ripetibile (checkpoint 7B.5)
+
+**I comandi e la lista tornano insieme.** L'Inbox rende un pezzo solo, `inbox_stato`: linguette dei
+quadranti, direzione, filtro, selettore della casella, contatori e righe. Ogni link lo sostituisce
+per intero (`hx-target="#inbox-stato" hx-swap="outerHTML"`). Prima ogni link ripuntava alla sola
+`#lista` e il server rispondeva con la sola lista, mentre le linguette stavano fuori: le righe
+cambiavano quadrante e i comandi restavano quelli di prima — sullo schermo risultava acceso
+«Fornitori» con sotto le righe di «Da validare». La schermata diceva una cosa e ne mostrava
+un'altra, che è esattamente il difetto che l'Inbox dovrebbe aiutare a non fare.
+
+Lo stato è **uno solo: la barra degli indirizzi**. I link lo portano scritto dentro; il poll ogni 15
+secondi lo rilegge da lì (`cockpitStatoInbox()` in `layout.html`) invece di portarsi dietro i
+parametri congelati all'ultimo rendering. Aprire un messaggio rifà la colonna (`HX-Trigger-After-Settle:
+inbox-aggiorna`), così la riga si accende subito e i contatori si aggiornano. Il pannello di destra
+resta fuori dal pezzo che si ricarica — cambiare quadrante non chiude il messaggio che si sta
+leggendo — e la colonna che scorre resta la stessa, quindi il poll non fa saltare la lettura.
+
+**Dopo un seed i messaggi già arrivati cambiano quadrante subito.** Dalla 0014 la controparte è un
+fatto scritto sul messaggio all'ingest, non una domanda che l'Inbox rifà a ogni lettura: senza
+ricalcolo, censire un fornitore lasciava la sua posta fra gli sconosciuti finché non arrivava una
+mail nuova. Adesso l'import dei fornitori (schermata e riga di comando) e il seme dei clienti
+chiudono con un **ritriage mirato** sulle sole chiavi appena scritte — domini e indirizzi — e dicono
+quanti messaggi hanno riguardato. Le decisioni prese non si toccano: un messaggio già in una RFQ, o
+già ignorato, non viene nemmeno letto.
 
 ## Prove
 
@@ -796,6 +949,25 @@ l'unico livello in cui il client e il server si parlano davvero: gli altri prova
 e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa
 indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
 `prova-tutto.ps1 -SenzaPython` viene saltato e il registro lo annota come non verificato.
+
+### Le prove nel browser (L7)
+
+```powershell
+python -m pip install playwright                 # una volta; il browser è Microsoft Edge, già installato
+$env:COCKPIT_TEST_DSN = "postgres://cockpit_test:cockpit_test@127.0.0.1:5433/cockpit_test"
+go test -tags "integrazione browser" -count=1 -run TestL7 .\internal\web\
+```
+
+Il tag `browser` le tiene fuori dalla corsa normale: senza Playwright il test **salta** e lo dice.
+Il banco è quello di tutti gli altri test web — PostgreSQL vero, server vero su una porta vera — e
+sopra ci gira Edge: `internal\web\e2e\inbox_quadranti.py` apre l'Inbox, clicca le linguette, cambia
+direzione e filtro, aspetta un poll intero e usa indietro/avanti del browser, e ogni volta verifica
+che **la linguetta accesa, le righe mostrate e la barra degli indirizzi dicano la stessa cosa**.
+
+Serve perché a L4 si chiede al server un frammento e si legge l'HTML che torna. Il 18/09/2026 erano
+tutti verdi mentre nel browser le linguette restavano indietro: il difetto non stava in una risposta
+sbagliata, stava nel fatto che la pagina ne sostituiva soltanto un pezzo. Un difetto che vive fra due
+risposte giuste lo vede solo chi guarda la pagina intera.
 
 Tutto in una volta, con il registro degli esiti:
 
@@ -884,12 +1056,19 @@ internal/migrazioni        applica migrations/*.sql in ordine, una transazione p
 internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
-                           taglio della catena di risposta (catena.go)
-internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
+                           taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
+                           intento.go: che cosa il messaggio è, per ramo (7B.3); i candidati verso una richiesta;
+                           convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
+internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
+                           controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
+                           marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
+internal/fornitori         l'import del seme dei fornitori con anteprima e conferma (7A.4)
+internal/aggancio          i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
+                           a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
 internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
                            estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
-                           shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
+                           capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che cosa si annulla quando si accendono (blocco 4)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
                            impronta e generazione dei token dei worker (voce 2.4)
@@ -902,7 +1081,12 @@ internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/wo
 internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                            instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
                            inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
-                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22)
+                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
+                           anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
+                           fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
+                           richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
+                           integrita_admin.go: /admin/nas;
+                           e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`)
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
@@ -912,7 +1096,12 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
                            0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
                            0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
-                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP)
+                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP),
+                           0013_integrita_nas.sql (nas_anomalia: il ricognitore dell'integrità NAS, blocco 5B),
+                           0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
+                           la controparte sul messaggio; v_inbox con controparte_tipo e controparte),
+                           0015_richiesta_fornitore.sql (richiesta_fornitore, candidato_richiesta, intento e bersaglio della proposta,
+                           messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
@@ -922,7 +1111,9 @@ workers/                   cockpit_client.py (client, config, log, battito), wor
                            Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
 workers/tests/             i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
                            finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
-scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
+scripts/                   avvia-dev.ps1 (semina le anagrafiche, poi avvia server e worker), ferma-dev.ps1,
+                           semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
+                           db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                            azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                            backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
 ```

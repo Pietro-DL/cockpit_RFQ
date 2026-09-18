@@ -135,20 +135,48 @@ SELECT * FROM v_inbox WHERE messaggio_id = $1;
 -- name: ListInbox :many
 -- `casella` vuoto = tutte le caselle. NON è un controllo di autorizzazione: è il filtro della
 -- schermata. Chi può vedere che cosa è la voce 2.2 (puoVedere) e resta restrittivo fino ad allora.
+--
+-- Blocco 7 (D34): `quadrante` è Buyer (controparte cliente), Fornitori (controparte fornitore) o
+-- Da validare (sconosciuto, ambiguo, interno); vuoto = tutti, per chi cerca un messaggio senza
+-- sapere di chi è. `direzione` vuota = entrata e uscita insieme.
 SELECT * FROM v_inbox
 WHERE (sqlc.arg(filtro)::text = 'tutti'
     OR (sqlc.arg(filtro)::text = 'orfani'     AND thread_id IS NULL AND NOT ignorato)
     OR (sqlc.arg(filtro)::text = 'agganciati' AND thread_id IS NOT NULL)
     OR (sqlc.arg(filtro)::text = 'ignorati'   AND thread_id IS NULL AND ignorato))
   AND (sqlc.narg(casella)::uuid IS NULL OR sqlc.narg(casella)::uuid = ANY (caselle_id))
+  AND (sqlc.arg(quadrante)::text = ''
+    OR (sqlc.arg(quadrante)::text = 'buyer'     AND controparte_tipo = 'cliente' AND (triage_intento IS DISTINCT FROM 'non_rfq' OR thread_id IS NOT NULL))
+    OR (sqlc.arg(quadrante)::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR (sqlc.arg(quadrante)::text = 'validare'  AND (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')
+                                                     OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq' AND thread_id IS NULL))))
+  AND (sqlc.arg(direzione)::text = '' OR direzione::text = sqlc.arg(direzione)::text)
 ORDER BY data_evento DESC
 LIMIT sqlc.arg(limite) OFFSET sqlc.arg(salta);
 
 -- name: ContaInbox :one
+-- I numeri accanto ai filtri: del quadrante e della direzione scelti, così dicono quanti ne
+-- vedresti premendo.
 SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
        count(*) FILTER (WHERE thread_id IS NOT NULL)             AS agganciati,
        count(*) FILTER (WHERE thread_id IS NULL AND ignorato)     AS ignorati,
        count(*)                                                  AS tutti
+FROM v_inbox
+WHERE (sqlc.narg(casella)::uuid IS NULL OR sqlc.narg(casella)::uuid = ANY (caselle_id))
+  AND (sqlc.arg(quadrante)::text = ''
+    OR (sqlc.arg(quadrante)::text = 'buyer'     AND controparte_tipo = 'cliente' AND (triage_intento IS DISTINCT FROM 'non_rfq' OR thread_id IS NOT NULL))
+    OR (sqlc.arg(quadrante)::text = 'fornitori' AND controparte_tipo = 'fornitore')
+    OR (sqlc.arg(quadrante)::text = 'validare'  AND (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno')
+                                                     OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq' AND thread_id IS NULL))))
+  AND (sqlc.arg(direzione)::text = '' OR direzione::text = sqlc.arg(direzione)::text);
+
+-- name: ContaQuadranti :one
+-- I numeri sui quadranti: gli ORFANI di ciascuno, cioè quello che aspetta una decisione. Un
+-- quadrante con zero non è vuoto, è a posto.
+SELECT count(*) FILTER (WHERE controparte_tipo = 'cliente' AND triage_intento IS DISTINCT FROM 'non_rfq' AND thread_id IS NULL AND NOT ignorato) AS buyer,
+       count(*) FILTER (WHERE controparte_tipo = 'fornitore' AND thread_id IS NULL AND NOT ignorato) AS fornitori,
+       count(*) FILTER (WHERE (controparte_tipo IN ('sconosciuto', 'ambiguo', 'interno') OR (controparte_tipo = 'cliente' AND triage_intento = 'non_rfq'))
+                          AND thread_id IS NULL AND NOT ignorato) AS validare
 FROM v_inbox
 WHERE sqlc.narg(casella)::uuid IS NULL OR sqlc.narg(casella)::uuid = ANY (caselle_id);
 

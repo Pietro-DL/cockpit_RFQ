@@ -62,6 +62,11 @@ type MessaggioIn struct {
 	FlagStato         int            `json:"flag_stato"`
 	Categorie         []string       `json:"categorie"`
 	Allegati          []AllegatoIn   `json:"allegati"`
+	// Marcatori sono le UserProperties `Cockpit*` dell'elemento, che il Cockpit stesso ha scritto
+	// creando una bozza (blocco 7B): `CockpitBozza` = bozza_id, `CockpitRichiestaFornitore` =
+	// richiesta_id. Quando la mail compare nella Posta inviata, il marcatore la lega a ciò che l'ha
+	// generata senza euristiche. Assente (worker vecchio) = nessun marcatore.
+	Marcatori map[string]string `json:"marcatori,omitempty"`
 }
 
 // TolleranzaFuturo è quanto un messaggio può dichiarare di essere arrivato «dopo adesso» prima che
@@ -388,6 +393,9 @@ type PayloadCreaBozza struct {
 	Allegati    []string       `json:"allegati"` // percorsi assoluti leggibili dal worker
 	Mostra      bool           `json:"mostra"`   // Display() in Outlook
 	Invia       bool           `json:"invia"`    // Send(): solo se il worker ha consenti_invio
+	// Marcatori: UserProperties `Cockpit*` da scrivere sulla bozza (blocco 7B), oltre a
+	// `CockpitBozza` che il worker mette sempre. Il sync della Posta inviata le rilegge.
+	Marcatori map[string]string `json:"marcatori,omitempty"`
 	RiferimentoElemento
 }
 

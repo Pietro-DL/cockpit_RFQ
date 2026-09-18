@@ -92,30 +92,64 @@ body.rail-chiusa .rail{display:none}
   body.rail-chiusa .guscio{grid-template-columns:1fr}
 }
 
-/* ---------------------------------------------------------------- Admin - Anagrafica (6.11, 8.8) */
+/* ---------------------------------------------------------------- Admin - Anagrafica (6.11, 8.8; rifatta nel blocco 7A.5)
+   Prima: elenco stretto + schede affiancate da 340 px, campi larghi quanto la scheda, il form
+   «nuovo» in fondo a un elenco che scorre. Adesso: elenco a sinistra con il «nuovo» in cima,
+   dettaglio a destra in UNA colonna larga, campi con l'etichetta a sinistra e l'input che prende
+   il resto della riga. Sotto i 900 px torna tutto in colonna. */
+.ana-testa{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+.ana-testa h1{margin:0}.ana-testa .tabs{margin:0;border-bottom:0}.ana-testa .importa{margin-left:auto}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--bordo);margin-bottom:12px}
 .tabs a{padding:6px 12px;color:var(--muto);border-bottom:2px solid transparent;margin-bottom:-1px}
 .tabs a.attivo{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
-.ana{display:grid;grid-template-columns:minmax(200px,240px) 1fr;gap:12px;align-items:start}
-.ana .elenco{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;overflow:auto;max-height:calc(100vh - 160px)}
-.ana .elenco a{display:block;padding:7px 10px;border-bottom:1px solid var(--bordo);color:var(--testo)}
-.ana .elenco a:hover{background:#f0f4fa}.ana .elenco a.attivo{background:#e8f0fc}
-.ana .elenco a small{display:block;color:var(--muto);font-size:11px}
-.ana .elenco a.spento{opacity:.55}
-.schede{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start}
-.scheda{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;padding:12px 14px}
-.scheda h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muto);margin:0 0 8px}
-.scheda label{display:grid;gap:3px;color:var(--muto);font-size:12px;margin-bottom:8px}
-.scheda input,.scheda select,.scheda textarea{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;color:var(--testo);width:100%}
+.ana{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:16px;align-items:start}
+.ana .elenco{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;overflow:hidden;position:sticky;top:8px;max-height:calc(100vh - 120px);display:flex;flex-direction:column}
+.ana .elenco .voci{overflow:auto}
+.ana .elenco .voci a{display:block;padding:8px 12px;border-bottom:1px solid var(--bordo);color:var(--testo)}
+.ana .elenco .voci a .nome{font-weight:600}
+.ana .elenco .voci a:hover{background:#f0f4fa}.ana .elenco .voci a.attivo{background:#e8f0fc;box-shadow:inset 3px 0 0 var(--acc)}
+.ana .elenco .voci a small{display:block;color:var(--muto);font-size:11px;margin-top:2px}
+.ana .elenco .voci a.spento{opacity:.55}
+.ana .elenco details.nuovo{border-bottom:1px solid var(--bordo);background:#fafbfc}
+.ana .elenco details.nuovo summary{cursor:pointer;padding:9px 12px;font-weight:600;color:var(--acc)}
+.ana .elenco details.nuovo form{padding:4px 12px 12px;display:grid;gap:8px}
+.ana .elenco details.nuovo label{display:grid;gap:3px;font-size:12px;color:var(--muto)}
+.ana .elenco details.nuovo input,.ana .elenco details.nuovo select{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;width:100%}
+.ana .dettaglio{min-width:0;max-width:1100px}
+.ana-intestazione{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:2px 0 8px}
+.ana-intestazione h2{font-size:20px;margin:0}.ana-intestazione .chips{display:flex;gap:6px;flex-wrap:wrap}
+.schede{display:grid;gap:12px}
+.scheda{background:var(--carta);border:1px solid var(--bordo);border-radius:8px;padding:14px 18px;margin-bottom:14px}
+.scheda h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muto);margin:0 0 10px}
+.scheda label{display:grid;grid-template-columns:190px minmax(0,1fr);gap:4px 14px;align-items:start;color:var(--muto);font-size:12px;margin-bottom:10px}
+.scheda label>span{display:grid;gap:4px;min-width:0}
+.scheda label>span.inline{display:flex;align-items:center;gap:6px;color:var(--testo);font-size:13px;padding-top:6px}
+.scheda label>span.inline input{width:auto}
+.scheda input,.scheda select,.scheda textarea{font:inherit;padding:7px 8px;border:1px solid var(--bordo);border-radius:6px;color:var(--testo);width:100%;min-width:0}
+.scheda input.corto{max-width:140px}
+.scheda input[disabled]{background:#f6f7f9;color:var(--muto)}
 .scheda textarea.json{font-family:Consolas,monospace;font-size:12px;min-height:220px;white-space:pre}
-.scheda .riga-campi{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.scheda textarea{font-family:inherit}
+.scheda label>small,.scheda span>small{font-size:11px;line-height:1.35}
+.scheda .riga-campi{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px;margin-bottom:8px}
+.scheda .riga-campi label{grid-template-columns:1fr;gap:3px;margin-bottom:0}
+.scheda label.inline{grid-template-columns:auto 1fr;align-items:center;color:var(--testo);font-size:13px}
+.scheda label.inline input{width:auto}
+.scheda .azioni-form{display:flex;gap:8px;margin-top:6px}
+.scheda form.aggiungi{margin-top:12px;padding-top:10px;border-top:1px dashed var(--bordo)}
+.scheda form.aggiungi h3{margin-top:0}
+.scheda table.compatta td{padding:4px 8px}
+.scheda .scorri{overflow-x:auto}
 .regola{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--bordo)}
 .regola b{font-weight:600;font-size:12px}
 .spunta{font-weight:700}.spunta.si{color:var(--verde)}.spunta.no{color:var(--rosso)}
 .motivo{grid-column:1/-1;color:var(--rosso);font-size:12px;margin:2px 0 4px}
 .esito-prova{background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;font-size:13px}
 .vuoto{color:var(--muto);padding:16px;text-align:center}
-@media (max-width:900px){.ana{grid-template-columns:1fr}.ana .elenco{max-height:220px}}
+.chip.materie_prime{background:#fff5d6;color:#8a6a00}.chip.processi{background:#e4eefb;color:var(--acc)}.chip.verniciatore{background:#e8e4f7;color:#4b3a9a}
+.elenco-import{margin:4px 0 8px;padding-left:20px}
+.scheda.importa input[type=file]{padding:6px 0;border:0}
+@media (max-width:900px){.ana{grid-template-columns:1fr}.ana .elenco{position:static;max-height:260px}.scheda label{grid-template-columns:1fr}}
 
 /* ---------------------------------------------------------------- checkpoint 3R: candidati ed evidenza */
 .briciole{margin:0 0 4px;font-size:12px;color:var(--muto)}
@@ -149,3 +183,35 @@ details.avanzato summary{cursor:pointer;color:var(--muto)}
 .riga-esito{margin-top:4px}
 .esito-prova{margin-top:10px}
 .diagnosi{margin-bottom:10px}
+
+/* ---------------------------------------------------------------- blocco 7: Inbox a quadranti (D34) e controparte */
+.quadranti{display:flex;gap:4px;padding:8px 8px 0;background:var(--carta);position:sticky;top:0;z-index:1}
+.quadranti a.quadrante{flex:1;text-align:center;padding:7px 8px;border:1px solid var(--bordo);border-bottom:0;border-radius:8px 8px 0 0;color:var(--muto);background:#f6f7f9;font-weight:600}
+.quadranti a.quadrante.tutti{flex:0 0 auto;font-weight:400;font-size:12px;align-self:flex-end;padding:5px 10px}
+.quadranti a.quadrante.attivo{background:var(--carta);color:var(--acc);border-color:var(--acc);border-bottom:1px solid var(--carta);margin-bottom:-1px}
+.quadranti a.quadrante small{display:inline-block;min-width:1.6em;margin-left:6px;padding:0 6px;border-radius:10px;background:#eef1f5;color:var(--muto);font-weight:600}
+.quadranti a.quadrante small.pieno{background:var(--acc);color:#fff}
+.quadranti a.quadrante.validare small.pieno{background:var(--rosso)}
+.filtri .direzione{display:inline-flex;gap:2px}.filtri .direzione a{padding:3px 8px;font-size:12px}
+.filtri .separatore{width:1px;height:18px;background:var(--bordo);margin:0 4px}
+.chip.fornitore{background:#e8e4f7;color:#4b3a9a;font-weight:600}
+.chip.cliente{background:#e4eefb;color:var(--acc)}
+.r1 .canale{color:var(--muto);font-weight:700}
+/* «Censisci come fornitore / cliente» dal pannello (7A.3) */
+.form-censisci{display:grid;gap:10px}.form-censisci fieldset{border:1px solid var(--bordo);border-radius:8px;padding:10px 12px;display:grid;gap:8px}
+.form-censisci legend{color:var(--muto);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.form-censisci label{display:grid;gap:3px;color:var(--muto);font-size:12px}.form-censisci input,.form-censisci select{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;color:var(--testo)}
+.form-censisci label.inline{display:flex;gap:6px;align-items:center}
+.caselle-lavorazioni{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px 12px}
+.caselle-lavorazioni label{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--testo)}
+.azioni .censisci{margin-left:auto;display:inline-flex;gap:6px}
+
+/* ---------------------------------------------------------------- blocco 7B: intento, richieste ai fornitori */
+.chip.intento{background:#eef1f5;color:#4a5568}
+.chip.intento.rfq_cliente{background:#e3f1e8;color:#1f6b3d}.chip.intento.offerta_fornitore,.chip.intento.risposta_fornitore,.chip.intento.domanda_fornitore{background:#e8e4f7;color:#4b3a9a}
+.chip.intento.rfq_fornitore,.chip.intento.offerta_promatec{background:#e4eefb;color:var(--acc)}.chip.intento.non_rfq{background:#f3f3f3;color:#999}.chip.intento.incerto{background:#fff5d6;color:#8a6a00}
+.chip.richiesta{background:#e8e4f7;color:#4b3a9a}.chip.richiesta.bozza{background:#eef1f5;color:var(--muto)}.chip.richiesta.inviata{background:#e4eefb;color:var(--acc)}
+.chip.richiesta.risposta{background:#e3f1e8;color:#1f6b3d}.chip.richiesta.annullata,.chip.richiesta.scaduta{background:#f3f3f3;color:#999;text-decoration:line-through}
+.candidati-richiesta form.candidato{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;margin-bottom:6px}
+.candidati-richiesta form.candidato .testo{flex:1}
+table.richieste td{padding:4px 6px}

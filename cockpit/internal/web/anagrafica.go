@@ -118,8 +118,16 @@ type anagraficaDati struct {
 	Fabbisogno []db.ListFabbisognoEffettivoRow
 	Propri     []db.FabbisognoDocumento // solo le righe DI QUESTO cliente: quelle che si possono togliere
 	Prova      *provaDati
-	Errore     string
-	Fatto      string
+	// Blocco 7A (D39): la sezione «Lavorazioni e fornitori». Le convenzioni con la diagnosi riga per
+	// riga (stesso ordine), le qualifiche, e le tendine.
+	Convenzioni         []db.ListConvenzioniClienteRow
+	DiagnosiConvenzioni []domain.Diagnostica
+	Qualifiche          []db.ListQualificheClienteRow
+	Lavorazioni         []db.Lavorazione
+	Fornitori           []db.Fornitore
+	ProvaCodice         *provaCodice
+	Errore              string
+	Fatto               string
 }
 
 // sezioniAnagrafica sono le schede del cliente, nell'ordine in cui si usano: prima chi è, poi da
@@ -130,6 +138,7 @@ var sezioniAnagrafica = []struct{ Chiave, Nome string }{
 	{"contatti", "Domini e Buyer"},
 	{"riconoscimento", "Riconoscimento"},
 	{"fabbisogno", "Fabbisogno documentale"},
+	{"lavorazioni", "Lavorazioni e fornitori"},
 	{"prova", "Banco di prova"},
 }
 
@@ -191,6 +200,9 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 		dati.Regole, dati.Diagnosi = domain.LeggiRegole(c.Regole)
 		if dati.RegoleJSON == "" {
 			dati.RegoleJSON = indenta(c.Regole, dati.Regole)
+		}
+		if dati.Sez == "lavorazioni" {
+			s.caricaLavorazioniCliente(ctx, q, &dati, c.ClienteID)
 		}
 	}
 	s.rendi(w, r, "anagrafica.html", "anagrafica_corpo", "Anagrafica", dati)
@@ -317,7 +329,8 @@ func (s *Server) aggiungiDominioCliente(w http.ResponseWriter, r *http.Request) 
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Errore: err.Error()})
 		return
 	}
-	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: "Dominio aggiunto."})
+	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti",
+		Fatto: "Dominio aggiunto." + s.ritriagePer(r.Context(), "", strings.ToLower(strings.TrimSpace(r.FormValue("dominio"))))})
 }
 
 func (s *Server) eliminaDominioCliente(w http.ResponseWriter, r *http.Request) {
