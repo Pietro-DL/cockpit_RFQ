@@ -249,7 +249,13 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		if !t.CartellaRelativa.Valid {
 			return nil, fmt.Errorf("thread %s senza cartella_relativa", d.ThreadID)
 		}
-		src, err := e.sorgenteStaging(ctx, q, d)
+		src, sparito, err := e.cercaSorgente(ctx, q, d)
+		if sparito != nil {
+			// Il contenuto non c'e' piu' nella cache. L'operatore ha gia' deciso che quel file va sul
+			// NAS, e il file e' ancora in Outlook o dentro il suo archivio: la ripresa si accoda da
+			// sola (Pre-7), e questo tentativo fallisce dicendo che cosa sta succedendo.
+			err = e.riprendiContenuto(ctx, q, j, *sparito, err)
+		}
 		if err != nil {
 			// Il motivo va SCRITTO SUL DOCUMENTO, non solo nel log: il log lo legge chi sta
 			// diagnosticando, il fascicolo lo guarda chi aspetta quel disegno. Nella prova reale la
@@ -270,6 +276,9 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 				return nil, err
 			}
 		}
+		// Il contenuto e' stato USATO, non consumato: resta nella cache (Pre-7, D31), e l'orario
+		// rinfrescato dice al custode che serve ancora.
+		ToccaContenuto(src)
 		return map[string]any{"destinazione": dst, "dry_run": e.NAS.DryRun}, nil
 	}
 	return nil, fmt.Errorf("tipo job non gestito dal server: %s", j.Tipo)
@@ -293,24 +302,98 @@ var ErrContenutoMancante = errors.New("contenuto non piu' in staging")
 // a nessuno che cosa fare. Il contenuto si riprende con «Riscarica» sull'allegato, e la frase adesso
 // lo dice.
 func (e *EsecutoreServer) sorgenteStaging(ctx context.Context, q *db.Queries, d db.Documento) (string, error) {
+	src, _, err := e.cercaSorgente(ctx, q, d)
+	return src, err
+}
+
+// cercaSorgente e' sorgenteStaging che dice anche QUALE allegato ha perso il file, perche' la
+// ripresa (riprendiContenuto) ha bisogno dell'allegato, non del suo nome. Dal Pre-7 conta anche un
+// allegato con l'hash giusto e senza percorso: e' cosi' che lo lascia il custode della cache.
+func (e *EsecutoreServer) cercaSorgente(ctx context.Context, q *db.Queries, d db.Documento) (string, *db.Allegato, error) {
 	all, err := q.ListAllegatiThread(ctx, uuid.NullUUID{UUID: d.ThreadID, Valid: true})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	var sparito string
-	for _, a := range all {
-		if !a.Sha256.Valid || a.Sha256.String != d.Sha256 || !a.PathStaging.Valid {
+	var sparito *db.Allegato
+	for i := range all {
+		a := all[i]
+		if !a.Sha256.Valid || a.Sha256.String != d.Sha256 {
 			continue
 		}
-		if st, err := os.Stat(a.PathStaging.String); err == nil && !st.IsDir() {
-			return a.PathStaging.String, nil
+		if a.PathStaging.Valid {
+			if st, err := os.Stat(a.PathStaging.String); err == nil && !st.IsDir() {
+				return a.PathStaging.String, nil, nil
+			}
 		}
-		sparito = a.NomeFile
+		if sparito == nil {
+			sparito = &all[i]
+		}
 	}
-	if sparito != "" {
-		return "", fmt.Errorf("%w: il contenuto di %q non e' piu' nello staging del server. "+
+	if sparito != nil {
+		return "", sparito, fmt.Errorf("%w: il contenuto di %q non e' piu' nello staging del server. "+
 			"Si riprende da Outlook: «Riscarica» sull'allegato nel messaggio, poi «Riprova copie» qui",
-			ErrContenutoMancante, sparito)
+			ErrContenutoMancante, sparito.NomeFile)
 	}
-	return "", fmt.Errorf("%w: nessun allegato in staging con sha256 %s", pgx.ErrNoRows, d.Sha256)
+	return "", nil, fmt.Errorf("%w: nessun allegato in staging con sha256 %s", pgx.ErrNoRows, d.Sha256)
+}
+
+// riprendiContenuto rimette in moto la ripresa di un contenuto sparito dalla cache (Pre-7).
+//
+// Il documento e' confermato: l'operatore ha gia' deciso che quel file va sul NAS, e il file e'
+// ancora in Outlook o dentro l'archivio da cui era stato estratto. Chiedergli di premere «Riscarica»
+// per una cosa che il sistema sa fare da solo e' un vicolo cieco travestito da pulsante.
+//
+// Tre esiti:
+//   - la voce viene da un archivio ancora in cache → si riaccoda l'estrazione, che rimette la voce
+//     al suo posto (il nome e' l'hash) senza tornare in Outlook;
+//   - altrimenti si accoda il download da Outlook dell'allegato, o dell'archivio che lo conteneva;
+//   - se per QUESTA copia il download e' gia' stato provato ed e' fallito, non si insiste: resta il
+//     messaggio di prima, con «Riscarica», perche' a quel punto serve una persona. Senza questo
+//     limite una mail cancellata da Outlook farebbe accodare un download a ogni tentativo della
+//     copia, cioe' per ore.
+//
+// In tutti i casi questo tentativo della copia FALLISCE, e la coda lo riprova da sola con il suo
+// rinvio: il contenuto arriva fra qualche secondo o qualche minuto, e il tentativo dopo lo trova.
+func (e *EsecutoreServer) riprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Allegato, originale error) error {
+	bersaglio := a
+	if a.ContenitoreID.Valid {
+		z, err := q.GetAllegato(ctx, a.ContenitoreID.UUID)
+		if err != nil {
+			return originale
+		}
+		if z.PathStaging.Valid && (FileStaging{}).Presente(z.PathStaging.String) {
+			if _, err := Accoda(ctx, q, db.TipoJobEstraiArchivio, api.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
+				"estrai:"+z.AllegatoID.String(), 2); err != nil {
+				return originale
+			}
+			return fmt.Errorf("%w: il contenuto di %q non e' piu' nella cache, ma l'archivio %q si': "+
+				"riestrazione accodata, la copia riprova da sola", ErrContenutoMancante, a.NomeFile, z.NomeFile)
+		}
+		bersaglio = z
+	}
+	chiave := "stage:" + bersaglio.AllegatoID.String()
+	if ultimo, err := q.UltimoJobPerChiave(ctx, pgtype.Text{String: chiave, Valid: true}); err == nil &&
+		ultimo.Stato == db.StatoJobFallito && ultimo.ChiusoIl != nil && ultimo.ChiusoIl.After(j.CreatoIl) {
+		return fmt.Errorf("%w (il download da Outlook e' gia' stato provato per questa copia ed e' fallito: %s)",
+			originale, ultimo.Errore.String)
+	}
+	m, err := q.GetMessaggio(ctx, bersaglio.MessaggioID)
+	if err != nil {
+		return originale
+	}
+	copia, err := CopiaPerDownload(ctx, q, m.MessaggioID, uuid.NullUUID{}, uuid.Nil)
+	if err != nil {
+		return fmt.Errorf("%w (nessuna casella attiva da cui riscaricarlo: %v)", originale, err)
+	}
+	esito, _, err := AccodaStage(ctx, q, FileStaging{}, bersaglio, m, copia, 2)
+	if err != nil {
+		return originale
+	}
+	switch esito {
+	case StageAccodato, StageGiaInCoda:
+		return fmt.Errorf("%w: il contenuto di %q non e' piu' nella cache: download da Outlook accodato, "+
+			"la copia riprova da sola", ErrContenutoMancante, bersaglio.NomeFile)
+	default: // gia' presente o riusato: il file e' ricomparso fra il controllo e adesso
+		return fmt.Errorf("%w: il contenuto di %q e' ricomparso: la copia riprova da sola", ErrContenutoMancante, bersaglio.NomeFile)
+	}
 }

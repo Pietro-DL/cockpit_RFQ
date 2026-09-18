@@ -197,14 +197,18 @@ vecchia richiesta e vuole quei file, li scarica con «Scarica».
 **`[retention].giorni_job`** — per quanti giorni si tengono i job già chiusi. `0` = non cancellare
 niente; una coda che non si svuota mai diventa illeggibile.
 
-**`[retention].giorni_staging`** — per quanti giorni si tiene un **contenuto** che nessun allegato
-nomina più. `0` = non cancellare niente, ed è il valore predefinito: questa toglie file, non righe, e
-un file cancellato per sbaglio si riprende solo se quell'elemento è ancora in Outlook. La domanda si
-fa sullo `sha256`, che è il nome del file; lo staging vecchio (per messaggio) non viene toccato.
+**`[retention].cache_gg`** e **`cache_max_mb`** — la politica della **cache dei contenuti** (Pre-7,
+D31). Un contenuto si toglie da `_contenuti` solo se nessuno ne ha bisogno adesso — nessun documento
+che aspetta la copia, nessuna proposta aperta, nessun job pendente, nessuna anomalia NAS — **e** da
+`cache_gg` giorni non lo tocca nessuno (assente = 30; `0` = mai per età), **oppure** quando la cache
+supera `cache_max_mb` (assente = nessun limite): allora si parte dal meno usato, e si toglie il
+minimo che basta. Un file tolto si riprende da Outlook o dall'archivio da cui era uscito, e la copia
+sul NAS lo fa da sola. `giorni_staging`, la voce di prima, vale come `cache_gg` se `cache_gg` manca.
 
 ### Com'è fatto lo staging
 
-Dal blocco 4A lo staging è organizzato **per contenuto**, non per messaggio, e ha due sole cartelle:
+Dal blocco 4A lo staging è organizzato **per contenuto**, non per messaggio, e dal Pre-7 `_contenuti`
+è dichiaratamente una **cache**, non una coda:
 
 ```
 _staging\
@@ -220,9 +224,36 @@ cinque volte; uno zip da 6 MB con dentro 30 MB di file ne occupava 36 **per ogni
 compariva. Ora lo stesso contenuto è un file solo, e gli allegati che lo condividono condividono il
 percorso: chi cancella quel file li lascia senza tutti insieme, e tutti hanno «Riscarica».
 
+| Cartella | Natura | Politica |
+|---|---|---|
+| `_parti\` | temporaneo (`<allegato>.parte.<token>`, `zip.<token>\`) | vuota a regime: lo scheduler toglie gli orfani dei tentativi finiti |
+| `_contenuti\` | **cache** per sha256 | **resta dopo la copia sul NAS**; il custode la svuota per età o per capienza, mai sotto a chi la usa |
+| `tmp\` (nello staging del **worker**) | di passaggio | svuotata a ogni avvio del worker |
+| `log\`, `restrict.json` | log e stato del self-test | non si toccano |
+
+Perché la cache resta dopo la copia: serve a non riscaricare da Outlook lo stesso file ricevuto
+un'altra volta, a rianalizzarlo quando cambia il dizionario, e a **ricopiarlo sul NAS** se un giorno
+il file sparisce (Admin › Integrità NAS). Prima del blocco 7 la pulizia toglieva solo i contenuti
+che nessun allegato nominava più — e gli allegati non si cancellano mai, quindi non toglieva niente.
+
+**I pin.** Il custode (`jobs.Cache`, una passata ogni sei ore) non toglie un contenuto finché: un
+documento confermato con quell'hash è `in_coda` o in `errore`; una proposta su un allegato con
+quell'hash è aperta; un job pendente lo cita (per hash, per allegato o per documento); un'anomalia
+NAS aperta riguarda un documento con quell'hash. E un **archivio** resta finché una sua voce è
+pinnata — anche una voce che sul disco non c'è più: è da lui che si riestrae. Alla rimozione tutti
+gli `allegato.path_staging` che puntavano a quel contenuto vanno a `NULL` nella stessa transazione;
+lo stato dell'allegato resta com'è. Ogni contenuto tolto lascia una riga di log con hash, byte,
+motivo e allegati toccati.
+
+**La ripresa.** Se una copia sul NAS trova il contenuto sparito, non si ferma a chiedere
+«Riscarica»: se la voce viene da un archivio ancora in cache accoda la riestrazione, altrimenti
+accoda il download da Outlook, e riprova da sola al tentativo dopo. Insiste una volta sola per copia:
+se quel download è già stato provato ed è fallito, torna il messaggio con «Riscarica», perché a quel
+punto serve una persona.
+
 Conseguenza da conoscere: dopo un «Riscarica» che porta byte diversi, il contenuto vecchio **resta
-sul disco** finché non passa la pulizia — il file nuovo ha un nome nuovo, perché il nome è il
-contenuto. È il prezzo di non averne mai due copie, ed è esattamente ciò che `giorni_staging` regola.
+sul disco** finché non passa il custode — il file nuovo ha un nome nuovo, perché il nome è il
+contenuto. È il prezzo di non averne mai due copie.
 
 **`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
 insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
@@ -857,7 +888,7 @@ internal/domain            regole pure + test: codici, proposta dal nome file, p
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale
 internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
-                           estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti) e la sua pulizia;
+                           estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
                            shadow.go: la modalita di sola lettura (che cosa non si accoda e non si esegue, e che cosa si annulla al ritorno in produzione)
 internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;

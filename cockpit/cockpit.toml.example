@@ -208,14 +208,22 @@ nas_scrittura     = false
 # Per quanti giorni si tengono i job già chiusi. 0 = non cancellare nulla. Una coda che non si
 # svuota mai diventa illeggibile e rallenta le pagine di amministrazione.
 giorni_job = 30
-# Per quanti giorni si tiene un CONTENUTO nello staging che nessun allegato nomina più (blocco 4A).
-# 0 = non cancellare niente, ed è il valore predefinito.
+# La CACHE dei contenuti (Pre-7, D31). `_contenuti` non si svuota quando la copia sul NAS è andata
+# bene: serve a non riscaricare da Outlook lo stesso file, a rianalizzarlo, a ricopiarlo sul NAS se
+# sparisce. Un contenuto si toglie solo se nessuno ne ha bisogno adesso — nessun documento che
+# aspetta la copia, nessuna proposta aperta, nessun job pendente, nessuna anomalia NAS — E da
+# cache_gg giorni non lo tocca nessuno, OPPURE quando la cache supera cache_max_mb (allora si parte
+# dal meno usato, e si toglie il minimo che basta). Un file tolto si riprende da solo, da Outlook o
+# dall'archivio da cui era uscito. Non è la stessa cosa della riga qui sopra: quella toglie righe
+# di coda, questa toglie FILE.
 #
-# Non è la stessa cosa della riga qui sopra, per quanto le due si somiglino: quella toglie righe di
-# coda, al peggio si perde una diagnosi; questa toglie FILE, e un file cancellato per sbaglio si
-# riprende soltanto se quell'elemento è ancora in Outlook. Viene tolto solo ciò che NESSUN allegato
-# nomina più — la domanda si fa sullo sha256, che è il nome del file — e mai lo staging vecchio,
-# quello organizzato per messaggio, dove un nome non dice niente sul contenuto.
+# cache_gg: assente = 30; 0 = non togliere mai per età (resta la capienza).
+# cache_max_mb: assente = nessun limite.
+cache_gg = 30
+# cache_max_mb = 4096
+#
+# giorni_staging è la voce di prima del blocco 7 ed è DEPRECATA: vale come cache_gg se cache_gg
+# manca, e il server lo dice nel log a ogni avvio. Va sostituita con cache_gg.
 # giorni_staging = 90
 
 [analisi]

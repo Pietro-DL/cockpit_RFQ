@@ -172,15 +172,48 @@ type Staging struct {
 	MaxMB      int  `toml:"max_mb"`    // 0 = la soglia predefinita (20 MB)
 }
 
-// Retention: per quanto si tengono i job chiusi e i file nello staging. 0 = non cancellare nulla.
+// Retention: per quanto si tengono i job chiusi e i contenuti nella cache dello staging.
 //
-// Le due voci non si somigliano, per quanto stiano vicine. `giorni_job` toglie righe di coda gia'
-// chiuse: al peggio si perde una diagnosi. `giorni_staging` toglie FILE, e un file cancellato per
-// sbaglio si riprende solo se quell'elemento e' ancora in Outlook — quindi in assenza vale «non
-// cancellare», e viene tolto soltanto un contenuto che NESSUN allegato nomina piu'.
+// Le voci non si somigliano, per quanto stiano vicine. `giorni_job` toglie righe di coda gia'
+// chiuse: al peggio si perde una diagnosi. `cache_gg` e `cache_max_mb` tolgono FILE dalla cache
+// `_contenuti` (Pre-7, D31): un contenuto che nessuno sta usando adesso — nessuna copia in attesa,
+// nessuna proposta aperta, nessun job, nessuna anomalia NAS — e che da `cache_gg` giorni non tocca
+// nessuno, oppure il meno usato quando la cache supera `cache_max_mb`. Un file tolto si riprende
+// da Outlook, o dall'archivio da cui era stato estratto: per questo la cache si puo' svuotare, e
+// per questo si svuota per ultima e con giudizio.
+//
+// `giorni_staging` e' la voce di prima del blocco 7 e vale come `cache_gg` se `cache_gg` manca:
+// chi l'aveva scritta aveva gia' deciso quanto tenere i file, e non deve riscriverlo.
 type Retention struct {
-	GiorniJob     int `toml:"giorni_job"`
-	GiorniStaging int `toml:"giorni_staging"`
+	GiorniJob     int  `toml:"giorni_job"`
+	GiorniStaging int  `toml:"giorni_staging"` // DEPRECATA: vale come cache_gg se cache_gg manca
+	CacheGiorni   *int `toml:"cache_gg"`       // assente = 30; 0 = mai per eta' (resta la capienza)
+	CacheMaxMB    int  `toml:"cache_max_mb"`   // 0 = nessun limite di capienza
+}
+
+// RetentionCache: da quanti giorni un contenuto deve essere fermo perche' la cache lo tolga. Zero
+// = non togliere niente per eta'. Assente nel file = trenta giorni.
+func (c *Config) RetentionCache() time.Duration {
+	giorni := 30
+	switch {
+	case c.Retention.CacheGiorni != nil:
+		giorni = *c.Retention.CacheGiorni
+	case c.Retention.GiorniStaging > 0:
+		giorni = c.Retention.GiorniStaging
+	}
+	if giorni < 0 {
+		giorni = 0
+	}
+	return time.Duration(giorni) * 24 * time.Hour
+}
+
+// CacheMaxByte: oltre quanti byte la cache toglie i contenuti meno usati anche se non sono ancora
+// vecchi. Zero = nessun limite.
+func (c *Config) CacheMaxByte() int64 {
+	if c.Retention.CacheMaxMB <= 0 {
+		return 0
+	}
+	return int64(c.Retention.CacheMaxMB) << 20
 }
 
 // Analisi identifica CON CHE COSA un file è stato analizzato (voce 1.12, A15).

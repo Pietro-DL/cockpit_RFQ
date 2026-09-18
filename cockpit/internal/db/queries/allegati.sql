@@ -21,19 +21,6 @@ WHERE m.thread_id = $1 ORDER BY m.data_evento, a.indice;
 UPDATE allegato SET path_staging = $2, sha256 = $3, bytes = $4, stato = 'in_staging', errore = NULL
 WHERE allegato_id = $1;
 
--- name: ShaAncoraUsati :many
--- Quali di questi contenuti servono ancora a qualcuno (blocco 4A, pulizia dello staging).
---
--- La domanda si fa sull'HASH e non sul percorso. Il nome di un contenuto in staging E' il suo
--- sha256, quindi l'hash basta; il percorso invece e' una stringa che su Windows puo' differire per
--- maiuscole o per separatori senza indicare un file diverso, e una pulizia che sbaglia il confronto
--- cancella il disegno che stava per essere copiato sul NAS.
---
--- Basta che UN allegato porti quell'hash: non si guarda il suo path_staging. Un allegato che ha
--- l'hash ma non il percorso e' uno che quel contenuto lo riotterrebbe senza riscaricarlo, ed e'
--- esattamente il caso che la deduplica serve a rendere gratuito.
-SELECT DISTINCT sha256 FROM allegato WHERE sha256 = ANY(@sha::char(64)[]);
-
 -- name: AllegatoInStagingPerHash :one
 -- Un ALTRO allegato con lo stesso contenuto già sceso in staging (voce 1.11). Lo stesso disegno
 -- allegato a tre richieste diverse è lo stesso file: scaricarlo tre volte significa tre giri in COM su

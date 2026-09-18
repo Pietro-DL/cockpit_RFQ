@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import socket
 import time
 from datetime import datetime, timedelta, timezone
@@ -57,6 +58,7 @@ class Worker:
         self.worker_id = nome_worker("outlook", cfg)
         self.staging = os.path.abspath(cfg["staging"])
         os.makedirs(self.staging, exist_ok=True)
+        self.svuota_tmp()
         self.outlook: Outlook | None = None
         self.battito: Battito | None = None
         # quanto si concede al lavoro per fermarsi da solo dopo un 409, prima dell'uscita forzata (C16)
@@ -334,6 +336,30 @@ class Worker:
                 l = PayloadSegnaLetto.model_validate(p)
                 return RisultatoElemento(**self.ol().segna_letto(l.entry_id, self.store_di(l.casella_id), l.letto, l.message_id)).model_dump(mode="json")
         raise ErroreDefinitivo(f"tipo job sconosciuto per il worker outlook: {job.tipo}")
+
+    def svuota_tmp(self) -> int:
+        """`tmp\\` e' di passaggio (Pre-7): ci sta l'allegato fra il salvataggio da Outlook e l'upload al
+        server, e si cancella subito dopo. Quello che ci resta e' di un processo morto in mezzo, e
+        nessuno lo riprendera': il job e' tornato in coda e il tentativo dopo lo risalva da capo.
+        Si svuota all'avvio, cioe' quando e' certo che nessun tentativo di QUESTO worker sia in corso.
+        Il resto dello staging del worker (`restrict.json`, `log\\`) non si tocca."""
+        tmp = os.path.join(self.staging, "tmp")
+        if not os.path.isdir(tmp):
+            return 0
+        n = 0
+        for nome in os.listdir(tmp):
+            p = os.path.join(tmp, nome)
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+                n += 1
+            except OSError as e:
+                log.warning("tmp non svuotata: %s (%s)", p, e)
+        if n:
+            log.info("cartella tmp svuotata all'avvio: %d voci di tentativi precedenti", n)
+        return n
 
     # ------------------------------------------------------------ download di un allegato (voce 2.3)
 

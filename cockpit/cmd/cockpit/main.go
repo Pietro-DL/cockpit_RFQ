@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,10 +219,16 @@ func run(cfgPath string, soloMigrazioni bool, semeAnagrafica string) error {
 		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
 		IntervalloSync: intervalloSync,
 		Dal:            opzioniSync.Dal, GiorniIniziali: opzioniSync.GiorniIniziali, Lotto: opzioniSync.Lotto,
-		RetentionGiorni:        cfg.Retention.GiorniJob,
-		Staging:                staging,
-		RetentionStagingGiorni: cfg.Retention.GiorniStaging,
+		RetentionGiorni: cfg.Retention.GiorniJob,
+		Staging:         staging,
 	}).Avvia(ctx)
+	// La cache dei contenuti (Pre-7, D31): `_contenuti` resta dopo la copia sul NAS, e si svuota per
+	// eta' o per capienza, mai sotto a chi la sta usando.
+	if cfg.Retention.GiorniStaging > 0 && cfg.Retention.CacheGiorni == nil {
+		log.Warn("[retention].giorni_staging e' deprecata: vale come cache_gg", "giorni", cfg.Retention.GiorniStaging,
+			"nota", "scrivere cache_gg = "+strconv.Itoa(cfg.Retention.GiorniStaging)+" e togliere la riga")
+	}
+	(&jobs.Cache{Pool: pool, Staging: staging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte()}).Avvia(ctx)
 	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
 	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama
 	// nessuno. Il testo delle mail dei clienti esce verso un servizio esterno, e quella e' una cosa
