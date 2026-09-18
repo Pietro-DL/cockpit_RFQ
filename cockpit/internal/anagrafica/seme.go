@@ -20,6 +20,7 @@
 package anagrafica
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -86,7 +87,7 @@ type Esito struct {
 // riga (cioè il cliente) in cui sta.
 func Leggi(r io.Reader) (Seme, error) {
 	var s Seme
-	d := json.NewDecoder(r)
+	d := json.NewDecoder(senzaBOM(r))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&s); err != nil {
 		return s, fmt.Errorf("seme: %w", err)
@@ -251,6 +252,18 @@ func ptxt(v string) pgtype.Text {
 func primo(a, b string) string {
 	if strings.TrimSpace(a) != "" {
 		return a
+	}
+	return b
+}
+
+// senzaBOM toglie la firma UTF-8 che Windows mette in testa a un file salvato con Blocco note o con
+// `Out-File`. Non è un dettaglio da puristi: senza, il file viene rifiutato con «invalid character
+// '\ufeff' looking for beginning of value», che non dice a nessuno che cosa fare. Il contenuto è
+// giusto, il problema sono tre byte invisibili.
+func senzaBOM(r io.Reader) io.Reader {
+	b := bufio.NewReader(r)
+	if primi, err := b.Peek(3); err == nil && primi[0] == 0xEF && primi[1] == 0xBB && primi[2] == 0xBF {
+		_, _ = b.Discard(3)
 	}
 	return b
 }

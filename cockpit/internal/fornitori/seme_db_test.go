@@ -175,6 +175,17 @@ func TestIlSemeRifiutaIlFileSbagliato(t *testing.T) {
 			t.Errorf("%s: accettato", nome)
 		}
 	}
+	// Un file giusto salvato da Windows con la firma UTF-8 in testa e un file giusto: i tre byte
+	// invisibili non sono un motivo per rifiutarlo con un messaggio che nessuno sa leggere (7B.5).
+	buono := `{"fornitori": [{"ragione_sociale": "X", "tipo": "processi"}]}`
+	for nome, testo := range map[string]string{"senza BOM": buono, "con BOM": "\ufeff" + buono} {
+		s, err := Leggi(strings.NewReader(testo))
+		if err != nil {
+			t.Errorf("%s: rifiutato (%v)", nome, err)
+		} else if len(s.Fornitori) != 1 {
+			t.Errorf("%s: letti %d fornitori", nome, len(s.Fornitori))
+		}
+	}
 }
 
 // CP13 — i vincoli della 0014 sul database di test: ciò che il Go rifiuta, il database lo rifiuta

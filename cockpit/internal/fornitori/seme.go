@@ -20,6 +20,7 @@
 package fornitori
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -69,7 +70,7 @@ type QualificaSeme struct {
 // Leggi legge e CONVALIDA il file. Ogni errore è un errore del file, e dice dove.
 func Leggi(r io.Reader) (Seme, error) {
 	var s Seme
-	dec := json.NewDecoder(r)
+	dec := json.NewDecoder(senzaBOM(r))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
 		return s, fmt.Errorf("il file non è un seme leggibile: %w", err)
@@ -415,4 +416,16 @@ func Applica(ctx context.Context, pool *pgxpool.Pool, s Seme) (Anteprima, error)
 func txt(s string) pgtype.Text {
 	s = strings.TrimSpace(s)
 	return pgtype.Text{String: s, Valid: s != ""}
+}
+
+// senzaBOM toglie la firma UTF-8 che Windows mette in testa a un file salvato con Blocco note o con
+// `Out-File`. Non è un dettaglio da puristi: senza, il file viene rifiutato con «invalid character
+// '\ufeff' looking for beginning of value», che non dice a nessuno che cosa fare. Il contenuto è
+// giusto, il problema sono tre byte invisibili.
+func senzaBOM(r io.Reader) io.Reader {
+	b := bufio.NewReader(r)
+	if primi, err := b.Peek(3); err == nil && primi[0] == 0xEF && primi[1] == 0xBB && primi[2] == 0xBF {
+		_, _ = b.Discard(3)
+	}
+	return b
 }
