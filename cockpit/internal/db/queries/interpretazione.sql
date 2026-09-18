@@ -22,13 +22,16 @@ RETURNING *;
 SELECT * FROM fabbisogno_documento WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY cliente_id NULLS FIRST, tipo_componente, tipo;
 
 -- name: UpsertTriage :one
+-- Dalla 0015 porta anche l'INTENTO (che cosa il messaggio e') e, per la posta dei fornitori, il
+-- bersaglio: una richiesta esistente o «richiesta a X per la RFQ Y» (fornitore_proposto + thread_proposto).
 INSERT INTO proposta_triage (messaggio_id, esito, thread_proposto, cliente_proposto, buyer_proposto, identificativi,
-                             scadenza_proposta, confidenza, motivi, fonte)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                             scadenza_proposta, confidenza, motivi, fonte, intento, richiesta_proposta, fornitore_proposto)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (messaggio_id, fonte) DO UPDATE SET
     esito = EXCLUDED.esito, thread_proposto = EXCLUDED.thread_proposto, cliente_proposto = EXCLUDED.cliente_proposto,
     buyer_proposto = EXCLUDED.buyer_proposto, identificativi = EXCLUDED.identificativi, scadenza_proposta = EXCLUDED.scadenza_proposta,
-    confidenza = EXCLUDED.confidenza, motivi = EXCLUDED.motivi
+    confidenza = EXCLUDED.confidenza, motivi = EXCLUDED.motivi,
+    intento = EXCLUDED.intento, richiesta_proposta = EXCLUDED.richiesta_proposta, fornitore_proposto = EXCLUDED.fornitore_proposto
 WHERE proposta_triage.stato = 'proposta'
 RETURNING *;
 

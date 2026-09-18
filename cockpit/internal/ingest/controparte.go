@@ -158,6 +158,9 @@ type interpretazione struct {
 	Riferimenti     []string
 	DataEvento      time.Time
 	Motore          *domain.Motore
+	// Blocco 7B: il mittente (indirizzi automatici) e il fornitore, per i candidati verso una richiesta.
+	Mittente    string
+	FornitoreID uuid.UUID
 }
 
 // interpreta calcola i candidati di aggancio, il triage e i candidati di codice, e scrive la
@@ -166,21 +169,46 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 	it := domain.IngressoTriage{
 		Oggetto: in.Oggetto, Corpo: in.Corpo, NomiAllegati: in.NomiAllegati, Direzione: string(in.Direzione),
 		Interno: in.Interno, ClienteNoto: in.ClienteID.Valid, BuyerNoto: in.BuyerID.Valid,
-		Controparte: in.Controparte.Tipo, Motore: in.Motore,
+		Controparte: in.Controparte.Tipo, Motore: in.Motore, Mittente: in.Mittente,
 	}
 	e := in.Motore.Estrai(it.Testi()...)
+	codiciFamiglia := domain.SoloCodici(domain.DiFamiglia(e.Codici))
 	cand, err := aggancio.CalcolaESalva(ctx, q, aggancio.Ingresso{
 		MessaggioID: in.MessaggioID, ConversazioneID: in.ConversazioneID,
 		ClienteID: in.ClienteID, BuyerID: in.BuyerID,
 		InReplyTo: in.InReplyTo, Riferimenti: in.Riferimenti,
 		Oggetto: domain.OggettoPulito(in.Oggetto), DataEvento: in.DataEvento,
-		Codici: domain.SoloCodici(domain.DiFamiglia(e.Codici)), Riferimento: e.Riferimento,
+		Codici: codiciFamiglia, Riferimento: e.Riferimento,
 		FinestraGG: in.Motore.Finestra(),
 	})
 	if err != nil {
 		return domain.EsitoTriage{}, fmt.Errorf("candidati di aggancio: %w", err)
 	}
 	it.Candidati = cand
+	// Blocco 7B: la posta di un fornitore si aggancia alla RICHIESTA che gli abbiamo mandato (R0, R1,
+	// R3f verso richiesta_fornitore); una nostra mail a un fornitore che cita una RFQ aperta e' la
+	// richiesta mandata a mano (RF_oggetto). Sono candidati, e li vede l'operatore.
+	fornitore := in.Controparte.Tipo == domain.ControparteFornitore && in.FornitoreID != uuid.Nil
+	if fornitore && in.Direzione == db.DirezioneEntrata {
+		cr, err := aggancio.CalcolaRichieste(ctx, q, aggancio.IngressoRichieste{
+			MessaggioID: in.MessaggioID, FornitoreID: in.FornitoreID, ConversazioneID: in.ConversazioneID,
+			InReplyTo: in.InReplyTo, Riferimenti: in.Riferimenti, Codici: codiciFamiglia,
+		})
+		if err != nil {
+			return domain.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
+		}
+		if err := aggancio.SalvaCandidatiRichiesta(ctx, q, in.MessaggioID, cr); err != nil {
+			return domain.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
+		}
+		it.CandidatiRichiesta = cr
+	}
+	if fornitore && in.Direzione == db.DirezioneUscita {
+		rm, err := aggancio.RichiesteManuali(ctx, q, domain.SoloCodici(e.Codici))
+		if err != nil {
+			return domain.EsitoTriage{}, err
+		}
+		it.RichiesteManuali = rm
+	}
 	tr := domain.Triage(it)
 	if err := aggancio.SalvaCandidatiCodice(ctx, q, in.MessaggioID, tr.Estrazione); err != nil {
 		return tr, fmt.Errorf("candidati di codice: %w", err)
@@ -198,20 +226,50 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 	if d, ok := domain.RilevaScadenza(in.Corpo, in.DataEvento); ok {
 		scad = &d
 	}
-	var proposto uuid.NullUUID
+	var proposto, richiestaProposta, fornitoreProposto uuid.NullUUID
 	if tr.Candidato != nil {
 		if tid, err := uuid.Parse(tr.Candidato.ThreadID); err == nil {
 			proposto = uuid.NullUUID{UUID: tid, Valid: true}
 		}
 	}
+	if tr.CandidatoRichiesta != nil {
+		if rid, err := uuid.Parse(tr.CandidatoRichiesta.RichiestaID); err == nil {
+			richiestaProposta = uuid.NullUUID{UUID: rid, Valid: true}
+		}
+	}
+	if tr.Intento == domain.IntentoRfqFornitore && proposto.Valid {
+		fornitoreProposto = uuid.NullUUID{UUID: in.FornitoreID, Valid: true}
+	}
+	var intento db.NullIntentoMessaggio
+	if tr.Intento != "" {
+		intento = db.NullIntentoMessaggio{IntentoMessaggio: db.IntentoMessaggio(tr.Intento), Valid: true}
+	}
 	if _, err := q.UpsertTriage(ctx, db.UpsertTriageParams{
 		MessaggioID: in.MessaggioID, Esito: db.EsitoTriage(tr.Esito), ClienteProposto: in.ClienteID, BuyerProposto: in.BuyerID,
-		ThreadProposto: proposto,
+		ThreadProposto: proposto, Intento: intento, RichiestaProposta: richiestaProposta, FornitoreProposto: fornitoreProposto,
 		Identificativi: tr.Codici, ScadenzaProposta: scad, Confidenza: int16(tr.Confidenza), Motivi: motivi, Fonte: db.FonteTriageDeterministico,
 	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return tr, fmt.Errorf("triage: %w", err)
 	}
 	return tr, nil
+}
+
+// daInterpretare dice se un messaggio orfano va passato al triage: la posta in entrata e quella
+// interna, come sempre, e dal 7B anche una nostra mail a un fornitore (la richiesta mandata a mano).
+func daInterpretare(dir db.Direzione, interno bool, c domain.Controparte) bool {
+	return dir == db.DirezioneEntrata || interno || (dir == db.DirezioneUscita && c.Tipo == domain.ControparteFornitore)
+}
+
+// motorePer sceglie il motore: quello del cliente, oppure — per un fornitore — l'unione delle famiglie
+// dei clienti che hanno richieste aperte a lui (IB8). Nil per tutti gli altri.
+func motorePer(ctx context.Context, q *db.Queries, motori *Motori, clienteID uuid.NullUUID, c domain.Controparte) *domain.Motore {
+	if clienteID.Valid {
+		return motori.Per(ctx, q, clienteID.UUID)
+	}
+	if c.Tipo == domain.ControparteFornitore && c.FornitoreID != uuid.Nil {
+		return motori.PerFornitore(ctx, q, c.FornitoreID)
+	}
+	return nil
 }
 
 // EsitoRitriage e' il resoconto del ricalcolo mirato: quanti messaggi si sono guardati, quante
@@ -282,9 +340,12 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
 	prima, err := q.GetTriageMessaggio(ctx, m.MessaggioID)
-	esitoPrima := ""
+	esitoPrima, intentoPrima := "", ""
 	if err == nil {
 		esitoPrima = string(prima.Esito)
+		if prima.Intento.Valid {
+			intentoPrima = string(prima.Intento.IntentoMessaggio)
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
 	}
@@ -309,11 +370,8 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 			return "", "", err
 		}
 	}
-	if !m.ThreadID.Valid && (m.Direzione == db.DirezioneEntrata || m.Interno) {
-		var motore *domain.Motore
-		if clienteID.Valid {
-			motore = motori.Per(ctx, q, clienteID.UUID)
-		}
+	if !m.ThreadID.Valid && daInterpretare(m.Direzione, m.Interno, c) {
+		motore := motorePer(ctx, q, motori, clienteID, c)
 		var nomi []string
 		if allegati, err := q.ListAllegatiMessaggio(ctx, m.MessaggioID); err == nil {
 			for _, a := range allegati {
@@ -339,13 +397,13 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 			ClienteID: clienteID, BuyerID: buyerID, Controparte: c,
 			Oggetto: m.Oggetto.String, Corpo: m.CorpoTesto.String, NomiAllegati: nomi,
 			Direzione: m.Direzione, Interno: m.Interno, InReplyTo: inReplyTo, Riferimenti: riferimenti,
-			DataEvento: m.DataEvento, Motore: motore,
+			DataEvento: m.DataEvento, Motore: motore, Mittente: m.MittenteIndirizzo.String, FornitoreID: c.FornitoreID,
 		})
 		if err != nil {
 			return "", "", err
 		}
-		if tr.Esito != esitoPrima {
-			cambioProposta = fmt.Sprintf("%s: proposta %s → %s", m.ChiaveEsterna, primo(esitoPrima, "nessuna"), tr.Esito)
+		if tr.Esito != esitoPrima || tr.Intento != intentoPrima {
+			cambioProposta = fmt.Sprintf("%s: proposta %s/%s → %s/%s", m.ChiaveEsterna, primo(esitoPrima, "nessuna"), primo(intentoPrima, "-"), tr.Esito, primo(tr.Intento, "-"))
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

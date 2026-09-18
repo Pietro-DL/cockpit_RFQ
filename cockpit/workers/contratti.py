@@ -66,6 +66,10 @@ class MessaggioIn(Base):
     flag_stato: int = 0
     categorie: list[str] = Field(default_factory=list)
     allegati: list[AllegatoIn] = Field(default_factory=list)
+    # Le UserProperties `Cockpit*` dell'elemento (blocco 7B): CockpitBozza = bozza_id,
+    # CockpitRichiestaFornitore = richiesta_id. Le ha scritte il Cockpit creando la bozza; il sync
+    # della Posta inviata le rilegge e il server lega la mail a cio' che l'ha generata.
+    marcatori: dict[str, str] = Field(default_factory=dict)
 
 
 class CursoreLotto(Base):
@@ -306,6 +310,8 @@ class PayloadCreaBozza(RiferimentoElemento):
     allegati: list[str] = Field(default_factory=list)
     mostra: bool = True
     invia: bool = False
+    # UserProperties `Cockpit*` da scrivere sulla bozza, oltre a CockpitBozza (blocco 7B)
+    marcatori: dict[str, str] = Field(default_factory=dict)
 
 
 class RisultatoBozza(Base):

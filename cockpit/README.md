@@ -815,6 +815,38 @@ l'evidenza: nessuna precedenza nascosta. «Prova un codice» nella scheda client
 fornitori qualificati con lo stesso codice che userà l'ingest. Nessun suffisso reale è nel seme: si
 scrivono dall'anagrafica, cliente per cliente.
 
+## Richieste ai fornitori e intento del messaggio (blocco 7B, migrazione 0015)
+
+**L'intento** è che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_promatec`,
+`rfq_fornitore`, `offerta_fornitore`, `risposta_fornitore`, `domanda_fornitore`, `inoltro_interno`, `non_rfq`,
+`incerto`. L'esito resta che cosa si propone di fare. Il ramo lo decide la controparte: da un **cliente** il
+triage di sempre (e una newsletter o notifica automatica del cliente è `non_rfq` e va in Da validare); da un
+**fornitore** l'intento viene dal testo (offerta, domanda, risposta, non di lavoro) e l'esito è «aggancia» verso
+la nostra richiesta a lui, mai `nuova_rfq`; da un mittente **sconosciuto** o **ambiguo** solo `incerto` o
+`non_rfq`, senza proposta di RFQ: prima si decide chi è (Censisci), poi che cosa vuole (D34). Nella posta di un
+fornitore si cercano codici **solo** con le famiglie dei clienti che gli hanno mandato richieste: S235JR, ISO
+2768, DIN 933 non sono codici di nessuno.
+
+**Le richieste ai fornitori** (`richiesta_fornitore`, figlie della RFQ cliente: fornitore, lavorazione, codici,
+stato `bozza` → `inviata` → `risposta` | `scaduta` | `annullata`). Dalla pagina della RFQ: «Nuova richiesta a un
+fornitore» (la tendina dice per quali lavorazioni il cliente lo ha qualificato) e, se si vuole, la **bozza in
+Outlook** con oggetto `RFQ <cliente> <buyer> <codici>`, i contatti del fornitore come destinatari e il marcatore
+`CockpitRichiestaFornitore` scritto dal worker (UserProperties). Quando la mail compare nella Posta inviata il
+sync rilegge il marcatore: la richiesta prende la sua mail e passa a `inviata`, la mail entra nella RFQ, la
+bozza risulta partita (`CockpitBozza`). Nessuna euristica sull'oggetto. Se la mail è stata **mandata a mano**,
+una nostra mail a un fornitore che cita un codice identificativo di una RFQ aperta propone «richiesta a X per la
+RFQ Y» (regola `RF_oggetto`) e l'operatore conferma: nasce la richiesta, mai un thread.
+
+**La risposta del fornitore**: candidati verso la richiesta, sempre come proposta e tutti visibili — `R0`
+(In-Reply-To/References verso la nostra mail, 95), `R1` (stessa conversazione, 80), `R3f` (un codice cliente che
+appartiene a una RFQ con una richiesta a quel fornitore, 60; due RFQ con quel codice → due candidati). «È la
+risposta a questa richiesta» aggancia la mail alla RFQ cliente, porta la richiesta a `risposta` e propone gli
+allegati (PDF, fogli, documenti) come `offerta_fornitore`, il tipo che alla conferma li copia in
+`OFFERTE FORNITORI`.
+
+Richiede `[sicurezza].bozze` per la bozza; la richiesta nasce comunque e la frase dice perché la bozza no.
+L'invio resta manuale: la bozza si apre in Outlook, si rilegge, si preme Invia lì.
+
 ## Prove
 
 ```powershell
@@ -936,10 +968,14 @@ internal/fondazioni        seed non distruttivo di caselle, postazioni e credenz
 internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
 internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
                            taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
+                           intento.go: che cosa il messaggio è, per ramo (7B.3); i candidati verso una richiesta;
                            convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
-                           controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio
+                           controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
+                           marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
 internal/fornitori         l'import del seme dei fornitori con anteprima e conferma (7A.4)
+internal/aggancio          i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
+                           a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
 internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
                            estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
@@ -959,6 +995,7 @@ internal/web               HTML+HTMX: login (postazione per IP), /sessione/posta
                            postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
                            anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
                            fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
+                           richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
                            integrita_admin.go: /admin/nas
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
@@ -972,7 +1009,9 @@ migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_
                            0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP),
                            0013_integrita_nas.sql (nas_anomalia: il ricognitore dell'integrità NAS, blocco 5B),
                            0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
-                           la controparte sul messaggio; v_inbox con controparte_tipo e controparte)
+                           la controparte sul messaggio; v_inbox con controparte_tipo e controparte),
+                           0015_richiesta_fornitore.sql (richiesta_fornitore, candidato_richiesta, intento e bersaglio della proposta,
+                           messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento)
 internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
 contracts/*.schema.json    JSON Schema generati da workers/contratti.py
 workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,

@@ -218,6 +218,11 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	// blocco 7A.3: «Censisci come fornitore / cliente» dal pannello, con il ritriage mirato
 	mux.HandleFunc("GET /messaggio/{id}/censisci", s.autenticato(s.censisciForm))
 	mux.HandleFunc("POST /messaggio/{id}/censisci", s.autenticato(s.censisci))
+	// blocco 7B: la posta dei fornitori si aggancia alla richiesta; la richiesta mandata a mano si conferma
+	mux.HandleFunc("POST /messaggio/{id}/risposta-fornitore", s.autenticato(s.rispostaFornitore))
+	mux.HandleFunc("POST /messaggio/{id}/richiesta-fornitore", s.autenticato(s.richiestaFornitoreManuale))
+	mux.HandleFunc("POST /thread/{id}/richiesta", s.autenticato(s.nuovaRichiestaFornitore))
+	mux.HandleFunc("POST /thread/{id}/richiesta/{rid}/annulla", s.autenticato(s.annullaRichiestaFornitore))
 	mux.HandleFunc("GET /anagrafica/buyer", s.autenticato(s.buyerSelect))
 	mux.HandleFunc("GET /thread/cerca", s.autenticato(s.cercaThread))
 	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
@@ -894,6 +899,15 @@ type messaggioDati struct {
 	// Candidati sono le proposte di aggancio R0–R5 con l'evidenza: si vedono nel pannello, prima di
 	// aprire un form, perché è lì che si decide se questo messaggio è una richiesta nuova o no.
 	Candidati []db.ListCandidatiAggancioRow
+	// Blocco 7B: la posta dei fornitori. CandidatiRichiesta sono le richieste nostre a cui questa
+	// mail potrebbe rispondere (R0, R1, R3f); PropostaThread + PropostaFornitore è «richiesta a X
+	// per la RFQ Y» su una nostra mail mandata a mano; Richiesta è quella già collegata.
+	CandidatiRichiesta []db.ListCandidatiRichiestaRow
+	PropostaThread     *db.ThreadOfferta
+	PropostaFornitore  *db.Fornitore
+	Richiesta          *db.RichiestaFornitore
+	RichiestaFornitore string
+	Lavorazioni        []db.Lavorazione
 }
 
 // Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
@@ -964,6 +978,25 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 	}
 	if !m.ThreadID.Valid {
 		d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
+		d.CandidatiRichiesta, _ = q.ListCandidatiRichiesta(ctx, id)
+		// «richiesta a X per la RFQ Y»: una nostra mail a un fornitore che cita una RFQ aperta (7B)
+		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Intento.Valid && p.Intento.IntentoMessaggio == db.IntentoMessaggioRfqFornitore &&
+			p.ThreadProposto.Valid && p.FornitoreProposto.Valid && p.Stato == db.StatoTriageProposta {
+			if t, err := q.GetThread(ctx, p.ThreadProposto.UUID); err == nil {
+				if f, err := q.GetFornitore(ctx, p.FornitoreProposto.UUID); err == nil {
+					d.PropostaThread, d.PropostaFornitore = &t, &f
+					d.Lavorazioni, _ = q.ListLavorazioni(ctx)
+				}
+			}
+		}
+	}
+	if m.RichiestaFornitoreID.Valid {
+		if ric, err := q.GetRichiesta(ctx, m.RichiestaFornitoreID.UUID); err == nil {
+			d.Richiesta = &ric
+			if f, err := q.GetFornitore(ctx, ric.FornitoreID); err == nil {
+				d.RichiestaFornitore = f.RagioneSociale
+			}
+		}
 	}
 	var caselle []string
 	for _, p := range d.Presenze {

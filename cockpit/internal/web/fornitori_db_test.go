@@ -201,11 +201,11 @@ func TestCP5CensisciComeFornitoreRicalcolaSoloINonDecisi(t *testing.T) {
 		}
 	}
 	var proposte int
-	if err := b.pool.QueryRow(b.ctx, `SELECT count(*) FROM proposta_triage WHERE messaggio_id IN ($1,$2) AND esito = 'nuova_rfq' AND stato = 'proposta'`, uno, due).Scan(&proposte); err != nil {
+	if err := b.pool.QueryRow(b.ctx, `SELECT count(*) FROM proposta_triage WHERE messaggio_id IN ($1,$2) AND esito = 'ignora' AND intento = 'incerto' AND stato = 'proposta'`, uno, due).Scan(&proposte); err != nil {
 		t.Fatal(err)
 	}
 	if proposte != 2 {
-		t.Fatalf("da sconosciuti con PDF e STP il triage doveva proporre nuova_rfq a tutti e due, non a %d", proposte)
+		t.Fatalf("da sconosciuti il triage propone «incerto» senza RFQ nuova (7B.3) a tutti e due, non a %d", proposte)
 	}
 
 	fp := b.browser("10.0.0.5:51000")

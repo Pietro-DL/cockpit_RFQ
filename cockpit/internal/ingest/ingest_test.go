@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"testing"
@@ -60,6 +61,34 @@ func pool(t *testing.T) *pgxpool.Pool {
 	return p
 }
 
+// clienteDiProva censisce un cliente con il suo dominio, e lo toglie alla fine: dal 7B la
+// proposta di una RFQ nuova nasce solo da un mittente censito come cliente (7B.3), quindi i test
+// che la aspettano devono dirlo.
+func clienteDiProva(t *testing.T, p *pgxpool.Pool, cartella, dominio string) {
+	t.Helper()
+	ctx := context.Background()
+	q := db.New(p)
+	c, err := q.InsertCliente(ctx, db.InsertClienteParams{CartellaNas: cartella, RagioneSociale: cartella, Regole: json.RawMessage("{}")})
+	if err != nil {
+		if existing, e := q.GetClientePerCartella(ctx, cartella); e == nil {
+			c = existing
+		} else {
+			t.Fatalf("cliente di prova: %v", err)
+		}
+	}
+	if err := q.InsertDominioCliente(ctx, db.InsertDominioClienteParams{Lower: dominio, ClienteID: c.ClienteID}); err != nil {
+		if _, e := q.GetClientePerDominio(ctx, dominio); e != nil {
+			t.Fatalf("dominio di prova: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(ctx, `UPDATE messaggio SET controparte_tipo = 'sconosciuto', controparte_cliente_id = NULL WHERE controparte_cliente_id = $1`, c.ClienteID)
+		_, _ = p.Exec(ctx, `UPDATE proposta_triage SET cliente_proposto = NULL WHERE cliente_proposto = $1`, c.ClienteID)
+		_, _ = p.Exec(ctx, `DELETE FROM dominio_cliente WHERE cliente_id = $1`, c.ClienteID)
+		_, _ = p.Exec(ctx, `DELETE FROM cliente WHERE cliente_id = $1`, c.ClienteID)
+	})
+}
+
 // casellaProva assicura che esista la casella a cui appartengono i lotti dei test. Dalla fase 1 un
 // lotto senza casella non esiste: la casella è il perimetro entro cui il messaggio viene acquisito.
 func casellaProva(t *testing.T, p *pgxpool.Pool) db.Casella {
@@ -103,6 +132,8 @@ func TestIngestIdempotente(t *testing.T) {
 	p := pool(t)
 	ctx := context.Background()
 	s := &Servizio{Pool: p, Log: slog.Default()}
+	// Dal 7B una RFQ si propone solo a un mittente censito come cliente: acme.example lo e'.
+	clienteDiProva(t, p, "ACME IDEMPOTENTE", "acme.example")
 
 	conta := func() (msg, all, rif, tri int) {
 		_ = p.QueryRow(ctx, `SELECT count(*) FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%'`).Scan(&msg)

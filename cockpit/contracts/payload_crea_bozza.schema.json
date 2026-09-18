@@ -118,6 +118,13 @@
       "default": false,
       "title": "Invia",
       "type": "boolean"
+    },
+    "marcatori": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Marcatori",
+      "type": "object"
     }
   },
   "required": [

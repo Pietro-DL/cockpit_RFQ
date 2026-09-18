@@ -673,6 +673,85 @@ func AllFonteTriageValues() []FonteTriage {
 	}
 }
 
+type IntentoMessaggio string
+
+const (
+	IntentoMessaggioRfqCliente        IntentoMessaggio = "rfq_cliente"
+	IntentoMessaggioOffertaPromatec   IntentoMessaggio = "offerta_promatec"
+	IntentoMessaggioRfqFornitore      IntentoMessaggio = "rfq_fornitore"
+	IntentoMessaggioOffertaFornitore  IntentoMessaggio = "offerta_fornitore"
+	IntentoMessaggioRispostaFornitore IntentoMessaggio = "risposta_fornitore"
+	IntentoMessaggioDomandaFornitore  IntentoMessaggio = "domanda_fornitore"
+	IntentoMessaggioInoltroInterno    IntentoMessaggio = "inoltro_interno"
+	IntentoMessaggioNonRfq            IntentoMessaggio = "non_rfq"
+	IntentoMessaggioIncerto           IntentoMessaggio = "incerto"
+)
+
+func (e *IntentoMessaggio) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IntentoMessaggio(s)
+	case string:
+		*e = IntentoMessaggio(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IntentoMessaggio: %T", src)
+	}
+	return nil
+}
+
+type NullIntentoMessaggio struct {
+	IntentoMessaggio IntentoMessaggio `json:"intento_messaggio"`
+	Valid            bool             `json:"valid"` // Valid is true if IntentoMessaggio is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIntentoMessaggio) Scan(value interface{}) error {
+	if value == nil {
+		ns.IntentoMessaggio, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IntentoMessaggio.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIntentoMessaggio) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IntentoMessaggio), nil
+}
+
+func (e IntentoMessaggio) Valid() bool {
+	switch e {
+	case IntentoMessaggioRfqCliente,
+		IntentoMessaggioOffertaPromatec,
+		IntentoMessaggioRfqFornitore,
+		IntentoMessaggioOffertaFornitore,
+		IntentoMessaggioRispostaFornitore,
+		IntentoMessaggioDomandaFornitore,
+		IntentoMessaggioInoltroInterno,
+		IntentoMessaggioNonRfq,
+		IntentoMessaggioIncerto:
+		return true
+	}
+	return false
+}
+
+func AllIntentoMessaggioValues() []IntentoMessaggio {
+	return []IntentoMessaggio{
+		IntentoMessaggioRfqCliente,
+		IntentoMessaggioOffertaPromatec,
+		IntentoMessaggioRfqFornitore,
+		IntentoMessaggioOffertaFornitore,
+		IntentoMessaggioRispostaFornitore,
+		IntentoMessaggioDomandaFornitore,
+		IntentoMessaggioInoltroInterno,
+		IntentoMessaggioNonRfq,
+		IntentoMessaggioIncerto,
+	}
+}
+
 type ModoConvenzione string
 
 const (
@@ -1325,6 +1404,70 @@ func AllRegolaAggancioValues() []RegolaAggancio {
 	}
 }
 
+type RegolaRichiesta string
+
+const (
+	RegolaRichiestaR0Reply         RegolaRichiesta = "R0_reply"
+	RegolaRichiestaR1Conversazione RegolaRichiesta = "R1_conversazione"
+	RegolaRichiestaR3fCodice       RegolaRichiesta = "R3f_codice"
+	RegolaRichiestaRFOggetto       RegolaRichiesta = "RF_oggetto"
+)
+
+func (e *RegolaRichiesta) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RegolaRichiesta(s)
+	case string:
+		*e = RegolaRichiesta(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RegolaRichiesta: %T", src)
+	}
+	return nil
+}
+
+type NullRegolaRichiesta struct {
+	RegolaRichiesta RegolaRichiesta `json:"regola_richiesta"`
+	Valid           bool            `json:"valid"` // Valid is true if RegolaRichiesta is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRegolaRichiesta) Scan(value interface{}) error {
+	if value == nil {
+		ns.RegolaRichiesta, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RegolaRichiesta.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRegolaRichiesta) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RegolaRichiesta), nil
+}
+
+func (e RegolaRichiesta) Valid() bool {
+	switch e {
+	case RegolaRichiestaR0Reply,
+		RegolaRichiestaR1Conversazione,
+		RegolaRichiestaR3fCodice,
+		RegolaRichiestaRFOggetto:
+		return true
+	}
+	return false
+}
+
+func AllRegolaRichiestaValues() []RegolaRichiesta {
+	return []RegolaRichiesta{
+		RegolaRichiestaR0Reply,
+		RegolaRichiestaR1Conversazione,
+		RegolaRichiestaR3fCodice,
+		RegolaRichiestaRFOggetto,
+	}
+}
+
 type RuoloCodice string
 
 const (
@@ -1901,6 +2044,73 @@ func AllStatoPropostaValues() []StatoProposta {
 		StatoPropostaConfermata,
 		StatoPropostaScartata,
 		StatoPropostaDuplicato,
+	}
+}
+
+type StatoRichiestaFornitore string
+
+const (
+	StatoRichiestaFornitoreBozza     StatoRichiestaFornitore = "bozza"
+	StatoRichiestaFornitoreInviata   StatoRichiestaFornitore = "inviata"
+	StatoRichiestaFornitoreRisposta  StatoRichiestaFornitore = "risposta"
+	StatoRichiestaFornitoreScaduta   StatoRichiestaFornitore = "scaduta"
+	StatoRichiestaFornitoreAnnullata StatoRichiestaFornitore = "annullata"
+)
+
+func (e *StatoRichiestaFornitore) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StatoRichiestaFornitore(s)
+	case string:
+		*e = StatoRichiestaFornitore(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StatoRichiestaFornitore: %T", src)
+	}
+	return nil
+}
+
+type NullStatoRichiestaFornitore struct {
+	StatoRichiestaFornitore StatoRichiestaFornitore `json:"stato_richiesta_fornitore"`
+	Valid                   bool                    `json:"valid"` // Valid is true if StatoRichiestaFornitore is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStatoRichiestaFornitore) Scan(value interface{}) error {
+	if value == nil {
+		ns.StatoRichiestaFornitore, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StatoRichiestaFornitore.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStatoRichiestaFornitore) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StatoRichiestaFornitore), nil
+}
+
+func (e StatoRichiestaFornitore) Valid() bool {
+	switch e {
+	case StatoRichiestaFornitoreBozza,
+		StatoRichiestaFornitoreInviata,
+		StatoRichiestaFornitoreRisposta,
+		StatoRichiestaFornitoreScaduta,
+		StatoRichiestaFornitoreAnnullata:
+		return true
+	}
+	return false
+}
+
+func AllStatoRichiestaFornitoreValues() []StatoRichiestaFornitore {
+	return []StatoRichiestaFornitore{
+		StatoRichiestaFornitoreBozza,
+		StatoRichiestaFornitoreInviata,
+		StatoRichiestaFornitoreRisposta,
+		StatoRichiestaFornitoreScaduta,
+		StatoRichiestaFornitoreAnnullata,
 	}
 }
 
@@ -2772,20 +2982,21 @@ type AnalisiMessaggio struct {
 }
 
 type Bozza struct {
-	BozzaID            uuid.UUID       `json:"bozza_id"`
-	ThreadID           uuid.NullUUID   `json:"thread_id"`
-	InRispostaA        uuid.NullUUID   `json:"in_risposta_a"`
-	Tipo               TipoBozza       `json:"tipo"`
-	Destinatari        json.RawMessage `json:"destinatari"`
-	Oggetto            pgtype.Text     `json:"oggetto"`
-	Corpo              pgtype.Text     `json:"corpo"`
-	Documenti          []uuid.UUID     `json:"documenti"`
-	EntryID            pgtype.Text     `json:"entry_id"`
-	Stato              StatoBozza      `json:"stato"`
-	Errore             pgtype.Text     `json:"errore"`
-	InviataMessaggioID uuid.NullUUID   `json:"inviata_messaggio_id"`
-	CreataDa           uuid.UUID       `json:"creata_da"`
-	CreataIl           time.Time       `json:"creata_il"`
+	BozzaID              uuid.UUID       `json:"bozza_id"`
+	ThreadID             uuid.NullUUID   `json:"thread_id"`
+	InRispostaA          uuid.NullUUID   `json:"in_risposta_a"`
+	Tipo                 TipoBozza       `json:"tipo"`
+	Destinatari          json.RawMessage `json:"destinatari"`
+	Oggetto              pgtype.Text     `json:"oggetto"`
+	Corpo                pgtype.Text     `json:"corpo"`
+	Documenti            []uuid.UUID     `json:"documenti"`
+	EntryID              pgtype.Text     `json:"entry_id"`
+	Stato                StatoBozza      `json:"stato"`
+	Errore               pgtype.Text     `json:"errore"`
+	InviataMessaggioID   uuid.NullUUID   `json:"inviata_messaggio_id"`
+	CreataDa             uuid.UUID       `json:"creata_da"`
+	CreataIl             time.Time       `json:"creata_il"`
+	RichiestaFornitoreID uuid.NullUUID   `json:"richiesta_fornitore_id"`
 }
 
 type Buyer struct {
@@ -2832,6 +3043,15 @@ type CandidatoCodice struct {
 	Punteggio   int16         `json:"punteggio"`
 	Evidenza    string        `json:"evidenza"`
 	CreatoIl    time.Time     `json:"creato_il"`
+}
+
+type CandidatoRichiestum struct {
+	MessaggioID uuid.UUID       `json:"messaggio_id"`
+	RichiestaID uuid.UUID       `json:"richiesta_id"`
+	Regola      RegolaRichiesta `json:"regola"`
+	Punteggio   int16           `json:"punteggio"`
+	Evidenza    string          `json:"evidenza"`
+	CreatoIl    time.Time       `json:"creato_il"`
 }
 
 type CartellaDocumento struct {
@@ -3163,6 +3383,7 @@ type Messaggio struct {
 	ControparteFornitoreID uuid.NullUUID      `json:"controparte_fornitore_id"`
 	ControparteVia         NullViaControparte `json:"controparte_via"`
 	ControparteIl          *time.Time         `json:"controparte_il"`
+	RichiestaFornitoreID   uuid.NullUUID      `json:"richiesta_fornitore_id"`
 }
 
 type MessaggioAggancioLog struct {
@@ -3226,21 +3447,24 @@ type Postazione struct {
 }
 
 type PropostaTriage struct {
-	TriageID         uuid.UUID       `json:"triage_id"`
-	MessaggioID      uuid.UUID       `json:"messaggio_id"`
-	Esito            EsitoTriage     `json:"esito"`
-	ThreadProposto   uuid.NullUUID   `json:"thread_proposto"`
-	ClienteProposto  uuid.NullUUID   `json:"cliente_proposto"`
-	BuyerProposto    uuid.NullUUID   `json:"buyer_proposto"`
-	Identificativi   []string        `json:"identificativi"`
-	ScadenzaProposta *time.Time      `json:"scadenza_proposta"`
-	Confidenza       int16           `json:"confidenza"`
-	Motivi           json.RawMessage `json:"motivi"`
-	Fonte            FonteTriage     `json:"fonte"`
-	Stato            StatoTriage     `json:"stato"`
-	DecisoDa         uuid.NullUUID   `json:"deciso_da"`
-	DecisoIl         *time.Time      `json:"deciso_il"`
-	CreatoIl         time.Time       `json:"creato_il"`
+	TriageID          uuid.UUID            `json:"triage_id"`
+	MessaggioID       uuid.UUID            `json:"messaggio_id"`
+	Esito             EsitoTriage          `json:"esito"`
+	ThreadProposto    uuid.NullUUID        `json:"thread_proposto"`
+	ClienteProposto   uuid.NullUUID        `json:"cliente_proposto"`
+	BuyerProposto     uuid.NullUUID        `json:"buyer_proposto"`
+	Identificativi    []string             `json:"identificativi"`
+	ScadenzaProposta  *time.Time           `json:"scadenza_proposta"`
+	Confidenza        int16                `json:"confidenza"`
+	Motivi            json.RawMessage      `json:"motivi"`
+	Fonte             FonteTriage          `json:"fonte"`
+	Stato             StatoTriage          `json:"stato"`
+	DecisoDa          uuid.NullUUID        `json:"deciso_da"`
+	DecisoIl          *time.Time           `json:"deciso_il"`
+	CreatoIl          time.Time            `json:"creato_il"`
+	Intento           NullIntentoMessaggio `json:"intento"`
+	RichiestaProposta uuid.NullUUID        `json:"richiesta_proposta"`
+	FornitoreProposto uuid.NullUUID        `json:"fornitore_proposto"`
 }
 
 type Regola struct {
@@ -3251,6 +3475,25 @@ type Regola struct {
 	Applicazioni     int32          `json:"applicazioni"`
 	CorrezioniUmane  int32          `json:"correzioni_umane"`
 	AttivaDal        time.Time      `json:"attiva_dal"`
+}
+
+// Blocco 7B: la richiesta d'offerta a UN fornitore per UNA RFQ cliente (figlia della RFQ, non un thread
+// parallelo). messaggio_id e' la nostra mail: la lega il marcatore CockpitRichiestaFornitore letto dalla Posta
+// inviata, o la conferma dell'operatore su una mail mandata a mano. La risposta del fornitore si aggancia alla
+// richiesta (messaggio.richiesta_fornitore_id) e alla RFQ (messaggio.thread_id) con una decisione.
+type RichiestaFornitore struct {
+	RichiestaID uuid.UUID               `json:"richiesta_id"`
+	ThreadID    uuid.UUID               `json:"thread_id"`
+	FornitoreID uuid.UUID               `json:"fornitore_id"`
+	Lavorazione pgtype.Text             `json:"lavorazione"`
+	Codici      []string                `json:"codici"`
+	MessaggioID uuid.NullUUID           `json:"messaggio_id"`
+	Stato       StatoRichiestaFornitore `json:"stato"`
+	InviataIl   *time.Time              `json:"inviata_il"`
+	RispostaIl  *time.Time              `json:"risposta_il"`
+	Note        pgtype.Text             `json:"note"`
+	CreataDa    uuid.NullUUID           `json:"creata_da"`
+	CreataIl    time.Time               `json:"creata_il"`
 }
 
 type RiferimentoPortale struct {
@@ -3392,40 +3635,42 @@ type VFascicolo struct {
 }
 
 type VInbox struct {
-	MessaggioID       uuid.UUID        `json:"messaggio_id"`
-	Canale            Canale           `json:"canale"`
-	Direzione         Direzione        `json:"direzione"`
-	Interno           bool             `json:"interno"`
-	DataEvento        time.Time        `json:"data_evento"`
-	ThreadID          uuid.NullUUID    `json:"thread_id"`
-	Aggancio          Aggancio         `json:"aggancio"`
-	ConversazioneID   uuid.UUID        `json:"conversazione_id"`
-	MittenteNome      pgtype.Text      `json:"mittente_nome"`
-	MittenteIndirizzo pgtype.Text      `json:"mittente_indirizzo"`
-	Oggetto           pgtype.Text      `json:"oggetto"`
-	NAllegati         int16            `json:"n_allegati"`
-	BuyerID           uuid.NullUUID    `json:"buyer_id"`
-	Dominio           pgtype.Text      `json:"dominio"`
-	ClienteID         uuid.NullUUID    `json:"cliente_id"`
-	Cliente           pgtype.Text      `json:"cliente"`
-	BuyerCognome      pgtype.Text      `json:"buyer_cognome"`
-	NRifPortale       int64            `json:"n_rif_portale"`
-	NCad              int64            `json:"n_cad"`
-	TriageEsito       pgtype.Text      `json:"triage_esito"`
-	TriageConfidenza  pgtype.Int2      `json:"triage_confidenza"`
-	TriageMotivi      *json.RawMessage `json:"triage_motivi"`
-	ThreadProposto    uuid.NullUUID    `json:"thread_proposto"`
-	Ignorato          bool             `json:"ignorato"`
-	Caselle           []string         `json:"caselle"`
-	CaselleID         []uuid.UUID      `json:"caselle_id"`
-	NCaselle          int32            `json:"n_caselle"`
-	NonLetto          bool             `json:"non_letto"`
-	RicevutoIl        *time.Time       `json:"ricevuto_il"`
-	CasellaID         uuid.NullUUID    `json:"casella_id"`
-	CartellaOutlook   pgtype.Text      `json:"cartella_outlook"`
-	EntryID           pgtype.Text      `json:"entry_id"`
-	ControparteTipo   string           `json:"controparte_tipo"`
-	Controparte       pgtype.Text      `json:"controparte"`
+	MessaggioID          uuid.UUID        `json:"messaggio_id"`
+	Canale               Canale           `json:"canale"`
+	Direzione            Direzione        `json:"direzione"`
+	Interno              bool             `json:"interno"`
+	DataEvento           time.Time        `json:"data_evento"`
+	ThreadID             uuid.NullUUID    `json:"thread_id"`
+	Aggancio             Aggancio         `json:"aggancio"`
+	ConversazioneID      uuid.UUID        `json:"conversazione_id"`
+	MittenteNome         pgtype.Text      `json:"mittente_nome"`
+	MittenteIndirizzo    pgtype.Text      `json:"mittente_indirizzo"`
+	Oggetto              pgtype.Text      `json:"oggetto"`
+	NAllegati            int16            `json:"n_allegati"`
+	BuyerID              uuid.NullUUID    `json:"buyer_id"`
+	Dominio              pgtype.Text      `json:"dominio"`
+	ClienteID            uuid.NullUUID    `json:"cliente_id"`
+	Cliente              pgtype.Text      `json:"cliente"`
+	BuyerCognome         pgtype.Text      `json:"buyer_cognome"`
+	NRifPortale          int64            `json:"n_rif_portale"`
+	NCad                 int64            `json:"n_cad"`
+	TriageEsito          pgtype.Text      `json:"triage_esito"`
+	TriageConfidenza     pgtype.Int2      `json:"triage_confidenza"`
+	TriageMotivi         *json.RawMessage `json:"triage_motivi"`
+	ThreadProposto       uuid.NullUUID    `json:"thread_proposto"`
+	Ignorato             bool             `json:"ignorato"`
+	Caselle              []string         `json:"caselle"`
+	CaselleID            []uuid.UUID      `json:"caselle_id"`
+	NCaselle             int32            `json:"n_caselle"`
+	NonLetto             bool             `json:"non_letto"`
+	RicevutoIl           *time.Time       `json:"ricevuto_il"`
+	CasellaID            uuid.NullUUID    `json:"casella_id"`
+	CartellaOutlook      pgtype.Text      `json:"cartella_outlook"`
+	EntryID              pgtype.Text      `json:"entry_id"`
+	ControparteTipo      string           `json:"controparte_tipo"`
+	Controparte          pgtype.Text      `json:"controparte"`
+	TriageIntento        interface{}      `json:"triage_intento"`
+	RichiestaFornitoreID uuid.NullUUID    `json:"richiesta_fornitore_id"`
 }
 
 type VThreadBloccanti struct {

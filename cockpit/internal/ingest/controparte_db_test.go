@@ -130,11 +130,18 @@ func (b *bancoControparte) proposta(id uuid.UUID) (db.PropostaTriage, bool) {
 
 func TestCP1UnaRichiestaDOffertaDiUnFornitoreNonDiventaUnaRFQ(t *testing.T) {
 	b := nuovoBancoControparte(t)
-	// Prima il controllo: senza il fornitore censito, lo stesso messaggio sembra una RFQ nuova.
+	// Il controllo (7B.3): la stessa mail da un CLIENTE censito e' una RFQ nuova; da un mittente non
+	// censito e' «incerto» senza proposta (D34: da Da validare non nasce una RFQ). Altrimenti la
+	// prova non proverebbe niente.
+	b.cliente("CONTROLLO", "clientecontrollo.example")
+	mc := b.richiestaDOfferta("acquisti@clientecontrollo.example")
 	m0 := b.richiestaDOfferta("info@pftorniture.example")
-	b.ingerisci(m0)
-	if p, ok := b.proposta(b.messaggio(m0.MessageID).MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq {
-		t.Fatalf("senza anagrafica il messaggio sembra una RFQ nuova, altrimenti la prova non prova niente: %+v", p)
+	b.ingerisci(mc, m0)
+	if p, ok := b.proposta(b.messaggio(mc.MessageID).MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioRfqCliente {
+		t.Fatalf("da un cliente censito il messaggio e' una RFQ nuova, altrimenti la prova non prova niente: %+v", p)
+	}
+	if p, ok := b.proposta(b.messaggio(m0.MessageID).MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto {
+		t.Fatalf("da un mittente non censito: incerto e nessuna RFQ nuova (7B.3), non %+v", p)
 	}
 	f := b.fornitore("PF Torniture di prova", db.TipoFornitoreProcessi, "pftorniture.example")
 	m := b.richiestaDOfferta("info@pftorniture.example")
@@ -228,8 +235,9 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 		if r.ControparteTipo != db.TipoControparteSconosciuto {
 			t.Fatalf("prima del censimento: %s", r.ControparteTipo)
 		}
-		if p, ok := b.proposta(r.MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq {
-			t.Fatalf("prima del censimento la proposta e' nuova_rfq: %+v", p)
+		// 7B.3: da uno sconosciuto niente RFQ nuova; l'intento e' «incerto»
+		if p, ok := b.proposta(r.MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto {
+			t.Fatalf("prima del censimento la proposta e' incerta, senza RFQ nuova: %+v", p)
 		}
 	}
 	// il terzo e' gia' deciso: la proposta e' stata accettata
@@ -266,12 +274,16 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 		if p.Esito == db.EsitoTriageNuovaRfq || p.Stato != db.StatoTriageProposta {
 			t.Fatalf("la proposta ricalcolata non e' piu' una RFQ nuova: %+v", p)
 		}
+		// il ramo fornitore ha letto la mail: offerta (parla di offerta e allega un PDF)
+		if p.Intento.IntentoMessaggio != db.IntentoMessaggioOffertaFornitore {
+			t.Fatalf("intento dopo il censimento: %+v", p.Intento)
+		}
 	}
 	dopo := b.messaggio(m3.MessageID)
 	if dopo.ControparteTipo != db.TipoControparteSconosciuto {
 		t.Fatalf("il deciso non si tocca: %s", dopo.ControparteTipo)
 	}
-	if p, _ := b.proposta(dopo.MessaggioID); p.Esito != db.EsitoTriageNuovaRfq || p.Stato != db.StatoTriageAccettata {
+	if p, _ := b.proposta(dopo.MessaggioID); p.Intento.IntentoMessaggio != db.IntentoMessaggioIncerto || p.Stato != db.StatoTriageAccettata {
 		t.Fatalf("la decisione presa resta: %+v", p)
 	}
 	if r := b.messaggio(altro.MessageID); r.ControparteTipo != db.TipoControparteSconosciuto {

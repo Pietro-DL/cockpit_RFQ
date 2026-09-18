@@ -80,6 +80,8 @@
     {{if .ThreadID.Valid}}<span class="chip thread" title="{{.Aggancio}}">RFQ {{uuidBreve .ThreadID.UUID}}</span>{{end}}
     {{if .Ignorato}}<span class="chip">ignorato</span>{{end}}
     {{if gt .NCaselle 1}}<span class="chip casella" title="{{range .Caselle}}{{.}} {{end}}">{{.NCaselle}} caselle</span>{{end}}
+    {{if .TriageIntento}}<span class="chip intento {{.TriageIntento}}" title="che cosa è questo messaggio, secondo il triage">{{.TriageIntento}}</span>{{end}}
+    {{if .RichiestaFornitoreID.Valid}}<span class="chip richiesta" title="legato a una richiesta a un fornitore">richiesta</span>{{end}}
     {{if .TriageEsito.Valid}}<span class="chip triage" title="{{range motivi .TriageMotivi}}{{.}}; {{end}}">{{.TriageEsito.String}} {{.TriageConfidenza.Int16}}%</span>{{end}}
   </div>
 </a>

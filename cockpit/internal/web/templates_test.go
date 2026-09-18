@@ -176,6 +176,43 @@ func TestFrammentiEseguono(t *testing.T) {
 			DaAggiungere: []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "dominio", Dettaglio: "euroforesi.example"}},
 			NonRisolti:   []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "qualifica", Dettaglio: "cliente CLIENTE-IGNOTO non in anagrafica"}}}},
 			[]string{"Anteprima: che cosa farebbe", "Euroforesi", "euroforesi.example", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`}},
+		// blocco 7B: la RFQ con le richieste ai fornitori e il form; il pannello con i candidati verso
+		// una richiesta e con la proposta «richiesta mandata a mano»
+		{"thread.html", "thread_corpo", func() *threadDati {
+			x := *thd
+			fid := uuid.New()
+			x.Richieste = []db.ListRichiesteThreadRow{{RichiestaID: uuid.New(), ThreadID: x.T.ThreadID, FornitoreID: fid, Fornitore: "Euroforesi",
+				Stato: db.StatoRichiestaFornitoreInviata, Codici: []string{"6674611A"}, LavorazioneDescrizione: txtT("Cataforesi"), NRisposte: 1}}
+			x.Fornitori = []db.Fornitore{{FornitoreID: fid, RagioneSociale: "Euroforesi", Tipo: db.TipoFornitoreVerniciatore}}
+			x.Lavorazioni = []db.Lavorazione{{Codice: "cataforesi", Descrizione: "Cataforesi"}}
+			x.QualificatoPer = map[uuid.UUID]string{fid: "cataforesi"}
+			return &x
+		}(), []string{"Richieste ai fornitori (1)", "Euroforesi", `class="chip richiesta inviata"`, "Nuova richiesta a un fornitore", "qualificato: cataforesi", "/richiesta/", "annulla"}},
+		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
+			x := *md
+			x.Thread = nil
+			x.Riga.ControparteTipo, x.Riga.Controparte, x.Riga.TriageIntento = "fornitore", txtT("MGM"), "offerta_fornitore"
+			x.CandidatiRichiesta = []db.ListCandidatiRichiestaRow{
+				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR0Reply, Punteggio: 95, Evidenza: "In-Reply-To", Fornitore: "MGM", Cliente: "TECHNOGYM", OggettoRfq: txtT("RFQ 0D002622AD"), RichiestaStato: db.StatoRichiestaFornitoreInviata},
+				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR3fCodice, Punteggio: 60, Evidenza: "codice", Fornitore: "MGM", Cliente: "TECHNOGYM", OggettoRfq: txtT("RFQ bis"), RichiestaStato: db.StatoRichiestaFornitoreInviata}}
+			return &x
+		}(), []string{"Risposta a una nostra richiesta?", "risposta-fornitore", ">95<", ">60<", "R3f_codice", `class="chip intento offerta_fornitore"`}},
+		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
+			x := *md
+			x.Thread = nil
+			x.M.Direzione = db.DirezioneUscita
+			x.Riga.ControparteTipo, x.Riga.TriageIntento = "fornitore", "rfq_fornitore"
+			x.PropostaThread = &db.ThreadOfferta{ThreadID: uuid.New(), CartellaRelativa: txtT(`TECHNOGYM\WIP\x`)}
+			x.PropostaFornitore = &db.Fornitore{FornitoreID: uuid.New(), RagioneSociale: "MGM"}
+			x.Lavorazioni = []db.Lavorazione{{Codice: "tornitura", Descrizione: "Tornitura"}}
+			return &x
+		}(), []string{"Richiesta mandata a mano?", "richiesta-fornitore", "Sì, è la richiesta a MGM", "tornitura"}},
+		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
+			x := *md
+			x.Richiesta = &db.RichiestaFornitore{RichiestaID: uuid.New(), Stato: db.StatoRichiestaFornitoreRisposta}
+			x.RichiestaFornitore = "MGM"
+			return &x
+		}(), []string{"<b>Richiesta:</b> a MGM", `class="chip richiesta risposta"`}},
 		{"anagrafica.html", "anagrafica_corpo", anagraficaDati{Tab: "clienti", Sez: "lavorazioni",
 			Clienti: []db.ListClientiTuttiRow{{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true}},
 			Scelto:  &db.Cliente{ClienteID: uuid.New(), CartellaNas: "ACME", RagioneSociale: "Acme", Attivo: true},

@@ -275,6 +275,13 @@
           },
           "title": "Allegati",
           "type": "array"
+        },
+        "marcatori": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Marcatori",
+          "type": "object"
         }
       },
       "required": [

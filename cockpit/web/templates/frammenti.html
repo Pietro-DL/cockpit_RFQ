@@ -11,6 +11,8 @@
       {{if .Presenze}}<div><b>{{if gt (len .Presenze) 1}}Caselle{{else}}Casella{{end}}:</b>
         {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
       <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
+        {{if .Richiesta}} · <b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip richiesta {{.Richiesta.Stato}}">{{.Richiesta.Stato}}</span>{{end}}
+        {{if .Riga.TriageIntento}} · <span class="chip intento {{.Riga.TriageIntento}}" title="che cosa è questo messaggio, secondo il triage">{{.Riga.TriageIntento}}</span>{{end}}
         {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
           <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
@@ -63,6 +65,39 @@
       <small>L'invio resta manuale: la bozza si apre in Outlook, la rileggi e premi Invia lì.</small>
     </form>
   </details>
+  {{end}}
+
+  {{if .CandidatiRichiesta}}
+  <section class="candidati candidati-richiesta">
+    <h3>Risposta a una nostra richiesta? <small class="muto">il sistema propone, tu decidi</small></h3>
+    {{range .CandidatiRichiesta}}
+    <form hx-post="/messaggio/{{$.Dati.M.MessaggioID}}/risposta-fornitore" hx-target="#pannello" class="candidato">
+      <input type="hidden" name="richiesta_id" value="{{.RichiestaID}}">
+      <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
+      <span class="testo"><b>{{.Fornitore}}</b> per la RFQ <b>{{.Cliente}}</b> · {{txt .OggettoRfq}}
+        {{if .Lavorazione.Valid}}<span class="chip">{{.Lavorazione.String}}</span>{{end}} <span class="chip richiesta {{.RichiestaStato}}">{{.RichiestaStato}}</span>
+        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small></span>
+      <button class="primario piccolo">È la risposta a questa richiesta</button>
+    </form>
+    {{end}}
+    <p class="muto">Alla conferma la mail entra nella RFQ cliente, la richiesta passa a «risposta» e gli allegati
+      vengono proposti come offerta del fornitore (OFFERTE FORNITORI).</p>
+  </section>
+  {{end}}
+
+  {{if .PropostaThread}}
+  <section class="candidati candidati-richiesta">
+    <h3>Richiesta mandata a mano? <small class="muto">il sistema propone, tu decidi</small></h3>
+    <form hx-post="/messaggio/{{.M.MessaggioID}}/richiesta-fornitore" hx-target="#pannello" class="candidato">
+      <input type="hidden" name="thread_id" value="{{.PropostaThread.ThreadID}}">
+      <input type="hidden" name="fornitore_id" value="{{.PropostaFornitore.FornitoreID}}">
+      <span class="testo">Sembra la richiesta a <b>{{.PropostaFornitore.RagioneSociale}}</b> per la RFQ <b>{{.PropostaThread.CartellaRelativa.String}}</b>
+        <br><small class="muto">{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>
+        <br><label class="inline">Lavorazione <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label></span>
+      <button class="primario piccolo">Sì, è la richiesta a {{.PropostaFornitore.RagioneSociale}}</button>
+    </form>
+    <p class="muto">Nasce la richiesta (già inviata, con questa mail) e la mail entra nella RFQ. Una RFQ nuova non nasce da qui.</p>
+  </section>
   {{end}}
 
   {{if .Candidati}}

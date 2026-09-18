@@ -107,6 +107,42 @@ def _prop(o, tag, default=""):
         return default
 
 
+OL_TEXT = 1  # OlUserPropertyType.olText
+
+
+def marcatori_di(it) -> dict[str, str]:
+    """Le UserProperties `Cockpit*` dell'elemento (blocco 7B). Le ha scritte il Cockpit creando la
+    bozza; se la mail e' partita, sono ancora li'. Qualunque anomalia COM = nessun marcatore: un
+    marcatore non letto costa una conferma a mano, un sync fermato costa la posta."""
+    out: dict[str, str] = {}
+    try:
+        props = it.UserProperties
+        for i in range(1, int(props.Count) + 1):
+            p = props.Item(i)
+            nome = str(p.Name or "")
+            if nome.startswith("Cockpit"):
+                v = p.Value
+                if v is not None and str(v) != "":
+                    out[nome] = str(v)
+    except Exception:  # noqa: BLE001 - nessun marcatore vale piu' di un sync fermato
+        return {}
+    return out
+
+
+def scrivi_marcatori(item, marcatori: dict[str, str]) -> None:
+    """Scrive (o aggiorna) le UserProperties `Cockpit*` su una bozza. Un marcatore che non si riesce
+    a scrivere non ferma la bozza: la mail parte lo stesso e si lega a mano."""
+    for nome, valore in marcatori.items():
+        try:
+            props = item.UserProperties
+            p = props.Find(nome)
+            if p is None:
+                p = props.Add(nome, OL_TEXT, False)
+            p.Value = valore
+        except Exception as e:  # noqa: BLE001
+            log.warning("marcatore %s non scritto sulla bozza: %s", nome, e)
+
+
 # ---------------------------------------------------------------- il confine COM (3R, blocco 1)
 #
 # Regola unica: prima di leggere una proprieta di MailItem si guarda `Class`, e OGNI proprieta COM
@@ -859,7 +895,7 @@ class Outlook:
             mittente_nome=it.SenderName or "", mittente_indirizzo=mittente,
             destinatari=self._destinatari(it), oggetto=it.Subject or "", corpo_testo=corpo, corpo_html=html,
             importanza=int(it.Importance), non_letto=bool(it.UnRead), flag_stato=int(it.FlagStatus or 0),
-            categorie=categorie, allegati=self._allegati(it, html),
+            categorie=categorie, allegati=self._allegati(it, html), marcatori=marcatori_di(it),
         )
 
     def _smtp_mittente(self, it) -> str:
@@ -1045,7 +1081,12 @@ class Outlook:
 
     def crea_bozza(self, p: PayloadCreaBozza, store_id: str = "") -> tuple[str, bool]:
         """Prepara la mail e la lascia come bozza aperta in Outlook. Send() solo con consenti_invio.
-        `store_id` è lo store locale della casella dell'originale (voce 2.6)."""
+        `store_id` è lo store locale della casella dell'originale (voce 2.6).
+
+        Sulla bozza si scrivono i MARCATORI (blocco 7B): `CockpitBozza` = bozza_id, sempre, piu' quelli
+        del payload (`CockpitRichiestaFornitore` = richiesta_id). Restano attaccati alla mail quando
+        parte, e il sync della Posta inviata li rilegge: e' cosi' che il server lega la mail inviata a
+        cio' che l'ha generata, senza indovinare dall'oggetto."""
         if p.tipo == "nuovo":
             item = self.app.CreateItem(0)
         else:
@@ -1076,6 +1117,9 @@ class Outlook:
                 item.Attachments.Add(percorso)
             else:
                 log.warning("allegato bozza non trovato: %s", percorso)
+        marcatori = {"CockpitBozza": str(p.bozza_id)}
+        marcatori.update({k: v for k, v in (p.marcatori or {}).items() if k.startswith("Cockpit") and v})
+        scrivi_marcatori(item, marcatori)
         item.Save()
         entry_id = item.EntryID
         inviata = False
