@@ -313,9 +313,19 @@ func (s *Server) statoWorker(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// frammentoRichiesto dice se questa richiesta vuole un pezzo di pagina o la pagina intera.
+//
+// HTMX chiede un pezzo. Tranne quando l'operatore preme «indietro» e la copia in cache non c'e'
+// piu': allora rifa' la richiesta con HX-Request: true PIU' HX-History-Restore-Request: true, e si
+// aspetta la PAGINA, perche' deve rimetterla al posto di tutto il corpo. Rispondergli con un
+// frammento significa lasciargli in mano una colonna sola, senza testata e senza navigazione.
+func frammentoRichiesto(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-History-Restore-Request") != "true"
+}
+
 func (s *Server) rendi(w http.ResponseWriter, r *http.Request, pagina, frammento string, titolo string, dati any) {
 	t := s.pagine[pagina]
-	v := vista{Utente: utenteDa(r.Context()), Titolo: titolo, Dati: dati, Frammento: r.Header.Get("HX-Request") == "true"}
+	v := vista{Utente: utenteDa(r.Context()), Titolo: titolo, Dati: dati, Frammento: frammentoRichiesto(r)}
 	v.Admin = almeno(v.Utente, db.RuoloUtenteAdmin)
 	if !v.Frammento && v.Utente != nil {
 		v.Stato = s.stato(r.Context(), sessioneDa(r.Context()))
@@ -704,11 +714,14 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
 		Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
-	s.rendi(w, r, "inbox.html", "inbox_lista", "Inbox", d)
+	// Il frammento e' «inbox_stato», non «inbox_lista»: i comandi e la lista si rifanno INSIEME.
+	// Rispondere con la sola lista lasciava sullo schermo le linguette del quadrante precedente
+	// (checkpoint 7B.5), cioe' una schermata che diceva una cosa e ne mostrava un'altra.
+	s.rendi(w, r, "inbox.html", "inbox_stato", "Inbox", d)
 	// Il seguito va fatto DOPO aver reso la pagina, e solo se è una pagina: il poll HTMX ogni 15 s
 	// chiede lo stesso indirizzo, e se contasse come una visita il contatore delle novità direbbe
 	// sempre zero (SV3); se contasse come un'apertura accoderebbe un sync ogni quindici secondi.
-	if r.Header.Get("HX-Request") != "true" {
+	if !frammentoRichiesto(r) {
 		s.segnaVista(r.Context(), q, u)
 		s.syncAllApertura(r.Context(), q, sessioneDa(r.Context()))
 	}
@@ -947,6 +960,13 @@ func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/inbox?q="+quadranteDi(d.Riga.ControparteTipo)+"&filtro=tutti&sel="+id.String(), http.StatusFound)
 		return
 	}
+	// Aprire un messaggio cambia lo stato della schermata: la riga scelta va evidenziata, e il
+	// messaggio appena letto perde il pallino delle novita'. Il clic pero' sostituisce solo il
+	// pannello, e la colonna di sinistra resterebbe ferma fino al poll successivo — fino a quindici
+	// secondi con l'indirizzo che dice `sel=B` e l'evidenziatura ancora su A. Qui il server dice
+	// alla schermata di rifare la colonna, DOPO che l'indirizzo e' stato aggiornato
+	// (After-Settle): la ricarica rilegge l'indirizzo e torna con la lista giusta e la riga accesa.
+	w.Header().Set("HX-Trigger-After-Settle", "inbox-aggiorna")
 	s.frammento(w, "messaggio_pannello", d)
 }
 

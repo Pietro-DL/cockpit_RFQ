@@ -75,6 +75,11 @@ type Esito struct {
 	DominiAggiunti  int
 	BuyerCreati     int
 	Avvisi          []string
+	// Come per i fornitori (7B.5): i domini e le email dei buyer scritti adesso sono le chiavi con
+	// cui la posta già arrivata va riguardata. Senza il ricalcolo, seminare l'anagrafica non sposta
+	// di un messaggio il quadrante «Da validare».
+	DominiScritti    []string
+	IndirizziScritti []string
 }
 
 // Leggi legge e CONVALIDA il file. Ogni errore qui è un errore del file, e il messaggio dice la
@@ -156,8 +161,9 @@ func Semina(ctx context.Context, pool *pgxpool.Pool, s Seme) (Esito, error) {
 			// I domini sì: aggiungerne uno nuovo a un cliente che c'è già non sovrascrive niente,
 			// e un dominio mancante è il motivo più comune per cui la posta di un cliente censito
 			// non viene riconosciuta.
-			n, avvisi := seminaDomini(ctx, q, c, esistente.ClienteID)
-			e.DominiAggiunti += n
+			scritti, avvisi := seminaDomini(ctx, q, c, esistente.ClienteID)
+			e.DominiAggiunti += len(scritti)
+			e.DominiScritti = append(e.DominiScritti, scritti...)
 			e.Avvisi = append(e.Avvisi, avvisi...)
 			continue
 		case !errors.Is(err, pgx.ErrNoRows):
@@ -174,8 +180,9 @@ func Semina(ctx context.Context, pool *pgxpool.Pool, s Seme) (Esito, error) {
 		}
 		e.ClientiCreati = append(e.ClientiCreati, c.RagioneSociale)
 
-		n, avvisi := seminaDomini(ctx, q, c, nuovo.ClienteID)
-		e.DominiAggiunti += n
+		scritti, avvisi := seminaDomini(ctx, q, c, nuovo.ClienteID)
+		e.DominiAggiunti += len(scritti)
+		e.DominiScritti = append(e.DominiScritti, scritti...)
 		e.Avvisi = append(e.Avvisi, avvisi...)
 
 		for _, b := range c.Buyer {
@@ -194,6 +201,9 @@ func Semina(ctx context.Context, pool *pgxpool.Pool, s Seme) (Esito, error) {
 				return e, fmt.Errorf("cliente %s, buyer %s: %w", c.RagioneSociale, b.Cognome, err)
 			}
 			e.BuyerCreati++
+			if em := strings.ToLower(strings.TrimSpace(b.Email)); em != "" {
+				e.IndirizziScritti = append(e.IndirizziScritti, em)
+			}
 		}
 	}
 	return e, tx.Commit(ctx)
@@ -209,9 +219,7 @@ func creaCliente(ctx context.Context, q *db.Queries, c ClienteSeme, regole json.
 // seminaDomini non sposta mai un dominio già assegnato: lo segnala e prosegue. Un seme che si
 // ferma a metà per un dominio è un seme che lascia il database a metà; uno che sposta il dominio
 // cambia il cliente di tutta la posta già arrivata (T8).
-func seminaDomini(ctx context.Context, q *db.Queries, c ClienteSeme, id uuid.UUID) (int, []string) {
-	n := 0
-	var avvisi []string
+func seminaDomini(ctx context.Context, q *db.Queries, c ClienteSeme, id uuid.UUID) (scritti []string, avvisi []string) {
 	for _, dom := range c.Domini {
 		dom = strings.ToLower(strings.TrimSpace(dom))
 		if dom == "" {
@@ -227,9 +235,9 @@ func seminaDomini(ctx context.Context, q *db.Queries, c ClienteSeme, id uuid.UUI
 			avvisi = append(avvisi, fmt.Sprintf("dominio %s: %v", dom, err))
 			continue
 		}
-		n++
+		scritti = append(scritti, dom)
 	}
-	return n, avvisi
+	return scritti, avvisi
 }
 
 func ptxt(v string) pgtype.Text {

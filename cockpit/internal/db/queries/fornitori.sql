@@ -165,3 +165,15 @@ ORDER BY m.data_evento;
 
 -- name: ListMessaggiPerControparteFornitore :many
 SELECT * FROM messaggio WHERE controparte_fornitore_id = $1 ORDER BY data_evento DESC LIMIT 50;
+
+-- ContaAnagrafiche: la fotografia dopo un seed (7B.5). Serve allo script di bootstrap per dire i
+-- numeri finali senza che PowerShell debba conoscere lo schema: Go legge, PowerShell mostra.
+-- name: ContaAnagrafiche :one
+SELECT (SELECT count(*) FROM cliente)::int               AS clienti,
+       (SELECT count(*) FROM dominio_cliente)::int       AS domini_cliente,
+       (SELECT count(*) FROM buyer)::int                 AS buyer,
+       (SELECT count(*) FROM fornitore)::int             AS fornitori,
+       (SELECT count(*) FROM dominio_fornitore)::int     AS domini_fornitore,
+       (SELECT count(*) FROM contatto_fornitore)::int    AS contatti_fornitore,
+       (SELECT count(*) FROM fornitore_lavorazione)::int AS lavorazioni_fornitore,
+       (SELECT count(*) FROM cliente_fornitore_lavorazione)::int AS qualifiche;

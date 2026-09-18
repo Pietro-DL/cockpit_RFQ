@@ -62,6 +62,16 @@ unici a parlare HTTP; `nas` è l'unico a scrivere sul NAS; `jobs` è l'unico a i
 
 ### 3.1 UI (`web/web.go`, sessione + ruolo)
 
+L'Inbox rende **un pezzo solo** (`inbox_stato`): linguette dei quadranti, direzione, filtro, selettore della
+casella, contatori e righe. `GET /inbox` con `HX-Request` risponde con quel frammento, non con la sola lista;
+ogni link lo sostituisce per intero (`hx-target="#inbox-stato" hx-swap="outerHTML"`), così ciò che si vede acceso
+e ciò che si legge nella lista vengono sempre dalla stessa risposta. Il poll di quindici secondi sta su un
+elemento **fratello** — `hx-vals` si eredita, e sul contenitore avrebbe avvelenato ogni link lì dentro — e
+rilegge i parametri dalla barra degli indirizzi, che è l'unico posto dove lo stato della schermata vive.
+`GET /messaggio/{id}` risponde con `HX-Trigger-After-Settle: inbox-aggiorna`: aprire un messaggio rifà la
+colonna, così la riga si accende subito. `frammentoRichiesto` distingue una richiesta HTMX normale dal ritorno
+dalla cronologia del browser (`HX-History-Restore-Request`), che vuole la pagina intera e non un pezzo.
+
 | Rotta | Handler | Effetto | Pacchetti |
 |---|---|---|---|
 | `GET /inbox`, `/messaggio/{id}`, `/thread/{id}`, `/thread/cerca`, `/cruscotto`, `/richieste`, `/stato/worker`, `/anagrafica/buyer` | lettura | query e template. `GET /inbox?q=buyer\|fornitori\|validare\|tutti&dir=entrata\|uscita&filtro=…&casella=…&sel=…`: il quadrante viene da `v_inbox.controparte_tipo` (`ListInbox`, `ContaInbox`, `ContaQuadranti`); predefinito Buyer. `GET /messaggio/{id}` senza HTMX rimanda all'Inbox nel quadrante del messaggio | `db`, viste `v_inbox`, `v_thread_fase`, `v_fascicolo` |
@@ -114,8 +124,17 @@ i job di quei tipi già in coda vengono marcati «in attesa di produzione»; cap
 avvisi di `config.Capacita()` → `ingest.RicalcolaControparti` (i messaggi con `controparte_il` NULL, cioè entrati
 prima della 0014, a lotti di 500; log con i conteggi per tipo prima e dopo, CP8) → `rete` (TLS se `[server].tls_cert/tls_key`, altrimenti solo loopback salvo
 `consenti_lan_in_chiaro`) → `jobs.Scheduler.Avvia` → `jobs.Cache.Avvia` → `EsecutoreServer.Avvia` (con la vigilanza
-sul NAS) → `Ricognitore.Avvia` → listener con `web` + `workerapi`. Se `-semina-anagrafica file.json`: valida, semina,
-esce.
+sul NAS) → `Ricognitore.Avvia` → listener con `web` + `workerapi`.
+
+I **lavori amministrativi** della riga di comando si fermano prima del listener e poi escono, uno alla volta:
+`-semina-anagrafica file.json` (clienti, domini, buyer), `-anteprima-fornitori file.json` (guarda e non scrive),
+`-importa-fornitori file.json` (scrive), `-conta-anagrafiche` (una riga `nome=numero` per voce), `-migra`. I due
+che scrivono chiudono con `ricalcola(...)`, cioè `ingest.RitriageMolti` sulle sole chiavi appena scritte: senza,
+seminare un'anagrafica su un database che ha già dentro la posta non sposta un solo messaggio dal quadrante
+«Da validare», perché dalla 0014 la controparte è un fatto scritto sul messaggio, non una domanda che l'Inbox
+rifà a ogni lettura. Anteprima e import usano **lo stesso motore** della schermata (`fornitori.Leggi`, `Calcola`,
+`Applica`): non esiste un secondo importatore, e `scripts\semina-anagrafiche.ps1` si limita a ordinare i passi e
+a chiedere la conferma. **Il server non semina mai da solo**: nemmeno all'avvio.
 
 **Sync.** scheduler / «Aggiorna ora» / prima apertura dell'Inbox / «Carica precedenti» → `job sync_outlook` con il
 **modo** (`aggiornamento` | `bootstrap` | `storico`) e, per ogni cartella, una finestra chiusa `[dal, al]` decisa
@@ -138,6 +157,15 @@ Mandata a mano: la mail in uscita a un fornitore passa dal triage (`daInterpreta
 trova le RFQ aperte con quel codice → proposta `aggancia`/`rfq_fornitore` con `thread_proposto` +
 `fornitore_proposto` → conferma dal pannello. Risposta del fornitore: `aggancio.CalcolaRichieste` (R0/R1/R3f) →
 `candidato_richiesta` → il pannello li mostra tutti → «È la risposta a questa richiesta».
+
+**Un seme dopo che la posta è già arrivata (7B.5).** Import dei fornitori (schermata o riga di comando) e seme
+dei clienti restituiscono `DominiScritti` e `IndirizziScritti`: le sole voci che cambiano la risposta alla
+domanda «di chi è questa mail». Su quelle si chiama `ingest.RitriageMolti`, che raccoglie i messaggi di tutte le
+chiavi, li sfoltisce (lo stesso messaggio può rispondere a due domini) e li ricalcola una volta sola, con la
+stessa regola del censimento singolo: **solo i non decisi**. La schermata dice quanti messaggi ha riguardato e
+quante controparti sono cambiate. Attenzione a una cosa che il seme non può dare: un fornitore senza domini e
+senza contatti non fa cambiare quadrante a nessuna mail, perché la posta si riconosce dall'indirizzo e non dalla
+ragione sociale.
 
 **Censisci dall'Inbox.** «Da validare» → `GET /messaggio/{id}/censisci?come=…` (indirizzo e dominio già scritti:
 il mittente in entrata, il primo destinatario esterno in uscita, `ingest.IndirizzoDaCensire`) → `POST` → fornitore

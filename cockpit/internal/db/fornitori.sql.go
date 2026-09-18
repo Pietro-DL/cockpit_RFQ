@@ -13,6 +13,46 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const contaAnagrafiche = `-- name: ContaAnagrafiche :one
+SELECT (SELECT count(*) FROM cliente)::int               AS clienti,
+       (SELECT count(*) FROM dominio_cliente)::int       AS domini_cliente,
+       (SELECT count(*) FROM buyer)::int                 AS buyer,
+       (SELECT count(*) FROM fornitore)::int             AS fornitori,
+       (SELECT count(*) FROM dominio_fornitore)::int     AS domini_fornitore,
+       (SELECT count(*) FROM contatto_fornitore)::int    AS contatti_fornitore,
+       (SELECT count(*) FROM fornitore_lavorazione)::int AS lavorazioni_fornitore,
+       (SELECT count(*) FROM cliente_fornitore_lavorazione)::int AS qualifiche
+`
+
+type ContaAnagraficheRow struct {
+	Clienti              int32 `json:"clienti"`
+	DominiCliente        int32 `json:"domini_cliente"`
+	Buyer                int32 `json:"buyer"`
+	Fornitori            int32 `json:"fornitori"`
+	DominiFornitore      int32 `json:"domini_fornitore"`
+	ContattiFornitore    int32 `json:"contatti_fornitore"`
+	LavorazioniFornitore int32 `json:"lavorazioni_fornitore"`
+	Qualifiche           int32 `json:"qualifiche"`
+}
+
+// ContaAnagrafiche: la fotografia dopo un seed (7B.5). Serve allo script di bootstrap per dire i
+// numeri finali senza che PowerShell debba conoscere lo schema: Go legge, PowerShell mostra.
+func (q *Queries) ContaAnagrafiche(ctx context.Context) (ContaAnagraficheRow, error) {
+	row := q.db.QueryRow(ctx, contaAnagrafiche)
+	var i ContaAnagraficheRow
+	err := row.Scan(
+		&i.Clienti,
+		&i.DominiCliente,
+		&i.Buyer,
+		&i.Fornitori,
+		&i.DominiFornitore,
+		&i.ContattiFornitore,
+		&i.LavorazioniFornitore,
+		&i.Qualifiche,
+	)
+	return i, err
+}
+
 const contaControparti = `-- name: ContaControparti :many
 SELECT controparte_tipo::text AS tipo, count(*)::int AS n FROM messaggio GROUP BY controparte_tipo ORDER BY 1
 `

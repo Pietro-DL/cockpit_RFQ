@@ -12,6 +12,7 @@ import (
 
 	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fornitori"
+	"promatec/cockpit/internal/ingest"
 )
 
 // Admin → Anagrafica → Fornitori (blocco 7A.5)
@@ -363,6 +364,9 @@ type importDati struct {
 	Anteprima *fornitori.Anteprima
 	Applicato bool
 	Errore    string
+	// Ritriage: che cosa è successo ai messaggi già arrivati. Un import che censisce un fornitore
+	// e lascia la sua posta fra gli sconosciuti è un import che sembra non aver funzionato (7B.5).
+	Ritriage string
 }
 
 func (s *Server) importaFornitoriForm(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +400,16 @@ func (s *Server) importaFornitori(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			s.Log.Info("seme fornitori applicato", "creati", len(ant.FornitoriDaCreare), "aggiunte", len(ant.DaAggiungere),
 				"non_risolti", len(ant.NonRisolti), "utente", siglaDa(r))
+			// Il ricalcolo dei messaggi già arrivati, DOPO il commit e per le sole chiavi scritte:
+			// è lo stesso ritriage di «Censisci come fornitore», ripetuto (7B.5). Se fallisce,
+			// l'import resta valido e lo si dice: i fornitori sono in anagrafica comunque.
+			esito, e := (&ingest.Servizio{Pool: s.Pool, Log: s.Log}).RitriageMolti(ctx, ant.IndirizziScritti, ant.DominiScritti)
+			if e != nil {
+				d.Ritriage = "Il ricalcolo dei messaggi già arrivati non è riuscito: " + e.Error()
+				s.Log.Error("ritriage dopo l'import del seme fornitori", "err", e)
+			} else {
+				d.Ritriage = "Messaggi già arrivati: " + esito.String() + "."
+			}
 		}
 	default:
 		ant, err = fornitori.Calcola(ctx, db.New(s.Pool), seme)

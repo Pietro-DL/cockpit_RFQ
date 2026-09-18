@@ -298,13 +298,60 @@ func (s *Servizio) Ritriage(ctx context.Context, indirizzo, dominio string) (Esi
 	if indirizzo == "" && dominio == "" {
 		return out, errors.New("ritriage senza indirizzo né dominio: non so quali messaggi guardare")
 	}
+	return s.ritriageChiavi(ctx, q, []string{indirizzo}, []string{dominio})
+}
+
+// RitriageMolti e' il Ritriage dopo una scrittura che tocca TANTI indirizzi in una volta: l'import
+// del seme dei fornitori, il seme dei clienti (7B.5). Senza, i messaggi gia' arrivati resterebbero
+// «sconosciuti» finche' qualcuno non li riguarda uno per uno: censire Polver e non vedere la sua
+// posta passare in «Fornitori» e' il modo piu' rapido per non fidarsi piu' della schermata.
+//
+// Le decisioni prese restano intoccate, come sempre: e' la stessa strada di un censimento singolo,
+// solo ripetuta. Un elenco vuoto non e' un errore — vuol dire che non c'era niente da scrivere.
+func (s *Servizio) RitriageMolti(ctx context.Context, indirizzi, domini []string) (EsitoRitriage, error) {
+	return s.ritriageChiavi(ctx, db.New(s.Pool), indirizzi, domini)
+}
+
+// ritriageChiavi raccoglie i messaggi di tutte le chiavi, li sfoltisce (lo stesso messaggio puo'
+// rispondere a due domini diversi) e li ricalcola una volta sola.
+func (s *Servizio) ritriageChiavi(ctx context.Context, q *db.Queries, indirizzi, domini []string) (EsitoRitriage, error) {
+	var out EsitoRitriage
+	chiavi := make([][2]string, 0, len(indirizzi)+len(domini))
+	visto := map[[2]string]bool{}
+	aggiungi := func(indirizzo, dominio string) {
+		k := [2]string{strings.ToLower(strings.TrimSpace(indirizzo)), strings.ToLower(strings.TrimSpace(dominio))}
+		if (k[0] == "" && k[1] == "") || visto[k] {
+			return
+		}
+		visto[k] = true
+		chiavi = append(chiavi, k)
+	}
+	for _, i := range indirizzi {
+		aggiungi(i, "")
+	}
+	for _, d := range domini {
+		aggiungi("", d)
+	}
+	if len(chiavi) == 0 {
+		return out, nil
+	}
 	nostri, err := CaricaNostri(ctx, q)
 	if err != nil {
 		return out, err
 	}
-	messaggi, err := q.ListMessaggiDaRitriage(ctx, db.ListMessaggiDaRitriageParams{Indirizzo: indirizzo, Dominio: dominio})
-	if err != nil {
-		return out, err
+	var messaggi []db.Messaggio
+	visti := map[uuid.UUID]bool{}
+	for _, k := range chiavi {
+		lotto, err := q.ListMessaggiDaRitriage(ctx, db.ListMessaggiDaRitriageParams{Indirizzo: k[0], Dominio: k[1]})
+		if err != nil {
+			return out, err
+		}
+		for _, m := range lotto {
+			if !visti[m.MessaggioID] {
+				visti[m.MessaggioID] = true
+				messaggi = append(messaggi, m)
+			}
+		}
 	}
 	motori := NuoviMotori()
 	for _, m := range messaggi {
@@ -327,7 +374,7 @@ func (s *Servizio) Ritriage(ctx context.Context, indirizzo, dominio string) (Esi
 		}
 	}
 	if s.Log != nil {
-		s.Log.Info("ritriage mirato", "indirizzo", indirizzo, "dominio", dominio, "esito", out.String())
+		s.Log.Info("ritriage mirato", "chiavi", len(chiavi), "esito", out.String())
 	}
 	return out, nil
 }

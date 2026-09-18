@@ -76,6 +76,24 @@
     });
   });
 })();
+
+// Lo stato dell'Inbox e' UNO SOLO: la barra degli indirizzi (checkpoint 7B.5).
+//
+// I link dei quadranti e dei filtri portano il loro stato scritto dentro, e il server risponde con
+// i comandi E la lista insieme. Il poll ogni 15 secondi pero' parte da solo, e prima portava i
+// parametri congelati all'ultimo rendering della colonna: dopo aver aperto un messaggio l'indirizzo
+// diceva `sel=B` e il poll continuava a chiedere `sel=A`, cosi' ogni quindici secondi la riga
+// evidenziata tornava indietro. Qui il poll rilegge l'indirizzo, che e' cio' che l'operatore vede.
+//
+// Non e' il JavaScript che decide che cosa mostrare: decide solo che cosa CHIEDERE. Che linguetta
+// accendere e quali righe mettere sotto lo dice il server, nella stessa risposta.
+function cockpitStatoInbox() {
+  var p = new URLSearchParams(window.location.search);
+  var v = {};
+  ["q", "dir", "filtro", "casella", "sel"].forEach(function (k) { v[k] = p.get(k) || ""; });
+  return v;
+}
+window.cockpitStatoInbox = cockpitStatoInbox;
 </script>
 </body>
 </html>{{end}}

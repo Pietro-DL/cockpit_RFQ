@@ -379,6 +379,51 @@ sono dati dell'azienda. In questo ambiente sta in `docs\seme_anagrafica.json` (l
 è fuori dal repository pubblico); su una postazione lo tiene chi amministra il Cockpit, accanto a
 `cockpit.toml`.
 
+#### Seminare i fornitori (blocco 7A.4)
+
+```powershell
+.\cockpit.exe -config cockpit.toml -anteprima-fornitori ..\docs\seme_fornitori.json   # guarda e NON scrive
+.\cockpit.exe -config cockpit.toml -importa-fornitori   ..\docs\seme_fornitori.json   # scrive
+```
+
+È **lo stesso motore** della schermata Admin › Anagrafica › Fornitori › Importa: stesso lettore del
+file, stessa anteprima, stessa scrittura. Non esiste un secondo importatore. L'anteprima dice che
+cosa verrebbe creato, che cosa c'è già e che cosa **non** si riesce a risolvere (una lavorazione che
+non esiste, un cliente che in anagrafica non c'è): quelle righe non vengono scritte, né adesso né
+alla conferma. Un fornitore che c'è già non viene toccato, nemmeno un campo.
+
+#### I numeri dell'anagrafica
+
+```powershell
+.\cockpit.exe -config cockpit.toml -conta-anagrafiche
+```
+
+Stampa `clienti=…`, `domini_cliente=…`, `buyer=…`, `fornitori=…`, `domini_fornitore=…`,
+`contatti_fornitore=…`, `lavorazioni_fornitore=…`, `qualifiche=…`, una riga per voce, ed esce.
+
+#### Tutto il bootstrap in un comando
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1            # chiede conferma prima dei fornitori
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1 -Conferma  # non chiede niente
+powershell -ExecutionPolicy Bypass -File scripts\semina-anagrafiche.ps1 -SoloAnteprima
+```
+
+Verifica che i due file esistano, dice su quale database sta per scrivere (senza la password),
+applica le migrazioni, carica clienti/domini/buyer, mostra l'anteprima dei fornitori, li scrive solo
+dopo conferma esplicita e mostra i numeri finali. Rilanciarlo non raddoppia niente. Se uno dei due
+file è invalido esce con codice ≠ 0 senza aver scritto la parte che segue.
+
+**Lo lancia anche `scripts\avvia-dev.ps1`**, prima di mettere in piedi server e worker: dopo un
+`azzera-dati.ps1` il database ha lo schema ma non sa chi è nessuno, e senza anagrafiche ogni mail
+arriva da uno sconosciuto. Con `-NoSemina` si salta. **Il server non semina niente da solo**: né
+all'avvio né mai. Caricare un'anagrafica è una decisione, non un effetto collaterale.
+
+**Un fornitore senza domini e senza contatti non fa cambiare quadrante a nessuna mail**: la posta si
+riconosce dall'indirizzo, non dalla ragione sociale. Il seme dei fornitori nasce da un foglio dove
+gli indirizzi non ci sono: o si aggiungono i domini al file, o si censiscono dall'Inbox con
+«Censisci come fornitore», che è la strada pensata per questo.
+
 ```json
 {
   "clienti": [
@@ -847,6 +892,31 @@ allegati (PDF, fogli, documenti) come `offerta_fornitore`, il tipo che alla conf
 Richiede `[sicurezza].bozze` per la bozza; la richiesta nasce comunque e la frase dice perché la bozza no.
 L'invio resta manuale: la bozza si apre in Outlook, si rilegge, si preme Invia lì.
 
+## Inbox coerente e bootstrap ripetibile (checkpoint 7B.5)
+
+**I comandi e la lista tornano insieme.** L'Inbox rende un pezzo solo, `inbox_stato`: linguette dei
+quadranti, direzione, filtro, selettore della casella, contatori e righe. Ogni link lo sostituisce
+per intero (`hx-target="#inbox-stato" hx-swap="outerHTML"`). Prima ogni link ripuntava alla sola
+`#lista` e il server rispondeva con la sola lista, mentre le linguette stavano fuori: le righe
+cambiavano quadrante e i comandi restavano quelli di prima — sullo schermo risultava acceso
+«Fornitori» con sotto le righe di «Da validare». La schermata diceva una cosa e ne mostrava
+un'altra, che è esattamente il difetto che l'Inbox dovrebbe aiutare a non fare.
+
+Lo stato è **uno solo: la barra degli indirizzi**. I link lo portano scritto dentro; il poll ogni 15
+secondi lo rilegge da lì (`cockpitStatoInbox()` in `layout.html`) invece di portarsi dietro i
+parametri congelati all'ultimo rendering. Aprire un messaggio rifà la colonna (`HX-Trigger-After-Settle:
+inbox-aggiorna`), così la riga si accende subito e i contatori si aggiornano. Il pannello di destra
+resta fuori dal pezzo che si ricarica — cambiare quadrante non chiude il messaggio che si sta
+leggendo — e la colonna che scorre resta la stessa, quindi il poll non fa saltare la lettura.
+
+**Dopo un seed i messaggi già arrivati cambiano quadrante subito.** Dalla 0014 la controparte è un
+fatto scritto sul messaggio all'ingest, non una domanda che l'Inbox rifà a ogni lettura: senza
+ricalcolo, censire un fornitore lasciava la sua posta fra gli sconosciuti finché non arrivava una
+mail nuova. Adesso l'import dei fornitori (schermata e riga di comando) e il seme dei clienti
+chiudono con un **ritriage mirato** sulle sole chiavi appena scritte — domini e indirizzi — e dicono
+quanti messaggi hanno riguardato. Le decisioni prese non si toccano: un messaggio già in una RFQ, o
+già ignorato, non viene nemmeno letto.
+
 ## Prove
 
 ```powershell
@@ -879,6 +949,25 @@ l'unico livello in cui il client e il server si parlano davvero: gli altri prova
 e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa
 indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
 `prova-tutto.ps1 -SenzaPython` viene saltato e il registro lo annota come non verificato.
+
+### Le prove nel browser (L7)
+
+```powershell
+python -m pip install playwright                 # una volta; il browser è Microsoft Edge, già installato
+$env:COCKPIT_TEST_DSN = "postgres://cockpit_test:cockpit_test@127.0.0.1:5433/cockpit_test"
+go test -tags "integrazione browser" -count=1 -run TestL7 .\internal\web\
+```
+
+Il tag `browser` le tiene fuori dalla corsa normale: senza Playwright il test **salta** e lo dice.
+Il banco è quello di tutti gli altri test web — PostgreSQL vero, server vero su una porta vera — e
+sopra ci gira Edge: `internal\web\e2e\inbox_quadranti.py` apre l'Inbox, clicca le linguette, cambia
+direzione e filtro, aspetta un poll intero e usa indietro/avanti del browser, e ogni volta verifica
+che **la linguetta accesa, le righe mostrate e la barra degli indirizzi dicano la stessa cosa**.
+
+Serve perché a L4 si chiede al server un frammento e si legge l'HTML che torna. Il 18/09/2026 erano
+tutti verdi mentre nel browser le linguette restavano indietro: il difetto non stava in una risposta
+sbagliata, stava nel fatto che la pagina ne sostituiva soltanto un pezzo. Un difetto che vive fra due
+risposte giuste lo vede solo chi guarda la pagina intera.
 
 Tutto in una volta, con il registro degli esiti:
 
@@ -996,7 +1085,8 @@ internal/web               HTML+HTMX: login (postazione per IP), /sessione/posta
                            anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
                            fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
                            richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
-                           integrita_admin.go: /admin/nas
+                           integrita_admin.go: /admin/nas;
+                           e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`)
 web/templates, web/static  template html/template, style.css, htmx 2.0.4
 migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                            0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
@@ -1021,7 +1111,9 @@ workers/                   cockpit_client.py (client, config, log, battito), wor
                            Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
 workers/tests/             i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
                            finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
-scripts/                   avvia-dev.ps1, ferma-dev.ps1, db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
+scripts/                   avvia-dev.ps1 (semina le anagrafiche, poi avvia server e worker), ferma-dev.ps1,
+                           semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
+                           db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                            azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                            backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
 ```

@@ -161,6 +161,12 @@ type Anteprima struct {
 	Presenti          []Riga   // già in database: niente da fare
 	NonRisolti        []Riga   // ciò che il file dice e l'anagrafica non sa risolvere: NON si scrive
 	Avvisi            []Riga   // si scrive, ma vale la pena saperlo
+	// DominiScritti e IndirizziScritti sono le sole voci che cambiano la RISPOSTA alla domanda «di
+	// chi è questa mail»: dopo averle scritte, i messaggi già arrivati da quei domini o da quegli
+	// indirizzi vanno ricalcolati, o l'Inbox continuerà a chiamarli «sconosciuti» (7B.5). Prima
+	// della conferma dicono che cosa verrebbe scritto; dopo, che cosa è stato scritto.
+	DominiScritti    []string
+	IndirizziScritti []string
 }
 
 // Vuota: niente da scrivere.
@@ -256,6 +262,7 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 				return nil, err
 			}
 			p.DaAggiungere = append(p.DaAggiungere, Riga{nome, "dominio " + d, ""})
+			p.DominiScritti = append(p.DominiScritti, d)
 			p.domini = append(p.domini, opDominio{nome, d})
 		}
 		esistenti := map[string]bool{}
@@ -274,6 +281,7 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 				continue
 			}
 			p.DaAggiungere = append(p.DaAggiungere, Riga{nome, "contatto " + c.Email, c.Nome})
+			p.IndirizziScritti = append(p.IndirizziScritti, c.Email)
 			p.contatti = append(p.contatti, opContatto{nome, c})
 		}
 		for _, l := range f.Lavorazioni {

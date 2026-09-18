@@ -20,7 +20,7 @@
 <p class="briciole"><a href="/admin/fornitori">Fornitori</a> › Importa da file</p>
 
 {{if $d.Errore}}<div class="pannello errore-box"><strong>Non importato.</strong> {{$d.Errore}}</div>{{end}}
-{{if $d.Applicato}}<div class="avviso">Seme applicato. Quello che segue e' cio' che e' stato scritto; un secondo import dello stesso file non scrive niente.</div>{{end}}
+{{if $d.Applicato}}<div class="avviso">Seme applicato. Quello che segue e' cio' che e' stato scritto; un secondo import dello stesso file non scrive niente. {{$d.Ritriage}}</div>{{end}}
 
 <div class="scheda importa">
   <h2>Seme dei fornitori</h2>
