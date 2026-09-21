@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/migrazioni"
+	"promatec/cockpit/internal/platform/migrazioni"
 )
 
 // DSN restituisce COCKPIT_TEST_DSN o salta il test.

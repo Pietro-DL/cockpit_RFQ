@@ -25,7 +25,7 @@ import (
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // nomeLungo e' un nome di file di oltre cento caratteri con dentro dei codici: prima diventava un

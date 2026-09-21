@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 func banco(t *testing.T) (context.Context, *db.Queries, *pgxpool.Pool) {

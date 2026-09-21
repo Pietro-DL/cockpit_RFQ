@@ -22,7 +22,7 @@ import (
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // scenario è la configurazione delle prove di routing: tre caselle (Commerciale condivisa, Francesco,

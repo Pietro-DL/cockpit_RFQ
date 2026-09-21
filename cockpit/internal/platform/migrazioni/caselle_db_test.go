@@ -18,8 +18,8 @@ import (
 	"github.com/google/uuid"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/migrazioni"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/migrazioni"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 func TestS2CaselleEPresenzeSuDBConDati(t *testing.T) {

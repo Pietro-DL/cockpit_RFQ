@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/domain"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // Le colonne `codice` e `rev` devono essere almeno larghe quanto il dominio dichiara (7C.1, P0).

@@ -12,7 +12,7 @@ import (
 
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // Test d'integrazione su DB reale (SPEC blocco 2): richiede COCKPIT_TEST_DSN, altrimenti viene saltato.

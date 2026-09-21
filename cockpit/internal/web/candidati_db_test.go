@@ -28,7 +28,7 @@ import (
 
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // scena3R è un cliente con le sue regole, una conversazione con tre messaggi orfani e un operatore.

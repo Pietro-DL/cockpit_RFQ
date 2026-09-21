@@ -19,7 +19,7 @@ import (
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 const shaA15 = "aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233"

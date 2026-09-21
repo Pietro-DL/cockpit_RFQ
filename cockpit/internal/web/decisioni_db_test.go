@@ -19,7 +19,7 @@ import (
 
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 type scena struct {

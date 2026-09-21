@@ -24,7 +24,7 @@ import (
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // postaMsg fa entrare un MessaggioIn gia' costruito per la strada vera (Commerciale) e restituisce l'id.

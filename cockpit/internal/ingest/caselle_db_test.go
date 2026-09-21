@@ -28,7 +28,7 @@ import (
 
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // casellaDiProva censisce una casella in più oltre a quella di preparaPP.

@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // rotteAdmin sono le sette che l'addendum chiede di chiudere: le tre schermate e le quattro azioni

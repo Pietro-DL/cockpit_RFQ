@@ -20,7 +20,7 @@ import (
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // unCliente crea un cliente direttamente in database: è lo stato di partenza, non ciò che si prova.

@@ -24,7 +24,7 @@ import (
 
 	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 const contenutoProva = "questo e' il disegno vero"

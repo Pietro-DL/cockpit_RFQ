@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {

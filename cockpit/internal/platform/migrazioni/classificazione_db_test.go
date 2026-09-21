@@ -13,8 +13,8 @@ import (
 	"testing"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/migrazioni"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/migrazioni"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 func TestLa0016SiFermaSeCiSonoRichiesteInRispostaENonLeReinterpreta(t *testing.T) {

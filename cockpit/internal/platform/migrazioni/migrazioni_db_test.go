@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/migrazioni"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/migrazioni"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // S1 — da vuoto: 0001…000n in ordine; il riavvio è idempotente e non riapplica nulla.

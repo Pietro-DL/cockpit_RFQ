@@ -40,7 +40,7 @@ import (
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // contenutoE2E è il finto allegato di prova_e2e.py: bytes(range(256)) * COCKPIT_E2E_BLOCCHI.

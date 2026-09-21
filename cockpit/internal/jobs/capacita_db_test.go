@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // tutto sono le capacità accese: è lo stato di default del processo (vedi capacita.go).

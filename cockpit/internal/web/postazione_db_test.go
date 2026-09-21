@@ -29,7 +29,7 @@ import (
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 	"promatec/cockpit/internal/workerapi"
 )
 

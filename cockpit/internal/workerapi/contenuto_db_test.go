@@ -31,7 +31,7 @@ import (
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // bancoAnalisi: il banco dell'upload piu' un contenuto gia' in staging e la sua analisi accodata.

@@ -18,7 +18,7 @@ import (
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/testutil"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 // bancoClaim: server vero su httptest, fondazioni seminate da una configurazione con due caselle
