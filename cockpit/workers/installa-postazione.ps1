@@ -111,7 +111,7 @@ if ($Disinstalla) {
 # ---------------------------------------------------------------- installazione
 
 if (-not (Test-Path $tomlPath)) {
-    throw "manca $tomlPath: questo script va lanciato dalla cartella in cui e' stato scompattato il pacchetto della postazione (pagina Postazioni del Cockpit)"
+    throw "manca ${tomlPath}: questo script va lanciato dalla cartella in cui e' stato scompattato il pacchetto della postazione (pagina Postazioni del Cockpit)"
 }
 $cfg = Leggi-Toml $tomlPath
 $serverUrl = $cfg[""]["server_url"]
@@ -126,7 +126,7 @@ if (-not $cmd) { $cmd = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $cmd) { throw "python non trovato nel PATH: installare Python 3.11 o superiore (python.org, con «Add to PATH»)" }
 $python = $cmd.Source
 $versione = & $python -c "import sys; print('%d.%d' % sys.version_info[:2])"
-if ([version]$versione -lt [version]"3.11") { throw "Python $versione trovato in $python: serve 3.11 o superiore (tomllib)" }
+if ([version]$versione -lt [version]"3.11") { throw "Python $versione trovato in ${python}: serve 3.11 o superiore (tomllib)" }
 Write-Host "   python $versione : $python"
 if (-not $SenzaDipendenze) {
     & $python -m pip install --disable-pip-version-check -q -r (Join-Path $qui "requirements.txt")
