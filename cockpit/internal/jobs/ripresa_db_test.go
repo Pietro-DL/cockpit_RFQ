@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
@@ -150,7 +151,7 @@ func TestUnContenutoSparitoSiRiprendeDaOutlookDaSolo(t *testing.T) {
 	if err == nil {
 		t.Fatal("la copia e' riuscita senza il contenuto")
 	}
-	if !errors.Is(err, ErrContenutoMancante) {
+	if !errors.Is(err, documenti.ErrContenutoMancante) {
 		t.Errorf("l'errore non e' «contenuto mancante»: %v", err)
 	}
 	if !strings.Contains(err.Error(), "download da Outlook accodato") {

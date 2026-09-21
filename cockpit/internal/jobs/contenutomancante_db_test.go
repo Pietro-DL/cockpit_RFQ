@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
@@ -84,12 +85,11 @@ func TestIlContenutoCEeSiCopia(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	doc, percorso := documentoConContenuto(t, ctx, p, strings.Repeat("a", 64))
 
-	e := &EsecutoreServer{Pool: p}
 	d, err := q.GetDocumento(ctx, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := e.sorgenteStaging(ctx, q, d)
+	src, err := documenti.SorgenteStaging(ctx, q, d)
 	if err != nil {
 		t.Fatalf("il contenuto c'è e non viene trovato: %v", err)
 	}
@@ -107,16 +107,15 @@ func TestUnContenutoSparitoLoDiceEDiceCosaFare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &EsecutoreServer{Pool: p}
 	d, err := q.GetDocumento(ctx, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = e.sorgenteStaging(ctx, q, d)
+	_, err = documenti.SorgenteStaging(ctx, q, d)
 	if err == nil {
 		t.Fatal("il contenuto non c'è e la copia parte lo stesso: si fermerà con un errore del filesystem")
 	}
-	if !errors.Is(err, ErrContenutoMancante) {
+	if !errors.Is(err, documenti.ErrContenutoMancante) {
 		t.Errorf("l'errore non è riconoscibile come «contenuto mancante»: %v", err)
 	}
 	// le tre cose che deve dire: quale file, che non è più in staging, e da dove si riprende
@@ -138,9 +137,8 @@ func TestUnaCartellaAlPostoDelFileNonEeIlContenuto(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &EsecutoreServer{Pool: p}
 	d, _ := q.GetDocumento(ctx, doc)
-	if _, err := e.sorgenteStaging(ctx, q, d); !errors.Is(err, ErrContenutoMancante) {
+	if _, err := documenti.SorgenteStaging(ctx, q, d); !errors.Is(err, documenti.ErrContenutoMancante) {
 		t.Errorf("una cartella è stata presa per il contenuto: %v", err)
 	}
 }
@@ -158,13 +156,12 @@ func TestSenzaNessunAllegatoLErroreNonParlaDiRiscarica(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	e := &EsecutoreServer{Pool: p}
 	d, _ := q.GetDocumento(ctx, doc)
-	_, err := e.sorgenteStaging(ctx, q, d)
+	_, err := documenti.SorgenteStaging(ctx, q, d)
 	if err == nil {
 		t.Fatal("un documento senza allegati corrispondenti non ha dato errore")
 	}
-	if errors.Is(err, ErrContenutoMancante) {
+	if errors.Is(err, documenti.ErrContenutoMancante) {
 		t.Errorf("si consiglia «Riscarica» su un allegato che non esiste: %v", err)
 	}
 }

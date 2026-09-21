@@ -1164,7 +1164,9 @@ internal/core/registro/regole       lo schema di cliente.regole: la porta in scr
                                     convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/core/rfq/documenti         il fascicolo di una RFQ. path.go: i nomi sul NAS (cartella della RFQ, sottocartella per tipo e codice, nome di
                                     file sicuro; sempre relativi alla radice); integrita.go: il ricognitore che confronta i documenti con i file
-                                    veri e scrive nas_anomalia, e Allinea che su un conflitto rifiuta (blocco 5B)
+                                    veri e scrive nas_anomalia, e Allinea che su un conflitto rifiuta (blocco 5B); esecuzione.go: che cosa
+                                    significa copiare un documento sul NAS e creare la cartella di una RFQ, compresa la ripresa di un contenuto
+                                    sparito dalla cache (Pre-7)
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1183,8 +1185,8 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/jobs                       esecutore dei job di tipo 'server': copia sul NAS, cartella del thread, ripresa di un contenuto sparito,
-                                    estrazione degli archivi
+internal/jobs                       esecutore dei job di tipo 'server': prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
+                                    per il fascicolo, transport/workerapi per gli archivi, ai/agente per l'analisi); vigila sul NAS assente
 web/templates, web/static           template html/template, style.css, htmx 2.0.4
 migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                                     0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),

@@ -40,7 +40,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | anagrafiche, regole del cliente, lavorazioni, fornitori | `core/registro/` |
 | la coda, le capacità, l'instradamento dei job | `platform/coda` |
 | lo staging sul disco, i contenuti, la loro cache | `platform/storage/staging` |
-| il ricognitore dell'integrità NAS | `core/rfq/documenti` |
+| il ricognitore dell'integrità NAS, i corpi dei job del fascicolo | `core/rfq/documenti` |
 | l'esecutore dei job del server | `internal/jobs` |
 | avvio e cablaggio | `cmd/cockpit/main.go` |
 
@@ -88,7 +88,8 @@ solo**, nemmeno all'avvio.
   identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/inbox/classificazione`, `jobs`.
 - **Allegato → NAS** — «Scarica» o staging automatico → `stage_allegato` → contenuto in `_contenuti` con lo
   sha256 per nome → eventuale `estrai_archivio` → `analizza_allegato` → `documento_proposta` → conferma →
-  `documento` + `copia_nas`. Package: `jobs`, `platform/storage`, `transport/workerapi`.
+  `documento` + `copia_nas`. Package: `jobs` (chi esegue), `core/rfq/documenti` (che cosa significa copiare),
+  `platform/storage`, `transport/workerapi`.
 - **Integrità NAS** — il ricognitore confronta `documento` con i file veri e scrive `nas_anomalia`. Package:
   `core/rfq/documenti/integrita.go`, `platform/storage/nas`.
 - **Apri in Outlook** — job con il `postazione_id` della sessione: solo il worker di quella postazione lo prende.
