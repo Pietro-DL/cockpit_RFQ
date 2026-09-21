@@ -29,8 +29,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // documentoConContenuto prepara una RFQ con un allegato in staging e il documento confermato che lo

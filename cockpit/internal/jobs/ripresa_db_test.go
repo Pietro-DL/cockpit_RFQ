@@ -21,8 +21,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // bancoRipresa e' una RFQ con un messaggio presente in una casella (cosi' da Outlook si puo'

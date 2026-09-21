@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/domain"
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // RICONCILIAZIONE DEL NAS (blocco 5B del checkpoint 3R).

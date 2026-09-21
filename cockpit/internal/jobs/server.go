@@ -16,8 +16,8 @@ import (
 
 	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // ScrivePerNas dice se il job ha bisogno che il NAS ci sia. Sono i due che scrivono sotto la radice:

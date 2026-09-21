@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 func TestIlPacchettoPortaIlCertificatoPubblicoELoScriptDellaPostazione(t *testing.T) {

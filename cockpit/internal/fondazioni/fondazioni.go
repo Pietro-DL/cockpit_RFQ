@@ -21,7 +21,7 @@ import (
 
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 // Esito riassume cosa ha fatto il seed; il chiamante lo logga e i test lo verificano.

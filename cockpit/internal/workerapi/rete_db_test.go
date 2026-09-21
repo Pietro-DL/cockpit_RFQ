@@ -29,7 +29,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 // ---------------------------------------------------------------------------------------------

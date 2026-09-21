@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 )
 
 // Upload degli allegati legato al tentativo (voce 2.3, D8, N45).

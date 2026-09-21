@@ -19,8 +19,8 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/nas"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/testutil"
 )
 

@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 // ---------------------------------------------------------------------------------------------

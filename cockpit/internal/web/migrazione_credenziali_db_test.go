@@ -29,7 +29,7 @@ import (
 	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 const tokenCondivisoLegacy = "IL-TOKEN-CONDIVISO-DI-PRIMA"

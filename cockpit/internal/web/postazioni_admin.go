@@ -17,7 +17,7 @@ import (
 
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/platform/db"
-	"promatec/cockpit/internal/rete"
+	"promatec/cockpit/internal/platform/rete"
 )
 
 // Pagina *Postazioni* (voce 2.4 + D22): da qui si mette in piedi un PC nuovo senza copiare segreti a
