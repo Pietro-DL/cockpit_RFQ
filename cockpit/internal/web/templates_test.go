@@ -13,7 +13,7 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/domain"
-	"promatec/cockpit/internal/fornitori"
+	"promatec/cockpit/internal/core/registro/fornitori"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
 )
