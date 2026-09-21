@@ -26,9 +26,9 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/config"
-	"promatec/cockpit/internal/fondazioni"
+	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/rete"
 )
 

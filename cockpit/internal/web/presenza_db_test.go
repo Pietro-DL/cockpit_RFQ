@@ -26,8 +26,8 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/config"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
 )
 
