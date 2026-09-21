@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/platform/db"
 )
 

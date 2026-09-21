@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/core/domain"
 )
 
 type Scrittore struct {

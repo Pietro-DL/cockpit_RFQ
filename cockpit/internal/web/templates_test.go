@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/fornitori"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"

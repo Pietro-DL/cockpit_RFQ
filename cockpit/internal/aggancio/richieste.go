@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/platform/db"
 )
 
