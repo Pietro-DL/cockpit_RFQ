@@ -24,7 +24,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"promatec/cockpit/internal/ai/agente"
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/worker"

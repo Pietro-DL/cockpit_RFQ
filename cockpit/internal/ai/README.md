@@ -7,7 +7,7 @@ scarta. Niente di ciò che esce da qui è una decisione.
 
 ## Non appartiene qui
 
-Le regole deterministiche (stanno in `core/domain`), gli handler HTTP, la coda.
+Le regole deterministiche (stanno in `core/inbox/classificazione`), gli handler HTTP, la coda.
 
 ## Package posseduti
 

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"

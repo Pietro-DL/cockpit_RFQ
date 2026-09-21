@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"

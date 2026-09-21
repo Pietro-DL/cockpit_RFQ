@@ -11,8 +11,8 @@ Cinque aree, una regola sola per capire dove va un pezzo di codice: **chi può i
                                ▼          ▼
                               jobs  (coda, lease, scheduler, capacità, esecutore server,
                                │          │   cache dei contenuti, ricognitore NAS)
-              core/inbox/ingest  core/domain  core/inbox/aggancio  ai/agente
-                     (fatti → DB) (interpretazione) (candidati)    (LLM, spento di default)
+         core/inbox/ingest  core/inbox/classificazione  core/inbox/aggancio  ai/agente
+              (fatti → DB)      (interpretazione)        (candidati)    (LLM, spento di default)
                                │
                         platform/db  (sqlc)  ──►  PostgreSQL
                                │
@@ -30,7 +30,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 
 | Cerco… | Area |
 |---|---|
-| riconoscimento della posta, triage, candidati di aggancio | `core/` (`domain`, `inbox/ingest`, `inbox/aggancio`) |
+| riconoscimento della posta, triage, candidati di aggancio | `core/inbox/` (`classificazione`, `ingest`, `aggancio`) |
 | lo schema di `cliente.regole` e le convenzioni di codice | `core/registro/regole` |
 | il nome di una cartella o di un file sul NAS | `core/rfq/documenti` |
 | una rotta del browser | `transport/web` |
@@ -46,9 +46,9 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | Area | Può importare |
 |---|---|
 | `core/registro/regole` | **niente** del progetto |
-| `core/domain` | `core/registro/regole` (il motore lavora sullo schema; deroga di B2, sparisce quando `domain` si divide) |
-| `core/rfq/documenti` | `core/domain` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito) |
-| `core/*` (aggancio, ingest, registro) | `core/domain`, `platform` |
+| `core/inbox/classificazione` | `core/registro/regole` (il motore lavora sullo schema) |
+| `core/rfq/documenti` | `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito) |
+| `core/*` (aggancio, ingest, registro, rfq) | gli altri `core/*`, `platform` |
 | `platform/*` | solo `platform` e librerie |
 | `ai/agente` | `core`, `platform` |
 | `transport/*` | `core`, `ai`, `platform`, `jobs` |
@@ -76,12 +76,12 @@ solo**, nemmeno all'avvio.
   con il modo e una finestra chiusa per cartella → claim del worker → lotti su `/ingest/messaggi` → `ingest`
   scrive i fatti, risolve la controparte, taglia la catena, chiede il triage a `domain`, calcola i candidati →
   la frontiera avanza solo se la cartella è stata percorsa per intero. Package: `transport/workerapi`,
-  `core/inbox/ingest`, `core/domain`, `core/inbox/aggancio`, `jobs`.
+  `core/inbox/ingest`, `core/inbox/classificazione`, `core/inbox/aggancio`, `jobs`.
 - **Censisci dall'Inbox** — «Da validare» → `censisci` → fornitore o cliente in anagrafica →
   `ingest.Ritriage(indirizzo, dominio)` sui soli messaggi **non decisi**. Package: `transport/web`,
   `core/registro`, `core/inbox/ingest`.
 - **Nuova RFQ** — `FOR UPDATE` sul messaggio → `thread_offerta` con la cartella da `rfq/documenti/path.go` →
-  identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/domain`, `jobs`.
+  identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/inbox/classificazione`, `jobs`.
 - **Allegato → NAS** — «Scarica» o staging automatico → `stage_allegato` → contenuto in `_contenuti` con lo
   sha256 per nome → eventuale `estrai_archivio` → `analizza_allegato` → `documento_proposta` → conferma →
   `documento` + `copia_nas`. Package: `jobs`, `platform/storage`, `transport/workerapi`.
@@ -129,6 +129,7 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 
 ---
 
-**Cambia in B**: `core/registro/regole` (B2) e `core/rfq/documenti` (B3) ci sono; `core/domain` diventa
-`core/inbox/classificazione`; `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`,
-`core/rfq/documenti` e `app/runtime`; `cmd/cockpit/main.go` si svuota in `app/runtime`.
+**Cambia in B**: `core/registro/regole` (B2) e `core/rfq/documenti` (B3) ci sono. Il package `domain` ha
+traslocato sotto `core/inbox/classificazione` (B4a) e in B4b prende il nome della cartella. `internal/jobs`
+si divide fra `platform/coda`, `platform/storage/staging`, `core/rfq/documenti` e `app/runtime`;
+`cmd/cockpit/main.go` si svuota in `app/runtime`.

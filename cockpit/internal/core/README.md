@@ -15,7 +15,7 @@ NAS (quelle passano da `platform/storage/nas`).
 
 | Package | Che cosa fa | DB |
 |---|---|---|
-| `domain` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `oggetto.go` (`OggettoPulito`: i prefissi RE:/FW: tolti dall'oggetto — lo usano aggancio e i percorsi), `aggancio.go` (punteggi R1–R5) | no |
+| `inbox/classificazione` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `oggetto.go` (`OggettoPulito`: i prefissi RE:/FW: tolti dall'oggetto — lo usano aggancio e i percorsi), `aggancio.go` (punteggi R1–R5) | no |
 | `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
 | `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
 | `rfq/documenti` | i **nomi** sul NAS: `path.go` (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`) — percorsi sempre RELATIVI alla radice, con `\` come separatore. Il prefisso long-path sta in `platform/storage/nas` | no |
@@ -25,11 +25,11 @@ NAS (quelle passano da `platform/storage/nas`).
 
 ## Dipendenze consentite
 
-`core/registro/regole` non importa nulla del progetto. Da B1 nessun package di `platform` importa `core`.
-Gli altri package di `core` importano `core/domain` e `platform`.
-
-Una deroga dichiarata, e temporanea: da B2 `core/domain` importa `core/registro/regole`, perché il motore
-lavora sullo schema. Sparisce quando `domain` si divide e il motore prende il suo nome.
+`core/registro/regole` non importa nulla del progetto: è lo schema, e uno schema non dipende da chi lo usa.
+Da B1 nessun package di `platform` importa `core`.
+Gli altri package di `core` importano gli altri `core/*` e `platform`. Le due catene che esistono davvero:
+`inbox/classificazione` → `registro/regole` (il motore lavora sullo schema) e `rfq/documenti` →
+`inbox/classificazione` (il nome della cartella nasce dall'oggetto ripulito).
 Mai `transport`, mai `ai`, mai `jobs`.
 
 ## Entry point
@@ -76,12 +76,12 @@ classificazione.
 
 | Voglio… | Apri |
 |---|---|
-| una regola di triage nuova | `domain/codici.go:Triage`, `Motore.Codici` |
-| un campo nuovo in `cliente.regole` | `registro/regole/regole.go`, poi il motore in `domain/regole.go` |
-| un atto nuovo | `domain/atto.go` e l'enum `atto_business` in migrazione |
+| una regola di triage nuova | `inbox/classificazione/codici.go:Triage`, `Motore.Codici` |
+| un campo nuovo in `cliente.regole` | `registro/regole/regole.go`, poi il motore in `inbox/classificazione/regole.go` |
+| un atto nuovo | `inbox/classificazione/atto.go` e l'enum `atto_business` in migrazione |
 | una convenzione di codice | `registro/regole/convenzioni.go` |
 | il nome di una cartella o di un file sul NAS | `rfq/documenti/path.go` |
-| capire perché un fornitore non apre una RFQ | `domain/controparte.go:RisolviControparte`, `domain/codici.go` (ramo `Controparte`) |
+| capire perché un fornitore non apre una RFQ | `inbox/classificazione/controparte.go:RisolviControparte`, `inbox/classificazione/codici.go` (ramo `Controparte`) |
 | capire perché un'offerta propone quella richiesta | `inbox/aggancio/richieste.go:CalcolaRichieste` |
 | capire che cosa scrive (e non scrive) l'import dei fornitori | `registro/fornitori/seme.go:calcola`, `Applica` |
 
@@ -93,4 +93,5 @@ classificazione.
 ---
 
 **Cambia in B**: `registro/regole` (B2) e `rfq/documenti` (B3, i nomi) ci sono. `rfq/documenti` prende ancora
-l'integrità NAS e i corpi dei job (B6a, B6b); `domain` diventa `inbox/classificazione` (B4).
+l'integrità NAS e i corpi dei job (B6a, B6b). Il package `domain` ha traslocato sotto
+`inbox/classificazione` (B4a) e in B4b prende il nome della cartella.

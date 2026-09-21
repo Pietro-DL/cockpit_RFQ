@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/testutil"
 )
 

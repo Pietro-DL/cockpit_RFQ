@@ -1143,7 +1143,7 @@ internal/platform/logfile           il log del server su file, con rotazione (5 
 internal/platform/storage/nas       scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/platform/storage/archivio  estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/core/domain                regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:,
+internal/core/inbox/classificazione regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:,
                                     taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
                                     atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
                                     regole.go: il motore che compila le regole del cliente e le applica a un testo

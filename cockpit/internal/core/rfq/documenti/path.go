@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 )
 
 // Convenzione NAS (RFQ_plan §0.2.1.4): <Cliente.cartella_nas>\WIP\<aaaa mm gg> <Cognome buyer> <Oggetto>
