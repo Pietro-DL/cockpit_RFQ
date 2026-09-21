@@ -3,7 +3,7 @@
 // L4 — SS1–SS4: «Carica precedenti» scarica l'archivio a pezzi piccoli (voce 2.8, checkpoint del
 // 16/09/2026).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Il motivo di tutto il gruppo è la forma del worker: ce n'è uno per PC ed è seriale. Finché macina
 // un job storico non prende «Apri in Outlook», non scarica un allegato e non fa il sync ordinario.

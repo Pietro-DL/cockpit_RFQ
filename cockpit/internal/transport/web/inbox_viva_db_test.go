@@ -2,7 +2,7 @@
 
 // L4 — voce 2.16 «Inbox viva» contro PostgreSQL vero: SV1, SV2, SV3.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Che cosa NON provano: che il browser mostri davvero la chip e il pallino, e che un operatore se ne
 // accorga. Quello è L7 e sta in esiti_reali.md. Qui si prova ciò che il server risponde.

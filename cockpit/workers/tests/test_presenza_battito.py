@@ -11,7 +11,7 @@ Preso da solo nessuno dei tre era sbagliato. Insieme dicevano che un worker occu
 Qui si prova la meta' Python della regola: dentro un job il claim non passa piu', quindi il battito e'
 l'unica prova di vita, e non puo' essere piu' lento di quanto il server aspetta prima di dare il
 worker per perso. L'altra meta' — che il server guardi l'ultimo contatto e non l'ultimo claim — sta in
-internal/web/presenza_db_test.go, contro PostgreSQL vero.
+internal/transport/web/presenza_db_test.go, contro PostgreSQL vero.
 """
 import cockpit_client
 import protocollo

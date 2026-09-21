@@ -2,7 +2,7 @@
 
 // L4 (+L2) — blocco 2: credenziali individuali (voce 2.4, W4) e TLS con impronta (W11).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/workerapi/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/workerapi/
 //
 // Fino al blocco 1 l'API dei worker aveva un token solo, uguale per tutti e scritto in chiaro in ogni
 // worker.toml. Autenticava «un worker», non «questo worker»: chi lo aveva letto poteva presentarsi

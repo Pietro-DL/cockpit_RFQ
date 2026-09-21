@@ -3,7 +3,7 @@
 // L4 — blocco 7B sulla porta HTTP vera: le richieste ai fornitori (IB2–IB5), «Ignora» in Da validare
 // (IB6), la newsletter (IB7), materiali e norme che non sono codici (IB8). Nomi e domini inventati.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Che cosa NON provano: che Outlook conservi le UserProperties sulla mail inviata (IB2 reale, L5) e
 // che il browser mostri i pulsanti (L7).

@@ -2,7 +2,7 @@
 
 // L4 — §8.1 del piano di test: il test di accettazione del poison pill.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/ingest/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/core/inbox/ingest/
 //
 // Prima della fase 1 un solo messaggio che il database rifiutava fermava il sync: l'ingest usciva al
 // primo errore, rispondeva 422 sull'intero lotto e il cursore non avanzava, quindi alla scansione

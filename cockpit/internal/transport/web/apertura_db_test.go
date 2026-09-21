@@ -2,7 +2,7 @@
 
 // L4 — blocco 3 del 3R: l'aggiornamento automatico alla PRIMA apertura dell'Inbox.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Sul banco reale `intervallo_sync_s = 0`: nessun sync periodico, ed è voluto. Ma allora chi apre il
 // Cockpit la mattina vede la posta di ieri finché non preme «Aggiorna ora», e un'Inbox che mostra la

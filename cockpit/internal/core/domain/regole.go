@@ -503,7 +503,7 @@ func (m *Motore) CodiciDa(testi ...Testo) []CodiceTrovato {
 func (m *Motore) HaFamiglie() bool { return m != nil && len(m.famiglie) > 0 }
 
 // Finestra è `finestra_aggancio_gg` del cliente, 0 se non dichiarata (e allora vale il default di
-// internal/aggancio). Nil-safe come tutto il resto del motore: un cliente sconosciuto è il caso normale.
+// internal/core/inbox/aggancio). Nil-safe come tutto il resto del motore: un cliente sconosciuto è il caso normale.
 func (m *Motore) Finestra() int {
 	if m == nil {
 		return 0

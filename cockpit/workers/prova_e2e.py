@@ -2,7 +2,7 @@
 
     python prova_e2e.py            # un solo job, poi esce (come `worker_outlook.py --una-volta`)
 
-Non è un test: è l'unica riga di codice che il test L4 `internal/workerapi/e2e_worker_db_test.go`
+Non è un test: è l'unica riga di codice che il test L4 `internal/transport/workerapi/e2e_worker_db_test.go`
 aggiunge al worker per poterlo far girare su un PC senza Outlook. Sostituisce SOLO l'adattatore COM
 — la classe `Outlook` di worker_outlook — e poi chiama `worker_outlook.main()`: configurazione,
 risoluzione delle caselle, claim, battito, upload e result restano quelli veri, byte per byte.

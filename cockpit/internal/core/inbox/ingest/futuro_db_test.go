@@ -2,7 +2,7 @@
 
 // L4 — la guardia sul futuro (correzione del 16/09/2026).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/ingest/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/core/inbox/ingest/
 //
 // Il difetto vero stava nel worker: pywin32 consegna le date di Outlook con i numeri dell'ora locale
 // e l'etichetta UTC, quindi ogni `ricevuto_il` arrivava due ore avanti (log del 16/09, 08:52). Il

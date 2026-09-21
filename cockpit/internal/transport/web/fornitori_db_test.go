@@ -5,7 +5,7 @@
 // le convenzioni di codice dalla schermata (CP9, CP10, CP12) e l'import del seme con anteprima e
 // conferma (CP14). Nomi e domini sono inventati (.example).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Che cosa NON provano: che un browser mostri i quadranti e i pulsanti. Quello è L7, e senza
 // Playwright resta NON ESEGUITO in esiti_reali.md.

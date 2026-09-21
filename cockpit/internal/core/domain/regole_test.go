@@ -229,7 +229,7 @@ func TestIlRiferimentoRFQNonEUnCodiceProdotto(t *testing.T) {
 
 // AN5 (metà L1) — il banco di prova e l'ingest passano dalla STESSA funzione. Qui si prova che
 // quella funzione esiste e fa tutto: triage, portale e scadenza in una chiamata sola. L'altra
-// metà — che la schermata chiami proprio questa — è in `internal/web` (L4).
+// metà — che la schermata chiami proprio questa — è in `internal/transport/web` (L4).
 func TestRiconosciFaTuttoInUnPostoSolo(t *testing.T) {
 	r, err := ValidaRegole([]byte(regoleBuone))
 	if err != nil {

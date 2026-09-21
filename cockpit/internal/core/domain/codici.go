@@ -249,7 +249,7 @@ type IngressoTriage struct {
 	// sconosciuto, o cliente senza regole: il triage continua a funzionare con il solo
 	// estrattore generico, perché un cliente non censito è il caso NORMALE del primo giorno.
 	Motore *Motore
-	// Candidati sono le proposte di aggancio già calcolate (R0–R5, internal/aggancio). La loro
+	// Candidati sono le proposte di aggancio già calcolate (R0–R5, internal/core/inbox/aggancio). La loro
 	// presenza è ciò che impedisce di valutare `nuova_rfq`: vedi la precedenza in Triage.
 	Candidati []Candidato
 	// Blocco 7B: il mittente (per riconoscere gli indirizzi automatici), i candidati verso una

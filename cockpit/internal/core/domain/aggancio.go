@@ -3,7 +3,7 @@ package domain
 import "sort"
 
 // Le regole di aggancio R0–R5 (fase 4.1, D9). Qui sta la parte PURA: i nomi, i punteggi, l'ordine di
-// precedenza e la frase di evidenza. Le interrogazioni al database stanno in internal/aggancio.
+// precedenza e la frase di evidenza. Le interrogazioni al database stanno in internal/core/inbox/aggancio.
 //
 // Perché una tabella di regole e non un punteggio unico. Un punteggio unico mescola affermazioni di
 // natura diversa: «il client di posta dice che questo messaggio risponde a quello» e «questi due

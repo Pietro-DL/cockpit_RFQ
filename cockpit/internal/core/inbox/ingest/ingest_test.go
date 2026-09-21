@@ -16,7 +16,7 @@ import (
 )
 
 // Test d'integrazione su DB reale (SPEC blocco 2): richiede COCKPIT_TEST_DSN, altrimenti viene saltato.
-//   COCKPIT_TEST_DSN=postgres://cockpit:cockpit_dev@localhost:5432/cockpit_dev go test ./internal/ingest/
+//   COCKPIT_TEST_DSN=postgres://cockpit:cockpit_dev@localhost:5432/cockpit_dev go test ./internal/core/inbox/ingest/
 // Le righe create hanno message_id con prefisso "<test-ingest-" e vengono rimosse alla fine.
 
 func pool(t *testing.T) *pgxpool.Pool {

@@ -5,7 +5,7 @@
 // Lo stesso disegno arriva in tre richieste di due clienti diversi. Con la chiave per allegato
 // partivano tre job che aprivano lo stesso file e producevano gli stessi fatti; il lavoro era triplo e
 // il risultato identico. La parte che resta legittimamente tripla è la PROPOSTA — dipende dalla RFQ e
-// dal cliente — e infatti la distribuzione dei fatti alle tre proposte è provata in internal/workerapi.
+// dal cliente — e infatti la distribuzione dei fatti alle tre proposte è provata in internal/transport/workerapi.
 // Qui si prova la metà che riguarda la coda: quanti job partono, e quando ne riparte uno.
 package jobs
 

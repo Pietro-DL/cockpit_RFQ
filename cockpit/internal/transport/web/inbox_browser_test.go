@@ -2,7 +2,7 @@
 
 // L7 — l'Inbox a quadranti in un BROWSER VERO (checkpoint 7B.5).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags "integrazione browser" -count=1 -run TestL7 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags "integrazione browser" -count=1 -run TestL7 ./internal/transport/web/
 //
 // Serve Playwright per Python (`python -m pip install playwright`) e un browser installato: si usa
 // Microsoft Edge (`--canale msedge`), che su questo PC c'è già, così non si scarica niente.

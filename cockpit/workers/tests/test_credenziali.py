@@ -7,7 +7,7 @@ tabelle `[outlook]` e `[analisi]`.
 
 L'impronta del certificato vive nello stesso file per lo stesso motivo: sono le due metà della stessa
 domanda — «con chi sto parlando» e «chi sono io». La verifica vera dell'impronta, contro un server
-TLS acceso, è il test W11 in `internal/workerapi` (fa girare questo client contro un certificato
+TLS acceso, è il test W11 in `internal/transport/workerapi` (fa girare questo client contro un certificato
 generato al momento): qui si provano le regole che valgono prima di aprire la connessione.
 """
 from __future__ import annotations

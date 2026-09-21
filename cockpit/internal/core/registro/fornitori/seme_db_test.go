@@ -2,7 +2,7 @@
 
 // L4 — blocco 7A: il seme dei fornitori (CP7, CP14) e i vincoli della 0014 sul database vero (CP13).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/fornitori/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/core/registro/fornitori/
 package fornitori
 
 import (

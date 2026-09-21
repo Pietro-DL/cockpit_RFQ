@@ -2,7 +2,7 @@
 
 // L4 — blocco 3 del 3R: le due frontiere, e che cosa le muove.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/workerapi/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/workerapi/
 //
 // Il modello che questi test tengono fermo:
 //

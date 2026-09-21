@@ -2,7 +2,7 @@
 
 // L4 — PK2: il percorso di migrazione dal token CONDIVISO alle credenziali individuali (voce 2.4).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 -run PK2 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 -run PK2 ./internal/transport/web/
 //
 // PK1 (rete_db_test.go) prova che il pacchetto di una postazione porta un token che funziona. Qui si
 // prova la strada che ci si percorre davvero, ed è quella su cui il banco di prova si è fermato:

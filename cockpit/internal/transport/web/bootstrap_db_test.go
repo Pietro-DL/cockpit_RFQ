@@ -2,7 +2,7 @@
 
 // L4 — checkpoint 7B.5: dopo un seed, i messaggi già arrivati cambiano quadrante SUBITO.
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Il difetto che questi test tengono chiuso: l'import dei fornitori scriveva l'anagrafica e basta.
 // Dalla 0014 la controparte è un fatto scritto sul messaggio all'ingest, non una domanda che

@@ -2,7 +2,7 @@
 
 // L4 — blocco 2: CSRF (voce 2.5, W10) e pacchetto della postazione (voce 2.4 + D22, PK1).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/web/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/transport/web/
 //
 // Le due cose stanno insieme perché rispondono alla stessa domanda: che cosa succede quando il
 // Cockpit smette di essere su un PC solo. Un server raggiungibile da altri PC è un server che un'altra
