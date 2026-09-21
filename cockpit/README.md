@@ -1162,7 +1162,9 @@ internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json 
                                     anagrafica.go: NomeCognome, il precompilato del buyer dal display name o dall'indirizzo
 internal/core/registro/regole       lo schema di cliente.regole: la porta in scrittura che rifiuta, quella in lettura che segna ✓/✗;
                                     convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
-internal/core/rfq/documenti         i nomi sul NAS: cartella della RFQ, sottocartella per tipo e codice, nome di file sicuro; sempre relativi alla radice
+internal/core/rfq/documenti         il fascicolo di una RFQ. path.go: i nomi sul NAS (cartella della RFQ, sottocartella per tipo e codice, nome di
+                                    file sicuro; sempre relativi alla radice); integrita.go: il ricognitore che confronta i documenti con i file
+                                    veri e scrive nas_anomalia, e Allinea che su un conflitto rifiuta (blocco 5B)
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1181,8 +1183,8 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/jobs                       esecutore dei job di tipo 'server' (copia sul NAS, cartella del thread, ripresa di un contenuto sparito,
-                                    estrazione degli archivi); integrita.go: il ricognitore che confronta i documenti con i file veri
+internal/jobs                       esecutore dei job di tipo 'server': copia sul NAS, cartella del thread, ripresa di un contenuto sparito,
+                                    estrazione degli archivi
 web/templates, web/static           template html/template, style.css, htmx 2.0.4
 migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                                     0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),

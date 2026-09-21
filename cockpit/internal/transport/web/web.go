@@ -26,7 +26,7 @@ import (
 	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -78,7 +78,7 @@ type Server struct {
 	// oggetto che gira a tempo: «Controlla ora» in Admin chiama la sua stessa funzione, perché un
 	// controllo che in produzione e a richiesta passa da due strade diverse è un controllo che in una
 	// delle due prima o poi si comporta in un altro modo. Nil = la schermata lo dice.
-	Ricognitore *jobs.Ricognitore
+	Ricognitore *documenti.Ricognitore
 }
 
 type chiaveCtx int

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -174,7 +174,7 @@ func (s *Server) controllaIntegrita(w http.ResponseWriter, r *http.Request) {
 
 // frasePassata dice che cosa ha fatto la passata. «Controllati 12 documenti» e «non ho guardato
 // niente» sono due risposte diverse, e una schermata vuota non le distingue.
-func frasePassata(e jobs.EsitoRicognizione) string {
+func frasePassata(e documenti.EsitoRicognizione) string {
 	switch {
 	case e.Guardati == 0:
 		return "Nessun documento da controllare: non ce ne sono di confermati."
@@ -258,7 +258,7 @@ func (s *Server) allineaDocumento(w http.ResponseWriter, r *http.Request) {
 		s.integritaFrammento(w, r, "Non si allinea: questo documento non ha un file già corretto sul NAS.", true)
 		return
 	}
-	if err := jobs.AllineaDocumento(ctx, q, s.NAS, id); err != nil {
+	if err := documenti.AllineaDocumento(ctx, q, s.NAS, id); err != nil {
 		s.Log.Warn("allinea documento", "documento", id, "err", err)
 		s.integritaFrammento(w, r, "Non allineato: "+err.Error(), true)
 		return

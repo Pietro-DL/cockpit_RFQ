@@ -18,7 +18,7 @@ NAS (quelle passano da `platform/storage/nas`).
 | `inbox/classificazione` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `oggetto.go` (`OggettoPulito`: i prefissi RE:/FW: tolti dall'oggetto — lo usano aggancio e i percorsi), `aggancio.go` (punteggi R1–R5) | no |
 | `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
 | `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
-| `rfq/documenti` | i **nomi** sul NAS: `path.go` (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`) — percorsi sempre RELATIVI alla radice, con `\` come separatore. Il prefisso long-path sta in `platform/storage/nas` | no |
+| `rfq/documenti` | il **fascicolo** di una RFQ. `path.go`: i nomi sul NAS (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`) — percorsi sempre RELATIVI alla radice, con `\` come separatore; il prefisso long-path sta in `platform/storage/nas`. `integrita.go`: il **ricognitore** che confronta `documento` con i file veri e scrive `nas_anomalia`, e `AllineaDocumento` (che su un conflitto rifiuta) | sì |
 | `registro/regole` | lo **schema** di ciò che un cliente dichiara di sé: `regole.go` (`cliente.regole`, le due porte in scrittura e in lettura, la diagnosi ✓/✗), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza). Non applica niente: lo legge e lo giudica | no |
 | `registro/anagrafica` | il seme dei clienti da `seme_anagrafica.json`, una volta e senza sovrascrivere; `anagrafica.go`: `NomeCognome`, il precompilato del buyer dal display name o dall'indirizzo | sì |
 | `registro/fornitori` | l'import del seme dei fornitori (7A.4): `Leggi` convalida, `Calcola` fa l'anteprima senza scrivere, `Applica` scrive in una transazione solo ciò che è risolto | sì |
@@ -39,7 +39,8 @@ Mai `transport`, mai `ai`, mai `jobs`.
 `ingest.Ritriage` / `RitriageMolti` / `RicalcolaControparti`, `aggancio.CalcolaESalva`,
 `aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`,
 `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`,
-`documenti.CartellaThread` / `PathDocumento` / `NomeSicuro`, `anagrafica.NomeCognome`.
+`documenti.CartellaThread` / `PathDocumento` / `NomeSicuro` / `Ricognitore.Giro` / `AllineaDocumento`,
+`anagrafica.NomeCognome`.
 
 ## Flussi principali
 
@@ -64,14 +65,15 @@ candidati, cursore nella stessa transazione. Il ritriage mirato tocca solo i mes
 ## Effetti collaterali
 
 `ingest` scrive i fatti e le proposte di triage; `aggancio` scrive i candidati; `registro/*` scrive le
-anagrafiche. Nessuno di questi scrive `thread_id`, `documento` o sul NAS.
+anagrafiche; `rfq/documenti` scrive `nas_anomalia` e, con `AllineaDocumento`, lo stato NAS di un documento.
+Nessuno degli altri scrive `thread_id`, `documento` o sul NAS.
 
 ## Test
 
 L1 sugli oracoli di `inbox/classificazione` (codici, atto, catena, controparte, il motore delle regole,
 proposta, precedenza) e su `registro/regole` (le due porte, le convenzioni).
-L4 per `ingest`, `aggancio` e `registro/fornitori`, compresi gli invarianti I4/I5 del contratto di
-classificazione.
+L4 per `ingest`, `aggancio`, `registro/fornitori` e `rfq/documenti` (la riconciliazione contro file veri),
+compresi gli invarianti I4/I5 del contratto di classificazione.
 
 ## Dove intervenire
 
@@ -82,6 +84,7 @@ classificazione.
 | un atto nuovo | `inbox/classificazione/atto.go` e l'enum `atto_business` in migrazione |
 | una convenzione di codice | `registro/regole/convenzioni.go` |
 | il nome di una cartella o di un file sul NAS | `rfq/documenti/path.go` |
+| capire perché un documento risulta mancante o in conflitto | `rfq/documenti/integrita.go:controllo.esamina` |
 | capire perché un fornitore non apre una RFQ | `inbox/classificazione/controparte.go:RisolviControparte`, `inbox/classificazione/codici.go` (ramo `Controparte`) |
 | capire perché un'offerta propone quella richiesta | `inbox/aggancio/richieste.go:CalcolaRichieste` |
 | capire che cosa scrive (e non scrive) l'import dei fornitori | `registro/fornitori/seme.go:calcola`, `Applica` |
@@ -94,5 +97,5 @@ classificazione.
 ---
 
 **Cambia in B**: `registro/regole` (B2) e `rfq/documenti` (B3, i nomi) ci sono. `rfq/documenti` prende ancora
-l'integrità NAS e i corpi dei job (B6a, B6b). Il package `domain` non esiste più: si chiama
+i corpi dei job (B6b): l'integrità NAS è arrivata (B6a). Il package `domain` non esiste più: si chiama
 `inbox/classificazione` (B4).

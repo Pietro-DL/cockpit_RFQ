@@ -8,8 +8,8 @@ fondazioni, fissare le capacità, avviare scheduler, esecutore, cache e ricognit
 ## Stato alla fine del refactor A
 
 **Questa cartella è vuota.** Oggi il cablaggio sta tutto in `cmd/cockpit/main.go`, e i processi di lungo periodo
-`EsecutoreServer` e `Ricognitore` stanno in `internal/jobs`; `Scheduler` in `platform/coda` e `Cache`
-in `platform/storage/staging`. Il README esiste da ora
+`EsecutoreServer` sta in `internal/jobs`; `Scheduler` in `platform/coda`, `Cache` in
+`platform/storage/staging`, `Ricognitore` in `core/rfq/documenti`. Il README esiste da ora
 perché il posto dove andranno è già deciso, e perché chi cerca «dove parte il server» non deve trovare una
 cartella muta.
 

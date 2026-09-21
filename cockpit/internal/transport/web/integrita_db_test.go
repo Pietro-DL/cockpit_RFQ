@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
@@ -69,7 +69,7 @@ func (b *bancoWeb) rfqSulNasFinto(contenuto string, stato db.StatoNas) (uuid.UUI
 
 	scrittore := &nas.Scrittore{Radice: radice}
 	b.ws.NAS = scrittore
-	b.ws.Ricognitore = &jobs.Ricognitore{Pool: b.pool, NAS: scrittore, Log: testutil.LogSilenzioso(),
+	b.ws.Ricognitore = &documenti.Ricognitore{Pool: b.pool, NAS: scrittore, Log: testutil.LogSilenzioso(),
 		Ogni: 15 * time.Minute}
 	return thread, doc, radice
 }

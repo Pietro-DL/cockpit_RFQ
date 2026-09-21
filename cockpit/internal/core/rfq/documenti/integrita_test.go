@@ -6,7 +6,7 @@
 //
 // Sta a L1 perche' bastano una cartella temporanea e un orologio finto: non serve un database per
 // sapere che un file che non c'e' non c'e'.
-package jobs
+package documenti
 
 import (
 	"os"

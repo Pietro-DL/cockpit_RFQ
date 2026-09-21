@@ -2,14 +2,15 @@
 
 // L4 — blocco 5B: la riconciliazione, contro un PostgreSQL vero e file veri su disco.
 //
-// I cinque casi chiesti dal checkpoint:
+// Tre dei cinque casi chiesti dal checkpoint, piu' due sul comportamento di «Allinea»:
 //
-//	documento in_coda → Riprova → scritto
 //	file gia' corretto  → niente copia inutile
 //	file assente ma DB «scritto» → segnalazione
-//	hash diverso → conflitto, e il file NON viene toccato
 //	NAS irraggiungibile → non si guarda affatto (che e' diverso da «va tutto bene»)
-package jobs
+//
+// Gli altri due — documento in_coda → Riprova → scritto, e hash diverso → conflitto — fanno eseguire
+// davvero il job di copia, e stanno con l'esecutore.
+package documenti
 
 import (
 	"context"
@@ -97,51 +98,6 @@ func statoNas(t *testing.T, ctx context.Context, q *db.Queries, doc uuid.UUID) d
 	return d.StatoNas
 }
 
-// eseguiLaCopia prende dalla coda il job di copia e lo esegue: e' la stessa strada del server vero.
-func eseguiLaCopia(t *testing.T, ctx context.Context, q *db.Queries, e *EsecutoreServer) error {
-	t.Helper()
-	j, err := coda.Claim(ctx, q, db.WorkerTipoServer, "prova", coda.Destinazione{}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if j == nil {
-		t.Fatal("nessun job da eseguire: la copia non e' stata accodata")
-	}
-	if j.Tipo != db.TipoJobCopiaNas {
-		t.Fatalf("job di tipo %s, atteso copia_nas", j.Tipo)
-	}
-	_, err = e.esegui(ctx, q, j, coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: "prova"})
-	return err
-}
-
-// 1. Il caso normale del checkpoint: documento in_coda → si riaccoda → il file e' sul NAS.
-func TestInCodaRiaccodatoDiventaScritto(t *testing.T) {
-	p, q, ctx := preparaDB(t)
-	conCapacita(t, coda.Capacita{NasScrittura: true})
-	doc, sha := bancoIntegrita(t, ctx, p, "A")
-	radice := t.TempDir()
-
-	if _, err := coda.AccodaCopia(ctx, q, doc); err != nil {
-		t.Fatal(err)
-	}
-	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: radice}}
-	if err := eseguiLaCopia(t, ctx, q, e); err != nil {
-		t.Fatalf("la copia non e' riuscita: %v", err)
-	}
-
-	if s := statoNas(t, ctx, q, doc); s != db.StatoNasScritto {
-		t.Errorf("stato_nas = %q, atteso scritto", s)
-	}
-	dst := destinazione(t, ctx, q, radice, doc)
-	trovato, _, err := nas.Sha256File(dst)
-	if err != nil {
-		t.Fatalf("il file non e' sul NAS: %v", err)
-	}
-	if trovato != sha {
-		t.Errorf("sul NAS c'e' un file con un altro hash: %s invece di %s", trovato, sha)
-	}
-}
-
 // 2. File assente ma il database dice «scritto»: si segnala. E' la bugia che nessuno andava mai a
 // controllare, perche' la promessa era stata fatta una volta sola.
 func TestFileAssenteMaDatabaseScrittoVieneSegnalato(t *testing.T) {
@@ -196,50 +152,6 @@ func TestFileAssenteMaDatabaseScrittoVieneSegnalato(t *testing.T) {
 	}
 	if _, err := q.GetAnomaliaNas(ctx, doc); err == nil {
 		t.Error("il file e' tornato al suo posto e l'anomalia e' ancora aperta")
-	}
-}
-
-// 3. Hash diverso: e' un conflitto, e il file NON viene toccato. Ne' dal ricognitore, ne' da una
-// copia riaccodata sopra.
-func TestHashDiversoEeUnConflittoEIlFileNonSiTocca(t *testing.T) {
-	p, q, ctx := preparaDB(t)
-	conCapacita(t, coda.Capacita{NasScrittura: true})
-	doc, _ := bancoIntegrita(t, ctx, p, "C")
-	radice := t.TempDir()
-	dst := destinazione(t, ctx, q, radice, doc)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dst, []byte("la revisione che ha messo li' qualcun altro"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	r := &Ricognitore{Pool: p, NAS: &nas.Scrittore{Radice: radice}, Log: testutil.LogSilenzioso()}
-
-	if _, err := r.Giro(ctx); err != nil {
-		t.Fatal(err)
-	}
-	a, err := q.GetAnomaliaNas(ctx, doc)
-	if err != nil {
-		t.Fatalf("un file diverso da quello del documento non viene segnalato: %v", err)
-	}
-	if a.Problema != db.ProblemaNasConflitto {
-		t.Fatalf("problema = %q, atteso conflitto", a.Problema)
-	}
-	if !a.ShaTrovato.Valid || a.ShaTrovato.String == a.ShaAtteso {
-		t.Errorf("l'anomalia non registra l'hash trovato: il conflitto non sarebbe verificabile da nessuno")
-	}
-
-	// riaccodare la copia e' permesso, ma la copia NON deve sovrascrivere
-	if _, err := coda.AccodaCopia(ctx, q, doc); err != nil {
-		t.Fatal(err)
-	}
-	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: radice}}
-	if err := eseguiLaCopia(t, ctx, q, e); err == nil {
-		t.Error("la copia sopra un file diverso e' andata a buon fine")
-	}
-	b, err := os.ReadFile(dst)
-	if err != nil || string(b) != "la revisione che ha messo li' qualcun altro" {
-		t.Fatalf("il file di qualcun altro e' stato sovrascritto: %q (%v)", string(b), err)
 	}
 }
 

@@ -40,7 +40,8 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | anagrafiche, regole del cliente, lavorazioni, fornitori | `core/registro/` |
 | la coda, le capacità, l'instradamento dei job | `platform/coda` |
 | lo staging sul disco, i contenuti, la loro cache | `platform/storage/staging` |
-| l'esecutore dei job del server, l'integrità NAS | `internal/jobs` |
+| il ricognitore dell'integrità NAS | `core/rfq/documenti` |
+| l'esecutore dei job del server | `internal/jobs` |
 | avvio e cablaggio | `cmd/cockpit/main.go` |
 
 ## Dipendenze consentite
@@ -89,7 +90,7 @@ solo**, nemmeno all'avvio.
   sha256 per nome → eventuale `estrai_archivio` → `analizza_allegato` → `documento_proposta` → conferma →
   `documento` + `copia_nas`. Package: `jobs`, `platform/storage`, `transport/workerapi`.
 - **Integrità NAS** — il ricognitore confronta `documento` con i file veri e scrive `nas_anomalia`. Package:
-  `jobs/integrita.go`, `platform/storage/nas`.
+  `core/rfq/documenti/integrita.go`, `platform/storage/nas`.
 - **Apri in Outlook** — job con il `postazione_id` della sessione: solo il worker di quella postazione lo prende.
 - **Login e postazione** — `POST /login` → bcrypt → `sessione` → abbinamento per IP al worker che ha fatto claim.
 - **Richiesta a un fornitore (7B)** — RFQ › «Nuova richiesta» → `richiesta_fornitore` (bozza) → bozza marcata in
