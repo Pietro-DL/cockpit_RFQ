@@ -34,8 +34,8 @@ type IngressoRichieste struct {
 }
 
 // CalcolaRichieste interroga il database e restituisce i candidati ordinati. Non scrive niente.
-func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) ([]domain.CandidatoRichiesta, error) {
-	var out []domain.CandidatoRichiesta
+func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) ([]classificazione.CandidatoRichiesta, error) {
+	var out []classificazione.CandidatoRichiesta
 	visto := map[string]bool{}
 	agg := func(r db.RichiestaFornitore, regola, evidenza string) {
 		k := r.RichiestaID.String() + "|" + regola
@@ -43,8 +43,8 @@ func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) 
 			return
 		}
 		visto[k] = true
-		out = append(out, domain.CandidatoRichiesta{RichiestaID: r.RichiestaID.String(), Regola: regola,
-			Punteggio: domain.PuntiRichiesta[regola], Evidenza: evidenza})
+		out = append(out, classificazione.CandidatoRichiesta{RichiestaID: r.RichiestaID.String(), Regola: regola,
+			Punteggio: classificazione.PuntiRichiesta[regola], Evidenza: evidenza})
 	}
 	if chiavi := ChiaviCitate(in.InReplyTo, in.Riferimenti); len(chiavi) > 0 {
 		righe, err := q.RichiestePerChiaviCitate(ctx, db.RichiestePerChiaviCitateParams{Chiavi: chiavi, FornitoreID: in.FornitoreID})
@@ -56,7 +56,7 @@ func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) 
 			if strings.Contains(in.InReplyTo, strings.Trim(r.ChiaveEsterna, "<>")) {
 				campo = "In-Reply-To"
 			}
-			agg(rigaRichiesta(r), domain.RichiestaR0Reply, fmt.Sprintf("%s punta alla nostra richiesta (%s)", campo, r.ChiaveEsterna))
+			agg(rigaRichiesta(r), classificazione.RichiestaR0Reply, fmt.Sprintf("%s punta alla nostra richiesta (%s)", campo, r.ChiaveEsterna))
 		}
 	}
 	righe, err := q.RichiestePerConversazione(ctx, db.RichiestePerConversazioneParams{ConversazioneID: in.ConversazioneID, FornitoreID: in.FornitoreID})
@@ -64,7 +64,7 @@ func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) 
 		return nil, fmt.Errorf("R1 richieste: %w", err)
 	}
 	for _, r := range righe {
-		agg(r, domain.RichiestaR1Conversazione, "stessa conversazione di Outlook della nostra richiesta")
+		agg(r, classificazione.RichiestaR1Conversazione, "stessa conversazione di Outlook della nostra richiesta")
 	}
 	if len(in.Codici) > 0 {
 		righe, err := q.RichiestePerCodiciFornitore(ctx, db.RichiestePerCodiciFornitoreParams{FornitoreID: in.FornitoreID, Codici: maiuscole(in.Codici)})
@@ -72,7 +72,7 @@ func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) 
 			return nil, fmt.Errorf("R3f richieste: %w", err)
 		}
 		for _, r := range righe {
-			agg(rigaRichiestaCodice(r), domain.RichiestaR3fCodice, "il codice "+r.Codice+" e' della RFQ per cui abbiamo chiesto l'offerta a questo fornitore")
+			agg(rigaRichiestaCodice(r), classificazione.RichiestaR3fCodice, "il codice "+r.Codice+" e' della RFQ per cui abbiamo chiesto l'offerta a questo fornitore")
 		}
 	}
 	// i piu' forti in cima; a parita' l'ordine di lettura
@@ -85,7 +85,7 @@ func CalcolaRichieste(ctx context.Context, q *db.Queries, in IngressoRichieste) 
 }
 
 // SalvaCandidatiRichiesta sostituisce i candidati di un messaggio: sono una fotografia di adesso.
-func SalvaCandidatiRichiesta(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, c []domain.CandidatoRichiesta) error {
+func SalvaCandidatiRichiesta(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, c []classificazione.CandidatoRichiesta) error {
 	if err := q.CancellaCandidatiRichiesta(ctx, messaggioID); err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func SalvaCandidatiRichiesta(ctx context.Context, q *db.Queries, messaggioID uui
 // che cita un codice identificativo di una RFQ aperta, di qualunque cliente. Il risultato e' un
 // candidato per RFQ, con l'evidenza; la proposta e' «richiesta a X per la RFQ Y», e la conferma
 // crea la richiesta. Un thread nuovo non nasce mai da qui (IB3).
-func RichiesteManuali(ctx context.Context, q *db.Queries, codici []string) ([]domain.Candidato, error) {
+func RichiesteManuali(ctx context.Context, q *db.Queries, codici []string) ([]classificazione.Candidato, error) {
 	if len(codici) == 0 {
 		return nil, nil
 	}
@@ -115,15 +115,15 @@ func RichiesteManuali(ctx context.Context, q *db.Queries, codici []string) ([]do
 	if err != nil {
 		return nil, fmt.Errorf("RF_oggetto: %w", err)
 	}
-	var out []domain.Candidato
+	var out []classificazione.Candidato
 	visto := map[uuid.UUID]bool{}
 	for _, r := range righe {
 		if visto[r.ThreadID] {
 			continue
 		}
 		visto[r.ThreadID] = true
-		out = append(out, domain.Candidato{ThreadID: r.ThreadID.String(), Regola: domain.RichiestaRFOggetto,
-			Punteggio: domain.PuntiRichiesta[domain.RichiestaRFOggetto],
+		out = append(out, classificazione.Candidato{ThreadID: r.ThreadID.String(), Regola: classificazione.RichiestaRFOggetto,
+			Punteggio: classificazione.PuntiRichiesta[classificazione.RichiestaRFOggetto],
 			Evidenza:  fmt.Sprintf("il codice %s e' un identificativo della RFQ «%s» di %s", r.Codice, r.Oggetto.String, r.Cliente)})
 	}
 	return out, nil

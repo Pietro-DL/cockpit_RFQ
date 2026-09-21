@@ -47,9 +47,9 @@ func TestLeColonneCodiceERevSonoLargheQuantoIlDominio(t *testing.T) {
 		if larghezza == nil {
 			continue // varchar senza limite: va bene
 		}
-		minimo := int32(domain.MaxCodice)
+		minimo := int32(classificazione.MaxCodice)
 		if colonna == "rev" {
-			minimo = int32(domain.MaxRev)
+			minimo = int32(classificazione.MaxRev)
 		}
 		if *larghezza < minimo {
 			t.Errorf("%s.%s e' varchar(%d): piu' stretta del dominio (%d)", tabella, colonna, *larghezza, minimo)

@@ -6,7 +6,7 @@
 //
 // ATTENZIONE, per onestà: questo NON è il corpus reale. Il corpus reale sta fuori dal repository, e
 // la verifica su quello è la condizione A del gate dell'agente AI, che resta aperta.
-package domain
+package classificazione
 
 import (
 	"strings"

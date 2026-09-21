@@ -118,7 +118,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codiceLungo := "6674611A" + strings.Repeat("X", domain.MaxCodice)
+	codiceLungo := "6674611A" + strings.Repeat("X", classificazione.MaxCodice)
 	dati, _ := json.Marshal(worker.RisultatoAnalisi{
 		AllegatoID: allID, TipoProposto: "disegno_2d", Codice: codiceLungo, Rev: "REVISIONE_LUNGA_02",
 		Confidenza: 90, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"cartiglio":true}`),

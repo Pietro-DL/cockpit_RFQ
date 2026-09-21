@@ -4,7 +4,7 @@
 // schermata Anagrafica mostra riga per riga.
 //
 // Che cosa il Cockpit FA di queste regole non sta qui: il motore che le compila e le applica a un
-// testo è `core/domain`, che importa questo package e non il contrario.
+// testo è `core/inbox/classificazione`, che importa questo package e non il contrario.
 package regole
 
 import (

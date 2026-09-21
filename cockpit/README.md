@@ -726,7 +726,7 @@ dalla conversazione di settembre.
 
 **Il corpo originale non viene mai modificato.** Resta intero in `messaggio.corpo_testo`, nella
 schermata e in Outlook. Quello che cambia è quale pezzo viene dato in pasto all'interpretazione:
-`domain.TagliaCatena` divide il corpo in *quello che è stato scritto adesso* e *la storia citata*, e
+`classificazione.TagliaCatena` divide il corpo in *quello che è stato scritto adesso* e *la storia citata*, e
 `CorpoUtilePerInterpretazione` restituisce il primo.
 
 Il taglio scatta solo su qualcosa di non ambiguo:

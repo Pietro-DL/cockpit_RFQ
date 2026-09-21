@@ -157,8 +157,8 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 		if esito != "aggancia" {
 			t.Errorf("messaggio %d: esito %q, atteso «aggancia» (il candidato R1 è comparso)", i+1, esito)
 		}
-		if int(conf) != domain.PuntiRegola[domain.R1Conversazione] {
-			t.Errorf("messaggio %d: confidenza %d, attesa %d", i+1, conf, domain.PuntiRegola[domain.R1Conversazione])
+		if int(conf) != classificazione.PuntiRegola[classificazione.R1Conversazione] {
+			t.Errorf("messaggio %d: confidenza %d, attesa %d", i+1, conf, classificazione.PuntiRegola[classificazione.R1Conversazione])
 		}
 		cand, err := s.q.ListCandidatiAggancio(ctx, id)
 		if err != nil {

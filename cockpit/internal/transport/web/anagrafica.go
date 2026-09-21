@@ -161,7 +161,7 @@ func sezioneValida(s string) string {
 // messaggio vero di questo cliente.
 type provaDati struct {
 	Testo   string
-	Esito   domain.Riconoscimento
+	Esito   classificazione.Riconoscimento
 	Cliente string
 }
 
@@ -351,7 +351,7 @@ func (s *Server) eliminaDominioCliente(w http.ResponseWriter, r *http.Request) {
 }
 
 // bancoProva fa passare un testo incollato per lo STESSO riconoscimento dei messaggi veri
-// (`domain.Riconosci`), con le regole di questo cliente compilate come le compilerebbe l'ingest.
+// (`classificazione.Riconosci`), con le regole di questo cliente compilate come le compilerebbe l'ingest.
 // Non c'è un secondo motore: se questa schermata e l'Inbox dicessero cose diverse, sarebbe questa
 // a mentire, ed è quella su cui si tarano le regex.
 func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
@@ -363,15 +363,15 @@ func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
 	testo := r.FormValue("testo")
 	oggetto, corpo := primaRigaEResto(testo)
 	regole, _ := regole.LeggiRegole(c.Regole)
-	in := domain.IngressoTriage{
+	in := classificazione.IngressoTriage{
 		Oggetto: oggetto, Corpo: corpo, Direzione: string(db.DirezioneEntrata),
-		ClienteNoto: true, Motore: domain.Compila(c.RagioneSociale, regole),
+		ClienteNoto: true, Motore: classificazione.Compila(c.RagioneSociale, regole),
 	}
 	if n := strings.TrimSpace(r.FormValue("allegati")); n != "" {
 		in.NomiAllegati = strings.Fields(n)
 	}
 	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "prova",
-		Prova: &provaDati{Testo: testo, Cliente: c.RagioneSociale, Esito: domain.Riconosci(in, time.Now())}})
+		Prova: &provaDati{Testo: testo, Cliente: c.RagioneSociale, Esito: classificazione.Riconosci(in, time.Now())}})
 }
 
 // primaRigaEResto: nel banco si incolla una mail intera. La prima riga fa da oggetto — è come

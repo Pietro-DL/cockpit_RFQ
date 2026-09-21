@@ -188,12 +188,12 @@ func CaricaNostri(ctx context.Context, q *db.Queries) (Nostri, error) {
 // duecento volte: la cache vive quanto il lotto, quindi una regola cambiata in Anagrafica vale dal
 // lotto successivo — che è dopo pochi secondi — senza che nessuno debba invalidare niente.
 type Motori struct {
-	per          map[uuid.UUID]*domain.Motore
-	perFornitore map[uuid.UUID]*domain.Motore
+	per          map[uuid.UUID]*classificazione.Motore
+	perFornitore map[uuid.UUID]*classificazione.Motore
 }
 
 func NuoviMotori() *Motori {
-	return &Motori{per: map[uuid.UUID]*domain.Motore{}, perFornitore: map[uuid.UUID]*domain.Motore{}}
+	return &Motori{per: map[uuid.UUID]*classificazione.Motore{}, perFornitore: map[uuid.UUID]*classificazione.Motore{}}
 }
 
 // PerFornitore e' il motore per la posta di un fornitore (7B, IB8): l'unione delle famiglie di
@@ -201,7 +201,7 @@ func NuoviMotori() *Motori {
 // portale: sono cose dei clienti. Senza richieste aperte il motore e' vuoto e — poiche' nel ramo
 // fornitore contano solo i codici di famiglia — non si estrae nessun codice: un materiale o una
 // norma citati da un fornitore non diventano mai «codici trovati».
-func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) *domain.Motore {
+func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) *classificazione.Motore {
 	if mo, ok := m.perFornitore[id]; ok {
 		return mo
 	}
@@ -217,7 +217,7 @@ func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) 
 			}
 		}
 	}
-	mo := domain.Compila("fornitore", raccolte)
+	mo := classificazione.Compila("fornitore", raccolte)
 	m.perFornitore[id] = mo
 	return mo
 }
@@ -225,14 +225,14 @@ func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) 
 // Per restituisce il motore del cliente. Un cliente senza regole dà un motore vuoto e non nil:
 // un motore vuoto fa comunque funzionare l'estrattore generico, ed è il caso normale finché
 // l'anagrafica non è compilata.
-func (m *Motori) Per(ctx context.Context, q *db.Queries, id uuid.UUID) *domain.Motore {
+func (m *Motori) Per(ctx context.Context, q *db.Queries, id uuid.UUID) *classificazione.Motore {
 	if mo, ok := m.per[id]; ok {
 		return mo
 	}
-	var mo *domain.Motore
+	var mo *classificazione.Motore
 	if c, err := q.GetCliente(ctx, id); err == nil {
 		lette, _ := regole.LeggiRegole(c.Regole)
-		mo = domain.Compila(c.RagioneSociale, lette)
+		mo = classificazione.Compila(c.RagioneSociale, lette)
 	}
 	m.per[id] = mo
 	return mo
@@ -546,7 +546,7 @@ func (s *Servizio) sogliaStaging() int64 {
 	if s.StagingMaxByte > 0 {
 		return s.StagingMaxByte
 	}
-	return domain.SogliaStagingAutomatico
+	return classificazione.SogliaStagingAutomatico
 }
 
 // scendonoDaSoli dice se gli allegati di questo lotto possono finire in staging senza che nessuno
@@ -741,7 +741,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		}
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
-			pr := domain.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
+			pr := classificazione.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
 			if nat == db.NaturaAllegatoFile && pr.PreSpunta && a.Bytes > 0 && a.Bytes <= s.sogliaStaging() {
 				daStaggiare = append(daStaggiare, al)
 			}
@@ -812,7 +812,7 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 
 	// INTERPRETAZIONE: riferimenti portale e triage deterministico (solo alla prima vista del messaggio)
 	if row.Inserito {
-		for _, r := range domain.RilevaPortale(m.CorpoTesto, motore.FrasiPortale()...) {
+		for _, r := range classificazione.RilevaPortale(m.CorpoTesto, motore.FrasiPortale()...) {
 			cod := r.Codici
 			if len(cod) == 0 {
 				cod = []string{""}

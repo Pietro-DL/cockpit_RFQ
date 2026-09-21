@@ -1003,7 +1003,7 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 		d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
 		d.CandidatiRichiesta, _ = q.ListCandidatiRichiesta(ctx, id)
 		// «richiesta a X per la RFQ Y»: una nostra mail a un fornitore che cita una RFQ aperta (7B)
-		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Atto.String == domain.AttoRichiestaOfferta && m.Direzione == db.DirezioneUscita &&
+		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Atto.String == classificazione.AttoRichiestaOfferta && m.Direzione == db.DirezioneUscita &&
 			p.ThreadProposto.Valid && p.FornitoreProposto.Valid && p.Stato == db.StatoTriageProposta {
 			if t, err := q.GetThread(ctx, p.ThreadProposto.UUID); err == nil {
 				if f, err := q.GetFornitore(ctx, p.FornitoreProposto.UUID); err == nil {

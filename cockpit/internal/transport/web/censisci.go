@@ -84,7 +84,7 @@ func (s *Server) datiCensisci(ctx context.Context, q *db.Queries, m db.Messaggio
 	if d.Indirizzo, d.Dominio, err = ingest.IndirizzoDaCensire(ctx, q, m); err != nil {
 		return nil, err
 	}
-	d.DominioPubblico = domain.DominioPubblico(d.Dominio)
+	d.DominioPubblico = classificazione.DominioPubblico(d.Dominio)
 	d.UsaDominio = d.Dominio != "" && !d.DominioPubblico
 	d.UsaContatto = d.DominioPubblico
 	if m.Direzione == db.DirezioneEntrata {

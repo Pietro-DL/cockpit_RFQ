@@ -22,73 +22,73 @@ import (
 
 // LA CONTROPARTE NELL'INGEST (blocco 7A, D33)
 //
-// Il resolver e' in `domain` e non sa niente del database; qui c'e' la rubrica vera, la scrittura
+// Il resolver e' in `classificazione` e non sa niente del database; qui c'e' la rubrica vera, la scrittura
 // del fatto sul messaggio, l'interpretazione riusabile (triage + candidati) e i due ricalcoli:
 // quello mirato dopo un «Censisci» e quello di tutti i messaggi entrati prima della 0014.
 
 // rubricaDB risponde alle cinque domande del resolver con l'anagrafica in database.
 type rubricaDB struct{ q *db.Queries }
 
-func (r rubricaDB) ContattiFornitore(ctx context.Context, email string) ([]domain.Voce, error) {
+func (r rubricaDB) ContattiFornitore(ctx context.Context, email string) ([]classificazione.Voce, error) {
 	righe, err := r.q.ListFornitoriPerContatto(ctx, email)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]domain.Voce, 0, len(righe))
+	out := make([]classificazione.Voce, 0, len(righe))
 	for _, f := range righe {
-		out = append(out, domain.Voce{ID: f.FornitoreID, Nome: f.RagioneSociale})
+		out = append(out, classificazione.Voce{ID: f.FornitoreID, Nome: f.RagioneSociale})
 	}
 	return out, nil
 }
 
-func (r rubricaDB) BuyerCliente(ctx context.Context, email string) (domain.Voce, bool, error) {
+func (r rubricaDB) BuyerCliente(ctx context.Context, email string) (classificazione.Voce, bool, error) {
 	b, err := r.q.GetBuyerPerEmail(ctx, email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Voce{}, false, nil
+		return classificazione.Voce{}, false, nil
 	}
 	if err != nil {
-		return domain.Voce{}, false, err
+		return classificazione.Voce{}, false, err
 	}
 	nome := ""
 	if c, err := r.q.GetCliente(ctx, b.ClienteID); err == nil {
 		nome = c.CartellaNas
 	}
-	return domain.Voce{ID: b.ClienteID, Nome: nome}, true, nil
+	return classificazione.Voce{ID: b.ClienteID, Nome: nome}, true, nil
 }
 
-func (r rubricaDB) FornitorePerDominio(ctx context.Context, dominio string) (domain.Voce, bool, error) {
+func (r rubricaDB) FornitorePerDominio(ctx context.Context, dominio string) (classificazione.Voce, bool, error) {
 	f, err := r.q.GetFornitorePerDominio(ctx, dominio)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Voce{}, false, nil
+		return classificazione.Voce{}, false, nil
 	}
 	if err != nil {
-		return domain.Voce{}, false, err
+		return classificazione.Voce{}, false, err
 	}
-	return domain.Voce{ID: f.FornitoreID, Nome: f.RagioneSociale}, true, nil
+	return classificazione.Voce{ID: f.FornitoreID, Nome: f.RagioneSociale}, true, nil
 }
 
-func (r rubricaDB) ClientePerDominio(ctx context.Context, dominio string) (domain.Voce, bool, error) {
+func (r rubricaDB) ClientePerDominio(ctx context.Context, dominio string) (classificazione.Voce, bool, error) {
 	c, err := r.q.GetClientePerDominio(ctx, dominio)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Voce{}, false, nil
+		return classificazione.Voce{}, false, nil
 	}
 	if err != nil {
-		return domain.Voce{}, false, err
+		return classificazione.Voce{}, false, err
 	}
-	return domain.Voce{ID: c.ClienteID, Nome: c.CartellaNas}, true, nil
+	return classificazione.Voce{ID: c.ClienteID, Nome: c.CartellaNas}, true, nil
 }
 
 // AltroPerRecapito (7C.0): un indirizzo o un dominio censito come «altro». Solo i recapiti e i
 // soggetti attivi: uno spento non riconosce piu' niente.
-func (r rubricaDB) AltroPerRecapito(ctx context.Context, recapito string) (domain.Voce, bool, error) {
+func (r rubricaDB) AltroPerRecapito(ctx context.Context, recapito string) (classificazione.Voce, bool, error) {
 	a, err := r.q.GetAltroPerRecapito(ctx, recapito)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.Voce{}, false, nil
+		return classificazione.Voce{}, false, nil
 	}
 	if err != nil {
-		return domain.Voce{}, false, err
+		return classificazione.Voce{}, false, err
 	}
-	return domain.Voce{ID: a.AltroID, Nome: a.Etichetta}, true, nil
+	return classificazione.Voce{ID: a.AltroID, Nome: a.Etichetta}, true, nil
 }
 
 // indirizziDi sono i soli indirizzi dei destinatari, nell'ordine in cui stanno nel messaggio.
@@ -110,24 +110,24 @@ func indirizziDaJSON(raw json.RawMessage) []string {
 }
 
 // risolviControparte applica il resolver con la rubrica vera e l'elenco delle nostre caselle.
-func risolviControparte(ctx context.Context, q *db.Queries, nostri Nostri, mittente string, destinatari []string) (domain.Controparte, error) {
-	in := domain.IngressoControparte{Mittente: mittente, Destinatari: destinatari}
+func risolviControparte(ctx context.Context, q *db.Queries, nostri Nostri, mittente string, destinatari []string) (classificazione.Controparte, error) {
+	in := classificazione.IngressoControparte{Mittente: mittente, Destinatari: destinatari}
 	if len(nostri) > 0 {
 		in.Nostro = nostri.Nostro
 	}
-	return domain.RisolviControparte(ctx, in, rubricaDB{q})
+	return classificazione.RisolviControparte(ctx, in, rubricaDB{q})
 }
 
 // clienteDallaControparte e' il cliente per il triage, le regole e lo staging automatico: SOLO in
 // entrata, e SOLO se la controparte e' un cliente. Un fornitore non ha un cliente; un ambiguo
 // nemmeno, finche' una persona non decide. Il buyer si prende quando il riconoscimento e' passato
 // dall'indirizzo esatto, come prima della 0014.
-func clienteDallaControparte(ctx context.Context, q *db.Queries, c domain.Controparte, dir db.Direzione) (*db.Buyer, uuid.NullUUID, error) {
-	if dir != db.DirezioneEntrata || c.Tipo != domain.ControparteCliente {
+func clienteDallaControparte(ctx context.Context, q *db.Queries, c classificazione.Controparte, dir db.Direzione) (*db.Buyer, uuid.NullUUID, error) {
+	if dir != db.DirezioneEntrata || c.Tipo != classificazione.ControparteCliente {
 		return nil, uuid.NullUUID{}, nil
 	}
 	clienteID := uuid.NullUUID{UUID: c.ClienteID, Valid: true}
-	if c.Via != domain.ViaContatto {
+	if c.Via != classificazione.ViaContatto {
 		return nil, clienteID, nil
 	}
 	b, err := q.GetBuyerPerEmail(ctx, c.Indirizzo)
@@ -141,17 +141,17 @@ func clienteDallaControparte(ctx context.Context, q *db.Queries, c domain.Contro
 }
 
 // parametriControparte traduce la risposta del resolver nella riga da scrivere.
-func parametriControparte(id uuid.UUID, c domain.Controparte) db.SetControparteMessaggioParams {
+func parametriControparte(id uuid.UUID, c classificazione.Controparte) db.SetControparteMessaggioParams {
 	p := db.SetControparteMessaggioParams{MessaggioID: id, ControparteTipo: db.TipoControparte(c.Tipo)}
 	if c.Via != "" {
 		p.Via = db.NullViaControparte{ViaControparte: db.ViaControparte(c.Via), Valid: true}
 	}
 	switch c.Tipo {
-	case domain.ControparteCliente:
+	case classificazione.ControparteCliente:
 		p.ControparteClienteID = uuid.NullUUID{UUID: c.ClienteID, Valid: true}
-	case domain.ControparteFornitore:
+	case classificazione.ControparteFornitore:
 		p.ControparteFornitoreID = uuid.NullUUID{UUID: c.FornitoreID, Valid: true}
-	case domain.ControparteAltro:
+	case classificazione.ControparteAltro:
 		p.ControparteAltroID = uuid.NullUUID{UUID: c.AltroID, Valid: true}
 	}
 	return p
@@ -165,7 +165,7 @@ type interpretazione struct {
 	ConversazioneID uuid.UUID
 	ClienteID       uuid.NullUUID
 	BuyerID         uuid.NullUUID
-	Controparte     domain.Controparte
+	Controparte     classificazione.Controparte
 	Oggetto, Corpo  string
 	NomiAllegati    []string
 	Direzione       db.Direzione
@@ -173,7 +173,7 @@ type interpretazione struct {
 	InReplyTo       string
 	Riferimenti     []string
 	DataEvento      time.Time
-	Motore          *domain.Motore
+	Motore          *classificazione.Motore
 	// Blocco 7B: il mittente (indirizzi automatici) e il fornitore, per i candidati verso una richiesta.
 	Mittente    string
 	FornitoreID uuid.UUID
@@ -181,57 +181,57 @@ type interpretazione struct {
 
 // interpreta calcola i candidati di aggancio, il triage e i candidati di codice, e scrive la
 // proposta. Non decide niente: UpsertTriage non tocca una proposta gia' accettata o rifiutata.
-func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretazione) (domain.EsitoTriage, error) {
-	it := domain.IngressoTriage{
+func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretazione) (classificazione.EsitoTriage, error) {
+	it := classificazione.IngressoTriage{
 		Oggetto: in.Oggetto, Corpo: in.Corpo, NomiAllegati: in.NomiAllegati, Direzione: string(in.Direzione),
 		Interno: in.Interno, ClienteNoto: in.ClienteID.Valid, BuyerNoto: in.BuyerID.Valid,
 		Controparte: in.Controparte.Tipo, Motore: in.Motore, Mittente: in.Mittente,
 	}
 	e := in.Motore.Estrai(it.Testi()...)
-	codiciFamiglia := domain.SoloCodici(domain.DiFamiglia(e.Codici))
+	codiciFamiglia := classificazione.SoloCodici(classificazione.DiFamiglia(e.Codici))
 	cand, err := aggancio.CalcolaESalva(ctx, q, aggancio.Ingresso{
 		MessaggioID: in.MessaggioID, ConversazioneID: in.ConversazioneID,
 		ClienteID: in.ClienteID, BuyerID: in.BuyerID,
 		InReplyTo: in.InReplyTo, Riferimenti: in.Riferimenti,
-		Oggetto: domain.OggettoPulito(in.Oggetto), DataEvento: in.DataEvento,
+		Oggetto: classificazione.OggettoPulito(in.Oggetto), DataEvento: in.DataEvento,
 		Codici: codiciFamiglia, Riferimento: e.Riferimento,
 		FinestraGG: in.Motore.Finestra(),
 	})
 	if err != nil {
-		return domain.EsitoTriage{}, fmt.Errorf("candidati di aggancio: %w", err)
+		return classificazione.EsitoTriage{}, fmt.Errorf("candidati di aggancio: %w", err)
 	}
 	it.Candidati = cand
 	// Blocco 7B: la posta di un fornitore si aggancia alla RICHIESTA che gli abbiamo mandato (R0, R1,
 	// R3f verso richiesta_fornitore); una nostra mail a un fornitore che cita una RFQ aperta e' la
 	// richiesta mandata a mano (RF_oggetto). Sono candidati, e li vede l'operatore.
-	fornitore := in.Controparte.Tipo == domain.ControparteFornitore && in.FornitoreID != uuid.Nil
+	fornitore := in.Controparte.Tipo == classificazione.ControparteFornitore && in.FornitoreID != uuid.Nil
 	if fornitore && in.Direzione == db.DirezioneEntrata {
 		cr, err := aggancio.CalcolaRichieste(ctx, q, aggancio.IngressoRichieste{
 			MessaggioID: in.MessaggioID, FornitoreID: in.FornitoreID, ConversazioneID: in.ConversazioneID,
 			InReplyTo: in.InReplyTo, Riferimenti: in.Riferimenti, Codici: codiciFamiglia,
 		})
 		if err != nil {
-			return domain.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
+			return classificazione.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
 		}
 		if err := aggancio.SalvaCandidatiRichiesta(ctx, q, in.MessaggioID, cr); err != nil {
-			return domain.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
+			return classificazione.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
 		}
 		it.CandidatiRichiesta = cr
 	}
 	if fornitore && in.Direzione == db.DirezioneUscita {
-		rm, err := aggancio.RichiesteManuali(ctx, q, domain.SoloCodici(e.Codici))
+		rm, err := aggancio.RichiesteManuali(ctx, q, classificazione.SoloCodici(e.Codici))
 		if err != nil {
-			return domain.EsitoTriage{}, err
+			return classificazione.EsitoTriage{}, err
 		}
 		it.RichiesteManuali = rm
 	}
-	tr := domain.Triage(it)
+	tr := classificazione.Triage(it)
 	if err := aggancio.SalvaCandidatiCodice(ctx, q, in.MessaggioID, tr.Estrazione); err != nil {
 		return tr, fmt.Errorf("candidati di codice: %w", err)
 	}
 	// Il motivo della controparte sta in testa ai motivi quando ha deciso l'esito: e' la frase che
 	// l'operatore legge per capire perche' una «richiesta d'offerta» non e' diventata una RFQ.
-	if m := in.Controparte.Motivo; m != "" && (in.Controparte.Tipo == domain.ControparteFornitore || in.Controparte.Tipo == domain.ControparteAmbiguo) {
+	if m := in.Controparte.Motivo; m != "" && (in.Controparte.Tipo == classificazione.ControparteFornitore || in.Controparte.Tipo == classificazione.ControparteAmbiguo) {
 		tr.Motivi = append([]string{m}, tr.Motivi...)
 	}
 	motivi, _ := json.Marshal(tr.Motivi)
@@ -239,7 +239,7 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 		tr.Codici = []string{}
 	}
 	var scad *time.Time
-	if d, ok := domain.RilevaScadenza(in.Corpo, in.DataEvento); ok {
+	if d, ok := classificazione.RilevaScadenza(in.Corpo, in.DataEvento); ok {
 		scad = &d
 	}
 	var proposto, richiestaProposta, fornitoreProposto uuid.NullUUID
@@ -254,7 +254,7 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 		}
 	}
 	// «richiesta a X per la RFQ Y»: la nostra mail a un fornitore con una RFQ aperta che la spiega
-	if in.Direzione == db.DirezioneUscita && in.Controparte.Tipo == domain.ControparteFornitore && proposto.Valid {
+	if in.Direzione == db.DirezioneUscita && in.Controparte.Tipo == classificazione.ControparteFornitore && proposto.Valid {
 		fornitoreProposto = uuid.NullUUID{UUID: in.FornitoreID, Valid: true}
 	}
 	// 7C.0: atto e legame sono proposte come l'esito; vuoti restano NULL (controparte non dichiarata)
@@ -275,17 +275,17 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 
 // daInterpretare dice se un messaggio orfano va passato al triage: la posta in entrata e quella
 // interna, come sempre, e dal 7B anche una nostra mail a un fornitore (la richiesta mandata a mano).
-func daInterpretare(dir db.Direzione, interno bool, c domain.Controparte) bool {
-	return dir == db.DirezioneEntrata || interno || (dir == db.DirezioneUscita && c.Tipo == domain.ControparteFornitore)
+func daInterpretare(dir db.Direzione, interno bool, c classificazione.Controparte) bool {
+	return dir == db.DirezioneEntrata || interno || (dir == db.DirezioneUscita && c.Tipo == classificazione.ControparteFornitore)
 }
 
 // motorePer sceglie il motore: quello del cliente, oppure — per un fornitore — l'unione delle famiglie
 // dei clienti che hanno richieste aperte a lui (IB8). Nil per tutti gli altri.
-func motorePer(ctx context.Context, q *db.Queries, motori *Motori, clienteID uuid.NullUUID, c domain.Controparte) *domain.Motore {
+func motorePer(ctx context.Context, q *db.Queries, motori *Motori, clienteID uuid.NullUUID, c classificazione.Controparte) *classificazione.Motore {
 	if clienteID.Valid {
 		return motori.Per(ctx, q, clienteID.UUID)
 	}
-	if c.Tipo == domain.ControparteFornitore && c.FornitoreID != uuid.Nil {
+	if c.Tipo == classificazione.ControparteFornitore && c.FornitoreID != uuid.Nil {
 		return motori.PerFornitore(ctx, q, c.FornitoreID)
 	}
 	return nil

@@ -91,7 +91,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			return 0, err
 		}
 		figlio.PathStaging, figlio.Sha256 = txt(v.Path), txt(v.Sha256)
-		pr := domain.PropostaDaNome(v.NomeFile, v.Bytes, string(m.Direzione))
+		pr := classificazione.PropostaDaNome(v.NomeFile, v.Bytes, string(m.Direzione))
 		if err := s.scriviProposta(ctx, qt, figlio, m.ThreadID, pr, map[string]any{"path_interno": v.PathInterno, "bytes": v.Bytes, "zip": a.NomeFile}); err != nil {
 			return 0, err
 		}
@@ -108,7 +108,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if troncato {
 		dettagli["troncato"] = true
 	}
-	if err := s.scriviProposta(ctx, qt, a, m.ThreadID, domain.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {
+	if err := s.scriviProposta(ctx, qt, a, m.ThreadID, classificazione.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {
 		return 0, err
 	}
 	if err := qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato}); err != nil {

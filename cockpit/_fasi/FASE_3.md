@@ -76,7 +76,7 @@ dentro il Go: un codice come `AC12345B` non ha separatori, e nessuna regola gene
 
 ## 3. Un motore solo (voce 6.11, AN5)
 
-`domain.Riconosci` è l'unico ingresso al riconoscimento: la chiama l'ingest sui messaggi che arrivano
+`classificazione.Riconosci` è l'unico ingresso al riconoscimento: la chiama l'ingest sui messaggi che arrivano
 e la chiama il banco di prova della schermata Anagrafica sul testo incollato. Restituisce triage,
 riferimenti al portale e scadenza in una volta.
 

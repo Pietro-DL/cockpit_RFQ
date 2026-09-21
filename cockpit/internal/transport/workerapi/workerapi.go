@@ -992,14 +992,14 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 			dominio = m.MittenteIndirizzo.String[i+1:]
 		}
 	}
-	pr := domain.PropostaDaNome(a.NomeFile, r.Bytes, string(m.Direzione))
+	pr := classificazione.PropostaDaNome(a.NomeFile, r.Bytes, string(m.Direzione))
 	ext := strings.ToLower(a.Estensione.String)
 	// rumore: hash già scartato da un operatore, o immagine vista ≥ 3 volte dallo stesso dominio (firme, loghi)
 	if dominio != "" && pr.Tipo != "rumore" {
 		if seen, _ := q.IsHashRumore(ctx, db.IsHashRumoreParams{Sha256: r.Sha256, Lower: dominio}); seen {
-			pr = domain.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 95}
-		} else if n, _ := q.ContaHashVisto(ctx, db.ContaHashVistoParams{Sha256: txt(r.Sha256), Lower: dominio}); n >= 3 && domain.EstImmagine(ext) {
-			pr = domain.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 85}
+			pr = classificazione.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 95}
+		} else if n, _ := q.ContaHashVisto(ctx, db.ContaHashVistoParams{Sha256: txt(r.Sha256), Lower: dominio}); n >= 3 && classificazione.EstImmagine(ext) {
+			pr = classificazione.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 85}
 		}
 	}
 	if err := s.scriviProposta(ctx, q, a, m.ThreadID, pr, map[string]any{"estensione": ext, "bytes": r.Bytes}); err != nil {
@@ -1021,7 +1021,7 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 	return err
 }
 
-func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr domain.Proposta, dettagli map[string]any) error {
+func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr classificazione.Proposta, dettagli map[string]any) error {
 	// pr arriva dal nostro dominio, non da un worker: qui un valore fuori enum sarebbe un errore di
 	// programmazione. Si controlla lo stesso, perché è il punto in cui un tipo nuovo aggiunto al
 	// dominio e dimenticato nella migrazione si vedrebbe subito e con il nome giusto.
@@ -1054,7 +1054,7 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 	return nil
 }
 
-// codiceRevSicuri applica i limiti del dominio (domain.MaxCodice, domain.MaxRev) a un codice e a una
+// codiceRevSicuri applica i limiti del dominio (classificazione.MaxCodice, classificazione.MaxRev) a un codice e a una
 // revisione che arrivano da fuori — dal nome di un file, dal risultato di un worker — PRIMA che
 // finiscano in una colonna (7C.1, P0).
 //
@@ -1065,16 +1065,16 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 // file lungo ha fatto rifiutare il result di uno stage a file gia' caricato e verificato.
 func (s *Server) codiceRevSicuri(codice, rev, dove string) (string, string, map[string]any) {
 	scarti := map[string]any{}
-	if codice != "" && !domain.CodiceAmmissibile(codice) {
+	if codice != "" && !classificazione.CodiceAmmissibile(codice) {
 		scarti["codice_scartato"] = codice
 		s.Log.Warn("codice fuori misura: non scritto nella proposta, conservato nei dettagli",
-			"dove", dove, "lunghezza", len(codice), "max", domain.MaxCodice)
+			"dove", dove, "lunghezza", len(codice), "max", classificazione.MaxCodice)
 		codice = ""
 	}
-	if rev != "" && !domain.RevAmmissibile(rev) {
+	if rev != "" && !classificazione.RevAmmissibile(rev) {
 		scarti["rev_scartata"] = rev
 		s.Log.Warn("revisione fuori misura: non scritta nella proposta, conservata nei dettagli",
-			"dove", dove, "lunghezza", len(rev), "max", domain.MaxRev)
+			"dove", dove, "lunghezza", len(rev), "max", classificazione.MaxRev)
 		rev = ""
 	}
 	return codice, rev, scarti

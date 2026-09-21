@@ -50,7 +50,7 @@ type Ingresso struct {
 	BuyerID         uuid.NullUUID
 	InReplyTo       string
 	Riferimenti     []string // header References
-	Oggetto         string   // già ripulito da RE:/R:/FW: (domain.OggettoPulito)
+	Oggetto         string   // già ripulito da RE:/R:/FW: (classificazione.OggettoPulito)
 	DataEvento      time.Time
 	// Codici sono i codici su cui vale R3. Solo quelli di FAMIGLIA: un codice pescato
 	// dall'estrattore generico è evidenza che esiste un numero, non che esiste quella richiesta.
@@ -70,8 +70,8 @@ func (in Ingresso) finestra() time.Time {
 }
 
 // Calcola interroga il database e restituisce i candidati ordinati, i più forti in cima. Non scrive niente.
-func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidato, error) {
-	var out []domain.Candidato
+func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione.Candidato, error) {
+	var out []classificazione.Candidato
 	visto := map[string]bool{} // (thread, regola): la stessa regola non parla due volte dello stesso thread
 
 	agg := func(threadID uuid.UUID, regola, evidenza string, chiuso bool) {
@@ -80,8 +80,8 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 			return
 		}
 		visto[k] = true
-		out = append(out, domain.Candidato{
-			ThreadID: threadID.String(), Regola: regola, Punteggio: domain.PuntiRegola[regola],
+		out = append(out, classificazione.Candidato{
+			ThreadID: threadID.String(), Regola: regola, Punteggio: classificazione.PuntiRegola[regola],
 			Evidenza: evidenza, Chiuso: chiuso,
 		})
 	}
@@ -101,7 +101,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 			if strings.Contains(in.InReplyTo, strings.Trim(r.ChiaveEsterna, "<>")) {
 				campo = "In-Reply-To"
 			}
-			agg(r.ThreadID.UUID, domain.R0Reply,
+			agg(r.ThreadID.UUID, classificazione.R0Reply,
 				fmt.Sprintf("%s punta a un messaggio già agganciato a questa richiesta (%s)", campo, r.ChiaveEsterna),
 				r.Stato == db.StatoThreadCHIUSA)
 		}
@@ -110,7 +110,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 	// ---- R1: la conversazione, se un OPERATORE l'ha collegata. `conversazione.thread_id` non viene più
 	// scritto dall'ingest: è una decisione, e per questo può fare da evidenza.
 	if riga, err := q.ThreadDellaConversazioneConStato(ctx, in.ConversazioneID); err == nil && riga.ThreadID.Valid {
-		agg(riga.ThreadID.UUID, domain.R1Conversazione,
+		agg(riga.ThreadID.UUID, classificazione.R1Conversazione,
 			"la conversazione di Outlook è già stata collegata a questa richiesta da un operatore",
 			riga.Stato == db.StatoThreadCHIUSA)
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -127,7 +127,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 				return nil, fmt.Errorf("R4: %w", err)
 			}
 			for _, r := range righe {
-				agg(r.ThreadID, domain.R4Riferimento,
+				agg(r.ThreadID, classificazione.R4Riferimento,
 					"il riferimento "+in.Riferimento+" è quello di questa richiesta",
 					r.Stato == db.StatoThreadCHIUSA)
 			}
@@ -140,7 +140,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 				return nil, fmt.Errorf("R3: %w", err)
 			}
 			for _, r := range righe {
-				agg(r.ThreadID, domain.R3Codice,
+				agg(r.ThreadID, classificazione.R3Codice,
 					"il codice "+r.Codice+" è già un identificativo di questa richiesta",
 					r.Stato == db.StatoThreadCHIUSA)
 			}
@@ -154,7 +154,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 				return nil, fmt.Errorf("R2: %w", err)
 			}
 			for _, r := range righe {
-				agg(r.ThreadID, domain.R2Oggetto,
+				agg(r.ThreadID, classificazione.R2Oggetto,
 					"stesso oggetto di questa richiesta, entro i giorni della finestra",
 					r.Stato == db.StatoThreadCHIUSA)
 			}
@@ -171,17 +171,17 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidat
 			return nil, fmt.Errorf("R5: %w", err)
 		}
 		for _, r := range righe {
-			agg(r.ThreadID, domain.R5Buyer,
+			agg(r.ThreadID, classificazione.R5Buyer,
 				"stesso buyer, richiesta aperta negli ultimi giorni", r.Stato == db.StatoThreadCHIUSA)
 		}
 	}
-	return domain.OrdinaCandidati(out), nil
+	return classificazione.OrdinaCandidati(out), nil
 }
 
 // Salva sostituisce i candidati di un messaggio. Sostituisce e non aggiunge: i candidati sono una
 // fotografia dello stato di adesso, e un candidato vecchio verso una richiesta che nel frattempo è stata
 // unita ad un'altra è peggio di nessun candidato.
-func Salva(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, c []domain.Candidato) error {
+func Salva(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, c []classificazione.Candidato) error {
 	if _, err := q.EliminaCandidatiAggancio(ctx, messaggioID); err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func Salva(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, c []domain
 }
 
 // CalcolaESalva è la coppia, che è quasi sempre come si usa.
-func CalcolaESalva(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Candidato, error) {
+func CalcolaESalva(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione.Candidato, error) {
 	c, err := Calcola(ctx, q, in)
 	if err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func CalcolaESalva(ctx context.Context, q *db.Queries, in Ingresso) ([]domain.Ca
 // della richiesta entra con ruolo `riferimento_rfq`, le famiglie del cliente con `prodotto`, l'estrattore
 // generico con `non_classificato`. La chiave primaria (messaggio, codice) fa il resto: lo stesso numero
 // non può stare due volte con due ruoli, e il riferimento viene inserito per primo.
-func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, e domain.Estrazione) error {
+func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, e classificazione.Estrazione) error {
 	if _, err := q.EliminaCandidatiCodice(ctx, messaggioID); err != nil {
 		return err
 	}
@@ -237,8 +237,8 @@ func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.U
 		})
 	}
 	if e.Riferimento != "" {
-		if err := ins(e.Riferimento, "", domain.RuoloRiferimento, "riferimento", e.RiferimentoNome,
-			domain.PuntiRiferimen, e.RiferimentoDove); err != nil {
+		if err := ins(e.Riferimento, "", classificazione.RuoloRiferimento, "riferimento", e.RiferimentoNome,
+			classificazione.PuntiRiferimen, e.RiferimentoDove); err != nil {
 			return err
 		}
 	}

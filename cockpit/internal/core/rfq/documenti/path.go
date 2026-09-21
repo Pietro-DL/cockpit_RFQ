@@ -39,7 +39,7 @@ func CartellaThread(cartellaCliente string, data time.Time, cognomeBuyer, oggett
 	if c := NomeSicuro(cognomeBuyer, 30); cognomeBuyer != "" && c != "senza nome" {
 		parti = append(parti, c)
 	}
-	parti = append(parti, NomeSicuro(domain.OggettoPulito(oggetto), 60))
+	parti = append(parti, NomeSicuro(classificazione.OggettoPulito(oggetto), 60))
 	return strings.Join([]string{NomeSicuro(cartellaCliente, 80), "WIP", strings.Join(parti, " ")}, `\`)
 }
 

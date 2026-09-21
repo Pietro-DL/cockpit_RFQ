@@ -8,7 +8,8 @@ import (
 
 // L1 — lo schema delle regole di riconoscimento di un cliente (voce 6.11, D17): AN1.
 //
-// AN3 e AN4 provano che cosa il MOTORE fa di queste regole: stanno con il motore, in `core/domain`.
+// AN3 e AN4 provano che cosa il MOTORE fa di queste regole: stanno con il motore,
+// in `core/inbox/classificazione`.
 //
 // I clienti di questi test sono inventati. Non è pigrizia: le famiglie di codice dei clienti veri
 // sono un dato dell'azienda e questo repository è pubblico, e un test che dipendesse da esse
@@ -16,7 +17,8 @@ import (
 // ha niente a che vedere con il codice che sta provando.
 
 // Le stesse regole buone servono di qua (entrano intere) e di là (il motore le applica): la
-// fixture è ripetuta apposta in `core/domain`, perché nessuno dei due package debba leggere i test
+// fixture è ripetuta apposta in `core/inbox/classificazione`, perché nessuno dei due package debba
+// leggere i test
 // dell'altro. Se cambia una, cambiano tutte e due.
 const regoleBuone = `{
   "famiglie_codice": [

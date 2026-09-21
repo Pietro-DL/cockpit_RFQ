@@ -34,7 +34,8 @@ Mai `transport`, mai `ai`, mai `jobs`.
 
 ## Entry point
 
-`domain.Triage`, `domain.RisolviControparte`, `domain.TagliaCatena`, `ingest.Servizio.Ingerisci`,
+`classificazione.Triage`, `classificazione.RisolviControparte`, `classificazione.TagliaCatena`,
+`ingest.Servizio.Ingerisci`,
 `ingest.Ritriage` / `RitriageMolti` / `RicalcolaControparti`, `aggancio.CalcolaESalva`,
 `aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`,
 `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`,
@@ -67,8 +68,8 @@ anagrafiche. Nessuno di questi scrive `thread_id`, `documento` o sul NAS.
 
 ## Test
 
-L1 sugli oracoli di `domain` (codici, atto, catena, controparte, il motore delle regole, proposta,
-precedenza) e su `registro/regole` (le due porte, le convenzioni).
+L1 sugli oracoli di `inbox/classificazione` (codici, atto, catena, controparte, il motore delle regole,
+proposta, precedenza) e su `registro/regole` (le due porte, le convenzioni).
 L4 per `ingest`, `aggancio` e `registro/fornitori`, compresi gli invarianti I4/I5 del contratto di
 classificazione.
 
@@ -93,5 +94,5 @@ classificazione.
 ---
 
 **Cambia in B**: `registro/regole` (B2) e `rfq/documenti` (B3, i nomi) ci sono. `rfq/documenti` prende ancora
-l'integrità NAS e i corpi dei job (B6a, B6b). Il package `domain` ha traslocato sotto
-`inbox/classificazione` (B4a) e in B4b prende il nome della cartella.
+l'integrità NAS e i corpi dei job (B6a, B6b). Il package `domain` non esiste più: si chiama
+`inbox/classificazione` (B4).

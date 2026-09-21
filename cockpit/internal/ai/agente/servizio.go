@@ -211,7 +211,7 @@ func int4(n int) pgtype.Int4 { return pgtype.Int4{Int32: int32(n), Valid: n != 0
 // Conferma le dipendenze che il pacchetto usa dal dominio senza importarlo a vuoto: i ruoli dei
 // codici sono gli stessi, e se qualcuno ne aggiunge uno di là questo controllo lo fa notare qui.
 var _ = func() bool {
-	for _, r := range []string{domain.RuoloRiferimento, domain.RuoloProdotto, domain.RuoloParte, domain.RuoloIgnoto} {
+	for _, r := range []string{classificazione.RuoloRiferimento, classificazione.RuoloProdotto, classificazione.RuoloParte, classificazione.RuoloIgnoto} {
 		if !ruoliValidi[r] {
 			panic("agente: il ruolo " + r + " esiste nel dominio ma l'agente non lo accetta")
 		}

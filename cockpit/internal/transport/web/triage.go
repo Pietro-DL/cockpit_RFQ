@@ -102,7 +102,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	if err != nil {
 		return nil, err
 	}
-	d := &triageDati{M: m, Oggetto: domain.OggettoPulito(m.Oggetto.String)}
+	d := &triageDati{M: m, Oggetto: classificazione.OggettoPulito(m.Oggetto.String)}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
 	d.Clienti, _ = q.ListClienti(ctx)
 	d.ClienteID = d.Riga.ClienteID
@@ -145,7 +145,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 		if d.ClienteID.Valid {
 			if c, err := q.GetCliente(ctx, d.ClienteID.UUID); err == nil {
 				r, _ := regole.LeggiRegole(c.Regole)
-				famiglie = domain.Compila(c.RagioneSociale, r).HaFamiglie()
+				famiglie = classificazione.Compila(c.RagioneSociale, r).HaFamiglie()
 			}
 		}
 		if !famiglie {
@@ -297,7 +297,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	}
 	oggetto := strings.TrimSpace(r.FormValue("oggetto"))
 	if oggetto == "" {
-		oggetto = domain.OggettoPulito(m.Oggetto.String)
+		oggetto = classificazione.OggettoPulito(m.Oggetto.String)
 	}
 	var buyerID uuid.NullUUID
 	cognome := ""
@@ -594,7 +594,7 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 	for _, mid := range altri {
 		if err := q.InsertCandidatoAggancio(ctx, db.InsertCandidatoAggancioParams{
 			MessaggioID: mid, ThreadID: threadID, Regola: db.RegolaAggancioR1Conversazione,
-			Punteggio: int16(domain.PuntiRegola[domain.R1Conversazione]), Evidenza: evidenzaR1,
+			Punteggio: int16(classificazione.PuntiRegola[classificazione.R1Conversazione]), Evidenza: evidenzaR1,
 			ThreadStato: db.StatoThreadAPERTA,
 		}); err != nil {
 			return err
@@ -602,7 +602,7 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 		motivo, _ := json.Marshal([]string{evidenzaR1})
 		if _, err := q.AggiornaTriageCandidato(ctx, db.AggiornaTriageCandidatoParams{
 			MessaggioID: mid, ThreadProposto: tid,
-			Confidenza: int16(domain.PuntiRegola[domain.R1Conversazione]), Motivo: motivo,
+			Confidenza: int16(classificazione.PuntiRegola[classificazione.R1Conversazione]), Motivo: motivo,
 		}); err != nil {
 			return err
 		}

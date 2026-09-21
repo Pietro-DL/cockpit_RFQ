@@ -203,8 +203,8 @@ func TestT1LaConversazioneNotaProponeENonDecide(t *testing.T) {
 	for _, k := range cand {
 		if k.Regola == db.RegolaAggancioR1Conversazione && k.ThreadID == th.ThreadID {
 			trovata = true
-			if k.Punteggio != int16(domain.PuntiRegola[domain.R1Conversazione]) {
-				t.Errorf("R1 punteggio %d, atteso %d", k.Punteggio, domain.PuntiRegola[domain.R1Conversazione])
+			if k.Punteggio != int16(classificazione.PuntiRegola[classificazione.R1Conversazione]) {
+				t.Errorf("R1 punteggio %d, atteso %d", k.Punteggio, classificazione.PuntiRegola[classificazione.R1Conversazione])
 			}
 			if k.Evidenza == "" {
 				t.Error("un candidato senza evidenza è un numero senza spiegazione")

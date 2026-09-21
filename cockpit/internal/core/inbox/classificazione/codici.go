@@ -1,6 +1,6 @@
-// Package domain contiene le regole pure del Cockpit: nessun HTTP, nessun DB.
+// Package classificazione contiene le regole pure del Cockpit: nessun HTTP, nessun DB.
 // Prende struct in ingresso e restituisce struct/errori; è qui che si concentrano i test unitari.
-package domain
+package classificazione
 
 import (
 	"regexp"

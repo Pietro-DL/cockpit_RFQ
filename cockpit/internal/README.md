@@ -74,7 +74,7 @@ solo**, nemmeno all'avvio.
 
 - **Sync** — scheduler / «Aggiorna ora» / prima apertura dell'Inbox / «Carica precedenti» → job `sync_outlook`
   con il modo e una finestra chiusa per cartella → claim del worker → lotti su `/ingest/messaggi` → `ingest`
-  scrive i fatti, risolve la controparte, taglia la catena, chiede il triage a `domain`, calcola i candidati →
+  scrive i fatti, risolve la controparte, taglia la catena, chiede il triage a `classificazione`, calcola i candidati →
   la frontiera avanza solo se la cartella è stata percorsa per intero. Package: `transport/workerapi`,
   `core/inbox/ingest`, `core/inbox/classificazione`, `core/inbox/aggancio`, `jobs`.
 - **Censisci dall'Inbox** — «Da validare» → `censisci` → fornitore o cliente in anagrafica →
@@ -129,7 +129,6 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 
 ---
 
-**Cambia in B**: `core/registro/regole` (B2) e `core/rfq/documenti` (B3) ci sono. Il package `domain` ha
-traslocato sotto `core/inbox/classificazione` (B4a) e in B4b prende il nome della cartella. `internal/jobs`
-si divide fra `platform/coda`, `platform/storage/staging`, `core/rfq/documenti` e `app/runtime`;
+**Cambia in B**: `core/registro/regole` (B2), `core/rfq/documenti` (B3) e `core/inbox/classificazione` (B4)
+ci sono. `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`, `core/rfq/documenti` e `app/runtime`;
 `cmd/cockpit/main.go` si svuota in `app/runtime`.
