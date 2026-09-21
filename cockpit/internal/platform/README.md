@@ -20,7 +20,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
 | `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
-| `storage/nas` | unico scrittore sul NAS: `.parte` + hash + rinomina, mai sovrascrive, long-path |
+| `storage/nas` | unico scrittore sul NAS: `.parte` + hash + rinomina, mai sovrascrive; `UNC` compone radice + relativo e mette il prefisso long-path `\\?\` oltre i 250 caratteri (`\\?\UNC\server\share` per i percorsi di rete) |
 | `storage/archivio` | estrazione zip con budget sui byte scritti e protezione zip-slip |
 | `testutil` | database di test usa e getta (`COCKPIT_TEST_DSN`, solo nomi con «test»; senza variabile i test L4 sono SKIP, mai PASS) |
 
@@ -31,7 +31,7 @@ Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `jobs`.
 ## Entry point
 
 `config.Carica`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.Semina`, `rete.CaricaOGenera`,
-`nas.Scrittore`, `archivio.Estrai`, `testutil.Pool`.
+`nas.Scrittore`, `nas.UNC`, `archivio.Estrai`, `testutil.Pool`.
 
 ## Flussi principali
 
@@ -57,6 +57,8 @@ riconoscono dall'impronta scritta nel loro `worker.toml` (modello SSH): niente C
 ## Invarianti
 
 - Il NAS non si sovrascrive mai: si scrive `.parte`, si verifica l'hash, si rinomina.
+- Un percorso oltre i 250 caratteri passa dal prefisso long-path; sotto quella soglia non lo si aggiunge, e non
+  lo si aggiunge due volte.
 - L'estrazione di un archivio ha un budget sui byte scritti e rifiuta i percorsi che escono dalla cartella.
 - `[sicurezza]`: il silenzio vale «non scrivere».
 - `db` è generato: una modifica a mano si perde al prossimo `sqlc generate`.

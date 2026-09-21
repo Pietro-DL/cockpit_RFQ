@@ -15,7 +15,7 @@ NAS (quelle passano da `platform/storage/nas`).
 
 | Package | Che cosa fa | DB |
 |---|---|---|
-| `domain` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (schema di `cliente.regole`, ✓/✗), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza), `proposta.go` (tipo del documento da nome ed estensione), `path.go` (nome della cartella NAS), `anagrafica.go`, `aggancio.go` (punteggi R1–R5) | no |
+| `domain` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (schema di `cliente.regole`, ✓/✗), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza), `proposta.go` (tipo del documento da nome ed estensione), `path.go` (nome della cartella NAS; il prefisso long-path sta in `platform/storage/nas`), `anagrafica.go`, `aggancio.go` (punteggi R1–R5) | no |
 | `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
 | `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
 | `registro/anagrafica` | il seme dei clienti da `seme_anagrafica.json`, una volta e senza sovrascrivere | sì |
@@ -23,7 +23,8 @@ NAS (quelle passano da `platform/storage/nas`).
 
 ## Dipendenze consentite
 
-`core/domain` non importa nulla del progetto. Gli altri package di `core` importano `core/domain` e `platform`.
+`core/domain` non importa nulla del progetto, e da B1 nessun package di `platform` importa `core`.
+Gli altri package di `core` importano `core/domain` e `platform`.
 Mai `transport`, mai `ai`, mai `jobs`.
 
 ## Entry point

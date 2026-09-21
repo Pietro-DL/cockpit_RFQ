@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -258,7 +257,7 @@ func (c controllo) esamina(d db.Documento, cartella pgtype.Text) Esame {
 		return e
 	}
 
-	assoluto := domain.UNC(c.radice, relativo)
+	assoluto := nas.UNC(c.radice, relativo)
 	st, err := os.Stat(assoluto)
 	if err == nil && st.IsDir() {
 		// Al posto del file c'e' una cartella con lo stesso nome. Non e' «manca il file» — il nome e'
@@ -371,7 +370,7 @@ func AllineaDocumento(ctx context.Context, q *db.Queries, scrittore *nas.Scritto
 	if !t.CartellaRelativa.Valid {
 		return fmt.Errorf("la RFQ non ha una cartella sul NAS: non c'e' nessun file da allineare")
 	}
-	assoluto := domain.UNC(scrittore.Radice, percorsoDocumento(t.CartellaRelativa.String, d.PathRelativo))
+	assoluto := nas.UNC(scrittore.Radice, percorsoDocumento(t.CartellaRelativa.String, d.PathRelativo))
 	sha, _, err := nas.Sha256File(assoluto)
 	if err != nil {
 		return fmt.Errorf("il file sul NAS non si legge: %w", err)

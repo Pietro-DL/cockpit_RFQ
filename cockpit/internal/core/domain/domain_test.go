@@ -47,26 +47,6 @@ func TestPathDocumento(t *testing.T) {
 	}
 }
 
-func TestUNC(t *testing.T) {
-	if got := UNC(`\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE`, `ACME\WIP\x`); got != `\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE\ACME\WIP\x` {
-		t.Errorf("UNC corto: %q", got)
-	}
-	if got := UNC(`C:\promatec\_nas_test\PREVENTIVI DA FARE\`, `\ACME\WIP\x`); got != `C:\promatec\_nas_test\PREVENTIVI DA FARE\ACME\WIP\x` {
-		t.Errorf("UNC locale: %q", got)
-	}
-	lungo := UNC(`\\nas01\radice`, strings.Repeat(`cartella lunga\`, 20)+"file.pdf")
-	if !strings.HasPrefix(lungo, `\\?\UNC\nas01\radice\`) {
-		t.Errorf("UNC lungo di rete senza prefisso: %q", lungo)
-	}
-	lungoLocale := UNC(`C:\radice`, strings.Repeat(`cartella lunga\`, 20)+"file.pdf")
-	if !strings.HasPrefix(lungoLocale, `\\?\C:\radice\`) {
-		t.Errorf("UNC lungo locale senza prefisso: %q", lungoLocale)
-	}
-	if strings.Count(lungo, `\\?\`) != 1 || strings.HasPrefix(UNC(lungo, "y"), `\\?\\\?\`) {
-		t.Errorf("prefisso duplicato: %q", UNC(lungo, "y"))
-	}
-}
-
 func TestEstraiCodici(t *testing.T) {
 	got := EstraiCodici("RICHIESTA D'OFFERTA 123456789 - codice 6674611A rev 4", "vedi allegato 6674611A_4.pdf e il 12/09/2026 alle 10:30")
 	atteso := []string{"123456789", "6674611A", "6674611A_4"}

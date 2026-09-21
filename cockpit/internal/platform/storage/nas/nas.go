@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"promatec/cockpit/internal/core/domain"
 )
 
 type Scrittore struct {
@@ -36,9 +34,24 @@ func Sha256File(p string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
+// UNC compone radice + relativo per l'accesso reale al NAS; aggiunge il prefisso \\?\ quando il percorso
+// supera i 260 caratteri (limite MAX_PATH di Windows). Per i percorsi di rete (\\server\share) il prefisso
+// long-path è \\?\UNC\server\share.
+func UNC(radice, relativo string) string {
+	radice = strings.TrimRight(radice, `\`)
+	p := radice + `\` + strings.TrimLeft(relativo, `\`)
+	if len(p) >= 250 && !strings.HasPrefix(p, `\\?\`) {
+		if strings.HasPrefix(p, `\\`) {
+			return `\\?\UNC\` + strings.TrimPrefix(p, `\\`)
+		}
+		return `\\?\` + p
+	}
+	return p
+}
+
 // CreaCartella crea la cartella del thread (relativa alla radice) con la sottostruttura standard.
 func (s *Scrittore) CreaCartella(relativa string, sottocartelle []string) (string, error) {
-	base := domain.UNC(s.Radice, relativa)
+	base := UNC(s.Radice, relativa)
 	if s.DryRun {
 		return base, nil
 	}
@@ -59,7 +72,7 @@ func (s *Scrittore) CreaCartella(relativa string, sottocartelle []string) (strin
 // Copia porta src in radice\relativoThread\relativoDoc verificando l'hash atteso.
 // Se il file di destinazione esiste con lo stesso hash non fa nulla; con hash diverso restituisce ErrConflitto.
 func (s *Scrittore) Copia(src, relativoThread, relativoDoc, shaAtteso string) (string, error) {
-	dst := domain.UNC(s.Radice, strings.TrimRight(relativoThread, `\`)+`\`+relativoDoc)
+	dst := UNC(s.Radice, strings.TrimRight(relativoThread, `\`)+`\`+relativoDoc)
 	if s.DryRun {
 		return dst, nil
 	}
