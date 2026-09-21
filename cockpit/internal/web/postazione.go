@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/api"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 )
 

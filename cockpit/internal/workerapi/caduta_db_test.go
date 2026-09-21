@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 )
 

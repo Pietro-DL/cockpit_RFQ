@@ -1,6 +1,6 @@
 """Contratti JSON fra worker Python e cockpit.exe (fonte unica lato Python).
 
-Speculare a internal/api/tipi.go. `python genera_contratti.py` esporta contracts/*.schema.json,
+Speculare a internal/platform/contratti/api/tipi.go. `python genera_contratti.py` esporta contracts/*.schema.json,
 che i test di entrambe le parti validano: un cambio di contratto rompe i test, mai la produzione.
 """
 from __future__ import annotations

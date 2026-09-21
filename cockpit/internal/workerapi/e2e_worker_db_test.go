@@ -35,9 +35,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"

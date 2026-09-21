@@ -20,9 +20,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )

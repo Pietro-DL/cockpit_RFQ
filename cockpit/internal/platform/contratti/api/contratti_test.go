@@ -83,7 +83,7 @@ var tipiAnnidati = map[string]any{
 	"RisultatoElemento":   RisultatoElemento{},
 }
 
-const cartellaContratti = "../../contracts"
+const cartellaContratti = "../../../../contracts"
 
 // ---------------------------------------------------------------- forma
 

@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"promatec/cockpit/internal/api"
+	"promatec/cockpit/internal/platform/contratti/api"
 )
 
 // I due ore del 16/09: lo scarto esatto fra l'ora di Roma e l'UTC in settembre.

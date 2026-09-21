@@ -24,9 +24,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"

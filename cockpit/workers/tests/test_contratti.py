@@ -1,6 +1,6 @@
 """L3 — contratti a due lati, metà Python (voce 5.5, test K1–K4).
 
-L'altra metà è internal/api/contratti_test.go, che confronta i tipi Go con contracts/*.schema.json.
+L'altra metà è internal/platform/contratti/api/contratti_test.go, che confronta i tipi Go con contracts/*.schema.json.
 Quel confronto vale però solo se gli schemi su disco descrivono davvero i modelli pydantic di oggi:
 se qualcuno modifica contratti.py e non rigenera, il Go continua a corrispondere a uno schema vecchio
 e il test verde non dimostra più niente — anzi, copre il disallineamento invece di mostrarlo.

@@ -25,10 +25,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
