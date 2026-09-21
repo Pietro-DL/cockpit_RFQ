@@ -23,7 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"promatec/cockpit/internal/agente"
+	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"

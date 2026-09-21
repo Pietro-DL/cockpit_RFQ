@@ -21,7 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/agente"
+	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/fornitori"

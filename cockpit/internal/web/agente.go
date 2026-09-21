@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/agente"
+	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"
