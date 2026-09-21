@@ -32,6 +32,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 |---|---|
 | riconoscimento della posta, triage, candidati di aggancio | `core/` (`domain`, `inbox/ingest`, `inbox/aggancio`) |
 | lo schema di `cliente.regole` e le convenzioni di codice | `core/registro/regole` |
+| il nome di una cartella o di un file sul NAS | `core/rfq/documenti` |
 | una rotta del browser | `transport/web` |
 | il protocollo con i worker | `transport/workerapi` + `platform/contratti/worker` |
 | DB, config, TLS, NAS, staging, migrazioni | `platform/` |
@@ -46,6 +47,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 |---|---|
 | `core/registro/regole` | **niente** del progetto |
 | `core/domain` | `core/registro/regole` (il motore lavora sullo schema; deroga di B2, sparisce quando `domain` si divide) |
+| `core/rfq/documenti` | `core/domain` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito) |
 | `core/*` (aggancio, ingest, registro) | `core/domain`, `platform` |
 | `platform/*` | solo `platform` e librerie |
 | `ai/agente` | `core`, `platform` |
@@ -78,7 +80,7 @@ solo**, nemmeno all'avvio.
 - **Censisci dall'Inbox** — «Da validare» → `censisci` → fornitore o cliente in anagrafica →
   `ingest.Ritriage(indirizzo, dominio)` sui soli messaggi **non decisi**. Package: `transport/web`,
   `core/registro`, `core/inbox/ingest`.
-- **Nuova RFQ** — `FOR UPDATE` sul messaggio → `thread_offerta` con la cartella da `domain/path.go` →
+- **Nuova RFQ** — `FOR UPDATE` sul messaggio → `thread_offerta` con la cartella da `rfq/documenti/path.go` →
   identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/domain`, `jobs`.
 - **Allegato → NAS** — «Scarica» o staging automatico → `stage_allegato` → contenuto in `_contenuti` con lo
   sha256 per nome → eventuale `estrai_archivio` → `analizza_allegato` → `documento_proposta` → conferma →
@@ -127,6 +129,6 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 
 ---
 
-**Cambia in B**: `core/registro/regole` c'è (B2); `core/domain` si divide ancora in `core/inbox/classificazione`
-e `core/rfq/documenti`; `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`,
+**Cambia in B**: `core/registro/regole` (B2) e `core/rfq/documenti` (B3) ci sono; `core/domain` diventa
+`core/inbox/classificazione`; `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`,
 `core/rfq/documenti` e `app/runtime`; `cmd/cockpit/main.go` si svuota in `app/runtime`.

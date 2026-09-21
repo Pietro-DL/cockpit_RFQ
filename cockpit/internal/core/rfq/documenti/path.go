@@ -1,4 +1,4 @@
-package domain
+package documenti
 
 import (
 	"path"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"promatec/cockpit/internal/core/domain"
 )
 
 // Convenzione NAS (RFQ_plan §0.2.1.4): <Cliente.cartella_nas>\WIP\<aaaa mm gg> <Cognome buyer> <Oggetto>
@@ -13,7 +15,6 @@ import (
 // Tutti i percorsi restituiti sono RELATIVI alla radice NAS e usano '\' come separatore.
 
 var reVietati = regexp.MustCompile(`[<>:"/\|?*\x00-\x1f]`)
-var rePrefissi = regexp.MustCompile(`(?i)^((re|r|fw|fwd|i|tr|aw|wg)\s*:\s*)+`)
 var reSpazi = regexp.MustCompile(`\s+`)
 
 // NomeSicuro rende una stringa utilizzabile come nome di cartella/file Windows: rimuove i caratteri vietati,
@@ -31,11 +32,6 @@ func NomeSicuro(s string, max int) string {
 	return s
 }
 
-// OggettoPulito toglie i prefissi RE:/FW:/I: ripetuti dall'oggetto della mail.
-func OggettoPulito(oggetto string) string {
-	return strings.TrimSpace(rePrefissi.ReplaceAllString(strings.TrimSpace(oggetto), ""))
-}
-
 // CartellaThread costruisce il percorso relativo della cartella RFQ.
 // Es.: "LANDINI ARGO\WIP\2026 09 08 Rossi Supporto cofano"
 func CartellaThread(cartellaCliente string, data time.Time, cognomeBuyer, oggetto string) string {
@@ -43,7 +39,7 @@ func CartellaThread(cartellaCliente string, data time.Time, cognomeBuyer, oggett
 	if c := NomeSicuro(cognomeBuyer, 30); cognomeBuyer != "" && c != "senza nome" {
 		parti = append(parti, c)
 	}
-	parti = append(parti, NomeSicuro(OggettoPulito(oggetto), 60))
+	parti = append(parti, NomeSicuro(domain.OggettoPulito(oggetto), 60))
 	return strings.Join([]string{NomeSicuro(cartellaCliente, 80), "WIP", strings.Join(parti, " ")}, `\`)
 }
 

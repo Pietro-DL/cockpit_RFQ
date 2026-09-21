@@ -12,6 +12,7 @@ import (
 
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/inbox/ingest"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -120,7 +121,7 @@ func (s *Server) censisci(w http.ResponseWriter, r *http.Request) {
 	}
 	d.RagioneSociale = strings.TrimSpace(r.FormValue("ragione_sociale"))
 	d.Tipo = r.FormValue("tipo")
-	d.Cartella = domain.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cartella_nas"))), 80)
+	d.Cartella = documenti.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cartella_nas"))), 80)
 	d.Lingua = strings.ToLower(strings.TrimSpace(r.FormValue("lingua")))
 	d.ContattoNome = strings.TrimSpace(r.FormValue("contatto_nome"))
 	d.UsaDominio = r.FormValue("usa_dominio") == "1" && d.Dominio != ""

@@ -15,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/regole"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -108,7 +110,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	if i := strings.LastIndex(d.Email, "@"); i > 0 {
 		d.Dominio = d.Email[i+1:]
 	}
-	d.Nome, d.Cognome = domain.NomeCognome(m.MittenteNome.String, d.Email)
+	d.Nome, d.Cognome = anagrafica.NomeCognome(m.MittenteNome.String, d.Email)
 	if m.BuyerID.Valid {
 		d.BuyerID = m.BuyerID
 	}
@@ -153,7 +155,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
 	d.Allegati, _ = s.allegatiUI(ctx, q, id)
 	d.cartella(ctx, q, "")
-	d.Anteprima = domain.CartellaThread(d.CartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
+	d.Anteprima = documenti.CartellaThread(d.CartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
 	return d, nil
 }
 
@@ -216,7 +218,7 @@ func (s *Server) buyerSelect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.cartella(ctx, q, par.Get("cliente_cartella"))
-	d.Anteprima = domain.CartellaThread(d.CartellaCliente, quando, d.Cognome, d.Oggetto)
+	d.Anteprima = documenti.CartellaThread(d.CartellaCliente, quando, d.Cognome, d.Oggetto)
 	s.frammento(w, "buyer_select", d)
 }
 
@@ -317,7 +319,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := q.InsertThread(ctx, db.InsertThreadParams{
 		ClienteID: cliente.ClienteID, BuyerID: buyerID, Canale: m.Canale, DataInizio: m.DataEvento, DataScadenza: scadenza, ScadenzaOrigine: origine,
-		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(domain.CartellaThread(cliente.CartellaNas, m.DataEvento.Local(), cognome, oggetto)),
+		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(documenti.CartellaThread(cliente.CartellaNas, m.DataEvento.Local(), cognome, oggetto)),
 		Priorita: int16(prio), Campionatura: r.FormValue("campionatura") == "1", Note: ptxt(r.FormValue("note")), CreatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true},
 	})
 	if err != nil {
@@ -633,7 +635,7 @@ func (s *Server) clienteDaForm(ctx context.Context, q *db.Queries, r *http.Reque
 		return &c, nil
 	}
 	nome := strings.TrimSpace(r.FormValue("cliente_nome"))
-	cartella := domain.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cliente_cartella"))), 80)
+	cartella := documenti.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cliente_cartella"))), 80)
 	if nome == "" || cartella == "" || cartella == "senza nome" {
 		return nil, errors.New("per un cliente nuovo servono ragione sociale e nome della cartella NAS")
 	}

@@ -1143,7 +1143,7 @@ internal/platform/logfile           il log del server su file, con rotazione (5 
 internal/platform/storage/nas       scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/platform/storage/archivio  estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/core/domain                regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
+internal/core/domain                regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:,
                                     taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
                                     atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
                                     regole.go: il motore che compila le regole del cliente e le applica a un testo
@@ -1153,9 +1153,11 @@ internal/core/inbox/ingest          FATTO (messaggio, allegato) + proposta econo
 internal/core/inbox/aggancio        i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
                                     a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
 internal/core/registro/fornitori    l'import del seme dei fornitori con anteprima e conferma (7A.4)
-internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere
+internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere;
+                                    anagrafica.go: NomeCognome, il precompilato del buyer dal display name o dall'indirizzo
 internal/core/registro/regole       lo schema di cliente.regole: la porta in scrittura che rifiuta, quella in lettura che segna ✓/✗;
                                     convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
+internal/core/rfq/documenti         i nomi sul NAS: cartella della RFQ, sottocartella per tipo e codice, nome di file sicuro; sempre relativi alla radice
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test

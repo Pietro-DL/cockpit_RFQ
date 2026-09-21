@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -92,7 +92,7 @@ func (s scena) decideNuovaRFQ(ctx context.Context, srv *Server, u db.Utente, ogg
 	}
 	th, err := q.InsertThread(ctx, db.InsertThreadParams{
 		ClienteID: s.cliente.ClienteID, Canale: m.Canale, DataInizio: m.DataEvento,
-		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(domain.CartellaThread(s.cliente.CartellaNas, m.DataEvento, "", oggetto)),
+		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(documenti.CartellaThread(s.cliente.CartellaNas, m.DataEvento, "", oggetto)),
 		Priorita: 1, CreatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true},
 	})
 	if err != nil {

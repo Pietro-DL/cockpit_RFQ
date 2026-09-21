@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -62,11 +62,11 @@ func (s *Server) allegatiUI(ctx context.Context, q *db.Queries, messaggioID uuid
 			proposte[p.AllegatoID] = p
 		}
 	}
-	documenti := map[uuid.UUID]db.Documento{}
+	docPerAllegato := map[uuid.UUID]db.Documento{}
 	if ds, err := q.ListDocumentiMessaggio(ctx, messaggioID); err == nil {
 		for _, d := range ds {
 			if d.AllegatoID.Valid {
-				documenti[d.AllegatoID.UUID] = d.Documento
+				docPerAllegato[d.AllegatoID.UUID] = d.Documento
 			}
 		}
 	}
@@ -86,7 +86,7 @@ func (s *Server) allegatiUI(ctx context.Context, q *db.Queries, messaggioID uuid
 			_ = json.Unmarshal(p.Dettagli, &dett)
 			u.PreSpunta = dett.PreSpunta
 		}
-		if d, ok := documenti[a.AllegatoID]; ok {
+		if d, ok := docPerAllegato[a.AllegatoID]; ok {
 			d := d
 			u.Documento = &d
 		}
@@ -346,7 +346,7 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "", fmt.Errorf("layout per %s: %w", tipo, err)
 	}
 	perCodice := regolaBool(cl.Regole, "cartella_per_codice", true)
-	pathRel := domain.PathDocumento(domain.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice, a.NomeFile)
+	pathRel := documenti.PathDocumento(documenti.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice, a.NomeFile)
 
 	// stesso file già confermato nel thread → solo una provenienza in più
 	if d, err := q.GetDocumentoPerHash(ctx, db.GetDocumentoPerHashParams{ThreadID: t.ThreadID, Sha256: a.Sha256.String}); err == nil {
@@ -374,7 +374,7 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		compID = uuid.NullUUID{UUID: c.ComponenteID, Valid: true}
 	}
 	d, err := q.InsertDocumento(ctx, db.InsertDocumentoParams{
-		ThreadID: t.ThreadID, ComponenteID: compID, Tipo: tipo, Codice: ptxt(codice), Rev: ptxt(rev), NomeFile: domain.NomeFileSicuro(a.NomeFile),
+		ThreadID: t.ThreadID, ComponenteID: compID, Tipo: tipo, Codice: ptxt(codice), Rev: ptxt(rev), NomeFile: documenti.NomeFileSicuro(a.NomeFile),
 		Estensione: strings.ToLower(a.Estensione.String), Sha256: a.Sha256.String, Bytes: a.Bytes, PathRelativo: pathRel, ConfermatoDa: u.UtenteID, Nota: ptxt(nota),
 	})
 	if err != nil {

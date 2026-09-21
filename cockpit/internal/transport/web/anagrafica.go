@@ -17,6 +17,7 @@ import (
 
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/registro/regole"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -236,7 +237,7 @@ func (s *Server) nuovoCliente(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := db.New(s.Pool)
 	nome := strings.TrimSpace(r.FormValue("ragione_sociale"))
-	cartella := domain.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cartella_nas"))), 80)
+	cartella := documenti.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cartella_nas"))), 80)
 	if nome == "" || cartella == "" || cartella == "senza nome" {
 		s.rendiAnagrafica(w, r, anagraficaDati{Errore: "servono la ragione sociale e il nome della cartella NAS"})
 		return
