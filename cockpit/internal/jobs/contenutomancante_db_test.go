@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -183,7 +184,7 @@ func TestIlMotivoFinisceSulDocumentoNonSoloNelLog(t *testing.T) {
 
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
 	j := db.Job{Tipo: db.TipoJobCopiaNas, Payload: []byte(`{"documento_id":"` + doc.String() + `"}`)}
-	if _, err := e.esegui(ctx, q, &j, Tentativo{}); err == nil {
+	if _, err := e.esegui(ctx, q, &j, coda.Tentativo{}); err == nil {
 		t.Fatal("la copia di un contenuto sparito e' andata a buon fine")
 	}
 

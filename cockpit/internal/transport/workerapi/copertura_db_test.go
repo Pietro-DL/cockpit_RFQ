@@ -31,7 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
@@ -71,7 +71,7 @@ var cartelleDiProva = []string{"Inbox", "Sent Items"}
 // scheduler. Il job precedente va chiuso prima: la chiave di idempotenza è fissa per casella.
 func (b *bancoCopertura) accoda(c db.Casella) (*db.Job, worker.PayloadSyncOutlook) {
 	b.t.Helper()
-	j, err := jobs.AccodaSyncCasella(b.ctx, b.q, c, jobs.SyncOpzioni{Cartelle: cartelleDiProva, Lotto: 50})
+	j, err := coda.AccodaSyncCasella(b.ctx, b.q, c, coda.SyncOpzioni{Cartelle: cartelleDiProva, Lotto: 50})
 	if err != nil {
 		b.t.Fatalf("accoda: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestCopertura3CLaNotteSiLeggeSoloIlBuco(t *testing.T) {
 		t.Errorf("modo = %q: una casella già coperta non è in bootstrap", mattina.Modo)
 	}
 	dal, al := finestraDi(t, mattina, "Inbox")
-	uguali(t, dal, ieriAlle17.Add(-jobs.SovrapposizioneSync), "la finestra della mattina parte dalla copertura meno la sovrapposizione")
+	uguali(t, dal, ieriAlle17.Add(-coda.SovrapposizioneSync), "la finestra della mattina parte dalla copertura meno la sovrapposizione")
 	if d := time.Since(al); d > time.Minute || d < -time.Minute {
 		t.Errorf("il limite superiore non è l'istante dell'accodamento: %v", al)
 	}
@@ -358,7 +358,7 @@ func TestCopertura3ILaParteVuotaDellaFinestraResta(t *testing.T) {
 
 	_, dopo := b.accoda(c)
 	dal, _ := finestraDi(t, dopo, "Inbox")
-	uguali(t, dal, p.Al.Add(-jobs.SovrapposizioneSync), "il sync successivo riparte da dove si era guardato")
+	uguali(t, dal, p.Al.Add(-coda.SovrapposizioneSync), "il sync successivo riparte da dove si era guardato")
 	if dopo.Modo != worker.ModoAggiornamento {
 		t.Errorf("modo = %q: la finestra era stata conclusa", dopo.Modo)
 	}
@@ -419,9 +419,9 @@ func TestCopertura3KLaSovrapposizioneRileggeUnTrattoOgniVolta(t *testing.T) {
 		t.Fatalf("la finestra successiva comincia a %v, cioè esattamente dove finiva la precedente (%v): "+
 			"una mail consegnata sul confine non verrebbe letta da nessuna delle due", dal, coperto)
 	}
-	uguali(t, dal, coperto.Add(-jobs.SovrapposizioneSync), "sovrapposizione applicata")
-	if jobs.SovrapposizioneSync < time.Minute {
-		t.Errorf("sovrapposizione di %v: troppo stretta per due orologi diversi", jobs.SovrapposizioneSync)
+	uguali(t, dal, coperto.Add(-coda.SovrapposizioneSync), "sovrapposizione applicata")
+	if coda.SovrapposizioneSync < time.Minute {
+		t.Errorf("sovrapposizione di %v: troppo stretta per due orologi diversi", coda.SovrapposizioneSync)
 	}
 }
 

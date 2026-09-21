@@ -22,9 +22,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
@@ -40,7 +41,7 @@ func TestUnNomeFileLungoNonRompeIlResultDiStage(t *testing.T) {
 	a, _ := b.messaggioConAllegato(nomeLungo, "pdf")
 	contenuto, sha := contenutoCasuale(16_658, 7)
 	// l'allegato e' gia' in staging, come lo lascia il result dopo Promuovi: qui si prova dopoStaging
-	pathDefinitivo, err := jobs.PercorsoContenuto(b.staging, sha, a.NomeFile)
+	pathDefinitivo, err := staging.PercorsoContenuto(b.cartella, sha, a.NomeFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 	testutil.SchemaPulito(t, pool)
 	ctx := context.Background()
 	q := db.New(pool)
-	an := jobs.Analizzatore{Versione: 1}
+	an := coda.Analizzatore{Versione: 1}
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Analizzatore: an}
 
 	var convID, msgID, allID uuid.UUID

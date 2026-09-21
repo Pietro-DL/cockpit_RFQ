@@ -13,7 +13,7 @@
 //
 // I3 e I18 — la stessa mail in due o quattro caselle — appartengono alla fase 2: senza
 // messaggio_casella lo stesso messaggio in due caselle non è nemmeno rappresentabile.
-package jobs
+package coda
 
 import (
 	"context"

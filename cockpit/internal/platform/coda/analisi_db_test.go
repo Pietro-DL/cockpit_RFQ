@@ -7,7 +7,7 @@
 // il risultato identico. La parte che resta legittimamente tripla è la PROPOSTA — dipende dalla RFQ e
 // dal cliente — e infatti la distribuzione dei fatti alle tre proposte è provata in internal/transport/workerapi.
 // Qui si prova la metà che riguarda la coda: quanti job partono, e quando ne riparte uno.
-package jobs
+package coda
 
 import (
 	"context"

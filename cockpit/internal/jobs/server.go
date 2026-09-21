@@ -1,3 +1,10 @@
+// Package jobs ESEGUE i job di tipo 'server': quelli che non hanno un worker dall'altra parte
+// perche' il lavoro lo fa il server stesso — la copia sul NAS, la cartella del thread, la ripresa di
+// un contenuto sparito — e il ricognitore che confronta i documenti con i file veri.
+//
+// La coda su cui lavora (accodamento, claim, lease, capacita', instradamento) sta in
+// `platform/coda`; la cartella di lavoro sul disco in `platform/storage/staging`. Qui c'e' solo chi
+// prende un job e lo porta a termine.
 package jobs
 
 import (
@@ -15,9 +22,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/ai/agente"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // ScrivePerNas dice se il job ha bisogno che il NAS ci sia. Sono i due che scrivono sotto la radice:
@@ -67,7 +76,7 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 	go func() {
 		id := "server"
 		for ctx.Err() == nil {
-			j, err := Claim(ctx, q, db.WorkerTipoServer, id, Destinazione{}, 20*time.Second)
+			j, err := coda.Claim(ctx, q, db.WorkerTipoServer, id, coda.Destinazione{}, 20*time.Second)
 			if err != nil {
 				e.Log.Error("claim server", "err", err)
 				time.Sleep(5 * time.Second)
@@ -78,20 +87,20 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 			}
 			// anche l'esecutore interno passa dal tentativo: se il suo lease scade mentre scrive sul
 			// NAS, il risultato non deve applicarsi al tentativo che nel frattempo ha ripreso il job
-			t := Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: id}
+			t := coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: id}
 			if e.rinviaSeNasAssente(ctx, q, t, j) {
 				continue
 			}
 			res, err := e.esegui(ctx, q, j, t)
 			if err != nil {
 				e.Log.Error("job server fallito", "job", j.JobID, "tipo", j.Tipo, "err", err)
-				if _, err := Fallisci(ctx, q, t, err.Error(), errors.Is(err, nas.ErrConflitto)); err != nil {
+				if _, err := coda.Fallisci(ctx, q, t, err.Error(), errors.Is(err, nas.ErrConflitto)); err != nil {
 					e.Log.Warn("fallimento non registrato", "job", j.JobID, "err", err)
 				}
 				continue
 			}
 			raw, _ := json.Marshal(res)
-			if _, err := Completa(ctx, q, t, json.RawMessage(raw)); err != nil {
+			if _, err := coda.Completa(ctx, q, t, json.RawMessage(raw)); err != nil {
 				e.Log.Error("completa job", "job", j.JobID, "err", err)
 			}
 		}
@@ -103,7 +112,7 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 // Il tentativo non viene consumato: il job non è fallito, non lo abbiamo nemmeno provato. Contarlo
 // come fallimento significherebbe bruciare il budget dei tentativi mentre il problema è che il NAS
 // non c'è — e dichiarare persa la copia proprio per aver provato tante volte (voce 1.7, N8).
-func (e *EsecutoreServer) rinviaSeNasAssente(ctx context.Context, q *db.Queries, t Tentativo, j *db.Job) bool {
+func (e *EsecutoreServer) rinviaSeNasAssente(ctx context.Context, q *db.Queries, t coda.Tentativo, j *db.Job) bool {
 	if e.NAS.DryRun || !ScrivePerNas(j.Tipo) || e.NAS.Raggiungibile() {
 		return false
 	}
@@ -111,7 +120,7 @@ func (e *EsecutoreServer) rinviaSeNasAssente(ctx context.Context, q *db.Queries,
 	if fra <= 0 {
 		fra = time.Minute
 	}
-	if _, err := Rinvia(ctx, q, t, fra, "NAS non raggiungibile: tentativo non consumato"); err != nil {
+	if _, err := coda.Rinvia(ctx, q, t, fra, "NAS non raggiungibile: tentativo non consumato"); err != nil {
 		e.Log.Error("rinvio non riuscito", "job", j.JobID, "tipo", j.Tipo, "err", err)
 		return false // meglio provarci: il peggio che può succedere è un fallimento onesto
 	}
@@ -169,7 +178,7 @@ func (e *EsecutoreServer) RiaccodaAlRitornoDelNas(ctx context.Context, q *db.Que
 	return len(ids)
 }
 
-func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, t Tentativo) (any, error) {
+func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, t coda.Tentativo) (any, error) {
 	switch j.Tipo {
 	case db.TipoJobEstraiArchivio:
 		var p worker.PayloadEstraiArchivio
@@ -278,7 +287,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		}
 		// Il contenuto e' stato USATO, non consumato: resta nella cache (Pre-7, D31), e l'orario
 		// rinfrescato dice al custode che serve ancora.
-		ToccaContenuto(src)
+		staging.ToccaContenuto(src)
 		return map[string]any{"destinazione": dst, "dry_run": e.NAS.DryRun}, nil
 	}
 	return nil, fmt.Errorf("tipo job non gestito dal server: %s", j.Tipo)
@@ -361,8 +370,8 @@ func (e *EsecutoreServer) riprendiContenuto(ctx context.Context, q *db.Queries, 
 		if err != nil {
 			return originale
 		}
-		if z.PathStaging.Valid && (FileStaging{}).Presente(z.PathStaging.String) {
-			if _, err := Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
+		if z.PathStaging.Valid && (staging.FileStaging{}).Presente(z.PathStaging.String) {
+			if _, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
 				"estrai:"+z.AllegatoID.String(), 2); err != nil {
 				return originale
 			}
@@ -381,16 +390,16 @@ func (e *EsecutoreServer) riprendiContenuto(ctx context.Context, q *db.Queries, 
 	if err != nil {
 		return originale
 	}
-	copia, err := CopiaPerDownload(ctx, q, m.MessaggioID, uuid.NullUUID{}, uuid.Nil)
+	copia, err := coda.CopiaPerDownload(ctx, q, m.MessaggioID, uuid.NullUUID{}, uuid.Nil)
 	if err != nil {
 		return fmt.Errorf("%w (nessuna casella attiva da cui riscaricarlo: %v)", originale, err)
 	}
-	esito, _, err := AccodaStage(ctx, q, FileStaging{}, bersaglio, m, copia, 2)
+	esito, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, bersaglio, m, copia, 2)
 	if err != nil {
 		return originale
 	}
 	switch esito {
-	case StageAccodato, StageGiaInCoda:
+	case coda.StageAccodato, coda.StageGiaInCoda:
 		return fmt.Errorf("%w: il contenuto di %q non e' piu' nella cache: download da Outlook accodato, "+
 			"la copia riprova da sola", ErrContenutoMancante, bersaglio.NomeFile)
 	default: // gia' presente o riusato: il file e' ricomparso fra il controllo e adesso

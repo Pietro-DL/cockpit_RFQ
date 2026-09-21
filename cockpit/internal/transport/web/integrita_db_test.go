@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/testutil"
@@ -98,7 +99,7 @@ func TestLaSchermataDiceSeHaMaiGuardato(t *testing.T) {
 // File assente mentre il database dice «scritto»: la riga compare, con l'azione che serve.
 func TestUnFileMancanteCompareInAdminConLaSuaAzione(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	_, doc, _ := b.rfqSulNasFinto("", db.StatoNasScritto)
 
 	w := b.browser("10.0.0.1")
@@ -125,7 +126,7 @@ func TestUnFileMancanteCompareInAdminConLaSuaAzione(t *testing.T) {
 // ugualmente — a mano, o da una pagina vecchia — la rotta rifiuta e il file resta com'è.
 func TestUnConflittoNonSiRiaccodaEIlFileNonSiTocca(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	_, doc, radice := b.rfqSulNasFinto("un file di qualcun altro", db.StatoNasScritto)
 
 	w := b.browser("10.0.0.1")
@@ -159,7 +160,7 @@ func TestUnConflittoNonSiRiaccodaEIlFileNonSiTocca(t *testing.T) {
 // File già corretto con il documento ancora `in_coda`: si allinea, e non si copia niente.
 func TestUnFileGiaCorrettoSiAllineaSenzaCopiare(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, doc, _ := b.rfqSulNasFinto(contenutoNas, db.StatoNasInCoda)
 
 	w := b.browser("10.0.0.1")
@@ -217,7 +218,7 @@ func TestLaRfqDiceCheUnSuoDocumentoEeSegnalato(t *testing.T) {
 // Con la scrittura spenta il riaccodamento non finge: lo dice, con il nome della riga da cambiare.
 func TestConLaScritturaSpentaIlRiaccodamentoLoDice(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{})
+	ImpostaCapacitaProva(t, coda.Capacita{})
 	_, doc, _ := b.rfqSulNasFinto("", db.StatoNasScritto)
 
 	w := b.browser("10.0.0.1")
@@ -225,7 +226,7 @@ func TestConLaScritturaSpentaIlRiaccodamentoLoDice(t *testing.T) {
 	w.fai(http.MethodPost, "/admin/nas/controlla", nil, true)
 	_, pagina := w.fai(http.MethodPost, "/admin/nas/"+doc.String()+"/riaccoda", nil, true)
 
-	if !strings.Contains(pagina, jobs.CapNasScrittura) {
+	if !strings.Contains(pagina, coda.CapNasScrittura) {
 		t.Errorf("l'avviso non nomina la capacità spenta:\n%s", estrai(pagina, "avviso"))
 	}
 	if n := len(b.jobDiTipo(db.TipoJobCopiaNas)); n != 0 {

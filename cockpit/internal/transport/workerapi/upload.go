@@ -14,9 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // caricaFile è PUT /api/v1/allegati/{id}/file?job_id=&lease_token=&worker_id= (voce 2.3).
@@ -60,11 +61,11 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 
 	// 1. il tentativo deve essere valido PRIMA di scrivere un solo byte
-	j, err := jobs.Verifica(ctx, q, t)
-	if errors.Is(err, jobs.ErrTentativoNonValido) {
+	j, err := coda.Verifica(ctx, q, t)
+	if errors.Is(err, coda.ErrTentativoNonValido) {
 		// il file di questo token, se c'è, non sarà promosso da nessuno: via subito
 		if parte := s.parteDi(ctx, q, jobID, allegatoID, t.LeaseToken); parte != "" {
-			jobs.RimuoviParte(parte)
+			staging.RimuoviParte(parte)
 		}
 		s.nonValido(w, ctx, jobID)
 		return
@@ -83,7 +84,7 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 	// Dove finira' il file non si sa ancora: lo dira' il suo sha256, e lo sha256 si conosce quando il
 	// trasferimento e' finito. Qui si sa soltanto CHI sta caricando e DENTRO QUALE TENTATIVO, e tanto
 	// basta per dargli un posto suo in _parti.
-	parte := jobs.PercorsoParte(s.Staging, allegatoID, t.LeaseToken)
+	parte := staging.PercorsoParte(s.Staging, allegatoID, t.LeaseToken)
 
 	// 3. il limite si applica prima di leggere: con Content-Length dichiarato non si trasferisce
 	// niente, senza si legge fino al limite e poi si scarta (M8)
@@ -106,7 +107,7 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 		err = cerr
 	}
 	if err != nil {
-		jobs.RimuoviParte(parte)
+		staging.RimuoviParte(parte)
 		var troppo *http.MaxBytesError
 		if errors.As(err, &troppo) {
 			s.oltreIlLimite(ctx, q, a, -1)
@@ -120,9 +121,9 @@ func (s *Server) caricaFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. il tentativo deve essere ancora valido DOPO: è la verifica che chiude M13
-	if _, err := jobs.Verifica(ctx, q, t); err != nil {
-		jobs.RimuoviParte(parte)
-		if errors.Is(err, jobs.ErrTentativoNonValido) {
+	if _, err := coda.Verifica(ctx, q, t); err != nil {
+		staging.RimuoviParte(parte)
+		if errors.Is(err, coda.ErrTentativoNonValido) {
 			s.Log.Warn("upload di un tentativo scaduto durante il trasferimento: file rimosso",
 				"job", jobID, "allegato", allegatoID, "byte", n)
 			s.nonValido(w, ctx, jobID)
@@ -190,5 +191,5 @@ func (s *Server) parteDi(ctx context.Context, q *db.Queries, jobID int64, allega
 	if _, _, err := s.stageDelJob(ctx, q, &j, allegatoID); err != nil {
 		return ""
 	}
-	return jobs.PercorsoParte(s.Staging, allegatoID, token)
+	return staging.PercorsoParte(s.Staging, allegatoID, token)
 }

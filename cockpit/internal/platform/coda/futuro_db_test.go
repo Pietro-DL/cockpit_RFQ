@@ -8,7 +8,7 @@
 // in database ce ne sono già — quelli del 16/09, due ore avanti — e finché ci sono la finestra del
 // sync comincerebbe nel futuro e quella casella non leggerebbe più niente. Ignorarli qui è ciò che
 // fa ripartire il sync da solo, senza una correzione a mano su un database di produzione.
-package jobs
+package coda
 
 import (
 	"context"

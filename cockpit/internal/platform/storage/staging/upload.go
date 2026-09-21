@@ -1,4 +1,11 @@
-package jobs
+// Package staging è la cartella di lavoro sul disco del server: i .parte in cui un tentativo carica,
+// i contenuti sotto _contenuti con lo sha256 per nome, le cartelle di estrazione degli archivi, e il
+// custode che toglie ciò che nessuno usa più.
+//
+// Un contenuto è di TUTTI gli allegati che lo hanno: si nomina dall'hash, non dall'allegato. Il token
+// nel nome di un .parte non è un dettaglio: impedisce a un tentativo scaduto che finisce di caricare
+// in ritardo di consegnare il file al posto del tentativo che gli è subentrato.
+package staging
 
 import (
 	"context"

@@ -12,9 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/archivio"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // L'estrazione di un archivio è un JOB, non un pezzo di una richiesta HTTP (blocco 4A).
@@ -50,7 +51,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if err != nil {
 		return 0, fmt.Errorf("allegato %s: %w", allegatoID, err)
 	}
-	if !a.PathStaging.Valid || !(jobs.FileStaging{}).Presente(a.PathStaging.String) {
+	if !a.PathStaging.Valid || !(staging.FileStaging{}).Presente(a.PathStaging.String) {
 		// Il file non c'è più: qualcuno ha svuotato lo staging fra il download e adesso. Non è un
 		// guasto da ritentare, è un allegato da riscaricare.
 		return 0, q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: allegatoID,
@@ -99,7 +100,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			_ = qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 			continue
 		}
-		if _, err := jobs.AccodaAnalisi(ctx, qt, figlio, m.ThreadID, s.Analizzatore); err != nil {
+		if _, err := coda.AccodaAnalisi(ctx, qt, figlio, m.ThreadID, s.Analizzatore); err != nil {
 			return 0, err
 		}
 	}
@@ -131,18 +132,18 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 // Le voci già presenti non si riscrivono: è il caso dello stesso disegno dentro due archivi diversi,
 // che è la norma quando un cliente rimanda la stessa commessa con una revisione in più.
 func (s *Server) estraiInContenuti(zip string, token uuid.UUID) ([]archivio.Voce, error) {
-	tmp := jobs.PercorsoEstrazione(s.Staging, token)
+	tmp := staging.PercorsoEstrazione(s.Staging, token)
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
 	voci, errEstrazione := archivio.Estrai(zip, tmp)
 	for i := range voci {
-		dest, err := jobs.PercorsoContenuto(s.Staging, voci[i].Sha256, voci[i].NomeFile)
+		dest, err := staging.PercorsoContenuto(s.Staging, voci[i].Sha256, voci[i].NomeFile)
 		if err != nil {
 			return voci, err
 		}
-		if jobs.ContenutoGiaPresente(dest, voci[i].Sha256) {
+		if staging.ContenutoGiaPresente(dest, voci[i].Sha256) {
 			voci[i].Path = dest
 			continue
 		}

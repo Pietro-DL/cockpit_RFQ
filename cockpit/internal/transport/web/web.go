@@ -27,6 +27,7 @@ import (
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
@@ -46,7 +47,7 @@ type Server struct {
 	IntervalloSync time.Duration
 	// Sync sono cartelle, data minima e lotto del sync ordinario: le stesse dello scheduler, perché
 	// «Aggiorna ora» accoda esattamente il job che accoderebbe lui (voce 2.16).
-	Sync jobs.SyncOpzioni
+	Sync coda.SyncOpzioni
 	// SyncAperturaInbox: alla prima apertura dell'Inbox di una sessione si accoda un aggiornamento
 	// ([outlook].sync_apertura_inbox, predefinito true). È indipendente da IntervalloSync: quello
 	// governa il sync periodico, questo è una richiesta implicita di chi sta aprendo la schermata.
@@ -778,8 +779,8 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 		cid := c.CasellaID
 		payload := worker.PayloadSyncOutlook{CasellaID: &cid, Modo: worker.ModoStorico, Cartelle: cartelle,
 			Dal: dal, Al: &al, SovrapposizioneS: 0, Lotto: 50}
-		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, jobs.PrioritaSyncStorico,
-			jobs.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
+		job, err := coda.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, coda.PrioritaSyncStorico,
+			coda.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 		if err != nil {
 			s.Log.Error("accoda sync storico", "casella", c.Indirizzo, "err", err)
 			http.Error(w, err.Error(), 500)
@@ -900,7 +901,7 @@ type messaggioDati struct {
 	// che il worker della POSTAZIONE DELLA SESSIONE serve (voci 2.2 e 2.7). Nil = le azioni non sono
 	// disponibili, e MotivoAzioni dice perché (nessuna postazione, o nessun worker idoneo su quella).
 	// Presenze è l'elenco completo, che è ciò che l'operatore deve vedere per capire da dove arriva.
-	Copia        *jobs.Copia
+	Copia        *coda.Copia
 	MotivoAzioni string
 	Presenze     []db.ListPresenzeRow
 	Allegati     []AllegatoUI
@@ -1032,19 +1033,19 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 // copiaInterattiva decide su quale copia agisce un job interattivo chiesto in QUESTA sessione, o
 // spiega perché non può: senza postazione, o senza un worker idoneo su quella postazione. Il motivo
 // è per l'operatore, quindi è una frase e non un codice.
-func (s *Server) copiaInterattiva(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (*jobs.Copia, string) {
+func (s *Server) copiaInterattiva(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (*coda.Copia, string) {
 	var richiedente uuid.UUID
 	if sess.Utente != nil {
 		richiedente = sess.Utente.UtenteID
 	}
-	c, err := jobs.CopiaPerPostazione(ctx, q, id, sess.Postazione, richiedente)
+	c, err := coda.CopiaPerPostazione(ctx, q, id, sess.Postazione, richiedente)
 	switch {
 	case err == nil:
 		return &c, ""
-	case errors.Is(err, jobs.ErrNessunaPostazione):
+	case errors.Is(err, coda.ErrNessunaPostazione):
 		return nil, "nessuna postazione associata a questa sessione: scegli dalla testata il PC su cui stai lavorando"
 	}
-	var nessuno *jobs.ErrNessunWorkerIdoneo
+	var nessuno *coda.ErrNessunWorkerIdoneo
 	if errors.As(err, &nessuno) {
 		return nil, nessuno.Motivo()
 	}
@@ -1055,7 +1056,7 @@ func (s *Server) copiaInterattiva(ctx context.Context, q *db.Queries, id uuid.UU
 // la copia servita dalla postazione della sessione, il job con casella + postazione + richiedente +
 // scadenza. Se non c'è una copia servibile NON accoda niente e restituisce il motivo (M4, M10): un
 // job «alla prima copia disponibile» aprirebbe la finestra su un altro PC.
-func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI, tipo db.TipoJob, payload func(jobs.Copia, db.Messaggio) any, priorita int16) (*jobs.Copia, string, error) {
+func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI, tipo db.TipoJob, payload func(coda.Copia, db.Messaggio) any, priorita int16) (*coda.Copia, string, error) {
 	c, motivo := s.copiaInterattiva(ctx, q, id, sess)
 	if c == nil {
 		return nil, motivo, nil
@@ -1064,8 +1065,8 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := jobs.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, jobs.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+	if _, err := coda.AccodaCon(ctx, q, tipo, payload(*c, m), "", priorita, coda.OpzioniInterattive(tipo, *c, sess.Postazione, sess.Utente.UtenteID)); err != nil {
+		if errors.Is(err, coda.ErrCapacitaSpenta) {
 			return nil, motivoCapacita(err, tipo), nil
 		}
 		return nil, "", err
@@ -1081,9 +1082,9 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 // modalita' shadow», che era vero ma non aiutava — spegneva tre cose insieme e non si capiva quale
 // riguardasse il pulsante appena premuto.
 func motivoCapacita(err error, tipo db.TipoJob) string {
-	cap := jobs.CapacitaMancante(err)
+	cap := coda.CapacitaMancante(err)
 	if cap == "" {
-		cap = jobs.CapacitaPer(tipo)
+		cap = coda.CapacitaPer(tipo)
 	}
 	return fmt.Sprintf("%s non viene eseguito: la capacità [sicurezza].%s è spenta su questo server. "+
 		"Si accende in cockpit.toml (e richiede [server].modalita = \"produzione\")", tipo, cap)
@@ -1098,7 +1099,7 @@ func (s *Server) apriInOutlook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := sessioneDa(r.Context())
-	c, motivo, err := s.accodaInterattivo(r.Context(), db.New(s.Pool), id, sess, db.TipoJobApriElementoOutlook, func(c jobs.Copia, m db.Messaggio) any {
+	c, motivo, err := s.accodaInterattivo(r.Context(), db.New(s.Pool), id, sess, db.TipoJobApriElementoOutlook, func(c coda.Copia, m db.Messaggio) any {
 		return worker.PayloadApriElemento{EntryID: c.EntryID, RiferimentoElemento: rifIn(m, c.CasellaID)}
 	}, 1)
 	if err != nil {
@@ -1121,7 +1122,7 @@ func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	letto := r.FormValue("letto") != "0"
 	sess := sessioneDa(r.Context())
-	c, motivo, err := s.accodaInterattivo(r.Context(), q, id, sess, db.TipoJobSegnaLetto, func(c jobs.Copia, m db.Messaggio) any {
+	c, motivo, err := s.accodaInterattivo(r.Context(), q, id, sess, db.TipoJobSegnaLetto, func(c coda.Copia, m db.Messaggio) any {
 		return worker.PayloadSegnaLetto{EntryID: c.EntryID, Letto: letto, RiferimentoElemento: rifIn(m, c.CasellaID)}
 	}, 2)
 	if err != nil {
@@ -1185,11 +1186,11 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 	if corpo != "" {
 		html = "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
 	}
-	if _, err := jobs.AccodaCon(ctx, q, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
+	if _, err := coda.AccodaCon(ctx, q, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
 		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []worker.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
-	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+	}, "bozza:"+b.BozzaID.String(), 1, coda.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
+		if errors.Is(err, coda.ErrCapacitaSpenta) {
 			// niente Commit: la bozza non è stata preparata, e una riga `bozza` senza la finestra in
 			// Outlook sarebbe una risposta che l'operatore crede di avere e non ha
 			s.avvisoErrore(w, "Bozza non preparata: "+motivoCapacita(err, db.TipoJobCreaBozzaOutlook))

@@ -5,7 +5,7 @@
 // Il filo conduttore: un job va SOLO a chi può eseguirlo davvero — un worker che serve quella casella
 // nel proprio profilo, sulla postazione del richiedente quando è interattivo — e se nessuno può,
 // resta lì (o non nasce) invece di finire «alla prima copia disponibile» su un altro PC.
-package jobs
+package coda
 
 import (
 	"context"

@@ -19,7 +19,7 @@ aperte**, non come esempio da seguire: `workerapi/archivi.go`, `applicaRisultato
 
 ## Dipendenze consentite
 
-`core`, `ai`, `platform`, `internal/jobs`. Mai il contrario: niente in `core` o `platform` importa `transport`.
+`core`, `ai`, `platform` (`coda` e `storage/staging` comprese), `internal/jobs`. Mai il contrario: niente in `core` o `platform` importa `transport`.
 
 ## Entry point
 
@@ -39,7 +39,7 @@ del browser, che vuole la pagina intera.
 |---|---|---|
 | `GET /inbox`, `/messaggio/{id}`, `/thread/{id}`, `/thread/cerca`, `/cruscotto`, `/richieste`, `/stato/worker`, `/anagrafica/buyer` | lettura: query e template. Il quadrante viene da `v_inbox.controparte_tipo`; predefinito Buyer | `platform/db`, viste `v_inbox`, `v_thread_fase`, `v_fascicolo` |
 | `GET /inbox` (prima volta nella sessione), `POST /inbox/aggiorna`, `POST /inbox/sync-storico` | accodano un `sync_outlook` (di apertura, per casella, in modo storico) | `jobs` |
-| `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi con il `postazione_id` della sessione; `bozza` richiede la capacità `bozze`, `letto` la capacità `outlook_scrittura`; `apri` è sempre consentito | `jobs`, `jobs/capacita.go` |
+| `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi con il `postazione_id` della sessione; `bozza` richiede la capacità `bozze`, `letto` la capacità `outlook_scrittura`; `apri` è sempre consentito | `platform/coda` |
 | `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `jobs` |
 | `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/inbox/classificazione`, `core/inbox/aggancio`, `jobs` |
 | `POST /messaggio/{id}/risposta-fornitore`, `/richiesta-fornitore` | «è la risposta a questa richiesta» e «è la richiesta mandata a mano» (7B) | `core/inbox/aggancio`, `platform/db` |
@@ -58,7 +58,7 @@ sull'ultimo contatto, non sull'ultimo claim) → handler.
 
 | Rotta | Che cosa fa il server |
 |---|---|
-| `POST /api/v1/jobs/claim` | interseca `caselle_aperte` con le autorizzazioni, registra `casella_store`, `jobs.Claim` con long-poll, **esclude i tipi che le capacità bloccano**, aggiorna IP e postazione |
+| `POST /api/v1/jobs/claim` | interseca `caselle_aperte` con le autorizzazioni, registra `casella_store`, `coda.Claim` con long-poll, **esclude i tipi che le capacità bloccano**, aggiorna IP e postazione |
 | `GET /api/v1/worker/caselle` | le caselle di `worker_credenziale.caselle` |
 | `POST /api/v1/jobs/{id}/heartbeat` | rinnova il lease, se il tentativo vale |
 | `POST /api/v1/jobs/{id}/result` | verifica il tentativo e applica per tipo: **sync** → `ultimo_received` sempre, le frontiere solo per le cartelle dichiarate `completa`; **stage** → promuove `.parte` in `_contenuti`, poi `estrai_archivio` o `analizza_allegato`; **analisi** → `analisi_fatti` e una `documento_proposta` per ogni allegato aperto con quello sha256; **bozza** → `bozza`. Codice e revisione che arrivano da fuori passano da `codiceRevSicuri` (7C.1): fuori misura → non in colonna, grezzi in `dettagli` |

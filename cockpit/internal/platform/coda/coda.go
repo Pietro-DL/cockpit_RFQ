@@ -1,11 +1,12 @@
-// Package jobs gestisce la coda in PostgreSQL: accodamento idempotente, claim con lease,
-// scheduler (lease scaduti, sync_outlook periodico) ed esecuzione dei job di tipo 'server'.
+// Package coda gestisce la coda in PostgreSQL: accodamento idempotente, claim con lease, scheduler
+// (lease scaduti, sync_outlook periodico), capacità di scrittura e instradamento per postazione.
+// Non ESEGUE niente: chi esegue sta in `internal/jobs` e in `app/runtime`.
 //
 // Dalla fase 1 il TENTATIVO è un'entità con un'identità propria: ogni claim genera un lease_token e
 // fissa avviato_il. Tutto ciò che un worker scrive dopo — heartbeat, risultato, errore, ingest — deve
 // esibire quel token. Un tentativo scaduto che si risveglia trova zero righe e riceve 409, invece di
 // applicare il proprio lavoro sopra a quello del tentativo che gli è subentrato.
-package jobs
+package coda
 
 import (
 	"context"
@@ -21,6 +22,7 @@ import (
 
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // WorkerPer restituisce il worker che esegue un tipo di job.
@@ -353,7 +355,7 @@ func (s *Scheduler) Avvia(ctx context.Context) {
 	})
 	if s.Staging != "" {
 		go s.loop(ctx, 15*time.Minute, "parti", func(ctx context.Context) error {
-			n, err := PulisciParti(ctx, s.Q, s.Staging, 10*time.Minute, s.Log)
+			n, err := staging.PulisciParti(ctx, s.Q, s.Staging, 10*time.Minute, s.Log)
 			if n > 0 {
 				s.Log.Info("file parziali orfani rimossi dallo staging", "n", n)
 			}

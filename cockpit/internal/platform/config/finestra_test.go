@@ -12,7 +12,7 @@ import (
 // vince, `dal` che vale solo per le cartelle che un cursore non ce l'hanno — è SI1–SI4, in
 // `internal/jobs`, dove la finestra si calcola davvero.
 
-// Assente = il valore non arriva dal file, e la finestra la decide jobs.GiorniSyncInizialeDefault.
+// Assente = il valore non arriva dal file, e la finestra la decide coda.GiorniSyncInizialeDefault.
 // Il file NON porta un proprio 7 di riserva: due numeri in due posti sono due numeri che prima o poi
 // si allontanano, e il momento in cui se ne accorge qualcuno è quando le due finestre non
 // coincidono più.

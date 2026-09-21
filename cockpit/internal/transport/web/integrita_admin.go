@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -102,7 +103,7 @@ func (s *Server) adminIntegrita(w http.ResponseWriter, r *http.Request) {
 func (s *Server) datiIntegrita(r *http.Request) (*integritaDati, error) {
 	ctx := r.Context()
 	q := db.New(s.Pool)
-	d := &integritaDati{Scrittura: jobs.CapacitaAttuali().NasScrittura}
+	d := &integritaDati{Scrittura: coda.CapacitaAttuali().NasScrittura}
 	if s.NAS != nil {
 		d.Radice = s.NAS.Radice
 		d.Raggiungibile = s.NAS.Raggiungibile()
@@ -221,11 +222,11 @@ func (s *Server) riaccodaDocumento(w http.ResponseWriter, r *http.Request) {
 			"Va guardato da una persona — il Cockpit non lo sovrascrive.", true)
 		return
 	}
-	j, err := jobs.AccodaCopia(ctx, q, id)
+	j, err := coda.AccodaCopia(ctx, q, id)
 	switch {
-	case errors.Is(err, jobs.ErrCapacitaSpenta):
+	case errors.Is(err, coda.ErrCapacitaSpenta):
 		s.integritaFrammento(w, r, "Copia NON rimessa in coda: la capacità [sicurezza]."+
-			jobs.CapacitaMancante(err)+" è spenta su questo server.", true)
+			coda.CapacitaMancante(err)+" è spenta su questo server.", true)
 	case err != nil:
 		s.Log.Error("riaccoda documento", "documento", id, "err", err)
 		s.integritaFrammento(w, r, "Non riuscita: "+err.Error(), true)

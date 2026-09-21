@@ -404,7 +404,7 @@ type Outlook struct {
 	IntervalloSyncS int      `toml:"intervallo_sync_s"` // ogni quanti secondi accodare sync_outlook
 	// GiorniSyncIniziale: quanto indietro guarda una (casella, cartella) che NON ha ancora un
 	// cursore. Vale una volta sola: appena il primo sync scrive un cursore decide il cursore, e un
-	// riavvio non riporta la casella qui. Assente (o 0) = jobs.GiorniSyncInizialeDefault.
+	// riavvio non riporta la casella qui. Assente (o 0) = coda.GiorniSyncInizialeDefault.
 	GiorniSyncIniziale int `toml:"giorni_sync_iniziale"`
 	// SyncAperturaInbox: alla PRIMA apertura dell'Inbox di una sessione si accoda un aggiornamento,
 	// una volta sola. Assente = true.
@@ -807,7 +807,7 @@ func (c *Config) normalizzaFondazioni() error {
 // normalizzaOutlook valida [outlook]: la finestra iniziale e l'eventuale override `dal`.
 //
 // `dal` non è più «la data minima»: è un OVERRIDE per gli import controllati (la precedenza sta in
-// jobs.AccodaSyncCasella), e un override scritto male non deve passare in silenzio. Prima un
+// coda.AccodaSyncCasella), e un override scritto male non deve passare in silenzio. Prima un
 // `dal = "01/09/2026"` veniva scartato senza una riga da nessuna parte e il sync partiva dalla
 // finestra predefinita: chi credeva di stare importando settembre importava l'ultima settimana, e se
 // ne accorgeva dalle mail che mancavano.

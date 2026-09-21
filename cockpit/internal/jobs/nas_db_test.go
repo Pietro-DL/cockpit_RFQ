@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -76,14 +77,14 @@ func TestChiScriveSulNasHaCinquantaTentativi(t *testing.T) {
 		{db.TipoJobStageAllegato, 5},
 	}
 	for _, c := range casi {
-		j := accoda(t, ctx, q, c.tipo, string(c.tipo)+":"+uuid.NewString(), Opzioni{})
+		j := accoda(t, ctx, q, c.tipo, string(c.tipo)+":"+uuid.NewString(), coda.Opzioni{})
 		if j.MaxTentativi != c.attesi {
 			t.Errorf("%s: max_tentativi = %d, attesi %d", c.tipo, j.MaxTentativi, c.attesi)
 		}
 	}
 
-	// Opzioni esplicite devono poter scavalcare il default per tipo (lo usa chi accoda a mano).
-	j := accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:"+uuid.NewString(), Opzioni{MaxTentativi: 3})
+	// coda.Opzioni esplicite devono poter scavalcare il default per tipo (lo usa chi accoda a mano).
+	j := accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:"+uuid.NewString(), coda.Opzioni{MaxTentativi: 3})
 	if j.MaxTentativi != 3 {
 		t.Errorf("max_tentativi esplicito ignorato: %d", j.MaxTentativi)
 	}
@@ -96,7 +97,7 @@ func TestNasAssenteRimetteInCodaSenzaConsumareIlTentativo(t *testing.T) {
 	e := esecutore(t, filepath.Join(t.TempDir(), "nas-che-non-c-e"))
 	e.RitardoNasAssente = 30 * time.Second
 
-	j := accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:"+uuid.NewString(), Opzioni{})
+	j := accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:"+uuid.NewString(), coda.Opzioni{})
 	preso := claim(t, ctx, q, db.WorkerTipoServer, "server")
 	if preso == nil {
 		t.Fatal("il job non è stato assegnato")
@@ -104,7 +105,7 @@ func TestNasAssenteRimetteInCodaSenzaConsumareIlTentativo(t *testing.T) {
 	if preso.Tentativi != 1 {
 		t.Fatalf("tentativi dopo il claim = %d, atteso 1", preso.Tentativi)
 	}
-	tent := Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
+	tent := coda.Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
 
 	if !e.rinviaSeNasAssente(ctx, q, tent, preso) {
 		t.Fatal("con il NAS irraggiungibile il job doveva essere rinviato, non eseguito")
@@ -140,7 +141,7 @@ func TestNasAssenteRimetteInCodaSenzaConsumareIlTentativo(t *testing.T) {
 	if preso3 == nil {
 		t.Fatal("il job doveva tornare disponibile")
 	}
-	t3 := Tentativo{JobID: preso3.JobID, LeaseToken: preso3.LeaseToken.UUID, WorkerID: "server"}
+	t3 := coda.Tentativo{JobID: preso3.JobID, LeaseToken: preso3.LeaseToken.UUID, WorkerID: "server"}
 	if e2.rinviaSeNasAssente(ctx, q, t3, preso3) {
 		t.Errorf("con il NAS raggiungibile (%s) il job non va rinviato", radice)
 	}
@@ -191,7 +192,7 @@ func TestAlRitornoDelNasLeCopieEsauriteTornanoInCoda(t *testing.T) {
 func TestIlRiaccodoNonCreaDueJobConLaStessaChiave(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	esaurito := scriviJobChiuso(t, ctx, p, db.TipoJobCopiaNas, "copia:doppia", 50, 50)
-	accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:doppia", Opzioni{})
+	accoda(t, ctx, q, db.TipoJobCopiaNas, "copia:doppia", coda.Opzioni{})
 
 	e := esecutore(t, t.TempDir())
 	if n := e.RiaccodaAlRitornoDelNas(ctx, q); n != 0 {

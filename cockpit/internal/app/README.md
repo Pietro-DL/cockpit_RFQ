@@ -8,7 +8,8 @@ fondazioni, fissare le capacità, avviare scheduler, esecutore, cache e ricognit
 ## Stato alla fine del refactor A
 
 **Questa cartella è vuota.** Oggi il cablaggio sta tutto in `cmd/cockpit/main.go`, e i processi di lungo periodo
-(`Scheduler`, `EsecutoreServer`, `Cache`, `Ricognitore`) stanno in `internal/jobs`. Il README esiste da ora
+`EsecutoreServer` e `Ricognitore` stanno in `internal/jobs`; `Scheduler` in `platform/coda` e `Cache`
+in `platform/storage/staging`. Il README esiste da ora
 perché il posto dove andranno è già deciso, e perché chi cerca «dove parte il server» non deve trovare una
 cartella muta.
 
@@ -56,7 +57,7 @@ Oggi: L4 sull'esecutore e sulla ripresa, dentro `internal/jobs`; avvio a mano co
 |---|---|
 | aggiungere un servizio da avviare | `cmd/cockpit/main.go` |
 | aggiungere un flag della riga di comando | `cmd/cockpit/main.go` |
-| capire perché un job non parte all'avvio | `jobs/capacita.go:AllineaCoda` |
+| capire perché un job non parte all'avvio | `platform/coda/capacita.go:AllineaCoda` |
 
 ## Leggi anche
 

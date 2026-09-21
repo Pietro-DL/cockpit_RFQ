@@ -24,7 +24,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -66,7 +66,7 @@ func (b *bancoWeb) propostaDaConfermare(chiave string) (uuid.UUID, uuid.UUID, uu
 
 func TestConfermaERiprovaCopieNonAccodanoDueVolteLoStessoDocumento(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, _, proposta := b.propostaDaConfermare("K1")
 
 	w := b.browser("10.0.0.1")

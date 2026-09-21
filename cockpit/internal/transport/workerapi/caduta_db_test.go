@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 func TestUnaCadutaDopoLUploadOIlResultNonDuplicaNiente(t *testing.T) {
@@ -66,7 +66,7 @@ func TestUnaCadutaDopoLUploadOIlResultNonDuplicaNiente(t *testing.T) {
 	}
 	contenuti := 0
 	for _, f := range b.fileDiStaging() {
-		if strings.HasPrefix(f, jobs.CartellaContenuti) {
+		if strings.HasPrefix(f, staging.CartellaContenuti) {
 			contenuti++
 		}
 		if strings.Contains(f, ".parte.") {

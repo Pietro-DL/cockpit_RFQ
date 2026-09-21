@@ -1140,6 +1140,11 @@ internal/platform/fondazioni        seed non distruttivo di caselle, postazioni 
 internal/platform/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
                                     impronta e generazione dei token dei worker (voce 2.4)
 internal/platform/logfile           il log del server su file, con rotazione (5 x 5 MB)
+internal/platform/coda              accoda idempotente (un solo job PENDENTE per chiave), claim/lease/tentativo, scheduler, instradamento per
+                                    postazione e casella; capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che
+                                    cosa si annulla quando si accendono (blocco 4)
+internal/platform/storage/staging   lo staging per contenuto (_parti con il token del tentativo, _contenuti con lo sha256 per nome, le cartelle
+                                    di estrazione); cache.go: il custode della cache (Pre-7, D31)
 internal/platform/storage/nas       scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/platform/storage/archivio  estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
@@ -1176,9 +1181,8 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/jobs                       coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
-                                    estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
-                                    capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che cosa si annulla quando si accendono (blocco 4)
+internal/jobs                       esecutore dei job di tipo 'server' (copia sul NAS, cartella del thread, ripresa di un contenuto sparito,
+                                    estrazione degli archivi); integrita.go: il ricognitore che confronta i documenti con i file veri
 web/templates, web/static           template html/template, style.css, htmx 2.0.4
 migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                                     0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),

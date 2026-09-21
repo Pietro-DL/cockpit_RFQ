@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 )
 
 func (b *bancoWeb) inErrore(doc uuid.UUID, motivo string) {
@@ -32,7 +32,7 @@ func (b *bancoWeb) inErrore(doc uuid.UUID, motivo string) {
 // Un documento la cui copia è fallita si rimette in coda come uno che non ci ha mai provato.
 func TestRiprovaCopieRiprendeAncheQuelleFallite(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, docs := b.rfqConDocumentoInCoda(2)
 	b.inErrore(docs[0], "il contenuto di \"disegno.pdf\" non e' piu' nello staging del server")
 
@@ -64,7 +64,7 @@ func TestRiprovaCopieRiprendeAncheQuelleFallite(t *testing.T) {
 // Un documento già sul NAS resta fuori: «riprovare» non vuol dire «riscrivere tutto».
 func TestRiprovaCopieNonToccaQuelliGiaScritti(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, docs := b.rfqConDocumentoInCoda(2)
 	if _, err := b.pool.Exec(b.ctx, `UPDATE documento SET stato_nas = 'scritto', scritto_il = now() WHERE documento_id = $1`, docs[0]); err != nil {
 		t.Fatal(err)

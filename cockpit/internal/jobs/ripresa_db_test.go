@@ -21,8 +21,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // bancoRipresa e' una RFQ con un messaggio presente in una casella (cosi' da Outlook si puo'
@@ -47,7 +49,7 @@ func nuovoBancoRipresa(t *testing.T, ctx context.Context, p *pgxpool.Pool, suffi
 		t.Fatal(err)
 	}
 	b.sha = sha
-	b.percorso, err = PercorsoContenuto(b.staging, sha, "disegno.pdf")
+	b.percorso, err = staging.PercorsoContenuto(b.staging, sha, "disegno.pdf")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,13 +108,13 @@ func contaJobPerChiave(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiav
 // e il suo orario e' stato rinfrescato, cosi' il custode sa che serve.
 func TestLaCopiaSulNasNonConsumaLaCache(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	b := nuovoBancoRipresa(t, ctx, p, "A")
 	vecchio := time.Now().AddDate(0, 0, -40)
 	if err := os.Chtimes(b.percorso, vecchio, vecchio); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AccodaCopia(ctx, q, b.doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
@@ -135,12 +137,12 @@ func TestLaCopiaSulNasNonConsumaLaCache(t *testing.T) {
 // e il download da Outlook e' gia' in coda. Nessuno deve premere niente.
 func TestUnContenutoSparitoSiRiprendeDaOutlookDaSolo(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	b := nuovoBancoRipresa(t, ctx, p, "B")
 	if err := os.Remove(b.percorso); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AccodaCopia(ctx, q, b.doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
@@ -173,7 +175,7 @@ func TestUnContenutoSparitoSiRiprendeDaOutlookDaSolo(t *testing.T) {
 // tornare in Outlook. E' la riparazione a buon mercato per cui la dipendenza archivio → voci esiste.
 func TestUnaVoceDiArchivioSparitaSiRiestraeSenzaTornareInOutlook(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	b := nuovoBancoRipresa(t, ctx, p, "C")
 	// l'archivio: un contenuto qualunque, in cache, con un allegato suo
 	zip, shaZip := contenutoDiProva(t, b.staging, "l'archivio da cui viene la voce", time.Now())
@@ -189,7 +191,7 @@ func TestUnaVoceDiArchivioSparitaSiRiestraeSenzaTornareInOutlook(t *testing.T) {
 	if err := os.Remove(b.percorso); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AccodaCopia(ctx, q, b.doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}
@@ -210,12 +212,12 @@ func TestUnaVoceDiArchivioSparitaSiRiestraeSenzaTornareInOutlook(t *testing.T) {
 // questo limite una mail cancellata da Outlook farebbe accodare un download a ogni tentativo.
 func TestSeIlDownloadEGiaFallitoNonSiInsiste(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	b := nuovoBancoRipresa(t, ctx, p, "D")
 	if err := os.Remove(b.percorso); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AccodaCopia(ctx, q, b.doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
 		t.Fatal(err)
 	}
 	chiave := "stage:" + b.allegato.String()
@@ -241,7 +243,7 @@ func TestSeIlDownloadEGiaFallitoNonSiInsiste(t *testing.T) {
 // dell'allegato lo condannerebbe per sempre al pulsante.
 func TestUnDownloadFallitoPrimaDiQuestaCopiaNonBlocca(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	b := nuovoBancoRipresa(t, ctx, p, "E")
 	if err := os.Remove(b.percorso); err != nil {
 		t.Fatal(err)
@@ -251,7 +253,7 @@ func TestUnDownloadFallitoPrimaDiQuestaCopiaNonBlocca(t *testing.T) {
 		VALUES ('stage_allegato','outlook','{}',$1,'fallito','Outlook chiuso', now() - interval '1 hour')`, chiave); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AccodaCopia(ctx, q, b.doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, b.doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}}

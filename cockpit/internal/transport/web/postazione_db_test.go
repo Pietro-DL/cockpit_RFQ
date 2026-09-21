@@ -24,7 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -115,7 +115,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	// banco reale.
 	ws := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Templ: templ, Static: static, IndirizzoClient: ip,
 		Workers: risorse.FS, SyncAperturaInbox: true,
-		Sync: jobs.SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Lotto: 50}}
+		Sync: coda.SyncOpzioni{Cartelle: []string{"Inbox", "Sent Items"}, Lotto: 50}}
 	if err := ws.Init(); err != nil {
 		t.Fatal(err)
 	}

@@ -26,6 +26,7 @@ import (
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/fornitori"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
@@ -33,6 +34,7 @@ import (
 	"promatec/cockpit/internal/platform/migrazioni"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/transport/web"
 	"promatec/cockpit/internal/transport/workerapi"
 )
@@ -154,14 +156,14 @@ func run(cfgPath string, o opzioni) error {
 	// claim arriva pochi millisecondi dopo, e un claim fatto mentre le capacità sono ancora quelle di
 	// default eseguirebbe proprio i job che la configurazione vuole fermi.
 	sic := cfg.Capacita()
-	capacita := jobs.Capacita{OutlookScrittura: sic.OutlookScrittura, Bozze: sic.Bozze, NasScrittura: sic.NasScrittura}
-	jobs.ImpostaCapacita(capacita)
-	if err := jobs.AllineaCoda(ctx, q, capacita, log); err != nil {
+	capacita := coda.Capacita{OutlookScrittura: sic.OutlookScrittura, Bozze: sic.Bozze, NasScrittura: sic.NasScrittura}
+	coda.ImpostaCapacita(capacita)
+	if err := coda.AllineaCoda(ctx, q, capacita, log); err != nil {
 		return err
 	}
 	// Una riga per capacità, con scritto ATTIVA o SPENTA. Un elenco solo non basta: chi legge il log
 	// per capire perché una copia non parte cerca il nome di quella capacità, non un riassunto.
-	for _, nome := range jobs.TutteLeCapacita {
+	for _, nome := range coda.TutteLeCapacita {
 		stato := "SPENTA"
 		if capacita.Ha(nome) {
 			stato = "ATTIVA"
@@ -170,7 +172,7 @@ func run(cfgPath string, o opzioni) error {
 	}
 	if capacita.TuttoSpento() {
 		log.Warn("questo server NON modifica niente fuori da se'", "modalita", cfg.Server.Modalita,
-			"bloccati", jobs.TipiBloccatiOra(),
+			"bloccati", coda.TipiBloccatiOra(),
 			"nota", "sincronizzazione, download in staging, analisi e «Apri in Outlook» restano consentiti")
 	}
 	for _, a := range sic.Avvisi {
@@ -300,10 +302,10 @@ func run(cfgPath string, o opzioni) error {
 		dal, _ = config.DataDal(cfg.Outlook.Dal)
 		log.Warn("finestra iniziale forzata da [outlook].dal: vale solo per le cartelle senza cursore", "dal", cfg.Outlook.Dal)
 	}
-	staging, _ := filepath.Abs(cfg.NAS.Staging)
+	radiceStaging, _ := filepath.Abs(cfg.NAS.Staging)
 	// Le stesse opzioni per lo scheduler e per «Aggiorna ora»: due sync della stessa casella con
 	// cartelle diverse farebbero avanzare il cursore su una finestra che l'altro non ha letto.
-	opzioniSync := jobs.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal,
+	opzioniSync := coda.SyncOpzioni{Cartelle: cfg.Outlook.Cartelle, Dal: dal,
 		GiorniIniziali: cfg.Outlook.GiorniSyncIniziale, Lotto: cfg.Outlook.Lotto}
 	intervalloSync := time.Duration(cfg.Outlook.IntervalloSyncS) * time.Second
 	// Assente = acceso. Il sync di apertura non è il sync periodico: `intervallo_sync_s = 0` dice che
@@ -313,12 +315,12 @@ func run(cfgPath string, o opzioni) error {
 		log.Warn("sincronizzazione periodica disattivata: nessun sync viene accodato a tempo finché intervallo_sync_s resta 0",
 			"sync_apertura_inbox", syncApertura)
 	}
-	(&jobs.Scheduler{
+	(&coda.Scheduler{
 		Q: q, Log: log, Cartelle: opzioniSync.Cartelle,
 		IntervalloSync: intervalloSync,
 		Dal:            opzioniSync.Dal, GiorniIniziali: opzioniSync.GiorniIniziali, Lotto: opzioniSync.Lotto,
 		RetentionGiorni: cfg.Retention.GiorniJob,
-		Staging:         staging,
+		Staging:         radiceStaging,
 	}).Avvia(ctx)
 	// La cache dei contenuti (Pre-7, D31): `_contenuti` resta dopo la copia sul NAS, e si svuota per
 	// eta' o per capienza, mai sotto a chi la sta usando.
@@ -326,7 +328,7 @@ func run(cfgPath string, o opzioni) error {
 		log.Warn("[retention].giorni_staging e' deprecata: vale come cache_gg", "giorni", cfg.Retention.GiorniStaging,
 			"nota", "scrivere cache_gg = "+strconv.Itoa(cfg.Retention.GiorniStaging)+" e togliere la riga")
 	}
-	(&jobs.Cache{Pool: pool, Staging: staging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte()}).Avvia(ctx)
+	(&staging.Cache{Pool: pool, Staging: radiceStaging, Log: log, Retention: cfg.RetentionCache(), MaxByte: cfg.CacheMaxByte()}).Avvia(ctx)
 	// L'analisi semantica (checkpoint 3R §9). Spenta se non la si accende in [agente], e comunque
 	// spenta se manca la chiave: `DaAmbiente` restituisce nil, e un servizio senza modello non chiama
 	// nessuno. Il testo delle mail dei clienti esce verso un servizio esterno, e quella e' una cosa
@@ -415,8 +417,8 @@ func run(cfgPath string, o opzioni) error {
 	}
 	wa := &workerapi.Server{
 		Pool: pool, Log: log, Ingest: servizioIngest,
-		Staging: staging, CasellaDefault: cfg.Outlook.CasellaDefault,
-		Analizzatore: jobs.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
+		Staging: radiceStaging, CasellaDefault: cfg.Outlook.CasellaDefault,
+		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
 	}
 	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
@@ -443,7 +445,7 @@ func run(cfgPath string, o opzioni) error {
 		defer c()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("cockpit in ascolto", "indirizzo", cfg.Schema()+"://"+cfg.Server.Indirizzo, "staging", staging,
+	log.Info("cockpit in ascolto", "indirizzo", cfg.Schema()+"://"+cfg.Server.Indirizzo, "staging", radiceStaging,
 		"max_upload_mb", cfg.Server.MaxUploadMB, "log", percorsoLog, "livello", lvl)
 	if materiale != nil {
 		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{materiale.Certificato}, MinVersion: tls.VersionTLS12}

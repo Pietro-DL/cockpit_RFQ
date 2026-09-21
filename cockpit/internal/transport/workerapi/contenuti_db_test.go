@@ -25,20 +25,21 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // claimJob e' claim, ma dice anche QUALE job ha preso: con due download in coda insieme serve.
-func (b *banco) claimJob(worker string) (db.Job, jobs.Tentativo) {
+func (b *banco) claimJob(worker string) (db.Job, coda.Tentativo) {
 	b.t.Helper()
 	b.censisci(worker, db.WorkerTipoOutlook)
-	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, jobs.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
+	j, err := coda.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, coda.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("claim: job=%v err=%v", j, err)
 	}
-	return *j, jobs.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
+	return *j, coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
 }
 
 // accodaDownload mette in coda il download di un allegato qualunque del banco.
@@ -48,7 +49,7 @@ func (b *banco) accodaDownload(a db.Allegato, m db.Messaggio) {
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	_, j, err := jobs.AccodaStage(b.ctx, b.q, jobs.FileStaging{}, a, m, copiaDi(pr), 1)
+	_, j, err := coda.AccodaStage(b.ctx, b.q, staging.FileStaging{}, a, m, copiaDi(pr), 1)
 	if err != nil || j == nil {
 		b.t.Fatalf("accoda stage di %s: job=%v err=%v", a.NomeFile, j, err)
 	}
@@ -58,10 +59,10 @@ func (b *banco) accodaDownload(a db.Allegato, m db.Messaggio) {
 func (b *banco) contenuti() []string {
 	b.t.Helper()
 	var out []string
-	radice := filepath.Join(b.staging, jobs.CartellaContenuti)
+	radice := filepath.Join(b.cartella, staging.CartellaContenuti)
 	_ = filepath.WalkDir(radice, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
-			rel, _ := filepath.Rel(b.staging, p)
+			rel, _ := filepath.Rel(b.cartella, p)
 			out = append(out, filepath.ToSlash(rel))
 		}
 		return nil
@@ -112,7 +113,7 @@ func TestStessoContenutoUnSoloFile(t *testing.T) {
 	}
 
 	for _, c := range []struct {
-		t jobs.Tentativo
+		t coda.Tentativo
 		a uuid.UUID
 	}{{tA, allA}, {tB, allB}} {
 		stato(t, b.put(c.t, c.a, bytes.NewReader(contenuto), int64(len(contenuto))), 204)
@@ -162,7 +163,7 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 	})
 
 	// il banco ha due download in coda (disegno.pdf e archivio.zip): serve quello dello zip
-	var tZip jobs.Tentativo
+	var tZip coda.Tentativo
 	for i := 0; i < 2; i++ {
 		j, tt := b.claimJob("outlook@PC-A")
 		if allegatoDi(j.Payload) == zipAllegato.AllegatoID {
@@ -195,12 +196,12 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 	}
 	// e le voci stanno fra i contenuti, non in una cartella del messaggio
 	for _, f := range figli {
-		if !strings.Contains(filepath.ToSlash(f.percorso), "/"+jobs.CartellaContenuti+"/") {
+		if !strings.Contains(filepath.ToSlash(f.percorso), "/"+staging.CartellaContenuti+"/") {
 			t.Errorf("la voce %s non sta fra i contenuti: %s", f.nome, f.percorso)
 		}
 	}
 	// la cartella temporanea dell'estrazione non deve sopravvivere
-	if resti, _ := os.ReadDir(filepath.Join(b.staging, jobs.CartellaParti)); len(resti) > 0 {
+	if resti, _ := os.ReadDir(filepath.Join(b.cartella, staging.CartellaParti)); len(resti) > 0 {
 		nomi := make([]string, 0, len(resti))
 		for _, r := range resti {
 			nomi = append(nomi, r.Name())
@@ -214,7 +215,7 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 // cosi' il test si accorge anche se il job venisse accodato per un worker che non esiste.
 func (b *banco) eseguiEstrazione(atteso uuid.UUID) {
 	b.t.Helper()
-	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoServer, "server", jobs.Destinazione{}, 0)
+	j, err := coda.Claim(b.ctx, b.q, db.WorkerTipoServer, "server", coda.Destinazione{}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("nessun job in coda per l'esecutore interno: job=%v err=%v", j, err)
 	}

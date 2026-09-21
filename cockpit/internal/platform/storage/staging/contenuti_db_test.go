@@ -10,7 +10,7 @@
 // la copia, nessuna proposta aperta, nessun job pendente, nessuna anomalia NAS — e da tanto non lo
 // tocca nessuno, oppure quando la cache ha superato la capienza. L'unita' e' il contenuto: alla
 // rimozione tutti gli allegati che lo nominano perdono il percorso nella stessa transazione.
-package jobs
+package staging
 
 import (
 	"context"

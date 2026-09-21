@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
@@ -109,7 +109,7 @@ func (b *bancoWeb) propostaDi(id uuid.UUID) db.PropostaTriage {
 // nella RFQ. Nessuna euristica sull'oggetto.
 func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{Bozze: true})
+	ImpostaCapacitaProva(t, coda.Capacita{Bozze: true})
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	euro := b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
 	if _, err := b.q.InsertContattoFornitore(b.ctx, db.InsertContattoFornitoreParams{FornitoreID: euro.FornitoreID, Lower: "ordini@euroforesi.example"}); err != nil {
@@ -202,7 +202,7 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 // Senza la capacita' `bozze` la richiesta nasce lo stesso e la frase dice perche' la bozza no.
 func TestLaRichiestaNasceAncheSenzaLaBozza(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{})
+	ImpostaCapacitaProva(t, coda.Capacita{})
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	euro := b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
 	mid := b.posta("entrata", "acquisti@acme.example", "RFQ 6674611A", true)

@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 )
 
 // quotaSQL e' un letterale di testo per PostgreSQL. Serve perche' il corpo di una funzione plpgsql
@@ -38,7 +38,7 @@ func (b *bancoWeb) rifiutaLAccodamentoDi(doc uuid.UUID) {
 				RAISE EXCEPTION 'prova: questo job non si accoda';
 			END IF;
 			RETURN NEW;
-		END $F$`, quotaSQL(jobs.ChiaveCopia(doc)))
+		END $F$`, quotaSQL(coda.ChiaveCopia(doc)))
 	if _, err := b.pool.Exec(b.ctx, corpo); err != nil {
 		b.t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func (b *bancoWeb) rifiutaLAccodamentoDi(doc uuid.UUID) {
 
 func TestUnDocumentoCheNonSiAccodaNonFermaGliAltri(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, docs := b.rfqConDocumentoInCoda(3)
 	b.rifiutaLAccodamentoDi(docs[1])
 

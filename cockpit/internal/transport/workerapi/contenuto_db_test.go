@@ -27,10 +27,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
+	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
@@ -48,7 +49,7 @@ func preparaBancoAnalisi(t *testing.T, nome string) *bancoAnalisi {
 	ext := strings.TrimPrefix(filepath.Ext(nome), ".")
 	a, m := b.messaggioConAllegato(nome, ext)
 	contenuto, sha := contenutoCasuale(4096, 21)
-	definitivo, err := jobs.PercorsoContenuto(b.staging, sha, nome)
+	definitivo, err := staging.PercorsoContenuto(b.cartella, sha, nome)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func preparaBancoAnalisi(t *testing.T, nome string) *bancoAnalisi {
 	if err != nil {
 		t.Fatal(err)
 	}
-	j, err := jobs.AccodaAnalisi(b.ctx, b.q, a, m.ThreadID, b.s.Analizzatore)
+	j, err := coda.AccodaAnalisi(b.ctx, b.q, a, m.ThreadID, b.s.Analizzatore)
 	if err != nil || j == nil {
 		t.Fatalf("accoda analisi: job=%v err=%v", j, err)
 	}
@@ -75,20 +76,20 @@ func preparaBancoAnalisi(t *testing.T, nome string) *bancoAnalisi {
 }
 
 // claimAnalisi prende il job di analisi come farebbe il worker analisi censito.
-func (b *bancoAnalisi) claimAnalisi(worker string) jobs.Tentativo {
+func (b *bancoAnalisi) claimAnalisi(worker string) coda.Tentativo {
 	b.t.Helper()
 	b.censisci(worker, db.WorkerTipoAnalisi)
-	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoAnalisi, worker, jobs.Destinazione{}, 0)
+	j, err := coda.Claim(b.ctx, b.q, db.WorkerTipoAnalisi, worker, coda.Destinazione{}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("claim analisi: job=%v err=%v", j, err)
 	}
 	if j.JobID != b.analisi.JobID {
 		b.t.Fatalf("il claim ha preso il job %d, atteso l'analisi %d", j.JobID, b.analisi.JobID)
 	}
-	return jobs.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
+	return coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
 }
 
-func (b *bancoAnalisi) get(t jobs.Tentativo, allegato uuid.UUID, token string) *http.Response {
+func (b *bancoAnalisi) get(t coda.Tentativo, allegato uuid.UUID, token string) *http.Response {
 	b.t.Helper()
 	url := fmt.Sprintf("%s/api/v1/allegati/%s/contenuto?job_id=%d&lease_token=%s&worker_id=%s",
 		b.srv.URL, allegato, t.JobID, t.LeaseToken, t.WorkerID)
@@ -114,8 +115,8 @@ func TestIlPayloadDellAnalisiNonPortaPercorsiDelServer(t *testing.T) {
 	if _, c := campi["path_staging"]; c {
 		t.Errorf("il payload porta ancora path_staging: %s", payload)
 	}
-	if strings.Contains(payload, filepath.ToSlash(b.staging)) || strings.Contains(payload, b.staging) ||
-		strings.Contains(payload, jobs.CartellaContenuti) {
+	if strings.Contains(payload, filepath.ToSlash(b.cartella)) || strings.Contains(payload, b.cartella) ||
+		strings.Contains(payload, staging.CartellaContenuti) {
 		t.Errorf("il payload contiene un percorso dello staging del server: %s", payload)
 	}
 	for _, chiave := range []string{"allegato_id", "sha256", "bytes", "nome_file"} {
@@ -152,7 +153,7 @@ func TestIlContenutoLoScaricaSoloIlTentativoValidoDellaSuaAnalisi(t *testing.T) 
 
 	// (b) un altro worker censito, con il tentativo di questo: non e' il suo
 	b.censisci("analisi@PC-B", db.WorkerTipoAnalisi)
-	altro := jobs.Tentativo{JobID: tent.JobID, LeaseToken: tent.LeaseToken, WorkerID: "analisi@PC-B"}
+	altro := coda.Tentativo{JobID: tent.JobID, LeaseToken: tent.LeaseToken, WorkerID: "analisi@PC-B"}
 	resp = b.get(altro, b.allegato.AllegatoID, tokenDi("analisi@PC-B"))
 	resp.Body.Close()
 	if resp.StatusCode != 409 {
@@ -226,7 +227,7 @@ func TestE2EIlWorkerAnalisiVeroConLoStagingSuUnAltraCartella(t *testing.T) {
 	}
 
 	stagingWorker := t.TempDir()
-	if filepath.Clean(stagingWorker) == filepath.Clean(b.staging) {
+	if filepath.Clean(stagingWorker) == filepath.Clean(b.cartella) {
 		t.Fatal("la prova vale solo con due cartelle diverse")
 	}
 	// Sulla stessa macchina un worker che aprisse il percorso del server lo TROVEREBBE: le due

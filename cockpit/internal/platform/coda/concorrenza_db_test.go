@@ -5,7 +5,7 @@
 // Un test in fila indiana non li tocca nemmeno: il claim sembra esclusivo perché c'è un solo worker,
 // il battito sembra innocuo perché nessuno lavora mentre batte, e il doppio risultato non capita mai
 // perché nessuno ripete una chiamata. In esercizio capitano tutti e tre.
-package jobs
+package coda
 
 import (
 	"encoding/json"

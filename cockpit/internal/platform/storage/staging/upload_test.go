@@ -1,4 +1,4 @@
-package jobs
+package staging
 
 import (
 	"crypto/sha256"

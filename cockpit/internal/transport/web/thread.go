@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -59,7 +59,7 @@ type messaggioThread struct {
 	M db.Messaggio
 	// Copia: quella servita dalla postazione della sessione; nil = «Apri» non disponibile, e Motivo
 	// dice perché (messaggio non Outlook, nessuna postazione, nessun worker idoneo).
-	Copia    *jobs.Copia
+	Copia    *coda.Copia
 	Motivo   string
 	Allegati []AllegatoUI
 }
@@ -138,11 +138,11 @@ func (s *Server) rimettiInCoda(ctx context.Context, q *db.Queries, thread uuid.U
 			e.NonApplicabili++
 			continue
 		}
-		j, err := jobs.AccodaCopia(ctx, q, d.DocumentoID)
+		j, err := coda.AccodaCopia(ctx, q, d.DocumentoID)
 		switch {
-		case errors.Is(err, jobs.ErrCapacitaSpenta):
+		case errors.Is(err, coda.ErrCapacitaSpenta):
 			// la capacita' e' del server, non del documento: vale per tutti, e il giro finisce qui
-			e.Spenta = jobs.CapacitaMancante(err)
+			e.Spenta = coda.CapacitaMancante(err)
 			return e
 		case err != nil:
 			s.Log.Error("riprova copie", "thread", thread, "documento", d.DocumentoID, "err", err)

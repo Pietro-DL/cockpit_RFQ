@@ -14,7 +14,7 @@ import (
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/registro/fornitori"
 	"promatec/cockpit/internal/core/registro/regole"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -53,7 +53,7 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 			Proposta: &db.DocumentoProposta{PropostaID: uuid.New(), TipoProposto: db.TipoDocumentoAltro, Stato: db.StatoPropostaAperta, Confidenza: 20, Fonte: db.FontePropostaEstensione}, PreSpunta: true},
 	}
 	th := db.ThreadOfferta{ThreadID: tid, CartellaRelativa: txtT(`ACME\WIP\2026 09 08 Rossi RFQ 6674611A`), Oggetto: txtT("RFQ 6674611A"), DataInizio: time.Now(), Stato: db.StatoThreadAPERTA}
-	copia := jobs.Copia{CasellaID: uuid.New(), EntryID: "E1", CasellaNome: "Commerciale", NonLetto: true, WorkerNome: "outlook@PC-FRANCESCO"}
+	copia := coda.Copia{CasellaID: uuid.New(), EntryID: "E1", CasellaNome: "Commerciale", NonLetto: true, WorkerNome: "outlook@PC-FRANCESCO"}
 	md := &messaggioDati{M: m, Riga: db.VInbox{MessaggioID: mid, TriageEsito: txtT("nuova_rfq"), TriageConfidenza: pgtype.Int2{Int16: 80, Valid: true}}, Copia: &copia,
 		Presenze: []db.ListPresenzeRow{{MessaggioID: mid, EntryID: "E1", CasellaNome: "Commerciale", Cartella: txtT("Posta in arrivo"), NonLetto: true},
 			{MessaggioID: mid, EntryID: "E2", CasellaNome: "Francesco", Cartella: txtT("Posta in arrivo")}},

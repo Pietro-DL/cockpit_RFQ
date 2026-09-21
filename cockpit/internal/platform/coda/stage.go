@@ -1,15 +1,12 @@
-package jobs
+package coda
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,37 +14,8 @@ import (
 
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
-
-// CartellaStaging era la sottocartella di staging di un messaggio: hash breve del Message-ID.
-//
-// Dal blocco 4A NON decide più dove va un file: un contenuto sta sotto _contenuti e si chiama come il
-// proprio sha256 (vedi upload.go). Resta nel payload perché il worker la scrive nel log, ed è l'unico
-// modo che ha chi legge quel log di risalire dal job al messaggio senza aprire il database.
-func CartellaStaging(messageID string) string {
-	h := sha1.Sum([]byte(messageID))
-	return hex.EncodeToString(h[:])[:12]
-}
-
-// Staging risponde a una sola domanda: quel file c'è ancora sul disco?
-//
-// È un'interfaccia e non una chiamata a os.Stat dentro AccodaStage perché altrimenti la guardia della
-// voce 1.11 sarebbe verificabile solo costruendo alberi di file veri, e un test che dipende da che
-// cosa c'è davvero nello staging della macchina non prova quasi niente.
-type Staging interface {
-	Presente(percorso string) bool
-}
-
-// FileStaging è lo staging vero: il disco.
-type FileStaging struct{}
-
-func (FileStaging) Presente(percorso string) bool {
-	if strings.TrimSpace(percorso) == "" {
-		return false
-	}
-	st, err := os.Stat(percorso)
-	return err == nil && !st.IsDir()
-}
 
 // EsitoStage dice che cosa è successo alla richiesta di download. Serve a chi la chiama per dire
 // all'operatore la verità: «scaricato» e «c'era già» non sono la stessa frase.
@@ -89,7 +57,7 @@ const (
 // store_id, che il worker risolve nel proprio profilo (voce 2.6, M12). Un download non apre finestre,
 // quindi non è legato alla postazione del richiedente: lo fa qualunque worker autorizzato sulla
 // casella. Quale copia preferire, quando ce n'è più d'una, lo decide chi chiama (CopiaPerDownload).
-func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, m db.Messaggio, c Copia, priorita int16) (EsitoStage, *db.Job, error) {
+func AccodaStage(ctx context.Context, q *db.Queries, st staging.Staging, a db.Allegato, m db.Messaggio, c Copia, priorita int16) (EsitoStage, *db.Job, error) {
 	if a.PathStaging.Valid && st.Presente(a.PathStaging.String) {
 		return StageGiaPresente, nil, nil
 	}
@@ -119,7 +87,7 @@ func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, 
 	cid := c.CasellaID
 	j, err := AccodaCon(ctx, q, db.TipoJobStageAllegato, worker.PayloadStageAllegato{
 		AllegatoID: a.AllegatoID, EntryID: c.EntryID, Indice: int(a.Indice), NomeFile: a.NomeFile,
-		Cartella:            CartellaStaging(m.ChiaveEsterna),
+		Cartella:            staging.CartellaStaging(m.ChiaveEsterna),
 		RiferimentoElemento: worker.RiferimentoElemento{MessaggioID: &mid, CasellaID: &cid, MessageID: m.ChiaveEsterna},
 	}, "stage:"+a.AllegatoID.String(), priorita, Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 	if err != nil {

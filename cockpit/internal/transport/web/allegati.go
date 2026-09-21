@@ -14,8 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/documenti"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // AllegatoUI è la riga della tabella allegati: FATTO (allegato) + INTERPRETAZIONE (proposta) + DECISIONE (documento).
@@ -179,18 +180,18 @@ func (c contiDownload) frase() string {
 // copiaDownload sceglie da quale copia scaricare: quella servita dalla postazione della sessione se
 // c'è, altrimenti la copia di riferimento. Un download non apre finestre e non è legato al PC del
 // richiedente: lo esegue qualunque worker autorizzato sulla casella (voce 2.6).
-func (s *Server) copiaDownload(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (jobs.Copia, error) {
+func (s *Server) copiaDownload(ctx context.Context, q *db.Queries, id uuid.UUID, sess sessioneUI) (coda.Copia, error) {
 	var richiedente uuid.UUID
 	if sess.Utente != nil {
 		richiedente = sess.Utente.UtenteID
 	}
-	return jobs.CopiaPerDownload(ctx, q, id, sess.Postazione, richiedente)
+	return coda.CopiaPerDownload(ctx, q, id, sess.Postazione, richiedente)
 }
 
 // accodaDownload accoda stage_allegato per gli id passati (solo allegati del messaggio, diretti, scaricabili).
-// Non tutti diventano un job: la guardia della voce 1.11 sta dentro jobs.AccodaStage, non qui, così vale
+// Non tutti diventano un job: la guardia della voce 1.11 sta dentro coda.AccodaStage, non qui, così vale
 // per qualunque punto del server chieda un download.
-func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, copia jobs.Copia, ids []string) (contiDownload, error) {
+func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messaggio, copia coda.Copia, ids []string) (contiDownload, error) {
 	var c contiDownload
 	for _, raw := range ids {
 		aid, err := uuid.Parse(raw)
@@ -201,14 +202,14 @@ func (s *Server) accodaDownload(ctx context.Context, q *db.Queries, m db.Messagg
 		if err != nil || a.MessaggioID != m.MessaggioID || a.ContenitoreID.Valid || a.Natura == db.NaturaAllegatoInline {
 			continue
 		}
-		esito, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a, m, copia, 1)
+		esito, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, a, m, copia, 1)
 		if err != nil {
 			return c, err
 		}
 		switch esito {
-		case jobs.StageGiaPresente:
+		case coda.StageGiaPresente:
 			c.gia++
-		case jobs.StageRiusato:
+		case coda.StageRiusato:
 			c.riusati++
 		default: // accodato o già in coda: per l'operatore è la stessa attesa
 			c.accodati++
@@ -387,11 +388,11 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaConfermata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		return "", err
 	}
-	if _, err := jobs.AccodaCopia(ctx, q, d.DocumentoID); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, d.DocumentoID); err != nil {
 		// Con `nas_scrittura` spenta il documento si conferma lo stesso e resta `in_coda`: la decisione
 		// dell'operatore è registrata, è la SCRITTURA sul NAS che aspetta (SH1). Dirgli «errore»
 		// gliela farebbe rifare domani, e sarebbe due volte la stessa decisione.
-		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+		if errors.Is(err, coda.ErrCapacitaSpenta) {
 			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA: la capacità [sicurezza].nas_scrittura è spenta.", nil
 		}
 		return "", err

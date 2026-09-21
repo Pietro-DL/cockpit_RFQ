@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/ai/agente"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -66,7 +66,7 @@ func (s *Server) chiediAnalisi(w http.ResponseWriter, r *http.Request) {
 			"Si accende in [agente] del file di configurazione, per casella, e serve la chiave nella variabile d'ambiente indicata.")
 		return
 	}
-	if _, err := jobs.Accoda(ctx, q, db.TipoJobAnalizzaMessaggioAi,
+	if _, err := coda.Accoda(ctx, q, db.TipoJobAnalizzaMessaggioAi,
 		worker.PayloadAnalizzaMessaggioAI{MessaggioID: id}, "analisi-ai:"+id.String(), 5); err != nil {
 		s.pannelloConAvviso(w, r, id, "Analisi non accodata: "+err.Error())
 		return

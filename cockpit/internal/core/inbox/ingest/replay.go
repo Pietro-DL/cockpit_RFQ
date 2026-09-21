@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -58,10 +58,10 @@ func (s *Servizio) Riprova(ctx context.Context, scartoID int64) (string, error) 
 		return "già presente: aggiornato", nil
 
 	case "lettura":
-		j, err := jobs.AccodaCon(ctx, q, db.TipoJobRileggiElemento, worker.PayloadRileggiElemento{
+		j, err := coda.AccodaCon(ctx, q, db.TipoJobRileggiElemento, worker.PayloadRileggiElemento{
 			CasellaID: sc.CasellaID, EntryID: sc.EntryID, Cartella: sc.Cartella.String, MessageID: sc.MessageID.String,
 		}, fmt.Sprintf("rileggi:%s:%s", sc.CasellaID, sc.EntryID), 3,
-			jobs.Opzioni{Casella: uuidValido(sc.CasellaID)})
+			coda.Opzioni{Casella: uuidValido(sc.CasellaID)})
 		if err != nil {
 			return "", err
 		}

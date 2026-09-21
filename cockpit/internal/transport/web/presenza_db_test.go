@@ -4,7 +4,7 @@
 // due fatti diversi, e la testata deve leggere il primo.
 //
 // Il difetto, visto sul sistema vero: `worker_presenza.ultimo_claim` la scriveva solo l'handler del
-// claim, DOPO `jobs.Claim(...)`, che è un long-poll da venti secondi. Quindi un worker dentro un sync
+// claim, DOPO `coda.Claim(...)`, che è un long-poll da venti secondi. Quindi un worker dentro un sync
 // di tre minuti non toccava quella riga per tre minuti e la testata — soglia sessanta secondi — lo
 // dava per spento proprio mentre lavorava; e chi apriva il browser nei primi venti secondi dopo
 // l'accensione leggeva «non è mai stato avviato».
@@ -25,7 +25,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -146,7 +146,7 @@ func TestPresenzaOnlineDuranteIlLongPollDelClaim(t *testing.T) {
 func TestPresenzaIlBattitoDiUnJobLungoTieneOnline(t *testing.T) {
 	b := preparaBancoWeb(t)
 	const ip = "10.0.0.11"
-	if _, err := jobs.Accoda(b.ctx, b.q, db.TipoJobSyncOutlook, map[string]any{"casella_id": b.francesco}, "", 5); err != nil {
+	if _, err := coda.Accoda(b.ctx, b.q, db.TipoJobSyncOutlook, map[string]any{"casella_id": b.francesco}, "", 5); err != nil {
 		t.Fatal(err)
 	}
 	job := b.claimConJob("outlook@PC-FRANCESCO", ip, b.francesco)

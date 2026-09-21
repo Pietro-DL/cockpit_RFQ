@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -166,11 +167,11 @@ func (r *Ricognitore) Giro(ctx context.Context) (EsitoRicognizione, error) {
 		radice:    r.NAS.Radice,
 		attesa:    r.attesa(),
 		adesso:    r.adesso(),
-		scrittura: CapacitaAttuali().NasScrittura,
+		scrittura: coda.CapacitaAttuali().NasScrittura,
 	}
 	for _, riga := range righe {
 		d := riga.Documento
-		c.inCoda = pendenti[ChiaveCopia(d.DocumentoID)]
+		c.inCoda = pendenti[coda.ChiaveCopia(d.DocumentoID)]
 		es := c.esamina(d, riga.CartellaRelativa)
 		if es.Problema == "" {
 			n, err := q.ChiudiAnomaliaNas(ctx, d.DocumentoID)

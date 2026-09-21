@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -102,7 +102,7 @@ func (s *Server) bozzaPerRichiesta(ctx context.Context, u *db.Utente, sess sessi
 	q := db.New(s.Pool)
 	// la copia: il primo messaggio della RFQ servito dalla postazione della sessione
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: t.ThreadID, Valid: true})
-	var copia *jobs.Copia
+	var copia *coda.Copia
 	var motivo string
 	var origine db.Messaggio
 	for _, m := range msgs {
@@ -153,13 +153,13 @@ func (s *Server) bozzaPerRichiesta(ctx context.Context, u *db.Utente, sess sessi
 		return "Bozza non preparata: " + err.Error()
 	}
 	html := "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
-	if _, err := jobs.AccodaCon(ctx, qt, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
+	if _, err := coda.AccodaCon(ctx, qt, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
 		BozzaID: b.BozzaID, Tipo: string(db.TipoBozzaNuovo), Destinatari: dest, Oggetto: oggetto,
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false,
 		Marcatori:           map[string]string{ingest.MarcatoreRichiesta: ric.RichiestaID.String()},
 		RiferimentoElemento: rifIn(origine, copia.CasellaID),
-	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *copia, sess.Postazione, u.UtenteID)); err != nil {
-		if errors.Is(err, jobs.ErrCapacitaSpenta) {
+	}, "bozza:"+b.BozzaID.String(), 1, coda.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *copia, sess.Postazione, u.UtenteID)); err != nil {
+		if errors.Is(err, coda.ErrCapacitaSpenta) {
 			return "Bozza non preparata: " + motivoCapacita(err, db.TipoJobCreaBozzaOutlook) + ". La richiesta è creata: scrivi la mail a mano e confermala dall'Inbox."
 		}
 		return "Bozza non preparata: " + err.Error()

@@ -13,9 +13,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // scaricaContenuto e' GET /api/v1/allegati/{id}/contenuto?job_id=&lease_token=&worker_id= (7C.1, P0).
@@ -57,8 +58,8 @@ func (s *Server) scaricaContenuto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := db.New(s.Pool)
-	j, err := jobs.Verifica(ctx, q, t)
-	if errors.Is(err, jobs.ErrTentativoNonValido) {
+	j, err := coda.Verifica(ctx, q, t)
+	if errors.Is(err, coda.ErrTentativoNonValido) {
 		s.nonValido(w, ctx, jobID)
 		return
 	}
@@ -71,7 +72,7 @@ func (s *Server) scaricaContenuto(w http.ResponseWriter, r *http.Request) {
 		errore(w, 422, err)
 		return
 	}
-	if !a.PathStaging.Valid || !(jobs.FileStaging{}).Presente(a.PathStaging.String) {
+	if !a.PathStaging.Valid || !(staging.FileStaging{}).Presente(a.PathStaging.String) {
 		// Non e' un guasto da ritentare: il file e' sparito dalla cache fra il download e adesso.
 		// Il worker lo riporta come errore definitivo e l'allegato va in errore con questo motivo.
 		errore(w, http.StatusGone, fmt.Errorf("contenuto di %q non presente in staging: usa Riscarica", a.NomeFile))

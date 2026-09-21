@@ -16,7 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
@@ -34,7 +34,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	testutil.SchemaPulito(t, pool)
 	ctx := context.Background()
 	q := db.New(pool)
-	an := jobs.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
+	an := coda.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Analizzatore: an}
 
 	crea := func(n int, direzione string, statoProposta string) copiaFile {
@@ -143,7 +143,7 @@ func TestRisultatoConConfigurazioneDiversaNonSiApplica(t *testing.T) {
 	pool := testutil.Pool(t)
 	testutil.SchemaPulito(t, pool)
 	ctx := context.Background()
-	an := jobs.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
+	an := coda.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Analizzatore: an}
 
 	var convID, msgID, allegatoID uuid.UUID

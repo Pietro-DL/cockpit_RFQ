@@ -28,9 +28,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
@@ -45,7 +46,7 @@ type banco struct {
 	ctx      context.Context
 	s        *Server
 	srv      *httptest.Server
-	staging  string
+	cartella string
 	allegato db.Allegato
 	msg      db.Messaggio
 	casella  uuid.UUID // la casella della presenza: il claim deve dichiararla (voce 2.2)
@@ -58,21 +59,21 @@ func preparaBanco(t *testing.T, maxUpload int64) *banco {
 	testutil.SchemaPulito(t, pool)
 	ctx := context.Background()
 	q := db.New(pool)
-	staging := t.TempDir()
-	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Staging: staging, MaxUpload: maxUpload,
-		Analizzatore: jobs.Analizzatore{Versione: 1}}
+	cartella := t.TempDir()
+	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Staging: cartella, MaxUpload: maxUpload,
+		Analizzatore: coda.Analizzatore{Versione: 1}}
 	mux := http.NewServeMux()
 	s.Registra(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	b := &banco{t: t, pool: pool, q: q, ctx: ctx, s: s, srv: srv, staging: staging}
+	b := &banco{t: t, pool: pool, q: q, ctx: ctx, s: s, srv: srv, cartella: cartella}
 	b.allegato, b.msg = b.messaggioConAllegato("disegno.pdf", "pdf")
 	pr, err := q.PresenzaDaAprire(ctx, b.msg.MessaggioID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b.casella = pr.CasellaID
-	_, j, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, b.allegato, b.msg, copiaDi(pr), 1)
+	_, j, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, b.allegato, b.msg, copiaDi(pr), 1)
 	if err != nil || j == nil {
 		t.Fatalf("accoda stage: job=%v err=%v", j, err)
 	}
@@ -120,8 +121,8 @@ func (b *banco) messaggioConAllegato(nome, ext string) (db.Allegato, db.Messaggi
 }
 
 // claim prende il job come farebbe il worker: nasce un tentativo con il suo token.
-func copiaDi(pr db.PresenzaDaAprireRow) jobs.Copia {
-	return jobs.Copia{CasellaID: pr.CasellaID, CasellaNome: pr.CasellaNome, EntryID: pr.EntryID}
+func copiaDi(pr db.PresenzaDaAprireRow) coda.Copia {
+	return coda.Copia{CasellaID: pr.CasellaID, CasellaNome: pr.CasellaNome, EntryID: pr.EntryID}
 }
 
 // tokenDi è il segreto individuale di un worker in questi test (voce 2.4): uno per nome, mai lo
@@ -144,18 +145,18 @@ func (b *banco) censisci(worker string, tipo db.WorkerTipo) {
 // claim prende il job come farebbe un worker che SERVE la casella della presenza: dalla voce 2.2 un
 // job di una casella va solo a chi la dichiara. Censisce anche la credenziale, perché un worker che
 // non è censito non si autentica nemmeno.
-func (b *banco) claim(worker string) jobs.Tentativo {
+func (b *banco) claim(worker string) coda.Tentativo {
 	b.t.Helper()
 	b.censisci(worker, db.WorkerTipoOutlook)
-	j, err := jobs.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, jobs.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
+	j, err := coda.Claim(b.ctx, b.q, db.WorkerTipoOutlook, worker, coda.Destinazione{Caselle: []uuid.UUID{b.casella}}, 0)
 	if err != nil || j == nil {
 		b.t.Fatalf("claim: job=%v err=%v", j, err)
 	}
-	return jobs.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
+	return coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: worker}
 }
 
 // put carica il corpo come farebbe il worker. contentLength < 0 = trasferimento a blocchi (chunked).
-func (b *banco) put(t jobs.Tentativo, allegato uuid.UUID, corpo io.Reader, contentLength int64) *http.Response {
+func (b *banco) put(t coda.Tentativo, allegato uuid.UUID, corpo io.Reader, contentLength int64) *http.Response {
 	b.t.Helper()
 	url := fmt.Sprintf("%s/api/v1/allegati/%s/file?job_id=%d&lease_token=%s&worker_id=%s",
 		b.srv.URL, allegato, t.JobID, t.LeaseToken, t.WorkerID)
@@ -173,7 +174,7 @@ func (b *banco) put(t jobs.Tentativo, allegato uuid.UUID, corpo io.Reader, conte
 	return resp
 }
 
-func (b *banco) result(t jobs.Tentativo, r worker.RisultatoStage) *http.Response {
+func (b *banco) result(t coda.Tentativo, r worker.RisultatoStage) *http.Response {
 	b.t.Helper()
 	dati, _ := json.Marshal(r)
 	corpo, _ := json.Marshal(worker.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: t.WorkerID, LeaseToken: t.LeaseToken.String()})
@@ -189,16 +190,16 @@ func (b *banco) result(t jobs.Tentativo, r worker.RisultatoStage) *http.Response
 
 // parte è dove QUESTO tentativo carica: si sa subito, perché dipende da chi carica e non da che
 // cosa sta caricando.
-func (b *banco) parte(t jobs.Tentativo) string {
+func (b *banco) parte(t coda.Tentativo) string {
 	b.t.Helper()
-	return jobs.PercorsoParte(b.staging, b.allegato.AllegatoID, t.LeaseToken)
+	return staging.PercorsoParte(b.cartella, b.allegato.AllegatoID, t.LeaseToken)
 }
 
 // contenuto è dove finisce un contenuto: lo dice il suo hash, quindi si sa solo quando il
 // trasferimento è finito. I test lo conoscono in anticipo perché sono loro a fabbricare i byte.
 func (b *banco) contenuto(sha string) string {
 	b.t.Helper()
-	p, err := jobs.PercorsoContenuto(b.staging, sha, b.allegato.NomeFile)
+	p, err := staging.PercorsoContenuto(b.cartella, sha, b.allegato.NomeFile)
 	if err != nil {
 		b.t.Fatal(err)
 	}
@@ -208,9 +209,9 @@ func (b *banco) contenuto(sha string) string {
 func (b *banco) fileDiStaging() []string {
 	b.t.Helper()
 	var out []string
-	_ = filepath.WalkDir(b.staging, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(b.cartella, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
-			rel, _ := filepath.Rel(b.staging, p)
+			rel, _ := filepath.Rel(b.cartella, p)
 			out = append(out, filepath.ToSlash(rel))
 		}
 		return nil
@@ -326,8 +327,8 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	esito, j2, err := jobs.AccodaStage(b.ctx, b.q, jobs.FileStaging{}, b.allegatoOra(), b.msg, copiaDi(pr), 1)
-	if err != nil || esito != jobs.StageAccodato || j2 == nil {
+	esito, j2, err := coda.AccodaStage(b.ctx, b.q, staging.FileStaging{}, b.allegatoOra(), b.msg, copiaDi(pr), 1)
+	if err != nil || esito != coda.StageAccodato || j2 == nil {
 		t.Fatalf("riscarica: esito=%s job=%v err=%v", esito, j2, err)
 	}
 	b.job = *j2

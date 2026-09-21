@@ -9,7 +9,7 @@
 // questi test tengono fermo è soprattutto la parte che non si vede: che un riavvio non riporti una
 // casella alla finestra iniziale. Il difetto, se ci fosse, non darebbe errore — rileggerebbe una
 // settimana a ogni avvio, e su una casella viva sono ore di worker occupato per niente.
-package jobs
+package coda
 
 import (
 	"context"

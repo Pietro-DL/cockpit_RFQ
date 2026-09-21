@@ -2,7 +2,7 @@
 
 // L4 — N8 (parte 2.3): i .parte.<token> dei tentativi che non esistono più vengono rimossi dallo
 // staging; quelli dei tentativi in corso no, qualunque età abbiano.
-package jobs
+package staging_test
 
 import (
 	"os"
@@ -12,16 +12,18 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
 func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	staging := t.TempDir()
+	radice := t.TempDir()
 
 	// un tentativo vivo: il suo token è in corso
-	accoda(t, ctx, q, db.TipoJobStageAllegato, "stage:vivo", Opzioni{})
+	accoda(t, ctx, q, db.TipoJobStageAllegato, "stage:vivo", coda.Opzioni{})
 	vivo := claim(t, ctx, q, db.WorkerTipoOutlook, "outlook@PC")
 	if vivo == nil || !vivo.LeaseToken.Valid {
 		t.Fatal("nessun tentativo in corso")
@@ -31,7 +33,7 @@ func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {
 	vecchio := time.Now().Add(-2 * time.Hour)
 	scrivi := func(rel string, quando time.Time) string {
 		t.Helper()
-		f := filepath.Join(staging, filepath.FromSlash(rel))
+		f := filepath.Join(radice, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +51,7 @@ func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {
 	definitivo := scrivi("a/01_w.pdf", vecchio)                                   // non è un .parte
 	nas := scrivi("c/03_v.pdf.parte", vecchio)                                    // il .parte del NAS non ha token: non è nostro
 
-	n, err := PulisciParti(ctx, q, staging, 10*time.Minute, testutil.LogSilenzioso())
+	n, err := staging.PulisciParti(ctx, q, radice, 10*time.Minute, testutil.LogSilenzioso())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,9 +73,9 @@ func TestPulisciPartiRimuoveSoloGliOrfaniVecchi(t *testing.T) {
 // lascerebbe li' i suoi file per sempre.
 func TestPulisciPartiRimuoveLeEstrazioniInterrotte(t *testing.T) {
 	_, q, ctx := preparaDB(t)
-	staging := t.TempDir()
+	radice := t.TempDir()
 
-	accoda(t, ctx, q, db.TipoJobStageAllegato, "stage:zip-vivo", Opzioni{})
+	accoda(t, ctx, q, db.TipoJobStageAllegato, "stage:zip-vivo", coda.Opzioni{})
 	vivo := claim(t, ctx, q, db.WorkerTipoOutlook, "outlook@PC")
 	if vivo == nil || !vivo.LeaseToken.Valid {
 		t.Fatal("nessun tentativo in corso")
@@ -82,7 +84,7 @@ func TestPulisciPartiRimuoveLeEstrazioniInterrotte(t *testing.T) {
 
 	cartella := func(token uuid.UUID, quando time.Time) string {
 		t.Helper()
-		d := PercorsoEstrazione(staging, token)
+		d := staging.PercorsoEstrazione(radice, token)
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +100,7 @@ func TestPulisciPartiRimuoveLeEstrazioniInterrotte(t *testing.T) {
 	orfana := cartella(uuid.New(), vecchio)            // nessuno la finira' piu': via
 	fresca := cartella(uuid.New(), time.Now())         // appena nata: resta un giro
 
-	if _, err := PulisciParti(ctx, q, staging, 10*time.Minute, testutil.LogSilenzioso()); err != nil {
+	if _, err := staging.PulisciParti(ctx, q, radice, 10*time.Minute, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(orfana); err == nil {

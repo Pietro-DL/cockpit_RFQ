@@ -32,9 +32,10 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/registro/regole"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // MaxIdentificativo: oltre questa lunghezza un Message-ID non è più un identificativo utilizzabile.
@@ -798,9 +799,9 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	// scritto, mentre lo staging è una comodità. Viene registrato e basta.
 	if scendonoDaSoli && row.Inserito && clienteID.Valid && (dir == db.DirezioneEntrata || interno) {
 		for _, a := range daStaggiare {
-			esitoStage, _, err := jobs.AccodaStage(ctx, q, jobs.FileStaging{}, a,
+			esitoStage, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, a,
 				db.Messaggio{MessaggioID: row.MessaggioID, ChiaveEsterna: m.MessageID},
-				jobs.Copia{CasellaID: casella.CasellaID, EntryID: m.EntryID}, 3)
+				coda.Copia{CasellaID: casella.CasellaID, EntryID: m.EntryID}, 3)
 			if err != nil && s.Log != nil {
 				s.Log.Warn("staging automatico non riuscito", "allegato", a.NomeFile, "errore", err)
 			}

@@ -20,16 +20,16 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
 
 // ImpostaCapacitaProva fissa le capacita' del processo per la durata del test e le rimette com'erano
 // (tutte accese: e' lo stato di default, vedi jobs/capacita.go).
-func ImpostaCapacitaProva(t *testing.T, c jobs.Capacita) {
+func ImpostaCapacitaProva(t *testing.T, c coda.Capacita) {
 	t.Helper()
-	jobs.ImpostaCapacita(c)
-	t.Cleanup(func() { jobs.ImpostaCapacita(jobs.Capacita{OutlookScrittura: true, Bozze: true, NasScrittura: true}) })
+	coda.ImpostaCapacita(c)
+	t.Cleanup(func() { coda.ImpostaCapacita(coda.Capacita{OutlookScrittura: true, Bozze: true, NasScrittura: true}) })
 }
 
 // rfqConDocumentoInCoda costruisce una RFQ con un documento confermato e non ancora scritto sul NAS.
@@ -68,7 +68,7 @@ func (b *bancoWeb) copieInCoda() []db.Job {
 // rimette due volte.
 func TestRiprovaCopieRimetteInCodaIDocumentiFermi(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, docs := b.rfqConDocumentoInCoda(2)
 
 	w := b.browser("10.0.0.1")
@@ -106,7 +106,7 @@ func TestRiprovaCopieRimetteInCodaIDocumentiFermi(t *testing.T) {
 // coda non entra nessuna copia.
 func TestRiprovaCopieConLaCapacitaSpentaLoDice(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{})
+	ImpostaCapacitaProva(t, coda.Capacita{})
 	thread, _ := b.rfqConDocumentoInCoda(1)
 
 	w := b.browser("10.0.0.1")
@@ -116,7 +116,7 @@ func TestRiprovaCopieConLaCapacitaSpentaLoDice(t *testing.T) {
 	if n := len(b.copieInCoda()); n != 0 {
 		t.Errorf("con nas_scrittura spenta sono entrate %d copie in coda", n)
 	}
-	if !strings.Contains(html, jobs.CapNasScrittura) {
+	if !strings.Contains(html, coda.CapNasScrittura) {
 		t.Errorf("l'avviso non nomina la capacità spenta:\n%s", estrai(html, "avviso"))
 	}
 }
@@ -124,7 +124,7 @@ func TestRiprovaCopieConLaCapacitaSpentaLoDice(t *testing.T) {
 // Una RFQ che ha già tutto sul NAS non mostra il pulsante, e se lo si chiama lo dice.
 func TestSenzaDocumentiFermiNonCEeNienteDaRimettereInCoda(t *testing.T) {
 	b := preparaBancoWeb(t)
-	ImpostaCapacitaProva(t, jobs.Capacita{NasScrittura: true})
+	ImpostaCapacitaProva(t, coda.Capacita{NasScrittura: true})
 	thread, docs := b.rfqConDocumentoInCoda(1)
 	if _, err := b.pool.Exec(b.ctx, `UPDATE documento SET stato_nas = 'scritto', scritto_il = now() WHERE documento_id = $1`, docs[0]); err != nil {
 		t.Fatal(err)

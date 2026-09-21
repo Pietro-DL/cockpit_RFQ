@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -151,7 +151,7 @@ func (s *Server) aggiornaOra(w http.ResponseWriter, r *http.Request) {
 		if c.Canale != db.CanaleOutlook {
 			continue
 		}
-		j, err := jobs.AccodaSyncCasella(ctx, q, c, s.Sync)
+		j, err := coda.AccodaSyncCasella(ctx, q, c, s.Sync)
 		switch {
 		case err != nil:
 			s.Log.Error("aggiorna ora: sync non accodato", "casella", c.Indirizzo, "err", err)
@@ -234,7 +234,7 @@ func (s *Server) syncAllApertura(ctx context.Context, q *db.Queries, sess sessio
 		if c.Canale != db.CanaleOutlook {
 			continue
 		}
-		j, err := jobs.AccodaSyncCasella(ctx, q, c, s.Sync)
+		j, err := coda.AccodaSyncCasella(ctx, q, c, s.Sync)
 		switch {
 		case err != nil:
 			s.Log.Error("sync all'apertura: non accodato", "casella", c.Indirizzo, "err", err)

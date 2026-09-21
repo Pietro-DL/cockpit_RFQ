@@ -26,7 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -52,16 +52,16 @@ func consegna(t *testing.T, s *Servizio, casella db.Casella, tipo db.TipoJob, pa
 	t.Helper()
 	ctx := context.Background()
 	q := db.New(s.Pool)
-	j, err := jobs.AccodaCon(ctx, q, tipo, payload, chiave, 5,
-		jobs.Opzioni{Casella: uuid.NullUUID{UUID: casella.CasellaID, Valid: true}})
+	j, err := coda.AccodaCon(ctx, q, tipo, payload, chiave, 5,
+		coda.Opzioni{Casella: uuid.NullUUID{UUID: casella.CasellaID, Valid: true}})
 	if err != nil {
 		t.Fatalf("accodamento del job di prova: %v", err)
 	}
 	if j == nil {
 		t.Fatalf("job di prova non accodato: chiave %q gia' in coda", chiave)
 	}
-	preso, err := jobs.Claim(ctx, q, db.WorkerTipoOutlook, "prova-modo",
-		jobs.Destinazione{Caselle: []uuid.UUID{casella.CasellaID}}, 2*time.Second)
+	preso, err := coda.Claim(ctx, q, db.WorkerTipoOutlook, "prova-modo",
+		coda.Destinazione{Caselle: []uuid.UUID{casella.CasellaID}}, 2*time.Second)
 	if err != nil || preso == nil {
 		t.Fatalf("claim del job di prova: %v", err)
 	}

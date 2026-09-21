@@ -6,7 +6,7 @@
 //
 // Il filo conduttore è uno solo: un tentativo che non vale più non deve poter scrivere niente. Ogni
 // test qui prova un punto in cui, prima della fase 1, ci sarebbe riuscito.
-package jobs
+package coda
 
 import (
 	"context"

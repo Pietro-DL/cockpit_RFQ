@@ -35,7 +35,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -249,7 +249,7 @@ func TestE2EIlBattitoDelWorkerVeroRinnovaIlLease(t *testing.T) {
 		EntryID:             "ENTRY-disegno.pdf",
 		RiferimentoElemento: worker.RiferimentoElemento{MessaggioID: &msg, CasellaID: &cas, MessageID: b.msg.ChiaveEsterna},
 	}
-	j, err := jobs.AccodaCon(b.ctx, b.q, db.TipoJobApriElementoOutlook, p, "", 5, jobs.Opzioni{
+	j, err := coda.AccodaCon(b.ctx, b.q, db.TipoJobApriElementoOutlook, p, "", 5, coda.Opzioni{
 		Casella:    uuid.NullUUID{UUID: cas, Valid: true},
 		Postazione: uuid.NullUUID{UUID: b.pc, Valid: true},
 		ScadeIl:    &scade,

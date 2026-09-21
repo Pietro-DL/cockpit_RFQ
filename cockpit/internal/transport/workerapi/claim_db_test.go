@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -108,8 +108,8 @@ func (b *bancoClaim) presenza(nome string) db.WorkerPresenza {
 func TestQ18ClaimConCaselleNonAutorizzate(t *testing.T) {
 	b := preparaBancoClaim(t)
 	// un job di Luigi, che il worker di Francesco dichiara ma non è autorizzato a servire
-	if _, err := jobs.AccodaCon(b.ctx, b.q, db.TipoJobSyncOutlook, map[string]any{}, "sync-luigi", 5,
-		jobs.Opzioni{Casella: uuid.NullUUID{UUID: b.luigi, Valid: true}}); err != nil {
+	if _, err := coda.AccodaCon(b.ctx, b.q, db.TipoJobSyncOutlook, map[string]any{}, "sync-luigi", 5,
+		coda.Opzioni{Casella: uuid.NullUUID{UUID: b.luigi, Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
 	dichiara := worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-FRANCESCO", OutlookOk: true,

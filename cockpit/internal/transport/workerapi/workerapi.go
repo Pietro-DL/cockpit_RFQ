@@ -27,11 +27,12 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 type Server struct {
@@ -46,7 +47,7 @@ type Server struct {
 	// perché almeno è dichiarata e verificabile.
 	CasellaDefault string
 	// Analizzatore: versione e configurazione con cui si chiedono le analisi (voce 1.12).
-	Analizzatore jobs.Analizzatore
+	Analizzatore coda.Analizzatore
 	// MaxUpload: byte massimi di un singolo file caricato con PUT /api/v1/allegati/{id}/file
 	// (voce 2.3). Zero = 64 MB.
 	MaxUpload int64
@@ -215,7 +216,7 @@ func (s *Server) indirizzoDi(r *http.Request) *netip.Addr {
 // quando dichiara più di quanto gli è permesso.
 type destinazione struct {
 	cred     db.WorkerCredenziale
-	dest     jobs.Destinazione
+	dest     coda.Destinazione
 	aperte   []worker.CasellaAperta // dichiarate E autorizzate: finiscono in casella_store
 	ignorate []uuid.UUID            // dichiarate e NON autorizzate: avviso (Q18)
 	avviso   string
@@ -226,7 +227,7 @@ type destinazione struct {
 // nel claim, viene scritta nell'avviso della presenza e nel log, e il worker continua a lavorare
 // sulle altre. Un worker senza credenziale non ha una destinazione e non prende niente.
 func risolviDestinazione(cred db.WorkerCredenziale, req worker.ClaimRichiesta) destinazione {
-	d := destinazione{cred: cred, dest: jobs.Destinazione{Postazione: cred.PostazioneID}}
+	d := destinazione{cred: cred, dest: coda.Destinazione{Postazione: cred.PostazioneID}}
 	autorizzate := map[uuid.UUID]bool{}
 	for _, c := range cred.Caselle {
 		autorizzate[c] = true
@@ -328,7 +329,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), attesa+5*time.Second)
 	defer cancel()
-	j, err := jobs.Claim(ctx, q, wt, req.WorkerID, d.dest, attesa)
+	j, err := coda.Claim(ctx, q, wt, req.WorkerID, d.dest, attesa)
 	if err != nil {
 		errore(w, 500, err)
 		return
@@ -343,7 +344,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	scriviJSON(w, 200, jobs.InJob(j))
+	scriviJSON(w, 200, coda.InJob(j))
 }
 
 func nonNil(u []uuid.UUID) []uuid.UUID {
@@ -382,21 +383,21 @@ func (s *Server) caselleWorker(w http.ResponseWriter, r *http.Request) {
 
 // tentativo estrae dalla richiesta l'identità del tentativo. Senza token non si prosegue: accettare
 // una scrittura «di qualcuno che dice di essere il worker» vanificherebbe tutto il resto.
-func tentativo(jobID int64, workerID, token string) (jobs.Tentativo, error) {
+func tentativo(jobID int64, workerID, token string) (coda.Tentativo, error) {
 	if workerID == "" {
-		return jobs.Tentativo{}, errors.New("worker_id mancante")
+		return coda.Tentativo{}, errors.New("worker_id mancante")
 	}
 	t, err := uuid.Parse(strings.TrimSpace(token))
 	if err != nil {
-		return jobs.Tentativo{}, fmt.Errorf("lease_token mancante o non valido: %w", err)
+		return coda.Tentativo{}, fmt.Errorf("lease_token mancante o non valido: %w", err)
 	}
-	return jobs.Tentativo{JobID: jobID, LeaseToken: t, WorkerID: workerID}, nil
+	return coda.Tentativo{JobID: jobID, LeaseToken: t, WorkerID: workerID}, nil
 }
 
 // nonValido risponde 409 e, se il tentativo è caduto per durata massima, riporta il job a 'pronto'
 // con il motivo scritto: altrimenti resterebbe «in corso» senza che nessuno lo stia eseguendo.
 func (s *Server) nonValido(w http.ResponseWriter, ctx context.Context, jobID int64) {
-	if jobs.ChiudiSeDurataSuperata(ctx, db.New(s.Pool), jobID) {
+	if coda.ChiudiSeDurataSuperata(ctx, db.New(s.Pool), jobID) {
 		s.Log.Warn("tentativo oltre la durata massima: job riaccodato", "job", jobID)
 		errore(w, 409, errors.New("durata massima superata: il tentativo non vale più"))
 		return
@@ -422,8 +423,8 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, err)
 		return
 	}
-	switch err := jobs.Batte(r.Context(), db.New(s.Pool), t); {
-	case errors.Is(err, jobs.ErrTentativoNonValido):
+	switch err := coda.Batte(r.Context(), db.New(s.Pool), t); {
+	case errors.Is(err, coda.ErrTentativoNonValido):
 		s.nonValido(w, r.Context(), id)
 	case err != nil:
 		errore(w, 500, err)
@@ -472,10 +473,10 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		// Prima il tentativo, poi il disco: un result di un tentativo scaduto è 409 qualunque cosa
 		// contenga (M13), e non vale la pena fare l'hash di un file che nessuno promuoverà. La
 		// verifica vera, con la riga bloccata, resta quella dentro la transazione.
-		if _, err := jobs.Verifica(ctx, db.New(s.Pool), t); err != nil {
-			if errors.Is(err, jobs.ErrTentativoNonValido) {
+		if _, err := coda.Verifica(ctx, db.New(s.Pool), t); err != nil {
+			if errors.Is(err, coda.ErrTentativoNonValido) {
 				if parte := s.parteDi(ctx, db.New(s.Pool), id, allegatoDi(req.Dati), t.LeaseToken); parte != "" {
-					jobs.RimuoviParte(parte)
+					staging.RimuoviParte(parte)
 				}
 				s.nonValido(w, ctx, id)
 				return
@@ -501,10 +502,10 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	// Completa: la promozione di un file da .parte a definitivo è una rinomina sul disco, che il
 	// rollback non annulla. Con la riga bloccata nessun altro tentativo può diventare valido fra
 	// la rinomina e il commit (voce 2.3, M13).
-	if _, err := jobs.Blocca(ctx, q, t); err != nil {
-		if errors.Is(err, jobs.ErrTentativoNonValido) {
+	if _, err := coda.Blocca(ctx, q, t); err != nil {
+		if errors.Is(err, coda.ErrTentativoNonValido) {
 			if prep != nil {
-				jobs.RimuoviParte(prep.parte)
+				staging.RimuoviParte(prep.parte)
 			}
 			s.nonValido(w, ctx, id)
 			return
@@ -522,8 +523,8 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		// Prima si verifica il tentativo, poi si tocca l'entità del job: un fallimento riportato da un
 		// tentativo scaduto non deve marcare in errore un allegato che il tentativo nuovo sta
 		// scaricando bene (Q19).
-		if _, err := jobs.Fallisci(ctx, q, t, msg, req.Definitivo); err != nil {
-			if errors.Is(err, jobs.ErrTentativoNonValido) {
+		if _, err := coda.Fallisci(ctx, q, t, msg, req.Definitivo); err != nil {
+			if errors.Is(err, coda.ErrTentativoNonValido) {
 				s.nonValido(w, ctx, id)
 				return
 			}
@@ -552,8 +553,8 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	if len(dati) == 0 {
 		dati = json.RawMessage("{}")
 	}
-	if _, err := jobs.Completa(ctx, q, t, dati); err != nil {
-		if errors.Is(err, jobs.ErrTentativoNonValido) {
+	if _, err := coda.Completa(ctx, q, t, dati); err != nil {
+		if errors.Is(err, coda.ErrTentativoNonValido) {
 			// tutto ciò che applicaRisultato ha scritto sparisce con il rollback: «nulla applicato»
 			// non è una promessa, è la transazione (Q15, Q20)
 			s.nonValido(w, ctx, id)
@@ -584,10 +585,10 @@ func allegatoDi(dati json.RawMessage) uuid.UUID {
 // transazione nuova (N6): senza, restava «in corso» fino alla scadenza del lease e l'operatore non
 // vedeva nessun motivo. `ritentabile` è l'eccezione per l'hash che non torna (voce 2.3): un file
 // corrotto nel trasferimento si ricarica, non si dichiara perso.
-func (s *Server) risultatoNonApplicabile(w http.ResponseWriter, ctx context.Context, j *db.Job, t jobs.Tentativo, err error, ritentabile bool) {
+func (s *Server) risultatoNonApplicabile(w http.ResponseWriter, ctx context.Context, j *db.Job, t coda.Tentativo, err error, ritentabile bool) {
 	motivo := fmt.Sprintf("risultato %s non applicabile: %v", j.Tipo, err)
 	fuori := db.New(s.Pool)
-	if _, e := jobs.Fallisci(ctx, fuori, t, motivo, !ritentabile); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
+	if _, e := coda.Fallisci(ctx, fuori, t, motivo, !ritentabile); e != nil && !errors.Is(e, coda.ErrTentativoNonValido) {
 		s.Log.Error("fallimento dopo 422 non registrato", "job", j.JobID, "err", e)
 	} else if e == nil && !ritentabile {
 		s.fallimentoDefinitivo(ctx, fuori, j, motivo)
@@ -647,7 +648,7 @@ var errHashDiverso = errors.New("sha256 del file caricato diverso da quello dich
 //
 // Dal blocco 4A qui NON si estrae più niente: scompattare un archivio dentro una richiesta HTTP tiene
 // fermo il worker che aspetta la risposta. L'estrazione è un job suo (archivi.go).
-func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, dati json.RawMessage) (*stagePronto, error) {
+func (s *Server) preparaStage(ctx context.Context, j *db.Job, t coda.Tentativo, dati json.RawMessage) (*stagePronto, error) {
 	var pr stagePronto
 	if err := json.Unmarshal(dati, &pr.r); err != nil {
 		return nil, err
@@ -661,7 +662,7 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		return nil, err
 	}
 	pr.p, pr.a = p, a
-	pr.parte = jobs.PercorsoParte(s.Staging, pr.r.AllegatoID, t.LeaseToken)
+	pr.parte = staging.PercorsoParte(s.Staging, pr.r.AllegatoID, t.LeaseToken)
 	if _, err := os.Stat(pr.parte); err != nil {
 		return nil, fmt.Errorf("nessun file caricato da questo tentativo per l'allegato %s: il worker deve fare PUT /api/v1/allegati/{id}/file prima del result", a.AllegatoID)
 	}
@@ -670,11 +671,11 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 		return nil, err
 	}
 	if !strings.EqualFold(h, pr.r.Sha256) || n != pr.r.Bytes {
-		jobs.RimuoviParte(pr.parte)
+		staging.RimuoviParte(pr.parte)
 		return nil, fmt.Errorf("%w: caricato %.12s (%d byte), dichiarato %.12s (%d byte)", errHashDiverso, h, n, strings.ToLower(pr.r.Sha256), pr.r.Bytes)
 	}
 	// Da qui il contenuto è verificato, e solo adesso si sa DOVE va: il suo nome è il suo hash.
-	pr.definitivo, err = jobs.PercorsoContenuto(s.Staging, h, a.NomeFile)
+	pr.definitivo, err = staging.PercorsoContenuto(s.Staging, h, a.NomeFile)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +685,7 @@ func (s *Server) preparaStage(ctx context.Context, j *db.Job, t jobs.Tentativo, 
 	if err := os.MkdirAll(filepath.Dir(pr.definitivo), 0o755); err != nil {
 		return nil, err
 	}
-	pr.riusato = jobs.ContenutoGiaPresente(pr.definitivo, h)
+	pr.riusato = staging.ContenutoGiaPresente(pr.definitivo, h)
 	if pr.riusato {
 		s.Log.Info("contenuto già in staging: non se ne scrive una seconda copia",
 			"allegato", a.AllegatoID, "file", a.NomeFile, "sha", h[:12], "byte", n)
@@ -798,8 +799,8 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		// da qui in poi il file è dell'allegato: la riga del job è bloccata (Blocca), quindi nessun
 		// altro tentativo può promuovere il suo nel frattempo
 		if prep.riusato {
-			jobs.RimuoviParte(prep.parte)
-		} else if err := jobs.Promuovi(prep.parte, prep.definitivo); err != nil {
+			staging.RimuoviParte(prep.parte)
+		} else if err := staging.Promuovi(prep.parte, prep.definitivo); err != nil {
 			return err
 		}
 		r := prep.r
@@ -1013,11 +1014,11 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 		// worker consegna il download, e il worker aspetta. La chiave di idempotenza è per allegato,
 		// quindi un «Riscarica» che rimette lo stesso zip non accoda una seconda estrazione finché la
 		// prima è in coda.
-		_, err := jobs.Accoda(ctx, q, db.TipoJobEstraiArchivio,
+		_, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio,
 			worker.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, "estrai:"+a.AllegatoID.String(), 4)
 		return err
 	}
-	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
+	_, err = coda.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
 	return err
 }
 
@@ -1139,7 +1140,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ingest.ErrCasellaNonCensita) {
 			// il sync di questa casella non può funzionare finché qualcuno non corregge la
 			// configurazione: farlo ritentare cinque volte non serve a nulla
-			if _, e := jobs.Fallisci(ctx, db.New(s.Pool), t, err.Error(), true); e != nil && !errors.Is(e, jobs.ErrTentativoNonValido) {
+			if _, e := coda.Fallisci(ctx, db.New(s.Pool), t, err.Error(), true); e != nil && !errors.Is(e, coda.ErrTentativoNonValido) {
 				s.Log.Error("fallimento per casella non censita non registrato", "job", req.JobID, "err", e)
 			}
 			s.Log.Error("lotto rifiutato", "job", req.JobID, "err", err)

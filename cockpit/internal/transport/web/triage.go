@@ -18,7 +18,7 @@ import (
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
-	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -395,8 +395,8 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	// La RFQ nasce comunque: è una decisione dell'operatore e vive nel database. Con `nas_scrittura`
 	// spenta resta senza la sua cartella sul NAS finche' qualcuno non l'accende (SH1).
 	cartella := "Cartella in creazione."
-	if _, err := jobs.Accoda(ctx, q, db.TipoJobCreaCartellaThread, worker.PayloadCreaCartellaThread{ThreadID: t.ThreadID}, "cartella:"+t.ThreadID.String(), 1); err != nil {
-		if !errors.Is(err, jobs.ErrCapacitaSpenta) {
+	if _, err := coda.Accoda(ctx, q, db.TipoJobCreaCartellaThread, worker.PayloadCreaCartellaThread{ThreadID: t.ThreadID}, "cartella:"+t.ThreadID.String(), 1); err != nil {
+		if !errors.Is(err, coda.ErrCapacitaSpenta) {
 			http.Error(w, err.Error(), 500)
 			return
 		}

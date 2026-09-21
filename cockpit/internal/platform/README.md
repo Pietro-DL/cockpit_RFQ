@@ -20,6 +20,8 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
 | `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
+| `coda` | la **coda** in PostgreSQL: accodamento idempotente, claim con lease e tentativo, scheduler (lease scaduti, `sync_outlook` periodico, retention), le tre capacità di scrittura, l'instradamento per postazione e per casella. Non esegue niente: chi esegue sta in `internal/jobs` |
+| `storage/staging` | la **cartella di lavoro** sul disco: i `.parte` con il token del tentativo nel nome, i contenuti sotto `_contenuti` con lo sha256 per nome, le cartelle di estrazione, e il custode che toglie ciò che nessuno usa più |
 | `storage/nas` | unico scrittore sul NAS: `.parte` + hash + rinomina, mai sovrascrive; `UNC` compone radice + relativo e mette il prefisso long-path `\\?\` oltre i 250 caratteri (`\\?\UNC\server\share` per i percorsi di rete) |
 | `storage/archivio` | estrazione zip con budget sui byte scritti e protezione zip-slip |
 | `testutil` | database di test usa e getta (`COCKPIT_TEST_DSN`, solo nomi con «test»; senza variabile i test L4 sono SKIP, mai PASS) |
@@ -31,7 +33,9 @@ Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `jobs`.
 ## Entry point
 
 `config.Carica`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.Semina`, `rete.CaricaOGenera`,
-`nas.Scrittore`, `nas.UNC`, `archivio.Estrai`, `testutil.Pool`.
+`nas.Scrittore`, `nas.UNC`, `archivio.Estrai`, `testutil.Pool`,
+`coda.Accoda` / `Claim` / `Completa` / `Fallisci` / `ImpostaCapacita`, `staging.PercorsoContenuto` /
+`PulisciParti` / `Cache.Avvia`.
 
 ## Flussi principali
 
@@ -64,16 +68,22 @@ riconoscono dall'impronta scritta nel loro `worker.toml` (modello SSH): niente C
 - `db` è generato: una modifica a mano si perde al prossimo `sqlc generate`.
 - `testutil` rifiuta un DSN che non contenga «test» nel nome del database.
 - Una migrazione non usa nello stesso file un valore appena aggiunto a un enum.
+- Un tentativo che non vale più non scrive niente: ogni claim genera un `lease_token`, e chi scrive dopo
+  deve esibirlo.
+- Un contenuto in staging si chiama con il proprio sha256: è di tutti gli allegati che lo hanno, non di uno.
 
 ## Effetti collaterali
 
 `migrazioni` cambia lo schema; `fondazioni` scrive quattro tabelle; `rete` scrive il certificato al primo
-avvio; `logfile` scrive su disco; `storage/nas` scrive sul NAS; `storage/archivio` scrive nello staging.
+avvio; `logfile` scrive su disco; `storage/nas` scrive sul NAS; `storage/archivio` e `storage/staging`
+scrivono nello staging; `coda` scrive la tabella `job`.
 `config`, `db` e `contratti/worker` non hanno effetti propri.
 
 ## Test
 
-L1 per `config`, `rete`, `contratti/worker`. L3 per i contratti contro gli schemi di `contracts/`
+L1 per `config`, `rete`, `contratti/worker`, `coda` (le capacità) e `storage/staging` (i percorsi).
+L4 per `coda` (lease, tentativo, idempotenza, finestra del sync, instradamento) e per `storage/staging`
+(la cache dei contenuti, la pulizia dei `.parte`). L3 per i contratti contro gli schemi di `contracts/`
 (`go test -count=1 ./internal/platform/contratti/worker/`, più `pytest` in `workers/`). L4 per `migrazioni`,
 `fondazioni` e `testutil`.
 
@@ -85,7 +95,8 @@ L1 per `config`, `rete`, `contratti/worker`. L3 per i contratti contro gli schem
 | una query nuova | `db/queries/*.sql`, poi `sqlc generate` |
 | una migrazione nuova | `migrations/`, poi `go test ./internal/platform/migrazioni/` |
 | un campo nuovo nel contratto | `contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
-| capire perché un'azione è bloccata | `config.Capacita()` e `internal/jobs/capacita.go` |
+| capire perché un'azione è bloccata | `config.Capacita()` e `coda/capacita.go` |
+| capire perché un job non parte, o parte due volte | `coda/coda.go` (chiave di idempotenza, lease, tentativo) |
 
 ## Leggi anche
 
@@ -93,5 +104,4 @@ L1 per `config`, `rete`, `contratti/worker`. L3 per i contratti contro gli schem
 
 ---
 
-**Cambia in B**: arrivano `coda` (la coda oggi in `internal/jobs`) e `storage/staging` (oggi
-`jobs/stage.go`, `upload.go`, `cache.go`).
+**Cambia in B**: `coda` e `storage/staging` ci sono (B5).

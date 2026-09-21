@@ -13,7 +13,7 @@
 // è quella con `nas_scrittura` accesa e le due di Outlook spente: è la configurazione con cui si
 // prova la copia sul NAS di prova, e finché esisteva un interruttore solo non si poteva nemmeno
 // esprimere.
-package jobs
+package coda
 
 import (
 	"errors"

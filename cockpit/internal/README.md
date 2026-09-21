@@ -9,8 +9,8 @@ Cinque aree, una regola sola per capire dove va un pezzo di codice: **chi può i
    transport/web  ─────────────┐          ┌──── transport/workerapi
    (HTMX, ruoli, form)         │          │      (claim, heartbeat, result, ingest, upload, archivi)
                                ▼          ▼
-                              jobs  (coda, lease, scheduler, capacità, esecutore server,
-                               │          │   cache dei contenuti, ricognitore NAS)
+                              jobs  (esecutore dei job del server, ricognitore NAS)
+                               │          │   platform/coda · platform/storage/staging
          core/inbox/ingest  core/inbox/classificazione  core/inbox/aggancio  ai/agente
               (fatti → DB)      (interpretazione)        (candidati)    (LLM, spento di default)
                                │
@@ -38,7 +38,9 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | DB, config, TLS, NAS, staging, migrazioni | `platform/` |
 | l'assistente semantico | `ai/agente` |
 | anagrafiche, regole del cliente, lavorazioni, fornitori | `core/registro/` |
-| la coda, le capacità, l'esecutore del server, l'integrità NAS | `internal/jobs` |
+| la coda, le capacità, l'instradamento dei job | `platform/coda` |
+| lo staging sul disco, i contenuti, la loro cache | `platform/storage/staging` |
+| l'esecutore dei job del server, l'integrità NAS | `internal/jobs` |
 | avvio e cablaggio | `cmd/cockpit/main.go` |
 
 ## Dipendenze consentite
@@ -53,6 +55,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | `ai/agente` | `core`, `platform` |
 | `transport/*` | `core`, `ai`, `platform`, `jobs` |
 | `jobs` | `core`, `ai`, `platform` |
+| `platform/coda` | `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download) |
 | `cmd/cockpit` | tutto |
 
 Eccezioni ancora aperte, dichiarate perché esistono e non perché vanno bene: `transport/workerapi/archivi.go`,
@@ -117,7 +120,7 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 | Voglio… | Vai in |
 |---|---|
 | aggiungere una rotta | `transport/README.md` |
-| aggiungere un tipo di job | `platform/README.md` (enum, contratto) e `internal/jobs` |
+| aggiungere un tipo di job | `platform/README.md` (enum, contratto), `platform/coda` e `internal/jobs` |
 | cambiare una regola del cliente o del triage | `core/README.md` |
 | aggiungere una migrazione o una query | `platform/README.md` |
 | toccare l'agente | `ai/README.md` |
@@ -130,5 +133,6 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 ---
 
 **Cambia in B**: `core/registro/regole` (B2), `core/rfq/documenti` (B3) e `core/inbox/classificazione` (B4)
-ci sono. `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`, `core/rfq/documenti` e `app/runtime`;
+ci sono, e così `platform/coda` e `platform/storage/staging` (B5). Di `internal/jobs` restano l'esecutore
+e il ricognitore, che vanno in `core/rfq/documenti` e `app/runtime`;
 `cmd/cockpit/main.go` si svuota in `app/runtime`.

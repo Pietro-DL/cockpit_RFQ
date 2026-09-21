@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -44,8 +45,8 @@ func TestEsecutoreAffidaLArchivioAChiSaScompattarlo(t *testing.T) {
 	e.Archivi = finto
 
 	allegato := uuid.New()
-	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
-		"estrai:"+allegato.String(), 4, Opzioni{})
+	j, err := coda.AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
+		"estrai:"+allegato.String(), 4, coda.Opzioni{})
 	if err != nil || j == nil {
 		t.Fatalf("accodamento: job=%v err=%v", j, err)
 	}
@@ -59,7 +60,7 @@ func TestEsecutoreAffidaLArchivioAChiSaScompattarlo(t *testing.T) {
 	if preso.JobID != j.JobID {
 		t.Fatalf("preso il job %d invece del %d", preso.JobID, j.JobID)
 	}
-	tent := Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
+	tent := coda.Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
 
 	res, err := e.esegui(ctx, q, preso, tent)
 	if err != nil {
@@ -90,8 +91,8 @@ func TestEsecutoreSenzaEstrattoreLoDice(t *testing.T) {
 	e := esecutore(t, t.TempDir())
 
 	allegato := uuid.New()
-	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
-		"estrai:"+allegato.String(), 4, Opzioni{})
+	j, err := coda.AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
+		"estrai:"+allegato.String(), 4, coda.Opzioni{})
 	if err != nil || j == nil {
 		t.Fatalf("accodamento: job=%v err=%v", j, err)
 	}
@@ -99,7 +100,7 @@ func TestEsecutoreSenzaEstrattoreLoDice(t *testing.T) {
 	if preso == nil {
 		t.Fatal("job non assegnato")
 	}
-	tent := Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
+	tent := coda.Tentativo{JobID: preso.JobID, LeaseToken: preso.LeaseToken.UUID, WorkerID: "server"}
 
 	if _, err := e.esegui(ctx, q, preso, tent); err == nil {
 		t.Fatal("senza estrattore il job doveva fallire dicendolo")
@@ -112,10 +113,10 @@ func TestEstrarreUnArchivioNonDipendeDalNas(t *testing.T) {
 	if ScrivePerNas(db.TipoJobEstraiArchivio) {
 		t.Error("estrai_archivio risulta una scrittura sul NAS: un NAS assente ne rinvierebbe l'esecuzione")
 	}
-	if !Consentito(db.TipoJobEstraiArchivio) {
+	if !coda.Consentito(db.TipoJobEstraiArchivio) {
 		t.Error("estrai_archivio risulta bloccato in shadow: scompattare in staging non tocca il mondo fuori dal Cockpit")
 	}
-	if WorkerPer(db.TipoJobEstraiArchivio) != db.WorkerTipoServer {
-		t.Errorf("estrai_archivio va a %s invece che al server", WorkerPer(db.TipoJobEstraiArchivio))
+	if coda.WorkerPer(db.TipoJobEstraiArchivio) != db.WorkerTipoServer {
+		t.Errorf("estrai_archivio va a %s invece che al server", coda.WorkerPer(db.TipoJobEstraiArchivio))
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/testutil"
@@ -99,7 +100,7 @@ func statoNas(t *testing.T, ctx context.Context, q *db.Queries, doc uuid.UUID) d
 // eseguiLaCopia prende dalla coda il job di copia e lo esegue: e' la stessa strada del server vero.
 func eseguiLaCopia(t *testing.T, ctx context.Context, q *db.Queries, e *EsecutoreServer) error {
 	t.Helper()
-	j, err := Claim(ctx, q, db.WorkerTipoServer, "prova", Destinazione{}, 0)
+	j, err := coda.Claim(ctx, q, db.WorkerTipoServer, "prova", coda.Destinazione{}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,18 +110,18 @@ func eseguiLaCopia(t *testing.T, ctx context.Context, q *db.Queries, e *Esecutor
 	if j.Tipo != db.TipoJobCopiaNas {
 		t.Fatalf("job di tipo %s, atteso copia_nas", j.Tipo)
 	}
-	_, err = e.esegui(ctx, q, j, Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: "prova"})
+	_, err = e.esegui(ctx, q, j, coda.Tentativo{JobID: j.JobID, LeaseToken: j.LeaseToken.UUID, WorkerID: "prova"})
 	return err
 }
 
 // 1. Il caso normale del checkpoint: documento in_coda → si riaccoda → il file e' sul NAS.
 func TestInCodaRiaccodatoDiventaScritto(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	doc, sha := bancoIntegrita(t, ctx, p, "A")
 	radice := t.TempDir()
 
-	if _, err := AccodaCopia(ctx, q, doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: radice}}
@@ -202,7 +203,7 @@ func TestFileAssenteMaDatabaseScrittoVieneSegnalato(t *testing.T) {
 // copia riaccodata sopra.
 func TestHashDiversoEeUnConflittoEIlFileNonSiTocca(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	doc, _ := bancoIntegrita(t, ctx, p, "C")
 	radice := t.TempDir()
 	dst := destinazione(t, ctx, q, radice, doc)
@@ -229,7 +230,7 @@ func TestHashDiversoEeUnConflittoEIlFileNonSiTocca(t *testing.T) {
 	}
 
 	// riaccodare la copia e' permesso, ma la copia NON deve sovrascrivere
-	if _, err := AccodaCopia(ctx, q, doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, doc); err != nil {
 		t.Fatal(err)
 	}
 	e := &EsecutoreServer{Pool: p, NAS: &nas.Scrittore{Radice: radice}}
@@ -247,7 +248,7 @@ func TestHashDiversoEeUnConflittoEIlFileNonSiTocca(t *testing.T) {
 // una condivisione di rete.
 func TestFileGiaCorrettoNienteCopiaInutile(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	doc, sha := bancoIntegrita(t, ctx, p, "D")
 	radice := t.TempDir()
 	dst := destinazione(t, ctx, q, radice, doc)
@@ -361,9 +362,9 @@ func TestSenzaNasNonSiGuardaAffatto(t *testing.T) {
 // Una copia gia' in coda non e' un lavoro per una persona: non deve comparire in elenco.
 func TestUnaCopiaInCodaNonCompareFraLeAnomalie(t *testing.T) {
 	p, q, ctx := preparaDB(t)
-	conCapacita(t, Capacita{NasScrittura: true})
+	conCapacita(t, coda.Capacita{NasScrittura: true})
 	doc, _ := bancoIntegrita(t, ctx, p, "G")
-	if _, err := AccodaCopia(ctx, q, doc); err != nil {
+	if _, err := coda.AccodaCopia(ctx, q, doc); err != nil {
 		t.Fatal(err)
 	}
 	r := &Ricognitore{Pool: p, NAS: &nas.Scrittore{Radice: t.TempDir()}, Log: testutil.LogSilenzioso(),
