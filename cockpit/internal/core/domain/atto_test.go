@@ -3,6 +3,8 @@ package domain
 import (
 	"strings"
 	"testing"
+
+	"promatec/cockpit/internal/core/registro/regole"
 )
 
 // Blocco 7B (7B.3) riletto con il vocabolario del 7C.0: l'atto e il legame del messaggio, per ramo.
@@ -91,7 +93,7 @@ func TestIB8MaterialiENormeNonSonoCodiciNellaPostaDiUnFornitore(t *testing.T) {
 		t.Fatalf("codici estratti da un fornitore senza famiglie: %v / %+v", e.Codici, e.Trovati)
 	}
 	// con la famiglia di un cliente che gli ha mandato richieste, il SUO codice si trova; S235JR no
-	r := Regole{FamiglieCodice: []FamigliaCodice{{Regex: `\b0[A-Z]\d{6}[A-Z]{2}\b`, Descrizione: "Technogym", Esempio: "0D002622AD"}}}
+	r := regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{Regex: `\b0[A-Z]\d{6}[A-Z]{2}\b`, Descrizione: "Technogym", Esempio: "0D002622AD"}}}
 	e = Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@mgm.example",
 		Oggetto: "R: RFQ 0D002622AD", Corpo: "Materiale S235JR, ISO 2768. Offerta per 0D002622AD in allegato.",
 		NomiAllegati: []string{"offerta.pdf"}, Motore: Compila("fornitore", r)})

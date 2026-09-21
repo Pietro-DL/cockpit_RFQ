@@ -1,19 +1,25 @@
 package domain
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"promatec/cockpit/internal/core/registro/regole"
 )
 
-// L1 — le regole di riconoscimento di un cliente (voce 6.11, D17): AN1, AN3, AN4.
+// L1 — il motore che applica le regole di un cliente (voce 6.11, D17): AN3, AN4.
+//
+// AN1 — la porta in scrittura che rifiuta uno schema che non riconoscerebbe niente — sta con lo
+// schema, in `core/registro/regole`.
 //
 // I clienti di questi test sono inventati. Non è pigrizia: le famiglie di codice dei clienti veri
 // sono un dato dell'azienda e questo repository è pubblico, e un test che dipendesse da esse
 // diventerebbe rosso il giorno in cui un cliente cambia convenzione — cioè per un motivo che non
 // ha niente a che vedere con il codice che sta provando.
 
+// Le stesse regole buone di `core/registro/regole`: la fixture è ripetuta apposta, perché nessuno
+// dei due package debba leggere i test dell'altro. Se cambia una, cambiano tutte e due.
 const regoleBuone = `{
   "famiglie_codice": [
     {"regex": "\\bAC\\d{5}[A-Z]\\b", "descrizione": "codici ACME", "esempio": "AC12345B"}
@@ -27,92 +33,6 @@ const regoleBuone = `{
   "finestra_aggancio_gg": 30
 }`
 
-// AN1 — lo schema in scrittura rifiuta, e dice che cosa. Ogni riga di questa tabella è un modo
-// diverso di scrivere una regola che non riconoscerebbe niente SENZA fallire: è il motivo per cui
-// la convalida esiste, perché il sintomo di tutti questi errori è identico — silenzio.
-func TestAN1LoSchemaRifiutaCioCheNonRiconoscerebbeNiente(t *testing.T) {
-	casi := []struct {
-		nome, jsonIn, attesoNelMessaggio string
-	}{
-		{"campo inesistente (di solito un nome scritto male)",
-			`{"famiglie_codici": []}`, "famiglie_codici"},
-		{"regex che non compila",
-			`{"famiglie_codice":[{"regex":"AC[0-9","esempio":"AC1"}]}`, "non compila"},
-		{"esempio mancante",
-			`{"famiglie_codice":[{"regex":"\\bAC\\d{5}\\b"}]}`, "manca l'esempio"},
-		{"esempio che non corrisponde alla propria regex",
-			`{"famiglie_codice":[{"regex":"\\bAC\\d{5}\\b","esempio":"XY99"}]}`, "non corrisponde"},
-		{"rev_nel_codice senza dire dove sta la rev",
-			`{"famiglie_codice":[{"regex":"\\bAC\\d{5}\\b","esempio":"AC12345","rev_nel_codice":true}]}`, "(?P<rev>"},
-		{"riferimento RFQ con esempio sbagliato",
-			`{"riferimento_rfq":{"regex":"\\bRDO-\\d{4}\\b","esempio":"RDO-XX"}}`, "non corrisponde"},
-		{"lingua di risposta scritta come non si scrive",
-			`{"lingua_risposta":"Italiano"}`, "due lettere"},
-		{"finestra di aggancio negativa",
-			`{"finestra_aggancio_gg":-3}`, "giorni"},
-		{"frase portale troppo corta per non pescare mezza casella",
-			`{"frasi_portale":["su"]}`, "troppo corta"},
-		{"un campo con il tipo sbagliato",
-			`{"richiede_cbd":"si"}`, "richiede_cbd"},
-		{"non un oggetto",
-			`["famiglie_codice"]`, "regole"},
-	}
-	for _, c := range casi {
-		t.Run(c.nome, func(t *testing.T) {
-			_, err := ValidaRegole([]byte(c.jsonIn))
-			if err == nil {
-				t.Fatalf("accettato: %s", c.jsonIn)
-			}
-			if !strings.Contains(err.Error(), c.attesoNelMessaggio) {
-				t.Errorf("l'errore non dice %q: %v", c.attesoNelMessaggio, err)
-			}
-		})
-	}
-}
-
-// L'altra metà: le regole buone passano, e passano INTERE. Un campo che si perde per strada è un
-// campo che non varrà mai, e non lo scoprirebbe nessuno.
-func TestRegoleBuoneEntranoIntere(t *testing.T) {
-	r, err := ValidaRegole([]byte(regoleBuone))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(r.FamiglieCodice) != 1 || r.FamiglieCodice[0].Descrizione != "codici ACME" {
-		t.Errorf("famiglie: %+v", r.FamiglieCodice)
-	}
-	if r.RiferimentoRFQ == nil || r.RiferimentoRFQ.Esempio != "RDO-7781" {
-		t.Errorf("riferimento: %+v", r.RiferimentoRFQ)
-	}
-	if !r.RichiedeCBD || r.NumeroOrdineAnticipato || r.LinguaRisposta != "it" || r.FinestraAggancioGG != 30 {
-		t.Errorf("campi semplici persi: %+v", r)
-	}
-	if r.CanaleAtteso == "" || len(r.FrasiPortale) != 1 {
-		t.Errorf("canale/frasi persi: %+v", r)
-	}
-	// Ciò che è stato validato deve poter tornare in database e rileggersi uguale: il salvataggio
-	// riscrive il JSON normalizzato, e un giro che perde pezzi li perde in silenzio.
-	b, err := json.Marshal(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r2, err := ValidaRegole(b)
-	if err != nil {
-		t.Fatalf("il JSON riscritto dal server non passa più la sua stessa convalida: %v", err)
-	}
-	if len(r2.FamiglieCodice) != 1 || r2.FinestraAggancioGG != 30 || !r2.RichiedeCBD {
-		t.Errorf("il giro di scrittura e rilettura ha perso qualcosa: %+v", r2)
-	}
-}
-
-// Una configurazione vuota non è un errore: è un cliente appena censito, che è come nascono tutti.
-func TestUnClienteSenzaRegoleVaBene(t *testing.T) {
-	for _, vuoto := range []string{"", "{}", "  "} {
-		if _, err := ValidaRegole([]byte(vuoto)); err != nil {
-			t.Errorf("%q rifiutato: %v", vuoto, err)
-		}
-	}
-}
-
 // AN3 — una regola il cui esempio non corrisponde è SEGNALATA e NON viene usata.
 //
 // Il caso è quello di una regola già in database — seminata da un file, o scritta in psql, o
@@ -124,7 +44,7 @@ func TestAN3UnaRegolaRottaSiVedeENonSiUsa(t *testing.T) {
 	  {"regex":"\\bAC\\d{5}[A-Z]\\b","descrizione":"buona","esempio":"AC12345B"},
 	  {"regex":"\\bZZ\\d{4}\\b","descrizione":"rotta","esempio":"non-corrisponde"}]}`
 
-	regole, diag := LeggiRegole([]byte(misto))
+	lette, diag := regole.LeggiRegole([]byte(misto))
 	if len(diag) != 2 {
 		t.Fatalf("diagnosi: %d righe, attese 2: %+v", len(diag), diag)
 	}
@@ -140,7 +60,7 @@ func TestAN3UnaRegolaRottaSiVedeENonSiUsa(t *testing.T) {
 
 	// e adesso il punto: il motore non la usa. `ZZ1234` c'è nel testo e ha la forma della regola
 	// rotta; se il motore la usasse, uscirebbe attribuito alla famiglia «rotta».
-	m := Compila("ACME", regole)
+	m := Compila("ACME", lette)
 	for _, c := range m.Codici("preventivo AC12345B e ZZ1234") {
 		if c.Famiglia == "rotta" {
 			t.Errorf("il motore ha usato la regola con l'esempio sbagliato: %+v", c)
@@ -154,9 +74,9 @@ func TestAN3UnaRegolaRottaSiVedeENonSiUsa(t *testing.T) {
 // AN4 — le famiglie del cliente estraggono i codici del cliente, con la loro provenienza, e la
 // revisione quando la famiglia dice dove sta.
 func TestAN4LeFamiglieDelClienteEstraggonoConLaLoroProvenienza(t *testing.T) {
-	const regole = `{"famiglie_codice":[
+	const conRev = `{"famiglie_codice":[
 	  {"regex":"\\bAC(?P<codice>\\d{5})(?P<rev>[A-Z])\\b","descrizione":"ACME con rev in coda","esempio":"AC12345B","rev_nel_codice":true}]}`
-	r, err := ValidaRegole([]byte(regole))
+	r, err := regole.ValidaRegole([]byte(conRev))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +133,7 @@ func TestSenzaMotoreIlRiconoscimentoFunzionaLoStesso(t *testing.T) {
 // Il riferimento della richiesta non è un codice prodotto: sta in un campo suo, e ci arriva con
 // il nome della regola che l'ha riconosciuto.
 func TestIlRiferimentoRFQNonEUnCodiceProdotto(t *testing.T) {
-	r, err := ValidaRegole([]byte(regoleBuone))
+	r, err := regole.ValidaRegole([]byte(regoleBuone))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +151,7 @@ func TestIlRiferimentoRFQNonEUnCodiceProdotto(t *testing.T) {
 // quella funzione esiste e fa tutto: triage, portale e scadenza in una chiamata sola. L'altra
 // metà — che la schermata chiami proprio questa — è in `internal/transport/web` (L4).
 func TestRiconosciFaTuttoInUnPostoSolo(t *testing.T) {
-	r, err := ValidaRegole([]byte(regoleBuone))
+	r, err := regole.ValidaRegole([]byte(regoleBuone))
 	if err != nil {
 		t.Fatal(err)
 	}

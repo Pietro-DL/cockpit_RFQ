@@ -147,7 +147,7 @@ Le regole si scrivono in un **form**: famiglie in tabella (regex, descrizione, e
 codice, ruolo), riferimento, canale atteso, lingua, finestra di aggancio, frasi portale, CBD, numero
 d'ordine anticipato. Il riquadro JSON resta sotto «Avanzato» — per una regex complicata è ancora il
 modo più rapido, ed è l'unico modo di vedere che cosa c'è davvero in database. **Le due strade
-passano dallo stesso `domain.ValidaRegole`**: se divergessero, il form potrebbe salvare ciò che il
+passano dallo stesso `regole.ValidaRegole`**: se divergessero, il form potrebbe salvare ciò che il
 riquadro rifiuta.
 
 Buyer e fabbisogno sono **amministrabili**. Prima la tabella del fabbisogno si vedeva con scritto «si

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"promatec/cockpit/internal/core/registro/regole"
 )
 
 // Le prove L1 del checkpoint 3R. Ognuna riproduce un sintomo visto sulla posta vera, non un caso
@@ -24,7 +26,7 @@ const regoleDiProva = `{
 
 func motoreDiProva(t *testing.T) *Motore {
 	t.Helper()
-	r, err := ValidaRegole([]byte(regoleDiProva))
+	r, err := regole.ValidaRegole([]byte(regoleDiProva))
 	if err != nil {
 		t.Fatalf("le regole di prova non passano il loro stesso convalidatore: %v", err)
 	}
@@ -272,7 +274,7 @@ func TestUnPdfNonEUnDisegnoFinchePrimaDellAnalisi(t *testing.T) {
 // dirlo, non una regola scritta in Go su un cliente preciso.
 func TestLoSchemaAccettaSoloIRuoliPrevisti(t *testing.T) {
 	buono := `{"famiglie_codice":[{"regex":"\\bAC\\d{5}\\b","esempio":"AC12345","ruolo":"parte"}]}`
-	r, err := ValidaRegole([]byte(buono))
+	r, err := regole.ValidaRegole([]byte(buono))
 	if err != nil {
 		t.Fatalf("ruolo «parte» rifiutato: %v", err)
 	}
@@ -283,7 +285,7 @@ func TestLoSchemaAccettaSoloIRuoliPrevisti(t *testing.T) {
 		t.Errorf("il ruolo dichiarato non arriva al candidato: %q", got)
 	}
 	cattivo := `{"famiglie_codice":[{"regex":"\\bAC\\d{5}\\b","esempio":"AC12345","ruolo":"finito"}]}`
-	if _, err := ValidaRegole([]byte(cattivo)); err == nil {
+	if _, err := regole.ValidaRegole([]byte(cattivo)); err == nil {
 		t.Error("un ruolo inventato deve essere rifiutato: «finito» non è una natura, è un ruolo nella RFQ (D19)")
 	}
 }
@@ -316,7 +318,7 @@ func contieneMotivo(motivi []string, frammento string) bool {
 // battitura che entra in silenzio e' una regola che nessuno rilegge piu'.
 func TestDatiRichiestiERispostaEntro(t *testing.T) {
 	buono := `{"dati_richiesti":["Paese di origine","Codice nomenclatura doganale","Peso kg"],"risposta_entro_gg":5}`
-	r, err := ValidaRegole([]byte(buono))
+	r, err := regole.ValidaRegole([]byte(buono))
 	if err != nil {
 		t.Fatalf("regole buone rifiutate: %v", err)
 	}
@@ -324,7 +326,7 @@ func TestDatiRichiestiERispostaEntro(t *testing.T) {
 		t.Fatalf("lette male: %+v", r)
 	}
 	// e sopravvivono al giro scrittura -> rilettura
-	riletto, _ := LeggiRegole([]byte(buono))
+	riletto, _ := regole.LeggiRegole([]byte(buono))
 	if len(riletto.DatiRichiesti) != 3 || riletto.RispostaEntroGG != 5 {
 		t.Errorf("perse alla rilettura: %+v", riletto)
 	}
@@ -334,7 +336,7 @@ func TestDatiRichiestiERispostaEntro(t *testing.T) {
 		"giorni negativi":    `{"risposta_entro_gg":-5}`,
 		"giorni impossibili": `{"risposta_entro_gg":5000}`,
 	} {
-		if _, err := ValidaRegole([]byte(cattivo)); err == nil {
+		if _, err := regole.ValidaRegole([]byte(cattivo)); err == nil {
 			t.Errorf("%s: accettato", nome)
 		}
 	}

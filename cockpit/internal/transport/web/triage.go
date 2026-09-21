@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -141,7 +142,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 		famiglie := false
 		if d.ClienteID.Valid {
 			if c, err := q.GetCliente(ctx, d.ClienteID.UUID); err == nil {
-				r, _ := domain.LeggiRegole(c.Regole)
+				r, _ := regole.LeggiRegole(c.Regole)
 				famiglie = domain.Compila(c.RagioneSociale, r).HaFamiglie()
 			}
 		}

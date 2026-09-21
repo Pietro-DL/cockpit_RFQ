@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -23,7 +23,7 @@ import (
 // ---------------------------------------------------------------- form strutturato delle regole
 
 // salvaRegoleDalForm costruisce il JSON delle regole dai campi del form e lo salva passando dalla
-// STESSA porta in scrittura del riquadro JSON (`domain.ValidaRegole`).
+// STESSA porta in scrittura del riquadro JSON (`regole.ValidaRegole`).
 //
 // Perché un form e non il JSON. Il JSON era l'interfaccia primaria, e un'interfaccia primaria fatta
 // di parentesi graffe ha due difetti: chi la usa deve conoscere lo schema a memoria, e ogni errore di
@@ -43,7 +43,7 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	reg := domain.Regole{
+	reg := regole.Regole{
 		CanaleAtteso:           strings.TrimSpace(r.FormValue("canale_atteso")),
 		LinguaRisposta:         strings.ToLower(strings.TrimSpace(r.FormValue("lingua_risposta"))),
 		RichiedeCBD:            r.FormValue("richiede_cbd") == "1",
@@ -66,7 +66,7 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if rex := strings.TrimSpace(r.FormValue("rif_regex")); rex != "" {
-		reg.RiferimentoRFQ = &domain.Riferimento{
+		reg.RiferimentoRFQ = &regole.Riferimento{
 			Regex: rex, Descrizione: strings.TrimSpace(r.FormValue("rif_descrizione")),
 			Esempio: strings.TrimSpace(r.FormValue("rif_esempio")),
 		}
@@ -79,7 +79,7 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(regex[i]) == "" {
 			continue
 		}
-		f := domain.FamigliaCodice{Regex: strings.TrimSpace(regex[i])}
+		f := regole.FamigliaCodice{Regex: strings.TrimSpace(regex[i])}
 		if i < len(desc) {
 			f.Descrizione = strings.TrimSpace(desc[i])
 		}
@@ -111,7 +111,7 @@ func (s *Server) scriviRegole(w http.ResponseWriter, r *http.Request, id uuid.UU
 		http.Error(w, "cliente non trovato", 404)
 		return
 	}
-	if _, err := domain.ValidaRegole(raw); err != nil {
+	if _, err := regole.ValidaRegole(raw); err != nil {
 		// il testo rifiutato torna nel riquadro: riscriverlo da capo dopo un errore è il modo più
 		// sicuro per farne un secondo
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: sez, RegoleJSON: string(raw), Errore: err.Error()})

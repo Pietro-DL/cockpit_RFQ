@@ -870,8 +870,8 @@ lavorazione superficiale nel codice del pezzo. Ogni convenzione ha un modo (`suf
 in fondo al codice senza distinguere le maiuscole, al massimo 12 caratteri senza spazi; oppure
 `regex`), un esempio che deve corrispondere, un controesempio facoltativo che non deve, e almeno una
 lavorazione. Le convenzioni passano dalla stessa doppia porta delle regole di riconoscimento: in
-scrittura ciò che non torna viene rifiutato (`domain.ValidaConvenzione`), in lettura una riga rotta
-scritta a mano in database si vede con ✗ e non si usa (`domain.LeggiConvenzioni`). Il risultato per
+scrittura ciò che non torna viene rifiutato (`regole.ValidaConvenzione`), in lettura una riga rotta
+scritta a mano in database si vede con ✗ e non si usa (`regole.LeggiConvenzioni`). Il risultato per
 un codice è l'**insieme** delle lavorazioni di tutte le convenzioni attive che corrispondono, con
 l'evidenza: nessuna precedenza nascosta. «Prova un codice» nella scheda cliente mostra lavorazioni e
 fornitori qualificati con lo stesso codice che userà l'ingest. Nessun suffisso reale è nel seme: si
@@ -1146,7 +1146,7 @@ internal/platform/testutil          pool e schema pulito per i test d'integrazio
 internal/core/domain                regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
                                     taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
                                     atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
-                                    convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
+                                    regole.go: il motore che compila le regole del cliente e le applica a un testo
 internal/core/inbox/ingest          FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
                                     controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
                                     marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
@@ -1154,6 +1154,8 @@ internal/core/inbox/aggancio        i candidati di aggancio R0–R5 con evidenza
                                     a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
 internal/core/registro/fornitori    l'import del seme dei fornitori con anteprima e conferma (7A.4)
 internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere
+internal/core/registro/regole       lo schema di cliente.regole: la porta in scrittura che rifiuta, quella in lettura che segna ✓/✗;
+                                    convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test

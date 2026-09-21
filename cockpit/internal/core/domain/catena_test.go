@@ -11,6 +11,8 @@ package domain
 import (
 	"strings"
 	"testing"
+
+	"promatec/cockpit/internal/core/registro/regole"
 )
 
 // ---------------------------------------------------------------- 1. mail nuova, senza storia
@@ -209,9 +211,9 @@ Vi confermiamo i codici 6674611A, 7781234 e 9990001.`
 // nuovo. «Principalmente» e non «soltanto»: i vecchi restano visibili fra gli altri numeri trovati,
 // perché sono l'evidenza migliore per agganciare il messaggio alla richiesta giusta.
 func TestIlCodiceNuovoPrevaleSuQuelliDellaStoria(t *testing.T) {
-	const regole = `{"famiglie_codice":[
+	const schema = `{"famiglie_codice":[
 	  {"regex":"\\b(?P<codice>\\d{7})(?P<rev>[A-Z])\\b","descrizione":"ACME sette cifre","esempio":"6674611A","rev_nel_codice":true}]}`
-	r, err := ValidaRegole([]byte(regole))
+	r, err := regole.ValidaRegole([]byte(schema))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,8 +286,8 @@ Vi inviamo richiesta d'offerta per i pezzi allegati.`,
 // Un riferimento trovato nella storia dice a quale richiesta si risponde, non che questa sia una
 // richiesta nuova.
 func TestIlRiferimentoDellaStoriaNonFaPuntiDiRichiestaNuova(t *testing.T) {
-	const regole = `{"riferimento_rfq":{"regex":"\\bRDO\\s?\\d{6}\\b","descrizione":"RDO a sei cifre","esempio":"RDO 490021"}}`
-	r, err := ValidaRegole([]byte(regole))
+	const schema = `{"riferimento_rfq":{"regex":"\\bRDO\\s?\\d{6}\\b","descrizione":"RDO a sei cifre","esempio":"RDO 490021"}}`
+	r, err := regole.ValidaRegole([]byte(schema))
 	if err != nil {
 		t.Fatal(err)
 	}

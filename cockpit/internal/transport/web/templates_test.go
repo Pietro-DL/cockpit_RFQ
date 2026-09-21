@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/registro/fornitori"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -219,11 +219,11 @@ func TestFrammentiEseguono(t *testing.T) {
 			Convenzioni: []db.ListConvenzioniClienteRow{
 				{ConvenzioneID: uuid.New(), Modo: db.ModoConvenzioneSuffisso, Espressione: "-ZN", Esempio: "AB-ZN", Descrizione: "zincato", Attiva: true, Lavorazioni: []string{"zincatura"}},
 				{ConvenzioneID: uuid.New(), Modo: db.ModoConvenzioneRegex, Espressione: "([", Esempio: "X", Descrizione: "rotta", Attiva: true}},
-			DiagnosiConvenzioni: []domain.Diagnostica{{Regola: "convenzione 1", Ok: true}, {Regola: "convenzione 2", Ok: false, Motivo: "la regex non compila"}},
+			DiagnosiConvenzioni: []regole.Diagnostica{{Regola: "convenzione 1", Ok: true}, {Regola: "convenzione 2", Ok: false, Motivo: "la regex non compila"}},
 			Lavorazioni:         []db.Lavorazione{{Codice: "zincatura", Descrizione: "Zincatura"}},
 			Fornitori:           []db.Fornitore{{FornitoreID: uuid.New(), RagioneSociale: "Galvar", Tipo: db.TipoFornitoreProcessi}},
 			Qualifiche:          []db.ListQualificheClienteRow{{FornitoreID: uuid.New(), Lavorazione: "zincatura", Fornitore: "Galvar", Tipo: db.TipoFornitoreProcessi, LavorazioneDescrizione: "Zincatura"}},
-			ProvaCodice: &provaCodice{Codice: "AB-ZN", Trovate: []domain.LavorazioneTrovata{{Lavorazione: "zincatura", Descrizione: "zincato", Espressione: "-ZN"}},
+			ProvaCodice: &provaCodice{Codice: "AB-ZN", Trovate: []regole.LavorazioneTrovata{{Lavorazione: "zincatura", Descrizione: "zincato", Espressione: "-ZN"}},
 				Qualificati: map[string][]db.Fornitore{"zincatura": {{RagioneSociale: "Galvar"}}}}},
 			[]string{"Convenzioni di codice", `class="spunta si"`, `class="spunta no"`, "la regex non compila", "Fornitori qualificati", "Prova un codice", "<b>zincatura</b>", "Galvar", "Lavorazioni e fornitori"}},
 	}

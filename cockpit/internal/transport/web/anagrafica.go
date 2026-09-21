@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -113,15 +114,15 @@ type anagraficaDati struct {
 	Domini     []db.DominioCliente
 	Buyer      []db.Buyer
 	RegoleJSON string
-	Regole     domain.Regole // le regole lette, per il form strutturato
-	Diagnosi   []domain.Diagnostica
+	Regole     regole.Regole // le regole lette, per il form strutturato
+	Diagnosi   []regole.Diagnostica
 	Fabbisogno []db.ListFabbisognoEffettivoRow
 	Propri     []db.FabbisognoDocumento // solo le righe DI QUESTO cliente: quelle che si possono togliere
 	Prova      *provaDati
 	// Blocco 7A (D39): la sezione «Lavorazioni e fornitori». Le convenzioni con la diagnosi riga per
 	// riga (stesso ordine), le qualifiche, e le tendine.
 	Convenzioni         []db.ListConvenzioniClienteRow
-	DiagnosiConvenzioni []domain.Diagnostica
+	DiagnosiConvenzioni []regole.Diagnostica
 	Qualifiche          []db.ListQualificheClienteRow
 	Lavorazioni         []db.Lavorazione
 	Fornitori           []db.Fornitore
@@ -197,7 +198,7 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 		dati.Buyer, _ = q.ListBuyerCliente(ctx, c.ClienteID)
 		dati.Fabbisogno, _ = q.ListFabbisognoEffettivo(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
 		dati.Propri, _ = q.ListFabbisognoCliente(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
-		dati.Regole, dati.Diagnosi = domain.LeggiRegole(c.Regole)
+		dati.Regole, dati.Diagnosi = regole.LeggiRegole(c.Regole)
 		if dati.RegoleJSON == "" {
 			dati.RegoleJSON = indenta(c.Regole, dati.Regole)
 		}
@@ -211,7 +212,7 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 // indenta mostra il JSON nel riquadro in forma leggibile. Se il testo in database non è
 // rileggibile lo si mostra COM'È: riscriverlo «pulito» cancellerebbe l'unica copia di ciò che
 // qualcuno deve ancora correggere.
-func indenta(raw []byte, r domain.Regole) string {
+func indenta(raw []byte, r regole.Regole) string {
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return "{}"
 	}
@@ -296,7 +297,7 @@ func (s *Server) salvaRegole(w http.ResponseWriter, r *http.Request) {
 	if testo == "" {
 		testo = "{}"
 	}
-	regole, err := domain.ValidaRegole([]byte(testo))
+	regole, err := regole.ValidaRegole([]byte(testo))
 	if err != nil {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "riconoscimento", RegoleJSON: testo, Errore: err.Error(),
 			Diagnosi: diagnosiDiUnTestoRifiutato(testo)})
@@ -314,8 +315,8 @@ func (s *Server) salvaRegole(w http.ResponseWriter, r *http.Request) {
 
 // diagnosiDiUnTestoRifiutato mostra il ✓/✗ anche quando il salvataggio è stato rifiutato: serve a
 // vedere QUALE riga è rotta, non solo che qualcosa lo è.
-func diagnosiDiUnTestoRifiutato(testo string) []domain.Diagnostica {
-	_, d := domain.LeggiRegole([]byte(testo))
+func diagnosiDiUnTestoRifiutato(testo string) []regole.Diagnostica {
+	_, d := regole.LeggiRegole([]byte(testo))
 	return d
 }
 
@@ -360,7 +361,7 @@ func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
 	}
 	testo := r.FormValue("testo")
 	oggetto, corpo := primaRigaEResto(testo)
-	regole, _ := domain.LeggiRegole(c.Regole)
+	regole, _ := regole.LeggiRegole(c.Regole)
 	in := domain.IngressoTriage{
 		Oggetto: oggetto, Corpo: corpo, Direzione: string(db.DirezioneEntrata),
 		ClienteNoto: true, Motore: domain.Compila(c.RagioneSociale, regole),

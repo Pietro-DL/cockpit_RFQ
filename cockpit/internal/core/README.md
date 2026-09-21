@@ -15,23 +15,28 @@ NAS (quelle passano da `platform/storage/nas`).
 
 | Package | Che cosa fa | DB |
 |---|---|---|
-| `domain` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (schema di `cliente.regole`, ✓/✗), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza), `proposta.go` (tipo del documento da nome ed estensione), `path.go` (nome della cartella NAS; il prefisso long-path sta in `platform/storage/nas`), `anagrafica.go`, `aggancio.go` (punteggi R1–R5) | no |
+| `domain` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `path.go` (nome della cartella NAS; il prefisso long-path sta in `platform/storage/nas`), `anagrafica.go`, `aggancio.go` (punteggi R1–R5) | no |
 | `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
 | `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
+| `registro/regole` | lo **schema** di ciò che un cliente dichiara di sé: `regole.go` (`cliente.regole`, le due porte in scrittura e in lettura, la diagnosi ✓/✗), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza). Non applica niente: lo legge e lo giudica | no |
 | `registro/anagrafica` | il seme dei clienti da `seme_anagrafica.json`, una volta e senza sovrascrivere | sì |
 | `registro/fornitori` | l'import del seme dei fornitori (7A.4): `Leggi` convalida, `Calcola` fa l'anteprima senza scrivere, `Applica` scrive in una transazione solo ciò che è risolto | sì |
 
 ## Dipendenze consentite
 
-`core/domain` non importa nulla del progetto, e da B1 nessun package di `platform` importa `core`.
+`core/registro/regole` non importa nulla del progetto. Da B1 nessun package di `platform` importa `core`.
 Gli altri package di `core` importano `core/domain` e `platform`.
+
+Una deroga dichiarata, e temporanea: da B2 `core/domain` importa `core/registro/regole`, perché il motore
+lavora sullo schema. Sparisce quando `domain` si divide e il motore prende il suo nome.
 Mai `transport`, mai `ai`, mai `jobs`.
 
 ## Entry point
 
 `domain.Triage`, `domain.RisolviControparte`, `domain.TagliaCatena`, `ingest.Servizio.Ingerisci`,
 `ingest.Ritriage` / `RitriageMolti` / `RicalcolaControparti`, `aggancio.CalcolaESalva`,
-`aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`.
+`aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`,
+`regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`.
 
 ## Flussi principali
 
@@ -60,7 +65,8 @@ anagrafiche. Nessuno di questi scrive `thread_id`, `documento` o sul NAS.
 
 ## Test
 
-L1 sugli oracoli di `domain` (codici, atto, catena, controparte, convenzioni, regole, proposta, precedenza).
+L1 sugli oracoli di `domain` (codici, atto, catena, controparte, il motore delle regole, proposta,
+precedenza) e su `registro/regole` (le due porte, le convenzioni).
 L4 per `ingest`, `aggancio` e `registro/fornitori`, compresi gli invarianti I4/I5 del contratto di
 classificazione.
 
@@ -69,8 +75,9 @@ classificazione.
 | Voglio… | Apri |
 |---|---|
 | una regola di triage nuova | `domain/codici.go:Triage`, `Motore.Codici` |
+| un campo nuovo in `cliente.regole` | `registro/regole/regole.go`, poi il motore in `domain/regole.go` |
 | un atto nuovo | `domain/atto.go` e l'enum `atto_business` in migrazione |
-| una convenzione di codice | `domain/convenzioni.go` |
+| una convenzione di codice | `registro/regole/convenzioni.go` |
 | capire perché un fornitore non apre una RFQ | `domain/controparte.go:RisolviControparte`, `domain/codici.go` (ramo `Controparte`) |
 | capire perché un'offerta propone quella richiesta | `inbox/aggancio/richieste.go:CalcolaRichieste` |
 | capire che cosa scrive (e non scrive) l'import dei fornitori | `registro/fornitori/seme.go:calcola`, `Applica` |
@@ -82,5 +89,6 @@ classificazione.
 
 ---
 
-**Cambia in B**: `domain` si divide — `inbox/classificazione` (triage, motore, atto, catena, controparte,
-candidati, proposta dell'allegato), `registro/regole`, `rfq/documenti` — e `domain` sparisce come package unico.
+**Cambia in B**: `registro/regole` c'è (B2). Resta da dividere `domain` — `inbox/classificazione` (triage,
+motore, atto, catena, controparte, candidati, proposta dell'allegato) e `rfq/documenti` — dopo di che `domain`
+sparisce come package unico.

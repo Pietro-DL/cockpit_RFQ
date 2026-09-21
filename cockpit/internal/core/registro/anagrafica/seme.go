@@ -9,7 +9,7 @@
 //
 // # Il cancello
 //
-// Prima di scrivere una riga, TUTTE le regole di TUTTI i clienti passano da `domain.ValidaRegole`.
+// Prima di scrivere una riga, TUTTE le regole di TUTTI i clienti passano da `regole.ValidaRegole`.
 // Se una sola regola non rispetta lo schema, o ha un esempio che non corrisponde alla propria
 // regex, il seme non parte affatto: non «quel cliente viene saltato», proprio non parte.
 //
@@ -34,7 +34,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -121,7 +121,7 @@ func Leggi(r io.Reader) (Seme, error) {
 		}
 		// Il cancello di D17: l'esempio deve corrispondere, anche quando la regola arriva da un file.
 		if len(c.Regole) > 0 {
-			if _, err := domain.ValidaRegole(c.Regole); err != nil {
+			if _, err := regole.ValidaRegole(c.Regole); err != nil {
 				return s, fmt.Errorf("seme: %s: %w", dove, err)
 			}
 		}
@@ -171,11 +171,11 @@ func Semina(ctx context.Context, pool *pgxpool.Pool, s Seme) (Esito, error) {
 			return e, err
 		}
 
-		regole := c.Regole
-		if len(regole) == 0 {
-			regole = json.RawMessage("{}")
+		grezze := c.Regole
+		if len(grezze) == 0 {
+			grezze = json.RawMessage("{}")
 		}
-		nuovo, err := creaCliente(ctx, q, c, regole)
+		nuovo, err := creaCliente(ctx, q, c, grezze)
 		if err != nil {
 			return e, fmt.Errorf("cliente %s: %w", c.RagioneSociale, err)
 		}

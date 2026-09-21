@@ -49,7 +49,7 @@ che serviva davvero.
 Il numero: la 0006 aveva già dichiarato che l'anagrafica sarebbe stata la `0007`. Il `0007_igiene` del
 piano scala a valle.
 
-## 2. Lo schema delle regole — `domain.Regole` (voce 6.11, D17)
+## 2. Lo schema delle regole — `regole.Regole` (voce 6.11, D17)
 
 Un tipo Go con i campi dell'addendum: `famiglie_codice[{regex, descrizione, rev_nel_codice, esempio}]`,
 `riferimento_rfq{regex, esempio}`, `canale_atteso`, `frasi_portale[]`, `lingua_risposta`,

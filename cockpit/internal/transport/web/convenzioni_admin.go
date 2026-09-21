@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -22,16 +22,16 @@ import (
 // l'offerta: codice → convenzione → lavorazione → `cliente_fornitore_lavorazione`.
 //
 // Le convenzioni passano dalla stessa doppia porta delle regole di riconoscimento (D17): in
-// scrittura `domain.ValidaConvenzione` rifiuta ciò che non torna (esempio che non corrisponde,
+// scrittura `regole.ValidaConvenzione` rifiuta ciò che non torna (esempio che non corrisponde,
 // controesempio che corrisponde, regex che non compila, nessuna lavorazione); in lettura
-// `domain.LeggiConvenzioni` segna ✗ una riga rotta scritta a mano in database e non la usa. Il
+// `regole.LeggiConvenzioni` segna ✗ una riga rotta scritta a mano in database e non la usa. Il
 // ✓ della schermata e il salvataggio riuscito vogliono dire la stessa cosa.
 
 // convenzioniDominio converte le righe del database nel tipo puro del dominio, nello stesso ordine.
-func convenzioniDominio(righe []db.ListConvenzioniClienteRow) []domain.Convenzione {
-	out := make([]domain.Convenzione, 0, len(righe))
+func convenzioniDominio(righe []db.ListConvenzioniClienteRow) []regole.Convenzione {
+	out := make([]regole.Convenzione, 0, len(righe))
 	for _, r := range righe {
-		out = append(out, domain.Convenzione{
+		out = append(out, regole.Convenzione{
 			ID: r.ConvenzioneID, Modo: string(r.Modo), Espressione: r.Espressione, Esempio: r.Esempio,
 			Controesempio: r.Controesempio.String, Descrizione: r.Descrizione, Attiva: r.Attiva, Lavorazioni: r.Lavorazioni,
 		})
@@ -43,7 +43,7 @@ func convenzioniDominio(righe []db.ListConvenzioniClienteRow) []domain.Convenzio
 // ciascuna i fornitori qualificati per questo cliente.
 type provaCodice struct {
 	Codice      string
-	Trovate     []domain.LavorazioneTrovata
+	Trovate     []regole.LavorazioneTrovata
 	Qualificati map[string][]db.Fornitore
 }
 
@@ -51,7 +51,7 @@ type provaCodice struct {
 // tendine (lavorazioni, fornitori attivi).
 func (s *Server) caricaLavorazioniCliente(ctx context.Context, q *db.Queries, d *anagraficaDati, clienteID uuid.UUID) {
 	d.Convenzioni, _ = q.ListConvenzioniCliente(ctx, clienteID)
-	_, d.DiagnosiConvenzioni = domain.LeggiConvenzioni(convenzioniDominio(d.Convenzioni))
+	_, d.DiagnosiConvenzioni = regole.LeggiConvenzioni(convenzioniDominio(d.Convenzioni))
 	d.Qualifiche, _ = q.ListQualificheCliente(ctx, clienteID)
 	d.Lavorazioni, _ = q.ListLavorazioni(ctx)
 	d.Fornitori, _ = q.ListFornitoriAttivi(ctx)
@@ -73,7 +73,7 @@ func (s *Server) nuovaConvenzione(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	cv := domain.Convenzione{
+	cv := regole.Convenzione{
 		Modo: strings.TrimSpace(r.FormValue("modo")), Espressione: strings.TrimSpace(r.FormValue("espressione")),
 		Esempio: strings.TrimSpace(r.FormValue("esempio")), Controesempio: strings.TrimSpace(r.FormValue("controesempio")),
 		Descrizione: strings.TrimSpace(r.FormValue("descrizione")), Attiva: true,
@@ -87,7 +87,7 @@ func (s *Server) nuovaConvenzione(w http.ResponseWriter, r *http.Request) {
 		cv.Descrizione = cv.Espressione
 	}
 	// la porta in scrittura: prima del database, con la stessa funzione che decide il ✓
-	if err := domain.ValidaConvenzione(cv); err != nil {
+	if err := regole.ValidaConvenzione(cv); err != nil {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "lavorazioni", Errore: "convenzione rifiutata: " + err.Error()})
 		return
 	}
@@ -238,7 +238,7 @@ func (s *Server) provaCodiceCliente(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	codice := strings.TrimSpace(r.FormValue("codice"))
 	righe, _ := q.ListConvenzioniCliente(ctx, id)
-	conv, _ := domain.LeggiConvenzioni(convenzioniDominio(righe))
+	conv, _ := regole.LeggiConvenzioni(convenzioniDominio(righe))
 	p := &provaCodice{Codice: codice, Qualificati: map[string][]db.Fornitore{}}
 	if codice != "" {
 		p.Trovate = conv.Lavorazioni(codice)

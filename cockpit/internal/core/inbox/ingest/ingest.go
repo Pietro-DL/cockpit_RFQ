@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/domain"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -204,19 +205,19 @@ func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) 
 	if mo, ok := m.perFornitore[id]; ok {
 		return mo
 	}
-	var regole domain.Regole
+	var raccolte regole.Regole
 	if clienti, err := q.ClientiConRichiesteAlFornitore(ctx, id); err == nil {
 		for _, c := range clienti {
-			r, _ := domain.LeggiRegole(c.Regole)
+			r, _ := regole.LeggiRegole(c.Regole)
 			for _, f := range r.FamiglieCodice {
 				if f.Descrizione != "" {
 					f.Descrizione = c.CartellaNas + ": " + f.Descrizione
 				}
-				regole.FamiglieCodice = append(regole.FamiglieCodice, f)
+				raccolte.FamiglieCodice = append(raccolte.FamiglieCodice, f)
 			}
 		}
 	}
-	mo := domain.Compila("fornitore", regole)
+	mo := domain.Compila("fornitore", raccolte)
 	m.perFornitore[id] = mo
 	return mo
 }
@@ -230,8 +231,8 @@ func (m *Motori) Per(ctx context.Context, q *db.Queries, id uuid.UUID) *domain.M
 	}
 	var mo *domain.Motore
 	if c, err := q.GetCliente(ctx, id); err == nil {
-		regole, _ := domain.LeggiRegole(c.Regole)
-		mo = domain.Compila(c.RagioneSociale, regole)
+		lette, _ := regole.LeggiRegole(c.Regole)
+		mo = domain.Compila(c.RagioneSociale, lette)
 	}
 	m.per[id] = mo
 	return mo
