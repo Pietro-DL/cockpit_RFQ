@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/web"
+	"promatec/cockpit/internal/transport/web"
 )
 
 func TestTemplates(t *testing.T) {

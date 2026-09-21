@@ -1034,7 +1034,7 @@ indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
 ```powershell
 python -m pip install playwright                 # una volta; il browser è Microsoft Edge, già installato
 $env:COCKPIT_TEST_DSN = "postgres://cockpit_test:cockpit_test@127.0.0.1:5433/cockpit_test"
-go test -tags "integrazione browser" -count=1 -run TestL7 .\internal\web\
+go test -tags "integrazione browser" -count=1 -run TestL7 .\internal\transport\web\
 ```
 
 Il tag `browser` le tiene fuori dalla corsa normale: senza Playwright il test **salta** e lo dice.

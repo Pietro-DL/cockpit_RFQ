@@ -11,7 +11,7 @@ import (
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
-	"promatec/cockpit/internal/web"
+	"promatec/cockpit/internal/transport/web"
 )
 
 // configDiProva è la configurazione delle quattro caselle simulate su cui poggeranno i test L4 delle
