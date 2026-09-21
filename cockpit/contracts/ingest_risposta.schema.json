@@ -80,6 +80,11 @@
       },
       "title": "Esiti",
       "type": "array"
+    },
+    "durata_ms": {
+      "default": 0,
+      "title": "Durata Ms",
+      "type": "integer"
     }
   },
   "required": [

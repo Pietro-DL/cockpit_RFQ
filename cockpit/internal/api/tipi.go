@@ -142,6 +142,10 @@ type IngestRisposta struct {
 	Aggiornati int              `json:"aggiornati"`
 	Falliti    int              `json:"falliti"`
 	Esiti      []EsitoMessaggio `json:"esiti"`
+	// DurataMs: quanto il SERVER ha impiegato a scrivere il lotto (7C.1, P1). Il worker lo mette
+	// accanto al tempo della chiamata HTTPS: la differenza e' la rete. Senza, «il bootstrap e' lento»
+	// resta una frase, e si da' la colpa alla rete senza averla misurata.
+	DurataMs int64 `json:"durata_ms"`
 }
 
 // ---------------------------------------------------------------- coda job
@@ -318,6 +322,12 @@ type CartellaEsito struct {
 
 type RisultatoSync struct {
 	Cartelle []CartellaEsito `json:"cartelle"`
+	// Tempi, in secondi, di dove il sync ha passato il suo tempo (7C.1, P1): `com` (l'enumerazione
+	// e la lettura degli elementi in Outlook), `serializzazione` (da elemento COM a MessaggioIn),
+	// `https` (le chiamate di ingest, andata e ritorno) e `server` (la parte di `https` passata
+	// dentro il server, che la dichiara in IngestRisposta.durata_ms). Al banco del 20/09/2026 un
+	// bootstrap di 324 messaggi ha impiegato 346 s e nessuno sapeva dove.
+	Tempi map[string]float64 `json:"tempi,omitempty"`
 }
 
 // PayloadRileggiElemento: rilettura mirata di un solo elemento di una casella, dopo che il worker non

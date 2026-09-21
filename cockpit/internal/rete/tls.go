@@ -39,6 +39,27 @@ type Materiale struct {
 	Nomi        []string // i nomi e gli indirizzi per cui vale
 	Scadenza    time.Time
 	Generato    bool // true = l'ha appena creato questo avvio
+	// PEM e' il solo certificato pubblico, com'e' nel file: finisce nel pacchetto della postazione
+	// (cert.pem) perche' il browser, a differenza del worker, non verifica un'impronta ma una
+	// catena, e la catena di un autofirmato e' lui stesso nello store «Autorita' radice» dell'utente.
+	// La chiave privata non esce mai di qui.
+	PEM []byte
+}
+
+// Copre dice se il certificato vale per quel nome o indirizzo (7C.1, P1): serve a dire, all'avvio,
+// che l'host di [server].url_pubblico non e' fra i nomi di un certificato generato prima che
+// quell'URL esistesse — e che il browser lo fara' notare.
+func (m *Materiale) Copre(host string) bool {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	if host == "" {
+		return true
+	}
+	for _, n := range m.Nomi {
+		if strings.ToLower(n) == host {
+			return true
+		}
+	}
+	return false
 }
 
 // DurataCertificato: dieci anni. Un certificato autofirmato la cui impronta è scritta a mano in ogni
@@ -90,6 +111,7 @@ func carica(fileCert, fileKey string) (*Materiale, error) {
 	}
 	m.Scadenza = foglia.NotAfter
 	m.Nomi = append(append([]string{}, foglia.DNSNames...), indirizziTesto(foglia.IPAddresses)...)
+	m.PEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: c.Certificate[0]})
 	return m, nil
 }
 
@@ -147,7 +169,7 @@ func genera(fileCert, fileKey string, nomi []string) (*Materiale, error) {
 	}
 	return &Materiale{
 		Certificato: c, Impronta: ImprontaDi(der), Nomi: append(dns, indirizziTesto(ip)...),
-		Scadenza: modello.NotAfter, Generato: true,
+		Scadenza: modello.NotAfter, Generato: true, PEM: pemCert,
 	}, nil
 }
 

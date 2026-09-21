@@ -196,3 +196,79 @@ def test_configura_log_non_raddoppia_le_righe():
         with open(os.path.join(d, "log", "prova.log"), encoding="utf-8") as f:
             righe = [r for r in f if "una riga sola" in r]
         assert len(righe) == 1, f"la riga è stata scritta {len(righe)} volte"
+
+
+# ---------------------------------------------------------------- result dopo una caduta di rete (7C.1, P1)
+
+
+def test_il_risultato_si_ripete_dopo_un_buco_di_rete():
+    """Al banco del 20/09/2026 una connessione TLS e' caduta e il lavoro fatto e' stato rifatto da capo
+    dopo la scadenza del lease. Un buco di rete sul result si ripete subito, tale e quale."""
+    import logging as _logging
+    from cockpit_client import riporta_risultato
+    with ServerFinto() as s:
+        s.metti_job({"job_id": 41, "tipo": "sync_outlook", "payload": {}, "tentativi": 1, "lease_s": 120, "lease_token": "tok-41"})
+        api = Cockpit(s.url, s.token)
+        api.claim("outlook", "outlook@PC-PROVA")
+        vero = api.risultato
+        chiamate = {"n": 0}
+
+        def cade_una_volta(*a, **k):
+            chiamate["n"] += 1
+            if chiamate["n"] == 1:
+                raise ConnectionResetError("connessione interrotta forzatamente dall'host remoto")
+            return vero(*a, **k)
+
+        api.risultato = cade_una_volta
+        ok = riporta_risultato(api, 41, {"esito": "ok", "dati": {}}, "outlook@PC-PROVA", "tok-41",
+                               _logging.getLogger("prova"), attesa_s=0)
+        assert ok is True and chiamate["n"] == 2
+        assert s.risultati[41]["esito"] == "ok"
+
+
+def test_un_409_sul_risultato_non_si_ripete():
+    """409 e' una risposta del server, non un buco: il tentativo non vale piu' (o il result era gia'
+    arrivato). Si tace e non si insiste."""
+    import logging as _logging
+    from cockpit_client import riporta_risultato
+    with ServerFinto() as s:
+        s.metti_job({"job_id": 42, "tipo": "sync_outlook", "payload": {}, "tentativi": 1, "lease_s": 120, "lease_token": "tok-42"})
+        api = Cockpit(s.url, s.token)
+        api.claim("outlook", "outlook@PC-PROVA")
+        ok = riporta_risultato(api, 42, {"esito": "ok", "dati": {}}, "outlook@PC-PROVA", "un-altro-token",
+                               _logging.getLogger("prova"), attesa_s=0)
+        assert ok is False
+        assert 42 not in s.risultati
+        assert [r["stato"] for r in s.respinte] == [409]
+
+
+def test_la_rete_che_resta_giu_non_blocca_il_worker():
+    import logging as _logging
+    from cockpit_client import riporta_risultato
+    with ServerFinto() as s:
+        api = Cockpit(s.url, s.token)
+    chiamate = {"n": 0}
+
+    def sempre_giu(*a, **k):
+        chiamate["n"] += 1
+        raise ConnectionResetError("giu'")
+
+    api.risultato = sempre_giu
+    ok = riporta_risultato(api, 43, {"esito": "ok"}, "w", "tok", _logging.getLogger("prova"), tentativi=3, attesa_s=0)
+    assert ok is False and chiamate["n"] == 3
+
+
+def test_configura_log_senza_stderr_non_apre_una_console(tmp_path, monkeypatch):
+    """Sotto pythonw (attivita' pianificata senza finestra) sys.stderr e' None: il log va solo su file."""
+    import logging as _logging
+    import sys as _sys
+    monkeypatch.setattr(_sys, "stderr", None)
+    configura_log(False, {"staging": str(tmp_path)}, "prova_pythonw")
+    radice = _logging.getLogger()
+    tipi = [type(h).__name__ for h in radice.handlers]
+    assert "StreamHandler" not in tipi, tipi
+    assert "RotatingFileHandler" in tipi
+    _logging.getLogger("prova").info("una riga")
+    for h in radice.handlers:
+        h.flush()
+    assert "una riga" in (tmp_path / "log" / "prova_pythonw.log").read_text(encoding="utf-8")

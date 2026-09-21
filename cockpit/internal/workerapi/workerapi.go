@@ -1150,6 +1150,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inizio := time.Now()
 	res, err := s.Ingest.Ingerisci(ctx, ingest.Lotto{
 		Casella:   casella,
 		Tentativo: &ingest.Tentativo{JobID: t.JobID, LeaseToken: t.LeaseToken, WorkerID: t.WorkerID},
@@ -1157,6 +1158,9 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		Saltati:   req.Saltati,
 		Cursore:   req.Cursore,
 	})
+	// il tempo del server, dichiarato al worker (7C.1, P1): la differenza con la sua misura della
+	// chiamata e' la rete, e «la rete e' lenta» smette di essere un'ipotesi
+	res.DurataMs = time.Since(inizio).Milliseconds()
 	switch {
 	case errors.Is(err, ingest.ErrTentativoNonValido):
 		s.nonValido(w, ctx, req.JobID)

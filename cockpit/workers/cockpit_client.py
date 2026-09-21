@@ -23,6 +23,7 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import tomllib
 import urllib.error
 import urllib.parse
@@ -351,6 +352,40 @@ class ContenutoIncompleto(RuntimeError):
     """Il download si è fermato prima della fine, o i byte non sono quelli dichiarati: si ripete."""
 
 
+def riporta_risultato(api: "Cockpit", job_id: int, corpo: dict, worker_id: str, lease_token: str,
+                      log: logging.Logger, tentativi: int = 3, attesa_s: float = 2.0) -> bool:
+    """POST del result con qualche ripetizione se la RETE cade (7C.1, P1). Vero se accettato.
+
+    Al banco a due macchine del 20/09/2026 una connessione TLS e' caduta (RemoteDisconnected) e il
+    lavoro fatto e' stato rifatto da capo al tentativo successivo, dopo la scadenza del lease. Un
+    result perso per un buco di rete si ripete subito, tale e quale: se il primo era gia' arrivato,
+    il secondo riceve 409 (il job e' chiuso) e va bene cosi' — e' la stessa risposta di un lease
+    perso, e si tace allo stesso modo. Un errore HTTP diverso da 409 non si ripete: e' una risposta
+    del server, non un buco.
+    """
+    for i in range(tentativi):
+        try:
+            api.risultato(job_id, corpo, worker_id, lease_token)
+            return True
+        except ErroreHTTP as e:
+            if e.tentativo_non_valido:
+                log.warning("job %d: risultato scartato dal server (409): il tentativo non era più valido, "
+                            "o il result era già arrivato", job_id)
+            else:
+                log.error("impossibile riportare il risultato del job %d: %s", job_id, e)
+            return False
+        except ERRORI_RETE as e:
+            if i == tentativi - 1:
+                log.error("impossibile riportare il risultato del job %d dopo %d tentativi: %s", job_id, tentativi, e)
+                return False
+            log.warning("rete caduta riportando il risultato del job %d (%s): riprovo fra %.0f s", job_id, e, attesa_s)
+            time.sleep(attesa_s)
+        except Exception as e:  # noqa: BLE001 - il lease scade e il server lo rimette in coda
+            log.error("impossibile riportare il risultato del job %d: %s", job_id, e)
+            return False
+    return False
+
+
 def cadenza_battito(lease_s: float) -> float:
     """Ogni quanto battere durante un job: abbastanza spesso da rinnovare il lease PRIMA che scada, e
     mai piu' lento di BATTITO_MAX_S, che e' quanto il server aspetta prima di dare il worker per
@@ -588,9 +623,12 @@ def configura_log(debug: bool, cfg: dict, nome: str) -> None:
     radice.setLevel(logging.DEBUG if debug else logging.INFO)
     for h in list(radice.handlers):  # idempotente: riconfigurare non raddoppia le righe
         radice.removeHandler(h)
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    radice.addHandler(console)
+    # Sotto pythonw (attivita' pianificata senza finestra, 7C.1) sys.stderr e' None: un handler
+    # sulla console non avrebbe dove scrivere e ogni riga finirebbe in un errore ignorato.
+    if sys.stderr is not None:
+        console = logging.StreamHandler()
+        console.setFormatter(fmt)
+        radice.addHandler(console)
     try:
         cartella = os.path.join(os.path.abspath(cfg["staging"]), "log")
         os.makedirs(cartella, exist_ok=True)

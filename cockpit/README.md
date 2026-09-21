@@ -126,7 +126,8 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 |---|---|
 | `indirizzo` | `127.0.0.1:8080` in sviluppo. Per esporre il Cockpit fuori da questo PC serve TLS: **senza `tls_cert` il server si rifiuta di partire** su un indirizzo non di loopback (voce 2.4) |
 | `tls_cert`, `tls_key` | i due file PEM del listener. Se **non esistono**, il server ne genera uno autofirmato al primo avvio, li scrive e mette l'impronta sha256 nel log e nella pagina *Postazioni*: è quella che i worker verificano. Percorsi relativi a `cockpit.toml` |
-| `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP |
+| `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP; dal 7C.1 anche l'host di `url_pubblico` |
+| `url_pubblico` | (7C.1) l'indirizzo con cui worker e browser **chiamano** il server, es. `https://10.0.0.7:8443`: finisce nel `worker.toml` del pacchetto e nelle istruzioni della postazione. Assente = derivato dal bind, cioè il nome host della macchina, che da un altro PC della LAN può non risolversi. Lo schema deve essere quello che il server parla davvero, altrimenti non parte |
 | `consenti_lan_in_chiaro` | la via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è già cifrato da altro (un tunnel). Il server lo ripete a ogni avvio |
 | `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
 | `modalita` | `shadow` o `produzione` (voce 9.5). **`shadow` è un preset di `[sicurezza]`**: spegne tutte e tre le capacità di scrittura, qualunque cosa dica quella sezione. «Apri in Outlook» resta consentito. **Assente = shadow**: il default sicuro è quello che non tocca niente. `produzione` NON accende niente da sola: serve `[sicurezza]`. Quando una capacità si accende, i job che avevano aspettato vengono annullati, non eseguiti |
@@ -575,17 +576,30 @@ Il worker Outlook non parte da solo: si attacca via COM alla casella vera del pr
 PC, quindi avviarlo è un accesso alla posta reale e serve chiederlo esplicitamente con
 `-ConOutlook`.
 
-### In produzione, all'accensione del PC
+### Su una postazione vera: il pacchetto e `installa-postazione.ps1` (7C.1)
+
+`avvia-dev.ps1` è il banco di sviluppo su un PC solo e non il launcher delle postazioni. Una
+postazione si installa con il pacchetto scaricato da *Admin › Postazioni* («genera e scarica il
+pacchetto» di QUEL PC), che contiene `worker.toml` con i token, `ISTRUZIONI.txt`, i file del worker,
+`installa-postazione.ps1` e, con TLS, `cert.pem` (il solo certificato pubblico). Sul PC, dalla
+cartella in cui lo si è scompattato:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1            # mostra cosa farebbe
-powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Installa  # crea le attività pianificate
-powershell -ExecutionPolicy Bypass -File scripts\installa-attivita.ps1 -Mostra    # stato e ultimo esito
+powershell -ExecutionPolicy Bypass -File installa-postazione.ps1            # installa/aggiorna e avvia
+powershell -ExecutionPolicy Bypass -File installa-postazione.ps1 -Mostra    # stato delle attività e log
+powershell -ExecutionPolicy Bypass -File installa-postazione.ps1 -Ferma     # prima di rigenerare il pacchetto
 ```
 
-Le attività girano nella sessione interattiva dell'utente, perché Outlook classico lo richiede, e
-riavviano il worker se termina. `-Installa` mette in avvio automatico **anche** il worker Outlook:
-va fatto solo su una postazione dove leggere quella casella è già stato autorizzato.
+Lo script ferma ciò che gira, installa le dipendenze Python, crea lo staging del worker, importa
+`cert.pem` fra le autorità radice dell'utente (Edge e Chrome smettono di avvisare; Windows chiede
+una conferma), registra un'attività pianificata per ogni worker dichiarato in `worker.toml`
+(all'accesso dell'utente, istanza singola, riavvio automatico, `pythonw` senza finestra, log in
+`<staging>\log`) e le avvia. Le attività girano nella sessione interattiva dell'utente perché Outlook
+classico lo richiede. **Rigenerare il pacchetto invalida il precedente** nel momento in cui si preme
+il pulsante: la sequenza è `-Ferma` sul PC → genera sul Cockpit → scompatta sopra → rilancia lo script.
+
+`scripts\installa-attivita.ps1` resta per il banco (registra le stesse attività a partire dalla
+cartella `workers\` del repository).
 ---
 
 ## Mettere il Cockpit in rete

@@ -240,6 +240,27 @@ def _messaggio(n: int):
     )
 
 
+def test_il_sync_riporta_dove_ha_passato_il_tempo(tmp_path, monkeypatch):
+    """7C.1, P1: il result del sync porta i tempi (COM, serializzazione, HTTPS, server), cosi' un
+    bootstrap lento si spiega con dei numeri e non con «sara' la rete»."""
+    with ServerFinto() as s:
+        s.caselle_worker = CASELLE_SERVITE
+        s.risposta_ingest = {"inseriti": 2, "aggiornati": 0, "falliti": 0, "esiti": [], "durata_ms": 250}
+        s.metti_job(_job_sync(lotto=2))
+        w = worker_outlook.Worker(s.config(staging=str(tmp_path)))
+        finto = OutlookFinto([_messaggio(1), _messaggio(2), _messaggio(3)])
+        monkeypatch.setattr(w, "ol", lambda: finto)
+        w.esegui_per_sempre(una_volta=True)
+        r = s.risultati[20]
+        assert r["esito"] == "ok", r
+        tempi = r["dati"]["tempi"]
+        assert set(tempi) == {"com", "serializzazione", "https", "server"}, tempi
+        assert all(v >= 0 for v in tempi.values())
+        assert tempi["https"] > 0, "due lotti sono passati per HTTPS e il tempo e' zero"
+        # il server ha dichiarato 250 ms per ciascuno dei due lotti
+        assert abs(tempi["server"] - 0.5) < 1e-6, tempi
+
+
 def _job_sync(lotto: int = 2) -> dict:
     return {
         "job_id": 20, "tipo": "sync_outlook", "tentativi": 1, "lease_s": 120,

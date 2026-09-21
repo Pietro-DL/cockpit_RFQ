@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -279,6 +280,15 @@ type Server struct {
 	// corpo e l'allegato va in errore con il motivo visibile; senza un limite un allegato da qualche
 	// gigabyte riempirebbe lo staging del server in silenzio. Zero = il default (64).
 	MaxUploadMB int `toml:"max_upload_mb"`
+	// URLPubblico e' l'indirizzo con cui i worker e i browser CHIAMANO il server (7C.1, P1):
+	// «https://10.0.0.7:8443», «https://cockpit.azienda.local:8443». Finisce nel worker.toml del
+	// pacchetto e nelle istruzioni della postazione. Vuoto = si deriva dal bind: con
+	// `indirizzo = "0.0.0.0:8443"` viene fuori il nome host della macchina, che sulla LAN non e'
+	// detto che si risolva — al banco del 20/09/2026 il worker analisi ha avuto «getaddrinfo failed»
+	// sul nome del server mentre il worker Outlook lo risolveva. Dichiararlo toglie la dipendenza dal
+	// nome. L'host dichiarato entra anche nei nomi del certificato generato (SAN), cosi' il browser
+	// non ha un avviso in piu' da ignorare.
+	URLPubblico string `toml:"url_pubblico"`
 }
 
 type DB struct {
@@ -661,7 +671,35 @@ func (c *Config) normalizzaRete(dirConfig string) error {
 			"oppure dichiarare consenti_lan_in_chiaro = true se il collegamento è già cifrato da qualcos'altro",
 			c.Server.Indirizzo)
 	}
+	// url_pubblico (7C.1, P1): lo schema deve essere quello che il listener parla davvero. Un
+	// pacchetto con «http://» su un server TLS manda i worker a bussare in chiaro a una porta che
+	// risponde solo cifrata; il contrario manda l'impronta a verificare un certificato che non c'e'.
+	c.Server.URLPubblico = strings.TrimRight(strings.TrimSpace(c.Server.URLPubblico), "/")
+	if c.Server.URLPubblico != "" {
+		u, err := url.Parse(c.Server.URLPubblico)
+		if err != nil || u.Host == "" || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") ||
+			u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return fmt.Errorf("config: [server].url_pubblico = %q non valido: serve «https://host[:porta]» (o http:// se il server gira in chiaro), senza percorso", c.Server.URLPubblico)
+		}
+		if u.Scheme != c.Schema() {
+			return fmt.Errorf("config: [server].url_pubblico = %q usa %s:// ma il server parla %s:// (tls_cert/tls_key %s)",
+				c.Server.URLPubblico, u.Scheme, c.Schema(), map[bool]string{true: "presenti", false: "assenti"}[c.ETLS()])
+		}
+	}
 	return nil
+}
+
+// HostPubblico e' il solo host di [server].url_pubblico, senza schema e porta; vuoto se non dichiarato.
+// Serve al certificato generato (SAN) e al confronto con i nomi di uno gia' esistente.
+func (c *Config) HostPubblico() string {
+	if c.Server.URLPubblico == "" {
+		return ""
+	}
+	u, err := url.Parse(c.Server.URLPubblico)
+	if err != nil {
+		return ""
+	}
+	return strings.Trim(u.Hostname(), "[]")
 }
 
 // assoluto risolve un percorso relativo rispetto alla cartella del file di configurazione: i

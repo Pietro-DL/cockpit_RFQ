@@ -21,7 +21,7 @@ from uuid import UUID
 import pymupdf
 
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Cockpit, ContenutoIncompleto, ErroreHTTP, ImprontaSbagliata,
-                            carica_config, configura_log, diagnosi, nome_worker)
+                            carica_config, configura_log, diagnosi, nome_worker, riporta_risultato)
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
 
 log = logging.getLogger("worker-analisi")
@@ -440,15 +440,7 @@ class WorkerAnalisi:
             log.exception("job %d errore: %s", job.job_id, e)
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
 
-        try:
-            self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
-        except ErroreHTTP as e:
-            if e.tentativo_non_valido:
-                log.warning("job %d: risultato scartato dal server (409): il tentativo non era più valido", job.job_id)
-            else:
-                log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
-        except Exception as e:
-            log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
+        riporta_risultato(self.api, job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token, log)
         log.info("job %d completato in %.2fs -> %s", job.job_id, time.time() - t0, ris.esito)
 
     def analizza(self, job: Job, p: PayloadAnalizzaAllegato) -> RisultatoRichiesta:

@@ -106,8 +106,15 @@ legge e basta ed è sempre consentito.
    `store_id`): il server interseca con le autorizzazioni e registra lo store in `casella_store` per quella
    postazione. È il server a scegliere il job, il worker a eseguirlo.
 
-Il worker analisi salta i punti 3–5: ha solo `worker_id`, `token` e il percorso dello staging del server, che
-legge.
+Il worker analisi salta i punti 3–5: ha solo `worker_id`, `token` e una cartella `staging` sua, dove scarica
+il contenuto da analizzare (dal 7C.1 non legge più lo staging del server: vedi §6).
+
+**Avvio automatico (7C.1).** Il pacchetto della postazione contiene `installa-postazione.ps1`: ferma ciò che
+gira, installa le dipendenze, crea lo `staging` del worker, importa `cert.pem` fra le autorità radice
+dell'utente e registra un'attività pianificata per ogni sezione di `worker.toml` (`[outlook]`, `[analisi]`),
+all'accesso dell'utente, istanza singola, riavvio automatico, `pythonw` senza finestra (sotto `pythonw`
+`configura_log` non apre la console: il log è solo su file). `-Ferma` prima di rigenerare il pacchetto,
+`-Mostra` per lo stato, `-Disinstalla` per togliere tutto.
 
 ## 4. Gli endpoint (tutti sotto `/api/v1`, tutti autenticati con `X-Cockpit-Token`)
 
@@ -238,6 +245,17 @@ con token nuovo.
 
 Un solo worker Outlook per PC (mutex); Outlook classico aperto nella sessione dell'utente (COM non gira
 senza sessione interattiva).
+
+**Result dopo un buco di rete (7C.1).** `cockpit_client.riporta_risultato()` ripete il POST del result fino a
+tre volte se la RETE cade (al banco del 20/09/2026 un `RemoteDisconnected` ha fatto rifare il lavoro da capo
+dopo la scadenza del lease). Se il primo era arrivato, il secondo riceve 409 — il job è chiuso — e il worker
+tace, come per un lease perso: il server non applica due volte niente (upload e result ripetuti dallo stesso
+tentativo lasciano un contenuto, un job fatto, un tentativo). Un errore HTTP diverso da 409 non si ripete.
+
+**Tempi del sync (7C.1).** `RisultatoSync.tempi` e una riga di log alla fine di ogni sync dicono dove è
+passato il tempo: `com` (enumerazione e conversione in Outlook), `serializzazione`, `https` (chiamate di
+ingest andata e ritorno) e `server` (la parte dichiarata dal server in `IngestRisposta.durata_ms`); la
+differenza fra `https` e `server` è la rete.
 
 ## 8. Comandi diagnostici
 

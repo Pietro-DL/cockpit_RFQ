@@ -73,6 +73,13 @@ modalita = "shadow"
 # Limite di un singolo allegato caricato dal worker (PUT /api/v1/allegati/{id}/file). Oltre, il server
 # risponde 413 prima di ricevere il file e l'allegato compare in errore con il motivo. Default 64.
 max_upload_mb = 64
+# L'indirizzo con cui worker e browser CHIAMANO il server (7C.1): finisce nel worker.toml del
+# pacchetto della postazione e nelle sue istruzioni, e il suo host entra nei nomi del certificato
+# generato. Vuoto = si deriva dal bind: con "0.0.0.0:8443" esce il nome host della macchina, che da
+# un altro PC della LAN non è detto che si risolva (al banco del 20/09/2026 il worker analisi ha avuto
+# «getaddrinfo failed»). Sulla LAN conviene un IPv4 stabile o un FQDN. Lo schema deve essere quello
+# che il server parla davvero (https con tls_cert/tls_key, http senza): altrimenti non parte.
+# url_pubblico = "https://10.0.0.7:8443"
 
 [db]
 dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"

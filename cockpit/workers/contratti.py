@@ -121,6 +121,9 @@ class IngestRisposta(Base):
     aggiornati: int
     falliti: int = 0
     esiti: list[EsitoMessaggio]
+    # quanto il SERVER ha impiegato a scrivere il lotto (7C.1): la differenza con il tempo della
+    # chiamata HTTPS misurata dal worker e' la rete
+    durata_ms: int = 0
 
 
 # ---------------------------------------------------------------- coda job
@@ -251,6 +254,8 @@ class CartellaEsito(Base):
 
 class RisultatoSync(Base):
     cartelle: list[CartellaEsito]
+    # Dove il sync ha passato il suo tempo, in secondi (7C.1): com, serializzazione, https, server.
+    tempi: dict[str, float] = Field(default_factory=dict)
 
 
 class PayloadRileggiElemento(Base):

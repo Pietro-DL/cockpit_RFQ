@@ -54,6 +54,13 @@
       },
       "title": "Cartelle",
       "type": "array"
+    },
+    "tempi": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Tempi",
+      "type": "object"
     }
   },
   "required": [

@@ -360,6 +360,11 @@ func run(cfgPath string, o opzioni) error {
 		if len(nomi) == 0 {
 			nomi = rete.NomiPredefiniti(cfg.Server.Indirizzo)
 		}
+		// L'host di url_pubblico entra nei nomi del certificato (7C.1, P1): e' quello che il browser
+		// digita, e un certificato che non lo nomina da' un avviso in piu' da ignorare ogni volta.
+		if h := cfg.HostPubblico(); h != "" {
+			nomi = append(nomi, h)
+		}
 		materiale, err = rete.Prepara(cfg.Server.TLSCert, cfg.Server.TLSKey, nomi)
 		if err != nil {
 			return err
@@ -370,6 +375,11 @@ func run(cfgPath string, o opzioni) error {
 				"nota", "va copiato nei worker.toml come impronta = ...")
 		}
 		log.Info("TLS attivo", "impronta", materiale.Impronta, "scade", materiale.Scadenza.Format("02/01/2006"))
+		if h := cfg.HostPubblico(); h != "" && !materiale.Copre(h) {
+			log.Warn("il certificato non nomina l'host di [server].url_pubblico: il browser dira' che il nome non corrisponde",
+				"host", h, "nomi_del_certificato", materiale.Nomi,
+				"rimedio", "aggiungerlo a [server].tls_nomi e cancellare cert/key per rigenerarli (poi rigenerare i pacchetti: cambia l'impronta)")
+		}
 	} else if !config.SuLoopback(cfg.Server.Indirizzo) {
 		// Ci si arriva solo con consenti_lan_in_chiaro: la configurazione lo rifiuta da sola. Va
 		// ricordato a ogni avvio, perché una scelta presa una volta diventa lo stato normale.
@@ -392,10 +402,16 @@ func run(cfgPath string, o opzioni) error {
 		StagingMaxByte:    int64(cfg.Staging.MaxMB) * 1024 * 1024}
 	ws := &web.Server{Pool: pool, Log: log, NAS: scrittore, Ingest: servizioIngest, Templ: templ, Static: static,
 		IntervalloSync: intervalloSync, Sync: opzioniSync, SyncAperturaInbox: syncApertura, Modalita: cfg.Server.Modalita,
-		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, Workers: risorse.FS, Agente: servizioAgente,
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, URLPubblico: cfg.Server.URLPubblico, Workers: risorse.FS, Agente: servizioAgente,
 		Ricognitore: ricognitore}
 	if err := ws.Init(); err != nil {
 		return err
+	}
+	if cfg.Server.URLPubblico == "" {
+		log.Info("[server].url_pubblico non dichiarato: i pacchetti delle postazioni useranno l'indirizzo derivato dal bind",
+			"url", ws.URLServer(), "nota", "sulla LAN conviene dichiarare un IPv4 stabile o un FQDN che si risolve da ogni PC")
+	} else {
+		log.Info("indirizzo pubblico del server", "url", ws.URLServer())
 	}
 	wa := &workerapi.Server{
 		Pool: pool, Log: log, Ingest: servizioIngest,

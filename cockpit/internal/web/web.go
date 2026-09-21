@@ -63,6 +63,9 @@ type Server struct {
 	TLS *rete.Materiale
 	// Indirizzo è [server].indirizzo: da qui si ricava l'URL da scrivere nel worker.toml del pacchetto.
 	Indirizzo string
+	// URLPubblico e' [server].url_pubblico (7C.1, P1): l'indirizzo che finisce nel pacchetto della
+	// postazione. Vuoto = si deriva dal bind (URLServer).
+	URLPubblico string
 	// Agente è l'analisi semantica (checkpoint 3R §9). Nil o spenta: la schermata non offre il
 	// pulsante, e la rotta risponde che l'analisi non è attiva. Nascondere non è autorizzare, quindi
 	// il controllo sta in tutti e due i posti.

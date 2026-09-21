@@ -92,6 +92,11 @@ type postazioniDati struct {
 // le interfacce» e non è un posto dove telefonare. In quel caso si usa il nome host della macchina:
 // è ciò che un worker può risolvere, ed è anche uno dei nomi del certificato.
 func (s *Server) URLServer() string {
+	// Dichiarato in [server].url_pubblico (7C.1, P1): vince sempre. Derivarlo dal bind da' il nome
+	// host della macchina, che sulla LAN puo' non risolversi da un altro PC.
+	if u := strings.TrimRight(strings.TrimSpace(s.URLPubblico), "/"); u != "" {
+		return u
+	}
 	host, porta, err := net.SplitHostPort(strings.TrimSpace(s.Indirizzo))
 	if err != nil {
 		host, porta = strings.TrimSpace(s.Indirizzo), ""
@@ -286,17 +291,38 @@ func istruzioni(host, url string, conTLS bool) string {
 	fmt.Fprintf(&b, "Worker Cockpit RFQ per %s\n", host)
 	b.WriteString(strings.Repeat("=", 40) + "\n\n")
 	fmt.Fprintf(&b, "Server: %s\n\n", url)
-	b.WriteString("1. Copiare questa cartella sul PC, per esempio in C:\\cockpit\\worker\n")
-	b.WriteString("2. Installare le dipendenze:   python -m pip install -r requirements.txt\n")
-	b.WriteString("3. Controllare che [staging] in worker.toml punti a una cartella che esiste\n")
-	b.WriteString("4. Prova senza prendere job:   python worker_outlook.py --caselle\n")
-	b.WriteString("   (deve elencare SOLO le caselle assegnate a questo PC dal server)\n")
-	b.WriteString("5. Avvio normale:              python worker_outlook.py\n")
-	b.WriteString("   Worker di analisi (se serve su questo PC): python worker_analisi.py\n\n")
+	b.WriteString("INSTALLAZIONE (una volta, sul PC " + host + ", con l'utente che ha il profilo Outlook)\n\n")
+	b.WriteString("1. Scompattare questo zip in una cartella stabile, per esempio C:\\cockpit\\worker.\n")
+	b.WriteString("   Se c'era gia' un pacchetto precedente, scompattare SOPRA: i file del worker si aggiornano\n")
+	b.WriteString("   e worker.toml viene sostituito con i token nuovi.\n")
+	b.WriteString("2. Da quella cartella, in PowerShell:\n")
+	b.WriteString("       powershell -ExecutionPolicy Bypass -File installa-postazione.ps1\n")
+	b.WriteString("   Lo script ferma i worker eventualmente in corso, installa le dipendenze Python,\n")
+	b.WriteString("   crea la cartella di staging del worker")
 	if conTLS {
-		b.WriteString("Il collegamento è cifrato e il worker verifica l'IMPRONTA del certificato scritta in\n")
+		b.WriteString(", installa il certificato del server fra le\n")
+		b.WriteString("   autorita' radice dell'utente (cert.pem: Windows chiede una conferma), ")
+	} else {
+		b.WriteString(", ")
+	}
+	b.WriteString("registra i worker\n")
+	b.WriteString("   di questo PC come attivita' pianificate all'accesso dell'utente (istanza singola,\n")
+	b.WriteString("   riavvio automatico, log in <staging>\\log) e li avvia subito.\n")
+	b.WriteString("3. Verifica:   powershell -ExecutionPolicy Bypass -File installa-postazione.ps1 -Mostra\n")
+	b.WriteString("   e la pagina Postazioni del Cockpit, dove il PC deve risultare collegato.\n\n")
+	b.WriteString("Prova a mano, senza attivita' pianificate:   python worker_outlook.py --caselle\n")
+	b.WriteString("(deve elencare SOLO le caselle assegnate a questo PC dal server).\n\n")
+	b.WriteString("RIGENERAZIONE DEL PACCHETTO. Generare un pacchetto nuovo dalla pagina Postazioni INVALIDA\n")
+	b.WriteString("questo: i token di worker.toml smettono di funzionare nel momento in cui si preme il\n")
+	b.WriteString("pulsante, e i worker in esecuzione ricevono 401. La sequenza giusta e':\n")
+	b.WriteString("    1. sul PC:   installa-postazione.ps1 -Ferma      (ferma attivita' e worker)\n")
+	b.WriteString("    2. sul Cockpit: genera e scarica il pacchetto nuovo\n")
+	b.WriteString("    3. sul PC:   scompattare sopra, poi installa-postazione.ps1   (riparte tutto)\n\n")
+	if conTLS {
+		b.WriteString("Il collegamento e' cifrato e il worker verifica l'IMPRONTA del certificato scritta in\n")
 		b.WriteString("worker.toml. Se il certificato del server viene rifatto, il worker si ferma con un errore\n")
-		b.WriteString("esplicito: va scaricato un pacchetto nuovo. Non togliere l'impronta per farlo ripartire.\n\n")
+		b.WriteString("esplicito: va scaricato un pacchetto nuovo. Non togliere l'impronta per farlo ripartire.\n")
+		b.WriteString("cert.pem e' il solo certificato pubblico: serve al browser, non al worker.\n\n")
 	}
 	b.WriteString("I token in worker.toml sono segreti e valgono solo per questo PC. Se il file viene perso,\n")
 	b.WriteString("non si recupera: si rigenera il pacchetto dalla pagina Postazioni (e i token vecchi muoiono).\n")
@@ -343,6 +369,14 @@ func (s *Server) zipPacchetto(host, workerToml string) ([]byte, error) {
 	}
 	if err := scrivi("ISTRUZIONI.txt", istruzioni(host, s.URLServer(), s.TLS != nil)); err != nil {
 		return nil, err
+	}
+	// Il certificato PUBBLICO (7C.1, P1): il worker verifica l'impronta e non ne ha bisogno, il
+	// browser si': installa-postazione.ps1 lo mette fra le autorita' radice dell'utente. La chiave
+	// privata non e' in Materiale.PEM e non puo' finire qui.
+	if s.TLS != nil && len(s.TLS.PEM) > 0 {
+		if err := scrivi("cert.pem", string(s.TLS.PEM)); err != nil {
+			return nil, err
+		}
 	}
 	if s.Workers != nil {
 		nomi, err := fs.Glob(s.Workers, "workers/*")
