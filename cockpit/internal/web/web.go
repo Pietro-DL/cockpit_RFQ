@@ -25,7 +25,7 @@ import (
 
 	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/core/domain"
-	"promatec/cockpit/internal/ingest"
+	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/contratti/api"
 	"promatec/cockpit/internal/platform/db"

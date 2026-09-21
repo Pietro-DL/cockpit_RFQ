@@ -22,9 +22,9 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/agente"
+	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/fornitori"
-	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
