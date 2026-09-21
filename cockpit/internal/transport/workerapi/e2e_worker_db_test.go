@@ -112,7 +112,7 @@ func (b *bancoE2E) avviaWorker(t *testing.T, lavoroS string) *esecuzione {
 		// macchina senza interprete questa riga dice esattamente che cosa manca.
 		t.Fatalf("python non è nel PATH: questa prova fa girare il worker vero (serve anche pywin32, che worker_outlook importa): %v", err)
 	}
-	dir, err := filepath.Abs(filepath.Join("..", "..", "workers"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "workers"))
 	if err != nil {
 		t.Fatal(err)
 	}

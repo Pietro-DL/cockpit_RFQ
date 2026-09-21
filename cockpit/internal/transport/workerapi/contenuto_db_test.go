@@ -248,7 +248,7 @@ func TestE2EIlWorkerAnalisiVeroConLoStagingSuUnAltraCartella(t *testing.T) {
 		// non si salta: il worker E' Python, e una prova saltata non e' una prova passata
 		t.Fatalf("python non è nel PATH: questa prova fa girare il worker analisi vero (serve pymupdf): %v", err)
 	}
-	dir, err := filepath.Abs(filepath.Join("..", "..", "workers"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "workers"))
 	if err != nil {
 		t.Fatal(err)
 	}

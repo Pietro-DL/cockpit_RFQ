@@ -85,7 +85,7 @@ if (-not $SenzaDB) {
     if ($SenzaPython) {
         $env:COCKPIT_TEST_SENZA_PYTHON = "1"
         Annota "L4 E2E worker" "il client vero (worker Python) contro il server vero" `
-            "go test -tags integrazione -run TestE2E ./internal/workerapi" "SALTATO" `
+            "go test -tags integrazione -run TestE2E ./internal/transport/workerapi" "SALTATO" `
             "richiesto -SenzaPython: non verificato"
     }
     Esegui "L4 integrazione" "test su PostgreSQL di test, pacchetti in serie (E2E, guardie sul futuro, W4/W10/W11, PK1)" "go test -tags integrazione -count=1 -p 1 ./..." { go test -tags integrazione -count=1 -p 1 ./... }

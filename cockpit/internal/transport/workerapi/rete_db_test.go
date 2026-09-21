@@ -144,7 +144,7 @@ func python(t *testing.T) string {
 
 func eseguiScript(t *testing.T, py, url, impronta string) string {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("..", "..", "workers"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "workers"))
 	if err != nil {
 		t.Fatal(err)
 	}

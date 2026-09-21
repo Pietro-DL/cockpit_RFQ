@@ -33,8 +33,8 @@ import (
 	"promatec/cockpit/internal/platform/migrazioni"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/transport/workerapi"
 	"promatec/cockpit/internal/web"
-	"promatec/cockpit/internal/workerapi"
 )
 
 // opzioni sono i lavori amministrativi che si chiedono all'eseguibile dalla riga di comando. Ognuno

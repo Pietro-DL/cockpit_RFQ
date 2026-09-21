@@ -30,7 +30,7 @@ import (
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
-	"promatec/cockpit/internal/workerapi"
+	"promatec/cockpit/internal/transport/workerapi"
 )
 
 const tokenWorkerProva = "token-worker-di-prova"
