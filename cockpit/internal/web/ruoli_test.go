@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L1 — l'ordine dei ruoli e la barra di navigazione costruita su quell'ordine (voce 6.9, W15).

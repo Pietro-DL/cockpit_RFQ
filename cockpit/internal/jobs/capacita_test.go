@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L1 — blocco 4: la tabella delle capacità, guardata da sola.

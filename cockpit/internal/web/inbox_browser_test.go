@@ -28,7 +28,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 func TestL7InboxQuadrantiNelBrowser(t *testing.T) {

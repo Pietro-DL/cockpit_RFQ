@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Admin → Anagrafica → cliente → «Lavorazioni e fornitori» (blocco 7A, D39)

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Copia è UNA presenza di un messaggio: la casella e l'EntryID dell'elemento in quella casella. È

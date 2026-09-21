@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // CAPACITÀ DI SCRITTURA, non un interruttore solo (blocco 4 del checkpoint 3R).

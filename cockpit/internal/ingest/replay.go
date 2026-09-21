@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Riprova rimette in gioco un elemento finito in scarto. I due tipi di scarto si riprovano in modi

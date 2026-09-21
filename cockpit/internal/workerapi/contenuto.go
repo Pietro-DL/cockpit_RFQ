@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // scaricaContenuto e' GET /api/v1/allegati/{id}/contenuto?job_id=&lease_token=&worker_id= (7C.1, P0).

@@ -26,9 +26,9 @@ import (
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/config"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fondazioni"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/testutil"
 	"promatec/cockpit/internal/workerapi"
 )

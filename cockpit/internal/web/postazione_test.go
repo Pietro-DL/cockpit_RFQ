@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L1 — M2: i tre stati della testata per casella, calcolati da caselle, credenziali e presenze

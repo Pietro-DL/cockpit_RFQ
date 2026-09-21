@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L1 — blocco 4A: chi decide se gli allegati scendono da soli, e che cosa fa quando non lo capisce.

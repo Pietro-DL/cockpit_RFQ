@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/archivio"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L'estrazione di un archivio è un JOB, non un pezzo di una richiesta HTTP (blocco 4A).

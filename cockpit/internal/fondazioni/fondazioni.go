@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/config"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/rete"
 )
 

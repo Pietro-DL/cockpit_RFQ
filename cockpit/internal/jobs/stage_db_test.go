@@ -22,7 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // stagingFinto è lo staging come lo vede il server: un elenco di percorsi che esistono. Non tocca il

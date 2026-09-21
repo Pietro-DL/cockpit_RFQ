@@ -13,9 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // AllegatoUI è la riga della tabella allegati: FATTO (allegato) + INTERPRETAZIONE (proposta) + DECISIONE (documento).

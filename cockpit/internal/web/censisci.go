@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // «Censisci come fornitore» / «Censisci come cliente» dal pannello del messaggio (blocco 7A.3)

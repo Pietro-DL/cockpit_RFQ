@@ -27,8 +27,8 @@ import (
 
 	"promatec/cockpit/internal/api"
 	"promatec/cockpit/internal/config"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // claimInCorso avvia un claim vero su un altro goroutine e restituisce il canale che si chiude quando

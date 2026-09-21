@@ -22,9 +22,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/testutil"
 )
 

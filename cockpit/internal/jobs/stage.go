@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // CartellaStaging era la sottocartella di staging di un messaggio: hash breve del Message-ID.

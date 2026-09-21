@@ -34,8 +34,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Seme è il file. Un oggetto con una sola chiave, così ci si può aggiungere altro (articoli, nel

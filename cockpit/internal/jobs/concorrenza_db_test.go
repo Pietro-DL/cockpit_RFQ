@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Q1 — claim esclusivo sotto concorrenza.

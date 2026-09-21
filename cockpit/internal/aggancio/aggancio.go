@@ -25,8 +25,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // FinestraDefault è entro quanti giorni due messaggi possono ancora essere la stessa richiesta quando il

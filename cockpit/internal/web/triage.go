@@ -15,9 +15,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Blocco 4 — triage in UI (SPEC schermata A): Nuova RFQ / Aggancia a… / Ignora.

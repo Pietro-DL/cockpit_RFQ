@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L4 — checkpoint 3R §2: l'ingest PROPONE e non decide.

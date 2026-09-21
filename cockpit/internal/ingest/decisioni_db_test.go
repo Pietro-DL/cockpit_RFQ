@@ -24,7 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // statoDecisione è la fotografia di ciò che l'operatore ha deciso su un messaggio.

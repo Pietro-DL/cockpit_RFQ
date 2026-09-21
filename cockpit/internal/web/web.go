@@ -25,11 +25,11 @@ import (
 
 	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/ingest"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/rete"
 )
 

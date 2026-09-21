@@ -16,8 +16,8 @@ import (
 
 	"promatec/cockpit/internal/aggancio"
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // LA CONTROPARTE NELL'INGEST (blocco 7A, D33)

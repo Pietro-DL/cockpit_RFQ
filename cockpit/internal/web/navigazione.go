@@ -1,6 +1,6 @@
 package web
 
-import "promatec/cockpit/internal/db"
+import "promatec/cockpit/internal/platform/db"
 
 // La navigazione (8.8, D29)
 //

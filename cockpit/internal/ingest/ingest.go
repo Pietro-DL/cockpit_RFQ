@@ -31,9 +31,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // MaxIdentificativo: oltre questa lunghezza un Message-ID non è più un identificativo utilizzabile.

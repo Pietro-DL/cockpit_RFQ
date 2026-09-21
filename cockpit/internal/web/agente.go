@@ -8,8 +8,8 @@ import (
 
 	"promatec/cockpit/internal/agente"
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L'analisi semantica in UI (checkpoint 3R §9).

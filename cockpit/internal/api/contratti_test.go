@@ -36,7 +36,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // tipiContratto lega ogni schema pubblicato al tipo Go che deve corrispondergli. Una voce in meno qui

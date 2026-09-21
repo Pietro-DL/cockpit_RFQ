@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Schermata B — il thread RFQ: la "chat" (tutti i messaggi agganciati, dal DB), gli allegati da smistare,

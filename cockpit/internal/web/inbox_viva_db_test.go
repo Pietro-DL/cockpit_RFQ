@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // SV1 — «Aggiorna ora» premuto dieci volte accoda UN sync per casella, non dieci.

@@ -25,8 +25,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // esecutore costruisce l'esecutore server con una radice NAS che possiamo far sparire e riapparire.

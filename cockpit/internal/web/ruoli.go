@@ -3,7 +3,7 @@ package web
 import (
 	"net/http"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // I ruoli — chi può fare che cosa (voce 6.9)

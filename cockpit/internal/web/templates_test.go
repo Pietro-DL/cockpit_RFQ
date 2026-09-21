@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	risorse "promatec/cockpit"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
 	"promatec/cockpit/internal/fornitori"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // I template vengono compilati in Init, ma gli errori di campo (nome sbagliato, metodo mancante) escono solo

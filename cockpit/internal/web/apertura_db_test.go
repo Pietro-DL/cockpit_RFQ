@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // syncAccodati sono i job di sincronizzazione presenti in coda, di qualunque stato.

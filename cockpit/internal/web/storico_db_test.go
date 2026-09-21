@@ -24,7 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // jobStorici è l'ULTIMO sync storico accodato per ogni casella. Storico = con un limite superiore:

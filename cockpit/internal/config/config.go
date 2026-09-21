@@ -13,7 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 type Config struct {

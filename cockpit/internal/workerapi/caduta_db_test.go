@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 func TestUnaCadutaDopoLUploadOIlResultNonDuplicaNiente(t *testing.T) {

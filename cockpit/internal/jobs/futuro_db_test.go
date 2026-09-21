@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 func casellaDiProva(t *testing.T, ctx context.Context, q *db.Queries, indirizzo string) db.Casella {

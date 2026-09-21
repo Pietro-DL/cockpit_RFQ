@@ -18,8 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/nas"
+	"promatec/cockpit/internal/platform/db"
 )
 
 const cartellaProva = `ACME\WIP\2026 09 17 prova`

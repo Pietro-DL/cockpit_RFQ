@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // Admin → Anagrafica, la parte amministrabile (checkpoint 3R §7).

@@ -26,8 +26,8 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // claimJob e' claim, ma dice anche QUALE job ha preso: con due download in coda insieme serve.

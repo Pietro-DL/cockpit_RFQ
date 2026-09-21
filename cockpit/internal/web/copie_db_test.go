@@ -20,8 +20,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // ImpostaCapacitaProva fissa le capacita' del processo per la durata del test e le rimette com'erano

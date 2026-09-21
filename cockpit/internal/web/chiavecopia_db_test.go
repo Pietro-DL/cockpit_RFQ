@@ -24,8 +24,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/jobs"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // leggibile e' l'HTML come lo legge una persona: il template scrive «gia&#39;», non «gia'», e un test

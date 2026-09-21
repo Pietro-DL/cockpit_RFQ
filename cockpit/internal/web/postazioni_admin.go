@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/fondazioni"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/rete"
 )
 

@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/rete"
 )
 

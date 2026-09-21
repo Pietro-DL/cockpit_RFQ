@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/api"
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // estrattoreFinto registra che cosa gli e' stato chiesto.

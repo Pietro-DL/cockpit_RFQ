@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
 	"promatec/cockpit/internal/domain"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // I CANDIDATI VERSO UNA RICHIESTA AI FORNITORI (blocco 7B.2)

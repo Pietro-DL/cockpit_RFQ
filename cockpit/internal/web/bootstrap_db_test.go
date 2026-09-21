@@ -20,7 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/db"
+	"promatec/cockpit/internal/platform/db"
 )
 
 // L'import dei fornitori dalla schermata: tre messaggi dello stesso dominio sconosciuto, uno già
