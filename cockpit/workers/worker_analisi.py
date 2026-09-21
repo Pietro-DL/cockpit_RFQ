@@ -8,9 +8,11 @@ e la struttura dei file (STEP), senza mai basarsi su nomi di clienti per evitare
 from __future__ import annotations
 
 import argparse
+import gc
 import logging
 import os
 import re
+import shutil
 import socket
 import time
 from pathlib import Path
@@ -18,8 +20,8 @@ from uuid import UUID
 
 import pymupdf
 
-from cockpit_client import (ERRORI_RETE, Cockpit, ErroreHTTP, ImprontaSbagliata, carica_config, configura_log,
-                            diagnosi, nome_worker)
+from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Cockpit, ContenutoIncompleto, ErroreHTTP, ImprontaSbagliata,
+                            carica_config, configura_log, diagnosi, nome_worker)
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
 
 log = logging.getLogger("worker-analisi")
@@ -132,7 +134,12 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
     """
     testo_completo = ""
     try:
-        with pymupdf.open(percorso) as doc:
+        # Il PDF si apre DA MEMORIA, non per percorso (7C.1, P0): su Windows PyMuPDF tiene aperto un
+        # file che non riesce ad aprire, e il temporaneo del worker non si cancella piu' («utilizzato
+        # da un altro processo»). Letto in memoria, il file e' chiuso prima che PyMuPDF lo veda.
+        with open(percorso, "rb") as f:
+            dati = f.read()
+        with pymupdf.open(stream=dati, filetype="pdf") as doc:
             for i, pag in enumerate(doc):
                 testo_completo += pag.get_text() + "\n"
                 if i >= 10:  # non serve scorrere oltre 10 pagine
@@ -269,6 +276,29 @@ def analizza_step(percorso: str, nome_file: str) -> dict:
     }
 
 
+def rimuovi_con_pazienza(percorso: str, tentativi: int = 10, attesa_s: float = 0.2) -> bool:
+    """Cancella un file temporaneo su Windows, dove un handle ancora aperto fa fallire la rimozione.
+
+    E' successo alla prima prova del download (7C.1, P0): PyMuPDF che NON riesce ad aprire un file
+    lo tiene comunque aperto finche' l'oggetto non viene raccolto, e `os.remove` risponde
+    «Il file e' utilizzato da un altro processo». Il file restava nella tmp del worker fino al
+    riavvio. Qui si forza la raccolta e si riprova per qualche decimo di secondo; se non basta, lo
+    si dice nel log e ci pensa svuota_tmp all'avvio successivo.
+    """
+    for i in range(tentativi):
+        try:
+            if os.path.exists(percorso):
+                os.remove(percorso)
+            return True
+        except OSError as e:
+            if i == tentativi - 1:
+                log.warning("file temporaneo non rimosso: %s (%s)", percorso, e)
+                return False
+            gc.collect()
+            time.sleep(attesa_s)
+    return False
+
+
 def analizza_file(path_staging: str, nome_file: str) -> dict:
     """Smista l'analisi in base all'estensione del file in staging."""
     ext = Path(nome_file).suffix.lower().lstrip(".")
@@ -338,6 +368,32 @@ class WorkerAnalisi:
         self.cfg = cfg
         self.api = Cockpit(cfg["server_url"], cfg["token"], impronta=cfg.get("impronta", ""))
         self.worker_id = nome_worker("analisi", cfg)
+        # Cartella DEL WORKER (7C.1, P0): qui scende il contenuto da analizzare, il tempo di leggerlo.
+        # Non e' lo staging del server, che puo' stare su un altro PC.
+        self.staging = os.path.abspath(cfg.get("staging") or ".")
+        self.svuota_tmp()
+
+    def svuota_tmp(self) -> int:
+        """`tmp\\` e' di passaggio: il contenuto scaricato dal server sta li' il tempo dell'analisi e si
+        cancella subito dopo. Cio' che resta e' di un processo morto a meta', e nessuno lo riprendera':
+        il job e' tornato in coda e il tentativo dopo lo riscarica. Si svuota all'avvio."""
+        tmp = os.path.join(self.staging, "tmp")
+        if not os.path.isdir(tmp):
+            return 0
+        n = 0
+        for nome in os.listdir(tmp):
+            p = os.path.join(tmp, nome)
+            try:
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+                n += 1
+            except OSError as e:
+                log.warning("tmp non svuotata: %s (%s)", p, e)
+        if n:
+            log.info("cartella tmp svuotata all'avvio: %d voci di tentativi precedenti", n)
+        return n
 
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
         log.info("worker %s collegato a %s", self.worker_id, self.api.url)
@@ -374,33 +430,78 @@ class WorkerAnalisi:
         try:
             if job.tipo != "analizza_allegato":
                 raise ValueError(f"tipo job imprevisto per worker analisi: {job.tipo}")
-
             p = PayloadAnalizzaAllegato.model_validate(job.payload)
-            esito = analizza_file(p.path_staging, p.nome_file)
-            ris_analisi = RisultatoAnalisi(
-                allegato_id=p.allegato_id,
-                tipo_proposto=esito["tipo_proposto"],
-                codice=esito.get("codice", ""),
-                rev=esito.get("rev", ""),
-                confidenza=esito.get("confidenza", 50),
-                fonte=esito.get("fonte", "cartiglio"),
-                dettagli=esito.get("dettagli", {}),
-                versione_analizzatore=p.versione_analizzatore,
-                hash_configurazione=p.hash_configurazione,
-            )
-            ris = RisultatoRichiesta(esito="ok", dati=ris_analisi.model_dump(mode="json"))
-        except FileNotFoundError as e:
-            log.error("job %d file non trovato: %s", job.job_id, e)
-            ris = RisultatoRichiesta(esito="errore", errore=f"file mancante in staging: usa Riscarica ({e})", definitivo=True)
+            ris = self.analizza(job, p)
+        except ArrestoRichiesto as e:
+            # il tentativo non e' piu' nostro: niente result, il job e' gia' di un altro tentativo
+            log.warning("job %d interrotto: %s", job.job_id, e)
+            return
         except Exception as e:
             log.exception("job %d errore: %s", job.job_id, e)
             ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
 
         try:
             self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
+        except ErroreHTTP as e:
+            if e.tentativo_non_valido:
+                log.warning("job %d: risultato scartato dal server (409): il tentativo non era più valido", job.job_id)
+            else:
+                log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
         except Exception as e:
             log.error("impossibile riportare risultato job %d: %s", job.job_id, e)
         log.info("job %d completato in %.2fs -> %s", job.job_id, time.time() - t0, ris.esito)
+
+    def analizza(self, job: Job, p: PayloadAnalizzaAllegato) -> RisultatoRichiesta:
+        """Scarica il contenuto dal server, lo analizza, lo cancella (7C.1, P0).
+
+        Il payload NON dice dove sta il file: dice quale allegato e' e che sha256 deve avere. I byte
+        si prendono con GET /api/v1/allegati/{id}/contenuto dentro questo tentativo, si scrivono in
+        `tmp\\<job>\\` e si confrontano con lo sha256 del payload — un file arrivato a meta' e' un
+        file diverso, e si ripete. Un `path_staging` in un job vecchio ancora in coda si ignora:
+        un percorso sul disco di un altro PC non dice niente a questo.
+        """
+        locale = os.path.join(self.staging, "tmp", str(job.job_id))
+        ext = Path(p.nome_file).suffix.lower()
+        dest = os.path.join(locale, "contenuto" + (ext if re.fullmatch(r"\.[a-z0-9]{1,10}", ext) else ""))
+        try:
+            try:
+                n, sha = self.api.scarica_contenuto(str(p.allegato_id), job.job_id, job.lease_token,
+                                                    self.worker_id, dest)
+            except ErroreHTTP as e:
+                if e.tentativo_non_valido:
+                    raise ArrestoRichiesto(f"download rifiutato: {e.corpo[:200]}") from e
+                if e.stato in (404, 410, 422):
+                    # il contenuto non c'e' piu' nella cache del server, o il job non e' l'analisi di
+                    # questo allegato: ritentare darebbe lo stesso esito
+                    log.error("job %d contenuto non disponibile: %s", job.job_id, e)
+                    return RisultatoRichiesta(esito="errore", definitivo=True,
+                                              errore=f"contenuto non disponibile sul server: usa Riscarica ({e.corpo[:300]})")
+                raise                                   # 5xx: il job fallisce senza «definitivo» e viene ritentato
+            atteso = (p.sha256 or "").lower()
+            if atteso and sha != atteso:
+                raise ContenutoIncompleto(f"sha256 del contenuto scaricato {sha[:12]}… diverso da quello atteso {atteso[:12]}…")
+            if p.bytes and n != p.bytes:
+                raise ContenutoIncompleto(f"scaricati {n} byte, attesi {p.bytes}")
+            esito = analizza_file(dest, p.nome_file)
+        finally:
+            rimuovi_con_pazienza(dest)
+            try:
+                if os.path.isdir(locale):
+                    os.rmdir(locale)
+            except OSError as e:
+                log.warning("cartella temporanea non rimossa: %s (%s)", locale, e)
+        ris_analisi = RisultatoAnalisi(
+            allegato_id=p.allegato_id,
+            tipo_proposto=esito["tipo_proposto"],
+            codice=esito.get("codice", ""),
+            rev=esito.get("rev", ""),
+            confidenza=esito.get("confidenza", 50),
+            fonte=esito.get("fonte", "cartiglio"),
+            dettagli=esito.get("dettagli", {}),
+            versione_analizzatore=p.versione_analizzatore,
+            hash_configurazione=p.hash_configurazione,
+        )
+        return RisultatoRichiesta(esito="ok", dati=ris_analisi.model_dump(mode="json"))
 
 
 def main():

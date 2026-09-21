@@ -1,17 +1,19 @@
 {
+  "description": "Che cosa analizzare, non dove sta (7C.1, P0).\n\nFino al banco a due macchine del 20/09/2026 c'era `path_staging`: il percorso del file sul\ndisco del SERVER. Il worker sull'altro PC lo cercava sul proprio e falliva. Ora il worker si\nprende i byte con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo, li verifica\ncon `sha256` e li cancella dopo l'analisi. Un `path_staging` in un job vecchio ancora in coda\nviene ignorato, non letto.",
   "properties": {
     "allegato_id": {
       "format": "uuid",
       "title": "Allegato Id",
       "type": "string"
     },
-    "path_staging": {
-      "title": "Path Staging",
-      "type": "string"
-    },
     "sha256": {
       "title": "Sha256",
       "type": "string"
+    },
+    "bytes": {
+      "default": 0,
+      "title": "Bytes",
+      "type": "integer"
     },
     "nome_file": {
       "title": "Nome File",
@@ -53,7 +55,6 @@
   },
   "required": [
     "allegato_id",
-    "path_staging",
     "sha256",
     "nome_file",
     "messaggio_id"

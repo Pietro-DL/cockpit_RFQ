@@ -42,7 +42,11 @@ class ServerFinto:
         self.stato_result = 204
         self.stato_upload = 204                # forzabile a 409 / 413 per provare l'upload (voce 2.3)
         self.caricamenti: list[dict] = []      # ogni PUT /allegati/{id}/file: id, query, bytes, sha256
-        self.eventi: list[str] = []            # ordine delle chiamate che contano: "upload", "result"
+        # GET /allegati/{id}/contenuto (7C.1, P0): i byte che il server «ha in staging», per allegato_id
+        self.contenuti: dict[str, bytes] = {}
+        self.scaricamenti: list[dict] = []     # ogni GET del contenuto: id e query (tentativo)
+        self.stato_contenuto = 200             # forzabile a 503 per provare la ripetizione
+        self.eventi: list[str] = []            # ordine delle chiamate che contano: "contenuto", "upload", "result"
         self.risposta_ingest: dict | None = None
         # GET /api/v1/worker/caselle (voce 2.6): le caselle che il server chiede al worker di
         # risolvere. Vuoto = il worker non ha niente da risolvere e non apre Outlook.
@@ -201,6 +205,37 @@ class ServerFinto:
                         padrone.richieste_caselle.append(parse_qs(parti.query).get("worker_id", [""])[0])
                         caselle = list(padrone.caselle_worker)
                     self._rispondi(200, caselle)
+                elif parti.path.startswith("/api/v1/allegati/") and parti.path.endswith("/contenuto"):
+                    # GET /api/v1/allegati/{id}/contenuto (7C.1, P0): i byte di un allegato, solo al
+                    # tentativo che deve analizzarlo. Il contenuto lo mette il test in `contenuti`.
+                    query = {k: v[0] for k, v in parse_qs(parti.query).items()}
+                    allegato_id = parti.path.split("/")[4]
+                    try:
+                        job_id = int(query.get("job_id", ""))
+                    except ValueError:
+                        self._rispondi(400, {"errore": "job_id mancante o non valido"})
+                        return
+                    stato, motivo = padrone.verifica_tentativo(
+                        "contenuto", job_id, query.get("worker_id"), query.get("lease_token"))
+                    if stato:
+                        self._rispondi(stato, {"errore": motivo})
+                        return
+                    with padrone.lock:
+                        padrone.scaricamenti.append({"allegato_id": allegato_id, "query": query})
+                        padrone.eventi.append("contenuto")
+                        stato = padrone.stato_contenuto
+                        dati = padrone.contenuti.get(allegato_id)
+                    if stato != 200:
+                        self._rispondi(stato, {"errore": "contenuto non disponibile"})
+                    elif dati is None:
+                        self._rispondi(410, {"errore": "contenuto non presente in staging: usa Riscarica"})
+                    else:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Content-Length", str(len(dati)))
+                        self.send_header("X-Cockpit-Sha256", hashlib.sha256(dati).hexdigest())
+                        self.end_headers()
+                        self.wfile.write(dati)
                 else:
                     self._rispondi(404, {"errore": "rotta sconosciuta: " + self.path})
 

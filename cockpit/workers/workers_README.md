@@ -119,6 +119,7 @@ legge.
 | `POST /jobs/{id}/result` | entrambi | fine del job | `RisultatoRichiesta` → 200 / 409 / 422 |
 | `POST /ingest/messaggi` | outlook | durante `sync_outlook`, un lotto per volta | `IngestRichiesta` → `IngestRisposta` (inseriti, aggiornati, falliti, cursore) |
 | `PUT /allegati/{id}/file` | outlook | durante `stage_allegato` | binario + `?job_id&lease_token&worker_id&sha256` → 200 / 409 / 413 / 422 |
+| `GET /allegati/{id}/contenuto` | analisi | durante `analizza_allegato` (7C.1) | `?job_id&lease_token&worker_id` → binario con `X-Cockpit-Sha256` / 409 tentativo non valido / 410 contenuto sparito dalla cache (Riscarica) / 422 il job non è l'analisi di questo allegato |
 | `GET /sync/cursori` | (nessuno, oggi) | diagnosi a mano | i cursori (casella, cartella) del server: `ultimo_received`, `coperto_fino_a`. Il worker non lo chiama più: la finestra arriva già nel payload |
 
 Ogni chiamata autenticata è anche una prova di vita: la presenza si scrive nel wrapper `auth`, prima
@@ -213,8 +214,8 @@ contenuto, anche se lo stesso file arriva da tre messaggi).
 
 | | |
 |---|---|
-| Dove gira | sulla stessa macchina del server (legge `path_staging` dal filesystem) |
-| Payload | `PayloadAnalizzaAllegato{allegato_id, path_staging, sha256, nome_file, thread_id?, messaggio_id, versione_analizzatore, hash_configurazione, parametri}` — i `parametri` (dizionari dei termini) li manda il server dalla `[analisi]` di `cockpit.toml` |
+| Dove gira | su qualunque postazione (7C.1, P0). Il payload non porta percorsi del server: il worker scarica i byte con `GET /allegati/{id}/contenuto` dentro il proprio tentativo, li scrive in `<staging del worker>\tmp\<job>\`, verifica lo sha256 del payload, analizza e cancella. Fino al banco a due macchine del 20/09/2026 portava `path_staging`, il percorso sul disco del server, e il worker sull'altro PC falliva con «file non trovato in staging» |
+| Payload | `PayloadAnalizzaAllegato{allegato_id, sha256, bytes, nome_file, thread_id?, messaggio_id, versione_analizzatore, hash_configurazione, parametri}` — i `parametri` (dizionari dei termini) li manda il server dalla `[analisi]` di `cockpit.toml`. Un `path_staging` in un job vecchio ancora in coda viene ignorato |
 | Cosa fa | `analizza_file()`: PDF con PyMuPDF (testo, termini di cartiglio, righe che sembrano codici), STEP (PRODUCT, occorrenze). **Gli archivi non li vede**: li scompatta il server (`estrai_archivio`) e ogni voce diventa un allegato figlio con il proprio job di analisi |
 | Risultato | `RisultatoAnalisi{allegato_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli, versione_analizzatore, hash_configurazione}` → il server esige la stessa versione e configurazione che aveva chiesto (altrimenti il job fallisce in modo definitivo), scrive `analisi_fatti(sha256, versione, hash_config)` e una **proposta** (`documento_proposta`) per ogni allegato aperto con quello sha256, ciascuno con la direzione del suo messaggio e le regole del suo cliente |
 

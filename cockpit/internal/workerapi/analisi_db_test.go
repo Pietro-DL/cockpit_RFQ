@@ -70,7 +70,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 
 	// il job è quello partito per la prima copia; le altre due non ne hanno uno (A15, prima metà)
 	payload, _ := json.Marshal(api.PayloadAnalizzaAllegato{
-		AllegatoID: prima.allegato, PathStaging: `C:\staging\a15\disegno.pdf`, Sha256: shaA15,
+		AllegatoID: prima.allegato, Bytes: 1000, Sha256: shaA15,
 		NomeFile: "disegno.pdf", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
 	var jobID int64

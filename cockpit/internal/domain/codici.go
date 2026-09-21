@@ -44,8 +44,51 @@ func EstraiCodici(testi ...string) []string {
 // nomi di file generati da telefoni e strumenti di cattura: non sono codici prodotto
 var rePrefissiNonCodice = regexp.MustCompile(`^(SCREENSHOT|IMG|IMAGE|WHATSAPP|DSC|PHOTO|FOTO|SCAN|DOC|PXL|VID)[_\-]?\d`)
 
+// I LIMITI DI UN CODICE (7C.1, P0).
+//
+// Un codice prodotto e' lungo al massimo MaxCodice caratteri e non contiene spazi; una revisione al
+// massimo MaxRev. Sono regole del dominio, non del database: le colonne `codice varchar(60)` e
+// `rev varchar(10)` sono piu' larghe apposta, e un test (migrazioni) verifica che restino almeno
+// cosi' larghe. Cosi' un valore che passa di qui non puo' rompere una INSERT, e un valore che non
+// passa si scarta con il suo nome — non si tronca in silenzio.
+//
+// Il difetto che ha fatto nascere questa regola: `CodiceRev` restituiva l'intero nome del file
+// quando non riconosceva un suffisso di revisione, e `PropostaDaNome` lo scriveva come codice se
+// dentro c'era ANCHE UN SOLO token che sembrava un codice. «Offerta 12345678 per fornitura staffe
+// zincate rev finale allegato tecnico completo.pdf» diventava un codice di 82 caratteri, e il
+// result dello stage — con il file gia' caricato e verificato — veniva rifiutato dal database con
+// «value too long for type character varying(60)».
+const (
+	MaxCodice = 40
+	MaxRev    = 10
+)
+
+// CodiceAmmissibile dice se una stringa puo' stare nella colonna `codice` di una proposta o di un
+// documento: non vuota, entro MaxCodice, senza spazi ne' controlli. Non dice che SIA un codice —
+// per quello c'e' sembraCodice — dice che non rompe niente. E' la guardia che il server applica
+// a cio' che arriva da fuori (il risultato del worker analisi) prima di scriverlo.
+func CodiceAmmissibile(s string) bool {
+	if s == "" || len(s) > MaxCodice {
+		return false
+	}
+	return !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' })
+}
+
+// RevAmmissibile: come CodiceAmmissibile, per la revisione (MaxRev).
+func RevAmmissibile(s string) bool {
+	if s == "" || len(s) > MaxRev {
+		return false
+	}
+	return !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' })
+}
+
 func sembraCodice(s string) bool {
-	if len(s) < 5 || len(s) > 40 || stopCodici[s] || rePrefissiNonCodice.MatchString(s) {
+	if len(s) < 5 || len(s) > MaxCodice || stopCodici[s] || rePrefissiNonCodice.MatchString(s) {
+		return false
+	}
+	// un codice non ha spazi dentro: «AB 12345» e' due token, non uno (la stessa regola del
+	// worker analisi, `sembra_codice`)
+	if strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' }) {
 		return false
 	}
 	cifre, lettere := 0, 0

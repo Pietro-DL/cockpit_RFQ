@@ -65,6 +65,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/jobs/{id}/result", s.auth(s.result))
 	mux.HandleFunc("POST /api/v1/ingest/messaggi", s.auth(s.ingest))
 	mux.HandleFunc("PUT /api/v1/allegati/{id}/file", s.auth(s.caricaFile))
+	mux.HandleFunc("GET /api/v1/allegati/{id}/contenuto", s.auth(s.scaricaContenuto))
 	mux.HandleFunc("GET /api/v1/sync/cursori", s.auth(s.cursori))
 }
 
@@ -929,6 +930,13 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	if conf < 0 {
 		conf = 0
 	}
+	// Il codice e la revisione arrivano da un worker, cioe' da fuori: prima di finire in una colonna
+	// passano dai limiti del dominio (7C.1, P0). Fuori misura → non nel campo, ma nei dettagli.
+	var scarti map[string]any
+	codice, rev, scarti = s.codiceRevSicuri(codice, rev, "analisi di "+a.NomeFile)
+	if len(scarti) > 0 {
+		dett = conDettagli(dett, scarti)
+	}
 	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
 		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
 		Confidenza: int16(conf), Fonte: fonte, Dettagli: dett,
@@ -1025,14 +1033,69 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 	if err != nil {
 		return err
 	}
+	if dettagli == nil {
+		dettagli = map[string]any{}
+	}
+	if len(pr.CodiciNelNome) > 0 {
+		// il nome non e' un codice, ma ne contiene: si conservano qui, non nella colonna
+		dettagli["codici_nel_nome"] = pr.CodiciNelNome
+	}
+	codice, rev, scarti := s.codiceRevSicuri(pr.Codice, pr.Rev, a.NomeFile)
+	for k, v := range scarti {
+		dettagli[k] = v
+	}
 	dett, _ := json.Marshal(dettagli)
 	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(pr.Codice), Rev: txt(pr.Rev),
+		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
 		Confidenza: int16(pr.Confidenza), Fonte: fonte, Dettagli: dett,
 	}); err != nil {
 		return fmt.Errorf("proposta: %w", err)
 	}
 	return nil
+}
+
+// codiceRevSicuri applica i limiti del dominio (domain.MaxCodice, domain.MaxRev) a un codice e a una
+// revisione che arrivano da fuori — dal nome di un file, dal risultato di un worker — PRIMA che
+// finiscano in una colonna (7C.1, P0).
+//
+// Un valore fuori misura NON si tronca: un codice tagliato a 60 caratteri e' un codice diverso, e
+// nessuno se ne accorgerebbe. Si toglie dal campo e si restituisce grezzo, con il suo nome
+// (`codice_scartato`, `rev_scartata`), perche' vada nei dettagli della proposta: chi la guarda sa
+// che c'era e com'era. E' la guardia che ha mancato al banco del 20/09/2026, quando un nome di
+// file lungo ha fatto rifiutare il result di uno stage a file gia' caricato e verificato.
+func (s *Server) codiceRevSicuri(codice, rev, dove string) (string, string, map[string]any) {
+	scarti := map[string]any{}
+	if codice != "" && !domain.CodiceAmmissibile(codice) {
+		scarti["codice_scartato"] = codice
+		s.Log.Warn("codice fuori misura: non scritto nella proposta, conservato nei dettagli",
+			"dove", dove, "lunghezza", len(codice), "max", domain.MaxCodice)
+		codice = ""
+	}
+	if rev != "" && !domain.RevAmmissibile(rev) {
+		scarti["rev_scartata"] = rev
+		s.Log.Warn("revisione fuori misura: non scritta nella proposta, conservata nei dettagli",
+			"dove", dove, "lunghezza", len(rev), "max", domain.MaxRev)
+		rev = ""
+	}
+	return codice, rev, scarti
+}
+
+// conDettagli aggiunge delle chiavi a un oggetto JSON di dettagli senza perdere quelle che ha.
+func conDettagli(dett json.RawMessage, extra map[string]any) json.RawMessage {
+	m := map[string]any{}
+	if len(dett) > 0 {
+		if err := json.Unmarshal(dett, &m); err != nil || m == nil {
+			m = map[string]any{"dettagli_grezzi": string(dett)}
+		}
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return dett
+	}
+	return out
 }
 
 func nullUUID(u uuid.NullUUID) *uuid.UUID {

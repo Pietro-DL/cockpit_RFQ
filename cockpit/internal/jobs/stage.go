@@ -182,8 +182,10 @@ func AccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID u
 			return nil, err
 		}
 	}
+	// Niente path_staging nel payload (7C.1, P0): il worker puo' essere su un altro PC, e si prende
+	// i byte dal server con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo.
 	return Accoda(ctx, q, db.TipoJobAnalizzaAllegato, api.PayloadAnalizzaAllegato{
-		AllegatoID: a.AllegatoID, PathStaging: a.PathStaging.String, Sha256: a.Sha256.String, NomeFile: a.NomeFile,
+		AllegatoID: a.AllegatoID, Sha256: a.Sha256.String, Bytes: a.Bytes.Int64, NomeFile: a.NomeFile,
 		ThreadID: tid, MessaggioID: a.MessaggioID,
 		VersioneAnalizzatore: an.Versione, HashConfigurazione: cfg, Parametri: an.Parametri,
 	}, fmt.Sprintf("analizza:%s:%d:%s", a.Sha256.String, an.Versione, cfg), 6)

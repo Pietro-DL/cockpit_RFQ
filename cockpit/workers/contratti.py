@@ -338,9 +338,16 @@ class PayloadSegnaLetto(RiferimentoElemento):
 
 
 class PayloadAnalizzaAllegato(Base):
+    """Che cosa analizzare, non dove sta (7C.1, P0).
+
+    Fino al banco a due macchine del 20/09/2026 c'era `path_staging`: il percorso del file sul
+    disco del SERVER. Il worker sull'altro PC lo cercava sul proprio e falliva. Ora il worker si
+    prende i byte con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo, li verifica
+    con `sha256` e li cancella dopo l'analisi. Un `path_staging` in un job vecchio ancora in coda
+    viene ignorato, non letto."""
     allegato_id: UUID
-    path_staging: str
     sha256: str
+    bytes: int = 0
     nome_file: str
     thread_id: UUID | None = None
     messaggio_id: UUID

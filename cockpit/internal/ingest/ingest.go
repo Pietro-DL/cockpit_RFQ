@@ -744,10 +744,17 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 			if nat == db.NaturaAllegatoFile && pr.PreSpunta && a.Bytes > 0 && a.Bytes <= s.sogliaStaging() {
 				daStaggiare = append(daStaggiare, al)
 			}
-			dett, _ := json.Marshal(map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta})
+			dettagli := map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta}
+			if len(pr.CodiciNelNome) > 0 {
+				dettagli["codici_nel_nome"] = pr.CodiciNelNome
+			}
+			dett, _ := json.Marshal(dettagli)
+			// Niente troncamento a 60 e a 10 (7C.1, P0): il dominio garantisce che un codice stia in
+			// MaxCodice e una revisione in MaxRev, e un valore che non ci sta non e' un codice — non
+			// si accorcia in silenzio, si lascia fuori (PropostaDaNome lo mette in CodiciNelNome).
 			if err := q.InsertPropostaSeAssente(ctx, db.InsertPropostaSeAssenteParams{
-				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txtN(pr.Codice, 60),
-				Rev: txtN(pr.Rev, 10), Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
+				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txt(pr.Codice),
+				Rev: txt(pr.Rev), Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
 			}); err != nil {
 				return esito, fmt.Errorf("proposta allegato %d: %w", a.Indice, err)
 			}

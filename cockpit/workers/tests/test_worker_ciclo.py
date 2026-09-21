@@ -47,24 +47,108 @@ def test_un_job_che_fallisce_viene_riportato_non_taciuto(tmp_path):
         assert "tipo_inesistente" in s.risultati[11]["errore"]
 
 
-def test_file_mancante_in_staging_e_definitivo(tmp_path):
-    """Ritentare cinque volte un file che non c'è è tempo perso: l'errore è definitivo con rimedio."""
+ALLEGATO_ANALISI = "00000000-0000-0000-0000-000000000001"
+
+
+def _job_analisi(job_id: int, contenuto: bytes | None, nome_file: str = "documento.pdf", **extra) -> dict:
+    payload = {
+        "allegato_id": ALLEGATO_ANALISI,
+        "messaggio_id": "00000000-0000-0000-0000-000000000002",
+        "sha256": hashlib.sha256(contenuto).hexdigest() if contenuto is not None else "0" * 64,
+        "bytes": len(contenuto) if contenuto is not None else 0,
+        "nome_file": nome_file,
+    }
+    payload.update(extra)
+    return {"job_id": job_id, "tipo": "analizza_allegato", "tentativi": 1, "lease_s": 120,
+            "lease_token": f"tok-{job_id}", "payload": payload}
+
+
+def test_contenuto_sparito_dal_server_e_definitivo(tmp_path):
+    """Ritentare cinque volte un contenuto che il server non ha più è tempo perso: l'errore è
+    definitivo con rimedio (Riscarica). Il server risponde 410 al GET del contenuto."""
     with ServerFinto() as s:
-        s.metti_job({
-            "job_id": 12, "tipo": "analizza_allegato", "tentativi": 1, "lease_s": 120,
-            "payload": {
-                "allegato_id": "00000000-0000-0000-0000-000000000001",
-                "messaggio_id": "00000000-0000-0000-0000-000000000002",
-                "sha256": "0" * 64,
-                "path_staging": str(tmp_path / "non-esiste.pdf"),
-                "nome_file": "non-esiste.pdf",
-            },
-        })
+        s.metti_job(_job_analisi(12, None, "non-esiste.pdf"))
         w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
         w.esegui_per_sempre(una_volta=True)
         assert s.risultati[12]["esito"] == "errore"
         assert s.risultati[12]["definitivo"] is True
         assert "Riscarica" in s.risultati[12]["errore"]
+
+
+def test_il_worker_analisi_prende_i_byte_dal_server_non_da_un_percorso(tmp_path):
+    """7C.1, P0: il contratto vecchio portava `path_staging`, il percorso sul disco del SERVER, e il
+    worker sull'altro PC lo cercava sul proprio. Qui il payload porta ancora un path_staging — che
+    punta a un file che NON esiste su questo PC — e il worker deve ignorarlo: scarica i byte con GET
+    /allegati/{id}/contenuto dentro il proprio tentativo, li verifica con lo sha256, analizza e
+    non lascia niente nella propria cartella."""
+    contenuto = b"0\nSECTION\n2\nENTITIES\n" + bytes(range(256)) * 20
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto
+        s.metti_job(_job_analisi(13, contenuto, "6674611A_4.dxf",
+                                 path_staging=str(tmp_path / "server-di-un-altro-pc" / "6674611A_4.dxf")))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+
+        assert s.eventi == ["contenuto", "result"], f"ordine delle chiamate: {s.eventi}"
+        d = s.scaricamenti[0]
+        assert d["allegato_id"] == ALLEGATO_ANALISI
+        assert d["query"]["job_id"] == "13" and d["query"]["lease_token"] == "tok-13"
+        assert d["query"]["worker_id"].startswith("analisi@")
+        r = s.risultati[13]
+        assert r["esito"] == "ok", r
+        assert r["dati"]["allegato_id"] == ALLEGATO_ANALISI
+        assert r["dati"]["codice"] == "6674611A" and r["dati"]["rev"] == "4"
+        assert not os.path.exists(tmp_path / "tmp" / "13"), "la cartella temporanea del job non è stata rimossa"
+
+
+def test_un_pdf_illeggibile_non_lascia_file_temporanei(tmp_path):
+    """Su Windows PyMuPDF tiene aperto un file che non riesce ad aprire: alla prima prova del
+    download il temporaneo restava nella tmp del worker («utilizzato da un altro processo»)."""
+    contenuto = b"%PDF-1.4 " + bytes(range(256)) * 20      # comincia da PDF, non lo è
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto
+        s.metti_job(_job_analisi(16, contenuto, "illeggibile.pdf"))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+        r = s.risultati[16]
+        assert r["esito"] == "ok" and r["dati"]["tipo_proposto"] == "da_determinare", r
+        assert "errore_pdf" in r["dati"]["dettagli"]
+        assert not os.path.exists(tmp_path / "tmp" / "16"), os.listdir(tmp_path / "tmp" / "16")
+
+
+def test_un_contenuto_diverso_dallo_sha256_atteso_non_si_analizza(tmp_path):
+    """Un file arrivato a metà, o un altro file, è un errore NON definitivo: si riscarica."""
+    contenuto = b"%PDF-1.4 " + bytes(range(256)) * 20
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto + b"byte in piu'"
+        s.metti_job(_job_analisi(14, contenuto))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+        r = s.risultati[14]
+        assert r["esito"] == "errore" and not r.get("definitivo"), r
+        assert "sha256" in r["errore"] or "byte" in r["errore"]
+        assert not os.path.exists(tmp_path / "tmp" / "14")
+
+
+def test_un_409_sul_download_non_riporta_niente(tmp_path):
+    """Il tentativo non vale più: il job è di un altro tentativo, questo worker tace."""
+    contenuto = b"x" * 1000
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto
+        s.metti_job(_job_analisi(15, contenuto))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        # il server consegna il job con un token, poi «cambia idea»: al download il tentativo è un altro
+        w.api.claim = (lambda vero: (lambda *a, **k: _cambia_token(s, vero(*a, **k))))(w.api.claim)
+        w.esegui_per_sempre(una_volta=True)
+        assert 15 not in s.risultati, f"riportato un risultato con il tentativo non più valido: {s.risultati.get(15)}"
+        assert s.eventi == []
+
+
+def _cambia_token(s: ServerFinto, job: dict | None) -> dict | None:
+    if job:
+        with s.lock:
+            s.tentativi[job["job_id"]]["lease_token"] = "un-altro-tentativo"
+    return job
 
 
 def test_server_giu_al_claim_non_uccide_il_worker(tmp_path, monkeypatch):

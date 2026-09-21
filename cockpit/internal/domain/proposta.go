@@ -15,6 +15,11 @@ type Proposta struct {
 	Codice     string
 	Rev        string
 	PreSpunta  bool // suggerimento: vale la pena scaricarlo (CAD, offerte, fogli di calcolo, zip)
+	// CodiciNelNome: i codici trovati DENTRO un nome che non e' esso stesso un codice («Offerta
+	// 12345678 per le staffe.pdf»). Non finiscono in Codice — quel campo e' il codice del documento,
+	// non un elenco — ma non si buttano: vanno nei dettagli della proposta, dove l'operatore e il
+	// Dossier li ritrovano.
+	CodiciNelNome []string
 }
 
 // SogliaStagingAutomatico è la dimensione oltre la quale un allegato non scende da solo (D30).
@@ -35,7 +40,16 @@ func PropostaDaNome(nomeFile string, bytes int64, direzione string) Proposta {
 	tipo, fonte, conf := TipoDaEstensione(ext)
 	p := Proposta{Tipo: tipo, Fonte: fonte, Confidenza: conf}
 
-	if c, rv := CodiceRev(base); len(EstraiCodici(c)) > 0 {
+	// Il nome (senza revisione) e' il codice del documento solo se E' un codice: uno solo, senza
+	// spazi, entro MaxCodice. «6674611A_4» si'; «Offerta 12345678 per le staffe zincate» no, anche
+	// se dentro c'e' un numero che sembra un codice — quello va in CodiciNelNome. Prima bastava che
+	// il nome CONTENESSE un codice perche' l'intero nome diventasse il codice (7C.1, P0).
+	c, rv := CodiceRev(base)
+	if !sembraCodice(c) {
+		p.CodiciNelNome = EstraiCodici(base)
+		c, rv = "", ""
+	}
+	if c != "" {
 		p.Codice, p.Rev = c, rv
 		switch tipo {
 		case "disegno_2d", "cad_3d", "sviluppo_dxf":

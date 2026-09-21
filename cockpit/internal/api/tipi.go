@@ -442,10 +442,21 @@ type PayloadAnalizzaMessaggioAI struct {
 	MessaggioID uuid.UUID `json:"messaggio_id"`
 }
 
+// PayloadAnalizzaAllegato: l'analisi di un contenuto gia' in staging, fatta da un worker che puo'
+// stare su un altro PC (7C.1, P0).
+//
+// NESSUN PERCORSO DEL SERVER. Fino al banco a due macchine del 20/09/2026 il payload portava
+// `path_staging`, cioe' `C:\promatec\_staging\_contenuti\...` sul disco del server: il worker
+// analisi sull'altro PC lo cercava sul PROPRIO disco e falliva con «file non trovato in staging»,
+// e dopo l'estrazione di uno zip da 83 voci fallivano tutti. Ora il job dice CHE COSA analizzare
+// (allegato, sha256, byte, nome) e il worker si prende i byte con
+// GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo, li salva in una cartella sua,
+// verifica lo sha256, analizza e cancella. Un worker sullo stesso PC del server fa lo stesso giro:
+// non e' un caso a parte, come non lo e' per l'upload.
 type PayloadAnalizzaAllegato struct {
 	AllegatoID  uuid.UUID  `json:"allegato_id"`
-	PathStaging string     `json:"path_staging"`
 	Sha256      string     `json:"sha256"`
+	Bytes       int64      `json:"bytes"`
 	NomeFile    string     `json:"nome_file"`
 	ThreadID    *uuid.UUID `json:"thread_id,omitempty"`
 	MessaggioID uuid.UUID  `json:"messaggio_id"`

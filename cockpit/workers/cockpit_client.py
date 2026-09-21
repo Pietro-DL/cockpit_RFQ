@@ -309,6 +309,48 @@ class Cockpit:
                 raise ErroreHTTP("PUT", percorso_api, e.code, testo) from None
 
 
+    # ------------------------------------------------------------ download (7C.1, P0)
+
+    def scarica_contenuto(self, allegato_id: str, job_id: int, lease_token: str, worker_id: str, dest: str,
+                          timeout: int = 900) -> tuple[int, str]:
+        """GET /api/v1/allegati/{id}/contenuto: i byte di un allegato in staging sul SERVER, presi dal
+        tentativo che deve analizzarlo. È l'upload al contrario, con le stesse regole: 409 = il
+        tentativo non vale più, fermarsi e non riportare niente; 410 = il contenuto non è più nella
+        cache del server, errore definitivo (Riscarica); 422 = il job non è l'analisi di questo
+        allegato; 5xx = si ripete.
+
+        Scrive su `dest` a blocchi calcolando lo sha256 strada facendo, e restituisce (byte, sha256):
+        chi chiama li confronta con il payload, perché un file arrivato a metà è un file diverso.
+        """
+        percorso_api = f"/api/v1/allegati/{allegato_id}/contenuto?" + urllib.parse.urlencode(
+            {"job_id": str(job_id), "lease_token": lease_token, "worker_id": worker_id or self.worker_id})
+        req = urllib.request.Request(self.url + percorso_api, method="GET",
+                                     headers={"X-Cockpit-Token": self.token})
+        h = hashlib.sha256()
+        n = 0
+        os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+        try:
+            with self._apri(req, timeout=timeout) as r, open(dest, "wb") as f:
+                atteso = r.headers.get("Content-Length")
+                while True:
+                    blocco = r.read(1 << 16)
+                    if not blocco:
+                        break
+                    h.update(blocco)
+                    f.write(blocco)
+                    n += len(blocco)
+                if atteso is not None and int(atteso) != n:
+                    raise ContenutoIncompleto(f"ricevuti {n} byte su {atteso} dichiarati")
+        except urllib.error.HTTPError as e:
+            testo = e.read().decode("utf-8", "ignore")
+            raise ErroreHTTP("GET", percorso_api, e.code, testo) from None
+        return n, h.hexdigest()
+
+
+class ContenutoIncompleto(RuntimeError):
+    """Il download si è fermato prima della fine, o i byte non sono quelli dichiarati: si ripete."""
+
+
 def cadenza_battito(lease_s: float) -> float:
     """Ogni quanto battere durante un job: abbastanza spesso da rinnovare il lease PRIMA che scada, e
     mai piu' lento di BATTITO_MAX_S, che e' quanto il server aspetta prima di dare il worker per
