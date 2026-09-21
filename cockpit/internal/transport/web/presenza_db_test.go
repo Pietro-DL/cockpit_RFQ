@@ -27,7 +27,7 @@ import (
 
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -36,11 +36,11 @@ import (
 // cui prima non esisteva nessuna presenza.
 func (b *bancoWeb) claimInCorso(tipo, nome, ip string, attesaS int, caselle ...uuid.UUID) <-chan struct{} {
 	b.t.Helper()
-	aperte := make([]api.CasellaAperta, 0, len(caselle))
+	aperte := make([]worker.CasellaAperta, 0, len(caselle))
 	for _, c := range caselle {
-		aperte = append(aperte, api.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
+		aperte = append(aperte, worker.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
 	}
-	corpo, _ := json.Marshal(api.ClaimRichiesta{Worker: tipo, WorkerID: nome, AttesaS: attesaS, OutlookOk: true, CaselleAperte: aperte})
+	corpo, _ := json.Marshal(worker.ClaimRichiesta{Worker: tipo, WorkerID: nome, AttesaS: attesaS, OutlookOk: true, CaselleAperte: aperte})
 	fatto := make(chan struct{})
 	go func() {
 		defer close(fatto)
@@ -175,13 +175,13 @@ func TestPresenzaIlBattitoDiUnJobLungoTieneOnline(t *testing.T) {
 }
 
 // claimConJob fa un claim che DEVE tornare con un job: senza, il test che lo chiama non prova niente.
-func (b *bancoWeb) claimConJob(nome, ip string, caselle ...uuid.UUID) api.Job {
+func (b *bancoWeb) claimConJob(nome, ip string, caselle ...uuid.UUID) worker.Job {
 	b.t.Helper()
-	aperte := make([]api.CasellaAperta, 0, len(caselle))
+	aperte := make([]worker.CasellaAperta, 0, len(caselle))
 	for _, c := range caselle {
-		aperte = append(aperte, api.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
+		aperte = append(aperte, worker.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
 	}
-	corpo, _ := json.Marshal(api.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
+	corpo, _ := json.Marshal(worker.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", strings.NewReader(string(corpo)))
 	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
 	r.Header.Set("X-Prova-IP", ip)
@@ -193,16 +193,16 @@ func (b *bancoWeb) claimConJob(nome, ip string, caselle ...uuid.UUID) api.Job {
 	if resp.StatusCode != 200 {
 		b.t.Fatalf("nessun job assegnato a %s (%d): questo test ha bisogno di un job in corso", nome, resp.StatusCode)
 	}
-	var j api.Job
+	var j worker.Job
 	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
 		b.t.Fatal(err)
 	}
 	return j
 }
 
-func (b *bancoWeb) battito(j api.Job, ip string) {
+func (b *bancoWeb) battito(j worker.Job, ip string) {
 	b.t.Helper()
-	corpo, _ := json.Marshal(api.HeartbeatRichiesta{WorkerID: "outlook@PC-FRANCESCO", LeaseToken: j.LeaseToken})
+	corpo, _ := json.Marshal(worker.HeartbeatRichiesta{WorkerID: "outlook@PC-FRANCESCO", LeaseToken: j.LeaseToken})
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/"+strconv.FormatInt(j.JobID, 10)+"/heartbeat", strings.NewReader(string(corpo)))
 	r.Header.Set("X-Cockpit-Token", tokenDelWorker("outlook@PC-FRANCESCO"))
 	r.Header.Set("X-Prova-IP", ip)
@@ -220,7 +220,7 @@ func (b *bancoWeb) battito(j api.Job, ip string) {
 //
 // È il test che impedisce la scorciatoia. Far sparire il falso OFFLINE allargando la soglia a due
 // minuti avrebbe fatto passare (1) e (2) — quelli parlano di worker vivi — e deve rompere questo.
-// Per riuscirci una parte delle attese è in secondi VERI e non in multipli di api.PresenzaOnlineEntro:
+// Per riuscirci una parte delle attese è in secondi VERI e non in multipli di worker.PresenzaOnlineEntro:
 // un test scritto tutto in funzione della soglia si sposta insieme a lei e resta verde qualunque cosa
 // le si faccia, cioè non prova niente. Il numero assoluto è la promessa all'operatore: se il worker
 // muore, entro un minuto la testata lo dice. Cambiare quel minuto è una decisione da prendere qui,
@@ -235,21 +235,21 @@ func TestPresenzaWorkerFermoDiventaOffline(t *testing.T) {
 	b.indietro("outlook@PC-FRANCESCO", 61*time.Second, 0)
 	if testata := fp.testata(); !strings.Contains(testata, "worker su PC-FRANCESCO OFFLINE") {
 		t.Errorf("worker zitto da 61 secondi e la testata lo dà ancora per vivo (soglia %v): un guasto che si scopre dopo minuti è un guasto che si scopre dal risultato, non dalla testata:\n%s",
-			api.PresenzaOnlineEntro, testata)
+			worker.PresenzaOnlineEntro, testata)
 	}
 
 	// un secondo prima della soglia: ancora vivo. Un worker in attesa si fa vivo ogni AttesaClaim,
 	// quindi qui dentro ci sta un giro perso intero senza allarmare nessuno.
-	b.indietro("outlook@PC-FRANCESCO", api.PresenzaOnlineEntro-time.Second, 0)
+	b.indietro("outlook@PC-FRANCESCO", worker.PresenzaOnlineEntro-time.Second, 0)
 	if testata := fp.testata(); !strings.Contains(testata, "attiva su PC-FRANCESCO") {
 		t.Errorf("a %v dall'ultimo contatto (soglia %v) il worker risulta spento:\n%s",
-			api.PresenzaOnlineEntro-time.Second, api.PresenzaOnlineEntro, testata)
+			worker.PresenzaOnlineEntro-time.Second, worker.PresenzaOnlineEntro, testata)
 	}
 	// un secondo dopo: due giri persi, è un guasto e si vede
-	b.indietro("outlook@PC-FRANCESCO", api.PresenzaOnlineEntro+time.Second, 0)
+	b.indietro("outlook@PC-FRANCESCO", worker.PresenzaOnlineEntro+time.Second, 0)
 	if testata := fp.testata(); !strings.Contains(testata, "worker su PC-FRANCESCO OFFLINE") {
 		t.Errorf("a %v dall'ultimo contatto (soglia %v) il worker risulta ancora vivo:\n%s",
-			api.PresenzaOnlineEntro+time.Second, api.PresenzaOnlineEntro, testata)
+			worker.PresenzaOnlineEntro+time.Second, worker.PresenzaOnlineEntro, testata)
 	}
 }
 
@@ -274,8 +274,8 @@ func TestPresenzaWorkerAnalisiUgualeAQuelloOutlook(t *testing.T) {
 	}
 	<-fine
 
-	b.indietro("analisi@PC-FRANCESCO", api.PresenzaOnlineEntro+time.Second, 0)
+	b.indietro("analisi@PC-FRANCESCO", worker.PresenzaOnlineEntro+time.Second, 0)
 	if testata := fp.testata(); !strings.Contains(testata, "analisi OFFLINE") {
-		t.Errorf("l'analisi tace da %v e il chip non lo dice:\n%s", api.PresenzaOnlineEntro+time.Second, testata)
+		t.Errorf("l'analisi tace da %v e il chip non lo dice:\n%s", worker.PresenzaOnlineEntro+time.Second, testata)
 	}
 }

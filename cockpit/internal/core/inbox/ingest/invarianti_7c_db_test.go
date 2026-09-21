@@ -22,32 +22,32 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
 // nostraMail costruisce una mail IN USCITA dalla casella del banco a un destinatario esterno. La
 // direzione la decide il server dalle caselle censite, non questo campo (vedi caselle_db_test).
-func (b *bancoControparte) nostraMail(chiave, conversazione, a, oggetto, corpo string) api.MessaggioIn {
+func (b *bancoControparte) nostraMail(chiave, conversazione, a, oggetto, corpo string) worker.MessaggioIn {
 	b.n++
 	quando := ppBase.Add(time.Duration(b.n) * time.Minute)
-	return api.MessaggioIn{
+	return worker.MessaggioIn{
 		MessageID: chiave, EntryID: fmt.Sprintf("ENTRY-CP-%d", b.n), StoreID: "STORE-CP", ConversationID: conversazione,
 		Cartella: "Posta inviata", Direzione: "uscita", DataEvento: quando, RicevutoIl: &quando,
 		MittenteNome: "Commerciale", MittenteIndirizzo: b.casella.Indirizzo, Oggetto: oggetto, CorpoTesto: corpo,
-		Destinatari: []api.Destinatario{{Indirizzo: a, Tipo: "a"}}, Riferimenti: []string{}, Categorie: []string{},
+		Destinatari: []worker.Destinatario{{Indirizzo: a, Tipo: "a"}}, Riferimenti: []string{}, Categorie: []string{},
 	}
 }
 
 // rispostaDelFornitore costruisce una mail IN ENTRATA da un contatto del fornitore.
-func (b *bancoControparte) rispostaDelFornitore(chiave, conversazione, da, oggetto, corpo string) api.MessaggioIn {
+func (b *bancoControparte) rispostaDelFornitore(chiave, conversazione, da, oggetto, corpo string) worker.MessaggioIn {
 	b.n++
 	quando := ppBase.Add(time.Duration(b.n) * time.Minute)
-	return api.MessaggioIn{
+	return worker.MessaggioIn{
 		MessageID: chiave, EntryID: fmt.Sprintf("ENTRY-CP-%d", b.n), StoreID: "STORE-CP", ConversationID: conversazione,
 		Cartella: cartellaPP, Direzione: "entrata", DataEvento: quando, RicevutoIl: &quando,
 		MittenteNome: "Ufficio vendite", MittenteIndirizzo: da, Oggetto: oggetto, CorpoTesto: corpo,
-		Destinatari: []api.Destinatario{{Indirizzo: b.casella.Indirizzo, Tipo: "a"}}, Riferimenti: []string{}, Categorie: []string{},
+		Destinatari: []worker.Destinatario{{Indirizzo: b.casella.Indirizzo, Tipo: "a"}}, Riferimenti: []string{}, Categorie: []string{},
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -81,29 +81,29 @@ func (b *bancoControparte) buyer(c db.Cliente, email string) {
 }
 
 // richiestaDOfferta e' il messaggio che ha aperto il blocco 7: parole, allegati e forma di una RFQ.
-func (b *bancoControparte) richiestaDOfferta(da string, destinatari ...string) api.MessaggioIn {
+func (b *bancoControparte) richiestaDOfferta(da string, destinatari ...string) worker.MessaggioIn {
 	b.n++
 	quando := ppBase.Add(time.Duration(b.n) * time.Minute)
-	m := api.MessaggioIn{
+	m := worker.MessaggioIn{
 		MessageID: fmt.Sprintf("<cp-%d@%s>", b.n, strings.SplitN(da, "@", 2)[1]), EntryID: fmt.Sprintf("ENTRY-CP-%d", b.n),
 		StoreID: "STORE-CP", ConversationID: fmt.Sprintf("CONV-CP-%d", b.n), Cartella: cartellaPP,
 		Direzione: "entrata", DataEvento: quando, RicevutoIl: &quando, MittenteNome: "Ufficio",
 		MittenteIndirizzo: da, Oggetto: "RICHIESTA D'OFFERTA n. 77 - TG FIORE",
 		CorpoTesto:  "Buongiorno, richiesta d'offerta per i particolari in allegato. Quotazione urgente.",
 		Riferimenti: []string{}, Categorie: []string{},
-		Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: "RDO_77.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
+		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "RDO_77.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
 			{Indice: 2, NomeFile: "particolare.stp", Estensione: "stp", Natura: "file", Bytes: 2000}},
 	}
 	if len(destinatari) == 0 {
 		destinatari = []string{"commerciale@azienda.it"}
 	}
 	for _, d := range destinatari {
-		m.Destinatari = append(m.Destinatari, api.Destinatario{Indirizzo: d, Tipo: "a"})
+		m.Destinatari = append(m.Destinatari, worker.Destinatario{Indirizzo: d, Tipo: "a"})
 	}
 	return m
 }
 
-func (b *bancoControparte) ingerisci(m ...api.MessaggioIn) {
+func (b *bancoControparte) ingerisci(m ...worker.MessaggioIn) {
 	b.t.Helper()
 	if _, err := b.s.Ingerisci(b.ctx, Lotto{Casella: b.casella, Messaggi: m}); err != nil {
 		b.t.Fatal(err)
@@ -230,7 +230,7 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 	m4 := b.richiestaDOfferta("ordini@nuovofornitore.example")
 	altro := b.richiestaDOfferta("acquisti@altrove.example")
 	b.ingerisci(m1, m2, m3, m4, altro)
-	for _, m := range []api.MessaggioIn{m1, m2, m3, m4} {
+	for _, m := range []worker.MessaggioIn{m1, m2, m3, m4} {
 		r := b.messaggio(m.MessageID)
 		if r.ControparteTipo != db.TipoControparteSconosciuto {
 			t.Fatalf("prima del censimento: %s", r.ControparteTipo)
@@ -265,7 +265,7 @@ func TestCP5IlRitriageMiratoRicalcolaINonDecisiELasciaIlDeciso(t *testing.T) {
 	if esito.Guardati != 2 || esito.ContropartiCambiate != 2 || esito.ProposteCambiate != 2 {
 		t.Fatalf("attesi 2 ricalcolati, 2 controparti e 2 proposte cambiate: %s\n%s", esito, strings.Join(esito.Dettagli, "\n"))
 	}
-	for _, m := range []api.MessaggioIn{m1, m2} {
+	for _, m := range []worker.MessaggioIn{m1, m2} {
 		r := b.messaggio(m.MessageID)
 		if r.ControparteTipo != db.TipoControparteFornitore {
 			t.Fatalf("dopo il censimento: %s", r.ControparteTipo)

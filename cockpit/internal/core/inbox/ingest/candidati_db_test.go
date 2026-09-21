@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/core/domain"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -154,7 +154,7 @@ func statoMessaggio(t *testing.T, p *pgxpool.Pool, chiave string) (uuid.NullUUID
 	return tid, aggancio, esito, conf
 }
 
-func ingerisci(t *testing.T, p *pgxpool.Pool, casella db.Casella, msg ...api.MessaggioIn) {
+func ingerisci(t *testing.T, p *pgxpool.Pool, casella db.Casella, msg ...worker.MessaggioIn) {
 	t.Helper()
 	s := &Servizio{Pool: p, Log: slog.Default()}
 	if _, err := s.Ingerisci(context.Background(), Lotto{Casella: casella, Messaggi: msg}); err != nil {
@@ -181,7 +181,7 @@ func TestT1LaConversazioneNotaProponeENonDecide(t *testing.T) {
 		t.Fatalf("collega conversazione: %v", err)
 	}
 
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-r1@prova3r.example>", EntryID: "ENTRY-TEST-3R-1", StoreID: "S", ConversationID: "CONV-TEST-3R-1",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(2 * time.Hour),
 		MittenteIndirizzo: "buyer@prova3r.example", MittenteNome: "Buyer Prova",
@@ -243,7 +243,7 @@ func TestT22RispostaConInReplyToNonDiventaNuovaRFQ(t *testing.T) {
 	th := rfqDiProva(t, p, c, "PROVA-3R primo messaggio", "", "", t0)
 
 	// il primo messaggio, già agganciato alla RFQ
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-primo@prova3r.example>", EntryID: "ENTRY-TEST-3R-P", StoreID: "S", ConversationID: "CONV-TEST-3R-2",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: t0, MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto: "PROVA-3R primo messaggio", CorpoTesto: "primo", Riferimenti: []string{}, Categorie: []string{},
@@ -255,14 +255,14 @@ func TestT22RispostaConInReplyToNonDiventaNuovaRFQ(t *testing.T) {
 	}
 
 	// la risposta: conversazione DIVERSA apposta, così a parlare è solo l'header
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-risposta@prova3r.example>", EntryID: "ENTRY-TEST-3R-R", StoreID: "S", ConversationID: "CONV-TEST-3R-ALTRA",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(time.Hour), MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto:     "R: RICHIESTA OFFERTA COD 6674611A",
 		CorpoTesto:  "Vi giro la richiesta d'offerta. In allegato i disegni.",
 		InReplyTo:   "<test-ingest-3r-primo@prova3r.example>",
 		Riferimenti: []string{"<test-ingest-3r-primo@prova3r.example>"}, Categorie: []string{},
-		Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000}},
+		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000}},
 	})
 
 	tid, _, esito, conf := statoMessaggio(t, p, "<test-ingest-3r-risposta@prova3r.example>")
@@ -310,7 +310,7 @@ func TestT3T4CodiceEOggettoValgonoSoloNellaFinestraEPerIlCliente(t *testing.T) {
 	}
 	dellAltro := rfqDiProva(t, p, altro, "PROVA-3R di un altro", "6674611A", "", adesso.AddDate(0, 0, -1))
 
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-finestra@prova3r.example>", EntryID: "ENTRY-TEST-3R-F", StoreID: "S", ConversationID: "CONV-TEST-3R-3",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto: "PROVA-3R riquotazione", CorpoTesto: "Richiesta d'offerta per il codice 6674611A.",
@@ -328,7 +328,7 @@ func TestT3T4CodiceEOggettoValgonoSoloNellaFinestraEPerIlCliente(t *testing.T) {
 	// e dentro la finestra, per il cliente giusto, il candidato c'è: se non ci fosse, il test sopra
 	// passerebbe anche con le regole spente
 	dentro := rfqDiProva(t, p, c, "PROVA-3R dentro finestra", "6674611A", "", adesso.AddDate(0, 0, -3))
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-dentro@prova3r.example>", EntryID: "ENTRY-TEST-3R-D", StoreID: "S", ConversationID: "CONV-TEST-3R-4",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto: "PROVA-3R dentro finestra", CorpoTesto: "Ancora sul codice 6674611A.",
@@ -357,7 +357,7 @@ func TestT16ICandidatiSiVedonoTutti(t *testing.T) {
 	perRiferimento := rfqDiProva(t, p, c, "PROVA-3R per riferimento", "", "RDO 490020618", adesso.AddDate(0, 0, -2))
 	perOggetto := rfqDiProva(t, p, c, "PROVA-3R molti candidati", "", "", adesso.AddDate(0, 0, -2))
 
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-molti@prova3r.example>", EntryID: "ENTRY-TEST-3R-M", StoreID: "S", ConversationID: "CONV-TEST-3R-5",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto: "PROVA-3R molti candidati", CorpoTesto: "RDO 490020618 per il codice 6674611A.",
@@ -395,7 +395,7 @@ func TestICandidatiDiCodiceHannoUnRuolo(t *testing.T) {
 	bancoCandidati(t, p)
 	adesso := time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC)
 
-	ingerisci(t, p, casella, api.MessaggioIn{
+	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-ruoli@prova3r.example>", EntryID: "ENTRY-TEST-3R-U", StoreID: "S", ConversationID: "CONV-TEST-3R-6",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
 		Oggetto: "RDO 490020618 richiesta offerta", CorpoTesto: "Codice 6674611A. Spett.le PROMATEC, 61032 Fano, tel 0721123456.",
@@ -465,18 +465,18 @@ func TestD30LoStagingAutomaticoScendeSoloPerIRiconosciuti(t *testing.T) {
 	})
 
 	s := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true}
-	msg := func(chiave, entry, mittente string, bytes int64) api.MessaggioIn {
-		return api.MessaggioIn{
+	msg := func(chiave, entry, mittente string, bytes int64) worker.MessaggioIn {
+		return worker.MessaggioIn{
 			MessageID: chiave, EntryID: entry, StoreID: "S", ConversationID: "CONV-TEST-3R-S",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: mittente,
 			Oggetto: "PROVA-3R staging", CorpoTesto: "in allegato", Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: bytes}},
+			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: bytes}},
 		}
 	}
 
 	// 1. mittente NON riconosciuto: niente
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella,
-		Messaggi: []api.MessaggioIn{msg("<test-ingest-3r-s1@sconosciuto.example>", "ENTRY-TEST-3R-S1", "tizio@sconosciuto.example", 100_000)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{msg("<test-ingest-3r-s1@sconosciuto.example>", "ENTRY-TEST-3R-S1", "tizio@sconosciuto.example", 100_000)}}); err != nil {
 		t.Fatal(err)
 	}
 	if n := conta(); n != 0 {
@@ -485,7 +485,7 @@ func TestD30LoStagingAutomaticoScendeSoloPerIRiconosciuti(t *testing.T) {
 
 	// 2. cliente riconosciuto, sotto soglia: scende
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella,
-		Messaggi: []api.MessaggioIn{msg("<test-ingest-3r-s2@prova3r.example>", "ENTRY-TEST-3R-S2", "buyer@prova3r.example", 100_000)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{msg("<test-ingest-3r-s2@prova3r.example>", "ENTRY-TEST-3R-S2", "buyer@prova3r.example", 100_000)}}); err != nil {
 		t.Fatal(err)
 	}
 	if n := conta(); n != 1 {
@@ -494,7 +494,7 @@ func TestD30LoStagingAutomaticoScendeSoloPerIRiconosciuti(t *testing.T) {
 
 	// 3. cliente riconosciuto ma file enorme: non scende da solo
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella,
-		Messaggi: []api.MessaggioIn{msg("<test-ingest-3r-s3@prova3r.example>", "ENTRY-TEST-3R-S3", "buyer@prova3r.example", 200*1024*1024)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{msg("<test-ingest-3r-s3@prova3r.example>", "ENTRY-TEST-3R-S3", "buyer@prova3r.example", 200*1024*1024)}}); err != nil {
 		t.Fatal(err)
 	}
 	if n := conta(); n != 1 {
@@ -504,7 +504,7 @@ func TestD30LoStagingAutomaticoScendeSoloPerIRiconosciuti(t *testing.T) {
 	// 4. con l'interruttore spento non scende niente: e' il comportamento predefinito
 	spento := &Servizio{Pool: p, Log: slog.Default()}
 	if _, err := spento.Ingerisci(ctx, Lotto{Casella: casella,
-		Messaggi: []api.MessaggioIn{msg("<test-ingest-3r-s4@prova3r.example>", "ENTRY-TEST-3R-S4", "buyer@prova3r.example", 100_000)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{msg("<test-ingest-3r-s4@prova3r.example>", "ENTRY-TEST-3R-S4", "buyer@prova3r.example", 100_000)}}); err != nil {
 		t.Fatal(err)
 	}
 	if n := conta(); n != 1 {

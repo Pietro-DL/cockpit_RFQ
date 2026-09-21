@@ -1,4 +1,4 @@
-"""I tempi del protocollo dei worker. Speculare a internal/platform/contratti/api/protocollo.go.
+"""I tempi del protocollo dei worker. Speculare a internal/platform/contratti/worker/protocollo.go.
 
 `genera_contratti.py` esporta TEMPI in contracts/tempi_protocollo.json e un test Go verifica che le
 due copie coincidano: sono numeri che devono essere d'accordo fra processi diversi, e finche' non lo

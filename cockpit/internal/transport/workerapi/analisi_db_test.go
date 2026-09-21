@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -69,7 +69,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	decisa := crea(2, "entrata", "confermata")
 
 	// il job è quello partito per la prima copia; le altre due non ne hanno uno (A15, prima metà)
-	payload, _ := json.Marshal(api.PayloadAnalizzaAllegato{
+	payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{
 		AllegatoID: prima.allegato, Bytes: 1000, Sha256: shaA15,
 		NomeFile: "disegno.pdf", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
@@ -83,7 +83,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dati, _ := json.Marshal(api.RisultatoAnalisi{
+	dati, _ := json.Marshal(worker.RisultatoAnalisi{
 		AllegatoID: prima.allegato, TipoProposto: "disegno_2d", Codice: "6674611A", Rev: "4",
 		Confidenza: 92, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"termini":["scala","materiale"]}`),
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
@@ -161,7 +161,7 @@ func TestRisultatoConConfigurazioneDiversaNonSiApplica(t *testing.T) {
 		msgID, shaA15).Scan(&allegatoID); err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(api.PayloadAnalizzaAllegato{
+	payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{
 		AllegatoID: allegatoID, Sha256: shaA15, NomeFile: "disegno.pdf",
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
@@ -177,15 +177,15 @@ func TestRisultatoConConfigurazioneDiversaNonSiApplica(t *testing.T) {
 
 	casi := []struct {
 		nome string
-		ris  api.RisultatoAnalisi
+		ris  worker.RisultatoAnalisi
 	}{
-		{"versione diversa", api.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
+		{"versione diversa", worker.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
 			Fonte: "cartiglio", VersioneAnalizzatore: 2, HashConfigurazione: an.Hash()}},
-		{"configurazione diversa", api.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
+		{"configurazione diversa", worker.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
 			Fonte: "cartiglio", VersioneAnalizzatore: 1, HashConfigurazione: "0000000000000000000000000000000000000000000000000000000000000000"}},
-		{"tipo fuori enum", api.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "boh", Confidenza: 90,
+		{"tipo fuori enum", worker.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "boh", Confidenza: 90,
 			Fonte: "cartiglio", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash()}},
-		{"fonte fuori enum", api.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
+		{"fonte fuori enum", worker.RisultatoAnalisi{AllegatoID: allegatoID, TipoProposto: "disegno_2d", Confidenza: 90,
 			Fonte: "telepatia", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash()}},
 	}
 	for _, c := range casi {

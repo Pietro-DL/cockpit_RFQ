@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -161,8 +161,8 @@ func (s *Server) oltreIlLimite(ctx context.Context, q *db.Queries, a db.Allegato
 }
 
 // stageDelJob legge il payload del job e verifica che sia il download di QUESTO allegato.
-func (s *Server) stageDelJob(ctx context.Context, q *db.Queries, j *db.Job, allegatoID uuid.UUID) (api.PayloadStageAllegato, db.Allegato, error) {
-	var p api.PayloadStageAllegato
+func (s *Server) stageDelJob(ctx context.Context, q *db.Queries, j *db.Job, allegatoID uuid.UUID) (worker.PayloadStageAllegato, db.Allegato, error) {
+	var p worker.PayloadStageAllegato
 	if j.Tipo != db.TipoJobStageAllegato {
 		return p, db.Allegato{}, fmt.Errorf("il job %d è %s, non un download di allegato", j.JobID, j.Tipo)
 	}

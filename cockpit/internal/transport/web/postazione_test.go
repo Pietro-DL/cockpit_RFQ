@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -105,8 +105,8 @@ func TestPresenzaLeggeIlContattoNonIlClaim(t *testing.T) {
 		stato    string
 	}{
 		{"dentro un job lungo: claim di 3 minuti fa, battito di 5 secondi fa", ora.Add(-5 * time.Second), "attiva"},
-		{"un secondo prima della soglia: un giro di claim perso, ci sta", ora.Add(-api.PresenzaOnlineEntro + time.Second), "attiva"},
-		{"un secondo dopo la soglia: due giri persi, è un guasto", ora.Add(-api.PresenzaOnlineEntro - time.Second), "offline"},
+		{"un secondo prima della soglia: un giro di claim perso, ci sta", ora.Add(-worker.PresenzaOnlineEntro + time.Second), "attiva"},
+		{"un secondo dopo la soglia: due giri persi, è un guasto", ora.Add(-worker.PresenzaOnlineEntro - time.Second), "offline"},
 	}
 	for _, c := range casi {
 		presenze := []db.ListWorkerPresenzaRow{

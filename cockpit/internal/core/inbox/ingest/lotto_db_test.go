@@ -29,7 +29,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -60,18 +60,18 @@ func preparaPP(t *testing.T) (*pgxpool.Pool, *Servizio, db.Casella, context.Cont
 
 // tre costruisce il lotto di §8.1 punto 2: tre elementi con ricevuto_il crescente. Il secondo è quello
 // che la variante rende avvelenato; guasta lo riceve e lo rompe a modo suo.
-func tre(guasta func(*api.MessaggioIn)) []api.MessaggioIn {
-	el := func(n int, quando time.Time) api.MessaggioIn {
-		return api.MessaggioIn{
+func tre(guasta func(*worker.MessaggioIn)) []worker.MessaggioIn {
+	el := func(n int, quando time.Time) worker.MessaggioIn {
+		return worker.MessaggioIn{
 			MessageID: fmt.Sprintf("<pp-%d@acme.example>", n), EntryID: fmt.Sprintf("ENTRY-PP-%d", n),
 			StoreID: "STORE-PP", ConversationID: fmt.Sprintf("CONV-PP-%d", n), Cartella: cartellaPP,
 			Direzione: "entrata", DataEvento: quando, MittenteNome: "Mario Rossi",
 			MittenteIndirizzo: "mario.rossi@acme.example", Oggetto: fmt.Sprintf("RFQ di prova %d", n),
 			CorpoTesto: "Richiesta d'offerta.", Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: fmt.Sprintf("disegno-%d.pdf", n), Estensione: "pdf", Natura: "file", Bytes: 1000}},
+			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: fmt.Sprintf("disegno-%d.pdf", n), Estensione: "pdf", Natura: "file", Bytes: 1000}},
 		}
 	}
-	l := []api.MessaggioIn{el(1, ppBase), el(2, ppBase.Add(time.Hour)), el(3, ppBase.Add(2*time.Hour))}
+	l := []worker.MessaggioIn{el(1, ppBase), el(2, ppBase.Add(time.Hour)), el(3, ppBase.Add(2*time.Hour))}
 	if guasta != nil {
 		guasta(&l[1])
 	}
@@ -146,8 +146,8 @@ func TestPoisonPillIlLottoNonSiFermaEIlCursoreAvanza(t *testing.T) {
 
 	lotto := Lotto{
 		Casella:  casella,
-		Messaggi: tre(func(m *api.MessaggioIn) { m.Direzione = "x" }),
-		Cursore:  &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Messaggi: tre(func(m *worker.MessaggioIn) { m.Direzione = "x" }),
+		Cursore:  &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	}
 	r, err := s.Ingerisci(ctx, lotto)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestPoisonPillIlLottoNonSiFermaEIlCursoreAvanza(t *testing.T) {
 		t.Errorf("ricevuto_il dello scarto = %v, atteso %v", sc[0].Ricevuto, ppBase.Add(time.Hour))
 	}
 	// il payload deve bastare a rifare l'ingest senza Outlook: deve essere l'elemento intero
-	var rimesso api.MessaggioIn
+	var rimesso worker.MessaggioIn
 	if err := json.Unmarshal(sc[0].Payload, &rimesso); err != nil {
 		t.Fatalf("payload dello scarto illeggibile: %v", err)
 	}
@@ -236,19 +236,19 @@ func TestPoisonPillVarianti(t *testing.T) {
 	casi := []struct {
 		nome     string
 		id       string // ID del piano di test
-		guasta   func(*api.MessaggioIn)
+		guasta   func(*worker.MessaggioIn)
 		motivo   string // sottostringa attesa nell'errore
 		daServer bool   // true = a rifiutare è PostgreSQL, non un controllo del server
 	}{
-		{"direzione fuori enum", "I1", func(m *api.MessaggioIn) { m.Direzione = "x" }, "direzione", false},
-		{"natura allegato fuori enum", "I1", func(m *api.MessaggioIn) { m.Allegati[0].Natura = "boh" }, "natura", false},
-		{"due allegati con lo stesso indice", "I14", func(m *api.MessaggioIn) {
-			m.Allegati = append(m.Allegati, api.AllegatoIn{Indice: 1, NomeFile: "secondo.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000})
+		{"direzione fuori enum", "I1", func(m *worker.MessaggioIn) { m.Direzione = "x" }, "direzione", false},
+		{"natura allegato fuori enum", "I1", func(m *worker.MessaggioIn) { m.Allegati[0].Natura = "boh" }, "natura", false},
+		{"due allegati con lo stesso indice", "I14", func(m *worker.MessaggioIn) {
+			m.Allegati = append(m.Allegati, worker.AllegatoIn{Indice: 1, NomeFile: "secondo.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000})
 		}, "stesso indice", false},
-		{"message-id di 1200 caratteri", "I13", func(m *api.MessaggioIn) {
+		{"message-id di 1200 caratteri", "I13", func(m *worker.MessaggioIn) {
 			m.MessageID = "<" + strings.Repeat("a", 1200) + "@acme.example>"
 		}, "identificativo utilizzabile", false},
-		{"byte nullo nel corpo", "I14", func(m *api.MessaggioIn) {
+		{"byte nullo nel corpo", "I14", func(m *worker.MessaggioIn) {
 			m.CorpoTesto = "Richiesta\x00d'offerta."
 		}, "", true},
 	}
@@ -258,7 +258,7 @@ func TestPoisonPillVarianti(t *testing.T) {
 			p, s, casella, ctx := preparaPP(t)
 			r, err := s.Ingerisci(ctx, Lotto{
 				Casella: casella, Messaggi: tre(c.guasta),
-				Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+				Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 			})
 			if err != nil {
 				t.Fatalf("%s: il lotto intero è fallito: %v", c.id, err)
@@ -281,7 +281,7 @@ func TestPoisonPillVarianti(t *testing.T) {
 			}
 			// il payload deve essere rileggibile: se il motivo dello scarto è un byte che PostgreSQL
 			// non accetta, quel byte non deve impedire di registrare lo scarto stesso.
-			var rimesso api.MessaggioIn
+			var rimesso worker.MessaggioIn
 			if err := json.Unmarshal(sc[0].Payload, &rimesso); err != nil {
 				t.Errorf("%s: payload dello scarto illeggibile: %v", c.id, err)
 			}
@@ -299,8 +299,8 @@ func TestPoisonPillVarianti(t *testing.T) {
 func TestReplayDalPayloadSenzaOutlook(t *testing.T) {
 	p, s, casella, ctx := preparaPP(t)
 	if _, err := s.Ingerisci(ctx, Lotto{
-		Casella: casella, Messaggi: tre(func(m *api.MessaggioIn) { m.Direzione = "x" }),
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Casella: casella, Messaggi: tre(func(m *worker.MessaggioIn) { m.Direzione = "x" }),
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -358,11 +358,11 @@ func TestReplayDiUnElementoNonLetto(t *testing.T) {
 	r, err := s.Ingerisci(ctx, Lotto{
 		Casella:  casella,
 		Messaggi: tre(nil),
-		Saltati: []api.ElementoSaltato{{
+		Saltati: []worker.ElementoSaltato{{
 			EntryID: "ENTRY-PP-SALTATO", Cartella: cartellaPP, MessageID: "<pp-saltato@acme.example>",
 			RicevutoIl: &quando, Oggetto: "elemento non convertito", Errore: "com_error su Body",
 		}},
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -414,8 +414,8 @@ func TestReplayDiUnElementoNonLetto(t *testing.T) {
 func TestCommitFallitoNonLasciaNullaDiParziale(t *testing.T) {
 	p, s, casella, ctx := preparaPP(t)
 	lotto := Lotto{
-		Casella: casella, Messaggi: tre(func(m *api.MessaggioIn) { m.Direzione = "x" }),
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Casella: casella, Messaggi: tre(func(m *worker.MessaggioIn) { m.Direzione = "x" }),
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	}
 
 	// La transazione viene abortita con un errore SQL vero (divisione per zero): da quel momento
@@ -469,16 +469,16 @@ func TestScansioneInterrottaIlCursoreRestaAllUltimoLottoConfermato(t *testing.T)
 	p, s, casella, ctx := preparaPP(t)
 
 	lotto := func(da, quanti int, fin time.Time) Lotto {
-		var ms []api.MessaggioIn
+		var ms []worker.MessaggioIn
 		for i := da; i < da+quanti; i++ {
-			ms = append(ms, api.MessaggioIn{
+			ms = append(ms, worker.MessaggioIn{
 				MessageID: fmt.Sprintf("<pp-scan-%03d@acme.example>", i), EntryID: fmt.Sprintf("ENTRY-SCAN-%03d", i),
 				StoreID: "STORE-PP", Cartella: cartellaPP, Direzione: "entrata",
 				DataEvento: ppBase.Add(time.Duration(i) * time.Minute), MittenteIndirizzo: "mario.rossi@acme.example",
 				Oggetto: fmt.Sprintf("scan %d", i), Riferimenti: []string{}, Categorie: []string{},
 			})
 		}
-		return Lotto{Casella: casella, Messaggi: ms, Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: fin}}
+		return Lotto{Casella: casella, Messaggi: ms, Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: fin}}
 	}
 
 	fine1 := ppBase.Add(50 * time.Minute)
@@ -525,10 +525,10 @@ func TestIlCursoreNonArretra(t *testing.T) {
 	p, s, casella, ctx := preparaPP(t)
 	tardi := ppBase.Add(2 * time.Hour)
 	presto := ppBase.Add(30 * time.Minute)
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: tre(nil), Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: tardi}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Messaggi: tre(nil), Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: tardi}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: presto}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: casella, Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: presto}}); err != nil {
 		t.Fatal(err)
 	}
 	if cur := cursore(t, p); cur == nil || !cur.Equal(tardi) {
@@ -579,7 +579,7 @@ func TestCasellaNonCensitaSiFermaPrimaDellaTransazione(t *testing.T) {
 // accorgersi della differenza: nessun duplicato, cursore fermo.
 func TestLottoRipetutoDopoUnaRispostaPersa(t *testing.T) {
 	p, s, casella, ctx := preparaPP(t)
-	lotto := Lotto{Casella: casella, Messaggi: tre(nil), Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale}}
+	lotto := Lotto{Casella: casella, Messaggi: tre(nil), Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale}}
 
 	r1, err := s.Ingerisci(ctx, lotto)
 	if err != nil || r1.Inseriti != 3 {
@@ -629,7 +629,7 @@ func TestLottoDiUnTentativoScadutoNonScriveNulla(t *testing.T) {
 		Casella:   casella,
 		Tentativo: &Tentativo{JobID: jobID, LeaseToken: j.LeaseToken.UUID, WorkerID: "outlook@PC-PROVA"},
 		Messaggi:  tre(nil),
-		Cursore:   &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Cursore:   &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	})
 	if err != ErrTentativoNonValido {
 		t.Fatalf("lease scaduto: errore = %v, atteso ErrTentativoNonValido (409)", err)
@@ -665,7 +665,7 @@ func TestLottoDiUnTentativoScadutoNonScriveNulla(t *testing.T) {
 		Casella:   casella,
 		Tentativo: &Tentativo{JobID: jobID, LeaseToken: j.LeaseToken.UUID, WorkerID: "outlook@PC-PROVA"},
 		Messaggi:  tre(nil),
-		Cursore:   &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Cursore:   &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	})
 	if err != nil || r.Inseriti != 3 {
 		t.Fatalf("tentativo valido: %+v %v", r, err)
@@ -681,7 +681,7 @@ func TestDueLottiIdenticiConcorrentiNonDuplicano(t *testing.T) {
 	var via sync.WaitGroup
 	pronti.Add(2)
 	via.Add(1)
-	esiti := make([]api.IngestRisposta, 2)
+	esiti := make([]worker.IngestRisposta, 2)
 	errori := make([]error, 2)
 	var fine sync.WaitGroup
 	fine.Add(2)
@@ -692,7 +692,7 @@ func TestDueLottiIdenticiConcorrentiNonDuplicano(t *testing.T) {
 			via.Wait()
 			esiti[i], errori[i] = s.Ingerisci(ctx, Lotto{
 				Casella: casella, Messaggi: tre(nil),
-				Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+				Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 			})
 		}(i)
 	}
@@ -745,7 +745,7 @@ func TestUnLottoFaAvanzareIlCursoreMaNonLaCopertura(t *testing.T) {
 	lotto := Lotto{
 		Casella:  casella,
 		Messaggi: tre(nil),
-		Cursore:  &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Cursore:  &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	}
 	if _, err := s.Ingerisci(ctx, lotto); err != nil {
 		t.Fatalf("lotto: %v", err)

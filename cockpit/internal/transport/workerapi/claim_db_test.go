@@ -15,7 +15,7 @@ import (
 
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
@@ -69,7 +69,7 @@ func preparaBancoClaim(t *testing.T) *bancoClaim {
 }
 
 // claimHTTP fa il claim come il worker vero, via HTTP, dall'IP indicato.
-func (b *bancoClaim) claimHTTP(req api.ClaimRichiesta, ip string) (*http.Response, *api.Job) {
+func (b *bancoClaim) claimHTTP(req worker.ClaimRichiesta, ip string) (*http.Response, *worker.Job) {
 	b.t.Helper()
 	if req.AttesaS == 0 {
 		req.AttesaS = 1
@@ -87,7 +87,7 @@ func (b *bancoClaim) claimHTTP(req api.ClaimRichiesta, ip string) (*http.Respons
 	if resp.StatusCode != 200 {
 		return resp, nil
 	}
-	var j api.Job
+	var j worker.Job
 	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
 		b.t.Fatal(err)
 	}
@@ -112,8 +112,8 @@ func TestQ18ClaimConCaselleNonAutorizzate(t *testing.T) {
 		jobs.Opzioni{Casella: uuid.NullUUID{UUID: b.luigi, Valid: true}}); err != nil {
 		t.Fatal(err)
 	}
-	dichiara := api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-FRANCESCO", OutlookOk: true,
-		CaselleAperte: []api.CasellaAperta{
+	dichiara := worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-FRANCESCO", OutlookOk: true,
+		CaselleAperte: []worker.CasellaAperta{
 			{CasellaID: b.francesco, StoreID: "STORE-F"}, {CasellaID: b.commerciale, StoreID: "STORE-C"}, {CasellaID: b.luigi, StoreID: "STORE-L"}}}
 	presi := map[uuid.UUID]bool{}
 	for i := 0; i < 3; i++ {
@@ -155,7 +155,7 @@ func TestQ18ClaimConCaselleNonAutorizzate(t *testing.T) {
 // nessuna casella il worker è vivo ma non serve niente: è il terzo stato della testata.
 func TestM2PresenzaPerWorker(t *testing.T) {
 	b := preparaBancoClaim(t)
-	resp, _ := b.claimHTTP(api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-FRANCESCO", OutlookOk: false}, "10.0.0.5:5000")
+	resp, _ := b.claimHTTP(worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-FRANCESCO", OutlookOk: false}, "10.0.0.5:5000")
 	if resp.StatusCode != 204 {
 		t.Fatalf("claim senza caselle: %d (il job del banco è di Commerciale, non dichiarata)", resp.StatusCode)
 	}
@@ -165,7 +165,7 @@ func TestM2PresenzaPerWorker(t *testing.T) {
 		t.Fatalf("presenza: %+v", p)
 	}
 	// il worker di analisi ha la sua riga, separata
-	if resp, _ := b.claimHTTP(api.ClaimRichiesta{Worker: "analisi", WorkerID: "analisi@PC-FRANCESCO"}, "10.0.0.5:5001"); resp.StatusCode != 204 {
+	if resp, _ := b.claimHTTP(worker.ClaimRichiesta{Worker: "analisi", WorkerID: "analisi@PC-FRANCESCO"}, "10.0.0.5:5001"); resp.StatusCode != 204 {
 		t.Fatalf("claim analisi: %d", resp.StatusCode)
 	}
 	righe, _ := b.q.ListWorkerPresenza(b.ctx)
@@ -173,8 +173,8 @@ func TestM2PresenzaPerWorker(t *testing.T) {
 		t.Fatalf("presenze = %d, attese 2 (una per worker, non una per tipo)", len(righe))
 	}
 	// ultimo_arresto riportato al riavvio resta anche nei claim successivi che non lo portano
-	b.claimHTTP(api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true, UltimoArresto: "job 7: COM bloccato"}, "10.0.0.5:5000")
-	b.claimHTTP(api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true}, "10.0.0.5:5000")
+	b.claimHTTP(worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true, UltimoArresto: "job 7: COM bloccato"}, "10.0.0.5:5000")
+	b.claimHTTP(worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true}, "10.0.0.5:5000")
 	if p := b.presenza("outlook@PC-FRANCESCO"); !p.UltimoArresto.Valid || p.UltimoArresto.String != "job 7: COM bloccato" {
 		t.Errorf("ultimo_arresto perso: %+v", p.UltimoArresto)
 	}
@@ -190,18 +190,18 @@ func TestClaimRifiutaWorkerNonCensitoOSuAltraPostazione(t *testing.T) {
 	casi := []struct {
 		nome   string
 		token  string
-		req    api.ClaimRichiesta
+		req    worker.ClaimRichiesta
 		stato  int
 		attesa string
 	}{
 		{"credenziale sconosciuta", tokenProva,
-			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-IGNOTO"}, 401, "credenziale non riconosciuta"},
+			worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-IGNOTO"}, 401, "credenziale non riconosciuta"},
 		{"tipo diverso da quello censito", tokenDi("outlook@PC-FRANCESCO"),
-			api.ClaimRichiesta{Worker: "analisi", WorkerID: "outlook@PC-FRANCESCO"}, 403, "censito come outlook"},
+			worker.ClaimRichiesta{Worker: "analisi", WorkerID: "outlook@PC-FRANCESCO"}, 403, "censito come outlook"},
 		{"worker.toml copiato su un altro PC", tokenDi("outlook@PC-FRANCESCO"),
-			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-LUIGI"}, 403, "copiato su un altro PC"},
+			worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", Postazione: "PC-LUIGI"}, 403, "copiato su un altro PC"},
 		{"la credenziale di uno, il nome di un altro", tokenDi("outlook@PC-FRANCESCO"),
-			api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-LUIGI"}, 403, "il nome di un altro worker"},
+			worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-LUIGI"}, 403, "il nome di un altro worker"},
 	}
 	for _, c := range casi {
 		r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", bytes.NewReader(mustJSON(c.req)))
@@ -239,7 +239,7 @@ func TestCaselleWorkerSoloAutorizzateEAttive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var out []api.CasellaServita
+	var out []worker.CasellaServita
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 {
 		t.Fatalf("caselle: %d %v", resp.StatusCode, err)
 	}
@@ -263,13 +263,13 @@ func TestCaselleWorkerSoloAutorizzateEAttive(t *testing.T) {
 // e il job che arriva porta postazione_id assente (non è interattivo) e casella_id.
 func TestClaimHTTPRispettaLaCasellaDelJob(t *testing.T) {
 	b := preparaBancoClaim(t)
-	resp, _ := b.claimHTTP(api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-LUIGI", OutlookOk: true,
-		CaselleAperte: []api.CasellaAperta{{CasellaID: b.luigi, StoreID: "S"}}}, "10.0.0.7:1")
+	resp, _ := b.claimHTTP(worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-LUIGI", OutlookOk: true,
+		CaselleAperte: []worker.CasellaAperta{{CasellaID: b.luigi, StoreID: "S"}}}, "10.0.0.7:1")
 	if resp.StatusCode != 204 {
 		t.Fatalf("PC-LUIGI ha ricevuto il job di Commerciale: %d", resp.StatusCode)
 	}
-	resp, j := b.claimHTTP(api.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true,
-		CaselleAperte: []api.CasellaAperta{{CasellaID: b.commerciale, StoreID: "S-C"}}}, "10.0.0.5:1")
+	resp, j := b.claimHTTP(worker.ClaimRichiesta{Worker: "outlook", WorkerID: "outlook@PC-FRANCESCO", OutlookOk: true,
+		CaselleAperte: []worker.CasellaAperta{{CasellaID: b.commerciale, StoreID: "S-C"}}}, "10.0.0.5:1")
 	if resp.StatusCode != 200 || j == nil || j.CasellaID == nil || *j.CasellaID != b.commerciale || j.PostazioneID != nil {
 		t.Fatalf("PC-FRANCESCO: %d %+v", resp.StatusCode, j)
 	}

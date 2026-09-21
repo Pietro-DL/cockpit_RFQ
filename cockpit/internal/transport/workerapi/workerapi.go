@@ -28,7 +28,7 @@ import (
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
@@ -120,7 +120,7 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			// Prova di vita (0009), qui e non dentro le rotte. `claim` resta appeso in long-poll
-			// fino ad api.AttesaClaim: una presenza scritta DOPO racconta il momento in cui il
+			// fino ad worker.AttesaClaim: una presenza scritta DOPO racconta il momento in cui il
 			// worker ha smesso di aspettare, non quello in cui si e' fatto vivo, e per tutta
 			// l'attesa — o per tutta la durata di un job — la testata lo dava per spento. Questo
 			// e' l'unico punto attraversato da tutte le rotte dei worker: nessuna rotta futura da
@@ -216,8 +216,8 @@ func (s *Server) indirizzoDi(r *http.Request) *netip.Addr {
 type destinazione struct {
 	cred     db.WorkerCredenziale
 	dest     jobs.Destinazione
-	aperte   []api.CasellaAperta // dichiarate E autorizzate: finiscono in casella_store
-	ignorate []uuid.UUID         // dichiarate e NON autorizzate: avviso (Q18)
+	aperte   []worker.CasellaAperta // dichiarate E autorizzate: finiscono in casella_store
+	ignorate []uuid.UUID            // dichiarate e NON autorizzate: avviso (Q18)
 	avviso   string
 }
 
@@ -225,7 +225,7 @@ type destinazione struct {
 // (voce 2.2). Il server non si fida del JSON: una casella dichiarata e non autorizzata non entra
 // nel claim, viene scritta nell'avviso della presenza e nel log, e il worker continua a lavorare
 // sulle altre. Un worker senza credenziale non ha una destinazione e non prende niente.
-func risolviDestinazione(cred db.WorkerCredenziale, req api.ClaimRichiesta) destinazione {
+func risolviDestinazione(cred db.WorkerCredenziale, req worker.ClaimRichiesta) destinazione {
 	d := destinazione{cred: cred, dest: jobs.Destinazione{Postazione: cred.PostazioneID}}
 	autorizzate := map[uuid.UUID]bool{}
 	for _, c := range cred.Caselle {
@@ -255,7 +255,7 @@ func risolviDestinazione(cred db.WorkerCredenziale, req api.ClaimRichiesta) dest
 }
 
 func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
-	var req api.ClaimRichiesta
+	var req worker.ClaimRichiesta
 	if err := leggi(r, &req); err != nil {
 		errore(w, 400, err)
 		return
@@ -323,8 +323,8 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	attesa := time.Duration(req.AttesaS) * time.Second
-	if attesa <= 0 || attesa > api.AttesaClaimMax {
-		attesa = api.AttesaClaim
+	if attesa <= 0 || attesa > worker.AttesaClaimMax {
+		attesa = worker.AttesaClaim
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), attesa+5*time.Second)
 	defer cancel()
@@ -370,12 +370,12 @@ func (s *Server) caselleWorker(w http.ResponseWriter, r *http.Request) {
 		errore(w, 500, err)
 		return
 	}
-	out := make([]api.CasellaServita, 0, len(righe))
+	out := make([]worker.CasellaServita, 0, len(righe))
 	for _, c := range righe {
 		if c.Canale != db.CanaleOutlook {
 			continue
 		}
-		out = append(out, api.CasellaServita{CasellaID: c.CasellaID, Indirizzo: c.Indirizzo, Nome: c.Nome, Condivisa: c.Condivisa})
+		out = append(out, worker.CasellaServita{CasellaID: c.CasellaID, Indirizzo: c.Indirizzo, Nome: c.Nome, Condivisa: c.Condivisa})
 	}
 	scriviJSON(w, 200, out)
 }
@@ -410,7 +410,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, err)
 		return
 	}
-	var req api.HeartbeatRichiesta
+	var req worker.HeartbeatRichiesta
 	_ = leggi(r, &req)
 	if _, ok := stessoWorker(w, r, req.WorkerID); !ok {
 		return
@@ -438,7 +438,7 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, err)
 		return
 	}
-	var req api.RisultatoRichiesta
+	var req worker.RisultatoRichiesta
 	if err := leggi(r, &req); err != nil {
 		errore(w, 400, err)
 		return
@@ -600,17 +600,17 @@ func (s *Server) risultatoNonApplicabile(w http.ResponseWriter, ctx context.Cont
 func (s *Server) fallimentoDefinitivo(ctx context.Context, q *db.Queries, j *db.Job, msg string) {
 	switch j.Tipo {
 	case db.TipoJobStageAllegato:
-		var p api.PayloadStageAllegato
+		var p worker.PayloadStageAllegato
 		if json.Unmarshal(j.Payload, &p) == nil {
 			_ = q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: p.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: pgtype.Text{String: msg, Valid: true}})
 		}
 	case db.TipoJobAnalizzaAllegato:
-		var p api.PayloadAnalizzaAllegato
+		var p worker.PayloadAnalizzaAllegato
 		if json.Unmarshal(j.Payload, &p) == nil {
 			_ = q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: p.AllegatoID, Stato: db.StatoAllegatoErrore, Errore: pgtype.Text{String: msg, Valid: true}})
 		}
 	case db.TipoJobCreaBozzaOutlook:
-		var p api.PayloadCreaBozza
+		var p worker.PayloadCreaBozza
 		if json.Unmarshal(j.Payload, &p) == nil {
 			_ = q.SetBozzaErrore(ctx, db.SetBozzaErroreParams{BozzaID: p.BozzaID, Errore: pgtype.Text{String: msg, Valid: true}})
 		}
@@ -621,8 +621,8 @@ func (s *Server) fallimentoDefinitivo(ctx context.Context, q *db.Queries, j *db.
 // della transazione: dove sta il file caricato dal tentativo, dove deve finire, l'hash verificato,
 // l'eventuale estrazione dello zip.
 type stagePronto struct {
-	r          api.RisultatoStage
-	p          api.PayloadStageAllegato
+	r          worker.RisultatoStage
+	p          worker.PayloadStageAllegato
 	a          db.Allegato
 	definitivo string // <staging>\_contenuti\<ab>\<sha256>.<ext>: dove il contenuto sta o andra'
 	parte      string // <staging>\_parti\<allegato>.parte.<lease_token>: dove il tentativo ha caricato
@@ -720,11 +720,11 @@ func enumValido[T interface {
 func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job, dati json.RawMessage, prep *stagePronto) error {
 	switch j.Tipo {
 	case db.TipoJobSyncOutlook:
-		var r api.RisultatoSync
+		var r worker.RisultatoSync
 		if err := json.Unmarshal(dati, &r); err != nil {
 			return err
 		}
-		var p api.PayloadSyncOutlook
+		var p worker.PayloadSyncOutlook
 		_ = json.Unmarshal(j.Payload, &p)
 		// Il cursore è per (casella, cartella): senza sapere di quale casella sia questo sync, il
 		// risultato non è applicabile. Non si sceglie una casella per difetto — sarebbe il cursore di
@@ -736,7 +736,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if !cas.Valid {
 			return fmt.Errorf("risultato di sync senza casella: il cursore è per (casella, cartella) e non si può attribuire")
 		}
-		finestre := map[string]api.CartellaCursore{}
+		finestre := map[string]worker.CartellaCursore{}
 		for _, c := range p.Cartelle {
 			finestre[c.Cartella] = c
 		}
@@ -763,7 +763,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 				continue
 			}
 			f := finestre[c.Cartella]
-			if p.ModoEffettivo() == api.ModoStorico {
+			if p.ModoEffettivo() == worker.ModoStorico {
 				// la finestra [dal, al] di QUESTA cartella è coperta: il prossimo «Carica precedenti»
 				// riparte dal suo dal
 				dal := p.Dal
@@ -810,11 +810,11 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		return s.dopoStaging(ctx, q, r)
 
 	case db.TipoJobAnalizzaAllegato:
-		var r api.RisultatoAnalisi
+		var r worker.RisultatoAnalisi
 		if err := json.Unmarshal(dati, &r); err != nil {
 			return err
 		}
-		var p api.PayloadAnalizzaAllegato
+		var p worker.PayloadAnalizzaAllegato
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return err
 		}
@@ -883,8 +883,8 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		return nil
 
 	case db.TipoJobCreaBozzaOutlook:
-		var p api.PayloadCreaBozza
-		var r api.RisultatoBozza
+		var p worker.PayloadCreaBozza
+		var r worker.RisultatoBozza
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return err
 		}
@@ -897,9 +897,9 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		// nessun effetto sul dominio; se il worker ha ritrovato l'elemento altrove, si riallinea l'EntryID
 		var p struct {
 			EntryID string `json:"entry_id"`
-			api.RiferimentoElemento
+			worker.RiferimentoElemento
 		}
-		var r api.RisultatoElemento
+		var r worker.RisultatoElemento
 		if json.Unmarshal(j.Payload, &p) == nil && json.Unmarshal(dati, &r) == nil {
 			s.riallineaEntryID(ctx, q, p.RiferimentoElemento, p.EntryID, r)
 		}
@@ -912,7 +912,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 // perché gli stessi fatti vengono applicati a più allegati con lo stesso contenuto, ciascuno nel suo
 // messaggio: la direzione del messaggio può cambiare la lettura, e va riletta per ognuno (A15).
 func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato,
-	tipo db.TipoDocumento, fonte db.FonteProposta, r api.RisultatoAnalisi, dett json.RawMessage) error {
+	tipo db.TipoDocumento, fonte db.FonteProposta, r worker.RisultatoAnalisi, dett json.RawMessage) error {
 	var threadID uuid.NullUUID
 	entrata := false
 	if m, err := q.GetMessaggio(ctx, a.MessaggioID); err == nil {
@@ -955,7 +955,7 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 // più vecchio del server — non viene indovinato: si lascia la presenza com'è e lo si scrive nel log,
 // perché un EntryID stantio fa fallire un'operazione e si vede, mentre uno sbagliato ne fa fallire
 // un'altra, in un altro momento, senza che nessuno colleghi le due cose.
-func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.RiferimentoElemento, entryPayload string, r api.RisultatoElemento) {
+func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif worker.RiferimentoElemento, entryPayload string, r worker.RisultatoElemento) {
 	if rif.MessaggioID == nil || r.EntryID == "" || r.EntryID == entryPayload {
 		return
 	}
@@ -977,7 +977,7 @@ func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif api.Ri
 // dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa
 // (hash → rumore già scartato), si estraggono gli zip in allegati figli e si accoda l'analisi Python
 // (cartiglio, STEP) che raffina ancora finché la proposta resta aperta.
-func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.RisultatoStage) error {
+func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.RisultatoStage) error {
 	a, err := q.GetAllegato(ctx, r.AllegatoID)
 	if err != nil {
 		return err
@@ -1014,7 +1014,7 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r api.Risultato
 		// quindi un «Riscarica» che rimette lo stesso zip non accoda una seconda estrazione finché la
 		// prima è in coda.
 		_, err := jobs.Accoda(ctx, q, db.TipoJobEstraiArchivio,
-			api.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, "estrai:"+a.AllegatoID.String(), 4)
+			worker.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, "estrai:"+a.AllegatoID.String(), 4)
 		return err
 	}
 	_, err = jobs.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
@@ -1115,7 +1115,7 @@ func txt(s string) pgtype.Text {
 // ---------------------------------------------------------------- ingest e cursori
 
 func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
-	var req api.IngestRichiesta
+	var req worker.IngestRichiesta
 	if err := leggi(r, &req); err != nil {
 		errore(w, 400, err)
 		return
@@ -1174,7 +1174,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Esiti == nil {
-		res.Esiti = []api.EsitoMessaggio{}
+		res.Esiti = []worker.EsitoMessaggio{}
 	}
 	if res.Falliti > 0 {
 		s.Log.Warn("lotto con scarti", "job", req.JobID, "inseriti", res.Inseriti, "aggiornati", res.Aggiornati, "falliti", res.Falliti)
@@ -1188,9 +1188,9 @@ func (s *Server) cursori(w http.ResponseWriter, r *http.Request) {
 		errore(w, 500, err)
 		return
 	}
-	out := make([]api.CartellaCursore, 0, len(c))
+	out := make([]worker.CartellaCursore, 0, len(c))
 	for _, x := range c {
-		out = append(out, api.CartellaCursore{Cartella: x.Cartella, UltimoReceived: x.UltimoReceived, CopertoFinoA: x.CopertoFinoA})
+		out = append(out, worker.CartellaCursore{Cartella: x.Cartella, UltimoReceived: x.UltimoReceived, CopertoFinoA: x.CopertoFinoA})
 	}
 	scriviJSON(w, 200, out)
 }

@@ -18,7 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -44,7 +44,7 @@ func TestEsecutoreAffidaLArchivioAChiSaScompattarlo(t *testing.T) {
 	e.Archivi = finto
 
 	allegato := uuid.New()
-	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, api.PayloadEstraiArchivio{AllegatoID: allegato},
+	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
 		"estrai:"+allegato.String(), 4, Opzioni{})
 	if err != nil || j == nil {
 		t.Fatalf("accodamento: job=%v err=%v", j, err)
@@ -90,7 +90,7 @@ func TestEsecutoreSenzaEstrattoreLoDice(t *testing.T) {
 	e := esecutore(t, t.TempDir())
 
 	allegato := uuid.New()
-	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, api.PayloadEstraiArchivio{AllegatoID: allegato},
+	j, err := AccodaCon(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: allegato},
 		"estrai:"+allegato.String(), 4, Opzioni{})
 	if err != nil || j == nil {
 		t.Fatalf("accodamento: job=%v err=%v", j, err)

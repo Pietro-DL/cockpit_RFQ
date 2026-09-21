@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/ai/agente"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 )
@@ -172,7 +172,7 @@ func (e *EsecutoreServer) RiaccodaAlRitornoDelNas(ctx context.Context, q *db.Que
 func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, t Tentativo) (any, error) {
 	switch j.Tipo {
 	case db.TipoJobEstraiArchivio:
-		var p api.PayloadEstraiArchivio
+		var p worker.PayloadEstraiArchivio
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return nil, err
 		}
@@ -186,7 +186,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		return map[string]any{"allegato_id": p.AllegatoID, "voci": voci}, nil
 
 	case db.TipoJobAnalizzaMessaggioAi:
-		var p api.PayloadAnalizzaMessaggioAI
+		var p worker.PayloadAnalizzaMessaggioAI
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return nil, err
 		}
@@ -200,7 +200,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 			"scartati": len(a.Scartato), "token_in": a.TokenIn.Int32, "token_out": a.TokenOut.Int32}, nil
 
 	case db.TipoJobCreaCartellaThread:
-		var p api.PayloadCreaCartellaThread
+		var p worker.PayloadCreaCartellaThread
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return nil, err
 		}
@@ -234,7 +234,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		return map[string]any{"cartella": base, "dry_run": e.NAS.DryRun}, nil
 
 	case db.TipoJobCopiaNas:
-		var p api.PayloadCopiaNAS
+		var p worker.PayloadCopiaNAS
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return nil, err
 		}
@@ -362,7 +362,7 @@ func (e *EsecutoreServer) riprendiContenuto(ctx context.Context, q *db.Queries, 
 			return originale
 		}
 		if z.PathStaging.Valid && (FileStaging{}).Presente(z.PathStaging.String) {
-			if _, err := Accoda(ctx, q, db.TipoJobEstraiArchivio, api.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
+			if _, err := Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: z.AllegatoID},
 				"estrai:"+z.AllegatoID.String(), 2); err != nil {
 				return originale
 			}

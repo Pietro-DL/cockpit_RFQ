@@ -32,7 +32,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -69,7 +69,7 @@ var cartelleDiProva = []string{"Inbox", "Sent Items"}
 
 // accoda chiede al server la finestra successiva di quella casella, come fanno «Aggiorna ora» e lo
 // scheduler. Il job precedente va chiuso prima: la chiave di idempotenza è fissa per casella.
-func (b *bancoCopertura) accoda(c db.Casella) (*db.Job, api.PayloadSyncOutlook) {
+func (b *bancoCopertura) accoda(c db.Casella) (*db.Job, worker.PayloadSyncOutlook) {
 	b.t.Helper()
 	j, err := jobs.AccodaSyncCasella(b.ctx, b.q, c, jobs.SyncOpzioni{Cartelle: cartelleDiProva, Lotto: 50})
 	if err != nil {
@@ -78,7 +78,7 @@ func (b *bancoCopertura) accoda(c db.Casella) (*db.Job, api.PayloadSyncOutlook) 
 	if j == nil {
 		b.t.Fatal("nessun job accodato: ce n'era già uno pendente e non è stato chiuso")
 	}
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		b.t.Fatalf("payload: %v", err)
 	}
@@ -94,9 +94,9 @@ func (b *bancoCopertura) chiudi(j *db.Job) {
 
 // riporta applica il risultato del worker come fa la rotta /result: è il punto in cui il server
 // decide se una frontiera si muove.
-func (b *bancoCopertura) riporta(j *db.Job, cartelle ...api.CartellaEsito) {
+func (b *bancoCopertura) riporta(j *db.Job, cartelle ...worker.CartellaEsito) {
 	b.t.Helper()
-	dati, err := json.Marshal(api.RisultatoSync{Cartelle: cartelle})
+	dati, err := json.Marshal(worker.RisultatoSync{Cartelle: cartelle})
 	if err != nil {
 		b.t.Fatal(err)
 	}
@@ -111,14 +111,14 @@ func (b *bancoCopertura) riporta(j *db.Job, cartelle ...api.CartellaEsito) {
 // agli elementi: e' li' che un avanzamento di troppo si pagherebbe.
 func (b *bancoCopertura) consegnaUnLotto(c db.Casella, cartella string, quando time.Time) {
 	b.t.Helper()
-	m := api.MessaggioIn{
+	m := worker.MessaggioIn{
 		MessageID: "<lotto-" + quando.Format("150405.000000") + "@prova>", EntryID: "E-" + quando.Format("150405.000000"),
 		StoreID: "S", Cartella: cartella, Direzione: "entrata", DataEvento: quando, RicevutoIl: &quando,
 		Oggetto: "il piu' recente della finestra", MittenteIndirizzo: "cliente@acme.example",
 	}
 	if _, err := b.s.Ingest.Ingerisci(b.ctx, ingest.Lotto{
-		Casella: c, Messaggi: []api.MessaggioIn{m},
-		Cursore: &api.CursoreLotto{Cartella: cartella, UltimoReceived: quando},
+		Casella: c, Messaggi: []worker.MessaggioIn{m},
+		Cursore: &worker.CursoreLotto{Cartella: cartella, UltimoReceived: quando},
 	}); err != nil {
 		b.t.Fatalf("lotto: %v", err)
 	}
@@ -143,7 +143,7 @@ func (b *bancoCopertura) coperturaDi(c db.Casella, cartella string) *time.Time {
 	return cur.CopertoFinoA
 }
 
-func finestraDi(t *testing.T, p api.PayloadSyncOutlook, cartella string) (time.Time, time.Time) {
+func finestraDi(t *testing.T, p worker.PayloadSyncOutlook, cartella string) (time.Time, time.Time) {
 	t.Helper()
 	for _, c := range p.Cartelle {
 		if c.Cartella != cartella {
@@ -160,10 +160,10 @@ func finestraDi(t *testing.T, p api.PayloadSyncOutlook, cartella string) (time.T
 
 // tutteComplete è il risultato di un sync andato bene: ogni cartella dichiara di aver percorso la
 // sua finestra per intero, e `ultimo_received` è la mail più recente che ha consegnato.
-func tutteComplete(p api.PayloadSyncOutlook, ultimo *time.Time, n int) []api.CartellaEsito {
-	out := make([]api.CartellaEsito, 0, len(p.Cartelle))
+func tutteComplete(p worker.PayloadSyncOutlook, ultimo *time.Time, n int) []worker.CartellaEsito {
+	out := make([]worker.CartellaEsito, 0, len(p.Cartelle))
 	for _, c := range p.Cartelle {
-		out = append(out, api.CartellaEsito{Cartella: c.Cartella, UltimoReceived: ultimo, NMessaggi: n, Completa: true})
+		out = append(out, worker.CartellaEsito{Cartella: c.Cartella, UltimoReceived: ultimo, NMessaggi: n, Completa: true})
 	}
 	return out
 }
@@ -190,7 +190,7 @@ func TestCopertura3CLaNotteSiLeggeSoloIlBuco(t *testing.T) {
 
 	ieriAlle17 := time.Now().Add(-16 * time.Hour).UTC().Truncate(time.Second)
 	j, p := b.accoda(c)
-	if p.Modo != api.ModoBootstrap {
+	if p.Modo != worker.ModoBootstrap {
 		t.Fatalf("la prima volta è un bootstrap, non %q", p.Modo)
 	}
 	b.riporta(j, tutteComplete(p, &ieriAlle17, 40)...)
@@ -203,7 +203,7 @@ func TestCopertura3CLaNotteSiLeggeSoloIlBuco(t *testing.T) {
 	}
 
 	_, mattina := b.accoda(c)
-	if mattina.Modo != api.ModoAggiornamento {
+	if mattina.Modo != worker.ModoAggiornamento {
 		t.Errorf("modo = %q: una casella già coperta non è in bootstrap", mattina.Modo)
 	}
 	dal, al := finestraDi(t, mattina, "Inbox")
@@ -246,8 +246,8 @@ func TestCopertura3ECrashAMetaAggiornamentoNonLasciaBuchi(t *testing.T) {
 	appenaAdesso := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
 	b.consegnaUnLotto(c, "Inbox", appenaAdesso)
 	b.riporta(j,
-		api.CartellaEsito{Cartella: "Inbox", UltimoReceived: &appenaAdesso, NMessaggi: 1, Completa: false},
-		api.CartellaEsito{Cartella: "Sent Items", UltimoReceived: nil, NMessaggi: 0, Completa: false},
+		worker.CartellaEsito{Cartella: "Inbox", UltimoReceived: &appenaAdesso, NMessaggi: 1, Completa: false},
+		worker.CartellaEsito{Cartella: "Sent Items", UltimoReceived: nil, NMessaggi: 0, Completa: false},
 	)
 
 	// la mail più recente è stata consegnata, e `ultimo_received` lo dice: è il suo mestiere
@@ -277,7 +277,7 @@ func TestCopertura3FCrashAMetaBootstrapNonLasciaBuchi(t *testing.T) {
 	c := b.casella("nuova@azienda.example")
 
 	j, p := b.accoda(c)
-	if p.Modo != api.ModoBootstrap {
+	if p.Modo != worker.ModoBootstrap {
 		t.Fatalf("modo = %q su una casella mai sincronizzata", p.Modo)
 	}
 	dal, _ := finestraDi(t, p, "Inbox")
@@ -285,8 +285,8 @@ func TestCopertura3FCrashAMetaBootstrapNonLasciaBuchi(t *testing.T) {
 	appenaAdesso := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
 	b.consegnaUnLotto(c, "Inbox", appenaAdesso)
 	b.riporta(j,
-		api.CartellaEsito{Cartella: "Inbox", UltimoReceived: &appenaAdesso, NMessaggi: 1, Completa: false},
-		api.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Completa: false},
+		worker.CartellaEsito{Cartella: "Inbox", UltimoReceived: &appenaAdesso, NMessaggi: 1, Completa: false},
+		worker.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Completa: false},
 	)
 	if cop := b.coperturaDi(c, "Inbox"); cop != nil {
 		t.Fatalf("un bootstrap interrotto ha scritto una copertura (%v): i sette giorni sotto non "+
@@ -294,7 +294,7 @@ func TestCopertura3FCrashAMetaBootstrapNonLasciaBuchi(t *testing.T) {
 	}
 
 	_, dopo := b.accoda(c)
-	if dopo.Modo != api.ModoBootstrap {
+	if dopo.Modo != worker.ModoBootstrap {
 		t.Errorf("modo = %q: il bootstrap non era finito", dopo.Modo)
 	}
 	dal2, _ := finestraDi(t, dopo, "Inbox")
@@ -318,8 +318,8 @@ func TestCopertura3HUnaFinestraIncompletaSenzaErroreNonMuoveNiente(t *testing.T)
 	j, _ := b.accoda(c)
 	b.riporta(j,
 		// nessun errore, nessun messaggio, `completa` assente: è il silenzio
-		api.CartellaEsito{Cartella: "Inbox", NMessaggi: 0, Errore: ""},
-		api.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Errore: ""},
+		worker.CartellaEsito{Cartella: "Inbox", NMessaggi: 0, Errore: ""},
+		worker.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Errore: ""},
 	)
 	for _, cartella := range cartelleDiProva {
 		if cop := b.coperturaDi(c, cartella); cop != nil {
@@ -328,7 +328,7 @@ func TestCopertura3HUnaFinestraIncompletaSenzaErroreNonMuoveNiente(t *testing.T)
 		}
 	}
 	_, dopo := b.accoda(c)
-	if dopo.Modo != api.ModoBootstrap {
+	if dopo.Modo != worker.ModoBootstrap {
 		t.Errorf("modo = %q: nessuna finestra è stata conclusa, la casella è ancora al punto di partenza", dopo.Modo)
 	}
 }
@@ -359,7 +359,7 @@ func TestCopertura3ILaParteVuotaDellaFinestraResta(t *testing.T) {
 	_, dopo := b.accoda(c)
 	dal, _ := finestraDi(t, dopo, "Inbox")
 	uguali(t, dal, p.Al.Add(-jobs.SovrapposizioneSync), "il sync successivo riparte da dove si era guardato")
-	if dopo.Modo != api.ModoAggiornamento {
+	if dopo.Modo != worker.ModoAggiornamento {
 		t.Errorf("modo = %q: la finestra era stata conclusa", dopo.Modo)
 	}
 }
@@ -379,8 +379,8 @@ func TestCopertura3JQuattroFrontiereIndipendenti(t *testing.T) {
 
 	jUno, _ := b.accoda(uno)
 	b.riporta(jUno,
-		api.CartellaEsito{Cartella: "Inbox", NMessaggi: 7, Completa: true},
-		api.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Errore: "LetturaIncompleta: enumerazione interrotta", Completa: false},
+		worker.CartellaEsito{Cartella: "Inbox", NMessaggi: 7, Completa: true},
+		worker.CartellaEsito{Cartella: "Sent Items", NMessaggi: 0, Errore: "LetturaIncompleta: enumerazione interrotta", Completa: false},
 	)
 
 	if b.coperturaDi(uno, "Inbox") == nil {
@@ -444,7 +444,7 @@ func TestCopertura3LeDueFrontiereNonSiToccano(t *testing.T) {
 	}
 
 	j, p := b.accoda(c)
-	if p.Modo == api.ModoStorico {
+	if p.Modo == worker.ModoStorico {
 		t.Fatal("«Aggiorna» ha accodato un job storico")
 	}
 	b.riporta(j, tutteComplete(p, nil, 3)...)

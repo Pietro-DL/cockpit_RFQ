@@ -56,7 +56,7 @@ Il worker non inserisce mai job; li prende, li esegue, ne riporta l'esito.
 ```
 
 I tempi del protocollo stanno in **un posto per lato** e i test li confrontano: `protocollo.py` ↔
-`internal/platform/contratti/api/protocollo.go` (attesa del claim 20 s, massimo 25; online = contatto entro 40 s; battito mai più
+`internal/platform/contratti/worker/protocollo.go` (attesa del claim 20 s, massimo 25; online = contatto entro 40 s; battito mai più
 lento di 20 s). Prima erano tre numeri in tre file, e insieme dicevano che un worker occupato era spento.
 
 **Il predicato di validità del tentativo** è uno solo e vale per heartbeat, result (ok ed errore), ingest e
@@ -132,7 +132,7 @@ all'accesso dell'utente, istanza singola, riavvio automatico, `pythonw` senza fi
 Ogni chiamata autenticata è anche una prova di vita: la presenza si scrive nel wrapper `auth`, prima
 dell'handler, così un claim appeso in long-poll o un job lungo non fanno sparire il worker dalla testata.
 
-Il contratto dei corpi è in `contratti.py` (pydantic) e in `internal/platform/contratti/api/tipi.go`; `genera_contratti.py`
+Il contratto dei corpi è in `contratti.py` (pydantic) e in `internal/platform/contratti/worker/tipi.go`; `genera_contratti.py`
 produce gli schemi JSON in `contracts/` e i test dei due lati li confrontano (L3).
 
 ## 5. Le funzioni del worker Outlook

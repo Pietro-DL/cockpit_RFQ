@@ -23,7 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -33,15 +33,15 @@ import (
 //
 // L'ultimo, e non «uno qualsiasi», perché i job dei clic precedenti restano in tabella: prendere
 // quello sbagliato farebbe passare SS2 leggendo due volte la stessa finestra.
-func (b *bancoWeb) jobStorici() map[uuid.UUID]api.PayloadSyncOutlook {
+func (b *bancoWeb) jobStorici() map[uuid.UUID]worker.PayloadSyncOutlook {
 	b.t.Helper()
 	ultimo := map[uuid.UUID]int64{}
-	out := map[uuid.UUID]api.PayloadSyncOutlook{}
+	out := map[uuid.UUID]worker.PayloadSyncOutlook{}
 	for _, j := range b.jobInterattivi() { // ListJob: job_id decrescente
 		if j.Tipo != db.TipoJobSyncOutlook {
 			continue
 		}
-		var p api.PayloadSyncOutlook
+		var p worker.PayloadSyncOutlook
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			b.t.Fatal(err)
 		}
@@ -66,7 +66,7 @@ func (b *bancoWeb) jobStorici() map[uuid.UUID]api.PayloadSyncOutlook {
 func (b *bancoWeb) finiscono() {
 	b.t.Helper()
 	for _, j := range b.jobInterattivi() {
-		var p api.PayloadSyncOutlook
+		var p worker.PayloadSyncOutlook
 		if j.Tipo != db.TipoJobSyncOutlook || json.Unmarshal(j.Payload, &p) != nil || p.Al == nil {
 			continue
 		}
@@ -87,13 +87,13 @@ func (b *bancoWeb) finiscono() {
 // consegnato. È il percorso completo — claim, lease, result, applicaRisultato — e serve dove la
 // scrittura diretta in database non proverebbe niente: la decisione su una frontiera la prende il
 // server guardando quel risultato.
-func (b *bancoWeb) riportaJob(nome string, j *api.Job, cartelle []api.CartellaEsito) {
+func (b *bancoWeb) riportaJob(nome string, j *worker.Job, cartelle []worker.CartellaEsito) {
 	b.t.Helper()
-	dati, err := json.Marshal(api.RisultatoSync{Cartelle: cartelle})
+	dati, err := json.Marshal(worker.RisultatoSync{Cartelle: cartelle})
 	if err != nil {
 		b.t.Fatal(err)
 	}
-	corpo, _ := json.Marshal(api.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: nome, LeaseToken: j.LeaseToken})
+	corpo, _ := json.Marshal(worker.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: nome, LeaseToken: j.LeaseToken})
 	r, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/jobs/%d/result", b.srv.URL, j.JobID), strings.NewReader(string(corpo)))
 	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
 	r.Header.Set("X-Prova-IP", "10.0.0.5:4000")
@@ -108,10 +108,10 @@ func (b *bancoWeb) riportaJob(nome string, j *api.Job, cartelle []api.CartellaEs
 }
 
 // cartelleDel è l'elenco delle cartelle di un payload di sync, con l'esito che si vuole dichiarare.
-func cartelleDel(p api.PayloadSyncOutlook, completa bool, errore string) []api.CartellaEsito {
-	out := make([]api.CartellaEsito, 0, len(p.Cartelle))
+func cartelleDel(p worker.PayloadSyncOutlook, completa bool, errore string) []worker.CartellaEsito {
+	out := make([]worker.CartellaEsito, 0, len(p.Cartelle))
 	for _, c := range p.Cartelle {
-		out = append(out, api.CartellaEsito{Cartella: c.Cartella, NMessaggi: 2, Completa: completa, Errore: errore})
+		out = append(out, worker.CartellaEsito{Cartella: c.Cartella, NMessaggi: 2, Completa: completa, Errore: errore})
 	}
 	return out
 }
@@ -130,7 +130,7 @@ func TestSS5UnoStoricoInterrottoNonAvanzaIlLimiteStorico(t *testing.T) {
 	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
 	chi := b.browser("10.0.0.5:4000")
 	chi.login("FP", "prova-fp")
-	clic := func() map[uuid.UUID]api.PayloadSyncOutlook {
+	clic := func() map[uuid.UUID]worker.PayloadSyncOutlook {
 		t.Helper()
 		if resp, corpo := chi.fai(http.MethodPost, "/inbox/sync-storico", url.Values{}, true); resp.StatusCode != 200 {
 			t.Fatalf("carica precedenti: %d %s", resp.StatusCode, corpo)
@@ -151,7 +151,7 @@ func TestSS5UnoStoricoInterrottoNonAvanzaIlLimiteStorico(t *testing.T) {
 		if j.Tipo != string(db.TipoJobSyncOutlook) {
 			continue
 		}
-		var p api.PayloadSyncOutlook
+		var p worker.PayloadSyncOutlook
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			t.Fatal(err)
 		}
@@ -265,7 +265,7 @@ func TestSS6OgniCartellaScendeConLaSuaFinestra(t *testing.T) {
 		if j == nil {
 			break
 		}
-		var q api.PayloadSyncOutlook
+		var q worker.PayloadSyncOutlook
 		if j.Tipo != string(db.TipoJobSyncOutlook) || json.Unmarshal(j.Payload, &q) != nil {
 			continue
 		}
@@ -294,13 +294,13 @@ func TestSS6OgniCartellaScendeConLaSuaFinestra(t *testing.T) {
 // claimaUnJob fa un claim vero, dalla porta, e restituisce il job che il server consegna (nil se non
 // ne consegna nessuno). Serve a SS4: quale job il worker riceve non si deduce dalle priorità scritte
 // nel codice, si guarda.
-func (b *bancoWeb) claimaUnJob(nome, ip string, caselle ...uuid.UUID) *api.Job {
+func (b *bancoWeb) claimaUnJob(nome, ip string, caselle ...uuid.UUID) *worker.Job {
 	b.t.Helper()
-	aperte := make([]api.CasellaAperta, 0, len(caselle))
+	aperte := make([]worker.CasellaAperta, 0, len(caselle))
 	for _, c := range caselle {
-		aperte = append(aperte, api.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
+		aperte = append(aperte, worker.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
 	}
-	corpo, _ := json.Marshal(api.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
+	corpo, _ := json.Marshal(worker.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", strings.NewReader(string(corpo)))
 	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
 	r.Header.Set("X-Prova-IP", ip)
@@ -315,7 +315,7 @@ func (b *bancoWeb) claimaUnJob(nome, ip string, caselle ...uuid.UUID) *api.Job {
 	if resp.StatusCode != http.StatusOK {
 		b.t.Fatalf("claim di %s: %d", nome, resp.StatusCode)
 	}
-	var j api.Job
+	var j worker.Job
 	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
 		b.t.Fatal(err)
 	}
@@ -360,7 +360,7 @@ func TestSS2IlSecondoClicRetrocedeDiAltriDueGiorniSenzaBuchi(t *testing.T) {
 	b := preparaBancoWeb(t)
 	chi := b.browser("10.0.0.5:4000")
 	chi.login("FP", "prova-fp")
-	carica := func() map[uuid.UUID]api.PayloadSyncOutlook {
+	carica := func() map[uuid.UUID]worker.PayloadSyncOutlook {
 		t.Helper()
 		if resp, corpo := chi.fai(http.MethodPost, "/inbox/sync-storico", url.Values{}, true); resp.StatusCode != 200 {
 			t.Fatalf("carica precedenti: %d %s", resp.StatusCode, corpo)

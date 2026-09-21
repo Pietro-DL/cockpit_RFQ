@@ -63,7 +63,7 @@ Esegui "L1 script PS" "sintassi degli script di servizio sulla PowerShell instal
     $global:LASTEXITCODE = if ($problemi -gt 0) { 1 } else { 0 }
 }
 
-Esegui "L3 contratti (Go)" "i tipi Go corrispondono agli schemi di contracts (K1, K2, K3, K4)" "go test ./internal/platform/contratti/api" { go test -count=1 ./internal/platform/contratti/api/ }
+Esegui "L3 contratti (Go)" "i tipi Go corrispondono agli schemi di contracts (K1, K2, K3, K4)" "go test ./internal/platform/contratti/worker" { go test -count=1 ./internal/platform/contratti/worker/ }
 
 if (-not $SenzaPython) {
     # La metà Python verifica la premessa dell'altra: che gli schemi su disco descrivano i modelli

@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 )
 
 // I due ore del 16/09: lo scarto esatto fra l'ora di Roma e l'UTC in settembre.
@@ -33,10 +33,10 @@ func TestUnMessaggioNelFuturoNonEntraEIlCursoreNonAvanza(t *testing.T) {
 
 	// Il secondo elemento arriva con l'ora sbagliata, e con lui il cursore del lotto: è così che si
 	// presenta il difetto: il worker calcola il cursore sulle stesse date dei messaggi.
-	msg := tre(func(m *api.MessaggioIn) { m.DataEvento = futuro; m.RicevutoIl = &futuro })
+	msg := tre(func(m *worker.MessaggioIn) { m.DataEvento = futuro; m.RicevutoIl = &futuro })
 	res, err := s.Ingerisci(ctx, Lotto{
 		Casella: casella, Messaggi: msg,
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: futuro},
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: futuro},
 	})
 	if err != nil {
 		t.Fatalf("il lotto deve andare a buon fine: l'elemento impossibile è uno solo: %v", err)
@@ -74,10 +74,10 @@ func TestUnOrologioAvantiDiDueMinutiNonEUnProblema(t *testing.T) {
 	// la tolleranza esiste per non trasformare due orologi diversi in posta scartata.
 	poco := time.Now().Add(2 * time.Minute).UTC().Truncate(time.Second)
 
-	msg := tre(func(m *api.MessaggioIn) { m.DataEvento = poco; m.RicevutoIl = &poco })
+	msg := tre(func(m *worker.MessaggioIn) { m.DataEvento = poco; m.RicevutoIl = &poco })
 	res, err := s.Ingerisci(ctx, Lotto{
 		Casella: casella, Messaggi: msg,
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: poco},
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: poco},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestIlCursoreNelFuturoNonSiScriveNemmenoConIMessaggiInRegola(t *testing.T) 
 
 	res, err := s.Ingerisci(ctx, Lotto{
 		Casella: casella, Messaggi: tre(nil),
-		Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: futuro},
+		Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: futuro},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestIlCursoreNelFuturoNonSiScriveNemmenoConIMessaggiInRegola(t *testing.T) 
 	// E il lotto successivo, con un cursore plausibile, lo scrive regolarmente: la guardia ferma il
 	// valore impossibile, non la casella.
 	if _, err := s.Ingerisci(ctx, Lotto{
-		Casella: casella, Cursore: &api.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
+		Casella: casella, Cursore: &worker.CursoreLotto{Cartella: cartellaPP, UltimoReceived: cursoreFinale},
 	}); err != nil {
 		t.Fatal(err)
 	}

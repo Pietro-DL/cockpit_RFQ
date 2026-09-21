@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -44,7 +44,7 @@ const (
 //
 // La direzione arriva da fuori perche' la decide il server dalle caselle censite (D8), non il
 // campo del worker.
-func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.UpsertMessaggioRow, m *api.MessaggioIn, dir db.Direzione) (bool, error) {
+func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.UpsertMessaggioRow, m *worker.MessaggioIn, dir db.Direzione) (bool, error) {
 	if len(m.Marcatori) == 0 {
 		return false, nil
 	}

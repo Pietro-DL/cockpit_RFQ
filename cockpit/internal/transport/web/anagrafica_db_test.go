@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -317,13 +317,13 @@ func (b *bancoWeb) ingerisciDaCliente(dominio, oggetto, corpo string) {
 	}
 	ricevuto := time.Now().Add(-time.Hour)
 	s := &ingest.Servizio{Pool: b.pool, Log: testutil.LogSilenzioso()}
-	_, err = s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []api.MessaggioIn{{
+	_, err = s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []worker.MessaggioIn{{
 		MessageID: "<an5-" + oggetto + "@" + dominio + ">", EntryID: "ENTRY-AN5", StoreID: "STORE-AN5",
 		ConversationID: "CONV-AN5", Cartella: "Posta in arrivo", Direzione: "entrata",
 		DataEvento: ricevuto, RicevutoIl: &ricevuto, MittenteNome: "Ufficio Acquisti",
 		MittenteIndirizzo: "acquisti@" + dominio, Oggetto: oggetto, CorpoTesto: corpo,
 		Riferimenti: []string{}, Categorie: []string{},
-		Destinatari: []api.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}},
+		Destinatari: []worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}},
 	}}})
 	if err != nil {
 		b.t.Fatal(err)

@@ -27,7 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -48,7 +48,7 @@ func bancoStorico(t *testing.T, p *pgxpool.Pool) db.Casella {
 
 // consegna accoda un job del tipo e del payload indicati, lo fa prendere in carico da un worker, e
 // consegna il lotto DENTRO quel tentativo — cioe' esattamente il giro che fa il worker vero.
-func consegna(t *testing.T, s *Servizio, casella db.Casella, tipo db.TipoJob, payload any, chiave string, messaggi []api.MessaggioIn) {
+func consegna(t *testing.T, s *Servizio, casella db.Casella, tipo db.TipoJob, payload any, chiave string, messaggi []worker.MessaggioIn) {
 	t.Helper()
 	ctx := context.Background()
 	q := db.New(s.Pool)
@@ -90,21 +90,21 @@ func scaricati(t *testing.T, p *pgxpool.Pool) int {
 
 // msgConAllegato e' un messaggio di un cliente RICONOSCIUTO con un PDF sotto soglia: tutte le
 // condizioni dello staging automatico sono soddisfatte, tranne eventualmente il modo.
-func msgConAllegato(n string) api.MessaggioIn {
-	return api.MessaggioIn{
+func msgConAllegato(n string) worker.MessaggioIn {
+	return worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-m" + n + "@prova3r.example>", EntryID: "ENTRY-TEST-3R-M" + n,
 		StoreID: "S", ConversationID: "CONV-TEST-3R-M", Cartella: "Inbox", Direzione: "entrata",
 		DataEvento:        time.Date(2026, 9, 7, 10, 0, 0, 0, time.UTC),
 		MittenteIndirizzo: "buyer@prova3r.example", Oggetto: "PROVA-3R modo " + n,
 		CorpoTesto: "in allegato", Riferimenti: []string{}, Categorie: []string{},
-		Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: 100_000}},
+		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: 100_000}},
 	}
 }
 
-func payloadSync(modo string, al *time.Time) api.PayloadSyncOutlook {
+func payloadSync(modo string, al *time.Time) worker.PayloadSyncOutlook {
 	dal := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
-	return api.PayloadSyncOutlook{Modo: modo, Dal: dal, Al: al, Lotto: 10,
-		Cartelle: []api.CartellaCursore{{Cartella: "Inbox", Dal: &dal, Al: al}}}
+	return worker.PayloadSyncOutlook{Modo: modo, Dal: dal, Al: al, Lotto: 10,
+		Cartelle: []worker.CartellaCursore{{Cartella: "Inbox", Dal: &dal, Al: al}}}
 }
 
 // A — l'aggiornamento ordinario scarica come prima: questo blocco non spegne D30.
@@ -114,8 +114,8 @@ func TestAggiornamentoScaricaComePrima(t *testing.T) {
 	s := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true}
 	al := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 
-	consegna(t, s, casella, db.TipoJobSyncOutlook, payloadSync(api.ModoAggiornamento, &al), "prova-modo:agg",
-		[]api.MessaggioIn{msgConAllegato("1")})
+	consegna(t, s, casella, db.TipoJobSyncOutlook, payloadSync(worker.ModoAggiornamento, &al), "prova-modo:agg",
+		[]worker.MessaggioIn{msgConAllegato("1")})
 
 	if n := scaricati(t, p); n != 1 {
 		t.Errorf("aggiornamento ordinario: %d download accodati, atteso 1", n)
@@ -129,8 +129,8 @@ func TestStoricoNonScaricaGliAllegati(t *testing.T) {
 	s := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true}
 	al := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
 
-	consegna(t, s, casella, db.TipoJobSyncOutlook, payloadSync(api.ModoStorico, &al), "prova-modo:sto",
-		[]api.MessaggioIn{msgConAllegato("2")})
+	consegna(t, s, casella, db.TipoJobSyncOutlook, payloadSync(worker.ModoStorico, &al), "prova-modo:sto",
+		[]worker.MessaggioIn{msgConAllegato("2")})
 
 	if n := scaricati(t, p); n != 0 {
 		t.Errorf("«Carica precedenti» ha accodato %d download: lo storico rende consultabile la posta vecchia, non ne scarica gli allegati", n)
@@ -153,22 +153,22 @@ func TestBootstrapScaricaSoloSeDichiarato(t *testing.T) {
 	al := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 
 	prudente := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true}
-	consegna(t, prudente, casella, db.TipoJobSyncOutlook, payloadSync(api.ModoBootstrap, &al), "prova-modo:boot1",
-		[]api.MessaggioIn{msgConAllegato("3")})
+	consegna(t, prudente, casella, db.TipoJobSyncOutlook, payloadSync(worker.ModoBootstrap, &al), "prova-modo:boot1",
+		[]worker.MessaggioIn{msgConAllegato("3")})
 	if n := scaricati(t, p); n != 0 {
 		t.Errorf("bootstrap con staging.bootstrap assente: %d download accodati, atteso 0", n)
 	}
 
 	dichiarato := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true, StagingBootstrap: true}
-	consegna(t, dichiarato, casella, db.TipoJobSyncOutlook, payloadSync(api.ModoBootstrap, &al), "prova-modo:boot2",
-		[]api.MessaggioIn{msgConAllegato("4")})
+	consegna(t, dichiarato, casella, db.TipoJobSyncOutlook, payloadSync(worker.ModoBootstrap, &al), "prova-modo:boot2",
+		[]worker.MessaggioIn{msgConAllegato("4")})
 	if n := scaricati(t, p); n != 1 {
 		t.Errorf("bootstrap con staging.bootstrap = true: %d download accodati, atteso 1", n)
 	}
 }
 
 // D — un payload accodato PRIMA del blocco 3 non dichiara il modo. La scaletta di compatibilita' e'
-// una sola (api.PayloadSyncOutlook.ModoEffettivo) e legge «al valorizzato» come storico: un job
+// una sola (worker.PayloadSyncOutlook.ModoEffettivo) e legge «al valorizzato» come storico: un job
 // rimasto in coda durante l'aggiornamento non deve scaricare l'archivio appena il server riparte.
 func TestPayloadSenzaModoConAlValeStorico(t *testing.T) {
 	p := pool(t)
@@ -177,7 +177,7 @@ func TestPayloadSenzaModoConAlValeStorico(t *testing.T) {
 	al := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
 
 	consegna(t, s, casella, db.TipoJobSyncOutlook, payloadSync("", &al), "prova-modo:vecchio",
-		[]api.MessaggioIn{msgConAllegato("5")})
+		[]worker.MessaggioIn{msgConAllegato("5")})
 
 	if n := scaricati(t, p); n != 0 {
 		t.Errorf("payload senza modo con al valorizzato: %d download accodati, atteso 0 (vale storico)", n)
@@ -194,8 +194,8 @@ func TestLaRiletturaDiUnElementoScarica(t *testing.T) {
 	s := &Servizio{Pool: p, Log: slog.Default(), StagingAutomatico: true}
 
 	consegna(t, s, casella, db.TipoJobRileggiElemento,
-		api.PayloadRileggiElemento{CasellaID: casella.CasellaID, EntryID: "ENTRY-TEST-3R-M6", Cartella: "Inbox"},
-		"prova-modo:rileggi", []api.MessaggioIn{msgConAllegato("6")})
+		worker.PayloadRileggiElemento{CasellaID: casella.CasellaID, EntryID: "ENTRY-TEST-3R-M6", Cartella: "Inbox"},
+		"prova-modo:rileggi", []worker.MessaggioIn{msgConAllegato("6")})
 
 	if n := scaricati(t, p); n != 1 {
 		t.Errorf("rilettura di un elemento: %d download accodati, atteso 1", n)

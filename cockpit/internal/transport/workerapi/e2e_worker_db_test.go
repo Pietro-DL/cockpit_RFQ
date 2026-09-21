@@ -37,7 +37,7 @@ import (
 
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
@@ -245,9 +245,9 @@ func TestE2EIlBattitoDelWorkerVeroRinnovaIlLease(t *testing.T) {
 	cas := b.casella
 	msg := b.msg.MessaggioID
 	scade := time.Now().Add(10 * time.Minute)
-	p := api.PayloadApriElemento{
+	p := worker.PayloadApriElemento{
 		EntryID:             "ENTRY-disegno.pdf",
-		RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &msg, CasellaID: &cas, MessageID: b.msg.ChiaveEsterna},
+		RiferimentoElemento: worker.RiferimentoElemento{MessaggioID: &msg, CasellaID: &cas, MessageID: b.msg.ChiaveEsterna},
 	}
 	j, err := jobs.AccodaCon(b.ctx, b.q, db.TipoJobApriElementoOutlook, p, "", 5, jobs.Opzioni{
 		Casella:    uuid.NullUUID{UUID: cas, Valid: true},

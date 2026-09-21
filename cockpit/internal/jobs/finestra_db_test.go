@@ -19,7 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -34,12 +34,12 @@ func attorno(t *testing.T, ottenuto, atteso time.Time, cosa string) {
 	}
 }
 
-func payloadSync(t *testing.T, j *db.Job) api.PayloadSyncOutlook {
+func payloadSync(t *testing.T, j *db.Job) worker.PayloadSyncOutlook {
 	t.Helper()
 	if j == nil {
 		t.Fatal("nessun job accodato: non c'è niente da esaminare")
 	}
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		t.Fatalf("payload del job %d: %v", j.JobID, err)
 	}
@@ -49,8 +49,8 @@ func payloadSync(t *testing.T, j *db.Job) api.PayloadSyncOutlook {
 // finestreNelPayload è ciò che il worker riceve per cartella: la finestra che deve leggere, già
 // fatta. Dal blocco 3 è questo il dato che conta — `UltimoReceived` viaggia ancora, ma per la
 // diagnosi: chi decide da dove si riparte è `Dal`, e chi lo decide è il server.
-func finestreNelPayload(p api.PayloadSyncOutlook) map[string]api.CartellaCursore {
-	per := map[string]api.CartellaCursore{}
+func finestreNelPayload(p worker.PayloadSyncOutlook) map[string]worker.CartellaCursore {
+	per := map[string]worker.CartellaCursore{}
 	for _, c := range p.Cartelle {
 		per[c.Cartella] = c
 	}
@@ -58,7 +58,7 @@ func finestreNelPayload(p api.PayloadSyncOutlook) map[string]api.CartellaCursore
 }
 
 // dalDi è il limite inferiore di una cartella del payload, con un messaggio utile se non c'è.
-func dalDi(t *testing.T, p api.PayloadSyncOutlook, cartella string) time.Time {
+func dalDi(t *testing.T, p worker.PayloadSyncOutlook, cartella string) time.Time {
 	t.Helper()
 	c, ok := finestreNelPayload(p)[cartella]
 	if !ok {
@@ -116,8 +116,8 @@ func TestSI1SenzaCursoreSiParteDallaFinestraIniziale(t *testing.T) {
 	// A: database nuovo = bootstrap. Non è un riavvio, non è un aggiornamento: di queste due cartelle
 	// non si sa ancora niente, e il modo lo deve dire — è quello che un operatore legge nel log
 	// quando si chiede perché il primo sync ci mette molto più degli altri.
-	if p.Modo != api.ModoBootstrap {
-		t.Errorf("modo = %q su una casella mai sincronizzata, atteso %q", p.Modo, api.ModoBootstrap)
+	if p.Modo != worker.ModoBootstrap {
+		t.Errorf("modo = %q su una casella mai sincronizzata, atteso %q", p.Modo, worker.ModoBootstrap)
 	}
 	// Il limite superiore è FISSATO all'accodamento, anche nell'aggiornamento ordinario: una finestra
 	// che finisce a «adesso» si allunga mentre il job gira, e allora non esiste nessun istante di cui
@@ -182,8 +182,8 @@ func TestSI3IlCursoreVinceEIlRiavvioNonRiportaAllaFinestraIniziale(t *testing.T)
 	// B: esiste una copertura, quindi è un AGGIORNAMENTO e non un bootstrap. La distinzione non è
 	// cosmetica: bootstrap vuol dire «di questa cartella non sappiamo niente», e se il riavvio la
 	// riportasse lí, ogni avvio del server rileggerebbe una settimana.
-	if p.Modo != api.ModoAggiornamento {
-		t.Errorf("modo = %q dopo il riavvio, atteso %q", p.Modo, api.ModoAggiornamento)
+	if p.Modo != worker.ModoAggiornamento {
+		t.Errorf("modo = %q dopo il riavvio, atteso %q", p.Modo, worker.ModoAggiornamento)
 	}
 	per := finestreNelPayload(p)
 	if per["Inbox"].Bootstrap {

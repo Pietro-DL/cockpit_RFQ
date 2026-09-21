@@ -23,7 +23,7 @@ import (
 
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -54,7 +54,7 @@ func TestUnNomeFileLungoNonRompeIlResultDiStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(b.ctx)
-	if err := b.s.dopoStaging(b.ctx, db.New(tx), api.RisultatoStage{AllegatoID: a.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto))}); err != nil {
+	if err := b.s.dopoStaging(b.ctx, db.New(tx), worker.RisultatoStage{AllegatoID: a.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto))}); err != nil {
 		t.Fatalf("il result di stage di un file dal nome lungo non e' applicabile: %v", err)
 	}
 	if err := tx.Commit(b.ctx); err != nil {
@@ -107,7 +107,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 		VALUES ($1, 'da_determinare', 40, 'estensione', 'aperta')`, allID); err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(api.PayloadAnalizzaAllegato{AllegatoID: allID, Sha256: shaA15, Bytes: 1000, NomeFile: "disegno.pdf",
+	payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{AllegatoID: allID, Sha256: shaA15, Bytes: 1000, NomeFile: "disegno.pdf",
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash()})
 	var jobID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO job (tipo, worker_tipo, payload, lease_s, durata_max_s, stato)
@@ -119,7 +119,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	codiceLungo := "6674611A" + strings.Repeat("X", domain.MaxCodice)
-	dati, _ := json.Marshal(api.RisultatoAnalisi{
+	dati, _ := json.Marshal(worker.RisultatoAnalisi{
 		AllegatoID: allID, TipoProposto: "disegno_2d", Codice: codiceLungo, Rev: "REVISIONE_LUNGA_02",
 		Confidenza: 90, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"cartiglio":true}`),
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),

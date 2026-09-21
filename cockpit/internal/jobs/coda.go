@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -113,7 +113,7 @@ func ChiaveCopia(documentoID uuid.UUID) string { return "nas:" + documentoID.Str
 // AccodaCopia mette in coda la copia sul NAS di un documento. (nil, nil) = ce n'era già una pendente
 // con la stessa chiave; errore che avvolge ErrCapacitaSpenta = `nas_scrittura` è spenta.
 func AccodaCopia(ctx context.Context, q *db.Queries, documentoID uuid.UUID) (*db.Job, error) {
-	return Accoda(ctx, q, db.TipoJobCopiaNas, api.PayloadCopiaNAS{DocumentoID: documentoID}, ChiaveCopia(documentoID), 1)
+	return Accoda(ctx, q, db.TipoJobCopiaNas, worker.PayloadCopiaNAS{DocumentoID: documentoID}, ChiaveCopia(documentoID), 1)
 }
 
 // AccodaCon è Accoda con i vincoli di destinazione e durata espliciti.
@@ -294,8 +294,8 @@ func ChiudiSeDurataSuperata(ctx context.Context, q *db.Queries, jobID int64) boo
 }
 
 // InJob converte una riga db.Job nel contratto verso il worker.
-func InJob(j *db.Job) api.Job {
-	out := api.Job{
+func InJob(j *db.Job) worker.Job {
+	out := worker.Job{
 		JobID: j.JobID, Tipo: string(j.Tipo), Payload: j.Payload, Tentativi: int(j.Tentativi),
 		LeaseS: int(j.LeaseS), DurataMaxS: int(j.DurataMaxS),
 	}
@@ -527,10 +527,10 @@ func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o
 
 	al := adesso
 	cid := casella.CasellaID
-	p := api.PayloadSyncOutlook{Modo: api.ModoBootstrap, Al: &al, CasellaID: &cid,
+	p := worker.PayloadSyncOutlook{Modo: worker.ModoBootstrap, Al: &al, CasellaID: &cid,
 		SovrapposizioneS: int(SovrapposizioneSync / time.Second), Lotto: o.Lotto}
 	for _, nome := range cartelle {
-		c := api.CartellaCursore{Cartella: nome, Al: &al}
+		c := worker.CartellaCursore{Cartella: nome, Al: &al}
 		cur, censita := perCartella[nome]
 		coperto := (*time.Time)(nil)
 		if censita {
@@ -544,13 +544,13 @@ func AccodaSyncCasella(ctx context.Context, q *db.Queries, casella db.Casella, o
 		// riparte dalla finestra iniziale e si rilegge — una rilettura costa una deduplica per
 		// Message-ID, che il server fa comunque; fidarsi di quella copertura costerebbe la posta di
 		// due ore.
-		if coperto != nil && api.NelFuturo(*coperto, adesso) {
+		if coperto != nil && worker.NelFuturo(*coperto, adesso) {
 			coperto = nil
 		}
 		dal := iniziale
 		if coperto != nil {
 			c.CopertoFinoA, dal = coperto, coperto.Add(-SovrapposizioneSync)
-			p.Modo = api.ModoAggiornamento
+			p.Modo = worker.ModoAggiornamento
 		} else {
 			c.Bootstrap = true
 		}

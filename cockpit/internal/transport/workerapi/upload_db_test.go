@@ -29,7 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -173,10 +173,10 @@ func (b *banco) put(t jobs.Tentativo, allegato uuid.UUID, corpo io.Reader, conte
 	return resp
 }
 
-func (b *banco) result(t jobs.Tentativo, r api.RisultatoStage) *http.Response {
+func (b *banco) result(t jobs.Tentativo, r worker.RisultatoStage) *http.Response {
 	b.t.Helper()
 	dati, _ := json.Marshal(r)
-	corpo, _ := json.Marshal(api.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: t.WorkerID, LeaseToken: t.LeaseToken.String()})
+	corpo, _ := json.Marshal(worker.RisultatoRichiesta{Esito: "ok", Dati: dati, WorkerID: t.WorkerID, LeaseToken: t.LeaseToken.String()})
 	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/v1/jobs/%d/result", b.srv.URL, t.JobID), bytes.NewReader(corpo))
 	req.Header.Set("X-Cockpit-Token", tokenDi(t.WorkerID))
 	req.Header.Set("Content-Type", "application/json")
@@ -298,7 +298,7 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	}
 
 	// il result valido promuove: definitivo con l'hash atteso, .parte sparito, allegato in staging
-	stato(t, b.result(tA, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto))}), 204)
+	stato(t, b.result(tA, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto))}), 204)
 	if !esiste(def) || hashDi(t, def) != sha {
 		t.Fatalf("file definitivo assente o diverso: %s", def)
 	}
@@ -334,7 +334,7 @@ func TestM7UploadLegatoAlTentativoPromossoDalResult(t *testing.T) {
 	contenuto2, sha2 := contenutoCasuale(120_000, 2)
 	tB := b.claim("outlook@PC-A")
 	stato(t, b.put(tB, b.allegato.AllegatoID, bytes.NewReader(contenuto2), int64(len(contenuto2))), 204)
-	stato(t, b.result(tB, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha2, Bytes: int64(len(contenuto2))}), 204)
+	stato(t, b.result(tB, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha2, Bytes: int64(len(contenuto2))}), 204)
 	def2 := b.contenuto(sha2)
 	if !esiste(def2) || hashDi(t, def2) != sha2 {
 		t.Fatalf("il secondo download non ha portato il contenuto nuovo: %v", b.fileDiStaging())
@@ -418,7 +418,7 @@ func TestM13UploadConTokenVecchio(t *testing.T) {
 	}
 	parteB := b.parte(tB)
 	stato(t, b.put(tB, b.allegato.AllegatoID, bytes.NewReader(contenutoB), int64(len(contenutoB))), 204)
-	stato(t, b.result(tB, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: shaB, Bytes: int64(len(contenutoB))}), 204)
+	stato(t, b.result(tB, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: shaB, Bytes: int64(len(contenutoB))}), 204)
 	if !esiste(def) || hashDi(t, def) != shaB {
 		t.Fatalf("il file definitivo non è quello di B")
 	}
@@ -445,7 +445,7 @@ func TestM13UploadConTokenVecchio(t *testing.T) {
 	}
 
 	// e il result di A: 409, e niente si muove
-	stato(t, b.result(tA, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: shaB, Bytes: int64(len(contenutoB))}), 409)
+	stato(t, b.result(tA, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: shaB, Bytes: int64(len(contenutoB))}), 409)
 	if a := b.allegatoOra(); a.PathStaging.String != def || a.Sha256.String != shaB {
 		t.Errorf("il result di A ha toccato l'allegato: path=%q sha=%s", a.PathStaging.String, a.Sha256.String)
 	}
@@ -465,7 +465,7 @@ func TestHashDiversoRimetteInCodaSenzaConsegnare(t *testing.T) {
 	tA := b.claim("outlook@PC-A")
 	parte, def := b.parte(tA), b.contenuto(shaVero)
 	stato(t, b.put(tA, b.allegato.AllegatoID, bytes.NewReader(contenuto), int64(len(contenuto))), 204)
-	corpo := stato(t, b.result(tA, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: strings.Repeat("0", 64), Bytes: int64(len(contenuto))}), 422)
+	corpo := stato(t, b.result(tA, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: strings.Repeat("0", 64), Bytes: int64(len(contenuto))}), 422)
 	if !strings.Contains(corpo, "sha256") {
 		t.Errorf("il 422 non spiega che l'hash non torna: %s", corpo)
 	}
@@ -485,7 +485,7 @@ func TestHashDiversoRimetteInCodaSenzaConsegnare(t *testing.T) {
 func TestResultSenzaUploadEUploadSuAltroAllegato(t *testing.T) {
 	b := preparaBanco(t, 0)
 	tA := b.claim("outlook@PC-A")
-	corpo := stato(t, b.result(tA, api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: strings.Repeat("a", 64), Bytes: 10}), 422)
+	corpo := stato(t, b.result(tA, worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: strings.Repeat("a", 64), Bytes: 10}), 422)
 	if !strings.Contains(corpo, "PUT /api/v1/allegati") {
 		t.Errorf("il 422 non dice che cosa manca: %s", corpo)
 	}

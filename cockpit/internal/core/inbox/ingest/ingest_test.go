@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -104,15 +104,15 @@ func casellaProva(t *testing.T, p *pgxpool.Pool) db.Casella {
 	return c
 }
 
-func lotto() []api.MessaggioIn {
+func lotto() []worker.MessaggioIn {
 	t0 := time.Date(2026, 9, 8, 9, 30, 0, 0, time.UTC)
-	return []api.MessaggioIn{
+	return []worker.MessaggioIn{
 		{
 			MessageID: "<test-ingest-1@acme.example>", EntryID: "ENTRY-TEST-1", StoreID: "STORE-TEST", ConversationID: "CONV-TEST-1",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: t0, MittenteNome: "Mario Rossi", MittenteIndirizzo: "mario.rossi@acme.example",
 			Oggetto: "RFQ 6674611A supporto cofano", CorpoTesto: "Buongiorno, richiesta d'offerta per il codice 6674611A rev 4.\r\nVi abbiamo caricato sul portale i CAD dei codici 6674612B e 6674613C. Risposta entro il 15/09/2026.",
 			Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []api.AllegatoIn{
+			Allegati: []worker.AllegatoIn{
 				{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000},
 				{Indice: 2, NomeFile: "image001.png", Estensione: "png", Natura: "inline", Bytes: 4000, ContentID: "image001.png@01"},
 			},
@@ -121,7 +121,7 @@ func lotto() []api.MessaggioIn {
 			MessageID: "<test-ingest-2@acme.example>", EntryID: "ENTRY-TEST-2", StoreID: "STORE-TEST", ConversationID: "CONV-TEST-1",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(time.Hour), MittenteNome: "Mario Rossi", MittenteIndirizzo: "mario.rossi@acme.example",
 			Oggetto: "R: RFQ 6674611A supporto cofano", CorpoTesto: "Dimenticavo lo STEP.", Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []api.AllegatoIn{{Indice: 1, NomeFile: "6674611A.stp", Estensione: "stp", Natura: "file", Bytes: 900000}},
+			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.stp", Estensione: "stp", Natura: "file", Bytes: 900000}},
 		},
 	}
 }

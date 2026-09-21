@@ -8,7 +8,7 @@ import (
 
 	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -67,7 +67,7 @@ func (s *Server) chiediAnalisi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := jobs.Accoda(ctx, q, db.TipoJobAnalizzaMessaggioAi,
-		api.PayloadAnalizzaMessaggioAI{MessaggioID: id}, "analisi-ai:"+id.String(), 5); err != nil {
+		worker.PayloadAnalizzaMessaggioAI{MessaggioID: id}, "analisi-ai:"+id.String(), 5); err != nil {
 		s.pannelloConAvviso(w, r, id, "Analisi non accodata: "+err.Error())
 		return
 	}

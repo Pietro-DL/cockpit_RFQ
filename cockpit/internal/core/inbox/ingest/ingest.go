@@ -32,7 +32,7 @@ import (
 
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -91,9 +91,9 @@ type Tentativo struct {
 type Lotto struct {
 	Casella   db.Casella
 	Tentativo *Tentativo // nil = chiamata interna (replay da admin): nessun job da validare
-	Messaggi  []api.MessaggioIn
-	Saltati   []api.ElementoSaltato
-	Cursore   *api.CursoreLotto
+	Messaggi  []worker.MessaggioIn
+	Saltati   []worker.ElementoSaltato
+	Cursore   *worker.CursoreLotto
 }
 
 var (
@@ -259,7 +259,7 @@ func (n Nostri) Nostro(indirizzo string) bool {
 // `dichiarata` è ciò che dice il worker e resta la riserva: quando l'elenco delle caselle non aiuta
 // (indirizzo vuoto, o un indirizzo Exchange in forma di DN senza chiocciola) si usa quella, che è
 // esattamente ciò che si faceva prima di questa voce.
-func (n Nostri) DirezioneEInterno(mittente string, destinatari []api.Destinatario, dichiarata db.Direzione) (db.Direzione, bool) {
+func (n Nostri) DirezioneEInterno(mittente string, destinatari []worker.Destinatario, dichiarata db.Direzione) (db.Direzione, bool) {
 	mittente = strings.ToLower(strings.TrimSpace(mittente))
 	if len(n) == 0 || !strings.Contains(mittente, "@") {
 		return dichiarata, false
@@ -278,8 +278,8 @@ func (n Nostri) DirezioneEInterno(mittente string, destinatari []api.Destinatari
 }
 
 // Ingerisci elabora un lotto in una sola transazione, con un savepoint per elemento.
-func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, error) {
-	out := api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}
+func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRisposta, error) {
+	out := worker.IngestRisposta{Esiti: []worker.EsitoMessaggio{}}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return out, err
@@ -341,7 +341,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 			}
 			s.Log.Warn("elemento scartato", "message_id", m.MessageID, "entry_id", m.EntryID, "err", errEl)
 			out.Falliti++
-			out.Esiti = append(out.Esiti, api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno", Errore: errEl.Error()})
+			out.Esiti = append(out.Esiti, worker.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno", Errore: errEl.Error()})
 			continue
 		}
 		if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
@@ -372,13 +372,13 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 	// arretrare (Q22).
 	if l.Cursore != nil && l.Cursore.Cartella != "" {
 		switch {
-		case api.NelFuturo(l.Cursore.UltimoReceived, time.Now()):
+		case worker.NelFuturo(l.Cursore.UltimoReceived, time.Now()):
 			// Il cursore lo calcola il worker sulle stesse date dei messaggi: se quelle sono nel futuro
 			// lo è anche lui, e scriverlo significherebbe aprire la prossima finestra dopo l'orologio e
 			// non leggere più niente finché il futuro non è passato (16/09/2026). Fermo dov'è, la
 			// finestra viene riletta: costa una rilettura, che è l'errore che si corregge da solo.
 			s.Log.Warn("cursore nel futuro: non avanza", "casella", l.Casella.Indirizzo, "cartella", l.Cursore.Cartella,
-				"ultimo_received", l.Cursore.UltimoReceived.UTC().Format(time.RFC3339), "tolleranza", api.TolleranzaFuturo)
+				"ultimo_received", l.Cursore.UltimoReceived.UTC().Format(time.RFC3339), "tolleranza", worker.TolleranzaFuturo)
 		default:
 			// Il cursore è di QUESTA casella: la cartella da sola non basta più. Due caselle con una
 			// «Posta in arrivo» scrivevano sulla stessa riga e si facevano avanzare il cursore a
@@ -395,7 +395,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 
 	if s.PrimaDelCommit != nil {
 		if err := s.PrimaDelCommit(ctx, tx); err != nil {
-			return api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}, err
+			return worker.IngestRisposta{Esiti: []worker.EsitoMessaggio{}}, err
 		}
 	}
 
@@ -404,14 +404,14 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (api.IngestRisposta, 
 		// andati a buon fine. La risposta deve essere un errore (5xx) e mai un 200 parziale, perché il
 		// worker decide se ripetere il lotto proprio da lì. Si azzerano anche i conteggi: riportare
 		// «inseriti 2» dopo un commit fallito sarebbe una bugia sul contenuto del database (I16).
-		return api.IngestRisposta{Esiti: []api.EsitoMessaggio{}}, fmt.Errorf("commit del lotto: %w", err)
+		return worker.IngestRisposta{Esiti: []worker.EsitoMessaggio{}}, fmt.Errorf("commit del lotto: %w", err)
 	}
 	return out, nil
 }
 
 // scarta registra un elemento che il database ha rifiutato. Il payload completo resta in DB: il replay
 // non deve ripassare da Outlook, che nel frattempo potrebbe non avere più l'elemento.
-func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *api.MessaggioIn, errEl error) error {
+func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *worker.MessaggioIn, errEl error) error {
 	payload, err := payloadScarto(m)
 	if err != nil {
 		return err
@@ -429,7 +429,7 @@ func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *a
 	return err
 }
 
-func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casella, sal api.ElementoSaltato) error {
+func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casella, sal worker.ElementoSaltato) error {
 	payload, err := json.Marshal(sal)
 	if err != nil {
 		return err
@@ -456,7 +456,7 @@ func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casell
 //
 // I byte NUL vengono quindi sostituiti con U+FFFD, il carattere che significa «qui c'era qualcosa di
 // non rappresentabile». Il payload resta fedele in tutto il resto e il replay funziona.
-func payloadScarto(m *api.MessaggioIn) ([]byte, error) {
+func payloadScarto(m *worker.MessaggioIn) ([]byte, error) {
 	grezzo, err := json.Marshal(m)
 	if err != nil {
 		return nil, err
@@ -504,7 +504,7 @@ func senzaNul(v any) any {
 // Un worker che non manda ancora `ricevuto_il` continua a funzionare com'era: si usa `data_evento`.
 // Preferire un valore assente a uno sbagliato non è prudenza generica: fra i due, quello che rompe
 // l'ordinamento del cursore è il secondo.
-func RicevutoIn(m *api.MessaggioIn) time.Time {
+func RicevutoIn(m *worker.MessaggioIn) time.Time {
 	if m.RicevutoIl != nil && !m.RicevutoIl.IsZero() {
 		return *m.RicevutoIl
 	}
@@ -560,27 +560,27 @@ func (s *Servizio) scendonoDaSoli(j *db.Job) (bool, string) {
 	if j == nil || j.Tipo != db.TipoJobSyncOutlook {
 		return true, "richiesta puntuale"
 	}
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		// Un payload illeggibile non e' un permesso: qui si decide se aprire Outlook e scaricare file,
 		// e «non ho capito di che sync si tratta» deve valere no.
 		return false, "payload del job illeggibile"
 	}
 	switch p.ModoEffettivo() {
-	case api.ModoStorico:
+	case worker.ModoStorico:
 		return false, "storico: «Carica precedenti» rende consultabile la posta vecchia, non ne scarica gli allegati"
-	case api.ModoBootstrap:
+	case worker.ModoBootstrap:
 		if !s.StagingBootstrap {
 			return false, "bootstrap: prima sincronizzazione della casella (staging.bootstrap = false)"
 		}
-		return true, api.ModoBootstrap
+		return true, worker.ModoBootstrap
 	default:
-		return true, api.ModoAggiornamento
+		return true, worker.ModoAggiornamento
 	}
 }
 
-func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *api.MessaggioIn, scendonoDaSoli bool) (api.EsitoMessaggio, error) {
-	esito := api.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
+func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *worker.MessaggioIn, scendonoDaSoli bool) (worker.EsitoMessaggio, error) {
+	esito := worker.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
 	}
@@ -600,11 +600,11 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	// finestra di lettura oltre l'orologio e smettere di leggere la posta. Quando l'ora torna
 	// plausibile — worker aggiornato, o orologio sistemato — lo stesso elemento rientra dal replay o
 	// dal sync successivo, e lo scarto sparisce da solo.
-	if ric := RicevutoIn(m); api.NelFuturo(ric, time.Now()) {
+	if ric := RicevutoIn(m); worker.NelFuturo(ric, time.Now()) {
 		return esito, fmt.Errorf("ricevuto_il nel futuro: %s, oltre la tolleranza di %s sull'ora del server. "+
 			"O l'orologio del PC del worker è avanti, o le date di Outlook stanno arrivando come ora locale "+
 			"etichettata UTC (correzione del 16/09/2026 in outlook_com._utc)",
-			ric.UTC().Format(time.RFC3339), api.TolleranzaFuturo)
+			ric.UTC().Format(time.RFC3339), worker.TolleranzaFuturo)
 	}
 	dir, interno := nostri.DirezioneEInterno(m.MittenteIndirizzo, m.Destinatari, dichiarata)
 

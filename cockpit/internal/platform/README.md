@@ -19,7 +19,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `fondazioni` | semina da config `casella`, `postazione`, `worker_credenziale`, `utente` senza sovrascrivere ciò che è stato generato in UI; diagnosi delle credenziali |
 | `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
-| `contratti/api` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
+| `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
 | `storage/nas` | unico scrittore sul NAS: `.parte` + hash + rinomina, mai sovrascrive, long-path |
 | `storage/archivio` | estrazione zip con budget sui byte scritti e protezione zip-slip |
 | `testutil` | database di test usa e getta (`COCKPIT_TEST_DSN`, solo nomi con «test»; senza variabile i test L4 sono SKIP, mai PASS) |
@@ -67,12 +67,12 @@ riconoscono dall'impronta scritta nel loro `worker.toml` (modello SSH): niente C
 
 `migrazioni` cambia lo schema; `fondazioni` scrive quattro tabelle; `rete` scrive il certificato al primo
 avvio; `logfile` scrive su disco; `storage/nas` scrive sul NAS; `storage/archivio` scrive nello staging.
-`config`, `db` e `contratti/api` non hanno effetti propri.
+`config`, `db` e `contratti/worker` non hanno effetti propri.
 
 ## Test
 
-L1 per `config`, `rete`, `contratti/api`. L3 per i contratti contro gli schemi di `contracts/`
-(`go test -count=1 ./internal/platform/contratti/api/`, più `pytest` in `workers/`). L4 per `migrazioni`,
+L1 per `config`, `rete`, `contratti/worker`. L3 per i contratti contro gli schemi di `contracts/`
+(`go test -count=1 ./internal/platform/contratti/worker/`, più `pytest` in `workers/`). L4 per `migrazioni`,
 `fondazioni` e `testutil`.
 
 ## Dove intervenire
@@ -82,7 +82,7 @@ L1 per `config`, `rete`, `contratti/api`. L3 per i contratti contro gli schemi d
 | una chiave TOML nuova | `config/config.go:Carica`, `normalizza*`, poi i due `*.example` |
 | una query nuova | `db/queries/*.sql`, poi `sqlc generate` |
 | una migrazione nuova | `migrations/`, poi `go test ./internal/platform/migrazioni/` |
-| un campo nuovo nel contratto | `contratti/api/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
+| un campo nuovo nel contratto | `contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
 | capire perché un'azione è bloccata | `config.Capacita()` e `internal/jobs/capacita.go` |
 
 ## Leggi anche
@@ -91,5 +91,5 @@ L1 per `config`, `rete`, `contratti/api`. L3 per i contratti contro gli schemi d
 
 ---
 
-**Cambia in B**: `contratti/api` diventa `contratti/worker` (package `worker`, commit B0); arrivano `coda`
-(la coda oggi in `internal/jobs`) e `storage/staging` (oggi `jobs/stage.go`, `upload.go`, `cache.go`).
+**Cambia in B**: arrivano `coda` (la coda oggi in `internal/jobs`) e `storage/staging` (oggi
+`jobs/stage.go`, `upload.go`, `cache.go`).

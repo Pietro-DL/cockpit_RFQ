@@ -27,7 +27,7 @@ import (
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
@@ -359,7 +359,7 @@ func utenteDa(ctx context.Context) *db.Utente {
 // ---------------------------------------------------------------- healthz
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
-	out := api.Salute{DB: "ok", NAS: "non_raggiungibile"}
+	out := worker.Salute{DB: "ok", NAS: "non_raggiungibile"}
 	var v int
 	if err := s.Pool.QueryRow(r.Context(), "SELECT max(versione) FROM schema_versione").Scan(&v); err != nil {
 		out.DB = "errore: " + err.Error()
@@ -776,7 +776,7 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cid := c.CasellaID
-		payload := api.PayloadSyncOutlook{CasellaID: &cid, Modo: api.ModoStorico, Cartelle: cartelle,
+		payload := worker.PayloadSyncOutlook{CasellaID: &cid, Modo: worker.ModoStorico, Cartelle: cartelle,
 			Dal: dal, Al: &al, SovrapposizioneS: 0, Lotto: 50}
 		job, err := jobs.AccodaCon(ctx, q, db.TipoJobSyncOutlook, payload, chiave, jobs.PrioritaSyncStorico,
 			jobs.Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
@@ -810,7 +810,7 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 // è lo `storico_fino_a` lasciato dal clic precedente su QUELLA cartella, cioè il suo `dal`, quindi
 // la successiva è [al - GiorniStorico, al] esatta. Il primo clic parte dalla mail più vecchia che la
 // casella ha in archivio (o da adesso, se non ne ha nessuna).
-func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []api.CartellaCursore, err error) {
+func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []worker.CartellaCursore, err error) {
 	cursori, _ := q.ListSyncCursoriCasella(ctx, casella)
 	// il fondo di ripiego, per le cartelle che non hanno ancora un limite storico: la mail più
 	// vecchia della casella, o adesso se non ce n'è nessuna
@@ -849,7 +849,7 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uui
 		}
 		inizio := fine.AddDate(0, 0, -GiorniStorico)
 		f, i := fine, inizio
-		cartelle = append(cartelle, api.CartellaCursore{Cartella: nome, Dal: &i, Al: &f})
+		cartelle = append(cartelle, worker.CartellaCursore{Cartella: nome, Dal: &i, Al: &f})
 		if al.IsZero() || fine.After(al) {
 			al = fine
 		}
@@ -876,7 +876,7 @@ func (s *Server) syncStoricoStato(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	_ = json.Unmarshal(j.Payload, &p)
 	finestra := p.Dal.Local().Format("02/01/2006")
 	if p.Al != nil {
@@ -1099,7 +1099,7 @@ func (s *Server) apriInOutlook(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := sessioneDa(r.Context())
 	c, motivo, err := s.accodaInterattivo(r.Context(), db.New(s.Pool), id, sess, db.TipoJobApriElementoOutlook, func(c jobs.Copia, m db.Messaggio) any {
-		return api.PayloadApriElemento{EntryID: c.EntryID, RiferimentoElemento: rifIn(m, c.CasellaID)}
+		return worker.PayloadApriElemento{EntryID: c.EntryID, RiferimentoElemento: rifIn(m, c.CasellaID)}
 	}, 1)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1122,7 +1122,7 @@ func (s *Server) segnaLetto(w http.ResponseWriter, r *http.Request) {
 	letto := r.FormValue("letto") != "0"
 	sess := sessioneDa(r.Context())
 	c, motivo, err := s.accodaInterattivo(r.Context(), q, id, sess, db.TipoJobSegnaLetto, func(c jobs.Copia, m db.Messaggio) any {
-		return api.PayloadSegnaLetto{EntryID: c.EntryID, Letto: letto, RiferimentoElemento: rifIn(m, c.CasellaID)}
+		return worker.PayloadSegnaLetto{EntryID: c.EntryID, Letto: letto, RiferimentoElemento: rifIn(m, c.CasellaID)}
 	}, 2)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -1185,8 +1185,8 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 	if corpo != "" {
 		html = "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
 	}
-	if _, err := jobs.AccodaCon(ctx, q, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
-		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []api.Destinatario{},
+	if _, err := jobs.AccodaCon(ctx, q, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
+		BozzaID: b.BozzaID, Tipo: string(tipo), EntryID: pr.EntryID, Destinatari: []worker.Destinatario{},
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false, RiferimentoElemento: rifIn(m, pr.CasellaID),
 	}, "bozza:"+b.BozzaID.String(), 1, jobs.OpzioniInterattive(db.TipoJobCreaBozzaOutlook, *pr, sess.Postazione, u.UtenteID)); err != nil {
 		if errors.Is(err, jobs.ErrCapacitaSpenta) {
@@ -1206,14 +1206,14 @@ func (s *Server) bozza(w http.ResponseWriter, r *http.Request) {
 }
 
 // rif costruisce il riferimento stabile all'elemento (Message-ID) per i job che lo devono ritrovare in Outlook.
-func rif(m db.Messaggio) api.RiferimentoElemento {
+func rif(m db.Messaggio) worker.RiferimentoElemento {
 	id := m.MessaggioID
-	return api.RiferimentoElemento{MessaggioID: &id, MessageID: m.ChiaveEsterna}
+	return worker.RiferimentoElemento{MessaggioID: &id, MessageID: m.ChiaveEsterna}
 }
 
 // rifIn è rif per un'azione su UNA copia: porta anche la casella, così quando il worker ritrova
 // l'elemento a un EntryID diverso il server riallinea quella presenza e non un'altra.
-func rifIn(m db.Messaggio, casella uuid.UUID) api.RiferimentoElemento {
+func rifIn(m db.Messaggio, casella uuid.UUID) worker.RiferimentoElemento {
 	r := rif(m)
 	c := casella
 	r.CasellaID = &c

@@ -26,7 +26,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -45,16 +45,16 @@ func casellaDiProva(t *testing.T, ctx context.Context, p *pgxpool.Pool, indirizz
 
 // stessaMail costruisce LO STESSO messaggio (stesso Message-ID) come lo vede una casella: l'EntryID e
 // la cartella sono diversi, perché sono fatti della copia e non del messaggio.
-func stessaMail(entry, cartella string, ricevuto time.Time) api.MessaggioIn {
-	return api.MessaggioIn{
+func stessaMail(entry, cartella string, ricevuto time.Time) worker.MessaggioIn {
+	return worker.MessaggioIn{
 		MessageID: "<condivisa-1@acme.example>", EntryID: entry, StoreID: "STORE-" + entry,
 		ConversationID: "CONV-CONDIVISA", Cartella: cartella, Direzione: "entrata",
 		DataEvento: ppBase, RicevutoIl: &ricevuto, MittenteNome: "Mario Rossi",
 		MittenteIndirizzo: "mario.rossi@acme.example", Oggetto: "RFQ 6674611A",
 		CorpoTesto: "Richiesta d'offerta, vedi allegato.", CorpoHTML: "<p>Richiesta d'offerta</p>",
 		Riferimenti: []string{}, Categorie: []string{},
-		Destinatari: []api.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}},
-		Allegati:    []api.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000}},
+		Destinatari: []worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}},
+		Allegati:    []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000}},
 	}
 }
 
@@ -80,16 +80,16 @@ func TestStessaMailInDueCaselleUnSoloMessaggioDuePresenze(t *testing.T) {
 	francesco := casellaDiProva(t, ctx, p, "francesco@azienda.it", "Francesco")
 
 	lotti := []Lotto{
-		{Casella: commerciale, Messaggi: []api.MessaggioIn{stessaMail("ENTRY-COMM", "Posta in arrivo", ppBase)},
-			Cursore: &api.CursoreLotto{Cartella: "Posta in arrivo", UltimoReceived: ppBase}},
-		{Casella: francesco, Messaggi: []api.MessaggioIn{stessaMail("ENTRY-FRA", "RFQ da leggere", ppBase.Add(time.Minute))},
-			Cursore: &api.CursoreLotto{Cartella: "Posta in arrivo", UltimoReceived: ppBase.Add(time.Minute)}},
+		{Casella: commerciale, Messaggi: []worker.MessaggioIn{stessaMail("ENTRY-COMM", "Posta in arrivo", ppBase)},
+			Cursore: &worker.CursoreLotto{Cartella: "Posta in arrivo", UltimoReceived: ppBase}},
+		{Casella: francesco, Messaggi: []worker.MessaggioIn{stessaMail("ENTRY-FRA", "RFQ da leggere", ppBase.Add(time.Minute))},
+			Cursore: &worker.CursoreLotto{Cartella: "Posta in arrivo", UltimoReceived: ppBase.Add(time.Minute)}},
 	}
 
 	var via, fine sync.WaitGroup
 	via.Add(1)
 	fine.Add(2)
-	esiti := make([]api.IngestRisposta, 2)
+	esiti := make([]worker.IngestRisposta, 2)
 	errori := make([]error, 2)
 	for i := range lotti {
 		go func(i int) {
@@ -178,7 +178,7 @@ func TestRisyncAggiornaLaPresenzaSenzaPerdereIlCorpo(t *testing.T) {
 
 	primo := stessaMail("ENTRY-COMM", "Posta in arrivo", ppBase)
 	primo.NonLetto = true
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{primo}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{primo}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,7 +187,7 @@ func TestRisyncAggiornaLaPresenzaSenzaPerdereIlCorpo(t *testing.T) {
 	secondo.CorpoHTML = ""
 	secondo.NonLetto = false
 	secondo.Categorie = []string{"RFQ"}
-	r, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{secondo}})
+	r, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{secondo}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestQuattroCaselleUnaSolaElaborazione(t *testing.T) {
 
 	// primo worker: il messaggio entra
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: caselle[0],
-		Messaggi: []api.MessaggioIn{stessaMail("ENTRY-1", "Posta in arrivo", ppBase)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{stessaMail("ENTRY-1", "Posta in arrivo", ppBase)}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,7 +284,7 @@ func TestQuattroCaselleUnaSolaElaborazione(t *testing.T) {
 	// gli altri tre worker consegnano la loro copia
 	for i, c := range caselle[1:] {
 		if _, err := s.Ingerisci(ctx, Lotto{Casella: c,
-			Messaggi: []api.MessaggioIn{stessaMail(fmt.Sprintf("ENTRY-%d", i+2), "Posta in arrivo", ppBase.Add(time.Duration(i)*time.Minute))}}); err != nil {
+			Messaggi: []worker.MessaggioIn{stessaMail(fmt.Sprintf("ENTRY-%d", i+2), "Posta in arrivo", ppBase.Add(time.Duration(i)*time.Minute))}}); err != nil {
 			t.Fatalf("casella %s: %v", c.Indirizzo, err)
 		}
 	}
@@ -356,7 +356,7 @@ func TestMessaggioRicevutoNonSpariceDallInboxQuandoArrivaAncheComeAllegato(t *te
 
 	// la RDO arriva direttamente: ha una presenza
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale,
-		Messaggi: []api.MessaggioIn{stessaMail("ENTRY-DIRETTA", "Posta in arrivo", ppBase)}}); err != nil {
+		Messaggi: []worker.MessaggioIn{stessaMail("ENTRY-DIRETTA", "Posta in arrivo", ppBase)}}); err != nil {
 		t.Fatal(err)
 	}
 	var diretta uuid.UUID
@@ -370,7 +370,7 @@ func TestMessaggioRicevutoNonSpariceDallInboxQuandoArrivaAncheComeAllegato(t *te
 	inoltro.MessageID = "<inoltro-1@azienda.it>"
 	inoltro.ConversationID = "CONV-INOLTRO"
 	inoltro.Oggetto = "I: RFQ 6674611A"
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{inoltro}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{inoltro}}); err != nil {
 		t.Fatal(err)
 	}
 	var contenitore uuid.UUID
@@ -434,7 +434,7 @@ func TestIlCursoreUsaRicevutoIlNonDataEvento(t *testing.T) {
 	arrivata := ppBase.Add(72 * time.Hour) // quando è comparsa nella casella, tre giorni dopo
 	m := stessaMail("ENTRY-INVIATA", "Posta inviata", arrivata)
 	m.DataEvento = scritta
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{m}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{m}}); err != nil {
 		t.Fatal(err)
 	}
 	pr := presenze(t, ctx, p, "<condivisa-1@acme.example>")[0]
@@ -454,7 +454,7 @@ func TestIlCursoreUsaRicevutoIlNonDataEvento(t *testing.T) {
 	vecchio.MessageID = "<senza-ricevuto@acme.example>"
 	vecchio.ConversationID = "CONV-VECCHIO"
 	vecchio.RicevutoIl = nil
-	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{vecchio}}); err != nil {
+	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{vecchio}}); err != nil {
 		t.Fatal(err)
 	}
 	if pr := presenze(t, ctx, p, "<senza-ricevuto@acme.example>")[0]; !pr.RicevutoIl.Equal(vecchio.DataEvento) {
@@ -472,21 +472,21 @@ func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 
 	casi := []struct {
 		nome, messageID, mittente string
-		destinatari               []api.Destinatario
+		destinatari               []worker.Destinatario
 		dichiarata                string
 		direzione                 string
 		interno                   bool
 	}{
 		{"cliente che scrive a noi", "<c1@acme.example>", "mario.rossi@acme.example",
-			[]api.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "entrata", false},
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "entrata", false},
 		{"noi che scriviamo al cliente", "<c2@azienda.it>", "commerciale@azienda.it",
-			[]api.Destinatario{{Indirizzo: "mario.rossi@acme.example", Tipo: "a"}}, "uscita", "uscita", false},
+			[]worker.Destinatario{{Indirizzo: "mario.rossi@acme.example", Tipo: "a"}}, "uscita", "uscita", false},
 		{"collega che gira una mail a un collega", "<c3@azienda.it>", "francesco@azienda.it",
-			[]api.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "uscita", true},
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "uscita", true},
 		{"il worker sbaglia: dice entrata ma il mittente siamo noi", "<c4@azienda.it>", "commerciale@azienda.it",
-			[]api.Destinatario{{Indirizzo: "buyer@acme.example", Tipo: "a"}}, "entrata", "uscita", false},
+			[]worker.Destinatario{{Indirizzo: "buyer@acme.example", Tipo: "a"}}, "entrata", "uscita", false},
 		{"il worker sbaglia al contrario: dice uscita ma il mittente è il cliente", "<c5@acme.example>", "buyer@acme.example",
-			[]api.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "uscita", "entrata", false},
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "uscita", "entrata", false},
 	}
 	for i, c := range casi {
 		m := stessaMail(fmt.Sprintf("ENTRY-DIR-%d", i), "Posta in arrivo", ppBase.Add(time.Duration(i)*time.Minute))
@@ -495,7 +495,7 @@ func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 		m.MittenteIndirizzo = c.mittente
 		m.Destinatari = c.destinatari
 		m.Direzione = c.dichiarata
-		if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{m}}); err != nil {
+		if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{m}}); err != nil {
 			t.Fatalf("%s: %v", c.nome, err)
 		}
 		var dir string
@@ -517,7 +517,7 @@ func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 	rotto.MessageID = "<rotto@acme.example>"
 	rotto.ConversationID = "CONV-ROTTO"
 	rotto.Direzione = "boh"
-	r, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []api.MessaggioIn{rotto}})
+	r, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{rotto}})
 	if err != nil {
 		t.Fatal(err)
 	}

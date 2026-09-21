@@ -22,7 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
@@ -39,7 +39,7 @@ func (b *bancoWeb) posta(direzione, da, oggetto string, cad bool, a ...string) u
 		b.t.Fatal(err)
 	}
 	quando := time.Now().Add(-time.Duration(nPosta) * time.Minute)
-	m := api.MessaggioIn{
+	m := worker.MessaggioIn{
 		MessageID: fmt.Sprintf("<b7-%d@prova.example>", nPosta), EntryID: fmt.Sprintf("ENTRY-B7-%d", nPosta),
 		StoreID: "STORE-B7", ConversationID: fmt.Sprintf("CONV-B7-%d", nPosta), Cartella: "Posta in arrivo",
 		Direzione: direzione, DataEvento: quando, RicevutoIl: &quando, MittenteNome: "Ufficio",
@@ -51,17 +51,17 @@ func (b *bancoWeb) posta(direzione, da, oggetto string, cad bool, a ...string) u
 		m.Cartella = "Sent Items"
 	}
 	if cad {
-		m.Allegati = []api.AllegatoIn{{Indice: 1, NomeFile: "RDO.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
+		m.Allegati = []worker.AllegatoIn{{Indice: 1, NomeFile: "RDO.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
 			{Indice: 2, NomeFile: "particolare.stp", Estensione: "stp", Natura: "file", Bytes: 2000}}
 	}
 	if len(a) == 0 {
 		a = []string{"commerciale@azienda.example"}
 	}
 	for _, d := range a {
-		m.Destinatari = append(m.Destinatari, api.Destinatario{Indirizzo: d, Tipo: "a"})
+		m.Destinatari = append(m.Destinatari, worker.Destinatario{Indirizzo: d, Tipo: "a"})
 	}
 	s := &ingest.Servizio{Pool: b.pool, Log: testutil.LogSilenzioso()}
-	if _, err := s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []api.MessaggioIn{m}}); err != nil {
+	if _, err := s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []worker.MessaggioIn{m}}); err != nil {
 		b.t.Fatal(err)
 	}
 	var id uuid.UUID

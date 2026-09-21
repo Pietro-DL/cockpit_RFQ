@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -44,7 +44,7 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	if err != nil || j == nil {
 		t.Fatalf("il sync non è stato accodato: %v", err)
 	}
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	if !per["Inbox"].Bootstrap {
 		t.Errorf("l'Inbox riparte dalla copertura nel futuro (%v): la finestra comincerebbe fra due ore", per["Inbox"].Dal)
 	}
-	if api.NelFuturo(dalDi(t, p, "Inbox"), time.Now()) {
+	if worker.NelFuturo(dalDi(t, p, "Inbox"), time.Now()) {
 		t.Errorf("la finestra dell'Inbox comincia nel futuro: %v", dalDi(t, p, "Inbox"))
 	}
 	if d := dalDi(t, p, "Sent Items"); !d.Equal(sano.Add(-SovrapposizioneSync)) {
@@ -64,7 +64,7 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	// Prima ripartiva dal più vecchio dei cursori delle ALTRE cartelle — qui la Posta inviata, mezz'ora
 	// fa — che su dove fosse arrivata l'Inbox non dice niente: le avrebbe fatto saltare tutto ciò che
 	// era entrato prima, cioè esattamente la posta che il cursore nel futuro aveva già nascosto.
-	if api.NelFuturo(p.Dal, time.Now()) {
+	if worker.NelFuturo(p.Dal, time.Now()) {
 		t.Errorf("il limite inferiore della finestra è nel futuro: %v", p.Dal)
 	}
 	attorno(t, p.Dal, time.Now().AddDate(0, 0, -GiorniSyncInizialeDefault), "limite inferiore dell'Inbox senza cursore")
@@ -87,7 +87,7 @@ func TestSenzaCursoriUtilizzabiliLaFinestraTornaQuellaPredefinita(t *testing.T) 
 	if err != nil || j == nil {
 		t.Fatalf("il sync non è stato accodato: %v", err)
 	}
-	var p api.PayloadSyncOutlook
+	var p worker.PayloadSyncOutlook
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -117,10 +117,10 @@ func AccodaStage(ctx context.Context, q *db.Queries, st Staging, a db.Allegato, 
 	}
 	mid := m.MessaggioID
 	cid := c.CasellaID
-	j, err := AccodaCon(ctx, q, db.TipoJobStageAllegato, api.PayloadStageAllegato{
+	j, err := AccodaCon(ctx, q, db.TipoJobStageAllegato, worker.PayloadStageAllegato{
 		AllegatoID: a.AllegatoID, EntryID: c.EntryID, Indice: int(a.Indice), NomeFile: a.NomeFile,
 		Cartella:            CartellaStaging(m.ChiaveEsterna),
-		RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, CasellaID: &cid, MessageID: m.ChiaveEsterna},
+		RiferimentoElemento: worker.RiferimentoElemento{MessaggioID: &mid, CasellaID: &cid, MessageID: m.ChiaveEsterna},
 	}, "stage:"+a.AllegatoID.String(), priorita, Opzioni{Casella: uuid.NullUUID{UUID: cid, Valid: true}})
 	if err != nil {
 		return "", nil, err
@@ -184,7 +184,7 @@ func AccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID u
 	}
 	// Niente path_staging nel payload (7C.1, P0): il worker puo' essere su un altro PC, e si prende
 	// i byte dal server con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo.
-	return Accoda(ctx, q, db.TipoJobAnalizzaAllegato, api.PayloadAnalizzaAllegato{
+	return Accoda(ctx, q, db.TipoJobAnalizzaAllegato, worker.PayloadAnalizzaAllegato{
 		AllegatoID: a.AllegatoID, Sha256: a.Sha256.String, Bytes: a.Bytes.Int64, NomeFile: a.NomeFile,
 		ThreadID: tid, MessaggioID: a.MessaggioID,
 		VersioneAnalizzatore: an.Versione, HashConfigurazione: cfg, Parametri: an.Parametri,

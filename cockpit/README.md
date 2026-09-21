@@ -1064,7 +1064,7 @@ non si deducono mai da una prova simulata.
 Due avvertenze sulla lettura degli esiti:
 
 - `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic rispettino gli
-  schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/platform/contratti/api` per il
+  schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/platform/contratti/worker` per il
   Go, `workers/tests/test_contratti.py` per la premessa che gli schemi su disco siano quelli dei
   modelli di oggi). Confronta i campi e i loro generi, non l'obbligatorietà;
 - un test **saltato** non è un test superato: è una verifica che non è stata fatta.
@@ -1109,7 +1109,7 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 | una schermata `/admin/...` risponde **403 Non autorizzato** | stessa cosa scritta a mano nella barra degli indirizzi: nascondere la voce non era il controllo, il controllo è sulla rotta | come sopra. Se è sparito l'ultimo `admin`, rimetterne uno in `[[utenti]]` e riavviare |
 | un utente non può premere nessun pulsante | ha `ruolo = "consultazione"`, che è sola lettura | cambiare ruolo in `[[utenti]]` |
 | una password cambiata in `cockpit.toml` non ha effetto | è voluto: il file fa nascere l'utente, poi il segreto è in database (il log lo dice a ogni avvio) | finché non c'è la schermata del profilo (voce 6.4), azzerare a mano `utente.password_hash` e riavviare |
-| una casella in testata è **OFFLINE** | quel worker non si fa sentire da oltre 40 secondi (due giri di claim, `api.PresenzaOnlineEntro`) | il worker di quel PC è fermo: vedere il suo log. Non conta da quanto non *conclude* un claim: un worker dentro un sync di tre minuti non ne conclude nessuno e resta online grazie al battito |
+| una casella in testata è **OFFLINE** | quel worker non si fa sentire da oltre 40 secondi (due giri di claim, `worker.PresenzaOnlineEntro`) | il worker di quel PC è fermo: vedere il suo log. Non conta da quanto non *conclude* un claim: un worker dentro un sync di tre minuti non ne conclude nessuno e resta online grazie al battito |
 | una casella in testata è **non risolta** | il worker è attivo ma non trova la casella nel profilo Outlook del suo PC (o Outlook non risponde) | aggiungere la casella al profilo, o aprire Outlook; `python worker_outlook.py --caselle` dice che cosa vede |
 | una casella in testata è **non configurata** | nessun `[[worker]]` la elenca fra le proprie `caselle` | aggiungerla al worker della postazione che deve servirla |
 | «Apri in Outlook» dice *nessuna postazione* | la sessione non è abbinata a nessun PC | scegliere il PC dalla testata («Sei su:») |
@@ -1133,7 +1133,7 @@ internal/README.md                  com'è diviso cockpit.exe, la regola di dipe
 cmd/cockpit/main.go                 avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
 embed.go                            embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
 internal/platform/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
-internal/platform/contratti/api     contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
+internal/platform/contratti/worker  contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
 internal/platform/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
 internal/platform/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
 internal/platform/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
@@ -1232,7 +1232,7 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   `worker_presenza` tiene due tempi diversi per ogni worker: `ultimo_contatto` (l'ultima richiesta autenticata di
   qualunque tipo — ingresso del claim, battito, ingest, upload — ed è l'unica cosa su cui si decide online/offline)
   e `ultimo_claim` (l'ultimo claim concluso, NULL finché non se n'è concluso nessuno: diagnosi, non liveness).
-  I tempi del protocollo stanno in `internal/platform/contratti/api/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
+  I tempi del protocollo stanno in `internal/platform/contratti/worker/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
   verifica che le due copie coincidano.
 - **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; niente su disco finché l'operatore non chiede)
   → `documento_proposta` (INTERPRETAZIONE: a ingest dal nome file, poi raffinata dopo il download da hash/zip e

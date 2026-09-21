@@ -16,7 +16,7 @@ import (
 
 	"promatec/cockpit/internal/core/domain"
 	"promatec/cockpit/internal/core/inbox/aggancio"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -92,7 +92,7 @@ func (r rubricaDB) AltroPerRecapito(ctx context.Context, recapito string) (domai
 }
 
 // indirizziDi sono i soli indirizzi dei destinatari, nell'ordine in cui stanno nel messaggio.
-func indirizziDi(d []api.Destinatario) []string {
+func indirizziDi(d []worker.Destinatario) []string {
 	out := make([]string, 0, len(d))
 	for _, x := range d {
 		out = append(out, x.Indirizzo)
@@ -102,7 +102,7 @@ func indirizziDi(d []api.Destinatario) []string {
 
 // indirizziDaJSON legge i destinatari salvati sul messaggio (`messaggio.destinatari`).
 func indirizziDaJSON(raw json.RawMessage) []string {
-	var d []api.Destinatario
+	var d []worker.Destinatario
 	if len(raw) == 0 || json.Unmarshal(raw, &d) != nil {
 		return nil
 	}

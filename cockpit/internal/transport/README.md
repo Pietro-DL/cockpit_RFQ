@@ -43,7 +43,7 @@ del browser, che vuole la pagina intera.
 | `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `jobs` |
 | `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/domain`, `core/inbox/aggancio`, `jobs` |
 | `POST /messaggio/{id}/risposta-fornitore`, `/richiesta-fornitore` | «è la risposta a questa richiesta» e «è la richiesta mandata a mano» (7B) | `core/inbox/aggancio`, `platform/db` |
-| `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze` | `jobs`, `platform/contratti/api` |
+| `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze` | `jobs`, `platform/contratti/worker` |
 | `GET/POST /messaggio/{id}/censisci` | crea il fornitore o il cliente e fa il ritriage mirato. Senza transazione, di proposito: le scritture non distruttive rispondono «di chi è», e in una transazione abortita non potrebbero | `core/inbox/ingest`, `core/domain` |
 | `POST /proposta/{id}/conferma` · `/scarta` | `documento` + `copia_nas`. Con `nas_scrittura` spenta il documento resta `in_coda` | `core/domain`, `jobs`, `platform/storage/nas` |
 | `POST /thread/{id}/riprova-copie` | riaccoda `copia_nas` per i documenti `in_coda` | `jobs` |
@@ -105,5 +105,4 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 ---
 
 **Cambia in B**: `web.go` si divide per area (registrazione delle rotte, sessione, ruoli, Inbox) tenendo lo
-stesso package `web`, le stesse rotte e gli stessi handler; `platform/contratti/api` diventa
-`platform/contratti/worker`.
+stesso package `web`, le stesse rotte e gli stessi handler.

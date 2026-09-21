@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -248,7 +248,7 @@ func (s *Server) syncAllApertura(ctx context.Context, q *db.Queries, sess sessio
 }
 
 // cEUnWorkerOutlookVivo: almeno un worker Outlook si e' fatto vivo di recente. Stessa soglia della
-// testata (`api.PresenzaOnlineEntro`, cioe' due attese di claim) e stessa colonna: se la schermata
+// testata (`worker.PresenzaOnlineEntro`, cioe' due attese di claim) e stessa colonna: se la schermata
 // dice «attiva» e questo dicesse di no, sarebbero due verita' diverse sulla stessa cosa.
 func (s *Server) cEUnWorkerOutlookVivo(ctx context.Context, q *db.Queries) bool {
 	presenze, err := q.ListWorkerPresenza(ctx)
@@ -258,7 +258,7 @@ func (s *Server) cEUnWorkerOutlookVivo(ctx context.Context, q *db.Queries) bool 
 	}
 	ora := time.Now()
 	for _, p := range presenze {
-		if p.WorkerTipo == db.WorkerTipoOutlook && ora.Sub(p.UltimoContatto) <= api.PresenzaOnlineEntro {
+		if p.WorkerTipo == db.WorkerTipoOutlook && ora.Sub(p.UltimoContatto) <= worker.PresenzaOnlineEntro {
 			return true
 		}
 	}

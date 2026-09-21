@@ -1,7 +1,7 @@
-// Package api definisce i contratti JSON fra cockpit.exe e i worker Python.
+// Package worker definisce i contratti JSON fra cockpit.exe e i worker Python.
 // La fonte parallela è workers/contratti.py (pydantic); contracts/*.schema.json è generato da lì
 // e verificato dai test di entrambe le parti. I nomi dei campi JSON sono in italiano, snake_case.
-package api
+package worker
 
 import (
 	"encoding/json"

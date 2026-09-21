@@ -14,7 +14,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -129,12 +129,12 @@ func (s *Server) bozzaPerRichiesta(ctx context.Context, u *db.Utente, sess sessi
 	oggetto := oggettoRichiesta(cl.CartellaNas, buyer, ric.Codici)
 	corpo := corpoRichiesta(ric, f)
 	contatti, _ := q.ListContattiFornitore(ctx, f.FornitoreID)
-	var dest []api.Destinatario
+	var dest []worker.Destinatario
 	for _, c := range contatti {
-		dest = append(dest, api.Destinatario{Nome: c.Nome.String, Indirizzo: c.Email, Tipo: "a"})
+		dest = append(dest, worker.Destinatario{Nome: c.Nome.String, Indirizzo: c.Email, Tipo: "a"})
 	}
 	if dest == nil {
-		dest = []api.Destinatario{}
+		dest = []worker.Destinatario{}
 	}
 	destJSON, _ := json.Marshal(dest)
 
@@ -153,7 +153,7 @@ func (s *Server) bozzaPerRichiesta(ctx context.Context, u *db.Utente, sess sessi
 		return "Bozza non preparata: " + err.Error()
 	}
 	html := "<div style=\"font-family:Calibri,sans-serif;font-size:11pt\">" + strings.ReplaceAll(template.HTMLEscapeString(corpo), "\n", "<br>") + "</div><br>"
-	if _, err := jobs.AccodaCon(ctx, qt, db.TipoJobCreaBozzaOutlook, api.PayloadCreaBozza{
+	if _, err := jobs.AccodaCon(ctx, qt, db.TipoJobCreaBozzaOutlook, worker.PayloadCreaBozza{
 		BozzaID: b.BozzaID, Tipo: string(db.TipoBozzaNuovo), Destinatari: dest, Oggetto: oggetto,
 		CorpoHTML: html, CorpoTesto: corpo, Allegati: []string{}, Mostra: true, Invia: false,
 		Marcatori:           map[string]string{ingest.MarcatoreRichiesta: ric.RichiestaID.String()},

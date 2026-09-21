@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -43,8 +43,8 @@ func TestUnaCadutaDopoLUploadOIlResultNonDuplicaNiente(t *testing.T) {
 	}
 
 	// result, «caduta», stesso result ripetuto
-	r := api.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto)),
-		RisultatoElemento: api.RisultatoElemento{EntryID: "ENTRY-disegno.pdf", Cartella: "Posta in arrivo"}}
+	r := worker.RisultatoStage{AllegatoID: b.allegato.AllegatoID, Sha256: sha, Bytes: int64(len(contenuto)),
+		RisultatoElemento: worker.RisultatoElemento{EntryID: "ENTRY-disegno.pdf", Cartella: "Posta in arrivo"}}
 	primo := b.result(tent, r)
 	primo.Body.Close()
 	if primo.StatusCode != 204 {

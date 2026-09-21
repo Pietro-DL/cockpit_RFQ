@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -125,8 +125,8 @@ func (s *Server) analisiDelJob(ctx context.Context, q *db.Queries, j *db.Job, al
 	return a, nil
 }
 
-func payloadAnalisi(j *db.Job) (api.PayloadAnalizzaAllegato, error) {
-	var p api.PayloadAnalizzaAllegato
+func payloadAnalisi(j *db.Job) (worker.PayloadAnalizzaAllegato, error) {
+	var p worker.PayloadAnalizzaAllegato
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		return p, fmt.Errorf("payload del job %d: %w", j.JobID, err)
 	}

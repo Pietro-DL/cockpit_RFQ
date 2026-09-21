@@ -32,7 +32,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 |---|---|
 | riconoscimento della posta, triage, candidati di aggancio | `core/` (`domain`, `inbox/ingest`, `inbox/aggancio`) |
 | una rotta del browser | `transport/web` |
-| il protocollo con i worker | `transport/workerapi` + `platform/contratti/api` |
+| il protocollo con i worker | `transport/workerapi` + `platform/contratti/worker` |
 | DB, config, TLS, NAS, staging, migrazioni | `platform/` |
 | l'assistente semantico | `ai/agente` |
 | anagrafiche, regole del cliente, lavorazioni, fornitori | `core/registro/` |
@@ -101,7 +101,7 @@ pasto** all'interpretazione, non che cosa resta in `messaggio.corpo_testo`. Dett
 | Livello | Che cos'è | Comando |
 |---|---|---|
 | L1 | test puri, senza database | `go test ./...` |
-| L3 | contratto worker ↔ server contro gli schemi di `contracts/` | `go test -count=1 ./internal/platform/contratti/api/` e `pytest` in `workers/` |
+| L3 | contratto worker ↔ server contro gli schemi di `contracts/` | `go test -count=1 ./internal/platform/contratti/worker/` e `pytest` in `workers/` |
 | L4 | integrazione su PostgreSQL di prova | `COCKPIT_TEST_DSN=… go test -tags integrazione -count=1 -p 1 ./...` |
 | L7 | l'Inbox in un browser vero (Playwright su Edge) | `go test -tags "integrazione browser" -count=1 -run TestL7 ./internal/transport/web/` |
 
@@ -127,5 +127,4 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 
 **Cambia in B**: `core/domain` si divide in `core/inbox/classificazione`, `core/registro/regole` e
 `core/rfq/documenti`; `internal/jobs` si divide fra `platform/coda`, `platform/storage/staging`,
-`core/rfq/documenti` e `app/runtime`; `platform/contratti/api` diventa `platform/contratti/worker`;
-`cmd/cockpit/main.go` si svuota in `app/runtime`.
+`core/rfq/documenti` e `app/runtime`; `cmd/cockpit/main.go` si svuota in `app/runtime`.

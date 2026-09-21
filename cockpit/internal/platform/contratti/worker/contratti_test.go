@@ -21,7 +21,7 @@
 // Che cosa NON prova: l'obbligatorietà. pydantic sa dire «questo campo non ha un default, quindi è
 // obbligatorio»; in Go ogni campo ha lo zero e la differenza non esiste. Confrontare i `required`
 // darebbe una lista di falsi disallineamenti, che è il modo più rapido per far ignorare un test.
-package api
+package worker
 
 import (
 	"encoding/json"

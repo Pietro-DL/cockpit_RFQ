@@ -26,7 +26,7 @@ import (
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
@@ -212,11 +212,11 @@ func (w *browser) sessione() db.GetSessioneRow {
 // workerClaim fa fare un claim al worker di una postazione da un IP: è ciò che registra l'IP.
 func (b *bancoWeb) workerClaim(nome, ip string, caselle ...uuid.UUID) {
 	b.t.Helper()
-	aperte := make([]api.CasellaAperta, 0, len(caselle))
+	aperte := make([]worker.CasellaAperta, 0, len(caselle))
 	for _, c := range caselle {
-		aperte = append(aperte, api.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
+		aperte = append(aperte, worker.CasellaAperta{CasellaID: c, StoreID: "STORE-" + c.String()[:8]})
 	}
-	corpo, _ := json.Marshal(api.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
+	corpo, _ := json.Marshal(worker.ClaimRichiesta{Worker: "outlook", WorkerID: nome, AttesaS: 1, OutlookOk: true, CaselleAperte: aperte})
 	r, _ := http.NewRequest(http.MethodPost, b.srv.URL+"/api/v1/jobs/claim", strings.NewReader(string(corpo)))
 	r.Header.Set("X-Cockpit-Token", tokenDelWorker(nome))
 	r.Header.Set("X-Prova-IP", ip)

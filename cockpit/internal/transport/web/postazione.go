@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -251,7 +251,7 @@ func (s *Server) stato(ctx context.Context, sess sessioneUI) *statoUI {
 // statoCaselle è la parte pura di stato: da caselle, credenziali e presenze ai tre stati. Separata
 // così il test M2 la prova senza HTTP.
 //
-// Vivo o spento si decide su `ultimo_contatto` e su api.PresenzaOnlineEntro, e su nient'altro (0009).
+// Vivo o spento si decide su `ultimo_contatto` e su worker.PresenzaOnlineEntro, e su nient'altro (0009).
 // Prima si leggeva `ultimo_claim` con una soglia di 60 secondi scritta qui: ma un claim si conclude
 // solo quando il worker NON sta lavorando, e un worker dentro un sync di tre minuti risultava spento
 // proprio mentre faceva il suo mestiere.
@@ -286,7 +286,7 @@ func statoCaselle(caselle []db.Casella, credenziali []db.WorkerCredenziale, pres
 			switch {
 			case !vista:
 				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("il worker %s non è mai stato avviato", w.WorkerNome)}
-			case ora.Sub(p.UltimoContatto) > api.PresenzaOnlineEntro:
+			case ora.Sub(p.UltimoContatto) > worker.PresenzaOnlineEntro:
 				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "offline", Dettaglio: fmt.Sprintf("worker su %s OFFLINE: ultimo contatto %s fa", dove, durataBreve(ora.Sub(p.UltimoContatto)))}
 			case contiene(p.CaselleAperte, c.CasellaID):
 				cand = statoCasella{ID: c.CasellaID, Nome: c.Nome, Stato: "attiva", Dettaglio: fmt.Sprintf("attiva su %s (ultimo contatto %d s fa)", dove, int(ora.Sub(p.UltimoContatto).Seconds()))}
@@ -328,7 +328,7 @@ func statoAnalisi(credenziali []db.WorkerCredenziale, presenze []db.ListWorkerPr
 		if p.WorkerTipo != db.WorkerTipoAnalisi {
 			continue
 		}
-		if ora.Sub(p.UltimoContatto) <= api.PresenzaOnlineEntro {
+		if ora.Sub(p.UltimoContatto) <= worker.PresenzaOnlineEntro {
 			return statoChip{Etichetta: "analisi attiva", Classe: "fatto", Dettaglio: fmt.Sprintf("%s, ultimo contatto %d s fa", p.WorkerNome, int(ora.Sub(p.UltimoContatto).Seconds()))}
 		}
 		return statoChip{Etichetta: "analisi OFFLINE", Classe: "fallito", Dettaglio: fmt.Sprintf("%s, ultimo contatto %s fa", p.WorkerNome, durataBreve(ora.Sub(p.UltimoContatto)))}

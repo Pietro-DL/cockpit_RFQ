@@ -22,20 +22,20 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
 // postaMsg fa entrare un MessaggioIn gia' costruito per la strada vera (Commerciale) e restituisce l'id.
-func (b *bancoWeb) postaMsg(m api.MessaggioIn) uuid.UUID {
+func (b *bancoWeb) postaMsg(m worker.MessaggioIn) uuid.UUID {
 	b.t.Helper()
 	casella, err := b.q.GetCasellaPerIndirizzo(b.ctx, db.GetCasellaPerIndirizzoParams{Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.example"})
 	if err != nil {
 		b.t.Fatal(err)
 	}
 	s := &ingest.Servizio{Pool: b.pool, Log: testutil.LogSilenzioso()}
-	if _, err := s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []api.MessaggioIn{m}}); err != nil {
+	if _, err := s.Ingerisci(b.ctx, ingest.Lotto{Casella: casella, Messaggi: []worker.MessaggioIn{m}}); err != nil {
 		b.t.Fatal(err)
 	}
 	var id uuid.UUID
@@ -46,10 +46,10 @@ func (b *bancoWeb) postaMsg(m api.MessaggioIn) uuid.UUID {
 }
 
 // mail costruisce un MessaggioIn con id unici; i campi si ritoccano prima di `postaMsg`.
-func (b *bancoWeb) mail(direzione, da, oggetto, corpo string, a ...string) api.MessaggioIn {
+func (b *bancoWeb) mail(direzione, da, oggetto, corpo string, a ...string) worker.MessaggioIn {
 	nPosta++
 	quando := time.Now().Add(-time.Duration(nPosta) * time.Minute)
-	m := api.MessaggioIn{
+	m := worker.MessaggioIn{
 		MessageID: fmt.Sprintf("<b7b-%d@prova.example>", nPosta), EntryID: fmt.Sprintf("ENTRY-B7B-%d", nPosta),
 		StoreID: "STORE-B7", ConversationID: fmt.Sprintf("CONV-B7B-%d", nPosta), Cartella: "Posta in arrivo",
 		Direzione: direzione, DataEvento: quando, RicevutoIl: &quando, MittenteNome: "Ufficio",
@@ -59,10 +59,10 @@ func (b *bancoWeb) mail(direzione, da, oggetto, corpo string, a ...string) api.M
 		m.Cartella = "Sent Items"
 	}
 	for _, d := range a {
-		m.Destinatari = append(m.Destinatari, api.Destinatario{Indirizzo: d, Tipo: "a"})
+		m.Destinatari = append(m.Destinatari, worker.Destinatario{Indirizzo: d, Tipo: "a"})
 	}
 	if m.Destinatari == nil {
-		m.Destinatari = []api.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}}
+		m.Destinatari = []worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}}
 	}
 	return m
 }
@@ -147,7 +147,7 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if len(jobs) != 1 {
 		t.Fatalf("job crea_bozza_outlook: %d, atteso 1", len(jobs))
 	}
-	var p api.PayloadCreaBozza
+	var p worker.PayloadCreaBozza
 	if err := json.Unmarshal(jobs[0].Payload, &p); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	_ = b.pool.QueryRow(b.ctx, `SELECT chiave_esterna FROM messaggio WHERE messaggio_id = $1`, sent).Scan(&chiaveSent)
 	risposta := b.mail("entrata", "info@mgm.example", "R: RFQ TG FIORE 0D002622AD", "Buongiorno, in allegato la nostra offerta. Materiale S235JR come da ISO 2768.")
 	risposta.InReplyTo = chiaveSent
-	risposta.Allegati = []api.AllegatoIn{{Indice: 1, NomeFile: "offerta_MGM_123.pdf", Estensione: "pdf", Natura: "file", Bytes: 5000}}
+	risposta.Allegati = []worker.AllegatoIn{{Indice: 1, NomeFile: "offerta_MGM_123.pdf", Estensione: "pdf", Natura: "file", Bytes: 5000}}
 	rispID := b.postaMsg(risposta)
 	if tipo, _ := b.controparteDi(rispID); tipo != "fornitore" {
 		t.Fatalf("IB4: controparte %s", tipo)

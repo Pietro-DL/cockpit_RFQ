@@ -26,7 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/jobs"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -116,7 +116,7 @@ func TestStessoContenutoUnSoloFile(t *testing.T) {
 		a uuid.UUID
 	}{{tA, allA}, {tB, allB}} {
 		stato(t, b.put(c.t, c.a, bytes.NewReader(contenuto), int64(len(contenuto))), 204)
-		stato(t, b.result(c.t, api.RisultatoStage{AllegatoID: c.a, Sha256: sha, Bytes: int64(len(contenuto))}), 204)
+		stato(t, b.result(c.t, worker.RisultatoStage{AllegatoID: c.a, Sha256: sha, Bytes: int64(len(contenuto))}), 204)
 	}
 
 	if fs := b.contenuti(); len(fs) != 1 {
@@ -173,7 +173,7 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 		t.Fatal("il download dello zip non e' stato preso in carico")
 	}
 	stato(t, b.put(tZip, zipAllegato.AllegatoID, bytes.NewReader(archivio), int64(len(archivio))), 204)
-	stato(t, b.result(tZip, api.RisultatoStage{AllegatoID: zipAllegato.AllegatoID, Sha256: sha, Bytes: int64(len(archivio))}), 204)
+	stato(t, b.result(tZip, worker.RisultatoStage{AllegatoID: zipAllegato.AllegatoID, Sha256: sha, Bytes: int64(len(archivio))}), 204)
 
 	// Il result NON ha estratto niente: ha accodato. Dal blocco 4A scompattare un archivio non si fa
 	// dentro la richiesta HTTP con cui il worker consegna il download, perche' il worker aspetta.
@@ -221,7 +221,7 @@ func (b *banco) eseguiEstrazione(atteso uuid.UUID) {
 	if j.Tipo != db.TipoJobEstraiArchivio {
 		b.t.Fatalf("il job in coda e' %s, atteso %s", j.Tipo, db.TipoJobEstraiArchivio)
 	}
-	var p api.PayloadEstraiArchivio
+	var p worker.PayloadEstraiArchivio
 	if err := json.Unmarshal(j.Payload, &p); err != nil {
 		b.t.Fatal(err)
 	}

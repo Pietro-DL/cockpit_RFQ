@@ -19,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"promatec/cockpit/internal/platform/config"
-	"promatec/cockpit/internal/platform/contratti/api"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
@@ -219,8 +219,8 @@ func TestM3ApriVaAllaPostazioneDelRichiedente(t *testing.T) {
 		t.Fatalf("copia scelta: casella=%s worker=%s, attesa Francesco/outlook@PC-FRANCESCO", c.CasellaNome, c.WorkerNome)
 	}
 	mid := msg
-	j, err := AccodaCon(s.ctx, s.q, db.TipoJobApriElementoOutlook, api.PayloadApriElemento{EntryID: c.EntryID,
-		RiferimentoElemento: api.RiferimentoElemento{MessaggioID: &mid, CasellaID: &c.CasellaID, MessageID: "<m3@acme.example>"}},
+	j, err := AccodaCon(s.ctx, s.q, db.TipoJobApriElementoOutlook, worker.PayloadApriElemento{EntryID: c.EntryID,
+		RiferimentoElemento: worker.RiferimentoElemento{MessaggioID: &mid, CasellaID: &c.CasellaID, MessageID: "<m3@acme.example>"}},
 		"", 1, OpzioniInterattive(db.TipoJobApriElementoOutlook, c, uuid.NullUUID{UUID: s.pcFrancesco, Valid: true}, s.utenteFP))
 	if err != nil || j == nil {
 		t.Fatalf("accoda apri: %v", err)
