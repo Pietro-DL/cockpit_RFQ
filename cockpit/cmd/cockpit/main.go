@@ -22,11 +22,11 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/ai/agente"
+	"promatec/cockpit/internal/app/runtime"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/fornitori"
 	"promatec/cockpit/internal/core/rfq/documenti"
-	"promatec/cockpit/internal/jobs"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
@@ -348,7 +348,7 @@ func run(cfgPath string, o opzioni) error {
 	if servizioAgente.Attivo && servizioAgente.Modello != nil {
 		log.Info("analisi semantica attiva", "modello", servizioAgente.Modello.Nome(), "caselle", len(servizioAgente.Caselle))
 	}
-	esecutore := &jobs.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
+	esecutore := &runtime.EsecutoreServer{Pool: pool, NAS: scrittore, Log: log, Agente: servizioAgente}
 	ricognitore := &documenti.Ricognitore{Pool: pool, NAS: scrittore, Log: log, Ogni: cfg.IntervalloIntegrita()}
 
 	// ---------------------------------------------------------------- rete (voce 2.4)

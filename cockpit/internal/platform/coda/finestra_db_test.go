@@ -2,7 +2,7 @@
 
 // L4 — SI1–SI4: da dove parte un sync, e chi lo decide (checkpoint del 16/09/2026).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/jobs/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/platform/coda/
 //
 // La precedenza è una sola, e sta in AccodaSyncCasella: il cursore della cartella vince sempre;
 // senza cursore vale `dal` se è dichiarato nel file, altrimenti la finestra iniziale. Quello che

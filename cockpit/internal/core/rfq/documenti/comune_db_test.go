@@ -1,6 +1,6 @@
 //go:build integrazione
 
-// Impalcatura condivisa dei test L4 di questo package (la stessa di `internal/jobs`,
+// Impalcatura condivisa dei test L4 di questo package (la stessa di `app/runtime`,
 // `platform/coda` e `platform/storage/staging`: ripetuta, non condivisa).
 package documenti
 

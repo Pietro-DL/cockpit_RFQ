@@ -16,7 +16,7 @@
 // `path_staging` dice dove il contenuto è stato messo, non che ci sia ancora: fra la conferma e la
 // copia possono passare giorni, e in mezzo ci sono la pulizia dello staging, un disco rifatto, una
 // cartella svuotata. L'originale però è ancora in Outlook, e si riprende con «Riscarica».
-package jobs
+package runtime
 
 import (
 	"context"

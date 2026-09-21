@@ -1,6 +1,6 @@
 //go:build integrazione
 
-// Impalcatura condivisa dei test L4 di questo package (la stessa di `internal/jobs` e di
+// Impalcatura condivisa dei test L4 di questo package (la stessa di `app/runtime` e di
 // `platform/coda`: ripetuta, non condivisa).
 package staging
 

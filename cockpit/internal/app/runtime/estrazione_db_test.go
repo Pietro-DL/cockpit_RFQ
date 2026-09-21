@@ -10,7 +10,7 @@
 // Questi test guardano l'esecutore: che prenda quel tipo di job, che lo affidi a chi sa scompattare, e
 // che dica chiaramente di non saperlo fare quando nessuno gliel'ha insegnato — invece di lasciare i
 // job in coda a tempo indeterminato mentre gli operatori aspettano le voci di uno zip.
-package jobs
+package runtime
 
 import (
 	"context"

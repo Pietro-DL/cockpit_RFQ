@@ -10,7 +10,7 @@
 // stanno qui perche' fanno eseguire davvero il job di copia, e l'esecutore e' qui.
 //
 // bancoIntegrita, destinazione e statoNas sono ripetuti di la': impalcatura di prova, non codice.
-package jobs
+package runtime
 
 import (
 	"context"

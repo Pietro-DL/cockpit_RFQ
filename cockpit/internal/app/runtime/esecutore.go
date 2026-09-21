@@ -1,11 +1,15 @@
-// Package jobs ESEGUE i job di tipo 'server': quelli che non hanno un worker dall'altra parte
-// perche' il lavoro lo fa il server stesso — la copia sul NAS, la cartella del thread, la ripresa di
-// un contenuto sparito — e il ricognitore che confronta i documenti con i file veri.
+// Package runtime e' il processo: chi mette insieme i pezzi e li fa girare.
+//
+// esecutore.go ESEGUE i job di tipo 'server', quelli che non hanno un worker dall'altra parte perche'
+// il lavoro lo fa il server stesso: prende il job dalla coda, ne riconosce il tipo e chiama chi sa
+// farlo — `core/rfq/documenti` per il fascicolo, `transport/workerapi` per gli archivi, `ai/agente`
+// per l'analisi. Vigila anche sul NAS assente, che non e' un errore del job ma una condizione del
+// mondo: un job che tocca il NAS quando il NAS non c'e' si rinvia, non fallisce.
 //
 // La coda su cui lavora (accodamento, claim, lease, capacita', instradamento) sta in
-// `platform/coda`; la cartella di lavoro sul disco in `platform/storage/staging`. Qui c'e' solo chi
-// prende un job e lo porta a termine.
-package jobs
+// `platform/coda`; la cartella di lavoro sul disco in `platform/storage/staging`; che cosa
+// significhi copiare un documento, in `core/rfq/documenti`.
+package runtime
 
 import (
 	"context"

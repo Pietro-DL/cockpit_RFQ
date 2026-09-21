@@ -20,7 +20,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
 | `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
-| `coda` | la **coda** in PostgreSQL: accodamento idempotente, claim con lease e tentativo, scheduler (lease scaduti, `sync_outlook` periodico, retention), le tre capacità di scrittura, l'instradamento per postazione e per casella. Non esegue niente: chi esegue sta in `internal/jobs` |
+| `coda` | la **coda** in PostgreSQL: accodamento idempotente, claim con lease e tentativo, scheduler (lease scaduti, `sync_outlook` periodico, retention), le tre capacità di scrittura, l'instradamento per postazione e per casella. Non esegue niente: chi esegue sta in `app/runtime` |
 | `storage/staging` | la **cartella di lavoro** sul disco: i `.parte` con il token del tentativo nel nome, i contenuti sotto `_contenuti` con lo sha256 per nome, le cartelle di estrazione, e il custode che toglie ciò che nessuno usa più |
 | `storage/nas` | unico scrittore sul NAS: `.parte` + hash + rinomina, mai sovrascrive; `UNC` compone radice + relativo e mette il prefisso long-path `\\?\` oltre i 250 caratteri (`\\?\UNC\server\share` per i percorsi di rete) |
 | `storage/archivio` | estrazione zip con budget sui byte scritti e protezione zip-slip |
@@ -28,7 +28,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 
 ## Dipendenze consentite
 
-Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `jobs`.
+Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `app`.
 
 ## Entry point
 

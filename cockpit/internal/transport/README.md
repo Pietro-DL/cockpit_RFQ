@@ -19,7 +19,7 @@ aperte**, non come esempio da seguire: `workerapi/archivi.go`, `applicaRisultato
 
 ## Dipendenze consentite
 
-`core`, `ai`, `platform` (`coda` e `storage/staging` comprese), `internal/jobs`. Mai il contrario: niente in `core` o `platform` importa `transport`.
+`core`, `ai`, `platform` (`coda` e `storage/staging` comprese). Mai il contrario: niente in `core` o `platform` importa `transport`.
 
 ## Entry point
 
@@ -38,18 +38,18 @@ del browser, che vuole la pagina intera.
 | Rotta | Effetto | Package toccati |
 |---|---|---|
 | `GET /inbox`, `/messaggio/{id}`, `/thread/{id}`, `/thread/cerca`, `/cruscotto`, `/richieste`, `/stato/worker`, `/anagrafica/buyer` | lettura: query e template. Il quadrante viene da `v_inbox.controparte_tipo`; predefinito Buyer | `platform/db`, viste `v_inbox`, `v_thread_fase`, `v_fascicolo` |
-| `GET /inbox` (prima volta nella sessione), `POST /inbox/aggiorna`, `POST /inbox/sync-storico` | accodano un `sync_outlook` (di apertura, per casella, in modo storico) | `jobs` |
+| `GET /inbox` (prima volta nella sessione), `POST /inbox/aggiorna`, `POST /inbox/sync-storico` | accodano un `sync_outlook` (di apertura, per casella, in modo storico) | `platform/coda` |
 | `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi con il `postazione_id` della sessione; `bozza` richiede la capacità `bozze`, `letto` la capacità `outlook_scrittura`; `apri` è sempre consentito | `platform/coda` |
-| `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `jobs` |
-| `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/inbox/classificazione`, `core/inbox/aggancio`, `jobs` |
+| `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `platform/coda` |
+| `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/inbox/classificazione`, `core/inbox/aggancio`, `platform/coda` |
 | `POST /messaggio/{id}/risposta-fornitore`, `/richiesta-fornitore` | «è la risposta a questa richiesta» e «è la richiesta mandata a mano» (7B) | `core/inbox/aggancio`, `platform/db` |
-| `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze` | `jobs`, `platform/contratti/worker` |
+| `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze` | `platform/coda`, `platform/contratti/worker` |
 | `GET/POST /messaggio/{id}/censisci` | crea il fornitore o il cliente e fa il ritriage mirato. Senza transazione, di proposito: le scritture non distruttive rispondono «di chi è», e in una transazione abortita non potrebbero | `core/inbox/ingest`, `core/inbox/classificazione` |
-| `POST /proposta/{id}/conferma` · `/scarta` | `documento` + `copia_nas`. Con `nas_scrittura` spenta il documento resta `in_coda` | `core/inbox/classificazione`, `jobs`, `platform/storage/nas` |
-| `POST /thread/{id}/riprova-copie` | riaccoda `copia_nas` per i documenti `in_coda` | `jobs` |
-| `POST /messaggio/{id}/analizza` | job `analizza_messaggio_ai`, solo se l'agente è acceso per quella casella | `jobs`, `ai/agente` |
+| `POST /proposta/{id}/conferma` · `/scarta` | `documento` + `copia_nas`. Con `nas_scrittura` spenta il documento resta `in_coda` | `core/inbox/classificazione`, `platform/coda`, `platform/storage/nas` |
+| `POST /thread/{id}/riprova-copie` | riaccoda `copia_nas` per i documenti `in_coda` | `platform/coda` |
+| `POST /messaggio/{id}/analizza` | job `analizza_messaggio_ai`, solo se l'agente è acceso per quella casella | `platform/coda`, `ai/agente` |
 | `POST /sessione/postazione` | postazione della sessione scelta a mano | `web/postazione.go` |
-| `/admin/job/*`, `/admin/scarti/*`, `/admin/nas/*`, `/admin/postazioni/*`, `/admin/anagrafica/*`, `/admin/fornitori*` | `soloAdmin`. I fornitori stanno sotto `/admin/fornitori` e **non** sotto `/admin/anagrafica/fornitori/{id}`: il mux di Go 1.22 considera quel pattern in conflitto con `/admin/anagrafica/{id}/regole` | `jobs`, `core/registro`, `platform/fondazioni`, `platform/rete` |
+| `/admin/job/*`, `/admin/scarti/*`, `/admin/nas/*`, `/admin/postazioni/*`, `/admin/anagrafica/*`, `/admin/fornitori*` | `soloAdmin`. I fornitori stanno sotto `/admin/fornitori` e **non** sotto `/admin/anagrafica/fornitori/{id}`: il mux di Go 1.22 considera quel pattern in conflitto con `/admin/anagrafica/{id}/regole` | `platform/coda`, `core/registro`, `platform/fondazioni`, `platform/rete` |
 
 ## Flussi principali — le rotte worker
 

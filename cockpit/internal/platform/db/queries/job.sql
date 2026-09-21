@@ -13,7 +13,7 @@
 -- name: InsertJob :one
 -- max_tentativi è narg con COALESCE e non un parametro obbligatorio: uno zero Go passato per
 -- distrazione varrebbe «nessun tentativo» e il job non partirebbe mai. Omesso = il default dello
--- schema (5); jobs.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
+-- schema (5); coda.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
 INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, priorita, non_prima_di,
                  lease_s, durata_max_s, max_tentativi, casella_id, postazione_id, richiesto_da, scade_il)
 VALUES ($1, $2, $3, $4, $5, COALESCE(sqlc.narg(non_prima_di)::timestamptz, now()),

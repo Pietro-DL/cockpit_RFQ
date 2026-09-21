@@ -6,7 +6,7 @@
 // volte. Ogni download è un giro in COM su Outlook — la parte più lenta e più fragile di tutta la
 // catena — e una copia in più sul disco di staging.
 //
-// La guardia sta dentro jobs.AccodaStage e non nei gestori HTTP, così vale per ogni punto del server
+// La guardia sta dentro coda.AccodaStage e non nei gestori HTTP, così vale per ogni punto del server
 // che chieda un download: il triage, il pannello degli allegati, «Riscarica». Se stesse in uno dei tre,
 // gli altri due continuerebbero a scaricare due volte e nessuno se ne accorgerebbe, perché il secondo
 // download riesce benissimo: produce solo lavoro inutile.

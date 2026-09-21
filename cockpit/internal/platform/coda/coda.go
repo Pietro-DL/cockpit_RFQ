@@ -1,6 +1,6 @@
 // Package coda gestisce la coda in PostgreSQL: accodamento idempotente, claim con lease, scheduler
 // (lease scaduti, sync_outlook periodico), capacità di scrittura e instradamento per postazione.
-// Non ESEGUE niente: chi esegue sta in `internal/jobs` e in `app/runtime`.
+// Non ESEGUE niente: chi esegue sta in `app/runtime`.
 //
 // Dalla fase 1 il TENTATIVO è un'entità con un'identità propria: ogni claim genera un lease_token e
 // fissa avviato_il. Tutto ciò che un worker scrive dopo — heartbeat, risultato, errore, ingest — deve

@@ -2,7 +2,7 @@
 
 // L4 — un cursore nel futuro non blocca la casella (correzione del 16/09/2026).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/jobs/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/platform/coda/
 //
 // La guardia dell'ingest impedisce che un cursore impossibile venga SCRITTO. Questo è l'altro lato:
 // in database ce ne sono già — quelli del 16/09, due ore avanti — e finché ci sono la finestra del

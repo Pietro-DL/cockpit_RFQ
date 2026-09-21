@@ -12,7 +12,7 @@
 //   - il budget dei tentativi è 50 per chi scrive sul NAS, 5 per tutti gli altri;
 //   - un tentativo trovato senza NAS non viene consumato (altrimenti i 50 finiscono lo stesso);
 //   - al ritorno del NAS le copie esaurite tornano in coda da sole, senza che nessuno prema niente.
-package jobs
+package runtime
 
 import (
 	"context"

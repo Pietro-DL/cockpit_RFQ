@@ -66,7 +66,7 @@ func preparaScenario(t *testing.T) *scenario {
 	p, q, ctx := preparaDB(t)
 	cfg := configRouting()
 	// gli utenti si inseriscono qui (senza password): il seed di web non è importabile da un test
-	// interno di jobs senza un ciclo di import
+	// interno di coda senza un ciclo di import
 	for _, u := range cfg.Utenti {
 		if _, err := p.Exec(ctx, `INSERT INTO utente (sigla, nome, ufficio, ruolo) VALUES ($1, $2, $3, $4::ruolo_utente)`, u.Sigla, u.Nome, u.Ufficio, u.Ruolo); err != nil {
 			t.Fatal(err)

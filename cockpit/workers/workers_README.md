@@ -216,7 +216,7 @@ cursore fermo).
 ## 6. Il worker analisi
 
 `worker_analisi.py` esegue un solo tipo, `analizza_allegato`, creato dal server quando un contenuto entra in
-`_contenuti` (`jobs.AccodaAnalisi`, chiave `analizza:<sha256>:<versione>:<hash_config>`: un solo job per
+`_contenuti` (`coda.AccodaAnalisi`, chiave `analizza:<sha256>:<versione>:<hash_config>`: un solo job per
 contenuto, anche se lo stesso file arriva da tre messaggi).
 
 | | |

@@ -3,7 +3,7 @@
 // L4 — A15, seconda metà: i fatti di UNA analisi si distribuiscono a tutte le proposte aperte dello
 // stesso file, e non toccano quelle già decise.
 //
-// La prima metà (un solo job accodato) è in internal/jobs. Qui si prova cosa succede quando quel job
+// La prima metà (un solo job accodato) è in platform/coda. Qui si prova cosa succede quando quel job
 // finisce: i fatti sono del file, le proposte sono delle RFQ. Confonderli significa, a seconda del
 // verso, o rianalizzare lo stesso disegno per ogni RFQ, o scrivere in tutte le RFQ la lettura fatta
 // per una sola.

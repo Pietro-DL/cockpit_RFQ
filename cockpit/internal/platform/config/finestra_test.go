@@ -10,7 +10,7 @@ import (
 //
 // Qui si prova solo che cosa entra dal file. Che cosa se ne fa chi accoda il sync — il cursore che
 // vince, `dal` che vale solo per le cartelle che un cursore non ce l'hanno — è SI1–SI4, in
-// `internal/jobs`, dove la finestra si calcola davvero.
+// `platform/coda`, dove la finestra si calcola davvero.
 
 // Assente = il valore non arriva dal file, e la finestra la decide coda.GiorniSyncInizialeDefault.
 // Il file NON porta un proprio 7 di riserva: due numeri in due posti sono due numeri che prima o poi

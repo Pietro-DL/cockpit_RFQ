@@ -25,7 +25,7 @@ import (
 )
 
 // ImpostaCapacitaProva fissa le capacita' del processo per la durata del test e le rimette com'erano
-// (tutte accese: e' lo stato di default, vedi jobs/capacita.go).
+// (tutte accese: e' lo stato di default, vedi platform/coda/capacita.go).
 func ImpostaCapacitaProva(t *testing.T, c coda.Capacita) {
 	t.Helper()
 	coda.ImpostaCapacita(c)

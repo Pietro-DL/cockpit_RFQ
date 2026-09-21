@@ -5,21 +5,29 @@
 Mettere insieme i pezzi e tenerli accesi: leggere la configurazione, applicare le migrazioni, seminare le
 fondazioni, fissare le capacità, avviare scheduler, esecutore, cache e ricognitore, poi ascoltare.
 
-## Stato alla fine del refactor A
+## Stato
 
-**Questa cartella è vuota.** Oggi il cablaggio sta tutto in `cmd/cockpit/main.go`, e i processi di lungo periodo
-`EsecutoreServer` sta in `internal/jobs`; `Scheduler` in `platform/coda`, `Cache` in
-`platform/storage/staging`, `Ricognitore` in `core/rfq/documenti`. Il README esiste da ora
-perché il posto dove andranno è già deciso, e perché chi cerca «dove parte il server» non deve trovare una
-cartella muta.
+Da B6c `app/runtime` esiste e contiene l'**esecutore dei job del server**. Il cablaggio dell'avvio sta ancora
+in `cmd/cockpit/main.go` e arriva qui in B10a.
 
-## Non appartiene qui (quando ci sarà)
+Gli altri processi di lungo periodo stanno dove sta la cosa che governano: `Scheduler` in `platform/coda`,
+`Cache` in `platform/storage/staging`, `Ricognitore` in `core/rfq/documenti`.
 
-Logica di dominio, handler HTTP, query.
+## Non appartiene qui
 
-## Package posseduti (previsti)
+Logica di dominio, handler HTTP, query. `esecutore.go` non decide niente: riconosce il tipo del job e chiama
+chi sa farlo.
 
-`runtime`: avvio, comandi amministrativi della riga di comando, `EsecutoreServer`, ascolto.
+## Package posseduti
+
+| Package | Che cosa fa |
+|---|---|
+| `runtime` | `esecutore.go`: prende dalla coda i job con `worker_tipo='server'` e li esegue in una goroutine — il fascicolo a `core/rfq/documenti`, gli archivi a `transport/workerapi` (interfaccia `Estrattore`), l'analisi a `ai/agente`. Vigila sul NAS assente: un job che tocca il NAS quando il NAS non c'è si **rinvia**, non fallisce, e al ritorno le copie esaurite tornano in coda |
+
+## Invariante dell'esecutore
+
+Un NAS irraggiungibile non è un errore del job: è una condizione del mondo. Far fallire quei job
+consumerebbe i tentativi e chiuderebbe copie che non hanno niente che non va.
 
 ## Dipendenze consentite
 
@@ -27,7 +35,8 @@ Tutto. È l'unica area che può importare ogni altra.
 
 ## Entry point
 
-Oggi: `cmd/cockpit/main.go`. Domani: `runtime.Esegui`, chiamato da un `main.go` di poche righe.
+`runtime.EsecutoreServer.Avvia` e `RiaccodaAlRitornoDelNas`. L'avvio è ancora `cmd/cockpit/main.go`;
+diventa `runtime.Esegui` in B10a.
 
 ## Flussi principali
 
@@ -49,13 +58,16 @@ Tutti quelli dei servizi che avvia.
 
 ## Test
 
-Oggi: L4 sull'esecutore e sulla ripresa, dentro `internal/jobs`; avvio a mano con `-migra`.
+L4 su `runtime`: l'esecuzione della copia sul NAS, la ripresa di un contenuto sparito, il NAS assente e il
+ritorno del NAS, l'estrazione affidata all'estrattore. Avvio reale sul database di prova a ogni commit che
+tocca l'avvio.
 
 ## Dove intervenire
 
 | Voglio… | Apri (oggi) |
 |---|---|
 | aggiungere un servizio da avviare | `cmd/cockpit/main.go` |
+| aggiungere un tipo di job eseguito dal server | `runtime/esecutore.go:esegui` e chi sa farlo |
 | aggiungere un flag della riga di comando | `cmd/cockpit/main.go` |
 | capire perché un job non parte all'avvio | `platform/coda/capacita.go:AllineaCoda` |
 
@@ -65,5 +77,5 @@ Oggi: L4 sull'esecutore e sulla ripresa, dentro `internal/jobs`; avvio a mano co
 
 ---
 
-**Cambia in B**: nasce `app/runtime` — `main.go` si svuota in `runtime.Esegui` (B10a) e poi il `run` si
-scompone in avvio, comandi e servizi (B10b); `EsecutoreServer` si sposta qui da `internal/jobs` (B6c).
+**Cambia in B**: `EsecutoreServer` è arrivato (B6c). Resta l'avvio: `main.go` si svuota in `runtime.Esegui`
+(B10a) e poi il `run` si scompone in avvio, comandi e servizi (B10b).

@@ -2,11 +2,12 @@
 
 // Impalcatura condivisa dei test L4 di questo package.
 //
-// Sono le stesse quattro funzioni che stanno in `platform/coda` e in `platform/storage/staging`:
+// Sono le stesse funzioni che stanno in `platform/coda`, `platform/storage/staging` e
+// `core/rfq/documenti`:
 // ripetute, non condivise. Un helper di test non si esporta per farselo prestare da un altro
 // package — diventerebbe una dipendenza vera fra due package che nel codice vero non si parlano —
 // e dodici righe di impalcatura costano meno di quel legame.
-package jobs
+package runtime
 
 import (
 	"context"

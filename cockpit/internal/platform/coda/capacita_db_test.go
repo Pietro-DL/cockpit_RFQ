@@ -2,7 +2,7 @@
 
 // L4 — le capacità di scrittura contro PostgreSQL vero (blocco 4 del checkpoint 3R; SH1, SH2, SH3).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/jobs/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/platform/coda/
 //
 // Il blocco vale se e solo se regge nei due punti INSIEME: quando un job si accoda e quando un job si
 // prende. Il primo da solo è una porta chiusa con la finestra aperta — la coda sopravvive al cambio

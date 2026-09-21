@@ -7,7 +7,7 @@
 // non c'e' piu' — l'ha tolto il custode della cache, o un disco rifatto — il file e' ancora in
 // Outlook o dentro l'archivio da cui era stato estratto, e chiedere a una persona di premere
 // «Riscarica» per una cosa che il sistema sa fare da solo e' un vicolo cieco travestito da pulsante.
-package jobs
+package runtime
 
 import (
 	"context"

@@ -2,7 +2,7 @@
 
 // L4 — la coda contro PostgreSQL vero (fase 1, voci 1.5 e 1.6).
 //
-//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/jobs/
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/platform/coda/
 //
 // Il filo conduttore è uno solo: un tentativo che non vale più non deve poter scrivere niente. Ogni
 // test qui prova un punto in cui, prima della fase 1, ci sarebbe riuscito.

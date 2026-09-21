@@ -17,7 +17,7 @@ package solo.
 
 ## Dipendenze consentite
 
-`core`, `platform`. Mai `transport`, mai `jobs`.
+`core`, `platform`. Mai `transport`, mai `app`.
 
 ## Entry point
 

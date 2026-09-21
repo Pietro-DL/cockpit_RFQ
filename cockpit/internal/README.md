@@ -9,7 +9,7 @@ Cinque aree, una regola sola per capire dove va un pezzo di codice: **chi può i
    transport/web  ─────────────┐          ┌──── transport/workerapi
    (HTMX, ruoli, form)         │          │      (claim, heartbeat, result, ingest, upload, archivi)
                                ▼          ▼
-                              jobs  (esecutore dei job del server, ricognitore NAS)
+                        app/runtime  (esecutore dei job del server)
                                │          │   platform/coda · platform/storage/staging
          core/inbox/ingest  core/inbox/classificazione  core/inbox/aggancio  ai/agente
               (fatti → DB)      (interpretazione)        (candidati)    (LLM, spento di default)
@@ -41,7 +41,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | la coda, le capacità, l'instradamento dei job | `platform/coda` |
 | lo staging sul disco, i contenuti, la loro cache | `platform/storage/staging` |
 | il ricognitore dell'integrità NAS, i corpi dei job del fascicolo | `core/rfq/documenti` |
-| l'esecutore dei job del server | `internal/jobs` |
+| l'esecutore dei job del server | `app/runtime` |
 | avvio e cablaggio | `cmd/cockpit/main.go` |
 
 ## Dipendenze consentite
@@ -54,8 +54,8 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | `core/*` (aggancio, ingest, registro, rfq) | gli altri `core/*`, `platform` |
 | `platform/*` | solo `platform` e librerie |
 | `ai/agente` | `core`, `platform` |
-| `transport/*` | `core`, `ai`, `platform`, `jobs` |
-| `jobs` | `core`, `ai`, `platform` |
+| `transport/*` | `core`, `ai`, `platform` |
+| `app/runtime` | `core`, `ai`, `platform` |
 | `platform/coda` | `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download) |
 | `cmd/cockpit` | tutto |
 
@@ -65,8 +65,8 @@ Eccezioni ancora aperte, dichiarate perché esistono e non perché vanno bene: `
 ## Entry point
 
 `cmd/cockpit/main.go`: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.Semina` → capacità
-(`jobs.ImpostaCapacita`, `jobs.AllineaCoda`) → `ingest.RicalcolaControparti` → `rete` (TLS) →
-`jobs.Scheduler.Avvia` → `jobs.Cache.Avvia` → `EsecutoreServer.Avvia` → `Ricognitore.Avvia` → listener con
+(`coda.ImpostaCapacita`, `coda.AllineaCoda`) → `ingest.RicalcolaControparti` → `rete` (TLS) →
+`coda.Scheduler.Avvia` → `staging.Cache.Avvia` → `runtime.EsecutoreServer.Avvia` → `Ricognitore.Avvia` → listener con
 `web` + `workerapi`.
 
 I **lavori amministrativi** della riga di comando si fermano prima del listener e poi escono, uno alla volta:
@@ -80,15 +80,15 @@ solo**, nemmeno all'avvio.
   con il modo e una finestra chiusa per cartella → claim del worker → lotti su `/ingest/messaggi` → `ingest`
   scrive i fatti, risolve la controparte, taglia la catena, chiede il triage a `classificazione`, calcola i candidati →
   la frontiera avanza solo se la cartella è stata percorsa per intero. Package: `transport/workerapi`,
-  `core/inbox/ingest`, `core/inbox/classificazione`, `core/inbox/aggancio`, `jobs`.
+  `core/inbox/ingest`, `core/inbox/classificazione`, `core/inbox/aggancio`, `platform/coda`.
 - **Censisci dall'Inbox** — «Da validare» → `censisci` → fornitore o cliente in anagrafica →
   `ingest.Ritriage(indirizzo, dominio)` sui soli messaggi **non decisi**. Package: `transport/web`,
   `core/registro`, `core/inbox/ingest`.
 - **Nuova RFQ** — `FOR UPDATE` sul messaggio → `thread_offerta` con la cartella da `rfq/documenti/path.go` →
-  identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/inbox/classificazione`, `jobs`.
+  identificativi selezionati → job `crea_cartella_thread`. Package: `transport/web`, `core/inbox/classificazione`, `platform/coda`.
 - **Allegato → NAS** — «Scarica» o staging automatico → `stage_allegato` → contenuto in `_contenuti` con lo
   sha256 per nome → eventuale `estrai_archivio` → `analizza_allegato` → `documento_proposta` → conferma →
-  `documento` + `copia_nas`. Package: `jobs` (chi esegue), `core/rfq/documenti` (che cosa significa copiare),
+  `documento` + `copia_nas`. Package: `app/runtime` (chi esegue), `core/rfq/documenti` (che cosa significa copiare),
   `platform/storage`, `transport/workerapi`.
 - **Integrità NAS** — il ricognitore confronta `documento` con i file veri e scrive `nas_anomalia`. Package:
   `core/rfq/documenti/integrita.go`, `platform/storage/nas`.
@@ -122,7 +122,7 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 | Voglio… | Vai in |
 |---|---|
 | aggiungere una rotta | `transport/README.md` |
-| aggiungere un tipo di job | `platform/README.md` (enum, contratto), `platform/coda` e `internal/jobs` |
+| aggiungere un tipo di job | `platform/README.md` (enum, contratto), `platform/coda` e `app/runtime` |
 | cambiare una regola del cliente o del triage | `core/README.md` |
 | aggiungere una migrazione o una query | `platform/README.md` |
 | toccare l'agente | `ai/README.md` |
@@ -135,6 +135,6 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 ---
 
 **Cambia in B**: `core/registro/regole` (B2), `core/rfq/documenti` (B3) e `core/inbox/classificazione` (B4)
-ci sono, e così `platform/coda` e `platform/storage/staging` (B5). Di `internal/jobs` restano l'esecutore
-e il ricognitore, che vanno in `core/rfq/documenti` e `app/runtime`;
+ci sono, e così `platform/coda` e `platform/storage/staging` (B5). `internal/jobs` non esiste più: l'esecutore
+è in `app/runtime` (B6c), il ricognitore e i corpi dei job in `core/rfq/documenti` (B6a, B6b);
 `cmd/cockpit/main.go` si svuota in `app/runtime`.

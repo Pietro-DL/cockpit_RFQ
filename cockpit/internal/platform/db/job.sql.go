@@ -622,7 +622,7 @@ type InsertJobParams struct {
 // di un tentativo scaduto si applichi al lavoro di quello nuovo.
 // max_tentativi è narg con COALESCE e non un parametro obbligatorio: uno zero Go passato per
 // distrazione varrebbe «nessun tentativo» e il job non partirebbe mai. Omesso = il default dello
-// schema (5); jobs.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
+// schema (5); coda.MaxTentativiPer lo alza per le scritture sul NAS (voce 1.7).
 func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Job, error) {
 	row := q.db.QueryRow(ctx, insertJob,
 		arg.Tipo,

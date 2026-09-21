@@ -22,7 +22,7 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
                                    │
                     ┌──────────────┴──────────────┐
                     ▼                             ▼
-             jobs                          platform/db
+             platform/coda                 platform/db
              crea "ordini"                 legge/scrive
              di lavoro                     PostgreSQL
                     │                             ▲
@@ -49,7 +49,7 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
                     │
                     ├── core/inbox/ingest
                     ├── platform/storage/archivio
-                    ├── jobs
+                    ├── platform/coda
                     └── platform/db
 ```
 
@@ -239,7 +239,7 @@ un'altra volta, a rianalizzarlo quando cambia il dizionario, e a **ricopiarlo su
 il file sparisce (Admin › Integrità NAS). Prima del blocco 7 la pulizia toglieva solo i contenuti
 che nessun allegato nominava più — e gli allegati non si cancellano mai, quindi non toglieva niente.
 
-**I pin.** Il custode (`jobs.Cache`, una passata ogni sei ore) non toglie un contenuto finché: un
+**I pin.** Il custode (`staging.Cache`, una passata ogni sei ore) non toglie un contenuto finché: un
 documento confermato con quell'hash è `in_coda` o in `errore`; una proposta su un allegato con
 quell'hash è aperta; un job pendente lo cita (per hash, per allegato o per documento); un'anomalia
 NAS aperta riguarda un documento con quell'hash. E un **archivio** resta finché una sua voce è
@@ -1185,7 +1185,7 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/jobs                       esecutore dei job di tipo 'server': prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
+internal/app/runtime                esecutore dei job di tipo 'server': prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
                                     per il fascicolo, transport/workerapi per gli archivi, ai/agente per l'analisi); vigila sul NAS assente
 web/templates, web/static           template html/template, style.css, htmx 2.0.4
 migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
