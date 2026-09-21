@@ -16,13 +16,13 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
                                    │ HTTP
                                    ▼
                          ┌─────────────────────┐
-                         │    internal/web     │
+                         │    transport/web    │
                          │ UI + decisioni RFQ  │
                          └─────────┬───────────┘
                                    │
                     ┌──────────────┴──────────────┐
                     ▼                             ▼
-             internal/jobs                 internal/db
+             jobs                          platform/db
              crea "ordini"                 legge/scrive
              di lavoro                     PostgreSQL
                     │                             ▲
@@ -32,7 +32,7 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
              └──────┬───────┘
                     │
                     ▼
-             internal/workerapi
+             transport/workerapi
              API per i worker
                     │
              ┌──────┴────────────┐
@@ -45,13 +45,15 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
              └───── risultato ───┘
                     │
                     ▼
-             internal/workerapi
+             transport/workerapi
                     │
-                    ├── internal/ingest
-                    ├── internal/archivio
-                    ├── internal/jobs
-                    └── internal/db
+                    ├── core/inbox/ingest
+                    ├── platform/storage/archivio
+                    ├── jobs
+                    └── platform/db
 ```
+
+(i nomi nel disegno sono relativi a `internal/`)
 
 `cockpit.exe` (Go) è l'unico che parla con il database e con il NAS. I worker Python non hanno
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
@@ -74,7 +76,7 @@ fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore 
 | PostgreSQL | 16 o successivo | `psql --version` | server raggiungibile, un database e un ruolo per il Cockpit |
 | Python | 3.11 o successivo | `python --version` | sui PC dove gira un worker |
 | Outlook | classico (desktop), con profilo configurato | deve essere **aperto** | solo dove gira `worker_outlook.py` |
-| sqlc | 1.31 o successivo | `sqlc version` | solo se si toccano `migrations/` o `internal/db/queries/` |
+| sqlc | 1.31 o successivo | `sqlc version` | solo se si toccano `migrations/` o `internal/platform/db/queries/` |
 
 Le dipendenze Python sono tre: `pip install -r workers\requirements.txt` (`pywin32` per COM,
 `pydantic` per i contratti, `pymupdf` per leggere i PDF).
@@ -990,7 +992,7 @@ posta in uscita, verso una richiesta che esiste, su un messaggio che nessuno ha 
 (I5). Il punto (b) di I5 era rosso: un marcatore su una mail **in entrata** veniva applicato. Corretto in
 `ingest/marcatori.go`.
 
-**Che cosa il 7C.0 non fa ancora**, e viene dopo: il Dossier (`internal/classificazione`, il pacchetto di
+**Che cosa il 7C.0 non fa ancora**, e viene dopo: il Dossier (`internal/core/inbox/classificazione`, il pacchetto di
 fatti e candidati che si manderebbe all'agente, con lo stato di codici e revisioni nella RFQ candidata), il
 parser deterministico delle intestazioni citate (`origine_citata` di un inoltro), «Censisci come Altro»
 dall'Inbox, la schermata che mostra il JSON `classificazione_email.v1`, il segnale spam di Outlook nel
@@ -1022,7 +1024,7 @@ schema a ogni esecuzione e non possono toccare il database di sviluppo. Per sicu
 test rifiuta un DSN il cui nome di database non contiene «test».
 
 Fra i test d'integrazione ce n'è uno che non prova il server ma i due insieme: `TestE2E…` in
-`internal/workerapi` avvia il **worker vero** (`python workers\prova_e2e.py`, cioè worker_outlook
+`internal/transport/workerapi` avvia il **worker vero** (`python workers\prova_e2e.py`, cioè worker_outlook
 con `--una-volta` e il solo adattatore COM sostituito) contro i gestori HTTP veri e PostgreSQL. È
 l'unico livello in cui il client e il server si parlano davvero: gli altri provano una metà sola,
 e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa
@@ -1062,7 +1064,7 @@ non si deducono mai da una prova simulata.
 Due avvertenze sulla lettura degli esiti:
 
 - `go build` dimostra che il codice compila, **non** che i tipi Go e i modelli pydantic rispettino gli
-  schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/api` per il
+  schemi di `contracts/`: quello è il livello L3, e ha un test suo in due metà (`internal/platform/contratti/api` per il
   Go, `workers/tests/test_contratti.py` per la premessa che gli schemi su disco siano quelli dei
   modelli di oggi). Confronta i campi e i loro generi, non l'obbligatorietà;
 - un test **saltato** non è un test superato: è una verifica che non è stata fatta.
@@ -1070,7 +1072,7 @@ Due avvertenze sulla lettura degli esiti:
 ## Manutenzione
 
 ```powershell
-sqlc generate                                       # dopo aver toccato migrations/ o internal/db/queries/
+sqlc generate                                       # dopo aver toccato migrations/ o internal/platform/db/queries/
 python workers\genera_contratti.py                  # rigenera contracts/*.schema.json dai modelli pydantic
 powershell -File scripts\backup-db.ps1 -Dsn "..."   # backup + prova di ripristino vera
 powershell -File scripts\db-test.ps1 -Ricrea        # svuota il database di prova
@@ -1084,7 +1086,7 @@ powershell -File scripts\db-test.ps1 -Ricrea        # svuota il database di prov
 3. non usare, nello stesso file, un valore di enum aggiunto con `ALTER TYPE … ADD VALUE`: PostgreSQL
    non lo accetta prima del commit, va usato dal file successivo;
 4. non referenziare tabelle create in un file successivo;
-5. `sqlc generate`, poi `go test ./internal/migrazioni/`, che controlla i punti 2, 3 e 4 senza database.
+5. `sqlc generate`, poi `go test ./internal/platform/migrazioni/`, che controlla i punti 2, 3 e 4 senza database.
 
 Un file già applicato non va più modificato: una migrazione registrata non viene riapplicata.
 
@@ -1126,78 +1128,84 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 ## Struttura
 
 ```
-cmd/cockpit/main.go        avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
-embed.go                   embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
-internal/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
-internal/api               contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
-internal/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
-internal/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
-internal/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
-internal/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
-internal/domain            regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
-                           taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
-                           atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
-                           convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
-internal/ingest            FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
-                           controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
-                           marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
-internal/fornitori         l'import del seme dei fornitori con anteprima e conferma (7A.4)
-internal/aggancio          i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
-                           a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
-internal/archivio          estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
-internal/jobs              coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
-                           estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
-                           capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che cosa si annulla quando si accendono (blocco 4)
-internal/nas               scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
-internal/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
-                           impronta e generazione dei token dei worker (voce 2.4)
-internal/workerapi         /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
-                           (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
-                           il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
-                           `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
-                           il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
-                           analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/web               HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
-                           instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
-                           inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
-                           postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
-                           anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
-                           fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
-                           richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
-                           integrita_admin.go: /admin/nas;
-                           e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`)
-web/templates, web/static  template html/template, style.css, htmx 2.0.4
-migrations/                0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
-                           0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
-                           0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
-                           0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale),
-                           0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
-                           0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
-                           0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
-                           0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
-                           0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP),
-                           0013_integrita_nas.sql (nas_anomalia: il ricognitore dell'integrità NAS, blocco 5B),
-                           0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
-                           la controparte sul messaggio; v_inbox con controparte_tipo e controparte),
-                           0015_richiesta_fornitore.sql (richiesta_fornitore, candidato_richiesta, intento e bersaglio della proposta,
-                           messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento),
-                           0016_classificazione.sql (controparte `altro` + soggetto_altro/recapito_altro, atto_business al posto di
-                           intento_messaggio, legame_operativo, richiesta risposta → offerta_ricevuta + declinata),
-                           0017_controparte_altro.sql (CHECK con altro; v_inbox con triage_atto, triage_legame e quadrante)
-internal/logfile           il log del server su file, con rotazione (5 x 5 MB)
-contracts/*.schema.json    JSON Schema generati da workers/contratti.py
-workers/                   cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
-                           outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
-                           prova_e2e.py (il worker vero senza COM, per il test end-to-end),
-                           prova_lettura.py (legge una cartella vera, sola lettura, senza server né database), worker.toml.
-                           Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
-workers/tests/             i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
-                           finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
-scripts/                   avvia-dev.ps1 (semina le anagrafiche, poi avvia server e worker), ferma-dev.ps1,
-                           semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
-                           db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
-                           azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
-                           backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
+internal/README.md                  com'è diviso cockpit.exe, la regola di dipendenza, i flussi, i livelli di prova;
+                                    un README per area: internal/{core,platform,transport,ai,app}/README.md
+cmd/cockpit/main.go                 avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
+embed.go                            embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
+internal/platform/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
+internal/platform/contratti/api     contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
+internal/platform/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
+internal/platform/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
+internal/platform/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
+internal/platform/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
+                                    impronta e generazione dei token dei worker (voce 2.4)
+internal/platform/logfile           il log del server su file, con rotazione (5 x 5 MB)
+internal/platform/storage/nas       scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
+internal/platform/storage/archivio  estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
+internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
+internal/core/domain                regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, nome/cognome, percorsi NAS,
+                                    taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
+                                    atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
+                                    convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
+internal/core/inbox/ingest          FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
+                                    controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
+                                    marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
+internal/core/inbox/aggancio        i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
+                                    a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
+internal/core/registro/fornitori    l'import del seme dei fornitori con anteprima e conferma (7A.4)
+internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere
+internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
+                                    SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
+                                    reale nei test
+internal/transport/web              HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
+                                    instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
+                                    inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
+                                    postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
+                                    anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
+                                    fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
+                                    richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
+                                    integrita_admin.go: /admin/nas;
+                                    e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`)
+internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
+                                    (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
+                                    il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
+                                    `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
+                                    il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
+                                    analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
+internal/jobs                       coda: accoda idempotente (un solo job PENDENTE per chiave), claim/lease, scheduler, esecutore 'server' (NAS,
+                                    estrazione degli archivi), stage/analisi; upload.go: lo staging per contenuto (_parti, _contenuti); cache.go: il custode della cache (Pre-7, D31);
+                                    capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che cosa si annulla quando si accendono (blocco 4)
+web/templates, web/static           template html/template, style.css, htmx 2.0.4
+migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
+                                    0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
+                                    0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
+                                    0005_postazioni_presenza.sql (worker_presenza per worker, sessione.postazione_id, via store_id_locale),
+                                    0006_inbox_viva.sql (utente.ultima_vista_inbox), 0007_anagrafica.sql, 0008_interpretazione.sql (candidati, niente aggancio automatico),
+                                    0009_presenza_contatto.sql (worker_presenza.ultimo_contatto: vivo ≠ ha appena concluso un claim)
+                                    0010_copertura_sync.sql   (sync_cursore.coperto_fino_a: fin dove si è GUARDATO ≠ qual è la mail più recente)
+                                    0011_sync_apertura_inbox.sql (sessione.sync_inbox_il: un aggiornamento alla prima apertura, una volta per sessione),
+                                    0012_estrai_archivio.sql (tipo_job: scompattare uno zip è un job dell'esecutore interno, non un pezzo della richiesta HTTP),
+                                    0013_integrita_nas.sql (nas_anomalia: il ricognitore dell'integrità NAS, blocco 5B),
+                                    0014_fornitori.sql (fornitore, domini e contatti, lavorazione, capacità e qualifiche, convenzioni di codice,
+                                    la controparte sul messaggio; v_inbox con controparte_tipo e controparte),
+                                    0015_richiesta_fornitore.sql (richiesta_fornitore, candidato_richiesta, intento e bersaglio della proposta,
+                                    messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento),
+                                    0016_classificazione.sql (controparte `altro` + soggetto_altro/recapito_altro, atto_business al posto di
+                                    intento_messaggio, legame_operativo, richiesta risposta → offerta_ricevuta + declinata),
+                                    0017_controparte_altro.sql (CHECK con altro; v_inbox con triage_atto, triage_legame e quadrante)
+contracts/*.schema.json             JSON Schema generati da workers/contratti.py
+workers/                            cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
+                                    outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
+                                    prova_e2e.py (il worker vero senza COM, per il test end-to-end),
+                                    prova_lettura.py (legge una cartella vera, sola lettura, senza server né database), worker.toml.
+                                    Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
+workers/tests/                      i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
+                                    finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
+scripts/                            avvia-dev.ps1 (semina le anagrafiche, poi avvia server e worker), ferma-dev.ps1,
+                                    semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
+                                    db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
+                                    azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
+                                    backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
 ```
 
 ## Come si parlano i pezzi
@@ -1224,7 +1232,7 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   `worker_presenza` tiene due tempi diversi per ogni worker: `ultimo_contatto` (l'ultima richiesta autenticata di
   qualunque tipo — ingresso del claim, battito, ingest, upload — ed è l'unica cosa su cui si decide online/offline)
   e `ultimo_claim` (l'ultimo claim concluso, NULL finché non se n'è concluso nessuno: diagnosi, non liveness).
-  I tempi del protocollo stanno in `internal/api/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
+  I tempi del protocollo stanno in `internal/platform/contratti/api/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
   verifica che le due copie coincidano.
 - **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; niente su disco finché l'operatore non chiede)
   → `documento_proposta` (INTERPRETAZIONE: a ingest dal nome file, poi raffinata dopo il download da hash/zip e
