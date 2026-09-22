@@ -560,6 +560,38 @@ func TestDecodificaStrutturaTolleraCampiSconosciuti(t *testing.T) {
 	if st.Relazioni[0].Qta != 2 || st.Limiti.ByteLetti != 18234211 || st.Limiti.Troncato {
 		t.Errorf("relazioni o limiti letti male: %+v %+v", st.Relazioni[0], st.Limiti)
 	}
+	// I limiti qui sopra sono nella forma vecchia, senza i tetti nuovi: un fatto archiviato mesi fa
+	// deve continuare a leggersi, con zero dove il worker di allora non scriveva niente.
+	if st.Limiti.OccorrenzeMax != 0 || st.Limiti.Motivo != "" {
+		t.Errorf("limiti vecchi letti male: %+v", st.Limiti)
+	}
+}
+
+// Un albero parziale senza il motivo è un albero di cui non si sa niente: chi lo guarda non può
+// distinguere «il file è troppo grande» da «la lettura è andata in timeout», e sono due cose che si
+// risolvono in due modi diversi. Il tetto viaggia con il fatto perché la configurazione del worker
+// che l'ha prodotto, fra un anno, non sarà più quella.
+func TestUnaStrutturaTroncataDiceControQualeTetto(t *testing.T) {
+	dettagli := json.RawMessage(`{"struttura": {
+		"versione": 2, "schema": "AP242", "radici": ["#12"],
+		"nodi": [], "relazioni": [], "avvisi": ["oltre 2000 PRODUCT: letti i primi"],
+		"limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0,
+		           "byte_letti": 9531251, "tempo_s": 7.42, "troncato": true, "motivo": "nodi"}
+	}}`)
+	st, ok := DecodificaStruttura(dettagli)
+	if !ok {
+		t.Fatal("struttura non decodificata")
+	}
+	l := st.Limiti
+	if !l.Troncato || l.Motivo != "nodi" {
+		t.Errorf("troncamento non riportato: %+v", l)
+	}
+	if l.NodiMax != 2000 || l.OccorrenzeMax != 50000 || l.TempoMaxS != 120.0 {
+		t.Errorf("i tetti non sono arrivati con il fatto: %+v", l)
+	}
+	if l.TempoS != 7.42 {
+		t.Errorf("tempo impiegato letto male: %+v", l)
+	}
 }
 
 // I fatti della v1 portavano un codice deciso dal worker. Leggerli come se fossero v2 farebbe
