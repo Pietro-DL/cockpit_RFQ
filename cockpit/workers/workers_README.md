@@ -253,7 +253,8 @@ limite di quel giorno, e la configurazione di oggi fra un anno non dirà più qu
 
 **Come si guarda un corpus vero.** `python workers/diagnostica_step.py [cartella] [--albero]` attraversa dei
 file STEP e stampa, per ciascuno, schema, nodi, relazioni, occorrenze, radici, profondità, nodi con più di un
-padre, `PRODUCT` orfani, occorrenze irrisolte, troncamento e tempo; con `--albero` disegna l'albero con
+padre, `PRODUCT` orfani, occorrenze irrisolte, archi che tornano indietro, nodi che nessuna radice raggiunge,
+troncamento e tempo; con `--albero` disegna l'albero con
 `id_grezzo | nome_grezzo | rev_grezza`. Legge e basta: non scrive niente e non tocca il database. I CAD non
 stanno nel repository — la cartella predefinita è `docs/step_files`, che è fuori.
 

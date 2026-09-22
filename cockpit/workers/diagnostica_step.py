@@ -51,7 +51,7 @@ def misura(s: dict) -> dict:
         figli[r["padre"]].append(r["figlio"])
         padri[r["figlio"]] += 1
     chiavi = [n["chiave"] for n in s["nodi"]]
-    profondita, cicli = _profondita(s["radici"] or chiavi, figli)
+    profondita, cicli, scollegati = _profondita(s["radici"], figli, chiavi)
     return {
         "nodi": len(s["nodi"]),
         "relazioni": len(s["relazioni"]),
@@ -61,6 +61,7 @@ def misura(s: dict) -> dict:
         "multi_padre": sum(1 for n in chiavi if padri[n] > 1),
         "qta_oltre_1": sum(1 for r in s["relazioni"] if r["qta"] > 1),
         "cicli": cicli,
+        "scollegati": scollegati,
         "orfani": _numero(s["avvisi"], _ORFANI),
         "non_risolte": _numero(s["avvisi"], _NON_RISOLTE),
         "anelli": _numero(s["avvisi"], _ANELLI),
@@ -75,17 +76,29 @@ def _numero(avvisi: list[str], espressione: re.Pattern) -> int:
     return 0
 
 
-def _profondita(radici, figli) -> tuple[int, int]:
-    """Livelli dell'albero piu' profondo, e quanti archi tornano indietro.
+def _profondita(radici, figli, tutti) -> tuple[int, int, int]:
+    """Livelli dell'albero piu' profondo, quanti archi tornano indietro, quanti nodi restano fuori.
 
     In pila e non in ricorsione: un grafo profondo non deve far morire il comando dove il worker
     invece regge. Un nodo gia' in cammino e' un ciclo — `A dentro B dentro A` — e si conta senza
     seguirlo, altrimenti il conto non finisce.
+
+    Si parte DALLE RADICI, e poi da tutto il resto. La seconda meta' non e' una precauzione: senza,
+    un ciclo staccato dall'albero — `C dentro D dentro C`, con nessuno dei due appeso a una radice —
+    non lo visitava nessuno, e il comando stampava «0 archi che tornano indietro» a proposito di un
+    file che ne contiene uno. Chi legge la diagnostica per decidere se fidarsi del lettore deve
+    vedere il file INTERO, non solo la parte che pende dalle radici; e quanti nodi stiano in quella
+    parte staccata e' esso stesso un fatto da stampare.
     """
     profondita: dict[str, int] = {}
     in_cammino: set[str] = set()
     cicli = 0
-    for partenza in radici:
+    partenze = list(radici) + list(tutti)
+    quante_radici = len(list(radici))
+    dalle_radici = 0
+    for i, partenza in enumerate(partenze):
+        if i == quante_radici:
+            dalle_radici = len(profondita)
         if partenza in profondita:
             continue
         pila = [(partenza, False)]
@@ -105,7 +118,9 @@ def _profondita(radici, figli) -> tuple[int, int]:
             for f in figli.get(nodo, ()):
                 if f not in profondita:
                     pila.append((f, False))
-    return max(profondita.values(), default=0), cicli
+    if quante_radici >= len(partenze):
+        dalle_radici = len(profondita)
+    return max(profondita.values(), default=0), cicli, len(profondita) - dalle_radici
 
 
 def scheda(percorso: str, s: dict, m: dict) -> str:
@@ -125,7 +140,8 @@ def scheda(percorso: str, s: dict, m: dict) -> str:
         f"  condivisioni   {m['multi_padre']} nodi con piu' di un padre, "
         f"{m['qta_oltre_1']} relazioni con qta > 1",
         f"  scartati       {m['orfani']} PRODUCT orfani, {m['non_risolte']} occorrenze irrisolte, "
-        f"{m['anelli']} anelli, {m['cicli']} archi che tornano indietro",
+        f"{m['anelli']} anelli, {m['cicli']} archi che tornano indietro, "
+        f"{m['scollegati']} nodi che nessuna radice raggiunge",
     ]
     for a in s["avvisi"]:
         righe.append(f"  avviso         {a}")
