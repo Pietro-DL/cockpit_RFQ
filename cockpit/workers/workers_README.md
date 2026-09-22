@@ -258,6 +258,17 @@ troncamento e tempo; con `--albero` disegna l'albero con
 `id_grezzo | nome_grezzo | rev_grezza`. Legge e basta: non scrive niente e non tocca il database. I CAD non
 stanno nel repository — la cartella predefinita è `docs/step_files`, che è fuori.
 
+**Scostamento registrato: gli spazi ai bordi dei campi grezzi.** A1.2 dice che il worker consegna gli attributi
+GREZZI e non interpreta. `_testo()` fa una cosa in piu': dopo aver decodificato le sequenze di escape toglie gli
+spazi ai BORDI del valore. Dentro la stringa non tocca niente, e non tocca nessun altro campo. La ragione sta nel
+corpus vero: un esportatore scrive la revisione assente come `' '` e un altro come `''`, e senza questo `strip()`
+`rev_grezza` sarebbe «vuota» in un file e «uno spazio» in un altro — due valori diversi per lo stesso fatto, e
+ogni lettore piu' avanti dovrebbe sapere che sono uguali. E' una NORMALIZZAZIONE e non una classificazione,
+quindi non intacca la regola di A1.2 sui codici; ma e' comunque un valore che non e' piu' letteralmente quello
+scritto nel file, ed e' registrato qui perche' chi decide su A1.2 lo veda e possa dire di no. Il posto in cui si
+toglie e' uno solo — `_testo()` in `step_struttura.py` — e la prova che lo fissa e'
+`test_una_revisione_fatta_di_spazi_e_una_revisione_assente`.
+
 ## 7. Errori e ripresa
 
 `cockpit_client.classifica()` distingue: **rete** (backoff crescente, riprova), **credenziale** 401 e
