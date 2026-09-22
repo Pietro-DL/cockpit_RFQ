@@ -139,4 +139,4 @@ ci sono, e così `platform/coda` e `platform/storage/staging` (B5). `internal/jo
 è in `app/runtime` (B6c), il ricognitore e i corpi dei job in `core/rfq/documenti` (B6a, B6b);
 `SeedUtenti` è passata da `transport/web` a `platform/fondazioni` (B7), e con lei se n'è andata l'ultima
 volta in cui un test di `platform` importava `transport`; `web.go` si è diviso per area (B8);
-`cmd/cockpit/main.go` si è svuotato in `runtime.Esegui` (B10a), che si scompone in B10b.
+`cmd/cockpit/main.go` si è svuotato in `runtime.Esegui` (B10a), che si è scomposta nei suoi passi (B10b).

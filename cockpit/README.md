@@ -1187,8 +1187,8 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/app/runtime                esegui.go: l'avvio nel suo ordine (config, log, pool, migrazioni, seed utenti e fondazioni, capacita, comandi
-                                    della riga di comando, servizi, TLS, listener), cio' che era run in main.go;
+internal/app/runtime                esegui.go: l'avvio nel suo ordine, un passo per riga; avvio.go: ApriLog, ApriDatabase, Semina, ImpostaCapacita;
+                                    comandi.go: i lavori della riga di comando; servizi.go: Servizi e CostruisciServizi; ascolto.go: PreparaTLS, Ascolta;
                                     esecutore.go: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
                                     per il fascicolo, transport/workerapi per gli archivi, ai/agente per l'analisi);
                                     vigilanza_nas.go: quali job vogliono il NAS, il rinvio quando non c'e', il ritorno in coda quando torna
