@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
 )
 
@@ -234,7 +235,7 @@ func TestW12LaPasswordSopravviveAlRiavvio(t *testing.T) {
 		{"FP", "Francesco", "Commerciale", "operatore", "quella-nuova-del-file"},
 		{"NU", "Nuovo", "Commerciale", "operatore", "prova-nu"},
 	}
-	if err := SeedUtenti(context.Background(), b.q, utenti, slog.New(slog.NewTextHandler(&log, nil))); err != nil {
+	if err := fondazioni.SeedUtenti(context.Background(), b.q, utenti, slog.New(slog.NewTextHandler(&log, nil))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,7 +266,7 @@ func TestW12LaPasswordSopravviveAlRiavvio(t *testing.T) {
 // CF1, sull'altro lato — `Carica` protegge il file, questa protegge chiunque chiami il seed.
 func TestIlSeedRifiutaUnRuoloSconosciuto(t *testing.T) {
 	b := preparaBancoWeb(t)
-	err := SeedUtenti(context.Background(), b.q, []struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{
+	err := fondazioni.SeedUtenti(context.Background(), b.q, []struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{
 		{"ZZ", "Zeta", "IT", "amministratore", "x"},
 	}, testutil.LogSilenzioso())
 	if err == nil || !strings.Contains(err.Error(), "ruolo") {

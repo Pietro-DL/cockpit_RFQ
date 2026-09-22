@@ -99,7 +99,7 @@ func preparaBancoWeb(t *testing.T) *bancoWeb {
 	for _, u := range cfg.Utenti {
 		utenti = append(utenti, struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{u.Sigla, u.Nome, u.Ufficio, u.Ruolo, u.Password})
 	}
-	if err := SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
+	if err := fondazioni.SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fondazioni.Semina(ctx, q, cfg, testutil.LogSilenzioso()); err != nil {

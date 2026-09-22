@@ -64,7 +64,7 @@ Eccezioni ancora aperte, dichiarate perché esistono e non perché vanno bene: `
 
 ## Entry point
 
-`cmd/cockpit/main.go`: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.Semina` → capacità
+`cmd/cockpit/main.go`: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.SeedUtenti` → `fondazioni.Semina` → capacità
 (`coda.ImpostaCapacita`, `coda.AllineaCoda`) → `ingest.RicalcolaControparti` → `rete` (TLS) →
 `coda.Scheduler.Avvia` → `staging.Cache.Avvia` → `runtime.EsecutoreServer.Avvia` → `Ricognitore.Avvia` → listener con
 `web` + `workerapi`.
@@ -137,4 +137,5 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 **Cambia in B**: `core/registro/regole` (B2), `core/rfq/documenti` (B3) e `core/inbox/classificazione` (B4)
 ci sono, e così `platform/coda` e `platform/storage/staging` (B5). `internal/jobs` non esiste più: l'esecutore
 è in `app/runtime` (B6c), il ricognitore e i corpi dei job in `core/rfq/documenti` (B6a, B6b);
-`cmd/cockpit/main.go` si svuota in `app/runtime`.
+`SeedUtenti` è passata da `transport/web` a `platform/fondazioni` (B7), e con lei se n'è andata l'ultima
+volta in cui un test di `platform` importava `transport`; `cmd/cockpit/main.go` si svuota in `app/runtime`.

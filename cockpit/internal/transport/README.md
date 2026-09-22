@@ -104,5 +104,5 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 
 ---
 
-**Cambia in B**: `web.go` si divide per area (registrazione delle rotte, sessione, ruoli, Inbox) tenendo lo
+**Cambia in B**: la semina degli utenti è uscita da `web` verso `platform/fondazioni` (B7). `web.go` si divide per area (registrazione delle rotte, sessione, ruoli, Inbox) tenendo lo
 stesso package `web`, le stesse rotte e gli stessi handler.

@@ -11,7 +11,6 @@ import (
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/fondazioni"
 	"promatec/cockpit/internal/platform/testutil"
-	"promatec/cockpit/internal/transport/web"
 )
 
 // configDiProva è la configurazione delle quattro caselle simulate su cui poggeranno i test L4 delle
@@ -50,7 +49,7 @@ func seminaUtenti(t *testing.T, ctx context.Context, q *db.Queries, cfg *config.
 	for _, u := range cfg.Utenti {
 		utenti = append(utenti, struct{ Sigla, Nome, Ufficio, Ruolo, Password string }{u.Sigla, u.Nome, u.Ufficio, u.Ruolo, u.Password})
 	}
-	if err := web.SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
+	if err := fondazioni.SeedUtenti(ctx, q, utenti, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -16,7 +16,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `config` | legge `cockpit.toml`, mette i default, valida, normalizza percorsi e fondazioni; risolve `[sicurezza]` nelle tre capacità (`Capacita()`), `[staging]`, `[retention]`, `[nas].intervallo_integrita_s` |
 | `db` | codice generato da **sqlc** da `db/queries/*.sql`: tipi, enum, una funzione per query. **Non si modifica a mano** |
 | `migrazioni` | applica `migrations/*.sql` in ordine, una transazione per file, con verifica statica (ogni file registra la sua versione; ogni `REFERENCES` punta a una tabella già creata; un valore aggiunto a un enum non si usa nello stesso file) |
-| `fondazioni` | semina da config `casella`, `postazione`, `worker_credenziale`, `utente` senza sovrascrivere ciò che è stato generato in UI; diagnosi delle credenziali |
+| `fondazioni` | semina da config `casella`, `postazione`, `worker_credenziale` (`fondazioni.go`) e `utente` (`utenti.go`: la password del file serve a nascere, non a riscrivere quella cambiata dall'utente) senza sovrascrivere ciò che è stato generato in UI; diagnosi delle credenziali |
 | `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
 | `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
@@ -95,6 +95,7 @@ L4 per `coda` (lease, tentativo, idempotenza, finestra del sync, instradamento) 
 | una query nuova | `db/queries/*.sql`, poi `sqlc generate` |
 | una migrazione nuova | `migrations/`, poi `go test ./internal/platform/migrazioni/` |
 | un campo nuovo nel contratto | `contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
+| un utente nuovo, o un ruolo che l'avvio rifiuta | `config` (`[[utenti]]`), poi `fondazioni/utenti.go:SeedUtenti` |
 | capire perché un'azione è bloccata | `config.Capacita()` e `coda/capacita.go` |
 | capire perché un job non parte, o parte due volte | `coda/coda.go` (chiave di idempotenza, lease, tentativo) |
 
@@ -104,4 +105,4 @@ L4 per `coda` (lease, tentativo, idempotenza, finestra del sync, instradamento) 
 
 ---
 
-**Cambia in B**: `coda` e `storage/staging` ci sono (B5).
+**Cambia in B**: `coda` e `storage/staging` ci sono (B5); `fondazioni/utenti.go` arriva da `web` (B7).
