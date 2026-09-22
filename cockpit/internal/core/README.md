@@ -26,7 +26,7 @@ NAS (quelle passano da `platform/storage/nas`).
 ## Dipendenze consentite
 
 `core/registro/regole` non importa nulla del progetto: è lo schema, e uno schema non dipende da chi lo usa.
-Da B1 nessun package di `platform` importa `core`.
+Nessun package di `platform` importa `core`: la freccia va in un verso solo.
 Gli altri package di `core` importano gli altri `core/*` e `platform`. Le due catene che esistono davvero:
 `inbox/classificazione` → `registro/regole` (il motore lavora sullo schema) e `rfq/documenti` →
 `inbox/classificazione` (il nome della cartella nasce dall'oggetto ripulito).
@@ -96,9 +96,3 @@ compresi gli invarianti I4/I5 del contratto di classificazione.
 
 `internal/README.md` (i flussi per intero), `platform/README.md` (query e migrazioni),
 `transport/README.md` (chi chiama questi entry point).
-
----
-
-**Cambia in B**: `registro/regole` (B2) e `rfq/documenti` (B3, i nomi) ci sono. `rfq/documenti` prende ancora
-niente: `rfq/documenti` è completo (B3, B6a, B6b). Resta da spostare l'ESECUTORE, che va in `app/runtime` (B6c). Il package `domain` non esiste più: si chiama
-`inbox/classificazione` (B4).

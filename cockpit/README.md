@@ -1136,7 +1136,8 @@ internal/platform/config            cockpit.toml: lettura, normalizzazione e ver
 internal/platform/contratti/worker  contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
 internal/platform/db                sqlc: queries/*.sql → codice generato (non modificare a mano)
 internal/platform/migrazioni        applica migrations/*.sql in ordine, una transazione per file; verifica statica
-internal/platform/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml
+internal/platform/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml;
+                                    utenti.go: gli utenti e i loro ruoli, con la password del file che serve a nascere e non a riscrivere
 internal/platform/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
                                     impronta e generazione dei token dei worker (voce 2.4)
 internal/platform/logfile           il log del server su file, con rotazione (5 x 5 MB)

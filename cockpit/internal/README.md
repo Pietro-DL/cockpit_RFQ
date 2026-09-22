@@ -1,5 +1,7 @@
 # `internal/` — com'è diviso `cockpit.exe`
 
+## Scopo
+
 Cinque aree, una regola sola per capire dove va un pezzo di codice: **chi può importare chi**.
 
 ```
@@ -9,7 +11,7 @@ Cinque aree, una regola sola per capire dove va un pezzo di codice: **chi può i
    transport/web  ─────────────┐          ┌──── transport/workerapi
    (HTMX, ruoli, form)         │          │      (claim, heartbeat, result, ingest, upload, archivi)
                                ▼          ▼
-                        app/runtime  (esecutore dei job del server)
+                        app/runtime  (avvio del processo; esecutore dei job del server)
                                │          │   platform/coda · platform/storage/staging
          core/inbox/ingest  core/inbox/classificazione  core/inbox/aggancio  ai/agente
               (fatti → DB)      (interpretazione)        (candidati)    (LLM, spento di default)
@@ -64,10 +66,12 @@ Eccezioni ancora aperte, dichiarate perché esistono e non perché vanno bene: `
 
 ## Entry point
 
-`cmd/cockpit/main.go` legge i flag e chiama `runtime.Esegui`, che fa: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.SeedUtenti` → `fondazioni.Semina` → capacità
-(`coda.ImpostaCapacita`, `coda.AllineaCoda`) → `ingest.RicalcolaControparti` → `rete` (TLS) →
-`coda.Scheduler.Avvia` → `staging.Cache.Avvia` → `runtime.EsecutoreServer.Avvia` → `Ricognitore.Avvia` → listener con
-`web` + `workerapi`.
+`cmd/cockpit/main.go` legge i flag, compila `runtime.Opzioni` e chiama **`runtime.Esegui`**, che è l'avvio:
+
+`config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.SeedUtenti` → `fondazioni.Semina` →
+capacità (`coda.ImpostaCapacita`, `coda.AllineaCoda`) → `ingest.RicalcolaControparti` → servizi
+(`coda.Scheduler.Avvia`, `staging.Cache.Avvia`) → `rete` (TLS) → listener con `web` + `workerapi`, dove
+`runtime.EsecutoreServer.Avvia` e `Ricognitore.Avvia` partono per ultimi.
 
 I **lavori amministrativi** della riga di comando si fermano prima del listener e poi escono, uno alla volta:
 `-semina-anagrafica`, `-anteprima-fornitori`, `-importa-fornitori`, `-conta-anagrafiche`, `-migra`. I due che
@@ -131,12 +135,3 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 
 `core/README.md`, `platform/README.md`, `transport/README.md`, `ai/README.md`, `app/README.md`,
 `workers/workers_README.md`, `README.md`.
-
----
-
-**Cambia in B**: `core/registro/regole` (B2), `core/rfq/documenti` (B3) e `core/inbox/classificazione` (B4)
-ci sono, e così `platform/coda` e `platform/storage/staging` (B5). `internal/jobs` non esiste più: l'esecutore
-è in `app/runtime` (B6c), il ricognitore e i corpi dei job in `core/rfq/documenti` (B6a, B6b);
-`SeedUtenti` è passata da `transport/web` a `platform/fondazioni` (B7), e con lei se n'è andata l'ultima
-volta in cui un test di `platform` importava `transport`; `web.go` si è diviso per area (B8);
-`cmd/cockpit/main.go` si è svuotato in `runtime.Esegui` (B10a), che si è scomposta nei suoi passi (B10b).

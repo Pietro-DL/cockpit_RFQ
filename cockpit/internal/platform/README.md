@@ -32,7 +32,8 @@ Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `app`.
 
 ## Entry point
 
-`config.Carica`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.Semina`, `rete.CaricaOGenera`,
+`config.Carica`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.SeedUtenti` / `fondazioni.Semina`,
+`rete.CaricaOGenera`,
 `nas.Scrittore`, `nas.UNC`, `archivio.Estrai`, `testutil.Pool`,
 `coda.Accoda` / `Claim` / `Completa` / `Fallisci` / `ImpostaCapacita`, `staging.PercorsoContenuto` /
 `PulisciParti` / `Cache.Avvia`.
@@ -94,6 +95,7 @@ L4 per `coda` (lease, tentativo, idempotenza, finestra del sync, instradamento) 
 | una chiave TOML nuova | `config/config.go:Carica`, `normalizza*`, poi i due `*.example` |
 | una query nuova | `db/queries/*.sql`, poi `sqlc generate` |
 | una migrazione nuova | `migrations/`, poi `go test ./internal/platform/migrazioni/` |
+| un tipo di job nuovo | l’enum `tipo_job` in una migrazione, poi `coda/coda.go` (`WorkerPer`, `LeaseSecondi`, `MaxTentativiPer`), `coda/capacita.go` (`CapacitaPer`), `contratti/worker/tipi.go`, e il worker che lo esegue |
 | un campo nuovo nel contratto | `contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
 | un utente nuovo, o un ruolo che l'avvio rifiuta | `config` (`[[utenti]]`), poi `fondazioni/utenti.go:SeedUtenti` |
 | capire perché un'azione è bloccata | `config.Capacita()` e `coda/capacita.go` |
@@ -102,7 +104,3 @@ L4 per `coda` (lease, tentativo, idempotenza, finestra del sync, instradamento) 
 ## Leggi anche
 
 `internal/README.md`, `core/README.md`, `transport/README.md`, `workers/workers_README.md`.
-
----
-
-**Cambia in B**: `coda` e `storage/staging` ci sono (B5); `fondazioni/utenti.go` arriva da `web` (B7).

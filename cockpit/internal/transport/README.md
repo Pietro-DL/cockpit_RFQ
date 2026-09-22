@@ -35,6 +35,17 @@ avvelenato ogni link lì dentro) e rilegge i parametri dalla barra degli indiriz
 della schermata vive. `frammentoRichiesto` distingue una richiesta HTMX normale dal ritorno dalla cronologia
 del browser, che vuole la pagina intera.
 
+Le rotte sono montate per **area**, e ogni area ha il suo `registra*` nel file dei suoi gestori. `Registra`
+tiene solo quelle che non sono di nessuna area — statici, `/healthz`, login, logout, la radice — e chiama le
+altre quattro:
+
+| Area | Monta | Sta in |
+|---|---|---|
+| inbox | `/inbox*`, `/messaggio/{id}*`, `/allegato/{id}/riscarica`, `/stato/worker`, `/anagrafica/buyer`, `/thread/cerca` | `routes_inbox.go:registraInbox`; gestori anche in `triage.go`, `censisci.go`, `allegati.go`, `richieste.go`, `agente.go` |
+| RFQ | `/thread/{id}*`, `/proposta/{id}/{conferma,scarta}`, `/cruscotto`, `/richieste` | `routes_rfq.go:registraRFQ`; gestori anche in `thread.go`, `richieste.go`, `allegati.go` |
+| postazioni | `/sessione/postazione`, `/admin/postazioni*` | `postazioni_admin.go:registraPostazioni`, `postazione.go` |
+| admin | `/admin/job*`, `/admin/scarti*`, `/admin/nas*`, `/admin/anagrafica*`, `/admin/fornitori*` | `routes_admin.go:registraAdmin`; gestori anche in `integrita_admin.go`, `anagrafica*.go`, `convenzioni_admin.go`, `fornitori_admin.go` |
+
 | Rotta | Effetto | Package toccati |
 |---|---|---|
 | `GET /inbox`, `/messaggio/{id}`, `/thread/{id}`, `/thread/cerca`, `/cruscotto`, `/richieste`, `/stato/worker`, `/anagrafica/buyer` | lettura: query e template. Il quadrante viene da `v_inbox.controparte_tipo`; predefinito Buyer | `platform/db`, viste `v_inbox`, `v_thread_fase`, `v_fascicolo` |
@@ -94,6 +105,7 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 | Voglio… | Apri |
 |---|---|
 | una rotta nuova | il `registra*` dell'area, l'handler nel file dell'area, il template |
+| un campo nuovo nel contratto con i worker | `platform/contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
 | capire che cosa succede quando un job finisce | `workerapi/workerapi.go:applicaRisultato` |
 | capire perché un messaggio sta in quel quadrante | la colonna `quadrante` di `v_inbox`, `web/routes_inbox.go:quadranteValido` |
 | capire perché una risposta di un fornitore non chiude la richiesta | `web/richieste.go:rispostaFornitore` |
@@ -101,8 +113,3 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 ## Leggi anche
 
 `internal/README.md`, `core/README.md`, `platform/README.md`, `workers/workers_README.md`.
-
----
-
-**Cambia in B**: la semina degli utenti è uscita da `web` verso `platform/fondazioni` (B7) e `web.go` si è
-diviso per area (B8) tenendo lo stesso package `web`, le stesse settantanove rotte e gli stessi handler.

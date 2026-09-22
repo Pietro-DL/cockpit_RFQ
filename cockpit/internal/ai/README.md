@@ -61,7 +61,3 @@ L1, senza rete: il modello è un'interfaccia e nei test è una finzione locale.
 
 `internal/README.md`, `core/README.md` (le regole deterministiche che l'agente non sostituisce),
 `platform/README.md` (`[agente]` in configurazione).
-
----
-
-**Cambia in B**: niente. Per decisione del 21/09 il commit che avrebbe estratto `ai/provider` è soppresso.
