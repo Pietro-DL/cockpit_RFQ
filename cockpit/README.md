@@ -1172,6 +1172,8 @@ internal/ai/agente                  l'assistente semantico: Modello (interfaccia
                                     reale nei test
 internal/transport/web              HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
                                     instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
+                                    server.go: il tipo Server, i template, Registra (che chiama le quattro registra* delle aree), la sessione, il rendering;
+                                    routes_inbox.go, routes_rfq.go, routes_admin.go: le tre aree, ognuna con le sue rotte;
                                     inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
                                     postazioni_admin.go: /admin/postazioni, il pacchetto del worker con token e impronta (voce 2.4, D22);
                                     anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);

@@ -389,23 +389,6 @@ func primaRigaEResto(t string) (string, string) {
 	return riga, resto
 }
 
-// ---------------------------------------------------------------- Richieste
-
-// richieste è la lista di lavoro: le RFQ aperte, quelle dei clienti con il peso più alto in cima.
-//
-// L'ordinamento è `cliente.peso` e poi la scadenza, e si ferma lì. Il PUNTEGGIO di priorità
-// dell'addendum 2 — quello con i pesi 40/25/20/15 e le soglie — non esiste ancora, e le sue
-// regole vanno rese esplicite prima di essere codificate: inventarne una versione provvisoria qui
-// vorrebbe dire che l'ordine di lavoro di tutti dipende da una formula che nessuno ha approvato.
-func (s *Server) richieste(w http.ResponseWriter, r *http.Request) {
-	righe, err := db.New(s.Pool).ListRichieste(r.Context(), 200)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	s.rendi(w, r, "richieste.html", "richieste_tabella", "Richieste", righe)
-}
-
 // ---------------------------------------------------------------- minuterie
 
 func (s *Server) clienteDaURL(w http.ResponseWriter, r *http.Request, q *db.Queries) (db.Cliente, bool) {

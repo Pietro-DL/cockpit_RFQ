@@ -14,7 +14,7 @@ aperte**, non come esempio da seguire: `workerapi/archivi.go`, `applicaRisultato
 
 | Package | Che cosa fa |
 |---|---|
-| `web` | la UI: rotte, sessioni, ruoli (`ruoli.go`: consultazione < operatore < tecnico < admin, un solo `soloRuolo`), postazione della sessione, Inbox a quadranti e triage, `censisci.go`, thread, allegati e conferma, admin (job, scarti, postazioni, anagrafica clienti, fornitori, Integrità NAS), template HTMX, `e2e/inbox_quadranti.py` per le prove nel browser |
+| `web` | la UI, in file per area: `server.go` (Server, template, `Registra`, sessione, rendering, avvisi), `routes_inbox.go`, `routes_rfq.go`, `routes_admin.go`, più i file già per tema (`triage.go`, `censisci.go`, `thread.go`, `richieste.go`, `allegati.go`, `postazione.go`, `postazioni_admin.go`, `anagrafica*.go`, `convenzioni_admin.go`, `fornitori_admin.go`, `integrita_admin.go`, `ruoli.go`, `navigazione.go`, `inbox_viva.go`). Rotte, sessioni, ruoli (`ruoli.go`: consultazione < operatore < tecnico < admin, un solo `soloRuolo`), postazione della sessione, Inbox a quadranti e triage, `censisci.go`, thread, allegati e conferma, admin (job, scarti, postazioni, anagrafica clienti, fornitori, Integrità NAS), template HTMX, `e2e/inbox_quadranti.py` per le prove nel browser |
 | `workerapi` | le rotte `/api/v1/*`: autenticazione e prova di vita del worker, applicazione dei risultati, ingest dei lotti, upload legato al tentativo, `archivi.go` |
 
 ## Dipendenze consentite
@@ -95,7 +95,7 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 |---|---|
 | una rotta nuova | il `registra*` dell'area, l'handler nel file dell'area, il template |
 | capire che cosa succede quando un job finisce | `workerapi/workerapi.go:applicaRisultato` |
-| capire perché un messaggio sta in quel quadrante | la colonna `quadrante` di `v_inbox`, `web/web.go:quadranteValido` |
+| capire perché un messaggio sta in quel quadrante | la colonna `quadrante` di `v_inbox`, `web/routes_inbox.go:quadranteValido` |
 | capire perché una risposta di un fornitore non chiude la richiesta | `web/richieste.go:rispostaFornitore` |
 
 ## Leggi anche
@@ -104,5 +104,5 @@ sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel b
 
 ---
 
-**Cambia in B**: la semina degli utenti è uscita da `web` verso `platform/fondazioni` (B7). `web.go` si divide per area (registrazione delle rotte, sessione, ruoli, Inbox) tenendo lo
-stesso package `web`, le stesse rotte e gli stessi handler.
+**Cambia in B**: la semina degli utenti è uscita da `web` verso `platform/fondazioni` (B7) e `web.go` si è
+diviso per area (B8) tenendo lo stesso package `web`, le stesse settantanove rotte e gli stessi handler.

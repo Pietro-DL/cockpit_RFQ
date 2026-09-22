@@ -403,3 +403,13 @@ func (s *Server) zipPacchetto(host, workerToml string) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// registraPostazioni monta le rotte della postazione: quella in cui l'operatore sceglie la sua in
+// testata, e le due amministrative con cui si vedono e si rigenerano i pacchetti dei worker.
+func (s *Server) registraPostazioni(mux *http.ServeMux) {
+	mux.HandleFunc("POST /sessione/postazione", s.autenticato(s.scegliPostazione))
+	mux.HandleFunc("GET /admin/postazioni", s.soloAdmin(s.adminPostazioni))
+	// POST perché genera segreti e invalida i precedenti: un GET lo farebbe il primo che ricarica la
+	// pagina, e una precaricamento del browser basterebbe a spegnere un worker acceso.
+	mux.HandleFunc("POST /admin/postazioni/{host}/pacchetto", s.soloAdmin(s.pacchettoWorker))
+}
