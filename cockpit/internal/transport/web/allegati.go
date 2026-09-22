@@ -46,6 +46,21 @@ func (a AllegatoUI) Confermabile() bool {
 		(a.Stato == db.StatoAllegatoInStaging || a.Stato == db.StatoAllegatoAnalizzato) && strings.ToLower(a.Estensione.String) != "zip"
 }
 
+// Anteprimabile: un PDF che sta su questo server — in staging, oppure come documento scritto sul
+// NAS (blocco 8, B8.1). Non promette che l'anteprima si aprira': il file puo' essere sparito fra
+// questa riga e il clic, e chi risponde e' la rotta, che guarda i byte veri. Promette soltanto che
+// vale la pena di offrire il pulsante, perche' nascondere un pulsante che funzionerebbe e mostrarne
+// uno che non puo' funzionare sono lo stesso difetto visto da due lati.
+func (a AllegatoUI) Anteprimabile() bool {
+	if a.Natura == db.NaturaAllegatoInline || !strings.EqualFold(strings.TrimPrefix(a.Estensione.String, "."), "pdf") {
+		return false
+	}
+	if a.PathStaging.Valid && a.PathStaging.String != "" && !a.FileMancante {
+		return true
+	}
+	return a.Documento != nil && a.Documento.StatoNas == db.StatoNasScritto
+}
+
 // InCoda: download richiesto, in attesa del worker.
 func (a AllegatoUI) InCoda() bool {
 	return a.Stato == db.StatoAllegatoGrezzo && a.Errore.Valid && a.Errore.String == "in coda"

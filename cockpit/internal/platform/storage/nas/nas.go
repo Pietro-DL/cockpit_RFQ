@@ -26,8 +26,18 @@ func Sha256File(p string) (string, int64, error) {
 		return "", 0, err
 	}
 	defer f.Close()
+	return Sha256Da(f)
+}
+
+// Sha256Da calcola l'hash di cio' che si legge da r, e dice quanti byte ha letto.
+//
+// Esiste separata da Sha256File perche' chi deve SERVIRE quei byte deve poterli verificare dallo
+// stesso file che ha gia' aperto. Riaprire per nome vorrebbe dire verificarne uno e servirne un
+// altro: fra le due aperture, su una condivisione di rete, il file puo' essere stato sostituito, e
+// la verifica direbbe di si' a proposito di byte che nessuno mandera' mai a nessuno.
+func Sha256Da(r io.Reader) (string, int64, error) {
 	h := sha256.New()
-	n, err := io.Copy(h, f)
+	n, err := io.Copy(h, r)
 	if err != nil {
 		return "", 0, err
 	}

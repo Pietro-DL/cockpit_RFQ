@@ -58,6 +58,9 @@ func (s *Server) registraInbox(mux *http.ServeMux) {
 	// download su richiesta e smistamento (blocco 5)
 	mux.HandleFunc("POST /messaggio/{id}/scarica", s.autenticato(s.scarica))
 	mux.HandleFunc("POST /allegato/{id}/riscarica", s.autenticato(s.riscarica))
+	// blocco 8 (B8.1): il PDF si guarda da qui, senza scaricarlo e senza cercarlo sul NAS a mano.
+	// GET perche' non cambia niente: e' il file, servito a pezzi a chi lo sta gia' guardando.
+	mux.HandleFunc("GET /allegato/{id}/anteprima", s.autenticato(s.anteprima))
 }
 
 type inboxDati struct {

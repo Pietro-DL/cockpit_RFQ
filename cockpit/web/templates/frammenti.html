@@ -224,6 +224,8 @@
     {{else}}<span class="chip {{if eq .Stato "analizzato"}}fatto{{else}}pronto{{end}}">{{.Stato}}</span>{{if .Sha256.Valid}} <small class="muto" title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}{{end}}
   </td>
   <td class="azioni-riga">
+    {{if .Anteprimabile}}<a class="piccolo" href="/allegato/{{.AllegatoID}}/anteprima" target="_blank" rel="noopener"
+      title="Apre il PDF in una scheda nuova: dallo staging se c'e', altrimenti dal file sul NAS">Anteprima</a>{{end}}
     {{if and .Confermabile $.Agganciato}}
       <details class="conferma">
         <summary class="bottone piccolo">Conferma…</summary>
