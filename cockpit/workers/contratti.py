@@ -389,9 +389,17 @@ class RelazioneSTEP(Base):
 
 
 class LimitiSTEP(Base):
+    """Fin dove si e' letto, e contro quale tetto ci si e' fermati.
+
+    I tetti viaggiano insieme al risultato: un albero parziale va spiegato con il limite che era in
+    vigore QUANDO e' stato letto, non con quello che si trova oggi nella configurazione."""
     nodi_max: int = 0
+    occorrenze_max: int = 0
+    tempo_max_s: float = 0.0
     byte_letti: int = 0
+    tempo_s: float = 0.0
     troncato: bool = False
+    motivo: str = ""            # "" se completo, altrimenti "nodi", "occorrenze" o "tempo"
 
 
 class StrutturaSTEP(Base):

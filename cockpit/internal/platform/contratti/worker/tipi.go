@@ -545,10 +545,19 @@ type RelazioneSTEP struct {
 // LimitiSTEP dice fin dove si è letto. `Troncato` vero significa che il grafo è PARZIALE: la
 // schermata deve dirlo, perché un albero incompleto che si presenta come completo è peggio di un
 // albero assente.
+//
+// I tre tetti tornano indietro con il risultato, e `Motivo` dice quale ha fermato la lettura. Sono
+// nel fatto e non nella configurazione perché un fatto resta archiviato per anni: quando qualcuno
+// riaprirà questa analisi, il `nodi_max` del worker di oggi non sarà più recuperabile da nessuna
+// parte, e senza di esso «troncato» non si sa più che cosa volesse dire.
 type LimitiSTEP struct {
-	NodiMax   int   `json:"nodi_max"`
-	ByteLetti int64 `json:"byte_letti"`
-	Troncato  bool  `json:"troncato"`
+	NodiMax       int     `json:"nodi_max"`
+	OccorrenzeMax int     `json:"occorrenze_max"`
+	TempoMaxS     float64 `json:"tempo_max_s"`
+	ByteLetti     int64   `json:"byte_letti"`
+	TempoS        float64 `json:"tempo_s"`
+	Troncato      bool    `json:"troncato"`
+	Motivo        string  `json:"motivo"` // "" se completo, altrimenti "nodi", "occorrenze" o "tempo"
 }
 
 // DecodificaStruttura estrae la struttura dai dettagli di un'analisi.

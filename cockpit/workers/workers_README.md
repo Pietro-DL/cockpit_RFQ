@@ -1,7 +1,8 @@
 # I worker — come parlano con `cockpit.exe`
 
 Documentazione dei due client Python (`worker_outlook.py`, `worker_analisi.py`) e dei moduli comuni
-(`cockpit_client.py`, `contratti.py`, `protocollo.py`, `step_struttura.py`). Aggiornata al ramo `blocco-7` dopo il Pre-7 (commit
+(`cockpit_client.py`, `contratti.py`, `protocollo.py`, `step_struttura.py`) e del comando diagnostico
+`diagnostica_step.py`. Aggiornata al ramo `blocco-7` dopo il Pre-7 (commit
 `1fc5584`): rispetto alla prima stesura (`0bdea9f`) sono cambiati il sync (finestra chiusa decisa dal server,
 frontiere che avanzano solo a finestra percorsa), la sicurezza (capacità al posto della modalità shadow), lo
 staging (cache per contenuto sul server, cartella propria del worker), gli archivi (li scompatta il server).
@@ -241,6 +242,20 @@ I campi `codice`/`rev` di primo livello del risultato restano quelli di sempre �
 o dal primo `PRODUCT` — e servono a `documento_proposta`. Sono un suggerimento, non la sorgente della
 struttura. `[analisi] versione = 2` in `cockpit.toml` è la chiave sotto cui i fatti nuovi vengono conservati:
 quelli della 1 restano dove sono.
+
+**Tre tetti, e viaggiano con il risultato.** `nodi_max` (2000) ferma l'assieme con troppi pezzi distinti,
+`occorrenze_max` (50000) quello con pochi pezzi ripetuti moltissime volte — mille bulloni uguali sono mille
+`NEXT_ASSEMBLY_USAGE_OCCURRENCE` e un nodo solo — e `tempo_max_s` (120) il file lento per una ragione non
+prevista. Il tempo si controlla anche mentre si scorre la geometria, dove per minuti non si incontra nessuna
+delle due cose che si contano. `limiti` torna indietro con i tetti in vigore, i byte letti, il tempo
+impiegato, `troncato` e `motivo` (`nodi`, `occorrenze` o `tempo`): un albero parziale va spiegato con il
+limite di quel giorno, e la configurazione di oggi fra un anno non dirà più quale fosse.
+
+**Come si guarda un corpus vero.** `python workers/diagnostica_step.py [cartella] [--albero]` attraversa dei
+file STEP e stampa, per ciascuno, schema, nodi, relazioni, occorrenze, radici, profondità, nodi con più di un
+padre, `PRODUCT` orfani, occorrenze irrisolte, troncamento e tempo; con `--albero` disegna l'albero con
+`id_grezzo | nome_grezzo | rev_grezza`. Legge e basta: non scrive niente e non tocca il database. I CAD non
+stanno nel repository — la cartella predefinita è `docs/step_files`, che è fuori.
 
 ## 7. Errori e ripresa
 

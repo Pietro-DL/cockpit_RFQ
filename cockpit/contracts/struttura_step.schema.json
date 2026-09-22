@@ -1,21 +1,42 @@
 {
   "$defs": {
     "LimitiSTEP": {
+      "description": "Fin dove si e' letto, e contro quale tetto ci si e' fermati.\n\nI tetti viaggiano insieme al risultato: un albero parziale va spiegato con il limite che era in\nvigore QUANDO e' stato letto, non con quello che si trova oggi nella configurazione.",
       "properties": {
         "nodi_max": {
           "default": 0,
           "title": "Nodi Max",
           "type": "integer"
         },
+        "occorrenze_max": {
+          "default": 0,
+          "title": "Occorrenze Max",
+          "type": "integer"
+        },
+        "tempo_max_s": {
+          "default": 0.0,
+          "title": "Tempo Max S",
+          "type": "number"
+        },
         "byte_letti": {
           "default": 0,
           "title": "Byte Letti",
           "type": "integer"
         },
+        "tempo_s": {
+          "default": 0.0,
+          "title": "Tempo S",
+          "type": "number"
+        },
         "troncato": {
           "default": false,
           "title": "Troncato",
           "type": "boolean"
+        },
+        "motivo": {
+          "default": "",
+          "title": "Motivo",
+          "type": "string"
         }
       },
       "title": "LimitiSTEP",
