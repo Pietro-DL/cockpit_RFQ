@@ -36,12 +36,17 @@ specs/
 _staging/
 _nas_test/
 
-# I test Go non vanno nel repository pubblico: qui restano i file del prodotto.
+# QUESTO E' IL RAMO QA (blocco-8-fascicolo-qa): qui i test Go CI SONO.
 #
-# Restano nell'albero di lavoro (questa riga li nasconde a git, non li cancella) e restano nella
-# storia fino al commit che li ha tolti dall'indice: per rimetterli dentro basta revertire quel
-# commit. Chi lavora sul codice li ha; chi legge il repository vede il prodotto.
+# Sul ramo di prodotto (`blocco-8-fascicolo`, e prima di lui `main`) la riga `*_test.go` sta qui
+# sotto e li tiene fuori: il repository pubblico mostra il prodotto, non il banco di prova. Ma un
+# checkout senza test non puo' eseguire L1, L4 e L7, e chi deve LEGGERE le prove — o rieseguirle —
+# non ha da nessuna parte i file che le contengono.
 #
-# Attenzione: da qui in avanti un checkout pulito NON puo' eseguire L1, L4 e L7. Le prove si fanno
-# nell'albero di lavoro di chi sviluppa.
-*_test.go
+# Questo ramo e' quel posto: stesso codice di prodotto, riga per riga, piu' la suite e le fixture.
+# Il codice di prodotto dei due rami non deve divergere mai: se cambia qui, cambia perche' e' stato
+# portato da la'.
+#
+# Per tornare al comportamento del ramo di prodotto basta rimettere la riga:
+#
+#     *_test.go
