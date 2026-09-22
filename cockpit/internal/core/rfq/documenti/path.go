@@ -1,3 +1,8 @@
+// Package documenti e' il fascicolo di una RFQ sul NAS: come si chiamano le cartelle e i file, che
+// cosa significa copiare un documento e riprenderne il contenuto, e se quello che il database
+// promette scritto ci sia davvero.
+//
+// Non sa niente di code e di job: chi esegue e quando e' `app/runtime`, che chiama queste funzioni.
 package documenti
 
 import (

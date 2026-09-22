@@ -7,8 +7,9 @@ fondazioni, fissare le capacità, avviare scheduler, esecutore, cache e ricognit
 
 ## Stato
 
-Da B6c `app/runtime` esiste e contiene l'**esecutore dei job del server**. Il cablaggio dell'avvio sta ancora
-in `cmd/cockpit/main.go` e arriva qui in B10a.
+Da B6c `app/runtime` esiste e contiene l'**esecutore dei job del server**, in due file: chi esegue
+(`esecutore.go`) e la vigilanza sul NAS assente (`vigilanza_nas.go`). Il cablaggio dell'avvio sta ancora in
+`cmd/cockpit/main.go` e arriva qui in B10a.
 
 Gli altri processi di lungo periodo stanno dove sta la cosa che governano: `Scheduler` in `platform/coda`,
 `Cache` in `platform/storage/staging`, `Ricognitore` in `core/rfq/documenti`.
@@ -22,7 +23,7 @@ chi sa farlo.
 
 | Package | Che cosa fa |
 |---|---|
-| `runtime` | `esecutore.go`: prende dalla coda i job con `worker_tipo='server'` e li esegue in una goroutine — il fascicolo a `core/rfq/documenti`, gli archivi a `transport/workerapi` (interfaccia `Estrattore`), l'analisi a `ai/agente`. Vigila sul NAS assente: un job che tocca il NAS quando il NAS non c'è si **rinvia**, non fallisce, e al ritorno le copie esaurite tornano in coda |
+| `runtime` | `esecutore.go`: prende dalla coda i job con `worker_tipo='server'` e li esegue in una goroutine — il fascicolo a `core/rfq/documenti`, gli archivi a `transport/workerapi` (interfaccia `Estrattore`), l'analisi a `ai/agente`. `vigilanza_nas.go`: quali tipi di job vogliono il NAS (`ScrivePerNas`), il **rinvio** senza consumare il tentativo quando non c'è, il guardiano che vede quando torna e le copie esaurite che tornano in coda |
 
 ## Invariante dell'esecutore
 
@@ -59,7 +60,8 @@ Tutti quelli dei servizi che avvia.
 ## Test
 
 L4 su `runtime`: l'esecuzione della copia sul NAS, la ripresa di un contenuto sparito, il NAS assente e il
-ritorno del NAS, l'estrazione affidata all'estrattore. Avvio reale sul database di prova a ogni commit che
+ritorno del NAS, l'estrazione affidata all'estrattore. Quelle prove restano qui, e non con `core/rfq/documenti`,
+perché guardano l'esecutore e il fascicolo insieme: è l'integrazione fra i due che dev'essere verde. Avvio reale sul database di prova a ogni commit che
 tocca l'avvio.
 
 ## Dove intervenire
@@ -68,6 +70,7 @@ tocca l'avvio.
 |---|---|
 | aggiungere un servizio da avviare | `cmd/cockpit/main.go` |
 | aggiungere un tipo di job eseguito dal server | `runtime/esecutore.go:esegui` e chi sa farlo |
+| dire che un tipo di job ha bisogno del NAS | `runtime/vigilanza_nas.go:ScrivePerNas` |
 | aggiungere un flag della riga di comando | `cmd/cockpit/main.go` |
 | capire perché un job non parte all'avvio | `platform/coda/capacita.go:AllineaCoda` |
 

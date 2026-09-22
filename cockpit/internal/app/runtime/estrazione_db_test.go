@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -111,7 +110,7 @@ func TestEsecutoreSenzaEstrattoreLoDice(t *testing.T) {
 // L'estrazione non tocca il NAS: un NAS assente non deve rinviarla. Le voci di uno zip servono per
 // decidere, e decidere si fa anche quando il fascicolo non e' raggiungibile.
 func TestEstrarreUnArchivioNonDipendeDalNas(t *testing.T) {
-	if documenti.ScrivePerNas(db.TipoJobEstraiArchivio) {
+	if ScrivePerNas(db.TipoJobEstraiArchivio) {
 		t.Error("estrai_archivio risulta una scrittura sul NAS: un NAS assente ne rinvierebbe l'esecuzione")
 	}
 	if !coda.Consentito(db.TipoJobEstraiArchivio) {

@@ -3,8 +3,10 @@
 // esecutore.go ESEGUE i job di tipo 'server', quelli che non hanno un worker dall'altra parte perche'
 // il lavoro lo fa il server stesso: prende il job dalla coda, ne riconosce il tipo e chiama chi sa
 // farlo — `core/rfq/documenti` per il fascicolo, `transport/workerapi` per gli archivi, `ai/agente`
-// per l'analisi. Vigila anche sul NAS assente, che non e' un errore del job ma una condizione del
-// mondo: un job che tocca il NAS quando il NAS non c'e' si rinvia, non fallisce.
+// per l'analisi. Qui c'e' il CHI esegue; il COSA sta in chi viene chiamato.
+//
+// vigilanza_nas.go tiene la condizione del mondo: un job che tocca il NAS quando il NAS non c'e' si
+// rinvia, non fallisce.
 //
 // La coda su cui lavora (accodamento, claim, lease, capacita', instradamento) sta in
 // `platform/coda`; la cartella di lavoro sul disco in `platform/storage/staging`; che cosa
@@ -100,77 +102,6 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 			}
 		}
 	}()
-}
-
-// rinviaSeNasAssente restituisce true se il job è stato rimesso in coda senza essere eseguito.
-//
-// Il tentativo non viene consumato: il job non è fallito, non lo abbiamo nemmeno provato. Contarlo
-// come fallimento significherebbe bruciare il budget dei tentativi mentre il problema è che il NAS
-// non c'è — e dichiarare persa la copia proprio per aver provato tante volte (voce 1.7, N8).
-func (e *EsecutoreServer) rinviaSeNasAssente(ctx context.Context, q *db.Queries, t coda.Tentativo, j *db.Job) bool {
-	if e.NAS.DryRun || !documenti.ScrivePerNas(j.Tipo) || e.NAS.Raggiungibile() {
-		return false
-	}
-	fra := e.RitardoNasAssente
-	if fra <= 0 {
-		fra = time.Minute
-	}
-	if _, err := coda.Rinvia(ctx, q, t, fra, "NAS non raggiungibile: tentativo non consumato"); err != nil {
-		e.Log.Error("rinvio non riuscito", "job", j.JobID, "tipo", j.Tipo, "err", err)
-		return false // meglio provarci: il peggio che può succedere è un fallimento onesto
-	}
-	e.Log.Warn("NAS non raggiungibile: job rinviato senza consumare il tentativo",
-		"job", j.JobID, "tipo", j.Tipo, "tentativi", j.Tentativi, "fra", fra)
-	return true
-}
-
-// vigilaNas guarda se il NAS è tornato e, quando torna, rimette in coda le scritture che avevano
-// finito i tentativi (N3: «NAS torna → scritto senza intervento»).
-//
-// Il primo controllo è all'avvio e non aspetta la transizione: se il server viene riavviato dopo che
-// il NAS è già tornato, una transizione non ci sarà mai più e le copie resterebbero ferme per sempre.
-func (e *EsecutoreServer) vigilaNas(ctx context.Context, q *db.Queries) {
-	ogni := e.ControlloNas
-	if ogni <= 0 {
-		ogni = time.Minute
-	}
-	presente := e.NAS.Raggiungibile()
-	if presente {
-		e.RiaccodaAlRitornoDelNas(ctx, q)
-	}
-	t := time.NewTicker(ogni)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-		ora := e.NAS.Raggiungibile()
-		if ora && !presente {
-			e.Log.Info("NAS di nuovo raggiungibile", "radice", e.NAS.Radice)
-			e.RiaccodaAlRitornoDelNas(ctx, q)
-		}
-		if !ora && presente {
-			e.Log.Warn("NAS non più raggiungibile: le copie restano in coda", "radice", e.NAS.Radice)
-		}
-		presente = ora
-	}
-}
-
-// RiaccodaAlRitornoDelNas rimette 'pronto' le scritture NAS che avevano esaurito i tentativi.
-// Esportata perché è il punto che il test N3 chiama: quello che gira in produzione e quello che si
-// verifica devono essere la stessa funzione.
-func (e *EsecutoreServer) RiaccodaAlRitornoDelNas(ctx context.Context, q *db.Queries) int {
-	ids, err := q.RiaccodaScrittureNasEsaurite(ctx)
-	if err != nil {
-		e.Log.Error("riaccodo al ritorno del NAS", "err", err)
-		return 0
-	}
-	if len(ids) > 0 {
-		e.Log.Info("scritture NAS rimesse in coda al ritorno del NAS", "n", len(ids), "job", ids)
-	}
-	return len(ids)
 }
 
 func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, t coda.Tentativo) (any, error) {
