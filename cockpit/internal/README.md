@@ -55,7 +55,7 @@ connessioni** verso i PC: sono i worker a chiamare (vedi `workers/workers_README
 | `platform/*` | solo `platform` e librerie |
 | `ai/agente` | `core`, `platform` |
 | `transport/*` | `core`, `ai`, `platform` |
-| `app/runtime` | `core`, `ai`, `platform` |
+| `app/runtime` | `core`, `ai`, `platform`, `transport` — è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo |
 | `platform/coda` | `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download) |
 | `cmd/cockpit` | tutto |
 
@@ -64,7 +64,7 @@ Eccezioni ancora aperte, dichiarate perché esistono e non perché vanno bene: `
 
 ## Entry point
 
-`cmd/cockpit/main.go`: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.SeedUtenti` → `fondazioni.Semina` → capacità
+`cmd/cockpit/main.go` legge i flag e chiama `runtime.Esegui`, che fa: `config.Carica` → `logfile` → `migrazioni.Applica` → `fondazioni.SeedUtenti` → `fondazioni.Semina` → capacità
 (`coda.ImpostaCapacita`, `coda.AllineaCoda`) → `ingest.RicalcolaControparti` → `rete` (TLS) →
 `coda.Scheduler.Avvia` → `staging.Cache.Avvia` → `runtime.EsecutoreServer.Avvia` → `Ricognitore.Avvia` → listener con
 `web` + `workerapi`.
@@ -138,4 +138,5 @@ altrimenti `platform/testutil` si rifiuta; senza la variabile i test L4 sono SKI
 ci sono, e così `platform/coda` e `platform/storage/staging` (B5). `internal/jobs` non esiste più: l'esecutore
 è in `app/runtime` (B6c), il ricognitore e i corpi dei job in `core/rfq/documenti` (B6a, B6b);
 `SeedUtenti` è passata da `transport/web` a `platform/fondazioni` (B7), e con lei se n'è andata l'ultima
-volta in cui un test di `platform` importava `transport`; `cmd/cockpit/main.go` si svuota in `app/runtime`.
+volta in cui un test di `platform` importava `transport`; `web.go` si è diviso per area (B8);
+`cmd/cockpit/main.go` si è svuotato in `runtime.Esegui` (B10a), che si scompone in B10b.

@@ -7,9 +7,10 @@ fondazioni, fissare le capacità, avviare scheduler, esecutore, cache e ricognit
 
 ## Stato
 
-Da B6c `app/runtime` esiste e contiene l'**esecutore dei job del server**, in due file: chi esegue
-(`esecutore.go`) e la vigilanza sul NAS assente (`vigilanza_nas.go`). Il cablaggio dell'avvio sta ancora in
-`cmd/cockpit/main.go` e arriva qui in B10a.
+Da B6c `app/runtime` contiene l'**esecutore dei job del server**, in due file: chi esegue (`esecutore.go`) e
+la vigilanza sul NAS assente (`vigilanza_nas.go`). Da B10a contiene anche l'**avvio**: `esegui.go` tiene
+`Opzioni` e `Esegui`, ciò che era `run` in `cmd/cockpit/main.go`. Il main è rimasto di trentasei righe: i
+flag, le Opzioni che ne nascono, il codice di uscita.
 
 Gli altri processi di lungo periodo stanno dove sta la cosa che governano: `Scheduler` in `platform/coda`,
 `Cache` in `platform/storage/staging`, `Ricognitore` in `core/rfq/documenti`.
@@ -23,7 +24,7 @@ chi sa farlo.
 
 | Package | Che cosa fa |
 |---|---|
-| `runtime` | `esecutore.go`: prende dalla coda i job con `worker_tipo='server'` e li esegue in una goroutine — il fascicolo a `core/rfq/documenti`, gli archivi a `transport/workerapi` (interfaccia `Estrattore`), l'analisi a `ai/agente`. `vigilanza_nas.go`: quali tipi di job vogliono il NAS (`ScrivePerNas`), il **rinvio** senza consumare il tentativo quando non c'è, il guardiano che vede quando torna e le copie esaurite che tornano in coda |
+| `runtime` | `esegui.go`: `Esegui(cfgPath, Opzioni)`, l'avvio nel suo ordine — configurazione, log, database e migrazioni, semi, capacità, i comandi che escono prima dell'ascolto, servizi, TLS, listener. `esecutore.go`: prende dalla coda i job con `worker_tipo='server'` e li esegue in una goroutine — il fascicolo a `core/rfq/documenti`, gli archivi a `transport/workerapi` (interfaccia `Estrattore`), l'analisi a `ai/agente`. `vigilanza_nas.go`: quali tipi di job vogliono il NAS (`ScrivePerNas`), il **rinvio** senza consumare il tentativo quando non c'è, il guardiano che vede quando torna e le copie esaurite che tornano in coda |
 
 ## Invariante dell'esecutore
 
@@ -36,8 +37,8 @@ Tutto. È l'unica area che può importare ogni altra.
 
 ## Entry point
 
-`runtime.EsecutoreServer.Avvia` e `RiaccodaAlRitornoDelNas`. L'avvio è ancora `cmd/cockpit/main.go`;
-diventa `runtime.Esegui` in B10a.
+`runtime.Esegui` (chiamata da `cmd/cockpit/main.go`), `runtime.EsecutoreServer.Avvia` e
+`RiaccodaAlRitornoDelNas`.
 
 ## Flussi principali
 
@@ -66,12 +67,12 @@ tocca l'avvio.
 
 ## Dove intervenire
 
-| Voglio… | Apri (oggi) |
+| Voglio… | Apri |
 |---|---|
-| aggiungere un servizio da avviare | `cmd/cockpit/main.go` |
+| aggiungere un servizio da avviare | `runtime/esegui.go:Esegui` |
 | aggiungere un tipo di job eseguito dal server | `runtime/esecutore.go:esegui` e chi sa farlo |
 | dire che un tipo di job ha bisogno del NAS | `runtime/vigilanza_nas.go:ScrivePerNas` |
-| aggiungere un flag della riga di comando | `cmd/cockpit/main.go` |
+| aggiungere un flag della riga di comando | `cmd/cockpit/main.go` (il flag) e `runtime.Opzioni` (il campo) |
 | capire perché un job non parte all'avvio | `platform/coda/capacita.go:AllineaCoda` |
 
 ## Leggi anche
@@ -80,5 +81,5 @@ tocca l'avvio.
 
 ---
 
-**Cambia in B**: `EsecutoreServer` è arrivato (B6c). Resta l'avvio: `main.go` si svuota in `runtime.Esegui`
-(B10a) e poi il `run` si scompone in avvio, comandi e servizi (B10b).
+**Cambia in B**: `EsecutoreServer` è arrivato (B6c) e `main.go` si è svuotato in `runtime.Esegui` (B10a).
+Resta la scomposizione di `Esegui` in avvio, comandi e servizi (B10b).

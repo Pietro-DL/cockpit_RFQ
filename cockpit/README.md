@@ -1130,7 +1130,7 @@ Un file già applicato non va più modificato: una migrazione registrata non vie
 ```
 internal/README.md                  com'è diviso cockpit.exe, la regola di dipendenza, i flussi, i livelli di prova;
                                     un README per area: internal/{core,platform,transport,ai,app}/README.md
-cmd/cockpit/main.go                 avvio: config, pool, migrazioni, seed utenti e fondazioni, scheduler, esecutore server, router
+cmd/cockpit/main.go                 la riga di comando: flag, runtime.Opzioni, codice di uscita
 embed.go                            embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
 internal/platform/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
 internal/platform/contratti/worker  contratti JSON worker ↔ server (tipi Go; speculari a workers/contratti.py)
@@ -1187,7 +1187,9 @@ internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
                                     analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
-internal/app/runtime                esecutore.go: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
+internal/app/runtime                esegui.go: l'avvio nel suo ordine (config, log, pool, migrazioni, seed utenti e fondazioni, capacita, comandi
+                                    della riga di comando, servizi, TLS, listener), cio' che era run in main.go;
+                                    esecutore.go: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
                                     per il fascicolo, transport/workerapi per gli archivi, ai/agente per l'analisi);
                                     vigilanza_nas.go: quali job vogliono il NAS, il rinvio quando non c'e', il ritorno in coda quando torna
 web/templates, web/static           template html/template, style.css, htmx 2.0.4
