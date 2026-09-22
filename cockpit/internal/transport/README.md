@@ -41,7 +41,7 @@ altre quattro:
 
 | Area | Monta | Sta in |
 |---|---|---|
-| inbox | `/inbox*`, `/messaggio/{id}*`, `/allegato/{id}/riscarica`, `/stato/worker`, `/anagrafica/buyer`, `/thread/cerca` | `routes_inbox.go:registraInbox`; gestori anche in `triage.go`, `censisci.go`, `allegati.go`, `richieste.go`, `agente.go` |
+| inbox | `/inbox*`, `/messaggio/{id}*`, `/allegato/{id}/{riscarica,anteprima}`, `/stato/worker`, `/anagrafica/buyer`, `/thread/cerca` | `routes_inbox.go:registraInbox`; gestori anche in `triage.go`, `censisci.go`, `allegati.go`, `richieste.go`, `agente.go` |
 | RFQ | `/thread/{id}*`, `/proposta/{id}/{conferma,scarta}`, `/cruscotto`, `/richieste` | `routes_rfq.go:registraRFQ`; gestori anche in `thread.go`, `richieste.go`, `allegati.go` |
 | postazioni | `/sessione/postazione`, `/admin/postazioni*` | `postazioni_admin.go:registraPostazioni`, `postazione.go` |
 | admin | `/admin/job*`, `/admin/scarti*`, `/admin/nas*`, `/admin/anagrafica*`, `/admin/fornitori*` | `routes_admin.go:registraAdmin`; gestori anche in `integrita_admin.go`, `anagrafica*.go`, `convenzioni_admin.go`, `fornitori_admin.go` |
@@ -52,6 +52,7 @@ altre quattro:
 | `GET /inbox` (prima volta nella sessione), `POST /inbox/aggiorna`, `POST /inbox/sync-storico` | accodano un `sync_outlook` (di apertura, per casella, in modo storico) | `platform/coda` |
 | `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi con il `postazione_id` della sessione; `bozza` richiede la capacità `bozze`, `letto` la capacità `outlook_scrittura`; `apri` è sempre consentito | `platform/coda` |
 | `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `platform/coda` |
+| `GET /allegato/{id}/anteprima` (B8.1) | serve i byte del PDF: **staging** se il contenuto c'è, altrimenti il file del documento sul **NAS**. Nella URL non c'è nessun percorso: quello si compone dal database e passa da `documenti.PercorsoSulNas`. Si serve solo ciò che comincia per `%PDF-`, con `Range`/`If-Range`/`ETag` (`http.ServeContent`) e **senza** ricalcolare l'hash. Un'anomalia aperta ⇒ 409. Se la dimensione non torna o il file è stato toccato dopo l'ultimo sguardo, e SOLO allora, si rilegge una volta con `documenti.VerificaFileAperto`, che su un conflitto **apre l'anomalia** e non fa uscire un byte | `core/rfq/documenti`, `platform/storage/nas` |
 | `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/inbox/classificazione`, `core/inbox/aggancio`, `platform/coda` |
 | `POST /messaggio/{id}/risposta-fornitore`, `/richiesta-fornitore` | «è la risposta a questa richiesta» e «è la richiesta mandata a mano» (7B) | `core/inbox/aggancio`, `platform/db` |
 | `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze` | `platform/coda`, `platform/contratti/worker` |
