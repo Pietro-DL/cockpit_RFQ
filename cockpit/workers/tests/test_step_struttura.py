@@ -1,8 +1,11 @@
 """L2 — la struttura di un file STEP: nodi, relazioni, quantita'.
 
 Le fixture sono COSTRUITE qui, non prese dal corpus riservato: un assieme di prova sta in venti righe
-di Part 21 e il repository puo' contenerlo. Il corpus vero serve alla prova manuale del B8.4 (tre
-STEP dei clienti, grafo confrontato a mano con il CAD), non a questi test.
+di Part 21 e il repository puo' contenerlo. Il corpus vero — che nel repository non c'e' e non ci
+entra — si attraversa con `python workers/diagnostica_step.py`, ed e' li' che si vedono le cose che
+una fixture non puo' inventare: quale esportatore lascia la revisione vuota, in che ordine scrive le
+entita', quanto e' grande davvero un assieme. Due di quelle cose hanno cambiato il lettore, e i test
+che ne sono nati stanno qui sotto.
 
 La regola che questi test difendono, e che il piano chiama A1.2: il worker NON classifica. Non decide
 se `52922757_B` e' un codice, non separa la revisione dal nome, non sa che cosa sia una famiglia. Se
@@ -272,9 +275,122 @@ def test_oltre_il_limite_di_nodi_si_dichiara_troncato(tmp_path):
     percorso, _ = scrivi_step(tmp_path, "tanti.step", prodotti)
     s = leggi_struttura(percorso, {"nodi_max": 3})
     assert s["limiti"]["troncato"] is True
+    assert s["limiti"]["motivo"] == "nodi"
     assert len(s["nodi"]) == 3
     assert any("oltre 3 PRODUCT" in a for a in s["avvisi"]), s["avvisi"]
     assert s["limiti"]["byte_letti"] > 0
+
+
+def test_oltre_il_limite_di_occorrenze_si_dichiara_troncato(tmp_path):
+    """Mille bulloni uguali sono mille occorrenze e due soli nodi: il tetto sui nodi non li fermerebbe."""
+    percorso, rif = scrivi_step(tmp_path, "bulloni.step", [
+        ("A", "ASSIEME", "ASSIEME", "", "1"),
+        ("B", "BULLONE", "BULLONE", "", "1"),
+    ], [("A", "B")] * 6)
+    s = leggi_struttura(percorso, {"occorrenze_max": 3})
+    assert s["limiti"]["troncato"] is True
+    assert s["limiti"]["motivo"] == "occorrenze"
+    assert len(s["nodi"]) == 2, "i nodi c'erano tutti: il tetto e' sulle occorrenze"
+    assert [(r["padre"], r["figlio"], r["qta"]) for r in s["relazioni"]] == [(rif["A"], rif["B"], 3)]
+    assert any("oltre 3 occorrenze" in a for a in s["avvisi"]), s["avvisi"]
+
+
+def test_fermarsi_prima_dei_prodotti_non_e_un_file_senza_prodotti(tmp_path):
+    """In un file vero del corpus le occorrenze stanno PRIMA dei prodotti.
+
+    Fermarsi sul loro tetto vuol dire uscire con zero nodi da un file che ne aveva duecento: se
+    l'avviso dicesse «nessun PRODUCT nel file», direbbe una cosa falsa su un file intero.
+    """
+    testo = (INTESTAZIONE
+             + "".join(f"#{500 + i}=NEXT_ASSEMBLY_USAGE_OCCURRENCE('{i}','','',#102,#112,$);\n"
+                       for i in range(6))
+             + "#100=PRODUCT('A','A','',(#1));\n"
+             + "#101=PRODUCT_DEFINITION_FORMATION('1','',#100);\n"
+             + "#102=PRODUCT_DEFINITION('design','',#101,#1);\n"
+             + "#110=PRODUCT('B','B','',(#1));\n"
+             + "#111=PRODUCT_DEFINITION_FORMATION('1','',#110);\n"
+             + "#112=PRODUCT_DEFINITION('design','',#111,#1);\n"
+             + CHIUSURA)
+    (tmp_path / "prima.step").write_text(testo, encoding="latin-1")
+    s = leggi_struttura(str(tmp_path / "prima.step"), {"occorrenze_max": 3})
+    assert s["limiti"]["motivo"] == "occorrenze"
+    assert s["nodi"] == []
+    assert any("fermata prima di qualsiasi PRODUCT" in a for a in s["avvisi"]), s["avvisi"]
+    assert not any("nessun PRODUCT nel file" in a for a in s["avvisi"]), s["avvisi"]
+
+
+def test_il_tempo_scade_anche_dove_non_c_e_niente_da_contare(tmp_path):
+    """In uno STEP vero la geometria e' quasi tutto il file e non produce nessuna entita' utile.
+
+    Un controllo del tempo fatto solo a ogni entita' trovata, li' dentro, non scatterebbe mai: il
+    worker resterebbe sul file finche' non finisce, tetto o non tetto. I tre PRODUCT stanno in fondo
+    apposta — la lettura non deve arrivarci, e i byte letti devono essere meno di tutto il file.
+    """
+    # meta' righe con apici e meta' senza, per passare da entrambe le vie del tokenizer: quella
+    # completa e quella veloce, che salta la riga intera e prima di oggi non guardava l'orologio.
+    geometria = "".join(
+        f"#{1000 + i}=CARTESIAN_POINT('',(0.,0.,{i}.));\n" if i % 2 else
+        f"#{1000 + i}=B_SPLINE_CURVE_WITH_KNOTS((#1,#2),.UNSPECIFIED.,.F.,.F.);\n"
+        for i in range(6000))
+    testo = (INTESTAZIONE + geometria
+             + "#90000=PRODUCT('COD','COD','',(#1));\n"
+             + "#90001=PRODUCT_DEFINITION_FORMATION('A','',#90000);\n"
+             + "#90002=PRODUCT_DEFINITION('design','',#90001,#1);\n"
+             + CHIUSURA)
+    percorso = tmp_path / "geometria.step"
+    percorso.write_text(testo, encoding="latin-1")
+    s = leggi_struttura(str(percorso), {"tempo_max_s": 0.0})
+    assert s["limiti"]["troncato"] is True
+    assert s["limiti"]["motivo"] == "tempo"
+    assert s["limiti"]["byte_letti"] < percorso.stat().st_size
+    assert s["nodi"] == []
+
+
+def test_il_tempo_scade_anche_su_un_file_di_una_riga_sola(tmp_path):
+    """Certi esportatori scrivono la sezione DATA tutta su una riga: il controllo per righe non
+    scatterebbe mai, e l'unico momento in cui si torna a guardare l'orologio e' a ogni istanza."""
+    corpo = "".join(f"#{100 + i}=PRODUCT('COD{i}','COD{i}','',(#1));" for i in range(50))
+    testo = INTESTAZIONE + corpo + "\n" + CHIUSURA
+    percorso = tmp_path / "una-riga.step"
+    percorso.write_text(testo, encoding="latin-1")
+    s = leggi_struttura(str(percorso), {"tempo_max_s": 0.0})
+    assert s["limiti"]["troncato"] is True
+    assert s["limiti"]["motivo"] == "tempo"
+    assert s["nodi"] == []
+
+
+def test_i_tetti_tornano_indietro_anche_quando_non_servono(tmp_path):
+    """Un albero completo lo dice: `troncato` falso e `motivo` vuoto. E i tetti ci sono lo stesso,
+    perche' fra un anno nessuno potra' piu' sapere quali erano quel giorno."""
+    percorso, _ = scrivi_step(tmp_path, "intero.step", [
+        ("A", "ASSIEME", "ASSIEME", "", "1"),
+        ("B", "PARTE", "PARTE", "", "1"),
+    ], [("A", "B")])
+    s = leggi_struttura(percorso)
+    lim = s["limiti"]
+    assert lim["troncato"] is False and lim["motivo"] == ""
+    assert lim["nodi_max"] > 0 and lim["occorrenze_max"] > 0 and lim["tempo_max_s"] > 0
+    assert lim["byte_letti"] == (tmp_path / "intero.step").stat().st_size
+    assert isinstance(lim["tempo_s"], float) and lim["tempo_s"] >= 0.0
+
+
+def test_una_revisione_fatta_di_spazi_e_una_revisione_assente(tmp_path):
+    """Due CAD veri del corpus scrivono la revisione mancante in due modi: `' '` e `''`.
+
+    Se il primo arrivasse com'e', `rev_grezza` sarebbe «vuota» in un file e «uno spazio» nell'altro,
+    e ogni lettore piu' avanti — il confronto, la proposta, la schermata — dovrebbe sapere che le due
+    cose sono la stessa. Gli spazi ai bordi si tolgono qui, una volta.
+    """
+    testo = (INTESTAZIONE
+             + "#100=PRODUCT('0.000.0000.0',' 0.000.0000.0 ',' ',(#1));\n"
+             + "#101=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE(' ',' ',#100,.NOT_KNOWN.);\n"
+             + "#102=PRODUCT_DEFINITION('design','',#101,#1);\n"
+             + CHIUSURA)
+    (tmp_path / "spazi.step").write_text(testo, encoding="latin-1")
+    nodo = leggi_struttura(str(tmp_path / "spazi.step"))["nodi"][0]
+    assert nodo["rev_grezza"] == ""
+    assert nodo["descrizione_grezza"] == ""
+    assert nodo["nome_grezzo"] == "0.000.0000.0", "dentro la stringa non si tocca niente, ai bordi si'"
 
 
 def test_una_stringa_lunghissima_si_tronca_e_lo_dice(tmp_path):

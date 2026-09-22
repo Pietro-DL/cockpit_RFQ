@@ -32,10 +32,23 @@ VERSIONE_STRUTTURA = 2
 
 # Limiti: un file enorme non deve ne' far fallire il job ne' tenere il worker mezz'ora. Ciò che si è
 # letto vale, il resto si dichiara troncato (§5.4 del piano).
+#
+# Sono TRE tetti perche' un file puo' essere grande in tre modi diversi. `nodi_max` ferma l'assieme
+# con troppi pezzi distinti; `occorrenze_max` ferma quello con pochi pezzi ripetuti un milione di
+# volte (mille bulloni uguali sono mille NEXT_ASSEMBLY_USAGE_OCCURRENCE e un nodo solo, e senza
+# questo tetto il primo a fermarsi sarebbe la memoria); `tempo_max_s` ferma il file che e' lento per
+# una ragione che non avevamo previsto — ed e' l'unico che vale anche mentre si scorre la geometria,
+# dove per minuti interi non si incontra nessuna delle due cose che si contano.
 LIMITI_DEFAULT = {
     "nodi_max": 2000,
+    "occorrenze_max": 50000,
     "tempo_max_s": 120.0,
 }
+
+# Ogni quante righe si guarda l'orologio nel giro veloce. `time.monotonic()` costa poco ma non zero, e
+# su un file di geometria le righe sono centinaia di migliaia: una ogni 4096 e' una volta ogni pochi
+# millisecondi di lettura, cioe' abbastanza spesso da non sforare il tetto in modo visibile.
+RIGHE_FRA_CONTROLLI = 4096
 
 # Quanto si conserva di una stringa del file: oltre, si tronca e si dice di averlo fatto. 200 e' la
 # misura della colonna che la ricevera' (componente_proposta.nome_grezzo).
@@ -94,14 +107,28 @@ def leggi_struttura(percorso: str, limiti: dict | None = None) -> dict:
         "nodi": [],
         "relazioni": [],
         "avvisi": [],
-        "limiti": {"nodi_max": int(lim["nodi_max"]), "byte_letti": 0, "troncato": False},
+        # I tetti tornano indietro insieme a ciò che si è letto, e non per simmetria: chi guarda un
+        # albero troncato deve poter vedere CONTRO QUALE muro si è fermato, senza andare a leggere la
+        # configurazione del worker che l'ha prodotto — che intanto puo' essere cambiata.
+        "limiti": {
+            "nodi_max": int(lim["nodi_max"]),
+            "occorrenze_max": int(lim["occorrenze_max"]),
+            "tempo_max_s": float(lim["tempo_max_s"]),
+            "byte_letti": 0,
+            "tempo_s": 0.0,
+            "troncato": False,
+            "motivo": "",
+        },
     }
+    inizio = time.monotonic()
     try:
         return _leggi(percorso, lim, s)
     except Exception as e:                                  # noqa: BLE001 — l'analisi non deve morire qui
         log.warning("struttura STEP non letta per %s: %s", percorso, e)
         s["avvisi"].append(f"struttura non letta: {type(e).__name__}: {e}"[:MAX_TESTO])
         return s
+    finally:
+        s["limiti"]["tempo_s"] = round(time.monotonic() - inizio, 3)
 
 
 def _leggi(percorso: str, lim: dict, s: dict) -> dict:
@@ -121,7 +148,7 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
         troncati = 0
         scaduto = time.monotonic() + float(lim["tempo_max_s"])
 
-        for ref, testo in _istanze(f, s):
+        for ref, testo in _istanze(f, s, scaduto):
             nome, argomenti = _prima_entita_utile(testo)
             if nome is None:
                 continue
@@ -141,9 +168,8 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
                     valori.append(v)
                 prodotti[ref] = (valori[0], valori[1], valori[2])
                 if len(prodotti) > int(lim["nodi_max"]):
-                    s["limiti"]["troncato"] = True
-                    s["avvisi"].append(f"oltre {int(lim['nodi_max'])} PRODUCT: letti i primi")
                     prodotti.pop(ref)
+                    _tronca(s, "nodi", f"oltre {int(lim['nodi_max'])} PRODUCT: letti i primi")
                     break
             elif nome == "PRODUCT_DEFINITION_FORMATION" and len(argomenti) >= 3:
                 rev, t = _testo(argomenti[0])
@@ -153,15 +179,27 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
                 definizioni[ref] = _riferimento(argomenti[2])
             elif nome == "NEXT_ASSEMBLY_USAGE_OCCURRENCE" and len(argomenti) >= 5:
                 nauo.append((ref, _riferimento(argomenti[3]), _riferimento(argomenti[4])))
+                if len(nauo) > int(lim["occorrenze_max"]):
+                    nauo.pop()
+                    _tronca(s, "occorrenze",
+                            f"oltre {int(lim['occorrenze_max'])} occorrenze: lette le prime")
+                    break
+            # Il tempo si guarda anche qui, e non solo dentro `_istanze`: un esportatore che scrive
+            # tutto il file su una riga sola non fa mai girare il controllo per righe, e l'unico
+            # momento in cui si torna a passare di qua e' a ogni istanza che quella riga produce.
             if time.monotonic() > scaduto:
-                s["limiti"]["troncato"] = True
-                s["avvisi"].append(f"lettura interrotta dopo {lim['tempo_max_s']:.0f} s: letto ciò che c'era")
+                _tronca(s, "tempo",
+                        f"lettura interrotta dopo {float(lim['tempo_max_s']):g} s: letto ciò che c'era")
                 break
 
     if troncati:
         s["avvisi"].append(f"{troncati} testi troncati a {MAX_TESTO} caratteri")
     if not prodotti:
-        s["avvisi"].append("nessun PRODUCT nel file")
+        # «Non ce n'erano» e «non ci siamo arrivati» sono due cose diverse, e in molti esportatori le
+        # occorrenze stanno PRIMA dei prodotti: fermarsi sul loro tetto vuol dire uscire con zero
+        # nodi da un file che ne aveva duecento. Dirlo «nessun PRODUCT nel file» sarebbe falso.
+        s["avvisi"].append("lettura fermata prima di qualsiasi PRODUCT" if s["limiti"]["troncato"]
+                           else "nessun PRODUCT nel file")
         return s
     _componi(s, prodotti, formazioni, definizioni, nauo)
     return s
@@ -256,23 +294,48 @@ def _ordine(rif: str) -> int:
         return 0
 
 
+def _tronca(s: dict, motivo: str, avviso: str) -> None:
+    """Segna che il grafo e' PARZIALE, e contro quale tetto si e' fermato.
+
+    Il primo motivo vince: se la lettura si e' fermata sui nodi, il tempo che scade un istante dopo
+    non e' la ragione per cui manca il resto del file, ed e' la prima che chi guarda deve vedere.
+    """
+    if s["limiti"]["troncato"]:
+        return
+    s["limiti"]["troncato"] = True
+    s["limiti"]["motivo"] = motivo
+    s["avvisi"].append(avviso)
+
+
 # ---------------------------------------------------------------- il tokenizer Part 21
 
 
-def _istanze(f, s: dict):
+def _istanze(f, s: dict, scaduto: float):
     """Genera `(#ref, testo)` per ogni istanza del file, riga per riga.
 
     Un'istanza e' `#id = ENTITA(attributi);` e puo' occupare piu' righe. Il `;` dentro una stringa non
     la chiude, l'apice raddoppiato `''` non la apre, e i commenti `/* */` possono stare ovunque: sono
     le tre cose per cui un `split(";")` non basta e serve questo giro.
+
+    Il tempo si controlla QUI, e non solo da chi consuma: in uno STEP vero la geometria e' il 99% del
+    file e non produce nessuna istanza utile, quindi un controllo fatto solo a ogni `yield` potrebbe
+    non arrivare mai. Un file di soli triangoli deve fermarsi al suo tetto come tutti gli altri.
     """
     buf: list[str] = []
     in_stringa = False
     in_commento = False
     letti = s["limiti"]["byte_letti"]
+    al_controllo = RIGHE_FRA_CONTROLLI
     for linea in f:
         letti += len(linea)
         s["limiti"]["byte_letti"] = letti      # anche se il chiamante si ferma a meta', il conto e' vero
+        al_controllo -= 1
+        if al_controllo <= 0:
+            al_controllo = RIGHE_FRA_CONTROLLI
+            if time.monotonic() > scaduto:
+                _tronca(s, "tempo",
+                        f"lettura interrotta dopo {s['limiti']['tempo_max_s']:g} s: letto ciò che c'era")
+                return
         # Via veloce, ed e' quella che fa quasi tutto il lavoro: una riga di geometria non ha apici
         # ne' commenti, chiude ciò che apre e non nomina nessuna delle entita' che servono. Si salta
         # intera, senza ricomporre niente.
@@ -426,6 +489,11 @@ def _testo(argomento: str) -> tuple[str, int]:
 
     `$` (non impostato) e `*` (derivato) sono attributi VUOTI, non i caratteri che si vedono: un
     dollaro finito in `nome_grezzo` sarebbe un nome inventato dal parser.
+
+    Gli spazi ai bordi si tolgono, e non e' una lettura: un esportatore vero scrive la revisione
+    assente come `' '` e un altro come `''`, e sono la stessa cosa detta in due modi. Lasciare il
+    primo passare significherebbe che `rev_grezza` a volte e' «vuota» e a volte «uno spazio», e che
+    ogni lettore piu' avanti debba sapere che sono uguali. Dentro la stringa non si tocca niente.
     """
     a = argomento.strip()
     if a.startswith("(") and a.endswith(")"):
@@ -433,7 +501,7 @@ def _testo(argomento: str) -> tuple[str, int]:
         return _testo(interni[0]) if interni else ("", 0)
     if not a.startswith("'") or not a.endswith("'") or len(a) < 2:
         return "", 0
-    valore = _decodifica(a[1:-1].replace("''", "'"))
+    valore = _decodifica(a[1:-1].replace("''", "'")).strip()
     if len(valore) > MAX_TESTO:
         return valore[:MAX_TESTO], 1
     return valore, 0
