@@ -850,7 +850,7 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		if a.Sha256.Valid && a.Sha256.String != "" {
 			if _, err := q.UpsertAnalisiFatti(ctx, db.UpsertAnalisiFattiParams{
 				Sha256: a.Sha256.String, VersioneAnalizzatore: int16(r.VersioneAnalizzatore),
-				HashConfigurazione: r.HashConfigurazione, Fatti: dett,
+				HashConfigurazione: r.HashConfigurazione, Fatti: conEsito(dett, r),
 			}); err != nil {
 				return fmt.Errorf("analisi_fatti: %w", err)
 			}
@@ -947,6 +947,107 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 }
 
+// esitoAnalisi è la LETTURA del worker — che cosa ha concluso, non solo che cosa ha visto — conservata
+// dentro `analisi_fatti.fatti` sotto la chiave `esito`.
+//
+// I dettagli da soli non bastano a riscrivere una proposta: dicono i termini trovati e il PRODUCT
+// dello STEP, non il tipo di documento né la confidenza. Finché l'unico a scrivere la proposta era il
+// result dell'analisi la cosa non si vedeva, perché tipo e codice arrivavano nello stesso messaggio;
+// per applicare i fatti a un allegato che arriva DOPO (applicaFattiEsistenti) servono anche quelli.
+//
+// Sta dentro il JSON e non in una colonna nuova perché `analisi_fatti` è la tabella dei fatti per
+// contenuto e la sua chiave non cambia: si aggiunge una chiave al documento, non una migrazione.
+type esitoAnalisi struct {
+	TipoProposto string `json:"tipo_proposto"`
+	Codice       string `json:"codice,omitempty"`
+	Rev          string `json:"rev,omitempty"`
+	Confidenza   int    `json:"confidenza"`
+	Fonte        string `json:"fonte"`
+}
+
+// conEsito mette l'esito accanto ai dettagli, senza toccarli.
+func conEsito(dett json.RawMessage, r worker.RisultatoAnalisi) json.RawMessage {
+	return conDettagli(dett, map[string]any{"esito": esitoAnalisi{
+		TipoProposto: r.TipoProposto, Codice: r.Codice, Rev: r.Rev,
+		Confidenza: r.Confidenza, Fonte: r.Fonte,
+	}})
+}
+
+// separaEsito rilegge quel documento: da una parte i dettagli come li ha scritti il worker, dall'altra
+// l'esito. `ok` falso = fatti scritti prima di questa versione (nessun `esito`): non si indovina.
+func separaEsito(fatti json.RawMessage) (json.RawMessage, esitoAnalisi, bool) {
+	var campi map[string]json.RawMessage
+	if err := json.Unmarshal(fatti, &campi); err != nil || campi == nil {
+		return json.RawMessage("{}"), esitoAnalisi{}, false
+	}
+	grezzo, presente := campi["esito"]
+	if !presente {
+		return fatti, esitoAnalisi{}, false
+	}
+	var es esitoAnalisi
+	if err := json.Unmarshal(grezzo, &es); err != nil || es.TipoProposto == "" || es.Fonte == "" {
+		return fatti, esitoAnalisi{}, false
+	}
+	delete(campi, "esito")
+	dett, err := json.Marshal(campi)
+	if err != nil {
+		dett = json.RawMessage("{}")
+	}
+	return dett, es, true
+}
+
+// applicaFattiEsistenti dà a un allegato appena sceso in staging l'analisi che un altro allegato con lo
+// STESSO contenuto ha già fatto fare.
+//
+// È la seconda metà di AccodaAnalisi (`coda/stage.go`): quella restituisce (nil, nil) quando i fatti
+// per (contenuto, versione, configurazione) ci sono già, e il commento diceva «il chiamante li
+// riuserà» mentre i due chiamanti scartavano il valore. Il risultato era che il secondo allegato con
+// lo stesso sha256 non riceveva MAI la lettura dell'analisi: restava con la proposta dal nome, e in
+// una RFQ dove lo stesso disegno arriva in due mail il secondo file era sempre meno preciso del primo
+// senza che nessuno potesse dire perché (voce 1.4 del piano B8).
+//
+// Non si accoda niente: i fatti sono già qui, e rianalizzare lo stesso contenuto per la seconda copia
+// è esattamente ciò che la chiave per contenuto serve a evitare.
+func (s *Server) applicaFattiEsistenti(ctx context.Context, q *db.Queries, a db.Allegato) error {
+	if !a.Sha256.Valid || a.Sha256.String == "" {
+		return nil
+	}
+	f, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{
+		Sha256: a.Sha256.String, VersioneAnalizzatore: int16(s.Analizzatore.Versione),
+		HashConfigurazione: s.Analizzatore.Hash(),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // l'analisi è in coda o non è mai partita: la proposta resta quella dal nome
+	}
+	if err != nil {
+		return fmt.Errorf("fatti già calcolati: %w", err)
+	}
+	dett, es, ok := separaEsito(f.Fatti)
+	if !ok {
+		// Fatti scritti prima che l'esito ci fosse: i dettagli da soli non dicono il tipo proposto, e
+		// inventarlo sarebbe peggio che non scriverlo. Si riapplicheranno dopo una rianalisi, che una
+		// versione nuova dell'analizzatore fa partire da sé.
+		s.Log.Info("fatti senza esito: l'allegato resta con la proposta dal nome",
+			"allegato", a.AllegatoID, "file", a.NomeFile, "versione", s.Analizzatore.Versione)
+		return nil
+	}
+	tipo, err := enumValido[db.TipoDocumento]("tipo_proposto", es.TipoProposto)
+	if err != nil {
+		return fmt.Errorf("esito dei fatti di %s: %w", a.NomeFile, err)
+	}
+	fonte, err := enumValido[db.FonteProposta]("fonte", es.Fonte)
+	if err != nil {
+		return fmt.Errorf("esito dei fatti di %s: %w", a.NomeFile, err)
+	}
+	// La stessa funzione del result: la proposta è dell'allegato, quindi la direzione del messaggio e
+	// le regole del suo cliente vanno rilette per questa copia, non copiate dalla prima (A15).
+	return s.propostaDaAnalisi(ctx, q, a, tipo, fonte, worker.RisultatoAnalisi{
+		AllegatoID: a.AllegatoID, TipoProposto: es.TipoProposto, Codice: es.Codice, Rev: es.Rev,
+		Confidenza: es.Confidenza, Fonte: es.Fonte,
+		VersioneAnalizzatore: s.Analizzatore.Versione, HashConfigurazione: s.Analizzatore.Hash(),
+	}, dett)
+}
+
 // riallineaEntryID aggiorna la PRESENZA quando il worker ha trovato l'elemento con un EntryID diverso
 // da quello del payload (elemento spostato di cartella dopo l'ultimo sync).
 //
@@ -1018,8 +1119,16 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 			worker.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, "estrai:"+a.AllegatoID.String(), 4)
 		return err
 	}
-	_, err = coda.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
-	return err
+	j, err := coda.AccodaAnalisi(ctx, q, a, m.ThreadID, s.Analizzatore)
+	if err != nil {
+		return err
+	}
+	if j == nil {
+		// i fatti di questo contenuto ci sono già: non partirà nessuna analisi, quindi la lettura la
+		// applica qui il server, adesso
+		return s.applicaFattiEsistenti(ctx, q, a)
+	}
+	return nil
 }
 
 func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr classificazione.Proposta, dettagli map[string]any) error {

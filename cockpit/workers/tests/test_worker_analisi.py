@@ -142,3 +142,54 @@ def test_immagine_scansionata_resta_da_determinare(tmp_path):
     res = analizza_file(str(percorso), "6674611A.tif")
     assert res["tipo_proposto"] == "da_determinare", res
     assert res["codice"] == "6674611A"
+
+
+# ---------------------------------------------------------------- STEP (B8.4)
+#
+# `analizza_file` su uno STEP fa due letture che vanno tenute distinte: il tipo e il codice come
+# sempre — ipotesi dal nome o dal primo PRODUCT — e la STRUTTURA, che e' un fatto del contenuto e non
+# porta nessuna classificazione. Le prove sul parser stanno in test_step_struttura.py; qui si prova
+# che l'analisi le metta tutte e due nel risultato senza confonderle.
+
+from tests.test_step_struttura import scrivi_step
+
+
+def test_uno_step_porta_la_struttura_nei_dettagli(tmp_path):
+    percorso, rif = scrivi_step(tmp_path, "52922757.step", [
+        ("A", "52922757", "52922757", "PRODOTTO", "B"),
+        ("B", "52920517", "52920517", "PIASTRA", "1"),
+    ], [("A", "B")])
+    res = analizza_file(percorso, "52922757.step")
+    assert res["tipo_proposto"] == "cad_3d"
+    struttura = res["dettagli"]["struttura"]
+    assert struttura["versione"] == 2
+    assert [n["chiave"] for n in struttura["nodi"]] == [rif["A"], rif["B"]]
+    assert struttura["relazioni"][0]["qta"] == 1
+    # il codice del risultato resta l'ipotesi di sempre, e non viene dalla struttura
+    assert res["codice"] == "52922757" and res["fonte"] == "step"
+    assert res["dettagli"]["product_step"] == "52922757"
+
+
+def test_uno_step_con_un_nome_che_non_e_un_codice(tmp_path):
+    """Senza codice il documento resta senza codice, ma la struttura c'e' lo stesso: e' il caso in
+    cui l'ingegnere lo digita guardando i nomi dei nodi."""
+    percorso, _ = scrivi_step(tmp_path, "Assem2.step", [("A", "Assem2", "Assem2", "", "")])
+    res = analizza_file(percorso, "Assem2.step")
+    assert res["codice"] == "" and res["fonte"] == "estensione"
+    assert [n["nome_grezzo"] for n in res["dettagli"]["struttura"]["nodi"]] == ["Assem2"]
+
+
+def test_uno_step_illeggibile_non_fa_fallire_l_analisi(tmp_path):
+    percorso = tmp_path / "rotto.step"
+    percorso.write_bytes(b"non sono uno step\x00\x01\x02")
+    res = analizza_file(str(percorso), "rotto.step")
+    assert res["tipo_proposto"] == "cad_3d"
+    assert res["dettagli"]["struttura"]["avvisi"] == ["non e' un file STEP Part 21"]
+    assert res["dettagli"]["struttura"]["nodi"] == []
+
+
+def test_la_struttura_non_arriva_dai_pdf(tmp_path):
+    """Solo gli STEP hanno una struttura: un PDF non deve portare un campo vuoto che sembra un grafo."""
+    p = scrivi_pdf(tmp_path, "capitolato.pdf", "CONDIZIONI GENERALI\nQUALITA'")
+    res = analizza_file(p, "capitolato.pdf")
+    assert "struttura" not in res["dettagli"]

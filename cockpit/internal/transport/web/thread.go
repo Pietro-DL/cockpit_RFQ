@@ -26,7 +26,8 @@ type threadDati struct {
 	Fascicolo      []db.VFascicolo
 	Bozze          []db.Bozza
 	Componenti     []db.Componente
-	NDaSmistare    int
+	// NDaSmistare: proposte ancora aperte della RFQ, letto da v_cruscotto.n_da_smistare (vedi caricaThread).
+	NDaSmistare int
 	// NDaCopiare: documenti confermati che NON sono sul NAS — in attesa oppure in errore.
 	//
 	// «In attesa» e' la conseguenza normale di una conferma data mentre [sicurezza].nas_scrittura era
@@ -231,6 +232,13 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 		d.NAnomalie = int(n)
 	}
 	d.Riga, _ = q.GetCruscottoRiga(ctx, id)
+	// «Da smistare» è UN numero solo, quello di v_cruscotto: le proposte ancora aperte di questa RFQ.
+	//
+	// Fino al blocco 8 questa pagina se lo contava da sé girando gli allegati dei messaggi, e il
+	// conto veniva diverso da quello della lista Richieste — stessa etichetta, due numeri, e nessun
+	// modo di sapere quale fosse quello buono. Il conto della vista è anche l'unico che vede una
+	// proposta il cui allegato la pagina non mostra.
+	d.NDaSmistare = int(d.Riga.NDaSmistare)
 	d.Cliente, _ = q.GetCliente(ctx, t.ClienteID)
 	d.Identificativi, _ = q.ListIdentificativi(ctx, id)
 	d.Documenti, _ = q.ListDocumentiThread(ctx, id)
@@ -261,16 +269,6 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 			mt.Copia, mt.Motivo = s.copiaInterattiva(ctx, q, m.MessaggioID, sess)
 		}
 		mt.Allegati, _ = s.allegatiUI(ctx, q, m.MessaggioID)
-		for _, a := range mt.Allegati {
-			if a.Proposta != nil && a.Proposta.Stato == db.StatoPropostaAperta && a.Natura == db.NaturaAllegatoFile {
-				d.NDaSmistare++
-			}
-			for _, f := range a.Figli {
-				if f.Proposta != nil && f.Proposta.Stato == db.StatoPropostaAperta {
-					d.NDaSmistare++
-				}
-			}
-		}
 		d.Messaggi = append(d.Messaggi, mt)
 	}
 	return d, nil

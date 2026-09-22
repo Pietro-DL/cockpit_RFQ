@@ -1,7 +1,7 @@
 # I worker — come parlano con `cockpit.exe`
 
 Documentazione dei due client Python (`worker_outlook.py`, `worker_analisi.py`) e dei moduli comuni
-(`cockpit_client.py`, `contratti.py`, `protocollo.py`). Aggiornata al ramo `blocco-7` dopo il Pre-7 (commit
+(`cockpit_client.py`, `contratti.py`, `protocollo.py`, `step_struttura.py`). Aggiornata al ramo `blocco-7` dopo il Pre-7 (commit
 `1fc5584`): rispetto alla prima stesura (`0bdea9f`) sono cambiati il sync (finestra chiusa decisa dal server,
 frontiere che avanzano solo a finestra percorsa), la sicurezza (capacità al posto della modalità shadow), lo
 staging (cache per contenuto sul server, cartella propria del worker), gli archivi (li scompatta il server).
@@ -223,12 +223,24 @@ contenuto, anche se lo stesso file arriva da tre messaggi).
 |---|---|
 | Dove gira | su qualunque postazione (7C.1, P0). Il payload non porta percorsi del server: il worker scarica i byte con `GET /allegati/{id}/contenuto` dentro il proprio tentativo, li scrive in `<staging del worker>\tmp\<job>\`, verifica lo sha256 del payload, analizza e cancella. Fino al banco a due macchine del 20/09/2026 portava `path_staging`, il percorso sul disco del server, e il worker sull'altro PC falliva con «file non trovato in staging» |
 | Payload | `PayloadAnalizzaAllegato{allegato_id, sha256, bytes, nome_file, thread_id?, messaggio_id, versione_analizzatore, hash_configurazione, parametri}` — i `parametri` (dizionari dei termini) li manda il server dalla `[analisi]` di `cockpit.toml`. Un `path_staging` in un job vecchio ancora in coda viene ignorato |
-| Cosa fa | `analizza_file()`: PDF con PyMuPDF (testo, termini di cartiglio, righe che sembrano codici), STEP (PRODUCT, occorrenze). **Gli archivi non li vede**: li scompatta il server (`estrai_archivio`) e ogni voce diventa un allegato figlio con il proprio job di analisi |
+| Cosa fa | `analizza_file()`: PDF con PyMuPDF (testo, termini di cartiglio, righe che sembrano codici); STEP con `step_struttura.py` (tokenizer Part 21, nessuna dipendenza nuova): il grafo `PRODUCT` → `NEXT_ASSEMBLY_USAGE_OCCURRENCE` finisce in `dettagli.struttura` come nodi, relazioni e quantita'. **Gli archivi non li vede**: li scompatta il server (`estrai_archivio`) e ogni voce diventa un allegato figlio con il proprio job di analisi |
 | Risultato | `RisultatoAnalisi{allegato_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli, versione_analizzatore, hash_configurazione}` → il server esige la stessa versione e configurazione che aveva chiesto (altrimenti il job fallisce in modo definitivo), scrive `analisi_fatti(sha256, versione, hash_config)` e una **proposta** (`documento_proposta`) per ogni allegato aperto con quello sha256, ciascuno con la direzione del suo messaggio e le regole del suo cliente |
 
 Il Python riporta ciò che ha letto nel file; la proposta scritta in database la compone il Go
 (`workerapi.propostaDaAnalisi`), una per RFQ. Il worker oggi **ignora `parametri`** e usa i propri dizionari: i
 parametri viaggiano ma non vengono letti, e l'allineamento resta da fare.
+
+**La struttura non porta codici** (blocco 8, A1.2). Ogni nodo porta gli attributi grezzi dell'entità —
+`id_grezzo`, `nome_grezzo`, `descrizione_grezza`, `rev_grezza` — e l'evidenza di quale riga del file li ha
+prodotti. Decidere se `52922757_B` è un codice, e quale ne sia la revisione, dipende dalle famiglie del
+CLIENTE di quella richiesta: il worker non sa nemmeno di che cliente si tratti, e quella lettura la fa il
+server con le regole già scritte per oggetto, corpo e nomi dei file. `struttura.versione = 2` dice
+esattamente questo: la 1 (mai entrata in produzione) metteva i codici nei nodi.
+
+I campi `codice`/`rev` di primo livello del risultato restano quelli di sempre — un'ipotesi dal nome del file
+o dal primo `PRODUCT` — e servono a `documento_proposta`. Sono un suggerimento, non la sorgente della
+struttura. `[analisi] versione = 2` in `cockpit.toml` è la chiave sotto cui i fatti nuovi vengono conservati:
+quelli della 1 restano dove sono.
 
 ## 7. Errori e ripresa
 
@@ -237,11 +249,12 @@ parametri viaggiano ma non vengono letti, e l'allineamento resta da fare.
 **tentativo** 409 (il lavoro corrente non vale più: nessun result), **server** 5xx (riprova), **richiesta**
 4xx (errore definitivo: il server registra il fallimento).
 
-Il thread `Battito`: gira accanto al lavoro, manda heartbeat ogni `min(max(5, lease_s/4), 20)` secondi, e
-quando riceve 409 alza il flag di arresto. Il lavoro che può fermarsi lo fa ai punti di ripresa (fra un
-elemento e l'altro). Il lavoro bloccato dentro COM non può: dopo 15 s il processo esce con `os._exit(3)` e
-l'attività pianificata lo riavvia; il job, lato server, è già tornato `pronto` e sarà ripreso da un tentativo
-con token nuovo.
+Il thread `Battito`: gira accanto al lavoro in **tutti e due** i worker, manda heartbeat ogni
+`min(max(5, lease_s/4), 20)` secondi, e quando riceve 409 alza il flag di arresto. Il lavoro che può fermarsi
+lo fa ai punti di ripresa (fra un elemento e l'altro nel worker Outlook; fra il download e l'analisi in quello
+analisi). Il lavoro bloccato dentro COM — o dentro la lettura di un PDF che non ritorna — non può: dopo 15 s
+il processo esce con `os._exit(3)` e l'attività pianificata lo riavvia; il job, lato server, è già tornato
+`pronto` e sarà ripreso da un tentativo con token nuovo.
 
 Un solo worker Outlook per PC (mutex); Outlook classico aperto nella sessione dell'utente (COM non gira
 senza sessione interattiva).

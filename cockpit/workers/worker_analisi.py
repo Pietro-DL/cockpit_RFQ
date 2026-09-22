@@ -20,9 +20,11 @@ from uuid import UUID
 
 import pymupdf
 
-from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Cockpit, ContenutoIncompleto, ErroreHTTP, ImprontaSbagliata,
-                            carica_config, configura_log, diagnosi, nome_worker, riporta_risultato)
+from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ContenutoIncompleto, ErroreHTTP,
+                            ImprontaSbagliata, cadenza_battito, carica_config, configura_log, diagnosi,
+                            leggi_marcatore_arresto, nome_worker, riporta_risultato)
 from contratti import Job, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta
+from step_struttura import leggi_struttura
 
 log = logging.getLogger("worker-analisi")
 
@@ -243,9 +245,30 @@ def conta_righe_codice(testo: str) -> int:
 
 
 def analizza_step(percorso: str, nome_file: str) -> dict:
-    """Estrae definizioni PRODUCT da file STEP ISO 10303-21."""
+    """Che cosa c'e' dentro questo file STEP.
+
+    Due letture, e vanno tenute distinte (addendum B8, A1.2).
+
+    La prima e' quella di sempre: il primo `PRODUCT` dei primi 100 KB, passato da `sembra_codice`, che
+    diventa `codice`/`rev` del risultato. E' un'IPOTESI dal nome, buona per `documento_proposta`, e
+    resta com'e' per non cambiare sotto i piedi a chi la legge gia'.
+
+    La seconda e' la STRUTTURA: nodi, relazioni e quantita', con gli attributi grezzi delle entita' e
+    nessuna interpretazione. Nei nodi non c'e' nessun codice, e non e' una dimenticanza: che cosa sia
+    un codice lo dicono le regole del CLIENTE della richiesta, e il worker non sa nemmeno di che
+    cliente si tratti. La struttura non fa mai fallire il job: se il file non si legge resta l'avviso,
+    e il tipo lo dice comunque l'estensione.
+    """
     nome_senza_ext = Path(nome_file).stem
     codice, rev = separa_codice_rev(nome_senza_ext)
+    esito = {
+        "tipo_proposto": "cad_3d",
+        "codice": codice,
+        "rev": rev,
+        "confidenza": 80 if codice else 60,
+        "fonte": "nome_file" if codice else "estensione",
+        "dettagli": {"struttura": leggi_struttura(percorso)},
+    }
     try:
         with open(percorso, "r", encoding="utf-8", errors="ignore") as f:
             # Leggi primi 100KB per trovare PRODUCT
@@ -253,27 +276,18 @@ def analizza_step(percorso: str, nome_file: str) -> dict:
         m = RE_STEP_PRODUCT.search(contenuto)
         if m:
             codice_step = m.group(1).strip()
+            esito["dettagli"]["product_step"] = codice_step
             if sembra_codice(codice_step):
                 c_step, r_step = separa_codice_rev(codice_step)
-                return {
-                    "tipo_proposto": "cad_3d",
+                esito.update({
                     "codice": c_step or codice_step,
                     "rev": r_step or rev,
                     "confidenza": 95,
                     "fonte": "step",
-                    "dettagli": {"product_step": codice_step},
-                }
+                })
     except Exception as e:
         log.warning("lettura STEP fallita per %s: %s", percorso, e)
-
-    return {
-        "tipo_proposto": "cad_3d",
-        "codice": codice,
-        "rev": rev,
-        "confidenza": 80 if codice else 60,
-        "fonte": "nome_file" if codice else "estensione",
-        "dettagli": {},
-    }
+    return esito
 
 
 def rimuovi_con_pazienza(percorso: str, tentativi: int = 10, attesa_s: float = 0.2) -> bool:
@@ -372,6 +386,11 @@ class WorkerAnalisi:
         # Non e' lo staging del server, che puo' stare su un altro PC.
         self.staging = os.path.abspath(cfg.get("staging") or ".")
         self.svuota_tmp()
+        self.battito: Battito | None = None
+        # quanto si concede al lavoro per fermarsi da solo dopo un 409, prima dell'uscita forzata (C16)
+        self.arresto_forzato_s = float(cfg.get("arresto_forzato_s", 15))
+        self.marcatore_arresto = os.path.join(self.staging, "ultimo_arresto.txt")
+        self.ultimo_arresto = leggi_marcatore_arresto(self.marcatore_arresto)
 
     def svuota_tmp(self) -> int:
         """`tmp\\` e' di passaggio: il contenuto scaricato dal server sta li' il tempo dell'analisi e si
@@ -395,12 +414,29 @@ class WorkerAnalisi:
             log.info("cartella tmp svuotata all'avvio: %d voci di tentativi precedenti", n)
         return n
 
+    def controlla(self) -> None:
+        """Punto di ripresa: se il battito ha perso il lease, il lavoro si ferma qui.
+
+        Sta fra il download e l'analisi, che e' il confine fra le due cose lunghe di questo worker: piu'
+        in la' la lettura del file non e' interrompibile, e a fermare il processo e' l'uscita forzata
+        del battito (C16)."""
+        if self.battito is not None:
+            self.battito.controlla()
+
+    def segna(self, fase: str) -> None:
+        if self.battito is not None:
+            self.battito.segna_fase(fase)
+
     def esegui_per_sempre(self, una_volta: bool = False) -> None:
         log.info("worker %s collegato a %s", self.worker_id, self.api.url)
         attesa = 5
         while True:
             try:
-                r = self.api.claim("analisi", self.worker_id, extra={"postazione": socket.gethostname().upper()})
+                extra = {"postazione": socket.gethostname().upper()}
+                if self.ultimo_arresto:
+                    extra["ultimo_arresto"] = self.ultimo_arresto
+                r = self.api.claim("analisi", self.worker_id, extra=extra)
+                self.ultimo_arresto = ""            # riportato una volta: il server lo conserva
                 job = Job.model_validate(r) if r else None
                 attesa = 5
             except (ImprontaSbagliata, ErroreHTTP, *ERRORI_RETE) as e:
@@ -427,18 +463,37 @@ class WorkerAnalisi:
     def esegui(self, job: Job) -> None:
         t0 = time.time()
         log.info("job %d %s (tentativo %d)", job.job_id, job.tipo, job.tentativi)
-        try:
-            if job.tipo != "analizza_allegato":
-                raise ValueError(f"tipo job imprevisto per worker analisi: {job.tipo}")
-            p = PayloadAnalizzaAllegato.model_validate(job.payload)
-            ris = self.analizza(job, p)
-        except ArrestoRichiesto as e:
-            # il tentativo non e' piu' nostro: niente result, il job e' gia' di un altro tentativo
-            log.warning("job %d interrotto: %s", job.job_id, e)
+        # Il battito sta su un thread suo per tutta la durata del job, come nel worker Outlook. Il
+        # lease di un'analisi e' di 120 secondi (coda.go) e un PDF da qualche centinaio di pagine, o un
+        # download da un server lento, ci arrivano senza fatica: senza battito il server riprende il
+        # job a meta' lavoro e poi RIFIUTA il result con 409 — analisi fatta, tempo buttato, proposta
+        # invariata. Se il 409 arriva lo stesso, il thread alza il flag: il lavoro si ferma al primo
+        # punto di ripresa (controlla) e, se e' dentro una lettura che non ritorna, dopo
+        # arresto_forzato_s il processo esce con codice 3 e l'attivita' pianificata lo riavvia (C16).
+        with Battito(self.api, job.job_id, self.worker_id, job.lease_token,
+                     ogni_s=cadenza_battito(job.lease_s), arresto_forzato_s=self.arresto_forzato_s) as b:
+            b.marcatore_arresto = self.marcatore_arresto
+            self.battito = b
+            b.segna_fase(job.tipo)
+            try:
+                if job.tipo != "analizza_allegato":
+                    raise ValueError(f"tipo job imprevisto per worker analisi: {job.tipo}")
+                p = PayloadAnalizzaAllegato.model_validate(job.payload)
+                ris = self.analizza(job, p)
+            except ArrestoRichiesto as e:
+                # il tentativo non e' piu' nostro: niente result, il job e' gia' di un altro tentativo
+                log.warning("job %d interrotto: %s", job.job_id, e)
+                self.battito = None
+                return
+            except Exception as e:
+                log.exception("job %d errore: %s", job.job_id, e)
+                ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
+            perso = b.arresto.is_set()
+        self.battito = None
+        if perso:
+            # il lease e' di un altro tentativo: riportare adesso sarebbe scrivere sopra al suo lavoro
+            log.warning("job %d: lease perso durante l'analisi, risultato non riportato", job.job_id)
             return
-        except Exception as e:
-            log.exception("job %d errore: %s", job.job_id, e)
-            ris = RisultatoRichiesta(esito="errore", errore=f"{type(e).__name__}: {e}"[:2000])
 
         riporta_risultato(self.api, job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token, log)
         log.info("job %d completato in %.2fs -> %s", job.job_id, time.time() - t0, ris.esito)
@@ -457,6 +512,7 @@ class WorkerAnalisi:
         dest = os.path.join(locale, "contenuto" + (ext if re.fullmatch(r"\.[a-z0-9]{1,10}", ext) else ""))
         try:
             try:
+                self.segna(f"scarico {p.nome_file} ({p.bytes} byte)")
                 n, sha = self.api.scarica_contenuto(str(p.allegato_id), job.job_id, job.lease_token,
                                                     self.worker_id, dest)
             except ErroreHTTP as e:
@@ -474,6 +530,8 @@ class WorkerAnalisi:
                 raise ContenutoIncompleto(f"sha256 del contenuto scaricato {sha[:12]}… diverso da quello atteso {atteso[:12]}…")
             if p.bytes and n != p.bytes:
                 raise ContenutoIncompleto(f"scaricati {n} byte, attesi {p.bytes}")
+            self.controlla()
+            self.segna(f"analisi di {p.nome_file}")
             esito = analizza_file(dest, p.nome_file)
         finally:
             rimuovi_con_pazienza(dest)

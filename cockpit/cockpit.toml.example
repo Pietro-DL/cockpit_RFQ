@@ -238,7 +238,11 @@ cache_gg = 30
 # insieme allo sha256 del file, la chiave sotto cui i fatti vengono conservati e riusati: lo stesso
 # disegno in tre RFQ fa partire una sola analisi. Cambiare un termine qui basta a far rianalizzare
 # tutto, senza toccare il codice — ed è il motivo per cui i parametri stanno qui e non nel worker.
-versione = 1
+#
+# La 2 (blocco 8) e' quella che legge la STRUTTURA degli STEP: nodi, relazioni e quantita' in
+# `dettagli.struttura`. Alzandola, i file gia' analizzati con la 1 vengono rianalizzati quando
+# tornano utili: i fatti della 1 restano dove sono, sotto la loro chiave.
+versione = 2
 
 [analisi.parametri]
 # I termini restano oggi dentro worker_analisi.py: qui si dichiara la configurazione che identifica

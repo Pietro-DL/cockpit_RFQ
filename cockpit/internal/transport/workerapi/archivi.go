@@ -100,8 +100,16 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			_ = qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 			continue
 		}
-		if _, err := coda.AccodaAnalisi(ctx, qt, figlio, m.ThreadID, s.Analizzatore); err != nil {
+		jf, err := coda.AccodaAnalisi(ctx, qt, figlio, m.ThreadID, s.Analizzatore)
+		if err != nil {
 			return 0, err
+		}
+		if jf == nil {
+			// lo stesso disegno dentro due zip di due mail: i fatti ci sono già, e la voce nuova li
+			// riceve subito invece di restare con la sola proposta dal nome
+			if err := s.applicaFattiEsistenti(ctx, qt, figlio); err != nil {
+				return 0, err
+			}
 		}
 	}
 	// Lo zip stesso resta un contenitore: non va sul NAS a meno di una conferma esplicita.

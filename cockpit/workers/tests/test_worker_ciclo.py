@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -149,6 +150,51 @@ def _cambia_token(s: ServerFinto, job: dict | None) -> dict | None:
         with s.lock:
             s.tentativi[job["job_id"]]["lease_token"] = "un-altro-tentativo"
     return job
+
+
+def _analisi_lenta(monkeypatch, durata_s: float = 0.25) -> None:
+    """Un'analisi che dura piu' di qualche battito: e' la condizione in cui il difetto si vedeva."""
+    vera = worker_analisi.analizza_file
+    monkeypatch.setattr(worker_analisi, "cadenza_battito", lambda _lease_s: 0.05)
+    monkeypatch.setattr(worker_analisi, "analizza_file",
+                        lambda percorso, nome_file: (time.sleep(durata_s), vera(percorso, nome_file))[1])
+
+
+def test_il_worker_analisi_batte_durante_l_analisi(tmp_path, monkeypatch):
+    """B8.0: il worker analisi non aveva il battito, e il worker Outlook si'.
+
+    Con il lease a 120 s bastava un PDF grosso (o un download lento) perche' il server desse il
+    tentativo per perso, rimettesse il job in coda e poi RIFIUTASSE il result con 409: l'analisi era
+    stata fatta davvero, e la proposta restava quella dal nome. Qui l'analisi dura piu' di qualche
+    battito e il server deve vedere arrivare gli heartbeat di QUESTO tentativo."""
+    contenuto = b"%PDF-1.4 " + bytes(range(256)) * 20
+    _analisi_lenta(monkeypatch)
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto
+        s.metti_job(_job_analisi(17, contenuto, "lento.pdf"))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+        assert len(s.battiti) >= 2, f"attesi almeno 2 battiti durante l'analisi, ricevuti {s.battiti}"
+        assert set(s.battiti) == {17}
+        # senza il token il server non potrebbe distinguere questo tentativo da uno scaduto
+        assert {c.get("lease_token") for c in s.battiti_corpo} == {"tok-17"}
+        assert s.risultati[17]["esito"] == "ok", s.risultati[17]
+
+
+def test_un_409_al_battito_ferma_l_analisi_senza_riportare_niente(tmp_path, monkeypatch):
+    """Il rovescio: se il lease e' davvero perso, il job e' gia' di un altro tentativo e questo tace.
+
+    Riportare adesso vorrebbe dire scrivere sopra al lavoro di quell'altro."""
+    contenuto = b"%PDF-1.4 " + bytes(range(256)) * 20
+    _analisi_lenta(monkeypatch)
+    with ServerFinto() as s:
+        s.contenuti[ALLEGATO_ANALISI] = contenuto
+        s.stato_heartbeat = 409
+        s.metti_job(_job_analisi(18, contenuto, "perso.pdf"))
+        w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
+        w.esegui_per_sempre(una_volta=True)
+        assert 18 not in s.risultati, f"riportato con il tentativo perso: {s.risultati.get(18)}"
+        assert w.battito is None, "il battito e' rimasto appeso al worker dopo il job"
 
 
 def test_server_giu_al_claim_non_uccide_il_worker(tmp_path, monkeypatch):

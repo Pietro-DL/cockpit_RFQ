@@ -363,6 +363,51 @@ class PayloadAnalizzaAllegato(Base):
     parametri: dict = Field(default_factory=dict)
 
 
+class NodoSTEP(Base):
+    """Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.
+
+    Niente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente
+    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2)."""
+    chiave: str
+    id_grezzo: str = ""
+    nome_grezzo: str
+    descrizione_grezza: str = ""
+    rev_grezza: str = ""
+    evidenza: dict = Field(default_factory=dict)
+
+
+class RelazioneSTEP(Base):
+    """«Il nodo padre contiene il nodo figlio, qta volte.»
+
+    E' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due
+    nodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui
+    padre e figlio non possono stare sulla riga del nodo (A1.1)."""
+    padre: str
+    figlio: str
+    qta: int = 1
+    evidenza: dict = Field(default_factory=dict)
+
+
+class LimitiSTEP(Base):
+    nodi_max: int = 0
+    byte_letti: int = 0
+    troncato: bool = False
+
+
+class StrutturaSTEP(Base):
+    """Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli["struttura"]`.
+
+    `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
+    nei nodi, la 2 porta i grezzi. Il server non deve leggere `nodi[].codice` mai piu'."""
+    versione: int = 2
+    schema_step: str = Field(default="", alias="schema")
+    radici: list[str] = Field(default_factory=list)
+    nodi: list[NodoSTEP] = Field(default_factory=list)
+    relazioni: list[RelazioneSTEP] = Field(default_factory=list)
+    avvisi: list[str] = Field(default_factory=list)
+    limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
+
+
 class RisultatoAnalisi(Base):
     allegato_id: UUID
     tipo_proposto: str
@@ -400,4 +445,5 @@ CONTRATTI = {
     "heartbeat_richiesta": HeartbeatRichiesta,
     "payload_analizza_allegato": PayloadAnalizzaAllegato,
     "risultato_analisi": RisultatoAnalisi,
+    "struttura_step": StrutturaSTEP,
 }

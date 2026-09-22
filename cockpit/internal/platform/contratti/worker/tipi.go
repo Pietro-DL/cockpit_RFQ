@@ -494,6 +494,88 @@ type RisultatoAnalisi struct {
 	HashConfigurazione   string `json:"hash_configurazione"`
 }
 
+// ---------------------------------------------------------------- struttura STEP (FATTO)
+
+// StrutturaSTEP è il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli["struttura"]`.
+//
+// È un FATTO del contenuto: quali PRODUCT ci sono, quale contiene quale e quante volte. Non è una
+// proposta e non è una decisione — la proposta la compone il server per ogni RFQ, con le regole del
+// cliente di quella RFQ, e la decisione la prende l'ingegnere.
+//
+// Nei nodi non ci sono `codice` e `rev`, e non è una dimenticanza: che cosa sia un codice dipende
+// dalle famiglie del cliente, che il worker non conosce. La `versione` dice proprio questo — la 1
+// portava i codici scritti dal worker, la 2 porta i grezzi — e il Go non deve leggere `nodi[].codice`
+// mai più (addendum B8, A1.2 e A1.6.3).
+type StrutturaSTEP struct {
+	Versione int    `json:"versione"`
+	Schema   string `json:"schema"` // AP214, AP203, AP242… da FILE_SCHEMA; "" se non leggibile
+	// Radici: i nodi senza padre nel file. Un file di sola parte ne ha uno; un file con due assiemi
+	// ne ha due, e non si sceglie per conto di nessuno quale sia «il» prodotto.
+	Radici    []string        `json:"radici"`
+	Nodi      []NodoSTEP      `json:"nodi"`
+	Relazioni []RelazioneSTEP `json:"relazioni"`
+	Avvisi    []string        `json:"avvisi"`
+	Limiti    LimitiSTEP      `json:"limiti"`
+}
+
+// NodoSTEP è un PRODUCT del file con i suoi attributi grezzi e l'evidenza di dove stanno.
+//
+// `Chiave` è il riferimento dell'entità nel file (`#12`): identifica il nodo dentro QUEL file, ed è
+// ciò che le relazioni collegano. Fuori dal file non significa niente.
+type NodoSTEP struct {
+	Chiave            string         `json:"chiave"`
+	IDGrezzo          string         `json:"id_grezzo"`          // PRODUCT.id, primo attributo
+	NomeGrezzo        string         `json:"nome_grezzo"`        // PRODUCT.name, secondo attributo
+	DescrizioneGrezza string         `json:"descrizione_grezza"` // PRODUCT.description, terzo
+	RevGrezza         string         `json:"rev_grezza"`         // PRODUCT_DEFINITION_FORMATION.id
+	Evidenza          map[string]any `json:"evidenza"`           // entità e righe da cui viene
+}
+
+// RelazioneSTEP: «il nodo padre contiene il nodo figlio, Qta volte».
+//
+// Una riga per COPPIA, non per occorrenza. Un nodo con due padri dà due relazioni, ed è il caso per
+// cui padre e figlio non stanno sulla riga del nodo (A1.1).
+type RelazioneSTEP struct {
+	Padre    string         `json:"padre"`
+	Figlio   string         `json:"figlio"`
+	Qta      int            `json:"qta"`
+	Evidenza map[string]any `json:"evidenza"`
+}
+
+// LimitiSTEP dice fin dove si è letto. `Troncato` vero significa che il grafo è PARZIALE: la
+// schermata deve dirlo, perché un albero incompleto che si presenta come completo è peggio di un
+// albero assente.
+type LimitiSTEP struct {
+	NodiMax   int   `json:"nodi_max"`
+	ByteLetti int64 `json:"byte_letti"`
+	Troncato  bool  `json:"troncato"`
+}
+
+// DecodificaStruttura estrae la struttura dai dettagli di un'analisi.
+//
+// Il secondo valore è falso quando la struttura non c'è (fatti v1, PDF, DXF) o quando la versione è
+// più vecchia di quella che questo server sa leggere: i nodi della v1 portavano un `codice` deciso
+// dal worker, e prenderlo per buono vorrebbe dire far entrare dalla finestra la classificazione che
+// A1.2 ha tolto dalla porta. Quei fatti tornano utili dopo una rianalisi, non prima.
+//
+// Tollera i campi sconosciuti: un worker più nuovo del server può aggiungere attributi, e il server
+// legge quelli che conosce senza rompersi.
+func DecodificaStruttura(dettagli json.RawMessage) (*StrutturaSTEP, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Struttura *StrutturaSTEP `json:"struttura"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Struttura == nil {
+		return nil, false
+	}
+	if involucro.Struttura.Versione < 2 {
+		return nil, false
+	}
+	return involucro.Struttura, true
+}
+
 // ---------------------------------------------------------------- healthz
 
 type Salute struct {

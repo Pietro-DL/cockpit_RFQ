@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "LimitiSTEP": {
+      "properties": {
+        "nodi_max": {
+          "default": 0,
+          "title": "Nodi Max",
+          "type": "integer"
+        },
+        "byte_letti": {
+          "default": 0,
+          "title": "Byte Letti",
+          "type": "integer"
+        },
+        "troncato": {
+          "default": false,
+          "title": "Troncato",
+          "type": "boolean"
+        }
+      },
+      "title": "LimitiSTEP",
+      "type": "object"
+    },
+    "NodoSTEP": {
+      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).",
+      "properties": {
+        "chiave": {
+          "title": "Chiave",
+          "type": "string"
+        },
+        "id_grezzo": {
+          "default": "",
+          "title": "Id Grezzo",
+          "type": "string"
+        },
+        "nome_grezzo": {
+          "title": "Nome Grezzo",
+          "type": "string"
+        },
+        "descrizione_grezza": {
+          "default": "",
+          "title": "Descrizione Grezza",
+          "type": "string"
+        },
+        "rev_grezza": {
+          "default": "",
+          "title": "Rev Grezza",
+          "type": "string"
+        },
+        "evidenza": {
+          "additionalProperties": true,
+          "title": "Evidenza",
+          "type": "object"
+        }
+      },
+      "required": [
+        "chiave",
+        "nome_grezzo"
+      ],
+      "title": "NodoSTEP",
+      "type": "object"
+    },
+    "RelazioneSTEP": {
+      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1).",
+      "properties": {
+        "padre": {
+          "title": "Padre",
+          "type": "string"
+        },
+        "figlio": {
+          "title": "Figlio",
+          "type": "string"
+        },
+        "qta": {
+          "default": 1,
+          "title": "Qta",
+          "type": "integer"
+        },
+        "evidenza": {
+          "additionalProperties": true,
+          "title": "Evidenza",
+          "type": "object"
+        }
+      },
+      "required": [
+        "padre",
+        "figlio"
+      ],
+      "title": "RelazioneSTEP",
+      "type": "object"
+    }
+  },
+  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi. Il server non deve leggere `nodi[].codice` mai piu'.",
+  "properties": {
+    "versione": {
+      "default": 2,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "schema": {
+      "default": "",
+      "title": "Schema",
+      "type": "string"
+    },
+    "radici": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Radici",
+      "type": "array"
+    },
+    "nodi": {
+      "items": {
+        "$ref": "#/$defs/NodoSTEP"
+      },
+      "title": "Nodi",
+      "type": "array"
+    },
+    "relazioni": {
+      "items": {
+        "$ref": "#/$defs/RelazioneSTEP"
+      },
+      "title": "Relazioni",
+      "type": "array"
+    },
+    "avvisi": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Avvisi",
+      "type": "array"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiSTEP"
+    }
+  },
+  "title": "StrutturaSTEP",
+  "type": "object",
+  "$id": "cockpit/struttura_step"
+}
