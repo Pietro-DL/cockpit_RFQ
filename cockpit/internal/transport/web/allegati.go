@@ -314,9 +314,21 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 	if r.Form.Has("codice") == false {
 		codice, rev = p.Codice.String, p.Rev.String
 	}
-	msg, err := s.confermaProposta(ctx, q, u, p, a, m, tipo, codice, rev, strings.TrimSpace(r.FormValue("nota")))
+	// Il componente: quello scelto nel form, altrimenti quello a cui la proposta era gia' stata
+	// assegnata. Nessuno dei due = il documento entra nel fascicolo senza componente (B8.3).
+	comp := p.ComponenteID
+	if v := strings.TrimSpace(r.FormValue("componente_id")); v != "" {
+		id, err := uuid.Parse(v)
+		if err != nil {
+			http.Error(w, "componente non valido", 400)
+			return
+		}
+		comp = uuid.NullUUID{UUID: id, Valid: true}
+	}
+	msg, err := s.confermaProposta(ctx, q, u, p, a, m, tipo, codice, rev, strings.TrimSpace(r.FormValue("nota")),
+		comp, r.FormValue("correggi_codice") == "1")
 	if err != nil {
-		s.pannelloConAvviso(w, r, m.MessaggioID, "Conferma non riuscita: "+err.Error())
+		s.pannelloConAvviso(w, r, m.MessaggioID, "Conferma non riuscita: "+spiegaErrore(err))
 		return
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -326,8 +338,11 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 	s.pannelloConAvviso(w, r, m.MessaggioID, msg)
 }
 
+// confermaProposta crea il documento. Non crea componenti e non ne cerca uno per codice (B8.3): il
+// documento si aggancia solo al componente comp, se c'e', e ne prende il codice lettera per lettera
+// (A1.4, A2.2). Un codice diverso da quello del componente passa solo con correggi.
 func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Utente, p db.DocumentoProposta, a db.Allegato, m db.Messaggio,
-	tipo db.TipoDocumento, codice, rev, nota string) (string, error) {
+	tipo db.TipoDocumento, codice, rev, nota string, comp uuid.NullUUID, correggi bool) (string, error) {
 	if p.Stato != db.StatoPropostaAperta {
 		return "", errors.New("proposta già decisa")
 	}
@@ -371,6 +386,30 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "File già presente nel fascicolo (" + d.PathRelativo + "): registrata la nuova provenienza.", nil
 	}
 
+	// Il componente scelto. Fino al B8.2 qui se ne creava uno per ogni codice nuovo, e lo si faceva
+	// «finito» o «sciolto» guardando gli identificativi della richiesta: la struttura la decideva la
+	// conferma di un allegato. Adesso la decide chi assegna, con un gesto suo.
+	codiceTxt := ptxt(codice)
+	assegnato := ""
+	if comp.Valid {
+		c, err := q.GetComponente(ctx, comp.UUID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errors.New("il componente scelto non esiste")
+		}
+		if err != nil {
+			return "", err
+		}
+		// il messaggio per l'operatore; chi impedisce l'aggancio e' la FK (thread, componente, codice)
+		if c.ThreadID != t.ThreadID {
+			return "", fmt.Errorf("il componente %s non è di questa RFQ", c.Codice)
+		}
+		if codice, err = codiceDaComponente(codice, c, correggi); err != nil {
+			return "", err
+		}
+		codiceTxt = pgtype.Text{String: codice, Valid: true} // la stringa del componente, identica
+		assegnato = c.Codice
+	}
+
 	// Un file tecnico senza codice non diventa documento (addendum A2.2): il database lo rifiuterebbe
 	// comunque (ck_documento_tecnico_ha_codice), ma con un errore che all'operatore non dice niente.
 	// Qui gli si dice che cosa manca, e la proposta resta aperta.
@@ -381,30 +420,8 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", tipo, err)
 	}
-
-	// componente: i file tecnici con codice si agganciano all'albero prodotto (creato se manca).
-	// La creazione automatica resta fino a B8.3, che la toglie con le sue prove.
-	var compID uuid.NullUUID
-	if codice != "" && documentoTecnico(tipo) {
-		c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: t.ThreadID, Upper: codice})
-		if errors.Is(err, pgx.ErrNoRows) {
-			tipoComp := db.TipoComponenteSciolto
-			if idents, _ := q.ListIdentificativi(ctx, t.ThreadID); contieneCodice(idents, codice) {
-				tipoComp = db.TipoComponenteFinito
-			}
-			c, err = q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: t.ThreadID, Codice: codice, Qta: 1, Tipo: tipoComp,
-				Origine: db.OrigineComponenteCodiceRilevato, ConfermatoDa: u.UtenteID})
-		}
-		if err != nil {
-			return "", fmt.Errorf("componente: %w", err)
-		}
-		compID = uuid.NullUUID{UUID: c.ComponenteID, Valid: true}
-		// Il documento agganciato porta il codice del componente, lettera per lettera (A1.4, A2.2): la
-		// FK (thread, componente, codice) non accetta nemmeno una differenza di maiuscole.
-		codice = c.Codice
-	}
 	d, err := q.InsertDocumento(ctx, db.InsertDocumentoParams{
-		ThreadID: t.ThreadID, ComponenteID: compID, Tipo: tipo, Codice: ptxt(codice), Rev: ptxt(rev), NomeFile: documenti.NomeFileSicuro(a.NomeFile),
+		ThreadID: t.ThreadID, ComponenteID: comp, Tipo: tipo, Codice: codiceTxt, Rev: ptxt(rev), NomeFile: documenti.NomeFileSicuro(a.NomeFile),
 		Estensione: strings.ToLower(a.Estensione.String), Sha256: a.Sha256.String, Bytes: a.Bytes, PathRelativo: pathRel, ConfermatoDa: u.UtenteID, Nota: ptxt(nota),
 	})
 	if err != nil {
@@ -417,16 +434,20 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaConfermata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		return "", err
 	}
+	componente := " Senza componente: codice e percorso restano questi finché non lo si assegna."
+	if assegnato != "" {
+		componente = " Assegnato al componente " + assegnato + "."
+	}
 	if _, err := coda.AccodaCopia(ctx, q, d.DocumentoID); err != nil {
 		// Con `nas_scrittura` spenta il documento si conferma lo stesso e resta `in_coda`: la decisione
 		// dell'operatore è registrata, è la SCRITTURA sul NAS che aspetta (SH1). Dirgli «errore»
 		// gliela farebbe rifare domani, e sarebbe due volte la stessa decisione.
 		if errors.Is(err, coda.ErrCapacitaSpenta) {
-			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA: la capacità [sicurezza].nas_scrittura è spenta.", nil
+			return "Confermato: " + pathRel + " — copia sul NAS IN ATTESA: la capacità [sicurezza].nas_scrittura è spenta." + componente, nil
 		}
 		return "", err
 	}
-	return "Confermato: " + pathRel + " (copia sul NAS in coda).", nil
+	return "Confermato: " + pathRel + " (copia sul NAS in coda)." + componente, nil
 }
 
 // scarta chiude la proposta senza documento; se è rumore, l'hash viene ricordato per il dominio del mittente.
@@ -522,15 +543,6 @@ func regolaBool(regole json.RawMessage, chiave string, def bool) bool {
 		return v
 	}
 	return def
-}
-
-func contieneCodice(idents []db.IdentificativoThread, codice string) bool {
-	for _, i := range idents {
-		if strings.EqualFold(i.Codice, codice) {
-			return true
-		}
-	}
-	return false
 }
 
 // documentoTecnico: i tipi che descrivono un pezzo, e che quindi esistono solo con il suo codice.

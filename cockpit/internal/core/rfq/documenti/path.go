@@ -65,6 +65,21 @@ var ErrCodiceMancante = errors.New("questo tipo di documento va nella cartella d
 // di mettere il file nella sottocartella comune (addendum A2.2): un disegno senza codice non ha un
 // posto nel fascicolo, e resta fra le proposte finche' qualcuno non glielo da'.
 func PathDocumento(l LayoutDocumento, cartellaPerCodice bool, codice, nomeFile string) (string, error) {
+	cartella, err := CartellaDocumento(l, cartellaPerCodice, codice)
+	if err != nil {
+		return "", err
+	}
+	return NellaCartella(cartella, NomeFileSicuro(nomeFile)), nil
+}
+
+// CartellaDocumento e' la parte di PathDocumento che dipende dal tipo e dal codice: la cartella, senza
+// il nome del file ("" = il file sta direttamente nella cartella della RFQ).
+//
+// La correzione di un codice (B8.3, addendum A1.4) cambia questa e non il nome: un file non si
+// rinomina perche' il suo codice era sbagliato. Ricalcolare tutto il percorso dal nome gia' salvato
+// non e' la stessa cosa: NomeFileSicuro non restituisce sempre lo stesso nome se applicata due volte
+// (un nome senza estensione riceve «senza nome» in coda a ogni passata).
+func CartellaDocumento(l LayoutDocumento, cartellaPerCodice bool, codice string) (string, error) {
 	var parti []string
 	if l.Sottocartella != "" {
 		parti = append(parti, NomeSicuro(l.Sottocartella, 80))
@@ -75,8 +90,20 @@ func PathDocumento(l LayoutDocumento, cartellaPerCodice bool, codice, nomeFile s
 		}
 		parti = append(parti, NomeSicuro(strings.ToUpper(codice), 60))
 	}
-	parti = append(parti, NomeFileSicuro(nomeFile))
 	return strings.Join(parti, `\`), nil
+}
+
+// NellaCartella mette un nome di file in una cartella relativa ("" = nessuna cartella).
+func NellaCartella(cartella, nome string) string {
+	if cartella == "" {
+		return nome
+	}
+	return cartella + `\` + nome
+}
+
+// NomeNelPercorso e' il nome del file in un path_relativo: quello che c'e' dopo l'ultima `\`.
+func NomeNelPercorso(pathRelativo string) string {
+	return pathRelativo[strings.LastIndex(pathRelativo, `\`)+1:]
 }
 
 // NomeFileSicuro conserva l'estensione e sanifica il resto.

@@ -58,6 +58,17 @@ SELECT * FROM componente WHERE thread_id = $1 ORDER BY codice;
 -- name: GetComponente :one
 SELECT * FROM componente WHERE componente_id = $1;
 
+-- name: BloccaComponente :one
+-- Il componente bloccato per la durata della transazione: chi ne corregge il codice parte da qui, e
+-- due correzioni concorrenti si mettono in fila invece di scriversi sopra.
+SELECT * FROM componente WHERE componente_id = $1 FOR UPDATE;
+
+-- name: SetCodiceComponente :exec
+-- Solo dentro una transazione che ha differito fk_documento_componente e fk_proposta_componente
+-- (addendum A1.4, regola 5): i documenti e le proposte agganciati portano ancora il codice vecchio,
+-- e si allineano nelle UPDATE che seguono, prima del COMMIT.
+UPDATE componente SET codice = $2 WHERE componente_id = $1;
+
 -- name: SetNoteComponente :exec
 UPDATE componente SET note_fattibilita = $2, esito_fattibilita = $3 WHERE componente_id = $1;
 

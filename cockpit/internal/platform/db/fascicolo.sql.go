@@ -32,6 +32,82 @@ func (q *Queries) AssegnaThreadProposte(ctx context.Context, arg AssegnaThreadPr
 	return result.RowsAffected(), nil
 }
 
+const bloccaCopiaPendente = `-- name: BloccaCopiaPendente :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job
+WHERE tipo = 'copia_nas' AND chiave_idempotenza = $1 AND stato IN ('pronto','in_corso')
+FOR UPDATE
+`
+
+// La copia sul NAS ancora da finire per un documento, bloccata (A1.4, regola 2). Nessuna riga: non
+// c'e' una copia in attesa. `pronto` bloccato: finche' la transazione e' aperta ClaimJob la salta
+// (SKIP LOCKED), e la copia parte DOPO, leggendo il percorso nuovo. `in_corso`: la copia sta gia'
+// usando il percorso vecchio, e chi voleva cambiarlo rinuncia.
+func (q *Queries) BloccaCopiaPendente(ctx context.Context, chiaveIdempotenza pgtype.Text) (Job, error) {
+	row := q.db.QueryRow(ctx, bloccaCopiaPendente, chiaveIdempotenza)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
+}
+
+const bloccaDocumento = `-- name: BloccaDocumento :one
+SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il FROM documento WHERE documento_id = $1 FOR UPDATE
+`
+
+// Il documento bloccato per la durata della transazione. Chi cambia componente, codice o percorso di
+// un documento parte da qui (A1.4), e due correzioni concorrenti si mettono in fila.
+func (q *Queries) BloccaDocumento(ctx context.Context, documentoID uuid.UUID) (Documento, error) {
+	row := q.db.QueryRow(ctx, bloccaDocumento, documentoID)
+	var i Documento
+	err := row.Scan(
+		&i.DocumentoID,
+		&i.ThreadID,
+		&i.ComponenteID,
+		&i.Tipo,
+		&i.Codice,
+		&i.Rev,
+		&i.NomeFile,
+		&i.Estensione,
+		&i.Sha256,
+		&i.Bytes,
+		&i.PathRelativo,
+		&i.StatoNas,
+		&i.ErroreNas,
+		&i.ScrittoIl,
+		&i.ConfermatoDa,
+		&i.ConfermatoIl,
+		&i.SostituitoDa,
+		&i.Nota,
+		&i.VerificatoIl,
+	)
+	return i, err
+}
+
 const bloccaProposta = `-- name: BloccaProposta :one
 SELECT proposta_id, allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli, stato, deciso_da, deciso_il, creato_il FROM documento_proposta WHERE proposta_id = $1 FOR UPDATE
 `
@@ -390,6 +466,51 @@ func (q *Queries) ListCartellaDocumento(ctx context.Context) ([]CartellaDocument
 	return items, nil
 }
 
+const listDocumentiComponente = `-- name: ListDocumentiComponente :many
+SELECT documento_id, thread_id, componente_id, tipo, codice, rev, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, errore_nas, scritto_il, confermato_da, confermato_il, sostituito_da, nota, verificato_il FROM documento WHERE componente_id = $1 ORDER BY documento_id FOR UPDATE
+`
+
+// I documenti agganciati a un componente, bloccati: la correzione del codice li porta tutti o nessuno.
+func (q *Queries) ListDocumentiComponente(ctx context.Context, componenteID uuid.NullUUID) ([]Documento, error) {
+	rows, err := q.db.Query(ctx, listDocumentiComponente, componenteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Documento{}
+	for rows.Next() {
+		var i Documento
+		if err := rows.Scan(
+			&i.DocumentoID,
+			&i.ThreadID,
+			&i.ComponenteID,
+			&i.Tipo,
+			&i.Codice,
+			&i.Rev,
+			&i.NomeFile,
+			&i.Estensione,
+			&i.Sha256,
+			&i.Bytes,
+			&i.PathRelativo,
+			&i.StatoNas,
+			&i.ErroreNas,
+			&i.ScrittoIl,
+			&i.ConfermatoDa,
+			&i.ConfermatoIl,
+			&i.SostituitoDa,
+			&i.Nota,
+			&i.VerificatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDocumentiMessaggio = `-- name: ListDocumentiMessaggio :many
 SELECT d.documento_id, d.thread_id, d.componente_id, d.tipo, d.codice, d.rev, d.nome_file, d.estensione, d.sha256, d.bytes, d.path_relativo, d.stato_nas, d.errore_nas, d.scritto_il, d.confermato_da, d.confermato_il, d.sostituito_da, d.nota, d.verificato_il, dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
 WHERE dp.messaggio_id = $1::uuid
@@ -733,6 +854,68 @@ func (q *Queries) ListProposteThreadTutte(ctx context.Context, threadID uuid.Nul
 	return items, nil
 }
 
+const setCodiceProposteComponente = `-- name: SetCodiceProposteComponente :execrows
+UPDATE documento_proposta SET codice = $2 WHERE componente_id = $1
+`
+
+type SetCodiceProposteComponenteParams struct {
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	Codice       pgtype.Text   `json:"codice"`
+}
+
+// Le proposte agganciate a un componente, di qualunque stato, prendono il suo codice nuovo: la FK le
+// vuole uguali, e una proposta gia' confermata non si sgancia solo perche' il codice e' stato corretto.
+func (q *Queries) SetCodiceProposteComponente(ctx context.Context, arg SetCodiceProposteComponenteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCodiceProposteComponente, arg.ComponenteID, arg.Codice)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setComponenteDocumento = `-- name: SetComponenteDocumento :execrows
+UPDATE documento SET componente_id = $1, codice = $2
+WHERE documento_id = $3
+`
+
+type SetComponenteDocumentoParams struct {
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	Codice       pgtype.Text   `json:"codice"`
+	DocumentoID  uuid.UUID     `json:"documento_id"`
+}
+
+// Aggancia un documento a un componente, o lo sgancia (componente NULL). Il codice si scrive nella
+// stessa istruzione: la FK (thread, componente, codice) lo controlla alla fine, ed e' lei che decide
+// se il componente e' di questa RFQ e se il codice e' il suo, non il Go.
+func (q *Queries) SetComponenteDocumento(ctx context.Context, arg SetComponenteDocumentoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setComponenteDocumento, arg.ComponenteID, arg.Codice, arg.DocumentoID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setComponenteProposta = `-- name: SetComponenteProposta :execrows
+UPDATE documento_proposta SET componente_id = $1, codice = $2
+WHERE proposta_id = $3 AND stato = 'aperta'
+`
+
+type SetComponentePropostaParams struct {
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	Codice       pgtype.Text   `json:"codice"`
+	PropostaID   uuid.UUID     `json:"proposta_id"`
+}
+
+// Aggancia (o sgancia) una proposta ancora aperta. Il codice arriva dal componente (A2.2), e la FK a
+// tre campi lo controlla come per il documento.
+func (q *Queries) SetComponenteProposta(ctx context.Context, arg SetComponentePropostaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setComponenteProposta, arg.ComponenteID, arg.Codice, arg.PropostaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setDocumentoErrore = `-- name: SetDocumentoErrore :exec
 UPDATE documento SET stato_nas = 'errore', errore_nas = $2 WHERE documento_id = $1
 `
@@ -747,13 +930,46 @@ func (q *Queries) SetDocumentoErrore(ctx context.Context, arg SetDocumentoErrore
 	return err
 }
 
-const setDocumentoScritto = `-- name: SetDocumentoScritto :exec
-UPDATE documento SET stato_nas = 'scritto', scritto_il = now(), errore_nas = NULL WHERE documento_id = $1
+const setDocumentoScritto = `-- name: SetDocumentoScritto :execrows
+UPDATE documento SET stato_nas = 'scritto', scritto_il = now(), errore_nas = NULL
+WHERE documento_id = $1 AND path_relativo = $2
 `
 
-func (q *Queries) SetDocumentoScritto(ctx context.Context, documentoID uuid.UUID) error {
-	_, err := q.db.Exec(ctx, setDocumentoScritto, documentoID)
-	return err
+type SetDocumentoScrittoParams struct {
+	DocumentoID  uuid.UUID `json:"documento_id"`
+	PathRelativo string    `json:"path_relativo"`
+}
+
+// «Scritto» vale per il percorso su cui il file e' stato scritto, o verificato: chi chiama passa
+// QUEL percorso. Se nel frattempo il percorso del documento e' cambiato (una correzione del codice,
+// addendum A1.4), zero righe: il database non dichiara scritto un file in una cartella dove non c'e'.
+func (q *Queries) SetDocumentoScritto(ctx context.Context, arg SetDocumentoScrittoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setDocumentoScritto, arg.DocumentoID, arg.PathRelativo)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setPathDocumentoInCoda = `-- name: SetPathDocumentoInCoda :execrows
+UPDATE documento SET path_relativo = $2
+WHERE documento_id = $1 AND stato_nas IN ('in_coda','errore')
+`
+
+type SetPathDocumentoInCodaParams struct {
+	DocumentoID  uuid.UUID `json:"documento_id"`
+	PathRelativo string    `json:"path_relativo"`
+}
+
+// Il percorso cambia solo per un documento che sul NAS non c'e' ancora: in coda o in errore (A1.4,
+// regole 2 e 4). Uno `scritto` si sposta con sposta_nas (B8.8), non con questa riga: zero righe
+// vuol dire che lo stato e' cambiato nel frattempo, e il chiamante rinuncia.
+func (q *Queries) SetPathDocumentoInCoda(ctx context.Context, arg SetPathDocumentoInCodaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPathDocumentoInCoda, arg.DocumentoID, arg.PathRelativo)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertProposta = `-- name: UpsertProposta :one

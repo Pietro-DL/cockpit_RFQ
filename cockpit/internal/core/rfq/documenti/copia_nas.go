@@ -58,8 +58,17 @@ func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j
 		return nil, err
 	}
 	if !scrittore.DryRun {
-		if err := q.SetDocumentoScritto(ctx, d.DocumentoID); err != nil {
+		// «Scritto» vale per d.PathRelativo, il percorso letto all'inizio e su cui il file e' finito.
+		// Una correzione del codice (A1.4) che l'ha cambiato mentre la copia era in volo lascia zero
+		// righe: il documento resta da copiare, e il tentativo fallisce dicendo perche'. Il file gia'
+		// scritto al percorso vecchio resta dov'e': sul NAS non si cancella niente da soli.
+		n, err := q.SetDocumentoScritto(ctx, db.SetDocumentoScrittoParams{DocumentoID: d.DocumentoID, PathRelativo: d.PathRelativo})
+		if err != nil {
 			return nil, err
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("il percorso del documento e' cambiato durante la copia (il file e' stato scritto in %s): "+
+				"la copia si ripete sul percorso nuovo", d.PathRelativo)
 		}
 	}
 	// Il contenuto e' stato USATO, non consumato: resta nella cache (Pre-7, D31), e l'orario
