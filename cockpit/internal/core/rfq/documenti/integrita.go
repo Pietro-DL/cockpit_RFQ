@@ -380,8 +380,14 @@ func AllineaDocumento(ctx context.Context, q *db.Queries, scrittore *nas.Scritto
 		return fmt.Errorf("il file sul NAS NON e' questo documento (sha256 %.12s… invece di %.12s…): "+
 			"e' un conflitto, e un conflitto non si allinea", sha, d.Sha256)
 	}
-	if err := q.SetDocumentoScritto(ctx, documentoID); err != nil {
+	// si allinea il percorso VERIFICATO: se una correzione del codice l'ha cambiato nel frattempo,
+	// quel file non e' piu' il documento, e non si dichiara scritto niente
+	n, err := q.SetDocumentoScritto(ctx, db.SetDocumentoScrittoParams{DocumentoID: documentoID, PathRelativo: d.PathRelativo})
+	if err != nil {
 		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("il percorso del documento e' cambiato mentre si verificava il file: non si allinea niente, riprova")
 	}
 	_, err = q.ChiudiAnomaliaNas(ctx, documentoID)
 	return err

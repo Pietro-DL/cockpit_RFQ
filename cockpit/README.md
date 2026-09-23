@@ -1274,7 +1274,11 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
 - **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; niente su disco finché l'operatore non chiede)
   → `documento_proposta` (INTERPRETAZIONE: a ingest dal nome file, poi raffinata dopo il download da hash/zip e
   dal worker-analisi finché resta `aperta`) → `documento` (DECISIONE dell'operatore; solo questa accoda `copia_nas`).
-  La conferma di un disegno con codice crea il `componente`; `v_fascicolo` calcola la completezza.
+  La conferma non crea componenti (B8.3): il documento si aggancia solo al componente scelto, o a quello a cui
+  la proposta era già assegnata, e ne prende il codice. Documenti e proposte si assegnano e si sganciano con
+  `POST /thread/{id}/fascicolo/assegna`; un codice diverso da quello del componente passa solo con `correggi_codice`,
+  e il percorso sul NAS cambia solo finché il file non è scritto (lo spostamento è B8.8). `v_fascicolo` calcola la
+  completezza.
 - **NAS**: `[nas].radice` È la cartella «PREVENTIVI DA FARE»; sotto, `cliente.cartella_nas\WIP\<aaaa mm gg Cognome Oggetto>`;
   con la cartella nascono solo le sottocartelle con `cartella_documento.crea_sempre` (ELENCO DISEGNI, OFFERTE FORNITORI),
   le altre alla prima copia.

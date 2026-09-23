@@ -21,6 +21,10 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/riprova-copie", s.autenticato(s.riprovaCopie))
 	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
 	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
+	// B8.3: agganciare documenti e proposte a un componente, correggere il codice di un componente
+	// (fascicolo.go). La schermata del Fascicolo che le usera' e' B8.7.
+	mux.HandleFunc("POST /thread/{id}/fascicolo/assegna", s.autenticato(s.assegna))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.correggiCodice))
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 }

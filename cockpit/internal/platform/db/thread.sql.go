@@ -47,6 +47,35 @@ func (q *Queries) ApriFase(ctx context.Context, arg ApriFaseParams) (FaseLog, er
 	return i, err
 }
 
+const bloccaComponente = `-- name: BloccaComponente :one
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE componente_id = $1 FOR UPDATE
+`
+
+// Il componente bloccato per la durata della transazione: chi ne corregge il codice parte da qui, e
+// due correzioni concorrenti si mettono in fila invece di scriversi sopra.
+func (q *Queries) BloccaComponente(ctx context.Context, componenteID uuid.UUID) (Componente, error) {
+	row := q.db.QueryRow(ctx, bloccaComponente, componenteID)
+	var i Componente
+	err := row.Scan(
+		&i.ComponenteID,
+		&i.ThreadID,
+		&i.Codice,
+		&i.Rev,
+		&i.Descrizione,
+		&i.Qta,
+		&i.Tipo,
+		&i.Origine,
+		&i.MaterialeTesto,
+		&i.SpessoreMm,
+		&i.PesoKg,
+		&i.EsitoFattibilita,
+		&i.NoteFattibilita,
+		&i.ConfermatoDa,
+		&i.CreatoIl,
+	)
+	return i, err
+}
+
 const cercaThreadAperti = `-- name: CercaThreadAperti :many
 SELECT v.thread_id, v.cliente, v.buyer, v.oggetto, v.data_inizio, v.data_scadenza, v.scadenza_origine, v.ultimo_aggiornamento, v.stato_thread, v.cartella_relativa, v.priorita, v.identificativi, v.nome_fase, v.in_fase_dal, v.gg_in_fase, v.sla_gg, v.semaforo, v.in_carico_a, v.n_bloccanti, v.n_da_confermare, v.n_sul_portale, v.n_mancanti, v.n_messaggi, v.n_da_smistare FROM v_cruscotto v
 WHERE v.stato_thread = 'APERTA'
@@ -496,6 +525,23 @@ type SetCartellaThreadParams struct {
 
 func (q *Queries) SetCartellaThread(ctx context.Context, arg SetCartellaThreadParams) error {
 	_, err := q.db.Exec(ctx, setCartellaThread, arg.ThreadID, arg.CartellaRelativa)
+	return err
+}
+
+const setCodiceComponente = `-- name: SetCodiceComponente :exec
+UPDATE componente SET codice = $2 WHERE componente_id = $1
+`
+
+type SetCodiceComponenteParams struct {
+	ComponenteID uuid.UUID `json:"componente_id"`
+	Codice       string    `json:"codice"`
+}
+
+// Solo dentro una transazione che ha differito fk_documento_componente e fk_proposta_componente
+// (addendum A1.4, regola 5): i documenti e le proposte agganciati portano ancora il codice vecchio,
+// e si allineano nelle UPDATE che seguono, prima del COMMIT.
+func (q *Queries) SetCodiceComponente(ctx context.Context, arg SetCodiceComponenteParams) error {
+	_, err := q.db.Exec(ctx, setCodiceComponente, arg.ComponenteID, arg.Codice)
 	return err
 }
 
