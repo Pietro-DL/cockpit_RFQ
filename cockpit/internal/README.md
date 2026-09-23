@@ -98,8 +98,11 @@ solo**, nemmeno all'avvio.
   `core/rfq/documenti/integrita.go`, `platform/storage/nas`.
 - **Apri in Outlook** — job con il `postazione_id` della sessione: solo il worker di quella postazione lo prende.
 - **Login e postazione** — `POST /login` → bcrypt → `sessione` → abbinamento per IP al worker che ha fatto claim.
-- **Richiesta a un fornitore (7B)** — RFQ › «Nuova richiesta» → `richiesta_fornitore` (bozza) → bozza marcata in
-  Outlook → il sync della Posta inviata riporta i marcatori → `ingest/marcatori.go` la segna inviata.
+- **Richiesta a un fornitore (7B)** — `POST /thread/{id}/richiesta` → `richiesta_fornitore` (bozza) → bozza marcata
+  in Outlook → il sync della Posta inviata riporta i marcatori → `ingest/marcatori.go` la segna inviata. Dal
+  blocco 8 la pagina della RFQ non ha più il form che chiamava la rotta: la richiesta tornerà nel tab Luigi,
+  per lavorazione di un componente. La rotta resta. Il flusso a livello di RFQ è tolto **di proposito**: non
+  va reintrodotto prima del modello delle lavorazioni per componente.
 
 ## Invarianti
 

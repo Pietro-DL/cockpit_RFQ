@@ -48,12 +48,9 @@ type threadDati struct {
 	Admin     bool
 	Avviso    string
 	Selezion  string
-	// Blocco 7B: le richieste ai fornitori di questa RFQ, e le tendine per crearne una: i
-	// fornitori attivi (con le lavorazioni per cui il cliente li ha qualificati) e le lavorazioni.
-	Richieste      []db.ListRichiesteThreadRow
-	Fornitori      []db.Fornitore
-	Lavorazioni    []db.Lavorazione
-	QualificatoPer map[uuid.UUID]string
+	// Le richieste ai fornitori del blocco 7B non si caricano piu' qui: la pagina non le mostra
+	// (correzione prima di B8.2, addendum A3). Torneranno nel tab Luigi, per lavorazione di un
+	// componente; query, rotte e tabelle restano dove sono.
 }
 
 type messaggioThread struct {
@@ -250,18 +247,6 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d.Fascicolo, _ = q.ListFascicolo(ctx, id)
 	d.Bozze, _ = q.ListBozzeThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	d.Componenti, _ = q.ListComponentiThread(ctx, id)
-	d.Richieste, _ = q.ListRichiesteThread(ctx, id)
-	d.Fornitori, _ = q.ListFornitoriAttivi(ctx)
-	d.Lavorazioni, _ = q.ListLavorazioni(ctx)
-	d.QualificatoPer = map[uuid.UUID]string{}
-	if qs, err := q.ListQualificheCliente(ctx, t.ClienteID); err == nil {
-		for _, x := range qs {
-			if d.QualificatoPer[x.FornitoreID] != "" {
-				d.QualificatoPer[x.FornitoreID] += ", "
-			}
-			d.QualificatoPer[x.FornitoreID] += x.Lavorazione
-		}
-	}
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	for _, m := range msgs {
 		mt := messaggioThread{M: m}
