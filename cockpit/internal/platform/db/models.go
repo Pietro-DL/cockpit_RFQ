@@ -3111,13 +3111,17 @@ type ClienteFornitoreLavorazione struct {
 	Lavorazione string    `json:"lavorazione"`
 }
 
+// Identita' di un pezzo dentro la RFQ: (thread_id, upper(codice)). La revisione e' un attributo (quella
+// corrente), non l'identita'. Le relazioni padre → figlio stanno in componente_relazione. Una riga nasce
+// solo da un gesto dell'ingegnere: mai da un worker, da un job o dalla conferma di un file.
 type Componente struct {
-	ComponenteID     uuid.UUID            `json:"componente_id"`
-	ThreadID         uuid.UUID            `json:"thread_id"`
-	PadreID          uuid.NullUUID        `json:"padre_id"`
-	Codice           string               `json:"codice"`
-	Rev              pgtype.Text          `json:"rev"`
-	Descrizione      pgtype.Text          `json:"descrizione"`
+	ComponenteID uuid.UUID   `json:"componente_id"`
+	ThreadID     uuid.UUID   `json:"thread_id"`
+	Codice       string      `json:"codice"`
+	Rev          pgtype.Text `json:"rev"`
+	Descrizione  pgtype.Text `json:"descrizione"`
+	// Quantita' richiesta dal cliente, significativa sulle RADICI. La quantita' di un figlio dentro un padre
+	// sta sull'arco (componente_relazione.qta).
 	Qta              int32                `json:"qta"`
 	Tipo             TipoComponente       `json:"tipo"`
 	Origine          OrigineComponente    `json:"origine"`
@@ -3126,8 +3130,50 @@ type Componente struct {
 	PesoKg           pgtype.Numeric       `json:"peso_kg"`
 	EsitoFattibilita NullEsitoFattibilita `json:"esito_fattibilita"`
 	NoteFattibilita  pgtype.Text          `json:"note_fattibilita"`
-	ConfermatoDa     uuid.NullUUID        `json:"confermato_da"`
+	ConfermatoDa     uuid.UUID            `json:"confermato_da"`
 	CreatoIl         time.Time            `json:"creato_il"`
+}
+
+// Nodo proposto da un file per una RFQ (STEP: un PRODUCT; PDF: una riga di distinta). Il worker manda i
+// grezzi, il codice lo classifica il server con le regole del cliente. Upsert per chiave solo finche'
+// aperta. L'appartenenza dell'allegato al thread la controlla il Go al fan-out: allegato → messaggio
+// non ha un thread stabile, quindi non puo' essere una FK composita.
+type ComponentePropostum struct {
+	PropostaID    uuid.UUID          `json:"proposta_id"`
+	ThreadID      uuid.UUID          `json:"thread_id"`
+	AllegatoID    uuid.UUID          `json:"allegato_id"`
+	Sha256        string             `json:"sha256"`
+	Chiave        string             `json:"chiave"`
+	NomeGrezzo    string             `json:"nome_grezzo"`
+	IDGrezzo      string             `json:"id_grezzo"`
+	Descrizione   pgtype.Text        `json:"descrizione"`
+	Codice        pgtype.Text        `json:"codice"`
+	Rev           pgtype.Text        `json:"rev"`
+	OrigineCodice NullOrigineCodice  `json:"origine_codice"`
+	Famiglia      string             `json:"famiglia"`
+	TipoProposto  NullTipoComponente `json:"tipo_proposto"`
+	Fonte         FonteProposta      `json:"fonte"`
+	Confidenza    int16              `json:"confidenza"`
+	Evidenza      json.RawMessage    `json:"evidenza"`
+	Stato         StatoProposta      `json:"stato"`
+	ComponenteID  uuid.NullUUID      `json:"componente_id"`
+	DecisoDa      uuid.NullUUID      `json:"deciso_da"`
+	DecisoIl      *time.Time         `json:"deciso_il"`
+	CreatoIl      time.Time          `json:"creato_il"`
+}
+
+// Occorrenza di un figlio in un padre, qta volte. Un sottoassieme condiviso fra due prodotti e' UN
+// componente con due archi entranti. Le FK composite con thread_id rendono impossibile legare due RFQ.
+// I cicli NON li vieta il database: li rifiuta il Go prima di ogni INSERT (risalita degli antenati).
+type ComponenteRelazione struct {
+	ThreadID     uuid.UUID         `json:"thread_id"`
+	PadreID      uuid.UUID         `json:"padre_id"`
+	FiglioID     uuid.UUID         `json:"figlio_id"`
+	Qta          int32             `json:"qta"`
+	Posizione    pgtype.Text       `json:"posizione"`
+	Origine      OrigineComponente `json:"origine"`
+	ConfermatoDa uuid.UUID         `json:"confermato_da"`
+	CreatoIl     time.Time         `json:"creato_il"`
 }
 
 type ContattoFornitore struct {
@@ -3490,6 +3536,23 @@ type Regola struct {
 	AttivaDal        time.Time      `json:"attiva_dal"`
 }
 
+// Arco proposto da un file: una riga per coppia distinta (padre, figlio), qta = occorrenze. Si accetta
+// solo quando i due nodi sono gia' accettati o agganciati; una coppia gia' confermata con qta diversa
+// diventa duplicato con la nota, e la scelta resta all'ingegnere.
+type RelazionePropostum struct {
+	ThreadID     uuid.UUID       `json:"thread_id"`
+	AllegatoID   uuid.UUID       `json:"allegato_id"`
+	PadreChiave  string          `json:"padre_chiave"`
+	FiglioChiave string          `json:"figlio_chiave"`
+	Qta          int32           `json:"qta"`
+	Evidenza     json.RawMessage `json:"evidenza"`
+	Stato        StatoProposta   `json:"stato"`
+	Nota         pgtype.Text     `json:"nota"`
+	DecisoDa     uuid.NullUUID   `json:"deciso_da"`
+	DecisoIl     *time.Time      `json:"deciso_il"`
+	CreatoIl     time.Time       `json:"creato_il"`
+}
+
 // Blocco 7B: la richiesta d'offerta a UN fornitore per UNA RFQ cliente (figlia della RFQ, non un thread
 // parallelo). messaggio_id e' la nostra mail: la lega il marcatore CockpitRichiestaFornitore letto dalla Posta
 // inviata, o la conferma dell'operatore su una mail mandata a mano. La risposta del fornitore si aggancia alla
@@ -3611,6 +3674,30 @@ type Utente struct {
 	UltimaVistaInbox *time.Time `json:"ultima_vista_inbox"`
 }
 
+type VCodiciCandidatiThread struct {
+	ThreadID    uuid.NullUUID `json:"thread_id"`
+	Codice      string        `json:"codice"`
+	Rev         string        `json:"rev"`
+	Sorgente    string        `json:"sorgente"`
+	Origine     string        `json:"origine"`
+	Famiglia    string        `json:"famiglia"`
+	Punteggio   int32         `json:"punteggio"`
+	Evidenza    string        `json:"evidenza"`
+	Ruolo       string        `json:"ruolo"`
+	MessaggioID uuid.UUID     `json:"messaggio_id"`
+	AllegatoID  uuid.NullUUID `json:"allegato_id"`
+}
+
+type VComponenteAlbero struct {
+	ThreadID     uuid.UUID     `json:"thread_id"`
+	ComponenteID uuid.UUID     `json:"componente_id"`
+	RadiceID     uuid.UUID     `json:"radice_id"`
+	PadreID      uuid.NullUUID `json:"padre_id"`
+	Profondita   int32         `json:"profondita"`
+	Percorso     []uuid.UUID   `json:"percorso"`
+	QtaCumulata  int64         `json:"qta_cumulata"`
+}
+
 type VCruscotto struct {
 	ThreadID            uuid.UUID           `json:"thread_id"`
 	Cliente             string              `json:"cliente"`
@@ -3639,21 +3726,25 @@ type VCruscotto struct {
 }
 
 type VFascicolo struct {
-	ThreadID        uuid.UUID      `json:"thread_id"`
-	ComponenteID    uuid.UUID      `json:"componente_id"`
-	Codice          string         `json:"codice"`
-	Rev             pgtype.Text    `json:"rev"`
-	TipoComponente  TipoComponente `json:"tipo_componente"`
-	PadreID         uuid.NullUUID  `json:"padre_id"`
-	TipoDocumento   TipoDocumento  `json:"tipo_documento"`
-	Bloccante       bool           `json:"bloccante"`
-	DocumentoID     uuid.NullUUID  `json:"documento_id"`
-	StatoNas        pgtype.Text    `json:"stato_nas"`
-	PathRelativo    pgtype.Text    `json:"path_relativo"`
-	PropostaAperta  uuid.NullUUID  `json:"proposta_aperta"`
-	AttesoDaPortale uuid.NullUUID  `json:"atteso_da_portale"`
-	DerogaID        uuid.NullUUID  `json:"deroga_id"`
-	Esito           string         `json:"esito"`
+	ThreadID        uuid.UUID           `json:"thread_id"`
+	ComponenteID    uuid.UUID           `json:"componente_id"`
+	Codice          string              `json:"codice"`
+	Rev             pgtype.Text         `json:"rev"`
+	TipoComponente  TipoComponente      `json:"tipo_componente"`
+	TipoDocumento   TipoDocumento       `json:"tipo_documento"`
+	Bloccante       bool                `json:"bloccante"`
+	DocumentoID     uuid.NullUUID       `json:"documento_id"`
+	StatoNas        pgtype.Text         `json:"stato_nas"`
+	PathRelativo    pgtype.Text         `json:"path_relativo"`
+	PropostaAperta  uuid.NullUUID       `json:"proposta_aperta"`
+	AttesoDaPortale uuid.NullUUID       `json:"atteso_da_portale"`
+	DerogaID        uuid.NullUUID       `json:"deroga_id"`
+	Esito           string              `json:"esito"`
+	FonteAttesa     NullFonteFabbisogno `json:"fonte_attesa"`
+	NProposteAperte int64               `json:"n_proposte_aperte"`
+	DocumentoRev    pgtype.Text         `json:"documento_rev"`
+	RevDiversa      bool                `json:"rev_diversa"`
+	AnomaliaID      pgtype.Int8         `json:"anomalia_id"`
 }
 
 type VInbox struct {

@@ -128,7 +128,7 @@ func (q *Queries) ChiudiFaseAperta(ctx context.Context, arg ChiudiFaseApertaPara
 }
 
 const getComponente = `-- name: GetComponente :one
-SELECT componente_id, thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE componente_id = $1
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE componente_id = $1
 `
 
 func (q *Queries) GetComponente(ctx context.Context, componenteID uuid.UUID) (Componente, error) {
@@ -137,7 +137,6 @@ func (q *Queries) GetComponente(ctx context.Context, componenteID uuid.UUID) (Co
 	err := row.Scan(
 		&i.ComponenteID,
 		&i.ThreadID,
-		&i.PadreID,
 		&i.Codice,
 		&i.Rev,
 		&i.Descrizione,
@@ -245,28 +244,29 @@ func (q *Queries) GetThread(ctx context.Context, threadID uuid.UUID) (ThreadOffe
 }
 
 const insertComponente = `-- name: InsertComponente :one
-INSERT INTO componente (thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, confermato_da)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (thread_id, padre_id, codice, rev) DO UPDATE SET descrizione = COALESCE(EXCLUDED.descrizione, componente.descrizione)
-RETURNING componente_id, thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il
+INSERT INTO componente (thread_id, codice, rev, descrizione, qta, tipo, origine, confermato_da)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (thread_id, upper(codice)) DO UPDATE SET descrizione = COALESCE(EXCLUDED.descrizione, componente.descrizione)
+RETURNING componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il
 `
 
 type InsertComponenteParams struct {
 	ThreadID     uuid.UUID         `json:"thread_id"`
-	PadreID      uuid.NullUUID     `json:"padre_id"`
 	Codice       string            `json:"codice"`
 	Rev          pgtype.Text       `json:"rev"`
 	Descrizione  pgtype.Text       `json:"descrizione"`
 	Qta          int32             `json:"qta"`
 	Tipo         TipoComponente    `json:"tipo"`
 	Origine      OrigineComponente `json:"origine"`
-	ConfermatoDa uuid.NullUUID     `json:"confermato_da"`
+	ConfermatoDa uuid.UUID         `json:"confermato_da"`
 }
 
+// Dalla 0018 l'identita' di un componente e' (thread, upper(codice)): la revisione e' un attributo e
+// le relazioni padre → figlio stanno in componente_relazione. Un secondo inserimento dello stesso
+// codice ritrova la riga che c'e'.
 func (q *Queries) InsertComponente(ctx context.Context, arg InsertComponenteParams) (Componente, error) {
 	row := q.db.QueryRow(ctx, insertComponente,
 		arg.ThreadID,
-		arg.PadreID,
 		arg.Codice,
 		arg.Rev,
 		arg.Descrizione,
@@ -279,7 +279,6 @@ func (q *Queries) InsertComponente(ctx context.Context, arg InsertComponentePara
 	err := row.Scan(
 		&i.ComponenteID,
 		&i.ThreadID,
-		&i.PadreID,
 		&i.Codice,
 		&i.Rev,
 		&i.Descrizione,
@@ -360,7 +359,7 @@ func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (Thr
 }
 
 const listComponentiThread = `-- name: ListComponentiThread :many
-SELECT componente_id, thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 ORDER BY padre_id NULLS FIRST, codice
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 ORDER BY codice
 `
 
 func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) ([]Componente, error) {
@@ -375,7 +374,6 @@ func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) 
 		if err := rows.Scan(
 			&i.ComponenteID,
 			&i.ThreadID,
-			&i.PadreID,
 			&i.Codice,
 			&i.Rev,
 			&i.Descrizione,
@@ -538,7 +536,7 @@ UPDATE componente SET tipo = $2, confermato_da = $3 WHERE componente_id = $1
 type SetTipoComponenteParams struct {
 	ComponenteID uuid.UUID      `json:"componente_id"`
 	Tipo         TipoComponente `json:"tipo"`
-	ConfermatoDa uuid.NullUUID  `json:"confermato_da"`
+	ConfermatoDa uuid.UUID      `json:"confermato_da"`
 }
 
 func (q *Queries) SetTipoComponente(ctx context.Context, arg SetTipoComponenteParams) error {

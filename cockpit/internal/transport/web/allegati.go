@@ -362,7 +362,6 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "", fmt.Errorf("layout per %s: %w", tipo, err)
 	}
 	perCodice := regolaBool(cl.Regole, "cartella_per_codice", true)
-	pathRel := documenti.PathDocumento(documenti.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice, a.NomeFile)
 
 	// stesso file già confermato nel thread → solo una provenienza in più
 	if d, err := q.GetDocumentoPerHash(ctx, db.GetDocumentoPerHashParams{ThreadID: t.ThreadID, Sha256: a.Sha256.String}); err == nil {
@@ -372,9 +371,21 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "File già presente nel fascicolo (" + d.PathRelativo + "): registrata la nuova provenienza.", nil
 	}
 
-	// componente: i file tecnici con codice si agganciano all'albero prodotto (creato se manca)
+	// Un file tecnico senza codice non diventa documento (addendum A2.2): il database lo rifiuterebbe
+	// comunque (ck_documento_tecnico_ha_codice), ma con un errore che all'operatore non dice niente.
+	// Qui gli si dice che cosa manca, e la proposta resta aperta.
+	if documentoTecnico(tipo) && codice == "" {
+		return "", errors.New("un CAD 3D, un disegno 2D o uno sviluppo DXF entra nel fascicolo solo con il codice del pezzo: scrivi il codice, il file resta fra le proposte")
+	}
+	pathRel, err := documenti.PathDocumento(documenti.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice, a.NomeFile)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", tipo, err)
+	}
+
+	// componente: i file tecnici con codice si agganciano all'albero prodotto (creato se manca).
+	// La creazione automatica resta fino a B8.3, che la toglie con le sue prove.
 	var compID uuid.NullUUID
-	if codice != "" && (tipo == db.TipoDocumentoCad3d || tipo == db.TipoDocumentoDisegno2d || tipo == db.TipoDocumentoSviluppoDxf) {
+	if codice != "" && documentoTecnico(tipo) {
 		c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: t.ThreadID, Upper: codice})
 		if errors.Is(err, pgx.ErrNoRows) {
 			tipoComp := db.TipoComponenteSciolto
@@ -382,12 +393,15 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 				tipoComp = db.TipoComponenteFinito
 			}
 			c, err = q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: t.ThreadID, Codice: codice, Qta: 1, Tipo: tipoComp,
-				Origine: db.OrigineComponenteCodiceRilevato, ConfermatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}})
+				Origine: db.OrigineComponenteCodiceRilevato, ConfermatoDa: u.UtenteID})
 		}
 		if err != nil {
 			return "", fmt.Errorf("componente: %w", err)
 		}
 		compID = uuid.NullUUID{UUID: c.ComponenteID, Valid: true}
+		// Il documento agganciato porta il codice del componente, lettera per lettera (A1.4, A2.2): la
+		// FK (thread, componente, codice) non accetta nemmeno una differenza di maiuscole.
+		codice = c.Codice
 	}
 	d, err := q.InsertDocumento(ctx, db.InsertDocumentoParams{
 		ThreadID: t.ThreadID, ComponenteID: compID, Tipo: tipo, Codice: ptxt(codice), Rev: ptxt(rev), NomeFile: documenti.NomeFileSicuro(a.NomeFile),
@@ -517,4 +531,9 @@ func contieneCodice(idents []db.IdentificativoThread, codice string) bool {
 		}
 	}
 	return false
+}
+
+// documentoTecnico: i tipi che descrivono un pezzo, e che quindi esistono solo con il suo codice.
+func documentoTecnico(tipo db.TipoDocumento) bool {
+	return tipo == db.TipoDocumentoCad3d || tipo == db.TipoDocumentoDisegno2d || tipo == db.TipoDocumentoSviluppoDxf
 }
