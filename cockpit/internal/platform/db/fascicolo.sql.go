@@ -115,7 +115,7 @@ func (q *Queries) GetCartellaDocumento(ctx context.Context, tipo TipoDocumento) 
 }
 
 const getComponentePerCodice = `-- name: GetComponentePerCodice :one
-SELECT componente_id, thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2) ORDER BY padre_id NULLS FIRST LIMIT 1
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2)
 `
 
 type GetComponentePerCodiceParams struct {
@@ -123,13 +123,13 @@ type GetComponentePerCodiceParams struct {
 	Upper    interface{} `json:"upper"`
 }
 
+// al piu' una riga: dalla 0018 (thread, upper(codice)) e' l'identita' del componente
 func (q *Queries) GetComponentePerCodice(ctx context.Context, arg GetComponentePerCodiceParams) (Componente, error) {
 	row := q.db.QueryRow(ctx, getComponentePerCodice, arg.ThreadID, arg.Upper)
 	var i Componente
 	err := row.Scan(
 		&i.ComponenteID,
 		&i.ThreadID,
-		&i.PadreID,
 		&i.Codice,
 		&i.Rev,
 		&i.Descrizione,
@@ -487,7 +487,7 @@ func (q *Queries) ListDocumentiThread(ctx context.Context, threadID uuid.UUID) (
 }
 
 const listFascicolo = `-- name: ListFascicolo :many
-SELECT thread_id, componente_id, codice, rev, tipo_componente, padre_id, tipo_documento, bloccante, documento_id, stato_nas, path_relativo, proposta_aperta, atteso_da_portale, deroga_id, esito FROM v_fascicolo WHERE thread_id = $1 ORDER BY padre_id NULLS FIRST, codice, tipo_documento
+SELECT thread_id, componente_id, codice, rev, tipo_componente, tipo_documento, bloccante, documento_id, stato_nas, path_relativo, proposta_aperta, atteso_da_portale, deroga_id, esito, fonte_attesa, n_proposte_aperte, documento_rev, rev_diversa, anomalia_id FROM v_fascicolo WHERE thread_id = $1 ORDER BY codice, tipo_documento
 `
 
 func (q *Queries) ListFascicolo(ctx context.Context, threadID uuid.UUID) ([]VFascicolo, error) {
@@ -505,7 +505,6 @@ func (q *Queries) ListFascicolo(ctx context.Context, threadID uuid.UUID) ([]VFas
 			&i.Codice,
 			&i.Rev,
 			&i.TipoComponente,
-			&i.PadreID,
 			&i.TipoDocumento,
 			&i.Bloccante,
 			&i.DocumentoID,
@@ -515,6 +514,11 @@ func (q *Queries) ListFascicolo(ctx context.Context, threadID uuid.UUID) ([]VFas
 			&i.AttesoDaPortale,
 			&i.DerogaID,
 			&i.Esito,
+			&i.FonteAttesa,
+			&i.NProposteAperte,
+			&i.DocumentoRev,
+			&i.RevDiversa,
+			&i.AnomaliaID,
 		); err != nil {
 			return nil, err
 		}

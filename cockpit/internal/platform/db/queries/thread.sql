@@ -44,13 +44,16 @@ WHERE t.cliente_id = $1 AND t.stato = 'APERTA' AND t.unito_in IS NULL AND upper(
 ORDER BY t.data_inizio DESC LIMIT 1;
 
 -- name: InsertComponente :one
-INSERT INTO componente (thread_id, padre_id, codice, rev, descrizione, qta, tipo, origine, confermato_da)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (thread_id, padre_id, codice, rev) DO UPDATE SET descrizione = COALESCE(EXCLUDED.descrizione, componente.descrizione)
+-- Dalla 0018 l'identita' di un componente e' (thread, upper(codice)): la revisione e' un attributo e
+-- le relazioni padre → figlio stanno in componente_relazione. Un secondo inserimento dello stesso
+-- codice ritrova la riga che c'e'.
+INSERT INTO componente (thread_id, codice, rev, descrizione, qta, tipo, origine, confermato_da)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (thread_id, upper(codice)) DO UPDATE SET descrizione = COALESCE(EXCLUDED.descrizione, componente.descrizione)
 RETURNING *;
 
 -- name: ListComponentiThread :many
-SELECT * FROM componente WHERE thread_id = $1 ORDER BY padre_id NULLS FIRST, codice;
+SELECT * FROM componente WHERE thread_id = $1 ORDER BY codice;
 
 -- name: GetComponente :one
 SELECT * FROM componente WHERE componente_id = $1;

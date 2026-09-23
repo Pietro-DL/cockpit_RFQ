@@ -1,5 +1,5 @@
 -- name: ListFascicolo :many
-SELECT * FROM v_fascicolo WHERE thread_id = $1 ORDER BY padre_id NULLS FIRST, codice, tipo_documento;
+SELECT * FROM v_fascicolo WHERE thread_id = $1 ORDER BY codice, tipo_documento;
 
 -- name: GetBloccantiThread :one
 SELECT * FROM v_thread_bloccanti WHERE thread_id = $1;
@@ -90,7 +90,8 @@ WHERE m.thread_id = $1;
 SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1;
 
 -- name: GetComponentePerCodice :one
-SELECT * FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2) ORDER BY padre_id NULLS FIRST LIMIT 1;
+-- al piu' una riga: dalla 0018 (thread, upper(codice)) e' l'identita' del componente
+SELECT * FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2);
 
 -- name: ListDocumentiMessaggio :many
 -- documenti confermati a partire dagli allegati di questo messaggio (per mostrare "sul NAS" accanto all'allegato)

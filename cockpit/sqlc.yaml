@@ -62,6 +62,14 @@ sql:
             go_type: "github.com/jackc/pgx/v5/pgtype.Text"
           - column: "v_fascicolo.path_relativo"
             go_type: "github.com/jackc/pgx/v5/pgtype.Text"
+          # 0018: anomalia_id viene da un LEFT JOIN LATERAL, rev_diversa non e' mai NULL (ogni ramo
+          # senza revisione nota da' false), percorso e' un uuid[]
+          - column: "v_fascicolo.anomalia_id"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Int8"
+          - column: "v_fascicolo.rev_diversa"
+            go_type: { type: "bool" }
+          - column: "v_componente_albero.percorso"
+            go_type: { import: "github.com/google/uuid", type: "UUID", slice: true }
           - column: "v_cruscotto.identificativi"
             go_type: { type: "[]string" }
           - column: "v_inbox.cliente_id"

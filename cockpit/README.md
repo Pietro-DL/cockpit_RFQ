@@ -1098,6 +1098,13 @@ powershell -File scripts\db-test.ps1 -Ricrea        # svuota il database di prov
 
 Un file già applicato non va più modificato: una migrazione registrata non viene riapplicata.
 
+Il migratore non ha il verso «giù». Il ritorno da una migrazione è il backup preso subito prima
+(`scripts\backup-db.ps1`) insieme al binario precedente. Per la 0018 c'è in più
+`scripts\0018_indietro.sql`, da lanciare a mano con il server fermo, quando il backup non basta: riporta
+la forma dello schema 17 ma non annulla le fusioni dei duplicati né l'allineamento delle maiuscole, e si
+ferma se un componente ha più di un padre. Le guardie della 0018 non correggono niente: elencano le
+righe da riconciliare a mano, e la migrazione si rilancia dopo.
+
 ### Se qualcosa non va
 
 | Sintomo | Causa probabile | Rimedio |
@@ -1218,7 +1225,11 @@ migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enu
                                     messaggio/bozza.richiesta_fornitore_id; v_inbox con triage_intento),
                                     0016_classificazione.sql (controparte `altro` + soggetto_altro/recapito_altro, atto_business al posto di
                                     intento_messaggio, legame_operativo, richiesta risposta → offerta_ricevuta + declinata),
-                                    0017_controparte_altro.sql (CHECK con altro; v_inbox con triage_atto, triage_legame e quadrante)
+                                    0017_controparte_altro.sql (CHECK con altro; v_inbox con triage_atto, triage_legame e quadrante),
+                                    0018_fascicolo.sql (componente = identità (thread, upper(codice)), componente_relazione al posto
+                                    di padre_id, componente_proposta e relazione_proposta, FK composite con il thread, v_fascicolo v2,
+                                    v_componente_albero, v_codici_candidati_thread; guardie che fermano la migrazione sui dati da
+                                    riconciliare)
 contracts/*.schema.json             JSON Schema generati da workers/contratti.py
 workers/                            cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                                     outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
@@ -1276,7 +1287,8 @@ Dove i due documenti divergono vince la SPEC (più recente, «risponde a RFQ_pla
 **Presenti come da spec/piano:** utente, cliente (+`portale_url`, `portale_note`), dominio_cliente, buyer
 (senza `referente_cartella`), fase_catalogo, transizione, regola, thread_offerta (senza backfill/`portale_url`;
 `cartella_relativa` invece di `Cartella_NAS` assoluta), identificativo_thread (`origine` enum + `confermato_da`),
-componente (FK thread, `padre_id`, note fattibilità), fase_log, conversazione, messaggio, messaggio_outlook,
+componente (FK thread, note fattibilità; dalla 0018 l'identità è `(thread, upper(codice))` e l'albero sta in
+`componente_relazione`, che al posto di `padre_id` regge anche il sottoassieme condiviso), fase_log, conversazione, messaggio, messaggio_outlook,
 allegato (con `contenitore_id` per gli zip), riferimento_portale, documento_proposta, proposta_triage, documento,
 documento_provenienza, cartella_documento, fabbisogno_documento, deroga_fabbisogno, hash_rumore, job,
 viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.

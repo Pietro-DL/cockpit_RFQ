@@ -6,6 +6,7 @@
 package documenti
 
 import (
+	"errors"
 	"path"
 	"regexp"
 	"strings"
@@ -54,18 +55,28 @@ type LayoutDocumento struct {
 	PerCodice     bool
 }
 
+// ErrCodiceMancante: il layout del tipo vuole la cartella del codice, e il codice non c'e'.
+var ErrCodiceMancante = errors.New("questo tipo di documento va nella cartella del suo codice, e il codice manca")
+
 // PathDocumento restituisce il percorso del file RELATIVO alla cartella del thread.
 // cartellaPerCodice è Cliente.regole.cartella_per_codice (default true, SPEC §8: "proposta: sempre").
-func PathDocumento(l LayoutDocumento, cartellaPerCodice bool, codice, nomeFile string) string {
+//
+// Se il layout vuole la cartella del codice e il codice manca, restituisce ErrCodiceMancante invece
+// di mettere il file nella sottocartella comune (addendum A2.2): un disegno senza codice non ha un
+// posto nel fascicolo, e resta fra le proposte finche' qualcuno non glielo da'.
+func PathDocumento(l LayoutDocumento, cartellaPerCodice bool, codice, nomeFile string) (string, error) {
 	var parti []string
 	if l.Sottocartella != "" {
 		parti = append(parti, NomeSicuro(l.Sottocartella, 80))
 	}
-	if l.PerCodice && cartellaPerCodice && strings.TrimSpace(codice) != "" {
+	if l.PerCodice && cartellaPerCodice {
+		if strings.TrimSpace(codice) == "" {
+			return "", ErrCodiceMancante
+		}
 		parti = append(parti, NomeSicuro(strings.ToUpper(codice), 60))
 	}
 	parti = append(parti, NomeFileSicuro(nomeFile))
-	return strings.Join(parti, `\`)
+	return strings.Join(parti, `\`), nil
 }
 
 // NomeFileSicuro conserva l'estensione e sanifica il resto.
