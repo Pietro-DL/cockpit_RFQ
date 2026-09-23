@@ -80,6 +80,12 @@ type Server struct {
 	// controllo che in produzione e a richiesta passa da due strade diverse è un controllo che in una
 	// delle due prima o poi si comporta in un altro modo. Nil = la schermata lo dice.
 	Ricognitore *documenti.Ricognitore
+	// Staging è la radice dello staging locale ([nas].staging, assoluta). Serve a una cosa sola, ed è
+	// una cosa che non si vede: `allegato.path_staging` è un percorso assoluto letto dal database, e
+	// l'anteprima lo apre — quindi prima verifica che stia qui sotto, come già fa per il NAS. Vuota =
+	// l'anteprima non serve dallo staging e lo scrive nel log, perché ciò che non si può verificare
+	// non si serve.
+	Staging string
 }
 
 type chiaveCtx int

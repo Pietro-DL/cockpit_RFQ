@@ -3,9 +3,12 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,6 +101,49 @@ func (e erroreHTTP) Error() string {
 
 func (e erroreHTTP) Unwrap() error { return e.err }
 
+// nonCeLaRiga distingue le due risposte che una query puo' dare quando non torna niente: «quella riga
+// non c'e'» e «il database non ha risposto». Sembrano la stessa cosa da dove le si riceve, e non lo
+// sono: la prima e' un caso normale — un allegato non ancora agganciato a una RFQ non ha una cartella
+// — e manda l'anteprima a cercare altrove; la seconda e' un guasto, e chiamarla «il file non c'e'»
+// vuol dire mandare chi guarda a premere «Riscarica» per un problema che nessun download risolve.
+func nonCeLaRiga(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
+
+// nonServita e' l'unica uscita d'errore della rotta: uno stato, un messaggio per chi guarda, una riga
+// di log. Sta in un posto solo perche' quando stava in due, i due posti scrivevano campi diversi.
+func (s *Server) nonServita(w http.ResponseWriter, aid uuid.UUID, err error) {
+	var e erroreHTTP
+	if !errors.As(err, &e) {
+		e = erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+	}
+	if e.stato >= 500 {
+		s.Log.Error("anteprima non servita", "allegato", aid, "stato", e.stato, "err", e.Error())
+	} else {
+		s.Log.Warn("anteprima non servita", "allegato", aid, "stato", e.stato, "err", e.Error())
+	}
+	http.Error(w, e.messaggio, e.stato)
+}
+
+// pdfDavvero guarda i primi cinque byte, e distingue TRE casi dove a occhio ce ne sono due: e' un
+// PDF, non e' un PDF, oppure non si e' riusciti a leggerlo.
+//
+// Il terzo non e' il secondo. Un NAS che si stacca a meta' lettura, rispondendo «anteprima
+// disponibile solo per i PDF», manda a cercare un problema di formato dove c'e' un problema di rete —
+// e non lascia niente nel log, perche' un 415 e' una risposta normale. Un file piu' corto di cinque
+// byte, invece, e' davvero un file che non e' un PDF.
+func pdfDavvero(r io.Reader) error {
+	var testa [5]byte
+	n, err := io.ReadFull(r, testa[:])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+	}
+	if string(testa[:n]) != "%PDF-" {
+		// Non e' un PDF: non si serve. Non per il tipo dichiarato, per i byte veri — un file
+		// rinominato `.pdf` resta cio' che e', e il viewer del browser non deve provare ad aprirlo.
+		return erroreHTTP{http.StatusUnsupportedMediaType, "anteprima disponibile solo per i PDF", nil}
+	}
+	return nil
+}
+
 func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 	aid, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -108,33 +154,22 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	a, err := q.GetAllegato(ctx, aid)
 	if err != nil {
-		http.Error(w, "allegato non trovato", http.StatusNotFound)
+		if nonCeLaRiga(err) {
+			http.Error(w, "allegato non trovato", http.StatusNotFound)
+			return
+		}
+		s.nonServita(w, aid, err)
 		return
 	}
 	src, err := s.sorgenteAnteprima(ctx, q, a)
 	if err != nil {
-		var e erroreHTTP
-		if errors.As(err, &e) {
-			if e.stato >= 500 {
-				s.Log.Error("anteprima non servita", "allegato", aid, "err", e.Error())
-			} else {
-				s.Log.Warn("anteprima non servita", "allegato", aid, "stato", e.stato, "err", e.Error())
-			}
-			http.Error(w, e.messaggio, e.stato)
-			return
-		}
-		s.Log.Error("anteprima non servita", "allegato", aid, "err", err)
-		http.Error(w, "anteprima non disponibile", http.StatusInternalServerError)
+		s.nonServita(w, aid, err)
 		return
 	}
 	defer src.Close()
 
-	var testa [5]byte
-	n, _ := io.ReadFull(src, testa[:])
-	if string(testa[:n]) != "%PDF-" {
-		// Non e' un PDF: non si serve. Non per il tipo dichiarato, per i byte veri — un file
-		// rinominato `.pdf` resta cio' che e', e il viewer del browser non deve provare ad aprirlo.
-		http.Error(w, "anteprima disponibile solo per i PDF", http.StatusUnsupportedMediaType)
+	if err := pdfDavvero(src); err != nil {
+		s.nonServita(w, aid, err)
 		return
 	}
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
@@ -145,7 +180,7 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 
 	h := w.Header()
 	h.Set("Content-Type", "application/pdf")
-	h.Set("Content-Disposition", `inline; filename="`+documenti.NomeFileSicuro(a.NomeFile)+`"`)
+	h.Set("Content-Disposition", nomePerIlBrowser(a.NomeFile))
 	h.Set("X-Content-Type-Options", "nosniff")
 	// Un PDF puo' contenere JavaScript e moduli: nel viewer non deve eseguire niente e non deve
 	// poter chiamare nessuno.
@@ -161,6 +196,57 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 		"dimensione", src.dim, "range", r.Header.Get("Range"))
 }
 
+// nomePerIlBrowser scrive il nome del file in `Content-Disposition` nelle DUE forme che
+// l'intestazione prevede: `filename=` in ASCII, che leggono tutti, e `filename*` in percentuale —
+// che dichiara la codifica e porta il nome intero.
+//
+// Un'intestazione HTTP e' fatta di byte, non di caratteri. «Staffa – rev À.pdf» scritto dentro
+// `filename=` ci viaggia come byte non-ASCII, e da li' in poi ogni browser decide per conto suo: chi
+// li legge come latin-1 e propone «Staffa â€“ rev Ã€.pdf», chi taglia il nome al primo byte strano,
+// chi non capisce piu' dove finisce il valore. Con `filename*` il nome e' scritto in una forma sola,
+// che dice anche in quale codifica e' scritto, e l'ASCII resta come ripiego per chi non la conosce.
+//
+// I nomi qui dentro sono gia' passati da `NomeFileSicuro`, che toglie virgolette, barre e caratteri
+// di controllo: il rimpiazzo con «_» qui sotto e' il secondo controllo di una cosa gia' vera, e resta
+// perche' e' questa funzione, non quella, a promettere un'intestazione che non si rompe.
+func nomePerIlBrowser(nome string) string {
+	sicuro := documenti.NomeFileSicuro(nome)
+	ascii := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, sicuro)
+	if ext := filepath.Ext(ascii); strings.Trim(strings.TrimSuffix(ascii, ext), "_ ") == "" {
+		// Un nome fatto solo di caratteri non-ASCII: «___.pdf» non dice niente a nessuno, e il nome
+		// vero arriva comunque con filename*.
+		if ext == "" {
+			ext = ".pdf"
+		}
+		ascii = "documento" + ext
+	}
+	d := `inline; filename="` + ascii + `"`
+	if ascii != sicuro {
+		d += "; filename*=UTF-8''" + percentuale(sicuro)
+	}
+	return d
+}
+
+// percentuale codifica come vuole la RFC 5987: restano i caratteri che non possono rompere
+// l'intestazione, tutto il resto diventa %XX sui byte UTF-8 (lo spazio compreso).
+func percentuale(s string) string {
+	const ammessi = "!#$&+-.^_`|~"
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte(ammessi, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "%%%02X", c)
+	}
+	return b.String()
+}
+
 // sorgenteAnteprima decide DA DOVE arrivano i byte: prima lo staging, poi il NAS, altrimenti niente.
 //
 // L'ordine non e' casuale. Lo staging e' sul disco di questo server, il suo nome E' l'hash del
@@ -169,21 +255,27 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 // quello lontano.
 func (s *Server) sorgenteAnteprima(ctx context.Context, q *db.Queries, a db.Allegato) (*sorgente, error) {
 	if a.PathStaging.Valid && a.PathStaging.String != "" {
-		f, err := os.Open(a.PathStaging.String)
-		switch {
-		case err == nil:
-			st, err := f.Stat()
-			if err != nil || st.IsDir() {
-				f.Close()
-				return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+		percorso, err := s.nelloStaging(a.PathStaging.String)
+		if err != nil {
+			return nil, err
+		}
+		if percorso != "" {
+			f, err := os.Open(percorso)
+			switch {
+			case err == nil:
+				st, err := f.Stat()
+				if err != nil || st.IsDir() {
+					f.Close()
+					return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+				}
+				return &sorgente{f: f, da: "staging", dim: st.Size(), modtime: st.ModTime(),
+					etag: a.Sha256.String}, nil
+			case !os.IsNotExist(err):
+				// Il file c'e' e non si apre (permessi, disco): il NAS puo' avere lo stesso contenuto,
+				// e provarci e' meglio che rispondere di no. Resta nel log, perche' un errore di
+				// lettura sullo staging non e' normale.
+				s.Log.Warn("anteprima: lo staging non si legge", "allegato", a.AllegatoID, "err", err)
 			}
-			return &sorgente{f: f, da: "staging", dim: st.Size(), modtime: st.ModTime(),
-				etag: a.Sha256.String}, nil
-		case !os.IsNotExist(err):
-			// Il file c'e' e non si apre (permessi, disco): il NAS puo' avere lo stesso contenuto, e
-			// provarci e' meglio che rispondere di no. Resta nel log, perche' un errore di lettura
-			// sullo staging non e' normale.
-			s.Log.Warn("anteprima: lo staging non si legge", "allegato", a.AllegatoID, "err", err)
 		}
 	}
 	src, err := s.dalNas(ctx, q, a)
@@ -196,6 +288,40 @@ func (s *Server) sorgenteAnteprima(ctx context.Context, q *db.Queries, a db.Alle
 	return nil, erroreHTTP{http.StatusNotFound, "il contenuto non e' su questo server: usa «Riscarica»", nil}
 }
 
+// nelloStaging verifica che il percorso scritto in `allegato.path_staging` stia davvero dentro la
+// cartella di staging di QUESTO server, e lo restituisce ripulito.
+//
+// Il NAS aveva gia' il suo controllo (`documenti.PercorsoSulNas`) e lo staging no, per una ragione
+// che sembrava buona: quel percorso lo scrive il server stesso, mentre `documento.path_relativo`
+// viene da lontano. Ma «lo scrive il server» e' esattamente cio' che si diceva anche dell'altro, e le
+// due radici non possono avere due regole diverse: una riga cambiata a mano, una migrazione che
+// ricalcola i percorsi, un `path_staging` rimasto da una configurazione precedente in cui lo staging
+// stava altrove, e la rotta aprirebbe un file qualunque del disco del server.
+//
+// Tre risposte, non due: percorso buono; percorso che esce dalla radice, che e' un bug e vale 500;
+// radice non dichiarata, e allora dallo staging non si serve — cio' che non si puo' verificare non si
+// serve — e si prova il NAS. In produzione la radice c'e' sempre (la configurazione la crea
+// all'avvio); se un giorno non ci fosse, lo dice il log invece di lasciar passare tutto.
+func (s *Server) nelloStaging(percorso string) (string, error) {
+	radice := strings.TrimSpace(s.Staging)
+	if radice == "" {
+		s.Log.Warn("anteprima: la radice dello staging non e' dichiarata, non si serve dallo staging",
+			"percorso", percorso)
+		return "", nil
+	}
+	p := filepath.Clean(percorso)
+	if !filepath.IsAbs(p) {
+		return "", erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile",
+			fmt.Errorf("path_staging non e' un percorso assoluto: %q", percorso)}
+	}
+	base := filepath.Clean(strings.TrimRight(radice, `\/`))
+	if !documenti.DentroLaRadice(p, base) {
+		return "", erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile",
+			fmt.Errorf("percorso fuori radice: %q non sta sotto lo staging %q", p, base)}
+	}
+	return p, nil
+}
+
 // dalNas serve il file del DOCUMENTO che ha lo stesso contenuto di questo allegato, se c'e', se e'
 // scritto e se niente fa dubitare che sia ancora quello. Nil senza errore = non e' il caso, prova
 // altrove; errore = e' il caso ma qualcosa non torna, e la differenza va detta a chi guarda.
@@ -204,12 +330,21 @@ func (s *Server) dalNas(ctx context.Context, q *db.Queries, a db.Allegato) (*sor
 		return nil, nil
 	}
 	m, err := q.GetMessaggio(ctx, a.MessaggioID)
-	if err != nil || !m.ThreadID.Valid {
+	if err != nil {
+		if !nonCeLaRiga(err) {
+			return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+		}
+		return nil, nil
+	}
+	if !m.ThreadID.Valid {
 		return nil, nil // l'allegato non e' ancora agganciato a una RFQ: non c'e' nessuna cartella
 	}
 	d, err := q.GetDocumentoPerHash(ctx, db.GetDocumentoPerHashParams{
 		ThreadID: m.ThreadID.UUID, Sha256: a.Sha256.String})
 	if err != nil {
+		if !nonCeLaRiga(err) {
+			return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+		}
 		return nil, nil // nessun documento con questo contenuto in questa RFQ
 	}
 	if d.StatoNas != db.StatoNasScritto {
@@ -228,8 +363,14 @@ func (s *Server) dalNas(ctx context.Context, q *db.Queries, a db.Allegato) (*sor
 		return nil, erroreHTTP{http.StatusServiceUnavailable, "il NAS non risponde: riprova fra poco", nil}
 	}
 	t, err := q.GetThread(ctx, d.ThreadID)
-	if err != nil || !t.CartellaRelativa.Valid {
+	if err != nil {
+		if !nonCeLaRiga(err) {
+			return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
+		}
 		return nil, nil
+	}
+	if !t.CartellaRelativa.Valid {
+		return nil, nil // la RFQ non ha ancora una cartella sul NAS
 	}
 	p, err := documenti.PercorsoSulNas(s.NAS.Radice, t.CartellaRelativa.String, d.PathRelativo)
 	if err != nil {
