@@ -92,3 +92,16 @@ func dentroLaRadice(assoluto, base string) bool {
 	sep := string(filepath.Separator)
 	return strings.HasPrefix(strings.ToLower(assoluto), strings.ToLower(base)+sep)
 }
+
+// DentroLaRadice e' la stessa domanda che si fa `PercorsoSulNas` — «questo percorso assoluto sta
+// davvero sotto quella cartella?» — posta da chi ha gia' il percorso in mano.
+//
+// Esiste perche' il NAS non e' l'unica radice del Cockpit: anche `allegato.path_staging` e' un
+// percorso assoluto letto dal database, e l'anteprima lo apre. Vale parola per parola la ragione
+// scritta in cima a questo file: non lo puo' comporre nessuno da fuori, e proprio per questo nessuno
+// andrebbe a guardarlo. Una regola sola per le due radici, perche' due regole diventano due
+// comportamenti, e il secondo se ne accorge qualcuno solo il giorno in cui serve.
+//
+// `assoluto` e `base` si passano gia' puliti (`filepath.Clean`, senza barra finale): qui si confronta
+// e basta, non si normalizza — normalizzare in due posti vuol dire normalizzare in due modi.
+func DentroLaRadice(assoluto, base string) bool { return dentroLaRadice(assoluto, base) }
