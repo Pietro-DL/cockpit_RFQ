@@ -153,9 +153,9 @@ func preparaAnteprima(t *testing.T, pdf []byte, conStaging, conNas bool) *scenaA
 
 	var utente uuid.UUID
 	deve(b.pool.QueryRow(b.ctx, `SELECT utente_id FROM utente WHERE sigla='FP'`).Scan(&utente))
-	deve(b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes,
+	deve(b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes,
 		path_relativo, stato_nas, scritto_il, confermato_da, confermato_il)
-		VALUES ($1,'disegno_2d','disegno.pdf','pdf',$2,$3,$4,'scritto', now(), $5, now() - interval '1 day')
+		VALUES ($1,'disegno_2d','D1','disegno.pdf','pdf',$2,$3,$4,'scritto', now(), $5, now() - interval '1 day')
 		RETURNING documento_id`, s.thread, sha, len(pdf), pathDocProva, utente).Scan(&s.doc))
 
 	// la provenienza lega il documento all'allegato da cui e' nato: e' quella che fa comparire «NAS:

@@ -49,8 +49,8 @@ func (b *bancoWeb) rfqConDocumentoInCoda(quanti int) (uuid.UUID, []uuid.UUID) {
 	for i := 0; i < quanti; i++ {
 		var d uuid.UUID
 		sha := strings.Repeat(string(rune('a'+i)), 64)
-		if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes,
-			path_relativo, stato_nas, confermato_da) VALUES ($1,'disegno_2d',$2,'pdf',$3,1000,$4,'in_coda',$5) RETURNING documento_id`,
+		if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes,
+			path_relativo, stato_nas, confermato_da) VALUES ($1,'disegno_2d','D1',$2,'pdf',$3,1000,$4,'in_coda',$5) RETURNING documento_id`,
 			thread, "disegno.pdf", sha, `2D\disegno.pdf`, utente).Scan(&d); err != nil {
 			b.t.Fatal(err)
 		}

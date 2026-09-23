@@ -90,8 +90,8 @@ func nuovoBancoRipresa(t *testing.T, ctx context.Context, p *pgxpool.Pool, suffi
 		b.messaggio, len(testo), sha, b.percorso).Scan(&b.allegato))
 	deve(p.QueryRow(ctx, `INSERT INTO utente (sigla, nome, ufficio, ruolo) VALUES ($1,'Prova','tecnico','operatore') RETURNING utente_id`,
 		"R"+suffisso).Scan(&utente))
-	deve(p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da)
-		VALUES ($1,'disegno_2d','disegno.pdf','pdf',$2,$3,$4,'in_coda',$5) RETURNING documento_id`,
+	deve(p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da)
+		VALUES ($1,'disegno_2d','D1','disegno.pdf','pdf',$2,$3,$4,'in_coda',$5) RETURNING documento_id`,
 		thread, sha, len(testo), `ELENCO DISEGNI\disegno.pdf`, utente).Scan(&b.doc))
 	return b
 }

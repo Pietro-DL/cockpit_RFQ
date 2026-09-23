@@ -354,7 +354,8 @@ func TestLaSchedaFabbisognoDiceQuelloCheIlFascicoloPretende(t *testing.T) {
 		VALUES ($1, 'outlook', now(), 'prova fabbisogno') RETURNING thread_id`, id).Scan(&thread); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.pool.Exec(b.ctx, `INSERT INTO componente (thread_id, codice, tipo) VALUES ($1, 'AC12345B', 'sciolto')`, thread); err != nil {
+	if _, err := b.pool.Exec(b.ctx, `INSERT INTO componente (thread_id, codice, tipo, confermato_da)
+		VALUES ($1, 'AC12345B', 'sciolto', (SELECT utente_id FROM utente WHERE sigla = 'FP'))`, thread); err != nil {
 		t.Fatal(err)
 	}
 

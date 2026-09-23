@@ -95,8 +95,8 @@ func (b bancoCache) allegato(t *testing.T, ctx context.Context, p *pgxpool.Pool,
 func (b bancoCache) documento(t *testing.T, ctx context.Context, p *pgxpool.Pool, sha, stato string) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
-	if err := p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da, confermato_il)
-		VALUES ($1,'disegno_2d','x.pdf','pdf',$2,10,$3,$4::stato_nas,$5, now() - interval '40 days') RETURNING documento_id`,
+	if err := p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da, confermato_il)
+		VALUES ($1,'disegno_2d','D1','x.pdf','pdf',$2,10,$3,$4::stato_nas,$5, now() - interval '40 days') RETURNING documento_id`,
 		b.thread, sha, `ELENCO DISEGNI\`+sha[:6]+`.pdf`, stato, b.utente).Scan(&id); err != nil {
 		t.Fatal(err)
 	}

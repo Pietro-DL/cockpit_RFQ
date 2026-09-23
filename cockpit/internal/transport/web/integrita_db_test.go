@@ -50,9 +50,9 @@ func (b *bancoWeb) rfqSulNasFinto(contenuto string, stato db.StatoNas) (uuid.UUI
 	if err := b.pool.QueryRow(b.ctx, `SELECT utente_id FROM utente WHERE sigla = 'FP'`).Scan(&utente); err != nil {
 		b.t.Fatal(err)
 	}
-	if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes,
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes,
 		path_relativo, stato_nas, confermato_da, confermato_il)
-		VALUES ($1,'disegno_2d','disegno.pdf','pdf',$2,$3,$4,$5,$6, now() - interval '3 days') RETURNING documento_id`,
+		VALUES ($1,'disegno_2d','D1','disegno.pdf','pdf',$2,$3,$4,$5,$6, now() - interval '3 days') RETURNING documento_id`,
 		thread, sha, len(contenutoNas), `ELENCO DISEGNI\disegno.pdf`, stato, utente).Scan(&doc); err != nil {
 		b.t.Fatal(err)
 	}

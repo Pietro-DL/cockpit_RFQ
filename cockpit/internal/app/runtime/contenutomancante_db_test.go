@@ -72,8 +72,8 @@ func documentoConContenuto(t *testing.T, ctx context.Context, p *pgxpool.Pool, s
 		VALUES ($1,'Prova','tecnico','operatore') RETURNING utente_id`, "U"+sha[:3]).Scan(&utente); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da)
-		VALUES ($1,'disegno_2d','disegno.pdf','pdf',$2,18,'2D\disegno.pdf','in_coda',$3) RETURNING documento_id`,
+	if err := p.QueryRow(ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes, path_relativo, stato_nas, confermato_da)
+		VALUES ($1,'disegno_2d','D1','disegno.pdf','pdf',$2,18,'2D\disegno.pdf','in_coda',$3) RETURNING documento_id`,
 		thread, sha, utente).Scan(&documento); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package documenti
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -35,13 +36,29 @@ func TestPathDocumento(t *testing.T) {
 	}{
 		{disegni, true, "6674611A", "6674611A_4.pdf", `ELENCO DISEGNI\6674611A\6674611A_4.pdf`},
 		{disegni, false, "6674611A", "6674611A_4.pdf", `ELENCO DISEGNI\6674611A_4.pdf`},
-		{disegni, true, "", "assieme.STEP", `ELENCO DISEGNI\assieme.step`},
+		// il cliente senza cartella per codice: il layout non la chiede, e il codice non serve al percorso
+		{disegni, false, "", "assieme.STEP", `ELENCO DISEGNI\assieme.step`},
 		{radice, true, "6674611A", "SO 5467.pdf", `SO 5467.pdf`},
 		{LayoutDocumento{"OFFERTE FORNITORI", false}, true, "", "verniciatura?.pdf", `OFFERTE FORNITORI\verniciatura.pdf`},
 	}
 	for _, c := range casi {
-		if got := PathDocumento(c.l, c.perCodice, c.codice, c.nome); got != c.atteso {
-			t.Errorf("PathDocumento(%v,%v,%q,%q) = %q, atteso %q", c.l, c.perCodice, c.codice, c.nome, got, c.atteso)
+		got, err := PathDocumento(c.l, c.perCodice, c.codice, c.nome)
+		if err != nil || got != c.atteso {
+			t.Errorf("PathDocumento(%v,%v,%q,%q) = %q, %v; atteso %q", c.l, c.perCodice, c.codice, c.nome, got, err, c.atteso)
+		}
+	}
+}
+
+// A2.2: se il layout vuole la cartella del codice e il codice manca, il file NON va nella
+// sottocartella comune. Fino alla 0018 un assieme.STEP senza codice finiva in ELENCO DISEGNI e
+// basta, in silenzio: era il terzo caso della prova qui sopra, che ora vale solo per il cliente
+// senza cartella per codice.
+func TestPathDocumentoSenzaCodiceNonScegliUnaCartella(t *testing.T) {
+	disegni := LayoutDocumento{Sottocartella: "ELENCO DISEGNI", PerCodice: true}
+	for _, codice := range []string{"", "   ", "\t"} {
+		got, err := PathDocumento(disegni, true, codice, "assieme.STEP")
+		if !errors.Is(err, ErrCodiceMancante) || got != "" {
+			t.Errorf("PathDocumento senza codice (%q) = %q, %v; atteso ErrCodiceMancante e nessun percorso", codice, got, err)
 		}
 	}
 }
