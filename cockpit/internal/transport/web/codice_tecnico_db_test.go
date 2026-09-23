@@ -121,9 +121,10 @@ func TestUnCapitolatoSenzaCodiceSiConfermaComePrima(t *testing.T) {
 }
 
 // Il componente esiste gia' con il codice scritto in minuscolo; la proposta lo scrive in maiuscolo.
-// La conferma aggancia il documento a QUEL componente (niente secondo componente) e gli copia il
-// codice cosi' com'e' scritto sul componente: la FK composita non accetterebbe una differenza di
-// maiuscole, e senza questa copia la conferma fallirebbe.
+// La conferma con QUEL componente scelto (dal B8.3 la conferma non lo cerca piu' da sola per codice)
+// aggancia il documento a lui (niente secondo componente) e gli copia il codice cosi' com'e' scritto
+// sul componente: la FK composita non accetterebbe una differenza di maiuscole, e senza questa copia
+// la conferma fallirebbe.
 func TestIlDocumentoAgganciatoPrendeIlCodiceDelComponente(t *testing.T) {
 	b := preparaBancoWeb(t)
 	thread, proposta := b.propostaTecnica("AGG1", "cad_3d", "AB12")
@@ -135,7 +136,7 @@ func TestIlDocumentoAgganciatoPrendeIlCodiceDelComponente(t *testing.T) {
 	w := b.browser("10.0.0.1")
 	w.login("FP", "prova-fp")
 
-	_, html := w.fai(http.MethodPost, "/proposta/"+proposta.String()+"/conferma", url.Values{}, true)
+	_, html := w.fai(http.MethodPost, "/proposta/"+proposta.String()+"/conferma", url.Values{"componente_id": {comp.String()}}, true)
 	if !strings.Contains(html, "Confermato:") {
 		t.Fatalf("la conferma non e' riuscita:\n%s", estrai(html, "avviso"))
 	}

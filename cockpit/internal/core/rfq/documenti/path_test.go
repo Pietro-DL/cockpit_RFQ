@@ -62,3 +62,39 @@ func TestPathDocumentoSenzaCodiceNonScegliUnaCartella(t *testing.T) {
 		}
 	}
 }
+
+// B8.3: la cartella e il nome si separano. CartellaDocumento e' la cartella di PathDocumento, e
+// NomeNelPercorso ne ritrova il nome: una correzione di codice ricompone il percorso con la cartella
+// nuova e il nome di prima, e il file non cambia nome.
+func TestCartellaENomeRicompongonoIlPercorso(t *testing.T) {
+	disegni := LayoutDocumento{Sottocartella: "ELENCO DISEGNI", PerCodice: true}
+	casi := []struct {
+		l         LayoutDocumento
+		perCodice bool
+		codice    string
+		cartella  string
+	}{
+		{disegni, true, "ab12", `ELENCO DISEGNI\AB12`},
+		{disegni, false, "ab12", `ELENCO DISEGNI`},
+		{LayoutDocumento{"", false}, true, "ab12", ``},
+	}
+	for _, c := range casi {
+		cartella, err := CartellaDocumento(c.l, c.perCodice, c.codice)
+		if err != nil || cartella != c.cartella {
+			t.Errorf("CartellaDocumento(%v,%v,%q) = %q, %v; atteso %q", c.l, c.perCodice, c.codice, cartella, err, c.cartella)
+		}
+		p, _ := PathDocumento(c.l, c.perCodice, c.codice, "Disegno 1.PDF")
+		if got := NellaCartella(cartella, NomeNelPercorso(p)); got != p {
+			t.Errorf("cartella %q + nome di %q = %q", cartella, p, got)
+		}
+	}
+	if _, err := CartellaDocumento(disegni, true, " "); !errors.Is(err, ErrCodiceMancante) {
+		t.Errorf("CartellaDocumento senza codice: %v, atteso ErrCodiceMancante", err)
+	}
+	if got := NomeNelPercorso(`ELENCO DISEGNI\AB12\LEGGIMI`); got != "LEGGIMI" {
+		t.Errorf("NomeNelPercorso = %q, atteso LEGGIMI", got)
+	}
+	if got := NomeNelPercorso(`SO 5467.pdf`); got != `SO 5467.pdf` {
+		t.Errorf("NomeNelPercorso senza cartella = %q", got)
+	}
+}
