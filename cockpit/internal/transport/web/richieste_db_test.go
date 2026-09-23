@@ -126,7 +126,9 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("stato %d", resp.StatusCode)
 	}
-	for _, atteso := range []string{"Richiesta a Euroforesi creata", "Bozza in preparazione", "ordini@euroforesi.example", `class="chip richiesta bozza"`} {
+	// Lo stato «bozza» non si legge piu' da una chip della pagina (il box non c'e' piu', correzione
+	// prima di B8.2): lo dice la riga di richiesta_fornitore qui sotto.
+	for _, atteso := range []string{"Richiesta a Euroforesi creata", "Bozza in preparazione", "ordini@euroforesi.example"} {
 		if !strings.Contains(corpo, atteso) {
 			t.Errorf("la risposta non dice %q: %s", atteso, estratto(corpo, "avviso"))
 		}
@@ -187,11 +189,16 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if r2 := b.richiesta(rid); r2.Stato != db.StatoRichiestaFornitoreInviata || r2.MessaggioID.UUID != sent {
 		t.Errorf("il secondo sync ha toccato la richiesta: %+v", r2)
 	}
-	// la pagina della RFQ la mostra
+	// La pagina della RFQ mostra la mail partita fra i suoi messaggi, ma non ha piu' il box delle
+	// richieste ai fornitori (correzione prima di B8.2: torneranno nel tab Luigi, per lavorazione
+	// di un componente). La richiesta resta nel database, come si e' appena verificato.
 	_, pagina := fp.fai(http.MethodGet, "/thread/"+thread.String(), nil, false)
-	for _, atteso := range []string{"Richieste ai fornitori (1)", "Euroforesi", `class="chip richiesta inviata"`} {
-		if !strings.Contains(pagina, atteso) {
-			t.Errorf("la pagina della RFQ non mostra %q", atteso)
+	if !strings.Contains(pagina, "/messaggio/"+sent.String()) {
+		t.Error("la pagina della RFQ non mostra la mail inviata fra i suoi messaggi")
+	}
+	for _, vietato := range []string{"Richieste ai fornitori", "Nuova richiesta a un fornitore", `class="chip richiesta`} {
+		if strings.Contains(pagina, vietato) {
+			t.Errorf("la pagina della RFQ mostra ancora %q", vietato)
 		}
 	}
 	if testutil.Conta(t, b.pool, "thread_offerta") != 1 {

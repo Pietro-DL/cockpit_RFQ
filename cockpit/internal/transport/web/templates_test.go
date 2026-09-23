@@ -176,18 +176,8 @@ func TestFrammentiEseguono(t *testing.T) {
 			DaAggiungere: []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "dominio", Dettaglio: "euroforesi.example"}},
 			NonRisolti:   []fornitori.Riga{{Fornitore: "Euroforesi", Cosa: "qualifica", Dettaglio: "cliente CLIENTE-IGNOTO non in anagrafica"}}}},
 			[]string{"Anteprima: che cosa farebbe", "Euroforesi", "euroforesi.example", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`}},
-		// blocco 7B: la RFQ con le richieste ai fornitori e il form; il pannello con i candidati verso
-		// una richiesta e con la proposta «richiesta mandata a mano»
-		{"thread.html", "thread_corpo", func() *threadDati {
-			x := *thd
-			fid := uuid.New()
-			x.Richieste = []db.ListRichiesteThreadRow{{RichiestaID: uuid.New(), ThreadID: x.T.ThreadID, FornitoreID: fid, Fornitore: "Euroforesi",
-				Stato: db.StatoRichiestaFornitoreInviata, Codici: []string{"6674611A"}, LavorazioneDescrizione: txtT("Cataforesi"), NRisposte: 1}}
-			x.Fornitori = []db.Fornitore{{FornitoreID: fid, RagioneSociale: "Euroforesi", Tipo: db.TipoFornitoreVerniciatore}}
-			x.Lavorazioni = []db.Lavorazione{{Codice: "cataforesi", Descrizione: "Cataforesi"}}
-			x.QualificatoPer = map[uuid.UUID]string{fid: "cataforesi"}
-			return &x
-		}(), []string{"Richieste ai fornitori (1)", "Euroforesi", `class="chip richiesta inviata"`, "Nuova richiesta a un fornitore", "qualificato: cataforesi", "/richiesta/", "annulla"}},
+		// blocco 7B: il pannello con i candidati verso una richiesta e con la proposta «richiesta
+		// mandata a mano». La RFQ senza il box delle richieste e' TestLaRFQNonCreaRichiesteAiFornitori.
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Thread = nil
@@ -252,5 +242,31 @@ func TestFrammentiEseguono(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "Nuova RFQ") || strings.Contains(buf.String(), "Scarica selezionati") {
 		t.Errorf("pannello orfano: triage assente o download consentito")
+	}
+}
+
+// Correzione prima di B8.2: la pagina della RFQ non mostra piu' il box del blocco 7B, ne' le
+// richieste gia' fatte ne' il form per crearne una, e threadDati non ne carica piu' i dati.
+// Se il box tornasse nel template con i vecchi campi, l'esecuzione fallirebbe qui; se tornasse
+// scritto a mano, lo trovano le frasi vietate.
+func TestLaRFQNonCreaRichiesteAiFornitori(t *testing.T) {
+	s := serverTest(t)
+	_, _, thd := datiSintetici()
+	var buf bytes.Buffer
+	if err := s.pagine["thread.html"].ExecuteTemplate(&buf, "thread_corpo", vista{Dati: thd, Frammento: true}); err != nil {
+		t.Fatal(err)
+	}
+	pagina := buf.String()
+	// la pagina c'e' ancora, con il resto
+	for _, atteso := range []string{"Documenti sul NAS", "Fascicolo", "RICEVUTA"} {
+		if !strings.Contains(pagina, atteso) {
+			t.Errorf("manca %q: la pagina della RFQ si e' rotta", atteso)
+		}
+	}
+	for _, vietato := range []string{"Richieste ai fornitori", "Nessuna richiesta ai fornitori", "Nuova richiesta a un fornitore",
+		"Crea richiesta", `name="fornitore_id"`, "/richiesta\"", "/richiesta/", "qualificato:", `class="chip richiesta`} {
+		if strings.Contains(pagina, vietato) {
+			t.Errorf("la pagina della RFQ mostra ancora %q", vietato)
+		}
 	}
 }
