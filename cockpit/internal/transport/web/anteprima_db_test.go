@@ -23,6 +23,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,6 +37,7 @@ import (
 
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 const cartellaRFQProva = `ACME\WIP\2026 09 22 Rossi prova`
@@ -87,8 +90,10 @@ type scenaAnteprima struct {
 	thread   uuid.UUID
 	radice   string // la radice del NAS di questo server
 	suNas    string // il percorso assoluto del file del documento
-	staging  string // il percorso del contenuto in staging ("" se non c'e')
-	pdf      []byte
+
+	radiceStaging string // la radice dello staging locale, quella che il server verifica
+	staging       string // il percorso del contenuto in staging ("" se non c'e')
+	pdf           []byte
 }
 
 // pdfFinto e' un PDF vero quanto basta: comincia per %PDF- (che e' l'unica cosa che la rotta guarda)
@@ -132,8 +137,13 @@ func preparaAnteprima(t *testing.T, pdf []byte, conStaging, conNas bool) *scenaA
 		oggetto, mittente_indirizzo, thread_id, aggancio) VALUES ('outlook','MSG-ANT',$1,'entrata',now(),
 		'RFQ con disegno','acquisti@acme.example',$2,'operatore') RETURNING messaggio_id`, conv, s.thread).Scan(&msg))
 
+	// La radice dello staging si dichiara SEMPRE, anche quando il contenuto non c'e': e' quella che
+	// il server usa per verificare che `path_staging` non punti da un'altra parte del disco, e un
+	// banco che la lasciasse vuota proverebbe l'anteprima di un server configurato male.
+	s.radiceStaging = t.TempDir()
+	b.ws.Staging = s.radiceStaging
 	if conStaging {
-		s.staging = filepath.Join(t.TempDir(), "_contenuti", sha[:2], sha+".pdf")
+		s.staging = filepath.Join(s.radiceStaging, "_contenuti", sha[:2], sha+".pdf")
 		deve(os.MkdirAll(filepath.Dir(s.staging), 0o755))
 		deve(os.WriteFile(s.staging, pdf, 0o644))
 	}
@@ -509,4 +519,199 @@ func TestSenzaSessioneLAnteprimaNonSiApre(t *testing.T) {
 	if bytes.Contains(corpo, []byte("%PDF-")) {
 		t.Error("il file e' uscito lo stesso")
 	}
+}
+
+// ─── I quattro micro-fix di chiusura di B8.1 ────────────────────────────────────────────────────
+
+// Lo staging ha lo stesso contenimento del NAS. Il file fuori dalla radice e' un PDF vero, leggibile,
+// e il NAS ha lo stesso contenuto a disposizione: la prova chiede che la rotta si FERMI — 500, niente
+// byte — e non che vada a prenderlo altrove in silenzio. Un percorso che esce dalla radice e' un bug,
+// e un bug coperto da un ripiego che funziona non lo trova piu' nessuno.
+func TestUnPercorsoDiStagingFuoriDallaRadiceNonSiApre(t *testing.T) {
+	s := preparaAnteprima(t, pdfFinto(16*1024), true, true)
+	fuori := filepath.Join(filepath.Dir(s.radiceStaging), "fuori-dallo-staging.pdf")
+	if err := os.WriteFile(fuori, s.pdf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(fuori) })
+	// Composto come lo comporrebbe un codice sbagliato: dalla radice giusta, risalendo.
+	risalita := filepath.Join(s.radiceStaging, "_contenuti") + `\..\..\fuori-dallo-staging.pdf`
+	for _, p := range []string{fuori, risalita} {
+		if _, err := s.b.pool.Exec(s.b.ctx, `UPDATE allegato SET path_staging=$2 WHERE allegato_id=$1`, s.allegato, p); err != nil {
+			t.Fatal(err)
+		}
+		resp, corpo := s.fp.chiedi(http.MethodGet, s.url(), nil)
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("path_staging=%q: stato %d, atteso 500 — un percorso fuori dallo staging e' un errore "+
+				"del server, e ripiegare sul NAS lo nasconderebbe", p, resp.StatusCode)
+		}
+		if bytes.Contains(corpo, []byte("%PDF-")) {
+			t.Fatalf("path_staging=%q: ha servito un file che sta fuori dallo staging", p)
+		}
+	}
+	if !s.reg.contiene("percorso fuori radice") {
+		t.Errorf("il 500 non dice nel log perche': chi lo legge deve trovare il percorso che esce dalla radice")
+	}
+}
+
+// Senza la radice dichiarata non si verifica niente, e cio' che non si verifica non si serve: lo
+// staging si salta (lo dice il log), e se il documento e' sul NAS l'anteprima arriva da li'.
+func TestSenzaRadiceDelloStagingNonSiServeDalloStaging(t *testing.T) {
+	s := preparaAnteprima(t, pdfFinto(16*1024), true, true)
+	s.b.ws.Staging = ""
+
+	resp, corpo := s.fp.chiedi(http.MethodGet, s.url(), nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("stato %d: %s", resp.StatusCode, primi400(string(corpo)))
+	}
+	if da, _ := s.reg.servita(t); da != "NAS" {
+		t.Errorf("i byte arrivano da %q: senza radice dichiarata lo staging non si puo' verificare", da)
+	}
+	if !s.reg.contiene("radice dello staging non e' dichiarata") {
+		t.Error("il salto dello staging non e' nel log: un server configurato male deve dirlo")
+	}
+}
+
+// Il nome accentato arriva intero: `filename*` in UTF-8 percentuale, e `filename=` in solo ASCII come
+// ripiego. Il nome e' quello di un disegno vero come se ne ricevono: trattino lungo, lettera accentata
+// maiuscola, spazi.
+func TestIlNomeAccentatoArrivaInteroAlBrowser(t *testing.T) {
+	s := preparaAnteprima(t, pdfFinto(8*1024), true, false)
+	nome := "Staffa – rev À.pdf"
+	if _, err := s.b.pool.Exec(s.b.ctx, `UPDATE allegato SET nome_file=$2 WHERE allegato_id=$1`, s.allegato, nome); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, corpo := s.fp.chiedi(http.MethodGet, s.url(), nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("stato %d: %s", resp.StatusCode, primi400(string(corpo)))
+	}
+	cd := resp.Header.Get("Content-Disposition")
+	for i := 0; i < len(cd); i++ {
+		if cd[i] < 0x20 || cd[i] > 0x7e {
+			t.Fatalf("Content-Disposition contiene il byte 0x%02x: un'intestazione HTTP con byte non-ASCII "+
+				"ogni browser la legge a modo suo (%q)", cd[i], cd)
+		}
+	}
+	const prefisso = "filename*=UTF-8''"
+	i := strings.Index(cd, prefisso)
+	if i < 0 {
+		t.Fatalf("manca filename*: il nome accentato non arriva (%q)", cd)
+	}
+	codificato := cd[i+len(prefisso):]
+	if j := strings.IndexByte(codificato, ';'); j >= 0 {
+		codificato = codificato[:j]
+	}
+	decodificato, err := url.PathUnescape(codificato)
+	if err != nil {
+		t.Fatalf("filename* non si decodifica: %v (%q)", err, codificato)
+	}
+	if decodificato != nome {
+		t.Errorf("il browser ricostruisce %q invece di %q", decodificato, nome)
+	}
+	if !strings.HasPrefix(cd, `inline; filename="`) {
+		t.Errorf("manca il ripiego ASCII per chi non conosce filename*: %q", cd)
+	}
+}
+
+// «Non c'e' la riga» e «il database non risponde» sono due cose. La prima e' un 404 onesto; la
+// seconda, detta come «allegato non trovato», manderebbe chi guarda a cercare un problema che non c'e'.
+// Il database che non risponde si ottiene davvero: un pool chiuso, sotto un server vivo.
+func TestUnDatabaseCheNonRispondeNonEUnAllegatoCheNonCE(t *testing.T) {
+	s := preparaAnteprima(t, pdfFinto(8*1024), true, false)
+
+	// La riga che non c'e': un identificativo che nessuno ha mai scritto.
+	resp, corpo := s.fp.chiedi(http.MethodGet, "/allegato/"+uuid.New().String()+"/anteprima", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("allegato inesistente: stato %d, atteso 404 (%s)", resp.StatusCode, primi400(string(corpo)))
+	}
+
+	// Il database che non risponde. Il controllo della sessione passa dallo stesso pool, e con il pool
+	// chiuso la richiesta si fermerebbe li' — la prova passerebbe senza aver chiesto niente alla rotta.
+	// Quindi si chiama la rotta e basta, con un server identico a quello vero tranne il pool.
+	chiuso := testutil.Pool(t)
+	chiuso.Close()
+	ws := *s.b.ws
+	ws.Pool = chiuso
+	req := httptest.NewRequest(http.MethodGet, s.url(), nil)
+	req.SetPathValue("id", s.allegato.String())
+	rec := httptest.NewRecorder()
+	ws.anteprima(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("un database che non risponde e' diventato «allegato non trovato»: %s", primi400(rec.Body.String()))
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("stato %d, atteso 500: un guasto del database e' un errore del server", rec.Code)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("%PDF-")) {
+		t.Error("e' uscito un file senza che il database potesse dire di chi fosse")
+	}
+	if !s.reg.contiene("anteprima non servita") {
+		t.Error("il guasto non e' nel log")
+	}
+}
+
+// Le tre query di dalNas, dal lato «la riga non c'e'»: l'allegato non agganciato, il documento che non
+// esiste per quel contenuto, la RFQ senza cartella. Nessuno dei tre e' un guasto, e nessuno dei tre
+// deve diventare un 500 adesso che i guasti non si confondono piu' con le assenze.
+func TestLeAssenzeInDalNasRestanoAssenze(t *testing.T) {
+	casi := []struct {
+		nome string
+		sql  string
+	}{
+		{"documento con un altro contenuto", `UPDATE documento SET sha256=repeat('0',64) WHERE thread_id=$1`},
+		{"RFQ senza cartella sul NAS", `UPDATE thread_offerta SET cartella_relativa=NULL WHERE thread_id=$1`},
+		{"messaggio non agganciato", `UPDATE messaggio SET thread_id=NULL WHERE thread_id=$1`},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			s := preparaAnteprima(t, pdfFinto(8*1024), false, true)
+			if _, err := s.b.pool.Exec(s.b.ctx, c.sql, s.thread); err != nil {
+				t.Fatal(err)
+			}
+			resp, corpo := s.fp.chiedi(http.MethodGet, s.url(), nil)
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("stato %d, atteso 404 «usa Riscarica»: %s", resp.StatusCode, primi400(string(corpo)))
+			}
+			if s.reg.contiene("level=ERROR") {
+				t.Errorf("un'assenza e' finita nel log come errore:\n%s", s.reg.tutto())
+			}
+		})
+	}
+}
+
+// Un file piu' corto di cinque byte non e' un guasto: e' un file che non e' un PDF. 415, non 500.
+// (Il guasto vero — la lettura che si interrompe — e' provato a L1 su pdfDavvero, con un lettore che
+// si rompe: sul disco di una prova non lo si provoca in modo ripetibile.)
+func TestUnFileCortissimoNonEUnGuasto(t *testing.T) {
+	for _, contenuto := range [][]byte{{}, []byte("%PD")} {
+		t.Run(fmt.Sprintf("%d byte", len(contenuto)), func(t *testing.T) {
+			s := preparaAnteprima(t, contenuto, true, false)
+			resp, corpo := s.fp.chiedi(http.MethodGet, s.url(), nil)
+			if resp.StatusCode != http.StatusUnsupportedMediaType {
+				t.Errorf("stato %d, atteso 415 (%s)", resp.StatusCode, primi400(string(corpo)))
+			}
+			if s.reg.contiene("level=ERROR") {
+				t.Errorf("un file che non e' un PDF e' finito nel log come guasto:\n%s", s.reg.tutto())
+			}
+		})
+	}
+}
+
+func (r *registro) contiene(s string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, riga := range r.righe {
+		if strings.Contains(riga, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *registro) tutto() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.righe, "")
 }
