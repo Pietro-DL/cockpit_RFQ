@@ -892,8 +892,16 @@ fornitore si cercano codici **solo** con le famiglie dei clienti che gli hanno m
 2768, DIN 933 non sono codici di nessuno.
 
 **Le richieste ai fornitori** (`richiesta_fornitore`, figlie della RFQ cliente: fornitore, lavorazione, codici,
-stato `bozza` → `inviata` → `risposta` | `scaduta` | `annullata`). Dalla pagina della RFQ: «Nuova richiesta a un
-fornitore» (la tendina dice per quali lavorazioni il cliente lo ha qualificato) e, se si vuole, la **bozza in
+stato `bozza` → `inviata` → `risposta` | `scaduta` | `annullata`). **Prima di B8.2 il box è stato tolto dalla
+pagina della RFQ**, e non passa al Fascicolo. Creava una richiesta per l'intera RFQ partendo dai suoi codici,
+mentre una richiesta a un fornitore nasce da una lavorazione di un componente che si è deciso di fare fuori.
+Tornerà nel tab Luigi, quando ci sarà il modello delle lavorazioni per componente. **Il flusso a livello di
+RFQ è stato tolto di proposito: non va reintrodotto, né sulla pagina della RFQ né nel Fascicolo, prima che
+esista il modello delle lavorazioni per componente.** Anche `caricaThread` non carica più richieste, fornitori
+e lavorazioni per quella pagina. Tabelle, rotte
+(`POST /thread/{id}/richiesta…`) e logica restano, per lo storico e la migrazione; quanto segue descrive che
+cosa fanno. Il form «Nuova richiesta a un fornitore» (la tendina diceva per quali lavorazioni il cliente lo ha
+qualificato) creava la richiesta e, se si voleva, la **bozza in
 Outlook** con oggetto `RFQ <cliente> <buyer> <codici>`, i contatti del fornitore come destinatari e il marcatore
 `CockpitRichiestaFornitore` scritto dal worker (UserProperties). Quando la mail compare nella Posta inviata il
 sync rilegge il marcatore: la richiesta prende la sua mail e passa a `inviata`, la mail entra nella RFQ, la
