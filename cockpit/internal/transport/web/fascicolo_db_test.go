@@ -462,7 +462,7 @@ func TestIlCodiceSiCorreggeSoloFinchéInCoda(t *testing.T) {
 
 // Una correzione di codice sposta il file nella cartella del codice nuovo e non lo rinomina: il nome
 // resta quello che la conferma gli aveva dato, anche quando ripassarlo per NomeFileSicuro lo
-// cambierebbe (un nome senza estensione, un'estensione maiuscola salvata cosi').
+// cambierebbe (un'estensione maiuscola salvata cosi'; fino a B8.A4-0 anche un nome senza estensione).
 func TestLaCorrezioneCambiaLaCartellaNonIlNome(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
