@@ -261,7 +261,9 @@ contenuto. È il prezzo di non averne mai due copie.
 **`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
 insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
 RFQ fa partire una sola analisi. Cambiare un termine qui fa rianalizzare tutto senza toccare il
-codice — ed è il motivo per cui i termini stanno qui e non dentro il worker.
+codice — ed è il motivo per cui i termini stanno qui e non dentro il worker. Dalla **3** (B8.5) gli STEP
+riportano gli scarti del lettore in numeri, e solo una lettura v3 completa propone quantità e rimozioni: il
+passaggio dalla 2 alla 3, in ordine, è scritto in `cockpit.toml.example`.
 
 **`[[utenti]]`** — chi entra e che cosa può fare. Le autorizzazioni dipendono da **`ruolo`** e solo
 da quello: `ufficio` è organigramma, la `sigla` è il nome utente del login.
@@ -1196,7 +1198,9 @@ internal/core/rfq/documenti         il fascicolo di una RFQ. path.go: i nomi sul
                                     dalla cache che si riprende da solo (Pre-7); cartella_thread.go: la cartella di una RFQ e le sue sottocartelle
 internal/core/rfq/fascicolo         la BOM di una RFQ nel tempo (A4): congelare, aprire e abbandonare una revisione, il gate del congelamento,
                                     la differenza fra una versione e la working, archiviare un componente, sostituire un documento, scegliere
-                                    lo STEP strutturale, la deroga strutturale. Senza schermata: i gesti arrivano con B8.7
+                                    lo STEP strutturale, la deroga strutturale. B8.5: dai fatti degli STEP alle proposte di nodi, archi,
+                                    quantità e rimozioni (classificate con le regole del cliente; rimozioni solo dallo STEP strutturale letto
+                                    per intero), le decisioni che le portano nella BOM working, la rianalisi. Senza schermata: B8.7
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1296,8 +1300,13 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   La conferma non crea componenti (B8.3): il documento si aggancia solo al componente scelto, o a quello a cui
   la proposta era già assegnata, e ne prende il codice. Documenti e proposte si assegnano e si sganciano con
   `POST /thread/{id}/fascicolo/assegna`; un codice diverso da quello del componente passa solo con `correggi_codice`,
-  e il percorso sul NAS cambia solo finché il file non è scritto (lo spostamento è B8.8). `v_fascicolo` calcola la
-  completezza.
+  e il percorso sul NAS cambia solo finché il file non è scritto (lo spostamento è B8.8). Se il componente ha già
+  un documento corrente dello stesso tipo, conferma e assegnazione vogliono la scelta: «aggiungi» oppure il
+  documento che il nuovo sostituisce. `v_fascicolo` calcola la completezza.
+- **Tre strati anche per la struttura** (B8.5): `analisi_fatti.fatti.struttura` (FATTO, dal worker: nodi, archi,
+  quantità e, dalla v3, gli scarti in numeri) → `componente_proposta`, `relazione_proposta`, `rimozione_proposta`
+  (INTERPRETAZIONE, del server: il codice di ogni nodo lo dà il `Motore` del cliente della RFQ) → `componente` e
+  `componente_relazione` (DECISIONE di chi accetta). Il worker non modifica mai la BOM.
 - **NAS**: `[nas].radice` È la cartella «PREVENTIVI DA FARE»; sotto, `cliente.cartella_nas\WIP\<aaaa mm gg Cognome Oggetto>`;
   con la cartella nascono solo le sottocartelle con `cartella_documento.crea_sempre` (ELENCO DISEGNI, OFFERTE FORNITORI),
   le altre alla prima copia.

@@ -153,6 +153,23 @@ func (q *Queries) DeleteDerogaStruttura(ctx context.Context, derogaStrutturaID u
 	return result.RowsAffected(), nil
 }
 
+const deleteRelazione = `-- name: DeleteRelazione :execrows
+DELETE FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2
+`
+
+type DeleteRelazioneParams struct {
+	PadreID  uuid.UUID `json:"padre_id"`
+	FiglioID uuid.UUID `json:"figlio_id"`
+}
+
+func (q *Queries) DeleteRelazione(ctx context.Context, arg DeleteRelazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRelazione, arg.PadreID, arg.FiglioID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteRelazioniComponente = `-- name: DeleteRelazioniComponente :execrows
 DELETE FROM componente_relazione WHERE padre_id = $1 OR figlio_id = $1
 `
@@ -164,6 +181,31 @@ func (q *Queries) DeleteRelazioniComponente(ctx context.Context, padreID uuid.UU
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getRelazione = `-- name: GetRelazione :one
+SELECT thread_id, padre_id, figlio_id, qta, posizione, origine, confermato_da, creato_il FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2
+`
+
+type GetRelazioneParams struct {
+	PadreID  uuid.UUID `json:"padre_id"`
+	FiglioID uuid.UUID `json:"figlio_id"`
+}
+
+func (q *Queries) GetRelazione(ctx context.Context, arg GetRelazioneParams) (ComponenteRelazione, error) {
+	row := q.db.QueryRow(ctx, getRelazione, arg.PadreID, arg.FiglioID)
+	var i ComponenteRelazione
+	err := row.Scan(
+		&i.ThreadID,
+		&i.PadreID,
+		&i.FiglioID,
+		&i.Qta,
+		&i.Posizione,
+		&i.Origine,
+		&i.ConfermatoDa,
+		&i.CreatoIl,
+	)
+	return i, err
 }
 
 const getStepProdotto = `-- name: GetStepProdotto :one
@@ -242,6 +284,40 @@ func (q *Queries) InsertDerogaStruttura(ctx context.Context, arg InsertDerogaStr
 	return i, err
 }
 
+const insertRelazione = `-- name: InsertRelazione :execrows
+
+INSERT INTO componente_relazione (thread_id, padre_id, figlio_id, qta, origine, confermato_da)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (padre_id, figlio_id) DO NOTHING
+`
+
+type InsertRelazioneParams struct {
+	ThreadID     uuid.UUID         `json:"thread_id"`
+	PadreID      uuid.UUID         `json:"padre_id"`
+	FiglioID     uuid.UUID         `json:"figlio_id"`
+	Qta          int32             `json:"qta"`
+	Origine      OrigineComponente `json:"origine"`
+	ConfermatoDa uuid.UUID         `json:"confermato_da"`
+}
+
+// Gli archi della working scritti da una decisione (B8.5): accettare una relazione proposta, una
+// quantita' diversa, una rimozione. I cicli li rifiuta il Go prima di arrivare qui (A1.1), con la
+// riga del thread bloccata.
+func (q *Queries) InsertRelazione(ctx context.Context, arg InsertRelazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertRelazione,
+		arg.ThreadID,
+		arg.PadreID,
+		arg.FiglioID,
+		arg.Qta,
+		arg.Origine,
+		arg.ConfermatoDa,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listRimozioniAperte = `-- name: ListRimozioniAperte :many
 SELECT thread_id, step_documento_id, padre_id, figlio_id, qta_working, stato, nota, deciso_da, deciso_il, creato_il FROM rimozione_proposta WHERE thread_id = $1 AND stato = 'aperta' ORDER BY creato_il, padre_id, figlio_id
 `
@@ -284,6 +360,31 @@ WHERE componente_id = $1 AND archiviato_il IS NOT NULL
 
 func (q *Queries) RipristinaComponente(ctx context.Context, componenteID uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, ripristinaComponente, componenteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setQtaRelazione = `-- name: SetQtaRelazione :execrows
+UPDATE componente_relazione SET qta = $1, confermato_da = $2
+WHERE padre_id = $3 AND figlio_id = $4
+`
+
+type SetQtaRelazioneParams struct {
+	Qta          int32     `json:"qta"`
+	ConfermatoDa uuid.UUID `json:"confermato_da"`
+	PadreID      uuid.UUID `json:"padre_id"`
+	FiglioID     uuid.UUID `json:"figlio_id"`
+}
+
+func (q *Queries) SetQtaRelazione(ctx context.Context, arg SetQtaRelazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setQtaRelazione,
+		arg.Qta,
+		arg.ConfermatoDa,
+		arg.PadreID,
+		arg.FiglioID,
+	)
 	if err != nil {
 		return 0, err
 	}

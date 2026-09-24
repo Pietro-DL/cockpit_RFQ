@@ -3401,7 +3401,7 @@ type Componente struct {
 // grezzi, il codice lo classifica il server con le regole del cliente. Upsert per chiave solo finche'
 // aperta. L'appartenenza dell'allegato al thread la controlla il Go al fan-out: allegato → messaggio
 // non ha un thread stabile, quindi non puo' essere una FK composita.
-type ComponentePropostum struct {
+type ComponenteProposta struct {
 	PropostaID    uuid.UUID          `json:"proposta_id"`
 	ThreadID      uuid.UUID          `json:"thread_id"`
 	AllegatoID    uuid.UUID          `json:"allegato_id"`
@@ -3854,7 +3854,7 @@ type Regola struct {
 // Arco proposto da un file: una riga per coppia distinta (padre, figlio), qta = occorrenze. Si accetta
 // solo quando i due nodi sono gia' accettati o agganciati; una coppia gia' confermata con qta diversa
 // diventa duplicato con la nota, e la scelta resta all'ingegnere.
-type RelazionePropostum struct {
+type RelazioneProposta struct {
 	ThreadID     uuid.UUID       `json:"thread_id"`
 	AllegatoID   uuid.UUID       `json:"allegato_id"`
 	PadreChiave  string          `json:"padre_chiave"`

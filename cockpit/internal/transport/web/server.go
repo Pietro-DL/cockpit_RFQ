@@ -86,6 +86,10 @@ type Server struct {
 	// l'anteprima non serve dallo staging e lo scrive nel log, perché ciò che non si può verificare
 	// non si serve.
 	Staging string
+	// Analizzatore: la versione e la configurazione correnti dell'analisi ([analisi], voce 1.12), le
+	// stesse del workerapi. Servono alla rianalisi degli STEP di una RFQ (B8.5): si rileggono quelli
+	// che hanno i fatti con questa chiave, si accodano gli altri. Versione 0 = nessuna rianalisi.
+	Analizzatore coda.Analizzatore
 }
 
 type chiaveCtx int

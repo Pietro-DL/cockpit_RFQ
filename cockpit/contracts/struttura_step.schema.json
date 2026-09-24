@@ -109,12 +109,39 @@
       ],
       "title": "RelazioneSTEP",
       "type": "object"
+    },
+    "ScartiSTEP": {
+      "description": "Che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3, addendum B8 A4.4, D35).\n\nIl server decide se una lettura e' COMPLETA da questi numeri e non dalle frasi di `avvisi`: una\nmancanza diventa una proposta di rimozione solo in una lettura completa. Le occorrenze di un pezzo\ndentro se stesso si contano ma non tolgono completezza: sono archi impossibili.",
+      "properties": {
+        "prodotti_senza_definizione": {
+          "default": 0,
+          "title": "Prodotti Senza Definizione",
+          "type": "integer"
+        },
+        "occorrenze_non_risolte": {
+          "default": 0,
+          "title": "Occorrenze Non Risolte",
+          "type": "integer"
+        },
+        "occorrenze_su_se_stesse": {
+          "default": 0,
+          "title": "Occorrenze Su Se Stesse",
+          "type": "integer"
+        },
+        "testi_troncati": {
+          "default": 0,
+          "title": "Testi Troncati",
+          "type": "integer"
+        }
+      },
+      "title": "ScartiSTEP",
+      "type": "object"
     }
   },
-  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi. Il server non deve leggere `nodi[].codice` mai piu'.",
+  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'.",
   "properties": {
     "versione": {
-      "default": 2,
+      "default": 3,
       "title": "Versione",
       "type": "integer"
     },
@@ -150,6 +177,9 @@
       },
       "title": "Avvisi",
       "type": "array"
+    },
+    "scarti": {
+      "$ref": "#/$defs/ScartiSTEP"
     },
     "limiti": {
       "$ref": "#/$defs/LimitiSTEP"

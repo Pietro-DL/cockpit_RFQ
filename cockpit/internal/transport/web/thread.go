@@ -68,6 +68,9 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
+	// Aprire la RFQ rilegge i suoi STEP (B8.5): le proposte di struttura si rifanno con le regole del
+	// cliente di adesso, e le analisi che mancano partono, poche alla volta.
+	s.rileggiAllApertura(r.Context(), id)
 	d, err := s.caricaThread(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, "thread non trovato", 404)

@@ -27,6 +27,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -881,7 +882,10 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 				return err
 			}
 		}
-		return nil
+		// La STRUTTURA di uno STEP diventa proposte in ogni RFQ che ha quel file, ciascuna con le regole
+		// del suo cliente (B8.5, A1.2). Non solo dove la proposta del documento e' ancora aperta: un
+		// disegno gia' confermato porta lo stesso la sua distinta.
+		return s.strutturaNelleRfq(ctx, q, a, dett)
 
 	case db.TipoJobCreaBozzaOutlook:
 		var p worker.PayloadCreaBozza
@@ -1041,11 +1045,62 @@ func (s *Server) applicaFattiEsistenti(ctx context.Context, q *db.Queries, a db.
 	}
 	// La stessa funzione del result: la proposta è dell'allegato, quindi la direzione del messaggio e
 	// le regole del suo cliente vanno rilette per questa copia, non copiate dalla prima (A15).
-	return s.propostaDaAnalisi(ctx, q, a, tipo, fonte, worker.RisultatoAnalisi{
+	if err := s.propostaDaAnalisi(ctx, q, a, tipo, fonte, worker.RisultatoAnalisi{
 		AllegatoID: a.AllegatoID, TipoProposto: es.TipoProposto, Codice: es.Codice, Rev: es.Rev,
 		Confidenza: es.Confidenza, Fonte: es.Fonte,
 		VersioneAnalizzatore: s.Analizzatore.Versione, HashConfigurazione: s.Analizzatore.Hash(),
-	}, dett)
+	}, dett); err != nil {
+		return err
+	}
+	// e la struttura, se il file ne ha una, nella RFQ di questa copia
+	m, err := q.GetMessaggio(ctx, a.MessaggioID)
+	if err != nil || !m.ThreadID.Valid {
+		return nil
+	}
+	mo, err := fascicolo.MotoreDellaRfq(ctx, q, m.ThreadID.UUID)
+	if err != nil {
+		return err
+	}
+	_, err = fascicolo.ApplicaStruttura(ctx, q, m.ThreadID.UUID, a, dett, mo)
+	return err
+}
+
+// strutturaNelleRfq applica la struttura letta da uno STEP a ogni RFQ che ha un allegato con lo stesso
+// contenuto. Il worker ha prodotto un FATTO; qui diventa interpretazione (proposte di nodi, archi,
+// quantita' e rimozioni), con il Motore del cliente di ciascuna RFQ. Nessuna riga della BOM cambia: la
+// cambia solo una decisione (fascicolo.AccettaNodo e le altre).
+func (s *Server) strutturaNelleRfq(ctx context.Context, q *db.Queries, a db.Allegato, dett json.RawMessage) error {
+	if !a.Sha256.Valid || a.Sha256.String == "" {
+		return nil
+	}
+	if _, ok := worker.DecodificaStruttura(dett); !ok {
+		return nil
+	}
+	righe, err := q.ListAllegatiStessoFileConRfq(ctx, a.Sha256)
+	if err != nil {
+		return fmt.Errorf("allegati con lo stesso contenuto: %w", err)
+	}
+	motori := map[uuid.UUID]*classificazione.Motore{}
+	for _, r := range righe {
+		thread := r.RfqID.UUID
+		mo, visto := motori[thread]
+		if !visto {
+			if mo, err = fascicolo.MotoreDellaRfq(ctx, q, thread); err != nil {
+				return err
+			}
+			motori[thread] = mo
+		}
+		es, err := fascicolo.ApplicaStruttura(ctx, q, thread, r.Allegato, dett, mo)
+		if err != nil {
+			return fmt.Errorf("struttura nella RFQ %s: %w", thread, err)
+		}
+		if es.Nodi+es.Relazioni > 0 {
+			s.Log.Info("proposte di struttura", "rfq", thread, "file", r.Allegato.NomeFile,
+				"nodi_aperti", es.NodiAperti, "relazioni_aperte", es.RelazioniAperte,
+				"completa", es.Completa, "rimozioni", es.Rimozioni.Proposte, "rimozioni_sospese", es.Rimozioni.Sospese)
+		}
+	}
+	return nil
 }
 
 // riallineaEntryID aggiorna la PRESENZA quando il worker ha trovato l'elemento con un EntryID diverso

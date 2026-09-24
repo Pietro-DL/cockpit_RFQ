@@ -19,6 +19,11 @@ sulla riga del nodo non saprebbe rappresentarlo (A1.1).
 Nessuna dipendenza nuova: Part 21 e' testo, e per leggerne quattro entita' basta un tokenizer di
 poche decine di righe. Non si legge geometria, non si leggono trasformazioni, non si risolvono
 riferimenti esterni (AP242 multi-file): quei nodi compaiono come `PRODUCT` senza figli.
+
+Versione 3 (addendum B8, A4.4, D35): quello che il lettore ha scartato si conta anche in numeri, in
+`scarti`, oltre che nelle frasi di `avvisi`. Sul server una MANCANZA diventa una proposta di rimozione
+solo se la lettura e' completa, e decidere una cancellazione confrontando frasi sarebbe fragile: un
+avviso riscritto meglio cambierebbe il giudizio. Le frasi restano, per la schermata.
 """
 from __future__ import annotations
 
@@ -28,7 +33,7 @@ import time
 
 log = logging.getLogger("worker-analisi")
 
-VERSIONE_STRUTTURA = 2
+VERSIONE_STRUTTURA = 3
 
 # Limiti: un file enorme non deve ne' far fallire il job ne' tenere il worker mezz'ora. Ciò che si è
 # letto vale, il resto si dichiara troncato (§5.4 del piano).
@@ -107,6 +112,22 @@ def leggi_struttura(percorso: str, limiti: dict | None = None) -> dict:
         "nodi": [],
         "relazioni": [],
         "avvisi": [],
+        # Che cosa il lettore ha visto e lasciato fuori, in numeri. Tutti zero non vuol dire «letto
+        # tutto»: vuol dire che niente di cio' che si e' letto e' stato buttato. Se la lettura si e'
+        # fermata lo dicono i `limiti`, se e' fallita lo dicono gli `avvisi`.
+        #   prodotti_senza_definizione  PRODUCT che nessuna PRODUCT_DEFINITION raggiunge: possono
+        #                               essere nodi veri a cui manca un pezzo del file
+        #   occorrenze_non_risolte      NAUO con un estremo che non porta a un nodo: un arco perso
+        #   occorrenze_su_se_stesse     un pezzo dentro se stesso: un arco impossibile, ignorarlo non
+        #                               nasconde niente
+        #   testi_troncati              stringhe tagliate a MAX_TESTO: un nome tagliato puo' non
+        #                               essere piu' riconosciuto come codice
+        "scarti": {
+            "prodotti_senza_definizione": 0,
+            "occorrenze_non_risolte": 0,
+            "occorrenze_su_se_stesse": 0,
+            "testi_troncati": 0,
+        },
         # I tetti tornano indietro insieme a ciò che si è letto, e non per simmetria: chi guarda un
         # albero troncato deve poter vedere CONTRO QUALE muro si è fermato, senza andare a leggere la
         # configurazione del worker che l'ha prodotto — che intanto puo' essere cambiata.
@@ -192,6 +213,7 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
                         f"lettura interrotta dopo {float(lim['tempo_max_s']):g} s: letto ciò che c'era")
                 break
 
+    s["scarti"]["testi_troncati"] = troncati
     if troncati:
         s["avvisi"].append(f"{troncati} testi troncati a {MAX_TESTO} caratteri")
     if not prodotti:
@@ -224,6 +246,7 @@ def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo:
             v["revisioni"].append(rev)
 
     orfani = len(prodotti) - len(per_prodotto)
+    s["scarti"]["prodotti_senza_definizione"] = max(orfani, 0)
     if orfani > 0:
         s["avvisi"].append(f"{orfani} PRODUCT senza PRODUCT_DEFINITION: ignorati")
 
@@ -264,6 +287,8 @@ def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo:
         c["qta"] += 1
         if len(c["righe"]) < 20:
             c["righe"].append(rif)
+    s["scarti"]["occorrenze_non_risolte"] = non_risolte
+    s["scarti"]["occorrenze_su_se_stesse"] = anelli
     if non_risolte:
         s["avvisi"].append(f"{non_risolte} occorrenze con estremi non risolti: ignorate")
     if anelli:

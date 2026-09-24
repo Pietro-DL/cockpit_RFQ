@@ -25,6 +25,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	// (fascicolo.go). La schermata del Fascicolo che le usera' e' B8.7.
 	mux.HandleFunc("POST /thread/{id}/fascicolo/assegna", s.autenticato(s.assegna))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.correggiCodice))
+	// B8.5: le proposte di struttura dagli STEP (proposte.go).
+	s.registraProposte(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 }

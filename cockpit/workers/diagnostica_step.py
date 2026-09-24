@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from collections import defaultdict
 
@@ -35,12 +34,9 @@ ESTENSIONI = (".stp", ".step", ".p21")
 _RADICE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CARTELLA_DEFAULT = os.path.join(_RADICE, "docs", "step_files")
 
-# I due avvisi che portano un numero utile al giudizio. Si leggono da li' perche' sono un ESITO della
-# lettura, non un limite: un file con trecento PRODUCT orfani e' un file da guardare, ma non e' un
-# file letto male, e non va a finire nei `limiti`.
-_ORFANI = re.compile(r"^(\d+) PRODUCT senza PRODUCT_DEFINITION")
-_NON_RISOLTE = re.compile(r"^(\d+) occorrenze con estremi non risolti")
-_ANELLI = re.compile(r"^(\d+) occorrenze di un pezzo dentro se stesso")
+# Gli scarti si leggono dai numeri della struttura v3 (`scarti`), non dalle frasi degli avvisi: sono
+# un ESITO della lettura, non un limite. Un file con trecento PRODUCT orfani e' un file da guardare,
+# ma non e' un file letto male, e non va a finire nei `limiti`.
 
 
 def misura(s: dict) -> dict:
@@ -62,18 +58,11 @@ def misura(s: dict) -> dict:
         "qta_oltre_1": sum(1 for r in s["relazioni"] if r["qta"] > 1),
         "cicli": cicli,
         "scollegati": scollegati,
-        "orfani": _numero(s["avvisi"], _ORFANI),
-        "non_risolte": _numero(s["avvisi"], _NON_RISOLTE),
-        "anelli": _numero(s["avvisi"], _ANELLI),
+        "orfani": s["scarti"]["prodotti_senza_definizione"],
+        "non_risolte": s["scarti"]["occorrenze_non_risolte"],
+        "anelli": s["scarti"]["occorrenze_su_se_stesse"],
+        "troncati": s["scarti"]["testi_troncati"],
     }
-
-
-def _numero(avvisi: list[str], espressione: re.Pattern) -> int:
-    for a in avvisi:
-        m = espressione.match(a)
-        if m:
-            return int(m.group(1))
-    return 0
 
 
 def _profondita(radici, figli, tutti) -> tuple[int, int, int]:
@@ -140,7 +129,7 @@ def scheda(percorso: str, s: dict, m: dict) -> str:
         f"  condivisioni   {m['multi_padre']} nodi con piu' di un padre, "
         f"{m['qta_oltre_1']} relazioni con qta > 1",
         f"  scartati       {m['orfani']} PRODUCT orfani, {m['non_risolte']} occorrenze irrisolte, "
-        f"{m['anelli']} anelli, {m['cicli']} archi che tornano indietro, "
+        f"{m['anelli']} anelli, {m['troncati']} testi troncati, {m['cicli']} archi che tornano indietro, "
         f"{m['scollegati']} nodi che nessuna radice raggiunge",
     ]
     for a in s["avvisi"]:

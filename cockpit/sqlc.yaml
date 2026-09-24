@@ -19,6 +19,10 @@ sql:
           thread_offertum: "ThreadOfferta"
           rimozione_proposta: "RimozioneProposta"
           rimozione_propostum: "RimozioneProposta"
+          componente_proposta: "ComponenteProposta"
+          componente_propostum: "ComponenteProposta"
+          relazione_proposta: "RelazioneProposta"
+          relazione_propostum: "RelazioneProposta"
           v_documento_storia: "VDocumentoStoria"
           v_documento_storium: "VDocumentoStoria"
         overrides:
