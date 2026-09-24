@@ -17,7 +17,7 @@ Regole di classificazione, handler HTTP, prompt dell'agente, decisioni dell'oper
 | `db` | codice generato da **sqlc** da `db/queries/*.sql`: tipi, enum, una funzione per query. **Non si modifica a mano** |
 | `migrazioni` | applica `migrations/*.sql` in ordine, una transazione per file, con verifica statica (ogni file registra la sua versione; ogni `REFERENCES` punta a una tabella già creata; un valore aggiunto a un enum non si usa nello stesso file) |
 | `fondazioni` | semina da config `casella`, `postazione`, `worker_credenziale` (`fondazioni.go`) e `utente` (`utenti.go`: la password del file serve a nascere, non a riscrivere quella cambiata dall'utente) senza sovrascrivere ciò che è stato generato in UI; diagnosi delle credenziali |
-| `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token |
+| `rete` | certificato TLS autofirmato generato al primo avvio, impronta per i `worker.toml`, hash dei token; il filtro del listener sulle reti consentite (`SoloDalleReti`, `filtro.go`) |
 | `logfile` | log rotante del server (`<staging>/log/cockpit.log`, 5 × 5 MB) |
 | `contratti/worker` | i **contratti** JSON fra server e worker (`tipi.go`: payload dei job, richieste e risposte; `protocollo.go`: i tempi del claim e della presenza); specchio di `workers/contratti.py` e `workers/protocollo.py` |
 | `coda` | la **coda** in PostgreSQL: accodamento idempotente, claim con lease e tentativo, scheduler (lease scaduti, `sync_outlook` periodico, retention), le tre capacità di scrittura, l'instradamento per postazione e per casella. Non esegue niente: chi esegue sta in `app/runtime` |
@@ -32,8 +32,8 @@ Solo `platform` e librerie. Mai `core`, mai `ai`, mai `transport`, mai `app`.
 
 ## Entry point
 
-`config.Carica`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.SeedUtenti` / `fondazioni.Semina`,
-`rete.CaricaOGenera`,
+`config.Carica`, `config.CaricaConRete`, `config.Capacita`, `migrazioni.Applica`, `fondazioni.SeedUtenti` / `fondazioni.Semina`,
+`rete.Prepara`, `rete.SoloDalleReti`,
 `nas.Scrittore`, `nas.UNC`, `archivio.Estrai`, `testutil.Pool`,
 `coda.Accoda` / `Claim` / `Completa` / `Fallisci` / `ImpostaCapacita`, `staging.PercorsoContenuto` /
 `PulisciParti` / `Cache.Avvia`.
@@ -58,6 +58,14 @@ secondo consenso, richiesto quando `nas_scrittura` è accesa e `[nas].radice` st
 indirizzo che non sia loopback: in chiaro passerebbero posta, token e cookie. `consenti_lan_in_chiaro = true` è
 l'eccezione dichiarata per il banco di prova, non un default. Il certificato è autofirmato e i worker lo
 riconoscono dall'impronta scritta nel loro `worker.toml` (modello SSH): niente CA.
+
+**Le reti consentite.** `[server].reti_consentite` è letta da `leggiRete`: una rete o un indirizzo solo,
+mascherata, e solo della LAN (IPv4 privati e link-local, IPv6 ULA e link-local, un globale IPv6 di `/64` o
+più stretto); fuori da lì il server non parte. `rete.SoloDalleReti` avvolge il listener e chiude una
+connessione da fuori elenco prima del TLS; loopback e l'indirizzo di ascolto passano sempre.
+`config.Rete` è la stessa rete data dalla riga di comando (`-ascolto`, `-tls-cert`, `-tls-key`,
+`-url-pubblico`, `-reti`, gli avviatori di `scripts/avvio-rete`): con l'indirizzo vale per intero al
+posto delle voci di rete del file, ed entra prima delle verifiche, che valgono anche per lei.
 
 ## Invarianti
 

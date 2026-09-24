@@ -41,8 +41,11 @@ type Opzioni struct {
 //
 // I quattro lavori della riga di comando escono prima dell'ascolto: fanno il loro e tornano, e il
 // server non si mette in ascolto. Sono in `comandi.go`.
-func Esegui(cfgPath string, o Opzioni) error {
-	cfg, err := config.Carica(cfgPath)
+//
+// `rete` e' la rete dichiarata sulla riga di comando (gli avviatori di scripts/avvio-rete); vuota =
+// quella del file.
+func Esegui(cfgPath string, rete config.Rete, o Opzioni) error {
+	cfg, err := config.CaricaConRete(cfgPath, rete)
 	if err != nil {
 		return err
 	}

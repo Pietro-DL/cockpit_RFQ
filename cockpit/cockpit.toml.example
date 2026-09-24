@@ -51,6 +51,21 @@ indirizzo = "127.0.0.1:8080"
 # già cifrato da qualcos'altro (un tunnel). Il server lo ripete a ogni avvio nel log.
 # consenti_lan_in_chiaro = false
 #
+# Da dove il server accetta una connessione: reti o indirizzi singoli. Il filtro sta sul listener,
+# prima del TLS: un PC fuori elenco non riceve nemmeno il certificato. Questo PC (loopback e
+# l'indirizzo di ascolto) passa sempre. Solo reti della LAN: IPv4 privati (10/8, 172.16/12,
+# 192.168/16), IPv6 ULA (fc00::/7), link-local, o un prefisso IPv6 globale di /64 o più stretto;
+# altrimenti il server non parte. Assente = nessun filtro.
+# reti_consentite = ["10.0.0.0/24"]
+# reti_consentite = ["10.0.0.15", "10.0.0.16", "fd12:3456:789a:1::/64"]
+#
+# SENZA TOCCARE QUESTO FILE: scripts/avvio-rete/avvia-lan.sh (IPv4) e avvia-https.sh (IPv6)
+# avviano il server in HTTPS sull'indirizzo di rete di questo PC, con la sua rete fra le consentite
+# e un certificato per modalità (tls/lan/, tls/https/). Le voci di rete di questa sezione, per
+# quell'avvio, vengono dalla riga di comando (-ascolto, -tls-cert, -tls-key, -url-pubblico, -reti)
+# e valgono per intero: tls_nomi e consenti_lan_in_chiaro del file non si ereditano. Il resto del
+# file resta quello. Procedura nel README, «Avvio in rete».
+#
 # token_worker NON autentica più niente (voce 2.4): ogni worker ha il suo token, qui sotto in
 # [[worker]], e il server lo riconosce per sha256. Se la riga è ancora nel file, il server lo dice
 # all'avvio: va tolta.

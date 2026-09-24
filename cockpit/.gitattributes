@@ -1,0 +1,3 @@
+# Gli script bash girano anche su Windows (Git Bash) e su Linux: con core.autocrlf un checkout su
+# Windows li riscriverebbe con CRLF, e bash si fermerebbe alla prima riga («$'\r': command not found»).
+*.sh text eol=lf
