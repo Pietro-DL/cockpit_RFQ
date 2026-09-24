@@ -280,24 +280,39 @@ type sceltaRevisione struct {
 	data        bool      // la domanda ha avuto una risposta
 	sostituisce uuid.UUID // il predecessore; zero = «aggiungi»
 	// riferimento: se il predecessore era lo STEP strutturale del componente, il nuovo ne prende il
-	// posto (A4.4: la schermata lo chiede con il si' preselezionato; senza, resta riferimento_superato).
-	riferimento bool
+	// posto (A4.4: la schermata lo chiede, con il si' preselezionato). rispostaRiferimento dice che la
+	// domanda ha avuto una risposta: sostituire lo STEP strutturale senza dirlo si rifiuta (B8.7).
+	riferimento, rispostaRiferimento bool
+	// motivo: perche' si sostituisce. Una versione interna (un file caricato a mano, B8.7) sostituisce
+	// solo con un motivo, e il motivo resta nella nota del documento nuovo.
+	motivo  string
+	interno bool
 }
 
-// leggiScelta legge `aggiungi` oppure l'id del documento da sostituire. Vuoto = nessuna risposta.
-func leggiScelta(v string, riferimento bool) (sceltaRevisione, error) {
+// leggiScelta legge `aggiungi` oppure l'id del documento da sostituire (vuoto = nessuna risposta), la
+// risposta alla domanda sullo STEP strutturale ("1" si', "0" no, "" nessuna) e il motivo.
+func leggiScelta(v, riferimento, motivo string) (sceltaRevisione, error) {
 	v = strings.TrimSpace(v)
+	sc := sceltaRevisione{motivo: strings.TrimSpace(motivo)}
+	switch strings.TrimSpace(riferimento) {
+	case "1":
+		sc.riferimento, sc.rispostaRiferimento = true, true
+	case "0":
+		sc.rispostaRiferimento = true
+	}
 	switch v {
 	case "":
-		return sceltaRevisione{}, nil
+		return sc, nil
 	case "aggiungi":
-		return sceltaRevisione{data: true}, nil
+		sc.data = true
+		return sc, nil
 	}
 	id, err := uuid.Parse(strings.TrimPrefix(v, "sostituisci:"))
 	if err != nil {
 		return sceltaRevisione{}, rifiuto("scelta non valida: si risponde «aggiungi» oppure con il documento da sostituire")
 	}
-	return sceltaRevisione{data: true, sostituisce: id, riferimento: riferimento}, nil
+	sc.data, sc.sostituisce = true, id
+	return sc, nil
 }
 
 // correntiDelloStessoTipo sono i documenti correnti del componente con quel tipo, escluso uno.
@@ -335,12 +350,27 @@ func verificaScelta(nome string, c db.Componente, tipo db.TipoDocumento, corrent
 	if s.sostituisce == uuid.Nil {
 		return s, nil
 	}
+	trovato := false
 	for _, d := range correnti {
-		if d.DocumentoID == s.sostituisce {
-			return s, nil
-		}
+		trovato = trovato || d.DocumentoID == s.sostituisce
 	}
-	return s, rifiuto(fmt.Sprintf("%s: il documento da sostituire deve essere un %s corrente di %s", nome, tipo, c.Codice))
+	if !trovato {
+		return s, rifiuto(fmt.Sprintf("%s: il documento da sostituire deve essere un %s corrente di %s", nome, tipo, c.Codice))
+	}
+	return s, verificaSostituzione(nome, c, s)
+}
+
+// verificaSostituzione sono le due domande in piu' di una sostituzione (B8.7): se il predecessore e' lo
+// STEP strutturale del componente, si dice esplicitamente se il nuovo diventa il riferimento; se il file
+// nuovo e' una versione interna, si dice perche'.
+func verificaSostituzione(nome string, c db.Componente, s sceltaRevisione) error {
+	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == s.sostituisce && !s.rispostaRiferimento {
+		return rifiuto(fmt.Sprintf("%s sostituisce lo STEP strutturale di %s: si dice se il nuovo diventa il riferimento (sì o no)", nome, c.Codice))
+	}
+	if s.interno && s.motivo == "" {
+		return rifiuto(fmt.Sprintf("%s è una versione interna: sostituisce un documento solo con un motivo", nome))
+	}
+	return nil
 }
 
 // applicaScelta registra la risposta dopo che il file nuovo e' entrato nel componente: la
@@ -356,7 +386,31 @@ func applicaScelta(ctx context.Context, q *db.Queries, thread, nuovo uuid.UUID, 
 	if err != nil {
 		return "", err
 	}
+	if err := notaSostituzione(ctx, q, s.sostituisce, nuovo, s.motivo); err != nil {
+		return "", err
+	}
 	return " " + msg, nil
+}
+
+// notaSostituzione scrive nella nota del documento nuovo che cosa ha sostituito e perche'. Senza motivo
+// non scrive niente: la catena dice gia' chi ha sostituito chi.
+func notaSostituzione(ctx context.Context, q *db.Queries, vecchio, nuovo uuid.UUID, motivo string) error {
+	if motivo == "" {
+		return nil
+	}
+	v, err := q.GetDocumento(ctx, vecchio)
+	if err != nil {
+		return err
+	}
+	n, err := q.GetDocumento(ctx, nuovo)
+	if err != nil {
+		return err
+	}
+	nota := "sostituisce " + v.NomeFile + ": " + motivo
+	if n.Nota.Valid && strings.TrimSpace(n.Nota.String) != "" {
+		nota = n.Nota.String + " · " + nota
+	}
+	return q.SetNotaDocumento(ctx, db.SetNotaDocumentoParams{DocumentoID: nuovo, Nota: pgtype.Text{String: nota, Valid: true}})
 }
 
 // assegnaAlComponente e' il gesto «assegna»: documenti e proposte della RFQ thread sotto il componente
@@ -424,7 +478,13 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 			if err != nil {
 				return "", err
 			}
-			if scelta, err = verificaScelta(d.NomeFile, *c, d.Tipo, correnti, scelte[d.DocumentoID]); err != nil {
+			sc := scelte[d.DocumentoID]
+			if sc.sostituisce != uuid.Nil {
+				if sc.interno, err = q.DocumentoInterno(ctx, d.DocumentoID); err != nil {
+					return "", err
+				}
+			}
+			if scelta, err = verificaScelta(d.NomeFile, *c, d.Tipo, correnti, sc); err != nil {
 				return "", err
 			}
 		}
@@ -607,7 +667,9 @@ func uuidDalForm(valori []string) ([]uuid.UUID, error) {
 //	scelta_<doc>     per un documento che entra in un componente con un corrente dello stesso tipo:
 //	                 "aggiungi" oppure l'id del documento che sostituisce (con un solo documento basta
 //	                 `scelta`)
-//	nuovo_riferimento_<doc>  "1" = se il sostituito era lo STEP strutturale, il nuovo prende il suo posto
+//	nuovo_riferimento_<doc>  se il sostituito e' lo STEP strutturale: "1" il nuovo prende il suo posto,
+//	                 "0" no; senza risposta la sostituzione si rifiuta (B8.7)
+//	motivo_<doc>     perche' si sostituisce: obbligatorio per una versione interna (B8.7)
 func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 	thread, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -646,11 +708,17 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx)
 	scelte := map[uuid.UUID]sceltaRevisione{}
 	for _, d := range docs {
-		v, rif := r.FormValue("scelta_"+d.String()), r.FormValue("nuovo_riferimento_"+d.String()) == "1"
+		v, rif, mot := r.FormValue("scelta_"+d.String()), r.FormValue("nuovo_riferimento_"+d.String()), r.FormValue("motivo_"+d.String())
 		if len(docs) == 1 && v == "" {
-			v, rif = r.FormValue("scelta"), rif || r.FormValue("nuovo_riferimento") == "1"
+			v = r.FormValue("scelta")
 		}
-		sc, err := leggiScelta(v, rif)
+		if len(docs) == 1 && rif == "" {
+			rif = r.FormValue("nuovo_riferimento")
+		}
+		if len(docs) == 1 && mot == "" {
+			mot = r.FormValue("motivo")
+		}
+		sc, err := leggiScelta(v, rif, mot)
 		if err != nil {
 			s.threadFrammento(w, r, thread, "Assegnazione non riuscita, nessun file cambiato: "+spiegaErrore(err))
 			return

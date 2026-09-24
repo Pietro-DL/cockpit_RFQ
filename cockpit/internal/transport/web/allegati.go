@@ -326,7 +326,7 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 		}
 		comp = uuid.NullUUID{UUID: id, Valid: true}
 	}
-	scelta, err := leggiScelta(r.FormValue("scelta"), r.FormValue("nuovo_riferimento") == "1")
+	scelta, err := leggiScelta(r.FormValue("scelta"), r.FormValue("nuovo_riferimento"), r.FormValue("motivo"))
 	if err != nil {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "Conferma non riuscita: "+spiegaErrore(err))
 		return
@@ -430,6 +430,7 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		if err != nil {
 			return "", err
 		}
+		scelta.interno = a.Origine == db.OrigineAllegatoManuale
 		if scelta, err = verificaScelta(a.NomeFile, c, tipo, correnti, scelta); err != nil {
 			return "", err
 		}

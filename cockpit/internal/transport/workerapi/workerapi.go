@@ -942,6 +942,11 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	if len(scarti) > 0 {
 		dett = conDettagli(dett, scarti)
 	}
+	// Nemmeno il cartiglio di un file caricato a mano diventa la revisione del cliente (B8.7).
+	if r, trattenuta := fascicolo.RevisioneProponibile(a.Origine, rev); trattenuta != "" {
+		rev = r
+		dett = conDettagli(dett, map[string]any{"rev_letta": trattenuta})
+	}
 	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
 		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
 		Confidenza: int16(conf), Fonte: fonte, Dettagli: dett,
@@ -1131,6 +1136,21 @@ func (s *Server) riallineaEntryID(ctx context.Context, q *db.Queries, rif worker
 	s.Log.Info("entry_id riallineato", "messaggio", rif.MessaggioID, "casella", rif.CasellaID, "cartella", r.Cartella)
 }
 
+// DopoCaricamento fa, per un file caricato a mano nel Fascicolo (B8.7), quello che dopoStaging fa per un
+// allegato che un worker ha appena portato in staging: la proposta dal nome, il rumore, l'estrazione di un
+// archivio, l'analisi (o i fatti che ci sono gia'). E' la stessa funzione, nella transazione di chi
+// chiama: un caricamento interno fa la strada di tutti gli altri file.
+func (s *Server) DopoCaricamento(ctx context.Context, q *db.Queries, allegatoID uuid.UUID) error {
+	a, err := q.GetAllegato(ctx, allegatoID)
+	if err != nil {
+		return err
+	}
+	if !a.Sha256.Valid || !a.PathStaging.Valid {
+		return fmt.Errorf("allegato %s: non e' in staging", allegatoID)
+	}
+	return s.dopoStaging(ctx, q, worker.RisultatoStage{AllegatoID: a.AllegatoID, Sha256: a.Sha256.String, Bytes: a.Bytes.Int64})
+}
+
 // dopoStaging: il file richiesto dall'operatore è in staging. Si raffina la proposta con ciò che ora si sa
 // (hash → rumore già scartato), si estraggono gli zip in allegati figli e si accoda l'analisi Python
 // (cartiglio, STEP) che raffina ancora finché la proposta resta aperta.
@@ -1208,6 +1228,12 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 	codice, rev, scarti := s.codiceRevSicuri(pr.Codice, pr.Rev, a.NomeFile)
 	for k, v := range scarti {
 		dettagli[k] = v
+	}
+	// Un file caricato a mano non inventa una revisione del cliente (B8.7): quella scritta nel nome resta
+	// nei dettagli, e la revisione del documento la scrive chi decide.
+	if r, trattenuta := fascicolo.RevisioneProponibile(a.Origine, rev); trattenuta != "" {
+		rev = r
+		dettagli["rev_letta"] = trattenuta
 	}
 	dett, _ := json.Marshal(dettagli)
 	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{

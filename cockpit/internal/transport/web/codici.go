@@ -47,16 +47,18 @@ func (s *Server) ripristinaComponente(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// rigaCodice e' una riga del pannello: il codice, la RFQ per le rotte, e i documenti del suo componente
-// se ce n'e' uno (e' quello che si vede «aprendolo»).
+// rigaCodice e' una riga del pannello: il codice, la RFQ per le rotte, i documenti del suo componente se
+// ce n'e' uno (e' quello che si vede «aprendolo»), e dove va la risposta dei gesti: la pagina della RFQ
+// (#thread) o l'avviso della schermata del Fascicolo (B8.7).
 type rigaCodice struct {
 	C         fascicolo.CodiceCandidato
 	Thread    uuid.UUID
 	Documenti []db.Documento
+	Bersaglio string
 }
 
-func nuovaRigaCodice(c fascicolo.CodiceCandidato, thread uuid.UUID, documenti map[uuid.UUID][]db.Documento) rigaCodice {
-	r := rigaCodice{C: c, Thread: thread}
+func nuovaRigaCodice(c fascicolo.CodiceCandidato, thread uuid.UUID, documenti map[uuid.UUID][]db.Documento, bersaglio string) rigaCodice {
+	r := rigaCodice{C: c, Thread: thread, Bersaglio: bersaglio}
 	if c.Stato.Componente != nil {
 		r.Documenti = documenti[c.Stato.Componente.ComponenteID]
 	}
@@ -71,6 +73,12 @@ func etichettaTipo(t db.TipoComponente) string {
 	}
 	return strings.ToUpper(n[:1]) + n[1:]
 }
+
+// BersaglioCodici: nella pagina della RFQ i gesti del pannello dei codici rifanno la pagina.
+func (d *threadDati) BersaglioCodici() string { return "#thread" }
+
+// BersaglioCodici: nel cassetto del Fascicolo i gesti rispondono con l'avviso e i pannelli fuori banda.
+func (d *fascicoloDati) BersaglioCodici() string { return "#fasc-avviso" }
 
 // codiciDellaRfq riempie il pannello: i codici nelle due liste e, per aprire un componente, i suoi
 // documenti. Se la lettura non riesce la pagina si apre lo stesso, e il pannello dice perche' e' vuoto.

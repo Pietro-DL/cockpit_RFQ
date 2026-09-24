@@ -81,12 +81,22 @@ type Server struct {
 	// controllo che in produzione e a richiesta passa da due strade diverse è un controllo che in una
 	// delle due prima o poi si comporta in un altro modo. Nil = la schermata lo dice.
 	Ricognitore *documenti.Ricognitore
-	// Staging è la radice dello staging locale ([nas].staging, assoluta). Serve a una cosa sola, ed è
-	// una cosa che non si vede: `allegato.path_staging` è un percorso assoluto letto dal database, e
-	// l'anteprima lo apre — quindi prima verifica che stia qui sotto, come già fa per il NAS. Vuota =
-	// l'anteprima non serve dallo staging e lo scrive nel log, perché ciò che non si può verificare
-	// non si serve.
+	// Staging è la radice dello staging locale ([nas].staging, assoluta). Serve a due cose. La prima non
+	// si vede: `allegato.path_staging` è un percorso assoluto letto dal database, e l'anteprima lo apre —
+	// quindi prima verifica che stia qui sotto, come già fa per il NAS. La seconda è il caricamento interno
+	// del Fascicolo (B8.7): il file caricato a mano va fra i contenuti, con il suo sha256 per nome, come
+	// quelli che portano i worker. Vuota = l'anteprima non serve dallo staging e il caricamento si
+	// rifiuta, perché ciò che non si può verificare non si serve e non si scrive.
 	Staging string
+	// Pipeline è la strada di un file appena arrivato in staging (proposta dal nome, analisi), quella del
+	// workerapi: il caricamento interno del Fascicolo la percorre tale e quale (B8.7). Nil = il
+	// caricamento non è disponibile, e la schermata lo dice.
+	Pipeline interface {
+		DopoCaricamento(ctx context.Context, q *db.Queries, allegato uuid.UUID) error
+	}
+	// MaxCaricamento: la dimensione massima di un file caricato a mano, la stessa degli upload dei worker
+	// ([server].max_upload_mb). 0 = 64 MB.
+	MaxCaricamento int64
 	// Analizzatore: la versione e la configurazione correnti dell'analisi ([analisi], voce 1.12), le
 	// stesse del workerapi. Servono alla rianalisi degli STEP di una RFQ (B8.5): si rileggono quelli
 	// che hanno i fatti con questa chiave, si accodano gli altri. Versione 0 = nessuna rianalisi.
@@ -161,6 +171,27 @@ var funzioni = template.FuncMap{
 	"etichettaTipo":  etichettaTipo,
 	"tipiComponente": func() []db.TipoComponente { return fascicolo.TipiDaCodice },
 	"rigaCodice":     nuovaRigaCodice,
+	// B8.7, la schermata del Fascicolo: un nodo dell'albero e una riga tratteggiata con la schermata (il
+	// template e' ricorsivo), i nomi brevi dei tipi, gli esiti dello STEP del prodotto finito.
+	"nodoVista":        func(d *fascicoloDati, n *fascicolo.Nodo) nodoVista { return nodoVista{D: d, N: n} },
+	"propostaVista":    func(d *fascicoloDati, p figlioProposto) propostaVista { return propostaVista{D: d, P: p} },
+	"etichettaTipoDoc": etichettaTipoDoc,
+	"etichettaStep":    fascicolo.EtichettaStep,
+	"etichettaNodo":    etichettaNodo,
+	"classeStep":       classeStep,
+	"simboloStep":      simboloStep,
+	"mittente":         mittente,
+	"mul":              func(a, b any) int { return intero(a) * intero(b) },
+	"add":              func(a, b any) int { return intero(a) + intero(b) },
+	"sub":              func(a, b any) int { return intero(a) - intero(b) },
+	"sel": func(si bool, a, b string) string {
+		if si {
+			return a
+		}
+		return b
+	},
+	"join":      strings.Join,
+	"hasPrefix": strings.HasPrefix,
 	"colore": func(esito pgtype.Text, conf pgtype.Int2) string {
 		if !esito.Valid {
 			return ""
@@ -178,13 +209,28 @@ var funzioni = template.FuncMap{
 	},
 }
 
+// intero legge un numero intero di qualunque larghezza, per le poche somme dei template.
+func intero(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int16:
+		return int(x)
+	case int32:
+		return int(x)
+	case int64:
+		return int(x)
+	}
+	return 0
+}
+
 func (s *Server) Init() error {
 	base, err := template.New("layout").Funcs(funzioni).ParseFS(s.Templ, "layout.html", "frammenti.html")
 	if err != nil {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)

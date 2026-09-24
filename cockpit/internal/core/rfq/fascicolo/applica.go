@@ -263,10 +263,16 @@ func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nod
 		return nil
 	}
 	testoDove := map[string]string{DoveID: radice.IDGrezzo, DoveNome: radice.NomeGrezzo, DoveDescrizione: radice.Descrizione}[radice.Dove]
-	dett, _ := json.Marshal(map[string]any{"famiglia": radice.Famiglia, "dove": radice.Dove, "testo": testoDove,
-		"radice_step": radice.Chiave, "nome_grezzo": radice.NomeGrezzo})
+	d := map[string]any{"famiglia": radice.Famiglia, "dove": radice.Dove, "testo": testoDove,
+		"radice_step": radice.Chiave, "nome_grezzo": radice.NomeGrezzo}
+	// uno STEP caricato a mano non inventa una revisione del cliente (B8.7)
+	rev, trattenuta := RevisioneProponibile(a.Origine, radice.Rev)
+	if trattenuta != "" {
+		d["rev_letta"] = trattenuta
+	}
+	dett, _ := json.Marshal(d)
 	_, err = q.PropostaDocumentoDaRadice(ctx, db.PropostaDocumentoDaRadiceParams{
-		AllegatoID: a.AllegatoID, Codice: pgtype.Text{String: radice.Codice, Valid: true}, Rev: testo(radice.Rev),
+		AllegatoID: a.AllegatoID, Codice: pgtype.Text{String: radice.Codice, Valid: true}, Rev: testo(rev),
 		Confidenza: int16(radice.Confidenza), Dettagli: dett,
 	})
 	return err

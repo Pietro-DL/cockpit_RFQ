@@ -29,6 +29,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	s.registraProposte(mux)
 	// B8.6: dai codici della RFQ, un componente nuovo o il ripristino di uno archiviato (codici.go).
 	s.registraCodici(mux)
+	// B8.7: la schermata del Fascicolo e i gesti che le mancavano (fascicolo_rotte.go).
+	s.registraFascicolo(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 }
