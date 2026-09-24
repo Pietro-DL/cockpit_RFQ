@@ -27,6 +27,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.correggiCodice))
 	// B8.5: le proposte di struttura dagli STEP (proposte.go).
 	s.registraProposte(mux)
+	// B8.6: dai codici della RFQ, un componente nuovo o il ripristino di uno archiviato (codici.go).
+	s.registraCodici(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 }

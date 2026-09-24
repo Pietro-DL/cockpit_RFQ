@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -48,6 +49,12 @@ type threadDati struct {
 	Admin     bool
 	Avviso    string
 	Selezion  string
+	// Codici: i codici che la RFQ ha visto, uniti per codice, con quello che e' gia' deciso di ciascuno
+	// (B8.6). DocumentiDi sono i documenti di ogni componente, per aprirlo dal pannello. CodiciErrore dice
+	// perche' il pannello e' vuoto quando la lettura non e' riuscita.
+	Codici       fascicolo.Candidati
+	DocumentiDi  map[uuid.UUID][]db.Documento
+	CodiciErrore string
 	// Le richieste ai fornitori del blocco 7B non si caricano piu' qui: la pagina non le mostra
 	// (correzione prima di B8.2, addendum A3). Torneranno nel tab Luigi, per lavorazione di un
 	// componente; query, rotte e tabelle restano dove sono.
@@ -250,6 +257,7 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d.Fascicolo, _ = q.ListFascicolo(ctx, id)
 	d.Bozze, _ = q.ListBozzeThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	d.Componenti, _ = q.ListComponentiThread(ctx, id)
+	s.codiciDellaRfq(ctx, q, d)
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	for _, m := range msgs {
 		mt := messaggioThread{M: m}

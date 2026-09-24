@@ -235,9 +235,12 @@ func testo(s string) pgtype.Text {
 }
 
 // propostaDelDocumento e' D16: quando una famiglia del cliente riconosce il codice della radice, la
-// proposta del documento STEP prende quel codice, con fonte regola_cliente. Solo se la proposta e'
-// aperta, se non l'ha scritta l'operatore, e se il suo codice non e' gia' di una famiglia: allora il
-// nome del file diceva gia' la cosa giusta, e un generico dal PRODUCT non la cambia.
+// proposta del documento STEP prende quel codice, con fonte regola_cliente e regola_id NULL (le famiglie
+// stanno in cliente.regole, non in `regola`). Solo se la proposta e' aperta, se non l'ha scritta
+// l'operatore, e se il suo codice non e' gia' di una famiglia: allora il nome del file diceva gia' la
+// cosa giusta, e un generico dal PRODUCT non la cambia. Nei dettagli: la famiglia, dove sta il testo
+// riconosciuto (id, nome o descrizione del PRODUCT) e il testo stesso. L'evidenza strutturata del nodo
+// resta la sua riga di componente_proposta.
 func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nodi []NodoClassificato, st worker.StrutturaSTEP, m *classificazione.Motore) error {
 	radice, ok := RadiceDiFamiglia(nodi, st)
 	if !ok {
@@ -259,7 +262,9 @@ func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nod
 	if p.Codice.Valid && len(classificazione.DiFamiglia(m.Codici(p.Codice.String))) > 0 {
 		return nil
 	}
-	dett, _ := json.Marshal(map[string]any{"famiglia": radice.Famiglia, "radice_step": radice.Chiave, "nome_grezzo": radice.NomeGrezzo})
+	testoDove := map[string]string{DoveID: radice.IDGrezzo, DoveNome: radice.NomeGrezzo, DoveDescrizione: radice.Descrizione}[radice.Dove]
+	dett, _ := json.Marshal(map[string]any{"famiglia": radice.Famiglia, "dove": radice.Dove, "testo": testoDove,
+		"radice_step": radice.Chiave, "nome_grezzo": radice.NomeGrezzo})
 	_, err = q.PropostaDocumentoDaRadice(ctx, db.PropostaDocumentoDaRadiceParams{
 		AllegatoID: a.AllegatoID, Codice: pgtype.Text{String: radice.Codice, Valid: true}, Rev: testo(radice.Rev),
 		Confidenza: int16(radice.Confidenza), Dettagli: dett,
