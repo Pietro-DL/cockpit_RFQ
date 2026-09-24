@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 )
@@ -26,9 +27,7 @@ var reSpazi = regexp.MustCompile(`\s+`)
 // NomeSicuro rende una stringa utilizzabile come nome di cartella/file Windows: rimuove i caratteri vietati,
 // comprime gli spazi, toglie punti e spazi finali (vietati da NTFS) e tronca a max caratteri.
 func NomeSicuro(s string, max int) string {
-	s = reVietati.ReplaceAllString(s, " ")
-	s = reSpazi.ReplaceAllString(strings.TrimSpace(s), " ")
-	s = strings.TrimRightFunc(s, func(r rune) bool { return r == '.' || unicode.IsSpace(r) })
+	s = pulisci(s)
 	if max > 0 && len([]rune(s)) > max {
 		s = strings.TrimSpace(string([]rune(s)[:max]))
 	}
@@ -36,6 +35,19 @@ func NomeSicuro(s string, max int) string {
 		s = "senza nome"
 	}
 	return s
+}
+
+// pulisci e' la parte di NomeSicuro che non taglia: via i caratteri vietati, spazi compressi, via
+// punti e spazi finali.
+func pulisci(s string) string {
+	s = reVietati.ReplaceAllString(s, " ")
+	s = reSpazi.ReplaceAllString(strings.TrimSpace(s), " ")
+	return senzaCoda(s)
+}
+
+// senzaCoda toglie i punti e gli spazi finali, che NTFS non accetta.
+func senzaCoda(s string) string {
+	return strings.TrimRightFunc(s, func(r rune) bool { return r == '.' || unicode.IsSpace(r) })
 }
 
 // CartellaThread costruisce il percorso relativo della cartella RFQ.
@@ -77,8 +89,8 @@ func PathDocumento(l LayoutDocumento, cartellaPerCodice bool, codice, nomeFile s
 //
 // La correzione di un codice (B8.3, addendum A1.4) cambia questa e non il nome: un file non si
 // rinomina perche' il suo codice era sbagliato. Ricalcolare tutto il percorso dal nome gia' salvato
-// non e' la stessa cosa: NomeFileSicuro non restituisce sempre lo stesso nome se applicata due volte
-// (un nome senza estensione riceve «senza nome» in coda a ogni passata).
+// non e' la stessa cosa: un nome salvato prima di B8.A4-0, o scritto a mano, puo' non essere quello
+// che NomeFileSicuro ne farebbe oggi (un'estensione maiuscola, «senza nome» in coda).
 func CartellaDocumento(l LayoutDocumento, cartellaPerCodice bool, codice string) (string, error) {
 	var parti []string
 	if l.Sottocartella != "" {
@@ -106,9 +118,51 @@ func NomeNelPercorso(pathRelativo string) string {
 	return pathRelativo[strings.LastIndex(pathRelativo, `\`)+1:]
 }
 
-// NomeFileSicuro conserva l'estensione e sanifica il resto.
+const (
+	maxNomeFile   = 150 // il nome senza l'estensione
+	maxEstensione = 10  // l'estensione, punto compreso
+)
+
+// NomeFileSicuro conserva l'estensione, in minuscolo, e sanifica il resto.
+//
+// Ripassata sul nome che ha prodotto, lo restituisce uguale (addendum A4.1, R1.7): chi ricalcola un
+// percorso da un nome gia' sanificato non lo cambia. Per questo:
+//   - un nome senza estensione resta senza: prima riceveva «senza nome» in coda a ogni passata;
+//   - l'estensione si cerca nel nome gia' pulito: pulire toglie i punti finali e le barre, e cosi'
+//     «a.B.» e «a.B/c» hanno un'estensione dopo e non prima;
+//   - un'estensione e' corta e senza spazi: il punto di «Offerta 12.03.2026 rev finale» non ne apre
+//     una, e il nome resta intero invece di perdere «finale»;
+//   - se il taglio di un nome lungo lascia in coda un punto e poche lettere, quella e' l'estensione
+//     della passata dopo, e quindi e' gia' l'estensione di questa.
 func NomeFileSicuro(nome string) string {
-	ext := path.Ext(nome)
-	base := strings.TrimSuffix(nome, ext)
-	return NomeSicuro(base, 150) + strings.ToLower(NomeSicuro(ext, 10))
+	s := pulisci(nome)
+	ext := estensione(s)
+	if ext == "" {
+		s = senzaCoda(taglia(s, maxNomeFile))
+		ext = estensione(s)
+	}
+	base := senzaCoda(taglia(strings.TrimSuffix(s, ext), maxNomeFile))
+	if base == "" {
+		base = "senza nome"
+	}
+	return base + strings.ToLower(ext)
+}
+
+// estensione e' la parte di un nome pulito dall'ultimo punto in poi, se non supera maxEstensione
+// caratteri e non ha spazi; altrimenti "". Nel nome pulito non ci sono barre ne' un punto finale:
+// l'estensione, se c'e', ha almeno un carattere dopo il punto.
+func estensione(s string) string {
+	ext := path.Ext(s)
+	if utf8.RuneCountInString(ext) > maxEstensione || strings.IndexFunc(ext, unicode.IsSpace) >= 0 {
+		return ""
+	}
+	return ext
+}
+
+// taglia tiene i primi max caratteri.
+func taglia(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max])
+	}
+	return s
 }
