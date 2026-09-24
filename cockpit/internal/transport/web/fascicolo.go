@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -60,8 +62,7 @@ func codiceDaComponente(attuale string, c db.Componente, correggi bool) (string,
 }
 
 // percorsi calcola il percorso di un documento come lo calcola la conferma: la sottocartella del
-// tipo e la regola del cliente sulla cartella per codice. PathDocumento resta l'unico posto che
-// decide un path_relativo.
+// tipo e la regola del cliente sulla cartella per codice (CartellaDocumento), e il nome sul NAS.
 type percorsi struct {
 	perCodice bool
 	layout    map[db.TipoDocumento]db.CartellaDocumento
@@ -79,9 +80,8 @@ func nuoviPercorsi(ctx context.Context, q *db.Queries, thread uuid.UUID) (*perco
 	return &percorsi{perCodice: regolaBool(cl.Regole, "cartella_per_codice", true), layout: map[db.TipoDocumento]db.CartellaDocumento{}}, nil
 }
 
-// di e' il percorso che il documento d avrebbe con il codice dato: la cartella che la conferma gli
-// avrebbe dato con quel codice, e il NOME CHE HA GIA'. Una correzione di codice sposta, non rinomina.
-func (p *percorsi) di(ctx context.Context, q *db.Queries, d db.Documento, codice string) (string, error) {
+// cartellaDi e' la cartella che la conferma darebbe al documento d con il codice dato.
+func (p *percorsi) cartellaDi(ctx context.Context, q *db.Queries, d db.Documento, codice string) (string, error) {
 	l, ok := p.layout[d.Tipo]
 	if !ok {
 		var err error
@@ -90,11 +90,67 @@ func (p *percorsi) di(ctx context.Context, q *db.Queries, d db.Documento, codice
 		}
 		p.layout[d.Tipo] = l
 	}
-	cartella, err := documenti.CartellaDocumento(documenti.LayoutDocumento{Sottocartella: l.Sottocartella, PerCodice: l.PerCodice}, p.perCodice, codice)
+	return documenti.CartellaDocumento(documenti.LayoutDocumento{Sottocartella: l.Sottocartella, PerCodice: l.PerCodice}, p.perCodice, codice)
+}
+
+// nomeDi e' il nome che il documento d avrebbe sul NAS con il codice dato. Un documento tecnico si
+// chiama come il pezzo (D21): con il codice cambia anche il nome (addendum A4.1, «Conseguenza su
+// B8.3»). Gli altri tengono il NOME CHE HANNO GIA': la correzione li sposta di cartella e basta.
+func (p *percorsi) nomeDi(d db.Documento, codice string) string {
+	if documenti.Tecnico(d.Tipo) {
+		return documenti.NomeTecnico(codice, d.Rev.String, d.Estensione)
+	}
+	return documenti.NomeNelPercorso(d.PathRelativo)
+}
+
+// di e' il percorso che il documento d avrebbe con il codice dato: la cartella, il nome, e il
+// progressivo se quel nome e' gia' preso da un altro. Il lucchetto delle cartelle lo ha preso chi
+// chiama (bloccaCartelle), prima di scegliere.
+func (p *percorsi) di(ctx context.Context, q *db.Queries, d db.Documento, codice string) (string, error) {
+	cartella, err := p.cartellaDi(ctx, q, d, codice)
 	if err != nil {
 		return "", err
 	}
-	return documenti.NellaCartella(cartella, documenti.NomeNelPercorso(d.PathRelativo)), nil
+	return documenti.RiscegliPercorso(ctx, q, d.ThreadID, cartella, p.nomeDi(d, codice), d.PathRelativo)
+}
+
+// perConferma mette i documenti nell'ordine in cui sono stati confermati: quando piu' file prendono
+// lo stesso nome (due disegni dello stesso pezzo, dopo una correzione), il nome senza progressivo va al
+// primo arrivato, e la risposta non dipende dall'ordine degli id. I lucchetti restano presi per id.
+func perConferma(docs []db.Documento) []db.Documento {
+	out := append([]db.Documento(nil), docs...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].ConfermatoIl.Equal(out[j].ConfermatoIl) {
+			return out[i].ConfermatoIl.Before(out[j].ConfermatoIl)
+		}
+		return out[i].DocumentoID.String() < out[j].DocumentoID.String()
+	})
+	return out
+}
+
+// bloccaCartelle prende i lucchetti delle cartelle in cui i documenti finiranno con il codice nuovo,
+// in ordine di percorso (A4.3): chi tocca piu' cartelle le prende sempre nello stesso ordine, e due
+// gesti che si incrociano si mettono in fila invece di aspettarsi a vicenda.
+func (p *percorsi) bloccaCartelle(ctx context.Context, q *db.Queries, thread uuid.UUID, docs []db.Documento, codice string) error {
+	viste := map[string]bool{}
+	var cartelle []string
+	for _, d := range docs {
+		c, err := p.cartellaDi(ctx, q, d, codice)
+		if err != nil {
+			return rifiuto(d.NomeFile + ": " + err.Error())
+		}
+		if k := strings.ToLower(c); !viste[k] {
+			viste[k] = true
+			cartelle = append(cartelle, c)
+		}
+	}
+	sort.Slice(cartelle, func(i, j int) bool { return strings.ToLower(cartelle[i]) < strings.ToLower(cartelle[j]) })
+	for _, c := range cartelle {
+		if err := documenti.BloccaCartella(ctx, q, thread, c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ripercorri scrive il percorso che il documento d (bloccato dal chiamante) deve avere con il codice
@@ -144,6 +200,11 @@ func ripercorri(ctx context.Context, q *db.Queries, perc *percorsi, d db.Documen
 // percorso dipende dal codice, e il codice non cambia.
 func assegnaDocumento(ctx context.Context, q *db.Queries, perc *percorsi, d db.Documento, c *db.Componente, correggi bool) error {
 	arg := db.SetComponenteDocumentoParams{DocumentoID: d.DocumentoID, Codice: d.Codice}
+	if cambia := d.ComponenteID.Valid && (c == nil || c.ComponenteID != d.ComponenteID.UUID); cambia {
+		if err := restaAlSuoComponente(ctx, q, d); err != nil {
+			return err
+		}
+	}
 	if c != nil {
 		codice, err := codiceDaComponente(d.Codice.String, *c, correggi)
 		if err != nil {
@@ -159,6 +220,30 @@ func assegnaDocumento(ctx context.Context, q *db.Queries, perc *percorsi, d db.D
 	}
 	_, err := q.SetComponenteDocumento(ctx, arg)
 	return err
+}
+
+// restaAlSuoComponente dice perche' un documento non puo' lasciare il suo componente, prima che lo
+// dica una FK: lo STEP strutturale registrato in una baseline congelata (R2.5, prova 69), lo STEP
+// strutturale attuale, un documento dentro una catena di revisioni (D32).
+func restaAlSuoComponente(ctx context.Context, q *db.Queries, d db.Documento) error {
+	versioni, err := q.VersioniConLoStep(ctx, uuid.NullUUID{UUID: d.DocumentoID, Valid: true})
+	if err != nil {
+		return err
+	}
+	if len(versioni) > 0 {
+		return rifiuto(fmt.Sprintf("%s è lo STEP strutturale registrato nella baseline V%d: non cambia più componente", d.NomeFile, versioni[0]))
+	}
+	c, err := q.GetComponente(ctx, d.ComponenteID.UUID)
+	if err != nil {
+		return err
+	}
+	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == d.DocumentoID {
+		return rifiuto(fmt.Sprintf("%s è lo STEP strutturale di %s: prima se ne sceglie un altro", d.NomeFile, c.Codice))
+	}
+	if d.SostituitoDa.Valid {
+		return rifiuto(d.NomeFile + " è stato sostituito: una revisione vecchia resta del suo componente")
+	}
+	return nil
 }
 
 // assegnaProposta e' la stessa cosa per un file non ancora confermato: la proposta prende il codice del
@@ -207,10 +292,21 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		}
 		c = &x
 	}
+	// Con la BOM congelata (D26) nessun documento cambia componente, e nessun file si aggancia a un
+	// componente: il database lo rifiuterebbe per i documenti, e una proposta agganciata non si
+	// potrebbe poi confermare. Sganciare una proposta resta libero: non tocca la BOM.
+	if len(docs) > 0 || c != nil {
+		if n, bloccata, err := fascicolo.WorkingBloccata(ctx, q, thread); err != nil {
+			return "", err
+		} else if bloccata {
+			return "", rifiuto(fmt.Sprintf("la BOM è congelata nella V%d: il file entra senza componente, e lo si assegna aprendo una revisione", n))
+		}
+	}
 	perc, err := nuoviPercorsi(ctx, q, thread)
 	if err != nil {
 		return "", err
 	}
+	bloccati := make([]db.Documento, 0, len(docs))
 	for _, id := range docs {
 		d, err := q.BloccaDocumento(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && d.ThreadID != thread) {
@@ -219,6 +315,14 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if err != nil {
 			return "", err
 		}
+		bloccati = append(bloccati, d)
+	}
+	if c != nil {
+		if err := perc.bloccaCartelle(ctx, q, thread, bloccati, c.Codice); err != nil {
+			return "", err
+		}
+	}
+	for _, d := range perConferma(bloccati) {
 		if err := assegnaDocumento(ctx, q, perc, d, c, correggi); err != nil {
 			return "", err
 		}
@@ -275,6 +379,11 @@ func correggiCodiceComponente(ctx context.Context, tx pgx.Tx, q *db.Queries, thr
 	if nuovo == c.Codice {
 		return "Nessun cambiamento: il codice è già " + nuovo + ".", nil
 	}
+	if n, bloccata, err := fascicolo.WorkingBloccata(ctx, q, thread); err != nil {
+		return "", err
+	} else if bloccata {
+		return "", rifiuto(fmt.Sprintf("la BOM è congelata nella V%d: il codice si corregge aprendo una revisione", n))
+	}
 	if altro, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: thread, Upper: nuovo}); err == nil && altro.ComponenteID != c.ComponenteID {
 		return "", rifiuto("in questa RFQ c'è già il componente " + altro.Codice)
 	}
@@ -289,7 +398,10 @@ func correggiCodiceComponente(ctx context.Context, tx pgx.Tx, q *db.Queries, thr
 	if err != nil {
 		return "", err
 	}
-	for _, d := range docs {
+	if err := perc.bloccaCartelle(ctx, q, thread, docs, nuovo); err != nil {
+		return "", err
+	}
+	for _, d := range perConferma(docs) {
 		if !stessoCodice(d.Codice.String, nuovo) {
 			if err := ripercorri(ctx, q, perc, d, nuovo); err != nil {
 				return "", err
@@ -317,9 +429,38 @@ func spiegaErrore(err error) string {
 	if errors.As(err, &r) {
 		return string(r)
 	}
+	var fr fascicolo.Rifiuto
+	if errors.As(err, &fr) {
+		return string(fr)
+	}
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
+		// i trigger della 0020 hanno i loro codici (A4): li si riconosce senza leggere il testo
+		switch pg.Code {
+		case "BOM01":
+			return "la BOM è congelata: si modifica solo aprendo una revisione"
+		case "BOM02":
+			return "una versione congelata della BOM, e le sue istantanee, non si modificano"
+		case "BOM03":
+			return "revisioni del documento: " + pg.Message
+		case "BOM04":
+			return "STEP strutturale: " + pg.Message
+		case "BOM05":
+			return "una deroga strutturale non si modifica: se ne concede una nuova"
+		}
 		switch pg.ConstraintName {
+		case "documento_thread_id_sha256_key":
+			return "lo stesso file è stato confermato in questo momento da un'altra sessione: ricarica la pagina"
+		case "ux_documento_percorso":
+			return "un altro documento ha preso quel nome sul NAS in questo momento: riprova"
+		case "fk_bvc_step":
+			return "il documento è lo STEP strutturale di una baseline congelata: non cambia più componente"
+		case "fk_componente_step_strutturale":
+			return "il documento è lo STEP strutturale del suo componente: prima se ne sceglie un altro"
+		case "fk_documento_sostituito_stesso_tipo", "fk_documento_sostituito_stessa_rfq":
+			return "il documento fa parte di una catena di revisioni: componente e tipo non cambiano"
+		case "fk_deroga_struttura_step":
+			return "sul documento c'è una deroga strutturale: non cambia componente"
 		case "fk_documento_componente", "fk_proposta_componente":
 			return "il componente è cambiato nel frattempo, o non è di questa RFQ: ricarica e riprova"
 		case "ux_componente_thread_codice":

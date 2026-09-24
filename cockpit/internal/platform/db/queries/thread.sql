@@ -89,3 +89,32 @@ INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note) VALUE
 
 -- name: SetBuyerThread :exec
 UPDATE thread_offerta SET buyer_id = $2 WHERE thread_id = $1 AND buyer_id IS NULL;
+
+-- ------------------------------------------------------------------ A4 (B8.A4a): versioni della BOM e fasi
+-- name: BloccaThread :one
+-- La riga della RFQ bloccata per la durata della transazione: congelamento, apertura e abbandono di
+-- una revisione si mettono in fila qui (A4.6, passo 1). Il trigger della working bloccata prende la
+-- stessa riga FOR KEY SHARE, e quindi aspetta.
+SELECT * FROM thread_offerta WHERE thread_id = $1 FOR UPDATE;
+
+-- name: GetFaseApertaPerThread :one
+SELECT * FROM fase_log WHERE thread_id = $1 AND fine IS NULL;
+
+-- name: GetFaseLog :one
+SELECT * FROM fase_log WHERE fase_log_id = $1;
+
+-- name: ApriFaseConBom :one
+INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note, bom_versione_id)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
+
+-- name: ListFasiDopo :many
+-- Le righe di fase_log nate dopo quella data: per l'abbandono di una revisione (D37), che torna alla
+-- fase di apertura solo se nel frattempo ci sono state solo FATTIBILITA e ATTESA_DISEGNI.
+SELECT f.* FROM fase_log f
+WHERE f.thread_id = sqlc.arg(thread_id)
+  AND f.inizio >= (SELECT x.inizio FROM fase_log x WHERE x.fase_log_id = sqlc.arg(fase_log_id))
+  AND f.fase_log_id <> sqlc.arg(fase_log_id)
+ORDER BY f.inizio, f.fase_log_id;
+
+-- name: ListThreadDaRiesaminare :many
+SELECT * FROM v_thread_da_riesaminare WHERE thread_id = $1 ORDER BY tipo_motivo;

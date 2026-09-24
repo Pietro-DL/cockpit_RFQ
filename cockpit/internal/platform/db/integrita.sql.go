@@ -139,6 +139,75 @@ func (q *Queries) GetAnomaliaNas(ctx context.Context, documentoID uuid.UUID) (Na
 	return i, err
 }
 
+const getNasCreazione = `-- name: GetNasCreazione :one
+SELECT job_id, percorso, sha256, creato_il FROM nas_creazione WHERE job_id = $1 AND percorso = $2
+`
+
+type GetNasCreazioneParams struct {
+	JobID    int64  `json:"job_id"`
+	Percorso string `json:"percorso"`
+}
+
+func (q *Queries) GetNasCreazione(ctx context.Context, arg GetNasCreazioneParams) (NasCreazione, error) {
+	row := q.db.QueryRow(ctx, getNasCreazione, arg.JobID, arg.Percorso)
+	var i NasCreazione
+	err := row.Scan(
+		&i.JobID,
+		&i.Percorso,
+		&i.Sha256,
+		&i.CreatoIl,
+	)
+	return i, err
+}
+
+const insertNasCreazione = `-- name: InsertNasCreazione :exec
+INSERT INTO nas_creazione (job_id, percorso, sha256) VALUES ($1, $2, $3)
+ON CONFLICT (job_id, percorso) DO NOTHING
+`
+
+type InsertNasCreazioneParams struct {
+	JobID    int64  `json:"job_id"`
+	Percorso string `json:"percorso"`
+	Sha256   string `json:"sha256"`
+}
+
+func (q *Queries) InsertNasCreazione(ctx context.Context, arg InsertNasCreazioneParams) error {
+	_, err := q.db.Exec(ctx, insertNasCreazione, arg.JobID, arg.Percorso, arg.Sha256)
+	return err
+}
+
+const insertNasOrfano = `-- name: InsertNasOrfano :execrows
+INSERT INTO nas_orfano (thread_id, percorso, sha256, motivo, job_id, nota)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (thread_id, lower(percorso)) WHERE risolto_il IS NULL DO NOTHING
+`
+
+type InsertNasOrfanoParams struct {
+	ThreadID uuid.UUID    `json:"thread_id"`
+	Percorso string       `json:"percorso"`
+	Sha256   pgtype.Text  `json:"sha256"`
+	Motivo   MotivoOrfano `json:"motivo"`
+	JobID    pgtype.Int8  `json:"job_id"`
+	Nota     pgtype.Text  `json:"nota"`
+}
+
+// ------------------------------------------------------------------ A4 (B8.A4a): orfani e prove di creazione (0019)
+// Una sola riga aperta per file: se c'e' gia', zero righe, e chi chiama lo dice nel risultato del job.
+func (q *Queries) InsertNasOrfano(ctx context.Context, arg InsertNasOrfanoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertNasOrfano,
+		arg.ThreadID,
+		arg.Percorso,
+		arg.Sha256,
+		arg.Motivo,
+		arg.JobID,
+		arg.Nota,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listAnomalieNas = `-- name: ListAnomalieNas :many
 SELECT a.anomalia_id, a.documento_id, a.thread_id, a.problema, a.stato_db, a.percorso, a.sha_atteso, a.sha_trovato, a.dettaglio, a.rilevata_il, a.vista_il, a.risolta_il, d.nome_file, d.codice, d.rev, d.tipo, d.verificato_il,
        t.oggetto, c.ragione_sociale
@@ -284,6 +353,89 @@ func (q *Queries) ListDocumentiDaVerificare(ctx context.Context, limit int32) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const listNasOrfaniAperti = `-- name: ListNasOrfaniAperti :many
+SELECT o.nas_orfano_id, o.thread_id, o.percorso, o.sha256, o.motivo, o.job_id, o.rilevato_il, o.risolto_il, o.risolto_da, o.nota, t.oggetto, t.cartella_relativa, c.ragione_sociale
+FROM nas_orfano o
+JOIN thread_offerta t ON t.thread_id = o.thread_id
+JOIN cliente c ON c.cliente_id = t.cliente_id
+WHERE o.risolto_il IS NULL
+ORDER BY o.rilevato_il, o.nas_orfano_id
+`
+
+type ListNasOrfaniApertiRow struct {
+	NasOrfano        NasOrfano   `json:"nas_orfano"`
+	Oggetto          pgtype.Text `json:"oggetto"`
+	CartellaRelativa pgtype.Text `json:"cartella_relativa"`
+	RagioneSociale   string      `json:"ragione_sociale"`
+}
+
+func (q *Queries) ListNasOrfaniAperti(ctx context.Context) ([]ListNasOrfaniApertiRow, error) {
+	rows, err := q.db.Query(ctx, listNasOrfaniAperti)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListNasOrfaniApertiRow{}
+	for rows.Next() {
+		var i ListNasOrfaniApertiRow
+		if err := rows.Scan(
+			&i.NasOrfano.NasOrfanoID,
+			&i.NasOrfano.ThreadID,
+			&i.NasOrfano.Percorso,
+			&i.NasOrfano.Sha256,
+			&i.NasOrfano.Motivo,
+			&i.NasOrfano.JobID,
+			&i.NasOrfano.RilevatoIl,
+			&i.NasOrfano.RisoltoIl,
+			&i.NasOrfano.RisoltoDa,
+			&i.NasOrfano.Nota,
+			&i.Oggetto,
+			&i.CartellaRelativa,
+			&i.RagioneSociale,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const risolviNasOrfaniDelJob = `-- name: RisolviNasOrfaniDelJob :execrows
+UPDATE nas_orfano SET risolto_il = now() WHERE job_id = $1 AND risolto_il IS NULL
+`
+
+// Il passo 6 di un job riaccodato che ha tolto `da`: le righe che il suo fallimento aveva aperto si
+// chiudono, dal sistema (nessun risolto_da).
+func (q *Queries) RisolviNasOrfaniDelJob(ctx context.Context, jobID pgtype.Int8) (int64, error) {
+	result, err := q.db.Exec(ctx, risolviNasOrfaniDelJob, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const risolviNasOrfano = `-- name: RisolviNasOrfano :execrows
+UPDATE nas_orfano SET risolto_il = now(), risolto_da = $1, nota = COALESCE($2, nota)
+WHERE nas_orfano_id = $3 AND risolto_il IS NULL
+`
+
+type RisolviNasOrfanoParams struct {
+	RisoltoDa   uuid.NullUUID `json:"risolto_da"`
+	Nota        pgtype.Text   `json:"nota"`
+	NasOrfanoID int64         `json:"nas_orfano_id"`
+}
+
+func (q *Queries) RisolviNasOrfano(ctx context.Context, arg RisolviNasOrfanoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, risolviNasOrfano, arg.RisoltoDa, arg.Nota, arg.NasOrfanoID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setDocumentoVerificato = `-- name: SetDocumentoVerificato :exec

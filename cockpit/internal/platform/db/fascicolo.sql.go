@@ -14,6 +14,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const annullaSostituzione = `-- name: AnnullaSostituzione :execrows
+UPDATE documento SET sostituito_da = NULL WHERE documento_id = $1 AND sostituito_da = $2
+`
+
+type AnnullaSostituzioneParams struct {
+	Vecchio    uuid.UUID     `json:"vecchio"`
+	Successore uuid.NullUUID `json:"successore"`
+}
+
+// Solo l'ultima sostituzione: il trigger vuole il successore ancora corrente.
+func (q *Queries) AnnullaSostituzione(ctx context.Context, arg AnnullaSostituzioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, annullaSostituzione, arg.Vecchio, arg.Successore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const assegnaThreadProposte = `-- name: AssegnaThreadProposte :execrows
 UPDATE documento_proposta p SET thread_id = $2
 FROM allegato a WHERE a.allegato_id = p.allegato_id AND a.messaggio_id = $1 AND p.thread_id IS NULL
@@ -30,6 +48,23 @@ func (q *Queries) AssegnaThreadProposte(ctx context.Context, arg AssegnaThreadPr
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const bloccaCartella = `-- name: BloccaCartella :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':' || lower($2::text), 0))
+`
+
+type BloccaCartellaParams struct {
+	ThreadID uuid.UUID `json:"thread_id"`
+	Cartella string    `json:"cartella"`
+}
+
+// Chi sceglie un nome nuovo in una cartella e chi lo riserva si mettono in fila (A4.3): un lucchetto
+// di transazione sull'impronta del thread e della cartella in minuscolo. Due cartelle con la stessa
+// impronta si mettono in fila senza bisogno, e non succede altro.
+func (q *Queries) BloccaCartella(ctx context.Context, arg BloccaCartellaParams) error {
+	_, err := q.db.Exec(ctx, bloccaCartella, arg.ThreadID, arg.Cartella)
+	return err
 }
 
 const bloccaCopiaPendente = `-- name: BloccaCopiaPendente :one
@@ -139,6 +174,73 @@ func (q *Queries) BloccaProposta(ctx context.Context, propostaID uuid.UUID) (Doc
 	return i, err
 }
 
+const bloccaSpostamentoPendente = `-- name: BloccaSpostamentoPendente :one
+SELECT job_id, tipo, worker_tipo, payload, chiave_idempotenza, stato, priorita, tentativi, max_tentativi, non_prima_di, lease_fino_a, worker_id, risultato, errore, creato_il, aggiornato_il, chiuso_il, casella_id, postazione_id, richiesto_da, lease_s, durata_max_s, lease_token, avviato_il, scade_il FROM job
+WHERE tipo = 'sposta_nas' AND chiave_idempotenza = $1 AND stato IN ('pronto', 'in_corso')
+FOR UPDATE
+`
+
+// Lo spostamento ancora da finire di un documento, bloccato (A4.3, passo 0): come BloccaCopiaPendente.
+func (q *Queries) BloccaSpostamentoPendente(ctx context.Context, chiaveIdempotenza pgtype.Text) (Job, error) {
+	row := q.db.QueryRow(ctx, bloccaSpostamentoPendente, chiaveIdempotenza)
+	var i Job
+	err := row.Scan(
+		&i.JobID,
+		&i.Tipo,
+		&i.WorkerTipo,
+		&i.Payload,
+		&i.ChiaveIdempotenza,
+		&i.Stato,
+		&i.Priorita,
+		&i.Tentativi,
+		&i.MaxTentativi,
+		&i.NonPrimaDi,
+		&i.LeaseFinoA,
+		&i.WorkerID,
+		&i.Risultato,
+		&i.Errore,
+		&i.CreatoIl,
+		&i.AggiornatoIl,
+		&i.ChiusoIl,
+		&i.CasellaID,
+		&i.PostazioneID,
+		&i.RichiestoDa,
+		&i.LeaseS,
+		&i.DurataMaxS,
+		&i.LeaseToken,
+		&i.AvviatoIl,
+		&i.ScadeIl,
+	)
+	return i, err
+}
+
+const cartellaReferenziata = `-- name: CartellaReferenziata :one
+SELECT EXISTS (SELECT 1 FROM documento d
+                WHERE d.thread_id = $1 AND starts_with(lower(d.path_relativo), lower($2::text) || '\'))
+    OR EXISTS (SELECT 1 FROM job j
+                WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                  AND j.payload ->> 'thread_id' = $1::uuid::text
+                  AND (starts_with(lower(j.payload ->> 'da'), lower($2::text) || '\')
+                       OR starts_with(lower(j.payload ->> 'a'), lower($2::text) || '\')))
+    OR EXISTS (SELECT 1 FROM nas_orfano o
+                WHERE o.thread_id = $1 AND o.risolto_il IS NULL
+                  AND starts_with(lower(o.percorso), lower($2::text) || '\')) AS referenziata
+`
+
+type CartellaReferenziataParams struct {
+	ThreadID uuid.UUID `json:"thread_id"`
+	Cartella string    `json:"cartella"`
+}
+
+// Una cartella si toglie solo se niente la nomina: documenti, spostamenti pendenti, orfani aperti.
+// Mai le istantanee: path_al_congelamento e' storico (R1.8).
+func (q *Queries) CartellaReferenziata(ctx context.Context, arg CartellaReferenziataParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, cartellaReferenziata, arg.ThreadID, arg.Cartella)
+	var referenziata pgtype.Bool
+	err := row.Scan(&referenziata)
+	return referenziata, err
+}
+
 const decidiProposta = `-- name: DecidiProposta :execrows
 UPDATE documento_proposta SET stato = $2, deciso_da = $3, deciso_il = now() WHERE proposta_id = $1 AND stato = 'aperta'
 `
@@ -191,7 +293,7 @@ func (q *Queries) GetCartellaDocumento(ctx context.Context, tipo TipoDocumento) 
 }
 
 const getComponentePerCodice = `-- name: GetComponentePerCodice :one
-SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2)
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il, archiviato_il, archiviato_da, motivo_archiviazione, step_strutturale_id FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2)
 `
 
 type GetComponentePerCodiceParams struct {
@@ -219,6 +321,10 @@ func (q *Queries) GetComponentePerCodice(ctx context.Context, arg GetComponenteP
 		&i.NoteFattibilita,
 		&i.ConfermatoDa,
 		&i.CreatoIl,
+		&i.ArchiviatoIl,
+		&i.ArchiviatoDa,
+		&i.MotivoArchiviazione,
+		&i.StepStrutturaleID,
 	)
 	return i, err
 }
@@ -854,6 +960,113 @@ func (q *Queries) ListProposteThreadTutte(ctx context.Context, threadID uuid.Nul
 	return items, nil
 }
 
+const listStepProdotto = `-- name: ListStepProdotto :many
+SELECT thread_id, componente_id, codice, step_strutturale_id, n_step_correnti, analisi_completa, motivo_parziale, deroga_struttura_id, altro_3d_documento_id, proposta_aperta, atteso_da_portale, esito FROM v_step_prodotto WHERE thread_id = $1 ORDER BY codice
+`
+
+func (q *Queries) ListStepProdotto(ctx context.Context, threadID uuid.UUID) ([]VStepProdotto, error) {
+	rows, err := q.db.Query(ctx, listStepProdotto, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VStepProdotto{}
+	for rows.Next() {
+		var i VStepProdotto
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.ComponenteID,
+			&i.Codice,
+			&i.StepStrutturaleID,
+			&i.NStepCorrenti,
+			&i.AnalisiCompleta,
+			&i.MotivoParziale,
+			&i.DerogaStrutturaID,
+			&i.Altro3dDocumentoID,
+			&i.PropostaAperta,
+			&i.AttesoDaPortale,
+			&i.Esito,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStoriaDocumento = `-- name: ListStoriaDocumento :many
+SELECT thread_id, componente_id, catena_id, passo, documento_id, tipo, codice, rev, nome_file, estensione, sha256, path_relativo, stato_nas, confermato_da, confermato_il, sostituito_da, corrente FROM v_documento_storia
+WHERE catena_id = (SELECT s.catena_id FROM v_documento_storia s WHERE s.documento_id = $1)
+ORDER BY passo
+`
+
+func (q *Queries) ListStoriaDocumento(ctx context.Context, documentoID uuid.UUID) ([]VDocumentoStoria, error) {
+	rows, err := q.db.Query(ctx, listStoriaDocumento, documentoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VDocumentoStoria{}
+	for rows.Next() {
+		var i VDocumentoStoria
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.ComponenteID,
+			&i.CatenaID,
+			&i.Passo,
+			&i.DocumentoID,
+			&i.Tipo,
+			&i.Codice,
+			&i.Rev,
+			&i.NomeFile,
+			&i.Estensione,
+			&i.Sha256,
+			&i.PathRelativo,
+			&i.StatoNas,
+			&i.ConfermatoDa,
+			&i.ConfermatoIl,
+			&i.SostituitoDa,
+			&i.Corrente,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const percorsoOccupato = `-- name: PercorsoOccupato :one
+SELECT EXISTS (SELECT 1 FROM documento d
+                WHERE d.thread_id = $1 AND lower(d.path_relativo) = lower($2::text))
+    OR EXISTS (SELECT 1 FROM job j
+                WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                  AND j.payload ->> 'thread_id' = $1::uuid::text
+                  AND (lower(j.payload ->> 'da') = lower($2::text) OR lower(j.payload ->> 'a') = lower($2::text)))
+    OR EXISTS (SELECT 1 FROM nas_orfano o
+                WHERE o.thread_id = $1 AND o.risolto_il IS NULL AND lower(o.percorso) = lower($2::text)) AS occupato
+`
+
+type PercorsoOccupatoParams struct {
+	ThreadID uuid.UUID `json:"thread_id"`
+	Percorso string    `json:"percorso"`
+}
+
+// Un percorso e' occupato se lo dichiara un documento del thread, se e' il `da` o l'`a` di uno
+// spostamento pendente, o se c'e' una riga aperta di nas_orfano (A4.3, R2.1). Sempre in minuscolo:
+// la condivisione e' Windows.
+func (q *Queries) PercorsoOccupato(ctx context.Context, arg PercorsoOccupatoParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, percorsoOccupato, arg.ThreadID, arg.Percorso)
+	var occupato pgtype.Bool
+	err := row.Scan(&occupato)
+	return occupato, err
+}
+
 const setCodiceProposteComponente = `-- name: SetCodiceProposteComponente :execrows
 UPDATE documento_proposta SET codice = $2 WHERE componente_id = $1
 `
@@ -966,6 +1179,45 @@ type SetPathDocumentoInCodaParams struct {
 // vuol dire che lo stato e' cambiato nel frattempo, e il chiamante rinuncia.
 func (q *Queries) SetPathDocumentoInCoda(ctx context.Context, arg SetPathDocumentoInCodaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setPathDocumentoInCoda, arg.DocumentoID, arg.PathRelativo)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setPathDocumentoSeUguale = `-- name: SetPathDocumentoSeUguale :execrows
+UPDATE documento SET path_relativo = $1 WHERE documento_id = $2 AND path_relativo = $3
+`
+
+type SetPathDocumentoSeUgualeParams struct {
+	A           string    `json:"a"`
+	DocumentoID uuid.UUID `json:"documento_id"`
+	Da          string    `json:"da"`
+}
+
+// Il passo 4 di sposta_nas: il percorso cambia solo se e' ancora quello da cui si sposta.
+func (q *Queries) SetPathDocumentoSeUguale(ctx context.Context, arg SetPathDocumentoSeUgualeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPathDocumentoSeUguale, arg.A, arg.DocumentoID, arg.Da)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setSostituitoDa = `-- name: SetSostituitoDa :execrows
+UPDATE documento SET sostituito_da = $1 WHERE documento_id = $2 AND sostituito_da IS NULL
+`
+
+type SetSostituitoDaParams struct {
+	Nuovo   uuid.NullUUID `json:"nuovo"`
+	Vecchio uuid.UUID     `json:"vecchio"`
+}
+
+// ------------------------------------------------------------------ A4 (B8.A4a): revisioni, STEP del prodotto, nomi sul NAS
+// La sostituzione: confronta e scambia. Il trigger della catena vuole il successore ancora corrente e
+// lo legge FOR UPDATE; zero righe = il documento era gia' stato sostituito nel frattempo.
+func (q *Queries) SetSostituitoDa(ctx context.Context, arg SetSostituitoDaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSostituitoDa, arg.Nuovo, arg.Vecchio)
 	if err != nil {
 		return 0, err
 	}

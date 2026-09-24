@@ -158,7 +158,7 @@ generi una bozza — e con un interruttore solo le due cose sono la stessa cosa.
 |---|---|
 | `outlook_scrittura` | `segna_letto`, `sposta_in_cartella`, e ogni altra modifica a Outlook **tranne** le bozze |
 | `bozze` | `crea_bozza_outlook` |
-| `nas_scrittura` | `crea_cartella_thread`, `copia_nas` |
+| `nas_scrittura` | `crea_cartella_thread`, `copia_nas`, `sposta_nas` (lo spostamento di un file sul NAS, A4: dalla 0019 il tipo esiste, l'esecuzione arriva con B8.8) |
 | `consenti_nas_produzione` | la **seconda** dichiarazione, e serve solo quando le altre insieme varrebbero «scrivi nel fascicolo vero di un cliente»: `nas_scrittura = true` con `[nas].radice` dentro una `radici_produzione`. Senza, il server non parte e dice quale radice ha riconosciuto; con, parte e l'avvio lo annuncia nel log |
 
 **Sempre consentiti**, e non chiedono nessuna capacità: sync di Outlook, lettura, download in
@@ -1105,6 +1105,14 @@ la forma dello schema 17 ma non annulla le fusioni dei duplicati né l'allineame
 ferma se un componente ha più di un padre. Le guardie della 0018 non correggono niente: elencano le
 righe da riconciliare a mano, e la migrazione si rilancia dopo.
 
+La 0019 e la 0020 (A4) aggiungono e basta: non hanno un ritorno manuale, e il ritorno è il backup. Le
+guardie della 0020 fanno come quelle della 0018: si fermano, prima di qualunque modifica, se due
+documenti dichiarano lo stesso file sul NAS (a meno delle maiuscole) o se `sostituito_da` fa una catena
+impossibile (altra RFQ, altro componente, altro tipo, senza componente, un ciclo, due documenti
+sostituiti dallo stesso), ed elencano le righe. Dopo la 0020 una versione congelata della BOM non si
+modifica, e la BOM working si modifica solo aprendo una revisione: lo tengono i trigger, con i codici
+d'errore `BOM01`–`BOM05`.
+
 ### Se qualcosa non va
 
 | Sintomo | Causa probabile | Rimedio |
@@ -1179,10 +1187,16 @@ internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json 
 internal/core/registro/regole       lo schema di cliente.regole: la porta in scrittura che rifiuta, quella in lettura che segna ✓/✗;
                                     convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/core/rfq/documenti         il fascicolo di una RFQ. path.go: i nomi sul NAS (cartella della RFQ, sottocartella per tipo e codice, nome di
-                                    file sicuro; sempre relativi alla radice); integrita.go: il ricognitore che confronta i documenti con i file
+                                    file sicuro; sempre relativi alla radice); nomi_nas.go (A4): <CODICE>_REV_<REV> per i file tecnici, il
+                                    progressivo _2, il lucchetto della cartella, la riserva dei nomi (documenti, spostamenti pendenti, orfani)
+                                    e il passo 0 di uno spostamento; cartelle.go: una cartella si toglie solo se nessuno la nomina ed è vuota;
+                                    integrita.go: il ricognitore che confronta i documenti con i file
                                     veri e scrive nas_anomalia, e Allinea che su un conflitto rifiuta (blocco 5B); copia_nas.go: che cosa
                                     significa copiare un documento sul NAS, e dove se ne ritrova il contenuto; ripresa.go: il contenuto sparito
                                     dalla cache che si riprende da solo (Pre-7); cartella_thread.go: la cartella di una RFQ e le sue sottocartelle
+internal/core/rfq/fascicolo         la BOM di una RFQ nel tempo (A4): congelare, aprire e abbandonare una revisione, il gate del congelamento,
+                                    la differenza fra una versione e la working, archiviare un componente, sostituire un documento, scegliere
+                                    lo STEP strutturale, la deroga strutturale. Senza schermata: i gesti arrivano con B8.7
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1229,7 +1243,12 @@ migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enu
                                     0018_fascicolo.sql (componente = identità (thread, upper(codice)), componente_relazione al posto
                                     di padre_id, componente_proposta e relazione_proposta, FK composite con il thread, v_fascicolo v2,
                                     v_componente_albero, v_codici_candidati_thread; guardie che fermano la migrazione sui dati da
-                                    riconciliare)
+                                    riconciliare),
+                                    0019_sposta_nas.sql (tipo_job sposta_nas, nas_orfano con una riga aperta per file, nas_creazione),
+                                    0020_bom_versioni.sql (catena delle revisioni dei documenti, percorso unico per RFQ, versioni della BOM
+                                    e le quattro istantanee, working bloccata dopo il congelamento, STEP strutturale, deroga strutturale,
+                                    archiviazione, rimozione_proposta, analizzatore_corrente, v_step_prodotto, v_bom_versioni,
+                                    v_documento_storia, v_thread_da_riesaminare)
 contracts/*.schema.json             JSON Schema generati da workers/contratti.py
 workers/                            cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                                     outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),

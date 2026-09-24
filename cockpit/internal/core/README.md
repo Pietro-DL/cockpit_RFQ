@@ -18,7 +18,8 @@ NAS (quelle passano da `platform/storage/nas`).
 | `inbox/classificazione` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `oggetto.go` (`OggettoPulito`: i prefissi RE:/FW: tolti dall'oggetto — lo usano aggancio e i percorsi), `aggancio.go` (punteggi R1–R5) | no |
 | `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
 | `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
-| `rfq/documenti` | il **fascicolo** di una RFQ. `path.go`: i nomi sul NAS (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`; `PathDocumento` restituisce `ErrCodiceMancante` invece di un percorso quando il layout vuole la cartella del codice e il codice manca, addendum A2.2; `CartellaDocumento` e `NomeNelPercorso` separano cartella e nome, perché una correzione di codice sposta il file e non lo rinomina) — percorsi sempre RELATIVI alla radice, con `\` come separatore; il prefisso long-path sta in `platform/storage/nas`. `integrita.go`: il **ricognitore** che confronta `documento` con i file veri e scrive `nas_anomalia`, e `AllineaDocumento` (che su un conflitto rifiuta e basta: non apre l'anomalia, ed è il gesto di un amministratore che sta guardando). `nas_percorso.go`: `PercorsoSulNas`, il percorso composto dal solo database e verificato dentro la radice (relativo per le anomalie, assoluto per aprirlo), e `DentroLaRadice`, lo stesso controllo esportato per chi deve contenere un percorso in un'altra radice (l'anteprima, sullo staging). `verifica.go`: `VerificaFileAperto`, la verifica di chi sta per SERVIRE quei byte — hash ricalcolato sul file già aperto, anomalia `conflitto` aperta se non corrisponde, `verificato_il` scritto solo quando corrisponde — e `Segnala`, la stessa riga di anomalia che scrive il ricognitore (B8.1). `copia_nas.go`: che cosa SIGNIFICA copiare un documento sul NAS (`CopiaSulNas`; «scritto» vale solo per il percorso su cui il file è finito, e se una correzione l'ha cambiato nel frattempo il tentativo fallisce e si ripete) e dove se ne ritrova il contenuto (`SorgenteStaging`); `ripresa.go`: il contenuto sparito dalla cache che si riprende da solo (`RiprendiContenuto`); `cartella_thread.go`: la cartella di una RFQ (`CreaCartellaThread`). Chi le chiama e' l'esecutore, che sta in `app/runtime` | sì |
+| `rfq/documenti` | il **fascicolo** di una RFQ. `path.go`: i nomi sul NAS (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`; `PathDocumento` restituisce `ErrCodiceMancante` invece di un percorso quando il layout vuole la cartella del codice e il codice manca, addendum A2.2; `CartellaDocumento` e `NomeNelPercorso` separano cartella e nome; `NomeFileSicuro` ripassata sul nome che ha prodotto lo restituisce uguale, B8.A4-0). `nomi_nas.go` (A4): il nome di un file tecnico è `<CODICE>_REV_<REV>` (`ND` se la revisione non si sa), un secondo file con lo stesso nome riceve `_2`; il nome si sceglie dentro la transazione, sotto il lucchetto della cartella (`ScegliPercorso`, `BloccaCartella`), ed è occupato se lo dichiara un documento, uno spostamento pendente o una riga aperta di `nas_orfano`; `AccodaSpostamento` è il passo 0 di `sposta_nas` (l'esecuzione arriva con B8.8). Una correzione di codice rinomina i file tecnici e sposta gli altri. `cartelle.go`: `RimuoviCartella`, solo se nessuno la nomina e se, tolti i `.parte.<token>` scaduti, è vuota — percorsi sempre RELATIVI alla radice, con `\` come separatore; il prefisso long-path sta in `platform/storage/nas`. `integrita.go`: il **ricognitore** che confronta `documento` con i file veri e scrive `nas_anomalia`, e `AllineaDocumento` (che su un conflitto rifiuta e basta: non apre l'anomalia, ed è il gesto di un amministratore che sta guardando). `nas_percorso.go`: `PercorsoSulNas`, il percorso composto dal solo database e verificato dentro la radice (relativo per le anomalie, assoluto per aprirlo), e `DentroLaRadice`, lo stesso controllo esportato per chi deve contenere un percorso in un'altra radice (l'anteprima, sullo staging). `verifica.go`: `VerificaFileAperto`, la verifica di chi sta per SERVIRE quei byte — hash ricalcolato sul file già aperto, anomalia `conflitto` aperta se non corrisponde, `verificato_il` scritto solo quando corrisponde — e `Segnala`, la stessa riga di anomalia che scrive il ricognitore (B8.1). `copia_nas.go`: che cosa SIGNIFICA copiare un documento sul NAS (`CopiaSulNas`; «scritto» vale solo per il percorso su cui il file è finito, e se una correzione l'ha cambiato nel frattempo il tentativo fallisce e si ripete) e dove se ne ritrova il contenuto (`SorgenteStaging`); `ripresa.go`: il contenuto sparito dalla cache che si riprende da solo (`RiprendiContenuto`); `cartella_thread.go`: la cartella di una RFQ (`CreaCartellaThread`). Chi le chiama e' l'esecutore, che sta in `app/runtime` | sì |
+| `rfq/fascicolo` | la **BOM nel tempo** (A4). `versioni.go`: `CongelaBom` (gate, V1 al primo congelamento, le quattro istantanee, il passaggio FATTIBILITA → SCHEDA_COSTO con l'ancora della baseline per una versione `preventivo`), `ApriRevisione` (il contesto lo decide la fase, in ACCETTATA e DISTINTA_ERP lo sceglie chi apre), `AbbandonaBozza` (solo a differenza vuota, e torna alla riga di fase di apertura). `gate.go`: `Valuta`, la regola pura del congelamento (requisiti, proposte strutturali, NAS, STEP del prodotto finito, cicli), `LeggiGate`, `EtichettaStep`. `differenze.go`: `Differenze`, pura, sulle coppie di `DiffBomWorking`. `struttura.go`: archiviare, ripristinare, togliere un componente; scegliere lo STEP strutturale; concedere e revocare la deroga strutturale; sostituire un documento e annullare la sostituzione. Le regole che contano le tiene il database (0020): qui si dice all'operatore perché qualcosa non si può fare | sì |
 | `registro/regole` | lo **schema** di ciò che un cliente dichiara di sé: `regole.go` (`cliente.regole`, le due porte in scrittura e in lettura, la diagnosi ✓/✗), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza). Non applica niente: lo legge e lo giudica | no |
 | `registro/anagrafica` | il seme dei clienti da `seme_anagrafica.json`, una volta e senza sovrascrivere; `anagrafica.go`: `NomeCognome`, il precompilato del buyer dal display name o dall'indirizzo | sì |
 | `registro/fornitori` | l'import del seme dei fornitori (7A.4): `Leggi` convalida, `Calcola` fa l'anteprima senza scrivere, `Applica` scrive in una transazione solo ciò che è risolto | sì |
@@ -29,7 +30,8 @@ NAS (quelle passano da `platform/storage/nas`).
 Nessun package di `platform` importa `core`: la freccia va in un verso solo.
 Gli altri package di `core` importano gli altri `core/*` e `platform`. Le due catene che esistono davvero:
 `inbox/classificazione` → `registro/regole` (il motore lavora sullo schema) e `rfq/documenti` →
-`inbox/classificazione` (il nome della cartella nasce dall'oggetto ripulito).
+`inbox/classificazione` (il nome della cartella nasce dall'oggetto ripulito). `rfq/fascicolo` importa solo
+`platform/db`.
 Mai `transport`, mai `ai`, mai `app`.
 
 ## Entry point
@@ -40,7 +42,9 @@ Mai `transport`, mai `ai`, mai `app`.
 `aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`,
 `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`,
 `documenti.CartellaThread` / `PathDocumento` / `NomeSicuro` / `Ricognitore.Giro` / `AllineaDocumento` /
-`CopiaSulNas` / `CreaCartellaThread` / `PercorsoSulNas` / `VerificaFileAperto` / `Segnala`,
+`CopiaSulNas` / `CreaCartellaThread` / `PercorsoSulNas` / `VerificaFileAperto` / `Segnala` / `ScegliPercorso` /
+`AccodaSpostamento` / `RimuoviCartella`, `fascicolo.CongelaBom` / `ApriRevisione` / `AbbandonaBozza` / `LeggiGate` /
+`ArchiviaComponente` / `ScegliStepStrutturale` / `ConcediDerogaStruttura` / `Sostituisci` / `AnnullaSostituzione`,
 `anagrafica.NomeCognome`.
 
 ## Flussi principali
@@ -67,14 +71,18 @@ candidati, cursore nella stessa transazione. Il ritriage mirato tocca solo i mes
 
 `ingest` scrive i fatti e le proposte di triage; `aggancio` scrive i candidati; `registro/*` scrive le
 anagrafiche; `rfq/documenti` scrive `nas_anomalia`, lo stato NAS di un documento e — in `CopiaSulNas` e
-`CreaCartellaThread` — i file sul NAS attraverso `platform/storage/nas`.
+`CreaCartellaThread` — i file sul NAS attraverso `platform/storage/nas`; `rfq/fascicolo` scrive le versioni
+della BOM e le loro istantanee, l'archiviazione, lo STEP strutturale, le deroghe strutturali e la catena delle
+revisioni dei documenti.
 Nessuno degli altri scrive `thread_id`, `documento` o sul NAS.
 
 ## Test
 
 L1 sugli oracoli di `inbox/classificazione` (codici, atto, catena, controparte, il motore delle regole,
 proposta, precedenza) e su `registro/regole` (le due porte, le convenzioni).
-L4 per `ingest`, `aggancio`, `registro/fornitori` e `rfq/documenti` (la riconciliazione contro file veri),
+L1 su `rfq/fascicolo` (il gate, i cicli, la differenza). L4 per `ingest`, `aggancio`, `registro/fornitori`,
+`rfq/documenti` (la riconciliazione contro file veri, i nomi con la revisione e la loro riserva) e `rfq/fascicolo`
+(congelamento, revisioni, deroghe, archiviazione),
 compresi gli invarianti I4/I5 del contratto di classificazione.
 
 ## Dove intervenire
@@ -85,7 +93,9 @@ compresi gli invarianti I4/I5 del contratto di classificazione.
 | un campo nuovo in `cliente.regole` | `registro/regole/regole.go`, poi il motore in `inbox/classificazione/regole.go` |
 | un atto nuovo | `inbox/classificazione/atto.go` e l'enum `atto_business` in migrazione |
 | una convenzione di codice | `registro/regole/convenzioni.go` |
-| il nome di una cartella o di un file sul NAS | `rfq/documenti/path.go` |
+| il nome di una cartella o di un file sul NAS | `rfq/documenti/path.go`, `nomi_nas.go` |
+| capire perché una BOM non si congela | `rfq/fascicolo/gate.go:Valuta` |
+| capire perché una revisione non si apre o non si abbandona | `rfq/fascicolo/versioni.go:contestoRevisione`, `AbbandonaBozza` |
 | capire perché un documento risulta mancante o in conflitto | `rfq/documenti/integrita.go:controllo.esamina` |
 | capire perché una copia sul NAS non parte o si ripete | `rfq/documenti/copia_nas.go:CopiaSulNas`, `ripresa.go:RiprendiContenuto` |
 | capire perché un fornitore non apre una RFQ | `inbox/classificazione/controparte.go:RisolviControparte`, `inbox/classificazione/codici.go` (ramo `Controparte`) |

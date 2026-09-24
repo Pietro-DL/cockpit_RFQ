@@ -146,6 +146,64 @@ func AllCanaleValues() []Canale {
 	}
 }
 
+type ContestoBom string
+
+const (
+	ContestoBomPreventivo ContestoBom = "preventivo"
+	ContestoBomTecnica    ContestoBom = "tecnica"
+)
+
+func (e *ContestoBom) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ContestoBom(s)
+	case string:
+		*e = ContestoBom(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ContestoBom: %T", src)
+	}
+	return nil
+}
+
+type NullContestoBom struct {
+	ContestoBom ContestoBom `json:"contesto_bom"`
+	Valid       bool        `json:"valid"` // Valid is true if ContestoBom is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullContestoBom) Scan(value interface{}) error {
+	if value == nil {
+		ns.ContestoBom, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ContestoBom.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullContestoBom) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ContestoBom), nil
+}
+
+func (e ContestoBom) Valid() bool {
+	switch e {
+	case ContestoBomPreventivo,
+		ContestoBomTecnica:
+		return true
+	}
+	return false
+}
+
+func AllContestoBomValues() []ContestoBom {
+	return []ContestoBom{
+		ContestoBomPreventivo,
+		ContestoBomTecnica,
+	}
+}
+
 type Direzione string
 
 const (
@@ -859,6 +917,70 @@ func AllModoRegolaValues() []ModoRegola {
 		ModoRegolaApplica,
 		ModoRegolaProponi,
 		ModoRegolaSpenta,
+	}
+}
+
+type MotivoOrfano string
+
+const (
+	MotivoOrfanoRimozioneFallita MotivoOrfano = "rimozione_fallita"
+	MotivoOrfanoNonNostro        MotivoOrfano = "non_nostro"
+	MotivoOrfanoPercorsoCambiato MotivoOrfano = "percorso_cambiato"
+	MotivoOrfanoOrigineIncerta   MotivoOrfano = "origine_incerta"
+)
+
+func (e *MotivoOrfano) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MotivoOrfano(s)
+	case string:
+		*e = MotivoOrfano(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MotivoOrfano: %T", src)
+	}
+	return nil
+}
+
+type NullMotivoOrfano struct {
+	MotivoOrfano MotivoOrfano `json:"motivo_orfano"`
+	Valid        bool         `json:"valid"` // Valid is true if MotivoOrfano is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMotivoOrfano) Scan(value interface{}) error {
+	if value == nil {
+		ns.MotivoOrfano, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MotivoOrfano.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMotivoOrfano) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MotivoOrfano), nil
+}
+
+func (e MotivoOrfano) Valid() bool {
+	switch e {
+	case MotivoOrfanoRimozioneFallita,
+		MotivoOrfanoNonNostro,
+		MotivoOrfanoPercorsoCambiato,
+		MotivoOrfanoOrigineIncerta:
+		return true
+	}
+	return false
+}
+
+func AllMotivoOrfanoValues() []MotivoOrfano {
+	return []MotivoOrfano{
+		MotivoOrfanoRimozioneFallita,
+		MotivoOrfanoNonNostro,
+		MotivoOrfanoPercorsoCambiato,
+		MotivoOrfanoOrigineIncerta,
 	}
 }
 
@@ -1779,6 +1901,64 @@ func AllStatoAnalisiValues() []StatoAnalisi {
 		StatoAnalisiCompletata,
 		StatoAnalisiRifiutata,
 		StatoAnalisiErrore,
+	}
+}
+
+type StatoBom string
+
+const (
+	StatoBomBozza     StatoBom = "bozza"
+	StatoBomCongelata StatoBom = "congelata"
+)
+
+func (e *StatoBom) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = StatoBom(s)
+	case string:
+		*e = StatoBom(s)
+	default:
+		return fmt.Errorf("unsupported scan type for StatoBom: %T", src)
+	}
+	return nil
+}
+
+type NullStatoBom struct {
+	StatoBom StatoBom `json:"stato_bom"`
+	Valid    bool     `json:"valid"` // Valid is true if StatoBom is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullStatoBom) Scan(value interface{}) error {
+	if value == nil {
+		ns.StatoBom, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.StatoBom.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullStatoBom) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.StatoBom), nil
+}
+
+func (e StatoBom) Valid() bool {
+	switch e {
+	case StatoBomBozza,
+		StatoBomCongelata:
+		return true
+	}
+	return false
+}
+
+func AllStatoBomValues() []StatoBom {
+	return []StatoBom{
+		StatoBomBozza,
+		StatoBomCongelata,
 	}
 }
 
@@ -2727,6 +2907,7 @@ const (
 	TipoJobRileggiElemento     TipoJob = "rileggi_elemento"
 	TipoJobAnalizzaMessaggioAi TipoJob = "analizza_messaggio_ai"
 	TipoJobEstraiArchivio      TipoJob = "estrai_archivio"
+	TipoJobSpostaNas           TipoJob = "sposta_nas"
 )
 
 func (e *TipoJob) Scan(src interface{}) error {
@@ -2778,7 +2959,8 @@ func (e TipoJob) Valid() bool {
 		TipoJobBackupDb,
 		TipoJobRileggiElemento,
 		TipoJobAnalizzaMessaggioAi,
-		TipoJobEstraiArchivio:
+		TipoJobEstraiArchivio,
+		TipoJobSpostaNas:
 		return true
 	}
 	return false
@@ -2799,6 +2981,7 @@ func AllTipoJobValues() []TipoJob {
 		TipoJobRileggiElemento,
 		TipoJobAnalizzaMessaggioAi,
 		TipoJobEstraiArchivio,
+		TipoJobSpostaNas,
 	}
 }
 
@@ -2978,11 +3161,85 @@ type AnalisiMessaggio struct {
 	CreatoIl    time.Time        `json:"creato_il"`
 }
 
+// La chiave dell'analisi corrente (versione dell'analizzatore, hash della configurazione), scritta dal
+// server a ogni avvio da cfg.Analisi. Una riga sola; vuota = nessuna analisi corrente (A4.5).
+type AnalizzatoreCorrente struct {
+	Unico                bool      `json:"unico"`
+	VersioneAnalizzatore int16     `json:"versione_analizzatore"`
+	HashConfigurazione   string    `json:"hash_configurazione"`
+	ImpostatoIl          time.Time `json:"impostato_il"`
+}
+
 type AttoBusiness struct {
 	Codice      string `json:"codice"`
 	Descrizione string `json:"descrizione"`
 	Ordine      int16  `json:"ordine"`
 	Attivo      bool   `json:"attivo"`
+}
+
+// Una versione della BOM di una RFQ (A4.6). Nasce bozza e diventa congelata una volta; congelata non si
+// modifica e non si cancella. «Superata» si deriva (v_bom_versioni). contesto: preventivo riapre il prezzo,
+// tecnica lascia la fase dov'e' (D25a, D25b, D25c).
+type BomVersione struct {
+	BomVersioneID        uuid.UUID     `json:"bom_versione_id"`
+	ThreadID             uuid.UUID     `json:"thread_id"`
+	Numero               int32         `json:"numero"`
+	Stato                StatoBom      `json:"stato"`
+	Contesto             ContestoBom   `json:"contesto"`
+	FaseAllApertura      Fase          `json:"fase_all_apertura"`
+	FaseLogIDAllApertura uuid.UUID     `json:"fase_log_id_all_apertura"`
+	VersionePrecedenteID uuid.NullUUID `json:"versione_precedente_id"`
+	NumeroPrecedente     pgtype.Int4   `json:"numero_precedente"`
+	StatoPrecedente      NullStatoBom  `json:"stato_precedente"`
+	Motivo               string        `json:"motivo"`
+	CreataDa             uuid.UUID     `json:"creata_da"`
+	CreataIl             time.Time     `json:"creata_il"`
+	CongelataDa          uuid.NullUUID `json:"congelata_da"`
+	CongelataIl          *time.Time    `json:"congelata_il"`
+}
+
+type BomVersioneComponente struct {
+	BomVersioneID     uuid.UUID            `json:"bom_versione_id"`
+	ThreadID          uuid.UUID            `json:"thread_id"`
+	ComponenteID      uuid.UUID            `json:"componente_id"`
+	Codice            string               `json:"codice"`
+	Rev               pgtype.Text          `json:"rev"`
+	Tipo              TipoComponente       `json:"tipo"`
+	Descrizione       pgtype.Text          `json:"descrizione"`
+	Qta               int32                `json:"qta"`
+	EsitoFattibilita  NullEsitoFattibilita `json:"esito_fattibilita"`
+	NoteFattibilita   pgtype.Text          `json:"note_fattibilita"`
+	StepStrutturaleID uuid.NullUUID        `json:"step_strutturale_id"`
+	StepSha256        pgtype.Text          `json:"step_sha256"`
+	DerogaStrutturaID uuid.NullUUID        `json:"deroga_struttura_id"`
+}
+
+type BomVersioneDeroga struct {
+	BomVersioneID uuid.UUID     `json:"bom_versione_id"`
+	ComponenteID  uuid.UUID     `json:"componente_id"`
+	DerogaID      uuid.UUID     `json:"deroga_id"`
+	Tipo          TipoDocumento `json:"tipo"`
+	Motivo        string        `json:"motivo"`
+	UtenteID      uuid.UUID     `json:"utente_id"`
+	CreataIl      time.Time     `json:"creata_il"`
+}
+
+type BomVersioneDocumento struct {
+	BomVersioneID      uuid.UUID     `json:"bom_versione_id"`
+	ComponenteID       uuid.UUID     `json:"componente_id"`
+	DocumentoID        uuid.UUID     `json:"documento_id"`
+	Tipo               TipoDocumento `json:"tipo"`
+	Rev                pgtype.Text   `json:"rev"`
+	Sha256             string        `json:"sha256"`
+	PathAlCongelamento string        `json:"path_al_congelamento"`
+}
+
+type BomVersioneRelazione struct {
+	BomVersioneID uuid.UUID   `json:"bom_versione_id"`
+	PadreID       uuid.UUID   `json:"padre_id"`
+	FiglioID      uuid.UUID   `json:"figlio_id"`
+	Qta           int32       `json:"qta"`
+	Posizione     pgtype.Text `json:"posizione"`
 }
 
 type Bozza struct {
@@ -3122,16 +3379,22 @@ type Componente struct {
 	Descrizione  pgtype.Text `json:"descrizione"`
 	// Quantita' richiesta dal cliente, significativa sulle RADICI. La quantita' di un figlio dentro un padre
 	// sta sull'arco (componente_relazione.qta).
-	Qta              int32                `json:"qta"`
-	Tipo             TipoComponente       `json:"tipo"`
-	Origine          OrigineComponente    `json:"origine"`
-	MaterialeTesto   pgtype.Text          `json:"materiale_testo"`
-	SpessoreMm       pgtype.Numeric       `json:"spessore_mm"`
-	PesoKg           pgtype.Numeric       `json:"peso_kg"`
-	EsitoFattibilita NullEsitoFattibilita `json:"esito_fattibilita"`
-	NoteFattibilita  pgtype.Text          `json:"note_fattibilita"`
-	ConfermatoDa     uuid.UUID            `json:"confermato_da"`
-	CreatoIl         time.Time            `json:"creato_il"`
+	Qta                 int32                `json:"qta"`
+	Tipo                TipoComponente       `json:"tipo"`
+	Origine             OrigineComponente    `json:"origine"`
+	MaterialeTesto      pgtype.Text          `json:"materiale_testo"`
+	SpessoreMm          pgtype.Numeric       `json:"spessore_mm"`
+	PesoKg              pgtype.Numeric       `json:"peso_kg"`
+	EsitoFattibilita    NullEsitoFattibilita `json:"esito_fattibilita"`
+	NoteFattibilita     pgtype.Text          `json:"note_fattibilita"`
+	ConfermatoDa        uuid.UUID            `json:"confermato_da"`
+	CreatoIl            time.Time            `json:"creato_il"`
+	ArchiviatoIl        *time.Time           `json:"archiviato_il"`
+	ArchiviatoDa        uuid.NullUUID        `json:"archiviato_da"`
+	MotivoArchiviazione pgtype.Text          `json:"motivo_archiviazione"`
+	// Lo STEP che e' la distinta di questo prodotto finito, scelto da una persona (A4.4, D31). Solo da questo
+	// file, letto per intero, nascono le proposte di rimozione. Non segue da solo le sostituzioni.
+	StepStrutturaleID uuid.NullUUID `json:"step_strutturale_id"`
 }
 
 // Nodo proposto da un file per una RFQ (STEP: un PRODUCT; PDF: una riga di distinta). Il worker manda i
@@ -3160,6 +3423,7 @@ type ComponentePropostum struct {
 	DecisoDa      uuid.NullUUID      `json:"deciso_da"`
 	DecisoIl      *time.Time         `json:"deciso_il"`
 	CreatoIl      time.Time          `json:"creato_il"`
+	Nota          pgtype.Text        `json:"nota"`
 }
 
 // Occorrenza di un figlio in un padre, qta volte. Un sottoassieme condiviso fra due prodotti e' UN
@@ -3226,6 +3490,24 @@ type DerogaFabbisogno struct {
 	CreataIl     time.Time     `json:"creata_il"`
 }
 
+// Deroga per congelare con uno STEP strutturale letto in parte o non analizzato (A4.5, D33, D36). Vale solo
+// finche' quel documento e' il riferimento corrente e la sua analisi corrente e' quella derogata (stessa
+// versione, configurazione e calcolato_il; oppure ancora nessuna). Non si modifica.
+type DerogaStruttura struct {
+	DerogaStrutturaID    uuid.UUID   `json:"deroga_struttura_id"`
+	ThreadID             uuid.UUID   `json:"thread_id"`
+	ComponenteID         uuid.UUID   `json:"componente_id"`
+	StepDocumentoID      uuid.UUID   `json:"step_documento_id"`
+	StepSha256           string      `json:"step_sha256"`
+	VersioneAnalizzatore pgtype.Int2 `json:"versione_analizzatore"`
+	HashConfigurazione   pgtype.Text `json:"hash_configurazione"`
+	AnalisiCalcolataIl   *time.Time  `json:"analisi_calcolata_il"`
+	MotivoParziale       string      `json:"motivo_parziale"`
+	Motivo               string      `json:"motivo"`
+	ConcessaDa           uuid.UUID   `json:"concessa_da"`
+	ConcessaIl           time.Time   `json:"concessa_il"`
+}
+
 type Documento struct {
 	DocumentoID  uuid.UUID     `json:"documento_id"`
 	ThreadID     uuid.UUID     `json:"thread_id"`
@@ -3233,16 +3515,21 @@ type Documento struct {
 	Tipo         TipoDocumento `json:"tipo"`
 	Codice       pgtype.Text   `json:"codice"`
 	Rev          pgtype.Text   `json:"rev"`
-	NomeFile     string        `json:"nome_file"`
-	Estensione   string        `json:"estensione"`
-	Sha256       string        `json:"sha256"`
-	Bytes        pgtype.Int8   `json:"bytes"`
-	PathRelativo string        `json:"path_relativo"`
-	StatoNas     StatoNas      `json:"stato_nas"`
-	ErroreNas    pgtype.Text   `json:"errore_nas"`
-	ScrittoIl    *time.Time    `json:"scritto_il"`
-	ConfermatoDa uuid.UUID     `json:"confermato_da"`
-	ConfermatoIl time.Time     `json:"confermato_il"`
+	// Il nome ORIGINALE del file, com'e' arrivato: si mostra e ordina, e non entra mai in un percorso. Il nome sul
+	// NAS vive solo in path_relativo (per i tipi tecnici <CODICE>_REV_<REV>[_n].<ext>, D21). Fino a B8.A4a la
+	// conferma ci scriveva il nome sanificato, che coincideva con l'ultima parte di path_relativo.
+	NomeFile     string      `json:"nome_file"`
+	Estensione   string      `json:"estensione"`
+	Sha256       string      `json:"sha256"`
+	Bytes        pgtype.Int8 `json:"bytes"`
+	PathRelativo string      `json:"path_relativo"`
+	StatoNas     StatoNas    `json:"stato_nas"`
+	ErroreNas    pgtype.Text `json:"errore_nas"`
+	ScrittoIl    *time.Time  `json:"scritto_il"`
+	ConfermatoDa uuid.UUID   `json:"confermato_da"`
+	ConfermatoIl time.Time   `json:"confermato_il"`
+	// La revisione che ha preso il posto di questa. Una catena cresce solo in fondo (trigger
+	// documento_catena_revisioni): stessa RFQ, stesso componente, stesso tipo, niente cicli.
 	SostituitoDa uuid.NullUUID `json:"sostituito_da"`
 	Nota         pgtype.Text   `json:"nota"`
 	VerificatoIl *time.Time    `json:"verificato_il"`
@@ -3315,6 +3602,7 @@ type FaseLog struct {
 	Fine           *time.Time    `json:"fine"`
 	Esito          NullEsitoFase `json:"esito"`
 	Note           pgtype.Text   `json:"note"`
+	BomVersioneID  uuid.NullUUID `json:"bom_versione_id"`
 }
 
 type Fornitore struct {
@@ -3486,6 +3774,33 @@ type NasAnomalium struct {
 	RisoltaIl   *time.Time  `json:"risolta_il"`
 }
 
+// Prova che un file sul NAS l'ha creato quel job (addendum A4.3, passo 3b, D38). Si scrive solo dopo una
+// promozione esclusiva riuscita e si legge solo al passo 4b. Non e' il risultato del job: quello lo scrive
+// solo CompletaJob, e lo sovrascrive.
+type NasCreazione struct {
+	JobID    int64     `json:"job_id"`
+	Percorso string    `json:"percorso"`
+	Sha256   string    `json:"sha256"`
+	CreatoIl time.Time `json:"creato_il"`
+}
+
+// File sul NAS che nessun documento dichiara, lasciato da uno spostamento (addendum A4.3, D34). Una riga
+// aperta tiene occupato il suo nome (PercorsoOccupato) e si chiude solo quando a quel percorso il file non
+// c'e' piu'. Se si decide di tenere il file, la riga resta aperta. La vede l'amministratore nella
+// schermata dell'integrita'.
+type NasOrfano struct {
+	NasOrfanoID int64         `json:"nas_orfano_id"`
+	ThreadID    uuid.UUID     `json:"thread_id"`
+	Percorso    string        `json:"percorso"`
+	Sha256      pgtype.Text   `json:"sha256"`
+	Motivo      MotivoOrfano  `json:"motivo"`
+	JobID       pgtype.Int8   `json:"job_id"`
+	RilevatoIl  time.Time     `json:"rilevato_il"`
+	RisoltoIl   *time.Time    `json:"risolto_il"`
+	RisoltoDa   uuid.NullUUID `json:"risolto_da"`
+	Nota        pgtype.Text   `json:"nota"`
+}
+
 // PC con Outlook classico e un worker: i job interattivi vanno alla postazione del richiedente (piano §2.2).
 type Postazione struct {
 	PostazioneID uuid.UUID     `json:"postazione_id"`
@@ -3587,6 +3902,19 @@ type RiferimentoPortale struct {
 	CreatoIl    time.Time         `json:"creato_il"`
 }
 
+type RimozioneProposta struct {
+	ThreadID        uuid.UUID     `json:"thread_id"`
+	StepDocumentoID uuid.UUID     `json:"step_documento_id"`
+	PadreID         uuid.UUID     `json:"padre_id"`
+	FiglioID        uuid.UUID     `json:"figlio_id"`
+	QtaWorking      int32         `json:"qta_working"`
+	Stato           StatoProposta `json:"stato"`
+	Nota            pgtype.Text   `json:"nota"`
+	DecisoDa        uuid.NullUUID `json:"deciso_da"`
+	DecisoIl        *time.Time    `json:"deciso_il"`
+	CreatoIl        time.Time     `json:"creato_il"`
+}
+
 type SchemaVersione struct {
 	Versione    int32     `json:"versione"`
 	ApplicataIl time.Time `json:"applicata_il"`
@@ -3674,6 +4002,24 @@ type Utente struct {
 	UltimaVistaInbox *time.Time `json:"ultima_vista_inbox"`
 }
 
+type VBomVersioni struct {
+	ThreadID             uuid.UUID     `json:"thread_id"`
+	BomVersioneID        uuid.UUID     `json:"bom_versione_id"`
+	Numero               int32         `json:"numero"`
+	Stato                StatoBom      `json:"stato"`
+	Contesto             ContestoBom   `json:"contesto"`
+	FaseAllApertura      Fase          `json:"fase_all_apertura"`
+	FaseLogIDAllApertura uuid.UUID     `json:"fase_log_id_all_apertura"`
+	VersionePrecedenteID uuid.NullUUID `json:"versione_precedente_id"`
+	Motivo               string        `json:"motivo"`
+	CreataDa             uuid.UUID     `json:"creata_da"`
+	CreataIl             time.Time     `json:"creata_il"`
+	CongelataDa          uuid.NullUUID `json:"congelata_da"`
+	CongelataIl          *time.Time    `json:"congelata_il"`
+	Superata             bool          `json:"superata"`
+	Corrente             bool          `json:"corrente"`
+}
+
 type VCodiciCandidatiThread struct {
 	ThreadID    uuid.NullUUID `json:"thread_id"`
 	Codice      string        `json:"codice"`
@@ -3723,6 +4069,26 @@ type VCruscotto struct {
 	NMancanti           pgtype.Int8         `json:"n_mancanti"`
 	NMessaggi           int64               `json:"n_messaggi"`
 	NDaSmistare         int64               `json:"n_da_smistare"`
+}
+
+type VDocumentoStoria struct {
+	ThreadID     uuid.UUID     `json:"thread_id"`
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	CatenaID     uuid.UUID     `json:"catena_id"`
+	Passo        int32         `json:"passo"`
+	DocumentoID  uuid.UUID     `json:"documento_id"`
+	Tipo         TipoDocumento `json:"tipo"`
+	Codice       pgtype.Text   `json:"codice"`
+	Rev          pgtype.Text   `json:"rev"`
+	NomeFile     string        `json:"nome_file"`
+	Estensione   string        `json:"estensione"`
+	Sha256       string        `json:"sha256"`
+	PathRelativo string        `json:"path_relativo"`
+	StatoNas     StatoNas      `json:"stato_nas"`
+	ConfermatoDa uuid.UUID     `json:"confermato_da"`
+	ConfermatoIl time.Time     `json:"confermato_il"`
+	SostituitoDa uuid.NullUUID `json:"sostituito_da"`
+	Corrente     bool          `json:"corrente"`
 }
 
 type VFascicolo struct {
@@ -3788,12 +4154,38 @@ type VInbox struct {
 	Quadrante            string           `json:"quadrante"`
 }
 
+type VStepProdotto struct {
+	ThreadID           uuid.UUID     `json:"thread_id"`
+	ComponenteID       uuid.UUID     `json:"componente_id"`
+	Codice             string        `json:"codice"`
+	StepStrutturaleID  uuid.NullUUID `json:"step_strutturale_id"`
+	NStepCorrenti      int32         `json:"n_step_correnti"`
+	AnalisiCompleta    bool          `json:"analisi_completa"`
+	MotivoParziale     pgtype.Text   `json:"motivo_parziale"`
+	DerogaStrutturaID  uuid.NullUUID `json:"deroga_struttura_id"`
+	Altro3dDocumentoID uuid.NullUUID `json:"altro_3d_documento_id"`
+	PropostaAperta     uuid.NullUUID `json:"proposta_aperta"`
+	AttesoDaPortale    uuid.NullUUID `json:"atteso_da_portale"`
+	Esito              string        `json:"esito"`
+}
+
 type VThreadBloccanti struct {
 	ThreadID      uuid.UUID `json:"thread_id"`
 	NBloccanti    int64     `json:"n_bloccanti"`
 	NDaConfermare int64     `json:"n_da_confermare"`
 	NSulPortale   int64     `json:"n_sul_portale"`
 	NMancanti     int64     `json:"n_mancanti"`
+}
+
+type VThreadDaRiesaminare struct {
+	ThreadID          uuid.UUID   `json:"thread_id"`
+	TipoMotivo        string      `json:"tipo_motivo"`
+	Motivo            string      `json:"motivo"`
+	UltimaCongelataID uuid.UUID   `json:"ultima_congelata_id"`
+	UltimoNumero      int32       `json:"ultimo_numero"`
+	NumeroRiferito    pgtype.Int4 `json:"numero_riferito"`
+	NFile             int64       `json:"n_file"`
+	NProposte         int64       `json:"n_proposte"`
 }
 
 type VThreadFase struct {

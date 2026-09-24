@@ -99,6 +99,18 @@ func Semina(ctx context.Context, q *db.Queries, cfg *config.Config, versione int
 		log.Warn("credenziali da rigenerare: questi worker riceveranno 401 finché non si scarica il pacchetto della loro postazione",
 			"worker", strings.Join(semi.CredenzialiDaGenerare, ", "), "dove", "/admin/postazioni")
 	}
+	// L'analizzatore corrente (addendum A4.5): la versione e l'hash della configurazione che questo
+	// server manda al worker. v_step_prodotto la legge per sapere quale analisi di uno STEP è quella
+	// corrente, e quindi se una deroga strutturale vale ancora. Si scrive a ogni avvio: cambiare
+	// [analisi] cambia la chiave, e analisi e deroghe della chiave vecchia smettono di contare.
+	if versione >= 20 {
+		an := coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri}
+		if err := q.ImpostaAnalizzatoreCorrente(ctx, db.ImpostaAnalizzatoreCorrenteParams{
+			VersioneAnalizzatore: int16(an.Versione), HashConfigurazione: an.Hash()}); err != nil {
+			return fmt.Errorf("analizzatore corrente: %w", err)
+		}
+		log.Info("analizzatore corrente", "versione", an.Versione, "configurazione", an.Hash()[:12])
+	}
 	// Finché lo schema è alla 0003 il cursore di sincronizzazione è per sola cartella: più di una
 	// casella attiva farebbe perdere messaggi in silenzio. Meglio non partire (vedi il commento sulla
 	// funzione: il perché è tutto lì).

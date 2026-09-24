@@ -11,12 +11,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
@@ -52,7 +56,17 @@ func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j
 			DocumentoID: d.DocumentoID, ErroreNas: pgtype.Text{String: err.Error(), Valid: true}})
 		return nil, err
 	}
-	dst, err := scrittore.Copia(src, t.CartellaRelativa.String, d.PathRelativo, d.Sha256)
+	// Prima di scrivere, i .parte.<token> scaduti accanto alla destinazione: li lasciano i tentativi
+	// morti a meta', e li toglie chi scrive di nuovo in quella cartella (A4.1, R2.12). Una pulizia
+	// che non riesce non ferma la copia: il file intermedio di un altro tentativo non e' il nostro.
+	cartella := strings.TrimRight(t.CartellaRelativa.String, `\`)
+	if i := strings.LastIndex(d.PathRelativo, `\`); i >= 0 {
+		cartella += `\` + d.PathRelativo[:i]
+	}
+	if _, err := PulisciPartiScadute(ctx, q, scrittore, cartella); err != nil {
+		slog.Warn("pulizia dei file intermedi non riuscita", "cartella", cartella, "err", err)
+	}
+	dst, _, err := scrittore.Copia(src, t.CartellaRelativa.String, d.PathRelativo, d.Sha256, tokenDelTentativo(j))
 	if err != nil {
 		_ = q.SetDocumentoErrore(ctx, db.SetDocumentoErroreParams{DocumentoID: d.DocumentoID, ErroreNas: pgtype.Text{String: err.Error(), Valid: true}})
 		return nil, err
@@ -75,6 +89,33 @@ func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j
 	// rinfrescato dice al custode che serve ancora.
 	staging.ToccaContenuto(src)
 	return map[string]any{"destinazione": dst, "dry_run": scrittore.DryRun}, nil
+}
+
+// tokenDelTentativo e' il nome del file intermedio di questo tentativo: il lease token del job, che
+// cambia a ogni tentativo. Senza job (una chiamata fuori dalla coda) un token nuovo.
+func tokenDelTentativo(j *db.Job) uuid.UUID {
+	if j != nil && j.LeaseToken.Valid {
+		return j.LeaseToken.UUID
+	}
+	return uuid.New()
+}
+
+// PulisciPartiScadute toglie da una cartella del NAS (relativa alla radice) i .parte.<token> dei
+// tentativi che non sono piu' in corso e piu' vecchi della durata massima di una scrittura sul NAS
+// (R2.12). La stessa regola dell'upload nello staging (voce 2.3): il token vivo tiene il file.
+func PulisciPartiScadute(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, cartella string) (int, error) {
+	token, err := q.ListLeaseTokenInCorso(ctx)
+	if err != nil {
+		return 0, err
+	}
+	vivi := map[uuid.UUID]bool{}
+	for _, t := range token {
+		if t.Valid {
+			vivi[t.UUID] = true
+		}
+	}
+	limite := time.Now().Add(-time.Duration(coda.DurataMassimaS(db.TipoJobCopiaNas)) * time.Second)
+	return scrittore.PulisciParti(cartella, vivi, limite)
 }
 
 // ErrContenutoMancante: il documento e' confermato, il suo contenuto non e' piu' nello staging.

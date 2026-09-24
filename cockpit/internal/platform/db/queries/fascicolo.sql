@@ -144,3 +144,64 @@ SELECT * FROM componente WHERE thread_id = $1 AND upper(codice) = upper($2);
 -- documenti confermati a partire dagli allegati di questo messaggio (per mostrare "sul NAS" accanto all'allegato)
 SELECT sqlc.embed(d), dp.allegato_id FROM documento d JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
 WHERE dp.messaggio_id = sqlc.arg(messaggio_id)::uuid;
+
+-- ------------------------------------------------------------------ A4 (B8.A4a): revisioni, STEP del prodotto, nomi sul NAS
+-- name: SetSostituitoDa :execrows
+-- La sostituzione: confronta e scambia. Il trigger della catena vuole il successore ancora corrente e
+-- lo legge FOR UPDATE; zero righe = il documento era gia' stato sostituito nel frattempo.
+UPDATE documento SET sostituito_da = sqlc.arg(nuovo) WHERE documento_id = sqlc.arg(vecchio) AND sostituito_da IS NULL;
+
+-- name: AnnullaSostituzione :execrows
+-- Solo l'ultima sostituzione: il trigger vuole il successore ancora corrente.
+UPDATE documento SET sostituito_da = NULL WHERE documento_id = sqlc.arg(vecchio) AND sostituito_da = sqlc.arg(successore);
+
+-- name: ListStoriaDocumento :many
+SELECT * FROM v_documento_storia
+WHERE catena_id = (SELECT s.catena_id FROM v_documento_storia s WHERE s.documento_id = $1)
+ORDER BY passo;
+
+-- name: ListStepProdotto :many
+SELECT * FROM v_step_prodotto WHERE thread_id = $1 ORDER BY codice;
+
+-- name: BloccaCartella :exec
+-- Chi sceglie un nome nuovo in una cartella e chi lo riserva si mettono in fila (A4.3): un lucchetto
+-- di transazione sull'impronta del thread e della cartella in minuscolo. Due cartelle con la stessa
+-- impronta si mettono in fila senza bisogno, e non succede altro.
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(thread_id)::uuid::text || ':' || lower(sqlc.arg(cartella)::text), 0));
+
+-- name: PercorsoOccupato :one
+-- Un percorso e' occupato se lo dichiara un documento del thread, se e' il `da` o l'`a` di uno
+-- spostamento pendente, o se c'e' una riga aperta di nas_orfano (A4.3, R2.1). Sempre in minuscolo:
+-- la condivisione e' Windows.
+SELECT EXISTS (SELECT 1 FROM documento d
+                WHERE d.thread_id = sqlc.arg(thread_id) AND lower(d.path_relativo) = lower(sqlc.arg(percorso)::text))
+    OR EXISTS (SELECT 1 FROM job j
+                WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                  AND j.payload ->> 'thread_id' = sqlc.arg(thread_id)::uuid::text
+                  AND (lower(j.payload ->> 'da') = lower(sqlc.arg(percorso)::text) OR lower(j.payload ->> 'a') = lower(sqlc.arg(percorso)::text)))
+    OR EXISTS (SELECT 1 FROM nas_orfano o
+                WHERE o.thread_id = sqlc.arg(thread_id) AND o.risolto_il IS NULL AND lower(o.percorso) = lower(sqlc.arg(percorso)::text)) AS occupato;
+
+-- name: CartellaReferenziata :one
+-- Una cartella si toglie solo se niente la nomina: documenti, spostamenti pendenti, orfani aperti.
+-- Mai le istantanee: path_al_congelamento e' storico (R1.8).
+SELECT EXISTS (SELECT 1 FROM documento d
+                WHERE d.thread_id = sqlc.arg(thread_id) AND starts_with(lower(d.path_relativo), lower(sqlc.arg(cartella)::text) || '\'))
+    OR EXISTS (SELECT 1 FROM job j
+                WHERE j.tipo = 'sposta_nas' AND j.stato IN ('pronto', 'in_corso')
+                  AND j.payload ->> 'thread_id' = sqlc.arg(thread_id)::uuid::text
+                  AND (starts_with(lower(j.payload ->> 'da'), lower(sqlc.arg(cartella)::text) || '\')
+                       OR starts_with(lower(j.payload ->> 'a'), lower(sqlc.arg(cartella)::text) || '\')))
+    OR EXISTS (SELECT 1 FROM nas_orfano o
+                WHERE o.thread_id = sqlc.arg(thread_id) AND o.risolto_il IS NULL
+                  AND starts_with(lower(o.percorso), lower(sqlc.arg(cartella)::text) || '\')) AS referenziata;
+
+-- name: BloccaSpostamentoPendente :one
+-- Lo spostamento ancora da finire di un documento, bloccato (A4.3, passo 0): come BloccaCopiaPendente.
+SELECT * FROM job
+WHERE tipo = 'sposta_nas' AND chiave_idempotenza = $1 AND stato IN ('pronto', 'in_corso')
+FOR UPDATE;
+
+-- name: SetPathDocumentoSeUguale :execrows
+-- Il passo 4 di sposta_nas: il percorso cambia solo se e' ancora quello da cui si sposta.
+UPDATE documento SET path_relativo = sqlc.arg(a) WHERE documento_id = sqlc.arg(documento_id) AND path_relativo = sqlc.arg(da);
