@@ -112,6 +112,10 @@ func Accoda(ctx context.Context, q *db.Queries, tipo db.TipoJob, payload any, ch
 // stesso documento, tutte e due riescono, e nessuno se ne accorge finché non le vede in coda.
 func ChiaveCopia(documentoID uuid.UUID) string { return "nas:" + documentoID.String() }
 
+// ChiaveSpostamento e' la chiave di idempotenza dello spostamento sul NAS di un documento (addendum
+// A4.3): una sola pendente per documento, e l'indice dei job pendenti rifiuta la seconda.
+func ChiaveSpostamento(documentoID uuid.UUID) string { return "sposta:" + documentoID.String() }
+
 // AccodaCopia mette in coda la copia sul NAS di un documento. (nil, nil) = ce n'era già una pendente
 // con la stessa chiave; errore che avvolge ErrCapacitaSpenta = `nas_scrittura` è spenta.
 func AccodaCopia(ctx context.Context, q *db.Queries, documentoID uuid.UUID) (*db.Job, error) {

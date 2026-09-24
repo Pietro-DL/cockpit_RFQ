@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/staging"
@@ -378,8 +379,12 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	}
 	perCodice := regolaBool(cl.Regole, "cartella_per_codice", true)
 
-	// stesso file già confermato nel thread → solo una provenienza in più
+	// stesso file già confermato nel thread → solo una provenienza in più; ma se quel documento è stato
+	// sostituito, tornare ai suoi byte non è «già presente» (addendum A4.1, R2.6)
 	if d, err := q.GetDocumentoPerHash(ctx, db.GetDocumentoPerHashParams{ThreadID: t.ThreadID, Sha256: a.Sha256.String}); err == nil {
+		if d.SostituitoDa.Valid {
+			return "", identicoAUnaRevisioneSostituita(ctx, q, d)
+		}
 		_ = q.InsertProvenienza(ctx, db.InsertProvenienzaParams{DocumentoID: d.DocumentoID, AllegatoID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true},
 			MessaggioID: uuid.NullUUID{UUID: m.MessaggioID, Valid: true}, RicevutoIl: a.RicevutoIl})
 		_, _ = q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaDuplicato, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}})
@@ -408,6 +413,13 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		}
 		codiceTxt = pgtype.Text{String: codice, Valid: true} // la stringa del componente, identica
 		assegnato = c.Codice
+		// Con la BOM congelata un file non si conferma gia' assegnato (D26): il database lo
+		// rifiuterebbe comunque, qui lo si dice con le parole giuste e la proposta resta aperta.
+		if n, bloccata, err := fascicolo.WorkingBloccata(ctx, q, t.ThreadID); err != nil {
+			return "", err
+		} else if bloccata {
+			return "", rifiuto(fmt.Sprintf("la BOM è congelata nella V%d: il file entra senza componente, e lo si assegna aprendo una revisione", n))
+		}
 	}
 
 	// Un file tecnico senza codice non diventa documento (addendum A2.2): il database lo rifiuterebbe
@@ -416,12 +428,22 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if documentoTecnico(tipo) && codice == "" {
 		return "", errors.New("un CAD 3D, un disegno 2D o uno sviluppo DXF entra nel fascicolo solo con il codice del pezzo: scrivi il codice, il file resta fra le proposte")
 	}
-	pathRel, err := documenti.PathDocumento(documenti.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice, a.NomeFile)
+	// Il posto sul NAS (A4.1, D21, D22): la cartella del tipo e del codice, e un nome che per i tipi
+	// tecnici e' <CODICE>_REV_<REV>, per gli altri l'originale sanificato. Il nome si sceglie sotto il
+	// lucchetto della cartella, con il progressivo se e' gia' preso da un documento, da uno
+	// spostamento o da un file rimasto sul NAS.
+	cartella, err := documenti.CartellaDocumento(documenti.LayoutDocumento{Sottocartella: layout.Sottocartella, PerCodice: layout.PerCodice}, perCodice, codice)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", tipo, err)
 	}
+	pathRel, err := documenti.ScegliPercorso(ctx, q, t.ThreadID, cartella,
+		documenti.NomeSulNas(tipo, codice, rev, a.Estensione.String, a.NomeFile))
+	if err != nil {
+		return "", err
+	}
+	// nome_file e' il nome ORIGINALE, com'e' arrivato (R1.6): il nome sul NAS vive solo in path_relativo.
 	d, err := q.InsertDocumento(ctx, db.InsertDocumentoParams{
-		ThreadID: t.ThreadID, ComponenteID: comp, Tipo: tipo, Codice: codiceTxt, Rev: ptxt(rev), NomeFile: documenti.NomeFileSicuro(a.NomeFile),
+		ThreadID: t.ThreadID, ComponenteID: comp, Tipo: tipo, Codice: codiceTxt, Rev: ptxt(rev), NomeFile: a.NomeFile,
 		Estensione: strings.ToLower(a.Estensione.String), Sha256: a.Sha256.String, Bytes: a.Bytes, PathRelativo: pathRel, ConfermatoDa: u.UtenteID, Nota: ptxt(nota),
 	})
 	if err != nil {
@@ -448,6 +470,37 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		return "", err
 	}
 	return "Confermato: " + pathRel + " (copia sul NAS in coda)." + componente, nil
+}
+
+// identicoAUnaRevisioneSostituita e' il rifiuto di A4.1 (R2.6): il file e' identico a un documento
+// che e' stato sostituito. Tornare ai suoi byte non puo' essere una riga nuova (UNIQUE (thread,
+// sha256)), e dire «gia' presente» farebbe credere che il fascicolo sia a posto mentre resta sulla
+// revisione piu' nuova. Il ritorno al predecessore diretto si fa annullando la sostituzione; il ritorno
+// piu' indietro non e' ancora gestito, e arriva come rifiuto, non come errore.
+func identicoAUnaRevisioneSostituita(ctx context.Context, q *db.Queries, d db.Documento) error {
+	storia, err := q.ListStoriaDocumento(ctx, d.DocumentoID)
+	if err != nil {
+		return err
+	}
+	var dopo []db.VDocumentoStoria
+	trovato := false
+	for _, s := range storia {
+		if trovato {
+			dopo = append(dopo, s)
+		}
+		if s.DocumentoID == d.DocumentoID {
+			trovato = true
+		}
+	}
+	switch len(dopo) {
+	case 0:
+		return rifiuto(fmt.Sprintf("il file è identico a %s, che risulta sostituito: ricarica la pagina", d.NomeFile))
+	case 1:
+		return rifiuto(fmt.Sprintf("il file è identico a %s, che %s ha sostituito: per tornare a %s si annulla quella sostituzione",
+			d.NomeFile, dopo[0].NomeFile, d.NomeFile))
+	}
+	return rifiuto(fmt.Sprintf("il file è identico a %s, sostituito da %s e poi da %s: tornare a una revisione più vecchia della precedente non è ancora gestito",
+		d.NomeFile, dopo[0].NomeFile, dopo[len(dopo)-1].NomeFile))
 }
 
 // scarta chiude la proposta senza documento; se è rumore, l'hash viene ricordato per il dominio del mittente.

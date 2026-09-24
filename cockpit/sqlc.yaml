@@ -17,6 +17,10 @@ sql:
           documento_propostum: "DocumentoProposta"
           thread_offerta: "ThreadOfferta"
           thread_offertum: "ThreadOfferta"
+          rimozione_proposta: "RimozioneProposta"
+          rimozione_propostum: "RimozioneProposta"
+          v_documento_storia: "VDocumentoStoria"
+          v_documento_storium: "VDocumentoStoria"
         overrides:
           - db_type: "uuid"
             go_type: "github.com/google/uuid.UUID"
@@ -70,6 +74,35 @@ sql:
             go_type: { type: "bool" }
           - column: "v_componente_albero.percorso"
             go_type: { import: "github.com/google/uuid", type: "UUID", slice: true }
+          # 0020: v_step_prodotto. Le colonne dei LEFT JOIN LATERAL possono essere NULL; motivo_parziale
+          # e' NULL quando non c'e' un riferimento corrente; analisi_completa e' un AND di due IS NULL,
+          # mai NULL.
+          - column: "v_step_prodotto.motivo_parziale"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Text"
+          - column: "v_step_prodotto.deroga_struttura_id"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
+          - column: "v_step_prodotto.altro_3d_documento_id"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
+          - column: "v_step_prodotto.proposta_aperta"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
+          - column: "v_step_prodotto.atteso_da_portale"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
+          - column: "v_step_prodotto.analisi_completa"
+            go_type: { type: "bool" }
+          # 0020: superata e corrente sono confronti fra colonne NOT NULL; corrente di
+          # v_documento_storia e' un IS NULL
+          - column: "v_bom_versioni.superata"
+            go_type: { type: "bool" }
+          - column: "v_bom_versioni.corrente"
+            go_type: { type: "bool" }
+          - column: "v_documento_storia.corrente"
+            go_type: { type: "bool" }
+          # 0020: v_thread_da_riesaminare e' una UNION ALL: motivo e' sempre un format(),
+          # numero_riferito e' NULL nel ramo delle evidenze nuove
+          - column: "v_thread_da_riesaminare.motivo"
+            go_type: { type: "string" }
+          - column: "v_thread_da_riesaminare.numero_riferito"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Int4"
           - column: "v_cruscotto.identificativi"
             go_type: { type: "[]string" }
           - column: "v_inbox.cliente_id"

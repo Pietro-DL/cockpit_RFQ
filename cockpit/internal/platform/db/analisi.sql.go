@@ -39,6 +39,43 @@ func (q *Queries) GetAnalisiFatti(ctx context.Context, arg GetAnalisiFattiParams
 	return i, err
 }
 
+const getAnalizzatoreCorrente = `-- name: GetAnalizzatoreCorrente :one
+SELECT unico, versione_analizzatore, hash_configurazione, impostato_il FROM analizzatore_corrente
+`
+
+func (q *Queries) GetAnalizzatoreCorrente(ctx context.Context) (AnalizzatoreCorrente, error) {
+	row := q.db.QueryRow(ctx, getAnalizzatoreCorrente)
+	var i AnalizzatoreCorrente
+	err := row.Scan(
+		&i.Unico,
+		&i.VersioneAnalizzatore,
+		&i.HashConfigurazione,
+		&i.ImpostatoIl,
+	)
+	return i, err
+}
+
+const impostaAnalizzatoreCorrente = `-- name: ImpostaAnalizzatoreCorrente :exec
+INSERT INTO analizzatore_corrente (unico, versione_analizzatore, hash_configurazione)
+VALUES (true, $1, $2)
+ON CONFLICT (unico) DO UPDATE SET versione_analizzatore = EXCLUDED.versione_analizzatore,
+    hash_configurazione = EXCLUDED.hash_configurazione, impostato_il = now()
+WHERE (analizzatore_corrente.versione_analizzatore, analizzatore_corrente.hash_configurazione)
+      IS DISTINCT FROM (EXCLUDED.versione_analizzatore, EXCLUDED.hash_configurazione)
+`
+
+type ImpostaAnalizzatoreCorrenteParams struct {
+	VersioneAnalizzatore int16  `json:"versione_analizzatore"`
+	HashConfigurazione   string `json:"hash_configurazione"`
+}
+
+// ------------------------------------------------------------------ A4 (B8.A4a): l'analizzatore corrente
+// Il server la scrive a ogni avvio da cfg.Analisi. La data cambia solo se cambia la chiave.
+func (q *Queries) ImpostaAnalizzatoreCorrente(ctx context.Context, arg ImpostaAnalizzatoreCorrenteParams) error {
+	_, err := q.db.Exec(ctx, impostaAnalizzatoreCorrente, arg.VersioneAnalizzatore, arg.HashConfigurazione)
+	return err
+}
+
 const listProposteAperteStessoFile = `-- name: ListProposteAperteStessoFile :many
 SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il, a.nome_file, a.estensione, a.bytes, a.messaggio_id, a.contenitore_id
 FROM documento_proposta p

@@ -26,3 +26,16 @@ SELECT p.*, a.nome_file, a.estensione, a.bytes, a.messaggio_id, a.contenitore_id
 FROM documento_proposta p
 JOIN allegato a ON a.allegato_id = p.allegato_id
 WHERE a.sha256 = sqlc.arg(sha256) AND p.stato = 'aperta';
+
+-- ------------------------------------------------------------------ A4 (B8.A4a): l'analizzatore corrente
+-- name: ImpostaAnalizzatoreCorrente :exec
+-- Il server la scrive a ogni avvio da cfg.Analisi. La data cambia solo se cambia la chiave.
+INSERT INTO analizzatore_corrente (unico, versione_analizzatore, hash_configurazione)
+VALUES (true, sqlc.arg(versione_analizzatore), sqlc.arg(hash_configurazione))
+ON CONFLICT (unico) DO UPDATE SET versione_analizzatore = EXCLUDED.versione_analizzatore,
+    hash_configurazione = EXCLUDED.hash_configurazione, impostato_il = now()
+WHERE (analizzatore_corrente.versione_analizzatore, analizzatore_corrente.hash_configurazione)
+      IS DISTINCT FROM (EXCLUDED.versione_analizzatore, EXCLUDED.hash_configurazione);
+
+-- name: GetAnalizzatoreCorrente :one
+SELECT * FROM analizzatore_corrente;

@@ -14,7 +14,7 @@ import (
 )
 
 const apriFase = `-- name: ApriFase :one
-INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note) VALUES ($1, $2, $3, $4, $5) RETURNING fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note
+INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note) VALUES ($1, $2, $3, $4, $5) RETURNING fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note, bom_versione_id
 `
 
 type ApriFaseParams struct {
@@ -43,12 +43,51 @@ func (q *Queries) ApriFase(ctx context.Context, arg ApriFaseParams) (FaseLog, er
 		&i.Fine,
 		&i.Esito,
 		&i.Note,
+		&i.BomVersioneID,
+	)
+	return i, err
+}
+
+const apriFaseConBom = `-- name: ApriFaseConBom :one
+INSERT INTO fase_log (thread_id, nome_fase, responsabile_id, inizio, note, bom_versione_id)
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note, bom_versione_id
+`
+
+type ApriFaseConBomParams struct {
+	ThreadID       uuid.UUID     `json:"thread_id"`
+	NomeFase       Fase          `json:"nome_fase"`
+	ResponsabileID uuid.NullUUID `json:"responsabile_id"`
+	Inizio         time.Time     `json:"inizio"`
+	Note           pgtype.Text   `json:"note"`
+	BomVersioneID  uuid.NullUUID `json:"bom_versione_id"`
+}
+
+func (q *Queries) ApriFaseConBom(ctx context.Context, arg ApriFaseConBomParams) (FaseLog, error) {
+	row := q.db.QueryRow(ctx, apriFaseConBom,
+		arg.ThreadID,
+		arg.NomeFase,
+		arg.ResponsabileID,
+		arg.Inizio,
+		arg.Note,
+		arg.BomVersioneID,
+	)
+	var i FaseLog
+	err := row.Scan(
+		&i.FaseLogID,
+		&i.ThreadID,
+		&i.NomeFase,
+		&i.ResponsabileID,
+		&i.Inizio,
+		&i.Fine,
+		&i.Esito,
+		&i.Note,
+		&i.BomVersioneID,
 	)
 	return i, err
 }
 
 const bloccaComponente = `-- name: BloccaComponente :one
-SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE componente_id = $1 FOR UPDATE
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il, archiviato_il, archiviato_da, motivo_archiviazione, step_strutturale_id FROM componente WHERE componente_id = $1 FOR UPDATE
 `
 
 // Il componente bloccato per la durata della transazione: chi ne corregge il codice parte da qui, e
@@ -72,6 +111,45 @@ func (q *Queries) BloccaComponente(ctx context.Context, componenteID uuid.UUID) 
 		&i.NoteFattibilita,
 		&i.ConfermatoDa,
 		&i.CreatoIl,
+		&i.ArchiviatoIl,
+		&i.ArchiviatoDa,
+		&i.MotivoArchiviazione,
+		&i.StepStrutturaleID,
+	)
+	return i, err
+}
+
+const bloccaThread = `-- name: BloccaThread :one
+SELECT thread_id, cliente_id, buyer_id, canale, data_inizio, ultimo_aggiornamento, data_scadenza, scadenza_origine, oggetto, cartella_relativa, cartella_creata, priorita, campionatura, stato, unito_in, note, creato_da, creato_il, riferimento_cliente FROM thread_offerta WHERE thread_id = $1 FOR UPDATE
+`
+
+// ------------------------------------------------------------------ A4 (B8.A4a): versioni della BOM e fasi
+// La riga della RFQ bloccata per la durata della transazione: congelamento, apertura e abbandono di
+// una revisione si mettono in fila qui (A4.6, passo 1). Il trigger della working bloccata prende la
+// stessa riga FOR KEY SHARE, e quindi aspetta.
+func (q *Queries) BloccaThread(ctx context.Context, threadID uuid.UUID) (ThreadOfferta, error) {
+	row := q.db.QueryRow(ctx, bloccaThread, threadID)
+	var i ThreadOfferta
+	err := row.Scan(
+		&i.ThreadID,
+		&i.ClienteID,
+		&i.BuyerID,
+		&i.Canale,
+		&i.DataInizio,
+		&i.UltimoAggiornamento,
+		&i.DataScadenza,
+		&i.ScadenzaOrigine,
+		&i.Oggetto,
+		&i.CartellaRelativa,
+		&i.CartellaCreata,
+		&i.Priorita,
+		&i.Campionatura,
+		&i.Stato,
+		&i.UnitoIn,
+		&i.Note,
+		&i.CreatoDa,
+		&i.CreatoIl,
+		&i.RiferimentoCliente,
 	)
 	return i, err
 }
@@ -157,7 +235,7 @@ func (q *Queries) ChiudiFaseAperta(ctx context.Context, arg ChiudiFaseApertaPara
 }
 
 const getComponente = `-- name: GetComponente :one
-SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE componente_id = $1
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il, archiviato_il, archiviato_da, motivo_archiviazione, step_strutturale_id FROM componente WHERE componente_id = $1
 `
 
 func (q *Queries) GetComponente(ctx context.Context, componenteID uuid.UUID) (Componente, error) {
@@ -179,6 +257,10 @@ func (q *Queries) GetComponente(ctx context.Context, componenteID uuid.UUID) (Co
 		&i.NoteFattibilita,
 		&i.ConfermatoDa,
 		&i.CreatoIl,
+		&i.ArchiviatoIl,
+		&i.ArchiviatoDa,
+		&i.MotivoArchiviazione,
+		&i.StepStrutturaleID,
 	)
 	return i, err
 }
@@ -219,6 +301,27 @@ func (q *Queries) GetCruscottoRiga(ctx context.Context, threadID uuid.UUID) (VCr
 	return i, err
 }
 
+const getFaseApertaPerThread = `-- name: GetFaseApertaPerThread :one
+SELECT fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note, bom_versione_id FROM fase_log WHERE thread_id = $1 AND fine IS NULL
+`
+
+func (q *Queries) GetFaseApertaPerThread(ctx context.Context, threadID uuid.UUID) (FaseLog, error) {
+	row := q.db.QueryRow(ctx, getFaseApertaPerThread, threadID)
+	var i FaseLog
+	err := row.Scan(
+		&i.FaseLogID,
+		&i.ThreadID,
+		&i.NomeFase,
+		&i.ResponsabileID,
+		&i.Inizio,
+		&i.Fine,
+		&i.Esito,
+		&i.Note,
+		&i.BomVersioneID,
+	)
+	return i, err
+}
+
 const getFaseCorrente = `-- name: GetFaseCorrente :one
 SELECT thread_id, fase_log_id, nome_fase, inizio, responsabile_id, ordine, sla_gg, terminale, gg_in_fase, semaforo FROM v_thread_fase WHERE thread_id = $1
 `
@@ -237,6 +340,27 @@ func (q *Queries) GetFaseCorrente(ctx context.Context, threadID uuid.UUID) (VThr
 		&i.Terminale,
 		&i.GgInFase,
 		&i.Semaforo,
+	)
+	return i, err
+}
+
+const getFaseLog = `-- name: GetFaseLog :one
+SELECT fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note, bom_versione_id FROM fase_log WHERE fase_log_id = $1
+`
+
+func (q *Queries) GetFaseLog(ctx context.Context, faseLogID uuid.UUID) (FaseLog, error) {
+	row := q.db.QueryRow(ctx, getFaseLog, faseLogID)
+	var i FaseLog
+	err := row.Scan(
+		&i.FaseLogID,
+		&i.ThreadID,
+		&i.NomeFase,
+		&i.ResponsabileID,
+		&i.Inizio,
+		&i.Fine,
+		&i.Esito,
+		&i.Note,
+		&i.BomVersioneID,
 	)
 	return i, err
 }
@@ -276,7 +400,7 @@ const insertComponente = `-- name: InsertComponente :one
 INSERT INTO componente (thread_id, codice, rev, descrizione, qta, tipo, origine, confermato_da)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (thread_id, upper(codice)) DO UPDATE SET descrizione = COALESCE(EXCLUDED.descrizione, componente.descrizione)
-RETURNING componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il
+RETURNING componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il, archiviato_il, archiviato_da, motivo_archiviazione, step_strutturale_id
 `
 
 type InsertComponenteParams struct {
@@ -321,6 +445,10 @@ func (q *Queries) InsertComponente(ctx context.Context, arg InsertComponentePara
 		&i.NoteFattibilita,
 		&i.ConfermatoDa,
 		&i.CreatoIl,
+		&i.ArchiviatoIl,
+		&i.ArchiviatoDa,
+		&i.MotivoArchiviazione,
+		&i.StepStrutturaleID,
 	)
 	return i, err
 }
@@ -388,7 +516,7 @@ func (q *Queries) InsertThread(ctx context.Context, arg InsertThreadParams) (Thr
 }
 
 const listComponentiThread = `-- name: ListComponentiThread :many
-SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il FROM componente WHERE thread_id = $1 ORDER BY codice
+SELECT componente_id, thread_id, codice, rev, descrizione, qta, tipo, origine, materiale_testo, spessore_mm, peso_kg, esito_fattibilita, note_fattibilita, confermato_da, creato_il, archiviato_il, archiviato_da, motivo_archiviazione, step_strutturale_id FROM componente WHERE thread_id = $1 ORDER BY codice
 `
 
 func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) ([]Componente, error) {
@@ -416,6 +544,10 @@ func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) 
 			&i.NoteFattibilita,
 			&i.ConfermatoDa,
 			&i.CreatoIl,
+			&i.ArchiviatoIl,
+			&i.ArchiviatoDa,
+			&i.MotivoArchiviazione,
+			&i.StepStrutturaleID,
 		); err != nil {
 			return nil, err
 		}
@@ -428,7 +560,7 @@ func (q *Queries) ListComponentiThread(ctx context.Context, threadID uuid.UUID) 
 }
 
 const listFaseLog = `-- name: ListFaseLog :many
-SELECT fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note FROM fase_log WHERE thread_id = $1 ORDER BY inizio
+SELECT fase_log_id, thread_id, nome_fase, responsabile_id, inizio, fine, esito, note, bom_versione_id FROM fase_log WHERE thread_id = $1 ORDER BY inizio
 `
 
 func (q *Queries) ListFaseLog(ctx context.Context, threadID uuid.UUID) ([]FaseLog, error) {
@@ -449,6 +581,52 @@ func (q *Queries) ListFaseLog(ctx context.Context, threadID uuid.UUID) ([]FaseLo
 			&i.Fine,
 			&i.Esito,
 			&i.Note,
+			&i.BomVersioneID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFasiDopo = `-- name: ListFasiDopo :many
+SELECT f.fase_log_id, f.thread_id, f.nome_fase, f.responsabile_id, f.inizio, f.fine, f.esito, f.note, f.bom_versione_id FROM fase_log f
+WHERE f.thread_id = $1
+  AND f.inizio >= (SELECT x.inizio FROM fase_log x WHERE x.fase_log_id = $2)
+  AND f.fase_log_id <> $2
+ORDER BY f.inizio, f.fase_log_id
+`
+
+type ListFasiDopoParams struct {
+	ThreadID  uuid.UUID `json:"thread_id"`
+	FaseLogID uuid.UUID `json:"fase_log_id"`
+}
+
+// Le righe di fase_log nate dopo quella data: per l'abbandono di una revisione (D37), che torna alla
+// fase di apertura solo se nel frattempo ci sono state solo FATTIBILITA e ATTESA_DISEGNI.
+func (q *Queries) ListFasiDopo(ctx context.Context, arg ListFasiDopoParams) ([]FaseLog, error) {
+	rows, err := q.db.Query(ctx, listFasiDopo, arg.ThreadID, arg.FaseLogID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FaseLog{}
+	for rows.Next() {
+		var i FaseLog
+		if err := rows.Scan(
+			&i.FaseLogID,
+			&i.ThreadID,
+			&i.NomeFase,
+			&i.ResponsabileID,
+			&i.Inizio,
+			&i.Fine,
+			&i.Esito,
+			&i.Note,
+			&i.BomVersioneID,
 		); err != nil {
 			return nil, err
 		}
@@ -480,6 +658,39 @@ func (q *Queries) ListIdentificativi(ctx context.Context, threadID uuid.UUID) ([
 			&i.Confidenza,
 			&i.ConfermatoDa,
 			&i.CreatoIl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listThreadDaRiesaminare = `-- name: ListThreadDaRiesaminare :many
+SELECT thread_id, tipo_motivo, motivo, ultima_congelata_id, ultimo_numero, numero_riferito, n_file, n_proposte FROM v_thread_da_riesaminare WHERE thread_id = $1 ORDER BY tipo_motivo
+`
+
+func (q *Queries) ListThreadDaRiesaminare(ctx context.Context, threadID uuid.UUID) ([]VThreadDaRiesaminare, error) {
+	rows, err := q.db.Query(ctx, listThreadDaRiesaminare, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VThreadDaRiesaminare{}
+	for rows.Next() {
+		var i VThreadDaRiesaminare
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.TipoMotivo,
+			&i.Motivo,
+			&i.UltimaCongelataID,
+			&i.UltimoNumero,
+			&i.NumeroRiferito,
+			&i.NFile,
+			&i.NProposte,
 		); err != nil {
 			return nil, err
 		}

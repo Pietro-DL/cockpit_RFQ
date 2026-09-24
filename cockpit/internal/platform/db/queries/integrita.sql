@@ -59,3 +59,34 @@ FROM documento;
 -- schermata che non segnala nulla perche' non ha mai controllato non e' una schermata tranquilla.
 SELECT verificato_il::timestamptz FROM documento
 WHERE verificato_il IS NOT NULL ORDER BY verificato_il DESC LIMIT 1;
+
+-- ------------------------------------------------------------------ A4 (B8.A4a): orfani e prove di creazione (0019)
+-- name: InsertNasOrfano :execrows
+-- Una sola riga aperta per file: se c'e' gia', zero righe, e chi chiama lo dice nel risultato del job.
+INSERT INTO nas_orfano (thread_id, percorso, sha256, motivo, job_id, nota)
+VALUES (sqlc.arg(thread_id), sqlc.arg(percorso), sqlc.narg(sha256), sqlc.arg(motivo), sqlc.narg(job_id), sqlc.narg(nota))
+ON CONFLICT (thread_id, lower(percorso)) WHERE risolto_il IS NULL DO NOTHING;
+
+-- name: ListNasOrfaniAperti :many
+SELECT sqlc.embed(o), t.oggetto, t.cartella_relativa, c.ragione_sociale
+FROM nas_orfano o
+JOIN thread_offerta t ON t.thread_id = o.thread_id
+JOIN cliente c ON c.cliente_id = t.cliente_id
+WHERE o.risolto_il IS NULL
+ORDER BY o.rilevato_il, o.nas_orfano_id;
+
+-- name: RisolviNasOrfano :execrows
+UPDATE nas_orfano SET risolto_il = now(), risolto_da = sqlc.narg(risolto_da), nota = COALESCE(sqlc.narg(nota), nota)
+WHERE nas_orfano_id = sqlc.arg(nas_orfano_id) AND risolto_il IS NULL;
+
+-- name: RisolviNasOrfaniDelJob :execrows
+-- Il passo 6 di un job riaccodato che ha tolto `da`: le righe che il suo fallimento aveva aperto si
+-- chiudono, dal sistema (nessun risolto_da).
+UPDATE nas_orfano SET risolto_il = now() WHERE job_id = $1 AND risolto_il IS NULL;
+
+-- name: InsertNasCreazione :exec
+INSERT INTO nas_creazione (job_id, percorso, sha256) VALUES ($1, $2, $3)
+ON CONFLICT (job_id, percorso) DO NOTHING;
+
+-- name: GetNasCreazione :one
+SELECT * FROM nas_creazione WHERE job_id = $1 AND percorso = $2;

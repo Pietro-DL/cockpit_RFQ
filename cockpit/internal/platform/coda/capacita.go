@@ -65,7 +65,7 @@ func CapacitaPer(t db.TipoJob) string {
 		return CapOutlookScrittura
 	case db.TipoJobCreaBozzaOutlook:
 		return CapBozze
-	case db.TipoJobCopiaNas, db.TipoJobCreaCartellaThread:
+	case db.TipoJobCopiaNas, db.TipoJobCreaCartellaThread, db.TipoJobSpostaNas:
 		return CapNasScrittura
 	}
 	return ""
