@@ -97,6 +97,9 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri},
 		MaxUpload:    int64(cfg.Server.MaxUploadMB) << 20,
 	}
+	// Il caricamento interno del Fascicolo (B8.7) fa la strada dei file che arrivano dai worker: la
+	// proposta e l'analisi le decide la stessa funzione del workerapi.
+	ws.Pipeline, ws.MaxCaricamento = wa, wa.MaxUpload
 	// L'esecutore interno parte QUI e non prima, perche' gli serve chi sa scompattare un archivio, e
 	// quel qualcuno e' la stessa parte che riceve i risultati dei worker: dal blocco 4A l'estrazione
 	// di uno zip e' un job, non un pezzo della richiesta HTTP con cui il download viene consegnato.

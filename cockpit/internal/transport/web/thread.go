@@ -88,7 +88,13 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 }
 
 // threadFrammento ri-renderizza il corpo della pagina thread dopo un'azione (conferma, scarta, download).
+// Se l'azione viene dalla schermata del Fascicolo di questa RFQ (B8.7), risponde come quella: l'avviso e
+// i pannelli fuori banda, senza toccare l'anteprima.
 func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid.UUID, avviso string) {
+	if st, ok := dalFascicolo(r.Header, id); ok {
+		s.rispondiFascicolo(w, r, id, st, avviso)
+		return
+	}
 	d, err := s.caricaThread(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, "thread non trovato", 404)

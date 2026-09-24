@@ -709,7 +709,7 @@ func (q *Queries) ProdottoDelloStepStrutturale(ctx context.Context, arg Prodotto
 const propostaDocumentoDaRadice = `-- name: PropostaDocumentoDaRadice :execrows
 UPDATE documento_proposta SET codice = $1, rev = $2, fonte = 'regola_cliente', regola_id = NULL,
        confidenza = $3, dettagli = dettagli || $4::jsonb
-WHERE allegato_id = $5 AND stato = 'aperta'
+WHERE allegato_id = $5 AND stato = 'aperta' AND componente_id IS NULL
 `
 
 type PropostaDocumentoDaRadiceParams struct {
@@ -724,7 +724,8 @@ type PropostaDocumentoDaRadiceParams struct {
 // documento, finche' e' aperta. fonte = 'regola_cliente' e regola_id = NULL: le famiglie stanno in
 // cliente.regole, non in `regola`, quindi non c'e' un regola_id da scrivere, e uno rimasto da prima
 // attribuirebbe la lettura a un'altra regola. Famiglia, dove e testo del riconoscimento vanno nei
-// dettagli; l'evidenza strutturata del nodo resta componente_proposta.
+// dettagli; l'evidenza strutturata del nodo resta componente_proposta. Una proposta gia' assegnata a un
+// componente ha il codice del componente e non si tocca (B8.7: la FK la rifiuterebbe).
 func (q *Queries) PropostaDocumentoDaRadice(ctx context.Context, arg PropostaDocumentoDaRadiceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, propostaDocumentoDaRadice,
 		arg.Codice,

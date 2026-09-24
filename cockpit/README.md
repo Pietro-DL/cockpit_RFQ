@@ -1201,7 +1201,9 @@ internal/core/rfq/fascicolo         la BOM di una RFQ nel tempo (A4): congelare,
                                     lo STEP strutturale, la deroga strutturale. B8.5: dai fatti degli STEP alle proposte di nodi, archi,
                                     quantità e rimozioni (classificate con le regole del cliente; rimozioni solo dallo STEP strutturale letto
                                     per intero), le decisioni che le portano nella BOM working, la rianalisi. B8.6: i codici della RFQ,
-                                    uniti per codice dalle evidenze che ci sono già, con il gesto di ciascuno. La schermata è B8.7
+                                    uniti per codice dalle evidenze che ci sono già, con il gesto di ciascuno. B8.7: l'albero della BOM
+                                    per la schermata (pura), tipo/rev/archi di un componente a mano, le deroghe del fabbisogno, il
+                                    contenitore dei caricamenti interni
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1314,6 +1316,17 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   STEP aperta si decide lì, uno già componente si apre, uno archiviato si ripristina; solo un codice nuovo diventa
   un componente con «+ Prodotto / + Assieme / + Particolare». Revisioni diverse si mostrano come conflitto e le
   sceglie chi aggiunge.
+- **La schermata del Fascicolo** (B8.7, `GET /thread/{id}/fascicolo`): al centro la BOM, non il singolo disegno.
+  STRUTTURA (l'albero, con le proposte degli STEP tratteggiate sotto i nodi, o la griglia), DOCUMENTI (i file della
+  RFQ con filtri e «Assegna N a ▸ nodo»), ANTEPRIMA (il PDF nel viewer del browser; per STEP e DXF quello che
+  l'analisi ha letto, senza viewer 3D), la barra COMPLETEZZA, e un cassetto con Codici e Avvisi. Lo stato è
+  l'indirizzo; un gesto risponde con l'avviso e rifà i pannelli fuori banda, e il PDF aperto resta aperto. Tutti i
+  gesti di A4 hanno qui il loro posto: proposte, assegnazione, «aggiungi / sostituisce», storico delle revisioni,
+  STEP strutturale, deroghe, archiviazione, revisioni della BOM (in ACCETTATA e DISTINTA_ERP la scelta
+  preventivo/tecnica senza preselezione), differenza e congelamento con il gate. «Carica nuova versione interna»
+  porta un CAD rifatto in casa sulla strada di tutti gli allegati (nota interna della RFQ, staging, analisi,
+  proposta, conferma), senza inventare una revisione del cliente; per sostituire vuole un predecessore preciso e il
+  motivo, e se il predecessore è lo STEP strutturale chiede se il nuovo diventa il riferimento.
 - **NAS**: `[nas].radice` È la cartella «PREVENTIVI DA FARE»; sotto, `cliente.cartella_nas\WIP\<aaaa mm gg Cognome Oggetto>`;
   con la cartella nascono solo le sottocartelle con `cartella_documento.crea_sempre` (ELENCO DISEGNI, OFFERTE FORNITORI),
   le altre alla prima copia.

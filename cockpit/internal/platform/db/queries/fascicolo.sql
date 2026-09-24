@@ -5,16 +5,25 @@ SELECT * FROM v_fascicolo WHERE thread_id = $1 ORDER BY codice, tipo_documento;
 SELECT * FROM v_thread_bloccanti WHERE thread_id = $1;
 
 -- name: UpsertProposta :one
+-- Una proposta aperta gia' assegnata a un componente ha il codice del componente (A1.4, A2.2) e lo
+-- tiene: una lettura che arriva dopo (l'analisi, la proposta dal nome rifatta) non lo riscrive, e se
+-- ne dice un altro lo si conserva nei dettagli (codice_letto). Riscriverlo violerebbe la FK
+-- (thread, componente, codice), e il risultato dell'analisi non entrerebbe mai (B8.7).
 INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (allegato_id) DO UPDATE SET
     thread_id = COALESCE(EXCLUDED.thread_id, documento_proposta.thread_id),
     tipo_proposto = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.tipo_proposto ELSE documento_proposta.tipo_proposto END,
-    codice = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.codice ELSE documento_proposta.codice END,
+    codice = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.componente_id IS NULL THEN EXCLUDED.codice
+                  ELSE documento_proposta.codice END,
     rev = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.rev ELSE documento_proposta.rev END,
     confidenza = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.confidenza ELSE documento_proposta.confidenza END,
     fonte = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.fonte ELSE documento_proposta.fonte END,
-    dettagli = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.dettagli ELSE documento_proposta.dettagli END
+    dettagli = CASE WHEN documento_proposta.stato <> 'aperta' THEN documento_proposta.dettagli
+                    WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
+                         AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
+                    THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
+                    ELSE EXCLUDED.dettagli END
 RETURNING *;
 
 -- name: InsertPropostaSeAssente :exec
