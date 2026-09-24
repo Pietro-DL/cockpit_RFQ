@@ -161,7 +161,32 @@ func ScegliStepStrutturale(ctx context.Context, q *db.Queries, thread, comp, doc
 	if _, err := q.SetStepStrutturale(ctx, db.SetStepStrutturaleParams{ComponenteID: comp, StepStrutturaleID: uuid.NullUUID{UUID: doc, Valid: true}}); err != nil {
 		return "", err
 	}
-	return d.NomeFile + " è lo STEP strutturale di " + c.Codice + ".", nil
+	extra, err := rimozioniDopo(ctx, q, thread, comp)
+	if err != nil {
+		return "", err
+	}
+	return d.NomeFile + " è lo STEP strutturale di " + c.Codice + "." + extra, nil
+}
+
+// rimozioniDopo ricalcola le rimozioni del prodotto appena cambiato il suo riferimento, e dice in una
+// frase che cosa ne e' uscito. Prima rilegge il file nella RFQ: se ha i fatti correnti ma le sue proposte
+// non ci sono ancora (fatti arrivati prima, o un file mai riaperto), il confronto non saprebbe a quale
+// componente corrisponde ogni nodo, e le rimozioni resterebbero sospese per un motivo che non c'e'.
+func rimozioniDopo(ctx context.Context, q *db.Queries, thread, comp uuid.UUID) (string, error) {
+	p, err := q.GetComponente(ctx, comp)
+	if err != nil {
+		return "", err
+	}
+	es, err := rileggiLoStep(ctx, q, thread, p)
+	switch {
+	case err != nil:
+		return "", err
+	case es.Sospese != "":
+		return " Rimozioni non calcolate: " + es.Sospese + ".", nil
+	case es.Proposte > 0:
+		return fmt.Sprintf(" Il file non contiene %d archi della BOM: proposti per la rimozione.", es.Proposte), nil
+	}
+	return "", nil
 }
 
 // ------------------------------------------------------------------ deroga strutturale (A4.5, D33, D36)
@@ -298,7 +323,11 @@ func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid
 				StepStrutturaleID: uuid.NullUUID{UUID: nuovo, Valid: true}}); err != nil {
 				return "", err
 			}
-			msg += " " + n.NomeFile + " è il nuovo STEP strutturale di " + c.Codice + "."
+			extra, err := rimozioniDopo(ctx, q, thread, c.ComponenteID)
+			if err != nil {
+				return "", err
+			}
+			msg += " " + n.NomeFile + " è il nuovo STEP strutturale di " + c.Codice + "." + extra
 		} else {
 			msg += " Lo STEP strutturale di " + c.Codice + " resta il file sostituito: va scelto il nuovo riferimento."
 		}

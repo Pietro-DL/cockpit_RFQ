@@ -421,3 +421,83 @@ def test_un_file_che_non_esiste_non_alza(tmp_path):
     s = leggi_struttura(str(tmp_path / "non-c-e.step"))
     assert s["nodi"] == []
     assert any("struttura non letta" in a for a in s["avvisi"]), s["avvisi"]
+
+
+# ---------------------------------------------------------------- v3: gli scarti in numeri (A4.4, D35)
+#
+# Sul server una MANCANZA diventa una proposta di rimozione solo se la lettura e' completa, e la
+# completezza si decide dai numeri di `scarti`, non dalle frasi di `avvisi`. Questi test fissano che i
+# numeri ci siano sempre, che dicano la stessa cosa delle frasi, e che non ne manchi nessuno.
+
+SCARTI_ZERO = {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
+               "occorrenze_su_se_stesse": 0, "testi_troncati": 0}
+
+
+def test_un_assieme_letto_per_intero_ha_gli_scarti_a_zero(tmp_path):
+    percorso, _ = scrivi_step(tmp_path, "pulito.step", [
+        ("A", "52922757", "52922757", "", ""),
+        ("B", "52920517", "52920517", "", ""),
+    ], [("A", "B"), ("A", "B")])
+    s = leggi_struttura(percorso)
+    assert s["versione"] == 3 == VERSIONE_STRUTTURA
+    assert s["scarti"] == SCARTI_ZERO
+    assert s["avvisi"] == []
+
+
+def test_un_product_orfano_si_conta(tmp_path):
+    testo = (INTESTAZIONE
+             + "#100=PRODUCT('A','A','',(#1));\n#101=PRODUCT_DEFINITION_FORMATION('','',#100);\n"
+             + "#102=PRODUCT_DEFINITION('design','',#101,#1);\n"
+             + "#110=PRODUCT('ORFANO','ORFANO','',(#1));\n#120=PRODUCT('ALTRO','ALTRO','',(#1));\n"
+             + CHIUSURA)
+    (tmp_path / "orfani.step").write_text(testo, encoding="latin-1")
+    s = leggi_struttura(str(tmp_path / "orfani.step"))
+    assert s["scarti"] == dict(SCARTI_ZERO, prodotti_senza_definizione=2)
+    assert "2 PRODUCT senza PRODUCT_DEFINITION: ignorati" in s["avvisi"]
+
+
+def test_un_occorrenza_con_un_estremo_che_non_porta_a_un_nodo_si_conta(tmp_path):
+    testo = (INTESTAZIONE
+             + "#100=PRODUCT('A','A','',(#1));\n#101=PRODUCT_DEFINITION_FORMATION('','',#100);\n"
+             + "#102=PRODUCT_DEFINITION('design','',#101,#1);\n"
+             + "#600=NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','pos','',#102,#999,$);\n"
+             + CHIUSURA)
+    (tmp_path / "irrisolta.step").write_text(testo, encoding="latin-1")
+    s = leggi_struttura(str(tmp_path / "irrisolta.step"))
+    assert s["scarti"] == dict(SCARTI_ZERO, occorrenze_non_risolte=1)
+    assert "1 occorrenze con estremi non risolti: ignorate" in s["avvisi"]
+
+
+def test_un_pezzo_dentro_se_stesso_si_conta_a_parte(tmp_path):
+    """Si conta, ma in un numero suo: e' un arco impossibile, e il server non lo prende per un buco."""
+    percorso, _ = scrivi_step(tmp_path, "anello.step", [("A", "X", "X", "", "")], [("A", "A"), ("A", "A")])
+    s = leggi_struttura(percorso)
+    assert s["scarti"] == dict(SCARTI_ZERO, occorrenze_su_se_stesse=2)
+    assert s["scarti"]["occorrenze_non_risolte"] == 0
+
+
+def test_un_testo_troncato_si_conta(tmp_path):
+    lungo = "B" * 250
+    percorso, _ = scrivi_step(tmp_path, "lungo.step", [("A", lungo, lungo, "", "")])
+    s = leggi_struttura(percorso)
+    assert s["scarti"] == dict(SCARTI_ZERO, testi_troncati=2)   # id e nome
+    assert "2 testi troncati a 200 caratteri" in s["avvisi"]
+
+
+def test_gli_scarti_ci_sono_anche_quando_la_lettura_non_riesce(tmp_path):
+    """La forma e' la stessa in ogni esito: chi legge non deve distinguere «zero» da «assente».
+    Che la lettura sia fallita lo dicono gli avvisi, e il server li guarda PRIMA dei numeri."""
+    finto = tmp_path / "finto.step"
+    finto.write_bytes(b"%PDF-1.4\n")
+    for s in (leggi_struttura(str(finto)), leggi_struttura(str(tmp_path / "non-c-e.step"))):
+        assert s["versione"] == 3
+        assert set(s["scarti"]) == set(SCARTI_ZERO)
+        assert s["avvisi"], "una lettura fallita deve dirlo"
+
+
+def test_gli_scarti_sono_quelli_del_contratto(tmp_path):
+    from contratti import ScartiSTEP, StrutturaSTEP
+    percorso, _ = scrivi_step(tmp_path, "p.step", [("A", "P", "P", "", "")])
+    s = leggi_struttura(percorso)
+    assert set(s["scarti"]) == set(ScartiSTEP.model_fields)
+    assert StrutturaSTEP.model_validate(s).versione == 3

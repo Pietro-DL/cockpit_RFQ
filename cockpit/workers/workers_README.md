@@ -235,13 +235,20 @@ parametri viaggiano ma non vengono letti, e l'allineamento resta da fare.
 `id_grezzo`, `nome_grezzo`, `descrizione_grezza`, `rev_grezza` — e l'evidenza di quale riga del file li ha
 prodotti. Decidere se `52922757_B` è un codice, e quale ne sia la revisione, dipende dalle famiglie del
 CLIENTE di quella richiesta: il worker non sa nemmeno di che cliente si tratti, e quella lettura la fa il
-server con le regole già scritte per oggetto, corpo e nomi dei file. `struttura.versione = 2` dice
-esattamente questo: la 1 (mai entrata in produzione) metteva i codici nei nodi.
+server con le regole già scritte per oggetto, corpo e nomi dei file. `struttura.versione` lo dice: la 1 (mai
+entrata in produzione) metteva i codici nei nodi, la 2 porta i grezzi, la **3** (B8.5, addendum A4.4, D35)
+aggiunge `scarti`, quattro interi: `prodotti_senza_definizione`, `occorrenze_non_risolte`,
+`occorrenze_su_se_stesse`, `testi_troncati`. Il server decide dai numeri, non dalle frasi di `avvisi`, se una
+lettura è completa (la funzione SQL `struttura_motivo_parziale` della 0020): solo una lettura completa dello STEP
+strutturale di un prodotto può proporre quantità diverse e rimozioni. Le occorrenze di un pezzo dentro se
+stesso si contano ma non tolgono completezza: sono archi impossibili. Gli `avvisi` restano, per la schermata.
 
 I campi `codice`/`rev` di primo livello del risultato restano quelli di sempre — un'ipotesi dal nome del file
 o dal primo `PRODUCT` — e servono a `documento_proposta`. Sono un suggerimento, non la sorgente della
-struttura. `[analisi] versione = 2` in `cockpit.toml` è la chiave sotto cui i fatti nuovi vengono conservati:
-quelli della 1 restano dove sono.
+struttura. `[analisi] versione = 3` in `cockpit.toml` è la chiave sotto cui i fatti nuovi vengono conservati:
+quelli delle versioni precedenti restano dove sono, e gli STEP si rianalizzano quando si riapre la loro RFQ o con
+«Rianalizza». Un worker non aggiornato che risponde con una struttura v2 non rompe niente: il server la tiene, e
+la considera incompleta.
 
 **Tre tetti, e viaggiano con il risultato.** `nodi_max` (2000) ferma l'assieme con troppi pezzi distinti,
 `occorrenze_max` (50000) quello con pochi pezzi ripetuti moltissime volte — mille bulloni uguali sono mille
@@ -253,7 +260,7 @@ limite di quel giorno, e la configurazione di oggi fra un anno non dirà più qu
 
 **Come si guarda un corpus vero.** `python workers/diagnostica_step.py [cartella] [--albero]` attraversa dei
 file STEP e stampa, per ciascuno, schema, nodi, relazioni, occorrenze, radici, profondità, nodi con più di un
-padre, `PRODUCT` orfani, occorrenze irrisolte, archi che tornano indietro, nodi che nessuna radice raggiunge,
+padre, gli scarti in numeri (`PRODUCT` orfani, occorrenze irrisolte, anelli, testi troncati), archi che tornano indietro, nodi che nessuna radice raggiunge,
 troncamento e tempo; con `--albero` disegna l'albero con
 `id_grezzo | nome_grezzo | rev_grezza`. Legge e basta: non scrive niente e non tocca il database. I CAD non
 stanno nel repository — la cartella predefinita è `docs/step_files`, che è fuori.

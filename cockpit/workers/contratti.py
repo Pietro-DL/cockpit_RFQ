@@ -402,17 +402,31 @@ class LimitiSTEP(Base):
     motivo: str = ""            # "" se completo, altrimenti "nodi", "occorrenze" o "tempo"
 
 
+class ScartiSTEP(Base):
+    """Che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3, addendum B8 A4.4, D35).
+
+    Il server decide se una lettura e' COMPLETA da questi numeri e non dalle frasi di `avvisi`: una
+    mancanza diventa una proposta di rimozione solo in una lettura completa. Le occorrenze di un pezzo
+    dentro se stesso si contano ma non tolgono completezza: sono archi impossibili."""
+    prodotti_senza_definizione: int = 0
+    occorrenze_non_risolte: int = 0
+    occorrenze_su_se_stesse: int = 0
+    testi_troncati: int = 0
+
+
 class StrutturaSTEP(Base):
     """Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli["struttura"]`.
 
     `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
-    nei nodi, la 2 porta i grezzi. Il server non deve leggere `nodi[].codice` mai piu'."""
-    versione: int = 2
+    nei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere
+    `nodi[].codice` mai piu'."""
+    versione: int = 3
     schema_step: str = Field(default="", alias="schema")
     radici: list[str] = Field(default_factory=list)
     nodi: list[NodoSTEP] = Field(default_factory=list)
     relazioni: list[RelazioneSTEP] = Field(default_factory=list)
     avvisi: list[str] = Field(default_factory=list)
+    scarti: ScartiSTEP = Field(default_factory=ScartiSTEP)
     limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
 
 

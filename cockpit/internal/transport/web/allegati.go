@@ -326,8 +326,13 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 		}
 		comp = uuid.NullUUID{UUID: id, Valid: true}
 	}
+	scelta, err := leggiScelta(r.FormValue("scelta"), r.FormValue("nuovo_riferimento") == "1")
+	if err != nil {
+		s.pannelloConAvviso(w, r, m.MessaggioID, "Conferma non riuscita: "+spiegaErrore(err))
+		return
+	}
 	msg, err := s.confermaProposta(ctx, q, u, p, a, m, tipo, codice, rev, strings.TrimSpace(r.FormValue("nota")),
-		comp, r.FormValue("correggi_codice") == "1")
+		comp, r.FormValue("correggi_codice") == "1", scelta)
 	if err != nil {
 		s.pannelloConAvviso(w, r, m.MessaggioID, "Conferma non riuscita: "+spiegaErrore(err))
 		return
@@ -341,9 +346,10 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 
 // confermaProposta crea il documento. Non crea componenti e non ne cerca uno per codice (B8.3): il
 // documento si aggancia solo al componente comp, se c'e', e ne prende il codice lettera per lettera
-// (A1.4, A2.2). Un codice diverso da quello del componente passa solo con correggi.
+// (A1.4, A2.2). Un codice diverso da quello del componente passa solo con correggi. Se il componente ha
+// gia' un documento corrente dello stesso tipo serve la scelta: aggiungi, o sostituisce quale.
 func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Utente, p db.DocumentoProposta, a db.Allegato, m db.Messaggio,
-	tipo db.TipoDocumento, codice, rev, nota string, comp uuid.NullUUID, correggi bool) (string, error) {
+	tipo db.TipoDocumento, codice, rev, nota string, comp uuid.NullUUID, correggi bool, scelta sceltaRevisione) (string, error) {
 	if p.Stato != db.StatoPropostaAperta {
 		return "", errors.New("proposta già decisa")
 	}
@@ -420,6 +426,13 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		} else if bloccata {
 			return "", rifiuto(fmt.Sprintf("la BOM è congelata nella V%d: il file entra senza componente, e lo si assegna aprendo una revisione", n))
 		}
+		correnti, err := correntiDelloStessoTipo(ctx, q, c.ComponenteID, tipo, uuid.Nil)
+		if err != nil {
+			return "", err
+		}
+		if scelta, err = verificaScelta(a.NomeFile, c, tipo, correnti, scelta); err != nil {
+			return "", err
+		}
 	}
 
 	// Un file tecnico senza codice non diventa documento (addendum A2.2): il database lo rifiuterebbe
@@ -458,7 +471,11 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	}
 	componente := " Senza componente: codice e percorso restano questi finché non lo si assegna."
 	if assegnato != "" {
-		componente = " Assegnato al componente " + assegnato + "."
+		revisione, err := applicaScelta(ctx, q, t.ThreadID, d.DocumentoID, scelta)
+		if err != nil {
+			return "", err
+		}
+		componente = " Assegnato al componente " + assegnato + "." + revisione
 	}
 	if _, err := coda.AccodaCopia(ctx, q, d.DocumentoID); err != nil {
 		// Con `nas_scrittura` spenta il documento si conferma lo stesso e resta `in_coda`: la decisione

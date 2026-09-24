@@ -240,9 +240,22 @@ cache_gg = 30
 # tutto, senza toccare il codice — ed è il motivo per cui i parametri stanno qui e non nel worker.
 #
 # La 2 (blocco 8) e' quella che legge la STRUTTURA degli STEP: nodi, relazioni e quantita' in
-# `dettagli.struttura`. Alzandola, i file gia' analizzati con la 1 vengono rianalizzati quando
-# tornano utili: i fatti della 1 restano dove sono, sotto la loro chiave.
-versione = 2
+# `dettagli.struttura`. La 3 (B8.5) aggiunge gli scarti del lettore in numeri (`struttura.scarti`):
+# solo una lettura v3 completa puo' proporre quantita' diverse e rimozioni dalla BOM, e solo dallo STEP
+# strutturale scelto per il prodotto finito. Una lettura v2 propone soltanto aggiunte.
+#
+# Passare dalla 2 alla 3, in ordine:
+#   1. aggiornare i worker di analisi (il pacchetto della postazione porta il nuovo step_struttura.py):
+#      un worker vecchio risponderebbe con una struttura v2, che il server tiene ma non considera
+#      completa — il lato che non concede, non un errore;
+#   2. mettere qui versione = 3 e riavviare il server: all'avvio scrive la chiave corrente in
+#      `analizzatore_corrente`, e da quel momento i fatti v2 non sono piu' «l'analisi corrente»;
+#   3. gli STEP gia' presenti si rianalizzano da soli, pochi alla volta, quando si apre la loro RFQ,
+#      oppure tutti insieme con «Rianalizza» (POST /thread/{id}/fascicolo/rianalizza). I fatti delle
+#      versioni precedenti restano dove sono, sotto la loro chiave.
+# Le deroghe strutturali date su una lettura v2 decadono con la rianalisi (addendum A4.5): se la
+# lettura v3 e' ancora parziale, la deroga si da' di nuovo guardando il motivo nuovo.
+versione = 3
 
 [analisi.parametri]
 # I termini restano oggi dentro worker_analisi.py: qui si dichiara la configurazione che identifica

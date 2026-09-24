@@ -271,11 +271,104 @@ func assegnaProposta(ctx context.Context, q *db.Queries, p db.DocumentoProposta,
 	return nil
 }
 
+// sceltaRevisione e' la risposta alla domanda che si fa quando un file entra in un componente che ha gia'
+// un documento corrente dello stesso tipo (decisione del 24/09/2026 sulla condizione aperta di A4.10):
+// il file nuovo si AGGIUNGE, e restano correnti tutti e due (il secondo foglio di un 2D), oppure
+// SOSTITUISCE un predecessore preciso. Senza risposta non si procede: cosi' una proposta di
+// sostituzione pendente non esiste, e non serve uno schema per ricordarla.
+type sceltaRevisione struct {
+	data        bool      // la domanda ha avuto una risposta
+	sostituisce uuid.UUID // il predecessore; zero = «aggiungi»
+	// riferimento: se il predecessore era lo STEP strutturale del componente, il nuovo ne prende il
+	// posto (A4.4: la schermata lo chiede con il si' preselezionato; senza, resta riferimento_superato).
+	riferimento bool
+}
+
+// leggiScelta legge `aggiungi` oppure l'id del documento da sostituire. Vuoto = nessuna risposta.
+func leggiScelta(v string, riferimento bool) (sceltaRevisione, error) {
+	v = strings.TrimSpace(v)
+	switch v {
+	case "":
+		return sceltaRevisione{}, nil
+	case "aggiungi":
+		return sceltaRevisione{data: true}, nil
+	}
+	id, err := uuid.Parse(strings.TrimPrefix(v, "sostituisci:"))
+	if err != nil {
+		return sceltaRevisione{}, rifiuto("scelta non valida: si risponde «aggiungi» oppure con il documento da sostituire")
+	}
+	return sceltaRevisione{data: true, sostituisce: id, riferimento: riferimento}, nil
+}
+
+// correntiDelloStessoTipo sono i documenti correnti del componente con quel tipo, escluso uno.
+// ListDocumentiComponente li blocca: due assegnazioni allo stesso pezzo si mettono in fila, e la
+// seconda vede il file della prima.
+func correntiDelloStessoTipo(ctx context.Context, q *db.Queries, comp uuid.UUID, tipo db.TipoDocumento, escluso uuid.UUID) ([]db.Documento, error) {
+	tutti, err := q.ListDocumentiComponente(ctx, uuid.NullUUID{UUID: comp, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	var out []db.Documento
+	for _, d := range tutti {
+		if d.Tipo == tipo && !d.SostituitoDa.Valid && d.DocumentoID != escluso {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// verificaScelta applica la regola: con almeno un corrente dello stesso tipo serve la risposta, e un
+// «sostituisce» deve nominare uno di quei correnti. nome e' il file che entra. Restituisce la scelta da
+// applicare: un «aggiungi» dato dove non c'era niente da chiedere non dice niente, e si lascia cadere.
+func verificaScelta(nome string, c db.Componente, tipo db.TipoDocumento, correnti []db.Documento, s sceltaRevisione) (sceltaRevisione, error) {
+	if len(correnti) == 0 && s.sostituisce == uuid.Nil {
+		return sceltaRevisione{}, nil
+	}
+	if len(correnti) > 0 && !s.data {
+		nomi := make([]string, len(correnti))
+		for i, d := range correnti {
+			nomi[i] = d.NomeFile + " (" + d.DocumentoID.String() + ")"
+		}
+		return s, rifiuto(fmt.Sprintf("%s: %s ha già %d document%s %s corrent%s (%s). Si sceglie: «aggiungi» (restano correnti tutti) oppure il documento che questo sostituisce",
+			nome, c.Codice, len(correnti), plurale(len(correnti), "o", "i"), tipo, plurale(len(correnti), "e", "i"), strings.Join(nomi, ", ")))
+	}
+	if s.sostituisce == uuid.Nil {
+		return s, nil
+	}
+	for _, d := range correnti {
+		if d.DocumentoID == s.sostituisce {
+			return s, nil
+		}
+	}
+	return s, rifiuto(fmt.Sprintf("%s: il documento da sostituire deve essere un %s corrente di %s", nome, tipo, c.Codice))
+}
+
+// applicaScelta registra la risposta dopo che il file nuovo e' entrato nel componente: la
+// sostituzione e' la stessa di fascicolo.Sostituisci, con la catena tenuta dal database (D32).
+func applicaScelta(ctx context.Context, q *db.Queries, thread, nuovo uuid.UUID, s sceltaRevisione) (string, error) {
+	if !s.data {
+		return "", nil
+	}
+	if s.sostituisce == uuid.Nil {
+		return " Si aggiunge: i documenti dello stesso tipo restano correnti.", nil
+	}
+	msg, err := fascicolo.Sostituisci(ctx, q, thread, s.sostituisce, nuovo, s.riferimento)
+	if err != nil {
+		return "", err
+	}
+	return " " + msg, nil
+}
+
 // assegnaAlComponente e' il gesto «assegna»: documenti e proposte della RFQ thread sotto il componente
 // comp, o sganciati se comp non e' valido. Tutto o niente: se uno solo dei file non si puo', non cambia
 // niente e il rifiuto dice quale e perche'. E' una decisione su un gruppo di file per un pezzo, e fatta
 // a meta' non vorrebbe dire niente.
-func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, comp uuid.NullUUID, docs, props []uuid.UUID, correggi bool) (string, error) {
+//
+// Un documento che entra in un componente con un documento corrente dello stesso tipo vuole la sua
+// scelta in scelte (aggiungi / sostituisce); una proposta no: la domanda gliela fa la conferma, quando
+// diventa documento.
+func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, comp uuid.NullUUID, docs, props []uuid.UUID, correggi bool,
+	scelte map[uuid.UUID]sceltaRevisione) (string, error) {
 	var c *db.Componente
 	if comp.Valid {
 		x, err := q.GetComponente(ctx, comp.UUID)
@@ -322,10 +415,27 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 			return "", err
 		}
 	}
+	revisioni := ""
 	for _, d := range perConferma(bloccati) {
+		var scelta sceltaRevisione
+		entra := c != nil && (!d.ComponenteID.Valid || d.ComponenteID.UUID != c.ComponenteID)
+		if entra {
+			correnti, err := correntiDelloStessoTipo(ctx, q, c.ComponenteID, d.Tipo, d.DocumentoID)
+			if err != nil {
+				return "", err
+			}
+			if scelta, err = verificaScelta(d.NomeFile, *c, d.Tipo, correnti, scelte[d.DocumentoID]); err != nil {
+				return "", err
+			}
+		}
 		if err := assegnaDocumento(ctx, q, perc, d, c, correggi); err != nil {
 			return "", err
 		}
+		msg, err := applicaScelta(ctx, q, thread, d.DocumentoID, scelta)
+		if err != nil {
+			return "", err
+		}
+		revisioni += msg
 	}
 	for _, id := range props {
 		p, err := q.BloccaProposta(ctx, id)
@@ -348,7 +458,7 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 	if c == nil {
 		return file + " senza componente: codice e percorso invariati.", nil
 	}
-	return file + " assegnat" + plurale(n, "o", "i") + " al componente " + c.Codice + ".", nil
+	return file + " assegnat" + plurale(n, "o", "i") + " al componente " + c.Codice + "." + revisioni, nil
 }
 
 // correggiCodiceComponente corregge il codice del componente cid e lo porta su tutto quello che vi e'
@@ -494,6 +604,10 @@ func uuidDalForm(valori []string) ([]uuid.UUID, error) {
 //	documento        uno o piu' documenti della RFQ
 //	proposta         una o piu' proposte aperte della RFQ
 //	correggi_codice  "1" = il codice dei file diventa quello del componente anche se era diverso
+//	scelta_<doc>     per un documento che entra in un componente con un corrente dello stesso tipo:
+//	                 "aggiungi" oppure l'id del documento che sostituisce (con un solo documento basta
+//	                 `scelta`)
+//	nuovo_riferimento_<doc>  "1" = se il sostituito era lo STEP strutturale, il nuovo prende il suo posto
 func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 	thread, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
@@ -530,7 +644,20 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
-	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1")
+	scelte := map[uuid.UUID]sceltaRevisione{}
+	for _, d := range docs {
+		v, rif := r.FormValue("scelta_"+d.String()), r.FormValue("nuovo_riferimento_"+d.String()) == "1"
+		if len(docs) == 1 && v == "" {
+			v, rif = r.FormValue("scelta"), rif || r.FormValue("nuovo_riferimento") == "1"
+		}
+		sc, err := leggiScelta(v, rif)
+		if err != nil {
+			s.threadFrammento(w, r, thread, "Assegnazione non riuscita, nessun file cambiato: "+spiegaErrore(err))
+			return
+		}
+		scelte[d] = sc
+	}
+	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", scelte)
 	if err == nil {
 		err = tx.Commit(ctx)
 	}

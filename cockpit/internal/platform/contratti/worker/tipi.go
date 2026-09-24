@@ -504,8 +504,8 @@ type RisultatoAnalisi struct {
 //
 // Nei nodi non ci sono `codice` e `rev`, e non è una dimenticanza: che cosa sia un codice dipende
 // dalle famiglie del cliente, che il worker non conosce. La `versione` dice proprio questo — la 1
-// portava i codici scritti dal worker, la 2 porta i grezzi — e il Go non deve leggere `nodi[].codice`
-// mai più (addendum B8, A1.2 e A1.6.3).
+// portava i codici scritti dal worker, la 2 porta i grezzi, la 3 aggiunge gli scarti in numeri — e il
+// Go non deve leggere `nodi[].codice` mai più (addendum B8, A1.2 e A1.6.3).
 type StrutturaSTEP struct {
 	Versione int    `json:"versione"`
 	Schema   string `json:"schema"` // AP214, AP203, AP242… da FILE_SCHEMA; "" se non leggibile
@@ -515,7 +515,21 @@ type StrutturaSTEP struct {
 	Nodi      []NodoSTEP      `json:"nodi"`
 	Relazioni []RelazioneSTEP `json:"relazioni"`
 	Avvisi    []string        `json:"avvisi"`
-	Limiti    LimitiSTEP      `json:"limiti"`
+	// Scarti c'è dalla versione 3 (A4.4, D35); in una v2 manca, ed è nil.
+	Scarti *ScartiSTEP `json:"scarti"`
+	Limiti LimitiSTEP  `json:"limiti"`
+}
+
+// ScartiSTEP: che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3).
+//
+// Se una lettura è COMPLETA non lo decide questo tipo: lo decide la funzione SQL
+// struttura_motivo_parziale della 0020, che il server interroga (A4.4: «la definizione è una sola»).
+// Qui ci sono solo i fatti che quella funzione guarda.
+type ScartiSTEP struct {
+	ProdottiSenzaDefinizione int `json:"prodotti_senza_definizione"`
+	OccorrenzeNonRisolte     int `json:"occorrenze_non_risolte"`
+	OccorrenzeSuSeStesse     int `json:"occorrenze_su_se_stesse"` // archi impossibili: non tolgono completezza
+	TestiTroncati            int `json:"testi_troncati"`
 }
 
 // NodoSTEP è un PRODUCT del file con i suoi attributi grezzi e l'evidenza di dove stanno.

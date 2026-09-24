@@ -65,3 +65,22 @@ WHERE a.allegato_id = r.allegato_id AND a.sha256 = sqlc.arg(sha256) AND r.thread
 -- name: ChiudiRimozioniDiUnoStep :execrows
 UPDATE rimozione_proposta SET stato = 'scartata', deciso_da = NULL, deciso_il = now(), nota = sqlc.arg(nota)
 WHERE thread_id = sqlc.arg(thread_id) AND step_documento_id = sqlc.arg(step_documento_id) AND stato = 'aperta';
+
+-- Gli archi della working scritti da una decisione (B8.5): accettare una relazione proposta, una
+-- quantita' diversa, una rimozione. I cicli li rifiuta il Go prima di arrivare qui (A1.1), con la
+-- riga del thread bloccata.
+
+-- name: InsertRelazione :execrows
+INSERT INTO componente_relazione (thread_id, padre_id, figlio_id, qta, origine, confermato_da)
+VALUES (sqlc.arg(thread_id), sqlc.arg(padre_id), sqlc.arg(figlio_id), sqlc.arg(qta), sqlc.arg(origine), sqlc.arg(confermato_da))
+ON CONFLICT (padre_id, figlio_id) DO NOTHING;
+
+-- name: GetRelazione :one
+SELECT * FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2;
+
+-- name: SetQtaRelazione :execrows
+UPDATE componente_relazione SET qta = sqlc.arg(qta), confermato_da = sqlc.arg(confermato_da)
+WHERE padre_id = sqlc.arg(padre_id) AND figlio_id = sqlc.arg(figlio_id);
+
+-- name: DeleteRelazione :execrows
+DELETE FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2;
