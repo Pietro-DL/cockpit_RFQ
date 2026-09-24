@@ -52,13 +52,15 @@ func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 }
 
 // RipristinaComponente rimette nella working un componente archiviato: stesso componente_id, stessa
-// storia. E' quello che si fa quando lo stesso codice torna. Gli archi non tornano da soli.
+// storia. E' quello che si fa quando lo stesso codice torna (A4.9; dai codici della RFQ, B8.6). Gli
+// archi non tornano da soli. Le proposte di nodo ancora aperte con il suo codice lo ritrovano, come dopo
+// un'accettazione: e' la lettura che il server darebbe loro alla prossima rianalisi.
 func RipristinaComponente(ctx context.Context, q *db.Queries, thread, comp uuid.UUID) (string, error) {
-	c, err := componenteDellaRfq(ctx, q, thread, comp)
-	if err != nil {
+	if err := prepara(ctx, q, thread, "si ripristina un componente"); err != nil {
 		return "", err
 	}
-	if err := SeBloccata(ctx, q, thread, "si ripristina un componente"); err != nil {
+	c, err := componenteDellaRfq(ctx, q, thread, comp)
+	if err != nil {
 		return "", err
 	}
 	n, err := q.RipristinaComponente(ctx, comp)
@@ -68,7 +70,11 @@ func RipristinaComponente(ctx context.Context, q *db.Queries, thread, comp uuid.
 	if n == 0 {
 		return "", Rifiuto(c.Codice + " non è archiviato")
 	}
-	return c.Codice + " ripristinato nella BOM working.", nil
+	if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: thread, Codice: c.Codice,
+		ComponenteID: uid(comp), Esclusa: uuid.Nil}); err != nil {
+		return "", err
+	}
+	return dopoLaDecisione(ctx, q, thread, c.Codice+" ripristinato nella BOM working.", nil)
 }
 
 // RimuoviComponente prova la cancellazione fisica: riesce solo per un componente che non e' mai

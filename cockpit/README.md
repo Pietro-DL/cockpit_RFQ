@@ -1200,7 +1200,8 @@ internal/core/rfq/fascicolo         la BOM di una RFQ nel tempo (A4): congelare,
                                     la differenza fra una versione e la working, archiviare un componente, sostituire un documento, scegliere
                                     lo STEP strutturale, la deroga strutturale. B8.5: dai fatti degli STEP alle proposte di nodi, archi,
                                     quantità e rimozioni (classificate con le regole del cliente; rimozioni solo dallo STEP strutturale letto
-                                    per intero), le decisioni che le portano nella BOM working, la rianalisi. Senza schermata: B8.7
+                                    per intero), le decisioni che le portano nella BOM working, la rianalisi. B8.6: i codici della RFQ,
+                                    uniti per codice dalle evidenze che ci sono già, con il gesto di ciascuno. La schermata è B8.7
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1307,6 +1308,12 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   quantità e, dalla v3, gli scarti in numeri) → `componente_proposta`, `relazione_proposta`, `rimozione_proposta`
   (INTERPRETAZIONE, del server: il codice di ogni nodo lo dà il `Motore` del cliente della RFQ) → `componente` e
   `componente_relazione` (DECISIONE di chi accetta). Il worker non modifica mai la BOM.
+- **I codici della RFQ** (B8.6): `v_codici_candidati_thread` mette in fila le evidenze che triage, proposte dei
+  documenti e nodi degli STEP hanno già prodotto, e `fascicolo.Unisci` le aggrega per codice senza classificarle
+  di nuovo. Componenti e codici della richiesta non sono evidenze: decidono il gesto. Un codice con una proposta
+  STEP aperta si decide lì, uno già componente si apre, uno archiviato si ripristina; solo un codice nuovo diventa
+  un componente con «+ Prodotto / + Assieme / + Particolare». Revisioni diverse si mostrano come conflitto e le
+  sceglie chi aggiunge.
 - **NAS**: `[nas].radice` È la cartella «PREVENTIVI DA FARE»; sotto, `cliente.cartella_nas\WIP\<aaaa mm gg Cognome Oggetto>`;
   con la cartella nascono solo le sottocartelle con `cartella_documento.crea_sempre` (ELENCO DISEGNI, OFFERTE FORNITORI),
   le altre alla prima copia.

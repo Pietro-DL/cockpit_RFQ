@@ -216,3 +216,9 @@ details.avanzato summary{cursor:pointer;color:var(--muto)}
 .candidati-richiesta form.candidato{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--bordo);border-radius:6px;margin-bottom:6px}
 .candidati-richiesta form.candidato .testo{flex:1}
 table.richieste td{padding:4px 6px}
+/* B8.6 — i codici della richiesta: una riga per codice, le evidenze sotto, il gesto che il codice porta */
+.codice-riga{padding:6px 0;border-bottom:1px solid var(--bordo)}
+.codice-riga .r1{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.codice-riga details.evidenze ul,.codice-riga details.codice-componente ul{margin:4px 0 4px 18px;padding:0;font-size:12px}
+form.codice-azioni,div.codice-azioni{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:13px}
+details.codici>summary{cursor:pointer;margin:4px 0}

@@ -72,6 +72,9 @@
     {{end}}
     {{else}}<p class="muto">Nessun documento confermato. Conferma le proposte degli allegati nella chat.</p>{{end}}
 
+    <h3 id="codici">Codici della richiesta</h3>
+    {{template "codici_rfq" .}}
+
     <h3>Struttura e Fascicolo</h3>
     {{/* checkpoint 3R §8: NON si rattoppa il fascicolo del modello vecchio per farlo sembrare
          funzionante. `componente` e' un albero per RFQ con un padre solo e non regge i sottoassiemi;
@@ -109,4 +112,79 @@
   </section>
 </div>
 {{end}}
+{{end}}
+
+{{/* B8.6 — i codici che la RFQ ha visto nei messaggi, nei nomi e nei cartigli dei file e negli STEP, uniti
+     per codice (fascicolo.Unisci): nessuna evidenza si perde, nessuna revisione si sceglie da sola.
+     Componenti e codici della richiesta non sono evidenze: dicono che cosa e' gia' deciso, e da li' il
+     gesto di ogni riga. Il riferimento del cliente sta in testata, mai qui. */}}
+{{define "codici_rfq"}}
+{{if .CodiciErrore}}<p class="avviso errore-box">{{.CodiciErrore}}</p>
+{{else}}
+{{$tid := .T.ThreadID}}{{$docs := .DocumentiDi}}
+{{with .Codici}}
+{{if .Bloccata}}<p class="avviso-blocco">La BOM è congelata nella V{{.Bloccata}}: i codici si leggono, ma un componente si aggiunge o si ripristina aprendo una revisione.</p>{{end}}
+<details class="codici" open>
+  <summary><b>Codici prodotto candidati</b> ({{len .Prodotto}})</summary>
+  {{range .Prodotto}}{{template "codice_riga" (rigaCodice . $tid $docs)}}{{else}}<p class="muto">Nessun codice con un'evidenza forte.</p>{{end}}
+</details>
+<details class="codici">
+  <summary><b>Altri riferimenti trovati</b> ({{len .Altri}})</summary>
+  <p class="muto nota">Numeri visti solo dall'estrattore generico, solo nella storia citata o solo nel nome di un file non tecnico: si vedono, e per entrare serve un gesto.</p>
+  {{range .Altri}}{{template "codice_riga" (rigaCodice . $tid $docs)}}{{else}}<p class="muto">Nessuno.</p>{{end}}
+</details>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "codice_riga"}}
+<div class="codice-riga" id="codice-{{.C.Chiave}}">
+  <div class="r1">
+    <b class="mono">{{.C.Codice}}</b>
+    {{range .C.Revisioni}}<span class="chip" title="{{.Evidenze}} evidenz{{if eq .Evidenze 1}}a{{else}}e{{end}}">rev {{.Rev}}</span> {{end}}
+    {{if .C.Conflitto}}<span class="chip fallito" title="Le evidenze dicono revisioni diverse: la sceglie chi decide, non il punteggio">revisioni discordanti</span>{{end}}
+    {{if .C.Stato.Identificativo}}<span class="chip" title="Spuntato nel triage: è un codice della richiesta">codice della richiesta</span>{{end}}
+    <small class="muto" title="Il punteggio più alto fra le evidenze: ordina la lista, non decide niente">{{.C.Punteggio}}</small>
+  </div>
+  <details class="evidenze">
+    <summary class="muto">{{.C.Motivo}} · {{len .C.Evidenze}} evidenz{{if eq (len .C.Evidenze) 1}}a{{else}}e{{end}}</summary>
+    <ul>{{range .C.Evidenze}}<li>{{.Frase}}{{if .Rev}} · rev {{.Rev}}{{end}} <a class="muto" href="/messaggio/{{.Messaggio}}">mail</a></li>{{end}}</ul>
+  </details>
+  {{$s := .C.Stato}}
+  {{if eq $s.Situazione "proposta"}}{{$p := $s.Proposta}}
+  <form class="codice-azioni">
+    <span>→ proposta aperta dallo STEP <b>{{$p.NomeFile}}</b>, nodo «{{$p.NomeGrezzo}}»{{if $s.AltreProposte}} (e {{$s.AltreProposte}} altr{{if eq $s.AltreProposte 1}}o{{else}}i{{end}} con lo stesso codice){{end}}</span>
+    {{if $p.Nota}}<small class="muto">{{$p.Nota}}</small>{{end}}
+    {{if $s.Bloccata}}<small class="muto">si decide aprendo una revisione</small>{{else}}
+    <select name="tipo" title="Il tipo con cui il nodo entra nella BOM">{{range tipiComponente}}<option value="{{.}}"{{if eq . $p.TipoProposto.TipoComponente}} selected{{end}}>{{nomeTipo .}}</option>{{end}}</select>
+    <button type="button" class="piccolo" hx-post="/thread/{{.Thread}}/fascicolo/nodo/{{$p.PropostaID}}/accetta" hx-include="closest form" hx-target="#thread">Accetta la proposta</button>
+    <button type="button" class="piccolo" hx-post="/thread/{{.Thread}}/fascicolo/nodo/{{$p.PropostaID}}/scarta" hx-target="#thread">Scarta</button>
+    {{end}}
+  </form>
+  {{else if eq $s.Situazione "componente"}}{{with $s.Componente}}
+  <details class="codice-componente">
+    <summary><span class="chip fatto">✓ nel Fascicolo</span> come {{nomeTipo .Tipo}}{{if .Rev.Valid}}, rev {{.Rev.String}}{{end}}</summary>
+    {{with $.Documenti}}<ul>{{range .}}<li><span class="chip {{.Tipo}}">{{.Tipo}}</span> {{.NomeFile}}{{if .SostituitoDa.Valid}} <small class="muto">sostituito</small>{{end}} <small class="muto">NAS {{.StatoNas}}</small></li>{{end}}</ul>
+    {{else}}<p class="muto">Nessun documento assegnato.</p>{{end}}
+  </details>
+  {{end}}
+  {{else if eq $s.Situazione "archiviato"}}{{with $s.Componente}}
+  <div class="codice-azioni">
+    <span><span class="chip">archiviato</span> {{oraLunga .ArchiviatoIl}}{{if .MotivoArchiviazione.Valid}}: {{.MotivoArchiviazione.String}}{{end}}</span>
+    {{if $s.Bloccata}}<small class="muto">si ripristina aprendo una revisione</small>{{else}}
+    <button type="button" class="piccolo" hx-post="/thread/{{$.Thread}}/fascicolo/componente/{{.ComponenteID}}/ripristina" hx-target="#thread"
+            title="Torna nella BOM lo stesso componente, con la sua storia; gli archi no">Ripristina</button>
+    {{end}}
+  </div>
+  {{end}}
+  {{else}}
+  <form class="codice-azioni">
+    <input type="hidden" name="codice" value="{{.C.Codice}}">
+    {{if $s.Bloccata}}<small class="muto">si aggiunge aprendo una revisione</small>{{else}}
+    {{if .C.Conflitto}}<select name="rev" title="Le evidenze dicono revisioni diverse: si sceglie quale vale"><option value="">revisione…</option>{{range .C.Revisioni}}<option value="{{.Rev}}">{{.Rev}}</option>{{end}}</select>{{end}}
+    {{range $s.Tipi}}<button type="button" class="piccolo" hx-post="/thread/{{$.Thread}}/fascicolo/codice/aggiungi" hx-vals='{"tipo":"{{.}}"}' hx-include="closest form" hx-target="#thread">+ {{etichettaTipo .}}</button> {{end}}
+    {{end}}
+  </form>
+  {{end}}
+</div>
 {{end}}

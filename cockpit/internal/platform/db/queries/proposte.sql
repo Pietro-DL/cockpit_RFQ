@@ -161,9 +161,11 @@ WHERE thread_id = $1 AND step_documento_id = $2 AND padre_id = $3 AND figlio_id 
 
 -- name: PropostaDocumentoDaRadice :execrows
 -- D16: la radice dello STEP riconosciuta da una famiglia del cliente corregge la proposta del
--- documento, finche' e' aperta. regola_id resta com'e': le famiglie stanno in cliente.regole, non in
--- `regola`, e la famiglia che l'ha riconosciuta va nei dettagli.
-UPDATE documento_proposta SET codice = sqlc.arg(codice), rev = sqlc.narg(rev), fonte = 'regola_cliente',
+-- documento, finche' e' aperta. fonte = 'regola_cliente' e regola_id = NULL: le famiglie stanno in
+-- cliente.regole, non in `regola`, quindi non c'e' un regola_id da scrivere, e uno rimasto da prima
+-- attribuirebbe la lettura a un'altra regola. Famiglia, dove e testo del riconoscimento vanno nei
+-- dettagli; l'evidenza strutturata del nodo resta componente_proposta.
+UPDATE documento_proposta SET codice = sqlc.arg(codice), rev = sqlc.narg(rev), fonte = 'regola_cliente', regola_id = NULL,
        confidenza = sqlc.arg(confidenza), dettagli = dettagli || sqlc.arg(dettagli)::jsonb
 WHERE allegato_id = sqlc.arg(allegato_id) AND stato = 'aperta';
 

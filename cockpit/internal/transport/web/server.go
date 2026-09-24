@@ -28,6 +28,7 @@ import (
 	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -154,6 +155,12 @@ var funzioni = template.FuncMap{
 	"rigaAllegato": func(a AllegatoUI, agganciato bool, ritornaThread string, figlio bool) rigaAllegato {
 		return rigaAllegato{A: a, Agganciato: agganciato, RitornaThread: ritornaThread, Figlio: figlio}
 	},
+	// B8.6, il pannello dei codici: il tipo di componente con le parole della schermata (prodotto,
+	// assieme, particolare), i tipi fra cui si sceglie, una riga del pannello.
+	"nomeTipo":       func(t db.TipoComponente) string { return fascicolo.NomeTipo(t) },
+	"etichettaTipo":  etichettaTipo,
+	"tipiComponente": func() []db.TipoComponente { return fascicolo.TipiDaCodice },
+	"rigaCodice":     nuovaRigaCodice,
 	"colore": func(esito pgtype.Text, conf pgtype.Int2) string {
 		if !esito.Valid {
 			return ""
