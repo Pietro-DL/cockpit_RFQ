@@ -55,6 +55,8 @@ func TestQualeCapacitaGovernaQuale(t *testing.T) {
 		db.TipoJobCreaBozzaOutlook:   CapBozze,
 		db.TipoJobCopiaNas:           CapNasScrittura,
 		db.TipoJobCreaCartellaThread: CapNasScrittura,
+		// A4 (0019): lo spostamento copia, promuove e toglie file sul NAS. In shadow non si accoda.
+		db.TipoJobSpostaNas: CapNasScrittura,
 	}
 	for _, tipo := range db.AllTipoJobValues() {
 		got, vuole := CapacitaPer(tipo), atteso[tipo]

@@ -153,9 +153,9 @@ func TestNomeFileSicuroEIdempotente(t *testing.T) {
 		{a(maxNomeFile) + ".PDF", a(maxNomeFile) + ".pdf"},
 		{a(maxNomeFile) + "b.PDF", a(maxNomeFile) + ".pdf"},
 		{a(maxNomeFile-1) + ".b.PDF", a(maxNomeFile-1) + ".pdf"},
-		{a(maxNomeFile+10), a(maxNomeFile)},
+		{a(maxNomeFile + 10), a(maxNomeFile)},
 		{a(maxNomeFile-2) + ".B" + strings.Repeat("c", 20), a(maxNomeFile-2) + ".b"},
-		{a(maxNomeFile-1) + ". c", a(maxNomeFile-1)},
+		{a(maxNomeFile-1) + ". c", a(maxNomeFile - 1)},
 		// non ASCII
 		{"Staffa – rev À.PDF", "Staffa – rev À.pdf"},
 		{"日本語.PDF", "日本語.pdf"},

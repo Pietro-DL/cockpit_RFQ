@@ -274,7 +274,8 @@ func TestLaConfermaAssegnaIlComponenteScelto(t *testing.T) {
 		if agganciato.UUID != comp || codice != "ab12" {
 			t.Errorf("documento su %v con codice %q; atteso il componente scelto e il suo codice, ab12", agganciato, codice)
 		}
-		if path != `ELENCO DISEGNI\AB12\assieme.stp` {
+		// il nome sul NAS e' quello del pezzo (D21), l'originale resta in nome_file (R1.6)
+		if path != `ELENCO DISEGNI\AB12\AB12_REV_ND.stp` {
 			t.Errorf("percorso %q", path)
 		}
 		if n := b.contaNelThread("componente", thread); n != 1 {
@@ -338,7 +339,7 @@ func TestLaConfermaAssegnaIlComponenteScelto(t *testing.T) {
 		if err := b.pool.QueryRow(b.ctx, `SELECT codice, path_relativo FROM documento WHERE thread_id = $1`, thread).Scan(&codice, &path); err != nil {
 			t.Fatal(err)
 		}
-		if codice != "AB12" || path != `ELENCO DISEGNI\AB12\assieme.stp` {
+		if codice != "AB12" || path != `ELENCO DISEGNI\AB12\AB12_REV_ND.stp` {
 			t.Errorf("codice %q, percorso %q: attesi quelli del componente", codice, path)
 		}
 	})
@@ -403,7 +404,7 @@ func TestAssegnareAUnCodiceDiversoRichiedeLaCorrezione(t *testing.T) {
 	if !strings.Contains(a, "2 file assegnati al componente BBB222") {
 		t.Fatalf("con la correzione l'assegnazione doveva riuscire: %q", a)
 	}
-	if got, want := b.foto(doc), "componente="+comp.String()[:8]+` codice=BBB222 path=ELENCO DISEGNI\BBB222\d1.pdf nas=in_coda`; got != want {
+	if got, want := b.foto(doc), "componente="+comp.String()[:8]+` codice=BBB222 path=ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf nas=in_coda`; got != want {
 		t.Errorf("documento: %s\natteso:    %s", got, want)
 	}
 	if got, want := b.fotoProposta(p), "componente="+comp.String()[:8]+" codice=BBB222 stato=aperta"; got != want {
@@ -422,8 +423,8 @@ func TestIlCodiceSiCorreggeSoloFinchéInCoda(t *testing.T) {
 		riesce   bool
 		percorso string
 	}{
-		{db.StatoNasInCoda, true, `ELENCO DISEGNI\BBB222\d.pdf`},
-		{db.StatoNasErrore, true, `ELENCO DISEGNI\BBB222\d.pdf`},
+		{db.StatoNasInCoda, true, `ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf`},
+		{db.StatoNasErrore, true, `ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf`},
 		{db.StatoNasScritto, false, `ELENCO DISEGNI\AAA111\d.pdf`},
 	}
 	for _, c := range casi {
@@ -460,10 +461,13 @@ func TestIlCodiceSiCorreggeSoloFinchéInCoda(t *testing.T) {
 	}
 }
 
-// Una correzione di codice sposta il file nella cartella del codice nuovo e non lo rinomina: il nome
-// resta quello che la conferma gli aveva dato, anche quando ripassarlo per NomeFileSicuro lo
-// cambierebbe (un'estensione maiuscola salvata cosi'; fino a B8.A4-0 anche un nome senza estensione).
-func TestLaCorrezioneCambiaLaCartellaNonIlNome(t *testing.T) {
+// Una correzione di codice porta i file nella cartella del codice nuovo. Un file tecnico si chiama
+// come il pezzo (D21), e quindi con il codice cambia anche il nome: <CODICE>_REV_<REV>, e il secondo
+// disegno dello stesso pezzo riceve _2, nell'ordine in cui i file sono stati confermati (addendum A4.1,
+// «Conseguenza su B8.3»). Un file non tecnico si sposta e basta: il nome resta quello che la conferma
+// gli aveva dato, anche quando ripassarlo per NomeFileSicuro lo cambierebbe (un'estensione maiuscola
+// salvata cosi').
+func TestLaCorrezioneRinominaITecniciESpostaGliAltri(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
 	cliente := b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example")
@@ -471,18 +475,35 @@ func TestLaCorrezioneCambiaLaCartellaNonIlNome(t *testing.T) {
 	comp := r.componente("BBB222")
 	senzaEstensione := r.documento("LEGGIMI", "AAA111", uuid.Nil, db.StatoNasErrore)
 	maiuscola := r.documento("Tavola 1.PDF", "AAA111", uuid.Nil, db.StatoNasErrore)
+	// Nei default nessun tipo non tecnico ha la cartella per codice; il layout pero' e' un dato, e un
+	// cliente puo' volere le distinte sotto il codice. Qui lo si vuole: e' il caso in cui un file non
+	// tecnico cambia cartella con il codice.
+	if _, err := b.pool.Exec(b.ctx, `UPDATE cartella_documento SET per_codice = true WHERE tipo = 'distinta_cliente'`); err != nil {
+		t.Fatal(err)
+	}
+	var distinta uuid.UUID
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, path_relativo, stato_nas, errore_nas, confermato_da)
+		VALUES ($1, 'distinta_cliente', 'AAA111', 'Distinta Cliente.XLSX', 'xlsx', repeat('d', 64), 'ELENCO DISEGNI\AAA111\Distinta Cliente.XLSX', 'errore', 'NAS assente', $2)
+		RETURNING documento_id`, r.thread, r.utente).Scan(&distinta); err != nil {
+		t.Fatal(err)
+	}
 
-	a := r.assegna(operatore(b), url.Values{"componente": {comp.String()}, "documento": {senzaEstensione.String(), maiuscola.String()}, "correggi_codice": {"1"}})
-	if !strings.Contains(a, "2 file assegnati") {
+	a := r.assegna(operatore(b), url.Values{"componente": {comp.String()},
+		"documento": {maiuscola.String(), distinta.String(), senzaEstensione.String()}, "correggi_codice": {"1"}})
+	if !strings.Contains(a, "3 file assegnati") {
 		t.Fatalf("avviso: %q", a)
 	}
-	for doc, atteso := range map[uuid.UUID]string{senzaEstensione: `ELENCO DISEGNI\BBB222\LEGGIMI`, maiuscola: `ELENCO DISEGNI\BBB222\Tavola 1.PDF`} {
+	for doc, atteso := range map[uuid.UUID]string{
+		senzaEstensione: `ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf`,   // confermato per primo: il nome senza progressivo
+		maiuscola:       `ELENCO DISEGNI\BBB222\BBB222_REV_ND_2.pdf`, // il secondo disegno dello stesso pezzo
+		distinta:        `ELENCO DISEGNI\BBB222\Distinta Cliente.XLSX`,
+	} {
 		d, err := b.q.GetDocumento(b.ctx, doc)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if d.PathRelativo != atteso {
-			t.Errorf("percorso %q, atteso %q: la correzione ha rinominato il file", d.PathRelativo, atteso)
+			t.Errorf("%s: percorso %q, atteso %q", d.NomeFile, d.PathRelativo, atteso)
 		}
 	}
 }
@@ -544,13 +565,13 @@ func TestLaCorrezioneInCodaRiscriveIlPercorsoPrimaDellaCopia(t *testing.T) {
 				t.Fatalf("copia: %v", err)
 			}
 			cartella := filepath.Join(radice, "ACME", "WIP", "2026 09 23 PRIMA", "ELENCO DISEGNI")
-			if _, err := os.Stat(filepath.Join(cartella, "BBB222", "d1.pdf")); err != nil {
+			if _, err := os.Stat(filepath.Join(cartella, "BBB222", "BBB222_REV_ND.pdf")); err != nil {
 				t.Errorf("il file non e' nella cartella del codice nuovo: %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(cartella, "AAA111")); !os.IsNotExist(err) {
 				t.Errorf("sul NAS e' nata la cartella del codice vecchio (err %v)", err)
 			}
-			if got := b.foto(doc); !strings.HasSuffix(got, `codice=BBB222 path=ELENCO DISEGNI\BBB222\d1.pdf nas=scritto`) {
+			if got := b.foto(doc); !strings.HasSuffix(got, `codice=BBB222 path=ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf nas=scritto`) {
 				t.Errorf("documento dopo la copia: %s", got)
 			}
 		})
@@ -626,8 +647,8 @@ func TestCorreggereIlCodiceDelComponenteAggiornaIDocumentiInCoda(t *testing.T) {
 	}
 	id := comp.String()[:8]
 	for doc, atteso := range map[uuid.UUID]string{
-		inCoda:   "componente=" + id + ` codice=BBB222 path=ELENCO DISEGNI\BBB222\coda.pdf nas=in_coda`,
-		inErrore: "componente=" + id + ` codice=BBB222 path=ELENCO DISEGNI\BBB222\errore.pdf nas=errore`,
+		inCoda:   "componente=" + id + ` codice=BBB222 path=ELENCO DISEGNI\BBB222\BBB222_REV_ND.pdf nas=in_coda`,
+		inErrore: "componente=" + id + ` codice=BBB222 path=ELENCO DISEGNI\BBB222\BBB222_REV_ND_2.pdf nas=errore`,
 	} {
 		if got := b.foto(doc); got != atteso {
 			t.Errorf("documento: %s\natteso:    %s", got, atteso)

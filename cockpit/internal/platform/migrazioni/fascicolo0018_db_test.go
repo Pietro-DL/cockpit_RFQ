@@ -353,12 +353,27 @@ func TestLa18FondeIDuplicatiSenzaPerdereRiferimenti(t *testing.T) {
 
 // ------------------------------------------------------------------ schema 18: vincoli
 
-// schema18 ricrea lo schema completo (con la 0018) e i dati di base, piu' due componenti: V1 nella
-// prima RFQ, W1 nella seconda.
+// schema18 ricrea lo schema completo (con la 0018 e le migrazioni che la seguono) e i dati di base,
+// piu' due componenti: V1 nella prima RFQ, W1 nella seconda. Le prove dei vincoli della 0018 girano
+// sullo schema completo apposta: una migrazione futura che ne togliesse uno le farebbe fallire.
 func schema18(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	p := testutil.Pool(t)
 	testutil.SchemaPulito(t, p)
+	return dati18(t, p)
+}
+
+// schemaFermoAlla18 e' schema18 con lo schema fermo alla 0018. Serve alle prove del ritorno manuale:
+// 0018_indietro.sql parte solo da uno schema alla 18, e da uno piu' avanti si rifiuta.
+func schemaFermoAlla18(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	p := testutil.Pool(t)
+	testutil.SchemaFinoA(t, p, 18)
+	return dati18(t, p)
+}
+
+func dati18(t *testing.T, p *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
 	esegui18(t, p, base18)
 	esegui18(t, p, `INSERT INTO componente (componente_id, thread_id, codice, rev, tipo, confermato_da)
 		VALUES ('{K1}', '{T1}', 'V1', 'A', 'sciolto', '{U}'), ('{K2}', '{T2}', 'W1', NULL, 'sciolto', '{U}');`)
@@ -730,7 +745,7 @@ func TestIlRitornoManualeDalla18Alla17(t *testing.T) {
 
 // Un figlio con due padri il modello della 17 non lo sa dire: il ritorno si ferma e non cambia niente.
 func TestIlRitornoSiFermaSuUnFiglioConDuePadri(t *testing.T) {
-	p := schema18(t)
+	p := schemaFermoAlla18(t)
 	t.Cleanup(func() { testutil.SchemaPulito(t, p) })
 	esegui18(t, p, `
 		INSERT INTO componente (componente_id, thread_id, codice, confermato_da) VALUES ('{K3}', '{T1}', 'P1', '{U}'), ('{K4}', '{T1}', 'P2', '{U}');

@@ -14,6 +14,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -33,6 +34,8 @@ func ImpostaCapacitaProva(t *testing.T, c coda.Capacita) {
 }
 
 // rfqConDocumentoInCoda costruisce una RFQ con un documento confermato e non ancora scritto sul NAS.
+// Con piu' documenti, ciascuno ha il suo file: dalla 0020 due documenti non dichiarano lo stesso
+// percorso (addendum A4.1), e il secondo file con lo stesso nome riceve il progressivo.
 func (b *bancoWeb) rfqConDocumentoInCoda(quanti int) (uuid.UUID, []uuid.UUID) {
 	b.t.Helper()
 	cliente := b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example")
@@ -49,9 +52,13 @@ func (b *bancoWeb) rfqConDocumentoInCoda(quanti int) (uuid.UUID, []uuid.UUID) {
 	for i := 0; i < quanti; i++ {
 		var d uuid.UUID
 		sha := strings.Repeat(string(rune('a'+i)), 64)
+		percorso := `2D\disegno.pdf`
+		if i > 0 {
+			percorso = fmt.Sprintf(`2D\disegno_%d.pdf`, i+1)
+		}
 		if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, bytes,
 			path_relativo, stato_nas, confermato_da) VALUES ($1,'disegno_2d','D1',$2,'pdf',$3,1000,$4,'in_coda',$5) RETURNING documento_id`,
-			thread, "disegno.pdf", sha, `2D\disegno.pdf`, utente).Scan(&d); err != nil {
+			thread, "disegno.pdf", sha, percorso, utente).Scan(&d); err != nil {
 			b.t.Fatal(err)
 		}
 		docs = append(docs, d)
