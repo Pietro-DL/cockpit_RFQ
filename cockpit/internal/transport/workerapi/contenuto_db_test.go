@@ -345,8 +345,12 @@ func TestE2EIlWorkerAnalisiVeroLeggeLaStrutturaDiUnoStep(t *testing.T) {
 	if !ok {
 		t.Fatalf("struttura non presente nei fatti: %s", fatti.Fatti)
 	}
-	if st.Versione != 2 || st.Schema != "AP214" {
+	if st.Versione != 3 || st.Schema != "AP214" {
 		t.Errorf("versione=%d schema=%q", st.Versione, st.Schema)
+	}
+	// v3 (B8.5): gli scarti arrivano in numeri, anche quando sono tutti zero
+	if st.Scarti == nil || *st.Scarti != (worker.ScartiSTEP{}) {
+		t.Errorf("scarti = %+v, attesi presenti e tutti zero", st.Scarti)
 	}
 	if len(st.Nodi) != 3 || len(st.Relazioni) != 2 {
 		t.Fatalf("nodi=%d relazioni=%d, attesi 3 e 2: %+v", len(st.Nodi), len(st.Relazioni), st)

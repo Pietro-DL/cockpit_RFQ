@@ -360,7 +360,9 @@ func TestAssegnareUnDocumentoNonToccaIlNas(t *testing.T) {
 	scritto := r.documento("scritto.pdf", "AB12", uuid.Nil, db.StatoNasScritto)
 	copie := b.copieInCoda()
 
-	a := r.assegna(operatore(b), url.Values{"componente": {comp.String()}, "documento": {inCoda.String(), scritto.String()}})
+	// due disegni diversi dello stesso pezzo: il secondo si aggiunge al primo (la domanda di A4.10)
+	a := r.assegna(operatore(b), url.Values{"componente": {comp.String()}, "documento": {inCoda.String(), scritto.String()},
+		"scelta_" + scritto.String(): {"aggiungi"}})
 	if !strings.Contains(a, "2 file assegnati al componente ab12") {
 		t.Fatalf("avviso: %q", a)
 	}
@@ -489,7 +491,8 @@ func TestLaCorrezioneRinominaITecniciESpostaGliAltri(t *testing.T) {
 	}
 
 	a := r.assegna(operatore(b), url.Values{"componente": {comp.String()},
-		"documento": {maiuscola.String(), distinta.String(), senzaEstensione.String()}, "correggi_codice": {"1"}})
+		"documento": {maiuscola.String(), distinta.String(), senzaEstensione.String()}, "correggi_codice": {"1"},
+		"scelta_" + maiuscola.String(): {"aggiungi"}}) // il secondo disegno si aggiunge al primo (A4.10)
 	if !strings.Contains(a, "3 file assegnati") {
 		t.Fatalf("avviso: %q", a)
 	}
@@ -515,7 +518,7 @@ func TestLaCorrezioneRinominaITecniciESpostaGliAltri(t *testing.T) {
 func TestLaCorrezioneInCodaRiscriveIlPercorsoPrimaDellaCopia(t *testing.T) {
 	strade := map[string]func(r *rfqFascicolo, tx pgx.Tx, doc, vecchio, nuovo uuid.UUID) error{
 		"assegna e correggi": func(r *rfqFascicolo, tx pgx.Tx, doc, _, nuovo uuid.UUID) error {
-			_, err := assegnaAlComponente(r.b.ctx, db.New(tx), r.thread, uuid.NullUUID{UUID: nuovo, Valid: true}, []uuid.UUID{doc}, nil, true)
+			_, err := assegnaAlComponente(r.b.ctx, db.New(tx), r.thread, uuid.NullUUID{UUID: nuovo, Valid: true}, []uuid.UUID{doc}, nil, true, nil)
 			return err
 		},
 		"codice del componente": func(r *rfqFascicolo, tx pgx.Tx, _, vecchio, _ uuid.UUID) error {

@@ -116,6 +116,23 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT tipo_proposto::text FROM documento_proposta WHERE allegato_id = $1`, allegato).Scan(&tipo); err != nil || tipo != "cad_3d" {
 				t.Errorf("la proposta del file non e' stata aggiornata: %q %v", tipo, err)
 			}
+			// B8.5: i fatti sono diventati proposte, e solo proposte. Il nodo che la working ha gia' e'
+			// riconciliato (duplicato, agganciato a 52922757); quello nuovo e l'arco nuovo chiedono una
+			// decisione. Nessuna rimozione: il file non e' lo STEP strutturale, e la lettura e' una v2.
+			var nodi string
+			if err := pool.QueryRow(ctx, `SELECT string_agg(chiave || ':' || stato || ':' || coalesce(componente_id::text, '-'), ' ' ORDER BY chiave)
+				FROM componente_proposta WHERE thread_id = $1`, thread).Scan(&nodi); err != nil {
+				t.Fatal(err)
+			}
+			if atteso := "#12:duplicato:" + p1.String() + " #32:aperta:-"; nodi != atteso {
+				t.Errorf("proposte di nodo = %q, attese %q", nodi, atteso)
+			}
+			if n := testutil.Conta(t, pool, "relazione_proposta WHERE stato = 'aperta'"); n != 1 {
+				t.Errorf("relazioni proposte aperte = %d, attesa 1 (#12 → #32)", n)
+			}
+			if n := testutil.Conta(t, pool, "rimozione_proposta"); n != 0 {
+				t.Errorf("rimozioni proposte = %d: un file che non e' lo STEP strutturale non ne propone", n)
+			}
 		})
 	}
 }

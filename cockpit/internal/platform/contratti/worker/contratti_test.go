@@ -85,6 +85,7 @@ var tipiAnnidati = map[string]any{
 	"NodoSTEP":            NodoSTEP{},
 	"RelazioneSTEP":       RelazioneSTEP{},
 	"LimitiSTEP":          LimitiSTEP{},
+	"ScartiSTEP":          ScartiSTEP{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -611,5 +612,33 @@ func TestUnaStrutturaVecchiaNonSiLegge(t *testing.T) {
 				t.Errorf("struttura accettata: %+v", st)
 			}
 		})
+	}
+}
+
+// La v3 (addendum B8, A4.4, D35) porta gli scarti in numeri: il server decide la completezza da li',
+// non dalle frasi. Una v2 si legge ancora, per le aggiunte, e senza scarti: Scarti resta nil, e nil
+// non vuol dire «zero scarti» (la funzione SQL la dice incompleta).
+func TestLaStrutturaV3PortaGliScartiInNumeri(t *testing.T) {
+	v3 := json.RawMessage(`{"struttura": {
+		"versione": 3, "schema": "AP214", "radici": ["#12"], "nodi": [], "relazioni": [],
+		"avvisi": ["2 PRODUCT senza PRODUCT_DEFINITION: ignorati"],
+		"scarti": {"prodotti_senza_definizione": 2, "occorrenze_non_risolte": 1,
+		           "occorrenze_su_se_stesse": 3, "testi_troncati": 4},
+		"limiti": {"troncato": false}
+	}}`)
+	st, ok := DecodificaStruttura(v3)
+	if !ok || st.Scarti == nil {
+		t.Fatalf("v3 non decodificata o senza scarti: %+v", st)
+	}
+	if *st.Scarti != (ScartiSTEP{ProdottiSenzaDefinizione: 2, OccorrenzeNonRisolte: 1, OccorrenzeSuSeStesse: 3, TestiTroncati: 4}) {
+		t.Errorf("scarti letti male: %+v", *st.Scarti)
+	}
+	v2 := json.RawMessage(`{"struttura": {"versione": 2, "radici": [], "nodi": [], "relazioni": [], "avvisi": []}}`)
+	st, ok = DecodificaStruttura(v2)
+	if !ok {
+		t.Fatal("una v2 deve leggersi ancora: propone le aggiunte")
+	}
+	if st.Scarti != nil {
+		t.Errorf("una v2 non ha scarti, e non si inventano: %+v", st.Scarti)
 	}
 }
