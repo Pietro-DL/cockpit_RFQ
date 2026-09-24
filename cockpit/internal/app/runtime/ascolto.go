@@ -6,9 +6,12 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	risorse "promatec/cockpit"
@@ -28,6 +31,13 @@ import (
 // Restituisce nil quando il TLS non c'e': non e' un errore, e' un server in chiaro, e chi ascolta lo
 // sa dal materiale che non riceve.
 func PreparaTLS(cfg *config.Config, log *slog.Logger) (*rete.Materiale, error) {
+	if cfg.Server.DaRigaDiComando {
+		// Gli avviatori di scripts/avvio-rete: chi apre cockpit.toml ci trova un'altra rete, e deve
+		// sapere da dove viene questa senza leggere il comando con cui e' partito il processo.
+		log.Info("rete dalla riga di comando: le voci di rete di [server] nel file non valgono per questo avvio",
+			"indirizzo", cfg.Server.Indirizzo, "url_pubblico", cfg.Server.URLPubblico, "tls_cert", cfg.Server.TLSCert,
+			"reti_consentite", cfg.Server.Reti)
+	}
 	var materiale *rete.Materiale
 	if cfg.ETLS() {
 		nomi := cfg.Server.TLSNomi
@@ -113,23 +123,37 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 	// montano — una protezione che in produzione e nei test passa da due strade diverse è una
 	// protezione che una delle due strade prima o poi perde.
 	srv := &http.Server{Addr: cfg.Server.Indirizzo, Handler: web.ProtezioneCSRF(logga(log, mux)), ReadHeaderTimeout: 10 * time.Second}
+	// Il listener si apre qui e non dentro ListenAndServe, perche' [server].reti_consentite lo
+	// avvolge: il filtro deve stare prima del TLS, e ListenAndServe non lascia metterci niente in mezzo.
+	ln, err := net.Listen("tcp", cfg.Server.Indirizzo)
+	if err != nil {
+		return fmt.Errorf("ascolto su %s: %w", cfg.Server.Indirizzo, err)
+	}
+	if len(cfg.Server.Reti) > 0 {
+		ln = rete.SoloDalleReti(ln, cfg.Server.Reti, func(da netip.Addr) {
+			log.Warn("connessione rifiutata: non viene da [server].reti_consentite", "da", da, "reti", cfg.Server.Reti)
+		})
+	}
 	go func() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()
 		_ = srv.Shutdown(sctx)
 	}()
-	log.Info("cockpit in ascolto", "indirizzo", cfg.Schema()+"://"+cfg.Server.Indirizzo, "staging", s.RadiceStaging,
+	reti := "tutte"
+	if len(cfg.Server.Reti) > 0 {
+		reti = fmt.Sprint(cfg.Server.Reti)
+	}
+	log.Info("cockpit in ascolto", "indirizzo", cfg.Schema()+"://"+cfg.Server.Indirizzo, "reti_consentite", reti, "staging", s.RadiceStaging,
 		"max_upload_mb", cfg.Server.MaxUploadMB, "log", percorsoLog, "livello", livello)
-	var err error
 	if materiale != nil {
 		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{materiale.Certificato}, MinVersion: tls.VersionTLS12}
 		// I due percorsi sono vuoti di proposito: il certificato è già in TLSConfig, e rileggerlo dal
 		// disco qui vorrebbe dire poter servire qualcosa di diverso da ciò di cui abbiamo scritto
 		// l'impronta nel log.
-		err = srv.ListenAndServeTLS("", "")
+		err = srv.ServeTLS(ln, "", "")
 	} else {
-		err = srv.ListenAndServe()
+		err = srv.Serve(ln)
 	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

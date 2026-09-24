@@ -54,8 +54,11 @@ func (m *Materiale) Copre(host string) bool {
 	if host == "" {
 		return true
 	}
+	// Un indirizzo si confronta per valore: lo stesso IPv6 si scrive in piu' modi (zeri, maiuscole),
+	// e nel certificato c'e' la forma canonica.
+	ip := net.ParseIP(host)
 	for _, n := range m.Nomi {
-		if strings.ToLower(n) == host {
+		if strings.ToLower(n) == host || (ip != nil && ip.Equal(net.ParseIP(n))) {
 			return true
 		}
 	}

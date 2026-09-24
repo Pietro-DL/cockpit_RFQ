@@ -131,6 +131,7 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `tls_nomi` | i nomi e gli IP per cui vale il certificato generato. Assente = nome host della macchina e l'indirizzo di ascolto, se è un IP; dal 7C.1 anche l'host di `url_pubblico` |
 | `url_pubblico` | (7C.1) l'indirizzo con cui worker e browser **chiamano** il server, es. `https://10.0.0.7:8443`: finisce nel `worker.toml` del pacchetto e nelle istruzioni della postazione. Assente = derivato dal bind, cioè il nome host della macchina, che da un altro PC della LAN può non risolversi. Lo schema deve essere quello che il server parla davvero, altrimenti non parte |
 | `consenti_lan_in_chiaro` | la via d'uscita dichiarata: ascoltare in chiaro fuori da questo PC. Ha senso solo se il collegamento è già cifrato da altro (un tunnel). Il server lo ripete a ogni avvio |
+| `reti_consentite` | da dove il server accetta una connessione: `["10.0.0.0/24"]`, `["10.0.0.15", "fd12:3456:789a:1::/64"]`. Il filtro sta sul listener, prima del TLS; loopback e l'indirizzo di ascolto passano sempre. Solo reti della LAN, altrimenti il server non parte. Assente = nessun filtro. Gli avviatori di `scripts/avvio-rete` la danno con `-reti` («Avvio in rete») |
 | `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
 | `modalita` | `shadow` o `produzione` (voce 9.5). **`shadow` è un preset di `[sicurezza]`**: spegne tutte e tre le capacità di scrittura, qualunque cosa dica quella sezione. «Apri in Outlook» resta consentito. **Assente = shadow**: il default sicuro è quello che non tocca niente. `produzione` NON accende niente da sola: serve `[sicurezza]`. Quando una capacità si accende, i job che avevano aspettato vengono annullati, non eseguiti |
 | `log_livello` | `info`; `debug` stampa anche ogni claim |
@@ -536,6 +537,10 @@ Opzioni:
 
 `-migra` è il modo giusto di aggiornare il database prima di sostituire il binario su una postazione.
 
+`-ascolto`, `-tls-cert`, `-tls-key`, `-url-pubblico` e `-reti` danno la rete dalla riga di comando, al
+posto delle voci di rete di `[server]`: sono quelle che usano gli avviatori di `scripts/avvio-rete`
+(«Avvio in rete», più sotto).
+
 ## Avviare i worker Python
 
 Ogni worker è un processo a sé e si può fermare e riavviare in qualsiasi momento: chiede lavoro al
@@ -579,6 +584,9 @@ powershell -ExecutionPolicy Bypass -File scripts\ferma-dev.ps1               # f
 Il worker Outlook non parte da solo: si attacca via COM alla casella vera del profilo di questo
 PC, quindi avviarlo è un accesso alla posta reale e serve chiederlo esplicitamente con
 `-ConOutlook`.
+
+Per aprire il server agli altri PC della LAN, senza cambiare `cockpit.toml`, ci sono
+`scripts/avvio-rete/avvia-lan.sh` (IPv4) e `avvia-https.sh` (IPv6): vedi «Avvio in rete» più sotto.
 
 ### Su una postazione vera: il pacchetto e `installa-postazione.ps1` (7C.1)
 
@@ -687,6 +695,122 @@ La prova minima che il blocco 2 regge: server su un PC, worker su un altro.
 | Worker | il pacchetto scaricato da *Postazioni*, scompattato sul secondo PC |
 | Da guardare | il worker deve fare claim (`/admin/postazioni` mostra «ultimo contatto» e l'IP), e «Apri in Outlook» deve aprire la finestra **su quel PC**, non sul primo |
 | Da provare al contrario | cambiare una cifra dell'impronta nel `worker.toml`: il worker deve fermarsi con «il server ha presentato un certificato diverso da quello atteso» e **non** mandare il token |
+
+### Avvio in rete: `scripts/avvio-rete` (LAN IPv4 o IPv6, sempre HTTPS)
+
+Due avviatori bash mettono il server in rete **senza toccare `cockpit.toml`**. L'avvio di sempre
+(`scripts\avvia-dev.ps1`, `127.0.0.1:8080`) resta com'è: si sceglie a ogni avvio quale usare.
+
+| Avviatore | Indirizzo | Chi entra (default) | Certificato |
+|---|---|---|---|
+| `avvia-lan.sh` | l'IPv4 della scheda con il gateway predefinito | la rete di quella scheda (`10.0.0.7/24` → `10.0.0.0/24`) | `tls/lan/` |
+| `avvia-https.sh` | un IPv6: quello statico della VM del NAS quando ci sarà, fino ad allora quello del PC che fa da server | il suo segmento (`/64`) | `tls/https/` |
+
+Tutti e due parlano **HTTPS**: fuori da questo PC il server non parte in chiaro, e dalla riga di
+comando non si eredita il `consenti_lan_in_chiaro` del file. Il «più sicuro» della LAN non è l'IPv4:
+è il TLS più il filtro delle reti, e con `-c` il filtro si stringe a un elenco di PC.
+
+Da Git Bash, nella cartella `cockpit/` (su Linux, da bash):
+
+```bash
+bash scripts/avvio-rete/avvia-lan.sh                           # IPv4 della scheda, la sua rete
+bash scripts/avvio-rete/avvia-lan.sh -c 10.0.0.15,10.0.0.16    # solo questi due PC (più questo)
+bash scripts/avvio-rete/avvia-https.sh -a fd12:3456:789a:1::7  # un IPv6 di questo PC
+bash scripts/avvio-rete/avvia-https.sh -a ::1                  # prova della modalità su questo PC soltanto
+bash scripts/avvio-rete/avvia-lan.sh --mostra                  # stampa il comando del server, non avvia niente
+bash scripts/avvio-rete/avvia-lan.sh --help
+```
+
+Da PowerShell `bash` non è nel PATH (e, se c'è WSL, è un altro bash): si chiama quello di Git.
+
+```powershell
+& "C:\Program Files\Git\bin\bash.exe" scripts/avvio-rete/avvia-lan.sh
+```
+
+| Opzione | |
+|---|---|
+| `-a INDIRIZZO[/PREFISSO]` | l'indirizzo di **questo** PC su cui ascoltare. Assente = scelto da solo. Senza prefisso si legge dalla scheda; un indirizzo che non è di questo PC ferma lo script (un server ascolta solo sui propri indirizzi) |
+| `-p PORTA` | porta, `8443` se assente |
+| `-c RETE[,RETE…]` | da dove si accettano connessioni, al posto della rete della scheda: reti o indirizzi singoli |
+| `--config FILE` | un altro file di configurazione; `tls/<modalità>/` si crea accanto a lui |
+| `--no-build` | non ricompila (sulla VM, dove Go può non esserci) |
+| `--mostra` | sceglie l'indirizzo, stampa il comando e si ferma |
+
+Che cosa succede, in ordine: lo script sceglie o controlla l'indirizzo, si rifiuta di partire se un
+`cockpit` gira già (due server sullo stesso database si contendono la coda: prima `ferma-dev.ps1` o
+Ctrl+C), compila e avvia il server **in primo piano** (Ctrl+C lo ferma) con la rete sulla riga di
+comando. Il comando che lancia è questo, e si può anche scrivere a mano:
+
+```bash
+./cockpit.exe -config cockpit.toml -ascolto 10.0.0.7:8443 -tls-cert tls/lan/cert.pem -tls-key tls/lan/key.pem \
+  -url-pubblico https://10.0.0.7:8443 -reti 10.0.0.0/24
+```
+
+Con `-ascolto` le voci di rete di `[server]` (indirizzo, `tls_*`, `url_pubblico`, `reti_consentite`,
+`consenti_lan_in_chiaro`) valgono **per intero** dalla riga di comando: un pezzo dal file e un pezzo da
+qui darebbe un server che ascolta su un indirizzo e manda i worker su un altro. Tutto il resto del file
+(database, NAS, utenti, modalità) resta quello, e il log dell'avvio lo scrive: «rete dalla riga di
+comando». I percorsi del certificato sono relativi al file di configurazione, come nel file.
+
+**Il filtro.** `[server].reti_consentite` (dal file o da `-reti`) avvolge il listener: una connessione
+da fuori elenco si chiude appena accettata, **prima del TLS**, e un PC che non è nella rete non riceve
+nemmeno il certificato. Passano sempre loopback e l'indirizzo su cui si ascolta (il browser del server
+stesso). Il log dice «connessione rifiutata», al più una volta al minuto per indirizzo. Si ammettono
+solo reti della LAN: IPv4 privati (`10/8`, `172.16/12`, `192.168/16`) e link-local, IPv6 ULA
+(`fc00::/7`) e link-local, un prefisso IPv6 globale di `/64` o più stretto. `0.0.0.0/0`, un IPv4
+pubblico o un globale più largo fermano l'avvio.
+
+**I worker non cambiano codice**, ma il pacchetto sì. Il client dei worker legge `server_url` e
+`impronta` da `worker.toml`, fissa il certificato per impronta e non guarda il nome: un IPv4, un IPv6
+fra parentesi (`https://[fd12:3456:789a:1::7]:8443`) o un nome vanno bene uguale. La pagina
+*Postazioni* genera il pacchetto con l'`url_pubblico` e l'impronta **dell'avvio in corso**. Quindi:
+
+- un pacchetto vale per **una** modalità: indirizzo e certificato di `lan` e `https` sono diversi, e
+  un worker installato con il pacchetto dell'una non parla con il server avviato nell'altra (si ferma
+  con «certificato diverso da quello atteso», oppure non trova il server). Cambiare modalità vuol dire
+  rigenerare e reinstallare il pacchetto su ogni PC (`installa-postazione.ps1 -Ferma` → genera →
+  scompatta sopra → rilancia). Più PC insieme vanno bene con qualunque delle due, purché tutti con il
+  pacchetto di quella in corso;
+- lo stesso per il worker di **questo** PC: `workers\worker.toml` del banco punta a
+  `http://127.0.0.1:8080`, dove un server avviato in rete non ascolta;
+- l'IP di un PC deve stare fra le reti ammesse: un portatile in Wi-Fi su un'altra sottorete viene
+  rifiutato finché non lo si aggiunge con `-c`;
+- l'abbinamento sessione → postazione (voce 2.7) confronta l'IP del browser con quello da cui il worker
+  fa claim: con un solo URL per tutti e due si abbinano come prima;
+- se il DHCP cambia l'IPv4 del server, cambia anche l'URL: il log avvisa che il certificato non nomina il
+  nuovo indirizzo; si cancella `tls/lan/` (il server ne fa uno nuovo) e si rigenerano i pacchetti.
+
+**Windows Firewall.** Sul PC che fa da server le connessioni in ingresso sono bloccate finché non c'è
+una regola (sul banco tutti i profili hanno `DefaultInboundAction = Block`). Lo script non la crea:
+serve un amministratore, una volta, dalla cartella `cockpit/`:
+
+```powershell
+New-NetFirewallRule -DisplayName "Cockpit RFQ (avvio in rete)" -Direction Inbound -Action Allow `
+  -Program "$PWD\cockpit.exe" -Protocol TCP -LocalPort 8443 -RemoteAddress LocalSubnet -Profile Any
+Remove-NetFirewallRule -DisplayName "Cockpit RFQ (avvio in rete)"     # per toglierla
+```
+
+`LocalSubnet` è la stessa idea del filtro, un livello più in basso: la sottorete delle schede di questo
+PC. Il filtro del server resta comunque: vale anche sulla VM Linux e anche se la regola è più larga.
+
+**IPv6 su questo PC, oggi.** Il PC del banco ha solo IPv6 link-local (`fe80::…%zona`): nessun ULA,
+nessun globale, nessuna rotta IPv6. Un link-local non si può usare, perché i browser (Edge, Chrome,
+Firefox) non aprono un indirizzo con la zona. Senza `-a`, `avvia-https.sh` lo dice e si ferma. Sulla
+VM si userà l'IPv6 statico che darà l'IT (`-a …`). Fino ad allora la modalità si prova con `-a ::1`,
+cioè solo da questo PC.
+
+Provato il 24/09/2026 sul banco, con un database usa e getta sul cluster di prova:
+- `avvia-lan.sh`: HTTPS sull'IPv4 della scheda, con il certificato che lo nomina. Il chiaro sulla porta
+  riceve «Client sent an HTTP request to an HTTPS server», e su loopback non ascolta;
+- `avvia-https.sh -a ::1`: login in Edge fino all'Inbox, con il cookie `Secure`;
+- con tutte e due, il client vero dei worker con l'impronta giusta arriva all'API, e con un'impronta
+  sbagliata si ferma prima di mandare il token;
+- il pacchetto generato da *Postazioni* porta `server_url = "https://[::1]:8443"` e l'impronta
+  dell'avvio, e il worker di analisi del pacchetto si collega e si autentica.
+
+Non provato: il rifiuto di una connessione vera da un altro PC fuori rete, e un secondo PC che entra.
+Servono un altro PC e la regola del firewall. Il meccanismo del rifiuto è coperto dalle prove L1 sul
+listener.
 
 ### Server su una VM Linux, worker sui PC (D23)
 
@@ -1268,7 +1392,9 @@ scripts/                            avvia-dev.ps1 (semina le anagrafiche, poi av
                                     semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
                                     db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                                     azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
-                                    backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh
+                                    backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh;
+                                    avvio-rete/ (avvia-lan.sh IPv4, avvia-https.sh IPv6, comune.sh: il server in HTTPS
+                                    sulla LAN con le reti ammesse, senza toccare cockpit.toml)
 ```
 
 ## Come si parlano i pezzi

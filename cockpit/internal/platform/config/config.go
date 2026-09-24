@@ -289,6 +289,58 @@ type Server struct {
 	// nome. L'host dichiarato entra anche nei nomi del certificato generato (SAN), cosi' il browser
 	// non ha un avviso in piu' da ignorare.
 	URLPubblico string `toml:"url_pubblico"`
+	// RetiConsentite sono le reti da cui il server accetta una connessione: «10.0.0.0/24»,
+	// «fd12:3456:789a:1::/64», o un indirizzo solo. Il filtro sta sul listener, prima del TLS: un PC
+	// fuori elenco non riceve nemmeno il certificato. Questo PC (loopback e l'indirizzo su cui si
+	// ascolta) passa sempre. Vuoto = nessun filtro, com'era prima.
+	//
+	// Solo reti della LAN (leggiRete): un elenco che lasciasse entrare internet non e' un filtro, e
+	// il server non parte.
+	RetiConsentite []string `toml:"reti_consentite"`
+	// Reti e' RetiConsentite letta: prefissi mascherati, un IPv4 scritto in forma 4in6 riportato a IPv4.
+	Reti []netip.Prefix `toml:"-"`
+	// DaRigaDiComando dice che le voci di rete qui sopra vengono da -ascolto e compagni (Rete), non
+	// dal file: il log dell'avvio lo scrive, perche' chi legge cockpit.toml ci trova un'altra rete.
+	DaRigaDiComando bool `toml:"-"`
+}
+
+// Rete e' la rete dichiarata sulla riga di comando (-ascolto, -tls-cert, -tls-key, -url-pubblico,
+// -reti): la usano gli avviatori di scripts/avvio-rete, che non toccano cockpit.toml.
+//
+// Quando c'e' l'indirizzo, vale PER INTERO al posto delle voci di rete di [server]: indirizzo,
+// tls_cert, tls_key, tls_nomi, url_pubblico, reti_consentite e consenti_lan_in_chiaro. Prenderne un
+// pezzo dal file e un pezzo da qui darebbe un server che ascolta su un indirizzo e manda i worker su
+// un altro, o uno che eredita un «in chiaro» dichiarato per un'altra rete. Le altre voci del file
+// (database, NAS, utenti, modalita') restano quelle.
+//
+// I percorsi del certificato sono relativi alla cartella del file di configurazione, come nel file.
+type Rete struct {
+	Indirizzo   string
+	TLSCert     string
+	TLSKey      string
+	URLPubblico string
+	Reti        []string
+}
+
+// applica mette la rete della riga di comando al posto di quella del file. Senza indirizzo non
+// cambia niente, ma il resto da solo e' un errore: un certificato o un filtro dati senza dire dove
+// ascoltare sono una rete a meta', e a meta' non si parte.
+func (r Rete) applica(s *Server) error {
+	if strings.TrimSpace(r.Indirizzo) == "" {
+		if r.TLSCert != "" || r.TLSKey != "" || r.URLPubblico != "" || len(r.Reti) > 0 {
+			return fmt.Errorf("config: la rete dalla riga di comando vuole l'indirizzo di ascolto (-ascolto): " +
+				"senza, certificato, url pubblico e reti consentite non valgono")
+		}
+		return nil
+	}
+	s.Indirizzo = strings.TrimSpace(r.Indirizzo)
+	s.TLSCert, s.TLSKey = r.TLSCert, r.TLSKey
+	s.TLSNomi = nil
+	s.URLPubblico = r.URLPubblico
+	s.RetiConsentite = r.Reti
+	s.ConsentiLanInChiaro = false
+	s.DaRigaDiComando = true
+	return nil
 }
 
 type DB struct {
@@ -463,6 +515,13 @@ type Utente struct {
 }
 
 func Carica(percorso string) (*Config, error) {
+	return CaricaConRete(percorso, Rete{})
+}
+
+// CaricaConRete e' Carica con la rete della riga di comando al posto di quella del file (Rete). La
+// rete entra PRIMA delle verifiche: il rifiuto del chiaro fuori da questo PC, lo schema di url_pubblico
+// e le reti consentite valgono per lei come per il file.
+func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 	c := &Config{}
 	c.Server.Indirizzo = "127.0.0.1:8080"
 	c.Server.LogLivello = "info"
@@ -479,6 +538,9 @@ func Carica(percorso string) (*Config, error) {
 	}
 	if c.DB.DSN == "" {
 		return nil, fmt.Errorf("config: [db].dsn mancante")
+	}
+	if err := rete.applica(&c.Server); err != nil {
+		return nil, err
 	}
 	if err := c.normalizzaRete(filepath.Dir(percorso)); err != nil {
 		return nil, err
@@ -686,7 +748,69 @@ func (c *Config) normalizzaRete(dirConfig string) error {
 				c.Server.URLPubblico, u.Scheme, c.Schema(), map[bool]string{true: "presenti", false: "assenti"}[c.ETLS()])
 		}
 	}
+	c.Server.Reti = nil
+	for _, voce := range c.Server.RetiConsentite {
+		p, err := leggiRete(voce)
+		if err != nil {
+			return err
+		}
+		c.Server.Reti = append(c.Server.Reti, p)
+	}
 	return nil
+}
+
+// blocchiLAN sono gli spazi di indirizzi che non escono dalla rete dell'azienda: gli IPv4 privati
+// (RFC 1918) e link-local, gli IPv6 ULA (fc00::/7) e link-local, e questo PC.
+var blocchiLAN = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("::1/128"),
+}
+
+// leggiRete legge una voce di [server].reti_consentite: una rete («10.0.0.0/24») o un indirizzo solo
+// («10.0.0.15», che vale /32; per IPv6 /128). La rete deve stare nella LAN: dentro uno dei blocchiLAN,
+// oppure un prefisso IPv6 globale non piu' largo di un segmento (/64), che e' come un server IPv6
+// vede i PC della sua stessa rete quando l'azienda non usa gli ULA. «0.0.0.0/0», un IPv4 pubblico o
+// «2000::/3» farebbero entrare internet: la voce che doveva chiudere aprirebbe, e il server non parte.
+func leggiRete(voce string) (netip.Prefix, error) {
+	s := strings.TrimSpace(voce)
+	var p netip.Prefix
+	if strings.Contains(s, "/") {
+		q, err := netip.ParsePrefix(s)
+		if err != nil {
+			return p, fmt.Errorf("config: [server].reti_consentite: %q non e' una rete (serve «10.0.0.0/24», «fd12:3456:789a:1::/64» o un indirizzo solo)", voce)
+		}
+		p = q
+	} else {
+		a, err := netip.ParseAddr(s)
+		if err != nil || a.Zone() != "" {
+			return p, fmt.Errorf("config: [server].reti_consentite: %q non e' un indirizzo (serve «10.0.0.15», «fd12:3456:789a:1::15» o una rete con /, senza %%zona)", voce)
+		}
+		p = netip.PrefixFrom(a, a.BitLen())
+	}
+	if p.Addr().Is4In6() {
+		if p.Bits() < 96 {
+			return p, fmt.Errorf("config: [server].reti_consentite: %q va oltre gli indirizzi IPv4 che nomina", voce)
+		}
+		p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+	}
+	p = p.Masked()
+	for _, b := range blocchiLAN {
+		if b.Bits() <= p.Bits() && b.Contains(p.Addr()) {
+			return p, nil
+		}
+	}
+	if p.Addr().Is6() && p.Addr().IsGlobalUnicast() && p.Bits() >= 64 {
+		return p, nil
+	}
+	return p, fmt.Errorf("config: [server].reti_consentite: %q (%s) non e' una rete della LAN. Si ammettono gli IPv4 privati "+
+		"(10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) e link-local, gli IPv6 ULA (fc00::/7) e link-local, e un prefisso IPv6 "+
+		"globale di /64 o piu' stretto: una rete piu' larga lascerebbe entrare internet", voce, p)
 }
 
 // HostPubblico e' il solo host di [server].url_pubblico, senza schema e porta; vuoto se non dichiarato.

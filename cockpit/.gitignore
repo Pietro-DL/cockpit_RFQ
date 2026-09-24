@@ -50,3 +50,8 @@ _nas_test/
 # Per tornare al comportamento del ramo di prodotto basta rimettere la riga:
 #
 #     *_test.go
+
+# Certificati e chiavi generati dal server (scripts/avvio-rete: tls/lan/, tls/https/). La chiave privata
+# non esce da questo PC.
+tls/
+*.pem
