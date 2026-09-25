@@ -1,6 +1,6 @@
 //go:build integrazione && browser
 
-// L7 — la schermata del Fascicolo in un BROWSER VERO (B8.7, piano §13 e §14.5).
+// L7 — la schermata del Fascicolo in un BROWSER VERO (B8.7, piano §13 e §14.5; rifatta in B8.7b).
 //
 //	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags "integrazione browser" -count=1 -run TestL7 ./internal/transport/web/
 //
@@ -53,28 +53,45 @@ func (b *bancoWeb) scenaL7(t *testing.T, chiave string, extra int) *scenaL7 {
 	t.Cleanup(func() { b.ws.Analizzatore = coda.Analizzatore{} })
 	s := &scenaL7{scenaB87: b.scenaB87(chiave)}
 	s.esegui(`UPDATE cliente SET regole = $1 WHERE cliente_id = (SELECT cliente_id FROM thread_offerta WHERE thread_id = $2)`, famiglieL7, s.thread)
+	// un codice visto nella mail e non ancora nella BOM: nel cassetto «Codici» offre «+ Prodotto / + Assieme / + Particolare»
+	s.esegui(`INSERT INTO candidato_codice (messaggio_id, codice, ruolo, rev, origine, famiglia, punteggio, evidenza)
+		VALUES ($1, '53099999', 'prodotto', '', 'famiglia', 'disegni 52/53', 80, 'corpo')`, s.msg)
 	b.caricamentoAcceso(t)
 	// l'anteprima serve dallo staging solo cio' che sta sotto la radice dichiarata
 	b.ws.Staging = s.staging
 	s.pdf = s.allLibero
-	pdf := pdfFinto(256 * 1024)
-	var percorso string
-	if err := b.pool.QueryRow(b.ctx, `SELECT path_staging FROM allegato WHERE allegato_id = $1`, s.pdf).Scan(&percorso); err != nil {
+	s.pdfVero(t, s.pdf, 256*1024)
+	var libero2 uuid.UUID
+	if err := b.pool.QueryRow(b.ctx, `SELECT allegato_id FROM documento_proposta WHERE proposta_id = $1`, s.pdfLibero2).Scan(&libero2); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(percorso, pdf, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s.esegui(`UPDATE allegato SET sha256 = $2, bytes = $3 WHERE allegato_id = $1`, s.pdf, shaDi(pdf), len(pdf))
+	s.pdfVero(t, libero2, 64*1024)
 	s.stp = s.stepNellaRfq("assieme.stp", fattiL7, an)
-	for _, nome := range []string{"53017189 foglio 2.pdf", "53017189 foglio 3.pdf", "53017189 foglio 4.pdf"} {
-		p, _ := s.propostaDa(nome, "53017189")
+	for i, nome := range []string{"53017189 foglio 2.pdf", "53017189 foglio 3.pdf", "53017189 foglio 4.pdf"} {
+		p, a := s.propostaDa(nome, "53017189")
+		s.pdfVero(t, a, 64*1024+i+1)
 		s.proposte = append(s.proposte, p)
 	}
 	for i := 0; i < extra; i++ {
 		s.propostaDa(fmt.Sprintf("disegno %03d con un nome lungo come quelli dei clienti veri, per vedere se va a capo.pdf", i), fmt.Sprintf("5300%04d", i))
 	}
 	return s
+}
+
+// pdfVero mette nello staging, al posto del contenuto finto, un PDF vero di n byte (n diversi, contenuti
+// diversi): il dettaglio di un componente apre da solo il primo 2D in arrivo (B8.7b), e il browser deve
+// ricevere un PDF, non un 415.
+func (s *scenaL7) pdfVero(t *testing.T, allegato uuid.UUID, n int) {
+	t.Helper()
+	pdf := pdfFinto(n)
+	var percorso string
+	if err := s.b.pool.QueryRow(s.b.ctx, `SELECT path_staging FROM allegato WHERE allegato_id = $1`, allegato).Scan(&percorso); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(percorso, pdf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.esegui(`UPDATE allegato SET sha256 = $2, bytes = $3 WHERE allegato_id = $1`, allegato, shaDi(pdf), len(pdf))
 }
 
 // lanciaL7 esegue lo script del browser sulle prove indicate.
@@ -112,9 +129,9 @@ func lanciaL7(t *testing.T, s *scenaL7, prove string) {
 	t.Logf("prove nel browser:\n%s", testo)
 }
 
-// Accettare una proposta cambia l'albero e la completezza senza ricaricare la pagina e senza chiudere il
-// PDF aperto; un clic sul nodo filtra i documenti; un clic sul file apre il PDF; la struttura si
-// corregge (tipo) e la completezza cambia.
+// Accettare il nodo e poi la struttura proposta cambia la BOM senza ricaricare la pagina e senza chiudere
+// il PDF aperto; un clic sulla card apre il dettaglio del componente; un clic sul file apre il PDF; la
+// struttura si corregge (tipo) e la completezza sulla card cambia; le viste tecniche restano.
 func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7A", 0)
@@ -124,6 +141,9 @@ func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	}
 	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "sciolto" {
 		t.Errorf("il tipo cambiato nel browser: %s", got)
+	}
+	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '53099999'`, s.thread); got != "sciolto/codice_rilevato" {
+		t.Errorf("il codice aggiunto dal cassetto nel browser: %s", got)
 	}
 }
 
@@ -143,4 +163,26 @@ func TestL7CentoAllegati(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7G", 100)
 	lanciaL7(t, s, "G")
+}
+
+// «Conferma Fascicolo» (B8.7b): il riepilogo spunta tutto il pronto, un gesto porta nel fascicolo la
+// struttura dello STEP, i documenti e lo STEP strutturale del prodotto, senza ricaricare.
+func TestL7ConfermaFascicolo(t *testing.T) {
+	b := preparaBancoWeb(t)
+	s := b.scenaL7(t, "L7I", 0)
+	lanciaL7(t, s, "I")
+	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '53011111'`, s.thread); n != 1 {
+		t.Errorf("il nodo dello STEP non e' nato con la conferma: %d", n)
+	}
+	// i due documenti della scena, piu' i cinque PDF del piano: 53017189.pdf e i tre fogli al particolare,
+	// 52920517.pdf all'assieme
+	if n := s.conta(`SELECT count(*) FROM documento WHERE thread_id = $1`, s.thread); n != 7 {
+		t.Errorf("documenti dopo la conferma: %d, attesi 7", n)
+	}
+	if n := s.conta(`SELECT count(*) FROM documento WHERE componente_id = $1 AND tipo = 'disegno_2d'`, s.particolare); n != 4 {
+		t.Errorf("disegni del particolare dopo la conferma: %d, attesi 4", n)
+	}
+	if got := s.valore(`SELECT coalesce(step_strutturale_id::text, '') FROM componente WHERE componente_id = $1`, s.prodotto); got != s.step.String() {
+		t.Errorf("STEP strutturale del prodotto: %q, atteso %s", got, s.step)
+	}
 }

@@ -870,7 +870,7 @@ func TestAccettareIlFileConDueNodiDelloStessoCodiceSottoLoStessoPadre(t *testing
 	if err != nil {
 		t.Fatalf("accetta tutto il file: %v", err)
 	}
-	if msg != "Accettati 2 nodi e 1 relazioni." {
+	if msg != "Accettati 2 nodi e 1 relazione." {
 		t.Errorf("messaggio: %q", msg)
 	}
 	if got := b.bom(); got != "P1:sottoassieme:-|B:sciolto:- # P1>B*1" {
@@ -895,7 +895,7 @@ func TestAccettareIlFileConUnNodoDentroUnoDelloStessoCodice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accetta tutto il file: %v", err)
 	}
-	if msg != "Accettati 2 nodi e 1 relazioni." {
+	if msg != "Accettati 2 nodi e 1 relazione." {
 		t.Errorf("messaggio: %q", msg)
 	}
 	if got := b.bom(); got != "P1:sottoassieme:-|B:sciolto:- # P1>B*2" {

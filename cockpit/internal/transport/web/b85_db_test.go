@@ -173,7 +173,7 @@ func TestAprireLaRfqRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) {
 	}
 
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/file/%s/accetta", r.thread, letto), url.Values{}, true)
-	if a := avvisoDi(html); a != "Accettati 2 nodi e 1 relazioni." {
+	if a := avvisoDi(html); a != "Accettati 2 nodi e 1 relazione." {
 		t.Fatalf("accetta il file: %q", a)
 	}
 	if n := r.conta(`SELECT count(*) FROM componente_relazione WHERE thread_id = $1 AND qta = 4`, r.thread); n != 1 {

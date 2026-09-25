@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -200,25 +201,35 @@ func (s *scenaB87) valore(sql string, arg ...any) string {
 
 // ---------------------------------------------------------------- la pagina
 
-// La schermata si apre con i tre pannelli, la barra e il cassetto; l'albero mette il particolare sotto
-// tutti e due i padri; i documenti partono dai file non assegnati. Chi consulta la vede senza gesti, e
-// se prova a scrivere il server rifiuta.
+// La schermata si apre con la BOM visuale, il dettaglio, il piano e il cassetto (B8.7b); la BOM mette il
+// particolare sotto tutti e due i padri; la vista Documenti parte dai file non assegnati, e il file picker
+// non e' sempre davanti: sta in «Aggiungi file». Chi consulta la vede senza gesti, e se prova a scrivere il
+// server rifiuta.
 func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("PAG87")
 	w := operatore(b)
+	b.caricamentoAcceso(t)
 
 	resp, html := w.fai(http.MethodGet, s.base(), nil, false)
 	if resp.StatusCode != 200 {
 		t.Fatalf("GET: %d", resp.StatusCode)
 	}
-	for _, atteso := range []string{`id="fasc-testata"`, `id="struttura"`, `id="documenti"`, `id="anteprima"`, `id="anteprima-corpo"`,
-		`id="completezza"`, `id="cassetto"`, "Struttura", "Documenti", "Completezza", ">BOM<", ">Griglia<", ">Codici<", "Avvisi",
-		`id="nodo-` + s.prodotto.String() + `"`, `id="nodo-` + s.particolare.String() + `-` + s.prodotto.String() + `"`,
-		`id="nodo-` + s.particolare.String() + `-` + s.assieme.String() + `"`, "condiviso", "53017189.pdf", "52920517.pdf",
-		"Congela…", "Carica nuova versione interna"} {
+	for _, atteso := range []string{`id="fasc-testata"`, `id="vista"`, `id="tela"`, `id="anteprima"`, `id="anteprima-corpo"`,
+		`id="piano"`, `id="cassetto"`, `id="fasc-avanzamento-box"`, "Documenti", "Componenti", ">BOM<", ">Griglia<", ">Codici<", "Avvisi",
+		">Completezza<", `id="nodo-` + s.prodotto.String() + `"`, `id="nodo-` + s.particolare.String() + `-` + s.prodotto.String() + `"`,
+		`id="nodo-` + s.particolare.String() + `-` + s.assieme.String() + `"`, "condiviso", "Congela…", "Carica dal PC", "Conferma Fascicolo"} {
 		if !strings.Contains(html, atteso) {
 			t.Errorf("la pagina non ha %q", atteso)
+		}
+	}
+	if strings.Contains(html, `class="doc-tabella"`) || strings.Count(html, `type="file"`) != 1 {
+		t.Error("la tabella dei documenti e' una vista a parte, e il file picker sta solo in «Carica dal PC»")
+	}
+	_, html = w.fai(http.MethodGet, s.base()+"?vista=documenti", nil, false)
+	for _, atteso := range []string{`class="doc-tabella"`, "53017189.pdf", "52920517.pdf"} {
+		if !strings.Contains(html, atteso) {
+			t.Errorf("la vista Documenti non ha %q", atteso)
 		}
 	}
 	if strings.Contains(html, "52922757 foglio 1.pdf") {
@@ -251,11 +262,14 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	w := operatore(b)
 
 	stato := "?file=" + s.allLibero.String() + "&nodo=" + s.particolare.String()
-	_, html := w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"B"}}, s.thread, stato)
+	// la pagina rimanda con ogni richiesta che cosa mostra il corpo del pannello di destra (hx-include)
+	_, pagina := w.fai(http.MethodGet, s.base()+stato, nil, false)
+	chiave := chiaveCorpoDi(t, pagina)
+	_, html := w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"B"}, "corpo_chiave": {chiave}}, s.thread, stato)
 	if a := avvisoF(html); a != "53017189: rev — → B." {
 		t.Fatalf("avviso: %q", a)
 	}
-	for _, id := range []string{"fasc-testata", "struttura", "documenti", "completezza", "cassetto", "anteprima-testa"} {
+	for _, id := range []string{"fasc-testata", "fasc-avanzamento-box", "vista", "piano", "cassetto", "anteprima-testa"} {
 		if !strings.Contains(html, `id="`+id+`" hx-swap-oob="innerHTML"`) {
 			t.Errorf("manca il pannello fuori banda %s", id)
 		}
@@ -266,8 +280,8 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 		}
 	}
 	// lo stato della pagina (il nodo scelto, il file aperto) si rilegge da HX-Current-URL
-	if !strings.Contains(html, `id="scheda-nodo"`) || !strings.Contains(html, "Nodo scelto") {
-		t.Error("il nodo scelto nell'indirizzo deve restare scelto")
+	if !strings.Contains(html, `class="carta ok sel`) && !strings.Contains(html, `sel" id="nodo-`+s.particolare.String()) {
+		t.Error("il nodo scelto nell'indirizzo deve restare scelto nella BOM")
 	}
 	if !strings.Contains(estratto(html, `id="anteprima-testa"`), "53017189.pdf") {
 		t.Error("l'intestazione dell'anteprima deve dire il file aperto")
@@ -277,6 +291,28 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	if !strings.Contains(html, `class="thread-testata"`) || avvisoDi(html) != "53017189: rev B → C." {
 		t.Errorf("senza HX-Current-URL la risposta e' la pagina della RFQ: %q", avvisoDi(html))
 	}
+
+	// B8.7b: una pagina che mostra un altro corpo (dopo una conferma il pannello passa da un file a un
+	// componente) lo riceve rifatto fuori banda, con la chiave nuova
+	_, html = w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"D"}, "corpo_chiave": {"vuoto"}}, s.thread, stato)
+	if a := avvisoF(html); a != "53017189: rev C → D." {
+		t.Fatalf("avviso: %q", a)
+	}
+	corpo := estratto(html, `id="anteprima-corpo" hx-swap-oob="innerHTML"`)
+	if !strings.Contains(html, `id="anteprima-corpo" hx-swap-oob="innerHTML"`) || !strings.Contains(corpo, `value="`+chiave+`"`) || !strings.Contains(corpo, "<iframe") {
+		t.Errorf("la pagina mostrava un altro corpo: la risposta lo rifa', con il PDF del file aperto:\n%.300s", corpo)
+	}
+}
+
+// chiaveCorpoDi e' quello che la pagina rimanda con ogni richiesta (hx-include): che cosa mostra il corpo
+// del pannello di destra.
+func chiaveCorpoDi(t *testing.T, pagina string) string {
+	t.Helper()
+	m := regexp.MustCompile(`id="corpo-chiave" name="corpo_chiave" value="([^"]*)"`).FindStringSubmatch(pagina)
+	if m == nil {
+		t.Fatal("la pagina non dice che cosa mostra il pannello di destra (corpo-chiave)")
+	}
+	return html.UnescapeString(m[1])
 }
 
 // ---------------------------------------------------------------- struttura
@@ -542,7 +578,7 @@ func TestCongelareERivedereLaBomDallaSchermata(t *testing.T) {
 		t.Errorf("modifica con la BOM congelata: %q", a)
 	}
 	_, html = w.fai(http.MethodGet, s.base()+"?nodo="+s.particolare.String(), nil, false)
-	for _, c := range []string{"BOM congelata nella V1", "Apri una revisione…", "Carica nuova versione interna", "Sarà una revisione <b>preventivo</b>"} {
+	for _, c := range []string{"BOM congelata nella V1", "Apri una revisione…", "Carica dal PC", "Sarà una revisione <b>preventivo</b>"} {
 		if !strings.Contains(html, c) {
 			t.Errorf("congelata: manca %q", c)
 		}
@@ -697,7 +733,7 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 	if n := s.conta(`SELECT max(a.indice) FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id WHERE m.canale = 'nota' AND m.thread_id = $1`, s.thread); n != 2 {
 		t.Errorf("il secondo file prende l'indice 2: %d", n)
 	}
-	_, html := w.fai(http.MethodGet, s.base(), nil, false)
+	_, html := w.fai(http.MethodGet, s.base()+"?vista=documenti", nil, false)
 	if !strings.Contains(html, "52922757_B.stp") || !strings.Contains(html, ">interno<") || !strings.Contains(html, "(B?)") {
 		t.Error("il pannello Documenti deve mostrare il file interno, con la revisione letta e non attribuita")
 	}
@@ -722,7 +758,7 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?file="+aid.String()+"&nodo="+s.prodotto.String(), nil, s.thread, "")
-	for _, c := range []string{"Conferma…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 52922757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
+	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 52922757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
 		if !strings.Contains(html, c) {
 			t.Errorf("anteprima del file interno: manca %q", c)
 		}
@@ -783,7 +819,7 @@ func TestAssegnareTreFileConUnGesto(t *testing.T) {
 	p2, _ := s.propostaDa("foglio B.pdf", "")
 	d3, _ := s.documentoDa("foglio C.pdf", "pdf", db.TipoDocumentoDisegno2d, "53017189", uuid.Nil, db.StatoNasInCoda)
 
-	_, html := w.fai(http.MethodGet, s.base()+"?nodo="+s.particolare.String()+"&filtro=non_assegnati", nil, false)
+	_, html := w.fai(http.MethodGet, s.base()+"?vista=documenti&nodo="+s.particolare.String()+"&filtro=non_assegnati", nil, false)
 	for _, c := range []string{`name="proposta" value="` + p1.String() + `"`, `name="proposta" value="` + p2.String() + `"`,
 		`name="documento" value="` + d3.String() + `"`, "Assegna i selezionati a ▸ 53017189"} {
 		if !strings.Contains(html, c) {
@@ -818,7 +854,7 @@ func TestCentoAllegatiSiDisegnanoInMenoDiUnSecondo(t *testing.T) {
 	w := operatore(b)
 	w.fai(http.MethodGet, s.base(), nil, false) // la prima apertura rilegge gli STEP e riscalda le cache
 	inizio := time.Now()
-	resp, html := w.fai(http.MethodGet, s.base()+"?filtro=tutti", nil, false)
+	resp, html := w.fai(http.MethodGet, s.base()+"?vista=documenti&filtro=tutti", nil, false)
 	durata := time.Since(inizio)
 	if resp.StatusCode != 200 {
 		t.Fatalf("GET: %d", resp.StatusCode)
@@ -830,6 +866,13 @@ func TestCentoAllegatiSiDisegnanoInMenoDiUnSecondo(t *testing.T) {
 		t.Errorf("la pagina con cento allegati ha impiegato %v", durata)
 	}
 	t.Logf("pagina con 104 file: %v", durata)
+	inizio = time.Now()
+	resp, _ = w.fai(http.MethodGet, s.base(), nil, false)
+	if durata := time.Since(inizio); resp.StatusCode != 200 || durata > time.Second {
+		t.Errorf("la BOM visuale con cento allegati: %d in %v", resp.StatusCode, durata)
+	} else {
+		t.Logf("BOM visuale con 104 file: %v", durata)
+	}
 }
 
 // ---------------------------------------------------------------- una proposta assegnata e la lettura che arriva dopo
