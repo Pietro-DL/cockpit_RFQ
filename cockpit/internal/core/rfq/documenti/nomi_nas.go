@@ -146,7 +146,10 @@ var ErrSpostamentoInCorso = errors.New("spostamento in corso, riprova fra poco")
 // il lucchetto della cartella di destinazione, sceglie il nome e accoda il job. path_relativo resta
 // `da`, e cambia solo al passo 4, in un'altra transazione. Restituisce `a`.
 //
-// L'esecuzione del job (passi 1–6) arriva con B8.8: fino ad allora il job resta in coda.
+// L'esecuzione del job (passi 1–6) arriva con B8.8, e fino ad allora questa funzione non ha chiamanti
+// nel prodotto, solo nelle prove. Non va chiamata prima: un sposta_nas accodato NON resta in coda ad
+// aspettare, lo prende l'esecutore del server (worker_tipo 'server'), che quel tipo non lo sa eseguire
+// e lo fa fallire.
 func AccodaSpostamento(ctx context.Context, q *db.Queries, d db.Documento, cartella, nome string) (string, error) {
 	chiave := coda.ChiaveSpostamento(d.DocumentoID)
 	if _, err := q.BloccaSpostamentoPendente(ctx, pgtype.Text{String: chiave, Valid: true}); err == nil {

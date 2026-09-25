@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 
 	"promatec/cockpit/internal/ai/agente"
 	"promatec/cockpit/internal/core/inbox/ingest"
+	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
@@ -118,9 +120,13 @@ const ctxUtente chiaveCtx = 1
 const cookieSessione = "cockpit_sess"
 
 var funzioni = template.FuncMap{
-	"list":      func(a ...string) []string { return a },
-	"data":      func(t time.Time) string { return t.Local().Format("02/01 15:04") },
-	"dataLunga": func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
+	"list": func(a ...string) []string { return a },
+	// oggettoVisibile è l'oggetto senza le etichette «[EXTERNAL]», «[EXT]» che il server di posta
+	// aggiunge davanti: nella lista e nel pannello si legge l'oggetto vero. Quello memorizzato resta
+	// com'è (lettura.OggettoVisibile).
+	"oggettoVisibile": func(t pgtype.Text) string { v, _ := lettura.OggettoVisibile(t.String); return v },
+	"data":            func(t time.Time) string { return t.Local().Format("02/01 15:04") },
+	"dataLunga":       func(t time.Time) string { return t.Local().Format("02/01/2006 15:04") },
 	// oraBreve/oraLunga accettano un istante che può non esserci (l'ultimo sync di una casella che
 	// non ha mai sincronizzato): il template deve poterle chiamare senza sapere se il valore c'è.
 	"oraBreve": func(t *time.Time) string {
@@ -320,9 +326,20 @@ func (s *Server) Registra(mux *http.ServeMux) {
 // statici serve i file statici. Quelli che non cambiano mai sotto lo stesso indirizzo (pdf.js, che sta in
 // una cartella con la sua versione, e i file chiesti con l'impronta ?v=) il browser li tiene: il modulo del
 // lavoratore di pdf.js pesa piu' di un megabyte, e il Fascicolo si apre molte volte al giorno.
+//
+// Si servono file, non cartelle: una cartella risponde 404 invece dell'elenco del suo contenuto, che
+// non serve a nessuna pagina e dice a chiunque che cosa c'e' sul server.
 func (s *Server) statici() http.Handler {
 	h := http.FileServerFS(s.Static)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nome := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if nome == "" {
+			nome = "."
+		}
+		if st, err := fs.Stat(s.Static, nome); err == nil && st.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "pdfjs-") || r.URL.Query().Get("v") != "" {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
@@ -367,6 +384,9 @@ type vista struct {
 	Admin bool
 	// Stato è la testata: postazione della sessione, stato per casella, worker di analisi (M2).
 	Stato *statoUI
+	// Serve è il ruolo che la pagina del divieto (nega) dice che basterebbe; vuoto = il divieto non
+	// dipende dal ruolo.
+	Serve db.RuoloUtente
 }
 
 // frammentoRichiesto dice se questa richiesta vuole un pezzo di pagina o la pagina intera.
@@ -450,7 +470,7 @@ func (s *Server) autenticato(h http.HandlerFunc) http.HandlerFunc {
 		// sono destinate a moltiplicarsi. Vale su tutto cio' che sta dietro all'autenticazione;
 		// `/logout` non ci sta, e chi consulta deve comunque poter uscire.
 		if metodoCheScrive(r.Method) && !almeno(&u, db.RuoloUtenteOperatore) {
-			s.nega(w, r.WithContext(ctx), "Il ruolo «consultazione» vede il Cockpit e non lo cambia.")
+			s.nega(w, r.WithContext(ctx), "Il ruolo «consultazione» vede il Cockpit e non lo cambia.", db.RuoloUtenteOperatore)
 			return
 		}
 		h(w, r.WithContext(ctx))

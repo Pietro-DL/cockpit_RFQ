@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -316,7 +317,7 @@ func (s *Server) decidiProposta(w http.ResponseWriter, r *http.Request) {
 		if rev != "" && !classificazione.RevAmmissibile(rev) {
 			return "", rifiuto(fmt.Sprintf("%s: la revisione ha più di %d caratteri o caratteri non ammessi", rev, classificazione.MaxRev))
 		}
-		if documentoTecnico(tipo) && codice == "" {
+		if documenti.Tecnico(tipo) && codice == "" {
 			return "", rifiuto("un CAD 3D, un disegno 2D o uno sviluppo DXF entra nel fascicolo solo con il codice del pezzo")
 		}
 		if _, err := q.DecidiPropostaDocumento(ctx, db.DecidiPropostaDocumentoParams{PropostaID: pid, TipoProposto: tipo,

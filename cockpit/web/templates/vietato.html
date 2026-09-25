@@ -1,15 +1,17 @@
+{{/* Il ruolo che basterebbe lo dice chi nega (vista.Serve): «serve admin» scritto qui valeva anche per
+     chi consulta e voleva un gesto da operatore, e per una postazione a cui non si è abilitati. */}}
 {{define "vietato"}}<div class="pannello errore-box">
   <strong>Non autorizzato.</strong> {{.Dati}}
-  {{if .Utente}}Il tuo ruolo è <code>{{.Utente.Ruolo}}</code>; serve <code>admin</code>. Chiedi a chi
+  {{if and .Utente .Serve}}Il tuo ruolo è <code>{{.Utente.Ruolo}}</code>; serve <code>{{.Serve}}</code>. Chiedi a chi
   amministra il Cockpit.{{end}}
 </div>{{end}}
 {{define "contenuto"}}
 <div class="pannello errore-box">
   <h1>Non autorizzato</h1>
   <p>{{.Dati}}</p>
-  {{if .Utente}}<p>Sei entrato come <strong>{{.Utente.Nome}}</strong> con il ruolo
-  <code>{{.Utente.Ruolo}}</code>: per questa schermata serve <code>admin</code>. Chi amministra il
-  Cockpit può aprirla, oppure cambiare il ruolo in <code>cockpit.toml</code>.</p>{{end}}
+  {{if and .Utente .Serve}}<p>Sei entrato come <strong>{{.Utente.Nome}}</strong> con il ruolo
+  <code>{{.Utente.Ruolo}}</code>: qui serve <code>{{.Serve}}</code>. Chi amministra il
+  Cockpit può farlo al posto tuo, oppure cambiare il ruolo in <code>cockpit.toml</code>.</p>{{end}}
   <p><a href="/inbox">Torna all'Inbox</a></p>
 </div>
 {{end}}

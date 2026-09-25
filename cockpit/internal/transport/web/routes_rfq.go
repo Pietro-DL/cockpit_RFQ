@@ -20,7 +20,7 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
 	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
 	// B8.3: agganciare documenti e proposte a un componente, correggere il codice di un componente
-	// (fascicolo.go). La schermata del Fascicolo che le usera' e' B8.7.
+	// (fascicolo.go). Le usano la schermata del Fascicolo e la pagina della RFQ.
 	mux.HandleFunc("POST /thread/{id}/fascicolo/assegna", s.autenticato(s.assegna))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.correggiCodice))
 	// B8.5: le proposte di struttura dagli STEP (proposte.go).

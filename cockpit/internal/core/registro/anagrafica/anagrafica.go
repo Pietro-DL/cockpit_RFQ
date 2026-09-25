@@ -5,12 +5,12 @@ import (
 	"strings"
 )
 
-var reCoda = regexp.MustCompile(`\s+[-–|(<].*$`) // "Pietro Spinozzi - pietro@..." / "Mario Rossi (ACME)" / "Rossi <mail>"
+var reCoda = regexp.MustCompile(`\s+[-–|(<].*$`) // "Luca Neri - luca@..." / "Mario Rossi (ACME)" / "Rossi <mail>"
 
 // NomeCognome ricava nome e cognome dal display name del mittente (o, in mancanza, dalla parte locale
 // dell'indirizzo "nome.cognome@"). È un precompilato per il form: l'operatore può correggerlo.
 //
-//	"Francesco Gabriele Galizia" → ("Francesco Gabriele", "Galizia")
+//	"Mario Giuseppe Verdi"       → ("Mario Giuseppe", "Verdi")
 //	"Rossi, Mario"               → ("Mario", "Rossi")
 //	"mario.rossi@acme.it"        → ("Mario", "Rossi")
 func NomeCognome(display, email string) (nome, cognome string) {

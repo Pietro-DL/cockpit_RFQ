@@ -31,7 +31,18 @@ main{padding:12px 16px}h1{font-size:20px;margin:4px 0 12px}h2{font-size:17px;mar
 .avviso{margin:8px 0;padding:8px 10px;background:#e3f1e8;border-radius:6px;color:#1f6b3d}
 .rispondi{margin:10px 0;border:1px solid var(--bordo);border-radius:6px;padding:8px}.rispondi form{display:grid;gap:6px;margin-top:6px}
 .rispondi textarea,.rispondi select{font:inherit;padding:6px;border:1px solid var(--bordo);border-radius:6px;width:100%}
-.corpo pre{white-space:pre-wrap;font:inherit;background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;max-height:50vh;overflow:auto}
+.corpo-vista{background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;max-height:50vh;overflow:auto}
+.msg-thread .corpo-vista{max-height:30vh;padding:8px}
+.corpo-vista pre{white-space:pre-wrap;font:inherit;margin:4px 0}
+.corpo-testo{white-space:pre-wrap}.corpo-link,.corpo-img{color:var(--muto)}.corpo-img{font-size:12px}
+.corpo-tabella{overflow-x:auto;margin:6px 0}
+.corpo-tabella table{width:auto;font-size:12.5px;background:#fff}
+.corpo-tabella td,.corpo-tabella th{border:1px solid var(--bordo);padding:2px 6px;white-space:pre-line;color:var(--testo);font-size:inherit}
+.corpo-tabella th{background:#eef1f5;font-weight:600}.corpo-tabella td.num{text-align:right;font-variant-numeric:tabular-nums}
+.corpo-rumore,.corpo-storia,.corpo-originale{margin:4px 0}
+.corpo-rumore>summary,.corpo-storia>summary,.corpo-originale>summary{font-size:11px;color:var(--muto);cursor:pointer}
+.corpo-rumore>pre{color:var(--muto);font-size:12px}.corpo-storia{border-left:2px solid var(--bordo);padding-left:8px}
+.corpo-sep{border:0;border-top:1px solid var(--bordo);margin:6px 0}.nota-corpo{font-size:11px;margin:0 0 4px}
 table{border-collapse:collapse;width:100%}th{text-align:left;font-weight:600;color:var(--muto);font-size:12px}td,th{padding:5px 8px;border-bottom:1px solid var(--bordo);vertical-align:top}
 tr.fallito td{background:#fff5f4}tr.in_corso td{background:#fffbea}.conta{margin-bottom:10px}
 .semaforo{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--grigio)}.semaforo.verde{background:var(--verde)}.semaforo.giallo{background:var(--giallo)}.semaforo.rosso{background:var(--rosso)}

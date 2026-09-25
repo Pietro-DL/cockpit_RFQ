@@ -261,6 +261,10 @@ func (s *Server) eliminaContattoFornitore(w http.ResponseWriter, r *http.Request
 // salvaLavorazioniFornitore allinea le capacità alle caselle spuntate: aggiunge le nuove, toglie
 // quelle tolte. Una capacità con una qualifica sopra non si toglie (chiave esterna composta): la
 // schermata dice per quale cliente, e la qualifica va tolta prima, dalla scheda del cliente o da qui.
+//
+// Tutto o niente, in una transazione: un rifiuto a meta' giro (una qualifica sopra, una lavorazione
+// che non c'e' nel catalogo) lasciava tolte le lavorazioni viste prima, e l'avviso parlava solo di
+// quella rifiutata.
 func (s *Server) salvaLavorazioniFornitore(w http.ResponseWriter, r *http.Request) {
 	f, ok := s.fornitoreDaRotta(w, r)
 	if !ok {
@@ -271,41 +275,45 @@ func (s *Server) salvaLavorazioniFornitore(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ctx := r.Context()
-	q := db.New(s.Pool)
 	volute := map[string]bool{}
 	for _, l := range r.Form["lavorazione"] {
 		volute[strings.TrimSpace(l)] = true
 	}
-	attuali, err := q.ListLavorazioniFornitore(ctx, f.FornitoreID)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
 	var aggiunte, tolte int
-	for _, l := range attuali {
-		if volute[l.Codice] {
-			delete(volute, l.Codice)
-			continue
-		}
-		if _, err := q.EliminaLavorazioneFornitore(ctx, db.EliminaLavorazioneFornitoreParams{FornitoreID: f.FornitoreID, Lavorazione: l.Codice}); err != nil {
-			if vincoloEsterno(err) {
-				err = fmt.Errorf("«%s» non si toglie: %s è qualificato su questa lavorazione per almeno un cliente. Togli prima la qualifica.", l.Descrizione, f.RagioneSociale)
-			}
-			s.rendiFornitori(w, r, fornitoriDati{Scelto: &f, Sez: "lavorazioni", Errore: err.Error()})
-			return
-		}
-		tolte++
-	}
-	for codice := range volute {
-		n, err := q.InsertLavorazioneFornitore(ctx, db.InsertLavorazioneFornitoreParams{FornitoreID: f.FornitoreID, Lavorazione: codice})
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		attuali, err := q.ListLavorazioniFornitore(ctx, f.FornitoreID)
 		if err != nil {
-			if vincoloEsterno(err) {
-				err = fmt.Errorf("la lavorazione %q non esiste nel catalogo", codice)
-			}
-			s.rendiFornitori(w, r, fornitoriDati{Scelto: &f, Sez: "lavorazioni", Errore: err.Error()})
-			return
+			return err
 		}
-		aggiunte += int(n)
+		for _, l := range attuali {
+			if volute[l.Codice] {
+				delete(volute, l.Codice)
+				continue
+			}
+			if _, err := q.EliminaLavorazioneFornitore(ctx, db.EliminaLavorazioneFornitoreParams{FornitoreID: f.FornitoreID, Lavorazione: l.Codice}); err != nil {
+				if vincoloEsterno(err) {
+					err = fmt.Errorf("«%s» non si toglie: %s è qualificato su questa lavorazione per almeno un cliente. Togli prima la qualifica.", l.Descrizione, f.RagioneSociale)
+				}
+				return err
+			}
+			tolte++
+		}
+		for codice := range volute {
+			n, err := q.InsertLavorazioneFornitore(ctx, db.InsertLavorazioneFornitoreParams{FornitoreID: f.FornitoreID, Lavorazione: codice})
+			if err != nil {
+				if vincoloEsterno(err) {
+					err = fmt.Errorf("la lavorazione %q non esiste nel catalogo", codice)
+				}
+				return err
+			}
+			aggiunte += int(n)
+		}
+		return nil
+	})
+	if err != nil {
+		s.rendiFornitori(w, r, fornitoriDati{Scelto: &f, Sez: "lavorazioni", Errore: err.Error()})
+		return
 	}
 	s.Log.Info("lavorazioni fornitore salvate", "fornitore", f.RagioneSociale, "aggiunte", aggiunte, "tolte", tolte, "utente", siglaDa(r))
 	s.rendiFornitori(w, r, fornitoriDati{Scelto: &f, Sez: "lavorazioni", Fatto: fmt.Sprintf("Lavorazioni salvate: %d aggiunte, %d tolte.", aggiunte, tolte)})

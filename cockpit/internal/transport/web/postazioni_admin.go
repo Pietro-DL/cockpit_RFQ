@@ -225,6 +225,18 @@ func (s *Server) pacchettoWorker(w http.ResponseWriter, r *http.Request) {
 			": aggiungerlo a [[worker]] in cockpit.toml (con `token` vuoto: il segreto lo genera questa pagina) e riavviare il server"})
 		return
 	}
+	// Tutti i token e il pacchetto, o niente. I segreti nuovi esistono solo nello zip: ruotarli uno per
+	// volta fuori da una transazione voleva dire che un errore sul secondo worker, o nello zip, lasciava
+	// il primo gia' ruotato con il suo segreto perso — e quel worker a 401 finche' qualcuno non
+	// rigenerava. Lo zip si costruisce PRIMA del COMMIT: se non nasce, i token di prima valgono ancora.
+	ctx := r.Context()
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer tx.Rollback(ctx)
+	qt := db.New(tx)
 	segreti := map[string]string{}
 	for _, c := range cred {
 		t, err := rete.TokenNuovo()
@@ -232,7 +244,7 @@ func (s *Server) pacchettoWorker(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		if _, err := q.ImpostaTokenWorker(r.Context(), db.ImpostaTokenWorkerParams{
+		if _, err := qt.ImpostaTokenWorker(ctx, db.ImpostaTokenWorkerParams{
 			WorkerNome: c.WorkerNome, TokenHash: rete.ImprontaToken(t),
 		}); err != nil {
 			http.Error(w, err.Error(), 500)
@@ -240,15 +252,20 @@ func (s *Server) pacchettoWorker(w http.ResponseWriter, r *http.Request) {
 		}
 		segreti[c.WorkerNome] = t
 	}
-	s.Log.Warn("credenziali dei worker rigenerate dalla pagina Postazioni: i token precedenti non valgono più",
-		"postazione", host, "utente", u.Sigla, "worker", len(cred))
-
 	toml := s.workerTOML(host, cred, segreti)
 	zipBytes, err := s.zipPacchetto(host, toml)
 	if err != nil {
+		s.Log.Error("pacchetto della postazione non costruito: i token restano quelli di prima", "postazione", host, "err", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if err := tx.Commit(ctx); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Log.Warn("credenziali dei worker rigenerate dalla pagina Postazioni: i token precedenti non valgono più",
+		"postazione", host, "utente", u.Sigla, "worker", len(cred))
+
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "cockpit-worker-"+strings.ToLower(host)+".zip"))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

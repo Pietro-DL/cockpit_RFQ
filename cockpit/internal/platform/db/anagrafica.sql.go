@@ -15,14 +15,22 @@ import (
 )
 
 const eliminaBuyer = `-- name: EliminaBuyer :execrows
-DELETE FROM buyer b WHERE b.buyer_id = $1
+DELETE FROM buyer b WHERE b.buyer_id = $1 AND b.cliente_id = $2
   AND NOT EXISTS (SELECT 1 FROM messaggio m WHERE m.buyer_id = b.buyer_id)
   AND NOT EXISTS (SELECT 1 FROM thread_offerta t WHERE t.buyer_id = b.buyer_id)
+  AND NOT EXISTS (SELECT 1 FROM proposta_triage p WHERE p.buyer_proposto = b.buyer_id)
 `
 
-// Un buyer citato da un messaggio o da una richiesta NON si cancella: si perderebbe chi ha scritto.
-func (q *Queries) EliminaBuyer(ctx context.Context, buyerID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, eliminaBuyer, buyerID)
+type EliminaBuyerParams struct {
+	BuyerID   uuid.UUID `json:"buyer_id"`
+	ClienteID uuid.UUID `json:"cliente_id"`
+}
+
+// Un buyer citato da un messaggio, da una richiesta o da una proposta di triage NON si cancella: si
+// perderebbe chi ha scritto (e la proposta lo tiene con una chiave esterna). Solo un buyer DI QUESTO
+// cliente: l'id arriva da un form, e la pagina di un cliente non cancella le persone di un altro.
+func (q *Queries) EliminaBuyer(ctx context.Context, arg EliminaBuyerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, eliminaBuyer, arg.BuyerID, arg.ClienteID)
 	if err != nil {
 		return 0, err
 	}

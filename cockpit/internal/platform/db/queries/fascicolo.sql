@@ -138,18 +138,16 @@ WHERE proposta_id = sqlc.arg(proposta_id) AND stato = 'aperta';
 UPDATE documento_proposta SET codice = $2 WHERE componente_id = $1;
 
 -- name: SetDocumentoErrore :exec
-UPDATE documento SET stato_nas = 'errore', errore_nas = $2 WHERE documento_id = $1;
+-- Mai su uno `scritto`: il file e' gia' sul NAS, e un tentativo di copia fallito dopo (un job vecchio
+-- riaccodato all'avvio, un contenuto sparito dalla cache) non lo toglie di li'. Se il file sul NAS
+-- manca o e' un altro, lo dice il ricognitore con la sua anomalia, non questa riga.
+UPDATE documento SET stato_nas = 'errore', errore_nas = $2 WHERE documento_id = $1 AND stato_nas <> 'scritto';
 
 -- name: GetCartellaDocumento :one
 SELECT * FROM cartella_documento WHERE tipo = $1;
 
 -- name: ListCartellaDocumento :many
 SELECT * FROM cartella_documento ORDER BY tipo;
-
--- name: ListProposteThreadTutte :many
--- tutte le proposte (aperte e decise) degli allegati dei messaggi del thread, per la schermata B
-SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id JOIN messaggio m ON m.messaggio_id = a.messaggio_id
-WHERE m.thread_id = $1;
 
 -- name: ListProposteMessaggio :many
 SELECT p.* FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1;

@@ -224,23 +224,32 @@ type destinazione struct {
 	avviso   string
 }
 
+// casellaAutorizzata dice se la credenziale può servire quella casella. È la regola del claim e
+// dell'ingest insieme, scritta una volta: `worker_credenziale.caselle` è l'elenco delle caselle
+// autorizzate, e un elenco vuoto non ne autorizza nessuna — il worker prende solo i job senza casella
+// (analisi, server), e non consegna posta di nessuno.
+func casellaAutorizzata(cred db.WorkerCredenziale, casella uuid.UUID) bool {
+	for _, c := range cred.Caselle {
+		if c == casella {
+			return true
+		}
+	}
+	return false
+}
+
 // risolviDestinazione interseca ciò che il worker dichiara con ciò che la credenziale autorizza
 // (voce 2.2). Il server non si fida del JSON: una casella dichiarata e non autorizzata non entra
 // nel claim, viene scritta nell'avviso della presenza e nel log, e il worker continua a lavorare
 // sulle altre. Un worker senza credenziale non ha una destinazione e non prende niente.
 func risolviDestinazione(cred db.WorkerCredenziale, req worker.ClaimRichiesta) destinazione {
 	d := destinazione{cred: cred, dest: coda.Destinazione{Postazione: cred.PostazioneID}}
-	autorizzate := map[uuid.UUID]bool{}
-	for _, c := range cred.Caselle {
-		autorizzate[c] = true
-	}
 	viste := map[uuid.UUID]bool{}
 	for _, c := range req.CaselleAperte {
 		if viste[c.CasellaID] {
 			continue
 		}
 		viste[c.CasellaID] = true
-		if !autorizzate[c.CasellaID] {
+		if !casellaAutorizzata(cred, c.CasellaID) {
 			d.ignorate = append(d.ignorate, c.CasellaID)
 			continue
 		}
@@ -466,8 +475,14 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	// scritture: ciò che protegge il job è il predicato del tentativo, verificato al momento di
 	// scrivere, non l'istante in cui si è letta la riga.
 	j, err := db.New(s.Pool).GetJob(ctx, id)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		errore(w, 404, err)
+		return
+	}
+	if err != nil {
+		// un guasto del database non è un job che non esiste: 404 diceva al worker «smetti», e il
+		// lavoro fatto andava perso per un errore che si sarebbe risolto ripetendo
+		errore(w, 500, err)
 		return
 	}
 	var prep *stagePronto
@@ -820,6 +835,13 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 		var p worker.PayloadAnalizzaAllegato
 		if err := json.Unmarshal(j.Payload, &p); err != nil {
 			return err
+		}
+		// L'allegato è quello del JOB, non quello che il risultato dichiara. Il resto di questo ramo
+		// scrive sull'allegato del risultato — i fatti sotto il suo sha256, la proposta, la struttura in
+		// ogni RFQ che ha quel file — e prima nessuno confrontava i due: con il lease di un'analisi
+		// qualunque un worker poteva riscrivere la lettura di qualunque allegato dell'azienda.
+		if r.AllegatoID != p.AllegatoID {
+			return fmt.Errorf("il risultato riguarda l'allegato %s, ma il job %d analizza l'allegato %s", r.AllegatoID, j.JobID, p.AllegatoID)
 		}
 		// Il worker deve rimandare indietro la combinazione che gli era stata chiesta. Se dichiara una
 		// versione o una configurazione diverse, i suoi fatti finirebbero archiviati sotto una chiave
@@ -1329,13 +1351,6 @@ func conDettagli(dett json.RawMessage, extra map[string]any) json.RawMessage {
 	return out
 }
 
-func nullUUID(u uuid.NullUUID) *uuid.UUID {
-	if !u.Valid {
-		return nil
-	}
-	return &u.UUID
-}
-
 func txt(s string) pgtype.Text {
 	if strings.TrimSpace(s) == "" {
 		return pgtype.Text{}
@@ -1351,7 +1366,8 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		errore(w, 400, err)
 		return
 	}
-	if _, ok := stessoWorker(w, r, req.WorkerID); !ok {
+	cred, ok := stessoWorker(w, r, req.WorkerID)
+	if !ok {
 		return
 	}
 	// Un lotto arriva sempre dentro un tentativo di sync: senza, il server non potrebbe distinguere
@@ -1363,9 +1379,29 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
+	// Un lotto che non dichiara la casella è della casella del SUO JOB, quando il job ne nomina una:
+	// [outlook].casella_default resta il ripiego solo per un job che non dice niente. Prima il
+	// ripiego valeva sempre, e un worker vecchio che sincronizzava la casella di Luigi consegnava i
+	// messaggi alla casella predefinita — con le presenze e il cursore dell'altra.
+	casellaID := req.CasellaID
+	if casellaID == nil || *casellaID == uuid.Nil {
+		j, err := db.New(s.Pool).GetJob(ctx, req.JobID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			s.nonValido(w, ctx, req.JobID)
+			return
+		case err != nil:
+			errore(w, 500, err)
+			return
+		}
+		if c, nominata := ingest.CasellaDelJob(&j); nominata {
+			casellaID = &c
+		}
+	}
+
 	// La casella si verifica PRIMA della transazione: se non è censita è un errore di configurazione
 	// che riguarda tutto il lotto, non un dato da scartare elemento per elemento (I23).
-	casella, err := ingest.RisolviCasella(ctx, db.New(s.Pool), req.CasellaID, s.CasellaDefault)
+	casella, err := ingest.RisolviCasella(ctx, db.New(s.Pool), casellaID, s.CasellaDefault)
 	if err != nil {
 		if errors.Is(err, ingest.ErrCasellaNonCensita) {
 			// il sync di questa casella non può funzionare finché qualcuno non corregge la
@@ -1378,6 +1414,16 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		errore(w, 500, err)
+		return
+	}
+	// La credenziale deve poter scrivere in QUESTA casella (voce 2.4): è la stessa lista con cui il
+	// claim decide quali job di casella assegnarle (risolviDestinazione), e con la stessa lettura —
+	// una lista vuota non autorizza nessuna casella. Il lease da solo non basta: prova il tentativo,
+	// non il diritto di scrivere la posta di un collega. Nessun fallimento del job: il job non ha
+	// niente di sbagliato, è il lotto che non è suo.
+	if !casellaAutorizzata(cred, casella.CasellaID) {
+		s.Log.Warn("lotto per una casella non autorizzata: rifiutato", "worker", cred.WorkerNome, "job", req.JobID, "casella", casella.Indirizzo)
+		errore(w, 403, fmt.Errorf("la credenziale di %q non è autorizzata sulla casella %s: il lotto non viene scritto", cred.WorkerNome, casella.Indirizzo))
 		return
 	}
 
@@ -1396,10 +1442,17 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, ingest.ErrTentativoNonValido):
 		s.nonValido(w, ctx, req.JobID)
 		return
+	case errors.Is(err, ingest.ErrLottoNonDelJob):
+		// il tentativo è buono ma il suo job non consegna posta, o la consegna per un'altra casella:
+		// niente è stato scritto, e ripetere il lotto darebbe lo stesso rifiuto
+		s.Log.Warn("lotto non autorizzato dal job", "worker", cred.WorkerNome, "job", req.JobID, "casella", casella.Indirizzo, "err", err)
+		errore(w, 403, err)
+		return
 	case err != nil:
 		// Un errore qui è un guasto (database irraggiungibile, commit fallito), non un dato sbagliato:
-		// un dato sbagliato finisce in scarto e il lotto continua. 5xx dice al worker di ripetere il
-		// lotto identico, ed è sicuro farlo perché non è stato scritto niente (I16).
+		// un dato sbagliato finisce in scarto e il lotto continua. Con un 5xx il lotto identico si può
+		// ripetere senza danni perché non è stato scritto niente (I16); oggi il worker non lo ripete da
+		// sé: il job fallisce e il sync ripassa sulla stessa finestra al tentativo successivo.
 		s.Log.Error("ingest lotto", "job", req.JobID, "casella", casella.Indirizzo, "err", err)
 		errore(w, 500, err)
 		return

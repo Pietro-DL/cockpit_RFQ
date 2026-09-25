@@ -217,6 +217,13 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 			return classificazione.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
 		}
 		it.CandidatiRichiesta = cr
+	} else if err := aggancio.SalvaCandidatiRichiesta(ctx, q, in.MessaggioID, nil); err != nil {
+		// Il ramo fornitore non vale piu' (il mittente e' stato ricensito come cliente, o e' diventato
+		// ambiguo): i candidati verso una richiesta calcolati quando era un fornitore sono di un'altra
+		// lettura del messaggio. Si tolgono come si tolgono quelli di aggancio e di codice, che si
+		// sostituiscono a ogni interpretazione; lasciarli vorrebbe dire mostrare accanto alla proposta
+		// nuova la risposta a una richiesta che la proposta non considera piu'.
+		return classificazione.EsitoTriage{}, fmt.Errorf("candidati richiesta: %w", err)
 	}
 	if fornitore && in.Direzione == db.DirezioneUscita {
 		rm, err := aggancio.RichiesteManuali(ctx, q, classificazione.SoloCodici(e.Codici))
@@ -322,7 +329,7 @@ func (s *Servizio) Ritriage(ctx context.Context, indirizzo, dominio string) (Esi
 
 // RitriageMolti e' il Ritriage dopo una scrittura che tocca TANTI indirizzi in una volta: l'import
 // del seme dei fornitori, il seme dei clienti (7B.5). Senza, i messaggi gia' arrivati resterebbero
-// «sconosciuti» finche' qualcuno non li riguarda uno per uno: censire Polver e non vedere la sua
+// «sconosciuti» finche' qualcuno non li riguarda uno per uno: censire Polveri Esempio e non vedere la sua
 // posta passare in «Fornitori» e' il modo piu' rapido per non fidarsi piu' della schermata.
 //
 // Le decisioni prese restano intoccate, come sempre: e' la stessa strada di un censimento singolo,

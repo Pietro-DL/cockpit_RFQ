@@ -49,7 +49,7 @@ type Evidenza struct {
 	Allegato  uuid.NullUUID
 	// Forte: l'evidenza basta a fare del codice un candidato prodotto (piano §6.1).
 	Forte bool
-	// Frase e' come la legge chi guarda: «famiglia «disegni 529» · oggetto», «STEP: 52920517 — a.stp».
+	// Frase e' come la legge chi guarda: «famiglia «disegni 777» · oggetto», «STEP: 77720517 — a.stp».
 	Frase string
 }
 
@@ -231,8 +231,8 @@ func Unisci(righe []db.ListCodiciCandidatiThreadRow, c ContestoCodici) Candidati
 	return out
 }
 
-// eRiferimento: il codice e' il riferimento della richiesta, o un suo pezzo («RDO 490020618» e
-// «490020618» sono lo stesso numero visto due volte). E' la regola con cui Motore.Estrai toglie il
+// eRiferimento: il codice e' il riferimento della richiesta, o un suo pezzo («RDO 400012345» e
+// «400012345» sono lo stesso numero visto due volte). E' la regola con cui Motore.Estrai toglie il
 // riferimento dai codici di un messaggio, applicata a tutta la RFQ.
 func eRiferimento(riferimento, codice string) bool {
 	r, c := strings.ToUpper(strings.TrimSpace(riferimento)), strings.ToUpper(codice)

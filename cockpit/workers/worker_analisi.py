@@ -223,7 +223,7 @@ def analizza_pdf(percorso: str, nome_file: str) -> dict:
         }
 
     # 5. Nessun contenuto riconosciuto. Il codice nel nome NON basta a dire che e' un disegno: e'
-    #    esattamente cosi' che «6674611A.pdf» diventava un CAD al 70% mentre era l'offerta di un
+    #    esattamente cosi' che «1234567A.pdf» diventava un CAD al 70% mentre era l'offerta di un
     #    fornitore per quel pezzo. Il codice si conserva, il tipo resta da determinare.
     return {
         "tipo_proposto": "da_determinare",

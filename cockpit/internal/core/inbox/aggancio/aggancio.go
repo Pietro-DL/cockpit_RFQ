@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -118,7 +119,7 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione
 	}
 
 	if in.ClienteID.Valid {
-		// ---- R4: il riferimento del cliente. «RDO 490020618» identifica la richiesta nel sistema del
+		// ---- R4: il riferimento del cliente. «RDO 400012345» identifica la richiesta nel sistema del
 		// cliente: se combacia, è la stessa richiesta.
 		if in.Riferimento != "" {
 			righe, err := q.ThreadPerRiferimentoCliente(ctx, db.ThreadPerRiferimentoClienteParams{
@@ -218,7 +219,9 @@ func CalcolaESalva(ctx context.Context, q *db.Queries, in Ingresso) ([]classific
 // Qui è dove un numero smette di essere «un codice» e diventa «un numero con un ruolo». Il riferimento
 // della richiesta entra con ruolo `riferimento_rfq`, le famiglie del cliente con `prodotto`, l'estrattore
 // generico con `non_classificato`. La chiave primaria (messaggio, codice) fa il resto: lo stesso numero
-// non può stare due volte con due ruoli, e il riferimento viene inserito per primo.
+// non può stare due volte con due ruoli. Sul conflitto vince l'ULTIMA riga scritta: il riferimento va
+// per primo (l'estrazione lo toglie già dai codici), i codici della storia citata prima degli altri
+// (perSalvare), così il testo di adesso ha l'ultima parola.
 func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, e classificazione.Estrazione) error {
 	if _, err := q.EliminaCandidatiCodice(ctx, messaggioID); err != nil {
 		return err
@@ -227,9 +230,7 @@ func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.U
 		if codice = strings.TrimSpace(codice); codice == "" {
 			return nil
 		}
-		if len(codice) > 60 {
-			codice = codice[:60]
-		}
+		codice = tronca(codice, 60)
 		return q.InsertCandidatoCodice(ctx, db.InsertCandidatoCodiceParams{
 			MessaggioID: messaggioID, Codice: codice, Ruolo: db.RuoloCodice(ruolo), Rev: tronca(rev, 10),
 			Origine: db.OrigineCodice(origine), Famiglia: tronca(famiglia, 120), Punteggio: int16(punti),
@@ -242,7 +243,7 @@ func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.U
 			return err
 		}
 	}
-	for _, c := range e.Codici {
+	for _, c := range perSalvare(e.Codici) {
 		origine := "generico"
 		if c.Origine == "famiglia" {
 			origine = "famiglia"
@@ -254,27 +255,55 @@ func SalvaCandidatiCodice(ctx context.Context, q *db.Queries, messaggioID uuid.U
 	return nil
 }
 
-func tronca(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+// perSalvare mette in testa i codici trovati nella storia citata e lascia gli altri nel loro ordine.
+//
+// La riga di candidato_codice è una per (messaggio, codice) e l'inserimento tiene l'ULTIMA scritta.
+// L'estrazione invece tiene lo stesso codice due volte se le revisioni sono diverse, nell'ordine
+// oggetto, corpo, storia, allegati: «rev C» scritta adesso e «rev B» citata sotto finivano in
+// database come rev B con evidenza «storia citata». La revisione vecchia della catena cancellava
+// quella nuova, e il conflitto di revisioni che il Fascicolo deve mostrare (B8.6) spariva alla fonte.
+func perSalvare(cc []classificazione.CodiceTrovato) []classificazione.CodiceTrovato {
+	out := make([]classificazione.CodiceTrovato, 0, len(cc))
+	for _, c := range cc {
+		if c.Dove == classificazione.DoveStoria {
+			out = append(out, c)
+		}
 	}
-	return s
+	for _, c := range cc {
+		if c.Dove != classificazione.DoveStoria {
+			out = append(out, c)
+		}
+	}
+	return out
 }
+
+// tronca accorcia a n CARATTERI, non a n byte: le colonne sono varchar(n), che PostgreSQL conta in
+// caratteri, e un taglio a byte dentro una lettera accentata lascia UTF-8 non valido — che il
+// database rifiuta, facendo finire in scarto un messaggio intero per la descrizione di una famiglia.
+func tronca(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
+// maxChiaviCitate è il tetto delle chiavi confrontate da R0: un ANY con centinaia di elementi su un
+// forward di forward non serve a niente.
+const maxChiaviCitate = 40
 
 // ChiaviCitate normalizza In-Reply-To e References in un elenco di Message-ID confrontabili con
 // `messaggio.chiave_esterna`. Le parentesi angolari ci sono negli header e possono esserci o non esserci
 // nella proprietà MAPI: si provano tutte e due le forme invece di scommettere su una.
 func ChiaviCitate(inReplyTo string, riferimenti []string) []string {
 	visti := map[string]bool{}
-	var out []string
-	agg := func(s string) {
+	agg := func(out []string, s string) []string {
 		s = strings.TrimSpace(s)
 		if s == "" {
-			return
+			return out
 		}
 		nudo := strings.Trim(s, "<>")
 		if nudo == "" {
-			return
+			return out
 		}
 		for _, f := range []string{"<" + nudo + ">", nudo} {
 			if !visti[f] {
@@ -282,20 +311,26 @@ func ChiaviCitate(inReplyTo string, riferimenti []string) []string {
 				out = append(out, f)
 			}
 		}
+		return out
 	}
+	var irt, rif []string
 	for _, s := range strings.Fields(inReplyTo) {
-		agg(s)
+		irt = agg(irt, s)
 	}
 	for _, s := range riferimenti {
-		agg(s)
+		rif = agg(rif, s)
 	}
 	// Un thread di posta lungo porta decine di References: le più recenti sono in fondo, e sono quelle
-	// che contano. Il tetto evita di costruire un ANY con centinaia di elementi su un forward di forward.
-	const max = 40
-	if len(out) > max {
-		out = out[len(out)-max:]
+	// che contano. Il tetto però si paga sulle References e mai sull'In-Reply-To: prima si tagliava
+	// l'elenco intero dal fondo, e l'In-Reply-To — che sta in testa, ed è il messaggio a cui si
+	// risponde davvero — era la prima cosa a sparire proprio nelle catene lunghe.
+	if len(irt) > maxChiaviCitate {
+		irt = irt[:maxChiaviCitate] // un In-Reply-To di venti identificativi non è un header, è rumore
 	}
-	return out
+	if spazio := maxChiaviCitate - len(irt); len(rif) > spazio {
+		rif = rif[len(rif)-spazio:]
+	}
+	return append(irt, rif...)
 }
 
 func maiuscole(in []string) []string {

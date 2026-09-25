@@ -26,7 +26,7 @@ type Proposta struct {
 //
 // Venti megabyte. Sotto, un file di un cliente riconosciuto arriva nello staging del server senza che
 // nessuno prema niente, perché il tipo di un PDF si sa solo aprendolo e l'operatore ha bisogno di
-// vedere «disegno 2D, cartiglio 6674611A rev 4» invece di «PDF, da determinare, premi qui e aspetta».
+// vedere «disegno 2D, cartiglio 1234567A rev 4» invece di «PDF, da determinare, premi qui e aspetta».
 // Sopra, no: un pacco da mezzo giga lo si scarica quando qualcuno lo decide.
 //
 // Lo staging è una cartella del server. La regola «niente sul NAS senza una decisione» (D24, criterio E)
@@ -41,7 +41,7 @@ func PropostaDaNome(nomeFile string, bytes int64, direzione string) Proposta {
 	p := Proposta{Tipo: tipo, Fonte: fonte, Confidenza: conf}
 
 	// Il nome (senza revisione) e' il codice del documento solo se E' un codice: uno solo, senza
-	// spazi, entro MaxCodice. «6674611A_4» si'; «Offerta 12345678 per le staffe zincate» no, anche
+	// spazi, entro MaxCodice. «1234567A_4» si'; «Offerta 12345678 per le staffe zincate» no, anche
 	// se dentro c'e' un numero che sembra un codice — quello va in CodiciNelNome. Prima bastava che
 	// il nome CONTENESSE un codice perche' l'intero nome diventasse il codice (7C.1, P0).
 	c, rv := CodiceRev(base)
@@ -59,7 +59,7 @@ func PropostaDaNome(nomeFile string, bytes int64, direzione string) Proposta {
 			p.Fonte = "nome_file"
 		case "da_determinare":
 			// Un PDF con un codice nel nome resta un PDF con un codice nel nome (checkpoint 3R §5).
-			// Il codice si conserva, perché servirà; il TIPO no: «6674611A.pdf» è il disegno, ma
+			// Il codice si conserva, perché servirà; il TIPO no: «1234567A.pdf» è il disegno, ma
 			// anche l'offerta del fornitore per quel pezzo, e anche la conferma d'ordine. Chi lo
 			// stabilisce è il worker-analisi leggendo il cartiglio, non chi legge il nome.
 			p.Confidenza, p.Fonte = 50, "nome_file"

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """Lo ZIP della richiesta di prova (B8.7b): costruito qui, non preso dal corpus riservato.
 
-    python zip_richiesta.py <cartella>      # scrive <cartella>/RFQ ACME 52922757.zip e stampa il percorso
+    python zip_richiesta.py <cartella>      # scrive <cartella>/RFQ ACME 77722757.zip e stampa il percorso
 
 Lo usa `zip_browser_test.go`. Dentro:
-  52922757.stp              assieme AP214: 52922757 → 52920517 ×2 → 53011111 ×2, 52922757 → 53017189 ×4,
-                            52920517 → 53017189 ×1 (condiviso)
-  52922757.pdf              disegno con cartiglio (SCALA, TOLLERANZE GENERALI)
-  52920517.pdf              disegno con cartiglio
-  53017189 foglio 2.pdf     disegno con cartiglio, ma il nome non e' un codice: il codice lo dice una persona
+  77722757.stp              assieme AP214: 77722757 → 77720517 ×2 → 77811111 ×2, 77722757 → 77817189 ×4,
+                            77720517 → 77817189 ×1 (condiviso)
+  77722757.pdf              disegno con cartiglio (SCALA, TOLLERANZE GENERALI)
+  77720517.pdf              disegno con cartiglio
+  77817189 foglio 2.pdf     disegno con cartiglio, ma il nome non e' un codice: il codice lo dice una persona
   Capitolato fornitura.pdf  capitolato (tre termini)
 
 I PDF li scrive PyMuPDF, la stessa libreria con cui il worker di analisi li legge.
@@ -24,7 +24,7 @@ import pymupdf
 STEP = """ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION((''),'2;1');
-FILE_NAME('52922757.stp','2026-09-24T00:00:00',(''),(''),'','','');
+FILE_NAME('77722757.stp','2026-09-24T00:00:00',(''),(''),'','','');
 FILE_SCHEMA(('AUTOMOTIVE_DESIGN {{ 1 0 10303 214 3 1 1 }}'));
 ENDSEC;
 DATA;
@@ -34,10 +34,10 @@ END-ISO-10303-21;
 """
 
 PRODOTTI = [
-    ("A", "52922757", "SUPPORTO COFANO"),
-    ("B", "52920517", "PIASTRA"),
-    ("C", "53011111", "VITE SPECIALE"),
-    ("D", "53017189", "RINFORZO"),
+    ("A", "77722757", "SUPPORTO COFANO"),
+    ("B", "77720517", "PIASTRA"),
+    ("C", "77811111", "VITE SPECIALE"),
+    ("D", "77817189", "RINFORZO"),
 ]
 # un'occorrenza per riga: le quantita' sono il numero delle righe uguali
 OCCORRENZE = [("A", "B"), ("A", "B"), ("B", "C"), ("B", "C"), ("A", "D"), ("A", "D"), ("A", "D"), ("A", "D"), ("B", "D")]
@@ -75,12 +75,12 @@ def cartiglio(codice: str, titolo: str) -> bytes:
 
 def scrivi(cartella: str) -> str:
     os.makedirs(cartella, exist_ok=True)
-    percorso = os.path.join(cartella, "RFQ ACME 52922757.zip")
+    percorso = os.path.join(cartella, "RFQ ACME 77722757.zip")
     with zipfile.ZipFile(percorso, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.writestr("52922757.stp", step().encode("latin-1"))
-        z.writestr("52922757.pdf", cartiglio("52922757", "SUPPORTO COFANO"))
-        z.writestr("52920517.pdf", cartiglio("52920517", "PIASTRA"))
-        z.writestr("53017189 foglio 2.pdf", cartiglio("53017189", "RINFORZO - FOGLIO 2"))
+        z.writestr("77722757.stp", step().encode("latin-1"))
+        z.writestr("77722757.pdf", cartiglio("77722757", "SUPPORTO COFANO"))
+        z.writestr("77720517.pdf", cartiglio("77720517", "PIASTRA"))
+        z.writestr("77817189 foglio 2.pdf", cartiglio("77817189", "RINFORZO - FOGLIO 2"))
         z.writestr("Capitolato fornitura.pdf", pdf(["CAPITOLATO DI FORNITURA", "REQUISITI GENERALI", "NORME DI RIFERIMENTO"]))
     return percorso
 

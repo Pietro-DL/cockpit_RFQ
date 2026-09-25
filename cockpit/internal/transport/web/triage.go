@@ -81,8 +81,13 @@ func (d *triageDati) SiPrepara(a AllegatoUI) bool {
 // Spuntato dice se un candidato di codice nasce già spuntato nel form. Le famiglie del cliente sì,
 // l'estrattore generico no: «questo è un codice di questo cliente» e «questo ha la forma di un codice»
 // non possono entrare nella RFQ con lo stesso gesto.
+//
+// E nemmeno un codice di famiglia trovato solo nella storia citata: è la regola di
+// classificazione.Estrazione.Proponibili (blocco 6). Era già stato deciso in un altro messaggio, e
+// spuntarlo da solo a ogni risposta è il modo in cui un «ricevuto, grazie» diventa una richiesta di
+// sei pezzi. Si vede, con la sua evidenza, e per entrare serve un clic.
 func (d *triageDati) Spuntato(c db.CandidatoCodice) bool {
-	return c.Origine == db.OrigineCodiceFamiglia
+	return c.Origine == db.OrigineCodiceFamiglia && c.Evidenza != classificazione.DoveStoria
 }
 
 // triageForm prepara il form con tutto precompilato da mittente, triage deterministico e allegati.
@@ -102,6 +107,12 @@ func (s *Server) triageForm(w http.ResponseWriter, r *http.Request) {
 	d.Azione = r.URL.Query().Get("azione")
 	if d.Azione != "aggancia" {
 		d.Azione = "nuova"
+	}
+	// La posta di un fornitore non apre una RFQ cliente (7A). Il pannello non offre il pulsante, ma
+	// nascondere non è autorizzare: un pannello rimasto aperto da prima del censimento, o un indirizzo
+	// scritto a mano, chiedono il form lo stesso. Si offre quello dell'aggancio, con il motivo.
+	if d.Azione == "nuova" && d.M.ControparteTipo == db.TipoControparteFornitore {
+		d.Azione, d.Errore = "aggancia", motivoFornitoreSenzaRFQ
 	}
 	s.frammento(w, "triage_form", d)
 }
@@ -232,8 +243,10 @@ func (s *Server) buyerSelect(w http.ResponseWriter, r *http.Request) {
 }
 
 // cercaThread è la ricerca incrementale di "Aggancia a…" (oggetto, cliente, codici) sui thread aperti.
+// La query mette il testo fra due '%': % _ e \ scritti dall'operatore si prendono alla lettera, come
+// nella barra della pagina Richieste (testoLetterale). Chi cerca «7120_400» cerca quello.
 func (s *Server) cercaThread(w http.ResponseWriter, r *http.Request) {
-	righe, err := db.New(s.Pool).CercaThreadAperti(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")))
+	righe, err := db.New(s.Pool).CercaThreadAperti(r.Context(), testoLetterale(strings.TrimSpace(r.URL.Query().Get("q"))))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -293,6 +306,12 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		s.avvisoRFQEsistente(w, r, ctx, q, m)
 		return
 	}
+	// La regola del pannello, qui dove la decisione si scrive: un fornitore non apre una RFQ cliente.
+	// La controparte si legge dal messaggio appena bloccato, non da quello che la pagina mostrava.
+	if m.ControparteTipo == db.TipoControparteFornitore {
+		s.triageErrore(w, r, id, "aggancia", motivoFornitoreSenzaRFQ)
+		return
+	}
 
 	cliente, err := s.clienteDaForm(ctx, q, r)
 	if err != nil {
@@ -326,9 +345,14 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	if prio < 1 || prio > 3 {
 		prio = 1
 	}
+	cartellaRFQ, err := cartellaLibera(ctx, tx, documenti.CartellaThread(cliente.CartellaNas, m.DataEvento.Local(), cognome, oggetto))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	t, err := q.InsertThread(ctx, db.InsertThreadParams{
 		ClienteID: cliente.ClienteID, BuyerID: buyerID, Canale: m.Canale, DataInizio: m.DataEvento, DataScadenza: scadenza, ScadenzaOrigine: origine,
-		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(documenti.CartellaThread(cliente.CartellaNas, m.DataEvento.Local(), cognome, oggetto)),
+		Oggetto: ptxt(oggetto), CartellaRelativa: ptxt(cartellaRFQ),
 		Priorita: int16(prio), Campionatura: r.FormValue("campionatura") == "1", Note: ptxt(r.FormValue("note")), CreatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true},
 	})
 	if err != nil {
@@ -493,11 +517,25 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		s.triageErrore(w, r, id, "aggancia", "RFQ non trovata.")
 		return
 	}
-	// mittente non ancora censito come buyer del cliente del thread → lo si crea se richiesto
+	// mittente non ancora censito come buyer del cliente del thread → lo si crea se richiesto.
+	//
+	// Un «no» del buyer ferma l'aggancio, come in nuovaRFQ. Prima lo si ingoiava: un errore logico
+	// (l'indirizzo di un altro cliente) agganciava senza buyer e senza dirlo, e un errore del database
+	// (un cognome troppo lungo, un'e-mail presa nello stesso istante) lasciava la transazione
+	// interrotta, e l'aggancio falliva dopo con un 500 che non diceva niente.
 	var buyerID uuid.NullUUID
 	if r.FormValue("crea_buyer") == "1" {
-		cl, _ := q.GetCliente(ctx, t.ClienteID)
-		if b, err := s.buyerDaForm(ctx, q, r, &cl); err == nil && b != nil {
+		cl, err := q.GetCliente(ctx, t.ClienteID)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		b, err := s.buyerDaForm(ctx, q, r, &cl)
+		if err != nil {
+			s.triageErrore(w, r, id, "aggancia", err.Error())
+			return
+		}
+		if b != nil {
 			buyerID = uuid.NullUUID{UUID: b.BuyerID, Valid: true}
 		}
 	}
@@ -658,9 +696,13 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 	}
 	if buyerID.Valid {
 		if !m.BuyerID.Valid {
-			_ = q.SetBuyerMessaggio(ctx, db.SetBuyerMessaggioParams{MessaggioID: m.MessaggioID, BuyerID: buyerID})
+			if err := q.SetBuyerMessaggio(ctx, db.SetBuyerMessaggioParams{MessaggioID: m.MessaggioID, BuyerID: buyerID}); err != nil {
+				return err
+			}
 		}
-		_ = q.SetBuyerThread(ctx, db.SetBuyerThreadParams{ThreadID: threadID, BuyerID: buyerID})
+		if err := q.SetBuyerThread(ctx, db.SetBuyerThreadParams{ThreadID: threadID, BuyerID: buyerID}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -691,7 +733,7 @@ func (s *Server) clienteDaForm(ctx context.Context, q *db.Queries, r *http.Reque
 	if err != nil {
 		return nil, fmt.Errorf("cliente: %w", err)
 	}
-	if dom := strings.ToLower(strings.TrimSpace(r.FormValue("cliente_dominio"))); dom != "" && !dominioPubblico(dom) {
+	if dom := strings.ToLower(strings.TrimSpace(r.FormValue("cliente_dominio"))); dom != "" && !classificazione.DominioPubblico(dom) {
 		if err := AggiungiDominio(ctx, q, dom, c.ClienteID); err != nil {
 			return nil, fmt.Errorf("dominio: %w", err)
 		}
@@ -725,7 +767,9 @@ func (s *Server) buyerDaForm(ctx context.Context, q *db.Queries, r *http.Request
 			return nil, fmt.Errorf("buyer: %w", err)
 		}
 		if email != "" {
-			_, _ = q.SetBuyerMessaggiPerIndirizzo(ctx, db.SetBuyerMessaggiPerIndirizzoParams{Lower: email, BuyerID: uuid.NullUUID{UUID: b.BuyerID, Valid: true}})
+			if _, err := q.SetBuyerMessaggiPerIndirizzo(ctx, db.SetBuyerMessaggiPerIndirizzoParams{Lower: email, BuyerID: uuid.NullUUID{UUID: b.BuyerID, Valid: true}}); err != nil {
+				return nil, fmt.Errorf("buyer: %w", err)
+			}
 		}
 		return &b, nil
 	}
@@ -776,13 +820,34 @@ func splitCodici(s string) []string {
 	return out
 }
 
-// dominioPubblico: i webmail non identificano un cliente.
-func dominioPubblico(d string) bool {
-	switch d {
-	case "gmail.com", "outlook.com", "hotmail.com", "hotmail.it", "live.com", "live.it", "yahoo.com", "yahoo.it", "libero.it", "icloud.com", "pec.it":
-		return true
-	}
-	return false
-}
+// motivoFornitoreSenzaRFQ e' la frase di chi chiede «Nuova RFQ» sulla posta di un fornitore: la stessa
+// regola del pannello (7A), detta anche dove la decisione si scrive.
+const motivoFornitoreSenzaRFQ = "Il mittente è un fornitore censito: la sua posta non apre una RFQ cliente, si aggancia a quella per cui lavora (o si ignora)."
 
-var _ = pgx.ErrNoRows
+// cartellaLibera e' la cartella NAS di una RFQ che nasce: quella calcolata, oppure la stessa con un
+// progressivo, « (2)», « (3)», se un'altra RFQ ce l'ha gia'. Stesso cliente, stesso buyer, stesso
+// oggetto e stesso giorno danno lo stesso nome, e due RFQ nella stessa cartella si contenderebbero i
+// nomi dei file sul NAS: la riserva dei nomi e' per RFQ, e la copia della seconda finirebbe in un
+// conflitto che non si risolve da solo. Il confronto e' senza maiuscole, come i nomi su Windows.
+//
+// Il nome si sceglie sotto un lucchetto sul nome calcolato (fino al COMMIT): due «Nuova RFQ» sulla
+// stessa richiesta arrivata due volte non prendono lo stesso nome nello stesso istante.
+func cartellaLibera(ctx context.Context, tx pgx.Tx, base string) (string, error) {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('cartella_rfq:' || lower($1), 0))`, base); err != nil {
+		return "", err
+	}
+	for n := 1; n <= 99; n++ {
+		nome := base
+		if n > 1 {
+			nome = fmt.Sprintf("%s (%d)", base, n)
+		}
+		var presa bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM thread_offerta WHERE lower(cartella_relativa) = lower($1))`, nome).Scan(&presa); err != nil {
+			return "", err
+		}
+		if !presa {
+			return nome, nil
+		}
+	}
+	return "", fmt.Errorf("cartella %s: novantanove RFQ con lo stesso nome, e nessun progressivo libero", base)
+}

@@ -30,6 +30,12 @@ type Config struct {
 	Staging    Staging      `toml:"staging"`    // [staging] — checkpoint 3R, D30
 	Agente     Agente       `toml:"agente"`     // [agente] — checkpoint 3R §9
 	Sicurezza  Sicurezza    `toml:"sicurezza"`  // [sicurezza] — checkpoint 3R, blocco 4
+
+	// Avvisi sono le cose del file che non fermano l'avvio ma vanno dette nel log: le voci che non
+	// esistono (un refuso, che altrimenti vale come se la riga non ci fosse) e quelle che si leggono ma
+	// non hanno effetto. Non sono errori: un file scritto per un binario di prima deve continuare a
+	// partire.
+	Avvisi []string `toml:"-"`
 }
 
 // Sicurezza: che cosa questo server e' autorizzato a MODIFICARE fuori da se' (blocco 4).
@@ -240,9 +246,11 @@ type Server struct {
 	// la credenziale è individuale ([[worker]].token, sha256 in `worker_credenziale`). Resta letto
 	// per un motivo solo — dirlo a chi ce l'ha ancora nel file, invece di lasciarlo credere che
 	// protegga qualcosa.
-	TokenWorker     string `toml:"token_worker"`
-	SegretoSessione string `toml:"segreto_sessione"` // riservato a usi futuri (firma cookie); le sessioni vivono nel DB
-	LogLivello      string `toml:"log_livello"`      // debug | info | warn
+	TokenWorker string `toml:"token_worker"`
+	// SegretoSessione non ha effetto: le sessioni vivono nel database, e nessun cookie si firma con
+	// questo. Resta letto per dirlo nel log (Avvisi) a chi ce l'ha nel file.
+	SegretoSessione string `toml:"segreto_sessione"`
+	LogLivello      string `toml:"log_livello"` // debug | info | warn | error (assente = info)
 	// TLSCert e TLSKey: i due file PEM del listener (voce 2.4). Vuoti = niente TLS, e allora il
 	// server accetta solo di ascoltare su loopback. Percorsi relativi al file di configurazione.
 	//
@@ -262,7 +270,8 @@ type Server struct {
 	// accorge nessuno: è esattamente il tipo di difetto che non dà errore.
 	ConsentiLanInChiaro bool `toml:"consenti_lan_in_chiaro"`
 	// LogFile: dove il server scrive il proprio log, oltre che sullo stdout della finestra.
-	// Vuoto = <nas.staging>\log\cockpit.log; "-" = solo stdout, nessun file.
+	// Vuoto = <nas.staging>\log\cockpit.log; "-" = solo stdout, nessun file. Un percorso relativo si
+	// legge dalla cartella del file di configurazione.
 	LogFile string `toml:"log_file"`
 	// Modalita è come gira il server: "shadow" oppure "produzione" (§2.7, D16, voce 9.5).
 	//
@@ -278,7 +287,8 @@ type Server struct {
 	// MaxUploadMB è il limite di un singolo allegato caricato dal worker con
 	// PUT /api/v1/allegati/{id}/file (voce 2.3). Oltre, il server risponde 413 prima di leggere il
 	// corpo e l'allegato va in errore con il motivo visibile; senza un limite un allegato da qualche
-	// gigabyte riempirebbe lo staging del server in silenzio. Zero = il default (64).
+	// gigabyte riempirebbe lo staging del server in silenzio. Assente = 64; zero o meno e' un errore
+	// d'avvio (un limite a zero rifiuterebbe ogni allegato).
 	MaxUploadMB int `toml:"max_upload_mb"`
 	// URLPubblico e' l'indirizzo con cui i worker e i browser CHIAMANO il server (7C.1, P1):
 	// «https://10.0.0.7:8443», «https://cockpit.azienda.local:8443». Finisce nel worker.toml del
@@ -366,13 +376,16 @@ func (c *Config) PercorsoLog() string {
 }
 
 type NAS struct {
-	Radice string `toml:"radice"` // \nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE  (in sviluppo: cartella locale)
+	// Radice: la cartella «PREVENTIVI DA FARE» del NAS, un UNC come \\server-nas\preventivi\PREVENTIVI DA FARE
+	// (in prova: una cartella locale). Staging: la cartella di lavoro del server (cache dei contenuti,
+	// log). Tutte e due, se relative, si leggono dalla cartella del file di configurazione.
+	Radice string `toml:"radice"`
 	// DryRun e' DEPRECATA dal blocco 4: la scrittura sul NAS la governa [sicurezza].nas_scrittura.
 	// Resta letta per compatibilita' con i file scritti prima — `true` spegne nas_scrittura, che e'
 	// esattamente cio' che quella voce ha sempre significato — e il server lo dice nel log ogni volta
 	// che la trova. Va tolta dai file.
 	DryRun  bool   `toml:"dry_run"`
-	Staging string `toml:"staging"` // cartella locale dove il worker-outlook salva gli allegati
+	Staging string `toml:"staging"`
 	// RadiciProduzione sono le radici VERE, dichiarate una volta (elenco di percorsi UNC).
 	//
 	// Servono a una cosa sola: impedire che una prova in shadow parta puntata sul NAS di produzione
@@ -470,13 +483,13 @@ type Outlook struct {
 	SyncAperturaInbox *bool  `toml:"sync_apertura_inbox"`
 	Dal               string `toml:"dal"`             // "2026-09-01": OVERRIDE esplicito della finestra iniziale, per import controllati
 	Lotto             int    `toml:"lotto"`           // messaggi per POST ingest
-	ConsentiInvio     bool   `toml:"consenti_invio"`  // false = solo bozze (regola aziendale)
+	ConsentiInvio     bool   `toml:"consenti_invio"`  // senza effetto: il server non invia posta, prepara bozze; letta per dirlo nel log
 	CasellaDefault    string `toml:"casella_default"` // indirizzo della casella attribuita ai messaggi che non la dichiarano (fase 1)
 }
 
 // Casella è una voce [[casella]]: una casella di posta censita, personale o condivisa.
 type Casella struct {
-	Indirizzo string `toml:"indirizzo"` // 'nome.cognome@azienda.it' (normalizzato in minuscolo)
+	Indirizzo string `toml:"indirizzo"` // 'nome.cognome@azienda.example' (normalizzato in minuscolo)
 	Nome      string `toml:"nome"`      // etichetta in UI: 'Francesco'
 	Canale    string `toml:"canale"`    // default 'outlook'
 	Condivisa bool   `toml:"condivisa"` // true = cassetta condivisa Exchange (nessun proprietario)
@@ -533,16 +546,27 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 	c.Retention.GiorniJob = 30
 	c.Analisi.Versione = 1
 	c.Staging.MaxMB = 20
-	if _, err := toml.DecodeFile(percorso, c); err != nil {
+	md, err := toml.DecodeFile(percorso, c)
+	if err != nil {
 		return nil, fmt.Errorf("config %s: %w", percorso, err)
 	}
+	c.Avvisi = vociSenzaEffetto(md, c)
 	if c.DB.DSN == "" {
 		return nil, fmt.Errorf("config: [db].dsn mancante")
+	}
+	// I percorsi del file si leggono dalla cartella del file, non da quella da cui e' partito l'eseguibile:
+	// un'attivita' pianificata o un servizio partono da C:\Windows\System32, e li' lo staging relativo
+	// finiva in System32 e la radice del NAS non si trovava. Prima valeva solo per tls_cert e tls_key.
+	dir := cartellaDelFile(percorso)
+	c.NAS.Radice = assoluto(dir, c.NAS.Radice)
+	c.NAS.Staging = assoluto(dir, c.NAS.Staging)
+	if c.Server.LogFile != "-" {
+		c.Server.LogFile = assoluto(dir, c.Server.LogFile)
 	}
 	if err := rete.applica(&c.Server); err != nil {
 		return nil, err
 	}
-	if err := c.normalizzaRete(filepath.Dir(percorso)); err != nil {
+	if err := c.normalizzaRete(dir); err != nil {
 		return nil, err
 	}
 	if c.Server.MaxUploadMB < 1 {
@@ -552,7 +576,7 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 		return nil, err
 	}
 	if c.NAS.Staging == "" {
-		c.NAS.Staging = filepath.Join(filepath.Dir(percorso), "staging")
+		c.NAS.Staging = filepath.Join(dir, "staging")
 	}
 	if err := os.MkdirAll(c.NAS.Staging, 0o755); err != nil {
 		return nil, fmt.Errorf("staging %s: %w", c.NAS.Staging, err)
@@ -828,12 +852,50 @@ func (c *Config) HostPubblico() string {
 
 // assoluto risolve un percorso relativo rispetto alla cartella del file di configurazione: i
 // percorsi in un file si leggono da dove sta il file, non da dove è stato lanciato l'eseguibile.
+//
+// Restano come sono i percorsi vuoti, quelli assoluti, e quelli che assoluti lo sono anche se il sistema
+// su cui gira il server non li riconosce come tali: un UNC (\\server\share, //server/share), un percorso
+// che comincia con una barra (/mnt/nas su Linux, \cartella «dalla radice del disco» su Windows) o con la
+// lettera di un disco (C:\..., anche letto da un server Linux). Nessuno di questi e' relativo alla
+// cartella del file, e attaccarglielo davanti darebbe un percorso che non esiste.
 func assoluto(dir, p string) string {
 	p = strings.TrimSpace(p)
-	if p == "" || filepath.IsAbs(p) {
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, `\`) || strings.HasPrefix(p, "/") || conDisco(p) {
 		return p
 	}
 	return filepath.Join(dir, p)
+}
+
+// conDisco dice se il percorso comincia con la lettera di un disco Windows («C:»).
+func conDisco(p string) bool {
+	return len(p) >= 2 && p[1] == ':' && ('a' <= p[0] && p[0] <= 'z' || 'A' <= p[0] && p[0] <= 'Z')
+}
+
+// cartellaDelFile e' la cartella, assoluta, del file di configurazione: e' la base dei percorsi relativi
+// del file. Assoluta perche' finisce nel log e nei messaggi d'errore, e «.\staging» non dice dove.
+func cartellaDelFile(percorso string) string {
+	dir := filepath.Dir(percorso)
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
+}
+
+// vociSenzaEffetto sono gli avvisi sulle voci del file che non cambiano niente: quelle che non esistono
+// (un refuso in `reti_consentite` voleva dire nessun filtro, in silenzio) e quelle che si leggono ancora
+// ma non hanno piu' effetto. Non fermano l'avvio: un file scritto per un binario di prima deve partire.
+func vociSenzaEffetto(md toml.MetaData, c *Config) []string {
+	var avvisi []string
+	for _, k := range md.Undecoded() {
+		avvisi = append(avvisi, fmt.Sprintf("la voce %q non esiste e viene ignorata: un refuso vale come se la riga non ci fosse", k.String()))
+	}
+	if strings.TrimSpace(c.Server.SegretoSessione) != "" {
+		avvisi = append(avvisi, "[server].segreto_sessione non ha effetto: le sessioni stanno nel database e nessun cookie si firma con questo. La riga si puo' togliere")
+	}
+	if md.IsDefined("outlook", "consenti_invio") {
+		avvisi = append(avvisi, "[outlook].consenti_invio non ha effetto sul server: il Cockpit prepara bozze e non ha un invio da accendere. La riga si puo' togliere")
+	}
+	return avvisi
 }
 
 // normalizzaFondazioni mette in forma canonica [[casella]], [[postazione]], [[worker]] e

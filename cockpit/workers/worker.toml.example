@@ -49,7 +49,10 @@ token          = ""
 # confermati aspettano. Il worker si rifiuta di partire se ci prova. Non deve coincidere con
 # [nas].staging del server: il worker può stare su
 # un altro PC.
-staging        = '..\_staging'
+# Un percorso ASSOLUTO: uno relativo il worker lo legge dalla cartella da cui viene avviato, che per
+# un'attività pianificata non è quella di questo file. È lo stesso che scrive il pacchetto della
+# postazione; la cartella la crea il worker.
+staging        = 'C:\cockpit\staging'
 consenti_invio = false
 
 # Nome del worker: deve coincidere con [[worker]].nome di cockpit.toml, perché è la chiave con cui il

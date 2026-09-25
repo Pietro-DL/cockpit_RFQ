@@ -228,8 +228,11 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 	if radice.Tipo != db.TipoComponenteFinito {
 		return pv, Rifiuto(radice.Codice + " non è un prodotto finito: la struttura si disegna sotto un prodotto")
 	}
-	if len(v.Archi) > MaxArchiVoluti || len(v.Visti) > 4*MaxArchiVoluti {
+	if len(v.Archi) > MaxArchiVoluti {
 		return pv, Rifiuto(fmt.Sprintf("la struttura ha %d archi: il limite è %d", len(v.Archi), MaxArchiVoluti))
+	}
+	if len(v.Visti) > 4*MaxArchiVoluti {
+		return pv, Rifiuto(fmt.Sprintf("l'editor ha mandato %d archi della BOM mostrata: il limite è %d", len(v.Visti), 4*MaxArchiVoluti))
 	}
 	for _, a := range v.Visti {
 		p, errP := uuid.Parse(strings.TrimPrefix(a.Padre, "c:"))
@@ -606,7 +609,7 @@ func contieneID(ids []uuid.UUID, id uuid.UUID) bool {
 // esitoVoluta conta quello che e' cambiato, per la frase all'operatore.
 type esitoVoluta struct {
 	nuovi, ritrovati, aggiunti, tolti, quantita, scartati, chiuse, assiemi, codici, tenute, radici int
-	senzaPadre                                                                                    []string
+	senzaPadre                                                                                     []string
 }
 
 // ApplicaStrutturaVoluta porta la working alla struttura voluta sotto il prodotto v.Radice: nodi proposti
@@ -646,9 +649,14 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 		x := r.RelazioneProposta
 		cx.Relazioni[ChiaveRelazione{Allegato: x.AllegatoID, Padre: x.PadreChiave, Figlio: x.FiglioChiave}] = x
 	}
-	if m, err := MotoreDellaRfq(ctx, q, thread); err == nil {
-		cx.conAlias(m)
+	// Le regole del cliente si leggono o si fallisce: senza gli alias dei suffissi un nodo «X» non
+	// ritroverebbe il pezzo nato come «X_PRT» e ne nascerebbe un secondo. Un errore qui e' del database,
+	// su una transazione che non arriverebbe comunque in fondo.
+	m, err := MotoreDellaRfq(ctx, q, thread)
+	if err != nil {
+		return "", err
 	}
+	cx.conAlias(m)
 	pv, err := pianifica(cx, v)
 	if err != nil {
 		return "", err
@@ -757,7 +765,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 				return "", err
 			}
 		}
-		c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: thread, Upper: codice})
+		c, err := componenteNato(ctx, q, thread, codice)
 		if err != nil {
 			return "", err
 		}
@@ -864,7 +872,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 			break
 		}
 		if !fatto {
-			if _, err := collega(ctx, q, thread, a.Padre, a.Figlio, utente, voluti[a]); err != nil {
+			if _, _, err := collega(ctx, q, thread, a.Padre, a.Figlio, utente, voluti[a]); err != nil {
 				return "", err
 			}
 			archi = append(archi, a)
@@ -1023,6 +1031,18 @@ func revisioneUnica(k CodiceCandidato) string {
 		return ""
 	}
 	return r
+}
+
+// componenteNato e' il componente di un codice nuovo della struttura voluta, appena nato (o ritrovato)
+// accettando la sua proposta. Il codice viene dal piano: se fra la lettura e la scrittura la proposta ha
+// cambiato codice (un altro gesto nel frattempo), con quel codice non e' nato niente. E' un rifiuto che
+// dice di riaprire l'editor, non un «no rows in result set» grezzo.
+func componenteNato(ctx context.Context, q *db.Queries, thread uuid.UUID, codice string) (db.Componente, error) {
+	c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: thread, Upper: codice})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, Rifiuto(codice + ": nel frattempo la proposta ha cambiato codice, e con questo non è nato nessun componente: riapri l'editor")
+	}
+	return c, err
 }
 
 // tipoVoluto e' il tipo con cui nasce un nodo proposto: assieme se nella struttura ha dei figli, altrimenti

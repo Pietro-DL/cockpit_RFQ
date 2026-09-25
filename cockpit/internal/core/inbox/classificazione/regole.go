@@ -100,8 +100,8 @@ func (m *Motore) togliSuffisso(codice string) (string, bool) {
 	return codice, false
 }
 
-// senzaSuffissi toglie da un testo i suffissi decorativi del cliente attaccati in coda a una parola («52920000_PRT.pdf»
-// → «52920000.pdf»): prima della coda una lettera o una cifra, dopo nessuna. Senza suffissi il testo resta com'e'.
+// senzaSuffissi toglie da un testo i suffissi decorativi del cliente attaccati in coda a una parola («77720000_PRT.pdf»
+// → «77720000.pdf»): prima della coda una lettera o una cifra, dopo nessuna. Senza suffissi il testo resta com'e'.
 func (m *Motore) senzaSuffissi(t string) string {
 	if m == nil || len(m.suffissi) == 0 {
 		return t
@@ -184,7 +184,7 @@ type CodiceTrovato struct {
 	// Punteggio è quanto vale l'affermazione. «Questo è un codice DI QUESTO CLIENTE» e «questo ha
 	// la forma di un codice» non possono presentarsi con lo stesso numero accanto.
 	Punteggio int
-	// Dove è l'evidenza leggibile: «oggetto», «corpo», «allegato 6743449A_1.zip».
+	// Dove è l'evidenza leggibile: «oggetto», «corpo», «allegato 7654321A_1.zip».
 	Dove string
 }
 
@@ -340,12 +340,23 @@ func (m *Motore) HaFamiglie() bool { return m != nil && len(m.famiglie) > 0 }
 
 // Finestra è `finestra_aggancio_gg` del cliente, 0 se non dichiarata (e allora vale il default di
 // internal/core/inbox/aggancio). Nil-safe come tutto il resto del motore: un cliente sconosciuto è il caso normale.
+//
+// Un valore fuori da 1..maxFinestraGG vale come non dichiarato, come ogni regola ✗ del motore (Compila):
+// le regole lette dal database non sono passate per forza dal convalidatore, e una finestra di
+// novantamila giorni — o negativa — non è una politica del cliente, è un errore di battitura che
+// trasformerebbe ogni riquotazione di dieci anni fa in un candidato, o nessun messaggio in uno.
 func (m *Motore) Finestra() int {
 	if m == nil {
 		return 0
 	}
-	return m.Regole.FinestraAggancioGG
+	if g := m.Regole.FinestraAggancioGG; g >= 1 && g <= maxFinestraGG {
+		return g
+	}
+	return 0
 }
+
+// maxFinestraGG è lo stesso limite con cui regole.Verifica rifiuta `finestra_aggancio_gg`: dieci anni.
+const maxFinestraGG = 3650
 
 // DiFamiglia filtra i codici riconosciuti da una famiglia del cliente. È l'insieme su cui vale la regola
 // di aggancio R3: un codice pescato dall'estrattore generico non dice che quella richiesta esiste.
@@ -363,7 +374,7 @@ func DiFamiglia(in []CodiceTrovato) []CodiceTrovato {
 // `EstraiCodici` non faceva e che il banco reale ha reso obbligatoria: cerca PRIMA il riferimento
 // della richiesta secondo il cliente, e poi toglie quel numero dai codici prodotto.
 //
-// «RICHIESTA D'OFFERTA 490020618» conteneva un codice prodotto 490020618 che non esiste: è il numero
+// «RICHIESTA D'OFFERTA 400012345» conteneva un codice prodotto 400012345 che non esiste: è il numero
 // della RDO. Finiva fra gli identificativi della RFQ, e da lì nel nome della cartella e nelle
 // ricerche per codice. Sono due campi diversi perché sono due cose diverse.
 func (m *Motore) Estrai(testi ...Testo) Estrazione {
@@ -389,7 +400,7 @@ func (m *Motore) Estrai(testi ...Testo) Estrazione {
 }
 
 // contieneStringa dice se `codice` è il riferimento o ne è una parte. Il confronto è largo apposta:
-// un riferimento «RDO 490020618» e un codice «490020618» sono lo stesso numero visto due volte, e
+// un riferimento «RDO 400012345» e un codice «400012345» sono lo stesso numero visto due volte, e
 // tenerne uno solo è il punto.
 func contieneStringa(riferimento, codice string) bool {
 	r, c := strings.ToUpper(riferimento), strings.ToUpper(codice)

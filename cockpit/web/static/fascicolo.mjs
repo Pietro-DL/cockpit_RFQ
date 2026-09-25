@@ -1048,7 +1048,10 @@ class Editor {
     this.scelte = new Set();
     this.menuAperto = null;
     this.iniziale = this.firma();
-    this.chiaveBozza = "cockpit.editor." + (S.radice ? S.radice.dataset.thread : "") + "." + this.radice;
+    // La bozza e' di chi la sta scrivendo: nella chiave c'e' l'utente, cosi' chi entra dopo sulla stessa
+    // scheda non la trova (e non la conferma a nome suo). All'uscita layout.html butta le cockpit.editor.*.
+    const ds = S.radice ? S.radice.dataset : {};
+    this.chiaveBozza = "cockpit.editor." + (ds.utente || "") + "." + (ds.thread || "") + "." + this.radice;
     // l'impronta della BOM su cui si lavora: il contenuto (archi con le quantita', proposte), non la lunghezza.
     // Una bozza si riprende solo sulla stessa BOM; se nel frattempo e' cambiata anche di una quantita', no
     this.impronta = impronta(JSON.stringify([(dati.archi || []).map((a) => [a.padre, a.figlio, a.qta]).sort(),

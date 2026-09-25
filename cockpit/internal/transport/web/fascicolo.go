@@ -13,8 +13,8 @@ package web
 // sui tipi tecnici rifiuta un disegno senza codice. Qui si decide CHE COSA scrivere, e si dice
 // all'operatore perche' qualcosa non si puo' fare prima che ci sbatta contro il vincolo.
 //
-// La schermata del Fascicolo arriva con B8.7: fino ad allora queste rotte rispondono con la pagina
-// della RFQ e un avviso.
+// Le rotte rispondono come la schermata da cui arriva il gesto (threadFrammento): dal Fascicolo con
+// l'avviso e i suoi pannelli, da altrove con la pagina della RFQ.
 
 import (
 	"context"
@@ -23,13 +23,13 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
@@ -37,9 +37,9 @@ import (
 )
 
 // rifiuto e' un «no» per l'operatore: la transazione si annulla per intero e l'avviso dice il motivo.
-type rifiuto string
-
-func (r rifiuto) Error() string { return string(r) }
+// E' lo stesso tipo del core (fascicolo.Rifiuto): un «no» detto qui e uno detto da fascicolo si
+// riconoscono con un solo errors.As, e spiegaErrore li tratta allo stesso modo.
+type rifiuto = fascicolo.Rifiuto
 
 // stessoCodice confronta due codici come li confronta l'identita' del componente, upper(codice).
 func stessoCodice(a, b string) bool {
@@ -51,8 +51,8 @@ func stessoCodice(a, b string) bool {
 //
 // Lo stesso codice con altre maiuscole non e' una correzione: si copia la stringa del componente
 // (A1.4, regola 8), perche' la FK la vuole identica. Un codice DIVERSO lo diventa solo con il gesto
-// esplicito «assegna e correggi il codice» (regola 1): un disegno che dice 52920517 sotto il
-// componente 52922757 e' un errore di qualcuno, e non si ripara in silenzio.
+// esplicito «assegna e correggi il codice» (regola 1): un disegno che dice 77720517 sotto il
+// componente 77722757 e' un errore di qualcuno, e non si ripara in silenzio.
 func codiceDaComponente(attuale string, c db.Componente, correggi bool) (string, error) {
 	if strings.TrimSpace(attuale) != "" && !stessoCodice(attuale, c.Codice) && !correggi {
 		return "", rifiuto(fmt.Sprintf("codice diverso: %s contro %s. Per assegnarlo comunque va corretto il codice del file (correggi_codice)",
@@ -423,6 +423,12 @@ func notaSostituzione(ctx context.Context, q *db.Queries, vecchio, nuovo uuid.UU
 // diventa documento.
 func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, comp uuid.NullUUID, docs, props []uuid.UUID, correggi bool,
 	scelte map[uuid.UUID]sceltaRevisione) (string, error) {
+	// La RFQ prima di componenti, documenti e proposte: e' l'ordine del congelamento e degli altri gesti.
+	// Rovesciato (i documenti bloccati qui, poi il trigger della working che chiede la RFQ) basta un
+	// congelamento nello stesso istante perche' le due transazioni si aspettino a vicenda (40P01).
+	if err := preparaGesto(ctx, q, thread); err != nil {
+		return "", err
+	}
 	var c *db.Componente
 	if comp.Valid {
 		x, err := q.GetComponente(ctx, comp.UUID)
@@ -533,8 +539,14 @@ func correggiCodiceComponente(ctx context.Context, tx pgx.Tx, q *db.Queries, thr
 	if nuovo == "" {
 		return "", rifiuto("il codice non può essere vuoto")
 	}
-	if utf8.RuneCountInString(nuovo) > 60 {
-		return "", rifiuto("il codice ha più di 60 caratteri")
+	// la stessa guardia di ogni altro codice che entra in una colonna (i nodi, l'editor, il worker)
+	if !classificazione.CodiceAmmissibile(nuovo) {
+		return "", rifiuto(fmt.Sprintf("il codice ha più di %d caratteri o caratteri non ammessi", classificazione.MaxCodice))
+	}
+	// La RFQ prima del componente e dei documenti, come nel congelamento e negli altri gesti: con
+	// l'ordine rovesciato due transazioni si aspettano a vicenda e PostgreSQL ne uccide una (40P01).
+	if err := preparaGesto(ctx, q, thread); err != nil {
+		return "", err
 	}
 	if _, err := tx.Exec(ctx, `SET CONSTRAINTS fk_documento_componente, fk_proposta_componente DEFERRED`); err != nil {
 		return "", err
@@ -599,14 +611,14 @@ func spiegaErrore(err error) string {
 	if errors.As(err, &r) {
 		return string(r)
 	}
-	var fr fascicolo.Rifiuto
-	if errors.As(err, &fr) {
-		return string(fr)
-	}
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) {
 		// i trigger della 0020 hanno i loro codici (A4): li si riconosce senza leggere il testo
 		switch pg.Code {
+		case "40P01":
+			// Due gesti sulla stessa RFQ che si sono aspettati a vicenda: PostgreSQL ne ha fermato uno,
+			// questo. Niente e' cambiato, e rifarlo adesso di solito riesce.
+			return "un'altra operazione sulla stessa RFQ era in corso nello stesso momento: riprova"
 		case "BOM01":
 			return "la BOM è congelata: si modifica solo aprendo una revisione"
 		case "BOM02":

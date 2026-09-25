@@ -156,9 +156,15 @@ func PreparaFile(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.A
 			return p, err
 		}
 		copia, err := coda.CopiaPerDownload(ctx, q, m.MessaggioID, uuid.NullUUID{}, uuid.Nil)
-		if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// il messaggio non e' in nessuna casella attiva: e' l'unico caso in cui la frase e' vera
 			p.Saltati = append(p.Saltati, a.NomeFile+": nessuna casella attiva da cui scaricarlo")
 			continue
+		}
+		if err != nil {
+			// un errore del database non e' «nessuna casella»: detto cosi', manderebbe a cercare una casella
+			// spenta che non c'e'
+			return p, err
 		}
 		esito, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, a, m, copia, 2)
 		if err != nil {

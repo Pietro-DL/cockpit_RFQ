@@ -165,10 +165,12 @@ WHERE thread_id = $1 AND step_documento_id = $2 AND padre_id = $3 AND figlio_id 
 -- cliente.regole, non in `regola`, quindi non c'e' un regola_id da scrivere, e uno rimasto da prima
 -- attribuirebbe la lettura a un'altra regola. Famiglia, dove e testo del riconoscimento vanno nei
 -- dettagli; l'evidenza strutturata del nodo resta componente_proposta. Una proposta gia' assegnata a un
--- componente ha il codice del componente e non si tocca (B8.7: la FK la rifiuterebbe).
+-- componente ha il codice del componente e non si tocca (B8.7: la FK la rifiuterebbe). Nemmeno una con
+-- fonte = 'operatore': il codice l'ha scritto una persona, e una famiglia del cliente e' una lettura,
+-- non una decisione che la possa correggere.
 UPDATE documento_proposta SET codice = sqlc.arg(codice), rev = sqlc.narg(rev), fonte = 'regola_cliente', regola_id = NULL,
        confidenza = sqlc.arg(confidenza), dettagli = dettagli || sqlc.arg(dettagli)::jsonb
-WHERE allegato_id = sqlc.arg(allegato_id) AND stato = 'aperta' AND componente_id IS NULL;
+WHERE allegato_id = sqlc.arg(allegato_id) AND stato = 'aperta' AND componente_id IS NULL AND fonte <> 'operatore';
 
 -- name: GetPropostaDocumentoDiAllegato :one
 SELECT * FROM documento_proposta WHERE allegato_id = $1;

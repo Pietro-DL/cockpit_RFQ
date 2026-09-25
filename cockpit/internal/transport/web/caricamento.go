@@ -61,10 +61,7 @@ func (s *Server) caricaVersioneInterna(w http.ResponseWriter, r *http.Request) {
 		no("il caricamento interno non è configurato su questo server (serve lo staging e la strada dell'analisi)")
 		return
 	}
-	max := s.MaxCaricamento
-	if max <= 0 {
-		max = maxCaricamentoPredefinito
-	}
+	max := s.maxCaricamentoEffettivo()
 	r.Body = http.MaxBytesReader(w, r.Body, max+(1<<20))
 	f, h, err := r.FormFile("file")
 	if err != nil {

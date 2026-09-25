@@ -39,6 +39,18 @@ func CopiaSulNas(ctx context.Context, q *db.Queries, scrittore *nas.Scrittore, j
 	if !t.CartellaRelativa.Valid {
 		return nil, fmt.Errorf("thread %s senza cartella_relativa", d.ThreadID)
 	}
+	if d.StatoNas == db.StatoNasScritto {
+		// Una copia per un documento gia' scritto e' un job vecchio — una copia esaurita che l'avvio o il
+		// ritorno del NAS rimettono in coda — oppure «Riaccoda» su un file che manca. Se il file c'e' con
+		// l'hash giusto non c'e' niente da fare, e soprattutto non si cerca il contenuto nella cache: se
+		// da li' e' sparito (lo toglie il custode, a copia fatta) la ripresa segnerebbe in errore un
+		// documento che sul NAS e' a posto. Se il file manca o e' un altro si prosegue: la copia lo
+		// rimette, o rifiuta il conflitto; e «scritto» non lo abbassa comunque nessuno (SetDocumentoErrore).
+		dst := nas.UNC(scrittore.Radice, percorsoDocumento(t.CartellaRelativa.String, d.PathRelativo))
+		if sha, _, err := nas.Sha256File(dst); err == nil && sha == d.Sha256 {
+			return map[string]any{"destinazione": dst, "gia_scritto": true}, nil
+		}
+	}
 	src, sparito, err := cercaSorgente(ctx, q, d)
 	if sparito != nil {
 		// Il contenuto non c'e' piu' nella cache. L'operatore ha gia' deciso che quel file va sul
@@ -133,8 +145,8 @@ var ErrContenutoMancante = errors.New("contenuto non piu' in staging")
 //
 // Senza questo controllo il fascicolo si ferma con «open C:\...\_contenuti\73\739f....pdf:
 // Impossibile trovare il percorso specificato»: una frase che dice dove il file non c'era e non dice
-// a nessuno che cosa fare. Il contenuto si riprende con «Riscarica» sull'allegato, e la frase adesso
-// lo dice.
+// a nessuno che cosa fare. Il contenuto si riprende con «Riscarica» sull'allegato (o, per un file
+// caricato a mano, ricaricandolo dal Fascicolo), e la frase adesso lo dice.
 func SorgenteStaging(ctx context.Context, q *db.Queries, d db.Documento) (string, error) {
 	src, _, err := cercaSorgente(ctx, q, d)
 	return src, err
@@ -162,6 +174,10 @@ func cercaSorgente(ctx context.Context, q *db.Queries, d db.Documento) (string, 
 		if sparito == nil {
 			sparito = &all[i]
 		}
+	}
+	if sparito != nil && sparito.Origine == db.OrigineAllegatoManuale {
+		// caricato a mano: in Outlook non c'e', e «Riscarica» non porterebbe da nessuna parte
+		return "", sparito, contenutoCaricatoAMano(*sparito, *sparito)
 	}
 	if sparito != nil {
 		return "", sparito, fmt.Errorf("%w: il contenuto di %q non e' piu' nello staging del server. "+

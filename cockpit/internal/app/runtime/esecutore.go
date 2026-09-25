@@ -91,7 +91,7 @@ func (e *EsecutoreServer) Avvia(ctx context.Context) {
 			res, err := e.esegui(ctx, q, j, t)
 			if err != nil {
 				e.Log.Error("job server fallito", "job", j.JobID, "tipo", j.Tipo, "err", err)
-				if _, err := coda.Fallisci(ctx, q, t, err.Error(), errors.Is(err, nas.ErrConflitto)); err != nil {
+				if _, err := coda.Fallisci(ctx, q, t, err.Error(), definitivo(err)); err != nil {
 					e.Log.Warn("fallimento non registrato", "job", j.JobID, "err", err)
 				}
 				continue
@@ -112,7 +112,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 			return nil, err
 		}
 		if e.Archivi == nil {
-			return nil, errors.New("estrazione degli archivi non configurata su questo server")
+			return nil, errArchiviNonConfigurati
 		}
 		voci, err := e.Archivi.EstraiArchivio(ctx, p.AllegatoID, t.LeaseToken)
 		if err != nil {
@@ -132,7 +132,7 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		// l'esito del job dice che cosa e' successo, compreso «rifiutata»: un output non conforme non
 		// e' un errore del sistema, ed e' una misura che va conservata
 		return map[string]any{"analisi_id": a.AnalisiID, "stato": a.Stato,
-			"scartati": len(a.Scartato), "token_in": a.TokenIn.Int32, "token_out": a.TokenOut.Int32}, nil
+			"scartati": contaScartati(a.Scartato), "token_in": a.TokenIn.Int32, "token_out": a.TokenOut.Int32}, nil
 
 	case db.TipoJobCreaCartellaThread:
 		var p worker.PayloadCreaCartellaThread
@@ -148,5 +148,32 @@ func (e *EsecutoreServer) esegui(ctx context.Context, q *db.Queries, j *db.Job, 
 		}
 		return documenti.CopiaSulNas(ctx, q, e.NAS, j, p.DocumentoID)
 	}
-	return nil, fmt.Errorf("tipo job non gestito dal server: %s", j.Tipo)
+	return nil, fmt.Errorf("%w: %s", errTipoNonGestito, j.Tipo)
+}
+
+var (
+	// errTipoNonGestito: questo server non sa eseguire il tipo del job (sposta_nas prima di B8.8, un tipo
+	// di un binario piu' nuovo).
+	errTipoNonGestito = errors.New("tipo job non gestito dal server")
+	// errArchiviNonConfigurati: l'esecutore e' partito senza chi scompatta gli archivi.
+	errArchiviNonConfigurati = errors.New("estrazione degli archivi non configurata su questo server")
+)
+
+// definitivo dice se un fallimento non si risolve riprovando: un conflitto sul NAS (il file di un altro
+// non si sovrascrive), un tipo che questo server non sa eseguire, l'analisi semantica spenta, l'estrazione
+// non configurata. Riprovarli cinque volte non cambiava niente, se non far aspettare cinque rinvii a chi
+// guarda la coda prima di vedere il motivo vero.
+func definitivo(err error) bool {
+	return errors.Is(err, nas.ErrConflitto) || errors.Is(err, errTipoNonGestito) ||
+		errors.Is(err, agente.ErrSpento) || errors.Is(err, errArchiviNonConfigurati)
+}
+
+// contaScartati e' quanti elementi scartati ha l'analisi (un array JSON). len() sul grezzo contava i
+// byte del JSON: «scartati: 2» voleva dire «[]».
+func contaScartati(grezzo json.RawMessage) int {
+	var voci []json.RawMessage
+	if json.Unmarshal(grezzo, &voci) != nil {
+		return 0
+	}
+	return len(voci)
 }

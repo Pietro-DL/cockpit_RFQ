@@ -14,13 +14,6 @@ ON CONFLICT (sigla) DO UPDATE SET nome = EXCLUDED.nome, ufficio = EXCLUDED.uffic
     password_hash = COALESCE(EXCLUDED.password_hash, utente.password_hash), attivo = true
 RETURNING *;
 
--- name: CreaSessione :one
-INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING *;
-
--- name: GetSessioneUtente :one
-SELECT u.* FROM sessione s JOIN utente u ON u.utente_id = s.utente_id
-WHERE s.token = $1 AND s.scade_il > now() AND u.attivo;
-
 -- name: GetSessione :one
 -- Utente E postazione della sessione (voce 2.7): la postazione decide dove vanno i job interattivi.
 SELECT s.postazione_id, s.postazione_origine, p.nome_host, sqlc.embed(u)

@@ -48,9 +48,6 @@ WHERE richiesta_id = $1 AND stato = 'inviata';
 -- name: SetRichiestaStato :execrows
 UPDATE richiesta_fornitore SET stato = $2 WHERE richiesta_id = $1 AND thread_id = $3;
 
--- name: RichiestaPerMarcatore :one
-SELECT * FROM richiesta_fornitore WHERE richiesta_id = $1;
-
 -- ---------------------------------------------------------------- i candidati verso una richiesta (7B.2)
 
 -- R0: In-Reply-To / References verso LA NOSTRA mail di richiesta.

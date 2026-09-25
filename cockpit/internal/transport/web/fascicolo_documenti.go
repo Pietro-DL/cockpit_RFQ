@@ -13,7 +13,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"sort"
 	"strings"
@@ -151,7 +150,7 @@ type indiceDoc struct {
 	File     string                `json:"file"`
 	Scrive   bool                  `json:"scrive"`
 	Bloccata int32                 `json:"bloccata"`
-	Prec     map[string]precedente `json:"prec"` // allegato → la revisione precedente, se ha note
+	Prec     map[string]precedente `json:"prec"`   // allegato → la revisione precedente, se ha note
 	Gruppo   string                `json:"gruppo"` // il gruppo aperto: l'indirizzo lo porta
 }
 
@@ -184,15 +183,6 @@ type propostaStruttura struct {
 	Nome     string
 	Nodi     int
 	Archi    int
-}
-
-// JSONIndice e' l'indice per il viewer, pronto per un <script type="application/json">.
-func (v *docVista) JSONIndice() string {
-	b, err := json.Marshal(v.Indice)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
 }
 
 // voceVista e' una voce del piano con la schermata, per i gesti condivisi fra il cassetto e il pannello.

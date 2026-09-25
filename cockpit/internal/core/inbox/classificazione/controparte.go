@@ -12,7 +12,7 @@ import (
 //
 // Fino a qui il Cockpit conosceva una sola specie di interlocutore, il cliente, e chiunque scrivesse
 // da un dominio non censito era «mittente non censito». Una richiesta d'offerta di un FORNITORE —
-// «RICHIESTA D'OFFERTA ... TG FIORE», con il PDF della nostra richiesta allegato — ha le stesse
+// «RICHIESTA D'OFFERTA ... PROGETTO ALFA», con il PDF della nostra richiesta allegato — ha le stesse
 // parole e gli stessi allegati di una RFQ del cliente, e il triage la proponeva come RFQ nuova.
 //
 // La controparte e' un FATTO sul messaggio: chi c'e' dall'altra parte, e da che cosa lo si e'

@@ -67,8 +67,8 @@ func (n *dettaglioNodo) NomeScheda() string {
 type propostaScelta struct {
 	P        db.ComponenteProposta
 	File     string
-	Sotto    []string // «sotto 52920517 ×2»
-	Figli    []string // «53011111 ×2»
+	Sotto    []string // «sotto 77720517 ×2»
+	Figli    []string // «77811111 ×2»
 	InArrivo []fascicolo.VoceFile
 }
 

@@ -12,7 +12,7 @@ import (
 
 // LA VERIFICA DI CHI STA PER SERVIRE I BYTE (blocco 8, B8.1).
 //
-// `AllineaDocumento` qui sopra e' un GESTO DI UNA PERSONA: un amministratore guarda una segnalazione,
+// `AllineaDocumento` (integrita.go) e' un GESTO DI UNA PERSONA: un amministratore guarda una segnalazione,
 // decide che il file sul NAS e' quello buono e chiede di allineare il database. Fa esattamente quello
 // e niente di piu'. In particolare — ed e' il motivo per cui questa funzione esiste — quando l'hash
 // NON corrisponde:

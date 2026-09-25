@@ -13,32 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const creaSessione = `-- name: CreaSessione :one
-INSERT INTO sessione (token, utente_id, scade_il) VALUES ($1, $2, $3) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine, sync_inbox_il
-`
-
-type CreaSessioneParams struct {
-	Token    string    `json:"token"`
-	UtenteID uuid.UUID `json:"utente_id"`
-	ScadeIl  time.Time `json:"scade_il"`
-}
-
-func (q *Queries) CreaSessione(ctx context.Context, arg CreaSessioneParams) (Sessione, error) {
-	row := q.db.QueryRow(ctx, creaSessione, arg.Token, arg.UtenteID, arg.ScadeIl)
-	var i Sessione
-	err := row.Scan(
-		&i.Token,
-		&i.UtenteID,
-		&i.CreataIl,
-		&i.ScadeIl,
-		&i.UltimoAccesso,
-		&i.PostazioneID,
-		&i.PostazioneOrigine,
-		&i.SyncInboxIl,
-	)
-	return i, err
-}
-
 const creaSessioneConPostazione = `-- name: CreaSessioneConPostazione :one
 INSERT INTO sessione (token, utente_id, scade_il, postazione_id, postazione_origine)
 VALUES ($1, $2, $3, $4, $5) RETURNING token, utente_id, creata_il, scade_il, ultimo_accesso, postazione_id, postazione_origine, sync_inbox_il
@@ -127,28 +101,6 @@ func (q *Queries) GetSessione(ctx context.Context, token string) (GetSessioneRow
 		&i.Utente.Attivo,
 		&i.Utente.CreatoIl,
 		&i.Utente.UltimaVistaInbox,
-	)
-	return i, err
-}
-
-const getSessioneUtente = `-- name: GetSessioneUtente :one
-SELECT u.utente_id, u.sigla, u.nome, u.ufficio, u.ruolo, u.password_hash, u.attivo, u.creato_il, u.ultima_vista_inbox FROM sessione s JOIN utente u ON u.utente_id = s.utente_id
-WHERE s.token = $1 AND s.scade_il > now() AND u.attivo
-`
-
-func (q *Queries) GetSessioneUtente(ctx context.Context, token string) (Utente, error) {
-	row := q.db.QueryRow(ctx, getSessioneUtente, token)
-	var i Utente
-	err := row.Scan(
-		&i.UtenteID,
-		&i.Sigla,
-		&i.Nome,
-		&i.Ufficio,
-		&i.Ruolo,
-		&i.PasswordHash,
-		&i.Attivo,
-		&i.CreatoIl,
-		&i.UltimaVistaInbox,
 	)
 	return i, err
 }

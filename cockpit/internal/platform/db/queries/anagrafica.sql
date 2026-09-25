@@ -118,10 +118,13 @@ WHERE buyer_id = sqlc.arg(buyer_id)
 RETURNING *;
 
 -- name: EliminaBuyer :execrows
--- Un buyer citato da un messaggio o da una richiesta NON si cancella: si perderebbe chi ha scritto.
-DELETE FROM buyer b WHERE b.buyer_id = $1
+-- Un buyer citato da un messaggio, da una richiesta o da una proposta di triage NON si cancella: si
+-- perderebbe chi ha scritto (e la proposta lo tiene con una chiave esterna). Solo un buyer DI QUESTO
+-- cliente: l'id arriva da un form, e la pagina di un cliente non cancella le persone di un altro.
+DELETE FROM buyer b WHERE b.buyer_id = sqlc.arg(buyer_id) AND b.cliente_id = sqlc.arg(cliente_id)
   AND NOT EXISTS (SELECT 1 FROM messaggio m WHERE m.buyer_id = b.buyer_id)
-  AND NOT EXISTS (SELECT 1 FROM thread_offerta t WHERE t.buyer_id = b.buyer_id);
+  AND NOT EXISTS (SELECT 1 FROM thread_offerta t WHERE t.buyer_id = b.buyer_id)
+  AND NOT EXISTS (SELECT 1 FROM proposta_triage p WHERE p.buyer_proposto = b.buyer_id);
 
 -- name: InsertFabbisogno :one
 INSERT INTO fabbisogno_documento (cliente_id, tipo_componente, tipo, bloccante)

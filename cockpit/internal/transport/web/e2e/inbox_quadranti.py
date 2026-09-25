@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""L7 - l'Inbox a quadranti in un BROWSER VERO (checkpoint 7B.5, prove A..G).
+"""L7 - l'Inbox a quadranti in un BROWSER VERO (checkpoint 7B.5, prove A..G; H e I dalla revisione del 25/09).
 
 Non lo si lancia a mano: lo avvia `inbox_browser_test.go` (tag `browser`), che prima prepara il
 banco su PostgreSQL, semina i messaggi nei tre quadranti e mette in piedi il server vero. Qui si
@@ -200,6 +200,49 @@ def prova_g(page, base):
     page.go_forward()
     stabile(page)
     coerente(page, "fornitori", ["FORNITORE ENTRATA"], ["CLIENTE ENTRATA UNO"], "G avanti")
+
+
+@prova("H  il corpo di una mail: tabella di Excel, testo automatico chiuso, originale")
+def prova_h(page, base):
+    vai(page, base, "/inbox?q=clienti&filtro=tutti")
+    page.click("#lista a.riga:has-text('CLIENTE TABELLA')")
+    stabile(page)
+    corpo = page.locator("#pannello .corpo-vista")
+    verifica(corpo.count() == 1, "H: il pannello non ha il corpo del messaggio")
+    tab = corpo.locator(".corpo-tabella table").first
+    verifica(tab.is_visible(), "H: la tabella incollata da Excel non si vede come tabella")
+    verifica(tab.locator("tr").count() == 3 and tab.locator("th").count() == 3,
+             "H: la tabella ha %d righe e %d celle d'intestazione" % (tab.locator("tr").count(), tab.locator("th").count()))
+    verifica("PZ-002" in tab.inner_text() and "Piastra" in tab.inner_text(), "H: le celle della tabella: %r" % tab.inner_text())
+    # il testo automatico di Outlook c'e', chiuso: si apre con un clic e dentro c'e' il testo com'era
+    rumore = corpo.locator("details.corpo-rumore").first
+    verifica(rumore.count() == 1 and rumore.get_attribute("open") is None, "H: l'avviso di posta esterna non e' chiuso")
+    verifica(not rumore.locator("pre").is_visible(), "H: il testo automatico si vede anche chiuso")
+    rumore.locator("summary").click()
+    verifica(rumore.locator("pre").is_visible() and "originated from outside" in rumore.locator("pre").inner_text(),
+             "H: aperto, il testo automatico non c'e'")
+    # la storia citata sta a parte, chiusa; il testo originale resta a un clic
+    verifica(corpo.locator("details.corpo-storia").count() == 1, "H: la storia citata non sta a parte")
+    orig = corpo.locator("details.corpo-originale")
+    verifica(orig.count() == 1, "H: manca «testo originale»")
+    orig.locator("summary").click()
+    verifica("Codice	Descrizione" in orig.locator("pre").inner_text(), "H: il testo originale non e' quello del messaggio")
+    # niente link cliccabili dentro il corpo della mail
+    verifica(corpo.locator("a").count() == 0, "H: nel corpo della mail c'e' un collegamento cliccabile")
+
+
+@prova("I  una risposta che non e' HTML non entra mai nella pagina")
+def prova_i(page, base):
+    # un indirizzo con un «sel» che non e' un messaggio non mette niente nel pannello
+    vai(page, base, "/inbox?q=clienti&sel=../healthz")
+    verifica(page.locator("#pannello[hx-get]").count() == 0, "I: un sel che non e' un uuid e' finito in hx-get")
+    verifica('"db"' not in page.locator("#pannello").inner_text(), "I: il JSON di /healthz e' nel pannello")
+    # e se una richiesta htmx riceve JSON, la guardia del layout non lo scambia
+    prima = page.locator("#pannello").inner_html()
+    # la promessa di htmx.ajax si rifiuta quando lo scambio e' annullato: non la si aspetta, si guarda la pagina
+    page.evaluate("() => { htmx.ajax('GET', '/healthz', {target: '#pannello', swap: 'innerHTML'}).catch(() => {}); }")
+    page.wait_for_timeout(1500)
+    verifica(page.locator("#pannello").inner_html() == prima, "I: la risposta JSON e' stata scambiata nel pannello")
 
 
 def main():

@@ -150,6 +150,15 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", http.StatusBadRequest)
 		return
 	}
+	// I byte di un file si aprono come documento (l'iframe, pdf.js, una scheda nuova), mai dentro la
+	// pagina: nessuno di quei tre manda HX-Request, e una richiesta htmx qui vorrebbe dire che qualcuno
+	// ha fatto chiedere alla schermata un file da innestare fra i suoi pezzi. Un «PDF» caricato da un
+	// operatore puo' cominciare per %PDF- e contenere HTML con uno script: nella pagina si eseguirebbe.
+	if r.Header.Get("HX-Request") != "" {
+		s.Log.Warn("anteprima chiesta da htmx: rifiutata", "allegato", aid, "percorso", r.Header.Get("HX-Current-URL"))
+		http.Error(w, "l'anteprima si apre come documento, non dentro la pagina", http.StatusBadRequest)
+		return
+	}
 	ctx := r.Context()
 	q := db.New(s.Pool)
 	a, err := q.GetAllegato(ctx, aid)
