@@ -140,10 +140,13 @@ func scrivi(f *zip.File, dest string, restante int64) (int64, string, error) {
 
 var vietati = strings.NewReplacer("<", "_", ">", "_", ":", "_", `"`, "_", "/", "_", `\`, "_", "|", "_", "?", "_", "*", "_")
 
+// nomeSicuro e' il nome con cui una voce si scrive nello staging. Si taglia a 120 CARATTERI, non byte: un
+// nome con lettere accentate tagliato a byte poteva finire a meta' di un carattere, e il file nasceva con
+// un nome che non e' UTF-8 valido.
 func nomeSicuro(s string) string {
 	s = strings.TrimSpace(vietati.Replace(s))
-	if len(s) > 120 {
-		s = s[:120]
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:120])
 	}
 	if s == "" {
 		return "voce"

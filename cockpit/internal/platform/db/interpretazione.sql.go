@@ -250,37 +250,6 @@ func (q *Queries) ListBozzeThread(ctx context.Context, threadID uuid.NullUUID) (
 	return items, nil
 }
 
-const listFabbisogno = `-- name: ListFabbisogno :many
-SELECT fabbisogno_id, cliente_id, tipo_componente, tipo, bloccante, fonte_attesa FROM fabbisogno_documento WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY cliente_id NULLS FIRST, tipo_componente, tipo
-`
-
-func (q *Queries) ListFabbisogno(ctx context.Context, clienteID uuid.NullUUID) ([]FabbisognoDocumento, error) {
-	rows, err := q.db.Query(ctx, listFabbisogno, clienteID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FabbisognoDocumento{}
-	for rows.Next() {
-		var i FabbisognoDocumento
-		if err := rows.Scan(
-			&i.FabbisognoID,
-			&i.ClienteID,
-			&i.TipoComponente,
-			&i.Tipo,
-			&i.Bloccante,
-			&i.FonteAttesa,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRiferimentiPortaleThread = `-- name: ListRiferimentiPortaleThread :many
 SELECT rif_id, messaggio_id, thread_id, codice, tipo_atteso, url, testo_citato, stato, scaricato_da, scaricato_il, creato_il FROM riferimento_portale WHERE thread_id = $1 ORDER BY creato_il
 `

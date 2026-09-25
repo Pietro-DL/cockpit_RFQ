@@ -8,7 +8,7 @@ entita', quanto e' grande davvero un assieme. Due di quelle cose hanno cambiato 
 che ne sono nati stanno qui sotto.
 
 La regola che questi test difendono, e che il piano chiama A1.2: il worker NON classifica. Non decide
-se `52922757_B` e' un codice, non separa la revisione dal nome, non sa che cosa sia una famiglia. Se
+se `77722757_B` e' un codice, non separa la revisione dal nome, non sa che cosa sia una famiglia. Se
 un giorno qualcuno rimettesse `sembra_codice` dentro la struttura, `test_la_struttura_non_porta_codici`
 diventa rosso.
 """
@@ -57,9 +57,9 @@ def scrivi_step(tmp_path, nome, prodotti, occorrenze=(), intestazione=INTESTAZIO
 
 def test_un_assieme_con_due_parti(tmp_path):
     percorso, rif = scrivi_step(tmp_path, "assieme.step", [
-        ("A", "52922757", "52922757_B", "SUPPORTO COFANO", "B"),
-        ("B", "52920517", "52920517", "PIASTRA", "1"),
-        ("C", "52920518", "52920518", "RINFORZO", ""),
+        ("A", "77722757", "77722757_B", "SUPPORTO COFANO", "B"),
+        ("B", "77720517", "77720517", "PIASTRA", "1"),
+        ("C", "77720518", "77720518", "RINFORZO", ""),
     ], [("A", "B"), ("A", "C")])
     s = leggi_struttura(percorso)
     assert s["versione"] == VERSIONE_STRUTTURA
@@ -70,8 +70,8 @@ def test_un_assieme_con_due_parti(tmp_path):
     assert [(r["padre"], r["figlio"], r["qta"]) for r in s["relazioni"]] == [
         (rif["A"], rif["B"], 1), (rif["A"], rif["C"], 1)]
     a = s["nodi"][0]
-    assert a["id_grezzo"] == "52922757"
-    assert a["nome_grezzo"] == "52922757_B"
+    assert a["id_grezzo"] == "77722757"
+    assert a["nome_grezzo"] == "77722757_B"
     assert a["descrizione_grezza"] == "SUPPORTO COFANO"
     assert a["rev_grezza"] == "B"
     assert a["evidenza"]["entita"] == "PRODUCT" and a["evidenza"]["riga"] == rif["A"]
@@ -81,14 +81,14 @@ def test_un_assieme_con_due_parti(tmp_path):
 def test_la_struttura_non_porta_codici(tmp_path):
     """A1.2: il nodo porta i grezzi. Codice e revisione li decide il server con le regole del cliente."""
     percorso, _ = scrivi_step(tmp_path, "codici.step", [
-        ("A", "52922757", "52922757_B", "SUPPORTO", "B"),
+        ("A", "77722757", "77722757_B", "SUPPORTO", "B"),
     ])
     s = leggi_struttura(percorso)
     nodo = s["nodi"][0]
     assert "codice" not in nodo and "rev" not in nodo, nodo
     assert set(nodo) == {"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza"}
     # il nome resta com'e' scritto: niente maiuscole forzate, niente suffissi tolti
-    assert nodo["nome_grezzo"] == "52922757_B"
+    assert nodo["nome_grezzo"] == "77722757_B"
 
 
 def test_un_nome_che_non_e_un_codice_resta_un_nome(tmp_path):
@@ -104,8 +104,8 @@ def test_un_nome_che_non_e_un_codice_resta_un_nome(tmp_path):
 
 def test_due_occorrenze_sotto_lo_stesso_padre_sono_una_relazione_con_qta_2(tmp_path):
     percorso, rif = scrivi_step(tmp_path, "doppia.step", [
-        ("A", "5292", "5292", "", "A"),
-        ("B", "5293", "5293", "", "A"),
+        ("A", "7772", "7772", "", "A"),
+        ("B", "7773", "7773", "", "A"),
     ], [("A", "B"), ("A", "B")])
     s = leggi_struttura(percorso)
     assert len(s["nodi"]) == 2
@@ -151,7 +151,7 @@ def test_un_nodo_di_livello_3_sotto_due_sottoassiemi(tmp_path):
 
 
 def test_una_parte_sola_e_una_radice_senza_relazioni(tmp_path):
-    percorso, rif = scrivi_step(tmp_path, "parte.step", [("A", "6674611A", "6674611A", "", "4")])
+    percorso, rif = scrivi_step(tmp_path, "parte.step", [("A", "1234567A", "1234567A", "", "4")])
     s = leggi_struttura(percorso)
     assert len(s["nodi"]) == 1 and s["relazioni"] == []
     assert s["radici"] == [rif["A"]]
@@ -186,13 +186,13 @@ def test_un_product_senza_definizione_viene_ignorato_con_avviso(tmp_path):
 def test_un_istanza_su_piu_righe_si_legge_lo_stesso(tmp_path):
     """Gli esportatori vanno a capo dove vogliono: l'istanza finisce al `;`, non alla riga."""
     testo = (INTESTAZIONE
-             + "#100=PRODUCT(\n  '52922757',\n  '52922757_B',\n  'SUPPORTO COFANO',\n  (#1)\n);\n"
+             + "#100=PRODUCT(\n  '77722757',\n  '77722757_B',\n  'SUPPORTO COFANO',\n  (#1)\n);\n"
              + "#101=PRODUCT_DEFINITION_FORMATION('B','',#100);\n"
              + "#102=PRODUCT_DEFINITION('design','',\n#101,#1);\n"
              + CHIUSURA)
     (tmp_path / "multiriga.step").write_text(testo, encoding="latin-1")
     s = leggi_struttura(str(tmp_path / "multiriga.step"))
-    assert [n["nome_grezzo"] for n in s["nodi"]] == ["52922757_B"]
+    assert [n["nome_grezzo"] for n in s["nodi"]] == ["77722757_B"]
     assert s["nodi"][0]["rev_grezza"] == "B"
 
 
@@ -239,7 +239,7 @@ def test_i_commenti_non_confondono_il_tokenizer(tmp_path):
 def test_i_sottotipi_degli_esportatori_valgono_come_gli_originali(tmp_path):
     """SolidWorks e altri scrivono `..._WITH_SPECIFIED_SOURCE`: e' la stessa entita' con un campo in piu'."""
     testo = (INTESTAZIONE
-             + "#100=PRODUCT('52922757','52922757','',(#1));\n"
+             + "#100=PRODUCT('77722757','77722757','',(#1));\n"
              + "#101=PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('C','',#100,.NOT_KNOWN.);\n"
              + "#102=PRODUCT_DEFINITION_WITH_ASSOCIATED_DOCUMENTS('design','',#101,#1,(#1));\n"
              + CHIUSURA)
@@ -435,8 +435,8 @@ SCARTI_ZERO = {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 
 def test_un_assieme_letto_per_intero_ha_gli_scarti_a_zero(tmp_path):
     percorso, _ = scrivi_step(tmp_path, "pulito.step", [
-        ("A", "52922757", "52922757", "", ""),
-        ("B", "52920517", "52920517", "", ""),
+        ("A", "77722757", "77722757", "", ""),
+        ("B", "77720517", "77720517", "", ""),
     ], [("A", "B"), ("A", "B")])
     s = leggi_struttura(percorso)
     assert s["versione"] == 3 == VERSIONE_STRUTTURA

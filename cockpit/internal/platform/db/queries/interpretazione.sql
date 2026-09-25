@@ -18,9 +18,6 @@ INSERT INTO deroga_fabbisogno (thread_id, componente_id, tipo, motivo, utente_id
 ON CONFLICT (componente_id, tipo) DO UPDATE SET motivo = EXCLUDED.motivo, utente_id = EXCLUDED.utente_id, creata_il = now()
 RETURNING *;
 
--- name: ListFabbisogno :many
-SELECT * FROM fabbisogno_documento WHERE cliente_id IS NULL OR cliente_id = $1 ORDER BY cliente_id NULLS FIRST, tipo_componente, tipo;
-
 -- name: UpsertTriage :one
 -- Dalla 0016 porta l'ATTO (che cosa sta facendo il mittente) e il LEGAME (nuovo, risposta,
 -- aggiornamento...), tutti e due proposte; e per la posta dei fornitori il bersaglio: una richiesta

@@ -91,7 +91,9 @@ func (s *Server) adminJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conta, _ := q.ContaJobPerStato(r.Context())
-	s.rendi(w, r, "job.html", "job_tabella", "Coda job", jobDati{Conta: conta, Job: lista, Stato: r.URL.Query().Get("stato")})
+	// Lo stato torna nel poll della pagina (hx-get="/admin/job?stato=…"): ci torna quello riconosciuto,
+	// mai il testo dell'indirizzo.
+	s.rendi(w, r, "job.html", "job_tabella", "Coda job", jobDati{Conta: conta, Job: lista, Stato: string(stato.StatoJob)})
 }
 
 func (s *Server) riaccodaJob(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +159,8 @@ func (s *Server) adminScarti(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conta, _ := q.ContaIngestScartiPerOrigine(r.Context())
-	s.rendi(w, r, "scarti.html", "scarti_tabella", "Scarti", scartiDati{Conta: conta, Scarti: lista, Origine: r.URL.Query().Get("origine")})
+	// come lo stato della coda: nel poll torna l'origine riconosciuta, non il testo dell'indirizzo
+	s.rendi(w, r, "scarti.html", "scarti_tabella", "Scarti", scartiDati{Conta: conta, Scarti: lista, Origine: origine.String})
 }
 
 func (s *Server) riprovaScarto(w http.ResponseWriter, r *http.Request) {

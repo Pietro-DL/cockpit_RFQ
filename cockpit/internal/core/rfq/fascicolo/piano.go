@@ -801,7 +801,12 @@ func LeggiIngressoPiano(ctx context.Context, q *db.Queries, thread uuid.UUID) (I
 		in.Relazioni = append(in.Relazioni, r.RelazioneProposta)
 		in.NomiFile[r.RelazioneProposta.AllegatoID] = r.NomeFile
 	}
-	in.Motore, _ = MotoreDellaRfq(ctx, q, thread) // senza cliente leggibile: nessun suffisso
+	// Le regole del cliente scritte male non sono un errore (MotoreDellaRfq le lascia fuori e da' un motore
+	// vuoto); un errore qui e' del database, e un piano senza i suffissi del cliente proporrebbe «X» accanto
+	// a «X_PRT»: meglio nessun piano.
+	if in.Motore, err = MotoreDellaRfq(ctx, q, thread); err != nil {
+		return in, err
+	}
 	n, bloccata, err := WorkingBloccata(ctx, q, thread)
 	if err != nil {
 		return in, err

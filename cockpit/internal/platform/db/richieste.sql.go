@@ -442,31 +442,6 @@ func (q *Queries) ListRichiesteThread(ctx context.Context, threadID uuid.UUID) (
 	return items, nil
 }
 
-const richiestaPerMarcatore = `-- name: RichiestaPerMarcatore :one
-SELECT richiesta_id, thread_id, fornitore_id, lavorazione, codici, messaggio_id, stato, inviata_il, offerta_ricevuta_il, note, creata_da, creata_il, declinata_il FROM richiesta_fornitore WHERE richiesta_id = $1
-`
-
-func (q *Queries) RichiestaPerMarcatore(ctx context.Context, richiestaID uuid.UUID) (RichiestaFornitore, error) {
-	row := q.db.QueryRow(ctx, richiestaPerMarcatore, richiestaID)
-	var i RichiestaFornitore
-	err := row.Scan(
-		&i.RichiestaID,
-		&i.ThreadID,
-		&i.FornitoreID,
-		&i.Lavorazione,
-		&i.Codici,
-		&i.MessaggioID,
-		&i.Stato,
-		&i.InviataIl,
-		&i.OffertaRicevutaIl,
-		&i.Note,
-		&i.CreataDa,
-		&i.CreataIl,
-		&i.DeclinataIl,
-	)
-	return i, err
-}
-
 const richiestePerChiaviCitate = `-- name: RichiestePerChiaviCitate :many
 
 SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, m.chiave_esterna

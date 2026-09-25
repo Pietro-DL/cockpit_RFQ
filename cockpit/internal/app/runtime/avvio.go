@@ -68,13 +68,68 @@ func ApriDatabase(ctx context.Context, cfg *config.Config, fsys fs.FS, log *slog
 		pool.Close()
 		return nil, 0, err
 	}
+	return pool, ultimaApplicata(applicate), nil
+}
+
+func ultimaApplicata(applicate map[int]bool) int {
 	versione := 0
 	for v := range applicate {
 		if v > versione {
 			versione = v
 		}
 	}
-	return pool, versione, nil
+	return versione
+}
+
+// ApriDatabaseInLettura apre il pool per i comandi che leggono soltanto (Opzioni.SoloLettura): niente
+// migrazioni, niente semi, niente allineamento della coda, e ogni transazione del pool in sola lettura
+// (default_transaction_read_only), cosi' un comando che dice di leggere non scrive nemmeno per sbaglio.
+//
+// Lo schema deve essere quello del binario. Con uno schema piu' vecchio i conti si farebbero su tabelle
+// che il binario non si aspetta, e migrarlo da qui vorrebbe dire cambiare il database con un comando che
+// si lancia per guardare, magari senza un backup: ci si ferma e si dice che cosa fare.
+func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
+	migs, err := migrazioni.Elenca(fsys)
+	if err != nil {
+		return nil, err
+	}
+	delBinario := migs[len(migs)-1].Versione
+	pc, err := pgxpool.ParseConfig(cfg.DB.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("db: %w", err)
+	}
+	if pc.ConnConfig.RuntimeParams == nil {
+		pc.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	pc.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	pool, err := pgxpool.NewWithConfig(ctx, pc)
+	if err != nil {
+		return nil, fmt.Errorf("db: %w", err)
+	}
+	applicate, err := migrazioni.Applicate(ctx, pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := stessoSchema(ultimaApplicata(applicate), delBinario); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
+}
+
+// stessoSchema e' il rifiuto dei comandi in sola lettura quando lo schema del database non e' quello del
+// binario.
+func stessoSchema(delDatabase, delBinario int) error {
+	switch {
+	case delDatabase < delBinario:
+		return fmt.Errorf("il database e' alla versione %d dello schema e questo cockpit.exe alla %d: questo comando legge soltanto "+
+			"e non migra. Fare un backup del database, poi `cockpit.exe -migra`, poi rilanciare il comando", delDatabase, delBinario)
+	case delDatabase > delBinario:
+		return fmt.Errorf("il database e' alla versione %d dello schema, ma questo cockpit.exe conosce solo fino alla %d: "+
+			"serve il cockpit.exe aggiornato (il database non e' stato toccato)", delDatabase, delBinario)
+	}
+	return nil
 }
 
 // Semina porta in database quello che cockpit.toml dichiara. L'ordine non e' libero: prima gli

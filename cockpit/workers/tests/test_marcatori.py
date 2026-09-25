@@ -140,7 +140,7 @@ def test_la_bozza_nuova_porta_cockpitbozza_e_i_marcatori_del_payload_solo_se_coc
     o.app = _App()
     p = PayloadCreaBozza(bozza_id=UUID("11111111-1111-1111-1111-111111111111"), tipo="nuovo",
                          destinatari=[{"nome": "Ordini", "indirizzo": "ordini@fornitore.example", "tipo": "a"}],
-                         oggetto="RFQ ACME Rossi 6674611A", corpo_testo="Buongiorno,",
+                         oggetto="RFQ ACME Rossi 1234567A", corpo_testo="Buongiorno,",
                          marcatori={"CockpitRichiestaFornitore": "22222222-2222-2222-2222-222222222222",
                                     "NonCockpit": "no", "CockpitVuoto": ""})
     entry_id, inviata = o.crea_bozza(p)
@@ -148,7 +148,7 @@ def test_la_bozza_nuova_porta_cockpitbozza_e_i_marcatori_del_payload_solo_se_coc
     scritti = {q.Name: q.Value for q in bozza.UserProperties._p}
     assert scritti == {"CockpitBozza": "11111111-1111-1111-1111-111111111111",
                        "CockpitRichiestaFornitore": "22222222-2222-2222-2222-222222222222"}
-    assert bozza.Subject == "RFQ ACME Rossi 6674611A"
+    assert bozza.Subject == "RFQ ACME Rossi 1234567A"
     assert [r.Name for r in bozza.Recipients] == ["ordini@fornitore.example"]
 
 

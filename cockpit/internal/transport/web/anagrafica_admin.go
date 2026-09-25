@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
@@ -78,21 +79,29 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 	}
 	// Le famiglie arrivano come array paralleli. Una riga con la regex vuota è una riga cancellata:
 	// è così che si toglie una famiglia, senza un bottone «elimina» per ognuna.
+	//
+	// «Rev nel codice» NO: è una casella di spunta, e il browser manda solo quelle spuntate. Letta
+	// come array parallelo, con F1 senza e F2 con la revisione arrivava un solo valore, che finiva su
+	// F1: i flag si scambiavano, o il salvataggio si rifiutava su una famiglia che nessuno aveva
+	// toccato. Ogni casella porta il numero della sua riga, e qui si legge l'insieme delle righe.
 	regex, desc, esempi := r.Form["fam_regex"], r.Form["fam_descrizione"], r.Form["fam_esempio"]
-	rev, ruoli := r.Form["fam_rev"], r.Form["fam_ruolo"]
+	ruoli := r.Form["fam_ruolo"]
+	conRev := map[int]bool{}
+	for _, v := range r.Form["fam_rev"] {
+		if n, e := strconv.Atoi(strings.TrimSpace(v)); e == nil {
+			conRev[n] = true
+		}
+	}
 	for i := range regex {
 		if strings.TrimSpace(regex[i]) == "" {
 			continue
 		}
-		f := regole.FamigliaCodice{Regex: strings.TrimSpace(regex[i])}
+		f := regole.FamigliaCodice{Regex: strings.TrimSpace(regex[i]), RevNelCodice: conRev[i]}
 		if i < len(desc) {
 			f.Descrizione = strings.TrimSpace(desc[i])
 		}
 		if i < len(esempi) {
 			f.Esempio = strings.TrimSpace(esempi[i])
-		}
-		if i < len(rev) {
-			f.RevNelCodice = rev[i] == "1"
 		}
 		if i < len(ruoli) && ruoli[i] == "parte" {
 			f.Ruolo = "parte"
@@ -178,7 +187,7 @@ func (s *Server) eliminaBuyerCliente(w http.ResponseWriter, r *http.Request) {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Errore: "persona non valida"})
 		return
 	}
-	n, err := q.EliminaBuyer(r.Context(), bid)
+	n, err := q.EliminaBuyer(r.Context(), db.EliminaBuyerParams{BuyerID: bid, ClienteID: c.ClienteID})
 	switch {
 	case err != nil:
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Errore: err.Error()})
@@ -186,7 +195,7 @@ func (s *Server) eliminaBuyerCliente(w http.ResponseWriter, r *http.Request) {
 		// non è un errore tecnico: è una persona che ha scritto davvero, e cancellarla toglierebbe il
 		// nome a messaggi e richieste che esistono
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti",
-			Errore: "questa persona è citata da messaggi o richieste e non si cancella: toglierla vorrebbe dire non sapere più chi aveva scritto"})
+			Errore: "questa persona è citata da messaggi, richieste o proposte (oppure non è di questo cliente) e non si cancella: toglierla vorrebbe dire non sapere più chi aveva scritto"})
 	default:
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "contatti", Fatto: "Persona rimossa."})
 	}
@@ -213,7 +222,6 @@ func (s *Server) aggiungiFabbisogno(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	q := db.New(s.Pool)
 	comp, tipo := r.FormValue("tipo_componente"), r.FormValue("tipo")
 	if !db.TipoComponente(comp).Valid() || !db.TipoDocumento(tipo).Valid() {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "fabbisogno", Errore: "tipo di componente o di documento non valido"})
@@ -224,17 +232,26 @@ func (s *Server) aggiungiFabbisogno(w http.ResponseWriter, r *http.Request) {
 			Errore: "«da determinare» non è un documento che si possa pretendere: è ciò che si sa di un file prima di averlo aperto"})
 		return
 	}
-	f, err := q.InsertFabbisogno(ctx, db.InsertFabbisognoParams{
-		ClienteID: uuid.NullUUID{UUID: id, Valid: true}, TipoComponente: db.TipoComponente(comp), Tipo: db.TipoDocumento(tipo),
-		Bloccante: r.FormValue("bloccante") == "1"})
+	// La riga e la sua fonte attesa sono una cosa sola: una transazione, e la fonte che non si scrive
+	// non lascia in anagrafica una riga diversa da quella chiesta.
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		f, err := q.InsertFabbisogno(ctx, db.InsertFabbisognoParams{
+			ClienteID: uuid.NullUUID{UUID: id, Valid: true}, TipoComponente: db.TipoComponente(comp), Tipo: db.TipoDocumento(tipo),
+			Bloccante: r.FormValue("bloccante") == "1"})
+		if err != nil {
+			return err
+		}
+		if fonte := r.FormValue("fonte_attesa"); fonte != "" && db.FonteFabbisogno(fonte).Valid() {
+			return q.SetFonteFabbisogno(ctx, db.SetFonteFabbisognoParams{
+				FabbisognoID: f.FabbisognoID, ClienteID: uuid.NullUUID{UUID: id, Valid: true},
+				Fonte: db.NullFonteFabbisogno{FonteFabbisogno: db.FonteFabbisogno(fonte), Valid: true}})
+		}
+		return nil
+	})
 	if err != nil {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "fabbisogno", Errore: err.Error()})
 		return
-	}
-	if fonte := r.FormValue("fonte_attesa"); fonte != "" && db.FonteFabbisogno(fonte).Valid() {
-		_ = q.SetFonteFabbisogno(ctx, db.SetFonteFabbisognoParams{
-			FabbisognoID: f.FabbisognoID, ClienteID: uuid.NullUUID{UUID: id, Valid: true},
-			Fonte: db.NullFonteFabbisogno{FonteFabbisogno: db.FonteFabbisogno(fonte), Valid: true}})
 	}
 	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "fabbisogno",
 		Fatto: "Riga aggiunta. Per «" + comp + "» valgono ora SOLO le righe di questo cliente: i predefiniti non si sommano."})

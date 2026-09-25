@@ -182,7 +182,9 @@
       {{end}}
 
       {{/* checkpoint 3R §7: il form, non il JSON. Le due strade passano dallo stesso
-           `domain.ValidaRegole`, altrimenti una potrebbe salvare cio' che l'altra rifiuta. */}}
+           `regole.ValidaRegole`, altrimenti una potrebbe salvare cio' che l'altra rifiuta.
+           «Rev nel codice» porta il numero della riga: il browser manda solo le caselle spuntate, e
+           letta per posizione la spunta di una famiglia finiva su un'altra. */}}
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/regole/form">
         <h3>Famiglie di codice</h3>
         <p class="muto nota">Come sono fatti i codici di questo cliente. Ogni famiglia vuole un esempio
@@ -191,12 +193,12 @@
         <div class="scorri">
         <table class="famiglie">
           <tr><th>Regex</th><th>Descrizione</th><th>Esempio</th><th>Rev nel codice</th><th>Ruolo</th></tr>
-          {{range $d.Regole.FamiglieCodice}}
+          {{range $i, $f := $d.Regole.FamiglieCodice}}
           <tr>
             <td><input class="mono" name="fam_regex" value="{{.Regex}}"></td>
             <td><input name="fam_descrizione" value="{{.Descrizione}}"></td>
             <td><input class="mono" name="fam_esempio" value="{{.Esempio}}"></td>
-            <td><input type="checkbox" name="fam_rev" value="1" {{if .RevNelCodice}}checked{{end}}></td>
+            <td><input type="checkbox" name="fam_rev" value="{{$i}}" {{if .RevNelCodice}}checked{{end}}></td>
             <td><select name="fam_ruolo">
               <option value="prodotto" {{if ne .Ruolo "parte"}}selected{{end}}>prodotto</option>
               <option value="parte" {{if eq .Ruolo "parte"}}selected{{end}}>parte</option></select></td>
@@ -205,8 +207,8 @@
           <tr>
             <td><input class="mono" name="fam_regex" placeholder="\b\d{7}[A-Z]\b"></td>
             <td><input name="fam_descrizione" placeholder="7 cifre + lettera"></td>
-            <td><input class="mono" name="fam_esempio" placeholder="6674611A"></td>
-            <td><input type="checkbox" name="fam_rev" value="1"></td>
+            <td><input class="mono" name="fam_esempio" placeholder="1234567A"></td>
+            <td><input type="checkbox" name="fam_rev" value="{{len $d.Regole.FamiglieCodice}}"></td>
             <td><select name="fam_ruolo"><option value="prodotto">prodotto</option><option value="parte">parte</option></select></td>
           </tr>
         </table>
@@ -439,7 +441,7 @@
       messaggi veri: quello che si legge qui e' quello che l'Inbox proporra'.</p>
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova">
         <textarea name="testo" rows="8" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
-        <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="6745595A2_B.pdf 6745595A2.stp"></label>
+        <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
         <div class="azioni-form"><button>Prova il riconoscimento</button></div>
       </form>
       {{with $d.Prova}}

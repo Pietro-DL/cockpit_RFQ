@@ -46,7 +46,9 @@ DELETE FROM candidato_codice WHERE messaggio_id = $1;
 SELECT DISTINCT m.thread_id, m.chiave_esterna, t.stato
 FROM messaggio m
 JOIN thread_offerta t ON t.thread_id = m.thread_id
-WHERE m.chiave_esterna = ANY(sqlc.arg(chiavi)::text[]) AND m.thread_id IS NOT NULL;
+-- Il canale sta nella condizione perche' l'indice unico e' (canale, chiave_esterna): senza, ogni
+-- messaggio con delle References scorreva tutta la tabella dei messaggi.
+WHERE m.canale = 'outlook' AND m.chiave_esterna = ANY(sqlc.arg(chiavi)::text[]) AND m.thread_id IS NOT NULL;
 
 -- R1: la conversazione, se un operatore l'ha gia' collegata a una RFQ.
 -- name: ThreadDellaConversazioneConStato :one

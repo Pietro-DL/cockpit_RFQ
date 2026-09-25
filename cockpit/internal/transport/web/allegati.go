@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
@@ -297,6 +298,25 @@ func (s *Server) conferma(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 	q := db.New(tx)
+	// Prima la RFQ, poi la proposta: l'ordine dei lucchetti del congelamento e degli altri gesti sul
+	// Fascicolo. Con la proposta bloccata prima e la RFQ chiesta dopo (dalla scrittura del documento,
+	// che la prende FOR KEY SHARE), un congelamento nello stesso istante basta perche' le due
+	// transazioni si aspettino a vicenda (40P01). La RFQ e' quella del messaggio dell'allegato: un
+	// messaggio non agganciato non ne ha, e la conferma lo rifiuta piu' sotto.
+	//
+	// FOR KEY SHARE e non FOR UPDATE: e' il lucchetto che la scrittura prenderebbe comunque, preso prima.
+	// Aspetta un congelamento o un gesto sulla struttura (FOR UPDATE), non un'altra conferma: due
+	// conferme dello stesso file restano una corsa che decide il vincolo (thread, sha256).
+	if prima, err := q.GetProposta(ctx, pid); err == nil {
+		if a, err := q.GetAllegato(ctx, prima.AllegatoID); err == nil {
+			if m, err := q.GetMessaggio(ctx, a.MessaggioID); err == nil && m.ThreadID.Valid {
+				if _, err := tx.Exec(ctx, `SELECT 1 FROM thread_offerta WHERE thread_id = $1 FOR KEY SHARE`, m.ThreadID.UUID); err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+			}
+		}
+	}
 	// BloccaProposta, non GetProposta: due conferme concorrenti sullo stesso allegato leggerebbero
 	// entrambe stato='aperta' e creerebbero due documenti nel fascicolo, con lo stesso file copiato
 	// due volte sul NAS. La seconda si ferma qui, poi rilegge e trova la proposta già decisa (T14).
@@ -368,6 +388,15 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if tipo == db.TipoDocumentoDaDeterminare {
 		return "", errors.New("il tipo di questo file non è ancora stato determinato: scegli il tipo, oppure lascia che il worker-analisi lo legga")
 	}
+	// Il codice e la revisione scritti nel form passano dalla stessa guardia degli altri (i nodi,
+	// l'editor, il worker): senza, un codice con uno spazio o di cinquanta caratteri diventava il nome
+	// di una cartella sul NAS.
+	if codice != "" && !classificazione.CodiceAmmissibile(codice) {
+		return "", rifiuto(fmt.Sprintf("%s: il codice ha più di %d caratteri o caratteri non ammessi", codice, classificazione.MaxCodice))
+	}
+	if rev != "" && !classificazione.RevAmmissibile(rev) {
+		return "", rifiuto(fmt.Sprintf("%s: la revisione ha più di %d caratteri o caratteri non ammessi", rev, classificazione.MaxRev))
+	}
 	if !m.ThreadID.Valid {
 		return "", errors.New("il messaggio non è agganciato a una RFQ")
 	}
@@ -400,9 +429,15 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		if d.SostituitoDa.Valid {
 			return "", identicoAUnaRevisioneSostituita(ctx, q, d)
 		}
-		_ = q.InsertProvenienza(ctx, db.InsertProvenienzaParams{DocumentoID: d.DocumentoID, AllegatoID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true},
-			MessaggioID: uuid.NullUUID{UUID: m.MessaggioID, Valid: true}, RicevutoIl: a.RicevutoIl})
-		_, _ = q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaDuplicato, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}})
+		// la provenienza e la proposta chiusa sono la risposta: se una delle due non si scrive, la
+		// frase qui sotto mentirebbe, e la transazione (che dopo un errore e' comunque interrotta) si annulla
+		if err := q.InsertProvenienza(ctx, db.InsertProvenienzaParams{DocumentoID: d.DocumentoID, AllegatoID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true},
+			MessaggioID: uuid.NullUUID{UUID: m.MessaggioID, Valid: true}, RicevutoIl: a.RicevutoIl}); err != nil {
+			return "", err
+		}
+		if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaDuplicato, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
+			return "", err
+		}
 		return "File già presente nel fascicolo (" + d.PathRelativo + "): registrata la nuova provenienza.", nil
 	}
 
@@ -448,7 +483,7 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	// Un file tecnico senza codice non diventa documento (addendum A2.2): il database lo rifiuterebbe
 	// comunque (ck_documento_tecnico_ha_codice), ma con un errore che all'operatore non dice niente.
 	// Qui gli si dice che cosa manca, e la proposta resta aperta.
-	if documentoTecnico(tipo) && codice == "" {
+	if documenti.Tecnico(tipo) && codice == "" {
 		return "", errors.New("un CAD 3D, un disegno 2D o uno sviluppo DXF entra nel fascicolo solo con il codice del pezzo: scrivi il codice, il file resta fra le proposte")
 	}
 	// Il posto sul NAS (A4.1, D21, D22): la cartella del tipo e del codice, e un nome che per i tipi
@@ -623,9 +658,4 @@ func regolaBool(regole json.RawMessage, chiave string, def bool) bool {
 		return v
 	}
 	return def
-}
-
-// documentoTecnico: i tipi che descrivono un pezzo, e che quindi esistono solo con il suo codice.
-func documentoTecnico(tipo db.TipoDocumento) bool {
-	return tipo == db.TipoDocumentoCad3d || tipo == db.TipoDocumentoDisegno2d || tipo == db.TipoDocumentoSviluppoDxf
 }

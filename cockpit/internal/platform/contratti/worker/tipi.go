@@ -171,7 +171,7 @@ type CasellaServita struct {
 type ClaimRichiesta struct {
 	Worker   string `json:"worker"`    // outlook | analisi
 	WorkerID string `json:"worker_id"` // es. "outlook@PC-FRANCESCO": la chiave di worker_credenziale
-	AttesaS  int    `json:"attesa_s"`  // long-poll massimo (il server tronca a 25 s)
+	AttesaS  int    `json:"attesa_s"`  // long-poll chiesto; ≤0 o oltre 25 s il server usa 20 s
 	// Postazione è il nome host da cui il worker gira. Il server NON la usa per il routing — usa la
 	// postazione della credenziale — ma la confronta: un worker.toml copiato su un altro PC farebbe
 	// eseguire su PC-B i job interattivi di PC-A, e il claim lo rifiuta.

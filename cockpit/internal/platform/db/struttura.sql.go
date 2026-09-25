@@ -142,11 +142,18 @@ func (q *Queries) DeleteComponente(ctx context.Context, componenteID uuid.UUID) 
 }
 
 const deleteDerogaStruttura = `-- name: DeleteDerogaStruttura :execrows
-DELETE FROM deroga_struttura WHERE deroga_struttura_id = $1
+DELETE FROM deroga_struttura WHERE deroga_struttura_id = $1 AND thread_id = $2
 `
 
-func (q *Queries) DeleteDerogaStruttura(ctx context.Context, derogaStrutturaID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteDerogaStruttura, derogaStrutturaID)
+type DeleteDerogaStrutturaParams struct {
+	DerogaStrutturaID uuid.UUID `json:"deroga_struttura_id"`
+	ThreadID          uuid.UUID `json:"thread_id"`
+}
+
+// Della RFQ su cui si sta lavorando, come DeleteDeroga: l'id arriva da un indirizzo, e da solo non
+// dice di quale RFQ sia la deroga.
+func (q *Queries) DeleteDerogaStruttura(ctx context.Context, arg DeleteDerogaStrutturaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDerogaStruttura, arg.DerogaStrutturaID, arg.ThreadID)
 	if err != nil {
 		return 0, err
 	}

@@ -1,34 +1,71 @@
 # Configurazione di esempio per Cockpit RFQ
-# Copiare questo file in cockpit.toml e compilare i campi richiesti.
+# Copiare questo file in cockpit.toml, ACCANTO a cockpit.exe, e compilare i campi richiesti.
 # I percorsi Windows vanno in stringhe letterali TOML ('...'), così i backslash non richiedono escape.
+# Un percorso RELATIVO in questo file ([nas].radice, [nas].staging, [server].log_file, tls_cert, tls_key)
+# vale rispetto alla cartella di QUESTO file, non alla cartella da cui si lancia cockpit.exe.
+#
+# Così com'è, questo file fa partire il server cambiando soltanto [db].dsn e le `password` di [[utenti]]:
+# le cartelle di [nas] sono cartelle di prova in C:\Cockpit, la modalità è shadow (non scrive niente
+# fuori da sé), il server ascolta solo su questo PC.
 #
 # ============================================================================
-# COME SI PARTE, in ordine
+# COME SI PARTE, su un server nuovo, in ordine
 # ============================================================================
 #
-#  1. [db].dsn, [nas].radice e [nas].staging: cartelle che esistono, database che risponde.
-#  2. [[utenti]]: chi entra e con quale `ruolo` (operatore | admin | tecnico | consultazione).
+#  1. Il codice. `git clone --branch <ramo da installare> <indirizzo del repository> C:\Cockpit\sorgenti`:
+#     senza --branch si prende il ramo predefinito del repository, che può essere indietro di molte
+#     migrazioni rispetto a quello da installare. Poi `cd C:\Cockpit\sorgenti\cockpit` — il modulo Go sta
+#     nella cartella `cockpit`, non nella radice del repository — e
+#     `go build -o C:\Cockpit\cockpit.exe ./cmd/cockpit`. Serve Go 1.26 o più recente, e la prima
+#     volta internet per scaricare i moduli (senza internet si compila su un altro PC e si copia
+#     cockpit.exe: incorpora tutto, template, statici e migrazioni).
+#  2. PostgreSQL: un ruolo e un database per il Cockpit, con il ruolo proprietario del database (la
+#     prima migrazione crea l'estensione pgcrypto).
+#  3. Questo file come C:\Cockpit\cockpit.toml. Per partire bastano due cose:
+#       - [db].dsn, con la password CODIFICATA PER URL: «@» si scrive %40, «:» %3A, «/» %2F, «#» %23,
+#         «%» %25, «?» %3F. Una password con questi caratteri scritta com'è rompe il DSN, e l'errore non
+#         parla della password;
+#       - le `password` di [[utenti]]. Il server NON crea un utente con la password vuota o con
+#         INSERISCI_PASSWORD_INIZIALE: all'avvio si ferma e dice quale sigla sistemare.
+#     Le cartelle di [nas]: lo staging lo crea il server; la radice del NAS, se non c'è, la segnala nel
+#     log e le copie aspettano. Per il NAS vero si cambia [nas].radice (e si legge [sicurezza]).
+#  4. Se il database contiene già dei dati: un BACKUP (pg_dump) prima di tutto. Poi
+#     `C:\Cockpit\cockpit.exe -migra`: applica le migrazioni e il seed di questo file, ed esce senza
+#     mettersi in ascolto. I comandi che leggono soltanto (-conta-anagrafiche, -anteprima-fornitori) non
+#     migrano: con uno schema diverso da quello del binario si fermano e lo dicono.
+#  5. L'avvio: `cockpit.exe` dalla sua cartella (senza -config legge il cockpit.toml della cartella
+#     corrente, se c'è, altrimenti quello accanto all'eseguibile). Per un'attività pianificata o un
+#     servizio: SEMPRE `-config C:\Cockpit\cockpit.toml`, con il percorso assoluto, e «Avvia in» la
+#     cartella dell'eseguibile. Se l'avvio si ferma, il motivo è anche nel log del server
+#     (<staging>\log\cockpit.log), non solo nella finestra.
+#  6. [[utenti]]: chi entra e con quale `ruolo` (operatore | admin | tecnico | consultazione).
 #     Almeno uno deve essere `admin`: il pacchetto dei worker, la coda dei job e gli scarti sono
 #     schermate sue, e un operatore che ci prova riceve 403. `password` serve solo al primo avvio.
-#  3. [[casella]], [[postazione]], [[worker]]: chi c'è e chi serve che cosa. È QUI che si dichiarano
-#     le autorizzazioni, non in una schermata: questo file è versionato e uguale a ogni avvio.
-#  4. Nei [[worker]] lasciare `token = ""`. Vuol dire «il segreto lo tiene il database», ed è la via
+#  7. [[casella]], [[postazione]], [[worker]]: chi c'è e chi serve che cosa. È QUI che si dichiarano
+#     le autorizzazioni, non in una schermata: questo file è versionato e uguale a ogni avvio. Le sigle
+#     in `utente` sono quelle di [[utenti]].
+#  8. Nei [[worker]] lasciare `token = ""`. Vuol dire «il segreto lo tiene il database», ed è la via
 #     consigliata: il seed non lo tocca più, e al primo avvio quelle credenziali risultano «da
 #     generare» (il server lo scrive nel log e la pagina Postazioni lo mostra in cima).
-#  5. Avviare il server, aprire **Postazioni**, premere «genera e scarica il pacchetto» per ogni PC.
-#     Lo zip contiene un worker.toml già pronto — indirizzo, impronta del certificato, un token
-#     DIVERSO per ogni worker di quel PC — più i file del worker.
-#  6. Scompattare il pacchetto sul PC, in `workers\`, e avviare i worker.
-#  7. L'anagrafica dei clienti NON sta in questo file: i clienti non sono configurazione, si
+#  9. Aprire **Postazioni**, premere «genera e scarica il pacchetto» per ogni PC. Lo zip contiene un
+#     worker.toml già pronto — indirizzo, impronta del certificato, un token DIVERSO per ogni worker di
+#     quel PC — più i file del worker. Per la LAN servono prima [server].indirizzo e TLS (qui sotto), o
+#     scripts/avvio-rete.
+# 10. Sul PC dell'operatore: scompattare il pacchetto e lanciare `installa-postazione.ps1` che c'è
+#     dentro (crea le attività pianificate dei worker e installa il certificato del server).
+# 11. L'anagrafica dei clienti NON sta in questo file: i clienti non sono configurazione, si
 #     aggiungono e si correggono mentre il Cockpit gira. Il primo caricamento si fa una volta sola
 #     da un file JSON esterno, `cockpit.exe -semina-anagrafica seme_anagrafica.json` (formato ed
 #     effetti nel README), e da li' in avanti si lavora da **Admin -> Anagrafica**, che e' anche
 #     l'unico posto in cui si scrivono peso, portale e regole di riconoscimento.
 #
+# Una voce scritta male (un refuso nel nome) non ferma l'avvio: il server la ignora e lo scrive nel log,
+# riga «cockpit.toml». Conviene guardarle, perché una voce ignorata vale come se non ci fosse.
+#
 # SE SI ARRIVA DA UN TOKEN CONDIVISO (un solo segreto copiato in tutti i [[worker]]): svuotare i
 # `token` qui è la mossa giusta ma NON basta, perché il seed non riscrive un token che il file non
 # dichiara — le impronte duplicate restano in database e i worker continuano a ricevere 401. Serve
-# il passo 5: «Rigenera credenziali della postazione». La pagina Postazioni segnala da sola quali PC
+# il passo 9: «Rigenera credenziali della postazione». La pagina Postazioni segnala da sola quali PC
 # sono in quello stato.
 
 [server]
@@ -69,7 +106,7 @@ indirizzo = "127.0.0.1:8080"
 # token_worker NON autentica più niente (voce 2.4): ogni worker ha il suo token, qui sotto in
 # [[worker]], e il server lo riconosce per sha256. Se la riga è ancora nel file, il server lo dice
 # all'avvio: va tolta.
-log_livello = "info" # debug | info | warn
+log_livello = "info" # debug | info | warn | error (un'altra parola vale info, e il log lo dice)
 # Come gira il server (voce 9.5, §2.7 del piano):
 #   shadow      legge Outlook e il NAS, non li modifica. Niente bozze, niente «segna letto», niente
 #               spostamenti di cartella, niente scritture sul NAS: quei job non si accodano e non si
@@ -83,10 +120,12 @@ log_livello = "info" # debug | info | warn
 modalita = "shadow"
 # Dove il server scrive il PROPRIO log, oltre che nella finestra da cui è stato avviato (5 file da
 # 5 MB, come i worker). Assente = <nas.staging>\log\cockpit.log, cioè accanto a worker_outlook.log:
-# la diagnosi di un job si fa leggendo le due metà una accanto all'altra. "-" = solo a schermo.
-# log_file = '...\_staging\log\cockpit.log'
+# la diagnosi di un job si fa leggendo le due metà una accanto all'altra. "-" = solo a schermo. Un
+# percorso relativo vale dalla cartella di questo file.
+# log_file = 'C:\Cockpit\log\cockpit.log'
 # Limite di un singolo allegato caricato dal worker (PUT /api/v1/allegati/{id}/file). Oltre, il server
-# risponde 413 prima di ricevere il file e l'allegato compare in errore con il motivo. Default 64.
+# risponde 413 prima di ricevere il file e l'allegato compare in errore con il motivo. Assente = 64;
+# 0 non vuol dire «nessun limite»: il server non parte.
 max_upload_mb = 64
 # L'indirizzo con cui worker e browser CHIAMANO il server (7C.1): finisce nel worker.toml del
 # pacchetto della postazione e nelle sue istruzioni, e il suo host entra nei nomi del certificato
@@ -97,7 +136,9 @@ max_upload_mb = 64
 # url_pubblico = "https://10.0.0.7:8443"
 
 [db]
-dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
+# La password nel DSN va CODIFICATA PER URL: «@» → %40, «:» → %3A, «/» → %2F, «#» → %23, «%» → %25,
+# «?» → %3F. Scritta com'è, una password con uno di questi caratteri spezza il DSN in un punto sbagliato.
+dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit"
 
 [nas]
 # La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
@@ -105,19 +146,27 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 # per codice SOLO qui sotto (niente «..», niente percorsi assoluti, niente collegamenti che escono), in sola
 # lettura; il file scelto si COPIA nello staging e fa la strada di tutti gli allegati, l'originale resta dov'è.
 # Serve anche la strada dei caricamenti (staging e worker di analisi): senza, il menu lo dice e non propone il gesto.
-radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
+# Qui: una cartella di PROVA su questo PC. Se non c'è, il server parte lo stesso, dice nel log che il NAS
+# non è raggiungibile e le copie aspettano. Il NAS vero è un percorso UNC: vedi radici_produzione.
+radice = 'C:\Cockpit\nas_prova\PREVENTIVI DA FARE'
 # dry_run e' DEPRECATA (blocco 4): la scrittura sul NAS la governa [sicurezza].nas_scrittura, piu'
 # sotto. Se e' ancora nel file e vale `true` spegne nas_scrittura — cioe' fa quello che ha sempre
 # fatto — e il server lo dice nel log a ogni avvio. Va tolta.
 # dry_run = false
-staging = '...\_staging'
-# Le radici VERE, dichiarate una volta. In shadow il server si RIFIUTA di partire se `radice` è una di
-# queste (o una loro sottocartella): una prova in shadow puntata sul NAS di produzione non è una
-# shadow, è una prova sulla produzione con un badge rassicurante in testata. In produzione non è
+# La cartella di lavoro del SERVER: la cache dei contenuti (_contenuti), i file intermedi, il log. La crea
+# il server. Diversa da quella dei worker (il pacchetto delle postazioni scrive C:\cockpit\staging nel
+# worker.toml): se server e worker stanno sullo stesso PC, le due non devono coincidere.
+staging = 'C:\Cockpit\server\staging'
+# Le radici VERE, dichiarate una volta. Il NAS di produzione è un percorso UNC, per esempio
+#   radice = '\\server-nas\preventivi\PREVENTIVI DA FARE'
+# e la sua radice va qui. In shadow il server si RIFIUTA di partire se `radice` è una di queste (o una
+# loro sottocartella): una prova in shadow puntata sul NAS di produzione non è una shadow, è una prova
+# sulla produzione con un badge rassicurante in testata. Quindi: in shadow la radice resta una cartella
+# di prova; passando alla radice vera si passa anche a modalita = "produzione". In produzione non è
 # vietata, ma con nas_scrittura = true serve [sicurezza].consenti_nas_produzione, piu' sotto.
 # Il confronto ignora maiuscole, barre e barra finale: sono i tre modi in cui lo stesso percorso viene
 # riscritto passando da un file all'altro.
-radici_produzione = ['\\nas01\TECNICO - PREVENTIVI']
+radici_produzione = ['\\server-nas\preventivi']
 
 # Ogni quanti secondi confrontare i documenti del database con i file VERI sul NAS (blocco 5B).
 # Assente = 900 (un quarto d'ora). 0 = nessuna passata automatica; «Controlla ora» nella schermata
@@ -181,12 +230,13 @@ giorni_sync_iniziale = 7
 # dal = "2026-08-01"
 
 lotto = 50
-consenti_invio = false
+# `consenti_invio` non c'è più qui: il server prepara bozze e non ha un invio da accendere. Se la riga
+# è in un file di prima, il server lo dice nel log all'avvio (la voce del worker.toml è un'altra cosa).
 # Casella attribuita ai messaggi che non la dichiarano (fase 1, finché il contratto non porta
 # casella_id). Con una sola [[casella]] si deduce da sola; con più di una è obbligatoria.
 # Dalla fase 2 il lotto porta sempre il casella_id del job: questa resta il ripiego per un worker più
 # vecchio del server, non il modo normale di attribuire la posta.
-casella_default = "nome.cognome@azienda.it"
+casella_default = "nome.cognome@azienda.example"
 
 [sicurezza]
 # CHE COSA QUESTO SERVER PUO' MODIFICARE FUORI DA SE' (blocco 4 del checkpoint 3R).
@@ -352,7 +402,7 @@ caselle = []                    # indirizzi su cui l'analisi e' permessa; vuoto 
 # Un ruolo scritto male NON diventa più `operatore` in silenzio: il server non parte, e dice quale
 # utente e quali parole sono ammesse.
 #
-# SERVE ALMENO UN `admin`, perché il pacchetto dei worker (passo 5 qui sopra) lo genera solo lui.
+# SERVE ALMENO UN `admin`, perché il pacchetto dei worker (passo 9 qui sopra) lo genera solo lui.
 # Senza nessuno che possa aprire Postazioni non si aggiunge più un PC — e se l'unico amministratore
 # viene declassato a operatore, quella porta si chiude mentre tutto il resto continua a funzionare.
 # Per questo il server NON PARTE se fra gli [[utenti]] non ce n'è nessuno con ruolo admin.
@@ -360,18 +410,28 @@ caselle = []                    # indirizzi su cui l'analisi e' permessa; vuoto 
 # `password` serve SOLO a far nascere l'utente. Appena in database c'è un hash valido il file non lo
 # sostituisce più: riavviare con una password diversa scritta qui non la cambia, e il server lo
 # scrive nel log invece di lasciare qualcuno a chiedersi perché non entra. Il cambio password si farà
-# dalla schermata del profilo (voce 6.4). Una volta che l'utente esiste, questa riga si può togliere.
+# dalla schermata del profilo (voce 6.4); finché non c'è, una password si reimposta svuotando
+# utente.password_hash in database e riavviando con quella nuova qui. Una volta che l'utente esiste,
+# questa riga si può togliere.
+#
+# INSERISCI_PASSWORD_INIZIALE è un segnaposto, non una password: il server NON crea un utente con
+# quello, né con la password vuota, e all'avvio si ferma dicendo quale sigla sistemare.
+#
+# Togliere un utente da qui NON gli toglie l'accesso: il seed non disattiva nessuno. Il server lo dice
+# nel log a ogni avvio; per chiudergli la porta si disattiva in database (utente.attivo = false).
+#
+# Le sigle sono quelle che [[casella]] e [[postazione]] usano in `utente`, più sotto.
 
 [[utenti]]
-sigla = "FP"
+sigla = "NC"
 nome = "Nome Cognome"
 ufficio = "Commerciale"
 ruolo = "operatore"
 password = "INSERISCI_PASSWORD_INIZIALE"
 
 [[utenti]]
-sigla = "PS"
-nome = "Nome Cognome"
+sigla = "AM"
+nome = "Amministratore"
 ufficio = "IT"
 ruolo = "admin"
 password = "INSERISCI_PASSWORD_INIZIALE"
@@ -385,7 +445,7 @@ password = "INSERISCI_PASSWORD_INIZIALE"
 
 # Una casella condivisa Exchange NON ha proprietario: `utente` va lasciato fuori.
 [[casella]]
-indirizzo = "commerciale@azienda.it"
+indirizzo = "commerciale@azienda.example"
 nome      = "Commerciale"
 condivisa = true
 
@@ -396,7 +456,7 @@ condivisa = true
 # era per sola cartella e il server si rifiutava di partire con più di una casella attiva, perché due
 # caselle si sarebbero sovrascritte il cursore a vicenda perdendo messaggi in silenzio.
 [[casella]]
-indirizzo = "nome.cognome@azienda.it"
+indirizzo = "nome.cognome@azienda.example"
 nome      = "Nome Cognome"
 utente    = "NC"
 
@@ -425,7 +485,7 @@ nome       = "outlook@PC-NOME"
 tipo       = "outlook"
 token      = ""
 postazione = "PC-NOME"
-caselle    = ["nome.cognome@azienda.it", "commerciale@azienda.it"]
+caselle    = ["nome.cognome@azienda.example", "commerciale@azienda.example"]
 
 [[worker]]
 nome       = "analisi@PC-NOME"

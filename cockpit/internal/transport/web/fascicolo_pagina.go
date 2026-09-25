@@ -546,9 +546,6 @@ func (d *fascicoloDati) VistaTecnica() bool {
 	return d.Stato.Vista == "file" || d.Stato.Vista == "componenti" || d.Stato.Vista == "albero"
 }
 
-// NonAssegnati e' il conteggio della testata.
-func (d *fascicoloDati) NonAssegnati() int { return d.Conteggi[filtroNonAssegnati] }
-
 // Filtri sono le linguette del pannello Documenti.
 func (d *fascicoloDati) Filtri() []struct{ Chiave, Nome string } { return filtriFascicolo }
 

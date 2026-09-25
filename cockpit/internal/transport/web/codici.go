@@ -5,8 +5,8 @@ package web
 // + Assieme / + Particolare» su un codice davvero nuovo, e il ripristino di un componente archiviato. Il
 // terzo gesto del pannello, decidere la proposta STEP aperta di un codice, e' quello di B8.5.
 //
-// La schermata del Fascicolo e' B8.7: fino ad allora il pannello sta nella pagina della RFQ, e le rotte
-// rispondono con quella.
+// Il pannello sta nella pagina della RFQ e nel cassetto «Codici» del Fascicolo (B8.7), e le rotte
+// rispondono come la schermata da cui arriva il gesto.
 
 import (
 	"context"

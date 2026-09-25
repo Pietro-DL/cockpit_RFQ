@@ -918,48 +918,6 @@ func (q *Queries) ListProposteMessaggio(ctx context.Context, messaggioID uuid.UU
 	return items, nil
 }
 
-const listProposteThreadTutte = `-- name: ListProposteThreadTutte :many
-SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id JOIN messaggio m ON m.messaggio_id = a.messaggio_id
-WHERE m.thread_id = $1
-`
-
-// tutte le proposte (aperte e decise) degli allegati dei messaggi del thread, per la schermata B
-func (q *Queries) ListProposteThreadTutte(ctx context.Context, threadID uuid.NullUUID) ([]DocumentoProposta, error) {
-	rows, err := q.db.Query(ctx, listProposteThreadTutte, threadID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []DocumentoProposta{}
-	for rows.Next() {
-		var i DocumentoProposta
-		if err := rows.Scan(
-			&i.PropostaID,
-			&i.AllegatoID,
-			&i.ThreadID,
-			&i.TipoProposto,
-			&i.Codice,
-			&i.Rev,
-			&i.ComponenteID,
-			&i.Confidenza,
-			&i.Fonte,
-			&i.RegolaID,
-			&i.Dettagli,
-			&i.Stato,
-			&i.DecisoDa,
-			&i.DecisoIl,
-			&i.CreatoIl,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listStepProdotto = `-- name: ListStepProdotto :many
 SELECT thread_id, componente_id, codice, step_strutturale_id, n_step_correnti, analisi_completa, motivo_parziale, deroga_struttura_id, altro_3d_documento_id, proposta_aperta, atteso_da_portale, esito FROM v_step_prodotto WHERE thread_id = $1 ORDER BY codice
 `
@@ -1130,7 +1088,7 @@ func (q *Queries) SetComponenteProposta(ctx context.Context, arg SetComponentePr
 }
 
 const setDocumentoErrore = `-- name: SetDocumentoErrore :exec
-UPDATE documento SET stato_nas = 'errore', errore_nas = $2 WHERE documento_id = $1
+UPDATE documento SET stato_nas = 'errore', errore_nas = $2 WHERE documento_id = $1 AND stato_nas <> 'scritto'
 `
 
 type SetDocumentoErroreParams struct {
@@ -1138,6 +1096,9 @@ type SetDocumentoErroreParams struct {
 	ErroreNas   pgtype.Text `json:"errore_nas"`
 }
 
+// Mai su uno `scritto`: il file e' gia' sul NAS, e un tentativo di copia fallito dopo (un job vecchio
+// riaccodato all'avvio, un contenuto sparito dalla cache) non lo toglie di li'. Se il file sul NAS
+// manca o e' un altro, lo dice il ricognitore con la sua anomalia, non questa riga.
 func (q *Queries) SetDocumentoErrore(ctx context.Context, arg SetDocumentoErroreParams) error {
 	_, err := q.db.Exec(ctx, setDocumentoErrore, arg.DocumentoID, arg.ErroreNas)
 	return err

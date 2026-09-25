@@ -2,7 +2,7 @@
 
     python prova_lettura.py --cartella "Posta inviata" --giorni 7
     python prova_lettura.py --cartella "Posta inviata" --giorni 7 --vecchio-modo
-    python prova_lettura.py --casella commerciale@azienda.it --cartella "Posta in arrivo"
+    python prova_lettura.py --casella commerciale@azienda.example --cartella "Posta in arrivo"
 
 A che cosa serve. Il sync della Posta inviata di questa postazione cadeva su
 

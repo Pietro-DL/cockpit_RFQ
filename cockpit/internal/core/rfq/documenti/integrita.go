@@ -59,6 +59,10 @@ type Ricognitore struct {
 	// Adesso: l'orologio. Nil = time.Now. E' un campo perche' la prova deve poter far invecchiare un
 	// documento di tre giorni senza aspettarli.
 	Adesso func() time.Time
+	// mentreGuarda, se non e' nil, si chiama dopo aver guardato il file di un documento e prima di
+	// scrivere che cosa si e' trovato: e' il momento in cui, in produzione, una copia puo' finire. Serve
+	// alle prove, che altrimenti non potrebbero mettere una copia in mezzo a una passata.
+	mentreGuarda func(d db.Documento)
 }
 
 // EsitoRicognizione e' che cosa ha fatto una passata.
@@ -173,6 +177,23 @@ func (r *Ricognitore) Giro(ctx context.Context) (EsitoRicognizione, error) {
 		d := riga.Documento
 		c.inCoda = pendenti[coda.ChiaveCopia(d.DocumentoID)]
 		es := c.esamina(d, riga.CartellaRelativa)
+		if r.mentreGuarda != nil {
+			r.mentreGuarda(d)
+		}
+		if es.Problema == db.ProblemaNasGiaPresente {
+			// La riga e' stata letta all'inizio della passata, il file adesso. Una copia che finisce in
+			// mezzo lascia il file al suo posto e, nella riga vecchia, il documento ancora da copiare:
+			// senza rileggerla la passata segnalerebbe «gia' presente» un documento appena scritto, e
+			// quell'anomalia fermerebbe gate e anteprima fino alla passata dopo.
+			ora, err := q.GetDocumento(ctx, d.DocumentoID)
+			if err != nil {
+				return e, err
+			}
+			if ora.StatoNas != d.StatoNas || ora.PathRelativo != d.PathRelativo {
+				d = ora
+				es = c.esamina(d, riga.CartellaRelativa)
+			}
+		}
 		if es.Problema == "" {
 			n, err := q.ChiudiAnomaliaNas(ctx, d.DocumentoID)
 			if err != nil {
@@ -180,11 +201,8 @@ func (r *Ricognitore) Giro(ctx context.Context) (EsitoRicognizione, error) {
 			}
 			e.Chiuse += int(n)
 		} else {
-			if _, err := q.ApriAnomaliaNas(ctx, db.ApriAnomaliaNasParams{
-				DocumentoID: d.DocumentoID, ThreadID: d.ThreadID, Problema: es.Problema,
-				StatoDb: d.StatoNas, Percorso: es.Percorso, ShaAtteso: d.Sha256,
-				ShaTrovato: ptesto(es.ShaTrovato), Dettaglio: es.Dettaglio,
-			}); err != nil {
+			// la stessa riga, con le stesse parole, che scrivono l'anteprima e la verifica
+			if err := Segnala(ctx, q, d, es.Percorso, es.Problema, es.ShaTrovato, es.Dettaglio); err != nil {
 				return e, err
 			}
 			e.Aperte++

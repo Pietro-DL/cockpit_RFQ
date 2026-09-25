@@ -85,8 +85,8 @@ def test_il_worker_analisi_prende_i_byte_dal_server_non_da_un_percorso(tmp_path)
     contenuto = b"0\nSECTION\n2\nENTITIES\n" + bytes(range(256)) * 20
     with ServerFinto() as s:
         s.contenuti[ALLEGATO_ANALISI] = contenuto
-        s.metti_job(_job_analisi(13, contenuto, "6674611A_4.dxf",
-                                 path_staging=str(tmp_path / "server-di-un-altro-pc" / "6674611A_4.dxf")))
+        s.metti_job(_job_analisi(13, contenuto, "1234567A_4.dxf",
+                                 path_staging=str(tmp_path / "server-di-un-altro-pc" / "1234567A_4.dxf")))
         w = worker_analisi.WorkerAnalisi(s.config(staging=str(tmp_path)))
         w.esegui_per_sempre(una_volta=True)
 
@@ -98,7 +98,7 @@ def test_il_worker_analisi_prende_i_byte_dal_server_non_da_un_percorso(tmp_path)
         r = s.risultati[13]
         assert r["esito"] == "ok", r
         assert r["dati"]["allegato_id"] == ALLEGATO_ANALISI
-        assert r["dati"]["codice"] == "6674611A" and r["dati"]["rev"] == "4"
+        assert r["dati"]["codice"] == "1234567A" and r["dati"]["rev"] == "4"
         assert not os.path.exists(tmp_path / "tmp" / "13"), "la cartella temporanea del job non è stata rimossa"
 
 

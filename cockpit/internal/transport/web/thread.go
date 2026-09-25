@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
@@ -62,6 +63,8 @@ type threadDati struct {
 
 type messaggioThread struct {
 	M db.Messaggio
+	// Corpo: il testo pronto da leggere, come nel pannello dell'Inbox (core/inbox/lettura).
+	Corpo lettura.Corpo
 	// Copia: quella servita dalla postazione della sessione; nil = «Apri» non disponibile, e Motivo
 	// dice perché (messaggio non Outlook, nessuna postazione, nessun worker idoneo).
 	Copia    *coda.Copia
@@ -83,7 +86,10 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "thread non trovato", 404)
 		return
 	}
-	d.Selezion = r.URL.Query().Get("sel")
+	// come nell'Inbox: nella pagina entra solo un uuid, mai il testo dell'indirizzo
+	if sel, err := uuid.Parse(r.URL.Query().Get("sel")); err == nil {
+		d.Selezion = sel.String()
+	}
 	s.rendi(w, r, "thread.html", "thread_corpo", "RFQ", d)
 }
 
@@ -266,7 +272,7 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	s.codiciDellaRfq(ctx, q, d)
 	msgs, _ := q.ListMessaggiThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	for _, m := range msgs {
-		mt := messaggioThread{M: m}
+		mt := messaggioThread{M: m, Corpo: lettura.Presenta(m.CorpoTesto.String, m.CorpoHtml.String)}
 		if presenze, _ := q.ListPresenze(ctx, m.MessaggioID); len(presenze) > 0 {
 			mt.Copia, mt.Motivo = s.copiaInterattiva(ctx, q, m.MessaggioID, sess)
 		}

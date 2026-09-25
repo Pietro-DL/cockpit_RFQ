@@ -161,11 +161,13 @@ func idFacoltativo(v, cosa string) (uuid.NullUUID, error) {
 	return uuid.NullUUID{UUID: id, Valid: err == nil}, err
 }
 
+// qtaDal legge la quantita' di un arco: vuota vale 1. Si legge gia' a 32 bit: letta come int e poi
+// convertita, 4294967297 diventava 1 senza che nessuno lo dicesse.
 func qtaDal(v string) (int32, error) {
 	if strings.TrimSpace(v) == "" {
 		return 1, nil
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(v))
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 32)
 	if err != nil {
 		return 0, rifiuto("quantità non valida")
 	}

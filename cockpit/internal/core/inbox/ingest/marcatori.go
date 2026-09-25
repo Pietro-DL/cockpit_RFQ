@@ -95,7 +95,13 @@ func (s *Servizio) applicaMarcatori(ctx context.Context, q *db.Queries, row *db.
 		}
 	}
 	if v := m.Marcatori[MarcatoreBozza]; v != "" {
-		if bid, err := uuid.Parse(v); err == nil {
+		// La stessa regola della richiesta: «la bozza e' partita» lo puo' dire solo la nostra mail in
+		// uscita. Su una mail che arriva — la risposta del fornitore che si porta dietro le proprieta'
+		// della nostra, un inoltro — la bozza risulterebbe inviata con il messaggio sbagliato, e
+		// `inviata_messaggio_id` non si riscrive piu' (la query aggiorna solo se e' ancora vuoto).
+		if dir != db.DirezioneUscita {
+			s.avvisa("marcatore bozza su una mail in entrata: ignorato, il Cockpit non lo ha messo lui", "messaggio", m.MessageID, "valore", v)
+		} else if bid, err := uuid.Parse(v); err == nil {
 			n, err := q.SetBozzaInviata(ctx, db.SetBozzaInviataParams{BozzaID: bid, InviataMessaggioID: uuid.NullUUID{UUID: row.MessaggioID, Valid: true}})
 			if err != nil {
 				return agganciato, fmt.Errorf("bozza inviata: %w", err)

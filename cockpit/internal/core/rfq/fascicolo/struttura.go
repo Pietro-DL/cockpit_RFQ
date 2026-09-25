@@ -25,10 +25,18 @@ import (
 // ArchiviaComponente toglie il componente dalla BOM working: i suoi archi working se ne vanno, in
 // tutte e due le direzioni; documenti, proposte, deroghe e storia restano agganciati. I figli non si
 // archiviano da soli (D29): se restano senza padre compaiono come radici da sistemare.
+//
+// Un prodotto con lo STEP strutturale chiude le rimozioni ancora aperte che venivano da quello STEP: il
+// ricalcolo guarda solo i prodotti attivi (ListProdottiConStepStrutturale), quindi nessuno le avrebbe
+// piu' chiuse, e il gate le avrebbe contate per sempre come proposte da decidere. Quelle degli altri
+// prodotti su archi tolti qui le chiude il loro ricalcolo, come prima (all'apertura della RFQ).
 func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente uuid.UUID, motivo string) (string, error) {
 	motivo = strings.TrimSpace(motivo)
 	if motivo == "" {
 		return "", Rifiuto("si archivia con un motivo")
+	}
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
 	}
 	c, err := componenteDellaRfq(ctx, q, thread, comp)
 	if err != nil {
@@ -47,6 +55,12 @@ func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 	if _, err := q.ArchiviaComponente(ctx, db.ArchiviaComponenteParams{ComponenteID: comp,
 		ArchiviatoDa: uuid.NullUUID{UUID: utente, Valid: true}, Motivo: pgtype.Text{String: motivo, Valid: true}}); err != nil {
 		return "", err
+	}
+	if c.StepStrutturaleID.Valid {
+		if _, err := q.ChiudiRimozioniDiUnoStep(ctx, db.ChiudiRimozioniDiUnoStepParams{ThreadID: thread,
+			StepDocumentoID: c.StepStrutturaleID.UUID, Nota: pgtype.Text{String: "prodotto archiviato", Valid: true}}); err != nil {
+			return "", err
+		}
 	}
 	return fmt.Sprintf("%s archiviato: tolti %d archi della working. Documenti, proposte e storia restano.", c.Codice, archi), nil
 }
@@ -135,6 +149,11 @@ func ScegliStepStrutturale(ctx context.Context, q *db.Queries, thread, comp, doc
 	c, err := componenteDellaRfq(ctx, q, thread, comp)
 	if err != nil {
 		return "", err
+	}
+	if c.ArchiviatoIl != nil {
+		// fuori dalla working: le sue rimozioni non si ricalcolano, e quelle aperte dal nuovo riferimento
+		// resterebbero li' per sempre
+		return "", Rifiuto(c.Codice + " è archiviato: prima lo si ripristina, poi si sceglie il suo STEP strutturale")
 	}
 	if c.Tipo != db.TipoComponenteFinito {
 		return "", Rifiuto(fmt.Sprintf("%s non è un prodotto finito: lo STEP strutturale si sceglie solo per un finito", c.Codice))
@@ -257,13 +276,14 @@ func ConcediDerogaStruttura(ctx context.Context, q *db.Queries, thread, comp, ut
 	return q.InsertDerogaStruttura(ctx, arg)
 }
 
-// RevocaDerogaStruttura toglie una deroga strutturale. Se una baseline la usa, la FK lo rifiuta: una
-// deroga che ha fatto congelare una versione fa parte di quella versione.
+// RevocaDerogaStruttura toglie una deroga strutturale di questa RFQ: l'id da solo non basta, arriva da
+// un indirizzo e potrebbe essere di un'altra (come per RevocaDeroga). Se una baseline la usa, la FK lo
+// rifiuta: una deroga che ha fatto congelare una versione fa parte di quella versione.
 func RevocaDerogaStruttura(ctx context.Context, q *db.Queries, thread, deroga uuid.UUID) error {
-	if err := SeBloccata(ctx, q, thread, "si revoca una deroga"); err != nil {
+	if err := prepara(ctx, q, thread, "si revoca una deroga"); err != nil {
 		return err
 	}
-	n, err := q.DeleteDerogaStruttura(ctx, deroga)
+	n, err := q.DeleteDerogaStruttura(ctx, db.DeleteDerogaStrutturaParams{DerogaStrutturaID: deroga, ThreadID: thread})
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23503" {
 		return Rifiuto("la deroga strutturale è in una baseline congelata: non si toglie, decade da sola")
@@ -272,7 +292,7 @@ func RevocaDerogaStruttura(ctx context.Context, q *db.Queries, thread, deroga uu
 		return err
 	}
 	if n == 0 {
-		return Rifiuto("deroga strutturale non trovata")
+		return Rifiuto("deroga strutturale non trovata in questa RFQ")
 	}
 	return nil
 }
@@ -327,6 +347,11 @@ func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid
 	}
 	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == vecchio {
 		if nuovoRiferimento && Step(n) {
+			if c.ArchiviatoIl != nil {
+				// la stessa regola di ScegliStepStrutturale; il rifiuto annulla anche la sostituzione
+				return "", Rifiuto(c.Codice + " è archiviato: il nuovo STEP strutturale si sceglie dopo averlo ripristinato " +
+					"(il file si può sostituire lo stesso, senza farne il nuovo riferimento)")
+			}
 			if _, err := q.SetStepStrutturale(ctx, db.SetStepStrutturaleParams{ComponenteID: c.ComponenteID,
 				StepStrutturaleID: uuid.NullUUID{UUID: nuovo, Valid: true}}); err != nil {
 				return "", err
@@ -402,9 +427,10 @@ func bloccaDocumenti(ctx context.Context, q *db.Queries, thread uuid.UUID, ids .
 }
 
 // chiudiProposteDi chiude le proposte ancora aperte che venivano dal file d (A4.4): scartate, senza chi
-// le ha decise, con la nota. Quelle gia' decise restano come sono.
+// le ha decise, con la nota. Quelle gia' decise restano come sono. La nota nomina un file («superata da
+// <nome>», fino a 300 caratteri) e le colonne ne tengono 200: si taglia qui, non la si rifiuta.
 func chiudiProposteDi(ctx context.Context, q *db.Queries, thread uuid.UUID, d db.Documento, nota string) error {
-	n := pgtype.Text{String: nota, Valid: true}
+	n := pgtype.Text{String: tagliaNota(nota), Valid: true}
 	if _, err := q.ChiudiProposteComponenteDiUnFile(ctx, db.ChiudiProposteComponenteDiUnFileParams{ThreadID: thread, Sha256: d.Sha256, Nota: n}); err != nil {
 		return err
 	}

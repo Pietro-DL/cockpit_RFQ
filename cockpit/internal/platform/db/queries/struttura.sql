@@ -34,7 +34,9 @@ VALUES (sqlc.arg(thread_id), sqlc.arg(componente_id), sqlc.arg(step_documento_id
 RETURNING *;
 
 -- name: DeleteDerogaStruttura :execrows
-DELETE FROM deroga_struttura WHERE deroga_struttura_id = $1;
+-- Della RFQ su cui si sta lavorando, come DeleteDeroga: l'id arriva da un indirizzo, e da solo non
+-- dice di quale RFQ sia la deroga.
+DELETE FROM deroga_struttura WHERE deroga_struttura_id = sqlc.arg(deroga_struttura_id) AND thread_id = sqlc.arg(thread_id);
 
 -- name: UpsertRimozioneProposta :exec
 -- Idempotente come le altre proposte; una proposta gia' decisa non si riapre.

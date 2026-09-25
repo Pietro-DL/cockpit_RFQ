@@ -51,7 +51,7 @@ def verifica(condizione, messaggio):
 
 
 # gli archi dello STEP (padre, figlio, quantita' sull'arco)
-ARCHI = {("52922757", "52920517", "×2"), ("52920517", "53011111", "×2"), ("52920517", "53017189", "×1"), ("52922757", "53017189", "×4")}
+ARCHI = {("77722757", "77720517", "×2"), ("77720517", "77811111", "×2"), ("77720517", "77817189", "×1"), ("77722757", "77817189", "×4")}
 
 # la BOM visuale letta dal DOM: una riga per card, con il padre (la card del li che la contiene)
 JS_ALBERO = """() => Array.from(document.querySelectorAll('#tela li.bom-li')).map(li => {
@@ -140,7 +140,7 @@ class Banco:
 
 @passo("la mail con lo ZIP arriva nell'Inbox (worker Outlook vero, posta finta)")
 def passo_1(b):
-    riga = b.page.locator("#lista a.riga", has_text="52922757")
+    riga = b.page.locator("#lista a.riga", has_text="77722757")
     fine = time.time() + 90
     while True:
         b.page.goto(b.a.url + "/inbox")
@@ -155,7 +155,7 @@ def passo_1(b):
 
 @passo("il cliente si censisce, la RFQ nasce con il codice, lo ZIP si prepara da solo")
 def passo_2(b):
-    b.page.locator("#lista a.riga", has_text="52922757").first.click()
+    b.page.locator("#lista a.riga", has_text="77722757").first.click()
     b.page.wait_for_selector("#pannello button:has-text('Censisci come cliente')", timeout=15000)
     b.page.click("#pannello button:has-text('Censisci come cliente')")
     form = "form.form-censisci"
@@ -171,14 +171,14 @@ def passo_2(b):
     b.page.click("#pannello button:has-text('Nuova RFQ')")
     b.page.wait_for_selector("form.form-triage", timeout=15000)
     allegati = b.page.locator("form.form-triage fieldset:has(legend:text('Allegati'))").inner_text()
-    verifica("RFQ ACME 52922757.zip" in allegati and "si prepara da solo" in allegati, "lo ZIP nel triage: %r" % allegati)
-    b.page.locator("form.form-triage input[name=codice][value='52922757']").check()
+    verifica("RFQ ACME 77722757.zip" in allegati and "si prepara da solo" in allegati, "lo ZIP nel triage: %r" % allegati)
+    b.page.locator("form.form-triage input[name=codice][value='77722757']").check()
     b.foto("00_triage.png")
     b.page.click("form.form-triage button[type=submit]")
     b.page.wait_for_selector("#pannello :text('RFQ creata')", timeout=15000)
     avviso = b.page.locator("#pannello .avviso").first.inner_text()
     b.dati["avviso_creazione"] = avviso
-    verifica("52922757 nella BOM come prodotto finito" in avviso, "il prodotto finito non nasce con la RFQ: %r" % avviso)
+    verifica("77722757 nella BOM come prodotto finito" in avviso, "il prodotto finito non nasce con la RFQ: %r" % avviso)
     verifica("1 file utile in preparazione" in avviso, "lo ZIP non parte da solo: %r" % avviso)
 
 
@@ -190,7 +190,7 @@ def passo_3(b):
     b.base = b.a.url + "/thread/" + b.dati["thread"] + "/fascicolo"
     b.apri("?vista=bom")
     prodotto = b.page.locator("#tela div.carta.prodotto")
-    verifica(prodotto.count() == 1 and "52922757" in prodotto.inner_text(), "la card del prodotto: %r" % prodotto.all_inner_texts())
+    verifica(prodotto.count() == 1 and "77722757" in prodotto.inner_text(), "la card del prodotto: %r" % prodotto.all_inner_texts())
     struttura = prodotto.locator(".carta-struttura").text_content().strip() if prodotto.locator(".carta-struttura").count() else ""
     b.dati["struttura_all_apertura"] = struttura
     verifica(any(x in struttura for x in ["struttura da definire", "STEP in analisi", "STEP arrivato"]),
@@ -200,9 +200,9 @@ def passo_3(b):
     b.dati["avanzamento_all_apertura"] = av.inner_text().strip()
     # il codice della richiesta e' gia' nella BOM: il cassetto dei codici non offre «+ Prodotto»
     b.menu("Codici")
-    riga = b.page.locator("#cassetto #codice-52922757")
+    riga = b.page.locator("#cassetto #codice-77722757")
     verifica(riga.count() == 1 and "nel Fascicolo" in riga.inner_text(), "il codice della richiesta nel cassetto: %r" % riga.all_inner_texts())
-    verifica(riga.get_by_role("button", name=re.compile(r"^\+")).count() == 0, "il cassetto offre ancora di aggiungere 52922757")
+    verifica(riga.get_by_role("button", name=re.compile(r"^\+")).count() == 0, "il cassetto offre ancora di aggiungere 77722757")
     b.chiudi_cassetto()
     b.page.evaluate("window.__marca = 'viva'")
     b.foto("01_apertura.png")
@@ -224,9 +224,9 @@ def passo_4(b):
     verifica(ARCHI <= trovati, "gli archi dello STEP nella BOM: %r" % sorted(trovati))
     verifica(all("proposta" in x["classe"].split() for x in albero if x["padre"]), "sotto il prodotto ci sono card non tratteggiate: %r" % albero)
     verifica(b.page.locator("#tela div.carta.prodotto").count() == 1, "il prodotto non e' piu' una card sola")
-    condiviso = b.page.locator("#tela div.carta.proposta", has_text="53017189")
+    condiviso = b.page.locator("#tela div.carta.proposta", has_text="77817189")
     verifica(condiviso.count() == 2 and condiviso.filter(has_text="un altro padre").count() == 1,
-             "53017189, sotto due padri, si disegna una volta e l'altra e' un rimando: %r" % condiviso.all_inner_texts())
+             "77817189, sotto due padri, si disegna una volta e l'altra e' un rimando: %r" % condiviso.all_inner_texts())
     # finito il lavoro il poll si ferma: niente richieste per piu' del suo intervallo massimo
     fine_lavoro = time.time()
     b.page.wait_for_timeout(12000)
@@ -242,22 +242,22 @@ def passo_4(b):
 @passo("il pannello di destra: il prodotto con i file in arrivo, una proposta con chi la aspetta")
 def passo_5(b):
     b.clic_e_aspetta(b.page.locator("#tela div.carta.prodotto a.carta-link").first, "/fascicolo/anteprima")
-    verifica("52922757" in b.page.locator("#scheda-nodo").inner_text(), "il dettaglio del prodotto non si vede")
+    verifica("77722757" in b.page.locator("#scheda-nodo").inner_text(), "il dettaglio del prodotto non si vede")
     arrivo = b.page.locator("#anteprima .in-arrivo").inner_text()
-    verifica("52922757.pdf" in arrivo and "52922757.stp" in arrivo, "i file in arrivo per il prodotto: %r" % arrivo)
+    verifica("77722757.pdf" in arrivo and "77722757.stp" in arrivo, "i file in arrivo per il prodotto: %r" % arrivo)
     b.page.wait_for_timeout(1000)  # il viewer del PDF si disegna dopo lo swap: la fotografia lo aspetta
     b.foto("03_dettaglio_prodotto.png")
-    prop = b.page.locator("#tela div.carta.proposta", has_text="52920517").first
+    prop = b.page.locator("#tela div.carta.proposta", has_text="77720517").first
     b.clic_e_aspetta(prop.locator("a.carta-link"), "/fascicolo/anteprima")
-    verifica("52920517" in b.page.locator("#scheda-proposta").inner_text(), "il dettaglio della proposta non si vede")
-    verifica(b.page.locator("#anteprima .in-arrivo", has_text="52920517.pdf").count() == 1, "la proposta non dice che 52920517.pdf la aspetta")
+    verifica("77720517" in b.page.locator("#scheda-proposta").inner_text(), "il dettaglio della proposta non si vede")
+    verifica(b.page.locator("#anteprima .in-arrivo", has_text="77720517.pdf").count() == 1, "la proposta non dice che 77720517.pdf la aspetta")
     b.foto("04_dettaglio_proposta.png")
     verifica(b.viva(), "la pagina si e' ricaricata")
 
 
 @passo("l'editor della struttura: la proposta dello STEP si guarda e si conferma com'e'")
 def passo_editor(b):
-    banner = b.page.locator("div.banner-step", has_text="52922757.stp")
+    banner = b.page.locator("div.banner-step", has_text="77722757.stp")
     verifica(banner.count() == 1, "il banner dello STEP non c'e'")
     banner.locator("[data-editor]").click()
     ed = b.page.locator(".bomed")
@@ -265,7 +265,7 @@ def passo_editor(b):
     righe = ed.locator(".bomed-albero .bomed-riga")
     testo = " ".join(righe.all_inner_texts())
     b.dati["editor"] = testo
-    for c in ["52922757", "52920517", "53011111", "53017189"]:
+    for c in ["77722757", "77720517", "77811111", "77817189"]:
         verifica(c in testo, "%s non e' nell'albero dell'editor: %r" % (c, testo))
     verifica(ed.locator(".bomed-albero .bomed-riga.proposto").count() >= 3, "i nodi dello STEP non sono segnati come proposti")
     b.foto("05_editor.png")
@@ -275,7 +275,7 @@ def passo_editor(b):
     b.page.wait_for_selector(".bomed", state="detached", timeout=10000)
     b.page.wait_for_timeout(300)
     b.dati["editor_esito"] = b.avviso()
-    verifica(b.avviso().startswith("Struttura di 52922757 confermata"), "avviso: %r" % b.avviso())
+    verifica(b.avviso().startswith("Struttura di 77722757 confermata"), "avviso: %r" % b.avviso())
     verifica(b.page.locator("#tela div.carta.proposta").count() == 0, "dopo l'editor restano card proposte")
     albero = b.albero()
     trovati = {(x["padre"], x["codice"], x["qta"]) for x in albero if x["padre"]}
@@ -288,13 +288,13 @@ def passo_6(b):
     b.clic_e_aspetta(b.page.locator("#fasc-testata a.verifica"), "/fascicolo/parti")
     voci = b.page.locator("#cassetto .verifica-voce")
     b.dati["da_verificare"] = voci.all_inner_texts()
-    verifica(voci.count() == 1 and "53017189 foglio 2.pdf" in voci.first.inner_text(), "le voci da verificare: %r" % voci.all_inner_texts())
+    verifica(voci.count() == 1 and "77817189 foglio 2.pdf" in voci.first.inner_text(), "le voci da verificare: %r" % voci.all_inner_texts())
     codice = voci.first.locator("input[name=codice]")
-    verifica(codice.input_value() == "53017189", "il codice suggerito per il foglio: %r" % codice.input_value())
+    verifica(codice.input_value() == "77817189", "il codice suggerito per il foglio: %r" % codice.input_value())
     b.foto("05_da_verificare.png")
     b.clic_e_aspetta(voci.first.get_by_role("button", name="Salva", exact=True), "/decidi")
     b.dati["decisione"] = b.avviso()
-    verifica(b.avviso().startswith("53017189 foglio 2.pdf: 2D, codice 53017189"), "avviso: %r" % b.avviso())
+    verifica(b.avviso().startswith("77817189 foglio 2.pdf: 2D, codice 77817189"), "avviso: %r" % b.avviso())
     verifica(b.page.locator("#cassetto .verifica-voce").count() == 0, "dopo la decisione restano voci: %r" % b.page.locator("#cassetto .verifica-voce").all_inner_texts())
     verifica(b.viva(), "la pagina si e' ricaricata")
 
@@ -307,7 +307,7 @@ def passo_7(b):
     form = b.page.locator("#cassetto form.rivedi")
     testo = form.inner_text()
     b.dati["rivedi"] = testo
-    for x in ["52922757.stp", "52922757.pdf", "52920517.pdf", "53017189 foglio 2.pdf", "Capitolato fornitura.pdf"]:
+    for x in ["77722757.stp", "77722757.pdf", "77720517.pdf", "77817189 foglio 2.pdf", "Capitolato fornitura.pdf"]:
         verifica(x in testo, "%s non e' nel riepilogo" % x)
     caselle = form.locator("input[type=checkbox]")
     verifica(caselle.count() == 6 and all(caselle.nth(i).is_checked() for i in range(caselle.count())), "le caselle del riepilogo: %d" % caselle.count())
@@ -318,11 +318,11 @@ def passo_7(b):
     b.dati["conferma"] = b.avviso()
     verifica(b.avviso().startswith("Fascicolo confermato"), "avviso: %r" % b.avviso())
     verifica(b.page.locator("#conferma-fascicolo").is_disabled(), "dopo la conferma resta qualcosa di pronto: %r" % b.page.locator("#piano").inner_text())
-    # il pannello di destra segue le conferme: la proposta scelta (52920517) e' diventata un componente
+    # il pannello di destra segue le conferme: la proposta scelta (77720517) e' diventata un componente
     # (nell'editor), e il corpo mostra il suo 2D, non piu' il riepilogo dello STEP con i nodi «aperta»
     corpo = b.page.locator("#anteprima-corpo")
     verifica("aperta" not in corpo.inner_text(), "il corpo del pannello e' quello di prima della conferma: %r" % corpo.inner_text()[:300])
-    verifica(b.page.locator("#anteprima-corpo iframe[title='Anteprima di 52920517.pdf']").count() == 1,
+    verifica(b.page.locator("#anteprima-corpo iframe[title='Anteprima di 77720517.pdf']").count() == 1,
              "il corpo del pannello non mostra il 2D del componente scelto: %r" % corpo.inner_text()[:300])
     verifica(b.viva(), "la pagina si e' ricaricata")
     b.page.wait_for_timeout(1000)  # il viewer del PDF si disegna dopo lo swap: la fotografia lo aspetta
@@ -342,14 +342,14 @@ def passo_8(b):
     verifica(cerca.is_visible(), "il cassetto del NAS non si vede")
     b.dati["nas_partenza"] = b.page.locator("#cassetto .nas-briciole").inner_text().strip()
     b.foto("09_nas.png")
-    cerca.locator("input[name=nas_cerca]").fill("52922757")
+    cerca.locator("input[name=nas_cerca]").fill("77722757")
     b.clic_e_aspetta(cerca.get_by_role("button", name="Cerca"), "/fascicolo/nas")
-    voce = b.page.locator("#cassetto li.file", has_text="52922757.dxf")
+    voce = b.page.locator("#cassetto li.file", has_text="77722757.dxf")
     verifica(voce.count() == 1, "la ricerca sul NAS: %r" % b.page.locator("#cassetto").inner_text()[:400])
     b.foto("10_nas_ricerca.png")
     b.clic_e_aspetta(voce.get_by_role("button", name="Importa"), "/nas/importa")
     b.dati["importa"] = b.avviso()
-    verifica("52922757.dxf importato dal NAS" in b.avviso(), "avviso: %r" % b.avviso())
+    verifica("77722757.dxf importato dal NAS" in b.avviso(), "avviso: %r" % b.avviso())
     b.chiudi_cassetto()
     b.dati["dopo_nas"] = b.aspetta(lambda s: not s["lavoro"] and s["conferma"], 60, "il DXF importato")
     verifica(b.pronti() == 1, "dopo l'importazione le voci pronte sono %d" % b.pronti())
@@ -358,7 +358,7 @@ def passo_8(b):
     verifica(b.avviso().startswith("Fascicolo confermato"), "avviso: %r" % b.avviso())
     b.clic_e_aspetta(b.page.locator("#tela div.carta.prodotto a.carta-link").first, "/fascicolo/anteprima")
     b.clic_e_aspetta(b.page.locator("#anteprima nav.schede a", has_text="DXF"), "/fascicolo/anteprima")
-    verifica(b.page.locator("#anteprima ul.det-doc", has_text="52922757.dxf").count() == 1, "il DXF non e' fra i documenti del prodotto")
+    verifica(b.page.locator("#anteprima ul.det-doc", has_text="77722757.dxf").count() == 1, "il DXF non e' fra i documenti del prodotto")
     verifica(b.viva(), "la pagina si e' ricaricata")
     b.page.wait_for_timeout(1000)  # il viewer del PDF si disegna dopo lo swap: la fotografia lo aspetta
     b.foto("11_finale.png")

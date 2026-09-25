@@ -103,7 +103,7 @@
     <span class="data">{{data .DataEvento}}</span>
   </div>
   <div class="r2">
-    <span class="oggetto">{{.Oggetto.String}}</span>
+    <span class="oggetto">{{oggettoVisibile .Oggetto}}</span>
     {{if gt .NAllegati 0}}<span class="chip">📎 {{.NAllegati}}</span>{{end}}
     {{if gt .NCad 0}}<span class="chip cad">CAD {{.NCad}}</span>{{end}}
     {{if gt .NRifPortale 0}}<span class="chip portale">portale {{.NRifPortale}}</span>{{end}}

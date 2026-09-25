@@ -57,7 +57,7 @@ func almeno(u *db.Utente, minimo db.RuoloUtente) bool {
 func (s *Server) soloRuolo(minimo db.RuoloUtente, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !almeno(utenteDa(r.Context()), minimo) {
-			s.nega(w, r, "Questa schermata è dell'amministratore.")
+			s.nega(w, r, "Questa schermata è dell'amministratore.", minimo)
 			return
 		}
 		h(w, r)
@@ -87,14 +87,18 @@ func metodoCheScrive(metodo string) bool {
 //
 // Finisce anche nel log: un accesso negato è un'informazione, sia quando è un tentativo sia — molto
 // più spesso — quando è un collega che non capisce perché non vede una voce di menu.
-func (s *Server) nega(w http.ResponseWriter, r *http.Request, motivo string) {
+//
+// serve è il ruolo che basterebbe, e la schermata lo dice; vuoto quando il «no» non dipende dal ruolo
+// (una postazione a cui non si è abilitati). Prima la frase diceva sempre «serve admin», anche a chi
+// consulta e voleva solo fare un gesto da operatore.
+func (s *Server) nega(w http.ResponseWriter, r *http.Request, motivo string, serve db.RuoloUtente) {
 	u := utenteDa(r.Context())
 	sigla, ruolo := "?", db.RuoloUtente("?")
 	if u != nil {
 		sigla, ruolo = u.Sigla, u.Ruolo
 	}
 	s.Log.Warn("accesso negato", "utente", sigla, "ruolo", ruolo, "metodo", r.Method, "percorso", r.URL.Path)
-	v := vista{Utente: u, Titolo: "Non autorizzato", Dati: motivo, Frammento: r.Header.Get("HX-Request") == "true"}
+	v := vista{Utente: u, Titolo: "Non autorizzato", Dati: motivo, Serve: serve, Frammento: r.Header.Get("HX-Request") == "true"}
 	nome := "vietato"
 	if !v.Frammento {
 		nome = "layout"

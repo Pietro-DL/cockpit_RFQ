@@ -158,10 +158,19 @@ func separatoreEsplicito(t string) bool {
 // «Il giorno … ha scritto:» e i suoi equivalenti. Il prefisso E la chiusura devono esserci tutti e
 // due: «On the drawing you sent the tolerance is wrong» comincia con «On» e non chiude con «wrote:»,
 // quindi non taglia niente.
+//
+// Due forme hanno i due punti in un altro posto, e ognuna ha una guardia in più al posto di quella che
+// perde. Il tedesco di Gmail, Apple Mail e Thunderbird mette il nome DOPO «schrieb» («Am 17.09.2026 um
+// 09:12 schrieb Max Muster <max@acme.example>:»): qui si chiede una cifra (la data) fra «Am» e
+// «schrieb» e i due punti in fondo alla riga, perché «Am Montag schrieb uns der Kunde, dass…» è prosa.
+// Thunderbird in italiano comincia con la data e non con «Il giorno» («Il 12/09/26 10:00, Mario Rossi
+// ha scritto:»): si chiede la data subito dopo «Il», e i due punti in fondo.
 var apertureCitazione = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^il giorno\b.*\bha scritto\s*:`),
+	regexp.MustCompile(`(?i)^il\s+\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b.*\bha scritto\s*:\s*$`),
 	regexp.MustCompile(`(?i)^on\b.*\bwrote\s*:`),
 	regexp.MustCompile(`(?i)^am\b.*\bschrieb\s*:`),
+	regexp.MustCompile(`(?i)^am\b.*\d.*\bschrieb\b.*:\s*$`),
 	regexp.MustCompile(`(?i)^le\b.*\ba écrit\s*:`),
 }
 
@@ -222,7 +231,7 @@ var reDataCitata = regexp.MustCompile(`(?i)\d{1,2}:\d{2}|\d{1,2}[/.\-]\d{1,2}[/.
 //
 // Non basta ancora. Queste tre righe
 //
-//	Riepilogo lavorazione del 6674611A:
+//	Riepilogo lavorazione del 1234567A:
 //	Da: tornitura
 //	A: rettifica
 //

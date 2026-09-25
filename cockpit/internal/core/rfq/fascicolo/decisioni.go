@@ -166,9 +166,16 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 
 // componenteConSuffisso cerca, per un cliente con suffissi decorativi, il componente il cui codice senza
 // suffisso e' codice: il pezzo accettato come «X_PRT» prima della regola. ok = false se non c'e'.
+//
+// Un errore nel leggere le regole del cliente si restituisce: e' un errore del database (la RFQ e il suo
+// cliente ci sono, la riga e' bloccata), e ignorarlo farebbe nascere «X» accanto a «X_PRT», due
+// componenti per lo stesso pezzo, su una transazione che comunque non arriverebbe in fondo.
 func componenteConSuffisso(ctx context.Context, q *db.Queries, thread uuid.UUID, codice string) (db.Componente, bool, error) {
 	m, err := MotoreDellaRfq(ctx, q, thread)
-	if err != nil || !m.HaSuffissi() {
+	if err != nil {
+		return db.Componente{}, false, err
+	}
+	if !m.HaSuffissi() {
 		return db.Componente{}, false, nil
 	}
 	comp, err := q.ListComponentiThread(ctx, thread)
@@ -326,7 +333,7 @@ func nodoDecisoPer(ctx context.Context, q *db.Queries, thread, allegato uuid.UUI
 
 func decidiRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, stato db.StatoProposta, nota string, utente uuid.UUID) error {
 	n, err := q.DecidiRelazioneProposta(ctx, db.DecidiRelazionePropostaParams{ThreadID: thread, AllegatoID: k.Allegato,
-		PadreChiave: k.Padre, FiglioChiave: k.Figlio, Stato: stato, Nota: testo(nota), DecisoDa: uid(utente)})
+		PadreChiave: k.Padre, FiglioChiave: k.Figlio, Stato: stato, Nota: testo(tagliaNota(nota)), DecisoDa: uid(utente)})
 	if err != nil {
 		return err
 	}
@@ -335,6 +342,15 @@ func decidiRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Chi
 	}
 	return nil
 }
+
+// maxNota e' la larghezza delle colonne nota delle proposte: varchar(200) in relazione_proposta (0018),
+// componente_proposta e rimozione_proposta (0020).
+const maxNota = 200
+
+// tagliaNota porta una nota alla misura della colonna, contando i caratteri e non i byte. Una nota che
+// contiene un nome — un file fino a 300 caratteri, il nome grezzo di un nodo — altrimenti fa fallire la
+// decisione con un errore grezzo del database, invece di arrivare un po' piu' corta.
+func tagliaNota(s string) string { return taglia(s, maxNota) }
 
 func riconciliaRelazione(ctx context.Context, q *db.Queries, thread, padre, figlio uuid.UUID, qta int32) error {
 	_, err := q.RiconciliaProposteRelazione(ctx, db.RiconciliaProposteRelazioneParams{ThreadID: thread, PadreID: uid(padre), FiglioID: uid(figlio), Qta: qta})
@@ -513,7 +529,14 @@ func quanti(n int, uno, molti string) string {
 
 // ScartaNodo: «questo nodo non e' un pezzo della distinta». Le relazioni che lo toccano restano aperte e
 // non si possono accettare: una decisione per riga, niente scarti a cascata (A1.1).
+//
+// Gli scarti e il codice di un nodo non cambiano la working, e per questo valgono anche con la BOM
+// congelata; ma la RFQ la bloccano come gli altri gesti: cambiano che cosa il ricalcolo delle rimozioni
+// vede, e due decisioni sulla stessa RFQ si mettono in fila.
 func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID) (string, error) {
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
+	}
 	p, err := q.BloccaComponenteProposta(ctx, proposta)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.ThreadID != thread) {
 		return "", Rifiuto("la proposta non è di questa RFQ")
@@ -533,6 +556,9 @@ func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 
 // ScartaRelazione: «questo arco non entra».
 func ScartaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID) (string, error) {
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
+	}
 	if _, err := q.BloccaRelazioneProposta(ctx, db.BloccaRelazionePropostaParams{ThreadID: thread, AllegatoID: k.Allegato,
 		PadreChiave: k.Padre, FiglioChiave: k.Figlio}); errors.Is(err, pgx.ErrNoRows) {
 		return "", Rifiuto("la relazione proposta non è di questa RFQ")
@@ -558,6 +584,9 @@ func CodiceDelNodo(ctx context.Context, q *db.Queries, thread, proposta uuid.UUI
 	}
 	if rev != "" && !classificazione.RevAmmissibile(rev) {
 		return "", Rifiuto(fmt.Sprintf("la revisione ha più di %d caratteri o caratteri non ammessi", classificazione.MaxRev))
+	}
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
 	}
 	p, err := q.BloccaComponenteProposta(ctx, proposta)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.ThreadID != thread) {
@@ -611,6 +640,9 @@ func AccettaRimozione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 
 // ScartaRimozione: «l'arco resta». Uno scarta resta scartato: la stessa rimozione non si ripropone.
 func ScartaRimozione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRimozione, utente uuid.UUID) (string, error) {
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
+	}
 	n, err := q.DecidiRimozione(ctx, db.DecidiRimozioneParams{ThreadID: thread, StepDocumentoID: k.Step, PadreID: k.Padre,
 		FiglioID: k.Figlio, Stato: db.StatoPropostaScartata, DecisoDa: uid(utente)})
 	if err != nil {

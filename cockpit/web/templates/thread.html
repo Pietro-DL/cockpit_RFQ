@@ -35,8 +35,8 @@
         <span class="muto">{{.M.Aggancio}}</span>
         <span class="data">{{dataLunga .M.DataEvento}}</span>
       </div>
-      <div class="oggetto">{{.M.Oggetto.String}}</div>
-      <details><summary class="muto">testo</summary><pre class="corpo-msg">{{.M.CorpoTesto.String}}</pre></details>
+      <div class="oggetto">{{oggettoVisibile .M.Oggetto}}</div>
+      <details><summary class="muto">testo</summary>{{template "corpo_messaggio" .Corpo}}</details>
       {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String)}}{{end}}
       <div class="azioni-msg">
         {{if .Copia}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}" title="Si apre la copia in {{.Copia.CasellaNome}}">Apri in Outlook</button>{{else if .Motivo}}<button class="piccolo" disabled title="{{.Motivo}}">Apri in Outlook</button>{{end}}

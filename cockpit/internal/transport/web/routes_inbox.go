@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -186,6 +187,14 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	quadrante := quadranteValido(r.URL.Query().Get("q"))
 	direzione := direzioneValida(r.URL.Query().Get("dir"))
+	// `sel` finisce in un indirizzo che la pagina chiede da sola (hx-get="/messaggio/{{sel}}" con
+	// hx-trigger="load") e nei parametri degli altri link. Un valore che non e' un uuid non e' un
+	// messaggio: senza questa riga «?sel=../allegato/<id>/anteprima» faceva chiedere alla pagina i
+	// byte di un file e li metteva nel pannello. Si ammette solo un uuid, riscritto da noi.
+	sel := ""
+	if id, err := uuid.Parse(r.URL.Query().Get("sel")); err == nil {
+		sel = id.String()
+	}
 	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione, Limite: 200, Salta: 0})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -196,7 +205,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	u := utenteDa(r.Context())
 	nov := s.novitaPer(r.Context(), q, u)
 	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
-		Righe: righe, Conta: conta, Selezion: r.URL.Query().Get("sel"),
+		Righe: righe, Conta: conta, Selezion: sel,
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
 	// Il frammento e' «inbox_stato», non «inbox_lista»: i comandi e la lista si rifanno INSIEME.
 	// Rispondere con la sola lista lasciava sullo schermo le linguette del quadrante precedente
@@ -289,29 +298,19 @@ func (s *Server) syncStorico(w http.ResponseWriter, r *http.Request) {
 //
 // Le finestre si incastrano senza buchi perché ciascuna riparte esattamente dal proprio limite: `al`
 // è lo `storico_fino_a` lasciato dal clic precedente su QUELLA cartella, cioè il suo `dal`, quindi
-// la successiva è [al - GiorniStorico, al] esatta. Il primo clic parte dalla mail più vecchia che la
-// casella ha in archivio (o da adesso, se non ne ha nessuna).
+// la successiva è [al - GiorniStorico, al] esatta. Il primo clic su una cartella parte dalla mail più
+// vecchia che QUELLA cartella ha in archivio (partenzaDellaCartella), o da adesso se non ne ha.
+//
+// Il ripiego era il più vecchio degli `storico_fino_a` delle ALTRE cartelle, e poi la mail più vecchia
+// della casella intera: la Posta inviata rimasta indietro riceveva la finestra sotto il limite della
+// Posta in arrivo, il tratto fra la sua mail più vecchia e quel limite non si leggeva mai, e a fine job
+// risultava coperto. Il limite di una cartella non dice niente su dove sia arrivata un'altra.
 func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uuid.UUID) (al, dal time.Time, cartelle []worker.CartellaCursore, err error) {
-	cursori, _ := q.ListSyncCursoriCasella(ctx, casella)
-	// il fondo di ripiego, per le cartelle che non hanno ancora un limite storico: la mail più
-	// vecchia della casella, o adesso se non ce n'è nessuna
-	partenza := time.Time{}
-	for _, c := range cursori {
-		if c.StoricoFinoA != nil && (partenza.IsZero() || c.StoricoFinoA.Before(partenza)) {
-			partenza = *c.StoricoFinoA
-		}
+	cursori, err := q.ListSyncCursoriCasella(ctx, casella)
+	if err != nil {
+		return
 	}
-	if partenza.IsZero() {
-		var minData *time.Time
-		if err = s.Pool.QueryRow(ctx, `SELECT min(mc.ricevuto_il) FROM messaggio_casella mc WHERE mc.casella_id = $1`, casella).Scan(&minData); err != nil {
-			return
-		}
-		if minData != nil {
-			partenza = *minData
-		} else {
-			partenza = time.Now()
-		}
-	}
+	adesso := time.Now()
 	nomi := make([]string, 0, len(cursori))
 	limite := map[string]time.Time{}
 	for _, c := range cursori {
@@ -326,7 +325,9 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uui
 	for _, nome := range nomi {
 		fine, ok := limite[nome]
 		if !ok {
-			fine = partenza
+			if fine, err = s.partenzaDellaCartella(ctx, casella, nome, adesso); err != nil {
+				return
+			}
 		}
 		inizio := fine.AddDate(0, 0, -GiorniStorico)
 		f, i := fine, inizio
@@ -339,6 +340,50 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uui
 		}
 	}
 	return
+}
+
+// nomiCartellaPredefinita sono i nomi con cui una cartella predefinita di Outlook compare nel sistema.
+// Il cursore porta il nome della configurazione ([outlook].cartelle: «Inbox»), la copia di un messaggio
+// quello che Outlook mostra («Posta in arrivo» in un profilo italiano): per il worker sono la stessa
+// cartella (OL_FOLDER in workers/outlook_com.py), e qui si leggono con la stessa tabella.
+var nomiCartellaPredefinita = [][]string{
+	{"inbox", "posta in arrivo"},
+	{"sent items", "posta inviata"},
+	{"drafts", "bozze"},
+	{"deleted items", "posta eliminata"},
+	{"junk", "posta indesiderata"},
+}
+
+// nomiDellaCartella sono i nomi, in minuscolo, con cui le copie della cartella `nome` stanno in
+// messaggio_casella.
+func nomiDellaCartella(nome string) []string {
+	k := strings.ToLower(strings.TrimSpace(nome))
+	for _, gruppo := range nomiCartellaPredefinita {
+		for _, n := range gruppo {
+			if n == k {
+				return gruppo
+			}
+		}
+	}
+	return []string{k}
+}
+
+// partenzaDellaCartella e' dove comincia il primo «Carica precedenti» di una (casella, cartella) che
+// non ha ancora un limite storico: la sua mail piu' vecchia, o adesso se non ne ha nessuna. Solo la
+// SUA: la mail piu' vecchia della casella puo' venire da una finestra storica di un'altra cartella, e
+// partire da li' saltava il tratto che questa non ha mai letto. Una cartella che non si riconosce per
+// nome riparte da adesso: rilegge cio' che il sync ordinario ha gia' portato (lo si deduplica per
+// Message-ID), ma non dichiara coperto niente che non abbia letto.
+func (s *Server) partenzaDellaCartella(ctx context.Context, casella uuid.UUID, cartella string, adesso time.Time) (time.Time, error) {
+	var piuVecchia *time.Time
+	if err := s.Pool.QueryRow(ctx, `SELECT min(mc.ricevuto_il) FROM messaggio_casella mc
+		WHERE mc.casella_id = $1 AND lower(mc.cartella) = ANY($2::text[])`, casella, nomiDellaCartella(cartella)).Scan(&piuVecchia); err != nil {
+		return time.Time{}, err
+	}
+	if piuVecchia == nil {
+		return adesso, nil
+	}
+	return *piuVecchia, nil
 }
 
 // syncStoricoStato è il frammento che il badge ricarica finché il job non è chiuso.
@@ -377,6 +422,10 @@ func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
 type messaggioDati struct {
 	M    db.Messaggio
 	Riga db.VInbox
+	// Corpo è il testo del messaggio pronto da leggere: il testo automatico di Outlook chiuso, le
+	// tabelle incollate da Excel come tabelle, la storia citata a parte (core/inbox/lettura). Il
+	// testo originale resta raggiungibile intatto in Corpo.Originale.
+	Corpo lettura.Corpo
 	// Copia è la copia su cui agiscono i pulsanti («Apri in Outlook», «Segna letto», «Bozza»): quella
 	// che il worker della POSTAZIONE DELLA SESSIONE serve (voci 2.2 e 2.7). Nil = le azioni non sono
 	// disponibili, e MotivoAzioni dice perché (nessuna postazione, o nessun worker idoneo su quella).
@@ -460,7 +509,7 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 	if err != nil {
 		return nil, err
 	}
-	d := &messaggioDati{M: m}
+	d := &messaggioDati{M: m, Corpo: lettura.Presenta(m.CorpoTesto.String, m.CorpoHtml.String)}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
 	d.Presenze, _ = q.ListPresenze(ctx, id)
 	if len(d.Presenze) > 0 {
@@ -554,9 +603,6 @@ func (s *Server) accodaInterattivo(ctx context.Context, q *db.Queries, id uuid.U
 	return c, "", nil
 }
 
-// motivoShadow è la frase che l'operatore legge quando preme un pulsante che in shadow non parte.
-// Dice tre cose: che cosa non è successo, perché, e dove si cambia — perché un rifiuto senza la
-// terza è indistinguibile da un guasto.
 // motivoCapacita e' la frase che legge l'operatore quando un'azione non parte perche' la capacita'
 // che le serve e' spenta. Dice QUALE capacita' e DOVE si accende: prima diceva «il server e' in
 // modalita' shadow», che era vero ma non aiutava — spegneva tre cose insieme e non si capiva quale

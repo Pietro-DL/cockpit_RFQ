@@ -87,50 +87,77 @@ func Collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente u
 	if err := prepara(ctx, q, thread, "si cambia la struttura"); err != nil {
 		return "", err
 	}
-	msg, err := collega(ctx, q, thread, padre, figlio, utente, qta)
-	return dopoLaDecisione(ctx, q, thread, msg, err)
+	msg, nuovo, err := collega(ctx, q, thread, padre, figlio, utente, qta)
+	if msg, err = dopoLaDecisione(ctx, q, thread, msg, err); err != nil || !nuovo {
+		return msg, err
+	}
+	return msg, tieniArcoMessoAMano(ctx, q, thread, Arco{Padre: padre, Figlio: figlio}, utente)
 }
 
-func collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente uuid.UUID, qta int32) (string, error) {
+// collega e' il cuore di Collega; nuovo dice se l'arco l'ha messo adesso (e non ne ha solo cambiato la
+// quantita').
+func collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente uuid.UUID, qta int32) (msg string, nuovo bool, err error) {
 	if qta < 1 || qta > MaxQtaArco {
-		return "", Rifiuto(fmt.Sprintf("la quantità va da 1 a %d", MaxQtaArco))
+		return "", false, Rifiuto(fmt.Sprintf("la quantità va da 1 a %d", MaxQtaArco))
 	}
 	if padre == figlio {
-		return "", Rifiuto("un componente non sta sotto se stesso")
+		return "", false, Rifiuto("un componente non sta sotto se stesso")
 	}
 	p, err := componenteAttivo(ctx, q, thread, padre)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	f, err := componenteAttivo(ctx, q, thread, figlio)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	esistente, err := q.GetRelazione(ctx, db.GetRelazioneParams{PadreID: padre, FiglioID: figlio})
 	switch {
 	case err == nil:
 		if esistente.Qta == qta {
-			return fmt.Sprintf("%s è già sotto %s ×%d.", f.Codice, p.Codice, qta), nil
+			return fmt.Sprintf("%s è già sotto %s ×%d.", f.Codice, p.Codice, qta), false, nil
 		}
 		if _, err := q.SetQtaRelazione(ctx, db.SetQtaRelazioneParams{PadreID: padre, FiglioID: figlio, Qta: qta, ConfermatoDa: utente}); err != nil {
-			return "", err
+			return "", false, err
 		}
-		return fmt.Sprintf("%s sotto %s: quantità %d → %d.", f.Codice, p.Codice, esistente.Qta, qta), nil
+		return fmt.Sprintf("%s sotto %s: quantità %d → %d.", f.Codice, p.Codice, esistente.Qta, qta), false, nil
 	case !errors.Is(err, pgx.ErrNoRows):
-		return "", err
+		return "", false, err
 	}
 	archi, err := archiAttivi(ctx, q, thread)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if giro := CreerebbeCiclo(archi, padre, figlio); giro != nil {
-		return "", Rifiuto(fmt.Sprintf("%s sotto %s chiuderebbe un ciclo (%s)", f.Codice, p.Codice, ciclo(ctx, q, giro)))
+		return "", false, Rifiuto(fmt.Sprintf("%s sotto %s chiuderebbe un ciclo (%s)", f.Codice, p.Codice, ciclo(ctx, q, giro)))
 	}
 	if _, err := q.InsertRelazione(ctx, db.InsertRelazioneParams{ThreadID: thread, PadreID: padre, FiglioID: figlio, Qta: qta,
 		Origine: db.OrigineComponenteManuale, ConfermatoDa: utente}); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return fmt.Sprintf("%s sotto %s ×%d.", f.Codice, p.Codice, qta), nil
+	return fmt.Sprintf("%s sotto %s ×%d.", f.Codice, p.Codice, qta), true, nil
+}
+
+// tieniArcoMessoAMano chiude le rimozioni che lo STEP strutturale propone su un arco appena messo a mano.
+// Il ricalcolo dopo la decisione le propone subito — lo STEP quell'arco non ce l'ha, ed e' proprio per
+// questo che una persona l'ha messo — e il gate le conterebbe fra le proposte da decidere: sarebbe
+// chiedere di confermare due volte la stessa decisione. E' quello che fa l'editor della struttura
+// (TieniArcoDellaRimozione, in ApplicaStrutturaVoluta); una rimozione scartata non si ripropone.
+func tieniArcoMessoAMano(ctx context.Context, q *db.Queries, thread uuid.UUID, a Arco, utente uuid.UUID) error {
+	rim, err := q.ListRimozioniAperte(ctx, thread)
+	if err != nil {
+		return err
+	}
+	for _, r := range rim {
+		if r.PadreID != a.Padre || r.FiglioID != a.Figlio {
+			continue
+		}
+		if _, err := q.TieniArcoDellaRimozione(ctx, db.TieniArcoDellaRimozioneParams{ThreadID: thread, StepDocumentoID: r.StepDocumentoID,
+			PadreID: r.PadreID, FiglioID: r.FiglioID, DecisoDa: uid(utente)}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Scollega toglie l'arco padre → figlio. Il figlio resta nella BOM: se non ha altri padri torna fra le
@@ -179,12 +206,13 @@ func Sposta(ctx context.Context, q *db.Queries, thread, figlio uuid.UUID, da, a 
 		}
 		parti = append(parti, m)
 	}
+	nuovo := false
 	if a.Valid {
-		m, err := collega(ctx, q, thread, a.UUID, figlio, utente, qta)
+		m, n, err := collega(ctx, q, thread, a.UUID, figlio, utente, qta)
 		if err != nil {
 			return "", err
 		}
-		parti = append(parti, m)
+		parti, nuovo = append(parti, m), n
 	} else {
 		c, err := q.GetComponente(ctx, figlio)
 		if err != nil {
@@ -204,7 +232,11 @@ func Sposta(ctx context.Context, q *db.Queries, thread, figlio uuid.UUID, da, a 
 			parti = append(parti, c.Codice+" resta sotto gli altri padri.")
 		}
 	}
-	return dopoLaDecisione(ctx, q, thread, strings.Join(parti, " "), nil)
+	msg, err := dopoLaDecisione(ctx, q, thread, strings.Join(parti, " "), nil)
+	if err != nil || !nuovo {
+		return msg, err
+	}
+	return msg, tieniArcoMessoAMano(ctx, q, thread, Arco{Padre: a.UUID, Figlio: figlio}, utente)
 }
 
 // componenteAttivo e' componenteDellaRfq per chi entra in un arco: un archiviato prima si ripristina.

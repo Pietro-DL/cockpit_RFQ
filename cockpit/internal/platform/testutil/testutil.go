@@ -7,17 +7,19 @@
 // failed for type …") non hanno nulla a che vedere con il codice in prova.
 //
 // Senza COCKPIT_TEST_DSN i test che lo richiedono vengono SALTATI (visibili come SKIP, mai come PASS).
-// Per sicurezza il nome del database deve contenere "test": lo schema viene distrutto e ricreato.
+// Per sicurezza il nome del database deve contenere "test": lo schema viene distrutto e ricreato
+// (vedi DatabaseDiTest per come si legge il nome).
 package testutil
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	risorse "promatec/cockpit"
@@ -31,11 +33,29 @@ func DSN(t testing.TB) string {
 	if dsn == "" {
 		t.Skip("COCKPIT_TEST_DSN non impostata: test d'integrazione saltato")
 	}
-	u, err := url.Parse(dsn)
-	if err != nil || !strings.Contains(strings.ToLower(strings.TrimPrefix(u.Path, "/")), "test") {
-		t.Fatalf("COCKPIT_TEST_DSN deve puntare a un database il cui nome contiene \"test\" (ricevuto %q)", dsn)
+	if err := DatabaseDiTest(dsn); err != nil {
+		t.Fatalf("COCKPIT_TEST_DSN: %v", err)
 	}
 	return dsn
+}
+
+// DatabaseDiTest dice se un DSN porta davvero a un database il cui nome contiene "test": i test che
+// lo usano distruggono e ricreano lo schema, e su un database di sviluppo lo farebbero lo stesso.
+//
+// Il nome si legge come lo leggerà pgx al momento di connettersi, non dal testo del DSN. Prima si
+// guardava il percorso dell'URL, e passavano tre forme che portano altrove: un DSN chiave=valore
+// («host=x user=tester dbname=cockpit_dev» non ha un percorso, e «tester» bastava a sembrare un
+// test), un URL con `?dbname=` che vince sul percorso, e un DSN senza database, dove decide
+// PGDATABASE o il nome dell'utente. Per tutte e tre fa fede il nome risolto.
+func DatabaseDiTest(dsn string) error {
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return fmt.Errorf("DSN non leggibile: %w", err)
+	}
+	if !strings.Contains(strings.ToLower(cfg.Database), "test") {
+		return fmt.Errorf("deve portare a un database il cui nome contiene \"test\": porta a %q", cfg.Database)
+	}
+	return nil
 }
 
 // Pool apre un pool sul DB di test e lo chiude alla fine del test.

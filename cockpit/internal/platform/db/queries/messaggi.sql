@@ -257,8 +257,3 @@ ON CONFLICT (casella_id, cartella) DO UPDATE SET
 -- name: SetBuyerMessaggio :exec
 UPDATE messaggio SET buyer_id = $2 WHERE messaggio_id = $1;
 
--- name: AgganciaOrfaniConversazione :many
--- quando l'operatore crea/aggancia una RFQ, gli altri messaggi orfani della stessa conversazione la seguono
-UPDATE messaggio SET thread_id = $2, aggancio = 'auto_conversazione', agganciato_il = now()
-WHERE conversazione_id = $1 AND thread_id IS NULL AND messaggio_id <> $3
-RETURNING messaggio_id;

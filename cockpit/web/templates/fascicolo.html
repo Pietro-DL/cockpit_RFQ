@@ -9,7 +9,8 @@
      lavoro sui file la pagina chiede ogni pochi secondi se e' cambiato qualcosa. */}}
 {{define "contenuto"}}
 <div id="fascicolo" class="fasc{{if not .Dati.Scrive}} sola-lettura{{end}}" hx-target="#fasc-avviso" hx-swap="innerHTML" hx-include="#corpo-chiave"
-  hx-history="false" data-base="{{.Dati.Base}}" data-thread="{{.Dati.T.ThreadID}}" data-scrive="{{if .Dati.Scrive}}1{{end}}" data-bloccata="{{.Dati.Bloccata}}">
+  hx-history="false" data-base="{{.Dati.Base}}" data-thread="{{.Dati.T.ThreadID}}" data-scrive="{{if .Dati.Scrive}}1{{end}}" data-bloccata="{{.Dati.Bloccata}}"
+  data-utente="{{with .Utente}}{{.UtenteID}}{{end}}">
 {{template "fasc_corpo" .}}
 <div id="fasc-editor" class="fasc-editor-posto"></div>
 </div>

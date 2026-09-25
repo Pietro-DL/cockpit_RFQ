@@ -41,7 +41,8 @@ type Albero struct {
 	Radici     []*Nodo
 	Archiviati []db.Componente
 	// Totali e' la quantita' complessiva di ogni componente attivo: per una radice la sua, per un figlio la
-	// somma, su tutti i padri, della quantita' dell'arco per il totale del padre.
+	// somma, su tutti i padri, della quantita' dell'arco per il totale del padre; per un componente che sta
+	// in un ciclo la sua, qualunque sia l'ordine dei dati.
 	Totali map[uuid.UUID]int64
 	// Righe sono i componenti attivi, uno per riga e nell'ordine dell'albero: la griglia e la completezza.
 	Righe []*Nodo
@@ -149,27 +150,31 @@ func NuovoAlbero(comp []db.Componente, rel []db.ComponenteRelazione) Albero {
 }
 
 // totali calcola la quantita' complessiva di ogni componente sul grafo aciclico degli archi; un
-// componente in un ciclo resta con la sua quantita' e basta.
+// componente in un ciclo resta con la sua quantita' e basta, e chi sta sotto un ciclo moltiplica quella.
+//
+// Prima il giro si scopriva camminando, e il pezzo del ciclo da cui si partiva — il primo che l'ordine
+// della mappa proponeva — prendeva la sua quantita' mentre gli altri sommavano un pezzo di giro: la stessa
+// BOM dava totali diversi da un caricamento all'altro. Adesso chi sta in un ciclo si decide prima, sul
+// grafo intero (inUnCiclo), e il resto e' un grafo senza giri, dove l'ordine della somma non conta.
 func totali(attivi map[uuid.UUID]db.Componente, padriDi map[uuid.UUID]map[uuid.UUID]int32) map[uuid.UUID]int64 {
+	nelGiro := inUnCiclo(attivi, padriDi)
 	tot := map[uuid.UUID]int64{}
-	stato := map[uuid.UUID]int{} // 1 in corso, 2 fatto
+	fatto := map[uuid.UUID]bool{}
 	var calcola func(id uuid.UUID) int64
 	calcola = func(id uuid.UUID) int64 {
-		switch stato[id] {
-		case 2:
+		if fatto[id] {
 			return tot[id]
-		case 1:
-			return 0 // un giro: non si somma
 		}
-		stato[id] = 1
 		var t int64
-		if len(padriDi[id]) == 0 {
+		if len(padriDi[id]) == 0 || nelGiro[id] {
 			t = int64(attivi[id].Qta)
+		} else {
+			// i padri sono in un ciclo (e si fermano li') o fuori da ogni ciclo: la discesa finisce
+			for p, q := range padriDi[id] {
+				t += int64(q) * calcola(p)
+			}
 		}
-		for p, q := range padriDi[id] {
-			t += int64(q) * calcola(p)
-		}
-		stato[id] = 2
+		fatto[id] = true
 		tot[id] = t
 		return t
 	}
@@ -177,6 +182,54 @@ func totali(attivi map[uuid.UUID]db.Componente, padriDi map[uuid.UUID]map[uuid.U
 		calcola(id)
 	}
 	return tot
+}
+
+// inUnCiclo dice quali componenti stanno in un giro di archi: le componenti fortemente connesse con piu'
+// di un nodo (Tarjan; un arco di un pezzo su se stesso non entra nemmeno nel grafo). L'appartenenza a un
+// ciclo non dipende da dove si comincia a guardare.
+func inUnCiclo(attivi map[uuid.UUID]db.Componente, padriDi map[uuid.UUID]map[uuid.UUID]int32) map[uuid.UUID]bool {
+	indice, basso := map[uuid.UUID]int{}, map[uuid.UUID]int{}
+	sullaPila := map[uuid.UUID]bool{}
+	var pila []uuid.UUID
+	out := map[uuid.UUID]bool{}
+	var visita func(v uuid.UUID)
+	visita = func(v uuid.UUID) {
+		indice[v], basso[v] = len(indice), len(indice)
+		pila = append(pila, v)
+		sullaPila[v] = true
+		for w := range padriDi[v] {
+			if _, visto := indice[w]; !visto {
+				visita(w)
+				basso[v] = min(basso[v], basso[w])
+			} else if sullaPila[w] {
+				basso[v] = min(basso[v], indice[w])
+			}
+		}
+		if basso[v] != indice[v] {
+			return
+		}
+		var comp []uuid.UUID
+		for {
+			w := pila[len(pila)-1]
+			pila = pila[:len(pila)-1]
+			sullaPila[w] = false
+			comp = append(comp, w)
+			if w == v {
+				break
+			}
+		}
+		if len(comp) > 1 {
+			for _, w := range comp {
+				out[w] = true
+			}
+		}
+	}
+	for id := range attivi {
+		if _, visto := indice[id]; !visto {
+			visita(id)
+		}
+	}
+	return out
 }
 
 func codiceMinore(a, b db.Componente) bool {

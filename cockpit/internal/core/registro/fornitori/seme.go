@@ -215,6 +215,12 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 	for _, l := range tutte {
 		lavorazioniNote[l.Codice] = true
 	}
+	// Ciò che il piano ha già deciso di scrivere, per tutto il file. Un foglio compilato a mano ripete
+	// le cose (lo stesso dominio sotto due fornitori di un gruppo, la stessa email due volte): senza
+	// questo l'anteprima diceva «da aggiungere» due volte, il pulsante era attivo, e Applica si fermava
+	// sulla chiave primaria annullando tutto l'import. Il database non si interroga una seconda volta:
+	// la seconda occorrenza si dice qui, con il motivo.
+	dominiDelPiano := map[string]string{} // dominio → fornitore che lo riceve
 	for _, f := range s.Fornitori {
 		nome := f.RagioneSociale
 		esistente, err := q.GetFornitorePerRagioneSociale(ctx, nome)
@@ -246,6 +252,14 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 			}
 		}
 		for _, d := range f.Domini {
+			if chi, gia := dominiDelPiano[d]; gia {
+				if chi == nome {
+					p.Avvisi = append(p.Avvisi, Riga{nome, "dominio " + d, "ripetuto nel file: si scrive una volta"})
+				} else {
+					p.NonRisolti = append(p.NonRisolti, Riga{nome, "dominio " + d, "nel file è anche del fornitore " + chi + ": un dominio è di un fornitore solo"})
+				}
+				continue
+			}
 			altro, err := q.GetFornitorePerDominio(ctx, d)
 			switch {
 			case err == nil && id.Valid && altro.FornitoreID == id.UUID:
@@ -265,6 +279,7 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 			p.DaAggiungere = append(p.DaAggiungere, Riga{nome, "dominio " + d, ""})
 			p.DominiScritti = append(p.DominiScritti, d)
 			p.domini = append(p.domini, opDominio{nome, d})
+			dominiDelPiano[d] = nome
 		}
 		esistenti := map[string]bool{}
 		if id.Valid {
@@ -276,11 +291,17 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 				esistenti[c.Email] = true
 			}
 		}
+		nelPiano := map[string]bool{}
 		for _, c := range f.Contatti {
 			if esistenti[c.Email] {
 				p.Presenti = append(p.Presenti, Riga{nome, "contatto " + c.Email, ""})
 				continue
 			}
+			if nelPiano[c.Email] {
+				p.Avvisi = append(p.Avvisi, Riga{nome, "contatto " + c.Email, "ripetuto nel file: si scrive una volta"})
+				continue
+			}
+			nelPiano[c.Email] = true
 			p.DaAggiungere = append(p.DaAggiungere, Riga{nome, "contatto " + c.Email, c.Nome})
 			p.IndirizziScritti = append(p.IndirizziScritti, c.Email)
 			p.contatti = append(p.contatti, opContatto{nome, c})
@@ -329,6 +350,7 @@ func calcola(ctx context.Context, q *db.Queries, s Seme) (*piano, error) {
 				p.Presenti = append(p.Presenti, Riga{nome, cosa, ""})
 				continue
 			}
+			qualifiche[cliente.CartellaNas+"|"+qs.Lavorazione] = true // una seconda riga uguale nel file è «presente»
 			p.DaAggiungere = append(p.DaAggiungere, Riga{nome, cosa, ""})
 			p.qualifiche = append(p.qualifiche, opQualifica{nome, cliente.ClienteID, cliente.CartellaNas, qs.Lavorazione})
 		}

@@ -3,7 +3,7 @@
 <article class="messaggio">
   {{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
   <header>
-    <h2>{{.M.Oggetto.String}}</h2>
+    <h2>{{oggettoVisibile .M.Oggetto}}</h2>
     <div class="meta">
       <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
         {{template "chip_controparte" .Riga}}</div>
@@ -169,9 +169,33 @@
   </section>
   {{end}}
 
-  <section class="corpo"><pre>{{.M.CorpoTesto.String}}</pre></section>
+  <section class="corpo">{{template "corpo_messaggio" .Corpo}}</section>
 </article>
 {{end}}
+{{end}}
+
+{{/* ---------------------------------------------------------------- corpo di un messaggio (pannello e schermata B)
+     Il modello viene da core/inbox/lettura ed è solo testo: tutto passa dall'escape, mai HTML della mail.
+     Il testo automatico di Outlook è chiuso, non tolto; «testo originale» mostra il corpo com'è. */}}
+{{define "corpo_messaggio"}}<div class="corpo-vista">
+{{- if .Ridotto}}<pre class="corpo-grezzo">{{.Originale}}</pre>
+{{- else}}
+{{- if .DaHTML}}<p class="muto nota-corpo">Testo ricavato dalla versione HTML della mail: quella in testo semplice era vuota.</p>{{end}}
+{{- range .Blocchi}}{{template "corpo_blocco" .}}{{end}}
+{{- if .SoloRumore}}<p class="muto nota-corpo">Nel messaggio c'è solo testo automatico.</p>{{end}}
+{{- if not (or .Blocchi .Storia)}}<p class="muto nota-corpo">Nessun testo.</p>{{end}}
+{{- if .Storia}}<details class="corpo-storia"><summary>messaggi precedenti citati</summary>{{range .Storia}}{{template "corpo_blocco" .}}{{end}}</details>{{end}}
+{{- if and (not .DaHTML) .Originale}}<details class="corpo-originale"><summary>testo originale</summary><pre>{{.Originale}}</pre></details>{{end}}
+{{- end}}</div>{{end}}
+
+{{define "corpo_blocco"}}
+{{- if eq .Tipo "testo"}}<div class="corpo-testo">{{range .Pezzi}}{{if eq .Tipo "link"}}<span class="corpo-link" title="{{.Nota}}">{{.Testo}}</span>{{else if eq .Tipo "immagine"}}<span class="corpo-img" title="{{.Nota}}">{{.Testo}}</span>{{else}}{{.Testo}}{{end}}{{end}}</div>
+{{- else if eq .Tipo "tabella"}}{{$t := .Tabella}}<div class="corpo-tabella"><table>
+{{- range $i, $r := $t.Righe}}<tr>{{range $r.Celle}}{{if and (eq $i 0) $t.Intestazione}}<th{{if gt .Colspan 1}} colspan="{{.Colspan}}"{{end}}{{if gt .Rowspan 1}} rowspan="{{.Rowspan}}"{{end}}>{{.Testo}}{{if .Troncata}}…{{end}}</th>{{else}}<td{{if .Numero}} class="num"{{end}}{{if gt .Colspan 1}} colspan="{{.Colspan}}"{{end}}{{if gt .Rowspan 1}} rowspan="{{.Rowspan}}"{{end}}>{{.Testo}}{{if .Troncata}}…{{end}}</td>{{end}}{{end}}</tr>{{end -}}
+</table></div>
+{{- else if eq .Tipo "rumore"}}<details class="corpo-rumore"><summary>{{.Etichetta}}</summary><pre>{{.Grezzo}}</pre></details>
+{{- else if eq .Tipo "separatore"}}<hr class="corpo-sep">
+{{- end}}
 {{end}}
 
 {{/* ---------------------------------------------------------------- tabella allegati (pannello e schermata B) */}}
@@ -288,7 +312,7 @@
     <fieldset>
       <legend>RFQ</legend>
       <label>Oggetto (nome cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
-      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 490020618, Anfrage_…">
+      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 400012345, Anfrage_…">
         <small class="muto">il numero con cui il cliente chiama questa richiesta. Non è un codice prodotto e non diventa un identificativo.</small></label>
       {{template "candidati_codice" $}}
       <div class="griglia3">
@@ -401,7 +425,7 @@
   {{if not .ClienteID.Valid}}
   <div class="griglia3">
     <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
-    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"
+    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
            hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
            hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
     <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
@@ -469,9 +493,10 @@
 {{end}}
 
 {{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza.
-     Prima erano una sola casella di testo precompilata che al submit confermava tutto. */}}
+     Prima erano una sola casella di testo precompilata che al submit confermava tutto. Nasce spuntato
+     solo cio' che dice Spuntato: un codice di famiglia, e non dalla storia citata (blocco 6). */}}
 {{define "candidati_codice"}}
-{{with .Dati}}
+{{with .Dati}}{{$d := .}}
 <div class="candidati-codice">
   <p class="etichetta">Codici da mettere nella RFQ <small class="muto">il sistema propone, la spunta è tua</small></p>
   {{if .Proponibili}}
@@ -479,7 +504,7 @@
     {{range .Proponibili}}
     <li>
       <label>
-        <input type="checkbox" name="codice" value="{{.Codice}}" {{if eq .Origine "famiglia"}}checked{{end}}>
+        <input type="checkbox" name="codice" value="{{.Codice}}" {{if $d.Spuntato .}}checked{{end}}>
         <code>{{.Codice}}</code>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
         {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
         {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
@@ -537,7 +562,7 @@
 
 {{/* chip_controparte: la stessa cosa di `controparte_riga` nell'Inbox, per la testata del pannello.
      Vale per una riga di v_inbox. */}}
-{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
+{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "altro"}}<span class="chip altro" title="soggetto censito come diverso da cliente, fornitore e interno">altro · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
 
 {{define "censisci_form"}}
 {{with .Dati}}

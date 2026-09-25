@@ -7,10 +7,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // reCodice riconosce i codici prodotto tipici dei clienti: almeno 5 caratteri, almeno 3 cifre,
-// lettere/cifre con eventuali separatori interni (6674611A, 6674611A_4, 12-34567, TS9 8712-4).
+// lettere/cifre con eventuali separatori interni (1234567A, 1234567A_4, 12-34567, TS9 8712-4).
 var reCodice = regexp.MustCompile(`\b[A-Z0-9]{2,}(?:[-_/][A-Z0-9]+)*\b`)
 
 // parole che compaiono nelle mail RFQ e che non sono codici
@@ -71,7 +72,7 @@ func CodiceAmmissibile(s string) bool {
 	if s == "" || len(s) > MaxCodice {
 		return false
 	}
-	return !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' })
+	return !strings.ContainsFunc(s, spazioOControllo)
 }
 
 // RevAmmissibile: come CodiceAmmissibile, per la revisione (MaxRev).
@@ -79,7 +80,15 @@ func RevAmmissibile(s string) bool {
 	if s == "" || len(s) > MaxRev {
 		return false
 	}
-	return !strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' })
+	return !strings.ContainsFunc(s, spazioOControllo)
+}
+
+// spazioOControllo: i caratteri che un codice non contiene. Non solo quelli fino allo spazio ASCII:
+// dal cartiglio di un PDF, da un nome di file o da un corpo HTML arrivano lo spazio unificatore
+// (U+00A0), quello stretto (U+202F), lo spazio a larghezza zero e gli altri caratteri di formato, e
+// «77720517» + U+00A0 + «B» a occhio e' identico a «77720517 B» — due token — ma passava come codice unico.
+func spazioOControllo(r rune) bool {
+	return r <= ' ' || unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 }
 
 func sembraCodice(s string) bool {
@@ -88,7 +97,7 @@ func sembraCodice(s string) bool {
 	}
 	// un codice non ha spazi dentro: «AB 12345» e' due token, non uno (la stessa regola del
 	// worker analisi, `sembra_codice`)
-	if strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' }) {
+	if strings.ContainsFunc(s, spazioOControllo) {
 		return false
 	}
 	cifre, lettere := 0, 0
@@ -113,12 +122,24 @@ func sembraCodice(s string) bool {
 	return true
 }
 
-// CodiceRev separa "6674611A_4" in codice "6674611A" e rev "4" secondo la convenzione più diffusa
+// CodiceRev separa "1234567A_4" in codice "1234567A" e rev "4" secondo la convenzione più diffusa
 // (suffisso _n, -n, _REVn, _Rn). Se non riconosce nulla restituisce il codice intero e rev vuota.
 var reRev = regexp.MustCompile(`^(.+?)[_\-](?:REV|R)?([0-9]{1,2}|[A-Z])$`)
 
+// reRevNas è la forma dei NOSTRI nomi sul NAS (D21, D22): <CODICE>_REV_<REV>, con `_n` in coda per il
+// secondo file con lo stesso nome e `ND` per la revisione che non si sa (documenti.NomeTecnico,
+// documenti.ConProgressivo). Si prova prima della convenzione generica, che su «X_REV_B» vedeva il
+// codice «X_REV» e su «X_REV_B_2» la revisione «2».
+var reRevNas = regexp.MustCompile(`^(.+?)_REV_([A-Z0-9][A-Z0-9.\-]{0,9})(?:_[0-9]{1,3})?$`)
+
 func CodiceRev(s string) (codice, rev string) {
 	s = strings.ToUpper(strings.TrimSpace(s))
+	if m := reRevNas.FindStringSubmatch(s); m != nil {
+		if m[2] == "ND" {
+			return m[1], "" // «non determinata» non è una revisione: è la sua assenza, scritta
+		}
+		return m[1], m[2]
+	}
 	if m := reRev.FindStringSubmatch(s); m != nil {
 		return m[1], m[2]
 	}
@@ -174,11 +195,14 @@ func RilevaPortale(corpo string, extra ...string) []RiferimentoPortale {
 	return out
 }
 
+// reFineFrase compilata una volta: spezzaFrasi la usava ricompilandola a ogni riga di ogni corpo.
+var reFineFrase = regexp.MustCompile(`[.;!?]\s+`)
+
 func spezzaFrasi(t string) []string {
 	t = strings.ReplaceAll(t, "\r\n", "\n")
 	var out []string
 	for _, riga := range strings.Split(t, "\n") {
-		for _, f := range regexp.MustCompile(`[.;!?]\s+`).Split(riga, -1) {
+		for _, f := range reFineFrase.Split(riga, -1) {
 			if strings.TrimSpace(f) != "" {
 				out = append(out, f)
 			}
@@ -318,8 +342,10 @@ type EsitoTriage struct {
 	CandidatoRichiesta *CandidatoRichiesta
 }
 
-// confini di parola: «rdo» e «rfq» compaiono dentro parole comuni (ricordo, bernardo)
-var reParoleRFQ = regexp.MustCompile(`\b(rfq|rdo|richiesta d'offerta|richiesta di offerta|richiesta offerta|quotazione|preventivo|quotation|request for quotation|offer request|angebot|devis)\b`)
+// confini di parola: «rdo» e «rfq» compaiono dentro parole comuni (ricordo, bernardo). L'apostrofo
+// può essere quello tipografico (U+2019): Outlook e Word lo mettono da soli mentre si scrive, e
+// «richiesta d’offerta» è la stessa richiesta di «richiesta d'offerta».
+var reParoleRFQ = regexp.MustCompile(`\b(rfq|rdo|richiesta d['’]offerta|richiesta di offerta|richiesta offerta|quotazione|preventivo|quotation|request for quotation|offer request|angebot|devis)\b`)
 
 // estensioniTecniche sono i formati che DA SOLI dicono «qui dentro c'è del disegno»: un file STEP o un
 // DXF non è nient'altro. Gli archivi ci stanno perché un allegato compresso in una richiesta d'offerta
@@ -347,7 +373,7 @@ var estensioniDaDeterminare = map[string]bool{"pdf": true, "tif": true, "tiff": 
 //  2. non c'è nessuna evidenza → si contano i punti del contenuto, e sopra 50 si propone `nuova_rfq`;
 //  3. sotto → «ignora», cioè «non ho niente da dire»: resta in Inbox, senza proposta.
 //
-// Il caso che ha aperto il checkpoint: «R: RICHIESTA OFFERTA COD 0.056.8238.3» con un PDF allegato
+// Il caso che ha aperto il checkpoint: «R: RICHIESTA OFFERTA COD 0.012.3456.7» con un PDF allegato
 // faceva 35 (parola «offerta») + 25 (allegato «tecnico») = 60, e diventava una richiesta NUOVA mentre
 // era la risposta a una richiesta nostra.
 func Triage(in IngressoTriage) EsitoTriage {
@@ -380,9 +406,16 @@ func Triage(in IngressoTriage) EsitoTriage {
 		// CHI è («Censisci come cliente / fornitore», che ricalcola), poi che cosa vuole.
 		return triageSconosciuto(in, motivi)
 	case ControparteCliente:
-		if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
-			motivi = append(motivi, m, "posta di un cliente che non è di lavoro: se l'indirizzo è automatico, censiscilo come Altro")
-			return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoNonBusiness, Legame: LegameNessuno}
+		// L'evidenza viene prima delle parole. NonBusiness legge il testo, e il testo di un cliente
+		// vero porta «newsletter», «fuori ufficio», «webinar» nella firma o in una riga di cortesia:
+		// senza questa guardia una risposta con In-Reply-To verso una nostra RFQ (R0 a 98) diventava
+		// «ignora, non è posta di lavoro». Se un candidato dice che la richiesta esiste ed è aperta,
+		// decide lui (più sotto, nella precedenza); le parole contano solo quando non c'è evidenza.
+		if !EvidenzaDiRFQEsistente(in.Candidati) {
+			if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
+				motivi = append(motivi, m, "posta di un cliente che non è di lavoro: se l'indirizzo è automatico, censiscilo come Altro")
+				return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoNonBusiness, Legame: LegameNessuno}
+			}
 		}
 	}
 	// Blocco 6: le parole «richiesta d'offerta» si cercano in quello che e' stato scritto ADESSO.
@@ -433,7 +466,11 @@ func Triage(in IngressoTriage) EsitoTriage {
 	// Un codice riconosciuto da una FAMIGLIA del cliente vale più di uno pescato dall'estrattore
 	// generico: il primo dice «questo è un codice DI QUESTO CLIENTE», il secondo dice «questo ha la forma di
 	// un codice». Sono due affermazioni diverse e non devono pesare uguale.
-	if f := primaFamiglia(e.Codici); f != "" {
+	//
+	// E contano solo i PROPONIBILI, come i dieci punti qui sopra: il codice di famiglia che sta nella
+	// storia citata dice a quale richiesta si risponde, non che questa ne sia una nuova, e contarlo
+	// darebbe punti di «richiesta nuova» proprio alle risposte (la stessa regola del riferimento, sotto).
+	if f := primaFamiglia(e.Proponibili()); f != "" {
 		punti += 10
 		motivi = append(motivi, "codici della famiglia «"+f+"» del cliente")
 	}
@@ -453,14 +490,23 @@ func Triage(in IngressoTriage) EsitoTriage {
 
 	// ---- la precedenza. Prima si guarda se la richiesta esiste già, POI se ne sembra una nuova.
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
-		out.Candidato = &k
-		motivi = append(motivi, k.Evidenza)
-		if EvidenzaDiRFQEsistente(in.Candidati) {
-			out.Esito, out.Confidenza = "aggancia", k.Punteggio
+		if a, aperta := MiglioreCandidatoAperto(in.Candidati); aperta {
+			// «aggancia» si propone verso la richiesta APERTA più forte, non verso il candidato più
+			// forte in assoluto: se quello è una richiesta chiusa, l'esito «aggancia» lo deve a un
+			// altro candidato, ed è quello che finisce in `thread_proposto`. Proporre di agganciare a
+			// una RFQ chiusa vorrebbe dire far confermare con un clic la cosa che T2 esclude.
+			out.Candidato = &a
+			motivi = append(motivi, a.Evidenza)
+			if k.Chiuso {
+				motivi = append(motivi, "c'è anche una richiesta CHIUSA che somiglia di più ("+k.Evidenza+"): si propone quella aperta")
+			}
+			out.Esito, out.Confidenza = "aggancia", a.Punteggio
 			out.Motivi = motivi
 			out.Atto, out.Legame = attoELegameCliente(in, out.Esito)
 			return out
 		}
+		out.Candidato = &k
+		motivi = append(motivi, k.Evidenza)
 		// Nessuna evidenza verso una richiesta APERTA. Restano due casi, e in tutti e due il
 		// candidato si vede ma non decide: una richiesta chiusa (che è finita), oppure un indizio
 		// debole come R5, «stesso buyer di recente» — che ogni richiesta nuova di un buyer noto
@@ -571,6 +617,10 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 		return out
 	}
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
+		// come nel ramo cliente: «aggancia» va verso la richiesta aperta più forte
+		if a, aperta := MiglioreCandidatoAperto(in.Candidati); aperta {
+			k = a
+		}
 		out.Candidato = &k
 		motivi = append(motivi, k.Evidenza)
 		out.Legame = LegameIncerto
@@ -600,6 +650,10 @@ func triageSconosciuto(in IngressoTriage, motivi []string) EsitoTriage {
 	}
 	motivi = append(motivi, "mittente non censito: prima si decide chi è (Censisci come cliente o fornitore), poi che cosa vuole. Nessuna RFQ nuova da qui")
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
+		// come nel ramo cliente: «aggancia» va verso la richiesta aperta più forte
+		if a, aperta := MiglioreCandidatoAperto(in.Candidati); aperta {
+			k = a
+		}
 		out.Candidato = &k
 		motivi = append(motivi, k.Evidenza)
 		out.Legame = LegameIncerto

@@ -103,7 +103,7 @@ type FamigliaCodice struct {
 	// dove sta la revisione senza scrivere la convenzione di un cliente dentro il Go.
 	//
 	//	"AC12345B"  → (?P<codice>AC\d{5})(?P<rev>[A-Z])
-	//	"104453_A4" → (?P<codice>\d{6})_(?P<rev>A\d?)
+	//	"123456_A4" → (?P<codice>\d{6})_(?P<rev>A\d?)
 	RevNelCodice bool   `json:"rev_nel_codice,omitempty"`
 	Esempio      string `json:"esempio"`
 	// Ruolo dice che cosa sono i codici di questa famiglia: "prodotto" (il valore predefinito) o

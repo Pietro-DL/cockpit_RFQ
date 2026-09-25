@@ -225,30 +225,30 @@ def prova_l(b):
     b.page.locator(".editor-avvio [data-editor]").first.click()
     ed = b.page.locator(".bomed")
     ed.wait_for(timeout=10000)
-    riga = ed.locator('.bomed-albero .bomed-riga', has_text="53011111")
-    verifica(riga.count() == 1, "il nodo proposto 53011111 non e' nell'albero dell'editor")
+    riga = ed.locator('.bomed-albero .bomed-riga', has_text="77811111")
+    verifica(riga.count() == 1, "il nodo proposto 77811111 non e' nell'albero dell'editor")
     verifica("proposto" in (riga.get_attribute("class") or ""), "il nodo proposto non e' segnato come proposto")
     b.foto("v3_03_editor.png")
     # «Sposta sotto…» dal menu, sotto il prodotto
     riga.locator(".bomed-apri-menu").click()
     ed.locator('.bomed-menu-dentro button[data-voce="sposta"]').click()
     scegli = ed.locator(".bomed-scegli select")
-    scegli.select_option(label="52922757")
+    scegli.select_option(label="77722757")
     ed.locator(".bomed-scegli button.primario").click()
     radice = ed.locator(".bomed-albero .bomed-riga.radice")
     verifica(radice.count() == 1, "la radice non c'e'")
-    verifica(ed.locator('.bomed-albero .bomed-riga[aria-level="2"]', has_text="53011111").count() == 1,
-             "53011111 non e' finito sotto il prodotto")
+    verifica(ed.locator('.bomed-albero .bomed-riga[aria-level="2"]', has_text="77811111").count() == 1,
+             "77811111 non e' finito sotto il prodotto")
     verifica("modific" in ed.locator(".bomed-conferma").inner_text(), "il bottone di conferma non conta le modifiche")
     with b.page.expect_response(lambda r: "/bom/applica" in r.url, timeout=15000) as risp:
         ed.locator(".bomed-conferma").click()
     verifica(risp.value.status == 200, "conferma della struttura: %d" % risp.value.status)
     b.page.wait_for_selector(".bomed", state="detached", timeout=10000)
     verifica(b.viva(), "la pagina si e' ricaricata")
-    verifica(b.avviso().startswith("Struttura di 52922757 confermata"), "avviso: %r" % b.avviso())
-    # nella BOM visuale 53011111 adesso e' un componente sotto il prodotto
-    verifica(b.page.locator('#tela div.carta[id^="nodo-"][id$="-%s"]' % b.a.prodotto, has_text="53011111").count() == 1,
-             "53011111 non e' sotto il prodotto nella BOM")
+    verifica(b.avviso().startswith("Struttura di 77722757 confermata"), "avviso: %r" % b.avviso())
+    # nella BOM visuale 77811111 adesso e' un componente sotto il prodotto
+    verifica(b.page.locator('#tela div.carta[id^="nodo-"][id$="-%s"]' % b.a.prodotto, has_text="77811111").count() == 1,
+             "77811111 non e' sotto il prodotto nella BOM")
     b.foto("v3_04_dopo_editor.png")
 
 
@@ -256,7 +256,7 @@ def prova_l(b):
 def prova_m(b):
     b.apri("?nodo=%s" % b.a.assieme)
     b.page.wait_for_selector(".docv-sez", timeout=10000)
-    f = b.page.locator(".docv-file", has_text="52920517.pdf")
+    f = b.page.locator(".docv-file", has_text="77720517.pdf")
     verifica(f.count() == 1, "il PDF in arrivo dell'assieme non e' nel pannello")
     testo = f.text_content()  # inner_text applica il text-transform delle etichette
     for atteso in ["Tipo rilevato", "Codice letto", "Associato a", "Confidenza"]:
@@ -267,7 +267,7 @@ def prova_m(b):
     verifica(b.viva(), "la pagina si e' ricaricata")
     av = b.avviso()
     verifica("1 documento" in av or "Confermat" in av, "avviso: %r" % av)
-    b.page.wait_for_function("() => [...document.querySelectorAll('.docv-file')].some(x => x.innerText.includes('52920517.pdf') && x.innerText.includes('Confermato'))", timeout=10000)
+    b.page.wait_for_function("() => [...document.querySelectorAll('.docv-file')].some(x => x.innerText.includes('77720517.pdf') && x.innerText.includes('Confermato'))", timeout=10000)
     b.foto("v3_05_confermato.png")
 
 
@@ -281,7 +281,7 @@ def prova_n(b):
     vass = riga(".bomed-vassoio", "54000000")
     verifica(vass.count() == 1, "54000000 non e' fra i non posizionati")
     # dal vassoio sotto l'assieme
-    b.trascina(vass, riga(".bomed-albero", "52920517").first)
+    b.trascina(vass, riga(".bomed-albero", "77720517").first)
     b.page.wait_for_function("() => [...document.querySelectorAll('.bomed-albero .bomed-riga')].some(r => r.textContent.includes('54000000') && r.dataset.arco.includes('|'))", timeout=5000)
     sotto = riga(".bomed-albero", "54000000")
     verifica(sotto.count() == 1 and sotto.get_attribute("aria-level") == "3", "54000000 non e' sotto l'assieme (livello %s)" % sotto.first.get_attribute("aria-level"))
@@ -295,7 +295,7 @@ def prova_n(b):
     # «Condividi»: un secondo padre, esplicito
     righe.locator(".bomed-apri-menu").click()
     ed.locator('.bomed-menu-dentro button[data-voce="condividi"]').click()
-    ed.locator(".bomed-scegli select").select_option(label="52920517")
+    ed.locator(".bomed-scegli select").select_option(label="77720517")
     ed.locator(".bomed-scegli button.primario").click()
     righe = riga(".bomed-albero", "54000000")
     verifica(righe.count() == 2, "dopo Condividi 54000000 compare %d volte" % righe.count())
@@ -304,7 +304,7 @@ def prova_n(b):
         ed.locator(".bomed-conferma").click()
     verifica(risp.value.status == 200, "conferma: %d" % risp.value.status)
     b.page.wait_for_selector(".bomed", state="detached", timeout=10000)
-    verifica(b.avviso().startswith("Struttura di 52922757 confermata"), "avviso: %r" % b.avviso())
+    verifica(b.avviso().startswith("Struttura di 77722757 confermata"), "avviso: %r" % b.avviso())
     b.foto("v3_07_dopo_condividi.png")
 
 

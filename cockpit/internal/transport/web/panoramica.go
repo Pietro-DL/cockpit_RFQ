@@ -62,7 +62,7 @@ const (
 )
 
 // Gli ordinamenti. «priorita» e' quello di sempre: peso del cliente, poi scadenza. Il punteggio
-// dell'addendum 2 non esiste ancora (vedi richieste in routes_rfq.go), e qui non lo si inventa.
+// dell'addendum 2 non esiste ancora, e qui non lo si inventa.
 var ordiniRichieste = []struct{ Chiave, Etichetta string }{
 	{"priorita", "Priorità (peso cliente, scadenza)"},
 	{"scadenza", "Scadenza"},
@@ -168,8 +168,8 @@ func (f filtriRichieste) Attivi() bool {
 
 func (f filtriRichieste) parametri() db.ListRichiestePanoramicaParams {
 	p := db.ListRichiestePanoramicaParams{
-		ClienteID: uuid.NullUUID{UUID: f.Cliente, Valid: f.Cliente != uuid.Nil},
-		Fase:      db.NullFase{Fase: f.Fase, Valid: f.Fase != ""},
+		ClienteID:     uuid.NullUUID{UUID: f.Cliente, Valid: f.Cliente != uuid.Nil},
+		Fase:          db.NullFase{Fase: f.Fase, Valid: f.Fase != ""},
 		SoloBloccanti: f.Bloccanti, SoloDaSmistare: f.DaSmistare, SoloSlaCritico: f.SLA,
 		Modello: modelloRicerca(f.Q), Ordine: f.Ordine, Limite: int32(f.N),
 	}
@@ -185,8 +185,13 @@ func modelloRicerca(q string) pgtype.Text {
 	if q == "" {
 		return pgtype.Text{}
 	}
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return pgtype.Text{String: "%" + r.Replace(q) + "%", Valid: true}
+	return pgtype.Text{String: "%" + testoLetterale(q) + "%", Valid: true}
+}
+
+// testoLetterale protegge % _ e \ di un testo che una query mette dentro un modello LIKE/ILIKE: la
+// meta' di modelloRicerca che serve anche alla ricerca di «Aggancia a…», dove i '%' li aggiunge la query.
+func testoLetterale(q string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
 }
 
 // panoramicaRichieste e' quello che la pagina disegna.
@@ -242,8 +247,10 @@ func (c richiestaCard) PuoRichiudere() bool { return c.Tutti && len(c.Prodotti) 
 func (c richiestaCard) Chiusa() bool { return c.StatoThread == db.StatoThreadCHIUSA }
 
 // Le frasi dei segnali, al singolare o al plurale.
-func (c richiestaCard) FraseProdotti() string  { return conta(len(c.Prodotti), "prodotto", "prodotti") }
-func (c richiestaCard) FraseBloccanti() string { return conta(int(c.NBloccanti.Int64), "bloccante", "bloccanti") }
+func (c richiestaCard) FraseProdotti() string { return conta(len(c.Prodotti), "prodotto", "prodotti") }
+func (c richiestaCard) FraseBloccanti() string {
+	return conta(int(c.NBloccanti.Int64), "bloccante", "bloccanti")
+}
 func (c richiestaCard) FraseDaSmistare() string {
 	return conta(int(c.NDaSmistare), "file da smistare", "file da smistare")
 }
@@ -417,7 +424,9 @@ func (p *panoramicaRichieste) opzioniBarra(clienti []db.ListClientiTuttiRow, fas
 			p.Clienti = append(p.Clienti, opzione{Valore: c.ClienteID.String(), Etichetta: c.CartellaNas, Titolo: c.RagioneSociale, Scelta: c.ClienteID == f.Cliente})
 		}
 	}
-	sort.SliceStable(p.Clienti, func(i, j int) bool { return strings.ToLower(p.Clienti[i].Etichetta) < strings.ToLower(p.Clienti[j].Etichetta) })
+	sort.SliceStable(p.Clienti, func(i, j int) bool {
+		return strings.ToLower(p.Clienti[i].Etichetta) < strings.ToLower(p.Clienti[j].Etichetta)
+	})
 	for _, fa := range fasi {
 		p.Fasi = append(p.Fasi, opzione{Valore: string(fa.NomeFase), Etichetta: nomeFase(fa.NomeFase), Titolo: fa.Descrizione, Scelta: fa.NomeFase == f.Fase})
 	}

@@ -35,6 +35,12 @@ type Scrittore struct {
 	copie    int
 	f        *os.File
 	scritti  int64
+	// riprovaA: dopo una rotazione non riuscita, la dimensione del file corrente oltre la quale si
+	// riprova. Zero = nessun rinvio, si ruota appena si supera maxByte.
+	riprovaA int64
+	// rinomina e' os.Rename; e' un campo perche' la prova possa simulare il file tenuto aperto da un
+	// altro processo, che su Windows non si lascia spostare.
+	rinomina func(da, a string) error
 }
 
 // Apri prepara il file (creando la cartella) e si posiziona in coda a quello che c'è già: un
@@ -53,7 +59,7 @@ func Apri(percorso string, maxByte int64, copie int) (*Scrittore, error) {
 	if err := os.MkdirAll(filepath.Dir(percorso), 0o755); err != nil {
 		return nil, err
 	}
-	s := &Scrittore{percorso: percorso, maxByte: maxByte, copie: copie}
+	s := &Scrittore{percorso: percorso, maxByte: maxByte, copie: copie, rinomina: os.Rename}
 	if err := s.apri(); err != nil {
 		return nil, err
 	}
@@ -85,7 +91,7 @@ func (s *Scrittore) Write(p []byte) (int, error) {
 	// Si ruota PRIMA di scrivere e solo se il file ha già qualcosa dentro: una singola riga più
 	// lunga della soglia finisce comunque intera in un file, perché una riga di log spezzata in due
 	// file è peggio di un file un po' più grande del previsto.
-	if s.scritti > 0 && s.scritti+int64(len(p)) > s.maxByte {
+	if s.scritti > 0 && s.scritti+int64(len(p)) > max(s.maxByte, s.riprovaA) {
 		if err := s.ruota(); err != nil {
 			return 0, err
 		}
@@ -110,29 +116,43 @@ func (s *Scrittore) Close() error {
 }
 
 // ruota fa scalare le copie e riparte da un file vuoto. Con copie = 0 il file viene solo troncato.
+//
+// Il file corrente si toglie di mezzo PER PRIMO, con una rinomina, e solo se ci riesce si toccano le
+// copie vecchie. Prima l'ordine era l'inverso: su Windows il file corrente non si sposta se un altro
+// processo lo tiene aperto (un editor, un antivirus, un `Get-Content -Wait`), e intanto le copie erano gia'
+// scalate e la piu' vecchia cancellata; la scrittura falliva, e alla riga dopo la rotazione ripartiva da
+// capo, cancellando un'altra copia. In pochi secondi restava un solo file, e il log si fermava.
+//
+// Adesso, se il file corrente non si sposta, si continua a scriverci in coda — il file cresce oltre la
+// soglia, che e' il danno minore — e si riprova quando e' cresciuto di un altro decimo della soglia:
+// riprovare a ogni riga vorrebbe dire chiudere e riaprire il file a ogni scrittura. Le copie vecchie
+// restano dove sono. Un intoppo sulle copie vecchie, a file corrente gia' spostato, non ferma il log:
+// al peggio si perde una copia vecchia.
 func (s *Scrittore) ruota() error {
 	if err := s.f.Close(); err != nil {
 		return err
 	}
 	s.f = nil
-	if s.copie == 0 {
-		if err := os.Remove(s.percorso); err != nil && !os.IsNotExist(err) {
+	parcheggio := s.percorso + ".ruota"
+	if err := s.rinomina(s.percorso, parcheggio); err != nil && !os.IsNotExist(err) {
+		passo := max(s.maxByte/10, 1)
+		if err := s.apri(); err != nil {
 			return err
 		}
+		s.riprovaA = s.scritti + passo
+		return nil
+	}
+	s.riprovaA = 0
+	if s.copie == 0 {
+		_ = os.Remove(parcheggio)
 		return s.apri()
 	}
 	// la più vecchia esce di scena, le altre scalano di uno: .4 → .5, .3 → .4, …, log → .1
-	if err := os.Remove(s.nome(s.copie)); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	_ = os.Remove(s.nome(s.copie))
 	for i := s.copie - 1; i >= 1; i-- {
-		if err := os.Rename(s.nome(i), s.nome(i+1)); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+		_ = s.rinomina(s.nome(i), s.nome(i+1))
 	}
-	if err := os.Rename(s.percorso, s.nome(1)); err != nil && !os.IsNotExist(err) {
-		return err
-	}
+	_ = s.rinomina(parcheggio, s.nome(1))
 	return s.apri()
 }
 

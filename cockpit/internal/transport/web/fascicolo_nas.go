@@ -261,7 +261,7 @@ func (s *Server) fascicoloNas(w http.ResponseWriter, r *http.Request) {
 	}
 	u := utenteDa(r.Context())
 	if !almeno(u, db.RuoloUtenteOperatore) {
-		s.nega(w, r, "Importare dal NAS è un gesto dell'operatore.")
+		s.nega(w, r, "Importare dal NAS è un gesto dell'operatore.", db.RuoloUtenteOperatore)
 		return
 	}
 	q := db.New(s.Pool)

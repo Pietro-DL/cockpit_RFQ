@@ -306,7 +306,7 @@ const threadPerChiaviCitate = `-- name: ThreadPerChiaviCitate :many
 SELECT DISTINCT m.thread_id, m.chiave_esterna, t.stato
 FROM messaggio m
 JOIN thread_offerta t ON t.thread_id = m.thread_id
-WHERE m.chiave_esterna = ANY($1::text[]) AND m.thread_id IS NOT NULL
+WHERE m.canale = 'outlook' AND m.chiave_esterna = ANY($1::text[]) AND m.thread_id IS NOT NULL
 `
 
 type ThreadPerChiaviCitateRow struct {
@@ -317,6 +317,8 @@ type ThreadPerChiaviCitateRow struct {
 
 // ---------------------------------------------------------------- le sorgenti delle regole R0–R5
 // R0: i Message-ID citati da In-Reply-To e References, risolti su messaggi GIA' agganciati.
+// Il canale sta nella condizione perche' l'indice unico e' (canale, chiave_esterna): senza, ogni
+// messaggio con delle References scorreva tutta la tabella dei messaggi.
 func (q *Queries) ThreadPerChiaviCitate(ctx context.Context, chiavi []string) ([]ThreadPerChiaviCitateRow, error) {
 	rows, err := q.db.Query(ctx, threadPerChiaviCitate, chiavi)
 	if err != nil {

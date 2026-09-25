@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -72,13 +74,27 @@ func (s *Server) scaricaContenuto(w http.ResponseWriter, r *http.Request) {
 		errore(w, 422, err)
 		return
 	}
-	if !a.PathStaging.Valid || !(staging.FileStaging{}).Presente(a.PathStaging.String) {
+	if !a.PathStaging.Valid {
+		errore(w, http.StatusGone, fmt.Errorf("contenuto di %q non presente in staging: usa Riscarica", a.NomeFile))
+		return
+	}
+	percorso, err := s.nelloStaging(a.PathStaging.String)
+	if err != nil {
+		// Un percorso fuori dallo staging non si apre, qualunque cosa ci sia: e' un dato del database
+		// che non torna, e servirlo vorrebbe dire consegnare a un worker un file qualunque del
+		// server. Per il worker e' come un contenuto sparito — 410, errore definitivo, e «Riscarica»
+		// riporta l'allegato dentro lo staging —; per chi guarda il log e' un errore, con il percorso.
+		s.Log.Error("contenuto fuori dallo staging: non consegnato", "job", jobID, "allegato", allegatoID, "err", err)
+		errore(w, http.StatusGone, fmt.Errorf("contenuto di %q non presente in staging: usa Riscarica", a.NomeFile))
+		return
+	}
+	if !(staging.FileStaging{}).Presente(percorso) {
 		// Non e' un guasto da ritentare: il file e' sparito dalla cache fra il download e adesso.
 		// Il worker lo riporta come errore definitivo e l'allegato va in errore con questo motivo.
 		errore(w, http.StatusGone, fmt.Errorf("contenuto di %q non presente in staging: usa Riscarica", a.NomeFile))
 		return
 	}
-	f, err := os.Open(a.PathStaging.String)
+	f, err := os.Open(percorso)
 	if err != nil {
 		errore(w, 500, fmt.Errorf("apertura del contenuto: %w", err))
 		return
@@ -104,6 +120,26 @@ func (s *Server) scaricaContenuto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("contenuto consegnato al worker", "job", jobID, "allegato", allegatoID, "byte", n, "worker", t.WorkerID)
+}
+
+// nelloStaging verifica che `path_staging` stia dentro la radice dello staging di questo server e
+// restituisce il percorso pulito. E' la stessa regola dell'anteprima (web, nelloStaging) e del NAS:
+// documenti.DentroLaRadice. Una radice non dichiarata non verifica niente, e cio' che non si puo'
+// verificare non si serve.
+func (s *Server) nelloStaging(percorso string) (string, error) {
+	radice := strings.TrimSpace(s.Staging)
+	if radice == "" {
+		return "", errors.New("la radice dello staging non e' dichiarata: non si serve niente dallo staging")
+	}
+	p := filepath.Clean(percorso)
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("path_staging non e' un percorso assoluto: %q", percorso)
+	}
+	base := filepath.Clean(strings.TrimRight(radice, `\/`))
+	if !documenti.DentroLaRadice(p, base) {
+		return "", fmt.Errorf("percorso fuori radice: %q non sta sotto lo staging %q", p, base)
+	}
+	return p, nil
 }
 
 // analisiDelJob verifica che il job sia l'analisi di QUESTO allegato e restituisce l'allegato.

@@ -3,8 +3,8 @@ package web
 // Le proposte di struttura, B8.5: accettare o scartare un nodo, un arco, un sottoalbero, un file intero,
 // una rimozione; scrivere il codice di un nodo che il server non ha saputo classificare; rileggere gli
 // STEP della RFQ. Le regole stanno in core/rfq/fascicolo (decisioni.go, rianalisi.go): qui si leggono i
-// parametri, si apre la transazione e si risponde con la pagina della RFQ e l'avviso. La schermata che
-// mostrera' le proposte e' B8.7.
+// parametri, si apre la transazione e si risponde con l'avviso, come la schermata da cui arriva il gesto
+// (threadFrammento: il Fascicolo con i suoi pannelli, o la pagina della RFQ).
 
 import (
 	"context"

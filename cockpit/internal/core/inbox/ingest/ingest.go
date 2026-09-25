@@ -1,9 +1,11 @@
 // Package ingest scrive il FATTO (messaggio, messaggio_outlook, allegato) e produce le prime
 // INTERPRETAZIONI: candidati di aggancio, candidati di codice, riferimenti al portale, proposta di triage.
 //
-// Non aggancia niente. Dal checkpoint 3R `messaggio.thread_id` non viene scritto qui in nessun caso:
-// l'ingest propone e basta, e la decisione è un bottone premuto da un operatore (D9). Non scrive mai
-// sul NAS.
+// Non aggancia niente di suo. Dal checkpoint 3R `messaggio.thread_id` non viene scritto qui: l'ingest
+// propone e basta, e la decisione è un bottone premuto da un operatore (D9). L'unica eccezione è la
+// nostra firma: una richiesta a un fornitore partita dal Cockpit torna con il marcatore
+// CockpitRichiestaFornitore e si aggancia alla sua RFQ (marcatori.go, 7B), perché lì la decisione
+// l'operatore l'ha già presa scrivendo la richiesta. Non scrive mai sul NAS.
 //
 // Il lotto è UNA transazione con un savepoint per elemento (piano §2.4, D15). Prima era una
 // transazione per elemento e il primo errore interrompeva il lotto: bastava un messaggio che il
@@ -103,7 +105,57 @@ var (
 	ErrTentativoNonValido = errors.New("tentativo non più valido")
 	// ErrCasellaNonCensita: errore di configurazione, non di dato. Non produce scarti (I23).
 	ErrCasellaNonCensita = errors.New("casella non censita")
+	// ErrLottoNonDelJob: il tentativo è valido, ma il suo job non autorizza QUESTO lotto — non è un job
+	// che consegna posta, oppure la consegna per un'altra casella. Chi chiama risponde 403, e non si
+	// scrive niente: né messaggi, né presenze, né cursori.
+	ErrLottoNonDelJob = errors.New("il job del tentativo non autorizza questo lotto")
 )
+
+// CasellaDelJob è la casella che un job di acquisizione nomina: la colonna `casella_id`, o — per un
+// payload accodato prima che la colonna ci fosse — il `casella_id` del payload. ok = false se il job
+// non ne nomina nessuna.
+//
+// È la stessa lettura che fa il result di un sync quando attribuisce i cursori: il lotto e il result
+// dello stesso job devono parlare della stessa casella, e due letture scritte in due modi prima o poi
+// danno due risposte.
+func CasellaDelJob(j *db.Job) (uuid.UUID, bool) {
+	if j.CasellaID.Valid && j.CasellaID.UUID != uuid.Nil {
+		return j.CasellaID.UUID, true
+	}
+	switch j.Tipo {
+	case db.TipoJobSyncOutlook:
+		var p worker.PayloadSyncOutlook
+		if json.Unmarshal(j.Payload, &p) == nil && p.CasellaID != nil && *p.CasellaID != uuid.Nil {
+			return *p.CasellaID, true
+		}
+	case db.TipoJobRileggiElemento:
+		var p worker.PayloadRileggiElemento
+		if json.Unmarshal(j.Payload, &p) == nil && p.CasellaID != uuid.Nil {
+			return p.CasellaID, true
+		}
+	}
+	return uuid.Nil, false
+}
+
+// lottoDelJob dice se il job di un tentativo può consegnare un lotto per quella casella.
+//
+// Il lease prova che chi scrive è il tentativo in corso di QUEL job, non che quel job abbia qualcosa
+// da scrivere nella posta. Senza questo controllo bastava il lease di un download, o di un sync di
+// un'altra casella, per scrivere messaggi, presenze e cursori dove il job non era mai stato mandato:
+// il cursore di una casella fatto avanzare da un lotto che non l'ha letta è una finestra che nessuno
+// rilegge più. Consegnano posta soltanto il sync e la rilettura di un elemento (replay.go: «lo
+// rimanda in un lotto da uno»).
+func lottoDelJob(j *db.Job, casella uuid.UUID) error {
+	switch j.Tipo {
+	case db.TipoJobSyncOutlook, db.TipoJobRileggiElemento:
+	default:
+		return fmt.Errorf("%w: il job %d è %s, che non consegna posta", ErrLottoNonDelJob, j.JobID, j.Tipo)
+	}
+	if c, ok := CasellaDelJob(j); ok && c != casella {
+		return fmt.Errorf("%w: il job %d è della casella %s, il lotto dichiara la casella %s", ErrLottoNonDelJob, j.JobID, c, casella)
+	}
+	return nil
+}
 
 // forzaErrore è il gancio di prova della voce 0.5: se COCKPIT_INGEST_FORZA_ERRORE contiene una
 // sottostringa, ogni messaggio il cui Message-ID la contiene fallisce come se il DB l'avesse
@@ -313,6 +365,11 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 		if err != nil {
 			return out, err
 		}
+		// Il tipo e la casella si guardano qui, con la riga bloccata e prima di ogni scrittura: un
+		// rifiuto lascia il database com'era (il rollback del defer non ha niente da annullare).
+		if err := lottoDelJob(&j, l.Casella.CasellaID); err != nil {
+			return out, err
+		}
 		job = &j
 	}
 
@@ -332,7 +389,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 		if err != nil {
 			return out, err
 		}
-		esito, errEl := s.uno(ctx, db.New(sp), l.Casella, nostri, motori, m, scendono)
+		esito, errEl := s.uno(ctx, sp, l.Casella, nostri, motori, m, scendono)
 		if errEl == nil {
 			errEl = forzaErrore(m.MessageID)
 		}
@@ -342,7 +399,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 			if err := s.scarta(ctx, q, l.Casella, m, errEl); err != nil {
 				return out, fmt.Errorf("scarto di %s: %w", m.MessageID, err)
 			}
-			s.Log.Warn("elemento scartato", "message_id", m.MessageID, "entry_id", m.EntryID, "err", errEl)
+			s.avvisa("elemento scartato", "message_id", m.MessageID, "entry_id", m.EntryID, "err", errEl)
 			out.Falliti++
 			out.Esiti = append(out.Esiti, worker.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno", Errore: errEl.Error()})
 			continue
@@ -364,6 +421,16 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 
 	// elementi che il worker non è riuscito nemmeno a leggere: si registrano per poterli rileggere
 	for _, sal := range l.Saltati {
+		if strings.TrimSpace(sal.EntryID) == "" {
+			// Senza entry_id l'elemento non è rileggibile — la rilettura lo cerca proprio per EntryID —
+			// e non ha nemmeno una chiave con cui stare in ingest_scarto. Prima era un errore del lotto:
+			// un 5xx che faceva ripetere al worker lo stesso lotto con lo stesso elemento, all'infinito,
+			// e con lui restavano fuori tutti gli altri. Si conta come fallito e si dice nel log.
+			s.avvisa("elemento saltato senza entry_id: non rileggibile, non registrato fra gli scarti",
+				"casella", l.Casella.Indirizzo, "cartella", sal.Cartella, "message_id", sal.MessageID, "errore", sal.Errore)
+			out.Falliti++
+			continue
+		}
 		if err := s.scartaLettura(ctx, q, l.Casella, sal); err != nil {
 			return out, err
 		}
@@ -380,7 +447,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 			// lo è anche lui, e scriverlo significherebbe aprire la prossima finestra dopo l'orologio e
 			// non leggere più niente finché il futuro non è passato (16/09/2026). Fermo dov'è, la
 			// finestra viene riletta: costa una rilettura, che è l'errore che si corregge da solo.
-			s.Log.Warn("cursore nel futuro: non avanza", "casella", l.Casella.Indirizzo, "cartella", l.Cursore.Cartella,
+			s.avvisa("cursore nel futuro: non avanza", "casella", l.Casella.Indirizzo, "cartella", l.Cursore.Cartella,
 				"ultimo_received", l.Cursore.UltimoReceived.UTC().Format(time.RFC3339), "tolleranza", worker.TolleranzaFuturo)
 		default:
 			// Il cursore è di QUESTA casella: la cartella da sola non basta più. Due caselle con una
@@ -414,6 +481,11 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 
 // scarta registra un elemento che il database ha rifiutato. Il payload completo resta in DB: il replay
 // non deve ripassare da Outlook, che nel frattempo potrebbe non avere più l'elemento.
+//
+// Tutto ciò che viene dall'elemento passa da senzaNulTesto, non solo il payload: un NUL nell'oggetto,
+// nella cartella o nel Message-ID fa rifiutare il messaggio (è il motivo dello scarto) e farebbe
+// rifiutare anche lo scarto — e l'errore dello scarto, a differenza di quello dell'elemento, non ha un
+// savepoint sotto: abortisce il lotto, 5xx, e il worker ripete lo stesso lotto all'infinito.
 func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *worker.MessaggioIn, errEl error) error {
 	payload, err := payloadScarto(m)
 	if err != nil {
@@ -425,25 +497,25 @@ func (s *Servizio) scarta(ctx context.Context, q *db.Queries, c db.Casella, m *w
 	}
 	ric := m.DataEvento
 	_, err = q.UpsertIngestScarto(ctx, db.UpsertIngestScartoParams{
-		CasellaID: c.CasellaID, EntryID: entry, Cartella: txtN(m.Cartella, 200), MessageID: txt(m.MessageID),
-		RicevutoIl: &ric, Oggetto: txtN(m.Oggetto, 500), Origine: "ingest", Payload: payload,
-		Errore: errEl.Error(),
+		CasellaID: c.CasellaID, EntryID: senzaNulTesto(entry), Cartella: txtN(senzaNulTesto(m.Cartella), 200),
+		MessageID: txt(senzaNulTesto(m.MessageID)), RicevutoIl: &ric, Oggetto: txtN(senzaNulTesto(m.Oggetto), 500),
+		Origine: "ingest", Payload: payload, Errore: senzaNulTesto(errEl.Error()),
 	})
 	return err
 }
 
+// scartaLettura registra un elemento che il worker non è riuscito a leggere. Chi chiama ha già
+// escluso gli elementi senza entry_id, che non sono rileggibili. Stesse cautele di scarta: qui il
+// testo viene da Outlook e l'errore dal worker, e nessuno dei due garantisce di essere senza NUL.
 func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casella, sal worker.ElementoSaltato) error {
-	payload, err := json.Marshal(sal)
+	payload, err := jsonSenzaNul(sal)
 	if err != nil {
 		return err
 	}
-	if sal.EntryID == "" {
-		return errors.New("elemento saltato senza entry_id: non sarebbe rileggibile")
-	}
 	_, err = q.UpsertIngestScarto(ctx, db.UpsertIngestScartoParams{
-		CasellaID: c.CasellaID, EntryID: sal.EntryID, Cartella: txtN(sal.Cartella, 200), MessageID: txt(sal.MessageID),
-		RicevutoIl: sal.RicevutoIl, Oggetto: txtN(sal.Oggetto, 500), Origine: "lettura", Payload: payload,
-		Errore: sal.Errore,
+		CasellaID: c.CasellaID, EntryID: senzaNulTesto(sal.EntryID), Cartella: txtN(senzaNulTesto(sal.Cartella), 200),
+		MessageID: txt(senzaNulTesto(sal.MessageID)), RicevutoIl: sal.RicevutoIl, Oggetto: txtN(senzaNulTesto(sal.Oggetto), 500),
+		Origine: "lettura", Payload: payload, Errore: senzaNulTesto(sal.Errore),
 	})
 	return err
 }
@@ -459,8 +531,12 @@ func (s *Servizio) scartaLettura(ctx context.Context, q *db.Queries, c db.Casell
 //
 // I byte NUL vengono quindi sostituiti con U+FFFD, il carattere che significa «qui c'era qualcosa di
 // non rappresentabile». Il payload resta fedele in tutto il resto e il replay funziona.
-func payloadScarto(m *worker.MessaggioIn) ([]byte, error) {
-	grezzo, err := json.Marshal(m)
+func payloadScarto(m *worker.MessaggioIn) ([]byte, error) { return jsonSenzaNul(m) }
+
+// jsonSenzaNul è il json.Marshal di payloadScarto, per qualunque valore: vale per l'elemento intero
+// e per l'elemento saltato, che porta anche lui testo di Outlook.
+func jsonSenzaNul(v any) ([]byte, error) {
+	grezzo, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
@@ -481,19 +557,31 @@ func payloadScarto(m *worker.MessaggioIn) ([]byte, error) {
 func senzaNul(v any) any {
 	switch t := v.(type) {
 	case string:
-		return strings.ReplaceAll(t, "\x00", "�")
+		return senzaNulTesto(t)
 	case []any:
 		for i := range t {
 			t[i] = senzaNul(t[i])
 		}
 		return t
 	case map[string]any:
+		// anche le chiavi: i marcatori arrivano come mappa, e una chiave con un NUL il jsonb la
+		// rifiuta quanto un valore
+		out := make(map[string]any, len(t))
 		for k, el := range t {
-			t[k] = senzaNul(el)
+			out[senzaNulTesto(k)] = senzaNul(el)
 		}
-		return t
+		return out
 	}
 	return v
+}
+
+// senzaNulTesto sostituisce i byte NUL di una stringa con U+FFFD: PostgreSQL non li accetta né in
+// una colonna di testo né nel jsonb, e il resto della stringa resta com'è.
+func senzaNulTesto(s string) string {
+	if !strings.Contains(s, "\x00") {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "�")
 }
 
 // RicevutoIn è il ReceivedTime dell'elemento nella casella: il valore su cui avanza il cursore.
@@ -582,7 +670,43 @@ func (s *Servizio) scendonoDaSoli(j *db.Job) (bool, string) {
 	}
 }
 
-func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, nostri Nostri, motori *Motori, m *worker.MessaggioIn, scendonoDaSoli bool) (worker.EsitoMessaggio, error) {
+// stageAutomatico accoda il download di un allegato (D30) in un savepoint annidato in quello
+// dell'elemento.
+//
+// «Un errore qui non fa cadere l'elemento» era vero solo per gli errori che AccodaStage restituisce
+// senza aver parlato col database. Un errore SQL — un vincolo, un'enumerazione, un lock — abortisce la
+// transazione, e da lì ogni istruzione successiva dell'elemento (i riferimenti al portale, il triage)
+// falliva con «current transaction is aborted»: l'elemento finiva in scarto per colpa di una comodità.
+// Il savepoint annidato annulla lo staging e solo lui: anche lo stato «in coda» che AccodaStage scrive
+// sull'allegato prima del job, che senza il job sarebbe una bugia.
+func stageAutomatico(ctx context.Context, sp pgx.Tx, a db.Allegato, m db.Messaggio, c coda.Copia) (coda.EsitoStage, error) {
+	annidato, err := sp.Begin(ctx) // SAVEPOINT dentro quello dell'elemento
+	if err != nil {
+		return "", err
+	}
+	esito, _, err := coda.AccodaStage(ctx, db.New(annidato), staging.FileStaging{}, a, m, c, 3)
+	if err != nil {
+		if e := annidato.Rollback(ctx); e != nil {
+			// senza il ROLLBACK TO la transazione resta abortita: da qui l'elemento non può più
+			// scrivere niente, e deve dirlo invece di fallire più avanti con un motivo sbagliato
+			return "", fmt.Errorf("%w: %v (lo staging era fallito con: %v)", errStagingIrrecuperabile, e, err)
+		}
+		return "", err
+	}
+	if err := annidato.Commit(ctx); err != nil { // RELEASE SAVEPOINT
+		return "", fmt.Errorf("%w: %v", errStagingIrrecuperabile, err)
+	}
+	return esito, nil
+}
+
+// errStagingIrrecuperabile: lo staging non è riuscito e non è stato possibile nemmeno annullarlo. È
+// l'unico errore dello staging che fa cadere l'elemento, perché la transazione non è più utilizzabile.
+var errStagingIrrecuperabile = errors.New("staging automatico non annullabile")
+
+// uno scrive un elemento dentro il suo savepoint `sp`. Riceve la transazione e non solo le query
+// perché lo staging automatico ne apre una sua, annidata: vedi sotto.
+func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostri Nostri, motori *Motori, m *worker.MessaggioIn, scendonoDaSoli bool) (worker.EsitoMessaggio, error) {
+	q := db.New(sp)
 	esito := worker.EsitoMessaggio{MessageID: m.MessageID, Aggancio: "nessuno"}
 	if m.MessageID == "" {
 		return esito, errors.New("message_id vuoto")
@@ -802,14 +926,17 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 	// c'era dentro: un clic per leggere il passato diventava ore di lavoro e qualche giga di disco.
 	//
 	// Un errore qui non deve far cadere l'ingest dell'elemento: il messaggio è un FATTO ed è già
-	// scritto, mentre lo staging è una comodità. Viene registrato e basta.
+	// scritto, mentre lo staging è una comodità. Viene registrato e basta — e perché sia vero anche
+	// per un errore SQL, ogni accodamento sta in un savepoint suo (stageAutomatico).
 	if scendonoDaSoli && row.Inserito && clienteID.Valid && (dir == db.DirezioneEntrata || interno) {
 		for _, a := range daStaggiare {
-			esitoStage, _, err := coda.AccodaStage(ctx, q, staging.FileStaging{}, a,
-				db.Messaggio{MessaggioID: row.MessaggioID, ChiaveEsterna: m.MessageID},
-				coda.Copia{CasellaID: casella.CasellaID, EntryID: m.EntryID}, 3)
-			if err != nil && s.Log != nil {
-				s.Log.Warn("staging automatico non riuscito", "allegato", a.NomeFile, "errore", err)
+			esitoStage, err := stageAutomatico(ctx, sp, a, db.Messaggio{MessaggioID: row.MessaggioID, ChiaveEsterna: m.MessageID},
+				coda.Copia{CasellaID: casella.CasellaID, EntryID: m.EntryID})
+			if errors.Is(err, errStagingIrrecuperabile) {
+				return esito, err
+			}
+			if err != nil {
+				s.avvisa("staging automatico non riuscito", "allegato", a.NomeFile, "errore", err)
 			}
 			if err == nil && s.Log != nil {
 				s.Log.Debug("staging automatico", "allegato", a.NomeFile, "esito", esitoStage)

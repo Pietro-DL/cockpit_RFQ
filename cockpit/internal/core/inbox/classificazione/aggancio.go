@@ -79,6 +79,19 @@ func EvidenzaDiRFQEsistente(c []Candidato) bool {
 	return false
 }
 
+// MiglioreCandidatoAperto è il candidato più forte fra quelli che sono EVIDENZA di una richiesta
+// aperta (sopra la soglia, richiesta non chiusa); false se non ce n'è — cioè esattamente quando
+// EvidenzaDiRFQEsistente è falsa. È il candidato verso cui si propone «aggancia»: il più forte in
+// assoluto può essere una richiesta chiusa, che si mostra con l'avviso ma non si propone (T2).
+func MiglioreCandidatoAperto(c []Candidato) (Candidato, bool) {
+	for _, k := range OrdinaCandidati(append([]Candidato{}, c...)) {
+		if k.Punteggio >= SogliaEvidenza && !k.Chiuso {
+			return k, true
+		}
+	}
+	return Candidato{}, false
+}
+
 // CandidatoChiuso restituisce il primo candidato forte verso una richiesta chiusa: è quello di cui la
 // schermata deve avvisare.
 func CandidatoChiuso(c []Candidato) (Candidato, bool) {

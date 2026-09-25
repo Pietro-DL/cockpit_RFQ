@@ -144,8 +144,11 @@ func (s *Server) scegliPostazione(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !puoUsarePostazione(sess.Utente, p) {
+		// Dal 403 di tutti gli altri (nega): la testata sceglie con htmx, e del testo grezzo non
+		// l'avrebbe innestato — l'operatore non vedeva niente. Il motivo non e' il ruolo: e' la
+		// postazione, che si abilita in cockpit.toml.
 		s.Log.Warn("scelta di una postazione non autorizzata", "utente", sess.Utente.Sigla, "postazione", p.NomeHost)
-		http.Error(w, fmt.Sprintf("non sei abilitato alla postazione %s", p.NomeHost), 403)
+		s.nega(w, r, fmt.Sprintf("La scelta non vale: non sei abilitato alla postazione %s (si abilita in cockpit.toml, [[postazione]]).", p.NomeHost), "")
 		return
 	}
 	if err := q.SetSessionePostazione(r.Context(), db.SetSessionePostazioneParams{

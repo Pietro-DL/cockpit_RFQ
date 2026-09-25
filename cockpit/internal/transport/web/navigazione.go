@@ -17,7 +17,7 @@ import "promatec/cockpit/internal/platform/db"
 // # Le sezioni
 //
 // L'operatore vede Inbox e Richieste: il suo lavoro. L'amministratore vede quelle più una sezione
-// *Admin* con Anagrafica, Postazioni, Coda job, Scarti. La sezione nuova si aggiunge qui e compare
+// *Admin* con Anagrafica, Postazioni, Coda job, Integrità NAS, Scarti. La sezione nuova si aggiunge qui e compare
 // nella rail: è il punto della voce 8.8, e il motivo per cui questa funzione esiste invece di una
 // lista scritta dentro il template.
 //

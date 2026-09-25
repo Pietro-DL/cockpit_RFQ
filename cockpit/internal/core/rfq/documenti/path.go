@@ -2,7 +2,11 @@
 // cosa significa copiare un documento e riprenderne il contenuto, e se quello che il database
 // promette scritto ci sia davvero.
 //
-// Non sa niente di code e di job: chi esegue e quando e' `app/runtime`, che chiama queste funzioni.
+// Non decide QUANDO si esegue un lavoro: il giro dei job, il claim e i tentativi sono di `app/runtime`,
+// che chiama queste funzioni. Della coda usa l'accodamento, dove un gesto sul fascicolo ha bisogno di un
+// lavoro dopo di se' — la ripresa di un contenuto sparito (riestrazione o download da Outlook,
+// ripresa.go), lo spostamento di un file (sposta_nas, nomi_nas.go) — e legge i job di copia pendenti,
+// perche' il ricognitore non segnali come anomalia un lavoro gia' in corso (integrita.go).
 package documenti
 
 import (
@@ -26,10 +30,15 @@ var reSpazi = regexp.MustCompile(`\s+`)
 
 // NomeSicuro rende una stringa utilizzabile come nome di cartella/file Windows: rimuove i caratteri vietati,
 // comprime gli spazi, toglie punti e spazi finali (vietati da NTFS) e tronca a max caratteri.
+//
+// Punti e spazi finali si tolgono anche DOPO il taglio: «Offerta rev. 2» tagliato a 12 finisce con il
+// punto di «rev.». Windows quel punto lo toglie da solo, e la cartella creata si chiama in un modo mentre
+// il database la ricorda in un altro; con il prefisso \\?\ invece il punto resta, e nasce una cartella che
+// Esplora risorse non apre. E' quello che fa gia' NomeFileSicuro: taglia, poi ripassa senzaCoda.
 func NomeSicuro(s string, max int) string {
 	s = pulisci(s)
-	if max > 0 && len([]rune(s)) > max {
-		s = strings.TrimSpace(string([]rune(s)[:max]))
+	if max > 0 {
+		s = senzaCoda(taglia(s, max))
 	}
 	if s == "" {
 		s = "senza nome"
@@ -51,7 +60,7 @@ func senzaCoda(s string) string {
 }
 
 // CartellaThread costruisce il percorso relativo della cartella RFQ.
-// Es.: "LANDINI ARGO\WIP\2026 09 08 Rossi Supporto cofano"
+// Es.: "ACME\WIP\2026 09 08 Rossi Supporto cofano"
 func CartellaThread(cartellaCliente string, data time.Time, cognomeBuyer, oggetto string) string {
 	parti := []string{data.Format("2006 01 02")}
 	if c := NomeSicuro(cognomeBuyer, 30); cognomeBuyer != "" && c != "senza nome" {

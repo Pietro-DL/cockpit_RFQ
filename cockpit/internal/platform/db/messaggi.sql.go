@@ -36,39 +36,6 @@ func (q *Queries) AgganciaMessaggio(ctx context.Context, arg AgganciaMessaggioPa
 	return err
 }
 
-const agganciaOrfaniConversazione = `-- name: AgganciaOrfaniConversazione :many
-UPDATE messaggio SET thread_id = $2, aggancio = 'auto_conversazione', agganciato_il = now()
-WHERE conversazione_id = $1 AND thread_id IS NULL AND messaggio_id <> $3
-RETURNING messaggio_id
-`
-
-type AgganciaOrfaniConversazioneParams struct {
-	ConversazioneID uuid.UUID     `json:"conversazione_id"`
-	ThreadID        uuid.NullUUID `json:"thread_id"`
-	MessaggioID     uuid.UUID     `json:"messaggio_id"`
-}
-
-// quando l'operatore crea/aggancia una RFQ, gli altri messaggi orfani della stessa conversazione la seguono
-func (q *Queries) AgganciaOrfaniConversazione(ctx context.Context, arg AgganciaOrfaniConversazioneParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, agganciaOrfaniConversazione, arg.ConversazioneID, arg.ThreadID, arg.MessaggioID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []uuid.UUID{}
-	for rows.Next() {
-		var messaggio_id uuid.UUID
-		if err := rows.Scan(&messaggio_id); err != nil {
-			return nil, err
-		}
-		items = append(items, messaggio_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const bloccaMessaggio = `-- name: BloccaMessaggio :one
 SELECT messaggio_id, canale, chiave_esterna, conversazione_id, parent_messaggio_id, thread_id, aggancio, agganciato_da, agganciato_il, direzione, data_evento, mittente_nome, mittente_indirizzo, buyer_id, destinatari, oggetto, corpo_testo, corpo_html, lingua, importanza, nota_operatore, n_allegati, registrato_il, registrato_da, interno, controparte_tipo, controparte_cliente_id, controparte_fornitore_id, controparte_via, controparte_il, richiesta_fornitore_id, controparte_altro_id FROM messaggio WHERE messaggio_id = $1 FOR UPDATE
 `

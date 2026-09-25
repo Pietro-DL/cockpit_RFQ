@@ -2,13 +2,13 @@
 
 Che cosa fa e che cosa NON fa. Questo modulo legge il file e dice che cosa c'e' scritto: quali
 `PRODUCT` esistono, quale contiene quale e quante volte. Non decide se un nome e' un codice, non
-separa una revisione, non sa che cosa sia una famiglia Manitou o Krone. Quella e' una lettura che
+separa una revisione, non sa che cosa sia la famiglia di codici di un cliente. Quella e' una lettura che
 dipende dal CLIENTE della richiesta, e il cliente il worker non lo conosce: la fa il server, con le
 regole gia' scritte per oggetto, corpo e nomi file (addendum B8, A1.2).
 
 Percio' ogni nodo porta i quattro attributi grezzi dell'entita' e l'evidenza di dove stanno:
 
-    {"chiave": "#12", "id_grezzo": "52922757", "nome_grezzo": "52922757_B",
+    {"chiave": "#12", "id_grezzo": "77722757", "nome_grezzo": "77722757_B",
      "descrizione_grezza": "SUPPORTO COFANO", "rev_grezza": "B",
      "evidenza": {"entita": "PRODUCT", "riga": "#12", "formation": "#14", "definition": "#20"}}
 
