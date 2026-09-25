@@ -228,10 +228,10 @@ details.codici>summary{cursor:pointer;margin:4px 0}
    grigio, etichette maiuscole piccole, tratteggio per quello che propone il sistema. Al centro la BOM come
    grafo di card (l'albero «a organigramma» e' tutto CSS: le linee sono i ::before/::after delle voci), a
    destra il dettaglio, in fondo il piano. Tutto sotto .fasc: le altre schermate restano come sono. */
-.fasc{--f-bg:#F2F4F6;--f-sup:#fff;--f-sup2:#F8FAFB;--f-ink:#141A21;--f-muto:#59636F;--f-muto2:#8A939E;--f-linea:#E1E5EA;--f-linea2:#CBD2DA;
+.fasc,.rq{--f-bg:#F2F4F6;--f-sup:#fff;--f-sup2:#F8FAFB;--f-ink:#141A21;--f-muto:#59636F;--f-muto2:#8A939E;--f-linea:#E1E5EA;--f-linea2:#CBD2DA;
   --f-acc:#0F4C5C;--f-accsoft:#E2EFF2;--f-urg:#B03A16;--f-urgsoft:#FAE9E2;--f-warn:#8A5A00;--f-warnsoft:#FAF0DA;--f-ok:#1D6B41;--f-oksoft:#E2F1E8;
-  --f-info:#2B5F8A;--f-infosoft:#E4EEF7;--f-chip:#EDF0F3;--f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
-  margin:-12px -16px;padding:10px 16px 14px;background:var(--f-bg);color:var(--f-ink);font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;min-height:calc(100vh - 41px)}
+  --f-info:#2B5F8A;--f-infosoft:#E4EEF7;--f-chip:#EDF0F3;--f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.fasc{margin:-12px -16px;padding:10px 16px 14px;background:var(--f-bg);color:var(--f-ink);font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;min-height:calc(100vh - 41px)}
 .fasc .mono{font-family:var(--f-mono);font-size:12px}
 .fasc .k{color:var(--f-muto);font-size:12px}
 .fasc .label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--f-muto2);margin:0}
@@ -468,3 +468,61 @@ details.codici>summary{cursor:pointer;margin:4px 0}
   .fasc-principale,.fasc-destra{height:auto;max-height:none}
   .fasc .ant-pdf{min-height:520px}
 }
+
+/* ---------------------------------------------------------------- La pagina Richieste (panoramica.go)
+   Gli stessi token del Fascicolo (.fasc,.rq qui sopra): la pagina deve sembrare il Cockpit, non un'altra
+   app. In alto una barra di filtri che resta in vista; sotto una card per RFQ, e dentro le schede dei
+   prodotti con il disegno. L'iframe non prende i clic: la scheda intera e' il link al Fascicolo. */
+.rq{margin:-12px -16px;padding:10px 16px 28px;background:var(--f-bg);color:var(--f-ink);font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;min-height:calc(100vh - 41px)}
+.rq .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.rq-titolo{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:8px}.rq-titolo h1{margin:4px 0}
+.rq-titolo .muto{font-size:12.5px;color:var(--f-muto)}
+.rq-barra{position:sticky;top:0;z-index:5;display:grid;gap:8px;padding:10px 12px;margin:0 0 10px;background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;box-shadow:0 1px 2px rgba(20,26,33,.04)}
+.rq-riga{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
+.rq-spazio{flex:1}
+.rq-cerca{flex:1 1 320px;min-width:220px}
+.rq-cerca input{width:100%;padding:7px 11px;border:1px solid var(--f-linea2);border-radius:8px;font:inherit;background:var(--f-sup)}
+.rq-cerca input:focus,.rq-sel select:focus{outline:2px solid var(--f-acc);outline-offset:1px}
+.rq-sel{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--f-muto)}
+.rq-sel select{padding:5px 8px;border:1px solid var(--f-linea2);border-radius:8px;font:inherit;color:var(--f-ink);background:var(--f-sup);max-width:240px}
+.rq-seg{display:inline-flex;border:1px solid var(--f-linea2);border-radius:8px;overflow:hidden}
+.rq-seg label{position:relative}.rq-seg input,.rq-rapido input{position:absolute;opacity:0;pointer-events:none}
+.rq-seg span{display:block;padding:5px 12px;font-size:12.5px;font-weight:600;color:var(--f-muto);cursor:pointer;border-left:1px solid var(--f-linea)}
+.rq-seg label:first-child span{border-left:0}
+.rq-seg input:checked+span{background:var(--f-acc);color:#fff}
+.rq-seg input:focus-visible+span,.rq-rapido input:focus-visible+span{outline:2px solid var(--f-acc);outline-offset:-2px}
+.rq-rapido span{display:inline-block;padding:4px 11px;border:1px solid var(--f-linea2);border-radius:999px;font-size:12.5px;font-weight:600;color:var(--f-muto);cursor:pointer;background:var(--f-sup)}
+.rq-rapido input:checked+span{background:var(--f-warnsoft);border-color:#E0BD72;color:var(--f-warn)}
+.rq-conta{margin:4px 2px 10px;font-size:13px;color:var(--f-muto)}.rq-conta b{color:var(--f-ink)}.rq-conta a{margin-left:10px;color:var(--f-acc)}
+.rq-vuoto{padding:22px;border:1px dashed var(--f-linea2);border-radius:10px;color:var(--f-muto);background:var(--f-sup)}
+.rq-card{background:var(--f-sup);border:1px solid var(--f-linea);border-radius:12px;padding:12px 14px 14px;margin-bottom:12px}
+.rq-card.chiusa{background:var(--f-sup2)}.rq-card.chiusa .rq-oggetto a{color:var(--f-muto)}
+.rq-card-testa{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rq-cliente{font-weight:700;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--f-muto)}
+.rq-badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.03em}
+.rq-badge.fase{background:var(--f-accsoft);color:var(--f-acc)}.rq-badge.chiusa{background:var(--f-chip);color:var(--f-muto)}
+.rq-sla{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--f-muto)}
+.rq-oggetto{margin:6px 0 4px;font-size:17px;line-height:1.3}.rq-oggetto a{color:var(--f-ink)}.rq-oggetto a:hover{color:var(--f-acc);text-decoration:underline}
+.rq-rif{font:500 12px/1 var(--f-mono);color:var(--f-muto);background:var(--f-chip);padding:2px 6px;border-radius:5px;vertical-align:2px}
+.rq-meta{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:12.5px;color:var(--f-muto)}.rq-meta b{font-weight:600;color:var(--f-ink)}
+.rq-segnali{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.rq-segnale{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:600;background:var(--f-chip);color:var(--f-muto)}
+.rq-segnale.bloc{background:var(--f-urgsoft);color:var(--f-urg)}.rq-segnale.smi{background:var(--f-warnsoft);color:var(--f-warn)}
+.rq-prodotti{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+.rq-prod{position:relative;display:flex;flex-direction:column;border:1px solid var(--f-linea);border-radius:9px;overflow:hidden;background:var(--f-sup);min-height:170px}
+.rq-prod:hover,.rq-prod:focus-within{border-color:var(--f-acc);box-shadow:0 0 0 2px var(--f-accsoft)}
+.rq-ant{height:118px;background:#fff;border-bottom:1px solid var(--f-linea);overflow:hidden}
+.rq-ant iframe{width:100%;height:100%;border:0;display:block;pointer-events:none}
+.rq-prod.vuoto .rq-ant{display:grid;place-items:center;background:repeating-linear-gradient(135deg,var(--f-sup2) 0 8px,var(--f-bg) 8px 16px)}
+.rq-ant span{font-size:12px;color:var(--f-muto2)}
+.rq-prod-link{display:block;padding:7px 9px 8px;color:var(--f-ink)}
+.rq-prod-link::after{content:"";position:absolute;inset:0}
+.rq-prod-link:focus-visible{outline:none}
+.rq-cod{display:block;font:600 12.5px/1.3 var(--f-mono)}.rq-rev{font-weight:400;color:var(--f-muto)}
+.rq-desc{display:block;font-size:11.5px;color:var(--f-muto);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rq-tag{position:absolute;top:6px;right:6px;padding:1px 6px;border-radius:5px;font-size:10.5px;font-weight:700;background:var(--f-warnsoft);color:var(--f-warn);pointer-events:none}
+.rq-piu{align-items:center;justify-content:center;font-family:inherit;font-size:13px;font-weight:600;color:var(--f-acc);background:var(--f-sup2);border-style:dashed;cursor:pointer}
+.rq-piu:hover{background:var(--f-accsoft)}
+.rq-altre{display:block;margin:4px auto 0;padding:8px 18px;border:1px solid var(--f-linea2);border-radius:8px;background:var(--f-sup);font-weight:600;color:var(--f-acc)}
+.rq-poll{display:none}
+@media (max-width:700px){.rq-barra{position:static}.rq-cerca{flex-basis:100%}.rq-prodotti{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}

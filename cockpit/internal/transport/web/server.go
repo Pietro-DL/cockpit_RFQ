@@ -54,6 +54,9 @@ type Server struct {
 	// ([outlook].sync_apertura_inbox, predefinito true). È indipendente da IntervalloSync: quello
 	// governa il sync periodico, questo è una richiesta implicita di chi sta aprendo la schermata.
 	SyncAperturaInbox bool
+	// PollRichieste: ogni quanto la pagina Richieste chiede se l'elenco e' cambiato (0 = 60 s). Le
+	// prove nel browser lo accorciano per vedere un giro di poll senza aspettare un minuto.
+	PollRichieste time.Duration
 	// Modalita è "shadow" o "produzione" (§2.7): la testata lo dice sempre, perché in shadow metà
 	// dei pulsanti non fa quello che c'è scritto sopra, e va saputo prima di premerli.
 	Modalita string

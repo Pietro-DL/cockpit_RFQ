@@ -666,95 +666,6 @@ func (q *Queries) ListRegole(ctx context.Context) ([]Regola, error) {
 	return items, nil
 }
 
-const listRichieste = `-- name: ListRichieste :many
-SELECT v.thread_id, v.cliente, v.buyer, v.oggetto, v.data_inizio, v.data_scadenza, v.scadenza_origine, v.ultimo_aggiornamento, v.stato_thread, v.cartella_relativa, v.priorita, v.identificativi, v.nome_fase, v.in_fase_dal, v.gg_in_fase, v.sla_gg, v.semaforo, v.in_carico_a, v.n_bloccanti, v.n_da_confermare, v.n_sul_portale, v.n_mancanti, v.n_messaggi, v.n_da_smistare, c.peso AS peso_cliente, t.riferimento_cliente
-FROM v_cruscotto v
-JOIN thread_offerta t ON t.thread_id = v.thread_id
-JOIN cliente c        ON c.cliente_id = t.cliente_id
-WHERE v.stato_thread = 'APERTA'
-ORDER BY c.peso DESC, v.data_scadenza ASC NULLS LAST, COALESCE(v.ultimo_aggiornamento, v.data_inizio) DESC
-LIMIT $1
-`
-
-type ListRichiesteRow struct {
-	ThreadID            uuid.UUID           `json:"thread_id"`
-	Cliente             string              `json:"cliente"`
-	Buyer               pgtype.Text         `json:"buyer"`
-	Oggetto             pgtype.Text         `json:"oggetto"`
-	DataInizio          time.Time           `json:"data_inizio"`
-	DataScadenza        *time.Time          `json:"data_scadenza"`
-	ScadenzaOrigine     NullScadenzaOrigine `json:"scadenza_origine"`
-	UltimoAggiornamento *time.Time          `json:"ultimo_aggiornamento"`
-	StatoThread         StatoThread         `json:"stato_thread"`
-	CartellaRelativa    pgtype.Text         `json:"cartella_relativa"`
-	Priorita            int16               `json:"priorita"`
-	Identificativi      []string            `json:"identificativi"`
-	NomeFase            NullFase            `json:"nome_fase"`
-	InFaseDal           *time.Time          `json:"in_fase_dal"`
-	GgInFase            pgtype.Int4         `json:"gg_in_fase"`
-	SlaGg               pgtype.Int4         `json:"sla_gg"`
-	Semaforo            pgtype.Text         `json:"semaforo"`
-	InCaricoA           pgtype.Text         `json:"in_carico_a"`
-	NBloccanti          pgtype.Int8         `json:"n_bloccanti"`
-	NDaConfermare       pgtype.Int8         `json:"n_da_confermare"`
-	NSulPortale         pgtype.Int8         `json:"n_sul_portale"`
-	NMancanti           pgtype.Int8         `json:"n_mancanti"`
-	NMessaggi           int64               `json:"n_messaggi"`
-	NDaSmistare         int64               `json:"n_da_smistare"`
-	PesoCliente         int16               `json:"peso_cliente"`
-	RiferimentoCliente  pgtype.Text         `json:"riferimento_cliente"`
-}
-
-// La lista delle Richieste: aperte, ordinate per peso del cliente e poi per scadenza. Il peso e'
-// un dato di anagrafica (D27), non il punteggio di priorita' dell'addendum 2: quella formula non
-// esiste ancora e qui non se ne inventa una.
-func (q *Queries) ListRichieste(ctx context.Context, limit int32) ([]ListRichiesteRow, error) {
-	rows, err := q.db.Query(ctx, listRichieste, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListRichiesteRow{}
-	for rows.Next() {
-		var i ListRichiesteRow
-		if err := rows.Scan(
-			&i.ThreadID,
-			&i.Cliente,
-			&i.Buyer,
-			&i.Oggetto,
-			&i.DataInizio,
-			&i.DataScadenza,
-			&i.ScadenzaOrigine,
-			&i.UltimoAggiornamento,
-			&i.StatoThread,
-			&i.CartellaRelativa,
-			&i.Priorita,
-			&i.Identificativi,
-			&i.NomeFase,
-			&i.InFaseDal,
-			&i.GgInFase,
-			&i.SlaGg,
-			&i.Semaforo,
-			&i.InCaricoA,
-			&i.NBloccanti,
-			&i.NDaConfermare,
-			&i.NSulPortale,
-			&i.NMancanti,
-			&i.NMessaggi,
-			&i.NDaSmistare,
-			&i.PesoCliente,
-			&i.RiferimentoCliente,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTransizioniDa = `-- name: ListTransizioniDa :many
 SELECT da, a, automatica, fatto_richiesto FROM transizione WHERE da = $1
 `
@@ -830,6 +741,7 @@ func (q *Queries) SetRegoleCliente(ctx context.Context, arg SetRegoleClientePara
 
 const updateBuyer = `-- name: UpdateBuyer :one
 
+
 UPDATE buyer
 SET cognome    = $1,
     nome       = $2,
@@ -857,6 +769,8 @@ type UpdateBuyerParams struct {
 	BuyerID   uuid.UUID   `json:"buyer_id"`
 }
 
+// La lista delle Richieste sta in panoramica.sql (ListRichiestePanoramica): aperte e chiuse, con i filtri
+// della barra. L'ordine «priorita» resta peso del cliente (D27) e poi scadenza.
 // ---------------------------------------------------------------- amministrazione (checkpoint 3R §7)
 // Buyer e fabbisogno diventano amministrabili dalla schermata. Prima la tabella del fabbisogno si
 // vedeva ma la pagina diceva «si modificano dal database»: una tabella che sembra configurabile e non
