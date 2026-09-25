@@ -1,8 +1,10 @@
 # Cockpit RFQ
 
 Il Cockpit trasforma le richieste d'offerta che arrivano via mail in fascicoli ordinati: legge la
-posta da Outlook classico, registra messaggi e allegati, propone a quale RFQ appartengono e, su
-decisione dell'operatore, copia i file nella cartella del NAS. È fatto di tre pezzi:
+posta da Outlook classico, registra messaggi e allegati, propone a quale RFQ appartengono, prepara i
+file della RFQ (download, estrazione degli archivi, lettura di PDF e STEP) e, su decisione
+dell'operatore, costruisce la distinta (BOM) nel **Fascicolo** e copia i file nella cartella del NAS.
+La pagina **Richieste** mostra le RFQ con i loro prodotti. È fatto di tre pezzi:
 
 ```
 Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─pgx─▶ PostgreSQL
@@ -11,46 +13,36 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
 
                          ┌─────────────────────┐
                          │       Browser       │
-                         │ Francesco / utenti  │
+                         │      operatori      │
                          └─────────┬───────────┘
-                                   │ HTTP
+                                   │ HTTP(S), cookie di sessione
                                    ▼
                          ┌─────────────────────┐
-                         │    transport/web    │
-                         │ UI + decisioni RFQ  │
+                         │    transport/web    │  Inbox, Richieste, pagina RFQ,
+                         │ pagine e decisioni  │  Fascicolo, Admin
                          └─────────┬───────────┘
                                    │
-                    ┌──────────────┴──────────────┐
-                    ▼                             ▼
-             platform/coda                 platform/db
-             crea "ordini"                 legge/scrive
-             di lavoro                     PostgreSQL
-                    │                             ▲
-                    ▼                             │
-             ┌──────────────┐                     │
-             │ tabella job  │─────────────────────┘
-             └──────┬───────┘
-                    │
-                    ▼
-             transport/workerapi
-             API per i worker
-                    │
-             ┌──────┴────────────┐
+          ┌────────────────────────┼─────────────────────────┐
+          ▼                        ▼                         ▼
+   core/inbox/*             core/rfq/fascicolo        core/rfq/documenti
+   ingest, classificazione, BOM, proposte, piano,     nomi sul NAS, copia,
+   aggancio, lettura        editor della struttura    integrità
+          │                        │                         │
+          └───────────┬────────────┴────────────┬────────────┘
+                      ▼                         ▼
+               platform/coda              platform/db ──▶ PostgreSQL
+               (tabella job)                    ▲
+                      │                         │
+                      ▼                         │
+              transport/workerapi ──────────────┘
+              API per i worker: claim, result, ingest, upload
+                      │
+             ┌────────┴──────────┐
              ▼                   ▼
        worker_outlook.py   worker_analisi.py
              │                   │
              ▼                   ▼
          Outlook COM        PDF / STEP / file
-             │                   │
-             └───── risultato ───┘
-                    │
-                    ▼
-             transport/workerapi
-                    │
-                    ├── core/inbox/ingest
-                    ├── platform/storage/archivio
-                    ├── platform/coda
-                    └── platform/db
 ```
 
 (i nomi nel disegno sono relativi a `internal/`)
@@ -58,68 +50,170 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP─▶ cockpit.exe ◀─
 `cockpit.exe` (Go) è l'unico che parla con il database e con il NAS. I worker Python non hanno
 credenziali del database: chiedono lavoro al server, lo eseguono e riportano il risultato.
 
-Che cosa introduce ogni fase di lavoro e che cosa resta non verificato:
-[FASE_0.md](_fasi/FASE_0.md) (fondazioni, migrazioni, ambiente di prova),
-[FASE_1.md](_fasi/FASE_1.md) (coda, tentativo, ingest a prova di poison pill) e
-[FASE_2.md](_fasi/FASE_2.md) (più caselle, presenza, cursore per casella — in corso).
+I documenti di fase stanno in `_fasi/`: [FASE_0.md](_fasi/FASE_0.md) (fondazioni, migrazioni, ambiente
+di prova), [FASE_1.md](_fasi/FASE_1.md) (coda, tentativo, ingest a prova di poison pill),
+[FASE_2.md](_fasi/FASE_2.md) (più caselle, presenza, cursore per casella), [FASE_3.md](_fasi/FASE_3.md)
+(blocco 3, l'anagrafica dei clienti) e [CHECKPOINT_3R.md](_fasi/CHECKPOINT_3R.md) (le proposte al posto
+degli agganci automatici). Sono **documenti storici**: dicono che cosa era vero alla chiusura di quella
+fase e non si aggiornano più. I percorsi che citano (`internal/web`, `internal/classificazione`,
+`internal/db`, …) sono quelli di prima della ristrutturazione di `internal/`. Dal blocco 4 in poi non ci
+sono documenti di fase: lo stato del codice sta in questo README e nei README dei package, a partire da
+[`internal/README.md`](internal/README.md).
 
-**Regola cardine:** nessun file viene scaricato automaticamente. Il sync registra gli allegati come
-fatto e una proposta dal solo nome; sul disco vanno solo i file che l'operatore spunta dentro una RFQ.
+**Regola cardine: niente sul NAS senza una decisione.** Il sync registra gli allegati come fatto, con
+una proposta dal solo nome. Lo **staging** del server — una cartella di lavoro, non il NAS — si riempie
+invece anche da solo: con `[staging].automatico` gli allegati dei mittenti riconosciuti scendono appena
+il messaggio entra, e quando nasce o si aggancia una RFQ, o se ne apre il Fascicolo, i suoi file utili
+si scaricano, si estraggono e si analizzano (preparazione automatica, B8.7b). Nella cartella della RFQ
+sul NAS un file arriva solo con la conferma di una persona.
 
 ---
+
+## I rami del repository
+
+- **`main` è indietro** di molte migrazioni e di molti blocchi: non è il ramo da installare. Un
+  `git clone` senza `--branch` prende proprio quello.
+- Il lavoro vive in coppie di rami: il **ramo di prodotto** (per esempio `<ramo>`) ha il codice, i
+  template, le migrazioni, i worker (con i loro test Python) e gli script delle prove nel browser, ma
+  **non i test Go**; il ramo gemello **`<ramo>-qa`** è lo stesso codice con in più i `*_test.go`, compresi
+  quelli che lanciano le prove nel browser. Su un ramo di prodotto `go test ./...` non trova test da
+  eseguire e finisce senza errori senza aver provato niente: le prove Go descritte in «Prove» si lanciano
+  dal ramo `-qa`.
+- Si installa sempre il ramo di prodotto che contiene la versione voluta, con `git clone --branch`.
 
 ## Prerequisiti
 
 | Serve | Versione | Come si verifica | Note |
 |---|---|---|---|
-| Go | 1.26 o successivo (toolchain 1.27) | `go version` | solo per compilare; in produzione basta `cockpit.exe` |
-| PostgreSQL | 16 o successivo | `psql --version` | server raggiungibile, un database e un ruolo per il Cockpit |
+| Go | 1.26 o successivo | `go version` | solo per compilare; in produzione basta `cockpit.exe`. `go.mod` dichiara `go 1.26.0` e nessuna riga `toolchain`: con Go 1.26 non si scarica un'altra toolchain |
+| PostgreSQL | 16 o successivo | `psql --version` | server raggiungibile, un database e un ruolo che ne è proprietario |
 | Python | 3.11 o successivo | `python --version` | sui PC dove gira un worker |
 | Outlook | classico (desktop), con profilo configurato | deve essere **aperto** | solo dove gira `worker_outlook.py` |
 | sqlc | 1.31 o successivo | `sqlc version` | solo se si toccano `migrations/` o `internal/platform/db/queries/` |
 
-Le dipendenze Python sono tre: `pip install -r workers\requirements.txt` (`pywin32` per COM,
-`pydantic` per i contratti, `pymupdf` per leggere i PDF).
+Le dipendenze Python dei worker sono tre: `pip install -r workers\requirements.txt` (`pywin32` per
+COM, `pydantic` per i contratti, `pymupdf` per leggere i PDF). Per le prove Python serve in più `pytest`,
+che non è in `requirements.txt` perché le postazioni non ne hanno bisogno.
 
 ---
 
-## Installazione da zero
+## Installazione su un server nuovo
 
-### 1. Database
+Una lista in ordine: ogni passo dice come si controlla che sia andato. Le voci di `cockpit.toml` sono
+spiegate una per una subito dopo.
 
-```powershell
-psql -U postgres -c "CREATE ROLE cockpit LOGIN PASSWORD 'scegli-una-password';"
-psql -U postgres -c "CREATE DATABASE cockpit_dev OWNER cockpit;"  
-  
-powershell -ExecutionPolicy Bypass -File scripts\azzera-dati.ps1 -Conferma 2>&1 | Select-Object -Last 15
-```
+1. **Il codice, dal ramo giusto** (vedi «I rami del repository»):
 
-Lo schema non va creato a mano: lo applica il server al primo avvio, migrazione per migrazione.
+   ```powershell
+   git clone --branch <ramo> <indirizzo del repository> C:\Cockpit\sorgenti
+   cd C:\Cockpit\sorgenti\cockpit
+   ```
 
-### 2. Configurazione del server: `cockpit.toml`
+   Il modulo Go sta nella cartella `cockpit`, non nella radice del repository: `go build` e gli script
+   si lanciano da lì (dalla radice `go build` risponde che `cmd\cockpit` non esiste).
+2. **Go 1.26 o successivo** (`go version`), poi la compilazione:
 
-```powershell
-copy cockpit.toml.example cockpit.toml
-```
+   ```powershell
+   go build -o C:\Cockpit\cockpit.exe .\cmd\cockpit
+   ```
 
-`cockpit.toml` sta accanto a `cockpit.exe` (oppure lo si indica con `-config`) e **non va nel
-repository**: è già in `.gitignore`, perché contiene la password del database e i token dei worker.
+   Le dipendenze si scaricano al primo `go build`. Senza internet si compila su un altro PC e si copia
+   `cockpit.exe`: porta dentro migrazioni, template, file statici e file dei worker.
+3. **PostgreSQL 16 o successivo**: un ruolo e un database di cui quel ruolo è **proprietario**. La prima
+   migrazione crea l'estensione `pgcrypto`: senza i diritti l'avvio si ferma lì.
 
-Due regole di scrittura, prima del contenuto:
+   ```sql
+   CREATE ROLE cockpit LOGIN PASSWORD 'scegli-una-password';
+   CREATE DATABASE cockpit OWNER cockpit;
+   ```
+
+   (`psql` spesso non è nel PATH: sta nella cartella `bin` dell'installazione di PostgreSQL.) Lo schema
+   non si crea a mano: lo applica il server, migrazione per migrazione.
+4. **`cockpit.toml` dall'esempio**, accanto a `cockpit.exe`:
+
+   ```powershell
+   copy cockpit.toml.example C:\Cockpit\cockpit.toml
+   ```
+
+   L'esempio parte così com'è cambiando due cose: `[db].dsn`, con la password **codificata per URL**
+   (`@` → `%40`, `:` → `%3A`, `/` → `%2F`, `#` → `%23`, `%` → `%25`, `?` → `%3F`), e le `password` di
+   `[[utenti]]`. Un utente nuovo senza password, o con il segnaposto `INSERISCI_PASSWORD_INIZIALE`, ferma
+   l'avvio e il messaggio dice quale sigla sistemare. Conviene scrivere i percorsi **assoluti**
+   (`'C:\Cockpit\staging'`, `'\\server-nas\PREVENTIVI\PREVENTIVI DA FARE'`): un percorso relativo vale
+   rispetto alla cartella di `cockpit.toml`, non a quella da cui parte il processo.
+5. **Quale `cockpit.toml` si legge.** Con `-config` quello indicato. Senza `-config`: quello della
+   cartella corrente se c'è, altrimenti quello accanto a `cockpit.exe`; se non c'è in nessuno dei due
+   posti il messaggio dice dove ha cercato. Su un server si passa sempre `-config` con il percorso
+   assoluto.
+6. **Il backup, se il database ha già dei dati.** L'avvio normale **migra da solo**: il primo binario
+   più nuovo porta il database alla sua versione, e da lì un binario più vecchio non parte più («il DB è
+   alla versione N ma il binario conosce solo la M: aggiornare cockpit.exe»). Prima di avviare un binario
+   nuovo su un database esistente si fa un `pg_dump -Fc` (o `scripts\backup-db.ps1 -Dsn … -BinPg <cartella
+   bin di PostgreSQL>`). La versione del database si legge con
+
+   ```sql
+   SELECT max(versione) FROM schema_versione;
+   ```
+
+   quella del binario è il numero dell'ultimo file in `migrations/` del ramo compilato.
+7. **`-migra`, poi l'avvio.**
+
+   ```powershell
+   C:\Cockpit\cockpit.exe -config C:\Cockpit\cockpit.toml -migra   # migrazioni e seed, poi esce
+   C:\Cockpit\cockpit.exe -config C:\Cockpit\cockpit.toml          # il server
+   ```
+
+   `-migra` mostra subito un errore di configurazione, di database o di utenti senza mettersi in
+   ascolto. Poi il browser su `http://127.0.0.1:8080` (login con sigla e password di `[[utenti]]`) e
+   `GET /healthz`, che risponde con lo stato del database, del NAS e la versione dello schema. Prima si
+   fa partire su `127.0.0.1`; la rete (TLS, `reti_consentite`) viene dopo, vedi «Mettere il Cockpit in
+   rete».
+8. **L'avvio automatico.** `cockpit.exe` non è un servizio Windows: registrarlo con `sc.exe create` non
+   funziona, perché non risponde al gestore dei servizi. Le due strade sono un'**attività pianificata**
+   (all'avvio del sistema, programma `C:\Cockpit\cockpit.exe`, argomenti `-config
+   C:\Cockpit\cockpit.toml`, **«Avvia in»** `C:\Cockpit`) oppure un avvolgitore come **nssm**. Il server
+   si ferma pulito con Ctrl+C e con SIGTERM. Un errore d'avvio che arriva dopo l'apertura del log si
+   ritrova anche in `<staging>\log\cockpit.log` (riga «cockpit si ferma»); un errore della configurazione
+   arriva prima del log e si vede solo lanciando il comando a mano.
+9. **L'anagrafica**, una volta: `-semina-anagrafica` e `-importa-fornitori` con i file JSON
+   dell'azienda (più sotto), poi si lavora da *Admin › Anagrafica*.
+10. **Le postazioni**: da *Admin › Postazioni* il pacchetto di ogni PC, poi `installa-postazione.ps1` sul
+    PC (vedi «Su una postazione vera»).
+
+**Da non usare su un server:** `scripts\avvia-dev.ps1` e `scripts\ferma-dev.ps1` (il banco di sviluppo;
+il secondo ferma ogni `cockpit.exe` e ogni worker Python della macchina), `scripts\azzera-dati.ps1`
+(ricrea lo schema da zero), `scripts\db-reset.sh` (obsoleto: applica solo la `0001`),
+`scripts\db-test.ps1` e `scripts\prova-tutto.ps1` (il cluster e le prove dello sviluppo).
+`scripts\semina-anagrafiche.ps1` e `scripts\backup-db.ps1` hanno valori predefiniti del banco (i semi in
+`..\docs\`, i binari del cluster di prova): sul server si usano solo passando `-Clienti`/`-Fornitori` e
+`-BinPg`.
+
+### `cockpit.toml`, sezione per sezione
+
+`cockpit.toml` **non va nel repository**: è già in `.gitignore`, perché contiene la password del
+database e i token dei worker.
+
+Le regole di scrittura, prima del contenuto:
 
 - i percorsi Windows vanno fra **apici singoli** (`'C:\cartella'`): in TOML sono stringhe letterali e i
   backslash non vanno raddoppiati. Fra virgolette doppie, `"C:\nas"` diventerebbe un'altra cosa;
 - il file si legge tutto all'avvio e **un errore qui impedisce l'avvio**, di proposito: meglio non
-  partire che partire con un routing sbagliato e accorgersene fra una settimana.
+  partire che partire con un routing sbagliato e accorgersene fra una settimana;
+- una voce che **non esiste** (un refuso nel nome) non ferma l'avvio: vale come se la riga non ci fosse,
+  e il server lo scrive nel log (riga `cockpit.toml`). Lo stesso per le voci lette ma senza effetto,
+  `[server].segreto_sessione` e `[outlook].consenti_invio`. Conviene leggere quelle righe a ogni
+  modifica del file;
+- un percorso **relativo** (`[nas].radice`, `[nas].staging`, `[server].log_file`, `tls_cert`, `tls_key`)
+  si legge dalla cartella di `cockpit.toml`; assoluti, UNC e `"-"` restano come sono.
 
-#### Le sezioni, una per una
+#### Le sezioni
 
-**`[db].dsn`** — il database creato al passo 1. È obbligatorio: senza, il server esce subito con
-`config: [db].dsn mancante`.
+**`[db].dsn`** — il database creato al passo 3. È obbligatorio: senza, il server esce subito con
+`config: [db].dsn mancante`. La password va codificata per URL.
 
 ```toml
 [db]
-dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
+dsn = "postgres://cockpit:la-password@localhost:5432/cockpit"
 ```
 
 **`[server]`**
@@ -134,19 +228,20 @@ dsn = "postgres://cockpit:la-password@localhost:5432/cockpit_dev"
 | `reti_consentite` | da dove il server accetta una connessione: `["10.0.0.0/24"]`, `["10.0.0.15", "fd12:3456:789a:1::/64"]`. Il filtro sta sul listener, prima del TLS; loopback e l'indirizzo di ascolto passano sempre. Solo reti della LAN, altrimenti il server non parte. Assente = nessun filtro. Gli avviatori di `scripts/avvio-rete` la danno con `-reti` («Avvio in rete») |
 | `token_worker` | **non autentica più niente** (voce 2.4): ogni worker ha il suo token in `[[worker]]`. Se la riga è ancora nel file il server lo dice all'avvio, e va tolta |
 | `modalita` | `shadow` o `produzione` (voce 9.5). **`shadow` è un preset di `[sicurezza]`**: spegne tutte e tre le capacità di scrittura, qualunque cosa dica quella sezione. «Apri in Outlook» resta consentito. **Assente = shadow**: il default sicuro è quello che non tocca niente. `produzione` NON accende niente da sola: serve `[sicurezza]`. Quando una capacità si accende, i job che avevano aspettato vengono annullati, non eseguiti |
-| `log_livello` | `info`; `debug` stampa anche ogni claim |
-| `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo |
-| `max_upload_mb` | limite di un singolo allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`). Default 64. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
+| `log_livello` | `debug`, `info` (assente = `info`), `warn`, `error`. `debug` aggiunge una riga per ogni richiesta HTTP (tranne il claim dei worker e `/healthz`) e qualche dettaglio in più (lo staging automatico, la passata dell'integrità NAS senza niente da segnalare). Una parola che non si riconosce vale `info`, e il log lo dice |
+| `log_file` | dove il server scrive il proprio log, oltre che nella finestra da cui è stato avviato (5 file da 5 MB a rotazione). Assente = `<nas.staging>\log\cockpit.log`, accanto a quelli dei worker; `"-"` = solo a schermo; relativo = dalla cartella di `cockpit.toml`. Se il file è tenuto aperto da un altro programma la rotazione aspetta e il server continua a scriverci |
+| `max_upload_mb` | limite di un singolo file ricevuto: l'allegato caricato dal worker (`PUT /api/v1/allegati/{id}/file`), «Carica nuova versione interna» e «Importa dal NAS» nel Fascicolo. Default 64; zero o meno ferma l'avvio. Oltre, il server risponde `413` prima di ricevere il file e l'allegato compare in errore con il motivo |
+| `segreto_sessione` | **senza effetto**: le sessioni stanno nel database. Se c'è, il log lo dice e la riga si può togliere |
 
 **`[nas]`**
 
 | Campo | Che cosa mettere |
 |---|---|
-| `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC |
+| `radice` | **è** la cartella «PREVENTIVI DA FARE», non la cartella che la contiene: sotto nascono `<cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>`. In sviluppo una cartella locale, in produzione il percorso UNC (`'\\server-nas\PREVENTIVI\PREVENTIVI DA FARE'`). È anche l'unica radice che «+ Aggiungi file › Importa dal NAS» del Fascicolo può sfogliare. Relativa = dalla cartella di `cockpit.toml` |
 | `dry_run` | **deprecata** (blocco 4): era esattamente «non scrivere sul NAS», che ora si dice con `[sicurezza].nas_scrittura = false`. Resta letta per i file già scritti — `true` spegne `nas_scrittura` — ma va tolta, e il server lo ripete nel log a ogni avvio |
 | `radici_produzione` | elenco dei percorsi UNC delle radici **vere**. In shadow il server si rifiuta di partire se `radice` è una di queste o una loro sottocartella: una prova in shadow sul NAS di produzione non è una prova in shadow. In **produzione** non è vietata — è il posto dove il Cockpit lavorerà davvero — ma con `nas_scrittura = true` serve la seconda dichiarazione `[sicurezza].consenti_nas_produzione`. Il confronto ignora maiuscole, barre e barra finale |
 | `intervallo_integrita_s` | ogni quanti secondi il ricognitore confronta i documenti con i file veri sul NAS (blocco 5B). Assente = 900. `0` = nessuna passata automatica, e «Controlla ora» in *Admin > Integrità NAS* continua a funzionare. Ogni documento costa la **lettura intera** del file per ricalcolarne l'hash: su una condivisione lenta conviene allungarlo |
-| `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano. Se manca, il server ne crea una accanto al file di configurazione. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
+| `staging` | cartella locale **del server** dove atterrano gli allegati che i worker caricano (e dove sta il log). Assente = `staging` accanto al file di configurazione; relativa = dalla cartella del file. Il server la crea all'avvio. Dalla voce 2.3 non deve più coincidere con niente: il worker manda il file con `PUT`, non lo scrive qui |
 
 **`[sicurezza]`** — che cosa questo server può **modificare fuori da sé** (blocco 4).
 
@@ -182,12 +277,13 @@ copie».
 | Campo | Che cosa mettere |
 |---|---|
 | `cartelle` | i nomi **come si vedono in Outlook**, nella lingua del profilo: su un Outlook italiano `["Posta in arrivo", "Posta inviata"]`, non `["Inbox", "Sent Items"]`. Una cartella scritta male non è un errore di avvio: è un sync che non legge niente da lì, in silenzio |
-| `intervallo_sync_s` | ogni quanto accodare un sync per casella. `0` = mai (restano «Aggiorna ora» e «Carica precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi **30** è sostenibile su quattro caselle; i sync non si accumulano, ne resta al più uno pendente per casella |
+| `intervallo_sync_s` | ogni quanto accodare un sync per casella. Assente = 60; `0` = mai (restano «Aggiorna ora», il sync all'apertura dell'Inbox e «Carica precedenti»). Con il `Restrict` della voce 2.9 un sync ordinario costa uno o due secondi, quindi anche **30** è sostenibile su quattro caselle; i sync non si accumulano, ne resta al più uno pendente per casella |
+| `sync_apertura_inbox` | un aggiornamento alla prima apertura dell'Inbox, una volta per sessione. Assente = `true` |
 | `giorni_sync_iniziale` | da quanti giorni indietro parte una **(casella, cartella) senza cursore**. Default **7**. Vale una volta sola: appena il primo sync scrive un cursore comanda il cursore, e un riavvio non riporta indietro la casella. Sette e non trenta perché il primo caricamento è l'unico in cui il worker scarica davvero tutto (corpo e allegati), e finché è occupato non apre elementi e non scarica allegati per chi sta lavorando |
 | `dal` | `"2026-08-01"`: **override esplicito** della finestra iniziale, per import controllati. Non tocca le cartelle che hanno già un cursore, e scritto male ferma l'avvio. Lasciato scritto, tiene ferma la finestra iniziale a quella data mentre i giorni passano: per l'archivio più vecchio si usa «Carica precedenti» |
 | `lotto` | quanti messaggi per invio. 50 è il compromesso fra una transazione corta e troppe chiamate |
-| `consenti_invio` | lasciare `false`. `true` permetterebbe al worker di premere Invia al posto dell'operatore |
-| `casella_default` | la casella attribuita a un lotto che non dichiara la propria. Dalla fase 2 il lotto porta sempre il `casella_id` del job: questa è il ripiego per un worker più vecchio del server, non il modo normale |
+| `consenti_invio` | **senza effetto in `cockpit.toml`**: il server non invia posta, prepara bozze, e se la riga c'è il log lo dice. L'interruttore vero è `consenti_invio` in `worker.toml` (il pacchetto delle postazioni lo scrive `false`) |
+| `casella_default` | la casella attribuita a un lotto che non dichiara la propria. Obbligatoria con più di una `[[casella]]`; con una sola si deduce. Il lotto porta il `casella_id` del job, e un lotto senza casella prende quella del job che lo consegna: questa è il ripiego per un worker più vecchio del server, non il modo normale |
 
 **«Carica precedenti»** non si configura: scarica **due giorni per clic e per casella**, a partire da
 dove era arrivato il clic precedente. Il worker Outlook è uno per PC ed è seriale: finché macina un
@@ -208,6 +304,17 @@ che aspetta la copia, nessuna proposta aperta, nessun job pendente, nessuna anom
 supera `cache_max_mb` (assente = nessun limite): allora si parte dal meno usato, e si toglie il
 minimo che basta. Un file tolto si riprende da Outlook o dall'archivio da cui era uscito, e la copia
 sul NAS lo fa da sola. `giorni_staging`, la voce di prima, vale come `cache_gg` se `cache_gg` manca.
+
+**`[staging]`** — se gli allegati scendono nello staging da soli, all'arrivo (D30). `automatico`
+(assente = `false`): gli allegati dei mittenti riconosciuti, sotto `max_mb` (assente = 20), arrivano
+appena il messaggio entra, e l'operatore li trova già classificati. `bootstrap` (assente = `false`): lo
+stesso anche al primo sync di una casella, che porta dentro settimane di posta. «Carica precedenti» non
+scarica mai niente da solo. Lo staging è una cartella del server: il NAS non lo tocca nessuno da qui.
+
+**`[agente]`** — l'analisi semantica con un modello di linguaggio (checkpoint 3R §9): `attivo` (assente =
+`false`), `modello`, `url` (vuoto = quello del fornitore), `chiave_env` (il **nome** della variabile
+d'ambiente con la chiave, mai la chiave), `caselle` (le sole caselle su cui è permessa; vuoto =
+nessuna). Spenta di default; vedi `internal/ai/README.md`.
 
 ### Com'è fatto lo staging
 
@@ -259,7 +366,7 @@ Conseguenza da conoscere: dopo un «Riscarica» che porta byte diversi, il conte
 sul disco** finché non passa il custode — il file nuovo ha un nome nuovo, perché il nome è il
 contenuto. È il prezzo di non averne mai due copie.
 
-**`[analisi]`** — `versione` e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
+**`[analisi]`** — `versione` (assente = 1) e `[analisi.parametri]` dicono **con che cosa** si analizza. Il loro hash,
 insieme a quello del file, è la chiave sotto cui i fatti vengono conservati: lo stesso disegno in tre
 RFQ fa partire una sola analisi. Cambiare un termine qui fa rianalizzare tutto senza toccare il
 codice — ed è il motivo per cui i termini stanno qui e non dentro il worker. Dalla **3** (B8.5) gli STEP
@@ -271,10 +378,10 @@ da quello: `ufficio` è organigramma, la `sigla` è il nome utente del login.
 
 | ruolo | che cosa apre |
 |---|---|
-| `operatore` | l'interfaccia di lavoro: Inbox, Cruscotto, messaggi e thread, triage, RFQ, allegati, «Aggiorna ora» |
-| `admin` | tutto quello dell'operatore **più** le schermate tecniche: *Coda job*, *Scarti*, *Postazioni* (e quindi il pacchetto dei worker) |
+| `operatore` | l'interfaccia di lavoro: Inbox, Richieste, messaggi e pagina della RFQ, triage, Fascicolo, allegati, «Aggiorna ora» (`/cruscotto` porta a *Richieste*) |
+| `admin` | tutto quello dell'operatore **più** *Anagrafica* (clienti, fornitori, convenzioni, import), *Postazioni* (e quindi il pacchetto dei worker), *Coda job*, *Integrità NAS*, *Scarti* |
 | `tecnico` | oggi quanto l'operatore; esiste da adesso perché le azioni della fattibilità e dell'albero saranno sue |
-| `consultazione` | sola lettura: nessun POST, in nessuna schermata |
+| `consultazione` | nessun metodo che scrive (POST), in nessuna schermata. Alcune letture hanno però effetti automatici anche per lei: la prima apertura dell'Inbox accoda un aggiornamento, l'apertura di una RFQ rilegge i suoi STEP (la preparazione del Fascicolo invece parte solo per chi è almeno `operatore`) |
 
 **Almeno uno deve essere `admin`**, e il server **non parte** senza: il pacchetto dei worker lo genera
 solo lui, e senza nessuno che possa aprire *Postazioni* non si aggiunge più un PC. Anche un ruolo
@@ -284,7 +391,10 @@ stati aggiunti, e lo dice l'impossibilità di entrare.)
 
 `password` serve solo a far **nascere** l'utente. Appena in database c'è un hash bcrypt valido, il
 file non lo sostituisce più — nemmeno riavviando con una password diversa scritta qui, e il server
-lo scrive nel log invece di lasciare qualcuno a chiedersi perché non entra.
+lo scrive nel log invece di lasciare qualcuno a chiedersi perché non entra. Un utente **nuovo** senza
+password, o con il segnaposto dell'esempio `INSERISCI_PASSWORD_INIZIALE`, ferma l'avvio: il messaggio
+dice la sigla. Togliere un utente da `[[utenti]]` non lo disattiva: il log lo segnala a ogni avvio, e
+per chiudergli l'accesso si mette `utente.attivo = false` in database.
 
 ```toml
 [[utenti]]
@@ -308,13 +418,13 @@ su quali PC girano i worker e con quale token ciascuno.
 ```toml
 # Una casella condivisa Exchange NON ha proprietario: `utente` va lasciato fuori.
 [[casella]]
-indirizzo = "commerciale@azienda.it"
+indirizzo = "commerciale@azienda.example"
 nome      = "Commerciale"
 condivisa = true
 
 # Una personale ha come proprietario la sigla di un utente dichiarato in [[utenti]].
 [[casella]]
-indirizzo = "nome.cognome@azienda.it"
+indirizzo = "nome.cognome@azienda.example"
 nome      = "Nome Cognome"
 utente    = "NC"
 # attiva  = false   # la tiene censita ma fuori uso, senza cancellarla
@@ -330,7 +440,7 @@ nome       = "outlook@PC-NOME"     # <tipo>@<NOME_HOST>
 tipo       = "outlook"             # outlook | analisi
 token      = "segreto-di-questo-worker"
 postazione = "PC-NOME"
-caselle    = ["nome.cognome@azienda.it", "commerciale@azienda.it"]
+caselle    = ["nome.cognome@azienda.example", "commerciale@azienda.example"]
 ```
 
 Che cosa il server verifica all'avvio, e perché rifiuta di partire invece di arrangiarsi:
@@ -339,7 +449,7 @@ Che cosa il server verifica all'avvio, e perché rifiuta di partire invece di ar
 |---|---|
 | indirizzi normalizzati in minuscolo, nomi host in maiuscolo | la stessa casella scritta in due modi resterebbe due caselle, con due cursori e due volte lo stesso messaggio |
 | una casella `condivisa = true` non può avere `utente` | una cassetta condivisa non ha un proprietario: dargliene uno falserebbe le autorizzazioni |
-| `utente`, `postazione` e `caselle` devono esistere altrove nel file | un worker autorizzato su una casella mai dichiarata è autorizzato su niente, e lo si scoprirebbe solo quando un job non parte |
+| `postazione` e `caselle` di un `[[worker]]` devono esistere altrove nel file | un worker autorizzato su una casella mai dichiarata è autorizzato su niente, e lo si scoprirebbe solo quando un job non parte. (Un `utente` di `[[casella]]` o `[[postazione]]` che non è in `[[utenti]]` invece non ferma l'avvio: il log lo dice e la casella o la postazione restano senza proprietario) |
 | la stessa casella dichiarata due volte | idem: due righe, due identità |
 
 **Più di una casella attiva** si può, dalla migrazione `0004` (fase 2, voce 2.1): ognuna ha il proprio
@@ -357,8 +467,9 @@ viene applicato.
 ```
 
 Legge la configurazione, applica le migrazioni, semina utenti e fondazioni e **esce**. È il modo di
-verificare che il file sia giusto — ed è anche il modo giusto di aggiornare il database prima di
-sostituire il binario su una postazione.
+verificare che il file sia giusto — ed è anche il modo giusto di aggiornare il database quando si
+sostituisce il binario, **dopo** il backup: una migrazione applicata non si toglie, e il binario di
+prima su quel database non parte più.
 
 #### Seminare l'anagrafica dei clienti (blocco 3)
 
@@ -406,6 +517,8 @@ alla conferma. Un fornitore che c'è già non viene toccato, nemmeno un campo.
 
 Stampa `clienti=…`, `domini_cliente=…`, `buyer=…`, `fornitori=…`, `domini_fornitore=…`,
 `contatti_fornitore=…`, `lavorazioni_fornitore=…`, `qualifiche=…`, una riga per voce, ed esce.
+Come `-anteprima-fornitori` legge **soltanto**: non migra, non semina, non tocca la coda, apre il
+database in sola lettura, e con uno schema diverso da quello del binario si ferma e dice che cosa fare.
 
 #### Tutto il bootstrap in un comando
 
@@ -466,7 +579,7 @@ ma un dominio già assegnato a un altro cliente **non viene spostato**: il seme 
 Da lì in avanti si lavora dalla schermata **Admin → Anagrafica**, che è anche l'unico posto in cui si
 scrivono peso, portale e regole di riconoscimento.
 
-### 3. Configurazione dei worker
+### I worker
 
 ```powershell
 copy workers\worker.toml.example workers\worker.toml
@@ -503,10 +616,10 @@ e dichiara al claim solo quelle che ha trovato, con lo StoreID locale. Uno store
 ma non censito in `[[casella]]` **viene ignorato**: non viene letto e non viene censito d'ufficio.
 `python worker_outlook.py --caselle` mostra questa risoluzione senza prendere nessun job.
 
-### 4. Compilazione
+### Compilare
 
 ```powershell
-go build -o cockpit.exe .\cmd\cockpit
+go build -o cockpit.exe .\cmd\cockpit     # dalla cartella cockpit
 ```
 
 ---
@@ -517,10 +630,14 @@ go build -o cockpit.exe .\cmd\cockpit
 .\cockpit.exe -config cockpit.toml
 ```
 
-All'avvio il server, in quest'ordine: legge la configurazione; applica le migrazioni mancanti (una
-transazione per file, in ordine, saltando quelle già registrate in `schema_versione`); semina utenti,
-caselle, postazioni e credenziali dei worker; avvia lo scheduler e l'esecutore dei job; si mette in
-ascolto su `[server].indirizzo` (`http://127.0.0.1:8080` in sviluppo).
+All'avvio il server, in quest'ordine: legge la configurazione; apre il log e ci scrive le voci
+sconosciute o senza effetto; applica le migrazioni mancanti (una transazione per file, in ordine,
+saltando quelle già registrate in `schema_versione`; uno schema più recente del binario ferma l'avvio);
+semina utenti, caselle, postazioni, credenziali dei worker e l'analizzatore corrente; fissa le capacità
+di scrittura e allinea la coda; risolve la controparte dei messaggi che non l'hanno; avvia scheduler e
+cache; prepara il TLS; avvia l'esecutore dei job del server e il ricognitore del NAS; si mette in
+ascolto su `[server].indirizzo` (`http://127.0.0.1:8080` in sviluppo). Il dettaglio, passo per passo, è in
+[`internal/app/README.md`](internal/app/README.md).
 
 Il browser si apre su quell'indirizzo: login con la sigla e la password di `[[utenti]]`.
 
@@ -528,14 +645,19 @@ Il log del server va sulla finestra **e** su `<nas.staging>\log\cockpit.log` (5 
 rotazione, come i worker): chiusa la finestra, di ciò che il server ha risposto ai worker resta
 comunque traccia, ed è metà della diagnosi di un job. Si cambia con `[server].log_file`.
 
-Opzioni:
+Opzioni (`.\cockpit.exe -h` le elenca):
 
-```powershell
-.\cockpit.exe -config cockpit.toml -migra   # applica migrazioni e seed, poi esce (nessun ascolto HTTP)
-.\cockpit.exe -h                            # elenco delle opzioni
-```
+| Opzione | Che cosa fa |
+|---|---|
+| `-config FILE` | il file di configurazione. Senza: `cockpit.toml` della cartella corrente se c'è, altrimenti quello accanto a `cockpit.exe` |
+| `-migra` | migrazioni, seed, capacità, ricalcolo delle controparti; poi esce senza ascoltare |
+| `-semina-anagrafica FILE` | il seme dei clienti; poi esce |
+| `-anteprima-fornitori FILE` | il seme dei fornitori, solo guardato (in sola lettura, non migra); poi esce |
+| `-importa-fornitori FILE` | il seme dei fornitori, scritto; insieme a `-anteprima-fornitori` è un errore; poi esce |
+| `-conta-anagrafiche` | i numeri dell'anagrafica (in sola lettura, non migra); poi esce |
+| `-ascolto`, `-tls-cert`, `-tls-key`, `-url-pubblico`, `-reti` | la rete dalla riga di comando (sotto) |
 
-`-migra` è il modo giusto di aggiornare il database prima di sostituire il binario su una postazione.
+`-migra` è il modo giusto di aggiornare il database quando si sostituisce il binario, dopo il backup.
 
 `-ascolto`, `-tls-cert`, `-tls-key`, `-url-pubblico` e `-reti` danno la rete dalla riga di comando, al
 posto delle voci di rete di `[server]`: sono quelle che usano gli avviatori di `scripts/avvio-rete`
@@ -563,8 +685,8 @@ Opzioni comuni a entrambi:
 | `--caselle` | *(solo Outlook)* chiede al server le caselle da servire, le risolve nel profilo Outlook e stampa l'esito (M1) senza prendere job |
 | `--restrict [GIORNI]` | *(solo Outlook)* C2/C3: legge due volte gli ultimi GIORNI giorni di ogni cartella servita — una con il filtro `Restrict` in UTC e una scorrendo tutto — e confronta gli **insiemi** di EntryID, stampando anche i due tempi. Non prende job e non tocca niente. Default 7 giorni |
 
-Variabili d'ambiente che vincono sul file: `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_STAGING`,
-`COCKPIT_WORKER_ID`.
+Variabili d'ambiente che vincono sul file: `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_IMPRONTA`,
+`COCKPIT_STAGING`, `COCKPIT_WORKER_ID`.
 
 **Il worker Outlook richiede che Outlook classico sia aperto**, con il profilo giusto, nella sessione
 dello stesso utente. Se Outlook è chiuso i job falliscono con `COM:` e il server li rimette in coda:
@@ -610,8 +732,9 @@ una conferma), registra un'attività pianificata per ogni worker dichiarato in `
 classico lo richiede. **Rigenerare il pacchetto invalida il precedente** nel momento in cui si preme
 il pulsante: la sequenza è `-Ferma` sul PC → genera sul Cockpit → scompatta sopra → rilancia lo script.
 
-`scripts\installa-attivita.ps1` resta per il banco (registra le stesse attività a partire dalla
-cartella `workers\` del repository).
+`scripts\installa-attivita.ps1` resta per il banco, e non fa la stessa cosa: registra sempre tutti e due
+i worker a partire dalla cartella `workers\` del repository, con `python.exe` e non `pythonw`, con un
+innesco all'accesso più una ripetizione ogni cinque minuti, e non li avvia.
 ---
 
 ## Mettere il Cockpit in rete
@@ -825,7 +948,7 @@ GOOS=linux GOARCH=amd64 go build -o cockpit ./cmd/cockpit
 Il binario porta dentro migrazioni, template e i file dei worker: si copia un file solo.
 
 - **NAS**: la share si monta sulla VM (`cifs`, credenziali in un file a `0600`) e `[nas].radice`
-  diventa un percorso POSIX, per esempio `/mnt/nas/TECNICO - PREVENTIVI/PREVENTIVI DA FARE`. Il
+  diventa un percorso POSIX, per esempio `/mnt/nas/PREVENTIVI/PREVENTIVI DA FARE`. Il
   confronto con `radici_produzione` ignora maiuscole, barre e barra finale, quindi la protezione della
   shadow vale anche scritta alla maniera di Linux;
 - **VPN fra gli impianti**: serve **una sola regola di firewall**, in ingresso sulla VM, sulla porta
@@ -850,8 +973,9 @@ L'interpretazione deterministica però li leggeva tutti insieme: da lì arrivano
 multi-codice — «questa richiesta parla di sei codici» quando ne nomina uno e cita gli altri cinque
 dalla conversazione di settembre.
 
-**Il corpo originale non viene mai modificato.** Resta intero in `messaggio.corpo_testo`, nella
-schermata e in Outlook. Quello che cambia è quale pezzo viene dato in pasto all'interpretazione:
+**Il corpo originale non viene mai modificato.** Resta intero in `messaggio.corpo_testo` e in Outlook,
+e nella schermata resta a un clic («testo originale»). Quello che cambia è quale pezzo viene dato in
+pasto all'interpretazione:
 `classificazione.TagliaCatena` divide il corpo in *quello che è stato scritto adesso* e *la storia citata*, e
 `CorpoUtilePerInterpretazione` restituisce il primo.
 
@@ -860,7 +984,7 @@ Il taglio scatta solo su qualcosa di non ambiguo:
 | Forma | Esempio |
 |---|---|
 | separatore esplicito | `-----Messaggio originale-----`, `-----Original Message-----`, `---------- Forwarded message ----------` |
-| apertura di citazione | `Il giorno … ha scritto:`, `On … wrote:`, `Am … schrieb:` — prefisso **e** chiusura |
+| apertura di citazione | `Il giorno … ha scritto:`, `On … wrote:`, `Am … schrieb:`, `Le … a écrit :` — prefisso **e** chiusura; anche `Am 17.09.2026 um 09:12 schrieb Nome:` (con una data) e `Il 12/09/26 10:00, Nome ha scritto:` (Thunderbird), con i due punti in fondo alla riga |
 | blocco di intestazione | **due** intestazioni di ruolo diverso di seguito (`Da:`/`Inviato:`/`A:`/`Oggetto:`) che portano un indirizzo, una data o l'oggetto |
 | testo marcato | due righe consecutive che cominciano con `>` |
 
@@ -886,6 +1010,30 @@ toglie, che una richiesta che non arriva sul tavolo di nessuno.
 > Le prove del repository usano un corpus **sintetico** con le forme vere. La verifica sul corpus
 > reale — che sta fuori dal repository — è la condizione **A** del gate dell'agente AI, e resta
 > aperta.
+
+### Come si legge una mail nell'Inbox
+
+Il pannello dell'Inbox e la pagina della RFQ non mostrano il corpo così com'è: lo passano da
+`core/inbox/lettura` ([README](internal/core/inbox/lettura/README.md)), che lo divide in blocchi.
+
+- **Il testo automatico si chiude, non si toglie**: l'avviso di posta esterna, il suggerimento di
+  Microsoft 365 sul primo contatto, la firma «Inviato da Outlook per iOS», l'invito a una riunione
+  Teams, la clausola di riservatezza in fondo, l'invito a non stampare. Ognuno diventa una riga grigia
+  che si apre con un clic e mostra il testo com'era. Le regole sono strette di proposito: una frase
+  simile scritta da una persona resta aperta.
+- **Le tabelle incollate da Excel si vedono come tabelle.** Si leggono dalla versione HTML della mail,
+  ma si mostrano solo se le loro parole si ritrovano identiche nel testo; altrimenti, o senza HTML, le
+  righe con le celle separate da TAB. Nel dubbio il testo resta testo.
+- **La storia citata** (dove comincia la risposta precedente, con le stesse regole del taglio della
+  catena) sta chiusa sotto «messaggi precedenti citati».
+- **Il testo originale è a un clic**, intatto: «testo originale» mostra `corpo_testo` com'è nel database.
+- **Mai l'HTML della mail nella pagina.** Dall'HTML si prende solo testo; tutto passa dall'escape dei
+  template. Gli indirizzi avvolti da Safe Links si mostrano srotolati ma **non** sono cliccabili, i
+  doppioni `nome<mailto:nome>` spariscono, `[cid:…]` diventa `[immagine]`.
+- Nell'oggetto l'etichetta `[EXTERNAL]` / `[EXT]` messa dal server di posta non si mostra
+  (`oggettoVisibile`); l'oggetto memorizzato non cambia.
+
+L'interpretazione (codici, triage, aggancio) e l'agente AI non passano da qui: leggono `corpo_testo`.
 
 ---
 
@@ -933,7 +1081,8 @@ quella, non l'Admin.
 ## Come funziona, in breve
 
 Il server accoda `sync_outlook` ogni `[outlook].intervallo_sync_s`; il worker legge le cartelle
-indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].dal`) e manda i
+indicate in `[outlook].cartelle` a partire dal cursore (la prima volta da `[outlook].giorni_sync_iniziale`
+giorni indietro, o da `[outlook].dal`) e manda i
 messaggi a lotti. A ogni messaggio l'ingest scrive **chi c'è dall'altra parte** (la controparte,
 blocco 7A): cliente, fornitore, interno, sconosciuto o ambiguo, risolta dall'anagrafica in
 quest'ordine — contatto esatto, poi dominio. L'Inbox è divisa in cinque **quadranti** (7C.0): **Clienti**,
@@ -944,10 +1093,12 @@ quadrante Clienti l'operatore decide: **Nuova RFQ**, **Aggancia a…**, **Ignora
 apre mai una RFQ cliente: la sua posta si aggancia. Da «Da validare» si fa **Censisci come
 fornitore / cliente** con l'indirizzo e il dominio già scritti: al salvataggio i messaggi non ancora
 decisi con lo stesso indirizzo o dominio vengono ricalcolati (quadrante, controparte, proposta); le
-decisioni prese non si toccano. Dentro una RFQ spunta gli allegati che servono: vengono scaricati in staging, analizzati e
-proposti; con **Conferma → NAS** diventano documenti copiati nella cartella della RFQ con verifica
-dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza:
-l'invio non è mai automatico.
+decisioni prese non si toccano. I file della RFQ si preparano da soli (download in staging,
+estrazione, analisi) quando la RFQ nasce, quando le si aggancia una mail e quando se ne apre il
+Fascicolo; nel **Fascicolo** si costruisce la distinta e si confermano i file, con «Conferma
+Fascicolo» o con «✓ Conferma» sul singolo file: solo allora diventano documenti copiati nella cartella
+della RFQ, con la verifica dell'hash. Restano manuali **Apri in Outlook**, **Segna letto** e
+**Rispondi**, che prepara una bozza: l'invio non è mai automatico.
 
 **Su quale PC.** Un job va solo a un worker che serve la casella del job — cioè che l'ha trovata nel
 proprio profilo Outlook ed è autorizzato a leggerla — e, se è un'azione interattiva (Apri, Segna
@@ -1008,7 +1159,7 @@ scrivono dall'anagrafica, cliente per cliente.
 > Dal 7C.0 (sotto) l'**intento** non esiste più: al suo posto ci sono l'**atto** e il **legame**. Questo
 > paragrafo resta per la storia del 7B; le regole valide sono quelle del 7C.0.
 
-**L'intento** era che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_promatec`,
+**L'intento** era che cosa il messaggio è (`proposta_triage.intento`, enum): `rfq_cliente`, `offerta_<azienda>` (la nostra offerta),
 `rfq_fornitore`, `offerta_fornitore`, `risposta_fornitore`, `domanda_fornitore`, `inoltro_interno`, `non_rfq`,
 `incerto`. L'esito resta che cosa si propone di fare. Il ramo lo decide la controparte: da un **cliente** il
 triage di sempre; da un **fornitore** l'intento viene dal testo e l'esito è «aggancia» verso
@@ -1021,7 +1172,7 @@ fornitore si cercano codici **solo** con le famiglie dei clienti che gli hanno m
 stato `bozza` → `inviata` → `risposta` | `scaduta` | `annullata`). **Prima di B8.2 il box è stato tolto dalla
 pagina della RFQ**, e non passa al Fascicolo. Creava una richiesta per l'intera RFQ partendo dai suoi codici,
 mentre una richiesta a un fornitore nasce da una lavorazione di un componente che si è deciso di fare fuori.
-Tornerà nel tab Luigi, quando ci sarà il modello delle lavorazioni per componente. **Il flusso a livello di
+Tornerà nella parte della fattibilità, quando ci sarà il modello delle lavorazioni per componente. **Il flusso a livello di
 RFQ è stato tolto di proposito: non va reintrodotto, né sulla pagina della RFQ né nel Fascicolo, prima che
 esista il modello delle lavorazioni per componente.** Anche `caricaThread` non carica più richieste, fornitori
 e lavorazioni per quella pagina. Tabelle, rotte
@@ -1031,7 +1182,7 @@ qualificato) creava la richiesta e, se si voleva, la **bozza in
 Outlook** con oggetto `RFQ <cliente> <buyer> <codici>`, i contatti del fornitore come destinatari e il marcatore
 `CockpitRichiestaFornitore` scritto dal worker (UserProperties). Quando la mail compare nella Posta inviata il
 sync rilegge il marcatore: la richiesta prende la sua mail e passa a `inviata`, la mail entra nella RFQ, la
-bozza risulta partita (`CockpitBozza`). Nessuna euristica sull'oggetto. Se la mail è stata **mandata a mano**,
+bozza risulta partita (`CockpitBozza`, letto solo su una mail in uscita). Nessuna euristica sull'oggetto. Se la mail è stata **mandata a mano**,
 una nostra mail a un fornitore che cita un codice identificativo di una RFQ aperta propone «richiesta a X per la
 RFQ Y» (regola `RF_oggetto`) e l'operatore conferma: nasce la richiesta, mai un thread.
 
@@ -1126,8 +1277,9 @@ posta in uscita, verso una richiesta che esiste, su un messaggio che nessuno ha 
 (I5). Il punto (b) di I5 era rosso: un marcatore su una mail **in entrata** veniva applicato. Corretto in
 `ingest/marcatori.go`.
 
-**Che cosa il 7C.0 non fa ancora**, e viene dopo: il Dossier (`internal/core/inbox/classificazione`, il pacchetto di
-fatti e candidati che si manderebbe all'agente, con lo stato di codici e revisioni nella RFQ candidata), il
+**Che cosa il 7C.0 non fa ancora**, e viene dopo: il Dossier (il pacchetto di fatti e candidati che si
+manderebbe all'agente, con lo stato di codici e revisioni nella RFQ candidata: non esiste ancora, e non ha
+un package), il
 parser deterministico delle intestazioni citate (`origine_citata` di un inoltro), «Censisci come Altro»
 dall'Inbox, la schermata che mostra il JSON `classificazione_email.v1`, il segnale spam di Outlook nel
 worker, e il contratto nuovo dell'agente. Nessuna chiamata a un modello.
@@ -1165,17 +1317,58 @@ stesso pezzo nei nomi dei file, negli STEP, nei testi e nelle analisi, solo per 
 legge come una revisione (`_1`, `_B`, `_R2`, `_REV1`) si rifiuta. Vale per le evidenze che arrivano da lì in poi.
 Un componente già nato come `X_PRT` resta lo stesso pezzo: gli STEP nuovi lo ritrovano, un file «X» chiede di
 essere assegnato a lui («Assegna a X_PRT», e il file ne prende il codice), e il pannello dei codici non offre di
-aggiungere un secondo `X`. Per portarlo al codice senza suffisso si usa «Correggi il codice».
+aggiungere un secondo `X`. Per portarlo al codice senza suffisso si usa «Correggi il codice». Le regole
+dei suffissi: al più 10, ognuno comincia con `_`, `-` o `.`, da 3 a 12 caratteri, senza spazi, e mai
+nella forma di una revisione.
+
+**La preparazione** (B8.7b). Quando nasce una RFQ, quando le si aggancia una mail e quando se ne apre il
+Fascicolo (per chi è almeno `operatore`), i codici prodotto confermati della richiesta diventano prodotti
+finiti della BOM, e fino a 20 file utili per volta si scaricano nello staging, si estraggono (gli archivi)
+e si analizzano; un file già analizzato non si rianalizza. Finché c'è lavoro in corso la schermata si
+aggiorna da sola. Niente di tutto questo tocca il NAS.
+
+**«Conferma Fascicolo»**. Il piano del Fascicolo divide i file aperti in pronti, da decidere (con la
+domanda) e in attesa. «Conferma Fascicolo» conferma i pronti in una transazione, tutto o niente: solo
+qui parte la copia sul NAS; se nel frattempo il piano è cambiato, il gesto lo dice e non fa niente. Un
+file si conferma anche da solo («✓ Conferma»). Le strutture degli STEP non passano di qui: si decidono
+nell'editor.
+
+**«+ Aggiungi file»**: «Carica nuova versione interna» (un CAD rifatto in casa) e «Importa dal NAS» (un
+file che sta già sotto `[nas].radice`, cercato per nome) portano il file nello staging e lo fanno passare
+dalla stessa strada degli allegati, con la nota interna della RFQ come messaggio. Il file originale sul
+NAS non si tocca, e nella cartella della RFQ va solo con la conferma.
+
+**La pagina Richieste** (`/richieste`): una card per RFQ con le schede dei suoi prodotti e l'anteprima del
+disegno 2D, i filtri nell'indirizzo (testo, cliente, fase, stato, bloccanti, da smistare, SLA,
+ordinamento), un aggiornamento periodico che non ridisegna niente se niente è cambiato. `/cruscotto` porta
+qui.
+
+Il dettaglio di tutto questo è in [`internal/core/rfq/fascicolo/README.md`](internal/core/rfq/fascicolo/README.md)
+e [`internal/transport/web/README.md`](internal/transport/web/README.md).
 
 ## Prove
 
+Le prove Go stanno nel ramo `-qa` (vedi «I rami del repository»): sul ramo di prodotto `go test ./...`
+non trova niente da eseguire.
+
+| Livello | Che cosa | Comando |
+|---|---|---|
+| L1 | compilazione (anche per Linux), `go vet`, i test Go puri, la sintassi degli script | `go build ./...`, `go vet ./...`, `go test ./...` |
+| L2 | i test Python dei worker | `python -m pytest -q workers` |
+| L3 | i contratti worker ↔ server contro gli schemi di `contracts/` | `go test -count=1 ./internal/platform/contratti/worker/`, `python -m pytest -q workers/tests/test_contratti.py` |
+| L4 | integrazione su PostgreSQL di prova, compresi i TestE2E con i worker Python veri | `go test -tags integrazione -count=1 -p 1 ./...` |
+| L7 | nel browser, con Playwright su Edge | `go test -tags "integrazione browser" -count=1 -run TestL7 …` |
+| L5, L6, L8, L9 | prove reali: Outlook ed Exchange veri (L5, fra cui `workers\prova_lettura.py`), il banco a due PC e la share del NAS (L8), le altre prove sulla posta vera | a mano, nel registro degli esiti reali |
+
 ```powershell
-go test ./...                        # unitari: dominio, zip, NAS, template, migrazioni, configurazione
-python -m pytest -q workers          # unitari Python: stanno in workers\tests\ (i moduli provati sono una cartella sopra)
+go test ./...                        # L1: nessun database, anche con COCKPIT_TEST_DSN impostata
+python -m pytest -q workers          # L2: stanno in workers\tests\ (i moduli provati sono una cartella sopra); serve pytest
 ```
 
-I test che hanno bisogno di PostgreSQL vengono **saltati** se manca `COCKPIT_TEST_DSN`. Un test
-saltato non è un test passato: per eseguirli serve il database di prova.
+**`go test ./...` non tocca mai il database**: ogni test che lo usa ha il tag `integrazione` e
+senza il tag non viene nemmeno compilato. Con il tag, i test che hanno bisogno di PostgreSQL vengono
+**saltati** se manca `COCKPIT_TEST_DSN`. Un test saltato non è un test passato: per eseguirli serve il
+database di prova.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Installa   # scarica PostgreSQL portatile (una volta)
@@ -1189,16 +1382,20 @@ quindi devono girare in serie. Senza, si distruggono lo schema a vicenda e gli e
 non hanno niente a che vedere con il codice in prova.
 
 È un cluster tutto suo, su una porta diversa, sotto `%LOCALAPPDATA%`: i test distruggono e ricreano lo
-schema a ogni esecuzione e non possono toccare il database di sviluppo. Per sicurezza il codice di
-test rifiuta un DSN il cui nome di database non contiene «test».
+schema a ogni esecuzione e non possono toccare il database di sviluppo. Per sicurezza `platform/testutil`
+rifiuta un DSN che non porta a un database il cui nome contiene «test»: il nome si legge come lo legge
+il driver al momento di connettersi (anche da un DSN `chiave=valore`, da `?dbname=` o dalle variabili
+d'ambiente di PostgreSQL), non dal testo dell'indirizzo.
 
-Fra i test d'integrazione ce n'è uno che non prova il server ma i due insieme: `TestE2E…` in
-`internal/transport/workerapi` avvia il **worker vero** (`python workers\prova_e2e.py`, cioè worker_outlook
-con `--una-volta` e il solo adattatore COM sostituito) contro i gestori HTTP veri e PostgreSQL. È
-l'unico livello in cui il client e il server si parlano davvero: gli altri provano una metà sola,
-e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa
-indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
-`prova-tutto.ps1 -SenzaPython` viene saltato e il registro lo annota come non verificato.
+Fra i test d'integrazione cinque non provano il server ma i due insieme: i `TestE2E…` in
+`internal/transport/workerapi` avviano i **worker veri** contro i gestori HTTP veri e PostgreSQL —
+`python workers\prova_e2e.py` (cioè worker_outlook con `--una-volta` e il solo adattatore COM sostituito)
+e `worker_analisi.py --una-volta`; W11 (`rete_db_test.go`) fa parlare il client Python vero con il
+listener TLS, con l'impronta giusta e con una sbagliata. È l'unico livello in cui il client e il
+server si parlano davvero: gli altri provano una metà sola, e un difetto che sta nel modo in cui il
+client compila il contratto — non nel contratto — passa indisturbato attraverso tutti (è successo il
+15/09/2026). Richiedono Python; con `COCKPIT_TEST_SENZA_PYTHON=1` (è quello che fa
+`prova-tutto.ps1 -SenzaPython`) vengono saltati e il registro li annota come non verificati.
 
 ### Le prove nel browser (L7)
 
@@ -1206,18 +1403,27 @@ indisturbato attraverso tutti (è successo il 15/09/2026). Richiede Python; con
 python -m pip install playwright                 # una volta; il browser è Microsoft Edge, già installato
 $env:COCKPIT_TEST_DSN = "postgres://cockpit_test:cockpit_test@127.0.0.1:5433/cockpit_test"
 go test -tags "integrazione browser" -count=1 -run TestL7 .\internal\transport\web\
+go test -tags "integrazione browser" -count=1 -run TestL7 .\cmd\cockpit\
 ```
 
-Il tag `browser` le tiene fuori dalla corsa normale: senza Playwright il test **salta** e lo dice.
-Il banco è quello di tutti gli altri test web — PostgreSQL vero, server vero su una porta vera — e
-sopra ci gira Edge: `internal\web\e2e\inbox_quadranti.py` apre l'Inbox, clicca le linguette, cambia
-direzione e filtro, aspetta un poll intero e usa indietro/avanti del browser, e ogni volta verifica
-che **la linguetta accesa, le righe mostrate e la barra degli indirizzi dicano la stessa cosa**.
+Il tag `browser` le tiene fuori dalla corsa normale, e `prova-tutto.ps1` non le lancia: senza
+Playwright il test **salta** e lo dice. Il banco è quello di tutti gli altri test web — PostgreSQL vero,
+server vero su una porta vera — e sopra ci gira Edge. Gli script stanno in
+`internal\transport\web\e2e\`:
 
-Il Fascicolo ha tre script: `e2e/fascicolo.py` (la Struttura BOM e le viste di servizio), `e2e/fascicolo_v3.py`
-(la vista Documenti con pdf.js, le note, l'editor della struttura, l'associazione dal pannello: `TestL7V3…`) e
-`cmd/cockpit/e2e/zip_fascicolo.py` (dalla mail con lo ZIP al Fascicolo confermato, con i worker veri:
-`go test -tags "integrazione browser" -count=1 -run TestL7 .\cmd\cockpit\`).
+| Script | Test Go | Che cosa guarda |
+|---|---|---|
+| `inbox_quadranti.py` | `TestL7InboxQuadrantiNelBrowser` | linguette, direzione, filtro, un poll intero, indietro/avanti: **la linguetta accesa, le righe mostrate e la barra degli indirizzi dicono la stessa cosa** |
+| `anteprima_pdf.py` | `TestL7AnteprimaPdfNelBrowser` | l'anteprima di un PDF: intestazioni, `Range`, `ETag`, `HEAD`, senza sessione |
+| `richieste.py` | `TestL7Richieste` | la pagina Richieste: filtri, schede, anteprime, il poll |
+| `fascicolo.py` | `TestL7…` in `fascicolo_browser_test.go` | la Struttura BOM e le viste di servizio, «Conferma Fascicolo» |
+| `fascicolo_v3.py` | `TestL7V3…` | la vista Documenti con pdf.js, le note, l'editor della struttura, l'associazione dal pannello |
+
+`cmd\cockpit\zip_browser_test.go` compila un `cockpit.exe` vero e lo avvia con i worker Python veri:
+`cmd/cockpit/e2e/zip_fascicolo.py` va dalla mail con lo ZIP (preparato da `zip_richiesta.py`) al Fascicolo
+confermato. Oltre a Playwright ed Edge vuole `go` nel PATH, `pymupdf` e le dipendenze dei worker.
+Variabili utili: `COCKPIT_BROWSER_CANALE` (il canale del browser), `COCKPIT_FOTO_DIR` (salva le
+fotografie della pagina), `COCKPIT_BROWSER_SOLO` e `COCKPIT_PROVE` (solo alcune prove).
 
 Serve perché a L4 si chiede al server un frammento e si legge l'HTML che torna. Il 18/09/2026 erano
 tutti verdi mentre nel browser le linguette restavano indietro: il difetto non stava in una risposta
@@ -1255,8 +1461,8 @@ powershell -File scripts\db-test.ps1 -Ricrea        # svuota il database di prov
 ### Aggiungere una migrazione
 
 1. creare `migrations/NNNN_nome.sql` con il numero successivo, senza buchi;
-2. l'ultima riga del file deve essere `INSERT INTO schema_versione (versione) VALUES (NNNN);` — senza,
-   la migrazione viene annullata e il server non parte;
+2. il file deve contenere `INSERT INTO schema_versione (versione) VALUES (NNNN);` (di solito come ultima
+   riga) — senza, la migrazione viene annullata e il server non parte;
 3. non usare, nello stesso file, un valore di enum aggiunto con `ALTER TYPE … ADD VALUE`: PostgreSQL
    non lo accetta prima del commit, va usato dal file successivo;
 4. non referenziare tabelle create in un file successivo;
@@ -1289,8 +1495,13 @@ davvero si mette `cockpit.perdi_le_note` a `true` nel file).
 
 | Sintomo | Causa probabile | Rimedio |
 |---|---|---|
-| `config: [db].dsn mancante` | manca `cockpit.toml` accanto all'eseguibile | copiarlo dall'esempio o passare `-config` |
-| `migrazioni: il DB è alla versione N…` | database aggiornato da un binario più recente | aggiornare `cockpit.exe` |
+| `errore: nessun cockpit.toml (cercato in …)` | senza `-config`, il file non c'è né nella cartella corrente né accanto a `cockpit.exe` | copiarlo dall'esempio accanto a `cockpit.exe`, o passare `-config` con un percorso assoluto |
+| `config: [db].dsn mancante` | il file letto non ha `[db].dsn` (forse non è quello che si pensava: il messaggio sopra dice quale) | scriverlo, con la password codificata per URL |
+| `migrazioni: il DB è alla versione N…` | database aggiornato da un binario più recente | aggiornare `cockpit.exe` (il binario di prima non torna su quel database: serve il backup preso prima) |
+| `utente XX: … manca la password iniziale` / `… è ancora quella dell'esempio` | un utente nuovo di `[[utenti]]` senza password, o con `INSERISCI_PASSWORD_INIZIALE` | scrivere una password vera per quella sigla e riavviare |
+| `-conta-anagrafiche` si ferma su «questo comando legge soltanto e non migra» | il database è più vecchio del binario | backup, `-migra`, poi di nuovo il comando |
+| il server parte ma nel log c'è `cockpit.toml … la voce "…" non esiste` | un refuso nel nome di una voce: vale come se la riga non ci fosse | correggere il nome (una voce di sicurezza scritta male è una protezione che non c'è) |
+| un'attività pianificata non fa partire il server e non si vede perché | il motivo è nel log solo se l'errore arriva dopo l'apertura del log | `<staging>\log\cockpit.log`, riga «cockpit si ferma»; altrimenti lanciare lo stesso comando a mano |
 | il worker logga `COM:` in continuazione | Outlook chiuso o su un altro utente | aprire Outlook nella stessa sessione |
 | il worker logga `401 credenziale non riconosciuta` | dalla voce 2.4 il token è individuale, e quello del worker non è in `worker_credenziale` | scaricare il pacchetto di quel PC dalla pagina *Postazioni*, oppure scrivere il token in `[[worker]].token` e riavviare il server |
 | il worker logga `401 questo token è di più worker` | lo stesso segreto è di due `[[worker]]`: non identifica nessuno | dare a ciascuno il suo (o lasciare `token = ""` e generare il pacchetto dalla pagina *Postazioni*) |
@@ -1300,7 +1511,7 @@ davvero si mette `cockpit.perdi_le_note` a `true` nel file).
 | il server non parte: «ascolta fuori da questo PC e tls_cert non c'è» | si sta esponendo il Cockpit in chiaro sulla LAN (voce 2.4) | indicare `tls_cert`/`tls_key` (se i file non esistono li genera lui), o dichiarare `consenti_lan_in_chiaro = true` se il collegamento è già cifrato |
 | il browser dice «connessione non privata» | il certificato è autofirmato e il PC non lo conosce | accettare l'eccezione, o installare `cert.pem` fra i certificati attendibili. I worker non passano di qui: verificano l'impronta |
 | il worker logga `403` | il suo nome non è in `[[worker]]`, o gira su un PC diverso dalla sua `postazione` | correggere `cockpit.toml` o `worker_id` in `worker.toml` |
-| in testata mancano *Coda job*, *Scarti*, *Postazioni* | sono schermate dell'amministratore: quell'utente è `operatore` (voce 6.9) | entrare con un utente `admin`; il ruolo si cambia in `[[utenti]]` e vale dal riavvio successivo |
+| nella barra a sinistra mancano *Anagrafica*, *Postazioni*, *Coda job*, *Integrità NAS*, *Scarti* | sono schermate dell'amministratore: quell'utente è `operatore` (voce 6.9) | entrare con un utente `admin`; il ruolo si cambia in `[[utenti]]` e vale dal riavvio successivo |
 | una schermata `/admin/...` risponde **403 Non autorizzato** | stessa cosa scritta a mano nella barra degli indirizzi: nascondere la voce non era il controllo, il controllo è sulla rotta | come sopra. Se è sparito l'ultimo `admin`, rimetterne uno in `[[utenti]]` e riavviare |
 | un utente non può premere nessun pulsante | ha `ruolo = "consultazione"`, che è sola lettura | cambiare ruolo in `[[utenti]]` |
 | una password cambiata in `cockpit.toml` non ha effetto | è voluto: il file fa nascere l'utente, poi il segreto è in database (il log lo dice a ogni avvio) | finché non c'è la schermata del profilo (voce 6.4), azzerare a mano `utente.password_hash` e riavviare |
@@ -1323,8 +1534,9 @@ davvero si mette `cockpit.perdi_le_note` a `true` nel file).
 ## Struttura
 
 ```
-internal/README.md                  com'è diviso cockpit.exe, la regola di dipendenza, i flussi, i livelli di prova;
-                                    un README per area: internal/{core,platform,transport,ai,app}/README.md
+internal/README.md                  com'è diviso cockpit.exe, la regola di dipendenza, i flussi, i livelli di prova, lo stato
+                                    di ogni package e la mappa dei README; un README per area (internal/{core,platform,
+                                    transport,ai,app}/README.md) e uno per package
 cmd/cockpit/main.go                 la riga di comando: flag, runtime.Opzioni, codice di uscita
 embed.go                            embed.FS di migrations/, web/templates, web/static e workers/ (il pacchetto della postazione)
 internal/platform/config            cockpit.toml: lettura, normalizzazione e verifica di caselle, postazioni, worker
@@ -1334,7 +1546,8 @@ internal/platform/migrazioni        applica migrations/*.sql in ordine, una tran
 internal/platform/fondazioni        seed non distruttivo di caselle, postazioni e credenziali dei worker da cockpit.toml;
                                     utenti.go: gli utenti e i loro ruoli, con la password del file che serve a nascere e non a riscrivere
 internal/platform/rete              TLS del listener: carica o genera il certificato autofirmato e ne calcola l'impronta;
-                                    impronta e generazione dei token dei worker (voce 2.4)
+                                    impronta e generazione dei token dei worker (voce 2.4); filtro.go: SoloDalleReti, il
+                                    filtro del listener sulle reti consentite
 internal/platform/logfile           il log del server su file, con rotazione (5 x 5 MB)
 internal/platform/coda              accoda idempotente (un solo job PENDENTE per chiave), claim/lease/tentativo, scheduler, instradamento per
                                     postazione e casella; capacita.go: le tre capacità di scrittura (`[sicurezza]`), che cosa non si accoda e che
@@ -1343,17 +1556,22 @@ internal/platform/storage/staging   lo staging per contenuto (_parti con il toke
                                     di estrazione); cache.go: il custode della cache (Pre-7, D31)
 internal/platform/storage/nas       scrittore NAS: .parte + verifica hash, mai sovrascrive, long-path
 internal/platform/storage/archivio  estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
-internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN)
+internal/platform/testutil          pool e schema pulito per i test d'integrazione (COCKPIT_TEST_DSN, solo verso un database
+                                    il cui nome risolto contiene «test»)
 internal/core/inbox/classificazione regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:,
                                     taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
                                     atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
                                     regole.go: il motore che compila le regole del cliente e le applica a un testo; Canonico toglie
                                     i suffissi decorativi del cliente («X_PRT» → X, Fascicolo v3)
-internal/core/inbox/ingest          FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
+internal/core/inbox/ingest          FATTO (messaggio, allegato) + le prime interpretazioni (proposte dal nome, candidati,
+                                    triage, portale); niente aggancio automatico, salvo il marcatore della nostra richiesta;
+                                    il lotto scrive solo per la casella del job che lo consegna;
                                     controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
                                     marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
 internal/core/inbox/aggancio        i candidati di aggancio R0–R5 con evidenza (mai thread_id); richieste.go: R0/R1/R3f verso una richiesta
                                     a un fornitore e RF_oggetto per la richiesta mandata a mano (7B)
+internal/core/inbox/lettura         il corpo di una mail pronto da leggere: rumore chiuso, tabelle di Excel come tabelle, storia
+                                    citata a parte, testo originale intatto; puro, mai HTML della mail nella pagina
 internal/core/registro/fornitori    l'import del seme dei fornitori con anteprima e conferma (7A.4)
 internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere;
                                     anagrafica.go: NomeCognome, il precompilato del buyer dal display name o dall'indirizzo
@@ -1381,7 +1599,9 @@ internal/ai/agente                  l'assistente semantico: Modello (interfaccia
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
 internal/transport/web              HTML+HTMX: login (postazione per IP), /sessione/postazione, /inbox, /messaggio/{id} (+triage, scarica; apri/letto/bozza
-                                    instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /cruscotto, /admin/job (+annulla);
+                                    instradati alla postazione della sessione), /thread/{id}, /proposta/{id}/{conferma,scarta}, /richieste
+                                    (/cruscotto vi rimanda), /admin/job (+riaccoda, annulla); anteprima.go: /allegato/{id}/anteprima;
+                                    caricamento.go: «Carica nuova versione interna»; il corpo dei messaggi passa da core/inbox/lettura;
                                     server.go: il tipo Server, i template, Registra (che chiama le quattro registra* delle aree), la sessione, il rendering;
                                     routes_inbox.go, routes_rfq.go, routes_admin.go: le tre aree, ognuna con le sue rotte;
                                     inbox_viva.go: «Aggiorna ora», stato del sync per casella in testata, «nuove dall'ultima visita» (voce 2.16);
@@ -1395,16 +1615,22 @@ internal/transport/web              HTML+HTMX: login (postazione per IP), /sessi
                                     integrita_admin.go: /admin/nas;
                                     fascicolo_*.go: il Fascicolo (B8.7, B8.7b); per la v3 fascicolo_documenti.go (la vista Documenti: gruppi,
                                     filmstrip, la sezione di un componente, le note), fascicolo_editor.go (/bom/dati per l'editor),
-                                    fascicolo_gesti_v3.go (le note, /bom/applica, /file/{id}/generale, /sezione);
+                                    fascicolo_gesti_v3.go (le note, /bom/applica, /file/{pid}/generale sulla proposta {pid}, e la
+                                    registrazione di /sezione, il cui gestore sta in fascicolo_documenti.go); fascicolo_nas.go: «Importa dal NAS»;
+                                    fascicolo_conferma.go: «Conferma Fascicolo», la decisione su una proposta; fascicolo_preparazione.go: B8.7b;
                                     e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`);
+                                    e2e/anteprima_pdf.py: l'anteprima dei PDF (anteprima_browser_test.go);
                                     e2e/fascicolo.py, e2e/fascicolo_v3.py: il Fascicolo nel browser (fascicolo_browser_test.go, fascicolo_v3_browser_test.go);
                                     e2e/richieste.py: la pagina Richieste nel browser, lanciata da richieste_browser_test.go (tag `browser`)
 internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
+                                    (upload.go), GET /api/v1/allegati/{id}/contenuto (contenuto.go: il file al worker di analisi, solo da
+                                    dentro lo staging), GET /api/v1/sync/cursori
                                     (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
                                     il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
                                     `auth` è anche il punto in cui ogni richiesta autenticata aggiorna `worker_presenza.ultimo_contatto` (online/offline);
                                     il file caricato resta in _parti finché il result valido non lo promuove fra i contenuti; dopo-staging (rumore,
-                                    analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server
+                                    analisi, e per un archivio l'accodamento di estrai_archivio); archivi.go: l'estrazione vera, eseguita dal server;
+                                    DopoCaricamento: la stessa strada per i file caricati dal Fascicolo (web.Server.Pipeline)
 internal/app/runtime                esegui.go: l'avvio nel suo ordine, un passo per riga; avvio.go: ApriLog, ApriDatabase, Semina, ImpostaCapacita;
                                     comandi.go: i lavori della riga di comando; servizi.go: Servizi e CostruisciServizi; ascolto.go: PreparaTLS, Ascolta;
                                     esecutore.go: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
@@ -1441,17 +1667,22 @@ migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enu
                                     0021_annotazioni_pdf.sql (annotazione_pdf: le note sui disegni del Fascicolo v3)
 contracts/*.schema.json             JSON Schema generati da workers/contratti.py
 workers/                            cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
-                                    outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
-                                    prova_e2e.py (il worker vero senza COM, per il test end-to-end),
-                                    prova_lettura.py (legge una cartella vera, sola lettura, senza server né database), worker.toml.
-                                    Questi file viaggiano anche dentro cockpit.exe: sono il pacchetto che la pagina Postazioni scarica
+                                    outlook_com.py (COM), contratti.py (pydantic), protocollo.py (i tempi del protocollo),
+                                    step_struttura.py (la struttura di uno STEP), diagnostica_step.py, genera_contratti.py,
+                                    server_finto.py (prove senza server), prova_e2e.py (il worker vero senza COM, per il test
+                                    end-to-end), prova_lettura.py (legge una cartella vera, sola lettura, senza server né database),
+                                    installa-postazione.ps1, requirements.txt, worker.toml.example.
+                                    Dentro cockpit.exe viaggiano workers/*.py, requirements.txt e installa-postazione.ps1; il pacchetto
+                                    che la pagina Postazioni scarica ne lascia fuori i test, server_finto.py, prova_e2e.py,
+                                    genera_contratti.py e worker.toml(.example), e ci mette un worker.toml suo
 workers/tests/                      i test dei worker, con conftest.py che mette la cartella sopra in sys.path e
                                     finti_outlook.py (la cartella Outlook finta, condivisa fra i test)
 scripts/                            avvia-dev.ps1 (semina le anagrafiche, poi avvia server e worker), ferma-dev.ps1,
                                     semina-anagrafiche.ps1 (bootstrap: clienti, buyer, fornitori, con anteprima e conferma),
                                     db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                                     azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
-                                    backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh;
+                                    backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh (obsoleto: applica
+                                    solo la 0001, non usarlo);
                                     0018_indietro.sql, 0021_indietro.sql (i ritorni manuali, a server fermo);
                                     avvio-rete/ (avvia-lan.sh IPv4, avvia-https.sh IPv6, comune.sh: il server in HTTPS
                                     sulla LAN con le reti ammesse, senza toccare cockpit.toml)
@@ -1474,16 +1705,21 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
 - **Caselle e postazioni** (dalla migrazione 0002): una casella è una sola riga anche quando più PC la
   aprono; `casella_store` registra come ogni postazione la vede nel proprio profilo Outlook, perché lo
   StoreID appartiene al profilo e non è un riferimento valido su un altro PC.
-- **Coda job** in PostgreSQL: `FOR UPDATE SKIP LOCKED`, lease per tipo (120 s / 300 s), 5 tentativi con backoff
-  (50 per le scritture sul NAS, che non falliscono perché sono sbagliate ma perché il NAS in quel momento non c'è),
-  `chiave_idempotenza` unica **fra i job pendenti** (indice parziale: un job fatto non impedisce di riaccodarne uno
-  uguale). Priorità 1 = azione dell'utente (apri, bozza, download, cartella, copia NAS), 2 = sync storico, 5 = sync, 6 = analisi.
+- **Coda job** in PostgreSQL: `FOR UPDATE SKIP LOCKED`, lease per tipo (300 s per sync, copia sul NAS, backup ed
+  estrazione; 120 s per gli altri), una durata massima del tentativo (1800 s il sync, 3600 s copia e backup, 600 s
+  gli altri), 5 tentativi con backoff (50 per `copia_nas` e `crea_cartella_thread`, che non falliscono perché sono
+  sbagliate ma perché il NAS in quel momento non c'è), `chiave_idempotenza` unica **fra i job pendenti** (indice
+  parziale: un job fatto non impedisce di riaccodarne uno uguale). Priorità, dalla prima: 1 = azione dell'utente
+  (apri, bozza, download chiesto, cartella, copia e spostamento sul NAS), 2 = segna letto e i download della
+  preparazione e della ripresa, 3 = staging automatico all'arrivo e rilettura di uno scarto, 4 = estrazione di un
+  archivio, 5 = sync ordinario e analisi AI di un messaggio, 6 = analisi di un allegato, 9 = sync storico.
   `worker_presenza` tiene due tempi diversi per ogni worker: `ultimo_contatto` (l'ultima richiesta autenticata di
   qualunque tipo — ingresso del claim, battito, ingest, upload — ed è l'unica cosa su cui si decide online/offline)
   e `ultimo_claim` (l'ultimo claim concluso, NULL finché non se n'è concluso nessuno: diagnosi, non liveness).
   I tempi del protocollo stanno in `internal/platform/contratti/worker/protocollo.go` e in `workers/protocollo.py`, e un test di contratto
   verifica che le due copie coincidano.
-- **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; niente su disco finché l'operatore non chiede)
+- **Tre strati per i file**: `allegato` (FATTO, scritto dal worker; nello staging del server arriva quando lo chiede
+  l'operatore, con lo staging automatico o con la preparazione del Fascicolo — sul NAS mai da solo)
   → `documento_proposta` (INTERPRETAZIONE: a ingest dal nome file, poi raffinata dopo il download da hash/zip e
   dal worker-analisi finché resta `aperta`) → `documento` (DECISIONE dell'operatore; solo questa accoda `copia_nas`).
   La conferma non crea componenti (B8.3): il documento si aggancia solo al componente scelto, o a quello a cui
@@ -1502,10 +1738,12 @@ Outlook classico ◀─COM─ worker_outlook.py ─HTTP 127.0.0.1:8080─▶ coc
   STEP aperta si decide lì, uno già componente si apre, uno archiviato si ripristina; solo un codice nuovo diventa
   un componente con «+ Prodotto / + Assieme / + Particolare». Revisioni diverse si mostrano come conflitto e le
   sceglie chi aggiunge.
-- **La schermata del Fascicolo** (B8.7, `GET /thread/{id}/fascicolo`): al centro la BOM, non il singolo disegno.
-  STRUTTURA (l'albero, con le proposte degli STEP tratteggiate sotto i nodi, o la griglia), DOCUMENTI (i file della
-  RFQ con filtri e «Assegna N a ▸ nodo»), ANTEPRIMA (il PDF nel viewer del browser; per STEP e DXF quello che
-  l'analisi ha letto, senza viewer 3D), la barra COMPLETEZZA, e un cassetto con Codici e Avvisi. Lo stato è
+- **La schermata del Fascicolo** (`GET /thread/{id}/fascicolo`, B8.7 e v3): tre linguette — **Documenti** (quella
+  che si apre: il disegno con pdf.js, il filmstrip dei componenti, la sezione del componente scelto), **Struttura
+  BOM** (la BOM visuale e l'editor della struttura) e **Completezza** — più le viste di servizio nel menu «•••»
+  (l'elenco dei file con «Assegna i selezionati a ▸ codice», i componenti, l'albero) e i cassetti Verifica, Piano,
+  NAS, Codici e Avvisi. Fuori dalla vista Documenti il pannello di destra mostra l'anteprima del file o del
+  componente scelto (il PDF, per STEP e DXF quello che l'analisi ha letto, senza viewer 3D). Lo stato è
   l'indirizzo; un gesto risponde con l'avviso e rifà i pannelli fuori banda, e il PDF aperto resta aperto. Tutti i
   gesti di A4 hanno qui il loro posto: proposte, assegnazione, «aggiungi / sostituisce», storico delle revisioni,
   STEP strutturale, deroghe, archiviazione, revisioni della BOM (in ACCETTATA e DISTINTA_ERP la scelta
@@ -1540,7 +1778,7 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 | `sync_cursore` | SPEC §3.2 passo 1: «chiede al server il cursore della casella». Dalla 0004 la chiave è **(casella, cartella)**: con la sola cartella due caselle si sovrascrivevano il cursore a vicenda. Dalla 0010 ci sono **due frontiere e una misura**: `coperto_fino_a` è fin dove Outlook è stato scandito per intero (avanza solo a finestra conclusa, ed è lei a decidere la finestra successiva), `storico_fino_a` è fin dove indietro è arrivato «Carica precedenti», `ultimo_received` è la mail più recente che abbiamo — avanza per lotto e non decide niente |
 | `worker_presenza` | ultimo contatto e ultimo claim per worker: la UI segnala «OFFLINE» invece di lasciar crescere la coda in silenzio |
 | `bozza` | Le mail preparate dal Cockpit (risposte, solleciti) vanno tracciate: stato, EntryID, poi collegate alla mail inviata |
-| `messaggio.corpo_html` | Per rendere il Cockpit un vero frontend di Outlook serve l'HTML (da sanificare prima del rendering) |
+| `messaggio.corpo_html` | L'HTML della mail così come arriva. La pagina **non lo mostra mai**: `core/inbox/lettura` ne estrae solo il testo delle tabelle incollate da Excel (o il testo, quando quello semplice manca) |
 | `messaggio.parent_messaggio_id` | SPEC §3.2: i `.msg` annidati producono messaggi figli |
 | `messaggio_casella` (0004) | La stessa mail in due caselle è un messaggio e due presenze: EntryID, cartella, stato di lettura, categorie e `ricevuto_il` sono di ogni copia. Con una riga sola la seconda casella sovrascriveva la prima |
 | `messaggio.interno` (0004) | «Da noi» e «fra noi» sono cose diverse: una mail fra colleghi è in uscita, ma non è traffico con il cliente (D10) |
@@ -1552,23 +1790,34 @@ viste `v_fascicolo`, `v_inbox`, `v_cruscotto`.
 
 **Lasciate fuori dalla fase 1 (da decidere, non per dimenticanza):**
 
-| Del vecchio `docs/0001_schema.sql` | Motivo |
+| Del primo disegno dello schema | Motivo |
 |---|---|
-| `Prodotto` | La SPEC mette `componente` direttamente sotto il thread (`tipo='finito'`, `padre_id NULL` = radice) e i codici finiti in `identificativo_thread`. `fase_log` è quindi per thread. Se servirà una fase per singolo prodotto dentro la stessa RFQ, si aggiunge `fase_log.componente_id`. |
+| `Prodotto` | La SPEC mette `componente` direttamente sotto il thread (`tipo='finito'`: dalla 0018 una radice è un componente senza padri in `componente_relazione`) e i codici finiti in `identificativo_thread`. `fase_log` è quindi per thread. Se servirà una fase per singolo prodotto dentro la stessa RFQ, si aggiunge `fase_log.componente_id`. |
 | `Lacuna`, `Segnale`, `Fatto` | Sostituiti da ciò che la SPEC calcola: `v_fascicolo` (lacune), `deroga_fabbisogno` (deroga), `proposta_triage` (segnali sulle mail), `bozza` (sollecito). Nessuna colonna di stato scritta a mano. |
-| `Cartiglio`, `Revisione_CAD` | Il cartiglio letto finisce in `documento_proposta.dettagli`; le revisioni in `documento.sostituito_da`. Da riaprire quando si progetta la fattibilità di Luigi. |
+| `Cartiglio`, `Revisione_CAD` | Il cartiglio letto finisce in `documento_proposta.dettagli`; le revisioni in `documento.sostituito_da`. Da riaprire quando si progetta la fattibilità del tecnico. |
 | schemi `int.*` (Materiale, Processo, Articolo, Ciclo, Ordine) e `mexal.*` | Fasi SCHEDA_COSTO → PRODUZIONE: fuori dallo scope «ricezione → fascicolo completo → FATTIBILITÀ». Il vincolo «nessun codice Mexal nei cataloghi interni» resta valido quando si aggiungeranno. |
 | `Offerta`, `Ordine_Cliente`, `Riga_Ordine_Cliente`, `Articolo_Esterno` | Idem: dopo OFFERTA_INVIATA. |
 
 Punto ancora aperto dalla SPEC §0: `scadenza_origine` è incluso come enum {mail, buyer, portale, stimata}; se la
 distinzione non serve al cruscotto, si toglie prima della produzione.
 
-## Prossimi passi (ordine consigliato)
+## Stato e prossimi passi
 
-1. **Blocco 5 completo**: conferma in blocco («tutte ≥ 80 %»), rinomina file, drop-zone per i file dal portale
-   (`riferimento_portale` → documento), `dry_run` e radice NAS aziendale.
-2. **Blocco 6 — fascicolo, sollecito, fasi**: transizioni `RICEVUTA → ATTESA_DISEGNI/FATTIBILITA` da `v_thread_bloccanti`,
-   testo del sollecito → `bozza` tipo `sollecito`, deroghe, note di fattibilità per componente.
-3. **Blocco 7 — consultazione**: viewer PDF dal NAS, ricerca per codice.
-4. Rifiniture: corpo HTML sanificato (bluemonday), citazioni rimosse da `corpo_testo`, `bozza.inviata_messaggio_id`,
-   `Items.Restrict` DASL per il sync storico su caselle grandi, backup notturno, fuso orario del PC (ora legale spenta).
+Fatti: l'Inbox a quadranti con controparte, atto e legame (blocchi 7A–7C.0), le richieste ai fornitori
+(7B, oggi senza form), il Fascicolo con la BOM nel tempo, le proposte dagli STEP, i codici della RFQ, la
+schermata, la preparazione automatica e la v3 (vista Documenti con pdf.js, note, editor della struttura,
+suffissi decorativi), la pagina Richieste, la lettura del corpo delle mail. Lo stato package per package
+è nella tabella «Stato dell'implementazione» di [`internal/README.md`](internal/README.md).
+
+Aperti, in ordine:
+
+1. **B8.8 — lo spostamento sul NAS** (`sposta_nas`): il tipo di job e le tabelle esistono dalla 0019, ma
+   nessuno lo accoda e l'esecutore non lo sa eseguire; oggi un documento già scritto non cambia cartella.
+2. **Il Dossier e il gate dell'agente AI**: il pacchetto di fatti per l'agente non esiste, e l'agente resta
+   spento finché la verifica del taglio della catena sul corpus reale e l'autorizzazione per casella non
+   sono chiuse.
+3. **«Censisci come Altro» e la schermata dell'anagrafica «Altro»**: la tabella e il resolver ci sono, la
+   schermata no.
+4. Rifiniture: `rileggi_elemento` nel worker Outlook (oggi «Riprova» su uno scarto di lettura non ha chi lo
+   esegua), il cambio password dalla UI, `Items.Restrict` DASL per il sync storico su caselle grandi, il
+   backup notturno.

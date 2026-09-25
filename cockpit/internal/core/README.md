@@ -2,94 +2,138 @@
 
 ## Scopo
 
-Che cosa significa una mail, a chi appartiene, che cosa propone. Senza HTTP, senza TLS, senza lettura della
-configurazione. Il database lo toccano solo i package che lo dichiarano qui sotto, e solo per leggere fatti e
-scrivere proposte.
+Che cosa significa una mail, a chi appartiene, che cosa propone; come si legge; che cosa diventa una RFQ
+sul NAS e nella sua distinta. Senza HTTP, senza TLS, senza lettura della configurazione. Il database lo
+toccano solo i package che lo dichiarano qui sotto.
+
+Questo README tiene le regole che valgono per tutta l'area — dipendenze, invarianti, effetti — e rimanda
+al README di ogni package per il dettaglio (file, entry point, dati, test, stato).
 
 ## Non appartiene qui
 
-Handler e template, lettura del `cockpit.toml`, client verso servizi esterni, loop di processo, scritture sul
-NAS (quelle passano da `platform/storage/nas`).
+Handler e template, lettura del `cockpit.toml`, client verso servizi esterni, scritture sul NAS fatte a
+mano (passano da `platform/storage/nas`). I loop di processo stanno in `app/runtime` e in `platform`, con
+un'eccezione dichiarata: il giro del ricognitore dell'integrità NAS (`rfq/documenti/integrita.go:Ricognitore.Avvia`).
 
 ## Package posseduti
 
-| Package | Che cosa fa | DB |
-|---|---|---|
-| `inbox/classificazione` | l'**interpretazione** pura: `codici.go` (famiglie del cliente, riferimento RFQ, triage con precedenza risposta > candidati > nuova RFQ), `atto.go` (7C.0: l'atto business e il legame operativo), `catena.go` (taglio della catena di risposta), `regole.go` (il **motore**: compila le regole del cliente e le applica a un testo), `controparte.go` (7A/D33: il resolver su un'interfaccia `Rubrica`; `DominioPubblico`), `proposta.go` (tipo del documento da nome ed estensione), `oggetto.go` (`OggettoPulito`: i prefissi RE:/FW: tolti dall'oggetto — lo usano aggancio e i percorsi), `aggancio.go` (punteggi R1–R5) | no |
-| `inbox/ingest` | un lotto di messaggi → `messaggio`, `messaggio_casella`, `allegato`, `conversazione`, `riferimento_portale`, `proposta_triage`; una transazione per lotto con savepoint; scarti e replay; cursore; staging automatico deciso dal modo del sync (D30); `marcatori.go` (7B); `controparte.go` (7A): la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo a lotti all'avvio | sì |
-| `inbox/aggancio` | i **candidati** di aggancio con evidenza (In-Reply-To, conversazione, codici/articoli, buyer), scritti come proposte; `richieste.go` (7B): R0/R1/R3f verso una richiesta a un fornitore, `RichiesteManuali` (RF_oggetto) | sì |
-| `rfq/documenti` | il **fascicolo** di una RFQ. `path.go`: i nomi sul NAS (`NomeSicuro`, `CartellaThread`, `PathDocumento`, `NomeFileSicuro`; `PathDocumento` restituisce `ErrCodiceMancante` invece di un percorso quando il layout vuole la cartella del codice e il codice manca, addendum A2.2; `CartellaDocumento` e `NomeNelPercorso` separano cartella e nome; `NomeFileSicuro` ripassata sul nome che ha prodotto lo restituisce uguale, B8.A4-0). `nomi_nas.go` (A4): il nome di un file tecnico è `<CODICE>_REV_<REV>` (`ND` se la revisione non si sa), un secondo file con lo stesso nome riceve `_2`; il nome si sceglie dentro la transazione, sotto il lucchetto della cartella (`ScegliPercorso`, `BloccaCartella`), ed è occupato se lo dichiara un documento, uno spostamento pendente o una riga aperta di `nas_orfano`; `AccodaSpostamento` è il passo 0 di `sposta_nas` (l'esecuzione arriva con B8.8). Una correzione di codice rinomina i file tecnici e sposta gli altri. `cartelle.go`: `RimuoviCartella`, solo se nessuno la nomina e se, tolti i `.parte.<token>` scaduti, è vuota — percorsi sempre RELATIVI alla radice, con `\` come separatore; il prefisso long-path sta in `platform/storage/nas`. `integrita.go`: il **ricognitore** che confronta `documento` con i file veri e scrive `nas_anomalia`, e `AllineaDocumento` (che su un conflitto rifiuta e basta: non apre l'anomalia, ed è il gesto di un amministratore che sta guardando). `nas_percorso.go`: `PercorsoSulNas`, il percorso composto dal solo database e verificato dentro la radice (relativo per le anomalie, assoluto per aprirlo), e `DentroLaRadice`, lo stesso controllo esportato per chi deve contenere un percorso in un'altra radice (l'anteprima, sullo staging). `verifica.go`: `VerificaFileAperto`, la verifica di chi sta per SERVIRE quei byte — hash ricalcolato sul file già aperto, anomalia `conflitto` aperta se non corrisponde, `verificato_il` scritto solo quando corrisponde — e `Segnala`, la stessa riga di anomalia che scrive il ricognitore (B8.1). `copia_nas.go`: che cosa SIGNIFICA copiare un documento sul NAS (`CopiaSulNas`; «scritto» vale solo per il percorso su cui il file è finito, e se una correzione l'ha cambiato nel frattempo il tentativo fallisce e si ripete) e dove se ne ritrova il contenuto (`SorgenteStaging`); `ripresa.go`: il contenuto sparito dalla cache che si riprende da solo (`RiprendiContenuto`); `cartella_thread.go`: la cartella di una RFQ (`CreaCartellaThread`). Chi le chiama e' l'esecutore, che sta in `app/runtime` | sì |
-| `rfq/fascicolo` | la **BOM nel tempo** (A4). `versioni.go`: `CongelaBom` (gate, V1 al primo congelamento, le quattro istantanee, il passaggio FATTIBILITA → SCHEDA_COSTO con l'ancora della baseline per una versione `preventivo`), `ApriRevisione` (il contesto lo decide la fase, in ACCETTATA e DISTINTA_ERP lo sceglie chi apre), `AbbandonaBozza` (solo a differenza vuota, e torna alla riga di fase di apertura). `gate.go`: `Valuta`, la regola pura del congelamento (requisiti, proposte strutturali, NAS, STEP del prodotto finito, cicli), `LeggiGate`, `EtichettaStep`. `differenze.go`: `Differenze`, pura, sulle coppie di `DiffBomWorking`. `struttura.go`: archiviare, ripristinare, togliere un componente; scegliere lo STEP strutturale; concedere e revocare la deroga strutturale; sostituire un documento e annullare la sostituzione. **B8.5, le proposte di struttura dagli STEP:** `classifica.go` (`ClassificaNodi`, pura: il codice di ogni nodo lo dà il `Motore` del cliente della RFQ, famiglia prima di generico, id prima di nome; `MotoreDellaRfq`), `proposte.go` (`Pianifica`, pura: il confronto del file con la working — nodo nuovo, nodo già nella BOM riconciliato, arco nuovo, quantità diversa solo da una lettura completa —, `CreerebbeCiclo`, `Rimozioni`, `RadiceDiFamiglia` per D16), `applica.go` (`ApplicaStruttura`: il fan-out dei fatti in una RFQ, idempotente, scrive solo ciò che cambia e non tocca mai una proposta decisa), `rimozioni.go` (`AggiornaRimozioni`: solo dallo STEP strutturale con la lettura corrente completa, e mai con un nodo senza codice ancora aperto), `decisioni.go` (accettare o scartare un nodo, un arco, un sottoalbero, un file intero, una rimozione; scrivere il codice di un nodo: l'unico posto da cui una proposta diventa BOM working), `rianalisi.go` (`RianalizzaRfq`: rilegge gli STEP con i fatti correnti e ne accoda pochi alla volta). **B8.6, i codici della RFQ:** `candidati.go` (`Unisci`, pura: aggrega per `upper(codice)` le evidenze già prodotte da `candidato_codice`, `documento_proposta` e `componente_proposta` senza riclassificarle, tiene tutte le evidenze e tutte le revisioni viste — revisioni diverse sono un conflitto, non un punteggio —, divide i codici prodotto candidati dagli altri riferimenti con la regola di `Proponibili`, esclude il riferimento della richiesta; componenti, proposte STEP aperte e identificativi dicono solo la situazione: proposta, componente, archiviato, codice della richiesta, nuovo. `CandidatiDellaRfq` la legge dal database; `AggiungiDaCodice` è «+ Prodotto / + Assieme / + Particolare» per un codice davvero nuovo). **B8.7, la schermata:** `albero.go` (`NuovoAlbero`, pura: la BOM working in ordine stabile, radici multiple, il sottoassieme condiviso una riga sola sotto ogni padre, gli archiviati a parte, un ciclo che non ferma niente, le quantità complessive), `modifiche.go` (`ModificaComponente` per tipo, revisione e descrizione; `Collega`, `Scollega`, `Sposta` per gli archi a mano, con i cicli rifiutati da `CreerebbeCiclo`; `ConcediDeroga` e `RevocaDeroga` del fabbisogno; `RevisioneProponibile`: un file caricato a mano non inventa la revisione del cliente; `NotaInterna` e `RegistraCaricamento`, il contenitore dei caricamenti interni). Le regole che contano le tiene il database (0020): qui si dice all'operatore perché qualcosa non si può fare | sì |
-| `registro/regole` | lo **schema** di ciò che un cliente dichiara di sé: `regole.go` (`cliente.regole`, le due porte in scrittura e in lettura, la diagnosi ✓/✗), `convenzioni.go` (7A/D39: suffisso/regex → lavorazioni con l'evidenza). Non applica niente: lo legge e lo giudica | no |
-| `registro/anagrafica` | il seme dei clienti da `seme_anagrafica.json`, una volta e senza sovrascrivere; `anagrafica.go`: `NomeCognome`, il precompilato del buyer dal display name o dall'indirizzo | sì |
-| `registro/fornitori` | l'import del seme dei fornitori (7A.4): `Leggi` convalida, `Calcola` fa l'anteprima senza scrivere, `Applica` scrive in una transazione solo ciò che è risolto | sì |
+| Package | Che cosa fa | DB | README |
+|---|---|---|---|
+| `inbox/classificazione` | l'**interpretazione** pura: controparte (il resolver su una `Rubrica`), taglio della catena, codici e triage (risposta > candidati > nuova RFQ), atto e legame (7C.0), il **motore** delle regole del cliente con i suffissi decorativi (`Canonico`, `CanonicoNome`), la revisione dei nostri nomi NAS (`CodiceRev`), proposta del tipo di documento dal nome, oggetto ripulito, punteggi di aggancio | no | [README](inbox/classificazione/README.md) |
+| `inbox/ingest` | un lotto di messaggi → fatti e prime interpretazioni in una transazione, con un savepoint per elemento; scarti e replay; cursore; staging automatico (D30); marcatori della nostra posta (7B); controparte e ritriage mirato (7A). Scrive solo per la casella del job che consegna il lotto | sì | [README](inbox/ingest/README.md) |
+| `inbox/aggancio` | i **candidati** con evidenza: di aggancio a una RFQ (R0–R5), di codice, verso una richiesta a un fornitore (R0/R1/R3f, `RF_oggetto`) | sì | [README](inbox/aggancio/README.md) |
+| `inbox/lettura` | il corpo di una mail pronto da leggere: rumore chiuso e non tolto, tabelle di Excel come tabelle, storia citata a parte, testo originale intatto, oggetto senza `[EXTERNAL]`. Puro | no | [README](inbox/lettura/README.md) |
+| `rfq/documenti` | i nomi sul NAS (cartella della RFQ, `<CODICE>_REV_<REV>`, il progressivo `_2`), la copia di un documento, la ripresa di un contenuto sparito, la cartella della RFQ, il ricognitore dell'integrità, la verifica di chi serve i byte di un file (anteprima) | sì | [README](rfq/documenti/README.md) |
+| `rfq/fascicolo` | la **BOM nel tempo** (versioni, gate, revisioni, archiviazione, STEP strutturale, deroghe, sostituzioni), le proposte di struttura dagli STEP e le decisioni che le portano nella working, i codici della RFQ, l'albero della schermata, le modifiche a mano, la preparazione automatica (B8.7b), il piano di «Conferma Fascicolo», l'editor della struttura (v3), le note e i caricamenti interni | sì | [README](rfq/fascicolo/README.md) |
+| `registro/regole` | lo **schema** di ciò che un cliente dichiara di sé (`cliente.regole`, suffissi decorativi compresi) e le convenzioni di codice, con la porta in scrittura che rifiuta e quella in lettura che segna ✓/✗. Non applica niente | no | [README](registro/README.md) |
+| `registro/anagrafica` | il seme dei clienti (una volta, senza sovrascrivere); `NomeCognome` | sì | [README](registro/README.md) |
+| `registro/fornitori` | l'import del seme dei fornitori: `Leggi` convalida, `Calcola` fa l'anteprima senza scrivere, `Applica` scrive solo ciò che è risolto | sì | [README](registro/README.md) |
 
 ## Dipendenze consentite
 
-`core/registro/regole` non importa nulla del progetto: è lo schema, e uno schema non dipende da chi lo usa.
-Nessun package di `platform` importa `core`: la freccia va in un verso solo.
-Gli altri package di `core` importano gli altri `core/*` e `platform`. Le due catene che esistono davvero:
-`inbox/classificazione` → `registro/regole` (il motore lavora sullo schema) e `rfq/documenti` →
-`inbox/classificazione` (il nome della cartella nasce dall'oggetto ripulito). `rfq/fascicolo` importa
-`inbox/classificazione` e `registro/regole` (il Motore del cliente che classifica i nodi degli STEP, B8.5),
-`platform/db`, `platform/coda` (la rianalisi accoda) e `platform/contratti/worker` (la struttura letta dal worker).
-Mai `transport`, mai `ai`, mai `app`.
+Gli archi che esistono davvero (`go list`), tutti dentro la regola «`core/*` → altri `core/*` e `platform`»:
+
+| Package | Importa |
+|---|---|
+| `registro/regole` | **niente** del progetto: è lo schema, e uno schema non dipende da chi lo usa |
+| `inbox/classificazione` | `registro/regole` (il motore lavora sullo schema) |
+| `inbox/lettura` | `inbox/classificazione` (solo `TagliaCatena`) |
+| `inbox/aggancio` | `inbox/classificazione`, `platform/db` |
+| `inbox/ingest` | `inbox/aggancio`, `inbox/classificazione`, `registro/regole`, `platform/db`, `platform/coda`, `platform/contratti/worker`, `platform/storage/staging` |
+| `rfq/documenti` | `inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform/db`, `platform/coda`, `platform/contratti/worker`, `platform/storage/nas`, `platform/storage/staging` |
+| `rfq/fascicolo` | `inbox/classificazione`, `registro/regole` (il motore del cliente che classifica i nodi degli STEP), `platform/db`, `platform/coda`, `platform/contratti/worker`, `platform/storage/staging` |
+| `registro/anagrafica` | `registro/regole`, `platform/db` |
+| `registro/fornitori` | `platform/db` |
+
+Mai `transport`, mai `ai`, mai `app`. Nessun package di `platform` importa `core` (l'unica eccezione è un
+test: `platform/migrazioni/larghezze_db_test.go` usa `inbox/classificazione` per confrontare le larghezze
+delle colonne con i limiti del codice).
 
 ## Entry point
 
-`classificazione.Triage`, `classificazione.RisolviControparte`, `classificazione.TagliaCatena`,
-`ingest.Servizio.Ingerisci`,
-`ingest.Ritriage` / `RitriageMolti` / `RicalcolaControparti`, `aggancio.CalcolaESalva`,
-`aggancio.CalcolaRichieste`, `fornitori.Leggi` / `Calcola` / `Applica`,
-`regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`,
-`documenti.CartellaThread` / `PathDocumento` / `NomeSicuro` / `Ricognitore.Giro` / `AllineaDocumento` /
-`CopiaSulNas` / `CreaCartellaThread` / `PercorsoSulNas` / `VerificaFileAperto` / `Segnala` / `ScegliPercorso` /
-`AccodaSpostamento` / `RimuoviCartella`, `fascicolo.CongelaBom` / `ApriRevisione` / `AbbandonaBozza` / `LeggiGate` /
-`ArchiviaComponente` / `ScegliStepStrutturale` / `ConcediDerogaStruttura` / `Sostituisci` / `AnnullaSostituzione` /
-`ApplicaStruttura` / `AggiornaRimozioni` / `RianalizzaRfq` / `AccettaNodo` / `AccettaRelazione` / `AccettaSottoalbero` /
-`AccettaFile` / `ScartaNodo` / `ScartaRelazione` / `CodiceDelNodo` / `AccettaRimozione` / `ScartaRimozione` /
-`Unisci` / `CandidatiDellaRfq` / `AggiungiDaCodice` / `RipristinaComponente`,
-`anagrafica.NomeCognome`.
+I principali; chi li chiama è nel README del package.
+
+- `classificazione.Triage`, `RisolviControparte`, `TagliaCatena`, `PropostaDaNome`, `Motore.Canonico`, `CodiceRev`;
+- `ingest.Servizio.Ingerisci`, `Servizio.Ritriage` / `RitriageMolti`, `RicalcolaControparti`, `Servizio.Riprova`;
+- `aggancio.CalcolaESalva`, `CalcolaRichieste`, `SalvaCandidatiCodice`;
+- `lettura.Presenta`, `OggettoVisibile`;
+- `documenti.CartellaThread`, `NomeSicuro`, `ScegliPercorso`, `CopiaSulNas`, `RiprendiContenuto`,
+  `CreaCartellaThread`, `Ricognitore.Giro` / `Avvia`, `AllineaDocumento`, `PercorsoSulNas`, `DentroLaRadice`,
+  `VerificaFileAperto`, `Segnala`;
+- `fascicolo.CongelaBom`, `ApriRevisione`, `AbbandonaBozza`, `LeggiGate`, `ApplicaStruttura`, `RianalizzaRfq`,
+  i gesti di decisione (`AccettaNodo`, `AccettaRelazione`, `AccettaFile`, `ScartaNodo`, `CodiceDelNodo`, …),
+  `CandidatiDellaRfq`, `AggiungiDaCodice`, `NuovoAlbero`, `ModificaComponente`, `Collega` / `Scollega` / `Sposta`,
+  `AssicuraProdottiDellaRichiesta`, `PreparaFile`, `PianoDelFascicolo`, `ApplicaStrutturaVoluta`, `NotaInterna`,
+  `RegistraCaricamento`;
+- `regole.ValidaRegole` / `LeggiRegole` / `ValidaConvenzione` / `LeggiConvenzioni`, `anagrafica.Semina`,
+  `fornitori.Leggi` / `Calcola` / `Applica`.
 
 ## Flussi principali
 
-L'ingest di un lotto: casella verificata prima della transazione, modo del sync letto dal **job** e non dal
-lotto, identità del messaggio = Message-ID, controparte risolta e scritta, corpo tagliato, triage, proposte e
-candidati, cursore nella stessa transazione. Il ritriage mirato tocca solo i messaggi **non decisi**.
+- **L'ingest di un lotto**: tipo e casella del job verificati con la riga del job bloccata, modo del sync
+  letto dal **job** e non dal lotto, identità del messaggio = Message-ID, controparte risolta e scritta,
+  catena tagliata solo nei testi dati all'interpretazione, triage, proposte e candidati, cursore nella
+  stessa transazione. Il ritriage mirato tocca solo i messaggi **non decisi**.
+- **La lettura di una mail**: `lettura.Presenta` sul corpo memorizzato, a ogni apertura del pannello o
+  della pagina della RFQ; non scrive niente.
+- **Dagli STEP alla BOM**: i fatti del worker diventano proposte di nodi, archi, quantità e rimozioni
+  (`ApplicaStruttura`, per ogni RFQ che ha quel contenuto); una persona le accetta o le scarta, oppure le
+  porta nella working dall'editor (`ApplicaStrutturaVoluta`).
+- **La preparazione** (B8.7b): i codici confermati della richiesta diventano prodotti finiti, i file utili
+  si scaricano, si estraggono e si analizzano (`AssicuraProdottiDellaRichiesta`, `PreparaFile`).
+- **La conferma**: il piano (`PianoDelFascicolo`) divide i file in pronti, da decidere e in attesa; la
+  conferma di un file crea il `documento` e accoda la copia (il gesto sta ancora in `transport/web`).
+- **La copia sul NAS e l'integrità**: `CopiaSulNas` (eseguita dall'esecutore del server), la ripresa di un
+  contenuto sparito, il ricognitore che confronta i documenti con i file veri.
 
 ## Invarianti
 
-- I tre strati: fatto (che cosa è arrivato, e chi c'è dall'altra parte secondo l'anagrafica di quel momento) ·
-  interpretazione (che cosa probabilmente significa, con punteggio ed evidenza) · decisione (che cosa
+- I tre strati: fatto (che cosa è arrivato, e chi c'è dall'altra parte secondo l'anagrafica di quel momento)
+  · interpretazione (che cosa probabilmente significa, con punteggio ed evidenza) · decisione (che cosa
   l'operatore ha deciso). Un'interpretazione non scrive mai una decisione.
+- `messaggio.thread_id` non si scrive dall'ingest, con **un'eccezione sola**: il marcatore
+  `CockpitRichiestaFornitore` sulla nostra posta in uscita, verso una richiesta che esiste, su un messaggio
+  che non sta già in un'altra RFQ (`ingest/marcatori.go`).
 - Un fornitore, un ambiguo o uno sconosciuto **in entrata non produce mai `nuova_rfq`** (7B.3, D34): è per
   costruzione, non per un controllo aggiunto dopo.
-- Precedenza del triage: risposta > candidati > nuova RFQ.
-- Le regole del cliente marcate ✗ non entrano nel motore.
-- Il corpo originale non si modifica: il taglio decide solo che cosa legge l'interpretazione.
-- «Da validare» = sconosciuto + ambiguo. La newsletter di un cliente si censisce come Altro.
-- Un fornitore senza domini e senza contatti non sposta nessuna mail: la posta si riconosce dall'indirizzo, non
-  dalla ragione sociale.
+- Precedenza del triage: risposta > candidati > nuova RFQ. Le regole del cliente marcate ✗ non entrano nel
+  motore.
+- Il corpo originale non si modifica: il taglio decide solo che cosa legge l'interpretazione, `lettura`
+  decide solo come si mostra, e il testo originale resta raggiungibile.
+- «Da validare» = sconosciuto + ambiguo. Un fornitore senza domini e senza contatti non sposta nessuna mail:
+  la posta si riconosce dall'indirizzo, non dalla ragione sociale.
+- **Niente sul NAS senza una decisione**: un `documento` nasce solo da una conferma, e solo lui accoda la
+  copia. Il NAS non si sovrascrive mai, e un documento `scritto` non torna indietro.
+- La BOM working cambia solo per un gesto di una persona (decisioni, modifiche a mano, editor) o per i
+  prodotti della richiesta già confermati da una persona (preparazione); una versione congelata non cambia
+  più (i trigger `BOM01`–`BOM05` della 0020).
+- I gesti che toccano una RFQ bloccano **prima la RFQ**, poi il resto: un ordine solo, niente stalli fra
+  due gesti.
 
 ## Effetti collaterali
 
-`ingest` scrive i fatti e le proposte di triage; `aggancio` scrive i candidati; `registro/*` scrive le
-anagrafiche; `rfq/documenti` scrive `nas_anomalia`, lo stato NAS di un documento e — in `CopiaSulNas` e
-`CreaCartellaThread` — i file sul NAS attraverso `platform/storage/nas`; `rfq/fascicolo` scrive le versioni
-della BOM e le loro istantanee, l'archiviazione, lo STEP strutturale, le deroghe strutturali e la catena delle
-revisioni dei documenti; dai fatti degli STEP scrive `componente_proposta`, `relazione_proposta` e
-`rimozione_proposta` (interpretazione), e `componente`/`componente_relazione` solo nei gesti di decisione.
-Nessuno degli altri scrive `thread_id`, `documento` o sul NAS.
+- `ingest` scrive i fatti e le prime interpretazioni, e accoda gli `stage_allegato` automatici; `aggancio`
+  scrive i candidati; `registro/*` scrive le anagrafiche.
+- `rfq/documenti` scrive `nas_anomalia`, lo stato NAS dei documenti e — in `CopiaSulNas` e
+  `CreaCartellaThread` — i file sul NAS attraverso `platform/storage/nas`; la ripresa accoda download e
+  riestrazioni.
+- `rfq/fascicolo` scrive le versioni della BOM e le loro istantanee, l'archiviazione, lo STEP strutturale,
+  le deroghe e la catena delle revisioni; dai fatti degli STEP scrive `componente_proposta`,
+  `relazione_proposta` e `rimozione_proposta` (interpretazione), e `componente` / `componente_relazione`
+  nei gesti di decisione, nell'editor e nella preparazione; accoda `stage_allegato`, `estrai_archivio` e
+  `analizza_allegato` (preparazione e rianalisi); crea il messaggio «nota interna» della RFQ e i suoi
+  allegati per i caricamenti interni.
+- `inbox/classificazione`, `inbox/lettura` e `registro/regole` non hanno effetti.
 
 ## Test
 
-L1 sugli oracoli di `inbox/classificazione` (codici, atto, catena, controparte, il motore delle regole,
-proposta, precedenza) e su `registro/regole` (le due porte, le convenzioni).
-L1 su `rfq/fascicolo` (il gate, i cicli, la differenza, la classificazione dei nodi, il confronto con la working, l'unione dei codici candidati, l'albero della schermata). L4 per `ingest`, `aggancio`, `registro/fornitori`,
-`rfq/documenti` (la riconciliazione contro file veri, i nomi con la revisione e la loro riserva) e `rfq/fascicolo`
-(congelamento, revisioni, deroghe, archiviazione; proposte di struttura, rimozioni, decisioni e rianalisi, B8.5; la vista dei codici
-candidati e il gesto che aggiunge un codice, B8.6; B8.7 dalle rotte della schermata, in `transport/web`),
-compresi gli invarianti I4/I5 del contratto di classificazione.
+L1 (senza database, `go test ./...`) sugli oracoli di `inbox/classificazione`, su tutto `inbox/lettura`
+(con fuzz e benchmark), su `inbox/aggancio` (le chiavi citate, i tagli per carattere, la revisione della
+storia), su `registro/regole` e sulle parti pure di `rfq/documenti` e `rfq/fascicolo` (nomi, gate, cicli,
+differenza, classificazione dei nodi, unione dei codici, albero, piano, editor, note). L4 (`-tags
+integrazione`, PostgreSQL di prova) per tutto ciò che scrive: `ingest`, `aggancio`, `registro/fornitori` e
+`registro/anagrafica`, `rfq/documenti` (contro file veri), `rfq/fascicolo`, compresi gli invarianti I4/I5
+del contratto di classificazione. Ogni test che usa il database ha il tag `integrazione`.
 
 ## Dove intervenire
 
@@ -97,21 +141,23 @@ compresi gli invarianti I4/I5 del contratto di classificazione.
 |---|---|
 | una regola di triage nuova | `inbox/classificazione/codici.go:Triage`, `Motore.Codici` |
 | un campo nuovo in `cliente.regole` | `registro/regole/regole.go`, poi il motore in `inbox/classificazione/regole.go` |
-| un atto nuovo | `inbox/classificazione/atto.go` e l'enum `atto_business` in migrazione |
+| un suffisso decorativo che non viene riconosciuto | `registro/regole/regole.go` (la validazione), `inbox/classificazione/regole.go:Canonico` |
+| un atto nuovo | `inbox/classificazione/atto.go` e la tabella `atto_business` |
 | una convenzione di codice | `registro/regole/convenzioni.go` |
+| capire perché un pezzo di una mail è chiuso, o una tabella non si vede | `inbox/lettura` (il README dice quale regola) |
 | il nome di una cartella o di un file sul NAS | `rfq/documenti/path.go`, `nomi_nas.go` |
 | capire perché una BOM non si congela | `rfq/fascicolo/gate.go:Valuta` |
-| capire perché una revisione non si apre o non si abbandona | `rfq/fascicolo/versioni.go:contestoRevisione`, `AbbandonaBozza` |
 | capire perché un nodo di uno STEP ha (o non ha) un codice | `rfq/fascicolo/classifica.go:ClassificaNodi` |
-| capire perché una rimozione non è stata proposta | `rfq/fascicolo/rimozioni.go:AggiornaRimozioni` (il campo `Sospese` dice il motivo) |
-| capire perché un codice sta fra gli altri riferimenti, o quale gesto offre | `rfq/fascicolo/candidati.go:forte`, `classe`, `situa` |
-| capire perché un documento risulta mancante o in conflitto | `rfq/documenti/integrita.go:controllo.esamina` |
+| capire perché l'editor rifiuta una struttura | `rfq/fascicolo/voluta.go:pianifica` |
+| capire che cosa chiede «Conferma Fascicolo» | `rfq/fascicolo/piano.go:PianoDelFascicolo` |
+| capire perché un file non si prepara da solo | `rfq/fascicolo/preparazione.go:PreparaFile` |
+| capire perché un documento risulta mancante o in conflitto | `rfq/documenti/integrita.go` |
 | capire perché una copia sul NAS non parte o si ripete | `rfq/documenti/copia_nas.go:CopiaSulNas`, `ripresa.go:RiprendiContenuto` |
-| capire perché un fornitore non apre una RFQ | `inbox/classificazione/controparte.go:RisolviControparte`, `inbox/classificazione/codici.go` (ramo `Controparte`) |
+| capire perché un fornitore non apre una RFQ | `inbox/classificazione/controparte.go:RisolviControparte`, `inbox/classificazione/codici.go` |
 | capire perché un'offerta propone quella richiesta | `inbox/aggancio/richieste.go:CalcolaRichieste` |
-| capire che cosa scrive (e non scrive) l'import dei fornitori | `registro/fornitori/seme.go:calcola`, `Applica` |
+| capire che cosa scrive (e non scrive) l'import dei fornitori | `registro/fornitori/seme.go` |
 
 ## Leggi anche
 
-`internal/README.md` (i flussi per intero), `platform/README.md` (query e migrazioni),
-`transport/README.md` (chi chiama questi entry point).
+`internal/README.md` (i flussi per intero, lo stato di ogni package), `platform/README.md` (query e
+migrazioni), `transport/README.md` (chi chiama questi entry point e le eccezioni ancora aperte).
