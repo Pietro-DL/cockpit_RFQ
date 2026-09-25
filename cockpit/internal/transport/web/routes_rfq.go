@@ -2,14 +2,12 @@
 //
 // I gestori veri stanno nei file per tema che c'erano gia' — thread.go (il fascicolo e la riprova
 // delle copie), richieste.go (la richiesta a un fornitore), allegati.go (conferma e scarto di una
-// proposta). Qui ci sono le due liste e il montaggio delle rotte dell'area.
+// proposta), panoramica.go (la pagina Richieste). Qui c'e' il montaggio delle rotte dell'area.
 
 package web
 
 import (
 	"net/http"
-
-	"promatec/cockpit/internal/platform/db"
 )
 
 // registraRFQ monta le rotte della RFQ: il fascicolo di un thread, le richieste ai fornitori, le
@@ -33,7 +31,9 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	s.registraFascicolo(mux)
 	s.registraConferma(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
+	// La pagina Richieste, con le card delle RFQ e le schede dei prodotti (panoramica.go).
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
+	mux.HandleFunc("GET /richieste/{id}/prodotti", s.autenticato(s.richiestaProdotti))
 }
 
 // cruscotto non esiste piu' come tabella globale (checkpoint 3R §1): era la stessa lista di
@@ -42,19 +42,4 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 // segnalibro deve trovare qualcosa, non un 404.
 func (s *Server) cruscotto(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/richieste", http.StatusSeeOther)
-}
-
-// richieste è la lista di lavoro: le RFQ aperte, quelle dei clienti con il peso più alto in cima.
-//
-// L'ordinamento è `cliente.peso` e poi la scadenza, e si ferma lì. Il PUNTEGGIO di priorità
-// dell'addendum 2 — quello con i pesi 40/25/20/15 e le soglie — non esiste ancora, e le sue
-// regole vanno rese esplicite prima di essere codificate: inventarne una versione provvisoria qui
-// vorrebbe dire che l'ordine di lavoro di tutti dipende da una formula che nessuno ha approvato.
-func (s *Server) richieste(w http.ResponseWriter, r *http.Request) {
-	righe, err := db.New(s.Pool).ListRichieste(r.Context(), 200)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	s.rendi(w, r, "richieste.html", "richieste_tabella", "Richieste", righe)
 }

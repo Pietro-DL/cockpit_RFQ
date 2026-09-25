@@ -95,17 +95,8 @@ WHERE f.cliente_id IS NOT DISTINCT FROM (
         ORDER BY (y.cliente_id IS NOT NULL) DESC LIMIT 1)
 ORDER BY f.tipo_componente, f.tipo;
 
--- La lista delle Richieste: aperte, ordinate per peso del cliente e poi per scadenza. Il peso e'
--- un dato di anagrafica (D27), non il punteggio di priorita' dell'addendum 2: quella formula non
--- esiste ancora e qui non se ne inventa una.
--- name: ListRichieste :many
-SELECT v.*, c.peso AS peso_cliente, t.riferimento_cliente
-FROM v_cruscotto v
-JOIN thread_offerta t ON t.thread_id = v.thread_id
-JOIN cliente c        ON c.cliente_id = t.cliente_id
-WHERE v.stato_thread = 'APERTA'
-ORDER BY c.peso DESC, v.data_scadenza ASC NULLS LAST, COALESCE(v.ultimo_aggiornamento, v.data_inizio) DESC
-LIMIT $1;
+-- La lista delle Richieste sta in panoramica.sql (ListRichiestePanoramica): aperte e chiuse, con i filtri
+-- della barra. L'ordine «priorita» resta peso del cliente (D27) e poi scadenza.
 
 -- ---------------------------------------------------------------- amministrazione (checkpoint 3R §7)
 -- Buyer e fabbisogno diventano amministrabili dalla schermata. Prima la tabella del fabbisogno si

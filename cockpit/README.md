@@ -1340,8 +1340,12 @@ internal/transport/web              HTML+HTMX: login (postazione per IP), /sessi
                                     anagrafica.go, anagrafica_admin.go, convenzioni_admin.go: /admin/anagrafica (clienti, con «Lavorazioni e fornitori»);
                                     fornitori_admin.go: /admin/fornitori e /admin/fornitori/importa; censisci.go: «Censisci come fornitore / cliente» dal pannello;
                                     richieste.go: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
+                                    panoramica.go: /richieste, la pagina delle RFQ dei clienti (non dei fornitori): una card per RFQ, una scheda
+                                    per prodotto (identificativo_thread) con l'anteprima del 2D, i filtri nell'indirizzo, il poll con la firma (204 se
+                                    niente e' cambiato) e /richieste/{id}/prodotti per «+ N altri»;
                                     integrita_admin.go: /admin/nas;
-                                    e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`)
+                                    e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`);
+                                    e2e/richieste.py: la pagina Richieste nel browser, lanciata da richieste_browser_test.go (tag `browser`)
 internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
                                     (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
                                     il claim interseca le caselle dichiarate con la credenziale e registra presenza e casella_store PRIMA del long-poll;
