@@ -26,6 +26,7 @@ func (s *Server) registraFascicolo(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/fascicolo", s.autenticato(s.fascicoloPagina))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/parti", s.autenticato(s.fascicoloParti))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/anteprima", s.autenticato(s.fascicoloAnteprima))
+	mux.HandleFunc("GET /thread/{id}/fascicolo/vista", s.autenticato(s.fascicoloVista))
 
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/modifica", s.autenticato(s.modificaComponente))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/collega", s.autenticato(s.collegaComponente))
@@ -54,9 +55,14 @@ func (s *Server) fascicoloPagina(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	// Come la pagina della RFQ (B8.5): aprire il Fascicolo rilegge gli STEP con le regole del cliente di
-	// adesso, e accoda poche analisi che mancano.
-	s.rileggiAllApertura(r.Context(), id)
+	// Aprire il Fascicolo lo prepara (B8.7b): i codici della richiesta diventano prodotti, i file utili
+	// scendono, quelli fermi si rimettono in moto; e, come la pagina della RFQ (B8.5), gli STEP si rileggono
+	// con le regole del cliente di adesso. Solo chi scrive: chi consulta guarda, e non mette in moto niente.
+	if almeno(utenteDa(r.Context()), db.RuoloUtenteOperatore) {
+		s.preparaFascicolo(r.Context(), id)
+	} else {
+		s.rileggiAllApertura(r.Context(), id)
+	}
 	d, err := s.caricaFascicolo(r.Context(), id, leggiStatoFascicolo(r.URL.Query()), utenteDa(r.Context()))
 	if err != nil {
 		http.Error(w, "RFQ non trovata", 404)
@@ -65,35 +71,59 @@ func (s *Server) fascicoloPagina(w http.ResponseWriter, r *http.Request) {
 	s.rendi(w, r, "fascicolo.html", "fasc_corpo", "Fascicolo", d)
 }
 
-// fascicoloParti rifa' tutti i pannelli tranne l'anteprima: e' la navigazione (un nodo, un filtro, la
-// vista, il cassetto) e la risposta dei gesti.
+// fascicoloParti rifa' tutti i pannelli tranne il corpo dell'anteprima: e' la navigazione (una linguetta,
+// un filtro, un cassetto) e la risposta dei gesti. L'indirizzo della pagina lo dice il server
+// (HX-Push-Url): e' quello della schermata con lo stato, non quello di /parti.
 func (s *Server) fascicoloParti(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	s.rispondiFascicolo(w, r, id, leggiStatoFascicolo(r.URL.Query()), "")
+	st := leggiStatoFascicolo(r.URL.Query())
+	w.Header().Set("HX-Push-Url", "/thread/"+id.String()+"/fascicolo"+st.Query())
+	s.rispondiFascicolo(w, r, id, st, "")
 }
 
-// fascicoloAnteprima apre un file nel terzo pannello.
+// fascicoloAnteprima rifa' il pannello di destra (un componente, un nodo proposto, un file) e, fuori banda,
+// l'area principale, che mostra che cosa e' scelto.
 func (s *Server) fascicoloAnteprima(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	d, err := s.caricaFascicolo(r.Context(), id, leggiStatoFascicolo(r.URL.Query()), utenteDa(r.Context()))
+	st := leggiStatoFascicolo(r.URL.Query())
+	d, err := s.caricaFascicolo(r.Context(), id, st, utenteDa(r.Context()))
 	if err != nil {
 		http.Error(w, "RFQ non trovata", 404)
 		return
 	}
+	w.Header().Set("HX-Push-Url", d.Base+st.Query())
 	s.eseguiFascicolo(w, "fasc_anteprima", d)
 }
 
+// fascicoloVista rifa' solo l'area principale: e' la ricerca, che non deve rifare la testata (il campo in
+// cui si sta scrivendo perderebbe il cursore).
+func (s *Server) fascicoloVista(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id non valido", 400)
+		return
+	}
+	st := leggiStatoFascicolo(r.URL.Query())
+	d, err := s.caricaFascicolo(r.Context(), id, st, utenteDa(r.Context()))
+	if err != nil {
+		http.Error(w, "RFQ non trovata", 404)
+		return
+	}
+	w.Header().Set("HX-Push-Url", d.Base+st.Query())
+	s.eseguiFascicolo(w, "fasc_vista_frammento", d)
+}
+
 // rispondiFascicolo e' la risposta di un gesto o di una navigazione: l'avviso nel suo posto, e testata,
-// struttura, documenti, completezza, cassetto e intestazione dell'anteprima fuori banda. Il corpo
-// dell'anteprima non c'e': il PDF aperto resta aperto.
+// area principale, piano, cassetto e intestazione del pannello di destra fuori banda. Il corpo del pannello
+// solo se la pagina ne mostra un altro (corpo_chiave, vedi chiaveCorpo): il PDF aperto resta aperto.
 func (s *Server) rispondiFascicolo(w http.ResponseWriter, r *http.Request, thread uuid.UUID, st statoFascicolo, avviso string) {
 	d, err := s.caricaFascicolo(r.Context(), thread, st, utenteDa(r.Context()))
 	if err != nil {
@@ -101,6 +131,7 @@ func (s *Server) rispondiFascicolo(w http.ResponseWriter, r *http.Request, threa
 		return
 	}
 	d.Avviso = avviso
+	d.RifaiCorpo = r.FormValue("corpo_chiave") != d.ChiaveCorpo
 	s.eseguiFascicolo(w, "fasc_parti", d)
 }
 

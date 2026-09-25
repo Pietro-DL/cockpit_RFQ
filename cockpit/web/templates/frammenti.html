@@ -316,7 +316,7 @@
     {{template "triage_allegati" $}}
 
     <div class="azioni">
-      <button type="submit" class="primario">Crea RFQ{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      <button type="submit" class="primario">Crea RFQ</button>
       <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
     </div>
   </form>
@@ -345,7 +345,7 @@
     </fieldset>
     {{template "triage_allegati" $}}
     <div class="azioni">
-      <button type="submit" class="primario">Aggancia{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      <button type="submit" class="primario">Aggancia</button>
       <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
     </div>
   </form>
@@ -354,19 +354,23 @@
 {{end}}
 {{end}}
 
+{{/* B8.7b: i file utili non si spuntano piu'. Scendono da soli nello staging del server e l'analisi li
+     legge; sul NAS della RFQ vanno solo con «Conferma Fascicolo». La casella resta per gli altri (immagini,
+     PDF anonimi grandi), che si scaricano solo se qualcuno lo chiede. */}}
 {{define "triage_allegati"}}
 {{with .Dati}}
 {{if .Allegati}}
 <fieldset>
-  <legend>Allegati da scaricare</legend>
+  <legend>Allegati</legend>
   <table>
     {{range .Allegati}}{{if ne .Natura "inline"}}
-    <tr><td><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}" {{if .PreSpunta}}checked{{end}}></td>
+    <tr><td>{{if $.Dati.SiPrepara .}}<span class="chip fatto" title="Scende da solo nello staging del server e l'analisi lo legge: nel NAS della RFQ va solo con la conferma del Fascicolo">si prepara da solo</span>
+        {{else}}<label class="inline"><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}"> scarica anche questo</label>{{end}}</td>
         <td>{{.NomeFile}}</td><td>{{kb .Bytes}}</td>
         <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}{{end}}</td></tr>
     {{end}}{{end}}
   </table>
-  <small class="muto">Pre-spuntati: CAD, disegni, offerte, fogli di calcolo, zip. Immagini e PDF anonimi no. Nulla viene scaricato senza spunta.</small>
+  <small class="muto">CAD, disegni, offerte, fogli di calcolo e archivi si preparano da soli: staging, estrazione, analisi. Il NAS aspetta la conferma del Fascicolo. Immagini e PDF anonimi grandi solo se li spunti.</small>
 </fieldset>
 {{end}}
 {{end}}

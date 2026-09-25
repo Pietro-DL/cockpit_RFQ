@@ -173,7 +173,19 @@ var funzioni = template.FuncMap{
 	"rigaCodice":     nuovaRigaCodice,
 	// B8.7, la schermata del Fascicolo: un nodo dell'albero e una riga tratteggiata con la schermata (il
 	// template e' ricorsivo), i nomi brevi dei tipi, gli esiti dello STEP del prodotto finito.
-	"nodoVista":        func(d *fascicoloDati, n *fascicolo.Nodo) nodoVista { return nodoVista{D: d, N: n} },
+	"nodoVista": func(d *fascicoloDati, n *fascicolo.Nodo) nodoVista { return nodoVista{D: d, N: n} },
+	// B8.7b: una card della BOM visuale e una voce del NAS, con la schermata; una dimensione in byte.
+	"cartaVista": func(d *fascicoloDati, c *carta) cartaVista { return cartaVista{D: d, C: c} },
+	"nasRiga":    func(d *fascicoloDati, v nasVoce) nasRigaVista { return nasRigaVista{D: d, V: v} },
+	"kbInt": func(b int64) string {
+		switch {
+		case b < 1024:
+			return fmt.Sprintf("%d B", b)
+		case b < 1024*1024:
+			return fmt.Sprintf("%.0f KB", float64(b)/1024)
+		}
+		return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
+	},
 	"propostaVista":    func(d *fascicoloDati, p figlioProposto) propostaVista { return propostaVista{D: d, P: p} },
 	"etichettaTipoDoc": etichettaTipoDoc,
 	"etichettaStep":    fascicolo.EtichettaStep,

@@ -466,7 +466,15 @@ func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID
 		}
 		nArchi++
 	}
-	return dopoLaDecisione(ctx, q, thread, fmt.Sprintf("Accettati %d nodi e %d relazioni.", nNodi, nArchi), nil)
+	return dopoLaDecisione(ctx, q, thread, fmt.Sprintf("Accettati %s e %s.", quanti(nNodi, "nodo", "nodi"), quanti(nArchi, "relazione", "relazioni")), nil)
+}
+
+// quanti e' il numero con il nome, al singolare o al plurale: «1 nodo», «2 nodi».
+func quanti(n int, uno, molti string) string {
+	if n == 1 {
+		return "1 " + uno
+	}
+	return fmt.Sprintf("%d %s", n, molti)
 }
 
 // ScartaNodo: «questo nodo non e' un pezzo della distinta». Le relazioni che lo toccano restano aperte e

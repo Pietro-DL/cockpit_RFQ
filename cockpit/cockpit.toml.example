@@ -101,6 +101,10 @@ dsn = "postgres://cockpit:INSERISCI_PASSWORD@localhost:5432/cockpit_dev"
 
 [nas]
 # La radice È la cartella "PREVENTIVI DA FARE": sotto nascono <cliente.cartella_nas>\WIP\<aaaa mm gg Cognome Oggetto>
+# È anche il confine di «+ Aggiungi file › Importa dal NAS» nel Fascicolo (B8.7b): il server sfoglia e cerca
+# per codice SOLO qui sotto (niente «..», niente percorsi assoluti, niente collegamenti che escono), in sola
+# lettura; il file scelto si COPIA nello staging e fa la strada di tutti gli allegati, l'originale resta dov'è.
+# Serve anche la strada dei caricamenti (staging e worker di analisi): senza, il menu lo dice e non propone il gesto.
 radice = '...\_nas_test\PREVENTIVI DA FARE' # sandbox locale o UNC es. '\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE'
 # dry_run e' DEPRECATA (blocco 4): la scrittura sul NAS la governa [sicurezza].nas_scrittura, piu'
 # sotto. Se e' ancora nel file e vale `true` spegne nas_scrittura — cioe' fa quello che ha sempre
