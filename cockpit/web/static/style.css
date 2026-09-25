@@ -526,3 +526,160 @@ details.codici>summary{cursor:pointer;margin:4px 0}
 .rq-altre{display:block;margin:4px auto 0;padding:8px 18px;border:1px solid var(--f-linea2);border-radius:8px;background:var(--f-sup);font-weight:600;color:var(--f-acc)}
 .rq-poll{display:none}
 @media (max-width:700px){.rq-barra{position:static}.rq-cerca{flex-basis:100%}.rq-prodotti{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}
+
+/* ---------------------------------------------------------------- Fascicolo v3: vista Documenti ed editor
+   La vista Documenti prende tutta la larghezza: il vecchio pannello di destra resta nella pagina (le risposte
+   dei gesti lo rifanno fuori banda) ma non si vede. Lo stage del disegno e' scuro, il foglio bianco. */
+.fasc{--f-stage:#2F363D;--f-nota:#D9651A;--f-notasoft:#FCEBDD;--f-prop:#2F7F90;--f-propsoft:#EEF7F9}
+.fasc-lavoro:has(#doc-vista){grid-template-columns:minmax(0,1fr)}
+.fasc-lavoro:has(#doc-vista)>#anteprima{display:none}
+.fasc-principale:has(#doc-vista){padding:0;background:transparent;border:0;overflow:hidden}
+.fasc-principale:has(#doc-vista)>#vista{height:100%}
+.fasc:has(#doc-vista) .fasc-avviso{position:fixed;right:18px;top:50px;z-index:45;max-width:min(560px,80vw);box-shadow:0 8px 24px rgba(20,26,33,.18);border-radius:8px;cursor:pointer}
+.fasc:has(#doc-vista) .fasc-avviso .avviso-f{margin:0}
+.fasc:has(#doc-vista) .fasc-avanzamento.attivo{position:fixed;left:50%;transform:translateX(-50%);bottom:74px;z-index:44;box-shadow:0 6px 20px rgba(20,26,33,.16)}
+.fasc .docv{height:100%;display:flex;flex-direction:column;gap:8px;min-height:0}
+.fasc .docv-vuota{max-width:620px;margin:60px auto;text-align:center;color:var(--f-muto)}
+.fasc .docv-proposte{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 12px;border:1.5px dashed var(--f-prop);border-radius:10px;background:var(--f-propsoft);font-size:13px}
+.fasc .docv-griglia{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,380px);grid-template-rows:minmax(0,1fr) auto;gap:8px}
+.fasc .docv-stage-box{grid-column:1;grid-row:1;min-height:0;min-width:0;border-radius:10px;overflow:hidden;background:var(--f-stage)}
+.fasc .docv-pannello{grid-column:2;grid-row:1/3;min-height:0;display:flex;flex-direction:column;background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;overflow:hidden}
+.fasc .docv-film{grid-column:1;grid-row:2;display:flex;gap:8px;overflow-x:auto;padding:7px;background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px}
+.fasc .docv-blocco{padding:8px 10px;min-height:0}
+.fasc .docv-struttura{flex:0 1 42%;display:flex;flex-direction:column;border-bottom:1px solid var(--f-linea)}
+.fasc .docv-sezione{flex:1 1 58%;overflow:auto}
+.fasc .docv-titolo{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px}
+.fasc .docv-gruppi{display:flex;flex-wrap:wrap;gap:4px}
+.fasc .docv-gruppi a{padding:2px 8px;border-radius:999px;background:var(--f-chip);color:var(--f-muto);font-size:12px;text-decoration:none}
+.fasc .docv-gruppi a.on{background:var(--f-accsoft);color:var(--f-acc);font-weight:700}
+.fasc input.docv-filtro{width:100%;font-size:12px;padding:3px 8px}
+.fasc .docv-albero{overflow:auto;flex:1;min-height:0;margin:0 -10px}
+.fasc .docv-riga{display:flex;gap:6px;align-items:center;padding:3px 10px;text-decoration:none;color:var(--f-ink);border-left:3px solid transparent;font-size:12.5px;white-space:nowrap}
+.fasc .docv-riga:hover{background:var(--f-sup2)}
+.fasc .docv-riga.sel{background:var(--f-accsoft);border-left-color:var(--f-acc)}
+.fasc .docv-riga.rip .cod{font-style:italic;color:var(--f-muto)}
+.fasc .docv-riga .qta{font-size:11px}
+.fasc .docv-riga .ind{display:inline-flex;gap:2px}
+.fasc .docv-riga .ind .doc,.fasc .docv-riga .chip{font-size:10px;padding:0 4px;line-height:15px}
+.fasc .chip.nota{background:var(--f-notasoft);color:var(--f-nota)}
+.fasc .docv-tile{flex:0 0 112px;display:flex;flex-direction:column;gap:2px;border:2px solid transparent;border-radius:7px;background:var(--f-sup2);text-decoration:none;color:var(--f-ink);padding:3px}
+.fasc .docv-tile:hover{border-color:var(--f-linea2)}
+.fasc .docv-tile.sel{border-color:var(--f-acc)}
+.fasc .docv-mini{height:72px;background:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid var(--f-linea)}
+.fasc .docv-mini img{max-width:100%;max-height:100%;display:block}
+.fasc .docv-tile.proposta .docv-mini{border:1.5px dashed var(--f-warn)}
+.fasc .docv-tile.manca .docv-mini,.fasc .docv-tile.formato .docv-mini{background:var(--f-chip)}
+.fasc .docv-mini-testo{font-size:10px;color:var(--f-muto2);text-align:center;padding:4px;line-height:1.2}
+.fasc .docv-tile-cod{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fasc .docv-tile-badge{display:flex;gap:4px;font-size:10px;color:var(--f-muto);min-height:12px}
+.fasc .docv-sez-testa{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding-bottom:6px;border-bottom:1px solid var(--f-linea);margin-bottom:6px}
+.fasc .docv-sez-testa .desc{flex-basis:100%}
+.fasc .docv-file{border:1px solid var(--f-linea);border-radius:8px;padding:7px 9px;margin:6px 0;font-size:12.5px}
+.fasc .docv-file.aperto{border-color:var(--f-acc);box-shadow:0 0 0 2px var(--f-accsoft)}
+.fasc .docv-file-testa{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.fasc .docv-mostra{font-weight:600;text-decoration:none;word-break:break-all}
+.fasc .docv-assoc{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:6px 0}
+.fasc .docv-assoc dt{color:var(--f-muto2);font-size:11px;text-transform:uppercase;letter-spacing:.04em;align-self:center}
+.fasc .docv-assoc dd{margin:0}
+.fasc .docv-altri{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px;padding-top:6px;border-top:1px dashed var(--f-linea)}
+.fasc .docv-altri form.in-linea,.fasc .docv-cambia{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.fasc .docv-altri select,.fasc .docv-cambia select{max-width:170px}
+.fasc .docv-generale{display:inline-flex;flex-wrap:wrap;gap:4px}
+.fasc .vv-domanda{margin:4px 0;color:var(--f-warn);font-size:12.5px}
+.fasc .vv-gesti{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fasc .docv-file:not(.aperto) .docv-note{display:none}
+.fasc .docv-note{margin-top:8px;padding-top:6px;border-top:1px solid var(--f-linea)}
+.fasc .docv-note-lista{list-style:none;margin:4px 0;padding:0;display:grid;gap:4px}
+.fasc .docv-nota{display:grid;grid-template-columns:22px 1fr;gap:2px 8px;width:100%;text-align:left;font-weight:400;background:var(--f-sup2);border:1px solid var(--f-linea);border-radius:7px;padding:5px 7px}
+.fasc .docv-nota:hover,.fasc .docv-nota.acceso{border-color:var(--f-nota)}
+.fasc .docv-nota .pn,.fasc .ds-pin{border-radius:50%;background:var(--f-nota);color:#fff;font-weight:700;text-align:center}
+.fasc .docv-nota .pn{width:22px;height:22px;line-height:22px;font-size:11px;grid-row:1/3}
+.fasc .docv-nota .t{white-space:pre-wrap}
+.fasc .docv-aggiorna{position:fixed;bottom:74px;right:24px;z-index:44}
+
+/* lo stage del disegno (fascicolo.mjs) */
+.fasc .doc-stage{position:relative;height:100%;display:flex;flex-direction:column;color:#E8EDF2;outline:none}
+.fasc .ds-barra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;background:rgba(18,22,27,.55);font-size:12.5px}
+.fasc .ds-barra .ds-cod{font-weight:700;font-family:var(--f-mono)}
+.fasc .ds-barra .ds-desc{color:#AEB8C2;max-width:32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fasc .ds-barra button,.fasc .ds-barra select{background:#3B444D;color:#E8EDF2;border:1px solid #56616C;border-radius:6px;padding:2px 8px;font-size:12px}
+.fasc .ds-barra button:hover{border-color:#8FA0B0}
+.fasc .ds-barra button.on{background:var(--f-nota);border-color:var(--f-nota);color:#fff}
+.fasc .ds-barra select{max-width:240px}
+.fasc .ds-barra .ds-sp{flex:1}
+.fasc .ds-area{position:relative;flex:1;min-height:0;overflow:auto;display:flex}
+.fasc .ds-pagina{position:relative;margin:auto;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.45);flex:0 0 auto}
+.fasc .ds-pagina canvas{display:block;width:100%;height:100%}
+.fasc .ds-area.armato,.fasc .ds-area.armato .ds-pagina{cursor:crosshair}
+.fasc .ds-pins{position:absolute;inset:0;pointer-events:none}
+.fasc .ds-pin{position:absolute;width:24px;height:24px;line-height:20px;font-size:11.5px;border:2px solid #fff;transform:translate(-50%,-50%);box-shadow:0 1px 5px rgba(0,0,0,.5);pointer-events:auto;cursor:pointer;padding:0}
+.fasc .ds-pin.tmp{background:var(--f-acc);pointer-events:none}
+.fasc .ds-pin.acceso{outline:3px solid #FFD27A}
+.fasc .ds-pop{position:absolute;z-index:6;width:300px;background:var(--f-sup);color:var(--f-ink);border:1px solid var(--f-nota);border-radius:9px;padding:10px 11px;box-shadow:0 8px 28px rgba(0,0,0,.45);font-size:13px}
+.fasc .ds-pop textarea{width:100%;min-height:78px;font:inherit;border:1px solid var(--f-linea2);border-radius:6px;padding:5px}
+.fasc .ds-pop .ds-pop-azioni{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
+.fasc .ds-pop .ds-pop-testo{white-space:pre-wrap;margin:4px 0 6px}
+.fasc .ds-pop .ds-pop-errore{color:var(--f-urg);font-size:12px;margin-top:4px}
+.fasc .ds-vuoto{margin:auto;max-width:460px;text-align:center;background:rgba(18,22,27,.55);border:1px dashed #6B7682;border-radius:12px;padding:22px 26px;color:#D2DAE2}
+.fasc .ds-vuoto b{display:block;font-size:15px;margin-bottom:6px;color:#FFD2A8}
+.fasc .ds-hint{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:rgba(18,22,27,.85);border-radius:7px;padding:4px 12px;font-size:11.5px;color:#C4CDD6;pointer-events:none;white-space:nowrap}
+.fasc .ds-iframe{flex:1;border:0;background:#fff}
+
+/* schermo intero: via la testata dell'applicazione e la navigazione, la vista prende tutta l'altezza */
+body.fasc-intero .barra,body.fasc-intero .rail{display:none!important}
+body.fasc-intero .guscio{grid-template-columns:1fr}
+body.fasc-intero .fasc{min-height:100vh}
+body.fasc-intero .fasc-principale:has(#doc-vista){height:calc(100vh - 170px)}
+body.fasc-intero .fasc-testata .ft-bom,body.fasc-intero .fasc-testata .briciole{display:none}
+@media (max-width:1100px){.fasc .docv-griglia{grid-template-columns:1fr;grid-template-rows:minmax(360px,60vh) auto auto}.fasc .docv-pannello{grid-column:1;grid-row:3}.fasc-principale:has(#doc-vista){height:auto}}
+
+/* l'editor della struttura: sopra tutto, a tutto schermo */
+.fasc .editor-avvio{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+.bomed-sfondo{position:fixed;inset:0;z-index:60;background:rgba(15,22,28,.45);display:flex}
+.bomed{margin:18px;flex:1;display:flex;flex-direction:column;background:#F2F4F6;color:#141A21;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif}
+.bomed button,.bomed select,.bomed input{font:inherit;font-size:12.5px}
+.bomed button{border:1px solid #CBD2DA;background:#fff;border-radius:7px;padding:3px 9px;cursor:pointer}
+.bomed button.primario{background:#0F4C5C;border-color:#0F4C5C;color:#fff;font-weight:700}
+.bomed button:disabled{opacity:.45;cursor:not-allowed}
+.bomed-testa{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:#fff;border-bottom:1px solid #E1E5EA}
+.bomed-testa h2{margin:0;font-size:16px}
+.bomed-testa .sp{flex:1}
+.bomed-avviso{padding:6px 14px;font-size:12.5px;background:#FAF0DA;color:#8A5A00;border-bottom:1px solid #E0BD72}
+.bomed-avviso.info{background:#E4EEF7;color:#2B5F8A;border-color:#B9D1E6}
+.bomed-corpo{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:10px;padding:10px 14px}
+.bomed-albero,.bomed-vassoio{background:#fff;border:1px solid #E1E5EA;border-radius:10px;overflow:auto;padding:8px;min-height:0}
+.bomed-vassoio{border-style:dashed}
+.bomed-vassoio.bersaglio,.bomed-riga.bersaglio{outline:2px solid #2F7F90;background:#EEF7F9}
+.bomed-riga.vietato{outline:2px solid #B03A16}
+.bomed-riga{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:7px;border:1px solid transparent;min-height:30px;font-size:12.5px}
+.bomed-riga:hover{background:#F8FAFB}
+.bomed-riga.radice{font-weight:700;background:#E2EFF2;border-color:#0F4C5C}
+.bomed-riga.proposto .bomed-cod{border-bottom:1.5px dashed #2F7F90}
+.bomed-riga.proposto{background:#F3F9FA}
+.bomed-riga.scelta{outline:2px solid #0F4C5C}
+.bomed-riga.rimando{opacity:.7}
+.bomed-maniglia{cursor:grab;color:#8A939E;user-select:none;padding:0 2px}
+.bomed-cod{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-weight:600}
+.bomed-desc{color:#59636F;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:28ch}
+.bomed-tipo{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#8A939E}
+.bomed-qta{width:56px}
+.bomed-badge{font-size:10.5px;border-radius:999px;padding:0 6px;background:#EDF0F3;color:#59636F;white-space:nowrap}
+.bomed-badge.warn{background:#FAF0DA;color:#8A5A00}
+.bomed-badge.urg{background:#FAE9E2;color:#B03A16}
+.bomed-badge.info{background:#EEEAF7;color:#5B4B8A}
+.bomed-badge.prop{background:#EEF7F9;color:#2F7F90}
+.bomed-badge button{border:0;background:none;padding:0;color:inherit;text-decoration:underline;font-size:inherit}
+.bomed-riga .sp{flex:1}
+.bomed-menu{position:relative}
+.bomed-menu-dentro{position:absolute;right:0;top:100%;z-index:5;min-width:220px;background:#fff;border:1px solid #CBD2DA;border-radius:9px;box-shadow:0 8px 24px rgba(20,26,33,.16);padding:6px;display:grid;gap:3px}
+.bomed-menu-dentro button{text-align:left;border:0}
+.bomed-menu-dentro button:hover{background:#E2EFF2}
+.bomed-scegli{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px;background:#F8FAFB;border:1px solid #E1E5EA;border-radius:8px;margin:4px 0}
+.bomed-vassoio h3{margin:2px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8A939E}
+.bomed-vassoio .bomed-riga{border:1px dashed #CBD2DA;margin-bottom:4px}
+.bomed-sotto{margin-left:14px;border-left:1px dashed #CBD2DA;padding-left:6px}
+.bomed-codice{width:120px}
+.bomed-piede{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 14px;background:#fff;border-top:1px solid #E1E5EA;font-size:12px;color:#59636F}
+.bomed-esito{font-weight:600}
+.bomed-esito.no{color:#B03A16}.bomed-esito.ok{color:#1D6B41}
+.bomed-vuoto{color:#8A939E;font-size:12.5px;padding:10px;text-align:center}

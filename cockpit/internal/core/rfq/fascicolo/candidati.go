@@ -128,6 +128,9 @@ type ContestoCodici struct {
 	Proposte       []db.ListProposteNodoAperteRow
 	Identificativi []db.IdentificativoThread
 	Bloccata       int32 // 0 = working libera; n = congelata nella Vn
+	// Motore: le regole del cliente. Con i suffissi decorativi, il codice «X» trova il pezzo nato come «X_PRT»
+	// prima della regola: e' gia' nella BOM, non si aggiunge un secondo componente.
+	Motore *classificazione.Motore
 }
 
 // Candidati sono i codici della RFQ nelle due liste del pannello.
@@ -182,6 +185,16 @@ func Unisci(righe []db.ListCodiciCandidatiThreadRow, c ContestoCodici) Candidati
 	componenti := map[string]db.Componente{}
 	for _, x := range c.Componenti {
 		componenti[strings.ToUpper(strings.TrimSpace(x.Codice))] = x
+	}
+	if c.Motore.HaSuffissi() {
+		for _, x := range c.Componenti {
+			can, _ := c.Motore.Canonico(x.Codice, "")
+			if k := strings.ToUpper(strings.TrimSpace(can)); k != "" {
+				if _, gia := componenti[k]; !gia {
+					componenti[k] = x
+				}
+			}
+		}
 	}
 	proposte := map[string][]db.ListProposteNodoAperteRow{}
 	for _, p := range c.Proposte {
@@ -450,7 +463,7 @@ func CandidatiDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID) (Ca
 	if err != nil {
 		return Candidati{}, err
 	}
-	c := ContestoCodici{Riferimento: t.RiferimentoCliente.String, HaFamiglie: m.HaFamiglie()}
+	c := ContestoCodici{Riferimento: t.RiferimentoCliente.String, HaFamiglie: m.HaFamiglie(), Motore: m}
 	if c.Componenti, err = q.ListComponentiThread(ctx, thread); err != nil {
 		return Candidati{}, err
 	}

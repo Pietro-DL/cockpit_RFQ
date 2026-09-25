@@ -10,6 +10,7 @@ package web
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,6 +46,9 @@ type Server struct {
 	Templ  fs.FS            // web/templates
 	Static fs.FS            // web/static
 	pagine map[string]*template.Template
+	// versioni: per i file statici che una pagina carica con «statico», l'impronta del contenuto, che va
+	// nell'indirizzo (?v=): un cockpit.exe nuovo porta file nuovi, e il browser non tiene i vecchi.
+	versioni map[string]string
 	// IntervalloSync: ogni quanto lo scheduler accoda il sync (0 = mai). Serve solo a dirlo
 	// all'operatore nella schermata, con parole che corrispondono alla configurazione.
 	IntervalloSync time.Duration
@@ -179,6 +184,8 @@ var funzioni = template.FuncMap{
 	"nodoVista": func(d *fascicoloDati, n *fascicolo.Nodo) nodoVista { return nodoVista{D: d, N: n} },
 	// B8.7b: una card della BOM visuale e una voce del NAS, con la schermata; una dimensione in byte.
 	"cartaVista": func(d *fascicoloDati, c *carta) cartaVista { return cartaVista{D: d, C: c} },
+	"voceVista":  voceVistaDi,
+	"fileVista":  func(d *fascicoloDati, s *sezioneDoc, f fileDoc) fileVista { return fileVista{D: d, S: s, F: f} },
 	"nasRiga":    func(d *fascicoloDati, v nasVoce) nasRigaVista { return nasRigaVista{D: d, V: v} },
 	"kbInt": func(b int64) string {
 		switch {
@@ -240,7 +247,22 @@ func intero(v any) int {
 }
 
 func (s *Server) Init() error {
-	base, err := template.New("layout").Funcs(funzioni).ParseFS(s.Templ, "layout.html", "frammenti.html")
+	s.versioni = map[string]string{}
+	if s.Static != nil {
+		// le impronte si calcolano qui, una volta: le pagine le leggono in parallelo
+		voci, _ := fs.ReadDir(s.Static, ".")
+		for _, v := range voci {
+			if v.IsDir() {
+				continue
+			}
+			if b, err := fs.ReadFile(s.Static, v.Name()); err == nil {
+				h := sha256.Sum256(b)
+				s.versioni[v.Name()] = hex.EncodeToString(h[:6])
+			}
+		}
+	}
+	base, err := template.New("layout").Funcs(funzioni).Funcs(template.FuncMap{"statico": s.statico}).
+		ParseFS(s.Templ, "layout.html", "frammenti.html")
 	if err != nil {
 		return err
 	}
@@ -283,7 +305,7 @@ func ProtezioneCSRF(h http.Handler) http.Handler {
 // Qui restano le rotte che non sono di nessuna area: i file statici, la salute del server e la
 // porta d'ingresso.
 func (s *Server) Registra(mux *http.ServeMux) {
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(s.Static)))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", s.statici()))
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /login", s.loginForm)
 	mux.HandleFunc("POST /login", s.login)
@@ -293,6 +315,42 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	s.registraRFQ(mux)
 	s.registraPostazioni(mux)
 	s.registraAdmin(mux)
+}
+
+// statici serve i file statici. Quelli che non cambiano mai sotto lo stesso indirizzo (pdf.js, che sta in
+// una cartella con la sua versione, e i file chiesti con l'impronta ?v=) il browser li tiene: il modulo del
+// lavoratore di pdf.js pesa piu' di un megabyte, e il Fascicolo si apre molte volte al giorno.
+func (s *Server) statici() http.Handler {
+	h := http.FileServerFS(s.Static)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "pdfjs-") || r.URL.Query().Get("v") != "" {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		// Il tipo lo dice il server, non il registro di Windows: un .mjs servito come text/plain e il
+		// browser non carica il modulo (e la vista Documenti resta vuota).
+		switch strings.ToLower(filepath.Ext(r.URL.Path)) {
+		case ".mjs", ".js":
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		case ".wasm":
+			w.Header().Set("Content-Type", "application/wasm")
+		case ".css":
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case ".bcmap", ".pfb", ".icc":
+			w.Header().Set("Content-Type", "application/octet-stream")
+		case ".ttf":
+			w.Header().Set("Content-Type", "font/ttf")
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// statico e' l'indirizzo di un file statico con l'impronta del suo contenuto: {{statico "fascicolo.mjs"}}.
+// Le impronte le calcola Init; un file che non c'e' torna senza impronta.
+func (s *Server) statico(nome string) string {
+	if v, ok := s.versioni[nome]; ok {
+		return "/static/" + nome + "?v=" + v
+	}
+	return "/static/" + nome
 }
 
 // ---------------------------------------------------------------- rendering

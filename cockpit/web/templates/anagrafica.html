@@ -216,6 +216,13 @@
         il programma. Il ruolo «parte» dice che quei codici sono sottoassiemi o particolari; «finito» non
         esiste, perche' e' il ruolo di un articolo dentro una richiesta e lo dice la distinta.</p>
 
+        <h3>Suffissi decorativi</h3>
+        <label>Le code che i CAD di questo cliente attaccano al codice del pezzo senza cambiarlo (una per riga)
+          <span><textarea name="suffissi_decorativi" rows="2" spellcheck="false" placeholder="_PRT">{{range $d.Regole.SuffissiDecorativi}}{{.}}
+{{end}}</textarea><small class="muto">Una parte «…_PRT», un assieme «…_ASM»: il codice letto nei nomi dei file, negli
+        STEP e nei testi li perde, solo per questo cliente (per un altro possono essere parte del codice). Una coda
+        che si legge come revisione (_1, _B, _R2) non si accetta.</small></span></label>
+
         <h3>Riferimento della richiesta</h3>
         <p class="muto nota">Il numero con cui il cliente chiama la richiesta (RDO, Anfrage, ODA). Non e'
         un codice prodotto e non diventa mai un identificativo: ha un campo suo sulla richiesta.</p>

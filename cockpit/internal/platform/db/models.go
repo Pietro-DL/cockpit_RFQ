@@ -3170,6 +3170,30 @@ type AnalizzatoreCorrente struct {
 	ImpostatoIl          time.Time `json:"impostato_il"`
 }
 
+// Nota tecnica puntata su un PDF (Fascicolo v3, vista Documenti): un punto di una pagina di un file, con il
+// testo. Appartiene al file su cui e' stata scritta (allegato_id) e non migra quando il disegno viene
+// sostituito da una revisione nuova. La schermata mostra le note di un file per contenuto (lo sha256 dell'allegato
+// nella RFQ): due allegati identici mostrano le stesse note. Solo chi l'ha scritta la cambia o la toglie.
+type AnnotazionePdf struct {
+	AnnotazioneID uuid.UUID `json:"annotazione_id"`
+	ThreadID      uuid.UUID `json:"thread_id"`
+	// Il componente che si stava guardando quando la nota e' nata: per id, cosi' una correzione del codice non la
+	// stacca dal pezzo. NULL per un file senza componente (da associare, capitolato, documento della RFQ).
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	AllegatoID   uuid.UUID     `json:"allegato_id"`
+	// La pagina del PDF, da 1.
+	Pagina int32 `json:"pagina"`
+	// Il punto sulla pagina, da 0 (sinistra) a 1 (destra), sulla pagina com'e' mostrata (rotazione del PDF applicata).
+	XNorm pgtype.Numeric `json:"x_norm"`
+	// Il punto sulla pagina, da 0 (in alto) a 1 (in basso).
+	YNorm        pgtype.Numeric `json:"y_norm"`
+	Testo        string         `json:"testo"`
+	CreataDa     uuid.UUID      `json:"creata_da"`
+	CreataIl     time.Time      `json:"creata_il"`
+	ModificataDa uuid.NullUUID  `json:"modificata_da"`
+	ModificataIl *time.Time     `json:"modificata_il"`
+}
+
 type AttoBusiness struct {
 	Codice      string `json:"codice"`
 	Descrizione string `json:"descrizione"`

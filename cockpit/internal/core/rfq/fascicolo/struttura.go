@@ -114,6 +114,8 @@ func cheCosaLoTiene(tabella string) string {
 		return "ha una deroga strutturale"
 	case "bom_versione_componente":
 		return "è in una baseline congelata"
+	case "annotazione_pdf":
+		return "ha delle note sui disegni"
 	}
 	return "è ancora usato (" + tabella + ")"
 }

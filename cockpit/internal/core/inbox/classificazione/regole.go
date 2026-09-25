@@ -3,6 +3,7 @@ package classificazione
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type Motore struct {
 	riferimento *regexp.Regexp
 	rifNome     string
 	frasi       []string
+	suffissi    []string // i suffissi decorativi del cliente, in maiuscolo, il piu' lungo prima
 	Regole      regole.Regole
 }
 
@@ -73,7 +75,98 @@ func Compila(cliente string, r regole.Regole) *Motore {
 			m.frasi = append(m.frasi, strings.ToLower(strings.TrimSpace(f)))
 		}
 	}
+	for i, x := range r.SuffissiDecorativi {
+		if ok(fmt.Sprintf("suffisso decorativo %d", i+1)) {
+			m.suffissi = append(m.suffissi, strings.ToUpper(strings.TrimSpace(x)))
+		}
+	}
+	// il piu' lungo prima: «_PRT_ASM» non deve perdere solo «_ASM»
+	sort.SliceStable(m.suffissi, func(i, j int) bool { return len(m.suffissi[i]) > len(m.suffissi[j]) })
 	return m
+}
+
+// togliSuffisso toglie una volta, senza distinguere maiuscole, il primo suffisso decorativo del cliente che
+// chiude il codice. ok = false se non ce n'e'.
+func (m *Motore) togliSuffisso(codice string) (string, bool) {
+	if m == nil || len(m.suffissi) == 0 {
+		return codice, false
+	}
+	c := strings.TrimSpace(codice)
+	for _, s := range m.suffissi {
+		if len(c) > len(s) && strings.EqualFold(c[len(c)-len(s):], s) {
+			return c[:len(c)-len(s)], true
+		}
+	}
+	return codice, false
+}
+
+// senzaSuffissi toglie da un testo i suffissi decorativi del cliente attaccati in coda a una parola («52920000_PRT.pdf»
+// → «52920000.pdf»): prima della coda una lettera o una cifra, dopo nessuna. Senza suffissi il testo resta com'e'.
+func (m *Motore) senzaSuffissi(t string) string {
+	if m == nil || len(m.suffissi) == 0 {
+		return t
+	}
+	alnum := func(b byte) bool { return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
+	var out strings.Builder
+	for i := 0; i < len(t); {
+		tolto := false
+		if i > 0 && alnum(t[i-1]) {
+			for _, s := range m.suffissi {
+				if j := i + len(s); j <= len(t) && strings.EqualFold(t[i:j], s) && (j == len(t) || !alnum(t[j])) {
+					i, tolto = j, true
+					break
+				}
+			}
+		}
+		if !tolto {
+			out.WriteByte(t[i])
+			i++
+		}
+	}
+	return out.String()
+}
+
+// Canonico toglie dal codice letto in un nome di file, in un testo o nel risultato di un'analisi un suffisso
+// decorativo del cliente: i CAD attaccano al nome del pezzo il tipo di file («…_PRT», «…_ASM») e il pezzo
+// resta lo stesso. Se la revisione non e' nota, quello che resta si rilegge con CodiceRev («X_B_PRT» → X,
+// rev B). Quello che resta deve avere ancora la forma di un codice (sembraCodice): «1234_PRT» resta com'e'.
+// Un motore nil, o senza suffissi, lascia il codice com'e': per chi non li dichiara non cambia niente.
+func (m *Motore) Canonico(codice, rev string) (string, string) {
+	base, ok := m.togliSuffisso(codice)
+	if !ok || !sembraCodice(base) {
+		return codice, rev
+	}
+	if rev == "" {
+		if k, r := CodiceRev(base); r != "" && sembraCodice(k) {
+			return k, r
+		}
+	}
+	return base, rev
+}
+
+// CanonicoNome e' Canonico per un codice letto in un nome di file, dove il suffisso puo' stare anche prima
+// della revisione: «X_PRT_B» e' X (la revisione, se c'e', la dice chi legge il nome). Senza suffissi, com'e'.
+func (m *Motore) CanonicoNome(codice string) string {
+	if k, _ := m.Canonico(codice, ""); !strings.EqualFold(k, strings.TrimSpace(codice)) {
+		return k
+	}
+	if k, r := CodiceRev(codice); r != "" {
+		if b, _ := m.Canonico(k, r); !strings.EqualFold(b, k) {
+			return b
+		}
+	}
+	return codice
+}
+
+// HaSuffissi dice se il cliente dichiara suffissi decorativi utilizzabili.
+func (m *Motore) HaSuffissi() bool { return m != nil && len(m.suffissi) > 0 }
+
+// SuffissiDecorativi sono i suffissi decorativi utilizzabili del cliente, in maiuscolo.
+func (m *Motore) SuffissiDecorativi() []string {
+	if m == nil {
+		return nil
+	}
+	return append([]string(nil), m.suffissi...)
 }
 
 // CodiceTrovato è un codice con la sua provenienza. La provenienza non è un ornamento: è ciò che
@@ -195,7 +288,9 @@ func (m *Motore) CodiciDa(testi ...Testo) []CodiceTrovato {
 	if m != nil {
 		for _, f := range m.famiglie {
 			for _, t := range testi {
-				for _, g := range f.re.FindAllStringSubmatch(senzaURL(t.Corpo), -1) {
+				// la famiglia legge il testo senza i suffissi decorativi: con un gruppo della revisione, «X_PRT»
+				// darebbe la revisione P
+				for _, g := range f.re.FindAllStringSubmatch(m.senzaSuffissi(senzaURL(t.Corpo)), -1) {
 					c := CodiceTrovato{Codice: g[0], Origine: "famiglia", Famiglia: f.nome,
 						Ruolo: f.ruolo, Punteggio: PuntiFamiglia, Dove: t.Dove}
 					if f.iCodice > 0 && f.iCodice < len(g) {
@@ -203,6 +298,10 @@ func (m *Motore) CodiciDa(testi ...Testo) []CodiceTrovato {
 					}
 					if f.rev && f.iRev > 0 && f.iRev < len(g) {
 						c.Rev = g[f.iRev]
+					}
+					// una famiglia dice gia' dov'e' il codice: si toglie solo il suffisso, senza rileggere la coda
+					if b, ok := m.togliSuffisso(c.Codice); ok && b != "" {
+						c.Codice = b
 					}
 					chiave := c.Codice + "\x00" + c.Rev
 					if c.Codice == "" || visti[chiave] {
@@ -220,6 +319,7 @@ func (m *Motore) CodiciDa(testi ...Testo) []CodiceTrovato {
 			if k, r := CodiceRev(c); r != "" {
 				cod, rev = k, r
 			}
+			cod, rev = m.Canonico(cod, rev)
 			if visti[cod+"\x00"+rev] || visti[c+"\x00"] {
 				continue
 			}

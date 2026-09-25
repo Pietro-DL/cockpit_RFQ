@@ -30,6 +30,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	// B8.7: la schermata del Fascicolo e i gesti che le mancavano (fascicolo_rotte.go).
 	s.registraFascicolo(mux)
 	s.registraConferma(mux)
+	// Fascicolo v3: note sui disegni, struttura dall'editor, file di nessun componente (fascicolo_gesti_v3.go).
+	s.registraFascicoloV3(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	// La pagina Richieste, con le card delle RFQ e le schede dei prodotti (panoramica.go).
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))

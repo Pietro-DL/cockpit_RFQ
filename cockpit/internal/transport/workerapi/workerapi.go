@@ -27,6 +27,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
@@ -937,6 +938,9 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	}
 	// Il codice e la revisione arrivano da un worker, cioe' da fuori: prima di finire in una colonna
 	// passano dai limiti del dominio (7C.1, P0). Fuori misura → non nel campo, ma nei dettagli.
+	// I suffissi decorativi del cliente («…_PRT») non sono il codice: il cartiglio letto da un nome di file
+	// li porterebbe dentro, e il disegno non troverebbe il suo componente.
+	codice, rev = motoreDelFile(ctx, q, threadID, a.MessaggioID).Canonico(codice, rev)
 	var scarti map[string]any
 	codice, rev, scarti = s.codiceRevSicuri(codice, rev, "analisi di "+a.NomeFile)
 	if len(scarti) > 0 {
@@ -1221,6 +1225,12 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 	if dettagli == nil {
 		dettagli = map[string]any{}
 	}
+	// I suffissi decorativi del cliente («…_PRT») non sono il codice: il file deve trovare il suo componente.
+	motore := motoreDelFile(ctx, q, threadID, a.MessaggioID)
+	pr.Codice, pr.Rev = motore.Canonico(pr.Codice, pr.Rev)
+	for i, c := range pr.CodiciNelNome {
+		pr.CodiciNelNome[i] = motore.CanonicoNome(c)
+	}
 	if len(pr.CodiciNelNome) > 0 {
 		// il nome non e' un codice, ma ne contiene: si conservano qui, non nella colonna
 		dettagli["codici_nel_nome"] = pr.CodiciNelNome
@@ -1243,6 +1253,36 @@ func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegat
 		return fmt.Errorf("proposta: %w", err)
 	}
 	return nil
+}
+
+// motoreDelFile e' il motore delle regole del cliente a cui un file appartiene: quello della RFQ del messaggio,
+// altrimenti quello del cliente riconosciuto come controparte, altrimenti, per la posta di un fornitore, quello
+// dei clienti che gli hanno chiesto qualcosa (come l'ingest, ingest.Motori.PerFornitore: lo stesso file non
+// cambia codice fra l'arrivo e lo staging). Serve a togliere dal codice letto i suffissi decorativi; nil se
+// non si sa, e un motore nil non toglie niente.
+func motoreDelFile(ctx context.Context, q *db.Queries, threadID uuid.NullUUID, messaggio uuid.UUID) *classificazione.Motore {
+	if threadID.Valid {
+		if m, err := fascicolo.MotoreDellaRfq(ctx, q, threadID.UUID); err == nil {
+			return m
+		}
+		return nil
+	}
+	m, err := q.GetMessaggio(ctx, messaggio)
+	if err != nil {
+		return nil
+	}
+	if !m.ControparteClienteID.Valid {
+		if m.ControparteFornitoreID.Valid {
+			return ingest.NuoviMotori().PerFornitore(ctx, q, m.ControparteFornitoreID.UUID)
+		}
+		return nil
+	}
+	c, err := q.GetCliente(ctx, m.ControparteClienteID.UUID)
+	if err != nil {
+		return nil
+	}
+	lette, _ := regole.LeggiRegole(c.Regole)
+	return classificazione.Compila(c.RagioneSociale, lette)
 }
 
 // codiceRevSicuri applica i limiti del dominio (classificazione.MaxCodice, classificazione.MaxRev) a un codice e a una

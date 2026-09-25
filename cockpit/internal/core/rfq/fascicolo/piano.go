@@ -57,8 +57,11 @@ const (
 	DomandaRevisione     = "revisione"      // revisione discordante con il componente o fra i file arrivati insieme
 	DomandaSostituzione  = "sostituzione"   // il componente ha gia' un documento corrente dello stesso tipo
 	DomandaStruttura     = "struttura"      // una proposta dello STEP che non si accetta senza una persona
-	DomandaStrutturale   = "strutturale"    // piu' STEP candidati a STEP strutturale del prodotto
-	DomandaCongelata     = "congelata"      // BOM congelata e file gia' assegnato: si sgancia o si apre una revisione
+	// DomandaStrutturaEditor: la struttura proposta da uno STEP si conferma dall'editor della BOM (Fascicolo
+	// v3), dopo averla vista; non entra con «Conferma Fascicolo».
+	DomandaStrutturaEditor = "struttura_editor"
+	DomandaStrutturale     = "strutturale" // piu' STEP candidati a STEP strutturale del prodotto
+	DomandaCongelata       = "congelata"   // BOM congelata e file gia' assegnato: si sgancia o si apre una revisione
 )
 
 // Domanda e' una cosa che una persona deve decidere, con le parole della schermata.
@@ -88,7 +91,13 @@ type VoceFile struct {
 	Rev        string
 	Interno    bool           // caricato a mano (una versione interna)
 	Componente *db.Componente // il componente a cui va; nil = senza componente, o nasce dallo STEP (DaStep)
-	DaStep     *NodoInArrivo
+	// Alias: il componente nato con il suffisso decorativo del cliente («X_PRT», prima della regola), che il file
+	// «X» non trova per codice: e' lo stesso pezzo, e il gesto e' assegnarlo a quello
+	Alias *db.Componente
+	// DaStep: il nodo dello STEP da cui nasce il componente a cui va. Con la struttura pronta la voce e' pronta
+	// ed entra con lei; con la struttura da confermare nell'editor (Fascicolo v3) la voce aspetta, ma sa gia'
+	// a quale nodo va (il pannello del nodo la mostra fra i file in arrivo).
+	DaStep *NodoInArrivo
 	// Aggiunge: entra accanto ad altri file dello stesso tipo e dello stesso componente arrivati insieme e
 	// con la stessa revisione (i fogli di un disegno): alla conferma si aggiunge, nessuno sostituisce l'altro.
 	Aggiunge bool
@@ -276,6 +285,7 @@ type IngressoPiano struct {
 	Relazioni  []db.RelazioneProposta
 	NomiFile   map[uuid.UUID]string // allegato → nome, per gli STEP
 	Bloccata   int32
+	Motore     *classificazione.Motore // le regole del cliente della RFQ: i suffissi decorativi (nil = nessuna)
 }
 
 // dettagliProposta sono le chiavi dei dettagli che il piano usa.
@@ -291,9 +301,24 @@ func PianoDelFascicolo(in IngressoPiano) PianoFascicolo {
 	p := PianoFascicolo{Bloccata: in.Bloccata}
 	perCodice := map[string]db.Componente{}
 	perID := map[uuid.UUID]db.Componente{}
+	alias := map[string]db.Componente{} // codice senza suffisso → il componente nato con il suffisso
 	for _, c := range in.Componenti {
 		perCodice[maiuscolo(c.Codice)] = c
 		perID[c.ComponenteID] = c
+	}
+	if in.Motore.HaSuffissi() {
+		ordinati := append([]db.Componente(nil), in.Componenti...)
+		sort.Slice(ordinati, func(i, j int) bool { return ordinati[i].Codice < ordinati[j].Codice })
+		for _, c := range ordinati {
+			can, _ := in.Motore.Canonico(c.Codice, "")
+			k := maiuscolo(can)
+			if _, esiste := perCodice[k]; k == maiuscolo(c.Codice) || esiste || c.ArchiviatoIl != nil {
+				continue
+			}
+			if _, gia := alias[k]; !gia {
+				alias[k] = c
+			}
+		}
 	}
 	correnti := map[uuid.UUID][]db.Documento{}
 	perHash := map[string]db.Documento{}
@@ -309,7 +334,7 @@ func PianoDelFascicolo(in IngressoPiano) PianoFascicolo {
 
 	primoPerHash := map[string]string{} // nello stesso piano: il secondo file con lo stesso contenuto e' una provenienza
 	for _, f := range in.File {
-		v, ok := voceFile(f, in.Bloccata, perCodice, perID, correnti, perHash, inArrivo, inSospeso)
+		v, ok := voceFile(f, in.Bloccata, perCodice, perID, correnti, perHash, inArrivo, inSospeso, alias, in.Motore)
 		if !ok {
 			continue
 		}
@@ -329,9 +354,9 @@ func PianoDelFascicolo(in IngressoPiano) PianoFascicolo {
 
 // struttureDi fa una voce per ogni STEP con proposte aperte. inArrivo sono i codici dei nodi che nascono da
 // una struttura pronta; inSospeso quelli di una struttura che aspetta una decisione.
-func struttureDi(in IngressoPiano) ([]VoceStruttura, map[string]NodoInArrivo, map[string]string) {
+func struttureDi(in IngressoPiano) ([]VoceStruttura, map[string]NodoInArrivo, map[string]NodoInArrivo) {
 	inArrivo := map[string]NodoInArrivo{}
-	inSospeso := map[string]string{}
+	inSospeso := map[string]NodoInArrivo{}
 	if in.Bloccata > 0 {
 		return nil, inArrivo, inSospeso
 	}
@@ -407,7 +432,23 @@ func struttureDi(in IngressoPiano) ([]VoceStruttura, map[string]NodoInArrivo, ma
 		case bloccanti > 0:
 			v.Stato = VoceDecidere
 		case v.Nodi+v.Archi > 0:
-			v.Stato = VocePronta
+			// Fascicolo v3: la struttura proposta da uno STEP si guarda nell'editor prima di entrare (la
+			// specifica: «deve essere visualizzata prima della conferma in un editor grafico»). Non entra piu'
+			// con «Conferma Fascicolo»: e' una decisione, e i file che vanno ai suoi componenti la aspettano.
+			v.Stato = VoceDecidere
+			var cosa []string
+			if v.Nodi > 0 {
+				cosa = append(cosa, quanti(v.Nodi, "nodo", "nodi"))
+			}
+			if v.Archi > 0 {
+				cosa = append(cosa, quanti(v.Archi, "arco", "archi"))
+			}
+			propost := "proposti"
+			if v.Nodi+v.Archi == 1 {
+				propost = "proposto"
+			}
+			v.Domande = append(v.Domande, Domanda{DomandaStrutturaEditor, fmt.Sprintf("%s %s: la struttura si rivede e si conferma nell'editor (Struttura BOM)",
+				strings.Join(cosa, " e "), propost)})
 		default:
 			v.Stato = "" // solo archi morti: non c'e' niente da confermare, c'e' da decidere quelli
 		}
@@ -416,12 +457,13 @@ func struttureDi(in IngressoPiano) ([]VoceStruttura, map[string]NodoInArrivo, ma
 				continue
 			}
 			k := maiuscolo(n.Codice.String)
+			nodo := NodoInArrivo{Allegato: a, File: v.Nome, Proposta: n.PropostaID, Codice: strings.TrimSpace(n.Codice.String)}
 			if v.Stato == VocePronta {
 				if _, gia := inArrivo[k]; !gia {
-					inArrivo[k] = NodoInArrivo{Allegato: a, File: v.Nome, Proposta: n.PropostaID, Codice: strings.TrimSpace(n.Codice.String)}
+					inArrivo[k] = nodo
 				}
 			} else if _, gia := inSospeso[k]; !gia {
-				inSospeso[k] = v.Nome
+				inSospeso[k] = nodo
 			}
 		}
 		out = append(out, *v)
@@ -440,7 +482,7 @@ func elencoBreveNomi(nomi []string) string {
 // che e' un contenitore e si estrae; il rumore; una proposta gia' decisa).
 func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, perID map[uuid.UUID]db.Componente,
 	correnti map[uuid.UUID][]db.Documento, perHash map[string]db.Documento, inArrivo map[string]NodoInArrivo,
-	inSospeso map[string]string) (VoceFile, bool) {
+	inSospeso map[string]NodoInArrivo, alias map[string]db.Componente, m *classificazione.Motore) (VoceFile, bool) {
 	a, pr := f.Allegato, f.Proposta
 	ext := strings.ToLower(strings.TrimPrefix(a.Estensione.String, "."))
 	v := VoceFile{Allegato: a.AllegatoID, Proposta: pr.PropostaID, Nome: a.NomeFile, Estensione: ext, Sha256: a.Sha256.String,
@@ -473,6 +515,16 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 		// i dettagli dell'analisi sostituiscono quelli della proposta dal nome: i codici che il nome contiene
 		// si rileggono dal nome, che non cambia
 		dett.CodiciNelNome = classificazione.PropostaDaNome(a.NomeFile, 0, string(db.DirezioneEntrata)).CodiciNelNome
+	}
+	// il codice suggerito e' quello del pezzo, senza il suffisso decorativo del cliente
+	for i, c := range dett.CodiciNelNome {
+		dett.CodiciNelNome[i] = m.CanonicoNome(c)
+	}
+	// uguale e' uguale a meno del suffisso decorativo: il file «X» assegnato al pezzo «X_PRT» non ha un codice diverso
+	uguali := func(a, b string) bool {
+		ka, _ := m.Canonico(a, "")
+		kb, _ := m.Canonico(b, "")
+		return strings.EqualFold(strings.TrimSpace(ka), strings.TrimSpace(kb))
 	}
 	if pr.TipoProposto == db.TipoDocumentoDaDeterminare || (pr.TipoProposto == db.TipoDocumentoAltro && pr.Fonte == db.FontePropostaEstensione) {
 		if len(dett.CodiciNelNome) == 1 {
@@ -517,11 +569,12 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 			return decidi(DomandaComponente, "il componente a cui era assegnato non c'è più")
 		}
 		v.Componente = &c
-		if dett.CodiceLetto != "" && !strings.EqualFold(dett.CodiceLetto, c.Codice) {
+		if dett.CodiceLetto != "" && !uguali(dett.CodiceLetto, c.Codice) {
 			return decidi(DomandaCodiceDiverso, fmt.Sprintf("il file dice %s, ed è assegnato a %s", dett.CodiceLetto, c.Codice))
 		}
 	case tecnicoFile:
-		if c, trovato := perCodice[maiuscolo(v.Codice)]; trovato {
+		chiave := maiuscolo(v.Codice)
+		if c, trovato := perCodice[chiave]; trovato {
 			if c.ArchiviatoIl != nil {
 				v.Componente = &c
 				return decidi(DomandaComponente, c.Codice+" è archiviato: si ripristina, o il file resta senza componente")
@@ -529,13 +582,34 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 			v.Componente = &c
 			break
 		}
-		if n, trovato := inArrivo[maiuscolo(v.Codice)]; trovato {
+		if n, trovato := inArrivo[chiave]; trovato {
 			n := n
 			v.DaStep = &n
 			break
 		}
-		if file, trovato := inSospeso[maiuscolo(v.Codice)]; trovato {
-			return decidi(DomandaComponente, fmt.Sprintf("%s nasce dallo STEP %s, che aspetta una decisione", v.Codice, file))
+		if n, trovato := inSospeso[chiave]; trovato {
+			n := n
+			v.DaStep = &n
+			return decidi(DomandaComponente, fmt.Sprintf("%s nasce dalla struttura dello STEP %s: si conferma prima quella, nell'editor della Struttura BOM", v.Codice, n.File))
+		}
+		if c, trovato := alias[chiave]; trovato {
+			c := c
+			v.Alias = &c
+			return decidi(DomandaComponente, fmt.Sprintf("%s: nella BOM c'è %s, lo stesso pezzo con il suffisso del cliente. Si assegna a %s (il file prende il suo codice), o si corregge il codice del componente", v.Codice, c.Codice, c.Codice))
+		}
+		// una proposta scritta prima della regola dice ancora «X_PRT», e il pezzo e' «X»: lo stesso pezzo. Il file
+		// si assegna a quello e ne prende il codice (un documento ha il codice del suo componente)
+		if can, _ := m.Canonico(v.Codice, ""); maiuscolo(can) != chiave {
+			if c, trovato := perCodice[maiuscolo(can)]; trovato && c.ArchiviatoIl == nil {
+				c := c
+				v.Alias = &c
+				return decidi(DomandaComponente, fmt.Sprintf("%s: nella BOM c'è %s, lo stesso pezzo senza il suffisso del cliente. Si assegna a %s (il file prende il suo codice)", v.Codice, c.Codice, c.Codice))
+			}
+			if n, trovato := inSospeso[maiuscolo(can)]; trovato {
+				n := n
+				v.DaStep = &n
+				return decidi(DomandaComponente, fmt.Sprintf("%s nasce dalla struttura dello STEP %s: si conferma prima quella, nell'editor della Struttura BOM", n.Codice, n.File))
+			}
 		}
 		return decidi(DomandaComponente, v.Codice+" non è nella BOM: si aggiunge, si assegna a un componente o il file resta senza componente")
 	}
@@ -727,6 +801,7 @@ func LeggiIngressoPiano(ctx context.Context, q *db.Queries, thread uuid.UUID) (I
 		in.Relazioni = append(in.Relazioni, r.RelazioneProposta)
 		in.NomiFile[r.RelazioneProposta.AllegatoID] = r.NomeFile
 	}
+	in.Motore, _ = MotoreDellaRfq(ctx, q, thread) // senza cliente leggibile: nessun suffisso
 	n, bloccata, err := WorkingBloccata(ctx, q, thread)
 	if err != nil {
 		return in, err

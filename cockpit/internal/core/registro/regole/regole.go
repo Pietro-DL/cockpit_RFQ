@@ -87,6 +87,11 @@ type Regole struct {
 	// che è la memoria del riconoscimento: confonderle vorrebbe dire agganciare le risposte con lo
 	// stesso numero con cui si misura il ritardo.
 	RispostaEntroGG int `json:"risposta_entro_gg,omitempty"`
+	// SuffissiDecorativi sono le code che i CAD di questo cliente attaccano al codice del pezzo senza
+	// cambiarlo («_PRT» di una parte, «_ASM» di un assieme): «X_PRT» e «X» sono lo stesso pezzo. Si
+	// tolgono dal codice letto nei nomi dei file, nei PRODUCT degli STEP e nei testi, solo per questo
+	// cliente: per un altro «_PRT» puo' essere una parte vera del codice.
+	SuffissiDecorativi []string `json:"suffissi_decorativi,omitempty"`
 }
 
 // FamigliaCodice è una forma di codice prodotto del cliente, con l'esempio che la dimostra.
@@ -132,6 +137,7 @@ const (
 	maxFamiglie     = 20
 	maxFrasiPortale = 20
 	maxFinestraGG   = 3650 // dieci anni: oltre, è un errore di battitura, non una politica
+	maxSuffissi     = 10
 )
 
 // Valida legge il JSON con lo schema stretto e rifiuta tutto ciò che non lo rispetta: un campo che
@@ -237,6 +243,13 @@ func (r Regole) Verifica() []Diagnostica {
 		}
 		out = append(out, d)
 	}
+	if n := len(r.SuffissiDecorativi); n > maxSuffissi {
+		out = append(out, Diagnostica{Regola: "suffissi_decorativi", Ok: false,
+			Motivo: fmt.Sprintf("sono %d: il limite è %d", n, maxSuffissi)})
+	}
+	for i, x := range r.SuffissiDecorativi {
+		out = append(out, verificaSuffisso(fmt.Sprintf("suffisso decorativo %d", i+1), x))
+	}
 	if g := r.FinestraAggancioGG; g != 0 {
 		d := Diagnostica{Regola: "finestra_aggancio_gg", Dettaglio: fmt.Sprint(g), Ok: true}
 		if g < 0 || g > maxFinestraGG {
@@ -245,6 +258,33 @@ func (r Regole) Verifica() []Diagnostica {
 		out = append(out, d)
 	}
 	return out
+}
+
+// codaDaRevisione e' la coda che il riconoscimento dei codici legge come revisione (classificazione.CodiceRev):
+// «_1», «-B», «_R2», «_REV1», e anche «_RT», dove la R e' il prefisso della revisione T. Un suffisso
+// decorativo fatto cosi' toglierebbe una revisione vera.
+var codaDaRevisione = regexp.MustCompile(`(?i)^[_\-.](?:REV|R)?(?:[0-9]{1,2}|[A-Z])$`)
+
+// verificaSuffisso: un suffisso decorativo comincia con un separatore (_ - .), ha almeno due caratteri dopo,
+// non ha spazi, sta in MaxSuffisso e non e' una coda che si legge come revisione.
+func verificaSuffisso(nome, x string) Diagnostica {
+	d := Diagnostica{Regola: nome, Dettaglio: x, Ok: true}
+	s := strings.TrimSpace(x)
+	switch {
+	case s == "":
+		d.Ok, d.Motivo = false, "è vuoto"
+	case strings.ContainsAny(s, " \t"):
+		d.Ok, d.Motivo = false, "contiene spazi"
+	case !strings.ContainsAny(s[:1], "_-."):
+		d.Ok, d.Motivo = false, fmt.Sprintf("«%s» deve cominciare con _ - oppure . (la coda attaccata al codice)", s)
+	case len(s) < 3:
+		d.Ok, d.Motivo = false, fmt.Sprintf("«%s» è troppo corto: dopo il separatore servono almeno due caratteri", s)
+	case len(s) > MaxSuffisso:
+		d.Ok, d.Motivo = false, fmt.Sprintf("«%s» è più lungo di %d caratteri", s, MaxSuffisso)
+	case codaDaRevisione.MatchString(s):
+		d.Ok, d.Motivo = false, fmt.Sprintf("«%s» si legge come una revisione (_1, _B, _R2, _REV1): toglierlo toglierebbe la revisione", s)
+	}
+	return d
 }
 
 // verificaRegex è il controllo che vale per ogni regola con una regex: compila, c'è l'esempio,

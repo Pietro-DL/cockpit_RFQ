@@ -36,6 +36,13 @@ func (s *Server) registraProposte(mux *http.ServeMux) {
 // gesto esegue fai in una transazione e risponde con la pagina della RFQ: l'avviso di fai, oppure il
 // rifiuto con «niente è cambiato». Tutto o niente.
 func (s *Server) gesto(w http.ResponseWriter, r *http.Request, fai func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error)) {
+	s.gestoPoi(w, r, fai, nil)
+}
+
+// gestoPoi e' gesto con un passo prima della risposta: poi riceve l'esito (true = fatto e salvato, dopo il
+// commit) con la frase per l'operatore, e puo' mettere un'intestazione, per esempio l'evento dell'editor.
+func (s *Server) gestoPoi(w http.ResponseWriter, r *http.Request, fai func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error),
+	poi func(w http.ResponseWriter, ok bool, testo string)) {
 	thread, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", 400)
@@ -59,8 +66,15 @@ func (s *Server) gesto(w http.ResponseWriter, r *http.Request, fai func(ctx cont
 	}
 	if err != nil {
 		_ = tx.Rollback(ctx)
-		s.threadFrammento(w, r, thread, "Niente è cambiato: "+spiegaErrore(err))
+		msg := "Niente è cambiato: " + spiegaErrore(err)
+		if poi != nil {
+			poi(w, false, msg)
+		}
+		s.threadFrammento(w, r, thread, msg)
 		return
+	}
+	if poi != nil {
+		poi(w, true, msg)
 	}
 	s.threadFrammento(w, r, thread, msg)
 }

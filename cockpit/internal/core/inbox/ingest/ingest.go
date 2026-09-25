@@ -210,6 +210,7 @@ func (m *Motori) PerFornitore(ctx context.Context, q *db.Queries, id uuid.UUID) 
 	if clienti, err := q.ClientiConRichiesteAlFornitore(ctx, id); err == nil {
 		for _, c := range clienti {
 			r, _ := regole.LeggiRegole(c.Regole)
+			raccolte.SuffissiDecorativi = append(raccolte.SuffissiDecorativi, r.SuffissiDecorativi...)
 			for _, f := range r.FamiglieCodice {
 				if f.Descrizione != "" {
 					f.Descrizione = c.CartellaNas + ": " + f.Descrizione
@@ -715,6 +716,13 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		visti[a.Indice] = a.NomeFile
 	}
 
+	// Le regole del cliente riconosciuto (voce 6.11): le famiglie di codice dicono che cosa è un
+	// codice DI QUESTO cliente, mentre l'estrattore generico dice solo che cosa ha la forma di un
+	// codice. Cliente sconosciuto o senza regole → motore nil, e vale il solo generico. Per un
+	// fornitore, le famiglie dei clienti che gli hanno mandato richieste (7B). Serve gia' agli allegati:
+	// il codice letto nel nome di un file perde qui i suffissi decorativi del cliente («_PRT»).
+	motore := motorePer(ctx, q, motori, clienteID, controparte)
+
 	var nomiAllegati []string
 	var daStaggiare []db.Allegato // D30: allegati che scendono da soli, se lo staging automatico è acceso
 	for _, a := range m.Allegati {
@@ -743,6 +751,10 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
 			pr := classificazione.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
+			pr.Codice, pr.Rev = motore.Canonico(pr.Codice, pr.Rev)
+			for i, c := range pr.CodiciNelNome {
+				pr.CodiciNelNome[i] = motore.CanonicoNome(c)
+			}
 			if nat == db.NaturaAllegatoFile && pr.PreSpunta && a.Bytes > 0 && a.Bytes <= s.sogliaStaging() {
 				daStaggiare = append(daStaggiare, al)
 			}
@@ -762,12 +774,6 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 			}
 		}
 	}
-
-	// Le regole del cliente riconosciuto (voce 6.11): le famiglie di codice dicono che cosa è un
-	// codice DI QUESTO cliente, mentre l'estrattore generico dice solo che cosa ha la forma di un
-	// codice. Cliente sconosciuto o senza regole → motore nil, e vale il solo generico. Per un
-	// fornitore, le famiglie dei clienti che gli hanno mandato richieste (7B).
-	motore := motorePer(ctx, q, motori, clienteID, controparte)
 
 	// NESSUN AGGANCIO AUTOMATICO (checkpoint 3R §2). Qui prima c'era un blocco che, per un messaggio
 	// nuovo e orfano, scriveva `messaggio.thread_id` se il ConversationID coincideva con quello di una
@@ -819,6 +825,9 @@ func (s *Servizio) uno(ctx context.Context, q *db.Queries, casella db.Casella, n
 				cod = []string{""}
 			}
 			for _, c := range cod {
+				if c != "" {
+					c, _ = motore.Canonico(c, "")
+				}
 				if _, err := q.UpsertRiferimentoPortale(ctx, db.UpsertRiferimentoPortaleParams{
 					MessaggioID: row.MessaggioID, ThreadID: threadID, Codice: txtN(c, 60), Url: txtN(r.URL, 500), TestoCitato: txtN(r.TestoCitato, 1000).String,
 				}); err != nil {

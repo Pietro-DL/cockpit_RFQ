@@ -111,6 +111,15 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 	stato := db.StatoPropostaConfermata
 	msg := ""
 	c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: p.ThreadID, Upper: codice})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// il pezzo nato con il suffisso decorativo del cliente («X_PRT») e' lo stesso pezzo di «X»
+		if a, ok, e := componenteConSuffisso(ctx, q, p.ThreadID, codice); e != nil {
+			return "", e
+		} else if ok {
+			c, err = a, nil
+		}
+	}
+	codiceProposto := codice
 	switch {
 	case err == nil:
 		comp, stato = c.ComponenteID, db.StatoPropostaDuplicato
@@ -143,11 +152,36 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 	if k != 1 {
 		return "", Rifiuto(nomeNodo(p) + ": la proposta è stata decisa nel frattempo")
 	}
-	if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: p.ThreadID, Codice: codice,
-		ComponenteID: uid(comp), Esclusa: p.PropostaID}); err != nil {
-		return "", err
+	for _, k := range []string{codice, codiceProposto} {
+		if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: p.ThreadID, Codice: k,
+			ComponenteID: uid(comp), Esclusa: p.PropostaID}); err != nil {
+			return "", err
+		}
+		if strings.EqualFold(codice, codiceProposto) {
+			break
+		}
 	}
 	return msg, nil
+}
+
+// componenteConSuffisso cerca, per un cliente con suffissi decorativi, il componente il cui codice senza
+// suffisso e' codice: il pezzo accettato come «X_PRT» prima della regola. ok = false se non c'e'.
+func componenteConSuffisso(ctx context.Context, q *db.Queries, thread uuid.UUID, codice string) (db.Componente, bool, error) {
+	m, err := MotoreDellaRfq(ctx, q, thread)
+	if err != nil || !m.HaSuffissi() {
+		return db.Componente{}, false, nil
+	}
+	comp, err := q.ListComponentiThread(ctx, thread)
+	if err != nil {
+		return db.Componente{}, false, err
+	}
+	sort.Slice(comp, func(i, j int) bool { return comp[i].Codice < comp[j].Codice })
+	for _, c := range comp {
+		if can, _ := m.Canonico(c.Codice, ""); !strings.EqualFold(c.Codice, codice) && strings.EqualFold(strings.TrimSpace(can), codice) {
+			return c, true, nil
+		}
+	}
+	return db.Componente{}, false, nil
 }
 
 // AccettaRelazione e' «il padre contiene il figlio, n volte». I due nodi devono essere gia' accettati o
