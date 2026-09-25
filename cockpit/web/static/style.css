@@ -223,10 +223,11 @@ table.richieste td{padding:4px 6px}
 form.codice-azioni,div.codice-azioni{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px;font-size:13px}
 details.codici>summary{cursor:pointer;margin:4px 0}
 
-/* ---------------------------------------------------------------- B8.7 — la schermata del Fascicolo
-   Lo stile del mockup operatori (MOCKUP_INBOX_ANAGRAFICA_ALBERO, «Cruscotto»): superfici chiare su
-   fondo grigio, etichette maiuscole piccole, tratteggio per quello che propone il sistema, celle
-   colorate per la completezza. Tutto sotto .fasc, perche' le altre schermate restano come sono. */
+/* ---------------------------------------------------------------- B8.7b — la schermata del Fascicolo
+   Lo stile del mockup operatori (MOCKUP_INBOX_ANAGRAFICA_ALBERO, «Cruscotto»): superfici chiare su fondo
+   grigio, etichette maiuscole piccole, tratteggio per quello che propone il sistema. Al centro la BOM come
+   grafo di card (l'albero «a organigramma» e' tutto CSS: le linee sono i ::before/::after delle voci), a
+   destra il dettaglio, in fondo il piano. Tutto sotto .fasc: le altre schermate restano come sono. */
 .fasc{--f-bg:#F2F4F6;--f-sup:#fff;--f-sup2:#F8FAFB;--f-ink:#141A21;--f-muto:#59636F;--f-muto2:#8A939E;--f-linea:#E1E5EA;--f-linea2:#CBD2DA;
   --f-acc:#0F4C5C;--f-accsoft:#E2EFF2;--f-urg:#B03A16;--f-urgsoft:#FAE9E2;--f-warn:#8A5A00;--f-warnsoft:#FAF0DA;--f-ok:#1D6B41;--f-oksoft:#E2F1E8;
   --f-info:#2B5F8A;--f-infosoft:#E4EEF7;--f-chip:#EDF0F3;--f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -247,102 +248,143 @@ details.codici>summary{cursor:pointer;margin:4px 0}
 .fasc .btn.on{background:var(--f-accsoft);border-color:var(--f-acc);color:var(--f-acc)}
 .fasc button:disabled{opacity:.42;cursor:not-allowed}
 .fasc input,.fasc select{font:inherit;font-size:13px;border:1px solid var(--f-linea2);border-radius:8px;padding:4px 8px;background:var(--f-sup);color:var(--f-ink);max-width:100%}
-.fasc input.corto{width:64px}
+.fasc input.corto{width:64px}.fasc input.medio{width:120px}
 .fasc a{color:var(--f-acc)}
-/* chi consulta vede e non cambia: i gesti non si mostrano (la porta la chiude comunque il server) */
+.fasc .ok-t{color:var(--f-ok)}.fasc .urg-t{color:var(--f-urg)}.fasc .warn-t{color:var(--f-warn)}
+/* sola lettura: i gesti non si mostrano (il server comunque li rifiuta) */
 .fasc.sola-lettura .gesto{display:none!important}
 
-.fasc-testata{background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;padding:10px 14px;margin-bottom:10px}
+/* TESTATA: contesto, versioni della BOM, linguette, ricerca, Aggiungi file, Da verificare */
+.fasc-testata{background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;padding:8px 14px;margin-bottom:8px}
 .fasc-testata .ft-riga{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .fasc-testata .briciole{margin:0;font-size:12px;color:var(--f-muto)}
-.fasc-testata h1{font-size:18px;margin:2px 0}
-.fasc-testata .ft-comandi{display:flex;gap:4px;flex-wrap:wrap}
-.fasc-testata .conta{display:inline-block;min-width:16px;padding:0 4px;border-radius:999px;background:var(--f-chip);font-size:11px;text-align:center}
-.fasc-testata .conta.piena{background:var(--f-urgsoft);color:var(--f-urg)}
-.fasc .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:8px 0}
-.fasc .kpi{background:var(--f-sup2);border:1px solid var(--f-linea);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
-.fasc .kpi strong{font-size:18px}.fasc .kpi strong.urg{color:var(--f-urg)}.fasc .kpi strong.warn{color:var(--f-warn)}
-.fasc .kpi button{align-self:flex-start}
-.fasc .ft-bom{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--f-linea);padding-top:8px}
-.fasc details.dialogo{position:relative}
-.fasc details.dialogo>summary{list-style:none;cursor:pointer}
-.fasc details.dialogo>summary::-webkit-details-marker{display:none}
+.fasc-testata h1{font-size:17px;margin:2px 0}
+.fasc-testata .ft-linguette{border-top:1px solid var(--f-linea);margin-top:6px;padding-top:6px}
+.fasc .linguette{display:flex;gap:2px;align-items:center;flex-wrap:wrap}
+.fasc .linguette a{padding:5px 12px;border-radius:8px;font-weight:600;color:var(--f-muto);text-decoration:none}
+.fasc .linguette a:hover{background:var(--f-sup2)}
+.fasc .linguette a.on{background:var(--f-accsoft);color:var(--f-acc)}
+.fasc .linguette small{font-weight:600;opacity:.75}
+.fasc input.cerca{width:min(260px,40vw)}
+.fasc .conta{display:inline-block;min-width:16px;margin:0;padding:0 4px;border-radius:999px;background:var(--f-chip);font-size:11px;text-align:center}
+.fasc .conta.piena{background:var(--f-urgsoft);color:var(--f-urg)}
+.fasc .btn.verifica.piena{border-color:var(--f-warn);background:var(--f-warnsoft);color:var(--f-warn)}
+.fasc .btn.verifica.piena .conta{background:var(--f-warn);color:#fff}
+.fasc .ft-bom{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.fasc details.dialogo,.fasc details.menu{position:relative}
+.fasc details.dialogo>summary,.fasc details.menu>summary{list-style:none;cursor:pointer}
+.fasc details.dialogo>summary::-webkit-details-marker,.fasc details.menu>summary::-webkit-details-marker{display:none}
 .fasc .ft-bom details.dialogo[open]>.modulo,.fasc .ft-bom details.dialogo[open]>form{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(460px,80vw);background:var(--f-sup);border:1px solid var(--f-linea2);border-radius:10px;padding:12px;box-shadow:0 8px 24px rgba(20,26,33,.14)}
+.fasc .menu-dentro{position:absolute;right:0;top:calc(100% + 6px);z-index:35;min-width:210px;background:var(--f-sup);border:1px solid var(--f-linea2);border-radius:10px;padding:8px 10px;box-shadow:0 8px 24px rgba(20,26,33,.14);display:grid;gap:4px}
+.fasc .menu-dentro.largo{min-width:340px}
+.fasc .menu-dentro a{padding:4px 8px;border-radius:6px;text-decoration:none;color:var(--f-ink)}
+.fasc .menu-dentro a:hover,.fasc .menu-dentro a.on{background:var(--f-accsoft)}
+.fasc .menu-dentro .label{margin-top:4px}
+.fasc details.da-pc>summary{list-style:none;cursor:pointer}
+.fasc form.carica{display:grid;gap:6px;margin:6px 0 2px;padding:8px;border:1px dashed var(--f-linea2);border-radius:8px}
+.fasc form.carica input[type=file]{font-size:12px;max-width:100%}
 .fasc .modulo{display:grid;gap:8px;margin:6px 0}
 .fasc .modulo label{display:grid;gap:3px;font-size:12px;color:var(--f-muto)}
 .fasc fieldset{border:1px solid var(--f-linea);border-radius:8px;padding:6px 10px;margin:0;display:grid;gap:4px}
 .fasc fieldset label{display:flex!important;gap:6px;align-items:center;color:var(--f-ink)}
 .fasc fieldset.in-linea{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .fasc ul.gate{margin:4px 0 8px 18px;padding:0;font-size:12px;color:var(--f-urg)}
-.fasc .ok-t{color:var(--f-ok)}.fasc .urg-t{color:var(--f-urg)}
 .fasc details.diff ul{margin:4px 0 4px 18px;padding:0;font-size:12px}
 
+/* AVVISO e AVANZAMENTO: la frase di un gesto; il lavoro in corso sui file, con il suo poll */
 .fasc-avviso:empty{display:none}
-.fasc .avviso-f{margin:0 0 10px;padding:8px 12px;border-radius:8px;background:var(--f-oksoft);color:var(--f-ok);font-size:13px}
+.fasc .avviso-f{margin:0 0 8px;padding:8px 12px;border-radius:8px;background:var(--f-oksoft);color:var(--f-ok);font-size:13px}
 .fasc .avviso-f.no{background:var(--f-urgsoft);color:var(--f-urg)}
+.fasc-avanzamento{display:none}
+.fasc-avanzamento.attivo{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px;padding:6px 12px;border-radius:8px;background:var(--f-infosoft);color:var(--f-info);font-size:13px}
+.fasc .rotella{display:inline-block;width:12px;height:12px;border-radius:50%;border:2px solid var(--f-info);border-right-color:transparent;animation:fasc-giro .9s linear infinite}
+@keyframes fasc-giro{to{transform:rotate(360deg)}}
 
-.fasc-griglia{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr) minmax(0,1.05fr);gap:10px;align-items:start}
-.fasc-pannello{background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;padding:10px 12px;height:calc(100vh - 330px);min-height:420px;overflow:auto;min-width:0}
+/* IL LAVORO: la BOM al centro (due terzi), il dettaglio a destra */
+.fasc-lavoro{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(330px,1fr);gap:10px;align-items:start}
+.fasc-principale,.fasc-destra{background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;padding:10px 12px;height:calc(100vh - 262px);min-height:460px;overflow:auto;min-width:0}
+.fasc-destra{display:flex;flex-direction:column}
 .fasc .pan-testa{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--f-linea)}
 .fasc .nota-blocco{margin:6px 0;padding:6px 10px;border-radius:8px;background:var(--f-infosoft);color:var(--f-info);font-size:12px}
+.fasc .legenda .leg{display:inline-block;width:16px;height:10px;border-radius:3px;vertical-align:middle;margin:0 2px 0 8px;border:1.5px solid var(--f-linea2)}
+.fasc .legenda .leg-prop{border:1.5px dashed var(--f-warn);background:#fffdf7}.fasc .legenda .leg-rim{border:1.5px dashed var(--f-urg)}
 
-/* STRUTTURA: l'albero del mockup; pieno = deciso, tratteggiato = proposto */
-.fasc .tree ul{list-style:none;padding-left:16px;margin:2px 0}
-.fasc .tree>ul{padding-left:0}
-.fasc .node{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:7px;flex-wrap:wrap;border:1px solid transparent}
-.fasc .node.sel{background:var(--f-accsoft);border-color:var(--f-acc)}
-.fasc .node.radice>.node-link b{font-size:13px}
-.fasc .node .docs{margin-left:auto;display:flex;gap:3px;flex-wrap:wrap}
-.fasc .node.proposal{border:1.5px dashed var(--f-warn);color:var(--f-warn);background:#fffdf7;margin:2px 0}
-.fasc .node.proposal.deciso{border-color:var(--f-linea2);color:var(--f-muto2);background:none}
-.fasc .node.removal{border:1.5px dashed var(--f-urg);color:var(--f-urg);background:#fffaf8;margin:2px 0}
-.fasc .azioni-riga{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
-.fasc form.in-linea{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap;margin:0}
+/* lo STEP con le sue proposte, sopra la tela */
+.fasc .banner-step{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0;padding:7px 10px;border:1.5px dashed var(--f-warn);border-radius:10px;background:#fffdf7;font-size:13px}
+.fasc .banner-step.decidere{border-color:var(--f-urg);background:#fffaf8}
+
+/* la tela: l'organigramma delle card */
+.fasc .tela{overflow:auto;padding:6px 2px 18px}
+.fasc .tela-vuota{max-width:560px;margin:40px auto;text-align:center}
+.fasc ul.bom{display:flex;flex-wrap:nowrap;gap:28px;justify-content:flex-start;align-items:flex-start;list-style:none;margin:0;padding:0;width:max-content;min-width:100%}
+.fasc ul.bom ul{display:flex;justify-content:center;list-style:none;margin:0;padding:16px 0 0;position:relative}
+.fasc ul.bom ul::before{content:'';position:absolute;top:0;left:50%;height:16px;border-left:1.5px solid var(--f-linea2)}
+.fasc ul.bom li{--linea:1.5px solid var(--f-linea2);list-style:none;position:relative;display:flex;flex-direction:column;align-items:center;padding:24px 7px 0;min-width:0}
+.fasc ul.bom li.li-proposta,.fasc ul.bom li.li-arco-proposto{--linea:1.5px dashed var(--f-warn)}
+.fasc ul.bom li.li-rimozione{--linea:1.5px dashed var(--f-urg)}
+.fasc ul.bom>li{padding-top:0}
+.fasc ul.bom ul>li::before,.fasc ul.bom ul>li::after{content:'';position:absolute;top:0;width:50%;height:24px;border-top:var(--linea)}
+.fasc ul.bom ul>li::before{right:50%}
+.fasc ul.bom ul>li::after{left:50%;border-left:var(--linea)}
+.fasc ul.bom ul>li:first-child::before,.fasc ul.bom ul>li:last-child::after{border-top:0}
+.fasc ul.bom ul>li:last-child::before{border-right:var(--linea);border-radius:0 7px 0 0}
+.fasc ul.bom ul>li:first-child::after{border-radius:7px 0 0 0}
+.fasc ul.bom ul>li:only-child::before{display:none}
+.fasc ul.bom ul>li:only-child::after{border-top:0;border-radius:0}
+.fasc ul.bom .arco{position:absolute;top:4px;left:calc(50% + 5px);z-index:1;font-size:11px;font-weight:700;color:var(--f-muto);background:var(--f-sup);padding:0 3px;border-radius:4px;line-height:1.2}
+.fasc ul.bom li.li-proposta>.arco,.fasc ul.bom li.li-arco-proposto>.arco{color:var(--f-warn)}
+.fasc ul.bom li.li-rimozione>.arco{color:var(--f-urg)}
+
+/* la card */
+.fasc .carta{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:190px;padding:8px 10px;background:var(--f-sup);border:1.5px solid var(--f-linea2);border-radius:10px;text-align:left;box-shadow:0 1px 2px rgba(20,26,33,.05)}
+.fasc .carta.prodotto{border:2px solid var(--f-acc);width:214px}
+.fasc .carta.ok{border-left:5px solid var(--f-ok)}.fasc .carta.warn{border-left:5px solid #d99a1c}.fasc .carta.urg{border-left:5px solid var(--f-urg)}
+.fasc .carta.proposta{border:1.5px dashed var(--f-warn);background:#fffdf7}
+.fasc .carta.proposta.decidere{border-color:var(--f-urg);background:#fffaf8}
+.fasc .carta.sel{box-shadow:0 0 0 3px #bcd9e0;border-color:var(--f-acc)}
+.fasc .carta.trovata{outline:2px solid #e3b000;outline-offset:2px}
+.fasc .carta.rimando{width:168px;border-style:dotted;background:var(--f-sup2)}
+.fasc .carta .codice{font-size:13px}
+.fasc .carta-link{color:var(--f-ink);text-decoration:none}
+.fasc .carta-link::after{content:'';position:absolute;inset:0;border-radius:10px}
+.fasc .carta .azioni-riga,.fasc .carta .chip{position:relative;z-index:2}
+.fasc .carta-tipo{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--f-muto2)}
+.fasc .carta.prodotto .carta-tipo{color:var(--f-acc)}
+.fasc .carta.proposta .carta-tipo{color:var(--f-warn)}
+.fasc .carta .docs{display:flex;gap:3px;flex-wrap:wrap}
+.fasc .carta-struttura,.fasc .carta-piede{font-size:11px;line-height:1.3}
+.fasc .carta-rimozione{font-size:11px;color:var(--f-urg);font-weight:600}
+.fasc .rimando-nota{font-size:11px}
+.fasc .carta.grande{width:auto;margin-bottom:6px}
+.fasc .griglia-carte{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.fasc .griglia-carte .carta{width:auto}
 .fasc .doc{font-size:10px;padding:1px 5px;border-radius:4px;background:var(--f-chip);color:var(--f-muto2);white-space:nowrap}
 .fasc .doc.ok{background:var(--f-oksoft);color:var(--f-ok)}.fasc .doc.coda{background:var(--f-infosoft);color:var(--f-info)}
 .fasc .doc.urg{background:var(--f-urgsoft);color:var(--f-urg)}.fasc .doc.warn{background:var(--f-warnsoft);color:var(--f-warn)}
 .fasc .doc.info{background:var(--f-infosoft);color:var(--f-info)}
-.fasc .blocco-file{margin-top:10px;border:1px solid var(--f-linea);border-radius:8px;padding:8px}
-.fasc .blocco-file .bf-testa{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
-.fasc ul.proposte{list-style:none;padding-left:16px;margin:2px 0}
 .fasc details.archiviati{margin-top:8px}
-.fasc .scheda{margin-top:12px;border-top:2px solid var(--f-acc);padding-top:8px}
-.fasc .scheda-testa{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* IL DETTAGLIO: la card del componente, le schede 3D / 2D / DXF / Altri / Storico, l'anteprima */
+.fasc nav.schede{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--f-linea);margin:6px 0}
+.fasc nav.schede a{padding:4px 10px;border-radius:8px 8px 0 0;color:var(--f-muto);font-weight:600;text-decoration:none;font-size:12px}
+.fasc nav.schede a.on{background:var(--f-accsoft);color:var(--f-acc)}
+.fasc ul.det-doc{list-style:none;padding:0;margin:4px 0;font-size:12px}
+.fasc ul.det-doc li{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:3px 4px;border-radius:6px}
+.fasc ul.det-doc li.aperto{background:var(--f-accsoft)}
+.fasc ul.det-doc li.sostituito a{text-decoration:line-through;color:var(--f-muto2)}
+.fasc .in-arrivo{margin:6px 0}.fasc .in-arrivo ul{list-style:none;margin:2px 0;padding:0;font-size:12px;display:grid;gap:2px}
+.fasc details.azioni-nodo{border:1px solid var(--f-linea);border-radius:8px;padding:4px 8px;margin:6px 0}
+.fasc details.azioni-nodo>summary{cursor:pointer;font-weight:600;font-size:13px}
+.fasc .det-vuoto{font-size:13px}.fasc .det-vuoto ul.riassunto{padding-left:18px}
+.fasc .azioni-prop{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
 .fasc .scheda details{border:1px solid var(--f-linea);border-radius:8px;padding:4px 8px;margin:6px 0}
 .fasc .scheda details>summary{cursor:pointer;font-weight:600;font-size:13px}
 .fasc .arco-riga{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0;border-bottom:1px solid var(--f-linea)}
-.fasc table.griglia{border-collapse:collapse;width:100%;font-size:12px}
-.fasc table.griglia th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--f-muto2);text-align:left;padding:5px 3px;border-bottom:1px solid var(--f-linea)}
-.fasc table.griglia td{padding:3px;border-bottom:1px solid var(--f-linea)}
-.fasc table.griglia .cell{min-width:26px;padding:2px 4px}
-.fasc table.griglia tr.sel td{background:var(--f-accsoft)}
-.fasc .cell{display:inline-block;min-width:34px;text-align:center;border-radius:6px;padding:2px 6px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap}
-.fasc .cell.ok{background:var(--f-oksoft);color:var(--f-ok)}.fasc .cell.coda{background:var(--f-infosoft);color:var(--f-info)}
-.fasc .cell.urg{background:var(--f-urgsoft);color:var(--f-urg)}.fasc .cell.warn{background:var(--f-warnsoft);color:var(--f-warn)}
-.fasc .cell.info{background:var(--f-infosoft);color:var(--f-info)}.fasc .cell.no{background:var(--f-chip);color:var(--f-muto2)}
-
-/* DOCUMENTI: tabella densa, righe da 28 px, intestazione fissa, niente scorrimento orizzontale */
-.fasc .filtri-doc{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px}
-.fasc .filtri-doc a{padding:3px 9px;border-radius:999px;color:var(--f-muto);font-size:12px;font-weight:600;text-decoration:none}
-.fasc .filtri-doc a.on{background:var(--f-accsoft);color:var(--f-acc)}
-.fasc form.carica{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0 6px;padding:6px 8px;border:1px dashed var(--f-linea2);border-radius:8px}
-.fasc form.carica input[type=file]{font-size:12px;max-width:260px}
-.fasc .barra-assegna{display:flex;gap:6px;align-items:center;margin-bottom:6px;min-height:26px}
-.fasc .doc-scorre{max-width:100%}
-.fasc table.doc-tabella{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12px}
-.fasc table.doc-tabella col.c-sel{width:22px}.fasc table.doc-tabella col.c-tipo{width:52px}.fasc table.doc-tabella col.c-cod{width:76px}
-.fasc table.doc-tabella col.c-comp{width:68px}.fasc table.doc-tabella col.c-stato{width:100px}
-.fasc table.doc-tabella thead th{position:sticky;top:-10px;background:var(--f-sup);z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--f-muto2);text-align:left;padding:5px 4px;border-bottom:1px solid var(--f-linea)}
-.fasc table.doc-tabella td{height:28px;padding:2px 4px;border-bottom:1px solid var(--f-linea);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
-.fasc table.doc-tabella tr.aperto td{background:var(--f-accsoft)}
-.fasc table.doc-tabella tr.interno td.nome a{font-style:italic}
-.fasc table.doc-tabella tr.scelta td{white-space:normal;height:auto;background:var(--f-warnsoft);padding:4px 6px}
-.fasc table.doc-tabella tr.scelta label{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
-
-/* ANTEPRIMA: il PDF nel viewer del browser, o quello che l'analisi ha letto */
-.fasc-anteprima{display:flex;flex-direction:column}
-.fasc .ant-corpo{flex:1;min-height:0;display:flex;flex-direction:column}
-.fasc .ant-pdf{flex:1;width:100%;min-height:420px;border:1px solid var(--f-linea);border-radius:8px;background:var(--f-sup2)}
+.fasc .azioni-riga{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
+.fasc form.in-linea{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap;margin:0}
+.fasc-anteprima .ant-testa{flex:none}
+.fasc .ant-corpo{flex:1;min-height:0;display:flex;flex-direction:column;margin-top:6px}
+.fasc .ant-pdf{flex:1;width:100%;min-height:380px;border:1px solid var(--f-linea);border-radius:8px;background:var(--f-sup2)}
 .fasc .nome-file{max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fasc .ant-testa .dialogo{margin:4px 0}
 .fasc .ant-testa .modulo{border:1px solid var(--f-linea);border-radius:8px;padding:8px}
@@ -352,22 +394,77 @@ details.codici>summary{cursor:pointer;margin:4px 0}
 .fasc table.mini-tab{border-collapse:collapse;width:100%;font-size:11px}.fasc table.mini-tab td,.fasc table.mini-tab th{padding:2px 6px;border-bottom:1px solid var(--f-linea);text-align:left}
 .fasc ul.avvisi-analisi,.fasc ul.mini-lista{margin:4px 0 4px 18px;padding:0;font-size:12px}
 
-/* COMPLETEZZA: la barra in fondo, una riga per componente */
-.fasc-completezza{margin-top:10px;background:var(--f-sup);border:1px solid var(--f-linea);border-radius:10px;padding:8px 12px}
+/* IL PIANO, in fondo: pronti, da verificare, in preparazione, e la conferma */
+.fasc-piano{position:sticky;bottom:0;z-index:20;margin-top:10px;background:var(--f-sup);border:1px solid var(--f-linea2);border-radius:10px;padding:8px 12px;box-shadow:0 -4px 14px rgba(20,26,33,.06)}
+.fasc .piano-riga{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.fasc .piano-conta{font-size:13px;padding:3px 10px;border-radius:999px;text-decoration:none;white-space:nowrap}
+.fasc .piano-conta.ok{background:var(--f-oksoft);color:var(--f-ok)}.fasc .piano-conta.warn{background:var(--f-warnsoft);color:var(--f-warn)}
+.fasc .piano-conta.info{background:var(--f-infosoft);color:var(--f-info)}.fasc .piano-conta.no{background:var(--f-chip);color:var(--f-muto2)}
+
+/* VISTE TECNICHE (B8.7): albero testuale, griglia, completezza, tabella dei documenti */
+.fasc .tree ul{list-style:none;padding-left:16px;margin:2px 0}
+.fasc .tree>ul{padding-left:0}
+.fasc .node{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:7px;flex-wrap:wrap;border:1px solid transparent}
+.fasc .node.sel{background:var(--f-accsoft);border-color:var(--f-acc)}
+.fasc .node.radice>.node-link b{font-size:13px}
+.fasc .node .docs{margin-left:auto;display:flex;gap:3px;flex-wrap:wrap}
+.fasc .node.proposal{border:1.5px dashed var(--f-warn);color:var(--f-warn);background:#fffdf7;margin:2px 0}
+.fasc .node.proposal.deciso{border-color:var(--f-linea2);color:var(--f-muto2);background:none}
+.fasc .node.removal{border:1.5px dashed var(--f-urg);color:var(--f-urg);background:#fffaf8;margin:2px 0}
+.fasc .blocco-file{margin-top:10px;border:1px solid var(--f-linea);border-radius:8px;padding:8px}
+.fasc .blocco-file .bf-testa{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.fasc ul.proposte{list-style:none;padding-left:16px;margin:2px 0}
+.fasc table.griglia{border-collapse:collapse;width:100%;font-size:12px}
+.fasc table.griglia th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--f-muto2);text-align:left;padding:5px 3px;border-bottom:1px solid var(--f-linea)}
+.fasc table.griglia td{padding:3px;border-bottom:1px solid var(--f-linea)}
+.fasc table.griglia .cell{min-width:26px;padding:2px 4px}
+.fasc table.griglia tr.sel td{background:var(--f-accsoft)}
+.fasc .cell{display:inline-block;min-width:34px;text-align:center;border-radius:6px;padding:2px 6px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap}
+.fasc .cell.ok{background:var(--f-oksoft);color:var(--f-ok)}.fasc .cell.coda{background:var(--f-infosoft);color:var(--f-info)}
+.fasc .cell.urg{background:var(--f-urgsoft);color:var(--f-urg)}.fasc .cell.warn{background:var(--f-warnsoft);color:var(--f-warn)}
+.fasc .cell.info{background:var(--f-infosoft);color:var(--f-info)}.fasc .cell.no{background:var(--f-chip);color:var(--f-muto2)}
 .fasc .comp-testa{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
 .fasc .comp-testa .legenda{margin-left:auto}
-.fasc .comp-righe{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow:auto}
+.fasc .comp-righe{display:flex;flex-wrap:wrap;gap:6px}
 .fasc .comp-riga{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--f-linea);border-radius:8px;padding:3px 6px}
 .fasc .comp-riga.sel{border-color:var(--f-acc);background:var(--f-accsoft)}
+.fasc .filtri-doc{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px}
+.fasc .filtri-doc a{padding:3px 9px;border-radius:999px;color:var(--f-muto);font-size:12px;font-weight:600;text-decoration:none}
+.fasc .filtri-doc a.on{background:var(--f-accsoft);color:var(--f-acc)}
+.fasc .barra-assegna{display:flex;gap:6px;align-items:center;margin-bottom:6px;min-height:26px}
+.fasc .doc-scorre{max-width:100%}
+.fasc table.doc-tabella{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12px}
+.fasc table.doc-tabella col.c-sel{width:22px}.fasc table.doc-tabella col.c-tipo{width:52px}.fasc table.doc-tabella col.c-cod{width:96px}
+.fasc table.doc-tabella col.c-comp{width:84px}.fasc table.doc-tabella col.c-stato{width:130px}
+.fasc table.doc-tabella thead th{position:sticky;top:-10px;background:var(--f-sup);z-index:2;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--f-muto2);text-align:left;padding:5px 4px;border-bottom:1px solid var(--f-linea)}
+.fasc table.doc-tabella td{height:28px;padding:2px 4px;border-bottom:1px solid var(--f-linea);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.fasc table.doc-tabella tr.aperto td{background:var(--f-accsoft)}
+.fasc table.doc-tabella tr.interno td.nome a{font-style:italic}
+.fasc table.doc-tabella tr.scelta td{white-space:normal;height:auto;background:var(--f-warnsoft);padding:4px 6px}
+.fasc table.doc-tabella tr.scelta label{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
 
-/* CASSETTO: Codici e Avvisi, sopra i pannelli, a destra */
+/* I CASSETTI: Da verificare, Rivedi, Importa dal NAS, Codici, Avvisi */
 .fasc .cassetto-linguette{display:flex;gap:4px;flex-wrap:wrap}
-.fasc-cassetto .cassetto-dentro{position:fixed;top:48px;right:12px;bottom:12px;width:min(460px,92vw);z-index:40;background:var(--f-sup);border:1px solid var(--f-linea2);border-radius:10px;box-shadow:0 12px 32px rgba(20,26,33,.18);padding:10px 12px;overflow:auto}
+.fasc-cassetto .cassetto-dentro{position:fixed;top:48px;right:12px;bottom:12px;width:min(520px,94vw);z-index:40;background:var(--f-sup);border:1px solid var(--f-linea2);border-radius:10px;box-shadow:0 12px 32px rgba(20,26,33,.18);padding:10px 12px;overflow:auto}
 .fasc .avviso-riga{margin:4px 0;padding:6px 8px;border-radius:6px;font-size:13px}
 .fasc .avviso-riga.urg{background:var(--f-urgsoft);color:var(--f-urg)}.fasc .avviso-riga.warn{background:var(--f-warnsoft);color:var(--f-warn)}.fasc .avviso-riga.info{background:var(--f-infosoft);color:var(--f-info)}
+.fasc .verifica-voce{border:1px solid var(--f-linea);border-left:4px solid #d99a1c;border-radius:8px;padding:6px 8px;margin:6px 0}
+.fasc .verifica-voce.rimozione{border-left-color:var(--f-urg)}.fasc .verifica-voce.struttura{border-left-color:var(--f-warn)}
+.fasc .vv-testa{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fasc .vv-domanda{margin:3px 0;font-size:12px;color:var(--f-warn)}
+.fasc .vv-gesti,.fasc .vv-nodo{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.fasc details.avvisi-verifica{margin-top:10px}
+.fasc form.rivedi{display:grid;gap:8px}
+.fasc form.rivedi label{display:flex!important;gap:8px;align-items:flex-start;font-size:13px;padding:3px 0;border-bottom:1px solid var(--f-linea)}
+.fasc .nas-cerca{display:flex;gap:6px;margin:4px 0 8px}
+.fasc .nas-cerca input[type=search]{flex:1}
+.fasc ul.nas-lista{list-style:none;padding:0;margin:4px 0;font-size:12px}
+.fasc ul.nas-lista li{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px;border-bottom:1px solid var(--f-linea)}
+.fasc ul.nas-lista li.cartella a{font-weight:600;text-decoration:none}
+.fasc .nas-briciole{font-size:12px;margin:6px 0 2px}
 
 @media (max-width:1100px){
-  .fasc-griglia{grid-template-columns:1fr}
-  .fasc-pannello{height:auto;max-height:none}
-  .fasc .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .fasc-lavoro{grid-template-columns:1fr}
+  .fasc-principale,.fasc-destra{height:auto;max-height:none}
+  .fasc .ant-pdf{min-height:520px}
 }

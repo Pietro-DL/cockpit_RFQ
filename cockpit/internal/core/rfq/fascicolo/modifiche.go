@@ -323,6 +323,9 @@ type Caricato struct {
 	Bytes    int64
 	Percorso string // il contenuto nello staging (staging.PercorsoContenuto)
 	Tipo     string // il content type dichiarato dal browser, solo informativo
+	// PathInterno: da dove viene, quando non viene dal PC di chi carica: per un file importato dal NAS
+	// (B8.7b) «NAS: <percorso sotto la radice>». Solo informativo, come per le voci di uno zip.
+	PathInterno string
 }
 
 // RegistraCaricamento aggiunge il file alla nota interna come allegato di origine manuale, gia' in staging.
@@ -344,7 +347,7 @@ func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, 
 		ext = ""
 	}
 	a, err := q.UpsertAllegato(ctx, db.UpsertAllegatoParams{MessaggioID: nota.MessaggioID, Indice: int16(indice), NomeFile: f.Nome,
-		Estensione: testo(ext), ContentType: testo(tronca(f.Tipo, 120)), Natura: db.NaturaAllegatoFile, Origine: db.OrigineAllegatoManuale,
+		PathInterno: testo(tronca(f.PathInterno, 500)), Estensione: testo(ext), ContentType: testo(tronca(f.Tipo, 120)), Natura: db.NaturaAllegatoFile, Origine: db.OrigineAllegatoManuale,
 		Bytes: pgtype.Int8{Int64: f.Bytes, Valid: true}, Sha256: testo(f.Sha256), RicevutoIl: adesso(), CaricatoDa: uid(utente)})
 	if err != nil {
 		return db.Allegato{}, err
@@ -359,9 +362,14 @@ func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, 
 // adesso e' l'istante dei caricamenti: una variabile, perche' le prove lo possano fissare.
 var adesso = time.Now
 
+// tronca taglia a n byte senza spezzare un carattere: una stringa UTF-8 tagliata a meta' il database la
+// rifiuta.
 func tronca(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }

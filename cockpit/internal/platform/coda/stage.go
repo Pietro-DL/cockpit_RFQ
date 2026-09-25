@@ -156,5 +156,12 @@ func AccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID u
 		AllegatoID: a.AllegatoID, Sha256: a.Sha256.String, Bytes: a.Bytes.Int64, NomeFile: a.NomeFile,
 		ThreadID: tid, MessaggioID: a.MessaggioID,
 		VersioneAnalizzatore: an.Versione, HashConfigurazione: cfg, Parametri: an.Parametri,
-	}, fmt.Sprintf("analizza:%s:%d:%s", a.Sha256.String, an.Versione, cfg), 6)
+	}, ChiaveAnalisi(a.Sha256.String, an), 6)
+}
+
+// ChiaveAnalisi e' la chiave di idempotenza dell'analisi di un contenuto: `analizza:<sha256>:<versione>:
+// <configurazione>`. Chi vuole sapere se quell'analisi e' gia' stata provata, e com'e' finita, la cerca
+// con questa (B8.7b, la preparazione del Fascicolo).
+func ChiaveAnalisi(sha string, an Analizzatore) string {
+	return fmt.Sprintf("analizza:%s:%d:%s", sha, an.Versione, an.Hash())
 }

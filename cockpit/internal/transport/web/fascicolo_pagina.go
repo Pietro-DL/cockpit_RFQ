@@ -15,8 +15,11 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"sort"
@@ -48,21 +51,42 @@ var filtriFascicolo = []struct{ Chiave, Nome string }{
 	{filtroTutti, "Tutti"}, {filtroDaScaricare, "Da scaricare"}, {filtroRumore, "Rumore e scartati"},
 }
 
+// Le viste dell'area principale (B8.7b): la BOM visuale e' la schermata; le card dei componenti e la tabella
+// dei documenti sono le altre due linguette; griglia, completezza e albero testuale sono le viste tecniche
+// di B8.7, per la diagnostica.
+var visteFascicolo = map[string]bool{"componenti": true, "documenti": true, "griglia": true, "completezza": true, "albero": true}
+
+// I cassetti: «Da verificare» (il lavoro dell'operatore), «Rivedi» il piano prima della conferma, «Importa
+// dal NAS», e le due viste tecniche di B8.6/B8.7, Codici e Avvisi.
+var cassettiFascicolo = map[string]bool{"verifica": true, "piano": true, "nas": true, "codici": true, "avvisi": true}
+
+// Le schede del dettaglio di un componente.
+var schedeNodo = map[string]bool{"3d": true, "2d": true, "dxf": true, "altri": true, "storico": true}
+
 // statoFascicolo e' lo stato della schermata, scritto nell'indirizzo.
 type statoFascicolo struct {
 	Nodo     uuid.UUID // il componente scelto; zero = nessuno
+	Prop     uuid.UUID // il nodo proposto scelto nella BOM; zero = nessuno
 	File     uuid.UUID // l'allegato aperto nell'anteprima; zero = nessuno
+	Doc      uuid.UUID // il documento del componente scelto aperto nel dettaglio; zero = quello della scheda
+	Scheda   string    // la scheda del dettaglio: 3d, 2d, dxf, altri, storico; "" = la prima con qualcosa
 	Filtro   string    // uno di filtriFascicolo; "" = non assegnati
 	Tipo     string    // con il filtro «candidati»: solo quel tipo di documento
-	Vista    string    // "" (BOM) oppure "griglia"
-	Cassetto string    // "", "codici", "avvisi"
+	Vista    string    // "" (la BOM) oppure una di visteFascicolo
+	Cassetto string    // "" oppure uno di cassettiFascicolo
 	Scartate bool      // mostra anche le proposte scartate
+	Cerca    string    // i codici e i file che contengono questo testo
+	Nas      string    // la cartella aperta nel cassetto «Importa dal NAS», relativa alla radice
+	NasCerca string    // la ricerca per nome nel NAS
 }
 
 func leggiStatoFascicolo(v url.Values) statoFascicolo {
-	st := statoFascicolo{Filtro: v.Get("filtro"), Vista: v.Get("vista"), Cassetto: v.Get("cassetto"), Scartate: v.Get("scartate") == "1"}
+	st := statoFascicolo{Filtro: v.Get("filtro"), Vista: v.Get("vista"), Cassetto: v.Get("cassetto"), Scartate: v.Get("scartate") == "1",
+		Scheda: v.Get("scheda"), Cerca: strings.TrimSpace(v.Get("q")), Nas: strings.TrimSpace(v.Get("nas")), NasCerca: strings.TrimSpace(v.Get("nas_cerca"))}
 	st.Nodo, _ = uuid.Parse(v.Get("nodo"))
+	st.Prop, _ = uuid.Parse(v.Get("prop"))
 	st.File, _ = uuid.Parse(v.Get("file"))
+	st.Doc, _ = uuid.Parse(v.Get("doc"))
 	valido := false
 	for _, f := range filtriFascicolo {
 		valido = valido || f.Chiave == st.Filtro
@@ -70,43 +94,49 @@ func leggiStatoFascicolo(v url.Values) statoFascicolo {
 	if !valido || st.Filtro == filtroNonAssegnati {
 		st.Filtro = ""
 	}
-	if st.Vista != "griglia" {
+	if !visteFascicolo[st.Vista] {
 		st.Vista = ""
 	}
-	if st.Cassetto != "codici" && st.Cassetto != "avvisi" {
+	if !cassettiFascicolo[st.Cassetto] {
 		st.Cassetto = ""
+	}
+	if !schedeNodo[st.Scheda] {
+		st.Scheda = ""
 	}
 	if t := db.TipoDocumento(v.Get("tipo")); t.Valid() {
 		st.Tipo = string(t)
+	}
+	if len([]rune(st.Cerca)) > 60 {
+		st.Cerca = string([]rune(st.Cerca)[:60])
+	}
+	if len([]rune(st.NasCerca)) > 60 {
+		st.NasCerca = string([]rune(st.NasCerca)[:60])
 	}
 	return st
 }
 
 func (st statoFascicolo) valori() url.Values {
 	v := url.Values{}
-	if st.Nodo != uuid.Nil {
-		v.Set("nodo", st.Nodo.String())
+	for k, id := range map[string]uuid.UUID{"nodo": st.Nodo, "prop": st.Prop, "file": st.File, "doc": st.Doc} {
+		if id != uuid.Nil {
+			v.Set(k, id.String())
+		}
 	}
-	if st.File != uuid.Nil {
-		v.Set("file", st.File.String())
-	}
-	if st.Filtro != "" {
-		v.Set("filtro", st.Filtro)
-	}
-	if st.Tipo != "" {
-		v.Set("tipo", st.Tipo)
-	}
-	if st.Vista != "" {
-		v.Set("vista", st.Vista)
-	}
-	if st.Cassetto != "" {
-		v.Set("cassetto", st.Cassetto)
+	for k, x := range map[string]string{"scheda": st.Scheda, "filtro": st.Filtro, "tipo": st.Tipo, "vista": st.Vista,
+		"cassetto": st.Cassetto, "q": st.Cerca, "nas": st.Nas, "nas_cerca": st.NasCerca} {
+		if x != "" {
+			v.Set(k, x)
+		}
 	}
 	if st.Scartate {
 		v.Set("scartate", "1")
 	}
 	return v
 }
+
+// HaFile dice se nell'anteprima c'e' un file aperto. Un uuid e' un array di 16 byte, e per i template un
+// array non vuoto e' sempre «vero»: {{if .Stato.File}} non si puo' scrivere.
+func (st statoFascicolo) HaFile() bool { return st.File != uuid.Nil }
 
 // Query e' lo stato come stringa di interrogazione, con il «?» se non e' vuota.
 func (st statoFascicolo) Query() string {
@@ -122,8 +152,20 @@ func (st statoFascicolo) Query() string {
 func (st statoFascicolo) Con(coppie ...string) string {
 	v := st.valori()
 	for i := 0; i+1 < len(coppie); i += 2 {
-		if coppie[i] == "nodo" {
+		switch coppie[i] {
+		case "nodo":
+			// il tipo del filtro candidati, il documento e la scheda del dettaglio sono di un nodo solo;
+			// scegliere un nodo toglie anche il nodo proposto scelto
 			v.Del("tipo")
+			v.Del("doc")
+			v.Del("scheda")
+			v.Del("prop")
+		case "prop":
+			v.Del("nodo")
+			v.Del("doc")
+			v.Del("scheda")
+		case "scheda":
+			v.Del("doc")
 		}
 		if coppie[i+1] == "" {
 			v.Del(coppie[i])
@@ -393,6 +435,81 @@ type fascicoloDati struct {
 	NAnalisi     int64
 	NAnomalie    int
 	Caricamento  bool // il caricamento interno e' configurato
+
+	// B8.7b
+	Piano       fascicolo.PianoFascicolo // il piano di riconciliazione: che cosa entra con «Conferma Fascicolo»
+	ErrorePiano string
+	Lavoro      fascicolo.Lavoro // download, estrazioni e analisi ancora in corso sui file della RFQ
+	Avanzamento avanzamento
+	Rifai       bool // la risposta del poll rifa' i pannelli: la firma e' cambiata
+	// NodiProposti e RelazioniProposte sono le proposte degli STEP come le legge la BOM visuale.
+	NodiProposti      []db.ListComponenteProposteThreadRow
+	RelazioniProposte []db.ListRelazioneProposteThreadRow
+	Carte             []*carta                // la BOM visuale
+	Schede            []*carta                // la linguetta «Componenti»
+	AllegatoDi        map[uuid.UUID]uuid.UUID // documento → l'allegato da cui e' nato, per aprirlo
+	Dettaglio         *dettaglioNodo          // il componente scelto, nel pannello di destra
+	PropScelta        *propostaScelta         // il nodo proposto scelto, nel pannello di destra
+	Nas               *nasVista               // il cassetto «Importa dal NAS»
+	NasConfigurato    bool                    // c'e' una radice del NAS da cui importare
+	// ChiaveCorpo dice che cosa mostra il corpo del pannello di destra (vedi chiaveCorpo); RifaiCorpo: la
+	// pagina ne mostra un altro, e la risposta lo rifa' fuori banda.
+	ChiaveCorpo string
+	RifaiCorpo  bool
+}
+
+// chiaveCorpo dice che cosa mostra il corpo del pannello di destra: il PDF di un file (l'iframe), il
+// riepilogo dell'analisi di un modello con gli stati dei nodi che propone, un file senza anteprima, niente.
+// La pagina la rimanda con ogni richiesta (hx-include) e la risposta rifa' il corpo solo se e' cambiata:
+// un gesto non ricarica il PDF che si sta guardando, ma dopo una conferma il pannello non resta a mostrare
+// un file o degli stati che non sono piu' quelli.
+func chiaveCorpo(a *anteprimaDati) string {
+	if a == nil {
+		return "vuoto"
+	}
+	f, id := a.F, a.F.A.AllegatoID.String()
+	switch {
+	case f.Pdf():
+		if (f.A.PathStaging.Valid && !f.FileMancante) || (f.Doc != nil && f.Doc.StatoNas == db.StatoNasScritto) {
+			return "pdf:" + id
+		}
+		return "pdf-mancante:" + id
+	case f.Modello():
+		h := sha256.New()
+		if a.Analisi == nil {
+			fmt.Fprint(h, "senza analisi|")
+		} else {
+			fmt.Fprintf(h, "v%d|%s|", a.Analisi.Versione, a.Analisi.MotivoParziale)
+		}
+		for _, p := range a.Proposte {
+			fmt.Fprintf(h, "%s=%s|", p.Chiave, p.Stato)
+		}
+		return "modello:" + id + ":" + hex.EncodeToString(h.Sum(nil)[:6])
+	}
+	return "altro:" + id
+}
+
+// NDaVerificare e' il numero del cassetto «Da verificare»: le decisioni del piano, le rimozioni proposte e
+// gli STEP strutturali superati da uno nuovo.
+func (d *fascicoloDati) NDaVerificare() int {
+	n := d.Piano.Decisioni()
+	for _, rr := range d.Rimozioni {
+		n += len(rr)
+	}
+	for _, sp := range d.StepProdotto {
+		if sp.Esito == fascicolo.StepRiferimentoSuperato {
+			n++
+		}
+	}
+	return n
+}
+
+// VistaBom dice se l'area principale e' la BOM visuale.
+func (d *fascicoloDati) VistaBom() bool { return d.Stato.Vista == "" }
+
+// VistaTecnica dice se l'area principale e' una delle viste tecniche.
+func (d *fascicoloDati) VistaTecnica() bool {
+	return d.Stato.Vista == "griglia" || d.Stato.Vista == "completezza" || d.Stato.Vista == "albero"
 }
 
 // NonAssegnati e' il conteggio della testata.
@@ -577,11 +694,6 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 		}
 	}
 	d.filtraFile()
-	if st.File != uuid.Nil {
-		if d.Anteprima, err = s.anteprimaFascicolo(ctx, q, d, st.File); err != nil {
-			return nil, err
-		}
-	}
 	if st.Cassetto == "codici" {
 		if c, err := fascicolo.CandidatiDellaRfq(ctx, q, thread); err != nil {
 			d.CodiciErrore = "i codici della richiesta non si sono potuti leggere: " + err.Error()
@@ -590,6 +702,29 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 		}
 	}
 	s.avvisiFascicolo(ctx, q, d)
+
+	// B8.7b: il piano, il lavoro in corso, la BOM visuale, il dettaglio a destra
+	if d.Piano, err = fascicolo.LeggiPianoFascicolo(ctx, q, thread); err != nil {
+		d.ErrorePiano = "il piano del Fascicolo non si è potuto calcolare: " + err.Error()
+	}
+	if d.Lavoro, err = fascicolo.LavoroInCorso(ctx, q, thread); err != nil {
+		d.Avanzamento.Errore = err.Error()
+	}
+	switch st.Vista {
+	case "":
+		d.Carte = costruisciBom(d)
+	case "componenti":
+		d.Schede = componentiInCard(d)
+	}
+	if err := s.pannelloDestro(ctx, q, d); err != nil {
+		return nil, err
+	}
+	d.ChiaveCorpo = chiaveCorpo(d.Anteprima)
+	d.NasConfigurato = s.NAS != nil && s.NAS.Radice != "" && d.Caricamento
+	if st.Cassetto == "nas" && d.Scrive {
+		d.Nas = s.nasVista(ctx, q, d)
+	}
+	d.Avanzamento = avanzamento{Base: d.Base, Stato: st, Lavoro: d.Lavoro, Firma: firmaDi(d), Attesa: attesaDopo(0), Errore: d.Avanzamento.Errore}
 	return d, nil
 }
 
@@ -654,6 +789,7 @@ func (s *Server) proposteFascicolo(ctx context.Context, q *db.Queries, d *fascic
 	if err != nil {
 		return err
 	}
+	d.NodiProposti, d.RelazioniProposte = nodi, rel
 	type chiave struct {
 		a uuid.UUID
 		k string
@@ -779,9 +915,13 @@ func (s *Server) fileFascicolo(ctx context.Context, q *db.Queries, d *fascicoloD
 		return err
 	}
 	docDi := map[uuid.UUID]uuid.UUID{}
+	d.AllegatoDi = map[uuid.UUID]uuid.UUID{}
 	for _, p := range prov {
 		if _, gia := docDi[p.AllegatoID.UUID]; !gia {
 			docDi[p.AllegatoID.UUID] = p.DocumentoID
+		}
+		if _, gia := d.AllegatoDi[p.DocumentoID]; !gia {
+			d.AllegatoDi[p.DocumentoID] = p.AllegatoID.UUID
 		}
 	}
 	for _, a := range allegati {

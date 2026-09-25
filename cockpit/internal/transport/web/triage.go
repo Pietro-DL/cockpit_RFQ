@@ -18,6 +18,7 @@ import (
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -67,6 +68,14 @@ type triageDati struct {
 	// Candidati di aggancio (R0–R5) con evidenza: si vedono anche nel form «Nuova RFQ», perché la
 	// domanda «sei sicuro che non sia questa?» va fatta prima di creare un doppione, non dopo.
 	Candidati []db.ListCandidatiAggancioRow
+	// MaxAuto: oltre questa dimensione un file utile non scende da solo (il limite degli upload dei worker).
+	MaxAuto int64
+}
+
+// SiPrepara dice se un allegato scende da solo quando la RFQ nasce o il messaggio si aggancia (B8.7b): e'
+// utile (la pre-spunta di sempre), e' un file diretto del messaggio e sta nel limite degli upload.
+func (d *triageDati) SiPrepara(a AllegatoUI) bool {
+	return a.PreSpunta && a.Natura == db.NaturaAllegatoFile && !a.ContenitoreID.Valid && (!a.Bytes.Valid || a.Bytes.Int64 <= d.MaxAuto)
 }
 
 // Spuntato dice se un candidato di codice nasce già spuntato nel form. Le famiglie del cliente sì,
@@ -102,7 +111,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	if err != nil {
 		return nil, err
 	}
-	d := &triageDati{M: m, Oggetto: classificazione.OggettoPulito(m.Oggetto.String)}
+	d := &triageDati{M: m, Oggetto: classificazione.OggettoPulito(m.Oggetto.String), MaxAuto: s.maxCaricamentoEffettivo()}
 	d.Riga, _ = q.GetInboxRiga(ctx, id)
 	d.Clienti, _ = q.ListClienti(ctx)
 	d.ClienteID = d.Riga.ClienteID
@@ -407,11 +416,42 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	prep, err := s.preparaDopoLaDecisione(ctx, q, t.ThreadID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s %s", t.CartellaRelativa.String, cartella, esiti.frase()))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s%s%s", t.CartellaRelativa.String, cartella, esiti.fraseSeCe(), prep))
+}
+
+// preparaDopoLaDecisione e' la preparazione del Fascicolo nella transazione di chi ha appena creato la RFQ o
+// agganciato il messaggio (B8.7b): i codici della richiesta confermati diventano prodotti finiti, e i file
+// utili della RFQ scendono nello staging senza che nessuno li spunti. Il NAS aspetta la conferma. Restituisce
+// la frase per l'avviso.
+func (s *Server) preparaDopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID) (string, error) {
+	prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread)
+	if err != nil {
+		return "", err
+	}
+	prep, err := fascicolo.PreparaFile(ctx, q, thread, s.Analizzatore, s.maxCaricamentoEffettivo(), MaxPreparatiPerApertura, s.rileggiFatti())
+	if err != nil {
+		return "", err
+	}
+	frase := ""
+	if n := len(prodotti.Creati); n > 0 {
+		frase += fmt.Sprintf(" %s nella BOM come %s.", strings.Join(prodotti.Creati, ", "), plurale(n, "prodotto finito", "prodotti finiti"))
+	}
+	if n := prep.Download + prep.Riusati; n > 0 {
+		frase += fmt.Sprintf(" %s in preparazione (staging e analisi): il Fascicolo si aggiorna da solo.", conta(n, "file utile", "file utili"))
+	}
+	if len(prep.Saltati) > 0 {
+		frase += " Non scaricati da soli: " + strings.Join(prep.Saltati, "; ") + "."
+	}
+	return frase, nil
 }
 
 // agganciaEsistente collega il messaggio (e gli orfani della sua conversazione) a un thread scelto dall'operatore.
@@ -470,11 +510,16 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	prep, err := s.preparaDopoLaDecisione(ctx, q, tid)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s. %s", t.CartellaRelativa.String, esiti.frase()))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s.%s%s", t.CartellaRelativa.String, esiti.fraseSeCe(), prep))
 }
 
 // ignora chiude il triage senza RFQ: il messaggio esce da "orfani" e finisce nel filtro "ignorati".

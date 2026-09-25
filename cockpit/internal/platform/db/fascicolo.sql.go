@@ -1229,13 +1229,18 @@ INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, r
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (allegato_id) DO UPDATE SET
     thread_id = COALESCE(EXCLUDED.thread_id, documento_proposta.thread_id),
-    tipo_proposto = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.tipo_proposto ELSE documento_proposta.tipo_proposto END,
-    codice = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.componente_id IS NULL THEN EXCLUDED.codice
-                  ELSE documento_proposta.codice END,
-    rev = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.rev ELSE documento_proposta.rev END,
-    confidenza = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.confidenza ELSE documento_proposta.confidenza END,
-    fonte = CASE WHEN documento_proposta.stato = 'aperta' THEN EXCLUDED.fonte ELSE documento_proposta.fonte END,
+    tipo_proposto = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.tipo_proposto
+                         ELSE documento_proposta.tipo_proposto END,
+    codice = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.componente_id IS NULL AND documento_proposta.fonte <> 'operatore'
+                  THEN EXCLUDED.codice ELSE documento_proposta.codice END,
+    rev = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.rev ELSE documento_proposta.rev END,
+    confidenza = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.confidenza
+                      ELSE documento_proposta.confidenza END,
+    fonte = CASE WHEN documento_proposta.stato = 'aperta' AND documento_proposta.fonte <> 'operatore' THEN EXCLUDED.fonte ELSE documento_proposta.fonte END,
     dettagli = CASE WHEN documento_proposta.stato <> 'aperta' THEN documento_proposta.dettagli
+                    WHEN documento_proposta.fonte = 'operatore'
+                    THEN documento_proposta.dettagli || jsonb_build_object('lettura_dopo', jsonb_build_object(
+                             'tipo', EXCLUDED.tipo_proposto, 'codice', EXCLUDED.codice, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
                     WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
                          AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
                     THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
@@ -1260,6 +1265,10 @@ type UpsertPropostaParams struct {
 // tiene: una lettura che arriva dopo (l'analisi, la proposta dal nome rifatta) non lo riscrive, e se
 // ne dice un altro lo si conserva nei dettagli (codice_letto). Riscriverlo violerebbe la FK
 // (thread, componente, codice), e il risultato dell'analisi non entrerebbe mai (B8.7).
+//
+// Una proposta aperta che l'operatore ha deciso (fonte = 'operatore', B8.7b: tipo, codice e revisione dal
+// cassetto «Da verificare») resta com'e': una lettura che arriva dopo non riscrive una decisione, e quello
+// che dice finisce nei dettagli (lettura_dopo). E' la regola di D16 (propostaDelDocumento), estesa.
 func (q *Queries) UpsertProposta(ctx context.Context, arg UpsertPropostaParams) (DocumentoProposta, error) {
 	row := q.db.QueryRow(ctx, upsertProposta,
 		arg.AllegatoID,

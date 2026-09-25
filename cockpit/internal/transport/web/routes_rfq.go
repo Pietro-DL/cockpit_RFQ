@@ -31,6 +31,7 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	s.registraCodici(mux)
 	// B8.7: la schermata del Fascicolo e i gesti che le mancavano (fascicolo_rotte.go).
 	s.registraFascicolo(mux)
+	s.registraConferma(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
 }

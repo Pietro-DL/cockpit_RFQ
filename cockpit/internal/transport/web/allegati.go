@@ -193,6 +193,15 @@ func (c contiDownload) frase() string {
 	return strings.Join(parti, ", ") + "."
 }
 
+// fraseSeCe e' la frase, preceduta da uno spazio, solo se qualcosa e' stato chiesto: dopo la creazione di una
+// RFQ i file utili li prepara il sistema (B8.7b), e «nessun allegato da scaricare» direbbe il contrario.
+func (c contiDownload) fraseSeCe() string {
+	if c.accodati+c.gia+c.riusati == 0 {
+		return ""
+	}
+	return " " + c.frase()
+}
+
 // copiaDownload sceglie da quale copia scaricare: quella servita dalla postazione della sessione se
 // c'è, altrimenti la copia di riferimento. Un download non apre finestre e non è legato al PC del
 // richiedente: lo esegue qualunque worker autorizzato sulla casella (voce 2.6).

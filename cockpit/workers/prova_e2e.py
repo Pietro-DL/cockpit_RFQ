@@ -24,10 +24,16 @@ più quelle di questo banco:
     COCKPIT_E2E_BLOCCHI      dimensione del finto allegato, in blocchi da 256 byte (default 8).
     COCKPIT_E2E_NON_RISOLTE  indirizzi, separati da virgola, che il «profilo» NON contiene: servono
                              a provare una casella censita ma assente da questo PC.
+    COCKPIT_E2E_POSTA        un file JSON con la posta finta (B8.7b, la prova dello zip dall'arrivo al
+                             Fascicolo): {"messaggi": [MessaggioIn, ...], "file": {"<entry_id>|<indice>":
+                             "<percorso>"}}. Il sync consegna quei messaggi, il download quei file; senza,
+                             il sync non trova niente e ogni download e' il contenuto deterministico.
+    COCKPIT_E2E_CONTINUO     "1" = il worker gira finche' non lo si ferma, invece di un job solo.
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import time
@@ -35,14 +41,29 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import worker_outlook  # noqa: E402  (l'import deve seguire il sys.path)
+from contratti import MessaggioIn  # noqa: E402
 
 LAVORO_S = float(os.environ.get("COCKPIT_E2E_LAVORO_S", "0"))
 BLOCCHI = int(os.environ.get("COCKPIT_E2E_BLOCCHI", "8"))
 NON_RISOLTE = {x.strip().lower() for x in os.environ.get("COCKPIT_E2E_NON_RISOLTE", "").split(",") if x.strip()}
+CONTINUO = os.environ.get("COCKPIT_E2E_CONTINUO", "") == "1"
 
 # Contenuto del finto allegato: deterministico, così il test Go sa che sha256 aspettarsi senza
 # doverselo far dire dal worker.
 CONTENUTO = bytes(range(256)) * BLOCCHI
+
+
+def _posta() -> dict:
+    """La posta finta, se c'e': i messaggi come li consegnerebbe COM e i file dei loro allegati."""
+    percorso = os.environ.get("COCKPIT_E2E_POSTA", "")
+    if not percorso:
+        return {"messaggi": [], "file": {}}
+    with open(percorso, encoding="utf-8") as f:
+        p = json.load(f)
+    return {"messaggi": [MessaggioIn.model_validate(m) for m in p.get("messaggi", [])], "file": p.get("file", {})}
+
+
+POSTA = _posta()
 
 
 class OutlookFintoE2E:
@@ -83,9 +104,14 @@ class OutlookFintoE2E:
         self._lavora()
         os.makedirs(cartella_staging, exist_ok=True)
         dest = os.path.join(cartella_staging, f"{indice:02d}_{nome_file}")
+        contenuto = CONTENUTO
+        sorgente = POSTA["file"].get(f"{entry_id}|{indice}")
+        if sorgente:
+            with open(sorgente, "rb") as f:
+                contenuto = f.read()
         with open(dest, "wb") as f:
-            f.write(CONTENUTO)
-        return (dest, hashlib.sha256(CONTENUTO).hexdigest(), len(CONTENUTO),
+            f.write(contenuto)
+        return (dest, hashlib.sha256(contenuto).hexdigest(), len(contenuto),
                 {"entry_id": entry_id, "cartella": "Posta in arrivo"})
 
     def apri(self, entry_id, store_id, message_id=""):
@@ -104,10 +130,12 @@ class OutlookFintoE2E:
         self._lavora()
         return "ENTRY-BOZZA-E2E", False
 
-    def leggi(self, cartella, dal, al=None, store_id=""):
-        """Nessun messaggio: la lettura della posta è materia di L5, non di questo banco."""
+    def leggi(self, cartella, dal, al=None, store_id="", saltati=None):
+        """I messaggi della posta finta di quella cartella, sempre gli stessi: la finestra non si guarda,
+        e un messaggio consegnato due volte il server lo riconosce dal Message-ID. Senza posta finta,
+        nessun messaggio: la lettura vera della posta è materia di L5, non di questo banco."""
         self._lavora()
-        return iter(())
+        return iter([m for m in POSTA["messaggi"] if m.cartella == cartella])
 
 
 def main() -> None:
@@ -116,7 +144,7 @@ def main() -> None:
     # worker.toml vero di questo PC, che punta al server e alle caselle reali.
     config = os.environ.get("COCKPIT_CONFIG") or os.path.join(
         os.environ.get("COCKPIT_STAGING", "."), "nessun-worker.toml")
-    sys.argv = [sys.argv[0], "--una-volta", "--config", config, "--debug"]
+    sys.argv = [sys.argv[0]] + ([] if CONTINUO else ["--una-volta"]) + ["--config", config, "--debug"]
     worker_outlook.main()
 
 
