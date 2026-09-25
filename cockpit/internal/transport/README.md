@@ -5,132 +5,259 @@
 Le rotte del browser e quelle dei worker. Traduzione fra HTTP e il resto del server: leggere la richiesta,
 controllare chi chiama, chiamare il pezzo giusto, rendere la risposta.
 
+Questo README tiene le regole comuni, la tabella completa delle rotte e le eccezioni ancora aperte; il
+dettaglio (file, dati, flussi, test, stato) è nei README dei due package.
+
 ## Non appartiene qui
 
-Le decisioni di dominio. Quelle che oggi ci stanno ancora sono elencate fra gli invarianti come **eccezioni
-aperte**, non come esempio da seguire: `workerapi/archivi.go`, `applicaRisultato`, `propostaDaAnalisi`.
+Le decisioni di dominio. Quelle che oggi ci stanno ancora sono elencate sotto, in «Eccezioni aperte», come
+debito dichiarato e non come esempio da seguire.
 
 ## Package posseduti
 
-| Package | Che cosa fa |
-|---|---|
-| `web` | la UI, in file per area: `server.go` (Server, template, `Registra`, sessione, rendering, avvisi), `routes_inbox.go`, `routes_rfq.go`, `routes_admin.go`, più i file già per tema (`triage.go`, `censisci.go`, `thread.go`, `richieste.go`, `allegati.go`, `postazione.go`, `postazioni_admin.go`, `anagrafica*.go`, `convenzioni_admin.go`, `fornitori_admin.go`, `integrita_admin.go`, `ruoli.go`, `navigazione.go`, `inbox_viva.go`). Rotte, sessioni, ruoli (`ruoli.go`: consultazione < operatore < tecnico < admin, un solo `soloRuolo`), postazione della sessione, Inbox a quadranti e triage, `censisci.go`, thread, allegati e conferma, admin (job, scarti, postazioni, anagrafica clienti, fornitori, Integrità NAS), template HTMX, `e2e/inbox_quadranti.py` per le prove nel browser |
-| `workerapi` | le rotte `/api/v1/*`: autenticazione e prova di vita del worker, applicazione dei risultati, ingest dei lotti, upload legato al tentativo, `archivi.go` |
+| Package | Che cosa fa | README |
+|---|---|---|
+| `web` | la UI per l'operatore: sessione, ruoli, Inbox a quadranti e triage, pagina della RFQ, pagina Richieste, Fascicolo (schermata, gesti, vista Documenti, note, editor, preparazione, «Importa dal NAS», caricamento), anteprima dei PDF, schermate dell'amministratore, pacchetto delle postazioni. Circa 36 file, divisi in moduli | [README](web/README.md) |
+| `workerapi` | le otto rotte `/api/v1/*` dei worker: autenticazione per token individuale e prova di vita, claim, battito, result, ingest dei lotti, upload e download legati al tentativo; e la **pipeline dopo lo staging** (proposta dal nome, analisi, estrazione degli archivi, strutture degli STEP nelle RFQ), riusata dal Fascicolo e dall'esecutore | [README](workerapi/README.md) |
+
+Il front-end (template, CSS, `fascicolo.mjs`, pdf.js) è in [`web/README.md`](../../web/README.md).
 
 ## Dipendenze consentite
 
-`core`, `ai`, `platform` (`coda` e `storage/staging` comprese). Mai il contrario: niente in `core` o `platform` importa `transport`.
+`core`, `ai`, `platform`. Quelle che esistono davvero:
 
-## Entry point
+- `web` → `ai/agente`; `core/inbox/{classificazione,ingest,lettura}`, `core/registro/{anagrafica,fornitori,regole}`,
+  `core/rfq/{documenti,fascicolo}`; `platform/{coda,contratti/worker,db,fondazioni,rete,storage/nas,storage/staging}`.
+- `workerapi` → `core/inbox/{classificazione,ingest}`, `core/registro/regole`, `core/rfq/{documenti,fascicolo}`;
+  `platform/{coda,contratti/worker,db,rete,storage/archivio,storage/nas,storage/staging}`.
 
-`web.Server.Registra`, `workerapi.Server.Registra`.
+`web` **non** importa `workerapi`: il Fascicolo riceve la pipeline come interfaccia (`web.Server.Pipeline`), e
+chi la collega è `app/runtime/ascolto.go:Ascolta`. Lo fanno solo i test L4 di `web`. Niente in `core` o
+`platform` importa `transport`.
 
-## Flussi principali — le rotte UI
+## Regole comuni
 
-L'Inbox rende **un pezzo solo** (`inbox_stato`): linguette dei quadranti, direzione, filtro, selettore della
-casella, contatori e righe. `GET /inbox` con `HX-Request` risponde con quel frammento; ogni link lo sostituisce
-per intero, così ciò che si vede acceso e ciò che si legge nella lista vengono sempre dalla stessa risposta. Il
-poll di quindici secondi sta su un elemento **fratello** (`hx-vals` si eredita, e sul contenitore avrebbe
-avvelenato ogni link lì dentro) e rilegge i parametri dalla barra degli indirizzi, l'unico posto dove lo stato
-della schermata vive. `frammentoRichiesto` distingue una richiesta HTMX normale dal ritorno dalla cronologia
-del browser, che vuole la pagina intera.
+- **Due autenticazioni**, mai mescolate. Il browser: cookie di sessione `cockpit_sess` (HttpOnly,
+  SameSite=Lax, Secure con il TLS, 12 ore), sessione in database; una richiesta htmx senza sessione riceve
+  401 con `HX-Redirect: /login`, le altre 302. I worker: `X-Cockpit-Token` individuale, che **identifica**
+  (nome, tipo, postazione e caselle vengono dalla credenziale, non dal corpo); 401 se manca, non esiste, è di
+  due credenziali o non è mai stato generato.
+- **Ruoli**: consultazione < operatore < tecnico < admin. `/admin/*` passa da `soloAdmin`; tutto il resto è
+  `autenticato`, con una regola sola per metodo: un metodo che scrive vuole almeno `operatore`
+  (`server.go:autenticato`).
+- **CSRF**: `http.CrossOriginProtection` (sulle intestazioni `Origin` / `Sec-Fetch-Site`, non un token)
+  avvolge tutto il mux, rotte dei worker comprese (`web.ProtezioneCSRF`).
+- **`web` risponde HTML** (pagina intera o frammento htmx, secondo `HX-Request`), con eccezioni dichiarate:
+  JSON per `GET /healthz` e `GET /thread/{id}/fascicolo/bom/dati`; PDF per `GET /allegato/{id}/anteprima`;
+  zip per il pacchetto delle postazioni; i file statici; 204 senza corpo per un poll che non ha niente di
+  nuovo e per i gesti che rispondono con `HX-Refresh`; testo semplice per alcuni errori. **`workerapi`
+  risponde solo JSON** (o 204).
+- **Pagina o frammento**: alcune rotte esistono solo come frammento (`/messaggio/{id}/triage`, `/censisci`,
+  `/anagrafica/buyer`, `/thread/cerca`, `/stato/worker`, `/inbox/sync-storico/stato`,
+  `/richieste/{id}/prodotti`, le parti del Fascicolo); una richiesta non htmx a `/messaggio/{id}` viene
+  rimandata all'Inbox, nel quadrante del messaggio e con il messaggio selezionato.
+- **Mai HTML della mail nella pagina**: il corpo passa da `core/inbox/lettura` e dall'escape dei template;
+  nessun template usa `template.HTML` per testo che viene da fuori.
+- **Che cosa entra fra i pezzi della pagina**: il parametro `sel` dell'Inbox e della pagina della RFQ passa
+  solo se è un UUID (riscritto dal server); `GET /allegato/{id}/anteprima` rifiuta con 400 una richiesta
+  htmx (un file si apre come documento, mai dentro la pagina); `layout.html` ha un ascoltatore globale
+  `htmx:beforeSwap` che non innesta una risposta 2xx che non sia `text/html`; `stato` e `origine` delle
+  schermate della coda e degli scarti tornano nel poll solo se riconosciuti.
+- **Una transazione per gesto**, e i gesti su una RFQ bloccano prima la RFQ; uno stallo (40P01) diventa
+  «riprova».
 
-Le rotte sono montate per **area**, e ogni area ha il suo `registra*` nel file dei suoi gestori. `Registra`
-tiene solo quelle che non sono di nessuna area — statici, `/healthz`, login, logout, la radice — e chiama le
-altre quattro:
+## Le rotte del browser (`web`)
 
-| Area | Monta | Sta in |
+Le monta `web.Server.Registra`, che tiene le rotte senza area e chiama i `registra*` delle aree; le rotte
+del Fascicolo sono montate da `routes_rfq.go:registraRFQ` attraverso `registraProposte`, `registraCodici`,
+`registraFascicolo`, `registraConferma` e `registraFascicoloV3`. Autenticazione: `—` = nessuna,
+`A` = `autenticato`, `Adm` = `soloAdmin`.
+
+**Senza area** (`server.go`)
+
+| Rotta | Auth | Effetto |
 |---|---|---|
-| inbox | `/inbox*`, `/messaggio/{id}*`, `/allegato/{id}/{riscarica,anteprima}`, `/stato/worker`, `/anagrafica/buyer`, `/thread/cerca` | `routes_inbox.go:registraInbox`; gestori anche in `triage.go`, `censisci.go`, `allegati.go`, `richieste.go`, `agente.go` |
-| RFQ | `/thread/{id}*`, `/proposta/{id}/{conferma,scarta}`, `/cruscotto`, `/richieste` | `routes_rfq.go:registraRFQ`; gestori anche in `thread.go`, `richieste.go`, `allegati.go` |
-| postazioni | `/sessione/postazione`, `/admin/postazioni*` | `postazioni_admin.go:registraPostazioni`, `postazione.go` |
-| admin | `/admin/job*`, `/admin/scarti*`, `/admin/nas*`, `/admin/anagrafica*`, `/admin/fornitori*` | `routes_admin.go:registraAdmin`; gestori anche in `integrita_admin.go`, `anagrafica*.go`, `convenzioni_admin.go`, `fornitori_admin.go` |
+| `GET /static/` | — | file statici; quelli con l'impronta `?v=` e pdf.js in cache per un anno; una cartella risponde 404, mai l'elenco |
+| `GET /healthz` | — | JSON: stato del database, del NAS, versione dello schema |
+| `GET /login`, `POST /login`, `POST /logout` | — | login con sigla e password (bcrypt), sessione, postazione abbinata per IP |
+| `GET /` | A | rimanda a `/inbox` |
 
-| Rotta | Effetto | Package toccati |
+**Inbox, messaggi, triage** (`routes_inbox.go:registraInbox`)
+
+| Rotta | Effetto | Gestore |
 |---|---|---|
-| `GET /inbox`, `/messaggio/{id}`, `/thread/{id}`, `/thread/cerca`, `/cruscotto`, `/richieste`, `/stato/worker`, `/anagrafica/buyer` | lettura: query e template. Il quadrante viene da `v_inbox.controparte_tipo`; predefinito Buyer | `platform/db`, viste `v_inbox`, `v_thread_fase`, `v_fascicolo` |
-| `GET /inbox` (prima volta nella sessione), `POST /inbox/aggiorna`, `POST /inbox/sync-storico` | accodano un `sync_outlook` (di apertura, per casella, in modo storico) | `platform/coda` |
-| `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi con il `postazione_id` della sessione; `bozza` richiede la capacità `bozze`, `letto` la capacità `outlook_scrittura`; `apri` è sempre consentito | `platform/coda` |
-| `POST /messaggio/{id}/scarica`, `/allegato/{id}/riscarica` | `stage_allegato` solo se il contenuto non è già in `_contenuti` | `platform/coda` |
-| `GET /allegato/{id}/anteprima` (B8.1) | serve i byte del PDF: **staging** se il contenuto c'è, altrimenti il file del documento sul **NAS**. Nella URL non c'è nessun percorso: quello si compone dal database e passa da `documenti.PercorsoSulNas`. Si serve solo ciò che comincia per `%PDF-`, con `Range`/`If-Range`/`ETag` (`http.ServeContent`) e **senza** ricalcolare l'hash. Un'anomalia aperta ⇒ 409. Se la dimensione non torna o il file è stato toccato dopo l'ultimo sguardo, e SOLO allora, si rilegge una volta con `documenti.VerificaFileAperto`, che su un conflitto **apre l'anomalia** e non fa uscire un byte. Lo staging si legge solo se `path_staging` sta sotto `Server.Staging` (la radice dichiarata, via `documenti.DentroLaRadice`); fuori radice ⇒ 500 e nessun byte, radice non dichiarata ⇒ si passa al NAS. Riga che non c'è ⇒ 404; errore del database o lettura della testa fallita ⇒ 500, mai scambiato per «non c'è» o per «non è un PDF» (415). Il nome va nel `Content-Disposition` in ASCII, con `filename*=UTF-8''…` quando l'originale non lo è | `core/rfq/documenti`, `platform/storage/nas` |
-| `GET /messaggio/{id}/triage`, `POST /messaggio/{id}/rfq` · `/aggancia` · `/ignora` | decisioni con `FOR UPDATE`; `nuovaRFQ` crea `thread_offerta`, gli identificativi selezionati e accoda `crea_cartella_thread`. Un messaggio con controparte `fornitore` non ha «Nuova RFQ» | `core/inbox/classificazione`, `core/inbox/aggancio`, `platform/coda` |
-| `POST /messaggio/{id}/risposta-fornitore`, `/richiesta-fornitore` | «è la risposta a questa richiesta» e «è la richiesta mandata a mano» (7B) | `core/inbox/aggancio`, `platform/db` |
-| `POST /thread/{id}/richiesta` (+ `/annulla`) | la richiesta a un fornitore e, con `bozza=1`, la bozza «nuovo» in Outlook con `Marcatori{CockpitRichiestaFornitore}`; capacità `bozze`. **Nessun form la chiama più**: tolto di proposito dalla pagina della RFQ prima di B8.2, da non reintrodurre prima del modello delle lavorazioni per componente (tornerà nel tab Luigi). La rotta resta per lo storico | `platform/coda`, `platform/contratti/worker` |
-| `GET/POST /messaggio/{id}/censisci` | crea il fornitore o il cliente e fa il ritriage mirato. Senza transazione, di proposito: le scritture non distruttive rispondono «di chi è», e in una transazione abortita non potrebbero | `core/inbox/ingest`, `core/inbox/classificazione` |
-| `POST /proposta/{id}/conferma` · `/scarta` | `documento` + `copia_nas`. Con `nas_scrittura` spenta il documento resta `in_coda`. Un CAD 3D, disegno 2D o DXF senza codice non si conferma: errore esplicito e proposta aperta (A2.2). **Non crea componenti** (B8.3): `componente_id` facoltativo (dal form, altrimenti quello della proposta), dello stesso thread; il documento ne prende il codice così com'è scritto, e un codice diverso passa solo con `correggi_codice=1`. Se il componente ha già un documento corrente dello stesso tipo serve `scelta`: `aggiungi` (restano correnti tutti) oppure l'id del documento che il nuovo sostituisce (`fascicolo.Sostituisci`); se il predecessore è lo STEP strutturale serve anche `nuovo_riferimento` (`1` il nuovo diventa il riferimento, `0` no), e una versione interna sostituisce solo con `motivo` (B8.7); senza, rifiuto e proposta aperta (decisione del 24/09/2026 su A4.10) | `core/inbox/classificazione`, `core/rfq/fascicolo`, `platform/coda`, `platform/storage/nas` |
-| `POST /thread/{id}/fascicolo/assegna` | B8.3, `fascicolo.go`: aggancia `documento` e `proposta` (uno o più) al `componente` di questa RFQ, o li sgancia (componente vuoto: codice e percorso invariati). Tutto o niente. Codice diverso da quello del componente → rifiuto, salvo `correggi_codice=1` (A1.4, D18); il percorso segue il codice nuovo (cartella, mai il nome del file) solo per i documenti `in_coda`/`errore`, con la copia in attesa bloccata (`FOR UPDATE`); copia già in corso → «riprova fra poco»; documento `scritto` che dovrebbe cambiare cartella → rifiuto fino a B8.8. La FK `(thread, componente, codice)` resta l'autorità. Un documento che entra in un componente con un corrente dello stesso tipo vuole `scelta_<documento>` (`aggiungi` o l'id del predecessore; con un solo documento basta `scelta`), come la conferma | `core/rfq/documenti`, `core/rfq/fascicolo`, `platform/coda` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/codice` | corregge il codice di un componente e lo porta su documenti e proposte agganciati, con le stesse regole, in una transazione con `fk_documento_componente` e `fk_proposta_componente` differite al COMMIT | `core/rfq/documenti` |
-| `GET /thread/{id}` (apertura) | B8.5, `proposte.go`: prima di mostrare la RFQ ne rilegge gli STEP (`fascicolo.RianalizzaRfq`, in una transazione sua): quelli con i fatti dell'analizzatore corrente diventano o aggiornano proposte con le regole del cliente di adesso, e fino a 5 di quelli senza si accodano al worker (non quelli il cui contenuto non è più in staging). Senza `[analisi]` configurata non fa niente | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/rianalizza` | lo stesso gesto, esplicito, fino a 20 analisi accodate; l'avviso dice quanti STEP riletti, accodati, già in coda, rimandati e da riscaricare | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/nodo/{pid}/accetta` · `/scarta` · `/codice` | B8.5: un nodo proposto diventa componente (o ritrova quello con lo stesso codice, ripristinandolo se archiviato; `tipo` facoltativo), si scarta, o riceve il codice dall'operatore (origine `operatore`, che una riclassificazione non tocca) | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/relazione/accetta` · `/scarta` | campi `allegato`, `padre`, `figlio` (chiavi dei nodi nel file): l'arco entra nella working solo con i due nodi già accettati, e mai se chiude un ciclo; una quantità diversa si applica solo se la proposta è di quantità (lettura completa), altrimenti resta quella che c'è | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/file/{aid}/accetta` | tutto il file, o con `chiave` il sottoalbero di un nodo: prima i nodi per profondità, poi gli archi; un solo rifiuto annulla tutto | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/rimozione/accetta` · `/scarta` | campi `step`, `padre`, `figlio`: la rimozione proposta dallo STEP strutturale toglie l'arco dalla working (mai dalle baseline); scartata, resta scartata | `core/rfq/fascicolo` |
-| `GET /thread/{id}` (codici) | B8.6, `codici.go`: il pannello «Codici della richiesta» con i codici che la RFQ ha visto in messaggi, nomi e cartigli dei file e STEP (`fascicolo.CandidatiDellaRfq`, sola lettura), nelle due liste del piano §6 e con il gesto di ciascuno: proposta STEP aperta → «Accetta la proposta» (rotta di B8.5), componente → «nel Fascicolo» con i suoi documenti, archiviato → «Ripristina», codice della richiesta → «+ Prodotto», codice nuovo → «+ Prodotto / + Assieme / + Particolare», con la scelta della revisione se le evidenze ne dicono più d'una. Con la BOM congelata le righe restano e i gesti no | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/codice/aggiungi` | B8.6: campi `codice`, `tipo` (`finito`, `sottoassieme`, `sciolto`) e, con revisioni discordanti, `rev` (una di quelle viste). Il componente nasce con origine `codice_rilevato` solo per un codice davvero nuovo fra quelli della RFQ: la situazione si rilegge con la RFQ bloccata, e una proposta STEP aperta, un componente, un archiviato o la BOM congelata sono un rifiuto con il motivo | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/ripristina` | B8.6: il componente archiviato torna nella working, lo stesso, con la sua storia (gli archi no); le proposte di nodo aperte con il suo codice lo ritrovano (A4.9) | `core/rfq/fascicolo` |
-| `GET /thread/{id}/fascicolo` · `/parti` · `/anteprima` | B8.7, `fascicolo_pagina.go`, `fascicolo_rotte.go`: la schermata del Fascicolo (STRUTTURA, DOCUMENTI, ANTEPRIMA, COMPLETEZZA, cassetto Codici/Avvisi). Lo stato è l'indirizzo (`nodo`, `file`, `filtro`, `tipo`, `vista`, `cassetto`, `scartate`); `/parti` rifà tutti i pannelli fuori banda tranne l'anteprima, `/anteprima` apre un file (il PDF nell'iframe di `/allegato/{id}/anteprima`, per STEP e DXF il riepilogo dell'analisi). Un gesto che viene dalla schermata (lo dice `HX-Current-URL`, che htmx manda da solo) risponde con l'avviso e con i pannelli fuori banda, mai con il corpo dell'anteprima (`threadFrammento` → `rispondiFascicolo`); da altrove risponde come prima, con la pagina della RFQ | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/modifica` · `/collega` · `/scollega` · `/sposta` | B8.7: tipo, revisione e descrizione (`tipo`, `rev`, `descrizione`; un finito con lo STEP strutturale resta finito); un arco messo o con la quantità cambiata (`padre`, `qta`), tolto (`padre`), spostato (`da`, `a`, `qta`; `a` vuoto = radice) in una transazione sola, con i cicli rifiutati | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/archivia` · `/rimuovi` | B8.7: archiviare vuole `motivo` e toglie gli archi working (A4.9); togliere riesce solo senza storia, altrimenti il rifiuto dice che cosa trattiene e propone l'archiviazione | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/step-strutturale` | B8.7: campo `documento`, lo STEP corrente del prodotto finito che diventa la sua distinta (A4.4, D31); lo sceglie una persona | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/deroga` · `/deroga/{did}/revoca` | B8.7: la deroga del fabbisogno (`tipo`, `motivo`), solo su un requisito che il fascicolo chiede; la revoca | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/componente/{cid}/deroga-struttura` · `/deroga-struttura/{did}/revoca` | B8.7: la deroga strutturale per lo STEP strutturale letto in parte o non analizzato (D33, D36), con `motivo`; vale per quel file e quella lettura | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/documento/{did}/sostituisci` · `/annulla-sostituzione` | B8.7: `{did}` sostituisce `vecchio` (stesso componente e stesso tipo, D32); se `vecchio` è lo STEP strutturale serve `nuovo_riferimento` (`1`/`0`), se `{did}` è una versione interna serve `motivo`, che va nella nota. L'annullamento riporta corrente l'ultimo sostituito | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/revisione/apri` · `/abbandona` · `/congela` | B8.7: le versioni della BOM (A4.6, A4.7). Aprire vuole `motivo` e, in ACCETTATA e DISTINTA_ERP, `contesto` (`preventivo`/`tecnica`) senza default (D25c); abbandonare solo a differenza vuota; congelare passa dal gate, in una transazione con le istantanee e con FATTIBILITA → SCHEDA_COSTO per una versione `preventivo` | `core/rfq/fascicolo` |
-| `POST /thread/{id}/fascicolo/carica` | B8.7, `caricamento.go`: «Carica nuova versione interna» (multipart, `file`; CAD 3D, disegni, DXF). Il file va fra i contenuti dello staging con il suo sha256, diventa un allegato `origine = manuale` della nota interna della RFQ (canale `nota`, uno per RFQ) e fa la strada di tutti (`Server.Pipeline` = la stessa funzione del workerapi: proposta dal nome, analisi). La revisione letta nel nome o nel cartiglio resta nei dettagli (`rev_letta`). Ammesso anche con la BOM congelata | `core/rfq/fascicolo`, `platform/storage/staging`, `transport/workerapi` |
-| `POST /thread/{id}/riprova-copie` | riaccoda `copia_nas` per i documenti `in_coda` | `platform/coda` |
-| `POST /messaggio/{id}/analizza` | job `analizza_messaggio_ai`, solo se l'agente è acceso per quella casella | `platform/coda`, `ai/agente` |
-| `POST /sessione/postazione` | postazione della sessione scelta a mano | `web/postazione.go` |
-| `/admin/job/*`, `/admin/scarti/*`, `/admin/nas/*`, `/admin/postazioni/*`, `/admin/anagrafica/*`, `/admin/fornitori*` | `soloAdmin`. I fornitori stanno sotto `/admin/fornitori` e **non** sotto `/admin/anagrafica/fornitori/{id}`: il mux di Go 1.22 considera quel pattern in conflitto con `/admin/anagrafica/{id}/regole` | `platform/coda`, `core/registro`, `platform/fondazioni`, `platform/rete` |
+| `GET /inbox` | i quadranti (`q`, `dir`, `filtro`, `casella`, `sel`); la pagina intera segna la visita e accoda l'aggiornamento di apertura, una volta per sessione | `routes_inbox.go:inbox` |
+| `POST /inbox/aggiorna` | «Aggiorna ora»: un `sync_outlook` per casella | `inbox_viva.go:aggiornaOra` |
+| `POST /inbox/sync-storico` · `GET /inbox/sync-storico/stato` | «Carica precedenti» (due giorni per clic e per casella, priorità 9) e il suo stato (204 se non c'è niente) | `routes_inbox.go:syncStorico`, `syncStoricoStato` |
+| `GET /stato/worker` | la testata: postazione, caselle, worker | `routes_inbox.go:statoWorker` |
+| `GET /messaggio/{id}` | il pannello: corpo da `lettura`, allegati, proposte, analisi AI | `routes_inbox.go:messaggio` |
+| `POST /messaggio/{id}/apri` · `/bozza` · `/letto` | job interattivi per la postazione della sessione; `bozza` vuole la capacità `bozze`, `letto` `outlook_scrittura` | `routes_inbox.go:apriInOutlook`, `bozza`, `segnaLetto` |
+| `POST /messaggio/{id}/analizza` | `analizza_messaggio_ai`, solo se l'agente è acceso per quella casella | `agente.go:chiediAnalisi` |
+| `GET /messaggio/{id}/triage` | il form di triage (i codici della sola storia citata non sono pre-spuntati) | `triage.go:triageForm` |
+| `POST /messaggio/{id}/rfq` | Nuova RFQ: `thread_offerta` (la seconda cartella con lo stesso nome prende « (2)»), identificativi, `crea_cartella_thread`, download scelti, preparazione del Fascicolo; rifiutata per la posta di un fornitore | `triage.go:nuovaRFQ` |
+| `POST /messaggio/{id}/aggancia` · `/ignora` | aggancio a una RFQ esistente (con la preparazione) o «ignora» | `triage.go:agganciaEsistente`, `ignora` |
+| `GET/POST /messaggio/{id}/censisci` | «Censisci come fornitore / cliente» e il ritriage mirato | `censisci.go:censisciForm`, `censisci` |
+| `POST /messaggio/{id}/risposta-fornitore` · `/richiesta-fornitore` | «è la risposta a questa richiesta», «è la richiesta mandata a mano» (7B) | `richieste.go:rispostaFornitore`, `richiestaFornitoreManuale` |
+| `GET /anagrafica/buyer` · `GET /thread/cerca` | frammenti del triage: i buyer del cliente, la ricerca di una RFQ | `triage.go:buyerSelect`, `cercaThread` |
+| `POST /messaggio/{id}/scarica` · `POST /allegato/{id}/riscarica` | `stage_allegato` (priorità 1), salvo contenuto già in staging | `allegati.go:scarica`, `riscarica` |
+| `GET /allegato/{id}/anteprima` | i byte del PDF, dallo staging (solo sotto la sua radice) o dal NAS; `Range`/`ETag`; CSP `sandbox`; 409 con un'anomalia aperta, 503 con il NAS assente, 400 a una richiesta htmx | `anteprima.go:anteprima` |
 
-## Flussi principali — le rotte worker
+**Pagina della RFQ, proposte, Richieste** (`routes_rfq.go:registraRFQ`)
 
-Ogni rotta passa da `auth`: token riconosciuto → **prova di vita** (`ContattoWorker`: online/offline si decide
-sull'ultimo contatto, non sull'ultimo claim) → handler.
+| Rotta | Effetto | Gestore |
+|---|---|---|
+| `GET /thread/{id}` | la pagina della RFQ; all'apertura rilegge gli STEP (`RianalizzaRfq`, fino a 5 accodati) | `thread.go:thread` |
+| `POST /thread/{id}/riprova-copie` | riaccoda `copia_nas` per i documenti in coda | `thread.go:riprovaCopie` |
+| `POST /thread/{id}/richiesta` · `/richiesta/{rid}/annulla` | la richiesta a un fornitore e la sua bozza marcata (7B). **Nessun form la chiama più**: tolta di proposito, non va reintrodotta prima del modello delle lavorazioni per componente | `richieste.go:nuovaRichiestaFornitore`, `annullaRichiestaFornitore` |
+| `POST /proposta/{id}/conferma` · `/scarta` | la conferma: `documento` + `copia_nas` (con la scelta «aggiungi / sostituisce»); non crea componenti | `allegati.go:conferma`, `scarta` |
+| `POST /thread/{id}/fascicolo/assegna` | documenti e proposte a un componente, o sganciati; codice diverso solo con `correggi_codice` | `fascicolo.go:assegna` |
+| `POST /thread/{id}/fascicolo/componente/{cid}/codice` | corregge il codice di un componente (validato come altrove) e lo porta su documenti e proposte | `fascicolo.go:correggiCodice` |
+| `GET /cruscotto` | 303 verso `/richieste` | `routes_rfq.go:cruscotto` |
+| `GET /richieste` · `GET /richieste/{id}/prodotti` | la pagina Richieste (una card per RFQ, filtri nell'indirizzo, poll con firma: 204 se niente è cambiato) e «+ N altri» (404 senza prodotti) | `panoramica.go:richieste`, `richiestaProdotti` |
 
-| Rotta | Che cosa fa il server |
+**Fascicolo: proposte e codici** (`proposte.go:registraProposte`, `codici.go:registraCodici`)
+
+| Rotta | Effetto |
 |---|---|
-| `POST /api/v1/jobs/claim` | interseca `caselle_aperte` con le autorizzazioni, registra `casella_store`, `coda.Claim` con long-poll, **esclude i tipi che le capacità bloccano**, aggiorna IP e postazione |
-| `GET /api/v1/worker/caselle` | le caselle di `worker_credenziale.caselle` |
-| `POST /api/v1/jobs/{id}/heartbeat` | rinnova il lease, se il tentativo vale |
-| `POST /api/v1/jobs/{id}/result` | verifica il tentativo e applica per tipo: **sync** → `ultimo_received` sempre, le frontiere solo per le cartelle dichiarate `completa`; **stage** → promuove `.parte` in `_contenuti`, poi `estrai_archivio` o `analizza_allegato`; **analisi** → `analisi_fatti` e una `documento_proposta` per ogni allegato aperto con quello sha256; **bozza** → `bozza`. Codice e revisione che arrivano da fuori passano da `codiceRevSicuri` (7C.1): fuori misura → non in colonna, grezzi in `dettagli` |
-| `GET /api/v1/allegati/{id}/contenuto` | i byte di un allegato in staging al **solo** tentativo valido di un job `analizza_allegato` di quell'allegato: 409 tentativo non valido, 422 job di un altro allegato, 410 contenuto sparito |
-| `POST /api/v1/ingest/messaggi` | `ingest.Ingerisci`: casella verificata prima della transazione, modo del sync letto dal job |
-| `PUT /api/v1/allegati/{id}/file` | `_parti/<allegato>.parte.<lease_token>`, sha256 verificato, promozione solo dal result valido; 413 oltre `max_upload_mb` |
-| `GET /api/v1/sync/cursori` | cursori per (casella, cartella) |
+| `POST /thread/{id}/fascicolo/rianalizza` | rilegge gli STEP della RFQ, fino a 20 analisi accodate |
+| `POST …/fascicolo/nodo/{pid}/accetta` · `/scarta` · `/codice` | un nodo proposto diventa componente, si scarta, o riceve il codice dall'operatore |
+| `POST …/fascicolo/relazione/accetta` · `/scarta` | un arco proposto (mai se chiude un ciclo) |
+| `POST …/fascicolo/file/{aid}/accetta` | tutto il file, o il sottoalbero di un nodo; tutto o niente |
+| `POST …/fascicolo/rimozione/accetta` · `/scarta` | una rimozione proposta dallo STEP strutturale |
+| `POST …/fascicolo/codice/aggiungi` | «+ Prodotto / + Assieme / + Particolare» per un codice davvero nuovo |
+| `POST …/fascicolo/componente/{cid}/ripristina` | un componente archiviato torna nella working |
+
+**Fascicolo: schermata e gesti** (`fascicolo_rotte.go:registraFascicolo`)
+
+| Rotta | Effetto |
+|---|---|
+| `GET /thread/{id}/fascicolo` | la schermata (lo stato è l'indirizzo); per chi è almeno `operatore` prima prepara il Fascicolo (B8.7b) |
+| `GET …/fascicolo/parti` · `/anteprima` · `/vista` | i pannelli fuori banda, il pannello di destra, la sola area centrale; non scrivono |
+| `POST …/componente/{cid}/modifica` · `/collega` · `/scollega` · `/sposta` | tipo, revisione, descrizione; gli archi a mano, con i cicli rifiutati e la quantità a 32 bit |
+| `POST …/componente/{cid}/archivia` · `/rimuovi` | archiviare (con motivo; chiude le rimozioni aperte del suo STEP) o togliere un componente senza storia |
+| `POST …/componente/{cid}/step-strutturale` | lo STEP corrente del prodotto finito diventa la sua distinta |
+| `POST …/componente/{cid}/deroga` · `POST …/deroga/{did}/revoca` | la deroga del fabbisogno e la sua revoca |
+| `POST …/componente/{cid}/deroga-struttura` · `POST …/deroga-struttura/{did}/revoca` | la deroga strutturale e la sua revoca, solo dentro la sua RFQ |
+| `POST …/documento/{did}/sostituisci` · `/annulla-sostituzione` | la catena delle revisioni di un documento |
+| `POST …/revisione/apri` · `/abbandona` · `POST …/congela` | le versioni della BOM e il congelamento con il gate |
+| `POST …/fascicolo/carica` | «Carica nuova versione interna» (multipart, `max_upload_mb`), gestore `caricamento.go:caricaVersioneInterna` |
+
+**Fascicolo: preparazione, NAS, conferma** (`fascicolo_conferma.go:registraConferma`)
+
+| Rotta | Effetto | Gestore |
+|---|---|---|
+| `GET …/fascicolo/avanzamento` | il poll della preparazione; non scrive | `fascicolo_preparazione.go:fascicoloAvanzamento` |
+| `GET …/fascicolo/nas` · `POST …/fascicolo/nas/importa` | sfogliare e cercare sotto `[nas].radice`; importare un file nello staging (l'originale non si tocca) | `fascicolo_nas.go:fascicoloNas`, `importaDalNas` |
+| `POST …/fascicolo/conferma` | «Conferma Fascicolo»: il piano ricalcolato in transazione, tutto o niente; parte la copia sul NAS | `fascicolo_conferma.go:confermaFascicolo` |
+| `POST …/fascicolo/proposta/{pid}/decidi` | tipo, codice e revisione di una proposta dal pannello | `fascicolo_conferma.go:decidiProposta` |
+
+**Fascicolo v3** (`fascicolo_gesti_v3.go:registraFascicoloV3`)
+
+| Rotta | Effetto | Gestore |
+|---|---|---|
+| `POST …/fascicolo/nota` · `/nota/{nid}/modifica` · `/nota/{nid}/elimina` | le note sui disegni (su un PDF scaricato della RFQ; modifica e cancellazione solo dell'autore) | `fascicolo_gesti_v3.go:nuovaNota`, `modificaNota`, `eliminaNota` |
+| `POST …/fascicolo/bom/applica` | l'editor della struttura: `struttura` in JSON nel form, `ApplicaStrutturaVoluta` in una transazione, esito in `HX-Trigger` | `fascicolo_gesti_v3.go:applicaStruttura` |
+| `POST …/fascicolo/file/{pid}/generale` | la proposta `{pid}` confermata come documento generale (`altro`, `capitolato`), senza componente | `fascicolo_gesti_v3.go:fileGenerale` |
+| `GET …/fascicolo/bom/dati` | JSON per l'editor, `Cache-Control: no-store` | `fascicolo_editor.go:fascicoloDatiEditor` |
+| `GET …/fascicolo/sezione` | la sezione del componente scelto nella vista Documenti | `fascicolo_documenti.go:fascicoloSezione` |
+
+**Postazioni** (`postazioni_admin.go:registraPostazioni`)
+
+| Rotta | Auth | Effetto |
+|---|---|---|
+| `POST /sessione/postazione` | A | la postazione della sessione scelta a mano (`postazione.go:scegliPostazione`) |
+| `GET /admin/postazioni` · `POST /admin/postazioni/{host}/pacchetto` | Adm | le postazioni e il pacchetto zip di un PC (token nuovi: quelli di prima smettono di valere) |
+
+**Amministrazione** (`routes_admin.go:registraAdmin`, tutte `soloAdmin`)
+
+| Rotta | Effetto |
+|---|---|
+| `GET /admin/job` · `POST /admin/job/{id}/riaccoda` · `/annulla` | la coda; riaccodare un job fallito o annullato senza un gemello pendente |
+| `GET /admin/nas` · `POST /admin/nas/controlla` · `/{id}/riaccoda` · `/{id}/allinea` | Integrità NAS (`integrita_admin.go`) |
+| `GET /admin/scarti` · `POST /admin/scarti/{id}/riprova` | gli scarti dell'ingest e il replay |
+| `GET /admin/anagrafica` · `/articoli` · `POST /admin/anagrafica` · `/{id}` · `/{id}/regole` · `/{id}/regole/form` · `/{id}/prova` · `/{id}/dominio` · `/{id}/dominio/elimina` | i clienti, le regole di riconoscimento (JSON e form), il banco di prova, i domini (`anagrafica.go`, `anagrafica_admin.go`); `/articoli` è un segnaposto |
+| `POST /admin/anagrafica/{id}/buyer` · `/buyer/elimina` · `/fabbisogno` · `/fabbisogno/elimina` | i buyer (si elimina solo un buyer di quel cliente, e mai uno citato da una proposta di triage) e il fabbisogno documentale (`anagrafica_admin.go`) |
+| `POST /admin/anagrafica/{id}/convenzione` · `/convenzione/elimina` · `/convenzione/attiva` · `/qualifica` · `/qualifica/elimina` · `/lavorazioni/prova` | convenzioni di codice e qualifiche dei fornitori per il cliente (`convenzioni_admin.go`) |
+| `GET /admin/fornitori` · `POST /admin/fornitori` · `GET/POST /admin/fornitori/importa` · `POST /admin/fornitori/{id}` · `/{id}/dominio` · `/{id}/dominio/elimina` · `/{id}/contatto` · `/{id}/contatto/elimina` · `/{id}/lavorazioni` · `/{id}/qualifica` · `/{id}/qualifica/elimina` | i fornitori e l'import del seme (`fornitori_admin.go`). Stanno sotto `/admin/fornitori` e non sotto `/admin/anagrafica/fornitori/{id}`: il mux considera quel pattern in conflitto con `/admin/anagrafica/{id}/regole` |
+
+## Le rotte dei worker (`workerapi`)
+
+Ogni rotta passa da `auth` (token → credenziale → prova di vita: `worker_presenza.ultimo_contatto`) e
+risponde 401 se il token non identifica nessuno.
+
+| Rotta | Che cosa fa il server | Risposte |
+|---|---|---|
+| `POST /api/v1/jobs/claim` | interseca `caselle_aperte` con la credenziale, registra presenza e `casella_store`, `coda.Claim` con long-poll (un'attesa ≤ 0 o > 25 s vale 20), esclude i tipi che le capacità bloccano | 200, 204, 400, 403, 500 |
+| `GET /api/v1/worker/caselle` | le caselle della credenziale | 200, 403, 500 |
+| `POST /api/v1/jobs/{id}/heartbeat` | rinnova il lease, se il tentativo vale | 204, 400, 403, 409, 500 |
+| `POST /api/v1/jobs/{id}/result` | applica l'esito per tipo; un risultato di analisi per un allegato diverso da quello del job è un 422 definitivo | 204, 400, 403, 404, 409, 422, 500 |
+| `POST /api/v1/ingest/messaggi` | `ingest.Ingerisci`, solo per una casella autorizzata dalla credenziale e solo con il tentativo di un `sync_outlook` / `rileggi_elemento` di quella casella (`ErrLottoNonDelJob`); un lotto senza casella prende quella del job | 200, 400, 403, 409, 422, 500 |
+| `PUT /api/v1/allegati/{id}/file` | `_parti/<allegato>.parte.<lease_token>`, sha256 verificato, promozione solo dal result valido | 204, 400, 403, 409, 413, 422, 500 |
+| `GET /api/v1/allegati/{id}/contenuto` | i byte di un allegato al solo tentativo valido di un `analizza_allegato` di quell'allegato, e solo da dentro lo staging | 200, 400, 403, 409, 410, 422, 500 |
+| `GET /api/v1/sync/cursori` | i cursori per (casella, cartella); nessun worker lo chiama | 200, 500 |
+
+## Eccezioni aperte
+
+Logica di dominio che vive ancora nel livello HTTP. Sono dichiarate perché esistono, non perché vanno bene;
+la destinazione è una decisione dell'architetto.
+
+In `web`:
+- la conferma di una proposta (`allegati.go:confermaProposta`) e l'applicazione del piano di «Conferma
+  Fascicolo» (`fascicolo_conferma.go:applicaPiano`);
+- l'assegnazione a un componente e la correzione del codice, con il percorso dei documenti che segue il
+  codice (`fascicolo.go:assegnaAlComponente`, `correggiCodiceComponente`, `ripercorri`, `bloccaCartelle`);
+- la nuova RFQ, l'aggancio e «ignora», con il log delle decisioni (`triage.go:nuovaRFQ`, `agganciaEsistente`,
+  `agganciaMessaggioAThread`, `ignora`, `logDecisione`) e il nome libero della cartella (`triage.go:cartellaLibera`);
+- le scritture dell'anagrafica (`anagrafica.go:CreaCliente`, `AggiungiDominio`, `censisci.go:censisci`,
+  `AggiungiDominioFornitore`);
+- la risposta di un fornitore a una richiesta (`richieste.go:rispostaFornitore`);
+- le finestre di «Carica precedenti» (`routes_inbox.go:finestraStorico`).
+
+In `workerapi`, la pipeline dopo lo staging: `applicaRisultato`, `dopoStaging`, `propostaDaAnalisi`,
+`scriviProposta`, `motoreDelFile`, `codiceRevSicuri`, `applicaFattiEsistenti`, `strutturaNelleRfq`,
+`DopoCaricamento` (usata da `web` come `Pipeline`) e `archivi.go:EstraiArchivio` (usata dall'esecutore come
+`Estrattore`).
+
+Altri debiti noti: il controllo «dentro lo staging» (`nelloStaging`) è scritto due volte, in
+`web/anteprima.go` e in `workerapi/contenuto.go`.
 
 ## Invarianti
 
-- `web` serve solo HTML, `workerapi` solo JSON.
-- Ogni rotta UI esiste in due forme: pagina intera e frammento.
-- Ruoli ordinati, un solo `soloRuolo` per rotta; CSRF su tutto ciò che scrive.
-- Il token **identifica**: nome, tipo, postazione e caselle vengono da lì, non dal corpo della richiesta.
-- Un result si applica solo al tentativo valido; un file caricato resta in `_parti` finché il result non lo promuove.
-- **Difetto noto.** «Riprova» su uno scarto di tipo `lettura` accoda un job `rileggi_elemento`, ma
-  `worker_outlook.py:dispatch()` non ha quel tipo: il worker lo chiude come errore definitivo. Non è mai stato
-  implementato lato worker; è scritto qui perché il README non deve descrivere una cosa che il codice non fa.
-- **Eccezioni aperte**: `archivi.go`, `applicaRisultato` e `propostaDaAnalisi` decidono cose di dominio dentro
-  il livello HTTP.
+- Il token **identifica**: nome, tipo, postazione e caselle vengono dalla credenziale, non dal corpo della
+  richiesta.
+- Un result, un battito, un upload, un download e un lotto valgono solo per il tentativo vivo; un file
+  caricato resta in `_parti` finché il result non lo promuove.
+- Un lotto scrive solo nella casella del job che lo consegna, e solo se la credenziale la serve.
+- `consultazione` non usa mai un metodo che scrive; `/admin/*` è dell'amministratore.
+- Nessuna pagina innesta HTML della mail, né una risposta che non sia HTML.
 
 ## Effetti collaterali
 
-Cookie di sessione, righe in `sessione` e `worker_presenza`, file in `_parti`, job accodati.
+Cookie di sessione, righe in `sessione` e `worker_presenza`, file in `_parti` e nello staging, job accodati,
+e tutto ciò che scrivono i package di `core` chiamati dai gestori. Alcune letture hanno effetti: la prima
+apertura dell'Inbox accoda un aggiornamento, `GET /thread/{id}` rilegge gli STEP, `GET /thread/{id}/fascicolo`
+prepara il Fascicolo (per chi è almeno `operatore`), l'anteprima può aprire un'anomalia.
 
 ## Test
 
-L4 per gli handler (`./internal/transport/web/`, `./internal/transport/workerapi/`), compresi i test W4/W10/W11
-sull'autenticazione e i TestE2E che fanno girare il worker Python vero. L7 nel browser per l'Inbox.
+L1 per le parti pure (template, ruoli, statici, corpo delle mail, gesti, triage); L4 per i gestori
+(`-tags integrazione`, `./internal/transport/web/` e `./internal/transport/workerapi/`), compresi i test
+W4/W10/W11 sull'autenticazione e i cinque TestE2E che fanno girare i worker Python veri; L7 nel browser
+(`-tags "integrazione browser"`) per Inbox, anteprima dei PDF, pagina Richieste e Fascicolo. Il dettaglio
+è nei README dei package.
 
 ## Dove intervenire
 
 | Voglio… | Apri |
 |---|---|
-| una rotta nuova | il `registra*` dell'area, l'handler nel file dell'area, il template |
+| una rotta nuova | il `registra*` dell'area, il gestore nel file dell'area, il template; poi la tabella qui sopra |
 | un campo nuovo nel contratto con i worker | `platform/contratti/worker/tipi.go`, `workers/contratti.py`, `genera_contratti.py`, i test L3 |
 | capire che cosa succede quando un job finisce | `workerapi/workerapi.go:applicaRisultato` |
+| capire perché un lotto è rifiutato con 403 | `workerapi/workerapi.go:ingest`, `core/inbox/ingest/ingest.go:lottoDelJob` |
 | capire perché un messaggio sta in quel quadrante | la colonna `quadrante` di `v_inbox`, `web/routes_inbox.go:quadranteValido` |
 | capire perché una risposta di un fornitore non chiude la richiesta | `web/richieste.go:rispostaFornitore` |
 
 ## Leggi anche
 
-`internal/README.md`, `core/README.md`, `platform/README.md`, `workers/workers_README.md`.
+`internal/README.md`, `core/README.md`, `platform/README.md`, `web/README.md`, `workerapi/README.md`,
+`../../web/README.md`, `../../workers/workers_README.md`.
