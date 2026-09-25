@@ -201,10 +201,10 @@ func (s *scenaB87) valore(sql string, arg ...any) string {
 
 // ---------------------------------------------------------------- la pagina
 
-// La schermata si apre con la BOM visuale, il dettaglio, il piano e il cassetto (B8.7b); la BOM mette il
-// particolare sotto tutti e due i padri; la vista Documenti parte dai file non assegnati, e il file picker
-// non e' sempre davanti: sta in «Aggiungi file». Chi consulta la vede senza gesti, e se prova a scrivere il
-// server rifiuta.
+// La schermata si apre sulla vista Documenti (Fascicolo v3), con il piano e il cassetto; la Struttura BOM ha
+// la BOM visuale e il dettaglio (B8.7b), e mette il particolare sotto tutti e due i padri; l'Elenco file parte
+// dai file non assegnati, e il file picker non e' sempre davanti: sta in «Aggiungi file». Chi consulta la
+// vede senza gesti, e se prova a scrivere il server rifiuta.
 func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("PAG87")
@@ -215,12 +215,29 @@ func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("GET: %d", resp.StatusCode)
 	}
-	for _, atteso := range []string{`id="fasc-testata"`, `id="vista"`, `id="tela"`, `id="anteprima"`, `id="anteprima-corpo"`,
-		`id="piano"`, `id="cassetto"`, `id="fasc-avanzamento-box"`, "Documenti", "Componenti", ">BOM<", ">Griglia<", ">Codici<", "Avvisi",
-		">Completezza<", `id="nodo-` + s.prodotto.String() + `"`, `id="nodo-` + s.particolare.String() + `-` + s.prodotto.String() + `"`,
-		`id="nodo-` + s.particolare.String() + `-` + s.assieme.String() + `"`, "condiviso", "Congela…", "Carica dal PC", "Conferma Fascicolo"} {
+	for _, atteso := range []string{`id="fasc-testata"`, `id="vista"`, `id="doc-vista"`, `id="doc-stage" class="doc-stage" hx-preserve="true"`,
+		`id="doc-film"`, `id="doc-indice"`, `id="doc-sezione"`, `id="piano"`, `id="cassetto"`, `id="fasc-avanzamento-box"`,
+		`data-vista="documenti">Documenti<`, `data-vista="bom">Struttura BOM<`, `data-vista="completezza">Completezza`,
+		">Elenco file <", ">Componenti <", ">Albero<", ">Codici<", "Avvisi", `data-k="c:` + s.prodotto.String() + `"`,
+		`data-k="c:` + s.particolare.String() + `"`, `data-scrive="1"`, "Congela…", "Carica dal PC", "Conferma Fascicolo"} {
 		if !strings.Contains(html, atteso) {
 			t.Errorf("la pagina non ha %q", atteso)
+		}
+	}
+	for _, vietato := range []string{`id="tela"`, "<iframe", `class="doc-tabella"`} {
+		if strings.Contains(html, vietato) {
+			t.Errorf("la vista Documenti ha %q", vietato)
+		}
+	}
+	if strings.Count(html, `type="file"`) != 1 {
+		t.Error("il file picker sta solo in «Carica dal PC»")
+	}
+	_, html = w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
+	for _, atteso := range []string{`id="tela"`, `id="anteprima"`, `id="anteprima-corpo"`, `id="nodo-` + s.prodotto.String() + `"`,
+		`id="nodo-` + s.particolare.String() + `-` + s.prodotto.String() + `"`, `id="nodo-` + s.particolare.String() + `-` + s.assieme.String() + `"`,
+		"condiviso", `data-editor="` + s.prodotto.String() + `"`, "Modifica la struttura di 52922757"} {
+		if !strings.Contains(html, atteso) {
+			t.Errorf("la Struttura BOM non ha %q", atteso)
 		}
 	}
 	if strings.Contains(html, `class="doc-tabella"`) || strings.Count(html, `type="file"`) != 1 {
@@ -242,8 +259,12 @@ func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 	co := b.browser("10.0.0.9")
 	co.login("CO", "prova-co")
 	resp, html = co.fai(http.MethodGet, s.base(), nil, false)
-	if resp.StatusCode != 200 || !strings.Contains(html, `class="fasc sola-lettura"`) {
+	if resp.StatusCode != 200 || !strings.Contains(html, `class="fasc sola-lettura"`) || !strings.Contains(html, `data-scrive=""`) {
 		t.Fatalf("consultazione: %d, sola lettura %v", resp.StatusCode, strings.Contains(html, "sola-lettura"))
+	}
+	_, html = co.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
+	if strings.Contains(html, "Modifica la struttura") || strings.Contains(html, "data-editor") {
+		t.Error("chi consulta non apre l'editor della struttura")
 	}
 	resp, _ = co.daFascicolo(http.MethodPost, s.comp(s.assieme, "archivia"), url.Values{"motivo": {"prova"}}, s.thread, "")
 	if resp.StatusCode < 400 {
@@ -256,17 +277,34 @@ func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 
 // Un gesto dalla schermata risponde con l'avviso e con i pannelli fuori banda; il corpo dell'anteprima
 // non c'e', quindi il PDF aperto resta aperto. Lo stesso gesto da altrove risponde con la pagina della RFQ.
+// Dalla vista Documenti (v3) lo stage del disegno torna vuoto con hx-preserve: il browser tiene il suo.
 func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("OOB87")
 	w := operatore(b)
 
-	stato := "?file=" + s.allLibero.String() + "&nodo=" + s.particolare.String()
+	// dalla vista Documenti
+	_, html := w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"A"}, "corpo_chiave": {"documenti"}},
+		s.thread, "?nodo="+s.particolare.String())
+	if a := avvisoF(html); a != "53017189: rev — → A." {
+		t.Fatalf("avviso dalla vista Documenti: %q", a)
+	}
+	if !strings.Contains(html, `id="vista" hx-swap-oob="innerHTML"`) || strings.Count(html, `id="doc-stage" class="doc-stage" hx-preserve="true"`) != 1 {
+		t.Error("dalla vista Documenti: l'area principale fuori banda, con lo stage preservato")
+	}
+	if strings.Contains(html, "<iframe") || strings.Contains(html, `id="anteprima-corpo"`) || strings.Contains(html, "<canvas") {
+		t.Error("dalla vista Documenti la risposta non porta un disegno")
+	}
+	if !strings.Contains(html, `class="docv-riga sel" role="treeitem" data-k="c:`+s.particolare.String()+`"`) {
+		t.Error("dalla vista Documenti: il componente scelto nell'indirizzo resta scelto")
+	}
+
+	stato := "?vista=bom&file=" + s.allLibero.String() + "&nodo=" + s.particolare.String()
 	// la pagina rimanda con ogni richiesta che cosa mostra il corpo del pannello di destra (hx-include)
 	_, pagina := w.fai(http.MethodGet, s.base()+stato, nil, false)
 	chiave := chiaveCorpoDi(t, pagina)
-	_, html := w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"B"}, "corpo_chiave": {chiave}}, s.thread, stato)
-	if a := avvisoF(html); a != "53017189: rev — → B." {
+	_, html = w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"B"}, "corpo_chiave": {chiave}}, s.thread, stato)
+	if a := avvisoF(html); a != "53017189: rev A → B." {
 		t.Fatalf("avviso: %q", a)
 	}
 	for _, id := range []string{"fasc-testata", "fasc-avanzamento-box", "vista", "piano", "cassetto", "anteprima-testa"} {
@@ -409,7 +447,7 @@ func TestArchiviareTogliereRipristinare(t *testing.T) {
 	if n := s.conta(`SELECT count(*) FROM componente WHERE componente_id = $1`, nuovo); n != 0 {
 		t.Error("il componente senza storia doveva sparire")
 	}
-	_, html := w.daFascicolo(http.MethodGet, s.base()+"/parti", nil, s.thread, "")
+	_, html := w.daFascicolo(http.MethodGet, s.base()+"/parti?vista=bom", nil, s.thread, "?vista=bom")
 	if !strings.Contains(html, "Archiviati (1)") || !strings.Contains(html, "/componente/"+s.assieme.String()+"/ripristina") {
 		t.Error("la struttura deve mostrare l'archiviato con il suo «Ripristina»")
 	}
@@ -482,7 +520,7 @@ func TestDerogheESTEPStrutturaleDallaSchermata(t *testing.T) {
 	if ds == "NULL" {
 		t.Fatal("la deroga strutturale deve valere per lo STEP e la lettura di adesso")
 	}
-	_, html = w.daFascicolo(http.MethodGet, s.base()+"/parti?nodo="+s.prodotto.String(), nil, s.thread, "")
+	_, html = w.daFascicolo(http.MethodGet, s.base()+"/parti?vista=bom&nodo="+s.prodotto.String(), nil, s.thread, "?vista=bom")
 	if !strings.Contains(html, "deroga strutturale") || !strings.Contains(html, "/deroga-struttura/"+ds+"/revoca") {
 		t.Error("la scheda del nodo deve mostrare la deroga strutturale con la revoca")
 	}
@@ -512,7 +550,7 @@ func TestSostituireEAnnullareDallaSchermata(t *testing.T) {
 	if b.sostituitoDa(s.disegno) != nuovo2d.String() {
 		t.Fatal("il vecchio 2D deve puntare al nuovo")
 	}
-	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?file="+s.allDisegno.String(), nil, s.thread, "")
+	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?vista=bom&file="+s.allDisegno.String(), nil, s.thread, "?vista=bom")
 	if !strings.Contains(html, "Storico delle revisioni") || !strings.Contains(html, doc(s.disegno, "annulla-sostituzione")) {
 		t.Errorf("l'anteprima del vecchio deve mostrare la storia e l'annullamento")
 	}
@@ -757,7 +795,7 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		WHERE a.origine = 'manuale' AND p.thread_id = $1`, s.thread).Scan(&pid, &aid); err != nil {
 		t.Fatal(err)
 	}
-	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?file="+aid.String()+"&nodo="+s.prodotto.String(), nil, s.thread, "")
+	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?vista=bom&file="+aid.String()+"&nodo="+s.prodotto.String(), nil, s.thread, "?vista=bom")
 	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 52922757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
 		if !strings.Contains(html, c) {
 			t.Errorf("anteprima del file interno: manca %q", c)
@@ -867,11 +905,19 @@ func TestCentoAllegatiSiDisegnanoInMenoDiUnSecondo(t *testing.T) {
 	}
 	t.Logf("pagina con 104 file: %v", durata)
 	inizio = time.Now()
-	resp, _ = w.fai(http.MethodGet, s.base(), nil, false)
+	resp, _ = w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
 	if durata := time.Since(inizio); resp.StatusCode != 200 || durata > time.Second {
 		t.Errorf("la BOM visuale con cento allegati: %d in %v", resp.StatusCode, durata)
 	} else {
 		t.Logf("BOM visuale con 104 file: %v", durata)
+	}
+	// la vista Documenti (v3, quella che si apre): cento file da associare nel pannello, in meno di un secondo
+	inizio = time.Now()
+	resp, html = w.fai(http.MethodGet, s.base(), nil, false)
+	if durata := time.Since(inizio); resp.StatusCode != 200 || durata > time.Second || !strings.Contains(html, `id="doc-vista"`) {
+		t.Errorf("la vista Documenti con cento allegati: %d in %v", resp.StatusCode, durata)
+	} else {
+		t.Logf("vista Documenti con 104 file: %v", durata)
 	}
 }
 

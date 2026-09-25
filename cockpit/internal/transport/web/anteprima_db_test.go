@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -45,8 +46,9 @@ const pathDocProva = `ELENCO DISEGNI\0.000.0000.0\disegno.pdf`
 
 // registro raccoglie le righe che il server scrive nel suo log, per poterle leggere nella prova.
 type registro struct {
-	mu    sync.Mutex
-	righe []string
+	mu      sync.Mutex
+	righe   []string
+	servite int // le righe «anteprima servita» gia' lette da servita
 }
 
 func (r *registro) Write(p []byte) (int, error) {
@@ -59,26 +61,40 @@ func (r *registro) Write(p []byte) (int, error) {
 var reByteLetti = regexp.MustCompile(`byte_letti=(\d+)`)
 var reDa = regexp.MustCompile(`da=(\S+)`)
 
-// servita legge dal log l'ultima anteprima servita: da dove e quanti byte ha letto davvero.
+// servita legge dal log l'ultima anteprima servita dopo quella letta la volta prima: da dove e quanti byte ha
+// letto davvero. Il server scrive la riga DOPO aver mandato il file (http.ServeContent), e il client puo'
+// avere il corpo intero prima che la riga ci sia: la si aspetta, per poco. Una riga gia' letta non vale per la
+// richiesta dopo.
 func (r *registro) servita(t *testing.T) (string, int64) {
 	t.Helper()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := len(r.righe) - 1; i >= 0; i-- {
-		riga := r.righe[i]
-		if !strings.Contains(riga, "anteprima servita") {
-			continue
+	fine := time.Now().Add(5 * time.Second)
+	for {
+		r.mu.Lock()
+		var trovate []string
+		for _, riga := range r.righe {
+			if strings.Contains(riga, "anteprima servita") {
+				trovate = append(trovate, riga)
+			}
 		}
-		m := reByteLetti.FindStringSubmatch(riga)
-		d := reDa.FindStringSubmatch(riga)
-		if m == nil || d == nil {
-			t.Fatalf("la riga di log non dice quanto ha letto: %s", riga)
+		if len(trovate) > r.servite {
+			r.servite = len(trovate)
+			riga := trovate[len(trovate)-1]
+			r.mu.Unlock()
+			m := reByteLetti.FindStringSubmatch(riga)
+			d := reDa.FindStringSubmatch(riga)
+			if m == nil || d == nil {
+				t.Fatalf("la riga di log non dice quanto ha letto: %s", riga)
+			}
+			n, _ := strconv.ParseInt(m[1], 10, 64)
+			return strings.Trim(d[1], `"`), n
 		}
-		n, _ := strconv.ParseInt(m[1], 10, 64)
-		return strings.Trim(d[1], `"`), n
+		tutto := strings.Join(r.righe, "")
+		r.mu.Unlock()
+		if time.Now().After(fine) {
+			t.Fatalf("il server non ha registrato nessuna anteprima servita:\n%s", tutto)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("il server non ha registrato nessuna anteprima servita:\n%s", strings.Join(r.righe, ""))
-	return "", 0
 }
 
 type scenaAnteprima struct {

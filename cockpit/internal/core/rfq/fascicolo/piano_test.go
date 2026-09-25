@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -104,8 +106,9 @@ func deveEssere(t *testing.T, v VoceFile, stato StatoVoce, domanda string) {
 }
 
 // Il caso dello zip: il prodotto nasce dal codice della richiesta, lo STEP propone la struttura sotto di lui,
-// i disegni vanno ai loro componenti (anche a quelli che nascono dallo STEP nella stessa conferma), il
-// capitolato e' della RFQ, il foglio senza codice e' l'unica domanda. Lo STEP strutturale e' uno solo.
+// i disegni vanno ai loro componenti, il capitolato e' della RFQ, il foglio senza codice e' una domanda. Lo
+// STEP strutturale e' uno solo. Fascicolo v3: la struttura proposta non entra con «Conferma Fascicolo», si
+// rivede e si conferma nell'editor; il disegno di un componente che nasce da lei la aspetta.
 func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	p := nuovoPiano()
 	prodotto := p.componente("52922757", db.TipoComponenteFinito)
@@ -123,7 +126,8 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	zip.Proposta.Fonte = db.FontePropostaEstensione
 
 	pf := PianoDelFascicolo(p.in)
-	if len(pf.Strutture) != 1 || pf.Strutture[0].Stato != VocePronta || pf.Strutture[0].Nodi != 2 || pf.Strutture[0].Archi != 2 {
+	if len(pf.Strutture) != 1 || pf.Strutture[0].Stato != VoceDecidere || pf.Strutture[0].Nodi != 2 || pf.Strutture[0].Archi != 2 ||
+		len(pf.Strutture[0].Domande) != 1 || pf.Strutture[0].Domande[0].Chiave != DomandaStrutturaEditor {
 		t.Fatalf("struttura dello STEP: %+v", pf.Strutture)
 	}
 	stp := vocePer(t, pf, "52922757.stp")
@@ -133,9 +137,9 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	}
 	deveEssere(t, vocePer(t, pf, "52922757.pdf"), VocePronta, "")
 	assieme := vocePer(t, pf, "52920517.pdf")
-	deveEssere(t, assieme, VocePronta, "")
-	if assieme.DaStep == nil || assieme.DaStep.Codice != "52920517" || assieme.Componente != nil {
-		t.Errorf("52920517.pdf va al componente che nasce dallo STEP: %+v", assieme.DaStep)
+	deveEssere(t, assieme, VoceDecidere, DomandaComponente)
+	if assieme.DaStep == nil || assieme.DaStep.Codice != "52920517" || assieme.Componente != nil || !strings.Contains(assieme.Domande[0].Testo, "editor") {
+		t.Errorf("52920517.pdf aspetta la struttura che si conferma nell'editor, e sa a quale nodo va: %+v %+v", assieme.DaStep, assieme.Domande)
 	}
 	cap := vocePer(t, pf, "Capitolato fornitura.pdf")
 	deveEssere(t, cap, VocePronta, "")
@@ -155,7 +159,7 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	if len(pf.Strutturali) != 1 || pf.Strutturali[0].Stato != VocePronta || pf.Strutturali[0].Nome != "52922757.stp" {
 		t.Fatalf("lo STEP strutturale suggerito: %+v", pf.Strutturali)
 	}
-	if pf.Pronte() != 6 || pf.FilePronti() != 4 || pf.Decisioni() != 1 || pf.InAttesa() != 0 {
+	if pf.Pronte() != 4 || pf.FilePronti() != 3 || pf.Decisioni() != 3 || pf.InAttesa() != 0 {
 		t.Errorf("conti del piano: pronte %d, file %d, decisioni %d, attesa %d", pf.Pronte(), pf.FilePronti(), pf.Decisioni(), pf.InAttesa())
 	}
 	if a, b := pf.Firma(), PianoDelFascicolo(p.in).Firma(); a != b || a == "" {
@@ -304,16 +308,27 @@ func TestLaStrutturaConUnNodoSenzaCodiceAspettaUnaPersona(t *testing.T) {
 	}
 	deveEssere(t, vocePer(t, pf, "52920517.pdf"), VoceDecidere, DomandaComponente)
 
-	// il nodo senza codice si scarta: la struttura torna pronta, e l'arco verso lo scartato e' un «morto»
+	// il nodo senza codice si scarta: la struttura non ha piu' domande bloccanti ma si conferma nell'editor
+	// (Fascicolo v3), e l'arco verso lo scartato e' un «morto»
 	p.in.Nodi[2].Stato = db.StatoPropostaScartata
 	pf = PianoDelFascicolo(p.in)
 	s := pf.Strutture[0]
-	if s.Stato != VocePronta || s.Morti != 1 || s.Nodi != 1 || s.Archi != 1 {
+	if s.Stato != VoceDecidere || s.Morti != 1 || s.Nodi != 1 || s.Archi != 1 {
 		t.Fatalf("dopo lo scarto: %+v", s)
 	}
-	deveEssere(t, vocePer(t, pf, "52920517.pdf"), VocePronta, "")
-	if pf.Decisioni() != 1 {
-		t.Errorf("l'arco verso lo scartato resta da decidere: %d", pf.Decisioni())
+	editor := false
+	for _, d := range s.Domande {
+		editor = editor || d.Chiave == DomandaStrutturaEditor
+		if strings.Contains(d.Testo, "senza codice") {
+			t.Errorf("dopo lo scarto non c'e' piu' un nodo senza codice: %+v", s.Domande)
+		}
+	}
+	if !editor {
+		t.Errorf("la struttura si conferma nell'editor: %+v", s.Domande)
+	}
+	deveEssere(t, vocePer(t, pf, "52920517.pdf"), VoceDecidere, DomandaComponente)
+	if pf.Decisioni() != 2 {
+		t.Errorf("la struttura (con l'arco verso lo scartato) e il file che la aspetta: %d", pf.Decisioni())
 	}
 
 	// una quantita' diversa dalla BOM e' una decisione
@@ -404,4 +419,51 @@ func TestLaFirmaCambiaConIlPiano(t *testing.T) {
 	if dopo := PianoDelFascicolo(p.in).Firma(); dopo != prima {
 		t.Error("un file in attesa non cambia la firma: non entra nella conferma")
 	}
+}
+
+// I suffissi decorativi del cliente nel piano (Fascicolo v3): il file «X» trova il pezzo nato «X_PRT» e chiede di
+// assegnarlo a quello; una proposta scritta prima della regola («X_PRT») trova il pezzo «X»; un file assegnato
+// al pezzo con il suffisso non ha un «codice diverso» perche' dice X; il codice suggerito dal nome e' senza suffisso.
+func TestIlPianoConISuffissiDecorativi(t *testing.T) {
+	r, err := regole.ValidaRegole([]byte(`{"suffissi_decorativi": ["_PRT"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := classificazione.Compila("ACME", r)
+
+	p := nuovoPiano()
+	p.in.Motore = m
+	vecchio := p.componente("52920000_PRT", db.TipoComponenteSciolto)
+	nuovo := p.componente("52930000", db.TipoComponenteSciolto)
+	p.file("52920000.pdf", db.TipoDocumentoDisegno2d, "52920000", "")
+	p.file("52930000_PRT.pdf", db.TipoDocumentoDisegno2d, "52930000_PRT", "")
+	assegnato := p.file("52920000 foglio 2.pdf", db.TipoDocumentoDisegno2d, "52920000_PRT", "")
+	assegnato.Proposta.ComponenteID = uuid.NullUUID{UUID: vecchio.ComponenteID, Valid: true}
+	assegnato.Proposta.Dettagli = json.RawMessage(`{"codice_letto": "52920000"}`)
+	anonimo := p.file("scansione.pdf", db.TipoDocumentoDaDeterminare, "", "")
+	anonimo.Proposta.Dettagli = json.RawMessage(`{"codici_nel_nome": ["52940000_PRT_B"]}`)
+	pf := PianoDelFascicolo(p.in)
+
+	v := vocePer(t, pf, "52920000.pdf")
+	deveEssere(t, v, VoceDecidere, DomandaComponente)
+	if v.Alias == nil || v.Alias.ComponenteID != vecchio.ComponenteID || v.Componente != nil {
+		t.Errorf("il file «52920000» e il pezzo «52920000_PRT»: alias %+v", v.Alias)
+	}
+	if v := vocePer(t, pf, "52930000_PRT.pdf"); v.Stato != VoceDecidere || v.Alias == nil || v.Alias.ComponenteID != nuovo.ComponenteID || v.Componente != nil {
+		t.Errorf("la proposta «52930000_PRT» trova il pezzo 52930000, e chiede di assegnarlo (il codice e' del componente): %+v %v", v.Alias, v.Domande)
+	}
+	if v := vocePer(t, pf, "52920000 foglio 2.pdf"); v.Stato != VocePronta {
+		t.Errorf("assegnato al pezzo con il suffisso, il codice letto 52920000 non e' diverso: %s %v", v.Stato, v.Domande)
+	}
+	if v := vocePer(t, pf, "scansione.pdf"); v.Suggerito != "52940000" {
+		t.Errorf("il codice suggerito dal nome: %q", v.Suggerito)
+	}
+
+	// senza la regola: nessun alias, e il codice letto diverso e' una domanda
+	p.in.Motore = nil
+	pf = PianoDelFascicolo(p.in)
+	if v := vocePer(t, pf, "52920000.pdf"); v.Alias != nil || !strings.Contains(v.Domande[0].Testo, "non è nella BOM") {
+		t.Errorf("senza regola: %+v %v", v.Alias, v.Domande)
+	}
+	deveEssere(t, vocePer(t, pf, "52920000 foglio 2.pdf"), VoceDecidere, DomandaCodiceDiverso)
 }

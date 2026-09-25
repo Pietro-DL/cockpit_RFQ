@@ -14,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -328,5 +330,25 @@ func TestUnisciNonDipendeDallOrdineDelleRighe(t *testing.T) {
 	}
 	if impronta(a) != impronta(b) {
 		t.Errorf("l'ordine delle righe cambia il risultato:\n%s\n%s", impronta(a), impronta(b))
+	}
+}
+
+// Con i suffissi decorativi il codice «X» trovato nella RFQ e' il pezzo nato «X_PRT»: e' gia' nella BOM, e il
+// pannello dei codici non offre di aggiungerne un secondo.
+func TestUnCodiceTrovaIlPezzoConIlSuffisso(t *testing.T) {
+	r, err := regole.ValidaRegole([]byte(`{"suffissi_decorativi": ["_PRT"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vecchio := componente("52920000_PRT", db.TipoComponenteSciolto, false)
+	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("52920000", "", "generico", "corpo")}
+	c := Unisci(righe, ContestoCodici{Componenti: []db.Componente{vecchio}, Motore: classificazione.Compila("ACME", r)})
+	k := trova(t, c, "52920000")
+	if k.Stato.Situazione != SituazioneComponente || k.Stato.Componente == nil || k.Stato.Componente.ComponenteID != vecchio.ComponenteID {
+		t.Errorf("il codice 52920000: %+v", k.Stato)
+	}
+	c = Unisci(righe, ContestoCodici{Componenti: []db.Componente{vecchio}})
+	if k := trova(t, c, "52920000"); k.Stato.Situazione != SituazioneNuovo {
+		t.Errorf("senza la regola e' un codice nuovo: %+v", k.Stato)
 	}
 }

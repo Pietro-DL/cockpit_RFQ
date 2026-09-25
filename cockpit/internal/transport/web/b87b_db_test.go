@@ -9,6 +9,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -193,10 +194,11 @@ func (b *bancoWeb) scenaConferma(chiave string) *scenaConferma {
 	return s
 }
 
-// «Conferma Fascicolo» porta nel fascicolo il piano pronto in una transazione: prima la struttura dello STEP
-// (nasce l'assieme, con l'arco ×2), poi i documenti (compreso quello che va all'assieme appena nato), poi lo
-// STEP strutturale. Con una firma vecchia, o con un file senza la struttura da cui dipende, non cambia niente.
-// Il PDF anonimo resta da decidere.
+// «Conferma Fascicolo» porta nel fascicolo il piano pronto in una transazione: i documenti e lo STEP
+// strutturale. Fascicolo v3: la struttura dello STEP non entra con quel gesto, si conferma nell'editor della
+// Struttura BOM (bom/applica); il disegno dell'assieme che nasce da lei la aspetta, e diventa pronto dopo.
+// Con una firma vecchia, o con un file senza la struttura da cui dipende, non cambia niente. Il PDF anonimo
+// resta da decidere.
 func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
@@ -204,28 +206,77 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	w := operatore(b)
 
 	_, html := w.fai(http.MethodGet, s.base(), nil, false)
-	for _, c := range []string{"<b>5</b> pronti", "<b>1</b> da verificare", "Applica struttura proposta", "52920517", "+ proposto · assieme?"} {
+	for _, c := range []string{"<b>3</b> pronti", "<b>3</b> da verificare"} {
 		if !strings.Contains(html, c) {
 			t.Errorf("la pagina: manca %q", c)
 		}
 	}
 	firma := firmaDellaPagina(t, html)
+	_, bom := w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
+	for _, c := range []string{"Apri proposta BOM", "52920517", "+ proposto · assieme?", "1 nodo e 1 arco proposti: la struttura si rivede e si conferma nell&#39;editor"} {
+		if !strings.Contains(bom, c) {
+			t.Errorf("la Struttura BOM: manca %q", c)
+		}
+	}
+	if strings.Contains(bom, "Applica struttura proposta") {
+		t.Error("la struttura dello STEP non si applica piu' dal banner: si apre nell'editor")
+	}
 
 	if a := s.gestoC(w, url.Values{"firma": {"deadbeef00000000"}}); !strings.HasPrefix(a, "Niente è cambiato: il piano è cambiato") {
 		t.Fatalf("firma vecchia: %q", a)
 	}
-	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "va a 52920517, che nasce dalla struttura di 52922757.stp: si confermano insieme") {
+	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "52920517 nasce dalla struttura dello STEP 52922757.stp: si conferma prima quella, nell'editor della Struttura BOM") {
 		t.Fatalf("senza la struttura da cui dipende: %q", a)
+	}
+	if a := s.gestoC(w, url.Values{"struttura": {s.allStep.String()}}); !strings.HasPrefix(a, "Niente è cambiato") {
+		t.Fatalf("la struttura mandata alla conferma: %q", a)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM documento`); n != 0 {
 		t.Fatalf("i rifiuti hanno lasciato %d documenti", n)
 	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE codice = '52920517'`); n != 0 {
+		t.Fatalf("i rifiuti hanno fatto nascere l'assieme: %d", n)
+	}
 
 	a := s.gestoC(w, url.Values{"firma": {firma}})
-	for _, c := range []string{"Fascicolo confermato", "struttura di 52922757.stp", "3 documenti (copie sul NAS in coda)", "STEP strutturale di 52922757: 52922757.stp"} {
+	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)", "STEP strutturale di 52922757: 52922757.stp"} {
 		if !strings.Contains(a, c) {
 			t.Errorf("avviso: manca %q in %q", c, a)
 		}
+	}
+	if strings.Contains(a, "struttura di 52922757.stp") {
+		t.Errorf("«Conferma Fascicolo» ha confermato la struttura dello STEP: %q", a)
+	}
+	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "52922757:finito" {
+		t.Errorf("componenti dopo la conferma: %s", got)
+	}
+	if got := s.valore(`SELECT stato::text FROM documento_proposta WHERE proposta_id = $1`, s.pdfAssieme); got != "aperta" {
+		t.Errorf("il disegno dell'assieme aspetta la struttura: %s", got)
+	}
+
+	// la struttura nell'editor, com'e' proposta: nasce l'assieme con l'arco ×2, la proposta dell'arco e' presa
+	nodo := uuidSQL(t, b, `SELECT proposta_id FROM componente_proposta WHERE allegato_id = $1 AND chiave = '#2'`, s.allStep)
+	struttura := fmt.Sprintf(`{"radice":%q,"archi":[{"padre":"c:%s","figlio":"p:%s","qta":2}],"visti":[],"relazioni_viste":[{"allegato":%q,"padre":"#1","figlio":"#2"}]}`,
+		s.prodotto, s.prodotto, nodo, s.allStep)
+	resp, html := w.daFascicolo(http.MethodPost, s.base()+"/bom/applica", url.Values{"struttura": {struttura}}, s.thread, "?vista=bom")
+	if a := avvisoF(html); a != "Struttura di 52922757 confermata: 1 componente nuovo, 1 legame aggiunto." {
+		t.Fatalf("editor: %q", a)
+	}
+	if h := resp.Header.Get("HX-Trigger"); !strings.Contains(h, `"bom-esito":{"ok":true`) || strings.ContainsFunc(h, func(r rune) bool { return r > 127 }) {
+		t.Errorf("l'evento per l'editor, in ASCII: %q", h)
+	}
+	if got := s.valore(`SELECT string_agg(stato::text, ' ') FROM relazione_proposta WHERE allegato_id = $1`, s.allStep); got != "confermata" {
+		t.Errorf("la proposta dell'arco dopo l'editor: %s", got)
+	}
+
+	// adesso il disegno dell'assieme e' pronto
+	_, html = w.fai(http.MethodGet, s.base(), nil, false)
+	if !strings.Contains(html, "<b>1</b> pronto") {
+		t.Errorf("dopo l'editor il disegno dell'assieme e' pronto:\n%s", estratto(html, `id="piano"`))
+	}
+	a = s.gestoC(w, url.Values{"firma": {firmaDellaPagina(t, html)}})
+	if !strings.Contains(a, "Fascicolo confermato") || !strings.Contains(a, "1 documento") {
+		t.Errorf("la seconda conferma: %q", a)
 	}
 	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "52920517:sottoassieme 52922757:finito" {
 		t.Errorf("componenti: %s", got)

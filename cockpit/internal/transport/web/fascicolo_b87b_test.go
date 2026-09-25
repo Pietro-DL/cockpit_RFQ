@@ -110,7 +110,7 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 	s := fascicoloSintetico()
 	comp := s.prodotto
 	corrente := db.Documento{DocumentoID: uuid.New(), NomeFile: "52922757.pdf", Rev: txtT("A")}
-	pTipo, pComp, pSost, pPronto := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	pTipo, pComp, pSost, pPronto, pAttesa := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	struttura := uuid.New()
 	s.d.Piano = fascicolo.PianoFascicolo{
 		File: []fascicolo.VoceFile{
@@ -120,10 +120,16 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "53999999 non è nella BOM"}}},
 			{Proposta: pSost, Allegato: uuid.New(), Nome: "52922757_B.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52922757", Rev: "B", Componente: &comp,
 				Correnti: []db.Documento{corrente}, Stato: fascicolo.VoceDecidere, Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaSostituzione, Testo: "si aggiunge, o sostituisce quale?"}}},
-			{Proposta: pPronto, Allegato: uuid.New(), Nome: "52920517.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52920517", Stato: fascicolo.VocePronta,
-				DaStep: &fascicolo.NodoInArrivo{Allegato: struttura, File: "assieme.stp", Codice: "52920517"}},
+			{Proposta: pPronto, Allegato: uuid.New(), Nome: "52922757 foglio 2.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52922757", Componente: &comp,
+				Aggiunge: true, Stato: fascicolo.VocePronta},
+			// Fascicolo v3: il file di un componente che nasce dalla struttura dello STEP la aspetta, e sa a quale nodo va
+			{Proposta: pAttesa, Allegato: uuid.New(), Nome: "52920517.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52920517", Stato: fascicolo.VoceDecidere,
+				DaStep:  &fascicolo.NodoInArrivo{Allegato: struttura, File: "assieme.stp", Codice: "52920517"},
+				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "52920517 nasce dalla struttura dello STEP assieme.stp: si conferma prima quella, nell'editor della Struttura BOM"}}},
 		},
-		Strutture: []fascicolo.VoceStruttura{{Allegato: struttura, Nome: "assieme.stp", Nodi: 2, Archi: 3, Nuovi: []string{"52920517", "53011111"}, Stato: fascicolo.VocePronta}},
+		// la struttura dello STEP non e' mai pronta: si conferma nell'editor
+		Strutture: []fascicolo.VoceStruttura{{Allegato: struttura, Nome: "assieme.stp", Nodi: 2, Archi: 3, Nuovi: []string{"52920517", "53011111"}, Stato: fascicolo.VoceDecidere,
+			Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaStrutturaEditor, Testo: "2 nodi e 3 archi proposti: la struttura si rivede e si conferma nell'editor (Struttura BOM)"}}}},
 	}
 	s.d.Stato.Cassetto = "verifica"
 	base := s.d.Base
@@ -132,13 +138,20 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 		"53999999.pdf", base+"/codice/aggiungi", "+ Particolare", base+"/assegna", "Conferma senza componente",
 		"52922757_B.pdf", `name="scelta" required`, `value="`+corrente.DocumentoID.String()+`"`, "sostituisce 52922757.pdf",
 		"Non si congela ancora"[:0])
-	senzaTesto(t, "verifica", html, "52920517.pdf")
+	senzaTesto(t, "verifica", html, "52922757 foglio 2.pdf")
+	// la struttura e il file che la aspetta: tutti e due portano all'editor, e il file non offre di far nascere
+	// 52920517 fuori dalla struttura
+	haTesto(t, "verifica", html, `id="verifica-step-`+struttura.String()+`"`, "2 nodi e 3 archi proposti", "Rivedi nell'editor",
+		"52920517.pdf", "nell&#39;editor della Struttura BOM", "Conferma la struttura nell'editor", `data-editor=""`)
+	if strings.Contains(html, `hx-vals='{"codice":"52920517"`) {
+		t.Error("il file che aspetta la struttura offre di far nascere 52920517 fuori dalla struttura")
+	}
 
 	s.d.Stato.Cassetto = "piano"
 	html = rendiParte(t, "fasc_cassetto", s.d)
-	haTesto(t, "rivedi", html, `name="struttura" value="`+struttura.String()+`" checked`, "nascono 52920517, 53011111",
-		`name="voce" value="`+pPronto.String()+`" checked`, "nasce dallo STEP assieme.stp", "Conferma i selezionati")
-	senzaTesto(t, "rivedi", html, `value="`+pTipo.String()+`"`, `value="`+pSost.String()+`"`)
+	haTesto(t, "rivedi", html, `name="voce" value="`+pPronto.String()+`" checked`, "52922757 foglio 2.pdf", "si aggiunge",
+		`class="k rivedi-strutture"`, "(assieme.stp) non entra da qui", "Struttura BOM", "Conferma i selezionati")
+	senzaTesto(t, "rivedi", html, `value="`+pTipo.String()+`"`, `value="`+pSost.String()+`"`, `value="`+pAttesa.String()+`"`, `name="struttura"`)
 }
 
 // L'avanzamento: con del lavoro in corso l'elemento porta il poll, e l'attesa si allunga quando non cambia
