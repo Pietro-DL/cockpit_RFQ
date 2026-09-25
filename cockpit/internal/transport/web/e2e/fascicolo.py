@@ -1,23 +1,25 @@
 # -*- coding: utf-8 -*-
-"""L7 - la schermata del Fascicolo in un BROWSER VERO (B8.7, rifatta in B8.7b).
+"""L7 - la schermata del Fascicolo in un BROWSER VERO (B8.7, rifatta in B8.7b; adattata al Fascicolo v3).
 
 Non lo si lancia a mano: lo avvia `fascicolo_browser_test.go` (tag `browser`), che prepara il banco su
 PostgreSQL (una RFQ con una BOM, uno STEP con un nodo nuovo, PDF veri in staging) e mette in piedi il
 server vero.
 
 Le prove (lettere, scelte dal test Go con --prove):
-  A  la pagina si apre con la BOM visuale, il dettaglio e la barra del piano, senza scorrimento orizzontale
-  B  un clic sulla card apre il dettaglio del componente, senza ricaricare; i candidati nella vista Documenti
+  A  la Struttura BOM si apre con la BOM visuale, il dettaglio e la barra del piano, senza scorrimento orizzontale
+  B  un clic sulla card apre il dettaglio del componente, senza ricaricare; i candidati nell'Elenco file
   C  un clic sul file apre il PDF nel pannello di destra
-  D  accettare il nodo (vista Albero) e poi la struttura (BOM) cambia la BOM senza F5 e senza chiudere il PDF
+  D  accettare il nodo (vista Albero) e poi la struttura (nell'editor) cambia la BOM senza F5 e senza chiudere il PDF
   E  tre file assegnati al nodo con un gesto
   F  correggere la struttura (il tipo) cambia la completezza sulla card
   G  cento file: la pagina in meno di un secondo, il filtro, niente scorrimento orizzontale
-  H  viste tecniche (griglia, codici, avvisi), «Da verificare», riepilogo di uno STEP (e le fotografie)
-  I  «Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto
+  H  Completezza, cassetti tecnici (codici, avvisi), «Da verificare», riepilogo di uno STEP (e le fotografie)
+  I  «Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto; la struttura dello STEP poi nell'editor
 
-«Senza F5» si verifica con due segni messi da JavaScript: uno sulla finestra, uno sull'iframe del PDF.
-Se la pagina si ricaricasse, o l'iframe venisse sostituito, i segni sparirebbero.
+Fascicolo v3: la vista predefinita e' Documenti (la provano fascicolo_v3.py); queste prove aprono la
+Struttura BOM (?vista=bom) o una vista di servizio. «Senza F5» si verifica con due segni messi da
+JavaScript: uno sulla finestra, uno sull'iframe del PDF. Se la pagina si ricaricasse, o l'iframe venisse
+sostituito, i segni sparirebbero.
 """
 import argparse
 import os
@@ -87,7 +89,7 @@ class Banco:
         verifica(largo <= 1, "la pagina scorre in orizzontale di %d px" % largo)
         # i due pannelli: l'area principale (la tela della BOM scorre dentro di se', non il pannello) e il dettaglio
         for pan in [".fasc-principale", "#anteprima"]:
-            d = self.page.evaluate("(() => { const e = document.querySelector('%s'); return e.scrollWidth - e.clientWidth })()" % pan)
+            d = self.page.evaluate("(() => { const e = document.querySelector('%s'); return e ? e.scrollWidth - e.clientWidth : 0 })()" % pan)
             verifica(d <= 1, "il pannello %s scorre in orizzontale di %d px" % (pan, d))
 
     def foto(self, nome):
@@ -95,10 +97,27 @@ class Banco:
             os.makedirs(self.a.foto, exist_ok=True)
             self.page.screenshot(path=os.path.join(self.a.foto, nome), full_page=False)
 
+    def linguetta(self, vista):
+        """Una linguetta della testata: documenti, bom (Struttura BOM), completezza."""
+        self.clic_e_aspetta(self.page.locator('#fasc-testata a[data-vista="%s"]' % vista), "/fascicolo/parti")
+
+    def conferma_nell_editor(self, apri):
+        """Apre l'editor della struttura con quel bottone e conferma la proposta com'e' (Fascicolo v3)."""
+        apri.click()
+        ed = self.page.locator(".bomed")
+        ed.wait_for(timeout=10000)
+        verifica(ed.locator(".bomed-albero .bomed-riga", has_text="53011111").count() == 1, "53011111 non e' nell'albero dell'editor")
+        with self.page.expect_response(lambda r: "/bom/applica" in r.url, timeout=15000) as risp:
+            ed.locator(".bomed-conferma").click()
+        verifica(risp.value.status == 200, "conferma della struttura: %d" % risp.value.status)
+        self.page.wait_for_selector(".bomed", state="detached", timeout=10000)
+        self.page.wait_for_timeout(300)
+        verifica(self.avviso().startswith("Struttura di 52922757 confermata"), "avviso dopo l'editor: %r" % self.avviso())
+
 
 @prova("A", "la pagina si apre con la BOM visuale, il dettaglio e il piano, niente scorrimento orizzontale")
 def prova_a(b):
-    b.apri()
+    b.apri("?vista=bom")
     for sel in ["#fasc-testata", "#tela", "#anteprima", "#piano", "#conferma-fascicolo"]:
         verifica(b.page.locator(sel).is_visible(), "%s non si vede" % sel)
     carta = b.page.locator('[id="proposta-%s-#3"]' % b.a.stp)
@@ -112,6 +131,7 @@ def prova_a(b):
     condiviso = b.page.locator('#tela div.carta[id^="nodo-%s-"]' % b.a.particolare, has_text="condiviso")
     verifica(condiviso.count() >= 1, "il particolare sotto due padri non si riconosce come condiviso")
     verifica(b.page.locator('#tela div.carta.prodotto[id="nodo-%s"]' % b.a.prodotto).count() == 1, "il prodotto finito non e' una card radice")
+    verifica(b.page.locator('.editor-avvio [data-editor="%s"]' % b.a.prodotto).count() == 1, "manca «Modifica la struttura» del prodotto")
     # il file picker non sta davanti: e' dentro «+ Aggiungi file › Carica dal PC»
     verifica(b.page.locator("input[type=file]").count() == 1, "i file picker nella pagina: %d" % b.page.locator("input[type=file]").count())
     verifica(not b.page.locator("input[type=file]").is_visible(), "il file picker si vede senza aprire «Aggiungi file»")
@@ -121,7 +141,7 @@ def prova_a(b):
 
 @prova("B", "un clic sulla card apre il dettaglio del componente, senza ricaricare; i candidati")
 def prova_b(b):
-    b.apri()
+    b.apri("?vista=bom")
     link = b.page.locator('#tela div.carta[id^="nodo-%s-"] a.carta-link' % b.a.particolare).first
     b.clic_e_aspetta(link, "/fascicolo/anteprima")
     verifica(b.viva(), "la pagina si e' ricaricata")
@@ -138,9 +158,9 @@ def prova_b(b):
     verifica(b.page.locator("#anteprima nav.schede a.on").inner_text().strip().startswith("3D"), "la scheda 3D non e' accesa")
     verifica(b.viva(), "la pagina si e' ricaricata")
     b.foto("02_dettaglio_componente.png")
-    # la vista Documenti tiene il nodo scelto: i file candidati per lui
-    b.clic_e_aspetta(b.page.locator("#fasc-testata .linguette a", has_text="Documenti"), "/fascicolo/parti")
-    verifica("vista=documenti" in b.page.url and "nodo=" + b.a.particolare in b.page.url, "la vista Documenti ha perso il nodo: %s" % b.page.url)
+    # l'Elenco file (vista di servizio) tiene il nodo scelto: i file candidati per lui
+    b.menu("Elenco file")
+    verifica("vista=file" in b.page.url and "nodo=" + b.a.particolare in b.page.url, "l'Elenco file ha perso il nodo: %s" % b.page.url)
     b.clic_e_aspetta(b.page.locator('.filtri-doc a[data-filtro="candidati"]'), "/fascicolo/parti")
     righe = b.page.locator("#vista tbody tr[id^='file-']")
     verifica(righe.count() >= 4, "candidati per il nodo: %d righe" % righe.count())
@@ -177,15 +197,15 @@ def prova_d(b):
     avviso = b.avviso()
     verifica(avviso and "Niente" not in avviso, "avviso: %r" % avviso)
     verifica(b.page.locator("#vista .node:not(.proposal)", has_text="53011111").count() >= 1, "il nodo accettato non e' un nodo pieno dell'albero")
-    # la BOM visuale: resta l'arco proposto, e lo STEP lo offre con «Applica struttura proposta»
-    b.clic_e_aspetta(b.page.locator("#fasc-testata .linguette a", has_text="BOM"), "/fascicolo/parti")
+    # la BOM visuale: resta l'arco proposto, e lo STEP lo offre con «Apri proposta BOM» (l'editor)
+    b.linguetta("bom")
     verifica(b.pdf_marcato() == "stesso", "cambiando vista l'iframe del PDF e' cambiato (segno: %r)" % b.pdf_marcato())
     rimando = b.page.locator('#tela li.li-arco-proposto > div.carta[id^="arco-%s-"]' % b.a.stp, has_text="53011111")
     verifica(rimando.count() == 1, "l'arco proposto 52920517 → 53011111 non e' disegnato sotto l'assieme")
     banner = b.page.locator('[id="step-%s"]' % b.a.stp)
     verifica(banner.count() == 1 and "1 arco" in banner.inner_text(), "il banner dello STEP: %r" % (banner.all_inner_texts(),))
     b.foto("04_arco_proposto.png")
-    b.clic_e_aspetta(banner.get_by_role("button", name="Applica struttura proposta"), "/accetta")
+    b.conferma_nell_editor(banner.locator("[data-editor]"))
     verifica(b.viva(), "la pagina si e' ricaricata")
     verifica(b.pdf_marcato() == "stesso", "dopo la struttura l'iframe del PDF e' cambiato (segno: %r)" % b.pdf_marcato())
     pieno = b.carta_confermata("53011111", b.a.assieme)
@@ -215,7 +235,7 @@ def prova_e(b):
 
 @prova("F", "correggere il tipo di un nodo cambia la card e la completezza")
 def prova_f(b):
-    b.apri("?nodo=" + b.a.assieme)
+    b.apri("?vista=bom&nodo=" + b.a.assieme)
     carta = b.page.locator('#tela div.carta[id="nodo-%s-%s"]' % (b.a.assieme, b.a.prodotto))
     tipo = carta.locator(".carta-tipo").text_content().strip()  # il testo, non come lo mostra il CSS (maiuscolo)
     verifica(tipo == "assieme", "prima: %r" % tipo)
@@ -229,9 +249,9 @@ def prova_f(b):
     tipo = carta.locator(".carta-tipo").text_content().strip()  # il testo, non come lo mostra il CSS (maiuscolo)
     verifica(tipo == "particolare", "dopo: %r" % tipo)
     verifica("52920517: tipo assieme → particolare" in b.avviso(), "avviso: %r" % b.avviso())
-    # la vista tecnica Completezza, con la riga del componente (il controllo di B8.7)
-    b.menu("Completezza")
-    riga = b.page.locator("#completezza .comp-riga", has_text="52920517")
+    # la Completezza (v3: una linguetta), con la riga del componente (il controllo di B8.7)
+    b.linguetta("completezza")
+    riga = b.page.locator("#completezza tbody tr", has_text="52920517")
     verifica("particolare" in riga.text_content(), "la completezza dopo: %r" % riga.text_content())
 
 
@@ -262,10 +282,10 @@ def prova_g(b):
           % (t["dcl"], t["server"], righe, t2["dcl"], t2["server"]))
 
 
-@prova("H", "viste tecniche, «Da verificare» e riepilogo di uno STEP")
+@prova("H", "Completezza, cassetti tecnici, «Da verificare» e riepilogo di uno STEP")
 def prova_h(b):
     b.apri()
-    b.menu("Griglia")
+    b.linguetta("completezza")
     verifica(b.page.locator("#vista table.griglia").is_visible(), "la griglia non si vede")
     b.foto("06_griglia.png")
     b.menu("Codici")
@@ -279,7 +299,7 @@ def prova_h(b):
     verifica(b.avviso() == "53099999 entra nella BOM come particolare.", "avviso: %r" % b.avviso())
     verifica("nel Fascicolo" in b.page.locator("#cassetto #codice-53099999").inner_text(), "dopo il gesto la riga non dice «nel Fascicolo»")
     verifica(b.page.locator("#cassetto .cassetto-dentro").is_visible(), "il gesto ha chiuso il cassetto")
-    # l'area principale e' ancora la Griglia: il componente nuovo ha la sua riga
+    # l'area principale e' ancora la Completezza: il componente nuovo ha la sua riga
     verifica(b.page.locator("#vista table.griglia tr", has_text="53099999").count() == 1, "il particolare aggiunto non e' nella griglia")
     verifica(b.viva(), "la pagina si e' ricaricata")
     # dal cassetto aperto si passa agli avvisi con le sue linguette: la testata e' sotto il cassetto
@@ -295,7 +315,7 @@ def prova_h(b):
     b.foto("09_da_verificare.png")
     b.clic_e_aspetta(b.page.locator("#cassetto a.chiudi-cassetto"), "/fascicolo/parti")
     # lo STEP del banco non ha una proposta di documento: sta fra «Tutti», non fra i non assegnati
-    b.clic_e_aspetta(b.page.locator("#fasc-testata .linguette a", has_text="Documenti"), "/fascicolo/parti")
+    b.menu("Elenco file")
     b.clic_e_aspetta(b.page.locator('.filtri-doc a[data-filtro="tutti"]'), "/fascicolo/parti")
     b.clic_e_aspetta(b.page.locator("#file-%s td.nome a" % b.a.stp), "/fascicolo/anteprima")
     corpo = b.page.locator("#anteprima-corpo")
@@ -305,7 +325,7 @@ def prova_h(b):
     b.foto("10_step_riepilogo.png")
 
 
-@prova("I", "«Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto")
+@prova("I", "«Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto, la struttura nell'editor")
 def prova_i(b):
     b.apri()
     piano = b.page.locator("#piano")
@@ -316,17 +336,25 @@ def prova_i(b):
     caselle = b.page.locator("#cassetto form.rivedi input[type=checkbox]")
     verifica(caselle.count() == pronti, "nel riepilogo %d caselle per %d voci pronte" % (caselle.count(), pronti))
     verifica(all(caselle.nth(i).is_checked() for i in range(caselle.count())), "le voci pronte non sono tutte spuntate")
-    verifica(b.page.locator("#cassetto form.rivedi", has_text="assieme.stp").count() == 1, "la struttura dello STEP non e' nel riepilogo")
+    # v3: la struttura dello STEP non si spunta qui, il riepilogo dice dove si conferma
+    verifica(b.page.locator('#cassetto form.rivedi input[name="struttura"]').count() == 0, "la struttura dello STEP si spunta ancora nel riepilogo")
+    verifica("assieme.stp" in b.page.locator("#cassetto form.rivedi .rivedi-strutture").inner_text(), "il riepilogo non rimanda all'editor per la struttura dello STEP")
     b.foto("11_rivedi.png")
     b.clic_e_aspetta(b.page.locator("#cassetto a.chiudi-cassetto"), "/fascicolo/parti")
     b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/conferma")
     verifica(b.viva(), "la pagina si e' ricaricata")
     avviso = b.avviso()
     verifica(avviso.startswith("Fascicolo confermato"), "avviso: %r" % avviso)
-    verifica(b.page.locator('[id="proposta-%s-#3"]' % b.a.stp).count() == 0, "la card proposta di 53011111 e' rimasta")
-    verifica(b.carta_confermata("53011111", b.a.assieme).count() == 1, "53011111 non e' nato sotto l'assieme")
     verifica(b.page.locator("#conferma-fascicolo").is_disabled(), "dopo la conferma resta qualcosa di pronto: %r" % piano.inner_text())
     b.foto("14_dopo_conferma.png")
+    # la struttura dello STEP e' ancora una proposta: entra dall'editor della Struttura BOM
+    b.linguetta("bom")
+    verifica(b.page.locator('[id="proposta-%s-#3"]' % b.a.stp).count() == 1, "«Conferma Fascicolo» ha toccato la struttura dello STEP")
+    b.conferma_nell_editor(b.page.locator('[id="step-%s"] [data-editor]' % b.a.stp))
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    verifica(b.page.locator('[id="proposta-%s-#3"]' % b.a.stp).count() == 0, "la card proposta di 53011111 e' rimasta")
+    verifica(b.carta_confermata("53011111", b.a.assieme).count() == 1, "53011111 non e' nato sotto l'assieme")
+    b.foto("15_dopo_editor.png")
 
 
 def main():

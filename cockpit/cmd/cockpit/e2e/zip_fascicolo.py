@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""L7 - la richiesta con lo ZIP, dall'arrivo della mail al Fascicolo confermato, in un BROWSER VERO (B8.7b).
+"""L7 - la richiesta con lo ZIP, dall'arrivo della mail al Fascicolo confermato, in un BROWSER VERO (B8.7b;
+Fascicolo v3: la struttura dello STEP si conferma nell'editor della Struttura BOM).
 
 Non lo si lancia a mano: lo avvia `zip_browser_test.go` (tag `integrazione browser`), che compila e avvia
 cockpit.exe con un cockpit.toml temporaneo e il worker Outlook vero con la posta finta. Il worker di analisi
@@ -10,12 +11,13 @@ I passi seguono la richiesta; ciascuno ha bisogno del precedente, e al primo che
 eseguono:
   1  la mail con lo ZIP arriva nell'Inbox
   2  il cliente si censisce e la RFQ nasce con il codice della richiesta; lo ZIP «si prepara da solo»
-  3  il Fascicolo si apre con il prodotto finito gia' card radice, senza «+ Prodotto», e la preparazione in corso
+  3  la Struttura BOM si apre con il prodotto finito gia' card radice, senza «+ Prodotto», e la preparazione in corso
   4  senza F5: le proposte dello STEP arrivano da sole nella gerarchia, poi il poll si ferma
   5  il pannello di destra: il prodotto (con i file in arrivo) e una proposta (con chi la aspetta)
-  6  «Da verificare» chiede solo il codice del foglio, gia' suggerito dal nome
-  7  «Rivedi» e «Conferma Fascicolo»: un gesto porta nel fascicolo struttura, documenti e STEP strutturale
-  8  «Aggiungi file › Importa dal NAS»: la ricerca per codice sotto la radice, poi la strada di tutti
+  6  l'editor della struttura: la proposta dello STEP si guarda e si conferma com'e'
+  7  «Da verificare» chiede solo il codice del foglio, gia' suggerito dal nome
+  8  «Rivedi» e «Conferma Fascicolo»: un gesto porta nel fascicolo documenti e STEP strutturale
+  9  «Aggiungi file › Importa dal NAS»: la ricerca per codice sotto la radice, poi la strada di tutti
 
 Alla fine stampa una riga «ESITO {json}» con il thread e la cronologia: il test Go la legge e controlla il
 database passo per passo.
@@ -180,13 +182,13 @@ def passo_2(b):
     verifica("1 file utile in preparazione" in avviso, "lo ZIP non parte da solo: %r" % avviso)
 
 
-@passo("il Fascicolo si apre con il prodotto gia' card radice, senza «+ Prodotto»")
+@passo("la Struttura BOM si apre con il prodotto gia' card radice, senza «+ Prodotto»")
 def passo_3(b):
     b.page.goto(b.a.url + "/richieste")
     href = b.page.locator("a[href^='/thread/']").first.get_attribute("href")
     b.dati["thread"] = re.search(r"/thread/([0-9a-f-]{36})", href).group(1)
     b.base = b.a.url + "/thread/" + b.dati["thread"] + "/fascicolo"
-    b.apri()
+    b.apri("?vista=bom")
     prodotto = b.page.locator("#tela div.carta.prodotto")
     verifica(prodotto.count() == 1 and "52922757" in prodotto.inner_text(), "la card del prodotto: %r" % prodotto.all_inner_texts())
     struttura = prodotto.locator(".carta-struttura").text_content().strip() if prodotto.locator(".carta-struttura").count() else ""
@@ -253,6 +255,34 @@ def passo_5(b):
     verifica(b.viva(), "la pagina si e' ricaricata")
 
 
+@passo("l'editor della struttura: la proposta dello STEP si guarda e si conferma com'e'")
+def passo_editor(b):
+    banner = b.page.locator("div.banner-step", has_text="52922757.stp")
+    verifica(banner.count() == 1, "il banner dello STEP non c'e'")
+    banner.locator("[data-editor]").click()
+    ed = b.page.locator(".bomed")
+    ed.wait_for(timeout=10000)
+    righe = ed.locator(".bomed-albero .bomed-riga")
+    testo = " ".join(righe.all_inner_texts())
+    b.dati["editor"] = testo
+    for c in ["52922757", "52920517", "53011111", "53017189"]:
+        verifica(c in testo, "%s non e' nell'albero dell'editor: %r" % (c, testo))
+    verifica(ed.locator(".bomed-albero .bomed-riga.proposto").count() >= 3, "i nodi dello STEP non sono segnati come proposti")
+    b.foto("05_editor.png")
+    with b.page.expect_response(lambda r: "/bom/applica" in r.url, timeout=20000) as risp:
+        ed.locator(".bomed-conferma").click()
+    verifica(risp.value.status == 200, "conferma della struttura: %d" % risp.value.status)
+    b.page.wait_for_selector(".bomed", state="detached", timeout=10000)
+    b.page.wait_for_timeout(300)
+    b.dati["editor_esito"] = b.avviso()
+    verifica(b.avviso().startswith("Struttura di 52922757 confermata"), "avviso: %r" % b.avviso())
+    verifica(b.page.locator("#tela div.carta.proposta").count() == 0, "dopo l'editor restano card proposte")
+    albero = b.albero()
+    trovati = {(x["padre"], x["codice"], x["qta"]) for x in albero if x["padre"]}
+    verifica(ARCHI <= trovati, "gli archi confermati: %r" % sorted(trovati))
+    verifica(b.viva(), "la pagina si e' ricaricata")
+
+
 @passo("«Da verificare» chiede solo il codice del foglio, gia' suggerito")
 def passo_6(b):
     b.clic_e_aspetta(b.page.locator("#fasc-testata a.verifica"), "/fascicolo/parti")
@@ -269,10 +299,10 @@ def passo_6(b):
     verifica(b.viva(), "la pagina si e' ricaricata")
 
 
-@passo("«Rivedi» e «Conferma Fascicolo»: un gesto per struttura, documenti e STEP strutturale")
+@passo("«Rivedi» e «Conferma Fascicolo»: un gesto per documenti e STEP strutturale")
 def passo_7(b):
     b.chiudi_cassetto()
-    verifica(b.pronti() == 7, "voci pronte: %d (%s)" % (b.pronti(), b.page.locator("#piano").inner_text()))
+    verifica(b.pronti() == 6, "voci pronte: %d (%s)" % (b.pronti(), b.page.locator("#piano").inner_text()))
     b.clic_e_aspetta(b.page.locator("#piano").get_by_role("link", name="Rivedi"), "/fascicolo/parti")
     form = b.page.locator("#cassetto form.rivedi")
     testo = form.inner_text()
@@ -280,19 +310,16 @@ def passo_7(b):
     for x in ["52922757.stp", "52922757.pdf", "52920517.pdf", "53017189 foglio 2.pdf", "Capitolato fornitura.pdf"]:
         verifica(x in testo, "%s non e' nel riepilogo" % x)
     caselle = form.locator("input[type=checkbox]")
-    verifica(caselle.count() == 7 and all(caselle.nth(i).is_checked() for i in range(caselle.count())), "le caselle del riepilogo: %d" % caselle.count())
+    verifica(caselle.count() == 6 and all(caselle.nth(i).is_checked() for i in range(caselle.count())), "le caselle del riepilogo: %d" % caselle.count())
+    verifica(form.locator('input[name="struttura"]').count() == 0, "la struttura dello STEP si spunta ancora nel riepilogo")
     b.foto("06_rivedi.png")
     b.chiudi_cassetto()
     b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/conferma")
     b.dati["conferma"] = b.avviso()
     verifica(b.avviso().startswith("Fascicolo confermato"), "avviso: %r" % b.avviso())
-    verifica(b.page.locator("#tela div.carta.proposta").count() == 0, "dopo la conferma restano card proposte")
-    albero = b.albero()
-    trovati = {(x["padre"], x["codice"], x["qta"]) for x in albero if x["padre"]}
-    verifica(ARCHI <= trovati, "gli archi confermati: %r" % sorted(trovati))
     verifica(b.page.locator("#conferma-fascicolo").is_disabled(), "dopo la conferma resta qualcosa di pronto: %r" % b.page.locator("#piano").inner_text())
-    # il pannello di destra segue la conferma: la proposta scelta (52920517) e' diventata un componente, e il
-    # corpo mostra il suo 2D, non piu' il riepilogo dello STEP con i nodi «aperta»
+    # il pannello di destra segue le conferme: la proposta scelta (52920517) e' diventata un componente
+    # (nell'editor), e il corpo mostra il suo 2D, non piu' il riepilogo dello STEP con i nodi «aperta»
     corpo = b.page.locator("#anteprima-corpo")
     verifica("aperta" not in corpo.inner_text(), "il corpo del pannello e' quello di prima della conferma: %r" % corpo.inner_text()[:300])
     verifica(b.page.locator("#anteprima-corpo iframe[title='Anteprima di 52920517.pdf']").count() == 1,

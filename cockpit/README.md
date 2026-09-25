@@ -1132,6 +1132,41 @@ parser deterministico delle intestazioni citate (`origine_citata` di un inoltro)
 dall'Inbox, la schermata che mostra il JSON `classificazione_email.v1`, il segnale spam di Outlook nel
 worker, e il contratto nuovo dell'agente. Nessuna chiamata a un modello.
 
+## Il Fascicolo v3 (migrazione 0021)
+
+La schermata del Fascicolo (`/thread/{id}/fascicolo`) ha tre viste, in linguette:
+
+- **Documenti**, quella che si apre: il visore tecnico per componente. Al centro il PDF, disegnato nel
+  browser da pdf.js (`web/static/fascicolo.mjs`; pdf.js 6.3.289 è copiato in `web/static/pdfjs-6.3.289/`,
+  niente CDN, con versione e impronte in `VERSIONE.txt`); sotto, il filmstrip dei componenti del prodotto; a
+  destra la struttura, i file del componente con l'associazione proposta (tipo rilevato, codice letto,
+  confidenza) e i gesti per confermarla, e le note sul disegno. Scegliere un componente non ricarica la
+  pagina: la parte di destra si chiede a `/fascicolo/sezione`, e il disegno resta dov'è (`hx-preserve`).
+- **Struttura BOM**: la BOM visuale e l'**editor della struttura**. La struttura proposta da uno STEP non
+  entra più con «Conferma Fascicolo»: si guarda nell'editor, si corregge e si conferma con un gesto solo,
+  `POST /fascicolo/bom/applica`, in una transazione. Nell'editor trascinare vuol dire spostare; un secondo
+  padre si aggiunge dal menu (…› Condividi). Senza STEP i componenti stanno fra i «Non posizionati» e la
+  struttura si fa a mano. Un file che va a un componente che nasce da una struttura la aspetta, e
+  «Da verificare» lo dice.
+- **Completezza**: la matrice 3D / 2D / DXF / STEP.
+
+Elenco file, Componenti e Albero restano nel menu «•••» come viste di servizio; gli indirizzi di prima
+(`vista=documenti`, `vista=griglia`) aprono ancora quello che aprivano.
+
+**Le note sui disegni** (`annotazione_pdf`, migrazione 0021). «+ Aggiungi nota» arma il cursore, un clic mette
+il punto, poi si scrive il testo. Una nota sta su una pagina di un file, cioè di quella revisione, con il punto
+in coordinate 0..1, e sul componente se c'è. La cambia e la toglie solo chi l'ha scritta. Si scrive anche sulla
+BOM congelata, perché non è struttura. Un disegno sostituito da una revisione nuova tiene le sue note, e la
+revisione nuova dice quante ce n'erano sulla precedente.
+
+**I suffissi decorativi del cliente** (`cliente.regole.suffissi_decorativi`: in Anagrafica, uno per riga) sono le
+code che il CAD di quel cliente attacca al codice senza cambiarlo, per esempio `_PRT`. `X_PRT` e `X` diventano lo
+stesso pezzo nei nomi dei file, negli STEP, nei testi e nelle analisi, solo per quel cliente. Un suffisso che si
+legge come una revisione (`_1`, `_B`, `_R2`, `_REV1`) si rifiuta. Vale per le evidenze che arrivano da lì in poi.
+Un componente già nato come `X_PRT` resta lo stesso pezzo: gli STEP nuovi lo ritrovano, un file «X» chiede di
+essere assegnato a lui («Assegna a X_PRT», e il file ne prende il codice), e il pannello dei codici non offre di
+aggiungere un secondo `X`. Per portarlo al codice senza suffisso si usa «Correggi il codice».
+
 ## Prove
 
 ```powershell
@@ -1178,6 +1213,11 @@ Il banco è quello di tutti gli altri test web — PostgreSQL vero, server vero 
 sopra ci gira Edge: `internal\web\e2e\inbox_quadranti.py` apre l'Inbox, clicca le linguette, cambia
 direzione e filtro, aspetta un poll intero e usa indietro/avanti del browser, e ogni volta verifica
 che **la linguetta accesa, le righe mostrate e la barra degli indirizzi dicano la stessa cosa**.
+
+Il Fascicolo ha tre script: `e2e/fascicolo.py` (la Struttura BOM e le viste di servizio), `e2e/fascicolo_v3.py`
+(la vista Documenti con pdf.js, le note, l'editor della struttura, l'associazione dal pannello: `TestL7V3…`) e
+`cmd/cockpit/e2e/zip_fascicolo.py` (dalla mail con lo ZIP al Fascicolo confermato, con i worker veri:
+`go test -tags "integrazione browser" -count=1 -run TestL7 .\cmd\cockpit\`).
 
 Serve perché a L4 si chiede al server un frammento e si legge l'HTML che torna. Il 18/09/2026 erano
 tutti verdi mentre nel browser le linguette restavano indietro: il difetto non stava in una risposta
@@ -1238,6 +1278,12 @@ impossibile (altra RFQ, altro componente, altro tipo, senza componente, un ciclo
 sostituiti dallo stesso), ed elencano le righe. Dopo la 0020 una versione congelata della BOM non si
 modifica, e la BOM working si modifica solo aprendo una revisione: lo tengono i trigger, con i codici
 d'errore `BOM01`–`BOM05`.
+
+La 0021 (Fascicolo v3) aggiunge solo la tabella delle note sui disegni. Il server applica le migrazioni da solo
+all'avvio: prima di avviare su un database vero un binario che ha la 0021 serve il backup (`scripts\backup-db.ps1`),
+e dopo il binario di prima non parte più su quel database. Il ritorno manuale è `scripts\0021_indietro.sql`, a
+server fermo: toglie la tabella e riporta lo schema alla 20, e si ferma se ci sono delle note (per perderle
+davvero si mette `cockpit.perdi_le_note` a `true` nel file).
 
 ### Se qualcosa non va
 
@@ -1301,7 +1347,8 @@ internal/platform/testutil          pool e schema pulito per i test d'integrazio
 internal/core/inbox/classificazione regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:,
                                     taglio della catena di risposta (catena.go); controparte.go: il resolver cliente/fornitore/interno/ambiguo (D33);
                                     atto.go: l'atto business e il legame operativo (7C.0), le euristiche pure per ramo; i candidati verso una richiesta;
-                                    regole.go: il motore che compila le regole del cliente e le applica a un testo
+                                    regole.go: il motore che compila le regole del cliente e le applica a un testo; Canonico toglie
+                                    i suffissi decorativi del cliente («X_PRT» → X, Fascicolo v3)
 internal/core/inbox/ingest          FATTO (messaggio, allegato) + proposta economica + aggancio automatico + triage/portale;
                                     controparte.go: la controparte scritta sul messaggio, il ritriage mirato, il ricalcolo all'avvio;
                                     marcatori.go: CockpitRichiestaFornitore e CockpitBozza letti dalla Posta inviata (7B)
@@ -1310,7 +1357,8 @@ internal/core/inbox/aggancio        i candidati di aggancio R0–R5 con evidenza
 internal/core/registro/fornitori    l'import del seme dei fornitori con anteprima e conferma (7A.4)
 internal/core/registro/anagrafica   il seme dei clienti da seme_anagrafica.json (-semina-anagrafica), una volta e senza sovrascrivere;
                                     anagrafica.go: NomeCognome, il precompilato del buyer dal display name o dall'indirizzo
-internal/core/registro/regole       lo schema di cliente.regole: la porta in scrittura che rifiuta, quella in lettura che segna ✓/✗;
+internal/core/registro/regole       lo schema di cliente.regole (famiglie, riferimento, frasi del portale, suffissi decorativi): la porta
+                                    in scrittura che rifiuta, quella in lettura che segna ✓/✗;
                                     convenzioni.go: suffisso/regex → lavorazioni, con esempio e controesempio verificati (D39)
 internal/core/rfq/documenti         il fascicolo di una RFQ. path.go: i nomi sul NAS (cartella della RFQ, sottocartella per tipo e codice, nome di
                                     file sicuro; sempre relativi alla radice); nomi_nas.go (A4): <CODICE>_REV_<REV> per i file tecnici, il
@@ -1327,7 +1375,8 @@ internal/core/rfq/fascicolo         la BOM di una RFQ nel tempo (A4): congelare,
                                     per intero), le decisioni che le portano nella BOM working, la rianalisi. B8.6: i codici della RFQ,
                                     uniti per codice dalle evidenze che ci sono già, con il gesto di ciascuno. B8.7: l'albero della BOM
                                     per la schermata (pura), tipo/rev/archi di un componente a mano, le deroghe del fabbisogno, il
-                                    contenitore dei caricamenti interni
+                                    contenitore dei caricamenti interni. Fascicolo v3: voluta.go, la struttura voluta dall'editor
+                                    (pianifica la controlla senza scrivere, ApplicaStrutturaVoluta la porta nella working in una transazione)
 internal/ai/agente                  l'assistente semantico: Modello (interfaccia), prompt, grounding e idempotenza (analisi_messaggio).
                                     SPENTO senza [agente].attivo, modello e chiave, e solo sulle caselle elencate; nessuna chiamata
                                     reale nei test
@@ -1344,7 +1393,11 @@ internal/transport/web              HTML+HTMX: login (postazione per IP), /sessi
                                     per prodotto (identificativo_thread) con l'anteprima del 2D, i filtri nell'indirizzo, il poll con la firma (204 se
                                     niente e' cambiato) e /richieste/{id}/prodotti per «+ N altri»;
                                     integrita_admin.go: /admin/nas;
+                                    fascicolo_*.go: il Fascicolo (B8.7, B8.7b); per la v3 fascicolo_documenti.go (la vista Documenti: gruppi,
+                                    filmstrip, la sezione di un componente, le note), fascicolo_editor.go (/bom/dati per l'editor),
+                                    fascicolo_gesti_v3.go (le note, /bom/applica, /file/{id}/generale, /sezione);
                                     e2e/inbox_quadranti.py: le prove dell'Inbox in un browser vero, lanciate da inbox_browser_test.go (tag `browser`);
+                                    e2e/fascicolo.py, e2e/fascicolo_v3.py: il Fascicolo nel browser (fascicolo_browser_test.go, fascicolo_v3_browser_test.go);
                                     e2e/richieste.py: la pagina Richieste nel browser, lanciata da richieste_browser_test.go (tag `browser`)
 internal/transport/workerapi        /api/v1/jobs/{claim,heartbeat,result}, GET /api/v1/worker/caselle, /api/v1/ingest/messaggi, PUT /api/v1/allegati/{id}/file
                                     (X-Cockpit-Token con il token INDIVIDUALE del worker: il server lo cerca per sha256 e da lì sa chi chiama);
@@ -1357,7 +1410,8 @@ internal/app/runtime                esegui.go: l'avvio nel suo ordine, un passo 
                                     esecutore.go: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (core/rfq/documenti
                                     per il fascicolo, transport/workerapi per gli archivi, ai/agente per l'analisi);
                                     vigilanza_nas.go: quali job vogliono il NAS, il rinvio quando non c'e', il ritorno in coda quando torna
-web/templates, web/static           template html/template, style.css, htmx 2.0.4
+web/templates, web/static           template html/template, style.css, htmx 2.0.4; fascicolo.mjs (il visore pdf.js e l'editor della
+                                    struttura, Fascicolo v3); pdfjs-6.3.289/ (pdf.js copiato dal pacchetto npm, Apache-2.0, con VERSIONE.txt)
 migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enum), 0002_fondazioni.sql (caselle, postazioni, worker),
                                     0003_coda_ingest.sql (tentativo con lease_token, ingest_scarto, analisi_fatti),
                                     0004_caselle_presenza.sql (messaggio_casella, cursore per casella, messaggio.interno, v_inbox),
@@ -1383,7 +1437,8 @@ migrations/                         0001_schema.sql (30 tabelle, 5 viste, 31 enu
                                     0020_bom_versioni.sql (catena delle revisioni dei documenti, percorso unico per RFQ, versioni della BOM
                                     e le quattro istantanee, working bloccata dopo il congelamento, STEP strutturale, deroga strutturale,
                                     archiviazione, rimozione_proposta, analizzatore_corrente, v_step_prodotto, v_bom_versioni,
-                                    v_documento_storia, v_thread_da_riesaminare)
+                                    v_documento_storia, v_thread_da_riesaminare),
+                                    0021_annotazioni_pdf.sql (annotazione_pdf: le note sui disegni del Fascicolo v3)
 contracts/*.schema.json             JSON Schema generati da workers/contratti.py
 workers/                            cockpit_client.py (client, config, log, battito), worker_outlook.py, worker_analisi.py,
                                     outlook_com.py (COM), contratti.py (pydantic), server_finto.py (prove senza server),
@@ -1397,6 +1452,7 @@ scripts/                            avvia-dev.ps1 (semina le anagrafiche, poi av
                                     db-test.ps1 (DB di prova isolato), prova-tutto.ps1,
                                     azzera-dati.ps1 (riga di partenza pulita), query-debug.sql (le query della diagnosi),
                                     backup-db.ps1 (con prova di ripristino), installa-attivita.ps1, db-reset.sh;
+                                    0018_indietro.sql, 0021_indietro.sql (i ritorni manuali, a server fermo);
                                     avvio-rete/ (avvia-lan.sh IPv4, avvia-https.sh IPv6, comune.sh: il server in HTTPS
                                     sulla LAN con le reti ammesse, senza toccare cockpit.toml)
 ```

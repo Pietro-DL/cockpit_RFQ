@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -44,6 +45,29 @@ func NuovaWorking(comp []db.Componente, rel []db.ComponenteRelazione) Working {
 		w.Archi[Arco{Padre: r.PadreID, Figlio: r.FiglioID}] = r.Qta
 	}
 	return w
+}
+
+// conCanonici aggiunge, per un cliente con suffissi decorativi, ogni componente anche sotto il suo codice senza
+// suffisso: un pezzo accettato come «X_PRT» prima che la regola ci fosse e' lo stesso pezzo che lo STEP, letto
+// adesso con la regola, chiama «X». Il codice del componente non cambia; il confronto lo ritrova, e il nodo
+// diventa un duplicato invece di un secondo componente.
+func (w Working) conCanonici(m *classificazione.Motore) {
+	if !m.HaSuffissi() {
+		return
+	}
+	var tutti []db.Componente
+	for _, c := range w.PerCodice {
+		tutti = append(tutti, c)
+	}
+	sort.Slice(tutti, func(i, j int) bool { return tutti[i].Codice < tutti[j].Codice })
+	for _, c := range tutti {
+		can, _ := m.Canonico(c.Codice, "")
+		if k := strings.ToUpper(strings.TrimSpace(can)); k != "" {
+			if _, gia := w.PerCodice[k]; !gia {
+				w.PerCodice[k] = c
+			}
+		}
+	}
 }
 
 // Contesto e' quello che serve a leggere un file dentro una RFQ, oltre al file.

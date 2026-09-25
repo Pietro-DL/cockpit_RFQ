@@ -65,6 +65,11 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 			reg.FrasiPortale = append(reg.FrasiPortale, f)
 		}
 	}
+	for _, x := range strings.Split(r.FormValue("suffissi_decorativi"), "\n") {
+		if x = strings.TrimSpace(x); x != "" {
+			reg.SuffissiDecorativi = append(reg.SuffissiDecorativi, x)
+		}
+	}
 	if rex := strings.TrimSpace(r.FormValue("rif_regex")); rex != "" {
 		reg.RiferimentoRFQ = &regole.Riferimento{
 			Regex: rex, Descrizione: strings.TrimSpace(r.FormValue("rif_descrizione")),

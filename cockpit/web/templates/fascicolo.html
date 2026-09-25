@@ -1,15 +1,19 @@
-{{/* Il Fascicolo (B8.7, rifatto in B8.7b). Al centro la BOM visuale: card per componente, proposte degli STEP
-     tratteggiate nella gerarchia, quantita' sugli archi. A destra il dettaglio di quello che si sceglie (3D, 2D,
-     DXF, Altri, Storico, con l'anteprima). In fondo il piano: che cosa entra con «Conferma Fascicolo». Il cassetto
-     «Da verificare» tiene solo le decisioni vere. Le viste di B8.7 (griglia, completezza, albero, codici, avvisi)
-     restano, come viste tecniche.
-     Lo stato e' l'indirizzo; i gesti rispondono nell'avviso e rifanno i pannelli fuori banda, tranne il corpo
-     dell'anteprima: il PDF aperto resta aperto. Finche' c'e' lavoro sui file (download, estrazioni, analisi) la
-     pagina chiede ogni pochi secondi se e' cambiato qualcosa. Niente JavaScript oltre a htmx. */}}
+{{/* Il Fascicolo (B8.7, B8.7b, v3). Tre viste: Documenti (la schermata: il disegno del componente grande, il
+     filmstrip dei componenti del prodotto, a destra la struttura, i file con le loro associazioni e le note sul
+     disegno), Struttura BOM (la BOM visuale, con l'editor della struttura) e Completezza (la matrice 3D, 2D,
+     DXF, STEP). In fondo il piano: che cosa entra con «Conferma Fascicolo». Il cassetto «Da verificare» tiene
+     solo le decisioni vere. Elenco file, Componenti e Albero restano come viste di servizio.
+     Lo stato e' l'indirizzo; i gesti rispondono nell'avviso e rifanno i pannelli fuori banda. Il disegno aperto
+     resta aperto: nella vista Documenti lo stage e' di fascicolo.mjs (pdf.js) e ha hx-preserve; nelle altre
+     l'anteprima e' l'iframe del browser e il suo corpo si rifa' solo se cambia (corpo_chiave). Finche' c'e'
+     lavoro sui file la pagina chiede ogni pochi secondi se e' cambiato qualcosa. */}}
 {{define "contenuto"}}
-<div id="fascicolo" class="fasc{{if not .Dati.Scrive}} sola-lettura{{end}}" hx-target="#fasc-avviso" hx-swap="innerHTML" hx-include="#corpo-chiave">
+<div id="fascicolo" class="fasc{{if not .Dati.Scrive}} sola-lettura{{end}}" hx-target="#fasc-avviso" hx-swap="innerHTML" hx-include="#corpo-chiave"
+  hx-history="false" data-base="{{.Dati.Base}}" data-thread="{{.Dati.T.ThreadID}}" data-scrive="{{if .Dati.Scrive}}1{{end}}" data-bloccata="{{.Dati.Bloccata}}">
 {{template "fasc_corpo" .}}
+<div id="fasc-editor" class="fasc-editor-posto"></div>
 </div>
+<script type="module" src="{{statico "fascicolo.mjs"}}"></script>
 {{end}}
 
 {{define "fasc_corpo"}}{{with .Dati}}
@@ -17,7 +21,7 @@
 <div id="fasc-avanzamento-box">{{template "fasc_avanzamento" .}}</div>
 <div id="fasc-avviso" class="fasc-avviso" aria-live="polite">{{template "fasc_avviso" .}}</div>
 <div class="fasc-lavoro">
-  <section class="fasc-principale" aria-label="BOM"><div id="vista" class="fasc-vista">{{template "fasc_vista" .}}</div></section>
+  <section class="fasc-principale" aria-label="Fascicolo"><div id="vista" class="fasc-vista">{{template "fasc_vista" .}}</div></section>
   <aside class="fasc-destra fasc-anteprima" aria-label="Dettaglio" id="anteprima">{{template "fasc_anteprima_dentro" .}}</aside>
 </div>
 <footer id="piano" class="fasc-piano" aria-label="Conferma del Fascicolo">{{template "fasc_piano" .}}</footer>
@@ -91,9 +95,9 @@
   <details class="menu">
     <summary class="btn small" title="Viste tecniche e comandi">•••</summary>
     <div class="menu-dentro">
-      <p class="label">Viste tecniche</p>
-      <a class="{{if eq .Stato.Vista "griglia"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "griglia"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "griglia"}}">Griglia</a>
-      <a class="{{if eq .Stato.Vista "completezza"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "completezza"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "completezza"}}">Completezza</a>
+      <p class="label">Viste di servizio</p>
+      <a class="{{if eq .Stato.Vista "file"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "file"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "file"}}">Elenco file <small>{{len .File}}</small></a>
+      <a class="{{if eq .Stato.Vista "componenti"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "componenti"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "componenti"}}">Componenti <small>{{.Albero.Componenti}}</small></a>
       <a class="{{if eq .Stato.Vista "albero"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "albero"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "albero"}}">Albero</a>
       <a class="{{if eq .Stato.Cassetto "codici"}}on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "codici"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "codici"}}">Codici</a>
       <a class="{{if eq .Stato.Cassetto "avvisi"}}on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "avvisi"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "avvisi"}}">Avvisi <span class="conta{{if .Avvisi}} piena{{end}}">{{len .Avvisi}}</span></a>
@@ -104,13 +108,13 @@
 </div>
 <div class="ft-riga ft-linguette">
   <nav class="linguette" aria-label="Viste del Fascicolo">
-    <a class="{{if .VistaBom}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" ""}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" ""}}">BOM</a>
-    <a class="{{if eq .Stato.Vista "componenti"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "componenti"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "componenti"}}">Componenti <small>{{.Albero.Componenti}}</small></a>
-    <a class="{{if eq .Stato.Vista "documenti"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "documenti"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "documenti"}}">Documenti <small>{{len .File}}</small></a>
-    {{if .VistaTecnica}}<span class="chip no">vista tecnica: {{.Stato.Vista}}</span>{{end}}
+    <a class="{{if .VistaDocumenti}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" ""}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" ""}}" data-vista="documenti">Documenti</a>
+    <a class="{{if .VistaBom}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "bom"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "bom"}}" data-vista="bom">Struttura BOM</a>
+    <a class="{{if eq .Stato.Vista "completezza"}}on{{end}}" href="{{.Base}}{{.Stato.Con "vista" "completezza"}}" hx-get="{{.Base}}/parti{{.Stato.Con "vista" "completezza"}}" data-vista="completezza">Completezza{{if .NBloccanti}} <small class="urg-t">{{.NBloccanti}}</small>{{end}}</a>
+    {{if .VistaTecnica}}<span class="chip no">vista di servizio: {{if eq .Stato.Vista "file"}}elenco file{{else}}{{.Stato.Vista}}{{end}}</span>{{end}}
   </nav>
-  <input class="cerca" type="search" name="q" value="{{.Stato.Cerca}}" placeholder="Cerca un codice o un file…" aria-label="Cerca"
-    hx-get="{{.Base}}/vista{{.Stato.Con "q" ""}}" hx-trigger="input changed delay:300ms, search" hx-target="#vista" hx-swap="innerHTML">
+  {{if not .VistaDocumenti}}<input class="cerca" type="search" name="q" value="{{.Stato.Cerca}}" placeholder="Cerca un codice o un file…" aria-label="Cerca"
+    hx-get="{{.Base}}/vista{{.Stato.Con "q" ""}}" hx-trigger="input changed delay:300ms, search" hx-target="#vista" hx-swap="innerHTML">{{end}}
   <span class="sp"></span>
   {{if .Scrive}}
   <details class="menu aggiungi gesto">
@@ -185,10 +189,10 @@
 {{/* ------------------------------------------------------------------ l'area principale */}}
 {{define "fasc_vista"}}
 {{if .Bloccata}}<p class="nota-blocco">La BOM è congelata nella V{{.Bloccata}}: si legge; nodi, archi e deroghe si cambiano aprendo una revisione. Arrivi, caricamenti e proposte continuano; i file entrano senza componente.</p>{{end}}
-{{if .VistaBom}}{{template "fasc_tela" .}}
+{{if .VistaDocumenti}}{{template "fasc_docv" .}}
+{{else if .VistaBom}}{{template "fasc_tela" .}}
 {{else if eq .Stato.Vista "componenti"}}{{template "fasc_schede" .}}
-{{else if eq .Stato.Vista "documenti"}}{{template "fasc_documenti" .}}
-{{else if eq .Stato.Vista "griglia"}}{{template "fasc_griglia" .}}
+{{else if eq .Stato.Vista "file"}}{{template "fasc_documenti" .}}
 {{else if eq .Stato.Vista "completezza"}}{{template "fasc_completezza" .}}
 {{else if eq .Stato.Vista "albero"}}{{template "fasc_albero" .}}{{end}}
 {{end}}
@@ -201,6 +205,10 @@
   <span class="sp"></span>
   <span class="legenda k"><span class="leg leg-conf"></span> confermato <span class="leg leg-prop"></span> proposto da uno STEP <span class="leg leg-rim"></span> da togliere · ×2 quantità sull'arco · ↗ condiviso</span>
 </div>
+{{if .Scrive}}{{if .Bloccata}}<p class="k editor-fermo">La BOM è congelata nella V{{.Bloccata}}: la struttura si cambia aprendo una revisione.</p>
+{{else}}<div class="editor-avvio gesto">{{range .Albero.Radici}}{{if eq (print .C.Tipo) "finito"}}
+  <a class="btn small" href="{{$.Base}}?vista=bom&amp;editor={{.C.ComponenteID}}" data-editor="{{.C.ComponenteID}}">Modifica la struttura di {{.C.Codice}}</a>
+{{end}}{{end}}</div>{{end}}{{end}}
 {{if not .Bloccata}}{{range .Piano.Strutture}}{{if or .Nodi .Archi .Domande}}
 <div class="banner-step{{if eq .Stato "decidere"}} decidere{{end}}" id="step-{{.Allegato}}">
   <span class="chip {{if eq .Stato "pronto"}}warn{{else}}urg{{end}}">STEP</span>
@@ -208,8 +216,7 @@
   <span class="k">{{if .Nodi}}{{.Nodi}} nod{{if eq .Nodi 1}}o{{else}}i{{end}}{{end}}{{if and .Nodi .Archi}} e {{end}}{{if .Archi}}{{.Archi}} arc{{if eq .Archi 1}}o{{else}}hi{{end}}{{end}} propost{{if eq (add .Nodi .Archi) 1}}o{{else}}i{{end}}{{if .Nuovi}}: nascono {{join .Nuovi ", "}}{{end}}</span>
   {{range .Domande}}<small class="urg-t">{{.Testo}}</small>{{end}}
   <span class="sp"></span>
-  {{if eq .Stato "pronto"}}<button type="button" class="btn small primary gesto" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/file/{{.Allegato}}/accetta" title="Ogni radice del file con il suo sottoalbero: nascono i componenti e gli archi">Applica struttura proposta</button>
-  {{else}}<a class="btn small gesto" href="{{$.Base}}{{$.Stato.Con "cassetto" "verifica"}}" hx-get="{{$.Base}}/parti{{$.Stato.Con "cassetto" "verifica"}}">Da verificare</a>{{end}}
+  {{if $.Scrive}}<a class="btn small primary gesto" href="{{$.Base}}?vista=bom&amp;editor=&amp;step={{.Allegato}}" data-editor="" data-step="{{.Allegato}}" title="La struttura proposta si guarda nell'editor, si corregge se serve, e si conferma da lì">Apri proposta BOM</a>{{end}}
 </div>
 {{end}}{{end}}{{end}}
 <div class="tela" id="tela">
@@ -377,7 +384,7 @@
     <b>Dallo STEP «<a href="{{$.Base}}{{$.Stato.Con "file" .Allegato.String}}" hx-get="{{$.Base}}/anteprima{{$.Stato.Con "file" .Allegato.String}}" hx-target="#anteprima">{{.Nome}}</a>»</b>
     <span class="k">{{.Aperte}} da decidere</span>
     <span class="sp"></span>
-    {{if and .Aperte (not $.Bloccata)}}<button type="button" class="btn small gesto" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/file/{{.Allegato}}/accetta" title="Ogni radice del file con il suo sottoalbero, in una decisione sola">Accetta tutto il file</button>{{end}}
+    {{if and .Aperte (not $.Bloccata)}}<a class="btn small gesto" href="{{$.Base}}?vista=bom&amp;editor=&amp;step={{.Allegato}}" data-editor="" data-step="{{.Allegato}}" title="La struttura del file si rivede e si conferma nell'editor">Rivedi nell'editor</a>{{end}}
   </div>
   <ul class="proposte">
   {{range .Nodi}}{{$p := .P}}
@@ -422,19 +429,18 @@
 {{end}}
 {{end}}
 
-{{/* La griglia: un componente per riga, una colonna per tipo di documento. La quantita' e' quella
-     complessiva. Un clic su una cella apre i candidati di quel componente e di quel tipo. */}}
+{{/* La matrice della completezza: un componente per riga, una colonna per tipo di documento. La quantita' e'
+     quella complessiva. Un clic su un componente o su una cella lo apre nella vista Documenti. */}}
 {{define "fasc_griglia"}}
-<div class="pan-testa"><p class="label">Griglia</p><span class="k">vista tecnica · una riga per componente</span></div>
-<table class="griglia">
-  <thead><tr><th>Componente</th><th>Tipo</th><th title="Quantità complessiva, su tutti i padri">Qta</th>{{range .ColonneGriglia}}<th>{{etichettaTipoDoc (print .)}}</th>{{end}}<th title="STEP del prodotto finito">STEP</th></tr></thead>
+<table class="griglia" id="completezza">
+  <thead><tr><th>Componente</th><th>Tipo</th><th title="Quantità complessiva, su tutti i padri">Qta</th>{{range .ColonneGriglia}}<th>{{etichettaTipoDoc (print .)}}</th>{{end}}<th title="STEP del prodotto finito">STEP prodotto</th></tr></thead>
   <tbody>
   {{range .Albero.Righe}}{{$id := .C.ComponenteID}}
   <tr class="{{if $.NodoScelto $id}}sel{{end}}">
-    <td style="padding-left:{{add 8 (mul .Livello 14)}}px"><a class="mono" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String}}" hx-get="{{$.Base}}/anteprima{{$.Stato.Con "nodo" $id.String}}" hx-target="#anteprima">{{.C.Codice}}</a>{{if .C.Rev.Valid}} <span class="k">· {{.C.Rev.String}}</span>{{end}}</td>
+    <td style="padding-left:{{add 8 (mul .Livello 14)}}px"><a class="mono" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String "vista" ""}}">{{.C.Codice}}</a>{{if .C.Rev.Valid}} <span class="k">· {{.C.Rev.String}}</span>{{end}}</td>
     <td>{{nomeTipo .C.Tipo}}{{if gt .Padri 1}} <span class="chip info" title="Sotto {{.Padri}} padri: conta una volta">×{{.Padri}}</span>{{end}}</td>
     <td>{{index $.Albero.Totali $id}}</td>
-    {{range $.ColonneGriglia}}<td>{{with $.Cella $id .}}<a class="cell {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String "vista" "documenti" "filtro" "candidati" "tipo" (print .Tipo)}}" hx-get="{{$.Base}}/parti{{$.Stato.Con "nodo" $id.String "vista" "documenti" "filtro" "candidati" "tipo" (print .Tipo)}}">{{.Simbolo}}</a>{{else}}<span class="cell no">—</span>{{end}}</td>{{end}}
+    {{range $.ColonneGriglia}}<td>{{with $.Cella $id .}}<a class="cell {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String "vista" ""}}">{{.Simbolo}}</a>{{else}}<span class="cell no">—</span>{{end}}</td>{{end}}
     <td>{{with $.Step $id}}<span class="cell {{classeStep .Esito}}" title="{{etichettaStep .Esito}}">{{simboloStep .Esito}}</span>{{else}}<span class="cell no">—</span>{{end}}</td>
   </tr>
   {{else}}<tr><td colspan="9" class="k">Nessun componente nella BOM.</td></tr>{{end}}
@@ -442,23 +448,15 @@
 </table>
 {{end}}
 
-{{/* La completezza: la barra di B8.7, una riga per componente. */}}
+{{/* La completezza (v3): la matrice 3D / 2D / DXF / STEP di ogni componente, con i bloccanti. Non e' piu' la
+     schermata principale: il lavoro sui disegni sta nella vista Documenti. */}}
 {{define "fasc_completezza"}}
 <div class="comp-testa">
   <p class="label">Completezza</p>
-  <span class="k">vista tecnica · Bloccanti: <b{{if .NBloccanti}} class="urg-t"{{end}}>{{.NBloccanti}}</b></span>
+  <span class="k">Bloccanti: <b{{if .NBloccanti}} class="urg-t"{{end}}>{{.NBloccanti}}</b> · una riga per componente, la quantità è quella complessiva</span>
   <span class="legenda k">✓ sul NAS · ✓° in coda · ✓! NAS in errore · ✗ manca (obbligatorio) · ○ manca (facoltativo) · ? da confermare · ⇢ sul portale · ≈ derogato</span>
 </div>
-<div class="comp-righe" id="completezza">
-  {{range .Albero.Righe}}{{$id := .C.ComponenteID}}
-  <div class="comp-riga{{if $.NodoScelto $id}} sel{{end}}">
-    <a class="mono" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String}}" hx-get="{{$.Base}}/anteprima{{$.Stato.Con "nodo" $id.String}}" hx-target="#anteprima">{{.C.Codice}}</a>
-    <span class="k">{{nomeTipo .C.Tipo}}</span>
-    {{range index $.Completezza $id}}<a class="cell {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}" href="{{$.Base}}{{$.Stato.Con "nodo" $id.String "vista" "documenti" "filtro" "candidati" "tipo" (print .Tipo)}}" hx-get="{{$.Base}}/parti{{$.Stato.Con "nodo" $id.String "vista" "documenti" "filtro" "candidati" "tipo" (print .Tipo)}}">{{.Etichetta}} {{.Simbolo}}</a>{{end}}
-    {{with $.Step $id}}{{if ne .Esito "radice_senza_qualifica"}}<span class="cell {{classeStep .Esito}}" title="{{etichettaStep .Esito}}">STEP {{simboloStep .Esito}}</span>{{end}}{{end}}
-  </div>
-  {{else}}<p class="k">Nessun componente: la completezza si calcola sui componenti della BOM.</p>{{end}}
-</div>
+{{template "fasc_griglia" .}}
 {{end}}
 
 {{/* ------------------------------------------------------------------ DOCUMENTI (la tabella, vista di servizio) */}}
@@ -509,6 +507,187 @@
   </table>
   </div>
 </form>
+{{end}}
+
+{{/* ------------------------------------------------------------------ DOCUMENTI (la schermata, v3) */}}
+{{/* Il viewer per componente: lo stage del disegno (fascicolo.mjs, con hx-preserve: i gesti e il poll non lo
+     toccano), a destra la struttura del gruppo, i file dell'elemento scelto e le note, sotto il filmstrip. Senza
+     JavaScript i collegamenti portano comunque alla pagina con il componente scelto. */}}
+{{define "fasc_docv"}}{{with .Documenti}}{{$v := .}}
+<div class="docv" id="doc-vista" data-scelto="{{.Scelto}}">
+{{if .Vuota}}<div class="docv-vuota"><p>{{.Vuota}}</p></div>
+{{else}}
+{{if and $.Scrive (not $.Bloccata)}}{{with .Proposte}}<div class="docv-proposte gesto" role="status">
+  <span class="chip warn">STEP</span>
+  <span><b>Struttura STEP pronta da verificare</b> — {{range $i, $p := .}}{{if $i}}; {{end}}{{$p.Nome}}: {{$p.Nodi}} component{{if eq $p.Nodi 1}}e{{else}}i{{end}}, {{$p.Archi}} relazion{{if eq $p.Archi 1}}e{{else}}i{{end}}{{end}}</span>
+  <span class="sp"></span>
+  {{$step := (index . 0).Allegato}}<a class="btn small primary" href="{{$.Base}}?vista=bom&amp;editor=&amp;step={{$step}}" data-editor="" data-step="{{$step}}">Apri proposta BOM</a>
+</div>{{end}}{{end}}
+<div class="docv-griglia">
+  <section class="docv-stage-box" aria-label="Disegno">
+    <div id="doc-stage" class="doc-stage" hx-preserve="true" tabindex="-1">
+      <noscript><p class="k">Il disegno si vede con JavaScript attivo. I file sono qui a destra.</p></noscript>
+    </div>
+  </section>
+  <aside class="docv-pannello" aria-label="Struttura, file e note">
+    <div class="docv-blocco docv-struttura">
+      <div class="docv-titolo"><p class="label">Struttura</p>
+        <nav class="docv-gruppi" aria-label="Gruppi">{{range .Gruppi}}<a class="{{if eq .Chiave $v.Gruppo.Chiave}}on{{end}}" href="{{$.Base}}{{$.Stato.Con "nodo" "" "file" "" "gruppo" .Chiave}}" hx-get="{{$.Base}}/parti{{$.Stato.Con "nodo" "" "file" "" "gruppo" .Chiave}}" data-selezione="1">{{if .Prodotto}}<span class="mono">{{.Nome}}</span>{{else}}{{.Nome}}{{end}} <small>{{.N}}</small></a>{{end}}</nav>
+        <input type="search" class="docv-filtro" placeholder="Filtra…" aria-label="Filtra i componenti" autocomplete="off">
+      </div>
+      {{if .Righe}}<div class="docv-albero" id="doc-albero" role="tree" aria-label="Componenti di {{.Gruppo.Nome}}">
+      {{range .Righe}}{{$k := .Chiave}}
+        <a class="docv-riga{{if eq $k $v.Scelto}} sel{{end}}{{if .Ripetuto}} rip{{end}}" role="treeitem" data-k="{{$k}}" data-cerca="{{.C.Codice}} {{.C.Descrizione.String}}"
+           href="{{$.Base}}{{$.Stato.Con "nodo" .C.ComponenteID.String "gruppo" $v.Gruppo.Chiave "file" ""}}" style="padding-left:{{add 6 (mul .Livello 14)}}px"{{if eq $k $v.Scelto}} aria-current="true"{{end}}>
+          <span class="mono cod">{{.C.Codice}}</span>{{if gt .Livello 0}}<span class="k qta">×{{.Qta}}</span>{{end}}
+          {{if gt .Padri 1}}<span class="chip info" title="Un componente solo, sotto {{.Padri}} padri">↗{{.Padri}}</span>{{end}}
+          <span class="sp"></span>
+          <span class="ind">{{range .Celle}}{{if or (eq .Etichetta "2D") (eq .Etichetta "3D") (eq .Etichetta "DXF")}}<span class="doc {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}">{{.Etichetta}}{{.Simbolo}}</span>{{end}}{{end}}{{with .Step}}{{if ne .Esito "radice_senza_qualifica"}}<span class="doc {{classeStep .Esito}}" title="{{etichettaStep .Esito}}">STEP{{simboloStep .Esito}}</span>{{end}}{{end}}</span>
+          {{if .Decidere}}<span class="chip warn" title="{{.Decidere}} file da verificare">⚠{{.Decidere}}</span>{{end}}
+          {{if .NNote}}<span class="chip nota" title="{{.NNote}} note sui disegni">✎{{.NNote}}</span>{{end}}
+        </a>
+      {{end}}
+      </div>{{end}}
+    </div>
+    <div class="docv-blocco docv-sezione" id="doc-sezione" aria-live="polite">{{template "fasc_doc_sezione" $}}</div>
+  </aside>
+  <nav class="docv-film" id="doc-film" aria-label="{{if .Righe}}Componenti del prodotto{{else}}File{{end}}">
+  {{range .Film}}
+    <a class="docv-tile {{.Stato}}{{if eq .Chiave $v.Scelto}} sel{{end}}" data-k="{{.Chiave}}"{{if .HaAnteprima}} data-anteprima="{{.Anteprima}}"{{end}} title="{{.Titolo}}"
+       href="{{if hasPrefix .Chiave "c:"}}{{$.Base}}{{$.Stato.Con "nodo" (slice .Chiave 2) "gruppo" $v.Gruppo.Chiave "file" ""}}{{else}}{{$.Base}}{{$.Stato.Con "file" (slice .Chiave 2) "gruppo" $v.Gruppo.Chiave "nodo" ""}}{{end}}">
+      <span class="docv-mini" aria-hidden="true">{{if not .HaAnteprima}}<span class="docv-mini-testo">{{if eq .Stato "formato"}}2D senza anteprima{{else}}Disegno non presente{{end}}</span>{{end}}</span>
+      <span class="docv-tile-cod mono">{{.Codice}}</span>
+      <span class="docv-tile-badge">{{if .Condiviso}}<span title="condiviso">↗</span>{{end}}{{if .Decidere}}<span class="warn-t" title="da verificare">⚠{{.Decidere}}</span>{{end}}{{if .NNote}}<span title="note">✎{{.NNote}}</span>{{end}}</span>
+    </a>
+  {{end}}
+  </nav>
+</div>
+<script type="application/json" id="doc-indice">{{.Indice}}</script>
+{{end}}
+</div>
+{{end}}{{end}}
+
+{{define "fasc_doc_sezione_frammento"}}{{with .Dati}}{{template "fasc_doc_sezione" .}}{{end}}{{end}}
+
+{{/* Il pannello dell'elemento scelto: il componente, i suoi file (con l'associazione da confermare, dalla voce
+     del piano), le note del disegno aperto. */}}
+{{define "fasc_doc_sezione"}}{{$d := .}}{{with .Documenti}}{{with .Sezione}}{{$s := .}}
+<div class="docv-sez" data-k="{{.Chiave}}" data-scelto="{{.Scelto}}">
+  {{with .C}}{{$c := .}}
+  <div class="docv-sez-testa">
+    <b class="mono">{{.Codice}}</b>{{if .Rev.Valid}} <span class="k">rev {{.Rev.String}}</span>{{end}}
+    <span class="chip tipo">{{if eq (print .Tipo) "finito"}}prodotto finito{{else}}{{nomeTipo .Tipo}}{{end}}</span>
+    {{if .Descrizione.Valid}}<span class="k desc">{{.Descrizione.String}}</span>{{end}}
+    <span class="docs">{{range $s.Celle}}<span class="doc {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}">{{.Etichetta}} {{.Simbolo}}</span>{{end}}{{with $s.Step}}{{if ne .Esito "radice_senza_qualifica"}}<span class="doc {{classeStep .Esito}}" title="{{etichettaStep .Esito}}">STEP {{simboloStep .Esito}}</span>{{end}}{{end}}</span>
+    {{with $s.Padri}}<span class="k">sotto {{range $i, $p := .}}{{if $i}}, {{end}}<span class="mono">{{$p.Padre.Codice}}</span> ×{{$p.Qta}}{{end}}</span>{{end}}
+    <a class="k" href="{{$d.Base}}?vista=bom&amp;nodo={{.ComponenteID}}">apri nella Struttura BOM</a>
+  </div>
+  {{end}}
+  {{if not .File}}<p class="k docv-nessun-file">{{if .C}}Nessun file per {{.C.Codice}}: nessun documento confermato e nessun file in arrivo con il suo codice.{{if $d.Scrive}} Dal PC o dal NAS con «+ Aggiungi file».{{end}}{{else}}Il file non c'è più.{{end}}</p>{{end}}
+  {{range .File}}{{template "fasc_doc_file" (fileVista $d $s .)}}{{end}}
+</div>
+{{else}}<p class="k">Scegli un componente o un file.</p>{{end}}{{end}}{{end}}
+
+{{/* Un file del pannello: com'e' (documento confermato o proposta), che cosa se ne fa, le sue note. */}}
+{{define "fasc_doc_file"}}{{$d := .D}}{{$s := .S}}{{$f := .F}}{{$a := $f.F.A.AllegatoID}}
+<div class="docv-file{{if eq $a $s.Scelto}} aperto{{end}}" id="doc-file-{{$a}}" data-a="{{$a}}">
+  <div class="docv-file-testa">
+    <a class="docv-mostra" href="{{$d.Base}}{{$d.Stato.Con "file" $a.String}}" data-a="{{$a}}" title="{{$f.F.A.NomeFile}}">{{$f.F.A.NomeFile}}</a>
+    {{if $f.Etichetta}}<span class="chip">{{$f.Etichetta}}</span>{{end}}
+    {{if $f.F.Interno}}<span class="chip acc">interno</span>{{end}}
+    <span class="chip {{$f.F.ClasseStato}}">{{$f.F.Stato}}</span>
+    {{if and $f.F.Pdf (not $f.Servibile)}}<span class="k">non si apre: {{if $f.F.DaScaricare}}da scaricare{{else}}non è in questo server{{end}}</span>{{end}}
+  </div>
+  {{if $f.F.Doc}}{{$doc := $f.F.Doc}}
+  <p class="k">✓ Confermato{{if $doc.Rev.Valid}} · rev {{$doc.Rev.String}}{{end}} · {{$n := print $doc.StatoNas}}{{if eq $n "scritto"}}sul NAS{{else if eq $n "errore"}}copia sul NAS in errore{{else}}copia sul NAS in coda{{end}}{{if $doc.Nota.Valid}} · {{$doc.Nota.String}}{{end}}</p>
+  {{if $d.Scrive}}{{if $f.Spostabile}}
+  <form class="in-linea gesto docv-cambia" hx-post="{{$d.Base}}/assegna">
+    <input type="hidden" name="documento" value="{{$doc.DocumentoID}}">
+    <select name="componente" aria-label="componente">{{range $d.Albero.Righe}}{{if not $doc.ComponenteID.Valid}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}</option>{{else if ne .C.ComponenteID $doc.ComponenteID.UUID}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}</option>{{end}}{{end}}<option value="">— senza componente</option></select>
+    <select name="scelta" aria-label="se il componente ha già un documento dello stesso tipo"><option value="">se ce n'è già uno: chiedi</option><option value="aggiungi">si aggiunge</option>{{range $f.Sostituibili}}<option value="{{.Doc}}">sostituisce {{.Nome}} ({{.Codice}})</option>{{end}}</select>
+    <button type="submit" class="btn small">Cambia componente</button>
+  </form>
+  {{else if $f.Fermo}}<p class="k">Spostarlo su un altro componente: {{$f.Fermo}}.</p>{{end}}{{end}}
+  {{else if $f.F.Proposta}}{{$p := $f.F.Proposta}}{{$v := $f.Voce}}
+  <dl class="docv-assoc">
+    <dt>Tipo rilevato</dt><dd>{{etichettaTipoDoc (print $p.TipoProposto)}}</dd>
+    <dt>Codice letto</dt><dd class="mono">{{if $f.CodiceLetto}}{{$f.CodiceLetto}}{{else if $p.Codice.Valid}}{{$p.Codice.String}}{{else}}—{{end}}{{if $p.Rev.Valid}} <span class="k">rev {{$p.Rev.String}}</span>{{end}}</dd>
+    <dt>Associato a</dt><dd>{{with $v}}{{with .Componente}}<b class="mono">{{.Codice}}</b>{{if .Descrizione.Valid}} — {{.Descrizione.String}}{{end}}{{else}}{{with .DaStep}}<b class="mono">{{.Codice}}</b> <span class="k">(nasce dallo STEP {{.File}})</span>{{else}}<span class="k">nessun componente</span>{{end}}{{end}}{{else}}<span class="k">nessun componente</span>{{end}}</dd>
+    <dt>Confidenza</dt><dd>{{if eq (print $p.Fonte) "operatore"}}decisa da una persona{{else}}{{$p.Confidenza}}% <span class="k">({{$p.Fonte}})</span>{{end}}</dd>
+  </dl>
+  {{with $v}}
+    {{if eq .Stato "pronto"}}<p class="ok-t docv-pronto">Pronto: entra con «Conferma Fascicolo»{{if .Aggiunge}} (si aggiunge agli altri fogli){{end}}.</p>
+      {{if $d.Scrive}}<form class="in-linea gesto" hx-post="{{$d.Base}}/conferma"><input type="hidden" name="voce" value="{{.Proposta}}"><button type="submit" class="btn small primary docv-conferma">✓ Conferma</button> <small class="k">subito, con la copia sul NAS</small></form>{{end}}
+    {{else if eq .Stato "attesa"}}<p class="k">In preparazione: download o analisi in corso.</p>
+    {{else}}{{range .Domande}}<p class="vv-domanda">{{.Testo}}</p>{{end}}{{if $d.Scrive}}{{template "fasc_voce_gesti" (voceVista $d .)}}{{end}}{{end}}
+  {{end}}
+  {{if $d.Scrive}}<div class="docv-altri gesto">
+    {{if $d.Bloccata}}<p class="k">BOM congelata: un file si assegna aprendo una revisione; entra senza componente.</p>
+    {{else}}<form class="in-linea" hx-post="{{$d.Base}}/assegna">
+      <input type="hidden" name="proposta" value="{{$p.PropostaID}}"><input type="hidden" name="correggi_codice" value="1">
+      <select name="componente" aria-label="componente">{{range $d.Albero.Righe}}<option value="{{.C.ComponenteID}}"{{if $p.ComponenteID.Valid}}{{if eq .C.ComponenteID $p.ComponenteID.UUID}} selected{{end}}{{end}}>{{.C.Codice}}</option>{{end}}</select>
+      <button type="submit" class="btn small" title="Il file va a quel componente e ne prende il codice">Cambia componente</button>
+    </form>{{end}}
+    <span class="docv-generale">
+      <button type="button" class="btn small" hx-post="{{$d.Base}}/file/{{$p.PropostaID}}/generale" hx-vals='{"tipo":"altro"}' title="Entra come documento della RFQ, senza componente, con la copia sul NAS">Documentazione generale</button>
+      <button type="button" class="btn small" hx-post="{{$d.Base}}/file/{{$p.PropostaID}}/generale" hx-vals='{"tipo":"capitolato"}' title="Entra come capitolato della RFQ, senza componente, con la copia sul NAS">Capitolato</button>
+      <button type="button" class="btn small" hx-post="/proposta/{{$p.PropostaID}}/scarta" hx-vals='{"ritorna_thread":"{{$d.T.ThreadID}}"}' hx-confirm="Scartare {{$f.F.A.NomeFile}}? Non entra nel fascicolo, e la scelta non si torna indietro.">Scarta</button>
+    </span>
+  </div>{{end}}
+  {{end}}
+  {{if $f.F.Pdf}}<div class="docv-note" data-a="{{$a}}">
+    <p class="label">Note sul disegno <span class="conta">{{len $f.Note}}</span></p>
+    {{with $f.Note}}<ol class="docv-note-lista">{{range .}}<li><button type="button" class="docv-nota{{if .Mia}} mia{{end}}" data-nota="{{.ID}}" data-p="{{.Pagina}}" data-a="{{$a}}">
+      <span class="pn">{{.N}}</span><span class="t">{{.Testo}}</span><small class="k">{{.Autore}} · {{.Quando}} · pag. {{.Pagina}}{{if .Su}} · scritta su {{.Su}}{{end}}</small></button></li>{{end}}</ol>{{end}}
+    {{if $f.NotePrecedenti}}<p class="k docv-prec">{{$f.NotePrecedenti}} not{{if eq $f.NotePrecedenti 1}}a{{else}}e{{end}} sulla revisione precedente ({{$f.NomePrecedente}}){{if ne $f.AllegatoPrecedente.String "00000000-0000-0000-0000-000000000000"}} <button type="button" class="btn small docv-vedi-prec" data-a="{{$f.AllegatoPrecedente}}">Vedi</button>{{end}}</p>{{end}}
+    {{if and $d.Scrive $f.Servibile}}<button type="button" class="btn small gesto docv-arma" data-a="{{$a}}" title="Poi un clic sul punto del disegno">+ Aggiungi nota</button>{{end}}
+  </div>{{end}}
+</div>
+{{end}}
+
+{{/* I gesti di una voce del piano da decidere: gli stessi nel cassetto «Da verificare» e nel pannello della
+     vista Documenti. */}}
+{{define "fasc_voce_gesti"}}{{$d := .D}}{{$v := .V}}{{$dom := index $v.Domande 0}}
+  <div class="vv-gesti gesto">
+  {{if or (eq $dom.Chiave "tipo") (eq $dom.Chiave "codice") (eq $dom.Chiave "revisione")}}
+    <form class="in-linea" hx-post="{{$d.Base}}/proposta/{{$v.Proposta}}/decidi">
+      <select name="tipo" aria-label="che cos'è">{{range tipiDocumento}}{{if and (ne . "da_determinare") (ne . "rumore")}}<option value="{{.}}"{{if eq . (print $v.Tipo)}} selected{{end}}>{{etichettaTipoDoc .}}</option>{{end}}{{end}}</select>
+      <input name="codice" value="{{if $v.Codice}}{{$v.Codice}}{{else}}{{$v.Suggerito}}{{end}}" maxlength="60" placeholder="codice" aria-label="codice" class="medio">
+      <input name="rev" value="{{$v.Rev}}" maxlength="10" placeholder="rev" aria-label="revisione" class="corto">
+      <button type="submit" class="btn small primary">Salva</button>
+    </form>
+    <button type="button" class="btn small" hx-post="/proposta/{{$v.Proposta}}/scarta" hx-vals='{"ritorna_thread":"{{$d.T.ThreadID}}"}'>Non serve: scarta</button>
+  {{else if eq $dom.Chiave "componente"}}
+    {{if $v.Componente}}{{if $v.Componente.ArchiviatoIl}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/componente/{{$v.Componente.ComponenteID}}/ripristina">Ripristina {{$v.Componente.Codice}}</button>{{end}}
+    {{else if $v.Alias}}{{if not $d.Bloccata}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{$v.Proposta}}","componente":"{{$v.Alias.ComponenteID}}","correggi_codice":"1"}' title="Lo stesso pezzo: il file prende il codice {{$v.Alias.Codice}}">Assegna a {{$v.Alias.Codice}}</button>{{end}}
+    {{else if $v.DaStep}}{{if not $d.Bloccata}}<a class="btn small primary" href="{{$d.Base}}?vista=bom&amp;editor=&amp;step={{$v.DaStep.Allegato}}" data-editor="" data-step="{{$v.DaStep.Allegato}}" title="{{$v.DaStep.Codice}} nasce dalla struttura di {{$v.DaStep.File}}: confermata quella, il file è pronto">Conferma la struttura nell'editor</a>{{end}}
+    {{else if $v.Codice}}{{if not $d.Bloccata}}{{range tipiComponente}}<button type="button" class="btn small" hx-post="{{$d.Base}}/codice/aggiungi" hx-vals='{"codice":"{{$v.Codice}}","tipo":"{{.}}"}'>+ {{etichettaTipo .}}</button>{{end}}{{end}}{{end}}
+    {{if and $d.Albero.Righe (not $d.Bloccata)}}<form class="in-linea" hx-post="{{$d.Base}}/assegna">
+      <input type="hidden" name="proposta" value="{{$v.Proposta}}"><input type="hidden" name="correggi_codice" value="1">
+      <select name="componente" aria-label="componente">{{range $d.Albero.Righe}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}</option>{{end}}</select>
+      <button type="submit" class="btn small" title="Il file prende il codice del componente">Assegna</button></form>{{end}}
+    <form class="in-linea" hx-post="/proposta/{{$v.Proposta}}/conferma"><input type="hidden" name="ritorna_thread" value="{{$d.T.ThreadID}}">
+      <button type="submit" class="btn small" title="Diventa un documento della RFQ senza componente, con la copia sul NAS">Conferma senza componente</button></form>
+  {{else if eq $dom.Chiave "codice_diverso"}}
+    {{with $v.Componente}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/assegna" hx-vals='{"componente":"{{.ComponenteID}}","proposta":"{{$v.Proposta}}","correggi_codice":"1"}' title="Il file prende il codice del componente">Resta a {{.Codice}} con il suo codice</button>{{end}}
+    <button type="button" class="btn small" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{$v.Proposta}}"}'>Sgancia</button>
+  {{else if eq $dom.Chiave "sostituzione"}}{{if $v.Correnti}}
+    <form class="modulo" hx-post="/proposta/{{$v.Proposta}}/conferma">
+      <input type="hidden" name="ritorna_thread" value="{{$d.T.ThreadID}}">
+      {{with $v.Componente}}<input type="hidden" name="componente_id" value="{{.ComponenteID}}">{{end}}
+      <input type="hidden" name="tipo" value="{{$v.Tipo}}"><input type="hidden" name="codice" value="{{$v.Codice}}"><input type="hidden" name="rev" value="{{$v.Rev}}">
+      <label>Si aggiunge, o sostituisce? <select name="scelta" required><option value="">— scegli —</option><option value="aggiungi">si aggiunge (restano correnti tutti)</option>{{range $v.Correnti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}{{if .Rev.Valid}} (rev {{.Rev.String}}){{end}}</option>{{end}}</select></label>
+      {{with $v.Componente}}{{if .StepStrutturaleID.Valid}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
+        <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}{{end}}
+      {{if $v.Interno}}<label>Motivo (versione interna) <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
+      <button type="submit" class="btn small primary">Conferma questo file</button>
+    </form>{{end}}
+  {{else if eq $dom.Chiave "congelata"}}
+    <button type="button" class="btn small" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{$v.Proposta}}"}' title="Entra senza componente con la prossima conferma">Sgancia</button>
+  {{else if eq $dom.Chiave "file"}}
+    <button type="button" class="btn small" hx-post="/allegato/{{$v.Allegato}}/riscarica" hx-vals='{"ritorna_thread":"{{$d.T.ThreadID}}"}'>Riscarica</button>
+  {{end}}
+  </div>
 {{end}}
 
 {{/* ------------------------------------------------------------------ il pannello di destra */}}
@@ -839,7 +1018,7 @@
   <a class="btn small{{if eq .Stato.Cassetto "piano"}} on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "piano"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "piano"}}">Rivedi</a>
   <form class="in-linea" hx-post="/thread/{{.T.ThreadID}}/fascicolo/conferma">
     <input type="hidden" name="firma" value="{{.Piano.Firma}}">
-    <button type="submit" class="btn primary" id="conferma-fascicolo"{{if not .Piano.Pronte}} disabled{{end}} title="Porta nel fascicolo tutto quello che è pronto: la struttura degli STEP, i documenti (con la copia sul NAS), lo STEP strutturale">Conferma Fascicolo</button>
+    <button type="submit" class="btn primary" id="conferma-fascicolo"{{if not .Piano.Pronte}} disabled{{end}} title="Porta nel fascicolo tutto quello che è pronto: i documenti (con la copia sul NAS) e lo STEP strutturale. La struttura degli STEP si conferma nell'editor">Conferma Fascicolo</button>
   </form>
   {{end}}
   {{end}}
@@ -877,55 +1056,19 @@
 {{/* «Da verificare»: solo le cose su cui serve una persona, ciascuna con il suo gesto. */}}
 {{define "fasc_verifica"}}{{$d := .}}
 <p class="k">Il resto è nel piano: entra con «Conferma Fascicolo».{{if not .NDaVerificare}} Qui non c'è niente da decidere.{{end}}</p>
-{{range .Piano.File}}{{if eq .Stato "decidere"}}{{$v := .}}{{$dom := index .Domande 0}}
+{{range .Piano.File}}{{if eq .Stato "decidere"}}
 <div class="verifica-voce" id="verifica-{{.Proposta}}">
   <div class="vv-testa"><b>{{.Nome}}</b> <span class="chip">{{etichettaTipoDoc (print .Tipo)}}</span>{{if .Codice}} <span class="mono">{{.Codice}}</span>{{end}}{{if .Rev}} <span class="k">rev {{.Rev}}</span>{{end}}
-    <span class="sp"></span><a class="k" href="{{$d.Base}}{{$d.Stato.Con "file" .Allegato.String}}" hx-get="{{$d.Base}}/anteprima{{$d.Stato.Con "file" .Allegato.String}}" hx-target="#anteprima">apri</a></div>
+    <span class="sp"></span>{{if $d.VistaDocumenti}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "file" .Allegato.String "nodo" "" "gruppo" ""}}" data-doc-file="{{.Allegato}}">apri</a>{{else}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "file" .Allegato.String}}" hx-get="{{$d.Base}}/anteprima{{$d.Stato.Con "file" .Allegato.String}}" hx-target="#anteprima">apri</a>{{end}}</div>
   {{range .Domande}}<p class="vv-domanda">{{.Testo}}</p>{{end}}
-  {{if $d.Scrive}}<div class="vv-gesti gesto">
-  {{if or (eq $dom.Chiave "tipo") (eq $dom.Chiave "codice") (eq $dom.Chiave "revisione")}}
-    <form class="in-linea" hx-post="{{$d.Base}}/proposta/{{.Proposta}}/decidi">
-      <select name="tipo" aria-label="che cos'è">{{range tipiDocumento}}{{if and (ne . "da_determinare") (ne . "rumore")}}<option value="{{.}}"{{if eq . (print $v.Tipo)}} selected{{end}}>{{etichettaTipoDoc .}}</option>{{end}}{{end}}</select>
-      <input name="codice" value="{{if .Codice}}{{.Codice}}{{else}}{{.Suggerito}}{{end}}" maxlength="60" placeholder="codice" aria-label="codice" class="medio">
-      <input name="rev" value="{{.Rev}}" maxlength="10" placeholder="rev" aria-label="revisione" class="corto">
-      <button type="submit" class="btn small primary">Salva</button>
-    </form>
-    <button type="button" class="btn small" hx-post="/proposta/{{.Proposta}}/scarta" hx-vals='{"ritorna_thread":"{{$d.T.ThreadID}}"}'>Non serve: scarta</button>
-  {{else if eq $dom.Chiave "componente"}}
-    {{if .Componente}}{{if .Componente.ArchiviatoIl}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/componente/{{.Componente.ComponenteID}}/ripristina">Ripristina {{.Componente.Codice}}</button>{{end}}
-    {{else if .Codice}}{{if not $d.Bloccata}}{{range tipiComponente}}<button type="button" class="btn small" hx-post="{{$d.Base}}/codice/aggiungi" hx-vals='{"codice":"{{$v.Codice}}","tipo":"{{.}}"}'>+ {{etichettaTipo .}}</button>{{end}}{{end}}{{end}}
-    {{if and $d.Albero.Righe (not $d.Bloccata)}}<form class="in-linea" hx-post="{{$d.Base}}/assegna">
-      <input type="hidden" name="proposta" value="{{.Proposta}}"><input type="hidden" name="correggi_codice" value="1">
-      <select name="componente" aria-label="componente">{{range $d.Albero.Righe}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}</option>{{end}}</select>
-      <button type="submit" class="btn small" title="Il file prende il codice del componente">Assegna</button></form>{{end}}
-    <form class="in-linea" hx-post="/proposta/{{.Proposta}}/conferma"><input type="hidden" name="ritorna_thread" value="{{$d.T.ThreadID}}">
-      <button type="submit" class="btn small" title="Diventa un documento della RFQ senza componente, con la copia sul NAS">Conferma senza componente</button></form>
-  {{else if eq $dom.Chiave "codice_diverso"}}
-    {{with .Componente}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/assegna" hx-vals='{"componente":"{{.ComponenteID}}","proposta":"{{$v.Proposta}}","correggi_codice":"1"}' title="Il file prende il codice del componente">Resta a {{.Codice}} con il suo codice</button>{{end}}
-    <button type="button" class="btn small" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{.Proposta}}"}'>Sgancia</button>
-  {{else if eq $dom.Chiave "sostituzione"}}{{if .Correnti}}
-    <form class="modulo" hx-post="/proposta/{{.Proposta}}/conferma">
-      <input type="hidden" name="ritorna_thread" value="{{$d.T.ThreadID}}">
-      {{with .Componente}}<input type="hidden" name="componente_id" value="{{.ComponenteID}}">{{end}}
-      <input type="hidden" name="tipo" value="{{.Tipo}}"><input type="hidden" name="codice" value="{{.Codice}}"><input type="hidden" name="rev" value="{{.Rev}}">
-      <label>Si aggiunge, o sostituisce? <select name="scelta" required><option value="">— scegli —</option><option value="aggiungi">si aggiunge (restano correnti tutti)</option>{{range .Correnti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}{{if .Rev.Valid}} (rev {{.Rev.String}}){{end}}</option>{{end}}</select></label>
-      {{with .Componente}}{{if .StepStrutturaleID.Valid}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-        <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}{{end}}
-      {{if .Interno}}<label>Motivo (versione interna) <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
-      <button type="submit" class="btn small primary">Conferma questo file</button>
-    </form>{{end}}
-  {{else if eq $dom.Chiave "congelata"}}
-    <button type="button" class="btn small" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{.Proposta}}"}' title="Entra senza componente con la prossima conferma">Sgancia</button>
-  {{else if eq $dom.Chiave "file"}}
-    <button type="button" class="btn small" hx-post="/allegato/{{.Allegato}}/riscarica" hx-vals='{"ritorna_thread":"{{$d.T.ThreadID}}"}'>Riscarica</button>
-  {{end}}
-  </div>{{end}}
+  {{if $d.Scrive}}{{template "fasc_voce_gesti" (voceVista $d .)}}{{end}}
 </div>
 {{end}}{{end}}
 {{range .Piano.Strutture}}{{if .Domande}}{{$s := .}}
 <div class="verifica-voce struttura" id="verifica-step-{{.Allegato}}">
   <div class="vv-testa"><span class="chip warn">STEP</span> <b>{{.Nome}}</b></div>
   {{range .Domande}}<p class="vv-domanda">{{.Testo}}</p>{{end}}
+  {{if and $d.Scrive (not $d.Bloccata)}}<p class="gesto"><a class="btn small primary" href="{{$d.Base}}?vista=bom&amp;editor=&amp;step={{$s.Allegato}}" data-editor="" data-step="{{$s.Allegato}}">Rivedi nell'editor</a></p>{{end}}
   {{if $d.Scrive}}{{if not $d.Bloccata}}
   {{range $d.NodiProposti}}{{$p := .ComponenteProposta}}{{if and (eq $p.AllegatoID $s.Allegato) (eq $p.Stato "aperta")}}{{if or (not $p.Codice.Valid) $p.Nota.Valid}}
   <div class="vv-nodo gesto"><span class="mono">{{etichettaNodo $p}}</span>{{if $p.Nota.Valid}} <small class="k">{{$p.Nota.String}}</small>{{end}}
@@ -968,7 +1111,7 @@
 {{range .StepProdotto}}{{if eq .Esito "riferimento_superato"}}
 <div class="verifica-voce"><div class="vv-testa"><span class="chip warn">STEP strutturale</span> <b class="mono">{{.Codice}}</b></div>
   <p class="vv-domanda">{{etichettaStep .Esito}}: si sceglie dal componente (Azioni sul componente › STEP strutturale).</p>
-  <a class="k" href="{{$d.Base}}{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-get="{{$d.Base}}/anteprima{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-target="#anteprima">apri {{.Codice}}</a>
+  {{if $d.VistaDocumenti}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "nodo" .ComponenteID.String "file" "" "gruppo" ""}}" data-doc-nodo="{{.ComponenteID}}">apri {{.Codice}}</a>{{else}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-get="{{$d.Base}}/anteprima{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-target="#anteprima">apri {{.Codice}}</a>{{end}}
 </div>
 {{end}}{{end}}
 {{with .Avvisi}}<details class="avvisi-verifica"><summary class="k">Avvisi ({{len .}}): per congelare e da guardare</summary>
@@ -980,10 +1123,7 @@
 {{define "fasc_rivedi"}}{{$d := .}}
 {{if .Piano.Pronte}}
 <form class="rivedi" hx-post="/thread/{{.T.ThreadID}}/fascicolo/conferma">
-  {{with .Piano.Strutture}}<fieldset><legend>Struttura dagli STEP</legend>
-    {{range .}}{{if eq .Stato "pronto"}}<label><input type="checkbox" name="struttura" value="{{.Allegato}}" checked>
-      <span><b>{{.Nome}}</b>: {{.Nodi}} nod{{if eq .Nodi 1}}o{{else}}i{{end}} e {{.Archi}} arc{{if eq .Archi 1}}o{{else}}hi{{end}}{{with .Nuovi}} <small class="k">nascono {{join . ", "}}</small>{{end}}</span></label>{{end}}{{end}}
-  </fieldset>{{end}}
+  {{with .Piano.Strutture}}<p class="k rivedi-strutture">La struttura proposta dagli STEP ({{range $i, $s := .}}{{if $i}}, {{end}}{{$s.Nome}}{{end}}) non entra da qui: si rivede e si conferma nell'editor della <a href="{{$d.Base}}?vista=bom&amp;editor=">Struttura BOM</a>.</p>{{end}}
   <fieldset><legend>Documenti</legend>
     {{range .Piano.File}}{{if eq .Stato "pronto"}}<label><input type="checkbox" name="voce" value="{{.Proposta}}" checked>
       <span><b>{{.Nome}}</b> → {{etichettaTipoDoc (print .Tipo)}}{{with .Destinazione}} di <span class="mono">{{.}}</span>{{else}} della RFQ{{end}}{{if .DaStep}} <small class="k">(nasce dallo STEP {{.DaStep.File}})</small>{{end}}{{if .Rev}} <small class="k">rev {{.Rev}}</small>{{end}}{{if .Aggiunge}} <small class="k">· si aggiunge</small>{{end}}{{if .Duplicato}} <small class="k">· già nel fascicolo come {{.Duplicato}}: solo la provenienza</small>{{end}}</span></label>{{end}}{{end}}
@@ -993,7 +1133,7 @@
       <span><b>{{.Nome}}</b> è la distinta di <span class="mono">{{.Prodotto.Codice}}</span> <small class="k">(l'unico STEP del prodotto: da qui nascono le rimozioni)</small></span></label>{{end}}{{end}}
   </fieldset>{{end}}
   <button type="submit" class="btn primary">Conferma i selezionati</button>
-  <p class="k">I documenti nascono adesso e la copia sul NAS parte subito dopo. La struttura entra per prima: i file che vanno a un componente che nasce dallo STEP si confermano insieme a quella.</p>
+  <p class="k">I documenti nascono adesso e la copia sul NAS parte subito dopo. I file che vanno a un componente che nasce da uno STEP aspettano la conferma della sua struttura.</p>
 </form>
 {{else}}<p class="k">Niente di pronto da confermare.</p>{{end}}
 {{if .Piano.InAttesa}}<p class="label">In preparazione</p><ul class="mini-lista">{{range .Piano.File}}{{if eq .Stato "attesa"}}<li>{{.Nome}}</li>{{end}}{{end}}</ul>{{end}}

@@ -51,10 +51,21 @@ var filtriFascicolo = []struct{ Chiave, Nome string }{
 	{filtroTutti, "Tutti"}, {filtroDaScaricare, "Da scaricare"}, {filtroRumore, "Rumore e scartati"},
 }
 
-// Le viste dell'area principale (B8.7b): la BOM visuale e' la schermata; le card dei componenti e la tabella
-// dei documenti sono le altre due linguette; griglia, completezza e albero testuale sono le viste tecniche
-// di B8.7, per la diagnostica.
-var visteFascicolo = map[string]bool{"componenti": true, "documenti": true, "griglia": true, "completezza": true, "albero": true}
+// Le viste dell'area principale (Fascicolo v3): Documenti e' la schermata (vista vuota: il viewer per
+// componente), poi Struttura BOM (la BOM visuale e il suo editor) e Completezza (la matrice 3D/2D/DXF/STEP).
+// Le card dei componenti, la tabella di tutti i file e l'albero testuale restano come viste di servizio.
+var visteFascicolo = map[string]bool{"bom": true, "completezza": true, "file": true, "componenti": true, "albero": true}
+
+// alias delle viste di prima: un indirizzo salvato con quei nomi apre ancora quello che apriva.
+var aliasVisteFascicolo = map[string]string{"documenti": "file", "griglia": "completezza"}
+
+// I gruppi della vista Documenti oltre ai prodotti: i componenti fuori dalla struttura dei prodotti, i file
+// da associare a un componente, i documenti della RFQ che non sono di nessun componente.
+const (
+	gruppoFuori = "fuori"
+	gruppoFile  = "file"
+	gruppoRfq   = "rfq"
+)
 
 // I cassetti: «Da verificare» (il lavoro dell'operatore), «Rivedi» il piano prima della conferma, «Importa
 // dal NAS», e le due viste tecniche di B8.6/B8.7, Codici e Avvisi.
@@ -72,7 +83,8 @@ type statoFascicolo struct {
 	Scheda   string    // la scheda del dettaglio: 3d, 2d, dxf, altri, storico; "" = la prima con qualcosa
 	Filtro   string    // uno di filtriFascicolo; "" = non assegnati
 	Tipo     string    // con il filtro «candidati»: solo quel tipo di documento
-	Vista    string    // "" (la BOM) oppure una di visteFascicolo
+	Vista    string    // "" (Documenti) oppure una di visteFascicolo
+	Gruppo   string    // la vista Documenti: il prodotto (uuid) o fuori, file, rfq; "" = quello del nodo
 	Cassetto string    // "" oppure uno di cassettiFascicolo
 	Scartate bool      // mostra anche le proposte scartate
 	Cerca    string    // i codici e i file che contengono questo testo
@@ -81,7 +93,7 @@ type statoFascicolo struct {
 }
 
 func leggiStatoFascicolo(v url.Values) statoFascicolo {
-	st := statoFascicolo{Filtro: v.Get("filtro"), Vista: v.Get("vista"), Cassetto: v.Get("cassetto"), Scartate: v.Get("scartate") == "1",
+	st := statoFascicolo{Filtro: v.Get("filtro"), Vista: v.Get("vista"), Gruppo: v.Get("gruppo"), Cassetto: v.Get("cassetto"), Scartate: v.Get("scartate") == "1",
 		Scheda: v.Get("scheda"), Cerca: strings.TrimSpace(v.Get("q")), Nas: strings.TrimSpace(v.Get("nas")), NasCerca: strings.TrimSpace(v.Get("nas_cerca"))}
 	st.Nodo, _ = uuid.Parse(v.Get("nodo"))
 	st.Prop, _ = uuid.Parse(v.Get("prop"))
@@ -94,8 +106,20 @@ func leggiStatoFascicolo(v url.Values) statoFascicolo {
 	if !valido || st.Filtro == filtroNonAssegnati {
 		st.Filtro = ""
 	}
+	if a, ok := aliasVisteFascicolo[st.Vista]; ok {
+		st.Vista = a
+	}
 	if !visteFascicolo[st.Vista] {
 		st.Vista = ""
+	}
+	switch st.Gruppo {
+	case gruppoFuori, gruppoFile, gruppoRfq:
+	default:
+		if id, err := uuid.Parse(st.Gruppo); err == nil {
+			st.Gruppo = id.String()
+		} else {
+			st.Gruppo = ""
+		}
 	}
 	if !cassettiFascicolo[st.Cassetto] {
 		st.Cassetto = ""
@@ -122,7 +146,7 @@ func (st statoFascicolo) valori() url.Values {
 			v.Set(k, id.String())
 		}
 	}
-	for k, x := range map[string]string{"scheda": st.Scheda, "filtro": st.Filtro, "tipo": st.Tipo, "vista": st.Vista,
+	for k, x := range map[string]string{"scheda": st.Scheda, "filtro": st.Filtro, "tipo": st.Tipo, "vista": st.Vista, "gruppo": st.Gruppo,
 		"cassetto": st.Cassetto, "q": st.Cerca, "nas": st.Nas, "nas_cerca": st.NasCerca} {
 		if x != "" {
 			v.Set(k, x)
@@ -155,11 +179,16 @@ func (st statoFascicolo) Con(coppie ...string) string {
 		switch coppie[i] {
 		case "nodo":
 			// il tipo del filtro candidati, il documento e la scheda del dettaglio sono di un nodo solo;
-			// scegliere un nodo toglie anche il nodo proposto scelto
+			// scegliere un nodo toglie anche il nodo proposto scelto, e il gruppo della vista Documenti (e'
+			// quello del nodo). Togliere il nodo il gruppo lo lascia: «gruppo X, nessun nodo» e' il primo
+			// elemento del gruppo X
 			v.Del("tipo")
 			v.Del("doc")
 			v.Del("scheda")
 			v.Del("prop")
+			if coppie[i+1] != "" {
+				v.Del("gruppo")
+			}
 		case "prop":
 			v.Del("nodo")
 			v.Del("doc")
@@ -456,6 +485,8 @@ type fascicoloDati struct {
 	// pagina ne mostra un altro, e la risposta lo rifa' fuori banda.
 	ChiaveCorpo string
 	RifaiCorpo  bool
+	// Documenti: la vista Documenti (v3), solo quando e' quella aperta.
+	Documenti *docVista
 }
 
 // chiaveCorpo dice che cosa mostra il corpo del pannello di destra: il PDF di un file (l'iframe), il
@@ -504,12 +535,15 @@ func (d *fascicoloDati) NDaVerificare() int {
 	return n
 }
 
-// VistaBom dice se l'area principale e' la BOM visuale.
-func (d *fascicoloDati) VistaBom() bool { return d.Stato.Vista == "" }
+// VistaDocumenti dice se l'area principale e' la vista Documenti (il viewer per componente).
+func (d *fascicoloDati) VistaDocumenti() bool { return d.Stato.Vista == "" }
 
-// VistaTecnica dice se l'area principale e' una delle viste tecniche.
+// VistaBom dice se l'area principale e' la Struttura BOM.
+func (d *fascicoloDati) VistaBom() bool { return d.Stato.Vista == "bom" }
+
+// VistaTecnica dice se l'area principale e' una delle viste di servizio.
 func (d *fascicoloDati) VistaTecnica() bool {
-	return d.Stato.Vista == "griglia" || d.Stato.Vista == "completezza" || d.Stato.Vista == "albero"
+	return d.Stato.Vista == "file" || d.Stato.Vista == "componenti" || d.Stato.Vista == "albero"
 }
 
 // NonAssegnati e' il conteggio della testata.
@@ -703,7 +737,7 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 	}
 	s.avvisiFascicolo(ctx, q, d)
 
-	// B8.7b: il piano, il lavoro in corso, la BOM visuale, il dettaglio a destra
+	// B8.7b: il piano, il lavoro in corso, la BOM visuale, il dettaglio a destra; v3: la vista Documenti
 	if d.Piano, err = fascicolo.LeggiPianoFascicolo(ctx, q, thread); err != nil {
 		d.ErrorePiano = "il piano del Fascicolo non si è potuto calcolare: " + err.Error()
 	}
@@ -711,15 +745,23 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 		d.Avanzamento.Errore = err.Error()
 	}
 	switch st.Vista {
-	case "":
+	case "bom":
 		d.Carte = costruisciBom(d)
 	case "componenti":
 		d.Schede = componentiInCard(d)
 	}
-	if err := s.pannelloDestro(ctx, q, d); err != nil {
-		return nil, err
+	if st.Vista == "" {
+		// Documenti: il disegno sta nello stage, il vecchio pannello di destra non si mostra (e non si legge)
+		if d.Documenti, err = s.vistaDocumenti(ctx, q, d, u); err != nil {
+			return nil, err
+		}
+		d.ChiaveCorpo = chiaveCorpoDocumenti
+	} else {
+		if err := s.pannelloDestro(ctx, q, d); err != nil {
+			return nil, err
+		}
+		d.ChiaveCorpo = chiaveCorpo(d.Anteprima)
 	}
-	d.ChiaveCorpo = chiaveCorpo(d.Anteprima)
 	d.NasConfigurato = s.NAS != nil && s.NAS.Radice != "" && d.Caricamento
 	if st.Cassetto == "nas" && d.Scrive {
 		d.Nas = s.nasVista(ctx, q, d)

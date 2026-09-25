@@ -97,6 +97,7 @@ func ApplicaStruttura(ctx context.Context, q *db.Queries, thread uuid.UUID, a db
 	if err != nil {
 		return es, err
 	}
+	w.conCanonici(m)
 	ctxFile := Contesto{Working: w, Decisi: decisi, Completa: es.Completa, Identificativi: map[string]bool{}}
 	ids, err := q.ListIdentificativi(ctx, thread)
 	if err != nil {
@@ -259,8 +260,14 @@ func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nod
 	if strings.EqualFold(strings.TrimSpace(p.Codice.String), radice.Codice) && p.Fonte == db.FontePropostaRegolaCliente {
 		return nil
 	}
-	if p.Codice.Valid && len(classificazione.DiFamiglia(m.Codici(p.Codice.String))) > 0 {
-		return nil
+	// Il codice del documento resta se E' un codice di famiglia, non se una famiglia ci trova qualcosa
+	// dentro: «X_PRT» contiene X, ma il documento deve dire X.
+	if p.Codice.Valid {
+		for _, f := range classificazione.DiFamiglia(m.Codici(p.Codice.String)) {
+			if strings.EqualFold(f.Codice, strings.TrimSpace(p.Codice.String)) {
+				return nil
+			}
+		}
 	}
 	testoDove := map[string]string{DoveID: radice.IDGrezzo, DoveNome: radice.NomeGrezzo, DoveDescrizione: radice.Descrizione}[radice.Dove]
 	d := map[string]any{"famiglia": radice.Famiglia, "dove": radice.Dove, "testo": testoDove,
