@@ -38,7 +38,7 @@ func TestL7InboxQuadrantiNelBrowser(t *testing.T) {
 	}
 	b := preparaBancoWeb(t)
 	cliente := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
+	b.unFornitore("Fresature Esempio", db.TipoFornitoreVerniciatore, "fresature-esempio.example", "cataforesi")
 
 	// I tre quadranti, con dentro le direzioni e i tre stati del filtro. Gli oggetti sono in
 	// maiuscolo e inventati: il test del browser cerca proprio quelle parole nelle righe.
@@ -47,10 +47,17 @@ func TestL7InboxQuadrantiNelBrowser(t *testing.T) {
 	b.posta("uscita", "commerciale@azienda.example", "CLIENTE USCITA nostra offerta", false, "acquisti@acme.example")
 	agganciato := b.posta("entrata", "acquisti@acme.example", "CLIENTE AGGANCIATO in una RFQ", false)
 	ignorato := b.posta("entrata", "acquisti@acme.example", "CLIENTE IGNORATO messo da parte", false)
-	b.posta("entrata", "info@euroforesi.example", "FORNITORE ENTRATA offerta con prezzo", true)
-	b.posta("uscita", "commerciale@azienda.example", "FORNITORE USCITA nostra richiesta", false, "info@euroforesi.example")
+	b.posta("entrata", "info@fresature-esempio.example", "FORNITORE ENTRATA offerta con prezzo", true)
+	b.posta("uscita", "commerciale@azienda.example", "FORNITORE USCITA nostra richiesta", false, "info@fresature-esempio.example")
 	b.posta("entrata", "qualcuno@altrove.example", "SCONOSCIUTO UNO chi sarà mai", false)
 	b.posta("entrata", "altro@ignoto.example", "SCONOSCIUTO DUE nemmeno lui", false)
+	// Prova H: una mail come arriva davvero, con l'avviso di posta esterna, una tabella incollata da
+	// Excel (TAB nel testo, <table> nell'HTML) e la firma di Outlook per iOS. Si guarda come si legge.
+	tabella := b.posta("entrata", "acquisti@acme.example", "CLIENTE TABELLA quotazione", false)
+	if _, err := b.pool.Exec(b.ctx, `UPDATE messaggio SET corpo_testo = $2, corpo_html = $3 WHERE messaggio_id = $1`,
+		tabella, corpoDiProva, htmlDiProva); err != nil {
+		t.Fatal(err)
+	}
 
 	var thread uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto)

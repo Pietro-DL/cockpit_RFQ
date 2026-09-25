@@ -104,7 +104,7 @@ func (b *bancoWeb) unFornitore(nome string, tipo db.TipoFornitore, dominio strin
 func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
+	b.unFornitore("Fresature Esempio", db.TipoFornitoreVerniciatore, "fresature-esempio.example", "cataforesi")
 	// 7C.0: un soggetto censito come Altro, con il suo dominio
 	corriere, err := b.q.InsertSoggettoAltro(b.ctx, db.InsertSoggettoAltroParams{Etichetta: "Corriere di prova"})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 
 	clienteIn := b.posta("entrata", "acquisti@acme.example", "RFQ IB1 cliente in entrata", true)
 	clienteOut := b.posta("uscita", "commerciale@azienda.example", "Offerta IB1 cliente in uscita", false, "acquisti@acme.example")
-	fornitoreIn := b.posta("entrata", "info@euroforesi.example", "Offerta IB1 fornitore", true)
+	fornitoreIn := b.posta("entrata", "info@fresature-esempio.example", "Offerta IB1 fornitore", true)
 	ignoto := b.posta("entrata", "nessuno@altrove.example", "Newsletter IB1 sconosciuto", false)
 	interna := b.posta("uscita", "commerciale@azienda.example", "Nota IB1 interna", false, "francesco@azienda.example")
 	corriereIn := b.posta("entrata", "ritiri@corriere.example", "Ritiro IB1 corriere", false)
@@ -177,7 +177,7 @@ func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 	if strings.Contains(pannello, "triage?azione=nuova") {
 		t.Errorf("il pannello di un fornitore offre «Nuova RFQ»: %s", estratto(pannello, "azioni"))
 	}
-	if !strings.Contains(pannello, "triage?azione=aggancia") || !strings.Contains(pannello, "fornitore · Euroforesi") {
+	if !strings.Contains(pannello, "triage?azione=aggancia") || !strings.Contains(pannello, "fornitore · Fresature Esempio") {
 		t.Errorf("il pannello di un fornitore deve dire chi è e offrire l'aggancio: %s", estratto(pannello, "azioni"))
 	}
 	// e quello dello sconosciuto offre il censimento
@@ -198,9 +198,9 @@ func TestIB1OgniMessaggioStaNelSuoQuadrante(t *testing.T) {
 func TestCP5CensisciComeFornitoreRicalcolaSoloINonDecisi(t *testing.T) {
 	b := preparaBancoWeb(t)
 	altro := b.unCliente("Altro S.p.A.", "ALTRO", "altro.example")
-	uno := b.posta("entrata", "info@pftorniture.example", "RICHIESTA D'OFFERTA n. 1 - TG FIORE", true)
-	due := b.posta("entrata", "ordini@pftorniture.example", "RICHIESTA D'OFFERTA n. 2 - TG FIORE", true)
-	deciso := b.posta("entrata", "x@pftorniture.example", "RICHIESTA D'OFFERTA n. 3 - TG FIORE", true)
+	uno := b.posta("entrata", "info@torniture-esempio.example", "RICHIESTA D'OFFERTA n. 1 - PROGETTO ALFA", true)
+	due := b.posta("entrata", "ordini@torniture-esempio.example", "RICHIESTA D'OFFERTA n. 2 - PROGETTO ALFA", true)
+	deciso := b.posta("entrata", "x@torniture-esempio.example", "RICHIESTA D'OFFERTA n. 3 - PROGETTO ALFA", true)
 
 	// il terzo è già deciso: sta in una RFQ (di un altro cliente, per assurdo che sia: è una decisione presa)
 	var thread uuid.UUID
@@ -226,7 +226,7 @@ func TestCP5CensisciComeFornitoreRicalcolaSoloINonDecisi(t *testing.T) {
 	fp := b.browser("10.0.0.5:51000")
 	fp.login("FP", "prova-fp")
 	resp, form := fp.fai(http.MethodGet, "/messaggio/"+uno.String()+"/censisci?come=fornitore", nil, true)
-	if resp.StatusCode != 200 || !strings.Contains(form, "Censisci come fornitore") || !strings.Contains(form, "pftorniture.example") {
+	if resp.StatusCode != 200 || !strings.Contains(form, "Censisci come fornitore") || !strings.Contains(form, "torniture-esempio.example") {
 		t.Fatalf("il form di censimento non è arrivato: %d %s", resp.StatusCode, primi400(form))
 	}
 	resp, esito := fp.fai(http.MethodPost, "/messaggio/"+uno.String()+"/censisci", url.Values{
@@ -345,39 +345,39 @@ func TestAdminFornitoriSchedaEScrittureNonDistruttive(t *testing.T) {
 	ad.login("AD", "prova-ad")
 
 	resp, corpo := ad.fai(http.MethodPost, "/admin/fornitori",
-		url.Values{"ragione_sociale": {"Galvar"}, "tipo": {"processi"}, "dominio": {"galvar.example"}}, false)
+		url.Values{"ragione_sociale": {"Galvanica Esempio"}, "tipo": {"processi"}, "dominio": {"galvanica-esempio.example"}}, false)
 	if resp.StatusCode != 200 || !strings.Contains(corpo, "Fornitore creato.") {
 		t.Fatalf("creazione: %d %s", resp.StatusCode, primi400(corpo))
 	}
-	galvar, err := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvar")
+	galvanica, err := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvanica esempio")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// lo stesso nome due volte: non ne nasce un secondo
-	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori", url.Values{"ragione_sociale": {"GALVAR"}, "tipo": {"processi"}}, false)
+	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori", url.Values{"ragione_sociale": {"GALVANICA ESEMPIO"}, "tipo": {"processi"}}, false)
 	if !strings.Contains(corpo, "esiste già") || testutil.Conta(t, b.pool, "fornitore") != 1 {
 		t.Errorf("il doppione doveva essere rifiutato: %s", estratto(corpo, "errore-box"))
 	}
-	// un altro fornitore che prova a prendersi il dominio di Galvar
-	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori", url.Values{"ragione_sociale": {"Bonvini"}, "tipo": {"processi"}, "dominio": {"galvar.example"}}, false)
-	if !strings.Contains(corpo, "già censito per il fornitore Galvar") {
+	// un altro fornitore che prova a prendersi il dominio di Galvanica Esempio
+	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori", url.Values{"ragione_sociale": {"Cromature Esempio"}, "tipo": {"processi"}, "dominio": {"galvanica-esempio.example"}}, false)
+	if !strings.Contains(corpo, "già censito per il fornitore Galvanica Esempio") {
 		t.Errorf("il dominio preso doveva dire di chi è: %s", estratto(corpo, "errore-box"))
 	}
-	if f, err := b.q.GetFornitorePerDominio(b.ctx, "galvar.example"); err != nil || f.FornitoreID != galvar.FornitoreID {
-		t.Errorf("il dominio è stato spostato via da Galvar")
+	if f, err := b.q.GetFornitorePerDominio(b.ctx, "galvanica-esempio.example"); err != nil || f.FornitoreID != galvanica.FornitoreID {
+		t.Errorf("il dominio è stato spostato via da Galvanica Esempio")
 	}
 
 	// lavorazioni: caselle spuntate
-	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori/"+galvar.FornitoreID.String()+"/lavorazioni", url.Values{"lavorazione": {"zincatura", "lavaggio_zinco"}}, false)
+	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori/"+galvanica.FornitoreID.String()+"/lavorazioni", url.Values{"lavorazione": {"zincatura", "lavaggio_zinco"}}, false)
 	if !strings.Contains(corpo, "Lavorazioni salvate: 2 aggiunte, 0 tolte") {
 		t.Errorf("lavorazioni: %s", estratto(corpo, "avviso"))
 	}
 	// qualifica dalla scheda del cliente: ok su una capacità, rifiutata su una che non ha
-	_, corpo = ad.fai(http.MethodPost, "/admin/anagrafica/"+acme.String()+"/qualifica", url.Values{"fornitore_id": {galvar.FornitoreID.String()}, "lavorazione": {"zincatura"}}, false)
+	_, corpo = ad.fai(http.MethodPost, "/admin/anagrafica/"+acme.String()+"/qualifica", url.Values{"fornitore_id": {galvanica.FornitoreID.String()}, "lavorazione": {"zincatura"}}, false)
 	if !strings.Contains(corpo, "Fornitore qualificato per questo cliente") {
 		t.Errorf("qualifica: %s", estratto(corpo, "avviso"))
 	}
-	_, corpo = ad.fai(http.MethodPost, "/admin/anagrafica/"+acme.String()+"/qualifica", url.Values{"fornitore_id": {galvar.FornitoreID.String()}, "lavorazione": {"cataforesi"}}, false)
+	_, corpo = ad.fai(http.MethodPost, "/admin/anagrafica/"+acme.String()+"/qualifica", url.Values{"fornitore_id": {galvanica.FornitoreID.String()}, "lavorazione": {"cataforesi"}}, false)
 	if !strings.Contains(corpo, "non ha «cataforesi» fra le sue lavorazioni") {
 		t.Errorf("la qualifica su una capacità assente doveva essere rifiutata con il motivo: %s", estratto(corpo, "errore-box"))
 	}
@@ -385,16 +385,16 @@ func TestAdminFornitoriSchedaEScrittureNonDistruttive(t *testing.T) {
 		t.Errorf("qualifiche in database: %d, attesa 1", n)
 	}
 	// togliere la zincatura mentre ACME lo ha qualificato: rifiutato, e le altre non si toccano
-	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori/"+galvar.FornitoreID.String()+"/lavorazioni", url.Values{"lavorazione": {"lavaggio_zinco"}}, false)
+	_, corpo = ad.fai(http.MethodPost, "/admin/fornitori/"+galvanica.FornitoreID.String()+"/lavorazioni", url.Values{"lavorazione": {"lavaggio_zinco"}}, false)
 	if !strings.Contains(corpo, "non si toglie") {
 		t.Errorf("la capacità con la qualifica sopra doveva restare: %s", estratto(corpo, "errore-box"))
 	}
-	if lav, _ := b.q.ListLavorazioniFornitore(b.ctx, galvar.FornitoreID); len(lav) != 2 {
+	if lav, _ := b.q.ListLavorazioniFornitore(b.ctx, galvanica.FornitoreID); len(lav) != 2 {
 		t.Errorf("lavorazioni dopo il rifiuto: %d, attese 2", len(lav))
 	}
 	// la scheda mostra la qualifica e la posta vuota
-	_, pagina := ad.fai(http.MethodGet, "/admin/fornitori?fornitore="+galvar.FornitoreID.String()+"&sez=lavorazioni", nil, false)
-	for _, atteso := range []string{"Galvar", "ACME", `value="zincatura" checked`, "Qualifiche per cliente"} {
+	_, pagina := ad.fai(http.MethodGet, "/admin/fornitori?fornitore="+galvanica.FornitoreID.String()+"&sez=lavorazioni", nil, false)
+	for _, atteso := range []string{"Galvanica Esempio", "ACME", `value="zincatura" checked`, "Qualifiche per cliente"} {
 		if !strings.Contains(pagina, atteso) {
 			t.Errorf("la scheda non mostra %q", atteso)
 		}
@@ -418,14 +418,14 @@ func TestConvenzioniDiCodiceDallaSchermata(t *testing.T) {
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	beta := b.unCliente("Beta S.r.l.", "BETA", "beta.example")
 	gamma := b.unCliente("Gamma S.r.l.", "GAMMA", "gamma.example")
-	galvar := b.unFornitore("Galvar", db.TipoFornitoreProcessi, "galvar.example", "zincatura")
-	bonvini := b.unFornitore("Bonvini", db.TipoFornitoreProcessi, "bonvini.example", "zincatura")
-	// Galvar e' qualificato da ACME, Bonvini da BETA: tutti e due fanno la zincatura, e la qualifica
-	// e' PER CLIENTE. Se la query dimenticasse il cliente, Bonvini comparirebbe anche per ACME.
-	if _, err := b.q.InsertQualifica(b.ctx, db.InsertQualificaParams{ClienteID: acme, FornitoreID: galvar.FornitoreID, Lavorazione: "zincatura"}); err != nil {
+	galvanica := b.unFornitore("Galvanica Esempio", db.TipoFornitoreProcessi, "galvanica-esempio.example", "zincatura")
+	cromature := b.unFornitore("Cromature Esempio", db.TipoFornitoreProcessi, "cromature-esempio.example", "zincatura")
+	// Galvanica Esempio e' qualificato da ACME, Cromature Esempio da BETA: tutti e due fanno la zincatura, e la qualifica
+	// e' PER CLIENTE. Se la query dimenticasse il cliente, Cromature Esempio comparirebbe anche per ACME.
+	if _, err := b.q.InsertQualifica(b.ctx, db.InsertQualificaParams{ClienteID: acme, FornitoreID: galvanica.FornitoreID, Lavorazione: "zincatura"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.q.InsertQualifica(b.ctx, db.InsertQualificaParams{ClienteID: beta, FornitoreID: bonvini.FornitoreID, Lavorazione: "zincatura"}); err != nil {
+	if _, err := b.q.InsertQualifica(b.ctx, db.InsertQualificaParams{ClienteID: beta, FornitoreID: cromature.FornitoreID, Lavorazione: "zincatura"}); err != nil {
 		t.Fatal(err)
 	}
 	ad := b.browser("10.0.0.9")
@@ -460,13 +460,13 @@ func TestConvenzioniDiCodiceDallaSchermata(t *testing.T) {
 	}
 	// CP12: la prova arriva al solo fornitore qualificato, e la riga rotta non rompe niente
 	_, corpo = ad.fai(http.MethodPost, base+"/lavorazioni/prova", url.Values{"codice": {"ab123-zn"}}, false)
-	// si guarda l'ESITO della prova, non la pagina intera: Galvar compare anche nella tabella delle
+	// si guarda l'ESITO della prova, non la pagina intera: Galvanica Esempio compare anche nella tabella delle
 	// qualifiche, e una prova che rispondesse «nessuno» passerebbe lo stesso
-	if !strings.Contains(estratto(corpo, "esito-prova"), "<b>zincatura</b>") || !strings.Contains(estratto(corpo, "esito-prova"), "Galvar") {
-		t.Errorf("la prova non trova la zincatura o Galvar: %s", estratto(corpo, "esito-prova"))
+	if !strings.Contains(estratto(corpo, "esito-prova"), "<b>zincatura</b>") || !strings.Contains(estratto(corpo, "esito-prova"), "Galvanica Esempio") {
+		t.Errorf("la prova non trova la zincatura o Galvanica Esempio: %s", estratto(corpo, "esito-prova"))
 	}
-	if strings.Contains(estratto(corpo, "esito-prova"), "Bonvini") {
-		t.Errorf("Bonvini fa la zincatura ed è qualificato da BETA, non da ACME: non deve comparire")
+	if strings.Contains(estratto(corpo, "esito-prova"), "Cromature Esempio") {
+		t.Errorf("Cromature Esempio fa la zincatura ed è qualificato da BETA, non da ACME: non deve comparire")
 	}
 	_, corpo = ad.fai(http.MethodPost, base+"/lavorazioni/prova", url.Values{"codice": {"AB123-ZV"}}, false)
 	if !strings.Contains(corpo, "non corrisponde a nessuna convenzione attiva") {
@@ -476,7 +476,7 @@ func TestConvenzioniDiCodiceDallaSchermata(t *testing.T) {
 	_, _ = ad.fai(http.MethodPost, "/admin/anagrafica/"+gamma.String()+"/convenzione", url.Values{"modo": {"suffisso"}, "espressione": {"-ZN"},
 		"esempio": {"G1-ZN"}, "descrizione": {"zincato"}, "lavorazione": {"zincatura"}}, false)
 	_, corpo = ad.fai(http.MethodPost, "/admin/anagrafica/"+gamma.String()+"/lavorazioni/prova", url.Values{"codice": {"G1-ZN"}}, false)
-	if !strings.Contains(estratto(corpo, "esito-prova"), "nessuno") || strings.Contains(estratto(corpo, "esito-prova"), "Galvar") || strings.Contains(estratto(corpo, "esito-prova"), "Bonvini") {
+	if !strings.Contains(estratto(corpo, "esito-prova"), "nessuno") || strings.Contains(estratto(corpo, "esito-prova"), "Galvanica Esempio") || strings.Contains(estratto(corpo, "esito-prova"), "Cromature Esempio") {
 		t.Errorf("GAMMA non ha qualificato nessuno: %s", estratto(corpo, "esito-prova"))
 	}
 	// spegnere la convenzione la toglie dall'uso, non dal database
@@ -506,17 +506,17 @@ func TestCP14ImportDelSemeConAnteprimaEConferma(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.unCliente("Acme S.p.A.", "ACME", "acme.example")
 	seme := `{"fornitori": [
-	  {"ragione_sociale": "Euroforesi", "tipo": "verniciatore", "domini": ["euroforesi.example"],
-	   "contatti": [{"nome": "Ufficio", "email": "info@euroforesi.example"}],
+	  {"ragione_sociale": "Fresature Esempio", "tipo": "verniciatore", "domini": ["fresature-esempio.example"],
+	   "contatti": [{"nome": "Ufficio", "email": "info@fresature-esempio.example"}],
 	   "lavorazioni": ["cataforesi", "verniciatura_polvere"],
 	   "qualifiche": [{"cliente": "ACME", "lavorazione": "cataforesi"}, {"cliente": "CLIENTE-IGNOTO", "lavorazione": "cataforesi"}]},
-	  {"ragione_sociale": "Ideal System", "tipo": "verniciatore"}
+	  {"ragione_sociale": "Impianti Esempio", "tipo": "verniciatore"}
 	]}`
 	ad := b.browser("10.0.0.9")
 	ad.login("AD", "prova-ad")
 
 	_, corpo := ad.fai(http.MethodPost, "/admin/fornitori/importa", url.Values{"azione": {"anteprima"}, "testo": {seme}}, false)
-	for _, atteso := range []string{"Anteprima: che cosa farebbe", "Euroforesi", "Ideal System", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`} {
+	for _, atteso := range []string{"Anteprima: che cosa farebbe", "Fresature Esempio", "Impianti Esempio", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`} {
 		if !strings.Contains(corpo, atteso) {
 			t.Errorf("l'anteprima non dice %q: %s", atteso, primi400(corpo))
 		}
@@ -549,10 +549,10 @@ func TestCP14ImportDelSemeConAnteprimaEConferma(t *testing.T) {
 	if !strings.Contains(corpo, "Non importato") || testutil.Conta(t, b.pool, "fornitore") != 2 {
 		t.Errorf("il tipo sconosciuto doveva fermare tutto: %s", estratto(corpo, "errore-box"))
 	}
-	// e la posta di Euroforesi, ora censita, finisce nel quadrante Fornitori
-	id := b.posta("entrata", "chiunque@euroforesi.example", "Offerta cataforesi", true)
+	// e la posta di Fresature Esempio, ora censita, finisce nel quadrante Fornitori
+	id := b.posta("entrata", "chiunque@fresature-esempio.example", "Offerta cataforesi", true)
 	if tipo, via := b.controparteDi(id); tipo != "fornitore" || via != "dominio" {
-		t.Errorf("dopo l'import la posta di Euroforesi è %s/%s", tipo, via)
+		t.Errorf("dopo l'import la posta di Fresature Esempio è %s/%s", tipo, via)
 	}
 }
 

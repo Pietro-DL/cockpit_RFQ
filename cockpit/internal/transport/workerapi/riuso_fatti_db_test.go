@@ -58,7 +58,7 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Analizzatore: an}
 
 	// due mail diverse, lo stesso disegno allegato a tutte e due
-	primo := allegatoSceso(t, ctx, pool, "a", "6674611A_4.pdf")
+	primo := allegatoSceso(t, ctx, pool, "a", "1234567A_4.pdf")
 	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
 		AllegatoID: primo, TipoProposto: db.TipoDocumentoAltro, Confidenza: 20,
 		Fonte: db.FontePropostaEstensione, Dettagli: json.RawMessage(`{}`),
@@ -68,7 +68,7 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 
 	// l'analisi del PRIMO allegato: i fatti restano per (contenuto, versione, configurazione)
 	payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{
-		AllegatoID: primo, Bytes: 1000, Sha256: shaRiuso, NomeFile: "6674611A_4.pdf",
+		AllegatoID: primo, Bytes: 1000, Sha256: shaRiuso, NomeFile: "1234567A_4.pdf",
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
 	var jobID int64
@@ -82,7 +82,7 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 		t.Fatal(err)
 	}
 	dati, _ := json.Marshal(worker.RisultatoAnalisi{
-		AllegatoID: primo, TipoProposto: "disegno_2d", Codice: "6674611A", Rev: "4",
+		AllegatoID: primo, TipoProposto: "disegno_2d", Codice: "1234567A", Rev: "4",
 		Confidenza: 92, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"cartiglio":true,"termini":["scala"]}`),
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
@@ -91,7 +91,7 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 	}
 
 	// il SECONDO allegato scende adesso: stesso contenuto, altra mail, nessuna analisi da accodare
-	secondo := allegatoSceso(t, ctx, pool, "b", "6674611A_4.pdf")
+	secondo := allegatoSceso(t, ctx, pool, "b", "1234567A_4.pdf")
 	if err := s.dopoStaging(ctx, q, worker.RisultatoStage{
 		AllegatoID: secondo, Sha256: shaRiuso, Bytes: 1000,
 	}); err != nil {
@@ -114,7 +114,7 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 		WHERE p.allegato_id = $1`, secondo).Scan(&tipo, &fonte, &codice, &rev, &conf, &dettagli, &stato); err != nil {
 		t.Fatalf("proposta del secondo allegato: %v", err)
 	}
-	if tipo != "disegno_2d" || codice != "6674611A" || rev != "4" || conf != 92 || fonte != "cartiglio" {
+	if tipo != "disegno_2d" || codice != "1234567A" || rev != "4" || conf != 92 || fonte != "cartiglio" {
 		t.Errorf("il secondo allegato non ha ricevuto la lettura dell'analisi: tipo=%s codice=%q rev=%q conf=%d fonte=%s",
 			tipo, codice, rev, conf, fonte)
 	}

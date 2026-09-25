@@ -1,0 +1,23 @@
+Buongiorno,
+vi chiediamo quotazione per:
+
+Codice
+
+Descrizione
+
+Q.tà
+
+PZ-001
+
+Flangia
+
+100
+
+PZ-002
+
+
+
+250
+
+
+Grazie

@@ -9,7 +9,7 @@ import (
 //
 // Dal checkpoint 3R un PDF non e' piu' `disegno_2d`. Il tipo di un PDF si sa dopo averlo aperto, e
 // prima si dice `da_determinare`: il nome del file e' un indizio sul CODICE, non sul contenuto.
-// «6674611A.pdf» e' il disegno tanto quanto e' l'offerta del fornitore per quel pezzo.
+// «1234567A.pdf» e' il disegno tanto quanto e' l'offerta del fornitore per quel pezzo.
 func TestPropostaDaNome(t *testing.T) {
 	casi := []struct {
 		nome      string
@@ -20,11 +20,11 @@ func TestPropostaDaNome(t *testing.T) {
 		rev       string
 		spunta    bool
 	}{
-		{"6674611A_4.pdf", 300_000, "entrata", "da_determinare", "6674611A", "4", true},
-		{"6674611A.stp", 2_000_000, "entrata", "cad_3d", "6674611A", "", true},
+		{"1234567A_4.pdf", 300_000, "entrata", "da_determinare", "1234567A", "4", true},
+		{"1234567A.stp", 2_000_000, "entrata", "cad_3d", "1234567A", "", true},
 		{"assieme.STEP", 2_000_000, "entrata", "cad_3d", "", "", true},
 		{"Locandina.pdf", 300_000, "entrata", "da_determinare", "", "", true},
-		{"TIROCINIO_PROMATEC-SRL.pdf", 200_000, "entrata", "da_determinare", "", "", true},
+		{"TIROCINIO_AZIENDA-SRL.pdf", 200_000, "entrata", "da_determinare", "", "", true},
 		{"SO 5467.pdf", 100_000, "uscita", "offerta_promatec", "", "", true},
 		{"SO 5467.pdf", 100_000, "entrata", "da_determinare", "", "", true},
 		{"capitolato_generale.pdf", 60_000_000, "entrata", "da_determinare", "", "", false}, // troppo grande: si scarica a mano
@@ -39,7 +39,7 @@ func TestPropostaDaNome(t *testing.T) {
 		// codice della proposta (82 caratteri in una colonna da 60: result di stage rifiutato).
 		{"Offerta 12345678 per fornitura staffe zincate rev finale allegato tecnico completo.pdf", 16_658, "entrata", "da_determinare", "", "", true},
 		{"AB 12345.pdf", 300_000, "entrata", "da_determinare", "", "", true},
-		{"6674611A rev4 staffa sinistra.dxf", 50_000, "entrata", "sviluppo_dxf", "", "", true},
+		{"1234567A rev4 staffa sinistra.dxf", 50_000, "entrata", "sviluppo_dxf", "", "", true},
 	}
 	for _, c := range casi {
 		p := PropostaDaNome(c.nome, c.bytes, c.direzione)
@@ -59,12 +59,12 @@ func TestPropostaDaNome(t *testing.T) {
 // (7C.1, P0). Il codice della proposta resta vuoto, e i numeri trovati nel nome non si buttano:
 // stanno in CodiciNelNome, da dove finiscono nei dettagli.
 func TestUnNomeLungoNonEUnCodiceMaICodiciDentroSiConservano(t *testing.T) {
-	nome := "Offerta 12345678 per fornitura staffe zincate 6674611A e 6674612B rev finale allegato tecnico completo e definitivo.pdf"
+	nome := "Offerta 12345678 per fornitura staffe zincate 1234567A e 1234568B rev finale allegato tecnico completo e definitivo.pdf"
 	p := PropostaDaNome(nome, 16_658, "entrata")
 	if p.Codice != "" {
 		t.Fatalf("il nome intero e' diventato il codice: %q (%d caratteri)", p.Codice, len(p.Codice))
 	}
-	attesi := []string{"12345678", "6674611A", "6674612B"}
+	attesi := []string{"12345678", "1234567A", "1234568B"}
 	if len(p.CodiciNelNome) != len(attesi) {
 		t.Fatalf("codici nel nome = %v, attesi %v", p.CodiciNelNome, attesi)
 	}
@@ -74,20 +74,20 @@ func TestUnNomeLungoNonEUnCodiceMaICodiciDentroSiConservano(t *testing.T) {
 		}
 	}
 	// un nome che E' un codice non finisce in CodiciNelNome: sta in Codice e basta
-	if q := PropostaDaNome("6674611A_4.pdf", 1000, "entrata"); q.Codice != "6674611A" || len(q.CodiciNelNome) != 0 {
-		t.Errorf("6674611A_4.pdf: codice=%q nel_nome=%v", q.Codice, q.CodiciNelNome)
+	if q := PropostaDaNome("1234567A_4.pdf", 1000, "entrata"); q.Codice != "1234567A" || len(q.CodiciNelNome) != 0 {
+		t.Errorf("1234567A_4.pdf: codice=%q nel_nome=%v", q.Codice, q.CodiciNelNome)
 	}
 }
 
 // I limiti che il server applica a cio' che arriva da fuori: dentro MaxCodice/MaxRev e senza spazi.
 func TestCodiceERevAmmissibili(t *testing.T) {
-	if !CodiceAmmissibile("6674611A") || !CodiceAmmissibile("12-34567/B") {
+	if !CodiceAmmissibile("1234567A") || !CodiceAmmissibile("12-34567/B") {
 		t.Error("un codice normale deve essere ammissibile")
 	}
 	if CodiceAmmissibile("") || CodiceAmmissibile("AB 12345") || CodiceAmmissibile("A\t1") {
 		t.Error("vuoto o con spazi: non ammissibile")
 	}
-	lungo := "6674611A" + strings.Repeat("Z", MaxCodice)
+	lungo := "1234567A" + strings.Repeat("Z", MaxCodice)
 	if CodiceAmmissibile(lungo) {
 		t.Errorf("%d caratteri: oltre MaxCodice (%d)", len(lungo), MaxCodice)
 	}

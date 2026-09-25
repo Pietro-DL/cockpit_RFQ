@@ -39,27 +39,27 @@ func pannelloSintetico(bloccata int32) (*threadDati, map[string]uuid.UUID) {
 	msg := uuid.New()
 	riga := func(codice, rev, sorgente, origine, dove, tipo string, punti int32) db.ListCodiciCandidatiThreadRow {
 		return db.ListCodiciCandidatiThreadRow{Codice: codice, Rev: rev, Sorgente: sorgente, Origine: origine, Evidenza: dove, TipoFile: tipo,
-			Punteggio: punti, MessaggioID: msg, Famiglia: map[bool]string{true: "disegni 529"}[origine == "famiglia"]}
+			Punteggio: punti, MessaggioID: msg, Famiglia: map[bool]string{true: "disegni 777"}[origine == "famiglia"]}
 	}
-	comp := db.Componente{ComponenteID: uuid.New(), Codice: "52940000", Tipo: db.TipoComponenteSottoassieme, Rev: txtT("B")}
+	comp := db.Componente{ComponenteID: uuid.New(), Codice: "77740000", Tipo: db.TipoComponenteSottoassieme, Rev: txtT("B")}
 	ieri := time.Now().Add(-24 * time.Hour)
-	arch := db.Componente{ComponenteID: uuid.New(), Codice: "52931111", Tipo: db.TipoComponenteSciolto, ArchiviatoIl: &ieri,
+	arch := db.Componente{ComponenteID: uuid.New(), Codice: "77731111", Tipo: db.TipoComponenteSciolto, ArchiviatoIl: &ieri,
 		MotivoArchiviazione: txtT("tolto dal cliente")}
-	prop := db.ListProposteNodoAperteRow{PropostaID: uuid.New(), AllegatoID: uuid.New(), Chiave: "#2", Codice: "52920517", NomeGrezzo: "52920517",
+	prop := db.ListProposteNodoAperteRow{PropostaID: uuid.New(), AllegatoID: uuid.New(), Chiave: "#2", Codice: "77720517", NomeGrezzo: "77720517",
 		NomeFile: "assieme.stp", TipoProposto: db.NullTipoComponente{TipoComponente: db.TipoComponenteSottoassieme, Valid: true}}
 	righe := []db.ListCodiciCandidatiThreadRow{
-		riga("52920517", "", "step", "famiglia", "52920517 — assieme.stp", "", 80),
-		riga("52940000", "", "messaggio", "famiglia", "corpo", "", 80),
-		riga("52931111", "", "messaggio", "famiglia", "corpo", "", 80),
-		riga("52950000", "", "messaggio", "famiglia", "oggetto", "", 80),
-		riga("52960000", "A", "messaggio", "famiglia", "oggetto", "", 80),
-		riga("52960000", "B", "proposta_documento", "cartiglio", "52960000.pdf", "disegno_2d", 95),
+		riga("77720517", "", "step", "famiglia", "77720517 — assieme.stp", "", 80),
+		riga("77740000", "", "messaggio", "famiglia", "corpo", "", 80),
+		riga("77731111", "", "messaggio", "famiglia", "corpo", "", 80),
+		riga("77750000", "", "messaggio", "famiglia", "oggetto", "", 80),
+		riga("77760000", "A", "messaggio", "famiglia", "oggetto", "", 80),
+		riga("77760000", "B", "proposta_documento", "cartiglio", "77760000.pdf", "disegno_2d", 95),
 		riga("20260908", "", "messaggio", "generico", "corpo", "", 30),
 	}
 	thd.Codici = fascicolo.Unisci(righe, fascicolo.ContestoCodici{HaFamiglie: true, Bloccata: bloccata,
 		Componenti: []db.Componente{comp, arch}, Proposte: []db.ListProposteNodoAperteRow{prop},
-		Identificativi: []db.IdentificativoThread{{Codice: "52950000"}}})
-	thd.DocumentiDi = map[uuid.UUID][]db.Documento{comp.ComponenteID: {{NomeFile: "52940000 foglio 1.pdf", Tipo: db.TipoDocumentoDisegno2d, StatoNas: db.StatoNasScritto}}}
+		Identificativi: []db.IdentificativoThread{{Codice: "77750000"}}})
+	thd.DocumentiDi = map[uuid.UUID][]db.Documento{comp.ComponenteID: {{NomeFile: "77740000 foglio 1.pdf", Tipo: db.TipoDocumentoDisegno2d, StatoNas: db.StatoNasScritto}}}
 	return thd, map[string]uuid.UUID{"proposta": prop.PropostaID, "archiviato": arch.ComponenteID}
 }
 
@@ -84,14 +84,14 @@ func TestIlPannelloDeiCodiciPortaOgniCodiceAlSuoGesto(t *testing.T) {
 		chiave    string
 		ci, manca []string
 	}{
-		{"52920517", []string{"proposta aperta dallo STEP <b>assieme.stp</b>", "/fascicolo/nodo/" + id["proposta"].String() + "/accetta",
+		{"77720517", []string{"proposta aperta dallo STEP <b>assieme.stp</b>", "/fascicolo/nodo/" + id["proposta"].String() + "/accetta",
 			`value="sottoassieme" selected`, "Accetta la proposta"}, []string{"+ Prodotto", "/codice/aggiungi"}},
-		{"52940000", []string{"✓ nel Fascicolo", "come assieme, rev B", "52940000 foglio 1.pdf"}, []string{"hx-post", "+ Prodotto"}},
-		{"52931111", []string{"archiviato", "tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina", ">Ripristina<"},
+		{"77740000", []string{"✓ nel Fascicolo", "come assieme, rev B", "77740000 foglio 1.pdf"}, []string{"hx-post", "+ Prodotto"}},
+		{"77731111", []string{"archiviato", "tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina", ">Ripristina<"},
 			[]string{"+ Prodotto"}},
-		{"52950000", []string{"codice della richiesta", "+ Prodotto", `"tipo":"finito"`}, []string{"+ Assieme", "+ Particolare"}},
-		{"52960000", []string{"revisioni discordanti", `name="rev"`, `<option value="A">`, `<option value="B">`, "+ Prodotto", "+ Assieme", "+ Particolare",
-			`"tipo":"sottoassieme"`, `"tipo":"sciolto"`, `name="codice" value="52960000"`}, nil},
+		{"77750000", []string{"codice della richiesta", "+ Prodotto", `"tipo":"finito"`}, []string{"+ Assieme", "+ Particolare"}},
+		{"77760000", []string{"revisioni discordanti", `name="rev"`, `<option value="A">`, `<option value="B">`, "+ Prodotto", "+ Assieme", "+ Particolare",
+			`"tipo":"sottoassieme"`, `"tipo":"sciolto"`, `name="codice" value="77760000"`}, nil},
 		{"20260908", []string{"solo dall&#39;estrattore generico", "+ Prodotto"}, []string{"revisioni discordanti"}},
 	}
 	for _, c := range casi {
@@ -120,7 +120,7 @@ func TestConLaBomCongelataIlPannelloNonOffreGestiCheLaCambiano(t *testing.T) {
 			t.Errorf("con la BOM congelata il pannello offre ancora %q", vietato)
 		}
 	}
-	for _, chiave := range []string{"52920517", "52940000", "52931111", "52950000", "52960000", "20260908"} {
+	for _, chiave := range []string{"77720517", "77740000", "77731111", "77750000", "77760000", "20260908"} {
 		rigaDelCodice(t, html, chiave) // le righe restano: i codici si leggono
 	}
 }

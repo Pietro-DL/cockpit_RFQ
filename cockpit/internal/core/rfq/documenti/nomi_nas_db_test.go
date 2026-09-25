@@ -140,15 +140,15 @@ func TestINomiConLaRevisioneNonCollidono(t *testing.T) {
 		rev, nome, contenuto string
 		percorso             string
 	}{
-		{db.TipoDocumentoDisegno2d, "B", "52920517 rev B.pdf", "foglio 1", `ELENCO DISEGNI\52920517\52920517_REV_B.pdf`},
-		{db.TipoDocumentoDisegno2d, "b", "52920517 foglio 2.PDF", "foglio 2", `ELENCO DISEGNI\52920517\52920517_REV_B_2.pdf`},
-		{db.TipoDocumentoCad3d, "", "assieme.STEP", "lo STEP", `ELENCO DISEGNI\52920517\52920517_REV_ND.step`},
-		{db.TipoDocumentoDisegno2d, "C", "52920517 rev C.pdf", "rev C", `ELENCO DISEGNI\52920517\52920517_REV_C.pdf`},
+		{db.TipoDocumentoDisegno2d, "B", "77720517 rev B.pdf", "foglio 1", `ELENCO DISEGNI\77720517\77720517_REV_B.pdf`},
+		{db.TipoDocumentoDisegno2d, "b", "77720517 foglio 2.PDF", "foglio 2", `ELENCO DISEGNI\77720517\77720517_REV_B_2.pdf`},
+		{db.TipoDocumentoCad3d, "", "assieme.STEP", "lo STEP", `ELENCO DISEGNI\77720517\77720517_REV_ND.step`},
+		{db.TipoDocumentoDisegno2d, "C", "77720517 rev C.pdf", "rev C", `ELENCO DISEGNI\77720517\77720517_REV_C.pdf`},
 		{db.TipoDocumentoCapitolato, "", "Capitolato.pdf", "capitolato", `CAPITOLATI\Capitolato.pdf`},
 		{db.TipoDocumentoCapitolato, "", "capitolato.PDF", "un altro capitolato", `CAPITOLATI\capitolato_2.pdf`},
 	}
 	for _, a := range attesi {
-		d := b.conferma(a.tipo, "52920517", a.rev, a.nome, a.contenuto, uuid.NullUUID{})
+		d := b.conferma(a.tipo, "77720517", a.rev, a.nome, a.contenuto, uuid.NullUUID{})
 		if d.PathRelativo != a.percorso {
 			t.Errorf("%s: percorso %q, atteso %q", a.nome, d.PathRelativo, a.percorso)
 		}
@@ -163,7 +163,7 @@ func TestINomiConLaRevisioneNonCollidono(t *testing.T) {
 		t.Errorf("le revisioni stanno in %d cartelle, attesa una", cartelle)
 	}
 	_, err := b.p.Exec(b.ctx, `INSERT INTO documento (thread_id, tipo, codice, nome_file, estensione, sha256, path_relativo, confermato_da)
-		VALUES ($1, 'disegno_2d', '52920517', 'x.pdf', 'pdf', repeat('f', 64), 'elenco disegni\52920517\52920517_rev_b.PDF', $2)`, b.thread, b.utente)
+		VALUES ($1, 'disegno_2d', '77720517', 'x.pdf', 'pdf', repeat('f', 64), 'elenco disegni\77720517\77720517_rev_b.PDF', $2)`, b.thread, b.utente)
 	if err == nil || !strings.Contains(err.Error(), "ux_documento_percorso") {
 		t.Errorf("l'indice unico doveva rifiutare la collisione, ottenuto %v", err)
 	}
@@ -228,25 +228,25 @@ func TestUnComponenteConDuePadriHaUnaSolaCopia(t *testing.T) {
 func TestUnOrfanoApertoTieneOccupatoIlSuoNome(t *testing.T) {
 	conCapacita(t, tutto)
 	b := nuovoBancoNomi(t)
-	n, err := b.q.InsertNasOrfano(b.ctx, db.InsertNasOrfanoParams{ThreadID: b.thread, Percorso: `ELENCO DISEGNI\52920517\52920517_REV_B.pdf`, Motivo: db.MotivoOrfanoRimozioneFallita})
+	n, err := b.q.InsertNasOrfano(b.ctx, db.InsertNasOrfanoParams{ThreadID: b.thread, Percorso: `ELENCO DISEGNI\77720517\77720517_REV_B.pdf`, Motivo: db.MotivoOrfanoRimozioneFallita})
 	if err != nil || n != 1 {
 		t.Fatalf("orfano: %d %v", n, err)
 	}
 	var id int64
 	b.riga(`SELECT nas_orfano_id FROM nas_orfano`, &id)
-	for _, p := range []string{`ELENCO DISEGNI\52920517\52920517_REV_B.pdf`, `elenco disegni\52920517\52920517_rev_b.PDF`} {
+	for _, p := range []string{`ELENCO DISEGNI\77720517\77720517_REV_B.pdf`, `elenco disegni\77720517\77720517_rev_b.PDF`} {
 		occupato, err := b.q.PercorsoOccupato(b.ctx, db.PercorsoOccupatoParams{ThreadID: b.thread, Percorso: p})
 		if err != nil || !occupato.Bool {
 			t.Errorf("%s: occupato %v %v", p, occupato.Bool, err)
 		}
 	}
-	if d := b.conferma(db.TipoDocumentoDisegno2d, "52920517", "B", "b.pdf", "uno", uuid.NullUUID{}); d.PathRelativo != `ELENCO DISEGNI\52920517\52920517_REV_B_2.pdf` {
+	if d := b.conferma(db.TipoDocumentoDisegno2d, "77720517", "B", "b.pdf", "uno", uuid.NullUUID{}); d.PathRelativo != `ELENCO DISEGNI\77720517\77720517_REV_B_2.pdf` {
 		t.Errorf("con l'orfano aperto il nome doveva saltare: %s", d.PathRelativo)
 	}
 	if n, err := b.q.RisolviNasOrfano(b.ctx, db.RisolviNasOrfanoParams{NasOrfanoID: id, RisoltoDa: uuid.NullUUID{UUID: b.utente, Valid: true}}); err != nil || n != 1 {
 		t.Fatalf("risoluzione: %d %v", n, err)
 	}
-	if d := b.conferma(db.TipoDocumentoDisegno2d, "52920517", "B", "c.pdf", "due", uuid.NullUUID{}); d.PathRelativo != `ELENCO DISEGNI\52920517\52920517_REV_B.pdf` {
+	if d := b.conferma(db.TipoDocumentoDisegno2d, "77720517", "B", "c.pdf", "due", uuid.NullUUID{}); d.PathRelativo != `ELENCO DISEGNI\77720517\77720517_REV_B.pdf` {
 		t.Errorf("risolto l'orfano il nome doveva tornare libero: %s", d.PathRelativo)
 	}
 }
@@ -277,13 +277,13 @@ func TestUnSoloOrfanoApertoPerPercorso(t *testing.T) {
 	}
 }
 
-// Prova 58: una transazione accoda uno spostamento verso 52920517_REV_B.pdf, un'altra conferma un file
+// Prova 58: una transazione accoda uno spostamento verso 77720517_REV_B.pdf, un'altra conferma un file
 // con lo stesso nome base nella stessa cartella. Con il lucchetto la seconda aspetta e riceve _2; senza
 // il lucchetto tutte e due vedono il nome libero e lo prendono.
 func TestDueScelteDiNomeConcorrentiNonPrendonoLoStessoPercorso(t *testing.T) {
 	conCapacita(t, tutto)
-	cartella := `ELENCO DISEGNI\52920517`
-	nome := "52920517_REV_B.pdf"
+	cartella := `ELENCO DISEGNI\77720517`
+	nome := "77720517_REV_B.pdf"
 	for _, conLucchetto := range []bool{true, false} {
 		t.Run(fmt.Sprintf("lucchetto %v", conLucchetto), func(t *testing.T) {
 			b := nuovoBancoNomi(t)
@@ -353,7 +353,7 @@ func TestDueScelteDiNomeConcorrentiNonPrendonoLoStessoPercorso(t *testing.T) {
 			if a != primo {
 				t.Fatalf("lo spostamento ha scelto %s", a)
 			}
-			if conLucchetto && secondo != cartella+`\52920517_REV_B_2.pdf` {
+			if conLucchetto && secondo != cartella+`\77720517_REV_B_2.pdf` {
 				t.Errorf("con il lucchetto la seconda scelta doveva ricevere _2: %s", secondo)
 			}
 			if !conLucchetto && secondo != primo {

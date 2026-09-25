@@ -130,8 +130,8 @@ func (r *rfqFascicolo) stepNellaRfq(nome, fatti string, an coda.Analizzatore) uu
 }
 
 const fattiAssieme = `{"struttura": {"versione": 3, "schema": "AP214", "radici": ["#1"], "avvisi": [],
-	"nodi": [{"chiave": "#1", "id_grezzo": "52922757", "nome_grezzo": "52922757", "evidenza": {}},
-	         {"chiave": "#2", "id_grezzo": "52920517", "nome_grezzo": "52920517", "evidenza": {}}],
+	"nodi": [{"chiave": "#1", "id_grezzo": "77722757", "nome_grezzo": "77722757", "evidenza": {}},
+	         {"chiave": "#2", "id_grezzo": "77720517", "nome_grezzo": "77720517", "evidenza": {}}],
 	"relazioni": [{"padre": "#1", "figlio": "#2", "qta": 4, "evidenza": {}}],
 	"limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 	"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`

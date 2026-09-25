@@ -31,13 +31,13 @@ func creaZip(t *testing.T, voci map[string]string) string {
 
 func TestEstrai(t *testing.T) {
 	z := creaZip(t, map[string]string{
-		"disegni/6674611A_4.pdf":  "pdf",
-		"disegni/6674611A.stp":    "step",
-		"__MACOSX/._6674611A.stp": "junk",
+		"disegni/1234567A_4.pdf":  "pdf",
+		"disegni/1234567A.stp":    "step",
+		"__MACOSX/._1234567A.stp": "junk",
 		"cartella/":               "",
 		"../evil.txt":             "slip",
 		"sub/dir/Thumbs.db":       "junk",
-		"altro/6674611A_4.pdf":    "pdf duplicato in altra cartella",
+		"altro/1234567A_4.pdf":    "pdf duplicato in altra cartella",
 	})
 	dest := filepath.Join(t.TempDir(), "out")
 	voci, err := Estrai(z, dest)
@@ -60,7 +60,7 @@ func TestEstrai(t *testing.T) {
 			t.Errorf("voce fuori da destDir: %s", v.Path)
 		}
 	}
-	if nomi["6674611A_4.pdf"] != 2 || nomi["6674611A.stp"] != 1 {
+	if nomi["1234567A_4.pdf"] != 2 || nomi["1234567A.stp"] != 1 {
 		t.Errorf("nomi inattesi: %v", nomi)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dest), "evil.txt")); err == nil {

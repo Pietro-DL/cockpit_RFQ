@@ -51,16 +51,16 @@ func (b *bancoWeb) scenaB87(chiave string) *scenaB87 {
 	r := b.rfqFascicolo(b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example"), chiave)
 	s := &scenaB87{rfqFascicolo: r}
 	r.fase("FATTIBILITA")
-	s.prodotto = r.componenteTipo("52922757", "finito")
-	s.assieme = r.componenteTipo("52920517", "sottoassieme")
-	s.particolare = r.componenteTipo("53017189", "sciolto")
+	s.prodotto = r.componenteTipo("77722757", "finito")
+	s.assieme = r.componenteTipo("77720517", "sottoassieme")
+	s.particolare = r.componenteTipo("77817189", "sciolto")
 	r.arco(s.prodotto, s.assieme, 2)
 	r.arco(s.assieme, s.particolare, 4)
 	r.arco(s.prodotto, s.particolare, 1)
-	s.disegno, s.allDisegno = r.documentoDa("52922757 foglio 1.pdf", "pdf", db.TipoDocumentoDisegno2d, "52922757", s.prodotto, db.StatoNasScritto)
-	s.step, s.allStep = r.documentoDa("52922757.stp", "stp", db.TipoDocumentoCad3d, "52922757", s.prodotto, db.StatoNasScritto)
-	s.pdfLibero, s.allLibero = r.propostaDa("53017189.pdf", "53017189")
-	s.pdfLibero2, _ = r.propostaDa("52920517.pdf", "52920517")
+	s.disegno, s.allDisegno = r.documentoDa("77722757 foglio 1.pdf", "pdf", db.TipoDocumentoDisegno2d, "77722757", s.prodotto, db.StatoNasScritto)
+	s.step, s.allStep = r.documentoDa("77722757.stp", "stp", db.TipoDocumentoCad3d, "77722757", s.prodotto, db.StatoNasScritto)
+	s.pdfLibero, s.allLibero = r.propostaDa("77817189.pdf", "77817189")
+	s.pdfLibero2, _ = r.propostaDa("77720517.pdf", "77720517")
 	return s
 }
 
@@ -235,7 +235,7 @@ func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 	_, html = w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
 	for _, atteso := range []string{`id="tela"`, `id="anteprima"`, `id="anteprima-corpo"`, `id="nodo-` + s.prodotto.String() + `"`,
 		`id="nodo-` + s.particolare.String() + `-` + s.prodotto.String() + `"`, `id="nodo-` + s.particolare.String() + `-` + s.assieme.String() + `"`,
-		"condiviso", `data-editor="` + s.prodotto.String() + `"`, "Modifica la struttura di 52922757"} {
+		"condiviso", `data-editor="` + s.prodotto.String() + `"`, "Modifica la struttura di 77722757"} {
 		if !strings.Contains(html, atteso) {
 			t.Errorf("la Struttura BOM non ha %q", atteso)
 		}
@@ -244,12 +244,12 @@ func TestLaSchermataDelFascicoloSiApreConTuttiIPannelli(t *testing.T) {
 		t.Error("la tabella dei documenti e' una vista a parte, e il file picker sta solo in «Carica dal PC»")
 	}
 	_, html = w.fai(http.MethodGet, s.base()+"?vista=documenti", nil, false)
-	for _, atteso := range []string{`class="doc-tabella"`, "53017189.pdf", "52920517.pdf"} {
+	for _, atteso := range []string{`class="doc-tabella"`, "77817189.pdf", "77720517.pdf"} {
 		if !strings.Contains(html, atteso) {
 			t.Errorf("la vista Documenti non ha %q", atteso)
 		}
 	}
-	if strings.Contains(html, "52922757 foglio 1.pdf") {
+	if strings.Contains(html, "77722757 foglio 1.pdf") {
 		t.Error("il filtro predefinito e' «non assegnati»: il 2D del prodotto non ci sta")
 	}
 	if strings.Contains(html, "sola-lettura") {
@@ -286,7 +286,7 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	// dalla vista Documenti
 	_, html := w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"A"}, "corpo_chiave": {"documenti"}},
 		s.thread, "?nodo="+s.particolare.String())
-	if a := avvisoF(html); a != "53017189: rev — → A." {
+	if a := avvisoF(html); a != "77817189: rev — → A." {
 		t.Fatalf("avviso dalla vista Documenti: %q", a)
 	}
 	if !strings.Contains(html, `id="vista" hx-swap-oob="innerHTML"`) || strings.Count(html, `id="doc-stage" class="doc-stage" hx-preserve="true"`) != 1 {
@@ -304,7 +304,7 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	_, pagina := w.fai(http.MethodGet, s.base()+stato, nil, false)
 	chiave := chiaveCorpoDi(t, pagina)
 	_, html = w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"B"}, "corpo_chiave": {chiave}}, s.thread, stato)
-	if a := avvisoF(html); a != "53017189: rev A → B." {
+	if a := avvisoF(html); a != "77817189: rev A → B." {
 		t.Fatalf("avviso: %q", a)
 	}
 	for _, id := range []string{"fasc-testata", "fasc-avanzamento-box", "vista", "piano", "cassetto", "anteprima-testa"} {
@@ -321,19 +321,19 @@ func TestUnGestoDalFascicoloRifaIPannelliSenzaToccareLAnteprima(t *testing.T) {
 	if !strings.Contains(html, `class="carta ok sel`) && !strings.Contains(html, `sel" id="nodo-`+s.particolare.String()) {
 		t.Error("il nodo scelto nell'indirizzo deve restare scelto nella BOM")
 	}
-	if !strings.Contains(estratto(html, `id="anteprima-testa"`), "53017189.pdf") {
+	if !strings.Contains(estratto(html, `id="anteprima-testa"`), "77817189.pdf") {
 		t.Error("l'intestazione dell'anteprima deve dire il file aperto")
 	}
 
 	_, html = w.fai(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"C"}}, true)
-	if !strings.Contains(html, `class="thread-testata"`) || avvisoDi(html) != "53017189: rev B → C." {
+	if !strings.Contains(html, `class="thread-testata"`) || avvisoDi(html) != "77817189: rev B → C." {
 		t.Errorf("senza HX-Current-URL la risposta e' la pagina della RFQ: %q", avvisoDi(html))
 	}
 
 	// B8.7b: una pagina che mostra un altro corpo (dopo una conferma il pannello passa da un file a un
 	// componente) lo riceve rifatto fuori banda, con la chiave nuova
 	_, html = w.daFascicolo(http.MethodPost, s.comp(s.particolare, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"D"}, "corpo_chiave": {"vuoto"}}, s.thread, stato)
-	if a := avvisoF(html); a != "53017189: rev C → D." {
+	if a := avvisoF(html); a != "77817189: rev C → D." {
 		t.Fatalf("avviso: %q", a)
 	}
 	corpo := estratto(html, `id="anteprima-corpo" hx-swap-oob="innerHTML"`)
@@ -361,7 +361,7 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("STR87")
 	w := operatore(b)
-	prima := "52920517>53017189x4 52922757>52920517x2 52922757>53017189x1"
+	prima := "77720517>77817189x4 77722757>77720517x2 77722757>77817189x1"
 	if s.archi() != prima {
 		t.Fatalf("scena: %s", s.archi())
 	}
@@ -372,14 +372,14 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {"sottoassieme"}, "rev": {"A B"}}); !strings.Contains(a, "revisione non valida") {
 		t.Errorf("rev con lo spazio: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"c"}, "descrizione": {"staffa"}}); a != "52920517: tipo assieme → particolare, rev — → C, descrizione." {
+	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"c"}, "descrizione": {"staffa"}}); a != "77720517: tipo assieme → particolare, rev — → C, descrizione." {
 		t.Errorf("modifica: %q", a)
 	}
 	if got := s.valore(`SELECT tipo || '/' || rev || '/' || descrizione FROM componente WHERE componente_id = $1`, s.assieme); got != "sciolto/C/staffa" {
 		t.Errorf("dopo la modifica: %s", got)
 	}
 
-	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "è lo STEP strutturale di 52922757") {
+	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "è lo STEP strutturale di 77722757") {
 		t.Fatalf("STEP strutturale: %q", a)
 	}
 	if a := s.gesto(w, s.comp(s.prodotto, "modifica"), url.Values{"tipo": {"sottoassieme"}}); !strings.Contains(a, "ha uno STEP strutturale") {
@@ -396,7 +396,7 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	if s.archi() != prima {
 		t.Fatalf("i rifiuti hanno cambiato gli archi: %s", s.archi())
 	}
-	if a := s.gesto(w, s.comp(s.particolare, "collega"), url.Values{"padre": {s.assieme.String()}, "qta": {"6"}}); a != "53017189 sotto 52920517: quantità 4 → 6." {
+	if a := s.gesto(w, s.comp(s.particolare, "collega"), url.Values{"padre": {s.assieme.String()}, "qta": {"6"}}); a != "77817189 sotto 77720517: quantità 4 → 6." {
 		t.Errorf("quantita': %q", a)
 	}
 
@@ -404,19 +404,19 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	if a := s.gesto(w, s.comp(s.assieme, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {s.particolare.String()}, "qta": {"1"}}); !strings.Contains(a, "chiuderebbe un ciclo") {
 		t.Errorf("sposta con ciclo: %q", a)
 	}
-	if got := s.archi(); got != "52920517>53017189x6 52922757>52920517x2 52922757>53017189x1" {
+	if got := s.archi(); got != "77720517>77817189x6 77722757>77720517x2 77722757>77817189x1" {
 		t.Fatalf("uno spostamento rifiutato ha lasciato %s: la transazione doveva annullare anche lo scollegamento", got)
 	}
-	if a := s.gesto(w, s.comp(s.particolare, "sposta"), url.Values{"da": {s.assieme.String()}, "a": {s.prodotto.String()}, "qta": {"3"}}); a != "53017189 non è più sotto 52920517. 53017189 sotto 52922757: quantità 1 → 3." {
+	if a := s.gesto(w, s.comp(s.particolare, "sposta"), url.Values{"da": {s.assieme.String()}, "a": {s.prodotto.String()}, "qta": {"3"}}); a != "77817189 non è più sotto 77720517. 77817189 sotto 77722757: quantità 1 → 3." {
 		t.Errorf("sposta: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.particolare, "scollega"), url.Values{"padre": {s.assieme.String()}}); a != "Niente è cambiato: 53017189 non è sotto 52920517" {
+	if a := s.gesto(w, s.comp(s.particolare, "scollega"), url.Values{"padre": {s.assieme.String()}}); a != "Niente è cambiato: 77817189 non è sotto 77720517" {
 		t.Errorf("scollega un arco che non c'e': %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.particolare, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {""}}); a != "53017189 non è più sotto 52922757. 53017189 è una radice." {
+	if a := s.gesto(w, s.comp(s.particolare, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {""}}); a != "77817189 non è più sotto 77722757. 77817189 è una radice." {
 		t.Errorf("diventa radice: %q", a)
 	}
-	if got := s.archi(); got != "52922757>52920517x2" {
+	if got := s.archi(); got != "77722757>77720517x2" {
 		t.Errorf("archi alla fine: %s", got)
 	}
 }
@@ -431,13 +431,13 @@ func TestArchiviareTogliereRipristinare(t *testing.T) {
 	if a := s.gesto(w, s.comp(s.assieme, "archivia"), url.Values{"motivo": {"  "}}); a != "Niente è cambiato: si archivia con un motivo" {
 		t.Errorf("senza motivo: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.assieme, "archivia"), url.Values{"motivo": {"tolto dal cliente"}}); !strings.Contains(a, "52920517 archiviato: tolti 2 archi") {
+	if a := s.gesto(w, s.comp(s.assieme, "archivia"), url.Values{"motivo": {"tolto dal cliente"}}); !strings.Contains(a, "77720517 archiviato: tolti 2 archi") {
 		t.Fatalf("archivia: %q", a)
 	}
-	if got := s.archi(); got != "52922757>53017189x1" {
+	if got := s.archi(); got != "77722757>77817189x1" {
 		t.Errorf("archi dopo l'archiviazione: %s", got)
 	}
-	if a := s.gesto(w, s.comp(s.prodotto, "rimuovi"), nil); !strings.Contains(a, "52922757 non si cancella: ha dei documenti. Si archivia") {
+	if a := s.gesto(w, s.comp(s.prodotto, "rimuovi"), nil); !strings.Contains(a, "77722757 non si cancella: ha dei documenti. Si archivia") {
 		t.Errorf("togliere un componente con documenti: %q", a)
 	}
 	nuovo := s.componenteTipo("99999999", "sciolto")
@@ -451,7 +451,7 @@ func TestArchiviareTogliereRipristinare(t *testing.T) {
 	if !strings.Contains(html, "Archiviati (1)") || !strings.Contains(html, "/componente/"+s.assieme.String()+"/ripristina") {
 		t.Error("la struttura deve mostrare l'archiviato con il suo «Ripristina»")
 	}
-	if a := s.gesto(w, s.comp(s.assieme, "ripristina"), nil); a != "52920517 ripristinato nella BOM working." {
+	if a := s.gesto(w, s.comp(s.assieme, "ripristina"), nil); a != "77720517 ripristinato nella BOM working." {
 		t.Errorf("ripristina: %q", a)
 	}
 }
@@ -504,7 +504,7 @@ func TestDerogheESTEPStrutturaleDallaSchermata(t *testing.T) {
 	if passo != "da_scegliere" {
 		t.Fatalf("prima della scelta: %s", passo)
 	}
-	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.HasPrefix(a, "52922757.stp è lo STEP strutturale di 52922757. Rimozioni non calcolate") {
+	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.HasPrefix(a, "77722757.stp è lo STEP strutturale di 77722757. Rimozioni non calcolate") {
 		t.Fatalf("scelta: %q (uno STEP non analizzato non propone rimozioni, e lo si dice)", a)
 	}
 	if got := s.valore(`SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, s.prodotto); got != "presente_non_analizzato" {
@@ -537,14 +537,14 @@ func TestSostituireEAnnullareDallaSchermata(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("SOS87")
 	w := operatore(b)
-	nuovo2d, _ := s.documentoDa("52922757 foglio 1 rev B.pdf", "pdf", db.TipoDocumentoDisegno2d, "52922757", s.prodotto, db.StatoNasInCoda)
-	step2, _ := s.documentoDa("52922757 v2.stp", "stp", db.TipoDocumentoCad3d, "52922757", s.prodotto, db.StatoNasInCoda)
+	nuovo2d, _ := s.documentoDa("77722757 foglio 1 rev B.pdf", "pdf", db.TipoDocumentoDisegno2d, "77722757", s.prodotto, db.StatoNasInCoda)
+	step2, _ := s.documentoDa("77722757 v2.stp", "stp", db.TipoDocumentoCad3d, "77722757", s.prodotto, db.StatoNasInCoda)
 	doc := func(d uuid.UUID, gesto string) string { return s.base() + "/documento/" + d.String() + "/" + gesto }
 
 	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.disegno.String()}}); !strings.Contains(a, "un disegno_2d si sostituisce con un disegno_2d") {
 		t.Errorf("tipi diversi: %q", a)
 	}
-	if a := s.gesto(w, doc(nuovo2d, "sostituisci"), url.Values{"vecchio": {s.disegno.String()}}); a != "52922757 foglio 1.pdf sostituito da 52922757 foglio 1 rev B.pdf." {
+	if a := s.gesto(w, doc(nuovo2d, "sostituisci"), url.Values{"vecchio": {s.disegno.String()}}); a != "77722757 foglio 1.pdf sostituito da 77722757 foglio 1 rev B.pdf." {
 		t.Fatalf("sostituisci: %q", a)
 	}
 	if b.sostituitoDa(s.disegno) != nuovo2d.String() {
@@ -562,13 +562,13 @@ func TestSostituireEAnnullareDallaSchermata(t *testing.T) {
 	}
 
 	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
-	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}}); !strings.Contains(a, "sostituisce lo STEP strutturale di 52922757: si dice se il nuovo diventa il riferimento") {
+	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}}); !strings.Contains(a, "sostituisce lo STEP strutturale di 77722757: si dice se il nuovo diventa il riferimento") {
 		t.Errorf("senza risposta sul riferimento: %q", a)
 	}
 	if b.sostituitoDa(s.step) != "-" {
 		t.Fatal("senza risposta non si sostituisce")
 	}
-	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}, "nuovo_riferimento": {"1"}}); !strings.Contains(a, "è il nuovo STEP strutturale di 52922757") {
+	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}, "nuovo_riferimento": {"1"}}); !strings.Contains(a, "è il nuovo STEP strutturale di 77722757") {
 		t.Fatalf("con il sì: %q", a)
 	}
 	if got := s.valore(`SELECT step_strutturale_id::text FROM componente WHERE componente_id = $1`, s.prodotto); got != step2.String() {
@@ -626,7 +626,7 @@ func TestCongelareERivedereLaBomDallaSchermata(t *testing.T) {
 			t.Errorf("congelata: la pagina offre %q", v)
 		}
 	}
-	if a := b.carica(w, s, "52922757_C.stp", []byte("ISO-10303-21; versione interna C")); !strings.Contains(a, "caricato come versione interna") {
+	if a := b.carica(w, s, "77722757_C.stp", []byte("ISO-10303-21; versione interna C")); !strings.Contains(a, "caricato come versione interna") {
 		t.Errorf("caricamento con la BOM congelata: %q", a)
 	}
 
@@ -712,20 +712,20 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 	s := b.scenaB87("CAR87")
 	w := operatore(b)
 
-	if a := b.carica(w, s, "52922757_B.stp", []byte("x")); !strings.Contains(a, "il caricamento interno non è configurato") {
+	if a := b.carica(w, s, "77722757_B.stp", []byte("x")); !strings.Contains(a, "il caricamento interno non è configurato") {
 		t.Errorf("senza pipeline: %q", a)
 	}
 	wa := b.caricamentoAcceso(t)
 	if a := b.carica(w, s, "listino.xlsx", []byte("x")); !strings.Contains(a, "qui si caricano versioni interne di CAD 3D") {
 		t.Errorf("un file non tecnico: %q", a)
 	}
-	if a := b.carica(w, s, "52922757_B.stp", nil); !strings.Contains(a, "è vuoto") {
+	if a := b.carica(w, s, "77722757_B.stp", nil); !strings.Contains(a, "è vuoto") {
 		t.Errorf("file vuoto: %q", a)
 	}
 	contenuto := []byte("ISO-10303-21;\nHEADER; versione interna B del prodotto\nENDSEC;")
 	somma := sha256.Sum256(contenuto)
 	sha := hex.EncodeToString(somma[:])
-	if a := b.carica(w, s, "52922757_B.stp", contenuto); !strings.Contains(a, "52922757_B.stp caricato come versione interna") {
+	if a := b.carica(w, s, "77722757_B.stp", contenuto); !strings.Contains(a, "77722757_B.stp caricato come versione interna") {
 		t.Fatalf("caricamento: %q", a)
 	}
 	var (
@@ -751,7 +751,7 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 		t.Errorf("il contenuto nello staging non e' il file caricato: %v", err)
 	}
 	if got := s.valore(`SELECT tipo_proposto || '/' || COALESCE(codice, '-') || '/' || COALESCE(rev, '-') || '/' || COALESCE(dettagli ->> 'rev_letta', '-')
-		FROM documento_proposta WHERE allegato_id = $1`, allegato); got != "cad_3d/52922757/-/B" {
+		FROM documento_proposta WHERE allegato_id = $1`, allegato); got != "cad_3d/77722757/-/B" {
 		t.Errorf("proposta: %s (la rev B del nome resta nei dettagli, non diventa del cliente)", got)
 	}
 	if n := s.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato' AND payload ->> 'sha256' = $1`, sha); n != 1 {
@@ -762,7 +762,7 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 	}
 
 	altro := []byte("ISO-10303-21; un altro file interno")
-	if a := b.carica(w, s, "52922757 alternativa.stp", altro); !strings.Contains(a, "caricato come versione interna") {
+	if a := b.carica(w, s, "77722757 alternativa.stp", altro); !strings.Contains(a, "caricato come versione interna") {
 		t.Fatalf("secondo caricamento: %q", a)
 	}
 	if n := s.conta(`SELECT count(*) FROM messaggio WHERE canale = 'nota' AND thread_id = $1`, s.thread); n != 1 {
@@ -772,7 +772,7 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 		t.Errorf("il secondo file prende l'indice 2: %d", n)
 	}
 	_, html := w.fai(http.MethodGet, s.base()+"?vista=documenti", nil, false)
-	if !strings.Contains(html, "52922757_B.stp") || !strings.Contains(html, ">interno<") || !strings.Contains(html, "(B?)") {
+	if !strings.Contains(html, "77722757_B.stp") || !strings.Contains(html, ">interno<") || !strings.Contains(html, "(B?)") {
 		t.Error("il pannello Documenti deve mostrare il file interno, con la revisione letta e non attribuita")
 	}
 }
@@ -787,7 +787,7 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 	w := operatore(b)
 	b.caricamentoAcceso(t)
 	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
-	if a := b.carica(w, s, "52922757_B.stp", []byte("ISO-10303-21; interna B")); !strings.Contains(a, "caricato come versione interna") {
+	if a := b.carica(w, s, "77722757_B.stp", []byte("ISO-10303-21; interna B")); !strings.Contains(a, "caricato come versione interna") {
 		t.Fatalf("caricamento: %q", a)
 	}
 	var pid, aid uuid.UUID
@@ -796,7 +796,7 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?vista=bom&file="+aid.String()+"&nodo="+s.prodotto.String(), nil, s.thread, "?vista=bom")
-	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 52922757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
+	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 77722757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
 		if !strings.Contains(html, c) {
 			t.Errorf("anteprima del file interno: manca %q", c)
 		}
@@ -806,8 +806,8 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		_, html := w.daFascicolo(http.MethodPost, "/proposta/"+pid.String()+"/conferma", form, s.thread, "?file="+aid.String())
 		return avvisoF(html)
 	}
-	base := url.Values{"componente_id": {s.prodotto.String()}, "tipo": {"cad_3d"}, "codice": {"52922757"}, "scelta": {s.step.String()}}
-	if a := conferma(base); !strings.Contains(a, "sostituisce lo STEP strutturale di 52922757") {
+	base := url.Values{"componente_id": {s.prodotto.String()}, "tipo": {"cad_3d"}, "codice": {"77722757"}, "scelta": {s.step.String()}}
+	if a := conferma(base); !strings.Contains(a, "sostituisce lo STEP strutturale di 77722757") {
 		t.Errorf("senza la risposta sul riferimento: %q", a)
 	}
 	f := url.Values{}
@@ -823,19 +823,19 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 	}
 	f.Set("motivo", "rifatto in casa con gli smussi")
 	a := conferma(f)
-	if !strings.Contains(a, "Confermato") || !strings.Contains(a, "52922757.stp sostituito da 52922757_B.stp") || !strings.Contains(a, "è il nuovo STEP strutturale di 52922757") {
+	if !strings.Contains(a, "Confermato") || !strings.Contains(a, "77722757.stp sostituito da 77722757_B.stp") || !strings.Contains(a, "è il nuovo STEP strutturale di 77722757") {
 		t.Fatalf("conferma: %q", a)
 	}
 	var nuovo uuid.UUID
 	var rev, nota, percorso string
-	if err := b.pool.QueryRow(b.ctx, `SELECT documento_id, COALESCE(rev, '-'), COALESCE(nota, ''), path_relativo FROM documento WHERE thread_id = $1 AND nome_file = '52922757_B.stp'`, s.thread).
+	if err := b.pool.QueryRow(b.ctx, `SELECT documento_id, COALESCE(rev, '-'), COALESCE(nota, ''), path_relativo FROM documento WHERE thread_id = $1 AND nome_file = '77722757_B.stp'`, s.thread).
 		Scan(&nuovo, &rev, &nota, &percorso); err != nil {
 		t.Fatal(err)
 	}
-	if rev != "-" || !strings.HasSuffix(percorso, "52922757_REV_ND.stp") {
+	if rev != "-" || !strings.HasSuffix(percorso, "77722757_REV_ND.stp") {
 		t.Errorf("una versione interna non inventa la revisione del cliente: rev %s, percorso %s", rev, percorso)
 	}
-	if nota != "sostituisce 52922757.stp: rifatto in casa con gli smussi" {
+	if nota != "sostituisce 77722757.stp: rifatto in casa con gli smussi" {
 		t.Errorf("nota: %q", nota)
 	}
 	if b.sostituitoDa(s.step) != nuovo.String() {
@@ -855,23 +855,23 @@ func TestAssegnareTreFileConUnGesto(t *testing.T) {
 	w := operatore(b)
 	p1, _ := s.propostaDa("foglio A.pdf", "")
 	p2, _ := s.propostaDa("foglio B.pdf", "")
-	d3, _ := s.documentoDa("foglio C.pdf", "pdf", db.TipoDocumentoDisegno2d, "53017189", uuid.Nil, db.StatoNasInCoda)
+	d3, _ := s.documentoDa("foglio C.pdf", "pdf", db.TipoDocumentoDisegno2d, "77817189", uuid.Nil, db.StatoNasInCoda)
 
 	_, html := w.fai(http.MethodGet, s.base()+"?vista=documenti&nodo="+s.particolare.String()+"&filtro=non_assegnati", nil, false)
 	for _, c := range []string{`name="proposta" value="` + p1.String() + `"`, `name="proposta" value="` + p2.String() + `"`,
-		`name="documento" value="` + d3.String() + `"`, "Assegna i selezionati a ▸ 53017189"} {
+		`name="documento" value="` + d3.String() + `"`, "Assegna i selezionati a ▸ 77817189"} {
 		if !strings.Contains(html, c) {
 			t.Errorf("manca %q", c)
 		}
 	}
 	form := url.Values{"componente": {s.particolare.String()}, "proposta": {p1.String(), p2.String()}, "documento": {d3.String()}}
-	if a := s.gesto(w, s.base()+"/assegna", form); a != "3 file assegnati al componente 53017189." {
+	if a := s.gesto(w, s.base()+"/assegna", form); a != "3 file assegnati al componente 77817189." {
 		t.Fatalf("assegna: %q", a)
 	}
 	if n := s.conta(`SELECT count(*) FROM documento_proposta WHERE componente_id = $1 AND stato = 'aperta'`, s.particolare); n != 2 {
 		t.Errorf("proposte assegnate: %d", n)
 	}
-	if b.fotoProposta(p1) != "componente="+s.particolare.String()[:8]+" codice=53017189 stato=aperta" {
+	if b.fotoProposta(p1) != "componente="+s.particolare.String()[:8]+" codice=77817189 stato=aperta" {
 		t.Errorf("proposta: %s", b.fotoProposta(p1))
 	}
 	if !strings.Contains(b.foto(d3), "componente="+s.particolare.String()[:8]) {
@@ -887,7 +887,7 @@ func TestCentoAllegatiSiDisegnanoInMenoDiUnSecondo(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("CENTO87")
 	for i := 0; i < 100; i++ {
-		s.propostaDa(fmt.Sprintf("disegno %03d.pdf", i), fmt.Sprintf("5300%04d", i))
+		s.propostaDa(fmt.Sprintf("disegno %03d.pdf", i), fmt.Sprintf("7780%04d", i))
 	}
 	w := operatore(b)
 	w.fai(http.MethodGet, s.base(), nil, false) // la prima apertura rilegge gli STEP e riscalda le cache
@@ -932,7 +932,7 @@ func TestUnaPropostaAssegnataReggeLaLetturaCheArrivaDopo(t *testing.T) {
 	s := b.scenaB87("LET87")
 	w := operatore(b)
 	wa := b.caricamentoAcceso(t)
-	if a := b.carica(w, s, "52922757_B.stp", []byte("ISO-10303-21; letto dopo")); !strings.Contains(a, "caricato come versione interna") {
+	if a := b.carica(w, s, "77722757_B.stp", []byte("ISO-10303-21; letto dopo")); !strings.Contains(a, "caricato come versione interna") {
 		t.Fatalf("caricamento: %q", a)
 	}
 	var pid, aid uuid.UUID
@@ -940,10 +940,10 @@ func TestUnaPropostaAssegnataReggeLaLetturaCheArrivaDopo(t *testing.T) {
 		WHERE a.origine = 'manuale' AND p.thread_id = $1`, s.thread).Scan(&pid, &aid); err != nil {
 		t.Fatal(err)
 	}
-	if a := s.gesto(w, s.base()+"/assegna", url.Values{"componente": {s.particolare.String()}, "proposta": {pid.String()}, "correggi_codice": {"1"}}); a != "1 file assegnato al componente 53017189." {
+	if a := s.gesto(w, s.base()+"/assegna", url.Values{"componente": {s.particolare.String()}, "proposta": {pid.String()}, "correggi_codice": {"1"}}); a != "1 file assegnato al componente 77817189." {
 		t.Fatalf("assegna: %q", a)
 	}
-	// la lettura del file arriva adesso, e dice ancora 52922757
+	// la lettura del file arriva adesso, e dice ancora 77722757
 	tx, err := b.pool.Begin(b.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -956,7 +956,7 @@ func TestUnaPropostaAssegnataReggeLaLetturaCheArrivaDopo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := s.valore(`SELECT COALESCE(codice, '-') || '/' || COALESCE(componente_id::text, '-') || '/' || COALESCE(dettagli ->> 'codice_letto', '-')
-		FROM documento_proposta WHERE proposta_id = $1`, pid); got != "53017189/"+s.particolare.String()+"/52922757" {
+		FROM documento_proposta WHERE proposta_id = $1`, pid); got != "77817189/"+s.particolare.String()+"/77722757" {
 		t.Errorf("proposta dopo la lettura: %s", got)
 	}
 }

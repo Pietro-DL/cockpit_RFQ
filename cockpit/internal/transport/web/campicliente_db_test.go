@@ -45,7 +45,7 @@ func TestPerUnClienteCensitoNonCiSonoCampiDaCompilare(t *testing.T) {
 	b := preparaBancoWeb(t)
 	// il mittente di messaggioIn e' sempre mario.rossi@acme.example: censire quel dominio e' cio' che
 	// fa riconoscere il cliente all'apertura del form
-	b.clienteDiProva("LANDINI ARGO", "Argo Tractors S.p.A.", "acme.example")
+	b.clienteDiProva("ACME MACCHINE", "ACME Macchine S.p.A.", "acme.example")
 	msg := b.messaggioIn("<campi-1@acme.example>", b.francesco)
 
 	w := b.browser("10.0.0.1")
@@ -54,7 +54,7 @@ func TestPerUnClienteCensitoNonCiSonoCampiDaCompilare(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("triage: HTTP %d", resp.StatusCode)
 	}
-	if !strings.Contains(html, "<code>LANDINI ARGO</code>") {
+	if !strings.Contains(html, "<code>ACME MACCHINE</code>") {
 		t.Fatal("il form non mostra la cartella dell'Anagrafica: senza quella, i campi qui sotto sembrerebbero l'unica fonte")
 	}
 	if p := campiPresenti(html); len(p) > 0 {
@@ -71,7 +71,7 @@ func TestPerUnClienteCensitoNonCiSonoCampiDaCompilare(t *testing.T) {
 func TestScegliendoNuovoClienteICampiCompaiono(t *testing.T) {
 	b := preparaBancoWeb(t)
 	// nessun dominio censito per il mittente: e' un cliente da censire
-	b.clienteDiProva("LANDINI ARGO", "Argo Tractors S.p.A.", "")
+	b.clienteDiProva("ACME MACCHINE", "ACME Macchine S.p.A.", "")
 	msg := b.messaggioIn("<campi-2@acme.example>", b.francesco)
 
 	w := b.browser("10.0.0.1")
@@ -103,13 +103,13 @@ func TestScegliendoNuovoClienteICampiCompaiono(t *testing.T) {
 // riquadro che nessuno sostituisce: è il caso in cui l'operatore ha già scritto qualcosa.
 func TestTornandoSuUnClienteCensitoICampiSpariscono(t *testing.T) {
 	b := preparaBancoWeb(t)
-	landini := b.clienteDiProva("LANDINI ARGO", "Argo Tractors S.p.A.", "")
+	acmeMacchine := b.clienteDiProva("ACME MACCHINE", "ACME Macchine S.p.A.", "")
 	msg := b.messaggioIn("<campi-3@acme.example>", b.francesco)
 
 	w := b.browser("10.0.0.1")
 	w.login("FP", "prova-fp")
 	par := url.Values{
-		"cliente_id":       {landini.String()},
+		"cliente_id":       {acmeMacchine.String()},
 		"cliente_cartella": {"QUELLO CHE AVEVO SCRITTO"},
 		"messaggio":        {msg.String()},
 		"oggetto":          {"Flange"},
@@ -126,7 +126,7 @@ func TestTornandoSuUnClienteCensitoICampiSpariscono(t *testing.T) {
 	if strings.Contains(html, "QUELLO CHE AVEVO SCRITTO") {
 		t.Errorf("ciò che era stato digitato è tornato in pagina:\n%s", html)
 	}
-	if !strings.Contains(html, "<code>LANDINI ARGO</code>") {
+	if !strings.Contains(html, "<code>ACME MACCHINE</code>") {
 		t.Error("la cartella dell'Anagrafica non ha preso il posto di quella digitata")
 	}
 }

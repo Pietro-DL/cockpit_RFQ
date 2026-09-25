@@ -458,3 +458,81 @@ func TestSS4IJobInterattiviPassanoDavantiAllArchivio(t *testing.T) {
 		}
 	}
 }
+
+// copiaIn mette in una casella la copia di un messaggio, nella cartella e con la data di ricezione date:
+// e' l'archivio che «Carica precedenti» guarda per sapere da dove cominciare.
+func (b *bancoWeb) copiaIn(casella uuid.UUID, cartella string, ricevuto time.Time) {
+	b.t.Helper()
+	nCopie++
+	chiave := fmt.Sprintf("<ss7-%d@acme.example>", nCopie)
+	msg := b.messaggioIn(chiave)
+	if _, err := b.pool.Exec(b.ctx, `INSERT INTO messaggio_casella (messaggio_id, casella_id, entry_id, cartella, ricevuto_il)
+		VALUES ($1, $2, $3, $4, $5)`, msg, casella, "ENTRY-SS7-"+fmt.Sprint(nCopie), cartella, ricevuto); err != nil {
+		b.t.Fatal(err)
+	}
+}
+
+var nCopie int
+
+// SS7 — una cartella senza un suo limite storico riparte dalla SUA mail piu' vecchia, mai dal limite di
+// un'altra cartella (revisione del 25/09).
+//
+// IL DIFETTO: la cartella senza `storico_fino_a` prendeva il piu' vecchio dei limiti delle ALTRE. Primo
+// clic: la Posta in arrivo si conclude, la Posta inviata no. Secondo clic: la Posta inviata riceve la
+// finestra sotto il limite della Posta in arrivo, il tratto fra la sua mail piu' vecchia e quel limite
+// non si legge mai, e a fine job risulta coperto. Qui la Posta in arrivo e' scesa di dieci giorni, la
+// Posta inviata ha la sua mail piu' vecchia di tre giorni fa (con il nome che Outlook le da', «Posta
+// inviata»), e una terza cartella non ha ne' limite ne' posta.
+func TestSS7UnaCartellaSenzaLimiteRipartedallaSuaMailPiuVecchia(t *testing.T) {
+	b := preparaBancoWeb(t)
+	chi := b.browser("10.0.0.5:4000")
+	chi.login("FP", "prova-fp")
+
+	inbox := time.Now().AddDate(0, 0, -10).UTC().Truncate(time.Second)
+	if err := b.q.SetStoricoFinoA(b.ctx, db.SetStoricoFinoAParams{CasellaID: b.francesco, Cartella: "Inbox", StoricoFinoA: &inbox}); err != nil {
+		t.Fatal(err)
+	}
+	// le altre due cartelle hanno il loro cursore (il sync ordinario le ha viste) ma nessun limite storico
+	adesso := time.Now().UTC().Truncate(time.Second)
+	for _, cartella := range []string{"Sent Items", `Commerciale\Ordini`} {
+		if err := b.q.SetCopertoFinoA(b.ctx, db.SetCopertoFinoAParams{CasellaID: b.francesco, Cartella: cartella, CopertoFinoA: &adesso}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inviata := time.Now().AddDate(0, 0, -3).UTC().Truncate(time.Second)
+	b.copiaIn(b.francesco, "Posta inviata", inviata)
+	b.copiaIn(b.francesco, "Posta inviata", inviata.Add(24*time.Hour))
+	// la Posta in arrivo ha copie vecchie, portate giu' dalle sue finestre storiche: non contano per le altre
+	b.copiaIn(b.francesco, "Posta in arrivo", inbox.Add(time.Hour))
+	// e un'altra casella ha posta ancora piu' vecchia nella sua Posta inviata: non conta per questa
+	b.copiaIn(b.luigi, "Posta inviata", inbox.AddDate(0, 0, -30))
+
+	if resp, corpo := chi.fai(http.MethodPost, "/inbox/sync-storico", url.Values{}, true); resp.StatusCode != 200 {
+		t.Fatalf("carica precedenti: %d %s", resp.StatusCode, corpo)
+	}
+	p, ok := b.jobStorici()[b.francesco]
+	if !ok {
+		t.Fatal("nessun job storico per la casella")
+	}
+	fine := map[string]time.Time{}
+	for _, c := range p.Cartelle {
+		if c.Al == nil || c.Dal == nil {
+			t.Fatalf("%s: finestra senza estremi", c.Cartella)
+		}
+		fine[c.Cartella] = *c.Al
+		if ampiezza := c.Al.Sub(*c.Dal); ampiezza != dueGiorni {
+			t.Errorf("%s: finestra di %v, attesi %v", c.Cartella, ampiezza, dueGiorni)
+		}
+	}
+	vicino := func(a, b time.Time) bool { d := a.Sub(b); return d < time.Millisecond && d > -time.Millisecond }
+	if f, ok := fine["Inbox"]; !ok || !vicino(f, inbox) {
+		t.Errorf("Inbox: la finestra finisce a %v, non al suo limite %v", f, inbox)
+	}
+	if f, ok := fine["Sent Items"]; !ok || !vicino(f, inviata) {
+		t.Errorf("Sent Items: la finestra finisce a %v invece che alla sua mail piu' vecchia (%v). Sotto il limite della "+
+			"Posta in arrivo (%v) il tratto fra le due non si leggerebbe mai, e risulterebbe coperto", f, inviata, inbox)
+	}
+	if f, ok := fine[`Commerciale\Ordini`]; !ok || time.Since(f) > time.Minute {
+		t.Errorf("una cartella senza limite e senza posta riparte da adesso, non dal limite di un'altra: %v", f)
+	}
+}

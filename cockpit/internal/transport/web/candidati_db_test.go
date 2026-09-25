@@ -42,8 +42,8 @@ type scena3R struct {
 }
 
 const regole3R = `{
-  "famiglie_codice": [{"regex": "\\b\\d{7}[A-Z]\\b", "descrizione": "7 cifre + lettera", "esempio": "6674611A"}],
-  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO", "esempio": "RDO 490020618"}
+  "famiglie_codice": [{"regex": "\\b\\d{7}[A-Z]\\b", "descrizione": "7 cifre + lettera", "esempio": "1234567A"}],
+  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO", "esempio": "RDO 400012345"}
 }`
 
 func prepara3R(t *testing.T) (scena3R, context.Context) {
@@ -73,16 +73,16 @@ func prepara3R(t *testing.T) (scena3R, context.Context) {
 		t.Fatalf("conversazione: %v", err)
 	}
 	oggetti := []string{
-		"RICHIESTA D'OFFERTA RDO 490020618",
-		"R: RICHIESTA D'OFFERTA RDO 490020618",
-		"R: RICHIESTA D'OFFERTA RDO 490020618 — ferie di agosto", // la mail che parla d'altro
+		"RICHIESTA D'OFFERTA RDO 400012345",
+		"R: RICHIESTA D'OFFERTA RDO 400012345",
+		"R: RICHIESTA D'OFFERTA RDO 400012345 — ferie di agosto", // la mail che parla d'altro
 	}
 	for i, og := range oggetti {
 		var id uuid.UUID
 		if err := p.QueryRow(ctx, `INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento,
 			mittente_indirizzo, oggetto, corpo_testo) VALUES ('outlook',$1,$2,'entrata',$3,'buyer@acme.example',$4,$5)
 			RETURNING messaggio_id`, "<3r-"+string(rune('a'+i))+"@acme.example>", s.conv,
-			time.Now().Add(time.Duration(i)*time.Hour), og, "codice 6674611A, CAP 61032").Scan(&id); err != nil {
+			time.Now().Add(time.Duration(i)*time.Hour), og, "codice 1234567A, CAP 98765").Scan(&id); err != nil {
 			t.Fatalf("messaggio %d: %v", i, err)
 		}
 		// ogni messaggio ha la sua proposta di triage, come dopo un ingest vero
@@ -118,7 +118,7 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 	}
 	th, err := q.InsertThread(ctx, db.InsertThreadParams{
 		ClienteID: s.cliente.ClienteID, Canale: m.Canale, DataInizio: m.DataEvento,
-		Oggetto: ptxt("RFQ 6674611A"), CartellaRelativa: ptxt(`ACME\WIP\x`), Priorita: 1})
+		Oggetto: ptxt("RFQ 1234567A"), CartellaRelativa: ptxt(`ACME\WIP\x`), Priorita: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,9 +197,9 @@ func TestT23SoloISpuntatiDiventanoIdentificativi(t *testing.T) {
 	// i candidati che l'ingest avrebbe scritto
 	id := s.msg[0]
 	candidati := []db.InsertCandidatoCodiceParams{
-		{MessaggioID: id, Codice: "RDO 490020618", Ruolo: db.RuoloCodiceRiferimentoRfq, Origine: db.OrigineCodiceRiferimento, Punteggio: 90, Evidenza: "oggetto"},
-		{MessaggioID: id, Codice: "6674611A", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia, Famiglia: "7 cifre + lettera", Punteggio: 80, Evidenza: "corpo"},
-		{MessaggioID: id, Codice: "61032", Ruolo: db.RuoloCodiceNonClassificato, Origine: db.OrigineCodiceGenerico, Punteggio: 30, Evidenza: "corpo"},
+		{MessaggioID: id, Codice: "RDO 400012345", Ruolo: db.RuoloCodiceRiferimentoRfq, Origine: db.OrigineCodiceRiferimento, Punteggio: 90, Evidenza: "oggetto"},
+		{MessaggioID: id, Codice: "1234567A", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia, Famiglia: "7 cifre + lettera", Punteggio: 80, Evidenza: "corpo"},
+		{MessaggioID: id, Codice: "98765", Ruolo: db.RuoloCodiceNonClassificato, Origine: db.OrigineCodiceGenerico, Punteggio: 30, Evidenza: "corpo"},
 	}
 	for _, c := range candidati {
 		if err := s.q.InsertCandidatoCodice(ctx, c); err != nil {
@@ -210,9 +210,9 @@ func TestT23SoloISpuntatiDiventanoIdentificativi(t *testing.T) {
 	form := url.Values{
 		"cliente_id":          {s.cliente.ClienteID.String()},
 		"buyer_id":            {""},
-		"oggetto":             {"RFQ 6674611A"},
-		"riferimento_cliente": {"RDO 490020618"},
-		"codice":              {"6674611A"}, // spuntato solo questo: il CAP resta fuori
+		"oggetto":             {"RFQ 1234567A"},
+		"riferimento_cliente": {"RDO 400012345"},
+		"codice":              {"1234567A"}, // spuntato solo questo: il CAP resta fuori
 		"identificativi":      {"XYZ-9999"}, // digitato a mano
 		"priorita":            {"1"},
 	}
@@ -232,7 +232,7 @@ func TestT23SoloISpuntatiDiventanoIdentificativi(t *testing.T) {
 		JOIN messaggio m ON m.thread_id = t.thread_id WHERE m.messaggio_id = $1`, id).Scan(&threadID, &riferimento); err != nil {
 		t.Fatalf("la RFQ non è stata creata: %v", err)
 	}
-	if riferimento == nil || *riferimento != "RDO 490020618" {
+	if riferimento == nil || *riferimento != "RDO 400012345" {
 		t.Errorf("il riferimento del cliente non è nel suo campo: %v", riferimento)
 	}
 
@@ -247,13 +247,13 @@ func TestT23SoloISpuntatiDiventanoIdentificativi(t *testing.T) {
 	if len(trovati) != 2 {
 		t.Fatalf("identificativi creati: %v (attesi 2: quello spuntato e quello digitato)", trovati)
 	}
-	if _, esiste := trovati["61032"]; esiste {
+	if _, esiste := trovati["98765"]; esiste {
 		t.Error("il CAP è diventato un identificativo della RFQ senza che nessuno lo spuntasse")
 	}
-	if _, esiste := trovati["490020618"]; esiste {
+	if _, esiste := trovati["400012345"]; esiste {
 		t.Error("il numero della RDO è diventato un codice prodotto")
 	}
-	if r, ok := trovati["6674611A"]; !ok {
+	if r, ok := trovati["1234567A"]; !ok {
 		t.Error("il codice spuntato non è entrato")
 	} else {
 		if r.Origine != db.OrigineIdentificativoPropostaFamiglia {
@@ -277,13 +277,13 @@ func TestUnCodiceInventatoNonEntraDallaSpunta(t *testing.T) {
 	srv := serverConSessione(t, s)
 	id := s.msg[0]
 	if err := s.q.InsertCandidatoCodice(ctx, db.InsertCandidatoCodiceParams{
-		MessaggioID: id, Codice: "6674611A", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
+		MessaggioID: id, Codice: "1234567A", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
 		Punteggio: 80, Evidenza: "corpo"}); err != nil {
 		t.Fatal(err)
 	}
 	form := url.Values{
 		"cliente_id": {s.cliente.ClienteID.String()}, "oggetto": {"RFQ"}, "priorita": {"1"},
-		"codice": {"6674611A", "MAI-PROPOSTO-1"},
+		"codice": {"1234567A", "MAI-PROPOSTO-1"},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/messaggio/"+id.String()+"/rfq", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

@@ -8,10 +8,14 @@ package web
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // lettoreRotto da' due byte e poi si rompe: il NAS che si stacca a meta' lettura.
@@ -124,5 +128,26 @@ func TestLaPercentualeNonLasciaPassareSeparatori(t *testing.T) {
 	}
 	if dec, _ := url.PathUnescape(got); dec != `a b;c,d"e'f\g/h=i%j` {
 		t.Errorf("non torna indietro: %q", dec)
+	}
+}
+
+// I byte di un file si aprono come documento, mai dentro la pagina: una richiesta htmx (HX-Request) si
+// rifiuta prima di cercare l'allegato, e quindi prima di leggere un solo byte. L'iframe, pdf.js e una
+// scheda nuova non mandano quell'intestazione (la prova nel browser e' e2e/anteprima_pdf.py).
+func TestLAnteprimaNonSiInnestaNellaPagina(t *testing.T) {
+	s := &Server{Log: slog.New(slog.NewTextHandler(io.Discard, nil))} // niente database: non ci si deve arrivare
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /allegato/{id}/anteprima", s.anteprima)
+	for _, valore := range []string{"true", "1"} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/allegato/"+uuid.NewString()+"/anteprima", nil)
+		r.Header.Set("HX-Request", valore)
+		mux.ServeHTTP(rec, r)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("HX-Request: %s: stato %d, atteso 400", valore, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); strings.HasPrefix(ct, "application/pdf") {
+			t.Errorf("HX-Request: %s: la risposta e' un PDF", valore)
+		}
 	}
 }

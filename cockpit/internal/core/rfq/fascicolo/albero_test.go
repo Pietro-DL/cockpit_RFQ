@@ -170,3 +170,30 @@ func TestUnCicloNonFermaLAlbero(t *testing.T) {
 		t.Errorf("componenti: %d", a.Componenti())
 	}
 }
+
+// I totali con un ciclo non dipendono dall'ordine dei dati: A e B, che stanno nel giro, restano con la
+// loro quantita' (come dice il commento di totali); C, sotto il giro, moltiplica quella del padre; il
+// resto dell'albero fa i conti di sempre. Prima il pezzo del giro da cui partiva la visita — il primo che
+// l'ordine della mappa proponeva — prendeva la sua quantita' e l'altro sommava mezzo giro.
+func TestITotaliConUnCicloNonDipendonoDallOrdine(t *testing.T) {
+	b := nuovoBancoAlbero().
+		c("R", db.TipoComponenteFinito, 2).
+		c("A", db.TipoComponenteSottoassieme, 4).
+		c("B", db.TipoComponenteSottoassieme, 7).
+		c("C", db.TipoComponenteSciolto, 1).
+		c("D", db.TipoComponenteSciolto, 1).
+		r("R", "A", 3).r("A", "B", 1).r("B", "A", 1).r("B", "C", 5).r("R", "D", 2)
+	// R = 2; A e B nel giro: 4 e 7; C = 5·7 = 35; D = 2·2 = 4
+	attesi := map[string]int64{"R": 2, "A": 4, "B": 7, "C": 35, "D": 4}
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for giro := 0; giro < 50; giro++ {
+		r.Shuffle(len(b.comp), func(i, j int) { b.comp[i], b.comp[j] = b.comp[j], b.comp[i] })
+		r.Shuffle(len(b.rel), func(i, j int) { b.rel[i], b.rel[j] = b.rel[j], b.rel[i] })
+		a := NuovoAlbero(b.comp, b.rel)
+		for codice, q := range attesi {
+			if got := a.Totali[b.id[codice]]; got != q {
+				t.Fatalf("giro %d: totale di %s = %d, atteso %d", giro, codice, got, q)
+			}
+		}
+	}
+}

@@ -64,12 +64,12 @@ func TestL7V3EditorDellaStruttura(t *testing.T) {
 	s := b.scenaL7(t, "V3L", 0)
 	lanciaL7V3(t, s, "L")
 	if got := s.valore(`SELECT r.qta::text FROM componente_relazione r JOIN componente c ON c.componente_id = r.figlio_id
-		WHERE r.padre_id = $1 AND c.codice = '53011111'`, s.prodotto); got != "2" {
-		t.Errorf("53011111 sotto il prodotto: %s", got)
+		WHERE r.padre_id = $1 AND c.codice = '77811111'`, s.prodotto); got != "2" {
+		t.Errorf("77811111 sotto il prodotto: %s", got)
 	}
 	if n := s.conta(`SELECT count(*) FROM componente_relazione r JOIN componente c ON c.componente_id = r.figlio_id
-		WHERE r.padre_id = $1 AND c.codice = '53011111'`, s.assieme); n != 0 {
-		t.Errorf("53011111 e' rimasto sotto l'assieme: %d", n)
+		WHERE r.padre_id = $1 AND c.codice = '77811111'`, s.assieme); n != 0 {
+		t.Errorf("77811111 e' rimasto sotto l'assieme: %d", n)
 	}
 	if got := s.valore(`SELECT stato::text || ' ' || coalesce(nota, '') FROM relazione_proposta WHERE thread_id = $1 AND figlio_chiave = '#3'`, s.thread); got != "scartata tolta nella struttura confermata" {
 		t.Errorf("la proposta dell'arco sotto l'assieme: %q", got)
@@ -94,7 +94,7 @@ func TestL7V3EditorAMano(t *testing.T) {
 	vite := s.componenteTipo("54000000", "sciolto")
 	lanciaL7V3(t, s, "N")
 	if got := s.valore(`SELECT string_agg(p.codice || '>' || f.codice || 'x' || r.qta, ' ' ORDER BY p.codice) FROM componente_relazione r
-		JOIN componente p ON p.componente_id = r.padre_id JOIN componente f ON f.componente_id = r.figlio_id WHERE r.figlio_id = $1`, vite); got != "52920517>54000000x1 52922757>54000000x1" {
+		JOIN componente p ON p.componente_id = r.padre_id JOIN componente f ON f.componente_id = r.figlio_id WHERE r.figlio_id = $1`, vite); got != "77720517>54000000x1 77722757>54000000x1" {
 		t.Errorf("54000000 nella BOM: %s", got)
 	}
 }

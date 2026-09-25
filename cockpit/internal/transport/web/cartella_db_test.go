@@ -84,7 +84,7 @@ func TestIlFormMostraLaCartellaDellAnagrafica(t *testing.T) {
 func TestCambiareClienteCambiaLaDestinazione(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example")
-	altro := b.clienteDiProva("TECHNOGYM", "Technogym S.p.A.", "technogym.example")
+	altro := b.clienteDiProva("BETA SPORT", "Beta Sport S.p.A.", "betasport.example")
 	msg := b.messaggioIn("<cartella-2@acme.example>", b.francesco)
 
 	// la mail e' di sei giorni fa: e' la SUA data a dare il nome alla cartella, non quella di oggi
@@ -106,13 +106,13 @@ func TestCambiareClienteCambiaLaDestinazione(t *testing.T) {
 	if !strings.Contains(html, `id="anteprima-cartella"`) || !strings.Contains(html, "hx-swap-oob") {
 		t.Fatalf("il cambio cliente non riporta l'anteprima come scambio fuori bersaglio:\n%s", html)
 	}
-	if !strings.Contains(html, `TECHNOGYM\WIP\`) {
+	if !strings.Contains(html, `BETA SPORT\WIP\`) {
 		t.Errorf("l'anteprima non segue il cliente scelto:\n%s", html)
 	}
 	if strings.Contains(html, `ACME\WIP\`) {
 		t.Error("l'anteprima mostra ancora la cartella del cliente di prima")
 	}
-	if !strings.Contains(html, "<code>TECHNOGYM</code>") {
+	if !strings.Contains(html, "<code>BETA SPORT</code>") {
 		t.Error("la riga «Cartella NAS» non e' stata aggiornata")
 	}
 	// l'oggetto digitato entra nel nome della cartella: e' quello che l'operatore sta guardando
@@ -159,15 +159,15 @@ func TestPerUnClienteNuovoValeLaCartellaDigitata(t *testing.T) {
 	w.login("FP", "prova-fp")
 	par := url.Values{
 		"cliente_id":       {"__nuovo__"},
-		"cliente_cartella": {"landini argo"},
+		"cliente_cartella": {"acme macchine"},
 		"messaggio":        {msg.String()},
 		"oggetto":          {"Supporto cofano"},
 	}
 	_, html := w.fai(http.MethodGet, "/anagrafica/buyer?"+par.Encode(), nil, true)
-	if !strings.Contains(html, "<code>LANDINI ARGO</code>") {
+	if !strings.Contains(html, "<code>ACME MACCHINE</code>") {
 		t.Errorf("la cartella di un cliente nuovo non e' quella digitata (in maiuscolo):\n%s", html)
 	}
-	if !strings.Contains(html, `LANDINI ARGO\WIP\`) {
+	if !strings.Contains(html, `ACME MACCHINE\WIP\`) {
 		t.Errorf("l'anteprima non usa la cartella digitata:\n%s", html)
 	}
 }

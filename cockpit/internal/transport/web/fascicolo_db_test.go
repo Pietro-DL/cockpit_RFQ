@@ -219,8 +219,8 @@ func operatore(b *bancoWeb) *browser {
 func TestLaConfermaNonCreaComponenti(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
-	thread, proposta := b.propostaTecnica("NC1", "cad_3d", "52920517")
-	if _, err := b.pool.Exec(b.ctx, `INSERT INTO identificativo_thread (thread_id, codice, origine) VALUES ($1, '52920517', 'proposta_oggetto')`, thread); err != nil {
+	thread, proposta := b.propostaTecnica("NC1", "cad_3d", "77720517")
+	if _, err := b.pool.Exec(b.ctx, `INSERT INTO identificativo_thread (thread_id, codice, origine) VALUES ($1, '77720517', 'proposta_oggetto')`, thread); err != nil {
 		t.Fatal(err)
 	}
 
@@ -236,8 +236,8 @@ func TestLaConfermaNonCreaComponenti(t *testing.T) {
 	if comp.Valid {
 		t.Errorf("il documento e' stato agganciato al componente %s: la conferma non sceglie componenti", comp.UUID)
 	}
-	if codice != "52920517" {
-		t.Errorf("codice del documento %q, atteso quello confermato, 52920517", codice)
+	if codice != "77720517" {
+		t.Errorf("codice del documento %q, atteso quello confermato, 77720517", codice)
 	}
 	if n := b.contaNelThread("componente", thread); n != 0 {
 		t.Errorf("la conferma ha creato %d componenti: la struttura non la decide un allegato", n)

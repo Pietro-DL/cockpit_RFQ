@@ -31,7 +31,7 @@ import (
 
 // nomeLungo e' un nome di file di oltre cento caratteri con dentro dei codici: prima diventava un
 // codice di proposta da 100+ caratteri.
-const nomeLungo = "Offerta 12345678 per fornitura staffe zincate 6674611A rev finale allegato tecnico completo e definitivo del cliente.pdf"
+const nomeLungo = "Offerta 12345678 per fornitura staffe zincate 1234567A rev finale allegato tecnico completo e definitivo del cliente.pdf"
 
 func TestUnNomeFileLungoNonRompeIlResultDiStage(t *testing.T) {
 	b := preparaBanco(t, 0)
@@ -71,7 +71,7 @@ func TestUnNomeFileLungoNonRompeIlResultDiStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	codici, _ := dett["codici_nel_nome"].([]any)
-	if len(codici) != 2 || codici[0] != "12345678" || codici[1] != "6674611A" {
+	if len(codici) != 2 || codici[0] != "12345678" || codici[1] != "1234567A" {
 		t.Errorf("i codici trovati nel nome non sono nei dettagli: %v", dett)
 	}
 	// e l'analisi parte lo stesso: il nome non c'entra con il contenuto
@@ -119,7 +119,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codiceLungo := "6674611A" + strings.Repeat("X", classificazione.MaxCodice)
+	codiceLungo := "1234567A" + strings.Repeat("X", classificazione.MaxCodice)
 	dati, _ := json.Marshal(worker.RisultatoAnalisi{
 		AllegatoID: allID, TipoProposto: "disegno_2d", Codice: codiceLungo, Rev: "REVISIONE_LUNGA_02",
 		Confidenza: 90, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"cartiglio":true}`),

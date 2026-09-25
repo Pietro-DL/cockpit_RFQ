@@ -17,10 +17,10 @@ import (
 // sono quelli di nessun cliente vero (vincolo del repository pubblico).
 const regoleDiProva = `{
   "famiglie_codice": [
-    {"regex": "\\b\\d{7}[A-Z]\\d?\\b", "descrizione": "7 cifre + lettera", "esempio": "6743449A"},
-    {"regex": "\\b0\\.\\d{3}\\.\\d{4}\\.\\d\\b", "descrizione": "0.nnn.nnnn.n", "esempio": "0.056.8238.3"}
+    {"regex": "\\b\\d{7}[A-Z]\\d?\\b", "descrizione": "7 cifre + lettera", "esempio": "7654321A"},
+    {"regex": "\\b0\\.\\d{3}\\.\\d{4}\\.\\d\\b", "descrizione": "0.nnn.nnnn.n", "esempio": "0.012.3456.7"}
   ],
-  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO a nove cifre", "esempio": "RDO 490020618"},
+  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO a nove cifre", "esempio": "RDO 400012345"},
   "finestra_aggancio_gg": 45
 }`
 
@@ -35,7 +35,7 @@ func motoreDiProva(t *testing.T) *Motore {
 
 // T22 — una risposta a una richiesta che esiste non diventa MAI una richiesta nuova.
 //
-// Il sintomo, dal banco reale: «R: RICHIESTA OFFERTA COD 0.056.8238.3» con un PDF allegato faceva
+// Il sintomo, dal banco reale: «R: RICHIESTA OFFERTA COD 0.012.3456.7» con un PDF allegato faceva
 // 35 (la parola «offerta») + 25 (l'allegato contato come «tecnico») = 60, superava la soglia di 50 e
 // veniva proposto come `nuova_rfq`. Era la risposta di un fornitore a una richiesta nostra.
 //
@@ -44,8 +44,8 @@ func motoreDiProva(t *testing.T) *Motore {
 func TestT22UnaRispostaNonDiventaUnaRichiestaNuova(t *testing.T) {
 	// il contenuto, da solo, griderebbe «richiesta nuova»
 	senza := Triage(IngressoTriage{
-		Oggetto: "R: RICHIESTA OFFERTA COD 0.056.8238.3", Corpo: "Vi giro la richiesta d'offerta, in allegato i disegni.",
-		NomiAllegati: []string{"0.056.8238.3.pdf", "disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
+		Oggetto: "R: RICHIESTA OFFERTA COD 0.012.3456.7", Corpo: "Vi giro la richiesta d'offerta, in allegato i disegni.",
+		NomiAllegati: []string{"0.012.3456.7.pdf", "disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
 	})
 	if senza.Esito != "nuova_rfq" {
 		t.Fatalf("senza candidati il contenuto deve pur proporre qualcosa: %+v", senza)
@@ -54,8 +54,8 @@ func TestT22UnaRispostaNonDiventaUnaRichiestaNuova(t *testing.T) {
 	// con l'evidenza dell'header, lo stesso identico messaggio è una risposta
 	for _, regola := range []string{R0Reply, R1Conversazione, R4Riferimento, R3Codice, R2Oggetto} {
 		con := Triage(IngressoTriage{
-			Oggetto: "R: RICHIESTA OFFERTA COD 0.056.8238.3", Corpo: "Vi giro la richiesta d'offerta, in allegato i disegni.",
-			NomiAllegati: []string{"0.056.8238.3.pdf", "disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
+			Oggetto: "R: RICHIESTA OFFERTA COD 0.012.3456.7", Corpo: "Vi giro la richiesta d'offerta, in allegato i disegni.",
+			NomiAllegati: []string{"0.012.3456.7.pdf", "disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
 			Candidati: []Candidato{{ThreadID: "t1", Regola: regola, Punteggio: PuntiRegola[regola],
 				Evidenza: "prova"}},
 		})
@@ -95,10 +95,10 @@ func TestUnIndizioDeboleNonImpedisceUnaRichiestaNuova(t *testing.T) {
 // esiste, e ne faccia un doppione alla cieca.
 func TestT2UnaRichiestaChiusaAvvisaMaNonDecide(t *testing.T) {
 	e := Triage(IngressoTriage{
-		Oggetto: "Richiesta d'offerta 6743449A", Corpo: "Siamo a richiedere offerta.", NomiAllegati: []string{"6743449A.stp"},
+		Oggetto: "Richiesta d'offerta 7654321A", Corpo: "Siamo a richiedere offerta.", NomiAllegati: []string{"7654321A.stp"},
 		Direzione: "entrata", BuyerNoto: true,
 		Candidati: []Candidato{{ThreadID: "t1", Regola: R3Codice, Punteggio: PuntiRegola[R3Codice],
-			Evidenza: "il codice 6743449A è già un identificativo di questa richiesta", Chiuso: true}},
+			Evidenza: "il codice 7654321A è già un identificativo di questa richiesta", Chiuso: true}},
 	})
 	if e.Esito != "nuova_rfq" {
 		t.Errorf("esito %q: una richiesta chiusa è finita, e la nuova va proposta (%+v)", e.Esito, e.Motivi)
@@ -111,7 +111,7 @@ func TestT2UnaRichiestaChiusaAvvisaMaNonDecide(t *testing.T) {
 	}
 	// ma se la stessa richiesta è APERTA, l'esito cambia
 	aperta := Triage(IngressoTriage{
-		Oggetto: "Richiesta d'offerta 6743449A", Corpo: "Siamo a richiedere offerta.", NomiAllegati: []string{"6743449A.stp"},
+		Oggetto: "Richiesta d'offerta 7654321A", Corpo: "Siamo a richiedere offerta.", NomiAllegati: []string{"7654321A.stp"},
 		Direzione: "entrata", BuyerNoto: true,
 		Candidati: []Candidato{{ThreadID: "t1", Regola: R3Codice, Punteggio: PuntiRegola[R3Codice], Evidenza: "x"}},
 	})
@@ -156,25 +156,25 @@ func TestICandidatiSiOrdinanoESiVedonoTutti(t *testing.T) {
 
 // AN6 — un riferimento della richiesta non diventa MAI un codice prodotto.
 //
-// «RICHIESTA D'OFFERTA 490020618» contiene un numero che l'estrattore generico chiamava codice. Non
+// «RICHIESTA D'OFFERTA 400012345» contiene un numero che l'estrattore generico chiamava codice. Non
 // è un codice: è il numero della RDO, cioè il nome che il cliente dà alla richiesta. Finiva fra gli
 // identificativi della RFQ, e di lì nel nome della cartella sul NAS e nelle ricerche per codice.
 func TestAN6IlRiferimentoNonDiventaUnCodiceProdotto(t *testing.T) {
 	m := motoreDiProva(t)
-	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "RICHIESTA D'OFFERTA RDO 490020618"},
-		Testo{Dove: "corpo", Corpo: "Siamo a richiedere offerta per il nostro codice 6743449A1."})
-	if e.Riferimento != "RDO 490020618" {
+	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "RICHIESTA D'OFFERTA RDO 400012345"},
+		Testo{Dove: "corpo", Corpo: "Siamo a richiedere offerta per il nostro codice 7654321A1."})
+	if e.Riferimento != "RDO 400012345" {
 		t.Fatalf("riferimento non riconosciuto: %q", e.Riferimento)
 	}
 	for _, c := range e.Codici {
-		if strings.Contains("RDO 490020618", c.Codice) {
+		if strings.Contains("RDO 400012345", c.Codice) {
 			t.Errorf("il riferimento (o un suo pezzo) è finito fra i codici prodotto: %+v", c)
 		}
 	}
 	// il codice vero invece c'è, con la sua famiglia
 	trovato := false
 	for _, c := range e.Codici {
-		if c.Codice == "6743449A1" && c.Origine == "famiglia" && c.Ruolo == RuoloProdotto {
+		if c.Codice == "7654321A1" && c.Origine == "famiglia" && c.Ruolo == RuoloProdotto {
 			trovato = true
 		}
 	}
@@ -196,8 +196,8 @@ func TestAN6IlRiferimentoNonDiventaUnCodiceProdotto(t *testing.T) {
 // confermati. I numeri restano visibili — sotto «altri numeri trovati» — ma non spuntati.
 func TestAN7ConLeFamiglieIlGenericoNonPropone(t *testing.T) {
 	m := motoreDiProva(t)
-	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "Offerta 6743449A1"},
-		Testo{Dove: "corpo", Corpo: "Spett.le PROMATEC SRL, 61032 Fano PU, P.IVA 01234567890, tel 0721 123456."})
+	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "Offerta 7654321A1"},
+		Testo{Dove: "corpo", Corpo: "Spett.le AZIENDA SRL, 98765 Esempio ES, P.IVA 01234567890, tel 0123 456789."})
 	if !e.HaFamiglie {
 		t.Fatal("il motore di prova ha due famiglie")
 	}
@@ -211,7 +211,7 @@ func TestAN7ConLeFamiglieIlGenericoNonPropone(t *testing.T) {
 	}
 	// senza famiglie (cliente non censito: il caso normale del primo giorno) il generico torna a valere
 	var vuoto *Motore
-	s := vuoto.Estrai(Testo{Dove: "corpo", Corpo: "il nostro codice 6743449A1"})
+	s := vuoto.Estrai(Testo{Dove: "corpo", Corpo: "il nostro codice 7654321A1"})
 	if s.HaFamiglie {
 		t.Error("un motore nil non ha famiglie")
 	}
@@ -227,7 +227,7 @@ func TestAN7ConLeFamiglieIlGenericoNonPropone(t *testing.T) {
 // la forma di un codice» non possono arrivare all'operatore con lo stesso numero accanto.
 func TestLaProvenienzaDiUnCodiceHaUnPunteggioDiverso(t *testing.T) {
 	m := motoreDiProva(t)
-	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "6743449A1 e il numero 987654321"})
+	e := m.Estrai(Testo{Dove: "oggetto", Corpo: "7654321A1 e il numero 987654321"})
 	for _, c := range e.Codici {
 		switch c.Origine {
 		case "famiglia":
@@ -245,11 +245,11 @@ func TestLaProvenienzaDiUnCodiceHaUnPunteggioDiverso(t *testing.T) {
 // Un PDF non è un disegno finché qualcuno non l'ha aperto (checkpoint 3R §5).
 func TestUnPdfNonEUnDisegnoFinchePrimaDellAnalisi(t *testing.T) {
 	casi := []struct{ nome, tipo string }{
-		{"6674611A_4.pdf", "da_determinare"},
+		{"1234567A_4.pdf", "da_determinare"},
 		{"capitolato.pdf", "da_determinare"},
 		{"scansione.tif", "da_determinare"},
-		{"6674611A.dwg", "disegno_2d"}, // un DWG è davvero un disegno CAD
-		{"6674611A.stp", "cad_3d"},
+		{"1234567A.dwg", "disegno_2d"}, // un DWG è davvero un disegno CAD
+		{"1234567A.stp", "cad_3d"},
 		{"12-34567.dxf", "sviluppo_dxf"},
 	}
 	for _, c := range casi {
@@ -293,9 +293,9 @@ func TestLoSchemaAccettaSoloIRuoliPrevisti(t *testing.T) {
 // I motivi del triage finiscono in jsonb: devono restare serializzabili anche quando contengono le
 // virgolette basse e gli apostrofi delle frasi italiane.
 func TestIMotiviSonoSerializzabili(t *testing.T) {
-	e := Triage(IngressoTriage{Oggetto: "RDO 490020618 richiesta d'offerta", Corpo: "«urgente»",
+	e := Triage(IngressoTriage{Oggetto: "RDO 400012345 richiesta d'offerta", Corpo: "«urgente»",
 		Direzione: "entrata", BuyerNoto: true, Motore: motoreDiProva(t),
-		Candidati: []Candidato{{ThreadID: "t", Regola: R4Riferimento, Punteggio: 90, Evidenza: "il riferimento «RDO 490020618» è quello di questa richiesta"}}})
+		Candidati: []Candidato{{ThreadID: "t", Regola: R4Riferimento, Punteggio: 90, Evidenza: "il riferimento «RDO 400012345» è quello di questa richiesta"}}})
 	if _, err := json.Marshal(e.Motivi); err != nil {
 		t.Fatalf("motivi non serializzabili: %v", err)
 	}

@@ -10,9 +10,9 @@ import (
 
 func ingressoDaFornitore() IngressoTriage {
 	return IngressoTriage{
-		Oggetto:      "RICHIESTA D'OFFERTA n. 77 - TG FIORE",
-		Corpo:        "Richiesta d'offerta: quotazione per i codici 0.056.8238.3 e 0.056.8239.1, vedi disegni allegati. Preventivo urgente.",
-		NomiAllegati: []string{"RDO_77.pdf", "0.056.8238.3.stp", "disegni.zip"},
+		Oggetto:      "RICHIESTA D'OFFERTA n. 77 - PROGETTO ALFA",
+		Corpo:        "Richiesta d'offerta: quotazione per i codici 0.012.3456.7 e 0.012.3457.1, vedi disegni allegati. Preventivo urgente.",
+		NomiAllegati: []string{"RDO_77.pdf", "0.012.3456.7.stp", "disegni.zip"},
 		Direzione:    "entrata",
 		Controparte:  ControparteFornitore,
 	}

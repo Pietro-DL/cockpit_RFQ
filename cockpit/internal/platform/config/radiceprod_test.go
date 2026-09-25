@@ -18,7 +18,7 @@ import (
 //
 // La capacità spenta non fa scattare niente: un server che non scrive non può sbagliare cartella.
 
-const produzioneVera = `\\nas01\TECNICO - PREVENTIVI`
+const produzioneVera = `\\server-nas\PREVENTIVI`
 
 func nasCon(radice string) string {
 	return "radice = '" + radice + "'\nradici_produzione = ['" + produzioneVera + "']\n"
@@ -33,7 +33,7 @@ func TestScrivereSulNasVeroChiedeUnaSecondaDichiarazione(t *testing.T) {
 	}{
 		{"la radice di produzione, con la scrittura accesa", produzioneVera + `\PREVENTIVI DA FARE`, soloNas, true},
 		{"la radice stessa", produzioneVera, soloNas, true},
-		{"scritta con le maiuscole diverse e la barra finale", `\\NAS01\tecnico - preventivi\`, soloNas, true},
+		{"scritta con le maiuscole diverse e la barra finale", `\\SERVER-NAS\preventivi\`, soloNas, true},
 		{"la scrittura sul NAS è spenta: non c'è niente da proteggere", produzioneVera + `\PREVENTIVI DA FARE`,
 			"\n[sicurezza]\noutlook_scrittura = true\nbozze = true\nnas_scrittura = false\n", false},
 		{"il NAS di prova", `C:\prove\_nas_test\PREVENTIVI DA FARE`, soloNas, false},

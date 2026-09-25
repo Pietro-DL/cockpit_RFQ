@@ -82,16 +82,16 @@ func TestIlNomeOriginaleRestaInNomeFile(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
 	r := b.rfqFascicolo(b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example"), "NOME51")
-	p := r.proposta("Disegno 52920517 rev B (cliente).pdf", "52920517", uuid.Nil)
-	avviso := confermaProposta(operatore(b), p, url.Values{"codice": {"52920517"}, "rev": {"B"}})
-	if !strings.Contains(avviso, `Confermato: ELENCO DISEGNI\52920517\52920517_REV_B.pdf`) {
+	p := r.proposta("Disegno 77720517 rev B (cliente).pdf", "77720517", uuid.Nil)
+	avviso := confermaProposta(operatore(b), p, url.Values{"codice": {"77720517"}, "rev": {"B"}})
+	if !strings.Contains(avviso, `Confermato: ELENCO DISEGNI\77720517\77720517_REV_B.pdf`) {
 		t.Fatalf("avviso: %s", estrai(avviso, "avviso"))
 	}
 	var nome, percorso string
 	if err := b.pool.QueryRow(b.ctx, `SELECT nome_file, path_relativo FROM documento WHERE thread_id = $1`, r.thread).Scan(&nome, &percorso); err != nil {
 		t.Fatal(err)
 	}
-	if nome != "Disegno 52920517 rev B (cliente).pdf" || percorso != `ELENCO DISEGNI\52920517\52920517_REV_B.pdf` {
+	if nome != "Disegno 77720517 rev B (cliente).pdf" || percorso != `ELENCO DISEGNI\77720517\77720517_REV_B.pdf` {
 		t.Errorf("nome_file %q, percorso %q", nome, percorso)
 	}
 }

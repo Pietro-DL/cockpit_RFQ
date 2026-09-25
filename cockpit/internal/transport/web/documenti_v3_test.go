@@ -44,8 +44,8 @@ func TestDocumentiUnSottoassiemeCondivisoSiVedeInOgniProdotto(t *testing.T) {
 	mk := func(codice string, tipo db.TipoComponente) db.Componente {
 		return db.Componente{ComponenteID: uuid.New(), Codice: codice, Tipo: tipo, Qta: 1}
 	}
-	p1, p2 := mk("52900001", db.TipoComponenteFinito), mk("52900002", db.TipoComponenteFinito)
-	s, c1, c2 := mk("52900010", db.TipoComponenteSottoassieme), mk("53000011", db.TipoComponenteSciolto), mk("53000012", db.TipoComponenteSciolto)
+	p1, p2 := mk("77700001", db.TipoComponenteFinito), mk("77700002", db.TipoComponenteFinito)
+	s, c1, c2 := mk("77700010", db.TipoComponenteSottoassieme), mk("77800011", db.TipoComponenteSciolto), mk("77800012", db.TipoComponenteSciolto)
 	rel := []db.ComponenteRelazione{{PadreID: p1.ComponenteID, FiglioID: s.ComponenteID, Qta: 1}, {PadreID: p2.ComponenteID, FiglioID: s.ComponenteID, Qta: 3},
 		{PadreID: s.ComponenteID, FiglioID: c1.ComponenteID, Qta: 2}, {PadreID: s.ComponenteID, FiglioID: c2.ComponenteID, Qta: 1},
 		{PadreID: p1.ComponenteID, FiglioID: c1.ComponenteID, Qta: 1}}
@@ -56,7 +56,7 @@ func TestDocumentiUnSottoassiemeCondivisoSiVedeInOgniProdotto(t *testing.T) {
 	if v.Indice.Gruppo != p2.ComponenteID.String() {
 		t.Errorf("il gruppo aperto nell'indice: %q", v.Indice.Gruppo)
 	}
-	if got := codiciDelleRighe(v); got != "52900002 52900010 53000011 53000012" {
+	if got := codiciDelleRighe(v); got != "77700002 77700010 77800011 77800012" {
 		t.Errorf("il secondo prodotto: %s", got)
 	}
 	for _, g := range v.Gruppi {
@@ -67,10 +67,10 @@ func TestDocumentiUnSottoassiemeCondivisoSiVedeInOgniProdotto(t *testing.T) {
 	if len(v.Film) != 4 || len(v.Indice.Elementi) != 4 {
 		t.Errorf("filmstrip e indice del secondo prodotto: %d %d", len(v.Film), len(v.Indice.Elementi))
 	}
-	// nel primo prodotto 53000011 sta sotto il prodotto e sotto il sottoassieme: la seconda volta e' un rimando
+	// nel primo prodotto 77800011 sta sotto il prodotto e sotto il sottoassieme: la seconda volta e' un rimando
 	d.Stato = statoFascicolo{Gruppo: p1.ComponenteID.String()}
 	v = costruisciDocumenti(d, nil, uuid.Nil)
-	if got := codiciDelleRighe(v); got != "52900001 52900010 53000011 53000012 53000011↗" && got != "52900001 53000011 52900010 53000011↗ 53000012" {
+	if got := codiciDelleRighe(v); got != "77700001 77700010 77800011 77800012 77800011↗" && got != "77700001 77800011 77700010 77800011↗ 77800012" {
 		t.Errorf("il primo prodotto: %s", got)
 	}
 	// il nodo di un figlio del sottoassieme apre il gruppo giusto anche se e' condiviso
@@ -87,8 +87,8 @@ func TestDocumentiUnDocumentoArrivatoDueVolteSiMostraUnaVolta(t *testing.T) {
 	d := s.d
 	sha := strings.Repeat("a", 64)
 	doc := db.Documento{DocumentoID: uuid.New(), ComponenteID: uuid.NullUUID{UUID: s.particolare.ComponenteID, Valid: true}, Tipo: db.TipoDocumentoDisegno2d,
-		NomeFile: "53017189.pdf", Estensione: "pdf", Sha256: sha, StatoNas: db.StatoNasInCoda}
-	primo := rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: uuid.New(), NomeFile: "53017189.pdf", Estensione: txtT("pdf"), Sha256: txtT(sha),
+		NomeFile: "77817189.pdf", Estensione: "pdf", Sha256: sha, StatoNas: db.StatoNasInCoda}
+	primo := rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: uuid.New(), NomeFile: "77817189.pdf", Estensione: txtT("pdf"), Sha256: txtT(sha),
 		DataEvento: time.Now()}, Doc: &doc, Tipo: "disegno_2d"}
 	secondo := primo
 	secondo.A.AllegatoID = uuid.New()
@@ -122,8 +122,8 @@ func TestDocumentiLeNoteDellaRevisionePrecedenteSonoNellIndice(t *testing.T) {
 	d := s.d
 	shaVecchio, shaNuovo := strings.Repeat("b", 64), strings.Repeat("d", 64)
 	nuovo := db.Documento{DocumentoID: uuid.New(), ComponenteID: uuid.NullUUID{UUID: s.particolare.ComponenteID, Valid: true}, Tipo: db.TipoDocumentoDisegno2d,
-		NomeFile: "53017189 rev B.pdf", Estensione: "pdf", Sha256: shaNuovo, StatoNas: db.StatoNasInCoda}
-	vecchio := db.Documento{DocumentoID: uuid.New(), ComponenteID: nuovo.ComponenteID, Tipo: db.TipoDocumentoDisegno2d, NomeFile: "53017189 rev A.pdf",
+		NomeFile: "77817189 rev B.pdf", Estensione: "pdf", Sha256: shaNuovo, StatoNas: db.StatoNasInCoda}
+	vecchio := db.Documento{DocumentoID: uuid.New(), ComponenteID: nuovo.ComponenteID, Tipo: db.TipoDocumentoDisegno2d, NomeFile: "77817189 rev A.pdf",
 		Estensione: "pdf", Sha256: shaVecchio, StatoNas: db.StatoNasScritto, SostituitoDa: uuid.NullUUID{UUID: nuovo.DocumentoID, Valid: true}}
 	aNuovo, aVecchio := uuid.New(), uuid.New()
 	d.File = append(d.File,
@@ -176,16 +176,16 @@ func TestSpostareUnDocumentoOffreDiSostituire(t *testing.T) {
 	s := fascicoloSintetico()
 	d := s.d
 	mio := db.Documento{DocumentoID: uuid.New(), ComponenteID: uuid.NullUUID{UUID: s.particolare.ComponenteID, Valid: true}, Tipo: db.TipoDocumentoDisegno2d,
-		NomeFile: "53017189.pdf", Estensione: "pdf", Sha256: strings.Repeat("e", 64), StatoNas: db.StatoNasInCoda}
+		NomeFile: "77817189.pdf", Estensione: "pdf", Sha256: strings.Repeat("e", 64), StatoNas: db.StatoNasInCoda}
 	suo := db.Documento{DocumentoID: uuid.New(), ComponenteID: uuid.NullUUID{UUID: s.assieme.ComponenteID, Valid: true}, Tipo: db.TipoDocumentoDisegno2d,
-		NomeFile: "52920517 foglio 1.pdf", Estensione: "pdf", Sha256: strings.Repeat("f", 64), StatoNas: db.StatoNasScritto}
-	altroTipo := db.Documento{DocumentoID: uuid.New(), ComponenteID: suo.ComponenteID, Tipo: db.TipoDocumentoCad3d, NomeFile: "52920517.stp", Estensione: "stp"}
+		NomeFile: "77720517 foglio 1.pdf", Estensione: "pdf", Sha256: strings.Repeat("f", 64), StatoNas: db.StatoNasScritto}
+	altroTipo := db.Documento{DocumentoID: uuid.New(), ComponenteID: suo.ComponenteID, Tipo: db.TipoDocumentoCad3d, NomeFile: "77720517.stp", Estensione: "stp"}
 	d.DocumentiDi[s.particolare.ComponenteID] = []db.Documento{mio}
 	d.DocumentiDi[s.assieme.ComponenteID] = []db.Documento{suo, altroTipo}
 	d.File = append(d.File, rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: uuid.New(), NomeFile: mio.NomeFile, Estensione: txtT("pdf"), Sha256: txtT(mio.Sha256)},
 		Doc: &mio, Tipo: "disegno_2d"})
 	got := sostituibiliDa(d, mio)
-	if len(got) != 1 || got[0].Doc != suo.DocumentoID || got[0].Codice != "52920517" {
+	if len(got) != 1 || got[0].Doc != suo.DocumentoID || got[0].Codice != "77720517" {
 		t.Fatalf("i documenti che puo' sostituire: %+v", got)
 	}
 	// lo STEP strutturale non si sostituisce da qui (vuole la risposta sul riferimento)
@@ -210,6 +210,6 @@ func TestSpostareUnDocumentoOffreDiSostituire(t *testing.T) {
 	d.Stato = statoFascicolo{Nodo: s.particolare.ComponenteID}
 	d.Documenti = costruisciDocumenti(d, nil, uuid.Nil)
 	html := rendiParte(t, "fasc_doc_sezione", d)
-	haTesto(t, "sezione", html, `<option value="`+suo.DocumentoID.String()+`">sostituisce 52920517 foglio 1.pdf (52920517)</option>`, "Cambia componente")
-	senzaTesto(t, "sezione", html, "sostituisce 52920517.stp")
+	haTesto(t, "sezione", html, `<option value="`+suo.DocumentoID.String()+`">sostituisce 77720517 foglio 1.pdf (77720517)</option>`, "Cambia componente")
+	senzaTesto(t, "sezione", html, "sostituisce 77720517.stp")
 }

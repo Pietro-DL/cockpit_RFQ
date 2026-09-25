@@ -115,7 +115,7 @@ func (b *bancoAnalisi) get(t coda.Tentativo, allegato uuid.UUID, token string) *
 }
 
 func TestIlPayloadDellAnalisiNonPortaPercorsiDelServer(t *testing.T) {
-	b := preparaBancoAnalisi(t, "6674611A_4.dxf")
+	b := preparaBancoAnalisi(t, "1234567A_4.dxf")
 	payload := string(b.analisi.Payload)
 	var campi map[string]any
 	if err := json.Unmarshal(b.analisi.Payload, &campi); err != nil {
@@ -139,7 +139,7 @@ func TestIlPayloadDellAnalisiNonPortaPercorsiDelServer(t *testing.T) {
 }
 
 func TestIlContenutoLoScaricaSoloIlTentativoValidoDellaSuaAnalisi(t *testing.T) {
-	b := preparaBancoAnalisi(t, "6674611A_4.dxf")
+	b := preparaBancoAnalisi(t, "1234567A_4.dxf")
 	tent := b.claimAnalisi("analisi@PC-A")
 
 	// (a) il tentativo valido riceve i byte, con lo sha256 in testata
@@ -214,7 +214,7 @@ func TestE2EIlWorkerAnalisiVeroConLoStagingSuUnAltraCartella(t *testing.T) {
 	if os.Getenv("COCKPIT_TEST_SENZA_PYTHON") != "" {
 		t.Skip("COCKPIT_TEST_SENZA_PYTHON: il worker vero non viene avviato, prova non verificata")
 	}
-	b := preparaBancoAnalisi(t, "6674611A_4.dxf")
+	b := preparaBancoAnalisi(t, "1234567A_4.dxf")
 	uscita, download, stagingWorker := eseguiWorkerAnalisiVero(t, b)
 
 	j, err := b.q.GetJob(b.ctx, b.analisi.JobID)
@@ -226,7 +226,7 @@ func TestE2EIlWorkerAnalisiVeroConLoStagingSuUnAltraCartella(t *testing.T) {
 			j.Stato, j.Tentativi, j.Errore.String, uscita)
 	}
 	p := propostaDi(t, b.pool, b.allegato.AllegatoID)
-	if p.TipoProposto != db.TipoDocumentoSviluppoDxf || p.Codice.String != "6674611A" || p.Rev.String != "4" {
+	if p.TipoProposto != db.TipoDocumentoSviluppoDxf || p.Codice.String != "1234567A" || p.Rev.String != "4" {
 		t.Errorf("proposta non aggiornata dall'analisi: tipo=%s codice=%q rev=%q", p.TipoProposto, p.Codice.String, p.Rev.String)
 	}
 	if !esiste(b.allegato.PathStaging.String) {
@@ -256,8 +256,8 @@ func eseguiWorkerAnalisiVero(t *testing.T, b *bancoAnalisi) (string, *atomic.Int
 	host = strings.ToUpper(host)
 	workerID := "analisi@" + host
 	cfg := &config.Config{}
-	cfg.Outlook.CasellaDefault = "commerciale@azienda.it"
-	cfg.Caselle = []config.Casella{{Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Canale: "outlook", Condivisa: true}}
+	cfg.Outlook.CasellaDefault = "commerciale@azienda.example"
+	cfg.Caselle = []config.Casella{{Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Canale: "outlook", Condivisa: true}}
 	cfg.Postazioni = []config.Postazione{{NomeHost: host}}
 	cfg.Worker = []config.Worker{{Nome: workerID, Tipo: "analisi", Token: tokenProvaAnalisi, Postazione: host}}
 	if _, err := fondazioni.Semina(b.ctx, b.q, cfg, testutil.LogSilenzioso()); err != nil {
@@ -324,7 +324,7 @@ func TestE2EIlWorkerAnalisiVeroLeggeLaStrutturaDiUnoStep(t *testing.T) {
 	if os.Getenv("COCKPIT_TEST_SENZA_PYTHON") != "" {
 		t.Skip("COCKPIT_TEST_SENZA_PYTHON: il worker vero non viene avviato, prova non verificata")
 	}
-	b := preparaBancoAnalisiCon(t, "52922757.step", []byte(stepDuePadri))
+	b := preparaBancoAnalisiCon(t, "77722757.step", []byte(stepDuePadri))
 	uscita, _, _ := eseguiWorkerAnalisiVero(t, b)
 
 	j, err := b.q.GetJob(b.ctx, b.analisi.JobID)
@@ -391,18 +391,18 @@ func TestE2EIlWorkerAnalisiVeroLeggeLaStrutturaDiUnoStep(t *testing.T) {
 const stepDuePadri = `ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION((''),'2;1');
-FILE_NAME('52922757.step','2026-09-22T00:00:00',(''),(''),'','','');
+FILE_NAME('77722757.step','2026-09-22T00:00:00',(''),(''),'','','');
 FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }'));
 ENDSEC;
 DATA;
 #1=APPLICATION_CONTEXT('prova');
-#10=PRODUCT('52922757','52922757_B','PRODOTTO A',(#1));
+#10=PRODUCT('77722757','77722757_B','PRODOTTO A',(#1));
 #11=PRODUCT_DEFINITION_FORMATION('B','',#10);
 #12=PRODUCT_DEFINITION('design','',#11,#1);
-#20=PRODUCT('52922758','52922758_A','PRODOTTO B',(#1));
+#20=PRODUCT('77722758','77722758_A','PRODOTTO B',(#1));
 #21=PRODUCT_DEFINITION_FORMATION('A','',#20);
 #22=PRODUCT_DEFINITION('design','',#21,#1);
-#30=PRODUCT('52920517','52920517','SOTTOASSIEME X',(#1));
+#30=PRODUCT('77720517','77720517','SOTTOASSIEME X',(#1));
 #31=PRODUCT_DEFINITION_FORMATION('1','',#30);
 #32=PRODUCT_DEFINITION('design','',#31,#1);
 #40=NEXT_ASSEMBLY_USAGE_OCCURRENCE('1','pos','',#12,#32,$);

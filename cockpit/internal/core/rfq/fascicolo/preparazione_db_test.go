@@ -101,30 +101,30 @@ func (b *banco) prepara(max int, rileggi fascicolo.RiletturaFatti) fascicolo.Pre
 // resta fuori. Una proposta STEP aperta con quel codice ritrova il componente.
 func TestICodiciDellaRichiestaDiventanoProdottiUnaVoltaSola(t *testing.T) {
 	b := nuovoBanco(t)
-	b.identificativo("52922757", "proposta_famiglia", true)
-	b.identificativo("52922758", "manuale", true)
-	b.identificativo("52922759", "proposta_generico", false)
+	b.identificativo("77722757", "proposta_famiglia", true)
+	b.identificativo("77722758", "manuale", true)
+	b.identificativo("77722759", "proposta_generico", false)
 	b.identificativo(strings.Repeat("7", 45), "manuale", true)
-	b.identificativo("52922760", "proposta_generico", true)
-	assieme := b.componente("52922760", db.TipoComponenteSottoassieme)
+	b.identificativo("77722760", "proposta_generico", true)
+	assieme := b.componente("77722760", db.TipoComponenteSottoassieme)
 	step := b.allegatoStep("assieme.stp", strings.Repeat("e", 64))
 	b.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, codice, origine_codice, tipo_proposto, fonte, confidenza)
-		VALUES ($1, $2, $3, '#1', '52922757', '52922757', 'famiglia', 'finito', 'step', 90)`, b.thread, step.AllegatoID, step.Sha256.String)
+		VALUES ($1, $2, $3, '#1', '77722757', '77722757', 'famiglia', 'finito', 'step', 90)`, b.thread, step.AllegatoID, step.Sha256.String)
 
 	es := b.assicura()
-	if strings.Join(es.Creati, ",") != "52922757,52922758" {
-		t.Fatalf("creati %v, attesi 52922757 e 52922758", es.Creati)
+	if strings.Join(es.Creati, ",") != "77722757,77722758" {
+		t.Fatalf("creati %v, attesi 77722757 e 77722758", es.Creati)
 	}
 	if len(es.Saltati) != 1 {
 		t.Errorf("il codice troppo lungo resta fuori, e lo si dice: %v", es.Saltati)
 	}
-	for codice, origine := range map[string]string{"52922757": "codice_rilevato", "52922758": "manuale"} {
+	for codice, origine := range map[string]string{"77722757": "codice_rilevato", "77722758": "manuale"} {
 		tipo := uno[string](b, `SELECT tipo::text || '/' || origine::text || '/' || (confermato_da = $3)::text FROM componente WHERE thread_id = $1 AND codice = $2`, b.thread, codice, b.utente)
 		if tipo != "finito/"+origine+"/true" {
 			t.Errorf("%s: %s", codice, tipo)
 		}
 	}
-	if n := uno[int](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '52922759'`, b.thread); n != 0 {
+	if n := uno[int](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77722759'`, b.thread); n != 0 {
 		t.Error("un codice non confermato non diventa un prodotto")
 	}
 	if tipo := uno[string](b, `SELECT tipo::text FROM componente WHERE componente_id = $1`, assieme); tipo != "sottoassieme" {
@@ -150,12 +150,12 @@ func TestConLaBomCongelataICodiciNonDiventanoProdotti(t *testing.T) {
 	if _, err := b.congela("prima baseline"); err != nil {
 		t.Fatal(err)
 	}
-	b.identificativo("52922757", "manuale", true)
+	b.identificativo("77722757", "manuale", true)
 	es := b.assicura()
 	if es.Bloccata != 1 || len(es.Creati) != 0 {
 		t.Fatalf("con la BOM congelata: %+v", es)
 	}
-	if n := uno[int](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '52922757'`, b.thread); n != 0 {
+	if n := uno[int](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77722757'`, b.thread); n != 0 {
 		t.Error("nessun componente con la BOM congelata")
 	}
 }
@@ -275,11 +275,11 @@ func TestIlLavoroInCorsoSiContaPerJob(t *testing.T) {
 // Il piano dal database: un disegno del prodotto e' pronto; con la sua analisi in corso aspetta.
 func TestIlPianoDalDatabase(t *testing.T) {
 	b := nuovoBanco(t)
-	prodotto := b.componente("52922757", db.TipoComponenteFinito)
+	prodotto := b.componente("77722757", db.TipoComponenteFinito)
 	msg := b.messaggioOutlook()
-	pdf, sha := b.allegatoInStaging(msg, 1, "52922757.pdf", "%PDF disegno")
+	pdf, sha := b.allegatoInStaging(msg, 1, "77722757.pdf", "%PDF disegno")
 	b.esegui(`UPDATE allegato SET stato = 'analizzato' WHERE allegato_id = $1`, pdf)
-	b.esegui(`UPDATE documento_proposta SET tipo_proposto = 'disegno_2d', codice = '52922757', fonte = 'cartiglio', confidenza = 95 WHERE allegato_id = $1`, pdf)
+	b.esegui(`UPDATE documento_proposta SET tipo_proposto = 'disegno_2d', codice = '77722757', fonte = 'cartiglio', confidenza = 95 WHERE allegato_id = $1`, pdf)
 
 	leggi := func() fascicolo.PianoFascicolo {
 		var p fascicolo.PianoFascicolo

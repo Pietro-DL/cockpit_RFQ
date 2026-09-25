@@ -78,7 +78,7 @@ func nuovoBancoRipresa(t *testing.T, ctx context.Context, p *pgxpool.Pool, suffi
 	deve(p.QueryRow(ctx, `INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento, oggetto, thread_id)
 		VALUES ('outlook',$1,$2,'entrata',now(),'prova',$3) RETURNING messaggio_id`,
 		"<ripresa-"+suffisso+"@acme.example>", conv, thread).Scan(&b.messaggio))
-	deve(p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.it','Commerciale',true)
+	deve(p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.example','Commerciale',true)
 		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casella))
 	_, err = p.Exec(ctx, `INSERT INTO messaggio_outlook (messaggio_id) VALUES ($1)`, b.messaggio)
 	deve(err)

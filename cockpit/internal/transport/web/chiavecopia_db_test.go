@@ -46,19 +46,19 @@ func (b *bancoWeb) propostaDaConfermare(chiave string) (uuid.UUID, uuid.UUID, uu
 	if _, err := b.pool.Exec(b.ctx, `UPDATE messaggio SET thread_id = $2 WHERE messaggio_id = $1`, msg, thread); err != nil {
 		b.t.Fatal(err)
 	}
-	percorso := filepath.Join(b.t.TempDir(), "6674611A_4.pdf")
+	percorso := filepath.Join(b.t.TempDir(), "1234567A_4.pdf")
 	if err := os.WriteFile(percorso, []byte("contenuto di prova"), 0o644); err != nil {
 		b.t.Fatal(err)
 	}
 	var allegato, proposta uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine,
 		bytes, sha256, path_staging, stato, ricevuto_il)
-		VALUES ($1,1,'6674611A_4.pdf','pdf','file','outlook',18,repeat('a',64),$2,'analizzato',now())
+		VALUES ($1,1,'1234567A_4.pdf','pdf','file','outlook',18,repeat('a',64),$2,'analizzato',now())
 		RETURNING allegato_id`, msg, percorso).Scan(&allegato); err != nil {
 		b.t.Fatal(err)
 	}
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte)
-		VALUES ($1,$2,'disegno_2d','6674611A','4',90,'nome_file') RETURNING proposta_id`, allegato, thread).Scan(&proposta); err != nil {
+		VALUES ($1,$2,'disegno_2d','1234567A','4',90,'nome_file') RETURNING proposta_id`, allegato, thread).Scan(&proposta); err != nil {
 		b.t.Fatal(err)
 	}
 	return thread, msg, proposta

@@ -26,7 +26,7 @@ func dalMessaggio(codice, rev, origine, dove string) db.ListCodiciCandidatiThrea
 	r := db.ListCodiciCandidatiThreadRow{Codice: codice, Rev: rev, Sorgente: SorgenteMessaggio, Origine: origine, Evidenza: dove,
 		MessaggioID: mailDiProva, Ruolo: "non_classificato", Punteggio: 30}
 	if origine == "famiglia" {
-		r.Famiglia, r.Ruolo, r.Punteggio = "disegni 529", "prodotto", 80
+		r.Famiglia, r.Ruolo, r.Punteggio = "disegni 777", "prodotto", 80
 	}
 	return r
 }
@@ -48,7 +48,7 @@ func dalloStep(codice, rev, origine, file string) db.ListCodiciCandidatiThreadRo
 	r := db.ListCodiciCandidatiThreadRow{Codice: codice, Rev: rev, Sorgente: SorgenteStep, Origine: origine, Punteggio: 30,
 		Evidenza: codice + " — " + file, MessaggioID: mailDiProva, AllegatoID: uuid.NullUUID{UUID: uuid.New(), Valid: true}}
 	if origine == "famiglia" {
-		r.Famiglia, r.Punteggio = "disegni 529", 80
+		r.Famiglia, r.Punteggio = "disegni 777", 80
 	}
 	return r
 }
@@ -75,10 +75,10 @@ func trova(t *testing.T, c Candidati, codice string) CodiceCandidato {
 // Con famiglie dichiarate un numero visto solo dall'estrattore generico resta fra gli altri riferimenti,
 // come in Proponibili; senza famiglie il generico e' tutto quello che c'e', ed e' un candidato.
 func TestUnGenericoSoloNonEUnCandidatoProdottoSeCiSonoFamiglie(t *testing.T) {
-	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("52922757", "", "famiglia", "oggetto"), dalMessaggio("20260908", "", "generico", "corpo")}
+	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77722757", "", "famiglia", "oggetto"), dalMessaggio("20260908", "", "generico", "corpo")}
 	con := Unisci(righe, ContestoCodici{HaFamiglie: true})
-	if got := codiciDi(con.Prodotto); got != "52922757" {
-		t.Errorf("candidati prodotto = [%s], atteso [52922757]", got)
+	if got := codiciDi(con.Prodotto); got != "77722757" {
+		t.Errorf("candidati prodotto = [%s], atteso [77722757]", got)
 	}
 	if got := codiciDi(con.Altri); got != "20260908" {
 		t.Fatalf("altri riferimenti = [%s], atteso [20260908]", got)
@@ -87,7 +87,7 @@ func TestUnGenericoSoloNonEUnCandidatoProdottoSeCiSonoFamiglie(t *testing.T) {
 		t.Errorf("il motivo deve dire perche' non e' un candidato: %q", m)
 	}
 	senza := Unisci(righe, ContestoCodici{HaFamiglie: false})
-	if got := codiciDi(senza.Prodotto); got != "52922757 20260908" || len(senza.Altri) != 0 {
+	if got := codiciDi(senza.Prodotto); got != "77722757 20260908" || len(senza.Altri) != 0 {
 		t.Errorf("senza famiglie: prodotto [%s], altri [%s]", got, codiciDi(senza.Altri))
 	}
 }
@@ -96,16 +96,16 @@ func TestUnGenericoSoloNonEUnCandidatoProdottoSeCiSonoFamiglie(t *testing.T) {
 // Il cartiglio e la radice di uno STEP lo sono sempre.
 func TestIlNomeDiUnFileTecnicoEForteQuelloDiUnOffertaNo(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
-		dalDocumento("52920517", "", "nome_file", "52920517.dxf", "sviluppo_dxf", 90),
+		dalDocumento("77720517", "", "nome_file", "77720517.dxf", "sviluppo_dxf", 90),
 		dalNome("12345678", "Offerta 12345678 staffe.pdf", "commerciale"),
-		dalDocumento("6674611A", "4", "estensione", "6674611A_4.pdf", "da_determinare", 50),
-		dalDocumento("6674612A", "", "cartiglio", "foglio.pdf", "disegno_2d", 95),
+		dalDocumento("1234567A", "4", "estensione", "1234567A_4.pdf", "da_determinare", 50),
+		dalDocumento("1234568A", "", "cartiglio", "foglio.pdf", "disegno_2d", 95),
 	}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true})
-	if got := codiciDi(c.Prodotto); got != "6674612A 52920517" {
+	if got := codiciDi(c.Prodotto); got != "1234568A 77720517" {
 		t.Errorf("candidati prodotto = [%s]", got)
 	}
-	if got := codiciDi(c.Altri); got != "12345678 6674611A" {
+	if got := codiciDi(c.Altri); got != "12345678 1234567A" {
 		t.Errorf("altri riferimenti = [%s]: un PDF ancora da determinare non e' un file tecnico", got)
 	}
 	if m := trova(t, c, "12345678").Motivo; m != "solo nel nome di un file non tecnico" {
@@ -117,16 +117,16 @@ func TestIlNomeDiUnFileTecnicoEForteQuelloDiUnOffertaNo(t *testing.T) {
 // upper(codice) e' l'identita', e nessuna evidenza si perde.
 func TestLoStessoCodiceDaTreFontiEUnaRigaConTreEvidenze(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
-		dalMessaggio("6674611A", "", "famiglia", "oggetto"),
-		dalDocumento("6674611a", "4", "nome_file", "6674611a_4.pdf", "disegno_2d", 70),
-		dalloStep("6674611A", "4", "famiglia", "assieme.stp"),
+		dalMessaggio("1234567A", "", "famiglia", "oggetto"),
+		dalDocumento("1234567a", "4", "nome_file", "1234567a_4.pdf", "disegno_2d", 70),
+		dalloStep("1234567A", "4", "famiglia", "assieme.stp"),
 	}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true})
 	if len(c.Prodotto) != 1 || len(c.Altri) != 0 {
 		t.Fatalf("attesa una riga sola: prodotto [%s], altri [%s]", codiciDi(c.Prodotto), codiciDi(c.Altri))
 	}
 	k := c.Prodotto[0]
-	if k.Chiave != "6674611A" || len(k.Evidenze) != 3 {
+	if k.Chiave != "1234567A" || len(k.Evidenze) != 3 {
 		t.Fatalf("chiave %q con %d evidenze, attese 3", k.Chiave, len(k.Evidenze))
 	}
 	sorgenti := map[string]bool{}
@@ -147,16 +147,16 @@ func TestLoStessoCodiceDaTreFontiEUnaRigaConTreEvidenze(t *testing.T) {
 // Il riferimento della richiesta non e' un codice: non c'e' quando arriva da candidato_codice (la vista lo
 // esclude gia'), ne' quando lo stesso numero arriva dal nome di un file o da un'altra mail.
 func TestIlRiferimentoNonCompareFraICodici(t *testing.T) {
-	rif := dalMessaggio("RDO 490020618", "", "riferimento", "oggetto")
+	rif := dalMessaggio("RDO 400012345", "", "riferimento", "oggetto")
 	rif.Ruolo = "riferimento_rfq"
 	righe := []db.ListCodiciCandidatiThreadRow{
 		rif,
-		dalNome("490020618", "RDO 490020618.pdf", "da_determinare"),
-		dalMessaggio("490020618", "", "generico", "corpo"),
-		dalMessaggio("52922757", "", "famiglia", "oggetto"),
+		dalNome("400012345", "RDO 400012345.pdf", "da_determinare"),
+		dalMessaggio("400012345", "", "generico", "corpo"),
+		dalMessaggio("77722757", "", "famiglia", "oggetto"),
 	}
-	c := Unisci(righe, ContestoCodici{Riferimento: "RDO 490020618", HaFamiglie: true})
-	if got := codiciDi(c.Prodotto) + "|" + codiciDi(c.Altri); got != "52922757|" {
+	c := Unisci(righe, ContestoCodici{Riferimento: "RDO 400012345", HaFamiglie: true})
+	if got := codiciDi(c.Prodotto) + "|" + codiciDi(c.Altri); got != "77722757|" {
 		t.Errorf("codici = %q: il riferimento non deve comparire", got)
 	}
 }
@@ -165,20 +165,20 @@ func TestIlRiferimentoNonCompareFraICodici(t *testing.T) {
 // stesso codice anche nel corpo nuovo e' un candidato, e tiene tutte e due le evidenze.
 func TestUnCodiceDiFamigliaSoloNellaStoriaVaFraGliAltri(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
-		dalMessaggio("52922757", "", "famiglia", "storia citata"),
-		dalMessaggio("52920517", "", "famiglia", "storia citata"),
-		dalMessaggio("52920517", "", "famiglia", "corpo"),
+		dalMessaggio("77722757", "", "famiglia", "storia citata"),
+		dalMessaggio("77720517", "", "famiglia", "storia citata"),
+		dalMessaggio("77720517", "", "famiglia", "corpo"),
 	}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true})
-	if got := codiciDi(c.Altri); got != "52922757" {
+	if got := codiciDi(c.Altri); got != "77722757" {
 		t.Fatalf("altri riferimenti = [%s]", got)
 	}
 	if m := c.Altri[0].Motivo; m != "solo nella storia citata" {
 		t.Errorf("motivo = %q", m)
 	}
-	k := trova(t, c, "52920517")
+	k := trova(t, c, "77720517")
 	if !k.Prodotto || len(k.Evidenze) != 2 {
-		t.Errorf("52920517: prodotto %v con %d evidenze", k.Prodotto, len(k.Evidenze))
+		t.Errorf("77720517: prodotto %v con %d evidenze", k.Prodotto, len(k.Evidenze))
 	}
 }
 
@@ -188,15 +188,15 @@ func TestUnCodiceDiFamigliaSoloNellaStoriaVaFraGliAltri(t *testing.T) {
 // fra quelle viste. «b» e «B» sono la stessa; una revisione vuota non dice niente.
 func TestLeRevisioniDiscordantiSonoUnConflittoNonUnPunteggio(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
-		dalDocumento("52922757", "A", "cartiglio", "52922757.pdf", "disegno_2d", 95),
-		dalloStep("52922757", "B", "famiglia", "assieme.stp"),
-		dalMessaggio("52922757", "b", "famiglia", "oggetto"),
-		dalNome("52922757", "elenco 52922757.pdf", "disegno_2d"),
-		dalMessaggio("52920517", "4", "famiglia", "corpo"),
-		dalDocumento("52920517", "4", "nome_file", "52920517_4.pdf", "disegno_2d", 70),
+		dalDocumento("77722757", "A", "cartiglio", "77722757.pdf", "disegno_2d", 95),
+		dalloStep("77722757", "B", "famiglia", "assieme.stp"),
+		dalMessaggio("77722757", "b", "famiglia", "oggetto"),
+		dalNome("77722757", "elenco 77722757.pdf", "disegno_2d"),
+		dalMessaggio("77720517", "4", "famiglia", "corpo"),
+		dalDocumento("77720517", "4", "nome_file", "77720517_4.pdf", "disegno_2d", 70),
 	}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true})
-	k := trova(t, c, "52922757")
+	k := trova(t, c, "77722757")
 	if !k.Conflitto || len(k.Revisioni) != 2 || k.Revisioni[0].Rev != "A" || k.Revisioni[1].Rev != "B" || k.Revisioni[1].Evidenze != 2 {
 		t.Fatalf("revisioni = %+v, conflitto %v", k.Revisioni, k.Conflitto)
 	}
@@ -211,9 +211,9 @@ func TestLeRevisioniDiscordantiSonoUnConflittoNonUnPunteggio(t *testing.T) {
 	if _, err := revisioneScelta(k, "C"); !errors.As(err, &r) || !strings.Contains(string(r), "non è fra quelle viste") {
 		t.Errorf("scelta «C»: %v", err)
 	}
-	u := trova(t, c, "52920517")
+	u := trova(t, c, "77720517")
 	if u.Conflitto || len(u.Revisioni) != 1 {
-		t.Errorf("52920517: %+v", u.Revisioni)
+		t.Errorf("77720517: %+v", u.Revisioni)
 	}
 	if rev, err := revisioneScelta(u, ""); err != nil || rev != "4" {
 		t.Errorf("una revisione sola si prende senza chiedere: %q, %v", rev, err)
@@ -239,11 +239,11 @@ func componente(codice string, tipo db.TipoComponente, archiviato bool) db.Compo
 // Un codice con un nodo STEP aperto porta a quel nodo, anche se il componente c'e' ed e' archiviato:
 // accettarlo lo ripristina, e porta con se' il file. Niente «+» da qui: sarebbe un componente parallelo.
 func TestUnCodiceConUnaPropostaStepApertaPortaAllaProposta(t *testing.T) {
-	p := proposta("52920517", "assieme.stp")
-	righe := []db.ListCodiciCandidatiThreadRow{dalloStep("52920517", "", "famiglia", "assieme.stp"), dalMessaggio("52920517", "", "famiglia", "corpo")}
-	for _, comp := range [][]db.Componente{nil, {componente("52920517", db.TipoComponenteSciolto, true)}} {
+	p := proposta("77720517", "assieme.stp")
+	righe := []db.ListCodiciCandidatiThreadRow{dalloStep("77720517", "", "famiglia", "assieme.stp"), dalMessaggio("77720517", "", "famiglia", "corpo")}
+	for _, comp := range [][]db.Componente{nil, {componente("77720517", db.TipoComponenteSciolto, true)}} {
 		c := Unisci(righe, ContestoCodici{HaFamiglie: true, Proposte: []db.ListProposteNodoAperteRow{p}, Componenti: comp})
-		s := trova(t, c, "52920517").Stato
+		s := trova(t, c, "77720517").Stato
 		if s.Situazione != SituazioneProposta || s.Proposta().PropostaID != p.PropostaID || len(s.Tipi) != 0 {
 			t.Errorf("con %d componenti: situazione %s, proposta %v, tipi %v", len(comp), s.Situazione, s.Proposta().PropostaID, s.Tipi)
 		}
@@ -252,10 +252,10 @@ func TestUnCodiceConUnaPropostaStepApertaPortaAllaProposta(t *testing.T) {
 
 // Un codice che e' gia' un componente si apre: le maiuscole non contano.
 func TestUnCodiceGiaComponenteSiApre(t *testing.T) {
-	comp := componente("6674611a", db.TipoComponenteFinito, false)
-	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("6674611A", "", "famiglia", "oggetto")},
+	comp := componente("1234567a", db.TipoComponenteFinito, false)
+	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("1234567A", "", "famiglia", "oggetto")},
 		ContestoCodici{HaFamiglie: true, Componenti: []db.Componente{comp}})
-	s := trova(t, c, "6674611A").Stato
+	s := trova(t, c, "1234567A").Stato
 	if s.Situazione != SituazioneComponente || s.Componente == nil || s.Componente.ComponenteID != comp.ComponenteID || len(s.Tipi) != 0 {
 		t.Errorf("situazione %s, componente %v, tipi %v", s.Situazione, s.Componente, s.Tipi)
 	}
@@ -263,10 +263,10 @@ func TestUnCodiceGiaComponenteSiApre(t *testing.T) {
 
 // Un codice di un componente archiviato propone il ripristino: stesso componente, stessa storia.
 func TestUnCodiceArchiviatoProponeIlRipristino(t *testing.T) {
-	comp := componente("52931111", db.TipoComponenteSciolto, true)
-	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("52931111", "", "famiglia", "corpo")},
+	comp := componente("77731111", db.TipoComponenteSciolto, true)
+	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("77731111", "", "famiglia", "corpo")},
 		ContestoCodici{HaFamiglie: true, Componenti: []db.Componente{comp}})
-	s := trova(t, c, "52931111").Stato
+	s := trova(t, c, "77731111").Stato
 	if s.Situazione != SituazioneArchiviato || s.Componente.ComponenteID != comp.ComponenteID || len(s.Tipi) != 0 {
 		t.Errorf("situazione %s, tipi %v", s.Situazione, s.Tipi)
 	}
@@ -275,14 +275,14 @@ func TestUnCodiceArchiviatoProponeIlRipristino(t *testing.T) {
 // Solo un codice davvero nuovo offre prodotto, assieme e particolare. Un codice della richiesta e' gia'
 // deciso come prodotto: entra come prodotto.
 func TestSoloUnCodiceNuovoOffreITreTipi(t *testing.T) {
-	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("52960000", "", "famiglia", "corpo"), dalMessaggio("52950000", "", "famiglia", "oggetto")}
-	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Identificativi: []db.IdentificativoThread{{Codice: "52950000"}}})
-	nuovo := trova(t, c, "52960000").Stato
+	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77760000", "", "famiglia", "corpo"), dalMessaggio("77750000", "", "famiglia", "oggetto")}
+	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Identificativi: []db.IdentificativoThread{{Codice: "77750000"}}})
+	nuovo := trova(t, c, "77760000").Stato
 	if nuovo.Situazione != SituazioneNuovo || len(nuovo.Tipi) != 3 || nuovo.Tipi[0] != db.TipoComponenteFinito ||
 		nuovo.Tipi[1] != db.TipoComponenteSottoassieme || nuovo.Tipi[2] != db.TipoComponenteSciolto {
 		t.Errorf("nuovo: %s %v", nuovo.Situazione, nuovo.Tipi)
 	}
-	ric := trova(t, c, "52950000").Stato
+	ric := trova(t, c, "77750000").Stato
 	if ric.Situazione != SituazioneRichiesta || !ric.Identificativo || len(ric.Tipi) != 1 || ric.Tipi[0] != db.TipoComponenteFinito {
 		t.Errorf("codice della richiesta: %s %v", ric.Situazione, ric.Tipi)
 	}
@@ -290,8 +290,8 @@ func TestSoloUnCodiceNuovoOffreITreTipi(t *testing.T) {
 
 // Con la BOM congelata la situazione resta quella e si mostra, ma nessun gesto la cambia da qui.
 func TestConLaBomCongelataNessunGestoCheLaCambia(t *testing.T) {
-	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("52960000", "", "famiglia", "corpo"), dalMessaggio("52950000", "", "famiglia", "oggetto")}
-	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Bloccata: 2, Identificativi: []db.IdentificativoThread{{Codice: "52950000"}}})
+	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77760000", "", "famiglia", "corpo"), dalMessaggio("77750000", "", "famiglia", "oggetto")}
+	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Bloccata: 2, Identificativi: []db.IdentificativoThread{{Codice: "77750000"}}})
 	if c.Bloccata != 2 {
 		t.Errorf("Bloccata = %d", c.Bloccata)
 	}
@@ -300,7 +300,7 @@ func TestConLaBomCongelataNessunGestoCheLaCambia(t *testing.T) {
 			t.Errorf("%s: tipi %v, bloccata %d", k.Codice, k.Stato.Tipi, k.Stato.Bloccata)
 		}
 	}
-	if s := trova(t, c, "52960000").Stato.Situazione; s != SituazioneNuovo {
+	if s := trova(t, c, "77760000").Stato.Situazione; s != SituazioneNuovo {
 		t.Errorf("la situazione si mostra anche a BOM congelata: %s", s)
 	}
 }
@@ -308,8 +308,8 @@ func TestConLaBomCongelataNessunGestoCheLaCambia(t *testing.T) {
 // Stesse righe in un altro ordine, stesso risultato: Unisci e' pura.
 func TestUnisciNonDipendeDallOrdineDelleRighe(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
-		dalMessaggio("52922757", "", "famiglia", "oggetto"), dalloStep("52922757", "B", "famiglia", "a.stp"),
-		dalMessaggio("20260908", "", "generico", "corpo"), dalDocumento("52920517", "", "nome_file", "52920517.pdf", "disegno_2d", 70),
+		dalMessaggio("77722757", "", "famiglia", "oggetto"), dalloStep("77722757", "B", "famiglia", "a.stp"),
+		dalMessaggio("20260908", "", "generico", "corpo"), dalDocumento("77720517", "", "nome_file", "77720517.pdf", "disegno_2d", 70),
 	}
 	a := Unisci(righe, ContestoCodici{HaFamiglie: true})
 	inverse := make([]db.ListCodiciCandidatiThreadRow, len(righe))
@@ -340,15 +340,15 @@ func TestUnCodiceTrovaIlPezzoConIlSuffisso(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vecchio := componente("52920000_PRT", db.TipoComponenteSciolto, false)
-	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("52920000", "", "generico", "corpo")}
+	vecchio := componente("77720000_PRT", db.TipoComponenteSciolto, false)
+	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77720000", "", "generico", "corpo")}
 	c := Unisci(righe, ContestoCodici{Componenti: []db.Componente{vecchio}, Motore: classificazione.Compila("ACME", r)})
-	k := trova(t, c, "52920000")
+	k := trova(t, c, "77720000")
 	if k.Stato.Situazione != SituazioneComponente || k.Stato.Componente == nil || k.Stato.Componente.ComponenteID != vecchio.ComponenteID {
-		t.Errorf("il codice 52920000: %+v", k.Stato)
+		t.Errorf("il codice 77720000: %+v", k.Stato)
 	}
 	c = Unisci(righe, ContestoCodici{Componenti: []db.Componente{vecchio}})
-	if k := trova(t, c, "52920000"); k.Stato.Situazione != SituazioneNuovo {
+	if k := trova(t, c, "77720000"); k.Stato.Situazione != SituazioneNuovo {
 		t.Errorf("senza la regola e' un codice nuovo: %+v", k.Stato)
 	}
 }

@@ -133,7 +133,7 @@ func TestLaPaginaDelDivietoDiceIlMotivo(t *testing.T) {
 	for _, nome := range []string{"vietato", "layout"} {
 		var buf bytes.Buffer
 		v := vista{Utente: &db.Utente{Sigla: "FP", Nome: "Nome Cognome", Ruolo: db.RuoloUtenteOperatore},
-			Titolo: "Non autorizzato", Dati: "Questa schermata è dell'amministratore.", Stato: &statoUI{}}
+			Titolo: "Non autorizzato", Dati: "Questa schermata è dell'amministratore.", Serve: db.RuoloUtenteAdmin, Stato: &statoUI{}}
 		v.Frammento = nome == "vietato"
 		if err := s.pagine["vietato.html"].ExecuteTemplate(&buf, nome, v); err != nil {
 			t.Fatal(err)
@@ -142,6 +142,45 @@ func TestLaPaginaDelDivietoDiceIlMotivo(t *testing.T) {
 		for _, atteso := range []string{"admin", "operatore", "amministratore"} {
 			if !strings.Contains(html, atteso) {
 				t.Errorf("%s: non dice %q: %s", nome, atteso, html)
+			}
+		}
+	}
+}
+
+// Il ruolo che la pagina del divieto dice che serve e' quello che serve davvero, non sempre «admin»:
+// chi consulta e prova un gesto da operatore legge «operatore»; una postazione a cui non si e'
+// abilitati non dipende dal ruolo, e la pagina non ne nomina nessuno.
+func TestIlDivietoDiceIlRuoloCheServeDavvero(t *testing.T) {
+	s := serverTest(t)
+	chi := &db.Utente{Sigla: "CO", Nome: "Nome Cognome", Ruolo: db.RuoloUtenteConsultazione}
+	casi := []struct {
+		serve          db.RuoloUtente
+		atteso, niente []string
+	}{
+		{db.RuoloUtenteOperatore, []string{"<code>consultazione</code>", "<code>operatore</code>"}, []string{"<code>admin</code>"}},
+		{"", []string{"non sei abilitato alla postazione PC-PROVA"}, []string{"serve <code>", "<code>admin</code>"}},
+	}
+	for _, c := range casi {
+		for _, nome := range []string{"vietato", "layout"} {
+			var buf bytes.Buffer
+			motivo := "Il ruolo «consultazione» vede il Cockpit e non lo cambia."
+			if c.serve == "" {
+				motivo = "La scelta non vale: non sei abilitato alla postazione PC-PROVA."
+			}
+			v := vista{Utente: chi, Titolo: "Non autorizzato", Dati: motivo, Serve: c.serve, Stato: &statoUI{}, Frammento: nome == "vietato"}
+			if err := s.pagine["vietato.html"].ExecuteTemplate(&buf, nome, v); err != nil {
+				t.Fatal(err)
+			}
+			html := buf.String()
+			for _, a := range c.atteso {
+				if !strings.Contains(html, a) {
+					t.Errorf("%s, serve %q: non dice %q", nome, c.serve, a)
+				}
+			}
+			for _, n := range c.niente {
+				if strings.Contains(html, n) {
+					t.Errorf("%s, serve %q: dice %q", nome, c.serve, n)
+				}
 			}
 		}
 	}

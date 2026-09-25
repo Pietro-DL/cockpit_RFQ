@@ -33,7 +33,7 @@ func casellaDiProva(t *testing.T, ctx context.Context, q *db.Queries, indirizzo 
 
 func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 	_, q, ctx := preparaDB(t)
-	casella := casellaDiProva(t, ctx, q, "commerciale@azienda.it")
+	casella := casellaDiProva(t, ctx, q, "commerciale@azienda.example")
 
 	futuro := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
 	sano := time.Now().Add(-30 * time.Minute).UTC().Truncate(time.Second)
@@ -75,7 +75,7 @@ func TestUnCursoreNelFuturoNonFermaIlSyncDellaCasella(t *testing.T) {
 
 func TestSenzaCursoriUtilizzabiliLaFinestraTornaQuellaPredefinita(t *testing.T) {
 	_, q, ctx := preparaDB(t)
-	casella := casellaDiProva(t, ctx, q, "francesco@azienda.it")
+	casella := casellaDiProva(t, ctx, q, "francesco@azienda.example")
 	futuro := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
 	if err := q.UpsertSyncCursore(ctx, db.UpsertSyncCursoreParams{
 		CasellaID: casella.CasellaID, Cartella: "Inbox", UltimoReceived: &futuro,

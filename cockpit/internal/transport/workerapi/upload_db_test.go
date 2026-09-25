@@ -97,7 +97,7 @@ func (b *banco) messaggioConAllegato(nome, ext string) (db.Allegato, db.Messaggi
 	if _, err := b.pool.Exec(b.ctx, `INSERT INTO messaggio_outlook (messaggio_id) VALUES ($1)`, msgID); err != nil {
 		b.t.Fatal(err)
 	}
-	if err := b.pool.QueryRow(b.ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.it','Commerciale',true)
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.example','Commerciale',true)
 		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casellaID); err != nil {
 		b.t.Fatal(err)
 	}

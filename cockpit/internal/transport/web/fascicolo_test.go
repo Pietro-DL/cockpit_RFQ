@@ -36,11 +36,11 @@ func fascicoloSintetico() *sinteticoFascicolo {
 	mk := func(codice string, tipo db.TipoComponente) db.Componente {
 		return db.Componente{ComponenteID: uuid.New(), ThreadID: tid, Codice: codice, Tipo: tipo, Qta: 1}
 	}
-	s.prodotto, s.assieme, s.particolare = mk("52922757", db.TipoComponenteFinito), mk("52920517", db.TipoComponenteSottoassieme), mk("53017189", db.TipoComponenteSciolto)
+	s.prodotto, s.assieme, s.particolare = mk("77722757", db.TipoComponenteFinito), mk("77720517", db.TipoComponenteSottoassieme), mk("77817189", db.TipoComponenteSciolto)
 	comp := []db.Componente{s.prodotto, s.assieme, s.particolare}
 	rel := []db.ComponenteRelazione{{PadreID: s.prodotto.ComponenteID, FiglioID: s.assieme.ComponenteID, Qta: 2},
 		{PadreID: s.assieme.ComponenteID, FiglioID: s.particolare.ComponenteID, Qta: 4}}
-	d := &fascicoloDati{T: db.ThreadOfferta{ThreadID: tid, Oggetto: txtT("RFQ 52922757")}, Riga: db.VCruscotto{Cliente: "ACME"},
+	d := &fascicoloDati{T: db.ThreadOfferta{ThreadID: tid, Oggetto: txtT("RFQ 77722757")}, Riga: db.VCruscotto{Cliente: "ACME"},
 		Base: "/thread/" + tid.String() + "/fascicolo", Scrive: true, Caricamento: true,
 		Fase: &db.FaseLog{NomeFase: db.FaseFATTIBILITA}, PuoCongelare: true,
 		Albero: fascicolo.NuovoAlbero(comp, rel), Componenti: map[uuid.UUID]db.Componente{},
@@ -51,7 +51,7 @@ func fascicoloSintetico() *sinteticoFascicolo {
 				cellaDa(db.VFascicolo{TipoDocumento: db.TipoDocumentoSviluppoDxf, Esito: "manca"})},
 			s.particolare.ComponenteID: {cellaDa(db.VFascicolo{TipoDocumento: db.TipoDocumentoDisegno2d, Bloccante: true, Esito: "derogato"})},
 		},
-		StepProdotto: map[uuid.UUID]db.VStepProdotto{s.prodotto.ComponenteID: {ComponenteID: s.prodotto.ComponenteID, Codice: "52922757", Esito: fascicolo.StepDaScegliere}},
+		StepProdotto: map[uuid.UUID]db.VStepProdotto{s.prodotto.ComponenteID: {ComponenteID: s.prodotto.ComponenteID, Codice: "77722757", Esito: fascicolo.StepDaScegliere}},
 		Inline:       map[uuid.UUID][]figlioProposto{}, Rimozioni: map[uuid.UUID][]rimozione{},
 		Conteggi: map[string]int{}, DocumentiDi: map[uuid.UUID][]db.Documento{},
 		Gate:       fascicolo.Gate{Problemi: []string{"2 requisiti bloccanti del fascicolo non soddisfatti né derogati"}},
@@ -60,16 +60,16 @@ func fascicoloSintetico() *sinteticoFascicolo {
 		d.Componenti[c.ComponenteID] = c
 	}
 	s.step, s.pdf = uuid.New(), uuid.New()
-	s.nodo = db.ComponenteProposta{PropostaID: uuid.New(), AllegatoID: s.step, Chiave: "#3", Codice: txtT("53011111"), NomeGrezzo: "53011111",
+	s.nodo = db.ComponenteProposta{PropostaID: uuid.New(), AllegatoID: s.step, Chiave: "#3", Codice: txtT("77811111"), NomeGrezzo: "77811111",
 		Stato: db.StatoPropostaAperta, TipoProposto: db.NullTipoComponente{TipoComponente: db.TipoComponenteSciolto, Valid: true}}
 	s.nodoSenzaCodice = db.ComponenteProposta{PropostaID: uuid.New(), AllegatoID: s.step, Chiave: "#4", NomeGrezzo: "Part1", Stato: db.StatoPropostaAperta}
-	padre := db.ComponenteProposta{AllegatoID: s.step, Chiave: "#2", Codice: txtT("52920517"), Stato: db.StatoPropostaDuplicato,
+	padre := db.ComponenteProposta{AllegatoID: s.step, Chiave: "#2", Codice: txtT("77720517"), Stato: db.StatoPropostaDuplicato,
 		ComponenteID: uuid.NullUUID{UUID: s.assieme.ComponenteID, Valid: true}}
 	d.Inline[s.assieme.ComponenteID] = []figlioProposto{{R: db.RelazioneProposta{AllegatoID: s.step, PadreChiave: "#2", FiglioChiave: "#3", Qta: 2,
 		Stato: db.StatoPropostaAperta}, File: "assieme.stp", Padre: padre, Figlio: s.nodo}}
 	d.Rimozioni[s.prodotto.ComponenteID] = []rimozione{{R: db.RimozioneProposta{StepDocumentoID: uuid.New(), PadreID: s.prodotto.ComponenteID,
-		FiglioID: s.assieme.ComponenteID, QtaWorking: 2, Stato: db.StatoPropostaAperta}, Figlio: s.assieme, Step: "52922757.stp"}}
-	d.Blocchi = []bloccoFile{{Allegato: s.step, Nome: "assieme.stp", Aperte: 1, Nodi: []nodoProposto{{P: s.nodoSenzaCodice, Sotto: "53011111"}}}}
+		FiglioID: s.assieme.ComponenteID, QtaWorking: 2, Stato: db.StatoPropostaAperta}, Figlio: s.assieme, Step: "77722757.stp"}}
+	d.Blocchi = []bloccoFile{{Allegato: s.step, Nome: "assieme.stp", Aperte: 1, Nodi: []nodoProposto{{P: s.nodoSenzaCodice, Sotto: "77811111"}}}}
 	// le stesse proposte come righe, come le legge la BOM visuale (B8.7b)
 	padre.PropostaID = uuid.New()
 	d.NodiProposti = []db.ListComponenteProposteThreadRow{{ComponenteProposta: padre, NomeFile: "assieme.stp"},
@@ -78,16 +78,16 @@ func fascicoloSintetico() *sinteticoFascicolo {
 		{RelazioneProposta: db.RelazioneProposta{AllegatoID: s.step, PadreChiave: "#2", FiglioChiave: "#3", Qta: 2, Stato: db.StatoPropostaAperta}, NomeFile: "assieme.stp"},
 		{RelazioneProposta: db.RelazioneProposta{AllegatoID: s.step, PadreChiave: "#3", FiglioChiave: "#4", Qta: 1, Stato: db.StatoPropostaAperta}, NomeFile: "assieme.stp"}}
 	d.NProposte = 3
-	prop := db.DocumentoProposta{PropostaID: uuid.New(), AllegatoID: s.pdf, TipoProposto: db.TipoDocumentoDisegno2d, Codice: txtT("52920517"),
+	prop := db.DocumentoProposta{PropostaID: uuid.New(), AllegatoID: s.pdf, TipoProposto: db.TipoDocumentoDisegno2d, Codice: txtT("77720517"),
 		Confidenza: 85, Fonte: db.FontePropostaCartiglio, Stato: db.StatoPropostaAperta, Dettagli: json.RawMessage(`{}`)}
-	file := rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: s.pdf, NomeFile: "52920517.pdf", Estensione: txtT("pdf"), Stato: db.StatoAllegatoAnalizzato,
+	file := rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: s.pdf, NomeFile: "77720517.pdf", Estensione: txtT("pdf"), Stato: db.StatoAllegatoAnalizzato,
 		PathStaging: txtT(`C:\staging\x.pdf`), DataEvento: time.Now(), MittenteNome: txtT("Mario Rossi")}, Proposta: &prop,
-		Tipo: "disegno_2d", Codice: "52920517"}
+		Tipo: "disegno_2d", Codice: "77720517"}
 	file.Stato, file.ClasseStato = statoFile(file)
 	stepDoc := db.Documento{DocumentoID: uuid.New(), ComponenteID: uuid.NullUUID{UUID: s.prodotto.ComponenteID, Valid: true}, Tipo: db.TipoDocumentoCad3d,
-		Codice: txtT("52922757"), NomeFile: "52922757.stp", Estensione: "stp", StatoNas: db.StatoNasScritto, PathRelativo: `CAD\52922757\52922757_REV_ND.stp`}
+		Codice: txtT("77722757"), NomeFile: "77722757.stp", Estensione: "stp", StatoNas: db.StatoNasScritto, PathRelativo: `CAD\77722757\77722757_REV_ND.stp`}
 	fs := rigaFile{A: db.ListAllegatiFascicoloRow{AllegatoID: s.step, NomeFile: "assieme.stp", Estensione: txtT("stp"), Stato: db.StatoAllegatoAnalizzato,
-		Sha256: txtT(strings.Repeat("c", 64)), DataEvento: time.Now()}, Doc: &stepDoc, Comp: &s.prodotto, Tipo: "cad_3d", Codice: "52922757"}
+		Sha256: txtT(strings.Repeat("c", 64)), DataEvento: time.Now()}, Doc: &stepDoc, Comp: &s.prodotto, Tipo: "cad_3d", Codice: "77722757"}
 	fs.Stato, fs.ClasseStato = statoFile(fs)
 	d.File = []rigaFile{file, fs}
 	d.DocumentiDi[s.prodotto.ComponenteID] = []db.Documento{stepDoc}
@@ -147,12 +147,12 @@ func TestLaSchermataMostraLaBomConLeProposteTratteggiate(t *testing.T) {
 	tid := s.d.T.ThreadID.String()
 	haTesto(t, "BOM visuale", html, `id="tela"`, `id="nodo-`+s.prodotto.ComponenteID.String()+`"`,
 		`id="nodo-`+s.assieme.ComponenteID.String()+`-`+s.prodotto.ComponenteID.String()+`"`, `class="arco"`, "×2", "×4",
-		`id="proposta-`+s.step.String()+`-#3"`, "53011111", "+ proposto · particolare?", "dallo STEP assieme.stp",
-		"non è più nello STEP strutturale 52922757.stp", "Togli dalla BOM", "Tieni", "prodotto finito",
+		`id="proposta-`+s.step.String()+`-#3"`, "77811111", "+ proposto · particolare?", "dallo STEP assieme.stp",
+		"non è più nello STEP strutturale 77722757.stp", "Togli dalla BOM", "Tieni", "prodotto finito",
 		`title="STEP prodotto finito: DA SCEGLIERE — quale STEP è la distinta"`)
 	haTesto(t, "testata", html, "Congela…", "Non si congela ancora", "2 requisiti bloccanti", "BOM working, mai congelata",
 		"/thread/"+tid+"/fascicolo/rianalizza", `data-vista="documenti">Documenti<`, `data-vista="bom">Struttura BOM<`,
-		`data-vista="completezza">Completezza`, ">Elenco file <", ">Codici<", "Avvisi", ">Albero<", "Modifica la struttura di 52922757",
+		`data-vista="completezza">Completezza`, ">Elenco file <", ">Codici<", "Avvisi", ">Albero<", "Modifica la struttura di 77722757",
 		"+ Aggiungi file", "Carica dal PC", `hx-encoding="multipart/form-data"`, "Importa dal NAS", "Da verificare")
 	haTesto(t, "piano", html, `id="piano"`, "Conferma Fascicolo", "Rivedi")
 	senzaTesto(t, "BOM visuale", html, "Carica nuova versione interna", `class="doc-tabella"`)
@@ -163,9 +163,9 @@ func TestLaSchermataMostraLaBomConLeProposteTratteggiate(t *testing.T) {
 	s.d.Stato.Vista = "albero"
 	html = rendiFascicolo(t, "fasc_corpo", s.d)
 	haTesto(t, "albero", html,
-		`id="albero-`+s.prodotto.ComponenteID.String()+`"`, `class="node proposal"`, "53011111", "STEP assieme.stp",
+		`id="albero-`+s.prodotto.ComponenteID.String()+`"`, `class="node proposal"`, "77811111", "STEP assieme.stp",
 		"/fascicolo/nodo/"+s.nodo.PropostaID.String()+"/accetta", "Accetta il nodo", "con il sottoalbero",
-		`class="node removal"`, "non è più nello STEP strutturale 52922757.stp", "Togli dalla BOM", "Tieni",
+		`class="node removal"`, "non è più nello STEP strutturale 77722757.stp", "Togli dalla BOM", "Tieni",
 		"Dallo STEP «", "assieme.stp", "Rivedi nell'editor", "/fascicolo/nodo/"+s.nodoSenzaCodice.PropostaID.String()+"/codice", "Scrivi il codice",
 		`title="STEP prodotto finito: DA SCEGLIERE — quale STEP è la distinta"`)
 
@@ -177,7 +177,7 @@ func TestLaSchermataMostraLaBomConLeProposteTratteggiate(t *testing.T) {
 
 	s.d.Stato.Vista = "file"
 	html = rendiFascicolo(t, "fasc_corpo", s.d)
-	haTesto(t, "elenco file", html, "52920517.pdf", `name="proposta" value="`, "Scegli un componente (nella BOM o nella griglia)",
+	haTesto(t, "elenco file", html, "77720517.pdf", `name="proposta" value="`, "Scegli un componente (nella BOM o nella griglia)",
 		`class="doc-tabella"`)
 	if n := strings.Count(html, `type="file"`); n != 1 {
 		t.Errorf("il file picker sta solo in «Carica dal PC»: %d", n)
@@ -215,14 +215,14 @@ func TestLaSchermataMostraLaBomConLeProposteTratteggiate(t *testing.T) {
 	s.d.Stato = statoFascicolo{Nodo: s.assieme.ComponenteID}
 	s.d.Documenti = costruisciDocumenti(s.d, nil, uuid.Nil)
 	html = rendiParte(t, "fasc_doc_sezione", s.d)
-	haTesto(t, "sezione", html, `data-k="c:`+s.assieme.ComponenteID.String()+`"`, "52920517.pdf", "Tipo rilevato", "Codice letto",
+	haTesto(t, "sezione", html, `data-k="c:`+s.assieme.ComponenteID.String()+`"`, "77720517.pdf", "Tipo rilevato", "Codice letto",
 		"Associato a", "Confidenza", "85%", "Cambia componente", "Documentazione generale", "Capitolato", "Scarta",
 		"/fascicolo/file/"+s.d.File[0].Proposta.PropostaID.String()+"/generale", "ritorna_thread", "Note sul disegno", "+ Aggiungi nota")
 	// chi consulta vede il file e le note, e non ha i gesti
 	s.d.Scrive = false
 	s.d.Documenti = costruisciDocumenti(s.d, nil, uuid.Nil)
 	html = rendiParte(t, "fasc_doc_sezione", s.d)
-	haTesto(t, "sezione, consultazione", html, "52920517.pdf", "Tipo rilevato", "Note sul disegno")
+	haTesto(t, "sezione, consultazione", html, "77720517.pdf", "Tipo rilevato", "Note sul disegno")
 	senzaTesto(t, "sezione, consultazione", html, "+ Aggiungi nota", "Cambia componente", "Documentazione generale", "/scarta")
 }
 
@@ -249,7 +249,7 @@ func TestConLaBomCongelataLaSchermataSiLeggeENonCambia(t *testing.T) {
 	s.d.Stato.Vista = "bom"
 	html := rendiFascicolo(t, "fasc_corpo", s.d)
 	haTesto(t, "congelata", html, "BOM congelata nella V1", "Apri una revisione…", "In ACCETTATA il tipo di revisione lo sceglie chi la apre",
-		`name="contesto" value="preventivo" required>`, `name="contesto" value="tecnica" required>`, "Carica dal PC", "53011111",
+		`name="contesto" value="preventivo" required>`, `name="contesto" value="tecnica" required>`, "Carica dal PC", "77811111",
 		"La BOM è congelata nella V1", "il componente si legge, si cambia aprendo una revisione")
 	if regexp.MustCompile(`name="contesto"[^>]*checked`).MatchString(html) {
 		t.Error("D25c: nessuna preselezione")
@@ -266,7 +266,7 @@ func TestConLaBomCongelataLaSchermataSiLeggeENonCambia(t *testing.T) {
 		senzaTesto(t, "congelata, "+vista, html, vietati...)
 	}
 	s.d.Stato.Vista = "albero"
-	haTesto(t, "congelata, albero", rendiFascicolo(t, "fasc_corpo", s.d), "53011111", "si decide aprendo una revisione")
+	haTesto(t, "congelata, albero", rendiFascicolo(t, "fasc_corpo", s.d), "77811111", "si decide aprendo una revisione")
 	s.d.Stato.Vista = "file"
 	haTesto(t, "congelata, elenco file", rendiFascicolo(t, "fasc_corpo", s.d), "BOM congelata: un file si assegna aprendo una revisione")
 	// nella vista Documenti il file in arrivo dell'assieme dice che entra senza componente; le note restano
@@ -296,16 +296,16 @@ func TestLAnteprimaDiUnPdfEDiUnoStep(t *testing.T) {
 		`name="ritorna_thread" value="`+s.d.T.ThreadID.String()+`"`, "/proposta/"+s.d.File[0].Proposta.PropostaID.String()+"/conferma")
 
 	st := &worker.StrutturaSTEP{Versione: 3, Schema: "AP214", Radici: []string{"#1"},
-		Nodi:      []worker.NodoSTEP{{Chiave: "#1", IDGrezzo: "52922757"}, {Chiave: "#2", IDGrezzo: "52920517"}},
+		Nodi:      []worker.NodoSTEP{{Chiave: "#1", IDGrezzo: "77722757"}, {Chiave: "#2", IDGrezzo: "77720517"}},
 		Relazioni: []worker.RelazioneSTEP{{Padre: "#1", Figlio: "#2", Qta: 2}}, Avvisi: []string{"PRODUCT #9 senza definizione"},
 		Scarti: &worker.ScartiSTEP{ProdottiSenzaDefinizione: 1}}
 	s.d.Stato.File = s.step
 	s.d.Anteprima = &anteprimaDati{F: s.d.File[1], Analisi: &riepilogoAnalisi{Versione: 3, Struttura: st, MotivoParziale: "1 PRODUCT senza definizione",
-		Nomi: map[string]string{"#1": "52922757", "#2": "52920517"}}, Proposte: []db.ComponenteProposta{s.nodo}}
+		Nomi: map[string]string{"#1": "77722757", "#2": "77720517"}}, Proposte: []db.ComponenteProposta{s.nodo}}
 	html = rendiFascicolo(t, "fasc_corpo", s.d)
 	haTesto(t, "step", html, "versione 3", "schema AP214", "2 nodi", "1 relazioni", "letta in parte", "1 PRODUCT senza definizione",
-		"<td class=\"mono\">52922757</td><td class=\"mono\">52920517</td><td>2</td>", "PRODUCT #9 senza definizione", "Nodi proposti da questo file",
-		"Nessun viewer 3D", "Usa come STEP strutturale di 52922757")
+		"<td class=\"mono\">77722757</td><td class=\"mono\">77720517</td><td>2</td>", "PRODUCT #9 senza definizione", "Nodi proposti da questo file",
+		"Nessun viewer 3D", "Usa come STEP strutturale di 77722757")
 	senzaTesto(t, "step", html, "<iframe")
 }
 

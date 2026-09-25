@@ -1,10 +1,11 @@
+//go:build integrazione
+
 package ingest
 
 import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -15,24 +16,21 @@ import (
 	"promatec/cockpit/internal/platform/testutil"
 )
 
-// Test d'integrazione su DB reale (SPEC blocco 2): richiede COCKPIT_TEST_DSN, altrimenti viene saltato.
-//   COCKPIT_TEST_DSN=postgres://cockpit:cockpit_dev@localhost:5432/cockpit_dev go test ./internal/core/inbox/ingest/
-// Le righe create hanno message_id con prefisso "<test-ingest-" e vengono rimosse alla fine.
+// Test d'integrazione su DB reale (SPEC blocco 2), L4 come gli altri *_db_test di questo pacchetto:
+//
+//	COCKPIT_TEST_DSN=postgres://…/cockpit_test go test -tags integrazione -p 1 ./internal/core/inbox/ingest/
+//
+// Senza COCKPIT_TEST_DSN vengono saltati; il DSN passa dalla guardia di testutil, che rifiuta un
+// database il cui nome non contiene "test". Le righe create hanno message_id con prefisso
+// "<test-ingest-" e vengono rimosse alla fine.
 
 func pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("COCKPIT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("COCKPIT_TEST_DSN non impostata")
-	}
-	p, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := testutil.Pool(t)         // salta senza DSN, rifiuta un database che non e' di test, chiude alla fine
 	testutil.SchemaPresente(t, p) // l'ordine dei pacchetti non è garantito: lo schema può essere stato ricreato
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = p.Exec(ctx, `DELETE FROM ingest_scarto WHERE casella_id IN (SELECT casella_id FROM casella WHERE indirizzo = 'prova-ingest@azienda.it')`)
+		_, _ = p.Exec(ctx, `DELETE FROM ingest_scarto WHERE casella_id IN (SELECT casella_id FROM casella WHERE indirizzo = 'prova-ingest@azienda.example')`)
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio_aggancio_log WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM job WHERE chiave_idempotenza LIKE 'stage:%' AND payload->>'entry_id' LIKE 'ENTRY-TEST-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM proposta_triage WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
@@ -56,7 +54,7 @@ func pool(t *testing.T) *pgxpool.Pool {
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio_casella WHERE messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%')`)
 		_, _ = p.Exec(ctx, `DELETE FROM messaggio WHERE chiave_esterna LIKE '<test-ingest-%'`)
 		_, _ = p.Exec(ctx, `DELETE FROM conversazione WHERE chiave_esterna LIKE 'CONV-TEST-%'`)
-		p.Close()
+		// il pool lo chiude testutil.Pool: i Cleanup girano al contrario, quindi dopo questa pulizia
 	})
 	return p
 }
@@ -96,7 +94,7 @@ func casellaProva(t *testing.T, p *pgxpool.Pool) db.Casella {
 	ctx := context.Background()
 	q := db.New(p)
 	c, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
-		Canale: db.CanaleOutlook, Indirizzo: "prova-ingest@azienda.it", Nome: "Prova ingest",
+		Canale: db.CanaleOutlook, Indirizzo: "prova-ingest@azienda.example", Nome: "Prova ingest",
 	})
 	if err != nil {
 		t.Fatalf("casella di prova: %v", err)
@@ -110,18 +108,18 @@ func lotto() []worker.MessaggioIn {
 		{
 			MessageID: "<test-ingest-1@acme.example>", EntryID: "ENTRY-TEST-1", StoreID: "STORE-TEST", ConversationID: "CONV-TEST-1",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: t0, MittenteNome: "Mario Rossi", MittenteIndirizzo: "mario.rossi@acme.example",
-			Oggetto: "RFQ 6674611A supporto cofano", CorpoTesto: "Buongiorno, richiesta d'offerta per il codice 6674611A rev 4.\r\nVi abbiamo caricato sul portale i CAD dei codici 6674612B e 6674613C. Risposta entro il 15/09/2026.",
+			Oggetto: "RFQ 1234567A supporto cofano", CorpoTesto: "Buongiorno, richiesta d'offerta per il codice 1234567A rev 4.\r\nVi abbiamo caricato sul portale i CAD dei codici 1234568B e 1234569C. Risposta entro il 15/09/2026.",
 			Riferimenti: []string{}, Categorie: []string{},
 			Allegati: []worker.AllegatoIn{
-				{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000},
+				{Indice: 1, NomeFile: "1234567A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000},
 				{Indice: 2, NomeFile: "image001.png", Estensione: "png", Natura: "inline", Bytes: 4000, ContentID: "image001.png@01"},
 			},
 		},
 		{
 			MessageID: "<test-ingest-2@acme.example>", EntryID: "ENTRY-TEST-2", StoreID: "STORE-TEST", ConversationID: "CONV-TEST-1",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(time.Hour), MittenteNome: "Mario Rossi", MittenteIndirizzo: "mario.rossi@acme.example",
-			Oggetto: "R: RFQ 6674611A supporto cofano", CorpoTesto: "Dimenticavo lo STEP.", Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.stp", Estensione: "stp", Natura: "file", Bytes: 900000}},
+			Oggetto: "R: RFQ 1234567A supporto cofano", CorpoTesto: "Dimenticavo lo STEP.", Riferimenti: []string{}, Categorie: []string{},
+			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "1234567A.stp", Estensione: "stp", Natura: "file", Bytes: 900000}},
 		},
 	}
 }
@@ -212,7 +210,7 @@ func TestIngestIdempotente(t *testing.T) {
 	if esito != "nuova_rfq" || conf < 50 || scad == nil || scad.Day() != 15 {
 		t.Errorf("triage: esito=%s conf=%d scad=%v ident=%v", esito, conf, scad, ident)
 	}
-	if len(ident) == 0 || ident[0] != "6674611A" {
+	if len(ident) == 0 || ident[0] != "1234567A" {
 		t.Errorf("identificativi proposti: %v", ident)
 	}
 }

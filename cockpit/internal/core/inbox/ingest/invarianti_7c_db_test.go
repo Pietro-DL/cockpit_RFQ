@@ -72,7 +72,7 @@ func (b *bancoControparte) rfq(c db.Cliente, oggetto, codice string) db.ThreadOf
 func (b *bancoControparte) richiesta(th db.ThreadOfferta, f db.Fornitore, stato db.StatoRichiestaFornitore, nostra uuid.NullUUID, lavorazione string) db.RichiestaFornitore {
 	b.t.Helper()
 	r, err := b.q.InsertRichiestaFornitore(b.ctx, db.InsertRichiestaFornitoreParams{ThreadID: th.ThreadID, FornitoreID: f.FornitoreID,
-		Codici: []string{"6674611A"}, Stato: stato, MessaggioID: nostra, Lavorazione: pgtype.Text{String: lavorazione, Valid: lavorazione != ""}})
+		Codici: []string{"1234567A"}, Stato: stato, MessaggioID: nostra, Lavorazione: pgtype.Text{String: lavorazione, Valid: lavorazione != ""}})
 	if err != nil {
 		b.t.Fatal(err)
 	}
@@ -114,18 +114,18 @@ func (b *bancoControparte) nessunLegame(chiave, perche string) {
 func TestI4R0ER1SullaPostaDelFornitoreSonoCandidatiENonLegami(t *testing.T) {
 	b := nuovoBancoControparte(t)
 	acme := b.cliente("ACME", "acme.example")
-	mgm := b.fornitore("MGM Lavorazioni di prova", db.TipoFornitoreProcessi, "mgm.example")
-	b.contatto(mgm, "info@mgm.example")
-	th := b.rfq(acme, "RFQ 6674611A", "6674611A")
+	minuterie := b.fornitore("Minuterie Esempio di prova", db.TipoFornitoreProcessi, "minuterie-esempio.example")
+	b.contatto(minuterie, "info@minuterie-esempio.example")
+	th := b.rfq(acme, "RFQ 1234567A", "1234567A")
 
-	const nostra = "<i4-nostra@azienda.it>"
-	b.ingerisci(b.nostraMail(nostra, "CONV-I4", "info@mgm.example", "RFQ ACME 6674611A", "Vi chiediamo offerta per il codice 6674611A."))
+	const nostra = "<i4-nostra@azienda.example>"
+	b.ingerisci(b.nostraMail(nostra, "CONV-I4", "info@minuterie-esempio.example", "RFQ ACME 1234567A", "Vi chiediamo offerta per il codice 1234567A."))
 	b.nessunLegame(nostra, "la nostra mail mandata a mano, senza marcatore")
-	r := b.richiesta(th, mgm, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{UUID: b.messaggio(nostra).MessaggioID, Valid: true}, "")
+	r := b.richiesta(th, minuterie, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{UUID: b.messaggio(nostra).MessaggioID, Valid: true}, "")
 
 	// R0: In-Reply-To verso la nostra mail, conversazione DIVERSA apposta così parla solo l'header
-	const r0 = "<i4-r0@mgm.example>"
-	m := b.rispostaDelFornitore(r0, "CONV-I4-ALTRA", "info@mgm.example", "R: RFQ ACME 6674611A", "In allegato la nostra offerta.")
+	const r0 = "<i4-r0@minuterie-esempio.example>"
+	m := b.rispostaDelFornitore(r0, "CONV-I4-ALTRA", "info@minuterie-esempio.example", "R: RFQ ACME 1234567A", "In allegato la nostra offerta.")
 	m.InReplyTo = nostra
 	m.Riferimenti = []string{nostra}
 	b.ingerisci(m)
@@ -133,8 +133,8 @@ func TestI4R0ER1SullaPostaDelFornitoreSonoCandidatiENonLegami(t *testing.T) {
 	b.candidatoVerso(r0, r.RichiestaID, db.RegolaRichiestaR0Reply, 95)
 
 	// R1: stessa conversazione della nostra mail, senza In-Reply-To
-	const r1 = "<i4-r1@mgm.example>"
-	b.ingerisci(b.rispostaDelFornitore(r1, "CONV-I4", "info@mgm.example", "RFQ ACME 6674611A", "Ricevuto, vi rispondiamo domani."))
+	const r1 = "<i4-r1@minuterie-esempio.example>"
+	b.ingerisci(b.rispostaDelFornitore(r1, "CONV-I4", "info@minuterie-esempio.example", "RFQ ACME 1234567A", "Ricevuto, vi rispondiamo domani."))
 	b.nessunLegame(r1, "R1")
 	b.candidatoVerso(r1, r.RichiestaID, db.RegolaRichiestaR1Conversazione, 80)
 
@@ -178,15 +178,15 @@ func (b *bancoControparte) candidatoVerso(chiave string, rid uuid.UUID, regola d
 func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 	b := nuovoBancoControparte(t)
 	acme := b.cliente("ACME", "acme.example")
-	mgm := b.fornitore("MGM Lavorazioni di prova", db.TipoFornitoreProcessi, "mgm.example")
-	b.contatto(mgm, "info@mgm.example")
-	thA := b.rfq(acme, "RFQ 6674611A", "6674611A")
+	minuterie := b.fornitore("Minuterie Esempio di prova", db.TipoFornitoreProcessi, "minuterie-esempio.example")
+	b.contatto(minuterie, "info@minuterie-esempio.example")
+	thA := b.rfq(acme, "RFQ 1234567A", "1234567A")
 	thB := b.rfq(acme, "RFQ altra", "")
-	r := b.richiesta(thA, mgm, db.StatoRichiestaFornitoreBozza, uuid.NullUUID{}, "")
+	r := b.richiesta(thA, minuterie, db.StatoRichiestaFornitoreBozza, uuid.NullUUID{}, "")
 
 	// (a) il caso buono, a livello di ingest: è il controllo per i tre che seguono
-	const buona = "<i5-buona@azienda.it>"
-	m := b.nostraMail(buona, "CONV-I5-A", "info@mgm.example", "RFQ ACME 6674611A", "Vi chiediamo offerta.")
+	const buona = "<i5-buona@azienda.example>"
+	m := b.nostraMail(buona, "CONV-I5-A", "info@minuterie-esempio.example", "RFQ ACME 1234567A", "Vi chiediamo offerta.")
 	m.Marcatori = map[string]string{MarcatoreRichiesta: r.RichiestaID.String()}
 	b.ingerisci(m)
 	tid, rid, agg, n := b.legami(buona)
@@ -199,8 +199,8 @@ func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 	}
 
 	// (b) la risposta del fornitore porta lo stesso marcatore
-	const entrata = "<i5-entrata@mgm.example>"
-	x := b.rispostaDelFornitore(entrata, "CONV-I5-B", "info@mgm.example", "R: RFQ ACME 6674611A", "In allegato l'offerta.")
+	const entrata = "<i5-entrata@minuterie-esempio.example>"
+	x := b.rispostaDelFornitore(entrata, "CONV-I5-B", "info@minuterie-esempio.example", "R: RFQ ACME 1234567A", "In allegato l'offerta.")
 	x.Marcatori = map[string]string{MarcatoreRichiesta: r.RichiestaID.String()}
 	b.ingerisci(x)
 	b.nessunLegame(entrata, "(b) marcatore su una mail in entrata")
@@ -209,10 +209,10 @@ func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 	}
 
 	// (c) marcatori rotti: uno che non è un uuid, uno che punta a niente
-	const rotto, nulla = "<i5-rotto@azienda.it>", "<i5-nulla@azienda.it>"
-	m1 := b.nostraMail(rotto, "CONV-I5-C1", "info@mgm.example", "RFQ", "corpo")
+	const rotto, nulla = "<i5-rotto@azienda.example>", "<i5-nulla@azienda.example>"
+	m1 := b.nostraMail(rotto, "CONV-I5-C1", "info@minuterie-esempio.example", "RFQ", "corpo")
 	m1.Marcatori = map[string]string{MarcatoreRichiesta: "non-un-uuid"}
-	m2 := b.nostraMail(nulla, "CONV-I5-C2", "info@mgm.example", "RFQ", "corpo")
+	m2 := b.nostraMail(nulla, "CONV-I5-C2", "info@minuterie-esempio.example", "RFQ", "corpo")
 	m2.Marcatori = map[string]string{MarcatoreRichiesta: uuid.New().String()}
 	b.ingerisci(m1, m2)
 	b.nessunLegame(rotto, "(c) marcatore che non è un uuid")
@@ -220,13 +220,13 @@ func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 
 	// (d) la nostra mail è già stata messa a mano nella RFQ B; al risync arriva con il marcatore
 	// della richiesta di A (un marcatore rimasto su una bozza riusata, per esempio)
-	const decisa = "<i5-decisa@azienda.it>"
-	b.ingerisci(b.nostraMail(decisa, "CONV-I5-D", "info@mgm.example", "RFQ", "corpo"))
+	const decisa = "<i5-decisa@azienda.example>"
+	b.ingerisci(b.nostraMail(decisa, "CONV-I5-D", "info@minuterie-esempio.example", "RFQ", "corpo"))
 	if _, err := b.pool.Exec(b.ctx, `UPDATE messaggio SET thread_id = $1, aggancio = 'operatore' WHERE chiave_esterna = $2`, thB.ThreadID, decisa); err != nil {
 		t.Fatal(err)
 	}
-	r2 := b.richiesta(thA, mgm, db.StatoRichiestaFornitoreBozza, uuid.NullUUID{}, "tornitura")
-	ri := b.nostraMail(decisa, "CONV-I5-D", "info@mgm.example", "RFQ", "corpo")
+	r2 := b.richiesta(thA, minuterie, db.StatoRichiestaFornitoreBozza, uuid.NullUUID{}, "tornitura")
+	ri := b.nostraMail(decisa, "CONV-I5-D", "info@minuterie-esempio.example", "RFQ", "corpo")
 	ri.Marcatori = map[string]string{MarcatoreRichiesta: r2.RichiestaID.String()}
 	b.ingerisci(ri)
 	tid, rid, _, _ = b.legami(decisa)
@@ -238,5 +238,39 @@ func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 	}
 	if dopo := b.statoRichiesta(r2.RichiestaID); dopo.Stato != db.StatoRichiestaFornitoreBozza || dopo.MessaggioID.Valid {
 		t.Errorf("(d) la richiesta della RFQ A ha preso una mail che sta nella RFQ B: %+v", dopo)
+	}
+
+	// (e) il marcatore della BOZZA segue la stessa regola: «la bozza è partita» lo dice solo la nostra
+	// mail in uscita. La risposta del fornitore che si porta dietro le proprietà della nostra non la
+	// chiude — e se la chiudesse, `inviata_messaggio_id` resterebbe quello sbagliato per sempre.
+	var utente, bozza uuid.UUID
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO utente (sigla, nome, ufficio, ruolo) VALUES ('I5', 'Prova', 'tecnico', 'operatore') RETURNING utente_id`).Scan(&utente); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.pool.QueryRow(b.ctx, `INSERT INTO bozza (thread_id, tipo, creata_da) VALUES ($1, 'nuovo', $2) RETURNING bozza_id`, thA.ThreadID, utente).Scan(&bozza); err != nil {
+		t.Fatal(err)
+	}
+	statoBozza := func() (string, uuid.NullUUID) {
+		t.Helper()
+		var s string
+		var m uuid.NullUUID
+		if err := b.pool.QueryRow(b.ctx, `SELECT stato::text, inviata_messaggio_id FROM bozza WHERE bozza_id = $1`, bozza).Scan(&s, &m); err != nil {
+			t.Fatal(err)
+		}
+		return s, m
+	}
+	const bozzaEntrata, bozzaUscita = "<i5-bozza-entrata@minuterie-esempio.example>", "<i5-bozza-uscita@azienda.example>"
+	y := b.rispostaDelFornitore(bozzaEntrata, "CONV-I5-E", "info@minuterie-esempio.example", "R: RFQ ACME 1234567A", "In allegato l'offerta.")
+	y.Marcatori = map[string]string{MarcatoreBozza: bozza.String()}
+	b.ingerisci(y)
+	if s, m := statoBozza(); s == "inviata" || m.Valid {
+		t.Errorf("(e) una mail in entrata con il marcatore della bozza l'ha chiusa: stato %s, messaggio %v", s, m)
+	}
+	// il controllo: la nostra mail in uscita con lo stesso marcatore la chiude, con il suo messaggio
+	z := b.nostraMail(bozzaUscita, "CONV-I5-E", "info@minuterie-esempio.example", "RFQ ACME 1234567A", "Vi chiediamo offerta.")
+	z.Marcatori = map[string]string{MarcatoreBozza: bozza.String()}
+	b.ingerisci(z)
+	if s, m := statoBozza(); s != "inviata" || !m.Valid || m.UUID != b.messaggio(bozzaUscita).MessaggioID {
+		t.Errorf("(e) la nostra mail in uscita non ha chiuso la bozza: stato %s, messaggio %v", s, m)
 	}
 }

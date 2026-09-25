@@ -17,12 +17,12 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
-// motoreManitou: una famiglia di otto cifre che comincia per 529, con la revisione dopo il trattino
+// motoreConFamiglia: una famiglia di otto cifre che comincia per 777, con la revisione dopo il trattino
 // basso quando c'e'. E' una famiglia di prova, non quella di un cliente vero.
 func motoreConFamiglia(t *testing.T) *classificazione.Motore {
 	t.Helper()
 	m := classificazione.Compila("Cliente di prova", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
-		Regex: `(?P<codice>529\d{5})(?:_(?P<rev>[A-Z]))?`, Descrizione: "disegni 529", RevNelCodice: true, Esempio: "52922757_B",
+		Regex: `(?P<codice>777\d{5})(?:_(?P<rev>[A-Z]))?`, Descrizione: "disegni 777", RevNelCodice: true, Esempio: "77722757_B",
 	}}})
 	if !m.HaFamiglie() {
 		t.Fatal("la famiglia di prova non e' entrata nel motore")
@@ -36,12 +36,12 @@ func nodo(chiave, id, nome, descr, rev string) worker.NodoSTEP {
 }
 
 func TestIlCodiceDelNodoLoDaLaFamigliaDelClienteNonIlWorker(t *testing.T) {
-	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#12", "", "52922757_B", "SUPPORTO COFANO", "")}}
+	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#12", "", "77722757_B", "SUPPORTO COFANO", "")}}
 	n := ClassificaNodi(motoreConFamiglia(t), s)[0]
-	if n.Codice != "52922757" || n.Rev != "B" || n.Origine != "famiglia" || n.Famiglia != "disegni 529" {
+	if n.Codice != "77722757" || n.Rev != "B" || n.Origine != "famiglia" || n.Famiglia != "disegni 777" {
 		t.Fatalf("classificato come %+v", n)
 	}
-	if n.Confidenza != classificazione.PuntiFamiglia || n.Evidenza["regola"] != "disegni 529" || n.Evidenza["testo"] != "52922757_B" {
+	if n.Confidenza != classificazione.PuntiFamiglia || n.Evidenza["regola"] != "disegni 777" || n.Evidenza["testo"] != "77722757_B" {
 		t.Errorf("confidenza o evidenza: %+v", n)
 	}
 	// lo stesso nodo in una RFQ di un cliente senza famiglie: la lettura cambia, i fatti no
@@ -52,7 +52,7 @@ func TestIlCodiceDelNodoLoDaLaFamigliaDelClienteNonIlWorker(t *testing.T) {
 }
 
 func TestSenzaFamigliaRestaIlGenerico(t *testing.T) {
-	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#12", "6674611A", "6674611A", "", "")}}
+	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#12", "1234567A", "1234567A", "", "")}}
 	n := ClassificaNodi(classificazione.Compila("Senza regole", regole.Regole{}), s)[0]
 	if n.Codice == "" || n.Origine != "generico" || n.Confidenza != classificazione.PuntiGenerico {
 		t.Fatalf("atteso il generico, trovato %+v", n)
@@ -76,25 +76,25 @@ func TestUnNomeCheNonEUnCodiceDaUnaPropostaSenzaCodice(t *testing.T) {
 // A1.7: SolidWorks mette il codice in id e il file in name, altri il contrario. Se danno due codici
 // diversi vince l'id, e l'altro resta visibile.
 func TestSeIdENomeDannoDueCodiciDiversiVinceLId(t *testing.T) {
-	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#1", "52920517", "52922757_B", "", "")}}
+	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#1", "77720517", "77722757_B", "", "")}}
 	n := ClassificaNodi(motoreConFamiglia(t), s)[0]
-	if n.Codice != "52920517" || n.Dove != DoveID {
+	if n.Codice != "77720517" || n.Dove != DoveID {
 		t.Fatalf("doveva vincere l'id: %+v", n)
 	}
-	if n.Alternativo != "52922757" || n.Evidenza["alternativo"] != "52922757" {
+	if n.Alternativo != "77722757" || n.Evidenza["alternativo"] != "77722757" {
 		t.Errorf("l'altro codice deve restare nell'evidenza: %+v", n)
 	}
 	// e un codice di famiglia nel nome vale piu' di un generico nell'id
-	s = worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#1", "XX-77", "52922757", "", "")}}
-	if n := ClassificaNodi(motoreConFamiglia(t), s)[0]; n.Codice != "52922757" || n.Origine != "famiglia" {
+	s = worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{nodo("#1", "XX-77", "77722757", "", "")}}
+	if n := ClassificaNodi(motoreConFamiglia(t), s)[0]; n.Codice != "77722757" || n.Origine != "famiglia" {
 		t.Errorf("la famiglia deve vincere sul generico: %+v", n)
 	}
 }
 
 func TestLaRevDelFileVinceSuQuellaDellaFamiglia(t *testing.T) {
 	s := worker.StrutturaSTEP{Versione: 3, Nodi: []worker.NodoSTEP{
-		nodo("#1", "", "52922757_B", "", "C"),
-		nodo("#2", "", "52922758_B", "", ""),
+		nodo("#1", "", "77722757_B", "", "C"),
+		nodo("#2", "", "77722758_B", "", ""),
 	}}
 	n := ClassificaNodi(motoreConFamiglia(t), s)
 	if n[0].Rev != "C" || n[1].Rev != "B" {
@@ -202,16 +202,16 @@ func TestUnNodoConFigliEPropostoSottoassiemeEUnaFogliaSciolto(t *testing.T) {
 }
 
 func TestLaRadiceCheCoincideConUnIdentificativoEPropostaFinito(t *testing.T) {
-	nodi, s := file([]string{"52922757"}, "52922757>X")
-	p := perChiaveNodi(Pianifica(nodi, s, Contesto{Working: nuovaBom().working(), Identificativi: map[string]bool{"52922757": true}}))
-	if p["52922757"].Tipo != db.TipoComponenteFinito {
-		t.Errorf("la radice che e' un identificativo della richiesta e' un prodotto finito: %s", p["52922757"].Tipo)
+	nodi, s := file([]string{"77722757"}, "77722757>X")
+	p := perChiaveNodi(Pianifica(nodi, s, Contesto{Working: nuovaBom().working(), Identificativi: map[string]bool{"77722757": true}}))
+	if p["77722757"].Tipo != db.TipoComponenteFinito {
+		t.Errorf("la radice che e' un identificativo della richiesta e' un prodotto finito: %s", p["77722757"].Tipo)
 	}
 	// un figlio con il codice di un identificativo non e' una radice: resta quello che e' nel file
-	nodi, s = file([]string{"R"}, "R>52922757")
-	p = perChiaveNodi(Pianifica(nodi, s, Contesto{Working: nuovaBom().working(), Identificativi: map[string]bool{"52922757": true}}))
-	if p["52922757"].Tipo != db.TipoComponenteSciolto {
-		t.Errorf("solo una radice si propone finito: %s", p["52922757"].Tipo)
+	nodi, s = file([]string{"R"}, "R>77722757")
+	p = perChiaveNodi(Pianifica(nodi, s, Contesto{Working: nuovaBom().working(), Identificativi: map[string]bool{"77722757": true}}))
+	if p["77722757"].Tipo != db.TipoComponenteSciolto {
+		t.Errorf("solo una radice si propone finito: %s", p["77722757"].Tipo)
 	}
 }
 
@@ -338,9 +338,9 @@ func TestUnCicloVieneRifiutato(t *testing.T) {
 
 func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
 	m := motoreConFamiglia(t)
-	s := worker.StrutturaSTEP{Versione: 3, Radici: []string{"#1"}, Nodi: []worker.NodoSTEP{nodo("#1", "", "52922757_B", "", ""), nodo("#2", "", "6674611A", "", "")}}
+	s := worker.StrutturaSTEP{Versione: 3, Radici: []string{"#1"}, Nodi: []worker.NodoSTEP{nodo("#1", "", "77722757_B", "", ""), nodo("#2", "", "1234567A", "", "")}}
 	r, ok := RadiceDiFamiglia(ClassificaNodi(m, s), s)
-	if !ok || r.Codice != "52922757" || r.Rev != "B" {
+	if !ok || r.Codice != "77722757" || r.Rev != "B" {
 		t.Fatalf("radice di famiglia: %+v %v", r, ok)
 	}
 	// un generico non basta

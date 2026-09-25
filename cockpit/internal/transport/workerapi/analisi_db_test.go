@@ -84,7 +84,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	}
 
 	dati, _ := json.Marshal(worker.RisultatoAnalisi{
-		AllegatoID: prima.allegato, TipoProposto: "disegno_2d", Codice: "6674611A", Rev: "4",
+		AllegatoID: prima.allegato, TipoProposto: "disegno_2d", Codice: "1234567A", Rev: "4",
 		Confidenza: 92, Fonte: "cartiglio", Dettagli: json.RawMessage(`{"termini":["scala","materiale"]}`),
 		VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
@@ -121,7 +121,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Codice.String != "6674611A" || p.Confidenza != 92 {
+		if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Codice.String != "1234567A" || p.Confidenza != 92 {
 			t.Errorf("proposta %s non aggiornata dai fatti: tipo=%s codice=%q conf=%d",
 				nome, p.TipoProposto, p.Codice.String, p.Confidenza)
 		}

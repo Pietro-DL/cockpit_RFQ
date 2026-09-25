@@ -14,13 +14,13 @@ import (
 
 func TestCopiaIdempotente(t *testing.T) {
 	radice := t.TempDir()
-	src := filepath.Join(t.TempDir(), "6674611A_4.pdf")
+	src := filepath.Join(t.TempDir(), "1234567A_4.pdf")
 	os.WriteFile(src, []byte("contenuto pdf"), 0o644)
 	sha, _, _ := Sha256File(src)
 	s := &Scrittore{Radice: radice}
 
 	token := uuid.New()
-	dst, creato, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\6674611A\6674611A_4.pdf`, sha, token)
+	dst, creato, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\1234567A\1234567A_4.pdf`, sha, token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,17 +33,17 @@ func TestCopiaIdempotente(t *testing.T) {
 	if _, err := os.Stat(dst + ".parte." + token.String()); !os.IsNotExist(err) {
 		t.Fatalf(".parte non rimosso")
 	}
-	if parti, _ := s.PartiNellaCartella(`ACME\WIP\2026 09 08 Rossi X\ELENCO DISEGNI\6674611A`); len(parti) != 0 {
+	if parti, _ := s.PartiNellaCartella(`ACME\WIP\2026 09 08 Rossi X\ELENCO DISEGNI\1234567A`); len(parti) != 0 {
 		t.Fatalf("file intermedi rimasti: %v", parti)
 	}
 	// ripetere non riscrive e non fallisce, e il file non e' «creato» da questa chiamata
-	if _, creato, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\6674611A\6674611A_4.pdf`, sha, uuid.New()); err != nil || creato {
+	if _, creato, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\1234567A\1234567A_4.pdf`, sha, uuid.New()); err != nil || creato {
 		t.Fatalf("seconda copia: creato %v, %v", creato, err)
 	}
 	// hash diverso già presente → conflitto, mai sovrascritto
 	os.WriteFile(src, []byte("altro contenuto"), 0o644)
 	sha2, _, _ := Sha256File(src)
-	if _, _, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\6674611A\6674611A_4.pdf`, sha2, uuid.New()); !errors.Is(err, ErrConflitto) {
+	if _, _, err := s.Copia(src, `ACME\WIP\2026 09 08 Rossi X`, `ELENCO DISEGNI\1234567A\1234567A_4.pdf`, sha2, uuid.New()); !errors.Is(err, ErrConflitto) {
 		t.Fatalf("atteso ErrConflitto, ottenuto %v", err)
 	}
 	b, _ := os.ReadFile(dst)
@@ -236,14 +236,14 @@ func TestDryRun(t *testing.T) {
 }
 
 func TestUNC(t *testing.T) {
-	if got := UNC(`\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE`, `ACME\WIP\x`); got != `\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE\ACME\WIP\x` {
+	if got := UNC(`\\server-nas\PREVENTIVI\PREVENTIVI DA FARE`, `ACME\WIP\x`); got != `\\server-nas\PREVENTIVI\PREVENTIVI DA FARE\ACME\WIP\x` {
 		t.Errorf("UNC corto: %q", got)
 	}
 	if got := UNC(`C:\promatec\_nas_test\PREVENTIVI DA FARE\`, `\ACME\WIP\x`); got != `C:\promatec\_nas_test\PREVENTIVI DA FARE\ACME\WIP\x` {
 		t.Errorf("UNC locale: %q", got)
 	}
-	lungo := UNC(`\\nas01\radice`, strings.Repeat(`cartella lunga\`, 20)+"file.pdf")
-	if !strings.HasPrefix(lungo, `\\?\UNC\nas01\radice\`) {
+	lungo := UNC(`\\server-nas\radice`, strings.Repeat(`cartella lunga\`, 20)+"file.pdf")
+	if !strings.HasPrefix(lungo, `\\?\UNC\server-nas\radice\`) {
 		t.Errorf("UNC lungo di rete senza prefisso: %q", lungo)
 	}
 	lungoLocale := UNC(`C:\radice`, strings.Repeat(`cartella lunga\`, 20)+"file.pdf")

@@ -158,8 +158,8 @@ func TestVociUgualiDentroLoZipUnFileSolo(t *testing.T) {
 
 	dentro := []byte("PDF finto ma sempre lo stesso, byte per byte")
 	archivio, sha := zipCon(t, map[string][]byte{
-		"DISEGNI/6674611A.pdf":      dentro,
-		"ALLEGATI/6674611A_bis.pdf": dentro,
+		"DISEGNI/1234567A.pdf":      dentro,
+		"ALLEGATI/1234567A_bis.pdf": dentro,
 	})
 
 	// il banco ha due download in coda (disegno.pdf e archivio.zip): serve quello dello zip

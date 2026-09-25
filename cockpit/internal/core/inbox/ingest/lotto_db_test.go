@@ -47,7 +47,7 @@ func preparaPP(t *testing.T) (*pgxpool.Pool, *Servizio, db.Casella, context.Cont
 	testutil.SchemaPulito(t, p)
 	ctx := context.Background()
 	c, err := db.New(p).UpsertCasella(ctx, db.UpsertCasellaParams{
-		Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Condivisa: true,
+		Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Condivisa: true,
 	})
 	if err != nil {
 		t.Fatalf("casella Commerciale: %v", err)

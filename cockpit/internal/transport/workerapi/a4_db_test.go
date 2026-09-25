@@ -54,9 +54,9 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 			riga(&msg, `INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento, thread_id)
 				VALUES ('outlook', '<a8@acme>', $1, 'entrata', now(), $2) RETURNING messaggio_id`, conv, thread)
 			riga(&allegato, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine, bytes, sha256, path_staging, ricevuto_il)
-				VALUES ($1, 1, '52922757.step', 'step', 'file', 'outlook', 100, repeat('e', 64), 'C:\staging\a8.step', now()) RETURNING allegato_id`, msg)
+				VALUES ($1, 1, '77722757.step', 'step', 'file', 'outlook', 100, repeat('e', 64), 'C:\staging\a8.step', now()) RETURNING allegato_id`, msg)
 			esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, confidenza, fonte) VALUES ($1, $2, 'altro', 20, 'estensione')`, allegato, thread)
-			riga(&p1, `INSERT INTO componente (thread_id, codice, tipo, confermato_da) VALUES ($1, '52922757', 'finito', $2) RETURNING componente_id`, thread, utente)
+			riga(&p1, `INSERT INTO componente (thread_id, codice, tipo, confermato_da) VALUES ($1, '77722757', 'finito', $2) RETURNING componente_id`, thread, utente)
 			riga(&f1, `INSERT INTO componente (thread_id, codice, confermato_da) VALUES ($1, 'VITE', $2) RETURNING componente_id`, thread, utente)
 			esegui(`INSERT INTO componente_relazione (thread_id, padre_id, figlio_id, qta, origine, confermato_da) VALUES ($1, $2, $3, 4, 'manuale', $4)`, thread, p1, f1, utente)
 			if congelata {
@@ -80,10 +80,10 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 			// il risultato di uno STEP con una struttura che la working non ha: un nodo nuovo, un arco
 			// nuovo, una qta diversa, e l'arco della working che nel file non c'e'
 			struttura := `{"struttura": {"versione": 2, "schema": "AP214", "radici": ["#12"],
-				"nodi": [{"chiave": "#12", "nome_grezzo": "52922757"}, {"chiave": "#32", "nome_grezzo": "STAFFA NUOVA"}],
+				"nodi": [{"chiave": "#12", "nome_grezzo": "77722757"}, {"chiave": "#32", "nome_grezzo": "STAFFA NUOVA"}],
 				"relazioni": [{"padre": "#12", "figlio": "#32", "qta": 2}], "avvisi": [], "limiti": {"troncato": false}}}`
 			payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{AllegatoID: allegato, Bytes: 100, Sha256: "eeee",
-				NomeFile: "52922757.step", VersioneAnalizzatore: 2, HashConfigurazione: an.Hash()})
+				NomeFile: "77722757.step", VersioneAnalizzatore: 2, HashConfigurazione: an.Hash()})
 			var jobID int64
 			if err := pool.QueryRow(ctx, `INSERT INTO job (tipo, worker_tipo, payload, lease_s, durata_max_s, stato)
 				VALUES ('analizza_allegato', 'analisi', $1, 120, 600, 'in_corso') RETURNING job_id`, payload).Scan(&jobID); err != nil {
@@ -93,7 +93,7 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			dati, _ := json.Marshal(worker.RisultatoAnalisi{AllegatoID: allegato, TipoProposto: "cad_3d", Codice: "52922757",
+			dati, _ := json.Marshal(worker.RisultatoAnalisi{AllegatoID: allegato, TipoProposto: "cad_3d", Codice: "77722757",
 				Confidenza: 90, Fonte: "step", Dettagli: json.RawMessage(struttura), VersioneAnalizzatore: 2, HashConfigurazione: an.Hash()})
 			tx, err := pool.Begin(ctx)
 			if err != nil {
@@ -117,7 +117,7 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 				t.Errorf("la proposta del file non e' stata aggiornata: %q %v", tipo, err)
 			}
 			// B8.5: i fatti sono diventati proposte, e solo proposte. Il nodo che la working ha gia' e'
-			// riconciliato (duplicato, agganciato a 52922757); quello nuovo e l'arco nuovo chiedono una
+			// riconciliato (duplicato, agganciato a 77722757); quello nuovo e l'arco nuovo chiedono una
 			// decisione. Nessuna rimozione: il file non e' lo STEP strutturale, e la lettura e' una v2.
 			var nodi string
 			if err := pool.QueryRow(ctx, `SELECT string_agg(chiave || ':' || stato || ':' || coalesce(componente_id::text, '-'), ' ' ORDER BY chiave)

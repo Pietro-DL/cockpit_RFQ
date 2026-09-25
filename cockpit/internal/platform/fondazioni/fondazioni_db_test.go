@@ -252,7 +252,7 @@ func TestPiuCaselleAttiveRifiutateFinoAllaVersione4(t *testing.T) {
 	q := db.New(p)
 
 	prima, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
-		Canale: db.CanaleOutlook, Indirizzo: "francesco@azienda.it", Nome: "Francesco"})
+		Canale: db.CanaleOutlook, Indirizzo: "francesco@azienda.example", Nome: "Francesco"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestPiuCaselleAttiveRifiutateFinoAllaVersione4(t *testing.T) {
 	}
 
 	seconda, err := q.UpsertCasella(ctx, db.UpsertCasellaParams{
-		Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Condivisa: true})
+		Canale: db.CanaleOutlook, Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Condivisa: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestPiuCaselleAttiveRifiutateFinoAllaVersione4(t *testing.T) {
 		t.Fatal("due caselle attive alla versione 3 sono state accettate: i due cursori si sovrascriverebbero")
 	}
 	// l'errore deve dire quali caselle e perché: chi lo legge alle 8 del mattino deve poter agire
-	for _, atteso := range []string{"francesco@azienda.it", "commerciale@azienda.it", "cursore"} {
+	for _, atteso := range []string{"francesco@azienda.example", "commerciale@azienda.example", "cursore"} {
 		if !strings.Contains(err.Error(), atteso) {
 			t.Errorf("il messaggio non contiene %q: %v", atteso, err)
 		}

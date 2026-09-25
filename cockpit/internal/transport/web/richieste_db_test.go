@@ -111,24 +111,24 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, coda.Capacita{Bozze: true})
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	euro := b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
-	if _, err := b.q.InsertContattoFornitore(b.ctx, db.InsertContattoFornitoreParams{FornitoreID: euro.FornitoreID, Lower: "ordini@euroforesi.example"}); err != nil {
+	euro := b.unFornitore("Fresature Esempio", db.TipoFornitoreVerniciatore, "fresature-esempio.example", "cataforesi")
+	if _, err := b.q.InsertContattoFornitore(b.ctx, db.InsertContattoFornitoreParams{FornitoreID: euro.FornitoreID, Lower: "ordini@fresature-esempio.example"}); err != nil {
 		t.Fatal(err)
 	}
-	mid := b.posta("entrata", "acquisti@acme.example", "RFQ 6674611A", true)
-	thread := b.rfqDa(mid, acme, `ACME\WIP\2026 09 18 Rossi RFQ 6674611A`, "6674611A")
+	mid := b.posta("entrata", "acquisti@acme.example", "RFQ 1234567A", true)
+	thread := b.rfqDa(mid, acme, `ACME\WIP\2026 09 18 Rossi RFQ 1234567A`, "1234567A")
 	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
 	fp := b.browser("10.0.0.5:51000")
 	fp.login("FP", "prova-fp")
 
 	resp, corpo := fp.fai(http.MethodPost, "/thread/"+thread.String()+"/richiesta", url.Values{
-		"fornitore_id": {euro.FornitoreID.String()}, "lavorazione": {"cataforesi"}, "codice": {"6674611A"}, "note": {"10 pezzi"}, "bozza": {"1"}}, true)
+		"fornitore_id": {euro.FornitoreID.String()}, "lavorazione": {"cataforesi"}, "codice": {"1234567A"}, "note": {"10 pezzi"}, "bozza": {"1"}}, true)
 	if resp.StatusCode != 200 {
 		t.Fatalf("stato %d", resp.StatusCode)
 	}
 	// Lo stato «bozza» non si legge piu' da una chip della pagina (il box non c'e' piu', correzione
 	// prima di B8.2): lo dice la riga di richiesta_fornitore qui sotto.
-	for _, atteso := range []string{"Richiesta a Euroforesi creata", "Bozza in preparazione", "ordini@euroforesi.example"} {
+	for _, atteso := range []string{"Richiesta a Fresature Esempio creata", "Bozza in preparazione", "ordini@fresature-esempio.example"} {
 		if !strings.Contains(corpo, atteso) {
 			t.Errorf("la risposta non dice %q: %s", atteso, estratto(corpo, "avviso"))
 		}
@@ -138,7 +138,7 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 		t.Fatal("richiesta non creata:", err)
 	}
 	ric := b.richiesta(rid)
-	if ric.Stato != db.StatoRichiestaFornitoreBozza || ric.Lavorazione.String != "cataforesi" || len(ric.Codici) != 1 || ric.Codici[0] != "6674611A" {
+	if ric.Stato != db.StatoRichiestaFornitoreBozza || ric.Lavorazione.String != "cataforesi" || len(ric.Codici) != 1 || ric.Codici[0] != "1234567A" {
 		t.Errorf("richiesta: %+v", ric)
 	}
 	var bid uuid.UUID
@@ -153,15 +153,15 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if err := json.Unmarshal(jobs[0].Payload, &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.Tipo != "nuovo" || p.Marcatori[ingest.MarcatoreRichiesta] != rid.String() || !strings.HasPrefix(p.Oggetto, "RFQ ACME") || !strings.Contains(p.Oggetto, "6674611A") {
+	if p.Tipo != "nuovo" || p.Marcatori[ingest.MarcatoreRichiesta] != rid.String() || !strings.HasPrefix(p.Oggetto, "RFQ ACME") || !strings.Contains(p.Oggetto, "1234567A") {
 		t.Errorf("payload della bozza: tipo %s, marcatori %v, oggetto %q", p.Tipo, p.Marcatori, p.Oggetto)
 	}
-	if len(p.Destinatari) != 1 || p.Destinatari[0].Indirizzo != "ordini@euroforesi.example" {
+	if len(p.Destinatari) != 1 || p.Destinatari[0].Indirizzo != "ordini@fresature-esempio.example" {
 		t.Errorf("destinatari: %+v", p.Destinatari)
 	}
 
 	// il sync della Posta inviata: la mail arriva con i marcatori scritti dal worker
-	m := b.mail("uscita", "commerciale@azienda.example", p.Oggetto, p.CorpoTesto, "ordini@euroforesi.example")
+	m := b.mail("uscita", "commerciale@azienda.example", p.Oggetto, p.CorpoTesto, "ordini@fresature-esempio.example")
 	m.Marcatori = map[string]string{ingest.MarcatoreRichiesta: rid.String(), ingest.MarcatoreBozza: bid.String()}
 	sent := b.postaMsg(m)
 	ric = b.richiesta(rid)
@@ -211,14 +211,14 @@ func TestLaRichiestaNasceAncheSenzaLaBozza(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, coda.Capacita{})
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	euro := b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
-	mid := b.posta("entrata", "acquisti@acme.example", "RFQ 6674611A", true)
-	thread := b.rfqDa(mid, acme, `ACME\WIP\x`, "6674611A")
+	euro := b.unFornitore("Fresature Esempio", db.TipoFornitoreVerniciatore, "fresature-esempio.example", "cataforesi")
+	mid := b.posta("entrata", "acquisti@acme.example", "RFQ 1234567A", true)
+	thread := b.rfqDa(mid, acme, `ACME\WIP\x`, "1234567A")
 	b.workerClaim("outlook@PC-FRANCESCO", "10.0.0.5:4000", b.francesco, b.commerciale)
 	fp := b.browser("10.0.0.5:51000")
 	fp.login("FP", "prova-fp")
 	_, corpo := fp.fai(http.MethodPost, "/thread/"+thread.String()+"/richiesta", url.Values{"fornitore_id": {euro.FornitoreID.String()}, "bozza": {"1"}}, true)
-	if !strings.Contains(corpo, "Richiesta a Euroforesi creata") || !strings.Contains(corpo, "Bozza non preparata") || !strings.Contains(corpo, "bozze") {
+	if !strings.Contains(corpo, "Richiesta a Fresature Esempio creata") || !strings.Contains(corpo, "Bozza non preparata") || !strings.Contains(corpo, "bozze") {
 		t.Errorf("la risposta: %s", estratto(corpo, "avviso"))
 	}
 	if testutil.Conta(t, b.pool, "richiesta_fornitore") != 1 || testutil.Conta(t, b.pool, "bozza") != 0 {
@@ -226,7 +226,7 @@ func TestLaRichiestaNasceAncheSenzaLaBozza(t *testing.T) {
 	}
 	// la stessa richiesta due volte: rifiutata con il nome
 	_, corpo = fp.fai(http.MethodPost, "/thread/"+thread.String()+"/richiesta", url.Values{"fornitore_id": {euro.FornitoreID.String()}}, true)
-	if !strings.Contains(corpo, "esiste già una richiesta a Euroforesi") {
+	if !strings.Contains(corpo, "esiste già una richiesta a Fresature Esempio") {
 		t.Errorf("il doppione: %s", estratto(corpo, "avviso"))
 	}
 	// annulla
@@ -244,41 +244,41 @@ func TestLaRichiestaNasceAncheSenzaLaBozza(t *testing.T) {
 // quel codice danno due candidati R3f.
 func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	b := preparaBancoWeb(t)
-	acme := b.unCliente("Technogym di prova", "TECHNOGYM", "technogym.example")
+	acme := b.unCliente("Beta Sport di prova", "BETA SPORT", "betasport.example")
 	if _, err := b.q.SetRegoleCliente(b.ctx, db.SetRegoleClienteParams{ClienteID: acme,
-		Regole: json.RawMessage(`{"famiglie_codice":[{"regex":"\\b0[A-Z]\\d{6}[A-Z]{2}\\b","descrizione":"codice TG","esempio":"0D002622AD"}]}`)}); err != nil {
+		Regole: json.RawMessage(`{"famiglie_codice":[{"regex":"\\b0[A-Z]\\d{6}[A-Z]{2}\\b","descrizione":"codice TG","esempio":"0X001234AB"}]}`)}); err != nil {
 		t.Fatal(err)
 	}
-	mgm := b.unFornitore("MGM Lavorazioni di prova", db.TipoFornitoreProcessi, "mgm.example", "tornitura", "fresatura")
-	thread := b.rfqDa(uuid.Nil, acme, `TECHNOGYM\WIP\2026 09 18 Fiore RFQ 0D002622AD`, "0D002622AD")
+	minuterie := b.unFornitore("Minuterie Esempio di prova", db.TipoFornitoreProcessi, "minuterie-esempio.example", "tornitura", "fresatura")
+	thread := b.rfqDa(uuid.Nil, acme, `BETA SPORT\WIP\2026 09 18 Rossi RFQ 0X001234AB`, "0X001234AB")
 	fp := b.browser("10.0.0.5:51000")
 	fp.login("FP", "prova-fp")
 
-	// IB3: la nostra mail a MGM, mandata a mano da Outlook
-	sent := b.postaMsg(b.mail("uscita", "commerciale@azienda.example", "RFQ TG FIORE 0D002622AD", "Buongiorno, vi chiediamo offerta per il particolare 0D002622AD in allegato.", "info@mgm.example"))
+	// IB3: la nostra mail a Minuterie Esempio, mandata a mano da Outlook
+	sent := b.postaMsg(b.mail("uscita", "commerciale@azienda.example", "RFQ PROGETTO ALFA 0X001234AB", "Buongiorno, vi chiediamo offerta per il particolare 0X001234AB in allegato.", "info@minuterie-esempio.example"))
 	p := b.propostaDi(sent)
 	if p.Esito != db.EsitoTriageAggancia || p.Atto.String != "richiesta_offerta" || !p.ThreadProposto.Valid || p.ThreadProposto.UUID != thread ||
-		!p.FornitoreProposto.Valid || p.FornitoreProposto.UUID != mgm.FornitoreID {
-		t.Fatalf("IB3: la proposta non e' «richiesta a MGM per la RFQ»: %+v", p)
+		!p.FornitoreProposto.Valid || p.FornitoreProposto.UUID != minuterie.FornitoreID {
+		t.Fatalf("IB3: la proposta non e' «richiesta a Minuterie Esempio per la RFQ»: %+v", p)
 	}
 	if testutil.Conta(t, b.pool, "thread_offerta") != 1 {
 		t.Fatal("IB3: e' nato un thread")
 	}
 	_, pannello := fp.fai(http.MethodGet, "/messaggio/"+sent.String(), nil, true)
-	if !strings.Contains(pannello, "Richiesta mandata a mano?") || !strings.Contains(pannello, "MGM Lavorazioni di prova") || !strings.Contains(pannello, "richiesta-fornitore") {
+	if !strings.Contains(pannello, "Richiesta mandata a mano?") || !strings.Contains(pannello, "Minuterie Esempio di prova") || !strings.Contains(pannello, "richiesta-fornitore") {
 		t.Fatalf("IB3: il pannello non propone la richiesta: %s", estratto(pannello, "candidati-richiesta"))
 	}
 	_, esito := fp.fai(http.MethodPost, "/messaggio/"+sent.String()+"/richiesta-fornitore", url.Values{
-		"thread_id": {thread.String()}, "fornitore_id": {mgm.FornitoreID.String()}, "lavorazione": {"tornitura"}}, true)
-	if !strings.Contains(esito, "Registrata come richiesta a MGM") {
+		"thread_id": {thread.String()}, "fornitore_id": {minuterie.FornitoreID.String()}, "lavorazione": {"tornitura"}}, true)
+	if !strings.Contains(esito, "Registrata come richiesta a Minuterie Esempio") {
 		t.Fatalf("IB3: la conferma: %s", estratto(esito, "avviso"))
 	}
 	var rid uuid.UUID
-	if err := b.pool.QueryRow(b.ctx, `SELECT richiesta_id FROM richiesta_fornitore WHERE thread_id = $1 AND fornitore_id = $2`, thread, mgm.FornitoreID).Scan(&rid); err != nil {
+	if err := b.pool.QueryRow(b.ctx, `SELECT richiesta_id FROM richiesta_fornitore WHERE thread_id = $1 AND fornitore_id = $2`, thread, minuterie.FornitoreID).Scan(&rid); err != nil {
 		t.Fatal("IB3: richiesta non creata:", err)
 	}
 	ric := b.richiesta(rid)
-	if ric.Stato != db.StatoRichiestaFornitoreInviata || ric.MessaggioID.UUID != sent || ric.Lavorazione.String != "tornitura" || len(ric.Codici) == 0 || ric.Codici[0] != "0D002622AD" {
+	if ric.Stato != db.StatoRichiestaFornitoreInviata || ric.MessaggioID.UUID != sent || ric.Lavorazione.String != "tornitura" || len(ric.Codici) == 0 || ric.Codici[0] != "0X001234AB" {
 		t.Errorf("IB3: richiesta %+v", ric)
 	}
 	if tipo, _ := b.controparteDi(sent); tipo != "fornitore" {
@@ -290,12 +290,12 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 		t.Errorf("IB3: la mail non e' nella RFQ, o e' nato un thread")
 	}
 
-	// IB4: MGM risponde con In-Reply-To alla nostra mail
+	// IB4: Minuterie Esempio risponde con In-Reply-To alla nostra mail
 	var chiaveSent string
 	_ = b.pool.QueryRow(b.ctx, `SELECT chiave_esterna FROM messaggio WHERE messaggio_id = $1`, sent).Scan(&chiaveSent)
-	risposta := b.mail("entrata", "info@mgm.example", "R: RFQ TG FIORE 0D002622AD", "Buongiorno, in allegato la nostra offerta. Materiale S235JR come da ISO 2768.")
+	risposta := b.mail("entrata", "info@minuterie-esempio.example", "R: RFQ PROGETTO ALFA 0X001234AB", "Buongiorno, in allegato la nostra offerta. Materiale S235JR come da ISO 2768.")
 	risposta.InReplyTo = chiaveSent
-	risposta.Allegati = []worker.AllegatoIn{{Indice: 1, NomeFile: "offerta_MGM_123.pdf", Estensione: "pdf", Natura: "file", Bytes: 5000}}
+	risposta.Allegati = []worker.AllegatoIn{{Indice: 1, NomeFile: "offerta_MINUTERIE_123.pdf", Estensione: "pdf", Natura: "file", Bytes: 5000}}
 	rispID := b.postaMsg(risposta)
 	if tipo, _ := b.controparteDi(rispID); tipo != "fornitore" {
 		t.Fatalf("IB4: controparte %s", tipo)
@@ -310,7 +310,7 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	}
 	// 7C.0, invariante 8: agganciata SENZA atto, la mail e' dentro e la richiesta resta aperta
 	_, esito = fp.fai(http.MethodPost, "/messaggio/"+rispID.String()+"/risposta-fornitore", url.Values{"richiesta_id": {rid.String()}}, true)
-	if !strings.Contains(esito, "Agganciata come risposta di MGM") || !strings.Contains(esito, "La richiesta resta aperta") || strings.Contains(esito, "allegato proposto") {
+	if !strings.Contains(esito, "Agganciata come risposta di Minuterie Esempio") || !strings.Contains(esito, "La richiesta resta aperta") || strings.Contains(esito, "allegato proposto") {
 		t.Fatalf("IB4: la conferma senza atto: %s", estratto(esito, "avviso"))
 	}
 	if r := b.richiesta(rid); r.Stato != db.StatoRichiestaFornitoreInviata || r.OffertaRicevutaIl != nil {
@@ -344,17 +344,17 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	if nCodici != 0 {
 		t.Errorf("IB8: materiali o norme registrati come codici: %d", nCodici)
 	}
-	if len(p.Identificativi) != 1 || p.Identificativi[0] != "0D002622AD" {
+	if len(p.Identificativi) != 1 || p.Identificativi[0] != "0X001234AB" {
 		t.Errorf("IB8: identificativi proposti %v, atteso il solo codice del cliente", p.Identificativi)
 	}
 
-	// IB5: una seconda RFQ con lo stesso codice e una richiesta a MGM; un'offerta senza In-Reply-To
-	thread2 := b.rfqDa(uuid.Nil, acme, `TECHNOGYM\WIP\2026 09 18 Fiore RFQ bis`, "0D002622AD")
-	if _, err := b.q.InsertRichiestaFornitore(b.ctx, db.InsertRichiestaFornitoreParams{ThreadID: thread2, FornitoreID: mgm.FornitoreID,
-		Codici: []string{"0D002622AD"}, Stato: db.StatoRichiestaFornitoreInviata}); err != nil {
+	// IB5: una seconda RFQ con lo stesso codice e una richiesta a Minuterie Esempio; un'offerta senza In-Reply-To
+	thread2 := b.rfqDa(uuid.Nil, acme, `BETA SPORT\WIP\2026 09 18 Rossi RFQ bis`, "0X001234AB")
+	if _, err := b.q.InsertRichiestaFornitore(b.ctx, db.InsertRichiestaFornitoreParams{ThreadID: thread2, FornitoreID: minuterie.FornitoreID,
+		Codici: []string{"0X001234AB"}, Stato: db.StatoRichiestaFornitoreInviata}); err != nil {
 		t.Fatal(err)
 	}
-	altra := b.postaMsg(b.mail("entrata", "vendite@mgm.example", "Offerta 0D002622AD", "Vi inviamo la quotazione per il codice 0D002622AD."))
+	altra := b.postaMsg(b.mail("entrata", "vendite@minuterie-esempio.example", "Offerta 0X001234AB", "Vi inviamo la quotazione per il codice 0X001234AB."))
 	cand, _ := b.q.ListCandidatiRichiesta(b.ctx, altra)
 	if len(cand) != 2 {
 		t.Fatalf("IB5: candidati %d, attesi 2 (una per RFQ con quel codice): %+v", len(cand), cand)

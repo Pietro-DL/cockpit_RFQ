@@ -5,6 +5,7 @@ package fascicolo
 // non mostrava, i cicli, gli scarti. Le prove L4 che la applicano davvero stanno in voluta_db_test.go.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
-// bancoVoluta: il prodotto 52922757 → l'assieme 52920517 ×2 → il particolare 53017189 ×4, e il particolare
-// anche sotto il prodotto ×1 (condiviso). Uno STEP propone 53011111 (nuovo), 52920517 (c'e' gia'), un nodo
+// bancoVoluta: il prodotto 77722757 → l'assieme 77720517 ×2 → il particolare 77817189 ×4, e il particolare
+// anche sotto il prodotto ×1 (condiviso). Uno STEP propone 77811111 (nuovo), 77720517 (c'e' gia'), un nodo
 // senza codice, una radice che e' il prodotto, un nodo gia' scartato.
 type bancoVoluta struct {
 	prodotto, assieme, particolare             db.Componente
@@ -32,15 +33,15 @@ func propostaVoluta(chiave, codice string, stato db.StatoProposta) db.Componente
 
 func nuovoBancoVoluta() *bancoVoluta {
 	b := &bancoVoluta{
-		prodotto:    componente("52922757", db.TipoComponenteFinito, false),
-		assieme:     componente("52920517", db.TipoComponenteSottoassieme, false),
-		particolare: componente("53017189", db.TipoComponenteSciolto, false),
-		nuovo:       propostaVoluta("#3", "53011111", db.StatoPropostaAperta),
-		ritrovato:   propostaVoluta("#2", "52920517", db.StatoPropostaAperta),
+		prodotto:    componente("77722757", db.TipoComponenteFinito, false),
+		assieme:     componente("77720517", db.TipoComponenteSottoassieme, false),
+		particolare: componente("77817189", db.TipoComponenteSciolto, false),
+		nuovo:       propostaVoluta("#3", "77811111", db.StatoPropostaAperta),
+		ritrovato:   propostaVoluta("#2", "77720517", db.StatoPropostaAperta),
 		senzaCodice: propostaVoluta("#4", "", db.StatoPropostaAperta),
 		radice:      propostaVoluta("#1", "PRT-0001", db.StatoPropostaAperta),
-		via:         propostaVoluta("#5", "53055555", db.StatoPropostaScartata),
-		trovati:     map[string]CodiceScritto{"53088888": {Codice: "53088888", Rev: "B"}},
+		via:         propostaVoluta("#5", "77855555", db.StatoPropostaScartata),
+		trovati:     map[string]CodiceScritto{"77888888": {Codice: "77888888", Rev: "B"}},
 	}
 	b.comp = []db.Componente{b.prodotto, b.assieme, b.particolare}
 	b.rel = []db.ComponenteRelazione{
@@ -89,22 +90,22 @@ func TestPianificaLaStrutturaConINodiProposti(t *testing.T) {
 	b := nuovoBancoVoluta()
 	v := b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 2},
-		ArcoVoluto{Padre: p(b.ritrovato), Figlio: "k:53088888", Qta: 3})
+		ArcoVoluto{Padre: p(b.ritrovato), Figlio: "k:77888888", Qta: 3})
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ids := pv.Nuovi["n:53011111"]; len(ids) != 1 || ids[0] != b.nuovo.PropostaID {
-		t.Errorf("53011111 nasce dalla sua proposta: %v", pv.Nuovi)
+	if ids := pv.Nuovi["n:77811111"]; len(ids) != 1 || ids[0] != b.nuovo.PropostaID {
+		t.Errorf("77811111 nasce dalla sua proposta: %v", pv.Nuovi)
 	}
 	if pv.Ritrovati[b.ritrovato.PropostaID] != b.assieme.ComponenteID {
-		t.Errorf("il nodo 52920517 si ritrova nell'assieme: %v", pv.Ritrovati)
+		t.Errorf("il nodo 77720517 si ritrova nell'assieme: %v", pv.Ritrovati)
 	}
-	if got := pv.Trovati["n:53088888"]; got.Codice != "53088888" || got.Rev != "B" || pv.Nuovi["n:53088888"] != nil {
-		t.Errorf("il codice trovato nasce da se', con la sua revisione: %+v %v", got, pv.Nuovi["n:53088888"])
+	if got := pv.Trovati["n:77888888"]; got.Codice != "77888888" || got.Rev != "B" || pv.Nuovi["n:77888888"] != nil {
+		t.Errorf("il codice trovato nasce da se', con la sua revisione: %+v %v", got, pv.Nuovi["n:77888888"])
 	}
 	for _, k := range []chiaveNodo{chiaveComponente(b.prodotto.ComponenteID), chiaveComponente(b.assieme.ComponenteID),
-		chiaveComponente(b.particolare.ComponenteID), "n:53011111", "n:53088888"} {
+		chiaveComponente(b.particolare.ComponenteID), "n:77811111", "n:77888888"} {
 		if !pv.Albero[k] {
 			t.Errorf("%s non e' nell'albero", k)
 		}
@@ -128,7 +129,7 @@ func TestPianificaLaRadice(t *testing.T) {
 	rifiutata(t, b.contesto(), v, "è la radice della struttura")
 
 	archiviato := nuovoBancoVoluta()
-	a := componente("52922757", db.TipoComponenteFinito, true)
+	a := componente("77722757", db.TipoComponenteFinito, true)
 	archiviato.prodotto = a
 	archiviato.comp[0] = a
 	rifiutata(t, archiviato.contesto(), StrutturaVoluta{Radice: a.ComponenteID}, "è archiviato")
@@ -151,7 +152,7 @@ func TestPianificaQuantitaERipetizioni(t *testing.T) {
 	rifiutata(t, b.contesto(), v, "non sta sotto se stesso")
 
 	// due nodi proposti con lo stesso codice, uno dentro l'altro (STEP veri): non e' un errore, l'arco si salta
-	gemello := propostaVoluta("#9", "53011111", db.StatoPropostaAperta)
+	gemello := propostaVoluta("#9", "77811111", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, gemello}, nil)
 	v = b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 1}, ArcoVoluto{Padre: p(b.nuovo), Figlio: p(gemello), Qta: 1})
@@ -159,8 +160,8 @@ func TestPianificaQuantitaERipetizioni(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pv.Archi) != 4 || len(pv.Nuovi["n:53011111"]) != 2 {
-		t.Errorf("l'arco fra i due gemelli si salta, tutti e due portano 53011111: %d archi, %v", len(pv.Archi), pv.Nuovi)
+	if len(pv.Archi) != 4 || len(pv.Nuovi["n:77811111"]) != 2 {
+		t.Errorf("l'arco fra i due gemelli si salta, tutti e due portano 77811111: %d archi, %v", len(pv.Archi), pv.Nuovi)
 	}
 }
 
@@ -172,7 +173,7 @@ func TestPianificaAlberoEArchiNonVisti(t *testing.T) {
 	// quell'arco non e' appeso a niente
 	v := StrutturaVoluta{Radice: b.prodotto.ComponenteID, Visti: b.comeE().Visti,
 		Archi: []ArcoVoluto{{Padre: c(b.prodotto), Figlio: c(b.assieme), Qta: 2}, {Padre: c(b.particolare), Figlio: p(b.nuovo), Qta: 1}}}
-	rifiutata(t, b.contesto(), v, "non è appeso alla struttura di 52922757")
+	rifiutata(t, b.contesto(), v, "non è appeso alla struttura di 77722757")
 
 	// togliere un arco visto va bene
 	v.Archi = v.Archi[:1]
@@ -194,6 +195,14 @@ func TestPianificaAlberoEArchiNonVisti(t *testing.T) {
 		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: c(b.assieme), Qta: 1})
 	}
 	rifiutata(t, b.contesto(), v, "il limite è")
+
+	// troppi archi visti, con pochi archi voluti: il rifiuto dice gli archi visti e il loro limite, non
+	// «la struttura ha 3 archi: il limite è 5000», che non spiega niente
+	v = b.comeE()
+	for len(v.Visti) <= 4*MaxArchiVoluti {
+		v.Visti = append(v.Visti, v.Visti[0])
+	}
+	rifiutata(t, b.contesto(), v, fmt.Sprintf("%d archi della BOM mostrata: il limite è %d", len(v.Visti), 4*MaxArchiVoluti))
 }
 
 // Il grafo finale non ha cicli, anche contando gli archi della working fuori dall'albero.
@@ -207,13 +216,13 @@ func TestPianificaRifiutaICicli(t *testing.T) {
 	v = b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.particolare), Figlio: p(b.nuovo), Qta: 1}, ArcoVoluto{Padre: p(b.nuovo), Figlio: c(b.assieme), Qta: 1})
 	_, err := pianifica(b.contesto(), v)
-	if err == nil || !strings.Contains(err.Error(), "53011111") {
+	if err == nil || !strings.Contains(err.Error(), "77811111") {
 		t.Errorf("il ciclo con il nodo nuovo: %v", err)
 	}
 
 	// un altro prodotto con l'assieme sotto: portato nell'albero, porta i suoi archi. Se l'editor non li
 	// mostrava la struttura e' vecchia; se li mostrava e li tiene, il giro si chiude
-	altro := componente("52999999", db.TipoComponenteFinito, false)
+	altro := componente("77799999", db.TipoComponenteFinito, false)
 	b.comp = append(b.comp, altro)
 	b.rel = append(b.rel, db.ComponenteRelazione{PadreID: altro.ComponenteID, FiglioID: b.assieme.ComponenteID, Qta: 1})
 	v = b.comeE()
@@ -244,38 +253,38 @@ func TestPianificaRiferimentiECodici(t *testing.T) {
 	rifiutata(t, b.contesto(), sotto(p(b.via)), "è stato scartato")
 	rifiutata(t, b.contesto(), sotto("p:"+uuid.NewString()), "non è di questa RFQ")
 	rifiutata(t, b.contesto(), sotto("c:"+uuid.NewString()), "non è di questa RFQ")
-	rifiutata(t, b.contesto(), sotto("k:53077777"), "non è fra i codici trovati")
+	rifiutata(t, b.contesto(), sotto("k:77877777"), "non è fra i codici trovati")
 	rifiutata(t, b.contesto(), sotto("x:qualcosa"), "non è valido")
 
 	// un codice trovato che e' gia' un componente e' quel componente
-	v := sotto("k:53017189")
+	v := sotto("k:77817189")
 	v.Archi = v.Archi[:len(v.Archi)-1]
-	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: "k:52920517", Qta: 7})
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: "k:77720517", Qta: 7})
 	rifiutata(t, b.contesto(), v, "è due volte sotto")
 
 	// il codice scritto dall'operatore fa del nodo senza codice un codice nuovo
 	v = sotto(p(b.senzaCodice))
-	v.Codici = map[string]CodiceScritto{b.senzaCodice.PropostaID.String(): {Codice: "53066666", Rev: "a"}}
+	v.Codici = map[string]CodiceScritto{b.senzaCodice.PropostaID.String(): {Codice: "77866666", Rev: "a"}}
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ids := pv.Nuovi["n:53066666"]; len(ids) != 1 || ids[0] != b.senzaCodice.PropostaID {
+	if ids := pv.Nuovi["n:77866666"]; len(ids) != 1 || ids[0] != b.senzaCodice.PropostaID {
 		t.Errorf("il nodo senza codice nasce con il codice scritto: %v", pv.Nuovi)
 	}
 	if pv.Codici[b.senzaCodice.PropostaID].Rev != "A" {
 		t.Errorf("la revisione scritta, in maiuscolo: %+v", pv.Codici)
 	}
 	// codici non ammessi, su nodi non aperti, su nodi di altre RFQ
-	for _, cs := range []CodiceScritto{{Codice: "53 06/6666"}, {Codice: strings.Repeat("9", 80)}, {Codice: "53066666", Rev: "REV MOLTO LUNGA"}} {
+	for _, cs := range []CodiceScritto{{Codice: "53 06/6666"}, {Codice: strings.Repeat("9", 80)}, {Codice: "77866666", Rev: "REV MOLTO LUNGA"}} {
 		v.Codici = map[string]CodiceScritto{b.senzaCodice.PropostaID.String(): cs}
 		rifiutata(t, b.contesto(), v, "caratteri non ammessi")
 	}
-	v.Codici = map[string]CodiceScritto{b.via.PropostaID.String(): {Codice: "53066666"}}
+	v.Codici = map[string]CodiceScritto{b.via.PropostaID.String(): {Codice: "77866666"}}
 	rifiutata(t, b.contesto(), v, "la proposta è già decisa")
-	v.Codici = map[string]CodiceScritto{uuid.NewString(): {Codice: "53066666"}}
+	v.Codici = map[string]CodiceScritto{uuid.NewString(): {Codice: "77866666"}}
 	rifiutata(t, b.contesto(), v, "non è di questa RFQ")
-	v.Codici = map[string]CodiceScritto{"non-un-uuid": {Codice: "53066666"}}
+	v.Codici = map[string]CodiceScritto{"non-un-uuid": {Codice: "77866666"}}
 	rifiutata(t, b.contesto(), v, "non valido")
 }
 
@@ -290,7 +299,7 @@ func TestPianificaLaRadiceDelloStepEIlProdotto(t *testing.T) {
 		t.Fatal(err)
 	}
 	ultimo := pv.Archi[len(pv.Archi)-1]
-	if ultimo.Padre != chiaveComponente(b.prodotto.ComponenteID) || ultimo.Figlio != "n:53011111" {
+	if ultimo.Padre != chiaveComponente(b.prodotto.ComponenteID) || ultimo.Figlio != "n:77811111" {
 		t.Errorf("l'arco della radice dello STEP e' del prodotto: %+v", ultimo)
 	}
 	if len(pv.Radici) != 1 || pv.Radici[0] != b.radice.PropostaID {
@@ -336,18 +345,18 @@ func TestPianificaGliScarti(t *testing.T) {
 
 // La frase all'operatore dice che cosa e' cambiato, e chi e' rimasto senza padre.
 func TestFraseVoluta(t *testing.T) {
-	if got := fraseVoluta("52922757", esitoVoluta{}); got != "Nessun cambiamento: la struttura di 52922757 è già così." {
+	if got := fraseVoluta("77722757", esitoVoluta{}); got != "Nessun cambiamento: la struttura di 77722757 è già così." {
 		t.Errorf("niente: %q", got)
 	}
-	got := fraseVoluta("52922757", esitoVoluta{nuovi: 1, aggiunti: 2, tolti: 1, chiuse: 1, senzaPadre: []string{"53017189"}})
-	if got != "Struttura di 52922757 confermata: 1 componente nuovo, 2 legami aggiunti, 1 legame tolto, 1 proposta di legame chiusa. Fuori dalla struttura e senza padre, da sistemare: 53017189." {
+	got := fraseVoluta("77722757", esitoVoluta{nuovi: 1, aggiunti: 2, tolti: 1, chiuse: 1, senzaPadre: []string{"77817189"}})
+	if got != "Struttura di 77722757 confermata: 1 componente nuovo, 2 legami aggiunti, 1 legame tolto, 1 proposta di legame chiusa. Fuori dalla struttura e senza padre, da sistemare: 77817189." {
 		t.Errorf("frase: %q", got)
 	}
 }
 
 // Il tipo con cui nasce un nodo: assieme con dei figli, altrimenti quello suggerito (mai prodotto).
 func TestTipoVoluto(t *testing.T) {
-	n := propostaVoluta("#3", "53011111", db.StatoPropostaAperta)
+	n := propostaVoluta("#3", "77811111", db.StatoPropostaAperta)
 	if got := tipoVoluto(n, 2); got != db.TipoComponenteSottoassieme {
 		t.Errorf("con figli: %s", got)
 	}
@@ -368,7 +377,7 @@ func TestTipoVoluto(t *testing.T) {
 // il nodo ritrova l'assieme, e i figli dell'assieme — che l'editor non mostrava sotto quella carta — restano.
 func TestPianificaTieneIFigliDiUnComponenteRitrovatoPerCodice(t *testing.T) {
 	b := nuovoBancoVoluta()
-	altro := componente("52999999", db.TipoComponenteFinito, false)
+	altro := componente("77799999", db.TipoComponenteFinito, false)
 	b.comp = append(b.comp, altro)
 	b.rel = []db.ComponenteRelazione{
 		{PadreID: altro.ComponenteID, FiglioID: b.assieme.ComponenteID, Qta: 2},
@@ -377,7 +386,7 @@ func TestPianificaTieneIFigliDiUnComponenteRitrovatoPerCodice(t *testing.T) {
 	v := StrutturaVoluta{Radice: b.prodotto.ComponenteID,
 		Archi:  []ArcoVoluto{{Padre: c(b.prodotto), Figlio: p(b.senzaCodice), Qta: 1}},
 		Visti:  []ArcoVoluto{{Padre: c(altro), Figlio: c(b.assieme), Qta: 2}, {Padre: c(b.assieme), Figlio: c(b.particolare), Qta: 4}},
-		Codici: map[string]CodiceScritto{b.senzaCodice.PropostaID.String(): {Codice: "52920517"}}}
+		Codici: map[string]CodiceScritto{b.senzaCodice.PropostaID.String(): {Codice: "77720517"}}}
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
@@ -458,7 +467,7 @@ func senzaArco(v StrutturaVoluta, padre, figlio db.Componente) StrutturaVoluta {
 func TestPianificaUnaCartaSonoTutteLeProposteDelCodice(t *testing.T) {
 	b := nuovoBancoVoluta()
 	radice2 := propostaVoluta("#1", "PRT-0001", db.StatoPropostaAperta)
-	nuovo2 := propostaVoluta("#7", "53011111", db.StatoPropostaAperta)
+	nuovo2 := propostaVoluta("#7", "77811111", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.radice, radice2, nuovo2, b.senzaCodice}, nil)
 	v := b.comeE()
 	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID}
@@ -485,7 +494,7 @@ func TestPianificaUnaCartaSonoTutteLeProposteDelCodice(t *testing.T) {
 // l'editor lo disegna come quel componente, e il nodo si ritrova (non resta aperto per sempre).
 func TestPianificaRitrovaINodiDegliArchiMostrati(t *testing.T) {
 	b := nuovoBancoVoluta()
-	aperto := propostaVoluta("#2", "52920517", db.StatoPropostaAperta)
+	aperto := propostaVoluta("#2", "77720517", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{aperto, b.nuovo}, nil)
 	v := b.comeE()
 	v.RelazioniViste = []RelazioneVista{{Allegato: aperto.AllegatoID, Padre: "#2", Figlio: "#9"}}
@@ -494,6 +503,6 @@ func TestPianificaRitrovaINodiDegliArchiMostrati(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pv.Ritrovati[aperto.PropostaID] != b.assieme.ComponenteID {
-		t.Errorf("il nodo 52920517 dell'arco mostrato si ritrova nell'assieme: %v", pv.Ritrovati)
+		t.Errorf("il nodo 77720517 dell'arco mostrato si ritrova nell'assieme: %v", pv.Ritrovati)
 	}
 }

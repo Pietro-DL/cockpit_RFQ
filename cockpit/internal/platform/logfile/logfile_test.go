@@ -128,3 +128,68 @@ func TestScrittureConcorrentiNonSiMescolano(t *testing.T) {
 		}
 	}
 }
+
+// Il file corrente che non si lascia spostare (su Windows basta che un altro processo lo tenga aperto): prima
+// le copie vecchie scalavano e la piu' vecchia spariva a OGNI scrittura, e il log si fermava con un errore.
+// Adesso si continua a scrivere in coda al file corrente, le copie vecchie restano come sono, e la rotazione
+// si riprova ogni tanto, non a ogni riga; quando il file torna libero la rotazione riesce.
+func TestUnFileBloccatoNonFaPerdereLeCopieEIlLogContinua(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cockpit.log")
+	for i, testo := range []string{"copia uno\n", "copia due\n"} {
+		if err := os.WriteFile(p+"."+string(rune('1'+i)), []byte(testo), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := Apri(p, 1000, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bloccato, tentativi := true, 0
+	s.rinomina = func(da, a string) error {
+		if da == p {
+			tentativi++
+			if bloccato {
+				return &os.LinkError{Op: "rename", Old: da, New: a, Err: os.ErrPermission}
+			}
+		}
+		return os.Rename(da, a)
+	}
+	riga := strings.Repeat("r", 19) + "\n"
+	const scritture = 200 // 4000 byte: quattro volte la soglia
+	for i := 0; i < scritture; i++ {
+		if _, err := s.Write([]byte(riga)); err != nil {
+			t.Fatalf("scrittura %d: %v", i, err)
+		}
+	}
+	if c := leggi(t, p+".1"); c != "copia uno\n" {
+		t.Errorf("la copia .1 e' cambiata: %q", c)
+	}
+	if c := leggi(t, p+".2"); c != "copia due\n" {
+		t.Errorf("la copia .2 e' cambiata: %q", c)
+	}
+	if n := strings.Count(leggi(t, p), riga); n != scritture {
+		t.Errorf("il file corrente ha %d righe, attese %d: il log si e' perso qualcosa", n, scritture)
+	}
+	if tentativi == 0 || tentativi > scritture/4 {
+		t.Errorf("tentativi di rotazione: %d su %d scritture (atteso qualcuno, non uno per riga)", tentativi, scritture)
+	}
+
+	// il file torna libero: alla prossima occasione la rotazione riesce, e le copie scalano
+	bloccato = false
+	for i := 0; i < 10; i++ {
+		if _, err := s.Write([]byte(riga)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := strings.Count(leggi(t, p+".1"), riga); n < scritture {
+		t.Errorf("dopo lo sblocco la copia .1 ha %d righe: il file grande non e' stato ruotato", n)
+	}
+	if c := leggi(t, p+".2"); c != "copia uno\n" {
+		t.Errorf("dopo lo sblocco la copia .2 = %q, attesa la vecchia .1", c)
+	}
+	if _, err := os.Stat(p + ".ruota"); !os.IsNotExist(err) {
+		t.Errorf("e' rimasto il file di parcheggio della rotazione")
+	}
+}

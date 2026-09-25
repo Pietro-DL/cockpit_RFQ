@@ -22,12 +22,12 @@ import (
 	"promatec/cockpit/internal/platform/coda"
 )
 
-// fattiV3: uno STEP con una radice senza codice (il nome del CAD, che e' il prodotto), l'assieme 52920517 ×2
-// sotto di lei e un pezzo nuovo, 53011111 ×2, sotto l'assieme.
+// fattiV3: uno STEP con una radice senza codice (il nome del CAD, che e' il prodotto), l'assieme 77720517 ×2
+// sotto di lei e un pezzo nuovo, 77811111 ×2, sotto l'assieme.
 const fattiV3 = `{"struttura": {"versione": 3, "schema": "AP214", "radici": ["#1"], "avvisi": [],
 	"nodi": [{"chiave": "#1", "id_grezzo": "TOP-ASM", "nome_grezzo": "TOP-ASM", "evidenza": {}},
-	         {"chiave": "#2", "id_grezzo": "52920517", "nome_grezzo": "52920517", "evidenza": {}},
-	         {"chiave": "#3", "id_grezzo": "53011111", "nome_grezzo": "53011111", "evidenza": {}}],
+	         {"chiave": "#2", "id_grezzo": "77720517", "nome_grezzo": "77720517", "evidenza": {}},
+	         {"chiave": "#3", "id_grezzo": "77811111", "nome_grezzo": "77811111", "evidenza": {}}],
 	"relazioni": [{"padre": "#1", "figlio": "#2", "qta": 2, "evidenza": {}}, {"padre": "#2", "figlio": "#3", "qta": 2, "evidenza": {}}],
 	"limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 	"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
@@ -37,7 +37,7 @@ type scenaV3 struct {
 	*scenaB87
 	w                 *browser
 	stp               uuid.UUID // l'allegato STEP
-	top, nodo2, nuovo uuid.UUID // le proposte #1 (senza codice), #2 (52920517), #3 (53011111)
+	top, nodo2, nuovo uuid.UUID // le proposte #1 (senza codice), #2 (77720517), #3 (77811111)
 }
 
 func (b *bancoWeb) scenaV3(t *testing.T, chiave string) *scenaV3 {
@@ -139,13 +139,13 @@ func (r *rfqFascicolo) congelaAMano() {
 
 // ---------------------------------------------------------------- l'editor: la proposta dello STEP
 
-// La proposta dello STEP presa com'e' nell'editor: la radice senza codice e' il prodotto, 53011111 nasce
+// La proposta dello STEP presa com'e' nell'editor: la radice senza codice e' il prodotto, 77811111 nasce
 // sotto l'assieme con la sua quantita', la proposta dell'arco e' presa, quella che dice un arco gia' nella
 // BOM e' un duplicato. Il banner dello STEP sparisce, l'evento per l'editor dice che e' fatto.
 func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaV3(t, "ED1")
-	if got := s.valore(`SELECT string_agg(chiave || ':' || coalesce(codice, '-') || ':' || stato::text, ' ' ORDER BY chiave) FROM componente_proposta WHERE allegato_id = $1`, s.stp); got != "#1:-:aperta #2:52920517:duplicato #3:53011111:aperta" {
+	if got := s.valore(`SELECT string_agg(chiave || ':' || coalesce(codice, '-') || ':' || stato::text, ' ' ORDER BY chiave) FROM componente_proposta WHERE allegato_id = $1`, s.stp); got != "#1:-:aperta #2:77720517:duplicato #3:77811111:aperta" {
 		t.Fatalf("le proposte dello STEP: %s", got)
 	}
 	_, pagina := s.w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
@@ -158,17 +158,17 @@ func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refP(s.nuovo), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#1", Figlio: "#2"}, {Allegato: s.stp, Padre: "#2", Figlio: "#3"}}
 	avviso, evento, stato := s.applica(s.w, v)
-	if stato != 200 || avviso != "Struttura di 52922757 confermata: 1 componente nuovo, 1 radice dello STEP riconosciuta come il prodotto, 1 legame aggiunto." {
+	if stato != 200 || avviso != "Struttura di 77722757 confermata: 1 componente nuovo, 1 radice dello STEP riconosciuta come il prodotto, 1 legame aggiunto." {
 		t.Fatalf("editor: %d %q", stato, avviso)
 	}
 	if ok, testo := esitoEditor(t, evento); !ok || testo != avviso {
 		t.Errorf("l'evento per l'editor: %v %q", ok, testo)
 	}
-	if got := s.archi(); got != "52920517>53011111x2 52920517>53017189x4 52922757>52920517x2 52922757>53017189x1" {
+	if got := s.archi(); got != "77720517>77811111x2 77720517>77817189x4 77722757>77720517x2 77722757>77817189x1" {
 		t.Errorf("archi: %s", got)
 	}
-	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '53011111'`, s.thread); !strings.HasPrefix(got, "sciolto/") {
-		t.Errorf("53011111 nasce particolare: %s", got)
+	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); !strings.HasPrefix(got, "sciolto/") {
+		t.Errorf("77811111 nasce particolare: %s", got)
 	}
 	if got := s.valore(`SELECT string_agg(chiave || ':' || stato::text || ':' || (componente_id = $2)::text, ' ' ORDER BY chiave) FROM componente_proposta
 		WHERE allegato_id = $1 AND chiave = '#1'`, s.stp, s.prodotto); got != "#1:duplicato:true" {
@@ -207,7 +207,7 @@ func TestLEditorSpostaCondivideTogli(t *testing.T) {
 		}
 	}
 	passo("sposta", senza(s.strutturaDi(s.prodotto), s.assieme, s.particolare),
-		"Struttura di 52922757 confermata: 1 legame tolto.", "52922757>52920517x2 52922757>53017189x1")
+		"Struttura di 77722757 confermata: 1 legame tolto.", "77722757>77720517x2 77722757>77817189x1")
 
 	v := s.strutturaDi(s.prodotto)
 	for i := range v.Archi {
@@ -216,24 +216,24 @@ func TestLEditorSpostaCondivideTogli(t *testing.T) {
 		}
 	}
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refC(s.particolare), Qta: 3})
-	passo("condividi e quantita'", v, "Struttura di 52922757 confermata: 1 legame aggiunto, 1 quantità cambiata.",
-		"52920517>53017189x3 52922757>52920517x2 52922757>53017189x5")
+	passo("condividi e quantita'", v, "Struttura di 77722757 confermata: 1 legame aggiunto, 1 quantità cambiata.",
+		"77720517>77817189x3 77722757>77720517x2 77722757>77817189x5")
 
-	passo("niente", s.strutturaDi(s.prodotto), "Nessun cambiamento: la struttura di 52922757 è già così.",
-		"52920517>53017189x3 52922757>52920517x2 52922757>53017189x5")
+	passo("niente", s.strutturaDi(s.prodotto), "Nessun cambiamento: la struttura di 77722757 è già così.",
+		"77720517>77817189x3 77722757>77720517x2 77722757>77817189x5")
 
 	v = senza(senza(s.strutturaDi(s.prodotto), s.assieme, s.particolare), s.prodotto, s.particolare)
-	passo("togli", v, "Struttura di 52922757 confermata: 2 legami tolti. Fuori dalla struttura e senza padre, da sistemare: 53017189.",
-		"52922757>52920517x2")
+	passo("togli", v, "Struttura di 77722757 confermata: 2 legami tolti. Fuori dalla struttura e senza padre, da sistemare: 77817189.",
+		"77722757>77720517x2")
 
 	vite := s.componenteTipo("54000000", "sciolto")
 	v = s.strutturaDi(s.prodotto)
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refC(s.particolare), Qta: 1},
 		fascicolo.ArcoVoluto{Padre: refC(s.particolare), Figlio: refC(vite), Qta: 2})
-	passo("un particolare con un figlio", v, "Struttura di 52922757 confermata: 2 legami aggiunti, 1 particolare diventa assieme.",
-		"52920517>53017189x1 52922757>52920517x2 53017189>54000000x2")
+	passo("un particolare con un figlio", v, "Struttura di 77722757 confermata: 2 legami aggiunti, 1 particolare diventa assieme.",
+		"77720517>77817189x1 77722757>77720517x2 77817189>54000000x2")
 	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.particolare); got != "sottoassieme" {
-		t.Errorf("53017189 con un figlio: %s", got)
+		t.Errorf("77817189 con un figlio: %s", got)
 	}
 }
 
@@ -274,7 +274,7 @@ func TestLEditorRifiutaSenzaScrivereNiente(t *testing.T) {
 		}
 	}
 	v.Visti = visti
-	rifiuto("dati vecchi", v, "52920517 ha sotto 53017189, che l'editor non mostrava (un altro gesto nel frattempo): riapri l'editor")
+	rifiuto("dati vecchi", v, "77720517 ha sotto 77817189, che l'editor non mostrava (un altro gesto nel frattempo): riapri l'editor")
 
 	// tanti cambiamenti buoni e un ciclo in fondo: niente
 	v = s.strutturaDi(s.prodotto)
@@ -285,10 +285,10 @@ func TestLEditorRifiutaSenzaScrivereNiente(t *testing.T) {
 	rifiuto("ciclo", v, "la struttura chiuderebbe un ciclo")
 
 	v = s.strutturaDi(s.assieme)
-	rifiuto("radice non prodotto", v, "52920517 non è un prodotto finito")
+	rifiuto("radice non prodotto", v, "77720517 non è un prodotto finito")
 
 	altra := b.rfqFascicolo(b.clienteDiProva("BETA", "Beta S.r.l.", "beta.example"), "ED3-ALTRA")
-	prodottoAltro := altra.componenteTipo("52999999", "finito")
+	prodottoAltro := altra.componenteTipo("77799999", "finito")
 	rifiuto("radice di un'altra RFQ", s.strutturaDi(prodottoAltro), "la radice della struttura non è un componente di questa RFQ")
 	v = s.strutturaDi(s.prodotto)
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refC(prodottoAltro), Qta: 1})
@@ -324,36 +324,36 @@ func TestLEditorCodiciTrovatiScartiERimozioni(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaV3(t, "ED4")
 	s.esegui(`INSERT INTO candidato_codice (messaggio_id, codice, ruolo, rev, origine, famiglia, punteggio, evidenza)
-		VALUES ($1, '53099999', 'prodotto', 'C', 'generico', '', 30, 'corpo')`, s.msg)
+		VALUES ($1, '77899999', 'prodotto', 'C', 'generico', '', 30, 'corpo')`, s.msg)
 
 	v := s.strutturaDi(s.prodotto)
-	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:53099999", Qta: 1})
-	if a, _, _ := s.applica(s.w, v); a != "Struttura di 52922757 confermata: 1 componente nuovo, 1 legame aggiunto." {
+	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:77899999", Qta: 1})
+	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto." {
 		t.Fatalf("codice trovato: %q", a)
 	}
-	if got := s.valore(`SELECT tipo::text || '/' || origine::text || '/' || coalesce(rev, '-') FROM componente WHERE thread_id = $1 AND codice = '53099999'`, s.thread); got != "sciolto/codice_rilevato/C" {
+	if got := s.valore(`SELECT tipo::text || '/' || origine::text || '/' || coalesce(rev, '-') FROM componente WHERE thread_id = $1 AND codice = '77899999'`, s.thread); got != "sciolto/codice_rilevato/C" {
 		t.Errorf("il componente dal codice trovato: %s", got)
 	}
 	v = s.strutturaDi(s.prodotto)
-	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:53077777", Qta: 1})
-	if a, _, _ := s.applica(s.w, v); a != "Niente è cambiato: 53077777 non è fra i codici trovati in questa RFQ" {
+	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:77877777", Qta: 1})
+	if a, _, _ := s.applica(s.w, v); a != "Niente è cambiato: 77877777 non è fra i codici trovati in questa RFQ" {
 		t.Errorf("codice che non c'e': %q", a)
 	}
 
 	v = s.strutturaDi(s.prodotto)
 	v.Scarta = []uuid.UUID{s.nuovo}
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#2", Figlio: "#3"}}
-	if a, _, _ := s.applica(s.w, v); a != "Struttura di 52922757 confermata: 1 nodo proposto scartato, 1 proposta di legame chiusa." {
+	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 nodo proposto scartato, 1 proposta di legame chiusa." {
 		t.Fatalf("scarto: %q", a)
 	}
-	if got := s.valore(`SELECT stato::text || ' ' || coalesce(nota, '') FROM relazione_proposta WHERE allegato_id = $1 AND figlio_chiave = '#3'`, s.stp); got != "scartata nodo scartato nella struttura: 53011111" {
+	if got := s.valore(`SELECT stato::text || ' ' || coalesce(nota, '') FROM relazione_proposta WHERE allegato_id = $1 AND figlio_chiave = '#3'`, s.stp); got != "scartata nodo scartato nella struttura: 77811111" {
 		t.Errorf("l'arco verso il nodo scartato: %q", got)
 	}
 
 	v = s.strutturaDi(s.prodotto)
 	v.RadiciProposte = []uuid.UUID{s.top}
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#1", Figlio: "#2"}}
-	if a, _, _ := s.applica(s.w, v); a != "Struttura di 52922757 confermata: 1 radice dello STEP riconosciuta come il prodotto." {
+	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 radice dello STEP riconosciuta come il prodotto." {
 		t.Fatalf("radice: %q", a)
 	}
 	if got := s.valore(`SELECT stato::text FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#1'`, s.stp); got != "duplicato" {
@@ -361,18 +361,18 @@ func TestLEditorCodiciTrovatiScartiERimozioni(t *testing.T) {
 	}
 
 	// lo STEP strutturale del prodotto propone di togliere prodotto → assieme; l'operatore lo tiene
-	if a := s.gesto(s.w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "è lo STEP strutturale di 52922757") {
+	if a := s.gesto(s.w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "è lo STEP strutturale di 77722757") {
 		t.Fatalf("STEP strutturale: %q", a)
 	}
 	s.esegui(`INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working) VALUES ($1, $2, $3, $4, 2)`,
 		s.thread, s.step, s.prodotto, s.assieme)
-	if a, _, _ := s.applica(s.w, s.strutturaDi(s.prodotto)); a != "Struttura di 52922757 confermata: 1 rimozione proposta dallo STEP chiusa: il legame resta." {
+	if a, _, _ := s.applica(s.w, s.strutturaDi(s.prodotto)); a != "Struttura di 77722757 confermata: 1 rimozione proposta dallo STEP chiusa: il legame resta." {
 		t.Fatalf("rimozione tenuta: %q", a)
 	}
 	if got := s.valore(`SELECT stato::text || ' ' || coalesce(nota, '') FROM rimozione_proposta WHERE thread_id = $1`, s.thread); got != "scartata tenuto nella struttura confermata" {
 		t.Errorf("la rimozione: %q", got)
 	}
-	if got := s.archi(); !strings.Contains(got, "52922757>52920517x2") {
+	if got := s.archi(); !strings.Contains(got, "77722757>77720517x2") {
 		t.Errorf("l'arco tenuto: %s", got)
 	}
 }
@@ -394,7 +394,7 @@ func TestLeNoteSuiDisegni(t *testing.T) {
 		return url.Values{"componente": {s.particolare.String()}, "allegato": {s.allLibero.String()}, "pagina": {"1"}, "x": {"0.3"}, "y": {"0.4"},
 			"testo": {"Tolleranza da verificare sul foro"}}
 	}
-	if a := nota(w, buona()); a != "Nota aggiunta su 53017189.pdf, pagina 1 (53017189)." {
+	if a := nota(w, buona()); a != "Nota aggiunta su 77817189.pdf, pagina 1 (77817189)." {
 		t.Fatalf("nota: %q", a)
 	}
 	if got := s.valore(`SELECT pagina || ' ' || x_norm || ' ' || y_norm || ' ' || testo || ' ' || (componente_id = $2)::text || ' ' || (allegato_id = $3)::text
@@ -405,14 +405,14 @@ func TestLeNoteSuiDisegni(t *testing.T) {
 	f.Del("componente")
 	f.Set("x", "1")
 	f.Set("y", "0")
-	if a := nota(w, f); a != "Nota aggiunta su 53017189.pdf, pagina 1 (senza componente)." {
+	if a := nota(w, f); a != "Nota aggiunta su 77817189.pdf, pagina 1 (senza componente)." {
 		t.Errorf("nota senza componente, sul bordo del foglio: %q", a)
 	}
 
 	// i rifiuti
 	altra := b.rfqFascicolo(b.clienteDiProva("BETA", "Beta S.r.l.", "beta.example"), "NOTE-ALTRA")
 	fileAltro, _ := altra.allegatoExt("altro.pdf", "pdf")
-	compAltro := altra.componente("52999999")
+	compAltro := altra.componente("77799999")
 	senzaImpronta, _ := s.allegatoExt("senza impronta.pdf", "pdf")
 	s.esegui(`UPDATE allegato SET sha256 = NULL WHERE allegato_id = $1`, senzaImpronta)
 	casi := []struct {
@@ -583,7 +583,7 @@ func TestLaSezioneEIDatiDellEditor(t *testing.T) {
 	s := b.scenaV3(t, "SEZ")
 	resp, html := s.w.daFascicolo(http.MethodGet, s.base()+"/sezione?nodo="+s.assieme.String(), nil, s.thread, "?nodo="+s.assieme.String())
 	if resp.StatusCode != 200 || !strings.Contains(html, `class="docv-sez"`) || !strings.Contains(html, `data-k="c:`+s.assieme.String()+`"`) ||
-		!strings.Contains(html, "52920517.pdf") || strings.Contains(html, "<html") {
+		!strings.Contains(html, "77720517.pdf") || strings.Contains(html, "<html") {
 		t.Errorf("la sezione dell'assieme: %d\n%.400s", resp.StatusCode, html)
 	}
 
@@ -603,10 +603,10 @@ func TestLaSezioneEIDatiDellEditor(t *testing.T) {
 	if d.Prodotto != refC(s.prodotto) || !d.Scrive || d.Bloccata != 0 {
 		t.Errorf("prodotto %s, scrive %v, bloccata %d", d.Prodotto, d.Scrive, d.Bloccata)
 	}
-	if n := d.Nodi[refC(s.assieme)]; n.Codice != "52920517" {
+	if n := d.Nodi[refC(s.assieme)]; n.Codice != "77720517" {
 		t.Errorf("l'assieme fra i nodi: %+v", n)
 	}
-	if n := d.Nodi[refP(s.nuovo)]; n.Codice != "53011111" || !n.Proposto {
+	if n := d.Nodi[refP(s.nuovo)]; n.Codice != "77811111" || !n.Proposto {
 		t.Errorf("il nodo proposto: %+v", n)
 	}
 	if n := d.Nodi[refP(s.top)]; !n.SenzaCodice || n.Nome != "TOP-ASM" {
@@ -634,7 +634,7 @@ func TestLaSezioneEIDatiDellEditor(t *testing.T) {
 		av := fascicolo.ArcoVoluto{Padre: a.Padre, Figlio: a.Figlio, Qta: a.Qta}
 		v.Archi, v.Visti = append(v.Archi, av), append(v.Visti, av)
 	}
-	if a, _, _ := s.applica(s.w, v); a != "Nessun cambiamento: la struttura di 52922757 è già così." {
+	if a, _, _ := s.applica(s.w, v); a != "Nessun cambiamento: la struttura di 77722757 è già così." {
 		t.Errorf("i dati dell'editor rimandati: %q", a)
 	}
 
@@ -695,11 +695,11 @@ func TestLEditorChiudeLArcoDiUnPezzoDentroSeStesso(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED5")
 	w := operatore(b)
-	stp := s.stepLetto(t, w, "assieme.stp", fattiDi("#1", []string{"#1=52920517", "#2=53011111", "#3=53011111"}, []string{"#1>#2*2", "#2>#3*1"}))
+	stp := s.stepLetto(t, w, "assieme.stp", fattiDi("#1", []string{"#1=77720517", "#2=77811111", "#3=77811111"}, []string{"#1>#2*2", "#2>#3*1"}))
 	v := s.strutturaDi(s.prodotto)
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refP(s.propostaNodo(t, stp, "#2")), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: stp, Padre: "#1", Figlio: "#2"}}
-	if a, _, _ := s.applica(w, v); a != "Struttura di 52922757 confermata: 1 componente nuovo, 1 legame aggiunto, 1 proposta di legame chiusa." {
+	if a, _, _ := s.applica(w, v); a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto, 1 proposta di legame chiusa." {
 		t.Fatalf("editor: %q", a)
 	}
 	if got := s.valore(`SELECT stato::text || ' ' || coalesce(nota, '') FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#2'`, stp); got != "scartata padre e figlio sono lo stesso componente: un pezzo non contiene se stesso" {
@@ -720,10 +720,10 @@ func TestLEditorNonToccaIFigliDiUnPezzoRitrovatoPerCodice(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED6")
 	w := operatore(b)
-	altro := s.componenteTipo("52999999", "finito")
+	altro := s.componenteTipo("77799999", "finito")
 	s.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2`, s.prodotto, s.assieme)
 	s.arco(altro, s.assieme, 1)
-	stp := s.stepLetto(t, w, "prodotto.stp", fattiDi("#1", []string{"#1=52922757", "#5=Part", "#6=53066666"}, []string{"#1>#5*1", "#5>#6*3"}))
+	stp := s.stepLetto(t, w, "prodotto.stp", fattiDi("#1", []string{"#1=77722757", "#5=Part", "#6=77866666"}, []string{"#1>#5*1", "#5>#6*3"}))
 	part := s.propostaNodo(t, stp, "#5")
 	v := s.strutturaDi(s.prodotto)
 	v.Archi = nil
@@ -734,13 +734,13 @@ func TestLEditorNonToccaIFigliDiUnPezzoRitrovatoPerCodice(t *testing.T) {
 	}
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: refP(part), Qta: 1},
 		fascicolo.ArcoVoluto{Padre: refP(part), Figlio: refP(s.propostaNodo(t, stp, "#6")), Qta: 3})
-	v.Codici = map[string]fascicolo.CodiceScritto{part.String(): {Codice: "52920517"}}
+	v.Codici = map[string]fascicolo.CodiceScritto{part.String(): {Codice: "77720517"}}
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: stp, Padre: "#1", Figlio: "#5"}, {Allegato: stp, Padre: "#5", Figlio: "#6"}}
 	a, _, _ := s.applica(w, v)
-	if !strings.HasPrefix(a, "Struttura di 52922757 confermata") || strings.Contains(a, "tolt") {
+	if !strings.HasPrefix(a, "Struttura di 77722757 confermata") || strings.Contains(a, "tolt") {
 		t.Fatalf("editor: %q", a)
 	}
-	if got := s.archi(); got != "52920517>53017189x4 52920517>53066666x3 52922757>52920517x1 52922757>53017189x1 52999999>52920517x1" {
+	if got := s.archi(); got != "77720517>77817189x4 77720517>77866666x3 77722757>77720517x1 77722757>77817189x1 77799999>77720517x1" {
 		t.Errorf("archi: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text || ' ' || (componente_id = $2)::text FROM componente_proposta WHERE proposta_id = $1`, part, s.assieme); got != "duplicato true" {
@@ -757,21 +757,21 @@ func TestLEditorSiAccorgeDeiCambiamentiNelFrattempo(t *testing.T) {
 	vecchia := s.strutturaDi(s.prodotto)
 	s.esegui(`UPDATE componente_relazione SET qta = 5 WHERE padre_id = $1 AND figlio_id = $2`, s.assieme, s.particolare)
 	a, ev, _ := s.applica(w, senza(vecchia, s.prodotto, s.particolare))
-	if a != "Niente è cambiato: 53017189 sotto 52920517 nel frattempo è diventato ×5 (l'editor mostrava ×4): riapri l'editor" {
+	if a != "Niente è cambiato: 77817189 sotto 77720517 nel frattempo è diventato ×5 (l'editor mostrava ×4): riapri l'editor" {
 		t.Errorf("quantita' cambiata: %q", a)
 	}
 	if ok, _ := esitoEditor(t, ev); ok {
 		t.Error("l'evento dice fatto")
 	}
-	if got := s.archi(); got != "52920517>53017189x5 52922757>52920517x2 52922757>53017189x1" {
+	if got := s.archi(); got != "77720517>77817189x5 77722757>77720517x2 77722757>77817189x1" {
 		t.Fatalf("archi dopo il rifiuto: %s", got)
 	}
 	vecchia = s.strutturaDi(s.prodotto)
 	s.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2`, s.prodotto, s.particolare)
-	if a, _, _ := s.applica(w, vecchia); a != "Niente è cambiato: 53017189 sotto 52922757 nel frattempo è stato tolto (un altro gesto): riapri l'editor" {
+	if a, _, _ := s.applica(w, vecchia); a != "Niente è cambiato: 77817189 sotto 77722757 nel frattempo è stato tolto (un altro gesto): riapri l'editor" {
 		t.Errorf("arco tolto: %q", a)
 	}
-	if got := s.archi(); got != "52920517>53017189x5 52922757>52920517x2" {
+	if got := s.archi(); got != "77720517>77817189x5 77722757>77720517x2" {
 		t.Errorf("archi dopo il secondo rifiuto: %s", got)
 	}
 }
@@ -782,7 +782,7 @@ func TestLEditorUnaCartaValePerTuttiGliStep(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED8")
 	w := operatore(b)
-	fatti := fattiDi("#1", []string{"#1=PRT-00017", "#2=53011111"}, []string{"#1>#2*2"})
+	fatti := fattiDi("#1", []string{"#1=PRT-00017", "#2=77811111"}, []string{"#1>#2*2"})
 	primo := s.stepLetto(t, w, "a.stp", fatti)
 	secondo := s.stepLetto(t, w, "b.stp", fatti)
 	v := s.strutturaDi(s.prodotto)
@@ -790,7 +790,7 @@ func TestLEditorUnaCartaValePerTuttiGliStep(t *testing.T) {
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: refP(s.propostaNodo(t, primo, "#2")), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: primo, Padre: "#1", Figlio: "#2"}, {Allegato: secondo, Padre: "#1", Figlio: "#2"}}
 	a, _, _ := s.applica(w, v)
-	if a != "Struttura di 52922757 confermata: 1 componente nuovo, 2 radici dello STEP riconosciute come il prodotto, 1 legame aggiunto." {
+	if a != "Struttura di 77722757 confermata: 1 componente nuovo, 2 radici dello STEP riconosciute come il prodotto, 1 legame aggiunto." {
 		t.Fatalf("editor: %q", a)
 	}
 	if n := s.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1 AND stato = 'aperta'`, s.thread); n != 0 {
@@ -809,8 +809,8 @@ func TestIDatiDellEditorSiApronoSulProdottoDelloStep(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED9")
 	w := operatore(b)
-	secondo := s.componenteTipo("52999999", "finito")
-	stp := s.stepLetto(t, w, "secondo.stp", fattiDi("#1", []string{"#1=52999999", "#2=53011111"}, []string{"#1>#2*2"}))
+	secondo := s.componenteTipo("77799999", "finito")
+	stp := s.stepLetto(t, w, "secondo.stp", fattiDi("#1", []string{"#1=77799999", "#2=77811111"}, []string{"#1>#2*2"}))
 	prodottoDi := func(q string) string {
 		t.Helper()
 		_, corpo := w.daFascicolo(http.MethodGet, s.base()+"/bom/dati"+q, nil, s.thread, "?vista=bom")
@@ -842,18 +842,18 @@ func TestLEditorRitrovaUnNodoApertoConIlCodiceDiUnComponente(t *testing.T) {
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refP(s.nuovo), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#2", Figlio: "#3"}}
 	a, _, _ := s.applica(s.w, v)
-	if !strings.HasPrefix(a, "Struttura di 52922757 confermata") {
+	if !strings.HasPrefix(a, "Struttura di 77722757 confermata") {
 		t.Fatalf("editor: %q", a)
 	}
 	if got := s.valore(`SELECT stato::text || ' ' || (componente_id = $2)::text FROM componente_proposta WHERE proposta_id = $1`, s.nodo2, s.assieme); got != "duplicato true" {
-		t.Errorf("il nodo 52920517: %s", got)
+		t.Errorf("il nodo 77720517: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#2'`, s.stp); got != "confermata" {
 		t.Errorf("l'arco proposto sotto l'assieme: %s", got)
 	}
 }
 
-// Il file «52930000» in una RFQ il cui pezzo e' nato «52930000_PRT» prima della regola del cliente: «Da verificare»
+// Il file «77730000» in una RFQ il cui pezzo e' nato «77730000_PRT» prima della regola del cliente: «Da verificare»
 // offre di assegnarlo a quello, e il gesto gli da' il componente e il suo codice (un documento ha il codice del
 // suo componente: la FK composita lo tiene).
 func TestAssegnareIlFileAlPezzoConIlSuffisso(t *testing.T) {
@@ -861,23 +861,23 @@ func TestAssegnareIlFileAlPezzoConIlSuffisso(t *testing.T) {
 	s := b.scenaB87("ALIAS")
 	w := operatore(b)
 	s.esegui(`UPDATE cliente SET regole = '{"suffissi_decorativi": ["_PRT"]}' WHERE cliente_id = (SELECT cliente_id FROM thread_offerta WHERE thread_id = $1)`, s.thread)
-	vecchio := s.componenteTipo("52930000_PRT", "sciolto")
-	p, _ := s.propostaDa("52930000.pdf", "52930000")
+	vecchio := s.componenteTipo("77730000_PRT", "sciolto")
+	p, _ := s.propostaDa("77730000.pdf", "77730000")
 	_, html := w.fai(http.MethodGet, s.base()+"?cassetto=verifica", nil, false)
-	haTesto(t, "da verificare", html, "lo stesso pezzo con il suffisso del cliente", "Assegna a 52930000_PRT",
+	haTesto(t, "da verificare", html, "lo stesso pezzo con il suffisso del cliente", "Assegna a 77730000_PRT",
 		`"componente":"`+vecchio.String()+`","correggi_codice":"1"`)
-	if strings.Contains(html, `hx-vals='{"codice":"52930000"`) {
-		t.Error("il file offre di far nascere 52930000 accanto a 52930000_PRT")
+	if strings.Contains(html, `hx-vals='{"codice":"77730000"`) {
+		t.Error("il file offre di far nascere 77730000 accanto a 77730000_PRT")
 	}
 	a := s.gesto(w, s.base()+"/assegna", url.Values{"proposta": {p.String()}, "componente": {vecchio.String()}, "correggi_codice": {"1"}})
 	if strings.HasPrefix(a, "Niente è cambiato") {
 		t.Fatalf("assegna: %q", a)
 	}
-	if got := s.valore(`SELECT codice || ' ' || (componente_id = $2)::text FROM documento_proposta WHERE proposta_id = $1`, p, vecchio); got != "52930000_PRT true" {
+	if got := s.valore(`SELECT codice || ' ' || (componente_id = $2)::text FROM documento_proposta WHERE proposta_id = $1`, p, vecchio); got != "77730000_PRT true" {
 		t.Errorf("la proposta dopo il gesto: %s", got)
 	}
 	_, html = w.fai(http.MethodGet, s.base()+"?cassetto=verifica", nil, false)
-	if strings.Contains(html, "Assegna a 52930000_PRT") {
+	if strings.Contains(html, "Assegna a 77730000_PRT") {
 		t.Error("dopo il gesto il file chiede ancora")
 	}
 }

@@ -88,14 +88,14 @@ func (b *bancoControparte) richiestaDOfferta(da string, destinatari ...string) w
 		MessageID: fmt.Sprintf("<cp-%d@%s>", b.n, strings.SplitN(da, "@", 2)[1]), EntryID: fmt.Sprintf("ENTRY-CP-%d", b.n),
 		StoreID: "STORE-CP", ConversationID: fmt.Sprintf("CONV-CP-%d", b.n), Cartella: cartellaPP,
 		Direzione: "entrata", DataEvento: quando, RicevutoIl: &quando, MittenteNome: "Ufficio",
-		MittenteIndirizzo: da, Oggetto: "RICHIESTA D'OFFERTA n. 77 - TG FIORE",
+		MittenteIndirizzo: da, Oggetto: "RICHIESTA D'OFFERTA n. 77 - PROGETTO ALFA",
 		CorpoTesto:  "Buongiorno, richiesta d'offerta per i particolari in allegato. Quotazione urgente.",
 		Riferimenti: []string{}, Categorie: []string{},
 		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "RDO_77.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
 			{Indice: 2, NomeFile: "particolare.stp", Estensione: "stp", Natura: "file", Bytes: 2000}},
 	}
 	if len(destinatari) == 0 {
-		destinatari = []string{"commerciale@azienda.it"}
+		destinatari = []string{"commerciale@azienda.example"}
 	}
 	for _, d := range destinatari {
 		m.Destinatari = append(m.Destinatari, worker.Destinatario{Indirizzo: d, Tipo: "a"})
@@ -135,7 +135,7 @@ func TestCP1UnaRichiestaDOffertaDiUnFornitoreNonDiventaUnaRFQ(t *testing.T) {
 	// prova non proverebbe niente.
 	b.cliente("CONTROLLO", "clientecontrollo.example")
 	mc := b.richiestaDOfferta("acquisti@clientecontrollo.example")
-	m0 := b.richiestaDOfferta("info@pftorniture.example")
+	m0 := b.richiestaDOfferta("info@torniture-esempio.example")
 	b.ingerisci(mc, m0)
 	if p, ok := b.proposta(b.messaggio(mc.MessageID).MessaggioID); !ok || p.Esito != db.EsitoTriageNuovaRfq || p.Atto.String != "richiesta_offerta" {
 		t.Fatalf("da un cliente censito il messaggio e' una RFQ nuova, altrimenti la prova non prova niente: %+v", p)
@@ -143,8 +143,8 @@ func TestCP1UnaRichiestaDOffertaDiUnFornitoreNonDiventaUnaRFQ(t *testing.T) {
 	if p, ok := b.proposta(b.messaggio(m0.MessageID).MessaggioID); !ok || p.Esito == db.EsitoTriageNuovaRfq || p.Atto.String != "incerto" {
 		t.Fatalf("da un mittente non censito: incerto e nessuna RFQ nuova (7B.3), non %+v", p)
 	}
-	f := b.fornitore("PF Torniture di prova", db.TipoFornitoreProcessi, "pftorniture.example")
-	m := b.richiestaDOfferta("info@pftorniture.example")
+	f := b.fornitore("Torniture Esempio di prova", db.TipoFornitoreProcessi, "torniture-esempio.example")
+	m := b.richiestaDOfferta("info@torniture-esempio.example")
 	b.ingerisci(m)
 	riga := b.messaggio(m.MessageID)
 	if riga.ControparteTipo != db.TipoControparteFornitore || !riga.ControparteFornitoreID.Valid || riga.ControparteFornitoreID.UUID != f.FornitoreID {
@@ -202,7 +202,7 @@ func TestCP3UnDominioCensitoDaTutteEDueLePartiEAmbiguoENonProponeNiente(t *testi
 func TestCP4LaPostaInUscitaPrendeLaControparteDalPrimoDestinatarioEsterno(t *testing.T) {
 	b := nuovoBancoControparte(t)
 	f := b.fornitore("Zincatore di prova", db.TipoFornitoreProcessi, "zincatore.example")
-	m := b.richiestaDOfferta("commerciale@azienda.it", "francesco@azienda.it", "ordini@zincatore.example")
+	m := b.richiestaDOfferta("commerciale@azienda.example", "francesco@azienda.example", "ordini@zincatore.example")
 	m.Direzione = "uscita"
 	m.Oggetto = "Richiesta d'offerta zincatura"
 	b.ingerisci(m)
@@ -214,7 +214,7 @@ func TestCP4LaPostaInUscitaPrendeLaControparteDalPrimoDestinatarioEsterno(t *tes
 		t.Fatalf("la controparte in uscita e' il primo destinatario esterno: %s %v", riga.ControparteTipo, riga.ControparteFornitoreID)
 	}
 	// e una mail fra colleghi e' interna
-	mi := b.richiestaDOfferta("commerciale@azienda.it", "francesco@azienda.it")
+	mi := b.richiestaDOfferta("commerciale@azienda.example", "francesco@azienda.example")
 	mi.Direzione = "uscita"
 	b.ingerisci(mi)
 	if r := b.messaggio(mi.MessageID); r.ControparteTipo != db.TipoControparteInterno || r.ControparteVia.ViaControparte != db.ViaControparteCasella {

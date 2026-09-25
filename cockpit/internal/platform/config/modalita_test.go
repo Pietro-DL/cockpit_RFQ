@@ -48,16 +48,16 @@ func TestUnaModalitaScrittaMaleNonPassaPerProduzione(t *testing.T) {
 // modi in cui lo stesso percorso viene scritto passando da un file all'altro, e un confronto fra
 // stringhe che non li riconosce lascia passare proprio la copia-incolla da cui viene il pericolo.
 func TestSH3ShadowRifiutaLaRadiceDiProduzione(t *testing.T) {
-	produzione := `\\nas01\TECNICO - PREVENTIVI`
+	produzione := `\\server-nas\PREVENTIVI`
 	casi := []struct {
 		nome, radice string
 		rifiuta      bool
 	}{
-		{"la radice stessa", `\\nas01\TECNICO - PREVENTIVI`, true},
-		{"una sottocartella", `\\nas01\TECNICO - PREVENTIVI\PREVENTIVI DA FARE`, true},
-		{"maiuscole e barra finale", `\\NAS01\tecnico - preventivi\`, true},
-		{"barre al contrario", `//nas01/TECNICO - PREVENTIVI/PREVENTIVI DA FARE`, true},
-		{"un'altra cartella che comincia uguale", `\\nas01\TECNICO - PREVENTIVI PROVA`, false},
+		{"la radice stessa", `\\server-nas\PREVENTIVI`, true},
+		{"una sottocartella", `\\server-nas\PREVENTIVI\PREVENTIVI DA FARE`, true},
+		{"maiuscole e barra finale", `\\SERVER-NAS\preventivi\`, true},
+		{"barre al contrario", `//server-nas/PREVENTIVI/PREVENTIVI DA FARE`, true},
+		{"un'altra cartella che comincia uguale", `\\server-nas\PREVENTIVI PROVA`, false},
 		{"una cartella locale", `C:\prove\nas`, false},
 	}
 	for _, c := range casi {
@@ -83,7 +83,7 @@ func TestSH3ShadowRifiutaLaRadiceDiProduzione(t *testing.T) {
 
 // In produzione la dichiarazione non impedisce niente: è lì per la shadow.
 func TestInProduzioneLaRadiceDichiarataNonBloccaLAvvio(t *testing.T) {
-	radice := `\\nas01\PREVENTIVI`
+	radice := `\\server-nas\PREVENTIVI`
 	nas := "radice = '" + radice + "'\ndry_run = false\nradici_produzione = ['" + radice + "']\n"
 	c, err := Carica(scriviCon(t, "modalita = \"produzione\"\n", nas, ""))
 	if err != nil {

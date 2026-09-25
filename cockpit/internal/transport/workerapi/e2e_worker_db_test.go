@@ -81,11 +81,11 @@ func preparaBancoE2E(t *testing.T) *bancoE2E {
 	}
 	host = strings.ToUpper(host)
 	cfg := &config.Config{}
-	cfg.Outlook.CasellaDefault = "commerciale@azienda.it"
-	cfg.Caselle = []config.Casella{{Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Canale: "outlook", Condivisa: true}}
+	cfg.Outlook.CasellaDefault = "commerciale@azienda.example"
+	cfg.Caselle = []config.Casella{{Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Canale: "outlook", Condivisa: true}}
 	cfg.Postazioni = []config.Postazione{{NomeHost: host}}
 	cfg.Worker = []config.Worker{{Nome: "outlook@" + host, Tipo: "outlook", Token: tokenProva, Postazione: host,
-		Caselle: []string{"commerciale@azienda.it"}}}
+		Caselle: []string{"commerciale@azienda.example"}}}
 	if _, err := fondazioni.Semina(b.ctx, b.q, cfg, testutil.LogSilenzioso()); err != nil {
 		t.Fatal(err)
 	}

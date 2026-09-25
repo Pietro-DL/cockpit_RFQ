@@ -50,11 +50,11 @@ func stessaMail(entry, cartella string, ricevuto time.Time) worker.MessaggioIn {
 		MessageID: "<condivisa-1@acme.example>", EntryID: entry, StoreID: "STORE-" + entry,
 		ConversationID: "CONV-CONDIVISA", Cartella: cartella, Direzione: "entrata",
 		DataEvento: ppBase, RicevutoIl: &ricevuto, MittenteNome: "Mario Rossi",
-		MittenteIndirizzo: "mario.rossi@acme.example", Oggetto: "RFQ 6674611A",
+		MittenteIndirizzo: "mario.rossi@acme.example", Oggetto: "RFQ 1234567A",
 		CorpoTesto: "Richiesta d'offerta, vedi allegato.", CorpoHTML: "<p>Richiesta d'offerta</p>",
 		Riferimenti: []string{}, Categorie: []string{},
-		Destinatari: []worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}},
-		Allegati:    []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000}},
+		Destinatari: []worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}},
+		Allegati:    []worker.AllegatoIn{{Indice: 1, NomeFile: "1234567A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 2000}},
 	}
 }
 
@@ -77,7 +77,7 @@ func presenze(t *testing.T, ctx context.Context, p *pgxpool.Pool, chiave string)
 
 func TestStessaMailInDueCaselleUnSoloMessaggioDuePresenze(t *testing.T) {
 	p, s, commerciale, ctx := preparaPP(t)
-	francesco := casellaDiProva(t, ctx, p, "francesco@azienda.it", "Francesco")
+	francesco := casellaDiProva(t, ctx, p, "francesco@azienda.example", "Francesco")
 
 	lotti := []Lotto{
 		{Casella: commerciale, Messaggi: []worker.MessaggioIn{stessaMail("ENTRY-COMM", "Posta in arrivo", ppBase)},
@@ -237,7 +237,7 @@ func TestQuattroCaselleUnaSolaElaborazione(t *testing.T) {
 	q := db.New(p)
 	caselle := []db.Casella{prima}
 	for i := 2; i <= 4; i++ {
-		caselle = append(caselle, casellaDiProva(t, ctx, p, fmt.Sprintf("utente%d@azienda.it", i), fmt.Sprintf("Utente %d", i)))
+		caselle = append(caselle, casellaDiProva(t, ctx, p, fmt.Sprintf("utente%d@azienda.example", i), fmt.Sprintf("Utente %d", i)))
 	}
 
 	// primo worker: il messaggio entra
@@ -258,7 +258,7 @@ func TestQuattroCaselleUnaSolaElaborazione(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := p.QueryRow(ctx, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto, cartella_relativa)
-		VALUES ($1,'outlook', now(),'RFQ 6674611A','ACME\WIP\2026 09 10 RFQ') RETURNING thread_id`, clienteID).Scan(&threadID); err != nil {
+		VALUES ($1,'outlook', now(),'RFQ 1234567A','ACME\WIP\2026 09 10 RFQ') RETURNING thread_id`, clienteID).Scan(&threadID); err != nil {
 		t.Fatal(err)
 	}
 	if err := q.AgganciaMessaggio(ctx, db.AgganciaMessaggioParams{
@@ -367,14 +367,14 @@ func TestMessaggioRicevutoNonSpariceDallInboxQuandoArrivaAncheComeAllegato(t *te
 	// il giorno dopo arriva un inoltro che la contiene come .msg: l'ingest dell'inoltro collega il
 	// figlio al contenitore (parent_messaggio_id). Il figlio è lo STESSO messaggio già ricevuto.
 	inoltro := stessaMail("ENTRY-INOLTRO", "Posta in arrivo", ppBase.Add(24*time.Hour))
-	inoltro.MessageID = "<inoltro-1@azienda.it>"
+	inoltro.MessageID = "<inoltro-1@azienda.example>"
 	inoltro.ConversationID = "CONV-INOLTRO"
-	inoltro.Oggetto = "I: RFQ 6674611A"
+	inoltro.Oggetto = "I: RFQ 1234567A"
 	if _, err := s.Ingerisci(ctx, Lotto{Casella: commerciale, Messaggi: []worker.MessaggioIn{inoltro}}); err != nil {
 		t.Fatal(err)
 	}
 	var contenitore uuid.UUID
-	if err := p.QueryRow(ctx, `SELECT messaggio_id FROM messaggio WHERE chiave_esterna = '<inoltro-1@azienda.it>'`).Scan(&contenitore); err != nil {
+	if err := p.QueryRow(ctx, `SELECT messaggio_id FROM messaggio WHERE chiave_esterna = '<inoltro-1@azienda.example>'`).Scan(&contenitore); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Exec(ctx, `UPDATE messaggio SET parent_messaggio_id = $2 WHERE messaggio_id = $1`, diretta, contenitore); err != nil {
@@ -468,7 +468,7 @@ func TestIlCursoreUsaRicevutoIlNonDataEvento(t *testing.T) {
 // profilo Outlook, e una direzione sbagliata cambia la lettura dell'intero messaggio.
 func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 	p, s, commerciale, ctx := preparaPP(t)
-	casellaDiProva(t, ctx, p, "francesco@azienda.it", "Francesco")
+	casellaDiProva(t, ctx, p, "francesco@azienda.example", "Francesco")
 
 	casi := []struct {
 		nome, messageID, mittente string
@@ -478,15 +478,15 @@ func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 		interno                   bool
 	}{
 		{"cliente che scrive a noi", "<c1@acme.example>", "mario.rossi@acme.example",
-			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "entrata", false},
-		{"noi che scriviamo al cliente", "<c2@azienda.it>", "commerciale@azienda.it",
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}}, "entrata", "entrata", false},
+		{"noi che scriviamo al cliente", "<c2@azienda.example>", "commerciale@azienda.example",
 			[]worker.Destinatario{{Indirizzo: "mario.rossi@acme.example", Tipo: "a"}}, "uscita", "uscita", false},
-		{"collega che gira una mail a un collega", "<c3@azienda.it>", "francesco@azienda.it",
-			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "entrata", "uscita", true},
-		{"il worker sbaglia: dice entrata ma il mittente siamo noi", "<c4@azienda.it>", "commerciale@azienda.it",
+		{"collega che gira una mail a un collega", "<c3@azienda.example>", "francesco@azienda.example",
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}}, "entrata", "uscita", true},
+		{"il worker sbaglia: dice entrata ma il mittente siamo noi", "<c4@azienda.example>", "commerciale@azienda.example",
 			[]worker.Destinatario{{Indirizzo: "buyer@acme.example", Tipo: "a"}}, "entrata", "uscita", false},
 		{"il worker sbaglia al contrario: dice uscita ma il mittente è il cliente", "<c5@acme.example>", "buyer@acme.example",
-			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.it", Tipo: "a"}}, "uscita", "entrata", false},
+			[]worker.Destinatario{{Indirizzo: "commerciale@azienda.example", Tipo: "a"}}, "uscita", "entrata", false},
 	}
 	for i, c := range casi {
 		m := stessaMail(fmt.Sprintf("ENTRY-DIR-%d", i), "Posta in arrivo", ppBase.Add(time.Duration(i)*time.Minute))
@@ -529,7 +529,7 @@ func TestLaDirezioneVieneDalleCaselleCensiteNonDalWorker(t *testing.T) {
 	// dei modi in cui una RFQ arriva sul tavolo.
 	var nTriage int
 	if err := p.QueryRow(ctx, `SELECT count(*) FROM proposta_triage pt JOIN messaggio m USING (messaggio_id)
-		WHERE m.chiave_esterna = '<c3@azienda.it>'`).Scan(&nTriage); err != nil {
+		WHERE m.chiave_esterna = '<c3@azienda.example>'`).Scan(&nTriage); err != nil {
 		t.Fatal(err)
 	}
 	if nTriage != 1 {

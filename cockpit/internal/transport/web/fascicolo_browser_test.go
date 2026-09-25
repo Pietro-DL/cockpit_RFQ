@@ -26,15 +26,15 @@ import (
 	"promatec/cockpit/internal/platform/coda"
 )
 
-// famiglieL7: la famiglia dei codici 52/53 del cliente di prova, perche' i nodi degli STEP si
+// famiglieL7: la famiglia dei codici 777/778 del cliente di prova, perche' i nodi degli STEP si
 // classifichino come codici.
-const famiglieL7 = `{"famiglie_codice": [{"regex": "(?P<codice>5[23]\\d{6})", "descrizione": "disegni 52/53", "esempio": "52922757"}]}`
+const famiglieL7 = `{"famiglie_codice": [{"regex": "(?P<codice>77[78]\\d{5})", "descrizione": "disegni 777/778", "esempio": "77722757"}]}`
 
-// fattiL7 e' uno STEP del prodotto con un nodo nuovo: 52922757 → 52920517 ×2 (c'e' gia') → 53011111 ×2.
+// fattiL7 e' uno STEP del prodotto con un nodo nuovo: 77722757 → 77720517 ×2 (c'e' gia') → 77811111 ×2.
 const fattiL7 = `{"struttura": {"versione": 3, "schema": "AP214", "radici": ["#1"], "avvisi": [],
-	"nodi": [{"chiave": "#1", "id_grezzo": "52922757", "nome_grezzo": "52922757", "evidenza": {}},
-	         {"chiave": "#2", "id_grezzo": "52920517", "nome_grezzo": "52920517", "evidenza": {}},
-	         {"chiave": "#3", "id_grezzo": "53011111", "nome_grezzo": "53011111", "evidenza": {}}],
+	"nodi": [{"chiave": "#1", "id_grezzo": "77722757", "nome_grezzo": "77722757", "evidenza": {}},
+	         {"chiave": "#2", "id_grezzo": "77720517", "nome_grezzo": "77720517", "evidenza": {}},
+	         {"chiave": "#3", "id_grezzo": "77811111", "nome_grezzo": "77811111", "evidenza": {}}],
 	"relazioni": [{"padre": "#1", "figlio": "#2", "qta": 2, "evidenza": {}}, {"padre": "#2", "figlio": "#3", "qta": 2, "evidenza": {}}],
 	"limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 	"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
@@ -55,7 +55,7 @@ func (b *bancoWeb) scenaL7(t *testing.T, chiave string, extra int) *scenaL7 {
 	s.esegui(`UPDATE cliente SET regole = $1 WHERE cliente_id = (SELECT cliente_id FROM thread_offerta WHERE thread_id = $2)`, famiglieL7, s.thread)
 	// un codice visto nella mail e non ancora nella BOM: nel cassetto «Codici» offre «+ Prodotto / + Assieme / + Particolare»
 	s.esegui(`INSERT INTO candidato_codice (messaggio_id, codice, ruolo, rev, origine, famiglia, punteggio, evidenza)
-		VALUES ($1, '53099999', 'prodotto', '', 'famiglia', 'disegni 52/53', 80, 'corpo')`, s.msg)
+		VALUES ($1, '77899999', 'prodotto', '', 'famiglia', 'disegni 777/778', 80, 'corpo')`, s.msg)
 	b.caricamentoAcceso(t)
 	// l'anteprima serve dallo staging solo cio' che sta sotto la radice dichiarata
 	b.ws.Staging = s.staging
@@ -70,13 +70,13 @@ func (b *bancoWeb) scenaL7(t *testing.T, chiave string, extra int) *scenaL7 {
 	}
 	s.pdfVero(t, libero2, 64*1024)
 	s.stp = s.stepNellaRfq("assieme.stp", fattiL7, an)
-	for i, nome := range []string{"53017189 foglio 2.pdf", "53017189 foglio 3.pdf", "53017189 foglio 4.pdf"} {
-		p, a := s.propostaDa(nome, "53017189")
+	for i, nome := range []string{"77817189 foglio 2.pdf", "77817189 foglio 3.pdf", "77817189 foglio 4.pdf"} {
+		p, a := s.propostaDa(nome, "77817189")
 		s.pdfVero(t, a, 64*1024+i+1)
 		s.proposte = append(s.proposte, p)
 	}
 	for i := 0; i < extra; i++ {
-		s.propostaDa(fmt.Sprintf("disegno %03d con un nome lungo come quelli dei clienti veri, per vedere se va a capo.pdf", i), fmt.Sprintf("5300%04d", i))
+		s.propostaDa(fmt.Sprintf("disegno %03d con un nome lungo come quelli dei clienti veri, per vedere se va a capo.pdf", i), fmt.Sprintf("7780%04d", i))
 	}
 	return s
 }
@@ -143,13 +143,13 @@ func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7A", 0)
 	lanciaL7(t, s, "ABCDFH")
-	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '53011111'`, s.thread); n != 1 {
+	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); n != 1 {
 		t.Errorf("il nodo accettato nel browser non e' nella BOM: %d", n)
 	}
 	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "sciolto" {
 		t.Errorf("il tipo cambiato nel browser: %s", got)
 	}
-	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '53099999'`, s.thread); got != "sciolto/codice_rilevato" {
+	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '77899999'`, s.thread); got != "sciolto/codice_rilevato" {
 		t.Errorf("il codice aggiunto dal cassetto nel browser: %s", got)
 	}
 }
@@ -179,11 +179,11 @@ func TestL7ConfermaFascicolo(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7I", 0)
 	lanciaL7(t, s, "I")
-	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '53011111'`, s.thread); n != 1 {
+	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); n != 1 {
 		t.Errorf("il nodo dello STEP non e' nato con la conferma nell'editor: %d", n)
 	}
-	// i due documenti della scena, piu' i cinque PDF del piano: 53017189.pdf e i tre fogli al particolare,
-	// 52920517.pdf all'assieme
+	// i due documenti della scena, piu' i cinque PDF del piano: 77817189.pdf e i tre fogli al particolare,
+	// 77720517.pdf all'assieme
 	if n := s.conta(`SELECT count(*) FROM documento WHERE thread_id = $1`, s.thread); n != 7 {
 		t.Errorf("documenti dopo la conferma: %d, attesi 7", n)
 	}

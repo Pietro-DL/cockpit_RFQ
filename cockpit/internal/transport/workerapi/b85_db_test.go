@@ -20,8 +20,8 @@ import (
 	"promatec/cockpit/internal/platform/testutil"
 )
 
-const regoleFamiglia529 = `{"famiglie_codice": [{"regex": "(?P<codice>529\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 529",
-	"rev_nel_codice": true, "esempio": "52922757_B"}]}`
+const regoleFamiglia777 = `{"famiglie_codice": [{"regex": "(?P<codice>777\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 777",
+	"rev_nel_codice": true, "esempio": "77722757_B"}]}`
 
 func TestIFattiDiUnoStepDiventanoProposteInOgniRfqCheLoHa(t *testing.T) {
 	pool := testutil.Pool(t)
@@ -40,9 +40,9 @@ func TestIFattiDiUnoStepDiventanoProposteInOgniRfqCheLoHa(t *testing.T) {
 	}
 	sha := "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"
 	utente := riga(`INSERT INTO utente (sigla, nome, ufficio) VALUES ('B5', 'Prova', 'Tecnico') RETURNING utente_id`)
-	// due RFQ di due clienti: uno con la famiglia 529, uno senza regole
+	// due RFQ di due clienti: uno con la famiglia 777, uno senza regole
 	var rfq, allegati []uuid.UUID
-	for i, regole := range []string{regoleFamiglia529, `{}`} {
+	for i, regole := range []string{regoleFamiglia777, `{}`} {
 		cliente := riga(`INSERT INTO cliente (cartella_nas, ragione_sociale, regole) VALUES ($1, $1, $2) RETURNING cliente_id`,
 			[]string{"CONFAMIGLIA", "SENZAREGOLE"}[i], regole)
 		th := riga(`INSERT INTO thread_offerta (cliente_id, canale, data_inizio) VALUES ($1, 'outlook', now()) RETURNING thread_id`, cliente)
@@ -65,8 +65,8 @@ func TestIFattiDiUnoStepDiventanoProposteInOgniRfqCheLoHa(t *testing.T) {
 	}
 
 	struttura := `{"struttura": {"versione": 3, "schema": "AP214", "radici": ["#1"], "avvisi": [],
-		"nodi": [{"chiave": "#1", "id_grezzo": "", "nome_grezzo": "52922757_B", "evidenza": {}},
-		         {"chiave": "#2", "id_grezzo": "", "nome_grezzo": "52920517_C", "evidenza": {}}],
+		"nodi": [{"chiave": "#1", "id_grezzo": "", "nome_grezzo": "77722757_B", "evidenza": {}},
+		         {"chiave": "#2", "id_grezzo": "", "nome_grezzo": "77720517_C", "evidenza": {}}],
 		"relazioni": [{"padre": "#1", "figlio": "#2", "qta": 2, "evidenza": {}}],
 		"limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 		"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
@@ -104,7 +104,7 @@ func TestIFattiDiUnoStepDiventanoProposteInOgniRfqCheLoHa(t *testing.T) {
 		}
 		return s
 	}
-	if got, want := lettura(rfq[0]), "#1=52922757/B/famiglia #2=52920517/C/famiglia"; got != want {
+	if got, want := lettura(rfq[0]), "#1=77722757/B/famiglia #2=77720517/C/famiglia"; got != want {
 		t.Errorf("RFQ con la famiglia: %q, attesa %q", got, want)
 	}
 	if got := lettura(rfq[1]); got == "" || got == lettura(rfq[0]) {
@@ -121,8 +121,8 @@ func TestIFattiDiUnoStepDiventanoProposteInOgniRfqCheLoHa(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT coalesce(codice, ''), fonte::text FROM documento_proposta WHERE allegato_id = $1`, allegati[0]).Scan(&cod, &fonte); err != nil {
 		t.Fatal(err)
 	}
-	if cod != "52922757" || fonte != "regola_cliente" {
-		t.Errorf("proposta del documento: %s da %s, attesa 52922757 da regola_cliente", cod, fonte)
+	if cod != "77722757" || fonte != "regola_cliente" {
+		t.Errorf("proposta del documento: %s da %s, attesa 77722757 da regola_cliente", cod, fonte)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestE2EIlWorkerVeroFaNascereLeProposteNellaRfq(t *testing.T) {
 	if os.Getenv("COCKPIT_TEST_SENZA_PYTHON") != "" {
 		t.Skip("COCKPIT_TEST_SENZA_PYTHON: il worker vero non viene avviato, prova non verificata")
 	}
-	b := preparaBancoAnalisiCon(t, "52922757.step", []byte(stepDuePadri))
+	b := preparaBancoAnalisiCon(t, "77722757.step", []byte(stepDuePadri))
 	var cliente, thread uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO cliente (cartella_nas, ragione_sociale) VALUES ('E2E85', 'E2E 85') RETURNING cliente_id`).Scan(&cliente); err != nil {
 		t.Fatal(err)

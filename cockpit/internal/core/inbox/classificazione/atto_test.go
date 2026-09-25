@@ -61,13 +61,13 @@ func TestIlRamoFornitoreDistingueOffertaDomandaConfermaENonBusiness(t *testing.T
 		allegati                       []string
 		atto                           string
 	}{
-		{"offerta con pdf", "info@mgm.example", "R: RFQ ACME FIORE 0D002622AD", "In allegato la nostra offerta per i particolari richiesti.", []string{"offerta_123.pdf"}, AttoOfferta},
-		{"offerta senza allegato", "info@mgm.example", "Quotazione", "Vi confermiamo il prezzo di 12,50 euro al pezzo.", nil, AttoOfferta},
-		{"domanda", "info@mgm.example", "R: RFQ ACME", "Quale materiale per il particolare 0D002622AD? Servirebbe lo spessore.", nil, AttoDomandaChiarimento},
-		{"conferma di ricezione", "info@mgm.example", "R: RFQ ACME", "Ricevuto, grazie. Vi rispondiamo entro venerdì.", nil, AttoConfermaRicezione},
-		{"comunicazione generica", "info@mgm.example", "R: RFQ ACME", "Cordiali saluti, il vostro referente cambia da lunedì.", nil, AttoComunicazioneGenerica},
-		{"newsletter", "newsletter@mgm.example", "Le nostre novità", "Iscriviti alla newsletter.", nil, AttoNonBusiness},
-		{"fuori ufficio", "info@mgm.example", "Risposta automatica: R: RFQ ACME", "Sono fuori ufficio fino a lunedì.", nil, AttoNonBusiness},
+		{"offerta con pdf", "info@minuterie-esempio.example", "R: RFQ ACME ROSSI 0X001234AB", "In allegato la nostra offerta per i particolari richiesti.", []string{"offerta_123.pdf"}, AttoOfferta},
+		{"offerta senza allegato", "info@minuterie-esempio.example", "Quotazione", "Vi confermiamo il prezzo di 12,50 euro al pezzo.", nil, AttoOfferta},
+		{"domanda", "info@minuterie-esempio.example", "R: RFQ ACME", "Quale materiale per il particolare 0X001234AB? Servirebbe lo spessore.", nil, AttoDomandaChiarimento},
+		{"conferma di ricezione", "info@minuterie-esempio.example", "R: RFQ ACME", "Ricevuto, grazie. Vi rispondiamo entro venerdì.", nil, AttoConfermaRicezione},
+		{"comunicazione generica", "info@minuterie-esempio.example", "R: RFQ ACME", "Cordiali saluti, il vostro referente cambia da lunedì.", nil, AttoComunicazioneGenerica},
+		{"newsletter", "newsletter@minuterie-esempio.example", "Le nostre novità", "Iscriviti alla newsletter.", nil, AttoNonBusiness},
+		{"fuori ufficio", "info@minuterie-esempio.example", "Risposta automatica: R: RFQ ACME", "Sono fuori ufficio fino a lunedì.", nil, AttoNonBusiness},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {
@@ -86,25 +86,25 @@ func TestIlRamoFornitoreDistingueOffertaDomandaConfermaENonBusiness(t *testing.T
 // IB8 (puro): nella posta di un fornitore un materiale, una norma e una vite non sono codici,
 // nemmeno quando il fornitore non ha famiglie con cui leggerli.
 func TestIB8MaterialiENormeNonSonoCodiciNellaPostaDiUnFornitore(t *testing.T) {
-	e := Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@mgm.example",
+	e := Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@minuterie-esempio.example",
 		Oggetto: "Offerta", Corpo: "Materiale S235JR, tolleranze ISO 2768-mK, viti DIN 933 M8x20. Offerta in allegato.",
 		NomiAllegati: []string{"offerta.pdf"}})
 	if len(e.Codici) != 0 || len(e.Trovati) != 0 {
 		t.Fatalf("codici estratti da un fornitore senza famiglie: %v / %+v", e.Codici, e.Trovati)
 	}
 	// con la famiglia di un cliente che gli ha mandato richieste, il SUO codice si trova; S235JR no
-	r := regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{Regex: `\b0[A-Z]\d{6}[A-Z]{2}\b`, Descrizione: "Technogym", Esempio: "0D002622AD"}}}
-	e = Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@mgm.example",
-		Oggetto: "R: RFQ 0D002622AD", Corpo: "Materiale S235JR, ISO 2768. Offerta per 0D002622AD in allegato.",
+	r := regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{Regex: `\b0[A-Z]\d{6}[A-Z]{2}\b`, Descrizione: "Beta Sport", Esempio: "0X001234AB"}}}
+	e = Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@minuterie-esempio.example",
+		Oggetto: "R: RFQ 0X001234AB", Corpo: "Materiale S235JR, ISO 2768. Offerta per 0X001234AB in allegato.",
 		NomiAllegati: []string{"offerta.pdf"}, Motore: Compila("fornitore", r)})
-	if len(e.Codici) != 1 || e.Codici[0] != "0D002622AD" {
-		t.Fatalf("codici: %v, atteso il solo 0D002622AD", e.Codici)
+	if len(e.Codici) != 1 || e.Codici[0] != "0X001234AB" {
+		t.Fatalf("codici: %v, atteso il solo 0X001234AB", e.Codici)
 	}
 }
 
 // Il ramo fornitore aggancia alla RICHIESTA prima che alla RFQ: un candidato richiesta vince.
 func TestLaPostaDiUnFornitoreSiAgganciaAllaRichiesta(t *testing.T) {
-	e := Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@mgm.example",
+	e := Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@minuterie-esempio.example",
 		Oggetto: "R: RFQ", Corpo: "offerta in allegato", NomiAllegati: []string{"offerta.pdf"},
 		CandidatiRichiesta: []CandidatoRichiesta{{RichiestaID: "r1", Regola: RichiestaR3fCodice, Punteggio: 60, Evidenza: "codice"},
 			{RichiestaID: "r2", Regola: RichiestaR0Reply, Punteggio: 95, Evidenza: "In-Reply-To"}}})
@@ -117,7 +117,7 @@ func TestLaPostaDiUnFornitoreSiAgganciaAllaRichiesta(t *testing.T) {
 		t.Fatalf("legame %q / atto %q, attesi risposta / offerta", e.Legame, e.Atto)
 	}
 	// senza nessun candidato, la stessa offerta non ha legame
-	e = Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@mgm.example",
+	e = Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteFornitore, Mittente: "info@minuterie-esempio.example",
 		Oggetto: "Offerta", Corpo: "offerta in allegato", NomiAllegati: []string{"offerta.pdf"}})
 	if e.Legame != LegameNessuno || e.Atto != AttoOfferta || e.Esito != "ignora" {
 		t.Fatalf("%+v", e)
@@ -127,8 +127,8 @@ func TestLaPostaDiUnFornitoreSiAgganciaAllaRichiesta(t *testing.T) {
 // IB3 (puro): una nostra mail a un fornitore che cita una RFQ aperta propone la richiesta, non un thread.
 func TestUnaNostraMailAUnFornitoreCheCitaUnaRfqProponeLaRichiesta(t *testing.T) {
 	e := Triage(IngressoTriage{Direzione: "uscita", Controparte: ControparteFornitore, Mittente: "commerciale@azienda.example",
-		Oggetto: "RFQ TECHNOGYM FIORE 0D002622AD", Corpo: "vi chiediamo offerta",
-		RichiesteManuali: []Candidato{{ThreadID: "t1", Regola: RichiestaRFOggetto, Punteggio: 70, Evidenza: "il codice 0D002622AD è della RFQ"}}})
+		Oggetto: "RFQ BETA SPORT ROSSI 0X001234AB", Corpo: "vi chiediamo offerta",
+		RichiesteManuali: []Candidato{{ThreadID: "t1", Regola: RichiestaRFOggetto, Punteggio: 70, Evidenza: "il codice 0X001234AB è della RFQ"}}})
 	if e.Esito != "aggancia" || e.Atto != AttoRichiestaOfferta || e.Legame != LegameNuovo || e.Candidato == nil || e.Candidato.ThreadID != "t1" {
 		t.Fatalf("%+v", e)
 	}

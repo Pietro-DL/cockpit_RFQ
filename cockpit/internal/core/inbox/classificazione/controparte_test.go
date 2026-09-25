@@ -10,45 +10,45 @@ import (
 // CP6 — il resolver puro: contatto > dominio > sconosciuto, interno, ambiguo (blocco 7A, D33).
 
 var (
-	idEuroforesi = uuid.MustParse("11111111-0000-0000-0000-000000000001")
-	idPolver     = uuid.MustParse("11111111-0000-0000-0000-000000000002")
-	idLandini    = uuid.MustParse("22222222-0000-0000-0000-000000000001")
-	idSame       = uuid.MustParse("22222222-0000-0000-0000-000000000002")
-	idCorriere   = uuid.MustParse("33333333-0000-0000-0000-000000000001")
-	idNotifiche  = uuid.MustParse("33333333-0000-0000-0000-000000000002")
+	idFresature    = uuid.MustParse("11111111-0000-0000-0000-000000000001")
+	idPolveri      = uuid.MustParse("11111111-0000-0000-0000-000000000002")
+	idAcmeMacchine = uuid.MustParse("22222222-0000-0000-0000-000000000001")
+	idOmega        = uuid.MustParse("22222222-0000-0000-0000-000000000002")
+	idCorriere     = uuid.MustParse("33333333-0000-0000-0000-000000000001")
+	idNotifiche    = uuid.MustParse("33333333-0000-0000-0000-000000000002")
 )
 
 func rubricaDiProva() RubricaFissa {
 	return RubricaFissa{
 		Contatti: map[string][]Voce{
-			"mario@gmail.com":          {{ID: idEuroforesi, Nome: "Euroforesi"}},
-			"doppio@gruppo.example":    {{ID: idEuroforesi, Nome: "Euroforesi"}},
-			"due@fornitori.example":    {{ID: idEuroforesi, Nome: "Euroforesi"}, {ID: idPolver, Nome: "Polver"}},
-			"buyer@euroforesi.example": {{ID: idEuroforesi, Nome: "Euroforesi"}},
+			"mario@gmail.com":                 {{ID: idFresature, Nome: "Fresature Esempio"}},
+			"doppio@gruppo.example":           {{ID: idFresature, Nome: "Fresature Esempio"}},
+			"due@fornitori.example":           {{ID: idFresature, Nome: "Fresature Esempio"}, {ID: idPolveri, Nome: "Polveri Esempio"}},
+			"buyer@fresature-esempio.example": {{ID: idFresature, Nome: "Fresature Esempio"}},
 		},
 		Buyer: map[string]Voce{
-			"acquisti@landini.example":     {ID: idLandini, Nome: "LANDINI ARGO"},
-			"doppio@gruppo.example":        {ID: idLandini, Nome: "LANDINI ARGO"},
-			"buyer@euroforesi.example":     {ID: idSame, Nome: "SAME"},
-			"doppio-altro@landini.example": {ID: idLandini, Nome: "LANDINI ARGO"},
+			"acquisti@acmemacchine.example":     {ID: idAcmeMacchine, Nome: "ACME MACCHINE"},
+			"doppio@gruppo.example":             {ID: idAcmeMacchine, Nome: "ACME MACCHINE"},
+			"buyer@fresature-esempio.example":   {ID: idOmega, Nome: "OMEGA"},
+			"doppio-altro@acmemacchine.example": {ID: idAcmeMacchine, Nome: "ACME MACCHINE"},
 		},
 		DominiFornitore: map[string]Voce{
-			"euroforesi.example": {ID: idEuroforesi, Nome: "Euroforesi"},
-			"gruppo.example":     {ID: idPolver, Nome: "Polver"},
-			"tuttofare.example":  {ID: idPolver, Nome: "Polver"},
+			"fresature-esempio.example": {ID: idFresature, Nome: "Fresature Esempio"},
+			"gruppo.example":            {ID: idPolveri, Nome: "Polveri Esempio"},
+			"tuttofare.example":         {ID: idPolveri, Nome: "Polveri Esempio"},
 		},
 		DominiCliente: map[string]Voce{
-			"landini.example": {ID: idLandini, Nome: "LANDINI ARGO"},
-			"gruppo.example":  {ID: idSame, Nome: "SAME"},
+			"acmemacchine.example": {ID: idAcmeMacchine, Nome: "ACME MACCHINE"},
+			"gruppo.example":       {ID: idOmega, Nome: "OMEGA"},
 		},
 		// 7C.0: i soggetti «altro». Un dominio intero (il corriere) e un indirizzo automatico sul
-		// dominio di un cliente (le notifiche del portale di LANDINI); un dominio che sta anche fra
+		// dominio di un cliente (le notifiche del portale di ACME MACCHINE); un dominio che sta anche fra
 		// i fornitori (tuttofare.example) e un indirizzo che sta anche fra i buyer (doppio-altro).
 		Altro: map[string]Voce{
-			"corriere.example":             {ID: idCorriere, Nome: "Corriere"},
-			"noreply@landini.example":      {ID: idNotifiche, Nome: "Notifiche portale"},
-			"tuttofare.example":            {ID: idCorriere, Nome: "Corriere"},
-			"doppio-altro@landini.example": {ID: idNotifiche, Nome: "Notifiche portale"},
+			"corriere.example":                  {ID: idCorriere, Nome: "Corriere"},
+			"noreply@acmemacchine.example":      {ID: idNotifiche, Nome: "Notifiche portale"},
+			"tuttofare.example":                 {ID: idCorriere, Nome: "Corriere"},
+			"doppio-altro@acmemacchine.example": {ID: idNotifiche, Nome: "Notifiche portale"},
 		},
 	}
 }
@@ -69,27 +69,27 @@ func TestCP6LaControparteSiRisolveConLaPrecedenzaContattoDominioSconosciuto(t *t
 		indirizzo   string
 		altro       uuid.UUID
 	}{
-		{"1 contatto fornitore su dominio generico", "mario@gmail.com", nil, ControparteFornitore, ViaContatto, uuid.Nil, idEuroforesi, "mario@gmail.com", uuid.Nil},
-		{"2 buyer esatto", "acquisti@landini.example", nil, ControparteCliente, ViaContatto, idLandini, uuid.Nil, "acquisti@landini.example", uuid.Nil},
+		{"1 contatto fornitore su dominio generico", "mario@gmail.com", nil, ControparteFornitore, ViaContatto, uuid.Nil, idFresature, "mario@gmail.com", uuid.Nil},
+		{"2 buyer esatto", "acquisti@acmemacchine.example", nil, ControparteCliente, ViaContatto, idAcmeMacchine, uuid.Nil, "acquisti@acmemacchine.example", uuid.Nil},
 		{"3 email in entrambe le anagrafiche", "doppio@gruppo.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "doppio@gruppo.example", uuid.Nil},
-		{"4 dominio fornitore", "chiunque@euroforesi.example", nil, ControparteFornitore, ViaDominio, uuid.Nil, idEuroforesi, "chiunque@euroforesi.example", uuid.Nil},
-		{"5 dominio cliente", "chiunque@landini.example", nil, ControparteCliente, ViaDominio, idLandini, uuid.Nil, "chiunque@landini.example", uuid.Nil},
+		{"4 dominio fornitore", "chiunque@fresature-esempio.example", nil, ControparteFornitore, ViaDominio, uuid.Nil, idFresature, "chiunque@fresature-esempio.example", uuid.Nil},
+		{"5 dominio cliente", "chiunque@acmemacchine.example", nil, ControparteCliente, ViaDominio, idAcmeMacchine, uuid.Nil, "chiunque@acmemacchine.example", uuid.Nil},
 		{"6 dominio in entrambe", "x@gruppo.example", nil, ControparteAmbiguo, ViaDominio, uuid.Nil, uuid.Nil, "x@gruppo.example", uuid.Nil},
 		{"7 niente di censito", "nessuno@altrove.example", nil, ControparteSconosciuto, "", uuid.Nil, uuid.Nil, "nessuno@altrove.example", uuid.Nil},
-		{"8 il contatto vince sul dominio", "buyer@euroforesi.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "buyer@euroforesi.example", uuid.Nil},
+		{"8 il contatto vince sul dominio", "buyer@fresature-esempio.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "buyer@fresature-esempio.example", uuid.Nil},
 		{"9 mittente nostro, destinatari nostri", "commerciale@azienda.example", []string{"francesco@azienda.example"}, ControparteInterno, ViaCasella, uuid.Nil, uuid.Nil, "commerciale@azienda.example", uuid.Nil},
-		{"10 mittente nostro, primo destinatario esterno fornitore", "commerciale@azienda.example", []string{"ordini@euroforesi.example", "acquisti@landini.example"}, ControparteFornitore, ViaDominio, uuid.Nil, idEuroforesi, "ordini@euroforesi.example", uuid.Nil},
-		{"11 mittente nostro, salta i nostri e prende il cliente", "francesco@azienda.example", []string{"commerciale@azienda.example", "acquisti@landini.example"}, ControparteCliente, ViaContatto, idLandini, uuid.Nil, "acquisti@landini.example", uuid.Nil},
+		{"10 mittente nostro, primo destinatario esterno fornitore", "commerciale@azienda.example", []string{"ordini@fresature-esempio.example", "acquisti@acmemacchine.example"}, ControparteFornitore, ViaDominio, uuid.Nil, idFresature, "ordini@fresature-esempio.example", uuid.Nil},
+		{"11 mittente nostro, salta i nostri e prende il cliente", "francesco@azienda.example", []string{"commerciale@azienda.example", "acquisti@acmemacchine.example"}, ControparteCliente, ViaContatto, idAcmeMacchine, uuid.Nil, "acquisti@acmemacchine.example", uuid.Nil},
 		{"12 mittente senza chiocciola", "/O=EXCHANGE/OU=PRIMA", nil, ControparteSconosciuto, "", uuid.Nil, uuid.Nil, "/o=exchange/ou=prima", uuid.Nil},
-		{"13 maiuscole e spazi si normalizzano", "  MARIO@GMAIL.COM ", nil, ControparteFornitore, ViaContatto, uuid.Nil, idEuroforesi, "mario@gmail.com", uuid.Nil},
+		{"13 maiuscole e spazi si normalizzano", "  MARIO@GMAIL.COM ", nil, ControparteFornitore, ViaContatto, uuid.Nil, idFresature, "mario@gmail.com", uuid.Nil},
 		{"14 lo stesso contatto in due fornitori", "due@fornitori.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "due@fornitori.example", uuid.Nil},
 		{"15 mittente nostro senza destinatari", "commerciale@azienda.example", nil, ControparteInterno, ViaCasella, uuid.Nil, uuid.Nil, "commerciale@azienda.example", uuid.Nil},
 		// 7C.0: la sesta controparte
 		{"16 dominio altro", "ritiri@corriere.example", nil, ControparteAltro, ViaDominio, uuid.Nil, uuid.Nil, "ritiri@corriere.example", idCorriere},
-		{"17 indirizzo altro sul dominio di un cliente: l'indirizzo vince sul dominio", "noreply@landini.example", nil, ControparteAltro, ViaContatto, uuid.Nil, uuid.Nil, "noreply@landini.example", idNotifiche},
-		{"18 il dominio del cliente resta del cliente per gli altri indirizzi", "ufficio@landini.example", nil, ControparteCliente, ViaDominio, idLandini, uuid.Nil, "ufficio@landini.example", uuid.Nil},
+		{"17 indirizzo altro sul dominio di un cliente: l'indirizzo vince sul dominio", "noreply@acmemacchine.example", nil, ControparteAltro, ViaContatto, uuid.Nil, uuid.Nil, "noreply@acmemacchine.example", idNotifiche},
+		{"18 il dominio del cliente resta del cliente per gli altri indirizzi", "ufficio@acmemacchine.example", nil, ControparteCliente, ViaDominio, idAcmeMacchine, uuid.Nil, "ufficio@acmemacchine.example", uuid.Nil},
 		{"19 dominio in altro e in fornitori: ambiguo, nessuna precedenza", "x@tuttofare.example", nil, ControparteAmbiguo, ViaDominio, uuid.Nil, uuid.Nil, "x@tuttofare.example", uuid.Nil},
-		{"20 indirizzo in altro e fra i buyer: ambiguo", "doppio-altro@landini.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "doppio-altro@landini.example", uuid.Nil},
+		{"20 indirizzo in altro e fra i buyer: ambiguo", "doppio-altro@acmemacchine.example", nil, ControparteAmbiguo, ViaContatto, uuid.Nil, uuid.Nil, "doppio-altro@acmemacchine.example", uuid.Nil},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestCP6LaControparteSiRisolveConLaPrecedenzaContattoDominioSconosciuto(t *t
 // Senza `Nostro` il mittente si risolve e basta: e' cio' che fa chi non sa quali sono le caselle.
 func TestSenzaLElencoDeiNostriSiGuardaSoloIlMittente(t *testing.T) {
 	got, err := RisolviControparte(context.Background(), IngressoControparte{Mittente: "commerciale@azienda.example",
-		Destinatari: []string{"ordini@euroforesi.example"}}, rubricaDiProva())
+		Destinatari: []string{"ordini@fresature-esempio.example"}}, rubricaDiProva())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ type erroreDiProva struct{ s string }
 func (e *erroreDiProva) Error() string { return e.s }
 
 func TestUnErroreDellaRubricaNonDiventaSconosciuto(t *testing.T) {
-	_, err := RisolviControparte(context.Background(), IngressoControparte{Mittente: "x@landini.example"}, rubricaRotta{rubricaDiProva()})
+	_, err := RisolviControparte(context.Background(), IngressoControparte{Mittente: "x@acmemacchine.example"}, rubricaRotta{rubricaDiProva()})
 	if err == nil {
 		t.Fatal("l'errore della rubrica deve arrivare a chi chiama")
 	}

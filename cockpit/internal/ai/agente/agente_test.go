@@ -30,15 +30,15 @@ func (m *modelloFinto) Nome() string { return "finto" }
 
 func contestoDiProva() Contesto {
 	return Contesto{
-		Oggetto:      "R: RICHIESTA OFFERTA RDO 490020618",
-		Corpo:        "Buongiorno, vi confermiamo la richiesta per il codice 6743449A1. Manca il 3D.",
+		Oggetto:      "R: RICHIESTA OFFERTA RDO 400012345",
+		Corpo:        "Buongiorno, vi confermiamo la richiesta per il codice 7654321A1. Manca il 3D.",
 		Mittente:     "buyer@cliente.example",
 		Cliente:      "Cliente Di Prova",
-		NomiAllegati: []string{"6743449A_1.zip", "listino.xlsx"},
+		NomiAllegati: []string{"7654321A_1.zip", "listino.xlsx"},
 		Candidati: []RichiestaNota{
 			{ThreadID: "11111111-1111-1111-1111-111111111111", Oggetto: "Pedale frizione", Perche: "R0"},
 		},
-		CodiciNoti: []string{"6743449A1"},
+		CodiciNoti: []string{"7654321A1"},
 	}
 }
 
@@ -61,14 +61,14 @@ func TestLoSchemaRifiutaCioCheIlSistemaNonSaLeggere(t *testing.T) {
 		}
 	}
 	// e una risposta buona passa intera
-	buona := `{"intento":"risposta_rfq","riferimento_rfq":"RDO 490020618","evidenze":["R: nell'oggetto"],
-	           "codici":[{"codice":"6743449A1","ruolo":"prodotto","dove":"corpo"}],
+	buona := `{"intento":"risposta_rfq","riferimento_rfq":"RDO 400012345","evidenze":["R: nell'oggetto"],
+	           "codici":[{"codice":"7654321A1","ruolo":"prodotto","dove":"corpo"}],
 	           "cosa_manca":["manca il 3D"]}`
 	p, err := Valida([]byte(buona))
 	if err != nil {
 		t.Fatalf("una risposta conforme è stata rifiutata: %v", err)
 	}
-	if p.Intento != IntentoRispostaRFQ || len(p.Codici) != 1 || p.Riferimento != "RDO 490020618" {
+	if p.Intento != IntentoRispostaRFQ || len(p.Codici) != 1 || p.Riferimento != "RDO 400012345" {
 		t.Errorf("risposta letta male: %+v", p)
 	}
 }
@@ -80,7 +80,7 @@ func TestIlGroundingScartaCioCheNonEsiste(t *testing.T) {
 		Intento:     IntentoRispostaRFQ,
 		Riferimento: "RDO 999999999", // non c'è
 		Codici: []CodiceAI{
-			{Codice: "6743449A1", Ruolo: "prodotto"}, // c'è
+			{Codice: "7654321A1", Ruolo: "prodotto"}, // c'è
 			{Codice: "AB99999", Ruolo: "prodotto"},   // inventato
 		},
 		Candidati: []CandidatoAI{
@@ -88,7 +88,7 @@ func TestIlGroundingScartaCioCheNonEsiste(t *testing.T) {
 			{ThreadID: "22222222-2222-2222-2222-222222222222", Punteggio: 95}, // mai passato
 		},
 		Allegati: []AllegatoAI{
-			{Nome: "6743449A_1.zip", Tipo: "altro"},
+			{Nome: "7654321A_1.zip", Tipo: "altro"},
 			{Nome: "disegno_che_non_esiste.pdf", Tipo: "da_determinare"},
 		},
 		Evidenze: []string{"x"},
@@ -97,13 +97,13 @@ func TestIlGroundingScartaCioCheNonEsiste(t *testing.T) {
 	if out.Riferimento != "" {
 		t.Errorf("un riferimento inventato è passato: %q", out.Riferimento)
 	}
-	if len(out.Codici) != 1 || out.Codici[0].Codice != "6743449A1" {
+	if len(out.Codici) != 1 || out.Codici[0].Codice != "7654321A1" {
 		t.Errorf("codici dopo il grounding: %+v", out.Codici)
 	}
 	if len(out.Candidati) != 1 || out.Candidati[0].ThreadID != "11111111-1111-1111-1111-111111111111" {
 		t.Errorf("un candidato non passato nel contesto è sopravvissuto: %+v", out.Candidati)
 	}
-	if len(out.Allegati) != 1 || out.Allegati[0].Nome != "6743449A_1.zip" {
+	if len(out.Allegati) != 1 || out.Allegati[0].Nome != "7654321A_1.zip" {
 		t.Errorf("un allegato inesistente è sopravvissuto: %+v", out.Allegati)
 	}
 	if len(scarti) != 4 {
@@ -121,7 +121,7 @@ func TestIlGroundingScartaCioCheNonEsiste(t *testing.T) {
 func TestUnaBozzaConUnCodiceInventatoCadeIntera(t *testing.T) {
 	c := contestoDiProva()
 	p := Proposta{Intento: IntentoRispostaRFQ, Evidenze: []string{"x"},
-		Bozza: "Buongiorno, confermiamo la quotazione del codice 6743449A1 e del codice 9988776."}
+		Bozza: "Buongiorno, confermiamo la quotazione del codice 7654321A1 e del codice 9988776."}
 	out, scarti := Verifica(p, c)
 	if out.Bozza != "" {
 		t.Error("la bozza con un codice inventato è arrivata all'operatore")
@@ -130,7 +130,7 @@ func TestUnaBozzaConUnCodiceInventatoCadeIntera(t *testing.T) {
 		t.Errorf("scarti: %+v", scarti)
 	}
 	// una bozza che cita solo codici veri resta
-	p.Bozza = "Buongiorno, confermiamo la quotazione del codice 6743449A1. Ci manca il 3D."
+	p.Bozza = "Buongiorno, confermiamo la quotazione del codice 7654321A1. Ci manca il 3D."
 	out, scarti = Verifica(p, c)
 	if out.Bozza == "" {
 		t.Error("una bozza corretta è stata buttata")
@@ -143,11 +143,11 @@ func TestUnaBozzaConUnCodiceInventatoCadeIntera(t *testing.T) {
 // Un riferimento non diventa un codice prodotto nemmeno se lo dice l'agente (§4).
 func TestIlRiferimentoNonDiventaCodiceNemmenoDallAgente(t *testing.T) {
 	c := contestoDiProva()
-	p := Proposta{Intento: IntentoRispostaRFQ, Riferimento: "RDO 490020618", Evidenze: []string{"x"},
-		Codici: []CodiceAI{{Codice: "490020618", Ruolo: "prodotto"}}}
+	p := Proposta{Intento: IntentoRispostaRFQ, Riferimento: "RDO 400012345", Evidenze: []string{"x"},
+		Codici: []CodiceAI{{Codice: "400012345", Ruolo: "prodotto"}}}
 	out, scarti := Verifica(p, c)
 	for _, k := range out.Codici {
-		if k.Codice == "490020618" && k.Ruolo == "prodotto" {
+		if k.Codice == "400012345" && k.Ruolo == "prodotto" {
 			t.Error("il numero della RDO è passato come codice prodotto")
 		}
 	}
@@ -160,7 +160,7 @@ func TestIlRiferimentoNonDiventaCodiceNemmenoDallAgente(t *testing.T) {
 func TestAnalizzaFaIlGiroCompleto(t *testing.T) {
 	c := contestoDiProva()
 	m := &modelloFinto{risposta: "```json\n" + `{"intento":"risposta_rfq","evidenze":["R: nell'oggetto"],
-		"codici":[{"codice":"6743449A1","ruolo":"prodotto"},{"codice":"ZZ11111","ruolo":"prodotto"}],
+		"codici":[{"codice":"7654321A1","ruolo":"prodotto"},{"codice":"ZZ11111","ruolo":"prodotto"}],
 		"cosa_manca":["manca il 3D"]}` + "\n```"}
 	e := Analizza(context.Background(), m, c)
 	if e.Errore != nil {

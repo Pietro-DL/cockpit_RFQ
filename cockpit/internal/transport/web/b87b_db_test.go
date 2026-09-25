@@ -51,8 +51,8 @@ func (b *bancoWeb) mailConAllegati(oggetto, corpo string, allegati ...worker.All
 func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	msg := b.mailConAllegati("Richiesta di offerta 52922757", "Offerta per il supporto 52922757, 200 pezzi.",
-		worker.AllegatoIn{Indice: 1, NomeFile: "RFQ ACME 52922757.zip", Estensione: "zip", Natura: "file", Bytes: 4000},
+	msg := b.mailConAllegati("Richiesta di offerta 77722757", "Offerta per il supporto 77722757, 200 pezzi.",
+		worker.AllegatoIn{Indice: 1, NomeFile: "RFQ ACME 77722757.zip", Estensione: "zip", Natura: "file", Bytes: 4000},
 		worker.AllegatoIn{Indice: 2, NomeFile: "logo.png", Estensione: "png", Natura: "file", Bytes: 2000})
 	w := operatore(b)
 
@@ -63,14 +63,14 @@ func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 	if strings.Contains(form, "e scarica i file spuntati") {
 		t.Error("il bottone non parla piu' di file spuntati")
 	}
-	if !strings.Contains(form, `value="52922757"`) {
-		t.Fatalf("il codice 52922757 e' fra i candidati del form")
+	if !strings.Contains(form, `value="77722757"`) {
+		t.Fatalf("il codice 77722757 e' fra i candidati del form")
 	}
 
-	_, html := w.fai(http.MethodPost, "/messaggio/"+msg.String()+"/rfq", url.Values{"cliente_id": {acme.String()}, "oggetto": {"Supporto 52922757"},
-		"codice": {"52922757"}, "priorita": {"1"}}, true)
+	_, html := w.fai(http.MethodPost, "/messaggio/"+msg.String()+"/rfq", url.Values{"cliente_id": {acme.String()}, "oggetto": {"Supporto 77722757"},
+		"codice": {"77722757"}, "priorita": {"1"}}, true)
 	a := leggibile(html)
-	for _, c := range []string{"RFQ creata", "52922757 nella BOM come prodotto finito", "1 file utile in preparazione"} {
+	for _, c := range []string{"RFQ creata", "77722757 nella BOM come prodotto finito", "1 file utile in preparazione"} {
 		if !strings.Contains(a, c) {
 			t.Errorf("avviso: manca %q in %q", c, estrai(html, "avviso"))
 		}
@@ -80,7 +80,7 @@ func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var tipo, origine string
-	if err := b.pool.QueryRow(b.ctx, `SELECT tipo::text, origine::text FROM componente WHERE thread_id = $1 AND codice = '52922757'`, thread).Scan(&tipo, &origine); err != nil {
+	if err := b.pool.QueryRow(b.ctx, `SELECT tipo::text, origine::text FROM componente WHERE thread_id = $1 AND codice = '77722757'`, thread).Scan(&tipo, &origine); err != nil {
 		t.Fatalf("il prodotto non e' nato: %v", err)
 	}
 	if tipo != "finito" || origine != "codice_rilevato" {
@@ -105,15 +105,15 @@ func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	if err := b.pool.QueryRow(b.ctx, `SELECT utente_id FROM utente WHERE sigla = 'FP'`).Scan(&fp); err != nil {
 		t.Fatal(err)
 	}
-	thread := b.rfqDa(uuid.Nil, acme, `ACME\WIP\2026 09 24 Rossi RFQ 52922757`, "52922757")
+	thread := b.rfqDa(uuid.Nil, acme, `ACME\WIP\2026 09 24 Rossi RFQ 77722757`, "77722757")
 	if _, err := b.pool.Exec(b.ctx, `UPDATE identificativo_thread SET confermato_da = $2 WHERE thread_id = $1`, thread, fp); err != nil {
 		t.Fatal(err)
 	}
-	msg := b.mailConAllegati("RE: RFQ 52922757", "Ecco lo STEP.", worker.AllegatoIn{Indice: 1, NomeFile: "52922757.stp", Estensione: "stp", Natura: "file", Bytes: 9000})
+	msg := b.mailConAllegati("RE: RFQ 77722757", "Ecco lo STEP.", worker.AllegatoIn{Indice: 1, NomeFile: "77722757.stp", Estensione: "stp", Natura: "file", Bytes: 9000})
 	w := operatore(b)
 	_, html := w.fai(http.MethodPost, "/messaggio/"+msg.String()+"/aggancia", url.Values{"thread_id": {thread.String()}}, true)
 	a := leggibile(html)
-	if !strings.Contains(a, "Agganciato") || !strings.Contains(a, "52922757 nella BOM come prodotto finito") || !strings.Contains(a, "1 file utile in preparazione") {
+	if !strings.Contains(a, "Agganciato") || !strings.Contains(a, "77722757 nella BOM come prodotto finito") || !strings.Contains(a, "1 file utile in preparazione") {
 		t.Fatalf("avviso: %q", estrai(html, "avviso"))
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato'`); n != 1 {
@@ -126,8 +126,8 @@ func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	msg := b.mailConAllegati("RFQ 52922757", "Richiesta per 52922757.", worker.AllegatoIn{Indice: 1, NomeFile: "52922757.pdf", Estensione: "pdf", Natura: "file", Bytes: 9000})
-	thread := b.rfqDa(msg, acme, `ACME\WIP\2026 09 24 Rossi RFQ 52922757`, "52922757")
+	msg := b.mailConAllegati("RFQ 77722757", "Richiesta per 77722757.", worker.AllegatoIn{Indice: 1, NomeFile: "77722757.pdf", Estensione: "pdf", Natura: "file", Bytes: 9000})
+	thread := b.rfqDa(msg, acme, `ACME\WIP\2026 09 24 Rossi RFQ 77722757`, "77722757")
 	var fp uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `SELECT utente_id FROM utente WHERE sigla = 'FP'`).Scan(&fp); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 	}
 
 	_, html := operatore(b).fai(http.MethodGet, base, nil, false)
-	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE tipo = 'finito' AND codice = '52922757'`); n != 1 {
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE tipo = 'finito' AND codice = '77722757'`); n != 1 {
 		t.Errorf("il codice della richiesta e' il prodotto: %d", n)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato' AND stato = 'pronto'`); n != 1 {
@@ -163,7 +163,7 @@ func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 	}
 }
 
-// scenaConferma: il prodotto (dal codice della richiesta), il suo STEP che propone l'assieme 52920517 ×2, i
+// scenaConferma: il prodotto (dal codice della richiesta), il suo STEP che propone l'assieme 77720517 ×2, i
 // disegni dei due, un PDF anonimo. Tutti i file nello staging, analizzati.
 type scenaConferma struct {
 	*rfqFascicolo
@@ -177,18 +177,18 @@ func (b *bancoWeb) scenaConferma(chiave string) *scenaConferma {
 	r := b.rfqFascicolo(b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example"), chiave)
 	s := &scenaConferma{rfqFascicolo: r}
 	r.fase("FATTIBILITA")
-	s.prodotto = r.componenteTipo("52922757", "finito")
+	s.prodotto = r.componenteTipo("77722757", "finito")
 	var sha string
-	s.allStep, sha = r.allegatoExt("52922757.stp", "stp")
-	r.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte) VALUES ($1,$2,'cad_3d','52922757',95,'step')`, s.allStep, r.thread)
+	s.allStep, sha = r.allegatoExt("77722757.stp", "stp")
+	r.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte) VALUES ($1,$2,'cad_3d','77722757',95,'step')`, s.allStep, r.thread)
 	s.stp = uuidSQL(b.t, b, `SELECT proposta_id FROM documento_proposta WHERE allegato_id = $1`, s.allStep)
 	r.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, codice, origine_codice, tipo_proposto, fonte, confidenza, stato, componente_id)
-		VALUES ($1,$2,$3,'#1','52922757','52922757','generico','finito','step',90,'duplicato',$4)`, r.thread, s.allStep, sha, s.prodotto)
+		VALUES ($1,$2,$3,'#1','77722757','77722757','generico','finito','step',90,'duplicato',$4)`, r.thread, s.allStep, sha, s.prodotto)
 	r.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, codice, origine_codice, tipo_proposto, fonte, confidenza)
-		VALUES ($1,$2,$3,'#2','52920517','52920517','generico','sottoassieme','step',90)`, r.thread, s.allStep, sha)
+		VALUES ($1,$2,$3,'#2','77720517','77720517','generico','sottoassieme','step',90)`, r.thread, s.allStep, sha)
 	r.esegui(`INSERT INTO relazione_proposta (thread_id, allegato_id, padre_chiave, figlio_chiave, qta) VALUES ($1,$2,'#1','#2',2)`, r.thread, s.allStep)
-	s.pdfProdotto, _ = r.propostaDa("52922757.pdf", "52922757")
-	s.pdfAssieme, _ = r.propostaDa("52920517.pdf", "52920517")
+	s.pdfProdotto, _ = r.propostaDa("77722757.pdf", "77722757")
+	s.pdfAssieme, _ = r.propostaDa("77720517.pdf", "77720517")
 	s.boh, _ = r.propostaDa("anonimo.pdf", "")
 	r.esegui(`UPDATE documento_proposta SET tipo_proposto = 'da_determinare', confidenza = 30, fonte = 'estensione' WHERE proposta_id = $1`, s.boh)
 	return s
@@ -213,7 +213,7 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	}
 	firma := firmaDellaPagina(t, html)
 	_, bom := w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
-	for _, c := range []string{"Apri proposta BOM", "52920517", "+ proposto · assieme?", "1 nodo e 1 arco proposti: la struttura si rivede e si conferma nell&#39;editor"} {
+	for _, c := range []string{"Apri proposta BOM", "77720517", "+ proposto · assieme?", "1 nodo e 1 arco proposti: la struttura si rivede e si conferma nell&#39;editor"} {
 		if !strings.Contains(bom, c) {
 			t.Errorf("la Struttura BOM: manca %q", c)
 		}
@@ -225,7 +225,7 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if a := s.gestoC(w, url.Values{"firma": {"deadbeef00000000"}}); !strings.HasPrefix(a, "Niente è cambiato: il piano è cambiato") {
 		t.Fatalf("firma vecchia: %q", a)
 	}
-	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "52920517 nasce dalla struttura dello STEP 52922757.stp: si conferma prima quella, nell'editor della Struttura BOM") {
+	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "77720517 nasce dalla struttura dello STEP 77722757.stp: si conferma prima quella, nell'editor della Struttura BOM") {
 		t.Fatalf("senza la struttura da cui dipende: %q", a)
 	}
 	if a := s.gestoC(w, url.Values{"struttura": {s.allStep.String()}}); !strings.HasPrefix(a, "Niente è cambiato") {
@@ -234,20 +234,20 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if n := contaSQL(t, b, `SELECT count(*) FROM documento`); n != 0 {
 		t.Fatalf("i rifiuti hanno lasciato %d documenti", n)
 	}
-	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE codice = '52920517'`); n != 0 {
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE codice = '77720517'`); n != 0 {
 		t.Fatalf("i rifiuti hanno fatto nascere l'assieme: %d", n)
 	}
 
 	a := s.gestoC(w, url.Values{"firma": {firma}})
-	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)", "STEP strutturale di 52922757: 52922757.stp"} {
+	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)", "STEP strutturale di 77722757: 77722757.stp"} {
 		if !strings.Contains(a, c) {
 			t.Errorf("avviso: manca %q in %q", c, a)
 		}
 	}
-	if strings.Contains(a, "struttura di 52922757.stp") {
+	if strings.Contains(a, "struttura di 77722757.stp") {
 		t.Errorf("«Conferma Fascicolo» ha confermato la struttura dello STEP: %q", a)
 	}
-	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "52922757:finito" {
+	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "77722757:finito" {
 		t.Errorf("componenti dopo la conferma: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text FROM documento_proposta WHERE proposta_id = $1`, s.pdfAssieme); got != "aperta" {
@@ -259,7 +259,7 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	struttura := fmt.Sprintf(`{"radice":%q,"archi":[{"padre":"c:%s","figlio":"p:%s","qta":2}],"visti":[],"relazioni_viste":[{"allegato":%q,"padre":"#1","figlio":"#2"}]}`,
 		s.prodotto, s.prodotto, nodo, s.allStep)
 	resp, html := w.daFascicolo(http.MethodPost, s.base()+"/bom/applica", url.Values{"struttura": {struttura}}, s.thread, "?vista=bom")
-	if a := avvisoF(html); a != "Struttura di 52922757 confermata: 1 componente nuovo, 1 legame aggiunto." {
+	if a := avvisoF(html); a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto." {
 		t.Fatalf("editor: %q", a)
 	}
 	if h := resp.Header.Get("HX-Trigger"); !strings.Contains(h, `"bom-esito":{"ok":true`) || strings.ContainsFunc(h, func(r rune) bool { return r > 127 }) {
@@ -278,21 +278,21 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if !strings.Contains(a, "Fascicolo confermato") || !strings.Contains(a, "1 documento") {
 		t.Errorf("la seconda conferma: %q", a)
 	}
-	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "52920517:sottoassieme 52922757:finito" {
+	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "77720517:sottoassieme 77722757:finito" {
 		t.Errorf("componenti: %s", got)
 	}
 	if got := s.valore(`SELECT string_agg(p.codice || '>' || f.codice || 'x' || r.qta, ' ') FROM componente_relazione r JOIN componente p ON p.componente_id = r.padre_id
-		JOIN componente f ON f.componente_id = r.figlio_id WHERE r.thread_id = $1`, s.thread); got != "52922757>52920517x2" {
+		JOIN componente f ON f.componente_id = r.figlio_id WHERE r.thread_id = $1`, s.thread); got != "77722757>77720517x2" {
 		t.Errorf("archi: %s", got)
 	}
 	if got := s.valore(`SELECT string_agg(d.nome_file || '@' || coalesce(c.codice, '-'), ' ' ORDER BY d.nome_file) FROM documento d LEFT JOIN componente c ON c.componente_id = d.componente_id
-		WHERE d.thread_id = $1`, s.thread); got != "52920517.pdf@52920517 52922757.pdf@52922757 52922757.stp@52922757" {
+		WHERE d.thread_id = $1`, s.thread); got != "77720517.pdf@77720517 77722757.pdf@77722757 77722757.stp@77722757" {
 		t.Errorf("documenti: %s", got)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'copia_nas'`); n != 3 {
 		t.Errorf("copie sul NAS: %d", n)
 	}
-	if got := s.valore(`SELECT d.nome_file FROM componente c JOIN documento d ON d.documento_id = c.step_strutturale_id WHERE c.componente_id = $1`, s.prodotto); got != "52922757.stp" {
+	if got := s.valore(`SELECT d.nome_file FROM componente c JOIN documento d ON d.documento_id = c.step_strutturale_id WHERE c.componente_id = $1`, s.prodotto); got != "77722757.stp" {
 		t.Errorf("STEP strutturale: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text FROM documento_proposta WHERE proposta_id = $1`, s.boh); got != "aperta" {
@@ -340,8 +340,8 @@ func TestDecidereUnFileNonSiFaRiscrivereDaUnaLettura(t *testing.T) {
 	if a := decidi(s.boh, url.Values{"tipo": {"da_determinare"}}); !strings.Contains(a, "scegli che cos'è il file") {
 		t.Errorf("da determinare: %q", a)
 	}
-	s.esegui(`UPDATE documento_proposta SET componente_id = $2, codice = '52922757' WHERE proposta_id = $1`, s.pdfProdotto, s.prodotto)
-	if a := decidi(s.pdfProdotto, url.Values{"tipo": {"disegno_2d"}, "codice": {"53000000"}}); !strings.Contains(a, "è assegnato a un componente") {
+	s.esegui(`UPDATE documento_proposta SET componente_id = $2, codice = '77722757' WHERE proposta_id = $1`, s.pdfProdotto, s.prodotto)
+	if a := decidi(s.pdfProdotto, url.Values{"tipo": {"disegno_2d"}, "codice": {"77800000"}}); !strings.Contains(a, "è assegnato a un componente") {
 		t.Errorf("proposta agganciata: %q", a)
 	}
 	if a := decidi(s.boh, url.Values{"tipo": {"capitolato"}}); !strings.HasPrefix(a, "anonimo.pdf: capitolato.") {
@@ -382,13 +382,13 @@ func TestImportaDalNasRestaSottoLaRadice(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scrivi(filepath.Join(radice, "ACME", "ARCHIVIO 2025", "52922757", "52922757.dxf"), "0\nSECTION\n0\nEOF\n")
+	scrivi(filepath.Join(radice, "ACME", "ARCHIVIO 2025", "77722757", "77722757.dxf"), "0\nSECTION\n0\nEOF\n")
 	scrivi(filepath.Join(radice, "ACME", "ARCHIVIO 2025", "listino.xlsx"), "xlsx")
 	scrivi(filepath.Join(fuori, "segreto.dxf"), "0\nSEGRETO\n")
 	w := operatore(b)
 
-	_, html := w.daFascicolo(http.MethodGet, s.base()+"/nas?cassetto=nas&nas_cerca=52922757", nil, s.thread, "?cassetto=nas")
-	for _, c := range []string{"Trovati sotto ACME", "52922757.dxf", `name="percorso" value="ACME/ARCHIVIO 2025/52922757/52922757.dxf"`, "Importa"} {
+	_, html := w.daFascicolo(http.MethodGet, s.base()+"/nas?cassetto=nas&nas_cerca=77722757", nil, s.thread, "?cassetto=nas")
+	for _, c := range []string{"Trovati sotto ACME", "77722757.dxf", `name="percorso" value="ACME/ARCHIVIO 2025/77722757/77722757.dxf"`, "Importa"} {
 		if !strings.Contains(html, c) {
 			t.Errorf("ricerca: manca %q", c)
 		}
@@ -423,11 +423,11 @@ func TestImportaDalNasRestaSottoLaRadice(t *testing.T) {
 		t.Fatalf("i rifiuti hanno registrato %d file", n)
 	}
 
-	if a := importa("ACME/ARCHIVIO 2025/52922757/52922757.dxf"); !strings.Contains(a, "52922757.dxf importato dal NAS") {
+	if a := importa("ACME/ARCHIVIO 2025/77722757/77722757.dxf"); !strings.Contains(a, "77722757.dxf importato dal NAS") {
 		t.Fatalf("importazione: %q", a)
 	}
 	if got := s.valore(`SELECT a.path_interno || '|' || a.stato::text || '|' || p.tipo_proposto::text FROM allegato a JOIN documento_proposta p ON p.allegato_id = a.allegato_id
-		WHERE a.origine = 'manuale'`); got != "NAS: ACME/ARCHIVIO 2025/52922757/52922757.dxf|in_staging|sviluppo_dxf" {
+		WHERE a.origine = 'manuale'`); got != "NAS: ACME/ARCHIVIO 2025/77722757/77722757.dxf|in_staging|sviluppo_dxf" {
 		t.Errorf("il file importato: %s", got)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM documento`); n != 0 {

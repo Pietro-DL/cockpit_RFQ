@@ -8,19 +8,19 @@ import (
 )
 
 func TestEstraiCodici(t *testing.T) {
-	got := EstraiCodici("RICHIESTA D'OFFERTA 123456789 - codice 6674611A rev 4", "vedi allegato 6674611A_4.pdf e il 12/09/2026 alle 10:30")
-	atteso := []string{"123456789", "6674611A", "6674611A_4"}
+	got := EstraiCodici("RICHIESTA D'OFFERTA 123456789 - codice 1234567A rev 4", "vedi allegato 1234567A_4.pdf e il 12/09/2026 alle 10:30")
+	atteso := []string{"123456789", "1234567A", "1234567A_4"}
 	if !reflect.DeepEqual(got, atteso) {
 		t.Errorf("EstraiCodici = %v, atteso %v", got, atteso)
 	}
-	c, r := CodiceRev("6674611A_4")
-	if c != "6674611A" || r != "4" {
+	c, r := CodiceRev("1234567A_4")
+	if c != "1234567A" || r != "4" {
 		t.Errorf("CodiceRev = %q %q", c, r)
 	}
 }
 
 func TestRilevaPortale(t *testing.T) {
-	corpo := "Buongiorno,\r\nvi abbiamo caricato sul portale i CAD dei codici 6674611A e 6674612B. Grazie.\r\nCordiali saluti"
+	corpo := "Buongiorno,\r\nvi abbiamo caricato sul portale i CAD dei codici 1234567A e 1234568B. Grazie.\r\nCordiali saluti"
 	rif := RilevaPortale(corpo)
 	if len(rif) != 1 || len(rif[0].Codici) != 2 {
 		t.Fatalf("RilevaPortale = %+v", rif)
@@ -39,7 +39,7 @@ func TestRilevaScadenza(t *testing.T) {
 }
 
 func TestTriage(t *testing.T) {
-	e := Triage(IngressoTriage{Oggetto: "RFQ 6674611A", Corpo: "in allegato i disegni", NomiAllegati: []string{"6674611A_4.pdf"}, BuyerNoto: true, Direzione: "entrata"})
+	e := Triage(IngressoTriage{Oggetto: "RFQ 1234567A", Corpo: "in allegato i disegni", NomiAllegati: []string{"1234567A_4.pdf"}, BuyerNoto: true, Direzione: "entrata"})
 	// 80 e non piu' 95: un PDF non vale piu' «allegato tecnico» (25) ma «allegato di tipo da
 	// determinare» (10), perche' nessuno l'ha aperto. L'esito non cambia, ed e' l'esito che conta.
 	if e.Esito != "nuova_rfq" || e.Confidenza < 70 {
@@ -62,8 +62,8 @@ func TestTriage(t *testing.T) {
 	// vista da noi: «ti giro questa richiesta» è uno dei modi in cui una RFQ arriva sul tavolo.
 	// Ignorarla per il mittente vorrebbe dire non proporre niente proprio sui messaggi che un collega
 	// ha inoltrato apposta perché qualcuno li guardasse.
-	e = Triage(IngressoTriage{Direzione: "uscita", Interno: true, Oggetto: "I: RFQ 6674611A",
-		Corpo: "ti giro la richiesta", NomiAllegati: []string{"6674611A_4.pdf"}})
+	e = Triage(IngressoTriage{Direzione: "uscita", Interno: true, Oggetto: "I: RFQ 1234567A",
+		Corpo: "ti giro la richiesta", NomiAllegati: []string{"1234567A_4.pdf"}})
 	if e.Esito == "ignora" {
 		t.Errorf("triage di una mail interna ignorato per il mittente: %+v", e)
 	}

@@ -21,15 +21,49 @@ func TestCartellaThread(t *testing.T) {
 	d := time.Date(2026, 9, 8, 10, 0, 0, 0, time.UTC)
 	casi := []struct{ cliente, cognome, oggetto, atteso string }{
 		{"ACME", "Rossi", "Supporto cofano", `ACME\WIP\2026 09 08 Rossi Supporto cofano`},
-		{"LANDINI ARGO", "Bianchi", "RE: R: RICHIESTA D'OFFERTA 123456789", `LANDINI ARGO\WIP\2026 09 08 Bianchi RICHIESTA D'OFFERTA 123456789`},
+		{"ACME ITALIA", "Bianchi", "RE: R: RICHIESTA D'OFFERTA 123456789", `ACME ITALIA\WIP\2026 09 08 Bianchi RICHIESTA D'OFFERTA 123456789`},
 		{"ACME", "", "Staffa: nuova/rev. 2?", `ACME\WIP\2026 09 08 Staffa nuova rev. 2`},
 		{"ACME", "Rossi", "", `ACME\WIP\2026 09 08 Rossi senza nome`},
 		{"ACME", "Rossi", strings.Repeat("x", 100), `ACME\WIP\2026 09 08 Rossi ` + strings.Repeat("x", 60)},
 		{"ACME", "Rossi", "Fine con punto.", `ACME\WIP\2026 09 08 Rossi Fine con punto`},
+		// il taglio a 60 caratteri cade subito dopo il punto di «r.»: il punto non resta in coda
+		{"ACME", "Rossi", strings.Repeat("x", 57) + " r. seguito", `ACME\WIP\2026 09 08 Rossi ` + strings.Repeat("x", 57) + " r"},
+		// e lo stesso per la cartella del cliente, tagliata a 80
+		{strings.Repeat("C", 79) + ". SRL", "Rossi", "Staffa", strings.Repeat("C", 79) + `\WIP\2026 09 08 Rossi Staffa`},
 	}
 	for _, c := range casi {
 		if got := CartellaThread(c.cliente, d, c.cognome, c.oggetto); got != c.atteso {
 			t.Errorf("CartellaThread(%q,%q,%q) = %q, atteso %q", c.cliente, c.cognome, c.oggetto, got, c.atteso)
+		}
+	}
+}
+
+// Un nome tagliato non finisce con un punto o uno spazio: Windows li toglie da solo (la cartella avrebbe
+// un nome diverso da quello nel database) e con il prefisso \\?\ ne nasce una che Esplora risorse non
+// apre. Il nome che esce, ripassato, resta uguale.
+func TestNomeSicuroDopoIlTaglioNonFinisceConUnPunto(t *testing.T) {
+	casi := []struct {
+		s      string
+		max    int
+		atteso string
+	}{
+		{"Offerta rev. 2", 12, "Offerta rev"},
+		{"abc. . . def", 7, "abc"},
+		{"abc....def", 5, "abc"},
+		{"...abc", 2, "senza nome"},
+		{"àèìòù. ùòìèà", 6, "àèìòù"},
+		{"corto.", 60, "corto"},
+	}
+	for _, c := range casi {
+		got := NomeSicuro(c.s, c.max)
+		if got != c.atteso {
+			t.Errorf("NomeSicuro(%q, %d) = %q, atteso %q", c.s, c.max, got, c.atteso)
+		}
+		if strings.HasSuffix(got, ".") || strings.HasSuffix(got, " ") {
+			t.Errorf("NomeSicuro(%q, %d) = %q finisce con un punto o uno spazio", c.s, c.max, got)
+		}
+		if due := NomeSicuro(got, c.max); got != "senza nome" && due != got {
+			t.Errorf("NomeSicuro ripassato su %q = %q: non e' stabile", got, due)
 		}
 	}
 }
@@ -44,11 +78,11 @@ func TestPathDocumento(t *testing.T) {
 		nome      string
 		atteso    string
 	}{
-		{disegni, true, "6674611A", "6674611A_4.pdf", `ELENCO DISEGNI\6674611A\6674611A_4.pdf`},
-		{disegni, false, "6674611A", "6674611A_4.pdf", `ELENCO DISEGNI\6674611A_4.pdf`},
+		{disegni, true, "1234567A", "1234567A_4.pdf", `ELENCO DISEGNI\1234567A\1234567A_4.pdf`},
+		{disegni, false, "1234567A", "1234567A_4.pdf", `ELENCO DISEGNI\1234567A_4.pdf`},
 		// il cliente senza cartella per codice: il layout non la chiede, e il codice non serve al percorso
 		{disegni, false, "", "assieme.STEP", `ELENCO DISEGNI\assieme.step`},
-		{radice, true, "6674611A", "SO 5467.pdf", `SO 5467.pdf`},
+		{radice, true, "1234567A", "SO 5467.pdf", `SO 5467.pdf`},
 		{LayoutDocumento{"OFFERTE FORNITORI", false}, true, "", "verniciatura?.pdf", `OFFERTE FORNITORI\verniciatura.pdf`},
 	}
 	for _, c := range casi {
@@ -192,7 +226,7 @@ func TestNomeFileSicuroEIdempotente(t *testing.T) {
 
 	// ...e un giro su tutti i nomi di file che le prove del modulo danno agli allegati.
 	nomi := nomiDiFileNellaSuite(t)
-	for _, attesi := range []string{"6674611A_4.pdf", "Tavola 1.PDF"} {
+	for _, attesi := range []string{"1234567A_4.pdf", "Tavola 1.PDF"} {
 		if !nomi[attesi] {
 			t.Fatalf("il giro sulle prove non ha trovato %q: %d nomi", attesi, len(nomi))
 		}

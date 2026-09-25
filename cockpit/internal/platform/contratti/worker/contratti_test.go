@@ -534,10 +534,10 @@ func TestLaStrutturaNonPortaCodici(t *testing.T) {
 
 func TestDecodificaStrutturaTolleraCampiSconosciuti(t *testing.T) {
 	dettagli := json.RawMessage(`{
-		"product_step": "52922757",
+		"product_step": "77722757",
 		"struttura": {
 			"versione": 2, "schema": "AP214", "radici": ["#12"],
-			"nodi": [{"chiave": "#12", "id_grezzo": "52922757", "nome_grezzo": "52922757_B",
+			"nodi": [{"chiave": "#12", "id_grezzo": "77722757", "nome_grezzo": "77722757_B",
 			          "descrizione_grezza": "SUPPORTO", "rev_grezza": "B",
 			          "evidenza": {"entita": "PRODUCT", "riga": "#12"}, "campo_del_futuro": 3}],
 			"relazioni": [{"padre": "#12", "figlio": "#40", "qta": 2, "evidenza": {}}],
@@ -552,7 +552,7 @@ func TestDecodificaStrutturaTolleraCampiSconosciuti(t *testing.T) {
 	if st.Versione != 2 || st.Schema != "AP214" || len(st.Nodi) != 1 || len(st.Relazioni) != 1 {
 		t.Fatalf("struttura letta male: %+v", st)
 	}
-	if st.Nodi[0].NomeGrezzo != "52922757_B" || st.Nodi[0].RevGrezza != "B" {
+	if st.Nodi[0].NomeGrezzo != "77722757_B" || st.Nodi[0].RevGrezza != "B" {
 		t.Errorf("nodo letto male: %+v", st.Nodi[0])
 	}
 	if st.Nodi[0].Evidenza["riga"] != "#12" {
@@ -600,9 +600,9 @@ func TestUnaStrutturaTroncataDiceControQualeTetto(t *testing.T) {
 // rianalisi non li riscrive.
 func TestUnaStrutturaVecchiaNonSiLegge(t *testing.T) {
 	casi := map[string]json.RawMessage{
-		"versione 1":      json.RawMessage(`{"struttura": {"versione": 1, "nodi": [{"chiave": "#1", "codice": "52922757"}]}}`),
+		"versione 1":      json.RawMessage(`{"struttura": {"versione": 1, "nodi": [{"chiave": "#1", "codice": "77722757"}]}}`),
 		"senza versione":  json.RawMessage(`{"struttura": {"nodi": []}}`),
-		"senza struttura": json.RawMessage(`{"product_step": "52922757"}`),
+		"senza struttura": json.RawMessage(`{"product_step": "77722757"}`),
 		"dettagli vuoti":  json.RawMessage(``),
 		"dettagli rotti":  json.RawMessage(`non sono json`),
 	}

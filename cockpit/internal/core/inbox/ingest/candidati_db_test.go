@@ -1,3 +1,5 @@
+//go:build integrazione
+
 package ingest
 
 import (
@@ -31,8 +33,8 @@ import (
 // dopo un ingest il messaggio sia ancora orfano e che il candidato esista con la sua evidenza.
 
 const regoleCliente = `{
-  "famiglie_codice": [{"regex": "\\b\\d{7}[A-Z]\\b", "descrizione": "7 cifre + lettera", "esempio": "6674611A"}],
-  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO", "esempio": "RDO 490020618"},
+  "famiglie_codice": [{"regex": "\\b\\d{7}[A-Z]\\b", "descrizione": "7 cifre + lettera", "esempio": "1234567A"}],
+  "riferimento_rfq": {"regex": "\\bRDO\\s*\\d{9}\\b", "descrizione": "RDO", "esempio": "RDO 400012345"},
   "finestra_aggancio_gg": 45
 }`
 
@@ -172,7 +174,7 @@ func TestT1LaConversazioneNotaProponeENonDecide(t *testing.T) {
 	casella := casellaProva(t, p)
 	c := bancoCandidati(t, p)
 	t0 := time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC)
-	th := rfqDiProva(t, p, c, "PROVA-3R supporto cofano", "6674611A", "", t0)
+	th := rfqDiProva(t, p, c, "PROVA-3R supporto cofano", "1234567A", "", t0)
 
 	// la conversazione è collegata: è la decisione che un operatore ha preso agganciando il primo
 	if err := db.New(p).CollegaConversazione(ctx, db.CollegaConversazioneParams{
@@ -258,11 +260,11 @@ func TestT22RispostaConInReplyToNonDiventaNuovaRFQ(t *testing.T) {
 	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-risposta@prova3r.example>", EntryID: "ENTRY-TEST-3R-R", StoreID: "S", ConversationID: "CONV-TEST-3R-ALTRA",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(time.Hour), MittenteIndirizzo: "buyer@prova3r.example",
-		Oggetto:     "R: RICHIESTA OFFERTA COD 6674611A",
+		Oggetto:     "R: RICHIESTA OFFERTA COD 1234567A",
 		CorpoTesto:  "Vi giro la richiesta d'offerta. In allegato i disegni.",
 		InReplyTo:   "<test-ingest-3r-primo@prova3r.example>",
 		Riferimenti: []string{"<test-ingest-3r-primo@prova3r.example>"}, Categorie: []string{},
-		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000}},
+		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "1234567A_4.pdf", Estensione: "pdf", Natura: "file", Bytes: 120000}},
 	})
 
 	tid, _, esito, conf := statoMessaggio(t, p, "<test-ingest-3r-risposta@prova3r.example>")
@@ -301,19 +303,19 @@ func TestT3T4CodiceEOggettoValgonoSoloNellaFinestraEPerIlCliente(t *testing.T) {
 	adesso := time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC)
 
 	// una richiesta VECCHIA (quattro mesi) con lo stesso oggetto e lo stesso codice
-	vecchia := rfqDiProva(t, p, c, "PROVA-3R riquotazione", "6674611A", "", adesso.AddDate(0, -4, 0))
+	vecchia := rfqDiProva(t, p, c, "PROVA-3R riquotazione", "1234567A", "", adesso.AddDate(0, -4, 0))
 
 	// un ALTRO cliente con lo stesso codice, di ieri
 	altro, err := db.New(p).InsertCliente(ctx, db.InsertClienteParams{CartellaNas: "PROVA3RB", RagioneSociale: "Altro Cliente 3R", Regole: json.RawMessage("{}")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dellAltro := rfqDiProva(t, p, altro, "PROVA-3R di un altro", "6674611A", "", adesso.AddDate(0, 0, -1))
+	dellAltro := rfqDiProva(t, p, altro, "PROVA-3R di un altro", "1234567A", "", adesso.AddDate(0, 0, -1))
 
 	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-finestra@prova3r.example>", EntryID: "ENTRY-TEST-3R-F", StoreID: "S", ConversationID: "CONV-TEST-3R-3",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
-		Oggetto: "PROVA-3R riquotazione", CorpoTesto: "Richiesta d'offerta per il codice 6674611A.",
+		Oggetto: "PROVA-3R riquotazione", CorpoTesto: "Richiesta d'offerta per il codice 1234567A.",
 		Riferimenti: []string{}, Categorie: []string{},
 	})
 
@@ -327,11 +329,11 @@ func TestT3T4CodiceEOggettoValgonoSoloNellaFinestraEPerIlCliente(t *testing.T) {
 	}
 	// e dentro la finestra, per il cliente giusto, il candidato c'è: se non ci fosse, il test sopra
 	// passerebbe anche con le regole spente
-	dentro := rfqDiProva(t, p, c, "PROVA-3R dentro finestra", "6674611A", "", adesso.AddDate(0, 0, -3))
+	dentro := rfqDiProva(t, p, c, "PROVA-3R dentro finestra", "1234567A", "", adesso.AddDate(0, 0, -3))
 	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-dentro@prova3r.example>", EntryID: "ENTRY-TEST-3R-D", StoreID: "S", ConversationID: "CONV-TEST-3R-4",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
-		Oggetto: "PROVA-3R dentro finestra", CorpoTesto: "Ancora sul codice 6674611A.",
+		Oggetto: "PROVA-3R dentro finestra", CorpoTesto: "Ancora sul codice 1234567A.",
 		Riferimenti: []string{}, Categorie: []string{},
 	})
 	trovato := false
@@ -353,14 +355,14 @@ func TestT16ICandidatiSiVedonoTutti(t *testing.T) {
 	c := bancoCandidati(t, p)
 	adesso := time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC)
 
-	perCodice := rfqDiProva(t, p, c, "PROVA-3R per codice", "6674611A", "", adesso.AddDate(0, 0, -2))
-	perRiferimento := rfqDiProva(t, p, c, "PROVA-3R per riferimento", "", "RDO 490020618", adesso.AddDate(0, 0, -2))
+	perCodice := rfqDiProva(t, p, c, "PROVA-3R per codice", "1234567A", "", adesso.AddDate(0, 0, -2))
+	perRiferimento := rfqDiProva(t, p, c, "PROVA-3R per riferimento", "", "RDO 400012345", adesso.AddDate(0, 0, -2))
 	perOggetto := rfqDiProva(t, p, c, "PROVA-3R molti candidati", "", "", adesso.AddDate(0, 0, -2))
 
 	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-molti@prova3r.example>", EntryID: "ENTRY-TEST-3R-M", StoreID: "S", ConversationID: "CONV-TEST-3R-5",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
-		Oggetto: "PROVA-3R molti candidati", CorpoTesto: "RDO 490020618 per il codice 6674611A.",
+		Oggetto: "PROVA-3R molti candidati", CorpoTesto: "RDO 400012345 per il codice 1234567A.",
 		Riferimenti: []string{}, Categorie: []string{},
 	})
 
@@ -398,7 +400,7 @@ func TestICandidatiDiCodiceHannoUnRuolo(t *testing.T) {
 	ingerisci(t, p, casella, worker.MessaggioIn{
 		MessageID: "<test-ingest-3r-ruoli@prova3r.example>", EntryID: "ENTRY-TEST-3R-U", StoreID: "S", ConversationID: "CONV-TEST-3R-6",
 		Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: "buyer@prova3r.example",
-		Oggetto: "RDO 490020618 richiesta offerta", CorpoTesto: "Codice 6674611A. Spett.le PROMATEC, 61032 Fano, tel 0721123456.",
+		Oggetto: "RDO 400012345 richiesta offerta", CorpoTesto: "Codice 1234567A. Spett.le AZIENDA, 98765 Esempio, tel 0123456789.",
 		Riferimenti: []string{}, Categorie: []string{},
 	})
 
@@ -415,15 +417,15 @@ func TestICandidatiDiCodiceHannoUnRuolo(t *testing.T) {
 	for _, r := range righe {
 		ruoli[r.Codice] = r
 	}
-	if r, ok := ruoli["RDO 490020618"]; !ok || r.Ruolo != db.RuoloCodiceRiferimentoRfq {
+	if r, ok := ruoli["RDO 400012345"]; !ok || r.Ruolo != db.RuoloCodiceRiferimentoRfq {
 		t.Errorf("il riferimento del cliente non è stato registrato con il suo ruolo: %+v", righe)
 	}
-	if r, ok := ruoli["6674611A"]; !ok || r.Ruolo != db.RuoloCodiceProdotto || r.Origine != db.OrigineCodiceFamiglia {
+	if r, ok := ruoli["1234567A"]; !ok || r.Ruolo != db.RuoloCodiceProdotto || r.Origine != db.OrigineCodiceFamiglia {
 		t.Errorf("il codice della famiglia non è un candidato «prodotto»: %+v", righe)
 	}
 	// il numero della RDO non compare ANCHE come codice prodotto: la chiave primaria è (messaggio, codice)
 	for _, r := range righe {
-		if r.Codice == "490020618" {
+		if r.Codice == "400012345" {
 			t.Errorf("il numero della RDO è finito fra i codici prodotto: %+v", r)
 		}
 	}
@@ -433,10 +435,10 @@ func TestICandidatiDiCodiceHannoUnRuolo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range ident {
-		if c == "490020618" || c == "RDO 490020618" {
+		if c == "400012345" || c == "RDO 400012345" {
 			t.Errorf("il riferimento è fra gli identificativi proposti: %v", ident)
 		}
-		if c == "61032" || c == "0721123456" {
+		if c == "98765" || c == "0123456789" {
 			t.Errorf("un numero generico è fra gli identificativi proposti benché il cliente abbia famiglie: %v", ident)
 		}
 	}
@@ -470,7 +472,7 @@ func TestD30LoStagingAutomaticoScendeSoloPerIRiconosciuti(t *testing.T) {
 			MessageID: chiave, EntryID: entry, StoreID: "S", ConversationID: "CONV-TEST-3R-S",
 			Cartella: "Inbox", Direzione: "entrata", DataEvento: adesso, MittenteIndirizzo: mittente,
 			Oggetto: "PROVA-3R staging", CorpoTesto: "in allegato", Riferimenti: []string{}, Categorie: []string{},
-			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: bytes}},
+			Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "1234567A.pdf", Estensione: "pdf", Natura: "file", Bytes: bytes}},
 		}
 	}
 

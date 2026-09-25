@@ -178,7 +178,7 @@ func TestDueConfermeConcorrentiDecidonoUnaSolaVolta(t *testing.T) {
 	var allegatoID, propostaID uuid.UUID
 	if err := s.pool.QueryRow(ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine,
 		bytes, sha256, path_staging, ricevuto_il)
-		VALUES ($1, 1, '6674611A_4.pdf', 'pdf', 'file', 'outlook', 1000, repeat('a',64), 'C:\staging\1.pdf', now())
+		VALUES ($1, 1, '1234567A_4.pdf', 'pdf', 'file', 'outlook', 1000, repeat('a',64), 'C:\staging\1.pdf', now())
 		RETURNING allegato_id`, s.messagio).Scan(&allegatoID); err != nil {
 		t.Fatalf("allegato: %v", err)
 	}

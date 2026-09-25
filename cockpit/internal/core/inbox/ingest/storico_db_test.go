@@ -97,7 +97,7 @@ func msgConAllegato(n string) worker.MessaggioIn {
 		DataEvento:        time.Date(2026, 9, 7, 10, 0, 0, 0, time.UTC),
 		MittenteIndirizzo: "buyer@prova3r.example", Oggetto: "PROVA-3R modo " + n,
 		CorpoTesto: "in allegato", Riferimenti: []string{}, Categorie: []string{},
-		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "6674611A.pdf", Estensione: "pdf", Natura: "file", Bytes: 100_000}},
+		Allegati: []worker.AllegatoIn{{Indice: 1, NomeFile: "1234567A.pdf", Estensione: "pdf", Natura: "file", Bytes: 100_000}},
 	}
 }
 

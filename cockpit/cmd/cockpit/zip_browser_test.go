@@ -209,14 +209,14 @@ func postaL7(zip string, n int64) map[string]any {
 	quando := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339)
 	return map[string]any{
 		"messaggi": []map[string]any{{
-			"message_id": "<rfq-acme-52922757@acme.example>", "entry_id": "ENTRY-ACME-1", "conversation_id": "CONV-ACME-1",
+			"message_id": "<rfq-acme-77722757@acme.example>", "entry_id": "ENTRY-ACME-1", "conversation_id": "CONV-ACME-1",
 			"cartella": "Inbox", "direzione": "entrata", "data_evento": quando, "ricevuto_il": quando,
 			"mittente_nome": "Mario Rossi", "mittente_indirizzo": "mario.rossi@acme.example",
 			"destinatari": []map[string]any{{"nome": "Commerciale", "indirizzo": "commerciale@azienda.example", "tipo": "a"}},
-			"oggetto":     "Richiesta di offerta 52922757 supporto cofano",
-			"corpo_testo": "Buongiorno,\nvi chiediamo un'offerta per il supporto cofano 52922757 (200 pezzi/anno).\nIn allegato lo zip con STEP, disegni e capitolato.\nCordiali saluti\nMario Rossi",
+			"oggetto":     "Richiesta di offerta 77722757 supporto cofano",
+			"corpo_testo": "Buongiorno,\nvi chiediamo un'offerta per il supporto cofano 77722757 (200 pezzi/anno).\nIn allegato lo zip con STEP, disegni e capitolato.\nCordiali saluti\nMario Rossi",
 			"non_letto":   true,
-			"allegati":    []map[string]any{{"indice": 1, "nome_file": "RFQ ACME 52922757.zip", "estensione": "zip", "natura": "file", "bytes": n}},
+			"allegati":    []map[string]any{{"indice": 1, "nome_file": "RFQ ACME 77722757.zip", "estensione": "zip", "natura": "file", "bytes": n}},
 		}},
 		"file": map[string]string{"ENTRY-ACME-1|1": zip},
 	}
@@ -269,13 +269,13 @@ func TestL7LoZipDallaPostaAlFascicoloConfermato(t *testing.T) {
 	radice := filepath.Join(dir, "nas", "PREVENTIVI DA FARE")
 	staging := filepath.Join(dir, "staging")
 	wOutlook, wAnalisi := filepath.Join(dir, "w_outlook"), filepath.Join(dir, "w_analisi")
-	archivio := filepath.Join(radice, "ACME", "ARCHIVIO 2025", "52922757")
+	archivio := filepath.Join(radice, "ACME", "ARCHIVIO 2025", "77722757")
 	for _, d := range []string{staging, wOutlook, wAnalisi, archivio} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	dxfNas := filepath.Join(archivio, "52922757.dxf")
+	dxfNas := filepath.Join(archivio, "77722757.dxf")
 	if err := os.WriteFile(dxfNas, []byte(dxfL7), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -472,15 +472,15 @@ func (d *dbL7) controlla(zip, radice, staging, dxfNas string) {
 	shaZip := shaFile(t, zip)
 
 	// 1. la RFQ: il codice della richiesta confermato, il prodotto finito nato con la decisione, prima di ogni analisi
-	d.uguale("il codice della richiesta", `SELECT (confermato_da IS NOT NULL)::text FROM identificativo_thread WHERE thread_id = $1 AND codice = '52922757'`, "true", th)
-	d.uguale("il prodotto finito della richiesta", `SELECT tipo::text || ' ' || origine::text FROM componente WHERE thread_id = $1 AND codice = '52922757'`, "finito codice_rilevato", th)
+	d.uguale("il codice della richiesta", `SELECT (confermato_da IS NOT NULL)::text FROM identificativo_thread WHERE thread_id = $1 AND codice = '77722757'`, "true", th)
+	d.uguale("il prodotto finito della richiesta", `SELECT tipo::text || ' ' || origine::text FROM componente WHERE thread_id = $1 AND codice = '77722757'`, "finito codice_rilevato", th)
 	d.uguale("il prodotto nasce prima delle analisi", `SELECT (c.creato_il < (SELECT min(f.calcolato_il) FROM analisi_fatti f))::text
-		FROM componente c WHERE c.thread_id = $1 AND c.codice = '52922757'`, "true", th)
+		FROM componente c WHERE c.thread_id = $1 AND c.codice = '77722757'`, "true", th)
 
 	// 2. lo ZIP nello staging del server, lo stesso contenuto della mail
 	var zipID, pathZip, statoZip string
 	if err := d.pool.QueryRow(d.ctx, `SELECT a.allegato_id::text, coalesce(a.path_staging, ''), a.stato::text FROM allegato a
-		JOIN messaggio m USING (messaggio_id) WHERE m.thread_id = $1 AND a.nome_file = 'RFQ ACME 52922757.zip'`, th).Scan(&zipID, &pathZip, &statoZip); err != nil {
+		JOIN messaggio m USING (messaggio_id) WHERE m.thread_id = $1 AND a.nome_file = 'RFQ ACME 77722757.zip'`, th).Scan(&zipID, &pathZip, &statoZip); err != nil {
 		t.Fatalf("lo ZIP nel database: %v", err)
 	}
 	if !strings.HasPrefix(strings.ToLower(pathZip), strings.ToLower(staging)) || shaFile(t, pathZip) != shaZip {
@@ -489,7 +489,7 @@ func (d *dbL7) controlla(zip, radice, staging, dxfNas string) {
 	// 3. l'estrazione, fatta dal server
 	d.uguale("il job di estrazione", `SELECT stato::text FROM job WHERE chiave_idempotenza = $1 ORDER BY job_id DESC LIMIT 1`, "fatto", "estrai:"+zipID)
 	// 4. i figli, nella cache per contenuto: il file sta dove dice il suo hash
-	voci := []string{"52920517.pdf", "52922757.pdf", "52922757.stp", "53017189 foglio 2.pdf", "Capitolato fornitura.pdf"}
+	voci := []string{"77720517.pdf", "77722757.pdf", "77722757.stp", "77817189 foglio 2.pdf", "Capitolato fornitura.pdf"}
 	d.insieme("le voci dello ZIP", `SELECT nome_file FROM allegato WHERE contenitore_id = $1 ORDER BY nome_file`, voci, zipID)
 	rr, err := d.pool.Query(d.ctx, `SELECT nome_file, coalesce(path_staging, ''), coalesce(sha256, '') FROM allegato WHERE contenitore_id = $1`, zipID)
 	if err != nil {
@@ -515,29 +515,29 @@ func (d *dbL7) controlla(zip, radice, staging, dxfNas string) {
 	// 6. le proposte dello STEP: quattro nodi, quattro archi (le quantita' contano le occorrenze). La radice e'
 	// il prodotto nato dal triage: lo STEP lo ritrova (duplicato, agganciato a quello), non ne propone un altro
 	d.insieme("i nodi proposti dallo STEP", `SELECT p.codice || ' ' || p.stato::text FROM componente_proposta p JOIN allegato a USING (allegato_id)
-		WHERE a.contenitore_id = $1 AND a.nome_file = '52922757.stp' ORDER BY p.codice`,
-		[]string{"52920517 confermata", "52922757 duplicato", "53011111 confermata", "53017189 confermata"}, zipID)
+		WHERE a.contenitore_id = $1 AND a.nome_file = '77722757.stp' ORDER BY p.codice`,
+		[]string{"77720517 confermata", "77722757 duplicato", "77811111 confermata", "77817189 confermata"}, zipID)
 	d.uguale("la radice dello STEP e' il prodotto del triage", `SELECT (p.componente_id = c.componente_id)::text FROM componente_proposta p
-		JOIN allegato a USING (allegato_id) JOIN componente c ON c.thread_id = $2 AND c.codice = '52922757'
-		WHERE a.contenitore_id = $1 AND a.nome_file = '52922757.stp' AND p.codice = '52922757'`, "true", zipID, th)
+		JOIN allegato a USING (allegato_id) JOIN componente c ON c.thread_id = $2 AND c.codice = '77722757'
+		WHERE a.contenitore_id = $1 AND a.nome_file = '77722757.stp' AND p.codice = '77722757'`, "true", zipID, th)
 	d.insieme("gli archi proposti dallo STEP", `SELECT pp.codice || '>' || pf.codice || ' x' || r.qta || ' ' || r.stato::text FROM relazione_proposta r
 		JOIN componente_proposta pp ON pp.allegato_id = r.allegato_id AND pp.chiave = r.padre_chiave
 		JOIN componente_proposta pf ON pf.allegato_id = r.allegato_id AND pf.chiave = r.figlio_chiave
 		JOIN allegato a ON a.allegato_id = r.allegato_id WHERE a.contenitore_id = $1 ORDER BY 1`,
-		[]string{"52920517>53011111 x2 confermata", "52920517>53017189 x1 confermata", "52922757>52920517 x2 confermata", "52922757>53017189 x4 confermata"}, zipID)
+		[]string{"77720517>77811111 x2 confermata", "77720517>77817189 x1 confermata", "77722757>77720517 x2 confermata", "77722757>77817189 x4 confermata"}, zipID)
 
 	// 7. la conferma: la BOM, i documenti, lo STEP strutturale
 	d.insieme("i componenti", `SELECT codice || ' ' || tipo::text FROM componente WHERE thread_id = $1 ORDER BY codice`,
-		[]string{"52920517 sottoassieme", "52922757 finito", "53011111 sciolto", "53017189 sciolto"}, th)
+		[]string{"77720517 sottoassieme", "77722757 finito", "77811111 sciolto", "77817189 sciolto"}, th)
 	d.insieme("gli archi della BOM", `SELECT p.codice || '>' || f.codice || ' x' || r.qta FROM componente_relazione r
 		JOIN componente p ON p.componente_id = r.padre_id JOIN componente f ON f.componente_id = r.figlio_id WHERE r.thread_id = $1 ORDER BY 1`,
-		[]string{"52920517>53011111 x2", "52920517>53017189 x1", "52922757>52920517 x2", "52922757>53017189 x4"}, th)
+		[]string{"77720517>77811111 x2", "77720517>77817189 x1", "77722757>77720517 x2", "77722757>77817189 x4"}, th)
 	d.insieme("i documenti", `SELECT d.nome_file || ' ' || d.tipo::text || ' ' || coalesce(c.codice, '-') FROM documento d
 		LEFT JOIN componente c ON c.componente_id = d.componente_id WHERE d.thread_id = $1 ORDER BY d.nome_file`,
-		[]string{"52920517.pdf disegno_2d 52920517", "52922757.dxf sviluppo_dxf 52922757", "52922757.pdf disegno_2d 52922757",
-			"52922757.stp cad_3d 52922757", "53017189 foglio 2.pdf disegno_2d 53017189", "Capitolato fornitura.pdf capitolato -"}, th)
+		[]string{"77720517.pdf disegno_2d 77720517", "77722757.dxf sviluppo_dxf 77722757", "77722757.pdf disegno_2d 77722757",
+			"77722757.stp cad_3d 77722757", "77817189 foglio 2.pdf disegno_2d 77817189", "Capitolato fornitura.pdf capitolato -"}, th)
 	d.uguale("lo STEP strutturale del prodotto", `SELECT coalesce(s.nome_file, '') FROM componente c LEFT JOIN documento s ON s.documento_id = c.step_strutturale_id
-		WHERE c.thread_id = $1 AND c.codice = '52922757'`, "52922757.stp", th)
+		WHERE c.thread_id = $1 AND c.codice = '77722757'`, "77722757.stp", th)
 	d.uguale("lo ZIP non e' un documento", `SELECT count(*)::text FROM documento WHERE thread_id = $1 AND nome_file LIKE '%.zip'`, "0", th)
 
 	// 8. le copie sul NAS: nella cartella della RFQ (sotto quella del cliente), con il contenuto giusto
@@ -571,7 +571,7 @@ func (d *dbL7) controlla(zip, radice, staging, dxfNas string) {
 		t.Errorf("il DXF nell'archivio del cliente e' cambiato")
 	}
 	d.uguale("il DXF viene dal NAS", `SELECT coalesce(a.origine::text, '') || ' ' || (coalesce(a.path_interno, '') LIKE 'NAS: %')::text FROM allegato a
-		WHERE a.nome_file = '52922757.dxf' AND a.messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE thread_id = $1)`, "manuale true", th)
+		WHERE a.nome_file = '77722757.dxf' AND a.messaggio_id IN (SELECT messaggio_id FROM messaggio WHERE thread_id = $1)`, "manuale true", th)
 	// nessun job fallito lungo la strada
 	if f := d.righe(`SELECT tipo::text || ' ' || coalesce(chiave_idempotenza, '') || ': ' || coalesce(errore, '') FROM job WHERE stato = 'fallito'`); len(f) > 0 {
 		t.Errorf("job falliti: %s", strings.Join(f, "; "))

@@ -56,15 +56,15 @@ func (b *banco) fornitore(nome string, lavorazioni ...string) uuid.UUID {
 }
 
 const semeDiProva = `{"fornitori": [
-  {"ragione_sociale": "Euroforesi", "tipo": "verniciatore", "lingua": "it",
-   "domini": ["euroforesi.example"],
-   "contatti": [{"nome": "Ufficio", "email": "Info@Euroforesi.example", "ruolo": "commerciale"}],
+  {"ragione_sociale": "Fresature Esempio", "tipo": "verniciatore", "lingua": "it",
+   "domini": ["fresature-esempio.example"],
+   "contatti": [{"nome": "Ufficio", "email": "Info@Fresature-Esempio.example", "ruolo": "commerciale"}],
    "lavorazioni": ["cataforesi", "verniciatura_polvere"],
    "qualifiche": [{"cliente": "ACME", "lavorazione": "cataforesi"},
                   {"cliente": "CLIENTE-IGNOTO", "lavorazione": "cataforesi"},
                   {"cliente": "ACME", "lavorazione": "zincatura"}]},
-  {"ragione_sociale": "Galvar", "tipo": "processi", "domini": ["galvar.example"], "lavorazioni": ["zincatura", "lavorazione-inventata"]},
-  {"ragione_sociale": "Ideal System", "tipo": "verniciatore"}
+  {"ragione_sociale": "Galvanica Esempio", "tipo": "processi", "domini": ["galvanica-esempio.example"], "lavorazioni": ["zincatura", "lavorazione-inventata"]},
+  {"ragione_sociale": "Impianti Esempio", "tipo": "verniciatore"}
 ]}`
 
 // CP7 / CP14 — anteprima senza scritture, conferma che scrive solo il risolto, secondo import
@@ -81,7 +81,7 @@ func TestCP7CP14IlSemeSiVedePrimaEScriveSoloIlRisolto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(ant.FornitoriDaCreare, ","); got != "Euroforesi,Galvar,Ideal System" {
+	if got := strings.Join(ant.FornitoriDaCreare, ","); got != "Fresature Esempio,Galvanica Esempio,Impianti Esempio" {
 		t.Errorf("da creare: %s", got)
 	}
 	if testutil.Conta(t, b.pool, "fornitore") != 0 {
@@ -114,24 +114,24 @@ func TestCP7CP14IlSemeSiVedePrimaEScriveSoloIlRisolto(t *testing.T) {
 	if n := testutil.Conta(t, b.pool, "fornitore"); n != 3 {
 		t.Errorf("fornitori: %d, attesi 3", n)
 	}
-	euro, err := b.q.GetFornitorePerRagioneSociale(b.ctx, "euroforesi")
+	euro, err := b.q.GetFornitorePerRagioneSociale(b.ctx, "fresature esempio")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if euro.Tipo != db.TipoFornitoreVerniciatore || euro.Lingua.String != "it" {
-		t.Errorf("Euroforesi: %+v", euro)
+		t.Errorf("Fresature Esempio: %+v", euro)
 	}
 	con, _ := b.q.ListContattiFornitore(b.ctx, euro.FornitoreID)
-	if len(con) != 1 || con[0].Email != "info@euroforesi.example" {
+	if len(con) != 1 || con[0].Email != "info@fresature-esempio.example" {
 		t.Errorf("contatto non normalizzato: %+v", con)
 	}
 	q, _ := b.q.ListQualificheCliente(b.ctx, acme)
 	if len(q) != 1 || q[0].Lavorazione != "cataforesi" {
-		t.Errorf("qualifiche di ACME: %+v (attesa la sola cataforesi: la zincatura non è fra le capacità di Euroforesi)", q)
+		t.Errorf("qualifiche di ACME: %+v (attesa la sola cataforesi: la zincatura non è fra le capacità di Fresature Esempio)", q)
 	}
-	galvar, _ := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvar")
-	if lav, _ := b.q.ListLavorazioniFornitore(b.ctx, galvar.FornitoreID); len(lav) != 1 || lav[0].Codice != "zincatura" {
-		t.Errorf("Galvar: %+v (la lavorazione inventata non si scrive)", lav)
+	galvanica, _ := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvanica esempio")
+	if lav, _ := b.q.ListLavorazioniFornitore(b.ctx, galvanica.FornitoreID); len(lav) != 1 || lav[0].Codice != "zincatura" {
+		t.Errorf("Galvanica Esempio: %+v (la lavorazione inventata non si scrive)", lav)
 	}
 
 	// secondo import: niente da scrivere, niente duplicato, i non risolti restano tali
@@ -149,13 +149,13 @@ func TestCP7CP14IlSemeSiVedePrimaEScriveSoloIlRisolto(t *testing.T) {
 	}
 
 	// un fornitore che c'è già con un tipo diverso: il seme NON lo cambia, ma lo dice
-	altro, _ := Leggi(strings.NewReader(`{"fornitori": [{"ragione_sociale": "GALVAR", "tipo": "verniciatore", "note": "x"}]}`))
+	altro, _ := Leggi(strings.NewReader(`{"fornitori": [{"ragione_sociale": "GALVANICA ESEMPIO", "tipo": "verniciatore", "note": "x"}]}`))
 	ant, _ = Calcola(b.ctx, b.q, altro)
 	if len(ant.FornitoriPresenti) != 1 || len(ant.Avvisi) == 0 {
 		t.Errorf("il fornitore presente con tipo diverso: presenti %d, avvisi %d", len(ant.FornitoriPresenti), len(ant.Avvisi))
 	}
-	if g, _ := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvar"); g.Tipo != db.TipoFornitoreProcessi {
-		t.Errorf("il seme ha cambiato il tipo di Galvar")
+	if g, _ := b.q.GetFornitorePerRagioneSociale(b.ctx, "galvanica esempio"); g.Tipo != db.TipoFornitoreProcessi {
+		t.Errorf("il seme ha cambiato il tipo di Galvanica Esempio")
 	}
 }
 
@@ -193,7 +193,7 @@ func TestIlSemeRifiutaIlFileSbagliato(t *testing.T) {
 func TestCP13IVincoliDella0014(t *testing.T) {
 	b := prepara(t)
 	acme := b.cliente("ACME")
-	galvar := b.fornitore("Galvar", "zincatura")
+	galvanica := b.fornitore("Galvanica Esempio", "zincatura")
 	rifiuta := func(nome, sql string, args ...any) {
 		t.Helper()
 		if _, err := b.pool.Exec(b.ctx, sql, args...); err == nil {
@@ -215,23 +215,23 @@ func TestCP13IVincoliDella0014(t *testing.T) {
 	if _, err := b.pool.Exec(b.ctx, `INSERT INTO convenzione_codice_lavorazione (convenzione_id, lavorazione) VALUES ($1, 'zincatura')`, cid); err != nil {
 		t.Fatal(err)
 	}
-	rifiuta("qualifica senza capacità", `INSERT INTO cliente_fornitore_lavorazione (cliente_id, fornitore_id, lavorazione) VALUES ($1, $2, 'cataforesi')`, acme, galvar)
-	if _, err := b.pool.Exec(b.ctx, `INSERT INTO cliente_fornitore_lavorazione (cliente_id, fornitore_id, lavorazione) VALUES ($1, $2, 'zincatura')`, acme, galvar); err != nil {
+	rifiuta("qualifica senza capacità", `INSERT INTO cliente_fornitore_lavorazione (cliente_id, fornitore_id, lavorazione) VALUES ($1, $2, 'cataforesi')`, acme, galvanica)
+	if _, err := b.pool.Exec(b.ctx, `INSERT INTO cliente_fornitore_lavorazione (cliente_id, fornitore_id, lavorazione) VALUES ($1, $2, 'zincatura')`, acme, galvanica); err != nil {
 		t.Fatal("la qualifica buona:", err)
 	}
-	rifiuta("capacità con qualifica sopra", `DELETE FROM fornitore_lavorazione WHERE fornitore_id = $1 AND lavorazione = 'zincatura'`, galvar)
-	rifiuta("dominio con chiocciola", `INSERT INTO dominio_fornitore (dominio, fornitore_id) VALUES ('x@y.example', $1)`, galvar)
-	rifiuta("dominio maiuscolo", `INSERT INTO dominio_fornitore (dominio, fornitore_id) VALUES ('Galvar.example', $1)`, galvar)
-	rifiuta("ragione sociale doppia a meno delle maiuscole", `INSERT INTO fornitore (ragione_sociale, tipo) VALUES ('GALVAR', 'processi')`)
+	rifiuta("capacità con qualifica sopra", `DELETE FROM fornitore_lavorazione WHERE fornitore_id = $1 AND lavorazione = 'zincatura'`, galvanica)
+	rifiuta("dominio con chiocciola", `INSERT INTO dominio_fornitore (dominio, fornitore_id) VALUES ('x@y.example', $1)`, galvanica)
+	rifiuta("dominio maiuscolo", `INSERT INTO dominio_fornitore (dominio, fornitore_id) VALUES ('Galvanica-Esempio.example', $1)`, galvanica)
+	rifiuta("ragione sociale doppia a meno delle maiuscole", `INSERT INTO fornitore (ragione_sociale, tipo) VALUES ('GALVANICA ESEMPIO', 'processi')`)
 	var conv uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il) VALUES ('outlook', 'c', now()) RETURNING conversazione_id`).Scan(&conv); err != nil {
 		t.Fatal(err)
 	}
 	msg := `INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento, controparte_tipo, controparte_fornitore_id, controparte_cliente_id) VALUES ('outlook', $1, $2, 'entrata', now(), $3, $4, $5)`
-	rifiuta("controparte cliente con id fornitore", msg, "m1", conv, "cliente", galvar, nil)
+	rifiuta("controparte cliente con id fornitore", msg, "m1", conv, "cliente", galvanica, nil)
 	rifiuta("controparte fornitore senza id", msg, "m2", conv, "fornitore", nil, nil)
-	rifiuta("controparte sconosciuta con un id", msg, "m3", conv, "sconosciuto", galvar, nil)
-	if _, err := b.pool.Exec(b.ctx, msg, "m4", conv, "fornitore", galvar, nil); err != nil {
+	rifiuta("controparte sconosciuta con un id", msg, "m3", conv, "sconosciuto", galvanica, nil)
+	if _, err := b.pool.Exec(b.ctx, msg, "m4", conv, "fornitore", galvanica, nil); err != nil {
 		t.Fatal("la controparte coerente:", err)
 	}
 

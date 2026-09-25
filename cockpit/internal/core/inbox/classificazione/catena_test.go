@@ -19,7 +19,7 @@ import (
 
 func TestUnaMailNuovaNonSiTocca(t *testing.T) {
 	const corpo = `Buongiorno,
-inviamo richiesta d'offerta per il codice 6674611A rev 4.
+inviamo richiesta d'offerta per il codice 1234567A rev 4.
 Consegna richiesta entro il 30/10/2026.
 
 Cordiali saluti
@@ -37,7 +37,7 @@ Mario Rossi`
 // ---------------------------------------------------------------- 2. una risposta italiana
 
 func TestUnaRispostaItalianaSiFermaAllIntestazione(t *testing.T) {
-	const corpo = `Confermiamo il codice 6674611A rev 5.
+	const corpo = `Confermiamo il codice 1234567A rev 5.
 
 ________________________________
 Da: Mario Rossi <mario.rossi@acme.example>
@@ -48,7 +48,7 @@ Oggetto: RICHIESTA D'OFFERTA 7781234
 Buongiorno, allego il disegno 7781234 per quotazione.`
 
 	utile, storia := TagliaCatena(corpo)
-	if utile != "Confermiamo il codice 6674611A rev 5." {
+	if utile != "Confermiamo il codice 1234567A rev 5." {
 		t.Errorf("il taglio non si è fermato dove doveva:\n--- rimasto ---\n%s", utile)
 	}
 	if !strings.Contains(storia, "7781234") {
@@ -63,7 +63,7 @@ Buongiorno, allego il disegno 7781234 per quotazione.`
 
 func TestUnaRispostaIngleseSiFerma(t *testing.T) {
 	casi := map[string]string{
-		"separatore esplicito": `Please quote part 6674611A.
+		"separatore esplicito": `Please quote part 1234567A.
 
 -----Original Message-----
 From: John Smith <john@buyer.example>
@@ -72,7 +72,7 @@ To: Sales
 Subject: RFQ 998877
 
 Dear Sir, please quote drawing 998877.`,
-		"apertura di citazione": `Please quote part 6674611A.
+		"apertura di citazione": `Please quote part 1234567A.
 
 On Thu, Sep 17, 2026 at 9:12 AM John Smith <john@buyer.example> wrote:
 > Dear Sir, please quote drawing 998877.
@@ -81,7 +81,7 @@ On Thu, Sep 17, 2026 at 9:12 AM John Smith <john@buyer.example> wrote:
 	for nome, corpo := range casi {
 		t.Run(nome, func(t *testing.T) {
 			utile, storia := TagliaCatena(corpo)
-			if utile != "Please quote part 6674611A." {
+			if utile != "Please quote part 1234567A." {
 				t.Errorf("taglio sbagliato:\n--- rimasto ---\n%s", utile)
 			}
 			if !strings.Contains(storia, "998877") {
@@ -94,7 +94,7 @@ On Thu, Sep 17, 2026 at 9:12 AM John Smith <john@buyer.example> wrote:
 // ---------------------------------------------------------------- 4. quattro risposte concatenate
 
 func TestQuattroRisposteConcatenateSiTaglianoAllaPrima(t *testing.T) {
-	const corpo = `Ultima risposta: il codice buono è 6674611A.
+	const corpo = `Ultima risposta: il codice buono è 1234567A.
 
 Da: Mario Rossi
 Inviato: giovedì 17 settembre 2026 09:12
@@ -112,7 +112,7 @@ Il giorno mer 16 set 2026 alle ore 14:32 Anna Verdi <anna@acme.example> ha scrit
 > prima richiesta, codice 3333333`
 
 	utile, storia := TagliaCatena(corpo)
-	if utile != "Ultima risposta: il codice buono è 6674611A." {
+	if utile != "Ultima risposta: il codice buono è 1234567A." {
 		t.Fatalf("non si è fermato alla PRIMA catena:\n--- rimasto ---\n%s", utile)
 	}
 	for _, vecchio := range []string{"5551111", "4442222", "3333333"} {
@@ -133,10 +133,10 @@ Il giorno mer 16 set 2026 alle ore 14:32 Anna Verdi <anna@acme.example> ha scrit
 func TestUnTestoLegittimoConDaNonVieneTagliato(t *testing.T) {
 	casi := map[string]string{
 		"Da: in mezzo a una frase": `Buongiorno,
-la quota va presa Da: spigolo esterno, come da disegno 6674611A.
+la quota va presa Da: spigolo esterno, come da disegno 1234567A.
 From: the desk of Mario Rossi — questa è solo la firma.
 Grazie`,
-		"elenco con due punti": `Riepilogo lavorazione del 6674611A:
+		"elenco con due punti": `Riepilogo lavorazione del 1234567A:
 Da: tornitura
 A: rettifica
 Nota: la rettifica va fatta dopo il trattamento.`,
@@ -150,10 +150,10 @@ Grazie.`,
 		// passerebbe per il motivo sbagliato, senza dire niente sul riconoscimento.
 		"On all'inizio di una frase": `Please check the tolerance.
 On the drawing you sent the tolerance is wrong.
-Please confirm item 6674611A.`,
+Please confirm item 1234567A.`,
 		"Il giorno all'inizio di una frase": `Vi segnaliamo un problema di consegna.
 Il giorno del ritiro la merce non era pronta.
-Il codice è 6674611A.`,
+Il codice è 1234567A.`,
 	}
 	for nome, corpo := range casi {
 		t.Run(nome, func(t *testing.T) {
@@ -191,13 +191,13 @@ Da: Mario Rossi
 Inviato: giovedì 17 settembre 2026 09:12
 Oggetto: RE: offerta
 
-Vi confermiamo i codici 6674611A, 7781234 e 9990001.`
+Vi confermiamo i codici 1234567A, 7781234 e 9990001.`
 
 	utile, storia := TagliaCatena(corpo)
 	if utile != "Ricevuto, grazie." {
 		t.Fatalf("taglio sbagliato:\n%s", utile)
 	}
-	for _, c := range []string{"6674611A", "7781234", "9990001"} {
+	for _, c := range []string{"1234567A", "7781234", "9990001"} {
 		if strings.Contains(utile, c) {
 			t.Errorf("%s è nel corpo utile e stava solo nella storia", c)
 		}
@@ -212,7 +212,7 @@ Vi confermiamo i codici 6674611A, 7781234 e 9990001.`
 // perché sono l'evidenza migliore per agganciare il messaggio alla richiesta giusta.
 func TestIlCodiceNuovoPrevaleSuQuelliDellaStoria(t *testing.T) {
 	const schema = `{"famiglie_codice":[
-	  {"regex":"\\b(?P<codice>\\d{7})(?P<rev>[A-Z])\\b","descrizione":"ACME sette cifre","esempio":"6674611A","rev_nel_codice":true}]}`
+	  {"regex":"\\b(?P<codice>\\d{7})(?P<rev>[A-Z])\\b","descrizione":"ACME sette cifre","esempio":"1234567A","rev_nel_codice":true}]}`
 	r, err := regole.ValidaRegole([]byte(schema))
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ Da: Mario Rossi
 Inviato: giovedì 17 settembre 2026 09:12
 Oggetto: offerta
 
-Vi chiediamo quotazione per 6674611A e 7781234C.`,
+Vi chiediamo quotazione per 1234567A e 7781234C.`,
 		Direzione: "entrata", ClienteNoto: true, Motore: Compila("ACME", r),
 	}
 
@@ -237,13 +237,13 @@ Vi chiediamo quotazione per 6674611A e 7781234C.`,
 	}
 	// i vecchi non spariscono: si vedono, e per entrare serve un clic
 	tutti := SoloCodici(e.Codici)
-	for _, vecchio := range []string{"6674611", "7781234"} {
+	for _, vecchio := range []string{"1234567", "7781234"} {
 		if !contieneStringaTest(tutti, vecchio) {
 			t.Errorf("%s è sparito del tutto: era l'evidenza per agganciare la risposta alla sua RFQ (%v)", vecchio, tutti)
 		}
 	}
 	for _, c := range e.Codici {
-		if c.Codice == "6674611" && c.Dove != DoveStoria {
+		if c.Codice == "1234567" && c.Dove != DoveStoria {
 			t.Errorf("il codice della storia non è etichettato come tale: Dove = %q", c.Dove)
 		}
 	}
@@ -286,7 +286,7 @@ Vi inviamo richiesta d'offerta per i pezzi allegati.`,
 // Un riferimento trovato nella storia dice a quale richiesta si risponde, non che questa sia una
 // richiesta nuova.
 func TestIlRiferimentoDellaStoriaNonFaPuntiDiRichiestaNuova(t *testing.T) {
-	const schema = `{"riferimento_rfq":{"regex":"\\bRDO\\s?\\d{6}\\b","descrizione":"RDO a sei cifre","esempio":"RDO 490021"}}`
+	const schema = `{"riferimento_rfq":{"regex":"\\bRDO\\s?\\d{6}\\b","descrizione":"RDO a sei cifre","esempio":"RDO 400012"}}`
 	r, err := regole.ValidaRegole([]byte(schema))
 	if err != nil {
 		t.Fatal(err)
@@ -297,9 +297,9 @@ func TestIlRiferimentoDellaStoriaNonFaPuntiDiRichiestaNuova(t *testing.T) {
 
 Da: Mario Rossi <mario.rossi@acme.example>
 Inviato: giovedì 17 settembre 2026 09:12
-Oggetto: RDO 490021
+Oggetto: RDO 400012
 
-Vi inviamo la RDO 490021.`,
+Vi inviamo la RDO 400012.`,
 		Direzione: "entrata", ClienteNoto: true, Motore: Compila("ACME", r),
 	}
 
@@ -326,10 +326,10 @@ func TestUnInoltroSenzaCommentoTieneTutto(t *testing.T) {
 Da: Mario Rossi
 Oggetto: RICHIESTA D'OFFERTA
 
-Buongiorno, allego il disegno 6674611A per quotazione.`
+Buongiorno, allego il disegno 1234567A per quotazione.`
 
 	utile, storia := TagliaCatena(corpo)
-	if !strings.Contains(utile, "6674611A") {
+	if !strings.Contains(utile, "1234567A") {
 		t.Errorf("l'inoltro è stato svuotato: l'interpretazione non vedrebbe più niente\n%s", utile)
 	}
 	if storia != "" {
@@ -351,7 +351,7 @@ func TestCorpoVuoto(t *testing.T) {
 func TestIFineRigaDiWindowsNonCambianoIlTaglio(t *testing.T) {
 	// Il corpo utile e' di DUE righe di proposito: con una sola, il \r finale se lo porterebbe via
 	// TrimSpace e la prova non direbbe niente. I fine riga che contano sono quelli in mezzo.
-	const unix = "Confermiamo 6674611A.\nSecondo la vostra richiesta.\n\nDa: Mario Rossi\nOggetto: RE: offerta\n\nvecchio 7781234"
+	const unix = "Confermiamo 1234567A.\nSecondo la vostra richiesta.\n\nDa: Mario Rossi\nOggetto: RE: offerta\n\nvecchio 7781234"
 	win := strings.ReplaceAll(unix, "\n", "\r\n")
 	u1, _ := TagliaCatena(unix)
 	u2, _ := TagliaCatena(win)
@@ -369,9 +369,9 @@ func TestIFineRigaDiWindowsNonCambianoIlTaglio(t *testing.T) {
 // «ha scritto:» per nessuna regex, perche' \s non comprende lo spazio unificatore, e Outlook e Gmail
 // ne mettono uno li' con una certa regolarita'.
 func TestLoSpazioUnificatoreNonNascondeLApertura(t *testing.T) {
-	corpo := "Confermiamo 6674611A.\n\nIl giorno mer 16 set 2026 alle ore 14:32 Anna Verdi ha scritto:\nvecchio 7781234"
+	corpo := "Confermiamo 1234567A.\n\nIl giorno mer 16 set 2026 alle ore 14:32 Anna Verdi ha scritto:\nvecchio 7781234"
 	utile, storia := TagliaCatena(corpo)
-	if utile != "Confermiamo 6674611A." {
+	if utile != "Confermiamo 1234567A." {
 		t.Errorf("l'apertura di citazione con lo spazio unificatore non è stata riconosciuta:\n%s", utile)
 	}
 	if !strings.Contains(storia, "7781234") {
@@ -379,10 +379,48 @@ func TestLoSpazioUnificatoreNonNascondeLApertura(t *testing.T) {
 	}
 }
 
+// Due aperture che la regex di prima non vedeva (revisione del 25/09): il tedesco con i due punti DOPO
+// il nome («Am … schrieb Max Muster <max@…>:», Gmail, Apple Mail, Thunderbird) e Thunderbird italiano,
+// che comincia con la data invece che con «Il giorno».
+func TestLeAperturaTedescaEThunderbirdItalianoSiRiconoscono(t *testing.T) {
+	casi := map[string]string{
+		"tedesco con nome e indirizzo": "Bitte um Angebot für 1234567A.\n\nAm 17.09.2026 um 09:12 schrieb Max Muster <max.muster@acme.example>:\n> Anfrage für Zeichnung 7781234.",
+		"tedesco di Gmail":             "Bitte um Angebot für 1234567A.\n\nAm Do., 17. Sept. 2026 um 09:12 Uhr schrieb Max Muster <max.muster@acme.example>:\n\nAnfrage für Zeichnung 7781234.",
+		"tedesco senza indirizzo":      "Bitte um Angebot für 1234567A.\n\nAm 17.09.26 um 09:12 schrieb Max Muster:\nAnfrage für Zeichnung 7781234.",
+		"Thunderbird italiano":         "Confermiamo il codice 1234567A.\n\nIl 12/09/26 10:00, Mario Rossi ha scritto:\n> Vi chiediamo quotazione per 7781234.",
+		"Thunderbird, riga spezzata":   "Confermiamo il codice 1234567A.\n\nIl 12/09/2026 10:00, Mario Rossi <mario.rossi@acme.example> ha\nscritto:\nVi chiediamo quotazione per 7781234.",
+	}
+	for nome, corpo := range casi {
+		t.Run(nome, func(t *testing.T) {
+			utile, storia := TagliaCatena(corpo)
+			if strings.Contains(utile, "7781234") || !strings.Contains(utile, "1234567A") {
+				t.Errorf("taglio sbagliato:\n--- rimasto ---\n%s", utile)
+			}
+			if !strings.Contains(storia, "7781234") {
+				t.Errorf("la storia non è stata conservata:\n%s", storia)
+			}
+		})
+	}
+	// e la prosa che comincia allo stesso modo non si taglia
+	prosa := map[string]string{
+		"Am … schrieb in una frase":      "Vielen Dank.\nAm Montag schrieb uns der Kunde, dass die Teile fehlen.\nBitte prüfen: 1234567A.",
+		"Il con una data, senza scritto": "Buongiorno.\nIl 12/09/2026 abbiamo spedito i pezzi.\nIl codice è 1234567A.",
+		"Il con data e scritto a metà":   "Buongiorno.\nIl 12/09/2026 il cliente ha scritto: la quota va rivista, codice 1234567A.\nGrazie.",
+		"Am con data e schrieb a metà":   "Hallo.\nAm 17.09.2026 schrieb der Kunde: die Maße stimmen nicht, Teil 1234567A.\nDanke.",
+	}
+	for nome, corpo := range prosa {
+		t.Run(nome, func(t *testing.T) {
+			if utile, storia := TagliaCatena(corpo); utile != strings.TrimSpace(corpo) || storia != "" {
+				t.Errorf("testo legittimo tagliato:\n--- rimasto ---\n%s\n--- storia ---\n%s", utile, storia)
+			}
+		})
+	}
+}
+
 // CorpoUtilePerInterpretazione è il nome con cui il checkpoint chiama la cosa: deve esistere e dire
 // quello che dice TagliaCatena.
 func TestCorpoUtileEeLaPrimaMetaDelTaglio(t *testing.T) {
-	const corpo = "Nuovo: 6674611A.\n\nDa: Mario\nOggetto: RE: x\n\nvecchio 7781234"
+	const corpo = "Nuovo: 1234567A.\n\nDa: Mario\nOggetto: RE: x\n\nvecchio 7781234"
 	u, _ := TagliaCatena(corpo)
 	if CorpoUtilePerInterpretazione(corpo) != u {
 		t.Error("le due funzioni non dicono la stessa cosa")

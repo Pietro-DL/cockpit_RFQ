@@ -28,7 +28,7 @@ func TestS2CaselleEPresenzeSuDBConDati(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := p.Exec(ctx, `
-		INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.it','Commerciale',true);
+		INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.example','Commerciale',true);
 		INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il) VALUES ('outlook','CONV-S2', now());
 		INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento, oggetto)
 		SELECT 'outlook', '<s2-' || g || '@acme.example>', conversazione_id, 'entrata',
@@ -93,7 +93,7 @@ func TestS2CaselleEPresenzeSuDBConDati(t *testing.T) {
 		if !ricevuto.Equal(evento) {
 			t.Errorf("ricevuto_il = %v, atteso data_evento %v (alla 0003 è l'unico valore disponibile)", ricevuto, evento)
 		}
-		if indirizzo != "commerciale@azienda.it" {
+		if indirizzo != "commerciale@azienda.example" {
 			t.Errorf("presenza assegnata a %q", indirizzo)
 		}
 	}
@@ -111,7 +111,7 @@ func TestS2CaselleEPresenzeSuDBConDati(t *testing.T) {
 	}
 	var cartelle []string
 	if err := p.QueryRow(ctx, `SELECT array_agg(sc.cartella ORDER BY sc.cartella) FROM sync_cursore sc
-		JOIN casella c USING (casella_id) WHERE c.indirizzo = 'commerciale@azienda.it'`).Scan(&cartelle); err != nil {
+		JOIN casella c USING (casella_id) WHERE c.indirizzo = 'commerciale@azienda.example'`).Scan(&cartelle); err != nil {
 		t.Fatal(err)
 	}
 	if len(cartelle) != 2 || cartelle[0] != "Posta in arrivo" || cartelle[1] != "Posta inviata" {
@@ -127,7 +127,7 @@ func TestS2CaselleEPresenzeSuDBConDati(t *testing.T) {
 
 	// la chiave è ora (casella, cartella): due caselle possono avere la stessa cartella
 	var altra uuid.UUID
-	if err := p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','francesco@azienda.it','Francesco')
+	if err := p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','francesco@azienda.example','Francesco')
 		RETURNING casella_id`).Scan(&altra); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestS2CaselleAmbigueFermanoLaMigrazione(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := p.Exec(ctx, `
-		INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','uno@azienda.it','Uno'), ('outlook','due@azienda.it','Due');
+		INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','uno@azienda.example','Uno'), ('outlook','due@azienda.example','Due');
 		INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il) VALUES ('outlook','CONV-AMB', now());
 		INSERT INTO messaggio (canale, chiave_esterna, conversazione_id, direzione, data_evento)
 		SELECT 'outlook','<amb@acme.example>', conversazione_id, 'entrata', now() FROM conversazione;

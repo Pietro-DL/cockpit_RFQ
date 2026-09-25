@@ -49,7 +49,7 @@ func messaggioConAllegato(t *testing.T, ctx context.Context, p *pgxpool.Pool, ch
 		t.Fatal(err)
 	}
 	var casellaID uuid.UUID
-	if err := p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.it','Commerciale',true)
+	if err := p.QueryRow(ctx, `INSERT INTO casella (canale, indirizzo, nome, condivisa) VALUES ('outlook','commerciale@azienda.example','Commerciale',true)
 		ON CONFLICT (canale, indirizzo) DO UPDATE SET nome = EXCLUDED.nome RETURNING casella_id`).Scan(&casellaID); err != nil {
 		t.Fatal(err)
 	}

@@ -20,8 +20,8 @@ import (
 // componente sta in cima, tratteggiata.
 func TestLaBomVisualeDisegnaIlProdottoELeProposteSottoDiLui(t *testing.T) {
 	tid := uuid.New()
-	prodotto := db.Componente{ComponenteID: uuid.New(), ThreadID: tid, Codice: "52922757", Tipo: db.TipoComponenteFinito, Qta: 1}
-	altro := db.Componente{ComponenteID: uuid.New(), ThreadID: tid, Codice: "53017189", Tipo: db.TipoComponenteSciolto, Qta: 1}
+	prodotto := db.Componente{ComponenteID: uuid.New(), ThreadID: tid, Codice: "77722757", Tipo: db.TipoComponenteFinito, Qta: 1}
+	altro := db.Componente{ComponenteID: uuid.New(), ThreadID: tid, Codice: "77817189", Tipo: db.TipoComponenteSciolto, Qta: 1}
 	d := &fascicoloDati{T: db.ThreadOfferta{ThreadID: tid}, Base: "/thread/" + tid.String() + "/fascicolo",
 		Albero: fascicolo.NuovoAlbero([]db.Componente{prodotto, altro}, nil), Componenti: map[uuid.UUID]db.Componente{prodotto.ComponenteID: prodotto, altro.ComponenteID: altro},
 		Completezza:  map[uuid.UUID][]cella{prodotto.ComponenteID: {cellaDa(db.VFascicolo{TipoDocumento: db.TipoDocumentoCad3d, Bloccante: true, Esito: "manca"})}},
@@ -29,14 +29,14 @@ func TestLaBomVisualeDisegnaIlProdottoELeProposteSottoDiLui(t *testing.T) {
 		DocumentiDi:  map[uuid.UUID][]db.Documento{}, Rimozioni: map[uuid.UUID][]rimozione{}}
 
 	carte := costruisciBom(d)
-	if len(carte) != 2 || carte[0].Comp == nil || carte[0].Comp.Codice != "52922757" {
+	if len(carte) != 2 || carte[0].Comp == nil || carte[0].Comp.Codice != "77722757" {
 		t.Fatalf("in cima il prodotto (i finiti per primi), poi l'altra radice: %+v", carte)
 	}
 	if carte[0].Struttura != "struttura da definire: STEP non ancora disponibile" || carte[0].Classe != "urg" {
 		t.Errorf("il prodotto senza STEP: %q, classe %q", carte[0].Struttura, carte[0].Classe)
 	}
 
-	// arriva lo STEP: la radice ritrova il prodotto, 52920517 e' nuovo, 53017189 c'e' gia' nella BOM
+	// arriva lo STEP: la radice ritrova il prodotto, 77720517 e' nuovo, 77817189 c'e' gia' nella BOM
 	step := uuid.New()
 	nodo := func(chiave, codice string, stato db.StatoProposta, comp *db.Componente) db.ListComponenteProposteThreadRow {
 		n := db.ComponenteProposta{PropostaID: uuid.New(), AllegatoID: step, Chiave: chiave, Codice: txtT(codice), NomeGrezzo: codice, Stato: stato,
@@ -44,30 +44,30 @@ func TestLaBomVisualeDisegnaIlProdottoELeProposteSottoDiLui(t *testing.T) {
 		if comp != nil {
 			n.ComponenteID = uuid.NullUUID{UUID: comp.ComponenteID, Valid: true}
 		}
-		return db.ListComponenteProposteThreadRow{ComponenteProposta: n, NomeFile: "52922757.stp"}
+		return db.ListComponenteProposteThreadRow{ComponenteProposta: n, NomeFile: "77722757.stp"}
 	}
 	rel := func(padre, figlio string, qta int32) db.ListRelazioneProposteThreadRow {
 		return db.ListRelazioneProposteThreadRow{RelazioneProposta: db.RelazioneProposta{AllegatoID: step, PadreChiave: padre, FiglioChiave: figlio,
-			Qta: qta, Stato: db.StatoPropostaAperta}, NomeFile: "52922757.stp"}
+			Qta: qta, Stato: db.StatoPropostaAperta}, NomeFile: "77722757.stp"}
 	}
-	d.NodiProposti = []db.ListComponenteProposteThreadRow{nodo("#1", "52922757", db.StatoPropostaDuplicato, &prodotto),
-		nodo("#2", "52920517", db.StatoPropostaAperta, nil), nodo("#3", "53017189", db.StatoPropostaDuplicato, &altro),
+	d.NodiProposti = []db.ListComponenteProposteThreadRow{nodo("#1", "77722757", db.StatoPropostaDuplicato, &prodotto),
+		nodo("#2", "77720517", db.StatoPropostaAperta, nil), nodo("#3", "77817189", db.StatoPropostaDuplicato, &altro),
 		nodo("#9", "99000001", db.StatoPropostaAperta, nil)}
 	d.RelazioniProposte = []db.ListRelazioneProposteThreadRow{rel("#1", "#2", 2), rel("#2", "#3", 4)}
 	d.StepProdotto[prodotto.ComponenteID] = db.VStepProdotto{ComponenteID: prodotto.ComponenteID, Esito: fascicolo.StepDaConfermare}
-	d.Piano = fascicolo.PianoFascicolo{File: []fascicolo.VoceFile{{Nome: "52920517.pdf", Stato: fascicolo.VocePronta,
-		DaStep: &fascicolo.NodoInArrivo{Proposta: d.NodiProposti[1].ComponenteProposta.PropostaID, Codice: "52920517"}}}}
+	d.Piano = fascicolo.PianoFascicolo{File: []fascicolo.VoceFile{{Nome: "77720517.pdf", Stato: fascicolo.VocePronta,
+		DaStep: &fascicolo.NodoInArrivo{Proposta: d.NodiProposti[1].ComponenteProposta.PropostaID, Codice: "77720517"}}}}
 
 	carte = costruisciBom(d)
 	p := carte[0]
-	if p.Struttura != "1 modifica proposta dallo STEP 52922757.stp" || len(p.Figli) != 1 {
+	if p.Struttura != "1 modifica proposta dallo STEP 77722757.stp" || len(p.Figli) != 1 {
 		t.Fatalf("lo STEP disegna la sua proposta sotto il prodotto: %q, figli %d", p.Struttura, len(p.Figli))
 	}
 	a := p.Figli[0]
-	if !a.Proposta() || a.Qta != 2 || a.Codice() != "52920517" || a.InArrivo != 1 || a.ID != "proposta-"+step.String()+"-#2" {
+	if !a.Proposta() || a.Qta != 2 || a.Codice() != "77720517" || a.InArrivo != 1 || a.ID != "proposta-"+step.String()+"-#2" {
 		t.Errorf("il nodo nuovo: %+v", a)
 	}
-	if len(a.Figli) != 1 || a.Figli[0].Comp == nil || a.Figli[0].Comp.Codice != "53017189" || a.Figli[0].ArcoProposto == nil ||
+	if len(a.Figli) != 1 || a.Figli[0].Comp == nil || a.Figli[0].Comp.Codice != "77817189" || a.Figli[0].ArcoProposto == nil ||
 		!a.Figli[0].Ripetuto || a.Figli[0].Qta != 4 {
 		t.Errorf("sotto il nodo nuovo, il componente che c'e' gia', con l'arco proposto: %+v", a.Figli)
 	}
@@ -79,7 +79,7 @@ func TestLaBomVisualeDisegnaIlProdottoELeProposteSottoDiLui(t *testing.T) {
 	d.Carte = carte
 	html := rendiParte(t, "fasc_tela", d)
 	haTesto(t, "tela", html, `class="bom-li li-proposta"`, `class="bom-li li-arco-proposto"`, `class="arco"`, "×2", "×4",
-		"+ proposto · assieme?", "1 file lo aspetta", "+ arco proposto dallo STEP 52922757.stp", "prodotto finito")
+		"+ proposto · assieme?", "1 file lo aspetta", "+ arco proposto dallo STEP 77722757.stp", "prodotto finito")
 }
 
 // Il piano in fondo: pronti, da verificare, in preparazione; la conferma porta la firma del piano e si spegne
@@ -88,7 +88,7 @@ func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
 	s := fascicoloSintetico()
 	comp := s.prodotto
 	s.d.Piano = fascicolo.PianoFascicolo{File: []fascicolo.VoceFile{
-		{Proposta: uuid.New(), Nome: "52922757.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52922757", Componente: &comp, Stato: fascicolo.VocePronta},
+		{Proposta: uuid.New(), Nome: "77722757.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Componente: &comp, Stato: fascicolo.VocePronta},
 		{Proposta: uuid.New(), Nome: "anonimo.pdf", Tipo: db.TipoDocumentoDaDeterminare, Stato: fascicolo.VoceDecidere, Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaTipo, Testo: "che cos'è?"}}},
 		{Proposta: uuid.New(), Nome: "in arrivo.stp", Stato: fascicolo.VoceAttesa}}}
 	html := rendiParte(t, "fasc_piano", s.d)
@@ -109,47 +109,47 @@ func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
 func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 	s := fascicoloSintetico()
 	comp := s.prodotto
-	corrente := db.Documento{DocumentoID: uuid.New(), NomeFile: "52922757.pdf", Rev: txtT("A")}
+	corrente := db.Documento{DocumentoID: uuid.New(), NomeFile: "77722757.pdf", Rev: txtT("A")}
 	pTipo, pComp, pSost, pPronto, pAttesa := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	struttura := uuid.New()
 	s.d.Piano = fascicolo.PianoFascicolo{
 		File: []fascicolo.VoceFile{
-			{Proposta: pTipo, Allegato: uuid.New(), Nome: "anonimo.pdf", Tipo: db.TipoDocumentoDaDeterminare, Suggerito: "53017189", Stato: fascicolo.VoceDecidere,
+			{Proposta: pTipo, Allegato: uuid.New(), Nome: "anonimo.pdf", Tipo: db.TipoDocumentoDaDeterminare, Suggerito: "77817189", Stato: fascicolo.VoceDecidere,
 				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaTipo, Testo: "che cos'è questo file?"}}},
 			{Proposta: pComp, Allegato: uuid.New(), Nome: "53999999.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "53999999", Stato: fascicolo.VoceDecidere,
 				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "53999999 non è nella BOM"}}},
-			{Proposta: pSost, Allegato: uuid.New(), Nome: "52922757_B.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52922757", Rev: "B", Componente: &comp,
+			{Proposta: pSost, Allegato: uuid.New(), Nome: "77722757_B.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Rev: "B", Componente: &comp,
 				Correnti: []db.Documento{corrente}, Stato: fascicolo.VoceDecidere, Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaSostituzione, Testo: "si aggiunge, o sostituisce quale?"}}},
-			{Proposta: pPronto, Allegato: uuid.New(), Nome: "52922757 foglio 2.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52922757", Componente: &comp,
+			{Proposta: pPronto, Allegato: uuid.New(), Nome: "77722757 foglio 2.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Componente: &comp,
 				Aggiunge: true, Stato: fascicolo.VocePronta},
 			// Fascicolo v3: il file di un componente che nasce dalla struttura dello STEP la aspetta, e sa a quale nodo va
-			{Proposta: pAttesa, Allegato: uuid.New(), Nome: "52920517.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "52920517", Stato: fascicolo.VoceDecidere,
-				DaStep:  &fascicolo.NodoInArrivo{Allegato: struttura, File: "assieme.stp", Codice: "52920517"},
-				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "52920517 nasce dalla struttura dello STEP assieme.stp: si conferma prima quella, nell'editor della Struttura BOM"}}},
+			{Proposta: pAttesa, Allegato: uuid.New(), Nome: "77720517.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77720517", Stato: fascicolo.VoceDecidere,
+				DaStep:  &fascicolo.NodoInArrivo{Allegato: struttura, File: "assieme.stp", Codice: "77720517"},
+				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "77720517 nasce dalla struttura dello STEP assieme.stp: si conferma prima quella, nell'editor della Struttura BOM"}}},
 		},
 		// la struttura dello STEP non e' mai pronta: si conferma nell'editor
-		Strutture: []fascicolo.VoceStruttura{{Allegato: struttura, Nome: "assieme.stp", Nodi: 2, Archi: 3, Nuovi: []string{"52920517", "53011111"}, Stato: fascicolo.VoceDecidere,
+		Strutture: []fascicolo.VoceStruttura{{Allegato: struttura, Nome: "assieme.stp", Nodi: 2, Archi: 3, Nuovi: []string{"77720517", "77811111"}, Stato: fascicolo.VoceDecidere,
 			Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaStrutturaEditor, Testo: "2 nodi e 3 archi proposti: la struttura si rivede e si conferma nell'editor (Struttura BOM)"}}}},
 	}
 	s.d.Stato.Cassetto = "verifica"
 	base := s.d.Base
 	html := rendiParte(t, "fasc_cassetto", s.d)
-	haTesto(t, "verifica", html, "anonimo.pdf", "che cos&#39;è questo file?", base+"/proposta/"+pTipo.String()+"/decidi", `value="53017189"`,
+	haTesto(t, "verifica", html, "anonimo.pdf", "che cos&#39;è questo file?", base+"/proposta/"+pTipo.String()+"/decidi", `value="77817189"`,
 		"53999999.pdf", base+"/codice/aggiungi", "+ Particolare", base+"/assegna", "Conferma senza componente",
-		"52922757_B.pdf", `name="scelta" required`, `value="`+corrente.DocumentoID.String()+`"`, "sostituisce 52922757.pdf",
+		"77722757_B.pdf", `name="scelta" required`, `value="`+corrente.DocumentoID.String()+`"`, "sostituisce 77722757.pdf",
 		"Non si congela ancora"[:0])
-	senzaTesto(t, "verifica", html, "52922757 foglio 2.pdf")
+	senzaTesto(t, "verifica", html, "77722757 foglio 2.pdf")
 	// la struttura e il file che la aspetta: tutti e due portano all'editor, e il file non offre di far nascere
-	// 52920517 fuori dalla struttura
+	// 77720517 fuori dalla struttura
 	haTesto(t, "verifica", html, `id="verifica-step-`+struttura.String()+`"`, "2 nodi e 3 archi proposti", "Rivedi nell'editor",
-		"52920517.pdf", "nell&#39;editor della Struttura BOM", "Conferma la struttura nell'editor", `data-editor=""`)
-	if strings.Contains(html, `hx-vals='{"codice":"52920517"`) {
-		t.Error("il file che aspetta la struttura offre di far nascere 52920517 fuori dalla struttura")
+		"77720517.pdf", "nell&#39;editor della Struttura BOM", "Conferma la struttura nell'editor", `data-editor=""`)
+	if strings.Contains(html, `hx-vals='{"codice":"77720517"`) {
+		t.Error("il file che aspetta la struttura offre di far nascere 77720517 fuori dalla struttura")
 	}
 
 	s.d.Stato.Cassetto = "piano"
 	html = rendiParte(t, "fasc_cassetto", s.d)
-	haTesto(t, "rivedi", html, `name="voce" value="`+pPronto.String()+`" checked`, "52922757 foglio 2.pdf", "si aggiunge",
+	haTesto(t, "rivedi", html, `name="voce" value="`+pPronto.String()+`" checked`, "77722757 foglio 2.pdf", "si aggiunge",
 		`class="k rivedi-strutture"`, "(assieme.stp) non entra da qui", "Struttura BOM", "Conferma i selezionati")
 	senzaTesto(t, "rivedi", html, `value="`+pTipo.String()+`"`, `value="`+pSost.String()+`"`, `value="`+pAttesa.String()+`"`, `name="struttura"`)
 }
@@ -174,8 +174,8 @@ func TestIlPollCeSoloFinchéCeLavoro(t *testing.T) {
 func TestLoStatoNellIndirizzo(t *testing.T) {
 	n, p, doc := uuid.New(), uuid.New(), uuid.New()
 	st := leggiStatoFascicolo(url.Values{"nodo": {n.String()}, "prop": {p.String()}, "doc": {doc.String()}, "scheda": {"2d"},
-		"vista": {"boh"}, "cassetto": {"nas"}, "q": {"  5292  "}, "nas": {"ACME/WIP"}})
-	if st.Vista != "" || st.Cassetto != "nas" || st.Scheda != "2d" || st.Cerca != "5292" || st.Nas != "ACME/WIP" {
+		"vista": {"boh"}, "cassetto": {"nas"}, "q": {"  7772  "}, "nas": {"ACME/WIP"}})
+	if st.Vista != "" || st.Cassetto != "nas" || st.Scheda != "2d" || st.Cerca != "7772" || st.Nas != "ACME/WIP" {
 		t.Errorf("stato letto: %+v", st)
 	}
 	v, _ := url.ParseQuery(strings.TrimPrefix(st.Con("nodo", uuid.New().String()), "?"))

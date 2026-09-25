@@ -1,7 +1,7 @@
 //go:build integrazione
 
 // L4 — Fascicolo v3: i suffissi decorativi del cliente nelle proposte dei file. La coda che il CAD del
-// cliente attacca al pezzo («52920000_PRT») non entra nel codice della proposta, ne' quando il file scende in
+// cliente attacca al pezzo («77720000_PRT») non entra nel codice della proposta, ne' quando il file scende in
 // staging o si carica a mano (scriviProposta), ne' quando arriva la lettura dell'analisi (propostaDaAnalisi).
 // Le regole sono quelle della RFQ del file; se il file non e' ancora in una RFQ, quelle del cliente
 // riconosciuto come controparte. Per chi non dichiara suffissi non cambia niente. La regola pura sta in
@@ -124,13 +124,13 @@ func TestUnFileCheScendeInStagingPerdeIlSuffissoDecorativo(t *testing.T) {
 		inRfq  bool
 		atteso string
 	}{
-		{"52920000_PRT.pdf", true, "52920000/-"},
-		// la revisione prima del suffisso si rilegge: il pezzo e' 52930000, rev C
-		{"52930000_C_PRT.stp", true, "52930000/C"},
+		{"77720000_PRT.pdf", true, "77720000/-"},
+		// la revisione prima del suffisso si rilegge: il pezzo e' 77730000, rev C
+		{"77730000_C_PRT.stp", true, "77730000/C"},
 		// il nome non e' un codice: i codici che contiene vanno nei dettagli, anche loro senza suffisso
-		{"Offerta 53040000_PRT per staffe.pdf", true, `-/- ["53040000"]`},
+		{"Offerta 77840000_PRT per staffe.pdf", true, `-/- ["77840000"]`},
 		// fuori da una RFQ valgono le regole del cliente riconosciuto come controparte
-		{"52922757_PRT.pdf", false, "52922757/-"},
+		{"77722757_PRT.pdf", false, "77722757/-"},
 	}
 	for i, c := range casi {
 		a, m := b.messaggioConAllegato(c.nome, estensione(c.nome))
@@ -167,11 +167,11 @@ func TestSenzaSuffissiIlFileCheScendeTieneIlSuoCodice(t *testing.T) {
 		cliente bool
 		atteso  string
 	}{
-		{"52920000_PRT.pdf", true, "52920000_PRT/-"},
-		{"52930000_C_PRT.stp", true, "52930000_C_PRT/-"},
-		{"Offerta 53040000_PRT per staffe.pdf", true, `-/- ["53040000_PRT"]`},
+		{"77720000_PRT.pdf", true, "77720000_PRT/-"},
+		{"77730000_C_PRT.stp", true, "77730000_C_PRT/-"},
+		{"Offerta 77840000_PRT per staffe.pdf", true, `-/- ["77840000_PRT"]`},
 		// nessuna RFQ e nessun cliente riconosciuto: nessuna regola, il codice resta
-		{"52922757_PRT.pdf", false, "52922757_PRT/-"},
+		{"77722757_PRT.pdf", false, "77722757_PRT/-"},
 	}
 	for i, c := range casi {
 		a, m := b.messaggioConAllegato(c.nome, estensione(c.nome))
@@ -207,8 +207,8 @@ func TestUnCaricamentoInternoPerdeIlSuffissoDecorativo(t *testing.T) {
 	for _, c := range []struct {
 		nome, regole, atteso string
 	}{
-		{"con la regola", regoleConPRT, "52930000/-/C"},
-		{"senza la regola", `{}`, "52930000_C_PRT/-/-"},
+		{"con la regola", regoleConPRT, "77730000/-/C"},
+		{"senza la regola", `{}`, "77730000_C_PRT/-/-"},
 	} {
 		t.Run(c.nome, func(t *testing.T) {
 			b := preparaBanco(t, 0)
@@ -218,7 +218,7 @@ func TestUnCaricamentoInternoPerdeIlSuffissoDecorativo(t *testing.T) {
 				RETURNING utente_id, nome`).Scan(&u.UtenteID, &u.Nome); err != nil {
 				t.Fatal(err)
 			}
-			const nome = "52930000_C_PRT.stp"
+			const nome = "77730000_C_PRT.stp"
 			_, sha := contenutoCasuale(8_000, 300)
 			percorso, err := staging.PercorsoContenuto(b.cartella, sha, nome)
 			if err != nil {
@@ -266,7 +266,7 @@ type copiaDelDisegno struct {
 }
 
 // La lettura del cartiglio arriva dal worker con il suffisso che il nome del file gli ha portato dentro
-// («52920000_PRT»). Ogni proposta aperta dello stesso contenuto la riceve con le regole del SUO cliente (A15):
+// («77720000_PRT»). Ogni proposta aperta dello stesso contenuto la riceve con le regole del SUO cliente (A15):
 // quello della RFQ del file, o quello della controparte se il file non e' in una RFQ. I fatti restano come
 // il worker li ha letti: l'interpretazione e' della proposta.
 func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
@@ -352,10 +352,10 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 		nome, sha, codice, rev string
 		conRegola, senza       string // la proposta attesa con e senza la regola del cliente
 	}{
-		{"cartiglio con la revisione a parte", "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a", "52920000_PRT", "4",
-			"disegno_2d:52920000/4", "disegno_2d:52920000_PRT/4"},
-		{"revisione nella coda del codice", "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b", "52930000_C_PRT", "",
-			"disegno_2d:52930000/C", "disegno_2d:52930000_C_PRT/-"},
+		{"cartiglio con la revisione a parte", "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a", "77720000_PRT", "4",
+			"disegno_2d:77720000/4", "disegno_2d:77720000_PRT/4"},
+		{"revisione nella coda del codice", "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b", "77730000_C_PRT", "",
+			"disegno_2d:77730000/C", "disegno_2d:77730000_C_PRT/-"},
 	}
 	for _, l := range letture {
 		copie := []struct {
@@ -416,12 +416,12 @@ func TestLaPostaDelFornitoreScendeConLeRegoleDeiSuoiClienti(t *testing.T) {
 		}
 		return b.messaggioOra(m)
 	}
-	mgm := fornitore("MGM", b.clienteConRegole("ACME", regoleConPRT))
+	minuterie := fornitore("Minuterie Esempio", b.clienteConRegole("ACME", regoleConPRT))
 	altro := fornitore("Altro", b.clienteConRegole("BETA", `{}`))
 	for i, c := range []struct {
 		fornitore    uuid.UUID
 		nome, atteso string
-	}{{mgm, "52920000_PRT.pdf", "52920000/-"}, {altro, "52930000_PRT.pdf", "52930000_PRT/-"}} {
+	}{{minuterie, "77720000_PRT.pdf", "77720000/-"}, {altro, "77730000_PRT.pdf", "77730000_PRT/-"}} {
 		a, m := b.messaggioConAllegato(c.nome, "pdf")
 		m = daFornitore(m, c.fornitore)
 		b.scendeInStaging(a, m, int64(300+i))

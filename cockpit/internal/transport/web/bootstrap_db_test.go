@@ -29,9 +29,9 @@ import (
 func TestB75ImportFornitoriRicalcolaIMessaggiGiaArrivati(t *testing.T) {
 	b := preparaBancoWeb(t)
 	altro := b.unCliente("Altro S.p.A.", "ALTRO", "altro.example")
-	uno := b.posta("entrata", "acquisti@polver.example", "OFFERTA polver uno", true)
-	due := b.posta("entrata", "info@polver.example", "OFFERTA polver due", false)
-	deciso := b.posta("entrata", "x@polver.example", "OFFERTA polver tre, già decisa", false)
+	uno := b.posta("entrata", "acquisti@polveri-esempio.example", "OFFERTA polveri uno", true)
+	due := b.posta("entrata", "info@polveri-esempio.example", "OFFERTA polveri due", false)
+	deciso := b.posta("entrata", "x@polveri-esempio.example", "OFFERTA polveri tre, già decisa", false)
 
 	var thread uuid.UUID
 	if err := b.pool.QueryRow(b.ctx, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto)
@@ -49,8 +49,8 @@ func TestB75ImportFornitoriRicalcolaIMessaggiGiaArrivati(t *testing.T) {
 
 	ad := b.browser("10.0.0.5:51000")
 	ad.login("AD", "prova-ad")
-	seme := `{"fornitori":[{"ragione_sociale":"Polver","tipo":"verniciatore","domini":["polver.example"],
-		"contatti":[{"nome":"Ufficio","email":"acquisti@polver.example"}]}]}`
+	seme := `{"fornitori":[{"ragione_sociale":"Polveri Esempio","tipo":"verniciatore","domini":["polveri-esempio.example"],
+		"contatti":[{"nome":"Ufficio","email":"acquisti@polveri-esempio.example"}]}]}`
 
 	// prima l'anteprima: non deve scrivere niente, nemmeno il ricalcolo
 	resp, corpo := ad.fai(http.MethodPost, "/admin/fornitori/importa", url.Values{"azione": {"anteprima"}, "testo": {seme}}, true)
@@ -86,13 +86,13 @@ func TestB75ImportFornitoriRicalcolaIMessaggiGiaArrivati(t *testing.T) {
 
 	// e nell'Inbox, senza nessun sync in mezzo
 	_, fornitori := ad.fai(http.MethodGet, "/inbox?q=fornitori&filtro=tutti", nil, true)
-	for _, atteso := range []string{"OFFERTA polver uno", "OFFERTA polver due"} {
+	for _, atteso := range []string{"OFFERTA polveri uno", "OFFERTA polveri due"} {
 		if !strings.Contains(fornitori, atteso) {
 			t.Errorf("il quadrante Fornitori non ha %q:\n%s", atteso, primi400(fornitori))
 		}
 	}
 	_, validare := ad.fai(http.MethodGet, "/inbox?q=validare&filtro=tutti", nil, true)
-	if strings.Contains(validare, "OFFERTA polver uno") {
+	if strings.Contains(validare, "OFFERTA polveri uno") {
 		t.Errorf("il messaggio è rimasto anche in Da validare:\n%s", primi400(validare))
 	}
 
@@ -108,9 +108,9 @@ func TestB75ImportFornitoriRicalcolaIMessaggiGiaArrivati(t *testing.T) {
 func TestB75IlFrammentoInboxPortaComandiELista(t *testing.T) {
 	b := preparaBancoWeb(t)
 	b.unCliente("Acme S.p.A.", "ACME", "acme.example")
-	b.unFornitore("Euroforesi", db.TipoFornitoreVerniciatore, "euroforesi.example", "cataforesi")
+	b.unFornitore("Fresature Esempio", db.TipoFornitoreVerniciatore, "fresature-esempio.example", "cataforesi")
 	b.posta("entrata", "acquisti@acme.example", "DEL CLIENTE", false)
-	b.posta("entrata", "info@euroforesi.example", "DEL FORNITORE", false)
+	b.posta("entrata", "info@fresature-esempio.example", "DEL FORNITORE", false)
 	b.posta("entrata", "chi@ignoto.example", "DI NESSUNO", false)
 
 	fp := b.browser("10.0.0.5:51000")

@@ -32,10 +32,10 @@ func scriviCon(t *testing.T, server, nas, corpo string) string {
 func TestNormalizzazioneDiCaselleEPostazioni(t *testing.T) {
 	c, err := Carica(scrivi(t, `
 [outlook]
-casella_default = "Commerciale@Azienda.IT"
+casella_default = "Commerciale@Azienda.EXAMPLE"
 
 [[casella]]
-indirizzo = "  Commerciale@Azienda.IT "
+indirizzo = "  Commerciale@Azienda.EXAMPLE "
 condivisa = true
 
 [[postazione]]
@@ -47,12 +47,12 @@ nome = "outlook@PC-FRANCESCO"
 tipo = "outlook"
 token = "segreto"
 postazione = "pc-francesco"
-caselle = ["COMMERCIALE@azienda.it"]
+caselle = ["COMMERCIALE@azienda.example"]
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Caselle[0].Indirizzo != "commerciale@azienda.it" {
+	if c.Caselle[0].Indirizzo != "commerciale@azienda.example" {
 		t.Errorf("indirizzo %q non normalizzato", c.Caselle[0].Indirizzo)
 	}
 	if c.Caselle[0].Nome != "commerciale" {
@@ -61,21 +61,21 @@ caselle = ["COMMERCIALE@azienda.it"]
 	if c.Postazioni[0].NomeHost != "PC-FRANCESCO" || c.Postazioni[0].Utente != "FP" {
 		t.Errorf("postazione non normalizzata: %+v", c.Postazioni[0])
 	}
-	if c.Worker[0].Postazione != "PC-FRANCESCO" || c.Worker[0].Caselle[0] != "commerciale@azienda.it" {
+	if c.Worker[0].Postazione != "PC-FRANCESCO" || c.Worker[0].Caselle[0] != "commerciale@azienda.example" {
 		t.Errorf("worker non normalizzato: %+v", c.Worker[0])
 	}
-	if c.Outlook.CasellaDefault != "commerciale@azienda.it" {
+	if c.Outlook.CasellaDefault != "commerciale@azienda.example" {
 		t.Errorf("casella_default %q non normalizzata", c.Outlook.CasellaDefault)
 	}
 }
 
 // Con una sola casella non ha senso chiedere di dichiarare quale sia la predefinita.
 func TestCasellaDefaultDedottaConUnaSolaCasella(t *testing.T) {
-	c, err := Carica(scrivi(t, "[[casella]]\nindirizzo = \"francesco@azienda.it\"\n"))
+	c, err := Carica(scrivi(t, "[[casella]]\nindirizzo = \"francesco@azienda.example\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Outlook.CasellaDefault != "francesco@azienda.it" {
+	if c.Outlook.CasellaDefault != "francesco@azienda.example" {
 		t.Errorf("casella_default %q: attesa l'unica casella dichiarata", c.Outlook.CasellaDefault)
 	}
 }
@@ -167,15 +167,15 @@ func TestConfigurazioneSenzaFondazioni(t *testing.T) {
 func TestCasellaAttivaPerDefault(t *testing.T) {
 	c, err := Carica(scrivi(t, `
 [outlook]
-casella_default = "commerciale@azienda.it"
+casella_default = "commerciale@azienda.example"
 
 [[casella]]
-indirizzo = "commerciale@azienda.it"
+indirizzo = "commerciale@azienda.example"
 nome      = "Commerciale"
 condivisa = true
 
 [[casella]]
-indirizzo = "francesco@azienda.it"
+indirizzo = "francesco@azienda.example"
 nome      = "Francesco"
 attiva    = false
 `))

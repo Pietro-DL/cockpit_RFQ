@@ -105,8 +105,8 @@ func TestIPercorsiRelativiSiLeggonoDaDoveStaIlFile(t *testing.T) {
 // SH3 (b) sul server Linux: le radici di produzione si confrontano anche scritte alla maniera POSIX.
 // Il server va su una VM Linux (D23) e lì il NAS è una share SMB montata, quindi `/mnt/nas/...`.
 func TestRadiciDiProduzioneAncheConIPercorsiPosix(t *testing.T) {
-	nas := "radice = '/mnt/nas/TECNICO - PREVENTIVI/PREVENTIVI DA FARE/2026'\n" +
-		"radici_produzione = ['/mnt/nas/TECNICO - PREVENTIVI/PREVENTIVI DA FARE/']\n"
+	nas := "radice = '/mnt/nas/PREVENTIVI/PREVENTIVI DA FARE/2026'\n" +
+		"radici_produzione = ['/mnt/nas/PREVENTIVI/PREVENTIVI DA FARE/']\n"
 	_, err := Carica(scriviCon(t, "modalita = \"shadow\"\n", nas, ""))
 	if err == nil {
 		t.Fatal("una shadow puntata sul NAS di produzione è partita (percorsi POSIX)")

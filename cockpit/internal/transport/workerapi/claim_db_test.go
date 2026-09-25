@@ -37,14 +37,14 @@ func preparaBancoClaim(t *testing.T) *bancoClaim {
 	cfg := &config.Config{}
 	cfg.Outlook.CasellaDefault = "francesco@azienda.example"
 	cfg.Caselle = []config.Casella{
-		{Indirizzo: "commerciale@azienda.it", Nome: "Commerciale", Canale: "outlook", Condivisa: true}, // quella del banco
+		{Indirizzo: "commerciale@azienda.example", Nome: "Commerciale", Canale: "outlook", Condivisa: true}, // quella del banco
 		{Indirizzo: "francesco@azienda.example", Nome: "Francesco", Canale: "outlook"},
 		{Indirizzo: "luigi@azienda.example", Nome: "Luigi", Canale: "outlook"},
 	}
 	cfg.Postazioni = []config.Postazione{{NomeHost: "PC-FRANCESCO"}, {NomeHost: "PC-LUIGI"}}
 	cfg.Worker = []config.Worker{
 		{Nome: "outlook@PC-FRANCESCO", Tipo: "outlook", Token: tokenDi("outlook@PC-FRANCESCO"), Postazione: "PC-FRANCESCO",
-			Caselle: []string{"francesco@azienda.example", "commerciale@azienda.it"}},
+			Caselle: []string{"francesco@azienda.example", "commerciale@azienda.example"}},
 		{Nome: "outlook@PC-LUIGI", Tipo: "outlook", Token: tokenDi("outlook@PC-LUIGI"), Postazione: "PC-LUIGI", Caselle: []string{"luigi@azienda.example"}},
 		{Nome: "analisi@PC-FRANCESCO", Tipo: "analisi", Token: tokenDi("analisi@PC-FRANCESCO"), Postazione: "PC-FRANCESCO"},
 	}
@@ -59,7 +59,7 @@ func preparaBancoClaim(t *testing.T) *bancoClaim {
 		}
 		return c.CasellaID
 	}
-	bc.commerciale, bc.francesco, bc.luigi = casella("commerciale@azienda.it"), casella("francesco@azienda.example"), casella("luigi@azienda.example")
+	bc.commerciale, bc.francesco, bc.luigi = casella("commerciale@azienda.example"), casella("francesco@azienda.example"), casella("luigi@azienda.example")
 	p, err := b.q.GetPostazionePerHost(b.ctx, "PC-FRANCESCO")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestCaselleWorkerSoloAutorizzateEAttive(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || resp.StatusCode != 200 {
 		t.Fatalf("caselle: %d %v", resp.StatusCode, err)
 	}
-	if len(out) != 1 || out[0].CasellaID != b.commerciale || !out[0].Condivisa || out[0].Indirizzo != "commerciale@azienda.it" {
+	if len(out) != 1 || out[0].CasellaID != b.commerciale || !out[0].Condivisa || out[0].Indirizzo != "commerciale@azienda.example" {
 		t.Fatalf("caselle servite: %+v (attesa la sola Commerciale: Francesco è disattivata, Luigi non è autorizzata)", out)
 	}
 	// chiedere le caselle di un altro worker: 403, anche con una credenziale buona in mano

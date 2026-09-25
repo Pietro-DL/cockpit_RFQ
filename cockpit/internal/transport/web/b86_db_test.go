@@ -19,11 +19,11 @@ import (
 	"promatec/cockpit/internal/platform/coda"
 )
 
-const famiglieDiProva = `{"famiglie_codice": [{"regex": "(?P<codice>529\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 529", "rev_nel_codice": true, "esempio": "52922757_B"}]}`
+const famiglieDiProva = `{"famiglie_codice": [{"regex": "(?P<codice>777\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 777", "rev_nel_codice": true, "esempio": "77722757_B"}]}`
 
-// rfqConCodici e' una RFQ di un cliente con la famiglia 529, con i codici visti nella sua mail, uno STEP
-// con i fatti correnti (52922757 → 52920517 ×4), un componente, uno archiviato e un codice della
-// richiesta. 52960000 ha due revisioni: A nell'oggetto, B nel cartiglio.
+// rfqConCodici e' una RFQ di un cliente con la famiglia 777, con i codici visti nella sua mail, uno STEP
+// con i fatti correnti (77722757 → 77720517 ×4), un componente, uno archiviato e un codice della
+// richiesta. 77760000 ha due revisioni: A nell'oggetto, B nel cartiglio.
 func (b *bancoWeb) rfqConCodici(chiave string) (*rfqFascicolo, map[string]uuid.UUID) {
 	b.t.Helper()
 	cliente := b.clienteDiProva("ACME", "Acme S.p.A.", "acme.example")
@@ -32,27 +32,27 @@ func (b *bancoWeb) rfqConCodici(chiave string) (*rfqFascicolo, map[string]uuid.U
 	}
 	r := b.rfqFascicolo(cliente, chiave)
 	for _, c := range []struct{ codice, rev, ruolo, origine, dove string }{
-		{"52922757", "", "prodotto", "famiglia", "oggetto"},
-		{"52931111", "", "prodotto", "famiglia", "corpo"},
-		{"52940000", "", "prodotto", "famiglia", "corpo"},
-		{"52950000", "", "prodotto", "famiglia", "oggetto"},
-		{"52960000", "A", "prodotto", "famiglia", "oggetto"},
+		{"77722757", "", "prodotto", "famiglia", "oggetto"},
+		{"77731111", "", "prodotto", "famiglia", "corpo"},
+		{"77740000", "", "prodotto", "famiglia", "corpo"},
+		{"77750000", "", "prodotto", "famiglia", "oggetto"},
+		{"77760000", "A", "prodotto", "famiglia", "oggetto"},
 		{"20260908", "", "non_classificato", "generico", "corpo"},
 	} {
 		punti, famiglia := 30, ""
 		if c.origine == "famiglia" {
-			punti, famiglia = 80, "disegni 529"
+			punti, famiglia = 80, "disegni 777"
 		}
 		r.esegui(`INSERT INTO candidato_codice (messaggio_id, codice, ruolo, rev, origine, famiglia, punteggio, evidenza)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, r.msg, c.codice, c.ruolo, c.rev, c.origine, famiglia, punti, c.dove)
 	}
-	a, _ := r.allegato("52960000_B.pdf")
-	r.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte) VALUES ($1, $2, 'disegno_2d', '52960000', 'B', 95, 'cartiglio')`,
+	a, _ := r.allegato("77760000_B.pdf")
+	r.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte) VALUES ($1, $2, 'disegno_2d', '77760000', 'B', 95, 'cartiglio')`,
 		a, r.thread)
-	id := map[string]uuid.UUID{"componente": r.componente("52940000"), "archiviato": r.componente("52931111")}
+	id := map[string]uuid.UUID{"componente": r.componente("77740000"), "archiviato": r.componente("77731111")}
 	r.esegui(`UPDATE componente SET archiviato_il = now(), archiviato_da = $2, motivo_archiviazione = 'tolto dal cliente' WHERE componente_id = $1`,
 		id["archiviato"], r.utente)
-	r.esegui(`INSERT INTO identificativo_thread (thread_id, codice, origine) VALUES ($1, '52950000', 'manuale')`, r.thread)
+	r.esegui(`INSERT INTO identificativo_thread (thread_id, codice, origine) VALUES ($1, '77750000', 'manuale')`, r.thread)
 	return r, id
 }
 
@@ -76,12 +76,12 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 
 	_, html := w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
 	casi := map[string][]string{
-		"52922757": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
-		"52920517": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
-		"52940000": {"✓ nel Fascicolo"},
-		"52931111": {"tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina"},
-		"52950000": {"codice della richiesta", "+ Prodotto"},
-		"52960000": {"revisioni discordanti", `name="rev"`, "+ Assieme"},
+		"77722757": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
+		"77720517": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
+		"77740000": {"✓ nel Fascicolo"},
+		"77731111": {"tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina"},
+		"77750000": {"codice della richiesta", "+ Prodotto"},
+		"77760000": {"revisioni discordanti", `name="rev"`, "+ Assieme"},
 		"20260908": {"+ Particolare"},
 	}
 	for chiave, attesi := range casi {
@@ -92,7 +92,7 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(rigaDelCodice(t, html, "52950000"), "+ Assieme") {
+	if strings.Contains(rigaDelCodice(t, html, "77750000"), "+ Assieme") {
 		t.Error("un codice della richiesta entra come prodotto: niente «+ Assieme»")
 	}
 	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 2 {
@@ -103,11 +103,11 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 		form  url.Values
 		frase string
 	}{
-		{url.Values{"codice": {"52960000"}, "tipo": {"sottoassieme"}}, "revisioni discordanti"},
-		{url.Values{"codice": {"52920517"}, "tipo": {"sciolto"}}, "ha una proposta aperta dallo STEP assieme.stp"},
-		{url.Values{"codice": {"52940000"}, "tipo": {"sciolto"}}, "è già nella BOM"},
-		{url.Values{"codice": {"52931111"}, "tipo": {"sciolto"}}, "è archiviato: si ripristina"},
-		{url.Values{"codice": {"52950000"}, "tipo": {"sciolto"}}, "è un codice della richiesta: entra come prodotto"},
+		{url.Values{"codice": {"77760000"}, "tipo": {"sottoassieme"}}, "revisioni discordanti"},
+		{url.Values{"codice": {"77720517"}, "tipo": {"sciolto"}}, "ha una proposta aperta dallo STEP assieme.stp"},
+		{url.Values{"codice": {"77740000"}, "tipo": {"sciolto"}}, "è già nella BOM"},
+		{url.Values{"codice": {"77731111"}, "tipo": {"sciolto"}}, "è archiviato: si ripristina"},
+		{url.Values{"codice": {"77750000"}, "tipo": {"sciolto"}}, "è un codice della richiesta: entra come prodotto"},
 		{url.Values{"codice": {"20260908"}, "tipo": {"boh"}}, "tipo di componente non valido"},
 	} {
 		if a := r.aggiungiCodice(w, c.form); !strings.HasPrefix(a, "Niente è cambiato: ") || !strings.Contains(a, c.frase) {
@@ -118,20 +118,20 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 		t.Fatalf("un rifiuto ha creato componenti: %d", n)
 	}
 
-	if a := r.aggiungiCodice(w, url.Values{"codice": {"52960000"}, "tipo": {"sottoassieme"}, "rev": {"B"}}); a != "52960000 entra nella BOM come assieme, rev B." {
+	if a := r.aggiungiCodice(w, url.Values{"codice": {"77760000"}, "tipo": {"sottoassieme"}, "rev": {"B"}}); a != "77760000 entra nella BOM come assieme, rev B." {
 		t.Errorf("aggiungi: %q", a)
 	}
-	if a := r.aggiungiCodice(w, url.Values{"codice": {"52950000"}, "tipo": {"finito"}}); a != "52950000 entra nella BOM come prodotto." {
+	if a := r.aggiungiCodice(w, url.Values{"codice": {"77750000"}, "tipo": {"finito"}}); a != "77750000 entra nella BOM come prodotto." {
 		t.Errorf("codice della richiesta: %q", a)
 	}
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/componente/%s/ripristina", r.thread, id["archiviato"]), url.Values{}, true)
-	if a := avvisoDi(html); a != "52931111 ripristinato nella BOM working." {
+	if a := avvisoDi(html); a != "77731111 ripristinato nella BOM working." {
 		t.Errorf("ripristina: %q", a)
 	}
 	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND archiviato_il IS NULL`, r.thread); n != 4 {
 		t.Errorf("componenti attivi dopo i gesti: %d, attesi 4", n)
 	}
-	for _, chiave := range []string{"52960000", "52950000", "52931111"} {
+	for _, chiave := range []string{"77760000", "77750000", "77731111"} {
 		if !strings.Contains(rigaDelCodice(t, html, chiave), "✓ nel Fascicolo") {
 			t.Errorf("%s: dopo il gesto la pagina deve mostrarlo nel Fascicolo", chiave)
 		}

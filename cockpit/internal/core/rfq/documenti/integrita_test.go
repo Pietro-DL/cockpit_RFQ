@@ -35,16 +35,16 @@ func bancoEsame(t *testing.T, contenuto string) (string, db.Documento) {
 	}
 	d := db.Documento{
 		DocumentoID: uuid.New(), ThreadID: uuid.New(), Tipo: db.TipoDocumentoDisegno2d,
-		NomeFile: "6674611A_4.pdf", Estensione: "pdf", Sha256: sha,
-		PathRelativo: `ELENCO DISEGNI\6674611A\6674611A_4.pdf`,
+		NomeFile: "1234567A_4.pdf", Estensione: "pdf", Sha256: sha,
+		PathRelativo: `ELENCO DISEGNI\1234567A\1234567A_4.pdf`,
 		StatoNas:     db.StatoNasInCoda, ConfermatoIl: time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC),
 	}
 	if contenuto != "" {
-		p := filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "6674611A")
+		p := filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "1234567A")
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(p, "6674611A_4.pdf"), []byte(contenuto), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p, "1234567A_4.pdf"), []byte(contenuto), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestUnDocumentoScrittoSenzaFileEeMancante(t *testing.T) {
 	if e.Problema != db.ProblemaNasMancante {
 		t.Fatalf("problema = %q, atteso mancante: il database dice che il file c'e' e il file non c'e'", e.Problema)
 	}
-	if !strings.Contains(e.Percorso, "6674611A_4.pdf") {
+	if !strings.Contains(e.Percorso, "1234567A_4.pdf") {
 		t.Errorf("il percorso non dice dove si e' guardato: %q", e.Percorso)
 	}
 	if strings.Contains(e.Percorso, radice) {
@@ -101,7 +101,7 @@ func TestUnFileConUnAltroContenutoEeUnConflitto(t *testing.T) {
 		t.Errorf("il dettaglio non dice che il file NON viene toccato:\n  %s", e.Dettaglio)
 	}
 	// e il file sul disco non deve essere stato toccato dal solo fatto di averlo guardato
-	b, err := os.ReadFile(filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "6674611A", "6674611A_4.pdf"))
+	b, err := os.ReadFile(filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "1234567A", "1234567A_4.pdf"))
 	if err != nil || string(b) != "tutt'altra cosa" {
 		t.Fatalf("il ricognitore ha toccato il file: %q (%v)", string(b), err)
 	}
@@ -178,7 +178,7 @@ func TestUnAttesaVecchiaDiceDaQuantoEPerche(t *testing.T) {
 func TestUnaCopiaFallitaPortaConSeIlMotivo(t *testing.T) {
 	radice, d := bancoEsame(t, "")
 	d.StatoNas = db.StatoNasErrore
-	d.ErroreNas = pgtype.Text{String: `contenuto non piu' in staging: il contenuto di "6674611A_4.pdf" non e' piu' nello staging`, Valid: true}
+	d.ErroreNas = pgtype.Text{String: `contenuto non piu' in staging: il contenuto di "1234567A_4.pdf" non e' piu' nello staging`, Valid: true}
 
 	c := controllo{radice: radice, attesa: 30 * time.Minute, adesso: adessoProva, scrittura: true}
 	e := c.esamina(d, cartella(cartellaProva))
@@ -196,7 +196,7 @@ func TestUnaCopiaFallitaPortaConSeIlMotivo(t *testing.T) {
 // per una copia che fallirebbe ogni volta.
 func TestUnaCartellaAlPostoDelFileSiDice(t *testing.T) {
 	radice, d := bancoEsame(t, "")
-	occupato := filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "6674611A", "6674611A_4.pdf")
+	occupato := filepath.Join(radice, "ACME", "WIP", "2026 09 17 prova", "ELENCO DISEGNI", "1234567A", "1234567A_4.pdf")
 	if err := os.MkdirAll(occupato, 0o755); err != nil {
 		t.Fatal(err)
 	}

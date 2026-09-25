@@ -24,11 +24,11 @@ import (
 )
 
 // codici: i nomi corti delle prove e i codici veri che li rappresentano. L'estrattore generico riconosce
-// «52900002» come codice e non «B», quindi nei fatti e nei componenti vanno i codici; le stringhe da
+// «77700002» come codice e non «B», quindi nei fatti e nei componenti vanno i codici; le stringhe da
 // confrontare tornano ai nomi corti con leggibile, per restare leggibili.
 var codici = map[string]string{
-	"P1": "52900001", "B": "52900002", "C": "52900003", "D": "52900004", "F": "52900005",
-	"A100": "52910100", "B200": "52910200", "X1": "52920001", "Y1": "52920002",
+	"P1": "77700001", "B": "77700002", "C": "77700003", "D": "77700004", "F": "77700005",
+	"A100": "77710100", "B200": "77710200", "X1": "77720001", "Y1": "77720002",
 }
 
 func leggibile(s string) string {
@@ -462,7 +462,7 @@ func TestUnNodoSenzaCodiceSospendeLeRimozioni(t *testing.T) {
 
 func TestAccettareUnNodoNonAccettaGliAltri(t *testing.T) {
 	b := nuovoBanco(t)
-	f := fattiSTEP{nodi: []string{"#1=52922757", "#2=52920517", "#3=52920518"}, archi: []string{"#1>#2", "#1>#3"}}
+	f := fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517", "#3=77720518"}, archi: []string{"#1>#2", "#1>#3"}}
 	a := b.allegatoStep("assieme.stp", strings.Repeat("a", 64))
 	b.applica(a, f.json())
 	msg, err := b.gesto(func(q *db.Queries) (string, error) {
@@ -471,10 +471,10 @@ func TestAccettareUnNodoNonAccettaGliAltri(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(msg, "52920517 entra nella BOM come sciolto") {
+	if !strings.Contains(msg, "77720517 entra nella BOM come sciolto") {
 		t.Errorf("messaggio: %q", msg)
 	}
-	if got := b.bom(); got != "52920517:sciolto:-" {
+	if got := b.bom(); got != "77720517:sciolto:-" {
 		t.Errorf("BOM = %q: accettare un nodo crea quel componente e nessuna relazione", got)
 	}
 	if got := b.nodiProposti(); got != "#1:aperta #2:confermata #3:aperta" {
@@ -487,7 +487,7 @@ func TestAccettareUnNodoNonAccettaGliAltri(t *testing.T) {
 
 func TestAccettareUnaRelazioneRichiedeINodi(t *testing.T) {
 	b := nuovoBanco(t)
-	f := fattiSTEP{nodi: []string{"#1=52922757", "#2=52920517"}, archi: []string{"#1>#2*3"}}
+	f := fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517"}, archi: []string{"#1>#2*3"}}
 	a := b.allegatoStep("assieme.stp", strings.Repeat("b", 64))
 	b.applica(a, f.json())
 	k := fascicolo.ChiaveRelazione{Allegato: a.AllegatoID, Padre: "#1", Figlio: "#2"}
@@ -508,7 +508,7 @@ func TestAccettareUnaRelazioneRichiedeINodi(t *testing.T) {
 	if _, err := accetta(); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.bom(); got != "52920517:sciolto:-|52922757:sottoassieme:- # 52922757>52920517*3" {
+	if got := b.bom(); got != "77720517:sciolto:-|77722757:sottoassieme:- # 77722757>77720517*3" {
 		t.Errorf("BOM = %q", got)
 	}
 }
@@ -553,7 +553,7 @@ func TestLaStessaCoppiaDaDueFileConQtaDiversaDiventaDuplicatoConNota(t *testing.
 // Accettare un file intero e' una transazione sola: un nodo senza codice annulla tutto.
 func TestAccettareTuttiEUnaTransazione(t *testing.T) {
 	b := nuovoBanco(t)
-	f := fattiSTEP{nodi: []string{"#1=52922757", "#2=52920517", "#3=Part1"}, archi: []string{"#1>#2", "#2>#3"}}
+	f := fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517", "#3=Part1"}, archi: []string{"#1>#2", "#2>#3"}}
 	a := b.allegatoStep("assieme.stp", strings.Repeat("c", 64))
 	b.applica(a, f.json())
 	_, err := b.gesto(func(q *db.Queries) (string, error) {
@@ -567,7 +567,7 @@ func TestAccettareTuttiEUnaTransazione(t *testing.T) {
 		t.Errorf("nodi = %q", got)
 	}
 	if _, err := b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.CodiceDelNodo(b.ctx, q, b.thread, b.proposta("#3"), "52920599", "")
+		return fascicolo.CodiceDelNodo(b.ctx, q, b.thread, b.proposta("#3"), "77720599", "")
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -580,20 +580,20 @@ func TestAccettareTuttiEUnaTransazione(t *testing.T) {
 	if msg != "Accettati 3 nodi e 2 relazioni." {
 		t.Errorf("messaggio: %q", msg)
 	}
-	if got := b.bom(); got != "52920517:sottoassieme:-|52920599:sciolto:-|52922757:sottoassieme:- # 52920517>52920599*1|52922757>52920517*1" {
+	if got := b.bom(); got != "77720517:sottoassieme:-|77720599:sciolto:-|77722757:sottoassieme:- # 77720517>77720599*1|77722757>77720517*1" {
 		t.Errorf("BOM = %q", got)
 	}
 	// il sottoalbero: su un file nuovo, accettato solo da #2 in giu'
 	b2 := nuovoBanco(t)
 	a2 := b2.allegatoStep("assieme.stp", strings.Repeat("d", 64))
-	g := fattiSTEP{nodi: []string{"#1=52922757", "#2=52920517", "#3=52920599"}, archi: []string{"#1>#2", "#2>#3"}}
+	g := fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517", "#3=77720599"}, archi: []string{"#1>#2", "#2>#3"}}
 	b2.applica(a2, g.json())
 	if _, err := b2.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.AccettaSottoalbero(b2.ctx, q, b2.thread, a2.AllegatoID, "#2", b2.utente)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := b2.bom(); got != "52920517:sottoassieme:-|52920599:sciolto:- # 52920517>52920599*1" {
+	if got := b2.bom(); got != "77720517:sottoassieme:-|77720599:sciolto:- # 77720517>77720599*1" {
 		t.Errorf("sottoalbero di #2: BOM = %q", got)
 	}
 }
@@ -617,8 +617,8 @@ func TestDueStepConLoStessoCodiceDannoUnComponenteSolo(t *testing.T) {
 	b := nuovoBanco(t)
 	a1 := b.allegatoStep("uno.stp", strings.Repeat("f", 64))
 	a2 := b.allegatoStep("due.stp", strings.Repeat("9", 64))
-	b.applica(a1, fattiSTEP{nodi: []string{"#1=6674611A"}}.json())
-	b.applica(a2, fattiSTEP{nodi: []string{"#5=6674611a"}}.json()) // lo stesso codice, scritto in minuscolo
+	b.applica(a1, fattiSTEP{nodi: []string{"#1=1234567A"}}.json())
+	b.applica(a2, fattiSTEP{nodi: []string{"#5=1234567a"}}.json()) // lo stesso codice, scritto in minuscolo
 	if _, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.AccettaNodo(b.ctx, q, b.thread, b.proposta("#5"), b.utente, "")
 	}); err != nil {
@@ -636,7 +636,7 @@ func TestDueStepConLoStessoCodiceDannoUnComponenteSolo(t *testing.T) {
 // dall'operatore resta.
 func TestUnaRianalisiNonToccaLeProposteDecise(t *testing.T) {
 	b := nuovoBanco(t)
-	f := fattiSTEP{nodi: []string{"#1=52922757", "#2=Part2", "#3=Part3", "#4=Part4"}, archi: []string{"#1>#2", "#1>#3", "#1>#4"}}
+	f := fattiSTEP{nodi: []string{"#1=77722757", "#2=Part2", "#3=Part3", "#4=Part4"}, archi: []string{"#1>#2", "#1>#3", "#1>#4"}}
 	a := b.allegatoStep("assieme.stp", strings.Repeat("7", 64))
 	b.applica(a, f.json())
 	for _, g := range []func(q *db.Queries) (string, error){
@@ -679,7 +679,7 @@ func TestUnaRianalisiNonToccaLeProposteDecise(t *testing.T) {
 // A1.2: cambiare le regole del cliente riclassifica le proposte aperte, e solo quelle.
 func TestUnCambioDiRegoleRiclassificaSoloLeProposteAperte(t *testing.T) {
 	b := nuovoBanco(t)
-	f := fattiSTEP{nodi: []string{"#1=52922757_B", "#2=52920517_C"}, archi: []string{"#1>#2"}}
+	f := fattiSTEP{nodi: []string{"#1=77722757_B", "#2=77720517_C"}, archi: []string{"#1>#2"}}
 	a := b.allegatoStep("assieme.stp", strings.Repeat("8", 64))
 	b.applica(a, f.json())
 	origini := func() string {
@@ -696,9 +696,9 @@ func TestUnCambioDiRegoleRiclassificaSoloLeProposteAperte(t *testing.T) {
 	}
 	decisa := uno[string](b, `SELECT coalesce(origine_codice::text, '-') || ':' || codice FROM componente_proposta WHERE thread_id = $1 AND chiave = '#1'`, b.thread)
 	b.esegui(`UPDATE cliente SET regole = $1 FROM thread_offerta t WHERE t.cliente_id = cliente.cliente_id AND t.thread_id = $2`,
-		`{"famiglie_codice": [{"regex": "(?P<codice>529\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 529", "rev_nel_codice": true, "esempio": "52922757_B"}]}`, b.thread)
+		`{"famiglie_codice": [{"regex": "(?P<codice>777\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 777", "rev_nel_codice": true, "esempio": "77722757_B"}]}`, b.thread)
 	b.applica(a, f.json())
-	if got := uno[string](b, `SELECT origine_codice::text || ':' || codice || ':' || rev || ':' || famiglia FROM componente_proposta WHERE thread_id = $1 AND chiave = '#2'`, b.thread); got != "famiglia:52920517:C:disegni 529" {
+	if got := uno[string](b, `SELECT origine_codice::text || ':' || codice || ':' || rev || ':' || famiglia FROM componente_proposta WHERE thread_id = $1 AND chiave = '#2'`, b.thread); got != "famiglia:77720517:C:disegni 777" {
 		t.Errorf("la proposta aperta si riclassifica con la regola nuova: %s", got)
 	}
 	if got := uno[string](b, `SELECT coalesce(origine_codice::text, '-') || ':' || codice FROM componente_proposta WHERE thread_id = $1 AND chiave = '#1'`, b.thread); got != decisa {
@@ -711,14 +711,14 @@ func TestUnCambioDiRegoleRiclassificaSoloLeProposteAperte(t *testing.T) {
 func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
 	b := nuovoBanco(t)
 	b.esegui(`UPDATE cliente SET regole = $1 FROM thread_offerta t WHERE t.cliente_id = cliente.cliente_id AND t.thread_id = $2`,
-		`{"famiglie_codice": [{"regex": "(?P<codice>529\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 529", "rev_nel_codice": true, "esempio": "52922757_B"}]}`, b.thread)
-	f := fattiSTEP{nodi: []string{"#1=52922757_B", "#2=6674611A"}, archi: []string{"#1>#2"}}
+		`{"famiglie_codice": [{"regex": "(?P<codice>777\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 777", "rev_nel_codice": true, "esempio": "77722757_B"}]}`, b.thread)
+	f := fattiSTEP{nodi: []string{"#1=77722757_B", "#2=1234567A"}, archi: []string{"#1>#2"}}
 	casi := []struct {
 		nome, codice, fonte, stato string
 		cambia                     bool
 	}{
 		{"nome file generico", "ASSIEME 7", "nome_file", "aperta", true},
-		{"gia' di famiglia", "52920000", "nome_file", "aperta", false},
+		{"gia' di famiglia", "77720000", "nome_file", "aperta", false},
 		{"scritta dall'operatore", "XYZ", "operatore", "aperta", false},
 		{"gia' decisa", "ASSIEME 7", "nome_file", "scartata", false},
 	}
@@ -729,8 +729,8 @@ func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
 				a.AllegatoID, b.thread, c.codice, c.fonte, c.stato)
 			b.applica(a, f.json())
 			got := uno[string](b, `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
-			if c.cambia && got != "52922757:B:regola_cliente" {
-				t.Errorf("proposta del documento = %q, attesa 52922757:B:regola_cliente", got)
+			if c.cambia && got != "77722757:B:regola_cliente" {
+				t.Errorf("proposta del documento = %q, attesa 77722757:B:regola_cliente", got)
 			}
 			if !c.cambia && got != c.codice+":-:"+c.fonte {
 				t.Errorf("la proposta non doveva cambiare: %q", got)

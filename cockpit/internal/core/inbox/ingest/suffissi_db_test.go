@@ -1,7 +1,7 @@
 //go:build integrazione
 
-// L4 — Fascicolo v3: i suffissi decorativi del cliente nell'ingest. Un allegato «52920000_PRT.pdf» di un
-// cliente che dichiara «_PRT» e' il disegno del pezzo 52920000: la proposta dal nome, i codici trovati in un
+// L4 — Fascicolo v3: i suffissi decorativi del cliente nell'ingest. Un allegato «77720000_PRT.pdf» di un
+// cliente che dichiara «_PRT» e' il disegno del pezzo 77720000: la proposta dal nome, i codici trovati in un
 // nome che non e' un codice, i codici citati per il portale e i candidati di codice del messaggio lo dicono
 // senza la coda. Per un fornitore valgono i suffissi dei clienti che gli hanno mandato richieste. Per chi non
 // li dichiara non cambia niente. La regola pura sta in classificazione (suffissi_test.go).
@@ -35,13 +35,13 @@ func (b *bancoControparte) clienteConRegole(cartella, regole string, domini ...s
 // del suffisso) e un nome che non e' un codice ma ne contiene uno.
 func allegatiConSuffisso() []worker.AllegatoIn {
 	return []worker.AllegatoIn{
-		{Indice: 1, NomeFile: "52920000_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
-		{Indice: 2, NomeFile: "52930000_C_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
-		{Indice: 3, NomeFile: "Offerta 53040000_PRT per staffe.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
+		{Indice: 1, NomeFile: "77720000_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
+		{Indice: 2, NomeFile: "77730000_C_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
+		{Indice: 3, NomeFile: "Offerta 77840000_PRT per staffe.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000},
 	}
 }
 
-const corpoConPortale = "Buongiorno, richiesta d'offerta per i particolari in allegato.\nVi abbiamo caricato sul portale il CAD del codice 52922757_PRT."
+const corpoConPortale = "Buongiorno, richiesta d'offerta per i particolari in allegato.\nVi abbiamo caricato sul portale il CAD del codice 77722757_PRT."
 
 // proposteDegliAllegati: nome del file → "codice/rev", con i codici trovati nel nome se ci sono.
 func (b *bancoControparte) proposteDegliAllegati(messaggio uuid.UUID) map[string]string {
@@ -121,38 +121,38 @@ func TestLIngestTogliIlSuffissoDecorativoSoloAlClienteCheLoDichiara(t *testing.T
 	}
 
 	confronta(t, "ACME", b.proposteDegliAllegati(acme.MessaggioID), map[string]string{
-		"52920000_PRT.pdf":                    "52920000/-",
-		"52930000_C_PRT.pdf":                  "52930000/C",
-		"Offerta 53040000_PRT per staffe.pdf": `-/- ["53040000"]`,
+		"77720000_PRT.pdf":                    "77720000/-",
+		"77730000_C_PRT.pdf":                  "77730000/C",
+		"Offerta 77840000_PRT per staffe.pdf": `-/- ["77840000"]`,
 	})
 	confronta(t, "Beta", b.proposteDegliAllegati(beta.MessaggioID), map[string]string{
-		"52920000_PRT.pdf":                    "52920000_PRT/-",
-		"52930000_C_PRT.pdf":                  "52930000_C_PRT/-",
-		"Offerta 53040000_PRT per staffe.pdf": `-/- ["53040000_PRT"]`,
+		"77720000_PRT.pdf":                    "77720000_PRT/-",
+		"77730000_C_PRT.pdf":                  "77730000_C_PRT/-",
+		"Offerta 77840000_PRT per staffe.pdf": `-/- ["77840000_PRT"]`,
 	})
 
-	if got := b.codiciDelPortale(acme.MessaggioID); got != "52922757" {
-		t.Errorf("ACME: codici citati per il portale %q, atteso 52922757", got)
+	if got := b.codiciDelPortale(acme.MessaggioID); got != "77722757" {
+		t.Errorf("ACME: codici citati per il portale %q, atteso 77722757", got)
 	}
-	if got := b.codiciDelPortale(beta.MessaggioID); got != "52922757_PRT" {
-		t.Errorf("Beta: codici citati per il portale %q, atteso 52922757_PRT", got)
+	if got := b.codiciDelPortale(beta.MessaggioID); got != "77722757_PRT" {
+		t.Errorf("Beta: codici citati per il portale %q, atteso 77722757_PRT", got)
 	}
 
 	// i candidati di codice leggono oggetto, corpo e nomi degli allegati con lo stesso motore
-	if got, want := b.candidatiDiCodice(acme.MessaggioID), "52920000/- 52922757/- 52930000/C 53040000/-"; got != want {
+	if got, want := b.candidatiDiCodice(acme.MessaggioID), "77720000/- 77722757/- 77730000/C 77840000/-"; got != want {
 		t.Errorf("ACME: candidati di codice %q, attesi %q", got, want)
 	}
-	if got, want := b.candidatiDiCodice(beta.MessaggioID), "52920000_PRT/- 52922757_PRT/- 52930000_C_PRT/- 53040000_PRT/-"; got != want {
+	if got, want := b.candidatiDiCodice(beta.MessaggioID), "77720000_PRT/- 77722757_PRT/- 77730000_C_PRT/- 77840000_PRT/-"; got != want {
 		t.Errorf("Beta: candidati di codice %q, attesi %q", got, want)
 	}
 }
 
-// famigliaConCoda e' una famiglia che prende anche la coda del nome («52920000_PRT»): per la posta di un
+// famigliaConCoda e' una famiglia che prende anche la coda del nome («77720000_PRT»): per la posta di un
 // fornitore contano solo i codici di famiglia, e la famiglia dice gia' dov'e' il codice. Con il suffisso
 // dichiarato si toglie solo quello.
 const (
-	famigliaConCoda = `{"famiglie_codice": [{"regex": "\\b(?P<codice>529\\d{5}(?:_[A-Z]{3})?)", "descrizione": "disegni 529",
-		"esempio": "52920000_PRT"}]`
+	famigliaConCoda = `{"famiglie_codice": [{"regex": "\\b(?P<codice>777\\d{5}(?:_[A-Z]{3})?)", "descrizione": "disegni 777",
+		"esempio": "77720000_PRT"}]`
 	famigliaConCodaESuffisso     = famigliaConCoda + `, "suffissi_decorativi": ["_PRT"]}`
 	famigliaConCodaSenzaSuffissi = famigliaConCoda + `}`
 )
@@ -165,28 +165,28 @@ func TestLaPostaDelFornitoreUsaISuffissiDeiClientiCheGliHannoChiesto(t *testing.
 	b := nuovoBancoControparte(t)
 	acme := b.clienteConRegole("ACME", famigliaConCodaESuffisso, "acme.example")
 	beta := b.clienteConRegole("BETA", famigliaConCodaSenzaSuffissi, "beta.example")
-	mgm := b.fornitore("MGM Lavorazioni di prova", db.TipoFornitoreProcessi, "mgm.example")
+	minuterie := b.fornitore("Minuterie Esempio di prova", db.TipoFornitoreProcessi, "minuterie-esempio.example")
 	torneria := b.fornitore("Torneria Beta di prova", db.TipoFornitoreProcessi, "torneria.example")
-	b.richiesta(b.rfq(acme, "RFQ ACME 52920000", "52920000"), mgm, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{}, "")
-	b.richiesta(b.rfq(beta, "RFQ Beta 52920000", "52920000"), torneria, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{}, "")
+	b.richiesta(b.rfq(acme, "RFQ ACME 77720000", "77720000"), minuterie, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{}, "")
+	b.richiesta(b.rfq(beta, "RFQ Beta 77720000", "77720000"), torneria, db.StatoRichiestaFornitoreInviata, uuid.NullUUID{}, "")
 
-	allegato := []worker.AllegatoIn{{Indice: 1, NomeFile: "52920000_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000}}
-	daMgm := b.rispostaDelFornitore("<suff-mgm@mgm.example>", "CONV-SUFF-MGM", "info@mgm.example", "Nostra offerta", "In allegato il disegno quotato.")
-	daMgm.Allegati = allegato
+	allegato := []worker.AllegatoIn{{Indice: 1, NomeFile: "77720000_PRT.pdf", Estensione: "pdf", Natura: "file", Bytes: 1000}}
+	daMinuterie := b.rispostaDelFornitore("<suff-minuterie@minuterie-esempio.example>", "CONV-SUFF-MIN", "info@minuterie-esempio.example", "Nostra offerta", "In allegato il disegno quotato.")
+	daMinuterie.Allegati = allegato
 	daTorneria := b.rispostaDelFornitore("<suff-torneria@torneria.example>", "CONV-SUFF-TOR", "info@torneria.example", "Nostra offerta", "In allegato il disegno quotato.")
 	daTorneria.Allegati = allegato
-	b.ingerisci(daMgm, daTorneria)
+	b.ingerisci(daMinuterie, daTorneria)
 
-	m, tor := b.messaggio(daMgm.MessageID), b.messaggio(daTorneria.MessageID)
+	m, tor := b.messaggio(daMinuterie.MessageID), b.messaggio(daTorneria.MessageID)
 	if m.ControparteTipo != db.TipoControparteFornitore || tor.ControparteTipo != db.TipoControparteFornitore {
 		t.Fatalf("le due mail vengono da due fornitori censiti: %s, %s", m.ControparteTipo, tor.ControparteTipo)
 	}
-	confronta(t, "MGM (richieste da ACME)", b.proposteDegliAllegati(m.MessaggioID), map[string]string{"52920000_PRT.pdf": "52920000/-"})
-	confronta(t, "Torneria (richieste da Beta)", b.proposteDegliAllegati(tor.MessaggioID), map[string]string{"52920000_PRT.pdf": "52920000_PRT/-"})
-	if got := b.candidatiDiCodice(m.MessaggioID); got != "52920000/-" {
-		t.Errorf("MGM: candidati di codice %q, atteso 52920000", got)
+	confronta(t, "Minuterie Esempio (richieste da ACME)", b.proposteDegliAllegati(m.MessaggioID), map[string]string{"77720000_PRT.pdf": "77720000/-"})
+	confronta(t, "Torneria (richieste da Beta)", b.proposteDegliAllegati(tor.MessaggioID), map[string]string{"77720000_PRT.pdf": "77720000_PRT/-"})
+	if got := b.candidatiDiCodice(m.MessaggioID); got != "77720000/-" {
+		t.Errorf("Minuterie Esempio: candidati di codice %q, atteso 77720000", got)
 	}
-	if got := b.candidatiDiCodice(tor.MessaggioID); got != "52920000_PRT/-" {
-		t.Errorf("Torneria: candidati di codice %q, atteso 52920000_PRT", got)
+	if got := b.candidatiDiCodice(tor.MessaggioID); got != "77720000_PRT/-" {
+		t.Errorf("Torneria: candidati di codice %q, atteso 77720000_PRT", got)
 	}
 }

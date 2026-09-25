@@ -290,7 +290,7 @@ func TestSyncNonSiAccumulaPerCasella(t *testing.T) {
 	p, q, ctx := preparaDB(t)
 	var casellaID uuid.UUID
 	if err := p.QueryRow(ctx,
-		`INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','prova@azienda.it','Prova') RETURNING casella_id`,
+		`INSERT INTO casella (canale, indirizzo, nome) VALUES ('outlook','prova@azienda.example','Prova') RETURNING casella_id`,
 	).Scan(&casellaID); err != nil {
 		t.Fatal(err)
 	}

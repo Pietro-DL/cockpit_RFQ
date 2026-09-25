@@ -30,7 +30,7 @@ func testoP(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""
 
 func nuovoPiano() *pianoProva {
 	p := &pianoProva{thread: uuid.New(), comp: map[string]db.Componente{}, step: uuid.New()}
-	p.in.NomiFile = map[uuid.UUID]string{p.step: "52922757.stp"}
+	p.in.NomiFile = map[uuid.UUID]string{p.step: "77722757.stp"}
 	return p
 }
 
@@ -111,17 +111,17 @@ func deveEssere(t *testing.T, v VoceFile, stato StatoVoce, domanda string) {
 // rivede e si conferma nell'editor; il disegno di un componente che nasce da lei la aspetta.
 func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	p := nuovoPiano()
-	prodotto := p.componente("52922757", db.TipoComponenteFinito)
-	p.nodo("#100", "52922757", db.StatoPropostaDuplicato, &prodotto)
-	p.nodo("#110", "52920517", db.StatoPropostaAperta, nil)
-	p.nodo("#120", "53011111", db.StatoPropostaAperta, nil)
+	prodotto := p.componente("77722757", db.TipoComponenteFinito)
+	p.nodo("#100", "77722757", db.StatoPropostaDuplicato, &prodotto)
+	p.nodo("#110", "77720517", db.StatoPropostaAperta, nil)
+	p.nodo("#120", "77811111", db.StatoPropostaAperta, nil)
 	p.relazione("#100", "#110", 2)
 	p.relazione("#110", "#120", 2)
-	p.file("52922757.stp", db.TipoDocumentoCad3d, "52922757", "")
-	p.file("52922757.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
-	p.file("52920517.pdf", db.TipoDocumentoDisegno2d, "52920517", "")
+	p.file("77722757.stp", db.TipoDocumentoCad3d, "77722757", "")
+	p.file("77722757.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
+	p.file("77720517.pdf", db.TipoDocumentoDisegno2d, "77720517", "")
 	p.file("Capitolato fornitura.pdf", db.TipoDocumentoCapitolato, "", "")
-	p.file("53017189 foglio 2.pdf", db.TipoDocumentoDisegno2d, "", "")
+	p.file("77817189 foglio 2.pdf", db.TipoDocumentoDisegno2d, "", "")
 	zip := p.file("RFQ ACME.zip", db.TipoDocumentoAltro, "", "")
 	zip.Proposta.Fonte = db.FontePropostaEstensione
 
@@ -130,25 +130,25 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 		len(pf.Strutture[0].Domande) != 1 || pf.Strutture[0].Domande[0].Chiave != DomandaStrutturaEditor {
 		t.Fatalf("struttura dello STEP: %+v", pf.Strutture)
 	}
-	stp := vocePer(t, pf, "52922757.stp")
+	stp := vocePer(t, pf, "77722757.stp")
 	deveEssere(t, stp, VocePronta, "")
-	if stp.Componente == nil || stp.Componente.Codice != "52922757" {
+	if stp.Componente == nil || stp.Componente.Codice != "77722757" {
 		t.Errorf("lo STEP va al prodotto: %+v", stp.Componente)
 	}
-	deveEssere(t, vocePer(t, pf, "52922757.pdf"), VocePronta, "")
-	assieme := vocePer(t, pf, "52920517.pdf")
+	deveEssere(t, vocePer(t, pf, "77722757.pdf"), VocePronta, "")
+	assieme := vocePer(t, pf, "77720517.pdf")
 	deveEssere(t, assieme, VoceDecidere, DomandaComponente)
-	if assieme.DaStep == nil || assieme.DaStep.Codice != "52920517" || assieme.Componente != nil || !strings.Contains(assieme.Domande[0].Testo, "editor") {
-		t.Errorf("52920517.pdf aspetta la struttura che si conferma nell'editor, e sa a quale nodo va: %+v %+v", assieme.DaStep, assieme.Domande)
+	if assieme.DaStep == nil || assieme.DaStep.Codice != "77720517" || assieme.Componente != nil || !strings.Contains(assieme.Domande[0].Testo, "editor") {
+		t.Errorf("77720517.pdf aspetta la struttura che si conferma nell'editor, e sa a quale nodo va: %+v %+v", assieme.DaStep, assieme.Domande)
 	}
 	cap := vocePer(t, pf, "Capitolato fornitura.pdf")
 	deveEssere(t, cap, VocePronta, "")
 	if cap.Destinazione() != "" {
 		t.Errorf("il capitolato e' della RFQ, non di un componente: %s", cap.Destinazione())
 	}
-	foglio := vocePer(t, pf, "53017189 foglio 2.pdf")
+	foglio := vocePer(t, pf, "77817189 foglio 2.pdf")
 	deveEssere(t, foglio, VoceDecidere, DomandaCodice)
-	if foglio.Suggerito != "53017189" {
+	if foglio.Suggerito != "77817189" {
 		t.Errorf("il codice suggerito viene dal nome: %q", foglio.Suggerito)
 	}
 	for _, v := range pf.File {
@@ -156,7 +156,7 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 			t.Error("lo zip e' un contenitore: non entra nel piano")
 		}
 	}
-	if len(pf.Strutturali) != 1 || pf.Strutturali[0].Stato != VocePronta || pf.Strutturali[0].Nome != "52922757.stp" {
+	if len(pf.Strutturali) != 1 || pf.Strutturali[0].Stato != VocePronta || pf.Strutturali[0].Nome != "77722757.stp" {
 		t.Fatalf("lo STEP strutturale suggerito: %+v", pf.Strutturali)
 	}
 	if pf.Pronte() != 4 || pf.FilePronti() != 3 || pf.Decisioni() != 3 || pf.InAttesa() != 0 {
@@ -171,13 +171,13 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 // sparito dalla cache, chiede di riscaricarlo.
 func TestIlLavoroInCorsoAspettaIGuastiSiDicono(t *testing.T) {
 	p := nuovoPiano()
-	p.componente("52922757", db.TipoComponenteFinito)
+	p.componente("77722757", db.TipoComponenteFinito)
 	p.file("in lavoro.pdf", db.TipoDocumentoDaDeterminare, "", "").InLavoro = true
 	g := p.file("grezzo.pdf", db.TipoDocumentoDaDeterminare, "", "")
 	g.Allegato.Stato, g.Presente = db.StatoAllegatoGrezzo, false
 	e := p.file("errore.pdf", db.TipoDocumentoDaDeterminare, "", "")
 	e.Allegato.Stato, e.Allegato.Errore, e.Presente = db.StatoAllegatoErrore, testoP("elemento non trovato"), false
-	p.file("sparito.pdf", db.TipoDocumentoDisegno2d, "52922757", "").Presente = false
+	p.file("sparito.pdf", db.TipoDocumentoDisegno2d, "77722757", "").Presente = false
 
 	pf := PianoDelFascicolo(p.in)
 	deveEssere(t, vocePer(t, pf, "in lavoro.pdf"), VoceAttesa, "")
@@ -197,39 +197,39 @@ func TestIlLavoroInCorsoAspettaIGuastiSiDicono(t *testing.T) {
 // quello del componente a cui il file e' assegnato.
 func TestLeAmbiguitaVereChiedonoUnaPersona(t *testing.T) {
 	p := nuovoPiano()
-	prodotto := p.componente("52922757", db.TipoComponenteFinito)
-	assieme := p.componente("52920517", db.TipoComponenteSottoassieme)
+	prodotto := p.componente("77722757", db.TipoComponenteFinito)
+	assieme := p.componente("77720517", db.TipoComponenteSottoassieme)
 	assieme.Rev = testoP("A")
 	p.in.Componenti[1] = assieme
-	archiviato := p.componente("53000001", db.TipoComponenteSciolto)
+	archiviato := p.componente("77800001", db.TipoComponenteSciolto)
 	adesso := time.Now()
 	archiviato.ArchiviatoIl = &adesso
 	p.in.Componenti[2] = archiviato
-	p.documento(prodotto, "52922757.pdf", db.TipoDocumentoDisegno2d, strings.Repeat("f", 64))
+	p.documento(prodotto, "77722757.pdf", db.TipoDocumentoDisegno2d, strings.Repeat("f", 64))
 
 	p.file("anonimo.pdf", db.TipoDocumentoDaDeterminare, "", "")
 	altro := p.file("boh.xyz", db.TipoDocumentoAltro, "", "")
 	altro.Proposta.Fonte = db.FontePropostaEstensione
 	p.file("53999999.pdf", db.TipoDocumentoDisegno2d, "53999999", "")
-	p.file("53000001.pdf", db.TipoDocumentoDisegno2d, "53000001", "")
-	p.file("52920517_B.pdf", db.TipoDocumentoDisegno2d, "52920517", "B")
-	p.file("52922757_nuovo.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
-	diverso := p.file("52999999.dxf", db.TipoDocumentoSviluppoDxf, "52922757", "")
+	p.file("77800001.pdf", db.TipoDocumentoDisegno2d, "77800001", "")
+	p.file("77720517_B.pdf", db.TipoDocumentoDisegno2d, "77720517", "B")
+	p.file("77722757_nuovo.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
+	diverso := p.file("77799999.dxf", db.TipoDocumentoSviluppoDxf, "77722757", "")
 	diverso.Proposta.ComponenteID = uuid.NullUUID{UUID: prodotto.ComponenteID, Valid: true}
-	diverso.Proposta.Dettagli = json.RawMessage(`{"codice_letto": "52999999"}`)
+	diverso.Proposta.Dettagli = json.RawMessage(`{"codice_letto": "77799999"}`)
 
 	pf := PianoDelFascicolo(p.in)
 	deveEssere(t, vocePer(t, pf, "anonimo.pdf"), VoceDecidere, DomandaTipo)
 	deveEssere(t, vocePer(t, pf, "boh.xyz"), VoceDecidere, DomandaTipo)
 	deveEssere(t, vocePer(t, pf, "53999999.pdf"), VoceDecidere, DomandaComponente)
-	deveEssere(t, vocePer(t, pf, "53000001.pdf"), VoceDecidere, DomandaComponente)
-	deveEssere(t, vocePer(t, pf, "52920517_B.pdf"), VoceDecidere, DomandaRevisione)
-	nuovo := vocePer(t, pf, "52922757_nuovo.pdf")
+	deveEssere(t, vocePer(t, pf, "77800001.pdf"), VoceDecidere, DomandaComponente)
+	deveEssere(t, vocePer(t, pf, "77720517_B.pdf"), VoceDecidere, DomandaRevisione)
+	nuovo := vocePer(t, pf, "77722757_nuovo.pdf")
 	deveEssere(t, nuovo, VoceDecidere, DomandaSostituzione)
-	if len(nuovo.Correnti) != 1 || nuovo.Correnti[0].NomeFile != "52922757.pdf" {
+	if len(nuovo.Correnti) != 1 || nuovo.Correnti[0].NomeFile != "77722757.pdf" {
 		t.Errorf("la domanda aggiungi/sostituisce nomina il corrente: %+v", nuovo.Correnti)
 	}
-	deveEssere(t, vocePer(t, pf, "52999999.dxf"), VoceDecidere, DomandaCodiceDiverso)
+	deveEssere(t, vocePer(t, pf, "77799999.dxf"), VoceDecidere, DomandaCodiceDiverso)
 	if pf.Pronte() != 0 || pf.Decisioni() != 7 {
 		t.Errorf("pronte %d, decisioni %d", pf.Pronte(), pf.Decisioni())
 	}
@@ -242,22 +242,22 @@ func TestLeAmbiguitaVereChiedonoUnaPersona(t *testing.T) {
 // «nessuna» contro «B») uno potrebbe sostituire l'altro, e lo dice una persona.
 func TestIFogliArrivatiInsiemeSiAggiungonoLeRevisioniDiverseNo(t *testing.T) {
 	p := nuovoPiano()
-	p.componente("52922757", db.TipoComponenteFinito)
-	p.componente("53017189", db.TipoComponenteSciolto)
-	p.file("52922757 foglio 1.pdf", db.TipoDocumentoDisegno2d, "52922757", "B")
-	p.file("52922757 foglio 2.pdf", db.TipoDocumentoDisegno2d, "52922757", "B")
-	p.file("53017189.pdf", db.TipoDocumentoDisegno2d, "53017189", "")
-	p.file("53017189_B.pdf", db.TipoDocumentoDisegno2d, "53017189", "B")
+	p.componente("77722757", db.TipoComponenteFinito)
+	p.componente("77817189", db.TipoComponenteSciolto)
+	p.file("77722757 foglio 1.pdf", db.TipoDocumentoDisegno2d, "77722757", "B")
+	p.file("77722757 foglio 2.pdf", db.TipoDocumentoDisegno2d, "77722757", "B")
+	p.file("77817189.pdf", db.TipoDocumentoDisegno2d, "77817189", "")
+	p.file("77817189_B.pdf", db.TipoDocumentoDisegno2d, "77817189", "B")
 
 	pf := PianoDelFascicolo(p.in)
-	for _, n := range []string{"52922757 foglio 1.pdf", "52922757 foglio 2.pdf"} {
+	for _, n := range []string{"77722757 foglio 1.pdf", "77722757 foglio 2.pdf"} {
 		v := vocePer(t, pf, n)
 		deveEssere(t, v, VocePronta, "")
 		if !v.Aggiunge {
 			t.Errorf("%s: i fogli si aggiungono", n)
 		}
 	}
-	for _, n := range []string{"53017189.pdf", "53017189_B.pdf"} {
+	for _, n := range []string{"77817189.pdf", "77817189_B.pdf"} {
 		deveEssere(t, vocePer(t, pf, n), VoceDecidere, DomandaRevisione)
 	}
 }
@@ -266,11 +266,11 @@ func TestIFogliArrivatiInsiemeSiAggiungonoLeRevisioniDiverseNo(t *testing.T) {
 // da spiegare; due file uguali nello stesso piano: il secondo e' una provenienza del primo.
 func TestLoStessoContenutoNonDiventaUnSecondoDocumento(t *testing.T) {
 	p := nuovoPiano()
-	prodotto := p.componente("52922757", db.TipoComponenteFinito)
-	gia := p.file("52922757 copia.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
-	p.documento(prodotto, "52922757.pdf", db.TipoDocumentoDisegno2d, gia.Allegato.Sha256.String)
-	vecchio := p.file("52922757 vecchio.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
-	d := p.documento(prodotto, "52922757_A.pdf", db.TipoDocumentoDisegno2d, vecchio.Allegato.Sha256.String)
+	prodotto := p.componente("77722757", db.TipoComponenteFinito)
+	gia := p.file("77722757 copia.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
+	p.documento(prodotto, "77722757.pdf", db.TipoDocumentoDisegno2d, gia.Allegato.Sha256.String)
+	vecchio := p.file("77722757 vecchio.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
+	d := p.documento(prodotto, "77722757_A.pdf", db.TipoDocumentoDisegno2d, vecchio.Allegato.Sha256.String)
 	p.in.Documenti[len(p.in.Documenti)-1].SostituitoDa = uuid.NullUUID{UUID: uuid.New(), Valid: true}
 	_ = d
 	uno := p.file("capitolato.pdf", db.TipoDocumentoCapitolato, "", "")
@@ -278,12 +278,12 @@ func TestLoStessoContenutoNonDiventaUnSecondoDocumento(t *testing.T) {
 	due.Allegato.Sha256 = uno.Allegato.Sha256
 
 	pf := PianoDelFascicolo(p.in)
-	v := vocePer(t, pf, "52922757 copia.pdf")
+	v := vocePer(t, pf, "77722757 copia.pdf")
 	deveEssere(t, v, VocePronta, "")
-	if v.Duplicato != "52922757.pdf" {
-		t.Errorf("provenienza di 52922757.pdf: %q", v.Duplicato)
+	if v.Duplicato != "77722757.pdf" {
+		t.Errorf("provenienza di 77722757.pdf: %q", v.Duplicato)
 	}
-	deveEssere(t, vocePer(t, pf, "52922757 vecchio.pdf"), VoceDecidere, DomandaSostituzione)
+	deveEssere(t, vocePer(t, pf, "77722757 vecchio.pdf"), VoceDecidere, DomandaSostituzione)
 	if v := vocePer(t, pf, "capitolato (1).pdf"); v.Duplicato != "capitolato.pdf" {
 		t.Errorf("il secondo file uguale e' una provenienza del primo: %q", v.Duplicato)
 	}
@@ -294,19 +294,19 @@ func TestLoStessoContenutoNonDiventaUnSecondoDocumento(t *testing.T) {
 // nodo scartato si decidono uno per uno, e non fermano il resto.
 func TestLaStrutturaConUnNodoSenzaCodiceAspettaUnaPersona(t *testing.T) {
 	p := nuovoPiano()
-	prodotto := p.componente("52922757", db.TipoComponenteFinito)
-	p.nodo("#100", "52922757", db.StatoPropostaDuplicato, &prodotto)
-	p.nodo("#110", "52920517", db.StatoPropostaAperta, nil)
+	prodotto := p.componente("77722757", db.TipoComponenteFinito)
+	p.nodo("#100", "77722757", db.StatoPropostaDuplicato, &prodotto)
+	p.nodo("#110", "77720517", db.StatoPropostaAperta, nil)
 	p.nodo("#120", "", db.StatoPropostaAperta, nil)
 	p.relazione("#100", "#110", 2)
 	p.relazione("#110", "#120", 1)
-	p.file("52920517.pdf", db.TipoDocumentoDisegno2d, "52920517", "")
+	p.file("77720517.pdf", db.TipoDocumentoDisegno2d, "77720517", "")
 
 	pf := PianoDelFascicolo(p.in)
 	if pf.Strutture[0].Stato != VoceDecidere || !strings.Contains(pf.Strutture[0].Domande[0].Testo, "senza codice") {
 		t.Fatalf("struttura con un nodo senza codice: %+v", pf.Strutture[0])
 	}
-	deveEssere(t, vocePer(t, pf, "52920517.pdf"), VoceDecidere, DomandaComponente)
+	deveEssere(t, vocePer(t, pf, "77720517.pdf"), VoceDecidere, DomandaComponente)
 
 	// il nodo senza codice si scarta: la struttura non ha piu' domande bloccanti ma si conferma nell'editor
 	// (Fascicolo v3), e l'arco verso lo scartato e' un «morto»
@@ -326,7 +326,7 @@ func TestLaStrutturaConUnNodoSenzaCodiceAspettaUnaPersona(t *testing.T) {
 	if !editor {
 		t.Errorf("la struttura si conferma nell'editor: %+v", s.Domande)
 	}
-	deveEssere(t, vocePer(t, pf, "52920517.pdf"), VoceDecidere, DomandaComponente)
+	deveEssere(t, vocePer(t, pf, "77720517.pdf"), VoceDecidere, DomandaComponente)
 	if pf.Decisioni() != 2 {
 		t.Errorf("la struttura (con l'arco verso lo scartato) e il file che la aspetta: %d", pf.Decisioni())
 	}
@@ -342,12 +342,12 @@ func TestLaStrutturaConUnNodoSenzaCodiceAspettaUnaPersona(t *testing.T) {
 // assegnato si sgancia prima.
 func TestConLaBomCongelataIFileEntranoSenzaComponente(t *testing.T) {
 	p := nuovoPiano()
-	prodotto := p.componente("52922757", db.TipoComponenteFinito)
-	p.nodo("#100", "52922757", db.StatoPropostaDuplicato, &prodotto)
-	p.nodo("#110", "52920517", db.StatoPropostaAperta, nil)
+	prodotto := p.componente("77722757", db.TipoComponenteFinito)
+	p.nodo("#100", "77722757", db.StatoPropostaDuplicato, &prodotto)
+	p.nodo("#110", "77720517", db.StatoPropostaAperta, nil)
 	p.relazione("#100", "#110", 2)
-	p.file("52922757.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
-	assegnato := p.file("52922757 foglio 2.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
+	p.file("77722757.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
+	assegnato := p.file("77722757 foglio 2.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
 	assegnato.Proposta.ComponenteID = uuid.NullUUID{UUID: prodotto.ComponenteID, Valid: true}
 	p.in.Bloccata = 1
 
@@ -355,50 +355,50 @@ func TestConLaBomCongelataIFileEntranoSenzaComponente(t *testing.T) {
 	if len(pf.Strutture) != 0 || len(pf.Strutturali) != 0 {
 		t.Errorf("con la BOM congelata niente struttura e niente STEP strutturale: %+v %+v", pf.Strutture, pf.Strutturali)
 	}
-	v := vocePer(t, pf, "52922757.pdf")
+	v := vocePer(t, pf, "77722757.pdf")
 	deveEssere(t, v, VocePronta, "")
 	if v.Componente != nil || v.DaStep != nil {
 		t.Errorf("entra senza componente: %+v", v)
 	}
-	deveEssere(t, vocePer(t, pf, "52922757 foglio 2.pdf"), VoceDecidere, DomandaCongelata)
+	deveEssere(t, vocePer(t, pf, "77722757 foglio 2.pdf"), VoceDecidere, DomandaCongelata)
 }
 
 // Lo STEP strutturale si presenta gia' scelto quando il prodotto ne avra' uno solo; con due si sceglie; con
 // quello gia' fissato non si propone niente.
 func TestLoStepStrutturaleSiSuggerisceSoloSeEUnoSolo(t *testing.T) {
 	p := nuovoPiano()
-	uno := p.componente("52922757", db.TipoComponenteFinito)
-	due := p.componente("52922758", db.TipoComponenteFinito)
-	fissato := p.componente("52922759", db.TipoComponenteFinito)
+	uno := p.componente("77722757", db.TipoComponenteFinito)
+	due := p.componente("77722758", db.TipoComponenteFinito)
+	fissato := p.componente("77722759", db.TipoComponenteFinito)
 	fissato.StepStrutturaleID = uuid.NullUUID{UUID: uuid.New(), Valid: true}
 	p.in.Componenti[2] = fissato
-	p.documento(uno, "52922757.stp", db.TipoDocumentoCad3d, strings.Repeat("1", 64))
-	p.documento(due, "52922758.stp", db.TipoDocumentoCad3d, strings.Repeat("2", 64))
-	p.file("52922758_B.stp", db.TipoDocumentoCad3d, "52922758", "B")
+	p.documento(uno, "77722757.stp", db.TipoDocumentoCad3d, strings.Repeat("1", 64))
+	p.documento(due, "77722758.stp", db.TipoDocumentoCad3d, strings.Repeat("2", 64))
+	p.file("77722758_B.stp", db.TipoDocumentoCad3d, "77722758", "B")
 
 	pf := PianoDelFascicolo(p.in)
 	per := map[string]VoceStrutturale{}
 	for _, v := range pf.Strutturali {
 		per[v.Prodotto.Codice] = v
 	}
-	if v := per["52922757"]; v.Stato != VocePronta || !v.Documento.Valid || v.Nome != "52922757.stp" {
+	if v := per["77722757"]; v.Stato != VocePronta || !v.Documento.Valid || v.Nome != "77722757.stp" {
 		t.Errorf("uno STEP solo, gia' confermato: %+v", v)
 	}
-	// 52922758 ha gia' uno STEP corrente: il file nuovo chiede aggiungi o sostituisce, e finche' non si
+	// 77722758 ha gia' uno STEP corrente: il file nuovo chiede aggiungi o sostituisce, e finche' non si
 	// decide non e' fra i candidati. Lo STEP strutturale suggerito resta quello corrente.
-	deveEssere(t, vocePer(t, pf, "52922758_B.stp"), VoceDecidere, DomandaSostituzione)
-	if v := per["52922758"]; v.Stato != VocePronta || v.Nome != "52922758.stp" {
+	deveEssere(t, vocePer(t, pf, "77722758_B.stp"), VoceDecidere, DomandaSostituzione)
+	if v := per["77722758"]; v.Stato != VocePronta || v.Nome != "77722758.stp" {
 		t.Errorf("il corrente resta il candidato: %+v", v)
 	}
-	if _, c := per["52922759"]; c {
+	if _, c := per["77722759"]; c {
 		t.Error("un prodotto con lo STEP strutturale fissato non ne riceve un altro")
 	}
 
 	// due STEP correnti: si sceglie
-	p.documento(uno, "52922757 bis.stp", db.TipoDocumentoCad3d, strings.Repeat("3", 64))
+	p.documento(uno, "77722757 bis.stp", db.TipoDocumentoCad3d, strings.Repeat("3", 64))
 	pf = PianoDelFascicolo(p.in)
 	for _, v := range pf.Strutturali {
-		if v.Prodotto.Codice == "52922757" && (v.Stato != VoceDecidere || v.Domande[0].Chiave != DomandaStrutturale) {
+		if v.Prodotto.Codice == "77722757" && (v.Stato != VoceDecidere || v.Domande[0].Chiave != DomandaStrutturale) {
 			t.Errorf("due STEP: si sceglie: %+v", v)
 		}
 	}
@@ -407,8 +407,8 @@ func TestLoStepStrutturaleSiSuggerisceSoloSeEUnoSolo(t *testing.T) {
 // La firma cambia quando cambia una voce pronta: chi conferma deve aver visto il piano che conferma.
 func TestLaFirmaCambiaConIlPiano(t *testing.T) {
 	p := nuovoPiano()
-	p.componente("52922757", db.TipoComponenteFinito)
-	p.file("52922757.pdf", db.TipoDocumentoDisegno2d, "52922757", "")
+	p.componente("77722757", db.TipoComponenteFinito)
+	p.file("77722757.pdf", db.TipoDocumentoDisegno2d, "77722757", "")
 	prima := PianoDelFascicolo(p.in).Firma()
 	p.file("capitolato.pdf", db.TipoDocumentoCapitolato, "", "")
 	if dopo := PianoDelFascicolo(p.in).Firma(); dopo == prima {
@@ -433,37 +433,37 @@ func TestIlPianoConISuffissiDecorativi(t *testing.T) {
 
 	p := nuovoPiano()
 	p.in.Motore = m
-	vecchio := p.componente("52920000_PRT", db.TipoComponenteSciolto)
-	nuovo := p.componente("52930000", db.TipoComponenteSciolto)
-	p.file("52920000.pdf", db.TipoDocumentoDisegno2d, "52920000", "")
-	p.file("52930000_PRT.pdf", db.TipoDocumentoDisegno2d, "52930000_PRT", "")
-	assegnato := p.file("52920000 foglio 2.pdf", db.TipoDocumentoDisegno2d, "52920000_PRT", "")
+	vecchio := p.componente("77720000_PRT", db.TipoComponenteSciolto)
+	nuovo := p.componente("77730000", db.TipoComponenteSciolto)
+	p.file("77720000.pdf", db.TipoDocumentoDisegno2d, "77720000", "")
+	p.file("77730000_PRT.pdf", db.TipoDocumentoDisegno2d, "77730000_PRT", "")
+	assegnato := p.file("77720000 foglio 2.pdf", db.TipoDocumentoDisegno2d, "77720000_PRT", "")
 	assegnato.Proposta.ComponenteID = uuid.NullUUID{UUID: vecchio.ComponenteID, Valid: true}
-	assegnato.Proposta.Dettagli = json.RawMessage(`{"codice_letto": "52920000"}`)
+	assegnato.Proposta.Dettagli = json.RawMessage(`{"codice_letto": "77720000"}`)
 	anonimo := p.file("scansione.pdf", db.TipoDocumentoDaDeterminare, "", "")
-	anonimo.Proposta.Dettagli = json.RawMessage(`{"codici_nel_nome": ["52940000_PRT_B"]}`)
+	anonimo.Proposta.Dettagli = json.RawMessage(`{"codici_nel_nome": ["77740000_PRT_B"]}`)
 	pf := PianoDelFascicolo(p.in)
 
-	v := vocePer(t, pf, "52920000.pdf")
+	v := vocePer(t, pf, "77720000.pdf")
 	deveEssere(t, v, VoceDecidere, DomandaComponente)
 	if v.Alias == nil || v.Alias.ComponenteID != vecchio.ComponenteID || v.Componente != nil {
-		t.Errorf("il file «52920000» e il pezzo «52920000_PRT»: alias %+v", v.Alias)
+		t.Errorf("il file «77720000» e il pezzo «77720000_PRT»: alias %+v", v.Alias)
 	}
-	if v := vocePer(t, pf, "52930000_PRT.pdf"); v.Stato != VoceDecidere || v.Alias == nil || v.Alias.ComponenteID != nuovo.ComponenteID || v.Componente != nil {
-		t.Errorf("la proposta «52930000_PRT» trova il pezzo 52930000, e chiede di assegnarlo (il codice e' del componente): %+v %v", v.Alias, v.Domande)
+	if v := vocePer(t, pf, "77730000_PRT.pdf"); v.Stato != VoceDecidere || v.Alias == nil || v.Alias.ComponenteID != nuovo.ComponenteID || v.Componente != nil {
+		t.Errorf("la proposta «77730000_PRT» trova il pezzo 77730000, e chiede di assegnarlo (il codice e' del componente): %+v %v", v.Alias, v.Domande)
 	}
-	if v := vocePer(t, pf, "52920000 foglio 2.pdf"); v.Stato != VocePronta {
-		t.Errorf("assegnato al pezzo con il suffisso, il codice letto 52920000 non e' diverso: %s %v", v.Stato, v.Domande)
+	if v := vocePer(t, pf, "77720000 foglio 2.pdf"); v.Stato != VocePronta {
+		t.Errorf("assegnato al pezzo con il suffisso, il codice letto 77720000 non e' diverso: %s %v", v.Stato, v.Domande)
 	}
-	if v := vocePer(t, pf, "scansione.pdf"); v.Suggerito != "52940000" {
+	if v := vocePer(t, pf, "scansione.pdf"); v.Suggerito != "77740000" {
 		t.Errorf("il codice suggerito dal nome: %q", v.Suggerito)
 	}
 
 	// senza la regola: nessun alias, e il codice letto diverso e' una domanda
 	p.in.Motore = nil
 	pf = PianoDelFascicolo(p.in)
-	if v := vocePer(t, pf, "52920000.pdf"); v.Alias != nil || !strings.Contains(v.Domande[0].Testo, "non è nella BOM") {
+	if v := vocePer(t, pf, "77720000.pdf"); v.Alias != nil || !strings.Contains(v.Domande[0].Testo, "non è nella BOM") {
 		t.Errorf("senza regola: %+v %v", v.Alias, v.Domande)
 	}
-	deveEssere(t, vocePer(t, pf, "52920000 foglio 2.pdf"), VoceDecidere, DomandaCodiceDiverso)
+	deveEssere(t, vocePer(t, pf, "77720000 foglio 2.pdf"), VoceDecidere, DomandaCodiceDiverso)
 }
