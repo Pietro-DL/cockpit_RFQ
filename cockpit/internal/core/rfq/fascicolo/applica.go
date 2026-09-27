@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -145,7 +146,7 @@ func ApplicaStruttura(ctx context.Context, q *db.Queries, thread uuid.UUID, a db
 		es.Relazioni++
 	}
 
-	if err := propostaDelDocumento(ctx, q, a, nodi, *st, m); err != nil {
+	if err := propostaDelDocumento(ctx, q, a, nodi, *st, fatti, m); err != nil {
 		return es, err
 	}
 	if prodotto != nil {
@@ -235,15 +236,19 @@ func testo(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: true}
 }
 
-// propostaDelDocumento e' D16: quando una famiglia del cliente riconosce il codice della radice, la
-// proposta del documento STEP prende quel codice, con fonte regola_cliente e regola_id NULL (le famiglie
-// stanno in cliente.regole, non in `regola`). Solo se la proposta e' aperta, se non l'ha scritta
-// l'operatore, e se il suo codice non e' gia' di una famiglia: allora il nome del file diceva gia' la
-// cosa giusta, e un generico dal PRODUCT non la cambia. Nei dettagli: la famiglia, dove sta il testo
-// riconosciuto (id, nome o descrizione del PRODUCT) e il testo stesso. L'evidenza strutturata del nodo
-// resta la sua riga di componente_proposta.
-func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nodi []NodoClassificato, st worker.StrutturaSTEP, m *classificazione.Motore) error {
-	radice, ok := RadiceDiFamiglia(nodi, st)
+// propostaDelDocumento e' lo scrittore «struttura» della valutazione (Smistamento F4, A5.14.7; prima era la
+// D16). La radice dello STEP, letta con le regole del cliente di QUESTA RFQ, e' un'evidenza del codice del
+// documento: la valutazione si ricalcola con Valuta, dallo stesso file (il nome, i fatti dell'analisi) e con la
+// radice al posto del primo PRODUCT, e le colonne sono il suo riepilogo. Una radice diversa dal nome non
+// riscrive la colonna del codice: la dimensione e' discorde e la colonna tiene il nome (D49). Una radice
+// uguale al nome dipende dal nome e non fa una seconda fonte.
+//
+// La guardia e' quella di prima: solo una proposta aperta, non scritta dall'operatore, non assegnata a un
+// componente. E si scrive solo se la lettura cambia: ApplicaStruttura si chiama a ogni risultato e a ogni
+// riuso dei fatti, e la seconda volta non riscrive niente.
+func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nodi []NodoClassificato, st worker.StrutturaSTEP,
+	fatti json.RawMessage, m *classificazione.Motore) error {
+	radice, ok := RadiceDelloStep(nodi, st)
 	if !ok {
 		return nil
 	}
@@ -254,33 +259,32 @@ func propostaDelDocumento(ctx context.Context, q *db.Queries, a db.Allegato, nod
 	if err != nil {
 		return err
 	}
-	if p.Stato != db.StatoPropostaAperta || p.Fonte == db.FontePropostaOperatore {
+	if p.Stato != db.StatoPropostaAperta || p.Fonte == db.FontePropostaOperatore || p.ComponenteID.Valid {
 		return nil
 	}
-	if strings.EqualFold(strings.TrimSpace(p.Codice.String), radice.Codice) && p.Fonte == db.FontePropostaRegolaCliente {
+	direzione := ""
+	if msg, err := q.GetMessaggio(ctx, a.MessaggioID); err == nil {
+		direzione = string(msg.Direzione)
+	}
+	prima := classificazione.ValutazioneDellaRiga(string(p.TipoProposto), p.Codice.String, p.Rev.String, string(p.Fonte),
+		int(p.Confidenza), p.Dettagli, a.NomeFile, a.Estensione.String)
+	v := classificazione.Valuta(classificazione.IngressoFile{
+		Da: classificazione.DaStruttura, NomeFile: a.NomeFile, Bytes: a.Bytes.Int64, Direzione: direzione,
+		Interno: a.Origine == db.OrigineAllegatoManuale, Motore: m, Fatti: fatti, Radice: &radice,
+		RispostaFornitore: prima.HaEvidenza("risposta_fornitore"),
+	})
+	if rp := v.Riepilogo(); !prima.Ricostruita && prima.StesseLetture(v) && string(p.TipoProposto) == rp.Tipo &&
+		p.Codice.String == rp.Codice && p.Rev.String == rp.Rev && int(p.Confidenza) == rp.Confidenza && string(p.Fonte) == rp.Fonte {
 		return nil
 	}
-	// Il codice del documento resta se E' un codice di famiglia, non se una famiglia ci trova qualcosa
-	// dentro: «X_PRT» contiene X, ma il documento deve dire X.
-	if p.Codice.Valid {
-		for _, f := range classificazione.DiFamiglia(m.Codici(p.Codice.String)) {
-			if strings.EqualFold(f.Codice, strings.TrimSpace(p.Codice.String)) {
-				return nil
-			}
-		}
+	dett, rp := classificazione.ConValutazione(nil, v, time.Now())
+	tipo, fonte := db.TipoDocumento(rp.Tipo), db.FonteProposta(rp.Fonte)
+	if !tipo.Valid() || !fonte.Valid() {
+		return fmt.Errorf("riepilogo della proposta di %s fuori enum: %+v", a.NomeFile, rp)
 	}
-	testoDove := map[string]string{DoveID: radice.IDGrezzo, DoveNome: radice.NomeGrezzo, DoveDescrizione: radice.Descrizione}[radice.Dove]
-	d := map[string]any{"famiglia": radice.Famiglia, "dove": radice.Dove, "testo": testoDove,
-		"radice_step": radice.Chiave, "nome_grezzo": radice.NomeGrezzo}
-	// uno STEP caricato a mano non inventa una revisione del cliente (B8.7)
-	rev, trattenuta := RevisioneProponibile(a.Origine, radice.Rev)
-	if trattenuta != "" {
-		d["rev_letta"] = trattenuta
-	}
-	dett, _ := json.Marshal(d)
-	_, err = q.PropostaDocumentoDaRadice(ctx, db.PropostaDocumentoDaRadiceParams{
-		AllegatoID: a.AllegatoID, Codice: pgtype.Text{String: radice.Codice, Valid: true}, Rev: testo(rev),
-		Confidenza: int16(radice.Confidenza), Dettagli: dett,
+	_, err = q.AggiornaValutazioneProposta(ctx, db.AggiornaValutazionePropostaParams{
+		PropostaID: p.PropostaID, TipoProposto: tipo, Codice: testo(rp.Codice), Rev: testo(rp.Rev),
+		Confidenza: int16(rp.Confidenza), Fonte: fonte, Dettagli: dett,
 	})
 	return err
 }

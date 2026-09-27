@@ -1,5 +1,5 @@
 // I lavori amministrativi della riga di comando: seminare un'anagrafica, leggere o applicare il seme
-// dei fornitori, contare che cosa c'e' gia' in anagrafica.
+// dei fornitori, contare che cosa c'e' gia' in anagrafica, stampare le misure della calibrazione.
 //
 // Ognuno fa il suo e poi ESCE: nessuno di questi mette il server in ascolto, e nessuno parte da solo
 // all'avvio normale. Seminare un'anagrafica e' una decisione, non un effetto collaterale (7B.5).
@@ -9,10 +9,13 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/calibrazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/fornitori"
@@ -113,6 +116,18 @@ func ContaAnagrafiche(ctx context.Context, pool *pgxpool.Pool) error {
 		fmt.Printf("%s=%d\n", v.nome, v.n)
 	}
 	return nil
+}
+
+// Calibrazione stampa le misure dello Smistamento (M3, A5.14.6, A5.16.6): quante volte il primo proposto
+// era quello giusto, per livello, per tipo e per fascia di score, dalle fotografie delle decisioni e,
+// per i dati di prima, dalla «retro». Legge soltanto: il pool arriva da ApriDatabaseInLettura e le misure
+// stanno in una transazione READ ONLY. La prima riga dice quale database si sta leggendo.
+func Calibrazione(ctx context.Context, pool *pgxpool.Pool, w io.Writer, dal *time.Time) error {
+	r, err := calibrazione.Misura(ctx, pool, dal)
+	if err != nil {
+		return err
+	}
+	return r.Scrivi(w)
 }
 
 // ricalcola riguarda i messaggi gia' arrivati dopo un seed: quelli che parlano con i domini e gli

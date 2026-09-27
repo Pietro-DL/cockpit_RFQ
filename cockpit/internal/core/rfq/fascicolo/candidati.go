@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -85,7 +86,7 @@ const (
 	SituazioneProposta   Situazione = "proposta"   // un nodo STEP aperto con questo codice: si decide dove si vede lo STEP
 	SituazioneComponente Situazione = "componente" // gia' nella BOM
 	SituazioneArchiviato Situazione = "archiviato" // archiviato: si ripristina dalla Struttura BOM
-	SituazioneRichiesta  Situazione = "richiesta"  // codice della richiesta senza componente: il prodotto nasce dal triage o aprendo una revisione
+	SituazioneRichiesta  Situazione = "richiesta"  // codice della richiesta senza componente: vedi Stato.EntraConLaRevisione
 	SituazioneNuovo      Situazione = "nuovo"      // nessun componente: un codice trovato, e basta
 )
 
@@ -101,6 +102,11 @@ type Stato struct {
 	Identificativo bool                           // e' un codice della richiesta
 	// Bloccata: la BOM e' congelata in questa versione (D26): il pannello lo dice.
 	Bloccata int32
+	// EntraConLaRevisione: un codice della richiesta senza componente che il congelamento ha fermato
+	// (confermato dopo l'ultimo congelamento, con la BOM ancora congelata): il prodotto entra aprendo la
+	// revisione (AssicuraProdottiDellaRevisione). Negli altri casi il prodotto era stato tolto, o non era mai
+	// nato, e aprire la revisione non lo fa rinascere: il pannello non deve promettere quella strada.
+	EntraConLaRevisione bool
 }
 
 // Proposta e' il nodo a cui il codice porta: il primo, per data del file.
@@ -131,6 +137,9 @@ type ContestoCodici struct {
 	Proposte       []db.ListProposteNodoAperteRow
 	Identificativi []db.IdentificativoThread
 	Bloccata       int32 // 0 = working libera; n = congelata nella Vn
+	// CongelataIl e' il momento dell'ultimo congelamento, con la BOM congelata: dice quali codici della
+	// richiesta entrano aprendo la revisione (Stato.EntraConLaRevisione). nil = working libera.
+	CongelataIl *time.Time
 	// Motore: le regole del cliente. Con i suffissi decorativi, il codice «X» trova il pezzo nato come «X_PRT»
 	// prima della regola: e' gia' nella BOM, non si aggiunge un secondo componente.
 	Motore *classificazione.Motore
@@ -173,6 +182,12 @@ func Unisci(righe []db.ListCodiciCandidatiThreadRow, c ContestoCodici) Candidati
 		}
 		e := Evidenza{Codice: codice, Rev: strings.TrimSpace(r.Rev), Sorgente: r.Sorgente, Origine: r.Origine, Famiglia: r.Famiglia,
 			Punteggio: int(r.Punteggio), Dove: r.Evidenza, TipoFile: r.TipoFile, Messaggio: r.MessaggioID, Allegato: r.AllegatoID}
+		if r.Sorgente == SorgenteNomeFile {
+			// un codice citato nel nome di un file che non e' un codice: la vista gli da' 50 fisso (0018), lo
+			// score e' quello della regola della tabella S1 (Smistamento F4). La colonna `confidenza` delle
+			// proposte invece e' gia' lo score del codice del file.
+			e.Punteggio = classificazione.Punteggi["nome_contiene_codice"].Score
+		}
 		e.Forte = forte(e, c.HaFamiglie)
 		e.Frase = frase(e)
 		k := strings.ToUpper(codice)
@@ -204,9 +219,13 @@ func Unisci(righe []db.ListCodiciCandidatiThreadRow, c ContestoCodici) Candidati
 		k := strings.ToUpper(strings.TrimSpace(p.Codice))
 		proposte[k] = append(proposte[k], p)
 	}
-	richiesta := map[string]bool{}
+	richiesta, conLaRevisione := map[string]bool{}, map[string]bool{}
 	for _, i := range c.Identificativi {
-		richiesta[strings.ToUpper(strings.TrimSpace(i.Codice))] = true
+		k := strings.ToUpper(strings.TrimSpace(i.Codice))
+		richiesta[k] = true
+		if c.Bloccata != 0 && fermatoDalCongelamento(i, c.CongelataIl) {
+			conLaRevisione[k] = true
+		}
 	}
 
 	out := Candidati{Bloccata: c.Bloccata}
@@ -223,6 +242,7 @@ func Unisci(righe []db.ListCodiciCandidatiThreadRow, c ContestoCodici) Candidati
 		}
 		x.Prodotto, x.Motivo = classe(x.Evidenze, c.HaFamiglie)
 		x.Stato = situa(k, c.Bloccata, componenti, proposte, richiesta)
+		x.Stato.EntraConLaRevisione = x.Stato.Situazione == SituazioneRichiesta && conLaRevisione[k]
 		if x.Prodotto {
 			out.Prodotto = append(out.Prodotto, *x)
 		} else {
@@ -478,6 +498,11 @@ func CandidatiDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID) (Ca
 	}
 	if bloccata {
 		c.Bloccata = n
+		u, err := q.GetUltimaCongelata(ctx, thread)
+		if err != nil {
+			return Candidati{}, err
+		}
+		c.CongelataIl = u.CongelataIl
 	}
 	return Unisci(righe, c), nil
 }

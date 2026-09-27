@@ -264,8 +264,8 @@ type codiceEditor struct {
 	Errore string `json:"errore,omitempty"`
 	// Esiste: il componente con questo codice (lo stesso pezzo: la carta e' lui, mai una seconda riga).
 	Esiste *codiceEsistente `json:"esiste,omitempty"`
-	// Richiesta: e' un codice della richiesta, che diventa prodotto con la creazione della RFQ (triage) o
-	// aprendo una revisione della BOM congelata.
+	// Richiesta: e' un codice della richiesta, che diventa prodotto con una decisione del triage o, se
+	// confermato con la BOM congelata, aprendo la revisione.
 	Richiesta bool `json:"richiesta,omitempty"`
 	// Vicini: i codici quasi uguali (P4): la carta nasce solo se l'operatore dice che e' un pezzo diverso.
 	Vicini []fascicolo.Vicino `json:"vicini"`

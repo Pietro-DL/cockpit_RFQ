@@ -1272,7 +1272,7 @@ class Editor {
       this.disegna(`${e.esiste.codice} c'è già: è lo stesso componente, fra i non posizionati. Trascinalo dove va.`);
       return;
     }
-    if (e.richiesta) { this.avvisa(`${codice} è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata; non è un componente qui.`, ""); return; }
+    if (e.richiesta) { this.avvisa(`${codice} è un codice della richiesta: il prodotto nasce da una decisione del triage, o aprendo la revisione se il codice è stato confermato con la BOM congelata; non è un componente qui.`, ""); return; }
     let diverso = false;
     if (e.vicini && e.vicini.length) {
       const elenco = e.vicini.map((v) => `${v.codice} (${v.motivo})`).join(", ");

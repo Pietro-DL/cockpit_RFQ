@@ -434,6 +434,9 @@ type fascicoloDati struct {
 	// Differenze: la working contro la versione da cui la bozza e' partita.
 	Differenze []fascicolo.Differenza
 	Gate       fascicolo.Gate
+	// SulNas: la materializzazione dei documenti decisi (Smistamento F6, A5.4.8), per la barra «Sul NAS»
+	// in testata e in fondo. Con la working libera e' quella del gate; con la BOM congelata si legge a parte.
+	SulNas fascicolo.Materializzazione
 	// SceltaContesto: in ACCETTATA e DISTINTA_ERP il tipo di revisione lo sceglie chi la apre, senza
 	// preselezione (D25c). ContestoFisso: negli altri casi, quello della fase.
 	SceltaContesto bool
@@ -659,6 +662,11 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 	}
 	if err := s.versioniFascicolo(ctx, q, d); err != nil {
 		return nil, err
+	}
+	if d.Bloccata == 0 {
+		d.SulNas = d.Gate.Nas
+	} else if m, err := fascicolo.LeggiMaterializzazione(ctx, q, thread); err == nil {
+		d.SulNas = m
 	}
 
 	comp, err := q.ListComponentiThread(ctx, thread)

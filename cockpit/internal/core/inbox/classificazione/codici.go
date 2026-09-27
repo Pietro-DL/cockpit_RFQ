@@ -282,6 +282,15 @@ type IngressoTriage struct {
 	Mittente           string
 	CandidatiRichiesta []CandidatoRichiesta
 	RichiesteManuali   []Candidato
+	// Smistamento M2: l'In-Reply-To del messaggio, per l'evento. Dice «è una risposta» anche quando
+	// l'oggetto non ha il prefisso; non serve all'aggancio, che le chiavi citate le riceve a parte.
+	InReplyTo string
+}
+
+// ingressoEvento è la parte del messaggio che legge l'evento: tutto tranne i candidati.
+func (in IngressoTriage) ingressoEvento() IngressoEvento {
+	return IngressoEvento{Controparte: in.Controparte, Direzione: in.Direzione, Interno: in.Interno,
+		Oggetto: in.Oggetto, Corpo: in.Corpo, InReplyTo: in.InReplyTo, NomiAllegati: in.NomiAllegati, Mittente: in.Mittente}
 }
 
 // Testi sono i pezzi di messaggio in cui si cercano numeri, ognuno con l'etichetta di dove sta.
@@ -334,10 +343,16 @@ type EsitoTriage struct {
 	Candidato *Candidato
 	// Atto è che cosa sta facendo il mittente (7C.0): uno degli Atto* di atto.go, vuoto se la
 	// controparte non è stata dichiarata (prove che non la conoscono, messaggi di prima della 0014).
-	// Legame è che cosa la mail è rispetto a ciò che il Cockpit conosce già: uno dei Legame*.
-	// Sono proposte, come l'esito; il deterministico dice quello che sa e «incerto» dove non sa.
+	// Dal M2 viene dall'evento, non dall'esito. Legame è che cosa la mail è rispetto a ciò che il
+	// Cockpit conosce già: uno dei Legame*. Sono proposte, come l'esito; il deterministico dice quello
+	// che sa e «incerto» dove non sa.
 	Atto   string
 	Legame string
+	// Smistamento M2: l'evento (uno degli Evento*), la sua forza e le evidenze. Si salva come Atto e
+	// fra i motivi (MotiviEvento); non tocca Esito, Candidato né Confidenza.
+	Evento         string
+	ForzaEvento    string
+	EvidenzeEvento []string
 	// CandidatoRichiesta è la richiesta ai fornitori più forte a cui questa posta risponde.
 	CandidatoRichiesta *CandidatoRichiesta
 }
@@ -364,6 +379,12 @@ var estensioniDaDeterminare = map[string]bool{"pdf": true, "tif": true, "tiff": 
 
 // Triage propone un esito per un messaggio orfano. È solo un suggerimento: l'operatore resta l'ultimo a confermare.
 //
+// L'EVENTO (Smistamento M2, A5.16.2) si calcola a parte, con Evento, che legge solo il messaggio, e
+// dà l'atto. L'esito, il candidato e la confidenza restano della precedenza qui sotto: l'evento non li
+// sposta. Un'eccezione sola, voluta e vecchia: per un cliente con l'evidenza di una RFQ aperta le
+// parole di posta non di lavoro non contano (evidenza_test.go), e l'evento si legge senza E2 — una
+// firma con «newsletter» sotto una risposta con In-Reply-To non fa di quella risposta una newsletter.
+//
 // PRECEDENZA (checkpoint 3R §3). L'esito non è più il risultato di una somma che supera una soglia. Un
 // punteggio di contenuto misura quanto un messaggio SEMBRA una richiesta nuova; non può retrocedere una
 // risposta di cui esiste la prova. L'ordine è:
@@ -377,6 +398,26 @@ var estensioniDaDeterminare = map[string]bool{"pdf": true, "tif": true, "tiff": 
 // faceva 35 (parola «offerta») + 25 (allegato «tecnico») = 60, e diventava una richiesta NUOVA mentre
 // era la risposta a una richiesta nostra.
 func Triage(in IngressoTriage) EsitoTriage {
+	out := triageEsito(in)
+	ev := Evento(in.ingressoEvento())
+	if in.Controparte == ControparteCliente && EvidenzaDiRFQEsistente(in.Candidati) {
+		ev = evento(in.ingressoEvento(), false)
+	}
+	out.Evento, out.ForzaEvento, out.EvidenzeEvento = ev.Evento, ev.Forza, ev.Evidenze
+	// atto vuoto per una controparte non dichiarata: è il comportamento di prima della 0014
+	if in.Controparte != "" {
+		out.Atto = ev.Atto
+	}
+	return out
+}
+
+// MotiviEvento sono le righe dell'evento da mettere in testa ai motivi salvati.
+func (e EsitoTriage) MotiviEvento() []string {
+	return MotiviEvento(EsitoEvento{Evento: e.Evento, Atto: e.Atto, Forza: e.ForzaEvento, Evidenze: e.EvidenzeEvento})
+}
+
+// triageEsito è la precedenza: esito, candidato, confidenza, motivi e legame. L'atto lo mette Triage.
+func triageEsito(in IngressoTriage) EsitoTriage {
 	var motivi []string
 	punti := 0
 	// Una mail in uscita è roba nostra già vista: non c'è niente da smistare. Una mail INTERNA è in
@@ -400,7 +441,7 @@ func Triage(in IngressoTriage) EsitoTriage {
 		return triageFornitore(in, motivi)
 	case ControparteAmbiguo:
 		motivi = append(motivi, "controparte ambigua: l'indirizzo o il dominio sono censiti sia come cliente sia come fornitore. Decide una persona")
-		return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoIncerto, Legame: LegameIncerto}
+		return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Legame: LegameIncerto}
 	case ControparteSconosciuto:
 		// Blocco 7B (D34): da un mittente non censito non nasce una proposta di RFQ. Prima si decide
 		// CHI è («Censisci come cliente / fornitore», che ricalcola), poi che cosa vuole.
@@ -414,7 +455,7 @@ func Triage(in IngressoTriage) EsitoTriage {
 		if !EvidenzaDiRFQEsistente(in.Candidati) {
 			if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
 				motivi = append(motivi, m, "posta di un cliente che non è di lavoro: se l'indirizzo è automatico, censiscilo come Altro")
-				return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Atto: AttoNonBusiness, Legame: LegameNessuno}
+				return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Legame: LegameNessuno}
 			}
 		}
 	}
@@ -502,7 +543,16 @@ func Triage(in IngressoTriage) EsitoTriage {
 			}
 			out.Esito, out.Confidenza = "aggancia", a.Punteggio
 			out.Motivi = motivi
-			out.Atto, out.Legame = attoELegameCliente(in, out.Esito)
+			out.Legame = legameCliente(in, out.Esito)
+			return out
+		}
+		// A PARI MERITO (Smistamento M1, P37) la richiesta esiste — l'esito resta «aggancia» e `nuova_rfq`
+		// non si valuta — ma quale sia non lo dice il sistema: le prime due RFQ aperte hanno evidenze della
+		// stessa forza, e proporne una vorrebbe dire scegliere a caso con l'aria di sapere.
+		if g, pari := pariMerito(in.Candidati); pari {
+			motivi = append(motivi, FrasePariMerito)
+			out.Esito, out.Confidenza, out.Motivi = "aggancia", g.Score, motivi
+			out.Legame = legameCliente(in, out.Esito)
 			return out
 		}
 		out.Candidato = &k
@@ -525,19 +575,20 @@ func Triage(in IngressoTriage) EsitoTriage {
 		motivi = []string{"nessun indizio RFQ"}
 	}
 	out.Motivi = motivi
-	out.Atto, out.Legame = attoELegameCliente(in, out.Esito)
+	out.Legame = legameCliente(in, out.Esito)
 	return out
 }
 
-// attoELegameCliente è l'atto e il legame del ramo «cliente» e del ramo «interno» (7C.0).
+// legameCliente è il legame del ramo «cliente» e del ramo «interno» (7C.0).
 //
-// Il deterministico sa poche cose e le dice: una mail che SEMBRA una richiesta nuova è una
-// richiesta d'offerta (legame: nuovo); una mail con l'evidenza di una RFQ esistente è una
-// risposta a quella RFQ, ma di che ATTO sia (una revisione, una domanda, un sollecito) dal
-// punteggio non si capisce, e l'atto resta «incerto»: prima della 0016 la chiamava rfq_cliente,
-// che era falso. Un collega che gira una mail fa un inoltro. Atto vuoto se la controparte non è
+// Fino al M2 dava anche l'atto, e lo ricavava dall'esito: nuova_rfq → richiesta_offerta, il resto
+// «incerto». Evento e aggancio erano così la stessa informazione, e una risposta con lo STEP rifatto
+// dentro una RFQ esistente non poteva essere una revisione. Dal M2 l'atto viene dall'evento (Triage) e
+// qui resta il legame: nuovo, risposta, incerto o nessuno secondo l'esito; per un collega che gira una
+// mail è sempre `inoltro`, e l'atto è quello del contenuto girato. Vuoto se la controparte non è
 // dichiarata: è il comportamento di prima della 0014, e le prove che non la conoscono lo tengono.
-func attoELegameCliente(in IngressoTriage, esito string) (atto, legame string) {
+func legameCliente(in IngressoTriage, esito string) string {
+	var legame string
 	switch esito {
 	case "nuova_rfq":
 		legame = LegameNuovo
@@ -549,15 +600,13 @@ func attoELegameCliente(in IngressoTriage, esito string) (atto, legame string) {
 			legame = LegameIncerto
 		}
 	}
-	switch {
-	case in.Controparte == ControparteInterno:
-		return AttoInoltro, legame
-	case in.Controparte != ControparteCliente:
-		return "", ""
-	case esito == "nuova_rfq":
-		return AttoRichiestaOfferta, legame
+	switch in.Controparte {
+	case ControparteInterno:
+		return LegameInoltro
+	case ControparteCliente:
+		return legame
 	}
-	return AttoIncerto, legame
+	return ""
 }
 
 // triageUscita: una nostra mail. A un fornitore è una richiesta d'offerta (o una risposta a lui):
@@ -568,7 +617,7 @@ func triageUscita(in IngressoTriage) EsitoTriage {
 	out := EsitoTriage{Esito: "ignora", Confidenza: 60, Motivi: []string{"messaggio in uscita"}, Codici: []string{}}
 	switch in.Controparte {
 	case ControparteFornitore:
-		out.Atto, out.Legame = AttoRichiestaOfferta, LegameNessuno
+		out.Legame = LegameNessuno
 		out.Motivi = []string{"nostra mail a un fornitore censito: una richiesta d'offerta a lui, o una risposta"}
 		e := in.Motore.Estrai(in.Testi()...)
 		out.Trovati, out.Estrazione = e.Codici, e
@@ -586,7 +635,7 @@ func triageUscita(in IngressoTriage) EsitoTriage {
 	case ControparteCliente:
 		// la regola di sempre, rinominata: una nostra mail a un cliente si presume la nostra
 		// offerta. Il legame non si calcola sulla posta in uscita ai clienti: incerto.
-		out.Atto, out.Legame = AttoOfferta, LegameIncerto
+		out.Legame = LegameIncerto
 		out.Motivi = []string{"nostra mail a un cliente: la nostra offerta, o una risposta"}
 	}
 	return out
@@ -607,8 +656,9 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 	if out.Codici == nil {
 		out.Codici = []string{}
 	}
-	atto, perche := AttoFornitore(in.Mittente, in.Oggetto, in.Corpo, in.NomiAllegati)
-	out.Atto, out.Legame = atto, LegameNessuno
+	// l'atto è dell'evento (E3, che chiama lo stesso AttoFornitore): qui serve la frase
+	_, perche := AttoFornitore(in.Mittente, in.Oggetto, in.Corpo, in.NomiAllegati)
+	out.Legame = LegameNessuno
 	motivi = append(motivi, "mittente censito come fornitore: non è una richiesta di un cliente, quindi mai una RFQ nuova", perche)
 	if k, ok := MiglioreCandidatoRichiesta(in.CandidatiRichiesta); ok {
 		out.CandidatoRichiesta = &k
@@ -620,6 +670,12 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 		// come nel ramo cliente: «aggancia» va verso la richiesta aperta più forte
 		if a, aperta := MiglioreCandidatoAperto(in.Candidati); aperta {
 			k = a
+		}
+		// a pari merito nessuna RFQ si propone (P37), come nel ramo cliente: e nemmeno l'evidenza di una
+		// sola delle due finisce fra i motivi, che direbbero di una RFQ ciò che vale per tutte e due
+		if g, pari := pariMerito(in.Candidati); pari {
+			out.Esito, out.Confidenza, out.Motivi, out.Legame = "aggancia", g.Score, append(motivi, FrasePariMerito), LegameRisposta
+			return out
 		}
 		out.Candidato = &k
 		motivi = append(motivi, k.Evidenza)
@@ -640,13 +696,12 @@ func triageFornitore(in IngressoTriage, motivi []string) EsitoTriage {
 func triageSconosciuto(in IngressoTriage, motivi []string) EsitoTriage {
 	e := in.Motore.Estrai(in.Testi()...)
 	out := EsitoTriage{Esito: "ignora", Confidenza: 0, Codici: dedup(SoloCodici(e.Proponibili())), Trovati: e.Codici,
-		Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e, Atto: AttoIncerto, Legame: LegameNessuno}
+		Riferimento: e.Riferimento, RiferimentoNome: e.RiferimentoNome, Estrazione: e, Legame: LegameNessuno}
 	if out.Codici == nil {
 		out.Codici = []string{}
 	}
 	if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
-		out.Atto = AttoNonBusiness
-		motivi = append(motivi, m)
+		motivi = append(motivi, m) // l'atto non_business lo dà l'evento (E2)
 	}
 	motivi = append(motivi, "mittente non censito: prima si decide chi è (Censisci come cliente o fornitore), poi che cosa vuole. Nessuna RFQ nuova da qui")
 	if k, ok := MiglioreCandidato(in.Candidati); ok {
@@ -654,11 +709,18 @@ func triageSconosciuto(in IngressoTriage, motivi []string) EsitoTriage {
 		if a, aperta := MiglioreCandidatoAperto(in.Candidati); aperta {
 			k = a
 		}
-		out.Candidato = &k
-		motivi = append(motivi, k.Evidenza)
-		out.Legame = LegameIncerto
-		if EvidenzaDiRFQEsistente(in.Candidati) {
-			out.Esito, out.Confidenza, out.Legame = "aggancia", k.Punteggio, LegameRisposta
+		if g, pari := pariMerito(in.Candidati); pari {
+			// a pari merito nessuna RFQ si propone (P37), come nel ramo cliente, e fra i motivi non va
+			// l'evidenza di una sola delle due
+			out.Esito, out.Confidenza, out.Legame = "aggancia", g.Score, LegameRisposta
+			motivi = append(motivi, FrasePariMerito)
+		} else {
+			out.Candidato = &k
+			motivi = append(motivi, k.Evidenza)
+			out.Legame = LegameIncerto
+			if EvidenzaDiRFQEsistente(in.Candidati) {
+				out.Esito, out.Confidenza, out.Legame = "aggancia", k.Punteggio, LegameRisposta
+			}
 		}
 	}
 	out.Motivi = motivi

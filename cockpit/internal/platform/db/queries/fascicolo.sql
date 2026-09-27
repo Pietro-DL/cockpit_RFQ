@@ -12,7 +12,12 @@ SELECT * FROM v_thread_bloccanti WHERE thread_id = $1;
 --
 -- Una proposta aperta che l'operatore ha deciso (fonte = 'operatore', B8.7b: tipo, codice e revisione dal
 -- cassetto «Da verificare») resta com'e': una lettura che arriva dopo non riscrive una decisione, e quello
--- che dice finisce nei dettagli (lettura_dopo). E' la regola di D16 (propostaDelDocumento), estesa.
+-- che dice finisce nei dettagli (lettura_dopo), e la sua valutazione per dimensione prende il posto di quella
+-- di prima: e' una lettura, non una decisione (Smistamento F4, A5.14.7).
+--
+-- Una proposta aperta prende i dettagli della lettura nuova, ma conserva le chiavi che non sono una lettura:
+-- la destinazione calcolata dal flusso e la storia delle decisioni revocate (Smistamento F4, prove 190 e
+-- 231). Le colonne sono il riepilogo della valutazione (classificazione.ConValutazione).
 INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (allegato_id) DO UPDATE SET
@@ -29,10 +34,20 @@ ON CONFLICT (allegato_id) DO UPDATE SET
                     WHEN documento_proposta.fonte = 'operatore'
                     THEN documento_proposta.dettagli || jsonb_build_object('lettura_dopo', jsonb_build_object(
                              'tipo', EXCLUDED.tipo_proposto, 'codice', EXCLUDED.codice, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
+                         || CASE WHEN EXCLUDED.dettagli ? 'valutazione'
+                                 THEN jsonb_build_object('valutazione', EXCLUDED.dettagli -> 'valutazione') ELSE '{}'::jsonb END
                     WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
                          AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
                     THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
-                    ELSE EXCLUDED.dettagli END
+                         || CASE WHEN documento_proposta.dettagli ? 'destinazione'
+                                 THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
+                         || CASE WHEN documento_proposta.dettagli ? 'storia'
+                                 THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END
+                    ELSE EXCLUDED.dettagli
+                         || CASE WHEN documento_proposta.dettagli ? 'destinazione'
+                                 THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
+                         || CASE WHEN documento_proposta.dettagli ? 'storia'
+                                 THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END END
 RETURNING *;
 
 -- name: InsertPropostaSeAssente :exec
@@ -56,10 +71,6 @@ SELECT p.*, a.nome_file, a.estensione, a.bytes, a.sha256, a.path_staging, a.mess
 FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id
 WHERE p.thread_id = $1 AND p.stato = 'aperta'
 ORDER BY a.ricevuto_il, a.messaggio_id, a.contenitore_id NULLS FIRST, a.indice;
-
--- name: ListProposteBulk :many
-SELECT p.* FROM documento_proposta p
-WHERE p.thread_id = $1 AND p.stato = 'aperta' AND p.confidenza >= $2 AND p.tipo_proposto <> 'rumore';
 
 -- name: DecidiProposta :execrows
 UPDATE documento_proposta SET stato = $2, deciso_da = $3, deciso_il = now() WHERE proposta_id = $1 AND stato = 'aperta';

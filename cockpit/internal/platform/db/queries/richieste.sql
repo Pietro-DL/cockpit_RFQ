@@ -133,12 +133,16 @@ UPDATE bozza SET stato = 'inviata', inviata_messaggio_id = $2 WHERE bozza_id = $
 -- name: ContaRichiesteAperte :one
 SELECT count(*) FROM richiesta_fornitore WHERE thread_id = $1 AND stato IN ('bozza', 'inviata');
 
--- name: RiproponiAllegatiComeOffertaFornitore :execrows
+-- name: ListProposteRispostaFornitore :many
 -- Alla conferma «e' la risposta del fornitore» le proposte ancora aperte sui suoi allegati (file, non
--- inline) diventano `offerta_fornitore`: e' il tipo che le porta in OFFERTE FORNITORI della RFQ cliente.
--- Solo le proposte APERTE: una gia' confermata o scartata e' una decisione. E nemmeno quelle con la fonte
--- `operatore` (Smistamento P23): il tipo l'ha scritto una persona, e un gesto sui fornitori non lo riscrive.
-UPDATE documento_proposta p SET tipo_proposto = 'offerta_fornitore'
-FROM allegato a
-WHERE p.allegato_id = a.allegato_id AND a.messaggio_id = $1 AND p.stato = 'aperta' AND p.fonte <> 'operatore'
-  AND a.natura = 'file' AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx');
+-- inline) ricevono l'evidenza `risposta_fornitore` nella valutazione del tipo: e' il tipo `offerta_fornitore`
+-- che le porta in OFFERTE FORNITORI della RFQ cliente, se nessuna lettura del contenuto e' piu' forte
+-- (Smistamento F4). Solo le proposte APERTE: una gia' confermata o scartata e' una decisione. E nemmeno
+-- quelle con la fonte `operatore` (Smistamento P23): il tipo l'ha scritto una persona, e un gesto sui
+-- fornitori non lo riscrive. Bloccate: la riscrittura le prende una per una.
+SELECT p.*, a.nome_file, a.estensione, a.bytes, a.origine, a.messaggio_id
+FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id
+WHERE a.messaggio_id = $1 AND p.stato = 'aperta' AND p.fonte <> 'operatore'
+  AND a.natura = 'file' AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx')
+ORDER BY a.indice
+FOR UPDATE OF p;

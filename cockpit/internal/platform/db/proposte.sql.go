@@ -13,6 +13,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const aggiornaValutazioneProposta = `-- name: AggiornaValutazioneProposta :execrows
+UPDATE documento_proposta SET tipo_proposto = $1,
+       codice = CASE WHEN componente_id IS NULL THEN $2 ELSE codice END,
+       rev = $3, confidenza = $4, fonte = $5, regola_id = NULL,
+       dettagli = dettagli || $6::jsonb
+WHERE proposta_id = $7 AND stato = 'aperta' AND fonte <> 'operatore'
+`
+
+type AggiornaValutazionePropostaParams struct {
+	TipoProposto TipoDocumento   `json:"tipo_proposto"`
+	Codice       pgtype.Text     `json:"codice"`
+	Rev          pgtype.Text     `json:"rev"`
+	Confidenza   int16           `json:"confidenza"`
+	Fonte        FonteProposta   `json:"fonte"`
+	Dettagli     json.RawMessage `json:"dettagli"`
+	PropostaID   uuid.UUID       `json:"proposta_id"`
+}
+
+// Una lettura nuova di un file che arriva senza un risultato del worker (la radice dello STEP classificata
+// con le regole della RFQ, il gesto «e' la risposta del fornitore»): la valutazione per dimensione va nei
+// dettagli e le colonne sono il suo riepilogo (Smistamento F4, A5.14.7; prima era la D16, che riscriveva
+// codice e fonte con la radice). regola_id = NULL: gli score stanno nella tabella S1, non in `regola`, e
+// un regola_id rimasto da prima attribuirebbe la lettura a un'altra regola.
+//
+// Solo una proposta aperta, e non con fonte = 'operatore': una lettura non corregge una decisione. Il codice
+// di una proposta gia' assegnata a un componente e' quello del componente e resta (B8.7: la FK lo vuole).
+func (q *Queries) AggiornaValutazioneProposta(ctx context.Context, arg AggiornaValutazionePropostaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, aggiornaValutazioneProposta,
+		arg.TipoProposto,
+		arg.Codice,
+		arg.Rev,
+		arg.Confidenza,
+		arg.Fonte,
+		arg.Dettagli,
+		arg.PropostaID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const bloccaComponenteProposta = `-- name: BloccaComponenteProposta :one
 SELECT proposta_id, thread_id, allegato_id, sha256, chiave, nome_grezzo, id_grezzo, descrizione, codice, rev, origine_codice, famiglia, tipo_proposto, fonte, confidenza, evidenza, stato, componente_id, deciso_da, deciso_il, creato_il, nota FROM componente_proposta WHERE proposta_id = $1 FOR UPDATE
 `
@@ -704,42 +746,6 @@ func (q *Queries) ProdottoDelloStepStrutturale(ctx context.Context, arg Prodotto
 		&i.StepStrutturaleID,
 	)
 	return i, err
-}
-
-const propostaDocumentoDaRadice = `-- name: PropostaDocumentoDaRadice :execrows
-UPDATE documento_proposta SET codice = $1, rev = $2, fonte = 'regola_cliente', regola_id = NULL,
-       confidenza = $3, dettagli = dettagli || $4::jsonb
-WHERE allegato_id = $5 AND stato = 'aperta' AND componente_id IS NULL AND fonte <> 'operatore'
-`
-
-type PropostaDocumentoDaRadiceParams struct {
-	Codice     pgtype.Text     `json:"codice"`
-	Rev        pgtype.Text     `json:"rev"`
-	Confidenza int16           `json:"confidenza"`
-	Dettagli   json.RawMessage `json:"dettagli"`
-	AllegatoID uuid.UUID       `json:"allegato_id"`
-}
-
-// D16: la radice dello STEP riconosciuta da una famiglia del cliente corregge la proposta del
-// documento, finche' e' aperta. fonte = 'regola_cliente' e regola_id = NULL: le famiglie stanno in
-// cliente.regole, non in `regola`, quindi non c'e' un regola_id da scrivere, e uno rimasto da prima
-// attribuirebbe la lettura a un'altra regola. Famiglia, dove e testo del riconoscimento vanno nei
-// dettagli; l'evidenza strutturata del nodo resta componente_proposta. Una proposta gia' assegnata a un
-// componente ha il codice del componente e non si tocca (B8.7: la FK la rifiuterebbe). Nemmeno una con
-// fonte = 'operatore': il codice l'ha scritto una persona, e una famiglia del cliente e' una lettura,
-// non una decisione che la possa correggere.
-func (q *Queries) PropostaDocumentoDaRadice(ctx context.Context, arg PropostaDocumentoDaRadiceParams) (int64, error) {
-	result, err := q.db.Exec(ctx, propostaDocumentoDaRadice,
-		arg.Codice,
-		arg.Rev,
-		arg.Confidenza,
-		arg.Dettagli,
-		arg.AllegatoID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const riconciliaProposteNodo = `-- name: RiconciliaProposteNodo :execrows

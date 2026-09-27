@@ -44,6 +44,78 @@ func (q *Queries) AggiornaTriageCandidato(ctx context.Context, arg AggiornaTriag
 	return result.RowsAffected(), nil
 }
 
+const citatiPerChiavi = `-- name: CitatiPerChiavi :many
+
+SELECT m.messaggio_id, m.chiave_esterna, m.data_evento, m.mittente_indirizzo, m.destinatari,
+       m.thread_id, t.stato AS stato_thread,
+       b.thread_id AS thread_bozza, tb.stato AS stato_bozza,
+       mr.thread_id AS thread_risposta, tr.stato AS stato_risposta
+FROM messaggio m
+LEFT JOIN thread_offerta t  ON t.thread_id = m.thread_id
+LEFT JOIN bozza b           ON b.inviata_messaggio_id = m.messaggio_id
+LEFT JOIN thread_offerta tb ON tb.thread_id = b.thread_id
+LEFT JOIN messaggio mr      ON mr.messaggio_id = b.in_risposta_a
+LEFT JOIN thread_offerta tr ON tr.thread_id = mr.thread_id
+WHERE m.canale = 'outlook' AND m.chiave_esterna = ANY($1::text[])
+  AND (m.thread_id IS NOT NULL OR b.thread_id IS NOT NULL OR mr.thread_id IS NOT NULL)
+ORDER BY m.data_evento, m.messaggio_id
+`
+
+type CitatiPerChiaviRow struct {
+	MessaggioID       uuid.UUID       `json:"messaggio_id"`
+	ChiaveEsterna     string          `json:"chiave_esterna"`
+	DataEvento        time.Time       `json:"data_evento"`
+	MittenteIndirizzo pgtype.Text     `json:"mittente_indirizzo"`
+	Destinatari       json.RawMessage `json:"destinatari"`
+	ThreadID          uuid.NullUUID   `json:"thread_id"`
+	StatoThread       NullStatoThread `json:"stato_thread"`
+	ThreadBozza       uuid.NullUUID   `json:"thread_bozza"`
+	StatoBozza        NullStatoThread `json:"stato_bozza"`
+	ThreadRisposta    uuid.NullUUID   `json:"thread_risposta"`
+	StatoRisposta     NullStatoThread `json:"stato_risposta"`
+}
+
+// ---------------------------------------------------------------- le sorgenti delle regole R0–R5
+// R0: i Message-ID citati da In-Reply-To e References, con cio' che serve a VERIFICARLI (Smistamento
+// M1, A5.16.3): mittente e destinatari del messaggio citato (il mittente nuovo era fra loro?) e le RFQ a
+// cui il citato appartiene. Sono tre strade: il citato e' agganciato (m.thread_id); oppure e' la nostra
+// mail preparata dal Cockpit, e allora vale la RFQ per cui e' stata preparata la bozza (b.thread_id) o
+// quella DI ADESSO della mail a cui la bozza rispondeva (mr.thread_id). La nostra mail inviata resta
+// orfana finche' qualcuno non la aggancia: senza la bozza, la risposta del cliente non trovava niente.
+// Il canale sta nella condizione perche' l'indice unico e' (canale, chiave_esterna): senza, ogni
+// messaggio con delle References scorreva tutta la tabella dei messaggi.
+func (q *Queries) CitatiPerChiavi(ctx context.Context, chiavi []string) ([]CitatiPerChiaviRow, error) {
+	rows, err := q.db.Query(ctx, citatiPerChiavi, chiavi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CitatiPerChiaviRow{}
+	for rows.Next() {
+		var i CitatiPerChiaviRow
+		if err := rows.Scan(
+			&i.MessaggioID,
+			&i.ChiaveEsterna,
+			&i.DataEvento,
+			&i.MittenteIndirizzo,
+			&i.Destinatari,
+			&i.ThreadID,
+			&i.StatoThread,
+			&i.ThreadBozza,
+			&i.StatoBozza,
+			&i.ThreadRisposta,
+			&i.StatoRisposta,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const contaCandidatiAggancio = `-- name: ContaCandidatiAggancio :one
 SELECT count(*) FROM candidato_aggancio WHERE messaggio_id = $1
 `
@@ -53,6 +125,67 @@ func (q *Queries) ContaCandidatiAggancio(ctx context.Context, messaggioID uuid.U
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const conversazioneConIndici = `-- name: ConversazioneConIndici :many
+SELECT t.thread_id, t.stato, t.cliente_id, COALESCE(mo.conversation_index, '')::text AS indice
+FROM messaggio m
+JOIN thread_offerta t          ON t.thread_id = m.thread_id
+LEFT JOIN messaggio_outlook mo ON mo.messaggio_id = m.messaggio_id
+WHERE m.conversazione_id = $1 AND m.messaggio_id <> $2
+UNION ALL
+SELECT t.thread_id, t.stato, t.cliente_id, COALESCE(mo.conversation_index, '')::text AS indice
+FROM messaggio m
+JOIN bozza b                   ON b.inviata_messaggio_id = m.messaggio_id
+LEFT JOIN messaggio mr         ON mr.messaggio_id = b.in_risposta_a
+JOIN thread_offerta t          ON t.thread_id IN (b.thread_id, mr.thread_id)
+LEFT JOIN messaggio_outlook mo ON mo.messaggio_id = m.messaggio_id
+WHERE m.conversazione_id = $1 AND m.messaggio_id <> $2 AND m.thread_id IS NULL
+`
+
+type ConversazioneConIndiciParams struct {
+	ConversazioneID uuid.UUID `json:"conversazione_id"`
+	Escluso         uuid.UUID `json:"escluso"`
+}
+
+type ConversazioneConIndiciRow struct {
+	ThreadID  uuid.UUID   `json:"thread_id"`
+	Stato     StatoThread `json:"stato"`
+	ClienteID uuid.UUID   `json:"cliente_id"`
+	Indice    string      `json:"indice"`
+}
+
+// R1 con il ConversationIndex (Smistamento M1): i messaggi della stessa conversazione che stanno in una
+// RFQ, con il loro indice. Stanno in una RFQ se sono agganciati, oppure se sono la nostra mail preparata
+// dal Cockpit per quella RFQ (ancora orfana: la risposta che segue discende da lei). `escluso` e' il
+// messaggio di cui si calcolano i candidati: il suo indice non conta come antenato di se stesso.
+// La nostra mail del Cockpit porta a DUE RFQ quando le origini non coincidono: quella della bozza
+// (b.thread_id) e quella DI ADESSO della mail a cui rispondeva (mr.thread_id), le stesse due strade di
+// CitatiPerChiavi. R1 le considera tutte e due, come R0 e il box del pannello: seguirne una sola
+// vorrebbe dire scegliere per l'operatore quale delle due origini conta.
+func (q *Queries) ConversazioneConIndici(ctx context.Context, arg ConversazioneConIndiciParams) ([]ConversazioneConIndiciRow, error) {
+	rows, err := q.db.Query(ctx, conversazioneConIndici, arg.ConversazioneID, arg.Escluso)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ConversazioneConIndiciRow{}
+	for rows.Next() {
+		var i ConversazioneConIndiciRow
+		if err := rows.Scan(
+			&i.ThreadID,
+			&i.Stato,
+			&i.ClienteID,
+			&i.Indice,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const eliminaCandidatiAggancio = `-- name: EliminaCandidatiAggancio :execrows
@@ -145,12 +278,12 @@ func (q *Queries) InsertCandidatoCodice(ctx context.Context, arg InsertCandidato
 
 const listCandidatiAggancio = `-- name: ListCandidatiAggancio :many
 SELECT k.messaggio_id, k.thread_id, k.regola, k.punteggio, k.evidenza, k.thread_stato,
-       t.oggetto, t.data_inizio, t.riferimento_cliente, c.ragione_sociale AS cliente
+       t.oggetto, t.data_inizio, t.riferimento_cliente, c.ragione_sociale AS cliente, t.cartella_relativa
 FROM candidato_aggancio k
 JOIN thread_offerta t ON t.thread_id = k.thread_id
 JOIN cliente c        ON c.cliente_id = t.cliente_id
 WHERE k.messaggio_id = $1
-ORDER BY k.punteggio DESC, k.regola
+ORDER BY k.punteggio DESC, k.regola, t.data_inizio DESC, k.thread_id
 `
 
 type ListCandidatiAggancioRow struct {
@@ -164,10 +297,13 @@ type ListCandidatiAggancioRow struct {
 	DataInizio         time.Time      `json:"data_inizio"`
 	RiferimentoCliente pgtype.Text    `json:"riferimento_cliente"`
 	Cliente            string         `json:"cliente"`
+	CartellaRelativa   pgtype.Text    `json:"cartella_relativa"`
 }
 
 // ListCandidatiAggancio: tutti i candidati di un messaggio, i piu' forti in cima. TUTTI, non il primo:
-// scegliere per l'operatore e' esattamente cio' che questo checkpoint toglie (T16).
+// scegliere per l'operatore e' esattamente cio' che questo checkpoint toglie (T16). Lo spareggio e'
+// stabile (Smistamento M1): a parita' di punteggio e di regola la RFQ piu' recente, poi l'id, cosi' due
+// letture della stessa pagina mettono le card nello stesso ordine.
 func (q *Queries) ListCandidatiAggancio(ctx context.Context, messaggioID uuid.UUID) ([]ListCandidatiAggancioRow, error) {
 	rows, err := q.db.Query(ctx, listCandidatiAggancio, messaggioID)
 	if err != nil {
@@ -188,6 +324,7 @@ func (q *Queries) ListCandidatiAggancio(ctx context.Context, messaggioID uuid.UU
 			&i.DataInizio,
 			&i.RiferimentoCliente,
 			&i.Cliente,
+			&i.CartellaRelativa,
 		); err != nil {
 			return nil, err
 		}
@@ -268,6 +405,121 @@ func (q *Queries) ListOrfaniConversazione(ctx context.Context, arg ListOrfaniCon
 	return items, nil
 }
 
+const origineCockpit = `-- name: OrigineCockpit :many
+
+SELECT b.inviata_messaggio_id::uuid AS messaggio_id, b.bozza_id, b.thread_id, b.in_risposta_a,
+       mr.thread_id AS thread_risposta, mr.oggetto AS oggetto_risposta, mr.data_evento AS data_risposta,
+       b.creata_il, u.sigla,
+       tb.oggetto AS oggetto_thread, tr.oggetto AS oggetto_thread_risposta
+FROM bozza b
+JOIN utente u               ON u.utente_id = b.creata_da
+LEFT JOIN messaggio mr      ON mr.messaggio_id = b.in_risposta_a
+LEFT JOIN thread_offerta tb ON tb.thread_id = b.thread_id
+LEFT JOIN thread_offerta tr ON tr.thread_id = mr.thread_id
+WHERE b.inviata_messaggio_id = ANY($1::uuid[])
+ORDER BY b.creata_il, b.bozza_id
+`
+
+type OrigineCockpitRow struct {
+	MessaggioID           uuid.UUID     `json:"messaggio_id"`
+	BozzaID               uuid.UUID     `json:"bozza_id"`
+	ThreadID              uuid.NullUUID `json:"thread_id"`
+	InRispostaA           uuid.NullUUID `json:"in_risposta_a"`
+	ThreadRisposta        uuid.NullUUID `json:"thread_risposta"`
+	OggettoRisposta       pgtype.Text   `json:"oggetto_risposta"`
+	DataRisposta          *time.Time    `json:"data_risposta"`
+	CreataIl              time.Time     `json:"creata_il"`
+	Sigla                 string        `json:"sigla"`
+	OggettoThread         pgtype.Text   `json:"oggetto_thread"`
+	OggettoThreadRisposta pgtype.Text   `json:"oggetto_thread_risposta"`
+}
+
+// ---------------------------------------------------------------- l'origine Cockpit (Smistamento M1)
+// OrigineCockpit: la nostra mail preparata dal Cockpit (D84). La bozza da cui nasce, la RFQ per cui e'
+// stata preparata e quella DI ADESSO della mail a cui rispondeva. Si legge ogni volta, e non si scrive
+// niente: una bozza non si aggiorna quando la mail a cui rispondeva viene agganciata dopo, e la nostra
+// mail non si aggancia da sola. Una query per pagina: `messaggi` sono gli id della lista o del pannello.
+func (q *Queries) OrigineCockpit(ctx context.Context, messaggi []uuid.UUID) ([]OrigineCockpitRow, error) {
+	rows, err := q.db.Query(ctx, origineCockpit, messaggi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrigineCockpitRow{}
+	for rows.Next() {
+		var i OrigineCockpitRow
+		if err := rows.Scan(
+			&i.MessaggioID,
+			&i.BozzaID,
+			&i.ThreadID,
+			&i.InRispostaA,
+			&i.ThreadRisposta,
+			&i.OggettoRisposta,
+			&i.DataRisposta,
+			&i.CreataIl,
+			&i.Sigla,
+			&i.OggettoThread,
+			&i.OggettoThreadRisposta,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const origineRichiesta = `-- name: OrigineRichiesta :many
+SELECT m.messaggio_id, r.richiesta_id, r.thread_id, r.creata_il, u.sigla, f.ragione_sociale AS fornitore
+FROM messaggio m
+JOIN richiesta_fornitore r ON r.richiesta_id = m.richiesta_fornitore_id AND r.messaggio_id = m.messaggio_id
+JOIN fornitore f           ON f.fornitore_id = r.fornitore_id
+LEFT JOIN utente u         ON u.utente_id = r.creata_da
+WHERE m.messaggio_id = ANY($1::uuid[]) AND m.direzione = 'uscita'
+ORDER BY r.creata_il, r.richiesta_id
+`
+
+type OrigineRichiestaRow struct {
+	MessaggioID uuid.UUID   `json:"messaggio_id"`
+	RichiestaID uuid.UUID   `json:"richiesta_id"`
+	ThreadID    uuid.UUID   `json:"thread_id"`
+	CreataIl    time.Time   `json:"creata_il"`
+	Sigla       pgtype.Text `json:"sigla"`
+	Fornitore   string      `json:"fornitore"`
+}
+
+// OrigineRichiesta: la nostra mail di una richiesta a un fornitore, legata dal marcatore
+// CockpitRichiestaFornitore (D85). Il marcatore lega la richiesta e basta: la mail resta orfana, e la
+// RFQ della richiesta diventa un candidato molto forte, che una persona conferma.
+func (q *Queries) OrigineRichiesta(ctx context.Context, messaggi []uuid.UUID) ([]OrigineRichiestaRow, error) {
+	rows, err := q.db.Query(ctx, origineRichiesta, messaggi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OrigineRichiestaRow{}
+	for rows.Next() {
+		var i OrigineRichiestaRow
+		if err := rows.Scan(
+			&i.MessaggioID,
+			&i.RichiestaID,
+			&i.ThreadID,
+			&i.CreataIl,
+			&i.Sigla,
+			&i.Fornitore,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setRiferimentoCliente = `-- name: SetRiferimentoCliente :exec
 UPDATE thread_offerta SET riferimento_cliente = $2 WHERE thread_id = $1
 `
@@ -283,64 +535,27 @@ func (q *Queries) SetRiferimentoCliente(ctx context.Context, arg SetRiferimentoC
 }
 
 const threadDellaConversazioneConStato = `-- name: ThreadDellaConversazioneConStato :one
-SELECT c.thread_id, t.stato
+SELECT c.thread_id, t.stato, t.cliente_id
 FROM conversazione c JOIN thread_offerta t ON t.thread_id = c.thread_id
 WHERE c.conversazione_id = $1 AND c.thread_id IS NOT NULL
 `
 
 type ThreadDellaConversazioneConStatoRow struct {
-	ThreadID uuid.NullUUID `json:"thread_id"`
-	Stato    StatoThread   `json:"stato"`
+	ThreadID  uuid.NullUUID `json:"thread_id"`
+	Stato     StatoThread   `json:"stato"`
+	ClienteID uuid.UUID     `json:"cliente_id"`
 }
 
-// R1: la conversazione, se un operatore l'ha gia' collegata a una RFQ.
+// R1: la conversazione, se un operatore l'ha gia' collegata a una RFQ, con il cliente della RFQ.
 func (q *Queries) ThreadDellaConversazioneConStato(ctx context.Context, conversazioneID uuid.UUID) (ThreadDellaConversazioneConStatoRow, error) {
 	row := q.db.QueryRow(ctx, threadDellaConversazioneConStato, conversazioneID)
 	var i ThreadDellaConversazioneConStatoRow
-	err := row.Scan(&i.ThreadID, &i.Stato)
+	err := row.Scan(&i.ThreadID, &i.Stato, &i.ClienteID)
 	return i, err
 }
 
-const threadPerChiaviCitate = `-- name: ThreadPerChiaviCitate :many
-
-SELECT DISTINCT m.thread_id, m.chiave_esterna, t.stato
-FROM messaggio m
-JOIN thread_offerta t ON t.thread_id = m.thread_id
-WHERE m.canale = 'outlook' AND m.chiave_esterna = ANY($1::text[]) AND m.thread_id IS NOT NULL
-`
-
-type ThreadPerChiaviCitateRow struct {
-	ThreadID      uuid.NullUUID `json:"thread_id"`
-	ChiaveEsterna string        `json:"chiave_esterna"`
-	Stato         StatoThread   `json:"stato"`
-}
-
-// ---------------------------------------------------------------- le sorgenti delle regole R0–R5
-// R0: i Message-ID citati da In-Reply-To e References, risolti su messaggi GIA' agganciati.
-// Il canale sta nella condizione perche' l'indice unico e' (canale, chiave_esterna): senza, ogni
-// messaggio con delle References scorreva tutta la tabella dei messaggi.
-func (q *Queries) ThreadPerChiaviCitate(ctx context.Context, chiavi []string) ([]ThreadPerChiaviCitateRow, error) {
-	rows, err := q.db.Query(ctx, threadPerChiaviCitate, chiavi)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ThreadPerChiaviCitateRow{}
-	for rows.Next() {
-		var i ThreadPerChiaviCitateRow
-		if err := rows.Scan(&i.ThreadID, &i.ChiaveEsterna, &i.Stato); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const threadPerCodiciCliente = `-- name: ThreadPerCodiciCliente :many
-SELECT DISTINCT t.thread_id, t.stato, t.data_inizio, i.codice
+SELECT DISTINCT t.thread_id, t.stato, t.data_inizio, i.codice, t.buyer_id
 FROM identificativo_thread i
 JOIN thread_offerta t ON t.thread_id = i.thread_id
 WHERE t.cliente_id = $1 AND t.unito_in IS NULL
@@ -357,14 +572,16 @@ type ThreadPerCodiciClienteParams struct {
 }
 
 type ThreadPerCodiciClienteRow struct {
-	ThreadID   uuid.UUID   `json:"thread_id"`
-	Stato      StatoThread `json:"stato"`
-	DataInizio time.Time   `json:"data_inizio"`
-	Codice     string      `json:"codice"`
+	ThreadID   uuid.UUID     `json:"thread_id"`
+	Stato      StatoThread   `json:"stato"`
+	DataInizio time.Time     `json:"data_inizio"`
+	Codice     string        `json:"codice"`
+	BuyerID    uuid.NullUUID `json:"buyer_id"`
 }
 
 // R3: un codice gia' identificativo di una RFQ dello stesso cliente. Solo dello stesso cliente: due
-// clienti diversi usano gli stessi numeri e non vuol dire niente (T4).
+// clienti diversi usano gli stessi numeri e non vuol dire niente (T4). Il buyer della RFQ distingue le
+// due varianti di R3 (Smistamento M1): stesso buyer sopra, buyer diverso o non noto sotto.
 func (q *Queries) ThreadPerCodiciCliente(ctx context.Context, arg ThreadPerCodiciClienteParams) ([]ThreadPerCodiciClienteRow, error) {
 	rows, err := q.db.Query(ctx, threadPerCodiciCliente, arg.ClienteID, arg.Codici, arg.Dal)
 	if err != nil {
@@ -379,6 +596,7 @@ func (q *Queries) ThreadPerCodiciCliente(ctx context.Context, arg ThreadPerCodic
 			&i.Stato,
 			&i.DataInizio,
 			&i.Codice,
+			&i.BuyerID,
 		); err != nil {
 			return nil, err
 		}
@@ -533,4 +751,42 @@ func (q *Queries) ThreadRecentiBuyer(ctx context.Context, arg ThreadRecentiBuyer
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertCandidatoAggancioPiuForte = `-- name: UpsertCandidatoAggancioPiuForte :exec
+INSERT INTO candidato_aggancio (messaggio_id, thread_id, regola, punteggio, evidenza, thread_stato)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (messaggio_id, thread_id, regola) DO UPDATE
+    SET punteggio = EXCLUDED.punteggio, evidenza = EXCLUDED.evidenza, thread_stato = EXCLUDED.thread_stato
+    WHERE EXCLUDED.punteggio > candidato_aggancio.punteggio
+       OR candidato_aggancio.punteggio <> ALL($7::smallint[])
+`
+
+type UpsertCandidatoAggancioPiuForteParams struct {
+	MessaggioID uuid.UUID      `json:"messaggio_id"`
+	ThreadID    uuid.UUID      `json:"thread_id"`
+	Regola      RegolaAggancio `json:"regola"`
+	Punteggio   int16          `json:"punteggio"`
+	Evidenza    string         `json:"evidenza"`
+	ThreadStato StatoThread    `json:"thread_stato"`
+	Attuali     []int16        `json:"attuali"`
+}
+
+// UpsertCandidatoAggancioPiuForte: lo stesso inserimento, ma una riga gia' scritta si sostituisce solo con
+// una variante PIU' FORTE della stessa regola (Smistamento M1, K25). La chiave e' (messaggio, RFQ, regola):
+// due varianti di R1 verso la stessa RFQ (l'indice che discende e il solo ConversationID) finiscono nella
+// stessa riga, e il giro degli orfani non deve abbassare quella che l'ingest ha gia' scritto. Una riga con un
+// punteggio che nessuna variante attuale della regola ha (`attuali`) e' delle regole di prima e si
+// sostituisce sempre. Il ricalcolo di un messaggio non passa di qui: cancella e riscrive (Salva).
+func (q *Queries) UpsertCandidatoAggancioPiuForte(ctx context.Context, arg UpsertCandidatoAggancioPiuForteParams) error {
+	_, err := q.db.Exec(ctx, upsertCandidatoAggancioPiuForte,
+		arg.MessaggioID,
+		arg.ThreadID,
+		arg.Regola,
+		arg.Punteggio,
+		arg.Evidenza,
+		arg.ThreadStato,
+		arg.Attuali,
+	)
+	return err
 }

@@ -33,8 +33,9 @@ type EsitoCodiceNuovo struct {
 	Errore string
 	// Esistente: la RFQ ha gia' un componente con questo codice (attivo o archiviato). E' quel pezzo.
 	Esistente *db.Componente
-	// Richiesta: e' un codice della richiesta. Diventa prodotto con la creazione della RFQ (triage) o aprendo
-	// una revisione della BOM congelata (AssicuraProdottiDellaRichiesta), non un componente dall'editor.
+	// Richiesta: e' un codice della richiesta. Diventa prodotto con una decisione del triage
+	// (AssicuraProdottiDellaRichiesta) o, se confermato con la BOM congelata, aprendo la revisione
+	// (AssicuraProdottiDellaRevisione); non un componente dall'editor.
 	Richiesta bool
 	// Vicini: i codici della RFQ quasi uguali (P4). Il componente nasce solo se l'operatore dice che e' un
 	// pezzo diverso.

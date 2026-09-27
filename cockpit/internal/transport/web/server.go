@@ -151,6 +151,12 @@ var funzioni = template.FuncMap{
 		}
 		return fmt.Sprintf("%.0f KB", float64(b.Int64)/1024)
 	},
+	// Smistamento F3 (A5.14.5): la lettura di una proposta per dimensione, una dimensione col suo nome per il
+	// frammento «dimensione», uno score di regola («score N», mai una percentuale), una evidenza in parole.
+	"valutazione": valutazioneDi,
+	"dim":         dimVista,
+	"score":       scoreHTML,
+	"parole":      paroleEvidenza,
 	"motivi": func(m *json.RawMessage) []string {
 		if m == nil {
 			return nil
@@ -219,23 +225,16 @@ var funzioni = template.FuncMap{
 		}
 		return b
 	},
-	"join":      strings.Join,
-	"hasPrefix": strings.HasPrefix,
-	"colore": func(esito pgtype.Text, conf pgtype.Int2) string {
-		if !esito.Valid {
-			return ""
-		}
-		switch esito.String {
-		case "nuova_rfq":
-			if conf.Int16 >= 75 {
-				return "verde"
-			}
-			return "giallo"
-		case "aggancia":
-			return "verde"
-		}
-		return "grigio"
-	},
+	// Smistamento M1: la proposta del triage senza percentuali («RFQ: forte», «nuova RFQ? score 60»)
+	"chipTriage": chipTriage,
+	"join":       strings.Join,
+	"hasPrefix":  strings.HasPrefix,
+	// il colore della riga dell'Inbox, coerente col chip del triage (Smistamento M1)
+	"colore": coloreTriage,
+	// Smistamento M2: il chip dell'evento di una riga (nil se il triage non ha scritto un atto) e i
+	// motivi della proposta senza le righe dell'evento, che si mostrano a parte
+	"eventoRiga":     eventoDellaRiga,
+	"motiviProposta": motiviProposta,
 }
 
 // intero legge un numero intero di qualunque larghezza, per le poche somme dei template.

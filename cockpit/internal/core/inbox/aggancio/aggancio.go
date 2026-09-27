@@ -17,6 +17,7 @@ package aggancio
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -60,6 +61,12 @@ type Ingresso struct {
 	Riferimento string
 	// FinestraGG viene da `cliente.regole.finestra_aggancio_gg`; 0 = usa FinestraDefault.
 	FinestraGG int
+	// Smistamento M1: ciò che serve a VERIFICARE R0 e a far salire R1. Il mittente (era fra i
+	// partecipanti della mail citata?), se il messaggio è un inoltro (classificazione.EInoltro: chi
+	// inoltra si porta dietro le References di un'altra conversazione) e il ConversationIndex.
+	Mittente            string
+	Inoltro             bool
+	IndiceConversazione string
 }
 
 func (in Ingresso) finestra() time.Time {
@@ -70,52 +77,94 @@ func (in Ingresso) finestra() time.Time {
 	return in.DataEvento.AddDate(0, 0, -g)
 }
 
+// raccolta tiene i candidati uno per (RFQ, regola), come la chiave primaria di `candidato_aggancio`.
+// Due varianti della stessa regola verso la stessa RFQ (In-Reply-To e References, R3 con e senza buyer)
+// finiscono nella stessa riga: vince la PIÙ FORTE (K25). Prima vinceva la prima che si incontrava.
+type raccolta struct {
+	out []classificazione.Candidato
+	pos map[string]int
+}
+
+func (r *raccolta) agg(threadID uuid.UUID, tipo, evidenza string, chiuso bool) {
+	k := classificazione.NuovoCandidato(threadID.String(), tipo, evidenza, chiuso)
+	chiave := k.ThreadID + "|" + k.Regola
+	if r.pos == nil {
+		r.pos = map[string]int{}
+	}
+	if i, ok := r.pos[chiave]; ok {
+		if k.Punteggio > r.out[i].Punteggio {
+			r.out[i] = k
+		}
+		return
+	}
+	r.pos[chiave] = len(r.out)
+	r.out = append(r.out, k)
+}
+
 // Calcola interroga il database e restituisce i candidati ordinati, i più forti in cima. Non scrive niente.
 func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione.Candidato, error) {
-	var out []classificazione.Candidato
-	visto := map[string]bool{} // (thread, regola): la stessa regola non parla due volte dello stesso thread
-
-	agg := func(threadID uuid.UUID, regola, evidenza string, chiuso bool) {
-		k := threadID.String() + "|" + regola
-		if visto[k] {
-			return
-		}
-		visto[k] = true
-		out = append(out, classificazione.Candidato{
-			ThreadID: threadID.String(), Regola: regola, Punteggio: classificazione.PuntiRegola[regola],
-			Evidenza: evidenza, Chiuso: chiuso,
-		})
-	}
+	var r raccolta
 
 	// ---- R0: In-Reply-To e References. È l'unico legame che scrive il programma di posta e non una
-	// persona: se c'è, quel messaggio risponde davvero a quell'altro. Non è una somiglianza.
+	// persona: se c'è, quel messaggio risponde davvero a quell'altro. Non è una somiglianza. Ma vale come
+	// prova solo VERIFICATO (M1, P36): chi scrive adesso era fra chi si scriveva allora, e non è un
+	// inoltro. Il messaggio citato sta nella RFQ se è agganciato, oppure se è la nostra mail preparata
+	// dal Cockpit per quella RFQ (D84): la nostra mail inviata resta orfana finché qualcuno non la
+	// aggancia, e prima la risposta del cliente non trovava niente.
 	if chiavi := ChiaviCitate(in.InReplyTo, in.Riferimenti); len(chiavi) > 0 {
-		righe, err := q.ThreadPerChiaviCitate(ctx, chiavi)
+		righe, err := q.CitatiPerChiavi(ctx, chiavi)
 		if err != nil {
 			return nil, fmt.Errorf("R0: %w", err)
 		}
-		for _, r := range righe {
-			if !r.ThreadID.Valid {
-				continue
-			}
+		for _, c := range righe {
+			inReplyTo := strings.Contains(in.InReplyTo, strings.Trim(c.ChiaveEsterna, "<>"))
 			campo := "References"
-			if strings.Contains(in.InReplyTo, strings.Trim(r.ChiaveEsterna, "<>")) {
+			if inReplyTo {
 				campo = "In-Reply-To"
 			}
-			agg(r.ThreadID.UUID, classificazione.R0Reply,
-				fmt.Sprintf("%s punta a un messaggio già agganciato a questa richiesta (%s)", campo, r.ChiaveEsterna),
-				r.Stato == db.StatoThreadCHIUSA)
+			partecipanti := append([]string{c.MittenteIndirizzo.String}, indirizziDestinatari(c.Destinatari)...)
+			verificato, manca := classificazione.R0Verificato(in.Mittente, partecipanti, in.Inoltro)
+			quando := c.DataEvento.Local().Format("02/01")
+			completa := func(tipo, frase string) (string, string) {
+				if !verificato {
+					return classificazione.TipoR0NonVerificato, frase + ", ma " + manca
+				}
+				return tipo, frase + " (" + strings.ToLower(strings.TrimSpace(in.Mittente)) + " era fra i partecipanti)"
+			}
+			if c.ThreadID.Valid {
+				tipo := classificazione.TipoR0References
+				if inReplyTo {
+					tipo = classificazione.TipoR0InReplyTo
+				}
+				tipo, frase := completa(tipo, fmt.Sprintf("%s punta alla mail del %s di questa richiesta", campo, quando))
+				r.agg(c.ThreadID.UUID, tipo, frase, c.StatoThread.StatoThread == db.StatoThreadCHIUSA)
+			}
+			// la nostra mail preparata dal Cockpit: la RFQ della bozza e quella di adesso della mail a cui
+			// rispondeva. Due diverse sono due candidati della stessa forza: nessuno si propone.
+			for _, t := range classificazione.OrigineDaBozza(uuidTesto(c.ThreadBozza), uuidTesto(c.ThreadRisposta)) {
+				tid, _ := uuid.Parse(t)
+				perche := "preparata dal Cockpit per questa richiesta"
+				chiusa := c.StatoBozza.StatoThread == db.StatoThreadCHIUSA
+				if !c.ThreadBozza.Valid || t != c.ThreadBozza.UUID.String() {
+					perche = "preparata dal Cockpit in risposta a una mail che oggi sta in questa richiesta"
+					chiusa = c.StatoRisposta.StatoThread == db.StatoThreadCHIUSA
+				}
+				tipo, frase := completa(classificazione.TipoR0Cockpit, fmt.Sprintf("%s punta alla nostra mail del %s, %s", campo, quando, perche))
+				r.agg(tid, tipo, frase, chiusa)
+			}
 		}
 	}
 
-	// ---- R1: la conversazione, se un OPERATORE l'ha collegata. `conversazione.thread_id` non viene più
-	// scritto dall'ingest: è una decisione, e per questo può fare da evidenza.
-	if riga, err := q.ThreadDellaConversazioneConStato(ctx, in.ConversazioneID); err == nil && riga.ThreadID.Valid {
-		agg(riga.ThreadID.UUID, classificazione.R1Conversazione,
-			"la conversazione di Outlook è già stata collegata a questa richiesta da un operatore",
-			riga.Stato == db.StatoThreadCHIUSA)
-	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("R1: %w", err)
+	// ---- R1: la conversazione. Forte solo se questa mail è una RISPOSTA nella catena di un messaggio
+	// della RFQ (il ConversationIndex discende) e il cliente è lo stesso (M1, P36). Il solo
+	// ConversationID è debole: Exchange mette nella stessa conversazione la posta con lo stesso oggetto.
+	r1, err := candidatiConversazione(ctx, q, in.ConversazioneID, in.MessaggioID, in.IndiceConversazione, in.ClienteID)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range r1 {
+		tid, _ := uuid.Parse(k.ThreadID)
+		r.agg(tid, k.Tipo, k.Evidenza, k.Chiuso)
 	}
 
 	if in.ClienteID.Valid {
@@ -127,37 +176,41 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione
 			if err != nil {
 				return nil, fmt.Errorf("R4: %w", err)
 			}
-			for _, r := range righe {
-				agg(r.ThreadID, classificazione.R4Riferimento,
+			for _, x := range righe {
+				r.agg(x.ThreadID, classificazione.TipoR4Riferimento,
 					"il riferimento "+in.Riferimento+" è quello di questa richiesta",
-					r.Stato == db.StatoThreadCHIUSA)
+					x.Stato == db.StatoThreadCHIUSA)
 			}
 		}
-		// ---- R3: un codice di famiglia già identificativo di una richiesta dello STESSO cliente.
+		// ---- R3: un codice di famiglia già identificativo di una richiesta dello STESSO cliente. Con lo
+		// stesso buyer della RFQ sale di un livello (M1): è la stessa persona che parla dello stesso pezzo.
 		if len(in.Codici) > 0 {
 			righe, err := q.ThreadPerCodiciCliente(ctx, db.ThreadPerCodiciClienteParams{
 				ClienteID: in.ClienteID.UUID, Codici: maiuscole(in.Codici), Dal: in.finestra()})
 			if err != nil {
 				return nil, fmt.Errorf("R3: %w", err)
 			}
-			for _, r := range righe {
-				agg(r.ThreadID, classificazione.R3Codice,
-					"il codice "+r.Codice+" è già un identificativo di questa richiesta",
-					r.Stato == db.StatoThreadCHIUSA)
+			for _, x := range righe {
+				tipo, frase := classificazione.TipoR3Codice, "il codice "+x.Codice+" è già un identificativo di questa richiesta, ma il buyer è un altro o non è noto"
+				if in.BuyerID.Valid && x.BuyerID.Valid && x.BuyerID.UUID == in.BuyerID.UUID {
+					tipo, frase = classificazione.TipoR3CodiceBuyer, "il codice "+x.Codice+" è già un identificativo di questa richiesta, dello stesso buyer"
+				}
+				r.agg(x.ThreadID, tipo, frase, x.Stato == db.StatoThreadCHIUSA)
 			}
 		}
 		// ---- R2: stesso oggetto, stesso cliente, dentro la finestra. L'oggetto è quello ripulito dai
-		// prefissi di risposta, altrimenti «R: X» e «X» sarebbero due oggetti diversi.
+		// prefissi di risposta, altrimenti «R: X» e «X» sarebbero due oggetti diversi. Molto debole: da
+		// solo non impedisce più di proporre una richiesta nuova (M1).
 		if len(strings.TrimSpace(in.Oggetto)) >= 8 {
 			righe, err := q.ThreadPerOggettoCliente(ctx, db.ThreadPerOggettoClienteParams{
 				ClienteID: in.ClienteID.UUID, Oggetto: strings.TrimSpace(in.Oggetto), Dal: in.finestra()})
 			if err != nil {
 				return nil, fmt.Errorf("R2: %w", err)
 			}
-			for _, r := range righe {
-				agg(r.ThreadID, classificazione.R2Oggetto,
+			for _, x := range righe {
+				r.agg(x.ThreadID, classificazione.TipoR2Oggetto,
 					"stesso oggetto di questa richiesta, entro i giorni della finestra",
-					r.Stato == db.StatoThreadCHIUSA)
+					x.Stato == db.StatoThreadCHIUSA)
 			}
 		}
 	}
@@ -171,12 +224,149 @@ func Calcola(ctx context.Context, q *db.Queries, in Ingresso) ([]classificazione
 		if err != nil {
 			return nil, fmt.Errorf("R5: %w", err)
 		}
-		for _, r := range righe {
-			agg(r.ThreadID, classificazione.R5Buyer,
-				"stesso buyer, richiesta aperta negli ultimi giorni", r.Stato == db.StatoThreadCHIUSA)
+		for _, x := range righe {
+			r.agg(x.ThreadID, classificazione.TipoR5Buyer,
+				"stesso buyer, richiesta aperta negli ultimi giorni", x.Stato == db.StatoThreadCHIUSA)
 		}
 	}
-	return classificazione.OrdinaCandidati(out), nil
+	return classificazione.OrdinaCandidati(r.out), nil
+}
+
+// candidatiConversazione sono i candidati R1 di un messaggio: una RFQ per ogni RFQ che ha messaggi nella
+// stessa conversazione (o a cui un operatore l'ha collegata), con la variante che indice e cliente danno.
+// È la stessa regola per l'ingest e per il giro degli orfani dopo un aggancio (CandidatoConversazione).
+func candidatiConversazione(ctx context.Context, q *db.Queries, conv, messaggio uuid.UUID, indice string, cliente uuid.NullUUID) ([]classificazione.Candidato, error) {
+	type rfq struct {
+		stato     db.StatoThread
+		cliente   uuid.UUID
+		indici    []string
+		collegata bool
+	}
+	per := map[uuid.UUID]*rfq{}
+	var ordine []uuid.UUID
+	prendi := func(t uuid.UUID, stato db.StatoThread, cl uuid.UUID) *rfq {
+		x, ok := per[t]
+		if !ok {
+			x = &rfq{stato: stato, cliente: cl}
+			per[t] = x
+			ordine = append(ordine, t)
+		}
+		return x
+	}
+	// la conversazione collegata da un operatore viene prima: è una decisione, e il suo candidato è quello
+	// che l'operatore si aspetta di vedere in cima a parità di forza
+	if riga, err := q.ThreadDellaConversazioneConStato(ctx, conv); err == nil && riga.ThreadID.Valid {
+		prendi(riga.ThreadID.UUID, riga.Stato, riga.ClienteID).collegata = true
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("R1: %w", err)
+	}
+	righe, err := q.ConversazioneConIndici(ctx, db.ConversazioneConIndiciParams{ConversazioneID: conv, Escluso: messaggio})
+	if err != nil {
+		return nil, fmt.Errorf("R1: %w", err)
+	}
+	for _, x := range righe {
+		t := prendi(x.ThreadID, x.Stato, x.ClienteID)
+		if x.Indice != "" {
+			t.indici = append(t.indici, x.Indice)
+		}
+	}
+	var out []classificazione.Candidato
+	for _, t := range ordine {
+		x := per[t]
+		stesso := cliente.Valid && cliente.UUID == x.cliente
+		tipo := classificazione.TipoR1(indice, x.indici, stesso)
+		var frase string
+		switch tipo {
+		case classificazione.TipoR1Forte:
+			frase = "stessa conversazione di Outlook, e questa mail è una risposta nella catena di una mail di questa richiesta, dello stesso cliente"
+		case classificazione.TipoR1Indice:
+			frase = "questa mail è una risposta nella catena di una mail di questa richiesta, ma il cliente è un altro o non è noto: con lo stesso cliente sarebbe forte"
+		default:
+			frase = "stessa conversazione di Outlook, ma questa mail non risulta una risposta della catena: Exchange può averla messa lì per l'oggetto"
+			if x.collegata {
+				frase = "la conversazione di Outlook è stata collegata a questa richiesta da un operatore, ma questa mail non risulta una risposta della catena"
+			}
+		}
+		out = append(out, classificazione.NuovoCandidato(t.String(), tipo, frase, x.stato == db.StatoThreadCHIUSA))
+	}
+	return out, nil
+}
+
+// CandidatoConversazione è il candidato R1 di un orfano verso la RFQ a cui un operatore ha appena
+// agganciato un altro messaggio della stessa conversazione (il giro degli orfani, T21). Prima era un R1
+// fisso a 95; adesso è la variante che l'indice e il cliente dell'orfano danno (M1): la mail messa nella
+// conversazione per l'oggetto resta debole e non cambia proposta.
+func CandidatoConversazione(ctx context.Context, q *db.Queries, messaggioID, threadID uuid.UUID) (classificazione.Candidato, error) {
+	m, err := q.GetMessaggio(ctx, messaggioID)
+	if err != nil {
+		return classificazione.Candidato{}, err
+	}
+	indice := ""
+	if mo, err := q.GetMessaggioOutlook(ctx, messaggioID); err == nil {
+		indice = mo.ConversationIndex.String
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return classificazione.Candidato{}, err
+	}
+	var cliente uuid.NullUUID
+	if riga, err := q.GetInboxRiga(ctx, messaggioID); err == nil {
+		cliente = riga.ClienteID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return classificazione.Candidato{}, err
+	}
+	tutti, err := candidatiConversazione(ctx, q, m.ConversazioneID, messaggioID, indice, cliente)
+	if err != nil {
+		return classificazione.Candidato{}, err
+	}
+	for _, k := range tutti {
+		if k.ThreadID == threadID.String() {
+			return k, nil
+		}
+	}
+	// la RFQ non ha messaggi nella conversazione (è stata collegata a un'altra prima): resta il solo
+	// ConversationID, debole
+	return classificazione.NuovoCandidato(threadID.String(), classificazione.TipoR1Solo,
+		"stessa conversazione di Outlook del messaggio appena agganciato, ma questa mail non risulta una risposta della catena", false), nil
+}
+
+// SalvaPiuForte scrive UN candidato senza abbassare una riga già scritta per (messaggio, RFQ, regola):
+// se l'ingest ha già trovato una variante più forte, resta quella (K25). Una riga delle regole di prima
+// si sostituisce sempre.
+func SalvaPiuForte(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, k classificazione.Candidato) error {
+	tid, err := uuid.Parse(k.ThreadID)
+	if err != nil {
+		return err
+	}
+	stato := db.StatoThreadAPERTA
+	if k.Chiuso {
+		stato = db.StatoThreadCHIUSA
+	}
+	return q.UpsertCandidatoAggancioPiuForte(ctx, db.UpsertCandidatoAggancioPiuForteParams{
+		MessaggioID: messaggioID, ThreadID: tid, Regola: db.RegolaAggancio(k.Regola),
+		Punteggio: int16(k.Punteggio), Evidenza: k.Evidenza, ThreadStato: stato,
+		Attuali: classificazione.PunteggiDellaRegola(k.Regola),
+	})
+}
+
+// indirizziDestinatari legge gli indirizzi di `messaggio.destinatari` ([{nome, indirizzo, tipo}]).
+func indirizziDestinatari(raw json.RawMessage) []string {
+	var d []struct {
+		Indirizzo string `json:"indirizzo"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &d) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(d))
+	for _, x := range d {
+		out = append(out, x.Indirizzo)
+	}
+	return out
+}
+
+func uuidTesto(u uuid.NullUUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return u.UUID.String()
 }
 
 // Salva sostituisce i candidati di un messaggio. Sostituisce e non aggiunge: i candidati sono una

@@ -8,10 +8,12 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
@@ -266,7 +268,7 @@ func (s *Server) rispostaFornitore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !deciso {
-		if err := s.agganciaMessaggioAThread(ctx, q, u, m, ric.ThreadID, uuid.NullUUID{}); err != nil {
+		if err := s.agganciaMessaggioAThread(ctx, q, u, m, ric.ThreadID, uuid.NullUUID{}, classificazione.GestoAggancia); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -283,7 +285,7 @@ func (s *Server) rispostaFornitore(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		if n, err = q.RiproponiAllegatiComeOffertaFornitore(ctx, id); err != nil {
+		if n, err = riproponiComeOffertaFornitore(ctx, q, id); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -391,7 +393,7 @@ func (s *Server) richiestaFornitoreManuale(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !deciso {
-		if err := s.agganciaMessaggioAThread(ctx, q, u, m, tid, uuid.NullUUID{}); err != nil {
+		if err := s.agganciaMessaggioAThread(ctx, q, u, m, tid, uuid.NullUUID{}, classificazione.GestoAggancia); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -406,4 +408,37 @@ func (s *Server) richiestaFornitoreManuale(w http.ResponseWriter, r *http.Reques
 	}
 	s.Log.Info("richiesta a fornitore confermata da una mail mandata a mano", "messaggio", id, "richiesta", ric.RichiestaID, "fornitore", f.RagioneSociale, "thread", tid, "utente", siglaDa(r))
 	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Registrata come richiesta a %s per la RFQ %s. La risposta del fornitore verrà proposta su questa richiesta.", f.RagioneSociale, t.CartellaRelativa.String))
+}
+
+// riproponiComeOffertaFornitore da' alle proposte aperte dei file della mail l'evidenza del gesto «e' la
+// risposta del fornitore» (Smistamento F4, A5.14.7): la valutazione del tipo la riceve accanto alle altre, e le
+// colonne sono il suo riepilogo. Il tipo diventa `offerta_fornitore` se nessuna lettura del contenuto e' piu'
+// forte. Le proposte chiuse e quelle con la fonte `operatore` non le prende nemmeno la query (P23). Restituisce
+// quante proposte dicono ora `offerta_fornitore`.
+func riproponiComeOffertaFornitore(ctx context.Context, q *db.Queries, messaggio uuid.UUID) (int64, error) {
+	righe, err := q.ListProposteRispostaFornitore(ctx, messaggio)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, p := range righe {
+		prima := classificazione.ValutazioneDellaRiga(string(p.TipoProposto), p.Codice.String, p.Rev.String, string(p.Fonte),
+			int(p.Confidenza), p.Dettagli, p.NomeFile, p.Estensione.String)
+		dett, rp := classificazione.ConValutazione(nil, prima.ConRispostaFornitore(), time.Now())
+		fonte, tipo := db.FonteProposta(rp.Fonte), db.TipoDocumento(rp.Tipo)
+		if !fonte.Valid() || !tipo.Valid() {
+			return n, fmt.Errorf("riepilogo della proposta %s fuori enum: %+v", p.PropostaID, rp)
+		}
+		k, err := q.AggiornaValutazioneProposta(ctx, db.AggiornaValutazionePropostaParams{
+			PropostaID: p.PropostaID, TipoProposto: tipo, Codice: pgtype.Text{String: rp.Codice, Valid: rp.Codice != ""},
+			Rev: pgtype.Text{String: rp.Rev, Valid: rp.Rev != ""}, Confidenza: int16(rp.Confidenza), Fonte: fonte, Dettagli: dett,
+		})
+		if err != nil {
+			return n, err
+		}
+		if k > 0 && tipo == db.TipoDocumentoOffertaFornitore {
+			n++
+		}
+	}
+	return n, nil
 }

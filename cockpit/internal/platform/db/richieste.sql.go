@@ -307,6 +307,85 @@ func (q *Queries) ListCandidatiRichiesta(ctx context.Context, messaggioID uuid.U
 	return items, nil
 }
 
+const listProposteRispostaFornitore = `-- name: ListProposteRispostaFornitore :many
+SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il, a.nome_file, a.estensione, a.bytes, a.origine, a.messaggio_id
+FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id
+WHERE a.messaggio_id = $1 AND p.stato = 'aperta' AND p.fonte <> 'operatore'
+  AND a.natura = 'file' AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx')
+ORDER BY a.indice
+FOR UPDATE OF p
+`
+
+type ListProposteRispostaFornitoreRow struct {
+	PropostaID   uuid.UUID       `json:"proposta_id"`
+	AllegatoID   uuid.UUID       `json:"allegato_id"`
+	ThreadID     uuid.NullUUID   `json:"thread_id"`
+	TipoProposto TipoDocumento   `json:"tipo_proposto"`
+	Codice       pgtype.Text     `json:"codice"`
+	Rev          pgtype.Text     `json:"rev"`
+	ComponenteID uuid.NullUUID   `json:"componente_id"`
+	Confidenza   int16           `json:"confidenza"`
+	Fonte        FonteProposta   `json:"fonte"`
+	RegolaID     pgtype.Text     `json:"regola_id"`
+	Dettagli     json.RawMessage `json:"dettagli"`
+	Stato        StatoProposta   `json:"stato"`
+	DecisoDa     uuid.NullUUID   `json:"deciso_da"`
+	DecisoIl     *time.Time      `json:"deciso_il"`
+	CreatoIl     time.Time       `json:"creato_il"`
+	NomeFile     string          `json:"nome_file"`
+	Estensione   pgtype.Text     `json:"estensione"`
+	Bytes        pgtype.Int8     `json:"bytes"`
+	Origine      OrigineAllegato `json:"origine"`
+	MessaggioID  uuid.UUID       `json:"messaggio_id"`
+}
+
+// Alla conferma «e' la risposta del fornitore» le proposte ancora aperte sui suoi allegati (file, non
+// inline) ricevono l'evidenza `risposta_fornitore` nella valutazione del tipo: e' il tipo `offerta_fornitore`
+// che le porta in OFFERTE FORNITORI della RFQ cliente, se nessuna lettura del contenuto e' piu' forte
+// (Smistamento F4). Solo le proposte APERTE: una gia' confermata o scartata e' una decisione. E nemmeno
+// quelle con la fonte `operatore` (Smistamento P23): il tipo l'ha scritto una persona, e un gesto sui
+// fornitori non lo riscrive. Bloccate: la riscrittura le prende una per una.
+func (q *Queries) ListProposteRispostaFornitore(ctx context.Context, messaggioID uuid.UUID) ([]ListProposteRispostaFornitoreRow, error) {
+	rows, err := q.db.Query(ctx, listProposteRispostaFornitore, messaggioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListProposteRispostaFornitoreRow{}
+	for rows.Next() {
+		var i ListProposteRispostaFornitoreRow
+		if err := rows.Scan(
+			&i.PropostaID,
+			&i.AllegatoID,
+			&i.ThreadID,
+			&i.TipoProposto,
+			&i.Codice,
+			&i.Rev,
+			&i.ComponenteID,
+			&i.Confidenza,
+			&i.Fonte,
+			&i.RegolaID,
+			&i.Dettagli,
+			&i.Stato,
+			&i.DecisoDa,
+			&i.DecisoIl,
+			&i.CreatoIl,
+			&i.NomeFile,
+			&i.Estensione,
+			&i.Bytes,
+			&i.Origine,
+			&i.MessaggioID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRichiesteFornitore = `-- name: ListRichiesteFornitore :many
 SELECT r.richiesta_id, r.thread_id, r.fornitore_id, r.lavorazione, r.codici, r.messaggio_id, r.stato, r.inviata_il, r.offerta_ricevuta_il, r.note, r.creata_da, r.creata_il, r.declinata_il, t.oggetto AS oggetto_rfq, t.cartella_relativa, c.cartella_nas AS cliente
 FROM richiesta_fornitore r
@@ -623,25 +702,6 @@ func (q *Queries) RichiestePerConversazione(ctx context.Context, arg RichiestePe
 		return nil, err
 	}
 	return items, nil
-}
-
-const riproponiAllegatiComeOffertaFornitore = `-- name: RiproponiAllegatiComeOffertaFornitore :execrows
-UPDATE documento_proposta p SET tipo_proposto = 'offerta_fornitore'
-FROM allegato a
-WHERE p.allegato_id = a.allegato_id AND a.messaggio_id = $1 AND p.stato = 'aperta' AND p.fonte <> 'operatore'
-  AND a.natura = 'file' AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx')
-`
-
-// Alla conferma «e' la risposta del fornitore» le proposte ancora aperte sui suoi allegati (file, non
-// inline) diventano `offerta_fornitore`: e' il tipo che le porta in OFFERTE FORNITORI della RFQ cliente.
-// Solo le proposte APERTE: una gia' confermata o scartata e' una decisione. E nemmeno quelle con la fonte
-// `operatore` (Smistamento P23): il tipo l'ha scritto una persona, e un gesto sui fornitori non lo riscrive.
-func (q *Queries) RiproponiAllegatiComeOffertaFornitore(ctx context.Context, messaggioID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, riproponiAllegatiComeOffertaFornitore, messaggioID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const setAttoTriage = `-- name: SetAttoTriage :execrows

@@ -71,7 +71,7 @@
 <div id="piano" hx-swap-oob="innerHTML">{{template "fasc_piano" .}}</div>
 <div id="cassetto" hx-swap-oob="innerHTML">{{template "fasc_cassetto" .}}</div>{{end}}{{end}}
 
-{{define "fasc_avviso"}}{{if .Avviso}}<div class="avviso-f{{if hasPrefix .Avviso "Niente è cambiato"}} no{{end}}{{if hasPrefix .Avviso "Assegnazione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Conferma non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Correzione non riuscita"}} no{{end}}" role="status">{{.Avviso}}</div>{{end}}{{end}}
+{{define "fasc_avviso"}}{{if .Avviso}}<div class="avviso-f{{if hasPrefix .Avviso "Niente è cambiato"}} no{{end}}{{if hasPrefix .Avviso "Assegnazione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Conferma non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Correzione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Preparazione dei file non riuscita"}} no{{end}}" role="status">{{.Avviso}}</div>{{end}}{{end}}
 
 {{/* ------------------------------------------------------------------ avanzamento */}}
 {{define "fasc_avanzamento"}}{{with .Avanzamento}}
@@ -95,6 +95,7 @@
   {{with .Fase}}<span class="k">fase</span> <b>{{.NomeFase}}</b>{{end}}
   <span class="chip {{if .Bozza}}warn{{else if .Bloccata}}acc{{else}}no{{end}}" id="stato-bom">{{if .Bozza}}revisione V{{.Bozza.Numero}} aperta{{else if .Bloccata}}BOM congelata nella V{{.Bloccata}}{{else}}BOM working{{if not .Versioni}}, mai congelata{{end}}{{end}}</span>
   <span class="k">{{.Albero.Componenti}} component{{if eq .Albero.Componenti 1}}e{{else}}i{{end}} · {{len .File}} file{{if .NBloccanti}} · <b class="urg-t">{{.NBloccanti}} bloccant{{if eq .NBloccanti 1}}e{{else}}i{{end}}</b>{{end}}</span>
+  {{template "fasc_sul_nas_voce" .}}
   <span class="sp"></span>
   {{template "fasc_bom" .}}
   <details class="menu">
@@ -183,6 +184,7 @@
       <div class="modulo">
       {{if .Gate.Passa}}<p class="ok-t">Il gate è verde: nessun bloccante, nessuna proposta aperta, gli STEP dei prodotti a posto.</p>
       {{else}}<p class="urg-t"><b>Non si congela ancora:</b></p><ul class="gate">{{range .Gate.Problemi}}<li>{{.}}</li>{{end}}</ul>{{end}}
+      {{with .Gate.Materializzazione}}<p class="k" id="gate-materializzazione">Sul NAS, non ferma il congelamento (il documento entra nella versione, la copia arriva dopo):</p><ul class="gate k">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
       {{range .Gate.Avvisi}}<p class="k">avviso: {{.}}</p>{{end}}
       {{if not .PuoCongelare}}<p class="k">{{with .Fase}}In {{.NomeFase}} non si congela: {{end}}{{if .Bozza}}una revisione {{.Bozza.Contesto}} si congela {{if eq .Bozza.Contesto "preventivo"}}da FATTIBILITA{{else}}da ACCETTATA, DISTINTA_ERP, ORDINE o PRODUZIONE{{end}}{{else}}la prima baseline nasce in FATTIBILITA (o in ORDINE/PRODUZIONE per una RFQ arrivata lì senza baseline){{end}}.</p>{{end}}
       <form hx-post="/thread/{{.T.ThreadID}}/fascicolo/congela">
@@ -496,7 +498,7 @@
         title="{{.A.NomeFile}} — {{if .Interno}}caricato a mano il {{data .A.DataEvento}} da {{mittente .A.MittenteNome .A.MittenteIndirizzo}}{{else}}mail del {{data .A.DataEvento}} da {{mittente .A.MittenteNome .A.MittenteIndirizzo}}{{if .A.Oggetto.Valid}}, «{{.A.Oggetto.String}}»{{end}}{{end}}">
       <td>{{if .Campo}}<input type="checkbox" name="{{.Campo}}" value="{{.Valore}}" aria-label="seleziona {{.A.NomeFile}}">{{end}}</td>
       <td class="nome"><a href="{{$.Base}}{{$.Stato.Con "file" $aid.String}}" hx-get="{{$.Base}}/anteprima{{$.Stato.Con "file" $aid.String}}" hx-target="#anteprima">{{.A.NomeFile}}</a>{{if .A.ContenitoreID.Valid}} <small class="k">zip</small>{{end}}{{if .Interno}} <span class="chip acc">interno</span>{{end}}</td>
-      <td>{{if .Tipo}}<span class="chip"{{with .Proposta}}{{if eq .Stato "aperta"}} title="proposto al {{.Confidenza}}% da {{.Fonte}}"{{end}}{{end}}>{{etichettaTipoDoc .Tipo}}{{with .Proposta}}{{if eq .Stato "aperta"}}?{{end}}{{end}}</span>{{end}}</td>
+      <td>{{$nome := .A.NomeFile}}{{if .Tipo}}<span class="chip"{{with .Proposta}}{{if eq .Stato "aperta"}} title="{{(dim "Tipo proposto" (valutazione . $nome).Tipo).Testo}}"{{end}}{{end}}>{{etichettaTipoDoc .Tipo}}{{with .Proposta}}{{if eq .Stato "aperta"}}?{{end}}{{end}}</span>{{end}}</td>
       <td class="mono">{{.Codice}}{{if .Rev}} · {{.Rev}}{{end}}{{if .RevLetta}} <small class="k" title="Letta nel file caricato a mano: non è una revisione del cliente">({{.RevLetta}}?)</small>{{end}}{{if .CodiceLetto}} <small class="urg-t" title="Il file dice un altro codice: la proposta resta del componente a cui è assegnata">≠ {{.CodiceLetto}}</small>{{end}}</td>
       <td class="mono">{{with .Comp}}{{.Codice}}{{else}}<span class="k">—</span>{{end}}</td>
       <td><span class="chip {{.ClasseStato}}" title="{{.Stato}}">{{.Stato}}</span></td>
@@ -620,12 +622,14 @@
     <button type="submit" class="btn small">Cambia componente</button>
   </form>
   {{else if $f.Fermo}}<p class="k">Spostarlo su un altro componente: {{$f.Fermo}}.</p>{{end}}{{end}}
-  {{else if $f.F.Proposta}}{{$p := $f.F.Proposta}}{{$v := $f.Voce}}
+  {{else if $f.F.Proposta}}{{$p := $f.F.Proposta}}{{$v := $f.Voce}}{{$val := valutazione $p $f.F.A.NomeFile}}
   <dl class="docv-assoc">
-    <dt>Tipo rilevato</dt><dd>{{etichettaTipoDoc (print $p.TipoProposto)}}</dd>
-    <dt>Codice letto</dt><dd class="mono">{{if $f.CodiceLetto}}{{$f.CodiceLetto}}{{else if $p.Codice.Valid}}{{$p.Codice.String}}{{else}}—{{end}}{{if $p.Rev.Valid}} <span class="k">rev {{$p.Rev.String}}</span>{{end}}</dd>
+    {{/* Smistamento F3 (A5.14.5): la lettura per dimensione, ciascuna col suo score e la sua regola; niente
+         «Confidenza N%», che si leggeva come la probabilita' dell'associazione */}}
+    <dt>Tipo rilevato</dt><dd>{{template "dimensione" (dim "" $val.Tipo)}}</dd>
+    <dt>Codice letto</dt><dd>{{template "dimensione" (dim "" $val.Codice)}}</dd>
+    <dt>Rev</dt><dd>{{template "dimensione" (dim "" $val.Rev)}}</dd>
     <dt>Associato a</dt><dd>{{with $v}}{{with .Componente}}<b class="mono">{{.Codice}}</b>{{if .Descrizione.Valid}} — {{.Descrizione.String}}{{end}}{{else}}{{with .DaStep}}<b class="mono">{{.Codice}}</b> <span class="k">(nasce dallo STEP {{.File}})</span>{{else}}<span class="k">nessun componente</span>{{end}}{{end}}{{else}}<span class="k">nessun componente</span>{{end}}</dd>
-    <dt>Confidenza</dt><dd>{{if eq (print $p.Fonte) "operatore"}}decisa da una persona{{else}}{{$p.Confidenza}}% <span class="k">({{$p.Fonte}})</span>{{end}}</dd>
   </dl>
   {{with $v}}
     {{if eq .Stato "pronto"}}<p class="ok-t docv-pronto">Pronto: entra con «Conferma Fascicolo»{{if .Aggiunge}} (si aggiunge agli altri fogli){{end}}.</p>
@@ -912,7 +916,7 @@
   <a class="k" href="{{$.Base}}{{$.Stato.Con "file" ""}}" hx-get="{{$.Base}}/anteprima{{$.Stato.Con "file" ""}}" hx-target="#anteprima">chiudi</a>
 </div>
 <p class="k">{{if $f.Interno}}Caricato a mano il {{data $f.A.DataEvento}} da {{mittente $f.A.MittenteNome $f.A.MittenteIndirizzo}}: versione interna, non del cliente.{{else}}Mail del {{data $f.A.DataEvento}} da {{mittente $f.A.MittenteNome $f.A.MittenteIndirizzo}}{{if $f.A.Oggetto.Valid}}, «{{$f.A.Oggetto.String}}»{{end}}.{{end}}</p>
-{{with $f.Proposta}}<p class="k">Proposta: <b>{{etichettaTipoDoc (print .TipoProposto)}}</b> {{.Confidenza}}% da {{.Fonte}}{{if .Codice.Valid}} · {{.Codice.String}}{{end}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} · {{.Stato}}{{if $f.RevLetta}} · rev letta nel file {{$f.RevLetta}}, non del cliente{{end}}{{if $f.CodiceLetto}} · <span class="urg-t">il file dice {{$f.CodiceLetto}}</span>{{end}}</p>{{end}}
+{{with $f.Proposta}}{{$val := valutazione . $f.A.NomeFile}}<div class="k proposta-dim">Proposta ({{.Stato}}): {{template "dimensione" (dim "Tipo" $val.Tipo)}} · {{template "dimensione" (dim "Codice letto" $val.Codice)}} · {{template "dimensione" (dim "Rev" $val.Rev)}}{{if $f.RevLetta}} · rev letta nel file {{$f.RevLetta}}, non del cliente{{end}}{{if $f.CodiceLetto}} · <span class="urg-t">il file dice {{$f.CodiceLetto}}</span>{{end}}</div>{{end}}
 {{with $f.Doc}}<p class="k">Documento: <b>{{etichettaTipoDoc (print .Tipo)}}</b> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} · NAS {{.StatoNas}} <code>{{.PathRelativo}}</code>{{if .Nota.Valid}} · {{.Nota.String}}{{end}}</p>{{end}}
 {{with $a.StepDi}}<p><span class="chip ok">STEP strutturale di {{.Codice}}</span></p>{{end}}
 
@@ -1019,6 +1023,7 @@
 
 {{/* ------------------------------------------------------------------ il piano, in fondo */}}
 {{define "fasc_piano"}}
+{{template "fasc_sul_nas_barra" .}}
 <div class="piano-riga">
   {{if .ErrorePiano}}<span class="urg-t">{{.ErrorePiano}}</span>
   {{else}}
@@ -1038,6 +1043,23 @@
   {{end}}
 </div>
 {{end}}
+
+{{/* «Sul NAS» (Smistamento F6, A5.4.8, U2): la materializzazione dei documenti decisi. La voce breve sta in
+     testata; la barra, con le copie in coda, gli errori, le anomalie e «Riprova copie» (la stessa rotta della
+     pagina della RFQ, che risponde come il Fascicolo), sta in fondo. Non e' un conteggio del gate: non
+     ferma il congelamento. Senza documenti decisi non c'e' niente da dire. */}}
+{{define "fasc_sul_nas_voce"}}{{with .SulNas}}{{if .Documenti}}<span class="chip {{if .Completa}}ok{{else if .Guasti}}urg{{else}}coda{{end}}" id="sul-nas"
+  title="I documenti decisi scritti sul NAS: la copia, non la decisione. Non ferma il congelamento">{{.Breve}}</span>{{end}}{{end}}{{end}}
+
+{{define "fasc_sul_nas_barra"}}{{$d := .}}{{with .SulNas}}{{if .Documenti}}
+<div class="piano-riga sul-nas" id="sul-nas-barra" aria-label="Copie sul NAS">
+  <span class="nas-conta {{if .Completa}}ok{{else if .Guasti}}urg{{else}}info{{end}}"><b>{{.Breve}}</b> scritt{{if eq .Documenti 1}}o{{else}}i{{end}}</span>
+  {{range .Frasi}}<span class="k">{{.}}</span>{{end}}
+  {{if and $d.Scrive (or .InCoda .Errore)}}<button type="button" class="btn small gesto" hx-post="/thread/{{$d.T.ThreadID}}/riprova-copie" title="Rimette in coda la copia sul NAS dei documenti decisi che non ci sono ancora">Riprova copie</button>{{end}}
+  <span class="sp"></span>
+  <span class="k">la copia non ferma il congelamento</span>
+</div>
+{{end}}{{end}}{{end}}
 
 {{/* ------------------------------------------------------------------ i cassetti */}}
 {{define "fasc_cassetto"}}

@@ -159,18 +159,20 @@ WHERE thread_id = sqlc.arg(thread_id) AND step_documento_id = sqlc.arg(step_docu
 SELECT * FROM rimozione_proposta
 WHERE thread_id = $1 AND step_documento_id = $2 AND padre_id = $3 AND figlio_id = $4 FOR UPDATE;
 
--- name: PropostaDocumentoDaRadice :execrows
--- D16: la radice dello STEP riconosciuta da una famiglia del cliente corregge la proposta del
--- documento, finche' e' aperta. fonte = 'regola_cliente' e regola_id = NULL: le famiglie stanno in
--- cliente.regole, non in `regola`, quindi non c'e' un regola_id da scrivere, e uno rimasto da prima
--- attribuirebbe la lettura a un'altra regola. Famiglia, dove e testo del riconoscimento vanno nei
--- dettagli; l'evidenza strutturata del nodo resta componente_proposta. Una proposta gia' assegnata a un
--- componente ha il codice del componente e non si tocca (B8.7: la FK la rifiuterebbe). Nemmeno una con
--- fonte = 'operatore': il codice l'ha scritto una persona, e una famiglia del cliente e' una lettura,
--- non una decisione che la possa correggere.
-UPDATE documento_proposta SET codice = sqlc.arg(codice), rev = sqlc.narg(rev), fonte = 'regola_cliente', regola_id = NULL,
-       confidenza = sqlc.arg(confidenza), dettagli = dettagli || sqlc.arg(dettagli)::jsonb
-WHERE allegato_id = sqlc.arg(allegato_id) AND stato = 'aperta' AND componente_id IS NULL AND fonte <> 'operatore';
+-- name: AggiornaValutazioneProposta :execrows
+-- Una lettura nuova di un file che arriva senza un risultato del worker (la radice dello STEP classificata
+-- con le regole della RFQ, il gesto «e' la risposta del fornitore»): la valutazione per dimensione va nei
+-- dettagli e le colonne sono il suo riepilogo (Smistamento F4, A5.14.7; prima era la D16, che riscriveva
+-- codice e fonte con la radice). regola_id = NULL: gli score stanno nella tabella S1, non in `regola`, e
+-- un regola_id rimasto da prima attribuirebbe la lettura a un'altra regola.
+--
+-- Solo una proposta aperta, e non con fonte = 'operatore': una lettura non corregge una decisione. Il codice
+-- di una proposta gia' assegnata a un componente e' quello del componente e resta (B8.7: la FK lo vuole).
+UPDATE documento_proposta SET tipo_proposto = sqlc.arg(tipo_proposto),
+       codice = CASE WHEN componente_id IS NULL THEN sqlc.narg(codice) ELSE codice END,
+       rev = sqlc.narg(rev), confidenza = sqlc.arg(confidenza), fonte = sqlc.arg(fonte), regola_id = NULL,
+       dettagli = dettagli || sqlc.arg(dettagli)::jsonb
+WHERE proposta_id = sqlc.arg(proposta_id) AND stato = 'aperta' AND fonte <> 'operatore';
 
 -- name: GetPropostaDocumentoDiAllegato :one
 SELECT * FROM documento_proposta WHERE allegato_id = $1;

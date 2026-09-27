@@ -176,8 +176,21 @@ ul.candidati label{display:flex;gap:6px;align-items:baseline;cursor:pointer}
 .candidati-aggancio .candidato.chiuso{background:#fff8f0;border-color:#e0c0a0}
 .punteggio{display:inline-block;min-width:2.2em;text-align:center;font-weight:700;background:var(--grigio,#eef);
   border-radius:4px;padding:1px 4px}
+/* Smistamento F3 (A5.14.5): una dimensione della lettura di un file, «score N» con la regola, le evidenze a richiesta */
+.dimensione .punteggio{min-width:0;font-weight:600}
+.dim-evidenze{display:block;margin:2px 0 0;font-size:.92em}
+.dim-evidenze summary{cursor:pointer}
+.dim-evidenze ul{margin:2px 0 2px 1.2em;padding:0}
 .avviso-inline{color:#8a5a00}
 fieldset.avviso-candidati{border-color:#8a5a00;background:#fff8f0}
+/* Smistamento M1: una card per RFQ, nessun radio; la prima ha solo il bordo, non e' una scelta */
+.candidati-aggancio .carta{display:block;cursor:default}
+.candidati-aggancio .carta .testa{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.candidati-aggancio .carta.primo{border-width:2px;border-color:var(--acc)}
+.candidati-aggancio .carta ul.evidenze{margin:4px 0;padding-left:18px}
+.forza{white-space:nowrap;font-weight:600;font-size:12px}
+.origine-cockpit{margin:6px 0;padding:6px 8px;background:#f1e9fb;border:1px solid #d8c8f0;border-radius:6px}
+.chip.cockpit{background:#f1e9fb;color:#6b3fb5}
 .non-disponibile{padding:8px 10px;background:#fafafa;border:1px dashed var(--bordo);border-radius:6px}
 
 /* checkpoint 3R §7: anagrafica a sezioni */
@@ -221,6 +234,9 @@ details.avanzato summary{cursor:pointer;color:var(--muto)}
 .chip.atto{background:#eef1f5;color:#4a5568}
 .chip.atto.richiesta_offerta{background:#e3f1e8;color:#1f6b3d}.chip.atto.offerta,.chip.atto.domanda_chiarimento,.chip.atto.risposta_chiarimento,.chip.atto.conferma_ricezione{background:#e8e4f7;color:#4b3a9a}
 .chip.atto.inoltro,.chip.atto.revisione_documenti,.chip.atto.documenti_aggiuntivi{background:#e4eefb;color:var(--acc)}.chip.atto.non_business,.chip.atto.notifica{background:#f3f3f3;color:#999}.chip.atto.incerto{background:#fff5d6;color:#8a6a00}
+/* Smistamento M2: il chip dice l'evento; i colori restano quelli dell'atto, e ordine, sollecito, accettazione e rifiuto hanno i loro */
+.chip.atto.ordine,.chip.atto.accettazione{background:#e3f1e8;color:#1f6b3d}.chip.atto.sollecito,.chip.atto.rifiuto{background:#fbe3e1;color:var(--rosso)}
+.messaggio .meta .evento{margin-top:2px}
 .chip.altro{background:#f3ecdf;color:#7a5a1e}
 .chip.richiesta{background:#e8e4f7;color:#4b3a9a}.chip.richiesta.bozza{background:#eef1f5;color:var(--muto)}.chip.richiesta.inviata{background:#e4eefb;color:var(--acc)}
 .chip.richiesta.offerta_ricevuta{background:#e3f1e8;color:#1f6b3d}.chip.richiesta.declinata,.chip.richiesta.annullata,.chip.richiesta.scaduta{background:#f3f3f3;color:#999;text-decoration:line-through}
@@ -411,6 +427,9 @@ details.codici>summary{cursor:pointer;margin:4px 0}
 .fasc .piano-conta{font-size:13px;padding:3px 10px;border-radius:999px;text-decoration:none;white-space:nowrap}
 .fasc .piano-conta.ok{background:var(--f-oksoft);color:var(--f-ok)}.fasc .piano-conta.warn{background:var(--f-warnsoft);color:var(--f-warn)}
 .fasc .piano-conta.info{background:var(--f-infosoft);color:var(--f-info)}.fasc .piano-conta.no{background:var(--f-chip);color:var(--f-muto2)}
+.fasc .nas-conta{font-size:13px;padding:3px 10px;border-radius:999px;white-space:nowrap}.fasc .nas-conta.ok{background:var(--f-oksoft);color:var(--f-ok)}
+.fasc .nas-conta.info{background:var(--f-infosoft);color:var(--f-info)}.fasc .nas-conta.urg{background:var(--f-urgsoft);color:var(--f-urg)}
+.fasc .sul-nas{margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--f-linea2)}
 
 /* VISTE TECNICHE (B8.7): albero testuale, griglia, completezza, tabella dei documenti */
 .fasc .tree ul{list-style:none;padding-left:16px;margin:2px 0}

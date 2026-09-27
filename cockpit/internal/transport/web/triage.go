@@ -14,7 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/aggancio"
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
@@ -67,9 +69,22 @@ type triageDati struct {
 	Riferimento string               // il numero con cui il cliente chiama la richiesta: campo suo
 	// Candidati di aggancio (R0–R5) con evidenza: si vedono anche nel form «Nuova RFQ», perché la
 	// domanda «sei sicuro che non sia questa?» va fatta prima di creare un doppione, non dopo.
-	Candidati []db.ListCandidatiAggancioRow
+	// Smistamento M1: raggruppati per RFQ e ordinati a livelli, come nel pannello (CarteForm, CarteAvviso).
+	Candidati aggancio.Lettura
 	// MaxAuto: oltre questa dimensione un file utile non scende da solo (il limite degli upload dei worker).
 	MaxAuto int64
+}
+
+// CarteForm sono i candidati dentro «Aggancia a…»: ogni card è un bottone del form, che porta con sé
+// il buyer e gli allegati da scaricare.
+func (d *triageDati) CarteForm() candidatiVista {
+	return vistaCandidati(d.M.MessaggioID, d.Candidati, modoForm)
+}
+
+// CarteAvviso sono i candidati nell'avviso del form «Nuova RFQ»: si leggono, e per agganciare si va ad
+// «Aggancia a…». Un bottone qui manderebbe il form della RFQ nuova.
+func (d *triageDati) CarteAvviso() candidatiVista {
+	return vistaCandidati(d.M.MessaggioID, d.Candidati, modoAvviso)
 }
 
 // SiPrepara dice se un allegato scende da solo quando la RFQ nasce o il messaggio si aggancia (B8.7b): e'
@@ -183,7 +198,7 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 			d.Proponibili, d.Altri = d.Altri, nil
 		}
 	}
-	d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
+	d.Candidati, _ = aggancio.InLettura(ctx, q, id)
 	d.Allegati, _ = s.allegatiUI(ctx, q, id)
 	d.cartella(ctx, q, "")
 	d.Anteprima = documenti.CartellaThread(d.CartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
@@ -432,7 +447,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if err := s.agganciaMessaggioAThread(ctx, q, u, m, t.ThreadID, buyerID); err != nil {
+	if err := s.agganciaMessaggioAThread(ctx, q, u, m, t.ThreadID, buyerID, classificazione.GestoNuovaRFQ); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -567,7 +582,7 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 			buyerID = uuid.NullUUID{UUID: b.BuyerID, Valid: true}
 		}
 	}
-	if err := s.agganciaMessaggioAThread(ctx, q, u, m, tid, buyerID); err != nil {
+	if err := s.agganciaMessaggioAThread(ctx, q, u, m, tid, buyerID, classificazione.GestoAggancia); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -586,6 +601,31 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s.%s%s", t.CartellaRelativa.String, esiti.fraseSeCe(), prep))
+}
+
+// ricalcolaCandidati è «Ricalcola» del pannello (Smistamento M1, A5.10): i candidati di un messaggio
+// scritti con le regole di prima si ricalcolano con quelle di adesso. Un POST, un messaggio: nessun
+// ricalcolo in blocco, e nessuna GET che scrive.
+func (s *Server) ricalcolaCandidati(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id non valido", 400)
+		return
+	}
+	cambio, err := (&ingest.Servizio{Pool: s.Pool, Log: s.Log}).RitriageMessaggio(r.Context(), id)
+	switch {
+	case errors.Is(err, ingest.ErrGiaDeciso):
+		s.pannelloConAvviso(w, r, id, "Il messaggio è già stato deciso: i suoi candidati non si ricalcolano.")
+		return
+	case err != nil:
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	frase := "Candidati ricalcolati con le regole di adesso."
+	if cambio != "" {
+		frase += " La proposta è cambiata."
+	}
+	s.pannelloConAvviso(w, r, id, frase)
 }
 
 // ignora chiude il triage senza RFQ: il messaggio esce da "orfani" e finisce nel filtro "ignorati".
@@ -613,11 +653,17 @@ func (s *Server) ignora(w http.ResponseWriter, r *http.Request) {
 		s.avvisoRFQEsistente(w, r, ctx, q, m)
 		return
 	}
+	// la fotografia prima del gesto: i candidati come li aveva davanti chi ha premuto «Ignora» (M3)
+	scelta, err := fotografia(ctx, q, m, classificazione.GestoIgnora, uuid.Nil)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	if err := q.IgnoraMessaggio(ctx, db.IgnoraMessaggioParams{MessaggioID: id, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if err := logDecisione(ctx, q, id, uuid.NullUUID{}, "ignora", u, "chiuso senza RFQ"); err != nil {
+	if err := logDecisione(ctx, q, id, uuid.NullUUID{}, "ignora", u, scelta.Motivo()); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -642,6 +688,9 @@ func (s *Server) avvisoRFQEsistente(w http.ResponseWriter, r *http.Request, ctx 
 // logDecisione scrive in messaggio_aggancio_log. Ogni decisione di aggancio lascia una traccia con chi
 // l'ha presa e perché: è il materiale con cui, mesi dopo, si ricostruisce come un messaggio sia
 // arrivato dov'è — e, dalla fase 3, la base della propagazione ai messaggi annidati.
+//
+// Smistamento M3 (A5.16.6): il motivo è la fotografia della decisione (classificazione.Scelta), un JSON
+// con la frase di sempre dentro. È il materiale della calibrazione (`cockpit -calibrazione`).
 func logDecisione(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, threadID uuid.NullUUID, azione string, u *db.Utente, motivo string) error {
 	var utente uuid.NullUUID
 	if u != nil {
@@ -653,17 +702,68 @@ func logDecisione(ctx context.Context, q *db.Queries, messaggioID uuid.UUID, thr
 	})
 }
 
+// fotografia è la Scelta di una decisione sul messaggio m (Smistamento M3, A5.16.6): i candidati come il
+// pannello li mostra (le righe di `candidato_aggancio` più il marcatore, raggruppati e ordinati a
+// livelli), la posizione della RFQ scelta fra loro, l'evento e l'atto del messaggio. Il rango lo calcola
+// il server qui, nella transazione della decisione, rileggendo i candidati: le righe di un messaggio non
+// ancora deciso cambiano solo con un ricalcolo, quindi sono quelle che l'operatore aveva davanti; e non
+// c'è niente da fidarsi di un rango mandato dal browser. `scelto` è uuid.Nil per «Ignora».
+func fotografia(ctx context.Context, q *db.Queries, m db.Messaggio, gesto string, scelto uuid.UUID) (classificazione.Scelta, error) {
+	l, err := aggancio.InLettura(ctx, q, m.MessaggioID)
+	if err != nil {
+		return classificazione.Scelta{}, fmt.Errorf("candidati per la fotografia: %w", err)
+	}
+	evento, atto, err := eventoDellaDecisione(ctx, q, m, l.Origini)
+	if err != nil {
+		return classificazione.Scelta{}, err
+	}
+	id := ""
+	if scelto != uuid.Nil {
+		id = scelto.String()
+	}
+	return classificazione.SceltaDa(l.Candidati, gesto, id, evento, atto), nil
+}
+
+// eventoDellaDecisione è l'evento del messaggio come lo mostra il pannello (M2): dall'atto salvato dal
+// triage, o calcolato adesso dal messaggio se il triage non l'ha interpretato (una nostra mail a un
+// cliente). Serve alla calibrazione per separare, domani, la precisione dei candidati per evento: una
+// revisione CAD e una RFQ nuova non hanno la stessa difficoltà.
+func eventoDellaDecisione(ctx context.Context, q *db.Queries, m db.Messaggio, origini []aggancio.Origine) (evento, atto string, err error) {
+	p, err := q.GetTriageMessaggio(ctx, m.MessaggioID)
+	switch {
+	case err == nil && p.Atto.Valid && p.Atto.String != "":
+		legame := ""
+		if p.Legame.Valid {
+			legame = string(p.Legame.LegameOperativo)
+		}
+		return classificazione.EventoDa(string(m.ControparteTipo), string(m.Direzione), p.Atto.String, legame), p.Atto.String, nil
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
+		return "", "", fmt.Errorf("triage per la fotografia: %w", err)
+	}
+	v := eventoInLettura(ctx, q, m, origini)
+	return v.Codice, v.Atto, nil
+}
+
 // ---------------------------------------------------------------- pezzi della transazione
 
 // agganciaMessaggioAThread: la DECISIONE di aggancio, con tutto ciò che la segue (conversazione, orfani della
 // stessa conversazione, proposte e riferimenti portale del messaggio, chiusura del triage, buyer).
-func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u *db.Utente, m db.Messaggio, threadID uuid.UUID, buyerID uuid.NullUUID) error {
+//
+// `gesto` è quello della fotografia (M3): classificazione.GestoAggancia per una RFQ esistente,
+// GestoNuovaRFQ per la RFQ appena creata dal messaggio. Nel log l'azione resta `aggancia` per tutti e due,
+// come prima: il CHECK della 0003 non conosce `nuova_rfq`, e il gesto sta nel JSON.
+func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u *db.Utente, m db.Messaggio, threadID uuid.UUID, buyerID uuid.NullUUID, gesto string) error {
 	tid := uuid.NullUUID{UUID: threadID, Valid: true}
 	op := uuid.NullUUID{UUID: u.UtenteID, Valid: true}
+	// prima di agganciare: la fotografia è di ciò che si vedeva prima del gesto
+	scelta, err := fotografia(ctx, q, m, gesto, threadID)
+	if err != nil {
+		return err
+	}
 	if err := q.AgganciaMessaggio(ctx, db.AgganciaMessaggioParams{MessaggioID: m.MessaggioID, ThreadID: tid, Aggancio: db.AggancioOperatore, AgganciatoDa: op}); err != nil {
 		return err
 	}
-	if err := logDecisione(ctx, q, m.MessaggioID, tid, "aggancia", u, "decisione dell'operatore"); err != nil {
+	if err := logDecisione(ctx, q, m.MessaggioID, tid, "aggancia", u, scelta.Motivo()); err != nil {
 		return err
 	}
 	if _, err := q.AssegnaThreadProposte(ctx, db.AssegnaThreadProposteParams{MessaggioID: m.MessaggioID, ThreadID: tid}); err != nil {
@@ -694,31 +794,64 @@ func (s *Server) agganciaMessaggioAThread(ctx context.Context, q *db.Queries, u 
 	// conversazione lunga c'è quasi sempre — perché finisse dentro una RFQ senza che nessuno l'avesse
 	// guardata; e un aggancio, una volta scritto, non si annulla da solo.
 	//
-	// Adesso quegli stessi messaggi ricevono un CANDIDATO R1 al 95 e restano in Inbox, con la proposta
-	// aggiornata. Sono un clic ciascuno, ed è un clic che qualcuno deve dare.
+	// Adesso quegli stessi messaggi ricevono un CANDIDATO e restano in Inbox. Sono un clic ciascuno, ed
+	// è un clic che qualcuno deve dare.
+	//
+	// Smistamento M1 (A5.16.5): il candidato non è più un R1 fisso a 95. È la variante che l'indice e il
+	// cliente dell'orfano danno: forte se l'orfano è davvero una risposta nella catena di una mail di
+	// questa RFQ e il cliente è lo stesso, debole se sta nella conversazione solo per l'oggetto. La
+	// proposta dell'orfano cambia solo se il candidato supera la soglia ed è il primo dei suoi, senza pari
+	// merito: un indizio debole si vede, non sposta niente.
 	altri, err := q.ListOrfaniConversazione(ctx, db.ListOrfaniConversazioneParams{
 		ConversazioneID: m.ConversazioneID, MessaggioID: m.MessaggioID})
 	if err != nil {
 		return err
 	}
-	const evidenzaR1 = "la conversazione di Outlook è stata collegata a questa richiesta da un operatore"
 	for _, mid := range altri {
-		if err := q.InsertCandidatoAggancio(ctx, db.InsertCandidatoAggancioParams{
-			MessaggioID: mid, ThreadID: threadID, Regola: db.RegolaAggancioR1Conversazione,
-			Punteggio: int16(classificazione.PuntiRegola[classificazione.R1Conversazione]), Evidenza: evidenzaR1,
-			ThreadStato: db.StatoThreadAPERTA,
-		}); err != nil {
+		k, err := aggancio.CandidatoConversazione(ctx, q, mid, threadID)
+		if err != nil {
 			return err
 		}
-		motivo, _ := json.Marshal([]string{evidenzaR1})
-		if _, err := q.AggiornaTriageCandidato(ctx, db.AggiornaTriageCandidatoParams{
-			MessaggioID: mid, ThreadProposto: tid,
-			Confidenza: int16(classificazione.PuntiRegola[classificazione.R1Conversazione]), Motivo: motivo,
-		}); err != nil {
+		if err := aggancio.SalvaPiuForte(ctx, q, mid, k); err != nil {
 			return err
+		}
+		// l'elenco dell'orfano dopo il candidato nuovo: serve alla proposta e al rango della fotografia
+		l, err := aggancio.InLettura(ctx, q, mid)
+		if err != nil {
+			return err
+		}
+		proposto := false
+		if k.Punteggio >= classificazione.SogliaEvidenza {
+			if len(l.Candidati) > 0 && !l.PariMerito && l.Candidati[0].ThreadID == threadID.String() {
+				primo := l.Candidati[0]
+				motivo, _ := json.Marshal([]string{primo.Evidenze[0].Evidenza})
+				if _, err := q.AggiornaTriageCandidato(ctx, db.AggiornaTriageCandidatoParams{
+					MessaggioID: mid, ThreadProposto: tid, Confidenza: int16(primo.Score), Motivo: motivo,
+				}); err != nil {
+					return err
+				}
+				proposto = true
+			}
 		}
 		// la traccia dice che cos'è successo: una proposta, non una decisione presa per procura
-		if err := logDecisione(ctx, q, mid, tid, "candidato", u, "orfano della stessa conversazione: proposto, non agganciato"); err != nil {
+		frase := fmt.Sprintf("orfano della stessa conversazione: candidato %s · score %d, non agganciato", k.Livello(), k.Punteggio)
+		if proposto {
+			frase += ", proposto"
+		}
+		// la fotografia del giro (M3): il candidato proposto con il suo rango fra quelli dell'orfano. Il
+		// gesto `candidato` è automatico: le misure lo tengono fuori, ma dice che cosa l'orfano ha visto
+		// cambiare, e da chi è partito (l'utente del log è chi ha deciso il messaggio di partenza).
+		om, err := q.GetMessaggio(ctx, mid)
+		if err != nil {
+			return err
+		}
+		evento, atto, err := eventoDellaDecisione(ctx, q, om, l.Origini)
+		if err != nil {
+			return err
+		}
+		scelta := classificazione.SceltaDa(l.Candidati, classificazione.GestoCandidato, threadID.String(), evento, atto)
+		scelta.Frase = frase
+		if err := logDecisione(ctx, q, mid, tid, "candidato", u, scelta.Motivo()); err != nil {
 			return err
 		}
 	}

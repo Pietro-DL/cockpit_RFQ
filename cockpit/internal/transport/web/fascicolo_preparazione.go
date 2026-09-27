@@ -63,7 +63,9 @@ func (s *Server) maxCaricamentoEffettivo() int64 {
 // auto=1, e ha il bottone «Prepara i file» di riserva, che va anche senza JavaScript.
 //
 // Risposte. Senza htmx (il bottone di riserva) si torna con un 303 alla pagina da cui si e' partiti
-// (da=fascicolo, altrimenti la pagina della RFQ). Da htmx come ogni gesto: il Fascicolo con l'avviso e i
+// (da=fascicolo, altrimenti la pagina della RFQ); se la preparazione non e' riuscita no: la pagina non ha
+// dove dirlo, e tornarci in silenzio faceva credere partito un lavoro che non c'era. Si risponde con quella
+// pagina intera e l'avviso (preparazioneNonRiuscita). Da htmx come ogni gesto: il Fascicolo con l'avviso e i
 // pannelli fuori banda (l'avanzamento comincia a seguire il lavoro accodato), oppure la pagina della RFQ.
 // Quella automatica non ha avviso; se non ha messo in moto niente, o non e' riuscita, o viene dalla pagina
 // della RFQ, risponde 204 e la pagina resta com'e' (il log dice perche').
@@ -94,6 +96,10 @@ func (s *Server) prepara(w http.ResponseWriter, r *http.Request) {
 		if r.FormValue("da") == "fascicolo" {
 			torna += "/fascicolo"
 		}
+		if err != nil {
+			s.preparazioneNonRiuscita(w, r, thread, r.FormValue("da") == "fascicolo", "Preparazione dei file non riuscita. "+avviso)
+			return
+		}
 		http.Redirect(w, r, torna, http.StatusSeeOther)
 		return
 	}
@@ -108,6 +114,40 @@ func (s *Server) prepara(w http.ResponseWriter, r *http.Request) {
 		avviso = ""
 	}
 	s.threadFrammento(w, r, thread, avviso)
+}
+
+// preparazioneNonRiuscita e' la risposta del bottone di riserva, senza htmx, quando la preparazione non e'
+// riuscita: la pagina da cui si era partiti, intera (layout, foglio di stile, navigazione, come quando la si
+// apre), con l'avviso al suo posto e lo stato 500. Un frammento nudo si leggeva, ma senza la pagina intorno e
+// senza lo stile dell'avviso. Se nemmeno la pagina si legge resta il testo semplice.
+func (s *Server) preparazioneNonRiuscita(w http.ResponseWriter, r *http.Request, thread uuid.UUID, daFascicolo bool, avviso string) {
+	ctx := r.Context()
+	var (
+		pagina, frammento, titolo string
+		dati                      any
+		err                       error
+	)
+	if daFascicolo {
+		var d *fascicoloDati
+		if d, err = s.caricaFascicolo(ctx, thread, leggiStatoFascicolo(url.Values{}), utenteDa(ctx)); err == nil {
+			d.Avviso = avviso
+			pagina, frammento, titolo, dati = "fascicolo.html", "fasc_corpo", "Fascicolo", d
+		}
+	} else {
+		var d *threadDati
+		if d, err = s.caricaThread(ctx, thread, sessioneDa(ctx)); err == nil {
+			d.Avviso = avviso
+			pagina, frammento, titolo, dati = "thread.html", "thread_corpo", "RFQ", d
+		}
+	}
+	if err != nil {
+		s.Log.Warn("pagina della preparazione non riuscita non letta", "rfq", thread, "err", err)
+		http.Error(w, avviso, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusInternalServerError)
+	s.rendi(w, r, pagina, frammento, titolo, dati)
 }
 
 // preparaFile e' la preparazione in una transazione sola: tutto o niente. Il limite vale per tutta la

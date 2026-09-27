@@ -144,19 +144,43 @@ ORDER BY 1, 2;
 -- ------------------------------------------------------------------ il gate del congelamento (A4.6, passo 3)
 
 -- name: GateCongelamento :one
--- Una riga di conteggi per la RFQ. Lo STEP dei prodotti finiti e la struttura senza cicli si guardano
--- a parte (ListGateStep, ListRelazioniAttive), perche' la regola sta in una funzione pura.
-SELECT coalesce((SELECT b.n_bloccanti FROM v_thread_bloccanti b WHERE b.thread_id = sqlc.arg(thread_id)), 0)::int AS n_bloccanti,
-       (SELECT count(*) FROM componente_proposta p WHERE p.thread_id = sqlc.arg(thread_id) AND p.stato = 'aperta')::int AS n_proposte_componente,
+-- Le proposte strutturali aperte della RFQ. Lo STEP dei prodotti finiti e la struttura senza cicli si
+-- guardano a parte (ListGateStep, ListRelazioniAttive), perche' la regola sta in una funzione pura; i
+-- bloccanti del fascicolo in ContaBloccantiLogici, le copie sul NAS in StatoMaterializzazione
+-- (Smistamento F6, A5.4.8). Con F5 questa riga diventa GateStrutturale (le proposte nell'autorita').
+SELECT (SELECT count(*) FROM componente_proposta p WHERE p.thread_id = sqlc.arg(thread_id) AND p.stato = 'aperta')::int AS n_proposte_componente,
        (SELECT count(*) FROM relazione_proposta p WHERE p.thread_id = sqlc.arg(thread_id) AND p.stato = 'aperta')::int AS n_proposte_relazione,
-       (SELECT count(*) FROM rimozione_proposta p WHERE p.thread_id = sqlc.arg(thread_id) AND p.stato = 'aperta')::int AS n_proposte_rimozione,
-       (SELECT count(*) FROM documento d
-          JOIN componente c ON c.componente_id = d.componente_id AND c.archiviato_il IS NULL
-         WHERE d.thread_id = sqlc.arg(thread_id) AND d.sostituito_da IS NULL AND d.stato_nas = 'errore')::int AS n_documenti_errore,
-       (SELECT count(*) FROM nas_anomalia a
-          JOIN documento d ON d.documento_id = a.documento_id
-          JOIN componente c ON c.componente_id = d.componente_id AND c.archiviato_il IS NULL
-         WHERE d.thread_id = sqlc.arg(thread_id) AND d.sostituito_da IS NULL AND a.risolta_il IS NULL)::int AS n_anomalie_nas;
+       (SELECT count(*) FROM rimozione_proposta p WHERE p.thread_id = sqlc.arg(thread_id) AND p.stato = 'aperta')::int AS n_proposte_rimozione;
+
+-- name: ContaBloccantiLogici :one
+-- I requisiti bloccanti del fascicolo senza una decisione: nessun documento e nessuna deroga (A5.4.8,
+-- U2). Non si legge v_thread_bloccanti.n_bloccanti, che conta come bloccante anche 'ok_errore_nas'
+-- (0018:523): un documento deciso ma in errore sul NAS, o con un'anomalia aperta, e' completo per la
+-- logica, e' la copia che manca. La vista resta com'e' (X4): la leggono v_cruscotto e DBeaver.
+SELECT count(*)::int FROM v_fascicolo v
+ WHERE v.thread_id = $1 AND v.bloccante AND v.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato');
+
+-- name: StatoMaterializzazione :one
+-- Le copie sul NAS dei documenti decisi della RFQ (A5.4.8, U2): quanti sono scritti, quanti aspettano la
+-- copia, quanti sono in errore, quante anomalie di integrita' sono aperte, e fra quanti minuti parte la
+-- prima copia in coda che aspetta (0 = nessuna attende un orario). Non e' un conteggio del gate: la BOM
+-- si congela anche con le copie in coda o in errore. I documenti sono quelli correnti (non sostituiti),
+-- generali compresi: sono decisi anche loro e vanno sul NAS. Quelli di un componente archiviato no, sono
+-- usciti dalla BOM working.
+WITH doc AS (
+    SELECT d.documento_id, d.stato_nas FROM documento d
+      LEFT JOIN componente c ON c.componente_id = d.componente_id
+     WHERE d.thread_id = sqlc.arg(thread_id) AND d.sostituito_da IS NULL
+       AND (d.componente_id IS NULL OR c.archiviato_il IS NULL)
+)
+SELECT (SELECT count(*) FROM doc)::int AS n_documenti,
+       (SELECT count(*) FROM doc WHERE doc.stato_nas = 'scritto')::int AS n_scritti,
+       (SELECT count(*) FROM doc WHERE doc.stato_nas = 'in_coda')::int AS n_in_coda,
+       (SELECT count(*) FROM doc WHERE doc.stato_nas = 'errore')::int AS n_errore,
+       (SELECT count(*) FROM nas_anomalia a JOIN doc ON doc.documento_id = a.documento_id WHERE a.risolta_il IS NULL)::int AS n_anomalie,
+       coalesce((SELECT ceil(extract(epoch FROM min(j.non_prima_di) - now()) / 60)
+                   FROM job j JOIN doc ON j.chiave_idempotenza = 'nas:' || doc.documento_id::text
+                  WHERE doc.stato_nas = 'in_coda' AND j.tipo = 'copia_nas' AND j.stato = 'pronto' AND j.non_prima_di > now()), 0)::int AS minuti_prossima_copia;
 
 -- name: ListGateStep :many
 -- Lo STEP di ogni prodotto finito, con la deroga del fabbisogno cad_3d se c'e' (A4.5).

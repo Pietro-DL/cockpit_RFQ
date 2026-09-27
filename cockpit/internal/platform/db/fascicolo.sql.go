@@ -832,52 +832,6 @@ func (q *Queries) ListProposteAperteThread(ctx context.Context, threadID uuid.Nu
 	return items, nil
 }
 
-const listProposteBulk = `-- name: ListProposteBulk :many
-SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il FROM documento_proposta p
-WHERE p.thread_id = $1 AND p.stato = 'aperta' AND p.confidenza >= $2 AND p.tipo_proposto <> 'rumore'
-`
-
-type ListProposteBulkParams struct {
-	ThreadID   uuid.NullUUID `json:"thread_id"`
-	Confidenza int16         `json:"confidenza"`
-}
-
-func (q *Queries) ListProposteBulk(ctx context.Context, arg ListProposteBulkParams) ([]DocumentoProposta, error) {
-	rows, err := q.db.Query(ctx, listProposteBulk, arg.ThreadID, arg.Confidenza)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []DocumentoProposta{}
-	for rows.Next() {
-		var i DocumentoProposta
-		if err := rows.Scan(
-			&i.PropostaID,
-			&i.AllegatoID,
-			&i.ThreadID,
-			&i.TipoProposto,
-			&i.Codice,
-			&i.Rev,
-			&i.ComponenteID,
-			&i.Confidenza,
-			&i.Fonte,
-			&i.RegolaID,
-			&i.Dettagli,
-			&i.Stato,
-			&i.DecisoDa,
-			&i.DecisoIl,
-			&i.CreatoIl,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listProposteMessaggio = `-- name: ListProposteMessaggio :many
 SELECT p.proposta_id, p.allegato_id, p.thread_id, p.tipo_proposto, p.codice, p.rev, p.componente_id, p.confidenza, p.fonte, p.regola_id, p.dettagli, p.stato, p.deciso_da, p.deciso_il, p.creato_il FROM documento_proposta p JOIN allegato a ON a.allegato_id = p.allegato_id WHERE a.messaggio_id = $1
 `
@@ -1202,10 +1156,20 @@ ON CONFLICT (allegato_id) DO UPDATE SET
                     WHEN documento_proposta.fonte = 'operatore'
                     THEN documento_proposta.dettagli || jsonb_build_object('lettura_dopo', jsonb_build_object(
                              'tipo', EXCLUDED.tipo_proposto, 'codice', EXCLUDED.codice, 'rev', EXCLUDED.rev, 'fonte', EXCLUDED.fonte))
+                         || CASE WHEN EXCLUDED.dettagli ? 'valutazione'
+                                 THEN jsonb_build_object('valutazione', EXCLUDED.dettagli -> 'valutazione') ELSE '{}'::jsonb END
                     WHEN documento_proposta.componente_id IS NOT NULL AND nullif(btrim(EXCLUDED.codice), '') IS NOT NULL
                          AND upper(EXCLUDED.codice) IS DISTINCT FROM upper(documento_proposta.codice)
                     THEN EXCLUDED.dettagli || jsonb_build_object('codice_letto', EXCLUDED.codice)
-                    ELSE EXCLUDED.dettagli END
+                         || CASE WHEN documento_proposta.dettagli ? 'destinazione'
+                                 THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
+                         || CASE WHEN documento_proposta.dettagli ? 'storia'
+                                 THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END
+                    ELSE EXCLUDED.dettagli
+                         || CASE WHEN documento_proposta.dettagli ? 'destinazione'
+                                 THEN jsonb_build_object('destinazione', documento_proposta.dettagli -> 'destinazione') ELSE '{}'::jsonb END
+                         || CASE WHEN documento_proposta.dettagli ? 'storia'
+                                 THEN jsonb_build_object('storia', documento_proposta.dettagli -> 'storia') ELSE '{}'::jsonb END END
 RETURNING proposta_id, allegato_id, thread_id, tipo_proposto, codice, rev, componente_id, confidenza, fonte, regola_id, dettagli, stato, deciso_da, deciso_il, creato_il
 `
 
@@ -1229,7 +1193,12 @@ type UpsertPropostaParams struct {
 //
 // Una proposta aperta che l'operatore ha deciso (fonte = 'operatore', B8.7b: tipo, codice e revisione dal
 // cassetto «Da verificare») resta com'e': una lettura che arriva dopo non riscrive una decisione, e quello
-// che dice finisce nei dettagli (lettura_dopo). E' la regola di D16 (propostaDelDocumento), estesa.
+// che dice finisce nei dettagli (lettura_dopo), e la sua valutazione per dimensione prende il posto di quella
+// di prima: e' una lettura, non una decisione (Smistamento F4, A5.14.7).
+//
+// Una proposta aperta prende i dettagli della lettura nuova, ma conserva le chiavi che non sono una lettura:
+// la destinazione calcolata dal flusso e la storia delle decisioni revocate (Smistamento F4, prove 190 e
+// 231). Le colonne sono il riepilogo della valutazione (classificazione.ConValutazione).
 func (q *Queries) UpsertProposta(ctx context.Context, arg UpsertPropostaParams) (DocumentoProposta, error) {
 	row := q.db.QueryRow(ctx, upsertProposta,
 		arg.AllegatoID,

@@ -177,6 +177,9 @@ type interpretazione struct {
 	// Blocco 7B: il mittente (indirizzi automatici) e il fornitore, per i candidati verso una richiesta.
 	Mittente    string
 	FornitoreID uuid.UUID
+	// Smistamento M1: il ConversationIndex, che fa salire R1 solo quando la mail è davvero una risposta
+	// nella catena di una mail della RFQ.
+	IndiceConversazione string
 }
 
 // interpreta calcola i candidati di aggancio, il triage e i candidati di codice, e scrive la
@@ -185,7 +188,7 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 	it := classificazione.IngressoTriage{
 		Oggetto: in.Oggetto, Corpo: in.Corpo, NomiAllegati: in.NomiAllegati, Direzione: string(in.Direzione),
 		Interno: in.Interno, ClienteNoto: in.ClienteID.Valid, BuyerNoto: in.BuyerID.Valid,
-		Controparte: in.Controparte.Tipo, Motore: in.Motore, Mittente: in.Mittente,
+		Controparte: in.Controparte.Tipo, Motore: in.Motore, Mittente: in.Mittente, InReplyTo: in.InReplyTo,
 	}
 	e := in.Motore.Estrai(it.Testi()...)
 	codiciFamiglia := classificazione.SoloCodici(classificazione.DiFamiglia(e.Codici))
@@ -196,6 +199,8 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 		Oggetto: classificazione.OggettoPulito(in.Oggetto), DataEvento: in.DataEvento,
 		Codici: codiciFamiglia, Riferimento: e.Riferimento,
 		FinestraGG: in.Motore.Finestra(),
+		Mittente:   in.Mittente, Inoltro: classificazione.EInoltro(in.Oggetto, in.Corpo),
+		IndiceConversazione: in.IndiceConversazione,
 	})
 	if err != nil {
 		return classificazione.EsitoTriage{}, fmt.Errorf("candidati di aggancio: %w", err)
@@ -241,6 +246,10 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 	if m := in.Controparte.Motivo; m != "" && (in.Controparte.Tipo == classificazione.ControparteFornitore || in.Controparte.Tipo == classificazione.ControparteAmbiguo) {
 		tr.Motivi = append([]string{m}, tr.Motivi...)
 	}
+	// Smistamento M2: l'evento sta in testa, con il prefisso «evento ·», ed è la sola traccia della
+	// forza e delle evidenze (l'evento si rilegge dall'atto). Le righe della proposta di aggancio vengono
+	// dopo: rispondono all'altra domanda.
+	tr.Motivi = append(tr.MotiviEvento(), tr.Motivi...)
 	motivi, _ := json.Marshal(tr.Motivi)
 	if tr.Codici == nil {
 		tr.Codici = []string{}
@@ -278,6 +287,15 @@ func (s *Servizio) interpreta(ctx context.Context, q *db.Queries, in interpretaz
 		return tr, fmt.Errorf("triage: %w", err)
 	}
 	return tr, nil
+}
+
+// legataDalMarcatore: la nostra mail in uscita che il marcatore CockpitRichiestaFornitore ha legato alla
+// sua richiesta (D85). Resta orfana — l'aggancio lo conferma una persona, e il candidato del marcatore
+// verso la RFQ della richiesta si costruisce in lettura — ma non si reinterpreta: il triage della posta a
+// un fornitore proporrebbe «richiesta mandata a mano», cioè una seconda richiesta per la stessa mail.
+// Prima di M1 questa mail era agganciata dal marcatore, e un messaggio agganciato non si interpreta.
+func legataDalMarcatore(m db.Messaggio) bool {
+	return m.Direzione == db.DirezioneUscita && m.RichiestaFornitoreID.Valid
 }
 
 // daInterpretare dice se un messaggio orfano va passato al triage: la posta in entrata e quella
@@ -336,6 +354,35 @@ func (s *Servizio) Ritriage(ctx context.Context, indirizzo, dominio string) (Esi
 // solo ripetuta. Un elenco vuoto non e' un errore — vuol dire che non c'era niente da scrivere.
 func (s *Servizio) RitriageMolti(ctx context.Context, indirizzi, domini []string) (EsitoRitriage, error) {
 	return s.ritriageChiavi(ctx, db.New(s.Pool), indirizzi, domini)
+}
+
+// ErrGiaDeciso: il ricalcolo di un messaggio che una persona ha già deciso (agganciato, o con la proposta
+// accettata o rifiutata). Le decisioni non si ricalcolano.
+var ErrGiaDeciso = errors.New("il messaggio è già stato deciso: la proposta non si ricalcola")
+
+// RitriageMessaggio ricalcola candidati e proposta di UN messaggio non deciso (Smistamento M1, A5.10):
+// è «Ricalcola» del pannello, per un messaggio i cui candidati sono stati scritti con le regole di prima.
+// Nessun ricalcolo in blocco: lo chiede una persona, messaggio per messaggio, con un POST.
+func (s *Servizio) RitriageMessaggio(ctx context.Context, messaggioID uuid.UUID) (string, error) {
+	q := db.New(s.Pool)
+	m, err := q.GetMessaggio(ctx, messaggioID)
+	if err != nil {
+		return "", err
+	}
+	if m.ThreadID.Valid {
+		return "", ErrGiaDeciso
+	}
+	if p, err := q.GetTriageMessaggio(ctx, messaggioID); err == nil && p.Stato != db.StatoTriageProposta {
+		return "", ErrGiaDeciso
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	nostri, err := CaricaNostri(ctx, q)
+	if err != nil {
+		return "", err
+	}
+	_, cambio, err := s.ritriageUno(ctx, nostri, NuoviMotori(), m)
+	return cambio, err
 }
 
 // ritriageChiavi raccoglie i messaggi di tutte le chiavi, li sfoltisce (lo stesso messaggio puo'
@@ -441,7 +488,7 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 			return "", "", err
 		}
 	}
-	if !m.ThreadID.Valid && daInterpretare(m.Direzione, m.Interno, c) {
+	if !m.ThreadID.Valid && !legataDalMarcatore(m) && daInterpretare(m.Direzione, m.Interno, c) {
 		motore := motorePer(ctx, q, motori, clienteID, c)
 		var nomi []string
 		if allegati, err := q.ListAllegatiMessaggio(ctx, m.MessaggioID); err == nil {
@@ -451,10 +498,10 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 				}
 			}
 		}
-		var inReplyTo string
+		var inReplyTo, indice string
 		var riferimenti []string
 		if mo, err := q.GetMessaggioOutlook(ctx, m.MessaggioID); err == nil {
-			inReplyTo, riferimenti = mo.InReplyTo.String, mo.Riferimenti
+			inReplyTo, riferimenti, indice = mo.InReplyTo.String, mo.Riferimenti, mo.ConversationIndex.String
 		}
 		// i candidati si ricalcolano da zero: un upsert lascerebbe in piedi quelli di prima
 		if _, err := q.EliminaCandidatiAggancio(ctx, m.MessaggioID); err != nil {
@@ -469,6 +516,7 @@ func (s *Servizio) ritriageUno(ctx context.Context, nostri Nostri, motori *Motor
 			Oggetto: m.Oggetto.String, Corpo: m.CorpoTesto.String, NomiAllegati: nomi,
 			Direzione: m.Direzione, Interno: m.Interno, InReplyTo: inReplyTo, Riferimenti: riferimenti,
 			DataEvento: m.DataEvento, Motore: motore, Mittente: m.MittenteIndirizzo.String, FornitoreID: c.FornitoreID,
+			IndiceConversazione: indice,
 		})
 		if err != nil {
 			return "", "", err

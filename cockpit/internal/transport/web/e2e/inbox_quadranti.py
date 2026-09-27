@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""L7 - l'Inbox a quadranti in un BROWSER VERO (checkpoint 7B.5, prove A..G; H e I dalla revisione del 25/09).
+"""L7 - l'Inbox a quadranti in un BROWSER VERO (checkpoint 7B.5, prove A..G; H e I dalla revisione del 25/09;
+J dallo Smistamento M1).
 
 Non lo si lancia a mano: lo avvia `inbox_browser_test.go` (tag `browser`), che prima prepara il
 banco su PostgreSQL, semina i messaggi nei tre quadranti e mette in piedi il server vero. Qui si
@@ -243,6 +244,36 @@ def prova_i(page, base):
     page.evaluate("() => { htmx.ajax('GET', '/healthz', {target: '#pannello', swap: 'innerHTML'}).catch(() => {}); }")
     page.wait_for_timeout(1500)
     verifica(page.locator("#pannello").inner_html() == prima, "I: la risposta JSON e' stata scambiata nel pannello")
+
+
+@prova("J  Invio nel form «Aggancia a…» non aggancia a nessuna RFQ")
+def prova_j(page, base):
+    # Smistamento M1 (A5.16.4, P37): nel form non c'e' un «Aggancia» generico, e il primo submit e' un
+    # bottone inerte. Senza, Invio nella ricerca o nel cognome manderebbe il form con il bottone della
+    # prima card o del primo risultato: un aggancio che nessuno ha scelto.
+    vai(page, base, "/inbox?q=clienti&filtro=tutti")
+    page.click("#lista a.riga:has-text('CLIENTE ENTRATA DUE')")
+    stabile(page)
+    page.click("#pannello button[hx-get*='azione=aggancia']")
+    stabile(page)
+    form = page.locator("#pannello form.form-triage")
+    verifica(form.count() == 1, "J: il form «Aggancia a…» non c'e'")
+    inviati = []
+    page.on("request", lambda r: inviati.append(r.url) if r.method == "POST" and "/aggancia" in r.url else None)
+    cerca = form.locator("input[name=q]")
+    # il campo cerca su «keyup changed delay:300ms»: fill() manda solo l'evento input e la ricerca non
+    # partirebbe; press_sequentially genera un keyup per ogni tasto, come chi scrive davvero
+    cerca.press_sequentially("prova")
+    page.wait_for_selector("#thread-risultati button[name=thread_id]", timeout=5000)
+    stabile(page)
+    # il controllo: c'e' davvero un bottone con una RFQ che Invio potrebbe usare
+    verifica(form.locator("button[name=thread_id]").count() >= 1, "J: la ricerca non ha dato nessuna RFQ da scegliere")
+    cerca.press("Enter")
+    page.wait_for_timeout(800)
+    form.locator("input[name=buyer_cognome]").press("Enter")
+    page.wait_for_timeout(800)
+    verifica(not inviati, "J: Invio ha mandato il form di aggancio: %s" % inviati)
+    verifica(page.locator("#pannello form.form-triage").count() == 1, "J: dopo Invio il form non c'e' piu'")
 
 
 def main():
