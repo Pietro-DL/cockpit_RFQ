@@ -336,21 +336,45 @@ func TestUnCicloVieneRifiutato(t *testing.T) {
 	}
 }
 
-func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
+// Riscritta per lo Smistamento (F4, D16 → evidenza, D49): prima era TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento
+// e fissava RadiceDiFamiglia, che con una radice di famiglia correggeva la proposta del documento e con un
+// generico non faceva niente. Adesso la radice e' un'EVIDENZA del codice del documento, di famiglia o generica,
+// con la famiglia, dove sta nel PRODUCT e il testo; la rev del file (rev_grezza) si distingue da quella che la
+// famiglia separa. Con due radici, o con un codice scritto dall'operatore sul nodo, non c'e' una radice.
+func TestLaRadiceDelloStepEUnEvidenzaDelDocumento(t *testing.T) {
 	m := motoreConFamiglia(t)
 	s := worker.StrutturaSTEP{Versione: 3, Radici: []string{"#1"}, Nodi: []worker.NodoSTEP{nodo("#1", "", "77722757_B", "", ""), nodo("#2", "", "1234567A", "", "")}}
-	r, ok := RadiceDiFamiglia(ClassificaNodi(m, s), s)
-	if !ok || r.Codice != "77722757" || r.Rev != "B" {
+	r, ok := RadiceDelloStep(ClassificaNodi(m, s), s)
+	if !ok || r.Codice != "77722757" || r.Rev != "B" || !r.DiFamiglia || r.Famiglia != "disegni 777" || r.Dove != DoveNome ||
+		r.Testo != "77722757_B" || r.RevDalFile {
 		t.Fatalf("radice di famiglia: %+v %v", r, ok)
 	}
-	// un generico non basta
+	// la rev scritta nel file (PRODUCT_DEFINITION_FORMATION) e' del file, non della famiglia
+	s.Nodi[0].RevGrezza = "C"
+	if r, _ := RadiceDelloStep(ClassificaNodi(m, s), s); r.Rev != "C" || !r.RevDalFile {
+		t.Errorf("la rev del file: %+v", r)
+	}
+	// un generico e' una radice anche lui: un'evidenza piu' debole, non niente
 	s.Radici = []string{"#2"}
-	if _, ok := RadiceDiFamiglia(ClassificaNodi(m, s), s); ok {
-		t.Error("un generico sulla radice non corregge la proposta del documento")
+	r, ok = RadiceDelloStep(ClassificaNodi(m, s), s)
+	if !ok || r.Codice != "1234567A" || r.DiFamiglia || r.Famiglia != "" {
+		t.Errorf("la radice generica: %+v %v", r, ok)
 	}
 	// e con due radici non c'e' «la» radice
 	s.Radici = []string{"#1", "#2"}
-	if _, ok := RadiceDiFamiglia(ClassificaNodi(m, s), s); ok {
+	if _, ok := RadiceDelloStep(ClassificaNodi(m, s), s); ok {
 		t.Error("con due radici non si sceglie")
+	}
+	// un codice scritto dall'operatore sul nodo e' una decisione sul nodo, non una lettura del file
+	s.Radici = []string{"#1"}
+	nodi := ClassificaNodi(m, s)
+	nodi[0].Origine = "operatore"
+	if _, ok := RadiceDelloStep(nodi, s); ok {
+		t.Error("il codice dell'operatore sul nodo non e' una lettura del file")
+	}
+	// una radice senza codice non dice niente
+	s.Nodi[0] = nodo("#1", "", "ASSIEME", "", "")
+	if _, ok := RadiceDelloStep(ClassificaNodi(m, s), s); ok {
+		t.Error("una radice senza codice non e' un'evidenza")
 	}
 }

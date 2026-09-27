@@ -132,6 +132,10 @@ func trovaCodice(t *testing.T, c fascicolo.Candidati, codice string) fascicolo.C
 // un disegno e di uno STEP fanno una riga sola; il riferimento della richiesta, le proposte scartate e i
 // nodi senza codice non ci sono; componenti e codici della richiesta dicono la situazione senza essere
 // evidenze.
+//
+// Riscritta per lo Smistamento (F4, `Unisci` con `nome_contiene_codice`): prima gli altri riferimenti erano
+// «12345678 20260908», con il codice citato nel nome dell'offerta a 50 come la vista lo scrive. Adesso vale lo
+// score della sua regola (25), sotto il generico del corpo (30).
 func TestLaVistaDeiCandidatiUnisceMessaggiAllegatiEStep(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
@@ -175,8 +179,11 @@ func TestLaVistaDeiCandidatiUnisceMessaggiAllegatiEStep(t *testing.T) {
 	if got := elenco(c.Prodotto); got != "77720517:proposta 77722757:proposta 77731111:archiviato 77740000:componente 77750000:richiesta" {
 		t.Errorf("candidati prodotto = %s", got)
 	}
-	if got := elenco(c.Altri); got != "12345678:nuovo 20260908:nuovo" {
+	if got := elenco(c.Altri); got != "20260908:nuovo 12345678:nuovo" {
 		t.Errorf("altri riferimenti = %s", got)
+	}
+	if k := trovaCodice(t, c, "12345678"); k.Punteggio != 25 {
+		t.Errorf("il codice citato nel nome dell'offerta: score %d, atteso 25 (nome_contiene_codice)", k.Punteggio)
 	}
 	k := trovaCodice(t, c, "77722757")
 	if len(k.Evidenze) != 3 || len(k.Revisioni) != 1 || k.Revisioni[0].Rev != "B" || k.Conflitto {
@@ -401,8 +408,8 @@ func TestUnCodiceDellaRichiestaEntraComeProdotto(t *testing.T) {
 		t.Errorf("codice della richiesta: %+v", s)
 	}
 	_, err := b.nellEditor(altro, sotto(altro, "n:77780000"), fascicolo.ComponenteNuovo{Codice: "77780000", Tipo: db.TipoComponenteSottoassieme})
-	deveRifiutare(t, err, "77780000 è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, "+
-		"o aprendo una revisione della BOM congelata; non è un componente dall'editor")
+	deveRifiutare(t, err, "77780000 è un codice della richiesta: il prodotto nasce da una decisione del triage, "+
+		"o aprendo la revisione se il codice è stato confermato con la BOM congelata; non è un componente dall'editor")
 	es := b.assicura()
 	if len(es.Creati) != 1 || es.Creati[0] != "77780000" {
 		t.Errorf("AssicuraProdottiDellaRichiesta crea il prodotto: %+v", es)
@@ -447,7 +454,13 @@ func TestConLaBomCongelataICodiciNonCambianoLaBom(t *testing.T) {
 }
 
 // D16 chiusa (24/09/2026): la radice di famiglia scrive fonte = 'regola_cliente' e regola_id NULL, anche
-// se la proposta ne aveva uno; famiglia, dove e testo del riconoscimento stanno nei dettagli.
+// se la proposta ne aveva uno.
+//
+// Riscritta per lo Smistamento (F4, D16 → evidenza): prima fissava anche famiglia, dove e testo del
+// riconoscimento come chiavi sciolte dei dettagli, scritte dalla D16 insieme al codice. Adesso stanno
+// nell'evidenza della radice dentro `valutazione.codice`, e codice, fonte e confidenza in colonna sono il
+// riepilogo: con un nome che non e' un codice, la radice di famiglia (80, `regola_cliente`), e la rev che la
+// famiglia separa (65). regola_id resta NULL: gli score stanno nella tabella S1, non in `regola`.
 func TestLaRadiceDiFamigliaNonScriveUnaRegolaDellaTabellaRegola(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
@@ -456,9 +469,11 @@ func TestLaRadiceDiFamigliaNonScriveUnaRegolaDellaTabellaRegola(t *testing.T) {
 	b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte, regola_id)
 		VALUES ($1, $2, 'cad_3d', 'ASSIEME 7', 40, 'nome_file', 'esempio.nome_file')`, a.AllegatoID, b.thread)
 	b.applica(a, fattiSTEP{nodi: []string{"#1=77722757_B", "#2=77720517"}, archi: []string{"#1>#2"}}.json())
-	got := uno[string](b, `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte || ':' || coalesce(regola_id, 'NULL') || ':' ||
-		(dettagli ->> 'famiglia') || ':' || (dettagli ->> 'dove') || ':' || (dettagli ->> 'testo') FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
-	if got != "77722757:B:regola_cliente:NULL:disegni 777:id:77722757_B" {
+	got := uno[string](b, `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte || ':' || confidenza || ':' || coalesce(regola_id, 'NULL') || ':' ||
+		(dettagli #>> '{valutazione,codice,evidenze,0,famiglia}') || ':' || (dettagli #>> '{valutazione,codice,evidenze,0,dove}') || ':' ||
+		(dettagli #>> '{valutazione,codice,evidenze,0,testo}') || ':' || (dettagli #>> '{valutazione,codice,regola}') || ':' ||
+		(dettagli #>> '{valutazione,rev,regola}') FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
+	if got != "77722757:B:regola_cliente:80:NULL:disegni 777:id:77722757_B:step_radice_famiglia:rev_famiglia_cliente" {
 		t.Errorf("proposta del documento = %q", got)
 	}
 }

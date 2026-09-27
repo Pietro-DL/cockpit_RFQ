@@ -10,6 +10,12 @@ import (
 // Dal checkpoint 3R un PDF non e' piu' `disegno_2d`. Il tipo di un PDF si sa dopo averlo aperto, e
 // prima si dice `da_determinare`: il nome del file e' un indizio sul CODICE, non sul contenuto.
 // «1234567A.pdf» e' il disegno tanto quanto e' l'offerta del fornitore per quel pezzo.
+//
+// Riscritta per lo Smistamento (F4, A5.14.7): prima fissava tipo, codice, rev e pre-spunta di PropostaDaNome e
+// una confidenza qualunque fra 0 e 100 (la somma di estensione e nome). PropostaDaNome resta per la pre-spunta
+// e i codici citati nel nome, e le sue asserzioni restano; in piu', per ogni caso, la valutazione che l'ingest
+// scrive con Valuta: le colonne dal riepilogo (il tipo dello ZIP adesso e' `da_determinare`: l'archivio non
+// dice il tipo), lo score del codice o del tipo con la sua fonte, mai piu' di 95.
 func TestPropostaDaNome(t *testing.T) {
 	casi := []struct {
 		nome      string
@@ -19,27 +25,32 @@ func TestPropostaDaNome(t *testing.T) {
 		codice    string
 		rev       string
 		spunta    bool
+		// la valutazione dell'ingest: il tipo in colonna, lo score e la fonte in colonna
+		tipoColonna string
+		conf        int
+		fonte       string
 	}{
-		{"1234567A_4.pdf", 300_000, "entrata", "da_determinare", "1234567A", "4", true},
-		{"1234567A.stp", 2_000_000, "entrata", "cad_3d", "1234567A", "", true},
-		{"assieme.STEP", 2_000_000, "entrata", "cad_3d", "", "", true},
-		{"Locandina.pdf", 300_000, "entrata", "da_determinare", "", "", true},
-		{"TIROCINIO_AZIENDA-SRL.pdf", 200_000, "entrata", "da_determinare", "", "", true},
-		{"SO 5467.pdf", 100_000, "uscita", "offerta_promatec", "", "", true},
-		{"SO 5467.pdf", 100_000, "entrata", "da_determinare", "", "", true},
-		{"capitolato_generale.pdf", 60_000_000, "entrata", "da_determinare", "", "", false}, // troppo grande: si scarica a mano
-		{"image001.png", 12_000, "entrata", "rumore", "", "", false},
-		{"Screenshot_20260903_090239_Chrome.jpg", 776_662, "entrata", "rumore", "", "", false},
-		{"foto_pezzo.jpg", 3_000_000, "entrata", "altro", "", "", false},
-		{"disegni.zip", 5_000_000, "entrata", "altro", "", "", true},
-		{"listino.xlsx", 50_000, "entrata", "commerciale", "", "", true},
-		{"12-34567_REV2.dxf", 50_000, "entrata", "sviluppo_dxf", "12-34567", "2", true},
-		{"Re: RFQ.msg", 50_000, "entrata", "corrispondenza", "", "", false},
+		{"1234567A_4.pdf", 300_000, "entrata", "da_determinare", "1234567A", "4", true, "da_determinare", 45, "nome_file"},
+		{"1234567A.stp", 2_000_000, "entrata", "cad_3d", "1234567A", "", true, "cad_3d", 45, "nome_file"},
+		{"assieme.STEP", 2_000_000, "entrata", "cad_3d", "", "", true, "cad_3d", 95, "estensione"},
+		{"Locandina.pdf", 300_000, "entrata", "da_determinare", "", "", true, "da_determinare", 0, "estensione"},
+		{"TIROCINIO_AZIENDA-SRL.pdf", 200_000, "entrata", "da_determinare", "", "", true, "da_determinare", 0, "estensione"},
+		{"SO 5467.pdf", 100_000, "uscita", "offerta_promatec", "", "", true, "offerta_promatec", 90, "direzione"},
+		{"SO 5467.pdf", 100_000, "entrata", "da_determinare", "", "", true, "da_determinare", 0, "estensione"},
+		{"capitolato_generale.pdf", 60_000_000, "entrata", "da_determinare", "", "", false, "da_determinare", 0, "estensione"}, // troppo grande: si scarica a mano
+		{"image001.png", 12_000, "entrata", "rumore", "", "", false, "rumore", 60, "rumore"},
+		{"Screenshot_20260903_090239_Chrome.jpg", 776_662, "entrata", "rumore", "", "", false, "rumore", 60, "rumore"},
+		{"foto_pezzo.jpg", 3_000_000, "entrata", "altro", "", "", false, "altro", 20, "estensione"},
+		{"disegni.zip", 5_000_000, "entrata", "altro", "", "", true, "da_determinare", 0, "estensione"},
+		{"listino.xlsx", 50_000, "entrata", "commerciale", "", "", true, "commerciale", 40, "estensione"},
+		{"12-34567_REV2.dxf", 50_000, "entrata", "sviluppo_dxf", "12-34567", "2", true, "sviluppo_dxf", 45, "nome_file"},
+		{"Re: RFQ.msg", 50_000, "entrata", "corrispondenza", "", "", false, "corrispondenza", 90, "estensione"},
 		// 7C.1, P0: un nome che CONTIENE un codice non E' un codice. Prima l'intero nome diventava il
 		// codice della proposta (82 caratteri in una colonna da 60: result di stage rifiutato).
-		{"Offerta 12345678 per fornitura staffe zincate rev finale allegato tecnico completo.pdf", 16_658, "entrata", "da_determinare", "", "", true},
-		{"AB 12345.pdf", 300_000, "entrata", "da_determinare", "", "", true},
-		{"1234567A rev4 staffa sinistra.dxf", 50_000, "entrata", "sviluppo_dxf", "", "", true},
+		{"Offerta 12345678 per fornitura staffe zincate rev finale allegato tecnico completo.pdf", 16_658, "entrata", "da_determinare", "", "", true,
+			"da_determinare", 0, "estensione"},
+		{"AB 12345.pdf", 300_000, "entrata", "da_determinare", "", "", true, "da_determinare", 0, "estensione"},
+		{"1234567A rev4 staffa sinistra.dxf", 50_000, "entrata", "sviluppo_dxf", "", "", true, "sviluppo_dxf", 80, "estensione"},
 	}
 	for _, c := range casi {
 		p := PropostaDaNome(c.nome, c.bytes, c.direzione)
@@ -52,6 +63,26 @@ func TestPropostaDaNome(t *testing.T) {
 		if len(p.Codice) > MaxCodice || len(p.Rev) > MaxRev {
 			t.Errorf("%s: codice %q o rev %q oltre i limiti del dominio", c.nome, p.Codice, p.Rev)
 		}
+		// la valutazione dell'ingest dice le stesse cose del nome, con lo score della regola
+		v := Valuta(IngressoFile{Da: DaIngest, NomeFile: c.nome, Bytes: c.bytes, Direzione: c.direzione})
+		r := v.Riepilogo()
+		if r.Tipo != c.tipoColonna || r.Codice != c.codice || r.Rev != c.rev || r.Confidenza != c.conf || r.Fonte != c.fonte {
+			t.Errorf("%s: colonne dalla valutazione %+v, attese tipo=%s codice=%s rev=%s confidenza=%d fonte=%s",
+				c.nome, r, c.tipoColonna, c.codice, c.rev, c.conf, c.fonte)
+		}
+		if r.Confidenza < 0 || r.Confidenza > 95 || v.Ricostruita || v.Da != DaIngest {
+			t.Errorf("%s: confidenza %d fuori da 0–95, o valutazione %+v", c.nome, r.Confidenza, v)
+		}
+		if c.codice != "" && (v.Codice.Regola != "nome_codice_generico" || v.Codice.Score != 45) {
+			t.Errorf("%s: il codice del nome e' una lettura del nome, 45: %+v", c.nome, v.Codice)
+		}
+	}
+	// la rev esplicita vale piu' della convenzione generica
+	if v := Valuta(IngressoFile{NomeFile: "12-34567_REV2.dxf"}); v.Rev.Regola != "rev_esplicita_nome" || v.Rev.Score != 55 {
+		t.Errorf("rev esplicita: %+v", v.Rev)
+	}
+	if v := Valuta(IngressoFile{NomeFile: "1234567A_4.pdf"}); v.Rev.Regola != "rev_suffisso_nome" || v.Rev.Score != 40 {
+		t.Errorf("rev generica: %+v", v.Rev)
 	}
 }
 

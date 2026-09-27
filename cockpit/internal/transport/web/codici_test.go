@@ -94,7 +94,7 @@ func TestIlPannelloDeiCodiciSiLegge(t *testing.T) {
 		{"77740000", []string{"✓ nel Fascicolo", "come assieme, rev B", "77740000 foglio 1.pdf"}, []string{"hx-post", "+ Prodotto"}},
 		{"77731111", []string{"archiviato", "tolto dal cliente", "Archiviati della Struttura BOM"},
 			[]string{"/fascicolo/componente/" + id["archiviato"].String() + "/ripristina", ">Ripristina<", "+ Prodotto"}},
-		{"77750000", []string{"codice della richiesta senza componente", "il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata"}, []string{"+ Prodotto", `"tipo":"finito"`, "+ Assieme"}},
+		{"77750000", []string{"codice della richiesta senza componente", fraseRichiestaSenzaRevisione}, []string{"+ Prodotto", `"tipo":"finito"`, "+ Assieme", fraseRichiestaConRevisione}},
 		{"77760000", []string{"revisioni discordanti", ">rev A<", ">rev B<", "nessun componente con questo codice"},
 			[]string{`name="rev"`, "+ Prodotto", "+ Assieme", "+ Particolare", `"tipo":"sottoassieme"`, `name="codice"`, "/codice/aggiungi"}},
 		{"20260908", []string{"solo dall&#39;estrattore generico", "nessun componente con questo codice"}, []string{"+ Prodotto", "revisioni discordanti"}},
@@ -147,5 +147,56 @@ func TestConLaBomCongelataIlPannelloNonOffreGestiCheLaCambiano(t *testing.T) {
 	}
 	for _, chiave := range []string{"77720517", "77740000", "77731111", "77750000", "77760000", "20260908"} {
 		rigaDelCodice(t, html, chiave) // le righe restano: i codici si leggono
+	}
+}
+
+// Le due frasi della riga di un codice della richiesta senza componente (Smistamento F3, rilievo della
+// verifica di F2): la strada della revisione solo per il codice che il congelamento ha fermato.
+const (
+	fraseRichiestaConRevisione   = "il prodotto entra aprendo una revisione della BOM"
+	fraseRichiestaSenzaRevisione = "il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione: rientra solo con una decisione del triage"
+)
+
+// Smistamento F3 (rilievo della verifica di F2; R1, E11): con la BOM congelata la riga promette la revisione
+// solo al codice della richiesta che il congelamento ha fermato, confermato da una persona dopo l'ultimo
+// congelamento (la regola di AssicuraProdottiDellaRevisione). Il codice confermato prima, il cui prodotto era
+// stato tolto, e quello che nessuno ha confermato non la promettono: aprirla non li farebbe nascere. Con la
+// working libera non la promette nessuno.
+func TestIlCodiceDellaRichiestaPromettelaRevisioneSoloSeIlCongelamentoLoHaFermato(t *testing.T) {
+	congelata := time.Now().Add(-time.Hour)
+	chi := uuid.NullUUID{UUID: uuid.New(), Valid: true}
+	msg := uuid.New()
+	riga := func(codice string) db.ListCodiciCandidatiThreadRow {
+		return db.ListCodiciCandidatiThreadRow{Codice: codice, Sorgente: "messaggio", Origine: "famiglia", Evidenza: "oggetto", Punteggio: 80,
+			MessaggioID: msg, Famiglia: "disegni 777"}
+	}
+	righe := []db.ListCodiciCandidatiThreadRow{riga("77750000"), riga("77750001"), riga("77750002")}
+	ids := []db.IdentificativoThread{
+		{Codice: "77750000", ConfermatoDa: chi, CreatoIl: congelata.Add(time.Minute)},  // fermato dal congelamento
+		{Codice: "77750001", ConfermatoDa: chi, CreatoIl: congelata.Add(-time.Minute)}, // c'era gia': il prodotto era stato tolto
+		{Codice: "77750002", CreatoIl: congelata.Add(time.Minute)},                     // nessuno l'ha confermato
+	}
+	for _, bloccata := range []int32{1, 0} {
+		thd, _ := pannelloSintetico(bloccata)
+		cx := fascicolo.ContestoCodici{HaFamiglie: true, Bloccata: bloccata, Identificativi: ids}
+		if bloccata != 0 {
+			cx.CongelataIl = &congelata
+		}
+		thd.Codici = fascicolo.Unisci(righe, cx)
+		html := rendiPannello(t, thd)
+		for _, codice := range []string{"77750000", "77750001", "77750002"} {
+			r := rigaDelCodice(t, html, codice)
+			con := bloccata != 0 && codice == "77750000"
+			if !strings.Contains(r, "codice della richiesta senza componente") {
+				t.Errorf("V%d %s: non dice che e' un codice della richiesta senza componente:\n%s", bloccata, codice, r)
+			}
+			if con != strings.Contains(r, fraseRichiestaConRevisione) || con == strings.Contains(r, fraseRichiestaSenzaRevisione) {
+				t.Errorf("V%d %s: la strada della revisione promessa = %v, attesa %v:\n%s", bloccata, codice,
+					strings.Contains(r, fraseRichiestaConRevisione), con, r)
+			}
+			if con && !strings.Contains(r, "confermato dopo il congelamento della V1") {
+				t.Errorf("%s: non dice perche' entra con la revisione:\n%s", codice, r)
+			}
+		}
 	}
 }

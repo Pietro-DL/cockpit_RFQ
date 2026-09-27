@@ -99,9 +99,12 @@ func prepara3R(t *testing.T) (scena3R, context.Context) {
 
 // T21 — la decisione dell'operatore vale per IL messaggio su cui l'ha presa.
 //
-// Gli altri orfani della conversazione restano orfani, acquistano un candidato R1 al 95, e la loro
-// proposta diventa «aggancia» invece di «nuova_rfq». Sono un clic ciascuno, ed è un clic che qualcuno
-// deve dare.
+// Riscritta per lo Smistamento (M1, A5.16.5): prima fissava che gli altri orfani della conversazione
+// ricevessero un candidato R1 fisso a 95 e la proposta «aggancia» a 95. Adesso ricevono il candidato con il
+// livello che l'indice e il cliente danno: in questa scena nessun messaggio ha il ConversationIndex, quindi
+// è il solo ConversationID, debole (40), e la loro proposta resta quella di prima («nuova_rfq» a 60).
+// Restano orfani, con il triage non accettato, la traccia `candidato` e la conversazione collegata. La
+// variante con l'indice che discende è TestGliOrfaniDellaConversazioneHannoIlLivelloGiusto (257).
 func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 	s, ctx := prepara3R(t)
 	srv := &Server{Pool: s.pool, Log: testutil.LogSilenzioso()}
@@ -122,7 +125,7 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.agganciaMessaggioAThread(ctx, q, &s.utente, m, th.ThreadID, uuid.NullUUID{}); err != nil {
+	if err := srv.agganciaMessaggioAThread(ctx, q, &s.utente, m, th.ThreadID, uuid.NullUUID{}, classificazione.GestoAggancia); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -140,12 +143,12 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 
 	// gli ALTRI no
 	for i, id := range s.msg[1:] {
-		var altro uuid.NullUUID
+		var altro, proposto uuid.NullUUID
 		var stato, esito string
 		var conf int16
-		if err := s.pool.QueryRow(ctx, `SELECT m.thread_id, t.stato::text, t.esito::text, t.confidenza
+		if err := s.pool.QueryRow(ctx, `SELECT m.thread_id, t.stato::text, t.esito::text, t.confidenza, t.thread_proposto
 			FROM messaggio m JOIN proposta_triage t USING (messaggio_id) WHERE m.messaggio_id = $1`, id).
-			Scan(&altro, &stato, &esito, &conf); err != nil {
+			Scan(&altro, &stato, &esito, &conf, &proposto); err != nil {
 			t.Fatal(err)
 		}
 		if altro.Valid {
@@ -154,11 +157,8 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 		if stato != "proposta" {
 			t.Errorf("messaggio %d: il triage è stato ACCETTATO senza che nessuno decidesse (stato %q)", i+1, stato)
 		}
-		if esito != "aggancia" {
-			t.Errorf("messaggio %d: esito %q, atteso «aggancia» (il candidato R1 è comparso)", i+1, esito)
-		}
-		if int(conf) != classificazione.PuntiRegola[classificazione.R1Conversazione] {
-			t.Errorf("messaggio %d: confidenza %d, attesa %d", i+1, conf, classificazione.PuntiRegola[classificazione.R1Conversazione])
+		if esito != "nuova_rfq" || conf != 60 || proposto.Valid {
+			t.Errorf("messaggio %d: proposta %s a %d verso %v, attesa quella di prima (nuova_rfq a 60): il solo ConversationID non la cambia", i+1, esito, conf, proposto)
 		}
 		cand, err := s.q.ListCandidatiAggancio(ctx, id)
 		if err != nil {
@@ -166,15 +166,17 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 		}
 		if len(cand) != 1 || cand[0].ThreadID != th.ThreadID || cand[0].Regola != db.RegolaAggancioR1Conversazione {
 			t.Errorf("messaggio %d: candidato atteso R1 verso %s, trovato %+v", i+1, th.ThreadID, cand)
+		} else if cand[0].Punteggio != 40 || classificazione.TipoDaRiga(string(cand[0].Regola), int(cand[0].Punteggio)) != classificazione.TipoR1Solo {
+			t.Errorf("messaggio %d: R1 a %d, atteso 40 (solo ConversationID)", i+1, cand[0].Punteggio)
 		}
-		// e la traccia dice che è una proposta, non una decisione presa per procura
-		var azione string
-		if err := s.pool.QueryRow(ctx, `SELECT azione FROM messaggio_aggancio_log WHERE messaggio_id = $1
-			ORDER BY eseguito_il DESC LIMIT 1`, id).Scan(&azione); err != nil {
+		// e la traccia dice che è una proposta, non una decisione presa per procura, con il livello
+		var azione, motivo string
+		if err := s.pool.QueryRow(ctx, `SELECT azione, COALESCE(motivo, '') FROM messaggio_aggancio_log WHERE messaggio_id = $1
+			ORDER BY eseguito_il DESC LIMIT 1`, id).Scan(&azione, &motivo); err != nil {
 			t.Fatalf("messaggio %d: manca la traccia: %v", i+1, err)
 		}
-		if azione != "candidato" {
-			t.Errorf("messaggio %d: azione registrata %q, attesa «candidato»", i+1, azione)
+		if azione != "candidato" || !strings.Contains(motivo, "debole · score 40") {
+			t.Errorf("messaggio %d: azione registrata %q (%q), attesa «candidato» con il livello", i+1, azione, motivo)
 		}
 	}
 
@@ -185,6 +187,90 @@ func TestT21LAggancioNonTrascinaLaConversazione(t *testing.T) {
 	}
 	if !convThread.Valid || convThread.UUID != th.ThreadID {
 		t.Error("la conversazione deve restare collegata: è l'evidenza su cui si regge R1")
+	}
+}
+
+// 257 — gli orfani della conversazione hanno il livello giusto. Il messaggio deciso ha il suo
+// ConversationIndex; il primo orfano ne discende ed è dello stesso cliente (forte, 86: la proposta diventa
+// «aggancia»), il secondo no (debole, 40: la proposta resta com'era). Tutti e due restano orfani, con la
+// traccia `candidato` e il livello. Le righe già scritte seguono K25: una riga delle regole di prima si
+// sostituisce, una variante più forte scritta dall'ingest non si abbassa.
+func TestGliOrfaniDellaConversazioneHannoIlLivelloGiusto(t *testing.T) {
+	s, ctx := prepara3R(t)
+	srv := &Server{Pool: s.pool, Log: testutil.LogSilenzioso()}
+	const indice = "01DB2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D5E6"
+	for id, idx := range map[uuid.UUID]string{s.msg[0]: indice, s.msg[1]: indice + "0000A1B2C3"} {
+		if _, err := s.pool.Exec(ctx, `INSERT INTO messaggio_outlook (messaggio_id, conversation_index) VALUES ($1, $2)`, id, idx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	th, err := s.q.InsertThread(ctx, db.InsertThreadParams{ClienteID: s.cliente.ClienteID, Canale: db.CanaleOutlook, DataInizio: time.Now(),
+		Oggetto: ptxt("RFQ 1234567A"), CartellaRelativa: ptxt(`ACME\WIP\x`), Priorita: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// le righe già scritte: al primo orfano un R1 delle regole di prima (95), al secondo un R1 forte che
+	// l'ingest avrebbe potuto scrivere (86)
+	for id, punti := range map[uuid.UUID]int{s.msg[1]: 95, s.msg[2]: 86} {
+		if _, err := s.pool.Exec(ctx, `INSERT INTO candidato_aggancio (messaggio_id, thread_id, regola, punteggio, evidenza, thread_stato)
+			VALUES ($1, $2, 'R1_conversazione', $3, 'riga scritta prima', 'APERTA')`, id, th.ThreadID, punti); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	q := db.New(tx)
+	m, _, err := messaggioDaDecidere(ctx, q, s.msg[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.agganciaMessaggioAThread(ctx, q, &s.utente, m, th.ThreadID, uuid.NullUUID{}, classificazione.GestoAggancia); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	riga := func(id uuid.UUID) (punti int16, esito string, conf int16, proposto uuid.NullUUID, orfano bool, motivo string) {
+		t.Helper()
+		var tid uuid.NullUUID
+		if err := s.pool.QueryRow(ctx, `SELECT k.punteggio, p.esito::text, p.confidenza, p.thread_proposto, m.thread_id,
+			(SELECT motivo FROM messaggio_aggancio_log l WHERE l.messaggio_id = m.messaggio_id AND l.azione = 'candidato' ORDER BY eseguito_il DESC LIMIT 1)
+			FROM messaggio m JOIN proposta_triage p USING (messaggio_id)
+			JOIN candidato_aggancio k ON k.messaggio_id = m.messaggio_id AND k.thread_id = $2 AND k.regola = 'R1_conversazione'
+			WHERE m.messaggio_id = $1`, id, th.ThreadID).Scan(&punti, &esito, &conf, &proposto, &tid, &motivo); err != nil {
+			t.Fatal(err)
+		}
+		return punti, esito, conf, proposto, !tid.Valid, motivo
+	}
+	// il primo orfano discende ed è dello stesso cliente: forte, e la proposta si alza
+	punti, esito, conf, proposto, orfano, motivo := riga(s.msg[1])
+	if punti != 86 || esito != "aggancia" || conf != 86 || !proposto.Valid || proposto.UUID != th.ThreadID || !orfano {
+		t.Errorf("orfano con l'indice che discende: R1 %d, proposta %s %d verso %v, orfano %v", punti, esito, conf, proposto, orfano)
+	}
+	if !strings.Contains(motivo, "forte · score 86") || !strings.Contains(motivo, "proposto") {
+		t.Errorf("la traccia del primo orfano: %q", motivo)
+	}
+	// il secondo no: la riga forte già scritta resta (K25), ma la proposta non la tocca il giro, che ha
+	// trovato solo il ConversationID
+	punti, esito, conf, proposto, orfano, motivo = riga(s.msg[2])
+	if punti != 86 {
+		t.Errorf("il giro degli orfani ha abbassato una riga più forte: %d", punti)
+	}
+	if esito != "nuova_rfq" || conf != 60 || proposto.Valid || !orfano {
+		t.Errorf("orfano senza indice: proposta %s %d verso %v, orfano %v — attesa quella di prima", esito, conf, proposto, orfano)
+	}
+	if !strings.Contains(motivo, "debole · score 40") {
+		t.Errorf("la traccia del secondo orfano: %q", motivo)
+	}
+	// nessuna decisione presa per procura
+	var accettati int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM proposta_triage WHERE messaggio_id = ANY($1) AND stato <> 'proposta'`, s.msg[1:]).Scan(&accettati); err != nil || accettati != 0 {
+		t.Errorf("proposte decise fra gli orfani: %d (%v)", accettati, err)
 	}
 }
 

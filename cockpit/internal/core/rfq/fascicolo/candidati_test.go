@@ -93,6 +93,11 @@ func TestUnGenericoSoloNonEUnCandidatoProdottoSeCiSonoFamiglie(t *testing.T) {
 
 // Il nome di un file tecnico e' un'evidenza forte; lo stesso numero nel nome di un'offerta no (piano §6.1).
 // Il cartiglio e la radice di uno STEP lo sono sempre.
+//
+// Riscritta per lo Smistamento (F4, `Unisci` con `nome_contiene_codice`): prima fissava gli altri riferimenti
+// nell'ordine «12345678 1234567A», con il codice citato nel nome dell'offerta a 50 come la vista lo scrive.
+// Adesso il suo score e' quello della regola della tabella S1 (25), e il codice del PDF da determinare (50)
+// viene prima.
 func TestIlNomeDiUnFileTecnicoEForteQuelloDiUnOffertaNo(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
 		dalDocumento("77720517", "", "nome_file", "77720517.dxf", "sviluppo_dxf", 90),
@@ -104,11 +109,20 @@ func TestIlNomeDiUnFileTecnicoEForteQuelloDiUnOffertaNo(t *testing.T) {
 	if got := codiciDi(c.Prodotto); got != "1234568A 77720517" {
 		t.Errorf("candidati prodotto = [%s]", got)
 	}
-	if got := codiciDi(c.Altri); got != "12345678 1234567A" {
+	if got := codiciDi(c.Altri); got != "1234567A 12345678" {
 		t.Errorf("altri riferimenti = [%s]: un PDF ancora da determinare non e' un file tecnico", got)
 	}
 	if m := trova(t, c, "12345678").Motivo; m != "solo nel nome di un file non tecnico" {
 		t.Errorf("motivo = %q", m)
+	}
+	// il codice citato nel nome vale lo score della sua regola, non il 50 fisso della vista
+	if k := trova(t, c, "12345678"); k.Punteggio != classificazione.Punteggi["nome_contiene_codice"].Score || k.Punteggio != 25 ||
+		k.Evidenze[0].Punteggio != 25 {
+		t.Errorf("score del codice citato nel nome: %d (evidenza %d), atteso 25", k.Punteggio, k.Evidenze[0].Punteggio)
+	}
+	// le proposte dei documenti restano con la loro colonna, che e' gia' lo score del codice del file
+	if k := trova(t, c, "1234567A"); k.Punteggio != 50 {
+		t.Errorf("score del codice del documento: %d, atteso 50", k.Punteggio)
 	}
 }
 

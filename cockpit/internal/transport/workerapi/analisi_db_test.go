@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -29,6 +30,10 @@ type copiaFile struct {
 	proposta uuid.UUID
 }
 
+// Riscritta per lo Smistamento (F4, P15, E03): prima tutte le copie si chiamavano «disegno.pdf» e ricevevano
+// tipo, codice e confidenza dell'esito del worker (disegno_2d, 1234567A, 92). Adesso le copie hanno nomi
+// diversi: ricevono il tipo (e' del contenuto, dai termini del testo) e rileggono il LORO nome, e la confidenza
+// e' lo score della lettura del codice (il nome, 45), non quello del worker. La proposta decisa resta com'era.
 func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	pool := testutil.Pool(t)
 	testutil.SchemaPulito(t, pool)
@@ -37,7 +42,7 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	an := coda.Analizzatore{Versione: 1, Parametri: map[string]any{"termini": []any{"scala"}}}
 	s := &Server{Pool: pool, Log: testutil.LogSilenzioso(), Analizzatore: an}
 
-	crea := func(n int, direzione string, statoProposta string) copiaFile {
+	crea := func(n int, nome, direzione string, statoProposta string) copiaFile {
 		var convID, msgID uuid.UUID
 		var c copiaFile
 		suffisso := string(rune('a' + n))
@@ -52,8 +57,8 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 		}
 		if err := pool.QueryRow(ctx, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura,
 			origine, bytes, sha256, path_staging, ricevuto_il)
-			VALUES ($1, 1, 'disegno.pdf', 'pdf', 'file', 'outlook', 1000, $2, $3, now()) RETURNING allegato_id`,
-			msgID, shaA15, `C:\staging\a15\disegno.pdf`).Scan(&c.allegato); err != nil {
+			VALUES ($1, 1, $4, 'pdf', 'file', 'outlook', 1000, $2, $3, now()) RETURNING allegato_id`,
+			msgID, shaA15, `C:\staging\a15\disegno.pdf`, nome).Scan(&c.allegato); err != nil {
 			t.Fatal(err)
 		}
 		if err := pool.QueryRow(ctx, `INSERT INTO documento_proposta (allegato_id, tipo_proposto, confidenza, fonte, stato)
@@ -64,14 +69,14 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 	}
 
 	// due proposte ancora aperte, una già decisa da un operatore
-	prima := crea(0, "entrata", "aperta")
-	seconda := crea(1, "entrata", "aperta")
-	decisa := crea(2, "entrata", "confermata")
+	prima := crea(0, "1234567A_4.pdf", "entrata", "aperta")
+	seconda := crea(1, "1234567B.pdf", "entrata", "aperta")
+	decisa := crea(2, "disegno.pdf", "entrata", "confermata")
 
 	// il job è quello partito per la prima copia; le altre due non ne hanno uno (A15, prima metà)
 	payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{
 		AllegatoID: prima.allegato, Bytes: 1000, Sha256: shaA15,
-		NomeFile: "disegno.pdf", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
+		NomeFile: "1234567A_4.pdf", VersioneAnalizzatore: 1, HashConfigurazione: an.Hash(),
 	})
 	var jobID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO job (tipo, worker_tipo, payload, lease_s, durata_max_s, stato)
@@ -115,15 +120,22 @@ func TestIFattiDiUnAnalisiArrivanoATutteLeProposteAperte(t *testing.T) {
 		t.Error("fatti vuoti")
 	}
 
-	// le PROPOSTE aperte: tutte aggiornate, ciascuna la sua
-	for nome, c := range map[string]copiaFile{"prima": prima, "seconda": seconda} {
+	// le PROPOSTE aperte: tutte aggiornate, ciascuna la sua, con il codice del SUO nome
+	for nome, c := range map[string]struct {
+		copiaFile
+		codice, rev string
+	}{"prima": {prima, "1234567A", "4"}, "seconda": {seconda, "1234567B", ""}} {
 		p, err := q.GetProposta(ctx, c.proposta)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Codice.String != "1234567A" || p.Confidenza != 92 {
-			t.Errorf("proposta %s non aggiornata dai fatti: tipo=%s codice=%q conf=%d",
-				nome, p.TipoProposto, p.Codice.String, p.Confidenza)
+		if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Codice.String != c.codice || p.Rev.String != c.rev || p.Confidenza != 45 ||
+			p.Fonte != db.FontePropostaNomeFile {
+			t.Errorf("proposta %s non aggiornata dai fatti: tipo=%s codice=%q rev=%q conf=%d fonte=%s",
+				nome, p.TipoProposto, p.Codice.String, p.Rev.String, p.Confidenza, p.Fonte)
+		}
+		if v, ok := classificazione.LeggiValutazione(p.Dettagli); !ok || v.Da != classificazione.DaAnalisi || v.Tipo.Regola != "pdf_termini_cartiglio" {
+			t.Errorf("proposta %s senza la valutazione dell'analisi: %s", nome, p.Dettagli)
 		}
 	}
 

@@ -1,7 +1,8 @@
 package fascicolo
 
-// L1 — le regole pure del Fascicolo: il gate del congelamento (A4.6, passo 3; A4.5), il ciclo nella
-// struttura, la differenza fra una versione e la working (A4.7).
+// L1 — le regole pure del Fascicolo: il gate del congelamento (A4.6, passo 3; A4.5), con la completezza
+// logica separata dalla materializzazione (Smistamento F6, A5.4.8), il ciclo nella struttura, la
+// differenza fra una versione e la working (A4.7).
 
 import (
 	"encoding/json"
@@ -24,23 +25,32 @@ func step(codice, esito string, deroga, derogaCad bool) db.ListGateStepRow {
 }
 
 // Prova 24, la regola: una condizione per volta, e il gate e' rosso con la sua frase.
+//
+// Riscritta per lo Smistamento (F6, A5.4.8, U2): prima fissava che un documento della BOM in errore sul
+// NAS e un'anomalia NAS aperta fermassero il congelamento («1 documenti della BOM in errore sul NAS», «1
+// anomalie NAS aperte»), con i bloccanti letti da v_thread_bloccanti. Adesso i bloccanti sono quelli
+// logici (Conti.BloccantiLogici, da ContaBloccantiLogici) e il NAS e' il terzo elenco: i due casi restano,
+// con il gate che PASSA e la frase cercata in Materializzazione; ogni altro caso controlla in piu' che
+// il terzo elenco sia vuoto.
 func TestIlGateSiFermaSuOgniCondizione(t *testing.T) {
-	pulito := db.GateCongelamentoRow{}
+	pulito := Conti{}
+	strutturali := func(r db.GateCongelamentoRow) Conti { return Conti{Strutturali: r} }
 	casi := []struct {
 		nome   string
-		c      db.GateCongelamentoRow
+		c      Conti
 		step   []db.ListGateStepRow
 		archi  []Arco
 		frase  string // "" = passa
+		nas    string // la frase attesa nel terzo elenco, che non ferma; "" = elenco vuoto
 		avviso string
 	}{
 		{nome: "tutto a posto", step: []db.ListGateStepRow{step("P1", StepAnalizzato, false, false)}},
-		{nome: "requisiti bloccanti", c: db.GateCongelamentoRow{NBloccanti: 2}, frase: "2 requisiti bloccanti"},
-		{nome: "proposte di componente", c: db.GateCongelamentoRow{NProposteComponente: 1}, frase: "1 proposte strutturali aperte (1 componenti, 0 relazioni, 0 rimozioni)"},
-		{nome: "proposte di relazione", c: db.GateCongelamentoRow{NProposteRelazione: 3}, frase: "3 proposte strutturali aperte"},
-		{nome: "proposte di rimozione", c: db.GateCongelamentoRow{NProposteRimozione: 1}, frase: "0 relazioni, 1 rimozioni"},
-		{nome: "documenti in errore", c: db.GateCongelamentoRow{NDocumentiErrore: 1}, frase: "1 documenti della BOM in errore sul NAS"},
-		{nome: "anomalie NAS", c: db.GateCongelamentoRow{NAnomalieNas: 1}, frase: "1 anomalie NAS aperte"},
+		{nome: "requisiti bloccanti", c: Conti{BloccantiLogici: 2}, frase: "2 requisiti bloccanti"},
+		{nome: "proposte di componente", c: strutturali(db.GateCongelamentoRow{NProposteComponente: 1}), frase: "1 proposte strutturali aperte (1 componenti, 0 relazioni, 0 rimozioni)"},
+		{nome: "proposte di relazione", c: strutturali(db.GateCongelamentoRow{NProposteRelazione: 3}), frase: "3 proposte strutturali aperte"},
+		{nome: "proposte di rimozione", c: strutturali(db.GateCongelamentoRow{NProposteRimozione: 1}), frase: "0 relazioni, 1 rimozioni"},
+		{nome: "documenti in errore: non fermano", c: Conti{Nas: Materializzazione{Documenti: 3, Scritti: 2, Errore: 1}}, nas: "1 documento in errore sul NAS"},
+		{nome: "anomalie NAS: non fermano", c: Conti{Nas: Materializzazione{Documenti: 1, Scritti: 1, Anomalie: 1}}, nas: "1 anomalia NAS aperta sui documenti"},
 		{nome: "STEP parziale senza deroga", step: []db.ListGateStepRow{step("P1", StepParziale, false, true)}, frase: "serve una deroga strutturale"},
 		{nome: "STEP parziale con la deroga strutturale", step: []db.ListGateStepRow{step("P1", StepParziale, true, false)}},
 		{nome: "STEP non analizzato senza deroga", step: []db.ListGateStepRow{step("P1", StepNonAnalizzato, false, false)}, frase: "PRESENTE, NON ANALIZZATO"},
@@ -56,10 +66,11 @@ func TestIlGateSiFermaSuOgniCondizione(t *testing.T) {
 	a, b, c := uuid.New(), uuid.New(), uuid.New()
 	casi = append(casi, struct {
 		nome   string
-		c      db.GateCongelamentoRow
+		c      Conti
 		step   []db.ListGateStepRow
 		archi  []Arco
 		frase  string
+		nas    string
 		avviso string
 	}{nome: "ciclo", c: pulito, archi: []Arco{{a, b}, {b, c}, {c, a}}, frase: "la struttura ha un ciclo: A → B → C → A"})
 	codici := map[uuid.UUID]string{a: "A", b: "B", c: "C"}
@@ -81,7 +92,72 @@ func TestIlGateSiFermaSuOgniCondizione(t *testing.T) {
 			if cs.avviso != "" && (len(g.Avvisi) != 1 || !strings.Contains(g.Avvisi[0], cs.avviso)) {
 				t.Errorf("avvisi %v, atteso %q", g.Avvisi, cs.avviso)
 			}
+			if cs.nas == "" && len(g.Materializzazione) != 0 {
+				t.Errorf("materializzazione %v, attesa vuota", g.Materializzazione)
+			}
+			if cs.nas != "" && (len(g.Materializzazione) != 1 || g.Materializzazione[0] != cs.nas) {
+				t.Errorf("materializzazione %v, attesa %q", g.Materializzazione, cs.nas)
+			}
 		})
+	}
+}
+
+// Prova 198 (Smistamento F6, A5.4.8, U2): la completezza logica ferma il congelamento, la
+// materializzazione no. Le copie in coda, quelle in errore e le anomalie NAS aperte sono il terzo
+// elenco: si dicono con i loro numeri e non entrano mai nei problemi, neanche quando il gate e' rosso
+// per altro. La barra «Sul NAS» legge gli stessi numeri.
+func TestIlGateSeparaLaLogicaDallaMaterializzazione(t *testing.T) {
+	nas := Materializzazione{Documenti: 11, Scritti: 7, InCoda: 2, Errore: 1, Anomalie: 1, FraMinuti: 7}
+	pieno := []string{
+		"2 documenti in coda per la copia sul NAS (la prima fra 7 min)",
+		"1 documento in errore sul NAS",
+		"1 anomalia NAS aperta sui documenti",
+	}
+
+	g := Valuta(Conti{Nas: nas}, nil, nil, nil)
+	if !g.Passa() || len(g.Problemi) != 0 {
+		t.Fatalf("solo la materializzazione: il gate doveva passare, problemi %v", g.Problemi)
+	}
+	if strings.Join(g.Materializzazione, "\n") != strings.Join(pieno, "\n") {
+		t.Errorf("terzo elenco:\n%s\natteso:\n%s", strings.Join(g.Materializzazione, "\n"), strings.Join(pieno, "\n"))
+	}
+	if g.Nas != nas {
+		t.Errorf("i numeri della barra: %+v, attesi %+v", g.Nas, nas)
+	}
+
+	// rosso per la logica: i problemi sono solo della logica, il NAS resta nel suo elenco
+	g = Valuta(Conti{BloccantiLogici: 1, Nas: nas}, nil, nil, nil)
+	if g.Passa() || len(g.Problemi) != 1 || !strings.Contains(g.Motivo(), "1 requisiti bloccanti") {
+		t.Fatalf("un bloccante logico: problemi %v", g.Problemi)
+	}
+	if strings.Contains(g.Motivo(), "NAS") {
+		t.Errorf("il motivo del rifiuto parla del NAS: %q", g.Motivo())
+	}
+	if len(g.Materializzazione) != len(pieno) {
+		t.Errorf("con il gate rosso il terzo elenco resta: %v", g.Materializzazione)
+	}
+
+	// la voce della testata e le sue classi
+	if got := nas.Breve(); got != "Sul NAS: 7 di 11" {
+		t.Errorf("breve: %q", got)
+	}
+	if nas.Completa() || !nas.Guasti() {
+		t.Errorf("con errori e anomalie: completa %v, guasti %v", nas.Completa(), nas.Guasti())
+	}
+	soloCoda := Materializzazione{Documenti: 3, Scritti: 2, InCoda: 1}
+	if soloCoda.Completa() || soloCoda.Guasti() {
+		t.Errorf("una copia in coda non e' un guasto e non e' completa: completa %v, guasti %v", soloCoda.Completa(), soloCoda.Guasti())
+	}
+	if got := soloCoda.Frasi(); len(got) != 1 || got[0] != "1 documento in coda per la copia sul NAS" {
+		t.Errorf("una copia in coda senza orario: %v", got)
+	}
+	tutto := Materializzazione{Documenti: 4, Scritti: 4}
+	if !tutto.Completa() || tutto.Guasti() || tutto.Frasi() != nil {
+		t.Errorf("tutto scritto: completa %v, guasti %v, frasi %v", tutto.Completa(), tutto.Guasti(), tutto.Frasi())
+	}
+	scrittoConAnomalia := Materializzazione{Documenti: 4, Scritti: 4, Anomalie: 2}
+	if f := scrittoConAnomalia.Frasi(); scrittoConAnomalia.Completa() || len(f) != 1 || f[0] != "2 anomalie NAS aperte sui documenti" {
+		t.Errorf("scritti ma con anomalie: completa %v, frasi %v", scrittoConAnomalia.Completa(), f)
 	}
 }
 

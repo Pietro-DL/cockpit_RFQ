@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/testutil"
@@ -98,7 +99,7 @@ func (s scena) decideNuovaRFQ(ctx context.Context, srv *Server, u db.Utente, ogg
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if err := srv.agganciaMessaggioAThread(ctx, q, &u, m, th.ThreadID, uuid.NullUUID{}); err != nil {
+	if err := srv.agganciaMessaggioAThread(ctx, q, &u, m, th.ThreadID, uuid.NullUUID{}, classificazione.GestoNuovaRFQ); err != nil {
 		return uuid.Nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -151,7 +152,11 @@ func TestDueNuoveRFQConcorrentiNeCreanoUnaSola(t *testing.T) {
 		t.Errorf("thread in database = %d, atteso 1: una RFQ vuota è rimasta in giro", n)
 	}
 
-	// il messaggio è agganciato alla RFQ che ha vinto, e la decisione è nel log
+	// il messaggio è agganciato alla RFQ che ha vinto, e la decisione è nel log.
+	//
+	// Riscritta per lo Smistamento (M3, A5.8.3): prima fissava una riga «aggancia» con l'autore e non
+	// guardava il motivo; adesso il motivo è anche la fotografia della decisione (A5.16.6), un JSON con il
+	// gesto `nuova_rfq`, nessun candidato e la RFQ scelta a rango 0.
 	m, err := s.q.GetMessaggio(ctx, s.messagio)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +173,14 @@ func TestDueNuoveRFQConcorrentiNeCreanoUnaSola(t *testing.T) {
 	}
 	if log[0].ThreadID.UUID != m.ThreadID.UUID {
 		t.Errorf("il log punta a un thread diverso da quello del messaggio")
+	}
+	f, ok := classificazione.LeggiScelta(log[0].Motivo.String)
+	if !ok {
+		t.Fatalf("il motivo non è la fotografia della decisione: %q", log[0].Motivo.String)
+	}
+	if f.Gesto != classificazione.GestoNuovaRFQ || f.Frase != "decisione dell'operatore" || f.Su != 0 || f.Primo != nil ||
+		f.Scelto == nil || f.Scelto.Rango != 0 || f.FuoriLista || f.Regole != classificazione.VersioneRegoleAggancio {
+		t.Errorf("fotografia della RFQ nuova: %s", log[0].Motivo.String)
 	}
 }
 

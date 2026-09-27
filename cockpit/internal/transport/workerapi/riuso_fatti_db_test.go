@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -49,6 +50,10 @@ func allegatoSceso(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suffis
 	return allegatoID
 }
 
+// Riscritta per lo Smistamento (F4, P15, P16): prima il secondo allegato riceveva tipo, codice, rev,
+// confidenza e fonte dell'esito del worker (disegno_2d, 1234567A, 4, 92, cartiglio). Adesso riceve la lettura
+// del contenuto (il tipo dai termini del testo) e rilegge il SUO nome: stesso nome, stesso codice e rev, con lo
+// score e la fonte della lettura del nome (45, nome_file), scritti da «fatti esistenti».
 func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 	pool := testutil.Pool(t)
 	testutil.SchemaPulito(t, pool)
@@ -114,9 +119,12 @@ func TestIlSecondoAllegatoConLoStessoContenutoRiceveLaProposta(t *testing.T) {
 		WHERE p.allegato_id = $1`, secondo).Scan(&tipo, &fonte, &codice, &rev, &conf, &dettagli, &stato); err != nil {
 		t.Fatalf("proposta del secondo allegato: %v", err)
 	}
-	if tipo != "disegno_2d" || codice != "1234567A" || rev != "4" || conf != 92 || fonte != "cartiglio" {
+	if tipo != "disegno_2d" || codice != "1234567A" || rev != "4" || conf != 45 || fonte != "nome_file" {
 		t.Errorf("il secondo allegato non ha ricevuto la lettura dell'analisi: tipo=%s codice=%q rev=%q conf=%d fonte=%s",
 			tipo, codice, rev, conf, fonte)
+	}
+	if v, ok := classificazione.LeggiValutazione(dettagli); !ok || v.Da != classificazione.DaFattiEsistenti || v.Tipo.Regola != "pdf_termini_cartiglio" {
+		t.Errorf("la valutazione del secondo allegato: %s", dettagli)
 	}
 	if stato != "analizzato" {
 		t.Errorf("stato dell'allegato = %s, atteso analizzato", stato)

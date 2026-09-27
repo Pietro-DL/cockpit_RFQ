@@ -78,6 +78,9 @@ func (r *rfqFascicolo) aggiungiCodice(w *browser, form url.Values) (int, string)
 // e le aggiunte riuscite (77760000 assieme rev B, 77750000 prodotto). Adesso fissa che nessuna riga ha un
 // gesto, che la rotta non esiste per nessuna di quelle forme e non scrive niente, e che 77760000 e 77750000
 // restano codici senza componente.
+//
+// Smistamento F3 (rilievo della verifica di F2): il codice della richiesta senza componente, con la BOM mai
+// congelata, non promette piu' «aprendo una revisione della BOM congelata»: aprirla non lo farebbe nascere.
 func TestIlPannelloDeiCodiciNellaRfqSiLegge(t *testing.T) {
 	b := preparaBancoWeb(t)
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
@@ -104,7 +107,7 @@ func TestIlPannelloDeiCodiciNellaRfqSiLegge(t *testing.T) {
 		"77720517": {"proposta aperta dallo STEP <b>assieme.stp</b>", "si decide nel Fascicolo"},
 		"77740000": {"✓ nel Fascicolo"},
 		"77731111": {"tolto dal cliente", "Archiviati della Struttura BOM"},
-		"77750000": {"codice della richiesta senza componente", "il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata"},
+		"77750000": {"codice della richiesta senza componente", fraseRichiestaSenzaRevisione},
 		"77760000": {"revisioni discordanti", ">rev A<", ">rev B<", "nessun componente con questo codice"},
 		"20260908": {"nessun componente con questo codice"},
 	}

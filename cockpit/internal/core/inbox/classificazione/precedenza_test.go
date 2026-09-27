@@ -35,6 +35,11 @@ func motoreDiProva(t *testing.T) *Motore {
 
 // T22 — una risposta a una richiesta che esiste non diventa MAI una richiesta nuova.
 //
+// Riscritta per lo Smistamento (M1, A5.16.3): prima fissava che OGNI regola (R0, R1, R4, R3 e anche R2,
+// l'oggetto uguale) portasse ad «aggancia» con la confidenza della regola. Adesso decide il TIPO: tutti i
+// tipi almeno «media» (R0 in tutte le sue varianti, R1 forte, R4, R3 con e senza buyer) agganciano con il
+// loro score; il solo ConversationID e l'oggetto uguale sono sotto la soglia e passano nella prova qui sotto.
+//
 // Il sintomo, dal banco reale: «R: RICHIESTA OFFERTA COD 0.012.3456.7» con un PDF allegato faceva
 // 35 (la parola «offerta») + 25 (l'allegato contato come «tecnico») = 60, superava la soglia di 50 e
 // veniva proposto come `nuova_rfq`. Era la risposta di un fornitore a una richiesta nostra.
@@ -51,40 +56,65 @@ func TestT22UnaRispostaNonDiventaUnaRichiestaNuova(t *testing.T) {
 		t.Fatalf("senza candidati il contenuto deve pur proporre qualcosa: %+v", senza)
 	}
 
-	// con l'evidenza dell'header, lo stesso identico messaggio è una risposta
-	for _, regola := range []string{R0Reply, R1Conversazione, R4Riferimento, R3Codice, R2Oggetto} {
+	// con un'evidenza almeno «media», lo stesso identico messaggio è una risposta
+	provati := 0
+	for _, tipo := range TipiEvidenza() {
+		if tipo.Livello < Media || tipo.Regola == RegolaMarcatore {
+			continue // il marcatore non entra nel triage: si costruisce in lettura sulla nostra mail
+		}
+		provati++
 		con := Triage(IngressoTriage{
 			Oggetto: "R: RICHIESTA OFFERTA COD 0.012.3456.7", Corpo: "Vi giro la richiesta d'offerta, in allegato i disegni.",
 			NomiAllegati: []string{"0.012.3456.7.pdf", "disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
-			Candidati: []Candidato{{ThreadID: "t1", Regola: regola, Punteggio: PuntiRegola[regola],
-				Evidenza: "prova"}},
+			Candidati: []Candidato{NuovoCandidato("t1", tipo.Nome, "prova", false)},
 		})
 		if con.Esito != "aggancia" {
-			t.Errorf("%s: esito %q (atteso aggancia): il punteggio del contenuto ha retrocesso una risposta", regola, con.Esito)
+			t.Errorf("%s: esito %q (atteso aggancia): il punteggio del contenuto ha retrocesso una risposta", tipo.Nome, con.Esito)
 		}
-		if con.Confidenza != PuntiRegola[regola] {
-			t.Errorf("%s: confidenza %d, attesa quella della regola %d", regola, con.Confidenza, PuntiRegola[regola])
+		if con.Confidenza != tipo.Score {
+			t.Errorf("%s: confidenza %d, attesa lo score del tipo %d", tipo.Nome, con.Confidenza, tipo.Score)
 		}
 		if con.Candidato == nil || con.Candidato.ThreadID != "t1" {
-			t.Errorf("%s: il candidato più forte non arriva alla schermata: %+v", regola, con.Candidato)
+			t.Errorf("%s: il candidato più forte non arriva alla schermata: %+v", tipo.Nome, con.Candidato)
 		}
+	}
+	if provati != 8 {
+		t.Errorf("tipi almeno «media» provati: %d, attesi 8 (R0×4, R1 forte, R4, R3×2)", provati)
 	}
 }
 
-// R5 da sola («stesso buyer, di recente») NON impedisce di proporre una richiesta nuova: se bastasse,
-// nessuna richiesta di un buyer conosciuto verrebbe mai proposta come nuova — cioè proprio quelle che
-// arrivano tutti i giorni.
+// Un indizio DEBOLE non impedisce di proporre una richiesta nuova: se bastasse, nessuna richiesta di un
+// buyer conosciuto verrebbe mai proposta come nuova — cioè proprio quelle che arrivano tutti i giorni.
+//
+// Riscritta per lo Smistamento (M1, A5.16.3): prima fissava il solo R5 («stesso buyer, di recente»).
+// Adesso, con la soglia a 60, non bloccano «nuova RFQ» nemmeno l'oggetto uguale (R2, prima 55) e il solo
+// ConversationID (R1, prima 95): Exchange mette nella stessa conversazione la posta con lo stesso oggetto,
+// e una richiesta nuova che si chiama come una vecchia restava bloccata. Nemmeno l'indice che discende
+// verso la RFQ di un altro cliente.
 func TestUnIndizioDeboleNonImpedisceUnaRichiestaNuova(t *testing.T) {
-	e := Triage(IngressoTriage{
+	for _, tipo := range []string{TipoR5Buyer, TipoR2Oggetto, TipoR1Solo, TipoR1Indice} {
+		e := Triage(IngressoTriage{
+			Oggetto: "Richiesta d'offerta pedale frizione", Corpo: "Siamo a richiedere offerta per il seguente nostro codice.",
+			NomiAllegati: []string{"disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
+			Candidati: []Candidato{NuovoCandidato("t1", tipo, "indizio debole", false)},
+		})
+		if e.Esito != "nuova_rfq" {
+			t.Errorf("%s: esito %q, da solo non è evidenza che la richiesta esista già (%+v)", tipo, e.Esito, e.Motivi)
+		}
+		if e.Candidato == nil || e.Candidato.ThreadID != "t1" {
+			t.Errorf("%s: il candidato debole deve comunque arrivare alla schermata: si vede, non decide", tipo)
+		}
+		if !contieneMotivo(e.Motivi, "l'indizio è debole") {
+			t.Errorf("%s: manca la frase che dice perché non decide: %v", tipo, e.Motivi)
+		}
+	}
+	// il controllo: la variante forte della stessa regola (R1 con l'indice e lo stesso cliente) blocca
+	if e := Triage(IngressoTriage{
 		Oggetto: "Richiesta d'offerta pedale frizione", Corpo: "Siamo a richiedere offerta per il seguente nostro codice.",
 		NomiAllegati: []string{"disegni.zip"}, Direzione: "entrata", BuyerNoto: true,
-		Candidati: []Candidato{{ThreadID: "t1", Regola: R5Buyer, Punteggio: PuntiRegola[R5Buyer], Evidenza: "stesso buyer"}},
-	})
-	if e.Esito != "nuova_rfq" {
-		t.Errorf("esito %q: R5 da sola non è evidenza che la richiesta esista già (%+v)", e.Esito, e.Motivi)
-	}
-	if e.Candidato == nil {
-		t.Error("il candidato debole deve comunque arrivare alla schermata: si vede, non decide")
+		Candidati: []Candidato{NuovoCandidato("t1", TipoR1Forte, "indice che discende", false)},
+	}); e.Esito != "aggancia" {
+		t.Errorf("R1 forte: esito %q, atteso aggancia", e.Esito)
 	}
 }
 

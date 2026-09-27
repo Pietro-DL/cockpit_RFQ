@@ -4,10 +4,11 @@
 //
 //	4. R0 (In-Reply-To) e R1 (ConversationID) non scrivono mai `thread_id` né `richiesta_fornitore_id`:
 //	   sono evidenze, e diventano candidati. Il legame lo scrive una decisione.
-//	5. Solo il marcatore `CockpitRichiestaFornitore` scrive il legame da solo, perché quel rapporto
-//	   lo ha creato il Cockpit quando l'operatore ha chiesto la bozza. E lo scrive SOLO dove l'ha
-//	   messo lui: sulla nostra mail in uscita, verso una richiesta che esiste, su un messaggio che
-//	   nessuno ha già messo altrove.
+//	5. Solo il marcatore `CockpitRichiestaFornitore` scrive il legame CON LA RICHIESTA da solo, perché
+//	   quel rapporto lo ha creato il Cockpit quando l'operatore ha chiesto la bozza. E lo scrive SOLO
+//	   dove l'ha messo lui: sulla nostra mail in uscita, verso una richiesta che esiste, su un messaggio
+//	   che nessuno ha già messo altrove. Dallo Smistamento M1 (D85, I14) non aggancia più la mail alla
+//	   RFQ: la RFQ della richiesta è un candidato molto forte, e l'aggancio lo conferma una persona.
 //
 // T22 e IB2 provano già il lato cliente di R0 e il caso buono del marcatore. Qui c'è il resto.
 // Nomi e domini sono inventati (.example).
@@ -22,6 +23,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/aggancio"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -168,7 +171,14 @@ func (b *bancoControparte) candidatoVerso(chiave string, rid uuid.UUID, regola d
 
 // I5 — il marcatore scrive il legame da solo, ma solo dove l'ha messo il Cockpit.
 //
-//	(a) sulla nostra mail in uscita: thread, richiesta, log, e la richiesta passa a `inviata`;
+// Riscritta per lo Smistamento (M1, D85, Domanda 3 chiusa), parte (a): prima fissava che il marcatore
+// agganciasse la mail alla RFQ della richiesta (thread, aggancio «operatore» a nome di chi aveva creato la
+// richiesta, una riga `aggancia` nel log). Adesso lega SOLO la richiesta: `thread_id` resta NULL, nessuna
+// riga nel log, e la mail ha in lettura il candidato «Marcatore» a 97 verso la RFQ della richiesta. Le parti
+// (b)-(e) restano come erano.
+//
+//	(a) sulla nostra mail in uscita: la richiesta con la sua mail, passata a `inviata`; la mail orfana,
+//	    con la RFQ della richiesta come candidato molto forte, e non reinterpretata;
 //	(b) lo stesso marcatore su una mail IN ENTRATA non vale niente: il Cockpit non scrive
 //	    UserProperties sulla posta che arriva, quindi chiunque ce l'abbia messa non siamo noi;
 //	(c) un marcatore che punta a una richiesta inesistente, o che non è nemmeno un uuid, si
@@ -190,12 +200,34 @@ func TestI5IlMarcatoreScriveIlLegameSoloDoveLoHaMessoIlCockpit(t *testing.T) {
 	m.Marcatori = map[string]string{MarcatoreRichiesta: r.RichiestaID.String()}
 	b.ingerisci(m)
 	tid, rid, agg, n := b.legami(buona)
-	if !tid.Valid || tid.UUID != thA.ThreadID || !rid.Valid || rid.UUID != r.RichiestaID || agg != db.AggancioOperatore || n != 1 {
-		t.Fatalf("(a) la nostra mail con il marcatore: thread %v, richiesta %v, aggancio %s, log %d", tid, rid, agg, n)
+	if tid.Valid || !rid.Valid || rid.UUID != r.RichiestaID || agg != db.AggancioNessuno || n != 0 {
+		t.Fatalf("(a) la nostra mail con il marcatore: thread %v, richiesta %v, aggancio %s, log %d — il marcatore lega la richiesta, non aggancia", tid, rid, agg, n)
 	}
 	inviata := b.statoRichiesta(r.RichiestaID)
 	if inviata.Stato != db.StatoRichiestaFornitoreInviata || !inviata.MessaggioID.Valid || inviata.MessaggioID.UUID != b.messaggio(buona).MessaggioID {
 		t.Fatalf("(a) la richiesta non è passata a inviata con la sua mail: %+v", inviata)
+	}
+	// la RFQ della richiesta è il candidato molto forte della mail, costruito in lettura
+	l, err := aggancio.InLettura(b.ctx, b.q, b.messaggio(buona).MessaggioID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Candidati) != 1 || l.Candidati[0].ThreadID != thA.ThreadID.String() || l.Candidati[0].Tipo != classificazione.TipoMarcatore ||
+		l.Candidati[0].Score != 97 || l.Candidati[0].Livello != classificazione.MoltoForte {
+		t.Fatalf("(a) il candidato del marcatore: %+v", l.Candidati)
+	}
+	if len(l.Origini) != 1 || l.Origini[0].Via != "richiesta" {
+		t.Errorf("(a) l'origine della mail: %+v", l.Origini)
+	}
+	// e la mail legata non si reinterpreta: il triage della posta a un fornitore proporrebbe una seconda
+	// richiesta per la stessa mail
+	if p, ok := b.proposta(b.messaggio(buona).MessaggioID); ok {
+		t.Errorf("(a) la mail legata dal marcatore è stata interpretata: %+v", p)
+	}
+	// il candidato non si scrive: in candidato_aggancio non c'è niente
+	var righe int
+	if err := b.pool.QueryRow(b.ctx, `SELECT count(*) FROM candidato_aggancio WHERE messaggio_id = $1`, b.messaggio(buona).MessaggioID).Scan(&righe); err != nil || righe != 0 {
+		t.Errorf("(a) il candidato del marcatore è stato scritto: %d righe (%v)", righe, err)
 	}
 
 	// (b) la risposta del fornitore porta lo stesso marcatore

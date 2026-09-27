@@ -467,3 +467,41 @@ func TestIlPianoConISuffissiDecorativi(t *testing.T) {
 	}
 	deveEssere(t, vocePer(t, pf, "77720000 foglio 2.pdf"), VoceDecidere, DomandaCodiceDiverso)
 }
+
+// Che cos'e' un file lo dice la dimensione `tipo` della sua valutazione (Smistamento F4, piano.go:529): il piano
+// chiede quando nessuna evidenza dice il tipo, o quando lo dice solo l'estensione («altro»). Prima guardava la
+// colonna (`altro` con fonte `estensione`), e con la fonte in colonna che adesso e' quella del codice un «.dft»
+// con il codice nel nome saltava la domanda. Una riga dell'operatore e' una decisione: non chiede; un tipo letto
+// nel contenuto nemmeno.
+func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
+	p := nuovoPiano()
+	p.componente("7120001", db.TipoComponenteFinito)
+	scrivi := func(f *FileAperto, in classificazione.IngressoFile) {
+		dett, rp := classificazione.ConValutazione(nil, classificazione.Valuta(in), time.Now())
+		f.Proposta.TipoProposto, f.Proposta.Codice, f.Proposta.Rev = db.TipoDocumento(rp.Tipo), testoP(rp.Codice), testoP(rp.Rev)
+		f.Proposta.Confidenza, f.Proposta.Fonte, f.Proposta.Dettagli = int16(rp.Confidenza), db.FonteProposta(rp.Fonte), dett
+	}
+	dft := p.file("7120001.dft", db.TipoDocumentoAltro, "7120001", "")
+	scrivi(dft, classificazione.IngressoFile{NomeFile: "7120001.dft", Bytes: 50_000})
+	if dft.Proposta.Fonte != db.FontePropostaNomeFile {
+		t.Fatalf("la fonte in colonna e' quella del codice: %s", dft.Proposta.Fonte)
+	}
+	pdf := p.file("7120001.pdf", db.TipoDocumentoDisegno2d, "7120001", "")
+	scrivi(pdf, classificazione.IngressoFile{NomeFile: "7120001.pdf", Esito: &classificazione.Esito{Tipo: "disegno_2d", Fonte: "cartiglio"},
+		Fatti: json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`)})
+	nonLetto := p.file("7120001_B.pdf", db.TipoDocumentoDaDeterminare, "7120001", "B")
+	scrivi(nonLetto, classificazione.IngressoFile{NomeFile: "7120001_B.pdf"})
+	deciso := p.file("7120001.doc", db.TipoDocumentoAltro, "7120001", "")
+	deciso.Proposta.Fonte = db.FontePropostaOperatore
+
+	pf := PianoDelFascicolo(p.in)
+	deveEssere(t, vocePer(t, pf, "7120001.dft"), VoceDecidere, DomandaTipo)
+	deveEssere(t, vocePer(t, pf, "7120001_B.pdf"), VoceDecidere, DomandaTipo)
+	for _, nome := range []string{"7120001.pdf", "7120001.doc"} {
+		for _, d := range vocePer(t, pf, nome).Domande {
+			if d.Chiave == DomandaTipo {
+				t.Errorf("%s: il tipo e' detto (dal contenuto, o da una persona), e il piano chiede %q", nome, d.Testo)
+			}
+		}
+	}
+}

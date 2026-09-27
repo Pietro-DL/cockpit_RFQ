@@ -7,7 +7,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestSenzaConfigSiLeggeIlFileAccantoAllEseguibile(t *testing.T) {
@@ -39,6 +41,22 @@ func TestSenzaConfigSiLeggeIlFileAccantoAllEseguibile(t *testing.T) {
 	// l'eseguibile non si trova: resta il file della cartella corrente
 	if p, _ := percorsoConfig(false, "cockpit.toml", nessuno, func() (string, error) { return "", errors.New("no") }); p != "cockpit.toml" {
 		t.Errorf("senza eseguibile: %q", p)
+	}
+}
+
+// Smistamento M3 (A5.14.6): -calibrazione-dal è un giorno, dalla mezzanotte locale; vuoto = tutto.
+func TestIlGiornoDellaCalibrazione(t *testing.T) {
+	if d, err := giornoDal(""); d != nil || err != nil {
+		t.Errorf("vuoto: %v, %v", d, err)
+	}
+	d, err := giornoDal(" 2026-10-01 ")
+	if err != nil || d == nil || !d.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("2026-10-01: %v, %v", d, err)
+	}
+	for _, s := range []string{"01/10/2026", "2026-13-01", "ieri"} {
+		if _, err := giornoDal(s); err == nil || !strings.Contains(err.Error(), "AAAA-MM-GG") {
+			t.Errorf("%q: %v, atteso un errore che dica il formato", s, err)
+		}
 	}
 }
 

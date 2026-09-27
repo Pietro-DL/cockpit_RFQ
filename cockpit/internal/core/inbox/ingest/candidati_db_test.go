@@ -167,7 +167,12 @@ func ingerisci(t *testing.T, p *pgxpool.Pool, casella db.Casella, msg ...worker.
 func pgText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
 
 // T1 — la risposta in una conversazione già agganciata NON viene agganciata: resta orfana con un
-// candidato R1 al 95, e la schermata ha di che spiegarsi.
+// candidato R1, e la schermata ha di che spiegarsi.
+//
+// Riscritta per lo Smistamento (M1, A5.16.3): prima fissava R1 a 95 (PuntiRegola) ed esito «aggancia» con
+// la sola conversazione collegata. Il solo ConversationID adesso è DEBOLE (40) e non porta ad «aggancia»:
+// Exchange mette nella stessa conversazione la posta con lo stesso oggetto. Sale a «forte» (86) e
+// porta ad «aggancia» solo con il ConversationIndex che discende da una mail della RFQ e lo stesso cliente.
 func TestT1LaConversazioneNotaProponeENonDecide(t *testing.T) {
 	p := pool(t)
 	ctx := context.Background()
@@ -201,24 +206,58 @@ func TestT1LaConversazioneNotaProponeENonDecide(t *testing.T) {
 	if len(cand) == 0 {
 		t.Fatal("nessun candidato: togliere l'aggancio automatico senza proporre niente è peggio di prima")
 	}
-	trovata := false
+	k, trovata := candidatoDi(cand, th.ThreadID, db.RegolaAggancioR1Conversazione)
+	if !trovata {
+		t.Fatalf("manca il candidato R1 verso %s: %+v", th.ThreadID, cand)
+	}
+	if k.Punteggio != 40 || classificazione.TipoDaRiga(string(k.Regola), int(k.Punteggio)) != classificazione.TipoR1Solo {
+		t.Errorf("R1 con la sola conversazione: punteggio %d, atteso 40 (solo ConversationID)", k.Punteggio)
+	}
+	if k.Evidenza == "" {
+		t.Error("un candidato senza evidenza è un numero senza spiegazione")
+	}
+	if esito == "aggancia" {
+		t.Errorf("esito del triage = «aggancia» (%d): il solo ConversationID è debole e non decide niente", conf)
+	}
+
+	// la variante forte: un messaggio della RFQ con il suo indice, e una risposta che ne discende, dello
+	// stesso cliente
+	const indice = "01DB2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D5E6"
+	ingerisci(t, p, casella, worker.MessaggioIn{
+		MessageID: "<test-ingest-3r-r1-primo@prova3r.example>", EntryID: "ENTRY-TEST-3R-1P", StoreID: "S", ConversationID: "CONV-TEST-3R-1",
+		ConversationIndex: indice, Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(3 * time.Hour),
+		MittenteIndirizzo: "buyer@prova3r.example", Oggetto: "PROVA-3R supporto cofano", CorpoTesto: "primo", Riferimenti: []string{}, Categorie: []string{},
+	})
+	if _, err := p.Exec(ctx, `UPDATE messaggio SET thread_id = $1, aggancio = 'operatore' WHERE chiave_esterna = $2`,
+		th.ThreadID, "<test-ingest-3r-r1-primo@prova3r.example>"); err != nil {
+		t.Fatal(err)
+	}
+	ingerisci(t, p, casella, worker.MessaggioIn{
+		MessageID: "<test-ingest-3r-r1-forte@prova3r.example>", EntryID: "ENTRY-TEST-3R-1F", StoreID: "S", ConversationID: "CONV-TEST-3R-1",
+		ConversationIndex: indice + "0000A1B2C3", Cartella: "Inbox", Direzione: "entrata", DataEvento: t0.Add(4 * time.Hour),
+		MittenteIndirizzo: "buyer@prova3r.example", Oggetto: "R: PROVA-3R supporto cofano", CorpoTesto: "Ecco i disegni.", Riferimenti: []string{}, Categorie: []string{},
+	})
+	tid, _, esito, conf = statoMessaggio(t, p, "<test-ingest-3r-r1-forte@prova3r.example>")
+	if tid.Valid {
+		t.Error("nemmeno R1 forte aggancia: propone")
+	}
+	k, trovata = candidatoDi(candidati(t, p, "<test-ingest-3r-r1-forte@prova3r.example>"), th.ThreadID, db.RegolaAggancioR1Conversazione)
+	if !trovata || k.Punteggio != 86 {
+		t.Errorf("R1 con l'indice che discende e lo stesso cliente: %+v (trovato %v), atteso 86", k, trovata)
+	}
+	if esito != "aggancia" || conf != 86 {
+		t.Errorf("esito del triage = %q (%d), atteso «aggancia» a 86", esito, conf)
+	}
+}
+
+// candidatoDi trova il candidato di una regola verso una RFQ.
+func candidatoDi(cand []db.ListCandidatiAggancioRow, thread uuid.UUID, regola db.RegolaAggancio) (db.ListCandidatiAggancioRow, bool) {
 	for _, k := range cand {
-		if k.Regola == db.RegolaAggancioR1Conversazione && k.ThreadID == th.ThreadID {
-			trovata = true
-			if k.Punteggio != int16(classificazione.PuntiRegola[classificazione.R1Conversazione]) {
-				t.Errorf("R1 punteggio %d, atteso %d", k.Punteggio, classificazione.PuntiRegola[classificazione.R1Conversazione])
-			}
-			if k.Evidenza == "" {
-				t.Error("un candidato senza evidenza è un numero senza spiegazione")
-			}
+		if k.ThreadID == thread && k.Regola == regola {
+			return k, true
 		}
 	}
-	if !trovata {
-		t.Errorf("manca il candidato R1 verso %s: %+v", th.ThreadID, cand)
-	}
-	if esito != "aggancia" {
-		t.Errorf("esito del triage = %q, atteso «aggancia» (%d)", esito, conf)
-	}
+	return db.ListCandidatiAggancioRow{}, false
 }
 
 // conversazioneDiProva crea (o riusa) la conversazione con quella chiave.

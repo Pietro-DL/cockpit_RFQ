@@ -159,19 +159,29 @@ func TestUnClienteConUnaNewsletterENonBusinessSenzaProposta(t *testing.T) {
 	}
 }
 
+// Riscritta per lo Smistamento (mail, M2; A5.8.3, prima parte): prima fissava, per il collega che
+// gira una mail, l'atto «inoltro» con il legame «nuovo» (l'atto veniva dall'esito). Dal M2 l'atto è
+// quello del CONTENUTO girato e l'inoltro sta nel legame: atto richiesta_offerta, legame inoltro,
+// evento NUOVA_RFQ. La prima parte resta: «Vi inviamo la rev. B.» senza file è un annuncio, non un
+// arrivo di CAD (E11), e l'atto resta «incerto». La seconda parte del M4 (l'origine citata) è a parte.
+//
 // 7C.0: una risposta del cliente dentro una RFQ esistente ha legame «risposta», ma l'atto il
 // deterministico non lo sa e lo dice: «incerto», non «richiesta d'offerta» come prima della 0016.
 func TestUnaRispostaDelClienteHaIlLegameMaNonLAtto(t *testing.T) {
 	e := Triage(IngressoTriage{Direzione: "entrata", Controparte: ControparteCliente, ClienteNoto: true,
 		Mittente: "acquisti@acme.example", Oggetto: "R: RICHIESTA D'OFFERTA", Corpo: "Vi inviamo la rev. B.",
 		Candidati: []Candidato{{ThreadID: "t1", Regola: "R0_reply", Punteggio: 95, Evidenza: "In-Reply-To"}}})
-	if e.Esito != "aggancia" || e.Legame != LegameRisposta || e.Atto != AttoIncerto {
+	if e.Esito != "aggancia" || e.Legame != LegameRisposta || e.Atto != AttoIncerto || e.Evento != EventoAltro {
 		t.Fatalf("%+v", e)
 	}
-	// e un collega che gira una mail fa un inoltro
+	// e un collega che gira una mail fa un inoltro: il legame lo dice, l'atto è della richiesta girata
 	e = Triage(IngressoTriage{Direzione: "uscita", Interno: true, Controparte: ControparteInterno,
 		Oggetto: "I: RICHIESTA D'OFFERTA", Corpo: "vi giro la richiesta d'offerta", NomiAllegati: []string{"pezzo.stp"}})
-	if e.Atto != AttoInoltro || e.Legame != LegameNuovo || e.Esito != "nuova_rfq" {
+	if e.Atto != AttoRichiestaOfferta || e.Legame != LegameInoltro || e.Esito != "nuova_rfq" || e.Evento != EventoNuovaRFQ {
 		t.Fatalf("%+v", e)
+	}
+	// l'evento salvato si rilegge dall'atto e dal legame: lo stesso NUOVA_RFQ
+	if ev := EventoDa(ControparteInterno, "uscita", e.Atto, e.Legame); ev != EventoNuovaRFQ {
+		t.Fatalf("EventoDa dell'inoltro: %s", ev)
 	}
 }

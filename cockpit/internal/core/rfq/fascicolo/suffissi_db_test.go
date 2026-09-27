@@ -146,28 +146,40 @@ func TestSenzaSuffissiLoStepSiLeggeComePrima(t *testing.T) {
 	})
 }
 
-// D16 con la regola nuova: il codice della proposta del documento resta solo se E' un codice di famiglia.
-// «77720000_PRT» contiene il codice di famiglia 77720000 ma non lo e': la radice dello STEP lo corregge, con
-// fonte regola_cliente e la famiglia nei dettagli. Non dipende dai suffissi: e' la regola di D16. Un codice che
-// E' di famiglia resta, anche se la radice ne dice un altro.
+// La radice dello STEP e il nome del file con la regola dei suffissi: il codice della proposta del documento.
+//
+// Riscritta per lo Smistamento (F4, D16 → evidenza, D49): prima era TestD16IlCodiceDelDocumentoRestaSoloSeEUnCodiceDiFamiglia
+// e fissava la D16 con la regola nuova: su una proposta scritta a mano per «assieme.stp», il codice
+// «77720000_PRT» (che contiene il codice di famiglia 77720000 ma non lo e') veniva corretto dalla radice con fonte
+// regola_cliente e famiglia, dove e testo nei dettagli, con o senza la regola dei suffissi; un codice che E' di
+// famiglia restava. Adesso la lettura e' del nome del file vero, e la radice e' un'evidenza accanto: con la
+// regola «_PRT» il nome «77720000_PRT.stp» e' il pezzo 77720000 e la radice lo conferma (dipende dal nome: una
+// fonte, la piu' forte in colonna); senza la regola il nome dice «77720000_PRT», la radice 77720000, e il codice
+// e' discorde: la colonna tiene il nome (D49). Un nome di famiglia diverso dalla radice resta, discorde.
 func TestD16IlCodiceDelDocumentoRestaSoloSeEUnCodiceDiFamiglia(t *testing.T) {
 	casi := []struct {
-		nome, regole, codice, atteso string
+		nome, regole, file, atteso string
 	}{
-		{"il codice con il suffisso, con la regola", famiglia777ConSuffisso, "77720000_PRT", "77720000:-:regola_cliente:disegni 777:id:77720000_PRT"},
-		{"il codice con il suffisso, senza la regola", famiglia777SenzaSuffissi, "77720000_PRT", "77720000:-:regola_cliente:disegni 777:id:77720000_PRT"},
-		{"un codice di famiglia", famiglia777ConSuffisso, "77722757", "77722757:-:nome_file:-:-:-"},
+		{"il codice con il suffisso, con la regola", famiglia777ConSuffisso, "77720000_PRT.stp",
+			"77720000:-:regola_cliente:80:unica:disegni 777:id:77720000_PRT:nome_file"},
+		{"il codice con il suffisso, senza la regola", famiglia777SenzaSuffissi, "77720000_PRT.stp",
+			"77720000_PRT:-:nome_file:45:discorde:disegni 777:id:77720000_PRT:-"},
+		{"un codice di famiglia", famiglia777ConSuffisso, "77722757.stp",
+			"77722757:-:nome_file:70:discorde:disegni 777:id:77720000_PRT:-"},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {
 			b := nuovoBanco(t)
 			b.conRegole(c.regole)
-			a := b.allegatoStep("assieme.stp", strings.Repeat("f", 64))
+			a := b.allegatoStep(c.file, strings.Repeat("f", 64))
 			b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte, stato)
-				VALUES ($1, $2, 'cad_3d', $3, 40, 'nome_file', 'aperta')`, a.AllegatoID, b.thread, c.codice)
+				VALUES ($1, $2, 'cad_3d', 'ASSIEME', 40, 'nome_file', 'aperta')`, a.AllegatoID, b.thread)
 			b.applica(a, fattiSTEP{nodi: []string{"#1=77720000_PRT", "#2=77811111"}, archi: []string{"#1>#2"}}.json())
-			got := uno[string](b, `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte || ':' || coalesce(dettagli ->> 'famiglia', '-') || ':' ||
-				coalesce(dettagli ->> 'dove', '-') || ':' || coalesce(dettagli ->> 'testo', '-') FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
+			got := uno[string](b, `SELECT p.codice || ':' || coalesce(p.rev, '-') || ':' || p.fonte || ':' || p.confidenza || ':' ||
+				(p.dettagli #>> '{valutazione,codice,stato}') || ':' || (e ->> 'famiglia') || ':' || (e ->> 'dove') || ':' || (e ->> 'testo') || ':' ||
+				coalesce(e ->> 'dipende_da', '-')
+				FROM documento_proposta p, jsonb_array_elements(p.dettagli #> '{valutazione,codice,evidenze}') e
+				WHERE p.allegato_id = $1 AND e ->> 'regola' = 'step_radice_famiglia'`, a.AllegatoID)
 			if got != c.atteso {
 				t.Errorf("proposta del documento = %q, attesa %q", got, c.atteso)
 			}
@@ -237,7 +249,13 @@ func TestIlPianoRitrovaIlPezzoConIlSuffisso(t *testing.T) {
 	msg := b.messaggioOutlook()
 	pdf, _ := b.allegatoInStaging(msg, 1, "77720000_PRT.pdf", "%PDF disegno")
 	b.esegui(`UPDATE allegato SET stato = 'analizzato' WHERE allegato_id = $1`, pdf)
-	b.esegui(`UPDATE documento_proposta SET tipo_proposto = 'disegno_2d', codice = '77720000', fonte = 'cartiglio', confidenza = 95 WHERE allegato_id = $1`, pdf)
+	// riscritta per lo Smistamento (F4): prima la proposta si scriveva a mano come la D16 e il worker la
+	// lasciavano (cartiglio 95); adesso e' la lettura che l'analisi scrive, con la valutazione: il disegno dai
+	// termini del testo, il codice dal nome senza il suffisso del cliente (una lettura del nome, 45)
+	b.lettoDalWorker(pdf, "77720000_PRT.pdf")
+	if got := uno[string](b, `SELECT tipo_proposto || ':' || codice || ':' || fonte || ':' || confidenza FROM documento_proposta WHERE allegato_id = $1`, pdf); got != "disegno_2d:77720000:nome_file:45" {
+		t.Fatalf("la lettura del worker: %s", got)
+	}
 	var p fascicolo.PianoFascicolo
 	if err := b.tx(func(q *db.Queries) (err error) {
 		p, err = fascicolo.LeggiPianoFascicolo(b.ctx, q, b.thread)

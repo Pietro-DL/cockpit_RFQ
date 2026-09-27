@@ -228,27 +228,60 @@ func TestUnArcoMessoAManoNonSiProponeDaTogliere(t *testing.T) {
 	}
 }
 
-// D16 non riscrive la proposta di un documento il cui codice l'ha scritto l'operatore, anche se la legge
-// prima che l'operatore la scriva: il muro sta nella query.
+// Una lettura nuova non riscrive la proposta di un documento il cui codice l'ha scritto l'operatore, anche se
+// la legge prima che l'operatore la scriva: il muro sta nella query.
+//
+// Riscritta per lo Smistamento (F4, D16 → AggiornaValutazioneProposta): prima fissava il muro di
+// PropostaDocumentoDaRadice, la query della D16 che scriveva codice, fonte `regola_cliente` e 80. La D16 non
+// c'e' piu': la radice e' un'evidenza della valutazione, e la query che scrive una lettura senza un risultato
+// del worker (struttura, risposta del fornitore) e' AggiornaValutazioneProposta, con lo stesso muro. In piu':
+// una proposta chiusa non si tocca, e di una proposta assegnata a un componente il codice resta quello del
+// componente.
 func TestLaRadiceDiFamigliaNonRiscriveUnaDecisioneDellOperatore(t *testing.T) {
 	b := nuovoBanco(t)
 	msg := b.mail()
+	lettura := func(p uuid.UUID) db.AggiornaValutazionePropostaParams {
+		return db.AggiornaValutazionePropostaParams{PropostaID: p, TipoProposto: db.TipoDocumentoCad3d,
+			Codice: pgtype.Text{String: "77722757", Valid: true}, Confidenza: 80, Fonte: db.FontePropostaRegolaCliente,
+			Dettagli: []byte(`{"valutazione": {"v": 1, "tabella": "S1", "da": "struttura"}}`)}
+	}
+	proposta := func(a uuid.UUID) uuid.UUID {
+		return uno[uuid.UUID](b, `SELECT proposta_id FROM documento_proposta WHERE allegato_id = $1`, a)
+	}
 	a := b.fileConProposta(msg, "assieme.stp", "cad_3d", "OP-001", "", "operatore", "aperta", "")
-	n, err := db.New(b.p).PropostaDocumentoDaRadice(b.ctx, db.PropostaDocumentoDaRadiceParams{
-		AllegatoID: a, Codice: pgtype.Text{String: "77722757", Valid: true}, Confidenza: 80, Dettagli: []byte(`{"famiglia": "disegni 777"}`)})
+	n, err := db.New(b.p).AggiornaValutazioneProposta(b.ctx, lettura(proposta(a)))
 	ok(t, err)
 	if n != 0 {
-		t.Errorf("la radice di famiglia ha riscritto %d proposte dell'operatore", n)
+		t.Errorf("la lettura ha riscritto %d proposte dell'operatore", n)
 	}
-	if got := uno[string](b, `SELECT codice || ' ' || fonte FROM documento_proposta WHERE allegato_id = $1`, a); got != "OP-001 operatore" {
-		t.Errorf("proposta dopo D16: %s", got)
+	if got := uno[string](b, `SELECT codice || ' ' || fonte || ' ' || (dettagli ? 'valutazione')::text FROM documento_proposta WHERE allegato_id = $1`, a); got != "OP-001 operatore false" {
+		t.Errorf("proposta dopo la lettura: %s", got)
 	}
-	// una proposta letta da una regola invece si corregge, come prima
+	// una proposta chiusa nemmeno
+	chiusa := b.fileConProposta(msg, "assieme3.stp", "cad_3d", "", "", "nome_file", "scartata", "")
+	n, err = db.New(b.p).AggiornaValutazioneProposta(b.ctx, lettura(proposta(chiusa)))
+	ok(t, err)
+	if n != 0 {
+		t.Errorf("la lettura ha riscritto %d proposte chiuse", n)
+	}
+	// una proposta letta da una regola invece si aggiorna, come prima, con regola_id NULL
 	a2 := b.fileConProposta(msg, "assieme2.stp", "cad_3d", "", "", "nome_file", "aperta", "")
-	n, err = db.New(b.p).PropostaDocumentoDaRadice(b.ctx, db.PropostaDocumentoDaRadiceParams{
-		AllegatoID: a2, Codice: pgtype.Text{String: "77722757", Valid: true}, Confidenza: 80, Dettagli: []byte(`{}`)})
+	n, err = db.New(b.p).AggiornaValutazioneProposta(b.ctx, lettura(proposta(a2)))
 	ok(t, err)
 	if n != 1 {
-		t.Errorf("una proposta non dell'operatore non si e' corretta (%d righe)", n)
+		t.Errorf("una proposta non dell'operatore non si e' aggiornata (%d righe)", n)
+	}
+	if got := uno[string](b, `SELECT codice || ' ' || fonte || ' ' || confidenza || ' ' || coalesce(regola_id, 'NULL') || ' ' || (dettagli -> 'valutazione' ->> 'da')
+		FROM documento_proposta WHERE allegato_id = $1`, a2); got != "77722757 regola_cliente 80 NULL struttura" {
+		t.Errorf("proposta aggiornata: %s", got)
+	}
+	// di una proposta assegnata a un componente il codice e' quello del componente (la FK a tre campi)
+	comp := b.componente("77700009", db.TipoComponenteSciolto)
+	a3 := b.fileConProposta(msg, "assieme4.stp", "cad_3d", "77700009", "", "nome_file", "aperta", "")
+	b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a3, comp)
+	n, err = db.New(b.p).AggiornaValutazioneProposta(b.ctx, lettura(proposta(a3)))
+	ok(t, err)
+	if got := uno[string](b, `SELECT codice || ' ' || fonte FROM documento_proposta WHERE allegato_id = $1`, a3); n != 1 || got != "77700009 regola_cliente" {
+		t.Errorf("proposta assegnata (%d righe): %s", n, got)
 	}
 }

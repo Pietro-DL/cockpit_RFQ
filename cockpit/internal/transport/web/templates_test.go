@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	risorse "promatec/cockpit"
+	"promatec/cockpit/internal/core/inbox/aggancio"
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/registro/fornitori"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/coda"
@@ -32,6 +34,23 @@ func serverTest(t *testing.T) *Server {
 }
 
 func txtT(v string) pgtype.Text { return pgtype.Text{String: v, Valid: v != ""} }
+
+// letturaSintetica: due RFQ candidate, la prima con due evidenze (R0 verificato e l'oggetto), la seconda
+// CHIUSA con il solo oggetto (Smistamento M1: una card per RFQ).
+func letturaSintetica(tid uuid.UUID) aggancio.Lettura {
+	chiusa := uuid.New()
+	return aggancio.Lettura{
+		Candidati: classificazione.RaggruppaEOrdina([]classificazione.Candidato{
+			classificazione.NuovoCandidato(tid.String(), classificazione.TipoR2Oggetto, "stesso oggetto", false),
+			classificazione.NuovoCandidato(tid.String(), classificazione.TipoR0InReplyTo, "In-Reply-To punta alla mail del 12/09 di questa richiesta", false),
+			classificazione.NuovoCandidato(chiusa.String(), classificazione.TipoR2Oggetto, "stesso oggetto", true),
+		}),
+		RFQ: map[string]aggancio.RFQ{
+			tid.String():    {Cliente: "Acme", Oggetto: "RFQ 1234567A", Cartella: `ACME\WIP\2026 09 08 Rossi RFQ 1234567A`, DataInizio: time.Now()},
+			chiusa.String(): {Cliente: "Acme", Oggetto: "RFQ 1234567A", Cartella: `ACME\WIP\2026 01 08 Rossi RFQ 1234567A`, DataInizio: time.Now()},
+		},
+	}
+}
 
 func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 	mid, tid, aid, pid := uuid.New(), uuid.New(), uuid.New(), uuid.New()
@@ -66,13 +85,7 @@ func datiSintetici() (*messaggioDati, *triageDati, *threadDati) {
 			Origine: db.OrigineCodiceFamiglia, Famiglia: "7 cifre + lettera", Punteggio: 80, Evidenza: "oggetto"}},
 		Altri: []db.CandidatoCodice{{MessaggioID: mid, Codice: "20260908", Ruolo: db.RuoloCodiceNonClassificato,
 			Origine: db.OrigineCodiceGenerico, Punteggio: 30, Evidenza: "corpo"}},
-		Candidati: []db.ListCandidatiAggancioRow{
-			{MessaggioID: mid, ThreadID: tid, Regola: db.RegolaAggancioR0Reply, Punteggio: 98,
-				Evidenza: "In-Reply-To punta a un messaggio agganciato", ThreadStato: db.StatoThreadAPERTA,
-				Oggetto: txtT("RFQ 1234567A"), DataInizio: time.Now(), Cliente: "Acme"},
-			{MessaggioID: mid, ThreadID: uuid.New(), Regola: db.RegolaAggancioR2Oggetto, Punteggio: 55,
-				Evidenza: "stesso oggetto", ThreadStato: db.StatoThreadCHIUSA,
-				Oggetto: txtT("RFQ 1234567A"), DataInizio: time.Now(), Cliente: "Acme"}}}
+		Candidati: letturaSintetica(tid)}
 	thd := &threadDati{T: th, Riga: db.VCruscotto{Cliente: "ACME", NomeFase: db.NullFase{Fase: db.FaseRICEVUTA, Valid: true}, Semaforo: txtT("verde")},
 		Identificativi: []db.IdentificativoThread{{Codice: "1234567A"}},
 		Messaggi:       []messaggioThread{{M: m, Copia: &copia, Allegati: allegati}, {M: m, Motivo: "nessuna postazione associata alla sessione"}},
@@ -124,7 +137,13 @@ func TestFrammentiEseguono(t *testing.T) {
 		// non la offre piu' (prova 93, TestLaComunicazioniNonHaGestiCheDecidono), e al suo posto si attende il file
 		{"inbox.html", "messaggio_pannello", md, []string{"Scarica selezionati", "1234567A_4.pdf", "NAS: scritto", "file mancante", "in coda", "Apri RFQ"}},
 		{"inbox.html", "triage_form", td, []string{"Crea RFQ", "nuovo cliente", "1234567A_4.pdf", "checked"}},
-		{"inbox.html", "triage_form", func() *triageDati { x := *td; x.Azione = "aggancia"; return &x }(), []string{"/thread/cerca", "Aggancia"}},
+		// riscritta per lo Smistamento (M1): prima attendeva il form di aggancio con i radio; adesso le stesse
+		// stringhe e in più una card per RFQ con il suo bottone e la forza senza percentuale. Che non ci siano
+		// radio lo dice TestNessunoScoreDellaPostaSiMostraComePercentuale.
+		{"inbox.html", "triage_form", func() *triageDati { x := *td; x.Azione = "aggancia"; return &x }(), []string{"/thread/cerca", "Aggancia",
+			"Aggancia a questa RFQ", `name="thread_id"`, "molto forte · score 98", "molto debole · score 20", "questa richiesta è CHIUSA"}},
+		// il form «Nuova RFQ» avvisa con le stesse card, ma senza bottoni che mandino il form della RFQ nuova
+		{"inbox.html", "triage_form", td, []string{"potrebbe essere una richiesta che esiste già", "2 RFQ candidate", "molto forte · score 98", "Vai ad «Aggancia a…»"}},
 		{"inbox.html", "buyer_select", td, []string{"Rossi Mario"}},
 		{"inbox.html", "thread_risultati", []db.VCruscotto{{ThreadID: uuid.New(), Cliente: "ACME", Oggetto: txtT("x"), DataInizio: time.Now()}}, []string{"ACME"}},
 		{"thread.html", "thread_corpo", thd, []string{"Documenti sul NAS", "Fascicolo", "RICEVUTA", "Scarica selezionati"}},
@@ -180,6 +199,8 @@ func TestFrammentiEseguono(t *testing.T) {
 			[]string{"Anteprima: che cosa farebbe", "Fresature Esempio", "fresature-esempio.example", "Non risolti", "CLIENTE-IGNOTO", `value="applica"`}},
 		// blocco 7B: il pannello con i candidati verso una richiesta e con la proposta «richiesta
 		// mandata a mano». La RFQ senza il box delle richieste e' TestLaRFQNonCreaRichiesteAiFornitori.
+		// Riscritta per lo Smistamento (prova 228, all'unione di F3 e M1): prima fissava lo score del
+		// candidato come numero nudo (">95<", ">60<"); ora «richiesta · score N».
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Thread = nil
@@ -188,7 +209,7 @@ func TestFrammentiEseguono(t *testing.T) {
 				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR0Reply, Punteggio: 95, Evidenza: "In-Reply-To", Fornitore: "Minuterie Esempio", Cliente: "BETA SPORT", OggettoRfq: txtT("RFQ 0X001234AB"), RichiestaStato: db.StatoRichiestaFornitoreInviata},
 				{RichiestaID: uuid.New(), Regola: db.RegolaRichiestaR3fCodice, Punteggio: 60, Evidenza: "codice", Fornitore: "Minuterie Esempio", Cliente: "BETA SPORT", OggettoRfq: txtT("RFQ bis"), RichiestaStato: db.StatoRichiestaFornitoreInviata}}
 			return &x
-		}(), []string{"Risposta a una nostra richiesta?", "risposta-fornitore", ">95<", ">60<", "R3f_codice", `class="chip atto offerta"`, `name="atto"`, `value="offerta" selected`, "legame: risposta"}},
+		}(), []string{"Risposta a una nostra richiesta?", "risposta-fornitore", "richiesta · <span class=\"punteggio\"", ">score 95<", ">score 60<", "R3f_codice", `class="chip atto offerta"`, `name="atto"`, `value="offerta" selected`, "legame: risposta"}},
 		{"inbox.html", "messaggio_pannello", func() *messaggioDati {
 			x := *md
 			x.Thread = nil

@@ -105,8 +105,14 @@ func (b *bancoWeb) propostaDi(id uuid.UUID) db.PropostaTriage {
 }
 
 // IB2 — richiesta creata dal Cockpit: nasce la bozza con il marcatore, e quando la mail compare
-// nella Posta inviata con quel marcatore la richiesta prende la sua mail (inviata) e la mail entra
-// nella RFQ. Nessuna euristica sull'oggetto.
+// nella Posta inviata con quel marcatore la richiesta prende la sua mail (inviata). Nessuna euristica
+// sull'oggetto.
+//
+// Riscritta per lo Smistamento (M1, D85, Domanda 3 chiusa): prima fissava che la mail entrasse da sola
+// nella RFQ (thread scritto dal marcatore). Adesso il marcatore lega SOLO la richiesta: la mail resta
+// orfana, il pannello dice da dove nasce e propone la RFQ della richiesta come candidato molto forte
+// (97), senza radio e senza default; l'aggancio è il clic di una persona, e solo dopo la mail compare
+// nella pagina della RFQ.
 func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, coda.Capacita{Bozze: true})
@@ -173,8 +179,11 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if err := b.pool.QueryRow(b.ctx, `SELECT thread_id, richiesta_fornitore_id, aggancio::text FROM messaggio WHERE messaggio_id = $1`, sent).Scan(&tid, &ridMsg, &aggancio); err != nil {
 		t.Fatal(err)
 	}
-	if !tid.Valid || tid.UUID != thread || !ridMsg.Valid || ridMsg.UUID != rid {
-		t.Errorf("la mail inviata non e' entrata nella RFQ con la sua richiesta: thread %v, richiesta %v", tid, ridMsg)
+	if tid.Valid || !ridMsg.Valid || ridMsg.UUID != rid || aggancio != "nessuno" {
+		t.Errorf("la mail inviata: thread %v, richiesta %v, aggancio %s — il marcatore lega la richiesta, non aggancia", tid, ridMsg, aggancio)
+	}
+	if n := testutil.Conta(t, b.pool, "messaggio_aggancio_log"); n != 0 {
+		t.Errorf("righe nel registro degli agganci dopo il sync: %d, attese 0 (nessuno ha deciso)", n)
 	}
 	var statoBozza string
 	var inviataMsg uuid.NullUUID
@@ -189,10 +198,39 @@ func TestIB2LaRichiestaCreataDalCockpitSiLegaDalMarcatore(t *testing.T) {
 	if r2 := b.richiesta(rid); r2.Stato != db.StatoRichiestaFornitoreInviata || r2.MessaggioID.UUID != sent {
 		t.Errorf("il secondo sync ha toccato la richiesta: %+v", r2)
 	}
+	// Prima della conferma la mail non è nella RFQ; il pannello dice da dove nasce e la propone.
+	_, pagina := fp.fai(http.MethodGet, "/thread/"+thread.String(), nil, false)
+	if strings.Contains(pagina, "/messaggio/"+sent.String()) {
+		t.Error("la mail inviata è nella pagina della RFQ prima che qualcuno l'abbia agganciata")
+	}
+	_, pannello := fp.fai(http.MethodGet, "/messaggio/"+sent.String(), nil, true)
+	for _, atteso := range []string{"Richiesta a Fresature Esempio creata dal Cockpit da FP", "molto forte · score 97",
+		"Aggancia a questa RFQ", `value="` + thread.String() + `"`} {
+		if !strings.Contains(pannello, atteso) {
+			t.Errorf("il pannello della mail inviata non dice %q", atteso)
+		}
+	}
+	if strings.Contains(pannello, `type="radio"`) || strings.Contains(pannello, "Richiesta mandata a mano?") {
+		t.Error("il pannello propone un radio o una seconda richiesta per la stessa mail")
+	}
+	// la conferma è un clic: la mail entra nella RFQ, a nome di chi ha cliccato
+	fp.fai(http.MethodPost, "/messaggio/"+sent.String()+"/aggancia", url.Values{"thread_id": {thread.String()}}, true)
+	var dopo uuid.NullUUID
+	var da uuid.NullUUID
+	if err := b.pool.QueryRow(b.ctx, `SELECT thread_id, agganciato_da FROM messaggio WHERE messaggio_id = $1`, sent).Scan(&dopo, &da); err != nil {
+		t.Fatal(err)
+	}
+	var fpID uuid.UUID
+	if err := b.pool.QueryRow(b.ctx, `SELECT utente_id FROM utente WHERE sigla = 'FP'`).Scan(&fpID); err != nil {
+		t.Fatal(err)
+	}
+	if !dopo.Valid || dopo.UUID != thread || !da.Valid || da.UUID != fpID {
+		t.Errorf("dopo il clic: thread %v, agganciato da %v", dopo, da)
+	}
 	// La pagina della RFQ mostra la mail partita fra i suoi messaggi, ma non ha piu' il box delle
 	// richieste ai fornitori (correzione prima di B8.2: torneranno nel tab Luigi, per lavorazione
 	// di un componente). La richiesta resta nel database, come si e' appena verificato.
-	_, pagina := fp.fai(http.MethodGet, "/thread/"+thread.String(), nil, false)
+	_, pagina = fp.fai(http.MethodGet, "/thread/"+thread.String(), nil, false)
 	if !strings.Contains(pagina, "/messaggio/"+sent.String()) {
 		t.Error("la pagina della RFQ non mostra la mail inviata fra i suoi messaggi")
 	}
@@ -304,8 +342,10 @@ func TestIB3IB4IB5LaRichiestaAManoELOffertaDelFornitore(t *testing.T) {
 	if p.Esito != db.EsitoTriageAggancia || p.Confidenza != 95 || !p.RichiestaProposta.Valid || p.RichiestaProposta.UUID != rid || p.Atto.String != "offerta" || p.Legame.LegameOperativo != db.LegameOperativoRisposta {
 		t.Fatalf("IB4: la proposta: %+v", p)
 	}
+	// Riscritta per lo Smistamento (prova 228, all'unione di F3 e M1): prima fissava lo score del candidato come
+	// numero nudo (">95<"); ora «richiesta · score 95».
 	_, pannello = fp.fai(http.MethodGet, "/messaggio/"+rispID.String(), nil, true)
-	if !strings.Contains(pannello, "Risposta a una nostra richiesta?") || !strings.Contains(pannello, ">95<") || !strings.Contains(pannello, "R0_reply") || strings.Contains(pannello, "triage?azione=nuova") {
+	if !strings.Contains(pannello, "Risposta a una nostra richiesta?") || !strings.Contains(pannello, "richiesta · <span class=\"punteggio\"") || !strings.Contains(pannello, ">score 95<") || !strings.Contains(pannello, "R0_reply") || strings.Contains(pannello, "triage?azione=nuova") {
 		t.Fatalf("IB4: il pannello: %s", estratto(pannello, "candidati-richiesta"))
 	}
 	// 7C.0, invariante 8: agganciata SENZA atto, la mail e' dentro e la richiesta resta aperta
@@ -452,6 +492,10 @@ func TestIB7LaNewsletterENonBusinessEIlQuadranteLoDiceLaControparte(t *testing.T
 // Prova 123 (Smistamento P23, K5): la decisione resiste alla riproposta del fornitore. Alla conferma «e'
 // l'offerta del fornitore» diventano offerta_fornitore solo le proposte aperte degli allegati; non quella
 // il cui tipo l'ha scritto una persona (fonte operatore), ne' quella gia' scartata.
+//
+// Smistamento F4 (A5.14.7): il gesto e' un'evidenza della valutazione del tipo (`risposta_fornitore`, 70),
+// scritta con la valutazione e le colonne dal riepilogo; le righe dell'operatore e quelle chiuse tengono la
+// valutazione che avevano.
 func TestLaDecisioneResisteAllaRipropostaDelFornitore(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme di prova", "ACME", "acme.example")
@@ -501,5 +545,25 @@ func TestLaDecisioneResisteAllaRipropostaDelFornitore(t *testing.T) {
 	}
 	if got := tipoDi("condizioni.pdf"); !strings.HasPrefix(got, "altro/") || !strings.HasSuffix(got, "/scartata") {
 		t.Errorf("la proposta scartata resta: %s", got)
+	}
+	// la valutazione: il gesto e' un'evidenza del tipo, e le colonne sono il riepilogo
+	valutazioneDi := func(nome string) string {
+		t.Helper()
+		var s string
+		if err := b.pool.QueryRow(b.ctx, `SELECT p.fonte::text || ':' || p.confidenza || ':' || coalesce(p.dettagli #>> '{valutazione,da}', '-') || ':' ||
+			coalesce(p.dettagli #>> '{valutazione,tipo,regola}', '-') FROM documento_proposta p JOIN allegato a USING (allegato_id)
+			WHERE a.messaggio_id = $1 AND a.nome_file = $2`, msg, nome).Scan(&s); err != nil {
+			t.Fatalf("%s: %v", nome, err)
+		}
+		return s
+	}
+	if got := valutazioneDi("offerta 7120001.pdf"); got != "direzione:70:risposta_fornitore:risposta_fornitore" {
+		t.Errorf("la valutazione dell'offerta: %s", got)
+	}
+	if got := valutazioneDi("7120001_disegno.pdf"); !strings.HasPrefix(got, "operatore:") || strings.Contains(got, "risposta_fornitore") {
+		t.Errorf("la riga dell'operatore non riceve il gesto: %s", got)
+	}
+	if got := valutazioneDi("condizioni.pdf"); strings.Contains(got, "risposta_fornitore") {
+		t.Errorf("la riga scartata non riceve il gesto: %s", got)
 	}
 }

@@ -269,6 +269,12 @@ type copiaDelDisegno struct {
 // («77720000_PRT»). Ogni proposta aperta dello stesso contenuto la riceve con le regole del SUO cliente (A15):
 // quello della RFQ del file, o quello della controparte se il file non e' in una RFQ. I fatti restano come
 // il worker li ha letti: l'interpretazione e' della proposta.
+//
+// Riscritta per lo Smistamento (F4, P15, P16): prima tutte le copie si chiamavano «disegno.pdf» e ricevevano il
+// codice dell'esito del worker, tolto il suffisso con le regole di ciascuna. Adesso il codice dell'esito non
+// passa: ogni copia rilegge il SUO nome. Le copie si chiamano come il file che il worker ha letto, e la lettura
+// attesa e' la stessa di prima, con le regole di ciascuna; in piu' una copia con un altro nome non riceve il
+// codice di nessuno.
 func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 	pool := testutil.Pool(t)
 	testutil.SchemaPulito(t, pool)
@@ -291,7 +297,7 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 	rfqBeta := riga(`INSERT INTO thread_offerta (cliente_id, canale, data_inizio) VALUES ($1, 'outlook', now()) RETURNING thread_id`, beta)
 
 	n := 0
-	copia := func(nome, sha string, thread, cliente uuid.UUID) copiaDelDisegno {
+	copia := func(nome, file, sha string, thread, cliente uuid.UUID) copiaDelDisegno {
 		n++
 		conv := riga(`INSERT INTO conversazione (canale, chiave_esterna, primo_messaggio_il) VALUES ('outlook', $1, now()) RETURNING conversazione_id`,
 			fmt.Sprintf("CONV-SUFF-%d", n))
@@ -303,7 +309,7 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 			controparte_tipo, controparte_cliente_id) VALUES ('outlook', $1, $2, 'entrata', now(), 'RFQ suffissi', $3, $4, $5) RETURNING messaggio_id`,
 			fmt.Sprintf("<suff-%d@acme.example>", n), conv, facoltativo(thread), tipo, facoltativo(cliente))
 		al := riga(`INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine, bytes, sha256, path_staging, ricevuto_il)
-			VALUES ($1, 1, 'disegno.pdf', 'pdf', 'file', 'outlook', 1000, $2, 'C:\staging\suffissi\disegno.pdf', now()) RETURNING allegato_id`, msg, sha)
+			VALUES ($1, 1, $3, 'pdf', 'file', 'outlook', 1000, $2, 'C:\staging\suffissi\disegno.pdf', now()) RETURNING allegato_id`, msg, sha, file)
 		if _, err := pool.Exec(ctx, `INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, confidenza, fonte)
 			VALUES ($1, $2, 'da_determinare', 40, 'estensione')`, al, facoltativo(thread)); err != nil {
 			t.Fatal(err)
@@ -311,9 +317,9 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 		return copiaDelDisegno{nome: nome, allegato: al}
 	}
 	// applica e' il result del worker analisi per la prima copia: i fatti arrivano a tutte le proposte aperte
-	applica := func(sha string, prima uuid.UUID, codice, rev string) {
+	applica := func(sha string, prima uuid.UUID, file, codice, rev string) {
 		t.Helper()
-		payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{AllegatoID: prima, Bytes: 1000, Sha256: sha, NomeFile: "disegno.pdf",
+		payload, _ := json.Marshal(worker.PayloadAnalizzaAllegato{AllegatoID: prima, Bytes: 1000, Sha256: sha, NomeFile: file,
 			VersioneAnalizzatore: 1, HashConfigurazione: an.Hash()})
 		var jobID int64
 		if err := pool.QueryRow(ctx, `INSERT INTO job (tipo, worker_tipo, payload, lease_s, durata_max_s, stato)
@@ -349,12 +355,12 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 	}
 
 	letture := []struct {
-		nome, sha, codice, rev string
-		conRegola, senza       string // la proposta attesa con e senza la regola del cliente
+		nome, sha, file, codice, rev string
+		conRegola, senza             string // la proposta attesa con e senza la regola del cliente
 	}{
-		{"cartiglio con la revisione a parte", "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a", "77720000_PRT", "4",
+		{"cartiglio con la revisione a parte", "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a", "77720000_PRT_4.pdf", "77720000_PRT", "4",
 			"disegno_2d:77720000/4", "disegno_2d:77720000_PRT/4"},
-		{"revisione nella coda del codice", "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b", "77730000_C_PRT", "",
+		{"revisione nella coda del codice", "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b", "77730000_C_PRT.pdf", "77730000_C_PRT", "",
 			"disegno_2d:77730000/C", "disegno_2d:77730000_C_PRT/-"},
 	}
 	for _, l := range letture {
@@ -362,14 +368,16 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 			c      copiaDelDisegno
 			regola bool
 		}{
-			{copia("nella RFQ di ACME", l.sha, rfqAcme, acme), true},
-			{copia("fuori RFQ, controparte ACME", l.sha, uuid.Nil, acme), true},
-			{copia("nella RFQ di Beta", l.sha, rfqBeta, beta), false},
-			{copia("fuori RFQ, mittente sconosciuto", l.sha, uuid.Nil, uuid.Nil), false},
+			{copia("nella RFQ di ACME", l.file, l.sha, rfqAcme, acme), true},
+			{copia("fuori RFQ, controparte ACME", l.file, l.sha, uuid.Nil, acme), true},
+			{copia("nella RFQ di Beta", l.file, l.sha, rfqBeta, beta), false},
+			{copia("fuori RFQ, mittente sconosciuto", l.file, l.sha, uuid.Nil, uuid.Nil), false},
 			// la RFQ decide, non il mittente: un file di ACME nella RFQ di Beta si legge con le regole di Beta
-			{copia("nella RFQ di Beta, controparte ACME", l.sha, rfqBeta, acme), false},
+			{copia("nella RFQ di Beta, controparte ACME", l.file, l.sha, rfqBeta, acme), false},
 		}
-		applica(l.sha, copie[0].c.allegato, l.codice, l.rev)
+		// lo stesso contenuto con un altro nome: il codice dell'esito non gli arriva (P15)
+		altroNome := copia("nella RFQ di ACME, con un altro nome", "tavola.pdf", l.sha, rfqAcme, acme)
+		applica(l.sha, copie[0].c.allegato, l.file, l.codice, l.rev)
 		for _, x := range copie {
 			atteso := l.senza
 			if x.regola {
@@ -378,6 +386,9 @@ func TestLaLetturaDellAnalisiPerdeIlSuffissoDecorativoDelCliente(t *testing.T) {
 			if got := lettura(x.c.allegato); got != atteso {
 				t.Errorf("%s, %s: proposta %q, attesa %q", l.nome, x.c.nome, got, atteso)
 			}
+		}
+		if got := lettura(altroNome.allegato); got != "disegno_2d:-/-" {
+			t.Errorf("%s, %s: proposta %q, attesa disegno_2d:-/-", l.nome, altroNome.nome, got)
 		}
 		// il fatto non si tocca: il worker ha letto quel codice, e i fatti valgono per tutte le RFQ
 		var letto string

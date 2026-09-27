@@ -6,7 +6,7 @@
 // prova che cosa fanno le funzioni e che cosa rispondono.
 //
 // Nomi delle prove di A4.12 dell'addendum: 1, 11, 12, 14, 15, 16, 17, 22, 24, 25, 39, 41, 42, 43, 44,
-// 45, 46, 47, 62, 63, 64, 65, 67, 71, 73.
+// 45, 46, 47, 62, 63, 64, 65, 67, 71, 73. Dello Smistamento (A5.8): 114 (parte materializzazione).
 
 package fascicolo_test
 
@@ -251,6 +251,11 @@ func TestLaFaseSchedaCostoRicordaLaSuaBaseline(t *testing.T) {
 }
 
 // Prova 24: una prova per condizione del gate, contro il database vero.
+//
+// Riscritta per lo Smistamento (F6, A5.4.8, U2): prima fissava anche che «un documento in errore» sul NAS
+// rifiutasse il congelamento («documenti della BOM in errore»). Quel caso non e' piu' un rifiuto: e'
+// passato, con l'esito capovolto e piu' asserzioni, in TestIlGateContaLaCompletezzaLogica (prova 114).
+// Gli altri casi sono quelli di prima.
 func TestIlCongelamentoSiRifiutaConProposteAperte(t *testing.T) {
 	casi := []struct {
 		nome  string
@@ -268,9 +273,6 @@ func TestIlCongelamentoSiRifiutaConProposteAperte(t *testing.T) {
 		{"una proposta di rimozione", func(b *banco, r rfq) {
 			b.esegui(`INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working) VALUES ($1, $2, $3, $4, 2)`, b.thread, r.step, r.p1, r.f1)
 		}, "1 rimozioni"},
-		{"un documento in errore", func(b *banco, r rfq) {
-			b.esegui(`UPDATE documento SET stato_nas = 'errore', errore_nas = 'NAS assente' WHERE documento_id = $1`, r.d2p)
-		}, "documenti della BOM in errore"},
 		{"uno STEP letto in parte", func(b *banco, r rfq) { b.analisi(r.step, struttura3Troncata) }, "serve una deroga strutturale"},
 		{"uno STEP da scegliere", func(b *banco, r rfq) {
 			b.esegui(`UPDATE componente SET step_strutturale_id = NULL WHERE componente_id = $1`, r.p1)
@@ -291,6 +293,82 @@ func TestIlCongelamentoSiRifiutaConProposteAperte(t *testing.T) {
 				t.Errorf("fase dopo il rifiuto: %s", f)
 			}
 		})
+	}
+}
+
+// Prova 114, parte materializzazione (Smistamento F6, A5.4.8, U2): il gate conta la completezza logica.
+// Un requisito BLOCCANTE (il 2D dello sciolto) con il documento deciso ma in errore sul NAS non ferma il
+// congelamento, e nemmeno un'anomalia NAS aperta o una copia in coda che aspetta: v_thread_bloccanti lo
+// conta ancora come bloccante (la vista resta com'e', X4), ContaBloccantiLogici no. Il documento in errore
+// entra nell'istantanea, e la copia riuscita dopo non tocca la baseline. Le altre parti della 114 (file
+// non smistati, autorizzazioni da sistemare, guida) arrivano con F11 e F5.
+func TestIlGateContaLaCompletezzaLogica(t *testing.T) {
+	b := nuovoBanco(t)
+	r := b.rfqCongelabile()
+	b.esegui(`UPDATE documento SET stato_nas = 'errore', errore_nas = 'NAS assente' WHERE documento_id = $1`, r.d2f)
+	b.esegui(`UPDATE documento SET stato_nas = 'scritto', scritto_il = now() WHERE documento_id = $1`, r.d2p)
+	b.esegui(`INSERT INTO nas_anomalia (documento_id, thread_id, problema, stato_db, percorso, sha_atteso)
+		VALUES ($1, $2, 'mancante', 'scritto', 'ACME\WIP\rfq\7120001.pdf', $3)`, r.d2p, b.thread, b.sha(r.d2p))
+	// lo STEP resta in coda, con la copia che parte fra 7 minuti; un capitolato (documento generale) in
+	// coda senza orario; un documento sostituito e uno di un componente archiviato non contano
+	b.esegui(`INSERT INTO job (tipo, worker_tipo, payload, chiave_idempotenza, non_prima_di)
+		VALUES ('copia_nas', 'server', jsonb_build_object('documento_id', $1::uuid), 'nas:' || $1::text, now() + interval '7 minutes')`, r.step)
+	b.documento(uuid.Nil, db.TipoDocumentoCapitolato, "", "pdf")
+	vecchio := b.documento(r.f1, db.TipoDocumentoSviluppoDxf, "F1", "dxf")
+	nuovo := b.documento(r.f1, db.TipoDocumentoSviluppoDxf, "F1", "dxf")
+	b.esegui(`UPDATE documento SET sostituito_da = $2, stato_nas = 'errore' WHERE documento_id = $1`, vecchio, nuovo)
+	b.esegui(`UPDATE documento SET stato_nas = 'scritto', scritto_il = now() WHERE documento_id = $1`, nuovo)
+	archiviato := b.componente("7120099", db.TipoComponenteSciolto)
+	b.esegui(`UPDATE documento SET stato_nas = 'errore' WHERE documento_id = $1`, b.documento(archiviato, db.TipoDocumentoDisegno2d, "7120099", "pdf"))
+	b.esegui(`UPDATE componente SET archiviato_il = now(), archiviato_da = $2, motivo_archiviazione = 'prova' WHERE componente_id = $1`, archiviato, b.utente)
+
+	// la vista di prima li contava (il 2D in errore e quello con l'anomalia): e' il motivo della query nuova
+	if got := uno[string](b, `SELECT string_agg(codice || ' ' || tipo_documento || ' ' || esito, ', ' ORDER BY codice)
+		FROM v_fascicolo WHERE thread_id = $1 AND bloccante AND esito <> 'ok'`, b.thread); got != "F1 disegno_2d ok_errore_nas, P1 cad_3d ok_in_coda, P1 disegno_2d ok_errore_nas" {
+		t.Fatalf("i requisiti bloccanti non 'ok': %s", got)
+	}
+	if n := uno[int64](b, `SELECT n_bloccanti FROM v_thread_bloccanti WHERE thread_id = $1`, b.thread); n != 2 {
+		t.Fatalf("v_thread_bloccanti.n_bloccanti = %d: la prova vuole i due requisiti bloccanti in 'ok_errore_nas' contati dalla vista", n)
+	}
+	var g fascicolo.Gate
+	ok(t, b.tx(func(q *db.Queries) (err error) {
+		g, err = fascicolo.LeggiGate(b.ctx, q, b.thread)
+		return err
+	}))
+	if !g.Passa() {
+		t.Fatalf("la materializzazione ha fermato il gate: %v", g.Problemi)
+	}
+	atteso := fascicolo.Materializzazione{Documenti: 5, Scritti: 2, InCoda: 2, Errore: 1, Anomalie: 1, FraMinuti: 7}
+	if g.Nas != atteso {
+		t.Errorf("materializzazione %+v, attesa %+v", g.Nas, atteso)
+	}
+	frasi := strings.Join(g.Materializzazione, " | ")
+	if frasi != "2 documenti in coda per la copia sul NAS (la prima fra 7 min) | 1 documento in errore sul NAS | 1 anomalia NAS aperta sui documenti" {
+		t.Errorf("terzo elenco: %s", frasi)
+	}
+
+	c, err := b.congela("prima baseline")
+	ok(t, err)
+	if c.Versione.Numero != 1 || c.Fase != db.FaseSCHEDACOSTO {
+		t.Fatalf("congelamento: V%d, fase %s", c.Versione.Numero, c.Fase)
+	}
+	if n := uno[int64](b, `SELECT count(*) FROM bom_versione_documento WHERE bom_versione_id = $1 AND documento_id = $2`, c.Versione.BomVersioneID, r.d2f); n != 1 {
+		t.Errorf("il documento in errore non e' entrato nell'istantanea")
+	}
+	prima := b.impronta(c.Versione.BomVersioneID)
+	// la copia riesce dopo, e l'anomalia si chiude: la baseline non cambia (BOM01 lascia libero lo stato del NAS)
+	b.esegui(`UPDATE documento SET stato_nas = 'scritto', errore_nas = NULL, scritto_il = now() WHERE documento_id = $1`, r.d2f)
+	b.esegui(`UPDATE nas_anomalia SET risolta_il = now() WHERE documento_id = $1`, r.d2p)
+	if dopo := b.impronta(c.Versione.BomVersioneID); dopo != prima {
+		t.Errorf("la copia riuscita ha cambiato la V1:\nprima %s\ndopo  %s", prima, dopo)
+	}
+	var m fascicolo.Materializzazione
+	ok(t, b.tx(func(q *db.Queries) (err error) {
+		m, err = fascicolo.LeggiMaterializzazione(b.ctx, q, b.thread)
+		return err
+	}))
+	if m.Errore != 0 || m.Anomalie != 0 || m.Scritti != 3 || m.Breve() != "Sul NAS: 3 di 5" {
+		t.Errorf("dopo la copia: %+v, %q", m, m.Breve())
 	}
 }
 

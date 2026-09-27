@@ -9,14 +9,17 @@ package fascicolo_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
@@ -64,6 +67,21 @@ func (b *banco) allegatoInStaging(msg uuid.UUID, indice int, nome, contenuto str
 		VALUES ($1, $2, $3, $4, 'file', 'outlook', $5, $6, $7, 'in_staging', now()) RETURNING allegato_id`, msg, indice, nome, ext, len(contenuto), sha, p)
 	b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, confidenza, fonte) VALUES ($1, $2, 'da_determinare', 40, 'estensione')`, id, b.thread)
 	return id, sha
+}
+
+// lettoDalWorker scrive sulla proposta dell'allegato la lettura che l'analisi di un PDF con i termini del
+// cartiglio lascia (Smistamento F4): la valutazione di Valuta, con le regole del cliente della RFQ, e le
+// colonne dal suo riepilogo.
+func (b *banco) lettoDalWorker(allegato uuid.UUID, nome string) {
+	b.t.Helper()
+	var m *classificazione.Motore
+	ok(b.t, b.tx(func(q *db.Queries) (err error) { m, err = fascicolo.MotoreDellaRfq(b.ctx, q, b.thread); return err }))
+	fatti := json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`)
+	v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaAnalisi, NomeFile: nome, Direzione: "entrata", Motore: m,
+		Esito: &classificazione.Esito{Tipo: "disegno_2d", Fonte: "cartiglio"}, Fatti: fatti})
+	dett, rp := classificazione.ConValutazione(fatti, v, time.Now())
+	b.esegui(`UPDATE documento_proposta SET tipo_proposto = $2, codice = NULLIF($3, ''), rev = NULLIF($4, ''), confidenza = $5, fonte = $6,
+		dettagli = $7 WHERE allegato_id = $1`, allegato, rp.Tipo, rp.Codice, rp.Rev, rp.Confidenza, rp.Fonte, dett)
 }
 
 func (b *banco) identificativo(codice, origine string, confermato bool) {
@@ -279,7 +297,14 @@ func TestIlPianoDalDatabase(t *testing.T) {
 	msg := b.messaggioOutlook()
 	pdf, sha := b.allegatoInStaging(msg, 1, "77722757.pdf", "%PDF disegno")
 	b.esegui(`UPDATE allegato SET stato = 'analizzato' WHERE allegato_id = $1`, pdf)
-	b.esegui(`UPDATE documento_proposta SET tipo_proposto = 'disegno_2d', codice = '77722757', fonte = 'cartiglio', confidenza = 95 WHERE allegato_id = $1`, pdf)
+	// riscritta per lo Smistamento (F4): prima la proposta si scriveva a mano come il worker la lasciava
+	// (cartiglio 95); adesso e' la lettura che l'analisi scrive, con la valutazione (il codice e' il nome del
+	// file: nome_file 45, P16)
+	b.lettoDalWorker(pdf, "77722757.pdf")
+	if got := uno[string](b, `SELECT tipo_proposto || ':' || codice || ':' || fonte || ':' || confidenza || ':' || (dettagli #>> '{valutazione,tipo,regola}')
+		FROM documento_proposta WHERE allegato_id = $1`, pdf); got != "disegno_2d:77722757:nome_file:45:pdf_termini_cartiglio" {
+		t.Fatalf("la lettura del worker: %s", got)
+	}
 
 	leggi := func() fascicolo.PianoFascicolo {
 		var p fascicolo.PianoFascicolo

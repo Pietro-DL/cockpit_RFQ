@@ -81,7 +81,14 @@ func TestUnNomeFileLungoNonRompeIlResultDiStage(t *testing.T) {
 }
 
 // Il codice e la revisione del RISULTATO del worker analisi sono testo esterno: fuori misura non
-// entrano nella colonna, restano grezzi nei dettagli, e il result si applica.
+// entrano nella colonna, restano grezzi, e il result si applica.
+//
+// Riscritta per lo Smistamento (F4, P15, P16): prima fissava che il codice e la rev fuori misura dell'esito
+// finissero nei dettagli della proposta (`codice_scartato`, `rev_scartata`) e che la confidenza del worker (90)
+// andasse in colonna. Adesso il codice e la rev dell'esito non entrano mai nella proposta (sono il nome del file
+// che il worker ha letto: ogni copia rilegge il suo), e restano grezzi dove stanno i fatti, in
+// `analisi_fatti.fatti.esito`. La colonna e' il riepilogo della valutazione: il tipo dai termini del testo (75,
+// fonte `cartiglio`, che senza un codice e' la lettura in colonna).
 func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 	pool := testutil.Pool(t)
 	testutil.SchemaPulito(t, pool)
@@ -137,7 +144,7 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := propostaDi(t, pool, allID)
-	if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Confidenza != 90 {
+	if p.TipoProposto != db.TipoDocumentoDisegno2d || p.Confidenza != 75 {
 		t.Errorf("il resto del risultato non e' stato applicato: %s %d", p.TipoProposto, p.Confidenza)
 	}
 	if p.Codice.Valid || p.Rev.Valid {
@@ -145,8 +152,15 @@ func TestUnCodiceFuoriMisuraDelWorkerNonRompeIlResult(t *testing.T) {
 	}
 	var dett map[string]any
 	_ = json.Unmarshal(p.Dettagli, &dett)
-	if dett["codice_scartato"] != codiceLungo || dett["rev_scartata"] != "REVISIONE_LUNGA_02" || dett["cartiglio"] != true {
-		t.Errorf("i valori grezzi non sono nei dettagli, o i dettagli del worker sono andati persi: %v", dett)
+	if dett["codice_scartato"] != nil || dett["rev_scartata"] != nil || dett["cartiglio"] != true || dett["valutazione"] == nil {
+		t.Errorf("il codice dell'esito e' entrato nella proposta, o i dettagli del worker sono andati persi: %v", dett)
+	}
+	var codiceFatti, revFatti string
+	if err := pool.QueryRow(ctx, `SELECT fatti -> 'esito' ->> 'codice', fatti -> 'esito' ->> 'rev' FROM analisi_fatti WHERE sha256 = $1`, shaA15).Scan(&codiceFatti, &revFatti); err != nil {
+		t.Fatal(err)
+	}
+	if codiceFatti != codiceLungo || revFatti != "REVISIONE_LUNGA_02" {
+		t.Errorf("i valori grezzi non sono nei fatti: codice=%q rev=%q", codiceFatti, revFatti)
 	}
 }
 

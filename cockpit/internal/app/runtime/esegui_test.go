@@ -43,6 +43,7 @@ func TestIComandiCheLeggonoSoltanto(t *testing.T) {
 		lettura bool
 	}{
 		{Opzioni{ContaAnagrafiche: true}, true},
+		{Opzioni{Calibrazione: true}, true}, // Smistamento M3: -calibrazione legge soltanto
 		{Opzioni{SemeFornitori: "seme.json"}, true},
 		{Opzioni{SemeFornitori: "seme.json", ApplicaFornitori: true}, false},
 		{Opzioni{SemeAnagrafica: "seme.json"}, false},

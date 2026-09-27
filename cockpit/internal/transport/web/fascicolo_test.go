@@ -211,13 +211,23 @@ func TestLaSchermataMostraLaBomConLeProposteTratteggiate(t *testing.T) {
 	if n := strings.Count(html, `type="file"`); n != 1 {
 		t.Errorf("il file picker sta solo in «Carica dal PC»: %d", n)
 	}
-	// il pannello dell'assieme: il PDF in arrivo con la sua associazione e i gesti
+	// il pannello dell'assieme: il PDF in arrivo con la sua associazione e i gesti.
+	// Riscritta per lo Smistamento (F3, A5.14.5, prova 237 parte Fascicolo): prima fissava «Confidenza» e «85%»
+	// (il numero della colonna, scritto come una probabilita'); ora la lettura si mostra per dimensione, ciascuna
+	// con «score N» e la regola in parole, e nessuna percentuale. La riga del fixture e' di prima (cartiglio 85,
+	// senza valutazione): si rilegge dalle colonne e lo dice.
 	s.d.Stato = statoFascicolo{Nodo: s.assieme.ComponenteID}
 	s.d.Documenti = costruisciDocumenti(s.d, nil, uuid.Nil)
 	html = rendiParte(t, "fasc_doc_sezione", s.d)
 	haTesto(t, "sezione", html, `data-k="c:`+s.assieme.ComponenteID.String()+`"`, "77720517.pdf", "Tipo rilevato", "Codice letto",
-		"Associato a", "Confidenza", "85%", "Cambia componente", "Documentazione generale", "Capitolato", "Scarta",
+		"<dt>Rev</dt>", "Associato a", `class="dimensione dim-unica"`, "<b class=\"mono\">2D</b>", `title="`+titoloScoreS1+`">score 75</span> · termini da cartiglio nel testo`,
+		"77720517</b> · ", `>score 45</span> · nome del file`, "nessuna evidenza", "(lettura precedente, ricostruita)",
+		"Cambia componente", "Documentazione generale", "Capitolato", "Scarta",
 		"/fascicolo/file/"+s.d.File[0].Proposta.PropostaID.String()+"/generale", "ritorna_thread", "Note sul disegno", "+ Aggiungi nota")
+	senzaTesto(t, "sezione", html, "Confidenza", "85%", "85 %", ">85<", "proposto al")
+	if strings.Contains(html, "%") {
+		t.Errorf("sezione: nessuna percentuale per uno score non calibrato")
+	}
 	// chi consulta vede il file e le note, e non ha i gesti
 	s.d.Scrive = false
 	s.d.Documenti = costruisciDocumenti(s.d, nil, uuid.Nil)

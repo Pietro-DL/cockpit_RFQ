@@ -15,9 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
@@ -706,36 +708,139 @@ func TestUnCambioDiRegoleRiclassificaSoloLeProposteAperte(t *testing.T) {
 	}
 }
 
-// D16: la radice riconosciuta da una famiglia corregge la proposta del documento, finche' e' aperta e
-// solo se il suo codice non era gia' di famiglia.
+// La radice riconosciuta da una famiglia e' un'evidenza della proposta del documento, finche' e' aperta.
+//
+// Riscritta per lo Smistamento (F4, D16 → evidenza, D49): prima era la D16, che correggeva la proposta del
+// documento con la radice (codice, rev, fonte `regola_cliente`) quando il codice non era gia' di famiglia, e
+// non toccava le righe dell'operatore e quelle decise. Adesso la radice entra nella valutazione del codice
+// accanto al nome del file, e le colonne sono il riepilogo: con un nome che non e' un codice la colonna dice
+// la radice (come prima); con un nome di famiglia diverso la dimensione e' discorde e la colonna tiene il nome
+// (prima restava per la regola «gia' di famiglia», adesso per D49); con un nome uguale alla radice la radice
+// vince (80) ma dipende dal nome, e non fa due fonti. Le righe dell'operatore, quelle decise e quelle
+// assegnate a un componente non si toccano; applicare di nuovo gli stessi fatti non riscrive niente.
 func TestLaRadiceDiFamigliaAggiornaLaPropostaDelDocumento(t *testing.T) {
 	b := nuovoBanco(t)
 	b.esegui(`UPDATE cliente SET regole = $1 FROM thread_offerta t WHERE t.cliente_id = cliente.cliente_id AND t.thread_id = $2`,
 		`{"famiglie_codice": [{"regex": "(?P<codice>777\\d{5})(?:_(?P<rev>[A-Z]))?", "descrizione": "disegni 777", "rev_nel_codice": true, "esempio": "77722757_B"}]}`, b.thread)
 	f := fattiSTEP{nodi: []string{"#1=77722757_B", "#2=1234567A"}, archi: []string{"#1>#2"}}
+	comp := b.componente("77799999", db.TipoComponenteSciolto)
 	casi := []struct {
-		nome, codice, fonte, stato string
-		cambia                     bool
+		nome, file, codice, fonte, stato string
+		assegnata                        bool
+		atteso                           string // codice:rev:fonte:confidenza:stato della dimensione codice; "" = invariata
 	}{
-		{"nome file generico", "ASSIEME 7", "nome_file", "aperta", true},
-		{"gia' di famiglia", "77720000", "nome_file", "aperta", false},
-		{"scritta dall'operatore", "XYZ", "operatore", "aperta", false},
-		{"gia' decisa", "ASSIEME 7", "nome_file", "scartata", false},
+		{"nome che non e' un codice", "assieme 7.stp", "ASSIEME 7", "nome_file", "aperta", false, "77722757:B:regola_cliente:80:unica"},
+		{"nome di famiglia diverso", "77720000.stp", "77720000", "nome_file", "aperta", false, "77720000:-:nome_file:70:discorde"},
+		{"nome uguale alla radice", "77722757_B.stp", "77722757", "nome_file", "aperta", false, "77722757:B:regola_cliente:80:unica"},
+		{"scritta dall'operatore", "assieme 8.stp", "XYZ", "operatore", "aperta", false, ""},
+		{"gia' decisa", "assieme 9.stp", "ASSIEME 7", "nome_file", "scartata", false, ""},
+		{"assegnata a un componente", "assieme 10.stp", "77799999", "nome_file", "aperta", true, ""},
 	}
 	for i, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {
-			a := b.allegatoStep(fmt.Sprintf("d16-%d.stp", i), fmt.Sprintf("%064d", 7000+i))
+			a := b.allegatoStep(c.file, fmt.Sprintf("%064d", 7000+i))
 			b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte, stato) VALUES ($1, $2, 'cad_3d', $3, 40, $4, $5)`,
 				a.AllegatoID, b.thread, c.codice, c.fonte, c.stato)
-			b.applica(a, f.json())
-			got := uno[string](b, `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
-			if c.cambia && got != "77722757:B:regola_cliente" {
-				t.Errorf("proposta del documento = %q, attesa 77722757:B:regola_cliente", got)
+			if c.assegnata {
+				b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, a.AllegatoID, comp)
 			}
-			if !c.cambia && got != c.codice+":-:"+c.fonte {
+			b.applica(a, f.json())
+			const lettura = `SELECT codice || ':' || coalesce(rev, '-') || ':' || fonte || ':' || confidenza || ':' ||
+				coalesce(dettagli #>> '{valutazione,codice,stato}', '-') FROM documento_proposta WHERE allegato_id = $1`
+			got := uno[string](b, lettura, a.AllegatoID)
+			switch {
+			case c.atteso != "" && got != c.atteso:
+				t.Errorf("proposta del documento = %q, attesa %q", got, c.atteso)
+			case c.atteso == "" && got != c.codice+":-:"+c.fonte+":40:-":
 				t.Errorf("la proposta non doveva cambiare: %q", got)
 			}
+			if c.atteso == "" {
+				return
+			}
+			// la radice e' un'evidenza, con la famiglia; uguale al nome dipende dal nome
+			ev := uno[string](b, `SELECT e ->> 'famiglia' || ':' || coalesce(e ->> 'dipende_da', '-') FROM documento_proposta,
+				jsonb_array_elements(dettagli #> '{valutazione,codice,evidenze}') e WHERE allegato_id = $1 AND e ->> 'regola' = 'step_radice_famiglia'`, a.AllegatoID)
+			if want := map[bool]string{true: "disegni 777:nome_file", false: "disegni 777:-"}[c.file == "77722757_B.stp"]; ev != want {
+				t.Errorf("l'evidenza della radice: %q, attesa %q", ev, want)
+			}
+			// la seconda volta non si riscrive niente
+			prima := uno[string](b, `SELECT xmin::text FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
+			b.applica(a, f.json())
+			if dopo := uno[string](b, `SELECT xmin::text FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID); dopo != prima {
+				t.Errorf("applicare di nuovo gli stessi fatti ha riscritto la proposta")
+			}
 		})
+	}
+}
+
+// TestLaRadiceDiFamigliaDiversaDalNomeEDiscorde (Smistamento, prova 232, A5.14.3, D49): il caso guida. Lo
+// STEP «7120001A_1.stp» ha la radice 7120001, riconosciuta dalla famiglia ACME 712: il codice e' discorde (la
+// radice 80 contro il nome 45), la colonna tiene la lettura del nome con la sua rev, e la confidenza e la fonte
+// sono quelle di quella lettura. Nessuna scrittura su una riga dell'operatore o assegnata a un componente.
+func TestLaRadiceDiFamigliaDiversaDalNomeEDiscorde(t *testing.T) {
+	b := nuovoBanco(t)
+	b.esegui(`UPDATE cliente SET regole = $1 FROM thread_offerta t WHERE t.cliente_id = cliente.cliente_id AND t.thread_id = $2`,
+		`{"famiglie_codice": [{"regex": "(?P<codice>712\\d{4})", "descrizione": "ACME 712", "esempio": "7120001"}]}`, b.thread)
+	f := fattiSTEP{nodi: []string{"#1=7120001", "#2=7120010", "#3=7120011"}, archi: []string{"#1>#2", "#2>#3*2"}}
+	a := b.allegatoStep("7120001A_1.stp", strings.Repeat("7", 64))
+	b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte) VALUES ($1, $2, 'cad_3d', '7120001A', '1', 45, 'nome_file')`,
+		a.AllegatoID, b.thread)
+	b.applica(a, f.json())
+	got := uno[string](b, `SELECT tipo_proposto || ':' || codice || ':' || rev || ':' || confidenza || ':' || fonte || ' | ' ||
+		(dettagli #>> '{valutazione,codice,valore}') || ':' || (dettagli #>> '{valutazione,codice,score}') || ':' ||
+		(dettagli #>> '{valutazione,codice,regola}') || ':' || (dettagli #>> '{valutazione,codice,stato}') || ':' ||
+		(dettagli #>> '{valutazione,da}') || ':' || (dettagli #>> '{valutazione,tipo,stato}')
+		FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
+	if want := "cad_3d:7120001A:1:45:nome_file | 7120001:80:step_radice_famiglia:discorde:struttura:concorde"; got != want {
+		t.Errorf("proposta = %q\natteso      %q", got, want)
+	}
+	// la lettura del nome resta fra le evidenze, con il suo score
+	if n := uno[int](b, `SELECT count(*)::int FROM documento_proposta, jsonb_array_elements(dettagli #> '{valutazione,codice,evidenze}') e
+		WHERE allegato_id = $1 AND e ->> 'regola' = 'nome_codice_generico' AND e ->> 'valore' = '7120001A' AND (e ->> 'score')::int = 45`, a.AllegatoID); n != 1 {
+		t.Errorf("la lettura del nome fra le evidenze: %d", n)
+	}
+	// una riga dell'operatore e una assegnata a un componente non cambiano
+	comp := b.componente("7120099", db.TipoComponenteSciolto)
+	for i, c := range []struct{ fonte, componente string }{{"operatore", ""}, {"nome_file", "si"}} {
+		x := b.allegatoStep("7120001A_1.stp", strings.Repeat(fmt.Sprint(i+1), 64))
+		codice := map[bool]string{true: "7120099", false: "7120001A"}[c.componente != ""]
+		b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, confidenza, fonte) VALUES ($1, $2, 'cad_3d', $3, 45, $4)`,
+			x.AllegatoID, b.thread, codice, c.fonte)
+		if c.componente != "" {
+			b.esegui(`UPDATE documento_proposta SET componente_id = $2 WHERE allegato_id = $1`, x.AllegatoID, comp)
+		}
+		prima := uno[string](b, `SELECT xmin::text FROM documento_proposta WHERE allegato_id = $1`, x.AllegatoID)
+		b.applica(x, f.json())
+		if dopo := uno[string](b, `SELECT xmin::text || ':' || codice || ':' || fonte FROM documento_proposta WHERE allegato_id = $1`, x.AllegatoID); dopo != prima+":"+codice+":"+c.fonte {
+			t.Errorf("%s: la riga e' cambiata: %s", c.fonte, dopo)
+		}
+	}
+}
+
+// La radice dello STEP rilegge il file con Valuta, e un'evidenza del gesto «e' la risposta del fornitore» che
+// la riga ha gia' resta (Smistamento F4, A5.14.7): lo scrittore «struttura» non la perde. Il gesto della
+// schermata prende oggi solo PDF e fogli (ListProposteRispostaFornitore); qui la riga lo riceve con le stesse
+// funzioni, perche' quello che si prova e' lo scrittore, che non deve dimenticare un'evidenza chiunque l'abbia
+// messa. Il tipo resta cad_3d (95 contro 70), discorde.
+func TestLaRadiceNonPerdeIlGestoDelFornitore(t *testing.T) {
+	b := nuovoBanco(t)
+	b.esegui(`UPDATE cliente SET regole = $1 FROM thread_offerta t WHERE t.cliente_id = cliente.cliente_id AND t.thread_id = $2`,
+		`{"famiglie_codice": [{"regex": "(?P<codice>712\\d{4})", "descrizione": "ACME 712", "esempio": "7120001"}]}`, b.thread)
+	f := fattiSTEP{nodi: []string{"#1=7120001", "#2=7120010"}, archi: []string{"#1>#2"}}
+	a := b.allegatoStep("7120001A_1.stp", strings.Repeat("8", 64))
+	v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaStage, NomeFile: a.NomeFile}).ConRispostaFornitore()
+	dett, rp := classificazione.ConValutazione(nil, v, time.Now())
+	b.esegui(`INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, rev, confidenza, fonte, dettagli)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, a.AllegatoID, b.thread, rp.Tipo, rp.Codice, rp.Rev, rp.Confidenza, rp.Fonte, dett)
+	b.applica(a, f.json())
+	got := uno[string](b, `SELECT tipo_proposto || ':' || codice || ':' || fonte || ' | ' || (dettagli #>> '{valutazione,da}') || ':' ||
+		(dettagli #>> '{valutazione,tipo,stato}') || ':' || (dettagli #>> '{valutazione,codice,regola}') FROM documento_proposta WHERE allegato_id = $1`, a.AllegatoID)
+	if want := "cad_3d:7120001A:nome_file | struttura:discorde:step_radice_famiglia"; got != want {
+		t.Errorf("proposta = %q\natteso      %q", got, want)
+	}
+	if n := uno[int](b, `SELECT count(*)::int FROM documento_proposta, jsonb_array_elements(dettagli #> '{valutazione,tipo,evidenze}') e
+		WHERE allegato_id = $1 AND e ->> 'regola' = 'risposta_fornitore' AND e ->> 'valore' = 'offerta_fornitore'`, a.AllegatoID); n != 1 {
+		t.Errorf("l'evidenza del gesto dopo la radice: %d", n)
 	}
 }
 
