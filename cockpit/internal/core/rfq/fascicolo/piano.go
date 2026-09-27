@@ -526,7 +526,14 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 		kb, _ := m.Canonico(b, "")
 		return strings.EqualFold(strings.TrimSpace(ka), strings.TrimSpace(kb))
 	}
-	if pr.TipoProposto == db.TipoDocumentoDaDeterminare || (pr.TipoProposto == db.TipoDocumentoAltro && pr.Fonte == db.FontePropostaEstensione) {
+	// Che cos'e' il file lo dice la dimensione `tipo` della sua valutazione (Smistamento F4): si chiede quando
+	// nessuna evidenza lo dice, o quando lo dice solo l'estensione («altro»). Prima si guardava la colonna
+	// (`altro` con fonte `estensione`), ma la fonte in colonna e' quella del codice quando c'e': un «.dft» col
+	// codice nel nome avrebbe saltato la domanda. Il tipo deciso dall'operatore ha la regola `operatore`, e non
+	// si chiede di nuovo.
+	vt := classificazione.ValutazioneDellaRiga(string(pr.TipoProposto), pr.Codice.String, pr.Rev.String, string(pr.Fonte),
+		int(pr.Confidenza), pr.Dettagli, a.NomeFile, a.Estensione.String)
+	if vt.Tipo.Stato == classificazione.StatoNessuna || vt.Tipo.Regola == "ext_altro" {
 		if len(dett.CodiciNelNome) == 1 {
 			v.Suggerito = dett.CodiciNelNome[0]
 		}

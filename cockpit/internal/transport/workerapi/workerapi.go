@@ -901,7 +901,8 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			}
 		}
 		for _, al := range destinatari {
-			if err := s.propostaDaAnalisi(ctx, q, al, tipo, fonte, r, dett); err != nil {
+			if err := s.propostaDaAnalisi(ctx, q, al, classificazione.Esito{Tipo: string(tipo), Fonte: string(fonte)}, dett,
+				classificazione.DaAnalisi); err != nil {
 				return err
 			}
 		}
@@ -939,47 +940,72 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 // propostaDaAnalisi scrive la proposta di UN allegato a partire dai fatti dell’analisi. È separata
 // perché gli stessi fatti vengono applicati a più allegati con lo stesso contenuto, ciascuno nel suo
 // messaggio: la direzione del messaggio può cambiare la lettura, e va riletta per ognuno (A15).
-func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato,
-	tipo db.TipoDocumento, fonte db.FonteProposta, r worker.RisultatoAnalisi, dett json.RawMessage) error {
+//
+// Smistamento F4: i fatti del worker diventano EVIDENZE della valutazione (i termini trovati nel testo, il
+// PRODUCT grezzo, la struttura letta), e la confidenza e la fonte del worker non entrano piu' nelle colonne.
+// Il codice e la rev dell'esito non passano: sono il nome del file che il worker ha analizzato, e ogni copia
+// rilegge il SUO nome (P15, E03); un «cartiglio» il cui codice e' il nome e' una lettura del nome (P16). E la
+// nostra offerta arrivata in entrata e' un documento commerciale di chi la manda: lo dice la regola
+// `pdf_termini_offerta_entrata`, non un meno trenta.
+func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, esito classificazione.Esito,
+	dett json.RawMessage, da string) error {
 	var threadID uuid.NullUUID
-	entrata := false
+	direzione := ""
 	if m, err := q.GetMessaggio(ctx, a.MessaggioID); err == nil {
-		threadID = m.ThreadID
-		entrata = m.Direzione == db.DirezioneEntrata
+		threadID, direzione = m.ThreadID, string(m.Direzione)
 	}
-	codice, rev, conf := r.Codice, r.Rev, r.Confidenza
-	if tipo == db.TipoDocumentoOffertaPromatec {
-		codice, rev = "", ""
-		// un'offerta Promatec la mandiamo noi: in entrata (senza "SO " nel nome) è un documento commerciale del cliente
-		if entrata && !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(a.NomeFile)), "SO ") {
-			tipo, conf = db.TipoDocumentoCommerciale, conf-30
-		}
-	}
-	if conf < 0 {
-		conf = 0
-	}
-	// Il codice e la revisione arrivano da un worker, cioe' da fuori: prima di finire in una colonna
-	// passano dai limiti del dominio (7C.1, P0). Fuori misura → non nel campo, ma nei dettagli.
-	// I suffissi decorativi del cliente («…_PRT») non sono il codice: il cartiglio letto da un nome di file
-	// li porterebbe dentro, e il disegno non troverebbe il suo componente.
-	codice, rev = motoreDelFile(ctx, q, threadID, a.MessaggioID).Canonico(codice, rev)
-	var scarti map[string]any
-	codice, rev, scarti = s.codiceRevSicuri(codice, rev, "analisi di "+a.NomeFile)
-	if len(scarti) > 0 {
-		dett = conDettagli(dett, scarti)
-	}
-	// Nemmeno il cartiglio di un file caricato a mano diventa la revisione del cliente (B8.7).
-	if r, trattenuta := fascicolo.RevisioneProponibile(a.Origine, rev); trattenuta != "" {
-		rev = r
-		dett = conDettagli(dett, map[string]any{"rev_letta": trattenuta})
-	}
-	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
-		Confidenza: int16(conf), Fonte: fonte, Dettagli: dett,
-	}); err != nil {
+	in := classificazione.IngressoFile{Da: da, Bytes: a.Bytes.Int64, Direzione: direzione, Esito: &esito, Fatti: dett}
+	if _, err := s.scriviLettura(ctx, q, a, threadID, in, dett); err != nil {
 		return fmt.Errorf("upsert proposta da analisi: %w", err)
 	}
 	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
+}
+
+// scriviLettura e' la sola strada con cui il server scrive la lettura di un file in documento_proposta
+// (Smistamento F4, A5.14.7): stage, archivio, analisi e fatti esistenti ci passano tutti. La lettura e' la
+// valutazione per dimensione (classificazione.Valuta, con il nome di QUESTO allegato, le regole del suo
+// cliente e quello che si sa del contenuto), e le colonne sono il suo riepilogo (ConValutazione): nessuna
+// confidenza scritta a mano. Il gesto «e' la risposta del fornitore» resta un'evidenza anche quando il file si
+// rilegge. Restituisce il riepilogo scritto.
+func (s *Server) scriviLettura(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID,
+	in classificazione.IngressoFile, dett json.RawMessage) (classificazione.Riepilogo, error) {
+	in.NomeFile = a.NomeFile
+	in.Interno = a.Origine == db.OrigineAllegatoManuale
+	if in.Motore == nil {
+		// I suffissi decorativi del cliente («…_PRT») non sono il codice: il file deve trovare il suo componente.
+		in.Motore = motoreDelFile(ctx, q, threadID, a.MessaggioID)
+	}
+	if p, err := q.GetPropostaDocumentoDiAllegato(ctx, a.AllegatoID); err == nil {
+		prima := classificazione.ValutazioneDellaRiga(string(p.TipoProposto), p.Codice.String, p.Rev.String, string(p.Fonte),
+			int(p.Confidenza), p.Dettagli, a.NomeFile, a.Estensione.String)
+		in.RispostaFornitore = in.RispostaFornitore || prima.HaEvidenza("risposta_fornitore")
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return classificazione.Riepilogo{}, err
+	}
+	dett, rp := classificazione.ConValutazione(dett, classificazione.Valuta(in), time.Now())
+	// Il codice e la revisione passano dai limiti del dominio prima di finire in una colonna (7C.1, P0): fuori
+	// misura → non nel campo, ma nei dettagli.
+	codice, rev, scarti := s.codiceRevSicuri(rp.Codice, rp.Rev, a.NomeFile)
+	if len(scarti) > 0 {
+		dett = conDettagli(dett, scarti)
+	}
+	// Il riepilogo viene dal nostro dominio: un valore fuori enum sarebbe un errore di programmazione, e qui si
+	// vede subito e con il nome giusto (un tipo nuovo dimenticato nella migrazione).
+	tipo, err := enumValido[db.TipoDocumento]("tipo_proposto", rp.Tipo)
+	if err != nil {
+		return rp, err
+	}
+	fonte, err := enumValido[db.FonteProposta]("fonte", rp.Fonte)
+	if err != nil {
+		return rp, err
+	}
+	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
+		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
+		Confidenza: int16(rp.Confidenza), Fonte: fonte, Dettagli: dett,
+	}); err != nil {
+		return rp, fmt.Errorf("proposta: %w", err)
+	}
+	return rp, nil
 }
 
 // esitoAnalisi è la LETTURA del worker — che cosa ha concluso, non solo che cosa ha visto — conservata
@@ -1074,13 +1100,11 @@ func (s *Server) applicaFattiEsistenti(ctx context.Context, q *db.Queries, a db.
 	if err != nil {
 		return fmt.Errorf("esito dei fatti di %s: %w", a.NomeFile, err)
 	}
-	// La stessa funzione del result: la proposta è dell'allegato, quindi la direzione del messaggio e
-	// le regole del suo cliente vanno rilette per questa copia, non copiate dalla prima (A15).
-	if err := s.propostaDaAnalisi(ctx, q, a, tipo, fonte, worker.RisultatoAnalisi{
-		AllegatoID: a.AllegatoID, TipoProposto: es.TipoProposto, Codice: es.Codice, Rev: es.Rev,
-		Confidenza: es.Confidenza, Fonte: es.Fonte,
-		VersioneAnalizzatore: s.Analizzatore.Versione, HashConfigurazione: s.Analizzatore.Hash(),
-	}, dett); err != nil {
+	// La stessa funzione del result: la proposta è dell'allegato, quindi la direzione del messaggio, le
+	// regole del suo cliente e il suo nome vanno riletti per questa copia, non copiati dalla prima (A15, K9):
+	// il codice e la rev dell'esito sono il nome dell'altra copia, e non passano (P15).
+	if err := s.propostaDaAnalisi(ctx, q, a, classificazione.Esito{Tipo: string(tipo), Fonte: string(fonte)}, dett,
+		classificazione.DaFattiEsistenti); err != nil {
 		return err
 	}
 	// e la struttura, se il file ne ha una, nella RFQ di questa copia
@@ -1195,20 +1219,23 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 			dominio = m.MittenteIndirizzo.String[i+1:]
 		}
 	}
-	pr := classificazione.PropostaDaNome(a.NomeFile, r.Bytes, string(m.Direzione))
+	in := classificazione.IngressoFile{Da: classificazione.DaStage, Bytes: r.Bytes, Direzione: string(m.Direzione)}
 	ext := strings.ToLower(a.Estensione.String)
-	// rumore: hash già scartato da un operatore, o immagine vista ≥ 3 volte dallo stesso dominio (firme, loghi)
-	if dominio != "" && pr.Tipo != "rumore" {
+	// Rumore: hash già scartato da un operatore per questo dominio, o immagine vista ≥ 3 volte dallo stesso
+	// dominio (firme, loghi). E' un'evidenza del tipo, e mai per un file tecnico (P14): Valuta non la prende per
+	// un disegno o per un PDF di cui non si sa ancora che cosa sia.
+	if dominio != "" {
 		if seen, _ := q.IsHashRumore(ctx, db.IsHashRumoreParams{Sha256: r.Sha256, Lower: dominio}); seen {
-			pr = classificazione.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 95}
+			in.Rumore = "rumore_hash_dominio"
 		} else if n, _ := q.ContaHashVisto(ctx, db.ContaHashVistoParams{Sha256: txt(r.Sha256), Lower: dominio}); n >= 3 && classificazione.EstImmagine(ext) {
-			pr = classificazione.Proposta{Tipo: "rumore", Fonte: "rumore", Confidenza: 85}
+			in.Rumore = "rumore_immagine_ricorrente"
 		}
 	}
-	if err := s.scriviProposta(ctx, q, a, m.ThreadID, pr, map[string]any{"estensione": ext, "bytes": r.Bytes}); err != nil {
+	rp, err := s.scriviProposta(ctx, q, a, m.ThreadID, in, map[string]any{"estensione": ext, "bytes": r.Bytes})
+	if err != nil {
 		return err
 	}
-	if pr.Tipo == "rumore" {
+	if rp.Tipo == "rumore" {
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 	}
 	if ext == "zip" {
@@ -1232,49 +1259,26 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 	return nil
 }
 
-func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, pr classificazione.Proposta, dettagli map[string]any) error {
-	// pr arriva dal nostro dominio, non da un worker: qui un valore fuori enum sarebbe un errore di
-	// programmazione. Si controlla lo stesso, perché è il punto in cui un tipo nuovo aggiunto al
-	// dominio e dimenticato nella migrazione si vedrebbe subito e con il nome giusto.
-	tipo, err := enumValido[db.TipoDocumento]("tipo_proposto", pr.Tipo)
-	if err != nil {
-		return err
-	}
-	fonte, err := enumValido[db.FonteProposta]("fonte", pr.Fonte)
-	if err != nil {
-		return err
-	}
+// scriviProposta scrive la lettura di un file che non ha ancora l'analisi (lo stage, l'estrazione da un
+// archivio): la valutazione dal nome, dal formato e dal rumore, con scriviLettura. I codici che un nome cita
+// senza esserlo restano nei dettagli, senza il suffisso decorativo del cliente. Un file caricato a mano non
+// inventa una revisione del cliente (B8.7): quella scritta nel nome va in `rev_letta`, e la revisione del
+// documento la scrive chi decide.
+func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID,
+	in classificazione.IngressoFile, dettagli map[string]any) (classificazione.Riepilogo, error) {
 	if dettagli == nil {
 		dettagli = map[string]any{}
 	}
-	// I suffissi decorativi del cliente («…_PRT») non sono il codice: il file deve trovare il suo componente.
-	motore := motoreDelFile(ctx, q, threadID, a.MessaggioID)
-	pr.Codice, pr.Rev = motore.Canonico(pr.Codice, pr.Rev)
-	for i, c := range pr.CodiciNelNome {
-		pr.CodiciNelNome[i] = motore.CanonicoNome(c)
-	}
-	if len(pr.CodiciNelNome) > 0 {
+	in.Motore = motoreDelFile(ctx, q, threadID, a.MessaggioID)
+	if cn := classificazione.PropostaDaNome(a.NomeFile, in.Bytes, in.Direzione).CodiciNelNome; len(cn) > 0 {
+		for i, c := range cn {
+			cn[i] = in.Motore.CanonicoNome(c)
+		}
 		// il nome non e' un codice, ma ne contiene: si conservano qui, non nella colonna
-		dettagli["codici_nel_nome"] = pr.CodiciNelNome
-	}
-	codice, rev, scarti := s.codiceRevSicuri(pr.Codice, pr.Rev, a.NomeFile)
-	for k, v := range scarti {
-		dettagli[k] = v
-	}
-	// Un file caricato a mano non inventa una revisione del cliente (B8.7): quella scritta nel nome resta
-	// nei dettagli, e la revisione del documento la scrive chi decide.
-	if r, trattenuta := fascicolo.RevisioneProponibile(a.Origine, rev); trattenuta != "" {
-		rev = r
-		dettagli["rev_letta"] = trattenuta
+		dettagli["codici_nel_nome"] = cn
 	}
 	dett, _ := json.Marshal(dettagli)
-	if _, err := q.UpsertProposta(ctx, db.UpsertPropostaParams{
-		AllegatoID: a.AllegatoID, ThreadID: threadID, TipoProposto: tipo, Codice: txt(codice), Rev: txt(rev),
-		Confidenza: int16(pr.Confidenza), Fonte: fonte, Dettagli: dett,
-	}); err != nil {
-		return fmt.Errorf("proposta: %w", err)
-	}
-	return nil
+	return s.scriviLettura(ctx, q, a, threadID, in, dett)
 }
 
 // motoreDelFile e' il motore delle regole del cliente a cui un file appartiene: quello della RFQ del messaggio,

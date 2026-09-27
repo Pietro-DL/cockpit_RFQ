@@ -427,10 +427,11 @@ func (s *Server) annullaSostituzione(w http.ResponseWriter, r *http.Request) {
 // contesto lo sceglie chi apre, senza default (D25c): senza, si rifiuta. Altrove lo dice la fase, e un
 // contesto diverso si rifiuta.
 //
-// Aprire la revisione e' anche il momento in cui i codici della richiesta rimasti senza componente entrano
-// nella BOM come prodotti (D26): con la BOM congelata AssicuraProdottiDellaRichiesta non poteva farli, e dopo
-// le fasi F1 (niente alla GET) e F2 (niente «+ Prodotto» dal pannello) non c'e' un'altra strada. E' la
-// decisione di una persona, nella stessa transazione, come la creazione della RFQ nel triage.
+// Aprire la revisione e' anche il momento in cui i codici della richiesta confermati mentre la BOM era
+// congelata entrano nella BOM come prodotti (D26): con la BOM congelata AssicuraProdottiDellaRichiesta non
+// poteva farli, e dopo le fasi F1 (niente alla GET) e F2 (niente «+ Prodotto» dal pannello) non c'e' un'altra
+// strada. Solo quelli (AssicuraProdottiDellaRevisione): un codice gia' della richiesta al congelamento e senza
+// componente ne era uscito per decisione di qualcuno, e l'apertura di una revisione non lo fa rinascere.
 func (s *Server) apriRevisione(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		var scelta *db.ContestoBom
@@ -452,7 +453,7 @@ func (s *Server) apriRevisione(w http.ResponseWriter, r *http.Request) {
 			msg += ": la fase resta " + string(v.FaseAllApertura) + "."
 		}
 		msg += " La BOM working si modifica di nuovo."
-		prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread)
+		prodotti, err := fascicolo.AssicuraProdottiDellaRevisione(ctx, q, thread)
 		if err != nil {
 			return "", err
 		}

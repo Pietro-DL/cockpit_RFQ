@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"promatec/cockpit/internal/app/runtime"
 	"promatec/cockpit/internal/platform/config"
@@ -23,6 +24,8 @@ func main() {
 	anteprimaFornitori := flag.String("anteprima-fornitori", "", "file JSON del seme fornitori: dice che cosa scriverebbe e NON scrive; poi esce")
 	importaFornitori := flag.String("importa-fornitori", "", "file JSON del seme fornitori: lo applica davvero; poi esce")
 	flag.BoolVar(&o.ContaAnagrafiche, "conta-anagrafiche", false, "stampa quante righe ci sono in anagrafica (clienti, buyer, fornitori...); poi esce")
+	flag.BoolVar(&o.Calibrazione, "calibrazione", false, "stampa le misure della calibrazione (quante volte il primo proposto era quello giusto), in sola lettura; poi esce")
+	calibrazioneDal := flag.String("calibrazione-dal", "", "con -calibrazione: solo le decisioni da questo giorno (AAAA-MM-GG)")
 	// La rete dalla riga di comando (scripts/avvio-rete): con -ascolto vale PER INTERO al posto delle
 	// voci di rete di [server] nel file (config.Rete).
 	var rete config.Rete
@@ -37,6 +40,12 @@ func main() {
 			rete.Reti = append(rete.Reti, r)
 		}
 	}
+	dal, err := giornoDal(*calibrazioneDal)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "errore:", err)
+		os.Exit(1)
+	}
+	o.CalibrazioneDal = dal
 	o.SemeFornitori, o.ApplicaFornitori = *anteprimaFornitori, false
 	if *importaFornitori != "" {
 		if o.SemeFornitori != "" {
@@ -84,6 +93,19 @@ func percorsoConfig(esplicito bool, dato string, esiste func(string) bool, esegu
 		cercati = append(cercati, accanto)
 	}
 	return accanto, cercati
+}
+
+// giornoDal legge -calibrazione-dal: vuoto = tutte le decisioni; altrimenti un giorno AAAA-MM-GG, dalla
+// mezzanotte dell'ora locale (quella in cui l'operatore pensa «dal primo ottobre»).
+func giornoDal(s string) (*time.Time, error) {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil, nil
+	}
+	d, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("-calibrazione-dal %q: serve un giorno AAAA-MM-GG", s)
+	}
+	return &d, nil
 }
 
 // esiste dice se al percorso c'e' un file (non una cartella).

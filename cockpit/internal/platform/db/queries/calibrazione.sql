@@ -1,0 +1,111 @@
+-- LA CALIBRAZIONE (Smistamento M3, A5.14.6, A5.16.6). Solo letture: le lancia `cockpit -calibrazione` in una
+-- transazione READ ONLY (internal/core/calibrazione). Si possono copiare in DBeaver: `sqlc.narg(dal)` si
+-- scrive NULL (tutto) o una data ('2026-10-01').
+--
+-- Le misure dicono quante volte il primo proposto era quello giusto, e sono l'unico modo di trasformare
+-- uno «score» in una frequenza vera (U7). Finché una cella non ha il campione, lo score resta un ordine.
+
+-- MisuraPosta: le fotografie delle decisioni sulla posta (il motivo JSON di messaggio_aggancio_log, A5.16.6).
+-- Una riga per (versione delle regole) e per ogni suo raggruppamento: livello del primo, tipo del primo,
+-- fascia dello score del primo, tipo e fascia insieme. `raggruppamento` e' GROUPING(livello, tipo, fascia):
+-- 7 = il totale delle regole, 3 = per livello, 5 = per tipo, 6 = per fascia, 4 = per tipo e fascia.
+--
+-- Contano solo i gesti di una persona davanti a una lista (su > 0): «aggancia», «nuova_rfq», «ignora».
+-- Il giro degli orfani (`candidato`) e il marcatore sono automatici e restano fuori (P39). Le righe di
+-- prima sono frasi e si saltano: `LIKE '{%'`, e il cast solo dopo pg_input_is_valid (PostgreSQL 16+),
+-- dentro un CASE perche' l'ordine delle condizioni di un WHERE non e' garantito.
+--
+-- Una decisione per MESSAGGIO, l'ultima: il log e' append-only, e lo stesso messaggio puo' avere piu'
+-- fotografie (un secondo clic su «Aggancia» verso la stessa RFQ, due «Ignora», un «Ignora» e poi un
+-- «Aggancia»). Contarle tutte gonfierebbe il campione e sposterebbe la precisione verso i messaggi
+-- ripetuti; conta la decisione corrente, come per i file (A5.14.6), e `ridecisi` dice a parte quanti
+-- messaggi della cella avevano gia' una decisione prima di quella che conta (un segnale di correzione, o
+-- di un doppio clic). L'ultima e' la piu' recente, a parita' di istante la riga scritta dopo (log_id).
+-- Il filtro «con una lista» (su > 0) viene DOPO la scelta dell'ultima: se la decisione che conta e' stata
+-- presa senza candidati, il messaggio esce dal campione anche quando una decisione di prima li aveva. Il
+-- primo da misurare e' quello della decisione corrente, e quella non ne aveva uno.
+--
+-- Due precisioni, che rispondono a due domande (r1_mail.md §7.3):
+--   - `agganci_al_primo` / `agganci`: la precision@1 di §7.3, sui soli «aggancia» — quante volte la RFQ
+--     agganciata era la prima card;
+--   - `al_primo` / `decisioni`: su tutti i gesti con una lista — quante volte la prima card era la
+--     risposta giusta. Una RFQ nuova o un «ignora» con candidati sono decisioni in cui il primo NON era
+--     quello giusto (rango 0): contano qui, e si vedono anche a parte (e' la misura «per livello» di §7.3).
+-- name: MisuraPosta :many
+WITH f AS (
+    SELECT l.log_id, l.messaggio_id, l.eseguito_il,
+           CASE WHEN pg_input_is_valid(l.motivo, 'jsonb') THEN l.motivo::jsonb END AS j
+      FROM messaggio_aggancio_log l
+     WHERE l.motivo LIKE '{%'
+       AND l.eseguito_il >= coalesce(sqlc.narg(dal)::timestamptz, '-infinity'::timestamptz)
+), g AS (
+    SELECT f.log_id, f.messaggio_id, f.eseguito_il, f.j,
+           count(*) OVER (PARTITION BY f.messaggio_id) AS volte
+      FROM f
+     WHERE f.j ? 'v'
+       AND f.j->>'gesto' IN ('aggancia', 'nuova_rfq', 'ignora')
+), c AS (
+    SELECT DISTINCT ON (g.messaggio_id) g.j, g.volte
+      FROM g
+     ORDER BY g.messaggio_id, g.eseguito_il DESC, g.log_id DESC
+), d AS (
+    SELECT j->>'regole'                                      AS regole,
+           j->>'gesto'                                       AS gesto,
+           coalesce(j->'primo'->>'livello', '')              AS livello,
+           coalesce(j->'primo'->'tipi'->>0, '')              AS tipo,
+           CASE WHEN (j->'primo'->>'score')::int >= 90 THEN '90-100'
+                WHEN (j->'primo'->>'score')::int >= 70 THEN '70-89'
+                WHEN (j->'primo'->>'score')::int >= 50 THEN '50-69'
+                WHEN (j->'primo'->>'score')::int >= 30 THEN '30-49'
+                ELSE '0-29' END                              AS fascia,
+           coalesce((j->'scelto'->>'rango')::int, 0)         AS rango,
+           coalesce((j->>'fuori_lista')::boolean, false)     AS fuori_lista,
+           coalesce((j->>'pari_merito')::boolean, false)     AS pari_merito,
+           volte > 1                                         AS ridecisa
+      FROM c
+     WHERE coalesce((j->>'su')::int, 0) > 0
+)
+SELECT coalesce(regole, '')::text                                          AS regole,
+       GROUPING(livello, tipo, fascia)::int                                AS raggruppamento,
+       coalesce(livello, '')::text                                         AS livello,
+       coalesce(tipo, '')::text                                            AS tipo,
+       coalesce(fascia, '')::text                                          AS fascia,
+       count(*)::int                                                       AS decisioni,
+       (count(*) FILTER (WHERE rango = 1))::int                            AS al_primo,
+       (count(*) FILTER (WHERE rango BETWEEN 1 AND 3))::int                AS nei_primi_3,
+       (count(*) FILTER (WHERE gesto = 'aggancia'))::int                   AS agganci,
+       (count(*) FILTER (WHERE gesto = 'aggancia' AND rango = 1))::int     AS agganci_al_primo,
+       (count(*) FILTER (WHERE gesto = 'nuova_rfq'))::int                  AS nuove_rfq,
+       (count(*) FILTER (WHERE gesto = 'ignora'))::int                     AS ignorati,
+       (count(*) FILTER (WHERE fuori_lista))::int                          AS fuori_lista,
+       (count(*) FILTER (WHERE pari_merito))::int                          AS pari_merito,
+       (count(*) FILTER (WHERE ridecisa))::int                             AS ridecisi,
+       round(avg(CASE WHEN rango > 0 THEN 1.0 / rango ELSE 0 END), 3)::float8 AS mrr
+  FROM d
+ GROUP BY GROUPING SETS ((regole), (regole, livello), (regole, tipo), (regole, fascia), (regole, tipo, fascia))
+ ORDER BY 1, 2 DESC, 3, 4, 5;
+
+-- RetroPosta: i messaggi agganciati a mano PRIMA della fotografia (nessun motivo JSON sul loro
+-- aggancio), con i candidati che avevano. I candidati di un messaggio si ricalcolano solo finche' e'
+-- orfano: dopo l'aggancio resta la fotografia di allora. L'ordine delle card NON si fa qui: le righe
+-- delle regole di prima si leggono verso il basso (classificazione.LeggiRiga) e si raggruppano per RFQ
+-- come nel pannello, in Go; qui c'e' solo lo spareggio stabile di ListCandidatiAggancio. Un messaggio
+-- senza candidati esce con una riga sola e i campi del candidato vuoti. Il candidato del marcatore non
+-- c'e': si costruisce in lettura da `bozza`, e sui dati di prima di M1 non serve.
+-- name: RetroPosta :many
+SELECT m.messaggio_id,
+       m.thread_id                                         AS scelto,
+       k.thread_id                                         AS candidato,
+       coalesce(k.regola::text, '')::text                  AS regola,
+       coalesce(k.punteggio, 0)::int                       AS punteggio,
+       coalesce(k.evidenza, '')::text                      AS evidenza,
+       coalesce(k.thread_stato = 'CHIUSA', false)::boolean AS chiuso
+  FROM messaggio m
+  LEFT JOIN candidato_aggancio k ON k.messaggio_id = m.messaggio_id
+  LEFT JOIN thread_offerta t     ON t.thread_id = k.thread_id
+ WHERE m.aggancio = 'operatore'
+   AND m.thread_id IS NOT NULL
+   AND coalesce(m.agganciato_il, m.data_evento) >= coalesce(sqlc.narg(dal)::timestamptz, '-infinity'::timestamptz)
+   AND NOT EXISTS (SELECT 1 FROM messaggio_aggancio_log l
+                    WHERE l.messaggio_id = m.messaggio_id AND l.azione = 'aggancia' AND l.motivo LIKE '{%')
+ ORDER BY m.messaggio_id, k.punteggio DESC, k.regola, t.data_inizio DESC, k.thread_id;

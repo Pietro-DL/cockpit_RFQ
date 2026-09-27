@@ -2,10 +2,10 @@
 // INTERPRETAZIONI: candidati di aggancio, candidati di codice, riferimenti al portale, proposta di triage.
 //
 // Non aggancia niente di suo. Dal checkpoint 3R `messaggio.thread_id` non viene scritto qui: l'ingest
-// propone e basta, e la decisione è un bottone premuto da un operatore (D9). L'unica eccezione è la
-// nostra firma: una richiesta a un fornitore partita dal Cockpit torna con il marcatore
-// CockpitRichiestaFornitore e si aggancia alla sua RFQ (marcatori.go, 7B), perché lì la decisione
-// l'operatore l'ha già presa scrivendo la richiesta. Non scrive mai sul NAS.
+// propone e basta, e la decisione è un bottone premuto da un operatore (D9). Senza eccezioni dallo
+// Smistamento M1 (I14, D85): la richiesta a un fornitore partita dal Cockpit torna con il marcatore
+// CockpitRichiestaFornitore e lega la sua richiesta (marcatori.go, 7B), ma alla RFQ la mail la aggancia
+// una persona, dal candidato molto forte che il marcatore propone. Non scrive mai sul NAS.
 //
 // Il lotto è UNA transazione con un savepoint per elemento (piano §2.4, D15). Prima era una
 // transazione per elemento e il primo errore interrompeva il lotto: bastava un messaggio che il
@@ -794,11 +794,11 @@ func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostr
 		return esito, fmt.Errorf("controparte: %w", err)
 	}
 	// Blocco 7B: i marcatori scritti dal Cockpit sulla bozza. CockpitRichiestaFornitore lega la nostra
-	// mail alla richiesta e la aggancia alla RFQ senza euristiche; CockpitBozza chiude la bozza.
-	if agganciato, err := s.applicaMarcatori(ctx, q, &row, m, dir); err != nil {
+	// mail alla richiesta; CockpitBozza chiude la bozza. Nessuno dei due aggancia la mail alla RFQ
+	// (Smistamento M1, D84, D85): la sua RFQ diventa un candidato molto forte, che conferma una persona.
+	legata, err := s.applicaMarcatori(ctx, q, &row, m, dir)
+	if err != nil {
 		return esito, err
-	} else if agganciato {
-		esito.Aggancio = string(row.Aggancio)
 	}
 
 	var flag pgtype.Int2
@@ -874,8 +874,9 @@ func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostr
 		}
 		if nat == db.NaturaAllegatoFile || nat == db.NaturaAllegatoElementoOutlook {
 			nomiAllegati = append(nomiAllegati, a.NomeFile)
+			// PropostaDaNome resta per la pre-spunta e i codici citati nel nome; la lettura del file e' la
+			// valutazione per dimensione, e le colonne sono il suo riepilogo (Smistamento F4, A5.14.7)
 			pr := classificazione.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
-			pr.Codice, pr.Rev = motore.Canonico(pr.Codice, pr.Rev)
 			for i, c := range pr.CodiciNelNome {
 				pr.CodiciNelNome[i] = motore.CanonicoNome(c)
 			}
@@ -887,12 +888,15 @@ func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostr
 				dettagli["codici_nel_nome"] = pr.CodiciNelNome
 			}
 			dett, _ := json.Marshal(dettagli)
+			dett, rp := classificazione.ConValutazione(dett, classificazione.Valuta(classificazione.IngressoFile{
+				Da: classificazione.DaIngest, NomeFile: a.NomeFile, Bytes: a.Bytes, Direzione: string(dir), Motore: motore,
+			}), time.Now())
 			// Niente troncamento a 60 e a 10 (7C.1, P0): il dominio garantisce che un codice stia in
 			// MaxCodice e una revisione in MaxRev, e un valore che non ci sta non e' un codice — non
-			// si accorcia in silenzio, si lascia fuori (PropostaDaNome lo mette in CodiciNelNome).
+			// si accorcia in silenzio, si lascia fuori (Valuta lo tiene solo se ha la forma di un codice).
 			if err := q.InsertPropostaSeAssente(ctx, db.InsertPropostaSeAssenteParams{
-				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(pr.Tipo), Codice: txt(pr.Codice),
-				Rev: txt(pr.Rev), Confidenza: int16(pr.Confidenza), Fonte: db.FonteProposta(pr.Fonte), Dettagli: dett,
+				AllegatoID: al.AllegatoID, ThreadID: row.ThreadID, TipoProposto: db.TipoDocumento(rp.Tipo), Codice: txt(rp.Codice),
+				Rev: txt(rp.Rev), Confidenza: int16(rp.Confidenza), Fonte: db.FonteProposta(rp.Fonte), Dettagli: dett,
 			}); err != nil {
 				return esito, fmt.Errorf("proposta allegato %d: %w", a.Indice, err)
 			}
@@ -967,13 +971,14 @@ func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostr
 		// dei modi in cui una richiesta arriva davvero sul tavolo: escluderla perché il mittente è un
 		// collega significherebbe non proporre niente proprio sui messaggi che qualcuno ha inoltrato
 		// apposta perché qualcun altro li guardasse.
-		if !threadID.Valid && daInterpretare(dir, interno, controparte) {
+		if !threadID.Valid && !legata && daInterpretare(dir, interno, controparte) {
 			if _, err := s.interpreta(ctx, q, interpretazione{
 				MessaggioID: row.MessaggioID, ConversazioneID: conv.ConversazioneID,
 				ClienteID: clienteID, BuyerID: buyerID, Controparte: controparte,
 				Oggetto: m.Oggetto, Corpo: m.CorpoTesto, NomiAllegati: nomiAllegati,
 				Direzione: dir, Interno: interno, InReplyTo: m.InReplyTo, Riferimenti: m.Riferimenti,
 				DataEvento: m.DataEvento, Motore: motore, Mittente: indirizzo, FornitoreID: controparte.FornitoreID,
+				IndiceConversazione: m.ConversationIndex,
 			}); err != nil {
 				return esito, err
 			}

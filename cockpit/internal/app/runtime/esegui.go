@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/inbox/ingest"
@@ -33,14 +34,18 @@ type Opzioni struct {
 	SemeFornitori    string
 	ApplicaFornitori bool
 	ContaAnagrafiche bool
+	// Calibrazione stampa le misure dello Smistamento (M3, A5.14.6): quante volte il primo proposto era
+	// quello giusto. CalibrazioneDal limita alle decisioni da quel giorno; nil = tutte.
+	Calibrazione    bool
+	CalibrazioneDal *time.Time
 }
 
-// SoloLettura dice se il lavoro chiesto legge soltanto: -conta-anagrafiche e -anteprima-fornitori.
-// Questi non migrano, non seminano e non toccano la coda (ApriDatabaseInLettura): un «conta» lanciato
-// con un binario nuovo su un database vecchio applicava le migrazioni, cioe' faceva proprio la cosa che
-// si fa solo dopo un backup.
+// SoloLettura dice se il lavoro chiesto legge soltanto: -conta-anagrafiche, -anteprima-fornitori e
+// -calibrazione. Questi non migrano, non seminano e non toccano la coda (ApriDatabaseInLettura): un
+// «conta» lanciato con un binario nuovo su un database vecchio applicava le migrazioni, cioe' faceva
+// proprio la cosa che si fa solo dopo un backup.
 func (o Opzioni) SoloLettura() bool {
-	return o.ContaAnagrafiche || (o.SemeFornitori != "" && !o.ApplicaFornitori)
+	return o.ContaAnagrafiche || o.Calibrazione || (o.SemeFornitori != "" && !o.ApplicaFornitori)
 }
 
 // Esegui e' l'avvio: l'ordine in cui il server nasce, e niente altro.
@@ -134,7 +139,7 @@ func Esegui(cfgPath string, rete config.Rete, o Opzioni) (err error) {
 }
 
 // EseguiInLettura fa i lavori che leggono soltanto, su un database aperto senza migrarlo
-// (ApriDatabaseInLettura): -conta-anagrafiche e -anteprima-fornitori.
+// (ApriDatabaseInLettura): -conta-anagrafiche, -calibrazione e -anteprima-fornitori.
 func EseguiInLettura(ctx context.Context, cfg *config.Config, log *slog.Logger, o Opzioni) error {
 	pool, err := ApriDatabaseInLettura(ctx, cfg, risorse.FS)
 	if err != nil {
@@ -143,6 +148,9 @@ func EseguiInLettura(ctx context.Context, cfg *config.Config, log *slog.Logger, 
 	defer pool.Close()
 	if o.ContaAnagrafiche {
 		return ContaAnagrafiche(ctx, pool)
+	}
+	if o.Calibrazione {
+		return Calibrazione(ctx, pool, os.Stdout, o.CalibrazioneDal)
 	}
 	return SemeFornitori(ctx, pool, log, o.SemeFornitori, false)
 }

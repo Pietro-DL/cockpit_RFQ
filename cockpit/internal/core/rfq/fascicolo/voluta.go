@@ -137,7 +137,8 @@ type contestoVoluta struct {
 	Relazioni map[ChiaveRelazione]db.RelazioneProposta
 	Attivi    []db.ComponenteRelazione
 	// Richiesta: i codici della richiesta (identificativi). Un componente scritto nell'editor non ne prende
-	// uno: diventano prodotti con la creazione della RFQ (triage) o aprendo una revisione della BOM congelata.
+	// uno: diventano prodotti con una decisione del triage o, se confermati con la BOM congelata, aprendo la
+	// revisione.
 	Richiesta []string
 	// Motore: le regole del cliente, per la guardia «quasi uguale» (i suffissi decorativi). Puo' essere nil.
 	Motore *classificazione.Motore
@@ -370,8 +371,8 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 				pv.Esistenti[e.Esistente.ComponenteID] = true
 				return chiaveComponente(e.Esistente.ComponenteID), nil
 			case e.Richiesta:
-				return "", Rifiuto(n.Codice + " è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, " +
-					"o aprendo una revisione della BOM congelata; non è un componente dall'editor")
+				return "", Rifiuto(n.Codice + " è un codice della richiesta: il prodotto nasce da una decisione del triage, " +
+					"o aprendo la revisione se il codice è stato confermato con la BOM congelata; non è un componente dall'editor")
 			case len(e.Vicini) > 0 && !n.Diverso:
 				// la carta scritta prima che il vicino ci fosse non ha la conferma, e l'editor non la chiede su una
 				// carta gia' posata: la si toglie e la si riscrive, e la domanda sui vicini arriva

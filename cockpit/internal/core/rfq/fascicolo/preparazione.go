@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -52,6 +53,38 @@ type EsitoProdotti struct {
 // preparazione dei file che la pagina chiede da sola (Smistamento F1, R1 e R8): un prodotto tolto dalla BOM
 // non rinasce perche' qualcuno ha riaperto il Fascicolo.
 func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread uuid.UUID) (EsitoProdotti, error) {
+	return assicuraProdotti(ctx, q, thread, nil)
+}
+
+// AssicuraProdottiDellaRevisione e' AssicuraProdottiDellaRichiesta per l'apertura di una revisione della BOM
+// (D26): entrano solo i codici confermati DOPO l'ultimo congelamento, quelli che la BOM congelata ha fermato
+// alla creazione o all'aggancio. Un codice della richiesta che era gia' li' quando la BOM e' stata congelata,
+// e che nella BOM non c'era, ne era uscito per decisione di qualcuno (un prodotto tolto perche' «non aveva storia»):
+// aprire una revisione, che e' una decisione sulla versione e non su quel codice, non lo fa rinascere
+// (Smistamento, rilievo della verifica di F2; R1, E11).
+func AssicuraProdottiDellaRevisione(ctx context.Context, q *db.Queries, thread uuid.UUID) (EsitoProdotti, error) {
+	ultima, err := q.GetUltimaCongelata(ctx, thread)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return EsitoProdotti{}, nil // mai congelata: nessun codice e' stato fermato
+	case err != nil:
+		return EsitoProdotti{}, err
+	}
+	return assicuraProdotti(ctx, q, thread, func(i db.IdentificativoThread) bool {
+		return fermatoDalCongelamento(i, ultima.CongelataIl)
+	})
+}
+
+// fermatoDalCongelamento dice se il codice della richiesta e' uno di quelli che la BOM congelata ha fermato:
+// confermato da una persona dopo l'ultimo congelamento. E' la regola di AssicuraProdottiDellaRevisione, e
+// il pannello dei codici la usa per non promettere una strada che non c'e' (Stato.EntraConLaRevisione).
+func fermatoDalCongelamento(i db.IdentificativoThread, congelataIl *time.Time) bool {
+	return i.ConfermatoDa.Valid && congelataIl != nil && i.CreatoIl.After(*congelataIl)
+}
+
+// assicuraProdotti e' il corpo delle due: con entra nil ogni codice confermato, altrimenti quelli per cui
+// entra dice di si'.
+func assicuraProdotti(ctx context.Context, q *db.Queries, thread uuid.UUID, entra func(db.IdentificativoThread) bool) (EsitoProdotti, error) {
 	var es EsitoProdotti
 	if err := bloccaThread(ctx, q, thread); err != nil {
 		return es, err
@@ -70,7 +103,7 @@ func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread u
 	}
 	for _, i := range ids {
 		codice := strings.TrimSpace(i.Codice)
-		if codice == "" || !i.ConfermatoDa.Valid {
+		if codice == "" || !i.ConfermatoDa.Valid || (entra != nil && !entra(i)) {
 			continue
 		}
 		switch _, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: thread, Upper: codice}); {

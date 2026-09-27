@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"promatec/cockpit/internal/core/inbox/aggancio"
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/platform/coda"
@@ -48,6 +49,8 @@ func (s *Server) registraInbox(mux *http.ServeMux) {
 	mux.HandleFunc("POST /messaggio/{id}/rfq", s.autenticato(s.nuovaRFQ))
 	mux.HandleFunc("POST /messaggio/{id}/aggancia", s.autenticato(s.agganciaEsistente))
 	mux.HandleFunc("POST /messaggio/{id}/ignora", s.autenticato(s.ignora))
+	// Smistamento M1: «Ricalcola» sui candidati scritti con le regole di prima (A5.10), un messaggio alla volta
+	mux.HandleFunc("POST /messaggio/{id}/ricalcola", s.autenticato(s.ricalcolaCandidati))
 	// blocco 7A.3: «Censisci come fornitore / cliente» dal pannello, con il ritriage mirato
 	mux.HandleFunc("GET /messaggio/{id}/censisci", s.autenticato(s.censisciForm))
 	mux.HandleFunc("POST /messaggio/{id}/censisci", s.autenticato(s.censisci))
@@ -84,6 +87,9 @@ type inboxDati struct {
 	// ad allora resta la regola restrittiva di D12.
 	Caselle []db.Casella
 	Casella string
+	// DalCockpit: il chip «dal Cockpit · RFQ …» delle nostre mail preparate dal Cockpit (D84), letto
+	// con una query per pagina.
+	DalCockpit map[uuid.UUID]string
 	// Nuovi sono i messaggi arrivati dopo l'ultima visita: la lista li segna con un pallino, e il
 	// numero sta in testata (voce 2.16, SV3). Vale per la pagina appena caricata: chi resta fermo
 	// sulla schermata vede crescere il contatore e comparire i pallini ai poll successivi.
@@ -206,7 +212,8 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	nov := s.novitaPer(r.Context(), q, u)
 	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
 		Righe: righe, Conta: conta, Selezion: sel,
-		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale}
+		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale,
+		DalCockpit: origineDellaPagina(r.Context(), q, righe)}
 	// Il frammento e' «inbox_stato», non «inbox_lista»: i comandi e la lista si rifanno INSIEME.
 	// Rispondere con la sola lista lasciava sullo schermo le linguette del quadrante precedente
 	// (checkpoint 7B.5), cioe' una schermata che diceva una cosa e ne mostrava un'altra.
@@ -444,7 +451,14 @@ type messaggioDati struct {
 	Analisi analisiUI
 	// Candidati sono le proposte di aggancio R0–R5 con l'evidenza: si vedono nel pannello, prima di
 	// aprire un form, perché è lì che si decide se questo messaggio è una richiesta nuova o no.
-	Candidati []db.ListCandidatiAggancioRow
+	// Smistamento M1: una card per RFQ, ordinate a livelli, con il candidato del marcatore.
+	Candidati candidatiVista
+	// Origini: da dove nasce la nostra mail, se l'ha preparata il Cockpit (D84) o se è la mail di una
+	// richiesta a un fornitore (D85). Letto adesso, senza scrivere niente.
+	Origini []string
+	// EventoLettura: l'evento di un messaggio che il triage non ha interpretato, calcolato adesso
+	// (Smistamento M2). Per gli altri l'evento si rilegge dall'atto salvato: vedi Evento.
+	EventoLettura *vistaEvento
 	// Blocco 7B: la posta dei fornitori. CandidatiRichiesta sono le richieste nostre a cui questa
 	// mail potrebbe rispondere (R0, R1, R3f); PropostaThread + PropostaFornitore è «richiesta a X
 	// per la RFQ Y» su una nostra mail mandata a mano; Richiesta è quella già collegata.
@@ -458,6 +472,15 @@ type messaggioDati struct {
 
 // Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
 func (d *messaggioDati) Agganciato() bool { return d.Thread != nil }
+
+// Evento è l'evento del messaggio per il pannello: dall'atto salvato dal triage, oppure calcolato adesso
+// se il triage non l'ha scritto (Smistamento M2, A5.16.4).
+func (d *messaggioDati) Evento() *vistaEvento {
+	if v := eventoDellaRiga(d.Riga); v != nil {
+		return v
+	}
+	return d.EventoLettura
+}
 
 // allegatiVista e rigaAllegato sono i dati passati ai frammenti "allegati_tabella" e "allegato_riga",
 // condivisi fra il pannello del messaggio e la schermata B.
@@ -536,12 +559,24 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 	if bz != nil {
 		d.Bozze, _ = pgx.CollectRows(bz, pgx.RowToStructByName[db.Bozza])
 	}
+	cand, err := aggancio.InLettura(ctx, q, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range cand.Origini {
+		d.Origini = append(d.Origini, fraseOrigine(o))
+	}
+	if d.Riga.TriageAtto == "" {
+		d.EventoLettura = eventoInLettura(ctx, q, m, cand.Origini)
+	}
 	if !m.ThreadID.Valid {
-		d.Candidati, _ = q.ListCandidatiAggancio(ctx, id)
+		d.Candidati = vistaCandidati(id, cand, modoPannello)
 		d.CandidatiRichiesta, _ = q.ListCandidatiRichiesta(ctx, id)
-		// «richiesta a X per la RFQ Y»: una nostra mail a un fornitore che cita una RFQ aperta (7B)
+		// «richiesta a X per la RFQ Y»: una nostra mail a un fornitore che cita una RFQ aperta (7B). Non
+		// sulla mail che il marcatore ha già legato alla sua richiesta (D85): sarebbe una seconda
+		// richiesta per la stessa mail.
 		if p, err := q.GetTriageMessaggio(ctx, id); err == nil && p.Atto.String == classificazione.AttoRichiestaOfferta && m.Direzione == db.DirezioneUscita &&
-			p.ThreadProposto.Valid && p.FornitoreProposto.Valid && p.Stato == db.StatoTriageProposta {
+			p.ThreadProposto.Valid && p.FornitoreProposto.Valid && p.Stato == db.StatoTriageProposta && !m.RichiestaFornitoreID.Valid {
 			if t, err := q.GetThread(ctx, p.ThreadProposto.UUID); err == nil {
 				if f, err := q.GetFornitore(ctx, p.FornitoreProposto.UUID); err == nil {
 					d.PropostaThread, d.PropostaFornitore = &t, &f

@@ -92,11 +92,13 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			return 0, err
 		}
 		figlio.PathStaging, figlio.Sha256 = txt(v.Path), txt(v.Sha256)
-		pr := classificazione.PropostaDaNome(v.NomeFile, v.Bytes, string(m.Direzione))
-		if err := s.scriviProposta(ctx, qt, figlio, m.ThreadID, pr, map[string]any{"path_interno": v.PathInterno, "bytes": v.Bytes, "zip": a.NomeFile}); err != nil {
+		// ogni voce si legge dal SUO nome (K9, P15): lo stesso disegno in due archivi con due nomi ha due letture
+		rp, err := s.scriviProposta(ctx, qt, figlio, m.ThreadID, classificazione.IngressoFile{Da: classificazione.DaArchivio,
+			Bytes: v.Bytes, Direzione: string(m.Direzione)}, map[string]any{"path_interno": v.PathInterno, "bytes": v.Bytes, "zip": a.NomeFile})
+		if err != nil {
 			return 0, err
 		}
-		if pr.Tipo == "rumore" {
+		if rp.Tipo == "rumore" {
 			_ = qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 			continue
 		}
@@ -117,7 +119,10 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if troncato {
 		dettagli["troncato"] = true
 	}
-	if err := s.scriviProposta(ctx, qt, a, m.ThreadID, classificazione.Proposta{Tipo: "altro", Fonte: "estensione", Confidenza: 20}, dettagli); err != nil {
+	// l'archivio non dice il tipo (ext_archivio, stato `nessuna`): la valutazione lo dice, e le voci si
+	// propongono una per una
+	if _, err := s.scriviProposta(ctx, qt, a, m.ThreadID, classificazione.IngressoFile{Da: classificazione.DaArchivio,
+		Bytes: a.Bytes.Int64, Direzione: string(m.Direzione)}, dettagli); err != nil {
 		return 0, err
 	}
 	if err := qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato}); err != nil {

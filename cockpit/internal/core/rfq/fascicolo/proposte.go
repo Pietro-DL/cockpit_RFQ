@@ -304,17 +304,28 @@ func Rimozioni(prodotto uuid.UUID, archi map[Arco]int32, nelFile map[Arco]bool) 
 	return out
 }
 
-// RadiceDiFamiglia e' la radice del file quando e' una sola e una famiglia del cliente ne riconosce il
-// codice (D16): allora corregge anche la proposta del documento, perche' e' la stessa regex del cliente
-// applicata al PRODUCT invece che al nome del file.
-func RadiceDiFamiglia(nodi []NodoClassificato, s worker.StrutturaSTEP) (NodoClassificato, bool) {
+// RadiceDelloStep e' la radice del file quando e' una sola e il motore del cliente ne legge il codice (di
+// famiglia o generico): un'EVIDENZA del codice del documento STEP (Smistamento F4, D49). Prima era la D16,
+// che con una radice di famiglia correggeva la proposta del documento; adesso la radice sta accanto al nome
+// del file nella valutazione del codice, e quando i due non sono d'accordo lo si dice (stato discorde) e la
+// colonna tiene il nome. Con due radici non si sceglie per conto di nessuno; un codice che l'operatore ha
+// scritto sul nodo e' una decisione sul nodo, non una lettura del file, e non entra.
+func RadiceDelloStep(nodi []NodoClassificato, s worker.StrutturaSTEP) (classificazione.Radice, bool) {
 	if len(s.Radici) != 1 {
-		return NodoClassificato{}, false
+		return classificazione.Radice{}, false
 	}
 	for _, n := range nodi {
-		if n.Chiave == s.Radici[0] && n.Origine == "famiglia" && n.Codice != "" {
-			return n, true
+		if n.Chiave != s.Radici[0] || n.Codice == "" || (n.Origine != "famiglia" && n.Origine != "generico") {
+			continue
 		}
+		r := classificazione.Radice{Codice: n.Codice, Rev: n.Rev, DiFamiglia: n.Origine == "famiglia", Famiglia: n.Famiglia, Dove: n.Dove,
+			Testo: map[string]string{DoveID: n.IDGrezzo, DoveNome: n.NomeGrezzo, DoveDescrizione: n.Descrizione}[n.Dove]}
+		for _, g := range s.Nodi {
+			if g.Chiave == n.Chiave && strings.TrimSpace(g.RevGrezza) != "" {
+				r.RevDalFile = true
+			}
+		}
+		return r, true
 	}
-	return NodoClassificato{}, false
+	return classificazione.Radice{}, false
 }

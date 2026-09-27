@@ -447,16 +447,16 @@
       {{with $d.Prova}}
       <div class="esito-prova">
         {{$t := .Esito.Triage}}
-        <div>esito proposto <strong>{{$t.Esito}}</strong> &middot; punteggio <strong>{{$t.Confidenza}}</strong>
+        <div>esito proposto <strong>{{$t.Esito}}</strong> &middot; {{score $t.Confidenza}}
           &middot; cliente <span class="chip">{{.Cliente}}</span></div>
         {{if $t.Riferimento}}<div class="riga-esito">riferimento della richiesta <span class="mono">{{$t.Riferimento}}</span>
           <span class="muto">({{$t.RiferimentoNome}}) — non e' un codice prodotto</span></div>{{end}}
         <div class="riga-esito">codici che entrerebbero se spuntati:
-          {{range $t.Estrazione.Proponibili}}<span class="chip cad" title="famiglia «{{.Famiglia}}» · punteggio {{.Punteggio}} · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{else}}<span class="muto">nessuno</span>{{end}}
+          {{range $t.Estrazione.Proponibili}}<span class="chip cad" title="codice · score {{.Punteggio}} (di regola, non calibrato) · famiglia «{{.Famiglia}}» · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{else}}<span class="muto">nessuno</span>{{end}}
         </div>
         {{if $t.Estrazione.Altri}}
         <div class="riga-esito">altri numeri trovati, <em>non</em> proponibili:
-          {{range $t.Estrazione.Altri}}<span class="chip" title="estrattore generico · punteggio {{.Punteggio}} · {{.Dove}}">{{.Codice}}</span> {{end}}
+          {{range $t.Estrazione.Altri}}<span class="chip" title="codice · score {{.Punteggio}} (di regola, non calibrato) · estrattore generico · {{.Dove}}">{{.Codice}}</span> {{end}}
         </div>
         {{end}}
         <div class="riga-esito muto">{{range $t.Motivi}}&bull; {{.}}<br>{{end}}</div>

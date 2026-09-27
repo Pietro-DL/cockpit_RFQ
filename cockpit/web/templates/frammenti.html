@@ -12,10 +12,13 @@
         {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
       <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
         {{if .Richiesta}} · <b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip richiesta {{.Richiesta.Stato}}">{{.Richiesta.Stato}}</span>{{end}}
-        {{if .Riga.TriageAtto}} · <span class="chip atto {{.Riga.TriageAtto}}" title="che cosa sta facendo il mittente, secondo il triage{{if .Riga.TriageLegame}} · legame: {{.Riga.TriageLegame}}{{end}}">{{.Riga.TriageAtto}}</span>{{end}}
-        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
-          <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
+        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{chipTriage .Riga}}
+          <small>{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
+      {{/* Smistamento M2: che cosa sta succedendo con questa mail. È un'evidenza da leggere e non aggancia:
+           la RFQ si sceglie fra i candidati */}}
+      {{with .Evento}}<div class="evento"><b>Evento:</b> <span class="chip atto {{.Atto}}" data-evento="{{.Codice}}" title="{{.Titolo}}">{{.Chip}}</span>{{if .Forza}} ({{.Forza}}){{end}}{{if .Evidenze}} — {{join .Evidenze "; "}}{{end}}{{if .InLettura}} <small class="muto">letto adesso dal messaggio</small>{{end}}
+        {{if not $.Dati.Thread}}<em class="muto">L'evento non aggancia: la RFQ la scegli sotto.</em>{{end}}</div>{{end}}
     </div>
     <div class="azioni">
       {{if .Copia}}
@@ -73,7 +76,7 @@
     {{range .CandidatiRichiesta}}
     <form hx-post="/messaggio/{{$.Dati.M.MessaggioID}}/risposta-fornitore" hx-target="#pannello" class="candidato">
       <input type="hidden" name="richiesta_id" value="{{.RichiestaID}}">
-      <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
+      <span class="muto">richiesta · {{score .Punteggio}}</span>
       <span class="testo"><b>{{.Fornitore}}</b> per la RFQ <b>{{.Cliente}}</b> · {{txt .OggettoRfq}}
         {{if .Lavorazione.Valid}}<span class="chip">{{.Lavorazione.String}}</span>{{end}} <span class="chip richiesta {{.RichiestaStato}}">{{.RichiestaStato}}</span>
         <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
@@ -99,7 +102,7 @@
       <input type="hidden" name="thread_id" value="{{.PropostaThread.ThreadID}}">
       <input type="hidden" name="fornitore_id" value="{{.PropostaFornitore.FornitoreID}}">
       <span class="testo">Sembra la richiesta a <b>{{.PropostaFornitore.RagioneSociale}}</b> per la RFQ <b>{{.PropostaThread.CartellaRelativa.String}}</b>
-        <br><small class="muto">{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>
+        <br><small class="muto">{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>
         <br><label class="inline">Lavorazione <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label></span>
       <button class="primario piccolo">Sì, è la richiesta a {{.PropostaFornitore.RagioneSociale}}</button>
     </form>
@@ -107,12 +110,14 @@
   </section>
   {{end}}
 
-  {{if .Candidati}}
+  {{range .Origini}}<div class="origine-cockpit">{{.}}</div>{{end}}
+
+  {{if .Candidati.Carte}}
   <section class="candidati">
-    <h3>Candidati di aggancio <small class="muto">il sistema propone, tu decidi</small></h3>
+    <h3>Candidati di aggancio <small class="muto">il sistema ordina e spiega, tu decidi</small></h3>
     {{template "candidati_aggancio" .Candidati}}
-    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. Per agganciarlo usa
-      «Aggancia a…», che chiede quale.</p>
+    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. «Aggancia a questa RFQ»
+      lo aggancia a quella; «Aggancia a…» cerca anche fra le altre e censisce il mittente.</p>
   </section>
   {{end}}
 
@@ -238,7 +243,7 @@
   <td>{{if $.Figlio}}<span class="muto">↳</span> {{end}}{{.NomeFile}}{{if eq .Natura "inline"}} <small class="muto">inline</small>{{end}}
     {{if .PathInterno.Valid}}<br><small class="muto">{{.PathInterno.String}}</small>{{end}}</td>
   <td>{{kb .Bytes}}</td>
-  <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small class="muto">{{.Confidenza}}% · {{.Fonte}}</small>
+  <td>{{$v := valutazione .Proposta .NomeFile}}{{with .Proposta}}<span class="chip {{.TipoProposto}}" title="{{(dim "Tipo" $v.Tipo).Testo}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small class="muto">{{if $v.Decisa}}deciso da una persona{{else if $v.Codice.ConValore}}codice · {{score $v.Codice}} · {{$v.Codice.Regola}}{{else}}codice: nessuna evidenza{{end}}</small>
       {{if ne .Stato "aperta"}}<span class="chip">{{.Stato}}</span>{{end}}{{end}}</td>
   <td>
     {{if .Documento}}<span class="chip {{if eq .Documento.StatoNas "scritto"}}fatto{{else if eq .Documento.StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.Documento.PathRelativo}}">NAS: {{.Documento.StatoNas}}</span>
@@ -325,18 +330,15 @@
       {{template "anteprima_cartella" $}}
     </fieldset>
 
-    {{if .Candidati}}
+    {{with .CarteAvviso}}{{if .Carte}}
     <fieldset class="avviso-candidati">
       <legend>Attenzione: potrebbe essere una richiesta che esiste già</legend>
-      <p class="muto">Le regole di aggancio hanno trovato {{len .Candidati}} candidat{{if eq (len .Candidati) 1}}o{{else}}i{{end}}.
-        Se è uno di questi, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
-      {{range .Candidati}}
-      <p><span class="punteggio">{{.Punteggio}}</span> <b>{{.Cliente}}</b> · {{txt .Oggetto}}
-        <small class="muto">{{.Regola}} — {{.Evidenza}}</small></p>
-      {{end}}
-      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
+      <p class="muto">Le regole di aggancio hanno trovato {{.N}} RFQ candidat{{if eq .N 1}}a{{else}}e{{end}}.
+        Se è una di queste, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
+      {{template "candidati_aggancio" .}}
+      <button type="button" hx-get="/messaggio/{{.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
     </fieldset>
-    {{end}}
+    {{end}}{{end}}
 
     {{template "triage_allegati" $}}
 
@@ -348,12 +350,17 @@
 
   {{else}}
   <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello">
+    {{/* Smistamento M1 (A5.16.4, P37): il bottone di default del form, cioè il primo submit, è inerte.
+         Senza, Invio in un campo di testo (la ricerca, il cognome) manderebbe il form con il bottone
+         della PRIMA card, o del primo risultato della ricerca: una scelta nascosta, anche a pari merito.
+         Un bottone di default disabilitato ferma l'invio implicito: si aggancia solo con un clic. */}}
+    <button type="submit" class="invio-inerte" disabled hidden aria-hidden="true" tabindex="-1"></button>
     <fieldset>
-      <legend>Candidati proposti <small class="muto">regole R0–R5, con l'evidenza</small></legend>
-      {{template "candidati_aggancio" .Candidati}}
+      <legend>Candidati, dal più forte <small class="muto">il sistema ordina e spiega, tu scegli</small></legend>
+      {{template "candidati_aggancio" .CarteForm}}
     </fieldset>
     <fieldset>
-      <legend>Oppure cerca fra le RFQ aperte</legend>
+      <legend>Altra RFQ… <small class="muto">cerca fra le RFQ aperte</small></legend>
       <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…"
              hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms" hx-target="#thread-risultati">
       <div id="thread-risultati"></div>
@@ -370,7 +377,8 @@
     </fieldset>
     {{template "triage_allegati" $}}
     <div class="azioni">
-      <button type="submit" class="primario">Aggancia</button>
+      {{/* Smistamento M1: nessun «Aggancia» generico e nessuna scelta preselezionata. Si aggancia con il
+           bottone della card o della riga di ricerca, che porta la sua RFQ. */}}
       <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
     </div>
   </form>
@@ -461,9 +469,9 @@
 {{if not .Dati}}<p class="muto">Nessuna RFQ aperta corrisponde.</p>{{end}}
 <ul class="risultati">
 {{range .Dati}}
-  <li><label><input type="radio" name="thread_id" value="{{.ThreadID}}" required>
-    <b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
-    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}</label></li>
+  <li><b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
+    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}
+    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button></li>
 {{end}}
 </ul>
 {{end}}
@@ -511,7 +519,7 @@
         {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
         {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
         {{if soloNelNome .}}<span class="chip" title="Un nome di file non è una richiesta: lo spunti tu se è un codice di questa RFQ">visto solo nel nome di un allegato</span>{{end}}
-        <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span>
+        <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span>
       </label>
     </li>
     {{end}}
@@ -527,7 +535,7 @@
     <ul class="candidati">
       {{range .Altri}}
       <li><label><input type="checkbox" name="codice" value="{{.Codice}}">
-        <code>{{.Codice}}</code>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}} <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span></label></li>
+        <code>{{.Codice}}</code>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}} <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span></label></li>
       {{end}}
     </ul>
   </details>
@@ -539,21 +547,33 @@
 {{end}}
 
 {{/* candidati_aggancio — le proposte R0–R5 con l'evidenza. Si vedono TUTTE (T16): sceglierne una per
-     l'operatore è esattamente ciò che il checkpoint 3R toglie. */}}
+     l'operatore è esattamente ciò che il checkpoint 3R toglie.
+     Smistamento M1 (A5.16.4): una card per RFQ, ordinate a livelli, con tutte le evidenze e lo score senza
+     percentuale. Nessun radio e nessun default: ogni card ha il suo bottone, la prima ha solo un bordo più
+     marcato, e a pari merito nessuna è marcata. Il modo dice dove sta la lista (pannello, form, avviso). */}}
 {{define "candidati_aggancio"}}
-{{if .}}
+{{if .Carte}}
+{{if .PariMerito}}<p class="avviso-inline pari-merito">Stessa forza: nessuna RFQ è proposta. Scegli guardando le evidenze.</p>{{end}}
+{{if .DiPrima}}<p class="muto regole-di-prima">Alcuni candidati sono stati calcolati con le regole di prima: si leggono con prudenza.
+  {{if eq .Modo "pannello"}}<button type="button" class="piccolo" hx-post="/messaggio/{{.MessaggioID}}/ricalcola" hx-target="#pannello">Ricalcola</button>{{end}}</p>{{end}}
 <div class="candidati-aggancio">
-  {{range .}}
-  <label class="candidato {{if eq .ThreadStato "CHIUSA"}}chiuso{{end}}">
-    <input type="radio" name="thread_id" value="{{.ThreadID}}">
-    <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
-    <span class="testo">
-      <b>{{.Cliente}}</b> · {{txt .Oggetto}}{{if .RiferimentoCliente.Valid}} <span class="chip">{{.RiferimentoCliente.String}}</span>{{end}}
-      <span class="muto">{{data .DataInizio}}</span>
-      <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
-      {{if eq .ThreadStato "CHIUSA"}}<br><small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
-    </span>
-  </label>
+  {{range .Carte}}
+  <div class="candidato carta {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
+    <div class="testa">
+      <span class="testo"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b> · {{.Cliente}}{{if .Riferimento}} <span class="chip">{{.Riferimento}}</span>{{end}}
+        <span class="muto">aperta dal {{data .DataInizio}}</span></span>
+      <span class="forza livello-{{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
+    </div>
+    <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small class="muto">({{.Livello}})</small></li>{{end}}</ul>
+    {{if .Chiuso}}<small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
+    {{if eq $.Modo "pannello"}}
+    <form hx-post="/messaggio/{{$.MessaggioID}}/aggancia" hx-target="#pannello" class="aggancia-carta">
+      <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    </form>
+    {{else if eq $.Modo "form"}}
+    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    {{end}}
+  </div>
   {{end}}
 </div>
 {{else}}
@@ -659,9 +679,9 @@
   <div class="r1">
     <b class="mono">{{.C.Codice}}</b>
     {{range .C.Revisioni}}<span class="chip" title="{{.Evidenze}} evidenz{{if eq .Evidenze 1}}a{{else}}e{{end}}">rev {{.Rev}}</span> {{end}}
-    {{if .C.Conflitto}}<span class="chip fallito" title="Le evidenze dicono revisioni diverse: la sceglie chi decide, non il punteggio">revisioni discordanti</span>{{end}}
+    {{if .C.Conflitto}}<span class="chip fallito" title="Le evidenze dicono revisioni diverse: la sceglie chi decide, non lo score">revisioni discordanti</span>{{end}}
     {{if .C.Stato.Identificativo}}<span class="chip" title="Spuntato nel triage: è un codice della richiesta">codice della richiesta</span>{{end}}
-    <small class="muto" title="Il punteggio più alto fra le evidenze: ordina la lista, non decide niente">{{.C.Punteggio}}</small>
+    <small class="muto" title="score del codice: il più alto fra le evidenze; ordina la lista, non decide niente">codice · {{score .C.Punteggio}}</small>
   </div>
   <details class="evidenze">
     <summary class="muto">{{.C.Motivo}} · {{len .C.Evidenze}} evidenz{{if eq (len .C.Evidenze) 1}}a{{else}}e{{end}}</summary>
@@ -688,9 +708,29 @@
   </div>
   {{end}}
   {{else if eq $s.Situazione "richiesta"}}
-  <div class="codice-azioni"><small class="muto">codice della richiesta senza componente: il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata</small></div>
+  {{/* la strada della revisione solo per il codice che il congelamento ha fermato (AssicuraProdottiDellaRevisione):
+       un prodotto tolto prima del congelamento non rinasce aprendola, e la riga non deve prometterlo */}}
+  <div class="codice-azioni"><small class="muto">codice della richiesta senza componente: {{if $s.EntraConLaRevisione -}}
+    confermato dopo il congelamento della V{{$s.Bloccata}}: il prodotto entra aprendo una revisione della BOM
+    {{- else -}}
+    il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione: rientra solo con una decisione del triage (la creazione della RFQ o l'aggancio di una mail)
+    {{- end}}</small></div>
   {{else}}
   <div class="codice-azioni"><small class="muto">nessun componente con questo codice</small></div>
   {{end}}
 </div>
 {{end}}
+
+{{/* Smistamento F3 (A5.14.5): una dimensione della lettura di un file (tipo, codice, rev). Il valore, «score N»
+     con la regola in parole, lo stato (2 fonti, fonti discordi, nessuna evidenza) e le evidenze in un
+     <details>, aperto solo se discordano. Una decisione non ha score (U-C4); una riga di prima riletta
+     dalle colonne lo dice (U-C3). Si usa come {{template "dimensione" (dim "Tipo" $v.Tipo)}}. */}}
+{{define "dimensione"}}<span class="dimensione dim-{{.D.Stato}}">{{if .Nome}}<span class="dim-nome">{{.Nome}}</span> · {{end}}
+  {{- if .Decisa}}{{if .D.Valore}}<b class="mono">{{.Valore}}</b> · {{end}}<span class="k muto">deciso da una persona</span>
+  {{- else if not .ConValore}}<span class="k muto">nessuna evidenza{{with .Regola}} ({{.}}){{end}}</span>
+  {{- else}}<b class="mono">{{.Valore}}</b> · {{score .}} · {{.Regola}}{{if eq .D.Stato "concorde"}} · <span class="k muto">{{.Fonti}} fonti</span>{{end}}{{if eq .D.Stato "discorde"}} <span class="chip fallito" title="Le evidenze dicono valori diversi: niente è preselezionato">fonti discordi</span>{{end}}{{end}}
+  {{- if .Ricostruita}} <small class="k muto">(lettura precedente, ricostruita)</small>{{end}}
+  {{- if .ConEvidenze}}
+  <details class="dim-evidenze"{{if eq .D.Stato "discorde"}} open{{end}}><summary class="k muto">evidenze ({{len .D.Evidenze}})</summary>
+    <ul>{{range .D.Evidenze}}<li>{{if .Valore}}<span class="mono">{{.Valore}}</span> · {{score .}}{{else}}<span class="k muto">senza valore</span>{{end}} · {{parole .}}{{if .DipendeDa}} <span class="k muto">(dipende dal nome del file: non è una seconda fonte)</span>{{end}}</li>{{end}}</ul>
+  </details>{{end}}</span>{{end}}

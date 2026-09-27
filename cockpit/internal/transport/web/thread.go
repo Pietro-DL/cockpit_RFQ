@@ -47,7 +47,10 @@ type threadDati struct {
 	// riuscita, una volta. Chi aspetta quel disegno guarda questa pagina, non l'Admin — quindi la
 	// notizia deve arrivare qui, anche se il posto in cui la si risolve e' un altro.
 	NAnomalie int
-	Admin     bool
+	// SulNas: la materializzazione dei documenti decisi (Smistamento F6, A5.4.8), la voce «Sul NAS: 5 di 7»
+	// della testata. Non e' un conteggio del gate.
+	SulNas fascicolo.Materializzazione
+	Admin  bool
 	// Scrive: chi guarda puo' cambiare la RFQ (almeno operatore). Solo per lui la pagina manda da sola la
 	// preparazione dei file e mostra il bottone di riserva; chi consulta non ha niente da mandare.
 	Scrive   bool
@@ -270,6 +273,7 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 			d.NDaCopiare++
 		}
 	}
+	d.SulNas, _ = fascicolo.LeggiMaterializzazione(ctx, q, id)
 	d.Fascicolo, _ = q.ListFascicolo(ctx, id)
 	d.Bozze, _ = q.ListBozzeThread(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	d.Componenti, _ = q.ListComponentiThread(ctx, id)
