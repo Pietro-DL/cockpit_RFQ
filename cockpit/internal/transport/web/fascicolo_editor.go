@@ -4,9 +4,14 @@ package web
 //
 // L'editor li chiede quando si apre, freschi: la working intera (tutti gli archi attivi, perche' la conferma
 // dice al server quali archi l'editor conosceva), i nodi e gli archi proposti dagli STEP con i nodi dello
-// stesso codice gia' uniti in una carta sola, i codici trovati nella RFQ che possono diventare componenti
-// (per costruire la struttura a mano quando lo STEP non c'e'), le rimozioni proposte dallo STEP strutturale
-// e lo stato dello STEP del prodotto. La conferma torna a POST .../bom/applica (fascicolo_gesti_v3.go).
+// stesso codice gia' uniti in una carta sola, le rimozioni proposte dallo STEP strutturale e lo stato dello
+// STEP del prodotto. La conferma torna a POST .../bom/applica (fascicolo_gesti_v3.go).
+//
+// Smistamento F2 (R1, U4): i codici trovati nella RFQ non sono piu' carte dell'editor (le carte «k:»):
+// erano evidenze che diventavano componenti trascinandole. Un pezzo che lo STEP non propone lo si scrive con
+// «+ Componente con codice» (la carta «n:»), e prima di metterla l'editor chiede a GET .../bom/codice che
+// cosa la RFQ sa di quel codice: se c'e' gia', se e' un codice della richiesta, se e' quasi uguale a uno che
+// c'e' (P4).
 
 import (
 	"context"
@@ -27,7 +32,6 @@ type nodoEditor struct {
 	Tipo        string `json:"tipo,omitempty"`
 	Finito      bool   `json:"finito,omitempty"`
 	Proposto    bool   `json:"proposto,omitempty"`
-	Trovato     bool   `json:"trovato,omitempty"`
 	SenzaCodice bool   `json:"senza_codice,omitempty"`
 	Nome        string `json:"nome,omitempty"` // il nome nel file, per un nodo senza codice
 	File        string `json:"file,omitempty"`
@@ -69,7 +73,6 @@ type datiEditor struct {
 	Archi     []arcoEditor          `json:"archi"`
 	Proposti  []propostoEditor      `json:"proposti"`
 	Rimozioni []rimozioneEditor     `json:"rimozioni"`
-	Trovati   []string              `json:"trovati"`
 	Step      map[string]string     `json:"step,omitempty"`
 	Analisi   int64                 `json:"analisi"`  // analisi ancora in corso sui file della RFQ
 	Bloccata  int32                 `json:"bloccata"` // la BOM e' congelata in questa versione
@@ -121,7 +124,7 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 		return nil, err
 	}
 	d := &datiEditor{Nodi: map[string]nodoEditor{}, Scrive: scrive, Archi: []arcoEditor{}, Proposti: []propostoEditor{},
-		Rimozioni: []rimozioneEditor{}, Trovati: []string{}, Prodotti: []prodottoEditor{}}
+		Rimozioni: []rimozioneEditor{}, Prodotti: []prodottoEditor{}}
 	if n, bloccata, err := fascicolo.WorkingBloccata(ctx, q, thread); err != nil {
 		return nil, err
 	} else if bloccata {
@@ -240,27 +243,6 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 		}
 	}
 
-	// i codici trovati nella RFQ che possono nascere come componenti
-	if cand, err := fascicolo.CandidatiDellaRfq(ctx, q, thread); err == nil {
-		for _, lista := range [][]fascicolo.CodiceCandidato{cand.Prodotto, cand.Altri} {
-			for _, k := range lista {
-				if k.Stato.Situazione != fascicolo.SituazioneNuovo {
-					continue
-				}
-				ref := "k:" + k.Codice
-				if _, gia := d.Nodi[ref]; gia {
-					continue
-				}
-				rev := ""
-				if len(k.Revisioni) == 1 {
-					rev = k.Revisioni[0].Rev
-				}
-				d.Nodi[ref] = nodoEditor{Codice: k.Codice, Rev: rev, Trovato: true, Desc: k.Motivo}
-				d.Trovati = append(d.Trovati, ref)
-			}
-		}
-	}
-
 	// lo STEP del prodotto
 	if id, err := uuid.Parse(strings.TrimPrefix(d.Prodotto, "c:")); err == nil {
 		if sp, err := q.ListStepProdotto(ctx, thread); err == nil {
@@ -272,6 +254,57 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 		}
 	}
 	return d, nil
+}
+
+// codiceEditor e' la risposta di GET .../bom/codice?codice=<scritto>: che cosa la RFQ sa del codice che
+// l'operatore scrive con «+ Componente con codice» (U4). Non scrive niente; la conferma rifa' lo stesso
+// controllo sotto il lucchetto della RFQ (fascicolo.ApplicaStrutturaVoluta).
+type codiceEditor struct {
+	Codice string `json:"codice"`
+	Errore string `json:"errore,omitempty"`
+	// Esiste: il componente con questo codice (lo stesso pezzo: la carta e' lui, mai una seconda riga).
+	Esiste *codiceEsistente `json:"esiste,omitempty"`
+	// Richiesta: e' un codice della richiesta, che diventa prodotto con la creazione della RFQ (triage) o
+	// aprendo una revisione della BOM congelata.
+	Richiesta bool `json:"richiesta,omitempty"`
+	// Vicini: i codici quasi uguali (P4): la carta nasce solo se l'operatore dice che e' un pezzo diverso.
+	Vicini []fascicolo.Vicino `json:"vicini"`
+}
+
+type codiceEsistente struct {
+	Ref        string `json:"ref"`
+	Codice     string `json:"codice"`
+	Tipo       string `json:"tipo"`
+	Archiviato bool   `json:"archiviato,omitempty"`
+}
+
+// fascicoloCodiceEditor: GET .../bom/codice?codice=<scritto>. JSON.
+func (s *Server) fascicoloCodiceEditor(w http.ResponseWriter, r *http.Request) {
+	thread, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id non valido", 400)
+		return
+	}
+	q := db.New(s.Pool)
+	if _, err := q.GetThread(r.Context(), thread); err != nil {
+		http.Error(w, "RFQ non trovata", 404)
+		return
+	}
+	e, err := fascicolo.ControllaCodiceNuovo(r.Context(), q, thread, r.URL.Query().Get("codice"))
+	if err != nil {
+		http.Error(w, "il codice non si è potuto controllare: riprova", 500)
+		return
+	}
+	out := codiceEditor{Codice: e.Codice, Errore: e.Errore, Richiesta: e.Richiesta, Vicini: e.Vicini}
+	if out.Vicini == nil {
+		out.Vicini = []fascicolo.Vicino{}
+	}
+	if c := e.Esistente; c != nil {
+		out.Esiste = &codiceEsistente{Ref: "c:" + c.ComponenteID.String(), Codice: c.Codice, Tipo: string(c.Tipo), Archiviato: c.ArchiviatoIl != nil}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // raggiuntiDa sono i nodi che si raggiungono da una radice con gli archi della working e quelli proposti.

@@ -44,8 +44,13 @@ type EsitoProdotti struct {
 // Chi ha confermato il codice e' chi ha deciso il componente: confermato_da viene dall'identificativo. Un
 // identificativo senza chi l'ha confermato non e' una decisione, e resta fuori. Con la BOM congelata non
 // cambia niente (D26): il codice resta fra quelli della richiesta, e il prodotto entra aprendo una
-// revisione. Le proposte STEP aperte con lo stesso codice ritrovano il componente (A2.3), come quando si
-// accetta un nodo.
+// revisione (la POST di «Apri revisione» la chiama). Le proposte STEP aperte con lo stesso codice ritrovano
+// il componente (A2.3), come quando si accetta un nodo.
+//
+// Crea componenti, quindi la chiama solo la decisione di una persona: la creazione o l'aggancio della RFQ
+// (POST del triage) e l'apertura di una revisione della BOM. Mai l'apertura di una pagina, nemmeno la
+// preparazione dei file che la pagina chiede da sola (Smistamento F1, R1 e R8): un prodotto tolto dalla BOM
+// non rinasce perche' qualcuno ha riaperto il Fascicolo.
 func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread uuid.UUID) (EsitoProdotti, error) {
 	var es EsitoProdotti
 	if err := bloccaThread(ctx, q, thread); err != nil {
@@ -112,10 +117,13 @@ type Preparazione struct {
 	Saltati    []string // file che non si possono scaricare da soli (nessuna casella attiva), con il motivo
 }
 
-// Qualcosa dice se la preparazione ha messo in moto del lavoro.
-func (p Preparazione) Qualcosa() bool {
-	return p.Download+p.Riusati+p.Estrazioni+p.Analisi+p.Riletti > 0
+// Fatti e' quante cose la preparazione ha messo in moto: e' il conto su cui vale il limite max.
+func (p Preparazione) Fatti() int {
+	return p.Download + p.Riusati + p.Estrazioni + p.Analisi + p.Riletti
 }
+
+// Qualcosa dice se la preparazione ha messo in moto del lavoro.
+func (p Preparazione) Qualcosa() bool { return p.Fatti() > 0 }
 
 // RiletturaFatti e' chi applica a un allegato fermo i fatti gia' calcolati per il suo contenuto: la strada
 // del workerapi (dopoStaging), la stessa di un file appena sceso.
@@ -129,8 +137,10 @@ type RiletturaFatti func(ctx context.Context, q *db.Queries, allegato uuid.UUID)
 //   - un archivio sceso e mai estratto si rimette all'estrazione, un file sceso e mai analizzato
 //     all'analisi, se l'ultimo tentativo con la stessa chiave non e' fallito: un file che fa fallire
 //     l'analizzatore non si riaccoda a ogni apertura, lo guarda una persona;
-//   - un file fermo i cui fatti ci sono gia' (lo stesso contenuto analizzato per un'altra RFQ) li riceve
-//     adesso, con rileggi.
+//   - un file fermo i cui fatti ci sono gia' (lo stesso contenuto analizzato per un'altra RFQ, lo stage
+//     riusato: StageRiusato mette il percorso senza passare dal worker) li riceve adesso, con rileggi. E'
+//     il file che non ha mai prodotto una lettura: uno gia' letto non e' piu' in_staging. Con rileggi nil
+//     resta fermo, e lo completa la preparazione dopo (POST …/fascicolo/prepara).
 //
 // Idempotente per costruzione: le chiavi dei job sono per allegato e per contenuto.
 func PreparaFile(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxBytes int64, max int,

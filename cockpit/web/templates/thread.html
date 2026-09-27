@@ -1,5 +1,9 @@
 {{define "contenuto"}}
 <div id="thread">{{template "thread_corpo" .}}</div>
+{{/* La preparazione dei file (Smistamento F1): aprire la pagina non scrive; chi puo' scrivere la chiede qui,
+     una volta. Fuori da thread_corpo, che i gesti rifanno: non riparte a ogni gesto. La risposta non serve a
+     questa pagina (hx-swap none): il lavoro si vede nel Fascicolo. */}}
+{{if .Dati.Scrive}}<div id="thread-prepara" hx-post="/thread/{{.Dati.T.ThreadID}}/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}' hx-swap="none"></div>{{end}}
 {{end}}
 
 {{define "thread_corpo"}}
@@ -37,7 +41,8 @@
       </div>
       <div class="oggetto">{{oggettoVisibile .M.Oggetto}}</div>
       <details><summary class="muto">testo</summary>{{template "corpo_messaggio" .Corpo}}</details>
-      {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String)}}{{end}}
+      {{/* Smistamento F2: la pagina della RFQ non conferma e non scarta i file (Gesti = false): si decide nel Fascicolo */}}
+      {{if .Allegati}}{{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID true $.Dati.T.ThreadID.String false)}}{{end}}
       <div class="azioni-msg">
         {{if .Copia}}<button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}" title="Si apre la copia in {{.Copia.CasellaNome}}">Apri in Outlook</button>{{else if .Motivo}}<button class="piccolo" disabled title="{{.Motivo}}">Apri in Outlook</button>{{end}}
         <a class="piccolo" href="/messaggio/{{.M.MessaggioID}}">Apri in Inbox</a>
@@ -70,7 +75,7 @@
       <button type="button" hx-post="/thread/{{.T.ThreadID}}/riprova-copie" hx-target="#thread">Riprova copie</button>
     </p>
     {{end}}
-    {{else}}<p class="muto">Nessun documento confermato. Conferma le proposte degli allegati nella chat.</p>{{end}}
+    {{else}}<p class="muto">Nessun documento confermato. I file degli allegati si confermano nel Fascicolo.</p>{{end}}
 
     <h3 id="codici">Codici della richiesta</h3>
     {{template "codici_rfq" .}}
@@ -80,6 +85,9 @@
          che dice se c'e' da andarci, e il link. */}}
     <div class="riepilogo-fascicolo">
       <p><a class="bottone primario" href="/thread/{{.T.ThreadID}}/fascicolo">Apri il Fascicolo</a></p>
+      {{if .Scrive}}<form method="post" action="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-post="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-target="#thread">
+        <button type="submit" class="piccolo" title="Scarica i file utili, estrae gli archivi e accoda le analisi che mancano. La pagina lo fa da sola quando si apre">Prepara i file</button>
+      </form>{{end}}
       <p class="muto">{{len .Componenti}} component{{if eq (len .Componenti) 1}}e{{else}}i{{end}} nella BOM
         {{if .Riga.NBloccanti.Valid}} · <b>{{.Riga.NBloccanti.Int64}}</b> bloccant{{if eq .Riga.NBloccanti.Int64 1}}e{{else}}i{{end}}{{end}}
         · {{.NDaSmistare}} file da smistare</p>

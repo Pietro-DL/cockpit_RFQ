@@ -90,7 +90,8 @@ func idDa(v, cosa string) (uuid.UUID, error) {
 }
 
 // rianalizza: POST /thread/{id}/fascicolo/rianalizza. Rilegge gli STEP che hanno i fatti correnti e
-// accoda gli altri, fino a MaxAccodatiSuRichiesta.
+// accoda gli altri, fino a MaxAccodatiSuRichiesta: le due meta' di RianalizzaRfq insieme. E' il solo gesto
+// che rilegge gli STEP a richiesta; aprire una pagina non lo fa piu' (Smistamento F1, R8).
 func (s *Server) rianalizza(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
 		if s.Analizzatore.Versione == 0 {
@@ -130,32 +131,6 @@ func fraseRianalisi(ri fascicolo.Rianalisi) string {
 // conta scrive un numero con il nome giusto: «1 analisi accodata», «3 analisi accodate».
 func conta(n int, uno, tanti string) string {
 	return fmt.Sprintf("%d %s", n, plurale(n, uno, tanti))
-}
-
-// rileggiAllApertura e' la rianalisi implicita di chi apre la RFQ (B8.5): gli STEP con i fatti correnti
-// si rileggono (una regola del cliente cambiata riclassifica le proposte aperte), e pochi degli altri si
-// accodano. In una transazione sua: se non riesce la pagina si apre lo stesso, e il log lo dice.
-func (s *Server) rileggiAllApertura(ctx context.Context, thread uuid.UUID) {
-	if s.Analizzatore.Versione == 0 {
-		return
-	}
-	tx, err := s.Pool.Begin(ctx)
-	if err != nil {
-		return
-	}
-	defer tx.Rollback(ctx)
-	ri, err := fascicolo.RianalizzaRfq(ctx, db.New(tx), thread, s.Analizzatore, fascicolo.MaxAccodatiPerApertura)
-	if err == nil {
-		err = tx.Commit(ctx)
-	}
-	if err != nil {
-		s.Log.Warn("rilettura degli STEP all'apertura non riuscita", "rfq", thread, "err", err)
-		return
-	}
-	if ri.Accodati+ri.Proposte > 0 {
-		s.Log.Info("STEP della RFQ riletti all'apertura", "rfq", thread, "riletti", ri.Riletti,
-			"accodati", ri.Accodati, "rimandati", ri.Rimandati, "proposte", ri.Proposte)
-	}
 }
 
 // accettaNodo: POST .../nodo/{pid}/accetta, campo facoltativo `tipo` (finito, sottoassieme, sciolto,

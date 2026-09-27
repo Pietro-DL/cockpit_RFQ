@@ -86,8 +86,19 @@ func (d *triageDati) SiPrepara(a AllegatoUI) bool {
 // classificazione.Estrazione.Proponibili (blocco 6). Era già stato deciso in un altro messaggio, e
 // spuntarlo da solo a ogni risposta è il modo in cui un «ricevuto, grazie» diventa una richiesta di
 // sei pezzi. Si vede, con la sua evidenza, e per entrare serve un clic.
+//
+// Nemmeno un codice visto SOLO nel nome di un allegato (Smistamento P17): un nome di file non e' una
+// richiesta, e la spunta gia' messa faceva di «7120001A_1.stp» un prodotto 7120001A con il clic su «Crea
+// RFQ» (E11). Si vede, con l'etichetta che lo dice (SoloNelNome), e lo spunta chi lo riconosce.
 func (d *triageDati) Spuntato(c db.CandidatoCodice) bool {
-	return c.Origine == db.OrigineCodiceFamiglia && c.Evidenza != classificazione.DoveStoria
+	return c.Origine == db.OrigineCodiceFamiglia && c.Evidenza != classificazione.DoveStoria && !SoloNelNome(c)
+}
+
+// SoloNelNome dice che il codice e' stato visto solo nel nome di un allegato: l'evidenza di candidato_codice
+// e' «allegato <nome del file>» (classificazione.Testi). Se il codice c'era anche nell'oggetto o nel corpo,
+// l'evidenza e' quella.
+func SoloNelNome(c db.CandidatoCodice) bool {
+	return strings.HasPrefix(c.Evidenza, "allegato ")
 }
 
 // triageForm prepara il form con tutto precompilato da mittente, triage deterministico e allegati.
@@ -456,18 +467,35 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 // agganciato il messaggio (B8.7b): i codici della richiesta confermati diventano prodotti finiti, e i file
 // utili della RFQ scendono nello staging senza che nessuno li spunti. Il NAS aspetta la conferma. Restituisce
 // la frase per l'avviso.
+//
+// Smistamento F1 (addendum A5.4.5): e' l'unico posto in cui i prodotti della richiesta nascono da soli (la
+// GET del Fascicolo non li fa piu'), ed e', con «Rianalizza», l'unico gesto che rilegge gli STEP gia'
+// analizzati. Quelli analizzati prima che il messaggio entrasse nella RFQ (D30 li scarica e li analizza prima
+// dell'aggancio) non hanno mai avuto le loro proposte in questa RFQ, perche' il risultato dell'analisi le
+// scrive solo nelle RFQ che hanno gia' quel contenuto (critica C6). PreparaFile senza rileggi: i file fermi
+// li completa la preparazione della pagina (POST …/fascicolo/prepara), che accoda e basta.
 func (s *Server) preparaDopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID) (string, error) {
 	prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread)
 	if err != nil {
 		return "", err
 	}
-	prep, err := fascicolo.PreparaFile(ctx, q, thread, s.Analizzatore, s.maxCaricamentoEffettivo(), MaxPreparatiPerApertura, s.rileggiFatti())
+	prep, err := fascicolo.PreparaFile(ctx, q, thread, s.Analizzatore, s.maxCaricamentoEffettivo(), MaxPreparatiPerApertura, nil)
 	if err != nil {
 		return "", err
+	}
+	// dopo i prodotti: la radice di uno STEP riletto ritrova il prodotto appena nato
+	var riletti fascicolo.Rianalisi
+	if s.Analizzatore.Versione != 0 {
+		if riletti, err = fascicolo.RileggiStepDellaRfq(ctx, q, thread, s.Analizzatore); err != nil {
+			return "", err
+		}
 	}
 	frase := ""
 	if n := len(prodotti.Creati); n > 0 {
 		frase += fmt.Sprintf(" %s nella BOM come %s.", strings.Join(prodotti.Creati, ", "), plurale(n, "prodotto finito", "prodotti finiti"))
+	}
+	if riletti.Riletti > 0 {
+		frase += " " + conta(riletti.Riletti, "STEP già analizzato letto", "STEP già analizzati letti") + " in questa RFQ: le proposte di struttura sono nel Fascicolo."
 	}
 	if n := prep.Download + prep.Riusati; n > 0 {
 		frase += fmt.Sprintf(" %s in preparazione (staging e analisi): il Fascicolo si aggiorna da solo.", conta(n, "file utile", "file utili"))

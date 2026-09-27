@@ -159,7 +159,8 @@
   {{if .Allegati}}
   <section class="allegati">
     <h3>Allegati</h3>
-    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "")}}
+    {{/* Smistamento F2: senza «Conferma… → NAS» e «Scarta» (i file si decidono dentro una RFQ, nel Fascicolo) */}}
+    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "" false)}}
   </section>
   {{end}}
 
@@ -205,8 +206,8 @@
   <table>
     <tr><th></th><th>File</th><th>Dim.</th><th>Proposta</th><th>Stato</th><th>Azioni</th></tr>
     {{range $a := .Allegati}}
-    {{template "allegato_riga" (rigaAllegato $a $.Agganciato $.RitornaThread false)}}
-    {{range $f := $a.Figli}}{{template "allegato_riga" (rigaAllegato $f $.Agganciato $.RitornaThread true)}}{{end}}
+    {{template "allegato_riga" (rigaAllegato $a $.Agganciato $.RitornaThread false $.Gesti)}}
+    {{range $f := $a.Figli}}{{template "allegato_riga" (rigaAllegato $f $.Agganciato $.RitornaThread true $.Gesti)}}{{end}}
     {{end}}
   </table>
   {{if .NScaricabili}}
@@ -219,9 +220,9 @@
   {{end}}
 </form>
 {{/* i form di conferma stanno FUORI dal form di download (i form non si annidano): i campi li raggiungono con form="c-…" */}}
-{{if .Agganciato}}{{range $a := .Allegati}}
-  {{if $a.Confermabile}}{{template "conferma_form" (rigaAllegato $a true $.RitornaThread false)}}{{end}}
-  {{range $f := $a.Figli}}{{if $f.Confermabile}}{{template "conferma_form" (rigaAllegato $f true $.RitornaThread true)}}{{end}}{{end}}
+{{if and .Agganciato .Gesti}}{{range $a := .Allegati}}
+  {{if $a.Confermabile}}{{template "conferma_form" (rigaAllegato $a true $.RitornaThread false true)}}{{end}}
+  {{range $f := $a.Figli}}{{if $f.Confermabile}}{{template "conferma_form" (rigaAllegato $f true $.RitornaThread true true)}}{{end}}{{end}}
 {{end}}{{end}}
 {{end}}
 
@@ -250,7 +251,7 @@
   <td class="azioni-riga">
     {{if .Anteprimabile}}<a class="piccolo" href="/allegato/{{.AllegatoID}}/anteprima" target="_blank" rel="noopener"
       title="Apre il PDF in una scheda nuova: dallo staging se c'e', altrimenti dal file sul NAS">Anteprima</a>{{end}}
-    {{if and .Confermabile $.Agganciato}}
+    {{if and .Confermabile $.Agganciato $.Gesti}}
       <details class="conferma">
         <summary class="bottone piccolo">Conferma…</summary>
         <div class="conferma-form">
@@ -261,7 +262,7 @@
         </div>
       </details>
     {{end}}
-    {{if and .Proposta (eq .Proposta.Stato "aperta") (ne .Natura "inline")}}
+    {{if and $.Gesti .Proposta (eq .Proposta.Stato "aperta") (ne .Natura "inline")}}
       <button type="button" class="piccolo" hx-post="/proposta/{{.Proposta.PropostaID}}/scarta" hx-vals='{"rumore":"{{if eq (printf "%s" .Proposta.TipoProposto) "rumore"}}1{{else}}0{{end}}"{{if $.RitornaThread}},"ritorna_thread":"{{$.RitornaThread}}"{{end}}}' hx-target="{{if $.RitornaThread}}#thread{{else}}#pannello{{end}}" title="Chiude la proposta senza salvare nulla sul NAS">Scarta</button>
     {{end}}
     {{if and .FileMancante $.Agganciato (not .ContenitoreID.Valid)}}
@@ -494,7 +495,8 @@
 
 {{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza.
      Prima erano una sola casella di testo precompilata che al submit confermava tutto. Nasce spuntato
-     solo cio' che dice Spuntato: un codice di famiglia, e non dalla storia citata (blocco 6). */}}
+     solo cio' che dice Spuntato: un codice di famiglia, non dalla storia citata (blocco 6) e non visto solo
+     nel nome di un allegato (Smistamento P17). */}}
 {{define "candidati_codice"}}
 {{with .Dati}}{{$d := .}}
 <div class="candidati-codice">
@@ -508,6 +510,7 @@
         <code>{{.Codice}}</code>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
         {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
         {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
+        {{if soloNelNome .}}<span class="chip" title="Un nome di file non è una richiesta: lo spunti tu se è un codice di questa RFQ">visto solo nel nome di un allegato</span>{{end}}
         <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span>
       </label>
     </li>
@@ -524,7 +527,7 @@
     <ul class="candidati">
       {{range .Altri}}
       <li><label><input type="checkbox" name="codice" value="{{.Codice}}">
-        <code>{{.Codice}}</code> <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span></label></li>
+        <code>{{.Codice}}</code>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}} <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span></label></li>
       {{end}}
     </ul>
   </details>
@@ -625,24 +628,27 @@
 
 {{/* B8.6 — i codici che la RFQ ha visto nei messaggi, nei nomi e nei cartigli dei file e negli STEP, uniti
      per codice (fascicolo.Unisci): nessuna evidenza si perde, nessuna revisione si sceglie da sola.
-     Stanno qui dal B8.7 perche' li usano due pagine: la RFQ e il cassetto «Codici» del Fascicolo. Il
-     bersaglio dei gesti lo dice la pagina (BersaglioCodici).
-     Componenti e codici della richiesta non sono evidenze: dicono che cosa e' gia' deciso, e da li' il
-     gesto di ogni riga. Il riferimento del cliente sta in testata, mai qui. */}}
+     Stanno qui dal B8.7 perche' li usano due pagine: la RFQ e il cassetto «Codici» del Fascicolo.
+     Componenti e codici della richiesta non sono evidenze: dicono che cosa e' gia' deciso, e si mostrano.
+     Il riferimento del cliente sta in testata, mai qui.
+     Smistamento F2 (R1): sola lettura, in tutte e due le pagine. Un codice trovato e' un'evidenza e non fa
+     nascere niente: niente «+ Prodotto/Assieme/Particolare», niente «Accetta la proposta» o «Scarta» di un
+     nodo, niente «Ripristina» (che resta negli Archiviati della Struttura BOM). */}}
 {{define "codici_rfq"}}
 {{if .CodiciErrore}}<p class="avviso errore-box">{{.CodiciErrore}}</p>
 {{else}}
-{{$tid := .T.ThreadID}}{{$docs := .DocumentiDi}}{{$bersaglio := .BersaglioCodici}}
+{{$docs := .DocumentiDi}}
 {{with .Codici}}
-{{if .Bloccata}}<p class="avviso-blocco">La BOM è congelata nella V{{.Bloccata}}: i codici si leggono, ma un componente si aggiunge o si ripristina aprendo una revisione.</p>{{end}}
+{{if .Bloccata}}<p class="avviso-blocco">La BOM è congelata nella V{{.Bloccata}}: i codici si leggono, e la BOM cambia solo aprendo una revisione.</p>{{end}}
+<p class="muto nota">I codici che la RFQ ha visto, con le loro evidenze: si leggono e basta. Un componente nasce da un codice della richiesta, da un nodo dello STEP o da un codice scritto nell'editor della struttura.</p>
 <details class="codici" open>
   <summary><b>Codici prodotto candidati</b> ({{len .Prodotto}})</summary>
-  {{range .Prodotto}}{{template "codice_riga" (rigaCodice . $tid $docs $bersaglio)}}{{else}}<p class="muto">Nessun codice con un'evidenza forte.</p>{{end}}
+  {{range .Prodotto}}{{template "codice_riga" (rigaCodice . $docs)}}{{else}}<p class="muto">Nessun codice con un'evidenza forte.</p>{{end}}
 </details>
 <details class="codici">
   <summary><b>Altri riferimenti trovati</b> ({{len .Altri}})</summary>
-  <p class="muto nota">Numeri visti solo dall'estrattore generico, solo nella storia citata o solo nel nome di un file non tecnico: si vedono, e per entrare serve un gesto.</p>
-  {{range .Altri}}{{template "codice_riga" (rigaCodice . $tid $docs $bersaglio)}}{{else}}<p class="muto">Nessuno.</p>{{end}}
+  <p class="muto nota">Numeri visti solo dall'estrattore generico, solo nella storia citata o solo nel nome di un file non tecnico.</p>
+  {{range .Altri}}{{template "codice_riga" (rigaCodice . $docs)}}{{else}}<p class="muto">Nessuno.</p>{{end}}
 </details>
 {{end}}
 {{end}}
@@ -663,15 +669,11 @@
   </details>
   {{$s := .C.Stato}}
   {{if eq $s.Situazione "proposta"}}{{$p := $s.Proposta}}
-  <form class="codice-azioni">
+  <div class="codice-azioni">
     <span>→ proposta aperta dallo STEP <b>{{$p.NomeFile}}</b>, nodo «{{$p.NomeGrezzo}}»{{if $s.AltreProposte}} (e {{$s.AltreProposte}} altr{{if eq $s.AltreProposte 1}}o{{else}}i{{end}} con lo stesso codice){{end}}</span>
     {{if $p.Nota}}<small class="muto">{{$p.Nota}}</small>{{end}}
-    {{if $s.Bloccata}}<small class="muto">si decide aprendo una revisione</small>{{else}}
-    <select name="tipo" title="Il tipo con cui il nodo entra nella BOM">{{range tipiComponente}}<option value="{{.}}"{{if eq . $p.TipoProposto.TipoComponente}} selected{{end}}>{{nomeTipo .}}</option>{{end}}</select>
-    <button type="button" class="piccolo" hx-post="/thread/{{.Thread}}/fascicolo/nodo/{{$p.PropostaID}}/accetta" hx-include="closest form" hx-target="{{$.Bersaglio}}">Accetta la proposta</button>
-    <button type="button" class="piccolo" hx-post="/thread/{{.Thread}}/fascicolo/nodo/{{$p.PropostaID}}/scarta" hx-target="{{$.Bersaglio}}">Scarta</button>
-    {{end}}
-  </form>
+    <small class="muto">si decide nel Fascicolo, dove si vede lo STEP</small>
+  </div>
   {{else if eq $s.Situazione "componente"}}{{with $s.Componente}}
   <details class="codice-componente">
     <summary><span class="chip fatto">✓ nel Fascicolo</span> come {{nomeTipo .Tipo}}{{if .Rev.Valid}}, rev {{.Rev.String}}{{end}}</summary>
@@ -682,20 +684,13 @@
   {{else if eq $s.Situazione "archiviato"}}{{with $s.Componente}}
   <div class="codice-azioni">
     <span><span class="chip">archiviato</span> {{oraLunga .ArchiviatoIl}}{{if .MotivoArchiviazione.Valid}}: {{.MotivoArchiviazione.String}}{{end}}</span>
-    {{if $s.Bloccata}}<small class="muto">si ripristina aprendo una revisione</small>{{else}}
-    <button type="button" class="piccolo" hx-post="/thread/{{$.Thread}}/fascicolo/componente/{{.ComponenteID}}/ripristina" hx-target="{{$.Bersaglio}}"
-            title="Torna nella BOM lo stesso componente, con la sua storia; gli archi no">Ripristina</button>
-    {{end}}
+    <small class="muto">si ripristina dagli Archiviati della Struttura BOM</small>
   </div>
   {{end}}
+  {{else if eq $s.Situazione "richiesta"}}
+  <div class="codice-azioni"><small class="muto">codice della richiesta senza componente: il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata</small></div>
   {{else}}
-  <form class="codice-azioni">
-    <input type="hidden" name="codice" value="{{.C.Codice}}">
-    {{if $s.Bloccata}}<small class="muto">si aggiunge aprendo una revisione</small>{{else}}
-    {{if .C.Conflitto}}<select name="rev" title="Le evidenze dicono revisioni diverse: si sceglie quale vale"><option value="">revisione…</option>{{range .C.Revisioni}}<option value="{{.Rev}}">{{.Rev}}</option>{{end}}</select>{{end}}
-    {{range $s.Tipi}}<button type="button" class="piccolo" hx-post="/thread/{{$.Thread}}/fascicolo/codice/aggiungi" hx-vals='{"tipo":"{{.}}"}' hx-include="closest form" hx-target="{{$.Bersaglio}}">+ {{etichettaTipo .}}</button> {{end}}
-    {{end}}
-  </form>
+  <div class="codice-azioni"><small class="muto">nessun componente con questo codice</small></div>
   {{end}}
 </div>
 {{end}}

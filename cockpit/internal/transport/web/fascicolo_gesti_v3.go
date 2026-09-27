@@ -36,6 +36,7 @@ func (s *Server) registraFascicoloV3(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/bom/applica", s.autenticato(s.applicaStruttura))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/file/{pid}/generale", s.autenticato(s.fileGenerale))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/bom/dati", s.autenticato(s.fascicoloDatiEditor))
+	mux.HandleFunc("GET /thread/{id}/fascicolo/bom/codice", s.autenticato(s.fascicoloCodiceEditor))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/sezione", s.autenticato(s.fascicoloSezione))
 }
 

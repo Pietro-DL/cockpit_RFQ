@@ -611,7 +611,9 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 				return decidi(DomandaComponente, fmt.Sprintf("%s nasce dalla struttura dello STEP %s: si conferma prima quella, nell'editor della Struttura BOM", n.Codice, n.File))
 			}
 		}
-		return decidi(DomandaComponente, v.Codice+" non è nella BOM: si aggiunge, si assegna a un componente o il file resta senza componente")
+		// Smistamento F2 (R1): il codice letto dal file non fa nascere un componente («+ …» tolto da questa
+		// domanda). Il pezzo che manca lo scrive una persona nell'editor della struttura
+		return decidi(DomandaComponente, v.Codice+" non è nella BOM: si assegna a un componente, o il file resta senza componente (un pezzo che manca si scrive nell'editor della struttura)")
 	}
 
 	if c := v.Componente; c != nil {

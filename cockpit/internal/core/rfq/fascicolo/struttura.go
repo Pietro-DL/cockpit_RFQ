@@ -302,8 +302,9 @@ func RevocaDerogaStruttura(ctx context.Context, q *db.Queries, thread, deroga uu
 // Sostituisci dice «nuovo sostituisce vecchio»: una revisione nuova e' una riga nuova, e la vecchia
 // resta, con sostituito_da. Stesso componente e stesso tipo (D32); la catena la tiene il database.
 // Uno STEP sostituito chiude le proposte ancora aperte che venivano da lui. Se era lo STEP strutturale,
-// il riferimento passa al nuovo solo se nuovoRiferimento (il gesto lo chiede, con il si' preselezionato):
-// altrimenti resta sul vecchio, e v_step_prodotto dice riferimento_superato.
+// il riferimento passa al nuovo solo se nuovoRiferimento: altrimenti resta sul vecchio, e v_step_prodotto
+// dice riferimento_superato. Il gesto lo chiede senza risposta preselezionata, e senza risposta la
+// sostituzione si rifiuta (Smistamento P26: prima il si' era gia' scelto).
 func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid.UUID, nuovoRiferimento bool) (string, error) {
 	if vecchio == nuovo {
 		return "", Rifiuto("un documento non sostituisce se stesso")

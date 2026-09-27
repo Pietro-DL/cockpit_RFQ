@@ -136,8 +136,9 @@ SELECT count(*) FROM richiesta_fornitore WHERE thread_id = $1 AND stato IN ('boz
 -- name: RiproponiAllegatiComeOffertaFornitore :execrows
 -- Alla conferma «e' la risposta del fornitore» le proposte ancora aperte sui suoi allegati (file, non
 -- inline) diventano `offerta_fornitore`: e' il tipo che le porta in OFFERTE FORNITORI della RFQ cliente.
--- Solo le proposte APERTE: una gia' confermata e' una decisione.
+-- Solo le proposte APERTE: una gia' confermata o scartata e' una decisione. E nemmeno quelle con la fonte
+-- `operatore` (Smistamento P23): il tipo l'ha scritto una persona, e un gesto sui fornitori non lo riscrive.
 UPDATE documento_proposta p SET tipo_proposto = 'offerta_fornitore'
 FROM allegato a
-WHERE p.allegato_id = a.allegato_id AND a.messaggio_id = $1 AND p.stato = 'aperta' AND a.natura = 'file'
-  AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx');
+WHERE p.allegato_id = a.allegato_id AND a.messaggio_id = $1 AND p.stato = 'aperta' AND p.fonte <> 'operatore'
+  AND a.natura = 'file' AND lower(a.estensione) IN ('pdf', 'xls', 'xlsx', 'doc', 'docx');
