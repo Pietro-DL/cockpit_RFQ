@@ -780,6 +780,10 @@ func TestUnaVersioneInternaFaLaStradaDegliAllegati(t *testing.T) {
 // La decisione su una versione interna: la conferma con «sostituisce» vuole il motivo, e se il vecchio e'
 // lo STEP strutturale la risposta sul riferimento. Con tutti e due il documento nasce, senza revisione del
 // cliente, sostituisce il vecchio, diventa il riferimento e porta il motivo nella nota.
+//
+// Riscritta per lo Smistamento (P26, fase F2), nel modulo: prima fissava che il «sì» sul nuovo riferimento
+// nascesse spuntato; adesso la domanda c'e' senza risposta scelta (nessuna delle due caselle «checked»). Il
+// rifiuto del server senza risposta era gia' qui e resta.
 func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
@@ -796,9 +800,14 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, html := w.daFascicolo(http.MethodGet, s.base()+"/anteprima?vista=bom&file="+aid.String()+"&nodo="+s.prodotto.String(), nil, s.thread, "?vista=bom")
-	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 77722757.stp", `name="nuovo_riferimento" value="1" checked`, `name="motivo"`} {
+	for _, c := range []string{"Conferma questo file…", "versione interna, non del cliente", `name="scelta"`, "sostituisce 77722757.stp", `name="nuovo_riferimento" value="1">`, `name="motivo"`} {
 		if !strings.Contains(html, c) {
 			t.Errorf("anteprima del file interno: manca %q", c)
+		}
+	}
+	for _, c := range []string{`name="nuovo_riferimento" value="1" checked`, `name="nuovo_riferimento" value="0" checked`} {
+		if strings.Contains(html, c) {
+			t.Errorf("anteprima del file interno: la risposta sul nuovo riferimento e' gia' scelta (%q)", c)
 		}
 	}
 	conferma := func(form url.Values) string {

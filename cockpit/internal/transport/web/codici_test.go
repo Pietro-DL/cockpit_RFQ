@@ -1,9 +1,9 @@
 package web
 
-// L1 — B8.6: il pannello dei codici della RFQ con dati sintetici, una riga per situazione. Ogni codice
-// porta il suo gesto e uno solo: la proposta STEP aperta si decide li', il componente si apre, l'archiviato
-// si ripristina, il codice della richiesta entra come prodotto, solo il codice nuovo offre i tre tipi.
-// Con la BOM congelata le righe restano e i gesti che la cambiano no.
+// L1 — B8.6: il pannello dei codici della RFQ con dati sintetici, una riga per situazione. Dallo
+// Smistamento (F2, R1) il pannello si legge e basta: ogni codice dice la sua situazione (la proposta STEP
+// aperta, il componente con i suoi documenti, l'archiviato, il codice della richiesta, il codice nuovo) e
+// nessuno porta un gesto. Con la BOM congelata le righe restano, e il pannello lo dice.
 
 import (
 	"bytes"
@@ -72,10 +72,15 @@ func rendiPannello(t *testing.T, thd *threadDati) string {
 	return buf.String()
 }
 
-func TestIlPannelloDeiCodiciPortaOgniCodiceAlSuoGesto(t *testing.T) {
+// Riscritta per lo Smistamento (R1, fase F2): prima era TestIlPannelloDeiCodiciPortaOgniCodiceAlSuoGesto e
+// fissava il gesto di ogni riga (Accetta la proposta con il tipo preselezionato, Ripristina, «+ Prodotto» per
+// il codice della richiesta, i tre «+» con la scelta della revisione per il codice nuovo, «+ Prodotto» anche
+// per il generico). Adesso fissa, riga per riga, che la situazione si legge e che nessun gesto c'e'; e che il
+// pannello intero non ha moduli, bottoni ne' POST.
+func TestIlPannelloDeiCodiciSiLegge(t *testing.T) {
 	thd, id := pannelloSintetico(0)
 	html := rendiPannello(t, thd)
-	for _, atteso := range []string{"Codici della richiesta", "Codici prodotto candidati</b> (5)", "Altri riferimenti trovati</b> (1)"} {
+	for _, atteso := range []string{"Codici della richiesta", "Codici prodotto candidati</b> (5)", "Altri riferimenti trovati</b> (1)", "si leggono e basta"} {
 		if !strings.Contains(html, atteso) {
 			t.Errorf("manca %q", atteso)
 		}
@@ -84,15 +89,15 @@ func TestIlPannelloDeiCodiciPortaOgniCodiceAlSuoGesto(t *testing.T) {
 		chiave    string
 		ci, manca []string
 	}{
-		{"77720517", []string{"proposta aperta dallo STEP <b>assieme.stp</b>", "/fascicolo/nodo/" + id["proposta"].String() + "/accetta",
-			`value="sottoassieme" selected`, "Accetta la proposta"}, []string{"+ Prodotto", "/codice/aggiungi"}},
+		{"77720517", []string{"proposta aperta dallo STEP <b>assieme.stp</b>", "si decide nel Fascicolo"},
+			[]string{"/fascicolo/nodo/" + id["proposta"].String(), "Accetta la proposta", "/scarta", `name="tipo"`, "+ Prodotto", "/codice/aggiungi"}},
 		{"77740000", []string{"✓ nel Fascicolo", "come assieme, rev B", "77740000 foglio 1.pdf"}, []string{"hx-post", "+ Prodotto"}},
-		{"77731111", []string{"archiviato", "tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina", ">Ripristina<"},
-			[]string{"+ Prodotto"}},
-		{"77750000", []string{"codice della richiesta", "+ Prodotto", `"tipo":"finito"`}, []string{"+ Assieme", "+ Particolare"}},
-		{"77760000", []string{"revisioni discordanti", `name="rev"`, `<option value="A">`, `<option value="B">`, "+ Prodotto", "+ Assieme", "+ Particolare",
-			`"tipo":"sottoassieme"`, `"tipo":"sciolto"`, `name="codice" value="77760000"`}, nil},
-		{"20260908", []string{"solo dall&#39;estrattore generico", "+ Prodotto"}, []string{"revisioni discordanti"}},
+		{"77731111", []string{"archiviato", "tolto dal cliente", "Archiviati della Struttura BOM"},
+			[]string{"/fascicolo/componente/" + id["archiviato"].String() + "/ripristina", ">Ripristina<", "+ Prodotto"}},
+		{"77750000", []string{"codice della richiesta senza componente", "il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata"}, []string{"+ Prodotto", `"tipo":"finito"`, "+ Assieme"}},
+		{"77760000", []string{"revisioni discordanti", ">rev A<", ">rev B<", "nessun componente con questo codice"},
+			[]string{`name="rev"`, "+ Prodotto", "+ Assieme", "+ Particolare", `"tipo":"sottoassieme"`, `name="codice"`, "/codice/aggiungi"}},
+		{"20260908", []string{"solo dall&#39;estrattore generico", "nessun componente con questo codice"}, []string{"+ Prodotto", "revisioni discordanti"}},
 	}
 	for _, c := range casi {
 		r := rigaDelCodice(t, html, c.chiave)
@@ -107,6 +112,26 @@ func TestIlPannelloDeiCodiciPortaOgniCodiceAlSuoGesto(t *testing.T) {
 			}
 		}
 	}
+	pannello := sezioneCodici(t, html)
+	for _, vietato := range []string{"<form", "<button", "hx-post", "<select", "<input"} {
+		if strings.Contains(pannello, vietato) {
+			t.Errorf("il pannello dei codici ha ancora %q", vietato)
+		}
+	}
+}
+
+// sezioneCodici e' il pannello dei codici nella pagina della RFQ: dal suo titolo al titolo che segue.
+func sezioneCodici(t *testing.T, html string) string {
+	t.Helper()
+	i := strings.Index(html, `<h3 id="codici">`)
+	if i < 0 {
+		t.Fatal("la pagina della RFQ non ha il pannello dei codici")
+	}
+	resto := html[i+1:]
+	if j := strings.Index(resto, "<h3"); j >= 0 {
+		resto = resto[:j]
+	}
+	return resto
 }
 
 func TestConLaBomCongelataIlPannelloNonOffreGestiCheLaCambiano(t *testing.T) {

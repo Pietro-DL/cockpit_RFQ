@@ -106,6 +106,11 @@ func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
 }
 
 // «Da verificare» mostra solo le decisioni, ciascuna con il suo gesto; «Rivedi» le voci pronte, spuntate.
+//
+// Riscritta per lo Smistamento (R1, fase F2), nella voce 53999999.pdf («53999999 non è nella BOM»): prima
+// fissava il «+ Particolare» con la rotta …/codice/aggiungi, che faceva del codice letto dal file un
+// componente (E13). Adesso fissa che quella voce non lo offre piu' (ne' nessun «+»), e che restano
+// «Assegna» a un componente che c'e' e «Conferma senza componente».
 func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 	s := fascicoloSintetico()
 	comp := s.prodotto
@@ -135,10 +140,10 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 	base := s.d.Base
 	html := rendiParte(t, "fasc_cassetto", s.d)
 	haTesto(t, "verifica", html, "anonimo.pdf", "che cos&#39;è questo file?", base+"/proposta/"+pTipo.String()+"/decidi", `value="77817189"`,
-		"53999999.pdf", base+"/codice/aggiungi", "+ Particolare", base+"/assegna", "Conferma senza componente",
+		"53999999.pdf", "53999999 non è nella BOM", base+"/assegna", "Conferma senza componente",
 		"77722757_B.pdf", `name="scelta" required`, `value="`+corrente.DocumentoID.String()+`"`, "sostituisce 77722757.pdf",
 		"Non si congela ancora"[:0])
-	senzaTesto(t, "verifica", html, "77722757 foglio 2.pdf")
+	senzaTesto(t, "verifica", html, "77722757 foglio 2.pdf", base+"/codice/aggiungi", "+ Particolare", "+ Assieme", "+ Prodotto")
 	// la struttura e il file che la aspetta: tutti e due portano all'editor, e il file non offre di far nascere
 	// 77720517 fuori dalla struttura
 	haTesto(t, "verifica", html, `id="verifica-step-`+struttura.String()+`"`, "2 nodi e 3 archi proposti", "Rivedi nell'editor",

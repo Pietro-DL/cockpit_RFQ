@@ -3,9 +3,9 @@
 // L4 — Fascicolo v3: le rotte nuove sul database vero. Le note sui disegni (0021): dove stanno, chi le
 // cambia, i rifiuti con le loro parole e i CHECK della tabella; la struttura confermata dall'editor in un
 // gesto (bom/applica): prendere la proposta dello STEP, spostare, condividere, togliere, cambiare quantita',
-// i codici trovati, gli scarti, la radice dello STEP che e' il prodotto, le rimozioni tenute, e i rifiuti che
-// non lasciano niente scritto; un file che entra senza componente; la sezione pigra del pannello e i dati
-// dell'editor.
+// i componenti scritti dall'operatore (la carta «n:», Smistamento U4), gli scarti, le rimozioni tenute, e i
+// rifiuti che non lasciano niente scritto (fra cui le carte «k:» e «E' il prodotto», tolte dallo Smistamento
+// F2); un file che entra senza componente; la sezione pigra del pannello e i dati dell'editor.
 
 package web
 
@@ -33,6 +33,10 @@ const fattiV3 = `{"struttura": {"versione": 3, "schema": "AP214", "radici": ["#1
 	"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
 
 // scenaV3 e' la scena di B8.7 con lo STEP dell'assieme gia' letto: le sue tre proposte di nodo.
+//
+// Riscritta per lo Smistamento (R8, fase F1): prima le proposte nascevano aprendo il Fascicolo (la GET
+// rileggeva lo STEP). Adesso nascono con il gesto esplicito «Rianalizza», e la scena controlla che la GET
+// da sola non ne scriva. Che lo STEP vada prima dichiarato strutturale lo aggiunge la fase F3.
 type scenaV3 struct {
 	*scenaB87
 	w                 *browser
@@ -47,10 +51,7 @@ func (b *bancoWeb) scenaV3(t *testing.T, chiave string) *scenaV3 {
 	t.Cleanup(func() { b.ws.Analizzatore = coda.Analizzatore{} })
 	s := &scenaV3{scenaB87: b.scenaB87(chiave), w: operatore(b)}
 	s.stp = s.stepNellaRfq("assieme.stp", fattiV3, an)
-	// aprire il Fascicolo rilegge lo STEP: nascono le proposte
-	if resp, _ := s.w.fai(http.MethodGet, s.base(), nil, false); resp.StatusCode != 200 {
-		t.Fatalf("apertura: %d", resp.StatusCode)
-	}
+	s.rilegge(t, s.w, s.stp)
 	prop := func(k string) uuid.UUID {
 		return uuidSQL(t, b, `SELECT proposta_id FROM componente_proposta WHERE allegato_id = $1 AND chiave = $2`, s.stp, k)
 	}
@@ -139,9 +140,14 @@ func (r *rfqFascicolo) congelaAMano() {
 
 // ---------------------------------------------------------------- l'editor: la proposta dello STEP
 
-// La proposta dello STEP presa com'e' nell'editor: la radice senza codice e' il prodotto, 77811111 nasce
-// sotto l'assieme con la sua quantita', la proposta dell'arco e' presa, quella che dice un arco gia' nella
-// BOM e' un duplicato. Il banner dello STEP sparisce, l'evento per l'editor dice che e' fatto.
+// La proposta dello STEP presa nell'editor: 77811111 nasce sotto l'assieme con la sua quantita', la
+// proposta dell'arco e' presa, l'evento per l'editor dice che e' fatto. La radice senza codice resta una
+// proposta aperta, con il suo arco: non e' il prodotto per un gesto dell'editor.
+//
+// Riscritta per lo Smistamento (R5, fase F2): prima la radice senza codice era detta «il prodotto» (E' il
+// prodotto, RadiciProposte): diventava duplicato del prodotto, il suo arco verso l'assieme un duplicato
+// dell'arco della BOM, e il banner dello STEP spariva. Quel gesto e' tolto (la radice la fissa lo STEP
+// strutturale): la radice e il suo arco restano aperti, e lo STEP resta da guardare.
 func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaV3(t, "ED1")
@@ -154,11 +160,10 @@ func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 	}
 
 	v := s.strutturaDi(s.prodotto)
-	v.RadiciProposte = []uuid.UUID{s.top}
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refP(s.nuovo), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#1", Figlio: "#2"}, {Allegato: s.stp, Padre: "#2", Figlio: "#3"}}
 	avviso, evento, stato := s.applica(s.w, v)
-	if stato != 200 || avviso != "Struttura di 77722757 confermata: 1 componente nuovo, 1 radice dello STEP riconosciuta come il prodotto, 1 legame aggiunto." {
+	if stato != 200 || avviso != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto." {
 		t.Fatalf("editor: %d %q", stato, avviso)
 	}
 	if ok, testo := esitoEditor(t, evento); !ok || testo != avviso {
@@ -170,16 +175,16 @@ func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); !strings.HasPrefix(got, "sciolto/") {
 		t.Errorf("77811111 nasce particolare: %s", got)
 	}
-	if got := s.valore(`SELECT string_agg(chiave || ':' || stato::text || ':' || (componente_id = $2)::text, ' ' ORDER BY chiave) FROM componente_proposta
-		WHERE allegato_id = $1 AND chiave = '#1'`, s.stp, s.prodotto); got != "#1:duplicato:true" {
-		t.Errorf("la radice dello STEP e' il prodotto: %s", got)
+	if got := s.valore(`SELECT string_agg(chiave || ':' || stato::text || ':' || coalesce(componente_id::text, 'senza'), ' ' ORDER BY chiave) FROM componente_proposta
+		WHERE allegato_id = $1 AND chiave = '#1'`, s.stp); got != "#1:aperta:senza" {
+		t.Errorf("la radice dello STEP resta una proposta aperta, senza componente: %s", got)
 	}
-	if got := s.valore(`SELECT string_agg(padre_chiave || '>' || figlio_chiave || ':' || stato::text, ' ' ORDER BY padre_chiave) FROM relazione_proposta WHERE allegato_id = $1`, s.stp); got != "#1>#2:duplicato #2>#3:confermata" {
+	if got := s.valore(`SELECT string_agg(padre_chiave || '>' || figlio_chiave || ':' || stato::text, ' ' ORDER BY padre_chiave) FROM relazione_proposta WHERE allegato_id = $1`, s.stp); got != "#1>#2:aperta #2>#3:confermata" {
 		t.Errorf("le proposte di arco: %s", got)
 	}
 	_, pagina = s.w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
-	if strings.Contains(pagina, `id="step-`+s.stp.String()+`"`) {
-		t.Error("confermata la struttura, il banner dello STEP resta")
+	if !strings.Contains(pagina, `id="step-`+s.stp.String()+`"`) {
+		t.Error("con la radice ancora aperta lo STEP resta da guardare: il banner c'e'")
 	}
 }
 
@@ -276,13 +281,20 @@ func TestLEditorRifiutaSenzaScrivereNiente(t *testing.T) {
 	v.Visti = visti
 	rifiuto("dati vecchi", v, "77720517 ha sotto 77817189, che l'editor non mostrava (un altro gesto nel frattempo): riapri l'editor")
 
-	// tanti cambiamenti buoni e un ciclo in fondo: niente
+	// tanti cambiamenti buoni e un ciclo in fondo: niente. Riscritta per lo Smistamento (F2): prima fra i
+	// cambiamenti buoni c'era «E' il prodotto» (RadiciProposte), che adesso si rifiuta da se' (la prova qui sotto)
 	v = s.strutturaDi(s.prodotto)
-	v.RadiciProposte = []uuid.UUID{s.top}
 	v.Codici = map[string]fascicolo.CodiceScritto{}
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refP(s.nuovo), Qta: 2},
 		fascicolo.ArcoVoluto{Padre: refP(s.nuovo), Figlio: refC(s.assieme), Qta: 1})
 	rifiuto("ciclo", v, "la struttura chiuderebbe un ciclo")
+
+	v = s.strutturaDi(s.prodotto)
+	v.RadiciProposte = []uuid.UUID{s.top}
+	rifiuto("E' il prodotto", v, "«È il prodotto» non c'è più")
+	v = s.strutturaDi(s.prodotto)
+	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: "k:77811111", Qta: 1})
+	rifiuto("carta k:", v, "77811111: un codice trovato nella RFQ non diventa un componente dall'editor")
 
 	v = s.strutturaDi(s.assieme)
 	rifiuto("radice non prodotto", v, "77720517 non è un prodotto finito")
@@ -315,12 +327,19 @@ func TestLEditorRifiutaSenzaScrivereNiente(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- l'editor: codici trovati, scarti, rimozioni
+// ---------------------------------------------------------------- l'editor: componenti scritti, scarti, rimozioni
 
-// La struttura a mano con un codice trovato nella RFQ (nasce il componente), un codice che non c'e' (rifiuto),
-// un nodo dello STEP scartato con l'arco che lo tocca, la radice dello STEP riconosciuta da sola, e una
-// rimozione proposta dallo STEP strutturale su un arco che l'operatore tiene: si chiude.
-func TestLEditorCodiciTrovatiScartiERimozioni(t *testing.T) {
+// La struttura a mano con un codice trovato nella RFQ (la carta «k:» si rifiuta; il componente nasce solo
+// scritto, con la carta «n:»), un codice quasi uguale al prodotto (rifiuto senza la conferma), un nodo dello
+// STEP scartato con l'arco che lo tocca, «E' il prodotto» rifiutato, e una rimozione proposta dallo STEP
+// strutturale su un arco che l'operatore tiene: si chiude.
+//
+// Riscritta per lo Smistamento (R1, R5, U4, fase F2): prima era TestLEditorCodiciTrovatiScartiERimozioni e
+// fissava che il codice trovato 77899999 nascesse dalla carta «k:» (sciolto, codice_rilevato, con la rev C
+// delle evidenze), che un «k:» non trovato si rifiutasse, e che la radice dello STEP detta «il prodotto»
+// facesse del suo arco un duplicato. Adesso il «k:» si rifiuta anche per il codice trovato; lo stesso codice
+// scritto nasce con origine manuale e la revisione scritta; «E' il prodotto» si rifiuta e l'arco resta aperto.
+func TestLEditorComponentiScrittiScartiERimozioni(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaV3(t, "ED4")
 	s.esegui(`INSERT INTO candidato_codice (messaggio_id, codice, ruolo, rev, origine, famiglia, punteggio, evidenza)
@@ -328,16 +347,23 @@ func TestLEditorCodiciTrovatiScartiERimozioni(t *testing.T) {
 
 	v := s.strutturaDi(s.prodotto)
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:77899999", Qta: 1})
-	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto." {
+	if a, _, _ := s.applica(s.w, v); a != "Niente è cambiato: 77899999: un codice trovato nella RFQ non diventa un componente dall'editor. Se è un pezzo della distinta, scrivine il codice con «+ Componente con codice»" {
 		t.Fatalf("codice trovato: %q", a)
 	}
-	if got := s.valore(`SELECT tipo::text || '/' || origine::text || '/' || coalesce(rev, '-') FROM componente WHERE thread_id = $1 AND codice = '77899999'`, s.thread); got != "sciolto/codice_rilevato/C" {
-		t.Errorf("il componente dal codice trovato: %s", got)
+	v = s.strutturaDi(s.prodotto)
+	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "n:77899999", Qta: 1})
+	v.Nuovi = []fascicolo.ComponenteNuovo{{Codice: "77899999", Tipo: "sciolto", Rev: "d"}}
+	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto." {
+		t.Fatalf("componente scritto: %q", a)
+	}
+	if got := s.valore(`SELECT tipo::text || '/' || origine::text || '/' || coalesce(rev, '-') FROM componente WHERE thread_id = $1 AND codice = '77899999'`, s.thread); got != "sciolto/manuale/D" {
+		t.Errorf("il componente scritto: %s", got)
 	}
 	v = s.strutturaDi(s.prodotto)
-	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "k:77877777", Qta: 1})
-	if a, _, _ := s.applica(s.w, v); a != "Niente è cambiato: 77877777 non è fra i codici trovati in questa RFQ" {
-		t.Errorf("codice che non c'e': %q", a)
+	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: "n:77722757A", Qta: 1})
+	v.Nuovi = []fascicolo.ComponenteNuovo{{Codice: "77722757A", Tipo: "sciolto"}}
+	if a, _, _ := s.applica(s.w, v); a != "Niente è cambiato: 77722757A è quasi uguale a 77722757 (lettera finale): se è lo stesso pezzo si usa quello; se è un pezzo diverso togli la carta di 77722757A e riscrivila con «+ Componente con codice», confermando che è un pezzo diverso" {
+		t.Errorf("codice quasi uguale: %q", a)
 	}
 
 	v = s.strutturaDi(s.prodotto)
@@ -353,11 +379,11 @@ func TestLEditorCodiciTrovatiScartiERimozioni(t *testing.T) {
 	v = s.strutturaDi(s.prodotto)
 	v.RadiciProposte = []uuid.UUID{s.top}
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: s.stp, Padre: "#1", Figlio: "#2"}}
-	if a, _, _ := s.applica(s.w, v); a != "Struttura di 77722757 confermata: 1 radice dello STEP riconosciuta come il prodotto." {
+	if a, _, _ := s.applica(s.w, v); !strings.HasPrefix(a, "Niente è cambiato: «È il prodotto» non c'è più") {
 		t.Fatalf("radice: %q", a)
 	}
-	if got := s.valore(`SELECT stato::text FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#1'`, s.stp); got != "duplicato" {
-		t.Errorf("l'arco della radice, uguale a quello della BOM: %s", got)
+	if got := s.valore(`SELECT stato::text FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#1'`, s.stp); got != "aperta" {
+		t.Errorf("l'arco della radice resta aperto: %s", got)
 	}
 
 	// lo STEP strutturale del prodotto propone di togliere prodotto → assieme; l'operatore lo tiene
@@ -671,17 +697,35 @@ func fattiDi(radice string, nodi []string, archi []string) string {
 		"occorrenze_non_risolte": 0, "occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
 }
 
-// stepLetto mette nella RFQ uno STEP con i suoi fatti e apre il Fascicolo, che lo rilegge.
+// stepLetto mette nella RFQ uno STEP con i suoi fatti e lo fa rileggere con «Rianalizza».
+//
+// Riscritta per lo Smistamento (R8, fase F1): prima apriva il Fascicolo, e la GET rileggeva lo STEP.
 func (s *scenaB87) stepLetto(t *testing.T, w *browser, nome, fatti string) uuid.UUID {
 	t.Helper()
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
 	s.b.ws.Analizzatore = an
 	t.Cleanup(func() { s.b.ws.Analizzatore = coda.Analizzatore{} })
 	a := s.stepNellaRfq(nome, fatti, an)
+	s.rilegge(t, w, a)
+	return a
+}
+
+// rilegge fa nascere le proposte dello STEP allegato con il gesto «Rianalizza», dopo aver visto che aprire
+// il Fascicolo non ne scrive (Smistamento F1: nessuna GET scrive).
+func (s *scenaB87) rilegge(t *testing.T, w *browser, allegato uuid.UUID) {
+	t.Helper()
 	if resp, _ := w.fai(http.MethodGet, s.base(), nil, false); resp.StatusCode != 200 {
 		t.Fatalf("apertura: %d", resp.StatusCode)
 	}
-	return a
+	if n := s.conta(`SELECT count(*) FROM componente_proposta WHERE allegato_id = $1`, allegato); n != 0 {
+		t.Fatalf("aprire il Fascicolo ha scritto %d proposte dello STEP", n)
+	}
+	if a := s.gesto(w, s.base()+"/rianalizza", nil); !strings.Contains(a, "STEP riletto") && !strings.Contains(a, "STEP riletti") {
+		t.Fatalf("rianalizza: %q", a)
+	}
+	if n := s.conta(`SELECT count(*) FROM componente_proposta WHERE allegato_id = $1`, allegato); n == 0 {
+		t.Fatal("«Rianalizza» non ha scritto le proposte dello STEP")
+	}
 }
 
 func (s *scenaB87) propostaNodo(t *testing.T, allegato uuid.UUID, chiave string) uuid.UUID {
@@ -776,8 +820,13 @@ func TestLEditorSiAccorgeDeiCambiamentiNelFrattempo(t *testing.T) {
 	}
 }
 
-// Lo stesso nodo in due STEP e' una carta sola nell'editor: «e' il prodotto» vale per le proposte di tutti e due
-// i file, e dopo la conferma non resta niente di aperto.
+// Lo stesso nodo in due STEP e' una carta sola nell'editor: «scarta» vale per le proposte di tutti e due i
+// file, e dopo la conferma non resta niente di aperto.
+//
+// Riscritta per lo Smistamento (R5, fase F2): prima la carta comune era la radice PRT-00017 detta «il
+// prodotto» (RadiciProposte, due radici riconosciute, duplicato duplicato). «E' il prodotto» e' tolto e si
+// rifiuta senza scrivere niente; la carta comune si prova con lo scarto, che chiude le due radici e i loro
+// archi.
 func TestLEditorUnaCartaValePerTuttiGliStep(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED8")
@@ -787,10 +836,15 @@ func TestLEditorUnaCartaValePerTuttiGliStep(t *testing.T) {
 	secondo := s.stepLetto(t, w, "b.stp", fatti)
 	v := s.strutturaDi(s.prodotto)
 	v.RadiciProposte = []uuid.UUID{s.propostaNodo(t, primo, "#1")}
+	if a, _, _ := s.applica(w, v); !strings.HasPrefix(a, "Niente è cambiato: «È il prodotto» non c'è più") {
+		t.Fatalf("E' il prodotto: %q", a)
+	}
+	v.RadiciProposte = nil
+	v.Scarta = []uuid.UUID{s.propostaNodo(t, primo, "#1")}
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.prodotto), Figlio: refP(s.propostaNodo(t, primo, "#2")), Qta: 2})
 	v.RelazioniViste = []fascicolo.RelazioneVista{{Allegato: primo, Padre: "#1", Figlio: "#2"}, {Allegato: secondo, Padre: "#1", Figlio: "#2"}}
 	a, _, _ := s.applica(w, v)
-	if a != "Struttura di 77722757 confermata: 1 componente nuovo, 2 radici dello STEP riconosciute come il prodotto, 1 legame aggiunto." {
+	if a != "Struttura di 77722757 confermata: 1 componente nuovo, 1 legame aggiunto, 2 nodi proposti scartati, 2 proposte di legame chiuse." {
 		t.Fatalf("editor: %q", a)
 	}
 	if n := s.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1 AND stato = 'aperta'`, s.thread); n != 0 {
@@ -799,7 +853,7 @@ func TestLEditorUnaCartaValePerTuttiGliStep(t *testing.T) {
 	if n := s.conta(`SELECT count(*) FROM relazione_proposta WHERE thread_id = $1 AND stato = 'aperta'`, s.thread); n != 0 {
 		t.Errorf("archi proposti ancora aperti: %d", n)
 	}
-	if got := s.valore(`SELECT string_agg(stato::text, ' ' ORDER BY stato) FROM componente_proposta WHERE thread_id = $1 AND chiave = '#1'`, s.thread); got != "duplicato duplicato" {
+	if got := s.valore(`SELECT string_agg(stato::text, ' ' ORDER BY stato) FROM componente_proposta WHERE thread_id = $1 AND chiave = '#1'`, s.thread); got != "scartata scartata" {
 		t.Errorf("le due radici: %s", got)
 	}
 }

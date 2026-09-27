@@ -1,8 +1,9 @@
 //go:build integrazione
 
-// L4 — B8.6 nelle rotte: aprire la RFQ mostra i codici che ha visto, ciascuno con il suo gesto; «+ come…»
-// e il ripristino rispondono con la pagina, e un rifiuto dice perche' senza cambiare niente. Con la BOM
-// congelata il pannello resta e i gesti che la cambiano no.
+// L4 — B8.6 nelle rotte: aprire la RFQ mostra i codici che ha visto, ciascuno con la sua situazione. Dallo
+// Smistamento (F2, R1) il pannello si legge e basta: la rotta …/fascicolo/codice/aggiungi non c'e' piu', e il
+// ripristino resta con la sua rotta per gli Archiviati della Struttura BOM. Con la BOM congelata il pannello
+// resta, e il ripristino si rifiuta.
 
 package web
 
@@ -56,16 +57,28 @@ func (b *bancoWeb) rfqConCodici(chiave string) (*rfqFascicolo, map[string]uuid.U
 	return r, id
 }
 
-func (r *rfqFascicolo) aggiungiCodice(w *browser, form url.Values) string {
+// aggiungiCodice manda il POST della rotta tolta (…/fascicolo/codice/aggiungi): lo stato HTTP e l'avviso.
+func (r *rfqFascicolo) aggiungiCodice(w *browser, form url.Values) (int, string) {
 	r.b.t.Helper()
-	_, html := w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/codice/aggiungi", form, true)
-	return avvisoDi(html)
+	resp, html := w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/codice/aggiungi", form, true)
+	return resp.StatusCode, avvisoDi(html)
 }
 
-// Aprire la RFQ rilegge lo STEP e mostra i codici: quello del nodo aperto porta alla proposta, il
-// componente si apre, l'archiviato si ripristina, il codice della richiesta entra come prodotto, quello
-// nuovo offre i tre tipi e, con due revisioni, chiede quale. Poi i gesti dalla pagina.
-func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
+// Aprire la RFQ mostra i codici, ciascuno con la sua situazione: quello del nodo aperto dice la proposta, il
+// componente si apre, l'archiviato si dice, il codice della richiesta e quello nuovo si leggono. Nessuno
+// porta un gesto; la rotta che faceva nascere un componente da un codice trovato non c'e' piu'; il ripristino
+// (la rotta degli Archiviati) risponde ancora con la pagina.
+//
+// Riscritta per lo Smistamento (R8, fase F1), nella parte dell'apertura: prima fissava che aprire la RFQ
+// rileggesse lo STEP. Adesso la GET non scrive e lo STEP lo rilegge il gesto «Rianalizza».
+//
+// Riscritta per lo Smistamento (R1, fase F2), nei gesti: prima era TestIlPannelloDeiCodiciNellaRfqEISuoiGesti
+// e fissava «Accetta la proposta», «+ Prodotto/Assieme/Particolare» con i rifiuti della rotta …/codice/aggiungi
+// (revisioni discordanti, proposta aperta, gia' nella BOM, archiviato, codice della richiesta, tipo non valido)
+// e le aggiunte riuscite (77760000 assieme rev B, 77750000 prodotto). Adesso fissa che nessuna riga ha un
+// gesto, che la rotta non esiste per nessuna di quelle forme e non scrive niente, e che 77760000 e 77750000
+// restano codici senza componente.
+func TestIlPannelloDeiCodiciNellaRfqSiLegge(t *testing.T) {
 	b := preparaBancoWeb(t)
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
 	b.ws.Analizzatore = an
@@ -75,14 +88,25 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 	w := operatore(b)
 
 	_, html := w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
+	if n := r.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1`, r.thread); n != 0 {
+		t.Fatalf("aprire la RFQ ha riletto lo STEP: %d proposte di nodo", n)
+	}
+	if strings.Contains(rigaDelCodice(t, html, "77722757"), "proposta aperta dallo STEP") {
+		t.Error("prima di «Rianalizza» il pannello non ha proposte dello STEP")
+	}
+	_, html = w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/rianalizza", url.Values{}, true)
+	if a := avvisoDi(html); a != "1 STEP riletto con le regole del cliente." {
+		t.Fatalf("rianalizza: %q", a)
+	}
+	_, html = w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
 	casi := map[string][]string{
-		"77722757": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
-		"77720517": {"proposta aperta dallo STEP <b>assieme.stp</b>", "Accetta la proposta"},
+		"77722757": {"proposta aperta dallo STEP <b>assieme.stp</b>", "si decide nel Fascicolo"},
+		"77720517": {"proposta aperta dallo STEP <b>assieme.stp</b>", "si decide nel Fascicolo"},
 		"77740000": {"✓ nel Fascicolo"},
-		"77731111": {"tolto dal cliente", "/fascicolo/componente/" + id["archiviato"].String() + "/ripristina"},
-		"77750000": {"codice della richiesta", "+ Prodotto"},
-		"77760000": {"revisioni discordanti", `name="rev"`, "+ Assieme"},
-		"20260908": {"+ Particolare"},
+		"77731111": {"tolto dal cliente", "Archiviati della Struttura BOM"},
+		"77750000": {"codice della richiesta senza componente", "il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata"},
+		"77760000": {"revisioni discordanti", ">rev A<", ">rev B<", "nessun componente con questo codice"},
+		"20260908": {"nessun componente con questo codice"},
 	}
 	for chiave, attesi := range casi {
 		riga := rigaDelCodice(t, html, chiave)
@@ -91,54 +115,52 @@ func TestIlPannelloDeiCodiciNellaRfqEISuoiGesti(t *testing.T) {
 				t.Errorf("%s: manca %q", chiave, s)
 			}
 		}
-	}
-	if strings.Contains(rigaDelCodice(t, html, "77750000"), "+ Assieme") {
-		t.Error("un codice della richiesta entra come prodotto: niente «+ Assieme»")
+		for _, s := range []string{"hx-post", "Accetta la proposta", "+ Prodotto", "+ Assieme", "+ Particolare", "/ripristina", `name="rev"`} {
+			if strings.Contains(riga, s) {
+				t.Errorf("%s: c'e' ancora %q", chiave, s)
+			}
+		}
 	}
 	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 2 {
 		t.Fatalf("aprire la RFQ ha creato componenti: %d", n)
 	}
 
-	for _, c := range []struct {
-		form  url.Values
-		frase string
-	}{
-		{url.Values{"codice": {"77760000"}, "tipo": {"sottoassieme"}}, "revisioni discordanti"},
-		{url.Values{"codice": {"77720517"}, "tipo": {"sciolto"}}, "ha una proposta aperta dallo STEP assieme.stp"},
-		{url.Values{"codice": {"77740000"}, "tipo": {"sciolto"}}, "è già nella BOM"},
-		{url.Values{"codice": {"77731111"}, "tipo": {"sciolto"}}, "è archiviato: si ripristina"},
-		{url.Values{"codice": {"77750000"}, "tipo": {"sciolto"}}, "è un codice della richiesta: entra come prodotto"},
-		{url.Values{"codice": {"20260908"}, "tipo": {"boh"}}, "tipo di componente non valido"},
+	// la rotta non c'e' piu': nessuna delle forme di prima scrive qualcosa
+	for _, form := range []url.Values{
+		{"codice": {"77760000"}, "tipo": {"sottoassieme"}, "rev": {"B"}},
+		{"codice": {"77750000"}, "tipo": {"finito"}},
+		{"codice": {"77720517"}, "tipo": {"sciolto"}},
+		{"codice": {"20260908"}, "tipo": {"sciolto"}},
 	} {
-		if a := r.aggiungiCodice(w, c.form); !strings.HasPrefix(a, "Niente è cambiato: ") || !strings.Contains(a, c.frase) {
-			t.Errorf("%v: %q, atteso il rifiuto con «%s»", c.form, a, c.frase)
+		if stato, a := r.aggiungiCodice(w, form); stato != http.StatusNotFound && stato != http.StatusMethodNotAllowed {
+			t.Errorf("%v: la rotta risponde %d %q, attesa assente", form, stato, a)
 		}
 	}
 	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 2 {
-		t.Fatalf("un rifiuto ha creato componenti: %d", n)
+		t.Fatalf("la rotta tolta ha creato componenti: %d", n)
 	}
 
-	if a := r.aggiungiCodice(w, url.Values{"codice": {"77760000"}, "tipo": {"sottoassieme"}, "rev": {"B"}}); a != "77760000 entra nella BOM come assieme, rev B." {
-		t.Errorf("aggiungi: %q", a)
-	}
-	if a := r.aggiungiCodice(w, url.Values{"codice": {"77750000"}, "tipo": {"finito"}}); a != "77750000 entra nella BOM come prodotto." {
-		t.Errorf("codice della richiesta: %q", a)
-	}
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/componente/%s/ripristina", r.thread, id["archiviato"]), url.Values{}, true)
 	if a := avvisoDi(html); a != "77731111 ripristinato nella BOM working." {
 		t.Errorf("ripristina: %q", a)
 	}
-	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND archiviato_il IS NULL`, r.thread); n != 4 {
-		t.Errorf("componenti attivi dopo i gesti: %d, attesi 4", n)
+	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND archiviato_il IS NULL`, r.thread); n != 2 {
+		t.Errorf("componenti attivi dopo il ripristino: %d, attesi 2", n)
 	}
-	for _, chiave := range []string{"77760000", "77750000", "77731111"} {
-		if !strings.Contains(rigaDelCodice(t, html, chiave), "✓ nel Fascicolo") {
-			t.Errorf("%s: dopo il gesto la pagina deve mostrarlo nel Fascicolo", chiave)
+	if !strings.Contains(rigaDelCodice(t, html, "77731111"), "✓ nel Fascicolo") {
+		t.Error("77731111: dopo il ripristino la pagina deve mostrarlo nel Fascicolo")
+	}
+	for _, chiave := range []string{"77760000", "77750000"} {
+		if strings.Contains(rigaDelCodice(t, html, chiave), "✓ nel Fascicolo") {
+			t.Errorf("%s: un codice trovato non e' entrato nel Fascicolo da solo", chiave)
 		}
 	}
 }
 
-// Con la BOM congelata il pannello c'e', dice perche' non offre gesti, e le rotte rifiutano.
+// Con la BOM congelata il pannello c'e', dice che e' congelata, e le rotte non cambiano la BOM.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima la rotta …/codice/aggiungi rifiutava con il messaggio
+// della BOM congelata; adesso non c'e' (404/405) e non scrive. Il ripristino rifiuta come prima.
 func TestConLaBomCongelataIlPannelloDeiCodiciNonCambiaLaBom(t *testing.T) {
 	b := preparaBancoWeb(t)
 	r, id := b.rfqConCodici("CODICI86B")
@@ -154,8 +176,8 @@ func TestConLaBomCongelataIlPannelloDeiCodiciNonCambiaLaBom(t *testing.T) {
 			t.Errorf("con la BOM congelata la pagina offre %q", vietato)
 		}
 	}
-	if a := r.aggiungiCodice(w, url.Values{"codice": {"20260908"}, "tipo": {"sciolto"}}); !strings.Contains(a, "la BOM è congelata nella V1") {
-		t.Errorf("aggiungi: %q", a)
+	if stato, a := r.aggiungiCodice(w, url.Values{"codice": {"20260908"}, "tipo": {"sciolto"}}); stato != http.StatusNotFound && stato != http.StatusMethodNotAllowed {
+		t.Errorf("aggiungi: %d %q, attesa la rotta assente", stato, a)
 	}
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/componente/%s/ripristina", r.thread, id["archiviato"]), url.Values{}, true)
 	if a := avvisoDi(html); !strings.Contains(a, "la BOM è congelata nella V1") {

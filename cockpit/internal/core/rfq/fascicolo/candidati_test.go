@@ -7,7 +7,6 @@ package fascicolo
 // vista vera stanno in candidati_db_test.go.
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -184,8 +183,14 @@ func TestUnCodiceDiFamigliaSoloNellaStoriaVaFraGliAltri(t *testing.T) {
 
 // ---------------------------------------------------------------- revisioni
 
-// Revisioni diverse sono un conflitto da mostrare: nessuna vince per punteggio, e chi aggiunge sceglie
-// fra quelle viste. «b» e «B» sono la stessa; una revisione vuota non dice niente.
+// Revisioni diverse sono un conflitto da mostrare: nessuna vince per punteggio. «b» e «B» sono la stessa;
+// una revisione vuota non dice niente.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima fissava anche revisioneScelta, cioe' la revisione con
+// cui «+ Prodotto/Assieme/Particolare» faceva nascere il componente dal codice trovato (senza scelta: rifiuto
+// con l'elenco; «b» → B; «C» non vista → rifiuto; una sola → presa). Il gesto e AggiungiDaCodice sono tolti:
+// la prova fissa adesso che il conflitto si legge intero (quante evidenze per revisione, il punteggio che
+// ordina e non sceglie) e che niente, nella situazione del codice, porta una revisione scelta o un componente.
 func TestLeRevisioniDiscordantiSonoUnConflittoNonUnPunteggio(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{
 		dalDocumento("77722757", "A", "cartiglio", "77722757.pdf", "disegno_2d", 95),
@@ -200,23 +205,24 @@ func TestLeRevisioniDiscordantiSonoUnConflittoNonUnPunteggio(t *testing.T) {
 	if !k.Conflitto || len(k.Revisioni) != 2 || k.Revisioni[0].Rev != "A" || k.Revisioni[1].Rev != "B" || k.Revisioni[1].Evidenze != 2 {
 		t.Fatalf("revisioni = %+v, conflitto %v", k.Revisioni, k.Conflitto)
 	}
-	var r Rifiuto
-	if _, err := revisioneScelta(k, ""); !errors.As(err, &r) || !strings.Contains(string(r), "revisioni discordanti") ||
-		!strings.Contains(string(r), "A (1 evidenza)") || !strings.Contains(string(r), "B (2 evidenze)") {
-		t.Errorf("senza scelta: %v (la A del cartiglio ha il punteggio piu' alto, e non deve vincere)", err)
+	if k.Revisioni[0].Evidenze != 1 || k.Punteggio != 95 {
+		t.Errorf("la A del cartiglio: %d evidenza, punteggio %d (il piu' alto: ordina la lista, non sceglie)", k.Revisioni[0].Evidenze, k.Punteggio)
 	}
-	if rev, err := revisioneScelta(k, "b"); err != nil || rev != "B" {
-		t.Errorf("scelta «b»: %q, %v", rev, err)
+	if n := len(k.Evidenze); n != 4 {
+		t.Errorf("77722757: %d evidenze, attese 4 (nessuna si perde per la revisione)", n)
 	}
-	if _, err := revisioneScelta(k, "C"); !errors.As(err, &r) || !strings.Contains(string(r), "non è fra quelle viste") {
-		t.Errorf("scelta «C»: %v", err)
+	if s := k.Stato; s.Situazione != SituazioneNuovo || s.Componente != nil {
+		t.Errorf("un codice con revisioni discordanti resta un codice trovato, senza componente: %+v", s)
 	}
 	u := trova(t, c, "77720517")
 	if u.Conflitto || len(u.Revisioni) != 1 {
 		t.Errorf("77720517: %+v", u.Revisioni)
 	}
-	if rev, err := revisioneScelta(u, ""); err != nil || rev != "4" {
-		t.Errorf("una revisione sola si prende senza chiedere: %q, %v", rev, err)
+	if u.Revisioni[0].Rev != "4" || u.Revisioni[0].Evidenze != 2 {
+		t.Errorf("una revisione sola, detta da due evidenze: %+v", u.Revisioni)
+	}
+	if s := u.Stato; s.Situazione != SituazioneNuovo || s.Componente != nil {
+		t.Errorf("77720517 resta un codice trovato: %+v", s)
 	}
 }
 
@@ -236,59 +242,77 @@ func componente(codice string, tipo db.TipoComponente, archiviato bool) db.Compo
 	return c
 }
 
-// Un codice con un nodo STEP aperto porta a quel nodo, anche se il componente c'e' ed e' archiviato:
-// accettarlo lo ripristina, e porta con se' il file. Niente «+» da qui: sarebbe un componente parallelo.
+// Un codice con un nodo STEP aperto porta a quel nodo, anche se il componente c'e' ed e' archiviato.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima fissava anche che la riga non offrisse tipi per «+»
+// (Stato.Tipi vuoto). Il campo non c'e' piu', perche' nessuna riga offre un gesto: la prova fissa che il
+// nodo e' quello, e che il componente archiviato con lo stesso codice si vede accanto.
 func TestUnCodiceConUnaPropostaStepApertaPortaAllaProposta(t *testing.T) {
 	p := proposta("77720517", "assieme.stp")
 	righe := []db.ListCodiciCandidatiThreadRow{dalloStep("77720517", "", "famiglia", "assieme.stp"), dalMessaggio("77720517", "", "famiglia", "corpo")}
 	for _, comp := range [][]db.Componente{nil, {componente("77720517", db.TipoComponenteSciolto, true)}} {
 		c := Unisci(righe, ContestoCodici{HaFamiglie: true, Proposte: []db.ListProposteNodoAperteRow{p}, Componenti: comp})
 		s := trova(t, c, "77720517").Stato
-		if s.Situazione != SituazioneProposta || s.Proposta().PropostaID != p.PropostaID || len(s.Tipi) != 0 {
-			t.Errorf("con %d componenti: situazione %s, proposta %v, tipi %v", len(comp), s.Situazione, s.Proposta().PropostaID, s.Tipi)
+		if s.Situazione != SituazioneProposta || s.Proposta().PropostaID != p.PropostaID || (s.Componente != nil) != (comp != nil) {
+			t.Errorf("con %d componenti: situazione %s, proposta %v, componente %v", len(comp), s.Situazione, s.Proposta().PropostaID, s.Componente)
 		}
 	}
 }
 
-// Un codice che e' gia' un componente si apre: le maiuscole non contano.
+// Un codice che e' gia' un componente dice quale: le maiuscole non contano.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima fissava anche Stato.Tipi vuoto (nessun «+»); adesso
+// nessuna riga ha tipi da offrire, e la prova fissa il componente trovato con la sua grafia.
 func TestUnCodiceGiaComponenteSiApre(t *testing.T) {
 	comp := componente("1234567a", db.TipoComponenteFinito, false)
 	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("1234567A", "", "famiglia", "oggetto")},
 		ContestoCodici{HaFamiglie: true, Componenti: []db.Componente{comp}})
 	s := trova(t, c, "1234567A").Stato
-	if s.Situazione != SituazioneComponente || s.Componente == nil || s.Componente.ComponenteID != comp.ComponenteID || len(s.Tipi) != 0 {
-		t.Errorf("situazione %s, componente %v, tipi %v", s.Situazione, s.Componente, s.Tipi)
+	if s.Situazione != SituazioneComponente || s.Componente == nil || s.Componente.ComponenteID != comp.ComponenteID || s.Componente.Codice != "1234567a" {
+		t.Errorf("situazione %s, componente %v", s.Situazione, s.Componente)
 	}
 }
 
-// Un codice di un componente archiviato propone il ripristino: stesso componente, stessa storia.
+// Un codice di un componente archiviato dice che c'e', archiviato: stesso componente, stessa storia. Il
+// ripristino sta negli Archiviati della Struttura BOM.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima «proponeva il ripristino» dal pannello dei codici
+// (Stato.Tipi vuoto, bottone «Ripristina»); adesso la riga si legge e basta.
 func TestUnCodiceArchiviatoProponeIlRipristino(t *testing.T) {
 	comp := componente("77731111", db.TipoComponenteSciolto, true)
 	c := Unisci([]db.ListCodiciCandidatiThreadRow{dalMessaggio("77731111", "", "famiglia", "corpo")},
 		ContestoCodici{HaFamiglie: true, Componenti: []db.Componente{comp}})
 	s := trova(t, c, "77731111").Stato
-	if s.Situazione != SituazioneArchiviato || s.Componente.ComponenteID != comp.ComponenteID || len(s.Tipi) != 0 {
-		t.Errorf("situazione %s, tipi %v", s.Situazione, s.Tipi)
+	if s.Situazione != SituazioneArchiviato || s.Componente.ComponenteID != comp.ComponenteID || s.Componente.ArchiviatoIl == nil {
+		t.Errorf("situazione %s, componente %+v", s.Situazione, s.Componente)
 	}
 }
 
-// Solo un codice davvero nuovo offre prodotto, assieme e particolare. Un codice della richiesta e' gia'
-// deciso come prodotto: entra come prodotto.
-func TestSoloUnCodiceNuovoOffreITreTipi(t *testing.T) {
+// Un codice nuovo e un codice della richiesta si leggono: il primo e' solo un codice trovato, il secondo
+// e' gia' deciso come prodotto (nasce con AssicuraProdottiDellaRichiesta: la creazione della RFQ nel triage, o
+// l'apertura di una revisione della BOM congelata).
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima era TestSoloUnCodiceNuovoOffreITreTipi e fissava i tipi
+// offerti ai «+» (prodotto, assieme, particolare per il nuovo; prodotto per quello della richiesta). Un
+// codice trovato non fa piu' nascere un componente: la prova fissa le due situazioni, senza componente.
+func TestUnCodiceNuovoEUnoDellaRichiestaSiLeggonoSoltanto(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77760000", "", "famiglia", "corpo"), dalMessaggio("77750000", "", "famiglia", "oggetto")}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Identificativi: []db.IdentificativoThread{{Codice: "77750000"}}})
 	nuovo := trova(t, c, "77760000").Stato
-	if nuovo.Situazione != SituazioneNuovo || len(nuovo.Tipi) != 3 || nuovo.Tipi[0] != db.TipoComponenteFinito ||
-		nuovo.Tipi[1] != db.TipoComponenteSottoassieme || nuovo.Tipi[2] != db.TipoComponenteSciolto {
-		t.Errorf("nuovo: %s %v", nuovo.Situazione, nuovo.Tipi)
+	if nuovo.Situazione != SituazioneNuovo || nuovo.Componente != nil || nuovo.Identificativo || len(nuovo.Proposte) != 0 {
+		t.Errorf("nuovo: %+v", nuovo)
 	}
 	ric := trova(t, c, "77750000").Stato
-	if ric.Situazione != SituazioneRichiesta || !ric.Identificativo || len(ric.Tipi) != 1 || ric.Tipi[0] != db.TipoComponenteFinito {
-		t.Errorf("codice della richiesta: %s %v", ric.Situazione, ric.Tipi)
+	if ric.Situazione != SituazioneRichiesta || !ric.Identificativo || ric.Componente != nil || len(ric.Proposte) != 0 {
+		t.Errorf("codice della richiesta: %+v", ric)
 	}
 }
 
-// Con la BOM congelata la situazione resta quella e si mostra, ma nessun gesto la cambia da qui.
+// Con la BOM congelata la situazione resta quella e si mostra, e il pannello lo dice.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima fissava che a BOM congelata nessuna riga offrisse tipi
+// per «+» (Stato.Tipi vuoto); adesso non ne offre nessuna mai. Fissa che ogni riga porta la versione
+// congelata (il pannello la dice) e che la situazione non cambia.
 func TestConLaBomCongelataNessunGestoCheLaCambia(t *testing.T) {
 	righe := []db.ListCodiciCandidatiThreadRow{dalMessaggio("77760000", "", "famiglia", "corpo"), dalMessaggio("77750000", "", "famiglia", "oggetto")}
 	c := Unisci(righe, ContestoCodici{HaFamiglie: true, Bloccata: 2, Identificativi: []db.IdentificativoThread{{Codice: "77750000"}}})
@@ -296,8 +320,8 @@ func TestConLaBomCongelataNessunGestoCheLaCambia(t *testing.T) {
 		t.Errorf("Bloccata = %d", c.Bloccata)
 	}
 	for _, k := range append(c.Prodotto, c.Altri...) {
-		if len(k.Stato.Tipi) != 0 || k.Stato.Bloccata != 2 {
-			t.Errorf("%s: tipi %v, bloccata %d", k.Codice, k.Stato.Tipi, k.Stato.Bloccata)
+		if k.Stato.Componente != nil || k.Stato.Bloccata != 2 {
+			t.Errorf("%s: componente %v, bloccata %d", k.Codice, k.Stato.Componente, k.Stato.Bloccata)
 		}
 	}
 	if s := trova(t, c, "77760000").Stato.Situazione; s != SituazioneNuovo {

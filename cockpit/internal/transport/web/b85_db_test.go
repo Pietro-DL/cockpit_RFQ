@@ -2,7 +2,8 @@
 
 // L4 — B8.5 nelle rotte: la domanda «aggiungi o sostituisci» quando un file entra in un componente che
 // ha gia' un documento corrente dello stesso tipo (decisione del 24/09/2026 sulla condizione aperta di
-// A4.10), la rilettura degli STEP all'apertura della RFQ, i gesti sulle proposte di struttura.
+// A4.10), la rilettura degli STEP (non piu' all'apertura della RFQ: Smistamento F1), i gesti sulle proposte
+// di struttura.
 
 package web
 
@@ -136,10 +137,15 @@ const fattiAssieme = `{"struttura": {"versione": 3, "schema": "AP214", "radici":
 	"limiti": {"troncato": false}, "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
 	"occorrenze_su_se_stesse": 0, "testi_troncati": 0}}}`
 
-// Aprire la RFQ rilegge i suoi STEP: quello con i fatti correnti diventa proposte, quello senza si
-// accoda al worker. Poi i gesti: accettare tutto il file porta nodi e arco nella BOM, e un secondo
-// «accetta» sulla stessa proposta risponde con il rifiuto, non con un errore.
-func TestAprireLaRfqRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) {
+// Riscritta per lo Smistamento (R8, fase F1): prima fissava che aprire la RFQ (GET) rileggesse i suoi STEP,
+// scrivendo le proposte di quello con i fatti correnti e accodando l'analisi dell'altro. Adesso aprire la RFQ
+// non scrive niente, due volte di seguito; la preparazione (POST …/prepara, che la pagina manda da sola e a
+// cui la risposta non serve: 204) accoda l'analisi dello STEP senza fatti correnti e non rilegge quello che
+// li ha; «Rianalizza» lo rilegge e trova l'analisi gia' in coda. Poi i
+// gesti, come prima: accettare tutto il file porta nodi e arco nella BOM, e un secondo «accetta» sulla stessa
+// proposta risponde con il rifiuto, non con un errore. La parte dei gesti su uno STEP non dichiarato la
+// riscrive la fase F3.
+func TestAprireLaRfqNonRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) {
 	b := preparaBancoWeb(t)
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
 	b.ws.Analizzatore = an
@@ -149,27 +155,56 @@ func TestAprireLaRfqRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) {
 	r.stepNellaRfq("nuovo.stp", "", an)
 	w := operatore(b)
 
-	if risp, _ := w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false); risp.StatusCode != 200 {
-		t.Fatalf("apertura: %d", risp.StatusCode)
-	}
-	if n := r.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1 AND stato = 'aperta'`, r.thread); n != 2 {
-		t.Errorf("proposte di nodo aperte dopo l'apertura: %d, attese 2", n)
-	}
-	if n := r.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato'`); n != 1 {
-		t.Errorf("analisi accodate all'apertura: %d, attesa 1 (lo STEP senza fatti correnti)", n)
-	}
-	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 0 {
-		t.Errorf("aprire la RFQ ha creato %d componenti", n)
-	}
-	// una seconda apertura non accoda di nuovo e non riscrive
-	w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
-	if n := r.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato'`); n != 1 {
-		t.Errorf("la seconda apertura ha accodato di nuovo: %d", n)
+	for i := 1; i <= 2; i++ {
+		resp, pagina := w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
+		if resp.StatusCode != 200 {
+			t.Fatalf("apertura %d: %d", i, resp.StatusCode)
+		}
+		if n := r.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1`, r.thread); n != 0 {
+			t.Errorf("apertura %d: %d proposte di nodo, la GET non ne scrive", i, n)
+		}
+		if n := r.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato'`); n != 0 {
+			t.Errorf("apertura %d: %d analisi accodate, la GET non accoda", i, n)
+		}
+		if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 0 {
+			t.Errorf("apertura %d: aprire la RFQ ha creato %d componenti", i, n)
+		}
+		// il lavoro che manca lo chiede la pagina, con una POST, perche' chi guarda puo' scrivere
+		if !strings.Contains(leggibile(pagina), `hx-post="/thread/`+r.thread.String()+`/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}' hx-swap="none"`) {
+			t.Errorf("apertura %d: la pagina non chiede la preparazione", i)
+		}
 	}
 
-	_, html := w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/rianalizza", url.Values{}, true)
+	// la POST che la pagina della RFQ manda da sola (auto, hx-swap="none"): accoda, e non ha niente da
+	// rifare nella pagina
+	resp, corpo := w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/prepara", url.Values{"auto": {"1"}}, true)
+	if resp.StatusCode != http.StatusNoContent || corpo != "" {
+		t.Errorf("prepara dalla pagina della RFQ: %d con %d byte, atteso 204 vuoto", resp.StatusCode, len(corpo))
+	}
+	if n := r.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato'`); n != 1 {
+		t.Errorf("analisi accodate dalla preparazione: %d, attesa 1 (lo STEP senza fatti correnti)", n)
+	}
+	if n := r.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1`, r.thread); n != 0 {
+		t.Errorf("la preparazione accoda soltanto: %d proposte di nodo scritte", n)
+	}
+	// il bottone di riserva risponde con la pagina e l'avviso; una seconda preparazione non accoda di nuovo
+	_, html := w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/prepara", url.Values{}, true)
+	if a := avvisoDi(html); a != "Preparazione dei file: 1 analisi già in coda." {
+		t.Errorf("seconda preparazione: %q", a)
+	}
+	if n := r.conta(`SELECT count(*) FROM job WHERE tipo = 'analizza_allegato'`); n != 1 {
+		t.Errorf("la seconda preparazione ha accodato di nuovo: %d", n)
+	}
+
+	_, html = w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/rianalizza", url.Values{}, true)
 	if a := avvisoDi(html); !strings.Contains(a, "1 STEP riletto") || !strings.Contains(a, "1 analisi già in coda") {
 		t.Errorf("rianalizza: %q", a)
+	}
+	if n := r.conta(`SELECT count(*) FROM componente_proposta WHERE thread_id = $1 AND stato = 'aperta'`, r.thread); n != 2 {
+		t.Errorf("proposte di nodo aperte dopo «Rianalizza»: %d, attese 2", n)
+	}
+	if n := r.conta(`SELECT count(*) FROM componente WHERE thread_id = $1`, r.thread); n != 0 {
+		t.Errorf("rileggere ha creato %d componenti", n)
 	}
 
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/file/%s/accetta", r.thread, letto), url.Values{}, true)

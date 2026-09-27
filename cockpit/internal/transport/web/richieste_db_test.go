@@ -448,3 +448,58 @@ func TestIB7LaNewsletterENonBusinessEIlQuadranteLoDiceLaControparte(t *testing.T
 		t.Errorf("il conteggio di Da validare deve essere 1: %s", estratto(pagina, "quadrante validare"))
 	}
 }
+
+// Prova 123 (Smistamento P23, K5): la decisione resiste alla riproposta del fornitore. Alla conferma «e'
+// l'offerta del fornitore» diventano offerta_fornitore solo le proposte aperte degli allegati; non quella
+// il cui tipo l'ha scritto una persona (fonte operatore), ne' quella gia' scartata.
+func TestLaDecisioneResisteAllaRipropostaDelFornitore(t *testing.T) {
+	b := preparaBancoWeb(t)
+	acme := b.unCliente("Acme di prova", "ACME", "acme.example")
+	fornitore := b.unFornitore("Fornitore Esempio di prova", db.TipoFornitoreProcessi, "fornitore-esempio.example", "tornitura")
+	thread := b.rfqDa(uuid.Nil, acme, `ACME\WIP\2026 09 27 prova RFQ 7120001`, "7120001")
+	ric, err := b.q.InsertRichiestaFornitore(b.ctx, db.InsertRichiestaFornitoreParams{ThreadID: thread, FornitoreID: fornitore.FornitoreID,
+		Codici: []string{"7120001"}, Stato: db.StatoRichiestaFornitoreInviata})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := b.mail("entrata", "vendite@fornitore-esempio.example", "Offerta 7120001", "In allegato la nostra offerta e il disegno rivisto.")
+	m.Allegati = []worker.AllegatoIn{
+		{Indice: 1, NomeFile: "offerta 7120001.pdf", Estensione: "pdf", Natura: "file", Bytes: 5000},
+		{Indice: 2, NomeFile: "7120001_disegno.pdf", Estensione: "pdf", Natura: "file", Bytes: 6000},
+		{Indice: 3, NomeFile: "condizioni.pdf", Estensione: "pdf", Natura: "file", Bytes: 7000},
+	}
+	msg := b.postaMsg(m)
+	tipoDi := func(nome string) string {
+		t.Helper()
+		var tipo, fonte, stato string
+		if err := b.pool.QueryRow(b.ctx, `SELECT p.tipo_proposto::text, p.fonte::text, p.stato::text FROM documento_proposta p JOIN allegato a USING (allegato_id)
+			WHERE a.messaggio_id = $1 AND a.nome_file = $2`, msg, nome).Scan(&tipo, &fonte, &stato); err != nil {
+			t.Fatalf("%s: %v", nome, err)
+		}
+		return tipo + "/" + fonte + "/" + stato
+	}
+	// il tipo del disegno l'ha scritto una persona; le condizioni sono state scartate
+	if _, err := b.pool.Exec(b.ctx, `UPDATE documento_proposta p SET tipo_proposto = 'disegno_2d', fonte = 'operatore' FROM allegato a
+		WHERE a.allegato_id = p.allegato_id AND a.messaggio_id = $1 AND a.nome_file = '7120001_disegno.pdf'`, msg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.pool.Exec(b.ctx, `UPDATE documento_proposta p SET stato = 'scartata', tipo_proposto = 'altro' FROM allegato a
+		WHERE a.allegato_id = p.allegato_id AND a.messaggio_id = $1 AND a.nome_file = 'condizioni.pdf'`, msg); err != nil {
+		t.Fatal(err)
+	}
+	fp := b.browser("10.0.0.5:51000")
+	fp.login("FP", "prova-fp")
+	_, esito := fp.fai(http.MethodPost, "/messaggio/"+msg.String()+"/risposta-fornitore", url.Values{"richiesta_id": {ric.RichiestaID.String()}, "atto": {"offerta"}}, true)
+	if !strings.Contains(esito, "Offerta ricevuta") || !strings.Contains(esito, "1 allegato proposto come offerta del fornitore") {
+		t.Fatalf("la conferma dell'offerta: %s", estratto(esito, "avviso"))
+	}
+	if got := tipoDi("offerta 7120001.pdf"); !strings.HasPrefix(got, "offerta_fornitore/") || !strings.HasSuffix(got, "/aperta") {
+		t.Errorf("l'offerta, proposta aperta: %s", got)
+	}
+	if got := tipoDi("7120001_disegno.pdf"); got != "disegno_2d/operatore/aperta" {
+		t.Errorf("il tipo scritto da una persona resta: %s", got)
+	}
+	if got := tipoDi("condizioni.pdf"); !strings.HasPrefix(got, "altro/") || !strings.HasSuffix(got, "/scartata") {
+		t.Errorf("la proposta scartata resta: %s", got)
+	}
+}

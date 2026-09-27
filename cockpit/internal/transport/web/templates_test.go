@@ -120,7 +120,9 @@ func TestFrammentiEseguono(t *testing.T) {
 		dati         any
 		attesi       []string
 	}{
-		{"inbox.html", "messaggio_pannello", md, []string{"Scarica selezionati", "Conferma", "NAS: scritto", "file mancante", "in coda", "Apri RFQ"}},
+		// riscritta per lo Smistamento (F2): prima attendeva «Conferma» (Conferma… → NAS sugli allegati); il pannello
+		// non la offre piu' (prova 93, TestLaComunicazioniNonHaGestiCheDecidono), e al suo posto si attende il file
+		{"inbox.html", "messaggio_pannello", md, []string{"Scarica selezionati", "1234567A_4.pdf", "NAS: scritto", "file mancante", "in coda", "Apri RFQ"}},
 		{"inbox.html", "triage_form", td, []string{"Crea RFQ", "nuovo cliente", "1234567A_4.pdf", "checked"}},
 		{"inbox.html", "triage_form", func() *triageDati { x := *td; x.Azione = "aggancia"; return &x }(), []string{"/thread/cerca", "Aggancia"}},
 		{"inbox.html", "buyer_select", td, []string{"Rossi Mario"}},

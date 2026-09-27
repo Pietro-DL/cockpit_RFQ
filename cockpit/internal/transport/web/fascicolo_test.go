@@ -325,7 +325,12 @@ func TestLaRispostaFuoriBandaNonToccaLAnteprima(t *testing.T) {
 	}
 }
 
-// Il cassetto: i codici della richiesta (i frammenti di B8.6, con il bersaglio della schermata) e gli avvisi.
+// Il cassetto: i codici della richiesta (i frammenti di B8.6) e gli avvisi.
+//
+// Riscritta per lo Smistamento (R1, fase F2), nella parte dei codici: prima fissava che il cassetto offrisse
+// «+ Prodotto» sul codice nuovo, con la risposta nell'avviso della schermata (hx-target="#fasc-avviso"). Il
+// cassetto adesso si legge e basta, come la pagina della RFQ: la riga dice che il codice non ha un
+// componente, e non c'e' nessun bersaglio di un gesto, ne' questo ne' quello della pagina della RFQ.
 func TestIlCassettoDeiCodiciEDegliAvvisi(t *testing.T) {
 	s := fascicoloSintetico()
 	s.d.filtraFile()
@@ -338,7 +343,7 @@ func TestIlCassettoDeiCodiciEDegliAvvisi(t *testing.T) {
 	s.d.Codici = fascicolo.Unisci([]db.ListCodiciCandidatiThreadRow{{Codice: "20260908", Sorgente: "messaggio", Origine: "generico", Evidenza: "corpo",
 		Punteggio: 30, MessaggioID: uuid.New()}}, fascicolo.ContestoCodici{})
 	html = rendiParte(t, "fasc_cassetto", s.d)
-	haTesto(t, "codici", html, "Codici della richiesta", `id="codice-20260908"`, `hx-target="#fasc-avviso"`, "+ Prodotto")
-	senzaTesto(t, "codici", html, `hx-target="#thread"`)
+	haTesto(t, "codici", html, "Codici della richiesta", `id="codice-20260908"`, "nessun componente con questo codice", "si leggono e basta")
+	senzaTesto(t, "codici", html, `hx-target="#thread"`, `hx-target="#fasc-avviso"`, "+ Prodotto", "/codice/aggiungi")
 	_ = pgtype.Text{}
 }

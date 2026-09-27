@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 )
 
@@ -70,6 +71,12 @@ func (b *bancoWeb) scenaL7(t *testing.T, chiave string, extra int) *scenaL7 {
 	}
 	s.pdfVero(t, libero2, 64*1024)
 	s.stp = s.stepNellaRfq("assieme.stp", fattiL7, an)
+	// Riscritta per lo Smistamento (R8, fase F1): prima le proposte dello STEP nascevano quando il browser
+	// apriva il Fascicolo (la GET rileggeva gli STEP). Adesso aprire non scrive: la scena lo rilegge qui, come
+	// farebbe «Rianalizza» o l'aggancio del messaggio, e la pagina parte dalle stesse proposte di prima.
+	if _, err := fascicolo.RileggiStepDellaRfq(b.ctx, b.q, s.thread, an); err != nil {
+		t.Fatal(err)
+	}
 	for i, nome := range []string{"77817189 foglio 2.pdf", "77817189 foglio 3.pdf", "77817189 foglio 4.pdf"} {
 		p, a := s.propostaDa(nome, "77817189")
 		s.pdfVero(t, a, 64*1024+i+1)

@@ -66,6 +66,51 @@ func TestUnCodiceDellaStoriaCitataSiVedeMaNonNasceSpuntato(t *testing.T) {
 	}
 }
 
+// Prova 96 (Smistamento P17): un codice di famiglia visto SOLO nel nome di un allegato si vede, con
+// l'etichetta «visto solo nel nome di un allegato», ma non nasce spuntato: con la spunta gia' messa,
+// «Crea RFQ» faceva del nome di 7120001A_1.stp un prodotto 7120001A (E11). Lo stesso codice di famiglia
+// nell'oggetto nasce spuntato come prima. Anche fra gli «altri numeri» l'etichetta c'e'.
+func TestUnCodiceVistoSoloNelNomeDiUnAllegatoNonNasceSpuntato(t *testing.T) {
+	s := serverTest(t)
+	_, td, _ := datiSintetici()
+	td.Proponibili = []db.CandidatoCodice{
+		{MessaggioID: td.M.MessaggioID, Codice: "7120001", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
+			Famiglia: "7120", Punteggio: 80, Evidenza: "oggetto"},
+		{MessaggioID: td.M.MessaggioID, Codice: "7120001A", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
+			Famiglia: "7120", Punteggio: 80, Evidenza: "allegato 7120001A_1.stp"},
+	}
+	td.Altri = []db.CandidatoCodice{{MessaggioID: td.M.MessaggioID, Codice: "20260925", Ruolo: db.RuoloCodiceNonClassificato,
+		Origine: db.OrigineCodiceGenerico, Punteggio: 30, Evidenza: "allegato offerta 20260925.pdf"}}
+	if !td.Spuntato(td.Proponibili[0]) || td.Spuntato(td.Proponibili[1]) {
+		t.Errorf("Spuntato: oggetto %v (atteso si'), solo nel nome %v (atteso no)", td.Spuntato(td.Proponibili[0]), td.Spuntato(td.Proponibili[1]))
+	}
+	if SoloNelNome(td.Proponibili[0]) || !SoloNelNome(td.Proponibili[1]) {
+		t.Error("SoloNelNome guarda l'evidenza: «allegato …» si', «oggetto» no")
+	}
+
+	var buf bytes.Buffer
+	if err := s.pagine["inbox.html"].ExecuteTemplate(&buf, "triage_form", vista{Dati: td, Frammento: true}); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	riga := func(codice string) string {
+		m := regexp.MustCompile(`(?s)<input type="checkbox" name="codice" value="` + regexp.QuoteMeta(codice) + `".*?</label>`).FindString(html)
+		if m == "" {
+			t.Fatalf("il codice %s non e' fra le caselle del form", codice)
+		}
+		return m
+	}
+	if r := riga("7120001"); !strings.Contains(r, "checked") || strings.Contains(r, "visto solo nel nome di un allegato") {
+		t.Errorf("il codice dell'oggetto nasce spuntato, senza l'etichetta:\n%s", r)
+	}
+	if r := riga("7120001A"); strings.Contains(r, "checked") || !strings.Contains(r, "visto solo nel nome di un allegato") || !strings.Contains(r, "allegato 7120001A_1.stp") {
+		t.Errorf("il codice visto solo nel nome di un allegato non nasce spuntato, e lo dice:\n%s", r)
+	}
+	if r := riga("20260925"); strings.Contains(r, "checked") || !strings.Contains(r, "visto solo nel nome di un allegato") {
+		t.Errorf("fra gli altri numeri l'etichetta c'e':\n%s", r)
+	}
+}
+
 // La testata del pannello dice «altro · <etichetta>» per un soggetto censito come altro, come la riga
 // della lista. Prima diceva «mittente non censito», cioe' il contrario di quello che l'Inbox mostrava.
 func TestIlPannelloDiceAltroComeLaLista(t *testing.T) {

@@ -1,8 +1,9 @@
 package fascicolo
 
 // L1 — Fascicolo v3: la struttura voluta dall'editor, controllata da pianifica senza scrivere niente.
-// Riferimenti (c:, p:, k:), codici, quantita', archi ripetuti, la radice, l'albero, gli archi che l'editor
-// non mostrava, i cicli, gli scarti. Le prove L4 che la applicano davvero stanno in voluta_db_test.go.
+// Riferimenti (c:, p:, n:; k: rifiutato), codici, quantita', archi ripetuti, la radice, l'albero, gli archi
+// che l'editor non mostrava, i cicli, gli scarti. Le prove L4 che la applicano davvero stanno in
+// web/v3_db_test.go.
 
 import (
 	"fmt"
@@ -17,13 +18,14 @@ import (
 
 // bancoVoluta: il prodotto 77722757 → l'assieme 77720517 ×2 → il particolare 77817189 ×4, e il particolare
 // anche sotto il prodotto ×1 (condiviso). Uno STEP propone 77811111 (nuovo), 77720517 (c'e' gia'), un nodo
-// senza codice, una radice che e' il prodotto, un nodo gia' scartato.
+// senza codice, una radice con un altro nome (un codice interno del CAD), un nodo gia' scartato. 77750000 e'
+// un codice della richiesta.
 type bancoVoluta struct {
 	prodotto, assieme, particolare             db.Componente
 	nuovo, ritrovato, senzaCodice, radice, via db.ComponenteProposta
 	comp                                       []db.Componente
 	rel                                        []db.ComponenteRelazione
-	trovati                                    map[string]CodiceScritto
+	richiesta                                  []string
 }
 
 func propostaVoluta(chiave, codice string, stato db.StatoProposta) db.ComponenteProposta {
@@ -41,7 +43,7 @@ func nuovoBancoVoluta() *bancoVoluta {
 		senzaCodice: propostaVoluta("#4", "", db.StatoPropostaAperta),
 		radice:      propostaVoluta("#1", "PRT-0001", db.StatoPropostaAperta),
 		via:         propostaVoluta("#5", "77855555", db.StatoPropostaScartata),
-		trovati:     map[string]CodiceScritto{"77888888": {Codice: "77888888", Rev: "B"}},
+		richiesta:   []string{"77750000"},
 	}
 	b.comp = []db.Componente{b.prodotto, b.assieme, b.particolare}
 	b.rel = []db.ComponenteRelazione{
@@ -53,7 +55,7 @@ func nuovoBancoVoluta() *bancoVoluta {
 }
 
 func (b *bancoVoluta) contesto() contestoVoluta {
-	return nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.ritrovato, b.senzaCodice, b.radice, b.via}, b.trovati)
+	return nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.ritrovato, b.senzaCodice, b.radice, b.via}, b.richiesta)
 }
 
 func c(x db.Componente) string         { return "c:" + x.ComponenteID.String() }
@@ -84,13 +86,19 @@ func rifiutata(t *testing.T, cx contestoVoluta, v StrutturaVoluta, pezzo string)
 	}
 }
 
-// La struttura com'e', piu' il nodo nuovo sotto l'assieme e il nodo proposto che c'e' gia': il nuovo nasce
-// da quella proposta, l'altro si ritrova nel componente con il suo codice, l'albero e' tutto.
+// La struttura com'e', piu' il nodo nuovo sotto l'assieme, il nodo proposto che c'e' gia' e un componente
+// scritto dall'operatore: il nuovo nasce da quella proposta, l'altro si ritrova nel componente con il suo
+// codice, lo scritto nasce da se' con il suo tipo e la sua revisione, l'albero e' tutto.
+//
+// Riscritta per lo Smistamento (R1, U4, fase F2): prima il terzo pezzo era la carta «k:77888888», un codice
+// trovato nella RFQ che nasceva con la revisione delle sue evidenze. Adesso e' la carta «n:77888888», con il
+// codice scritto dall'operatore (StrutturaVoluta.Nuovi).
 func TestPianificaLaStrutturaConINodiProposti(t *testing.T) {
 	b := nuovoBancoVoluta()
 	v := b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 2},
-		ArcoVoluto{Padre: p(b.ritrovato), Figlio: "k:77888888", Qta: 3})
+		ArcoVoluto{Padre: p(b.ritrovato), Figlio: "n:77888888", Qta: 3})
+	v.Nuovi = []ComponenteNuovo{{Codice: "77888888", Tipo: db.TipoComponenteSciolto, Rev: "b"}}
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
@@ -101,8 +109,8 @@ func TestPianificaLaStrutturaConINodiProposti(t *testing.T) {
 	if pv.Ritrovati[b.ritrovato.PropostaID] != b.assieme.ComponenteID {
 		t.Errorf("il nodo 77720517 si ritrova nell'assieme: %v", pv.Ritrovati)
 	}
-	if got := pv.Trovati["n:77888888"]; got.Codice != "77888888" || got.Rev != "B" || pv.Nuovi["n:77888888"] != nil {
-		t.Errorf("il codice trovato nasce da se', con la sua revisione: %+v %v", got, pv.Nuovi["n:77888888"])
+	if got := pv.Scritti["n:77888888"]; got.Codice != "77888888" || got.Rev != "B" || got.Tipo != db.TipoComponenteSciolto || pv.Nuovi["n:77888888"] != nil {
+		t.Errorf("il componente scritto nasce da se', con il tipo e la revisione scritti: %+v %v", got, pv.Nuovi["n:77888888"])
 	}
 	for _, k := range []chiaveNodo{chiaveComponente(b.prodotto.ComponenteID), chiaveComponente(b.assieme.ComponenteID),
 		chiaveComponente(b.particolare.ComponenteID), "n:77811111", "n:77888888"} {
@@ -241,7 +249,11 @@ func TestPianificaRifiutaICicli(t *testing.T) {
 	}
 }
 
-// I riferimenti p: e k:, e i codici scritti dall'operatore.
+// I riferimenti p:, n: e k:, e i codici scritti dall'operatore.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima un «k:» non trovato si rifiutava («non è fra i codici
+// trovati») e un «k:» con il codice di un componente era quel componente. Adesso ogni «k:» si rifiuta, anche
+// quello di un componente che c'e'; il componente che c'e' lo ritrova la carta «n:» con il codice scritto.
 func TestPianificaRiferimentiECodici(t *testing.T) {
 	b := nuovoBancoVoluta()
 	sotto := func(ref string) StrutturaVoluta {
@@ -253,13 +265,14 @@ func TestPianificaRiferimentiECodici(t *testing.T) {
 	rifiutata(t, b.contesto(), sotto(p(b.via)), "è stato scartato")
 	rifiutata(t, b.contesto(), sotto("p:"+uuid.NewString()), "non è di questa RFQ")
 	rifiutata(t, b.contesto(), sotto("c:"+uuid.NewString()), "non è di questa RFQ")
-	rifiutata(t, b.contesto(), sotto("k:77877777"), "non è fra i codici trovati")
+	rifiutata(t, b.contesto(), sotto("k:77877777"), "un codice trovato nella RFQ non diventa un componente")
+	rifiutata(t, b.contesto(), sotto("k:77817189"), "un codice trovato nella RFQ non diventa un componente")
 	rifiutata(t, b.contesto(), sotto("x:qualcosa"), "non è valido")
 
-	// un codice trovato che e' gia' un componente e' quel componente
-	v := sotto("k:77817189")
-	v.Archi = v.Archi[:len(v.Archi)-1]
-	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: "k:77720517", Qta: 7})
+	// un codice scritto che e' gia' un componente e' quel componente
+	v := b.comeE()
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: "n:77720517", Qta: 7})
+	v.Nuovi = []ComponenteNuovo{{Codice: "77720517", Tipo: db.TipoComponenteSciolto}}
 	rifiutata(t, b.contesto(), v, "è due volte sotto")
 
 	// il codice scritto dall'operatore fa del nodo senza codice un codice nuovo
@@ -288,25 +301,35 @@ func TestPianificaRiferimentiECodici(t *testing.T) {
 	rifiutata(t, b.contesto(), v, "non valido")
 }
 
-// Una radice dello STEP che e' il prodotto: i suoi archi diventano archi del prodotto.
-func TestPianificaLaRadiceDelloStepEIlProdotto(t *testing.T) {
+// «E' il prodotto» non c'e' piu': una struttura che lo manda si rifiuta, qualunque nodo nomini; senza, la
+// radice dello STEP resta un nodo come gli altri e i suoi archi restano suoi.
+//
+// Riscritta per lo Smistamento (R5, fase F2): prima era TestPianificaLaRadiceDelloStepEIlProdotto e fissava
+// che la radice di uno STEP qualunque, detta «il prodotto», si ritrovasse nel prodotto (i suoi archi
+// diventavano archi del prodotto, la radice una volta sola in pv.Radici; una proposta gia' decisa si
+// rifiutava). Era una decisione sulla struttura presa senza decidere il file: la radice la fissa lo STEP
+// strutturale.
+func TestPianificaRifiutaEIlProdotto(t *testing.T) {
 	b := nuovoBancoVoluta()
 	v := b.comeE()
 	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID, b.radice.PropostaID}
-	v.Archi = append(v.Archi, ArcoVoluto{Padre: p(b.radice), Figlio: p(b.nuovo), Qta: 2})
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.radice), Qta: 1}, ArcoVoluto{Padre: p(b.radice), Figlio: p(b.nuovo), Qta: 2})
+	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
+	v.RadiciProposte = []uuid.UUID{b.via.PropostaID}
+	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
+
+	v.RadiciProposte = nil
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ultimo := pv.Archi[len(pv.Archi)-1]
-	if ultimo.Padre != chiaveComponente(b.prodotto.ComponenteID) || ultimo.Figlio != "n:77811111" {
-		t.Errorf("l'arco della radice dello STEP e' del prodotto: %+v", ultimo)
+	if ultimo.Padre != "n:PRT-0001" || ultimo.Figlio != "n:77811111" {
+		t.Errorf("l'arco della radice dello STEP resta della radice: %+v", ultimo)
 	}
-	if len(pv.Radici) != 1 || pv.Radici[0] != b.radice.PropostaID {
-		t.Errorf("la radice si ritrova una volta: %v", pv.Radici)
+	if ids := pv.Nuovi["n:PRT-0001"]; len(ids) != 1 || ids[0] != b.radice.PropostaID {
+		t.Errorf("la radice e' un nodo nuovo come gli altri, non il prodotto: %v", pv.Nuovi)
 	}
-	v.RadiciProposte = []uuid.UUID{b.via.PropostaID}
-	rifiutata(t, b.contesto(), v, "la proposta è già decisa")
 }
 
 // Gli scarti: nodi aperti, non nella struttura, non il prodotto.
@@ -331,10 +354,12 @@ func TestPianificaGliScarti(t *testing.T) {
 	v.Scarta = []uuid.UUID{b.ritrovato.PropostaID}
 	rifiutata(t, b.contesto(), v, "o l'uno o l'altro")
 
+	// riscritta per lo Smistamento (R5, fase F2): prima «e' il prodotto e fra gli scartati»; adesso «E' il
+	// prodotto» si rifiuta da se'
 	v = b.comeE()
 	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID}
 	v.Scarta = []uuid.UUID{b.radice.PropostaID}
-	rifiutata(t, b.contesto(), v, "è il prodotto")
+	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
 
 	v = b.comeE()
 	v.Scarta = []uuid.UUID{b.via.PropostaID}
@@ -462,24 +487,27 @@ func senzaArco(v StrutturaVoluta, padre, figlio db.Componente) StrutturaVoluta {
 	return v
 }
 
-// Una carta dell'editor sono tutte le proposte aperte con lo stesso codice (lo stesso nodo in due STEP): «e' il
-// prodotto» e «scarta» valgono per tutte.
+// Una carta dell'editor sono tutte le proposte aperte con lo stesso codice (lo stesso nodo in due STEP):
+// «scarta» vale per tutte.
+//
+// Riscritta per lo Smistamento (R5, fase F2): prima valeva per tutte anche «e' il prodotto» (le due radici
+// PRT-0001 in pv.Radici). Il gesto e' tolto: la prova fissa lo scarto della carta PRT-0001, che prende
+// tutte e due le radici.
 func TestPianificaUnaCartaSonoTutteLeProposteDelCodice(t *testing.T) {
 	b := nuovoBancoVoluta()
 	radice2 := propostaVoluta("#1", "PRT-0001", db.StatoPropostaAperta)
 	nuovo2 := propostaVoluta("#7", "77811111", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.radice, radice2, nuovo2, b.senzaCodice}, nil)
 	v := b.comeE()
-	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID}
-	v.Scarta = []uuid.UUID{b.nuovo.PropostaID}
+	v.Scarta = []uuid.UUID{b.radice.PropostaID, b.nuovo.PropostaID}
 	pv, err := pianifica(cx, v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pv.Radici) != 2 || !contieneID(pv.Radici, radice2.PropostaID) {
-		t.Errorf("le radici: %v", pv.Radici)
+	if !contieneID(pv.Scarta, b.radice.PropostaID) || !contieneID(pv.Scarta, radice2.PropostaID) {
+		t.Errorf("le radici PRT-0001 si scartano tutte e due: %v", pv.Scarta)
 	}
-	if len(pv.Scarta) != 2 || !contieneID(pv.Scarta, nuovo2.PropostaID) {
+	if len(pv.Scarta) != 4 || !contieneID(pv.Scarta, nuovo2.PropostaID) {
 		t.Errorf("gli scarti: %v", pv.Scarta)
 	}
 	// un nodo senza codice non ha una carta comune con nessuno
@@ -505,4 +533,87 @@ func TestPianificaRitrovaINodiDegliArchiMostrati(t *testing.T) {
 	if pv.Ritrovati[aperto.PropostaID] != b.assieme.ComponenteID {
 		t.Errorf("il nodo 77720517 dell'arco mostrato si ritrova nell'assieme: %v", pv.Ritrovati)
 	}
+}
+
+// Prova 107 (parte pura, Smistamento U4): la carta «n:» dell'editor. Il codice e' scritto, il tipo e'
+// assieme o particolare; se la RFQ ha gia' quel codice la carta e' quel componente (nessuna riga nuova), se
+// e' archiviato si ripristina prima; un codice della richiesta non diventa un componente da qui; uno quasi
+// uguale (P4) vuole la conferma che e' un pezzo diverso, e con la conferma nasce.
+func TestPianificaLaCartaDelComponenteScritto(t *testing.T) {
+	b := nuovoBancoVoluta()
+	archiviato := componente("77731111", db.TipoComponenteSciolto, true)
+	b.comp = append(b.comp, archiviato)
+	sotto := func(codice string, n ...ComponenteNuovo) StrutturaVoluta {
+		v := b.comeE()
+		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: "n:" + codice, Qta: 2})
+		v.Nuovi = n
+		return v
+	}
+	nuovo := func(codice string) ComponenteNuovo {
+		return ComponenteNuovo{Codice: codice, Tipo: db.TipoComponenteSciolto}
+	}
+
+	// il codice si scrive: senza la sua carta, con un tipo che non si crea qui, non ammesso, due volte
+	rifiutata(t, b.contesto(), sotto("77899999"), "non ha il suo codice scritto")
+	rifiutata(t, b.contesto(), sotto("77899999", ComponenteNuovo{Codice: "77899999", Tipo: db.TipoComponenteFinito}), "è un assieme o un particolare")
+	rifiutata(t, b.contesto(), sotto("77899999", ComponenteNuovo{Codice: "77899999", Tipo: db.TipoComponenteCommerciale}), "è un assieme o un particolare")
+	rifiutata(t, b.contesto(), sotto("77899999", ComponenteNuovo{Codice: "778 99999", Tipo: db.TipoComponenteSciolto}), "caratteri non ammessi")
+	rifiutata(t, b.contesto(), sotto("77899999", nuovo("77899999"), nuovo("77899999")), "è scritto due volte")
+
+	// un codice nuovo e lontano da tutti nasce, con il tipo scelto
+	pv, err := pianifica(b.contesto(), sotto("77899999", nuovo("77899999")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := pv.Scritti["n:77899999"]; n.Codice != "77899999" || n.Tipo != db.TipoComponenteSciolto || !pv.Albero["n:77899999"] || len(pv.Nuovi["n:77899999"]) != 0 {
+		t.Errorf("77899999 nasce dalla carta scritta: %+v, albero %v, proposte %v", n, pv.Albero["n:77899999"], pv.Nuovi["n:77899999"])
+	}
+
+	// un codice che c'e' e' quel componente: nessuna riga nuova, un arco in piu'
+	pv, err = pianifica(b.contesto(), func() StrutturaVoluta {
+		v := b.comeE()
+		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: "n:77817189", Qta: 1})
+		v.Archi = senzaArco(v, b.assieme, b.particolare).Archi
+		v.Nuovi = []ComponenteNuovo{nuovo("77817189")}
+		return v
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Scritti) != 0 || len(pv.Nuovi) != 0 || !pv.Esistenti[b.particolare.ComponenteID] {
+		t.Errorf("77817189 c'e' gia': nessun componente nuovo, e' quello: scritti %v, nuovi %v, esistenti %v", pv.Scritti, pv.Nuovi, pv.Esistenti)
+	}
+	rifiutata(t, b.contesto(), sotto("77731111", nuovo("77731111")), "c'è già ed è archiviato")
+	rifiutata(t, b.contesto(), sotto("77750000", nuovo("77750000")), "è un codice della richiesta")
+
+	// quasi uguale: senza conferma si rifiuta con i vicini, con la conferma nasce. 77720518 e' un altro numero
+	rifiutata(t, b.contesto(), sotto("77720517A", nuovo("77720517A")), "77720517A è quasi uguale a 77720517 (lettera finale)")
+	rifiutata(t, b.contesto(), sotto("77750000_F2", nuovo("77750000_F2")), "quasi uguale a 77750000")
+	diverso := nuovo("77720517A")
+	diverso.Diverso = true
+	if pv, err := pianifica(b.contesto(), sotto("77720517A", diverso)); err != nil || pv.Scritti["n:77720517A"].Codice != "77720517A" {
+		t.Errorf("con la conferma che e' un pezzo diverso nasce: %v %+v", err, pv.Scritti)
+	}
+	if _, err := pianifica(b.contesto(), sotto("77720518", nuovo("77720518"))); err != nil {
+		t.Errorf("77720518 non e' vicino di 77720517: %v", err)
+	}
+
+	// le maiuscole non fanno un pezzo nuovo: «7120001a» scritto in minuscolo e' il 7120001A che la RFQ ha gia'
+	// (l'identita' e' (thread, upper(codice)))
+	lettera := componente("7120001A", db.TipoComponenteSciolto, false)
+	b.comp = append(b.comp, lettera)
+	pv, err = pianifica(b.contesto(), sotto("7120001a", nuovo("7120001a")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pv.Scritti) != 0 || len(pv.Nuovi) != 0 || !pv.Esistenti[lettera.ComponenteID] || !pv.Albero[chiaveComponente(lettera.ComponenteID)] {
+		t.Errorf("7120001a e' 7120001A: scritti %v, nuovi %v, esistenti %v", pv.Scritti, pv.Nuovi, pv.Esistenti)
+	}
+
+	// un prodotto della RFQ non va sotto un altro prodotto da un codice scritto: lo ferma l'editor prima di
+	// mettere la carta, e lo rifiuta il core se la carta arriva lo stesso
+	altro := componente("77790001", db.TipoComponenteFinito, false)
+	b.comp = append(b.comp, altro)
+	rifiutata(t, b.contesto(), sotto("77790001", nuovo("77790001")), "77790001 è un prodotto della RFQ: si sceglie in alto, non si mette sotto un altro prodotto")
+	rifiutata(t, b.contesto(), sotto("77722757", nuovo("77722757")), "77722757 è un prodotto della RFQ")
 }

@@ -1,7 +1,8 @@
 //go:build integrazione
 
 // L4 — B8.7b sulla porta HTTP vera: la RFQ che nasce fa dei codici della richiesta i prodotti e prepara da
-// sola i file utili; l'aggancio e l'apertura del Fascicolo fanno lo stesso; «Conferma Fascicolo» porta nel
+// sola i file utili; l'aggancio fa lo stesso; aprire il Fascicolo non scrive, e la preparazione la chiede la
+// pagina con una POST, solo per chi lavora (Smistamento F1); «Conferma Fascicolo» porta nel
 // fascicolo solo il piano che l'operatore ha visto, tutto o niente; le decisioni di «Da verificare» non si
 // fanno riscrivere da una lettura che arriva dopo; «Importa dal NAS» resta sotto la radice; il poll rifa' i
 // pannelli solo quando qualcosa e' cambiato, e si ferma quando il lavoro finisce.
@@ -48,6 +49,11 @@ func (b *bancoWeb) mailConAllegati(oggetto, corpo string, allegati ...worker.All
 
 // La RFQ nasce: il codice spuntato diventa il prodotto finito, lo zip scende da solo (senza spunta) e
 // l'immagine no; il form lo dice prima.
+//
+// Riscritta per lo Smistamento (R8, E11, fase F1): prima si fermava alla creazione, e la GET del Fascicolo
+// avrebbe rifatto prodotti e preparazione a ogni apertura. Adesso i prodotti nascono solo qui: dopo la
+// creazione, aprire la RFQ e il Fascicolo non cambia il numero di nessuna riga, e la pagina del Fascicolo
+// chiede la preparazione con la sua POST.
 func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
@@ -94,10 +100,25 @@ func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 	if zip != 1 || logo != 0 {
 		t.Errorf("download: zip %d, logo %d", zip, logo)
 	}
+
+	prima := righeDelDatabase(t, b)
+	_, pagina := w.fai(http.MethodGet, "/thread/"+thread.String()+"/fascicolo", nil, false)
+	w.fai(http.MethodGet, "/thread/"+thread.String(), nil, false)
+	if dopo := righeDelDatabase(t, b); dopo != prima {
+		t.Errorf("aprire la RFQ appena creata ha cambiato il database:\nprima %s\ndopo  %s", prima, dopo)
+	}
+	if !strings.Contains(pagina, `hx-post="/thread/`+thread.String()+`/fascicolo/prepara" hx-trigger="load"`) {
+		t.Error("il Fascicolo chiede la preparazione con la sua POST")
+	}
 }
 
 // Agganciare un messaggio a una RFQ fa lo stesso: il codice della richiesta confermato diventa il prodotto
 // (una RFQ di prima, che non l'aveva), e lo STEP del messaggio scende.
+//
+// Riscritta per lo Smistamento (R8, E11, fase F1): prima una GET del Fascicolo avrebbe gia' fatto il prodotto
+// della RFQ di prima, a chiunque l'avesse aperta. Adesso aprirla non crea niente: il prodotto nasce con
+// l'aggancio, che e' la decisione di una persona. Che l'aggancio rilegga gli STEP gia' analizzati lo fissa la
+// prova 100 (TestAgganciareRileggeGliStepGiaAnalizzati).
 func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
@@ -111,6 +132,12 @@ func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	}
 	msg := b.mailConAllegati("RE: RFQ 77722757", "Ecco lo STEP.", worker.AllegatoIn{Indice: 1, NomeFile: "77722757.stp", Estensione: "stp", Natura: "file", Bytes: 9000})
 	w := operatore(b)
+	if resp, _ := w.fai(http.MethodGet, "/thread/"+thread.String()+"/fascicolo", nil, false); resp.StatusCode != 200 {
+		t.Fatalf("apertura del Fascicolo: %d", resp.StatusCode)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE thread_id = $1`, thread); n != 0 {
+		t.Fatalf("aprire il Fascicolo ha creato %d componenti: i prodotti nascono dal triage", n)
+	}
 	_, html := w.fai(http.MethodPost, "/messaggio/"+msg.String()+"/aggancia", url.Values{"thread_id": {thread.String()}}, true)
 	a := leggibile(html)
 	if !strings.Contains(a, "Agganciato") || !strings.Contains(a, "77722757 nella BOM come prodotto finito") || !strings.Contains(a, "1 file utile in preparazione") {
@@ -119,10 +146,19 @@ func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato'`); n != 1 {
 		t.Errorf("download dello STEP: %d", n)
 	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND tipo = 'finito' AND codice = '77722757'`, thread); n != 1 {
+		t.Errorf("il prodotto nato con l'aggancio: %d", n)
+	}
 }
 
-// Aprire il Fascicolo lo prepara, per chi lavora: una RFQ di prima con il codice della richiesta e un
+// Aprire il Fascicolo lo fa preparare, a chi lavora: una RFQ di prima con il codice della richiesta e un
 // allegato utile non ancora sceso. Chi consulta la guarda e non mette in moto niente.
+//
+// Riscritta per lo Smistamento (R8, E11, E29, fase F1): prima fissava che la GET dell'operatore facesse il
+// prodotto dal codice della richiesta e il download, e che la pagina nascesse con il poll dell'avanzamento.
+// Adesso la GET non scrive, per nessuno: la pagina dell'operatore porta la POST della preparazione
+// (hx-trigger="load"), che fa scendere il disegno e fa partire il poll, ma non fa il prodotto (quello nasce
+// al triage); la pagina di chi consulta non la porta, e la stessa POST gli risponde 403.
 func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
@@ -139,8 +175,15 @@ func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 
 	co := b.browser("10.0.0.9")
 	co.login("CO", "prova-co")
-	if resp, _ := co.fai(http.MethodGet, base, nil, false); resp.StatusCode != 200 {
+	resp, pagina := co.fai(http.MethodGet, base, nil, false)
+	if resp.StatusCode != 200 {
 		t.Fatalf("consultazione: %d", resp.StatusCode)
+	}
+	if strings.Contains(pagina, "/fascicolo/prepara") {
+		t.Error("la pagina di chi consulta non chiede la preparazione e non ha il bottone")
+	}
+	if resp, _ := co.fai(http.MethodPost, base+"/prepara", url.Values{"auto": {"1"}}, true); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("la preparazione chiesta da chi consulta: %d, atteso 403", resp.StatusCode)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM componente`); n != 0 {
 		t.Errorf("chi consulta non crea prodotti: %d", n)
@@ -149,17 +192,47 @@ func TestAprireIlFascicoloLoPreparaPerChiLavora(t *testing.T) {
 		t.Errorf("chi consulta non scarica: %d", n)
 	}
 
-	_, html := operatore(b).fai(http.MethodGet, base, nil, false)
-	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE tipo = 'finito' AND codice = '77722757'`); n != 1 {
-		t.Errorf("il codice della richiesta e' il prodotto: %d", n)
+	w := operatore(b)
+	_, html := w.fai(http.MethodGet, base, nil, false)
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente`); n != 0 {
+		t.Errorf("la GET dell'operatore ha creato %d componenti", n)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato'`); n != 0 {
+		t.Errorf("la GET dell'operatore ha accodato %d download", n)
+	}
+	for _, c := range []string{`hx-post="/thread/` + thread.String() + `/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}'`, ">Prepara i file</button>"} {
+		if !strings.Contains(leggibile(html), c) {
+			t.Errorf("la pagina dell'operatore: manca %q", c)
+		}
+	}
+	if strings.Contains(html, `hx-trigger="every 2s"`) {
+		t.Error("prima della preparazione non c'e' lavoro da seguire")
+	}
+
+	resp, html = w.daFascicolo(http.MethodPost, base+"/prepara", url.Values{"auto": {"1"}}, thread, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("preparazione: %d", resp.StatusCode)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato' AND stato = 'pronto'`); n != 1 {
 		t.Errorf("il disegno scende da solo: %d", n)
 	}
-	for _, c := range []string{"prodotto finito", "Preparazione dei file", "1 download", `hx-trigger="every 2s"`} {
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente`); n != 0 {
+		t.Errorf("la preparazione ha creato %d componenti: il prodotto nasce al triage", n)
+	}
+	for _, c := range []string{"Preparazione dei file", "1 download", `hx-trigger="every 2s"`, `hx-swap-oob`} {
 		if !strings.Contains(html, c) {
-			t.Errorf("la pagina: manca %q", c)
+			t.Errorf("la risposta della preparazione: manca %q", c)
 		}
+	}
+	if a := avvisoF(html); a != "" {
+		t.Errorf("la preparazione automatica non ha avviso: %q", a)
+	}
+	// una seconda preparazione automatica non trova niente da fare, e la pagina resta com'e'
+	if resp, _ := w.daFascicolo(http.MethodPost, base+"/prepara", url.Values{"auto": {"1"}}, thread, ""); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("seconda preparazione automatica: %d, atteso 204", resp.StatusCode)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato'`); n != 1 {
+		t.Errorf("la seconda preparazione ha accodato di nuovo: %d", n)
 	}
 }
 

@@ -2,11 +2,15 @@
 
 // L4 — B8.6: i codici candidati di una RFQ contro PostgreSQL vero. La vista v_codici_candidati_thread (0018)
 // unisce messaggi, proposte dei documenti e nodi degli STEP; CandidatiDellaRfq la legge con quello che la
-// RFQ ha gia' deciso (componenti, proposte STEP aperte, codici della richiesta, BOM congelata), e il gesto
-// «+ Prodotto / + Assieme / + Particolare» rilegge tutto con la RFQ bloccata.
+// RFQ ha gia' deciso (componenti, proposte STEP aperte, codici della richiesta, BOM congelata).
 //
 // La prova del piano e' TestLaVistaDeiCandidatiUnisceMessaggiAllegatiEStep; le altre sono i casi chiesti
 // per B8.6: componente, proposta, archiviato, revisioni discordanti, BOM congelata.
+//
+// Smistamento F2 (R1): il gesto «+ Prodotto / + Assieme / + Particolare» (AggiungiDaCodice) e' tolto. Le
+// prove che lo usavano sono riscritte: un codice trovato si legge e non fa nascere niente; un componente nasce
+// dal nodo di uno STEP, da un codice della richiesta (AssicuraProdottiDellaRichiesta) o dal codice scritto
+// nell'editor (la carta «n:», con origine manuale).
 
 package fascicolo_test
 
@@ -79,10 +83,30 @@ func (b *banco) candidati() fascicolo.Candidati {
 	return c
 }
 
-func (b *banco) aggiungi(codice string, tipo db.TipoComponente, rev string) (string, error) {
+// nellEditor conferma nell'editor della struttura, sotto il prodotto radice, la BOM com'e' piu' gli archi dati
+// (riferimenti c:, p:, n:, k:) e i componenti scritti: e' «Conferma struttura».
+func (b *banco) nellEditor(radice uuid.UUID, archi []fascicolo.ArcoVoluto, nuovi ...fascicolo.ComponenteNuovo) (string, error) {
+	b.t.Helper()
+	v := fascicolo.StrutturaVoluta{Radice: radice, Nuovi: nuovi}
+	righe, err := b.p.Query(b.ctx, `SELECT padre_id, figlio_id, qta FROM componente_relazione WHERE thread_id = $1`, b.thread)
+	ok(b.t, err)
+	for righe.Next() {
+		var p, f uuid.UUID
+		var q int32
+		ok(b.t, righe.Scan(&p, &f, &q))
+		a := fascicolo.ArcoVoluto{Padre: "c:" + p.String(), Figlio: "c:" + f.String(), Qta: q}
+		v.Archi, v.Visti = append(v.Archi, a), append(v.Visti, a)
+	}
+	righe.Close()
+	v.Archi = append(v.Archi, archi...)
 	return b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.AggiungiDaCodice(b.ctx, q, b.thread, b.utente, codice, tipo, rev)
+		return fascicolo.ApplicaStrutturaVoluta(b.ctx, q, b.thread, b.utente, v)
 	})
+}
+
+// sotto e' l'arco radice → ref, per nellEditor.
+func sotto(radice uuid.UUID, ref string) []fascicolo.ArcoVoluto {
+	return []fascicolo.ArcoVoluto{{Padre: "c:" + radice.String(), Figlio: ref, Qta: 1}}
 }
 
 func elenco(l []fascicolo.CodiceCandidato) string {
@@ -169,51 +193,92 @@ func TestLaVistaDeiCandidatiUnisceMessaggiAllegatiEStep(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- il gesto
+// ---------------------------------------------------------------- nessun componente da un codice trovato
 
-// Un codice nuovo diventa un componente con un gesto: il tipo scelto, origine codice_rilevato, chi l'ha
-// deciso. Dopo, lo stesso codice e' nella BOM e si apre; non si aggiunge due volte.
-func TestUnCodiceNuovoSiAggiungeConIlTipoScelto(t *testing.T) {
+// Nessun componente nasce da un codice trovato (Smistamento R1). Sostituisce TestUnCodiceNuovoSiAggiungeConIlTipoScelto,
+// tolta con AggiungiDaCodice (fase F2): fissava che un codice trovato nella RFQ diventasse un componente con un
+// gesto, con il tipo scelto e origine codice_rilevato, e che non si aggiungesse due volte. Adesso: la RFQ vede
+// codici di ogni forza (la famiglia nel corpo, il nome di un disegno, il cartiglio, il generico) e leggerli non
+// scrive niente; l'editor rifiuta la carta «k:» di un codice trovato; il componente nasce solo dal codice
+// scritto (la carta «n:»), con origine manuale e mai codice_rilevato, e una volta sola.
+func TestNessunComponenteNasceDaUnCodiceTrovato(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
 	m := b.mail()
 	b.candidato(m, "77760000", "", "prodotto", "famiglia", "corpo")
+	b.candidato(m, "20260908", "", "non_classificato", "generico", "corpo")
+	b.fileConProposta(m, "77761111_A.pdf", "disegno_2d", "77761111", "A", "nome_file", "aperta", "")
+	b.fileConProposta(m, "foglio.pdf", "disegno_2d", "77762222", "", "cartiglio", "aperta", "")
+	prodotto := b.componente("77750000", db.TipoComponenteFinito)
+	prima := b.bom()
 
-	for _, sbagliato := range []struct {
-		codice string
-		tipo   db.TipoComponente
-		frase  string
-	}{
-		{"77769999", db.TipoComponenteSottoassieme, "non è fra i codici trovati"},
-		{"77760000", db.TipoComponenteCommerciale, "prodotto, assieme o particolare"},
-	} {
-		_, err := b.aggiungi(sbagliato.codice, sbagliato.tipo, "")
-		deveRifiutare(t, err, sbagliato.frase)
+	c := b.candidati()
+	for _, codice := range []string{"77760000", "20260908", "77761111", "77762222"} {
+		if s := trovaCodice(t, c, codice).Stato; s.Situazione != fascicolo.SituazioneNuovo || s.Componente != nil {
+			t.Errorf("%s: %+v", codice, s)
+		}
 	}
-	if got := b.bom(); got != "" {
-		t.Fatalf("un rifiuto ha cambiato la BOM: %s", got)
+	if b.bom() != prima {
+		t.Fatalf("leggere i codici ha cambiato la BOM:\nprima %s\ndopo  %s", prima, b.bom())
 	}
-	msg, err := b.aggiungi("77760000", db.TipoComponenteSottoassieme, "")
+	for _, codice := range []string{"77760000", "77761111", "77762222", "20260908"} {
+		_, err := b.nellEditor(prodotto, sotto(prodotto, "k:"+codice))
+		deveRifiutare(t, err, codice+": un codice trovato nella RFQ non diventa un componente dall'editor")
+	}
+	if b.bom() != prima {
+		t.Fatalf("un rifiuto ha cambiato la BOM: %s", b.bom())
+	}
+
+	// scritto, nasce: con il tipo scelto, origine manuale, chi l'ha deciso
+	msg, err := b.nellEditor(prodotto, sotto(prodotto, "n:77760000"), fascicolo.ComponenteNuovo{Codice: "77760000", Tipo: db.TipoComponenteSottoassieme})
 	ok(t, err)
-	if msg != "77760000 entra nella BOM come assieme." {
+	if msg != "Struttura di 77750000 confermata: 1 componente nuovo, 1 legame aggiunto." {
 		t.Errorf("messaggio: %q", msg)
 	}
 	if got := uno[string](b, `SELECT codice || ':' || tipo || ':' || origine || ':' || coalesce(rev, '-') || ':' || (confermato_da = $2)::text
-		FROM componente WHERE thread_id = $1`, b.thread, b.utente); got != "77760000:sottoassieme:codice_rilevato:-:true" {
+		FROM componente WHERE thread_id = $1 AND codice = '77760000'`, b.thread, b.utente); got != "77760000:sottoassieme:manuale:-:true" {
 		t.Errorf("componente = %s", got)
+	}
+	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND origine = 'codice_rilevato'`, b.thread); n != 0 {
+		t.Errorf("%d componenti nati da un codice rilevato", n)
 	}
 	if s := trovaCodice(t, b.candidati(), "77760000").Stato.Situazione; s != fascicolo.SituazioneComponente {
 		t.Errorf("dopo: %s", s)
 	}
-	_, err = b.aggiungi("77760000", db.TipoComponenteFinito, "")
-	deveRifiutare(t, err, "è già nella BOM come assieme: si apre quello")
-	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1`, b.thread); n != 1 {
-		t.Errorf("%d componenti", n)
+	// scritto una seconda volta, sotto un altro padre, e' lo stesso pezzo: la carta «n:» ritrova il componente
+	// (identita' (thread, upper(codice)), U4), non nasce una seconda riga e l'arco nuovo punta a lui. Il tipo
+	// scritto la seconda volta non cambia quello deciso la prima. La carta sta in un arco: una carta che nessun
+	// arco usa non si risolve, e non proverebbe niente
+	nato := uno[uuid.UUID](b, `SELECT componente_id FROM componente WHERE thread_id = $1 AND codice = '77760000'`, b.thread)
+	assieme := b.componente("77763333", db.TipoComponenteSottoassieme)
+	b.arco(prodotto, assieme, 1)
+	msg, err = b.nellEditor(prodotto, []fascicolo.ArcoVoluto{{Padre: "c:" + assieme.String(), Figlio: "n:77760000", Qta: 3}},
+		fascicolo.ComponenteNuovo{Codice: "77760000", Tipo: db.TipoComponenteSciolto})
+	ok(t, err)
+	if msg != "Struttura di 77750000 confermata: 1 codice scritto già nella BOM, collegato lo stesso componente, 1 legame aggiunto." {
+		t.Errorf("messaggio: %q", msg)
+	}
+	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND upper(codice) = '77760000'`, b.thread); n != 1 {
+		t.Errorf("%d componenti 77760000, atteso 1", n)
+	}
+	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1`, b.thread); n != 3 {
+		t.Errorf("%d componenti, attesi 3 (il prodotto, l'assieme e 77760000)", n)
+	}
+	if got := uno[string](b, `SELECT string_agg(p.codice || '>' || f.codice || '*' || r.qta || ':' || (r.figlio_id = $2)::text, ' ' ORDER BY p.codice)
+		FROM componente_relazione r JOIN componente p ON p.componente_id = r.padre_id JOIN componente f ON f.componente_id = r.figlio_id
+		WHERE r.thread_id = $1 AND f.codice = '77760000'`, b.thread, nato); got != "77750000>77760000*1:true 77763333>77760000*3:true" {
+		t.Errorf("i padri di 77760000 = %s", got)
+	}
+	if got := uno[string](b, `SELECT tipo::text || ':' || origine::text FROM componente WHERE componente_id = $1`, nato); got != "sottoassieme:manuale" {
+		t.Errorf("77760000 = %s, atteso sottoassieme:manuale (quello deciso la prima volta)", got)
 	}
 }
 
-// Un codice con un nodo STEP aperto si decide li': «+» lo rifiuta, e la proposta resta com'era; accettare
-// il nodo crea il componente, e il codice diventa «nel Fascicolo».
+// Un codice con un nodo STEP aperto si decide li': leggere il pannello non tocca niente; accettare il nodo
+// crea il componente, e il codice diventa «nel Fascicolo».
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima fissava che «+» su quel codice si rifiutasse («si decide
+// quella»); il «+» non c'e' piu'. Fissa che la lettura porta al nodo e non cambia ne' la BOM ne' le proposte.
 func TestUnCodiceConUnaPropostaApertaSiDecideNellaProposta(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
@@ -222,12 +287,14 @@ func TestUnCodiceConUnaPropostaApertaSiDecideNellaProposta(t *testing.T) {
 		fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517"}, archi: []string{"#1>#2*2"}}.json())
 	prima := b.nodiProposti()
 
-	_, err := b.aggiungi("77720517", db.TipoComponenteSciolto, "")
-	deveRifiutare(t, err, "ha una proposta aperta dallo STEP assieme.stp (nodo «77720517»): si decide quella")
-	if b.bom() != "" || b.nodiProposti() != prima {
-		t.Fatalf("il rifiuto ha cambiato qualcosa: bom %q, proposte %q", b.bom(), b.nodiProposti())
+	s := trovaCodice(t, b.candidati(), "77720517").Stato
+	if s.Situazione != fascicolo.SituazioneProposta || s.Proposta().NomeFile != "assieme.stp" || s.Proposta().NomeGrezzo != "77720517" {
+		t.Errorf("il codice porta al nodo «77720517» di assieme.stp: %s %+v", s.Situazione, s.Proposta())
 	}
-	_, err = b.gesto(func(q *db.Queries) (string, error) {
+	if b.bom() != "" || b.nodiProposti() != prima {
+		t.Fatalf("la lettura ha cambiato qualcosa: bom %q, proposte %q", b.bom(), b.nodiProposti())
+	}
+	_, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.AccettaNodo(b.ctx, q, b.thread, b.proposta("#2"), b.utente, "")
 	})
 	ok(t, err)
@@ -238,20 +305,25 @@ func TestUnCodiceConUnaPropostaApertaSiDecideNellaProposta(t *testing.T) {
 
 // Un codice di un componente archiviato non ne crea un altro: si ripristina, lo stesso, con la sua storia.
 // Il ripristino ritrova anche le proposte di nodo ancora aperte con quel codice.
+//
+// Riscritta per lo Smistamento (R1, U4, fase F2): prima il rifiuto veniva da «+» sul codice («è archiviato:
+// si ripristina»). Adesso viene dall'unica strada per un componente scritto, l'editor: la carta «n:» con il
+// codice di un archiviato si rifiuta, e non nasce una seconda riga.
 func TestUnCodiceArchiviatoSiRipristinaNonSiRicrea(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
 	b.candidato(b.mail(), "77731111", "", "prodotto", "famiglia", "corpo")
 	comp := b.componente("77731111", db.TipoComponenteSciolto)
+	prodotto := b.componente("77750000", db.TipoComponenteFinito)
 	_, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.ArchiviaComponente(b.ctx, q, b.thread, comp, b.utente, "tolto dal cliente")
 	})
 	ok(t, err)
 
-	_, err = b.aggiungi("77731111", db.TipoComponenteSciolto, "")
-	deveRifiutare(t, err, "è archiviato: si ripristina")
-	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1`, b.thread); n != 1 {
-		t.Fatalf("%d componenti: il rifiuto ne ha creato un altro", n)
+	_, err = b.nellEditor(prodotto, sotto(prodotto, "n:77731111"), fascicolo.ComponenteNuovo{Codice: "77731111", Tipo: db.TipoComponenteSciolto})
+	deveRifiutare(t, err, "77731111 c'è già ed è archiviato: si ripristina dalla Struttura BOM")
+	if n := uno[int64](b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND upper(codice) = '77731111'`, b.thread); n != 1 {
+		t.Fatalf("%d componenti 77731111: il rifiuto ne ha creato un altro", n)
 	}
 
 	// arriva uno STEP con lo stesso codice: il nodo resta aperto (accettarlo lo ripristinerebbe) e il codice
@@ -265,7 +337,7 @@ func TestUnCodiceArchiviatoSiRipristinaNonSiRicrea(t *testing.T) {
 	if !strings.Contains(msg, "77731111 ripristinato") {
 		t.Errorf("messaggio: %q", msg)
 	}
-	if got := uno[string](b, `SELECT (archiviato_il IS NULL)::text || ':' || componente_id::text FROM componente WHERE thread_id = $1`, b.thread); got != "true:"+comp.String() {
+	if got := uno[string](b, `SELECT (archiviato_il IS NULL)::text || ':' || componente_id::text FROM componente WHERE thread_id = $1 AND codice = '77731111'`, b.thread); got != "true:"+comp.String() {
 		t.Errorf("ripristinato: %s", got)
 	}
 	if got := uno[string](b, `SELECT stato || ':' || coalesce((componente_id = $2)::text, 'senza componente') FROM componente_proposta WHERE thread_id = $1`,
@@ -277,54 +349,71 @@ func TestUnCodiceArchiviatoSiRipristinaNonSiRicrea(t *testing.T) {
 	}
 }
 
-// Revisioni diverse fra le evidenze: il componente non nasce finche' chi aggiunge non sceglie, e sceglie
-// fra quelle viste. Il punteggio piu' alto non decide.
-func TestLeRevisioniDiscordantiVoglionoLaScelta(t *testing.T) {
+// Revisioni diverse fra le evidenze: si vedono tutte e due, il punteggio piu' alto non decide, e nessun
+// componente nasce dal codice. Chi scrive il componente nell'editor scrive anche la revisione.
+//
+// Riscritta per lo Smistamento (R1, U4, fase F2): prima era TestLeRevisioniDiscordantiVoglionoLaScelta e
+// fissava la scelta della revisione dentro «+» (rifiuto senza scelta, rifiuto di una non vista, «a» → A). Il
+// «+» non c'e' piu': la revisione del componente scritto e' quella che l'operatore scrive, in maiuscolo.
+func TestLeRevisioniDiscordantiSiVedonoENonDecidono(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
 	m := b.mail()
 	b.candidato(m, "77770000", "A", "prodotto", "famiglia", "oggetto")
 	b.fileConProposta(m, "77770000_B.pdf", "disegno_2d", "77770000", "B", "cartiglio", "aperta", "")
+	prodotto := b.componente("77750000", db.TipoComponenteFinito)
 
 	k := trovaCodice(t, b.candidati(), "77770000")
 	if !k.Conflitto || len(k.Revisioni) != 2 {
 		t.Fatalf("revisioni = %+v", k.Revisioni)
 	}
-	_, err := b.aggiungi("77770000", db.TipoComponenteSciolto, "")
-	deveRifiutare(t, err, "revisioni discordanti")
-	_, err = b.aggiungi("77770000", db.TipoComponenteSciolto, "C")
-	deveRifiutare(t, err, "la revisione C non è fra quelle viste")
-	if b.bom() != "" {
-		t.Fatalf("un rifiuto ha cambiato la BOM: %s", b.bom())
+	if k.Punteggio != 80 || k.Revisioni[0].Rev != "A" || k.Stato.Situazione != fascicolo.SituazioneNuovo || k.Stato.Componente != nil {
+		t.Errorf("la famiglia nell'oggetto (80, rev A) ordina e non decide: punteggio %d, %+v, %+v", k.Punteggio, k.Revisioni, k.Stato)
 	}
-	msg, err := b.aggiungi("77770000", db.TipoComponenteSciolto, "a")
+	if got := b.bom(); got != "77750000:finito:-" {
+		t.Fatalf("leggere i codici ha cambiato la BOM: %s", got)
+	}
+	msg, err := b.nellEditor(prodotto, sotto(prodotto, "n:77770000"), fascicolo.ComponenteNuovo{Codice: "77770000", Tipo: db.TipoComponenteSciolto, Rev: "a"})
 	ok(t, err)
-	if msg != "77770000 entra nella BOM come particolare, rev A." {
+	if msg != "Struttura di 77750000 confermata: 1 componente nuovo, 1 legame aggiunto." {
 		t.Errorf("messaggio: %q", msg)
 	}
-	if got := uno[string](b, `SELECT coalesce(rev, '-') FROM componente WHERE thread_id = $1`, b.thread); got != "A" {
-		t.Errorf("rev del componente = %s", got)
+	if got := uno[string](b, `SELECT coalesce(rev, '-') || ':' || origine FROM componente WHERE thread_id = $1 AND codice = '77770000'`, b.thread); got != "A:manuale" {
+		t.Errorf("rev e origine del componente = %s", got)
 	}
 }
 
-// Un codice della richiesta e' gia' deciso come prodotto: da qui entra come prodotto e basta.
+// Un codice della richiesta e' gia' deciso come prodotto: diventa prodotto con AssicuraProdottiDellaRichiesta
+// (la creazione della RFQ nel triage, o l'apertura di una revisione della BOM congelata), e non entra nella
+// BOM come altro dall'editor.
+//
+// Riscritta per lo Smistamento (R1, fase F2): prima entrava come prodotto dal «+ Prodotto» del pannello (e
+// «+ Assieme» si rifiutava). Adesso la strada e' AssicuraProdottiDellaRichiesta, e la carta «n:» con quel
+// codice si rifiuta.
 func TestUnCodiceDellaRichiestaEntraComeProdotto(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
 	b.candidato(b.mail(), "77780000", "", "prodotto", "famiglia", "oggetto")
-	b.esegui(`INSERT INTO identificativo_thread (thread_id, codice, origine) VALUES ($1, '77780000', 'proposta_famiglia')`, b.thread)
+	b.identificativo("77780000", "proposta_famiglia", true)
+	altro := b.componente("77750000", db.TipoComponenteFinito)
 
-	_, err := b.aggiungi("77780000", db.TipoComponenteSottoassieme, "")
-	deveRifiutare(t, err, "è un codice della richiesta: entra come prodotto")
-	msg, err := b.aggiungi("77780000", db.TipoComponenteFinito, "")
-	ok(t, err)
-	if msg != "77780000 entra nella BOM come prodotto." {
-		t.Errorf("messaggio: %q", msg)
+	if s := trovaCodice(t, b.candidati(), "77780000").Stato; s.Situazione != fascicolo.SituazioneRichiesta || !s.Identificativo {
+		t.Errorf("codice della richiesta: %+v", s)
+	}
+	_, err := b.nellEditor(altro, sotto(altro, "n:77780000"), fascicolo.ComponenteNuovo{Codice: "77780000", Tipo: db.TipoComponenteSottoassieme})
+	deveRifiutare(t, err, "77780000 è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, "+
+		"o aprendo una revisione della BOM congelata; non è un componente dall'editor")
+	es := b.assicura()
+	if len(es.Creati) != 1 || es.Creati[0] != "77780000" {
+		t.Errorf("AssicuraProdottiDellaRichiesta crea il prodotto: %+v", es)
+	}
+	if got := uno[string](b, `SELECT tipo::text FROM componente WHERE thread_id = $1 AND codice = '77780000'`, b.thread); got != "finito" {
+		t.Errorf("77780000 = %s, atteso finito", got)
 	}
 }
 
 // Con la BOM congelata i codici si leggono, con la loro situazione, ma niente li porta nella working:
-// ne' «+», ne' il ripristino (D26).
+// ne' un componente scritto nell'editor, ne' il ripristino (D26).
 func TestConLaBomCongelataICodiciNonCambianoLaBom(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
@@ -343,18 +432,18 @@ func TestConLaBomCongelataICodiciNonCambianoLaBom(t *testing.T) {
 		t.Errorf("Bloccata = %d, attesa 1", c.Bloccata)
 	}
 	for codice, attesa := range map[string]fascicolo.Situazione{"77790000": fascicolo.SituazioneNuovo, "77791111": fascicolo.SituazioneArchiviato} {
-		if s := trovaCodice(t, c, codice).Stato; s.Situazione != attesa || len(s.Tipi) != 0 {
-			t.Errorf("%s: %s con tipi %v", codice, s.Situazione, s.Tipi)
+		if s := trovaCodice(t, c, codice).Stato; s.Situazione != attesa || s.Bloccata != 1 {
+			t.Errorf("%s: %s, bloccata %d", codice, s.Situazione, s.Bloccata)
 		}
 	}
-	_, err = b.aggiungi("77790000", db.TipoComponenteSciolto, "")
+	// riscritta per lo Smistamento (F2): prima si rifiutava «+» sul codice; adesso il componente scritto nell'editor
+	_, err = b.nellEditor(r.p1, sotto(r.p1, "n:77790000"), fascicolo.ComponenteNuovo{Codice: "77790000", Tipo: db.TipoComponenteSciolto})
 	deveRifiutare(t, err, "la BOM è congelata nella V1")
 	_, err = b.gesto(func(q *db.Queries) (string, error) { return fascicolo.RipristinaComponente(b.ctx, q, b.thread, arch) })
 	deveRifiutare(t, err, "la BOM è congelata nella V1")
 	if b.bom() != prima {
 		t.Errorf("la BOM congelata e' cambiata:\nprima %s\ndopo  %s", prima, b.bom())
 	}
-	_ = r
 }
 
 // D16 chiusa (24/09/2026): la radice di famiglia scrive fonte = 'regola_cliente' e regola_id NULL, anche
