@@ -2,7 +2,7 @@ package fascicolo
 
 // L'editor della struttura (Fascicolo v3): sotto un prodotto finito l'operatore disegna la struttura che
 // vuole — sposta le carte, prende o lascia quello che lo STEP propone, mette un pezzo anche sotto un secondo
-// padre, organizza a mano i codici trovati quando lo STEP non c'e' — e la conferma con un gesto solo. Qui la
+// padre, scrive a mano il codice di un pezzo quando lo STEP non c'e' — e la conferma con un gesto solo. Qui la
 // si applica in UNA transazione (quella di chi chiama), con le primitive di sempre: accettaNodo per i nodi
 // proposti, scollega e collega per gli archi, accettaRelazione quando l'arco voluto e' proprio quello che lo
 // STEP propone. Il grafo finale si controlla prima di scrivere, e un rifiuto annulla la transazione intera:
@@ -24,8 +24,16 @@ package fascicolo
 // confermata non ha, o ha con un'altra quantita', si chiude con la nota che dice perche': e' una decisione
 // presa. Una proposta che l'editor non ha mostrato resta aperta, a meno che dica esattamente un arco voluto
 // (allora e' un duplicato). Un nodo che l'operatore scarta si porta dietro, esplicitamente, gli archi che lo
-// toccano. Una radice dello STEP che «e' il prodotto» (RadiciProposte: un codice interno del CAD, un nome
-// diverso) si ritrova nel prodotto: i suoi archi diventano archi del prodotto.
+// toccano.
+//
+// Smistamento F2 (R1, R5). Dall'editor non nasce piu' un componente da un'evidenza: le carte «k:» (i codici
+// trovati nella RFQ) sono tolte, e un riferimento «k:» si rifiuta. Un pezzo che lo STEP non propone lo si
+// scrive: la carta «n:<codice>» (StrutturaVoluta.Nuovi, U4) ha il codice scritto dall'operatore, il tipo
+// assieme o particolare, origine `manuale`, e la guardia «quasi uguale» (P4) che vuole la conferma che e' un
+// pezzo diverso. Un codice che la RFQ ha gia' ritrova quel componente: mai una seconda riga. Tolto anche
+// «E' il prodotto» (RadiciProposte, che si rifiuta): la radice di uno STEP qualunque diventava il prodotto
+// senza che il file fosse associato ne' scelto come STEP strutturale. La radice la fissa lo STEP
+// strutturale.
 //
 // Le rimozioni proposte dallo STEP strutturale su archi che l'operatore ha appena confermato si chiudono:
 // «tenuto nella struttura confermata». Una rimozione scartata non si ripropone.
@@ -51,7 +59,8 @@ const MaxArchiVoluti = 5000
 
 // ArcoVoluto e' un arco della struttura voluta. Padre e figlio sono riferimenti: "c:<componente_id>" per un
 // componente della working, "p:<proposta_id>" per un nodo proposto da uno STEP (componente_proposta),
-// "k:<codice>" per un codice trovato nella RFQ che non e' ancora un componente.
+// "n:<codice>" per un componente che l'operatore scrive (StrutturaVoluta.Nuovi). "k:<codice>", il codice
+// trovato nella RFQ, non c'e' piu' (Smistamento F2) e si rifiuta.
 type ArcoVoluto struct {
 	Padre  string `json:"padre"`
 	Figlio string `json:"figlio"`
@@ -79,18 +88,33 @@ type StrutturaVoluta struct {
 	Visti []ArcoVoluto `json:"visti"`
 	// RelazioniViste sono gli archi proposti che l'editor ha mostrato.
 	RelazioniViste []RelazioneVista `json:"relazioni_viste"`
-	// RadiciProposte sono nodi proposti che l'operatore ha detto essere il prodotto stesso.
+	// RadiciProposte erano i nodi proposti che l'operatore diceva essere il prodotto («E' il prodotto»).
+	// Il gesto non c'e' piu' (Smistamento F2): il campo resta solo perche' una struttura che lo usa si
+	// rifiuti invece di perdere la scelta in silenzio.
 	RadiciProposte []uuid.UUID `json:"radici_proposte"`
 	// Scarta: nodi proposti che non sono pezzi della distinta, con gli archi che li toccano.
 	Scarta []uuid.UUID `json:"scarta"`
 	// Codici: proposta_id → il codice scritto dall'operatore.
 	Codici map[string]CodiceScritto `json:"codici"`
+	// Nuovi: i componenti scritti con «+ Componente con codice» (U4), le carte "n:<codice>".
+	Nuovi []ComponenteNuovo `json:"nuovi"`
+}
+
+// ComponenteNuovo e' un pezzo che l'operatore scrive nell'editor: il codice e' suo, mai precompilato.
+type ComponenteNuovo struct {
+	Codice string            `json:"codice"`
+	Tipo   db.TipoComponente `json:"tipo"` // sottoassieme o sciolto (TipiNuovo)
+	Rev    string            `json:"rev"`
+	// Diverso: l'operatore ha detto che e' un pezzo diverso dai codici quasi uguali della RFQ (P4). Senza,
+	// un codice quasi uguale si rifiuta.
+	Diverso bool `json:"diverso"`
 }
 
 // ------------------------------------------------------------------ il piano (puro)
 
 // chiaveNodo e' un nodo della struttura voluta: "c:<componente_id>" per un componente che c'e', "n:<CODICE>"
-// per un codice nuovo, che nasce accettando le proposte aperte con quel codice o da un codice trovato.
+// per un codice nuovo, che nasce accettando le proposte aperte con quel codice o dal codice scritto
+// dall'operatore (una carta «n:»).
 type chiaveNodo string
 
 func chiaveComponente(id uuid.UUID) chiaveNodo { return chiaveNodo("c:" + id.String()) }
@@ -104,7 +128,7 @@ func (k chiaveNodo) componente() (uuid.UUID, bool) {
 	return id, err == nil
 }
 
-// contestoVoluta e' la working, le proposte e i codici trovati, letti sotto il lucchetto della RFQ.
+// contestoVoluta e' la working, le proposte e i codici della richiesta, letti sotto il lucchetto della RFQ.
 type contestoVoluta struct {
 	Componenti map[uuid.UUID]db.Componente
 	PerCodice  map[string]db.Componente // upper(codice) → componente, archiviati compresi (e il codice senza suffisso)
@@ -112,14 +136,16 @@ type contestoVoluta struct {
 	// Relazioni: le proposte di arco, per dire se una che l'editor ha mostrato e' stata decisa nel frattempo
 	Relazioni map[ChiaveRelazione]db.RelazioneProposta
 	Attivi    []db.ComponenteRelazione
-	// Trovati: i codici trovati nella RFQ che possono nascere come componenti (situazione «nuovo»), per
-	// upper(codice), con la revisione se le evidenze ne dicono una sola.
-	Trovati map[string]CodiceScritto
+	// Richiesta: i codici della richiesta (identificativi). Un componente scritto nell'editor non ne prende
+	// uno: diventano prodotti con la creazione della RFQ (triage) o aprendo una revisione della BOM congelata.
+	Richiesta []string
+	// Motore: le regole del cliente, per la guardia «quasi uguale» (i suffissi decorativi). Puo' essere nil.
+	Motore *classificazione.Motore
 }
 
-func nuovoContestoVoluta(comp []db.Componente, rel []db.ComponenteRelazione, nodi []db.ComponenteProposta, trovati map[string]CodiceScritto) contestoVoluta {
+func nuovoContestoVoluta(comp []db.Componente, rel []db.ComponenteRelazione, nodi []db.ComponenteProposta, richiesta []string) contestoVoluta {
 	cx := contestoVoluta{Componenti: map[uuid.UUID]db.Componente{}, PerCodice: map[string]db.Componente{},
-		Proposte: map[uuid.UUID]db.ComponenteProposta{}, Attivi: rel, Trovati: trovati}
+		Proposte: map[uuid.UUID]db.ComponenteProposta{}, Attivi: rel, Richiesta: richiesta}
 	for _, c := range comp {
 		cx.Componenti[c.ComponenteID] = c
 		cx.PerCodice[strings.ToUpper(strings.TrimSpace(c.Codice))] = c
@@ -127,10 +153,17 @@ func nuovoContestoVoluta(comp []db.Componente, rel []db.ComponenteRelazione, nod
 	for _, p := range nodi {
 		cx.Proposte[p.PropostaID] = p
 	}
-	if cx.Trovati == nil {
-		cx.Trovati = map[string]CodiceScritto{}
-	}
 	return cx
+}
+
+// componentiOrdinati sono tutti i componenti del contesto, archiviati compresi, in un ordine fisso.
+func (cx contestoVoluta) componentiOrdinati() []db.Componente {
+	out := make([]db.Componente, 0, len(cx.Componenti))
+	for _, c := range cx.Componenti {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Codice < out[j].Codice })
+	return out
 }
 
 // conAlias aggiunge, per un cliente con suffissi decorativi, ogni componente anche sotto il suo codice senza
@@ -184,12 +217,13 @@ type pianoVoluta struct {
 	Archi     []arcoPiano
 	Albero    map[chiaveNodo]bool
 	Figli     map[chiaveNodo]int
-	Nuovi     map[chiaveNodo][]uuid.UUID // codice nuovo → le proposte aperte che lo portano (vuoto = codice trovato)
-	Trovati   map[chiaveNodo]CodiceScritto
+	Nuovi     map[chiaveNodo][]uuid.UUID // codice nuovo → le proposte aperte che lo portano (vuoto = carta «n:» scritta)
+	Scritti   map[chiaveNodo]ComponenteNuovo
 	Ritrovati map[uuid.UUID]uuid.UUID // proposta aperta → il componente che ha gia' il suo codice
 	Codici    map[uuid.UUID]CodiceScritto
 	Scarta    []uuid.UUID
-	Radici    []uuid.UUID
+	// Esistenti: le carte «n:» il cui codice la RFQ ha gia'. Sono quel componente (identita' invariata).
+	Esistenti map[uuid.UUID]bool
 	Visti     map[Arco]int32 // gli archi della working che l'editor mostrava, con la quantita' di allora (0 = non detta)
 	Tenuti    int            // archi di componenti ritrovati per codice, che l'editor non mostrava: restano
 	// Disegnati: la radice e i componenti che la struttura nomina come c: (l'editor ne mostrava i figli).
@@ -216,8 +250,8 @@ func (cx contestoVoluta) nome(k chiaveNodo) string {
 // della working che l'editor non conosceva, il grafo finale senza cicli. Il primo problema e' il rifiuto.
 func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 	pv := pianoVoluta{Radice: v.Radice, Albero: map[chiaveNodo]bool{}, Figli: map[chiaveNodo]int{},
-		Nuovi: map[chiaveNodo][]uuid.UUID{}, Trovati: map[chiaveNodo]CodiceScritto{}, Ritrovati: map[uuid.UUID]uuid.UUID{},
-		Codici: map[uuid.UUID]CodiceScritto{}, Visti: map[Arco]int32{}}
+		Nuovi: map[chiaveNodo][]uuid.UUID{}, Scritti: map[chiaveNodo]ComponenteNuovo{}, Ritrovati: map[uuid.UUID]uuid.UUID{},
+		Codici: map[uuid.UUID]CodiceScritto{}, Esistenti: map[uuid.UUID]bool{}, Visti: map[Arco]int32{}}
 	radice, ok := cx.Componenti[v.Radice]
 	if !ok {
 		return pv, Rifiuto("la radice della struttura non è un componente di questa RFQ")
@@ -267,23 +301,33 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		}
 		pv.Codici[id] = CodiceScritto{Codice: codice, Rev: rev}
 	}
-	// le radici proposte: nodi dello STEP che sono il prodotto stesso. Una carta dell'editor sono tutte le
-	// proposte aperte con quel codice (lo stesso nodo in due file): «e' il prodotto» vale per tutte
-	radiciProposte := map[uuid.UUID]bool{}
-	for _, id := range v.RadiciProposte {
-		p, ok := cx.Proposte[id]
-		if !ok {
-			return pv, Rifiuto("un nodo proposto non è di questa RFQ")
+	// «E' il prodotto» non c'e' piu' (Smistamento F2, R5): la radice di uno STEP qualunque diventava il
+	// prodotto senza una decisione sul file. Chi lo manda ancora (una bozza di prima, un altro programma)
+	// riceve un rifiuto, non una struttura confermata senza quella parte
+	if len(v.RadiciProposte) > 0 {
+		return pv, Rifiuto("«È il prodotto» non c'è più: la radice di uno STEP la fissa lo STEP strutturale del prodotto. Riapri l'editor")
+	}
+	// i componenti scritti dall'operatore (U4): codice scritto, tipo assieme o particolare, una carta per
+	// codice. Se la RFQ ha gia' quel codice la carta e' quel componente; se ne ha uno quasi uguale (P4)
+	// serve la conferma che e' un pezzo diverso. Controllati quando un arco li usa
+	scritti := map[string]ComponenteNuovo{}
+	for _, n := range v.Nuovi {
+		codice := strings.TrimSpace(n.Codice)
+		if !classificazione.CodiceAmmissibile(codice) {
+			return pv, Rifiuto(fmt.Sprintf("«%s»: il codice ha più di %d caratteri o caratteri non ammessi", codice, classificazione.MaxCodice))
 		}
-		if p.Stato != db.StatoPropostaAperta {
-			return pv, Rifiuto(nomeNodo(p) + ": la proposta è già decisa")
+		rev := strings.ToUpper(strings.TrimSpace(n.Rev))
+		if rev != "" && !classificazione.RevAmmissibile(rev) {
+			return pv, Rifiuto(fmt.Sprintf("«%s»: la revisione ha più di %d caratteri o caratteri non ammessi", codice, classificazione.MaxRev))
 		}
-		for _, x := range cx.stessoCodice(id) {
-			if !radiciProposte[x] {
-				radiciProposte[x] = true
-				pv.Radici = append(pv.Radici, x)
-			}
+		if n.Tipo != db.TipoComponenteSottoassieme && n.Tipo != db.TipoComponenteSciolto {
+			return pv, Rifiuto(codice + ": un componente scritto nell'editor è un assieme o un particolare")
 		}
+		up := strings.ToUpper(codice)
+		if _, gia := scritti[up]; gia {
+			return pv, Rifiuto(codice + " è scritto due volte: un pezzo è una carta sola")
+		}
+		scritti[up] = ComponenteNuovo{Codice: codice, Tipo: n.Tipo, Rev: rev, Diverso: n.Diverso}
 	}
 	chiaveRadice := chiaveComponente(v.Radice)
 	risolvi := func(ref string) (chiaveNodo, error) {
@@ -303,23 +347,43 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 			}
 			return chiaveComponente(id), nil
 		case "k":
-			codice := strings.TrimSpace(resto)
-			up := strings.ToUpper(codice)
-			if c, ok := cx.PerCodice[up]; ok {
-				if c.ArchiviatoIl != nil {
-					return "", Rifiuto(c.Codice + " è archiviato: prima lo si ripristina")
-				}
-				return chiaveComponente(c.ComponenteID), nil
-			}
-			t, ok := cx.Trovati[up]
+			// un codice trovato non diventa un componente (R1): il codice lo scrive l'operatore
+			return "", Rifiuto(strings.TrimSpace(resto) + ": un codice trovato nella RFQ non diventa un componente dall'editor. " +
+				"Se è un pezzo della distinta, scrivine il codice con «+ Componente con codice»")
+		case "n":
+			n, ok := scritti[strings.ToUpper(strings.TrimSpace(resto))]
 			if !ok {
-				return "", Rifiuto(codice + " non è fra i codici trovati in questa RFQ")
+				return "", Rifiuto(strings.TrimSpace(resto) + ": il componente nuovo non ha il suo codice scritto: riapri l'editor")
 			}
-			k := chiaveNodo("n:" + up)
+			e := ValutaCodiceNuovo(n.Codice, cx.componentiOrdinati(), cx.Richiesta, cx.Motore)
+			switch {
+			case e.Esistente != nil:
+				// lo stesso pezzo: nessuna riga nuova, la carta e' quel componente (U4)
+				if e.Esistente.ArchiviatoIl != nil {
+					return "", Rifiuto(e.Esistente.Codice + " c'è già ed è archiviato: si ripristina dalla Struttura BOM, non se ne crea un altro")
+				}
+				// un prodotto della RFQ non entra nella struttura di un altro da un codice scritto: l'editor lo
+				// ferma prima di mettere la carta, e il core non si fida del client
+				if e.Esistente.Tipo == db.TipoComponenteFinito {
+					return "", Rifiuto(e.Esistente.Codice + " è un prodotto della RFQ: si sceglie in alto, non si mette sotto un altro prodotto")
+				}
+				pv.Esistenti[e.Esistente.ComponenteID] = true
+				return chiaveComponente(e.Esistente.ComponenteID), nil
+			case e.Richiesta:
+				return "", Rifiuto(n.Codice + " è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, " +
+					"o aprendo una revisione della BOM congelata; non è un componente dall'editor")
+			case len(e.Vicini) > 0 && !n.Diverso:
+				// la carta scritta prima che il vicino ci fosse non ha la conferma, e l'editor non la chiede su una
+				// carta gia' posata: la si toglie e la si riscrive, e la domanda sui vicini arriva
+				return "", Rifiuto(fmt.Sprintf("%s è quasi uguale a %s: se è lo stesso pezzo si usa quello; se è un pezzo diverso "+
+					"togli la carta di %s e riscrivila con «+ Componente con codice», confermando che è un pezzo diverso",
+					n.Codice, codiciVicini(e.Vicini), n.Codice))
+			}
+			k := chiaveNodo("n:" + strings.ToUpper(n.Codice))
 			if _, ok := pv.Nuovi[k]; !ok {
 				pv.Nuovi[k] = nil
 			}
-			pv.Trovati[k] = t
+			pv.Scritti[k] = n
 			return k, nil
 		case "p":
 			id, err := uuid.Parse(resto)
@@ -329,9 +393,6 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 			p, ok := cx.Proposte[id]
 			if !ok {
 				return "", Rifiuto("un nodo proposto non è di questa RFQ")
-			}
-			if radiciProposte[id] {
-				return chiaveRadice, nil
 			}
 			switch p.Stato {
 			case db.StatoPropostaAperta:
@@ -560,9 +621,6 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		if c, ok := pv.Ritrovati[s]; ok && pv.Albero[chiaveComponente(c)] {
 			return pv, Rifiuto(nomeNodo(p) + " è nella struttura e fra gli scartati: o l'uno o l'altro")
 		}
-		if radiciProposte[s] {
-			return pv, Rifiuto(nomeNodo(p) + " è il prodotto e fra gli scartati: o l'uno o l'altro")
-		}
 		pv.Scarta = append(pv.Scarta, s)
 	}
 	// un arco proposto che l'editor ha mostrato, verso un nodo ancora aperto con il codice di un componente
@@ -575,7 +633,7 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 	for _, r := range v.RelazioniViste {
 		for _, k := range []string{r.Padre, r.Figlio} {
 			id, ok := perChiave[ChiaveRelazione{Allegato: r.Allegato, Padre: k}]
-			if !ok || radiciProposte[id] || contieneID(pv.Scarta, id) {
+			if !ok || contieneID(pv.Scarta, id) {
 				continue
 			}
 			p := cx.Proposte[id]
@@ -608,13 +666,13 @@ func contieneID(ids []uuid.UUID, id uuid.UUID) bool {
 
 // esitoVoluta conta quello che e' cambiato, per la frase all'operatore.
 type esitoVoluta struct {
-	nuovi, ritrovati, aggiunti, tolti, quantita, scartati, chiuse, assiemi, codici, tenute, radici int
-	senzaPadre                                                                                     []string
+	nuovi, ritrovati, aggiunti, tolti, quantita, scartati, chiuse, assiemi, codici, tenute, esistenti int
+	senzaPadre                                                                                        []string
 }
 
 // ApplicaStrutturaVoluta porta la working alla struttura voluta sotto il prodotto v.Radice: nodi proposti
-// accettati, codici trovati che nascono, archi tolti, cambiati e aggiunti, proposte viste e non volute
-// chiuse, in una transazione sola.
+// accettati, componenti scritti dall'operatore che nascono, archi tolti, cambiati e aggiunti, proposte viste
+// e non volute chiuse, in una transazione sola.
 func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente uuid.UUID, v StrutturaVoluta) (string, error) {
 	if err := prepara(ctx, q, thread, "si cambia la struttura"); err != nil {
 		return "", err
@@ -635,11 +693,11 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 	for i, n := range righeNodi {
 		nodi[i] = n.ComponenteProposta
 	}
-	trovati, err := codiciNuoviDellaRfq(ctx, q, thread, v)
+	richiesta, err := codiciDellaRichiesta(ctx, q, thread)
 	if err != nil {
 		return "", err
 	}
-	cx := nuovoContestoVoluta(comp, rel, nodi, trovati)
+	cx := nuovoContestoVoluta(comp, rel, nodi, richiesta)
 	righeRel, err := q.ListRelazioneProposteThread(ctx, thread)
 	if err != nil {
 		return "", err
@@ -657,6 +715,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 		return "", err
 	}
 	cx.conAlias(m)
+	cx.Motore = m
 	pv, err := pianifica(cx, v)
 	if err != nil {
 		return "", err
@@ -669,7 +728,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 	}
 	var es esitoVoluta
 
-	// 1. i codici scritti dall'operatore, gli scarti (con gli archi che li toccano), le radici proposte
+	// 1. i codici scritti dall'operatore sui nodi proposti, gli scarti (con gli archi che li toccano)
 	idCodici := make([]uuid.UUID, 0, len(pv.Codici))
 	for id := range pv.Codici {
 		idCodici = append(idCodici, id)
@@ -695,20 +754,9 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 		es.scartati++
 		es.chiuse += n
 	}
-	for _, id := range pv.Radici {
-		k, err := q.DecidiComponenteProposta(ctx, db.DecidiComponentePropostaParams{PropostaID: id, Stato: db.StatoPropostaDuplicato,
-			ComponenteID: uid(v.Radice), DecisoDa: uid(utente)})
-		if err != nil {
-			return "", err
-		}
-		if k != 1 {
-			return "", Rifiuto(nomeNodo(cx.Proposte[id]) + ": la proposta è stata decisa nel frattempo")
-		}
-		es.radici++
-	}
 
-	// 2. i nodi che entrano: i codici nuovi nascono (da una proposta, o da un codice trovato), quelli gia'
-	// noti si ritrovano
+	// 2. i nodi che entrano: i codici nuovi nascono (da una proposta, o dal codice scritto su una carta
+	// «n:»), quelli gia' noti si ritrovano
 	risolto := map[chiaveNodo]uuid.UUID{}
 	chiavi := make([]chiaveNodo, 0, len(pv.Nuovi))
 	for k := range pv.Nuovi {
@@ -750,18 +798,17 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 				return "", Rifiuto(codice + ": le proposte sono state decise nel frattempo: riapri l'editor")
 			}
 		} else {
-			t := pv.Trovati[k]
-			tipo := db.TipoComponenteSciolto
+			// la carta «n:» (U4): il codice scritto dall'operatore, il tipo che ha scelto (assieme se nella
+			// struttura ha dei figli, E37), origine manuale. Nessuna riconciliazione: un nodo aperto con lo
+			// stesso codice in uno STEP resta una proposta, che si decide dove la si vede. Il controllo che il
+			// codice non ci sia gia' l'ha fatto pianifica, sotto il lucchetto della RFQ
+			n := pv.Scritti[k]
+			tipo := n.Tipo
 			if pv.Figli[k] > 0 {
 				tipo = db.TipoComponenteSottoassieme
 			}
-			c, err := q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: thread, Codice: t.Codice, Rev: testo(t.Rev), Qta: 1,
-				Tipo: tipo, Origine: db.OrigineComponenteCodiceRilevato, ConfermatoDa: utente})
-			if err != nil {
-				return "", err
-			}
-			if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: thread, Codice: c.Codice,
-				ComponenteID: uid(c.ComponenteID), Esclusa: uuid.Nil}); err != nil {
+			if _, err := q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: thread, Codice: n.Codice, Rev: testo(n.Rev), Qta: 1,
+				Tipo: tipo, Origine: db.OrigineComponenteManuale, ConfermatoDa: utente}); err != nil {
 				return "", err
 			}
 		}
@@ -792,6 +839,11 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 			return "", err
 		}
 		es.ritrovati++
+	}
+	for id := range pv.Esistenti {
+		if pv.Albero[chiaveComponente(id)] {
+			es.esistenti++
+		}
 	}
 	compDi := func(k chiaveNodo) uuid.UUID {
 		if id, ok := k.componente(); ok {
@@ -993,46 +1045,6 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 	return fraseVoluta(cx.Componenti[v.Radice].Codice, es), nil
 }
 
-// codiciNuoviDellaRfq sono i codici trovati nella RFQ che possono nascere come componenti dall'editor (la
-// situazione «nuovo» dei candidati, B8.6), con la revisione se le evidenze ne dicono una sola. Si leggono
-// solo se la struttura voluta ne usa.
-func codiciNuoviDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, v StrutturaVoluta) (map[string]CodiceScritto, error) {
-	serve := false
-	for _, a := range v.Archi {
-		serve = serve || strings.HasPrefix(a.Padre, "k:") || strings.HasPrefix(a.Figlio, "k:")
-	}
-	out := map[string]CodiceScritto{}
-	if !serve {
-		return out, nil
-	}
-	cand, err := CandidatiDellaRfq(ctx, q, thread)
-	if err != nil {
-		return nil, err
-	}
-	for _, lista := range [][]CodiceCandidato{cand.Prodotto, cand.Altri} {
-		for _, k := range lista {
-			if k.Stato.Situazione != SituazioneNuovo || !classificazione.CodiceAmmissibile(k.Codice) {
-				continue
-			}
-			out[k.Chiave] = CodiceScritto{Codice: k.Codice, Rev: revisioneUnica(k)}
-		}
-	}
-	return out, nil
-}
-
-// revisioneUnica e' la revisione delle evidenze di un codice trovato, se ne dicono una sola; altrimenti "":
-// con revisioni discordanti la sceglie chi apre il componente.
-func revisioneUnica(k CodiceCandidato) string {
-	if len(k.Revisioni) != 1 {
-		return ""
-	}
-	r := strings.ToUpper(strings.TrimSpace(k.Revisioni[0].Rev))
-	if !classificazione.RevAmmissibile(r) {
-		return ""
-	}
-	return r
-}
-
 // componenteNato e' il componente di un codice nuovo della struttura voluta, appena nato (o ritrovato)
 // accettando la sua proposta. Il codice viene dal piano: se fra la lettura e la scrittura la proposta ha
 // cambiato codice (un altro gesto nel frattempo), con quel codice non e' nato niente. E' un rifiuto che
@@ -1146,8 +1158,8 @@ func fraseVoluta(radice string, es esitoVoluta) string {
 	if es.ritrovati > 0 {
 		parti = append(parti, quanti(es.ritrovati, "nodo proposto ritrovato nella BOM", "nodi proposti ritrovati nella BOM"))
 	}
-	if es.radici > 0 {
-		parti = append(parti, quanti(es.radici, "radice dello STEP riconosciuta come il prodotto", "radici dello STEP riconosciute come il prodotto"))
+	if es.esistenti > 0 {
+		parti = append(parti, quanti(es.esistenti, "codice scritto già nella BOM, collegato lo stesso componente", "codici scritti già nella BOM, collegati gli stessi componenti"))
 	}
 	if es.aggiunti > 0 {
 		parti = append(parti, quanti(es.aggiunti, "legame aggiunto", "legami aggiunti"))

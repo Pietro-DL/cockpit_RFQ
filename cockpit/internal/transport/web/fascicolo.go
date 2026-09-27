@@ -280,8 +280,9 @@ type sceltaRevisione struct {
 	data        bool      // la domanda ha avuto una risposta
 	sostituisce uuid.UUID // il predecessore; zero = «aggiungi»
 	// riferimento: se il predecessore era lo STEP strutturale del componente, il nuovo ne prende il
-	// posto (A4.4: la schermata lo chiede, con il si' preselezionato). rispostaRiferimento dice che la
-	// domanda ha avuto una risposta: sostituire lo STEP strutturale senza dirlo si rifiuta (B8.7).
+	// posto. La schermata lo chiede senza risposta preselezionata (Smistamento P26: A4.4 voleva il si' gia'
+	// scelto, e una risposta data dal modulo non e' una decisione). rispostaRiferimento dice che la domanda
+	// ha avuto una risposta: sostituire lo STEP strutturale senza dirlo si rifiuta (B8.7).
 	riferimento, rispostaRiferimento bool
 	// motivo: perche' si sostituisce. Una versione interna (un file caricato a mano, B8.7) sostituisce
 	// solo con un motivo, e il motivo resta nella nota del documento nuovo.

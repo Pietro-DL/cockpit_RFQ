@@ -686,6 +686,9 @@ body.fasc-intero .fasc-testata .ft-bom,body.fasc-intero .fasc-testata .briciole{
 .bomed-menu-dentro button{text-align:left;border:0}
 .bomed-menu-dentro button:hover{background:#E2EFF2}
 .bomed-scegli{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px;background:#F8FAFB;border:1px solid #E1E5EA;border-radius:8px;margin:4px 0}
+/* Smistamento U4: «+ Componente con codice», il codice scritto dall'operatore */
+.bomed-nuovo-form{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 14px;background:#fff;border-bottom:1px solid #E1E5EA;font-size:12.5px}
+.bomed-nuovo-codice{width:16ch;font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
 .bomed-vassoio h3{margin:2px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8A939E}
 .bomed-vassoio .bomed-riga{border:1px dashed #CBD2DA;margin-bottom:4px}
 .bomed-sotto{margin-left:14px;border-left:1px dashed #CBD2DA;padding-left:6px}

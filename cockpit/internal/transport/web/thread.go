@@ -48,8 +48,11 @@ type threadDati struct {
 	// notizia deve arrivare qui, anche se il posto in cui la si risolve e' un altro.
 	NAnomalie int
 	Admin     bool
-	Avviso    string
-	Selezion  string
+	// Scrive: chi guarda puo' cambiare la RFQ (almeno operatore). Solo per lui la pagina manda da sola la
+	// preparazione dei file e mostra il bottone di riserva; chi consulta non ha niente da mandare.
+	Scrive   bool
+	Avviso   string
+	Selezion string
 	// Codici: i codici che la RFQ ha visto, uniti per codice, con quello che e' gia' deciso di ciascuno
 	// (B8.6). DocumentiDi sono i documenti di ogni componente, per aprirlo dal pannello. CodiciErrore dice
 	// perche' il pannello e' vuoto quando la lettura non e' riuscita.
@@ -78,9 +81,9 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	// Aprire la RFQ rilegge i suoi STEP (B8.5): le proposte di struttura si rifanno con le regole del
-	// cliente di adesso, e le analisi che mancano partono, poche alla volta.
-	s.rileggiAllApertura(r.Context(), id)
+	// Aprire la RFQ non scrive niente (Smistamento F1, R8: nessuna GET scrive). Fino a B8.7b rileggeva
+	// qui gli STEP, anche per chi consulta; le analisi che mancano le accoda la preparazione, una POST che
+	// la pagina manda da sola solo per chi lavora (Scrive, POST …/fascicolo/prepara).
 	d, err := s.caricaThread(r.Context(), id, sessioneDa(r.Context()))
 	if err != nil {
 		http.Error(w, "thread non trovato", 404)
@@ -247,6 +250,7 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	}
 	d := &threadDati{T: t}
 	d.Admin = almeno(utenteDa(ctx), db.RuoloUtenteAdmin)
+	d.Scrive = almeno(utenteDa(ctx), db.RuoloUtenteOperatore)
 	if n, err := q.ContaAnomalieThread(ctx, id); err == nil {
 		d.NAnomalie = int(n)
 	}

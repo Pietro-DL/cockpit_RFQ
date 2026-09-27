@@ -467,6 +467,12 @@ type allegatiVista struct {
 	Agganciato    bool
 	RitornaThread string
 	NScaricabili  int
+	// Gesti: la tabella offre «Conferma… → NAS» e «Scarta» sulla proposta di ogni allegato. Smistamento F2
+	// (R1, R4): la pagina della RFQ e il pannello dell'Inbox non li offrono piu' (un file entra nel
+	// Fascicolo con una decisione presa dove si vede che cosa e' e a che cosa va, non dalla chat). Il campo
+	// sta nella vista perche' il frammento serve tutte e due le pagine (critica §5.8); le rotte restano,
+	// le usa ancora il Fascicolo.
+	Gesti bool
 }
 
 type rigaAllegato struct {
@@ -474,6 +480,7 @@ type rigaAllegato struct {
 	Agganciato    bool
 	RitornaThread string
 	Figlio        bool
+	Gesti         bool // come allegatiVista.Gesti
 }
 
 func (s *Server) messaggio(w http.ResponseWriter, r *http.Request) {

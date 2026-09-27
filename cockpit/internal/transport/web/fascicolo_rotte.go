@@ -27,6 +27,7 @@ func (s *Server) registraFascicolo(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/fascicolo/parti", s.autenticato(s.fascicoloParti))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/anteprima", s.autenticato(s.fascicoloAnteprima))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/vista", s.autenticato(s.fascicoloVista))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/prepara", s.autenticato(s.prepara))
 
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/modifica", s.autenticato(s.modificaComponente))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/collega", s.autenticato(s.collegaComponente))
@@ -55,14 +56,10 @@ func (s *Server) fascicoloPagina(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id non valido", 400)
 		return
 	}
-	// Aprire il Fascicolo lo prepara (B8.7b): i codici della richiesta diventano prodotti, i file utili
-	// scendono, quelli fermi si rimettono in moto; e, come la pagina della RFQ (B8.5), gli STEP si rileggono
-	// con le regole del cliente di adesso. Solo chi scrive: chi consulta guarda, e non mette in moto niente.
-	if almeno(utenteDa(r.Context()), db.RuoloUtenteOperatore) {
-		s.preparaFascicolo(r.Context(), id)
-	} else {
-		s.rileggiAllApertura(r.Context(), id)
-	}
+	// Aprire il Fascicolo non scrive niente, per nessun ruolo (Smistamento F1, R8). Fino a B8.7b questa GET
+	// faceva i prodotti della richiesta, scaricava e rileggeva gli STEP, e chi consultava rileggeva lo
+	// stesso. Adesso la preparazione e' una POST (prepara) che la pagina manda da sola, solo per chi scrive;
+	// i prodotti nascono al triage, gli STEP si rileggono all'aggancio e con «Rianalizza».
 	d, err := s.caricaFascicolo(r.Context(), id, leggiStatoFascicolo(r.URL.Query()), utenteDa(r.Context()))
 	if err != nil {
 		http.Error(w, "RFQ non trovata", 404)
@@ -429,6 +426,11 @@ func (s *Server) annullaSostituzione(w http.ResponseWriter, r *http.Request) {
 // apriRevisione: POST .../revisione/apri, campi `motivo` e `contesto`. In ACCETTATA e DISTINTA_ERP il
 // contesto lo sceglie chi apre, senza default (D25c): senza, si rifiuta. Altrove lo dice la fase, e un
 // contesto diverso si rifiuta.
+//
+// Aprire la revisione e' anche il momento in cui i codici della richiesta rimasti senza componente entrano
+// nella BOM come prodotti (D26): con la BOM congelata AssicuraProdottiDellaRichiesta non poteva farli, e dopo
+// le fasi F1 (niente alla GET) e F2 (niente «+ Prodotto» dal pannello) non c'e' un'altra strada. E' la
+// decisione di una persona, nella stessa transazione, come la creazione della RFQ nel triage.
 func (s *Server) apriRevisione(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		var scelta *db.ContestoBom
@@ -449,7 +451,15 @@ func (s *Server) apriRevisione(w http.ResponseWriter, r *http.Request) {
 		} else {
 			msg += ": la fase resta " + string(v.FaseAllApertura) + "."
 		}
-		return msg + " La BOM working si modifica di nuovo.", nil
+		msg += " La BOM working si modifica di nuovo."
+		prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread)
+		if err != nil {
+			return "", err
+		}
+		if n := len(prodotti.Creati); n > 0 {
+			msg += " " + strings.Join(prodotti.Creati, ", ") + " nella BOM come " + plurale(n, "prodotto finito", "prodotti finiti") + "."
+		}
+		return msg, nil
 	})
 }
 

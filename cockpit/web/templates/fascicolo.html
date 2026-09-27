@@ -13,6 +13,10 @@
   data-utente="{{with .Utente}}{{.UtenteID}}{{end}}">
 {{template "fasc_corpo" .}}
 <div id="fasc-editor" class="fasc-editor-posto"></div>
+{{/* La preparazione dei file (Smistamento F1): la GET della pagina non scrive, e il lavoro che mancava lo
+     chiede qui, una volta, chi puo' scrivere. Sta fuori da fasc_corpo: le risposte dei gesti non la rifanno,
+     quindi non riparte a ogni gesto. Chi consulta non la manda. */}}
+{{if .Dati.Scrive}}<div id="fasc-prepara" hx-post="/thread/{{.Dati.T.ThreadID}}/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}'></div>{{end}}
 </div>
 <script type="module" src="{{statico "fascicolo.mjs"}}"></script>
 {{end}}
@@ -103,6 +107,10 @@
       <a class="{{if eq .Stato.Cassetto "codici"}}on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "codici"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "codici"}}">Codici</a>
       <a class="{{if eq .Stato.Cassetto "avvisi"}}on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "avvisi"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "avvisi"}}">Avvisi <span class="conta{{if .Avvisi}} piena{{end}}">{{len .Avvisi}}</span></a>
       <p class="label">Comandi</p>
+      {{if .Scrive}}<form class="gesto" method="post" action="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-post="/thread/{{.T.ThreadID}}/fascicolo/prepara">
+        <input type="hidden" name="da" value="fascicolo">
+        <button type="submit" class="btn small" title="Scarica i file utili, estrae gli archivi e accoda le analisi che mancano. La pagina lo fa da sola quando si apre">Prepara i file</button>
+      </form>{{end}}
       <button type="button" class="btn small gesto" hx-post="/thread/{{.T.ThreadID}}/fascicolo/rianalizza" title="Rilegge gli STEP della RFQ con le regole del cliente e accoda le analisi che mancano">Rianalizza gli STEP</button>
     </div>
   </details>
@@ -497,9 +505,12 @@
     <tr class="scelta"><td></td><td colspan="5">
       <label>Entra in {{$.Nodo.C.Codice}}, che ha già {{len .Scelta}} {{etichettaTipoDoc .Tipo}}:
         <select name="scelta_{{$doc}}" aria-label="aggiungi o sostituisci"><option value="">— scegli —</option><option value="aggiungi">si aggiunge (restano correnti tutti)</option>{{range .Scelta}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}</option>{{end}}</select></label>
+      {{/* Smistamento P26: la domanda sul nuovo riferimento non ha una risposta gia' scelta, qui come negli
+           altri quattro moduli di sostituzione; senza risposta il server rifiuta di sostituire lo STEP
+           strutturale (verificaSostituzione). */}}
       {{if .HaStepStrutturale}}
       <fieldset class="in-linea"><legend class="k">se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-        <label><input type="radio" name="nuovo_riferimento_{{$doc}}" value="1" checked> sì</label>
+        <label><input type="radio" name="nuovo_riferimento_{{$doc}}" value="1"> sì</label>
         <label><input type="radio" name="nuovo_riferimento_{{$doc}}" value="0"> no</label></fieldset>{{end}}
       {{if .Interno}}<label>motivo <input name="motivo_{{$doc}}" maxlength="300" placeholder="perché la versione interna sostituisce"></label>{{end}}
     </td></tr>{{end}}
@@ -661,8 +672,10 @@
   {{else if eq $dom.Chiave "componente"}}
     {{if $v.Componente}}{{if $v.Componente.ArchiviatoIl}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/componente/{{$v.Componente.ComponenteID}}/ripristina">Ripristina {{$v.Componente.Codice}}</button>{{end}}
     {{else if $v.Alias}}{{if not $d.Bloccata}}<button type="button" class="btn small primary" hx-post="{{$d.Base}}/assegna" hx-vals='{"proposta":"{{$v.Proposta}}","componente":"{{$v.Alias.ComponenteID}}","correggi_codice":"1"}' title="Lo stesso pezzo: il file prende il codice {{$v.Alias.Codice}}">Assegna a {{$v.Alias.Codice}}</button>{{end}}
-    {{else if $v.DaStep}}{{if not $d.Bloccata}}<a class="btn small primary" href="{{$d.Base}}?vista=bom&amp;editor=&amp;step={{$v.DaStep.Allegato}}" data-editor="" data-step="{{$v.DaStep.Allegato}}" title="{{$v.DaStep.Codice}} nasce dalla struttura di {{$v.DaStep.File}}: confermata quella, il file è pronto">Conferma la struttura nell'editor</a>{{end}}
-    {{else if $v.Codice}}{{if not $d.Bloccata}}{{range tipiComponente}}<button type="button" class="btn small" hx-post="{{$d.Base}}/codice/aggiungi" hx-vals='{"codice":"{{$v.Codice}}","tipo":"{{.}}"}'>+ {{etichettaTipo .}}</button>{{end}}{{end}}{{end}}
+    {{else if $v.DaStep}}{{if not $d.Bloccata}}<a class="btn small primary" href="{{$d.Base}}?vista=bom&amp;editor=&amp;step={{$v.DaStep.Allegato}}" data-editor="" data-step="{{$v.DaStep.Allegato}}" title="{{$v.DaStep.Codice}} nasce dalla struttura di {{$v.DaStep.File}}: confermata quella, il file è pronto">Conferma la struttura nell'editor</a>{{end}}{{end}}
+    {{/* Smistamento F2 (R1): qui c'era «+ Prodotto/Assieme/Particolare» con il codice letto dal file (il caso
+         7120001A_1.stp): il nome di un file diventava un componente con un clic. Il pezzo che manca lo si
+         scrive nell'editor della struttura, o il file va a un componente che c'e'. */}}
     {{if and $d.Albero.Righe (not $d.Bloccata)}}<form class="in-linea" hx-post="{{$d.Base}}/assegna">
       <input type="hidden" name="proposta" value="{{$v.Proposta}}"><input type="hidden" name="correggi_codice" value="1">
       <select name="componente" aria-label="componente">{{range $d.Albero.Righe}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}</option>{{end}}</select>
@@ -679,7 +692,7 @@
       <input type="hidden" name="tipo" value="{{$v.Tipo}}"><input type="hidden" name="codice" value="{{$v.Codice}}"><input type="hidden" name="rev" value="{{$v.Rev}}">
       <label>Si aggiunge, o sostituisce? <select name="scelta" required><option value="">— scegli —</option><option value="aggiungi">si aggiunge (restano correnti tutti)</option>{{range $v.Correnti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}{{if .Rev.Valid}} (rev {{.Rev.String}}){{end}}</option>{{end}}</select></label>
       {{with $v.Componente}}{{if .StepStrutturaleID.Valid}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-        <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}{{end}}
+        <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}{{end}}
       {{if $v.Interno}}<label>Motivo (versione interna) <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
       <button type="submit" class="btn small primary">Conferma questo file</button>
     </form>{{end}}
@@ -758,7 +771,7 @@
   <form class="modulo" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/documento/{{$.Anteprima.F.Doc.DocumentoID}}/sostituisci">
     <label>sostituisce <select name="vecchio" required>{{range .}}<option value="{{.DocumentoID}}">{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select></label>
     {{if $.Anteprima.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-      <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
+      <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     <label>Motivo <input name="motivo" maxlength="300"{{if $.Anteprima.F.Interno}} required placeholder="obbligatorio: è una versione interna"{{end}}></label>
     <button type="submit" class="btn small">Sostituisci</button>
   </form>
@@ -916,7 +929,7 @@
     {{if $a.ConfermaCorrenti}}
     <label>{{$a.ConfermaComp.Codice}} ha già {{len $a.ConfermaCorrenti}} {{etichettaTipoDoc (print $f.Proposta.TipoProposto)}}: <select name="scelta"><option value="">— scegli —</option><option value="aggiungi">si aggiunge</option>{{range $a.ConfermaCorrenti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}</option>{{end}}</select></label>
     {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-      <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
+      <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     {{if $f.Interno}}<label>Motivo della sostituzione <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
     {{end}}
     {{end}}
@@ -933,7 +946,7 @@
   <form class="modulo" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/documento/{{$f.Doc.DocumentoID}}/sostituisci">
     <label>{{$f.A.NomeFile}} sostituisce <select name="vecchio" required>{{range $a.Sostituibili}}<option value="{{.DocumentoID}}">{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select></label>
     {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-      <label><input type="radio" name="nuovo_riferimento" value="1" checked> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
+      <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     <label>Motivo <input name="motivo" maxlength="300"{{if $f.Interno}} required placeholder="obbligatorio: è una versione interna"{{end}}></label>
     <button type="submit" class="btn small">Sostituisci</button>
   </form>

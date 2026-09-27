@@ -1041,9 +1041,14 @@ class Editor {
       else this.archi.set(k, { padre: p.padre, figlio: p.figlio, qta: p.qta, prop: true });
     }
     this.rimozioni = new Set((dati.rimozioni || []).map((r) => r.padre + "|" + r.figlio));
-    this.radici = new Set();
     this.scarta = new Set();
     this.codici = {};
+    // i componenti scritti con «+ Componente con codice» (Smistamento U4): ref "n:<codice>" → {codice, tipo,
+    // rev, diverso}. Il codice lo scrive l'operatore, mai precompilato; nascono con la conferma
+    this.nuovi = {};
+    // i componenti che ci sono gia' (sotto un altro prodotto) e che l'operatore ha chiesto di portare qui
+    // scrivendone il codice: stanno nel vassoio anche se non sono di questo prodotto
+    this.portati = new Set();
     this.storia = [];
     this.scelte = new Set();
     this.menuAperto = null;
@@ -1065,17 +1070,22 @@ class Editor {
   // ---- lo stato
 
   firma() {
-    return JSON.stringify([[...this.archi.values()].map((a) => [a.padre, a.figlio, a.qta]).sort(), [...this.radici].sort(), [...this.scarta].sort(), this.codici]);
+    return JSON.stringify([[...this.archi.values()].map((a) => [a.padre, a.figlio, a.qta]).sort(), [...this.scarta].sort(), this.codici, this.nuovi]);
   }
   cambiato() { return this.firma() !== this.iniziale; }
   istantanea() {
-    return { archi: [...this.archi.values()].map((a) => ({ ...a })), radici: [...this.radici], scarta: [...this.scarta], codici: { ...this.codici } };
+    return { archi: [...this.archi.values()].map((a) => ({ ...a })), scarta: [...this.scarta], codici: { ...this.codici },
+      nuovi: JSON.parse(JSON.stringify(this.nuovi)), portati: [...this.portati] };
   }
   ripristina(s) {
     this.archi = new Map(s.archi.map((a) => [a.padre + "|" + a.figlio, a]));
-    this.radici = new Set(s.radici);
     this.scarta = new Set(s.scarta);
     this.codici = { ...s.codici };
+    // le carte «n:» sono nodi dell'editor solo finche' ci sono: tornano con lo stato
+    for (const r of Object.keys(this.nodi)) if (r.startsWith("n:")) delete this.nodi[r];
+    this.nuovi = JSON.parse(JSON.stringify(s.nuovi || {}));
+    for (const [r, n] of Object.entries(this.nuovi)) this.nodi[r] = { codice: n.codice, tipo: n.tipo, nuovo: true };
+    this.portati = new Set(s.portati || []);
     this.scelte.clear();
   }
   prima() {
@@ -1099,6 +1109,15 @@ class Editor {
   riprendiBozza() {
     const b = prova(() => JSON.parse(sessione(this.chiaveBozza) || "null"), null);
     if (!b) return;
+    // una bozza di prima della fase F2 puo' avere «È il prodotto» (radici) o carte di codici trovati (k:), che
+    // il server rifiuta: ripresa, la prima si perderebbe in silenzio e la seconda farebbe fallire la conferma
+    const vecchia = (b.stato && b.stato.radici && b.stato.radici.length) ||
+      ((b.stato && b.stato.archi) || []).some((a) => String(a.padre).startsWith("k:") || String(a.figlio).startsWith("k:"));
+    if (vecchia) {
+      sessione(this.chiaveBozza, null);
+      this.avvisa("Le modifiche non confermate di prima usavano «È il prodotto» o codici trovati, che l'editor non ha più: non si riprendono.", "");
+      return;
+    }
     if (b.impronta === this.impronta) {
       this.ripristina(b.stato);
       this.avvisa("Riprese le modifiche non confermate di prima (la BOM non è cambiata nel frattempo). «Annulla» in alto per lasciarle.", "info");
@@ -1151,7 +1170,7 @@ class Editor {
     const out = [];
     for (const ref of Object.keys(this.nodi)) {
       const n = this.nodi[ref];
-      if (qui.has(ref) || altrove.has(ref) || n.finito || this.scarta.has(ref.slice(2)) || this.radici.has(ref)) continue;
+      if (qui.has(ref) || (altrove.has(ref) && !this.portati.has(ref)) || n.finito || this.scarta.has(ref.slice(2))) continue;
       out.push(ref);
     }
     return out;
@@ -1204,15 +1223,79 @@ class Editor {
     }
     this.disegna(`${this.nome(ref)} scartato: non è un pezzo della distinta.`);
   }
-  eIlProdotto(ref) {
-    this.prima();
-    for (const a of this.figliDi(ref)) {
-      this.archi.delete(a.padre + "|" + a.figlio);
-      if (!this.archi.has(this.radice + "|" + a.figlio) && a.figlio !== this.radice) this.archi.set(this.radice + "|" + a.figlio, { padre: this.radice, figlio: a.figlio, qta: a.qta, prop: a.prop });
+  // «+ Componente con codice» (Smistamento U4): il codice lo scrive l'operatore, il tipo lo sceglie lui
+  // (nessuno preselezionato). Prima di mettere la carta si chiede al server che cosa la RFQ sa del codice:
+  // uno che c'e' gia' e' quel componente (mai una seconda riga), uno della richiesta diventa prodotto per
+  // un'altra strada, uno quasi uguale (P4) vuole la conferma esplicita che e' un pezzo diverso. La conferma
+  // della struttura rifa' gli stessi controlli sotto il lucchetto.
+  formNuovo() {
+    const posto = $(".bomed-nuovo-posto", this.el);
+    posto.innerHTML = "";
+    const cod = el("input", { class: "bomed-nuovo-codice", placeholder: "codice, scritto da te", "aria-label": "codice del componente nuovo", maxlength: "40", autocomplete: "off" });
+    const tipo = el("select", { class: "bomed-nuovo-tipo", "aria-label": "tipo del componente nuovo" },
+      el("option", { value: "" }, "— tipo —"), el("option", { value: "sottoassieme" }, "assieme"), el("option", { value: "sciolto" }, "particolare"));
+    const ok = el("button", { type: "button", class: "primario" }, "Aggiungi");
+    const box = el("div", { class: "bomed-nuovo-form" }, "Componente nuovo:", cod, tipo, ok,
+      el("button", { type: "button", onclick: () => box.remove() }, "Annulla"));
+    ok.addEventListener("click", () => this.aggiungiNuovo(cod.value, tipo.value, box));
+    cod.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ok.click(); } });
+    posto.append(box);
+    cod.focus();
+  }
+  async aggiungiNuovo(codice, tipo, box) {
+    codice = (codice || "").trim();
+    if (!codice) { this.avvisa("Scrivi il codice del componente: non si prende da nessun file.", ""); return; }
+    if (codice.length > 40 || /\s/.test(codice)) { this.avvisa("Un codice ha al massimo 40 caratteri, senza spazi.", ""); return; }
+    if (tipo !== "sottoassieme" && tipo !== "sciolto") { this.avvisa("Scegli se è un assieme o un particolare.", ""); return; }
+    let e;
+    try {
+      const r = await fetch(S.base + "/bom/codice?codice=" + encodeURIComponent(codice), { credentials: "same-origin", headers: { Accept: "application/json" } });
+      if (!r.ok) throw new Error(r.status);
+      e = await r.json();
+    } catch (err) {
+      this.avvisa("Il codice non si è potuto controllare: riprova.", "");
+      return;
     }
-    for (const a of this.padriDi(ref)) this.archi.delete(a.padre + "|" + a.figlio);
-    this.radici.add(ref);
-    this.disegna(`${this.nome(ref)} è il prodotto ${this.nome(this.radice)}: i suoi figli sono sotto il prodotto.`);
+    if (this.chiuso) return;
+    if (e.errore) { this.avvisa(e.errore, ""); return; }
+    if (e.esiste) {
+      if (e.esiste.archiviato) { this.avvisa(`${e.esiste.codice} c'è già ed è archiviato: si ripristina dagli Archiviati della Struttura BOM, non se ne crea un altro.`, ""); return; }
+      if (e.esiste.tipo === "finito") { this.avvisa(`${e.esiste.codice} è un prodotto della RFQ: si sceglie in alto, non si mette sotto un altro prodotto.`, ""); return; }
+      box.remove();
+      if (this.raggiunti(this.radice).has(e.esiste.ref)) {
+        this.disegna(`${e.esiste.codice} c'è già ed è nella struttura: per metterlo anche sotto un altro padre usa ⋯ › Condividi.`);
+        return;
+      }
+      this.prima();
+      this.portati.add(e.esiste.ref);
+      this.filtro = e.esiste.codice;
+      this.disegna(`${e.esiste.codice} c'è già: è lo stesso componente, fra i non posizionati. Trascinalo dove va.`);
+      return;
+    }
+    if (e.richiesta) { this.avvisa(`${codice} è un codice della richiesta: il prodotto nasce con la creazione della RFQ dal triage, o aprendo una revisione della BOM congelata; non è un componente qui.`, ""); return; }
+    let diverso = false;
+    if (e.vicini && e.vicini.length) {
+      const elenco = e.vicini.map((v) => `${v.codice} (${v.motivo})`).join(", ");
+      if (!confirm(`${codice} è quasi uguale a ${elenco}.\n\nSe è lo stesso pezzo, annulla e usa quello.\nOK solo se ${codice} è un pezzo diverso.`)) {
+        this.avvisa(`${codice} non aggiunto: è quasi uguale a ${elenco}.`, "");
+        return;
+      }
+      diverso = true;
+    }
+    const ref = "n:" + codice;
+    if (Object.keys(this.nuovi).some((r) => r.toUpperCase() === ref.toUpperCase())) { this.avvisa(`${codice} l'hai già scritto: è fra i componenti nuovi.`, ""); return; }
+    this.prima();
+    this.nuovi[ref] = { codice, tipo, rev: "", diverso };
+    this.nodi[ref] = { codice, tipo, nuovo: true };
+    box.remove();
+    this.disegna(`${codice} (${tipo === "sciolto" ? "particolare" : "assieme"} nuovo) è fra i non posizionati: trascinalo sotto il suo padre. Nasce con la conferma.`);
+  }
+  rimuoviNuovo(ref) {
+    this.prima();
+    delete this.nuovi[ref];
+    delete this.nodi[ref];
+    for (const k of [...this.archi.keys()]) { const a = this.archi.get(k); if (a.padre === ref || a.figlio === ref) this.archi.delete(k); }
+    this.disegna(`${ref.slice(2)} tolto: non nasce.`);
   }
   scriviCodice(ref, codice) {
     codice = (codice || "").trim();
@@ -1238,14 +1321,19 @@ class Editor {
     for (const a of this.archi.values()) if (qui.has(a.padre)) archi.push({ padre: a.padre, figlio: a.figlio, qta: a.qta });
     const codici = {};
     for (const [id, c] of Object.entries(this.codici)) codici[id] = c;
+    // le carte «n:» che la struttura usa: le altre (lasciate nel vassoio) non nascono
+    const usati = new Set();
+    for (const a of archi) { usati.add(a.padre); usati.add(a.figlio); }
+    const nuovi = Object.entries(this.nuovi).filter(([r]) => usati.has(r))
+      .map(([, n]) => ({ codice: n.codice, tipo: n.tipo, rev: n.rev || "", diverso: !!n.diverso }));
     return {
       radice: this.radice.slice(2),
       archi,
       visti: (this.d.archi || []).map((a) => ({ padre: a.padre, figlio: a.figlio, qta: a.qta })),
       relazioni_viste: (this.d.proposti || []).filter((p) => visto.has(p.padre)).map((p) => ({ allegato: p.allegato, padre: p.pk, figlio: p.fk })),
-      radici_proposte: [...this.radici].map((r) => r.slice(2)),
       scarta: [...this.scarta],
       codici,
+      nuovi,
     };
   }
   modifiche() {
@@ -1258,7 +1346,7 @@ class Editor {
       if (!prima.has(a.padre + "|" + a.figlio) || prima.get(a.padre + "|" + a.figlio) !== a.qta) n++;
     }
     for (const k of prima.keys()) { const [p] = k.split("|"); if (qui.has(p) && !this.archi.has(k)) n++; }
-    return n + this.scarta.size + this.radici.size;
+    return n + this.scarta.size;
   }
   async conferma() {
     const qui = this.raggiunti(this.radice);
@@ -1323,10 +1411,12 @@ class Editor {
           el("span", { class: "bomed-step k" }),
           el("span", { class: "sp" }),
           el("button", { type: "button", class: "bomed-sposta-scelti", hidden: true }, "Sposta i selezionati sotto…"),
+          el("button", { type: "button", class: "bomed-nuovo", title: "Un pezzo che lo STEP non propone: il codice lo scrivi tu" }, "+ Componente con codice"),
           el("button", { type: "button", class: "bomed-indietro", title: "Annulla l'ultima modifica (Ctrl+Z)" }, "↶ Annulla modifica"),
           el("button", { type: "button", class: "bomed-annulla" }, "Chiudi"),
           el("button", { type: "button", class: "primario bomed-conferma" }, "Conferma struttura")),
         el("div", { class: "bomed-avvisi" }),
+        el("div", { class: "bomed-nuovo-posto" }),
         el("div", { class: "bomed-corpo" },
           el("section", { class: "bomed-albero", "aria-label": "Struttura del prodotto" }),
           el("aside", { class: "bomed-vassoio", "aria-label": "Non posizionati" })),
@@ -1339,6 +1429,7 @@ class Editor {
     $(".bomed-indietro", this.el).addEventListener("click", () => this.annullaUltima());
     $(".bomed-conferma", this.el).addEventListener("click", () => this.conferma());
     $(".bomed-sposta-scelti", this.el).addEventListener("click", (e) => this.sceltaPadre(e.currentTarget, "scelti"));
+    $(".bomed-nuovo", this.el).addEventListener("click", () => this.formNuovo());
     this.tasti = (e) => this.tasto(e);
     document.addEventListener("keydown", this.tasti, true);
     this.el.addEventListener("dragstart", (e) => this.inizioTrascina(e));
@@ -1376,7 +1467,7 @@ class Editor {
       const padri = this.padriDi(ref).length;
       const cl = ["bomed-riga"];
       if (!arco && dentro === albero) cl.push("radice");
-      if ((arco && arco.prop) || n.proposto || n.trovato) cl.push("proposto");
+      if ((arco && arco.prop) || n.proposto) cl.push("proposto");
       if (ripetuto) cl.push("rimando");
       if (this.scelte.has(arco ? arco.padre + "|" + arco.figlio : ref)) cl.push("scelta");
       // nel vassoio si prende solo la carta in cima, con il suo sottoalbero: i legami sotto di lei non sono
@@ -1393,8 +1484,9 @@ class Editor {
       } else r.append(el("span", { class: "bomed-cod" }, this.nome(ref)));
       if (n.rev) r.append(el("span", { class: "k" }, "rev " + n.rev));
       if (n.desc) r.append(el("span", { class: "bomed-desc", title: n.desc }, n.desc));
-      r.append(el("span", { class: "bomed-tipo" }, n.finito ? "prodotto" : n.trovato ? "codice trovato" : ({ sottoassieme: "assieme", sciolto: "particolare", commerciale: "commerciale" }[n.tipo] || "")));
+      r.append(el("span", { class: "bomed-tipo" }, n.finito ? "prodotto" : ({ sottoassieme: "assieme", sciolto: "particolare", commerciale: "commerciale" }[n.tipo] || "")));
       if (n.proposto || (arco && arco.prop)) r.append(el("span", { class: "bomed-badge prop", title: n.file ? "dallo STEP " + n.file : "" }, "proposto"));
+      if (n.nuovo) r.append(el("span", { class: "bomed-badge info", title: "Codice scritto da te: il componente nasce con la conferma" }, "nuovo"));
       if (padri > 1) r.append(el("span", { class: "bomed-badge info", title: "Un componente solo sotto più padri" }, `condiviso · ${padri} padri`));
       if (arco && arco.stepQta) r.append(el("span", { class: "bomed-badge warn" }, `lo STEP dice ×${arco.stepQta} `, el("button", { type: "button", "data-usa-step": arco.padre + "|" + arco.figlio }, "usa")));
       if (arco && this.rimozioni.has(arco.padre + "|" + arco.figlio)) r.append(el("span", { class: "bomed-badge urg", title: "Lo STEP strutturale non contiene più questo legame: confermando lo si tiene" }, "lo STEP lo toglie"));
@@ -1503,9 +1595,9 @@ class Editor {
       voci.push(["sposta", "Sposta sotto…"], ["condividi", "Condividi anche sotto un altro assieme…"], ["togli", "Togli dalla struttura (va nel vassoio)"]);
     } else {
       voci.push(["metti", "Metti sotto…"]);
-      if (ref.startsWith("p:") && this.figliDi(ref).length) voci.push(["prodotto", `È il prodotto ${this.nome(this.radice)} (i suoi figli vanno sotto il prodotto)`]);
     }
     if (ref.startsWith("p:") && !arco) voci.push(["scarta", "Scarta: non è un pezzo della distinta"]);
+    if (ref.startsWith("n:") && !arco) voci.push(["rimuovi", "Togli il componente nuovo: non nasce"]);
     const box = el("div", { class: "bomed-menu-dentro", role: "menu" }, voci.map(([k, t]) => el("button", { type: "button", role: "menuitem", "data-voce": k, "data-ref": ref, "data-arco": arco }, t)));
     riga.querySelector(".bomed-menu").append(box);
     this.menuAperto = box;
@@ -1521,7 +1613,7 @@ class Editor {
     switch (k) {
       case "togli": this.togli(padre, figlio); break;
       case "scarta": this.scartaNodo(ref); break;
-      case "prodotto": this.eIlProdotto(ref); break;
+      case "rimuovi": this.rimuoviNuovo(ref); break;
       case "sposta": case "metti": this.sceltaPadre($(`.bomed-riga[data-ref="${CSS.escape(ref)}"][data-arco="${CSS.escape(arco || "")}"]`, this.el), "sposta", padre, figlio); break;
       case "condividi": this.sceltaPadre($(`.bomed-riga[data-ref="${CSS.escape(ref)}"][data-arco="${CSS.escape(arco || "")}"]`, this.el), "condividi", padre, figlio); break;
     }

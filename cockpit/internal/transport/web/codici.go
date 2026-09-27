@@ -1,17 +1,17 @@
 package web
 
 // I codici della RFQ, B8.6: il pannello che mette insieme i codici che la RFQ ha visto nei messaggi, nei
-// nomi e nei cartigli dei file e negli STEP (fascicolo.Unisci), e i due gesti che mancavano: «+ Prodotto /
-// + Assieme / + Particolare» su un codice davvero nuovo, e il ripristino di un componente archiviato. Il
-// terzo gesto del pannello, decidere la proposta STEP aperta di un codice, e' quello di B8.5.
+// nomi e nei cartigli dei file e negli STEP (fascicolo.Unisci). Sta nella pagina della RFQ e nel cassetto
+// «Codici» del Fascicolo (B8.7).
 //
-// Il pannello sta nella pagina della RFQ e nel cassetto «Codici» del Fascicolo (B8.7), e le rotte
-// rispondono come la schermata da cui arriva il gesto.
+// Smistamento F2 (R1): il pannello si legge e basta. I gesti che c'erano («+ Prodotto / + Assieme /
+// + Particolare» con la rotta …/fascicolo/codice/aggiungi, «Accetta la proposta» e «Scarta» del nodo,
+// «Ripristina») facevano di un'evidenza un componente con un clic, e sono tolti. Il ripristino di un
+// archiviato resta, con la sua rotta, negli Archiviati della Struttura BOM.
 
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -20,20 +20,7 @@ import (
 )
 
 func (s *Server) registraCodici(mux *http.ServeMux) {
-	mux.HandleFunc("POST /thread/{id}/fascicolo/codice/aggiungi", s.autenticato(s.aggiungiCodice))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/ripristina", s.autenticato(s.ripristinaComponente))
-}
-
-// aggiungiCodice: POST .../fascicolo/codice/aggiungi, campi `codice`, `tipo` (finito, sottoassieme,
-// sciolto) e, se le evidenze dicono revisioni diverse, `rev`: una di quelle viste.
-func (s *Server) aggiungiCodice(w http.ResponseWriter, r *http.Request) {
-	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
-		tipo := db.TipoComponente(strings.TrimSpace(r.FormValue("tipo")))
-		if !tipo.Valid() {
-			return "", rifiuto("tipo di componente non valido")
-		}
-		return fascicolo.AggiungiDaCodice(ctx, q, thread, utente, r.FormValue("codice"), tipo, r.FormValue("rev"))
-	})
 }
 
 // ripristinaComponente: POST .../fascicolo/componente/{cid}/ripristina.
@@ -47,38 +34,20 @@ func (s *Server) ripristinaComponente(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// rigaCodice e' una riga del pannello: il codice, la RFQ per le rotte, i documenti del suo componente se
-// ce n'e' uno (e' quello che si vede «aprendolo»), e dove va la risposta dei gesti: la pagina della RFQ
-// (#thread) o l'avviso della schermata del Fascicolo (B8.7).
+// rigaCodice e' una riga del pannello: il codice e i documenti del suo componente se ce n'e' uno (e' quello
+// che si vede «aprendolo»).
 type rigaCodice struct {
 	C         fascicolo.CodiceCandidato
-	Thread    uuid.UUID
 	Documenti []db.Documento
-	Bersaglio string
 }
 
-func nuovaRigaCodice(c fascicolo.CodiceCandidato, thread uuid.UUID, documenti map[uuid.UUID][]db.Documento, bersaglio string) rigaCodice {
-	r := rigaCodice{C: c, Thread: thread, Bersaglio: bersaglio}
+func nuovaRigaCodice(c fascicolo.CodiceCandidato, documenti map[uuid.UUID][]db.Documento) rigaCodice {
+	r := rigaCodice{C: c}
 	if c.Stato.Componente != nil {
 		r.Documenti = documenti[c.Stato.Componente.ComponenteID]
 	}
 	return r
 }
-
-// etichettaTipo e' il nome del tipo sul bottone: «Prodotto», «Assieme», «Particolare».
-func etichettaTipo(t db.TipoComponente) string {
-	n := fascicolo.NomeTipo(t)
-	if n == "" {
-		return n
-	}
-	return strings.ToUpper(n[:1]) + n[1:]
-}
-
-// BersaglioCodici: nella pagina della RFQ i gesti del pannello dei codici rifanno la pagina.
-func (d *threadDati) BersaglioCodici() string { return "#thread" }
-
-// BersaglioCodici: nel cassetto del Fascicolo i gesti rispondono con l'avviso e i pannelli fuori banda.
-func (d *fascicoloDati) BersaglioCodici() string { return "#fasc-avviso" }
 
 // codiciDellaRfq riempie il pannello: i codici nelle due liste e, per aprire un componente, i suoi
 // documenti. Se la lettura non riesce la pagina si apre lo stesso, e il pannello dice perche' e' vuoto.

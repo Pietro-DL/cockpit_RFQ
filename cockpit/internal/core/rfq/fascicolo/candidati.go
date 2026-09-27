@@ -9,10 +9,15 @@ package fascicolo
 // upper(codice) senza perderne nessuna, e senza scegliere fra le revisioni che dicono: due revisioni
 // diverse sono un conflitto da mostrare a chi decide, non un punteggio da vincere.
 //
-// Componenti e identificativi della RFQ non sono evidenze: dicono se il codice e' gia' deciso, e quindi
-// che cosa si fa da qui. Un codice con una proposta STEP aperta porta a quella proposta; uno che e' gia'
-// un componente si apre; uno archiviato si ripristina; un codice della richiesta entra come prodotto; solo
-// un codice davvero nuovo si aggiunge come prodotto, assieme o particolare.
+// Componenti e identificativi della RFQ non sono evidenze: dicono se il codice e' gia' deciso, e si
+// mostrano accanto al codice (una proposta STEP aperta, un componente, un archiviato, un codice della
+// richiesta, un codice nuovo).
+//
+// Smistamento F2 (addendum A5, R1): da qui non si decide niente. Un codice trovato e' un'evidenza, e
+// un'evidenza non fa nascere un componente: «+ Prodotto / + Assieme / + Particolare» (AggiungiDaCodice),
+// «Accetta la proposta» e «Scarta» del pannello sono tolti. Un componente nuovo ha il codice scritto da una
+// persona (l'editor della struttura, la carta «n:»); un prodotto nasce dai codici della richiesta confermati nel
+// triage; un nodo si decide dove si vede lo STEP.
 
 import (
 	"context"
@@ -72,18 +77,20 @@ type CodiceCandidato struct {
 	Stato     Stato
 }
 
-// Situazione dice se il codice e' gia' deciso, e quindi quale gesto porta.
+// Situazione dice che cosa la RFQ ha gia' deciso sul codice. Si legge e basta: nessuna situazione porta
+// un gesto (Smistamento F2).
 type Situazione string
 
 const (
-	SituazioneProposta   Situazione = "proposta"   // un nodo STEP aperto con questo codice: si decide quello
-	SituazioneComponente Situazione = "componente" // gia' nella BOM: si apre
-	SituazioneArchiviato Situazione = "archiviato" // si propone il ripristino, con la sua storia
-	SituazioneRichiesta  Situazione = "richiesta"  // codice della richiesta (triage): entra come prodotto
-	SituazioneNuovo      Situazione = "nuovo"      // + Prodotto / + Assieme / + Particolare
+	SituazioneProposta   Situazione = "proposta"   // un nodo STEP aperto con questo codice: si decide dove si vede lo STEP
+	SituazioneComponente Situazione = "componente" // gia' nella BOM
+	SituazioneArchiviato Situazione = "archiviato" // archiviato: si ripristina dalla Struttura BOM
+	SituazioneRichiesta  Situazione = "richiesta"  // codice della richiesta senza componente: il prodotto nasce dal triage o aprendo una revisione
+	SituazioneNuovo      Situazione = "nuovo"      // nessun componente: un codice trovato, e basta
 )
 
-// TipiDaCodice sono i tipi con cui un codice davvero nuovo entra nella BOM da qui.
+// TipiDaCodice sono i tipi con cui un nodo proposto entra nella BOM (le tendine dei nodi). Non sono piu' i
+// tipi con cui un codice trovato diventa un componente: da un codice trovato non nasce niente (F2).
 var TipiDaCodice = []db.TipoComponente{db.TipoComponenteFinito, db.TipoComponenteSottoassieme, db.TipoComponenteSciolto}
 
 // Stato e' quello che la RFQ ha gia' deciso su un codice.
@@ -92,11 +99,7 @@ type Stato struct {
 	Componente     *db.Componente                 // attivo o archiviato, se c'e'
 	Proposte       []db.ListProposteNodoAperteRow // i nodi STEP aperti con questo codice
 	Identificativo bool                           // e' un codice della richiesta
-	// Tipi: con quali tipi si puo' aggiungere da qui. Vuoto quando il codice ha gia' la sua strada (una
-	// proposta, un componente, un ripristino) e quando la BOM e' congelata.
-	Tipi []db.TipoComponente
-	// Bloccata: la BOM e' congelata in questa versione (D26). I gesti che la cambiano aspettano una
-	// revisione; la situazione resta quella, e si mostra.
+	// Bloccata: la BOM e' congelata in questa versione (D26): il pannello lo dice.
 	Bloccata int32
 }
 
@@ -108,7 +111,7 @@ func (s Stato) Proposta() db.ListProposteNodoAperteRow {
 	return s.Proposte[0]
 }
 
-// AltreProposte: quanti altri nodi aperti hanno lo stesso codice. Accettarne uno li riconcilia.
+// AltreProposte: quanti altri nodi aperti hanno lo stesso codice.
 func (s Stato) AltreProposte() int {
 	if len(s.Proposte) == 0 {
 		return 0
@@ -406,8 +409,7 @@ func ordinaCodici(l []CodiceCandidato) {
 }
 
 // situa dice che cosa la RFQ ha gia' deciso sul codice k, nell'ordine in cui conta: una proposta STEP
-// aperta (accettarla porta il file e ritrova o ripristina il componente), il componente, l'archiviato, il
-// codice della richiesta, il codice nuovo.
+// aperta, il componente, l'archiviato, il codice della richiesta, il codice nuovo.
 func situa(k string, bloccata int32, componenti map[string]db.Componente, proposte map[string][]db.ListProposteNodoAperteRow,
 	richiesta map[string]bool) Stato {
 	s := Stato{Proposte: proposte[k], Identificativo: richiesta[k], Bloccata: bloccata}
@@ -422,12 +424,9 @@ func situa(k string, bloccata int32, componenti map[string]db.Componente, propos
 	case s.Componente != nil:
 		s.Situazione = SituazioneArchiviato
 	case s.Identificativo:
-		s.Situazione, s.Tipi = SituazioneRichiesta, []db.TipoComponente{db.TipoComponenteFinito}
+		s.Situazione = SituazioneRichiesta
 	default:
-		s.Situazione, s.Tipi = SituazioneNuovo, TipiDaCodice
-	}
-	if bloccata > 0 {
-		s.Tipi = nil
+		s.Situazione = SituazioneNuovo
 	}
 	return s
 }
@@ -481,104 +480,4 @@ func CandidatiDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID) (Ca
 		c.Bloccata = n
 	}
 	return Unisci(righe, c), nil
-}
-
-// ------------------------------------------------------------------ il gesto
-
-// AggiungiDaCodice e' «+ Prodotto / + Assieme / + Particolare» su un codice della RFQ: il componente nasce
-// da un codice rilevato, con una decisione. La situazione del codice si rilegge qui, con la RFQ bloccata,
-// perche' quella che la pagina mostrava puo' essere cambiata: un codice con una proposta STEP aperta si
-// decide li' (il nodo porta con se' il file e le sue relazioni), uno gia' nella BOM si apre, uno
-// archiviato si ripristina, un codice della richiesta entra come prodotto. Con revisioni discordanti la
-// revisione la sceglie chi aggiunge, fra quelle viste.
-func AggiungiDaCodice(ctx context.Context, q *db.Queries, thread, utente uuid.UUID, codice string, tipo db.TipoComponente, rev string) (string, error) {
-	if err := prepara(ctx, q, thread, "si aggiunge un componente"); err != nil {
-		return "", err
-	}
-	cand, err := CandidatiDellaRfq(ctx, q, thread)
-	if err != nil {
-		return "", err
-	}
-	k, ok := cand.Trova(codice)
-	if !ok {
-		return "", Rifiuto(fmt.Sprintf("%s non è fra i codici trovati in questa RFQ", strings.TrimSpace(codice)))
-	}
-	s := k.Stato
-	switch s.Situazione {
-	case SituazioneProposta:
-		p := s.Proposta()
-		return "", Rifiuto(fmt.Sprintf("%s ha una proposta aperta dallo STEP %s (nodo «%s»): si decide quella, non si crea un componente parallelo",
-			k.Codice, p.NomeFile, p.NomeGrezzo))
-	case SituazioneComponente:
-		return "", Rifiuto(fmt.Sprintf("%s è già nella BOM come %s: si apre quello", s.Componente.Codice, NomeTipo(s.Componente.Tipo)))
-	case SituazioneArchiviato:
-		return "", Rifiuto(fmt.Sprintf("%s è archiviato: si ripristina, con la sua storia, invece di crearne un altro", s.Componente.Codice))
-	}
-	valido := false
-	for _, t := range s.Tipi {
-		valido = valido || t == tipo
-	}
-	if !valido {
-		if s.Situazione == SituazioneRichiesta {
-			return "", Rifiuto(fmt.Sprintf("%s è un codice della richiesta: entra come prodotto", k.Codice))
-		}
-		return "", Rifiuto("un codice si aggiunge come prodotto, assieme o particolare")
-	}
-	if !classificazione.CodiceAmmissibile(k.Codice) {
-		return "", Rifiuto(fmt.Sprintf("%s: il codice ha più di %d caratteri o caratteri non ammessi", k.Codice, classificazione.MaxCodice))
-	}
-	r, err := revisioneScelta(k, rev)
-	if err != nil {
-		return "", err
-	}
-	c, err := q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: thread, Codice: k.Codice, Rev: testo(r), Qta: 1, Tipo: tipo,
-		Origine: db.OrigineComponenteCodiceRilevato, ConfermatoDa: utente})
-	if err != nil {
-		return "", err
-	}
-	msg := fmt.Sprintf("%s entra nella BOM come %s", c.Codice, NomeTipo(tipo))
-	if r != "" {
-		msg += ", rev " + r
-	}
-	return dopoLaDecisione(ctx, q, thread, msg+".", nil)
-}
-
-// revisioneScelta e' la revisione con cui il componente nasce: quella che le evidenze dicono, se ne dicono
-// una sola; con revisioni discordanti la sceglie chi aggiunge, fra quelle viste. Il punteggio non sceglie.
-func revisioneScelta(k CodiceCandidato, scelta string) (string, error) {
-	scelta = strings.TrimSpace(scelta)
-	if scelta == "" {
-		switch len(k.Revisioni) {
-		case 0:
-			return "", nil
-		case 1:
-			return revAmmissibile(k, k.Revisioni[0].Rev)
-		}
-		return "", Rifiuto(fmt.Sprintf("%s: revisioni discordanti (%s). Si sceglie quale vale", k.Codice, elencoRevisioni(k.Revisioni)))
-	}
-	for _, r := range k.Revisioni {
-		if strings.EqualFold(r.Rev, scelta) {
-			return revAmmissibile(k, r.Rev)
-		}
-	}
-	if len(k.Revisioni) == 0 {
-		return "", Rifiuto(fmt.Sprintf("%s: nessuna evidenza dice la revisione %s", k.Codice, scelta))
-	}
-	return "", Rifiuto(fmt.Sprintf("%s: la revisione %s non è fra quelle viste (%s)", k.Codice, scelta, elencoRevisioni(k.Revisioni)))
-}
-
-func revAmmissibile(k CodiceCandidato, r string) (string, error) {
-	if !classificazione.RevAmmissibile(r) {
-		return "", Rifiuto(fmt.Sprintf("%s: la revisione %s ha più di %d caratteri o caratteri non ammessi", k.Codice, r, classificazione.MaxRev))
-	}
-	return r, nil
-}
-
-// elencoRevisioni: «A (2 evidenze), B (1 evidenza)».
-func elencoRevisioni(rr []Revisione) string {
-	parti := make([]string, len(rr))
-	for i, r := range rr {
-		parti[i] = fmt.Sprintf("%s (%d evidenz%s)", r.Rev, r.Evidenze, map[bool]string{true: "a", false: "e"}[r.Evidenze == 1])
-	}
-	return strings.Join(parti, ", ")
 }

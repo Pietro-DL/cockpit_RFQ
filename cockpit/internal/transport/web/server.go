@@ -167,8 +167,8 @@ var funzioni = template.FuncMap{
 		}
 		return out
 	},
-	"vistaAllegati": func(a []AllegatoUI, messaggioID uuid.UUID, agganciato bool, ritornaThread string) allegatiVista {
-		v := allegatiVista{Allegati: a, MessaggioID: messaggioID, Agganciato: agganciato, RitornaThread: ritornaThread}
+	"vistaAllegati": func(a []AllegatoUI, messaggioID uuid.UUID, agganciato bool, ritornaThread string, gesti bool) allegatiVista {
+		v := allegatiVista{Allegati: a, MessaggioID: messaggioID, Agganciato: agganciato, RitornaThread: ritornaThread, Gesti: gesti}
 		for _, x := range a {
 			if x.Scaricabile() {
 				v.NScaricabili++
@@ -176,15 +176,16 @@ var funzioni = template.FuncMap{
 		}
 		return v
 	},
-	"rigaAllegato": func(a AllegatoUI, agganciato bool, ritornaThread string, figlio bool) rigaAllegato {
-		return rigaAllegato{A: a, Agganciato: agganciato, RitornaThread: ritornaThread, Figlio: figlio}
+	"rigaAllegato": func(a AllegatoUI, agganciato bool, ritornaThread string, figlio, gesti bool) rigaAllegato {
+		return rigaAllegato{A: a, Agganciato: agganciato, RitornaThread: ritornaThread, Figlio: figlio, Gesti: gesti}
 	},
 	// B8.6, il pannello dei codici: il tipo di componente con le parole della schermata (prodotto,
-	// assieme, particolare), i tipi fra cui si sceglie, una riga del pannello.
+	// assieme, particolare), i tipi fra cui si sceglie per un nodo proposto, una riga del pannello.
 	"nomeTipo":       func(t db.TipoComponente) string { return fascicolo.NomeTipo(t) },
-	"etichettaTipo":  etichettaTipo,
 	"tipiComponente": func() []db.TipoComponente { return fascicolo.TipiDaCodice },
 	"rigaCodice":     nuovaRigaCodice,
+	// Smistamento P17: il codice di un candidato visto solo nel nome di un allegato.
+	"soloNelNome": SoloNelNome,
 	// B8.7, la schermata del Fascicolo: un nodo dell'albero e una riga tratteggiata con la schermata (il
 	// template e' ricorsivo), i nomi brevi dei tipi, gli esiti dello STEP del prodotto finito.
 	"nodoVista": func(d *fascicoloDati, n *fascicolo.Nodo) nodoVista { return nodoVista{D: d, N: n} },
