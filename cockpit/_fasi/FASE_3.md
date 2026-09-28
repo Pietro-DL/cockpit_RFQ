@@ -49,7 +49,7 @@ che serviva davvero.
 Il numero: la 0006 aveva già dichiarato che l'anagrafica sarebbe stata la `0007`. Il `0007_igiene` del
 piano scala a valle.
 
-## 2. Lo schema delle regole — `domain.Regole` (voce 6.11, D17)
+## 2. Lo schema delle regole — `regole.Regole` (voce 6.11, D17)
 
 Un tipo Go con i campi dell'addendum: `famiglie_codice[{regex, descrizione, rev_nel_codice, esempio}]`,
 `riferimento_rfq{regex, esempio}`, `canale_atteso`, `frasi_portale[]`, `lingua_risposta`,
@@ -76,7 +76,7 @@ dentro il Go: un codice come `AC12345B` non ha separatori, e nessuna regola gene
 
 ## 3. Un motore solo (voce 6.11, AN5)
 
-`domain.Riconosci` è l'unico ingresso al riconoscimento: la chiama l'ingest sui messaggi che arrivano
+`classificazione.Riconosci` è l'unico ingresso al riconoscimento: la chiama l'ingest sui messaggi che arrivano
 e la chiama il banco di prova della schermata Anagrafica sul testo incollato. Restituisce triage,
 riferimenti al portale e scadenza in una volta.
 

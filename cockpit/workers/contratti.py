@@ -1,6 +1,6 @@
 """Contratti JSON fra worker Python e cockpit.exe (fonte unica lato Python).
 
-Speculare a internal/api/tipi.go. `python genera_contratti.py` esporta contracts/*.schema.json,
+Speculare a internal/platform/contratti/worker/tipi.go. `python genera_contratti.py` esporta contracts/*.schema.json,
 che i test di entrambe le parti validano: un cambio di contratto rompe i test, mai la produzione.
 """
 from __future__ import annotations
@@ -121,6 +121,9 @@ class IngestRisposta(Base):
     aggiornati: int
     falliti: int = 0
     esiti: list[EsitoMessaggio]
+    # quanto il SERVER ha impiegato a scrivere il lotto (7C.1): la differenza con il tempo della
+    # chiamata HTTPS misurata dal worker e' la rete
+    durata_ms: int = 0
 
 
 # ---------------------------------------------------------------- coda job
@@ -251,6 +254,8 @@ class CartellaEsito(Base):
 
 class RisultatoSync(Base):
     cartelle: list[CartellaEsito]
+    # Dove il sync ha passato il suo tempo, in secondi (7C.1): com, serializzazione, https, server.
+    tempi: dict[str, float] = Field(default_factory=dict)
 
 
 class PayloadRileggiElemento(Base):
@@ -338,9 +343,16 @@ class PayloadSegnaLetto(RiferimentoElemento):
 
 
 class PayloadAnalizzaAllegato(Base):
+    """Che cosa analizzare, non dove sta (7C.1, P0).
+
+    Fino al banco a due macchine del 20/09/2026 c'era `path_staging`: il percorso del file sul
+    disco del SERVER. Il worker sull'altro PC lo cercava sul proprio e falliva. Ora il worker si
+    prende i byte con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo, li verifica
+    con `sha256` e li cancella dopo l'analisi. Un `path_staging` in un job vecchio ancora in coda
+    viene ignorato, non letto."""
     allegato_id: UUID
-    path_staging: str
     sha256: str
+    bytes: int = 0
     nome_file: str
     thread_id: UUID | None = None
     messaggio_id: UUID
@@ -349,6 +361,73 @@ class PayloadAnalizzaAllegato(Base):
     versione_analizzatore: int = 0
     hash_configurazione: str = ""
     parametri: dict = Field(default_factory=dict)
+
+
+class NodoSTEP(Base):
+    """Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.
+
+    Niente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente
+    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2)."""
+    chiave: str
+    id_grezzo: str = ""
+    nome_grezzo: str
+    descrizione_grezza: str = ""
+    rev_grezza: str = ""
+    evidenza: dict = Field(default_factory=dict)
+
+
+class RelazioneSTEP(Base):
+    """«Il nodo padre contiene il nodo figlio, qta volte.»
+
+    E' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due
+    nodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui
+    padre e figlio non possono stare sulla riga del nodo (A1.1)."""
+    padre: str
+    figlio: str
+    qta: int = 1
+    evidenza: dict = Field(default_factory=dict)
+
+
+class LimitiSTEP(Base):
+    """Fin dove si e' letto, e contro quale tetto ci si e' fermati.
+
+    I tetti viaggiano insieme al risultato: un albero parziale va spiegato con il limite che era in
+    vigore QUANDO e' stato letto, non con quello che si trova oggi nella configurazione."""
+    nodi_max: int = 0
+    occorrenze_max: int = 0
+    tempo_max_s: float = 0.0
+    byte_letti: int = 0
+    tempo_s: float = 0.0
+    troncato: bool = False
+    motivo: str = ""            # "" se completo, altrimenti "nodi", "occorrenze" o "tempo"
+
+
+class ScartiSTEP(Base):
+    """Che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3, addendum B8 A4.4, D35).
+
+    Il server decide se una lettura e' COMPLETA da questi numeri e non dalle frasi di `avvisi`: una
+    mancanza diventa una proposta di rimozione solo in una lettura completa. Le occorrenze di un pezzo
+    dentro se stesso si contano ma non tolgono completezza: sono archi impossibili."""
+    prodotti_senza_definizione: int = 0
+    occorrenze_non_risolte: int = 0
+    occorrenze_su_se_stesse: int = 0
+    testi_troncati: int = 0
+
+
+class StrutturaSTEP(Base):
+    """Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli["struttura"]`.
+
+    `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
+    nei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere
+    `nodi[].codice` mai piu'."""
+    versione: int = 3
+    schema_step: str = Field(default="", alias="schema")
+    radici: list[str] = Field(default_factory=list)
+    nodi: list[NodoSTEP] = Field(default_factory=list)
+    relazioni: list[RelazioneSTEP] = Field(default_factory=list)
+    avvisi: list[str] = Field(default_factory=list)
+    scarti: ScartiSTEP = Field(default_factory=ScartiSTEP)
+    limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
 
 
 class RisultatoAnalisi(Base):
@@ -388,4 +467,5 @@ CONTRATTI = {
     "heartbeat_richiesta": HeartbeatRichiesta,
     "payload_analizza_allegato": PayloadAnalizzaAllegato,
     "risultato_analisi": RisultatoAnalisi,
+    "struttura_step": StrutturaSTEP,
 }

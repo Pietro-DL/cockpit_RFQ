@@ -182,7 +182,9 @@
       {{end}}
 
       {{/* checkpoint 3R §7: il form, non il JSON. Le due strade passano dallo stesso
-           `domain.ValidaRegole`, altrimenti una potrebbe salvare cio' che l'altra rifiuta. */}}
+           `regole.ValidaRegole`, altrimenti una potrebbe salvare cio' che l'altra rifiuta.
+           «Rev nel codice» porta il numero della riga: il browser manda solo le caselle spuntate, e
+           letta per posizione la spunta di una famiglia finiva su un'altra. */}}
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/regole/form">
         <h3>Famiglie di codice</h3>
         <p class="muto nota">Come sono fatti i codici di questo cliente. Ogni famiglia vuole un esempio
@@ -191,12 +193,12 @@
         <div class="scorri">
         <table class="famiglie">
           <tr><th>Regex</th><th>Descrizione</th><th>Esempio</th><th>Rev nel codice</th><th>Ruolo</th></tr>
-          {{range $d.Regole.FamiglieCodice}}
+          {{range $i, $f := $d.Regole.FamiglieCodice}}
           <tr>
             <td><input class="mono" name="fam_regex" value="{{.Regex}}"></td>
             <td><input name="fam_descrizione" value="{{.Descrizione}}"></td>
             <td><input class="mono" name="fam_esempio" value="{{.Esempio}}"></td>
-            <td><input type="checkbox" name="fam_rev" value="1" {{if .RevNelCodice}}checked{{end}}></td>
+            <td><input type="checkbox" name="fam_rev" value="{{$i}}" {{if .RevNelCodice}}checked{{end}}></td>
             <td><select name="fam_ruolo">
               <option value="prodotto" {{if ne .Ruolo "parte"}}selected{{end}}>prodotto</option>
               <option value="parte" {{if eq .Ruolo "parte"}}selected{{end}}>parte</option></select></td>
@@ -205,8 +207,8 @@
           <tr>
             <td><input class="mono" name="fam_regex" placeholder="\b\d{7}[A-Z]\b"></td>
             <td><input name="fam_descrizione" placeholder="7 cifre + lettera"></td>
-            <td><input class="mono" name="fam_esempio" placeholder="6674611A"></td>
-            <td><input type="checkbox" name="fam_rev" value="1"></td>
+            <td><input class="mono" name="fam_esempio" placeholder="1234567A"></td>
+            <td><input type="checkbox" name="fam_rev" value="{{len $d.Regole.FamiglieCodice}}"></td>
             <td><select name="fam_ruolo"><option value="prodotto">prodotto</option><option value="parte">parte</option></select></td>
           </tr>
         </table>
@@ -215,6 +217,13 @@
         e' l'unico modo di dire DOVE sta la revisione senza scrivere la convenzione di un cliente dentro
         il programma. Il ruolo «parte» dice che quei codici sono sottoassiemi o particolari; «finito» non
         esiste, perche' e' il ruolo di un articolo dentro una richiesta e lo dice la distinta.</p>
+
+        <h3>Suffissi decorativi</h3>
+        <label>Le code che i CAD di questo cliente attaccano al codice del pezzo senza cambiarlo (una per riga)
+          <span><textarea name="suffissi_decorativi" rows="2" spellcheck="false" placeholder="_PRT">{{range $d.Regole.SuffissiDecorativi}}{{.}}
+{{end}}</textarea><small class="muto">Una parte «…_PRT», un assieme «…_ASM»: il codice letto nei nomi dei file, negli
+        STEP e nei testi li perde, solo per questo cliente (per un altro possono essere parte del codice). Una coda
+        che si legge come revisione (_1, _B, _R2) non si accetta.</small></span></label>
 
         <h3>Riferimento della richiesta</h3>
         <p class="muto nota">Il numero con cui il cliente chiama la richiesta (RDO, Anfrage, ODA). Non e'
@@ -432,22 +441,22 @@
       messaggi veri: quello che si legge qui e' quello che l'Inbox proporra'.</p>
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova">
         <textarea name="testo" rows="8" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
-        <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="6745595A2_B.pdf 6745595A2.stp"></label>
+        <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
         <div class="azioni-form"><button>Prova il riconoscimento</button></div>
       </form>
       {{with $d.Prova}}
       <div class="esito-prova">
         {{$t := .Esito.Triage}}
-        <div>esito proposto <strong>{{$t.Esito}}</strong> &middot; punteggio <strong>{{$t.Confidenza}}</strong>
+        <div>esito proposto <strong>{{$t.Esito}}</strong> &middot; {{score $t.Confidenza}}
           &middot; cliente <span class="chip">{{.Cliente}}</span></div>
         {{if $t.Riferimento}}<div class="riga-esito">riferimento della richiesta <span class="mono">{{$t.Riferimento}}</span>
           <span class="muto">({{$t.RiferimentoNome}}) — non e' un codice prodotto</span></div>{{end}}
         <div class="riga-esito">codici che entrerebbero se spuntati:
-          {{range $t.Estrazione.Proponibili}}<span class="chip cad" title="famiglia «{{.Famiglia}}» · punteggio {{.Punteggio}} · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{else}}<span class="muto">nessuno</span>{{end}}
+          {{range $t.Estrazione.Proponibili}}<span class="chip cad" title="codice · score {{.Punteggio}} (di regola, non calibrato) · famiglia «{{.Famiglia}}» · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{else}}<span class="muto">nessuno</span>{{end}}
         </div>
         {{if $t.Estrazione.Altri}}
         <div class="riga-esito">altri numeri trovati, <em>non</em> proponibili:
-          {{range $t.Estrazione.Altri}}<span class="chip" title="estrattore generico · punteggio {{.Punteggio}} · {{.Dove}}">{{.Codice}}</span> {{end}}
+          {{range $t.Estrazione.Altri}}<span class="chip" title="codice · score {{.Punteggio}} (di regola, non calibrato) · estrattore generico · {{.Dove}}">{{.Codice}}</span> {{end}}
         </div>
         {{end}}
         <div class="riga-esito muto">{{range $t.Motivi}}&bull; {{.}}<br>{{end}}</div>

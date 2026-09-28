@@ -3,7 +3,7 @@
 <article class="messaggio">
   {{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
   <header>
-    <h2>{{.M.Oggetto.String}}</h2>
+    <h2>{{oggettoVisibile .M.Oggetto}}</h2>
     <div class="meta">
       <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
         {{template "chip_controparte" .Riga}}</div>
@@ -12,10 +12,13 @@
         {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
       <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
         {{if .Richiesta}} · <b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip richiesta {{.Richiesta.Stato}}">{{.Richiesta.Stato}}</span>{{end}}
-        {{if .Riga.TriageIntento}} · <span class="chip intento {{.Riga.TriageIntento}}" title="che cosa è questo messaggio, secondo il triage">{{.Riga.TriageIntento}}</span>{{end}}
-        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{.Riga.TriageEsito.String}} {{.Riga.TriageConfidenza.Int16}}%
-          <small>{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
+        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{chipTriage .Riga}}
+          <small>{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
         {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
+      {{/* Smistamento M2: che cosa sta succedendo con questa mail. È un'evidenza da leggere e non aggancia:
+           la RFQ si sceglie fra i candidati */}}
+      {{with .Evento}}<div class="evento"><b>Evento:</b> <span class="chip atto {{.Atto}}" data-evento="{{.Codice}}" title="{{.Titolo}}">{{.Chip}}</span>{{if .Forza}} ({{.Forza}}){{end}}{{if .Evidenze}} — {{join .Evidenze "; "}}{{end}}{{if .InLettura}} <small class="muto">letto adesso dal messaggio</small>{{end}}
+        {{if not $.Dati.Thread}}<em class="muto">L'evento non aggancia: la RFQ la scegli sotto.</em>{{end}}</div>{{end}}
     </div>
     <div class="azioni">
       {{if .Copia}}
@@ -73,15 +76,22 @@
     {{range .CandidatiRichiesta}}
     <form hx-post="/messaggio/{{$.Dati.M.MessaggioID}}/risposta-fornitore" hx-target="#pannello" class="candidato">
       <input type="hidden" name="richiesta_id" value="{{.RichiestaID}}">
-      <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
+      <span class="muto">richiesta · {{score .Punteggio}}</span>
       <span class="testo"><b>{{.Fornitore}}</b> per la RFQ <b>{{.Cliente}}</b> · {{txt .OggettoRfq}}
         {{if .Lavorazione.Valid}}<span class="chip">{{.Lavorazione.String}}</span>{{end}} <span class="chip richiesta {{.RichiestaStato}}">{{.RichiestaStato}}</span>
-        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small></span>
+        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
+        <br><label class="inline">Che cos'è
+          <select name="atto">
+            <option value="collegata">una risposta: la richiesta resta aperta</option>
+            <option value="offerta" {{if eq $.Dati.Riga.TriageAtto "offerta"}}selected{{end}}>l'offerta del fornitore: offerta ricevuta</option>
+            <option value="declinata">il fornitore non quota: declinata</option>
+          </select></label></span>
       <button class="primario piccolo">È la risposta a questa richiesta</button>
     </form>
     {{end}}
-    <p class="muto">Alla conferma la mail entra nella RFQ cliente, la richiesta passa a «risposta» e gli allegati
-      vengono proposti come offerta del fornitore (OFFERTE FORNITORI).</p>
+    <p class="muto">Alla conferma la mail entra nella RFQ cliente e resta legata alla richiesta. Lo stato della richiesta
+      cambia solo con l'atto che scegli: «offerta ricevuta» propone anche gli allegati come offerta del fornitore
+      (OFFERTE FORNITORI); una risposta qualunque non chiude niente.</p>
   </section>
   {{end}}
 
@@ -92,7 +102,7 @@
       <input type="hidden" name="thread_id" value="{{.PropostaThread.ThreadID}}">
       <input type="hidden" name="fornitore_id" value="{{.PropostaFornitore.FornitoreID}}">
       <span class="testo">Sembra la richiesta a <b>{{.PropostaFornitore.RagioneSociale}}</b> per la RFQ <b>{{.PropostaThread.CartellaRelativa.String}}</b>
-        <br><small class="muto">{{range motivi .Riga.TriageMotivi}}· {{.}} {{end}}</small>
+        <br><small class="muto">{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>
         <br><label class="inline">Lavorazione <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label></span>
       <button class="primario piccolo">Sì, è la richiesta a {{.PropostaFornitore.RagioneSociale}}</button>
     </form>
@@ -100,12 +110,14 @@
   </section>
   {{end}}
 
-  {{if .Candidati}}
+  {{range .Origini}}<div class="origine-cockpit">{{.}}</div>{{end}}
+
+  {{if .Candidati.Carte}}
   <section class="candidati">
-    <h3>Candidati di aggancio <small class="muto">il sistema propone, tu decidi</small></h3>
+    <h3>Candidati di aggancio <small class="muto">il sistema ordina e spiega, tu decidi</small></h3>
     {{template "candidati_aggancio" .Candidati}}
-    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. Per agganciarlo usa
-      «Aggancia a…», che chiede quale.</p>
+    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. «Aggancia a questa RFQ»
+      lo aggancia a quella; «Aggancia a…» cerca anche fra le altre e censisce il mittente.</p>
   </section>
   {{end}}
 
@@ -152,7 +164,8 @@
   {{if .Allegati}}
   <section class="allegati">
     <h3>Allegati</h3>
-    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "")}}
+    {{/* Smistamento F2: senza «Conferma… → NAS» e «Scarta» (i file si decidono dentro una RFQ, nel Fascicolo) */}}
+    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "" false)}}
   </section>
   {{end}}
 
@@ -162,9 +175,33 @@
   </section>
   {{end}}
 
-  <section class="corpo"><pre>{{.M.CorpoTesto.String}}</pre></section>
+  <section class="corpo">{{template "corpo_messaggio" .Corpo}}</section>
 </article>
 {{end}}
+{{end}}
+
+{{/* ---------------------------------------------------------------- corpo di un messaggio (pannello e schermata B)
+     Il modello viene da core/inbox/lettura ed è solo testo: tutto passa dall'escape, mai HTML della mail.
+     Il testo automatico di Outlook è chiuso, non tolto; «testo originale» mostra il corpo com'è. */}}
+{{define "corpo_messaggio"}}<div class="corpo-vista">
+{{- if .Ridotto}}<pre class="corpo-grezzo">{{.Originale}}</pre>
+{{- else}}
+{{- if .DaHTML}}<p class="muto nota-corpo">Testo ricavato dalla versione HTML della mail: quella in testo semplice era vuota.</p>{{end}}
+{{- range .Blocchi}}{{template "corpo_blocco" .}}{{end}}
+{{- if .SoloRumore}}<p class="muto nota-corpo">Nel messaggio c'è solo testo automatico.</p>{{end}}
+{{- if not (or .Blocchi .Storia)}}<p class="muto nota-corpo">Nessun testo.</p>{{end}}
+{{- if .Storia}}<details class="corpo-storia"><summary>messaggi precedenti citati</summary>{{range .Storia}}{{template "corpo_blocco" .}}{{end}}</details>{{end}}
+{{- if and (not .DaHTML) .Originale}}<details class="corpo-originale"><summary>testo originale</summary><pre>{{.Originale}}</pre></details>{{end}}
+{{- end}}</div>{{end}}
+
+{{define "corpo_blocco"}}
+{{- if eq .Tipo "testo"}}<div class="corpo-testo">{{range .Pezzi}}{{if eq .Tipo "link"}}<span class="corpo-link" title="{{.Nota}}">{{.Testo}}</span>{{else if eq .Tipo "immagine"}}<span class="corpo-img" title="{{.Nota}}">{{.Testo}}</span>{{else}}{{.Testo}}{{end}}{{end}}</div>
+{{- else if eq .Tipo "tabella"}}{{$t := .Tabella}}<div class="corpo-tabella"><table>
+{{- range $i, $r := $t.Righe}}<tr>{{range $r.Celle}}{{if and (eq $i 0) $t.Intestazione}}<th{{if gt .Colspan 1}} colspan="{{.Colspan}}"{{end}}{{if gt .Rowspan 1}} rowspan="{{.Rowspan}}"{{end}}>{{.Testo}}{{if .Troncata}}…{{end}}</th>{{else}}<td{{if .Numero}} class="num"{{end}}{{if gt .Colspan 1}} colspan="{{.Colspan}}"{{end}}{{if gt .Rowspan 1}} rowspan="{{.Rowspan}}"{{end}}>{{.Testo}}{{if .Troncata}}…{{end}}</td>{{end}}{{end}}</tr>{{end -}}
+</table></div>
+{{- else if eq .Tipo "rumore"}}<details class="corpo-rumore"><summary>{{.Etichetta}}</summary><pre>{{.Grezzo}}</pre></details>
+{{- else if eq .Tipo "separatore"}}<hr class="corpo-sep">
+{{- end}}
 {{end}}
 
 {{/* ---------------------------------------------------------------- tabella allegati (pannello e schermata B) */}}
@@ -174,8 +211,8 @@
   <table>
     <tr><th></th><th>File</th><th>Dim.</th><th>Proposta</th><th>Stato</th><th>Azioni</th></tr>
     {{range $a := .Allegati}}
-    {{template "allegato_riga" (rigaAllegato $a $.Agganciato $.RitornaThread false)}}
-    {{range $f := $a.Figli}}{{template "allegato_riga" (rigaAllegato $f $.Agganciato $.RitornaThread true)}}{{end}}
+    {{template "allegato_riga" (rigaAllegato $a $.Agganciato $.RitornaThread false $.Gesti)}}
+    {{range $f := $a.Figli}}{{template "allegato_riga" (rigaAllegato $f $.Agganciato $.RitornaThread true $.Gesti)}}{{end}}
     {{end}}
   </table>
   {{if .NScaricabili}}
@@ -188,9 +225,9 @@
   {{end}}
 </form>
 {{/* i form di conferma stanno FUORI dal form di download (i form non si annidano): i campi li raggiungono con form="c-…" */}}
-{{if .Agganciato}}{{range $a := .Allegati}}
-  {{if $a.Confermabile}}{{template "conferma_form" (rigaAllegato $a true $.RitornaThread false)}}{{end}}
-  {{range $f := $a.Figli}}{{if $f.Confermabile}}{{template "conferma_form" (rigaAllegato $f true $.RitornaThread true)}}{{end}}{{end}}
+{{if and .Agganciato .Gesti}}{{range $a := .Allegati}}
+  {{if $a.Confermabile}}{{template "conferma_form" (rigaAllegato $a true $.RitornaThread false true)}}{{end}}
+  {{range $f := $a.Figli}}{{if $f.Confermabile}}{{template "conferma_form" (rigaAllegato $f true $.RitornaThread true true)}}{{end}}{{end}}
 {{end}}{{end}}
 {{end}}
 
@@ -206,7 +243,7 @@
   <td>{{if $.Figlio}}<span class="muto">↳</span> {{end}}{{.NomeFile}}{{if eq .Natura "inline"}} <small class="muto">inline</small>{{end}}
     {{if .PathInterno.Valid}}<br><small class="muto">{{.PathInterno.String}}</small>{{end}}</td>
   <td>{{kb .Bytes}}</td>
-  <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small class="muto">{{.Confidenza}}% · {{.Fonte}}</small>
+  <td>{{$v := valutazione .Proposta .NomeFile}}{{with .Proposta}}<span class="chip {{.TipoProposto}}" title="{{(dim "Tipo" $v.Tipo).Testo}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} <small class="muto">{{if $v.Decisa}}deciso da una persona{{else if $v.Codice.ConValore}}codice · {{score $v.Codice}} · {{$v.Codice.Regola}}{{else}}codice: nessuna evidenza{{end}}</small>
       {{if ne .Stato "aperta"}}<span class="chip">{{.Stato}}</span>{{end}}{{end}}</td>
   <td>
     {{if .Documento}}<span class="chip {{if eq .Documento.StatoNas "scritto"}}fatto{{else if eq .Documento.StatoNas "errore"}}fallito{{else}}pronto{{end}}" title="{{.Documento.PathRelativo}}">NAS: {{.Documento.StatoNas}}</span>
@@ -217,7 +254,9 @@
     {{else}}<span class="chip {{if eq .Stato "analizzato"}}fatto{{else}}pronto{{end}}">{{.Stato}}</span>{{if .Sha256.Valid}} <small class="muto" title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}{{end}}
   </td>
   <td class="azioni-riga">
-    {{if and .Confermabile $.Agganciato}}
+    {{if .Anteprimabile}}<a class="piccolo" href="/allegato/{{.AllegatoID}}/anteprima" target="_blank" rel="noopener"
+      title="Apre il PDF in una scheda nuova: dallo staging se c'e', altrimenti dal file sul NAS">Anteprima</a>{{end}}
+    {{if and .Confermabile $.Agganciato $.Gesti}}
       <details class="conferma">
         <summary class="bottone piccolo">Conferma…</summary>
         <div class="conferma-form">
@@ -228,7 +267,7 @@
         </div>
       </details>
     {{end}}
-    {{if and .Proposta (eq .Proposta.Stato "aperta") (ne .Natura "inline")}}
+    {{if and $.Gesti .Proposta (eq .Proposta.Stato "aperta") (ne .Natura "inline")}}
       <button type="button" class="piccolo" hx-post="/proposta/{{.Proposta.PropostaID}}/scarta" hx-vals='{"rumore":"{{if eq (printf "%s" .Proposta.TipoProposto) "rumore"}}1{{else}}0{{end}}"{{if $.RitornaThread}},"ritorna_thread":"{{$.RitornaThread}}"{{end}}}' hx-target="{{if $.RitornaThread}}#thread{{else}}#pannello{{end}}" title="Chiude la proposta senza salvare nulla sul NAS">Scarta</button>
     {{end}}
     {{if and .FileMancante $.Agganciato (not .ContenitoreID.Valid)}}
@@ -279,7 +318,7 @@
     <fieldset>
       <legend>RFQ</legend>
       <label>Oggetto (nome cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
-      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 490020618, Anfrage_…">
+      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 400012345, Anfrage_…">
         <small class="muto">il numero con cui il cliente chiama questa richiesta. Non è un codice prodotto e non diventa un identificativo.</small></label>
       {{template "candidati_codice" $}}
       <div class="griglia3">
@@ -291,35 +330,37 @@
       {{template "anteprima_cartella" $}}
     </fieldset>
 
-    {{if .Candidati}}
+    {{with .CarteAvviso}}{{if .Carte}}
     <fieldset class="avviso-candidati">
       <legend>Attenzione: potrebbe essere una richiesta che esiste già</legend>
-      <p class="muto">Le regole di aggancio hanno trovato {{len .Candidati}} candidat{{if eq (len .Candidati) 1}}o{{else}}i{{end}}.
-        Se è uno di questi, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
-      {{range .Candidati}}
-      <p><span class="punteggio">{{.Punteggio}}</span> <b>{{.Cliente}}</b> · {{txt .Oggetto}}
-        <small class="muto">{{.Regola}} — {{.Evidenza}}</small></p>
-      {{end}}
-      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
+      <p class="muto">Le regole di aggancio hanno trovato {{.N}} RFQ candidat{{if eq .N 1}}a{{else}}e{{end}}.
+        Se è una di queste, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
+      {{template "candidati_aggancio" .}}
+      <button type="button" hx-get="/messaggio/{{.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
     </fieldset>
-    {{end}}
+    {{end}}{{end}}
 
     {{template "triage_allegati" $}}
 
     <div class="azioni">
-      <button type="submit" class="primario">Crea RFQ{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      <button type="submit" class="primario">Crea RFQ</button>
       <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
     </div>
   </form>
 
   {{else}}
   <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello">
+    {{/* Smistamento M1 (A5.16.4, P37): il bottone di default del form, cioè il primo submit, è inerte.
+         Senza, Invio in un campo di testo (la ricerca, il cognome) manderebbe il form con il bottone
+         della PRIMA card, o del primo risultato della ricerca: una scelta nascosta, anche a pari merito.
+         Un bottone di default disabilitato ferma l'invio implicito: si aggancia solo con un clic. */}}
+    <button type="submit" class="invio-inerte" disabled hidden aria-hidden="true" tabindex="-1"></button>
     <fieldset>
-      <legend>Candidati proposti <small class="muto">regole R0–R5, con l'evidenza</small></legend>
-      {{template "candidati_aggancio" .Candidati}}
+      <legend>Candidati, dal più forte <small class="muto">il sistema ordina e spiega, tu scegli</small></legend>
+      {{template "candidati_aggancio" .CarteForm}}
     </fieldset>
     <fieldset>
-      <legend>Oppure cerca fra le RFQ aperte</legend>
+      <legend>Altra RFQ… <small class="muto">cerca fra le RFQ aperte</small></legend>
       <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…"
              hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms" hx-target="#thread-risultati">
       <div id="thread-risultati"></div>
@@ -336,7 +377,8 @@
     </fieldset>
     {{template "triage_allegati" $}}
     <div class="azioni">
-      <button type="submit" class="primario">Aggancia{{if .Allegati}} e scarica i file spuntati{{end}}</button>
+      {{/* Smistamento M1: nessun «Aggancia» generico e nessuna scelta preselezionata. Si aggancia con il
+           bottone della card o della riga di ricerca, che porta la sua RFQ. */}}
       <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
     </div>
   </form>
@@ -345,19 +387,23 @@
 {{end}}
 {{end}}
 
+{{/* B8.7b: i file utili non si spuntano piu'. Scendono da soli nello staging del server e l'analisi li
+     legge; sul NAS della RFQ vanno solo con «Conferma Fascicolo». La casella resta per gli altri (immagini,
+     PDF anonimi grandi), che si scaricano solo se qualcuno lo chiede. */}}
 {{define "triage_allegati"}}
 {{with .Dati}}
 {{if .Allegati}}
 <fieldset>
-  <legend>Allegati da scaricare</legend>
+  <legend>Allegati</legend>
   <table>
     {{range .Allegati}}{{if ne .Natura "inline"}}
-    <tr><td><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}" {{if .PreSpunta}}checked{{end}}></td>
+    <tr><td>{{if $.Dati.SiPrepara .}}<span class="chip fatto" title="Scende da solo nello staging del server e l'analisi lo legge: nel NAS della RFQ va solo con la conferma del Fascicolo">si prepara da solo</span>
+        {{else}}<label class="inline"><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}"> scarica anche questo</label>{{end}}</td>
         <td>{{.NomeFile}}</td><td>{{kb .Bytes}}</td>
         <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}{{end}}</td></tr>
     {{end}}{{end}}
   </table>
-  <small class="muto">Pre-spuntati: CAD, disegni, offerte, fogli di calcolo, zip. Immagini e PDF anonimi no. Nulla viene scaricato senza spunta.</small>
+  <small class="muto">CAD, disegni, offerte, fogli di calcolo e archivi si preparano da soli: staging, estrazione, analisi. Il NAS aspetta la conferma del Fascicolo. Immagini e PDF anonimi grandi solo se li spunti.</small>
 </fieldset>
 {{end}}
 {{end}}
@@ -388,7 +434,7 @@
   {{if not .ClienteID.Valid}}
   <div class="griglia3">
     <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
-    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. LANDINI ARGO" style="text-transform:uppercase"
+    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
            hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
            hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
     <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
@@ -423,9 +469,9 @@
 {{if not .Dati}}<p class="muto">Nessuna RFQ aperta corrisponde.</p>{{end}}
 <ul class="risultati">
 {{range .Dati}}
-  <li><label><input type="radio" name="thread_id" value="{{.ThreadID}}" required>
-    <b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
-    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}</label></li>
+  <li><b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
+    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}
+    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button></li>
 {{end}}
 </ul>
 {{end}}
@@ -456,9 +502,11 @@
 {{end}}
 
 {{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza.
-     Prima erano una sola casella di testo precompilata che al submit confermava tutto. */}}
+     Prima erano una sola casella di testo precompilata che al submit confermava tutto. Nasce spuntato
+     solo cio' che dice Spuntato: un codice di famiglia, non dalla storia citata (blocco 6) e non visto solo
+     nel nome di un allegato (Smistamento P17). */}}
 {{define "candidati_codice"}}
-{{with .Dati}}
+{{with .Dati}}{{$d := .}}
 <div class="candidati-codice">
   <p class="etichetta">Codici da mettere nella RFQ <small class="muto">il sistema propone, la spunta è tua</small></p>
   {{if .Proponibili}}
@@ -466,11 +514,12 @@
     {{range .Proponibili}}
     <li>
       <label>
-        <input type="checkbox" name="codice" value="{{.Codice}}" {{if eq .Origine "famiglia"}}checked{{end}}>
+        <input type="checkbox" name="codice" value="{{.Codice}}" {{if $d.Spuntato .}}checked{{end}}>
         <code>{{.Codice}}</code>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
         {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
         {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
-        <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span>
+        {{if soloNelNome .}}<span class="chip" title="Un nome di file non è una richiesta: lo spunti tu se è un codice di questa RFQ">visto solo nel nome di un allegato</span>{{end}}
+        <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span>
       </label>
     </li>
     {{end}}
@@ -486,7 +535,7 @@
     <ul class="candidati">
       {{range .Altri}}
       <li><label><input type="checkbox" name="codice" value="{{.Codice}}">
-        <code>{{.Codice}}</code> <span class="muto">{{.Punteggio}} · {{.Evidenza}}</span></label></li>
+        <code>{{.Codice}}</code>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}} <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span></label></li>
       {{end}}
     </ul>
   </details>
@@ -498,21 +547,33 @@
 {{end}}
 
 {{/* candidati_aggancio — le proposte R0–R5 con l'evidenza. Si vedono TUTTE (T16): sceglierne una per
-     l'operatore è esattamente ciò che il checkpoint 3R toglie. */}}
+     l'operatore è esattamente ciò che il checkpoint 3R toglie.
+     Smistamento M1 (A5.16.4): una card per RFQ, ordinate a livelli, con tutte le evidenze e lo score senza
+     percentuale. Nessun radio e nessun default: ogni card ha il suo bottone, la prima ha solo un bordo più
+     marcato, e a pari merito nessuna è marcata. Il modo dice dove sta la lista (pannello, form, avviso). */}}
 {{define "candidati_aggancio"}}
-{{if .}}
+{{if .Carte}}
+{{if .PariMerito}}<p class="avviso-inline pari-merito">Stessa forza: nessuna RFQ è proposta. Scegli guardando le evidenze.</p>{{end}}
+{{if .DiPrima}}<p class="muto regole-di-prima">Alcuni candidati sono stati calcolati con le regole di prima: si leggono con prudenza.
+  {{if eq .Modo "pannello"}}<button type="button" class="piccolo" hx-post="/messaggio/{{.MessaggioID}}/ricalcola" hx-target="#pannello">Ricalcola</button>{{end}}</p>{{end}}
 <div class="candidati-aggancio">
-  {{range .}}
-  <label class="candidato {{if eq .ThreadStato "CHIUSA"}}chiuso{{end}}">
-    <input type="radio" name="thread_id" value="{{.ThreadID}}">
-    <span class="punteggio" title="Punteggio della regola {{.Regola}}">{{.Punteggio}}</span>
-    <span class="testo">
-      <b>{{.Cliente}}</b> · {{txt .Oggetto}}{{if .RiferimentoCliente.Valid}} <span class="chip">{{.RiferimentoCliente.String}}</span>{{end}}
-      <span class="muto">{{data .DataInizio}}</span>
-      <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
-      {{if eq .ThreadStato "CHIUSA"}}<br><small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
-    </span>
-  </label>
+  {{range .Carte}}
+  <div class="candidato carta {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
+    <div class="testa">
+      <span class="testo"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b> · {{.Cliente}}{{if .Riferimento}} <span class="chip">{{.Riferimento}}</span>{{end}}
+        <span class="muto">aperta dal {{data .DataInizio}}</span></span>
+      <span class="forza livello-{{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
+    </div>
+    <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small class="muto">({{.Livello}})</small></li>{{end}}</ul>
+    {{if .Chiuso}}<small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
+    {{if eq $.Modo "pannello"}}
+    <form hx-post="/messaggio/{{$.MessaggioID}}/aggancia" hx-target="#pannello" class="aggancia-carta">
+      <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    </form>
+    {{else if eq $.Modo "form"}}
+    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    {{end}}
+  </div>
   {{end}}
 </div>
 {{else}}
@@ -524,7 +585,7 @@
 
 {{/* chip_controparte: la stessa cosa di `controparte_riga` nell'Inbox, per la testata del pannello.
      Vale per una riga di v_inbox. */}}
-{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
+{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "altro"}}<span class="chip altro" title="soggetto censito come diverso da cliente, fornitore e interno">altro · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
 
 {{define "censisci_form"}}
 {{with .Dati}}
@@ -584,3 +645,92 @@
 </article>
 {{end}}
 {{end}}
+
+{{/* B8.6 — i codici che la RFQ ha visto nei messaggi, nei nomi e nei cartigli dei file e negli STEP, uniti
+     per codice (fascicolo.Unisci): nessuna evidenza si perde, nessuna revisione si sceglie da sola.
+     Stanno qui dal B8.7 perche' li usano due pagine: la RFQ e il cassetto «Codici» del Fascicolo.
+     Componenti e codici della richiesta non sono evidenze: dicono che cosa e' gia' deciso, e si mostrano.
+     Il riferimento del cliente sta in testata, mai qui.
+     Smistamento F2 (R1): sola lettura, in tutte e due le pagine. Un codice trovato e' un'evidenza e non fa
+     nascere niente: niente «+ Prodotto/Assieme/Particolare», niente «Accetta la proposta» o «Scarta» di un
+     nodo, niente «Ripristina» (che resta negli Archiviati della Struttura BOM). */}}
+{{define "codici_rfq"}}
+{{if .CodiciErrore}}<p class="avviso errore-box">{{.CodiciErrore}}</p>
+{{else}}
+{{$docs := .DocumentiDi}}
+{{with .Codici}}
+{{if .Bloccata}}<p class="avviso-blocco">La BOM è congelata nella V{{.Bloccata}}: i codici si leggono, e la BOM cambia solo aprendo una revisione.</p>{{end}}
+<p class="muto nota">I codici che la RFQ ha visto, con le loro evidenze: si leggono e basta. Un componente nasce da un codice della richiesta, da un nodo dello STEP o da un codice scritto nell'editor della struttura.</p>
+<details class="codici" open>
+  <summary><b>Codici prodotto candidati</b> ({{len .Prodotto}})</summary>
+  {{range .Prodotto}}{{template "codice_riga" (rigaCodice . $docs)}}{{else}}<p class="muto">Nessun codice con un'evidenza forte.</p>{{end}}
+</details>
+<details class="codici">
+  <summary><b>Altri riferimenti trovati</b> ({{len .Altri}})</summary>
+  <p class="muto nota">Numeri visti solo dall'estrattore generico, solo nella storia citata o solo nel nome di un file non tecnico.</p>
+  {{range .Altri}}{{template "codice_riga" (rigaCodice . $docs)}}{{else}}<p class="muto">Nessuno.</p>{{end}}
+</details>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "codice_riga"}}
+<div class="codice-riga" id="codice-{{.C.Chiave}}">
+  <div class="r1">
+    <b class="mono">{{.C.Codice}}</b>
+    {{range .C.Revisioni}}<span class="chip" title="{{.Evidenze}} evidenz{{if eq .Evidenze 1}}a{{else}}e{{end}}">rev {{.Rev}}</span> {{end}}
+    {{if .C.Conflitto}}<span class="chip fallito" title="Le evidenze dicono revisioni diverse: la sceglie chi decide, non lo score">revisioni discordanti</span>{{end}}
+    {{if .C.Stato.Identificativo}}<span class="chip" title="Spuntato nel triage: è un codice della richiesta">codice della richiesta</span>{{end}}
+    <small class="muto" title="score del codice: il più alto fra le evidenze; ordina la lista, non decide niente">codice · {{score .C.Punteggio}}</small>
+  </div>
+  <details class="evidenze">
+    <summary class="muto">{{.C.Motivo}} · {{len .C.Evidenze}} evidenz{{if eq (len .C.Evidenze) 1}}a{{else}}e{{end}}</summary>
+    <ul>{{range .C.Evidenze}}<li>{{.Frase}}{{if .Rev}} · rev {{.Rev}}{{end}} <a class="muto" href="/messaggio/{{.Messaggio}}">mail</a></li>{{end}}</ul>
+  </details>
+  {{$s := .C.Stato}}
+  {{if eq $s.Situazione "proposta"}}{{$p := $s.Proposta}}
+  <div class="codice-azioni">
+    <span>→ proposta aperta dallo STEP <b>{{$p.NomeFile}}</b>, nodo «{{$p.NomeGrezzo}}»{{if $s.AltreProposte}} (e {{$s.AltreProposte}} altr{{if eq $s.AltreProposte 1}}o{{else}}i{{end}} con lo stesso codice){{end}}</span>
+    {{if $p.Nota}}<small class="muto">{{$p.Nota}}</small>{{end}}
+    <small class="muto">si decide nel Fascicolo, dove si vede lo STEP</small>
+  </div>
+  {{else if eq $s.Situazione "componente"}}{{with $s.Componente}}
+  <details class="codice-componente">
+    <summary><span class="chip fatto">✓ nel Fascicolo</span> come {{nomeTipo .Tipo}}{{if .Rev.Valid}}, rev {{.Rev.String}}{{end}}</summary>
+    {{with $.Documenti}}<ul>{{range .}}<li><span class="chip {{.Tipo}}">{{.Tipo}}</span> {{.NomeFile}}{{if .SostituitoDa.Valid}} <small class="muto">sostituito</small>{{end}} <small class="muto">NAS {{.StatoNas}}</small></li>{{end}}</ul>
+    {{else}}<p class="muto">Nessun documento assegnato.</p>{{end}}
+  </details>
+  {{end}}
+  {{else if eq $s.Situazione "archiviato"}}{{with $s.Componente}}
+  <div class="codice-azioni">
+    <span><span class="chip">archiviato</span> {{oraLunga .ArchiviatoIl}}{{if .MotivoArchiviazione.Valid}}: {{.MotivoArchiviazione.String}}{{end}}</span>
+    <small class="muto">si ripristina dagli Archiviati della Struttura BOM</small>
+  </div>
+  {{end}}
+  {{else if eq $s.Situazione "richiesta"}}
+  {{/* la strada della revisione solo per il codice che il congelamento ha fermato (AssicuraProdottiDellaRevisione):
+       un prodotto tolto prima del congelamento non rinasce aprendola, e la riga non deve prometterlo */}}
+  <div class="codice-azioni"><small class="muto">codice della richiesta senza componente: {{if $s.EntraConLaRevisione -}}
+    confermato dopo il congelamento della V{{$s.Bloccata}}: il prodotto entra aprendo una revisione della BOM
+    {{- else -}}
+    il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione: rientra solo con una decisione del triage (la creazione della RFQ o l'aggancio di una mail)
+    {{- end}}</small></div>
+  {{else}}
+  <div class="codice-azioni"><small class="muto">nessun componente con questo codice</small></div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* Smistamento F3 (A5.14.5): una dimensione della lettura di un file (tipo, codice, rev). Il valore, «score N»
+     con la regola in parole, lo stato (2 fonti, fonti discordi, nessuna evidenza) e le evidenze in un
+     <details>, aperto solo se discordano. Una decisione non ha score (U-C4); una riga di prima riletta
+     dalle colonne lo dice (U-C3). Si usa come {{template "dimensione" (dim "Tipo" $v.Tipo)}}. */}}
+{{define "dimensione"}}<span class="dimensione dim-{{.D.Stato}}">{{if .Nome}}<span class="dim-nome">{{.Nome}}</span> · {{end}}
+  {{- if .Decisa}}{{if .D.Valore}}<b class="mono">{{.Valore}}</b> · {{end}}<span class="k muto">deciso da una persona</span>
+  {{- else if not .ConValore}}<span class="k muto">nessuna evidenza{{with .Regola}} ({{.}}){{end}}</span>
+  {{- else}}<b class="mono">{{.Valore}}</b> · {{score .}} · {{.Regola}}{{if eq .D.Stato "concorde"}} · <span class="k muto">{{.Fonti}} fonti</span>{{end}}{{if eq .D.Stato "discorde"}} <span class="chip fallito" title="Le evidenze dicono valori diversi: niente è preselezionato">fonti discordi</span>{{end}}{{end}}
+  {{- if .Ricostruita}} <small class="k muto">(lettura precedente, ricostruita)</small>{{end}}
+  {{- if .ConEvidenze}}
+  <details class="dim-evidenze"{{if eq .D.Stato "discorde"}} open{{end}}><summary class="k muto">evidenze ({{len .D.Evidenze}})</summary>
+    <ul>{{range .D.Evidenze}}<li>{{if .Valore}}<span class="mono">{{.Valore}}</span> · {{score .}}{{else}}<span class="k muto">senza valore</span>{{end}} · {{parole .}}{{if .DipendeDa}} <span class="k muto">(dipende dal nome del file: non è una seconda fonte)</span>{{end}}</li>{{end}}</ul>
+  </details>{{end}}</span>{{end}}

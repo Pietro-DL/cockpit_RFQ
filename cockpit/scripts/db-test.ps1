@@ -2,7 +2,7 @@
 #
 # Un cluster PostgreSQL tutto suo, sotto %LOCALAPPDATA%, su una porta diversa da quella di sviluppo:
 # i test possono distruggere e ricreare lo schema senza avvicinarsi ai dati di lavoro. Il database si
-# chiama cockpit_test e il nome è un vincolo: internal/testutil rifiuta un DSN il cui database non
+# chiama cockpit_test e il nome è un vincolo: internal/platform/testutil rifiuta un DSN il cui database non
 # contiene "test".
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\db-test.ps1 -Installa   # scarica i binari (una volta)

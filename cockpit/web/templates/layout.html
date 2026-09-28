@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Titolo}} · Cockpit RFQ</title>
-<link rel="stylesheet" href="/static/style.css">
-<script src="/static/htmx.min.js"></script>
+{{/* Con l'impronta del contenuto (statico): un cockpit.exe nuovo porta un foglio di stile nuovo, e il
+     browser non deve tenere quello di ieri. */}}
+<link rel="stylesheet" href="{{statico "style.css"}}">
+<script src="{{statico "htmx.min.js"}}"></script>
 </head>
 <body>
 {{/* La testata porta il CONTESTO OPERATIVO: come sta il sistema adesso. La navigazione — dove
@@ -16,7 +18,7 @@
   <span class="spazio"></span>
   {{if .Utente}}{{template "stato_worker" .}}
   <span class="utente">{{.Utente.Nome}} · {{.Utente.Ruolo}}</span>
-  <form method="post" action="/logout"><button class="link">esci</button></form>{{end}}
+  <form method="post" action="/logout" id="esci"><button class="link">esci</button></form>{{end}}
 </header>
 <div class="guscio">
   {{/* La rail si costruisce da `navPer`, che chiama `almeno`: la stessa funzione del wrapper
@@ -42,6 +44,36 @@
   b.addEventListener("click", function () {
     var chiusa = document.body.classList.toggle("rail-chiusa");
     try { localStorage.setItem(chiave, chiusa ? "1" : "0"); } catch (e) {}
+  });
+})();
+
+// Un frammento e' HTML, sempre. Una risposta riuscita di un altro tipo — i byte di un PDF, del JSON —
+// non entra nella pagina: htmx la innesterebbe com'e', e un file caricato da fuori che si finge PDF
+// ma porta HTML e uno script diventerebbe codice della schermata. Le rotte JSON (i dati dell'editor)
+// si chiedono con fetch, i PDF con l'iframe e pdf.js: nessuna passa di qui. Una risposta vuota (un
+// 200 senza corpo) resta com'e'.
+document.body.addEventListener("htmx:beforeSwap", function (e) {
+  var x = e.detail && e.detail.xhr;
+  if (!x || x.status < 200 || x.status >= 300 || !x.responseText) return;
+  var tipo = (x.getResponseHeader("Content-Type") || "").toLowerCase();
+  if (tipo.indexOf("text/html") !== 0) {
+    e.detail.shouldSwap = false;
+    if (window.console) console.warn("risposta non HTML scartata:", tipo || "(senza tipo)");
+  }
+});
+
+// Le bozze dell'editor della struttura stanno nel sessionStorage della scheda: all'uscita si buttano,
+// perche' chi entra dopo sulla stessa scheda non deve trovarle (ne' confermarle a nome suo).
+(function () {
+  var f = document.getElementById("esci");
+  if (!f) return;
+  f.addEventListener("submit", function () {
+    try {
+      for (var i = sessionStorage.length - 1; i >= 0; i--) {
+        var k = sessionStorage.key(i);
+        if (k && k.indexOf("cockpit.editor.") === 0) sessionStorage.removeItem(k);
+      }
+    } catch (e) {}
   });
 })();
 

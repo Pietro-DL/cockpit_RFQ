@@ -10,6 +10,10 @@ _staging/
 _staging_worker/
 _nas_test/
 staging/
+# ...ma `cockpit/internal/platform/storage/staging/` e' un package Go, non una cartella di
+# lavoro. La riga qui sopra non e' ancorata e se lo mangiava in silenzio: `git mv` stagia i file
+# esplicitamente e passavano, un file NUOVO no. Tre file di B5 sono rimasti fuori dai commit.
+!cockpit/internal/platform/storage/staging/
 
 # File di configurazione con credenziali e token (usare i relativi *.example)
 cockpit.toml

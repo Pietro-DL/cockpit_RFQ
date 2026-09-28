@@ -82,7 +82,13 @@
 </table>
 
 <p class="muto piccolo">Il pacchetto contiene <code>worker.toml</code> (indirizzo del server, impronta del
-certificato e i token di questo PC), le istruzioni e i file del worker presi dal server, così la
-versione del worker e quella del server non si allontanano. I token si vedono <strong>una volta
-sola</strong>: in database c'è solo la loro impronta.</p>
+certificato e i token di questo PC), le istruzioni, <code>installa-postazione.ps1</code>{{if .Dati.TLS}},
+il certificato pubblico del server (<code>cert.pem</code>, per il browser){{end}} e i file del worker
+presi dal server, così la versione del worker e quella del server non si allontanano. I token si
+vedono <strong>una volta sola</strong>: in database c'è solo la loro impronta.</p>
+
+<p class="piccolo"><strong>Rigenerare invalida il pacchetto precedente.</strong> Nel momento in cui si preme il
+pulsante i token di quel PC smettono di valere e i worker in esecuzione ricevono <code>401</code>.
+La sequenza giusta: sul PC <code>installa-postazione.ps1 -Ferma</code> → qui «genera e scarica» →
+sul PC scompattare sopra e rilanciare <code>installa-postazione.ps1</code>, che riavvia tutto.</p>
 {{end}}

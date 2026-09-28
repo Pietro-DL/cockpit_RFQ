@@ -27,7 +27,7 @@ import pywintypes
 
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ErroreHTTP, ImprontaSbagliata,
                             cadenza_battito, carica_config, configura_log, diagnosi, leggi_marcatore_arresto,
-                            nome_worker)
+                            nome_worker, riporta_risultato)
 from contratti import (MODO_STORICO, CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento,
                        PayloadCreaBozza, PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato,
                        PayloadSyncOutlook, RisultatoBozza, RisultatoElemento, RisultatoRichiesta,
@@ -298,17 +298,10 @@ class Worker:
         if perso:
             log.warning("job %d: lease perso durante il lavoro, risultato non riportato", job.job_id)
             return
-        try:
-            self.api.risultato(job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token)
-        except ErroreHTTP as e:
-            if e.tentativo_non_valido:
-                # il lease era già perso: il job è tornato in coda ed è stato ripreso da un altro
-                # tentativo. Riportare il risultato adesso sarebbe scriverlo sopra al lavoro altrui.
-                log.warning("job %d: risultato scartato dal server (409): il tentativo non era più valido", job.job_id)
-            else:
-                log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
-        except Exception as e:  # noqa: BLE001 - il lease scade e il server lo rimette in coda
-            log.error("impossibile riportare il risultato del job %d: %s", job.job_id, e)
+        # Un buco di rete sul result si ripete subito (7C.1, P1): se il primo era arrivato, il secondo
+        # riceve 409 e va bene cosi'. Un 409 vero (lease perso, job ripreso da un altro tentativo)
+        # tace allo stesso modo: riportare adesso sarebbe scrivere sopra al lavoro altrui.
+        riporta_risultato(self.api, job.job_id, ris.model_dump(mode="json"), self.worker_id, job.lease_token, log)
         log.info("job %d %s → %s in %.1fs", job.job_id, job.tipo, ris.esito, time.time() - t0)
 
     def dispatch(self, job: Job) -> dict:
@@ -431,6 +424,10 @@ class Worker:
         store = self.store_di(p.casella_id)
         storico = p.modo_effettivo() == MODO_STORICO
         esiti = []
+        # Dove passa il tempo (7C.1, P1): `com` e' il tempo dentro l'enumerazione di Outlook (l'iteratore
+        # di leggi(), che converte anche l'elemento), `https` la chiamata di ingest andata e ritorno,
+        # `server` la parte di https dichiarata dal server, `serializzazione` il model_dump del lotto.
+        self.tempi = {"com": 0.0, "serializzazione": 0.0, "https": 0.0, "server": 0.0}
         for c in p.cartelle:
             # il limite della CARTELLA; quello del payload e' l'inviluppo, e serve solo ai job
             # accodati prima del blocco 3 e rimasti in coda
@@ -443,7 +440,14 @@ class Worker:
             saltati = Saltati()
             try:
                 self.controlla()
-                for m in self.ol().leggi(c.cartella, dal, al=al, store_id=store, saltati=saltati):
+                elementi = iter(self.ol().leggi(c.cartella, dal, al=al, store_id=store, saltati=saltati))
+                while True:
+                    # il tempo di COM e' il tempo passato dentro l'iteratore: enumerazione e conversione
+                    t_com = time.perf_counter()
+                    m = next(elementi, None)
+                    self.tempi["com"] += time.perf_counter() - t_com
+                    if m is None:
+                        break
                     # punto di ripresa: fra un elemento e l'altro il lavoro e' fuori da COM, quindi qui
                     # un arresto chiesto dal battito si puo' rispettare senza lasciare niente a meta'
                     self.controlla()
@@ -484,7 +488,10 @@ class Worker:
                      (", %d saltati" % esito.saltati) if esito.saltati else "",
                      "COMPLETA (la frontiera avanza)" if esito.completa else "INCOMPLETA: la frontiera non avanza, la finestra si rilegge")
             esiti.append(esito)
-        return RisultatoSync(cartelle=esiti).model_dump(mode="json")
+        t = self.tempi
+        log.info("tempi del sync: COM %.1f s, serializzazione %.1f s, HTTPS %.1f s (di cui server %.1f s, rete %.1f s)",
+                 t["com"], t["serializzazione"], t["https"], t["server"], max(0.0, t["https"] - t["server"]))
+        return RisultatoSync(cartelle=esiti, tempi={k: round(v, 3) for k, v in t.items()}).model_dump(mode="json")
 
     def _invia(self, job: Job, p: PayloadSyncOutlook, cartella: str, lotto: list, fin_qui,
                saltati: Saltati | None = None) -> int:
@@ -507,12 +514,23 @@ class Worker:
             # PRIMA della chiamata: consegnarli due volte li scriverebbe due volte.
             saltati=saltati.svuota() if saltati is not None else [],
         )
+        t0 = time.perf_counter()
+        corpo = richiesta.model_dump(mode="json")
+        t1 = time.perf_counter()
         try:
-            r = self.api.ingest(richiesta.model_dump(mode="json"))
+            r = self.api.ingest(corpo)
         except ErroreHTTP as e:
             if e.tentativo_non_valido:
                 raise ArrestoRichiesto(f"ingest rifiutato: {e.corpo[:200]}") from e
             raise
+        finally:
+            t2 = time.perf_counter()
+            tempi = getattr(self, "tempi", None)
+            if tempi is not None:
+                tempi["serializzazione"] += t1 - t0
+                tempi["https"] += t2 - t1
+        if tempi is not None:
+            tempi["server"] += float(r.get("durata_ms", 0) or 0) / 1000.0
         falliti = r.get("falliti", 0)
         if falliti:
             log.warning("ingest: %d inseriti, %d aggiornati, %d SCARTATI (vedi /admin/scarti)",

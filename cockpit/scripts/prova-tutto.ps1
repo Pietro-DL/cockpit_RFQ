@@ -63,7 +63,7 @@ Esegui "L1 script PS" "sintassi degli script di servizio sulla PowerShell instal
     $global:LASTEXITCODE = if ($problemi -gt 0) { 1 } else { 0 }
 }
 
-Esegui "L3 contratti (Go)" "i tipi Go corrispondono agli schemi di contracts (K1, K2, K3, K4)" "go test ./internal/api" { go test -count=1 ./internal/api/ }
+Esegui "L3 contratti (Go)" "i tipi Go corrispondono agli schemi di contracts (K1, K2, K3, K4)" "go test ./internal/platform/contratti/worker" { go test -count=1 ./internal/platform/contratti/worker/ }
 
 if (-not $SenzaPython) {
     # La metà Python verifica la premessa dell'altra: che gli schemi su disco descrivano i modelli
@@ -85,7 +85,7 @@ if (-not $SenzaDB) {
     if ($SenzaPython) {
         $env:COCKPIT_TEST_SENZA_PYTHON = "1"
         Annota "L4 E2E worker" "il client vero (worker Python) contro il server vero" `
-            "go test -tags integrazione -run TestE2E ./internal/workerapi" "SALTATO" `
+            "go test -tags integrazione -run TestE2E ./internal/transport/workerapi" "SALTATO" `
             "richiesto -SenzaPython: non verificato"
     }
     Esegui "L4 integrazione" "test su PostgreSQL di test, pacchetti in serie (E2E, guardie sul futuro, W4/W10/W11, PK1)" "go test -tags integrazione -count=1 -p 1 ./..." { go test -tags integrazione -count=1 -p 1 ./... }

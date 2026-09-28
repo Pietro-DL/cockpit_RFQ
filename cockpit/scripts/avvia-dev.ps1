@@ -1,6 +1,12 @@
-﻿# Avvia l'ambiente di sviluppo del Cockpit: compila cockpit.exe e apre le finestre
+﻿# Avvia l'ambiente di SVILUPPO del Cockpit su un PC solo: compila cockpit.exe e apre le finestre
 # di servizio (server e worker analisi). Rilanciarlo riavvia tutto: i worker sopravvivono al
 # riavvio del server, ma il modo più semplice per essere sicuri è ripartire da qui.
+#
+# NON è il launcher delle postazioni (7C.1, P1). Su un PC di lavoro i worker si installano con il
+# pacchetto scaricato dalla pagina Postazioni e il suo `installa-postazione.ps1`: attività
+# pianificate all'accesso dell'utente, certificato del server, riavvio automatico. Qui i worker
+# girano in finestre aperte a mano, contro il server di QUESTO PC, con l'indirizzo letto da
+# cockpit.toml.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\avvia-dev.ps1 [-NoBuild] [-ConOutlook] [-NoSemina]
 #
@@ -74,6 +80,17 @@ if ($ConOutlook) {
 Write-Host "== worker_analisi.py" -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle='worker analisi'; Set-Location '$radice\workers'; & '$python' worker_analisi.py"
 
+# L'indirizzo si legge da cockpit.toml, non si scrive qui (7C.1, P1): questo script stampava
+# «http://127.0.0.1:8080 (login PS / cockpit)» qualunque cosa dicesse il file, password compresa.
+# Niente password: sta in cockpit.toml, e chi lancia il banco lo sa leggere.
+$toml = Get-Content (Join-Path $radice "cockpit.toml") -Raw
+$urlPubblico = if ($toml -match '(?m)^\s*url_pubblico\s*=\s*"([^"]+)"') { $Matches[1] } else { $null }
+$indirizzo = if ($toml -match '(?m)^\s*indirizzo\s*=\s*"([^"]+)"') { $Matches[1] } else { "127.0.0.1:8080" }
+$conTls = ($toml -match '(?m)^\s*tls_cert\s*=') -and ($toml -match '(?m)^\s*tls_key\s*=')
+$schema = if ($conTls) { "https" } else { "http" }
+$url = if ($urlPubblico) { $urlPubblico } else { "${schema}://$($indirizzo -replace '^0\.0\.0\.0', $env:COMPUTERNAME)" }
 Write-Host ""
-Write-Host "Cockpit: http://127.0.0.1:8080  (login PS / cockpit)" -ForegroundColor Green
+Write-Host "Cockpit (banco di sviluppo): $url" -ForegroundColor Green
 Write-Host "Log (server e worker): $log"
+Write-Host "Questo e' il banco di SVILUPPO su un PC solo. Una postazione vera si installa con il pacchetto" -ForegroundColor DarkGray
+Write-Host "della pagina Postazioni e il suo installa-postazione.ps1, non con questo script." -ForegroundColor DarkGray

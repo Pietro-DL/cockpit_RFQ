@@ -86,5 +86,6 @@ foreach ($a in $attivita) {
 
 Write-Host ""
 Write-Host "Verifica con: scripts\installa-attivita.ps1 -Mostra"
-Write-Host "Il server cockpit.exe non è qui: in produzione va installato come servizio (nssm o sc.exe),"
+Write-Host "Il server cockpit.exe non è qui: in produzione va avviato da un'attività pianificata con «Avvia in»"
+Write-Host "sulla sua cartella, o come servizio con nssm (non sc.exe: cockpit.exe non è un servizio Windows),"
 Write-Host "perché non usa Outlook e non ha bisogno di una sessione interattiva."

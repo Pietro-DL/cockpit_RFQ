@@ -1,0 +1,191 @@
+{
+  "$defs": {
+    "LimitiSTEP": {
+      "description": "Fin dove si e' letto, e contro quale tetto ci si e' fermati.\n\nI tetti viaggiano insieme al risultato: un albero parziale va spiegato con il limite che era in\nvigore QUANDO e' stato letto, non con quello che si trova oggi nella configurazione.",
+      "properties": {
+        "nodi_max": {
+          "default": 0,
+          "title": "Nodi Max",
+          "type": "integer"
+        },
+        "occorrenze_max": {
+          "default": 0,
+          "title": "Occorrenze Max",
+          "type": "integer"
+        },
+        "tempo_max_s": {
+          "default": 0.0,
+          "title": "Tempo Max S",
+          "type": "number"
+        },
+        "byte_letti": {
+          "default": 0,
+          "title": "Byte Letti",
+          "type": "integer"
+        },
+        "tempo_s": {
+          "default": 0.0,
+          "title": "Tempo S",
+          "type": "number"
+        },
+        "troncato": {
+          "default": false,
+          "title": "Troncato",
+          "type": "boolean"
+        },
+        "motivo": {
+          "default": "",
+          "title": "Motivo",
+          "type": "string"
+        }
+      },
+      "title": "LimitiSTEP",
+      "type": "object"
+    },
+    "NodoSTEP": {
+      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).",
+      "properties": {
+        "chiave": {
+          "title": "Chiave",
+          "type": "string"
+        },
+        "id_grezzo": {
+          "default": "",
+          "title": "Id Grezzo",
+          "type": "string"
+        },
+        "nome_grezzo": {
+          "title": "Nome Grezzo",
+          "type": "string"
+        },
+        "descrizione_grezza": {
+          "default": "",
+          "title": "Descrizione Grezza",
+          "type": "string"
+        },
+        "rev_grezza": {
+          "default": "",
+          "title": "Rev Grezza",
+          "type": "string"
+        },
+        "evidenza": {
+          "additionalProperties": true,
+          "title": "Evidenza",
+          "type": "object"
+        }
+      },
+      "required": [
+        "chiave",
+        "nome_grezzo"
+      ],
+      "title": "NodoSTEP",
+      "type": "object"
+    },
+    "RelazioneSTEP": {
+      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1).",
+      "properties": {
+        "padre": {
+          "title": "Padre",
+          "type": "string"
+        },
+        "figlio": {
+          "title": "Figlio",
+          "type": "string"
+        },
+        "qta": {
+          "default": 1,
+          "title": "Qta",
+          "type": "integer"
+        },
+        "evidenza": {
+          "additionalProperties": true,
+          "title": "Evidenza",
+          "type": "object"
+        }
+      },
+      "required": [
+        "padre",
+        "figlio"
+      ],
+      "title": "RelazioneSTEP",
+      "type": "object"
+    },
+    "ScartiSTEP": {
+      "description": "Che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3, addendum B8 A4.4, D35).\n\nIl server decide se una lettura e' COMPLETA da questi numeri e non dalle frasi di `avvisi`: una\nmancanza diventa una proposta di rimozione solo in una lettura completa. Le occorrenze di un pezzo\ndentro se stesso si contano ma non tolgono completezza: sono archi impossibili.",
+      "properties": {
+        "prodotti_senza_definizione": {
+          "default": 0,
+          "title": "Prodotti Senza Definizione",
+          "type": "integer"
+        },
+        "occorrenze_non_risolte": {
+          "default": 0,
+          "title": "Occorrenze Non Risolte",
+          "type": "integer"
+        },
+        "occorrenze_su_se_stesse": {
+          "default": 0,
+          "title": "Occorrenze Su Se Stesse",
+          "type": "integer"
+        },
+        "testi_troncati": {
+          "default": 0,
+          "title": "Testi Troncati",
+          "type": "integer"
+        }
+      },
+      "title": "ScartiSTEP",
+      "type": "object"
+    }
+  },
+  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'.",
+  "properties": {
+    "versione": {
+      "default": 3,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "schema": {
+      "default": "",
+      "title": "Schema",
+      "type": "string"
+    },
+    "radici": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Radici",
+      "type": "array"
+    },
+    "nodi": {
+      "items": {
+        "$ref": "#/$defs/NodoSTEP"
+      },
+      "title": "Nodi",
+      "type": "array"
+    },
+    "relazioni": {
+      "items": {
+        "$ref": "#/$defs/RelazioneSTEP"
+      },
+      "title": "Relazioni",
+      "type": "array"
+    },
+    "avvisi": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Avvisi",
+      "type": "array"
+    },
+    "scarti": {
+      "$ref": "#/$defs/ScartiSTEP"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiSTEP"
+    }
+  },
+  "title": "StrutturaSTEP",
+  "type": "object",
+  "$id": "cockpit/struttura_step"
+}

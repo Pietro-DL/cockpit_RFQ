@@ -1,4 +1,4 @@
-"""I tempi del protocollo dei worker. Speculare a internal/api/protocollo.go.
+"""I tempi del protocollo dei worker. Speculare a internal/platform/contratti/worker/protocollo.go.
 
 `genera_contratti.py` esporta TEMPI in contracts/tempi_protocollo.json e un test Go verifica che le
 due copie coincidano: sono numeri che devono essere d'accordo fra processi diversi, e finche' non lo
@@ -20,8 +20,8 @@ from __future__ import annotations
 # ritmo con cui, da fermo, un worker si fa vivo.
 ATTESA_CLAIM_S = 20
 
-# Oltre questo il server tronca: un long-poll piu' lungo comincia a somigliare a una connessione
-# dimenticata.
+# Oltre questo il server non ascolta: un'attesa chiesta piu' lunga (o nulla) diventa ATTESA_CLAIM_S.
+# Un long-poll piu' lungo comincerebbe a somigliare a una connessione dimenticata.
 ATTESA_CLAIM_MAX_S = 25
 
 # Oltre questo silenzio dall'ultimo contatto autenticato, la testata dice OFFLINE. Non e' una
