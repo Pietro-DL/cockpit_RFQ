@@ -1,17 +1,21 @@
 package fascicolo
 
-// Le proposte di rimozione (Blocco 8, B8.5; addendum A4.4, D27, D31).
+// Le proposte di rimozione (Blocco 8, B8.5; addendum A4.4, D27, D31; Smistamento F5, A5.4.6, D77).
 //
-// «Che cosa e' sparito dalla distinta?» ha senso solo rispetto a UN file scelto da una persona, lo STEP
-// strutturale del prodotto finito, e solo se quel file e' stato letto per intero: una mancanza in una
-// lettura parziale non e' un'informazione. Qui si confrontano gli archi della working che pendono dal
-// prodotto con quelli del suo STEP strutturale, e ogni arco che il file non contiene piu' diventa una
-// rimozione_proposta. La proposta non toglie niente: l'arco lo toglie chi la accetta.
+// «Che cosa e' sparito dalla distinta?» ha senso solo rispetto a UN file scelto da una persona, il file
+// autorizzato a proporre i figli diretti di un componente, e solo se quel file e' stato letto per intero:
+// una mancanza in una lettura parziale non e' un'informazione. Qui si confrontano gli archi della working
+// che partono dal componente con quelli che il suo file gli propone, a profondita' 1: il file di C ha
+// autorita' sui figli diretti di C e basta (prima si scendeva tutto il sottoalbero, e il file del prodotto
+// proponeva di togliere archi su cui comanda lo STEP di un sottoassieme). Ogni arco che il file non
+// contiene piu' diventa una rimozione_proposta. La proposta non toglie niente: l'arco lo toglie chi la
+// accetta.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -21,54 +25,48 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
-// AggiornaRimozioni ricalcola le rimozioni proposte dallo STEP strutturale del prodotto finito p.
+// AggiornaRimozioni ricalcola le rimozioni proposte dal file autorizzato d.
 //
-// Le condizioni, tutte (A4.4):
-//   - lo STEP strutturale c'e' ed e' corrente;
-//   - la sua analisi corrente e' completa (v_step_prodotto dice presente_analizzato, cioe'
-//     struttura_completa sui fatti con la chiave di analizzatore_corrente);
-//   - ogni nodo del file ha un componente, oppure e' un pezzo nuovo con il suo codice, oppure e' stato
-//     scartato da una persona. Un nodo senza codice ancora aperto sospende il calcolo: potrebbe essere
-//     proprio il pezzo che sembra sparito.
+// Le condizioni, tutte (A4.4, A5.4.6):
+//   - l'autorizzazione vale (documento corrente, nessun conflitto: ValutaDichiarazioni);
+//   - l'analisi corrente del file e' completa (struttura_motivo_parziale vuoto), con una radice sola;
+//   - ogni figlio diretto delle sorgenti e' deciso da una persona: accettato (e allora e' un componente) o
+//     scartato. Un figlio ancora aperto, o agganciato per codice da un automatismo di prima, sospende il
+//     calcolo: potrebbe essere proprio il pezzo che sembra sparito. Prima bastava che avesse un codice, e un
+//     nodo aperto con il codice di un componente contava come quel componente: era un'identita' decisa dal
+//     codice, e non c'e' piu'.
 //
 // Le rimozioni aperte che non valgono piu' (l'arco non e' piu' nella working, o il file lo contiene di
-// nuovo) si chiudono con la nota. Una rimozione gia' decisa non si riapre.
-func AggiornaRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID, p db.Componente) (EsitoRimozioni, error) {
-	es := EsitoRimozioni{Prodotto: p.Codice}
-	if !p.StepStrutturaleID.Valid {
-		es.Sospese = "nessuno STEP strutturale scelto"
-		return es, nil
-	}
-	d, err := q.GetDocumento(ctx, p.StepStrutturaleID.UUID)
-	if err != nil {
-		return es, err
-	}
-	if d.SostituitoDa.Valid {
-		es.Sospese = "lo STEP strutturale è stato sostituito: si sceglie il nuovo riferimento"
-		return es, nil
-	}
-	sp, err := q.GetStepProdotto(ctx, p.ComponenteID)
-	if err != nil {
-		return es, err
-	}
-	if sp.Esito != StepAnalizzato {
-		es.Sospese = "lo STEP strutturale non ha una lettura completa: " + EtichettaStep(sp.Esito)
-		if sp.MotivoParziale.Valid {
-			es.Sospese += " (" + sp.MotivoParziale.String + ")"
-		}
+// nuovo) si chiudono con la nota. Una rimozione decisa da una persona non si riapre.
+func AggiornaRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID, d Dichiarazione) (EsitoRimozioni, error) {
+	es := EsitoRimozioni{Prodotto: d.Componente.Codice}
+	if !d.Valida() {
+		es.Sospese = "l'autorizzazione non vale: " + d.Problema
 		return es, nil
 	}
 	af, err := q.GetAnalisiCorrente(ctx, d.Sha256)
 	if errors.Is(err, pgx.ErrNoRows) {
-		es.Sospese = "nessuna analisi corrente dello STEP strutturale"
+		es.Sospese = "nessuna analisi corrente dello STEP autorizzato: lo STEP non ha una lettura completa"
 		return es, nil
 	}
 	if err != nil {
 		return es, err
 	}
-	_, st, ok := struttura(af.Fatti)
-	if !ok || len(st.Radici) != 1 {
-		es.Sospese = "la struttura dello STEP strutturale non si legge"
+	grezza, st, ok := struttura(af.Fatti)
+	if !ok {
+		es.Sospese = "la struttura dello STEP autorizzato non si legge: lo STEP non ha una lettura completa"
+		return es, nil
+	}
+	motivo, err := q.MotivoParziale(ctx, &grezza)
+	if err != nil {
+		return es, err
+	}
+	if motivo != "" {
+		es.Sospese = "lo STEP autorizzato non ha una lettura completa (" + motivo + ")"
+		return es, nil
+	}
+	if len(st.Radici) != 1 {
+		es.Sospese = fmt.Sprintf("lo STEP autorizzato ha %d radici: non e' una distinta sola", len(st.Radici))
 		return es, nil
 	}
 
@@ -80,75 +78,94 @@ func AggiornaRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID, p d
 	if err != nil {
 		return es, err
 	}
-	// Per ogni nodo, la riga che conta: una decisa vale piu' di una aperta (lo stesso contenuto ha un
-	// solo portatore per RFQ, ma una riga vecchia di un altro allegato puo' esserci ancora).
+	// Per ogni nodo, la riga che conta: una decisa da una persona vale piu' di una aperta (lo stesso contenuto
+	// ha un solo portatore per RFQ, ma una riga vecchia di un altro allegato puo' esserci ancora).
 	perChiave := map[string]db.ComponenteProposta{}
 	for _, r := range proposte {
-		if e, c := perChiave[r.Chiave]; !c || (e.Stato == db.StatoPropostaAperta && r.Stato != db.StatoPropostaAperta) {
+		if e, c := perChiave[r.Chiave]; !c || (!e.DecisoDa.Valid && r.DecisoDa.Valid) {
 			perChiave[r.Chiave] = r
 		}
 	}
-	componenteDi := map[string]uuid.UUID{st.Radici[0]: p.ComponenteID} // la dichiarazione: la radice e' il prodotto
-	var senzaCodice []string
+	c := d.Componente.ComponenteID
+	nomi := map[string]string{}
 	for _, n := range st.Nodi {
-		if n.Chiave == st.Radici[0] {
+		nomi[n.Chiave] = n.NomeGrezzo
+	}
+	componenteDi := map[string]uuid.UUID{}
+	var daDecidere []string
+	visto := map[string]bool{}
+	for _, r := range st.Relazioni {
+		if _, sorgente := d.Sorgenti[r.Padre]; !sorgente {
 			continue
 		}
-		r, c := perChiave[n.Chiave]
+		if _, sorgente := d.Sorgenti[r.Figlio]; sorgente || visto[r.Figlio] {
+			continue // un raggruppamento e' C stesso; un figlio sotto due sorgenti si guarda una volta
+		}
+		visto[r.Figlio] = true
+		p, ok := perChiave[r.Figlio]
 		switch {
-		case !c:
-			senzaCodice = append(senzaCodice, n.NomeGrezzo)
-		case r.Stato == db.StatoPropostaScartata:
+		case !ok:
+			daDecidere = append(daDecidere, nomi[r.Figlio])
+		case p.Stato == db.StatoPropostaScartata && p.DecisoDa.Valid:
 			// una persona ha detto che non e' un pezzo della distinta
-		case (r.Stato == db.StatoPropostaConfermata || r.Stato == db.StatoPropostaDuplicato) && r.ComponenteID.Valid:
-			componenteDi[n.Chiave] = r.ComponenteID.UUID
-		case strings.TrimSpace(r.Codice.String) == "":
-			senzaCodice = append(senzaCodice, n.NomeGrezzo)
 		default:
-			if x, c := w.PerCodice[strings.ToUpper(strings.TrimSpace(r.Codice.String))]; c && x.ArchiviatoIl == nil {
-				componenteDi[n.Chiave] = x.ComponenteID
+			if comp, deciso := DecisoDaUnaPersona(p); deciso {
+				componenteDi[r.Figlio] = comp
+			} else {
+				daDecidere = append(daDecidere, nomeNodo(p))
 			}
-			// altrimenti e' un pezzo nuovo: i suoi archi sono aggiunte, non tolgono niente alla working
 		}
 	}
-	if len(senzaCodice) > 0 {
-		es.Sospese = fmt.Sprintf("%d nodi dello STEP strutturale senza codice (%s): le rimozioni aspettano che l'abbiano",
-			len(senzaCodice), elencoNomi(senzaCodice))
+	if len(daDecidere) > 0 {
+		sort.Strings(daDecidere)
+		es.Sospese = fmt.Sprintf("%s da decidere (%s): le rimozioni aspettano che una persona li accetti o li scarti",
+			quanti(len(daDecidere), "figlio diretto", "figli diretti"), elencoNomi(daDecidere))
 		return es, nil
 	}
 	nelFile := map[Arco]bool{}
 	for _, r := range st.Relazioni {
-		pa, okP := componenteDi[r.Padre]
-		fi, okF := componenteDi[r.Figlio]
-		if okP && okF {
-			nelFile[Arco{Padre: pa, Figlio: fi}] = true
+		if _, sorgente := d.Sorgenti[r.Padre]; !sorgente {
+			continue
+		}
+		if fi, ok := componenteDi[r.Figlio]; ok {
+			nelFile[Arco{Padre: c, Figlio: fi}] = true
 		}
 	}
 	es.Calcolate = true
-	gia, err := q.ListRimozioniDiUnoStep(ctx, db.ListRimozioniDiUnoStepParams{ThreadID: thread, StepDocumentoID: d.DocumentoID})
+	doc := d.Documento.UUID
+	gia, err := q.ListRimozioniDiUnoStep(ctx, db.ListRimozioniDiUnoStepParams{ThreadID: thread, StepDocumentoID: doc})
 	if err != nil {
 		return es, err
 	}
+	// lo stesso documento puo' portare le rimozioni di piu' dichiarazioni (una delega e' il file del padre):
+	// qui contano solo quelle che partono da C
+	mie := gia[:0:0]
+	for _, r := range gia {
+		if r.PadreID == c {
+			mie = append(mie, r)
+		}
+	}
+	gia = mie
 	perArco := map[Arco]db.RimozioneProposta{}
 	for _, r := range gia {
 		perArco[Arco{Padre: r.PadreID, Figlio: r.FiglioID}] = r
 	}
-	// Si scrive solo cio' che cambia: il calcolo si rifa' a ogni apertura della RFQ, e una riga uguale
-	// riscritta ogni volta e' lavoro per niente. Una rimozione decisa non si tocca: uno scarta resta
-	// scartato.
+	// Si scrive solo cio' che cambia: il calcolo si rifa' dopo ogni decisione, e una riga uguale riscritta ogni
+	// volta e' lavoro per niente. Una rimozione decisa da una persona non si tocca: uno scarta resta scartato.
+	// Una chiusa da un automatismo si riapre, se vale di nuovo (E33).
 	vive := map[Arco]bool{}
-	for _, r := range Rimozioni(p.ComponenteID, w.Archi, nelFile) {
+	for _, r := range RimozioniFigliDiretti(c, w.Archi, nelFile) {
 		a := Arco{Padre: r.Padre, Figlio: r.Figlio}
 		vive[a] = true
-		e, c := perArco[a]
-		if c && e.Stato != db.StatoPropostaAperta {
+		e, esiste := perArco[a]
+		if esiste && !riscrivibile(e.Stato, e.DecisoDa) {
 			continue
 		}
 		es.Proposte++
-		if c && e.QtaWorking == r.QtaWorking {
+		if esiste && e.Stato == db.StatoPropostaAperta && e.QtaWorking == r.QtaWorking {
 			continue
 		}
-		if err := q.UpsertRimozioneProposta(ctx, db.UpsertRimozionePropostaParams{ThreadID: thread, StepDocumentoID: d.DocumentoID,
+		if err := q.UpsertRimozioneProposta(ctx, db.UpsertRimozionePropostaParams{ThreadID: thread, StepDocumentoID: doc,
 			PadreID: r.Padre, FiglioID: r.Figlio, QtaWorking: r.QtaWorking}); err != nil {
 			return es, err
 		}
@@ -161,11 +178,11 @@ func AggiornaRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID, p d
 		if vive[a] {
 			continue
 		}
-		nota := "lo STEP strutturale contiene di nuovo l'arco"
+		nota := "lo STEP autorizzato contiene di nuovo l'arco"
 		if _, c := w.Archi[a]; !c {
 			nota = "l'arco non è più nella BOM working"
 		}
-		if _, err := q.ChiudiRimozione(ctx, db.ChiudiRimozioneParams{ThreadID: thread, StepDocumentoID: d.DocumentoID,
+		if _, err := q.ChiudiRimozione(ctx, db.ChiudiRimozioneParams{ThreadID: thread, StepDocumentoID: doc,
 			PadreID: r.PadreID, FiglioID: r.FiglioID, Nota: pgtype.Text{String: nota, Valid: true}}); err != nil {
 			return es, err
 		}
@@ -174,56 +191,45 @@ func AggiornaRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID, p d
 	return es, nil
 }
 
-// rileggiLoStep applica alla RFQ i fatti correnti dello STEP strutturale di p, se c'e' un allegato della
-// RFQ con quel contenuto: nascono o si aggiornano le sue proposte, e alla fine si ricalcolano le
-// rimozioni (ApplicaStruttura lo fa da se'). Senza fatti correnti o senza allegato, solo le rimozioni.
-func rileggiLoStep(ctx context.Context, q *db.Queries, thread uuid.UUID, p db.Componente) (EsitoRimozioni, error) {
-	if !p.StepStrutturaleID.Valid {
-		return AggiornaRimozioni(ctx, q, thread, p)
-	}
-	d, err := q.GetDocumento(ctx, p.StepStrutturaleID.UUID)
-	if err != nil {
-		return EsitoRimozioni{}, err
-	}
-	af, err := q.GetAnalisiCorrente(ctx, d.Sha256)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return AggiornaRimozioni(ctx, q, thread, p)
-	}
-	if err != nil {
-		return EsitoRimozioni{}, err
-	}
-	step, err := q.ListStepDellaRfq(ctx, uuid.NullUUID{UUID: thread, Valid: true})
-	if err != nil {
-		return EsitoRimozioni{}, err
-	}
-	for _, a := range step {
-		if a.Sha256.String != d.Sha256 {
-			continue
-		}
-		m, err := MotoreDellaRfq(ctx, q, thread)
-		if err != nil {
-			return EsitoRimozioni{}, err
-		}
-		es, err := ApplicaStruttura(ctx, q, thread, a, af.Fatti, m)
-		return es.Rimozioni, err
-	}
-	return AggiornaRimozioni(ctx, q, thread, p)
-}
-
-// AggiornaTutteLeRimozioni ricalcola le rimozioni di ogni prodotto finito della RFQ che ha uno STEP
-// strutturale corrente: dopo una decisione che cambia i nodi riconosciuti, o all'apertura.
+// AggiornaTutteLeRimozioni ricalcola le rimozioni di ogni autorizzazione valida della RFQ: dopo una
+// decisione che cambia i nodi decisi o la working.
+//
+// Le rimozioni aperte di un'autorizzazione che non vale piu' (sospesa per un commerciale, in conflitto,
+// superata, revocata) si chiudono con la nota, senza chi le ha decise, come fa l'archiviazione del
+// componente: il file non ha piu' autorita', e una rimozione che resta aperta si potrebbe accettare e
+// fermerebbe il gate. Chiuse da un automatismo, si riaprono da sole se l'autorizzazione torna valida (E33).
 func AggiornaTutteLeRimozioni(ctx context.Context, q *db.Queries, thread uuid.UUID) ([]EsitoRimozioni, error) {
-	prodotti, err := q.ListProdottiConStepStrutturale(ctx, thread)
+	dich, err := LeggiDichiarazioni(ctx, q, thread)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]EsitoRimozioni, 0, len(prodotti))
-	for _, p := range prodotti {
-		es, err := AggiornaRimozioni(ctx, q, thread, p)
+	valide := dich.Valide()
+	out := make([]EsitoRimozioni, 0, len(valide))
+	for _, d := range valide {
+		es, err := AggiornaRimozioni(ctx, q, thread, d)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, es)
+	}
+	aperte, err := q.ListRimozioniAperte(ctx, thread)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range aperte {
+		if dich.RimozioneValida(r.StepDocumentoID, r.PadreID) {
+			continue
+		}
+		nota := "l'autorizzazione dello STEP non vale più"
+		for _, x := range dich.DelComponente(r.PadreID) {
+			if x.Documento.Valid && x.Documento.UUID == r.StepDocumentoID && x.Problema != "" {
+				nota = "l'autorizzazione non vale: " + x.Problema
+			}
+		}
+		if _, err := q.ChiudiRimozione(ctx, db.ChiudiRimozioneParams{ThreadID: thread, StepDocumentoID: r.StepDocumentoID,
+			PadreID: r.PadreID, FiglioID: r.FiglioID, Nota: pgtype.Text{String: nota, Valid: true}}); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }

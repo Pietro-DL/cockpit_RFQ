@@ -599,6 +599,166 @@ func DecodificaStruttura(dettagli json.RawMessage) (*StrutturaSTEP, bool) {
 	return involucro.Struttura, true
 }
 
+// ---------------------------------------------------------------- testo dei PDF (Smistamento F9)
+
+// Le zone di un frammento o di un campo del cartiglio (FrammentoPDF.Zona, CampoCartiglio.Zona).
+const (
+	// ZonaBassoDestra: la parte della pagina 1 con x0 >= 0,5 della larghezza e y0 >= 0,6 dell'altezza, sulla
+	// pagina come si vede (rotazione applicata). È un fatto geometrico; il server lo chiama «in basso a destra,
+	// probabile cartiglio».
+	ZonaBassoDestra = "basso_destra"
+	// ZonaPagina: tutto il resto.
+	ZonaPagina = "pagina"
+)
+
+// Da dove viene il testo di un frammento o di un campo (FrammentoPDF.Fonte, CampoCartiglio.Fonte).
+const (
+	FonteTestoNativo = "nativo" // scritto nel file
+	FonteTestoOCR    = "ocr"    // letto dall'immagine con l'OCR: un'evidenza più debole
+)
+
+// Gli stati dell'OCR di un PDF (OCRPDF.Stato).
+const (
+	OCRNonNecessario  = "non_necessario"  // il testo nativo bastava
+	OCRSpento         = "spento"          // configurazione del worker
+	OCRNonDisponibile = "non_disponibile" // il motore non c'è sulla postazione del worker
+	OCREseguito       = "eseguito"        // almeno un passaggio ha letto qualcosa
+	OCRFallito        = "fallito"
+	OCRScaduto        = "scaduto"
+	OCRIlleggibile    = "illeggibile"
+)
+
+// Le voci dei campi del cartiglio (CampoCartiglio.Etichetta).
+const (
+	CampoNumeroDisegno = "numero_disegno"
+	CampoCodice        = "codice"
+	CampoRevisione     = "revisione"
+	CampoTitolo        = "titolo"
+	CampoScala         = "scala"
+	CampoMateriale     = "materiale"
+)
+
+// TestoPDF è la lettura strutturata del testo di un PDF, dentro `RisultatoAnalisi.dettagli["testo_pdf"]`
+// dall'analizzatore 4 (addendum A5.13.8, decisioni del 27/09 «ter»).
+//
+// Sono FATTI del contenuto, come la struttura di uno STEP, e per la stessa ragione non portano codici: il worker
+// non sa per quale RFQ analizza, e che cosa sia un codice lo dicono le famiglie del cliente di ciascuna RFQ
+// (A5.13.7). I codici li cerca il server (classificazione.EvidenzeTestoPDF), e chi li usa fuori dalla
+// classificazione legge le evidenze normalizzate (classificazione.LettureDelPDF), non questo tipo.
+//
+// Il testo integrale di un documento grande non c'è: ci sono i frammenti utili con pagina e riquadro, i campi
+// del probabile cartiglio, i metadati, l'esito dell'OCR selettivo e i limiti in vigore quando è stato letto.
+// `Estraibile` falso vuol dire che nelle pagine lette non c'è testo NATIVO (curve, scansioni): è una risposta,
+// non un errore, e l'OCR non lo cambia. I riquadri sono [x0, y0, x1, y1] in punti sulla pagina vista.
+type TestoPDF struct {
+	Versione       int              `json:"versione"`
+	Estraibile     bool             `json:"estraibile"`
+	Pagine         int              `json:"pagine"`
+	PagineLette    int              `json:"pagine_lette"`
+	Caratteri      int              `json:"caratteri"`
+	Troncato       bool             `json:"troncato"`
+	FormatoPagina1 []float64        `json:"formato_pagina1"`
+	Frammenti      []FrammentoPDF   `json:"frammenti"`
+	Cartiglio      []CampoCartiglio `json:"cartiglio"`
+	Metadati       MetadatiPDF      `json:"metadati"`
+	OCR            OCRPDF           `json:"ocr"`
+	Limiti         LimitiTestoPDF   `json:"limiti"`
+}
+
+// FrammentoPDF è un pezzo di testo con il suo posto: un blocco del file (o dell'OCR) dentro una zona. La
+// Confidenza (0–100) c'è solo per l'OCR, e solo se il motore la dà.
+type FrammentoPDF struct {
+	Pagina     int       `json:"pagina"`
+	Zona       string    `json:"zona"`
+	Fonte      string    `json:"fonte"`
+	Testo      string    `json:"testo"`
+	Riquadro   []float64 `json:"riquadro"`
+	Confidenza *float64  `json:"confidenza"`
+}
+
+// CampoCartiglio è un campo del probabile cartiglio della pagina 1, come etichetta → valore («DISEGNO N.» →
+// «7120010»): Etichetta è la voce riconosciuta (Campo…), Letta com'è scritta, Valore il testo GREZZO accanto,
+// Riquadro quello del valore, Zona quella dell'etichetta.
+type CampoCartiglio struct {
+	Etichetta  string    `json:"etichetta"`
+	Letta      string    `json:"letta"`
+	Valore     string    `json:"valore"`
+	Pagina     int       `json:"pagina"`
+	Zona       string    `json:"zona"`
+	Fonte      string    `json:"fonte"`
+	Riquadro   []float64 `json:"riquadro"`
+	Confidenza *float64  `json:"confidenza"`
+}
+
+// OCRPDF è quello che ha fatto l'OCR selettivo: lo stato (OCR…), il motivo di quello che non è andato, il
+// motore e i passaggi. L'OCR non fa mai fallire l'analisi: quello che non va si scrive qui.
+type OCRPDF struct {
+	Stato     string         `json:"stato"`
+	Motivo    string         `json:"motivo"`
+	Motore    string         `json:"motore"`
+	Tentativi []TentativoOCR `json:"tentativi"`
+}
+
+// TentativoOCR è un passaggio dell'OCR su una pagina intera o sulla zona in basso a destra della pagina 1, con
+// l'esito (letto, vuoto, fallito, scaduto, saltato).
+type TentativoOCR struct {
+	Pagina    int     `json:"pagina"`
+	Zona      string  `json:"zona"`
+	Esito     string  `json:"esito"`
+	Motivo    string  `json:"motivo"`
+	Caratteri int     `json:"caratteri"`
+	Secondi   float64 `json:"secondi"`
+}
+
+// MetadatiPDF sono i metadati del documento, grezzi. L'autore non c'è, di proposito: è il nome di una persona,
+// non dice che cosa sia il file e non deve restare archiviato nei fatti.
+type MetadatiPDF struct {
+	Titolo       string `json:"titolo"`
+	Soggetto     string `json:"soggetto"`
+	ParoleChiave string `json:"parole_chiave"`
+	Creatore     string `json:"creatore"`
+	Produttore   string `json:"produttore"`
+}
+
+// LimitiTestoPDF: i tetti e le soglie in vigore QUANDO il testo è stato letto (come LimitiSTEP), perché
+// «troncato» o «OCR non necessario» fra un anno significhino ancora qualcosa.
+type LimitiTestoPDF struct {
+	PagineMax          int `json:"pagine_max"`
+	FrammentiMax       int `json:"frammenti_max"`
+	FrammentoMax       int `json:"frammento_max"`
+	CaratteriMax       int `json:"caratteri_max"`
+	CampiMax           int `json:"campi_max"`
+	OCRSogliaPagina    int `json:"ocr_soglia_pagina"`
+	OCRSogliaCartiglio int `json:"ocr_soglia_cartiglio"`
+	OCRPagineMax       int `json:"ocr_pagine_max"`
+	OCRTempoMaxS       int `json:"ocr_tempo_max_s"`
+	OCRDpi             int `json:"ocr_dpi"`
+}
+
+// DecodificaTestoPDF estrae la lettura del testo dai dettagli di un'analisi.
+//
+// Il secondo valore è falso quando il testo non c'è (fatti di un analizzatore prima del 4, un worker vecchio
+// che ha risposto a un job v4, uno STEP, un PDF che non si apre) o quando la versione è sconosciuta (< 1). Falso
+// NON vuol dire «il PDF non ha testo»: quello è `Estraibile` falso in un testo decodificato. Un PDF senza
+// `testo_pdf` è un PDF il cui testo non è stato letto, e va rianalizzato, non dichiarato muto (A5.13.3).
+//
+// Tollera i campi sconosciuti, come DecodificaStruttura.
+func DecodificaTestoPDF(dettagli json.RawMessage) (*TestoPDF, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Testo *TestoPDF `json:"testo_pdf"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Testo == nil {
+		return nil, false
+	}
+	if involucro.Testo.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Testo, true
+}
+
 // ---------------------------------------------------------------- healthz
 
 type Salute struct {

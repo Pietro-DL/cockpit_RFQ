@@ -1032,14 +1032,20 @@ class Editor {
     this.nodi = dati.nodi || {};
     this.archi = new Map();   // "p|f" → {padre, figlio, qta, prop: bool, stepQta}
     for (const a of dati.archi || []) this.archi.set(a.padre + "|" + a.figlio, { padre: a.padre, figlio: a.figlio, qta: a.qta, prop: false });
+    // Smistamento F5 (P13): le proposte sono solo quelle nell'autorità di uno STEP autorizzato, e non entrano
+    // da sole nella struttura: le mette l'operatore con «Accetta i figli diretti dallo STEP», e le vede prima
+    // di confermare. Un arco che c'è già con un'altra quantità dice quella dello STEP.
     this.proposteDi = new Map();
     for (const p of dati.proposti || []) {
       const k = p.padre + "|" + p.figlio;
       this.proposteDi.set(k, p);
       const w = this.archi.get(k);
-      if (w) { if (w.qta !== p.qta) w.stepQta = p.qta; }
-      else this.archi.set(k, { padre: p.padre, figlio: p.figlio, qta: p.qta, prop: true });
+      if (w && w.qta !== p.qta) w.stepQta = p.qta;
     }
+    // i nodi dello STEP autorizzato con il codice di un componente che c'è: l'editor li disegna come quel
+    // componente e lo dice; la conferma li accetta così solo se l'editor li ha mostrati (ritrovati_visti)
+    this.ritrovati = new Map();
+    for (const r of dati.ritrovati || []) { if (!this.ritrovati.has(r.ref)) this.ritrovati.set(r.ref, []); this.ritrovati.get(r.ref).push(r); }
     this.rimozioni = new Set((dati.rimozioni || []).map((r) => r.padre + "|" + r.figlio));
     this.scarta = new Set();
     this.codici = {};
@@ -1161,6 +1167,21 @@ class Editor {
     return n.codice || (n.nome ? "«" + n.nome + "»" : ref);
   }
   prodotti() { return new Set((this.d.prodotti || []).map((p) => p.ref)); }
+
+  // i legami che lo STEP autorizzato propone sotto i componenti già nella struttura, e che non ci sono ancora
+  figliDirettiDaMettere() {
+    const qui = this.raggiunti(this.radice);
+    return (this.d.proposti || []).filter((p) => qui.has(p.padre) && !this.archi.has(p.padre + "|" + p.figlio) &&
+      !this.scarta.has(p.figlio.slice(2)) && !this.scendeDa(p.padre, p.figlio));
+  }
+  // «Accetta i figli diretti dallo STEP»: li mette nella bozza, tratteggiati; entrano con la conferma
+  accettaFigliDiretti() {
+    const da = this.figliDirettiDaMettere();
+    if (!da.length) return;
+    this.prima();
+    for (const p of da) this.archi.set(p.padre + "|" + p.figlio, { padre: p.padre, figlio: p.figlio, qta: p.qta, prop: true });
+    this.disegna(`${da.length} legam${da.length === 1 ? "e" : "i"} dallo STEP autorizzato nella struttura: si vedono qui, entrano con la conferma.`);
+  }
 
   // i nodi del vassoio: non raggiunti dal prodotto, e non di un altro prodotto
   vassoio() {
@@ -1331,6 +1352,8 @@ class Editor {
       archi,
       visti: (this.d.archi || []).map((a) => ({ padre: a.padre, figlio: a.figlio, qta: a.qta })),
       relazioni_viste: (this.d.proposti || []).filter((p) => visto.has(p.padre)).map((p) => ({ allegato: p.allegato, padre: p.pk, figlio: p.fk })),
+      // i ritrovati per codice che l'editor ha mostrato e che stanno nella struttura (Smistamento F5, P13)
+      ritrovati_visti: (this.d.ritrovati || []).filter((r) => qui.has(r.ref)).map((r) => r.proposta),
       scarta: [...this.scarta],
       codici,
       nuovi,
@@ -1411,6 +1434,7 @@ class Editor {
           el("span", { class: "bomed-step k" }),
           el("span", { class: "sp" }),
           el("button", { type: "button", class: "bomed-sposta-scelti", hidden: true }, "Sposta i selezionati sotto…"),
+          el("button", { type: "button", class: "bomed-figli", hidden: true, title: "Mette nella struttura i figli diretti che lo STEP autorizzato propone: li vedi prima della conferma" }, "Accetta i figli diretti dallo STEP"),
           el("button", { type: "button", class: "bomed-nuovo", title: "Un pezzo che lo STEP non propone: il codice lo scrivi tu" }, "+ Componente con codice"),
           el("button", { type: "button", class: "bomed-indietro", title: "Annulla l'ultima modifica (Ctrl+Z)" }, "↶ Annulla modifica"),
           el("button", { type: "button", class: "bomed-annulla" }, "Chiudi"),
@@ -1420,16 +1444,18 @@ class Editor {
         el("div", { class: "bomed-corpo" },
           el("section", { class: "bomed-albero", "aria-label": "Struttura del prodotto" }),
           el("aside", { class: "bomed-vassoio", "aria-label": "Non posizionati" })),
+        el("section", { class: "bomed-guida", "aria-label": "Guida dagli STEP" }),
         el("footer", { class: "bomed-piede" },
           el("span", { class: "bomed-esito", role: "status", "aria-live": "polite" }),
           el("span", { class: "sp" }),
-          el("span", {}, "Trascinare = spostare · il tratteggio è quello che propone lo STEP ed entra con la conferma · un secondo padre si aggiunge dal menu ⋯ (Condividi)"))));
+          el("span", {}, "Trascinare = spostare · il tratteggio è quello che propone lo STEP autorizzato: lo mette «Accetta i figli diretti dallo STEP», ed entra con la conferma · un secondo padre si aggiunge dal menu ⋯ (Condividi)"))));
     this.posto.append(this.el);
     $(".bomed-annulla", this.el).addEventListener("click", () => this.chiudi(false));
     $(".bomed-indietro", this.el).addEventListener("click", () => this.annullaUltima());
     $(".bomed-conferma", this.el).addEventListener("click", () => this.conferma());
     $(".bomed-sposta-scelti", this.el).addEventListener("click", (e) => this.sceltaPadre(e.currentTarget, "scelti"));
     $(".bomed-nuovo", this.el).addEventListener("click", () => this.formNuovo());
+    $(".bomed-figli", this.el).addEventListener("click", () => this.accettaFigliDiretti());
     this.tasti = (e) => this.tasto(e);
     document.addEventListener("keydown", this.tasti, true);
     this.el.addEventListener("dragstart", (e) => this.inizioTrascina(e));
@@ -1444,6 +1470,27 @@ class Editor {
     if (this.d.analisi > 0) avv.append(el("div", { class: "bomed-avviso info" }, `Analisi in corso su ${this.d.analisi} file: la proposta può ancora cambiare. Si può lavorare lo stesso; la conferma dice se qualcosa è cambiato.`));
     if (st && st.esito === "presente_parziale") avv.append(el("div", { class: "bomed-avviso" }, "Lo STEP strutturale è letto in parte" + (st.motivo ? ": " + st.motivo : "") + ". La struttura proposta può essere incompleta."));
     if (st && st.etichetta) $(".bomed-step", this.el).textContent = "STEP: " + st.etichetta;
+    if ((this.d.ritrovati || []).length) {
+      const nomi = [...new Set(this.d.ritrovati.map((r) => r.codice + (r.agganciato ? " (agganciato prima dello Smistamento)" : "")))].join(", ");
+      avv.append(el("div", { class: "bomed-avviso info" }, `Ritrovati per codice: ${nomi}. Lo STEP autorizzato ha un nodo con lo stesso codice di un componente che c'è: l'editor lo disegna come quel componente, e confermando la struttura che lo contiene lo accetti così.`));
+    }
+    this.disegnaGuida();
+  }
+
+  // La guida (Smistamento F5, precisazione dell'utente del 27/09): quello che gli STEP propongono fuori
+  // dall'autorità di un file autorizzato. Si vede per aiutare, distinta, e nessun gesto la porta nella BOM;
+  // un codice uguale a quello di un componente è solo un suggerimento.
+  disegnaGuida() {
+    const posto = $(".bomed-guida", this.el);
+    const g = this.d.guida || [];
+    posto.innerHTML = "";
+    if (!g.length) return;
+    const righe = g.map((x) => el("li", {}, el("span", { class: "k" }, x.file + ": "), `${x.padre} → ${x.figlio} ×${x.qta}`,
+      x.suggerito ? el("span", { class: "k" }, ` · stesso codice di ${x.suggerito}: un suggerimento, non lo stesso pezzo finché qualcuno non lo decide`) : ""));
+    posto.append(el("details", {},
+      el("summary", {}, `Guida dagli STEP (${g.length} legam${g.length === 1 ? "e" : "i"}): da vedere, non entra nella BOM`),
+      el("p", { class: "k" }, "Sono i legami che uno STEP descrive fuori dall'autorità di un file autorizzato: entrano quando lo STEP del loro padre è autorizzato per quel padre."),
+      el("ul", { class: "bomed-guida-lista" }, righe)));
   }
 
   avvisa(t, tipo) { this.esito(t, tipo === "info" ? "ok" : "no"); }
@@ -1487,6 +1534,7 @@ class Editor {
       r.append(el("span", { class: "bomed-tipo" }, n.finito ? "prodotto" : ({ sottoassieme: "assieme", sciolto: "particolare", commerciale: "commerciale" }[n.tipo] || "")));
       if (n.proposto || (arco && arco.prop)) r.append(el("span", { class: "bomed-badge prop", title: n.file ? "dallo STEP " + n.file : "" }, "proposto"));
       if (n.nuovo) r.append(el("span", { class: "bomed-badge info", title: "Codice scritto da te: il componente nasce con la conferma" }, "nuovo"));
+      if (arco && arco.prop && this.ritrovati.has(ref)) r.append(el("span", { class: "bomed-badge info", title: "Il nodo dello STEP ha lo stesso codice di questo componente: confermando lo accetti come questo componente" }, "ritrovato per codice"));
       if (padri > 1) r.append(el("span", { class: "bomed-badge info", title: "Un componente solo sotto più padri" }, `condiviso · ${padri} padri`));
       if (arco && arco.stepQta) r.append(el("span", { class: "bomed-badge warn" }, `lo STEP dice ×${arco.stepQta} `, el("button", { type: "button", "data-usa-step": arco.padre + "|" + arco.figlio }, "usa")));
       if (arco && this.rimozioni.has(arco.padre + "|" + arco.figlio)) r.append(el("span", { class: "bomed-badge urg", title: "Lo STEP strutturale non contiene più questo legame: confermando lo si tiene" }, "lo STEP lo toglie"));
@@ -1521,6 +1569,10 @@ class Editor {
     b.textContent = n ? `Conferma struttura (${n} modific${n === 1 ? "a" : "he"})` : "Conferma struttura";
     $(".bomed-indietro", this.el).disabled = !this.storia.length;
     $(".bomed-sposta-scelti", this.el).hidden = this.scelte.size < 2;
+    const figli = this.figliDirettiDaMettere().length;
+    const bf = $(".bomed-figli", this.el);
+    bf.hidden = !figli;
+    bf.textContent = `Accetta i figli diretti dallo STEP (${figli})`;
     $("#bomed-titolo", this.el).textContent = "Struttura di";
     if (messaggio !== undefined) this.esito(messaggio, "ok");
     if (!this.confermato) this.salvaBozza();
@@ -1598,6 +1650,8 @@ class Editor {
     }
     if (ref.startsWith("p:") && !arco) voci.push(["scarta", "Scarta: non è un pezzo della distinta"]);
     if (ref.startsWith("n:") && !arco) voci.push(["rimuovi", "Togli il componente nuovo: non nasce"]);
+    // il tipo di un componente che c'e' (Smistamento, fase T): lo decide una persona, con l'anteprima del server
+    if (ref.startsWith("c:")) voci.push(["tipo", "Tipo del componente…"]);
     const box = el("div", { class: "bomed-menu-dentro", role: "menu" }, voci.map(([k, t]) => el("button", { type: "button", role: "menuitem", "data-voce": k, "data-ref": ref, "data-arco": arco }, t)));
     riga.querySelector(".bomed-menu").append(box);
     this.menuAperto = box;
@@ -1616,7 +1670,51 @@ class Editor {
       case "rimuovi": this.rimuoviNuovo(ref); break;
       case "sposta": case "metti": this.sceltaPadre($(`.bomed-riga[data-ref="${CSS.escape(ref)}"][data-arco="${CSS.escape(arco || "")}"]`, this.el), "sposta", padre, figlio); break;
       case "condividi": this.sceltaPadre($(`.bomed-riga[data-ref="${CSS.escape(ref)}"][data-arco="${CSS.escape(arco || "")}"]`, this.el), "condividi", padre, figlio); break;
+      case "tipo": this.sceltaTipo($(`.bomed-riga[data-ref="${CSS.escape(ref)}"][data-arco="${CSS.escape(arco || "")}"]`, this.el), ref); break;
     }
+  }
+  // sceltaTipo apre sotto la riga il riquadro del tipo del componente (Smistamento, fase T): la tendina del server,
+  // con il motivo di ogni tipo che non si puo', poi l'anteprima (che cosa si sospende, che cosa resta) e il
+  // bottone. Il tipo non e' una modifica della bozza: e' una decisione a se', che il server scrive subito (con la
+  // firma dell'anteprima). Per questo con modifiche non confermate non si apre, e dopo il cambio l'editor si
+  // riapre sulla BOM di adesso: un commerciale sospende l'autorita' del suo STEP e cambia le proposte.
+  async sceltaTipo(dopo, ref) {
+    for (const x of $$(".bomed-scegli", this.el)) x.remove();
+    if (this.cambiato()) { this.avvisa("Prima conferma la struttura, o annulla le modifiche: il tipo si cambia a parte, e poi l'editor si riapre.", ""); return; }
+    const box = el("div", { class: "bomed-scegli bomed-tipo", role: "group", "aria-label": "Tipo di " + this.nome(ref) }, "Leggo i tipi…");
+    (dopo || $(".bomed-albero", this.el)).after(box);
+    const url = S.base + "/componente/" + ref.slice(2) + "/tipo";
+    const carica = async (tipo) => {
+      try {
+        const r = await fetch(url + (tipo ? "?tipo=" + encodeURIComponent(tipo) : ""), { credentials: "same-origin", headers: { Accept: "text/html" } });
+        if (!r.ok) throw new Error(r.status);
+        box.innerHTML = await r.text();
+      } catch (err) {
+        box.textContent = "L'anteprima del tipo non si è potuta leggere: riprova.";
+      }
+      box.append(el("button", { type: "button", onclick: () => box.remove() }, "Chiudi"));
+      const primo = $("select, button", box);
+      if (primo) primo.focus();
+    };
+    // i moduli del riquadro sono quelli della scheda: qui li manda l'editor (htmx non li conosce), la tendina
+    // chiede l'anteprima, il bottone dell'anteprima fa il gesto
+    box.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const valori = Object.fromEntries(new FormData(f).entries());
+      if ((f.getAttribute("method") || "get").toLowerCase() === "get") { carica(valori.tipo || ""); return; }
+      for (const b of $$("button", box)) b.disabled = true;
+      this.attesa(true);
+      const esito = await gesto(f.getAttribute("action"), valori, this.posto);
+      this.attesa(false);
+      if (this.chiuso) return;
+      if (!esito.ok) { for (const b of $$("button", box)) b.disabled = false; this.esito(esito.testo, "no"); return; }
+      const prodotto = this.radice.slice(2);
+      this.chiudi(true);
+      await Editor.apri(prodotto);
+      if (Editor.corrente) Editor.corrente.esito(esito.testo, "ok");
+    });
+    carica("");
   }
   // sceltaPadre apre sotto la riga un elenco dei padri possibili (senza i discendenti: niente cicli)
   sceltaPadre(dopo, modo, padre, figlio) {

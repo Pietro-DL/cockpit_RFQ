@@ -157,6 +157,7 @@ var funzioni = template.FuncMap{
 	"dim":         dimVista,
 	"score":       scoreHTML,
 	"parole":      paroleEvidenza,
+	"dipendenza":  dipendenzaEvidenza,
 	"motivi": func(m *json.RawMessage) []string {
 		if m == nil {
 			return nil

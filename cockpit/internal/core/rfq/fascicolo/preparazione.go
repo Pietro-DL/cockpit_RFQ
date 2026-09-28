@@ -7,8 +7,9 @@ package fascicolo
 //   - I codici della richiesta sono prodotti finiti gia' decisi. L'operatore li spunta quando crea la RFQ
 //     (identificativo_thread, «codici PRODOTTO FINITO della RFQ» nello schema): da li' ciascuno e' anche
 //     un componente radice di tipo finito, senza chiedere di nuovo «+ Prodotto» nel Fascicolo. Senza
-//     STEP il prodotto e' una radice senza figli, e la BOM e' gia' valida; lo STEP, quando arriva, propone
-//     la struttura sotto quella radice (la sua radice ritrova il componente, A2.3).
+//     STEP il prodotto e' una radice senza figli, e la BOM e' gia' valida; lo STEP, quando arriva e una
+//     persona lo autorizza per quel prodotto, propone i figli diretti sotto quella radice (Smistamento F5:
+//     prima la sua radice ritrovava il componente per codice, A2.3).
 //   - I file utili della RFQ scendono nello staging da soli, gli archivi fermi si estraggono e i file
 //     fermi si analizzano; i fatti gia' calcolati per lo stesso contenuto si riusano. Lo staging e' una
 //     cache del server (staging/cache.go): i documenti nascono solo con la conferma, e solo allora parte
@@ -37,23 +38,41 @@ type EsitoProdotti struct {
 	Bloccata int32    // la BOM e' congelata in questa versione: niente e' cambiato
 }
 
-// AssicuraProdottiDellaRichiesta fa di ogni codice della richiesta confermato da una persona un componente
-// radice di tipo finito, se nella RFQ non c'e' gia' un componente con quel codice (upper). Idempotente:
-// la seconda volta non fa niente. Un componente che c'e' gia' non si tocca, qualunque sia il suo tipo o
-// il suo stato: quello e' gia' una decisione, e un archiviato non si ripristina da solo.
+// AssicuraProdottiDellaRichiesta fa di ogni codice della richiesta confermato da una persona IN QUESTO GESTO
+// (confermati: i codici che la creazione della RFQ o l'aggancio hanno appena spuntato o scritto) un
+// componente radice di tipo finito, se nella RFQ non c'e' gia' un componente con quel codice (upper).
+// Idempotente: la seconda volta non fa niente. Un componente che c'e' gia' non si tocca, qualunque sia il suo
+// tipo o il suo stato: quello e' gia' una decisione, e un archiviato non si ripristina da solo.
 //
-// Chi ha confermato il codice e' chi ha deciso il componente: confermato_da viene dall'identificativo. Un
-// identificativo senza chi l'ha confermato non e' una decisione, e resta fuori. Con la BOM congelata non
-// cambia niente (D26): il codice resta fra quelli della richiesta, e il prodotto entra aprendo una
-// revisione (la POST di «Apri revisione» la chiama). Le proposte STEP aperte con lo stesso codice ritrovano
-// il componente (A2.3), come quando si accetta un nodo.
+// Solo i codici del gesto (scelta 6 dello Smistamento, confermata il 27/09): prima nascevano TUTTI i codici
+// confermati della richiesta senza un componente, e un prodotto tolto dalla BOM (cancellato perche' non aveva
+// storia, o con il codice corretto) rinasceva all'aggancio di una mail qualunque. Togliere un prodotto e' una
+// decisione, e una mail che non lo cita non la disfa: rientra solo se qualcuno ne conferma di nuovo il codice.
+// Un codice di confermati che non e' fra quelli della richiesta, o che nessuno ha confermato, resta fuori.
 //
-// Crea componenti, quindi la chiama solo la decisione di una persona: la creazione o l'aggancio della RFQ
-// (POST del triage) e l'apertura di una revisione della BOM. Mai l'apertura di una pagina, nemmeno la
-// preparazione dei file che la pagina chiede da sola (Smistamento F1, R1 e R8): un prodotto tolto dalla BOM
-// non rinasce perche' qualcuno ha riaperto il Fascicolo.
-func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread uuid.UUID) (EsitoProdotti, error) {
-	return assicuraProdotti(ctx, q, thread, nil)
+// Chi ha confermato il codice e' chi ha deciso il componente: confermato_da viene dall'identificativo. Con
+// la BOM congelata non cambia niente (D26): il codice resta fra quelli della richiesta, e il prodotto entra
+// aprendo una revisione (AssicuraProdottiDellaRevisione). Le proposte STEP aperte con lo stesso codice restano
+// proposte (Smistamento F5): prima ritrovavano il componente da sole (RiconciliaProposteNodo), ed era
+// un'identita' decisa dal codice; adesso il codice uguale e' un suggerimento, e le decide una persona.
+//
+// Crea componenti, quindi la chiama solo la decisione di una persona: la creazione della RFQ e l'aggancio
+// (POST del triage). Mai l'apertura di una pagina, nemmeno la preparazione dei file che la pagina chiede da
+// sola (Smistamento F1, R1 e R8): un prodotto tolto dalla BOM non rinasce perche' qualcuno ha riaperto il
+// Fascicolo.
+func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread uuid.UUID, confermati []string) (EsitoProdotti, error) {
+	delGesto := make(map[string]bool, len(confermati))
+	for _, c := range confermati {
+		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
+			delGesto[c] = true
+		}
+	}
+	if len(delGesto) == 0 {
+		return EsitoProdotti{}, nil // il gesto non ha confermato codici: non nasce niente
+	}
+	return assicuraProdotti(ctx, q, thread, func(i db.IdentificativoThread) bool {
+		return delGesto[strings.ToUpper(strings.TrimSpace(i.Codice))]
+	})
 }
 
 // AssicuraProdottiDellaRevisione e' AssicuraProdottiDellaRichiesta per l'apertura di una revisione della BOM
@@ -61,7 +80,9 @@ func AssicuraProdottiDellaRichiesta(ctx context.Context, q *db.Queries, thread u
 // alla creazione o all'aggancio. Un codice della richiesta che era gia' li' quando la BOM e' stata congelata,
 // e che nella BOM non c'era, ne era uscito per decisione di qualcuno (un prodotto tolto perche' «non aveva storia»):
 // aprire una revisione, che e' una decisione sulla versione e non su quel codice, non lo fa rinascere
-// (Smistamento, rilievo della verifica di F2; R1, E11).
+// (Smistamento, rilievo della verifica di F2; R1, E11). I codici che entrano sono quelli il cui gesto di
+// conferma e' stato fermato dal congelamento: la revisione completa quel gesto, e con la scelta 6 e' la sola
+// strada per cui un codice entra dopo il gesto che l'ha confermato.
 func AssicuraProdottiDellaRevisione(ctx context.Context, q *db.Queries, thread uuid.UUID) (EsitoProdotti, error) {
 	ultima, err := q.GetUltimaCongelata(ctx, thread)
 	switch {
@@ -82,8 +103,7 @@ func fermatoDalCongelamento(i db.IdentificativoThread, congelataIl *time.Time) b
 	return i.ConfermatoDa.Valid && congelataIl != nil && i.CreatoIl.After(*congelataIl)
 }
 
-// assicuraProdotti e' il corpo delle due: con entra nil ogni codice confermato, altrimenti quelli per cui
-// entra dice di si'.
+// assicuraProdotti e' il corpo delle due: entra dice quali codici confermati della richiesta entrano.
 func assicuraProdotti(ctx context.Context, q *db.Queries, thread uuid.UUID, entra func(db.IdentificativoThread) bool) (EsitoProdotti, error) {
 	var es EsitoProdotti
 	if err := bloccaThread(ctx, q, thread); err != nil {
@@ -103,7 +123,7 @@ func assicuraProdotti(ctx context.Context, q *db.Queries, thread uuid.UUID, entr
 	}
 	for _, i := range ids {
 		codice := strings.TrimSpace(i.Codice)
-		if codice == "" || !i.ConfermatoDa.Valid || (entra != nil && !entra(i)) {
+		if codice == "" || !i.ConfermatoDa.Valid || !entra(i) {
 			continue
 		}
 		switch _, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: thread, Upper: codice}); {
@@ -123,10 +143,6 @@ func assicuraProdotti(ctx context.Context, q *db.Queries, thread uuid.UUID, entr
 		c, err := q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: thread, Codice: codice, Qta: 1,
 			Tipo: db.TipoComponenteFinito, Origine: origine, ConfermatoDa: i.ConfermatoDa.UUID})
 		if err != nil {
-			return es, err
-		}
-		if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: thread, Codice: c.Codice,
-			ComponenteID: uid(c.ComponenteID), Esclusa: uuid.Nil}); err != nil {
 			return es, err
 		}
 		es.Creati = append(es.Creati, c.Codice)

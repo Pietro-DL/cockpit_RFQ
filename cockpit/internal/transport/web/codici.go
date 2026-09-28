@@ -20,7 +20,7 @@ import (
 )
 
 func (s *Server) registraCodici(mux *http.ServeMux) {
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/ripristina", s.autenticato(s.ripristinaComponente))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/ripristina", s.autenticato(s.dopoIlGesto(s.ripristinaComponente)))
 }
 
 // ripristinaComponente: POST .../fascicolo/componente/{cid}/ripristina.

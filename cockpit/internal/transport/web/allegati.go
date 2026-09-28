@@ -475,6 +475,11 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 			return "", err
 		}
 		scelta.interno = a.Origine == db.OrigineAllegatoManuale
+		if scelta.sostituisce != uuid.Nil {
+			if scelta.sostituisceAutorizzato, err = fascicolo.StepAutorizzatoDi(ctx, q, t.ThreadID, c, scelta.sostituisce); err != nil {
+				return "", err
+			}
+		}
 		if scelta, err = verificaScelta(a.NomeFile, c, tipo, correnti, scelta); err != nil {
 			return "", err
 		}
@@ -516,7 +521,7 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	}
 	componente := " Senza componente: codice e percorso restano questi finché non lo si assegna."
 	if assegnato != "" {
-		revisione, err := applicaScelta(ctx, q, t.ThreadID, d.DocumentoID, scelta)
+		revisione, err := applicaScelta(ctx, q, t.ThreadID, d.DocumentoID, scelta, u.UtenteID)
 		if err != nil {
 			return "", err
 		}

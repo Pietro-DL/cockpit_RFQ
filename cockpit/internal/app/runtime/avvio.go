@@ -89,6 +89,18 @@ func ultimaApplicata(applicate map[int]bool) int {
 // che il binario non si aspetta, e migrarlo da qui vorrebbe dire cambiare il database con un comando che
 // si lancia per guardare, magari senza un backup: ci si ferma e si dice che cosa fare.
 func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
+	return apriSenzaMigrare(ctx, cfg, fsys, true)
+}
+
+// ApriDatabaseSenzaMigrare apre il pool per un comando che scrive ma non deve cambiare lo schema: il comando
+// U5 in applicazione (-riapri-agganci, Smistamento F7, P38). E' ApriDatabaseInLettura senza la sola lettura:
+// niente migrazioni, niente semi, niente coda, e con uno schema diverso da quello del binario ci si ferma.
+// Migrare da qui vorrebbe dire cambiare il database prima del backup che il comando chiede.
+func ApriDatabaseSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
+	return apriSenzaMigrare(ctx, cfg, fsys, false)
+}
+
+func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS, soloLettura bool) (*pgxpool.Pool, error) {
 	migs, err := migrazioni.Elenca(fsys)
 	if err != nil {
 		return nil, err
@@ -98,10 +110,12 @@ func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) 
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
 	}
-	if pc.ConnConfig.RuntimeParams == nil {
-		pc.ConnConfig.RuntimeParams = map[string]string{}
+	if soloLettura {
+		if pc.ConnConfig.RuntimeParams == nil {
+			pc.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		pc.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
-	pc.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
@@ -111,7 +125,11 @@ func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) 
 		pool.Close()
 		return nil, err
 	}
-	if err := stessoSchema(ultimaApplicata(applicate), delBinario); err != nil {
+	cosa := "legge soltanto e non migra"
+	if !soloLettura {
+		cosa = "non migra"
+	}
+	if err := schemaDelBinario(ultimaApplicata(applicate), delBinario, cosa); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -121,10 +139,16 @@ func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) 
 // stessoSchema e' il rifiuto dei comandi in sola lettura quando lo schema del database non e' quello del
 // binario.
 func stessoSchema(delDatabase, delBinario int) error {
+	return schemaDelBinario(delDatabase, delBinario, "legge soltanto e non migra")
+}
+
+// schemaDelBinario e' il rifiuto di un comando che non migra (cosa dice che cosa fa: «legge soltanto e non
+// migra», «non migra») quando lo schema del database non e' quello del binario.
+func schemaDelBinario(delDatabase, delBinario int, cosa string) error {
 	switch {
 	case delDatabase < delBinario:
-		return fmt.Errorf("il database e' alla versione %d dello schema e questo cockpit.exe alla %d: questo comando legge soltanto "+
-			"e non migra. Fare un backup del database, poi `cockpit.exe -migra`, poi rilanciare il comando", delDatabase, delBinario)
+		return fmt.Errorf("il database e' alla versione %d dello schema e questo cockpit.exe alla %d: questo comando %s. "+
+			"Fare un backup del database, poi `cockpit.exe -migra`, poi rilanciare il comando", delDatabase, delBinario, cosa)
 	case delDatabase > delBinario:
 		return fmt.Errorf("il database e' alla versione %d dello schema, ma questo cockpit.exe conosce solo fino alla %d: "+
 			"serve il cockpit.exe aggiornato (il database non e' stato toccato)", delDatabase, delBinario)

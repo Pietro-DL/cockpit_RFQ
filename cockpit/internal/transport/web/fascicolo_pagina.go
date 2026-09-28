@@ -378,6 +378,23 @@ type schedaNodo struct {
 	StepEsito  *db.VStepProdotto
 	DerogaStep *db.DerogaStruttura // quella valida adesso, se c'e'
 	Candidati  []db.Componente     // i possibili padri
+	// Smistamento F5b: le autorizzazioni del componente (valide, sospese o da sistemare), ognuna con la sua
+	// revoca, e i nodi del componente nei file autorizzati dei padri, da cui si puo' delegare lo stesso file.
+	Autorizzazioni []fascicolo.Dichiarazione
+	Deleghe        []nodoDelega
+	// Smistamento, fase T: il riquadro del tipo, con la tendina e il motivo di ogni tipo spento. Il tipo lo
+	// sceglie una persona (sottoassieme, sciolto, commerciale, e il prodotto finito dove si puo').
+	Tipo tipoVista
+}
+
+// nodoDelega e' un nodo del componente nel file autorizzato di un padre: un figlio diretto di una sorgente
+// valida, con dei figli nel file, deciso da una persona come il componente (o aperto, con il suo codice).
+// La delega lo indica, mai preselezionato.
+type nodoDelega struct {
+	Valore string // «<allegato>:<chiave>», come lo rimanda il modulo
+	Nome   string
+	File   string
+	Sotto  string // il componente della sorgente
 }
 
 type arcoNodo struct {
@@ -401,7 +418,8 @@ type anteprimaDati struct {
 	Annullabile  *db.VDocumentoStoria
 	Storia       []db.VDocumentoStoria
 	Sostituibili []db.Documento // gli altri documenti correnti dello stesso tipo nel componente
-	// StepDi: il prodotto finito di cui e' lo STEP strutturale, se lo e'.
+	// StepDi: il componente di cui e' lo STEP autorizzato (Smistamento F5b; per un finito anche lo STEP
+	// strutturale), se lo e'.
 	StepDi   *db.Componente
 	Analisi  *riepilogoAnalisi
 	Proposte []db.ComponenteProposta // i nodi che questo file propone
@@ -463,7 +481,7 @@ type fascicoloDati struct {
 	DocumentiDi  map[uuid.UUID][]db.Documento
 	CodiciErrore string
 	Avvisi       []avvisoFascicolo
-	NBloccanti   int64
+	NBloccanti   int64 // i requisiti bloccanti senza documento ne' deroga: ContaBloccantiLogici, come il gate
 	NAnalisi     int64
 	NAnomalie    int
 	Caricamento  bool // il caricamento interno e' configurato
@@ -474,16 +492,23 @@ type fascicoloDati struct {
 	Lavoro      fascicolo.Lavoro // download, estrazioni e analisi ancora in corso sui file della RFQ
 	Avanzamento avanzamento
 	Rifai       bool // la risposta del poll rifa' i pannelli: la firma e' cambiata
-	// NodiProposti e RelazioniProposte sono le proposte degli STEP come le legge la BOM visuale.
+	// NodiProposti e RelazioniProposte sono le proposte degli STEP come le legge la BOM visuale: solo
+	// l'autorita' dei file autorizzati (Smistamento F5). Guida e' la riga che dice che cosa resta fuori.
 	NodiProposti      []db.ListComponenteProposteThreadRow
 	RelazioniProposte []db.ListRelazioneProposteThreadRow
-	Carte             []*carta                // la BOM visuale
-	Schede            []*carta                // la linguetta «Componenti»
-	AllegatoDi        map[uuid.UUID]uuid.UUID // documento → l'allegato da cui e' nato, per aprirlo
-	Dettaglio         *dettaglioNodo          // il componente scelto, nel pannello di destra
-	PropScelta        *propostaScelta         // il nodo proposto scelto, nel pannello di destra
-	Nas               *nasVista               // il cassetto «Importa dal NAS»
-	NasConfigurato    bool                    // c'e' una radice del NAS da cui importare
+	Guida             string
+	// Autorita e le righe di tutti i file (guida compresa): servono alla scheda del componente (le deleghe
+	// possibili) e al file aperto (di chi e' lo STEP autorizzato).
+	Autorita       fascicolo.Autorita
+	tuttiNodi      []db.ListComponenteProposteThreadRow
+	tuttiArchi     []db.ListRelazioneProposteThreadRow
+	Carte          []*carta                // la BOM visuale
+	Schede         []*carta                // la linguetta «Componenti»
+	AllegatoDi     map[uuid.UUID]uuid.UUID // documento → l'allegato da cui e' nato, per aprirlo
+	Dettaglio      *dettaglioNodo          // il componente scelto, nel pannello di destra
+	PropScelta     *propostaScelta         // il nodo proposto scelto, nel pannello di destra
+	Nas            *nasVista               // il cassetto «Importa dal NAS»
+	NasConfigurato bool                    // c'e' una radice del NAS da cui importare
 	// ChiaveCorpo dice che cosa mostra il corpo del pannello di destra (vedi chiaveCorpo); RifaiCorpo: la
 	// pagina ne mostra un altro, e la risposta lo rifa' fuori banda.
 	ChiaveCorpo string
@@ -698,8 +723,10 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 	for _, x := range sp {
 		d.StepProdotto[x.ComponenteID] = x
 	}
-	if b, err := q.GetBloccantiThread(ctx, thread); err == nil {
-		d.NBloccanti = b.NBloccanti
+	// i bloccanti della testata e della Completezza sono quelli del gate (ContaBloccantiLogici, Smistamento G):
+	// una copia in errore sul NAS non e' un bloccante, e' la materializzazione, e si vede in «Sul NAS»
+	if n, err := q.ContaBloccantiLogici(ctx, thread); err == nil {
+		d.NBloccanti = int64(n)
 	}
 	d.NAnalisi, _ = q.ContaAnalisiInCorso(ctx, uuid.NullUUID{UUID: thread, Valid: true})
 	if n, err := q.ContaAnomalieThread(ctx, thread); err == nil {
@@ -827,16 +854,31 @@ func (s *Server) versioniFascicolo(ctx context.Context, q *db.Queries, d *fascic
 
 // proposteFascicolo mette le proposte di struttura dove la schermata le mostra: sotto il componente del
 // padre proposto, se il padre e' gia' nella working; altrimenti nel blocco del loro file.
+//
+// Smistamento F5 (A5.3.11): la BOM visuale, l'albero e i banner mostrano solo le proposte nell'AUTORITA' di
+// un file autorizzato (i figli diretti della sorgente, e gli archi dalla sorgente); la sorgente si mostra
+// come il componente per cui il file e' autorizzato. La guida non entra nei conteggi: se ne dice una riga.
 func (s *Server) proposteFascicolo(ctx context.Context, q *db.Queries, d *fascicoloDati, documenti map[uuid.UUID]db.Documento) error {
-	nodi, err := q.ListComponenteProposteThread(ctx, d.T.ThreadID)
+	aut, tutti, tutte, err := fascicolo.LeggiAutorita(ctx, q, d.T.ThreadID)
 	if err != nil {
 		return err
 	}
-	rel, err := q.ListRelazioneProposteThread(ctx, d.T.ThreadID)
-	if err != nil {
-		return err
-	}
+	d.Autorita, d.tuttiNodi, d.tuttiArchi = aut, tutti, tutte
+	nodi, rel := aut.NellAutorita(tutti, tutte)
 	d.NodiProposti, d.RelazioniProposte = nodi, rel
+	codici := map[uuid.UUID]string{}
+	for id, c := range d.Componenti {
+		codici[id] = c.Codice
+	}
+	var nn []db.ComponenteProposta
+	for _, n := range tutti {
+		nn = append(nn, n.ComponenteProposta)
+	}
+	var aa []db.RelazioneProposta
+	for _, r := range tutte {
+		aa = append(aa, r.RelazioneProposta)
+	}
+	d.Guida = aut.LaGuida(nn, aa, codici).Frase()
 	type chiave struct {
 		a uuid.UUID
 		k string
@@ -925,6 +967,9 @@ func (s *Server) proposteFascicolo(ctx context.Context, q *db.Queries, d *fascic
 	}
 	d.Rimozioni = map[uuid.UUID][]rimozione{}
 	for _, r := range rim {
+		if !aut.Dichiarazioni.RimozioneValida(r.StepDocumentoID, r.PadreID) {
+			continue // di un'autorizzazione che non vale (sospesa, in conflitto): il file non ha autorita'
+		}
 		d.NProposte++
 		d.Rimozioni[r.PadreID] = append(d.Rimozioni[r.PadreID], rimozione{R: r, Figlio: d.Componenti[r.FiglioID], Step: documenti[r.StepDocumentoID].NomeFile})
 	}
@@ -1079,7 +1124,7 @@ func (d *fascicoloDati) filtraFile() {
 				for _, x := range d.DocumentiDi[nodo.ComponenteID] {
 					if x.Tipo == f.Doc.Tipo && !x.SostituitoDa.Valid && x.DocumentoID != f.Doc.DocumentoID {
 						f.Scelta = append(f.Scelta, x)
-						if nodo.StepStrutturaleID.Valid && nodo.StepStrutturaleID.UUID == x.DocumentoID {
+						if d.stepAutorizzato(*nodo, x.DocumentoID) {
 							f.StepStrutturale = x.DocumentoID
 						}
 					}
@@ -1135,7 +1180,60 @@ func (s *Server) schedaDelNodo(ctx context.Context, q *db.Queries, d *fascicoloD
 	sort.SliceStable(n.Candidati, func(i, j int) bool {
 		return strings.ToUpper(n.Candidati[i].Codice) < strings.ToUpper(n.Candidati[j].Codice)
 	})
+	n.Autorizzazioni = d.Autorita.Dichiarazioni.DelComponente(c.ComponenteID)
+	n.Deleghe = d.nodiDelegabili(c)
+	e, err := fascicolo.EffettoCambioTipo(ctx, q, d.T.ThreadID, c.ComponenteID, "")
+	if err != nil {
+		return nil, err
+	}
+	n.Tipo = tipoVista{Base: d.Base, Cid: c.ComponenteID, E: e}
 	return n, nil
+}
+
+// stepAutorizzato dice se il documento e' lo STEP autorizzato del componente: la marcatura o la forma di
+// prima (valida o da sistemare), non una delega (il documento e' del padre).
+func (d *fascicoloDati) stepAutorizzato(c db.Componente, doc uuid.UUID) bool {
+	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == doc {
+		return true
+	}
+	for _, x := range d.Autorita.Dichiarazioni.DelComponente(c.ComponenteID) {
+		if !x.Delega() && x.Documento.Valid && x.Documento.UUID == doc {
+			return true
+		}
+	}
+	return false
+}
+
+// nodiDelegabili sono i nodi del componente nei file autorizzati dei padri (Smistamento F5b, Domanda 1 = B):
+// figli diretti di una sorgente valida, con dei figli nel file, decisi da una persona come il componente o
+// ancora aperti con il suo codice (l'indizio: lo indica comunque la persona). Una sorgente no: e' gia'
+// autorizzata. Un commerciale non ne ha (Domanda 5 = B).
+func (d *fascicoloDati) nodiDelegabili(c db.Componente) []nodoDelega {
+	if c.Tipo == db.TipoComponenteCommerciale || c.ArchiviatoIl != nil {
+		return nil
+	}
+	conFigli := map[fascicolo.NodoFile]bool{}
+	for _, r := range d.tuttiArchi {
+		conFigli[fascicolo.NodoFile{Allegato: r.RelazioneProposta.AllegatoID, Chiave: r.RelazioneProposta.PadreChiave}] = true
+	}
+	var out []nodoDelega
+	for _, n := range d.tuttiNodi {
+		p := n.ComponenteProposta
+		padre, figlio := d.Autorita.FiglioDiretto(p.AllegatoID, p.Chiave)
+		if !figlio || padre == c.ComponenteID || !conFigli[fascicolo.NodoFile{Allegato: p.AllegatoID, Chiave: p.Chiave}] {
+			continue
+		}
+		if _, sorgente := d.Autorita.Sorgente(p.AllegatoID, p.Chiave); sorgente {
+			continue
+		}
+		deciso, ok := fascicolo.DecisoDaUnaPersona(p)
+		if !(ok && deciso == c.ComponenteID) && !(p.Stato == db.StatoPropostaAperta && stessoCodice(p.Codice.String, c.Codice)) {
+			continue
+		}
+		out = append(out, nodoDelega{Valore: p.AllegatoID.String() + ":" + p.Chiave, Nome: etichettaNodo(p), File: n.NomeFile,
+			Sotto: d.Componenti[padre].Codice})
+	}
+	return out
 }
 
 // anteprimaFascicolo prepara il file aperto: la riga, la storia, e per un modello la lettura dell'analisi.
@@ -1163,7 +1261,7 @@ func (s *Server) anteprimaFascicolo(ctx context.Context, q *db.Queries, d *fasci
 			for _, x := range d.DocumentiDi[a.ConfermaComp.ComponenteID] {
 				if x.Tipo == riga.Proposta.TipoProposto && !x.SostituitoDa.Valid {
 					a.ConfermaCorrenti = append(a.ConfermaCorrenti, x)
-					if a.ConfermaComp.StepStrutturaleID.Valid && a.ConfermaComp.StepStrutturaleID.UUID == x.DocumentoID {
+					if d.stepAutorizzato(*a.ConfermaComp, x.DocumentoID) {
 						a.StepFraCorrenti = true
 					}
 				}
@@ -1192,11 +1290,11 @@ func (s *Server) anteprimaFascicolo(ctx context.Context, q *db.Queries, d *fasci
 					a.Sostituibili = append(a.Sostituibili, x)
 				}
 			}
-			if c, ok := d.Componenti[riga.Doc.ComponenteID.UUID]; ok && c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == riga.Doc.DocumentoID {
+			if c, ok := d.Componenti[riga.Doc.ComponenteID.UUID]; ok && d.stepAutorizzato(c, riga.Doc.DocumentoID) {
 				a.StepDi = &c
 			}
 			for _, x := range a.Sostituibili {
-				if c, ok := d.Componenti[riga.Doc.ComponenteID.UUID]; ok && c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == x.DocumentoID {
+				if c, ok := d.Componenti[riga.Doc.ComponenteID.UUID]; ok && d.stepAutorizzato(c, x.DocumentoID) {
 					a.StepFraCorrenti = true
 				}
 			}
@@ -1270,7 +1368,8 @@ func (s *Server) avvisiFascicolo(ctx context.Context, q *db.Queries, d *fascicol
 		d.Avvisi = append(d.Avvisi, avvisoFascicolo{"warn", a})
 	}
 	if d.Bloccata > 0 {
-		if r, err := q.ListThreadDaRiesaminare(ctx, d.T.ThreadID); err == nil {
+		// la vista conta anche la guida (E28): il riesame si ricalcola sull'autorita' (Smistamento F5)
+		if r, err := fascicolo.RiesameNellAutorita(ctx, q, d.T.ThreadID); err == nil {
 			for _, x := range r {
 				d.Avvisi = append(d.Avvisi, avvisoFascicolo{"warn", x.Motivo})
 			}
@@ -1292,6 +1391,12 @@ func (s *Server) avvisiFascicolo(ctx context.Context, q *db.Queries, d *fascicol
 	}
 	if d.NAnomalie > 0 {
 		d.Avvisi = append(d.Avvisi, avvisoFascicolo{"urg", conta(d.NAnomalie, "documento non corrisponde", "documenti non corrispondono") + " al file sul NAS (Integrità NAS)"})
+	}
+	// le copie in errore sul NAS (Smistamento G): prima di F6 stavano qui fra i motivi «Per congelare»; con il gate
+	// diviso non fermano il congelamento, ma qualcuno le deve guardare, e il cassetto le dice come materializzazione
+	if n := d.SulNas.Errore; n > 0 {
+		d.Avvisi = append(d.Avvisi, avvisoFascicolo{"warn", "Sul NAS: " + conta(n, "documento in errore", "documenti in errore") +
+			". Non ferma il congelamento: la copia si riprova con «Riprova copie»"})
 	}
 	for _, cc := range d.Completezza {
 		for _, c := range cc {

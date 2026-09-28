@@ -324,7 +324,42 @@ cache_gg = 30
 #      versioni precedenti restano dove sono, sotto la loro chiave.
 # Le deroghe strutturali date su una lettura v2 decadono con la rianalisi (addendum A4.5): se la
 # lettura v3 e' ancora parziale, la deroga si da' di nuovo guardando il motivo nuovo.
-versione = 3
+#
+# La 4 porta la lettura del testo dei PDF (Smistamento F9, addendum A5.13.8): in `dettagli.testo_pdf` i
+# frammenti del testo con pagina e posizione (tutti quelli in basso a destra della pagina 1, dove sta il
+# cartiglio, e quelli utili del resto delle pagine, dentro limiti fissi: il testo intero di un documento
+# grande non viaggia), i campi del cartiglio come etichetta -> valore («DISEGNO N.» -> «7120010»), i
+# metadati (senza l'autore) e l'esito dell'OCR. Il worker non cerca codici: li cerca il server con le
+# famiglie del cliente di ciascuna RFQ, e il codice di famiglia scritto nel cartiglio entra nella lettura
+# del file accanto al nome (il nome non si corregge mai: se discorda, la discordanza si mostra). Gli STEP,
+# i DXF, i DWG e i TIF non cambiano.
+#
+# L'OCR e' FACOLTATIVO e sta sulla postazione del worker, non qui: serve Tesseract su quel PC (vedi
+# `ocr` in workers/worker.toml.example). Si usa solo dove il testo del file manca o non basta; senza
+# Tesseract il worker lo scrive nel fatto e continua, e l'analisi non fallisce mai per l'OCR. Quello che
+# l'OCR legge e' un indizio senza score: si mostra, non pesa e non preseleziona.
+#
+# Passare dalla 3 alla 4, in ordine:
+#   1. i worker di analisi: installare il server nuovo lasciando qui versione = 3, e aggiornare i worker
+#      con il pacchetto della postazione (porta il nuovo worker_analisi.py e contratti.py). Un worker
+#      vecchio che ricevesse un job v4 risponderebbe senza `testo_pdf`: il server lo tiene come «testo non
+#      letto» (da rianalizzare), non come «PDF senza testo», e «Rianalizza» (passo 3) lo riaccoda anche se i
+#      fatti della 4 ci sono gia': quando risponde il worker aggiornato, i fatti si riscrivono con il testo;
+#   2. il server: mettere qui versione = 4 e riavviarlo. All'avvio scrive la chiave corrente in
+#      `analizzatore_corrente`, e da quel momento i fatti v3 non sono piu' «l'analisi corrente»;
+#   3. «Rianalizza» su ogni RFQ aperta (POST /thread/{id}/fascicolo/rianalizza). Gli STEP senza i fatti
+#      della 4 la preparazione della pagina li riaccoda anche da sola; i PDF gia' analizzati con la 3 (o
+#      con la 4 da un worker non ancora aggiornato) NO:
+#      restano «testo non letto, da rianalizzare» finche' una persona non preme «Rianalizza», che li accoda
+#      pochi alla volta (una analisi per contenuto, anche se il file sta in piu' mail; premerlo di nuovo
+#      dice «gia' in coda» e non raddoppia niente; un PDF non piu' in staging si riprende con «Riscarica»).
+#      Quando i fatti della 4 arrivano, le proposte ancora aperte prendono la lettura nuova; quelle gia'
+#      confermate o scartate non si toccano, e quelle decise da una persona tengono la decisione e ricevono
+#      la lettura solo accanto (`lettura_dopo`). Nessun componente o documento nasce dalla rianalisi. I
+#      fatti delle versioni precedenti restano dove sono, sotto la loro chiave.
+# Chi arriva dalla 2 fa gli stessi tre passi e mette direttamente 4: il worker nuovo porta anche la
+# struttura v3 degli STEP.
+versione = 4
 
 [analisi.parametri]
 # I termini restano oggi dentro worker_analisi.py: qui si dichiara la configurazione che identifica

@@ -31,9 +31,16 @@ package fascicolo
 // scrive: la carta «n:<codice>» (StrutturaVoluta.Nuovi, U4) ha il codice scritto dall'operatore, il tipo
 // assieme o particolare, origine `manuale`, e la guardia «quasi uguale» (P4) che vuole la conferma che e' un
 // pezzo diverso. Un codice che la RFQ ha gia' ritrova quel componente: mai una seconda riga. Tolto anche
-// «E' il prodotto» (RadiciProposte, che si rifiuta): la radice di uno STEP qualunque diventava il prodotto
-// senza che il file fosse associato ne' scelto come STEP strutturale. La radice la fissa lo STEP
-// strutturale.
+// «E' il prodotto»: la radice di uno STEP qualunque diventava il prodotto senza che il file fosse associato
+// ne' scelto come STEP strutturale. La radice la fissa l'autorizzazione del file.
+//
+// Smistamento F5 (A5.3.11, A5.4.7, P13). L'editor lavora sull'AUTORITA': un nodo proposto («p:») entra solo
+// se e' figlio diretto della sorgente di un file autorizzato, e un arco proposto si prende solo se parte da
+// una sorgente. La guida si vede nell'editor, distinta, ma nessun gesto la porta nella working. Un nodo
+// aperto con il codice di un componente che c'e' e' «ritrovato per codice»: l'editor lo disegna come quel
+// componente e lo elenca, e la conferma lo accetta solo se l'editor l'ha mostrato (RitrovatiVisti) o se il
+// codice l'ha scritto l'operatore. Un arco proposto non entra da solo nella struttura: lo mette l'operatore
+// («Accetta i figli diretti dallo STEP»), e lo vede prima di confermare.
 //
 // Le rimozioni proposte dallo STEP strutturale su archi che l'operatore ha appena confermato si chiudono:
 // «tenuto nella struttura confermata». Una rimozione scartata non si ripropone.
@@ -88,10 +95,9 @@ type StrutturaVoluta struct {
 	Visti []ArcoVoluto `json:"visti"`
 	// RelazioniViste sono gli archi proposti che l'editor ha mostrato.
 	RelazioniViste []RelazioneVista `json:"relazioni_viste"`
-	// RadiciProposte erano i nodi proposti che l'operatore diceva essere il prodotto («E' il prodotto»).
-	// Il gesto non c'e' piu' (Smistamento F2): il campo resta solo perche' una struttura che lo usa si
-	// rifiuti invece di perdere la scelta in silenzio.
-	RadiciProposte []uuid.UUID `json:"radici_proposte"`
+	// RitrovatiVisti sono i nodi proposti che l'editor ha mostrato come «ritrovato per codice» (la carta di
+	// un componente che c'e'): solo questi la conferma accetta come quel componente (P13, F5).
+	RitrovatiVisti []uuid.UUID `json:"ritrovati_visti"`
 	// Scarta: nodi proposti che non sono pezzi della distinta, con gli archi che li toccano.
 	Scarta []uuid.UUID `json:"scarta"`
 	// Codici: proposta_id → il codice scritto dall'operatore.
@@ -142,6 +148,8 @@ type contestoVoluta struct {
 	Richiesta []string
 	// Motore: le regole del cliente, per la guardia «quasi uguale» (i suffissi decorativi). Puo' essere nil.
 	Motore *classificazione.Motore
+	// Autorita: quali proposte stanno nell'autorita' di un file autorizzato (F5). Il resto e' guida.
+	Autorita Autorita
 }
 
 func nuovoContestoVoluta(comp []db.Componente, rel []db.ComponenteRelazione, nodi []db.ComponenteProposta, richiesta []string) contestoVoluta {
@@ -188,16 +196,27 @@ func (cx contestoVoluta) conAlias(m *classificazione.Motore) {
 	}
 }
 
-// stessoCodice sono le proposte aperte con lo stesso codice di questa (lei compresa, per prima): nell'editor
-// sono una carta sola, e un gesto sulla carta vale per tutte.
+// stessoCodice sono le proposte aperte con lo stesso codice di questa (lei compresa, per prima) nello STESSO
+// file: nell'editor sono una carta sola (due PRODUCT con lo stesso codice sotto la stessa sorgente), e un
+// gesto sulla carta vale per tutte. Lo stesso codice in un altro file e' un'altra carta: la persona la vede e
+// la decide da se' (A5.4.7: le riconciliazioni no). Prima la carta prendeva le proposte di tutti i file, e
+// accettarla decideva per uguaglianza di codice anche quelle che la carta non mostrava.
 func (cx contestoVoluta) stessoCodice(id uuid.UUID) []uuid.UUID {
 	out := []uuid.UUID{id}
-	codice := strings.ToUpper(strings.TrimSpace(cx.Proposte[id].Codice.String))
+	questa := cx.Proposte[id]
+	codice := strings.ToUpper(strings.TrimSpace(questa.Codice.String))
 	if codice == "" {
 		return out
 	}
 	var altre []uuid.UUID
 	for _, p := range cx.Proposte {
+		if p.AllegatoID != questa.AllegatoID {
+			continue
+		}
+		// solo nell'autorita': la guida l'editor non la mette in una carta (F5)
+		if _, figlio := cx.Autorita.FiglioDiretto(p.AllegatoID, p.Chiave); !figlio {
+			continue
+		}
 		if p.PropostaID != id && p.Stato == db.StatoPropostaAperta && strings.ToUpper(strings.TrimSpace(p.Codice.String)) == codice {
 			altre = append(altre, p.PropostaID)
 		}
@@ -302,12 +321,6 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		}
 		pv.Codici[id] = CodiceScritto{Codice: codice, Rev: rev}
 	}
-	// «E' il prodotto» non c'e' piu' (Smistamento F2, R5): la radice di uno STEP qualunque diventava il
-	// prodotto senza una decisione sul file. Chi lo manda ancora (una bozza di prima, un altro programma)
-	// riceve un rifiuto, non una struttura confermata senza quella parte
-	if len(v.RadiciProposte) > 0 {
-		return pv, Rifiuto("«È il prodotto» non c'è più: la radice di uno STEP la fissa lo STEP strutturale del prodotto. Riapri l'editor")
-	}
 	// i componenti scritti dall'operatore (U4): codice scritto, tipo assieme o particolare, una carta per
 	// codice. Se la RFQ ha gia' quel codice la carta e' quel componente; se ne ha uno quasi uguale (P4)
 	// serve la conferma che e' un pezzo diverso. Controllati quando un arco li usa
@@ -395,6 +408,20 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 			if !ok {
 				return "", Rifiuto("un nodo proposto non è di questa RFQ")
 			}
+			// la sorgente di un file autorizzato e' il suo componente
+			if d, ok := cx.Autorita.Sorgente(p.AllegatoID, p.Chiave); ok {
+				return chiaveComponente(d.Componente.ComponenteID), nil
+			}
+			// fuori dall'autorita' un nodo e' guida: si vede, non entra (F5, P9)
+			if _, ok := cx.Autorita.FiglioDiretto(p.AllegatoID, p.Chiave); !ok {
+				return "", rifiutoGuida(p, cx.Autorita)
+			}
+			if AgganciatoPerCodice(p) {
+				// agganciato per codice da un automatismo di prima: si conferma come quel componente, se l'editor
+				// l'ha mostrato cosi'
+				pv.Ritrovati[id] = p.ComponenteID.UUID
+				return chiaveComponente(p.ComponenteID.UUID), nil
+			}
 			switch p.Stato {
 			case db.StatoPropostaAperta:
 				codice := strings.TrimSpace(p.Codice.String)
@@ -415,7 +442,7 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 				return k, nil
 			case db.StatoPropostaConfermata, db.StatoPropostaDuplicato:
 				c, ok := cx.Componenti[p.ComponenteID.UUID]
-				if !p.ComponenteID.Valid || !ok {
+				if !p.ComponenteID.Valid || !ok || !p.DecisoDa.Valid {
 					return "", Rifiuto(nomeNodo(p) + ": la proposta non porta a un componente")
 				}
 				if c.ArchiviatoIl != nil {
@@ -624,32 +651,58 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		}
 		pv.Scarta = append(pv.Scarta, s)
 	}
-	// un arco proposto che l'editor ha mostrato, verso un nodo ancora aperto con il codice di un componente
-	// che c'e' (l'editor lo disegna come quel componente): il nodo si ritrova, e l'arco si decide per quello
-	// che e', non si chiude come «tolto»
+	// un arco proposto che l'editor ha mostrato, nell'autorita', verso un figlio diretto ancora aperto con il
+	// codice di un componente che c'e' (l'editor lo disegna come quel componente, «ritrovato per codice»), o
+	// agganciato per codice da un automatismo di prima: il nodo si ritrova, e l'arco si decide per quello che
+	// e', non si chiude come «tolto»
 	perChiave := map[ChiaveRelazione]uuid.UUID{}
 	for _, p := range cx.Proposte {
 		perChiave[ChiaveRelazione{Allegato: p.AllegatoID, Padre: p.Chiave}] = p.PropostaID
 	}
 	for _, r := range v.RelazioniViste {
-		for _, k := range []string{r.Padre, r.Figlio} {
-			id, ok := perChiave[ChiaveRelazione{Allegato: r.Allegato, Padre: k}]
-			if !ok || contieneID(pv.Scarta, id) {
-				continue
+		if _, ok := cx.Autorita.ArcoAutorizzato(ChiaveRelazione{Allegato: r.Allegato, Padre: r.Padre, Figlio: r.Figlio}); !ok {
+			continue
+		}
+		id, ok := perChiave[ChiaveRelazione{Allegato: r.Allegato, Padre: r.Figlio}]
+		if !ok || contieneID(pv.Scarta, id) {
+			continue
+		}
+		p := cx.Proposte[id]
+		if _, scritto := pv.Codici[id]; scritto {
+			continue
+		}
+		switch {
+		case AgganciatoPerCodice(p):
+			if _, gia := pv.Ritrovati[id]; !gia {
+				pv.Ritrovati[id] = p.ComponenteID.UUID
 			}
-			p := cx.Proposte[id]
-			if p.Stato != db.StatoPropostaAperta {
-				continue
-			}
-			if _, scritto := pv.Codici[id]; scritto {
-				continue
-			}
+		case p.Stato == db.StatoPropostaAperta:
 			if c, ok := cx.PerCodice[strings.ToUpper(strings.TrimSpace(p.Codice.String))]; ok && p.Codice.Valid && c.ArchiviatoIl == nil {
 				if _, gia := pv.Ritrovati[id]; !gia {
 					pv.Ritrovati[id] = c.ComponenteID
 				}
 			}
 		}
+	}
+	// i ritrovati per codice che entrano nella struttura li ha visti l'operatore: l'editor li mostrava come
+	// quel componente, oppure il codice l'ha scritto lui. Un nodo ritrovato che l'editor non ha detto non
+	// diventa quel componente dentro una conferma generica (P13)
+	mostrati := map[uuid.UUID]bool{}
+	for _, id := range v.RitrovatiVisti {
+		mostrati[id] = true
+	}
+	ritrovati := make([]uuid.UUID, 0, len(pv.Ritrovati))
+	for id := range pv.Ritrovati {
+		ritrovati = append(ritrovati, id)
+	}
+	sort.Slice(ritrovati, func(i, j int) bool { return ritrovati[i].String() < ritrovati[j].String() })
+	for _, id := range ritrovati {
+		_, scritto := pv.Codici[id]
+		if !pv.Albero[chiaveComponente(pv.Ritrovati[id])] || mostrati[id] || scritto {
+			continue
+		}
+		return pv, Rifiuto(fmt.Sprintf("%s sarebbe il componente %s perché ha lo stesso codice, ma l'editor non l'ha mostrato come ritrovato: riapri l'editor",
+			nomeNodo(cx.Proposte[id]), cx.nome(chiaveComponente(pv.Ritrovati[id]))))
 	}
 	return pv, nil
 }
@@ -686,23 +739,18 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 	if err != nil {
 		return "", err
 	}
-	righeNodi, err := q.ListComponenteProposteThread(ctx, thread)
+	// l'autorita' si legge sotto il lucchetto, con le proposte: e' su queste che la conferma decide (F5)
+	aut, righeNodi, righeRel, err := LeggiAutorita(ctx, q, thread)
 	if err != nil {
 		return "", err
 	}
-	nodi := make([]db.ComponenteProposta, len(righeNodi))
-	for i, n := range righeNodi {
-		nodi[i] = n.ComponenteProposta
-	}
+	nodi := soloNodi(righeNodi)
 	richiesta, err := codiciDellaRichiesta(ctx, q, thread)
 	if err != nil {
 		return "", err
 	}
 	cx := nuovoContestoVoluta(comp, rel, nodi, richiesta)
-	righeRel, err := q.ListRelazioneProposteThread(ctx, thread)
-	if err != nil {
-		return "", err
-	}
+	cx.Autorita = aut
 	cx.Relazioni = map[ChiaveRelazione]db.RelazioneProposta{}
 	for _, r := range righeRel {
 		x := r.RelazioneProposta
@@ -780,20 +828,29 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 				}
 				return ids[i].String() < ids[j].String()
 			})
-			fatto := false
-			for _, id := range ids {
-				p, err := q.BloccaComponenteProposta(ctx, id)
-				if err != nil {
-					return "", err
+			// Una carta e' una sola per codice e per file (stessoCodice): il gesto dell'operatore vale per le
+			// proposte aperte dell'autorita' con quel codice nel file della carta, e per le carte degli altri file
+			// che la struttura contiene (ids). La prima fa nascere il componente, le altre lo ritrovano
+			// accettandole: prima lo faceva una riconciliazione da sola (RiconciliaProposteNodo, tolta in F5)
+			fatto, fatte := false, map[uuid.UUID]bool{}
+			for _, id0 := range ids {
+				for _, id := range cx.stessoCodice(id0) {
+					if fatte[id] {
+						continue
+					}
+					fatte[id] = true
+					p, err := q.BloccaComponenteProposta(ctx, id)
+					if err != nil {
+						return "", err
+					}
+					if p.Stato != db.StatoPropostaAperta {
+						continue
+					}
+					if _, err := accettaNodo(ctx, q, p, utente, tipoVoluto(p, pv.Figli[k]), cx.Autorita); err != nil {
+						return "", err
+					}
+					fatto = true
 				}
-				if p.Stato != db.StatoPropostaAperta {
-					continue
-				}
-				if _, err := accettaNodo(ctx, q, p, utente, tipoVoluto(p, pv.Figli[k])); err != nil {
-					return "", err
-				}
-				fatto = true
-				break
 			}
 			if !fatto {
 				return "", Rifiuto(codice + ": le proposte sono state decise nel frattempo: riapri l'editor")
@@ -833,10 +890,10 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 		if err != nil {
 			return "", err
 		}
-		if p.Stato != db.StatoPropostaAperta {
-			continue // riconciliata da un'accettazione di poco fa
+		if p.Stato != db.StatoPropostaAperta && !AgganciatoPerCodice(p) {
+			continue // accettata poco fa con la sua carta
 		}
-		if _, err := accettaNodo(ctx, q, p, utente, ""); err != nil {
+		if _, err := accettaNodo(ctx, q, p, utente, "", cx.Autorita); err != nil {
 			return "", err
 		}
 		es.ritrovati++
@@ -891,7 +948,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 			es.quantita++
 		}
 	}
-	aperte, err := proposteArcoAperte(ctx, q, thread)
+	aperte, err := proposteArcoAperte(ctx, q, thread, cx.Autorita)
 	if err != nil {
 		return "", err
 	}
@@ -918,7 +975,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 			if ora.Stato != db.StatoPropostaAperta {
 				continue
 			}
-			if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi); err != nil {
+			if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, cx.Autorita); err != nil {
 				return "", err
 			}
 			fatto = true
@@ -935,7 +992,7 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 
 	// 4. le proposte di arco: quelle uguali a un arco voluto sono duplicati; quelle che l'editor ha mostrato e
 	// la struttura non vuole (o vuole con un'altra quantita') si chiudono con il motivo. Le altre restano.
-	aperte, err = proposteArcoAperte(ctx, q, thread)
+	aperte, err = proposteArcoAperte(ctx, q, thread, cx.Autorita)
 	if err != nil {
 		return "", err
 	}
@@ -1059,19 +1116,22 @@ func componenteNato(ctx context.Context, q *db.Queries, thread uuid.UUID, codice
 }
 
 // tipoVoluto e' il tipo con cui nasce un nodo proposto: assieme se nella struttura ha dei figli, altrimenti
-// quello che lo STEP suggerisce (mai «prodotto»: sta sotto un padre), altrimenti particolare.
+// quello che lo STEP suggerisce (mai «prodotto»: sta sotto un padre; mai commerciale: il make/buy lo decide
+// solo una persona, decisioni del 27/09 ter), altrimenti particolare.
 func tipoVoluto(p db.ComponenteProposta, figli int) db.TipoComponente {
 	if figli > 0 {
 		return db.TipoComponenteSottoassieme
 	}
-	if p.TipoProposto.Valid && p.TipoProposto.TipoComponente != db.TipoComponenteFinito {
+	if p.TipoProposto.Valid && p.TipoProposto.TipoComponente != db.TipoComponenteFinito &&
+		p.TipoProposto.TipoComponente != db.TipoComponenteCommerciale {
 		return p.TipoProposto.TipoComponente
 	}
 	return db.TipoComponenteSciolto
 }
 
-// propostaArco e' una proposta di arco aperta il cui padre e' gia' un componente; il figlio puo' essere
-// ancora un nodo aperto (Figlio non valido). Stesso: padre e figlio sono diventati lo stesso componente.
+// propostaArco e' una proposta di arco aperta nell'autorita' di un file autorizzato: il padre e' la sorgente
+// (il componente per cui il file e' autorizzato), il figlio un nodo deciso da una persona o ancora aperto
+// (Figlio non valido). Stesso: padre e figlio sono lo stesso componente.
 type propostaArco struct {
 	R      db.RelazioneProposta
 	Padre  uuid.UUID
@@ -1079,8 +1139,10 @@ type propostaArco struct {
 	Stesso bool
 }
 
-// proposteArcoAperte sono le proposte di arco aperte con il padre gia' deciso, in un ordine fisso.
-func proposteArcoAperte(ctx context.Context, q *db.Queries, thread uuid.UUID) ([]propostaArco, error) {
+// proposteArcoAperte sono le proposte di arco aperte nell'autorita', in un ordine fisso. Gli archi della
+// guida non ci sono: l'editor non li prende e non li chiude (F5). Il figlio conta come deciso solo per una
+// decisione di una persona, non per un aggancio per codice di prima (E08).
+func proposteArcoAperte(ctx context.Context, q *db.Queries, thread uuid.UUID, aut Autorita) ([]propostaArco, error) {
 	nodi, err := q.ListComponenteProposteThread(ctx, thread)
 	if err != nil {
 		return nil, err
@@ -1089,15 +1151,11 @@ func proposteArcoAperte(ctx context.Context, q *db.Queries, thread uuid.UUID) ([
 	if err != nil {
 		return nil, err
 	}
-	type chiave struct {
-		a uuid.UUID
-		k string
-	}
-	comp := map[chiave]uuid.NullUUID{}
+	comp := map[NodoFile]uuid.NullUUID{}
 	for _, n := range nodi {
 		p := n.ComponenteProposta
-		if p.Stato == db.StatoPropostaConfermata || p.Stato == db.StatoPropostaDuplicato {
-			comp[chiave{p.AllegatoID, p.Chiave}] = p.ComponenteID
+		if c, ok := aut.ComponenteDi(p); ok {
+			comp[NodoFile{p.AllegatoID, p.Chiave}] = uuid.NullUUID{UUID: c, Valid: true}
 		}
 	}
 	var out []propostaArco
@@ -1106,11 +1164,12 @@ func proposteArcoAperte(ctx context.Context, q *db.Queries, thread uuid.UUID) ([
 		if x.Stato != db.StatoPropostaAperta {
 			continue
 		}
-		p, f := comp[chiave{x.AllegatoID, x.PadreChiave}], comp[chiave{x.AllegatoID, x.FiglioChiave}]
-		if !p.Valid {
+		padre, ok := aut.ArcoAutorizzato(ChiaveRelazione{Allegato: x.AllegatoID, Padre: x.PadreChiave, Figlio: x.FiglioChiave})
+		if !ok {
 			continue
 		}
-		out = append(out, propostaArco{R: x, Padre: p.UUID, Figlio: f, Stesso: f.Valid && f.UUID == p.UUID})
+		f := comp[NodoFile{x.AllegatoID, x.FiglioChiave}]
+		out = append(out, propostaArco{R: x, Padre: padre, Figlio: f, Stesso: f.Valid && f.UUID == padre})
 	}
 	return out, nil
 }

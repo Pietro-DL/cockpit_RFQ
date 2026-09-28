@@ -120,7 +120,10 @@ const listRichiestePanoramica = `-- name: ListRichiestePanoramica :many
 SELECT v.thread_id, t.cliente_id, v.cliente, c.ragione_sociale, c.peso AS peso_cliente,
        v.buyer, v.oggetto, t.riferimento_cliente, v.stato_thread, v.nome_fase, v.gg_in_fase, v.sla_gg,
        v.semaforo, v.data_inizio, v.data_scadenza, v.ultimo_aggiornamento,
-       v.n_bloccanti, v.n_da_smistare, v.identificativi,
+       (SELECT count(*) FROM v_fascicolo f
+         WHERE f.thread_id = v.thread_id AND f.bloccante
+           AND f.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato'))::int AS n_bloccanti,
+       v.n_da_smistare, v.identificativi,
        count(*) OVER () AS totale
 FROM v_cruscotto v
 JOIN thread_offerta t ON t.thread_id = v.thread_id
@@ -128,7 +131,10 @@ JOIN cliente c        ON c.cliente_id = t.cliente_id
 WHERE ($1::stato_thread IS NULL OR v.stato_thread = $1::stato_thread)
   AND ($2::uuid IS NULL OR t.cliente_id = $2::uuid)
   AND ($3::fase IS NULL OR v.nome_fase = $3::fase)
-  AND (NOT $4::boolean OR COALESCE(v.n_bloccanti, 0) > 0)
+  AND (NOT $4::boolean
+       OR EXISTS (SELECT 1 FROM v_fascicolo f
+                   WHERE f.thread_id = v.thread_id AND f.bloccante
+                     AND f.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato')))
   AND (NOT $5::boolean OR v.n_da_smistare > 0)
   AND (NOT $6::boolean OR v.semaforo = 'rosso')
   AND ($7::text IS NULL
@@ -178,7 +184,7 @@ type ListRichiestePanoramicaRow struct {
 	DataInizio          time.Time   `json:"data_inizio"`
 	DataScadenza        *time.Time  `json:"data_scadenza"`
 	UltimoAggiornamento *time.Time  `json:"ultimo_aggiornamento"`
-	NBloccanti          pgtype.Int8 `json:"n_bloccanti"`
+	NBloccanti          int32       `json:"n_bloccanti"`
 	NDaSmistare         int64       `json:"n_da_smistare"`
 	Identificativi      []string    `json:"identificativi"`
 	Totale              int64       `json:"totale"`
@@ -197,6 +203,12 @@ type ListRichiestePanoramicaRow struct {
 // cliente, buyer e codici della richiesta. L'ordine «priorita» e' quello di sempre (peso del cliente,
 // poi scadenza), con le aperte prima delle chiuse: il punteggio dell'addendum 2 non esiste ancora.
 // `totale` e' il numero di RFQ che rispondono ai filtri, prima di LIMIT: dice se ce ne sono altre.
+//
+// `n_bloccanti` e il filtro «solo bloccanti» sono il conteggio LOGICO del gate (ContaBloccantiLogici,
+// Smistamento G, A5.4.8): i requisiti bloccanti senza documento e senza deroga. Non v_cruscotto.n_bloccanti,
+// che conta come bloccante anche 'ok_errore_nas' (un documento deciso ma in errore sul NAS, 0018:523): quella
+// e' la materializzazione, non un buco del fascicolo. La vista resta com'e' (X4): la leggono DBeaver e il
+// cruscotto di prima.
 func (q *Queries) ListRichiestePanoramica(ctx context.Context, arg ListRichiestePanoramicaParams) ([]ListRichiestePanoramicaRow, error) {
 	rows, err := q.db.Query(ctx, listRichiestePanoramica,
 		arg.Stato,
