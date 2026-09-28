@@ -286,19 +286,22 @@ func TestNessunComponenteNasceDaUnCodiceTrovato(t *testing.T) {
 //
 // Riscritta per lo Smistamento (R1, fase F2): prima fissava che «+» su quel codice si rifiutasse («si decide
 // quella»); il «+» non c'e' piu'. Fissa che la lettura porta al nodo e non cambia ne' la BOM ne' le proposte.
+// Riscritta ancora per F5: il nodo si accetta solo nell'autorita', quindi il file e' autorizzato per il
+// prodotto 77722757 (la sua radice) e 77720517 e' un suo figlio diretto.
 func TestUnCodiceConUnaPropostaApertaSiDecideNellaProposta(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conFamiglie()
 	b.candidato(b.mail(), "77720517", "", "prodotto", "famiglia", "corpo")
-	b.applica(b.allegatoStep("assieme.stp", strings.Repeat("7", 64)),
-		fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517"}, archi: []string{"#1>#2*2"}}.json())
-	prima := b.nodiProposti()
+	prodotto := b.componente("77722757", db.TipoComponenteFinito)
+	f := fattiSTEP{nodi: []string{"#1=77722757", "#2=77720517"}, archi: []string{"#1>#2*2"}}
+	b.autorizza(prodotto, b.allegatoStep("assieme.stp", strings.Repeat("7", 64)), f.json())
+	prima, bomPrima := b.nodiProposti(), b.bom()
 
 	s := trovaCodice(t, b.candidati(), "77720517").Stato
 	if s.Situazione != fascicolo.SituazioneProposta || s.Proposta().NomeFile != "assieme.stp" || s.Proposta().NomeGrezzo != "77720517" {
 		t.Errorf("il codice porta al nodo «77720517» di assieme.stp: %s %+v", s.Situazione, s.Proposta())
 	}
-	if b.bom() != "" || b.nodiProposti() != prima {
+	if b.bom() != bomPrima || b.nodiProposti() != prima {
 		t.Fatalf("la lettura ha cambiato qualcosa: bom %q, proposte %q", b.bom(), b.nodiProposti())
 	}
 	_, err := b.gesto(func(q *db.Queries) (string, error) {
@@ -311,7 +314,11 @@ func TestUnCodiceConUnaPropostaApertaSiDecideNellaProposta(t *testing.T) {
 }
 
 // Un codice di un componente archiviato non ne crea un altro: si ripristina, lo stesso, con la sua storia.
-// Il ripristino ritrova anche le proposte di nodo ancora aperte con quel codice.
+//
+// Riscritta per lo Smistamento (F5): prima il ripristino ritrovava da solo le proposte di nodo aperte con
+// quel codice (RiconciliaProposteNodo: il nodo diventava duplicato del componente). Adesso il codice uguale e'
+// un suggerimento: il nodo resta aperto, senza componente, e il codice mostra insieme la proposta e il
+// componente ripristinato.
 //
 // Riscritta per lo Smistamento (R1, U4, fase F2): prima il rifiuto veniva da «+» sul codice («è archiviato:
 // si ripristina»). Adesso viene dall'unica strada per un componente scritto, l'editor: la carta «n:» con il
@@ -348,11 +355,12 @@ func TestUnCodiceArchiviatoSiRipristinaNonSiRicrea(t *testing.T) {
 		t.Errorf("ripristinato: %s", got)
 	}
 	if got := uno[string](b, `SELECT stato || ':' || coalesce((componente_id = $2)::text, 'senza componente') FROM componente_proposta WHERE thread_id = $1`,
-		b.thread, comp); got != "duplicato:true" {
-		t.Errorf("il nodo aperto ritrova il componente ripristinato: %s", got)
+		b.thread, comp); got != "aperta:senza componente" {
+		t.Errorf("il nodo aperto non diventa il componente ripristinato per il codice: %s", got)
 	}
-	if s := trovaCodice(t, b.candidati(), "77731111").Stato.Situazione; s != fascicolo.SituazioneComponente {
-		t.Errorf("dopo il ripristino: %s", s)
+	if s := trovaCodice(t, b.candidati(), "77731111").Stato; s.Situazione != fascicolo.SituazioneProposta || s.Componente == nil ||
+		s.Componente.ComponenteID != comp || s.Componente.ArchiviatoIl != nil {
+		t.Errorf("dopo il ripristino il codice mostra la proposta e il componente ripristinato: %s %+v", s.Situazione, s.Componente)
 	}
 }
 
@@ -410,7 +418,7 @@ func TestUnCodiceDellaRichiestaEntraComeProdotto(t *testing.T) {
 	_, err := b.nellEditor(altro, sotto(altro, "n:77780000"), fascicolo.ComponenteNuovo{Codice: "77780000", Tipo: db.TipoComponenteSottoassieme})
 	deveRifiutare(t, err, "77780000 è un codice della richiesta: il prodotto nasce da una decisione del triage, "+
 		"o aprendo la revisione se il codice è stato confermato con la BOM congelata; non è un componente dall'editor")
-	es := b.assicura()
+	es := b.assicura("77780000")
 	if len(es.Creati) != 1 || es.Creati[0] != "77780000" {
 		t.Errorf("AssicuraProdottiDellaRichiesta crea il prodotto: %+v", es)
 	}

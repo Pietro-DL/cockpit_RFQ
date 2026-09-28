@@ -23,14 +23,18 @@ import (
 
 // stepApplicato: la working P1 → B, C, D con lo STEP strutturale di P1 letto per intero, che propone di
 // togliere P1 → D (nello STEP D sta sotto C) e di aggiungere F.
+//
+// Riscritto per lo Smistamento (F5): le rimozioni vogliono i figli diretti decisi da una persona, quindi dopo la
+// lettura si accettano B, C e F (prima bastava il codice uguale). D, nel file sotto C, e' guida.
 func (b *banco) stepApplicato() (map[string]uuid.UUID, uuid.UUID, db.Allegato) {
 	b.t.Helper()
 	c := b.workingPBCD()
 	doc, a := b.stepDelProdotto(c["P1"], codiceDi("P1"), stepPBCD())
 	b.esegui(`UPDATE componente SET step_strutturale_id = $2 WHERE componente_id = $1`, c["P1"], doc)
-	if es := b.applica(a, stepPBCD().json()); !es.Rimozioni.Calcolate {
+	if es := b.applica(a, stepPBCD().json()); !es.Completa {
 		b.t.Fatalf("lo STEP strutturale non e' letto per intero: %+v", es)
 	}
+	b.accetta("#2", "#3", "#5")
 	if got := b.rimozioni(); got != "P1>D:aperta" {
 		b.t.Fatalf("rimozioni di partenza = %q, attesa P1>D:aperta", got)
 	}
@@ -52,15 +56,17 @@ func TestArchiviareUnProdottoChiudeLeRimozioniDelSuoStep(t *testing.T) {
 	if nota := uno[string](b, `SELECT coalesce(nota, '') FROM rimozione_proposta WHERE thread_id = $1`, b.thread); nota != "prodotto archiviato" {
 		t.Errorf("nota della rimozione chiusa: %q", nota)
 	}
-	g, err := db.New(b.p).GateCongelamento(b.ctx, b.thread)
-	ok(t, err)
-	if g.NProposteRimozione != 0 {
-		t.Errorf("il gate conta ancora %d rimozioni aperte del prodotto archiviato", g.NProposteRimozione)
+	// le rimozioni aperte che il gate conta (GateCongelamento fino a F5; da F5 solo quelle delle autorizzazioni valide)
+	if g := b.strutturali(); g.NRimozioni != 0 {
+		t.Errorf("il gate conta ancora %d rimozioni aperte del prodotto archiviato", g.NRimozioni)
 	}
 }
 
 // Una nota costruita con il nome di un file («superata da <nome>», fino a 300 caratteri) finiva in una
 // colonna da 200 e la sostituzione falliva con un errore grezzo del database.
+//
+// Riscritta per lo Smistamento (F5b): prima lo STEP strutturale si fissava con ScegliStepStrutturale, che non
+// c'e' piu'; qui serve solo come punto di partenza, e si scrive com'era prima dello Smistamento (la colonna).
 func TestUnaNotaConUnNomeLungoNonFermaLaSostituzione(t *testing.T) {
 	b := nuovoBanco(t)
 	p1 := b.componente("P1", db.TipoComponenteFinito)
@@ -68,13 +74,13 @@ func TestUnaNotaConUnNomeLungoNonFermaLaSostituzione(t *testing.T) {
 	b.arco(p1, f1, 1)
 	s1 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
 	s2 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
-	b.scegliStep(p1, s1)
+	b.esegui(`UPDATE componente SET step_strutturale_id = $2 WHERE componente_id = $1`, p1, s1)
 	b.esegui(`INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working) VALUES ($1, $2, $3, $4, 1)`,
 		b.thread, s1, p1, f1)
 	lungo := strings.Repeat("è", 280) + ".stp"
 	b.esegui(`UPDATE documento SET nome_file = $2 WHERE documento_id = $1`, s2, lungo)
 	_, err := b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false)
+		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false, b.utente)
 	})
 	ok(t, err)
 	nota := uno[string](b, `SELECT nota FROM rimozione_proposta WHERE thread_id = $1`, b.thread)
@@ -86,23 +92,25 @@ func TestUnaNotaConUnNomeLungoNonFermaLaSostituzione(t *testing.T) {
 // Lo STEP strutturale di un archiviato non si sceglie: le rimozioni che il nuovo riferimento aprirebbe
 // non le ricalcolerebbe nessuno. Lo stesso per la sostituzione che sposta il riferimento; la sostituzione
 // semplice resta possibile.
+//
+// Riscritta per lo Smistamento (F5b): prima la scelta era ScegliStepStrutturale; adesso e' l'autorizzazione
+// (DichiaraStrutturale), che per un archiviato e' spenta con lo stesso motivo. Il punto di partenza e' lo STEP
+// strutturale com'era prima dello Smistamento (la colonna).
 func TestLoStepStrutturaleNonSiScegliePerUnArchiviato(t *testing.T) {
 	b := nuovoBanco(t)
 	p1 := b.componente("P1", db.TipoComponenteFinito)
 	s1 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
 	s2 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
-	b.scegliStep(p1, s1)
+	b.esegui(`UPDATE componente SET step_strutturale_id = $2 WHERE componente_id = $1`, p1, s1)
 	_, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.ArchiviaComponente(b.ctx, q, b.thread, p1, b.utente, "prova")
 	})
 	ok(t, err)
 
-	_, err = b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, p1, s2)
-	})
+	_, err = b.dichiara(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: s2})
 	deveRifiutare(t, err, "P1 è archiviato")
 	_, err = b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, true)
+		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, true, b.utente)
 	})
 	deveRifiutare(t, err, "P1 è archiviato")
 	if got := uno[string](b, `SELECT coalesce(step_strutturale_id::text, '') || ' ' || (SELECT count(*) FROM documento WHERE sostituito_da IS NOT NULL)
@@ -110,13 +118,17 @@ func TestLoStepStrutturaleNonSiScegliePerUnArchiviato(t *testing.T) {
 		t.Errorf("il rifiuto non ha annullato tutto: %s", got)
 	}
 	_, err = b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false)
+		return fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false, b.utente)
 	})
 	ok(t, err)
 }
 
 // Gli scarti e il codice di un nodo bloccano la RFQ come gli altri gesti (decisioni.go lo promette): con la
 // RFQ bloccata da un'altra transazione aspettano, e da soli funzionano come prima.
+//
+// Riscritta per lo Smistamento (F5): il codice e lo scarto sono sul nodo D (#4), che nel file sta sotto C ed e'
+// guida: sono correzioni dell'evidenza, e valgono anche li'. Prima erano sul nodo F (#5), che adesso la preparazione
+// della prova accetta (le rimozioni vogliono i figli diretti decisi).
 func TestGliScartiEIlCodiceBloccanoLaRfq(t *testing.T) {
 	b := nuovoBanco(t)
 	c, doc, a := b.stepApplicato()
@@ -128,13 +140,13 @@ func TestGliScartiEIlCodiceBloccanoLaRfq(t *testing.T) {
 		f           func(q *db.Queries) (string, error)
 	}{
 		{"CodiceDelNodo", "ha il codice", func(q *db.Queries) (string, error) {
-			return fascicolo.CodiceDelNodo(b.ctx, q, b.thread, b.proposta("#5"), codiceDi("X1"), "")
+			return fascicolo.CodiceDelNodo(b.ctx, q, b.thread, b.proposta("#4"), codiceDi("X1"), "")
 		}},
 		{"ScartaRelazione", "Relazione scartata", func(q *db.Queries) (string, error) {
 			return fascicolo.ScartaRelazione(b.ctx, q, b.thread, k("#3", "#4"), b.utente)
 		}},
 		{"ScartaNodo", "scartato", func(q *db.Queries) (string, error) {
-			return fascicolo.ScartaNodo(b.ctx, q, b.thread, b.proposta("#5"), b.utente)
+			return fascicolo.ScartaNodo(b.ctx, q, b.thread, b.proposta("#4"), b.utente)
 		}},
 		{"ScartaRimozione", "l'arco resta", func(q *db.Queries) (string, error) {
 			return fascicolo.ScartaRimozione(b.ctx, q, b.thread, fascicolo.ChiaveRimozione{Step: doc, Padre: c["P1"], Figlio: c["D"]}, b.utente)
@@ -200,6 +212,10 @@ func TestUnaDerogaStrutturaleSiRevocaSoloDallaSuaRfq(t *testing.T) {
 // Un arco messo a mano sotto un prodotto con lo STEP strutturale letto per intero: lo STEP non ce l'ha, e
 // il ricalcolo lo proponeva subito da togliere. Si tiene, come fa l'editor della struttura; le rimozioni
 // che c'erano gia' su altri archi restano aperte.
+//
+// Riscritta per lo Smistamento (F5, D77): prima anche l'arco messo a mano sotto B (B → Y1) era una rimozione
+// proposta e subito tenuta, perche' le rimozioni scendevano tutto il sottoalbero di P1. Adesso il file di P1 ha
+// autorita' solo sui figli diretti di P1: B → Y1 non e' mai proposto, e le chiuse sono una sola.
 func TestUnArcoMessoAManoNonSiProponeDaTogliere(t *testing.T) {
 	b := nuovoBanco(t)
 	c, _, _ := b.stepApplicato()
@@ -214,17 +230,16 @@ func TestUnArcoMessoAManoNonSiProponeDaTogliere(t *testing.T) {
 		return fascicolo.Sposta(b.ctx, q, b.thread, y, uuid.NullUUID{}, uuid.NullUUID{UUID: c["B"], Valid: true}, b.utente, 1)
 	})
 	ok(t, err)
-	if got := b.rimozioni(); got != "P1>D:aperta P1>X1:scartata B>Y1:scartata" {
-		t.Errorf("rimozioni = %q: gli archi appena messi a mano sono proposti da togliere", got)
+	if got := b.rimozioni(); got != "P1>D:aperta P1>X1:scartata" {
+		t.Errorf("rimozioni = %q: gli archi appena messi a mano sono proposti da togliere, o sotto un figlio", got)
 	}
 	if got := uno[string](b, `SELECT string_agg(coalesce(nota, '') || ' ' || (deciso_da IS NOT NULL), '|' ORDER BY nota)
-		FROM rimozione_proposta WHERE thread_id = $1 AND stato = 'scartata'`, b.thread); got != "tenuto nella struttura confermata true|tenuto nella struttura confermata true" {
+		FROM rimozione_proposta WHERE thread_id = $1 AND stato = 'scartata'`, b.thread); got != "tenuto nella struttura confermata true" {
 		t.Errorf("le rimozioni chiuse non dicono chi e perche': %s", got)
 	}
-	g, err := db.New(b.p).GateCongelamento(b.ctx, b.thread)
-	ok(t, err)
-	if g.NProposteRimozione != 1 {
-		t.Errorf("rimozioni aperte per il gate: %d, attesa 1 (P1 → D)", g.NProposteRimozione)
+	// le rimozioni aperte che il gate conta (GateCongelamento fino a F5; da F5 solo quelle delle autorizzazioni valide)
+	if g := b.strutturali(); g.NRimozioni != 1 {
+		t.Errorf("rimozioni aperte per il gate: %d, attesa 1 (P1 → D)", g.NRimozioni)
 	}
 }
 

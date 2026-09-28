@@ -112,13 +112,19 @@ func TestCreareLaRfqFaDelCodiceUnProdottoEPreparaLoZip(t *testing.T) {
 	}
 }
 
-// Agganciare un messaggio a una RFQ fa lo stesso: il codice della richiesta confermato diventa il prodotto
-// (una RFQ di prima, che non l'aveva), e lo STEP del messaggio scende.
+// Agganciare un messaggio a una RFQ fa lo stesso: lo STEP del messaggio scende, e il codice della richiesta
+// che chi aggancia conferma diventa il prodotto (una RFQ di prima, che non l'aveva).
 //
 // Riscritta per lo Smistamento (R8, E11, fase F1): prima una GET del Fascicolo avrebbe gia' fatto il prodotto
 // della RFQ di prima, a chiunque l'avesse aperta. Adesso aprirla non crea niente: il prodotto nasce con
 // l'aggancio, che e' la decisione di una persona. Che l'aggancio rilegga gli STEP gia' analizzati lo fissa la
 // prova 100 (TestAgganciareRileggeGliStepGiaAnalizzati).
+//
+// Riscritta di nuovo per lo Smistamento (scelta 6, 27/09): prima fissava che l'aggancio, senza confermare
+// niente, facesse il prodotto di OGNI codice confermato della richiesta che non ne aveva uno (ed e' cosi' che
+// un prodotto tolto rinasceva). Adesso l'aggancio che non conferma codici prepara i file e non crea prodotti;
+// il prodotto nasce con l'aggancio che spunta il codice della richiesta. La rinascita di un prodotto tolto la
+// fissa TestUnProdottoToltoNonRinasceAllAggancio.
 func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	b := preparaBancoWeb(t)
 	acme := b.unCliente("Acme S.p.A.", "ACME", "acme.example")
@@ -138,13 +144,24 @@ func TestAgganciareUnMessaggioPreparaIFileEAssicuraIProdotti(t *testing.T) {
 	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE thread_id = $1`, thread); n != 0 {
 		t.Fatalf("aprire il Fascicolo ha creato %d componenti: i prodotti nascono dal triage", n)
 	}
+	// l'aggancio che non conferma codici: lo STEP scende, il prodotto no
 	_, html := w.fai(http.MethodPost, "/messaggio/"+msg.String()+"/aggancia", url.Values{"thread_id": {thread.String()}}, true)
 	a := leggibile(html)
-	if !strings.Contains(a, "Agganciato") || !strings.Contains(a, "77722757 nella BOM come prodotto finito") || !strings.Contains(a, "1 file utile in preparazione") {
+	if !strings.Contains(a, "Agganciato") || strings.Contains(a, "nella BOM come prodott") || !strings.Contains(a, "1 file utile in preparazione") {
 		t.Fatalf("avviso: %q", estrai(html, "avviso"))
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM job WHERE tipo = 'stage_allegato'`); n != 1 {
 		t.Errorf("download dello STEP: %d", n)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE thread_id = $1`, thread); n != 0 {
+		t.Errorf("l'aggancio senza codici confermati ha creato %d componenti", n)
+	}
+	// l'aggancio che spunta il codice della richiesta: il prodotto nasce
+	msg2 := b.mailConAllegati("RE: RFQ 77722757", "Confermiamo 77722757.")
+	_, html = w.fai(http.MethodPost, "/messaggio/"+msg2.String()+"/aggancia", url.Values{"thread_id": {thread.String()}, "codice": {"77722757"}}, true)
+	a = leggibile(html)
+	if !strings.Contains(a, "Agganciato") || !strings.Contains(a, "77722757 nella BOM come prodotto finito") {
+		t.Fatalf("avviso: %q", estrai(html, "avviso"))
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM componente WHERE thread_id = $1 AND tipo = 'finito' AND codice = '77722757'`, thread); n != 1 {
 		t.Errorf("il prodotto nato con l'aggancio: %d", n)
@@ -272,24 +289,53 @@ func (b *bancoWeb) scenaConferma(chiave string) *scenaConferma {
 // Struttura BOM (bom/applica); il disegno dell'assieme che nasce da lei la aspetta, e diventa pronto dopo.
 // Con una firma vecchia, o con un file senza la struttura da cui dipende, non cambia niente. Il PDF anonimo
 // resta da decidere.
+//
+// Riscritta per lo Smistamento (F5, A5.4): prima la struttura dello STEP era visibile e aspettata dal disegno
+// dell'assieme gia' prima della conferma, perche' la sua radice era agganciata al prodotto per il codice. Adesso
+// finche' lo STEP non e' autorizzato per il prodotto la sua struttura e' guida: niente banner, una riga di guida,
+// e il disegno dell'assieme non la aspetta (77720517 non e' nella BOM, e resta da verificare con il PDF anonimo: due, prima tre con la struttura). La conferma fa
+// dello STEP lo STEP strutturale del prodotto (la forma di prima dell'autorizzazione, fino a F5b): da li' la
+// radice e' il prodotto, e la struttura compare nella Struttura BOM e si conferma nell'editor come prima.
+//
+// Riscritta di nuovo per lo Smistamento (F5b, P26, U7; A5.4.7 supera A4.4): prima fissava che «Conferma
+// Fascicolo» (la firma del piano, o la casella di «Rivedi» nata spuntata) facesse dell'unico STEP del prodotto lo
+// STEP strutturale, con la marcatura. Adesso la conferma del piano non autorizza niente: l'unico STEP e' una voce
+// «Da verificare», il campo `strutturale` si rifiuta, e dopo la conferma non ci sono ne' lo STEP strutturale ne'
+// la marcatura, e la struttura resta guida. Lo STEP si autorizza con l'anteprima e la casella (autorizzaDallaScheda,
+// che vuole l'analisi corrente del file: la scena ha i fatti dello STEP); da li' la struttura si vede e si
+// conferma nell'editor come prima.
 func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
 	s := b.scenaConferma("CNF7B")
+	s.analisiCorrente(s.valore(`SELECT sha256 FROM allegato WHERE allegato_id = $1`, s.allStep),
+		fattiB87(false))
 	w := operatore(b)
 
 	_, html := w.fai(http.MethodGet, s.base(), nil, false)
-	for _, c := range []string{"<b>3</b> pronti", "<b>3</b> da verificare"} {
+	for _, c := range []string{"<b>2</b> pronti", "<b>3</b> da verificare"} {
 		if !strings.Contains(html, c) {
 			t.Errorf("la pagina: manca %q", c)
 		}
 	}
+	if strings.Contains(html, "· STEP strutturale di 77722757") {
+		t.Error("lo STEP strutturale non e' fra le voci pronte del piano")
+	}
+	_, rivedi := w.fai(http.MethodGet, s.base()+"/parti?cassetto=piano", nil, true)
+	if strings.Contains(rivedi, `name="strutturale"`) || regexp.MustCompile(`<input type="checkbox" name="[a-z]+" value="`+s.prodotto.String()+`"[^>]*checked`).MatchString(rivedi) {
+		t.Error("«Rivedi» non ha la casella dello STEP strutturale, tanto meno spuntata")
+	}
+	_, verifica := w.fai(http.MethodGet, s.base()+"/parti?cassetto=verifica", nil, true)
+	if !strings.Contains(verifica, "77722757.stp sarà l&#39;unico STEP di 77722757") {
+		t.Errorf("«Da verificare» dice lo STEP da autorizzare:\n%s", estratto(verifica, "STEP strutturale"))
+	}
 	firma := firmaDellaPagina(t, html)
 	_, bom := w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
-	for _, c := range []string{"Apri proposta BOM", "77720517", "+ proposto · assieme?", "1 nodo e 1 arco proposti: la struttura si rivede e si conferma nell&#39;editor"} {
-		if !strings.Contains(bom, c) {
-			t.Errorf("la Struttura BOM: manca %q", c)
-		}
+	if strings.Contains(bom, "Apri proposta BOM") || strings.Contains(bom, "+ proposto · assieme?") {
+		t.Error("la struttura di uno STEP non autorizzato e' guida: niente banner e niente proposte nella BOM")
+	}
+	if !strings.Contains(bom, "1 STEP analizzato non è autorizzato per nessun componente") {
+		t.Error("la Struttura BOM dice la guida in una riga")
 	}
 	if strings.Contains(bom, "Applica struttura proposta") {
 		t.Error("la struttura dello STEP non si applica piu' dal banner: si apre nell'editor")
@@ -298,11 +344,14 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if a := s.gestoC(w, url.Values{"firma": {"deadbeef00000000"}}); !strings.HasPrefix(a, "Niente è cambiato: il piano è cambiato") {
 		t.Fatalf("firma vecchia: %q", a)
 	}
-	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "77720517 nasce dalla struttura dello STEP 77722757.stp: si conferma prima quella, nell'editor della Struttura BOM") {
-		t.Fatalf("senza la struttura da cui dipende: %q", a)
+	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "77720517 non è nella BOM") {
+		t.Fatalf("il disegno di un pezzo che non c'e': %q", a)
 	}
 	if a := s.gestoC(w, url.Values{"struttura": {s.allStep.String()}}); !strings.HasPrefix(a, "Niente è cambiato") {
 		t.Fatalf("la struttura mandata alla conferma: %q", a)
+	}
+	if a := s.gestoC(w, url.Values{"voce": {s.stp.String()}, "strutturale": {s.prodotto.String()}}); !strings.Contains(a, "lo STEP strutturale non si conferma con il piano") {
+		t.Fatalf("la casella dello STEP strutturale di prima mandata alla conferma: %q", a)
 	}
 	if n := contaSQL(t, b, `SELECT count(*) FROM documento`); n != 0 {
 		t.Fatalf("i rifiuti hanno lasciato %d documenti", n)
@@ -312,19 +361,47 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	}
 
 	a := s.gestoC(w, url.Values{"firma": {firma}})
-	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)", "STEP strutturale di 77722757: 77722757.stp"} {
+	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)"} {
 		if !strings.Contains(a, c) {
 			t.Errorf("avviso: manca %q in %q", c, a)
 		}
 	}
-	if strings.Contains(a, "struttura di 77722757.stp") {
-		t.Errorf("«Conferma Fascicolo» ha confermato la struttura dello STEP: %q", a)
+	if strings.Contains(a, "struttura di 77722757.stp") || strings.Contains(a, "STEP strutturale") {
+		t.Errorf("«Conferma Fascicolo» ha confermato la struttura o autorizzato lo STEP: %q", a)
+	}
+	// la conferma del piano non autorizza niente: ne' lo STEP strutturale ne' la marcatura, e la struttura e' guida
+	if got := s.valore(`SELECT step_strutturale_id::text FROM componente WHERE componente_id = $1`, s.prodotto); got != "NULL" {
+		t.Errorf("la conferma del piano ha fissato lo STEP strutturale: %s", got)
+	}
+	if n := contaSQL(t, b, `SELECT count(*) FROM componente_proposta WHERE thread_id = $1 AND evidenza ? 'strutturale'`, s.thread); n != 0 {
+		t.Errorf("la conferma del piano ha scritto %d marcature", n)
+	}
+	_, bom = w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
+	if strings.Contains(bom, "Apri proposta BOM") {
+		t.Error("dopo la conferma del piano la struttura dello STEP e' ancora guida")
+	}
+	doc := uuidSQL(t, b, `SELECT documento_id FROM documento WHERE thread_id = $1 AND nome_file = '77722757.stp'`, s.thread)
+	_, verifica = w.fai(http.MethodGet, s.base()+"/parti?cassetto=verifica", nil, true)
+	if !strings.Contains(verifica, "77722757.stp è l&#39;unico STEP di 77722757") || !strings.Contains(verifica, `<option value="">— scegli lo STEP —</option>`) ||
+		strings.Contains(verifica, `value="`+doc.String()+`" selected`) {
+		t.Errorf("«Da verificare» chiede l'autorizzazione senza STEP scelto:\n%s", estratto(verifica, "STEP strutturale"))
+	}
+	// l'autorizzazione e' il gesto di una persona: l'anteprima, la casella, la firma vista
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {doc.String()}}, nil); !strings.Contains(a, "77722757.stp è lo STEP autorizzato di 77722757") {
+		t.Fatalf("l'autorizzazione dalla scheda: %q", a)
 	}
 	if got := s.valore(`SELECT string_agg(c.codice || ':' || c.tipo::text, ' ' ORDER BY c.codice) FROM componente c WHERE thread_id = $1`, s.thread); got != "77722757:finito" {
 		t.Errorf("componenti dopo la conferma: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text FROM documento_proposta WHERE proposta_id = $1`, s.pdfAssieme); got != "aperta" {
 		t.Errorf("il disegno dell'assieme aspetta la struttura: %s", got)
+	}
+	// adesso lo STEP e' lo STEP strutturale del prodotto: la sua struttura e' nell'autorita', e si vede
+	_, bom = w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
+	for _, c := range []string{"Apri proposta BOM", "77720517", "+ proposto · assieme?", "1 nodo e 1 arco proposti: la struttura si rivede e si conferma nell&#39;editor"} {
+		if !strings.Contains(bom, c) {
+			t.Errorf("la Struttura BOM dopo la conferma: manca %q", c)
+		}
 	}
 
 	// la struttura nell'editor, com'e' proposta: nasce l'assieme con l'arco ×2, la proposta dell'arco e' presa
@@ -338,7 +415,7 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if h := resp.Header.Get("HX-Trigger"); !strings.Contains(h, `"bom-esito":{"ok":true`) || strings.ContainsFunc(h, func(r rune) bool { return r > 127 }) {
 		t.Errorf("l'evento per l'editor, in ASCII: %q", h)
 	}
-	if got := s.valore(`SELECT string_agg(stato::text, ' ') FROM relazione_proposta WHERE allegato_id = $1`, s.allStep); got != "confermata" {
+	if got := s.valore(`SELECT string_agg(stato::text, ' ') FROM relazione_proposta WHERE allegato_id = $1 AND padre_chiave = '#1'`, s.allStep); got != "confermata" {
 		t.Errorf("la proposta dell'arco dopo l'editor: %s", got)
 	}
 
@@ -367,6 +444,9 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	}
 	if got := s.valore(`SELECT d.nome_file FROM componente c JOIN documento d ON d.documento_id = c.step_strutturale_id WHERE c.componente_id = $1`, s.prodotto); got != "77722757.stp" {
 		t.Errorf("STEP strutturale: %s", got)
+	}
+	if got := s.valore(`SELECT evidenza -> 'strutturale' ->> 'ruolo' FROM componente_proposta WHERE allegato_id = $1 AND chiave = '#1'`, s.allStep); got != "radice" {
+		t.Errorf("l'autorizzazione dalla scheda scrive la marcatura: %s", got)
 	}
 	if got := s.valore(`SELECT stato::text FROM documento_proposta WHERE proposta_id = $1`, s.boh); got != "aperta" {
 		t.Errorf("il PDF anonimo resta da decidere: %s", got)

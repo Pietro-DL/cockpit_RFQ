@@ -518,7 +518,7 @@ func TestLaCorrezioneRinominaITecniciESpostaGliAltri(t *testing.T) {
 func TestLaCorrezioneInCodaRiscriveIlPercorsoPrimaDellaCopia(t *testing.T) {
 	strade := map[string]func(r *rfqFascicolo, tx pgx.Tx, doc, vecchio, nuovo uuid.UUID) error{
 		"assegna e correggi": func(r *rfqFascicolo, tx pgx.Tx, doc, _, nuovo uuid.UUID) error {
-			_, err := assegnaAlComponente(r.b.ctx, db.New(tx), r.thread, uuid.NullUUID{UUID: nuovo, Valid: true}, []uuid.UUID{doc}, nil, true, nil)
+			_, err := assegnaAlComponente(r.b.ctx, db.New(tx), r.thread, uuid.NullUUID{UUID: nuovo, Valid: true}, []uuid.UUID{doc}, nil, true, nil, uuid.Nil)
 			return err
 		},
 		"codice del componente": func(r *rfqFascicolo, tx pgx.Tx, _, vecchio, _ uuid.UUID) error {

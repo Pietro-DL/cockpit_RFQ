@@ -109,6 +109,10 @@ func deveEssere(t *testing.T, v VoceFile, stato StatoVoce, domanda string) {
 // i disegni vanno ai loro componenti, il capitolato e' della RFQ, il foglio senza codice e' una domanda. Lo
 // STEP strutturale e' uno solo. Fascicolo v3: la struttura proposta non entra con «Conferma Fascicolo», si
 // rivede e si conferma nell'editor; il disegno di un componente che nasce da lei la aspetta.
+//
+// Riscritta per lo Smistamento (F5b, P26, U7): prima fissava lo STEP strutturale unico come voce pronta, fra le
+// pronte e nella firma della conferma. Adesso e' una voce da decidere (l'anteprima e la casella mai spuntata),
+// non e' fra le pronte e non e' nella firma.
 func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 	p := nuovoPiano()
 	prodotto := p.componente("77722757", db.TipoComponenteFinito)
@@ -156,14 +160,19 @@ func TestIlPianoDelloZipMetteProntoQuelloCheIlServerSaGia(t *testing.T) {
 			t.Error("lo zip e' un contenitore: non entra nel piano")
 		}
 	}
-	if len(pf.Strutturali) != 1 || pf.Strutturali[0].Stato != VocePronta || pf.Strutturali[0].Nome != "77722757.stp" {
-		t.Fatalf("lo STEP strutturale suggerito: %+v", pf.Strutturali)
+	if len(pf.Strutturali) != 1 || pf.Strutturali[0].Stato != VoceDecidere || pf.Strutturali[0].Nome != "77722757.stp" ||
+		len(pf.Strutturali[0].Domande) != 1 || pf.Strutturali[0].Domande[0].Chiave != DomandaStrutturale ||
+		!strings.Contains(pf.Strutturali[0].Domande[0].Testo, "anteprima") {
+		t.Fatalf("lo STEP strutturale unico si decide con l'anteprima, non entra con la conferma: %+v", pf.Strutturali)
 	}
-	if pf.Pronte() != 4 || pf.FilePronti() != 3 || pf.Decisioni() != 3 || pf.InAttesa() != 0 {
+	if pf.Pronte() != 3 || pf.FilePronti() != 3 || pf.Decisioni() != 4 || pf.InAttesa() != 0 {
 		t.Errorf("conti del piano: pronte %d, file %d, decisioni %d, attesa %d", pf.Pronte(), pf.FilePronti(), pf.Decisioni(), pf.InAttesa())
 	}
 	if a, b := pf.Firma(), PianoDelFascicolo(p.in).Firma(); a != b || a == "" {
 		t.Errorf("stessi dati, stessa firma: %q %q", a, b)
+	}
+	if n := pf.DaVerificare()[prodotto.ComponenteID]; n != 1 {
+		t.Errorf("lo STEP da autorizzare e' una cosa da verificare del prodotto: %d", n)
 	}
 }
 
@@ -363,8 +372,11 @@ func TestConLaBomCongelataIFileEntranoSenzaComponente(t *testing.T) {
 	deveEssere(t, vocePer(t, pf, "77722757 foglio 2.pdf"), VoceDecidere, DomandaCongelata)
 }
 
-// Lo STEP strutturale si presenta gia' scelto quando il prodotto ne avra' uno solo; con due si sceglie; con
-// quello gia' fissato non si propone niente.
+// Lo STEP strutturale del prodotto e' una voce da decidere anche quando e' uno solo; con due la domanda li
+// nomina; con quello gia' fissato non si propone niente.
+//
+// Riscritta per lo Smistamento (F5b, P26, U7; A5.4.7 supera A4.4): prima fissava che con uno STEP solo la voce
+// nascesse pronta («gia' scelto», D31) e la conferma del piano lo fissasse. Adesso nessuno STEP e' preselezionato.
 func TestLoStepStrutturaleSiSuggerisceSoloSeEUnoSolo(t *testing.T) {
 	p := nuovoPiano()
 	uno := p.componente("77722757", db.TipoComponenteFinito)
@@ -381,14 +393,18 @@ func TestLoStepStrutturaleSiSuggerisceSoloSeEUnoSolo(t *testing.T) {
 	for _, v := range pf.Strutturali {
 		per[v.Prodotto.Codice] = v
 	}
-	if v := per["77722757"]; v.Stato != VocePronta || !v.Documento.Valid || v.Nome != "77722757.stp" {
-		t.Errorf("uno STEP solo, gia' confermato: %+v", v)
+	if v := per["77722757"]; v.Stato != VoceDecidere || !v.Documento.Valid || v.Nome != "77722757.stp" ||
+		len(v.Domande) != 1 || v.Domande[0].Chiave != DomandaStrutturale || !strings.Contains(v.Domande[0].Testo, "nessuno STEP è scelto da solo") {
+		t.Errorf("uno STEP solo, gia' confermato: si decide con l'anteprima: %+v", v)
+	}
+	if pf.Pronte() != 0 {
+		t.Errorf("nessuno STEP strutturale fra le pronte: %d", pf.Pronte())
 	}
 	// 77722758 ha gia' uno STEP corrente: il file nuovo chiede aggiungi o sostituisce, e finche' non si
 	// decide non e' fra i candidati. Lo STEP strutturale suggerito resta quello corrente.
 	deveEssere(t, vocePer(t, pf, "77722758_B.stp"), VoceDecidere, DomandaSostituzione)
-	if v := per["77722758"]; v.Stato != VocePronta || v.Nome != "77722758.stp" {
-		t.Errorf("il corrente resta il candidato: %+v", v)
+	if v := per["77722758"]; v.Stato != VoceDecidere || v.Nome != "77722758.stp" {
+		t.Errorf("il corrente resta il candidato, da decidere: %+v", v)
 	}
 	if _, c := per["77722759"]; c {
 		t.Error("un prodotto con lo STEP strutturale fissato non ne riceve un altro")

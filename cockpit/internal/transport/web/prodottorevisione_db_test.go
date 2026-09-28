@@ -46,8 +46,13 @@ func TestUnCodiceDellaRichiestaEntraComeProdottoAprendoLaRevisione(t *testing.T)
 
 	s.gesto(w, s.comp(s.assieme, "deroga"), url.Values{"tipo": {"disegno_2d"}, "motivo": {"lo facciamo noi"}})
 	s.gesto(w, s.comp(s.particolare, "deroga"), url.Values{"tipo": {"disegno_2d"}, "motivo": {"a commessa"}})
-	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
-	s.gesto(w, s.comp(s.prodotto, "deroga-struttura"), url.Values{"motivo": {"non ancora analizzato, va bene"}})
+	// riscritta per lo Smistamento (F5b): lo STEP si autorizza dalla scheda, con un'analisi (qui letta in parte,
+	// coperta dalla deroga strutturale); prima si fissava senza analisi con un clic
+	s.analisiCorrente(s.shaDoc(s.step), fattiSoloRadice())
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "è lo STEP autorizzato") {
+		t.Fatalf("autorizzazione: %q", a)
+	}
+	s.gesto(w, s.comp(s.prodotto, "deroga-struttura"), url.Values{"motivo": {"letto in parte, va bene"}})
 	if a := s.gesto(w, s.base()+"/congela", url.Values{"motivo": {"prima baseline"}}); !strings.HasPrefix(a, "BOM congelata: V1 (preventivo).") {
 		t.Fatalf("congela: %q", a)
 	}

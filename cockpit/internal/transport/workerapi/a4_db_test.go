@@ -5,6 +5,10 @@
 // la BOM e' congelata (le proposte sono interpretazione, e il trigger della working non c'entra).
 //
 // Prova 8 dell'addendum: TestUnNuovoStepNonModificaLaBom.
+//
+// Riscritta per lo Smistamento (F5, A5.4, principio del 27/09 bis): prima fissava che il nodo del file con
+// il codice del prodotto diventasse duplicato di 77722757 per sola uguaglianza di codice. Ora il file non e'
+// autorizzato per nessun componente: tutte le sue righe restano guida, aperte e senza componente_id.
 
 package workerapi
 
@@ -116,16 +120,27 @@ func TestUnNuovoStepNonModificaLaBom(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT tipo_proposto::text FROM documento_proposta WHERE allegato_id = $1`, allegato).Scan(&tipo); err != nil || tipo != "cad_3d" {
 				t.Errorf("la proposta del file non e' stata aggiornata: %q %v", tipo, err)
 			}
-			// B8.5: i fatti sono diventati proposte, e solo proposte. Il nodo che la working ha gia' e'
-			// riconciliato (duplicato, agganciato a 77722757); quello nuovo e l'arco nuovo chiedono una
-			// decisione. Nessuna rimozione: il file non e' lo STEP strutturale, e la lettura e' una v2.
+			// B8.5: i fatti sono diventati proposte, e solo proposte. F5: il nodo con il codice che la
+			// working ha gia' NON e' agganciato a 77722757 (il codice uguale e' un suggerimento, non
+			// un'identita'): resta aperto come quello nuovo, e l'arco resta aperto. Nessuna rimozione: il
+			// file non e' autorizzato per nessun componente, e la lettura e' una v2.
 			var nodi string
 			if err := pool.QueryRow(ctx, `SELECT string_agg(chiave || ':' || stato || ':' || coalesce(componente_id::text, '-'), ' ' ORDER BY chiave)
 				FROM componente_proposta WHERE thread_id = $1`, thread).Scan(&nodi); err != nil {
 				t.Fatal(err)
 			}
-			if atteso := "#12:duplicato:" + p1.String() + " #32:aperta:-"; nodi != atteso {
+			if atteso := "#12:aperta:- #32:aperta:-"; nodi != atteso {
 				t.Errorf("proposte di nodo = %q, attese %q", nodi, atteso)
+			}
+			if n := testutil.Conta(t, pool, "componente_proposta WHERE componente_id IS NOT NULL OR deciso_da IS NOT NULL"); n != 0 {
+				t.Errorf("proposte di nodo con un'identita' o una decisione = %d: l'analisi non ne da'", n)
+			}
+			var suggerito string
+			if err := pool.QueryRow(ctx, `SELECT coalesce(codice, '') FROM componente_proposta WHERE thread_id = $1 AND chiave = '#12'`, thread).Scan(&suggerito); err != nil || suggerito != "77722757" {
+				t.Errorf("il codice letto resta sulla riga come suggerimento: %q %v", suggerito, err)
+			}
+			if n := testutil.Conta(t, pool, "componente WHERE step_strutturale_id IS NOT NULL"); n != 0 {
+				t.Errorf("l'analisi ha autorizzato un file: %d", n)
 			}
 			if n := testutil.Conta(t, pool, "relazione_proposta WHERE stato = 'aperta'"); n != 1 {
 				t.Errorf("relazioni proposte aperte = %d, attesa 1 (#12 → #32)", n)

@@ -18,6 +18,7 @@ import (
 
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/testutil"
 )
 
 func (b *bancoWeb) sostituitoDa(doc uuid.UUID) string {
@@ -143,8 +144,12 @@ const fattiAssieme = `{"struttura": {"versione": 3, "schema": "AP214", "radici":
 // cui la risposta non serve: 204) accoda l'analisi dello STEP senza fatti correnti e non rilegge quello che
 // li ha; «Rianalizza» lo rilegge e trova l'analisi gia' in coda. Poi i
 // gesti, come prima: accettare tutto il file porta nodi e arco nella BOM, e un secondo «accetta» sulla stessa
-// proposta risponde con il rifiuto, non con un errore. La parte dei gesti su uno STEP non dichiarato la
-// riscrive la fase F3.
+// proposta risponde con il rifiuto, non con un errore.
+//
+// Riscritta per lo Smistamento (F5, A5.4.7): prima «accetta il file» prendeva tutto il file di uno STEP qualunque
+// (2 nodi e l'arco: la radice diventava un componente). Adesso un file non autorizzato si rifiuta («le sue
+// proposte sono guida»); autorizzato per il prodotto 77722757 (la radice e' il prodotto), «accetta il file»
+// prende il suo figlio diretto e l'arco: 1 nodo e 1 relazione, e l'arco ×4 e' nella BOM come prima.
 func TestAprireLaRfqNonRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) {
 	b := preparaBancoWeb(t)
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
@@ -208,7 +213,13 @@ func TestAprireLaRfqNonRileggeGliStepEIGestiRispondonoConLaPagina(t *testing.T) 
 	}
 
 	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/file/%s/accetta", r.thread, letto), url.Values{}, true)
-	if a := avvisoDi(html); a != "Accettati 2 nodi e 1 relazione." {
+	if a := avvisoDi(html); !strings.Contains(a, "Niente è cambiato") || !strings.Contains(a, "le sue proposte sono guida") {
+		t.Fatalf("accetta un file non autorizzato: %q", a)
+	}
+	prodotto := r.componenteTipo("77722757", "finito")
+	testutil.AutorizzaStep(t, b.pool, r.thread, prodotto, letto, r.utente)
+	_, html = w.fai(http.MethodPost, fmt.Sprintf("/thread/%s/fascicolo/file/%s/accetta", r.thread, letto), url.Values{}, true)
+	if a := avvisoDi(html); a != "Accettati 1 nodo e 1 relazione." {
 		t.Fatalf("accetta il file: %q", a)
 	}
 	if n := r.conta(`SELECT count(*) FROM componente_relazione WHERE thread_id = $1 AND qta = 4`, r.thread); n != 1 {

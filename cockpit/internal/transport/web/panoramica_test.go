@@ -22,7 +22,7 @@ import (
 func TestIFiltriDelleRichiesteSiLegganoDallIndirizzo(t *testing.T) {
 	cli := uuid.New()
 	casi := []struct {
-		query string
+		query  string
 		atteso filtriRichieste
 	}{
 		{"", filtriRichieste{Stato: statoAperte, Ordine: "priorita", N: cardPerPagina}},
@@ -108,7 +108,7 @@ func TestLAnteprimaEIlDisegnoConfermatoPoiLaProposta(t *testing.T) {
 	vecchioDoc := candidato(th, comp, "7120A", "documento", ora.Add(-2*time.Hour))
 	nuovoDoc := candidato(th, uuid.Nil, "7120a", "documento", ora.Add(-time.Hour)) // senza componente, codice in minuscolo
 	proposta := candidato(th, uuid.Nil, "7120A", "proposta", ora)                  // piu' recente, ma e' una proposta
-	altro := candidato(th, uuid.New(), "9999", "documento", ora.Add(time.Hour))   // un altro prodotto
+	altro := candidato(th, uuid.New(), "9999", "documento", ora.Add(time.Hour))    // un altro prodotto
 
 	a, ok := sceglieAnteprima(pr, []db.ListAnteprimePanoramicaRow{proposta, vecchioDoc, altro, nuovoDoc})
 	if !ok || a.AllegatoID != nuovoDoc.AllegatoID {
@@ -138,7 +138,7 @@ func sintetica(f filtriRichieste) *panoramicaRichieste {
 		{ThreadID: t1, Cliente: "ACME", RagioneSociale: "ACME S.p.A.", Oggetto: txtT("RFQ 118.26 Staffe carrello"),
 			RiferimentoCliente: txtT("118.26"), Buyer: txtT("Rossi"), StatoThread: db.StatoThreadAPERTA,
 			NomeFase: db.NullFase{Fase: db.FaseFATTIBILITA, Valid: true}, GgInFase: pgtype.Int4{Int32: 3, Valid: true}, SlaGg: pgtype.Int4{Int32: 2, Valid: true},
-			Semaforo: txtT("rosso"), DataScadenza: &scad, DataInizio: time.Now(), NBloccanti: pgtype.Int8{Int64: 18, Valid: true}, NDaSmistare: 1, Totale: 2},
+			Semaforo: txtT("rosso"), DataScadenza: &scad, DataInizio: time.Now(), NBloccanti: 18, NDaSmistare: 1, Totale: 2},
 		{ThreadID: t2, Cliente: "BETA", RagioneSociale: "Beta Meccanica", Oggetto: txtT("Richiesta d'offerta 700100200"), StatoThread: db.StatoThreadCHIUSA,
 			DataInizio: time.Now(), Totale: 2},
 	}

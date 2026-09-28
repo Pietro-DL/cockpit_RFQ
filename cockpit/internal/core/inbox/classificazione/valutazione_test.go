@@ -122,6 +122,11 @@ func TestValutazioneDaRiga(t *testing.T) {
 // TestUnCodiceNonHaMaiFonteEstensione (prova 227, seconda parte): su tutte le combinazioni di tipo, fonte,
 // codice presente e nome, nessuna evidenza del codice o della rev ha la fonte `estensione`, ogni evidenza ha
 // lo score e la fonte della sua regola (la stessa evidenza, lo stesso numero) e la riga resta ricostruita.
+//
+// Riscritta per lo Smistamento (Domanda 7 = B, 27/09): prima fissava che OGNI evidenza avesse in `score` lo
+// score della sua regola. Adesso la lettura dipendente (la radice di famiglia uguale al nome) porta lo score
+// della lettura da cui dipende, e quello della regola in `score_regola`: la regola resta la stessa per tutti,
+// e solo una lettura dipendente vale meno della sua regola, mai di piu'.
 func TestUnCodiceNonHaMaiFonteEstensione(t *testing.T) {
 	tipi := []string{"da_determinare", "altro", "cad_3d", "disegno_2d", "sviluppo_dxf", "commerciale", "offerta_promatec",
 		"offerta_fornitore", "corrispondenza", "capitolato", "distinta_cliente", "rumore"}
@@ -146,8 +151,14 @@ func TestUnCodiceNonHaMaiFonteEstensione(t *testing.T) {
 							}
 							for _, e := range d.Evidenze {
 								r, ok := Punteggi[e.Regola]
-								if !ok || r.Score != e.Score || r.Fonte != e.Fonte || (r.Dimensione != q && e.Regola != RegolaOperatore) {
+								if !ok || r.Score != e.ScoreDellaRegola() || r.Fonte != e.Fonte || (r.Dimensione != q && e.Regola != RegolaOperatore) {
 									t.Errorf("%s %s %s: evidenza %+v fuori dalla sua regola %+v", tipo, fonte, nome, e, r)
+								}
+								if e.Score > e.ScoreDellaRegola() || (e.Score != e.ScoreDellaRegola() && e.DipendeDa == "") {
+									t.Errorf("%s %s %s: evidenza %+v con uno score che non e' della sua regola", tipo, fonte, nome, e)
+								}
+								if e.DipendeDa != "" && e.Score > d.Score {
+									t.Errorf("%s %s %s: la lettura dipendente %+v vale piu' della dimensione %d", tipo, fonte, nome, e, d.Score)
 								}
 								if q != "tipo" && e.Fonte == "estensione" {
 									t.Errorf("%s %s %s: %s con fonte estensione: %+v", tipo, fonte, nome, q, e)
@@ -167,19 +178,27 @@ func TestUnCodiceNonHaMaiFonteEstensione(t *testing.T) {
 	}
 }
 
-// TestLeggiValutazione: `dettagli.valutazione` si legge solo nella forma che si conosce; il resto e' una riga
+// TestLeggiValutazione: `dettagli.valutazione` si legge solo nelle forme che si conoscono; il resto e' una riga
 // di prima, da ricostruire.
+//
+// Riscritta per lo Smistamento (Domanda 7 = B, 27/09): prima la sola forma conosciuta era la v1, e `{"v": 2}`
+// era una forma sconosciuta. Adesso si scrive la v2 e la v1 si legge ancora; sconosciuta e' la v3.
 func TestLeggiValutazione(t *testing.T) {
-	v := Valutazione{V: 1, Tabella: TabellaPunteggi, Da: "analisi",
-		Tipo: Dimensione{Valore: "cad_3d", Score: 95, Regola: "ext_3d", Stato: StatoUnica, Evidenze: []Evidenza{evidenza("ext_3d", "cad_3d", ".stp")}}}
-	b, _ := json.Marshal(map[string]any{"valutazione": v, "bytes": 10})
-	letta, ok := LeggiValutazione(b)
-	if !ok || letta.Ricostruita || letta.Tipo.Score != 95 || letta.Da != "analisi" {
-		t.Errorf("valutazione salvata: %+v %v", letta, ok)
+	for _, ver := range []int{versioneValutazioneV1, VersioneValutazione} {
+		v := Valutazione{V: ver, Tabella: TabellaPunteggi, Da: "analisi",
+			Tipo: Dimensione{Valore: "cad_3d", Score: 95, Regola: "ext_3d", Stato: StatoUnica, Evidenze: []Evidenza{evidenza("ext_3d", "cad_3d", ".stp")}}}
+		b, _ := json.Marshal(map[string]any{"valutazione": v, "bytes": 10})
+		letta, ok := LeggiValutazione(b)
+		if !ok || letta.Ricostruita || letta.Tipo.Score != 95 || letta.Da != "analisi" || letta.V != VersioneValutazione {
+			t.Errorf("valutazione salvata v%d: %+v %v", ver, letta, ok)
+		}
 	}
-	for _, d := range []string{`{}`, `{"valutazione": {"v": 2}}`, `{"valutazione": null}`, ``, `non json`} {
+	if VersioneValutazione != 2 {
+		t.Errorf("VersioneValutazione = %d: la Domanda 7 = B ha portato la forma alla v2", VersioneValutazione)
+	}
+	for _, d := range []string{`{}`, `{"valutazione": {"v": 3}}`, `{"valutazione": {"v": 0}}`, `{"valutazione": null}`, ``, `non json`} {
 		if _, ok := LeggiValutazione([]byte(d)); ok {
-			t.Errorf("%q non e' una valutazione v1", d)
+			t.Errorf("%q non e' una valutazione v1 o v2", d)
 		}
 	}
 }

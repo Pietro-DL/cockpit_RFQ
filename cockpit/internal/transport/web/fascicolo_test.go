@@ -296,6 +296,9 @@ func TestConLaBomCongelataLaSchermataSiLeggeENonCambia(t *testing.T) {
 }
 
 // L'anteprima: il PDF nel viewer del browser; uno STEP con quello che l'analisi ha letto, niente viewer.
+//
+// Riscritta per lo Smistamento (F5b): prima fissava il bottone «Usa come STEP strutturale di X…»; adesso il
+// file si autorizza per qualunque componente, e il bottone dice «Autorizza come STEP di X…».
 func TestLAnteprimaDiUnPdfEDiUnoStep(t *testing.T) {
 	s := fascicoloSintetico()
 	s.d.filtraFile()
@@ -315,8 +318,8 @@ func TestLAnteprimaDiUnPdfEDiUnoStep(t *testing.T) {
 	html = rendiFascicolo(t, "fasc_corpo", s.d)
 	haTesto(t, "step", html, "versione 3", "schema AP214", "2 nodi", "1 relazioni", "letta in parte", "1 PRODUCT senza definizione",
 		"<td class=\"mono\">77722757</td><td class=\"mono\">77720517</td><td>2</td>", "PRODUCT #9 senza definizione", "Nodi proposti da questo file",
-		"Nessun viewer 3D", "Usa come STEP strutturale di 77722757")
-	senzaTesto(t, "step", html, "<iframe")
+		"Nessun viewer 3D", "Autorizza come STEP di 77722757…")
+	senzaTesto(t, "step", html, "<iframe", "Usa come STEP strutturale")
 }
 
 // La risposta di un gesto: l'avviso e i pannelli fuori banda, mai il corpo dell'anteprima.

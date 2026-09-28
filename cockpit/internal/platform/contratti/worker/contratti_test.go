@@ -65,6 +65,7 @@ var tipiContratto = map[string]any{
 	"payload_analizza_allegato": PayloadAnalizzaAllegato{},
 	"risultato_analisi":         RisultatoAnalisi{},
 	"struttura_step":            StrutturaSTEP{},
+	"testo_pdf":                 TestoPDF{},
 }
 
 // tipiAnnidati: i modelli che compaiono dentro gli altri come $ref. Il nome del tipo Go e il nome
@@ -86,6 +87,12 @@ var tipiAnnidati = map[string]any{
 	"RelazioneSTEP":       RelazioneSTEP{},
 	"LimitiSTEP":          LimitiSTEP{},
 	"ScartiSTEP":          ScartiSTEP{},
+	"FrammentoPDF":        FrammentoPDF{},
+	"CampoCartiglio":      CampoCartiglio{},
+	"OCRPDF":              OCRPDF{},
+	"TentativoOCR":        TentativoOCR{},
+	"MetadatiPDF":         MetadatiPDF{},
+	"LimitiTestoPDF":      LimitiTestoPDF{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -640,5 +647,168 @@ func TestLaStrutturaV3PortaGliScartiInNumeri(t *testing.T) {
 	}
 	if st.Scarti != nil {
 		t.Errorf("una v2 non ha scarti, e non si inventano: %+v", st.Scarti)
+	}
+}
+
+// ---------------------------------------------------------------- testo dei PDF (Smistamento F9)
+
+// Prova 174. Il testo del PDF non porta codici, e il contratto lo dice: come per i nodi dello STEP
+// (TestLaStrutturaNonPortaCodici), che cosa sia un codice lo dicono le famiglie del cliente della RFQ, e il
+// worker non sa per quale RFQ analizza (A5.13.7, A5.13.8). Frammenti e campi del cartiglio hanno pagina,
+// riquadro e fonte (nativo, ocr); l'OCR dice il suo stato; i metadati non portano l'autore: è il nome di una
+// persona, e i fatti restano archiviati per anni.
+func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
+	s := leggiSchema(t, "testo_pdf")
+	defs, _ := s["$defs"].(map[string]any)
+	vietati := []string{"codice", "codici", "rev", "tipo", "famiglia"}
+	controlla := func(dove string, campi map[string]map[string]any, attesi []string) {
+		t.Helper()
+		for _, v := range vietati {
+			if _, c := campi[v]; c {
+				t.Errorf("%s dichiara %q: la classificazione è del server, non del worker", dove, v)
+			}
+		}
+		for _, a := range attesi {
+			if _, c := campi[a]; !c {
+				t.Errorf("%s non dichiara %q", dove, a)
+			}
+		}
+	}
+	def := func(nome string) map[string]map[string]any {
+		t.Helper()
+		m, ok := defs[nome].(map[string]any)
+		if !ok {
+			t.Fatalf("%s non è fra i $defs di testo_pdf", nome)
+		}
+		return proprieta(m)
+	}
+	controlla("TestoPDF", proprieta(s), []string{"versione", "estraibile", "pagine", "pagine_lette", "caratteri",
+		"troncato", "formato_pagina1", "frammenti", "cartiglio", "metadati", "ocr", "limiti"})
+	if _, c := proprieta(s)["zone"]; c {
+		t.Error("TestoPDF dichiara ancora `zone`: il testo intero per pagina non viaggia più, solo i frammenti")
+	}
+	controlla("FrammentoPDF", def("FrammentoPDF"), []string{"pagina", "zona", "fonte", "testo", "riquadro", "confidenza"})
+	controlla("CampoCartiglio", def("CampoCartiglio"), []string{"etichetta", "letta", "valore", "pagina", "zona",
+		"fonte", "riquadro", "confidenza"})
+	controlla("OCRPDF", def("OCRPDF"), []string{"stato", "motivo", "motore", "tentativi"})
+	controlla("TentativoOCR", def("TentativoOCR"), []string{"pagina", "zona", "esito", "motivo", "caratteri", "secondi"})
+	controlla("LimitiTestoPDF", def("LimitiTestoPDF"), []string{"pagine_max", "frammenti_max", "frammento_max",
+		"caratteri_max", "campi_max", "ocr_soglia_pagina", "ocr_soglia_cartiglio", "ocr_pagine_max", "ocr_tempo_max_s", "ocr_dpi"})
+	meta := def("MetadatiPDF")
+	controlla("MetadatiPDF", meta, []string{"titolo", "soggetto", "parole_chiave", "creatore", "produttore"})
+	for _, vietato := range []string{"autore", "author"} {
+		if _, c := meta[vietato]; c {
+			t.Errorf("i metadati del PDF dichiarano %q: l'autore non viaggia con i fatti", vietato)
+		}
+	}
+	// le voci chiuse dello schema sono quelle che il Go conosce: zona, fonte, stato dell'OCR, etichette
+	enum := func(campi map[string]map[string]any, campo string) []string {
+		t.Helper()
+		return formaSchema(campi[campo]).valori
+	}
+	vuole := func(dove string, got []string, want ...string) {
+		t.Helper()
+		sort.Strings(got)
+		sort.Strings(want)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: lo schema dice %v, il Go conosce %v", dove, got, want)
+		}
+	}
+	vuole("zona di un frammento", enum(def("FrammentoPDF"), "zona"), ZonaBassoDestra, ZonaPagina)
+	vuole("fonte di un frammento", enum(def("FrammentoPDF"), "fonte"), FonteTestoNativo, FonteTestoOCR)
+	vuole("stato dell'OCR", enum(def("OCRPDF"), "stato"), OCRNonNecessario, OCRSpento, OCRNonDisponibile, OCREseguito,
+		OCRFallito, OCRScaduto, OCRIlleggibile)
+	vuole("etichette del cartiglio", enum(def("CampoCartiglio"), "etichetta"), CampoNumeroDisegno, CampoCodice,
+		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale)
+	// lo stesso, dalla parte del Go: i campi sono quelli e non altri
+	for nome, campi := range map[string]int{"FrammentoPDF": 6, "CampoCartiglio": 8, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
+		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
+			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
+		}
+	}
+}
+
+// Prova 175. DecodificaTestoPDF legge la lettura strutturata, tollera i campi sconosciuti, e dice «non c'e'»
+// (falso) quando manca o quando la versione non e' una che conosce (0): falso non vuol dire «il PDF non ha
+// testo», che e' `estraibile` falso in un testo letto. Un fatto dell'analizzatore 4 scritto da un worker
+// vecchio non ha `testo_pdf`: e' un testo non letto, da rianalizzare (A5.13.8).
+func TestDecodificaTestoPDF(t *testing.T) {
+	dettagli := json.RawMessage(`{
+		"cartiglio": true, "termini_trovati": ["SCALA"],
+		"fonti": {"tipo": "termini_pdf", "codice": "nome_file"},
+		"testo_pdf": {"versione": 1, "estraibile": true, "pagine": 3, "pagine_lette": 3, "caratteri": 2140,
+			"troncato": false, "formato_pagina1": [842, 595],
+			"frammenti": [
+				{"pagina": 1, "zona": "basso_destra", "fonte": "nativo", "testo": "DISEGNO N. 7120010", "riquadro": [560, 530.3, 655, 542.7], "confidenza": null, "campo_del_futuro": 1},
+				{"pagina": 1, "zona": "basso_destra", "fonte": "ocr", "testo": "REV. B", "riquadro": [680, 510, 720, 522], "confidenza": 64.5},
+				{"pagina": 2, "zona": "pagina", "fonte": "nativo", "testo": "NOTA 7120011", "riquadro": [40, 50, 200, 62], "confidenza": null}],
+			"cartiglio": [{"etichetta": "numero_disegno", "letta": "DISEGNO N.", "valore": "7120010", "pagina": 1,
+				"zona": "basso_destra", "fonte": "nativo", "riquadro": [620, 530.3, 655, 542.7], "confidenza": null}],
+			"metadati": {"titolo": "7120010", "soggetto": "", "parole_chiave": "", "creatore": "CAD", "produttore": "PDF"},
+			"ocr": {"stato": "eseguito", "motivo": "", "motore": "tesseract (pymupdf)",
+				"tentativi": [{"pagina": 1, "zona": "basso_destra", "esito": "letto", "motivo": "", "caratteri": 6, "secondi": 1.25}]},
+			"limiti": {"pagine_max": 11, "frammenti_max": 200, "frammento_max": 512, "caratteri_max": 16384, "campi_max": 24,
+				"ocr_soglia_pagina": 20, "ocr_soglia_cartiglio": 8, "ocr_pagine_max": 2, "ocr_tempo_max_s": 60, "ocr_dpi": 300},
+			"sezione_nuova": {"qualcosa": true}}
+	}`)
+	tp, ok := DecodificaTestoPDF(dettagli)
+	if !ok {
+		t.Fatal("testo del PDF non decodificato")
+	}
+	if tp.Versione != 1 || !tp.Estraibile || tp.Pagine != 3 || tp.PagineLette != 3 || tp.Caratteri != 2140 || tp.Troncato ||
+		!reflect.DeepEqual(tp.FormatoPagina1, []float64{842, 595}) {
+		t.Errorf("testo letto male: %+v", tp)
+	}
+	if len(tp.Frammenti) != 3 {
+		t.Fatalf("frammenti letti male: %+v", tp.Frammenti)
+	}
+	if f := tp.Frammenti[0]; f.Pagina != 1 || f.Zona != ZonaBassoDestra || f.Fonte != FonteTestoNativo || f.Testo != "DISEGNO N. 7120010" ||
+		!reflect.DeepEqual(f.Riquadro, []float64{560, 530.3, 655, 542.7}) || f.Confidenza != nil {
+		t.Errorf("frammento nativo letto male: %+v", f)
+	}
+	if f := tp.Frammenti[1]; f.Fonte != FonteTestoOCR || f.Confidenza == nil || *f.Confidenza != 64.5 {
+		t.Errorf("frammento OCR letto male: %+v", f)
+	}
+	if len(tp.Cartiglio) != 1 || tp.Cartiglio[0].Etichetta != CampoNumeroDisegno || tp.Cartiglio[0].Valore != "7120010" ||
+		tp.Cartiglio[0].Letta != "DISEGNO N." || tp.Cartiglio[0].Zona != ZonaBassoDestra || len(tp.Cartiglio[0].Riquadro) != 4 {
+		t.Errorf("campi del cartiglio letti male: %+v", tp.Cartiglio)
+	}
+	if tp.Metadati.Titolo != "7120010" || tp.Metadati.Creatore != "CAD" || tp.Metadati.Produttore != "PDF" {
+		t.Errorf("metadati letti male: %+v", tp.Metadati)
+	}
+	if tp.OCR.Stato != OCREseguito || tp.OCR.Motore != "tesseract (pymupdf)" || len(tp.OCR.Tentativi) != 1 ||
+		tp.OCR.Tentativi[0] != (TentativoOCR{Pagina: 1, Zona: ZonaBassoDestra, Esito: "letto", Caratteri: 6, Secondi: 1.25}) {
+		t.Errorf("OCR letto male: %+v", tp.OCR)
+	}
+	if tp.Limiti != (LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384, CampiMax: 24,
+		OCRSogliaPagina: 20, OCRSogliaCartiglio: 8, OCRPagineMax: 2, OCRTempoMaxS: 60, OCRDpi: 300}) {
+		t.Errorf("i limiti non sono arrivati con il fatto: %+v", tp.Limiti)
+	}
+
+	// un PDF senza testo: si decodifica (e' una risposta), con estraibile falso e l'OCR che dice perche' no
+	muto := json.RawMessage(`{"testo_letto": 1, "testo_pdf": {"versione": 1, "estraibile": false, "pagine": 1,
+		"pagine_lette": 1, "caratteri": 0, "frammenti": [], "cartiglio": [], "metadati": {"titolo": "7120010"},
+		"ocr": {"stato": "non_disponibile", "motivo": "Tesseract non disponibile su questa postazione"}, "limiti": {"caratteri_max": 16384}}}`)
+	tp, ok = DecodificaTestoPDF(muto)
+	if !ok || tp.Estraibile || len(tp.Frammenti) != 0 || tp.Metadati.Titolo != "7120010" || tp.OCR.Stato != OCRNonDisponibile {
+		t.Errorf("un PDF senza testo e' una risposta da leggere, non un fatto da scartare: %v %+v", ok, tp)
+	}
+
+	casi := map[string]json.RawMessage{
+		"versione 0":           json.RawMessage(`{"testo_pdf": {"versione": 0, "estraibile": true, "frammenti": []}}`),
+		"senza versione":       json.RawMessage(`{"testo_pdf": {"estraibile": true}}`),
+		"fatto v4 senza testo": json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`),
+		"fatto v3 di uno STEP": json.RawMessage(`{"struttura": {"versione": 3, "nodi": []}}`),
+		"PDF che non si apre":  json.RawMessage(`{"errore_pdf": "cannot open broken document"}`),
+		"testo_pdf nullo":      json.RawMessage(`{"testo_pdf": null}`),
+		"dettagli vuoti":       json.RawMessage(``),
+		"dettagli rotti":       json.RawMessage(`non sono json`),
+	}
+	for nome, d := range casi {
+		t.Run(nome, func(t *testing.T) {
+			if tp, ok := DecodificaTestoPDF(d); ok {
+				t.Errorf("testo accettato: %+v", tp)
+			}
+		})
 	}
 }

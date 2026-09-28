@@ -66,6 +66,52 @@ func TestUnCodiceDellaStoriaCitataSiVedeMaNonNasceSpuntato(t *testing.T) {
 	}
 }
 
+// Scelta 6 dello Smistamento (27/09): nel form «Aggancia a…» ci sono i codici del messaggio, ma nessuno nasce
+// spuntato, nemmeno il codice di famiglia dell'oggetto che nel form «Nuova RFQ» nasce spuntato. Con l'aggancio
+// diventano prodotti solo i codici spuntati o scritti da chi aggancia: una risposta che cita un prodotto tolto
+// dalla BOM non lo fa rinascere con il clic sulla card.
+func TestNellAgganciaNessunCodiceNasceSpuntato(t *testing.T) {
+	s := serverTest(t)
+	_, td, _ := datiSintetici()
+	td.Proponibili = []db.CandidatoCodice{
+		{MessaggioID: td.M.MessaggioID, Codice: "7120001", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
+			Famiglia: "7120", Punteggio: 80, Evidenza: "oggetto"},
+		{MessaggioID: td.M.MessaggioID, Codice: "7120002", Ruolo: db.RuoloCodiceProdotto, Origine: db.OrigineCodiceFamiglia,
+			Famiglia: "7120", Punteggio: 80, Evidenza: "corpo"},
+	}
+	for _, azione := range []string{"nuova", "aggancia"} {
+		td.Azione = azione
+		for _, c := range td.Proponibili {
+			if got := td.Spuntato(c); got != (azione == "nuova") {
+				t.Errorf("%s: Spuntato(%s) = %v", azione, c.Codice, got)
+			}
+		}
+		var buf bytes.Buffer
+		if err := s.pagine["inbox.html"].ExecuteTemplate(&buf, "triage_form", vista{Dati: td, Frammento: true}); err != nil {
+			t.Fatal(err)
+		}
+		html := buf.String()
+		for _, codice := range []string{"7120001", "7120002"} {
+			m := regexp.MustCompile(`<input type="checkbox" name="codice" value="` + codice + `"[^>]*>`).FindString(html)
+			if m == "" {
+				t.Fatalf("%s: il codice %s non e' fra le caselle del form", azione, codice)
+			}
+			if strings.Contains(m, "checked") != (azione == "nuova") {
+				t.Errorf("%s: la casella di %s: %s", azione, codice, m)
+			}
+		}
+		if azione == "aggancia" {
+			i := strings.Index(html, `/aggancia"`)
+			if i < 0 || !strings.Contains(html[i:], `name="codice"`) || !strings.Contains(html[i:], `name="identificativi"`) {
+				t.Errorf("i codici e la casella dei codici scritti stanno dentro il form dell'aggancio")
+			}
+			if !strings.Contains(html, "con l'aggancio diventano prodotti solo quelli che spunti o scrivi") {
+				t.Error("il form non dice che cosa fanno i codici con l'aggancio")
+			}
+		}
+	}
+}
+
 // Prova 96 (Smistamento P17): un codice di famiglia visto SOLO nel nome di un allegato si vede, con
 // l'etichetta «visto solo nel nome di un allegato», ma non nasce spuntato: con la spunta gia' messa,
 // «Crea RFQ» faceva del nome di 7120001A_1.stp un prodotto 7120001A (E11). Lo stesso codice di famiglia

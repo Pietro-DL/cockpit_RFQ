@@ -372,18 +372,51 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {"sottoassieme"}, "rev": {"A B"}}); !strings.Contains(a, "revisione non valida") {
 		t.Errorf("rev con lo spazio: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {"sciolto"}, "rev": {"c"}, "descrizione": {"staffa"}}); a != "77720517: tipo assieme → particolare, rev — → C, descrizione." {
+	// riscritta per lo Smistamento (fase T, e il suo giro di correzione): prima «Modifica» portava a particolare
+	// l'assieme, che nella working ha un figlio, e cambiava rev e descrizione nello stesso gesto. Adesso il tipo ha
+	// una strada sola, la sezione «Tipo» con l'anteprima e la firma: «Modifica» con un tipo diverso si rifiuta e
+	// niente cambia; dalla sezione «Tipo» il particolare si rifiuta («ha 1 figlio: è un assieme») e il commerciale
+	// si fa, con il figlio che resta; «Modifica» cambia rev e descrizione
+	for _, tp := range []string{"sciolto", "commerciale"} {
+		if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {tp}, "rev": {"c"}, "descrizione": {"staffa"}}); a != "Niente è cambiato: il tipo si cambia dalla sezione Tipo, con l'anteprima" {
+			t.Errorf("«Modifica» a %s: %q", tp, a)
+		}
+	}
+	if got := s.valore(`SELECT tipo || '/' || coalesce(rev, '-') || '/' || coalesce(descrizione, '-') FROM componente WHERE componente_id = $1`, s.assieme); got != "sottoassieme/-/-" {
+		t.Errorf("il rifiuto non cambia niente: %s", got)
+	}
+	if a := s.cambiaTipoDallaScheda(w, s.assieme, "sciolto"); a != "Niente è cambiato: 77720517 ha 1 figlio: è un assieme" {
+		t.Errorf("a particolare con un figlio: %q", a)
+	}
+	if a := s.cambiaTipoDallaScheda(w, s.assieme, "commerciale"); a != "77720517: tipo assieme → commerciale. I figli già nella BOM restano (77817189)." {
+		t.Errorf("a commerciale: %q", a)
+	}
+	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"rev": {"c"}, "descrizione": {"staffa"}}); a != "77720517: rev — → C, descrizione." {
 		t.Errorf("modifica: %q", a)
 	}
-	if got := s.valore(`SELECT tipo || '/' || rev || '/' || descrizione FROM componente WHERE componente_id = $1`, s.assieme); got != "sciolto/C/staffa" {
+	if got := s.valore(`SELECT tipo || '/' || rev || '/' || descrizione FROM componente WHERE componente_id = $1`, s.assieme); got != "commerciale/C/staffa" {
 		t.Errorf("dopo la modifica: %s", got)
 	}
 
-	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "è lo STEP strutturale di 77722757") {
+	// riscritta per lo Smistamento (F5b): prima un clic su «Usa come STEP strutturale» fissava lo STEP; adesso e'
+	// l'autorizzazione dalla scheda (anteprima, casella, firma), che vuole l'analisi corrente dello STEP
+	s.analisiCorrente(s.shaDoc(s.step), fattiB87(false))
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "è lo STEP autorizzato di 77722757") {
 		t.Fatalf("STEP strutturale: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.prodotto, "modifica"), url.Values{"tipo": {"sottoassieme"}}); !strings.Contains(a, "ha uno STEP strutturale") {
-		t.Errorf("un finito con lo STEP strutturale non cambia tipo: %q", a)
+	// riscritta per lo Smistamento (fase T, giro di correzione): prima «Modifica» rifiutava ogni altro tipo per un
+	// finito con lo STEP strutturale. Adesso dalla sezione «Tipo»: assieme resta spento (si revoca prima, oppure
+	// diventa commerciale); commerciale si puo', e l'anteprima dice che il riferimento si svuota e l'autorizzazione
+	// si sospende. Solo le anteprime: il prodotto resta com'e'
+	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "sottoassieme")); !strings.Contains(a, "ha uno STEP strutturale") || strings.Contains(a, `name="firma"`) {
+		t.Errorf("un finito con lo STEP strutturale non diventa assieme: %s", a)
+	}
+	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "commerciale")); !strings.Contains(a, "non è più il suo STEP strutturale: il riferimento si svuota") ||
+		!strings.Contains(a, "Si sospende l'autorizzazione di 77722757.stp per 77722757") || !strings.Contains(a, `name="firma"`) {
+		t.Errorf("un finito con lo STEP autorizzato diventa commerciale, e l'anteprima lo dice: %s", a)
+	}
+	if got := s.valore(`SELECT tipo || '/' || (step_strutturale_id IS NOT NULL)::text FROM componente WHERE componente_id = $1`, s.prodotto); got != "finito/true" {
+		t.Errorf("le anteprime non cambiano il prodotto: %s", got)
 	}
 
 	// un ciclo: l'assieme sotto il particolare, che sta sotto l'assieme
@@ -494,20 +527,31 @@ func TestDerogheESTEPStrutturaleDallaSchermata(t *testing.T) {
 		t.Errorf("dopo la revoca: %s", esito(vite, "disegno_2d"))
 	}
 
-	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.disegno.String()}}); !strings.Contains(a, "non è un file STEP") {
+	// Riscritta per lo Smistamento (F5b, A5.4.7): prima lo STEP strutturale si fissava con un clic, anche su un
+	// file non analizzato (presente_non_analizzato, poi la deroga), e per un assieme si rifiutava con «non è un
+	// prodotto finito». Adesso e' l'autorizzazione dalla scheda: un 2D si rifiuta, per l'assieme il motivo e' che
+	// il file non e' suo (un assieme si autorizza, con un suo STEP), uno STEP senza analisi corrente non si
+	// autorizza; con un'analisi letta in parte si autorizza, le rimozioni restano sospese, e la deroga
+	// strutturale vale per quella lettura.
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.disegno.String()}}, nil); !strings.Contains(a, "non è un file STEP") {
 		t.Errorf("un 2D come STEP strutturale: %q", a)
 	}
-	if a := s.gesto(w, s.comp(s.assieme, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.Contains(a, "non è un prodotto finito") {
-		t.Errorf("STEP strutturale di un assieme: %q", a)
+	if a := s.autorizzaDallaScheda(w, s.assieme, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "non è associato a 77720517") {
+		t.Errorf("lo STEP del prodotto per un assieme: %q", a)
 	}
 	passo := s.valore(`SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, s.prodotto)
 	if passo != "da_scegliere" {
 		t.Fatalf("prima della scelta: %s", passo)
 	}
-	if a := s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}}); !strings.HasPrefix(a, "77722757.stp è lo STEP strutturale di 77722757. Rimozioni non calcolate") {
-		t.Fatalf("scelta: %q (uno STEP non analizzato non propone rimozioni, e lo si dice)", a)
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "non ha ancora un'analisi corrente") {
+		t.Fatalf("uno STEP senza analisi non si autorizza: %q", a)
 	}
-	if got := s.valore(`SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, s.prodotto); got != "presente_non_analizzato" {
+	s.analisiCorrente(s.shaDoc(s.step), fattiB87(true))
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.HasPrefix(a, "77722757.stp è lo STEP autorizzato di 77722757") ||
+		!strings.Contains(a, "Rimozioni non calcolate: lo STEP autorizzato non ha una lettura completa") {
+		t.Fatalf("scelta: %q (uno STEP letto in parte non propone rimozioni, e lo si dice)", a)
+	}
+	if got := s.valore(`SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, s.prodotto); got != "presente_parziale" {
 		t.Fatalf("dopo la scelta: %s", got)
 	}
 	if a := s.gesto(w, s.comp(s.prodotto, "deroga-struttura"), url.Values{"motivo": {""}}); !strings.Contains(a, "una deroga si concede con il suo motivo") {
@@ -561,14 +605,26 @@ func TestSostituireEAnnullareDallaSchermata(t *testing.T) {
 		t.Error("dopo l'annullamento il vecchio e' di nuovo corrente")
 	}
 
-	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
-	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}}); !strings.Contains(a, "sostituisce lo STEP strutturale di 77722757: si dice se il nuovo diventa il riferimento") {
+	// riscritta per lo Smistamento (F5b): lo STEP si autorizza dalla scheda (con l'analisi corrente), la domanda
+	// dice «STEP autorizzato», e il «sì» e' l'autorizzazione del file nuovo (che vuole anche lui la sua analisi)
+	s.analisiCorrente(s.shaDoc(s.step), fattiB87(false))
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "è lo STEP autorizzato di 77722757") {
+		t.Fatalf("autorizzazione: %q", a)
+	}
+	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}}); !strings.Contains(a, "sostituisce lo STEP autorizzato di 77722757: si dice se il nuovo diventa il riferimento") {
 		t.Errorf("senza risposta sul riferimento: %q", a)
 	}
 	if b.sostituitoDa(s.step) != "-" {
 		t.Fatal("senza risposta non si sostituisce")
 	}
-	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}, "nuovo_riferimento": {"1"}}); !strings.Contains(a, "è il nuovo STEP strutturale di 77722757") {
+	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}, "nuovo_riferimento": {"1"}}); !strings.Contains(a, "non ha ancora un'analisi corrente") {
+		t.Errorf("il sì con un file nuovo senza analisi: %q", a)
+	}
+	if b.sostituitoDa(s.step) != "-" {
+		t.Fatal("il sì rifiutato non sostituisce")
+	}
+	s.analisiCorrente(s.shaDoc(step2), fattiB87(false))
+	if a := s.gesto(w, doc(step2, "sostituisci"), url.Values{"vecchio": {s.step.String()}, "nuovo_riferimento": {"1"}}); !strings.Contains(a, "77722757 v2.stp è lo STEP autorizzato di 77722757") {
 		t.Fatalf("con il sì: %q", a)
 	}
 	if got := s.valore(`SELECT step_strutturale_id::text FROM componente WHERE componente_id = $1`, s.prodotto); got != step2.String() {
@@ -602,8 +658,13 @@ func TestCongelareERivedereLaBomDallaSchermata(t *testing.T) {
 	}
 	s.gesto(w, s.comp(s.assieme, "deroga"), url.Values{"tipo": {"disegno_2d"}, "motivo": {"lo facciamo noi"}})
 	s.gesto(w, s.comp(s.particolare, "deroga"), url.Values{"tipo": {"disegno_2d"}, "motivo": {"a commessa"}})
-	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
-	s.gesto(w, s.comp(s.prodotto, "deroga-struttura"), url.Values{"motivo": {"non ancora analizzato, va bene"}})
+	// riscritta per lo Smistamento (F5b): prima lo STEP si fissava senza analisi e la deroga copriva «non ancora
+	// analizzato»; adesso si autorizza dalla scheda con un'analisi letta in parte, e la deroga copre quella
+	s.analisiCorrente(s.shaDoc(s.step), fattiSoloRadice())
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "è lo STEP autorizzato") {
+		t.Fatalf("autorizzazione: %q", a)
+	}
+	s.gesto(w, s.comp(s.prodotto, "deroga-struttura"), url.Values{"motivo": {"letto in parte, va bene"}})
 	if a := s.gesto(w, s.base()+"/congela", url.Values{"motivo": {"prima baseline"}}); !strings.HasPrefix(a, "BOM congelata: V1 (preventivo). La fase è SCHEDA_COSTO.") {
 		t.Fatalf("congela: %q", a)
 	}
@@ -790,7 +851,12 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 	s := b.scenaB87("CNF87")
 	w := operatore(b)
 	b.caricamentoAcceso(t)
-	s.gesto(w, s.comp(s.prodotto, "step-strutturale"), url.Values{"documento": {s.step.String()}})
+	// riscritta per lo Smistamento (F5b): lo STEP si autorizza dalla scheda, con la sua analisi corrente; il «sì»
+	// della sostituzione e' l'autorizzazione del file nuovo, che vuole anche lui la sua analisi
+	s.analisiCorrente(s.shaDoc(s.step), fattiB87(false))
+	if a := s.autorizzaDallaScheda(w, s.prodotto, url.Values{"documento": {s.step.String()}}, nil); !strings.Contains(a, "è lo STEP autorizzato di 77722757") {
+		t.Fatalf("autorizzazione: %q", a)
+	}
 	if a := b.carica(w, s, "77722757_B.stp", []byte("ISO-10303-21; interna B")); !strings.Contains(a, "caricato come versione interna") {
 		t.Fatalf("caricamento: %q", a)
 	}
@@ -816,7 +882,7 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		return avvisoF(html)
 	}
 	base := url.Values{"componente_id": {s.prodotto.String()}, "tipo": {"cad_3d"}, "codice": {"77722757"}, "scelta": {s.step.String()}}
-	if a := conferma(base); !strings.Contains(a, "sostituisce lo STEP strutturale di 77722757") {
+	if a := conferma(base); !strings.Contains(a, "sostituisce lo STEP autorizzato di 77722757") {
 		t.Errorf("senza la risposta sul riferimento: %q", a)
 	}
 	f := url.Values{}
@@ -831,8 +897,9 @@ func TestConfermareUnaVersioneInternaCheSostituisce(t *testing.T) {
 		t.Fatalf("i rifiuti hanno creato documenti: %d", n)
 	}
 	f.Set("motivo", "rifatto in casa con gli smussi")
+	s.analisiCorrente(s.valore(`SELECT sha256 FROM allegato WHERE allegato_id = $1`, aid), fattiB87(false))
 	a := conferma(f)
-	if !strings.Contains(a, "Confermato") || !strings.Contains(a, "77722757.stp sostituito da 77722757_B.stp") || !strings.Contains(a, "è il nuovo STEP strutturale di 77722757") {
+	if !strings.Contains(a, "Confermato") || !strings.Contains(a, "77722757.stp sostituito da 77722757_B.stp") || !strings.Contains(a, "77722757_B.stp è lo STEP autorizzato di 77722757") {
 		t.Fatalf("conferma: %q", a)
 	}
 	var nuovo uuid.UUID

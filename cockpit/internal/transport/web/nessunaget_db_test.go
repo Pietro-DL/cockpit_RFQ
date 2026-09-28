@@ -190,6 +190,10 @@ func TestNessunaGetScrive(t *testing.T) {
 		// Smistamento F2: il controllo del codice che l'operatore scrive nell'editor (U4) legge soltanto
 		{base + "/bom/codice?codice=7120001A", true, true},
 		{base + "/bom/codice?codice=7120099", true, true},
+		// Smistamento, fase T: la tendina e l'anteprima del tipo, l'anteprima della riattivazione
+		{base + "/componente/" + s.pezzo.String() + "/tipo", true, true},
+		{base + "/componente/" + s.pezzo.String() + "/tipo?tipo=commerciale", true, true},
+		{base + "/componente/" + s.pezzo.String() + "/step-strutturale/riattiva", true, true},
 		{base + "/nas", true, false},
 		{"/allegato/" + s.disegno.String() + "/anteprima", false, false},
 		{"/richieste", false, true},
@@ -362,6 +366,11 @@ func TestLaPreparazioneNonRiprovaDaSolaUnAnalisiFallita(t *testing.T) {
 // dell'analisi non ha trovato RFQ in cui scrivere, e aprire le pagine non lo rilegge piu'. La decisione
 // della persona si': le sue proposte nascono nella RFQ, con il prodotto della richiesta, senza accodare
 // un'altra analisi.
+//
+// Riscritta per lo Smistamento (scelta 6, 27/09): prima l'aggancio senza nessun codice spuntato faceva il
+// prodotto 7120001, confermato nella richiesta da prima. Adesso l'aggancio crea solo i codici confermati nel
+// suo gesto: chi aggancia spunta 7120001, e il prodotto nasce accanto alle proposte dello STEP come prima.
+// Che un aggancio senza codici non faccia rinascere un prodotto lo fissa TestUnProdottoToltoNonRinasceAllAggancio.
 func TestAgganciareRileggeGliStepGiaAnalizzati(t *testing.T) {
 	// stepAnalizzato: una mail di ACME con lo STEP del caso guida, sceso e analizzato fuori da ogni RFQ.
 	stepAnalizzato := func(t *testing.T, b *bancoWeb) (msg, stp uuid.UUID) {
@@ -415,7 +424,7 @@ func TestAgganciareRileggeGliStepGiaAnalizzati(t *testing.T) {
 			t.Fatal(err)
 		}
 		msg, stp := stepAnalizzato(t, b)
-		_, html := operatore(b).fai(http.MethodPost, "/messaggio/"+msg.String()+"/aggancia", url.Values{"thread_id": {thread.String()}}, true)
+		_, html := operatore(b).fai(http.MethodPost, "/messaggio/"+msg.String()+"/aggancia", url.Values{"thread_id": {thread.String()}, "codice": {"7120001"}}, true)
 		if !strings.Contains(leggibile(html), "Agganciato") {
 			t.Fatalf("aggancio: %q", estrai(html, "avviso"))
 		}

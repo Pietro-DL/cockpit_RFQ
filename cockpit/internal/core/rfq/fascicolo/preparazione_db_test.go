@@ -94,11 +94,12 @@ func (b *banco) identificativo(codice, origine string, confermato bool) {
 		b.thread, codice, origine, chi)
 }
 
-func (b *banco) assicura() fascicolo.EsitoProdotti {
+// assicura e' AssicuraProdottiDellaRichiesta con i codici confermati nel gesto (scelta 6).
+func (b *banco) assicura(confermati ...string) fascicolo.EsitoProdotti {
 	b.t.Helper()
 	var es fascicolo.EsitoProdotti
 	ok(b.t, b.tx(func(q *db.Queries) (err error) {
-		es, err = fascicolo.AssicuraProdottiDellaRichiesta(b.ctx, q, b.thread)
+		es, err = fascicolo.AssicuraProdottiDellaRichiesta(b.ctx, q, b.thread, confermati)
 		return err
 	}))
 	return es
@@ -116,7 +117,11 @@ func (b *banco) prepara(max int, rileggi fascicolo.RiletturaFatti) fascicolo.Pre
 
 // I codici della richiesta confermati da una persona diventano componenti radice di tipo finito, una volta
 // sola; un componente che c'e' gia' non si tocca; un codice non confermato, o che non puo' essere un codice,
-// resta fuori. Una proposta STEP aperta con quel codice ritrova il componente.
+// resta fuori.
+//
+// Riscritta per lo Smistamento (F5): prima una proposta STEP aperta con quel codice ritrovava da sola il
+// componente appena nato (RiconciliaProposteNodo: duplicato con il componente). Adesso resta aperta e senza
+// componente: il codice uguale e' un suggerimento, e il nodo lo decide una persona.
 func TestICodiciDellaRichiestaDiventanoProdottiUnaVoltaSola(t *testing.T) {
 	b := nuovoBanco(t)
 	b.identificativo("77722757", "proposta_famiglia", true)
@@ -129,7 +134,9 @@ func TestICodiciDellaRichiestaDiventanoProdottiUnaVoltaSola(t *testing.T) {
 	b.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, codice, origine_codice, tipo_proposto, fonte, confidenza)
 		VALUES ($1, $2, $3, '#1', '77722757', '77722757', 'famiglia', 'finito', 'step', 90)`, b.thread, step.AllegatoID, step.Sha256.String)
 
-	es := b.assicura()
+	// il gesto li ha confermati tutti (scelta 6: nascono solo i codici del gesto)
+	tutti := []string{"77722757", "77722758", "77722759", strings.Repeat("7", 45), "77722760"}
+	es := b.assicura(tutti...)
 	if strings.Join(es.Creati, ",") != "77722757,77722758" {
 		t.Fatalf("creati %v, attesi 77722757 e 77722758", es.Creati)
 	}
@@ -149,15 +156,77 @@ func TestICodiciDellaRichiestaDiventanoProdottiUnaVoltaSola(t *testing.T) {
 		t.Errorf("il componente che c'era resta com'era: %s", tipo)
 	}
 	stato := uno[string](b, `SELECT stato::text || '/' || (componente_id IS NOT NULL)::text FROM componente_proposta WHERE thread_id = $1 AND chiave = '#1'`, b.thread)
-	if stato != "duplicato/true" {
-		t.Errorf("la radice STEP ritrova il prodotto: %s", stato)
+	if stato != "aperta/false" {
+		t.Errorf("la radice STEP non diventa il prodotto per il codice: %s", stato)
 	}
 
-	if es := b.assicura(); len(es.Creati) != 0 {
+	if es := b.assicura(tutti...); len(es.Creati) != 0 {
 		t.Errorf("la seconda volta non nasce niente: %v", es.Creati)
 	}
 	if n := uno[int](b, `SELECT count(*) FROM componente WHERE thread_id = $1`, b.thread); n != 3 {
 		t.Errorf("componenti: %d, attesi 3", n)
+	}
+}
+
+// TestUnProdottoToltoNonRinasceDaUnGestoCheNonLoConferma (Smistamento, scelta 6 confermata il 27/09): un
+// prodotto della richiesta tolto dalla BOM (cancellato perche' non aveva storia, o con il codice corretto)
+// non rinasce da un gesto che non ne conferma il codice; il gesto crea soltanto i codici che conferma. Un
+// codice passato dal gesto che non e' della richiesta, o che nessuno ha confermato, resta fuori. Un
+// archiviato resta archiviato anche se il gesto lo conferma di nuovo (si ripristina dalla Struttura BOM).
+func TestUnProdottoToltoNonRinasceDaUnGestoCheNonLoConferma(t *testing.T) {
+	b := nuovoBanco(t)
+	b.identificativo("7120001", "proposta_famiglia", true)
+	b.identificativo("7120002", "manuale", true)
+	b.identificativo("7120010", "proposta_famiglia", true)
+	b.identificativo("7120011", "proposta_generico", false)
+	if es := b.assicura("7120001", "7120010"); strings.Join(es.Creati, ",") != "7120001,7120010" {
+		t.Fatalf("la creazione della RFQ fa i prodotti che conferma: %v", es.Creati)
+	}
+	// 7120001 si toglie (nessuna storia: si cancella), 7120010 si corregge in 7120012
+	var tolto uuid.UUID
+	ok(t, b.tx(func(q *db.Queries) error {
+		c, err := q.GetComponentePerCodice(b.ctx, db.GetComponentePerCodiceParams{ThreadID: b.thread, Upper: "7120001"})
+		if err != nil {
+			return err
+		}
+		tolto = c.ComponenteID
+		_, err = fascicolo.RimuoviComponente(b.ctx, q, b.thread, c.ComponenteID)
+		return err
+	}))
+	b.esegui(`UPDATE componente SET codice = '7120012' WHERE thread_id = $1 AND codice = '7120010'`, b.thread)
+
+	// un gesto senza codici (l'aggancio di una mail che non ne conferma): non nasce niente
+	if es := b.assicura(); len(es.Creati) != 0 {
+		t.Errorf("un gesto senza codici ha fatto rinascere %v", es.Creati)
+	}
+	// un gesto che conferma solo 7120002: nasce solo 7120002; un codice che non e' della richiesta (7120099) o
+	// non confermato (7120011) resta fuori
+	if es := b.assicura("7120002", "7120099", "7120011"); strings.Join(es.Creati, ",") != "7120002" {
+		t.Errorf("il gesto crea solo il codice confermato della richiesta: %v", es.Creati)
+	}
+	for codice, atteso := range map[string]int{"7120001": 0, "7120010": 0, "7120002": 1, "7120012": 1, "7120099": 0, "7120011": 0} {
+		if n := uno[int](b, `SELECT count(*)::int FROM componente WHERE thread_id = $1 AND upper(codice) = $2`, b.thread, codice); n != atteso {
+			t.Errorf("%s: %d componenti, attesi %d", codice, n, atteso)
+		}
+	}
+	if n := uno[int](b, `SELECT count(*)::int FROM componente WHERE componente_id = $1`, tolto); n != 0 {
+		t.Errorf("il prodotto tolto e' tornato")
+	}
+	// chi lo conferma di nuovo lo rimette: e' una decisione su quel codice
+	if es := b.assicura("7120001"); strings.Join(es.Creati, ",") != "7120001" {
+		t.Errorf("confermato di nuovo, 7120001 rientra: %v", es.Creati)
+	}
+	// un archiviato non si ripristina da solo, nemmeno confermato
+	arch := uno[uuid.UUID](b, `SELECT componente_id FROM componente WHERE thread_id = $1 AND codice = '7120002'`, b.thread)
+	ok(t, b.tx(func(q *db.Queries) error {
+		_, err := fascicolo.ArchiviaComponente(b.ctx, q, b.thread, arch, b.utente, "non serve")
+		return err
+	}))
+	if es := b.assicura("7120002"); len(es.Creati) != 0 {
+		t.Errorf("un archiviato confermato di nuovo resta archiviato: %v", es.Creati)
+	}
+	if n := uno[int](b, `SELECT count(*)::int FROM componente WHERE thread_id = $1 AND codice = '7120002' AND archiviato_il IS NOT NULL`, b.thread); n != 1 {
+		t.Errorf("7120002 archiviato: %d", n)
 	}
 }
 
@@ -169,7 +238,7 @@ func TestConLaBomCongelataICodiciNonDiventanoProdotti(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.identificativo("77722757", "manuale", true)
-	es := b.assicura()
+	es := b.assicura("77722757")
 	if es.Bloccata != 1 || len(es.Creati) != 0 {
 		t.Fatalf("con la BOM congelata: %+v", es)
 	}

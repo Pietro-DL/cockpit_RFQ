@@ -189,7 +189,13 @@ func (b *banco) fase() string {
 func (b *banco) passaA(fase string) {
 	b.t.Helper()
 	b.esegui(`UPDATE fase_log SET fine = now(), esito = 'OK' WHERE thread_id = $1 AND fine IS NULL`, b.thread)
-	b.esegui(`INSERT INTO fase_log (thread_id, nome_fase, inizio) VALUES ($1, $2, now())`, b.thread, fase)
+	// un secondo prima: la fase la chiude poi il codice con un `fine` preso dall'orologio di Go (UpdateFase…), e
+	// con l'inizio all'orologio del database i due potevano scavalcarsi di un soffio e violare fase_log_check
+	// (fine >= inizio), rendendo rossa una prova a caso (TestAccettareUnaRimozione…, verifica F9 giro 2). Mai
+	// prima dell'inizio dell'ultima fase, perche' l'ordine delle fasi (per inizio) resti quello dei passaggi.
+	b.esegui(`INSERT INTO fase_log (thread_id, nome_fase, inizio)
+		SELECT $1::uuid, $2::fase, GREATEST(now() - interval '1 second', max(inizio) + interval '1 microsecond') FROM fase_log WHERE thread_id = $1`,
+		b.thread, fase)
 }
 
 func deveRifiutare(t *testing.T, err error, frase string) {
@@ -255,7 +261,13 @@ func TestLaFaseSchedaCostoRicordaLaSuaBaseline(t *testing.T) {
 // Riscritta per lo Smistamento (F6, A5.4.8, U2): prima fissava anche che «un documento in errore» sul NAS
 // rifiutasse il congelamento («documenti della BOM in errore»). Quel caso non e' piu' un rifiuto: e'
 // passato, con l'esito capovolto e piu' asserzioni, in TestIlGateContaLaCompletezzaLogica (prova 114).
-// Gli altri casi sono quelli di prima.
+// Gli altri casi sono quelli di prima. Riscritta ancora per F5 (GateStrutturale): la proposta di componente che
+// ferma il gate e' un figlio diretto nell'autorita' dello STEP strutturale di P1 (la sua radice e il nodo STAFFA,
+// con l'arco fra loro), e la frase conta le decisioni strutturali aperte; una proposta di guida non ferma piu'
+// (lo prova TestIlGateContaSoloLAutorita). Riscritta ancora per F5 (correzione: il gate conta solo le
+// rimozioni di un'autorizzazione valida): prima la rimozione aperta bastava da sola, anche senza nessuna riga
+// dello STEP che la proponeva; adesso c'e' anche la radice del file, ancora aperta, che fa dello STEP
+// strutturale di P1 un'autorizzazione valida (la forma di prima, K1), come quando la rimozione nasce davvero.
 func TestIlCongelamentoSiRifiutaConProposteAperte(t *testing.T) {
 	casi := []struct {
 		nome  string
@@ -268,11 +280,19 @@ func TestIlCongelamentoSiRifiutaConProposteAperte(t *testing.T) {
 				INSERT INTO messaggio (messaggio_id, canale, chiave_esterna, conversazione_id, direzione, data_evento) VALUES ('40000000-0000-0000-0000-00000000000b', 'outlook', '<m-a4>', '40000000-0000-0000-0000-00000000000a', 'entrata', now());
 				INSERT INTO allegato (allegato_id, messaggio_id, indice, nome_file, ricevuto_il) VALUES ('40000000-0000-0000-0000-00000000000c', '40000000-0000-0000-0000-00000000000b', 1, 'p1.stp', now())`)
 			b.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, fonte, confidenza)
-				VALUES ($1, '40000000-0000-0000-0000-00000000000c', repeat('a', 64), '#3', 'STAFFA', 'step', 80)`, b.thread)
-		}, "1 proposte strutturali aperte (1 componenti"},
+				VALUES ($1, '40000000-0000-0000-0000-00000000000c', $2, '#1', 'P1', 'step', 80),
+				       ($1, '40000000-0000-0000-0000-00000000000c', $2, '#3', 'STAFFA', 'step', 80)`, b.thread, b.sha(r.step))
+			b.esegui(`INSERT INTO relazione_proposta (thread_id, allegato_id, padre_chiave, figlio_chiave, qta)
+				VALUES ($1, '40000000-0000-0000-0000-00000000000c', '#1', '#3', 1)`, b.thread)
+		}, "2 decisioni strutturali aperte negli STEP autorizzati (1 figli diretti, 1 relazioni"},
 		{"una proposta di rimozione", func(b *banco, r rfq) {
+			b.esegui(`INSERT INTO conversazione (conversazione_id, canale, chiave_esterna, primo_messaggio_il) VALUES ('40000000-0000-0000-0000-00000000000a', 'outlook', 'c-a4', now());
+				INSERT INTO messaggio (messaggio_id, canale, chiave_esterna, conversazione_id, direzione, data_evento) VALUES ('40000000-0000-0000-0000-00000000000b', 'outlook', '<m-a4>', '40000000-0000-0000-0000-00000000000a', 'entrata', now());
+				INSERT INTO allegato (allegato_id, messaggio_id, indice, nome_file, ricevuto_il) VALUES ('40000000-0000-0000-0000-00000000000c', '40000000-0000-0000-0000-00000000000b', 1, 'p1.stp', now())`)
+			b.esegui(`INSERT INTO componente_proposta (thread_id, allegato_id, sha256, chiave, nome_grezzo, fonte, confidenza)
+				VALUES ($1, '40000000-0000-0000-0000-00000000000c', $2, '#1', 'P1', 'step', 80)`, b.thread, b.sha(r.step))
 			b.esegui(`INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working) VALUES ($1, $2, $3, $4, 2)`, b.thread, r.step, r.p1, r.f1)
-		}, "1 rimozioni"},
+		}, "1 decisioni strutturali aperte negli STEP autorizzati (0 figli diretti, 0 relazioni, 1 rimozioni)"},
 		{"uno STEP letto in parte", func(b *banco, r rfq) { b.analisi(r.step, struttura3Troncata) }, "serve una deroga strutturale"},
 		{"uno STEP da scegliere", func(b *banco, r rfq) {
 			b.esegui(`UPDATE componente SET step_strutturale_id = NULL WHERE componente_id = $1`, r.p1)
@@ -445,7 +465,7 @@ func TestIlCoDesignApreUnaVersioneNuova(t *testing.T) {
 	b.documento(n1, db.TipoDocumentoDisegno2d, "N1", "pdf")
 	nuovo2d := b.documento(r.f1, db.TipoDocumentoDisegno2d, "F1", "pdf")
 	ok(t, b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, nuovo2d, true)
+		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, nuovo2d, true, b.utente)
 		return err
 	}))
 	v2c, err := b.congela("revisione")
@@ -657,7 +677,7 @@ func TestUnaRevisioneNuovaSostituisceEConservaLaVecchia(t *testing.T) {
 	nuovo := b.documento(r.f1, db.TipoDocumentoDisegno2d, "F1", "pdf")
 	var msg string
 	ok(t, b.tx(func(q *db.Queries) (err error) {
-		msg, err = fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, nuovo, true)
+		msg, err = fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, nuovo, true, b.utente)
 		return err
 	}))
 	if !strings.Contains(msg, "sostituito da") {
@@ -675,17 +695,17 @@ func TestUnaRevisioneNuovaSostituisceEConservaLaVecchia(t *testing.T) {
 	// e i rifiuti che la regola dice prima del database
 	altro := b.documento(r.p1, db.TipoDocumentoDisegno2d, "P1", "pdf")
 	err := b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, nuovo, altro, true)
+		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, nuovo, altro, true, b.utente)
 		return err
 	})
 	deveRifiutare(t, err, "non sono dello stesso componente")
 	err = b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, altro, true)
+		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2f, altro, true, b.utente)
 		return err
 	})
 	deveRifiutare(t, err, "non sono dello stesso componente")
 	err = b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2p, r.step, true)
+		_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.d2p, r.step, true, b.utente)
 		return err
 	})
 	deveRifiutare(t, err, "si sostituisce con un disegno_2d")
@@ -701,62 +721,76 @@ func TestUnaRevisioneNuovaSostituisceEConservaLaVecchia(t *testing.T) {
 
 // Prove 39 e 41: lo STEP strutturale lo sceglie una persona e non segue da solo le sostituzioni; le
 // rimozioni aperte del vecchio riferimento si chiudono.
+//
+// Riscritta per lo Smistamento (F5b, A5.4.7): prima fissava ScegliStepStrutturale, un clic su un finito (con lo
+// STEP gia' presentato scelto) che per un non finito si rifiutava con «non è un prodotto finito». Adesso lo STEP
+// strutturale di un finito e' la sua autorizzazione (DichiaraStrutturale): nessuno lo fissa da solo (con un solo
+// STEP resta da_scegliere, e l'anteprima non scrive); i rifiuti (un 2D, il file di un altro componente, un
+// commerciale, Domanda 5 = B); un sottoassieme si autorizza, senza la colonna; la sostituzione con «no» lascia il
+// riferimento superato e chiude le rimozioni del vecchio; l'autorizzazione del file nuovo lo fissa.
 func TestLoStepStrutturaleLoSceglieUnaPersona(t *testing.T) {
 	b := nuovoBanco(t)
-	p1 := b.componente("P1", db.TipoComponenteFinito)
-	s1 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
-	if got := uno[string](b, `SELECT esito || ' ' || n_step_correnti FROM v_step_prodotto WHERE componente_id = $1`, p1); got != "da_scegliere 1" {
+	b.acme()
+	p1 := b.componente("7120001", db.TipoComponenteFinito)
+	f := fattiSTEP{nodi: []string{"#1=7120001", "#2=7120010"}, archi: []string{"#1>#2"}}
+	s1, _ := b.stepDelProdotto(p1, "7120001", f)
+	esito := func() string {
+		return uno[string](b, `SELECT esito || ' ' || n_step_correnti FROM v_step_prodotto WHERE componente_id = $1`, p1)
+	}
+	if got := esito(); got != "da_scegliere 1" {
 		t.Errorf("con un solo STEP corrente nessuno lo fissa: %s", got)
 	}
-	ok(t, b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, p1, s1)
-		return err
-	}))
-	f1 := b.componente("F1", db.TipoComponenteSciolto)
+	if e := b.effetto(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: s1}); !e.Autorizzabile() || esito() != "da_scegliere 1" {
+		t.Errorf("l'anteprima non fissa niente: %s %+v", esito(), e.Spento)
+	}
+	b.dichiaraOk(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: s1})
+	if got := esito(); got != "presente_analizzato 1" {
+		t.Errorf("autorizzato: %s", got)
+	}
+	f1 := b.componente("7120010", db.TipoComponenteSottoassieme)
 	b.arco(p1, f1, 1)
 	b.esegui(`INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working) VALUES ($1, $2, $3, $4, 1)`, b.thread, s1, p1, f1)
+	sf, _ := b.stepDelProdotto(f1, "7120010", fattiSTEP{nodi: []string{"#1=7120010", "#2=7120011"}, archi: []string{"#1>#2*2"}})
 
 	t.Run("rifiuti della scelta", func(t *testing.T) {
-		d2 := b.documento(p1, db.TipoDocumentoDisegno2d, "P1", "pdf")
-		err := b.tx(func(q *db.Queries) error {
-			_, err := fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, p1, d2)
-			return err
-		})
+		d2 := b.documento(p1, db.TipoDocumentoDisegno2d, "7120001", "pdf")
+		_, err := b.dichiara(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: d2})
 		deveRifiutare(t, err, "non è un file STEP")
-		sf := b.documento(f1, db.TipoDocumentoCad3d, "F1", "stp")
-		err = b.tx(func(q *db.Queries) error {
-			_, err := fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, f1, sf)
-			return err
-		})
-		deveRifiutare(t, err, "non è un prodotto finito")
-		err = b.tx(func(q *db.Queries) error {
-			_, err := fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, p1, sf)
-			return err
-		})
-		deveRifiutare(t, err, "non è assegnato a P1")
+		_, err = b.dichiara(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: sf})
+		deveRifiutare(t, err, "non è associato a 7120001")
+		comm := b.componente("7120099", db.TipoComponenteCommerciale)
+		cdoc, _ := b.stepDelProdotto(comm, "7120099", fattiSTEP{nodi: []string{"#1=7120099"}})
+		_, err = b.dichiara(fascicolo.RichiestaAutorizzazione{Componente: comm, Documento: cdoc})
+		deveRifiutare(t, err, "7120099 è un commerciale")
+	})
+	t.Run("un sottoassieme si autorizza", func(t *testing.T) {
+		msg := b.dichiaraOk(fascicolo.RichiestaAutorizzazione{Componente: f1, Documento: sf})
+		if !strings.Contains(msg, "è lo STEP autorizzato di 7120010") {
+			t.Errorf("messaggio: %q", msg)
+		}
+		if got := uno[bool](b, `SELECT step_strutturale_id IS NULL FROM componente WHERE componente_id = $1`, f1); !got {
+			t.Error("la colonna resta dei finiti")
+		}
 	})
 
-	s2 := b.documento(p1, db.TipoDocumentoCad3d, "P1", "stp")
+	s2, _ := b.stepDelProdotto(p1, "7120001", f)
 	var msg string
 	ok(t, b.tx(func(q *db.Queries) (err error) {
-		msg, err = fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false)
+		msg, err = fascicolo.Sostituisci(b.ctx, q, b.thread, s1, s2, false, b.utente)
 		return err
 	}))
-	if !strings.Contains(msg, "va scelto il nuovo riferimento") {
+	if !strings.Contains(msg, "resta sul file sostituito ed è superata") {
 		t.Errorf("messaggio: %q", msg)
 	}
 	if got := uno[string](b, `SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, p1); got != "riferimento_superato" {
 		t.Errorf("il riferimento sostituito: %s", got)
 	}
-	if got := uno[string](b, `SELECT stato || ' ' || coalesce(deciso_da::text, '-') || ' ' || nota FROM rimozione_proposta`); !strings.HasPrefix(got, "scartata - superata da ") {
+	if got := uno[string](b, `SELECT stato || ' ' || coalesce(deciso_da::text, '-') || ' ' || nota FROM rimozione_proposta WHERE step_documento_id = $1`, s1); !strings.HasPrefix(got, "scartata - superata da ") {
 		t.Errorf("la rimozione del vecchio riferimento: %s", got)
 	}
-	ok(t, b.tx(func(q *db.Queries) error {
-		_, err := fascicolo.ScegliStepStrutturale(b.ctx, q, b.thread, p1, s2)
-		return err
-	}))
-	if got := uno[string](b, `SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, p1); got != "presente_non_analizzato" {
-		t.Errorf("dopo la scelta del nuovo: %s", got)
+	b.dichiaraOk(fascicolo.RichiestaAutorizzazione{Componente: p1, Documento: s2})
+	if got := uno[string](b, `SELECT esito FROM v_step_prodotto WHERE componente_id = $1`, p1); got != "presente_analizzato" {
+		t.Errorf("dopo l'autorizzazione del nuovo: %s", got)
 	}
 }
 
@@ -804,10 +838,18 @@ func TestLaDerogaStrutturaleValeSoloPerQuelloStepEQuellAnalisi(t *testing.T) {
 		}
 	})
 	t.Run("lo STEP strutturale sostituito", func(t *testing.T) {
+		// Riscritta per lo Smistamento (F5b): prima il «si'» spostava lo STEP strutturale su un file nuovo senza
+		// analisi. Adesso il «si'» e' l'autorizzazione del file nuovo, che senza analisi si rifiuta, e con lei la
+		// sostituzione; con il «no» il riferimento resta sul file sostituito, superato, e la deroga decade lo stesso.
 		b, r := prepara(t)
 		s2 := b.documento(r.p1, db.TipoDocumentoCad3d, "P1", "stp")
+		err := b.tx(func(q *db.Queries) error {
+			_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.step, s2, true, b.utente)
+			return err
+		})
+		deveRifiutare(t, err, "non diventa lo STEP autorizzato di P1")
 		ok(t, b.tx(func(q *db.Queries) error {
-			_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.step, s2, true)
+			_, err := fascicolo.Sostituisci(b.ctx, q, b.thread, r.step, s2, false, b.utente)
 			return err
 		}))
 		gateRosso(t, b)

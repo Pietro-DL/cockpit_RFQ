@@ -4,6 +4,10 @@ package fascicolo
 // Riferimenti (c:, p:, n:; k: rifiutato), codici, quantita', archi ripetuti, la radice, l'albero, gli archi
 // che l'editor non mostrava, i cicli, gli scarti. Le prove L4 che la applicano davvero stanno in
 // web/v3_db_test.go.
+//
+// Smistamento F5: le proposte del banco sono figli diretti di uno STEP autorizzato per il prodotto
+// (autoritaDi): fuori dall'autorita' un «p:» e' guida e si rifiuta, e un nodo ritrovato per codice entra solo
+// se l'editor l'ha mostrato (RitrovatiVisti).
 
 import (
 	"fmt"
@@ -55,7 +59,21 @@ func nuovoBancoVoluta() *bancoVoluta {
 }
 
 func (b *bancoVoluta) contesto() contestoVoluta {
-	return nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.ritrovato, b.senzaCodice, b.radice, b.via}, b.richiesta)
+	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.ritrovato, b.senzaCodice, b.radice, b.via}, b.richiesta)
+	cx.Autorita = autoritaDi(b.prodotto, b.nuovo, b.ritrovato, b.senzaCodice, b.radice, b.via)
+	return cx
+}
+
+// autoritaDi: le proposte sono tutte figli diretti della sorgente «#0» di uno STEP autorizzato per c, ognuna
+// nel suo file (Smistamento F5).
+func autoritaDi(c db.Componente, figli ...db.ComponenteProposta) Autorita {
+	a := Autorita{sorgente: map[NodoFile]Dichiarazione{}, figlio: map[NodoFile]uuid.UUID{}, arco: map[ChiaveRelazione]uuid.UUID{}}
+	for _, f := range figli {
+		a.sorgente[NodoFile{f.AllegatoID, "#0"}] = Dichiarazione{Componente: c, Sorgenti: map[string]string{"#0": RuoloRadice}}
+		a.figlio[NodoFile{f.AllegatoID, f.Chiave}] = c.ComponenteID
+		a.arco[ChiaveRelazione{Allegato: f.AllegatoID, Padre: "#0", Figlio: f.Chiave}] = c.ComponenteID
+	}
+	return a
 }
 
 func c(x db.Componente) string         { return "c:" + x.ComponenteID.String() }
@@ -92,13 +110,15 @@ func rifiutata(t *testing.T, cx contestoVoluta, v StrutturaVoluta, pezzo string)
 //
 // Riscritta per lo Smistamento (R1, U4, fase F2): prima il terzo pezzo era la carta «k:77888888», un codice
 // trovato nella RFQ che nasceva con la revisione delle sue evidenze. Adesso e' la carta «n:77888888», con il
-// codice scritto dall'operatore (StrutturaVoluta.Nuovi).
+// codice scritto dall'operatore (StrutturaVoluta.Nuovi). Riscritta ancora per F5 (P13): il nodo ritrovato per
+// codice entra perche' l'editor l'ha mostrato come ritrovato (RitrovatiVisti).
 func TestPianificaLaStrutturaConINodiProposti(t *testing.T) {
 	b := nuovoBancoVoluta()
 	v := b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 2},
 		ArcoVoluto{Padre: p(b.ritrovato), Figlio: "n:77888888", Qta: 3})
 	v.Nuovi = []ComponenteNuovo{{Codice: "77888888", Tipo: db.TipoComponenteSciolto, Rev: "b"}}
+	v.RitrovatiVisti = []uuid.UUID{b.ritrovato.PropostaID}
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +182,7 @@ func TestPianificaQuantitaERipetizioni(t *testing.T) {
 	// due nodi proposti con lo stesso codice, uno dentro l'altro (STEP veri): non e' un errore, l'arco si salta
 	gemello := propostaVoluta("#9", "77811111", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, gemello}, nil)
+	cx.Autorita = autoritaDi(b.prodotto, b.nuovo, gemello) // due figli diretti con lo stesso codice (F5)
 	v = b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 1}, ArcoVoluto{Padre: p(b.nuovo), Figlio: p(gemello), Qta: 1})
 	pv, err := pianifica(cx, v)
@@ -301,24 +322,30 @@ func TestPianificaRiferimentiECodici(t *testing.T) {
 	rifiutata(t, b.contesto(), v, "non valido")
 }
 
-// «E' il prodotto» non c'e' piu': una struttura che lo manda si rifiuta, qualunque nodo nomini; senza, la
-// radice dello STEP resta un nodo come gli altri e i suoi archi restano suoi.
+// «E' il prodotto» non c'e' piu': la radice di uno STEP qualunque resta un nodo come gli altri, e i suoi
+// archi restano suoi.
 //
 // Riscritta per lo Smistamento (R5, fase F2): prima era TestPianificaLaRadiceDelloStepEIlProdotto e fissava
 // che la radice di uno STEP qualunque, detta «il prodotto», si ritrovasse nel prodotto (i suoi archi
 // diventavano archi del prodotto, la radice una volta sola in pv.Radici; una proposta gia' decisa si
 // rifiutava). Era una decisione sulla struttura presa senza decidere il file: la radice la fissa lo STEP
-// strutturale.
+// strutturale. Riscritta ancora per F5: il campo RadiciProposte e' tolto dal core, e il rifiuto di chi lo
+// manda ancora sta nel gestore della rotta (web, TestUnaStrutturaConEIlProdottoSiRifiuta); qui al suo posto
+// i due rifiuti dei nodi che non entrano: uno scartato, e uno di guida (fuori dall'autorita').
 func TestPianificaRifiutaEIlProdotto(t *testing.T) {
 	b := nuovoBancoVoluta()
 	v := b.comeE()
-	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID, b.radice.PropostaID}
-	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.radice), Qta: 1}, ArcoVoluto{Padre: p(b.radice), Figlio: p(b.nuovo), Qta: 2})
-	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
-	v.RadiciProposte = []uuid.UUID{b.via.PropostaID}
-	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.via), Qta: 1})
+	rifiutata(t, b.contesto(), v, "è stato scartato")
+	guida := propostaVoluta("#8", "77866666", db.StatoPropostaAperta)
+	cx := b.contesto()
+	cx.Proposte[guida.PropostaID] = guida
+	v = b.comeE()
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(guida), Qta: 1})
+	rifiutata(t, cx, v, "77866666 è guida")
 
-	v.RadiciProposte = nil
+	v = b.comeE()
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.radice), Qta: 1}, ArcoVoluto{Padre: p(b.radice), Figlio: p(b.nuovo), Qta: 2})
 	pv, err := pianifica(b.contesto(), v)
 	if err != nil {
 		t.Fatal(err)
@@ -354,12 +381,13 @@ func TestPianificaGliScarti(t *testing.T) {
 	v.Scarta = []uuid.UUID{b.ritrovato.PropostaID}
 	rifiutata(t, b.contesto(), v, "o l'uno o l'altro")
 
-	// riscritta per lo Smistamento (R5, fase F2): prima «e' il prodotto e fra gli scartati»; adesso «E' il
-	// prodotto» si rifiuta da se'
+	// riscritta per lo Smistamento (R5, fase F2): prima «e' il prodotto e fra gli scartati»; poi «E' il
+	// prodotto» si rifiutava da se'. Dal F5 il campo non c'e' piu' (il rifiuto e' nella rotta): la radice
+	// dello STEP messa nella struttura e fra gli scartati e' il caso di sempre, «o l'uno o l'altro»
 	v = b.comeE()
-	v.RadiciProposte = []uuid.UUID{b.radice.PropostaID}
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.radice), Qta: 1})
 	v.Scarta = []uuid.UUID{b.radice.PropostaID}
-	rifiutata(t, b.contesto(), v, "«È il prodotto» non c'è più")
+	rifiutata(t, b.contesto(), v, "o l'uno o l'altro")
 
 	v = b.comeE()
 	v.Scarta = []uuid.UUID{b.via.PropostaID}
@@ -487,17 +515,26 @@ func senzaArco(v StrutturaVoluta, padre, figlio db.Componente) StrutturaVoluta {
 	return v
 }
 
-// Una carta dell'editor sono tutte le proposte aperte con lo stesso codice (lo stesso nodo in due STEP):
-// «scarta» vale per tutte.
+// Una carta dell'editor sono tutte le proposte aperte con lo stesso codice nello stesso file (due PRODUCT con
+// lo stesso codice sotto la stessa sorgente): «scarta» vale per tutte.
 //
 // Riscritta per lo Smistamento (R5, fase F2): prima valeva per tutte anche «e' il prodotto» (le due radici
 // PRT-0001 in pv.Radici). Il gesto e' tolto: la prova fissa lo scarto della carta PRT-0001, che prende
 // tutte e due le radici.
+//
+// Riscritta ancora per lo Smistamento (F5, A5.4.7: le riconciliazioni no): prima la carta prendeva le proposte
+// con lo stesso codice di TUTTI i file (lo stesso nodo in due STEP), e un gesto sulla carta decideva anche
+// quelle che la carta non mostrava. Adesso le gemelle sono nello stesso file e si scartano insieme; la stessa
+// proposta nell'autorita' di un altro file e' un'altra carta: non si scarta con questa, e si scarta da se'.
 func TestPianificaUnaCartaSonoTutteLeProposteDelCodice(t *testing.T) {
 	b := nuovoBancoVoluta()
-	radice2 := propostaVoluta("#1", "PRT-0001", db.StatoPropostaAperta)
+	radice2 := propostaVoluta("#6", "PRT-0001", db.StatoPropostaAperta)
+	radice2.AllegatoID = b.radice.AllegatoID
 	nuovo2 := propostaVoluta("#7", "77811111", db.StatoPropostaAperta)
-	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.radice, radice2, nuovo2, b.senzaCodice}, nil)
+	nuovo2.AllegatoID = b.nuovo.AllegatoID
+	altroFile := propostaVoluta("#8", "77811111", db.StatoPropostaAperta) // un altro STEP autorizzato, lo stesso codice
+	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{b.nuovo, b.radice, radice2, nuovo2, b.senzaCodice, altroFile}, nil)
+	cx.Autorita = autoritaDi(b.prodotto, b.nuovo, b.radice, radice2, nuovo2, b.senzaCodice, altroFile)
 	v := b.comeE()
 	v.Scarta = []uuid.UUID{b.radice.PropostaID, b.nuovo.PropostaID}
 	pv, err := pianifica(cx, v)
@@ -510,28 +547,59 @@ func TestPianificaUnaCartaSonoTutteLeProposteDelCodice(t *testing.T) {
 	if len(pv.Scarta) != 4 || !contieneID(pv.Scarta, nuovo2.PropostaID) {
 		t.Errorf("gli scarti: %v", pv.Scarta)
 	}
+	if contieneID(pv.Scarta, altroFile.PropostaID) {
+		t.Errorf("lo stesso codice in un altro file e' un'altra carta: non si scarta con questa")
+	}
+	v = b.comeE()
+	v.Scarta = []uuid.UUID{altroFile.PropostaID}
+	if pv, err := pianifica(cx, v); err != nil || len(pv.Scarta) != 1 || pv.Scarta[0] != altroFile.PropostaID {
+		t.Errorf("la carta dell'altro file si scarta da se': %v %v", pv.Scarta, err)
+	}
 	// un nodo senza codice non ha una carta comune con nessuno
 	v = b.comeE()
 	v.Scarta = []uuid.UUID{b.senzaCodice.PropostaID}
 	if pv, err := pianifica(cx, v); err != nil || len(pv.Scarta) != 1 {
 		t.Errorf("lo scarto di un nodo senza codice: %v %v", pv.Scarta, err)
 	}
+	// Smistamento F5: una proposta con lo stesso codice fuori dall'autorita' (guida) non e' nella carta
+	guida := propostaVoluta("#9", "77811111", db.StatoPropostaAperta)
+	guida.AllegatoID = b.nuovo.AllegatoID // nello stesso file, ma fuori dall'autorita'
+	cx.Proposte[guida.PropostaID] = guida
+	v = b.comeE()
+	v.Scarta = []uuid.UUID{b.nuovo.PropostaID}
+	if pv, err := pianifica(cx, v); err != nil || contieneID(pv.Scarta, guida.PropostaID) || len(pv.Scarta) != 2 {
+		t.Errorf("la guida con lo stesso codice non si scarta con la carta: %v %v", pv.Scarta, err)
+	}
 }
 
 // Un arco proposto che l'editor ha mostrato verso un nodo aperto con il codice di un componente che c'e':
 // l'editor lo disegna come quel componente, e il nodo si ritrova (non resta aperto per sempre).
+//
+// Prova 128 (Smistamento F5, P13): riscritta. Prima l'arco mostrato era qualunque (qui «#2 → #9», con il
+// nodo ritrovato come padre) e il nodo si ritrovava da solo. Adesso l'arco e' nell'autorita' (dalla sorgente
+// «#0» al figlio diretto «#2»), e il ritrovato entra solo se l'editor l'ha mostrato come tale: senza
+// RitrovatiVisti la conferma si rifiuta; con, il nodo si ritrova. Un arco della guida non ritrova niente.
 func TestPianificaRitrovaINodiDegliArchiMostrati(t *testing.T) {
 	b := nuovoBancoVoluta()
 	aperto := propostaVoluta("#2", "77720517", db.StatoPropostaAperta)
 	cx := nuovoContestoVoluta(b.comp, b.rel, []db.ComponenteProposta{aperto, b.nuovo}, nil)
+	cx.Autorita = autoritaDi(b.prodotto, aperto, b.nuovo)
 	v := b.comeE()
-	v.RelazioniViste = []RelazioneVista{{Allegato: aperto.AllegatoID, Padre: "#2", Figlio: "#9"}}
+	v.RelazioniViste = []RelazioneVista{{Allegato: aperto.AllegatoID, Padre: "#0", Figlio: "#2"}}
+	rifiutata(t, cx, v, "l'editor non l'ha mostrato come ritrovato")
+	v.RitrovatiVisti = []uuid.UUID{aperto.PropostaID}
 	pv, err := pianifica(cx, v)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pv.Ritrovati[aperto.PropostaID] != b.assieme.ComponenteID {
 		t.Errorf("il nodo 77720517 dell'arco mostrato si ritrova nell'assieme: %v", pv.Ritrovati)
+	}
+	// un arco della guida (il padre non e' una sorgente) non ritrova niente
+	v = b.comeE()
+	v.RelazioniViste = []RelazioneVista{{Allegato: aperto.AllegatoID, Padre: "#7", Figlio: "#2"}}
+	if pv, err := pianifica(cx, v); err != nil || len(pv.Ritrovati) != 0 {
+		t.Errorf("un arco di guida non ritrova: %v %v", pv.Ritrovati, err)
 	}
 }
 

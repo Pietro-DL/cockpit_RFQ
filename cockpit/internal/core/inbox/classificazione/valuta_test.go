@@ -102,6 +102,12 @@ func TestComponi(t *testing.T) {
 
 // TestValutaSuiCasiGuida (Smistamento, prova 224, A5.14.2-A5.14.3): i casi dell'addendum, con valori, score,
 // stati e riepilogo in colonna.
+//
+// Riscritta per lo Smistamento (Domanda 7 = B, 27/09): prima fissava il comportamento A, con la rev di
+// «7120001A_1.stp» letto a 45 rev_step_product (il PRODUCT uguale al nome vinceva sul nome) e la radice di
+// famiglia uguale al nome «7120001.stp» a 80 step_radice_famiglia. Adesso la lettura dipendente non vale piu'
+// di quella da cui dipende: la rev resta 40 rev_suffisso_nome, il codice 70 nome_codice_famiglia, e la lettura
+// dipendente resta fra le evidenze con lo score del nome e quello della sua regola in `score_regola`.
 func TestValutaSuiCasiGuida(t *testing.T) {
 	acme := motoreACME(t)
 	stepLetto := json.RawMessage(`{"product_step": "7120001A_1", "struttura": {"versione": 3, "radici": ["#1"], "nodi": [{"chiave": "#1"}, {"chiave": "#2"}], "relazioni": [{"padre": "#1", "figlio": "#2"}]}}`)
@@ -118,7 +124,7 @@ func TestValutaSuiCasiGuida(t *testing.T) {
 		{"7120001A_1.stp letto, PRODUCT uguale al nome", IngressoFile{Da: DaAnalisi, NomeFile: "7120001A_1.stp", Direzione: "entrata", Motore: acme,
 			Esito: &Esito{"cad_3d", "step"}, Fatti: stepLetto},
 			dimAttesa{"cad_3d", 95, "ext_3d", StatoConcorde}, dimAttesa{"7120001A", 45, "nome_codice_generico", StatoUnica},
-			dimAttesa{"1", 45, "rev_step_product", StatoUnica}, Riepilogo{"cad_3d", "7120001A", "1", 45, "nome_file"}, 2, 2},
+			dimAttesa{"1", 40, "rev_suffisso_nome", StatoUnica}, Riepilogo{"cad_3d", "7120001A", "1", 45, "nome_file"}, 2, 2},
 		// lo stesso file con una radice di famiglia diversa dal nome: discorde, e la colonna tiene il nome (D49)
 		{"7120001A_1.stp con la radice 7120001 di famiglia", IngressoFile{Da: DaStruttura, NomeFile: "7120001A_1.stp", Direzione: "entrata", Motore: acme,
 			Fatti: stepLetto, Radice: &Radice{Codice: "7120001", DiFamiglia: true, Famiglia: "ACME 712", Dove: "id", Testo: "7120001"}},
@@ -205,19 +211,31 @@ func TestValutaSuiCasiGuida(t *testing.T) {
 		}
 		for q, d := range map[string]Dimensione{DimTipo: v.Tipo, DimCodice: v.Codice, DimRev: v.Rev} {
 			for _, e := range d.Evidenze {
-				if r := Punteggi[e.Regola]; r.Dimensione != q || r.Score != e.Score || r.Fonte != e.Fonte {
+				if r := Punteggi[e.Regola]; r.Dimensione != q || r.Score != e.ScoreDellaRegola() || r.Fonte != e.Fonte {
 					t.Errorf("%s: evidenza %+v fuori dalla sua regola %+v", c.nome, e, r)
+				}
+				// solo una lettura dipendente vale meno della sua regola, e mai di piu' (Domanda 7 = B)
+				if e.Score > e.ScoreDellaRegola() || (e.Score != e.ScoreDellaRegola() && e.DipendeDa == "") {
+					t.Errorf("%s: evidenza %+v con uno score che non e' della sua regola", c.nome, e)
 				}
 			}
 		}
 	}
-	// la radice di famiglia porta la famiglia, dove e' stata letta e il testo; uguale al nome dipende dal nome
+	// la radice di famiglia porta la famiglia, dove e' stata letta e il testo; uguale al nome dipende dal nome, e
+	// non vale piu' del nome: il codice resta alla regola del nome, 70 perche' la famiglia riconosce il nome stesso
 	v := Valuta(IngressoFile{NomeFile: "7120001.stp", Motore: acme, Radice: &Radice{Codice: "7120001", DiFamiglia: true, Famiglia: "ACME 712", Dove: "id", Testo: "7120001"}})
-	if e := v.Codice.Evidenze[0]; e.Regola != "step_radice_famiglia" || e.Famiglia != "ACME 712" || e.Dove != "id" || e.DipendeDa != "nome_file" {
+	if len(v.Codice.Evidenze) != 2 {
+		t.Fatalf("la radice uguale al nome resta fra le evidenze: %+v", v.Codice.Evidenze)
+	}
+	if e := v.Codice.Evidenze[1]; e.Regola != "step_radice_famiglia" || e.Famiglia != "ACME 712" || e.Dove != "id" || e.DipendeDa != "nome_file" ||
+		e.Score != 70 || e.ScoreRegola != 80 {
 		t.Errorf("la radice uguale al nome: %+v", v.Codice.Evidenze)
 	}
-	if v.Codice.Stato != StatoUnica || v.Codice.Score != 80 {
-		t.Errorf("uguale al nome non fa due fonti, e vale la piu' forte: %+v", v.Codice)
+	if v.Codice.Stato != StatoUnica || v.Codice.Score != 70 || v.Codice.Regola != "nome_codice_famiglia" || v.Codice.Evidenze[0].Regola != "nome_codice_famiglia" {
+		t.Errorf("uguale al nome non fa due fonti e non vale piu' del nome: %+v", v.Codice)
+	}
+	if r := v.Riepilogo(); r.Codice != "7120001" || r.Confidenza != 70 || r.Fonte != "nome_file" {
+		t.Errorf("in colonna la lettura del nome: %+v", r)
 	}
 	// il nome del caso guida con la famiglia che riconosce il nome intero vale 70
 	if v := Valuta(IngressoFile{NomeFile: "7120001_2.pdf", Motore: acme}); v.Codice.Regola != "nome_codice_famiglia" || v.Codice.Score != 70 ||

@@ -152,9 +152,14 @@ func TestConLaBomCongelataIlPannelloNonOffreGestiCheLaCambiano(t *testing.T) {
 
 // Le due frasi della riga di un codice della richiesta senza componente (Smistamento F3, rilievo della
 // verifica di F2): la strada della revisione solo per il codice che il congelamento ha fermato.
+//
+// Riscritta per lo Smistamento (scelta 6, 27/09): prima la seconda frase prometteva il ritorno del prodotto
+// con «una decisione del triage» qualunque (la creazione della RFQ o l'aggancio di una mail), perche'
+// l'aggancio rifaceva tutti i prodotti della richiesta. Adesso l'aggancio crea solo i codici confermati nel suo
+// gesto, e la frase dice che serve una persona che ne confermi di nuovo il codice.
 const (
 	fraseRichiestaConRevisione   = "il prodotto entra aprendo una revisione della BOM"
-	fraseRichiestaSenzaRevisione = "il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione: rientra solo con una decisione del triage"
+	fraseRichiestaSenzaRevisione = "il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione né agganciando una mail: rientra solo se una persona ne conferma di nuovo il codice nel triage"
 )
 
 // Smistamento F3 (rilievo della verifica di F2; R1, E11): con la BOM congelata la riga promette la revisione

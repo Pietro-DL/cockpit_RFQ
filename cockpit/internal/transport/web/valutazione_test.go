@@ -10,6 +10,7 @@ import (
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -161,6 +162,67 @@ func TestIlFrammentoDimensioneDiceCheCosaMisura(t *testing.T) {
 	if valutazioneDi(nil, "x.pdf").Tipo.ConValore() {
 		t.Error("senza proposta non c'e' niente da mostrare")
 	}
+}
+
+// TestLaLetturaDipendenteNonAlzaLoScoreNelFrammento (Domanda 7 = B, 27/09, il caso guida): la rev di
+// «7120001A_1.stp» con il PRODUCT «7120001A_1» si mostra con la regola del nome, «score 40 · convenzione
+// generica _1», e non «score 45 · rev dal PRODUCT dello STEP»; il PRODUCT resta fra le evidenze con lo score
+// del nome, e la nota dice che dipende dal nome e non vale piu' del nome. Una fonte sola, nessun «2 fonti».
+// La stessa riga salvata v1 (con la rev vinta dal PRODUCT) si mostra allo stesso modo.
+func TestLaLetturaDipendenteNonAlzaLoScoreNelFrammento(t *testing.T) {
+	v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaAnalisi, NomeFile: "7120001A_1.stp", Direzione: "entrata",
+		Esito: &classificazione.Esito{Tipo: "cad_3d", Fonte: "step"}, Fatti: json.RawMessage(`{"product_step": "7120001A_1"}`)})
+	salvata, _ := json.Marshal(map[string]any{"valutazione": v, "product_step": "7120001A_1"})
+	// la stessa lettura come la scriveva la v1: la dimensione vinta dal PRODUCT, le evidenze con lo score della tabella
+	v1 := v
+	v1.V = 1
+	v1.Rev = classificazione.Dimensione{Valore: "1", Score: 45, Regola: "rev_step_product", Stato: classificazione.StatoUnica,
+		Evidenze: append([]classificazione.Evidenza(nil), v.Rev.Evidenze...)}
+	for i := range v1.Rev.Evidenze {
+		if e := &v1.Rev.Evidenze[i]; e.ScoreRegola > 0 {
+			e.Score, e.ScoreRegola = e.ScoreRegola, 0
+		}
+	}
+	vecchia, _ := json.Marshal(map[string]any{"valutazione": v1, "product_step": "7120001A_1"})
+	for nome, dett := range map[string][]byte{"v2": salvata, "v1": vecchia} {
+		vv := valutazioneDi(&db.DocumentoProposta{TipoProposto: db.TipoDocumentoCad3d, Codice: txtT("7120001A"), Rev: txtT("1"),
+			Fonte: db.FontePropostaNomeFile, Confidenza: 45, Dettagli: dett}, "7120001A_1.stp")
+		h := rendiDimensione(t, dimVista("Rev", vv.Rev))
+		haTesto(t, nome, h, `<b class="mono">1</b> · <span class="punteggio" title="`+titoloScoreS1+`">score 40</span> · convenzione generica _1`,
+			"rev dal PRODUCT dello STEP", "dipende dal nome del file: non è una seconda fonte e non vale più del nome, anche se la sua regola da sola varrebbe di più",
+			`<details class="dim-evidenze">`)
+		senzaTesto(t, nome, h, "score 45", "2 fonti", "fonti discordi", "ricostruita", "%")
+		if vv.Rev.Fonti() != 1 {
+			t.Errorf("%s: fonti %d, attesa una", nome, vv.Rev.Fonti())
+		}
+	}
+	// una dipendenza da un'altra fonte si dice con la sua fonte
+	e := classificazione.Evidenza{Regola: "pdf_termini_offerta_entrata", Valore: "commerciale", Score: 40, ScoreRegola: 50, DipendeDa: "estensione"}
+	if got := dipendenzaEvidenza(e); got != "dipende da un'altra lettura («estensione»): non è una seconda fonte e non vale più di quella lettura, anche se la sua regola da sola varrebbe di più" {
+		t.Errorf("dipendenza da un'altra fonte: %q", got)
+	}
+}
+
+// TestLIndizioDellOcrSiMostraSenzaScore (Smistamento F9; decisioni del 27/09 «ter»: l'OCR e' un'evidenza, non
+// un automatismo): un codice letto con l'OCR nel cartiglio di «7120010.pdf», diverso dal nome, si mostra fra le
+// evidenze del codice con il codice, la fonte («letto con l'OCR») e «indizio, senza score», senza un numero e
+// senza fare «fonti discordi». La dimensione resta quella del nome.
+func TestLIndizioDellOcrSiMostraSenzaScore(t *testing.T) {
+	m := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
+		Regex: `(?P<codice>712\d{4})`, Descrizione: "ACME 712", Esempio: "7120001"}}})
+	fatti := json.RawMessage(`{"codice_riconosciuto": "7120010", "testo_letto": 0, "testo_pdf": {"versione": 1, "estraibile": false,
+		"frammenti": [{"pagina": 1, "zona": "basso_destra", "fonte": "ocr", "testo": "DISEGNO N. 7120011", "riquadro": [600, 500, 700, 512], "confidenza": 62}],
+		"ocr": {"stato": "eseguito", "motore": "tesseract (pymupdf)"}}}`)
+	v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaAnalisi, NomeFile: "7120010.pdf", Direzione: "entrata",
+		Motore: m, Esito: &classificazione.Esito{Tipo: "da_determinare", Fonte: "nome_file"}, Fatti: fatti})
+	dett, _ := json.Marshal(map[string]any{"valutazione": v})
+	vv := valutazioneDi(&db.DocumentoProposta{TipoProposto: db.TipoDocumentoDaDeterminare, Codice: txtT("7120010"),
+		Fonte: db.FontePropostaNomeFile, Confidenza: 70, Dettagli: dett}, "7120010.pdf")
+	h := rendiDimensione(t, dimVista("Codice letto", vv.Codice))
+	haTesto(t, "indizio OCR", h, `<b class="mono">7120010</b> · <span class="punteggio" title="`+titoloScoreS1+`">score 70</span>`,
+		`<span class="mono">7120011</span> · <span class="k muto"`, "indizio, senza score", "codice letto con l&#39;OCR",
+		"letto con l&#39;OCR", `famiglia «ACME 712»`)
+	senzaTesto(t, "indizio OCR", h, "score 0", "fonti discordi", "2 fonti", "%")
 }
 
 // TestLaFunzioneScoreNonScriveMaiUnaPercentuale (U-C1): «score N» con il tooltip, per le dimensioni, le

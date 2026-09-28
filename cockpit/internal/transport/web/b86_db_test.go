@@ -97,9 +97,16 @@ func TestIlPannelloDeiCodiciNellaRfqSiLegge(t *testing.T) {
 	if strings.Contains(rigaDelCodice(t, html, "77722757"), "proposta aperta dallo STEP") {
 		t.Error("prima di «Rianalizza» il pannello non ha proposte dello STEP")
 	}
+	// Riscritta per lo Smistamento (F9, analizzatore 4), nell'avviso di «Rianalizza»: prima fissava «1 STEP
+	// riletto con le regole del cliente.» e basta. Il PDF 77760000_B.pdf della RFQ e' `analizzato` senza i fatti
+	// dell'analizzatore corrente: adesso il gesto lo accoda per rileggerne il testo, e lo dice.
 	_, html = w.fai(http.MethodPost, "/thread/"+r.thread.String()+"/fascicolo/rianalizza", url.Values{}, true)
-	if a := avvisoDi(html); a != "1 STEP riletto con le regole del cliente." {
+	if a := avvisoDi(html); a != "1 STEP riletto con le regole del cliente, 1 PDF accodato per rileggerne il testo." {
 		t.Fatalf("rianalizza: %q", a)
+	}
+	if n := r.conta(`SELECT count(*) FROM job j JOIN allegato a ON a.sha256 = j.payload ->> 'sha256'
+		WHERE j.tipo = 'analizza_allegato' AND a.nome_file = '77760000_B.pdf' AND a.messaggio_id = $1`, r.msg); n != 1 {
+		t.Errorf("l'analisi del PDF accodata da «Rianalizza»: %d, attesa 1", n)
 	}
 	_, html = w.fai(http.MethodGet, "/thread/"+r.thread.String(), nil, false)
 	casi := map[string][]string{

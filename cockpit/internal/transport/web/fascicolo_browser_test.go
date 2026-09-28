@@ -144,17 +144,24 @@ func lanciaL7(t *testing.T, s *scenaL7, prove string) {
 
 // Accettare il nodo e poi la struttura proposta (nell'editor, Fascicolo v3) cambia la BOM senza ricaricare
 // la pagina e senza chiudere il PDF aperto; un clic sulla card apre il dettaglio del componente; un clic sul
-// file apre il PDF; la struttura si corregge (tipo) e la completezza sulla card cambia; le viste di servizio
-// restano.
+// file apre il PDF; il tipo si sceglie dalla sezione «Tipo» della scheda e la completezza sulla card cambia; le
+// viste di servizio restano; il tipo si sceglie anche dall'editor della Struttura BOM (fase T, prova J).
+//
+// Riscritta per lo Smistamento (fase T): prima la prova F portava l'assieme a particolare da «Modifica».
+// Adesso l'assieme, che ha dei figli, diventa commerciale dalla sezione «Tipo», e J porta a commerciale il
+// particolare dall'editor.
 func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7A", 0)
-	lanciaL7(t, s, "ABCDFH")
+	lanciaL7(t, s, "ABCDFHJ")
 	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); n != 1 {
 		t.Errorf("il nodo accettato nel browser non e' nella BOM: %d", n)
 	}
-	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "sciolto" {
+	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "commerciale" {
 		t.Errorf("il tipo cambiato nel browser: %s", got)
+	}
+	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.particolare); got != "commerciale" {
+		t.Errorf("il tipo cambiato dall'editor nel browser: %s", got)
 	}
 	if got := s.valore(`SELECT tipo::text || '/' || origine::text FROM componente WHERE thread_id = $1 AND codice = '77899999'`, s.thread); got != "sciolto/codice_rilevato" {
 		t.Errorf("il codice aggiunto dal cassetto nel browser: %s", got)

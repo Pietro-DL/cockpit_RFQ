@@ -32,9 +32,16 @@ func step(codice, esito string, deroga, derogaCad bool) db.ListGateStepRow {
 // logici (Conti.BloccantiLogici, da ContaBloccantiLogici) e il NAS e' il terzo elenco: i due casi restano,
 // con il gate che PASSA e la frase cercata in Materializzazione; ogni altro caso controlla in piu' che
 // il terzo elenco sia vuoto.
+//
+// Riscritta per lo Smistamento (F5, A5.4.8, L2, L3): prima fissava tre conteggi di GateCongelamento, «N
+// proposte strutturali aperte (componenti, relazioni, rimozioni)», cioe' ogni proposta aperta della RFQ.
+// Adesso i conteggi sono quelli di GateStrutturale, solo nell'autorita' (figli diretti, relazioni dalle
+// sorgenti, rimozioni), con la stessa frase per ciascuno; in piu' un'autorizzazione da sistemare ferma il
+// gate (L3), e la guida sotto un pezzo deciso e' un avviso che non ferma. Smistamento G: in piu' la
+// dichiarazione sospesa e il file autorizzato letto in parte, due avvisi che non fermano.
 func TestIlGateSiFermaSuOgniCondizione(t *testing.T) {
 	pulito := Conti{}
-	strutturali := func(r db.GateCongelamentoRow) Conti { return Conti{Strutturali: r} }
+	strutturali := func(r db.GateStrutturaleRow) Conti { return Conti{Strutturali: r} }
 	casi := []struct {
 		nome   string
 		c      Conti
@@ -46,9 +53,17 @@ func TestIlGateSiFermaSuOgniCondizione(t *testing.T) {
 	}{
 		{nome: "tutto a posto", step: []db.ListGateStepRow{step("P1", StepAnalizzato, false, false)}},
 		{nome: "requisiti bloccanti", c: Conti{BloccantiLogici: 2}, frase: "2 requisiti bloccanti"},
-		{nome: "proposte di componente", c: strutturali(db.GateCongelamentoRow{NProposteComponente: 1}), frase: "1 proposte strutturali aperte (1 componenti, 0 relazioni, 0 rimozioni)"},
-		{nome: "proposte di relazione", c: strutturali(db.GateCongelamentoRow{NProposteRelazione: 3}), frase: "3 proposte strutturali aperte"},
-		{nome: "proposte di rimozione", c: strutturali(db.GateCongelamentoRow{NProposteRimozione: 1}), frase: "0 relazioni, 1 rimozioni"},
+		{nome: "figli diretti da decidere", c: strutturali(db.GateStrutturaleRow{NFigliDaDecidere: 1}), frase: "1 decisioni strutturali aperte negli STEP autorizzati (1 figli diretti, 0 relazioni, 0 rimozioni)"},
+		{nome: "relazioni da decidere", c: strutturali(db.GateStrutturaleRow{NArchiDaDecidere: 3}), frase: "3 decisioni strutturali aperte"},
+		{nome: "rimozioni da decidere", c: strutturali(db.GateStrutturaleRow{NRimozioni: 1}), frase: "0 relazioni, 1 rimozioni"},
+		{nome: "autorizzazione da sistemare", c: Conti{Autorizzazioni: []string{"7120010 · STEP autorizzato 7120010.stp: superata"}},
+			frase: "autorizzazione da sistemare: 7120010 · STEP autorizzato 7120010.stp: superata"},
+		{nome: "guida sotto un pezzo deciso: avviso", c: Conti{Guida: "7120010 ha 1 figlio che resta guida"}, avviso: "7120010 ha 1 figlio che resta guida"},
+		// Smistamento G (A5.4.8): la dichiarazione sospesa e il file autorizzato letto in parte sono avvisi
+		{nome: "autorizzazione sospesa: avviso", c: Conti{Sospese: []string{"7120010 · STEP autorizzato 7120010.stp: sospesa: 7120010: è diventato commerciale"}},
+			avviso: "autorizzazione sospesa: 7120010 · STEP autorizzato 7120010.stp: sospesa"},
+		{nome: "file autorizzato letto in parte: avviso", c: Conti{Parziali: []string{"7120010 · STEP autorizzato 7120010.stp letto in parte (lettura troncata): le rimozioni restano sospese"}},
+			avviso: "letto in parte (lettura troncata): le rimozioni restano sospese"},
 		{nome: "documenti in errore: non fermano", c: Conti{Nas: Materializzazione{Documenti: 3, Scritti: 2, Errore: 1}}, nas: "1 documento in errore sul NAS"},
 		{nome: "anomalie NAS: non fermano", c: Conti{Nas: Materializzazione{Documenti: 1, Scritti: 1, Anomalie: 1}}, nas: "1 anomalia NAS aperta sui documenti"},
 		{nome: "STEP parziale senza deroga", step: []db.ListGateStepRow{step("P1", StepParziale, false, true)}, frase: "serve una deroga strutturale"},

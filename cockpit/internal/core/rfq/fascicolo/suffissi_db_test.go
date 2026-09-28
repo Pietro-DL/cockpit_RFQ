@@ -58,6 +58,9 @@ func stepConSuffissi() fattiSTEP {
 // Un nodo dello STEP che porta il suffisso decorativo del cliente propone il codice del pezzo: 77720000, non
 // 77720000_PRT; con la revisione prima del suffisso, codice e revisione separati. Il grezzo del file resta
 // com'e' (e' un fatto). Accettato, il componente nasce con il codice del pezzo.
+//
+// Riscritta per lo Smistamento (F5): il nodo si accetta perche' il file e' autorizzato per l'assieme 77840000
+// (la sua radice); prima si accettava da uno STEP qualunque, e l'assieme non c'era.
 func TestUnNodoConIlSuffissoDecorativoProponeIlCodiceDelPezzo(t *testing.T) {
 	b := nuovoBanco(t)
 	b.conRegole(regoleSuffissoPRT)
@@ -66,6 +69,7 @@ func TestUnNodoConIlSuffissoDecorativoProponeIlCodiceDelPezzo(t *testing.T) {
 	if got, want := b.letturaDeiNodi(), "#1=77840000/-/generico:aperta #2=77720000/-/generico:aperta #3=77730000/C/generico:aperta"; got != want {
 		t.Fatalf("nodi = %q, attesi %q", got, want)
 	}
+	b.autorizza(b.componente("77840000", db.TipoComponenteSottoassieme), a, stepConSuffissi().json())
 	if got := uno[string](b, `SELECT nome_grezzo || '|' || id_grezzo FROM componente_proposta WHERE thread_id = $1 AND chiave = '#2'`, b.thread); got != "77720000_PRT|77720000_PRT" {
 		t.Errorf("il grezzo del nodo e' cambiato: %q", got)
 	}
@@ -78,15 +82,20 @@ func TestUnNodoConIlSuffissoDecorativoProponeIlCodiceDelPezzo(t *testing.T) {
 	if !strings.Contains(msg, "77720000 entra nella BOM come sciolto") {
 		t.Errorf("messaggio: %q", msg)
 	}
-	if got := b.codiciDeiComponenti(); got != "77720000" {
-		t.Errorf("componenti = %q, atteso il solo 77720000", got)
+	if got := b.codiciDeiComponenti(); got != "77720000 77840000" {
+		t.Errorf("componenti = %q, atteso il solo 77720000 accanto all'assieme", got)
 	}
 }
 
 // Un pezzo accettato come «77720000_PRT» prima che la regola ci fosse e' lo stesso pezzo che lo STEP, letto
-// adesso con la regola, chiama 77720000: il nodo ne e' un duplicato, agganciato a lui, e l'arco uguale a quello
-// della working pure. Niente da decidere, nessun secondo componente, e il codice del componente non cambia.
+// adesso con la regola, chiama 77720000: accettato da una persona, il nodo ne e' un duplicato, agganciato a lui,
+// e l'arco uguale a quello della working pure. Nessun secondo componente, e il codice del componente non cambia.
 // Vale sia per il nodo scritto senza suffisso sia per quello scritto con.
+//
+// Riscritta per lo Smistamento (F5): prima la lettura agganciava da sola, per il codice senza suffisso (l'alias,
+// conCanonici), la radice al prodotto e il nodo al pezzo, e l'arco era un duplicato: niente da decidere. Adesso
+// l'alias e' un suggerimento: letto, il file ha tutto aperto e nessun componente (anche autorizzato per il
+// prodotto, il figlio resta da decidere); il ritrovamento lo fa la persona che accetta il nodo, e poi l'arco.
 func TestUnComponenteConIlSuffissoAccettatoPrimaDellaRegolaEDuplicatoDelNodo(t *testing.T) {
 	for _, nodo := range []string{"77720000", "77720000_PRT"} {
 		t.Run("nodo "+nodo, func(t *testing.T) {
@@ -96,18 +105,32 @@ func TestUnComponenteConIlSuffissoAccettatoPrimaDellaRegolaEDuplicatoDelNodo(t *
 			b.arco(p, x, 2)
 			b.conRegole(regoleSuffissoPRT)
 			a := b.allegatoStep("77840000.stp", strings.Repeat("e", 64))
-			es := b.applica(a, fattiSTEP{nodi: []string{"#1=77840000", "#2=" + nodo}, archi: []string{"#1>#2*2"}}.json())
-			if got, want := b.nodiEComponenti(), "#1:duplicato:"+p.String()+" #2:duplicato:"+x.String(); got != want {
-				t.Errorf("nodi = %q, attesi %q", got, want)
+			f := fattiSTEP{nodi: []string{"#1=77840000", "#2=" + nodo}, archi: []string{"#1>#2*2"}}
+			es := b.applica(a, f.json())
+			if got, want := b.nodiEComponenti(), "#1:aperta:- #2:aperta:-"; got != want {
+				t.Errorf("nodi = %q, attesi %q: l'alias non aggancia", got, want)
+			}
+			if es.NodiAperti != 2 || es.RelazioniAperte != 1 {
+				t.Errorf("proposte aperte: %d nodi e %d relazioni, attesi 2 e 1", es.NodiAperti, es.RelazioniAperte)
 			}
 			if got := uno[string](b, `SELECT codice FROM componente_proposta WHERE thread_id = $1 AND chiave = '#2'`, b.thread); got != "77720000" {
 				t.Errorf("il nodo propone %q: il codice letto e' quello del pezzo, 77720000", got)
 			}
+			b.autorizza(p, a, f.json())
+			if got, want := b.nodiEComponenti(), "#1:duplicato:"+p.String()+" #2:aperta:-"; got != want {
+				t.Errorf("autorizzato: nodi = %q, attesi %q", got, want)
+			}
+			b.accetta("#2")
+			if got, want := b.nodiEComponenti(), "#1:duplicato:"+p.String()+" #2:duplicato:"+x.String(); got != want {
+				t.Errorf("accettato: nodi = %q, attesi %q", got, want)
+			}
+			if _, err := b.gesto(func(q *db.Queries) (string, error) {
+				return fascicolo.AccettaRelazione(b.ctx, q, b.thread, fascicolo.ChiaveRelazione{Allegato: a.AllegatoID, Padre: "#1", Figlio: "#2"}, b.utente)
+			}); err != nil {
+				t.Fatal(err)
+			}
 			if got := b.relazioniProposte(); got != "#1>#2*2:duplicato" {
 				t.Errorf("relazioni = %q, attesa #1>#2*2:duplicato", got)
-			}
-			if es.NodiAperti != 0 || es.RelazioniAperte != 0 {
-				t.Errorf("proposte aperte: %d nodi e %d relazioni, attese nessuna", es.NodiAperti, es.RelazioniAperte)
 			}
 			if got := b.codiciDeiComponenti(); got != "77720000_PRT 77840000" {
 				t.Errorf("componenti = %q: nessun componente nuovo, e il codice di quello vecchio non cambia", got)
@@ -127,13 +150,17 @@ func TestSenzaSuffissiLoStepSiLeggeComePrima(t *testing.T) {
 			t.Errorf("nodi = %q, attesi %q", got, want)
 		}
 	})
+	// riscritta per lo Smistamento (F5): la radice e' il prodotto perche' il file e' autorizzato per lui (prima
+	// per il codice uguale); il resto e' come prima
 	t.Run("il componente con il suffisso", func(t *testing.T) {
 		b := nuovoBanco(t)
 		p := b.componente("77840000", db.TipoComponenteFinito)
 		x := b.componente("77720000_PRT", db.TipoComponenteSciolto)
 		b.arco(p, x, 2)
 		a := b.allegatoStep("77840000.stp", strings.Repeat("e", 64))
-		es := b.applica(a, fattiSTEP{nodi: []string{"#1=77840000", "#2=77720000"}, archi: []string{"#1>#2*2"}}.json())
+		f := fattiSTEP{nodi: []string{"#1=77840000", "#2=77720000"}, archi: []string{"#1>#2*2"}}
+		b.autorizza(p, a, f.json())
+		es := b.applica(a, f.json())
 		if got, want := b.nodiEComponenti(), "#1:duplicato:"+p.String()+" #2:aperta:-"; got != want {
 			t.Errorf("nodi = %q, attesi %q", got, want)
 		}
@@ -154,14 +181,19 @@ func TestSenzaSuffissiLoStepSiLeggeComePrima(t *testing.T) {
 // regola_cliente e famiglia, dove e testo nei dettagli, con o senza la regola dei suffissi; un codice che E' di
 // famiglia restava. Adesso la lettura e' del nome del file vero, e la radice e' un'evidenza accanto: con la
 // regola «_PRT» il nome «77720000_PRT.stp» e' il pezzo 77720000 e la radice lo conferma (dipende dal nome: una
-// fonte, la piu' forte in colonna); senza la regola il nome dice «77720000_PRT», la radice 77720000, e il codice
-// e' discorde: la colonna tiene il nome (D49). Un nome di famiglia diverso dalla radice resta, discorde.
+// fonte, e in colonna la lettura del nome); senza la regola il nome dice «77720000_PRT», la radice 77720000, e
+// il codice e' discorde: la colonna tiene il nome (D49). Un nome di famiglia diverso dalla radice resta, discorde.
+//
+// Riscritta per lo Smistamento (Domanda 7 = B, 27/09): prima fissava che con la regola «_PRT» la radice
+// dipendente dal nome vincesse lo stesso (regola_cliente 80, «la piu' forte in colonna»). Adesso una lettura
+// dipendente non vale piu' di quella da cui dipende: in colonna c'e' il nome di famiglia (nome_file 70), e la
+// radice resta fra le evidenze con `dipende_da`.
 func TestD16IlCodiceDelDocumentoRestaSoloSeEUnCodiceDiFamiglia(t *testing.T) {
 	casi := []struct {
 		nome, regole, file, atteso string
 	}{
 		{"il codice con il suffisso, con la regola", famiglia777ConSuffisso, "77720000_PRT.stp",
-			"77720000:-:regola_cliente:80:unica:disegni 777:id:77720000_PRT:nome_file"},
+			"77720000:-:nome_file:70:unica:disegni 777:id:77720000_PRT:nome_file"},
 		{"il codice con il suffisso, senza la regola", famiglia777SenzaSuffissi, "77720000_PRT.stp",
 			"77720000_PRT:-:nome_file:45:discorde:disegni 777:id:77720000_PRT:-"},
 		{"un codice di famiglia", famiglia777ConSuffisso, "77722757.stp",
@@ -204,8 +236,13 @@ func TestUnaFamigliaConLaRevisioneNonLeggeIlSuffissoComeRevisione(t *testing.T) 
 	}
 }
 
-// Il pezzo nato come «77720000_PRT» e poi archiviato: il nodo «77720000» dice che accettarlo lo ripristina, e
-// accettarlo ripristina proprio quello (nessun secondo componente 77720000).
+// Il pezzo nato come «77720000_PRT» e poi archiviato: accettare il nodo «77720000» ripristina proprio quello
+// (nessun secondo componente 77720000).
+//
+// Riscritta per lo Smistamento (F5): prima la lettura scriveva sul nodo la nota «il componente 77720000_PRT e'
+// archiviato: accettare la proposta lo ripristina», una conseguenza del codice uguale scritta come se fosse un
+// fatto. Adesso la riga resta aperta, senza nota e senza componente (il suggerimento si calcola in lettura), e il
+// nodo si accetta perche' il file e' autorizzato per il prodotto.
 func TestAccettareIlNodoRipristinaIlPezzoConIlSuffisso(t *testing.T) {
 	b := nuovoBanco(t)
 	p := b.componente("77840000", db.TipoComponenteFinito)
@@ -213,9 +250,9 @@ func TestAccettareIlNodoRipristinaIlPezzoConIlSuffisso(t *testing.T) {
 	b.esegui(`UPDATE componente SET archiviato_il = now(), archiviato_da = $2, motivo_archiviazione = 'tolto dal cliente' WHERE componente_id = $1`, x, b.utente)
 	b.conRegole(regoleSuffissoPRT)
 	a := b.allegatoStep("77840000.stp", strings.Repeat("b", 64))
-	b.applica(a, fattiSTEP{nodi: []string{"#1=77840000", "#2=77720000"}, archi: []string{"#1>#2*2"}}.json())
-	if got := uno[string](b, `SELECT stato || ':' || coalesce(nota, '') FROM componente_proposta WHERE thread_id = $1 AND chiave = '#2'`, b.thread); !strings.HasPrefix(got, "aperta:") ||
-		!strings.Contains(got, "77720000_PRT") {
+	b.autorizza(p, a, fattiSTEP{nodi: []string{"#1=77840000", "#2=77720000"}, archi: []string{"#1>#2*2"}}.json())
+	if got := uno[string](b, `SELECT stato || ':' || coalesce(nota, '') || ':' || coalesce(componente_id::text, '-') FROM componente_proposta
+		WHERE thread_id = $1 AND chiave = '#2'`, b.thread); got != "aperta::-" {
 		t.Fatalf("il nodo davanti al pezzo archiviato: %q", got)
 	}
 	msg, err := b.gesto(func(q *db.Queries) (string, error) {
