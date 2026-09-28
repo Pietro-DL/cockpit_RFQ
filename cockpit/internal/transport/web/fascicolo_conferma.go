@@ -3,10 +3,12 @@ package web
 // «Conferma Fascicolo» e le decisioni di «Da verificare» (B8.7b).
 //
 // Il piano (core/rfq/fascicolo/piano.go) dice che cosa e' pronto: file con tipo, codice e componente senza
-// conflitti, strutture di STEP senza nodi da decidere, lo STEP strutturale quando e' uno solo. Una conferma
-// sola li porta nel fascicolo, in una transazione: prima la struttura (nascono i componenti), poi i
-// documenti (ciascuno con la conferma di sempre, che sceglie il posto sul NAS e accoda la copia), poi lo
-// STEP strutturale. Un solo rifiuto annulla tutto, e l'avviso dice quale file e perche'.
+// conflitti, strutture di STEP senza nodi da decidere. Una conferma sola li porta nel fascicolo, in una
+// transazione: prima la struttura (nascono i componenti), poi i documenti (ciascuno con la conferma di sempre,
+// che sceglie il posto sul NAS e accoda la copia). Un solo rifiuto annulla tutto, e l'avviso dice quale file e
+// perche'. Lo STEP strutturale non c'e' (Smistamento F5b, P26, U7): e' un'autorizzazione, che si da' con
+// l'anteprima e la casella mai spuntata dalla scheda del componente o dal cassetto, anche quando lo STEP e' uno
+// solo. La conferma del piano non autorizza niente.
 //
 // La conferma lavora sul piano di adesso, ricalcolato nella sua transazione con la RFQ bloccata: senza
 // elenco conferma tutto il pronto, ma solo se la firma e' quella che l'operatore aveva davanti; con un
@@ -36,25 +38,28 @@ import (
 func (s *Server) registraConferma(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/fascicolo/avanzamento", s.autenticato(s.fascicoloAvanzamento))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/nas", s.autenticato(s.fascicoloNas))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/nas/importa", s.autenticato(s.importaDalNas))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/conferma", s.autenticato(s.confermaFascicolo))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/proposta/{pid}/decidi", s.autenticato(s.decidiProposta))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/nas/importa", s.autenticato(s.dopoICaricamenti(s.importaDalNas)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/conferma", s.autenticato(s.dopoIlGesto(s.confermaFascicolo)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/proposta/{pid}/decidi", s.autenticato(s.dopoIlGesto(s.decidiProposta)))
 }
 
 // selezione sono le voci del piano che la conferma deve portare nel fascicolo.
 type selezione struct {
-	file        map[uuid.UUID]bool // proposte dei documenti
-	strutture   map[uuid.UUID]bool // allegati STEP
-	strutturali map[uuid.UUID]bool // prodotti finiti
+	file      map[uuid.UUID]bool // proposte dei documenti
+	strutture map[uuid.UUID]bool // allegati STEP
 }
 
-func (s selezione) vuota() bool { return len(s.file)+len(s.strutture)+len(s.strutturali) == 0 }
+func (s selezione) vuota() bool { return len(s.file)+len(s.strutture) == 0 }
 
-// selezioneDal legge le voci dal form (voce, struttura, strutturale); senza, tutte le pronte, se la firma
-// e' quella del piano.
+// selezioneDal legge le voci dal form (voce, struttura); senza, tutte le pronte, se la firma e' quella del
+// piano. Il campo `strutturale` (la casella dello STEP strutturale di prima, nata spuntata) si rifiuta: lo
+// STEP si autorizza con l'anteprima (Smistamento F5b).
 func selezioneDal(r *http.Request, p fascicolo.PianoFascicolo) (selezione, error) {
-	sel := selezione{file: map[uuid.UUID]bool{}, strutture: map[uuid.UUID]bool{}, strutturali: map[uuid.UUID]bool{}}
-	for campo, m := range map[string]map[uuid.UUID]bool{"voce": sel.file, "struttura": sel.strutture, "strutturale": sel.strutturali} {
+	sel := selezione{file: map[uuid.UUID]bool{}, strutture: map[uuid.UUID]bool{}}
+	if len(r.Form["strutturale"]) > 0 {
+		return sel, rifiuto("lo STEP strutturale non si conferma con il piano: si autorizza dalla scheda del componente, con l'anteprima")
+	}
+	for campo, m := range map[string]map[uuid.UUID]bool{"voce": sel.file, "struttura": sel.strutture} {
 		ids, err := uuidDalForm(r.Form[campo])
 		if err != nil {
 			return sel, rifiuto("voce del piano non valida")
@@ -74,12 +79,7 @@ func selezioneDal(r *http.Request, p fascicolo.PianoFascicolo) (selezione, error
 				return sel, rifiuto("la struttura di " + v.Nome + " non è più pronta: ricontrolla il piano")
 			}
 		}
-		for _, v := range p.Strutturali {
-			if sel.strutturali[v.Prodotto.ComponenteID] && v.Stato != fascicolo.VocePronta {
-				return sel, rifiuto("lo STEP strutturale di " + v.Prodotto.Codice + " non è più pronto: ricontrolla il piano")
-			}
-		}
-		if n := len(sel.file) + len(sel.strutture) + len(sel.strutturali); n != contaSelezionabili(p, sel) {
+		if n := len(sel.file) + len(sel.strutture); n != contaSelezionabili(p, sel) {
 			return sel, rifiuto("una voce scelta non è più nel piano: ricontrolla e conferma di nuovo")
 		}
 		return sel, nil
@@ -97,11 +97,6 @@ func selezioneDal(r *http.Request, p fascicolo.PianoFascicolo) (selezione, error
 			sel.strutture[v.Allegato] = true
 		}
 	}
-	for _, v := range p.Strutturali {
-		if v.Stato == fascicolo.VocePronta {
-			sel.strutturali[v.Prodotto.ComponenteID] = true
-		}
-	}
 	return sel, nil
 }
 
@@ -115,11 +110,6 @@ func contaSelezionabili(p fascicolo.PianoFascicolo, sel selezione) int {
 	}
 	for _, v := range p.Strutture {
 		if sel.strutture[v.Allegato] {
-			n++
-		}
-	}
-	for _, v := range p.Strutturali {
-		if sel.strutturali[v.Prodotto.ComponenteID] {
 			n++
 		}
 	}
@@ -140,7 +130,7 @@ func statoVoce(s fascicolo.StatoVoce, dd []fascicolo.Domanda) string {
 }
 
 // confermaFascicolo: POST /thread/{id}/fascicolo/conferma. Campi: `firma` (conferma tutto il pronto del piano
-// con quella firma) oppure `voce`, `struttura`, `strutturale` (le voci scelte nel cassetto «Rivedi»).
+// con quella firma) oppure `voce`, `struttura` (le voci scelte nel cassetto «Rivedi»).
 func (s *Server) confermaFascicolo(w http.ResponseWriter, r *http.Request) {
 	u := utenteDa(r.Context())
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
@@ -162,20 +152,12 @@ func (s *Server) confermaFascicolo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// applicaPiano porta nel fascicolo le voci scelte: la struttura, poi i documenti, poi lo STEP strutturale.
+// applicaPiano porta nel fascicolo le voci scelte: la struttura, poi i documenti.
 func (s *Server) applicaPiano(ctx context.Context, q *db.Queries, thread uuid.UUID, u *db.Utente, p fascicolo.PianoFascicolo, sel selezione) (string, error) {
-	// le dipendenze: un file che va a un componente che nasce da uno STEP si conferma con quella struttura,
-	// uno STEP strutturale che e' un file del piano con quel file
-	propostaDi := map[uuid.UUID]uuid.UUID{}
+	// le dipendenze: un file che va a un componente che nasce da uno STEP si conferma con quella struttura
 	for _, v := range p.File {
-		propostaDi[v.Allegato] = v.Proposta
 		if sel.file[v.Proposta] && v.DaStep != nil && !sel.strutture[v.DaStep.Allegato] {
 			return "", rifiuto(fmt.Sprintf("%s va a %s, che nasce dalla struttura di %s: si confermano insieme", v.Nome, v.DaStep.Codice, v.DaStep.File))
-		}
-	}
-	for _, v := range p.Strutturali {
-		if sel.strutturali[v.Prodotto.ComponenteID] && v.Allegato != uuid.Nil && !sel.file[propostaDi[v.Allegato]] {
-			return "", rifiuto(fmt.Sprintf("%s diventa lo STEP strutturale di %s solo se entra nel fascicolo: si confermano insieme", v.Nome, v.Prodotto.Codice))
 		}
 	}
 
@@ -249,27 +231,6 @@ func (s *Server) applicaPiano(ctx context.Context, q *db.Queries, thread uuid.UU
 		parti = append(parti, conta(nProv, "file già nel fascicolo: registrata la provenienza", "file già nel fascicolo: registrate le provenienze"))
 	}
 
-	for _, v := range p.Strutturali {
-		if !sel.strutturali[v.Prodotto.ComponenteID] {
-			continue
-		}
-		doc := v.Documento
-		if !doc.Valid {
-			a, err := q.GetAllegato(ctx, v.Allegato)
-			if err != nil {
-				return "", err
-			}
-			d, err := q.GetDocumentoPerHash(ctx, db.GetDocumentoPerHashParams{ThreadID: thread, Sha256: a.Sha256.String})
-			if err != nil {
-				return "", rifiuto(v.Nome + ": il documento dello STEP non c'è")
-			}
-			doc = uuid.NullUUID{UUID: d.DocumentoID, Valid: true}
-		}
-		if _, err := fascicolo.ScegliStepStrutturale(ctx, q, thread, v.Prodotto.ComponenteID, doc.UUID); err != nil {
-			return "", rifiuto("STEP strutturale di " + v.Prodotto.Codice + ": " + spiegaErrore(err))
-		}
-		parti = append(parti, "STEP strutturale di "+v.Prodotto.Codice+": "+v.Nome)
-	}
 	if len(parti) == 0 {
 		return "", rifiuto("niente da confermare")
 	}

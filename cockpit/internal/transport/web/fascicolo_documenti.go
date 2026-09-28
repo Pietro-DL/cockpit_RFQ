@@ -205,6 +205,22 @@ func voceVistaDi(d *fascicoloDati, v any) voceVista {
 	return voceVista{D: d}
 }
 
+// SostituisceAutorizzato dice se uno dei documenti correnti che il file puo' sostituire e' lo STEP autorizzato
+// del suo componente (la marcatura o la forma di prima): allora il modulo chiede «il nuovo file diventa lo STEP
+// autorizzato?», come fa il server (StepAutorizzatoDi). Per qualunque componente, non solo per un finito
+// (Smistamento F5b).
+func (v voceVista) SostituisceAutorizzato() bool {
+	if v.D == nil || v.V.Componente == nil {
+		return false
+	}
+	for _, x := range v.V.Correnti {
+		if v.D.stepAutorizzato(*v.V.Componente, x.DocumentoID) {
+			return true
+		}
+	}
+	return false
+}
+
 // fileVista e' un file del pannello con la schermata e la sezione.
 type fileVista struct {
 	D *fascicoloDati

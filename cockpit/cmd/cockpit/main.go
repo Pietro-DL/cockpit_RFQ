@@ -26,6 +26,12 @@ func main() {
 	flag.BoolVar(&o.ContaAnagrafiche, "conta-anagrafiche", false, "stampa quante righe ci sono in anagrafica (clienti, buyer, fornitori...); poi esce")
 	flag.BoolVar(&o.Calibrazione, "calibrazione", false, "stampa le misure della calibrazione (quante volte il primo proposto era quello giusto), in sola lettura; poi esce")
 	calibrazioneDal := flag.String("calibrazione-dal", "", "con -calibrazione: solo le decisioni da questo giorno (AAAA-MM-GG)")
+	// Il comando U5 dello Smistamento (F7, addendum A5.15): le due forme insieme sono un errore, come per i fornitori.
+	anteprimaRiapri := flag.Bool("anteprima-riapri-agganci", false, "dice quali agganci automatici per sola uguaglianza di codice (di prima dello Smistamento) riaprirebbe nelle RFQ in corso, in sola lettura; poi esce")
+	riapri := flag.String("riapri-agganci", "", "<nome-database>: li riapre davvero, sul database del -config, che deve avere questo nome; poi esce. "+
+		"Sui dati veri solo con lo Smistamento F10/F11 in produzione, dopo il backup")
+	rfqRiapri := flag.String("rfq", "", "con -anteprima-riapri-agganci o -riapri-agganci: solo questa RFQ (il suo uuid)")
+	uscitaRiapri := flag.String("uscita", "", "con -anteprima-riapri-agganci o -riapri-agganci: il rapporto JSON (senza: riapri-agganci-AAAAMMGG-hhmmss.json nella cartella del log)")
 	// La rete dalla riga di comando (scripts/avvio-rete): con -ascolto vale PER INTERO al posto delle
 	// voci di rete di [server] nel file (config.Rete).
 	var rete config.Rete
@@ -54,8 +60,15 @@ func main() {
 		}
 		o.SemeFornitori, o.ApplicaFornitori = *importaFornitori, true
 	}
-	esplicito := false
-	flag.Visit(func(f *flag.Flag) { esplicito = esplicito || f.Name == "config" })
+	esplicito, riapriScritto := false, false
+	flag.Visit(func(f *flag.Flag) {
+		esplicito = esplicito || f.Name == "config"
+		riapriScritto = riapriScritto || f.Name == "riapri-agganci"
+	})
+	if err := o.PreparaRiapertura(*anteprimaRiapri, riapriScritto, *riapri, *rfqRiapri, *uscitaRiapri); err != nil {
+		fmt.Fprintln(os.Stderr, "errore:", err)
+		os.Exit(1)
+	}
 	percorso, cercati := percorsoConfig(esplicito, *cfgPath, esiste, os.Executable)
 	if !esplicito && !esiste(percorso) {
 		fmt.Fprintf(os.Stderr, "errore: nessun cockpit.toml (cercato in %s). Metterlo accanto a cockpit.exe, "+

@@ -182,7 +182,7 @@
   {{else}}
     <details class="dialogo gesto"><summary class="btn small">Congela…</summary>
       <div class="modulo">
-      {{if .Gate.Passa}}<p class="ok-t">Il gate è verde: nessun bloccante, nessuna proposta aperta, gli STEP dei prodotti a posto.</p>
+      {{if .Gate.Passa}}<p class="ok-t">Il gate è verde: nessun bloccante, nessuna decisione aperta negli STEP autorizzati, gli STEP dei prodotti a posto.</p>
       {{else}}<p class="urg-t"><b>Non si congela ancora:</b></p><ul class="gate">{{range .Gate.Problemi}}<li>{{.}}</li>{{end}}</ul>{{end}}
       {{with .Gate.Materializzazione}}<p class="k" id="gate-materializzazione">Sul NAS, non ferma il congelamento (il documento entra nella versione, la copia arriva dopo):</p><ul class="gate k">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
       {{range .Gate.Avvisi}}<p class="k">avviso: {{.}}</p>{{end}}
@@ -216,6 +216,8 @@
   <span class="sp"></span>
   <span class="legenda k"><span class="leg leg-conf"></span> confermato <span class="leg leg-prop"></span> proposto da uno STEP <span class="leg leg-rim"></span> da togliere · ×2 quantità sull'arco · ↗ condiviso</span>
 </div>
+{{/* Smistamento F5: la BOM mostra solo l'autorità dei file autorizzati; la guida la dice una riga sola. */}}
+{{with .Guida}}<p class="k guida-riga">{{.}}.</p>{{end}}
 {{if .Scrive}}{{if .Bloccata}}<p class="k editor-fermo">La BOM è congelata nella V{{.Bloccata}}: la struttura si cambia aprendo una revisione.</p>
 {{else}}<div class="editor-avvio gesto">{{range .Albero.Radici}}{{if eq (print .C.Tipo) "finito"}}
   <a class="btn small" href="{{$.Base}}?vista=bom&amp;editor={{.C.ComponenteID}}" data-editor="{{.C.ComponenteID}}">Modifica la struttura di {{.C.Codice}}</a>
@@ -511,7 +513,7 @@
            altri quattro moduli di sostituzione; senza risposta il server rifiuta di sostituire lo STEP
            strutturale (verificaSostituzione). */}}
       {{if .HaStepStrutturale}}
-      <fieldset class="in-linea"><legend class="k">se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
+      <fieldset class="in-linea"><legend class="k">se sostituisce lo STEP autorizzato, il nuovo file diventa lo STEP autorizzato?</legend>
         <label><input type="radio" name="nuovo_riferimento_{{$doc}}" value="1"> sì</label>
         <label><input type="radio" name="nuovo_riferimento_{{$doc}}" value="0"> no</label></fieldset>{{end}}
       {{if .Interno}}<label>motivo <input name="motivo_{{$doc}}" maxlength="300" placeholder="perché la versione interna sostituisce"></label>{{end}}
@@ -695,8 +697,10 @@
       {{with $v.Componente}}<input type="hidden" name="componente_id" value="{{.ComponenteID}}">{{end}}
       <input type="hidden" name="tipo" value="{{$v.Tipo}}"><input type="hidden" name="codice" value="{{$v.Codice}}"><input type="hidden" name="rev" value="{{$v.Rev}}">
       <label>Si aggiunge, o sostituisce? <select name="scelta" required><option value="">— scegli —</option><option value="aggiungi">si aggiunge (restano correnti tutti)</option>{{range $v.Correnti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}{{if .Rev.Valid}} (rev {{.Rev.String}}){{end}}</option>{{end}}</select></label>
-      {{with $v.Componente}}{{if .StepStrutturaleID.Valid}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
-        <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}{{end}}
+      {{/* la domanda vale per lo STEP autorizzato di qualunque componente (Smistamento F5b), non solo per lo STEP
+           strutturale di un finito: la stessa regola del server (StepAutorizzatoDi) */}}
+      {{if $.SostituisceAutorizzato}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP autorizzato, il nuovo file diventa lo STEP autorizzato?</legend>
+        <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
       {{if $v.Interno}}<label>Motivo (versione interna) <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
       <button type="submit" class="btn small primary">Conferma questo file</button>
     </form>{{end}}
@@ -774,7 +778,7 @@
 <details class="dialogo gesto"><summary class="btn small">{{$.Anteprima.F.A.NomeFile}} sostituisce…</summary>
   <form class="modulo" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/documento/{{$.Anteprima.F.Doc.DocumentoID}}/sostituisci">
     <label>sostituisce <select name="vecchio" required>{{range .}}<option value="{{.DocumentoID}}">{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select></label>
-    {{if $.Anteprima.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
+    {{if $.Anteprima.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP autorizzato, il nuovo file diventa lo STEP autorizzato?</legend>
       <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     <label>Motivo <input name="motivo" maxlength="300"{{if $.Anteprima.F.Interno}} required placeholder="obbligatorio: è una versione interna"{{end}}></label>
     <button type="submit" class="btn small">Sostituisci</button>
@@ -834,7 +838,6 @@
   {{else if not $c.ArchiviatoIl}}
   <details class="gesto"><summary>Modifica</summary>
     <form class="modulo" hx-post="/thread/{{.T.ThreadID}}/fascicolo/componente/{{$id}}/modifica">
-      <label>Tipo <select name="tipo">{{range tipiComponente}}<option value="{{.}}"{{if eq . $c.Tipo}} selected{{end}}>{{nomeTipo .}}</option>{{end}}<option value="commerciale"{{if eq "commerciale" (print $c.Tipo)}} selected{{end}}>commerciale</option></select></label>
       <label>Revisione <input name="rev" value="{{$c.Rev.String}}" maxlength="10"></label>
       <label>Descrizione <input name="descrizione" value="{{$c.Descrizione.String}}" maxlength="200"></label>
       <button type="submit" class="btn small">Salva</button>
@@ -843,6 +846,13 @@
       <label>Codice <input name="codice" value="{{$c.Codice}}" maxlength="60" required></label>
       <button type="submit" class="btn small" title="Porta il codice nuovo sui documenti e sulle proposte agganciate; un documento già scritto sul NAS lo impedisce (lo spostamento è B8.8)">Correggi il codice</button>
     </form>
+  </details>
+  {{/* Smistamento, fase T: il tipo lo decide una persona. Lo STEP descrive la struttura del CAD, non se il pezzo
+       si fa o si compra; la tendina dice perche' un tipo non si puo', l'anteprima che cosa succede. */}}
+  <details class="gesto"{{if eq (print $c.Tipo) "commerciale"}} open{{end}}><summary>Tipo</summary>
+    <p>{{$c.Codice}} è <b>{{nomeTipo $c.Tipo}}</b>. <span class="k">Il tipo lo decide una persona: lo STEP descrive la struttura del CAD, non se il pezzo si fa o si compra.</span></p>
+    {{template "fasc_tipo_scelta" $n.Tipo}}
+    <div id="tipo-{{$id}}"></div>
   </details>
   <details class="gesto"><summary>Posizione nella BOM</summary>
     {{range $n.Padri}}
@@ -866,15 +876,38 @@
       <button type="submit" class="btn small">{{if $n.Padri}}Aggiungi un altro padre{{else}}Metti sotto{{end}}</button>
     </form>
   </details>
-  {{if eq (print $c.Tipo) "finito"}}
-  <details class="gesto"{{if $n.StepEsito}}{{if or (eq $n.StepEsito.Esito "da_scegliere") (eq $n.StepEsito.Esito "riferimento_superato")}} open{{end}}{{end}}><summary>STEP strutturale</summary>
+  {{/* Smistamento F5b: lo STEP autorizzato, per qualunque componente non commerciale. Nessuno STEP e' gia'
+       scelto (P26, U7): si sceglie, si guarda l'anteprima, si spunta la casella. Un commerciale no (Domanda 5 = B). */}}
+  <details class="gesto"{{if or $n.Autorizzazioni (and $n.StepEsito (or (eq $n.StepEsito.Esito "da_scegliere") (eq $n.StepEsito.Esito "riferimento_superato")))}} open{{end}}><summary>STEP autorizzato</summary>
+    {{range $n.Autorizzazioni}}
+    <div class="arco-riga"><span class="chip {{if .Valida}}ok{{else if .Sospesa}}info{{else}}warn{{end}}">{{if .Delega}}delega{{else}}STEP autorizzato{{end}}</span> <b class="mono">{{.NomeFile}}</b>{{with .Problema}} <span class="k">{{.}}</span>{{end}}
+      {{if .Sospensione}}{{if eq (print $c.Tipo) "commerciale"}}<small class="k">Sospesa: si riattiva dopo il cambio di tipo, oppure si revoca.</small>
+      {{else}}<form class="in-linea" method="get" action="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale/riattiva" hx-get="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale/riattiva" hx-target="#autorizzazione-{{$id}}" hx-swap="innerHTML">
+        <input type="hidden" name="sha" value="{{.Sha256}}"><button type="submit" class="btn small">Riattiva l'autorizzazione dello STEP {{.NomeFile}}…</button>
+      </form>{{end}}{{end}}
+      <form class="in-linea" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale/revoca">
+        <input type="hidden" name="sha" value="{{.Sha256}}"><input name="motivo" maxlength="300" placeholder="perché si revoca" aria-label="motivo della revoca">
+        <button type="submit" class="btn small">Revoca</button>
+      </form>
+    </div>
+    {{end}}
+    {{if eq (print $c.Tipo) "commerciale"}}<p class="k">{{$c.Codice}} è un commerciale: il suo STEP resta guida; per autorizzarlo cambia prima il tipo.</p>
+    {{else}}
     {{if $n.Step}}
-    <form class="in-linea" hx-post="/thread/{{.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale">
-      <select name="documento" aria-label="STEP strutturale">{{range $n.Step}}<option value="{{.DocumentoID}}"{{if $c.StepStrutturaleID.Valid}}{{if eq .DocumentoID $c.StepStrutturaleID.UUID}} selected{{end}}{{end}}>{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select>
-      <button type="submit" class="btn small primary">Usa come STEP strutturale</button>
+    <form class="in-linea" hx-get="/thread/{{.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale" hx-target="#autorizzazione-{{$id}}" hx-swap="innerHTML">
+      <select name="documento" aria-label="STEP da autorizzare"><option value="">— scegli lo STEP —</option>{{range $n.Step}}<option value="{{.DocumentoID}}">{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select>
+      <button type="submit" class="btn small">Anteprima dell'autorizzazione</button>
     </form>
-    <p class="k">Lo sceglie una persona: è il file da cui nascono le rimozioni. {{if eq (len $n.Step) 1}}È l'unico STEP corrente: è già scelto qui, ma non è fissato finché non lo si conferma.{{end}}</p>
-    {{else}}<p class="k">Il componente non ha STEP correnti assegnati.</p>{{end}}
+    {{else}}<p class="k">Il componente non ha STEP correnti associati.</p>{{end}}
+    {{with $n.Deleghe}}
+    <form class="in-linea" hx-get="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale" hx-target="#autorizzazione-{{$id}}" hx-swap="innerHTML">
+      <select name="nodo" aria-label="il nodo nello STEP autorizzato del padre"><option value="">— il nodo di {{$c.Codice}} nello STEP del padre —</option>{{range .}}<option value="{{.Valore}}">{{.Nome}} in {{.File}}, sotto {{.Sotto}}</option>{{end}}</select>
+      <button type="submit" class="btn small">Anteprima della delega</button>
+    </form>{{end}}
+    <p class="k">Lo sceglie una persona: il file autorizzato propone i figli diretti di {{$c.Codice}} e le rimozioni; il resto del file resta guida. Nessuno STEP è già scelto.</p>
+    <div id="autorizzazione-{{$id}}"></div>
+    {{end}}
+    {{if eq (print $c.Tipo) "finito"}}
     {{with $n.DerogaStep}}<p><span class="chip info">deroga strutturale</span> «{{.Motivo}}» <span class="k">({{.MotivoParziale}})</span>
       <button type="button" class="btn small" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/deroga-struttura/{{.DerogaStrutturaID}}/revoca">Revoca</button></p>
     {{else}}{{with $n.StepEsito}}{{if or (eq .Esito "presente_parziale") (eq .Esito "presente_non_analizzato")}}
@@ -883,8 +916,8 @@
       <button type="submit" class="btn small">Concedi</button>
       <small class="k">Vale per questo file e questa lettura: una rianalisi o una sostituzione la fanno decadere.</small>
     </form>{{end}}{{end}}{{end}}
+    {{end}}
   </details>
-  {{end}}
   <details class="gesto"><summary>Deroghe del fascicolo</summary>
     {{range $n.Deroghe}}<p><span class="chip info">{{etichettaTipoDoc (print .Tipo)}} derogato</span> «{{.Motivo}}»
       <button type="button" class="btn small" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/deroga/{{.DerogaID}}/revoca">Revoca</button></p>{{end}}
@@ -918,7 +951,7 @@
 <p class="k">{{if $f.Interno}}Caricato a mano il {{data $f.A.DataEvento}} da {{mittente $f.A.MittenteNome $f.A.MittenteIndirizzo}}: versione interna, non del cliente.{{else}}Mail del {{data $f.A.DataEvento}} da {{mittente $f.A.MittenteNome $f.A.MittenteIndirizzo}}{{if $f.A.Oggetto.Valid}}, «{{$f.A.Oggetto.String}}»{{end}}.{{end}}</p>
 {{with $f.Proposta}}{{$val := valutazione . $f.A.NomeFile}}<div class="k proposta-dim">Proposta ({{.Stato}}): {{template "dimensione" (dim "Tipo" $val.Tipo)}} · {{template "dimensione" (dim "Codice letto" $val.Codice)}} · {{template "dimensione" (dim "Rev" $val.Rev)}}{{if $f.RevLetta}} · rev letta nel file {{$f.RevLetta}}, non del cliente{{end}}{{if $f.CodiceLetto}} · <span class="urg-t">il file dice {{$f.CodiceLetto}}</span>{{end}}</div>{{end}}
 {{with $f.Doc}}<p class="k">Documento: <b>{{etichettaTipoDoc (print .Tipo)}}</b> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}} · NAS {{.StatoNas}} <code>{{.PathRelativo}}</code>{{if .Nota.Valid}} · {{.Nota.String}}{{end}}</p>{{end}}
-{{with $a.StepDi}}<p><span class="chip ok">STEP strutturale di {{.Codice}}</span></p>{{end}}
+{{with $a.StepDi}}<p><span class="chip ok">STEP autorizzato di {{.Codice}}</span></p>{{end}}
 
 {{if $f.Confermabile}}
 <details class="dialogo gesto"><summary class="btn small primary">Conferma questo file…</summary>
@@ -932,7 +965,7 @@
     <label>Componente <select name="componente_id"><option value="">— senza componente</option>{{range $.Albero.Righe}}<option value="{{.C.ComponenteID}}"{{if $a.ConfermaComp}}{{if eq .C.ComponenteID $a.ConfermaComp.ComponenteID}} selected{{end}}{{end}}>{{.C.Codice}}</option>{{end}}</select></label>
     {{if $a.ConfermaCorrenti}}
     <label>{{$a.ConfermaComp.Codice}} ha già {{len $a.ConfermaCorrenti}} {{etichettaTipoDoc (print $f.Proposta.TipoProposto)}}: <select name="scelta"><option value="">— scegli —</option><option value="aggiungi">si aggiunge</option>{{range $a.ConfermaCorrenti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}</option>{{end}}</select></label>
-    {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
+    {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP autorizzato, il nuovo file diventa lo STEP autorizzato?</legend>
       <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     {{if $f.Interno}}<label>Motivo della sostituzione <input name="motivo" maxlength="300" placeholder="obbligatorio se sostituisce"></label>{{end}}
     {{end}}
@@ -949,15 +982,16 @@
 <details class="dialogo gesto"><summary class="btn small">Sostituisce…</summary>
   <form class="modulo" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/documento/{{$f.Doc.DocumentoID}}/sostituisci">
     <label>{{$f.A.NomeFile}} sostituisce <select name="vecchio" required>{{range $a.Sostituibili}}<option value="{{.DocumentoID}}">{{.NomeFile}}{{if .Rev.Valid}} · rev {{.Rev.String}}{{end}}</option>{{end}}</select></label>
-    {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP strutturale, il nuovo diventa il riferimento?</legend>
+    {{if $a.StepFraCorrenti}}<fieldset class="in-linea"><legend class="k">Se sostituisce lo STEP autorizzato, il nuovo file diventa lo STEP autorizzato?</legend>
       <label><input type="radio" name="nuovo_riferimento" value="1"> sì</label> <label><input type="radio" name="nuovo_riferimento" value="0"> no</label></fieldset>{{end}}
     <label>Motivo <input name="motivo" maxlength="300"{{if $f.Interno}} required placeholder="obbligatorio: è una versione interna"{{end}}></label>
     <button type="submit" class="btn small">Sostituisci</button>
   </form>
 </details>
 {{end}}
-{{if and $f.Comp (eq (print $f.Comp.Tipo) "finito")}}{{if eq (print $f.Doc.Tipo) "cad_3d"}}{{if not $a.StepDi}}
-<button type="button" class="btn small gesto" hx-post="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$f.Comp.ComponenteID}}/step-strutturale" hx-vals='{"documento":"{{$f.Doc.DocumentoID}}"}'>Usa come STEP strutturale di {{$f.Comp.Codice}}</button>
+{{if and $f.Comp (ne (print $f.Comp.Tipo) "commerciale")}}{{if eq (print $f.Doc.Tipo) "cad_3d"}}{{if not $a.StepDi}}
+<button type="button" class="btn small gesto" hx-get="/thread/{{$.T.ThreadID}}/fascicolo/componente/{{$f.Comp.ComponenteID}}/step-strutturale?documento={{$f.Doc.DocumentoID}}" hx-target="#autorizzazione-file" hx-swap="innerHTML">Autorizza come STEP di {{$f.Comp.Codice}}…</button>
+<div id="autorizzazione-file"></div>
 {{end}}{{end}}{{end}}
 {{end}}{{end}}
 
@@ -1028,7 +1062,7 @@
   {{if .ErrorePiano}}<span class="urg-t">{{.ErrorePiano}}</span>
   {{else}}
   <span class="piano-conta ok" title="Tipo, codice e componente determinati senza conflitti">✓ <b>{{.Piano.Pronte}}</b> pront{{if eq .Piano.Pronte 1}}o{{else}}i{{end}}</span>
-  <span class="k">{{.Piano.FilePronti}} file{{range .Piano.Strutture}}{{if eq .Stato "pronto"}} · struttura di {{.Nome}}{{end}}{{end}}{{range .Piano.Strutturali}}{{if eq .Stato "pronto"}} · STEP strutturale di {{.Prodotto.Codice}}{{end}}{{end}}</span>
+  <span class="k">{{.Piano.FilePronti}} file{{range .Piano.Strutture}}{{if eq .Stato "pronto"}} · struttura di {{.Nome}}{{end}}{{end}}</span>
   <a class="piano-conta {{if .NDaVerificare}}warn{{else}}no{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "verifica"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "verifica"}}">⚠ <b>{{.NDaVerificare}}</b> da verificare</a>
   {{if .Piano.InAttesa}}<span class="piano-conta info">⏳ <b>{{.Piano.InAttesa}}</b> in preparazione</span>{{end}}
   {{if .Bloccata}}<span class="k">BOM congelata: i file entrano senza componente.</span>{{end}}
@@ -1037,7 +1071,7 @@
   <a class="btn small{{if eq .Stato.Cassetto "piano"}} on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "piano"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "piano"}}">Rivedi</a>
   <form class="in-linea" hx-post="/thread/{{.T.ThreadID}}/fascicolo/conferma">
     <input type="hidden" name="firma" value="{{.Piano.Firma}}">
-    <button type="submit" class="btn primary" id="conferma-fascicolo"{{if not .Piano.Pronte}} disabled{{end}} title="Porta nel fascicolo tutto quello che è pronto: i documenti (con la copia sul NAS) e lo STEP strutturale. La struttura degli STEP si conferma nell'editor">Conferma Fascicolo</button>
+    <button type="submit" class="btn primary" id="conferma-fascicolo"{{if not .Piano.Pronte}} disabled{{end}} title="Porta nel fascicolo tutto quello che è pronto: i documenti (con la copia sul NAS). La struttura degli STEP si conferma nell'editor; uno STEP si autorizza dalla scheda del componente, con l'anteprima">Conferma Fascicolo</button>
   </form>
   {{end}}
   {{end}}
@@ -1138,15 +1172,16 @@
   <div class="vv-testa"><span class="chip warn">STEP strutturale</span> <b class="mono">{{.Prodotto.Codice}}</b></div>
   {{range .Domande}}<p class="vv-domanda">{{.Testo}}</p>{{end}}
   {{with index $d.DocumentiDi .Prodotto.ComponenteID}}{{if and $d.Scrive (not $d.Bloccata)}}
-  <form class="in-linea gesto" hx-post="{{$d.Base}}/componente/{{$v.Prodotto.ComponenteID}}/step-strutturale">
-    <select name="documento" aria-label="STEP strutturale">{{range .}}{{if eq (print .Tipo) "cad_3d"}}{{if not .SostituitoDa.Valid}}<option value="{{.DocumentoID}}">{{.NomeFile}}</option>{{end}}{{end}}{{end}}</select>
-    <button type="submit" class="btn small primary">Usa come STEP strutturale</button>
-  </form>{{end}}{{else}}<p class="k">Gli STEP entrano nel fascicolo con la conferma: poi si sceglie qui.</p>{{end}}
+  <form class="in-linea gesto" hx-get="{{$d.Base}}/componente/{{$v.Prodotto.ComponenteID}}/step-strutturale" hx-target="#autorizzazione-piano-{{$v.Prodotto.ComponenteID}}" hx-swap="innerHTML">
+    <select name="documento" aria-label="STEP da autorizzare"><option value="">— scegli lo STEP —</option>{{range .}}{{if eq (print .Tipo) "cad_3d"}}{{if not .SostituitoDa.Valid}}<option value="{{.DocumentoID}}">{{.NomeFile}}</option>{{end}}{{end}}{{end}}</select>
+    <button type="submit" class="btn small primary">Autorizza come STEP di {{$v.Prodotto.Codice}}…</button>
+  </form>
+  <div id="autorizzazione-piano-{{$v.Prodotto.ComponenteID}}"></div>{{end}}{{else}}<p class="k">Gli STEP entrano nel fascicolo con la conferma: poi si sceglie qui.</p>{{end}}
 </div>
 {{end}}{{end}}
 {{range .StepProdotto}}{{if eq .Esito "riferimento_superato"}}
 <div class="verifica-voce"><div class="vv-testa"><span class="chip warn">STEP strutturale</span> <b class="mono">{{.Codice}}</b></div>
-  <p class="vv-domanda">{{etichettaStep .Esito}}: si sceglie dal componente (Azioni sul componente › STEP strutturale).</p>
+  <p class="vv-domanda">{{etichettaStep .Esito}}: si sceglie dal componente (Azioni sul componente › STEP autorizzato).</p>
   {{if $d.VistaDocumenti}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "nodo" .ComponenteID.String "file" "" "gruppo" ""}}" data-doc-nodo="{{.ComponenteID}}">apri {{.Codice}}</a>{{else}}<a class="k" href="{{$d.Base}}{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-get="{{$d.Base}}/anteprima{{$d.Stato.Con "nodo" .ComponenteID.String}}" hx-target="#anteprima">apri {{.Codice}}</a>{{end}}
 </div>
 {{end}}{{end}}
@@ -1154,6 +1189,113 @@
   {{range .}}<p class="avviso-riga {{.Livello}}">{{.Testo}}</p>{{end}}
 </details>{{end}}
 {{end}}
+
+{{/* L'anteprima dell'autorizzazione di uno STEP (Smistamento F5b, P6): che cosa entra nell'autorita', che cosa resta
+     guida, che cosa si revoca; il modulo ha la casella mai spuntata, la presa d'atto, le deleghe e la firma di quello
+     che si vede. Lo manda GET …/componente/{cid}/step-strutturale, e non scrive niente. */}}
+{{define "fasc_autorizzazione"}}{{with .Dati}}{{$v := .}}{{$e := .E}}
+<div class="autorizzazione">
+  {{if .Errore}}<p class="nota-blocco">{{.Errore}}</p>
+  {{else}}
+  <p class="label">{{if $e.Delega}}Delega{{else}}Autorizzazione{{end}}: {{with $e.NomeFile}}<b class="mono">{{.}}</b>{{else}}lo STEP{{end}} per <b class="mono">{{$e.Componente.Codice}}</b>{{with $e.Titolare}} <span class="k">(nel file, sotto {{.}})</span>{{end}}</p>
+  {{if $e.Spento}}<p class="nota-blocco">{{$e.Spento}}</p>
+  {{else}}
+  {{with $e.Gia}}<p class="k">{{.}}.</p>{{end}}
+  {{if and (not $e.Sorgente) $e.Radici}}
+  <p>Il file ha {{len $e.Radici}} radici: quale è {{$e.Componente.Codice}}? Nessuna è scelta.</p>
+  <ul class="mini-lista">{{range $e.Radici}}<li><a href="#" hx-get="{{$v.Base}}/componente/{{$v.Cid}}/step-strutturale?documento={{$e.Documento.DocumentoID}}&amp;sorgente={{.Chiave}}" hx-target="closest .autorizzazione" hx-swap="outerHTML">{{.Nome}}</a> <span class="k">({{.Figli}} figli nel file)</span></li>{{end}}</ul>
+  {{end}}
+  {{with $e.Sorgente}}
+  <p>{{len $e.Figli}} {{sel (eq (len $e.Figli) 1) "figlio diretto entra" "figli diretti entrano"}} nell'autorità di {{$e.Componente.Codice}}:</p>
+  <ul class="mini-lista">{{range $e.Figli}}<li><span class="mono">{{.Nome}}</span>{{if gt .Qta 1}} ×{{.Qta}}{{end}}{{with .Deciso}} <span class="chip ok">è {{.}}</span>{{else}}{{if .Scartato}} <span class="chip no">scartato</span>{{else}} <span class="chip">da decidere</span>{{end}}{{end}}{{if .Figli}} <span class="k">({{.Figli}} figli nel file)</span>{{end}}</li>{{end}}</ul>
+  <p class="k">{{$e.Guida}} {{sel (eq $e.Guida 1) "nodo del file resta guida" "nodi del file restano guida"}}{{range $e.GuidaSotto}} · {{.}}{{end}}: si vedono, e non entrano nella BOM senza un'altra autorizzazione.</p>
+  {{range $e.Rimozioni}}<p class="k">Rimozione: {{.}}</p>{{end}}
+  {{with $e.RimozioniSospese}}<p class="k">Rimozioni: {{.}}.</p>{{end}}
+  {{range $e.Revoche}}<p class="avviso-riga warn">Un componente, un'autorizzazione: {{.}} si revoca.</p>{{end}}
+  {{range $e.Avvisi}}<p class="avviso-riga info">{{.}}.</p>{{end}}
+  {{if $v.Scrive}}
+  <form class="modulo gesto" hx-post="{{$v.Base}}/componente/{{$v.Cid}}/step-strutturale">
+    {{if $e.Delega}}<input type="hidden" name="nodo" value="{{$v.ValoreNodo}}">{{else}}<input type="hidden" name="documento" value="{{$e.Documento.DocumentoID}}">{{end}}
+    <input type="hidden" name="sorgente" value="{{$v.R.Sorgente}}"><input type="hidden" name="firma" value="{{$e.Firma}}">
+    {{with $e.PresaDAtto}}<label><input type="checkbox" name="presa_d_atto" value="1"> Presa d'atto: {{.}}</label>{{end}}
+    {{range $e.Raggruppamenti}}<label><input type="checkbox" name="raggruppamento" value="{{.Nodo.Chiave}}"> {{.Nodo.Nome}} è {{$e.Componente.Codice}} (un contenitore): i suoi {{len .Figli}} figli diventano figli diretti</label>
+      <small class="k">Se non lo si dichiara, i suoi figli restano fuori dalla struttura, come guida.</small>{{end}}
+    {{range $e.Deleghe}}<label><input type="checkbox" name="delega" value="{{.Nodo.Chiave}}"{{if .Spenta}} disabled{{end}}> Autorizza questo STEP anche per {{with .Codice}}{{.}}{{else}}il componente di {{.Nodo.Nome}}, quando sarà deciso{{end}} <span class="k">({{.Nodo.Nome}}, {{.Nodo.Figli}} figli nel file)</span></label>
+      {{with .Spenta}}<small class="k">{{.}}</small>{{end}}{{range .Revoca}}<small class="k">Un componente, un'autorizzazione: {{.}} si revoca.</small>{{end}}{{end}}
+    {{if not $e.Gia}}<label><input type="checkbox" name="autorizza" value="1"> {{$e.Bottone}}</label>{{else}}{{if or $e.Deleghe $e.Raggruppamenti}}<label><input type="checkbox" name="autorizza" value="1"> Autorizza le scelte qui sopra</label>{{end}}{{end}}
+    {{if or (not $e.Gia) $e.Deleghe $e.Raggruppamenti}}<button type="submit" class="btn small primary">{{if $e.Gia}}Autorizza le scelte{{else}}{{$e.Bottone}}{{end}}</button>{{end}}
+  </form>
+  {{end}}
+  {{end}}
+  {{end}}
+  {{end}}
+</div>
+{{end}}{{end}}
+
+{{/* Il tipo del componente (Smistamento, fase T): la tendina, con il motivo di ogni tipo spento, e il bottone
+     dell'anteprima. Nessun tipo nuovo e' gia' scelto. Sta nella scheda e, dentro l'editor, nel riquadro del tipo. */}}
+{{define "fasc_tipo_scelta"}}{{$v := .}}{{$e := .E}}
+<form class="in-linea tipo-scelta" method="get" action="{{$v.Base}}/componente/{{$v.Cid}}/tipo" hx-get="{{$v.Base}}/componente/{{$v.Cid}}/tipo" hx-target="#tipo-{{$v.Cid}}" hx-swap="innerHTML">
+  <select name="tipo" aria-label="il tipo di {{$e.Componente.Codice}}"><option value="">— scegli il tipo —</option>{{range $e.Opzioni}}<option value="{{.Tipo}}"{{if .Spenta}} disabled title="{{.Spenta}}"{{end}}>{{.Nome}}{{if .Attuale}} (adesso){{end}}</option>{{end}}</select>
+  <button type="submit" class="btn small">Anteprima del cambio</button>
+</form>
+{{range $e.Opzioni}}{{if and .Spenta (not .Attuale)}}<small class="k tipo-spento">{{.Nome}}: {{.Spenta}}.</small>{{end}}{{end}}
+{{end}}
+
+{{/* L'anteprima del cambio di tipo (fase T, P6): che cosa si sospende, quali deleghe con lei, quali rimozioni si
+     chiudono, quali figli restano, che cosa resta sospeso; il modulo porta la firma di quello che si vede. Lo manda
+     GET …/componente/{cid}/tipo, e non scrive niente. Senza JavaScript il modulo va lo stesso (method/action). */}}
+{{define "fasc_tipo"}}{{with .Dati}}{{$v := .}}{{$e := .E}}
+<div class="tipo-anteprima">
+  {{if .Errore}}<p class="nota-blocco">{{.Errore}}</p>
+  {{else if not $e.Tipo}}{{template "fasc_tipo_scelta" $v}}
+  {{else}}
+  <p class="label">Tipo di <b class="mono">{{$e.Componente.Codice}}</b>: {{nomeTipo $e.Componente.Tipo}} → <b>{{nomeTipo $e.Tipo}}</b></p>
+  {{if $e.Spento}}<p class="nota-blocco">{{$e.Spento}}</p>
+  {{else}}
+  {{range $e.Sospende}}<p class="avviso-riga warn">Si sospende {{.}}: il file resta guida e non propone più i figli diretti, finché una persona non la riattiva (oppure la revoca).</p>{{end}}
+  {{with $e.ConLei}}<p class="avviso-riga warn">Si sospendono con lei le deleghe di {{join . ", "}}.</p>{{end}}
+  {{with $e.SvuotaStep}}<p class="avviso-riga warn">{{.}} non è più il suo STEP strutturale: il riferimento si svuota, e torna solo con «Riattiva» e il ritorno a prodotto finito.</p>{{end}}
+  {{if $e.Rimozioni}}<p class="k">{{$e.Rimozioni}} {{sel (eq $e.Rimozioni 1) "rimozione proposta si chiude" "rimozioni proposte si chiudono"}}, con la nota della sospensione.</p>{{end}}
+  {{with $e.FigliRestano}}<p class="k">I figli già nella BOM restano: {{join . ", "}} (li ha decisi una persona).</p>{{end}}
+  {{range $e.RestaSospesa}}<p class="avviso-riga info">Resta sospesa {{.}}: non si riattiva da sola; dalla scheda si sceglie «Riattiva» oppure «Revoca».</p>{{end}}
+  {{if $e.Autorizzabile}}<p class="k">Il suo STEP si potrà autorizzare dalla scheda: niente si autorizza da solo.</p>{{end}}
+  {{with $e.StepStrutturale}}<p class="k">{{.}} diventa anche il suo STEP strutturale.</p>{{end}}
+  {{range $e.Avvisi}}<p class="avviso-riga info">{{.}}.</p>{{end}}
+  {{if $v.Scrive}}
+  <form class="modulo gesto" method="post" action="{{$v.Base}}/componente/{{$v.Cid}}/tipo" hx-post="{{$v.Base}}/componente/{{$v.Cid}}/tipo">
+    <input type="hidden" name="tipo" value="{{$e.Tipo}}"><input type="hidden" name="firma" value="{{$e.Firma}}">
+    <button type="submit" class="btn small primary">{{$e.Bottone}}</button>
+  </form>
+  {{end}}
+  {{end}}
+  {{end}}
+</div>
+{{end}}{{end}}
+
+{{/* La riattivazione esplicita di un'autorizzazione sospesa (fase T): tornare sottoassieme non la riattiva, la
+     sceglie una persona da qui, con l'anteprima e la firma. Lo manda GET …/step-strutturale/riattiva. */}}
+{{define "fasc_riattiva"}}{{with .Dati}}{{$v := .}}{{$e := .E}}
+<div class="autorizzazione">
+  {{if .Errore}}<p class="nota-blocco">{{.Errore}}</p>
+  {{else}}
+  <p class="label">Riattivazione: {{with $e.NomeFile}}<b class="mono">{{.}}</b>{{else}}lo STEP{{end}} per <b class="mono">{{$e.Componente.Codice}}</b>{{if $e.Delega}} (delega){{end}}</p>
+  {{with $e.Sospensione}}<p class="k">Sospesa: {{.Motivo}}{{with .Il}} ({{.}}){{end}}.</p>{{end}}
+  {{if $e.Spento}}<p class="nota-blocco">{{$e.Spento}}</p>
+  {{else}}
+  <p>{{$e.FigliDiretti}} {{sel (eq $e.FigliDiretti 1) "figlio diretto torna" "figli diretti tornano"}} nell'autorità di {{$e.Componente.Codice}}: le proposte del file si accettano di nuovo e il gate le conta.</p>
+  {{with $e.ConLei}}<p class="avviso-riga info">Tornano valide con lei le deleghe di {{join . ", "}}.</p>{{end}}
+  {{range $e.Avvisi}}<p class="avviso-riga info">{{.}}.</p>{{end}}
+  {{if $v.Scrive}}
+  <form class="modulo gesto" method="post" action="{{$v.Base}}/componente/{{$v.Cid}}/step-strutturale/riattiva" hx-post="{{$v.Base}}/componente/{{$v.Cid}}/step-strutturale/riattiva">
+    <input type="hidden" name="sha" value="{{$e.Sha256}}"><input type="hidden" name="firma" value="{{$e.Firma}}">
+    <button type="submit" class="btn small primary">{{$e.Bottone}}</button>
+  </form>
+  {{end}}
+  {{end}}
+  {{end}}
+</div>
+{{end}}{{end}}
 
 {{/* «Rivedi»: le voci pronte, spuntate, prima della conferma. Si toglie la spunta a quello che non deve entrare. */}}
 {{define "fasc_rivedi"}}{{$d := .}}
@@ -1164,10 +1306,9 @@
     {{range .Piano.File}}{{if eq .Stato "pronto"}}<label><input type="checkbox" name="voce" value="{{.Proposta}}" checked>
       <span><b>{{.Nome}}</b> → {{etichettaTipoDoc (print .Tipo)}}{{with .Destinazione}} di <span class="mono">{{.}}</span>{{else}} della RFQ{{end}}{{if .DaStep}} <small class="k">(nasce dallo STEP {{.DaStep.File}})</small>{{end}}{{if .Rev}} <small class="k">rev {{.Rev}}</small>{{end}}{{if .Aggiunge}} <small class="k">· si aggiunge</small>{{end}}{{if .Duplicato}} <small class="k">· già nel fascicolo come {{.Duplicato}}: solo la provenienza</small>{{end}}</span></label>{{end}}{{end}}
   </fieldset>
-  {{with .Piano.Strutturali}}<fieldset><legend>STEP strutturale</legend>
-    {{range .}}{{if eq .Stato "pronto"}}<label><input type="checkbox" name="strutturale" value="{{.Prodotto.ComponenteID}}" checked>
-      <span><b>{{.Nome}}</b> è la distinta di <span class="mono">{{.Prodotto.Codice}}</span> <small class="k">(l'unico STEP del prodotto: da qui nascono le rimozioni)</small></span></label>{{end}}{{end}}
-  </fieldset>{{end}}
+  {{/* Smistamento F5b (P26, U7): qui c'era la casella dello STEP strutturale, nata spuntata quando lo STEP del
+       prodotto era uno solo. Uno STEP si autorizza con l'anteprima e la casella mai spuntata («Da verificare»,
+       o la scheda del componente): la conferma del piano non autorizza niente. */}}
   <button type="submit" class="btn primary">Conferma i selezionati</button>
   <p class="k">I documenti nascono adesso e la copia sul NAS parte subito dopo. I file che vanno a un componente che nasce da uno STEP aspettano la conferma della sua struttura.</p>
 </form>

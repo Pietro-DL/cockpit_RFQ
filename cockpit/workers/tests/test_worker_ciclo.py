@@ -156,8 +156,9 @@ def _analisi_lenta(monkeypatch, durata_s: float = 0.25) -> None:
     """Un'analisi che dura piu' di qualche battito: e' la condizione in cui il difetto si vedeva."""
     vera = worker_analisi.analizza_file
     monkeypatch.setattr(worker_analisi, "cadenza_battito", lambda _lease_s: 0.05)
+    # `ocr`: la configurazione dell'OCR che il worker passa dal suo worker.toml (Smistamento F9)
     monkeypatch.setattr(worker_analisi, "analizza_file",
-                        lambda percorso, nome_file: (time.sleep(durata_s), vera(percorso, nome_file))[1])
+                        lambda percorso, nome_file, ocr=None: (time.sleep(durata_s), vera(percorso, nome_file, ocr))[1])
 
 
 def test_il_worker_analisi_batte_durante_l_analisi(tmp_path, monkeypatch):

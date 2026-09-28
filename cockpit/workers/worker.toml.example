@@ -121,3 +121,20 @@ consenti_invio = false
 # [analisi]
 # worker_id = "analisi@PC-NOME"
 # token     = "..."
+#
+# ------------------------------------------------------------------ OCR dei PDF (Smistamento F9, analizzatore 4)
+# Il worker di analisi legge il testo dei PDF per frammenti con le coordinate; dove il testo scritto nel file
+# manca o non basta (una pagina di sole curve o una scansione, un cartiglio incollato come immagine) PUO'
+# leggerlo con l'OCR, solo li'. L'OCR e' FACOLTATIVO: serve Tesseract su QUESTO PC (i dati delle lingue,
+# «tessdata»), e se non c'e' il worker lo scrive nel fatto («OCR non disponibile») e continua con il testo del
+# file, senza errori. L'OCR non fa mai fallire un'analisi, e quello che legge e' un indizio per chi decide, mai
+# una decisione. Le chiavi vanno nella tabella [analisi]:
+#
+# ocr          = "automatico"   # default: l'OCR quando serve e se Tesseract c'e'; "spento": mai
+# ocr_lingua   = "ita+eng"      # le lingue di Tesseract (devono esserci in tessdata)
+# ocr_dpi      = 300            # risoluzione dell'immagine data a Tesseract
+# ocr_tessdata = ''             # cartella tessdata, se Tesseract non la trova da solo (o TESSDATA_PREFIX)
+#
+# Nota: i fatti si conservano per contenuto, versione e configurazione del SERVER. Un PDF analizzato da un
+# worker senza Tesseract resta con «OCR non disponibile» anche dopo aver installato Tesseract, finche' non
+# cambia la versione dell'analizzatore: installarlo vale per i PDF che arrivano dopo.

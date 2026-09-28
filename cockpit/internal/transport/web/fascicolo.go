@@ -225,7 +225,20 @@ func assegnaDocumento(ctx context.Context, q *db.Queries, perc *percorsi, d db.D
 // restaAlSuoComponente dice perche' un documento non puo' lasciare il suo componente, prima che lo
 // dica una FK: lo STEP strutturale registrato in una baseline congelata (R2.5, prova 69), lo STEP
 // strutturale attuale, un documento dentro una catena di revisioni (D32).
+//
+// Smistamento F5 (A5.4.7): nemmeno il documento di un file autorizzato a proporre i figli diretti di un
+// componente (la marcatura dello Smistamento, per un componente qualunque). Spostarlo, o sganciarlo (la
+// revoca dell'associazione), lascerebbe un'autorita' su un file che non e' piu' di quel componente: prima si
+// revoca l'autorizzazione.
 func restaAlSuoComponente(ctx context.Context, q *db.Queries, d db.Documento) error {
+	dich, err := fascicolo.LeggiDichiarazioni(ctx, q, d.ThreadID)
+	if err != nil {
+		return err
+	}
+	if x, ok := dich.DelDocumento(d.DocumentoID); ok && x.Origine == fascicolo.OrigineSmistamento {
+		return rifiuto(fmt.Sprintf("%s è lo STEP autorizzato a proporre i figli diretti di %s: prima si revoca l'autorizzazione",
+			d.NomeFile, x.Componente.Codice))
+	}
 	versioni, err := q.VersioniConLoStep(ctx, uuid.NullUUID{UUID: d.DocumentoID, Valid: true})
 	if err != nil {
 		return err
@@ -284,6 +297,10 @@ type sceltaRevisione struct {
 	// scelto, e una risposta data dal modulo non e' una decisione). rispostaRiferimento dice che la domanda
 	// ha avuto una risposta: sostituire lo STEP strutturale senza dirlo si rifiuta (B8.7).
 	riferimento, rispostaRiferimento bool
+	// sostituisceAutorizzato: il predecessore e' lo STEP autorizzato del componente (Smistamento F5b: la
+	// marcatura, per qualunque componente; per un finito anche lo STEP strutturale). La domanda allora si fa
+	// e vuole una risposta; «si'» autorizza il file nuovo. Lo legge chi chiama (StepAutorizzatoDi).
+	sostituisceAutorizzato bool
 	// motivo: perche' si sostituisce. Una versione interna (un file caricato a mano, B8.7) sostituisce
 	// solo con un motivo, e il motivo resta nella nota del documento nuovo.
 	motivo  string
@@ -365,8 +382,9 @@ func verificaScelta(nome string, c db.Componente, tipo db.TipoDocumento, corrent
 // STEP strutturale del componente, si dice esplicitamente se il nuovo diventa il riferimento; se il file
 // nuovo e' una versione interna, si dice perche'.
 func verificaSostituzione(nome string, c db.Componente, s sceltaRevisione) error {
-	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == s.sostituisce && !s.rispostaRiferimento {
-		return rifiuto(fmt.Sprintf("%s sostituisce lo STEP strutturale di %s: si dice se il nuovo diventa il riferimento (sì o no)", nome, c.Codice))
+	autorizzato := s.sostituisceAutorizzato || (c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == s.sostituisce)
+	if autorizzato && s.sostituisce != uuid.Nil && !s.rispostaRiferimento {
+		return rifiuto(fmt.Sprintf("%s sostituisce lo STEP autorizzato di %s: si dice se il nuovo diventa il riferimento, cioè lo STEP autorizzato (sì o no)", nome, c.Codice))
 	}
 	if s.interno && s.motivo == "" {
 		return rifiuto(fmt.Sprintf("%s è una versione interna: sostituisce un documento solo con un motivo", nome))
@@ -375,15 +393,16 @@ func verificaSostituzione(nome string, c db.Componente, s sceltaRevisione) error
 }
 
 // applicaScelta registra la risposta dopo che il file nuovo e' entrato nel componente: la
-// sostituzione e' la stessa di fascicolo.Sostituisci, con la catena tenuta dal database (D32).
-func applicaScelta(ctx context.Context, q *db.Queries, thread, nuovo uuid.UUID, s sceltaRevisione) (string, error) {
+// sostituzione e' la stessa di fascicolo.Sostituisci, con la catena tenuta dal database (D32). utente e'
+// chi decide: con «si'» autorizza il file nuovo (Smistamento F5b).
+func applicaScelta(ctx context.Context, q *db.Queries, thread, nuovo uuid.UUID, s sceltaRevisione, utente uuid.UUID) (string, error) {
 	if !s.data {
 		return "", nil
 	}
 	if s.sostituisce == uuid.Nil {
 		return " Si aggiunge: i documenti dello stesso tipo restano correnti.", nil
 	}
-	msg, err := fascicolo.Sostituisci(ctx, q, thread, s.sostituisce, nuovo, s.riferimento)
+	msg, err := fascicolo.Sostituisci(ctx, q, thread, s.sostituisce, nuovo, s.riferimento, utente)
 	if err != nil {
 		return "", err
 	}
@@ -423,7 +442,7 @@ func notaSostituzione(ctx context.Context, q *db.Queries, vecchio, nuovo uuid.UU
 // scelta in scelte (aggiungi / sostituisce); una proposta no: la domanda gliela fa la conferma, quando
 // diventa documento.
 func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, comp uuid.NullUUID, docs, props []uuid.UUID, correggi bool,
-	scelte map[uuid.UUID]sceltaRevisione) (string, error) {
+	scelte map[uuid.UUID]sceltaRevisione, utente uuid.UUID) (string, error) {
 	// La RFQ prima di componenti, documenti e proposte: e' l'ordine del congelamento e degli altri gesti.
 	// Rovesciato (i documenti bloccati qui, poi il trigger della working che chiede la RFQ) basta un
 	// congelamento nello stesso istante perche' le due transazioni si aspettino a vicenda (40P01).
@@ -490,6 +509,9 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 				if sc.interno, err = q.DocumentoInterno(ctx, d.DocumentoID); err != nil {
 					return "", err
 				}
+				if sc.sostituisceAutorizzato, err = fascicolo.StepAutorizzatoDi(ctx, q, thread, *c, sc.sostituisce); err != nil {
+					return "", err
+				}
 			}
 			if scelta, err = verificaScelta(d.NomeFile, *c, d.Tipo, correnti, sc); err != nil {
 				return "", err
@@ -498,7 +520,7 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		if err := assegnaDocumento(ctx, q, perc, d, c, correggi); err != nil {
 			return "", err
 		}
-		msg, err := applicaScelta(ctx, q, thread, d.DocumentoID, scelta)
+		msg, err := applicaScelta(ctx, q, thread, d.DocumentoID, scelta, utente)
 		if err != nil {
 			return "", err
 		}
@@ -738,7 +760,7 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 		}
 		scelte[d] = sc
 	}
-	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", scelte)
+	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", scelte, utenteDa(ctx).UtenteID)
 	if err == nil {
 		err = tx.Commit(ctx)
 	}

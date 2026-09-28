@@ -418,8 +418,10 @@ func (q *Queries) SetStepStrutturale(ctx context.Context, arg SetStepStrutturale
 const upsertRimozioneProposta = `-- name: UpsertRimozioneProposta :exec
 INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (thread_id, step_documento_id, padre_id, figlio_id) DO UPDATE SET qta_working = EXCLUDED.qta_working
+ON CONFLICT (thread_id, step_documento_id, padre_id, figlio_id) DO UPDATE SET qta_working = EXCLUDED.qta_working,
+    stato = 'aperta', nota = NULL, deciso_il = NULL
 WHERE rimozione_proposta.stato = 'aperta'
+   OR (rimozione_proposta.stato = 'scartata' AND rimozione_proposta.deciso_da IS NULL)
 `
 
 type UpsertRimozionePropostaParams struct {
@@ -430,7 +432,9 @@ type UpsertRimozionePropostaParams struct {
 	QtaWorking      int32     `json:"qta_working"`
 }
 
-// Idempotente come le altre proposte; una proposta gia' decisa non si riapre.
+// Idempotente come le altre proposte; una proposta decisa da una persona non si riapre. Una chiusa da un
+// automatismo (scartata senza chi l'ha decisa: l'arco era uscito dalla working, il prodotto archiviato)
+// si riapre se la rimozione vale di nuovo (Smistamento F5, E33): nessuno aveva deciso di tenere l'arco.
 func (q *Queries) UpsertRimozioneProposta(ctx context.Context, arg UpsertRimozionePropostaParams) error {
 	_, err := q.db.Exec(ctx, upsertRimozioneProposta,
 		arg.ThreadID,

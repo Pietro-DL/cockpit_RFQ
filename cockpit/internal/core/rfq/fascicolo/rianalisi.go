@@ -13,6 +13,9 @@ package fascicolo
 // anche la preparazione (POST …/fascicolo/prepara); rileggere scrive proposte di struttura, e succede solo
 // su un evento esplicito: la creazione o l'aggancio della RFQ (gli STEP analizzati prima, critica C6) e il
 // gesto «Rianalizza», che fa le due meta' insieme (RianalizzaRfq).
+//
+// Smistamento F9 (analizzatore 4): il gesto «Rianalizza» accoda anche i PDF letti da un analizzatore
+// precedente, che senza il testo nuovo resterebbero «testo non letto» (rianalisi_pdf.go).
 
 import (
 	"context"
@@ -39,30 +42,44 @@ type Rianalisi struct {
 	Rimandati    int // oltre il limite: alla prossima volta
 	SenzaStaging int // il contenuto non e' piu' in staging: si riprende con «Riscarica», poi si rianalizza
 	Proposte     int // righe di proposta scritte o riscritte
+	// I PDF letti da un analizzatore precedente (Smistamento F9, AccodaPdfDaRileggere): contati a parte, perche'
+	// il gesto dica di quali file parla.
+	PdfAccodati     int
+	PdfGiaInCoda    int
+	PdfRimandati    int
+	PdfSenzaStaging int
 }
 
 // piu somma due esiti: RianalizzaRfq e' le due meta' insieme, e il gesto dice il totale.
 func (r Rianalisi) piu(o Rianalisi) Rianalisi {
 	return Rianalisi{Riletti: r.Riletti + o.Riletti, Accodati: r.Accodati + o.Accodati, GiaInCoda: r.GiaInCoda + o.GiaInCoda,
-		Rimandati: r.Rimandati + o.Rimandati, SenzaStaging: r.SenzaStaging + o.SenzaStaging, Proposte: r.Proposte + o.Proposte}
+		Rimandati: r.Rimandati + o.Rimandati, SenzaStaging: r.SenzaStaging + o.SenzaStaging, Proposte: r.Proposte + o.Proposte,
+		PdfAccodati: r.PdfAccodati + o.PdfAccodati, PdfGiaInCoda: r.PdfGiaInCoda + o.PdfGiaInCoda,
+		PdfRimandati: r.PdfRimandati + o.PdfRimandati, PdfSenzaStaging: r.PdfSenzaStaging + o.PdfSenzaStaging}
 }
 
 // RianalizzaRfq e' il gesto «Rianalizza»: rilegge gli STEP della RFQ con i fatti correnti e accoda
 // l'analisi di quelli che non li hanno, al massimo maxAccodati. an e' l'analizzatore corrente del server
-// (cfg.Analisi).
+// (cfg.Analisi). Smistamento F9: accoda anche i PDF letti da un analizzatore precedente (AccodaPdfDaRileggere),
+// con quello che resta del limite dopo gli STEP, che portano la struttura e vengono prima.
 func RianalizzaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxAccodati int) (Rianalisi, error) {
 	riletti, err := RileggiStepDellaRfq(ctx, q, thread, an)
 	if err != nil {
 		return riletti, err
 	}
 	accodati, err := AccodaAnalisiMancanti(ctx, q, thread, an, maxAccodati)
-	return riletti.piu(accodati), err
+	if err != nil {
+		return riletti.piu(accodati), err
+	}
+	pdf, err := AccodaPdfDaRileggere(ctx, q, thread, an, max(0, maxAccodati-accodati.Accodati))
+	return riletti.piu(accodati).piu(pdf), err
 }
 
 // RileggiStepDellaRfq riapplica alla RFQ i fatti correnti dei suoi STEP: le proposte di struttura si
 // rifanno con le regole del cliente di adesso. Scrive proposte, quindi si chiama solo da un gesto o da un
 // evento esplicito (la creazione o l'aggancio della RFQ, «Rianalizza»), mai dall'apertura di una pagina.
-// Gli STEP senza fatti correnti non si toccano: li accoda AccodaAnalisiMancanti.
+// Gli STEP senza fatti correnti non si toccano: li accoda AccodaAnalisiMancanti. Gli STEP esclusi da una
+// persona e quelli che non vengono dal cliente non si rileggono (Smistamento F5, E26, P27).
 func RileggiStepDellaRfq(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore) (Rianalisi, error) {
 	var r Rianalisi
 	step, err := q.ListStepDellaRfq(ctx, uuid.NullUUID{UUID: thread, Valid: true})
@@ -113,7 +130,9 @@ func AccodaAnalisiMancantiDaSola(ctx context.Context, q *db.Queries, thread uuid
 
 func accodaAnalisiMancanti(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxAccodati int, daSola bool) (Rianalisi, error) {
 	var r Rianalisi
-	step, err := q.ListStepDellaRfq(ctx, uuid.NullUUID{UUID: thread, Valid: true})
+	// tutti gli STEP si analizzano, anche quelli esclusi o di un fornitore (decisione dell'utente del 27/09):
+	// l'analisi e' un fatto del contenuto. E' la lettura nella RFQ che li lascia fuori (ListStepDellaRfq)
+	step, err := q.ListStepDaAnalizzareDellaRfq(ctx, uuid.NullUUID{UUID: thread, Valid: true})
 	if err != nil {
 		return r, err
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/archivio"
@@ -46,6 +47,8 @@ import (
 // Un archivio illeggibile NON fa fallire il job: riprovarlo darebbe all'infinito lo stesso esito.
 // L'allegato va in errore con il motivo visibile, e il job si chiude.
 func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token uuid.UUID) (int, error) {
+	// le voci toccano la RFQ dell'archivio: il flusso ancorato al prodotto la rifa' dopo il commit (IN2)
+	ctx, raccolta := fascicolo.ConRismistamenti(ctx)
 	q := db.New(s.Pool)
 	a, err := q.GetAllegato(ctx, allegatoID)
 	if err != nil {
@@ -79,6 +82,15 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	}
 	defer tx.Rollback(ctx)
 	qt := db.New(tx)
+	// Prima gli STEP e i PDF il cui nome e' compatibile con un prodotto della RFQ (Smistamento F8, A5.13.6):
+	// la loro analisi passa prima delle altre voci, perche' e' da loro che l'ancora puo' arrivare.
+	var compatibili fascicolo.Compatibili
+	if m.ThreadID.Valid {
+		if compatibili, err = fascicolo.CompatibiliConIProdotti(ctx, qt, m.ThreadID.UUID); err != nil {
+			return 0, err
+		}
+		fascicolo.SegnaRismistamento(ctx, m.ThreadID.UUID)
+	}
 	for i, v := range voci {
 		figlio, err := qt.UpsertAllegato(ctx, db.UpsertAllegatoParams{
 			MessaggioID: a.MessaggioID, ContenitoreID: uuid.NullUUID{UUID: a.AllegatoID, Valid: true}, Indice: int16(i + 1),
@@ -102,7 +114,11 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 			_ = qt.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: figlio.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 			continue
 		}
-		jf, err := coda.AccodaAnalisi(ctx, qt, figlio, m.ThreadID, s.Analizzatore)
+		priorita := coda.PrioritaAnalisi
+		if compatibili.Compatibile(figlio.NomeFile, v.PathInterno, a.NomeFile) {
+			priorita = coda.PrioritaAnalisiCompatibile
+		}
+		jf, err := coda.AccodaAnalisiCon(ctx, qt, figlio, m.ThreadID, s.Analizzatore, priorita)
 		if err != nil {
 			return 0, err
 		}
@@ -132,6 +148,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 		return 0, err
 	}
 	s.Log.Info("archivio estratto", "allegato", allegatoID, "file", a.NomeFile, "voci", len(voci), "troncato", troncato)
+	raccolta.Esegui(ctx, s.smistatore(), s.Log)
 	return len(voci), nil
 }
 

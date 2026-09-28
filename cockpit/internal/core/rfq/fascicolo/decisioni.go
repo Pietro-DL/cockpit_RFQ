@@ -8,6 +8,13 @@ package fascicolo
 // due decisioni sulla stessa RFQ si mettono in fila, e il controllo dei cicli vede gli archi che
 // l'altra ha appena scritto. Dopo il congelamento la working non si tocca (D26): lo si dice prima del
 // muro del database.
+//
+// Smistamento F5 (A5.4.7, P9). Si accetta solo quello che sta nell'AUTORITA' di un file autorizzato: un nodo
+// figlio diretto di una sorgente, un arco che parte da una sorgente verso un figlio deciso da una persona.
+// La guida (il resto del file, e i file non autorizzati) si corregge come evidenza — «Correggi», «Scarta»,
+// «Riapri il nodo» — ma non si accetta. Il ritrovamento per codice resta, perche' lo fa la persona che
+// accetta; le riconciliazioni (le altre proposte con lo stesso codice che diventavano quel componente da
+// sole) non ci sono piu': ogni nodo si decide dove lo si vede.
 
 import (
 	"context"
@@ -61,7 +68,7 @@ func nomeNodo(p db.ComponenteProposta) string {
 // AccettaNodo e' «questo nodo e' un componente». Se nella RFQ c'e' gia' un componente con quel codice
 // il nodo lo ritrova (duplicato), e se era archiviato lo ripristina: stesso componente, stessa storia
 // (A4.9). Altrimenti nasce il componente, con il tipo scelto o quello suggerito. Nessuna relazione:
-// quelle si accettano a parte (A1.1). Le altre proposte aperte dello stesso codice si riconciliano.
+// quelle si accettano a parte (A1.1). Solo un figlio diretto di una sorgente autorizzata (F5).
 func AccettaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID, tipo db.TipoComponente) (string, error) {
 	if err := prepara(ctx, q, thread, "si accetta una proposta di struttura"); err != nil {
 		return "", err
@@ -73,13 +80,48 @@ func AccettaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uu
 	if err != nil {
 		return "", err
 	}
-	msg, err := accettaNodo(ctx, q, p, utente, tipo)
+	aut, _, _, err := autoritaDelFile(ctx, q, thread, p.AllegatoID)
+	if err != nil {
+		return "", err
+	}
+	msg, err := accettaNodo(ctx, q, p, utente, tipo, aut)
+	if err == nil {
+		err = rileggiIlFile(ctx, q, thread, p.AllegatoID)
+	}
 	return dopoLaDecisione(ctx, q, thread, msg, err)
 }
 
+// rileggiIlFile rilegge nella RFQ i fatti correnti del file che porta le proposte: dopo che una persona ha
+// deciso un figlio diretto, l'arco dalla sorgente verso di lui tiene i conti con la working (A5.4.4:
+// duplicato se la working ha gia' lo stesso arco, la quantita' diversa con la nota, «stesso componente»).
+// Prima lo faceva la lettura da sola, perche' il codice uguale bastava a dire che il figlio era quel
+// componente. Senza fatti correnti non fa niente: gli archi restano aperti, e si decidono uno per uno.
+func rileggiIlFile(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID) error {
+	a, err := q.GetAllegato(ctx, allegato)
+	if err != nil {
+		return err
+	}
+	if !a.Sha256.Valid || a.Sha256.String == "" {
+		return nil
+	}
+	af, err := q.GetAnalisiCorrente(ctx, a.Sha256.String)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	m, err := MotoreDellaRfq(ctx, q, thread)
+	if err != nil {
+		return err
+	}
+	_, err = ApplicaStruttura(ctx, q, thread, a, af.Fatti, m)
+	return err
+}
+
 // dopoLaDecisione ricalcola le rimozioni: un nodo riconosciuto, un codice scritto, un arco nuovo cambiano
-// il confronto con lo STEP strutturale, e le proposte di rimozione devono dire sempre quello che la
-// working e il file dicono adesso.
+// il confronto con i file autorizzati, e le proposte di rimozione devono dire sempre quello che la
+// working e i file dicono adesso.
 func dopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID, msg string, err error) (string, error) {
 	if err != nil {
 		return "", err
@@ -90,7 +132,31 @@ func dopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID, msg s
 	return msg, nil
 }
 
-func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, utente uuid.UUID, tipo db.TipoComponente) (string, error) {
+// rifiutoGuida dice perche' un nodo non si accetta: e' la sorgente (e' gia' C), oppure e' guida.
+func rifiutoGuida(p db.ComponenteProposta, aut Autorita) error {
+	if d, ok := aut.Sorgente(p.AllegatoID, p.Chiave); ok {
+		return Rifiuto(fmt.Sprintf("%s è la radice dello STEP autorizzato di %s: è quel componente, non si accetta come un pezzo nuovo",
+			nomeNodo(p), d.Componente.Codice))
+	}
+	return Rifiuto(fmt.Sprintf("%s è guida: nessuno STEP autorizzato lo propone come figlio diretto. Lo propone lo STEP autorizzato "+
+		"del suo padre, se ne ha uno", nomeNodo(p)))
+}
+
+func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, utente uuid.UUID, tipo db.TipoComponente, aut Autorita) (string, error) {
+	if _, ok := aut.FiglioDiretto(p.AllegatoID, p.Chiave); !ok {
+		return "", rifiutoGuida(p, aut)
+	}
+	if AgganciatoPerCodice(p) {
+		// un aggancio per codice di prima dello Smistamento, dentro l'autorita': una persona lo conferma
+		n, err := q.ConfermaNodoAgganciato(ctx, db.ConfermaNodoAgganciatoParams{PropostaID: p.PropostaID, DecisoDa: utente})
+		if err != nil {
+			return "", err
+		}
+		if n != 1 {
+			return "", Rifiuto(nomeNodo(p) + ": la proposta è stata decisa nel frattempo")
+		}
+		return fmt.Sprintf("%s confermato: è il componente %s già nella BOM.", nomeNodo(p), codiceDi(ctx, q, p.ComponenteID.UUID)), nil
+	}
 	if p.Stato != db.StatoPropostaAperta {
 		return "", Rifiuto(fmt.Sprintf("%s: la proposta è già decisa (%s)", nomeNodo(p), p.Stato))
 	}
@@ -99,8 +165,10 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 		return "", Rifiuto(fmt.Sprintf("%s non ha un codice: lo si scrive prima di accettarlo", nomeNodo(p)))
 	}
 	if tipo == "" {
+		// il tipo suggerito dalla lettura, mai commerciale: il make/buy lo decide solo una persona, scegliendo
+		// il tipo (decisioni del 27/09 ter). Una riga di prima che lo proponesse vale come sciolto
 		tipo = db.TipoComponenteSciolto
-		if p.TipoProposto.Valid {
+		if p.TipoProposto.Valid && p.TipoProposto.TipoComponente != db.TipoComponenteCommerciale {
 			tipo = p.TipoProposto.TipoComponente
 		}
 	}
@@ -110,6 +178,7 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 	var comp uuid.UUID
 	stato := db.StatoPropostaConfermata
 	msg := ""
+	// il ritrovamento per codice: lo fa la persona che accetta, con il gesto (A5.4.7)
 	c, err := q.GetComponentePerCodice(ctx, db.GetComponentePerCodiceParams{ThreadID: p.ThreadID, Upper: codice})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// il pezzo nato con il suffisso decorativo del cliente («X_PRT») e' lo stesso pezzo di «X»
@@ -119,7 +188,6 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 			c, err = a, nil
 		}
 	}
-	codiceProposto := codice
 	switch {
 	case err == nil:
 		comp, stato = c.ComponenteID, db.StatoPropostaDuplicato
@@ -130,7 +198,6 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 			}
 			msg = fmt.Sprintf("%s era archiviato: ripristinato, con la sua storia.", c.Codice)
 		}
-		codice = c.Codice
 	case errors.Is(err, pgx.ErrNoRows):
 		n, err := q.InsertComponente(ctx, db.InsertComponenteParams{
 			ThreadID: p.ThreadID, Codice: codice, Rev: p.Rev, Descrizione: p.Descrizione, Qta: 1,
@@ -151,15 +218,6 @@ func accettaNodo(ctx context.Context, q *db.Queries, p db.ComponenteProposta, ut
 	}
 	if k != 1 {
 		return "", Rifiuto(nomeNodo(p) + ": la proposta è stata decisa nel frattempo")
-	}
-	for _, k := range []string{codice, codiceProposto} {
-		if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: p.ThreadID, Codice: k,
-			ComponenteID: uid(comp), Esclusa: p.PropostaID}); err != nil {
-			return "", err
-		}
-		if strings.EqualFold(codice, codiceProposto) {
-			break
-		}
 	}
 	return msg, nil
 }
@@ -191,8 +249,10 @@ func componenteConSuffisso(ctx context.Context, q *db.Queries, thread uuid.UUID,
 	return db.Componente{}, false, nil
 }
 
-// AccettaRelazione e' «il padre contiene il figlio, n volte». I due nodi devono essere gia' accettati o
-// ritrovati: prima i nodi (A1.1). Un arco che chiude un ciclo si rifiuta; con piu' padri va bene.
+// AccettaRelazione e' «il padre contiene il figlio, n volte». Il padre e' la sorgente di un file
+// autorizzato (il componente per cui il file e' autorizzato), il figlio un nodo gia' deciso da una persona:
+// prima i nodi (A1.1). Un arco della guida non si accetta (F5). Un arco che chiude un ciclo si rifiuta; con
+// piu' padri va bene.
 //
 // Se l'arco c'e' gia': con la stessa quantita' la proposta e' un duplicato; con una quantita' diversa e'
 // una proposta di quantita' solo se il server l'ha fatta da una lettura completa contro la quantita' che
@@ -203,14 +263,18 @@ func AccettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 	if err := prepara(ctx, q, thread, "si accetta una proposta di struttura"); err != nil {
 		return "", err
 	}
-	msg, err := accettaRelazione(ctx, q, thread, k, utente, nil)
+	aut, _, _, err := autoritaDelFile(ctx, q, thread, k.Allegato)
+	if err != nil {
+		return "", err
+	}
+	msg, err := accettaRelazione(ctx, q, thread, k, utente, nil, aut)
 	return dopoLaDecisione(ctx, q, thread, msg, err)
 }
 
 // accettaRelazione e' il cuore di AccettaRelazione. archi, se non e' nil, sono gli archi attivi della
 // working gia' letti da chi chiama, e vi si aggiunge l'arco scritto: accettare un file intero li legge
 // una volta sola invece che una per arco (su uno STEP vero da 246 archi era la meta' del tempo).
-func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID, archi *[]Arco) (string, error) {
+func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID, archi *[]Arco, aut Autorita) (string, error) {
 	r, err := q.BloccaRelazioneProposta(ctx, db.BloccaRelazionePropostaParams{ThreadID: thread, AllegatoID: k.Allegato,
 		PadreChiave: k.Padre, FiglioChiave: k.Figlio})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -227,19 +291,24 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 	if err != nil {
 		return "", err
 	}
-	nome := nomeNodo(pn) + " → " + nomeNodo(fn)
+	padre, autorizzato := aut.ArcoAutorizzato(k)
+	if !autorizzato {
+		return "", Rifiuto(fmt.Sprintf("%s → %s è guida: %s non è la radice di uno STEP autorizzato. L'arco lo propone lo STEP autorizzato "+
+			"di %s, se ne ha uno", nomeNodo(pn), nomeNodo(fn), nomeNodo(pn), nomeNodo(pn)))
+	}
+	nome := codiceDi(ctx, q, padre) + " → " + nomeNodo(fn)
 	if r.Stato != db.StatoPropostaAperta {
 		return "", Rifiuto(fmt.Sprintf("%s: la proposta è già decisa (%s)", nome, r.Stato))
 	}
-	for _, n := range []db.ComponenteProposta{pn, fn} {
-		switch {
-		case n.Stato == db.StatoPropostaScartata:
-			return "", Rifiuto(fmt.Sprintf("%s: il nodo %s è stato scartato, la relazione non si può accettare", nome, nomeNodo(n)))
-		case n.Stato == db.StatoPropostaAperta || !n.ComponenteID.Valid:
-			return "", Rifiuto(fmt.Sprintf("%s: prima i nodi, %s non è ancora accettato", nome, nomeNodo(n)))
-		}
+	figlio, deciso := DecisoDaUnaPersona(fn)
+	switch {
+	case fn.Stato == db.StatoPropostaScartata:
+		return "", Rifiuto(fmt.Sprintf("%s: il nodo %s è stato scartato, la relazione non si può accettare", nome, nomeNodo(fn)))
+	case !deciso:
+		return "", Rifiuto(fmt.Sprintf("%s: prima i nodi, %s non è ancora accettato", nome, nomeNodo(fn)))
 	}
-	padre, figlio := pn.ComponenteID.UUID, fn.ComponenteID.UUID
+	nome = codiceDi(ctx, q, padre) + " → " + codiceDi(ctx, q, figlio)
+	var tipoPadre db.TipoComponente
 	for _, id := range []uuid.UUID{padre, figlio} {
 		c, err := q.GetComponente(ctx, id)
 		if err != nil {
@@ -247,6 +316,9 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 		}
 		if c.ArchiviatoIl != nil {
 			return "", Rifiuto(fmt.Sprintf("%s: %s è archiviato, prima lo si ripristina", nome, c.Codice))
+		}
+		if id == padre {
+			tipoPadre = c.Tipo
 		}
 	}
 	if padre == figlio {
@@ -274,7 +346,15 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 		if err := decidiRelazione(ctx, q, thread, k, db.StatoPropostaConfermata, "", utente); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s ×%d entra nella BOM.", nome, r.Qta), riconciliaRelazione(ctx, q, thread, padre, figlio, r.Qta)
+		if tipoPadre == db.TipoComponenteSciolto {
+			// E37 (Smistamento F5b, A5.4.1): un particolare con uno STEP autorizzato diventa un assieme al primo
+			// figlio accettato, come nell'editor
+			if err := q.SetTipoComponente(ctx, db.SetTipoComponenteParams{ComponenteID: padre, Tipo: db.TipoComponenteSottoassieme, ConfermatoDa: utente}); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("%s ×%d entra nella BOM; %s diventa un assieme.", nome, r.Qta, codiceDi(ctx, q, padre)), nil
+		}
+		return fmt.Sprintf("%s ×%d entra nella BOM.", nome, r.Qta), nil
 	case err != nil:
 		return "", err
 	}
@@ -291,7 +371,7 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 		if err := decidiRelazione(ctx, q, thread, k, db.StatoPropostaConfermata, "", utente); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s: quantità %d → %d.", nome, esistente.Qta, r.Qta), riconciliaRelazione(ctx, q, thread, padre, figlio, r.Qta)
+		return fmt.Sprintf("%s: quantità %d → %d.", nome, esistente.Qta, r.Qta), nil
 	}
 	nota := fmt.Sprintf("qta diversa: %d contro %d", r.Qta, esistente.Qta)
 	if err := decidiRelazione(ctx, q, thread, k, db.StatoPropostaDuplicato, nota, utente); err != nil {
@@ -352,11 +432,6 @@ const maxNota = 200
 // decisione con un errore grezzo del database, invece di arrivare un po' piu' corta.
 func tagliaNota(s string) string { return taglia(s, maxNota) }
 
-func riconciliaRelazione(ctx context.Context, q *db.Queries, thread, padre, figlio uuid.UUID, qta int32) error {
-	_, err := q.RiconciliaProposteRelazione(ctx, db.RiconciliaProposteRelazioneParams{ThreadID: thread, PadreID: uid(padre), FiglioID: uid(figlio), Qta: qta})
-	return err
-}
-
 // ciclo racconta il cammino con i codici: «A → B → A».
 func ciclo(ctx context.Context, q *db.Queries, giro []uuid.UUID) string {
 	nomi := make([]string, 0, len(giro)+1)
@@ -373,87 +448,81 @@ func codiceDi(ctx context.Context, q *db.Queries, id uuid.UUID) string {
 	return id.String()
 }
 
-// AccettaSottoalbero accetta un nodo del file e tutto quello che gli pende sotto: prima i nodi, per
-// profondita', poi gli archi fra nodi accettati. Una sola transazione, quella di chi chiama: un solo
-// rifiuto (un nodo senza codice, un ciclo) annulla tutto (A1.1). I nodi gia' decisi restano come sono;
-// un nodo scartato ferma la discesa sotto di lui, e i suoi archi restano aperti.
+// AccettaSottoalbero accetta dal file quello che la chiave indica, nell'autorita': per una sorgente i suoi
+// figli diretti con gli archi, per un figlio diretto quel nodo con il suo arco. Sotto non si scende: i
+// nipoti sono guida, e li propone lo STEP autorizzato del loro padre, o lo stesso file delegato a quel padre
+// da una persona (F5, Domanda 1 = B). Una sola transazione, quella di chi chiama: un solo rifiuto (un nodo
+// senza codice, un ciclo) annulla tutto (A1.1).
 func AccettaSottoalbero(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, chiave string, utente uuid.UUID) (string, error) {
 	return accettaGrafo(ctx, q, thread, allegato, []string{chiave}, utente)
 }
 
-// AccettaFile accetta tutto il file: il sottoalbero di ogni sua radice.
+// AccettaFile e' «accetta i figli diretti di C da questo STEP» (F5): i figli diretti di ogni sorgente del
+// file, con gli archi. Prima era il file intero, con i nipoti.
 func AccettaFile(ctx context.Context, q *db.Queries, thread, allegato, utente uuid.UUID) (string, error) {
-	nodi, err := q.ListComponenteProposteFile(ctx, db.ListComponenteProposteFileParams{ThreadID: thread, AllegatoID: allegato})
-	if err != nil {
+	return accettaGrafo(ctx, q, thread, allegato, nil, utente)
+}
+
+// accettaGrafo accetta i figli diretti indicati (partenze nil = tutte le sorgenti del file): prima i nodi,
+// poi gli archi dalle sorgenti.
+func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, partenze []string, utente uuid.UUID) (string, error) {
+	if err := prepara(ctx, q, thread, "si accettano proposte di struttura"); err != nil {
 		return "", err
 	}
-	rel, err := q.ListRelazioneProposteFile(ctx, db.ListRelazioneProposteFileParams{ThreadID: thread, AllegatoID: allegato})
+	aut, nodi, rel, err := autoritaDelFile(ctx, q, thread, allegato)
 	if err != nil {
 		return "", err
 	}
 	if len(nodi) == 0 {
 		return "", Rifiuto("il file non ha proposte di struttura in questa RFQ")
 	}
-	figli := map[string]bool{}
-	for _, r := range rel {
-		figli[r.FiglioChiave] = true
-	}
-	var radici []string
-	for _, n := range nodi {
-		if !figli[n.Chiave] {
-			radici = append(radici, n.Chiave)
-		}
-	}
-	return accettaGrafo(ctx, q, thread, allegato, radici, utente)
-}
-
-func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, partenze []string, utente uuid.UUID) (string, error) {
-	if err := prepara(ctx, q, thread, "si accettano proposte di struttura"); err != nil {
-		return "", err
-	}
-	nodi, err := q.ListComponenteProposteFile(ctx, db.ListComponenteProposteFileParams{ThreadID: thread, AllegatoID: allegato})
-	if err != nil {
-		return "", err
-	}
-	rel, err := q.ListRelazioneProposteFile(ctx, db.ListRelazioneProposteFileParams{ThreadID: thread, AllegatoID: allegato})
-	if err != nil {
-		return "", err
-	}
 	perChiave := map[string]db.ComponenteProposta{}
 	for _, n := range nodi {
 		perChiave[n.Chiave] = n
 	}
-	figli := map[string][]string{}
-	for _, r := range rel {
-		figli[r.PadreChiave] = append(figli[r.PadreChiave], r.FiglioChiave)
-	}
-	for k := range figli {
-		sort.Strings(figli[k])
-	}
-	// in ampiezza: ogni nodo compare al livello in cui lo si incontra la prima volta
-	visto := map[string]bool{}
-	var ordine []string
-	coda := append([]string(nil), partenze...)
-	for _, c := range coda {
-		visto[c] = true
-	}
-	for len(coda) > 0 {
-		n := coda[0]
-		coda = coda[1:]
-		p, c := perChiave[n]
-		if !c {
-			return "", Rifiuto("il nodo " + n + " non c'è fra le proposte del file")
+	sort.Slice(rel, func(i, j int) bool {
+		if rel[i].PadreChiave != rel[j].PadreChiave {
+			return rel[i].PadreChiave < rel[j].PadreChiave
 		}
-		ordine = append(ordine, n)
-		if p.Stato == db.StatoPropostaScartata {
-			continue
-		}
-		for _, f := range figli[n] {
-			if !visto[f] {
-				visto[f] = true
-				coda = append(coda, f)
+		return rel[i].FiglioChiave < rel[j].FiglioChiave
+	})
+	if partenze == nil {
+		for _, n := range nodi {
+			if _, ok := aut.Sorgente(allegato, n.Chiave); ok {
+				partenze = append(partenze, n.Chiave)
 			}
 		}
+		if len(partenze) == 0 {
+			return "", Rifiuto("il file non è autorizzato a proporre i figli diretti di nessun componente: le sue proposte sono guida. " +
+				"Si autorizza prima lo STEP per il suo componente")
+		}
+	}
+	// i figli diretti scelti, in un ordine fisso
+	scelti := map[string]bool{}
+	var ordine []string
+	aggiungi := func(k string) {
+		if !scelti[k] {
+			scelti[k] = true
+			ordine = append(ordine, k)
+		}
+	}
+	for _, k := range partenze {
+		p, c := perChiave[k]
+		if !c {
+			return "", Rifiuto("il nodo " + k + " non c'è fra le proposte del file")
+		}
+		if _, ok := aut.Sorgente(allegato, k); ok {
+			for _, r := range rel {
+				if _, figlio := aut.FiglioDiretto(allegato, r.FiglioChiave); r.PadreChiave == k && figlio {
+					aggiungi(r.FiglioChiave)
+				}
+			}
+			continue
+		}
+		if _, ok := aut.FiglioDiretto(allegato, k); !ok {
+			return "", rifiutoGuida(p, aut)
+		}
+		aggiungi(k)
 	}
 	nNodi, nArchi := 0, 0
 	archi, err := archiAttivi(ctx, q, thread)
@@ -465,24 +534,27 @@ func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID
 		if err != nil {
 			return "", err
 		}
-		if p.Stato != db.StatoPropostaAperta {
+		if p.Stato != db.StatoPropostaAperta && !AgganciatoPerCodice(p) {
 			continue
 		}
-		if _, err := accettaNodo(ctx, q, p, utente, ""); err != nil {
+		if _, err := accettaNodo(ctx, q, p, utente, "", aut); err != nil {
 			return "", err
 		}
 		nNodi++
 	}
+	if nNodi > 0 {
+		// i figli appena decisi: gli archi dalla sorgente tengono i conti con la working prima di decidere
+		if err := rileggiIlFile(ctx, q, thread, allegato); err != nil {
+			return "", err
+		}
+	}
 	for _, r := range rel {
-		if !visto[r.PadreChiave] || !visto[r.FiglioChiave] || r.Stato != db.StatoPropostaAperta {
-			continue
-		}
-		if perChiave[r.PadreChiave].Stato == db.StatoPropostaScartata || perChiave[r.FiglioChiave].Stato == db.StatoPropostaScartata {
-			continue
-		}
-		// Riletta adesso: un arco accettato poco fa nello stesso giro puo' averla gia' riconciliata (due
-		// PRODUCT dello stesso codice sotto lo stesso padre finiscono sulla stessa coppia di componenti).
 		k := ChiaveRelazione{Allegato: allegato, Padre: r.PadreChiave, Figlio: r.FiglioChiave}
+		padre, autorizzato := aut.ArcoAutorizzato(k)
+		if !autorizzato || !scelti[r.FiglioChiave] || r.Stato != db.StatoPropostaAperta {
+			continue
+		}
+		// Riletta adesso: un arco accettato poco fa nello stesso giro puo' averla gia' decisa.
 		ora, err := q.BloccaRelazioneProposta(ctx, db.BloccaRelazionePropostaParams{ThreadID: thread, AllegatoID: allegato,
 			PadreChiave: k.Padre, FiglioChiave: k.Figlio})
 		if err != nil {
@@ -491,19 +563,17 @@ func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID
 		if ora.Stato != db.StatoPropostaAperta {
 			continue
 		}
-		// Due PRODUCT con lo stesso codice, uno dentro l'altro (succede negli STEP veri: A1.1,
-		// configurazioni): dopo i nodi sono lo stesso componente, e un pezzo non contiene se stesso. Il
-		// fan-out lo scarta quando i due nodi sono gia' noti; qui lo si scarta con la stessa nota, e il giro
-		// continua.
-		pn, err := nodoDecisoPer(ctx, q, thread, allegato, k.Padre)
-		if err != nil {
-			return "", err
-		}
 		fn, err := nodoDecisoPer(ctx, q, thread, allegato, k.Figlio)
 		if err != nil {
 			return "", err
 		}
-		if pn.ComponenteID.Valid && pn.ComponenteID == fn.ComponenteID {
+		if fn.Stato == db.StatoPropostaScartata {
+			continue // un nodo scartato: il suo arco resta, e si scarta a parte (una decisione per riga)
+		}
+		// Due PRODUCT con lo stesso codice, uno dentro l'altro (succede negli STEP veri: A1.1, configurazioni):
+		// dopo i nodi sono lo stesso componente, e un pezzo non contiene se stesso. Il fan-out lo scarta quando
+		// il figlio e' gia' deciso; qui lo si scarta con la stessa nota, e il giro continua.
+		if f, ok := DecisoDaUnaPersona(fn); ok && f == padre {
 			if _, err := q.DecidiRelazioneProposta(ctx, db.DecidiRelazionePropostaParams{ThreadID: thread, AllegatoID: allegato,
 				PadreChiave: k.Padre, FiglioChiave: k.Figlio, Stato: db.StatoPropostaScartata,
 				Nota: testo("padre e figlio sono lo stesso componente: un pezzo non contiene se stesso")}); err != nil {
@@ -511,7 +581,7 @@ func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID
 			}
 			continue
 		}
-		if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi); err != nil {
+		if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, aut); err != nil {
 			return "", err
 		}
 		nArchi++
@@ -532,7 +602,8 @@ func quanti(n int, uno, molti string) string {
 //
 // Gli scarti e il codice di un nodo non cambiano la working, e per questo valgono anche con la BOM
 // congelata; ma la RFQ la bloccano come gli altri gesti: cambiano che cosa il ricalcolo delle rimozioni
-// vede, e due decisioni sulla stessa RFQ si mettono in fila.
+// vede, e due decisioni sulla stessa RFQ si mettono in fila. Valgono anche per un nodo di guida (F5,
+// A5.4.5): sono correzioni dell'evidenza, che cambiano l'indice dei codici e non la BOM.
 func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID) (string, error) {
 	if err := bloccaThread(ctx, q, thread); err != nil {
 		return "", err
@@ -554,6 +625,30 @@ func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 	return dopoLaDecisione(ctx, q, thread, nomeNodo(p)+" scartato.", nil)
 }
 
+// RiapriNodo: «Riapri il nodo» (F5, A5.4.5). Un nodo scartato torna aperto, con la storia di chi l'aveva
+// scartato e di chi lo riapre. Come lo scarto e' una correzione dell'evidenza: vale per un nodo di guida come
+// per uno nell'autorita', e anche con la BOM congelata. Un nodo accettato non si riapre da qui.
+func RiapriNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID) (string, error) {
+	if err := bloccaThread(ctx, q, thread); err != nil {
+		return "", err
+	}
+	p, err := q.BloccaComponenteProposta(ctx, proposta)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.ThreadID != thread) {
+		return "", Rifiuto("la proposta non è di questa RFQ")
+	}
+	if err != nil {
+		return "", err
+	}
+	n, err := q.RiapriComponenteProposta(ctx, db.RiapriComponentePropostaParams{PropostaID: proposta, Utente: utente})
+	if err != nil {
+		return "", err
+	}
+	if n != 1 {
+		return "", Rifiuto(fmt.Sprintf("%s non è scartato (%s): si riapre solo un nodo scartato", nomeNodo(p), p.Stato))
+	}
+	return dopoLaDecisione(ctx, q, thread, nomeNodo(p)+" riaperto: torna fra le proposte.", nil)
+}
+
 // ScartaRelazione: «questo arco non entra».
 func ScartaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID) (string, error) {
 	if err := bloccaThread(ctx, q, thread); err != nil {
@@ -573,7 +668,8 @@ func ScartaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Chi
 
 // CodiceDelNodo scrive il codice di un nodo che il server non ha saputo classificare («Part1»): origine
 // operatore, e da qui una riclassificazione non lo tocca piu' (A1.2). I limiti sono quelli di ogni
-// codice che entra in una colonna.
+// codice che entra in una colonna. Vale anche per un nodo di guida (F5): «Correggi il codice del nodo» e'
+// una correzione dell'evidenza, e la classificazione del server resta accanto (K2).
 func CodiceDelNodo(ctx context.Context, q *db.Queries, thread, proposta uuid.UUID, codice, rev string) (string, error) {
 	codice, rev = strings.TrimSpace(codice), strings.TrimSpace(rev)
 	if codice == "" {
@@ -606,7 +702,7 @@ func CodiceDelNodo(ctx context.Context, q *db.Queries, thread, proposta uuid.UUI
 	return dopoLaDecisione(ctx, q, thread, fmt.Sprintf("«%s» ha il codice %s.", p.NomeGrezzo, codice), nil)
 }
 
-// AccettaRimozione toglie dalla working l'arco che lo STEP strutturale non contiene piu'. Solo la
+// AccettaRimozione toglie dalla working l'arco che il file autorizzato non contiene piu'. Solo la
 // working: le baseline hanno le loro istantanee e non cambiano (A4.6). Il figlio non si archivia da
 // solo: se resta senza padre compare come radice da sistemare (D29).
 func AccettaRimozione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRimozione, utente uuid.UUID) (string, error) {
@@ -624,6 +720,21 @@ func AccettaRimozione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 		return "", Rifiuto("la rimozione proposta è già decisa")
 	}
 	nome := codiceDi(ctx, q, k.Padre) + " → " + codiceDi(ctx, q, k.Figlio)
+	// solo dall'autorita': una rimozione di un'autorizzazione che non vale (sospesa per un commerciale, in
+	// conflitto, superata) non toglie niente, finche' una persona non la rende di nuovo valida (A5.4.6)
+	dich, err := LeggiDichiarazioni(ctx, q, thread)
+	if err != nil {
+		return "", err
+	}
+	if !dich.RimozioneValida(k.Step, k.Padre) {
+		motivo := "lo STEP non è più autorizzato per " + codiceDi(ctx, q, k.Padre)
+		for _, x := range dich.DelComponente(k.Padre) {
+			if x.Documento.Valid && x.Documento.UUID == k.Step && x.Problema != "" {
+				motivo = x.Problema
+			}
+		}
+		return "", Rifiuto(nome + ": la rimozione non si decide, " + motivo)
+	}
 	tolti, err := q.DeleteRelazione(ctx, db.DeleteRelazioneParams{PadreID: k.Padre, FiglioID: k.Figlio})
 	if err != nil {
 		return "", err

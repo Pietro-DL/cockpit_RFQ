@@ -133,11 +133,6 @@ func (an Analizzatore) Hash() string {
 // (nil, nil): il chiamante li riuserà. Cambiare la versione o un parametro cambia la chiave, quindi
 // fa ripartire l'analisi — che è precisamente ciò che si vuole quando il dizionario cambia.
 func AccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, an Analizzatore) (*db.Job, error) {
-	var tid *uuid.UUID
-	if threadID.Valid {
-		t := threadID.UUID
-		tid = &t
-	}
 	cfg := an.Hash()
 	if a.Sha256.Valid && a.Sha256.String != "" {
 		_, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{
@@ -150,6 +145,22 @@ func AccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID u
 			return nil, err
 		}
 	}
+	return RiaccodaAnalisi(ctx, q, a, threadID, an)
+}
+
+// RiaccodaAnalisi accoda l'analisi di un file anche se i fatti con questa versione e questa configurazione
+// ci sono gia': la stessa chiave idempotente di AccodaAnalisi, senza il controllo dei fatti. Serve quando i
+// fatti correnti ci sono ma non bastano, e una persona ha chiesto di rileggere (Smistamento F9: un worker non
+// aggiornato che ha risposto a un job dell'analizzatore 4 senza il testo del PDF). La chiave e' unica solo
+// fra i job pendenti: un'analisi gia' in coda o in corso non si raddoppia ((nil, nil), come Accoda), e al
+// risultato UpsertAnalisiFatti riscrive i fatti sotto la stessa chiave.
+func RiaccodaAnalisi(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, an Analizzatore) (*db.Job, error) {
+	var tid *uuid.UUID
+	if threadID.Valid {
+		t := threadID.UUID
+		tid = &t
+	}
+	cfg := an.Hash()
 	// Niente path_staging nel payload (7C.1, P0): il worker puo' essere su un altro PC, e si prende
 	// i byte dal server con GET /api/v1/allegati/{id}/contenuto dentro il proprio tentativo.
 	return Accoda(ctx, q, db.TipoJobAnalizzaAllegato, worker.PayloadAnalizzaAllegato{

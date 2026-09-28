@@ -365,6 +365,13 @@
              hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms" hx-target="#thread-risultati">
       <div id="thread-risultati"></div>
     </fieldset>
+    {{/* Scelta 6 dello Smistamento: l'aggancio fa diventare prodotti soltanto i codici spuntati o scritti qui,
+         e qui nessuno nasce spuntato (Spuntato). Un prodotto tolto dalla BOM rientra solo se qualcuno lo
+         conferma di nuovo: una mail che lo cita non basta. */}}
+    <fieldset>
+      <legend>Codici da aggiungere alla RFQ <small class="muto">con l'aggancio diventano prodotti solo quelli che spunti o scrivi</small></legend>
+      {{template "candidati_codice" $}}
+    </fieldset>
     <fieldset>
       <legend>Mittente</legend>
       <label><input type="checkbox" name="crea_buyer" value="1" {{if not .BuyerID.Valid}}checked{{end}}> censisci il mittente come buyer del cliente della RFQ</label>
@@ -713,7 +720,7 @@
   <div class="codice-azioni"><small class="muto">codice della richiesta senza componente: {{if $s.EntraConLaRevisione -}}
     confermato dopo il congelamento della V{{$s.Bloccata}}: il prodotto entra aprendo una revisione della BOM
     {{- else -}}
-    il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione: rientra solo con una decisione del triage (la creazione della RFQ o l'aggancio di una mail)
+    il prodotto non rinasce da solo, né aprendo le pagine né aprendo una revisione né agganciando una mail: rientra solo se una persona ne conferma di nuovo il codice nel triage (spuntandolo o scrivendolo all'aggancio di una mail)
     {{- end}}</small></div>
   {{else}}
   <div class="codice-azioni"><small class="muto">nessun componente con questo codice</small></div>
@@ -732,5 +739,5 @@
   {{- if .Ricostruita}} <small class="k muto">(lettura precedente, ricostruita)</small>{{end}}
   {{- if .ConEvidenze}}
   <details class="dim-evidenze"{{if eq .D.Stato "discorde"}} open{{end}}><summary class="k muto">evidenze ({{len .D.Evidenze}})</summary>
-    <ul>{{range .D.Evidenze}}<li>{{if .Valore}}<span class="mono">{{.Valore}}</span> · {{score .}}{{else}}<span class="k muto">senza valore</span>{{end}} · {{parole .}}{{if .DipendeDa}} <span class="k muto">(dipende dal nome del file: non è una seconda fonte)</span>{{end}}</li>{{end}}</ul>
+    <ul>{{range .D.Evidenze}}<li>{{if .Valore}}<span class="mono">{{.Valore}}</span> · {{score .}}{{else if .Indizio}}<span class="mono">{{.Indizio}}</span> · <span class="k muto" title="un indizio si mostra e non pesa: niente score finché la calibrazione non l'ha misurato">indizio, senza score</span>{{else}}<span class="k muto">senza valore</span>{{end}} · {{parole .}}{{if .DipendeDa}} <span class="k muto">({{dipendenza .}})</span>{{end}}</li>{{end}}</ul>
   </details>{{end}}</span>{{end}}

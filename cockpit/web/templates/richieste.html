@@ -65,7 +65,7 @@
     <span>Ultimo agg.: <b>{{if .UltimoAggiornamento}}{{data .UltimoAggiornamento}}{{else}}{{data .DataInizio}}{{end}}</b></span>
   </div>
   <div class="rq-segnali">
-    {{if gt .NBloccanti.Int64 0}}<span class="rq-segnale bloc">⚠ {{.FraseBloccanti}}</span>{{end}}
+    {{if gt .NBloccanti 0}}<span class="rq-segnale bloc">⚠ {{.FraseBloccanti}}</span>{{end}}
     {{if gt .NDaSmistare 0}}<span class="rq-segnale smi">{{.FraseDaSmistare}}</span>{{end}}
     <span class="rq-segnale">{{.FraseProdotti}}</span>
   </div>

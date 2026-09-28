@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -190,6 +191,31 @@ func (q *Queries) ChiudiRimozione(ctx context.Context, arg ChiudiRimozioneParams
 	return result.RowsAffected(), nil
 }
 
+const confermaNodoAgganciato = `-- name: ConfermaNodoAgganciato :execrows
+UPDATE componente_proposta SET deciso_da = $1::uuid, deciso_il = now(),
+       evidenza = evidenza || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'aggancio_per_codice_confermato', 'agganciato_il', deciso_il,
+                                     'confermato_da', $1::uuid, 'confermato_il', now())))
+WHERE proposta_id = $2 AND stato = 'duplicato' AND deciso_da IS NULL AND componente_id IS NOT NULL
+`
+
+type ConfermaNodoAgganciatoParams struct {
+	DecisoDa   uuid.UUID `json:"deciso_da"`
+	PropostaID uuid.UUID `json:"proposta_id"`
+}
+
+// Un nodo agganciato per codice da un automatismo di prima dello Smistamento (duplicato senza chi l'ha
+// deciso, forma F-A) che sta nell'autorita' di un file autorizzato: una persona lo conferma come quel
+// componente (Smistamento F5, A5.4.8: il gate lo conta da decidere finche' qualcuno non lo fa). Da qui e'
+// una decisione, con la storia di com'era nato.
+func (q *Queries) ConfermaNodoAgganciato(ctx context.Context, arg ConfermaNodoAgganciatoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, confermaNodoAgganciato, arg.DecisoDa, arg.PropostaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const decidiComponenteProposta = `-- name: DecidiComponenteProposta :execrows
 UPDATE componente_proposta SET stato = $1, componente_id = $2,
        deciso_da = $3, deciso_il = now()
@@ -247,6 +273,24 @@ func (q *Queries) DecidiRelazioneProposta(ctx context.Context, arg DecidiRelazio
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const fileNelFlusso = `-- name: FileNelFlusso :one
+SELECT (m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
+        AND NOT EXISTS (SELECT 1 FROM documento_proposta p
+                         WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL))::bool AS nel_flusso
+  FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+ WHERE a.allegato_id = $1
+`
+
+// L'allegato e' di una fonte del cliente e non e' escluso: la sua struttura si legge nella RFQ. La
+// guardia di ApplicaStruttura, per chi ci arriva senza passare dalle due query sopra (i fatti riusati
+// dopo uno stage).
+func (q *Queries) FileNelFlusso(ctx context.Context, allegatoID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, fileNelFlusso, allegatoID)
+	var nel_flusso bool
+	err := row.Scan(&nel_flusso)
+	return nel_flusso, err
 }
 
 const getAnalisiCorrente = `-- name: GetAnalisiCorrente :one
@@ -336,59 +380,6 @@ func (q *Queries) GetPropostaDocumentoDiAllegato(ctx context.Context, allegatoID
 		&i.CreatoIl,
 	)
 	return i, err
-}
-
-const listAllegatiStessoFileConRfq = `-- name: ListAllegatiStessoFileConRfq :many
-SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a.path_interno, a.estensione, a.content_type, a.natura, a.origine, a.bytes, a.sha256, a.stato, a.path_staging, a.errore, a.ricevuto_il, a.caricato_da, m.thread_id AS rfq_id
-  FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
- WHERE a.sha256 = $1 AND m.thread_id IS NOT NULL
- ORDER BY m.thread_id, a.ricevuto_il, a.allegato_id
-`
-
-type ListAllegatiStessoFileConRfqRow struct {
-	Allegato Allegato      `json:"allegato"`
-	RfqID    uuid.NullUUID `json:"rfq_id"`
-}
-
-// Ogni allegato con questo contenuto che sta in una RFQ: i fatti di uno STEP diventano proposte in
-// ognuna (A1.2), ciascuna con le regole del suo cliente.
-func (q *Queries) ListAllegatiStessoFileConRfq(ctx context.Context, sha256 pgtype.Text) ([]ListAllegatiStessoFileConRfqRow, error) {
-	rows, err := q.db.Query(ctx, listAllegatiStessoFileConRfq, sha256)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListAllegatiStessoFileConRfqRow{}
-	for rows.Next() {
-		var i ListAllegatiStessoFileConRfqRow
-		if err := rows.Scan(
-			&i.Allegato.AllegatoID,
-			&i.Allegato.MessaggioID,
-			&i.Allegato.ContenitoreID,
-			&i.Allegato.Indice,
-			&i.Allegato.NomeFile,
-			&i.Allegato.PathInterno,
-			&i.Allegato.Estensione,
-			&i.Allegato.ContentType,
-			&i.Allegato.Natura,
-			&i.Allegato.Origine,
-			&i.Allegato.Bytes,
-			&i.Allegato.Sha256,
-			&i.Allegato.Stato,
-			&i.Allegato.PathStaging,
-			&i.Allegato.Errore,
-			&i.Allegato.RicevutoIl,
-			&i.Allegato.CaricatoDa,
-			&i.RfqID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listComponenteProposteFile = `-- name: ListComponenteProposteFile :many
@@ -504,41 +495,120 @@ func (q *Queries) ListComponenteProposteStessoFile(ctx context.Context, arg List
 	return items, nil
 }
 
-const listProdottiConStepStrutturale = `-- name: ListProdottiConStepStrutturale :many
-SELECT c.componente_id, c.thread_id, c.codice, c.rev, c.descrizione, c.qta, c.tipo, c.origine, c.materiale_testo, c.spessore_mm, c.peso_kg, c.esito_fattibilita, c.note_fattibilita, c.confermato_da, c.creato_il, c.archiviato_il, c.archiviato_da, c.motivo_archiviazione, c.step_strutturale_id FROM componente c JOIN documento d ON d.documento_id = c.step_strutturale_id
- WHERE c.thread_id = $1 AND d.sostituito_da IS NULL AND c.archiviato_il IS NULL
- ORDER BY c.codice
+const listDichiarazioniRfq = `-- name: ListDichiarazioniRfq :many
+WITH riga AS (
+    SELECT cp.proposta_id, cp.allegato_id, cp.sha256, cp.chiave, cp.stato, cp.componente_id AS riga_componente_id,
+           cp.deciso_da, cp.creato_il, (cp.evidenza -> 'strutturale')::jsonb AS marcatura, cp.componente_id AS dichiarato_per,
+           'smistamento'::text AS origine
+      FROM componente_proposta cp
+     WHERE cp.thread_id = $1 AND cp.stato IN ('confermata', 'duplicato') AND cp.evidenza ? 'strutturale'
+    UNION ALL
+    SELECT cp.proposta_id, cp.allegato_id, cp.sha256, cp.chiave, cp.stato, cp.componente_id,
+           cp.deciso_da, cp.creato_il, NULL::jsonb, c.componente_id,
+           'step_strutturale_id'::text
+      FROM componente c
+      JOIN documento sd ON sd.documento_id = c.step_strutturale_id
+      JOIN componente_proposta cp ON cp.thread_id = c.thread_id AND cp.sha256 = sd.sha256
+     WHERE c.thread_id = $1 AND NOT (cp.evidenza ? 'strutturale')
+       AND NOT EXISTS (SELECT 1 FROM relazione_proposta r
+                        WHERE r.thread_id = cp.thread_id AND r.allegato_id = cp.allegato_id AND r.figlio_chiave = cp.chiave)
+)
+SELECT r.proposta_id, r.allegato_id, r.sha256, r.chiave, r.stato, r.riga_componente_id, r.deciso_da, r.creato_il,
+       r.marcatura, r.origine, al.nome_file, c.componente_id, c.thread_id, c.codice, c.rev, c.descrizione, c.qta, c.tipo, c.origine, c.materiale_testo, c.spessore_mm, c.peso_kg, c.esito_fattibilita, c.note_fattibilita, c.confermato_da, c.creato_il, c.archiviato_il, c.archiviato_da, c.motivo_archiviazione, c.step_strutturale_id, ss.sha256 AS step_sha256,
+       d.documento_id AS documento_id, d.componente_id AS documento_componente_id, d.sostituito_da AS documento_sostituito_da,
+       ARRAY(SELECT rp.padre_chiave FROM relazione_proposta rp
+              WHERE rp.thread_id = $1 AND rp.allegato_id = r.allegato_id AND rp.figlio_chiave = r.chiave
+              ORDER BY rp.padre_chiave)::text[] AS padri
+  FROM riga r
+  JOIN allegato al ON al.allegato_id = r.allegato_id
+  JOIN componente c ON c.componente_id = r.dichiarato_per
+  LEFT JOIN documento ss ON ss.documento_id = c.step_strutturale_id
+  LEFT JOIN documento d ON d.thread_id = c.thread_id AND d.sha256 = r.sha256
+ ORDER BY c.codice, r.sha256, r.origine, r.creato_il, r.allegato_id, r.chiave
 `
 
-func (q *Queries) ListProdottiConStepStrutturale(ctx context.Context, threadID uuid.UUID) ([]Componente, error) {
-	rows, err := q.db.Query(ctx, listProdottiConStepStrutturale, threadID)
+type ListDichiarazioniRfqRow struct {
+	PropostaID            uuid.UUID       `json:"proposta_id"`
+	AllegatoID            uuid.UUID       `json:"allegato_id"`
+	Sha256                string          `json:"sha256"`
+	Chiave                string          `json:"chiave"`
+	Stato                 StatoProposta   `json:"stato"`
+	RigaComponenteID      uuid.NullUUID   `json:"riga_componente_id"`
+	DecisoDa              uuid.NullUUID   `json:"deciso_da"`
+	CreatoIl              time.Time       `json:"creato_il"`
+	Marcatura             json.RawMessage `json:"marcatura"`
+	Origine               string          `json:"origine"`
+	NomeFile              string          `json:"nome_file"`
+	Componente            Componente      `json:"componente"`
+	StepSha256            pgtype.Text     `json:"step_sha256"`
+	DocumentoID           uuid.NullUUID   `json:"documento_id"`
+	DocumentoComponenteID uuid.NullUUID   `json:"documento_componente_id"`
+	DocumentoSostituitoDa uuid.NullUUID   `json:"documento_sostituito_da"`
+	Padri                 []string        `json:"padri"`
+}
+
+// Le sorgenti delle autorizzazioni della RFQ (Smistamento F5, A5.4.3): «questo STEP e' autorizzato a
+// proporre i figli diretti di C». Due forme, in una riga per sorgente:
+//   - smistamento: la riga di un nodo che una persona ha deciso come C, con la marcatura
+//     evidenza.strutturale (radice o raggruppamento);
+//   - step_strutturale_id: la forma di prima dello Smistamento, lo STEP strutturale di un finito con le
+//     radici del suo file, riconosciute dalla relazione e non dalla nota (K1: le righe dello sha del
+//     documento senza un arco entrante nel file), qualunque sia il loro stato. Una radice ancora aperta
+//     resta aperta: e' sorgente solo qui, e chi ne ha bisogno prende C da questa riga.
+//
+// La validita' (un componente, un'autorizzazione; superata; incoerente; P7; sospesa) la decide il Go, in
+// una funzione pura (ValutaDichiarazioni): il predicato e' uno solo. Per questo la query porta anche il
+// componente, il documento del file nella RFQ e lo sha dello STEP strutturale di C (la coerenza fra la
+// marcatura e la colonna di un finito, I10).
+//
+// Smistamento F5b (Domanda 1 = B, A5.4.6): una delega vale solo se il suo nodo e' figlio diretto, nel file,
+// di una sorgente valida dello stesso file, fino a una radice o a un raggruppamento. Per questo ogni riga
+// porta anche i padri del suo nodo nel file (padri): la catena la controlla il Go.
+func (q *Queries) ListDichiarazioniRfq(ctx context.Context, threadID uuid.UUID) ([]ListDichiarazioniRfqRow, error) {
+	rows, err := q.db.Query(ctx, listDichiarazioniRfq, threadID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Componente{}
+	items := []ListDichiarazioniRfqRow{}
 	for rows.Next() {
-		var i Componente
+		var i ListDichiarazioniRfqRow
 		if err := rows.Scan(
-			&i.ComponenteID,
-			&i.ThreadID,
-			&i.Codice,
-			&i.Rev,
-			&i.Descrizione,
-			&i.Qta,
-			&i.Tipo,
-			&i.Origine,
-			&i.MaterialeTesto,
-			&i.SpessoreMm,
-			&i.PesoKg,
-			&i.EsitoFattibilita,
-			&i.NoteFattibilita,
-			&i.ConfermatoDa,
+			&i.PropostaID,
+			&i.AllegatoID,
+			&i.Sha256,
+			&i.Chiave,
+			&i.Stato,
+			&i.RigaComponenteID,
+			&i.DecisoDa,
 			&i.CreatoIl,
-			&i.ArchiviatoIl,
-			&i.ArchiviatoDa,
-			&i.MotivoArchiviazione,
-			&i.StepStrutturaleID,
+			&i.Marcatura,
+			&i.Origine,
+			&i.NomeFile,
+			&i.Componente.ComponenteID,
+			&i.Componente.ThreadID,
+			&i.Componente.Codice,
+			&i.Componente.Rev,
+			&i.Componente.Descrizione,
+			&i.Componente.Qta,
+			&i.Componente.Tipo,
+			&i.Componente.Origine,
+			&i.Componente.MaterialeTesto,
+			&i.Componente.SpessoreMm,
+			&i.Componente.PesoKg,
+			&i.Componente.EsitoFattibilita,
+			&i.Componente.NoteFattibilita,
+			&i.Componente.ConfermatoDa,
+			&i.Componente.CreatoIl,
+			&i.Componente.ArchiviatoIl,
+			&i.Componente.ArchiviatoDa,
+			&i.Componente.MotivoArchiviazione,
+			&i.Componente.StepStrutturaleID,
+			&i.StepSha256,
+			&i.DocumentoID,
+			&i.DocumentoComponenteID,
+			&i.DocumentoSostituitoDa,
+			&i.Padri,
 		); err != nil {
 			return nil, err
 		}
@@ -591,6 +661,73 @@ func (q *Queries) ListRelazioneProposteFile(ctx context.Context, arg ListRelazio
 	return items, nil
 }
 
+const listRfqAperteConContenuto = `-- name: ListRfqAperteConContenuto :many
+
+SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a.path_interno, a.estensione, a.content_type, a.natura, a.origine, a.bytes, a.sha256, a.stato, a.path_staging, a.errore, a.ricevuto_il, a.caricato_da, m.thread_id AS rfq_id
+  FROM allegato a
+  JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+  JOIN thread_offerta t ON t.thread_id = m.thread_id
+ WHERE a.sha256 = $1 AND t.unito_in IS NULL AND t.stato = 'APERTA'
+   AND m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
+   AND NOT EXISTS (SELECT 1 FROM documento_proposta p
+                    WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+ ORDER BY m.thread_id, a.ricevuto_il, a.allegato_id
+`
+
+type ListRfqAperteConContenutoRow struct {
+	Allegato Allegato      `json:"allegato"`
+	RfqID    uuid.NullUUID `json:"rfq_id"`
+}
+
+// Le fonti del cliente (Smistamento F5, P27, E26, E27). Un file entra nella lettura della struttura di una
+// RFQ solo se viene dal cliente o dal progetto: non da un messaggio di un fornitore, non da una nostra mail
+// in uscita (un caricamento interno sta nel canale `nota`, ed e' del progetto), e non se una persona l'ha
+// escluso (la sua proposta di documento scartata con chi l'ha decisa). Gli altri file restano visibili e si
+// analizzano lo stesso; la loro struttura non diventa ne' guida ne' autorita'. La stessa condizione, scritta
+// tre volte qui sotto: una vista sarebbe una migrazione.
+// Ogni allegato con questo contenuto in una RFQ aperta, non unita a un'altra, da una fonte del cliente e
+// non escluso: i fatti di uno STEP diventano proposte in ognuna (A1.2, fan-out D50, A5.4.10), ciascuna con
+// le regole del suo cliente. Prima (ListAllegatiStessoFileConRfq) erano tutte le RFQ, anche chiuse o unite,
+// con i file dei fornitori.
+func (q *Queries) ListRfqAperteConContenuto(ctx context.Context, sha256 pgtype.Text) ([]ListRfqAperteConContenutoRow, error) {
+	rows, err := q.db.Query(ctx, listRfqAperteConContenuto, sha256)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRfqAperteConContenutoRow{}
+	for rows.Next() {
+		var i ListRfqAperteConContenutoRow
+		if err := rows.Scan(
+			&i.Allegato.AllegatoID,
+			&i.Allegato.MessaggioID,
+			&i.Allegato.ContenitoreID,
+			&i.Allegato.Indice,
+			&i.Allegato.NomeFile,
+			&i.Allegato.PathInterno,
+			&i.Allegato.Estensione,
+			&i.Allegato.ContentType,
+			&i.Allegato.Natura,
+			&i.Allegato.Origine,
+			&i.Allegato.Bytes,
+			&i.Allegato.Sha256,
+			&i.Allegato.Stato,
+			&i.Allegato.PathStaging,
+			&i.Allegato.Errore,
+			&i.Allegato.RicevutoIl,
+			&i.Allegato.CaricatoDa,
+			&i.RfqID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRimozioniDiUnoStep = `-- name: ListRimozioniDiUnoStep :many
 SELECT thread_id, step_documento_id, padre_id, figlio_id, qta_working, stato, nota, deciso_da, deciso_il, creato_il FROM rimozione_proposta WHERE thread_id = $1 AND step_documento_id = $2 ORDER BY padre_id, figlio_id
 `
@@ -631,13 +768,64 @@ func (q *Queries) ListRimozioniDiUnoStep(ctx context.Context, arg ListRimozioniD
 	return items, nil
 }
 
-const listStepDellaRfq = `-- name: ListStepDellaRfq :many
+const listStepDaAnalizzareDellaRfq = `-- name: ListStepDaAnalizzareDellaRfq :many
 SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a.path_interno, a.estensione, a.content_type, a.natura, a.origine, a.bytes, a.sha256, a.stato, a.path_staging, a.errore, a.ricevuto_il, a.caricato_da FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
  WHERE m.thread_id = $1 AND lower(a.estensione) IN ('stp', 'step') AND a.sha256 IS NOT NULL
  ORDER BY a.ricevuto_il, a.allegato_id
 `
 
-// Gli STEP arrivati in una RFQ e scaricati (lo SHA si sa): quelli da cui possono nascere proposte.
+// Tutti gli STEP della RFQ scaricati, per l'analisi: tutti gli STEP si analizzano, sempre (decisione
+// dell'utente del 27/09), anche quelli esclusi o di un fornitore. L'analisi e' un fatto del contenuto; e'
+// la lettura della struttura nella RFQ (ListStepDellaRfq) che li lascia fuori.
+func (q *Queries) ListStepDaAnalizzareDellaRfq(ctx context.Context, threadID uuid.NullUUID) ([]Allegato, error) {
+	rows, err := q.db.Query(ctx, listStepDaAnalizzareDellaRfq, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Allegato{}
+	for rows.Next() {
+		var i Allegato
+		if err := rows.Scan(
+			&i.AllegatoID,
+			&i.MessaggioID,
+			&i.ContenitoreID,
+			&i.Indice,
+			&i.NomeFile,
+			&i.PathInterno,
+			&i.Estensione,
+			&i.ContentType,
+			&i.Natura,
+			&i.Origine,
+			&i.Bytes,
+			&i.Sha256,
+			&i.Stato,
+			&i.PathStaging,
+			&i.Errore,
+			&i.RicevutoIl,
+			&i.CaricatoDa,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStepDellaRfq = `-- name: ListStepDellaRfq :many
+SELECT a.allegato_id, a.messaggio_id, a.contenitore_id, a.indice, a.nome_file, a.path_interno, a.estensione, a.content_type, a.natura, a.origine, a.bytes, a.sha256, a.stato, a.path_staging, a.errore, a.ricevuto_il, a.caricato_da FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+ WHERE m.thread_id = $1 AND lower(a.estensione) IN ('stp', 'step') AND a.sha256 IS NOT NULL
+   AND m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota')
+   AND NOT EXISTS (SELECT 1 FROM documento_proposta p
+                    WHERE p.allegato_id = a.allegato_id AND p.stato = 'scartata' AND p.deciso_da IS NOT NULL)
+ ORDER BY a.ricevuto_il, a.allegato_id
+`
+
+// Gli STEP arrivati in una RFQ e scaricati (lo SHA si sa) da cui la struttura si legge: da una fonte del
+// cliente e non esclusi (Smistamento F5, E26). Uno STEP escluso non si autorizza, e resta inerte.
 func (q *Queries) ListStepDellaRfq(ctx context.Context, threadID uuid.NullUUID) ([]Allegato, error) {
 	rows, err := q.db.Query(ctx, listStepDellaRfq, threadID)
 	if err != nil {
@@ -676,6 +864,34 @@ func (q *Queries) ListStepDellaRfq(ctx context.Context, threadID uuid.NullUUID) 
 	return items, nil
 }
 
+const marcaDichiarazione = `-- name: MarcaDichiarazione :execrows
+UPDATE componente_proposta SET evidenza = CASE WHEN evidenza ? 'strutturale'
+           THEN evidenza || jsonb_build_object('strutturale', $1::jsonb,
+                'storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+                          'evento', 'autorizzazione_rifatta', 'marcatura', evidenza -> 'strutturale', 'il', now())))
+           ELSE evidenza || jsonb_build_object('strutturale', $1::jsonb) END
+WHERE proposta_id = $2 AND stato IN ('confermata', 'duplicato')
+  AND componente_id = $3 AND deciso_da IS NOT NULL
+`
+
+type MarcaDichiarazioneParams struct {
+	Marcatura    json.RawMessage `json:"marcatura"`
+	PropostaID   uuid.UUID       `json:"proposta_id"`
+	ComponenteID uuid.NullUUID   `json:"componente_id"`
+}
+
+// La marcatura dell'autorizzazione (Smistamento F5b, A5.4.2): la riga del nodo sorgente, gia' decisa da una
+// persona come il componente, riceve evidenza.strutturale (ruolo, componente, documento, chi, quando, presa
+// d'atto). Una marcatura che c'era gia' (l'autorizzazione rifatta, una sospensione riattivata) non si perde:
+// va nella storia della riga. La scrive solo DichiaraStrutturale.
+func (q *Queries) MarcaDichiarazione(ctx context.Context, arg MarcaDichiarazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, marcaDichiarazione, arg.Marcatura, arg.PropostaID, arg.ComponenteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const motivoParziale = `-- name: MotivoParziale :one
 SELECT COALESCE(struttura_motivo_parziale($1::jsonb), '')::text AS motivo
 `
@@ -709,67 +925,66 @@ func (q *Queries) PortatoreDelFile(ctx context.Context, arg PortatoreDelFilePara
 	return allegato_id, err
 }
 
-const prodottoDelloStepStrutturale = `-- name: ProdottoDelloStepStrutturale :one
-SELECT c.componente_id, c.thread_id, c.codice, c.rev, c.descrizione, c.qta, c.tipo, c.origine, c.materiale_testo, c.spessore_mm, c.peso_kg, c.esito_fattibilita, c.note_fattibilita, c.confermato_da, c.creato_il, c.archiviato_il, c.archiviato_da, c.motivo_archiviazione, c.step_strutturale_id FROM componente c JOIN documento d ON d.documento_id = c.step_strutturale_id
- WHERE c.thread_id = $1 AND d.sha256 = $2 AND d.sostituito_da IS NULL AND c.archiviato_il IS NULL
- ORDER BY c.codice LIMIT 1
+const prendiNodoAutomatico = `-- name: PrendiNodoAutomatico :execrows
+UPDATE componente_proposta SET stato = 'duplicato', componente_id = $1::uuid,
+       deciso_da = $2::uuid, deciso_il = now(),
+       evidenza = evidenza || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'preso_dall_autorizzazione', 'stato', stato, 'componente_id', componente_id,
+                                     'deciso_il', deciso_il, 'nota', nota, 'preso_da', $2::uuid, 'preso_il', now())))
+WHERE proposta_id = $3 AND stato IN ('duplicato', 'scartata') AND deciso_da IS NULL
 `
 
-type ProdottoDelloStepStrutturaleParams struct {
-	ThreadID uuid.UUID `json:"thread_id"`
-	Sha256   string    `json:"sha256"`
+type PrendiNodoAutomaticoParams struct {
+	ComponenteID uuid.UUID `json:"componente_id"`
+	DecisoDa     uuid.UUID `json:"deciso_da"`
+	PropostaID   uuid.UUID `json:"proposta_id"`
 }
 
-// Il prodotto finito attivo che ha come STEP strutturale un documento corrente con questo contenuto.
-func (q *Queries) ProdottoDelloStepStrutturale(ctx context.Context, arg ProdottoDelloStepStrutturaleParams) (Componente, error) {
-	row := q.db.QueryRow(ctx, prodottoDelloStepStrutturale, arg.ThreadID, arg.Sha256)
-	var i Componente
-	err := row.Scan(
-		&i.ComponenteID,
-		&i.ThreadID,
-		&i.Codice,
-		&i.Rev,
-		&i.Descrizione,
-		&i.Qta,
-		&i.Tipo,
-		&i.Origine,
-		&i.MaterialeTesto,
-		&i.SpessoreMm,
-		&i.PesoKg,
-		&i.EsitoFattibilita,
-		&i.NoteFattibilita,
-		&i.ConfermatoDa,
-		&i.CreatoIl,
-		&i.ArchiviatoIl,
-		&i.ArchiviatoDa,
-		&i.MotivoArchiviazione,
-		&i.StepStrutturaleID,
-	)
-	return i, err
+// Un nodo chiuso da un automatismo di prima dello Smistamento (duplicato o scartato senza chi l'ha deciso,
+// forme F-A e simili) che una persona indica come sorgente di un'autorizzazione (Smistamento F5b, A5.4.7
+// passo 5): l'autorizzazione lo prende come il componente, e lo stato di prima va nella storia.
+func (q *Queries) PrendiNodoAutomatico(ctx context.Context, arg PrendiNodoAutomaticoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, prendiNodoAutomatico, arg.ComponenteID, arg.DecisoDa, arg.PropostaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const riconciliaProposteNodo = `-- name: RiconciliaProposteNodo :execrows
-UPDATE componente_proposta SET stato = 'duplicato', componente_id = $1, deciso_il = now()
-WHERE thread_id = $2 AND upper(codice) = upper($3::text) AND stato = 'aperta'
-  AND proposta_id <> $4
+const revocaDichiarazione = `-- name: RevocaDichiarazione :execrows
+UPDATE componente_proposta SET
+       stato         = CASE WHEN $1::bool THEN 'aperta'::stato_proposta ELSE stato END,
+       componente_id = CASE WHEN $1::bool THEN NULL ELSE componente_id END,
+       deciso_da     = CASE WHEN $1::bool THEN NULL ELSE deciso_da END,
+       deciso_il     = CASE WHEN $1::bool THEN NULL ELSE deciso_il END,
+       evidenza      = (evidenza - 'strutturale') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) ||
+                       jsonb_build_array(jsonb_build_object('evento', $2::text, 'marcatura', evidenza -> 'strutturale',
+                                         'stato', stato, 'componente_id', componente_id, 'deciso_da', deciso_da,
+                                         'revocata_da', $3::uuid, 'revocata_il', now(),
+                                         'motivo', $4::text)))
+WHERE proposta_id = $5 AND evidenza ? 'strutturale'
 `
 
-type RiconciliaProposteNodoParams struct {
-	ComponenteID uuid.NullUUID `json:"componente_id"`
-	ThreadID     uuid.UUID     `json:"thread_id"`
-	Codice       string        `json:"codice"`
-	Esclusa      uuid.UUID     `json:"esclusa"`
+type RevocaDichiarazioneParams struct {
+	Riapri     bool          `json:"riapri"`
+	Evento     string        `json:"evento"`
+	RevocataDa uuid.NullUUID `json:"revocata_da"`
+	Motivo     string        `json:"motivo"`
+	PropostaID uuid.UUID     `json:"proposta_id"`
 }
 
-// Un componente appena creato o agganciato riconcilia le altre proposte aperte dello stesso codice
-// nella RFQ: non creano un'identita' nuova, la ritrovano (A2.3). Senza chi le ha decise: e' la stessa
-// lettura che il server avrebbe dato alla prossima rianalisi.
-func (q *Queries) RiconciliaProposteNodo(ctx context.Context, arg RiconciliaProposteNodoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, riconciliaProposteNodo,
-		arg.ComponenteID,
-		arg.ThreadID,
-		arg.Codice,
-		arg.Esclusa,
+// La revoca di una marcatura (Smistamento F5b, A5.4.7): evidenza.strutturale va nella storia della riga,
+// con l'evento, chi, quando e perche'. Con riapri (la revoca di una radice o di un raggruppamento) la riga
+// torna aperta, senza componente: nessuno l'ha decisa se non per autorizzare il file. Senza (una delega: il
+// nodo resta il componente che una persona ha deciso; una sostituzione: la radice e' davvero quel componente
+// nella revisione di prima, evento sostituita_da) la riga resta decisa com'e'.
+func (q *Queries) RevocaDichiarazione(ctx context.Context, arg RevocaDichiarazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revocaDichiarazione,
+		arg.Riapri,
+		arg.Evento,
+		arg.RevocataDa,
+		arg.Motivo,
+		arg.PropostaID,
 	)
 	if err != nil {
 		return 0, err
@@ -777,31 +992,76 @@ func (q *Queries) RiconciliaProposteNodo(ctx context.Context, arg RiconciliaProp
 	return result.RowsAffected(), nil
 }
 
-const riconciliaProposteRelazione = `-- name: RiconciliaProposteRelazione :execrows
-UPDATE relazione_proposta r SET stato = 'duplicato', deciso_il = now()
-FROM componente_proposta p, componente_proposta f
-WHERE r.thread_id = $1 AND r.stato = 'aperta' AND r.qta = $2
-  AND p.thread_id = r.thread_id AND p.allegato_id = r.allegato_id AND p.chiave = r.padre_chiave
-  AND f.thread_id = r.thread_id AND f.allegato_id = r.allegato_id AND f.chiave = r.figlio_chiave
-  AND p.componente_id = $3 AND f.componente_id = $4
+const riapriArchiAutomaticiDiUnFile = `-- name: RiapriArchiAutomaticiDiUnFile :execrows
+UPDATE relazione_proposta r SET stato = 'aperta', deciso_il = NULL, nota = NULL,
+       evidenza = r.evidenza || jsonb_build_object('storia', COALESCE(r.evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'arco_automatico_riaperto', 'stato', r.stato, 'nota', r.nota, 'il', now())))
+  FROM allegato a
+ WHERE a.allegato_id = r.allegato_id AND a.sha256 = $1 AND r.thread_id = $2
+   AND r.deciso_da IS NULL AND r.stato IN ('duplicato', 'scartata')
 `
 
-type RiconciliaProposteRelazioneParams struct {
-	ThreadID uuid.UUID     `json:"thread_id"`
-	Qta      int32         `json:"qta"`
-	PadreID  uuid.NullUUID `json:"padre_id"`
-	FiglioID uuid.NullUUID `json:"figlio_id"`
+type RiapriArchiAutomaticiDiUnFileParams struct {
+	Sha256   pgtype.Text `json:"sha256"`
+	ThreadID uuid.UUID   `json:"thread_id"`
 }
 
-// Un arco appena scritto nella working riconcilia le altre proposte aperte che lo dicono uguale, da
-// qualunque file della RFQ: stessi due componenti, stessa quantita'.
-func (q *Queries) RiconciliaProposteRelazione(ctx context.Context, arg RiconciliaProposteRelazioneParams) (int64, error) {
-	result, err := q.db.Exec(ctx, riconciliaProposteRelazione,
-		arg.ThreadID,
-		arg.Qta,
-		arg.PadreID,
-		arg.FiglioID,
-	)
+// Gli archi di un file chiusi da un automatismo (duplicato o scartato senza chi li ha decisi: la tenuta dei
+// conti con la working, lo «stesso componente») tornano aperti, con la storia (Smistamento F5, E33). Serve
+// alla revoca di un'autorizzazione (F5b): senza, resterebbero chiusure che nessuno ha deciso su un file
+// che non ha piu' autorita'. Gli archi decisi da una persona restano: sono decisioni.
+func (q *Queries) RiapriArchiAutomaticiDiUnFile(ctx context.Context, arg RiapriArchiAutomaticiDiUnFileParams) (int64, error) {
+	result, err := q.db.Exec(ctx, riapriArchiAutomaticiDiUnFile, arg.Sha256, arg.ThreadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const riapriComponenteProposta = `-- name: RiapriComponenteProposta :execrows
+UPDATE componente_proposta SET stato = 'aperta', componente_id = NULL, deciso_da = NULL, deciso_il = NULL,
+       evidenza = evidenza || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'nodo_riaperto', 'scartato_da', deciso_da, 'scartato_il', deciso_il,
+                                     'riaperto_da', $1::uuid, 'riaperto_il', now())))
+WHERE proposta_id = $2 AND stato = 'scartata'
+`
+
+type RiapriComponentePropostaParams struct {
+	Utente     uuid.UUID `json:"utente"`
+	PropostaID uuid.UUID `json:"proposta_id"`
+}
+
+// «Riapri il nodo» (Smistamento F5, A5.4.5): un nodo scartato torna aperto, con la storia di chi l'aveva
+// scartato e di chi lo riapre. E' una correzione dell'evidenza (vale per un nodo di guida come per uno
+// nell'autorita'), non tocca la BOM. Un nodo accettato non si riapre da qui: ha fatto nascere o ritrovato
+// un componente, e quella e' una decisione sulla working.
+func (q *Queries) RiapriComponenteProposta(ctx context.Context, arg RiapriComponentePropostaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, riapriComponenteProposta, arg.Utente, arg.PropostaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const riattivaDichiarazione = `-- name: RiattivaDichiarazione :execrows
+UPDATE componente_proposta SET
+       evidenza = (evidenza #- '{strutturale,sospesa}') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) ||
+                  jsonb_build_array(jsonb_build_object('evento', 'autorizzazione_riattivata', 'sospesa', evidenza -> 'strutturale' -> 'sospesa',
+                                    'riattivata_da', $1::uuid, 'riattivata_il', now())))
+WHERE proposta_id = $2 AND (evidenza -> 'strutturale') ? 'sospesa'
+  AND stato IN ('confermata', 'duplicato') AND deciso_da IS NOT NULL
+`
+
+type RiattivaDichiarazioneParams struct {
+	RiattivataDa uuid.UUID `json:"riattivata_da"`
+	PropostaID   uuid.UUID `json:"proposta_id"`
+}
+
+// La riattivazione esplicita di una marcatura sospesa (Smistamento, fase T): la scelta di una persona, dalla
+// scheda del componente, con l'anteprima e la firma. La sospensione va nella storia con chi l'ha tolta e
+// quando; la marcatura resta quella di prima (chi aveva autorizzato il file, e per che cosa).
+func (q *Queries) RiattivaDichiarazione(ctx context.Context, arg RiattivaDichiarazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, riattivaDichiarazione, arg.RiattivataDa, arg.PropostaID)
 	if err != nil {
 		return 0, err
 	}
@@ -810,7 +1070,11 @@ func (q *Queries) RiconciliaProposteRelazione(ctx context.Context, arg Riconcili
 
 const setCodiceComponenteProposta = `-- name: SetCodiceComponenteProposta :execrows
 UPDATE componente_proposta SET codice = $1, rev = $2, origine_codice = 'operatore',
-       famiglia = '', confidenza = 100
+       famiglia = '', confidenza = 100,
+       evidenza = CASE WHEN evidenza ? 'classificato' OR origine_codice = 'operatore' THEN evidenza
+                       ELSE evidenza || jsonb_build_object('classificato', jsonb_build_object(
+                            'codice', COALESCE(codice, ''), 'rev', COALESCE(rev, ''), 'origine', COALESCE(origine_codice::text, ''),
+                            'famiglia', famiglia, 'confidenza', confidenza)) END
 WHERE proposta_id = $3 AND stato = 'aperta'
 `
 
@@ -822,8 +1086,38 @@ type SetCodiceComponentePropostaParams struct {
 
 // Il codice lo scrive l'operatore, su un nodo che il server non ha saputo classificare (A1.2): origine
 // 'operatore', e da qui una riclassificazione non lo tocca piu'.
+//
+// Smistamento F5 (K2, E34): la classificazione del server non si perde. Ogni lettura la scrive in
+// evidenza.classificato; una riga letta prima che ci fosse la riceve qui, prima che il codice
+// dell'operatore prenda il posto di quello del server. E' una correzione dell'evidenza, non della BOM.
 func (q *Queries) SetCodiceComponenteProposta(ctx context.Context, arg SetCodiceComponentePropostaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setCodiceComponenteProposta, arg.Codice, arg.Rev, arg.PropostaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sospendiDichiarazione = `-- name: SospendiDichiarazione :execrows
+UPDATE componente_proposta SET
+       evidenza = jsonb_set(evidenza, '{strutturale,sospesa}', $1::jsonb) ||
+                  jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'autorizzazione_sospesa', 'sospesa', $1::jsonb, 'il', now())))
+WHERE proposta_id = $2 AND evidenza ? 'strutturale' AND NOT ((evidenza -> 'strutturale') ? 'sospesa')
+`
+
+type SospendiDichiarazioneParams struct {
+	Sospensione json.RawMessage `json:"sospensione"`
+	PropostaID  uuid.UUID       `json:"proposta_id"`
+}
+
+// La sospensione di una marcatura (Smistamento, fase T; precisazione dell'utente del 27/09 sera): il componente
+// e' diventato commerciale, e la sua autorizzazione si ferma senza sparire. La sospensione si registra in
+// evidenza.strutturale.sospesa (motivo, tipo, chi, quando: la forma che ValutaDichiarazioni legge) e l'evento
+// va nella storia. La riga resta decisa com'e': una sospensione non e' una revoca. Una sospensione gia'
+// registrata non si riscrive: la prima dice perche'.
+func (q *Queries) SospendiDichiarazione(ctx context.Context, arg SospendiDichiarazioneParams) (int64, error) {
+	result, err := q.db.Exec(ctx, sospendiDichiarazione, arg.Sospensione, arg.PropostaID)
 	if err != nil {
 		return 0, err
 	}
@@ -848,12 +1142,15 @@ ON CONFLICT (thread_id, allegato_id, chiave) DO UPDATE SET
     famiglia       = CASE WHEN componente_proposta.origine_codice = 'operatore' THEN componente_proposta.famiglia ELSE EXCLUDED.famiglia END,
     confidenza     = CASE WHEN componente_proposta.origine_codice = 'operatore' THEN componente_proposta.confidenza ELSE EXCLUDED.confidenza END,
     tipo_proposto  = EXCLUDED.tipo_proposto,
-    evidenza       = EXCLUDED.evidenza,
+    evidenza       = CASE WHEN componente_proposta.evidenza ? 'storia'
+                          THEN EXCLUDED.evidenza || jsonb_build_object('storia', componente_proposta.evidenza -> 'storia')
+                          ELSE EXCLUDED.evidenza END,
     stato          = EXCLUDED.stato,
     componente_id  = EXCLUDED.componente_id,
     nota           = EXCLUDED.nota,
     deciso_il      = EXCLUDED.deciso_il
 WHERE componente_proposta.stato = 'aperta'
+   OR (componente_proposta.stato = 'scartata' AND componente_proposta.deciso_da IS NULL)
 `
 
 type UpsertComponentePropostaParams struct {
@@ -879,6 +1176,11 @@ type UpsertComponentePropostaParams struct {
 // Un nodo proposto. Si riscrive solo finche' e' aperto; un codice scritto a mano dall'operatore
 // (origine_codice = 'operatore') resta, anche se le regole del cliente cambiano: la riclassificazione
 // vale per cio' che ha classificato il server.
+//
+// Smistamento F5 (E33, P30). Si riscrive anche una riga chiusa da un automatismo (scartata senza chi l'ha
+// decisa: un file sostituito, un riferimento cambiato): nessuno l'ha decisa, e la lettura di adesso la
+// riapre. Una riga decisa da una persona resta com'e'. La storia della riga (evidenza.storia: una revoca,
+// una riapertura) sopravvive alla rilettura: l'evidenza nuova e' quella del file, la storia e' della riga.
 func (q *Queries) UpsertComponenteProposta(ctx context.Context, arg UpsertComponentePropostaParams) error {
 	_, err := q.db.Exec(ctx, upsertComponenteProposta,
 		arg.ThreadID,
@@ -908,11 +1210,14 @@ VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, CASE WHEN $7::stato_proposta = 'aperta' THEN NULL ELSE now() END)
 ON CONFLICT (thread_id, allegato_id, padre_chiave, figlio_chiave) DO UPDATE SET
     qta       = EXCLUDED.qta,
-    evidenza  = EXCLUDED.evidenza,
+    evidenza  = CASE WHEN relazione_proposta.evidenza ? 'storia'
+                     THEN EXCLUDED.evidenza || jsonb_build_object('storia', relazione_proposta.evidenza -> 'storia')
+                     ELSE EXCLUDED.evidenza END,
     stato     = EXCLUDED.stato,
     nota      = EXCLUDED.nota,
     deciso_il = EXCLUDED.deciso_il
 WHERE relazione_proposta.stato = 'aperta'
+   OR (relazione_proposta.stato = 'scartata' AND relazione_proposta.deciso_da IS NULL)
 `
 
 type UpsertRelazionePropostaParams struct {
@@ -926,7 +1231,8 @@ type UpsertRelazionePropostaParams struct {
 	Nota         pgtype.Text     `json:"nota"`
 }
 
-// Un arco proposto, una riga per coppia (padre, figlio) del file. Solo finche' e' aperto.
+// Un arco proposto, una riga per coppia (padre, figlio) del file. Solo finche' e' aperto, o chiuso da un
+// automatismo (scartato senza chi l'ha deciso: E33); la storia dell'arco resta (P30).
 func (q *Queries) UpsertRelazioneProposta(ctx context.Context, arg UpsertRelazionePropostaParams) error {
 	_, err := q.db.Exec(ctx, upsertRelazioneProposta,
 		arg.ThreadID,

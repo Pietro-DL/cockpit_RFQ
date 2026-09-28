@@ -1,9 +1,9 @@
 package web
 
 // Le rotte della schermata del Fascicolo, B8.7: la pagina, i pannelli, l'anteprima, e i gesti che fino a
-// B8.6 esistevano solo in core/rfq/fascicolo (archiviare, togliere, scegliere lo STEP strutturale,
-// derogare, sostituire un documento, aprire e abbandonare una revisione, congelare) o che mancavano
-// (tipo, revisione e archi di un componente).
+// B8.6 esistevano solo in core/rfq/fascicolo (archiviare, togliere, autorizzare uno STEP, derogare,
+// sostituire un documento, aprire e abbandonare una revisione, congelare) o che mancavano (tipo, revisione e
+// archi di un componente).
 //
 // Ogni gesto e' una transazione sola (s.gesto): tutto o niente, e il rifiuto dice perche' con
 // «Niente è cambiato». Dalla schermata del Fascicolo la risposta e' l'avviso con i pannelli fuori banda;
@@ -12,6 +12,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,25 +28,32 @@ func (s *Server) registraFascicolo(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/fascicolo/parti", s.autenticato(s.fascicoloParti))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/anteprima", s.autenticato(s.fascicoloAnteprima))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/vista", s.autenticato(s.fascicoloVista))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/prepara", s.autenticato(s.prepara))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/prepara", s.autenticato(s.dopoICaricamenti(s.prepara)))
 
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/modifica", s.autenticato(s.modificaComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/collega", s.autenticato(s.collegaComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/scollega", s.autenticato(s.scollegaComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/sposta", s.autenticato(s.spostaComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/archivia", s.autenticato(s.archiviaComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/rimuovi", s.autenticato(s.rimuoviComponente))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/step-strutturale", s.autenticato(s.stepStrutturale))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/modifica", s.autenticato(s.dopoIlGesto(s.modificaComponente)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/collega", s.autenticato(s.dopoIlGesto(s.collegaComponente)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/scollega", s.autenticato(s.dopoIlGesto(s.scollegaComponente)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/sposta", s.autenticato(s.dopoIlGesto(s.spostaComponente)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/archivia", s.autenticato(s.dopoIlGesto(s.archiviaComponente)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/rimuovi", s.autenticato(s.dopoIlGesto(s.rimuoviComponente)))
+	mux.HandleFunc("GET /thread/{id}/fascicolo/componente/{cid}/step-strutturale", s.autenticato(s.anteprimaAutorizzazione))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/step-strutturale", s.autenticato(s.dopoIlGesto(s.stepStrutturale)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/step-strutturale/revoca", s.autenticato(s.dopoIlGesto(s.revocaStepStrutturale)))
+	// Smistamento, fase T: il tipo lo decide una persona; un'autorizzazione sospesa si riattiva solo cosi'
+	mux.HandleFunc("GET /thread/{id}/fascicolo/componente/{cid}/tipo", s.autenticato(s.anteprimaTipo))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/tipo", s.autenticato(s.dopoIlGesto(s.cambiaTipo)))
+	mux.HandleFunc("GET /thread/{id}/fascicolo/componente/{cid}/step-strutturale/riattiva", s.autenticato(s.anteprimaRiattivazione))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/step-strutturale/riattiva", s.autenticato(s.dopoIlGesto(s.riattivaStepStrutturale)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/deroga", s.autenticato(s.concediDeroga))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/deroga/{did}/revoca", s.autenticato(s.revocaDeroga))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/deroga-struttura", s.autenticato(s.concediDerogaStruttura))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/deroga-struttura/{did}/revoca", s.autenticato(s.revocaDerogaStruttura))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/documento/{did}/sostituisci", s.autenticato(s.sostituisciDocumento))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/documento/{did}/annulla-sostituzione", s.autenticato(s.annullaSostituzione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/apri", s.autenticato(s.apriRevisione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/abbandona", s.autenticato(s.abbandonaRevisione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/congela", s.autenticato(s.congela))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/carica", s.autenticato(s.caricaVersioneInterna))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/documento/{did}/sostituisci", s.autenticato(s.dopoIlGesto(s.sostituisciDocumento)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/documento/{did}/annulla-sostituzione", s.autenticato(s.dopoIlGesto(s.annullaSostituzione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/apri", s.autenticato(s.dopoIlGesto(s.apriRevisione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/abbandona", s.autenticato(s.dopoIlGesto(s.abbandonaRevisione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/congela", s.autenticato(s.dopoIlGesto(s.congela)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/carica", s.autenticato(s.dopoICaricamenti(s.caricaVersioneInterna)))
 }
 
 // ------------------------------------------------------------------ pagina e pannelli
@@ -171,7 +179,9 @@ func qtaDal(v string) (int32, error) {
 	return int32(n), nil
 }
 
-// modificaComponente: POST .../componente/{cid}/modifica, campi `tipo`, `rev`, `descrizione`.
+// modificaComponente: POST .../componente/{cid}/modifica, campi `rev` e `descrizione`. Il tipo ha una strada
+// sola, il suo gesto con l'anteprima e la firma (…/tipo, fase T): un `tipo` mandato qui, diverso da quello di
+// adesso, si rifiuta («il tipo si cambia dalla sezione Tipo, con l'anteprima»).
 func (s *Server) modificaComponente(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		cid, err := s.componenteDaPercorso(r)
@@ -273,22 +283,125 @@ func (s *Server) rimuoviComponente(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// stepStrutturale: POST .../componente/{cid}/step-strutturale, campo `documento`. Lo sceglie una persona
-// (A4.4, D31): la schermata presenta gia' scelto l'unico STEP corrente, ma solo questo gesto lo fissa.
+// ------------------------------------------------------------------ STEP autorizzato (Smistamento F5b)
+
+// richiestaAutorizzazione legge dal form (o dalla query) la richiesta dell'autorizzazione: `documento` (lo
+// STEP associato al componente) oppure `nodo` («<allegato>:<chiave>», il nodo del componente nel file
+// autorizzato del padre: la delega); `sorgente` (con piu' radici, il nodo indicato); `raggruppamento` e
+// `delega` (le caselle, ripetute); `autorizza` e `presa_d_atto` ("1"); `firma` (quella dell'anteprima).
+func richiestaAutorizzazione(r *http.Request, cid uuid.UUID) (fascicolo.RichiestaAutorizzazione, error) {
+	req := fascicolo.RichiestaAutorizzazione{Componente: cid, Sorgente: strings.TrimSpace(r.FormValue("sorgente")),
+		Raggruppamenti: r.Form["raggruppamento"], Deleghe: r.Form["delega"], Autorizza: r.FormValue("autorizza") == "1",
+		PresaDAtto: r.FormValue("presa_d_atto") == "1", Firma: strings.TrimSpace(r.FormValue("firma"))}
+	doc, err := idFacoltativo(r.FormValue("documento"), "documento")
+	if err != nil {
+		return req, err
+	}
+	req.Documento = doc.UUID
+	if v := strings.TrimSpace(r.FormValue("nodo")); v != "" {
+		a, k, ok := strings.Cut(v, ":")
+		id, err := uuid.Parse(a)
+		if !ok || err != nil || strings.TrimSpace(k) == "" {
+			return req, rifiuto("nodo non valido")
+		}
+		req.Nodo = fascicolo.NodoFile{Allegato: id, Chiave: k}
+	}
+	if doc.Valid && req.Delega() {
+		return req, rifiuto("si autorizza un file o si delega un nodo, non tutti e due")
+	}
+	return req, nil
+}
+
+// autorizzazioneVista e' il riquadro dell'anteprima dell'autorizzazione.
+type autorizzazioneVista struct {
+	Base   string // /thread/{id}/fascicolo
+	Cid    uuid.UUID
+	E      fascicolo.Effetto
+	R      fascicolo.RichiestaAutorizzazione
+	Errore string
+	Scrive bool
+}
+
+// ValoreNodo e' il nodo della delega come lo rimanda il modulo.
+func (v autorizzazioneVista) ValoreNodo() string {
+	if !v.R.Delega() {
+		return ""
+	}
+	return v.R.Nodo.Allegato.String() + ":" + v.R.Nodo.Chiave
+}
+
+// anteprimaAutorizzazione: GET .../componente/{cid}/step-strutturale?documento=…&sorgente=… (oppure
+// nodo=<allegato>:<chiave> per la delega). L'anteprima dell'autorizzazione (Smistamento F5b, A5.4.7, P6): che
+// cosa entra nell'autorita', che cosa resta guida, quali rimozioni si apriranno, che cosa si revoca, e il
+// modulo con la casella mai spuntata, la presa d'atto, le deleghe possibili e la firma di quello che si vede.
+// Non scrive niente (F1): la scrittura ricalcola e confronta la firma.
+func (s *Server) anteprimaAutorizzazione(w http.ResponseWriter, r *http.Request) {
+	thread, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "id non valido", 400)
+		return
+	}
+	cid, err := uuid.Parse(r.PathValue("cid"))
+	if err != nil {
+		http.Error(w, "componente non valido", 400)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "richiesta non valida", 400)
+		return
+	}
+	v := autorizzazioneVista{Base: "/thread/" + thread.String() + "/fascicolo", Cid: cid,
+		Scrive: almeno(utenteDa(r.Context()), db.RuoloUtenteOperatore)}
+	req, err := richiestaAutorizzazione(r, cid)
+	if err == nil {
+		v.R = req
+		v.E, err = fascicolo.EffettoAutorizzazione(r.Context(), db.New(s.Pool), thread, req)
+	}
+	if err != nil {
+		var rf rifiuto
+		if !errors.As(err, &rf) {
+			http.Error(w, "anteprima non riuscita", 500)
+			return
+		}
+		v.Errore = spiegaErrore(err)
+	}
+	var buf bytes.Buffer
+	if err := s.pagine["fascicolo.html"].ExecuteTemplate(&buf, "fasc_autorizzazione", vista{Dati: v, Frammento: true}); err != nil {
+		s.Log.Error("template", "frammento", "fasc_autorizzazione", "err", err)
+		http.Error(w, "errore nel disegnare l'anteprima: "+err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// stepStrutturale: POST .../componente/{cid}/step-strutturale. L'autorizzazione (Smistamento F5b,
+// DichiaraStrutturale): la richiesta dell'anteprima con la casella spuntata dalla persona e la firma di
+// quello che ha visto. Per qualunque componente non commerciale; nessuno STEP e' preselezionato (P26, U7).
+// Prima (A4.4, D31) fissava con un clic lo STEP strutturale di un finito, gia' presentato scelto.
 func (s *Server) stepStrutturale(w http.ResponseWriter, r *http.Request) {
-	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
+	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		cid, err := s.componenteDaPercorso(r)
 		if err != nil {
 			return "", err
 		}
-		doc, err := idDa(r.FormValue("documento"), "documento")
+		req, err := richiestaAutorizzazione(r, cid)
 		if err != nil {
 			return "", err
 		}
-		if err := preparaGesto(ctx, q, thread); err != nil {
+		return fascicolo.DichiaraStrutturale(ctx, q, thread, utente, req)
+	})
+}
+
+// revocaStepStrutturale: POST .../componente/{cid}/step-strutturale/revoca, campi `sha` (il file; vuoto =
+// tutte le autorizzazioni del componente) e `motivo`. Le deleghe del file se ne vanno con il padre.
+func (s *Server) revocaStepStrutturale(w http.ResponseWriter, r *http.Request) {
+	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
+		cid, err := s.componenteDaPercorso(r)
+		if err != nil {
 			return "", err
 		}
-		return fascicolo.ScegliStepStrutturale(ctx, q, thread, cid, doc)
+		return fascicolo.RevocaStrutturale(ctx, q, thread, utente, cid, strings.TrimSpace(r.FormValue("sha")), r.FormValue("motivo"))
 	})
 }
 
@@ -362,7 +475,7 @@ func (s *Server) revocaDerogaStruttura(w http.ResponseWriter, r *http.Request) {
 // sostituisce: un predecessore preciso), `nuovo_riferimento` ("1"/"0", obbligatorio se il vecchio e' lo
 // STEP strutturale) e `motivo` (obbligatorio se {did} e' una versione interna).
 func (s *Server) sostituisciDocumento(w http.ResponseWriter, r *http.Request) {
-	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
+	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		nuovo, err := idDa(r.PathValue("did"), "documento")
 		if err != nil {
 			return "", err
@@ -391,6 +504,9 @@ func (s *Server) sostituisciDocumento(w http.ResponseWriter, r *http.Request) {
 			if sc.interno, err = q.DocumentoInterno(ctx, nuovo); err != nil {
 				return "", err
 			}
+			if sc.sostituisceAutorizzato, err = fascicolo.StepAutorizzatoDi(ctx, q, thread, c, vecchio); err != nil {
+				return "", err
+			}
 			if err := verificaSostituzione(n.NomeFile, c, sc); err != nil {
 				return "", err
 			}
@@ -398,7 +514,7 @@ func (s *Server) sostituisciDocumento(w http.ResponseWriter, r *http.Request) {
 		if err := preparaGesto(ctx, q, thread); err != nil {
 			return "", err
 		}
-		msg, err := fascicolo.Sostituisci(ctx, q, thread, vecchio, nuovo, sc.riferimento)
+		msg, err := fascicolo.Sostituisci(ctx, q, thread, vecchio, nuovo, sc.riferimento, utente)
 		if err != nil {
 			return "", err
 		}

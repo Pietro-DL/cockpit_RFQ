@@ -59,6 +59,19 @@ type Server struct {
 	// produzione, perché chiunque potrebbe scriverci dentro l'IP di un'altra postazione. I test lo
 	// sostituiscono per simulare due PC.
 	IndirizzoClient func(*http.Request) string
+	// Smistatore e' il giro del flusso ancorato al prodotto che gli eventi dei worker fanno partire dopo il
+	// loro commit (Smistamento F8: il file sceso, il risultato dell'analisi, i fatti riusati, l'archivio
+	// estratto). Nil = quello di sempre, con il pool e l'analizzatore di qui; le prove ne mettono uno che
+	// fallisce per vedere che l'evento resta (P31).
+	Smistatore fascicolo.Smistatore
+}
+
+// smistatore e' il giro del flusso di questo server.
+func (s *Server) smistatore() fascicolo.Smistatore {
+	if s.Smistatore != nil {
+		return s.Smistatore
+	}
+	return fascicolo.SmistatoreDi(s.Pool, s.Analizzatore)
 }
 
 func (s *Server) Registra(mux *http.ServeMux) {
@@ -561,7 +574,10 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --------------------------------------------------- il worker riporta un successo
-	if err := s.applicaRisultato(ctx, q, &j, req.Dati, prep); err != nil {
+	// I file e le RFQ che il risultato tocca si raccolgono qui, e il flusso ancorato al prodotto li rifa' DOPO il
+	// commit, in una transazione sua: un suo errore non fa fallire l'analisi (Smistamento F8, FP6, P31).
+	ctxEv, raccolta := fascicolo.ConRismistamenti(ctx)
+	if err := s.applicaRisultato(ctxEv, q, &j, req.Dati, prep); err != nil {
 		_ = tx.Rollback(ctx)
 		s.risultatoNonApplicabile(w, ctx, &j, t, err, false)
 		return
@@ -585,6 +601,8 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("job fatto", "job", id, "tipo", j.Tipo)
+	// il risultato e' salvato: il flusso gira adesso, e un worker che se ne va non lo interrompe
+	raccolta.Esegui(context.WithoutCancel(ctx), s.smistatore(), s.Log)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -958,6 +976,11 @@ func (s *Server) propostaDaAnalisi(ctx context.Context, q *db.Queries, a db.Alle
 	if _, err := s.scriviLettura(ctx, q, a, threadID, in, dett); err != nil {
 		return fmt.Errorf("upsert proposta da analisi: %w", err)
 	}
+	if threadID.Valid {
+		// IN5, IN6: la lettura del file e' cambiata; la sua destinazione si rifa' dopo il commit, e tutta la RFQ
+		// se l'indice dei codici e' cambiato (Smistamento F8)
+		fascicolo.SegnaRismistamento(ctx, threadID.UUID, a.AllegatoID)
+	}
 	return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 }
 
@@ -1120,10 +1143,12 @@ func (s *Server) applicaFattiEsistenti(ctx context.Context, q *db.Queries, a db.
 	return err
 }
 
-// strutturaNelleRfq applica la struttura letta da uno STEP a ogni RFQ che ha un allegato con lo stesso
-// contenuto. Il worker ha prodotto un FATTO; qui diventa interpretazione (proposte di nodi, archi,
-// quantita' e rimozioni), con il Motore del cliente di ciascuna RFQ. Nessuna riga della BOM cambia: la
-// cambia solo una decisione (fascicolo.AccettaNodo e le altre).
+// strutturaNelleRfq applica la struttura letta da uno STEP a ogni RFQ aperta che ha un allegato con lo stesso
+// contenuto, da una fonte del cliente e non escluso (Smistamento F5, A5.4.10, P27): le RFQ chiuse o unite a
+// un'altra e i file dei fornitori restano fuori. Il worker ha prodotto un FATTO; qui diventa interpretazione
+// (proposte di nodi, archi, quantita' e rimozioni), con il Motore del cliente di ciascuna RFQ. Dove il file
+// non e' autorizzato per un componente le righe sono guida. Nessuna riga della BOM cambia: la cambia solo
+// una decisione (fascicolo.AccettaNodo e le altre).
 func (s *Server) strutturaNelleRfq(ctx context.Context, q *db.Queries, a db.Allegato, dett json.RawMessage) error {
 	if !a.Sha256.Valid || a.Sha256.String == "" {
 		return nil
@@ -1131,7 +1156,7 @@ func (s *Server) strutturaNelleRfq(ctx context.Context, q *db.Queries, a db.Alle
 	if _, ok := worker.DecodificaStruttura(dett); !ok {
 		return nil
 	}
-	righe, err := q.ListAllegatiStessoFileConRfq(ctx, a.Sha256)
+	righe, err := q.ListRfqAperteConContenuto(ctx, a.Sha256)
 	if err != nil {
 		return fmt.Errorf("allegati con lo stesso contenuto: %w", err)
 	}
@@ -1149,6 +1174,8 @@ func (s *Server) strutturaNelleRfq(ctx context.Context, q *db.Queries, a db.Alle
 		if err != nil {
 			return fmt.Errorf("struttura nella RFQ %s: %w", thread, err)
 		}
+		// la struttura di uno STEP puo' cambiare l'ancora e l'indice: la RFQ intera (IN5, Smistamento F8)
+		fascicolo.SegnaRismistamento(ctx, thread)
 		if es.Nodi+es.Relazioni > 0 {
 			s.Log.Info("proposte di struttura", "rfq", thread, "file", r.Allegato.NomeFile,
 				"nodi_aperti", es.NodiAperti, "relazioni_aperte", es.RelazioniAperte,
@@ -1234,6 +1261,10 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 	rp, err := s.scriviProposta(ctx, q, a, m.ThreadID, in, map[string]any{"estensione": ext, "bytes": r.Bytes})
 	if err != nil {
 		return err
+	}
+	if m.ThreadID.Valid {
+		// IN3, IN4: il file e' sceso in staging; la sua destinazione si calcola dopo il commit (Smistamento F8)
+		fascicolo.SegnaRismistamento(ctx, m.ThreadID.UUID, a.AllegatoID)
 	}
 	if rp.Tipo == "rumore" {
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
