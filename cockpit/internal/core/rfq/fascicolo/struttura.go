@@ -1,8 +1,9 @@
 package fascicolo
 
 // I gesti che cambiano la BOM working senza distruggerne la storia: archiviare un componente (A4.9),
-// scegliere lo STEP strutturale di un prodotto finito (A4.4, D31), derogare a una lettura parziale di
-// quello STEP (A4.5, D33, D36), sostituire un documento con una revisione nuova (A4.1).
+// derogare a una lettura parziale dello STEP strutturale di un prodotto finito (A4.5, D33, D36), sostituire
+// un documento con una revisione nuova (A4.1). Lo STEP strutturale non si sceglie piu' da qui: e'
+// l'autorizzazione dello Smistamento (F5b, autorizzazione.go), che per un finito lo scrive anche nella colonna.
 //
 // Dopo il congelamento il database li rifiuta (D26); qui lo si dice prima, con le parole giuste.
 
@@ -26,10 +27,12 @@ import (
 // tutte e due le direzioni; documenti, proposte, deroghe e storia restano agganciati. I figli non si
 // archiviano da soli (D29): se restano senza padre compaiono come radici da sistemare.
 //
-// Un prodotto con lo STEP strutturale chiude le rimozioni ancora aperte che venivano da quello STEP: il
-// ricalcolo guarda solo i prodotti attivi (ListProdottiConStepStrutturale), quindi nessuno le avrebbe
-// piu' chiuse, e il gate le avrebbe contate per sempre come proposte da decidere. Quelle degli altri
-// prodotti su archi tolti qui le chiude il loro ricalcolo, come prima (all'apertura della RFQ).
+// Un componente con un file autorizzato (lo STEP strutturale di un prodotto, o la marcatura dello
+// Smistamento) chiude le rimozioni ancora aperte che venivano da quel file: l'autorizzazione di un
+// componente archiviato e' sospesa (ValutaDichiarazioni), il ricalcolo guarda solo quelle valide, quindi
+// nessuno le avrebbe piu' chiuse, e il gate le avrebbe contate per sempre come proposte da decidere. La
+// marcatura resta: con il ripristino l'autorizzazione torna valida (F5, A5.4.7). Quelle degli altri
+// componenti su archi tolti qui le chiude il loro ricalcolo, come prima.
 func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente uuid.UUID, motivo string) (string, error) {
 	motivo = strings.TrimSpace(motivo)
 	if motivo == "" {
@@ -48,6 +51,10 @@ func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 	if err := SeBloccata(ctx, q, thread, "si archivia un componente"); err != nil {
 		return "", err
 	}
+	dich, err := LeggiDichiarazioni(ctx, q, thread)
+	if err != nil {
+		return "", err
+	}
 	archi, err := q.DeleteRelazioniComponente(ctx, comp)
 	if err != nil {
 		return "", err
@@ -56,10 +63,30 @@ func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 		ArchiviatoDa: uuid.NullUUID{UUID: utente, Valid: true}, Motivo: pgtype.Text{String: motivo, Valid: true}}); err != nil {
 		return "", err
 	}
+	nota := "componente archiviato"
+	if c.Tipo == db.TipoComponenteFinito {
+		nota = "prodotto archiviato"
+	}
+	chiusi := map[uuid.UUID]bool{}
+	chiudi := func(doc uuid.UUID) error {
+		if chiusi[doc] {
+			return nil
+		}
+		chiusi[doc] = true
+		_, err := q.ChiudiRimozioniDiUnoStep(ctx, db.ChiudiRimozioniDiUnoStepParams{ThreadID: thread,
+			StepDocumentoID: doc, Nota: pgtype.Text{String: nota, Valid: true}})
+		return err
+	}
 	if c.StepStrutturaleID.Valid {
-		if _, err := q.ChiudiRimozioniDiUnoStep(ctx, db.ChiudiRimozioniDiUnoStepParams{ThreadID: thread,
-			StepDocumentoID: c.StepStrutturaleID.UUID, Nota: pgtype.Text{String: "prodotto archiviato", Valid: true}}); err != nil {
+		if err := chiudi(c.StepStrutturaleID.UUID); err != nil {
 			return "", err
+		}
+	}
+	for _, d := range dich.DelComponente(comp) {
+		if d.Documento.Valid {
+			if err := chiudi(d.Documento.UUID); err != nil {
+				return "", err
+			}
 		}
 	}
 	return fmt.Sprintf("%s archiviato: tolti %d archi della working. Documenti, proposte e storia restano.", c.Codice, archi), nil
@@ -67,8 +94,9 @@ func ArchiviaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 
 // RipristinaComponente rimette nella working un componente archiviato: stesso componente_id, stessa
 // storia. E' quello che si fa quando lo stesso codice torna (A4.9; dai codici della RFQ, B8.6). Gli
-// archi non tornano da soli. Le proposte di nodo ancora aperte con il suo codice lo ritrovano, come dopo
-// un'accettazione: e' la lettura che il server darebbe loro alla prossima rianalisi.
+// archi non tornano da soli. Le proposte aperte con il suo codice restano proposte (F5): prima lo
+// ritrovavano da sole (RiconciliaProposteNodo), ed era un'identita' decisa dal codice; adesso lo ritrova
+// chi le accetta. La sua autorizzazione, sospesa, torna valida, e le rimozioni si ricalcolano.
 func RipristinaComponente(ctx context.Context, q *db.Queries, thread, comp uuid.UUID) (string, error) {
 	if err := prepara(ctx, q, thread, "si ripristina un componente"); err != nil {
 		return "", err
@@ -83,10 +111,6 @@ func RipristinaComponente(ctx context.Context, q *db.Queries, thread, comp uuid.
 	}
 	if n == 0 {
 		return "", Rifiuto(c.Codice + " non è archiviato")
-	}
-	if _, err := q.RiconciliaProposteNodo(ctx, db.RiconciliaProposteNodoParams{ThreadID: thread, Codice: c.Codice,
-		ComponenteID: uid(comp), Esclusa: uuid.Nil}); err != nil {
-		return "", err
 	}
 	return dopoLaDecisione(ctx, q, thread, c.Codice+" ripristinato nella BOM working.", nil)
 }
@@ -137,83 +161,14 @@ func cheCosaLoTiene(tabella string) string {
 // ------------------------------------------------------------------ STEP strutturale (A4.4, D31)
 
 // Step dice se un documento e' uno STEP: un 3D corrente con estensione stp o step.
+//
+// ScegliStepStrutturale non c'e' piu' (Smistamento F5b): fissava lo STEP strutturale di un finito con un
+// clic, gia' presentato scelto quando era uno solo. Adesso e' l'autorizzazione (DichiaraStrutturale), per
+// qualunque componente non commerciale, con l'anteprima, la casella mai spuntata e la firma dell'effetto; per
+// un finito scrive anche la colonna.
 func Step(d db.Documento) bool {
 	e := strings.ToLower(d.Estensione)
 	return d.Tipo == db.TipoDocumentoCad3d && (e == "stp" || e == "step")
-}
-
-// ScegliStepStrutturale fissa il file che e' la distinta del prodotto finito: lo sceglie una persona,
-// e nessuna query lo sceglie da sola. Cambiare riferimento chiude le proposte di rimozione ancora
-// aperte che venivano dal vecchio.
-func ScegliStepStrutturale(ctx context.Context, q *db.Queries, thread, comp, doc uuid.UUID) (string, error) {
-	c, err := componenteDellaRfq(ctx, q, thread, comp)
-	if err != nil {
-		return "", err
-	}
-	if c.ArchiviatoIl != nil {
-		// fuori dalla working: le sue rimozioni non si ricalcolano, e quelle aperte dal nuovo riferimento
-		// resterebbero li' per sempre
-		return "", Rifiuto(c.Codice + " è archiviato: prima lo si ripristina, poi si sceglie il suo STEP strutturale")
-	}
-	if c.Tipo != db.TipoComponenteFinito {
-		return "", Rifiuto(fmt.Sprintf("%s non è un prodotto finito: lo STEP strutturale si sceglie solo per un finito", c.Codice))
-	}
-	if err := SeBloccata(ctx, q, thread, "si sceglie lo STEP strutturale"); err != nil {
-		return "", err
-	}
-	d, err := q.GetDocumento(ctx, doc)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", Rifiuto("documento non trovato")
-	}
-	if err != nil {
-		return "", err
-	}
-	switch {
-	case !d.ComponenteID.Valid || d.ComponenteID.UUID != comp:
-		return "", Rifiuto(fmt.Sprintf("%s non è assegnato a %s", d.NomeFile, c.Codice))
-	case !Step(d):
-		return "", Rifiuto(fmt.Sprintf("%s non è un file STEP (un 3D .stp o .step)", d.NomeFile))
-	case d.SostituitoDa.Valid:
-		return "", Rifiuto(fmt.Sprintf("%s è stato sostituito: si sceglie un documento corrente", d.NomeFile))
-	}
-	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == doc {
-		return d.NomeFile + " è già lo STEP strutturale di " + c.Codice + ".", nil
-	}
-	if c.StepStrutturaleID.Valid {
-		if _, err := q.ChiudiRimozioniDiUnoStep(ctx, db.ChiudiRimozioniDiUnoStepParams{ThreadID: thread,
-			StepDocumentoID: c.StepStrutturaleID.UUID, Nota: pgtype.Text{String: "cambiato lo STEP strutturale", Valid: true}}); err != nil {
-			return "", err
-		}
-	}
-	if _, err := q.SetStepStrutturale(ctx, db.SetStepStrutturaleParams{ComponenteID: comp, StepStrutturaleID: uuid.NullUUID{UUID: doc, Valid: true}}); err != nil {
-		return "", err
-	}
-	extra, err := rimozioniDopo(ctx, q, thread, comp)
-	if err != nil {
-		return "", err
-	}
-	return d.NomeFile + " è lo STEP strutturale di " + c.Codice + "." + extra, nil
-}
-
-// rimozioniDopo ricalcola le rimozioni del prodotto appena cambiato il suo riferimento, e dice in una
-// frase che cosa ne e' uscito. Prima rilegge il file nella RFQ: se ha i fatti correnti ma le sue proposte
-// non ci sono ancora (fatti arrivati prima, o un file mai riaperto), il confronto non saprebbe a quale
-// componente corrisponde ogni nodo, e le rimozioni resterebbero sospese per un motivo che non c'e'.
-func rimozioniDopo(ctx context.Context, q *db.Queries, thread, comp uuid.UUID) (string, error) {
-	p, err := q.GetComponente(ctx, comp)
-	if err != nil {
-		return "", err
-	}
-	es, err := rileggiLoStep(ctx, q, thread, p)
-	switch {
-	case err != nil:
-		return "", err
-	case es.Sospese != "":
-		return " Rimozioni non calcolate: " + es.Sospese + ".", nil
-	case es.Proposte > 0:
-		return fmt.Sprintf(" Il file non contiene %d archi della BOM: proposti per la rimozione.", es.Proposte), nil
-	}
-	return "", nil
 }
 
 // ------------------------------------------------------------------ deroga strutturale (A4.5, D33, D36)
@@ -301,11 +256,18 @@ func RevocaDerogaStruttura(ctx context.Context, q *db.Queries, thread, deroga uu
 
 // Sostituisci dice «nuovo sostituisce vecchio»: una revisione nuova e' una riga nuova, e la vecchia
 // resta, con sostituito_da. Stesso componente e stesso tipo (D32); la catena la tiene il database.
-// Uno STEP sostituito chiude le proposte ancora aperte che venivano da lui. Se era lo STEP strutturale,
-// il riferimento passa al nuovo solo se nuovoRiferimento: altrimenti resta sul vecchio, e v_step_prodotto
-// dice riferimento_superato. Il gesto lo chiede senza risposta preselezionata, e senza risposta la
-// sostituzione si rifiuta (Smistamento P26: prima il si' era gia' scelto).
-func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid.UUID, nuovoRiferimento bool) (string, error) {
+// Uno STEP sostituito chiude le proposte ancora aperte che venivano da lui.
+//
+// Se il vecchio era lo STEP autorizzato del componente (Smistamento F5b, A5.4.7), la domanda «il nuovo file
+// diventa lo STEP autorizzato?» non ha una risposta preselezionata: il gesto la chiede, e senza risposta la
+// sostituzione si rifiuta (P26). «Si'» (nuovoRiferimento) e' l'autorizzazione del file nuovo
+// (DichiaraStrutturale), che revoca la vecchia: la radice vecchia non torna aperta, perche' e' davvero il
+// componente nella revisione di prima, e la marcatura va nella sua storia con l'evento sostituita_da. Se il
+// file nuovo non si autorizza cosi' com'e' (piu' radici, un altro nome della radice, nessuna analisi), si
+// rifiuta tutto e lo si dice: si risponde «no», e il file nuovo si autorizza dalla scheda con l'anteprima.
+// «No»: l'autorizzazione resta sul file sostituito ed e' «superata», e il gate si ferma finche' qualcuno non
+// autorizza il file nuovo (come riferimento_superato per lo STEP strutturale di un finito).
+func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid.UUID, nuovoRiferimento bool, utente uuid.UUID) (string, error) {
 	if vecchio == nuovo {
 		return "", Rifiuto("un documento non sostituisce se stesso")
 	}
@@ -346,27 +308,56 @@ func Sostituisci(ctx context.Context, q *db.Queries, thread, vecchio, nuovo uuid
 	if err != nil {
 		return "", err
 	}
-	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == vecchio {
-		if nuovoRiferimento && Step(n) {
-			if c.ArchiviatoIl != nil {
-				// la stessa regola di ScegliStepStrutturale; il rifiuto annulla anche la sostituzione
-				return "", Rifiuto(c.Codice + " è archiviato: il nuovo STEP strutturale si sceglie dopo averlo ripristinato " +
-					"(il file si può sostituire lo stesso, senza farne il nuovo riferimento)")
-			}
-			if _, err := q.SetStepStrutturale(ctx, db.SetStepStrutturaleParams{ComponenteID: c.ComponenteID,
-				StepStrutturaleID: uuid.NullUUID{UUID: nuovo, Valid: true}}); err != nil {
-				return "", err
-			}
-			extra, err := rimozioniDopo(ctx, q, thread, c.ComponenteID)
-			if err != nil {
-				return "", err
-			}
-			msg += " " + n.NomeFile + " è il nuovo STEP strutturale di " + c.Codice + "." + extra
-		} else {
-			msg += " Lo STEP strutturale di " + c.Codice + " resta il file sostituito: va scelto il nuovo riferimento."
+	autorizzato, err := StepAutorizzatoDi(ctx, q, thread, c, vecchio)
+	if err != nil || !autorizzato {
+		return msg, err
+	}
+	if !nuovoRiferimento || !Step(n) {
+		return msg + " L'autorizzazione dello STEP di " + c.Codice + " resta sul file sostituito ed è superata: " +
+			"si autorizza il file nuovo dalla scheda di " + c.Codice + ".", nil
+	}
+	e, err := EffettoAutorizzazione(ctx, q, thread, RichiestaAutorizzazione{Componente: c.ComponenteID, Documento: nuovo})
+	if err != nil {
+		return "", err
+	}
+	perche := e.Spento
+	switch {
+	case perche != "":
+	case e.Sorgente == nil:
+		perche = fmt.Sprintf("%s ha %d radici, e quale sia %s lo indica una persona", n.NomeFile, len(e.Radici), c.Codice)
+	case e.PresaDAtto != "":
+		perche = e.PresaDAtto + ", e serve la presa d'atto"
+	}
+	if perche != "" {
+		// il rifiuto annulla anche la sostituzione
+		return "", Rifiuto(fmt.Sprintf("%s non diventa lo STEP autorizzato di %s così com'è (%s): si risponde «no», "+
+			"e il file nuovo si autorizza dalla scheda di %s, con l'anteprima", n.NomeFile, c.Codice, perche, c.Codice))
+	}
+	m, err := DichiaraStrutturale(ctx, q, thread, utente, RichiestaAutorizzazione{Componente: c.ComponenteID, Documento: nuovo,
+		Autorizza: true, Firma: e.Firma})
+	if err != nil {
+		return "", err
+	}
+	return msg + " " + m, nil
+}
+
+// StepAutorizzatoDi dice se il documento e' lo STEP autorizzato del componente (la marcatura o la forma di
+// prima, valida o da sistemare; non una delega, il cui documento e' del padre): la domanda della sostituzione
+// si fa solo allora.
+func StepAutorizzatoDi(ctx context.Context, q *db.Queries, thread uuid.UUID, c db.Componente, doc uuid.UUID) (bool, error) {
+	if c.StepStrutturaleID.Valid && c.StepStrutturaleID.UUID == doc {
+		return true, nil
+	}
+	dich, err := LeggiDichiarazioni(ctx, q, thread)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range dich.DelComponente(c.ComponenteID) {
+		if !d.Delega() && d.Documento.Valid && d.Documento.UUID == doc {
+			return true, nil
 		}
 	}
-	return msg, nil
+	return false, nil
 }
 
 // AnnullaSostituzione annulla l'ultima sostituzione: il successore deve essere ancora corrente. Le

@@ -24,12 +24,16 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
+// RifiutoTipoDaModifica e' la risposta di «Modifica» a un tipo diverso da quello di adesso.
+const RifiutoTipoDaModifica = "il tipo si cambia dalla sezione Tipo, con l'anteprima"
+
 // MaxQtaArco e' la quantita' piu' alta che un arco scritto a mano puo' avere: oltre e' un errore di
 // battitura, non una distinta.
 const MaxQtaArco = 100000
 
-// ModificaComponente cambia tipo, revisione e descrizione di un componente. Uno STEP strutturale esiste
-// solo per un prodotto finito (A4.4): chi toglie la qualifica di prodotto deve prima togliere quello.
+// ModificaComponente cambia revisione e descrizione di un componente. Il tipo ha una strada sola, il suo gesto
+// con l'anteprima e la firma (CambiaTipoComponenteVisto, tipo.go: un commerciale sospende un'autorizzazione,
+// e chi lo fa deve averlo visto): tipo vuoto, o uguale a quello di adesso, va; un tipo diverso si rifiuta.
 func ModificaComponente(ctx context.Context, q *db.Queries, thread, comp, utente uuid.UUID, tipo db.TipoComponente, rev, descrizione string) (string, error) {
 	if err := prepara(ctx, q, thread, "si modifica un componente"); err != nil {
 		return "", err
@@ -41,8 +45,14 @@ func ModificaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 	if c.ArchiviatoIl != nil {
 		return "", Rifiuto(c.Codice + " è archiviato: prima lo si ripristina")
 	}
+	if tipo == "" {
+		tipo = c.Tipo
+	}
 	if !tipo.Valid() {
 		return "", Rifiuto("tipo di componente non valido")
+	}
+	if tipo != c.Tipo {
+		return "", Rifiuto(RifiutoTipoDaModifica)
 	}
 	rev, descrizione = strings.ToUpper(strings.TrimSpace(rev)), strings.TrimSpace(descrizione)
 	if rev != "" && !classificazione.RevAmmissibile(rev) {
@@ -51,13 +61,7 @@ func ModificaComponente(ctx context.Context, q *db.Queries, thread, comp, utente
 	if utf8.RuneCountInString(descrizione) > 200 {
 		return "", Rifiuto("la descrizione ha più di 200 caratteri")
 	}
-	if tipo != db.TipoComponenteFinito && c.StepStrutturaleID.Valid {
-		return "", Rifiuto(fmt.Sprintf("%s ha uno STEP strutturale: resta un prodotto finito finché quel riferimento c'è", c.Codice))
-	}
 	var cambi []string
-	if tipo != c.Tipo {
-		cambi = append(cambi, fmt.Sprintf("tipo %s → %s", NomeTipo(c.Tipo), NomeTipo(tipo)))
-	}
 	if rev != c.Rev.String {
 		cambi = append(cambi, fmt.Sprintf("rev %s → %s", vuotoTrattino(c.Rev.String), vuotoTrattino(rev)))
 	}

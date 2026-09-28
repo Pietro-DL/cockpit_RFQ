@@ -12,7 +12,7 @@ import (
 // insieme tipo, codice e rev con un solo numero e una sola fonte: «CAD 3D = 90» si leggeva «associazione =
 // 90», e la stessa lettura dal nome valeva 40, 50, 80 o 90 secondo chi l'aveva scritta. Qui ogni dimensione
 // ha il suo valore, il suo score, la regola che lo dà e l'elenco delle evidenze, nella forma di
-// `dettagli.valutazione` (v1, A5.14.2).
+// `dettagli.valutazione` (v2: la v1 di A5.14.2 con la Domanda 7 = B).
 //
 // Lo score e' di REGOLA, non una probabilita': ordina, non decide (U7), e finche' la calibrazione non l'ha
 // misurato non si scrive mai come percentuale. La valutazione la scrive ogni lettore di un file con una sola
@@ -22,7 +22,16 @@ import (
 
 // VersioneValutazione e' la forma di `dettagli.valutazione`. Un lettore che non la conosce tratta la riga
 // come se non l'avesse (e la ricostruisce).
-const VersioneValutazione = 1
+//
+// La v2 (Domanda 7 = B, 27/09) e' la v1 con una regola in piu' in Componi: una lettura che dipende da un'altra
+// non vale piu' di quella, e quando la tabella le darebbe di piu' lo score della sua regola resta scritto in
+// `score_regola`. Una riga v1 si legge ancora (LeggiValutazione): le sue evidenze portano lo score della tabella
+// e il loro `dipende_da`, e le dimensioni si ricompongono con la regola della v2.
+const VersioneValutazione = 2
+
+// versioneValutazioneV1 e' la forma di prima della Domanda 7: stesse chiavi, le dimensioni composte con la
+// lettura dipendente che poteva vincere.
+const versioneValutazioneV1 = 1
 
 // Gli stati di una dimensione (A5.14.2).
 const (
@@ -50,8 +59,25 @@ type Evidenza struct {
 	Famiglia string `json:"famiglia,omitempty"`
 	Dove     string `json:"dove,omitempty"`
 	// DipendeDa: la fonte da cui questa lettura dipende (un PRODUCT uguale al nome del file dipende dal nome):
-	// non conta come seconda fonte per `concorde` (C5).
+	// resta registrata, ma non conta come seconda fonte per `concorde` (C5), non vale piu' della lettura da
+	// cui dipende e non vince al suo posto (Domanda 7 = B, 27/09: vale per ogni lettura dichiarata dipendente).
 	DipendeDa string `json:"dipende_da,omitempty"`
+	// ScoreRegola: lo score che la tabella da' alla regola di una lettura dipendente, quando e' piu' alto di
+	// quello della lettura da cui dipende e Score e' stato riportato a quello (Componi). Zero altrimenti.
+	ScoreRegola int `json:"score_regola,omitempty"`
+	// Indizio: il valore che un INDIZIO ha letto (un codice letto con l'OCR, F9), fuori da Valore apposta: senza
+	// Valore l'evidenza non vota, non fa una fonte ne' una discordanza e non alza lo score. Si mostra con la
+	// sua fonte finche' la calibrazione (S2) non gli dara' uno score (decisioni del 27/09 «ter»).
+	Indizio string `json:"indizio,omitempty"`
+}
+
+// ScoreDellaRegola e' lo score della tabella per la regola dell'evidenza: Score, o per una lettura dipendente
+// limitata lo score che la regola avrebbe da sola.
+func (e Evidenza) ScoreDellaRegola() int {
+	if e.ScoreRegola > 0 {
+		return e.ScoreRegola
+	}
+	return e.Score
 }
 
 // Dimensione e' una delle letture di un file (tipo, codice, rev): il valore vincente, il suo score e la sua
@@ -107,20 +133,27 @@ const MaxEvidenze = 8
 // discordanza quando un altro valore ha almeno SogliaDiscordanza (C4). Nessuna aritmetica di penalita' (K12):
 // la concordanza si conta e non alza il numero, la discordanza si dice e non lo abbassa.
 //
-// Una lettura che dipende da un'altra PUO' vincere la dimensione con il suo score, quando la sua regola vale
-// di piu': il PRODUCT «7120001A_1» uguale al nome da' la rev con rev_step_product 45 e non con
-// rev_suffisso_nome 40, e una radice di famiglia uguale al nome porta il codice a step_radice_famiglia 80.
-// E' una scelta, non un caso: `dipende_da` dice solo che non fa `concorde` (A5.14.2, C5), e il valore non
-// cambia. Se si vorra' che vinca la lettura indipendente (P16, onesta' delle fonti), e' qui che si decide:
-// a parita' di valore la regola della fonte al posto di quella dipendente. Punto aperto per l'architetto.
+// Una lettura che dipende da un'altra (DipendeDa) resta registrata fra le evidenze, ma non dice niente di
+// piu' di quella da cui dipende (Domanda 7 = B, 27/09, generalizzata a ogni evidenza dipendente): il suo score
+// non supera quello della lettura da cui dipende (limitaDipendenti), non fa una seconda fonte, e a parita' di
+// score viene dopo ogni lettura indipendente, cosi' non diventa la regola vincente al posto di quella. Il
+// PRODUCT «7120001A_1» di «7120001A_1.stp» lascia la rev a rev_suffisso_nome 40 (non rev_step_product 45), e
+// una radice di famiglia uguale al nome lascia il codice alla regola del nome (45, o 70 se la famiglia
+// riconosce il nome stesso), non a step_radice_famiglia 80. Prima (A) la lettura dipendente vinceva con lo
+// score della sua regola, e `dipende_da` impediva soltanto `concorde`.
 //
 // Le evidenze senza valore restano nell'elenco e non votano. L'elenco torna in ordine di score e di
 // precedenza, e se e' piu' lungo di MaxEvidenze si tengono le piu' forti.
 func Componi(ev []Evidenza) Dimensione {
-	ord := append([]Evidenza(nil), ev...)
+	ord := limitaDipendenti(ev)
 	sort.SliceStable(ord, func(i, j int) bool {
 		if ord[i].Score != ord[j].Score {
 			return ord[i].Score > ord[j].Score
+		}
+		// a parita' di score la lettura indipendente viene prima di quella che ne ripete un'altra: la regola
+		// vincente e' quella della fonte, non quella della copia (Domanda 7 = B)
+		if di, dj := ord[i].DipendeDa != "", ord[j].DipendeDa != ""; di != dj {
+			return dj
 		}
 		return precedenza(ord[i].Regola) < precedenza(ord[j].Regola)
 	})
@@ -164,15 +197,60 @@ func Componi(ev []Evidenza) Dimensione {
 	return d
 }
 
-// LeggiValutazione legge `dettagli.valutazione` di una riga, se c'e' e se e' nella forma che si conosce.
+// limitaDipendenti riporta ogni lettura dipendente allo score della lettura da cui dipende, quando la sua
+// regola varrebbe di piu' (Domanda 7 = B). La lettura da cui dipende e' quella INDIPENDENTE della stessa
+// dimensione con la fonte che `dipende_da` nomina e lo stesso valore (il nome del file per il PRODUCT uguale
+// al nome, e per la sua rev); se ce n'e' piu' d'una conta la piu' forte. Se non c'e', la lettura dipendente
+// ripete qualcosa che qui non si vede e non vale niente da sola: score 0. Lo score della regola resta in
+// ScoreRegola, e l'operazione si puo' ripetere sulle evidenze gia' limitate (la ricomposizione di una
+// valutazione salvata, ConRispostaFornitore) con lo stesso risultato.
+func limitaDipendenti(ev []Evidenza) []Evidenza {
+	out := append([]Evidenza(nil), ev...)
+	for i := range out {
+		e := &out[i]
+		if e.DipendeDa == "" || e.Valore == "" {
+			continue
+		}
+		regola, tetto := e.ScoreDellaRegola(), 0
+		for _, f := range ev {
+			if f.DipendeDa == "" && f.Fonte == e.DipendeDa && f.Valore != "" && strings.EqualFold(f.Valore, e.Valore) && f.Score > tetto {
+				tetto = f.Score
+			}
+		}
+		e.Score, e.ScoreRegola = regola, 0
+		if regola > tetto {
+			e.Score, e.ScoreRegola = tetto, regola
+		}
+	}
+	return out
+}
+
+// LeggiValutazione legge `dettagli.valutazione` di una riga, se c'e' e se e' in una forma che si conosce. Una
+// riga v1 (scritta prima della Domanda 7) ha le stesse chiavi e le evidenze con lo score della tabella: le sue
+// dimensioni si ricompongono con Componi, e una lettura dipendente che vi aveva vinto torna sotto quella da cui
+// dipende. Valori, stati ed evidenze restano i suoi; cambiano score e regola della dimensione, e l'ordine.
 func LeggiValutazione(dettagli []byte) (Valutazione, bool) {
 	var d struct {
 		Valutazione *Valutazione `json:"valutazione"`
 	}
-	if len(dettagli) == 0 || json.Unmarshal(dettagli, &d) != nil || d.Valutazione == nil || d.Valutazione.V != VersioneValutazione {
+	if len(dettagli) == 0 || json.Unmarshal(dettagli, &d) != nil || d.Valutazione == nil {
 		return Valutazione{}, false
 	}
-	return *d.Valutazione, true
+	v := *d.Valutazione
+	switch v.V {
+	case VersioneValutazione:
+		return v, true
+	case versioneValutazioneV1:
+		for _, dim := range []*Dimensione{&v.Tipo, &v.Codice, &v.Rev} {
+			if dim.Regola == RegolaOperatore {
+				continue // una decisione non si ricompone
+			}
+			*dim = Componi(dim.Evidenze)
+		}
+		v.V = VersioneValutazione
+		return v, true
+	}
+	return Valutazione{}, false
 }
 
 // dettagliRiga sono le chiavi di oggi di documento_proposta.dettagli che servono a rileggere una riga.
@@ -252,7 +330,7 @@ func ValutazioneDaRiga(tipo, codice, rev, fonte string, confidenza int, dettagli
 		ec = append(ec, evidenza("nome_codice_generico", nomeCod, nomeFile))
 	}
 	// La colonna dice un codice dallo STEP: la radice riconosciuta da una famiglia (la D16) o il primo PRODUCT
-	// (il worker). Uguale al nome, dipende dal nome e non fa una seconda fonte.
+	// (il worker). Uguale al nome, dipende dal nome: non fa una seconda fonte e non vale piu' del nome (Componi).
 	var eStep *Evidenza
 	switch {
 	case codice != "" && fonte == "regola_cliente":

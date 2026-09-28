@@ -15,8 +15,9 @@ package fascicolo
 //	           piano lo riprende quando arriva
 //
 // Lo stesso per la struttura di ogni STEP (i suoi nodi e archi aperti, accettati insieme come «Accetta
-// tutto il file») e per lo STEP strutturale di un prodotto che non l'ha ancora (A4.4, D31: lo sceglie una
-// persona; qui glielo si presenta gia' scelto quando e' uno solo, e la conferma lo fissa).
+// tutto il file») e per lo STEP strutturale di un prodotto che non l'ha ancora: quello e' sempre una voce da
+// decidere, anche quando lo STEP e' uno solo (Smistamento F5b, P26, U7; A5.4.7 supera A4.4 e D31): si
+// autorizza con l'anteprima e la casella mai spuntata, e la conferma del piano non lo tocca.
 //
 // Il piano e' una regola pura: non scrive niente, e con gli stessi dati da' lo stesso piano con la stessa
 // firma. «Conferma Fascicolo» lo ricalcola nella sua transazione e conferma solo se la firma e' quella che
@@ -60,8 +61,10 @@ const (
 	// DomandaStrutturaEditor: la struttura proposta da uno STEP si conferma dall'editor della BOM (Fascicolo
 	// v3), dopo averla vista; non entra con «Conferma Fascicolo».
 	DomandaStrutturaEditor = "struttura_editor"
-	DomandaStrutturale     = "strutturale" // piu' STEP candidati a STEP strutturale del prodotto
-	DomandaCongelata       = "congelata"   // BOM congelata e file gia' assegnato: si sgancia o si apre una revisione
+	// DomandaStrutturale: lo STEP del prodotto si autorizza con l'anteprima e la casella, anche quando e' uno
+	// solo (Smistamento F5b, P26, U7): la conferma del piano non lo sceglie per nessuno.
+	DomandaStrutturale = "strutturale"
+	DomandaCongelata   = "congelata" // BOM congelata e file gia' assegnato: si sgancia o si apre una revisione
 )
 
 // Domanda e' una cosa che una persona deve decidere, con le parole della schermata.
@@ -137,7 +140,8 @@ type VoceStruttura struct {
 	Domande  []Domanda
 }
 
-// VoceStrutturale e' lo STEP strutturale suggerito per un prodotto finito che non l'ha ancora.
+// VoceStrutturale e' lo STEP strutturale da autorizzare per un prodotto finito che non l'ha ancora. E' sempre
+// una voce da decidere (Smistamento F5b): mai pronta, mai nella conferma del piano.
 type VoceStrutturale struct {
 	Prodotto  db.Componente
 	Allegato  uuid.UUID     // lo STEP fra i file del piano; zero se e' gia' un documento
@@ -155,7 +159,8 @@ type PianoFascicolo struct {
 	Bloccata    int32 // la BOM e' congelata in questa versione: i file entrano senza componente
 }
 
-// Pronte conta le voci che entrano con «Conferma Fascicolo».
+// Pronte conta le voci che entrano con «Conferma Fascicolo». Lo STEP strutturale non c'e': si autorizza con
+// l'anteprima (Smistamento F5b).
 func (p PianoFascicolo) Pronte() int {
 	n := 0
 	for _, v := range p.File {
@@ -164,11 +169,6 @@ func (p PianoFascicolo) Pronte() int {
 		}
 	}
 	for _, v := range p.Strutture {
-		if v.Stato == VocePronta {
-			n++
-		}
-	}
-	for _, v := range p.Strutturali {
 		if v.Stato == VocePronta {
 			n++
 		}
@@ -239,11 +239,6 @@ func (p PianoFascicolo) Firma() string {
 	for _, v := range p.Strutture {
 		if v.Stato == VocePronta {
 			righe = append(righe, fmt.Sprintf("S|%s|%d|%d", v.Allegato, v.Nodi, v.Archi))
-		}
-	}
-	for _, v := range p.Strutturali {
-		if v.Stato == VocePronta {
-			righe = append(righe, fmt.Sprintf("T|%s|%s|%s", v.Prodotto.ComponenteID, v.Allegato, v.Documento.UUID))
 		}
 	}
 	sort.Strings(righe)
@@ -682,9 +677,11 @@ func fratelli(voci []VoceFile) {
 	}
 }
 
-// strutturaliDi suggerisce lo STEP strutturale di ogni prodotto finito che non l'ha: se dopo la conferma
-// il prodotto avra' un solo STEP, e' quello (presentato gia' scelto, D31: lo fissa la conferma); se ne avra'
-// piu' d'uno, si sceglie.
+// strutturaliDi dice, per ogni prodotto finito che non ha lo STEP strutturale, che c'e' uno STEP da autorizzare.
+// Riscritta per lo Smistamento (F5b, P26, U7; A5.4.7 supera A4.4): prima, con un solo STEP, la voce nasceva
+// pronta, «gia' scelta» (D31), e la conferma del piano la autorizzava con un clic generico. Adesso anche l'unico
+// STEP e' una voce da decidere: si autorizza dalla scheda o dal cassetto, con l'anteprima e la casella mai
+// spuntata; il piano non sceglie nessun file. Con piu' STEP la domanda li nomina tutti.
 func strutturaliDi(in IngressoPiano, voci []VoceFile, correnti map[uuid.UUID][]db.Documento) []VoceStrutturale {
 	if in.Bloccata > 0 {
 		return nil
@@ -717,7 +714,14 @@ func strutturaliDi(in IngressoPiano, voci []VoceFile, correnti map[uuid.UUID][]d
 		case 0:
 			continue
 		case 1:
-			out = append(out, VoceStrutturale{Prodotto: c, Allegato: cand[0].allegato, Documento: cand[0].documento, Nome: cand[0].nome, Stato: VocePronta})
+			testo := fmt.Sprintf("%s è l'unico STEP di %s: diventa lo STEP autorizzato solo con l'anteprima e la casella (nessuno STEP è scelto da solo)",
+				cand[0].nome, c.Codice)
+			if !cand[0].documento.Valid {
+				testo = fmt.Sprintf("%s sarà l'unico STEP di %s: entrato nel fascicolo, si autorizza con l'anteprima e la casella (nessuno STEP è scelto da solo)",
+					cand[0].nome, c.Codice)
+			}
+			out = append(out, VoceStrutturale{Prodotto: c, Allegato: cand[0].allegato, Documento: cand[0].documento, Nome: cand[0].nome,
+				Stato: VoceDecidere, Domande: []Domanda{{DomandaStrutturale, testo}}})
 		default:
 			nomi := make([]string, len(cand))
 			for i, x := range cand {
@@ -793,18 +797,17 @@ func LeggiIngressoPiano(ctx context.Context, q *db.Queries, thread uuid.UUID) (I
 	if in.Documenti, err = q.ListDocumentiThread(ctx, thread); err != nil {
 		return in, err
 	}
-	nodi, err := q.ListComponenteProposteThread(ctx, thread)
+	// le proposte di struttura che il piano guarda sono quelle nell'autorita' dei file autorizzati (Smistamento
+	// F5): la guida non fa banner, non aspetta file, non conta fra le cose da decidere
+	aut, tutti, tutte, err := LeggiAutorita(ctx, q, thread)
 	if err != nil {
 		return in, err
 	}
+	nodi, rel := aut.NellAutorita(tutti, tutte)
 	in.NomiFile = map[uuid.UUID]string{}
 	for _, n := range nodi {
 		in.Nodi = append(in.Nodi, n.ComponenteProposta)
 		in.NomiFile[n.ComponenteProposta.AllegatoID] = n.NomeFile
-	}
-	rel, err := q.ListRelazioneProposteThread(ctx, thread)
-	if err != nil {
-		return in, err
 	}
 	for _, r := range rel {
 		in.Relazioni = append(in.Relazioni, r.RelazioneProposta)

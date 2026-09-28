@@ -249,7 +249,7 @@ func (c richiestaCard) Chiusa() bool { return c.StatoThread == db.StatoThreadCHI
 // Le frasi dei segnali, al singolare o al plurale.
 func (c richiestaCard) FraseProdotti() string { return conta(len(c.Prodotti), "prodotto", "prodotti") }
 func (c richiestaCard) FraseBloccanti() string {
-	return conta(int(c.NBloccanti.Int64), "bloccante", "bloccanti")
+	return conta(int(c.NBloccanti), "bloccante", "bloccanti")
 }
 func (c richiestaCard) FraseDaSmistare() string {
 	return conta(int(c.NDaSmistare), "file da smistare", "file da smistare")
@@ -370,7 +370,7 @@ func firmaPanoramica(p *panoramicaRichieste) string {
 		}
 		fmt.Fprintf(h, "c:%s:%s:%s:%s:%s:%s:%v:%d:%s:%s:%d:%d:%d|", c.ThreadID, c.Cliente, c.Oggetto.String, c.RiferimentoCliente.String,
 			c.Buyer.String, c.StatoThread, c.NomeFase, c.GgInFase.Int32, c.Semaforo.String, scad+"/"+ultimo, c.PesoCliente,
-			c.NBloccanti.Int64, c.NDaSmistare)
+			c.NBloccanti, c.NDaSmistare)
 		for _, pr := range c.Prodotti {
 			fmt.Fprintf(h, "p:%s:%s:%s:%s:%t|", pr.Codice, pr.Rev, pr.Descrizione, pr.allegato, pr.DaConfermare)
 		}

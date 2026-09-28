@@ -12,6 +12,13 @@ package web
 // «+ Componente con codice» (la carta «n:»), e prima di metterla l'editor chiede a GET .../bom/codice che
 // cosa la RFQ sa di quel codice: se c'e' gia', se e' un codice della richiesta, se e' quasi uguale a uno che
 // c'e' (P4).
+//
+// Smistamento F5 (A5.3.11, P13): le proposte che l'editor puo' prendere sono solo quelle nell'AUTORITA' di un
+// file autorizzato (i figli diretti della sorgente e gli archi dalla sorgente). Un figlio diretto con il codice
+// di un componente e' disegnato come quel componente e detto «ritrovato per codice» (Ritrovati); la conferma lo
+// accetta solo se l'editor l'ha mostrato. La GUIDA (il resto dei file autorizzati e i file non autorizzati) si
+// vede, distinta, per aiutare l'operatore (precisazione dell'utente del 27/09): nessun gesto la porta nella BOM,
+// e il codice uguale a quello di un componente vi compare solo come suggerimento.
 
 import (
 	"context"
@@ -60,6 +67,28 @@ type rimozioneEditor struct {
 	Step   string `json:"step"`
 }
 
+// ritrovatoEditor e' un nodo nell'autorita' che l'editor disegna come il componente con lo stesso codice
+// (Smistamento F5, P13): lo si dice, e la conferma lo accetta come quel componente solo se l'editor l'ha
+// mostrato. Agganciato: un aggancio per codice di prima dello Smistamento, da confermare.
+type ritrovatoEditor struct {
+	Proposta   uuid.UUID `json:"proposta"`
+	Ref        string    `json:"ref"`
+	Codice     string    `json:"codice"`
+	File       string    `json:"file"`
+	Agganciato bool      `json:"agganciato,omitempty"`
+}
+
+// guidaEditor e' un arco di GUIDA (Smistamento F5, precisazione dell'utente del 27/09): si vede nell'editor
+// per aiutare l'operatore, distinto dall'autorita', e nessun gesto lo porta nella working BOM. Suggerito e'
+// il componente con lo stesso codice del figlio: un suggerimento calcolato qui, mai un'identita'.
+type guidaEditor struct {
+	File      string `json:"file"`
+	Padre     string `json:"padre"`
+	Figlio    string `json:"figlio"`
+	Qta       int32  `json:"qta"`
+	Suggerito string `json:"suggerito,omitempty"`
+}
+
 type prodottoEditor struct {
 	Ref    string `json:"ref"`
 	Codice string `json:"codice"`
@@ -71,7 +100,9 @@ type datiEditor struct {
 	Prodotti  []prodottoEditor      `json:"prodotti"`
 	Nodi      map[string]nodoEditor `json:"nodi"`
 	Archi     []arcoEditor          `json:"archi"`
-	Proposti  []propostoEditor      `json:"proposti"`
+	Proposti  []propostoEditor      `json:"proposti"`  // solo l'autorita' dei file autorizzati
+	Ritrovati []ritrovatoEditor     `json:"ritrovati"` // nell'autorita', con il codice di un componente
+	Guida     []guidaEditor         `json:"guida"`     // da vedere, non entra
 	Rimozioni []rimozioneEditor     `json:"rimozioni"`
 	Step      map[string]string     `json:"step,omitempty"`
 	Analisi   int64                 `json:"analisi"`  // analisi ancora in corso sui file della RFQ
@@ -111,11 +142,7 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 	if err != nil {
 		return nil, err
 	}
-	nodi, err := q.ListComponenteProposteThread(ctx, thread)
-	if err != nil {
-		return nil, err
-	}
-	archi, err := q.ListRelazioneProposteThread(ctx, thread)
+	aut, nodi, archi, err := fascicolo.LeggiAutorita(ctx, q, thread)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +151,7 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 		return nil, err
 	}
 	d := &datiEditor{Nodi: map[string]nodoEditor{}, Scrive: scrive, Archi: []arcoEditor{}, Proposti: []propostoEditor{},
-		Rimozioni: []rimozioneEditor{}, Prodotti: []prodottoEditor{}}
+		Ritrovati: []ritrovatoEditor{}, Guida: []guidaEditor{}, Rimozioni: []rimozioneEditor{}, Prodotti: []prodottoEditor{}}
 	if n, bloccata, err := fascicolo.WorkingBloccata(ctx, q, thread); err != nil {
 		return nil, err
 	} else if bloccata {
@@ -156,49 +183,93 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 		d.Archi = append(d.Archi, arcoEditor{Padre: "c:" + r.PadreID.String(), Figlio: "c:" + r.FiglioID.String(), Qta: r.Qta})
 	}
 
-	// i nodi proposti: un nodo gia' deciso e' il suo componente; uno aperto con il codice di un componente e'
-	// quel componente; quelli aperti con lo stesso codice sono una carta sola (la prima proposta)
+	// I nodi proposti, solo nell'autorita' (Smistamento F5): la sorgente di un file autorizzato e' il suo
+	// componente; un nodo deciso da una persona e' il suo componente; un figlio diretto aperto con il codice di
+	// un componente e' disegnato come quel componente e detto «ritrovato per codice»; i figli diretti aperti
+	// con lo stesso codice nello stesso file sono una carta sola (la prima proposta). Lo stesso codice in un
+	// altro file e' un'altra carta: accettarne una non decide l'altra (A5.4.7). La guida non fa carte: si
+	// elenca a parte.
 	type chiave struct {
 		a uuid.UUID
 		k string
 	}
 	refDi := map[chiave]string{}
-	canonico := map[string]string{}
+	etichetta := map[chiave]string{}
+	canonico := map[chiave]string{} // (file, codice) → la carta
 	for _, n := range nodi {
 		p := n.ComponenteProposta
 		k := chiave{p.AllegatoID, p.Chiave}
-		switch p.Stato {
-		case db.StatoPropostaConfermata, db.StatoPropostaDuplicato:
-			if c, ok := attivo[p.ComponenteID.UUID]; ok && p.ComponenteID.Valid {
+		etichetta[k] = etichettaNodo(p)
+		if x, ok := aut.Sorgente(p.AllegatoID, p.Chiave); ok {
+			if c, ok := attivo[x.Componente.ComponenteID]; ok {
+				refDi[k] = "c:" + c.ComponenteID.String()
+				etichetta[k] = c.Codice
+			}
+			continue
+		}
+		if id, ok := fascicolo.DecisoDaUnaPersona(p); ok {
+			if c, ok := attivo[id]; ok {
 				refDi[k] = "c:" + c.ComponenteID.String()
 			}
-		case db.StatoPropostaAperta:
-			codice := strings.TrimSpace(p.Codice.String)
-			up := strings.ToUpper(codice)
-			switch {
-			case codice == "":
-				ref := "p:" + p.PropostaID.String()
-				refDi[k] = ref
-				d.Nodi[ref] = nodoEditor{Nome: p.NomeGrezzo, Desc: p.Descrizione.String, Tipo: tipoProposto(p), Proposto: true,
-					SenzaCodice: true, File: n.NomeFile, Nota: p.Nota.String}
-			case perCodice[up].ComponenteID != uuid.Nil:
-				refDi[k] = "c:" + perCodice[up].ComponenteID.String()
-			case canonico[up] != "":
-				refDi[k] = canonico[up]
-			default:
-				ref := "p:" + p.PropostaID.String()
-				canonico[up], refDi[k] = ref, ref
-				d.Nodi[ref] = nodoEditor{Codice: codice, Rev: p.Rev.String, Desc: p.Descrizione.String, Tipo: tipoProposto(p),
-					Proposto: true, Nome: p.NomeGrezzo, File: n.NomeFile, Nota: p.Nota.String}
-			}
+			continue
 		}
+		if _, figlio := aut.FiglioDiretto(p.AllegatoID, p.Chiave); !figlio {
+			continue // guida
+		}
+		if fascicolo.AgganciatoPerCodice(p) {
+			if c, ok := attivo[p.ComponenteID.UUID]; ok {
+				ref := "c:" + c.ComponenteID.String()
+				refDi[k] = ref
+				d.Ritrovati = append(d.Ritrovati, ritrovatoEditor{Proposta: p.PropostaID, Ref: ref, Codice: c.Codice, File: n.NomeFile, Agganciato: true})
+			}
+			continue
+		}
+		if p.Stato != db.StatoPropostaAperta {
+			continue
+		}
+		codice := strings.TrimSpace(p.Codice.String)
+		up := strings.ToUpper(codice)
+		switch {
+		case codice == "":
+			ref := "p:" + p.PropostaID.String()
+			refDi[k] = ref
+			d.Nodi[ref] = nodoEditor{Nome: p.NomeGrezzo, Desc: p.Descrizione.String, Tipo: tipoProposto(p), Proposto: true,
+				SenzaCodice: true, File: n.NomeFile, Nota: p.Nota.String}
+		case perCodice[up].ComponenteID != uuid.Nil:
+			ref := "c:" + perCodice[up].ComponenteID.String()
+			refDi[k] = ref
+			d.Ritrovati = append(d.Ritrovati, ritrovatoEditor{Proposta: p.PropostaID, Ref: ref, Codice: perCodice[up].Codice, File: n.NomeFile})
+		case canonico[chiave{p.AllegatoID, up}] != "":
+			refDi[k] = canonico[chiave{p.AllegatoID, up}]
+		default:
+			ref := "p:" + p.PropostaID.String()
+			canonico[chiave{p.AllegatoID, up}], refDi[k] = ref, ref
+			d.Nodi[ref] = nodoEditor{Codice: codice, Rev: p.Rev.String, Desc: p.Descrizione.String, Tipo: tipoProposto(p),
+				Proposto: true, Nome: p.NomeGrezzo, File: n.NomeFile, Nota: p.Nota.String}
+		}
+	}
+	perNodo := map[chiave]db.ComponenteProposta{}
+	for _, n := range nodi {
+		perNodo[chiave{n.ComponenteProposta.AllegatoID, n.ComponenteProposta.Chiave}] = n.ComponenteProposta
 	}
 	for _, r := range archi {
 		x := r.RelazioneProposta
 		if x.Stato != db.StatoPropostaAperta {
 			continue
 		}
-		pr, fr := refDi[chiave{x.AllegatoID, x.PadreChiave}], refDi[chiave{x.AllegatoID, x.FiglioChiave}]
+		pk, fk := chiave{x.AllegatoID, x.PadreChiave}, chiave{x.AllegatoID, x.FiglioChiave}
+		if _, ok := aut.ArcoAutorizzato(fascicolo.ChiaveRelazione{Allegato: x.AllegatoID, Padre: x.PadreChiave, Figlio: x.FiglioChiave}); !ok {
+			// la guida: si elenca, con il suggerimento del codice uguale, e non entra
+			if f := perNodo[fk]; f.Stato != db.StatoPropostaScartata && perNodo[pk].Stato != db.StatoPropostaScartata {
+				g := guidaEditor{File: r.NomeFile, Padre: etichetta[pk], Figlio: etichetta[fk], Qta: x.Qta}
+				if c, ok := perCodice[strings.ToUpper(strings.TrimSpace(f.Codice.String))]; ok && f.Codice.Valid {
+					g.Suggerito = c.Codice
+				}
+				d.Guida = append(d.Guida, g)
+			}
+			continue
+		}
+		pr, fr := refDi[pk], refDi[fk]
 		if pr == "" || fr == "" || pr == fr {
 			continue
 		}
@@ -239,6 +310,9 @@ func (s *Server) datiEditor(ctx context.Context, q *db.Queries, thread, prodotto
 			nomi[x.DocumentoID] = x.NomeFile
 		}
 		for _, x := range rim {
+			if !aut.Dichiarazioni.RimozioneValida(x.StepDocumentoID, x.PadreID) {
+				continue // di un'autorizzazione che non vale (sospesa, in conflitto): il file non ha autorita'
+			}
 			d.Rimozioni = append(d.Rimozioni, rimozioneEditor{Padre: "c:" + x.PadreID.String(), Figlio: "c:" + x.FiglioID.String(), Step: nomi[x.StepDocumentoID]})
 		}
 	}

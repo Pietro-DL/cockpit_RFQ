@@ -23,7 +23,7 @@
       {{if .T.RiferimentoCliente.Valid}}<div><b>Riferimento del cliente:</b> <code>{{.T.RiferimentoCliente.String}}</code>
         <small class="muto">e' il nome che il cliente da' a questa richiesta, non un codice prodotto</small></div>{{end}}
       <div><b>Codici:</b> {{range .Identificativi}}<span class="chip" title="origine: {{.Origine}}">{{.Codice}}</span> {{else}}<em class="muto">nessuno</em>{{end}}
-        {{if .Riga.NBloccanti.Valid}} · <b>Bloccanti:</b> {{.Riga.NBloccanti.Int64}}{{end}} · <b>Da smistare:</b> {{.NDaSmistare}}
+        · <b>Bloccanti:</b> <span id="rfq-bloccanti" title="Requisiti bloccanti del fascicolo senza documento e senza deroga: una copia in errore sul NAS non conta qui, sta in «Sul NAS»">{{.NBloccanti}}</span> · <b>Da smistare:</b> {{.NDaSmistare}}
         {{with .SulNas}}{{if .Documenti}} · <b id="sul-nas" title="I documenti decisi scritti sul NAS: la copia, non la decisione">{{.Breve}}</b>{{with .Frasi}} <small class="muto">({{join . "; "}})</small>{{end}}{{end}}{{end}}</div>
     </div>
   </div>
@@ -90,7 +90,7 @@
         <button type="submit" class="piccolo" title="Scarica i file utili, estrae gli archivi e accoda le analisi che mancano. La pagina lo fa da sola quando si apre">Prepara i file</button>
       </form>{{end}}
       <p class="muto">{{len .Componenti}} component{{if eq (len .Componenti) 1}}e{{else}}i{{end}} nella BOM
-        {{if .Riga.NBloccanti.Valid}} · <b>{{.Riga.NBloccanti.Int64}}</b> bloccant{{if eq .Riga.NBloccanti.Int64 1}}e{{else}}i{{end}}{{end}}
+        · <b id="rfq-fascicolo-bloccanti">{{.NBloccanti}}</b> bloccant{{if eq .NBloccanti 1}}e{{else}}i{{end}}
         · {{.NDaSmistare}} file da smistare</p>
       {{if .Fascicolo}}
       <details>

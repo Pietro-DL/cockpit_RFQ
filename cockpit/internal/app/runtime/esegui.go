@@ -11,6 +11,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/inbox/ingest"
@@ -38,14 +41,54 @@ type Opzioni struct {
 	// quello giusto. CalibrazioneDal limita alle decisioni da quel giorno; nil = tutte.
 	Calibrazione    bool
 	CalibrazioneDal *time.Time
+	// RiapriAgganci e' il comando U5 dello Smistamento (F7, A5.15): riapre, nelle RFQ in corso, gli agganci
+	// automatici fatti prima dello Smistamento per sola uguaglianza di codice. Senza DatabaseRiapertura e'
+	// l'anteprima (-anteprima-riapri-agganci: sola lettura); con, e' l'applicazione (-riapri-agganci <nome>),
+	// e DatabaseRiapertura e' il nome del database che chi lancia vuole scrivere: deve essere quello del file
+	// e quello a cui ci si collega (P38). RfqRiapertura limita il comando a una RFQ (nil = tutte);
+	// UscitaRiapertura e' il rapporto JSON (vuoto = nella cartella del log).
+	RiapriAgganci      bool
+	DatabaseRiapertura string
+	RfqRiapertura      *uuid.UUID
+	UscitaRiapertura   string
+}
+
+// PreparaRiapertura legge le opzioni del comando U5 dalla riga di comando: anteprima e' -anteprima-riapri-agganci,
+// applica dice che -riapri-agganci c'era (con il nome del database in database), rfq e uscita sono -rfq e
+// -uscita. Le due forme insieme sono un errore (prima si guarda, poi si scrive), come per i fornitori;
+// -riapri-agganci vuole il nome del database; -rfq e -uscita da soli non vogliono dire niente.
+func (o *Opzioni) PreparaRiapertura(anteprima, applica bool, database, rfq, uscita string) error {
+	database, rfq = strings.TrimSpace(database), strings.TrimSpace(rfq)
+	switch {
+	case anteprima && applica:
+		return errors.New("-anteprima-riapri-agganci e -riapri-agganci insieme non hanno senso: prima si guarda, poi si scrive")
+	case applica && database == "":
+		return errors.New("-riapri-agganci vuole il nome del database da scrivere (quello del DSN del -config): -riapri-agganci <nome>")
+	case !anteprima && !applica:
+		if rfq != "" || strings.TrimSpace(uscita) != "" {
+			return errors.New("-rfq e -uscita valgono solo con -anteprima-riapri-agganci o -riapri-agganci")
+		}
+		return nil
+	}
+	o.RiapriAgganci, o.DatabaseRiapertura, o.UscitaRiapertura = true, database, strings.TrimSpace(uscita)
+	if rfq != "" {
+		id, err := uuid.Parse(rfq)
+		if err != nil {
+			return fmt.Errorf("-rfq %q: serve l'identificativo della RFQ (un uuid)", rfq)
+		}
+		o.RfqRiapertura = &id
+	}
+	return nil
 }
 
 // SoloLettura dice se il lavoro chiesto legge soltanto: -conta-anagrafiche, -anteprima-fornitori e
 // -calibrazione. Questi non migrano, non seminano e non toccano la coda (ApriDatabaseInLettura): un
 // «conta» lanciato con un binario nuovo su un database vecchio applicava le migrazioni, cioe' faceva
-// proprio la cosa che si fa solo dopo un backup.
+// proprio la cosa che si fa solo dopo un backup. Legge soltanto anche -anteprima-riapri-agganci (il comando
+// U5 senza il nome del database), che pero' ha la sua strada in Esegui: RiapriAgganci.
 func (o Opzioni) SoloLettura() bool {
-	return o.ContaAnagrafiche || o.Calibrazione || (o.SemeFornitori != "" && !o.ApplicaFornitori)
+	return o.ContaAnagrafiche || o.Calibrazione || (o.SemeFornitori != "" && !o.ApplicaFornitori) ||
+		(o.RiapriAgganci && o.DatabaseRiapertura == "")
 }
 
 // Esegui e' l'avvio: l'ordine in cui il server nasce, e niente altro.
@@ -68,6 +111,13 @@ func Esegui(cfgPath string, rete config.Rete, o Opzioni) (err error) {
 	cfg, err := config.CaricaConRete(cfgPath, rete)
 	if err != nil {
 		return err
+	}
+	if o.RiapriAgganci {
+		// Il comando U5 (Smistamento F7, P38): la prima riga stampata dice su quale database si lavora, prima
+		// di aprire il log o il database. Non semina, non migra, non tocca la coda, e non si mette in ascolto.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return RiapriAgganci(ctx, cfg, cfgPath, os.Stdout, o)
 	}
 	lvl, lvlRiconosciuto := LivelloLog(cfg.Server.LogLivello)
 	dove, percorsoLog, chiudiLog, avvisoLog := ApriLog(cfg)

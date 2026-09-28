@@ -430,6 +430,134 @@ class StrutturaSTEP(Base):
     limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
 
 
+# ---------------------------------------------------------------- testo dei PDF (Smistamento F9)
+#
+# La lettura strutturata del testo di un PDF (addendum A5.13.8, decisioni del 27/09 «ter»). Sono FATTI del
+# contenuto, come la struttura di uno STEP, e per la stessa ragione non portano nessun codice ne' nessuna
+# interpretazione: che cosa sia un codice lo dicono le famiglie del CLIENTE della richiesta, e il worker non sa
+# per quale richiesta analizza (lo stesso contenuto puo' stare in piu' RFQ di clienti diversi). I codici li
+# cerca il server, con il motore di ciascuna RFQ.
+#
+# Le coordinate (`riquadro`) sono in punti sulla pagina COME SI VEDE, cioe' con la rotazione gia' applicata,
+# con l'origine in alto a sinistra: [x0, y0, x1, y1].
+
+ZonaPDF = Literal["basso_destra", "pagina"]
+FonteTestoPDF = Literal["nativo", "ocr"]
+
+
+class FrammentoPDF(Base):
+    """Un pezzo di testo del PDF con il suo posto: un blocco del file (o dell'OCR) dentro una zona.
+
+    `zona` e' un fatto GEOMETRICO, non un'interpretazione: `basso_destra` e' la parte della pagina 1 con
+    x0 >= 0,5 della larghezza e y0 >= 0,6 dell'altezza (sulla pagina vista); `pagina` e' tutto il resto. Che in
+    basso a destra ci sia probabilmente il cartiglio lo dice il server. `fonte` dice se il testo e' quello
+    scritto nel file (`nativo`) o letto dall'immagine (`ocr`, con la `confidenza` 0-100 quando il motore la
+    da'): un frammento OCR e' un'evidenza piu' debole, e il server lo tratta come tale."""
+    pagina: int
+    zona: ZonaPDF
+    fonte: FonteTestoPDF = "nativo"
+    testo: str = ""
+    riquadro: list[float] = Field(default_factory=list)
+    confidenza: float | None = None
+
+
+class CampoCartiglio(Base):
+    """Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».
+
+    `etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,
+    revisione, titolo, scala, materiale), `letta` e' com'e' scritta nel file, `valore` e' il testo GREZZO che
+    le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,
+    che resta al server. `riquadro` e' quello del valore; `zona` e' quella dell'etichetta."""
+    etichetta: Literal["numero_disegno", "codice", "revisione", "titolo", "scala", "materiale"]
+    letta: str = ""
+    valore: str = ""
+    pagina: int = 1
+    zona: ZonaPDF = "pagina"
+    fonte: FonteTestoPDF = "nativo"
+    riquadro: list[float] = Field(default_factory=list)
+    confidenza: float | None = None
+
+
+class TentativoOCR(Base):
+    """Un passaggio dell'OCR su una pagina intera (`zona: pagina`) o sulla sola zona in basso a destra della
+    pagina 1. `esito`: `letto` (testo leggibile), `vuoto` (il motore non ha letto niente di leggibile),
+    `fallito` (eccezione del motore: `motivo`), `scaduto` (il tempo dell'OCR era finito prima di questo
+    passaggio), `saltato` (OCR spento, motore assente, oltre il limite di pagine)."""
+    pagina: int
+    zona: ZonaPDF
+    esito: Literal["letto", "vuoto", "fallito", "scaduto", "saltato"]
+    motivo: str = ""
+    caratteri: int = 0
+    secondi: float = 0.0
+
+
+class OCRPDF(Base):
+    """Che cosa ha fatto l'OCR su questo PDF. L'OCR e' SELETTIVO (solo dove il testo nativo manca o non basta,
+    con le soglie scritte nei limiti) e non fa mai fallire l'analisi: quello che non e' andato si dice qui.
+
+    `stato`: `non_necessario` (il testo nativo bastava), `spento` (configurazione del worker),
+    `non_disponibile` (il motore non c'e' su questa postazione: `motivo`), `eseguito` (almeno un passaggio ha
+    letto qualcosa), `fallito`, `scaduto`, `illeggibile` (nessun passaggio ha letto niente di leggibile)."""
+    stato: Literal["non_necessario", "spento", "non_disponibile", "eseguito", "fallito", "scaduto",
+                   "illeggibile"] = "non_necessario"
+    motivo: str = ""
+    motore: str = ""
+    tentativi: list[TentativoOCR] = Field(default_factory=list)
+
+
+class MetadatiPDF(Base):
+    """I metadati del documento, grezzi. L'autore NON c'e': e' il nome di una persona, e per dire che
+    cosa sia un file non serve (e non deve viaggiare con i fatti, che restano archiviati per anni)."""
+    titolo: str = ""
+    soggetto: str = ""
+    parole_chiave: str = ""
+    creatore: str = ""
+    produttore: str = ""
+
+
+class LimitiTestoPDF(Base):
+    """Fin dove si e' letto, e con quali soglie. Come per gli STEP, i limiti viaggiano con il fatto: un testo
+    troncato, o un OCR non fatto, va spiegato con le regole in vigore QUANDO e' stato letto, non con quelle
+    del worker di oggi."""
+    pagine_max: int = 0             # pagine lette al massimo
+    frammenti_max: int = 0          # frammenti nel fatto
+    frammento_max: int = 0          # caratteri di un frammento
+    caratteri_max: int = 0          # caratteri di tutti i frammenti insieme
+    campi_max: int = 0              # campi del cartiglio
+    ocr_soglia_pagina: int = 0      # sotto questi caratteri nativi una pagina e' «senza testo»: OCR della pagina
+    ocr_soglia_cartiglio: int = 0   # sotto questi caratteri nativi in basso a destra della pagina 1: OCR della zona
+    ocr_pagine_max: int = 0         # pagine intere lette con l'OCR al massimo
+    ocr_tempo_max_s: int = 0        # secondi di OCR al massimo, per file
+    ocr_dpi: int = 0                # risoluzione dell'immagine data al motore
+
+
+class TestoPDF(Base):
+    """Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli["testo_pdf"]` (A5.13.8,
+    analizzatore 4).
+
+    Il testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e
+    riquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno
+    almeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.
+
+    `estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,
+    non un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri
+    nativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;
+    `pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]
+    della pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto."""
+    versione: int = 1
+    estraibile: bool = False
+    pagine: int = 0
+    pagine_lette: int = 0
+    caratteri: int = 0
+    troncato: bool = False
+    formato_pagina1: list[float] = Field(default_factory=list)
+    frammenti: list[FrammentoPDF] = Field(default_factory=list)
+    cartiglio: list[CampoCartiglio] = Field(default_factory=list)
+    metadati: MetadatiPDF = Field(default_factory=MetadatiPDF)
+    ocr: OCRPDF = Field(default_factory=OCRPDF)
+    limiti: LimitiTestoPDF = Field(default_factory=LimitiTestoPDF)
+
+
 class RisultatoAnalisi(Base):
     allegato_id: UUID
     tipo_proposto: str
@@ -468,4 +596,5 @@ CONTRATTI = {
     "payload_analizza_allegato": PayloadAnalizzaAllegato,
     "risultato_analisi": RisultatoAnalisi,
     "struttura_step": StrutturaSTEP,
+    "testo_pdf": TestoPDF,
 }

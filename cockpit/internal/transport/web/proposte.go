@@ -22,15 +22,15 @@ import (
 const MaxAccodatiSuRichiesta = 20
 
 func (s *Server) registraProposte(mux *http.ServeMux) {
-	mux.HandleFunc("POST /thread/{id}/fascicolo/rianalizza", s.autenticato(s.rianalizza))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/accetta", s.autenticato(s.accettaNodo))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/scarta", s.autenticato(s.scartaNodo))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/codice", s.autenticato(s.codiceNodo))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/accetta", s.autenticato(s.accettaRelazione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/scarta", s.autenticato(s.scartaRelazione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/file/{aid}/accetta", s.autenticato(s.accettaFile))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/rimozione/accetta", s.autenticato(s.accettaRimozione))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/rimozione/scarta", s.autenticato(s.scartaRimozione))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/rianalizza", s.autenticato(s.dopoIlGesto(s.rianalizza)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/accetta", s.autenticato(s.dopoIlGesto(s.accettaNodo)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/scarta", s.autenticato(s.dopoIlGesto(s.scartaNodo)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/codice", s.autenticato(s.dopoIlGesto(s.codiceNodo)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/accetta", s.autenticato(s.dopoIlGesto(s.accettaRelazione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/scarta", s.autenticato(s.dopoIlGesto(s.scartaRelazione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/file/{aid}/accetta", s.autenticato(s.dopoIlGesto(s.accettaFile)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/rimozione/accetta", s.autenticato(s.dopoIlGesto(s.accettaRimozione)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/rimozione/scarta", s.autenticato(s.dopoIlGesto(s.scartaRimozione)))
 }
 
 // gesto esegue fai in una transazione e risponde con la pagina della RFQ: l'avviso di fai, oppure il
@@ -91,7 +91,8 @@ func idDa(v, cosa string) (uuid.UUID, error) {
 
 // rianalizza: POST /thread/{id}/fascicolo/rianalizza. Rilegge gli STEP che hanno i fatti correnti e
 // accoda gli altri, fino a MaxAccodatiSuRichiesta: le due meta' di RianalizzaRfq insieme. E' il solo gesto
-// che rilegge gli STEP a richiesta; aprire una pagina non lo fa piu' (Smistamento F1, R8).
+// che rilegge gli STEP a richiesta; aprire una pagina non lo fa piu' (Smistamento F1, R8). Ed e' il solo che
+// fa rileggere i PDF letti da un analizzatore precedente (F9, analizzatore 4): nessuna rianalisi parte da sola.
 func (s *Server) rianalizza(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
 		if s.Analizzatore.Versione == 0 {
@@ -122,8 +123,22 @@ func fraseRianalisi(ri fascicolo.Rianalisi) string {
 	if ri.SenzaStaging > 0 {
 		parti = append(parti, conta(ri.SenzaStaging, "STEP non più in staging", "STEP non più in staging")+" (Riscarica)")
 	}
+	// i PDF letti da un analizzatore precedente (F9): si dice di quali file si parla
+	if ri.PdfAccodati > 0 {
+		parti = append(parti, conta(ri.PdfAccodati, "PDF accodato", "PDF accodati")+" per rileggerne il testo")
+	}
+	if ri.PdfGiaInCoda > 0 {
+		parti = append(parti, conta(ri.PdfGiaInCoda, "PDF già in coda", "PDF già in coda"))
+	}
+	if ri.PdfRimandati > 0 {
+		parti = append(parti, conta(ri.PdfRimandati, "PDF rimandato", "PDF rimandati")+" al prossimo giro")
+	}
+	if ri.PdfSenzaStaging > 0 {
+		parti = append(parti, conta(ri.PdfSenzaStaging, "PDF non più in staging", "PDF non più in staging")+" (Riscarica)")
+	}
 	if len(parti) == 0 {
-		return "Nessuno STEP da rileggere in questa RFQ."
+		// dal F9 il gesto guarda anche i PDF: la frase dice tutti e due, non solo gli STEP
+		return "Niente da rileggere in questa RFQ: STEP e PDF sono già letti con l'analizzatore corrente."
 	}
 	return strings.Join(parti, ", ") + "."
 }

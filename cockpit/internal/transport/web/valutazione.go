@@ -138,7 +138,10 @@ func (d vistaDimensione) Testo() string {
 func paroleRegola(regola, testo string) string {
 	r, ok := classificazione.Punteggi[regola]
 	if !ok {
-		return strings.ReplaceAll(regola, "_", " ")
+		// un indizio senza score (l'OCR, F9) non sta nella tabella S1, ma ha le sue parole
+		if r, ok = classificazione.Indizi[regola]; !ok {
+			return strings.ReplaceAll(regola, "_", " ")
+		}
 	}
 	if r.ConTesto && testo != "" {
 		return r.Parole + " " + testo
@@ -155,6 +158,24 @@ func paroleEvidenza(e classificazione.Evidenza) string {
 	}
 	if e.Famiglia != "" {
 		s += ", famiglia «" + e.Famiglia + "»"
+	}
+	if e.Dove != "" && e.Indizio != "" {
+		s += ", " + e.Dove // «…, letto con l'OCR»: la fonte di un indizio si dice sempre
+	}
+	return s
+}
+
+// dipendenzaEvidenza e' la nota accanto a una lettura che ne ripete un'altra (Domanda 7 = B, 27/09): resta
+// fra le evidenze, ma non e' una seconda fonte e non vale piu' della lettura da cui dipende. Quando la sua
+// regola da sola varrebbe di piu' lo si dice, senza il numero: lo score mostrato e' quello che conta.
+func dipendenzaEvidenza(e classificazione.Evidenza) string {
+	da, quella := "da un'altra lettura («"+strings.ReplaceAll(e.DipendeDa, "_", " ")+"»)", "di quella lettura"
+	if e.DipendeDa == "nome_file" {
+		da, quella = "dal nome del file", "del nome"
+	}
+	s := "dipende " + da + ": non è una seconda fonte e non vale più " + quella
+	if e.ScoreRegola > e.Score {
+		s += ", anche se la sua regola da sola varrebbe di più"
 	}
 	return s
 }

@@ -30,6 +30,10 @@ type threadDati struct {
 	Componenti     []db.Componente
 	// NDaSmistare: proposte ancora aperte della RFQ, letto da v_cruscotto.n_da_smistare (vedi caricaThread).
 	NDaSmistare int
+	// NBloccanti: i requisiti bloccanti del fascicolo senza documento e senza deroga, lo stesso conteggio del
+	// gate (ContaBloccantiLogici, Smistamento G). Non v_cruscotto.n_bloccanti, che conta anche un documento
+	// deciso ma in errore sul NAS: quello e' la materializzazione, e si vede in «Sul NAS».
+	NBloccanti int64
 	// NDaCopiare: documenti confermati che NON sono sul NAS — in attesa oppure in errore.
 	//
 	// «In attesa» e' la conseguenza normale di una conferma data mentre [sicurezza].nas_scrittura era
@@ -265,6 +269,9 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	// modo di sapere quale fosse quello buono. Il conto della vista è anche l'unico che vede una
 	// proposta il cui allegato la pagina non mostra.
 	d.NDaSmistare = int(d.Riga.NDaSmistare)
+	if n, err := q.ContaBloccantiLogici(ctx, id); err == nil {
+		d.NBloccanti = int64(n)
+	}
 	d.Cliente, _ = q.GetCliente(ctx, t.ClienteID)
 	d.Identificativi, _ = q.ListIdentificativi(ctx, id)
 	d.Documenti, _ = q.ListDocumentiThread(ctx, id)

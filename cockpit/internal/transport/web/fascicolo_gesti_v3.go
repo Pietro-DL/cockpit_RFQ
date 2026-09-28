@@ -33,8 +33,8 @@ func (s *Server) registraFascicoloV3(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nota", s.autenticato(s.nuovaNota))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nota/{nid}/modifica", s.autenticato(s.modificaNota))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nota/{nid}/elimina", s.autenticato(s.eliminaNota))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/bom/applica", s.autenticato(s.applicaStruttura))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/file/{pid}/generale", s.autenticato(s.fileGenerale))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/bom/applica", s.autenticato(s.dopoIlGesto(s.applicaStruttura)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/file/{pid}/generale", s.autenticato(s.dopoIlGesto(s.fileGenerale)))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/bom/dati", s.autenticato(s.fascicoloDatiEditor))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/bom/codice", s.autenticato(s.fascicoloCodiceEditor))
 	mux.HandleFunc("GET /thread/{id}/fascicolo/sezione", s.autenticato(s.fascicoloSezione))
@@ -178,6 +178,14 @@ func (s *Server) applicaStruttura(w http.ResponseWriter, r *http.Request) {
 		var v fascicolo.StrutturaVoluta
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {
 			return "", rifiuto("la struttura mandata non si legge: riapri l'editor")
+		}
+		// «E' il prodotto» non c'e' piu' (Smistamento F2; il campo e' tolto in F5): chi lo manda ancora (una
+		// bozza di prima, un altro programma) riceve un rifiuto, non una struttura confermata senza quella parte
+		var vecchia struct {
+			RadiciProposte []json.RawMessage `json:"radici_proposte"`
+		}
+		if json.Unmarshal([]byte(raw), &vecchia) == nil && len(vecchia.RadiciProposte) > 0 {
+			return "", rifiuto("«È il prodotto» non c'è più: la radice di uno STEP la fissa l'autorizzazione del file. Riapri l'editor")
 		}
 		return fascicolo.ApplicaStrutturaVoluta(ctx, q, thread, utente, v)
 	}, func(w http.ResponseWriter, ok bool, testo string) {

@@ -105,8 +105,12 @@ func (d *triageDati) SiPrepara(a AllegatoUI) bool {
 // Nemmeno un codice visto SOLO nel nome di un allegato (Smistamento P17): un nome di file non e' una
 // richiesta, e la spunta gia' messa faceva di «7120001A_1.stp» un prodotto 7120001A con il clic su «Crea
 // RFQ» (E11). Si vede, con l'etichetta che lo dice (SoloNelNome), e lo spunta chi lo riconosce.
+//
+// E nell'aggancio niente nasce spuntato (scelta 6): la RFQ ha gia' i suoi codici, e un codice spuntato
+// all'aggancio diventa un prodotto. Una risposta che cita un prodotto tolto dalla BOM non deve farlo rinascere
+// con il clic su «Aggancia a questa RFQ»: lo rimette nella richiesta solo chi lo spunta.
 func (d *triageDati) Spuntato(c db.CandidatoCodice) bool {
-	return c.Origine == db.OrigineCodiceFamiglia && c.Evidenza != classificazione.DoveStoria && !SoloNelNome(c)
+	return d.Azione != "aggancia" && c.Origine == db.OrigineCodiceFamiglia && c.Evidenza != classificazione.DoveStoria && !SoloNelNome(c)
 }
 
 // SoloNelNome dice che il codice e' stato visto solo nel nome di un allegato: l'evidenza di candidato_codice
@@ -385,55 +389,14 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// Gli identificativi della RFQ (checkpoint 3R §4). Due strade, e non si confondono:
-	//
-	//   `codice`         le caselle spuntate fra i candidati. Entrano con l'origine della PROPOSTA
-	//                    (famiglia del cliente o estrattore generico) e con il punteggio che avevano.
-	//                    Il giorno in cui si vuole misurare quanto il motore ci prende, la misura
-	//                    esiste solo se questa differenza è stata scritta.
-	//   `identificativi` quelli digitati a mano nella casella di testo: quelli sì, `manuale`, 100.
-	//
-	// Prima c'era solo la seconda strada, e ci passava anche la prima: la casella di testo arrivava
-	// PRECOMPILATA con tutto ciò che l'estrattore generico aveva visto, e al submit ogni numero
-	// diventava un identificativo confermato a mano. Bastava non guardare quella riga.
-	cand, _ := q.ListCandidatiCodice(ctx, id)
-	perCodice := map[string]db.CandidatoCodice{}
-	for _, c := range cand {
-		perCodice[strings.ToUpper(c.Codice)] = c
+	// Gli identificativi della RFQ (checkpoint 3R §4): quelli spuntati e quelli scritti, confermati da chi
+	// crea la RFQ. Sono i soli che diventano prodotti con questo gesto (scelta 6).
+	confermati, err := confermaCodiciDelGesto(ctx, q, r, id, t.ThreadID, u.UtenteID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	var riferimento string
-	visti := map[string]bool{}
-	for _, c := range r.Form["codice"] {
-		c = strings.ToUpper(strings.TrimSpace(c))
-		k, ok := perCodice[c]
-		if !ok || visti[c] {
-			continue // spuntato qualcosa che non era fra i candidati: non si inventa
-		}
-		if k.Ruolo == db.RuoloCodiceRiferimentoRfq {
-			continue // un riferimento non diventa un codice prodotto nemmeno se qualcuno lo spunta
-		}
-		visti[c] = true
-		origine := db.OrigineIdentificativoPropostaGenerico
-		if k.Origine == db.OrigineCodiceFamiglia {
-			origine = db.OrigineIdentificativoPropostaFamiglia
-		}
-		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: t.ThreadID, Codice: k.Codice, Origine: origine,
-			Confidenza: pgtype.Int2{Int16: k.Punteggio, Valid: true}, ConfermatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-	}
-	for _, c := range splitCodici(r.FormValue("identificativi")) {
-		if visti[strings.ToUpper(c)] {
-			continue
-		}
-		visti[strings.ToUpper(c)] = true
-		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: t.ThreadID, Codice: c, Origine: db.OrigineIdentificativoManuale,
-			Confidenza: pgtype.Int2{Int16: 100, Valid: true}, ConfermatoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-	}
 	// Il riferimento del cliente ha un campo suo: è il nome della richiesta, non un codice prodotto.
 	if riferimento = strings.TrimSpace(r.FormValue("riferimento_cliente")); riferimento != "" {
 		if err := q.SetRiferimentoCliente(ctx, db.SetRiferimentoClienteParams{
@@ -466,7 +429,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	prep, err := s.preparaDopoLaDecisione(ctx, q, t.ThreadID)
+	prep, err := s.preparaDopoLaDecisione(ctx, q, t.ThreadID, confermati)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -475,13 +438,80 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// il flusso ancorato al prodotto, dopo il commit (Smistamento F8, IN1): i prodotti appena confermati e i
+	// file gia' analizzati per un'altra RFQ danno subito le loro destinazioni
+	s.rismista(ctx, t.ThreadID)
 	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s%s%s", t.CartellaRelativa.String, cartella, esiti.fraseSeCe(), prep))
 }
 
+// confermaCodiciDelGesto scrive gli identificativi che chi decide ha confermato in questo gesto (la creazione
+// della RFQ o l'aggancio) e restituisce i loro codici: sono i soli che il gesto fa diventare prodotti
+// (preparaDopoLaDecisione, scelta 6). Due strade, e non si confondono (checkpoint 3R §4):
+//
+//	`codice`         le caselle spuntate fra i candidati del messaggio. Entrano con l'origine della PROPOSTA
+//	                 (famiglia del cliente o estrattore generico) e con il punteggio che avevano. Il giorno
+//	                 in cui si vuole misurare quanto il motore ci prende, la misura esiste solo se questa
+//	                 differenza è stata scritta.
+//	`identificativi` quelli digitati a mano nella casella di testo: quelli sì, `manuale`, 100.
+//
+// Prima c'era solo la seconda strada, e ci passava anche la prima: la casella di testo arrivava PRECOMPILATA
+// con tutto ciò che l'estrattore generico aveva visto, e al submit ogni numero diventava un identificativo
+// confermato a mano. Bastava non guardare quella riga. Un codice spuntato che non era fra i candidati del
+// messaggio non si inventa, e un riferimento della richiesta non diventa un codice prodotto nemmeno spuntato.
+func confermaCodiciDelGesto(ctx context.Context, q *db.Queries, r *http.Request, messaggio, thread, utente uuid.UUID) ([]string, error) {
+	cand, err := q.ListCandidatiCodice(ctx, messaggio)
+	if err != nil {
+		return nil, err
+	}
+	perCodice := map[string]db.CandidatoCodice{}
+	for _, c := range cand {
+		perCodice[strings.ToUpper(c.Codice)] = c
+	}
+	chi := uuid.NullUUID{UUID: utente, Valid: true}
+	var confermati []string
+	visti := map[string]bool{}
+	for _, c := range r.Form["codice"] {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		k, ok := perCodice[c]
+		if !ok || visti[c] {
+			continue // spuntato qualcosa che non era fra i candidati: non si inventa
+		}
+		if k.Ruolo == db.RuoloCodiceRiferimentoRfq {
+			continue // un riferimento non diventa un codice prodotto nemmeno se qualcuno lo spunta
+		}
+		visti[c] = true
+		origine := db.OrigineIdentificativoPropostaGenerico
+		if k.Origine == db.OrigineCodiceFamiglia {
+			origine = db.OrigineIdentificativoPropostaFamiglia
+		}
+		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: thread, Codice: k.Codice, Origine: origine,
+			Confidenza: pgtype.Int2{Int16: k.Punteggio, Valid: true}, ConfermatoDa: chi}); err != nil {
+			return nil, err
+		}
+		confermati = append(confermati, k.Codice)
+	}
+	for _, c := range splitCodici(r.FormValue("identificativi")) {
+		if visti[strings.ToUpper(c)] {
+			continue
+		}
+		visti[strings.ToUpper(c)] = true
+		if _, err := q.UpsertIdentificativo(ctx, db.UpsertIdentificativoParams{ThreadID: thread, Codice: c, Origine: db.OrigineIdentificativoManuale,
+			Confidenza: pgtype.Int2{Int16: 100, Valid: true}, ConfermatoDa: chi}); err != nil {
+			return nil, err
+		}
+		confermati = append(confermati, c)
+	}
+	return confermati, nil
+}
+
 // preparaDopoLaDecisione e' la preparazione del Fascicolo nella transazione di chi ha appena creato la RFQ o
-// agganciato il messaggio (B8.7b): i codici della richiesta confermati diventano prodotti finiti, e i file
-// utili della RFQ scendono nello staging senza che nessuno li spunti. Il NAS aspetta la conferma. Restituisce
-// la frase per l'avviso.
+// agganciato il messaggio (B8.7b): i codici della richiesta confermati IN QUESTO GESTO (confermati) diventano
+// prodotti finiti, e i file utili della RFQ scendono nello staging senza che nessuno li spunti. Il NAS aspetta
+// la conferma. Restituisce la frase per l'avviso.
+//
+// Scelta 6 dello Smistamento (confermata il 27/09): prima nascevano tutti i codici confermati della richiesta
+// senza un componente, e un prodotto tolto dalla BOM rinasceva all'aggancio di una mail che non lo citava.
+// Adesso il gesto crea soltanto i codici che chi decide ha spuntato o scritto nello stesso gesto.
 //
 // Smistamento F1 (addendum A5.4.5): e' l'unico posto in cui i prodotti della richiesta nascono da soli (la
 // GET del Fascicolo non li fa piu'), ed e', con «Rianalizza», l'unico gesto che rilegge gli STEP gia'
@@ -489,8 +519,8 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 // dell'aggancio) non hanno mai avuto le loro proposte in questa RFQ, perche' il risultato dell'analisi le
 // scrive solo nelle RFQ che hanno gia' quel contenuto (critica C6). PreparaFile senza rileggi: i file fermi
 // li completa la preparazione della pagina (POST …/fascicolo/prepara), che accoda e basta.
-func (s *Server) preparaDopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID) (string, error) {
-	prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread)
+func (s *Server) preparaDopoLaDecisione(ctx context.Context, q *db.Queries, thread uuid.UUID, confermati []string) (string, error) {
+	prodotti, err := fascicolo.AssicuraProdottiDellaRichiesta(ctx, q, thread, confermati)
 	if err != nil {
 		return "", err
 	}
@@ -586,12 +616,19 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	// I codici che chi aggancia ha spuntato o scritto (nell'aggancio nessuno nasce spuntato: Spuntato): entrano
+	// fra quelli della richiesta, e sono i soli che l'aggancio fa diventare prodotti (scelta 6).
+	confermati, err := confermaCodiciDelGesto(ctx, q, r, id, tid, u.UtenteID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	esiti, err := s.downloadDaForm(ctx, q, m, r)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	prep, err := s.preparaDopoLaDecisione(ctx, q, tid)
+	prep, err := s.preparaDopoLaDecisione(ctx, q, tid, confermati)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -600,6 +637,7 @@ func (s *Server) agganciaEsistente(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	s.rismista(ctx, tid) // IN1, dopo il commit (Smistamento F8)
 	s.pannelloConAvviso(w, r, id, fmt.Sprintf("Agganciato alla RFQ %s.%s%s", t.CartellaRelativa.String, esiti.fraseSeCe(), prep))
 }
 

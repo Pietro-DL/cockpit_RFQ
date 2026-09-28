@@ -17,12 +17,12 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/richiesta/{rid}/annulla", s.autenticato(s.annullaRichiestaFornitore))
 	mux.HandleFunc("GET /thread/{id}", s.autenticato(s.thread))
 	mux.HandleFunc("POST /thread/{id}/riprova-copie", s.autenticato(s.riprovaCopie))
-	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.conferma))
-	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.scarta))
+	mux.HandleFunc("POST /proposta/{id}/conferma", s.autenticato(s.dopoLaProposta(s.conferma)))
+	mux.HandleFunc("POST /proposta/{id}/scarta", s.autenticato(s.dopoLaProposta(s.scarta)))
 	// B8.3: agganciare documenti e proposte a un componente, correggere il codice di un componente
 	// (fascicolo.go). Le usano la schermata del Fascicolo e la pagina della RFQ.
-	mux.HandleFunc("POST /thread/{id}/fascicolo/assegna", s.autenticato(s.assegna))
-	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.correggiCodice))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/assegna", s.autenticato(s.dopoIlGesto(s.assegna)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/componente/{cid}/codice", s.autenticato(s.dopoIlGesto(s.correggiCodice)))
 	// B8.5: le proposte di struttura dagli STEP (proposte.go).
 	s.registraProposte(mux)
 	// B8.6: dai codici della RFQ, un componente nuovo o il ripristino di uno archiviato (codici.go).
@@ -30,6 +30,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	// B8.7: la schermata del Fascicolo e i gesti che le mancavano (fascicolo_rotte.go).
 	s.registraFascicolo(mux)
 	s.registraConferma(mux)
+	// Smistamento F8: «Aggiorna le proposte», il flusso ancorato al prodotto a richiesta (smistamento.go).
+	s.registraSmistamento(mux)
 	// Fascicolo v3: note sui disegni, struttura dall'editor, file di nessun componente (fascicolo_gesti_v3.go).
 	s.registraFascicoloV3(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))

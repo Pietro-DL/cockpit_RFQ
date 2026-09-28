@@ -93,8 +93,12 @@ type fattiAnalisi struct {
 //
 // Codice: il nome di QUESTO file, tolti la rev e il suffisso decorativo del cliente (famiglia 70, generico
 // 45), la radice dello STEP o, senza struttura letta, il primo PRODUCT (30); un nome che non e' un codice ma
-// ne cita qualcuno lo registra senza valore. Un PRODUCT o una radice uguali al nome dipendono dal nome e non
-// fanno una seconda fonte (C5).
+// ne cita qualcuno lo registra senza valore. Un PRODUCT o una radice uguali al nome dipendono dal nome: non
+// fanno una seconda fonte (C5) e non valgono piu' del nome (Domanda 7 = B, Componi). Di un PDF letto
+// dall'analizzatore 4 contano anche il codice di famiglia del testo nativo in basso a destra della pagina 1
+// (85) e il codice del titolo o del soggetto (40), con la stessa regola: il titolo uguale al nome dipende dal
+// nome, il cartiglio uguale al nome lo conferma, il cartiglio diverso e' una discordanza; quello che ha letto
+// l'OCR si registra come indizio, senza voto (evidenzeCodiceDelTesto, F9).
 //
 // Rev: dal nome con la regola del suo ramo (_REV_ del NAS 80, _REV/-R 55, _n 40), dal PRODUCT GREZZO (e non
 // dall'esito del worker, che quando il PRODUCT non ha una rev gli mette quella del nome: K6, P10), dalla
@@ -201,6 +205,10 @@ func Valuta(in IngressoFile) Valutazione {
 			}
 		}
 	}
+	if ext == "pdf" {
+		// il testo del PDF (F9): i codici li cerca qui il motore del cliente, non il worker
+		ec = append(ec, evidenzeCodiceDelTesto(in.Motore, in.Fatti, nome)...)
+	}
 	v.Codice = Componi(ec)
 
 	// ---- rev
@@ -296,7 +304,17 @@ func tipoDaAnalisi(et []Evidenza, ext string, in IngressoFile, f fattiAnalisi) [
 		}
 		return out
 	case pdf && (f.TestoLetto != nil || f.CodiceRiconosciuto != nil):
-		return []Evidenza{evidenza("pdf_nessun_termine", "", "")}
+		// un PDF senza testo lo dice, con quello che ha fatto l'OCR (F9): non e' che il testo non parli, e' che
+		// non c'e'. E un PDF il cui testo non e' stato letto (fatti di prima della 4, o di un worker non
+		// aggiornato) dice «da rianalizzare»
+		testo := ""
+		switch t, stato := testoDelPDF(in.Fatti); stato {
+		case TestoAssente:
+			testo = FraseTestoPDF(stato, t.OCR.Stato)
+		case TestoNonLetto:
+			testo = FraseTestoPDF(stato, "")
+		}
+		return []Evidenza{evidenza("pdf_nessun_termine", "", testo)}
 	case (ext == "stp" || ext == "step") && (len(f.Struttura) > 0 && !bytes.Equal(f.Struttura, []byte("null")) || f.ProductStep != ""):
 		return append(et, evidenza("step_letto", "cad_3d", testoStruttura(f.Struttura)))
 	}

@@ -1,0 +1,377 @@
+{
+  "$defs": {
+    "CampoCartiglio": {
+      "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale), `letta` e' com'e' scritta nel file, `valore` e' il testo GREZZO che\nle sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server. `riquadro` e' quello del valore; `zona` e' quella dell'etichetta.",
+      "properties": {
+        "etichetta": {
+          "enum": [
+            "numero_disegno",
+            "codice",
+            "revisione",
+            "titolo",
+            "scala",
+            "materiale"
+          ],
+          "title": "Etichetta",
+          "type": "string"
+        },
+        "letta": {
+          "default": "",
+          "title": "Letta",
+          "type": "string"
+        },
+        "valore": {
+          "default": "",
+          "title": "Valore",
+          "type": "string"
+        },
+        "pagina": {
+          "default": 1,
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "zona": {
+          "default": "pagina",
+          "enum": [
+            "basso_destra",
+            "pagina"
+          ],
+          "title": "Zona",
+          "type": "string"
+        },
+        "fonte": {
+          "default": "nativo",
+          "enum": [
+            "nativo",
+            "ocr"
+          ],
+          "title": "Fonte",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "confidenza": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidenza"
+        }
+      },
+      "required": [
+        "etichetta"
+      ],
+      "title": "CampoCartiglio",
+      "type": "object"
+    },
+    "FrammentoPDF": {
+      "description": "Un pezzo di testo del PDF con il suo posto: un blocco del file (o dell'OCR) dentro una zona.\n\n`zona` e' un fatto GEOMETRICO, non un'interpretazione: `basso_destra` e' la parte della pagina 1 con\nx0 >= 0,5 della larghezza e y0 >= 0,6 dell'altezza (sulla pagina vista); `pagina` e' tutto il resto. Che in\nbasso a destra ci sia probabilmente il cartiglio lo dice il server. `fonte` dice se il testo e' quello\nscritto nel file (`nativo`) o letto dall'immagine (`ocr`, con la `confidenza` 0-100 quando il motore la\nda'): un frammento OCR e' un'evidenza piu' debole, e il server lo tratta come tale.",
+      "properties": {
+        "pagina": {
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "zona": {
+          "enum": [
+            "basso_destra",
+            "pagina"
+          ],
+          "title": "Zona",
+          "type": "string"
+        },
+        "fonte": {
+          "default": "nativo",
+          "enum": [
+            "nativo",
+            "ocr"
+          ],
+          "title": "Fonte",
+          "type": "string"
+        },
+        "testo": {
+          "default": "",
+          "title": "Testo",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "confidenza": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidenza"
+        }
+      },
+      "required": [
+        "pagina",
+        "zona"
+      ],
+      "title": "FrammentoPDF",
+      "type": "object"
+    },
+    "LimitiTestoPDF": {
+      "description": "Fin dove si e' letto, e con quali soglie. Come per gli STEP, i limiti viaggiano con il fatto: un testo\ntroncato, o un OCR non fatto, va spiegato con le regole in vigore QUANDO e' stato letto, non con quelle\ndel worker di oggi.",
+      "properties": {
+        "pagine_max": {
+          "default": 0,
+          "title": "Pagine Max",
+          "type": "integer"
+        },
+        "frammenti_max": {
+          "default": 0,
+          "title": "Frammenti Max",
+          "type": "integer"
+        },
+        "frammento_max": {
+          "default": 0,
+          "title": "Frammento Max",
+          "type": "integer"
+        },
+        "caratteri_max": {
+          "default": 0,
+          "title": "Caratteri Max",
+          "type": "integer"
+        },
+        "campi_max": {
+          "default": 0,
+          "title": "Campi Max",
+          "type": "integer"
+        },
+        "ocr_soglia_pagina": {
+          "default": 0,
+          "title": "Ocr Soglia Pagina",
+          "type": "integer"
+        },
+        "ocr_soglia_cartiglio": {
+          "default": 0,
+          "title": "Ocr Soglia Cartiglio",
+          "type": "integer"
+        },
+        "ocr_pagine_max": {
+          "default": 0,
+          "title": "Ocr Pagine Max",
+          "type": "integer"
+        },
+        "ocr_tempo_max_s": {
+          "default": 0,
+          "title": "Ocr Tempo Max S",
+          "type": "integer"
+        },
+        "ocr_dpi": {
+          "default": 0,
+          "title": "Ocr Dpi",
+          "type": "integer"
+        }
+      },
+      "title": "LimitiTestoPDF",
+      "type": "object"
+    },
+    "MetadatiPDF": {
+      "description": "I metadati del documento, grezzi. L'autore NON c'e': e' il nome di una persona, e per dire che\ncosa sia un file non serve (e non deve viaggiare con i fatti, che restano archiviati per anni).",
+      "properties": {
+        "titolo": {
+          "default": "",
+          "title": "Titolo",
+          "type": "string"
+        },
+        "soggetto": {
+          "default": "",
+          "title": "Soggetto",
+          "type": "string"
+        },
+        "parole_chiave": {
+          "default": "",
+          "title": "Parole Chiave",
+          "type": "string"
+        },
+        "creatore": {
+          "default": "",
+          "title": "Creatore",
+          "type": "string"
+        },
+        "produttore": {
+          "default": "",
+          "title": "Produttore",
+          "type": "string"
+        }
+      },
+      "title": "MetadatiPDF",
+      "type": "object"
+    },
+    "OCRPDF": {
+      "description": "Che cosa ha fatto l'OCR su questo PDF. L'OCR e' SELETTIVO (solo dove il testo nativo manca o non basta,\ncon le soglie scritte nei limiti) e non fa mai fallire l'analisi: quello che non e' andato si dice qui.\n\n`stato`: `non_necessario` (il testo nativo bastava), `spento` (configurazione del worker),\n`non_disponibile` (il motore non c'e' su questa postazione: `motivo`), `eseguito` (almeno un passaggio ha\nletto qualcosa), `fallito`, `scaduto`, `illeggibile` (nessun passaggio ha letto niente di leggibile).",
+      "properties": {
+        "stato": {
+          "default": "non_necessario",
+          "enum": [
+            "non_necessario",
+            "spento",
+            "non_disponibile",
+            "eseguito",
+            "fallito",
+            "scaduto",
+            "illeggibile"
+          ],
+          "title": "Stato",
+          "type": "string"
+        },
+        "motivo": {
+          "default": "",
+          "title": "Motivo",
+          "type": "string"
+        },
+        "motore": {
+          "default": "",
+          "title": "Motore",
+          "type": "string"
+        },
+        "tentativi": {
+          "items": {
+            "$ref": "#/$defs/TentativoOCR"
+          },
+          "title": "Tentativi",
+          "type": "array"
+        }
+      },
+      "title": "OCRPDF",
+      "type": "object"
+    },
+    "TentativoOCR": {
+      "description": "Un passaggio dell'OCR su una pagina intera (`zona: pagina`) o sulla sola zona in basso a destra della\npagina 1. `esito`: `letto` (testo leggibile), `vuoto` (il motore non ha letto niente di leggibile),\n`fallito` (eccezione del motore: `motivo`), `scaduto` (il tempo dell'OCR era finito prima di questo\npassaggio), `saltato` (OCR spento, motore assente, oltre il limite di pagine).",
+      "properties": {
+        "pagina": {
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "zona": {
+          "enum": [
+            "basso_destra",
+            "pagina"
+          ],
+          "title": "Zona",
+          "type": "string"
+        },
+        "esito": {
+          "enum": [
+            "letto",
+            "vuoto",
+            "fallito",
+            "scaduto",
+            "saltato"
+          ],
+          "title": "Esito",
+          "type": "string"
+        },
+        "motivo": {
+          "default": "",
+          "title": "Motivo",
+          "type": "string"
+        },
+        "caratteri": {
+          "default": 0,
+          "title": "Caratteri",
+          "type": "integer"
+        },
+        "secondi": {
+          "default": 0.0,
+          "title": "Secondi",
+          "type": "number"
+        }
+      },
+      "required": [
+        "pagina",
+        "zona",
+        "esito"
+      ],
+      "title": "TentativoOCR",
+      "type": "object"
+    }
+  },
+  "description": "Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli[\"testo_pdf\"]` (A5.13.8,\nanalizzatore 4).\n\nIl testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e\nriquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno\nalmeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.\n\n`estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,\nnon un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri\nnativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;\n`pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]\ndella pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto.",
+  "properties": {
+    "versione": {
+      "default": 1,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "estraibile": {
+      "default": false,
+      "title": "Estraibile",
+      "type": "boolean"
+    },
+    "pagine": {
+      "default": 0,
+      "title": "Pagine",
+      "type": "integer"
+    },
+    "pagine_lette": {
+      "default": 0,
+      "title": "Pagine Lette",
+      "type": "integer"
+    },
+    "caratteri": {
+      "default": 0,
+      "title": "Caratteri",
+      "type": "integer"
+    },
+    "troncato": {
+      "default": false,
+      "title": "Troncato",
+      "type": "boolean"
+    },
+    "formato_pagina1": {
+      "items": {
+        "type": "number"
+      },
+      "title": "Formato Pagina1",
+      "type": "array"
+    },
+    "frammenti": {
+      "items": {
+        "$ref": "#/$defs/FrammentoPDF"
+      },
+      "title": "Frammenti",
+      "type": "array"
+    },
+    "cartiglio": {
+      "items": {
+        "$ref": "#/$defs/CampoCartiglio"
+      },
+      "title": "Cartiglio",
+      "type": "array"
+    },
+    "metadati": {
+      "$ref": "#/$defs/MetadatiPDF"
+    },
+    "ocr": {
+      "$ref": "#/$defs/OCRPDF"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiTestoPDF"
+    }
+  },
+  "title": "TestoPDF",
+  "type": "object",
+  "$id": "cockpit/testo_pdf"
+}

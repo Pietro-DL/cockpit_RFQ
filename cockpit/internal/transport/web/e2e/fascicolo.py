@@ -11,10 +11,11 @@ Le prove (lettere, scelte dal test Go con --prove):
   C  un clic sul file apre il PDF nel pannello di destra
   D  accettare il nodo (vista Albero) e poi la struttura (nell'editor) cambia la BOM senza F5 e senza chiudere il PDF
   E  tre file assegnati al nodo con un gesto
-  F  correggere la struttura (il tipo) cambia la completezza sulla card
+  F  il tipo dalla sezione «Tipo» della scheda (tendina, anteprima, bottone) cambia la card e la completezza
   G  cento file: la pagina in meno di un secondo, il filtro, niente scorrimento orizzontale
   H  Completezza, cassetti tecnici (codici, avvisi), «Da verificare», riepilogo di uno STEP (e le fotografie)
   I  «Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto; la struttura dello STEP poi nell'editor
+  J  il tipo dall'editor della Struttura BOM: menu della riga, riquadro, anteprima, cambio, l'editor che si riapre
 
 Fascicolo v3: la vista predefinita e' Documenti (la provano fascicolo_v3.py); queste prove aprono la
 Struttura BOM (?vista=bom) o una vista di servizio. «Senza F5» si verifica con due segni messi da
@@ -23,6 +24,7 @@ sostituito, i segni sparirebbero.
 """
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -233,7 +235,11 @@ def prova_e(b):
     b.foto("12_assegna_dopo.png")
 
 
-@prova("F", "correggere il tipo di un nodo cambia la card e la completezza")
+# Riscritta per lo Smistamento (fase T): prima il tipo si cambiava da «Modifica» (assieme → particolare, con un
+# figlio). Adesso il tipo ha una strada sola, la sezione «Tipo» con l'anteprima e la firma, e un assieme con dei
+# figli non diventa un particolare (l'opzione e' spenta, con il motivo): l'assieme diventa commerciale, e i figli
+# restano.
+@prova("F", "il tipo dalla sezione «Tipo» cambia la card e la completezza")
 def prova_f(b):
     b.apri("?vista=bom&nodo=" + b.a.assieme)
     carta = b.page.locator('#tela div.carta[id="nodo-%s-%s"]' % (b.a.assieme, b.a.prodotto))
@@ -241,18 +247,62 @@ def prova_f(b):
     verifica(tipo == "assieme", "prima: %r" % tipo)
     pannello = b.page.locator("#anteprima")
     pannello.locator("details.azioni-nodo > summary").click()
-    pannello.locator("details.azioni-nodo details > summary", has_text="Modifica").click()
-    pannello.locator('select[name="tipo"]').first.select_option("sciolto")
-    b.clic_e_aspetta(pannello.get_by_role("button", name="Salva", exact=True), "/modifica")
+    sezione = pannello.locator("details.azioni-nodo details").filter(has=b.page.locator("summary", has_text=re.compile(r"^Tipo$")))
+    sezione.locator("summary").click()
+    verifica(pannello.locator('form[hx-post$="/modifica"] select[name="tipo"]').count() == 0, "«Modifica» ha ancora la tendina del tipo")
+    tendina = sezione.locator('select[name="tipo"]')
+    verifica(tendina.locator('option[value="sciolto"]').is_disabled(), "con dei figli l'opzione particolare e' accesa")
+    tendina.select_option("commerciale")
+    b.clic_e_aspetta(sezione.get_by_role("button", name="Anteprima del cambio"), "/tipo")
+    anteprima = sezione.locator("#tipo-%s" % b.a.assieme)
+    verifica("I figli già nella BOM restano" in anteprima.inner_text(), "l'anteprima: %r" % anteprima.inner_text())
+    b.foto("16_tipo_anteprima.png")
+    b.clic_e_aspetta(anteprima.get_by_role("button", name="77720517 diventa un commerciale"), "/tipo")
     verifica(b.viva(), "la pagina si e' ricaricata")
     carta = b.page.locator('#tela div.carta[id="nodo-%s-%s"]' % (b.a.assieme, b.a.prodotto))
     tipo = carta.locator(".carta-tipo").text_content().strip()  # il testo, non come lo mostra il CSS (maiuscolo)
-    verifica(tipo == "particolare", "dopo: %r" % tipo)
-    verifica("77720517: tipo assieme → particolare" in b.avviso(), "avviso: %r" % b.avviso())
+    verifica(tipo == "commerciale", "dopo: %r" % tipo)
+    verifica("77720517: tipo assieme → commerciale" in b.avviso(), "avviso: %r" % b.avviso())
     # la Completezza (v3: una linguetta), con la riga del componente (il controllo di B8.7)
     b.linguetta("completezza")
     riga = b.page.locator("#completezza tbody tr", has_text="77720517")
-    verifica("particolare" in riga.text_content(), "la completezza dopo: %r" % riga.text_content())
+    verifica("commerciale" in riga.text_content(), "la completezza dopo: %r" % riga.text_content())
+
+
+# Fase T: il tipo di un componente che c'e' si sceglie anche dall'editor della Struttura BOM, con la stessa
+# anteprima della scheda. Il particolare 77817189 diventa commerciale: il menu della riga, il riquadro con la
+# tendina, l'anteprima, il bottone; l'editor si riapre sulla BOM di adesso con l'esito, e la riga dice il tipo
+# nuovo.
+@prova("J", "il tipo dall'editor della Struttura BOM")
+def prova_j(b):
+    b.apri("?vista=bom")
+    b.page.locator('.editor-avvio [data-editor="%s"]' % b.a.prodotto).click()
+    ed = b.page.locator(".bomed")
+    ed.wait_for(timeout=10000)
+    riga = ed.locator('.bomed-albero .bomed-riga[data-ref="c:%s"]' % b.a.particolare).first
+    verifica(riga.count() == 1, "la riga di 77817189 non e' nell'editor")
+    riga.locator(".bomed-apri-menu").click()
+    voce = ed.locator('.bomed-menu-dentro [data-voce="tipo"]')
+    verifica(voce.count() == 1, "il menu della riga non ha «Tipo del componente…»")
+    with b.page.expect_response(lambda r: "/tipo" in r.url and r.request.method == "GET", timeout=15000):
+        voce.click()
+    box = ed.locator(".bomed-scegli.bomed-tipo")
+    box.locator('select[name="tipo"]').wait_for(timeout=10000)
+    box.locator('select[name="tipo"]').select_option("commerciale")
+    with b.page.expect_response(lambda r: "/tipo?tipo=commerciale" in r.url, timeout=15000):
+        box.get_by_role("button", name="Anteprima del cambio").click()
+    bottone = box.get_by_role("button", name="77817189 diventa un commerciale")
+    bottone.wait_for(timeout=10000)
+    b.foto("17_editor_tipo.png")
+    with b.page.expect_response(lambda r: r.url.endswith("/tipo") and r.request.method == "POST", timeout=15000) as risp:
+        bottone.click()
+    verifica(risp.value.status == 200, "il cambio di tipo dall'editor: %d" % risp.value.status)
+    esito = b.page.locator(".bomed .bomed-esito")
+    esito.wait_for(timeout=10000)
+    b.page.wait_for_function("() => { const e = document.querySelector('.bomed .bomed-esito'); return e && e.textContent.includes('tipo particolare → commerciale'); }", timeout=10000)
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    riga = b.page.locator('.bomed .bomed-albero .bomed-riga[data-ref="c:%s"]' % b.a.particolare).first
+    verifica(riga.locator("span.bomed-tipo").text_content().strip() == "commerciale", "la riga dopo: %r" % riga.inner_text())
 
 
 @prova("G", "cento file: meno di un secondo, il filtro, niente scorrimento orizzontale")
@@ -366,7 +416,7 @@ def main():
     ap.add_argument("--password", default="prova-fp")
     ap.add_argument("--canale", default="msedge")
     ap.add_argument("--vedi", action="store_true")
-    ap.add_argument("--prove", default="ABCDEFGHI")
+    ap.add_argument("--prove", default="ABCDEFGHIJ")
     ap.add_argument("--foto", default="")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # i messaggi hanno ○ ✓ ×: non solo cp1252

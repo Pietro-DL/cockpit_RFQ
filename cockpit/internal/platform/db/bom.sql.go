@@ -150,28 +150,64 @@ func (q *Queries) EliminaBozza(ctx context.Context, bomVersioneID uuid.UUID) (in
 	return result.RowsAffected(), nil
 }
 
-const gateCongelamento = `-- name: GateCongelamento :one
+const gateStrutturale = `-- name: GateStrutturale :one
 
-SELECT (SELECT count(*) FROM componente_proposta p WHERE p.thread_id = $1 AND p.stato = 'aperta')::int AS n_proposte_componente,
-       (SELECT count(*) FROM relazione_proposta p WHERE p.thread_id = $1 AND p.stato = 'aperta')::int AS n_proposte_relazione,
-       (SELECT count(*) FROM rimozione_proposta p WHERE p.thread_id = $1 AND p.stato = 'aperta')::int AS n_proposte_rimozione
+WITH sorgente AS (
+    SELECT DISTINCT p.allegato_id, p.chiave FROM componente_proposta p
+     WHERE p.thread_id = $1 AND (p.sha256 || p.chiave) = ANY($3::text[])
+), arco_autorizzato AS (
+    SELECT r.allegato_id, r.padre_chiave, r.figlio_chiave, r.stato, r.deciso_da FROM relazione_proposta r
+      JOIN sorgente s ON s.allegato_id = r.allegato_id AND s.chiave = r.padre_chiave
+     WHERE r.thread_id = $1
+), figlio_autorizzato AS (
+    SELECT DISTINCT f.proposta_id, f.allegato_id, f.chiave, f.stato, f.deciso_da, (f.evidenza ? 'strutturale') AS marcato
+      FROM arco_autorizzato a
+      JOIN componente_proposta f ON f.thread_id = $1 AND f.allegato_id = a.allegato_id AND f.chiave = a.figlio_chiave
+)
+SELECT (SELECT count(*) FROM figlio_autorizzato f
+         WHERE f.stato = 'aperta' OR (f.stato IN ('confermata', 'duplicato') AND f.deciso_da IS NULL AND NOT f.marcato))::int AS n_figli_da_decidere,
+       (SELECT count(*) FROM arco_autorizzato a
+         WHERE a.stato = 'aperta'
+            OR (a.deciso_da IS NULL AND EXISTS (SELECT 1 FROM figlio_autorizzato f
+                                                 WHERE f.allegato_id = a.allegato_id AND f.chiave = a.figlio_chiave
+                                                   AND f.deciso_da IS NULL AND NOT f.marcato)))::int AS n_archi_da_decidere,
+       (SELECT count(*) FROM rimozione_proposta x WHERE x.thread_id = $1 AND x.stato = 'aperta'
+           AND (x.step_documento_id::text || x.padre_id::text) = ANY($2::text[]))::int AS n_rimozioni
 `
 
-type GateCongelamentoRow struct {
-	NProposteComponente int32 `json:"n_proposte_componente"`
-	NProposteRelazione  int32 `json:"n_proposte_relazione"`
-	NProposteRimozione  int32 `json:"n_proposte_rimozione"`
+type GateStrutturaleParams struct {
+	ThreadID        uuid.UUID `json:"thread_id"`
+	RimozioniValide []string  `json:"rimozioni_valide"`
+	Sorgenti        []string  `json:"sorgenti"`
+}
+
+type GateStrutturaleRow struct {
+	NFigliDaDecidere int32 `json:"n_figli_da_decidere"`
+	NArchiDaDecidere int32 `json:"n_archi_da_decidere"`
+	NRimozioni       int32 `json:"n_rimozioni"`
 }
 
 // ------------------------------------------------------------------ il gate del congelamento (A4.6, passo 3)
-// Le proposte strutturali aperte della RFQ. Lo STEP dei prodotti finiti e la struttura senza cicli si
-// guardano a parte (ListGateStep, ListRelazioniAttive), perche' la regola sta in una funzione pura; i
-// bloccanti del fascicolo in ContaBloccantiLogici, le copie sul NAS in StatoMaterializzazione
-// (Smistamento F6, A5.4.8). Con F5 questa riga diventa GateStrutturale (le proposte nell'autorita').
-func (q *Queries) GateCongelamento(ctx context.Context, threadID uuid.UUID) (GateCongelamentoRow, error) {
-	row := q.db.QueryRow(ctx, gateCongelamento, threadID)
-	var i GateCongelamentoRow
-	err := row.Scan(&i.NProposteComponente, &i.NProposteRelazione, &i.NProposteRimozione)
+// Le decisioni strutturali ancora aperte, solo nell'AUTORITA' dei file autorizzati (Smistamento F5,
+// A5.4.8, U2, U3): i figli diretti delle sorgenti e gli archi che partono da una sorgente. La guida (il
+// resto dei file autorizzati, e tutti i file non autorizzati) non conta: le proposte degli STEP non scelti
+// non bloccano la BOM. Prima (GateCongelamento) contava ogni proposta aperta della RFQ.
+//
+// Le sorgenti le passa il Go, gia' valutate da ValutaDichiarazioni (sha del file seguito dalla chiave del
+// nodo: lo sha ha sempre 64 caratteri, quindi la concatenazione non e' ambigua): il predicato
+// dell'autorita' e' uno solo, e qui ci sono le tre CTE che lo scrivono in SQL (sorgente, arco_autorizzato,
+// figlio_autorizzato). Un aggancio automatico di prima dello Smistamento (duplicato senza chi l'ha deciso)
+// dentro l'autorita' conta come da decidere, e con lui l'arco automatico che lo tocca: non e' una
+// decisione, e il gate e' giusto anche prima che il comando U5 lo riapra (A5.15). Le rimozioni aperte
+// vengono solo dalle autorizzazioni, e contano solo quelle di un'autorizzazione VALIDA (rimozioni_valide:
+// il documento seguito dal padre, passati dal Go come le sorgenti): una dichiarazione sospesa, per esempio
+// su un componente diventato commerciale, e' un avviso e non ferma il gate. Lo STEP dei finiti, i cicli, i
+// bloccanti del fascicolo e le copie sul NAS si guardano a parte (ListGateStep, ListRelazioniAttive,
+// ContaBloccantiLogici, StatoMaterializzazione), perche' la regola sta in una funzione pura.
+func (q *Queries) GateStrutturale(ctx context.Context, arg GateStrutturaleParams) (GateStrutturaleRow, error) {
+	row := q.db.QueryRow(ctx, gateStrutturale, arg.ThreadID, arg.RimozioniValide, arg.Sorgenti)
+	var i GateStrutturaleRow
+	err := row.Scan(&i.NFigliDaDecidere, &i.NArchiDaDecidere, &i.NRimozioni)
 	return i, err
 }
 

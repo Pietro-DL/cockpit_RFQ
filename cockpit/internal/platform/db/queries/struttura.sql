@@ -39,11 +39,15 @@ RETURNING *;
 DELETE FROM deroga_struttura WHERE deroga_struttura_id = sqlc.arg(deroga_struttura_id) AND thread_id = sqlc.arg(thread_id);
 
 -- name: UpsertRimozioneProposta :exec
--- Idempotente come le altre proposte; una proposta gia' decisa non si riapre.
+-- Idempotente come le altre proposte; una proposta decisa da una persona non si riapre. Una chiusa da un
+-- automatismo (scartata senza chi l'ha decisa: l'arco era uscito dalla working, il prodotto archiviato)
+-- si riapre se la rimozione vale di nuovo (Smistamento F5, E33): nessuno aveva deciso di tenere l'arco.
 INSERT INTO rimozione_proposta (thread_id, step_documento_id, padre_id, figlio_id, qta_working)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (thread_id, step_documento_id, padre_id, figlio_id) DO UPDATE SET qta_working = EXCLUDED.qta_working
-WHERE rimozione_proposta.stato = 'aperta';
+ON CONFLICT (thread_id, step_documento_id, padre_id, figlio_id) DO UPDATE SET qta_working = EXCLUDED.qta_working,
+    stato = 'aperta', nota = NULL, deciso_il = NULL
+WHERE rimozione_proposta.stato = 'aperta'
+   OR (rimozione_proposta.stato = 'scartata' AND rimozione_proposta.deciso_da IS NULL);
 
 -- name: ListRimozioniAperte :many
 SELECT * FROM rimozione_proposta WHERE thread_id = $1 AND stato = 'aperta' ORDER BY creato_il, padre_id, figlio_id;
