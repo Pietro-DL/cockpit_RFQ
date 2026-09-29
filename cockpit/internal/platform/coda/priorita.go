@@ -34,6 +34,25 @@ func AccodaAnalisiCon(ctx context.Context, q *db.Queries, a db.Allegato, threadI
 	return j, nil
 }
 
+// RiaccodaAnalisiCon e' RiaccodaAnalisi con la priorita' data (giro 4, fase 4.2: «Rianalizza» passa prima il
+// disegno del prodotto): lo stesso job, con la stessa chiave, e il numero abbassato nella stessa transazione. A
+// differenza di AccodaAnalisiCon passa avanti anche un'analisi con la stessa chiave gia' pronta in coda ((nil,
+// nil) come RiaccodaAnalisi): una persona ha chiesto di rileggere, e quel file e' quello da cui il flusso
+// aspetta l'ancora.
+func RiaccodaAnalisiCon(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID, an Analizzatore, priorita int16) (*db.Job, error) {
+	j, err := RiaccodaAnalisi(ctx, q, a, threadID, an)
+	if err != nil || priorita >= PrioritaAnalisi {
+		return j, err
+	}
+	if _, err := AlzaPriorita(ctx, q, []string{ChiaveAnalisi(a.Sha256.String, an)}, priorita); err != nil {
+		return nil, err
+	}
+	if j != nil && priorita < j.Priorita {
+		j.Priorita = priorita
+	}
+	return j, nil
+}
+
 // AlzaPriorita porta alla priorita' data i job PRONTI con quelle chiavi, se ne hanno una piu' lenta: mai il
 // contrario, e mai un job gia' preso da un worker. Restituisce quanti ne ha cambiati. Idempotente.
 func AlzaPriorita(ctx context.Context, q *db.Queries, chiavi []string, priorita int16) (int64, error) {

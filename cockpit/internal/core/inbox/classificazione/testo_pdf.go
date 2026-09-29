@@ -3,6 +3,7 @@ package classificazione
 import (
 	"encoding/json"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -173,6 +174,182 @@ type EvidenzeTesto struct {
 	Altrove []LetturaTesto
 	// OCR: i codici letti dall'OCR, in qualunque zona. Indizi.
 	OCR []LetturaTesto
+	// Simili: i codici del campo «particolare simile» (etichettaSimile), in qualunque fonte. Non sono il codice
+	// del file, ne' una lettura del testo, ne' una chiave dell'indice: sono la nota «simile a X».
+	Simili []LetturaTesto
+}
+
+// Il «particolare simile» (giro 4, fase 4.2; risposta 4 del 29/09; domanda 3 del giro 4, A finche' l'utente non
+// risponde): nel cartiglio di certi clienti un campo dice di quale pezzo gia' fatto questo e' parente
+// («PARTICOLARE SIMILE / SIMILAR PART 7120012»). Quel codice non e' il codice del file e non e' un componente:
+// e' una nota, «simile a 7120012». Senza questa regola le letture lo mettevano fra i codici del cartiglio (con la
+// famiglia del cliente, a 85), e con il cartiglio che conta come contenuto nel flusso (F8) una rianalisi avrebbe
+// dato una discordanza su quasi ogni disegno di quel cliente. Il segnaposto del modello («Inserire codice
+// particolare simile») non da' niente. Il worker non conosce ancora il campo (arriva con la fase 4.6): qui si
+// riconosce l'etichetta nel testo che il worker gia' manda, nei frammenti e nei valori dei campi del cartiglio.
+var etichettaSimile = regexp.MustCompile(`(?i)` + etichettaSimileRE)
+
+// etichettaSimileRE sono le scritture dell'etichetta del particolare simile, per etichettaSimile e per il
+// segnaposto (segnapostoSimile), che la contiene.
+const etichettaSimileRE = `(?:PARTICOLARE\s+SIMILE|PART\s*\.?\s*SIMILE|SIMILAR\s+PART)`
+
+// segnapostoSimile e' il testo del modello nel campo vuoto, «Inserire codice particolare simile», in maiuscolo o
+// in minuscolo, anche nelle forme lunghe («Inserire qui il numero di codice del particolare simile», «Insert the
+// code of the similar part») e spezzato a capo dentro una cella stretta; nella forma bilingue («... particolare
+// simile / similar part») anche l'etichetta gemella dopo la barra e' del segnaposto, anche a capo (e' la barra a
+// legarla: un'etichetta vera sulla riga dopo non comincia con la barra). Le parole «particolare simile» che
+// contiene non sono un'etichetta: prese per tale, la parola dopo diventava il valore del simile, e nel cartiglio a
+// tabella dei disegni veri (la colonna del simile prima, «PART. N°» dopo) quella parola e' il codice del file
+// stesso («Inserire codice particolare simile   7120001A1»). Fra «Inserire»/«Insert» e l'etichetta ci sono SOLO
+// le parole della frase del modello (paroleSegnaposto), almeno una: il segnaposto vuoto di un altro campo scritto
+// prima dell'etichetta vera («Inserire trattamento», «Insert treatment», a capo «PARTICOLARE SIMILE 7120012»), una
+// nota («INSERIRE BOCCOLE A PRESSIONE») o la sola parola INSERT (il nome di un pezzo) non sono il segnaposto, e
+// l'etichetta dopo resta un'etichetta con il suo valore. Resta il dubbio quando il segnaposto di un altro campo e'
+// fatto solo di quelle parole («Inserire codice», a capo «PARTICOLARE SIMILE 7120012»): e' preso per il segnaposto
+// del simile, e il valore resta nel testo, fra le letture, dove la discordanza lo mostra (come nel cartiglio a
+// tabella, separaSimili). «Insert similar part code», senza parole prima dell'etichetta, non serve prenderlo: dopo
+// l'etichetta viene «code», una parola senza cifre, e il testo dopo resta com'e' (separaSimili).
+var segnapostoSimile = regexp.MustCompile(`(?i)\b(?:INSERIRE|INSERT)(?:\s+` + paroleSegnaposto + `){1,8}\s+` + etichettaSimileRE +
+	`(?:\s*/\s*` + etichettaSimileRE + `)*`)
+
+// paroleSegnaposto e' la lista chiusa delle parole che la frase del segnaposto mette fra «Inserire»/«Insert» e
+// l'etichetta, una per una: gli articoli e le preposizioni che la legano (qui, il, lo, la, di, del, dello, della;
+// here, the, of) e il nome del codice con le sue abbreviazioni (codice, cod., numero, num., nr., n., n°; code,
+// number, no.). Nessun'altra parola: il nome di un altro campo (trattamento, materiale, treatment, ...) o una parola
+// qualunque interrompe il segnaposto.
+const paroleSegnaposto = `(?:QUI|HERE|IL|LO|LA|THE|DI|DEL|DELLO|DELLA|OF|CODICE|COD\.?|CODE|NUMERO|NUMBER|NUM\.?|NR\.?|NO\.?|N\.?[°º]?)`
+
+// EtichettaSimile e' l'etichetta di una lettura del particolare simile (LetturaTesto.Etichetta, in
+// EvidenzeTesto.Simili).
+const EtichettaSimile = "particolare_simile"
+
+// NotaSimile e' la nota di un particolare simile, per le letture e per la destinazione.
+func NotaSimile(codice string) string { return "simile a " + codice }
+
+// separaSimili toglie dal testo il valore di ogni campo «particolare simile»: la prima parola dopo l'etichetta
+// (o dopo la catena di etichette gemelle, «PARTICOLARE SIMILE / SIMILAR PART»), sulla stessa riga o, se la riga
+// finisce con l'etichetta, sulla prima riga non vuota dopo, ma solo quando l'etichetta e' da sola sulla sua riga
+// e il valore da solo sulla sua (aCapoDaSolo). In un cartiglio a tabella (una riga di etichette, sotto una riga
+// di valori) la parola sotto «PARTICOLARE SIMILE» puo' essere il valore di un'altra colonna, spesso il codice del
+// file stesso («PART. N°   PARTICOLARE SIMILE», a capo «7120001A1», con il campo simile vuoto): prenderla
+// toglierebbe dal cartiglio il codice vero e ne farebbe una nota sbagliata. Nel dubbio il valore resta nel
+// testo: al peggio un simile finisce fra le letture, dove la discordanza lo mostra (il campo dedicato arriva con
+// la fase 4.6). Una parola senza cifre non e' un codice e resta (e' l'etichetta di un altro campo, «PART. N°», o
+// il segnaposto scritto nel campo). L'etichetta dentro il segnaposto del modello (segnapostoSimile), e la sua
+// gemella dopo la barra, non e' un'etichetta: il segnaposto resta nel testo com'e' (non ha cifre), e il testo
+// dopo, che nel cartiglio a tabella e' spesso il codice del file, resta com'era, sulla stessa riga o sotto; il
+// segnaposto di un altro campo prima dell'etichetta vera non la spegne. Restituisce il testo senza quei valori e
+// i valori tolti.
+func separaSimili(testo string) (string, []string) {
+	if !etichettaSimile.MatchString(testo) {
+		return testo, nil
+	}
+	segnaposti := segnapostoSimile.FindAllStringIndex(testo, -1)
+	var b strings.Builder
+	var valori []string
+	i := 0
+	for {
+		loc := etichettaSimile.FindStringIndex(testo[i:])
+		if loc == nil {
+			b.WriteString(testo[i:])
+			return b.String(), valori
+		}
+		if k := fineSegnaposto(segnaposti, i+loc[0]); k > 0 {
+			// «particolare simile» dentro «Inserire codice particolare simile»: non un'etichetta, e la parola
+			// dopo non e' il suo valore
+			b.WriteString(testo[i:k])
+			i = k
+			continue
+		}
+		fine := i + loc[1]
+		for {
+			j := saltaSeparatori(testo, fine, false)
+			l := etichettaSimile.FindStringIndex(testo[j:])
+			if l == nil || l[0] != 0 {
+				break
+			}
+			fine = j + l[1]
+		}
+		b.WriteString(testo[i:fine])
+		v0 := saltaSeparatori(testo, fine, false)
+		aCapo := v0 < len(testo) && (testo[v0] == '\n' || testo[v0] == '\r')
+		if aCapo {
+			v0 = saltaSeparatori(testo, v0, true)
+		}
+		v1 := v0
+		for v1 < len(testo) && !strings.ContainsRune(" \t\r\n", rune(testo[v1])) {
+			v1++
+		}
+		parola := testo[v0:v1]
+		switch {
+		case aCapo && !aCapoDaSolo(testo, i+loc[0], v1):
+			v1 = fine // forse il valore di un'altra colonna: resta nel testo
+		case strings.ContainsAny(parola, "0123456789"):
+			valori = append(valori, parola)
+			b.WriteString(testo[fine:v0])
+			b.WriteByte(' ')
+		default:
+			v1 = fine // nessun valore: il testo dopo l'etichetta resta com'e'
+		}
+		i = v1
+	}
+}
+
+// fineSegnaposto e' dove finisce il segnaposto che contiene la posizione k (0 se k non sta in un segnaposto).
+func fineSegnaposto(segnaposti [][]int, k int) int {
+	for _, s := range segnaposti {
+		if s[0] <= k && k < s[1] {
+			return s[1]
+		}
+	}
+	return 0
+}
+
+// aCapoDaSolo: l'etichetta che comincia in inizio e' la sola cosa sulla sua riga (prima ci sono solo spazi e
+// segni) e la parola che finisce in fine e' la sola cosa sulla riga dopo: cosi' il valore sotto l'etichetta non
+// e' quello di un'altra colonna di un cartiglio a tabella (separaSimili).
+func aCapoDaSolo(testo string, inizio, fine int) bool {
+	riga := strings.LastIndexByte(testo[:inizio], '\n') + 1
+	if saltaSeparatori(testo, riga, false) != inizio {
+		return false
+	}
+	resto := testo[fine:]
+	if k := strings.IndexByte(resto, '\n'); k >= 0 {
+		resto = resto[:k]
+	}
+	return strings.TrimSpace(resto) == ""
+}
+
+// saltaSeparatori salta, da i, gli spazi e i segni fra un'etichetta e il suo valore («/», «:», «-», «.»); con
+// aCapo salta anche gli a capo.
+func saltaSeparatori(testo string, i int, aCapo bool) int {
+	for i < len(testo) {
+		switch testo[i] {
+		case ' ', '\t', '/', ':', '-', '.':
+		case '\r', '\n':
+			if !aCapo {
+				return i
+			}
+		default:
+			return i
+		}
+		i++
+	}
+	return i
+}
+
+// letturaSimili sono i codici dei valori «particolare simile» di un frammento o di un campo, con le regole del
+// cliente e il posto della lettura l.
+func letturaSimili(m *Motore, valori []string, l LetturaTesto) []LetturaTesto {
+	var out []LetturaTesto
+	for _, v := range valori {
+		for _, c := range m.Estrai(Testo{Dove: "cartiglio, particolare simile", Corpo: v}).Codici {
+			x := l
+			x.CodiceTrovato, x.Etichetta, x.Estratto = c, EtichettaSimile, tronca("particolare simile "+v, maxEstratto)
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // maxEstratto: quanto si tiene della riga intorno a un codice. L'evidenza porta al piu' 200 caratteri
@@ -200,15 +377,21 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 		return out
 	}
 	revNativa, revOCR := revDelCartiglio(t, worker.FonteTestoNativo), revDelCartiglio(t, worker.FonteTestoOCR)
+	vistiSimili := map[string]bool{}
+	// simili tiene da parte le letture del particolare simile: una nota, mai un codice (separaSimili)
+	simili := func(letture, sim []LetturaTesto) []LetturaTesto {
+		e.Simili = append(e.Simili, nuove(vistiSimili, sim)...)
+		return letture
+	}
 	for _, f := range t.Frammenti {
 		if f.Fonte == worker.FonteTestoNativo && f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
-			e.Cartiglio = append(e.Cartiglio, nuove(visti, leggiFrammento(m, t, f, FonteTestoCartiglio, revNativa))...)
+			e.Cartiglio = append(e.Cartiglio, nuove(visti, simili(leggiFrammento(m, t, f, FonteTestoCartiglio, revNativa)))...)
 		}
 	}
 	// un campo del cartiglio il cui frammento e' rimasto fuori dai limiti porta lo stesso il suo codice
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoNativo && c.Zona == worker.ZonaBassoDestra {
-			e.Cartiglio = append(e.Cartiglio, nuove(visti, leggiCampo(m, c, FonteTestoCartiglio, revNativa))...)
+			e.Cartiglio = append(e.Cartiglio, nuove(visti, simili(leggiCampo(m, c, FonteTestoCartiglio, revNativa)))...)
 		}
 	}
 	for _, md := range []struct{ zona, testo string }{{ZonaTitolo, t.Metadati.Titolo}, {ZonaSoggetto, t.Metadati.Soggetto}} {
@@ -228,12 +411,12 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 	}
 	for _, f := range t.Frammenti {
 		if f.Fonte == worker.FonteTestoNativo && !(f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra) {
-			e.Altrove = append(e.Altrove, nuove(visti, leggiFrammento(m, t, f, FonteTestoPagina, ""))...)
+			e.Altrove = append(e.Altrove, nuove(visti, simili(leggiFrammento(m, t, f, FonteTestoPagina, "")))...)
 		}
 	}
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoNativo && c.Zona != worker.ZonaBassoDestra {
-			e.Altrove = append(e.Altrove, nuove(visti, leggiCampo(m, c, FonteTestoPagina, ""))...)
+			e.Altrove = append(e.Altrove, nuove(visti, simili(leggiCampo(m, c, FonteTestoPagina, "")))...)
 		}
 	}
 	for _, f := range t.Frammenti {
@@ -242,20 +425,21 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 			if f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
 				rev = revOCR
 			}
-			e.OCR = append(e.OCR, nuove(vistiOCR, leggiFrammento(m, t, f, FonteOCR, rev))...)
+			e.OCR = append(e.OCR, nuove(vistiOCR, simili(leggiFrammento(m, t, f, FonteOCR, rev)))...)
 		}
 	}
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoOCR {
-			e.OCR = append(e.OCR, nuove(vistiOCR, leggiCampo(m, c, FonteOCR, revOCR))...)
+			e.OCR = append(e.OCR, nuove(vistiOCR, simili(leggiCampo(m, c, FonteOCR, revOCR)))...)
 		}
 	}
 	return e
 }
 
 // leggiFrammento sono i codici di un frammento, con il suo posto; un codice che sta nel valore di un campo del
-// cartiglio della stessa pagina e fonte prende l'etichetta e il riquadro del campo.
-func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, rev string) []LetturaTesto {
+// cartiglio della stessa pagina e fonte prende l'etichetta e il riquadro del campo. A parte, le letture del
+// particolare simile (separaSimili): non sono codici del frammento.
+func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, rev string) ([]LetturaTesto, []LetturaTesto) {
 	dove := "testo del PDF, pagina " + strconv.Itoa(f.Pagina)
 	if f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
 		dove = DoveBassoDestra
@@ -263,8 +447,9 @@ func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, 
 	if f.Fonte == worker.FonteTestoOCR {
 		dove += ", letto con l'OCR"
 	}
+	corpo, valoriSimili := separaSimili(f.Testo)
 	var out []LetturaTesto
-	for _, c := range m.Estrai(Testo{Dove: dove, Corpo: f.Testo}).Codici {
+	for _, c := range m.Estrai(Testo{Dove: dove, Corpo: corpo}).Codici {
 		l := LetturaTesto{CodiceTrovato: c, Fonte: fonte, Pagina: f.Pagina, Zona: f.Zona, Riquadro: f.Riquadro,
 			RevCartiglio: rev, Estratto: estratto(f.Testo, c.Codice), Confidenza: f.Confidenza}
 		for _, campo := range t.Cartiglio {
@@ -276,21 +461,25 @@ func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, 
 		}
 		out = append(out, l)
 	}
-	return out
+	posto := LetturaTesto{Fonte: fonte, Pagina: f.Pagina, Zona: f.Zona, Riquadro: f.Riquadro, Confidenza: f.Confidenza}
+	return out, letturaSimili(m, valoriSimili, posto)
 }
 
-// leggiCampo sono i codici del valore di un campo del cartiglio (non della revisione, che un codice non e').
-func leggiCampo(m *Motore, c worker.CampoCartiglio, fonte, rev string) []LetturaTesto {
+// leggiCampo sono i codici del valore di un campo del cartiglio (non della revisione, che un codice non e'), e a
+// parte quelli del particolare simile scritto nel valore.
+func leggiCampo(m *Motore, c worker.CampoCartiglio, fonte, rev string) ([]LetturaTesto, []LetturaTesto) {
 	if c.Etichetta == worker.CampoRevisione {
-		return nil
+		return nil, nil
 	}
 	dove := "cartiglio, " + strings.ReplaceAll(c.Etichetta, "_", " ")
+	valore, valoriSimili := separaSimili(c.Valore)
 	var out []LetturaTesto
-	for _, k := range m.Estrai(Testo{Dove: dove, Corpo: c.Valore}).Codici {
+	for _, k := range m.Estrai(Testo{Dove: dove, Corpo: valore}).Codici {
 		out = append(out, LetturaTesto{CodiceTrovato: k, Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro,
 			Etichetta: c.Etichetta, RevCartiglio: rev, Estratto: tronca(c.Letta+" "+c.Valore, maxEstratto), Confidenza: c.Confidenza})
 	}
-	return out
+	posto := LetturaTesto{Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro, Confidenza: c.Confidenza}
+	return out, letturaSimili(m, valoriSimili, posto)
 }
 
 // revDelCartiglio e' la revisione scritta nel campo «REV» del cartiglio in basso a destra della pagina 1, per
@@ -347,6 +536,9 @@ type LettureTestoPDF struct {
 	Troncato  bool // il worker si e' fermato ai limiti: le letture possono non essere tutte
 	// Letture: prima il cartiglio, poi i metadati, poi il resto del testo nativo, poi l'OCR (EvidenzeTesto).
 	Letture []LetturaTesto
+	// Simili: i codici del particolare simile, in maiuscolo e senza ripetizioni: la nota «simile a X»
+	// (NotaSimile), mai una lettura.
+	Simili []string
 }
 
 // Chiavi sono le chiavi di ricerca nell'indice (EvidenzeTesto.Chiavi): testo nativo e metadati, non l'OCR.
@@ -384,6 +576,7 @@ func LettureDelPDF(m *Motore, fatti json.RawMessage, nomeFile string) LettureTes
 			out.Letture = append(out.Letture, x)
 		}
 	}
+	out.Simili = chiaviDi(e.Simili)
 	return out
 }
 
