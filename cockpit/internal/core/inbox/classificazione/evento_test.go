@@ -290,3 +290,120 @@ func TestOgniAttoHaUnSoloEvento(t *testing.T) {
 		}
 	}
 }
+
+// Smistamento 4.13 (giro 4, risposta 12 del 29/09) — la formula di chiusura non fa un sollecito.
+//
+// «Resto in attesa di Vs. riscontro» chiude quasi ogni richiesta di preventivo scritta in italiano, e
+// E5 veniva prima di E8: una richiesta con quella riga in fondo diventava un SOLLECITO. Ora la formula
+// fa un sollecito solo in un testo senza parole di richiesta; le parole di sollecito vere («sollecito»,
+// «reminder») decidono come prima, anche accanto a una richiesta. Testi e numeri inventati.
+func TestLaChiusuraDiUnaRichiestaNonEUnSollecito(t *testing.T) {
+	casi := []struct {
+		nome             string
+		in               IngressoEvento
+		evento, forza    string
+		evidenzaContiene string
+	}{
+		{"una richiesta dal portale che chiude con la formula", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "SI CTE 12345 26999999 - codici nuovi",
+			Corpo:   "Buongiorno,\nvi chiediamo un preventivo per i codici 7120001 e 7120010, i disegni sono sul portale.\nResto in attesa di Vs. riscontro.\nCordiali saluti"},
+			EventoNuovaRFQ, ForzaProbabile, "«preventivo»"},
+		{"una risposta che chiede una quotazione e chiude con la formula", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			InReplyTo: "<m1@acme.example>", Oggetto: "R: RFQ 7120001",
+			Corpo: "Vi chiediamo anche la quotazione del 7120010.\nIn attesa di un vostro riscontro, cordiali saluti."},
+			EventoNuovaRFQ, ForzaProbabile, "«quotazione»"},
+		{"la formula da sola resta un sollecito", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			InReplyTo: "<m1@acme.example>", Oggetto: "R: RFQ 7120001", Corpo: "Buongiorno, resto in attesa di Vs. riscontro."},
+			EventoSollecito, ForzaProbabile, "«in attesa di vs. riscontro»"},
+		{"«vi sollecito un riscontro» senza richiesta resta un sollecito", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			InReplyTo: "<m1@acme.example>", Oggetto: "R: RFQ 7120001", Corpo: "Buongiorno, vi sollecito un riscontro sulla nostra richiesta."},
+			EventoSollecito, ForzaProbabile, "«sollecito»"},
+		// le parole di sollecito vere battono ancora quelle di richiesta: «Sollecito RDO …» è un sollecito
+		{"un sollecito che nomina la RDO resta un sollecito", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Sollecito RDO 400099999", Corpo: "Buongiorno, vi sollecitiamo l'offerta. Resto in attesa di Vs. riscontro."},
+			EventoSollecito, ForzaProbabile, "«sollecitiamo»"},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			e := Evento(c.in)
+			ev := strings.Join(e.Evidenze, " | ")
+			if e.Evento != c.evento || e.Forza != c.forza {
+				t.Fatalf("%s (%s), atteso %s (%s): %s", e.Evento, e.Forza, c.evento, c.forza, ev)
+			}
+			if !strings.Contains(ev, c.evidenzaContiene) {
+				t.Errorf("evidenze %q: manca %q", ev, c.evidenzaContiene)
+			}
+			// l'atto salvato rilegge lo stesso evento
+			if d := EventoDa(c.in.Controparte, c.in.Direzione, e.Atto, ""); d != e.Evento {
+				t.Errorf("EventoDa rilegge %s, Evento dice %s", d, e.Evento)
+			}
+		})
+	}
+	// e Triage dice lo stesso: la richiesta del portale si salva come richiesta d'offerta
+	tr := Triage(dalCliente(casi[0].in.Oggetto, casi[0].in.Corpo))
+	if tr.Evento != EventoNuovaRFQ || tr.Atto != AttoRichiestaOfferta {
+		t.Errorf("Triage: %s/%s, atteso NUOVA_RFQ/%s", tr.Evento, tr.Atto, AttoRichiestaOfferta)
+	}
+}
+
+// Smistamento 4.13 — «commande» da sola non è più un ORDINE chiaro, e il confine delle parole d'ordine
+// ammette il «_» («Bestellung_4500099999», la parola attaccata al numero da un gestionale).
+//
+// «commande» stava fra le parole d'ordine con forza «chiaro»: una richiesta di prezzo in francese per
+// «une commande de 20 pièces» diventava un ORDINE sicuro. Ora «commande» è nella lista a parte: è un
+// ordine probabile, anche accanto a una parola di richiesta («devis» sta anche negli ordini veri: «suite
+// à votre devis»), e sceglie l'operatore. «bon de commande» resta chiaro. Per `\b` il «_» è una lettera,
+// e dopo «bestellung_» il confine non c'era. Numeri inventati.
+func TestLeParoleDOrdineChiareEQuelleProbabili(t *testing.T) {
+	casi := []struct {
+		nome             string
+		in               IngressoEvento
+		evento, forza    string
+		evidenzaContiene string
+	}{
+		{"«commande» in una domanda di prezzo non è un ordine chiaro", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Demande de prix 7120001", Corpo: "Bonjour, demande de prix pour une commande de 20 pièces du 7120001."},
+			EventoOrdine, ForzaProbabile, "«commande», che da sola non basta"},
+		// accanto a una parola di richiesta resta un ordine probabile: il piano non dà la precedenza alla
+		// richiesta, e «devis» sta anche in un ordine vero che risponde a un preventivo
+		{"«commande» accanto a «devis» in un ordine resta un ordine probabile", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Commande 7120001", Corpo: "Bonjour, suite à votre devis n° 123, veuillez trouver ci-joint notre commande de 20 pièces."},
+			EventoOrdine, ForzaProbabile, "«commande»"},
+		{"«commande» accanto a «devis» in una richiesta resta un ordine probabile", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Devis 7120001", Corpo: "Bonjour, merci de nous envoyer un devis pour une commande de 20 pièces du 7120001."},
+			EventoOrdine, ForzaProbabile, "«commande»"},
+		{"«bon de commande» resta un ordine chiaro", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Commande 7120001", Corpo: "Bonjour, ci-joint le bon de commande n° 4500099999 pour 20 pièces."},
+			EventoOrdine, ForzaChiaro, "«bon de commande»"},
+		{"«Bestellung_» seguito dal numero, nel testo", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "7120001", Corpo: "Anbei Bestellung_4500099999 für 20 Stück."},
+			EventoOrdine, ForzaChiaro, "il testo nuovo dice «bestellung»"},
+		{"«Bestellung_» seguito dal numero, nell'oggetto", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "Bestellung_4500099999", Corpo: "Mit freundlichen Grüßen"},
+			EventoOrdine, ForzaChiaro, "l'oggetto dice «bestellung»"},
+		{"«ordine n.» attaccato al «_»", IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata",
+			Oggetto: "7120001", Corpo: "Vi mandiamo l'ordine n.4500099999_1 per 20 pezzi."},
+			EventoOrdine, ForzaChiaro, "«ordine n.4500099999»"},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			e := Evento(c.in)
+			ev := strings.Join(e.Evidenze, " | ")
+			if e.Evento != c.evento || e.Forza != c.forza {
+				t.Fatalf("%s (%s), atteso %s (%s): %s", e.Evento, e.Forza, c.evento, c.forza, ev)
+			}
+			if !strings.Contains(ev, c.evidenzaContiene) {
+				t.Errorf("evidenze %q: manca %q", ev, c.evidenzaContiene)
+			}
+			if strings.Contains(ev, "_»") || strings.Contains(ev, "«_") {
+				t.Errorf("il «_» del confine è finito nell'evidenza: %q", ev)
+			}
+		})
+	}
+	// il confine si apre al «_», non a qualunque lettera: dentro una parola «commande» non c'è
+	e := Evento(IngressoEvento{Controparte: ControparteCliente, Direzione: "entrata", InReplyTo: "<m1@acme.example>",
+		Oggetto: "R: 7120001", Corpo: "Je vous recommande ce fournisseur."})
+	if e.Evento == EventoOrdine {
+		t.Errorf("«recommandé» letto come ordine: %+v", e)
+	}
+}
