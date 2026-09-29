@@ -653,12 +653,7 @@ class Outlook:
         lì si rileggono uno per uno). Un elemento saltato NON ferma la cartella (3R, blocco 1).
         """
         cart = self.cartella(nome_cartella, store_id)
-        e_inviata = False
-        try:
-            inviata = self._store(store_id).GetDefaultFolder(5) if store_id else self.ns.GetDefaultFolder(5)
-            e_inviata = cart.DefaultItemType == 0 and cart.EntryID == inviata.EntryID
-        except ERRORI_ELEMENTO:
-            pass
+        e_inviata = self._e_posta_inviata(cart, store_id)
         store_id = cart.StoreID
         nome = nome_di(cart, nome_cartella)
         n_saltati = 0
@@ -676,6 +671,16 @@ class Outlook:
                 n_saltati += self._registra_saltato(saltati, cart, item, "conversione non riuscita: %s" % e, classe)
         if n_saltati:
             log.info("%s: %d elementi saltati (non-mail o illeggibili)", nome_cartella, n_saltati)
+
+    def _e_posta_inviata(self, cart, store_id: str) -> bool:
+        """Se la cartella è la Posta inviata dello store: sceglie `data_evento` (SentOn) e la direzione
+        che il worker ipotizza. Nel dubbio no, come sempre: la direzione la decide il server (voce 2.1).
+        La usano `leggi` e `rileggi`, che devono convertire lo stesso elemento nello stesso modo."""
+        try:
+            inviata = self._store(store_id).GetDefaultFolder(5) if store_id else self.ns.GetDefaultFolder(5)
+            return cart.DefaultItemType == 0 and cart.EntryID == inviata.EntryID
+        except ERRORI_ELEMENTO:
+            return False
 
     def _registra_saltato(self, saltati: "Saltati | None", cart, it, motivo: str, classe: int | None = None,
                           rileggibile: bool = True) -> int:
@@ -1062,6 +1067,23 @@ class Outlook:
             return {"entry_id": it.EntryID, "cartella": it.Parent.Name}
         except pywintypes.com_error:
             return {}
+
+    def rileggi(self, entry_id: str, store_id: str, message_id: str = "") -> MessaggioIn:
+        """La rilettura mirata di UN elemento che il sync non era riuscito a convertire (lo scarto di
+        lettura, job `rileggi_elemento`): lo stesso elemento, convertito come lo converte `leggi`.
+
+        Si ritrova come ogni comando (`_item`): per EntryID, e se nel frattempo è stato spostato per
+        Message-ID, dentro lo store della casella. «Non trovato» è un `ErroreDefinitivo`: ritentarlo
+        darebbe lo stesso esito, e lo scarto resta in /admin/scarti con il suo motivo. Lo è anche un
+        elemento che non è una mail: non entrerà mai, per quante volte lo si rilegga. Una conversione
+        che non riesce OGGI (`com_error` su una proprietà) invece si ritenta: è il caso dello scarto.
+        """
+        it = self._item(entry_id, store_id, message_id)
+        classe = classe_di(it)
+        if classe is not None and classe != OL_MAIL:
+            raise ErroreDefinitivo("l'elemento non è una mail (Class=%s): non entrerà mai" % classe)
+        cart = it.Parent
+        return self._converti(it, cart.StoreID or store_id, nome_di(cart), self._e_posta_inviata(cart, store_id))
 
     def apri(self, entry_id: str, store_id: str, message_id: str = "") -> dict:
         it = self._item(entry_id, store_id, message_id)

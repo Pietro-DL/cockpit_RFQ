@@ -131,7 +131,9 @@ type EsitoEvento struct {
 //	E2  posta che non è di lavoro (NonBusiness)          → ALTRO / non_business
 //	E3  fornitore in entrata                             → AttoFornitore: OFFERTA_FORNITORE se è un'offerta
 //	E4  parole d'ordine                                  → ORDINE
+//	    «commande» da sola                               → ORDINE (probabile)
 //	E5  parole di sollecito, senza allegati tecnici      → SOLLECITO
+//	    «in attesa di Vs. riscontro», senza richiesta    → SOLLECITO
 //	E6  allegati tecnici e segni di revisione            → REVISIONE_CAD
 //	E7  allegati tecnici in una risposta senza richiesta → ARRIVO_CAD
 //	E8  parole di richiesta                              → NUOVA_RFQ
@@ -184,9 +186,27 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 	if m, dove := c.trova(reOrdine); m != "" {
 		return fine(AttoOrdine, ForzaChiaro, dove+" dice «"+m+"»")
 	}
-	// E5
-	if m, dove := c.trova(reSollecito); m != "" && len(c.tecnici) == 0 {
-		return fine(AttoSollecito, ForzaProbabile, "chiede notizie: "+dove+" dice «"+m+"»")
+	// E4, la lista a parte. «commande» da sola non dice «ordine» con certezza: «une commande de 20
+	// pièces» sta anche dentro una richiesta di prezzo in francese, che fino alla 4.13 diventava un ORDINE
+	// chiaro. Resta un ordine, ma probabile, e sceglie l'operatore (Smistamento 4.13). Che una parola di
+	// richiesta accanto a «commande» debba far decidere E8 non lo dice il piano: è una domanda aperta.
+	if m, dove := c.trova(reOrdineProbabile); m != "" {
+		return fine(AttoOrdine, ForzaProbabile, dove+" dice «"+m+"», che da sola non basta per un ordine chiaro")
+	}
+	// Le parole di richiesta si leggono qui e non più in fondo, perché E5 ora le guarda (Smistamento
+	// 4.13). Il valore è lo stesso: testo e oggetto non cambiano fra E5 ed E8.
+	richiesta, doveRichiesta := c.trova(reParoleRFQ)
+	// E5. Le parole di sollecito vere («sollecito», «reminder», «relance») decidono anche accanto a una
+	// richiesta: «Sollecito RDO …» è un sollecito. La formula di chiusura «Resto in attesa di Vs.
+	// riscontro» no: chiude quasi ogni richiesta di preventivo scritta in italiano, e con una parola di
+	// richiesta nel testo non fa un SOLLECITO (Smistamento 4.13, risposta 12 del 29/09).
+	if len(c.tecnici) == 0 {
+		if m, dove := c.trova(reSollecito); m != "" {
+			return fine(AttoSollecito, ForzaProbabile, "chiede notizie: "+dove+" dice «"+m+"»")
+		}
+		if m, dove := c.trova(reAttesaRiscontro); m != "" && richiesta == "" {
+			return fine(AttoSollecito, ForzaProbabile, "chiede notizie: "+dove+" dice «"+m+"»")
+		}
 	}
 	// E6: la parola e la revisione nel nome insieme sono chiare; una sola delle due è probabile
 	if len(c.tecnici) > 0 {
@@ -204,7 +224,6 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 			return fine(AttoRevisioneDocumenti, forza, strings.Join(ev, "; "))
 		}
 	}
-	richiesta, doveRichiesta := c.trova(reParoleRFQ)
 	// E7
 	if len(c.tecnici) > 0 && c.risposta && richiesta == "" {
 		return fine(AttoDocumentiAggiuntivi, ForzaProbabile, fmt.Sprintf("risposta con %s (%s)", fileTecnici(len(c.tecnici)), elenco(c.tecnici)))
@@ -253,10 +272,18 @@ func attoUscita(controparte string) string {
 // proposito, e non sono calibrate: un errore qui costa una lettura sbagliata dell'evento, mai una
 // scrittura (l'evento non aggancia).
 var (
-	// «conferma d'ordine» non c'è: la scrive un fornitore, e il fornitore passa da E3
-	reOrdine = regexp.MustCompile(`\b(ordine d['’]acquisto|ordine di acquisto|ordine n[°r.]*\s*\d+|purchase order|p\.?o\.?\s*(?:n[°or.]*|#|:)\s*\d+|bestellung|bon de commande|commande)\b`)
+	// «conferma d'ordine» non c'è: la scrive un fornitore, e il fornitore passa da E3.
+	//
+	// Il confine ammette il trattino basso (Smistamento 4.13). Per `\b` il «_» è una lettera, e dopo
+	// «bestellung» in «Bestellung_4500099999» — la parola attaccata al numero, come la scrive un
+	// gestionale — il confine non c'era: non era un ordine. Il «_» preso dal confine lo toglie trova.
+	reOrdine = regexp.MustCompile(`(?:\b|_)(ordine d['’]acquisto|ordine di acquisto|ordine n[°r.]*\s*\d+|purchase order|p\.?o\.?\s*(?:n[°or.]*|#|:)\s*\d+|bestellung|bon de commande)(?:\b|_)`)
+	// la lista a parte di E4: parole che dicono «ordine» solo come probabile
+	reOrdineProbabile = regexp.MustCompile(`(?:\b|_)(commande)(?:\b|_)`)
 	// sollecit* prende sollecito, sollecitiamo, sollecitare
-	reSollecito = regexp.MustCompile(`(\bsollecit\w*|\breminder\b|in attesa (?:di )?(?:un )?(?:vostro|vs\.?) riscontro|\bany updates?\b|\brelance\w*|\bnachfrage\b)`)
+	reSollecito = regexp.MustCompile(`(\bsollecit\w*|\breminder\b|\bany updates?\b|\brelance\w*|\bnachfrage\b)`)
+	// la formula di chiusura: fa un sollecito solo in un testo senza parole di richiesta (E5)
+	reAttesaRiscontro = regexp.MustCompile(`in attesa (?:di )?(?:un )?(?:vostro|vs\.?) riscontro`)
 	// segni di revisione nel testo: la parola intera, per l'evidenza. Davanti a «änderung» niente \b: per
 	// le regex di Go «ä» non è una lettera, e il confine non ci sarebbe mai
 	reRevisione = regexp.MustCompile(`(\brevision\w*|\brev\b\.?|\baggiornat\w*|\bnuova versione\b|\bmodific\w*|\bsostitui\w*|\bupdated\b|\brevised\b|änderung\w*)`)
@@ -292,13 +319,14 @@ type contenuto struct {
 }
 
 // trova cerca le parole prima nel testo e poi, se il messaggio non è una risposta, nell'oggetto. Il
-// secondo valore dice dove, con le parole dell'evidenza.
+// secondo valore dice dove, con le parole dell'evidenza. Un «_» ai bordi è il confine delle parole
+// d'ordine (reOrdine), non una parola: l'evidenza dice «bestellung», non «bestellung_».
 func (c contenuto) trova(re *regexp.Regexp) (string, string) {
 	if m := re.FindString(c.testo); m != "" {
-		return strings.TrimSpace(m), "il testo nuovo"
+		return strings.Trim(strings.TrimSpace(m), "_"), "il testo nuovo"
 	}
 	if m := re.FindString(c.oggetto); m != "" {
-		return strings.TrimSpace(m), "l'oggetto"
+		return strings.Trim(strings.TrimSpace(m), "_"), "l'oggetto"
 	}
 	return "", ""
 }
