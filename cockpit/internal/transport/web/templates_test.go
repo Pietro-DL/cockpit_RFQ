@@ -125,6 +125,10 @@ func datiIntegritaSintetici() *integritaDati {
 	}
 }
 
+// TestFrammentiEseguono: ogni frammento si esegue con i dati sintetici e contiene i testi attesi. E' una prova a
+// tabella: l'intestazione «riscritta per lo Smistamento (…): prima fissava …» sta sulla riga riscritta. Riscritta
+// per lo Smistamento (Distinta): la riga di «messaggio_pannello», che prima fissava «Apri RFQ» e ora «Apri la
+// Distinta» (attesi 6 → 7).
 func TestFrammentiEseguono(t *testing.T) {
 	s := serverTest(t)
 	md, td, thd := datiSintetici()
@@ -134,8 +138,12 @@ func TestFrammentiEseguono(t *testing.T) {
 		attesi       []string
 	}{
 		// riscritta per lo Smistamento (F2): prima attendeva «Conferma» (Conferma… → NAS sugli allegati); il pannello
-		// non la offre piu' (prova 93, TestLaComunicazioniNonHaGestiCheDecidono), e al suo posto si attende il file
-		{"inbox.html", "messaggio_pannello", md, []string{"Scarica selezionati", "1234567A_4.pdf", "NAS: scritto", "file mancante", "in coda", "Apri RFQ"}},
+		// non la offre piu' (prova 93, TestLaComunicazioniNonHaGestiCheDecidono), e al suo posto si attende il file.
+		// Riscritta per lo Smistamento (Distinta): prima fissava «Apri RFQ» verso /thread/{id}; con la PR #8 la
+		// Distinta e' la pagina con cui si apre una richiesta (domanda 5 = A), e il bottone e' «Apri la Distinta»
+		// verso /thread/{id}/distinta. Attesi: prima 6, dopo 7 (il collegamento)
+		{"inbox.html", "messaggio_pannello", md, []string{"Scarica selezionati", "1234567A_4.pdf", "NAS: scritto", "file mancante", "in coda", "Apri la Distinta",
+			`/distinta">Apri la Distinta`}},
 		{"inbox.html", "triage_form", td, []string{"Crea RFQ", "nuovo cliente", "1234567A_4.pdf", "checked"}},
 		// riscritta per lo Smistamento (M1): prima attendeva il form di aggancio con i radio; adesso le stesse
 		// stringhe e in più una card per RFQ con il suo bottone e la forza senza percentuale. Che non ci siano

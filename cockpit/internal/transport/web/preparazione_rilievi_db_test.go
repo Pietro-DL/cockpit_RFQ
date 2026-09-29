@@ -133,6 +133,10 @@ func TestIlLimiteValePerTuttaLaPreparazione(t *testing.T) {
 // un 303 come se fosse partita, e l'operatore non sapeva niente; ora risponde con la pagina da cui si era
 // partiti, intera, e l'avviso al suo posto (niente e' cambiato, e perche'), e il database non ha il lavoro a
 // meta'.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava, come pezzo della pagina della RFQ, il bottone «Apri il
+// Fascicolo». Con la PR #8 la pagina della RFQ apre la Distinta, e il Fascicolo resta accanto come «Fascicolo
+// completo»: si attendono i due collegamenti, nello stesso pezzo. Asserzioni: prima 5, dopo 5.
 func TestLaPreparazioneSenzaHtmxDiceSeNonERiuscita(t *testing.T) {
 	b := preparaBancoWeb(t)
 	an := coda.Analizzatore{Versione: 3, Parametri: map[string]any{"termini_cartiglio": []any{"scala"}}}
@@ -158,7 +162,7 @@ func TestLaPreparazioneSenzaHtmxDiceSeNonERiuscita(t *testing.T) {
 		{url.Values{"da": {"fascicolo"}}, `<div class="avviso-f no" role="status">Preparazione dei file non riuscita. Niente è cambiato:`,
 			`data-base="` + r.base() + `"`},
 		{url.Values{}, `<div class="avviso">Preparazione dei file non riuscita. Niente è cambiato:`,
-			`<a class="bottone primario" href="` + r.base() + `">Apri il Fascicolo</a>`},
+			`<a class="bottone primario" href="/thread/` + r.thread.String() + `/distinta">Apri la Distinta</a> <a class="bottone" href="` + r.base() + `"`},
 	} {
 		resp, html := w.fai(http.MethodPost, r.base()+"/prepara", c.form, false)
 		if resp.StatusCode == http.StatusSeeOther {

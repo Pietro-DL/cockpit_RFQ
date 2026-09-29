@@ -150,10 +150,16 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // di un file e della pagina Richieste, con l'operatore e con la consultazione: prima e dopo, ogni tabella
 // dello schema ha le stesse righe con lo stesso contenuto. Poi la controprova: la stessa pagina, con la sua
 // POST di preparazione, il database lo cambia (altrimenti la scena non proverebbe niente).
+//
+// Giro 4, fase 4.3: fra le GET anche le tre della Distinta (la pagina in ogni passo, i dati, l'anteprima del tipo),
+// che con la PR #8 e' la pagina con cui si apre una richiesta. Prima l'elenco non le aveva (la Distinta non era nel
+// ramo delle prove); le verifiche di prima restano tutte. La prova dedicata, con ogni gruppo del passo 3, e'
+// TestLeGetDellaDistintaNonScrivono (distinta_db_test.go).
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
 	base := s.base()
+	distinta := "/thread/" + s.thread.String() + "/distinta"
 	op := operatore(b)
 	co := b.browser("10.0.0.9")
 	co.login("CO", "prova-co")
@@ -198,6 +204,17 @@ func TestNessunaGetScrive(t *testing.T) {
 		{"/allegato/" + s.disegno.String() + "/anteprima", false, false},
 		{"/richieste", false, true},
 		{"/richieste/" + s.thread.String() + "/prodotti", true, false},
+		// Giro 4, fase 4.3: le tre GET della Distinta, la pagina con cui si apre la RFQ (PR #8), anche in ogni passo
+		// e con un passo che non c'e'; i dati per distinta.mjs; l'anteprima del tipo, un tipo che si fa e uno spento
+		{distinta, false, true},
+		{distinta + "?passo=richiesta", false, true},
+		{distinta + "?passo=distinta", false, true},
+		{distinta + "?passo=documenti", false, true},
+		{distinta + "?passo=fattibilita", false, true},
+		{distinta + "?passo=boh", false, true},
+		{distinta + "/dati", false, true},
+		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=commerciale", false, true},
+		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=finito", false, true},
 	}
 	prima := fotoDelDatabase(t, b)
 	for _, chi := range []struct {

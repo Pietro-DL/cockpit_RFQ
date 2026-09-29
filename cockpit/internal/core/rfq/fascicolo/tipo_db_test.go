@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/db"
@@ -45,6 +46,36 @@ func (b *banco) cambiaTipoOk(comp uuid.UUID, tipo db.TipoComponente) string {
 	msg, err := b.cambiaTipo(comp, tipo)
 	if err != nil {
 		b.t.Fatalf("cambio di tipo in %s: %v", tipo, err)
+	}
+	return msg
+}
+
+// commercialeDiPrima porta a commerciale, con il gesto della fase T, un componente che nella working ha dei figli,
+// come si faceva fino alla PR #7 (Distinta): il passaggio non si rifiutava, e i figli restavano. Oggi il gesto con
+// dei figli si rifiuta (il commerciale e' sempre una foglia: domanda 6a, 29/09 sera), e lo si prova per primo;
+// poi gli archi sotto il componente si tolgono per il gesto e si rimettono com'erano con una scrittura diretta:
+// sono i dati che una RFQ di prima puo' avere, e sui quali la sospensione, il gate e le rimozioni devono reggere.
+// Restituisce il messaggio del gesto.
+func (b *banco) commercialeDiPrima(comp uuid.UUID) string {
+	b.t.Helper()
+	righe, err := b.p.Query(b.ctx, `SELECT * FROM componente_relazione WHERE padre_id = $1 ORDER BY figlio_id`, comp)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	archi, err := pgx.CollectRows(righe, pgx.RowToStructByName[db.ComponenteRelazione])
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	if len(archi) == 0 {
+		b.t.Fatal("commercialeDiPrima: il componente non ha figli, il gesto si fa da se'")
+	}
+	_, err = b.cambiaTipo(comp, db.TipoComponenteCommerciale)
+	deveRifiutare(b.t, err, "è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi")
+	b.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1`, comp)
+	msg := b.cambiaTipoOk(comp, db.TipoComponenteCommerciale)
+	for _, a := range archi {
+		b.esegui(`INSERT INTO componente_relazione (thread_id, padre_id, figlio_id, qta, posizione, origine, confermato_da, creato_il)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, a.ThreadID, a.PadreID, a.FiglioID, a.Qta, a.Posizione, a.Origine, a.ConfermatoDa, a.CreatoIl)
 	}
 	return msg
 }
@@ -160,13 +191,27 @@ func (b *banco) rimozioneDi(padre, figlio uuid.UUID) string {
 
 // Le prove F5b del cambio sottoassieme ↔ commerciale (precisazione dell'utente del 27/09 sera), sul file
 // autorizzato di 7120010:
+//   - con un figlio nella working il passaggio a commerciale e' spento e si rifiuta, e niente cambia (il
+//     commerciale e' una foglia); una persona toglie il figlio accettando la rimozione che il file propone;
 //   - passa a commerciale: il gesto si fa (non si rifiuta), l'anteprima lo annuncia senza scrivere; la
 //     sospensione e' registrata nella marcatura (chi, quando, «è diventato commerciale»); 7120011 e 7120099 non
-//     sono piu' autorita' (le accettazioni si rifiutano), il gate non conta niente del file, la rimozione aperta
-//     si chiude con la nota, l'avviso dice «sospesa»; i figli gia' nella working restano;
+//     sono piu' autorita' (le accettazioni si rifiutano), il gate non conta niente del file, l'avviso dice
+//     «sospesa»; la rimozione decisa da una persona resta decisa;
 //   - un commerciale non si riattiva (anteprima spenta, scrittura rifiutata);
 //   - torna sottoassieme: ANCORA sospesa, e il cambio non tocca proposte, gate, accettazioni;
-//   - «Riattiva» esplicita (anteprima, firma): l'autorita' torna, l'arco si accetta, la rimozione si riapre.
+//   - «Riattiva» esplicita (anteprima, firma): l'autorita' torna, l'arco si accetta; la rimozione accettata non si
+//     riapre, e l'arco tolto non torna.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava il passaggio a commerciale di 7120010 con il figlio
+// 7120098 nella working: l'anteprima con «I figli già nella BOM restano (7120098)» e una rimozione che si chiude,
+// il messaggio con i figli che restano, la rimozione aperta chiusa dalla sospensione e riaperta (E33) dopo
+// «Riattiva», l'arco che restava nella working. Con la regola della PR #7, confermata dall'utente il 29/09 sera
+// (domanda 6a: «il commerciale è SEMPRE una foglia e mai un ramo»), il passaggio con un figlio si spegne e si
+// rifiuta; qui la persona accetta prima la rimozione che il file autorizzato propone (7120010 → 7120098), e il
+// resto della prova e' quello di prima sulla sospensione. La chiusura delle rimozioni alla sospensione e la loro
+// riapertura (E33), con una working di prima, restano in TestUnaDichiarazioneSospesaNonFermaIlGateENonSiRiattivaDaSola.
+// Il nome del tipo nel messaggio e' «particolare commerciale» (NomeTipo, PR #7). Asserzioni (chiamate t.Error,
+// t.Fatal, deveRifiutare, ok): prima 44, dopo 51.
 func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaTipo()
@@ -183,25 +228,52 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 		t.Fatalf("prima il gate conta anche il file di 7120010: %+v", prima)
 	}
 
-	// l'anteprima: si fa, annuncia la sospensione, la rimozione che si chiude, i figli che restano; non scrive
-	foto := b.improntaAutorizzazione()
+	// con il figlio 7120098 nella working: spento, rifiutato, e niente cambia
+	const conFiglio = "7120010 ha 1 figlio: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi"
+	foto, proposte := b.improntaAutorizzazione(), b.improntaProposte()
+	if e := b.effettoTipo(sc.s, db.TipoComponenteCommerciale); e.Spento != conFiglio || len(e.Sospende) != 0 {
+		t.Errorf("anteprima del passaggio a commerciale con un figlio: %q, sospende %v", e.Spento, e.Sospende)
+	}
+	_, err := b.cambiaTipo(sc.s, db.TipoComponenteCommerciale)
+	deveRifiutare(t, err, conFiglio)
+	if b.improntaAutorizzazione() != foto || b.improntaProposte() != proposte || b.strutturali() != prima || b.dichiarazioneDi(sc.s) != "valida" {
+		t.Error("il rifiuto ha cambiato le autorizzazioni, le proposte o il gate")
+	}
+	if got := b.bom(); !strings.Contains(got, "7120010>7120098*1") || !strings.Contains(got, "7120010:sottoassieme") {
+		t.Errorf("il rifiuto non cambia la BOM: %s", got)
+	}
+	// il figlio lo toglie una persona: accetta la rimozione che il file autorizzato propone
+	docSotto := uno[uuid.UUID](b, `SELECT documento_id FROM documento WHERE thread_id = $1 AND sha256 = $2`, b.thread, sha)
+	msg, err := b.gesto(func(q *db.Queries) (string, error) {
+		return fascicolo.AccettaRimozione(b.ctx, q, b.thread, fascicolo.ChiaveRimozione{Step: docSotto, Padre: sc.s, Figlio: sc.vecchio}, b.utente)
+	})
+	ok(t, err)
+	if msg != "7120010 → 7120098 tolto dalla BOM working." || b.rimozioneDi(sc.s, sc.vecchio) != "confermata:" {
+		t.Errorf("la rimozione accettata: %q, %q", msg, b.rimozioneDi(sc.s, sc.vecchio))
+	}
+
+	// l'anteprima: si fa, annuncia la sospensione; nessuna rimozione da chiudere, nessun figlio; non scrive
+	foto = b.improntaAutorizzazione()
 	e := b.effettoTipo(sc.s, db.TipoComponenteCommerciale)
 	if b.improntaAutorizzazione() != foto {
 		t.Fatal("l'anteprima del cambio di tipo ha scritto")
 	}
-	if e.Spento != "" || strings.Join(e.Sospende, "|") != "l'autorizzazione di 7120010.stp per 7120010" || e.Rimozioni != 1 ||
-		strings.Join(e.FigliRestano, ",") != "7120098" || len(e.ConLei) != 0 {
+	if e.Spento != "" || strings.Join(e.Sospende, "|") != "l'autorizzazione di 7120010.stp per 7120010" || e.Rimozioni != 0 ||
+		len(e.FigliRestano) != 0 || len(e.ConLei) != 0 {
 		t.Fatalf("anteprima del passaggio a commerciale: %+v", e)
 	}
 	if !strings.Contains(strings.Join(e.Avvisi, "|"), "i suoi discendenti negli STEP restano guida") || !strings.Contains(e.Bottone(), "1 autorizzazione si sospende") {
 		t.Errorf("anteprima: %v · %q", e.Avvisi, e.Bottone())
 	}
 
-	msg := b.cambiaTipoOk(sc.s, db.TipoComponenteCommerciale)
-	for _, c := range []string{"7120010: tipo assieme → commerciale.", "Sospesa l'autorizzazione di 7120010.stp per 7120010", "I figli già nella BOM restano (7120098)"} {
+	msg = b.cambiaTipoOk(sc.s, db.TipoComponenteCommerciale)
+	for _, c := range []string{"7120010: tipo assieme → particolare commerciale.", "Sospesa l'autorizzazione di 7120010.stp per 7120010"} {
 		if !strings.Contains(msg, c) {
 			t.Errorf("messaggio: manca %q in %q", c, msg)
 		}
+	}
+	if strings.Contains(msg, "I figli già nella BOM restano") {
+		t.Errorf("un commerciale non ha figli che restano: %q", msg)
 	}
 	if got := uno[string](b, `SELECT tipo::text || ':' || (confermato_da = $2)::text FROM componente WHERE componente_id = $1`, sc.s, b.utente); got != "commerciale:true" {
 		t.Errorf("il tipo, confermato da chi lo cambia: %s", got)
@@ -227,13 +299,13 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 		}
 	}
 	deveRifiutare(t, b.accettaIn(sc.sa, "#3"), "7120099 è guida")
-	_, err := b.accettaArco(sc.sa, "#1", "#2")
+	_, err = b.accettaArco(sc.sa, "#1", "#2")
 	deveRifiutare(t, err, "7120010 → 7120011 è guida")
 	if s := b.strutturali(); s != soloProdotto {
 		t.Errorf("il gate non conta niente del file sospeso: %+v", s)
 	}
-	if got := b.rimozioneDi(sc.s, sc.vecchio); got != "scartata:l'autorizzazione non vale: sospesa: 7120010: è diventato commerciale (si riattiva solo con una scelta esplicita)" {
-		t.Errorf("la rimozione si chiude con la nota: %q", got)
+	if got := b.rimozioneDi(sc.s, sc.vecchio); got != "confermata:" {
+		t.Errorf("la rimozione decisa da una persona resta decisa: %q", got)
 	}
 	g := b.gateOra()
 	if av := strings.Join(g.Avvisi, " | "); !strings.Contains(av, "autorizzazione sospesa: 7120010 · STEP autorizzato 7120010.stp: sospesa: 7120010: è diventato commerciale") {
@@ -242,8 +314,8 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	if strings.Contains(g.Motivo(), "7120010.stp") {
 		t.Errorf("la dichiarazione sospesa non ferma il gate: %s", g.Motivo())
 	}
-	if got := b.bom(); !strings.Contains(got, "7120010>7120098*1") || !strings.Contains(got, "7120010:commerciale") {
-		t.Errorf("il commerciale resta nella BOM con i figli gia' decisi: %s", got)
+	if got := b.bom(); strings.Contains(got, "7120010>") || !strings.Contains(got, "7120010:commerciale") {
+		t.Errorf("il commerciale resta nella BOM, senza figli: %s", got)
 	}
 
 	// un commerciale non si riattiva
@@ -260,7 +332,7 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	if e.Spento != "" || strings.Join(e.RestaSospesa, "|") != "l'autorizzazione di 7120010.stp per 7120010" || e.Autorizzabile || len(e.Sospende) != 0 {
 		t.Fatalf("anteprima del ritorno a sottoassieme: %+v", e)
 	}
-	proposte := b.improntaProposte()
+	proposte = b.improntaProposte()
 	msg = b.cambiaTipoOk(sc.s, db.TipoComponenteSottoassieme)
 	if !strings.Contains(msg, "Resta sospesa l'autorizzazione di 7120010.stp per 7120010") {
 		t.Errorf("messaggio: %q", msg)
@@ -277,8 +349,8 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	deveRifiutare(t, b.accettaIn(sc.sa, "#3"), "7120099 è guida")
 	_, err = b.accettaArco(sc.sa, "#1", "#2")
 	deveRifiutare(t, err, "7120010 → 7120011 è guida")
-	if got := b.rimozioneDi(sc.s, sc.vecchio); !strings.HasPrefix(got, "scartata:") {
-		t.Errorf("la rimozione resta chiusa: %q", got)
+	if got := b.rimozioneDi(sc.s, sc.vecchio); got != "confermata:" {
+		t.Errorf("la rimozione resta decisa: %q", got)
 	}
 
 	// «Riattiva» esplicita: l'anteprima (non scrive), la firma, poi l'autorita' torna
@@ -319,16 +391,16 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	if _, err := b.accettaArco(sc.sa, "#1", "#2"); err != nil {
 		t.Errorf("riattivata, l'arco 7120010 → 7120011 si accetta: %v", err)
 	}
-	// le rimozioni aspettano i figli diretti decisi; scartato di nuovo 7120099, la rimozione si riapre da sola (E33)
+	// scartato di nuovo 7120099, la rimozione accettata da una persona non si riapre, e l'arco tolto non torna
 	if _, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.ScartaNodo(b.ctx, q, b.thread, b.nodoIn(sc.sa, "#3"), b.utente)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.rimozioneDi(sc.s, sc.vecchio); got != "aperta:" {
-		t.Errorf("riattivata, la rimozione si riapre: %q", got)
+	if got := b.rimozioneDi(sc.s, sc.vecchio); got != "confermata:" {
+		t.Errorf("riattivata, la rimozione decisa da una persona resta decisa: %q", got)
 	}
-	if got := b.bom(); !strings.Contains(got, "7120010>7120011*2") || !strings.Contains(got, "7120010:sottoassieme") {
+	if got := b.bom(); !strings.Contains(got, "7120010>7120011*2") || strings.Contains(got, "7120010>7120098") || !strings.Contains(got, "7120010:sottoassieme") {
 		t.Errorf("la BOM: %s", got)
 	}
 }
@@ -548,16 +620,24 @@ func TestUscireDaCommercialeNonRiattivaNienteSenzaRegistrazione(t *testing.T) {
 // Fase T, sciolto: un componente con dei figli nella working non diventa un particolare («ha 2 figli: è un
 // assieme»); senza figli si'. La tendina lo dice prima. «Modifica» il tipo non lo cambia: la strada e' una sola,
 // il gesto con l'anteprima e la firma (giro di correzione: prima «Modifica» passava dalle stesse regole).
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava la frase «7120010 ha 2 figli: è un assieme». La PR #7
+// aggiunge il consiglio («; per farlo diventare un particolare si spostano prima i suoi pezzi») e spegne con la
+// stessa regola il particolare commerciale (domanda 6a, 29/09 sera: il commerciale e' sempre una foglia), che qui
+// si controlla in piu'. Asserzioni: prima 8, dopo 9.
 func TestUnoSciltoConFigliSiRifiuta(t *testing.T) {
 	b := nuovoBanco(t)
 	s := b.componente("7120010", db.TipoComponenteSottoassieme)
 	f1, f2 := b.componente("7120011", db.TipoComponenteSciolto), b.componente("7120012", db.TipoComponenteSciolto)
 	b.arco(s, f1, 1)
 	b.arco(s, f2, 3)
-	const frase = "7120010 ha 2 figli: è un assieme"
+	const frase = "7120010 ha 2 figli: è un assieme; per farlo diventare un particolare si spostano prima i suoi pezzi"
 	e := b.effettoTipo(s, db.TipoComponenteSciolto)
 	if e.Spento != frase {
 		t.Errorf("anteprima: %q", e.Spento)
+	}
+	if e := b.effettoTipo(s, db.TipoComponenteCommerciale); e.Spento != "7120010 ha 2 figli: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi" {
+		t.Errorf("anteprima del commerciale: %q", e.Spento)
 	}
 	for _, o := range b.effettoTipo(s, "").Opzioni {
 		if o.Tipo == db.TipoComponenteSciolto && o.Spenta != frase {
@@ -597,6 +677,12 @@ func TestUnoSciltoConFigliSiRifiuta(t *testing.T) {
 // revoca prima, oppure diventa commerciale (TestIlFinitoAutorizzatoDiventaCommercialeESiSospende). Giro di
 // correzione: prima fissava anche il rifiuto del commerciale da «Modifica»; adesso «Modifica» il tipo non lo
 // cambia affatto, e il commerciale di un finito autorizzato si fa.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il finito autorizzato 7120010, che nella working ha il
+// figlio 7120098, potesse diventare commerciale. Con la regola della PR #7 (domanda 6a, 29/09 sera: il
+// commerciale e' sempre una foglia) con il figlio il commerciale e' spento; tolto il figlio, si puo', e
+// l'anteprima dice che lo STEP strutturale si svuota, come prima. Asserzioni (righe con t.Error, t.Fatal,
+// deveRifiutare): prima 17, dopo 18.
 func TestIlFinitoSoloDoveSiPuo(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaTipo()
@@ -638,8 +724,12 @@ func TestIlFinitoSoloDoveSiPuo(t *testing.T) {
 	if e := b.effettoTipo(sc.s, db.TipoComponenteSottoassieme); !strings.Contains(e.Spento, frase) || !strings.Contains(e.Spento, "oppure diventa commerciale") {
 		t.Errorf("da finito con lo STEP strutturale: %q", e.Spento)
 	}
+	if e := b.effettoTipo(sc.s, db.TipoComponenteCommerciale); e.Spento != "7120010 ha 1 figlio: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi" {
+		t.Errorf("da finito con lo STEP autorizzato e un figlio, commerciale e' spento: %q", e.Spento)
+	}
+	b.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1`, sc.s)
 	if e := b.effettoTipo(sc.s, db.TipoComponenteCommerciale); e.Spento != "" || e.SvuotaStep != docStep {
-		t.Errorf("da finito con lo STEP autorizzato, commerciale si puo': %+v", e)
+		t.Errorf("da finito con lo STEP autorizzato, senza figli, commerciale si puo': %+v", e)
 	}
 	_, err = b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.ModificaComponente(b.ctx, q, b.thread, sc.s, b.utente, db.TipoComponenteCommerciale, "", "")
@@ -743,6 +833,16 @@ func TestIlTipoConLaBomCongelataEConLaFirmaVecchia(t *testing.T) {
 // annuncia senza scrivere. Il ritorno e' esplicito: assieme (ancora sospesa, lo STEP strutturale resta vuoto),
 // «Riattiva» (la rilettura richiude l'arco uguale alla working), prodotto finito (il file torna il suo STEP
 // strutturale, e la dichiarazione vale: I10). Assieme e particolare, da finito, restano spenti.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che P1, con i figli B, C e D nella working, diventasse
+// commerciale con il gesto. Con la regola della PR #7, confermata dall'utente il 29/09 sera (domanda 6a: il
+// commerciale e' sempre una foglia), con i figli il passaggio e' spento e si rifiuta, e niente cambia. Un
+// prodotto commerciale con i suoi figli resta il caso dei dati di prima (fino alla PR #7 il passaggio si faceva e
+// i figli restavano), ed e' quello su cui la sospensione, le rimozioni e gli archi chiusi da un automatismo devono
+// reggere: gli archi si tolgono per il gesto (l'anteprima e il gesto sono quelli di un prodotto senza figli) e si
+// rimettono com'erano con una scrittura diretta; il resto della prova e' com'era. Il nome del tipo nel messaggio
+// e' «particolare commerciale» (NomeTipo, PR #7). Asserzioni (righe con t.Error, t.Fatal, deveRifiutare, ok): prima
+// 29, dopo 34.
 func TestIlFinitoAutorizzatoDiventaCommercialeESiSospende(t *testing.T) {
 	b := nuovoBanco(t)
 	c := b.workingPBCD()
@@ -768,12 +868,28 @@ func TestIlFinitoAutorizzatoDiventaCommercialeESiSospende(t *testing.T) {
 		return uno[string](b, `SELECT tipo::text || ':' || coalesce(step_strutturale_id::text, '-') FROM componente WHERE componente_id = $1`, c["P1"])
 	}
 
-	// assieme e particolare restano spenti, con il consiglio; commerciale si fa, e l'anteprima non scrive
+	// assieme e particolare restano spenti, con il consiglio; commerciale con i figli e' spento e si rifiuta
 	if e := b.effettoTipo(c["P1"], db.TipoComponenteSottoassieme); !strings.Contains(e.Spento, "ha uno STEP strutturale ("+nome+")") ||
 		!strings.Contains(e.Spento, "oppure diventa commerciale") {
 		t.Errorf("da finito ad assieme: %q", e.Spento)
 	}
+	conFigli := p1 + " ha 3 figli: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi"
 	foto := b.improntaAutorizzazione()
+	if e := b.effettoTipo(c["P1"], db.TipoComponenteCommerciale); e.Spento != conFigli {
+		t.Errorf("da finito con i figli a commerciale: %q", e.Spento)
+	}
+	_, err := b.cambiaTipo(c["P1"], db.TipoComponenteCommerciale)
+	deveRifiutare(t, err, conFigli)
+	if b.improntaAutorizzazione() != foto || stepDi() != "finito:"+doc.String() || b.rimozioni() != "P1>D:aperta" {
+		t.Fatal("il rifiuto ha cambiato qualcosa")
+	}
+
+	// i dati di prima: il gesto su P1 senza gli archi, che poi si rimettono com'erano
+	righe, err := b.p.Query(b.ctx, `SELECT * FROM componente_relazione WHERE padre_id = $1 ORDER BY figlio_id`, c["P1"])
+	ok(t, err)
+	archi, err := pgx.CollectRows(righe, pgx.RowToStructByName[db.ComponenteRelazione])
+	ok(t, err)
+	b.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1`, c["P1"])
 	e := b.effettoTipo(c["P1"], db.TipoComponenteCommerciale)
 	if b.improntaAutorizzazione() != foto || stepDi() != "finito:"+doc.String() {
 		t.Fatal("l'anteprima del cambio di tipo ha scritto")
@@ -786,7 +902,11 @@ func TestIlFinitoAutorizzatoDiventaCommercialeESiSospende(t *testing.T) {
 	}
 
 	msg := b.cambiaTipoOk(c["P1"], db.TipoComponenteCommerciale)
-	for _, x := range []string{p1 + ": tipo prodotto → commerciale.", "Sospesa l'autorizzazione di " + a.NomeFile + " per " + p1,
+	for _, x := range archi {
+		b.esegui(`INSERT INTO componente_relazione (thread_id, padre_id, figlio_id, qta, posizione, origine, confermato_da, creato_il)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, x.ThreadID, x.PadreID, x.FiglioID, x.Qta, x.Posizione, x.Origine, x.ConfermatoDa, x.CreatoIl)
+	}
+	for _, x := range []string{p1 + ": tipo prodotto → particolare commerciale.", "Sospesa l'autorizzazione di " + a.NomeFile + " per " + p1,
 		nome + " non è più il suo STEP strutturale"} {
 		if !strings.Contains(msg, x) {
 			t.Errorf("messaggio: manca %q in %q", x, msg)
@@ -814,7 +934,7 @@ func TestIlFinitoAutorizzatoDiventaCommercialeESiSospende(t *testing.T) {
 	if g := b.strutturali(); g.NFigliDaDecidere+g.NArchiDaDecidere+g.NRimozioni != 0 {
 		t.Errorf("il gate non conta niente del file sospeso: %+v", g)
 	}
-	_, err := b.accettaArco(a, "#1", "#3")
+	_, err = b.accettaArco(a, "#1", "#3")
 	deveRifiutare(t, err, "è guida")
 
 	// assieme: ancora sospesa, lo STEP strutturale resta vuoto, l'arco resta aperto
@@ -883,6 +1003,13 @@ func TestIlFinitoNellaFormaDiPrimaNonDiventaCommerciale(t *testing.T) {
 // guida); tornato assieme resta aperto (l'autorita' e' sospesa, la rilettura non lo richiude); dopo «Riattiva» la
 // rilettura lo richiude, e il gate conta di nuovo i figli e gli archi del file (le rimozioni aspettano che i figli
 // diretti siano decisi: TestIlCambioSottoassiemeCommercialeSospendeLAutorita).
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il gesto portasse a commerciale 7120010, che nella
+// working ha i figli 7120011 e 7120098. Con la regola della PR #7 (domanda 6a, 29/09 sera: il commerciale e'
+// sempre una foglia) quel gesto si rifiuta (lo prova commercialeDiPrima); un arco uguale alla working sotto un
+// commerciale c'e' solo nei dati di prima, che commercialeDiPrima ricostruisce, e il resto della prova e' com'era.
+// Asserzioni (righe con t.Error, t.Fatal, deveRifiutare): prima 9, dopo 10, piu' il rifiuto che
+// commercialeDiPrima controlla.
 func TestIlCommercialeRiapreGliArchiChiusiDaUnAutomatismo(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaTipo()
@@ -897,7 +1024,9 @@ func TestIlCommercialeRiapreGliArchiChiusiDaUnAutomatismo(t *testing.T) {
 	}
 	prima := b.strutturali()
 
-	b.cambiaTipoOk(sc.s, db.TipoComponenteCommerciale)
+	if msg := b.commercialeDiPrima(sc.s); !strings.Contains(msg, "Sospesa l'autorizzazione di 7120010.stp per 7120010") {
+		t.Errorf("il passaggio a commerciale (dati di prima): %q", msg)
+	}
 	if got := arco(); got != "aperta:true" {
 		t.Errorf("commerciale: l'arco chiuso dall'automatismo torna aperto: %s", got)
 	}

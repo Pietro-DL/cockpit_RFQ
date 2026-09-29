@@ -150,6 +150,11 @@ func lanciaL7(t *testing.T, s *scenaL7, prove string) {
 // Riscritta per lo Smistamento (fase T): prima la prova F portava l'assieme a particolare da «Modifica».
 // Adesso l'assieme, che ha dei figli, diventa commerciale dalla sezione «Tipo», e J porta a commerciale il
 // particolare dall'editor.
+//
+// Riscritta per lo Smistamento (Distinta, giro 4, fase 4.3): prima fissava l'assieme diventato commerciale nel
+// browser. Con la regola della PR #7 (domanda 6a, 29/09 sera: il commerciale e' sempre una foglia) la prova F
+// trova spenti particolare e particolare commerciale per l'assieme con dei figli, che resta sottoassieme, e porta
+// ad assieme il particolare, che J porta poi a particolare commerciale dall'editor. Asserzioni: prima 4, dopo 4.
 func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7A", 0)
@@ -157,8 +162,8 @@ func TestL7IlFascicoloSiCostruisceSenzaF5(t *testing.T) {
 	if n := s.conta(`SELECT count(*) FROM componente WHERE thread_id = $1 AND codice = '77811111'`, s.thread); n != 1 {
 		t.Errorf("il nodo accettato nel browser non e' nella BOM: %d", n)
 	}
-	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "commerciale" {
-		t.Errorf("il tipo cambiato nel browser: %s", got)
+	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.assieme); got != "sottoassieme" {
+		t.Errorf("l'assieme con dei figli non diventa commerciale nel browser: %s", got)
 	}
 	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.particolare); got != "commerciale" {
 		t.Errorf("il tipo cambiato dall'editor nel browser: %s", got)

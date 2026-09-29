@@ -216,6 +216,12 @@ func TestUnaDerogaStrutturaleSiRevocaSoloDallaSuaRfq(t *testing.T) {
 // Riscritta per lo Smistamento (F5, D77): prima anche l'arco messo a mano sotto B (B → Y1) era una rimozione
 // proposta e subito tenuta, perche' le rimozioni scendevano tutto il sottoalbero di P1. Adesso il file di P1 ha
 // autorita' solo sui figli diretti di P1: B → Y1 non e' mai proposto, e le chiuse sono una sola.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che Y1 andasse a mano sotto B, un particolare, e che B
+// diventasse assieme da solo (E37). Con la regola della PR #7 e la risposta 6b = A del 29/09 sera («un particolare
+// non può avere figli, ha solo padri») lo spostamento sotto un particolare si rifiuta con «cambialo prima in
+// assieme» e niente cambia; il tipo lo cambia una persona (il gesto della fase T), e poi lo spostamento si fa. Il
+// resto e' com'era. Asserzioni: prima 5, dopo 8.
 func TestUnArcoMessoAManoNonSiProponeDaTogliere(t *testing.T) {
 	b := nuovoBanco(t)
 	c, _, _ := b.stepApplicato()
@@ -226,10 +232,23 @@ func TestUnArcoMessoAManoNonSiProponeDaTogliere(t *testing.T) {
 		return fascicolo.Collega(b.ctx, q, b.thread, c["P1"], x, b.utente, 2)
 	})
 	ok(t, err)
-	_, err = b.gesto(func(q *db.Queries) (string, error) {
-		return fascicolo.Sposta(b.ctx, q, b.thread, y, uuid.NullUUID{}, uuid.NullUUID{UUID: c["B"], Valid: true}, b.utente, 1)
-	})
-	ok(t, err)
+	sposta := func() error {
+		_, err := b.gesto(func(q *db.Queries) (string, error) {
+			return fascicolo.Sposta(b.ctx, q, b.thread, y, uuid.NullUUID{}, uuid.NullUUID{UUID: c["B"], Valid: true}, b.utente, 1)
+		})
+		return err
+	}
+	bom := b.bom()
+	deveRifiutare(t, sposta(), "è un particolare: sotto non ci va niente. I pezzi stanno sotto il prodotto e sotto gli assiemi; se "+codiceDi("B")+
+		" contiene dei pezzi, cambialo prima in assieme")
+	if got := b.bom(); got != bom {
+		t.Errorf("il rifiuto non cambia la working: %s, prima %s", got, bom)
+	}
+	b.cambiaTipoOk(c["B"], db.TipoComponenteSottoassieme)
+	ok(t, sposta())
+	if got := uno[string](b, `SELECT tipo::text || ':' || (confermato_da = $2)::text FROM componente WHERE componente_id = $1`, c["B"], b.utente); got != "sottoassieme:true" {
+		t.Errorf("B e' assieme per la scelta di una persona: %s", got)
+	}
 	if got := b.rimozioni(); got != "P1>D:aperta P1>X1:scartata" {
 		t.Errorf("rimozioni = %q: gli archi appena messi a mano sono proposti da togliere, o sotto un figlio", got)
 	}

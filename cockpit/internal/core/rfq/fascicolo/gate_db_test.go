@@ -392,6 +392,13 @@ func TestGateLeAutorizzazioniDaSistemareFermano(t *testing.T) {
 // la dichiarazione e' sospesa, il figlio diretto riaperto nel suo file non conta, il gate passa con l'avviso.
 // Tornato sottoassieme resta sospesa (la sospensione e' registrata e nessuno l'ha riattivata): ancora un avviso,
 // e il gate passa. La riattivazione esplicita rimette l'autorita': il figlio aperto torna a fermare.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il cambio di tipo portasse a commerciale 7120010, che
+// nella working ha il figlio 7120011. Con la regola della PR #7, confermata dall'utente il 29/09 sera (domanda 6a:
+// il commerciale e' sempre una foglia), quel gesto si rifiuta (lo prova commercialeDiPrima); il commerciale con il
+// suo figlio resta il caso dei dati di prima, che commercialeDiPrima ricostruisce, e il resto della prova e'
+// com'era. Asserzioni (righe con t.Error, t.Fatal, deveRifiutare): prima 6, dopo 7, piu' il rifiuto che
+// commercialeDiPrima controlla.
 func TestGateUnaDichiarazioneSospesaEUnAvviso(t *testing.T) {
 	b := nuovoBanco(t)
 	b.scenaGate(true)
@@ -415,7 +422,9 @@ func TestGateUnaDichiarazioneSospesaEUnAvviso(t *testing.T) {
 	b.documentiRichiesti()
 	b.passa("7120010.stp deciso")
 
-	b.cambiaTipoOk(s, db.TipoComponenteCommerciale)
+	if msg := b.commercialeDiPrima(s); !strings.Contains(msg, "Sospesa l'autorizzazione di 7120010.stp per 7120010") {
+		t.Errorf("il passaggio a commerciale (dati di prima): %q", msg)
+	}
 	if _, err := b.gesto(func(q *db.Queries) (string, error) {
 		return fascicolo.RiapriNodo(b.ctx, q, b.thread, b.nodoIn(sa, "#3"), b.utente)
 	}); err != nil {
@@ -448,6 +457,12 @@ func TestGateUnaDichiarazioneSospesaEUnAvviso(t *testing.T) {
 // lei, e sono un avviso, non una catena rotta. Nello STEP del prodotto 7120010 e 7120011 sono delegati e decisi;
 // 7120010 diventa commerciale: la sua delega e quella di 7120011, che dipendeva da lei, sono sospese, e il gate
 // passa con i due avvisi (a differenza della catena rotta di TestGateLeAutorizzazioniDaSistemareFermano).
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il cambio di tipo portasse a commerciale 7120010, che
+// nella working ha il figlio 7120011. Con la regola della PR #7 (domanda 6a, 29/09 sera: il commerciale e' sempre
+// una foglia) quel gesto si rifiuta (lo prova commercialeDiPrima), e il commerciale con il figlio e' il caso dei
+// dati di prima, che commercialeDiPrima ricostruisce; il resto e' com'era. Asserzioni (righe con t.Error, t.Fatal,
+// deveRifiutare): prima 2, dopo 3, piu' il rifiuto che commercialeDiPrima controlla.
 func TestGateLeDelegheSottoUnaSospensioneSonoUnAvviso(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaGate(true)
@@ -459,7 +474,9 @@ func TestGateLeDelegheSottoUnaSospensioneSonoUnAvviso(t *testing.T) {
 	b.documentiRichiesti()
 	b.passa("le due deleghe decise")
 
-	b.cambiaTipoOk(b.codiceComp("7120010"), db.TipoComponenteCommerciale)
+	if msg := b.commercialeDiPrima(b.codiceComp("7120010")); !strings.Contains(msg, "Sospesa la delega di 7120001.stp per 7120010") {
+		t.Errorf("il passaggio a commerciale (dati di prima): %q", msg)
+	}
 	g := b.passa("7120010 commerciale")
 	av := avvisiDi(g)
 	for _, c := range []string{"autorizzazione sospesa: 7120010 · STEP autorizzato 7120001.stp (delega): sospesa",

@@ -253,6 +253,14 @@ func TestLEditorPrendeLaPropostaDelloStep(t *testing.T) {
 // arco voluto in piu', la quantita' cambia sull'arco, togliere tutto rimanda il pezzo fra quelli da
 // sistemare, un particolare che riceve un figlio diventa assieme. Ogni conferma e' una transazione e dice che
 // cosa e' cambiato.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il particolare 77817189, ricevuto un figlio
+// nell'editor, diventasse assieme da solo («1 particolare diventa assieme», E37 per un gesto a mano). Con la regola
+// della PR #7 e la risposta 6b = A del 29/09 sera («un particolare non può avere figli, ha solo padri») la stessa
+// struttura si rifiuta con «cambialo prima in assieme», e niente cambia; una persona cambia il tipo dalla sezione
+// «Tipo», e poi la struttura si salva, senza tipi cambiati. E37 resta per gli archi accettati da uno STEP
+// autorizzato (29e = A). Asserzioni (righe con t.Error, t.Fatal, piu' i passi): prima 4 + 5 passi, dopo 9 + 5
+// passi.
 func TestLEditorSpostaCondivideTogli(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("ED2")
@@ -294,9 +302,26 @@ func TestLEditorSpostaCondivideTogli(t *testing.T) {
 	v = s.strutturaDi(s.prodotto)
 	v.Archi = append(v.Archi, fascicolo.ArcoVoluto{Padre: refC(s.assieme), Figlio: refC(s.particolare), Qta: 1},
 		fascicolo.ArcoVoluto{Padre: refC(s.particolare), Figlio: refC(vite), Qta: 2})
-	passo("un particolare con un figlio", v, "Struttura di 77722757 confermata: 2 legami aggiunti, 1 particolare diventa assieme.",
+	a, ev, _ := s.applica(w, v)
+	if !strings.HasPrefix(a, "Niente è cambiato: 77817189 è un particolare: sotto non ci va niente") || !strings.Contains(a, "cambialo prima in assieme") {
+		t.Errorf("un particolare con un figlio: %q", a)
+	}
+	if ok, _ := esitoEditor(t, ev); ok {
+		t.Error("un particolare con un figlio: l'evento dice fatto")
+	}
+	if got := s.archi(); got != "77722757>77720517x2" {
+		t.Fatalf("un particolare con un figlio, rifiutato: archi %s", got)
+	}
+	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.particolare); got != "sciolto" {
+		t.Errorf("77817189 resta un particolare: %s", got)
+	}
+	// il tipo lo cambia una persona, dalla sezione «Tipo»; poi la stessa struttura si salva, senza tipi cambiati
+	if av := s.cambiaTipoDallaScheda(w, s.particolare, "sottoassieme"); av != "77817189: tipo particolare → assieme." {
+		t.Errorf("77817189 diventa assieme: %q", av)
+	}
+	passo("un assieme con un figlio", v, "Struttura di 77722757 confermata: 2 legami aggiunti.",
 		"77720517>77817189x1 77722757>77720517x2 77817189>54000000x2")
-	if got := s.valore(`SELECT tipo::text FROM componente WHERE componente_id = $1`, s.particolare); got != "sottoassieme" {
+	if got := s.valore(`SELECT tipo::text || ':' || (confermato_da IS NOT NULL)::text FROM componente WHERE componente_id = $1`, s.particolare); got != "sottoassieme:true" {
 		t.Errorf("77817189 con un figlio: %s", got)
 	}
 }

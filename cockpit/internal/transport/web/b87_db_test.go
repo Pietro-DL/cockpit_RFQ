@@ -357,6 +357,16 @@ func chiaveCorpoDi(t *testing.T, pagina string) string {
 
 // Tipo, revisione e descrizione; archi messi, tolti, spostati; un ciclo rifiutato; uno spostamento che non
 // riesce a meta' non cambia niente.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che l'assieme 77720517, con il figlio 77817189,
+// diventasse commerciale dalla sezione «Tipo» (con il figlio che restava), e che il prodotto con lo STEP
+// autorizzato potesse diventare commerciale (l'anteprima con lo STEP che si svuota e la firma). Con la regola della
+// PR #7, confermata dall'utente il 29/09 sera (domanda 6a: il commerciale e' sempre una foglia), tutti e due hanno
+// dei figli: il commerciale e' spento, con il motivo e il consiglio, e la POST si rifiuta; il rifiuto del
+// particolare ha il consiglio anche lui. Il prodotto commerciale senza figli: nel core,
+// TestIlFinitoSoloDoveSiPuo. Con la stessa regola l'assieme non va sotto il particolare: il ciclo si prova con il
+// prodotto sotto l'assieme, e lo spostamento che fallisce a meta' fallisce sul particolare. Asserzioni (righe con
+// t.Error, t.Fatal): prima 23, dopo 24.
 func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("STR87")
@@ -376,7 +386,8 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	// l'assieme, che nella working ha un figlio, e cambiava rev e descrizione nello stesso gesto. Adesso il tipo ha
 	// una strada sola, la sezione «Tipo» con l'anteprima e la firma: «Modifica» con un tipo diverso si rifiuta e
 	// niente cambia; dalla sezione «Tipo» il particolare si rifiuta («ha 1 figlio: è un assieme») e il commerciale
-	// si fa, con il figlio che resta; «Modifica» cambia rev e descrizione
+	// si fa, con il figlio che resta; «Modifica» cambia rev e descrizione. Con la PR #7 (Distinta) anche il
+	// commerciale si rifiuta, perche' l'assieme ha un figlio: vedi l'intestazione
 	for _, tp := range []string{"sciolto", "commerciale"} {
 		if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"tipo": {tp}, "rev": {"c"}, "descrizione": {"staffa"}}); a != "Niente è cambiato: il tipo si cambia dalla sezione Tipo, con l'anteprima" {
 			t.Errorf("«Modifica» a %s: %q", tp, a)
@@ -385,16 +396,16 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	if got := s.valore(`SELECT tipo || '/' || coalesce(rev, '-') || '/' || coalesce(descrizione, '-') FROM componente WHERE componente_id = $1`, s.assieme); got != "sottoassieme/-/-" {
 		t.Errorf("il rifiuto non cambia niente: %s", got)
 	}
-	if a := s.cambiaTipoDallaScheda(w, s.assieme, "sciolto"); a != "Niente è cambiato: 77720517 ha 1 figlio: è un assieme" {
+	if a := s.cambiaTipoDallaScheda(w, s.assieme, "sciolto"); a != "Niente è cambiato: 77720517 ha 1 figlio: è un assieme; per farlo diventare un particolare si spostano prima i suoi pezzi" {
 		t.Errorf("a particolare con un figlio: %q", a)
 	}
-	if a := s.cambiaTipoDallaScheda(w, s.assieme, "commerciale"); a != "77720517: tipo assieme → commerciale. I figli già nella BOM restano (77817189)." {
-		t.Errorf("a commerciale: %q", a)
+	if a := s.cambiaTipoDallaScheda(w, s.assieme, "commerciale"); a != "Niente è cambiato: 77720517 ha 1 figlio: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi" {
+		t.Errorf("a commerciale con un figlio: %q", a)
 	}
 	if a := s.gesto(w, s.comp(s.assieme, "modifica"), url.Values{"rev": {"c"}, "descrizione": {"staffa"}}); a != "77720517: rev — → C, descrizione." {
 		t.Errorf("modifica: %q", a)
 	}
-	if got := s.valore(`SELECT tipo || '/' || rev || '/' || descrizione FROM componente WHERE componente_id = $1`, s.assieme); got != "commerciale/C/staffa" {
+	if got := s.valore(`SELECT tipo || '/' || rev || '/' || descrizione FROM componente WHERE componente_id = $1`, s.assieme); got != "sottoassieme/C/staffa" {
 		t.Errorf("dopo la modifica: %s", got)
 	}
 
@@ -407,21 +418,28 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	// riscritta per lo Smistamento (fase T, giro di correzione): prima «Modifica» rifiutava ogni altro tipo per un
 	// finito con lo STEP strutturale. Adesso dalla sezione «Tipo»: assieme resta spento (si revoca prima, oppure
 	// diventa commerciale); commerciale si puo', e l'anteprima dice che il riferimento si svuota e l'autorizzazione
-	// si sospende. Solo le anteprime: il prodotto resta com'e'
+	// si sospende. Solo le anteprime: il prodotto resta com'e'. Con la PR #7 (Distinta) il prodotto, che ha dei
+	// figli, non diventa commerciale: l'anteprima e' spenta con il motivo
 	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "sottoassieme")); !strings.Contains(a, "ha uno STEP strutturale") || strings.Contains(a, `name="firma"`) {
 		t.Errorf("un finito con lo STEP strutturale non diventa assieme: %s", a)
 	}
-	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "commerciale")); !strings.Contains(a, "non è più il suo STEP strutturale: il riferimento si svuota") ||
-		!strings.Contains(a, "Si sospende l'autorizzazione di 77722757.stp per 77722757") || !strings.Contains(a, `name="firma"`) {
-		t.Errorf("un finito con lo STEP autorizzato diventa commerciale, e l'anteprima lo dice: %s", a)
+	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "commerciale")); !strings.Contains(a, `<p class="nota-blocco">77722757 ha 2 figli: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi</p>`) ||
+		strings.Contains(a, `name="firma"`) {
+		t.Errorf("un finito con lo STEP autorizzato e dei figli non diventa commerciale, e l'anteprima lo dice: %s", a)
 	}
 	if got := s.valore(`SELECT tipo || '/' || (step_strutturale_id IS NOT NULL)::text FROM componente WHERE componente_id = $1`, s.prodotto); got != "finito/true" {
 		t.Errorf("le anteprime non cambiano il prodotto: %s", got)
 	}
 
-	// un ciclo: l'assieme sotto il particolare, che sta sotto l'assieme
-	if a := s.gesto(w, s.comp(s.assieme, "collega"), url.Values{"padre": {s.particolare.String()}, "qta": {"1"}}); !strings.Contains(a, "chiuderebbe un ciclo") {
+	// un ciclo: il prodotto sotto l'assieme, che sta sotto il prodotto (prima: l'assieme sotto il particolare, che
+	// con la PR #7 si rifiuta prima, qui sotto)
+	if a := s.gesto(w, s.comp(s.prodotto, "collega"), url.Values{"padre": {s.assieme.String()}, "qta": {"1"}}); !strings.Contains(a, "chiuderebbe un ciclo") {
 		t.Errorf("ciclo: %q", a)
+	}
+	// sotto un particolare non ci va niente (PR #7, domanda 6b = A): prima una persona lo cambia in assieme
+	if a := s.gesto(w, s.comp(s.assieme, "collega"), url.Values{"padre": {s.particolare.String()}, "qta": {"1"}}); !strings.Contains(a, "77817189 è un particolare: sotto non ci va niente") ||
+		!strings.Contains(a, "cambialo prima in assieme") {
+		t.Errorf("sotto un particolare: %q", a)
 	}
 	if a := s.gesto(w, s.comp(s.particolare, "collega"), url.Values{"padre": {s.assieme.String()}, "qta": {"0"}}); !strings.Contains(a, "la quantità va da 1") {
 		t.Errorf("qta zero: %q", a)
@@ -433,9 +451,11 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 		t.Errorf("quantita': %q", a)
 	}
 
-	// spostamento che fallisce nella seconda meta': l'assieme lascia il prodotto e va sotto il suo figlio
-	if a := s.gesto(w, s.comp(s.assieme, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {s.particolare.String()}, "qta": {"1"}}); !strings.Contains(a, "chiuderebbe un ciclo") {
-		t.Errorf("sposta con ciclo: %q", a)
+	// spostamento che fallisce nella seconda meta': l'assieme lascia il prodotto e va sotto il suo figlio, un
+	// particolare (prima si rifiutava per il ciclo; con la PR #7 si rifiuta perche' sotto un particolare non ci va
+	// niente, e il controllo viene prima)
+	if a := s.gesto(w, s.comp(s.assieme, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {s.particolare.String()}, "qta": {"1"}}); !strings.Contains(a, "77817189 è un particolare: sotto non ci va niente") {
+		t.Errorf("sposta sotto il particolare: %q", a)
 	}
 	if got := s.archi(); got != "77720517>77817189x6 77722757>77720517x2 77722757>77817189x1" {
 		t.Fatalf("uno spostamento rifiutato ha lasciato %s: la transazione doveva annullare anche lo scollegamento", got)

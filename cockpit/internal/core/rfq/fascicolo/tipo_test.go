@@ -33,12 +33,20 @@ func fattiTipo(codice string, tipo db.TipoComponente) FattiTipo {
 // con l'autorizzazione propria valida (che diventa lo STEP strutturale); da finito ad altro non con lo STEP
 // strutturale (il CHECK di 0020:214), tranne verso commerciale quando lo STEP strutturale e' anche
 // un'autorizzazione con la marcatura (sospende, e il riferimento si svuota); sciolto non con dei figli («ha 2
-// figli: è un assieme»); commerciale sempre (sospende, non si rifiuta), salvo il finito nella forma di prima; la
-// BOM congelata, un archiviato e lo stesso tipo spengono tutto.
+// figli: è un assieme»); commerciale nemmeno, perche' il particolare commerciale e' sempre una foglia; senza
+// figli commerciale si fa anche con l'autorizzazione (sospende, non si rifiuta), salvo il finito nella forma di
+// prima; la BOM congelata, un archiviato e lo stesso tipo spengono tutto.
 //
 // Giro di correzione: il caso «da finito con lo STEP strutturale» prima fissava il rifiuto del commerciale per
 // ogni finito con lo STEP strutturale; adesso vale solo per la forma di prima (senza marcatura), e i casi del
 // finito con la marcatura dicono che commerciale si fa e che assieme resta spento, con il consiglio.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che un assieme con un figlio e con l'autorizzazione
+// diventasse commerciale (la sospensione, non un rifiuto: precisazione del 27/09 sera). Adesso vale la regola
+// della PR #7, confermata dall'utente il 29/09 sera (domanda 6a: «il commerciale è SEMPRE una foglia e mai un
+// ramo»): con un figlio il commerciale si spegne con «7120010 ha 1 figlio: è un assieme». Il caso senza figli con
+// l'autorizzazione, che prima era compreso in quello, ha una riga sua: si fa, e la sospensione resta.
+// Asserzioni: prima 20 casi controllati, dopo 21 (le chiamate t.Error/t.Fatal sono le stesse 3).
 func TestLeRegoleDelTipoDelComponente(t *testing.T) {
 	sha := shaDi("a")
 	valida := func(c db.Componente) Dichiarazione {
@@ -80,6 +88,11 @@ func TestLeRegoleDelTipoDelComponente(t *testing.T) {
 		{"commerciale con figli e con l'autorizzazione", func() FattiTipo {
 			f := fattiTipo("7120010", db.TipoComponenteSottoassieme)
 			f.Figli = []string{"7120011"}
+			f.Dichiarazioni = []Dichiarazione{valida(f.Componente)}
+			return f
+		}, db.TipoComponenteCommerciale, "7120010 ha 1 figlio: è un assieme"}, // sotto un particolare commerciale non si mette niente
+		{"commerciale senza figli e con l'autorizzazione", func() FattiTipo {
+			f := fattiTipo("7120010", db.TipoComponenteSottoassieme)
 			f.Dichiarazioni = []Dichiarazione{valida(f.Componente)}
 			return f
 		}, db.TipoComponenteCommerciale, ""},
@@ -165,8 +178,13 @@ func finitoMarcato(valida func(db.Componente) Dichiarazione) FattiTipo {
 }
 
 // La tendina: i quattro tipi nell'ordine, quello di adesso segnato e spento («è già»), gli altri col loro
-// motivo; commerciale non e' mai spento per un componente attivo con la working libera (la sospensione non e'
-// un rifiuto).
+// motivo; particolare e particolare commerciale sono spenti per un pezzo con dei figli (sotto non ci va niente),
+// e accesi quando i figli non ci sono (per il commerciale la sospensione non e' un rifiuto).
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava il commerciale sempre acceso per un assieme con un figlio
+// (o[3] senza motivo) e il nome «commerciale». Adesso, con la regola della PR #7 confermata il 29/09 sera
+// (domanda 6a), o[3] e' spento con «ha 1 figlio: è un assieme» e si chiama «particolare commerciale»; lo stesso
+// pezzo senza figli ha particolare e commerciale accesi. Asserzioni (chiamate t.Error/t.Fatal): prima 4, dopo 5.
 func TestLaTendinaDelTipoDiceIMotivi(t *testing.T) {
 	f := fattiTipo("7120010", db.TipoComponenteSottoassieme)
 	f.Figli = []string{"7120011"}
@@ -181,11 +199,15 @@ func TestLaTendinaDelTipoDiceIMotivi(t *testing.T) {
 	if !o[1].Attuale || !strings.Contains(o[1].Spenta, "è già un assieme") || o[0].Attuale {
 		t.Errorf("il tipo di adesso: %+v", o[1])
 	}
-	if !strings.Contains(o[0].Spenta, "non è un codice della richiesta") || !strings.Contains(o[2].Spenta, "ha 1 figlio: è un assieme") || o[3].Spenta != "" {
+	if !strings.Contains(o[0].Spenta, "non è un codice della richiesta") || !strings.Contains(o[2].Spenta, "ha 1 figlio: è un assieme") || !strings.Contains(o[3].Spenta, "ha 1 figlio: è un assieme") {
 		t.Errorf("i motivi: %+v", o)
 	}
-	if o[0].Nome != "prodotto" || o[3].Nome != "commerciale" {
+	if o[0].Nome != "prodotto" || o[3].Nome != "particolare commerciale" {
 		t.Errorf("i nomi della schermata: %+v", o)
+	}
+	// lo stesso assieme senza figli: particolare e particolare commerciale si possono scegliere
+	if o := fattiTipo("7120010", db.TipoComponenteSottoassieme).Opzioni(); o[2].Spenta != "" || o[3].Spenta != "" {
+		t.Errorf("senza figli, particolare e commerciale: %+v", o)
 	}
 }
 
@@ -319,10 +341,17 @@ func TestIlConsiglioDellaRiattivazioneTrovaChiLaTiene(t *testing.T) {
 // del worker non porta un tipo di componente (il «commerciale» del worker e' il tipo di DOCUMENTO di un foglio
 // di calcolo, un'altra cosa). Il tipo commerciale lo scrive solo SetTipoComponente con il tipo scelto da una
 // persona (CambiaTipoComponente) o InsertComponente con il tipo di un modulo.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava come sola lista ammessa la tendina TipiComponente. La PR
+// #7 mette il particolare commerciale anche in TipiNuovo (i tipi con cui l'operatore scrive un pezzo nella
+// Distinta, che sceglie una persona): la guardia ammette TipiNuovo e basta. In piu', perche' la lista ammessa
+// non diventi una strada per aggirarla, nessun codice prende un tipo da TipiNuovo o da TipiComponente per
+// posizione (TipiNuovo[2] e' il commerciale scelto da un programma). Asserzioni (chiamate t.Error/t.Fatal):
+// prima 7, dopo 8 (gli indici delle liste).
 func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 	radice := filepath.Join("..", "..", "..") // internal
 	fset := token.NewFileSet()
-	var usi []string
+	var usi, indici []string
 	err := filepath.WalkDir(radice, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -355,16 +384,30 @@ func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 				case *ast.CaseClause:
 					permesso = true
 				case *ast.CompositeLit:
-					// solo la tendina dei tipi che sceglie una persona
+					// la tendina dei tipi (TipiComponente) e i tipi con cui l'operatore scrive un pezzo
+					// nella Distinta (TipiNuovo): li sceglie una persona, nessun automatismo
 					for i := len(pila) - 1; i >= 0; i-- {
 						if vs, ok := pila[i].(*ast.ValueSpec); ok {
-							permesso = len(vs.Names) == 1 && vs.Names[0].Name == "TipiComponente"
+							permesso = len(vs.Names) == 1 && (vs.Names[0].Name == "TipiComponente" || vs.Names[0].Name == "TipiNuovo")
 							break
 						}
 					}
 				}
 				if !permesso {
 					usi = append(usi, fset.Position(sel.Pos()).String())
+				}
+			}
+			// un tipo preso da una delle due liste per posizione e' un tipo scelto dal programma
+			if ix, ok := n.(*ast.IndexExpr); ok {
+				nome := ""
+				switch x := ix.X.(type) {
+				case *ast.Ident:
+					nome = x.Name
+				case *ast.SelectorExpr:
+					nome = x.Sel.Name
+				}
+				if nome == "TipiNuovo" || nome == "TipiComponente" {
+					indici = append(indici, fset.Position(ix.Pos()).String())
 				}
 			}
 			pila = append(pila, n)
@@ -377,6 +420,9 @@ func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 	}
 	if len(usi) > 0 {
 		t.Errorf("TipoComponenteCommerciale usato fuori da un confronto (un automatismo che scrive il tipo commerciale?):\n%s", strings.Join(usi, "\n"))
+	}
+	if len(indici) > 0 {
+		t.Errorf("un tipo preso per posizione da TipiNuovo o TipiComponente (un automatismo che sceglie il tipo?):\n%s", strings.Join(indici, "\n"))
 	}
 
 	// le query: nessuna scrive 'commerciale' in componente.tipo

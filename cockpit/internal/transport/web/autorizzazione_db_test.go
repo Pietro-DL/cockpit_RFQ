@@ -270,6 +270,11 @@ func TestLaRadiceGiaAccettataComeAltroFermaLoStrutturale(t *testing.T) {
 
 // Domanda 5 = B nella schermata: la scheda di un commerciale non ha il modulo dell'autorizzazione e dice che
 // cosa fare; l'anteprima e' spenta; la POST si rifiuta.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava la stessa frase, «77817189 è un commerciale: …», nella
+// scheda, nell'anteprima e nella scrittura. La PR #7 chiama il tipo «particolare commerciale» nella scheda
+// (fascicolo.html); l'anteprima e la scrittura, che vengono dal core (autorizzazione.go), dicono ancora «è un
+// commerciale». Qui si fissano tutte e due le frasi, ognuna dove sta. Asserzioni: prima 3, dopo 3.
 func TestLaSchedaDiUnCommercialeNonAutorizza(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("AUTCOM")
@@ -279,7 +284,8 @@ func TestLaSchedaDiUnCommercialeNonAutorizza(t *testing.T) {
 	s.analisiCorrente(s.shaDoc(stp), fattiDi("#1", []string{"#1=77817189", "#2=77817190"}, []string{"#1>#2*1"}))
 	_, pagina := w.daFascicolo(http.MethodGet, s.base()+"/parti?vista=bom&nodo="+s.particolare.String(), nil, s.thread, "?vista=bom")
 	const frase = "77817189 è un commerciale: il suo STEP resta guida; per autorizzarlo cambia prima il tipo"
-	if !strings.Contains(leggibile(pagina), frase) || strings.Contains(pagina, "/componente/"+s.particolare.String()+"/step-strutturale\" hx-target") {
+	const fraseScheda = "77817189 è un particolare commerciale: il suo STEP resta guida; per autorizzarlo cambia prima il tipo"
+	if !strings.Contains(leggibile(pagina), fraseScheda) || strings.Contains(pagina, "/componente/"+s.particolare.String()+"/step-strutturale\" hx-target") {
 		t.Error("la scheda del commerciale: la frase, e nessun modulo dell'anteprima")
 	}
 	if html := leggibile(s.anteprimaAutorizzazione(w, s.particolare, url.Values{"documento": {stp.String()}})); !strings.Contains(html, frase) || strings.Contains(html, `name="autorizza"`) {

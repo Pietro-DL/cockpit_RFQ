@@ -772,6 +772,14 @@ func TestIRitrovatiVannoVistiEGliArchiEntranoSoloARichiesta(t *testing.T) {
 // gesto della fase T (CambiaTipoComponente: «Modifica» il tipo non lo cambia piu'), che registra la sospensione
 // nella marcatura (chi, «è diventato commerciale»), e la riattivazione e' il gesto RiattivaStrutturale, con
 // l'anteprima e la firma.
+//
+// Riscritta per lo Smistamento (Distinta): prima fissava che il cambio di tipo portasse a commerciale 7120010, che
+// nella working ha il figlio 7120098. Con la regola della PR #7, confermata dall'utente il 29/09 sera (domanda 6a:
+// il commerciale e' sempre una foglia), quel passaggio si rifiuta e niente cambia. Un commerciale con un figlio
+// resta possibile nei dati di prima (fino alla PR #7 il passaggio si faceva, e i figli restavano), ed e' proprio
+// il caso di questa prova: l'arco si toglie per il gesto e si rimette con una scrittura diretta, come i dati che
+// una RFQ puo' avere; il resto della prova e' com'era. Asserzioni (chiamate t.Error, t.Fatal, deveRifiutare,
+// ok): prima 24, dopo 28.
 func TestUnaDichiarazioneSospesaNonFermaIlGateENonSiRiattivaDaSola(t *testing.T) {
 	b := nuovoBanco(t)
 	b.acme()
@@ -844,7 +852,24 @@ func TestUnaDichiarazioneSospesaNonFermaIlGateENonSiRiattivaDaSola(t *testing.T)
 		return s
 	}
 
+	// con il figlio 7120098 nella working il passaggio a commerciale si rifiuta, e niente cambia
+	_, errTipo := b.gesto(func(q *db.Queries) (string, error) {
+		return fascicolo.CambiaTipoComponente(b.ctx, q, b.thread, sotto, db.TipoComponenteCommerciale, b.utente)
+	})
+	deveRifiutare(t, errTipo, "7120010 ha 1 figlio: è un assieme; per farlo diventare un particolare commerciale si spostano prima i suoi pezzi")
+	if got := dichiarazione(); got != "true:0:0" {
+		t.Errorf("rifiutato il passaggio, la dichiarazione: %s", got)
+	}
+	if got := rimozione(); got != "aperta:" {
+		t.Errorf("rifiutato il passaggio, la rimozione: %q", got)
+	}
+	if got := b.bom(); !strings.Contains(got, "7120010>7120098*1") || !strings.Contains(got, "7120010:sottoassieme") {
+		t.Errorf("rifiutato il passaggio, la BOM: %s", got)
+	}
+	// la working di prima: il commerciale con il suo figlio
+	b.esegui(`DELETE FROM componente_relazione WHERE padre_id = $1 AND figlio_id = $2`, sotto, vecchio)
 	tipo(db.TipoComponenteCommerciale)
+	b.arco(sotto, vecchio, 1)
 	if got := dichiarazione(); got != "false:1:0" {
 		t.Errorf("7120010 commerciale: la dichiarazione %s, attesa sospesa e non da sistemare", got)
 	}
