@@ -179,7 +179,7 @@ def prova_c(b):
     ifr = b.page.locator("#anteprima-pdf")
     verifica(ifr.count() == 1, "nessun iframe nel pannello di destra")
     src = ifr.get_attribute("src")
-    verifica(src == "/allegato/%s/anteprima" % b.a.pdf, "iframe su %r" % src)
+    verifica(src.startswith("/allegato/%s/anteprima" % b.a.pdf), "iframe su %r" % src)
     verifica("file=" + b.a.pdf in b.page.url, "l'indirizzo non dice il file: %s" % b.page.url)
     verifica(b.viva(), "la pagina si e' ricaricata")
     r = b.page.request.get(b.a.url + src)

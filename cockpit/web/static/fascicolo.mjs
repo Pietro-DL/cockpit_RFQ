@@ -61,6 +61,11 @@ function pdfjs() {
   }
   return pdfjsPromessa;
 }
+// l'indirizzo del PDF di un allegato. Con l'impronta del contenuto (v, lo sha256 che la pagina riceve) il server
+// puo' dire al browser di tenerlo senza richiederlo alla prossima apertura (cache C1); senza, si rivalida
+function indirizzoPdf(a, v) {
+  return "/allegato/" + a + "/anteprima" + (v ? "?v=" + encodeURIComponent(v) : "");
+}
 function opzioniPdf(url, extra) {
   return Object.assign({
     url,
@@ -375,6 +380,7 @@ function mostra(nuovo) {
   const pr = S.indice.prec && S.indice.prec[f.a];
   if (S.prec && !(pr && pr.a === S.prec)) S.prec = "";
   const a = S.prec || f.a;
+  const improntaFile = S.prec ? (pr && pr.v) || "" : f.v || "";
   $(".ds-desc", st).textContent = S.prec ? "revisione precedente: " + (pr.nome || "") : (e && e.desc ? e.desc : "");
   const fl = S.falliti.get(a);
   // un gesto di chi guarda riprova; un NAS che non rispondeva si riprova da solo dopo un po'
@@ -384,7 +390,7 @@ function mostra(nuovo) {
     if (!gia || gia.dataset.a !== a) { vuoto("Il disegno non si apre", S.falliti.get(a).motivo); const v = $(".ds-area .ds-vuoto", st); if (v) v.dataset.a = a; }
     return;
   }
-  if (nuovo || S.docA !== a) S.apertura = apriFile(a);
+  if (nuovo || S.docA !== a) S.apertura = apriFile(a, improntaFile);
   else disegnaNote();
 }
 
@@ -401,7 +407,7 @@ function vuoto(titolo, testo) {
   aggiornaBarra();
 }
 
-async function apriFile(a) {
+async function apriFile(a, v) {
   const tok = ++S.tok;
   chiudiPop();
   const st = stage();
@@ -422,14 +428,14 @@ async function apriFile(a) {
     // senza pdf.js: il visualizzatore del browser, senza note
     $$(".ds-vuoto", area).forEach((x) => x.remove());
     $(".ds-pagina", area).hidden = true;
-    area.append(el("iframe", { class: "ds-iframe", src: "/allegato/" + a + "/anteprima", title: "Disegno" }));
+    area.append(el("iframe", { class: "ds-iframe", src: indirizzoPdf(a, v), title: "Disegno" }));
     S.docA = a; S.doc = null;
     aggiornaBarra();
     return;
   }
   let voce = S.docs.get(a);
   if (!voce) {
-    const task = lib.getDocument(opzioniPdf("/allegato/" + a + "/anteprima"));
+    const task = lib.getDocument(opzioniPdf(indirizzoPdf(a, v)));
     voce = { task, promessa: task.promise };
     S.docs.set(a, voce);
     while (S.docs.size > 6) {
@@ -810,7 +816,7 @@ async function miniaturaDi(t, a) {
   if (!lavoratoreMini) lavoratoreMini = new lib.PDFWorker({ name: "miniature" });
   let task;
   try {
-    task = lib.getDocument(opzioniPdf("/allegato/" + a + "/anteprima", { worker: lavoratoreMini, disableRange: true, disableStream: true }));
+    task = lib.getDocument(opzioniPdf(indirizzoPdf(a, t.dataset.v), { worker: lavoratoreMini, disableRange: true, disableStream: true }));
     const doc = await task.promise;
     const page = await doc.getPage(1);
     const vp1 = page.getViewport({ scale: 1 });
