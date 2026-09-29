@@ -116,3 +116,51 @@ func TestContenutoGiaPresenteVerificaLHash(t *testing.T) {
 		t.Error("un file con il nome giusto e il contenuto sbagliato e' stato accettato")
 	}
 }
+
+// cache C1, prova 10 — EContenuto riconosce tutto cio' che PercorsoContenuto scrive per quell'hash, con qualunque nome
+// d'origine, e nient'altro: lo stesso percorso con un altro hash, o un percorso che PercorsoContenuto non
+// scriverebbe mai, non e' «il contenuto». E' su questa risposta che l'anteprima dice al browser `immutable`.
+func TestEContenutoRiconosceSoloIlPostoDelContenuto(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	const altro = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	radice := filepath.Join(t.TempDir(), "staging")
+	for _, nome := range []string{"disegno.PDF", "7120001A_1.stp", "senza estensione", "strano.e$t", "archivio.tar.gz"} {
+		p, err := PercorsoContenuto(radice, sha, nome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !EContenuto(radice, p, sha) {
+			t.Errorf("%s: il percorso che PercorsoContenuto scrive (%s) non e' riconosciuto", nome, p)
+		}
+		if !EContenuto(radice, p, strings.ToUpper(sha)) {
+			t.Errorf("%s: l'hash in maiuscolo e' lo stesso hash", nome)
+		}
+		if EContenuto(radice, p, altro) {
+			t.Errorf("%s: riconosciuto come il contenuto di un altro hash", nome)
+		}
+	}
+	p, _ := PercorsoContenuto(radice, sha, "disegno.pdf")
+	for _, c := range []struct{ nome, radice, percorso, sha string }{
+		{"hash vuoto", radice, p, ""},
+		{"non un hash", radice, p, "disegno"},
+		{"radice vuota", "", p, sha},
+		{"un'altra radice", filepath.Join(t.TempDir(), "altro"), p, sha},
+		{"la radice stessa", radice, radice, sha},
+		{"una parte in caricamento", radice, PercorsoParte(radice, uuid.New(), uuid.New()), sha},
+		{"la sottocartella di un altro hash", radice, filepath.Join(radice, CartellaContenuti, altro[:2], sha+".pdf"), sha},
+		{"lo staging vecchio per messaggio", radice, filepath.Join(radice, CartellaStaging("<MSG-1@acme.example>"), sha+".pdf"), sha},
+		{"risalendo fuori dalla radice", radice, filepath.Join(radice, CartellaContenuti) + `\..\..\altro\` + CartellaContenuti + `\` + sha[:2] + `\` + sha + ".pdf", sha},
+		// correzione 1 della cache C1: i due casi in cui a dire no e' un solo confronto. La sottocartella giusta
+		// con il nome di un altro hash che comincia allo stesso modo (solo il nome = hash); un'altra radice lunga
+		// quanto questa, da tutte e due le parti (solo il confronto della radice).
+		{"la sottocartella giusta, il nome di un altro hash con lo stesso inizio", radice,
+			filepath.Join(radice, CartellaContenuti, sha[:2], sha[:2]+altro[2:]+".pdf"), sha},
+		{"un'altra radice lunga quanto questa, dichiarata", filepath.Join(filepath.Dir(radice), "stagin2"), p, sha},
+		{"un'altra radice lunga quanto questa, nel percorso", radice,
+			filepath.Join(filepath.Dir(radice), "stagin2", CartellaContenuti, sha[:2], sha+".pdf"), sha},
+	} {
+		if EContenuto(c.radice, c.percorso, c.sha) {
+			t.Errorf("%s: %s riconosciuto come il contenuto", c.nome, c.percorso)
+		}
+	}
+}

@@ -27,15 +27,15 @@ import (
 //	t3 GAMMA           «Carter motore», FATTIBILITA da 5 giorni (SLA rosso), otto prodotti fra cui AB_12
 //	t4 GAMMA           «Carter pompa», scade 01/10, il prodotto ABX12, ATTESA_DISEGNI da oggi
 type scenaRichieste struct {
-	b                  *bancoWeb
-	w                  *browser
-	acme, beta, gamma  uuid.UUID
-	t1, t2, t3, t4     *rfqFascicolo
-	comp1              uuid.UUID
-	docCorrente        uuid.UUID // l'allegato del 2D corrente di 7120001
-	docSostituito      uuid.UUID // l'allegato del 2D sostituito, piu' recente
-	propostaP1         uuid.UUID // l'allegato della proposta di 7120001
-	propostaP2         uuid.UUID // l'allegato della proposta di 7120002
+	b                 *bancoWeb
+	w                 *browser
+	acme, beta, gamma uuid.UUID
+	t1, t2, t3, t4    *rfqFascicolo
+	comp1             uuid.UUID
+	docCorrente       uuid.UUID // l'allegato del 2D corrente di 7120001
+	docSostituito     uuid.UUID // l'allegato del 2D sostituito, piu' recente
+	propostaP1        uuid.UUID // l'allegato della proposta di 7120001
+	propostaP2        uuid.UUID // l'allegato della proposta di 7120002
 }
 
 func (s *scenaRichieste) esegui(sql string, arg ...any) {
@@ -189,7 +189,7 @@ func TestRichiesteIFiltriDellaBarra(t *testing.T) {
 		{"/richieste?bloccanti=1", "t1"},
 		{"/richieste?smistare=1", "t1"},
 		{"/richieste?sla=1", "t3"},
-		{"/richieste?q=carrello", "t1"},       // oggetto
+		{"/richieste?q=carrello", "t1"},         // oggetto
 		{"/richieste?q=118.26", "t1"},           // riferimento del cliente
 		{"/richieste?q=ROSSI", "t1"},            // buyer, senza badare alle maiuscole
 		{"/richieste?q=beta&stato=tutte", "t2"}, // cliente
@@ -210,8 +210,22 @@ func TestRichiesteIFiltriDellaBarra(t *testing.T) {
 	}
 }
 
+// Riscritta per la cache C1 (domanda 31a = A): prima fissava l'indirizzo dell'iframe senza impronta
+// («/allegato/<id>/anteprima#…»); adesso porta lo sha256 dell'allegato prima del frammento del viewer
+// («/allegato/<id>/anteprima?v=<sha256>#…»), l'unico indirizzo che il browser puo' tenere senza richiederlo.
 func TestRichiesteLAnteprimaDiOgniProdotto(t *testing.T) {
 	s := preparaRichieste(t)
+	impronta := func(allegato uuid.UUID) string {
+		t.Helper()
+		var sha string
+		if err := s.b.pool.QueryRow(s.b.ctx, `SELECT sha256 FROM allegato WHERE allegato_id = $1`, allegato).Scan(&sha); err != nil {
+			t.Fatal(err)
+		}
+		if len(sha) != 64 {
+			t.Fatalf("l'allegato %s non ha uno sha256: %q", allegato, sha)
+		}
+		return sha
+	}
 	_, pagina, _ := s.elenco("/richieste", false)
 	i := strings.Index(pagina, `id="prodotti-`+s.t1.thread.String()+`"`)
 	if i < 0 {
@@ -219,7 +233,7 @@ func TestRichiesteLAnteprimaDiOgniProdotto(t *testing.T) {
 	}
 	schede := pagina[i:]
 	schede = schede[:strings.Index(schede, "</article>")]
-	if !strings.Contains(schede, `src="/allegato/`+s.docCorrente.String()+`/anteprima#`) {
+	if !strings.Contains(schede, `src="/allegato/`+s.docCorrente.String()+`/anteprima?v=`+impronta(s.docCorrente)+`#`) {
 		t.Error("l'anteprima di 7120001 dev'essere il 2D corrente")
 	}
 	if strings.Contains(schede, s.docSostituito.String()) {
@@ -228,7 +242,7 @@ func TestRichiesteLAnteprimaDiOgniProdotto(t *testing.T) {
 	if strings.Contains(schede, s.propostaP1.String()) {
 		t.Error("con un documento corrente la proposta non fa da anteprima")
 	}
-	if !strings.Contains(schede, `src="/allegato/`+s.propostaP2.String()+`/anteprima#`) || strings.Count(schede, "da confermare") != 1 {
+	if !strings.Contains(schede, `src="/allegato/`+s.propostaP2.String()+`/anteprima?v=`+impronta(s.propostaP2)+`#`) || strings.Count(schede, "da confermare") != 1 {
 		t.Error("7120002 ha solo la proposta: anteprima segnata «da confermare»")
 	}
 	if !strings.Contains(schede, "nessun PDF") {

@@ -67,6 +67,20 @@ var reDa = regexp.MustCompile(`da=(\S+)`)
 // richiesta dopo.
 func (r *registro) servita(t *testing.T) (string, int64) {
 	t.Helper()
+	riga := r.rigaServita(t)
+	m := reByteLetti.FindStringSubmatch(riga)
+	d := reDa.FindStringSubmatch(riga)
+	if m == nil || d == nil {
+		t.Fatalf("la riga di log non dice quanto ha letto: %s", riga)
+	}
+	n, _ := strconv.ParseInt(m[1], 10, 64)
+	return strings.Trim(d[1], `"`), n
+}
+
+// rigaServita e' la riga intera dell'ultima anteprima servita non ancora letta, con le stesse regole di servita
+// (che la usa): la cache C1 ne legge anche lo stato, la politica e chi ha chiesto.
+func (r *registro) rigaServita(t *testing.T) string {
+	t.Helper()
 	fine := time.Now().Add(5 * time.Second)
 	for {
 		r.mu.Lock()
@@ -80,13 +94,7 @@ func (r *registro) servita(t *testing.T) (string, int64) {
 			r.servite = len(trovate)
 			riga := trovate[len(trovate)-1]
 			r.mu.Unlock()
-			m := reByteLetti.FindStringSubmatch(riga)
-			d := reDa.FindStringSubmatch(riga)
-			if m == nil || d == nil {
-				t.Fatalf("la riga di log non dice quanto ha letto: %s", riga)
-			}
-			n, _ := strconv.ParseInt(m[1], 10, 64)
-			return strings.Trim(d[1], `"`), n
+			return riga
 		}
 		tutto := strings.Join(r.righe, "")
 		r.mu.Unlock()
@@ -267,6 +275,11 @@ func TestLAnteprimaPreferisceLoStaging(t *testing.T) {
 }
 
 // Senza staging si passa al NAS: il documento di questa RFQ che ha lo stesso contenuto dell'allegato.
+//
+// Riscritta per lo Smistamento (cache C1, correzione 1): prima fissava l'ETag uguale allo sha256 nudo anche dal
+// NAS. Ora dal NAS l'ETag e' `"nas-<sha256>"`: sempre l'hash gia' in database, non ricalcolato, ma distinto da
+// quello del contenuto verificato dello staging, perche' un 304 dello staging non renda definitiva una copia
+// presa dal NAS (prova 12 della cache C1).
 func TestSenzaStagingLAnteprimaArrivaDalNas(t *testing.T) {
 	s := preparaAnteprima(t, pdfFinto(64*1024), false, true)
 
@@ -281,8 +294,9 @@ func TestSenzaStagingLAnteprimaArrivaDalNas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if etag := resp.Header.Get("ETag"); etag != `"`+d.Sha256+`"` {
-		t.Errorf("ETag = %q, atteso l'hash gia' in database (%q): ricalcolarlo vorrebbe dire rileggere il file", etag, d.Sha256)
+	if etag := resp.Header.Get("ETag"); etag != `"nas-`+d.Sha256+`"` {
+		t.Errorf("ETag = %q, atteso l'hash gia' in database con davanti la fonte (\"nas-%s\"): ricalcolarlo vorrebbe dire "+
+			"rileggere il file, e senza la fonte un 304 dello staging renderebbe definitiva questa copia", etag, d.Sha256)
 	}
 	if da, _ := s.reg.servita(t); da != "NAS" {
 		t.Errorf("i byte arrivano da %q", da)
