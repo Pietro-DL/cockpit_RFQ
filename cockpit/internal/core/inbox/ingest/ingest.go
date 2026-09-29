@@ -157,6 +157,18 @@ func lottoDelJob(j *db.Job, casella uuid.UUID) error {
 	return nil
 }
 
+// rilettura è il payload del job se il lotto viene dalla rilettura di un elemento (`rileggi_elemento`,
+// replay.go), nil altrimenti: un lotto senza tentativo (il replay da admin) o di un sync. Un payload
+// illeggibile vale come vuoto: il lotto resta di una rilettura, e il cursore comunque non si muove.
+func rilettura(j *db.Job) *worker.PayloadRileggiElemento {
+	if j == nil || j.Tipo != db.TipoJobRileggiElemento {
+		return nil
+	}
+	var p worker.PayloadRileggiElemento
+	_ = json.Unmarshal(j.Payload, &p)
+	return &p
+}
+
 // forzaErrore è il gancio di prova della voce 0.5: se COCKPIT_INGEST_FORZA_ERRORE contiene una
 // sottostringa, ogni messaggio il cui Message-ID la contiene fallisce come se il DB l'avesse
 // rifiutato. Serve ai test del poison pill (§8 del piano di test) per provocare un errore su un
@@ -382,6 +394,7 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 	if !scendono && s.StagingAutomatico && s.Log != nil && len(l.Messaggi) > 0 {
 		s.Log.Info("staging automatico sospeso per questo lotto", "motivo", perche, "messaggi", len(l.Messaggi))
 	}
+	ril := rilettura(job)
 
 	for i := range l.Messaggi {
 		m := &l.Messaggi[i]
@@ -416,6 +429,13 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 		if _, err := q.EliminaScartoPerElemento(ctx, db.EliminaScartoPerElementoParams{CasellaID: l.Casella.CasellaID, EntryID: m.EntryID}); err != nil {
 			return out, err
 		}
+		// Un elemento spostato dopo il sync la rilettura lo ritrova per Message-ID, con un EntryID nuovo
+		// (Smistamento 4.13): lo scarto da chiudere è quello dell'EntryID vecchio, che il job porta.
+		if ril != nil && ril.EntryID != m.EntryID && ril.MessageID != "" && ril.MessageID == m.MessageID {
+			if _, err := q.EliminaScartoPerElemento(ctx, db.EliminaScartoPerElementoParams{CasellaID: l.Casella.CasellaID, EntryID: ril.EntryID}); err != nil {
+				return out, err
+			}
+		}
 		out.Esiti = append(out.Esiti, esito)
 	}
 
@@ -442,6 +462,13 @@ func (s *Servizio) Ingerisci(ctx context.Context, l Lotto) (worker.IngestRispost
 	// arretrare (Q22).
 	if l.Cursore != nil && l.Cursore.Cartella != "" {
 		switch {
+		case ril != nil:
+			// La rilettura di UN elemento non dice niente della finestra da cui viene (Smistamento 4.13):
+			// il worker non manda un cursore, e se ne arrivasse uno non si scrive. Un elemento vecchio
+			// riletto oggi non è la mail più recente della cartella, e uno recente non dice che quelle
+			// prima di lui siano state lette.
+			s.avvisa("rilettura di un elemento con un cursore: il cursore non si muove", "casella", l.Casella.Indirizzo,
+				"cartella", l.Cursore.Cartella, "job", job.JobID)
 		case worker.NelFuturo(l.Cursore.UltimoReceived, time.Now()):
 			// Il cursore lo calcola il worker sulle stesse date dei messaggi: se quelle sono nel futuro
 			// lo è anche lui, e scriverlo significherebbe aprire la prossima finestra dopo l'orologio e

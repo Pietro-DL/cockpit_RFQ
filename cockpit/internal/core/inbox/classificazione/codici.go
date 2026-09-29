@@ -29,6 +29,8 @@ func EstraiCodici(testi ...string) []string {
 		// FIX: Rimuoviamo gli URL prima di cercare i codici per evitare falsi positivi
 		// generati dai link di tracciamento (es. newsletter, Teams, ecc.)
 		tSenzaURL := reURL.ReplaceAllString(t, " ")
+		// e i numeri della firma e dei piè di pagina, che hanno la forma di un codice (Smistamento 4.13)
+		tSenzaURL = senzaNumeriDiFirma(tSenzaURL)
 
 		// Ora facciamo la ricerca sul testo pulito
 		for _, m := range reCodice.FindAllString(strings.ToUpper(tSenzaURL), -1) {
@@ -40,6 +42,174 @@ func EstraiCodici(testi ...string) []string {
 		}
 	}
 	return out
+}
+
+// I NUMERI DELLA FIRMA (Smistamento 4.13).
+//
+// Il piè di pagina di una mail porta numeri che hanno la forma di un codice e non lo sono: il CAP
+// dell'indirizzo, la legge sulla privacy («D.Lgs. 999/2099»), i segnaposto che Exchange dà agli allegati
+// incorporati («ATT00001.bin», i loghi della firma), il numero di una tabella del cliente («COD-12-345»).
+// Da ogni mail del portale di un cliente l'estrattore generico ne tirava fuori quattro o cinque: finivano
+// fra gli «altri numeri» e, per un cliente senza famiglie, fra i codici proponibili.
+//
+// CAP e leggi si riconoscono dalla forma INTORNO, non dal numero: un CAP è cinque cifre dopo «CAP», o
+// dopo il nome e il numero civico di una via, o davanti a un luogo con la sigla di una provincia, ma
+// solo vicino a un indirizzo o nella firma; una legge è n/aaaa dopo le parole della legge. Cinque cifre
+// da sole restano un candidato, perché possono essere un codice vero: «71200 Boccola (PA)» in un
+// elenco di codici ha la forma di «40999 Città (BO)», e le sigle dei materiali e dei lati (PA, PE, AL,
+// CR…) coincidono con quelle delle province. E una via comincia dove comincia un indirizzo (a capo o
+// dopo un separatore): in «vi inviamo via PEC il disegno 71200» «via» è la preposizione. I segnaposto
+// ATT e la forma COD-nn-nnn invece non sono mai un codice prodotto. Il gruppo 1 di ogni regex è il
+// numero da togliere: il resto del testo resta com'è.
+var reNumeriDiFirma = []*regexp.Regexp{
+	// CAP dopo la parola («CAP 40999», «C.A.P.: 40999») e nella forma postale «I-40999»
+	regexp.MustCompile(`(?:(?i:\bc\.?a\.?p\.?)\s*:?\s*|\bI-)(\d{5})\b`),
+	// CAP in una riga d'indirizzo: «Via dell'Esempio 1 - 40999 Città», la via col civico (viaConCivico),
+	// poi una virgola, un trattino o un a capo, poi il CAP e il luogo
+	regexp.MustCompile(viaConCivico + `(?:[ \t]?[A-Za-z]\b|/\w+)?[ \t]*(?:[,\-–]|\r?\n)\s*(\d{5})[ \t]+\p{Lu}`),
+	// leggi e regolamenti: «D.Lgs. 999/2099», «Regolamento (UE) 2099/679», «Legge n. 123/2099»
+	regexp.MustCompile(`(?i)\b(?:d\.?\s?lgs\.?|decreto legislativo|legge|l\.|d\.?p\.?r\.?|reg(?:olamento)?\.?(?:\s*\(?(?:ue|ce)\)?)?|gdpr|direttiva(?:\s*(?:ue|ce))?)\s*(?:n\.?\s*)?(\d{1,4}/\d{2,4})\b`),
+	// i segnaposto di Exchange per gli allegati incorporati: ATT00001.bin, ATT00002.htm
+	regexp.MustCompile(`(?i)\b(ATT\d{5})\b`),
+	// il numero di una tabella del cliente: COD-12-345
+	regexp.MustCompile(`(?i)\b(COD-\d{2}-\d{3})\b`),
+}
+
+// viaConCivico è l'inizio di una riga d'indirizzo: la parola della via dove comincia un indirizzo (a
+// capo, o dopo «:», «,», «;», «|», «(» o un trattino; mai in mezzo a una frase, come in «spedito via
+// DHL»), un nome proprio di al più quattro parole senza punteggiatura (la maiuscola, anche dopo «del»,
+// «dell'» …) e il numero civico, anche dopo una virgola («Via Esempio, 12»).
+const viaConCivico = `(?m)(?:^|[,;:|(\-–])[ \t]*` +
+	`(?i:via|viale|v\.le|piazza|p\.zza|piazzale|corso|c\.so|strada|largo|località|loc\.)[ \t]+` +
+	`(?:(?i:dell['’]|della|dello|delle|degli|del|dei|di|d['’])[ \t]*)?` +
+	`\p{Lu}[\p{L}'’.]*(?:[ \t]+[\p{L}'’.]+){0,3},?[ \t]+\d{1,4}`
+
+var reViaConCivico = regexp.MustCompile(viaConCivico + `\b`)
+
+// reCAPConProvincia è il CAP davanti al luogo con la provincia: «- 40999 Città Esempio (BO)», a capo o
+// dopo un separatore; il luogo è al più cinque parole, la sigla una delle province (siglaProvincia).
+// Da sola la forma non basta (un elenco di codici con la sigla del materiale ha la stessa forma): vale
+// solo vicino a un indirizzo o nella firma (capInFirma).
+var reCAPConProvincia = regexp.MustCompile(`(?m)(?:^|[,;|\-–])[ \t]*(\d{5})[ \t]+\p{Lu}[\p{L}'’.\-]*(?:[ \t]+[\p{L}'’.\-]+){0,4}` +
+	`[ \t]*\([ \t]*` + siglaProvincia + `[ \t]*\)`)
+
+// reSaluto è la formula di chiusura che apre la firma: una riga che comincia con i saluti.
+var reSaluto = regexp.MustCompile(`(?im)^[ \t]*(?:grazie[ \t,.]*(?:e[ \t]+)?|thanks?[ \t,.]*(?:and[ \t]+)?)?` +
+	`(?:(?:cordiali|distinti|cari|molti)[ \t]+saluti|saluti|un[ \t]+(?:cordiale[ \t]+)?saluto|cordialmente|` +
+	`(?:best|kind|warm)[ \t]+regards|regards|mit[ \t]+freundlichen[ \t]+gr(?:ü|ue)(?:ß|ss)en|` +
+	`freundliche[ \t]+gr(?:ü|ue)(?:ß|ss)e|(?:bien[ \t]+)?cordialement|saludos|atentamente)\b`)
+
+// righeDiFirma è quante righe dopo la formula di chiusura si leggono come firma: una firma ne ha
+// poche, e più sotto comincia di solito il messaggio citato, con i suoi codici.
+const righeDiFirma = 8
+
+// le sigle delle province italiane, per il CAP davanti al luogo (reCAPConProvincia): con anche le
+// quattro sarde soppresse (CI, OG, OT, VS), che le firme scrivono ancora
+const siglaProvincia = `(?:AG|AL|AN|AO|AP|AQ|AR|AT|AV|BA|BG|BI|BL|BN|BO|BR|BS|BT|BZ|CA|CB|CE|CH|CI|CL|CN|CO|CR|CS|CT|CZ|` +
+	`EN|FC|FE|FG|FI|FM|FR|GE|GO|GR|IM|IS|KR|LC|LE|LI|LO|LT|LU|MB|MC|ME|MI|MN|MO|MS|MT|NA|NO|NU|OG|OR|OT|PA|PC|PD|` +
+	`PE|PG|PI|PN|PO|PR|PT|PU|PV|PZ|RA|RC|RE|RG|RI|RM|RN|RO|SA|SI|SO|SP|SR|SS|SU|SV|TA|TE|TN|TO|TP|TR|TS|TV|UD|VA|` +
+	`VB|VC|VE|VI|VR|VS|VT|VV)`
+
+// senzaNumeriDiFirma toglie dal testo i numeri della firma (reNumeriDiFirma, e reCAPConProvincia dove
+// capInFirma lo ammette), uno spazio al loro posto.
+func senzaNumeriDiFirma(t string) string {
+	for _, re := range reNumeriDiFirma {
+		t = togli(t, re.FindAllStringSubmatchIndex(t, -1))
+	}
+	trovati := reCAPConProvincia.FindAllStringSubmatchIndex(t, -1)
+	if len(trovati) == 0 {
+		return t
+	}
+	f := leggiFirma(t)
+	var inFirma [][]int
+	for _, m := range trovati {
+		if f.capInFirma(m[2]) {
+			inFirma = append(inFirma, m)
+		}
+	}
+	return togli(t, inFirma)
+}
+
+// lettoreFirma è il testo letto UNA VOLTA per capInFirma: le vie col civico e i saluti di tutto il
+// testo, e un cursore delle righe. I CAP arrivano in ordine, quindi il cursore e i due indici vanno solo
+// avanti, e il filtro costa quanto una lettura del testo.
+//
+// La prima versione (4.13) rileggeva, per ogni CAP, i saluti di tutto il testo che lo precede e le vie
+// delle sue due righe: il costo cresceva col quadrato della lunghezza della mail, e 5000 righe
+// «71200 Boccola (PA) …» costavano mezzo minuto dentro l'ingest (TestFirmaInUnaLettura). Gli esiti
+// sono gli stessi, per due ragioni:
+//   - un saluto sta su una riga sola (nessuna classe di reSaluto prende l'a capo): i saluti di
+//     t[:inizioRiga] sono quelli di tutto il testo che finiscono entro inizioRiga. E basta il più vicino,
+//     perché gli a capo fra un saluto e la riga del CAP calano andando avanti;
+//   - anche una via col civico sta su una riga sola, e non contiene mai un CAP: le sole cifre di una via
+//     sono il civico, da una a quattro dopo uno spazio e prima di un confine di parola, mentre il CAP
+//     sono cinque cifre non precedute da una cifra (reCAPConProvincia). Per questo «c'è una via in
+//     t[inizioPrima:i]» vuol dire «la prima via del testo che comincia da inizioPrima in poi finisce
+//     entro i». Se una delle tre regex cambia, TestFirmaInUnaLettura confronta con la lettura di prima.
+type lettoreFirma struct {
+	t          string
+	vie        [][]int // reViaConCivico su tutto il testo, in ordine
+	saluti     [][]int // reSaluto su tutto il testo, in ordine
+	rigaSaluto []int   // per ogni saluto, gli a capo prima della sua fine
+
+	pos, aCapo              int // il cursore delle righe: gli a capo in t[:pos]
+	inizioRiga, inizioPrima int // l'inizio della riga di pos e di quella prima
+	via                     int // la prima via che non comincia prima di inizioPrima
+	saluto                  int // quanti saluti finiscono entro inizioRiga
+}
+
+func leggiFirma(t string) *lettoreFirma {
+	f := &lettoreFirma{t: t, vie: reViaConCivico.FindAllStringIndex(t, -1), saluti: reSaluto.FindAllStringIndex(t, -1)}
+	f.rigaSaluto = make([]int, len(f.saluti))
+	da, n := 0, 0
+	for k, s := range f.saluti {
+		n += strings.Count(t[da:s[1]], "\n")
+		f.rigaSaluto[k], da = n, s[1]
+	}
+	return f
+}
+
+// capInFirma dice se il CAP con la provincia che comincia in i sta vicino a un indirizzo (una via col
+// civico sulla stessa riga, prima del CAP, o sulla riga prima) o nella firma (entro righeDiFirma righe
+// dopo una formula di chiusura). Le i arrivano in ordine crescente.
+func (f *lettoreFirma) capInFirma(i int) bool {
+	for {
+		k := strings.IndexByte(f.t[f.pos:i], '\n')
+		if k < 0 {
+			break
+		}
+		f.pos += k + 1
+		f.inizioPrima, f.inizioRiga = f.inizioRiga, f.pos
+		f.aCapo++
+	}
+	f.pos = i
+	for f.via < len(f.vie) && f.vie[f.via][0] < f.inizioPrima {
+		f.via++
+	}
+	if f.via < len(f.vie) && f.vie[f.via][1] <= i {
+		return true
+	}
+	for f.saluto < len(f.saluti) && f.saluti[f.saluto][1] <= f.inizioRiga {
+		f.saluto++
+	}
+	return f.saluto > 0 && f.aCapo-f.rigaSaluto[f.saluto-1] <= righeDiFirma
+}
+
+// togli mette uno spazio al posto del gruppo 1 di ogni corrispondenza (gli indici di
+// FindAllStringSubmatchIndex, in ordine).
+func togli(t string, trovati [][]int) string {
+	if len(trovati) == 0 {
+		return t
+	}
+	var b strings.Builder
+	prec := 0
+	for _, m := range trovati {
+		b.WriteString(t[prec:m[2]])
+		b.WriteByte(' ')
+		prec = m[3]
+	}
+	b.WriteString(t[prec:])
+	return b.String()
 }
 
 // nomi di file generati da telefoni e strumenti di cattura: non sono codici prodotto
