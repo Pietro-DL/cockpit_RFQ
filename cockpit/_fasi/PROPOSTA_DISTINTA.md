@@ -1,8 +1,8 @@
 # Proposta — la Distinta vista da chi la usa
 
-**Stato: proposta, solo mockup.** Questa PR non cambia il codice del Cockpit. Aggiunge
-`mockup_distinta.html`, una pagina interattiva che si apre nel browser senza server e non salva niente,
-e questo riepilogo: che cosa non va oggi, che cosa si propone, che cosa serve nel backend per farlo.
+**Stato: implementata in parte.** La schermata c'e' (`/thread/{id}/distinta`, vedi «Che cosa e' fatto» in fondo);
+il mockup (`mockup_distinta.html`, si apre nel browser senza server e non salva niente) resta come riferimento. Qui:
+che cosa non va oggi, che cosa si propone, che cosa serve nel backend e che cosa e' gia' fatto.
 
 ## Perimetro
 
@@ -124,3 +124,27 @@ Si riusano così come sono:
   della casella scelta.
 - Le quantità, i tipi e le decisioni dell'«Analisi del prodotto» sono scritti a mano nel mockup: il
   worker che li produce non esiste ancora (punto 1).
+
+## Che cosa e' fatto (29/09/2026)
+
+- La Distinta in quattro passi (`internal/transport/web/distinta.go`, `web/templates/distinta.html`,
+  `web/static/distinta.css`, `web/static/distinta.mjs`), con le rotte e i dati di sempre; la pagina della RFQ, la pagina
+  Richieste e il Fascicolo portano li'.
+- Punto 3 del backend: niente sotto un particolare (`collega`, `pianifica`, `MotivoTipoSpento`), e il particolare
+  commerciale fra i tipi che l'operatore scrive (`TipiNuovo`).
+- Punto 6: i nomi dei tipi («particolare commerciale»), anche nel Fascicolo.
+- Punto 4: non era un difetto del backend. La proposta di un file non prende mai da sola il componente (la lettura del
+  worker non lo scrive); i tre file erano stati assegnati al prodotto con un clic, in un menu che partiva gia' sul
+  prodotto. Nella Distinta i menu partono vuoti e non offrono il pezzo a cui il file va gia'.
+- La guida di uno STEP non autorizzato si puo' trasformare in pezzi scritti dall'operatore; l'autorizzazione dello STEP
+  resta nel Fascicolo.
+
+## Che cosa resta
+
+- Punto 1 (l'elenco particolari del PDF d'assieme letto dal worker) e punto 2 (lo stesso pezzo sotto nomi diversi).
+- Punto 5 (gli assiemi interni): la Distinta propone un codice interno modificabile per un assieme nuovo; manca la
+  decisione su come si numerano.
+- Gli archivi dentro un archivio non vengono aperti dalla preparazione: la Distinta li mostra fra i «Da sistemare».
+- La denominazione di un pezzo nuovo si scrive dopo il salvataggio (la `StrutturaVoluta` non la porta).
+- Le prove: quelle del ramo `-qa` sulla regola del tipo sono da aggiornare (vedi la descrizione della PR); nessuna prova
+  L7 della Distinta.

@@ -369,6 +369,15 @@ markmap:
 - **Dopo il congelamento la working non cambia**:
   - `SeBloccata` lo dice prima,
   - il trigger `bom_working_modificabile` (0020) è il muro.
+- **Niente sotto un particolare** (Distinta, 29/09/2026):
+  - sotto un particolare e sotto un particolare commerciale non si mette niente; i pezzi stanno sotto il prodotto e sotto
+    gli assiemi (`nuovo.go:Contenitore`).
+  - Lo rifiutano `collega` (quindi `Collega` e `Sposta`) per un arco nuovo e `pianifica` per gli archi che l'editor
+    manda, con un componente che c'e' o un codice scritto; `MotivoTipoSpento` spegne «particolare» e «particolare
+    commerciale» per un pezzo che ha dei figli.
+  - Un nodo proposto da uno STEP con dei figli nasce assieme (`tipoVoluto`), e `accettaRelazione` fa diventare assieme
+    il padre particolare di un arco dello STEP: lo dice il file, non una persona.
+  - `TipiNuovo` comprende il particolare commerciale: la Distinta ha un pulsante per crearlo.
 - **Nessun ciclo entra da qui**:
   - ogni nuovo arco passa da `CreerebbeCiclo` (`accettaRelazione`, `collega`) o dal controllo del grafo finale (`pianifica`);
   - il gate rifiuta di congelare una working con un ciclo.

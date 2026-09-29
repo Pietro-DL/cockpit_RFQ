@@ -109,7 +109,7 @@ type StrutturaVoluta struct {
 // ComponenteNuovo e' un pezzo che l'operatore scrive nell'editor: il codice e' suo, mai precompilato.
 type ComponenteNuovo struct {
 	Codice string            `json:"codice"`
-	Tipo   db.TipoComponente `json:"tipo"` // sottoassieme o sciolto (TipiNuovo)
+	Tipo   db.TipoComponente `json:"tipo"` // sottoassieme, sciolto o commerciale (TipiNuovo)
 	Rev    string            `json:"rev"`
 	// Diverso: l'operatore ha detto che e' un pezzo diverso dai codici quasi uguali della RFQ (P4). Senza,
 	// un codice quasi uguale si rifiuta.
@@ -334,8 +334,8 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		if rev != "" && !classificazione.RevAmmissibile(rev) {
 			return pv, Rifiuto(fmt.Sprintf("«%s»: la revisione ha più di %d caratteri o caratteri non ammessi", codice, classificazione.MaxRev))
 		}
-		if n.Tipo != db.TipoComponenteSottoassieme && n.Tipo != db.TipoComponenteSciolto {
-			return pv, Rifiuto(codice + ": un componente scritto nell'editor è un assieme o un particolare")
+		if n.Tipo != db.TipoComponenteSottoassieme && n.Tipo != db.TipoComponenteSciolto && n.Tipo != db.TipoComponenteCommerciale {
+			return pv, Rifiuto(codice + ": un componente scritto nell'editor è un assieme, un particolare o un particolare commerciale")
 		}
 		up := strings.ToUpper(codice)
 		if _, gia := scritti[up]; gia {
@@ -487,6 +487,13 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		figliDi[p] = append(figliDi[p], f)
 		pv.Figli[p]++
 	}
+	// i padri degli archi che l'operatore manda: la regola del tipo (in fondo) guarda solo loro, non gli archi
+	// della working che si tengono come sono
+	padriVoluti := make([]chiaveNodo, 0, len(figliDi))
+	for p := range figliDi {
+		padriVoluti = append(padriVoluti, p)
+	}
+	sort.Slice(padriVoluti, func(i, j int) bool { return padriVoluti[i] < padriVoluti[j] })
 	// l'albero: quello che la radice raggiunge; un arco che parte da fuori non e' appeso a niente
 	calcolaAlbero := func() {
 		pv.Albero = map[chiaveNodo]bool{chiaveRadice: true}
@@ -703,6 +710,25 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		}
 		return pv, Rifiuto(fmt.Sprintf("%s sarebbe il componente %s perché ha lo stesso codice, ma l'editor non l'ha mostrato come ritrovato: riapri l'editor",
 			nomeNodo(cx.Proposte[id]), cx.nome(chiaveComponente(pv.Ritrovati[id]))))
+	}
+	// Sotto un particolare e sotto un particolare commerciale non si mette niente. Un nodo proposto con dei
+	// figli nasce assieme (tipoVoluto: lo dice lo STEP); un componente che c'e' e un codice scritto qui tengono
+	// il tipo che hanno, che una persona cambia prima. Dopo gli altri controlli, che dicono di piu'; in ordine,
+	// perche' il rifiuto sia sempre lo stesso.
+	for _, p := range padriVoluti {
+		tipo, noto := db.TipoComponente(""), false
+		if id, ok := p.componente(); ok {
+			if c, ok := cx.Componenti[id]; ok {
+				tipo, noto = c.Tipo, true
+			}
+		} else if codice, ok := strings.CutPrefix(string(p), "n:"); ok {
+			if n, ok := scritti[codice]; ok {
+				tipo, noto = n.Tipo, true
+			}
+		}
+		if noto && !Contenitore(tipo) {
+			return pv, Rifiuto(fraseNonContenitore(cx.nome(p), tipo))
+		}
 	}
 	return pv, nil
 }
