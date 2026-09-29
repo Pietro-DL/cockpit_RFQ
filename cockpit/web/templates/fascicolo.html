@@ -1069,10 +1069,12 @@
   <span class="sp"></span>
   {{if .Scrive}}
   <a class="btn small{{if eq .Stato.Cassetto "piano"}} on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "piano"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "piano"}}">Rivedi</a>
-  <form class="in-linea" hx-post="/thread/{{.T.ThreadID}}/fascicolo/conferma">
-    <input type="hidden" name="firma" value="{{.Piano.Firma}}">
-    <button type="submit" class="btn primary" id="conferma-fascicolo"{{if not .Piano.Pronte}} disabled{{end}} title="Porta nel fascicolo tutto quello che è pronto: i documenti (con la copia sul NAS). La struttura degli STEP si conferma nell'editor; uno STEP si autorizza dalla scheda del componente, con l'anteprima">Conferma Fascicolo</button>
-  </form>
+  {{/* Giro 4, fase 4.1b (domanda 9b = A): «Conferma Fascicolo» non scrive. Apre il riepilogo (il cassetto «Rivedi»,
+       una GET) con i file, i componenti, i tipi e i percorsi sul NAS; si conferma da li', con la sua firma e
+       «Conferma e copia sul NAS». Qui prima c'era un modulo con la firma del piano gia' dentro: un clic confermava
+       tutto il pronto e faceva partire la copia. */}}
+  {{if .Piano.Pronte}}<a class="btn primary" id="conferma-fascicolo" href="{{.Base}}{{.Stato.Con "cassetto" "piano"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "piano"}}" title="Apre il riepilogo di quello che è pronto: per ogni file il componente, il tipo e il percorso sul NAS. Si conferma da lì, con «Conferma e copia sul NAS». La struttura degli STEP si conferma nell'editor; uno STEP si autorizza dalla scheda del componente, con l'anteprima">Conferma Fascicolo…</a>
+  {{else}}<button type="button" class="btn primary" id="conferma-fascicolo" disabled title="Niente di pronto da confermare">Conferma Fascicolo</button>{{end}}
   {{end}}
   {{end}}
 </div>
@@ -1098,7 +1100,7 @@
 {{/* ------------------------------------------------------------------ i cassetti */}}
 {{define "fasc_cassetto"}}
 {{if .Stato.Cassetto}}
-<div class="cassetto-dentro" role="dialog" aria-label="{{if eq .Stato.Cassetto "verifica"}}Da verificare{{else if eq .Stato.Cassetto "piano"}}Rivedi il piano{{else if eq .Stato.Cassetto "nas"}}Importa dal NAS{{else if eq .Stato.Cassetto "codici"}}Codici della richiesta{{else}}Avvisi{{end}}">
+<div class="cassetto-dentro" role="dialog" aria-label="{{if eq .Stato.Cassetto "verifica"}}Da verificare{{else if eq .Stato.Cassetto "piano"}}Riepilogo di Conferma Fascicolo{{else if eq .Stato.Cassetto "nas"}}Importa dal NAS{{else if eq .Stato.Cassetto "codici"}}Codici della richiesta{{else}}Avvisi{{end}}">
   <div class="pan-testa">
     <nav class="cassetto-linguette">
       <a class="btn small{{if eq .Stato.Cassetto "verifica"}} on{{end}}" href="{{.Base}}{{.Stato.Con "cassetto" "verifica"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "verifica"}}">Da verificare ({{.NDaVerificare}})</a>
@@ -1297,21 +1299,37 @@
 </div>
 {{end}}{{end}}
 
-{{/* «Rivedi»: le voci pronte, spuntate, prima della conferma. Si toglie la spunta a quello che non deve entrare. */}}
+{{/* «Rivedi»: il riepilogo di «Conferma Fascicolo» (giro 4, fase 4.1b; domanda 9b = A). Lo apre una GET (il bottone
+     «Conferma Fascicolo…» in fondo, o «Rivedi»), che non scrive. Per ogni file pronto: il componente, il tipo di
+     documento e il percorso che riceverà sul NAS. Il modulo porta la firma del riepilogo (i file e i percorsi) e il
+     bottone «Conferma e copia sul NAS», che è la conferma scritta: la POST senza l'una o l'altra, o con la firma di un
+     riepilogo che nel frattempo è cambiato, non scrive niente e ridisegna il riepilogo di adesso. Le voci pronte sono
+     spuntate: si toglie la spunta a quello che non deve entrare (`selezione` dice che l'elenco è quello: senza spunte
+     non si conferma niente). Senza JavaScript il modulo va lo stesso (method/action). Prima il modulo aveva solo le
+     caselle e «Conferma i selezionati», senza percorsi e senza firma. */}}
 {{define "fasc_rivedi"}}{{$d := .}}
 {{if .Piano.Pronte}}
-<form class="rivedi" hx-post="/thread/{{.T.ThreadID}}/fascicolo/conferma">
-  {{with .Piano.Strutture}}<p class="k rivedi-strutture">La struttura proposta dagli STEP ({{range $i, $s := .}}{{if $i}}, {{end}}{{$s.Nome}}{{end}}) non entra da qui: si rivede e si conferma nell'editor della <a href="{{$d.Base}}?vista=bom&amp;editor=">Struttura BOM</a>.</p>{{end}}
+{{with .ErroreRiepilogo}}<p class="avviso-riga urg">{{.}}</p>{{end}}
+{{with .Riepilogo}}
+{{if $d.Scrive}}<form class="rivedi" method="post" action="{{$d.Base}}/conferma" hx-post="{{$d.Base}}/conferma">{{else}}<div class="rivedi">{{end}}
+  <p class="k rivedi-testa">Che cosa entra nel fascicolo e dove va sul NAS, nella cartella della RFQ {{with .Cartella}}<span class="mono">{{.}}</span>{{else}}(la RFQ non ne ha una){{end}}. Finché non si conferma non succede niente.</p>
+  {{with $d.Piano.Strutture}}<p class="k rivedi-strutture">La struttura proposta dagli STEP ({{range $i, $s := .}}{{if $i}}, {{end}}{{$s.Nome}}{{end}}) non entra da qui: si rivede e si conferma nell'editor della <a href="{{$d.Base}}?vista=bom&amp;editor=">Struttura BOM</a>.</p>{{end}}
   <fieldset><legend>Documenti</legend>
-    {{range .Piano.File}}{{if eq .Stato "pronto"}}<label><input type="checkbox" name="voce" value="{{.Proposta}}" checked>
-      <span><b>{{.Nome}}</b> → {{etichettaTipoDoc (print .Tipo)}}{{with .Destinazione}} di <span class="mono">{{.}}</span>{{else}} della RFQ{{end}}{{if .DaStep}} <small class="k">(nasce dallo STEP {{.DaStep.File}})</small>{{end}}{{if .Rev}} <small class="k">rev {{.Rev}}</small>{{end}}{{if .Aggiunge}} <small class="k">· si aggiunge</small>{{end}}{{if .Duplicato}} <small class="k">· già nel fascicolo come {{.Duplicato}}: solo la provenienza</small>{{end}}</span></label>{{end}}{{end}}
+    {{range .File}}<label class="rivedi-voce">{{if $d.Scrive}}<input type="checkbox" name="voce" value="{{.Proposta}}" checked>{{end}}
+      <span><b>{{.Nome}}</b> → {{etichettaTipoDoc (print .Tipo)}}{{with .Componente}} di <span class="mono">{{.}}</span>{{else}} della RFQ, senza componente{{end}}{{with .DaStep}} <small class="k">(nasce dallo STEP {{.}})</small>{{end}}{{if .Rev}} <small class="k">rev {{.Rev}}</small>{{end}}{{if .Aggiunge}} <small class="k">· si aggiunge</small>{{end}}
+      <br>{{if .Errore}}<small class="urg-t rivedi-percorso">nessun percorso sul NAS: {{.Errore}}</small>{{else if .Provenienza}}<small class="k rivedi-percorso">già nel fascicolo come {{.Provenienza}}, in <span class="mono">{{.Percorso}}</span>: solo la provenienza, nessuna copia</small>{{else}}<small class="k rivedi-percorso">sul NAS: <span class="mono">{{.Percorso}}</span></small>{{end}}</span></label>{{end}}
+    {{range .Strutture}}<label class="rivedi-voce">{{if $d.Scrive}}<input type="checkbox" name="struttura" value="{{.Allegato}}" checked>{{end}}
+      <span>struttura di <b>{{.Nome}}</b>: {{.Nodi}} nod{{if eq .Nodi 1}}o{{else}}i{{end}} e {{.Archi}} arc{{if eq .Archi 1}}o{{else}}hi{{end}} <small class="k">(nessun file sul NAS)</small></span></label>{{end}}
   </fieldset>
   {{/* Smistamento F5b (P26, U7): qui c'era la casella dello STEP strutturale, nata spuntata quando lo STEP del
        prodotto era uno solo. Uno STEP si autorizza con l'anteprima e la casella mai spuntata («Da verificare»,
        o la scheda del componente): la conferma del piano non autorizza niente. */}}
-  <button type="submit" class="btn primary">Conferma i selezionati</button>
-  <p class="k">I documenti nascono adesso e la copia sul NAS parte subito dopo. I file che vanno a un componente che nasce da uno STEP aspettano la conferma della sua struttura.</p>
-</form>
+  {{if $d.Scrive}}
+  <input type="hidden" name="selezione" value="1"><input type="hidden" name="firma" value="{{.Firma}}">
+  <button type="submit" class="btn primary" name="conferma" value="1">Conferma e copia sul NAS</button>
+  <p class="k">I documenti nascono adesso e la copia sul NAS parte subito dopo, nei percorsi qui sopra. Se nel frattempo il riepilogo cambia (un file analizzato, la decisione di un collega), la conferma non scrive niente e lo ridisegna. I file che vanno a un componente che nasce da uno STEP aspettano la conferma della sua struttura.</p>
+</form>{{else}}</div>{{end}}
+{{end}}
 {{else}}<p class="k">Niente di pronto da confermare.</p>{{end}}
 {{if .Piano.InAttesa}}<p class="label">In preparazione</p><ul class="mini-lista">{{range .Piano.File}}{{if eq .Stato "attesa"}}<li>{{.Nome}}</li>{{end}}{{end}}</ul>{{end}}
 {{if .Piano.Decisioni}}<p class="k">{{.Piano.Decisioni}} voc{{if eq .Piano.Decisioni 1}}e{{else}}i{{end}} aspett{{if eq .Piano.Decisioni 1}}a{{else}}ano{{end}} una decisione: <a href="{{.Base}}{{.Stato.Con "cassetto" "verifica"}}" hx-get="{{.Base}}/parti{{.Stato.Con "cassetto" "verifica"}}">Da verificare</a>.</p>{{end}}

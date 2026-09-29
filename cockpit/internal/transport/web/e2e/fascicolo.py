@@ -14,7 +14,8 @@ Le prove (lettere, scelte dal test Go con --prove):
   F  il tipo dalla sezione «Tipo» della scheda (tendina, anteprima, bottone) cambia la card e la completezza
   G  cento file: la pagina in meno di un secondo, il filtro, niente scorrimento orizzontale
   H  Completezza, cassetti tecnici (codici, avvisi), «Da verificare», riepilogo di uno STEP (e le fotografie)
-  I  «Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto; la struttura dello STEP poi nell'editor
+  I  «Rivedi» e «Conferma Fascicolo»: il riepilogo con i percorsi sul NAS, poi «Conferma e copia sul NAS»; la
+     struttura dello STEP poi nell'editor
   J  il tipo dall'editor della Struttura BOM: menu della riga, riquadro, anteprima, cambio, l'editor che si riapre
 
 Fascicolo v3: la vista predefinita e' Documenti (la provano fascicolo_v3.py); queste prove aprono la
@@ -375,7 +376,7 @@ def prova_h(b):
     b.foto("10_step_riepilogo.png")
 
 
-@prova("I", "«Rivedi» e «Conferma Fascicolo»: il piano entra con un gesto, la struttura nell'editor")
+@prova("I", "«Rivedi» e «Conferma Fascicolo»: il riepilogo, poi la conferma scritta; la struttura nell'editor")
 def prova_i(b):
     b.apri()
     piano = b.page.locator("#piano")
@@ -389,9 +390,20 @@ def prova_i(b):
     # v3: la struttura dello STEP non si spunta qui, il riepilogo dice dove si conferma
     verifica(b.page.locator('#cassetto form.rivedi input[name="struttura"]').count() == 0, "la struttura dello STEP si spunta ancora nel riepilogo")
     verifica("assieme.stp" in b.page.locator("#cassetto form.rivedi .rivedi-strutture").inner_text(), "il riepilogo non rimanda all'editor per la struttura dello STEP")
+    # giro 4, fase 4.1b: il riepilogo dice per ogni voce il percorso sul NAS
+    percorsi = b.page.locator("#cassetto form.rivedi .rivedi-percorso")
+    verifica(percorsi.count() == pronti, "nel riepilogo %d percorsi sul NAS per %d voci pronte" % (percorsi.count(), pronti))
     b.foto("11_rivedi.png")
     b.clic_e_aspetta(b.page.locator("#cassetto a.chiudi-cassetto"), "/fascicolo/parti")
-    b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/conferma")
+    # «Conferma Fascicolo» non scrive: apre il riepilogo (una GET); si conferma da li', con «Conferma e copia sul NAS»
+    b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/parti")
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    verifica(b.avviso() == "", "aprire il riepilogo ha dato un esito: %r" % b.avviso())
+    verifica(b.page.locator("#conferma-fascicolo").is_enabled(), "aperto il riepilogo non e' piu' pronto niente: il bottone ha confermato")
+    conferma = b.page.locator("#cassetto form.rivedi button[name=conferma]")
+    verifica(conferma.count() == 1 and conferma.inner_text().strip() == "Conferma e copia sul NAS", "il riepilogo non ha «Conferma e copia sul NAS»")
+    b.foto("12_riepilogo.png")
+    b.clic_e_aspetta(conferma, "/fascicolo/conferma")
     verifica(b.viva(), "la pagina si e' ricaricata")
     avviso = b.avviso()
     verifica(avviso.startswith("Fascicolo confermato"), "avviso: %r" % avviso)
