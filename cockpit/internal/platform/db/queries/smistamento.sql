@@ -19,8 +19,10 @@ UPDATE documento_proposta
 -- I file della RFQ come il flusso li vede: il nome e la cartella dentro l'archivio (le evidenze del nome),
 -- il nome dell'archivio che li contiene, se sono a loro volta un archivio con delle voci, e se vengono da
 -- una fonte del cliente (la stessa condizione di ListStepDellaRfq, P27: non da un fornitore, non da una
--- nostra mail in uscita fuori dal canale `nota`). Gli inline e i collegamenti non sono file da smistare.
-SELECT a.allegato_id, a.contenitore_id, a.nome_file, a.path_interno, a.estensione, a.sha256, a.ricevuto_il,
+-- nostra mail in uscita fuori dal canale `nota`). Gli inline e i collegamenti non sono file da smistare. Lo
+-- stato dell'allegato dice se un PDF senza i fatti correnti e' gia' stato analizzato (testo «non letto, da
+-- rianalizzare») o no («da analizzare»): giro 4, fase 4.2.
+SELECT a.allegato_id, a.contenitore_id, a.nome_file, a.path_interno, a.estensione, a.sha256, a.ricevuto_il, a.stato,
        c.nome_file AS nome_contenitore,
        (m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota'))::bool AS del_cliente,
        (EXISTS (SELECT 1 FROM allegato v WHERE v.contenitore_id = a.allegato_id))::bool AS contenitore

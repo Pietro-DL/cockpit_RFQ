@@ -26,7 +26,7 @@ package fascicolo
 import (
 	"context"
 	"errors"
-	"strings"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -39,8 +39,7 @@ import (
 // pdfGiaAnalizzato dice se l'allegato e' un PDF della RFQ che un'analisi ha gia' letto (con un analizzatore
 // qualunque): il candidato a una rianalisi.
 func pdfGiaAnalizzato(a db.Allegato) bool {
-	return strings.EqualFold(strings.TrimSpace(a.Estensione.String), "pdf") && a.Natura == db.NaturaAllegatoFile &&
-		a.Sha256.Valid && a.Sha256.String != "" && a.Stato == db.StatoAllegatoAnalizzato
+	return a.Natura == db.NaturaAllegatoFile && a.Sha256.Valid && pdfAnalizzato(a.Estensione.String, a.Sha256.String, a.Stato)
 }
 
 // AccodaPdfDaRileggere accoda l'analisi dei PDF della RFQ che hanno soltanto fatti di un analizzatore
@@ -50,12 +49,23 @@ func pdfGiaAnalizzato(a db.Allegato) bool {
 // anche un'analisi il cui ultimo tentativo e' fallito. Lo stesso contenuto in piu' allegati si accoda una volta: al
 // risultato i fatti vanno a tutte le copie con la proposta aperta. Un contenuto non piu' in staging non si
 // accoda (il worker fallirebbe con «usa Riscarica»): si conta.
+//
+// Giro 4, fase 4.2 (A5.13.6): prima i PDF il cui nome e' compatibile con un prodotto della RFQ (il disegno del
+// prodotto, da cui puo' arrivare l'ancora piatta), con la priorita' che li fa passare prima nella coda
+// (coda.PrioritaAnalisiCompatibile, 5); anche quelli gia' in coda passano avanti. Il limite vale per tutti: i
+// compatibili lo usano per primi. Gli altri restano alla priorita' di sempre.
 func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxAccodati int) (Rianalisi, error) {
 	var r Rianalisi
 	allegati, err := q.ListAllegatiThread(ctx, uuid.NullUUID{UUID: thread, Valid: true})
 	if err != nil {
 		return r, err
 	}
+	compatibili, err := CompatibiliConIProdotti(ctx, q, thread)
+	if err != nil {
+		return r, err
+	}
+	primo := func(a db.Allegato) bool { return compatibili.Compatibile(a.NomeFile, a.PathInterno.String, "") }
+	sort.SliceStable(allegati, func(i, j int) bool { return primo(allegati[i]) && !primo(allegati[j]) })
 	hash := an.Hash()
 	accodato := map[string]bool{}
 	for _, a := range allegati {
@@ -79,7 +89,11 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 			continue
 		}
 		// RiaccodaAnalisi e non AccodaAnalisi: quella si ferma ai fatti correnti, anche a quelli senza testo
-		j, err := coda.RiaccodaAnalisi(ctx, q, a, uuid.NullUUID{UUID: thread, Valid: true}, an)
+		priorita := coda.PrioritaAnalisi
+		if primo(a) {
+			priorita = coda.PrioritaAnalisiCompatibile
+		}
+		j, err := coda.RiaccodaAnalisiCon(ctx, q, a, uuid.NullUUID{UUID: thread, Valid: true}, an, priorita)
 		if err != nil {
 			return r, err
 		}
@@ -98,24 +112,12 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 // della RFQ (m) e il nome di QUESTO allegato. Senza i fatti correnti non si indovina: un PDF gia' analizzato da
 // un analizzatore precedente e' «testo non letto, da rianalizzare» (come uno con i fatti correnti ma senza il
 // testo, che dice LettureDelPDF), uno non ancora analizzato e' «da analizzare». Non scrive niente e non accoda
-// niente: si puo' chiamare anche aprendo una pagina.
+// niente: si puo' chiamare anche aprendo una pagina. E' la stessa lettura che il flusso fa per ogni PDF
+// (lettureCorrenti, comune con EvidenzeContenutoPDF): una porta sola.
 func TestoCorrenteDelPDF(ctx context.Context, q *db.Queries, a db.Allegato, an coda.Analizzatore, m *classificazione.Motore) (classificazione.LettureTestoPDF, error) {
-	daAnalizzare := classificazione.LettureTestoPDF{Stato: classificazione.TestoDaAnalizzare,
-		Frase: classificazione.FraseTestoPDF(classificazione.TestoDaAnalizzare, "")}
-	if !a.Sha256.Valid || a.Sha256.String == "" {
-		return daAnalizzare, nil
+	sha := ""
+	if a.Sha256.Valid {
+		sha = a.Sha256.String
 	}
-	f, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{Sha256: a.Sha256.String,
-		VersioneAnalizzatore: int16(an.Versione), HashConfigurazione: an.Hash()})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		if pdfGiaAnalizzato(a) {
-			return classificazione.LettureTestoPDF{Stato: classificazione.TestoNonLetto,
-				Frase: classificazione.FraseTestoPDF(classificazione.TestoNonLetto, "")}, nil
-		}
-		return daAnalizzare, nil
-	case err != nil:
-		return classificazione.LettureTestoPDF{}, err
-	}
-	return classificazione.LettureDelPDF(m, f.Fatti, a.NomeFile), nil
+	return lettureCorrenti(ctx, q, sha, a.NomeFile, pdfGiaAnalizzato(a), an, m)
 }

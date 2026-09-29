@@ -922,17 +922,21 @@ func (ix *Indice) chiudi(d *derivati) {
 		Sha, Livello        string
 		Regole, Discordanze []string
 	}
+	// le ancore piatte (A-P1, A-P2, A-P3) ci entrano come le altre, con i loro PDF; e per ogni prodotto i PDF
+	// guardati con lo stato del loro testo (Ancora.testiPdf, giro 4, fase 4.2): un PDF che prende il testo
+	// cambia la firma anche quando non ancora, perche' cambia quello che le destinazioni dicono di lui
 	type ancoraFirma struct {
 		Pezzo, Livello string
 		Portatori      []portatoreFirma
 		Discordanze    []string
 		SoloGuida      bool
+		TestiPdf       []string `json:",omitempty"`
 	}
 	ancore := func(m map[string]Ancora) []ancoraFirma {
 		var out []ancoraFirma
 		for _, k := range chiaviOrdinate(m) {
 			a := m[k]
-			af := ancoraFirma{Pezzo: k, Livello: a.Livello, Discordanze: a.Discordanze, SoloGuida: a.SoloGuida}
+			af := ancoraFirma{Pezzo: k, Livello: a.Livello, Discordanze: a.Discordanze, SoloGuida: a.SoloGuida, TestiPdf: a.testiPdf}
 			for _, p := range a.Portatori {
 				af.Portatori = append(af.Portatori, portatoreFirma{p.Sha, p.Livello, p.Regole, p.Discordanze})
 			}
