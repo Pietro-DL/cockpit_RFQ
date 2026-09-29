@@ -20,6 +20,24 @@ DELETE FROM componente_relazione WHERE padre_id = $1 OR figlio_id = $1;
 -- Il rifiuto, se qualcosa lo tiene (documenti, proposte, deroghe, baseline), lo danno le FK.
 DELETE FROM componente WHERE componente_id = $1;
 
+-- name: ListComponentiConStoria :many
+-- I componenti della RFQ che una riga fuori dalla working tiene, e che cosa: un documento, una proposta (di documento,
+-- di struttura, di rimozione), una deroga, una baseline congelata, una nota su un disegno. Sono le FK che fermano
+-- DeleteComponente (cheCosaLoTiene): un componente cosi' non si cancella, si archivia. Solo lettura: il riepilogo
+-- dell'albero proposto lo dice prima della conferma (giro 4, fase 4.4a.1a; domanda 29b = A).
+SELECT c.componente_id,
+       EXISTS (SELECT 1 FROM documento x WHERE x.componente_id = c.componente_id)::bool AS documenti,
+       (EXISTS (SELECT 1 FROM documento_proposta x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM componente_proposta x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM rimozione_proposta x WHERE x.padre_id = c.componente_id OR x.figlio_id = c.componente_id))::bool AS proposte,
+       (EXISTS (SELECT 1 FROM deroga_fabbisogno x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM deroga_struttura x WHERE x.componente_id = c.componente_id))::bool AS deroghe,
+       EXISTS (SELECT 1 FROM bom_versione_componente x WHERE x.componente_id = c.componente_id)::bool AS baseline,
+       EXISTS (SELECT 1 FROM annotazione_pdf x WHERE x.componente_id = c.componente_id)::bool AS note
+  FROM componente c
+ WHERE c.thread_id = $1
+ ORDER BY c.componente_id;
+
 -- name: SetStepStrutturale :execrows
 UPDATE componente SET step_strutturale_id = sqlc.narg(step_strutturale_id) WHERE componente_id = sqlc.arg(componente_id);
 
