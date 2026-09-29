@@ -1292,19 +1292,16 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 
 // scriviProposta scrive la lettura di un file che non ha ancora l'analisi (lo stage, l'estrazione da un
 // archivio): la valutazione dal nome, dal formato e dal rumore, con scriviLettura. I codici che un nome cita
-// senza esserlo restano nei dettagli, senza il suffisso decorativo del cliente. Un file caricato a mano non
-// inventa una revisione del cliente (B8.7): quella scritta nel nome va in `rev_letta`, e la revisione del
-// documento la scrive chi decide.
+// senza esserlo restano nei dettagli, senza il suffisso decorativo del cliente e senza i suoi numeri d'ordine
+// (4.13b, come nell'ingest). Un file caricato a mano non inventa una revisione del cliente (B8.7): quella
+// scritta nel nome va in `rev_letta`, e la revisione del documento la scrive chi decide.
 func (s *Server) scriviProposta(ctx context.Context, q *db.Queries, a db.Allegato, threadID uuid.NullUUID,
 	in classificazione.IngressoFile, dettagli map[string]any) (classificazione.Riepilogo, error) {
 	if dettagli == nil {
 		dettagli = map[string]any{}
 	}
 	in.Motore = motoreDelFile(ctx, q, threadID, a.MessaggioID)
-	if cn := classificazione.PropostaDaNome(a.NomeFile, in.Bytes, in.Direzione).CodiciNelNome; len(cn) > 0 {
-		for i, c := range cn {
-			cn[i] = in.Motore.CanonicoNome(c)
-		}
+	if cn := in.Motore.CitatiNelNome(a.NomeFile, classificazione.PropostaDaNome(a.NomeFile, in.Bytes, in.Direzione).CodiciNelNome); len(cn) > 0 {
 		// il nome non e' un codice, ma ne contiene: si conservano qui, non nella colonna
 		dettagli["codici_nel_nome"] = cn
 	}

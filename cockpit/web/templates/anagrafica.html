@@ -234,6 +234,47 @@
           <label>Esempio <input class="mono" name="rif_esempio" value="{{with $d.Regole.RiferimentoRFQ}}{{.Esempio}}{{end}}"></label>
         </div>
 
+        <h3>Numero d'ordine</h3>
+        <p class="muto nota">La forma del numero d'ordine di questo cliente («ODA_0001234»). Un numero cosi' non e'
+        un codice prodotto e non si propone; nella mail e' una parola d'ordine, e la mail e' un ordine. Vale solo
+        per questo cliente: per un altro la stessa forma puo' essere un codice vero.</p>
+        <div class="riga-campi">
+          <label>Regex <input class="mono" name="ord_regex" value="{{with $d.Regole.NumeroOrdine}}{{.Regex}}{{end}}" placeholder="\bODA_\d{7}\b"></label>
+          <label>Descrizione <input name="ord_descrizione" value="{{with $d.Regole.NumeroOrdine}}{{.Descrizione}}{{end}}"></label>
+          <label>Esempio <input class="mono" name="ord_esempio" value="{{with $d.Regole.NumeroOrdine}}{{.Esempio}}{{end}}"></label>
+        </div>
+
+        <h3>Mittenti di sistema</h3>
+        <p class="muto nota">Gli indirizzi, o gli host, da cui questo cliente manda posta che nessuna persona ha
+        scritto: avvisi di un gestionale, ordini generati da un sistema. La loro posta ha l'evento scritto qui, prima
+        di leggerne le parole, non propone una RFQ nuova e non propone i suoi codici come prodotti. Un host vale per
+        la posta che viene proprio da li' («server.cliente.example»), non per tutto il dominio del cliente: un dominio
+        intero («cliente.example»), un dominio principale del cliente o il dominio di un suo contatto non si accettano,
+        perche' anche le richieste dei buyer diventerebbero avvisi. L'esempio e' un indirizzo vero da cui arriva quella
+        posta. Svuotare il mittente di una riga la cancella.</p>
+        <div class="scorri">
+        <table class="famiglie">
+          <tr><th>Mittente (indirizzo o host)</th><th>Evento</th><th>Descrizione</th><th>Esempio</th></tr>
+          {{range $d.Regole.MittentiSistema}}
+          {{$ev := .Evento}}
+          <tr>
+            <td><input class="mono" name="mit_mittente" value="{{.Mittente}}"></td>
+            <td><select name="mit_evento">
+              {{range $d.EventiPer $ev}}<option value="{{.}}" {{if eq . $ev}}selected{{end}}>{{.}}</option>{{end}}</select></td>
+            <td><input name="mit_descrizione" value="{{.Descrizione}}"></td>
+            <td><input class="mono" name="mit_esempio" value="{{.Esempio}}"></td>
+          </tr>
+          {{end}}
+          <tr>
+            <td><input class="mono" name="mit_mittente" placeholder="avvisi@cliente.example"></td>
+            <td><select name="mit_evento">
+              {{range $d.EventiMittente}}<option value="{{.}}">{{.}}</option>{{end}}</select></td>
+            <td><input name="mit_descrizione" placeholder="avvisi del gestionale documentale"></td>
+            <td><input class="mono" name="mit_esempio" placeholder="avvisi@cliente.example"></td>
+          </tr>
+        </table>
+        </div>
+
         <h3>Come si comporta</h3>
         <div class="riga-campi">
           <label>Canale atteso <input name="canale_atteso" value="{{$d.Regole.CanaleAtteso}}" placeholder="mail con .msg annidato"></label>
@@ -255,7 +296,14 @@
         <div class="riga-campi">
           <label class="inline"><input type="checkbox" name="richiede_cbd" value="1" {{if $d.Regole.RichiedeCBD}}checked{{end}}> l'offerta vuole il cost breakdown</label>
           <label class="inline"><input type="checkbox" name="numero_ordine_anticipato" value="1" {{if $d.Regole.NumeroOrdineAnticipato}}checked{{end}}> emette il numero d'ordine prima dell'offerta</label>
+          <label class="inline"><input type="checkbox" name="ordine_da_verificare" value="1" {{if $d.Regole.OrdineDaVerificare}}checked{{end}}> una mail con «ordine» va verificata: puo' essere una richiesta</label>
         </div>
+        <p class="muto nota">Con il numero d'ordine prima dell'offerta, un ordine accanto a una parola di richiesta
+        non fa un ordine: la mail si legge come se l'ordine non ci fosse (una richiesta nuova, un sollecito, una
+        revisione dei disegni), e l'ordine resta fra le evidenze. «SI CTE» (l'oggetto delle mail del portale)
+        vale come richiesta solo accanto all'ordine: da sola non fa una richiesta, perche' una CTE puo' essere un
+        cambio tecnico. «SI RFQ» contiene gia' «RFQ», che vale come richiesta per tutti i clienti. La seconda casella e' la voce piu' debole: l'ordine resta un ordine, ma
+        probabile, e sceglie l'operatore.</p>
         <div class="azioni-form"><button class="primario">Salva regole</button></div>
       </form>
 
@@ -442,6 +490,7 @@
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova">
         <textarea name="testo" rows="8" spellcheck="false">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
         <label>Nomi allegati (separati da spazio) <input name="allegati" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
+        <label>Mittente (facoltativo, per provare un mittente di sistema) <input class="mono" name="mittente" value="{{if $d.Prova}}{{$d.Prova.Mittente}}{{end}}" placeholder="avvisi@cliente.example"></label>
         <div class="azioni-form"><button>Prova il riconoscimento</button></div>
       </form>
       {{with $d.Prova}}

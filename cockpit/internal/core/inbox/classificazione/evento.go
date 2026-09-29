@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"promatec/cockpit/internal/core/registro/regole"
 )
 
 // L'EVENTO DELLA MAIL (Smistamento M2, A5.16.2)
@@ -114,6 +116,10 @@ type IngressoEvento struct {
 	// DalCockpit: la nostra mail preparata dal Cockpit (la bozza, D84). Lo sa solo chi legge `bozza`, cioè
 	// la schermata: l'ingest non interpreta le nostre mail ai clienti.
 	DalCockpit bool
+	// Motore sono le regole del cliente (Smistamento 4.13b): i mittenti di sistema, il numero d'ordine
+	// anticipato o da verificare, la forma del numero d'ordine. Sono cose che il cliente dichiara di sé,
+	// non candidati: l'evento resta una proprietà del messaggio. Nil = le regole di sempre.
+	Motore *Motore
 }
 
 // EsitoEvento: l'evento, l'atto con cui si salva, la forza a parole e le evidenze da leggere.
@@ -128,15 +134,19 @@ type EsitoEvento struct {
 // (A5.16.2, r1_mail §3.2):
 //
 //	E1  nostra mail in uscita (non interna)            → ALTRO, con l'atto di sempre (triageUscita)
+//	E1b mittente di sistema del cliente (4.13b)          → l'evento dichiarato (ALTRO / notifica, ORDINE)
 //	E2  posta che non è di lavoro (NonBusiness)          → ALTRO / non_business
 //	E3  fornitore in entrata                             → AttoFornitore: OFFERTA_FORNITORE se è un'offerta
-//	E4  parole d'ordine                                  → ORDINE
+//	E4  parole d'ordine, numero d'ordine del cliente     → ORDINE
 //	    «commande» da sola                               → ORDINE (probabile)
+//	    con numero_ordine_anticipato e una richiesta     → non decide: si va avanti, l'ordine resta un'evidenza (4.13b)
+//	    con ordine_da_verificare                         → ORDINE (probabile) (4.13b)
 //	E5  parole di sollecito, senza allegati tecnici      → SOLLECITO
 //	    «in attesa di Vs. riscontro», senza richiesta    → SOLLECITO
 //	E6  allegati tecnici e segni di revisione            → REVISIONE_CAD
 //	E7  allegati tecnici in una risposta senza richiesta → ARRIVO_CAD
 //	E8  parole di richiesta                              → NUOVA_RFQ
+//	    («SI RFQ», «SI CTE» valgono come richiesta solo accanto all'ordine, con numero_ordine_anticipato)
 //	E9  allegati tecnici in una mail che non risponde    → NUOVA_RFQ (probabile)
 //	E10 risposta con parole commerciali                  → RISPOSTA_COMMERCIALE
 //	E11 il resto                                         → ALTRO
@@ -153,7 +163,13 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 	if in.Controparte == ControparteInterno {
 		legame = LegameInoltro
 	}
+	// ordineAnticipato è l'evidenza dell'ordine che E4 non ha deciso (4.13b): si aggiunge all'evidenza di
+	// qualunque regola decida dopo, perché l'operatore la veda accanto al sollecito o alla revisione
+	ordineAnticipato := ""
 	fine := func(atto, forza string, evidenze ...string) EsitoEvento {
+		if ordineAnticipato != "" {
+			evidenze = append(evidenze[:len(evidenze):len(evidenze)], ordineAnticipato)
+		}
 		return EsitoEvento{Evento: EventoDa(in.Controparte, in.Direzione, atto, legame), Atto: atto, Forza: forza, Evidenze: evidenze}
 	}
 	// E1
@@ -163,6 +179,16 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 			ev = append(ev, "preparata dal Cockpit")
 		}
 		return fine(attoUscita(in.Controparte), ForzaChiaro, ev...)
+	}
+	// E1b (Smistamento 4.13b): un mittente di sistema del cliente. Lo ha dichiarato una persona, nelle regole
+	// del cliente, e si legge prima delle parole: un avviso del gestionale con «RFQ» nell'oggetto non è una
+	// richiesta d'offerta. Viene anche prima di E2, che legge parole generiche («noreply», «newsletter»):
+	// la voce del cliente è più precisa, e un ordine generato da un sistema resta un ordine. La condizione è
+	// quella del triage (postaDelCliente): i motivi e l'evento dicono la stessa cosa.
+	if postaDelCliente(in.Controparte, in.Direzione, in.Interno) {
+		if ms, ok := in.Motore.MittenteDiSistema(in.Mittente); ok {
+			return fine(attoMittenteSistema(ms.Evento), ForzaChiaro, "mittente di sistema del cliente: "+descriviMittente(ms))
+		}
 	}
 	// E2
 	if conNonBusiness {
@@ -182,20 +208,57 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 		return fine(AttoIncerto, ForzaIncerto, "mittente da censire: prima si decide chi è, poi che cosa vuole")
 	}
 	c := leggiContenuto(in)
-	// E4
-	if m, dove := c.trova(reOrdine); m != "" {
-		return fine(AttoOrdine, ForzaChiaro, dove+" dice «"+m+"»")
-	}
-	// E4, la lista a parte. «commande» da sola non dice «ordine» con certezza: «une commande de 20
-	// pièces» sta anche dentro una richiesta di prezzo in francese, che fino alla 4.13 diventava un ORDINE
-	// chiaro. Resta un ordine, ma probabile, e sceglie l'operatore (Smistamento 4.13). Che una parola di
-	// richiesta accanto a «commande» debba far decidere E8 non lo dice il piano: è una domanda aperta.
-	if m, dove := c.trova(reOrdineProbabile); m != "" {
-		return fine(AttoOrdine, ForzaProbabile, dove+" dice «"+m+"», che da sola non basta per un ordine chiaro")
-	}
-	// Le parole di richiesta si leggono qui e non più in fondo, perché E5 ora le guarda (Smistamento
-	// 4.13). Il valore è lo stesso: testo e oggetto non cambiano fra E5 ed E8.
+	// Le parole di richiesta si leggono qui e non più in fondo, perché E4 (4.13b) ed E5 (4.13) le guardano.
+	// Il valore è lo stesso: testo e oggetto non cambiano fra E4 ed E8.
 	richiesta, doveRichiesta := c.trova(reParoleRFQ)
+	// E4. Le parole d'ordine chiare, poi il numero d'ordine nella forma del cliente (4.13b: «ODA_0001234»
+	// è una parola d'ordine per chi lo dichiara), poi la lista a parte. «commande» da sola non dice «ordine»
+	// con certezza: «une commande de 20 pièces» sta anche dentro una richiesta di prezzo in francese, che
+	// fino alla 4.13 diventava un ORDINE chiaro. Resta un ordine, ma probabile, e sceglie l'operatore. Che una
+	// parola di richiesta accanto a «commande» debba far decidere E8 non lo dice il piano, salvo per il
+	// cliente con il numero d'ordine anticipato (qui sotto): per gli altri è una domanda aperta.
+	ordine, forzaOrdine := "", ""
+	if m, dove := c.trova(reOrdine); m != "" {
+		ordine, forzaOrdine = dove+" dice «"+m+"»", ForzaChiaro
+	} else if m, dove := c.trovaNumeroOrdine(in.Motore); m != "" {
+		ordine, forzaOrdine = dove+" dice «"+m+"», un numero d'ordine del cliente ("+in.Motore.NomeNumeroOrdine()+")", ForzaChiaro
+	} else if m, dove := c.trova(reOrdineProbabile); m != "" {
+		ordine, forzaOrdine = dove+" dice «"+m+"», che da sola non basta per un ordine chiaro", ForzaProbabile
+	}
+	if ordine != "" {
+		// Il numero d'ordine anticipato (4.13b): questo cliente emette il numero d'ordine prima di ricevere
+		// l'offerta, e un ordine accanto a una parola di richiesta non dice «ordine». E4 non decide: la mail si
+		// legge come se l'ordine non ci fosse, e l'ordine resta fra le evidenze. Così un «Sollecito RDO …» resta
+		// un sollecito (E5) e una revisione dei disegni resta una revisione (E6), come senza il numero d'ordine;
+		// la richiesta vince solo se nessuna delle due parla (E8). Senza la parola di richiesta l'ordine resta
+		// un ordine: la chiave non dice che il cliente non mandi mai ordini veri.
+		if in.Motore.OrdineAnticipato() {
+			if richiesta == "" {
+				// L'eccezione: «SI RFQ» e «SI CTE», l'oggetto delle mail del suo portale, valgono come richiesta
+				// SOLO accanto all'ordine, e solo per il cliente con la chiave: si cercano qui e in nessun altro
+				// posto. Da sole non fanno una richiesta: una CTE può essere un cambio tecnico o un phase out (la
+				// legge la 4.16). Trovate qui, E5 (la formula di chiusura), E7 ed E8 le contano come le altre
+				// parole di richiesta. «SI RFQ» contiene già «rfq», una parola di richiesta per tutti
+				// (reParoleRFQ), e qui non arriva mai: in pratica l'eccezione cambia solo «SI CTE».
+				richiesta, doveRichiesta = c.trova(reSiPortale)
+			}
+			if richiesta != "" {
+				ordineAnticipato = ordine + ": il cliente emette il numero d'ordine prima dell'offerta (numero_ordine_anticipato)"
+			}
+		}
+		if ordineAnticipato == "" {
+			// La voce più debole (4.13b, domanda 22a = A): per questo cliente un ordine va verificato, e scende
+			// a probabile. La parola di richiesta, se c'è, si dice: è ciò che l'operatore deve guardare.
+			if forzaOrdine == ForzaChiaro && in.Motore.OrdineDaVerificare() {
+				ev := []string{ordine, "per questo cliente una mail con «ordine» può essere una richiesta (ordine_da_verificare): sceglie l'operatore"}
+				if richiesta != "" {
+					ev = append(ev, doveRichiesta+" dice anche «"+richiesta+"»")
+				}
+				return fine(AttoOrdine, ForzaProbabile, ev...)
+			}
+			return fine(AttoOrdine, forzaOrdine, ordine)
+		}
+	}
 	// E5. Le parole di sollecito vere («sollecito», «reminder», «relance») decidono anche accanto a una
 	// richiesta: «Sollecito RDO …» è un sollecito. La formula di chiusura «Resto in attesa di Vs.
 	// riscontro» no: chiude quasi ogni richiesta di preventivo scritta in italiano, e con una parola di
@@ -256,6 +319,34 @@ func evento(in IngressoEvento, conNonBusiness bool) EsitoEvento {
 	return fine(atto, ForzaIncerto, "nessun segno riconosciuto")
 }
 
+// postaDelCliente dice se un messaggio è posta in entrata di un cliente, per le voci che il cliente dichiara
+// di sé (4.13b, i mittenti di sistema). Vale anche con la controparte non dichiarata: il banco di prova
+// dell'Anagrafica, e i messaggi di prima della 0014, hanno comunque le regole di un cliente, e le parole si
+// leggono come per lui (E4–E11). Mai per un collega che gira una mail, né per un fornitore. È la stessa
+// condizione per l'evento (E1b) e per il triage (mittenteDiSistema): i motivi e l'evento dicono la stessa cosa.
+func postaDelCliente(controparte, direzione string, interno bool) bool {
+	return direzione == "entrata" && !interno && (controparte == ControparteCliente || controparte == "")
+}
+
+// attoMittenteSistema è l'atto con cui si salva l'evento dichiarato per un mittente di sistema: l'ordine è
+// un ordine, un avviso è una notifica (che EventoDa rilegge ALTRO).
+func attoMittenteSistema(evento string) string {
+	if evento == EventoOrdine {
+		return AttoOrdine
+	}
+	return AttoNotifica
+}
+
+// descriviMittente è la riga del mittente di sistema come la legge l'operatore: il mittente, e la
+// descrizione che gli ha dato chi l'ha scritto.
+func descriviMittente(ms regole.MittenteSistema) string {
+	s := regole.NormaIndirizzo(ms.Mittente)
+	if d := strings.TrimSpace(ms.Descrizione); d != "" {
+		s += " («" + d + "»)"
+	}
+	return s
+}
+
 // attoUscita è l'atto di una nostra mail in uscita, lo stesso di triageUscita: a un fornitore una
 // richiesta d'offerta (o una risposta a lui), a un cliente la nostra offerta. Per gli altri non si dice.
 func attoUscita(controparte string) string {
@@ -280,6 +371,11 @@ var (
 	reOrdine = regexp.MustCompile(`(?:\b|_)(ordine d['’]acquisto|ordine di acquisto|ordine n[°r.]*\s*\d+|purchase order|p\.?o\.?\s*(?:n[°or.]*|#|:)\s*\d+|bestellung|bon de commande)(?:\b|_)`)
 	// la lista a parte di E4: parole che dicono «ordine» solo come probabile
 	reOrdineProbabile = regexp.MustCompile(`(?:\b|_)(commande)(?:\b|_)`)
+	// «SI RFQ», «SI CTE»: l'oggetto delle mail del portale di un cliente che emette il numero d'ordine prima
+	// dell'offerta (4.13b). Vale come una parola di richiesta SOLO accanto a un ordine di quel cliente, con
+	// numero_ordine_anticipato: una CTE da sola può essere un cambio tecnico, un phase out, e non una richiesta
+	// (la legge la 4.16)
+	reSiPortale = regexp.MustCompile(`\bsi\s+(?:rfq|cte)\b`)
 	// sollecit* prende sollecito, sollecitiamo, sollecitare
 	reSollecito = regexp.MustCompile(`(\bsollecit\w*|\breminder\b|\bany updates?\b|\brelance\w*|\bnachfrage\b)`)
 	// la formula di chiusura: fa un sollecito solo in un testo senza parole di richiesta (E5)
@@ -316,6 +412,10 @@ type contenuto struct {
 	tecnici   []string // nomi degli allegati tecnici (estensioniTecniche)
 	pdf       []string // PDF, TIF: forse tecnici
 	revisioni []string // «7120001A_2.stp porta la rev 2»
+
+	// testo e oggetto come sono scritti, per le regex del cliente (4.13b: il numero d'ordine), che sono
+	// sue e distinguono le maiuscole. Le stesse porzioni: l'oggetto di una risposta resta vuoto.
+	testoGrezzo, oggettoGrezzo string
 }
 
 // trova cerca le parole prima nel testo e poi, se il messaggio non è una risposta, nell'oggetto. Il
@@ -327,6 +427,18 @@ func (c contenuto) trova(re *regexp.Regexp) (string, string) {
 	}
 	if m := re.FindString(c.oggetto); m != "" {
 		return strings.Trim(strings.TrimSpace(m), "_"), "l'oggetto"
+	}
+	return "", ""
+}
+
+// trovaNumeroOrdine è trova per il numero d'ordine nella forma del cliente (4.13b): lo stesso ordine (prima il
+// testo, poi l'oggetto se non è una risposta), sul testo com'è scritto. Senza la voce, niente.
+func (c contenuto) trovaNumeroOrdine(m *Motore) (string, string) {
+	if n := m.NumeriOrdine(c.testoGrezzo); len(n) > 0 {
+		return n[0], "il testo nuovo"
+	}
+	if n := m.NumeriOrdine(c.oggettoGrezzo); len(n) > 0 {
+		return n[0], "l'oggetto"
 	}
 	return "", ""
 }
@@ -386,9 +498,9 @@ func leggiContenuto(in IngressoEvento) contenuto {
 			testo += "\n" + g
 		}
 	}
-	c := contenuto{testo: strings.ToLower(testo), risposta: risposta}
+	c := contenuto{testo: strings.ToLower(testo), testoGrezzo: testo, risposta: risposta}
 	if !risposta {
-		c.oggetto = strings.ToLower(oggetto)
+		c.oggetto, c.oggettoGrezzo = strings.ToLower(oggetto), oggetto
 	}
 	for _, n := range in.NomiAllegati {
 		i := strings.LastIndex(n, ".")
