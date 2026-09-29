@@ -39,6 +39,10 @@ func (s *Server) registraAdmin(mux *http.ServeMux) {
 	// la posta di TUTTI, non per una richiesta. Stesso wrapper delle altre, stesso 403.
 	mux.HandleFunc("GET /admin/anagrafica", s.soloAdmin(s.adminAnagrafica))
 	mux.HandleFunc("GET /admin/anagrafica/articoli", s.soloAdmin(s.adminAnagraficaArticoli))
+	// Smistamento, giro 4, fase 4.17a: le forme viste, per cliente, e il loro export. Due GET che leggono in
+	// una transazione di sola lettura: nessuna scrive (prova 98).
+	mux.HandleFunc("GET /admin/anagrafica/forme", s.soloAdmin(s.adminForme))
+	mux.HandleFunc("GET /admin/anagrafica/forme.md", s.soloAdmin(s.adminFormeMarkdown))
 	mux.HandleFunc("POST /admin/anagrafica", s.soloAdmin(s.nuovoCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}", s.soloAdmin(s.salvaCliente))
 	mux.HandleFunc("POST /admin/anagrafica/{id}/regole", s.soloAdmin(s.salvaRegole))

@@ -1,0 +1,180 @@
+{{define "contenuto"}}
+{{$d := .Dati}}
+{{/* Smistamento, giro 4, fase 4.17a: il censimento delle forme, in sola lettura. La pagina non ha un solo
+     bottone che manda qualcosa: legge, e l'export e' un download della stessa lettura. */}}
+<div class="ana-testa">
+  <h1>Forme viste</h1>
+  <nav class="tabs">
+    <a href="/admin/anagrafica">Clienti</a>
+    <a href="/admin/fornitori">Fornitori</a>
+    <a href="/admin/anagrafica/articoli">Articoli</a>
+    <a href="/admin/anagrafica/forme" class="attivo">Forme viste</a>
+  </nav>
+</div>
+
+<p class="nota">
+  Come sono fatti i codici, i nomi dei file, gli oggetti e i riferimenti di ogni cliente, contati per fonte,
+  accanto a quello che hanno deciso le persone. <b>Forma</b>: ogni cifra diventa 9, ogni lettera A, i separatori
+  restano («7120001A_1» → «9999999A_9»). Ogni stringa si conta una volta per RFQ (la posta e i file non ancora in una
+  RFQ, una volta per cliente).
+  <br>
+  Le teste, le code e le parole dei commerciali sono <b>suggerimenti</b> per scrivere le regole del cliente con una
+  persona, dall'Anagrafica, una alla volta: nessuna diventa una regola o un tipo da sola. Il «motore di oggi» e'
+  quello che gira adesso: si scarica l'export prima e dopo ogni cambio dell'estrazione, e la differenza fra i due
+  file e' il prima e dopo del codice.
+</p>
+<p>
+  <a class="bottone" href="/admin/anagrafica/forme.md" download>Scarica l'export Markdown</a>
+  <small class="muto">contiene dati reali dei clienti: si salva in <code>docs/</code>, fuori da git.</small>
+</p>
+<p class="muto"><small>Letto il {{dataLunga $d.Letto}} · transazione di sola lettura: {{if $d.C.SolaLettura}}sì{{else}}<b>no</b>{{end}}</small></p>
+
+<h2>Riepilogo</h2>
+<table class="tabella">
+  <tr><th>Cliente</th><th>Mail</th><th>File tecnici</th><th>Nodi STEP</th><th>Campi del cartiglio</th><th>Pezzi decisi</th><th>Particolari commerciali</th><th>Alias candidati (code)</th></tr>
+  {{range $d.C.Schede}}
+  <tr>
+    <td><a href="#cliente-{{.Cliente.ID}}">{{.Cliente.Nome}}</a>{{if not .Cliente.Attivo}} <span class="chip">non attivo</span>{{end}}<br><small class="muto">{{.Cliente.Ragione}}</small></td>
+    <td>{{.NMessaggi}}</td><td>{{.NFile}}</td><td>{{.NNodi}}</td><td>{{.NCampi}}</td><td>{{.NPezzi}}</td><td>{{.Firme.Commerciali}}</td>
+    <td class="mono">{{range .Code}}{{if .Alias}}{{.Testo}} {{end}}{{end}}</td>
+  </tr>
+  {{else}}
+  <tr><td colspan="8">Nessun cliente in anagrafica.</td></tr>
+  {{end}}
+</table>
+
+<h2>Domini dei mittenti non censiti</h2>
+<p class="muto"><small>Posta in entrata di mittenti che l'anagrafica non conosce (controparte sconosciuta o ambigua), per dominio.</small></p>
+<table class="tabella">
+  <tr><th>Dominio</th><th>Mail</th></tr>
+  {{range $d.C.DominiNonCensiti}}<tr><td class="mono">{{.Testo}}</td><td>{{.N}}</td></tr>
+  {{else}}<tr><td colspan="2">Nessuno.</td></tr>{{end}}
+</table>
+
+{{range $d.Schede}}{{template "forme_scheda" .}}{{end}}
+{{end}}
+
+{{define "forme_scheda"}}
+{{$s := .S}}
+<details class="scheda" id="cliente-{{$s.Cliente.ID}}">
+  <summary><b>{{$s.Cliente.Nome}}</b> — {{$s.Cliente.Ragione}}{{if not $s.Cliente.Attivo}} <span class="chip">non attivo</span>{{end}}
+    <small class="muto">· {{$s.NMessaggi}} mail · {{$s.NFile}} file · {{$s.NNodi}} nodi · {{$s.NCampi}} campi · {{$s.NPezzi}} pezzi</small></summary>
+
+  <h3>Forme per fonte</h3>
+  <table class="tabella">
+    <tr><th>Forma</th>{{range .Fonti}}<th>{{.}}</th>{{end}}<th>Totale</th><th>Esempi</th></tr>
+    {{range $f := $s.Forme}}
+    <tr><td class="mono">{{$f.Forma}}</td>{{range $.Fonti}}<td>{{index $f.Per .}}</td>{{end}}<td><b>{{$f.Totale}}</b></td>
+      <td class="mono"><small>{{join $f.Esempi " · "}}</small></td></tr>
+    {{else}}<tr><td colspan="8">Nessuna.</td></tr>{{end}}
+  </table>
+  {{template "forme_resto" .RestoForme}}
+  {{if $s.NCampiOCR}}<p class="muto"><small>{{$s.NCampiOCR}} campi del cartiglio letti con l'OCR: sono indizi, e non si contano fra le forme.</small></p>{{end}}
+
+  <h3>Code dopo un codice deciso</h3>
+  {{template "forme_aggiunte" .Code}}
+  <h3>Teste prima di un codice deciso</h3>
+  {{template "forme_aggiunte" .Teste}}
+  <p class="muto"><small>Stringhe uguali a un codice deciso della stessa RFQ: {{$s.Uguali}}. Un alias candidato e' visto con almeno 2 pezzi e in almeno 2 RFQ: non e' un refuso di una volta.</small></p>
+
+  <h3>Il motore di oggi sulla posta</h3>
+  <p>{{$s.Mail.Messaggi}} mail; con almeno un codice proponibile: {{$s.Mail.ConCodice}}; codici proponibili: {{$s.Mail.Proponibili}};
+    altri numeri mostrati senza proporli: {{$s.Mail.Altri}}. Riferimento del cliente trovato dalla sua regola in {{$s.Mail.ConRiferimento}} mail.</p>
+  <p>Accanto all'arrivo, sulle {{$s.Mail.Interpretati}} mail lette dall'ingest con un'estrazione salvata: codici salvati allora {{$s.Mail.Salvati}};
+    trovati oggi e non allora <b>{{$s.Mail.Nuovi}}</b>{{if $s.Mail.EsempiNuovi}} <small class="mono">({{join $s.Mail.EsempiNuovi " · "}})</small>{{end}};
+    salvati allora e non trovati oggi <b>{{$s.Mail.Persi}}</b>{{if $s.Mail.EsempiPersi}} <small class="mono">({{join $s.Mail.EsempiPersi " · "}})</small>{{end}}.
+    <small class="muto">Lette con «ignora» e senza codici salvati, fuori dal confronto: {{$s.Mail.SenzaEstrazione}} (il triage puo' non
+    averle estratte: controparte ambigua, posta non di lavoro).</small></p>
+  {{if $s.Mail.FormeRiferimento}}{{template "forme_voci" .FormeRif}}{{end}}
+
+  <h3>Il motore di oggi sui nomi dei file</h3>
+  <p>{{$s.Nome.File}} nomi di file tecnici (uno per RFQ: la lettura dipende solo dal nome). Con un documento deciso che porta
+    un codice: {{$s.Nome.Confrontati}} file (ogni contenuto con la sua decisione); codice letto uguale:
+    {{$s.Nome.CodiceUguale}}; revisione letta uguale: {{$s.Nome.RevUguale}}.</p>
+  {{template "forme_voci" .Letture}}
+  {{if $s.Nome.Diversi}}
+  <table class="tabella">
+    <tr><th>File</th><th>Letto dal nome</th><th>Deciso</th></tr>
+    {{range $s.Nome.Diversi}}<tr><td class="mono">{{.Nome}}</td><td class="mono">{{.Letto}}</td><td class="mono">{{.Deciso}}</td></tr>{{end}}
+  </table>
+  {{if $s.Nome.AltriDiversi}}<p class="muto"><small>Altre {{$s.Nome.AltriDiversi}} letture diverse dalla decisione.</small></p>{{end}}
+  {{end}}
+  <p>File con una proposta di file salvata: {{$s.Nome.ConProposta}}; codice e revisione della proposta uguali alla lettura del nome
+    di oggi: {{$s.Nome.PropostaUguale}}. <small class="muto">La proposta puo' venire anche dallo STEP o dal cartiglio: una differenza
+    non e' per forza un cambio del motore.</small></p>
+  {{if $s.Nome.ProposteDiverse}}
+  <table class="tabella">
+    <tr><th>File</th><th>Letto oggi dal nome</th><th>Proposta salvata</th></tr>
+    {{range $s.Nome.ProposteDiverse}}<tr><td class="mono">{{.Nome}}</td><td class="mono">{{.Letto}}</td><td class="mono">{{.Deciso}}</td></tr>{{end}}
+  </table>
+  {{if $s.Nome.AltreProposteDiverse}}<p class="muto"><small>Altre {{$s.Nome.AltreProposteDiverse}} proposte diverse.</small></p>{{end}}
+  {{end}}
+
+  <h3>Particolari commerciali decisi</h3>
+  <p>Pezzi decisi: {{$s.Firme.Commerciali}} particolari commerciali, {{$s.Firme.Altri}} altri. La forma tiene le lettere
+    (la X accanto alla A): e' un suggerimento per scrivere una famiglia con una persona, mai un tipo.</p>
+  {{if $s.Firme.Forme}}
+  <table class="tabella">
+    <tr><th>Forma del codice</th><th>Commerciali</th><th>Altri</th><th>Esempi</th></tr>
+    {{range $s.Firme.Forme}}<tr><td class="mono">{{.Testo}}</td><td>{{.Commerciali}}</td><td>{{.Altri}}</td><td class="mono"><small>{{join .Esempi " · "}}</small></td></tr>{{end}}
+  </table>
+  {{template "forme_resto" .RestoFirme}}
+  {{end}}
+  {{if $s.Firme.Parole}}
+  <table class="tabella">
+    <tr><th>Parola dei nomi</th><th>Commerciali</th><th>Altri</th></tr>
+    {{range $s.Firme.Parole}}<tr><td>{{.Testo}}</td><td>{{.Commerciali}}</td><td>{{.Altri}}</td></tr>{{end}}
+  </table>
+  {{template "forme_resto" .RestoParole}}
+  {{end}}
+
+  <h3>Minuteria: proposto e deciso</h3>
+  {{with $s.Minuteria}}
+  <p>{{if .Proposte}}Proposte confermate: {{.Confermate}}; scartate dall'ingegnere: <b>{{.Scartate}}</b>.
+    {{else}}Il motore non propone ancora il tipo (arriva con la fase 4.4a.1): si contano solo le decisioni.{{end}}
+    Particolari commerciali decisi senza una proposta: {{.NonProposte}}; altri pezzi: {{.Altri}}.</p>
+  {{end}}
+  {{template "forme_minuteria" .Scarti}}
+  {{template "forme_minuteria" .NonViste}}
+
+  <h3>Oggetti delle mail</h3>
+  {{template "forme_voci" .Oggetti}}
+  <h3>Numeri accanto alle parole di riferimento</h3>
+  {{template "forme_voci" .Riferimenti}}
+  <h3>Mittenti del dominio non censiti come buyer</h3>
+  {{template "forme_voci" .Mittenti}}
+</details>
+{{end}}
+
+{{define "forme_aggiunte"}}
+<table class="tabella">
+  <tr><th>{{.Colonna}}</th><th>Forma</th><th>Volte</th><th>Pezzi</th><th>RFQ</th><th>Fonti</th><th>Alias candidato</th><th>Esempi</th></tr>
+  {{range .V}}
+  <tr><td class="mono">{{.Testo}}</td><td class="mono">{{.Forma}}</td><td>{{.N}}</td><td>{{.Pezzi}}</td><td>{{.RFQ}}</td>
+    <td>{{join .Fonti ", "}}</td><td>{{if .Alias}}<b>sì</b>{{else}}no{{end}}</td><td class="mono"><small>{{join .Esempi " · "}}</small></td></tr>
+  {{else}}<tr><td colspan="8">Nessuna.</td></tr>{{end}}
+</table>
+{{template "forme_resto" .Resto}}
+{{end}}
+
+{{define "forme_voci"}}
+<table class="tabella">
+  <tr><th>{{.Colonna}}</th><th>{{.Quante}}</th><th>Esempi</th></tr>
+  {{range .V}}<tr><td class="mono">{{.Testo}}</td><td>{{.N}}</td><td class="mono"><small>{{join .Esempi " · "}}</small></td></tr>
+  {{else}}<tr><td colspan="3">Nessuno.</td></tr>{{end}}
+</table>
+{{template "forme_resto" .Resto}}
+{{end}}
+
+{{define "forme_minuteria"}}
+{{if .V}}
+<p class="muto"><small>{{.Titolo}}:</small></p>
+<table class="tabella">
+  <tr><th>Codice</th><th>Nome</th><th>Deciso</th><th>Proposto</th><th>Motivo</th></tr>
+  {{range .V}}<tr><td class="mono">{{.Codice}}</td><td>{{.Nome}}</td><td>{{.NomeDeciso}}</td><td>{{.NomeProposto}}</td><td>{{.Motivo}}</td></tr>{{end}}
+</table>
+{{if .Altri}}<p class="muto"><small>Altri {{.Altri}}.</small></p>{{end}}
+{{end}}
+{{end}}
+
+{{define "forme_resto"}}{{if .R.Voci}}<p class="muto"><small>Altre {{.R.Voci}} {{.Voci}} ({{.R.N}} {{.N}}).</small></p>{{end}}{{end}}
