@@ -58,21 +58,30 @@ func (b *bancoWeb) scenaDistintaDB(t *testing.T, chiave string) *scenaDistintaDB
 		VALUES ($1, $2, 'rumore', 90, 'estensione', 'scartata')`, logo, r.thread)
 	m := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
 		Regex: `(?P<codice>712\d{4})`, Descrizione: "ACME 712", Esempio: "7120001"}}})
-	cartiglio := fattiCartiglio(t, "DISEGNO N. 7120010\nSCALA 1:2")
+	cartiglio := fattiCartiglio(t, "DISEGNO N. 7120010\nSCALA 1:2", "7120010")
 	s.tavola = s.pdfLetto(t, m, "tavola.pdf", cartiglio)
 	s.perNome = s.pdfLetto(t, m, "7120010.pdf", cartiglio)
 	return s
 }
 
 // fattiCartiglio sono i fatti dell'analizzatore 4 di un disegno finto: il testo nativo in basso a destra della
-// pagina 1, dove sta il cartiglio.
-func fattiCartiglio(t *testing.T, bassoDestra string) json.RawMessage {
+// pagina 1, dove sta il cartiglio, e il campo del numero di disegno, come li riporta il worker di oggi
+// (worker.VersioneTestoPDF).
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6r2): prima il testo era della sottoversione 1 e senza campi. Dalla
+// fase 4.6 nella zona del cartiglio vota soltanto il campo del codice, e il cartiglio di un testo della
+// sottoversione 1 e' da rileggere, non contenuto (fase 4.6r): «tavola.pdf» non aveva piu' un codice dal testo, e
+// TestIlCodiceSoloDalTestoNonEProntoNellaDistinta falliva senza provare piu' il bug 3. Il codice del testo e' lo
+// stesso (7120010, nel campo «DISEGNO N.»), e le asserzioni delle prove che usano la scena non cambiano.
+func fattiCartiglio(t *testing.T, bassoDestra, numeroDisegno string) json.RawMessage {
 	t.Helper()
-	tp := worker.TestoPDF{Versione: 1, Estraibile: true, Pagine: 1, PagineLette: 1, FormatoPagina1: []float64{842, 595},
+	tp := worker.TestoPDF{Versione: worker.VersioneTestoPDF, Estraibile: true, Pagine: 1, PagineLette: 1, FormatoPagina1: []float64{842, 595},
 		Caratteri: len(bassoDestra), OCR: worker.OCRPDF{Stato: worker.OCRNonNecessario},
 		Limiti: worker.LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384},
 		Frammenti: []worker.FrammentoPDF{{Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Testo: bassoDestra,
-			Riquadro: []float64{560, 490, 724, 543}}}}
+			Riquadro: []float64{560, 490, 724, 543}}},
+		Cartiglio: []worker.CampoCartiglio{{Etichetta: worker.CampoNumeroDisegno, Letta: "DISEGNO N.", Valore: numeroDisegno, Pagina: 1,
+			Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Riquadro: []float64{560, 530, 655, 543}}}}
 	b, err := json.Marshal(map[string]any{"cartiglio": true, "termini_trovati": []string{"SCALA"}, "testo_pdf": tp})
 	if err != nil {
 		t.Fatal(err)

@@ -531,6 +531,11 @@ func dettagliAssieme(t *testing.T, versione int) json.RawMessage {
 // della Distinta che rientrava dai PDF gia' letti. Adesso fissa che prima della rianalisi non c'e' un voto dal
 // contenuto e niente e' preselezionabile verso il figlio, e che dopo vale il codice dell'assieme.
 //
+// Riscritta per lo Smistamento (giro 4, fase 4.6r2): prima fissava che ogni evidenza del cartiglio di prima dicesse
+// la frase del testo («testo letto con il worker di prima: da rianalizzare»); adesso dice il codice che quel testo
+// legge («il testo letto con il worker di prima dice X: da rianalizzare», classificazione.FraseCartiglioDiPrima).
+// La copia aperta ha un nome senza codice: nessun valore vince, e lo stato resta «nessuna».
+//
 // Le controprove (a mano): con la condizione di prima in AccodaPdfDaRileggere (StatoDelTestoPDF diverso da
 // TestoNonLetto) la prima rianalisi non accoda niente e la prova fallisce; con il testo di prima letto come quello
 // di oggi (classificazione.EvidenzeTestoPDF senza testoDiPrima) la copia aperta e' «unica 7120020» e l'evidenza del
@@ -627,7 +632,7 @@ func TestUnPdfLettoConLaSottoversioneVecchiaSiRianalizza(t *testing.T) {
 		t.Errorf("prima della rianalisi la copia aperta ha un codice dal cartiglio del worker di prima: %s, %+v", l.colonne(), l.v.Codice)
 	} else {
 		for _, e := range l.v.Codice.Evidenze {
-			if e.Valore != "" || e.Regola != classificazione.RegolaCartiglioDiPrima || !strings.Contains(e.Dove, classificazione.FraseTestoDiPrima) {
+			if e.Valore != "" || e.Regola != classificazione.RegolaCartiglioDiPrima || !strings.Contains(e.Dove, classificazione.FraseCartiglioDiPrima(e.Indizio)) {
 				t.Errorf("un'evidenza del cartiglio di prima vota, o non dice perche' no: %+v", e)
 			}
 		}

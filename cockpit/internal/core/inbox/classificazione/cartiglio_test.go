@@ -321,6 +321,11 @@ func testoDiPrimaPDF(tp worker.TestoPDF) worker.TestoPDF {
 	return tp
 }
 
+// Riscritta per lo Smistamento (giro 4, fase 4.6r2): prima fissava che il cartiglio di prima non facesse ne'
+// «concorde» ne' «discorde» (con il nome dell'assieme o di un figlio la dimensione era «unica 70» dal nome) e la
+// frase di ogni indizio «testo letto con il worker di prima: da rianalizzare». Adesso un codice del cartiglio di
+// prima diverso da quello del nome rende la dimensione discorde, e la frase dice il codice (FraseCartiglioDiPrima).
+//
 // TestIlCartiglioDiUnTestoDiPrimaEUnIndizio (giro 4, fase 4.6r): i PDF gia' letti dal worker installato sulle
 // postazioni hanno il testo della sottoversione 1. Letti con la regola della 4.6 (nella zona del cartiglio vota il
 // solo campo del codice), il disegno d'assieme senza codice nel nome passava da «discorde» (ogni codice della zona a
@@ -330,8 +335,9 @@ func testoDiPrimaPDF(tp worker.TestoPDF) worker.TestoPDF {
 // testo e' della sottoversione 1:
 //   - le letture del cartiglio sono tutti i codici della zona (meno le note), segnate DaRileggere: restano chiavi di
 //     ricerca; lo stato e' «letto» e la frase «testo letto con il worker di prima: da rianalizzare»;
-//   - nella valutazione sono indizi senza voto (RegolaCartiglioDiPrima), con la frase: il codice e' quello del nome,
-//     o nessuno, e il cartiglio di prima non fa ne' «concorde» ne' «discorde»;
+//   - nella valutazione sono indizi senza voto (RegolaCartiglioDiPrima), con la frase «il testo letto con il worker
+//     di prima dice X: da rianalizzare»: il codice e' quello del nome, o nessuno; il cartiglio di prima non fa mai
+//     «concorde», e con i figli dell'elenco (codici diversi dal nome) la dimensione e' discorde (fase 4.6r2);
 //   - lo speculare resta una nota;
 //
 // e il testo di oggi (dopo «Rianalizza») da' il codice dell'assieme, 7120002, a 85.
@@ -353,7 +359,7 @@ func TestIlCartiglioDiUnTestoDiPrimaEUnIndizio(t *testing.T) {
 	controllaDim(t, "assieme di prima", "codice", v.Codice, dimAttesa{"", 0, RegolaCartiglioDiPrima, StatoNessuna})
 	indizi := map[string]bool{}
 	for _, e := range v.Codice.Evidenze {
-		if e.Valore != "" || e.Regola != RegolaCartiglioDiPrima || e.Dove != DoveBassoDestra+", "+FraseTestoDiPrima || e.Famiglia != "ACME 712" {
+		if e.Valore != "" || e.Regola != RegolaCartiglioDiPrima || e.Dove != DoveBassoDestra+", "+FraseCartiglioDiPrima(e.Indizio) || e.Famiglia != "ACME 712" {
 			t.Errorf("il cartiglio di prima vota, o non dice perche' non vota: %+v", e)
 		}
 		indizi[e.Indizio] = true
@@ -364,11 +370,12 @@ func TestIlCartiglioDiUnTestoDiPrimaEUnIndizio(t *testing.T) {
 	if Indizi[RegolaCartiglioDiPrima].Parole == "" || Indizi[RegolaCartiglioDiPrima].Score != 0 {
 		t.Errorf("l'indizio del cartiglio di prima ha le sue parole e nessuno score: %+v", Indizi[RegolaCartiglioDiPrima])
 	}
-	// con il nome dell'assieme, o di un figlio: il codice e' quello del nome, da una sola fonte
+	// con il nome dell'assieme, o di un figlio: il codice e' quello del nome, che il cartiglio di prima non conferma
+	// e, con gli altri codici della zona, contraddice: discorde (fase 4.6r2)
 	controllaDim(t, "assieme di prima con il nome", "codice", valutaDisegno(t, "7120002.pdf", fatti).Codice,
-		dimAttesa{"7120002", 70, "nome_codice_famiglia", StatoUnica})
+		dimAttesa{"7120002", 70, "nome_codice_famiglia", StatoDiscorde})
 	controllaDim(t, "assieme di prima con il nome di un figlio", "codice", valutaDisegno(t, "7120021.pdf", fatti).Codice,
-		dimAttesa{"7120021", 70, "nome_codice_famiglia", StatoUnica})
+		dimAttesa{"7120021", 70, "nome_codice_famiglia", StatoDiscorde})
 
 	l := LettureDelPDF(m, fatti, "tavola assieme.pdf")
 	if l.Stato != TestoLetto || !l.DaRileggere || l.Frase != FraseTestoDiPrima {
@@ -410,5 +417,106 @@ func TestIlCartiglioDiUnTestoDiPrimaEUnIndizio(t *testing.T) {
 		dimAttesa{"7120002", 85, "pdf_testo_famiglia", StatoUnica})
 	if l := LettureDelPDF(m, oggi, "tavola assieme.pdf"); l.DaRileggere || l.Frase != "" || len(l.Letture) != 1 || l.Letture[0].DaRileggere {
 		t.Errorf("il testo di oggi: %+v", l)
+	}
+}
+
+// TestIlCartiglioDiPrimaDiversoNonESicuro (giro 4, fase 4.6r2; lo scenario del 28/09, TestScenarioMG «PDF d'assieme
+// letto dal worker vero»; A5.14.3, C4 e U7; il cartiglio fa fede, 29/09): un PDF ACME inventato con un nome che non
+// e' il codice del cartiglio («ACME-030P7120001.pdf»: la cartella del PDM attaccata al codice, un codice generico a
+// 45) e il testo della sottoversione 1, il cui cartiglio dice altri codici (7120005 nel campo del codice, 7120020 in
+// una riga dell'elenco). Con la fase 4.6r le letture di quel cartiglio erano indizi senza voto e la dimensione restava
+// «unica» sul nome: un codice che il cartiglio smentisce presentato come sicuro (prima della 4.6 era discorde).
+// Adesso:
+//   - la lettura di prima non vota (valore, score e regola restano quelli del nome, e la colonna e' il nome), ma la
+//     dimensione e' discorde, con l'evidenza «il testo letto con il worker di prima dice 7120005: da rianalizzare»;
+//   - la controprova: con lo stesso codice nel nome e nel testo di prima («7120001.pdf», cartiglio 7120001) niente
+//     cambia, «unica 70» dal nome; e senza un valore che vince lo stato resta «nessuna»;
+//   - con piu' di MaxEvidenze evidenze (un nome che cita otto codici, il titolo che dice 7120001) la lettura di prima
+//     che contraddice resta fra le evidenze e la dimensione resta discorde;
+//   - con la sottoversione di oggi (dopo «Rianalizza») vale la regola della 4.6: vota il campo del codice, a 85.
+//
+// Le controprove (a mano): senza il caso contraddiceDiPrima in Componi il primo caso e quello del taglio tornano
+// «unica» (e la prova MG fallisce); senza la riserva in taglia il caso del taglio torna «unica 40» senza la lettura
+// di prima fra le evidenze.
+func TestIlCartiglioDiPrimaDiversoNonESicuro(t *testing.T) {
+	// il cartiglio come lo riportava il worker di prima: il campo del codice e, nella stessa zona, gli altri codici
+	testo := func(codice, altro string, meta worker.MetadatiPDF) worker.TestoPDF {
+		zona := "CODICE " + codice + "\nSCALA 1:1"
+		if altro != "" {
+			zona = "1 " + altro + " PEZZO ACME 1\n" + zona
+		}
+		return conCampoCodice(testoPDF(zona, "", meta), worker.CampoCodice, "CODICE", codice)
+	}
+	diPrima := func(codice, altro string, meta worker.MetadatiPDF) json.RawMessage {
+		return fattiDisegno(t, testoDiPrimaPDF(testo(codice, altro, meta)))
+	}
+	indizioDi := func(d Dimensione, codice string) (Evidenza, bool) {
+		for _, e := range d.Evidenze {
+			if e.Regola == RegolaCartiglioDiPrima && e.Indizio == codice {
+				return e, true
+			}
+		}
+		return Evidenza{}, false
+	}
+	votanti := func(d Dimensione) []string {
+		var out []string
+		for _, e := range d.Evidenze {
+			if e.Valore != "" {
+				out = append(out, e.Regola+" "+e.Valore)
+			}
+		}
+		return out
+	}
+
+	// il nome con un codice generico, il testo di prima con codici diversi: discorde, e la frase lo dice
+	v := valutaDisegno(t, "ACME-030P7120001.pdf", diPrima("7120005", "7120020", worker.MetadatiPDF{}))
+	controllaDim(t, "nome generico, cartiglio di prima diverso", "codice", v.Codice,
+		dimAttesa{"ACME-030P7120001", 45, "nome_codice_generico", StatoDiscorde})
+	if s := strings.Join(votanti(v.Codice), " | "); s != "nome_codice_generico ACME-030P7120001" {
+		t.Errorf("il cartiglio di prima vota: %s", s)
+	}
+	for _, c := range []string{"7120005", "7120020"} {
+		if e, ok := indizioDi(v.Codice, c); !ok || e.Dove != DoveBassoDestra+", "+FraseCartiglioDiPrima(c) || e.Score != 0 {
+			t.Errorf("la lettura di prima di %s non dice che cosa dice il testo: %+v", c, e)
+		}
+	}
+	if FraseCartiglioDiPrima("7120005") != "il testo letto con il worker di prima dice 7120005: da rianalizzare" {
+		t.Errorf("la frase della lettura di prima: %q", FraseCartiglioDiPrima("7120005"))
+	}
+	if r := v.Riepilogo(); r.Codice != "ACME-030P7120001" || r.Confidenza != 45 || r.Fonte != "nome_file" {
+		t.Errorf("con le fonti discordi la colonna e' il nome, con il suo score: %+v", r)
+	}
+
+	// la controprova: lo stesso codice nel nome e nel testo di prima non cambia niente
+	vs := valutaDisegno(t, "7120001.pdf", diPrima("7120001", "", worker.MetadatiPDF{}))
+	controllaDim(t, "stesso codice nel nome e nel testo di prima", "codice", vs.Codice,
+		dimAttesa{"7120001", 70, "nome_codice_famiglia", StatoUnica})
+	if e, ok := indizioDi(vs.Codice, "7120001"); !ok || e.Dove != DoveBassoDestra+", "+FraseCartiglioDiPrima("7120001") {
+		t.Errorf("la lettura di prima dello stesso codice resta fra le evidenze: %+v", vs.Codice.Evidenze)
+	}
+	// e senza un valore che vince non c'e' niente da contraddire
+	controllaDim(t, "nome senza codice, testo di prima", "codice", valutaDisegno(t, "tavola.pdf", diPrima("7120005", "", worker.MetadatiPDF{})).Codice,
+		dimAttesa{"", 0, RegolaCartiglioDiPrima, StatoNessuna})
+
+	// il taglio: un nome che cita otto codici (nome_contiene_codice, 25, senza valore) e il titolo 7120001 (40)
+	// mettono la lettura di prima (0) oltre MaxEvidenze; resta, e la dimensione resta discorde
+	nome := "elenco 7120010 7120011 7120012 7120013 7120014 7120015 7120016 7120017.pdf"
+	vt := valutaDisegno(t, nome, diPrima("7120005", "", worker.MetadatiPDF{Titolo: "7120001"}))
+	controllaDim(t, "taglio con la lettura di prima", "codice", vt.Codice, dimAttesa{"7120001", 40, "pdf_metadati", StatoDiscorde})
+	if _, ok := indizioDi(vt.Codice, "7120005"); !ok || len(vt.Codice.Evidenze) != MaxEvidenze {
+		t.Errorf("la lettura di prima che contraddice esce dalle evidenze per il taglio: %d evidenze, %s", len(vt.Codice.Evidenze),
+			valoriEvidenze(vt.Codice))
+	}
+
+	// la sottoversione di oggi, dopo «Rianalizza»: la regola della 4.6, il campo del codice vota a 85
+	oggi := func(codice string) json.RawMessage {
+		return fattiDisegno(t, testo(codice, "7120020", worker.MetadatiPDF{}))
+	}
+	controllaDim(t, "nome generico, testo di oggi", "codice", valutaDisegno(t, "ACME-030P7120001.pdf", oggi("7120005")).Codice,
+		dimAttesa{"7120005", 85, "pdf_testo_famiglia", StatoDiscorde})
+	controllaDim(t, "stesso codice, testo di oggi", "codice", valutaDisegno(t, "7120001.pdf", oggi("7120001")).Codice,
+		dimAttesa{"7120001", 85, "pdf_testo_famiglia", StatoConcorde})
+	if _, ok := evidenzaDi(valutaDisegno(t, "7120001.pdf", oggi("7120001")).Codice, RegolaCartiglioDiPrima); ok {
+		t.Error("il testo di oggi non ha letture da rileggere")
 	}
 }

@@ -221,3 +221,60 @@ func TestIlCartiglioLettoConIlWorkerDiPrimaNonPreseleziona(t *testing.T) {
 		t.Error("la firma dell'indice non cambia con la rianalisi del testo di prima")
 	}
 }
+
+// TestIlCartiglioDiPrimaDiversoNonPreseleziona (giro 4, fase 4.6r2; lo scenario del 28/09, il PDF d'assieme letto dal
+// worker vero; U7, prova 170): nel flusso la dimensione del codice discorde e' la discordanza «fonti diverse». Il
+// cartiglio di un testo letto con il worker di prima non vota, ma se dice un codice diverso da quello del nome la
+// valutazione e' discorde (classificazione.Componi): nessuna preselezione nuova, e quella dal nome si ferma finche'
+// non si rianalizza. Lo stesso codice non cambia niente.
+//   - il disegno d'assieme ACME «ACME-030P7120001.pdf» (un nome con un codice generico, che non e' quello del
+//     cartiglio) letto con il worker di prima: valutazione discorde dal nome, destinazione con «fonti diverse», niente
+//     di preselezionabile e nessun candidato dal contenuto;
+//   - il disegno «7120010.pdf» del figlio accettato (la scena preselezionabile della prova 170) con il testo di prima
+//     che nella zona del cartiglio dice anche 7120099 (un codice che l'indice non conosce: nessun secondo candidato):
+//     «fonti diverse», e la preselezione dal nome si ferma;
+//   - lo stesso disegno con il testo di prima che dice solo 7120010: preselezionabile dal nome, come senza la regola.
+//
+// La controprova (a mano): senza il caso contraddiceDiPrima in classificazione.Componi i primi due casi non hanno
+// «fonti diverse», e il secondo e' preselezionabile dal nome.
+func TestIlCartiglioDiPrimaDiversoNonPreseleziona(t *testing.T) {
+	sc, _ := scenaPreselezionabile(t)
+	sc.s.Motore = motoreACME712(t)
+	sc.accetta("7120001.stp", "#3", sc.componente("7120012", db.TipoComponenteSciolto, db.OrigineComponenteManuale))
+	sc.disegnoLetto("ACME-030P7120001.pdf", fattiPDF(t, assiemeACME(1)))
+	if v := sc.f("ACME-030P7120001.pdf").Proposta.Valutazione.Codice; v.Valore != "ACME-030P7120001" || v.Regola != "nome_codice_generico" ||
+		v.Stato != classificazione.StatoDiscorde {
+		t.Errorf("la valutazione del disegno d'assieme letto con il worker di prima: %+v", v)
+	}
+	d := sc.dest(sc.calcola(), "ACME-030P7120001.pdf")
+	if d.Preselezionabile || d.Stato == "preselezionabile" || !contiene(d.Discordanze, DiscFontiDiverse) {
+		t.Errorf("il disegno d'assieme letto con il worker di prima: %s, preselezionabile %v, discordanze %v", candidati(d), d.Preselezionabile, d.Discordanze)
+	}
+	for _, c := range d.Candidati {
+		if c.DalContenuto || contiene(c.Sostegno, SostegnoContenuto) {
+			t.Errorf("un candidato dal cartiglio di prima: %+v", c)
+		}
+	}
+
+	// il disegno del figlio accettato, letto con il worker di prima
+	figlio := func(zona string) Destinazione {
+		sc := nuovaScena(t)
+		sc.s.Motore = motoreACME712(t)
+		p := casoProdotto(sc, "7120001.stp")
+		sc.autorizza(p, "7120001.stp", "#1")
+		sc.accetta("7120001.stp", "#2", sc.componente("7120010", db.TipoComponenteSottoassieme, db.OrigineComponenteManuale))
+		sc.disegnoLetto("7120010.pdf", fattiPDF(t, diPrima(conCampo(testoFinto(zona, "", worker.MetadatiPDF{}), worker.CampoNumeroDisegno,
+			"DISEGNO N.", "7120010"))))
+		return sc.dest(sc.calcola(), "7120010.pdf")
+	}
+	if d := figlio("DISEGNO N. 7120010\n1 7120099 PEZZO ACME 2\nSCALA 1:1"); d.Preselezionabile || !contiene(d.Discordanze, DiscFontiDiverse) ||
+		candidati(d) != "1 7120010 dest_nodo_diretto_nome" {
+		t.Errorf("il disegno del figlio con un altro codice nel cartiglio di prima: %s, preselezionabile %v, discordanze %v", candidati(d),
+			d.Preselezionabile, d.Discordanze)
+	}
+	if d := figlio("DISEGNO N. 7120010\nSCALA 1:1"); !d.Preselezionabile || contiene(d.Discordanze, DiscFontiDiverse) ||
+		candidati(d) != "1 7120010 dest_nodo_diretto_nome" {
+		t.Errorf("il disegno del figlio con lo stesso codice nel cartiglio di prima: %s, preselezionabile %v, discordanze %v", candidati(d),
+			d.Preselezionabile, d.Discordanze)
+	}
+}
