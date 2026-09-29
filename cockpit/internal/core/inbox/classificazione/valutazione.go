@@ -504,12 +504,16 @@ func tipoDaRiga(tipo, fonte string, confidenza int, ext string, dt dettagliRiga)
 
 // tipoDaEstensione e' la lettura del solo formato, con le regole di A5.14.3: un PDF e un archivio non
 // dicono il tipo (stato `nessuna`, la colonna resta `da_determinare`).
+//
+// La lamiera 3D (`.psm`) e il disegno (`.dft`) di Solid Edge dalla 4.13b: con le regole che ci sono, senza
+// toccare la tabella S1 (il «ter» la vuole invariata). Il `.psm` e' un 3D come il `.par`; il `.dft` e' un
+// formato di disegno CAD come il DWG, e ne prende la regola: l'evidenza dice l'estensione vera.
 func tipoDaEstensione(ext string) []Evidenza {
 	t := "." + ext
 	switch ext {
-	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm":
+	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm", "psm":
 		return []Evidenza{evidenza("ext_3d", "cad_3d", t)}
-	case "dwg":
+	case "dwg", "dft":
 		return []Evidenza{evidenza("ext_dwg", "disegno_2d", t)}
 	case "dxf":
 		return []Evidenza{evidenza("ext_dxf", "sviluppo_dxf", t)}

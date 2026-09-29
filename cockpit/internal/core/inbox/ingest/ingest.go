@@ -904,15 +904,15 @@ func (s *Servizio) uno(ctx context.Context, sp pgx.Tx, casella db.Casella, nostr
 			// PropostaDaNome resta per la pre-spunta e i codici citati nel nome; la lettura del file e' la
 			// valutazione per dimensione, e le colonne sono il suo riepilogo (Smistamento F4, A5.14.7)
 			pr := classificazione.PropostaDaNome(a.NomeFile, a.Bytes, string(dir))
-			for i, c := range pr.CodiciNelNome {
-				pr.CodiciNelNome[i] = motore.CanonicoNome(c)
-			}
+			// i codici citati nel nome, senza il suffisso decorativo del cliente e senza i suoi numeri d'ordine
+			// (4.13b): «Ordine ODA_0001234.pdf» cita l'ordine, e il Fascicolo rileggerebbe il numero come un codice
+			citati := motore.CitatiNelNome(a.NomeFile, pr.CodiciNelNome)
 			if nat == db.NaturaAllegatoFile && pr.PreSpunta && a.Bytes > 0 && a.Bytes <= s.sogliaStaging() {
 				daStaggiare = append(daStaggiare, al)
 			}
 			dettagli := map[string]any{"estensione": ext, "bytes": a.Bytes, "pre_spunta": pr.PreSpunta}
-			if len(pr.CodiciNelNome) > 0 {
-				dettagli["codici_nel_nome"] = pr.CodiciNelNome
+			if len(citati) > 0 {
+				dettagli["codici_nel_nome"] = citati
 			}
 			dett, _ := json.Marshal(dettagli)
 			dett, rp := classificazione.ConValutazione(dett, classificazione.Valuta(classificazione.IngressoFile{
