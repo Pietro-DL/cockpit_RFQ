@@ -325,6 +325,61 @@ func (q *Queries) InsertRelazione(ctx context.Context, arg InsertRelazioneParams
 	return result.RowsAffected(), nil
 }
 
+const listComponentiConStoria = `-- name: ListComponentiConStoria :many
+SELECT c.componente_id,
+       EXISTS (SELECT 1 FROM documento x WHERE x.componente_id = c.componente_id)::bool AS documenti,
+       (EXISTS (SELECT 1 FROM documento_proposta x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM componente_proposta x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM rimozione_proposta x WHERE x.padre_id = c.componente_id OR x.figlio_id = c.componente_id))::bool AS proposte,
+       (EXISTS (SELECT 1 FROM deroga_fabbisogno x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM deroga_struttura x WHERE x.componente_id = c.componente_id))::bool AS deroghe,
+       EXISTS (SELECT 1 FROM bom_versione_componente x WHERE x.componente_id = c.componente_id)::bool AS baseline,
+       EXISTS (SELECT 1 FROM annotazione_pdf x WHERE x.componente_id = c.componente_id)::bool AS note
+  FROM componente c
+ WHERE c.thread_id = $1
+ ORDER BY c.componente_id
+`
+
+type ListComponentiConStoriaRow struct {
+	ComponenteID uuid.UUID `json:"componente_id"`
+	Documenti    bool      `json:"documenti"`
+	Proposte     bool      `json:"proposte"`
+	Deroghe      bool      `json:"deroghe"`
+	Baseline     bool      `json:"baseline"`
+	Note         bool      `json:"note"`
+}
+
+// I componenti della RFQ che una riga fuori dalla working tiene, e che cosa: un documento, una proposta (di documento,
+// di struttura, di rimozione), una deroga, una baseline congelata, una nota su un disegno. Sono le FK che fermano
+// DeleteComponente (cheCosaLoTiene): un componente cosi' non si cancella, si archivia. Solo lettura: il riepilogo
+// dell'albero proposto lo dice prima della conferma (giro 4, fase 4.4a.1a; domanda 29b = A).
+func (q *Queries) ListComponentiConStoria(ctx context.Context, threadID uuid.UUID) ([]ListComponentiConStoriaRow, error) {
+	rows, err := q.db.Query(ctx, listComponentiConStoria, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListComponentiConStoriaRow{}
+	for rows.Next() {
+		var i ListComponentiConStoriaRow
+		if err := rows.Scan(
+			&i.ComponenteID,
+			&i.Documenti,
+			&i.Proposte,
+			&i.Deroghe,
+			&i.Baseline,
+			&i.Note,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRimozioniAperte = `-- name: ListRimozioniAperte :many
 SELECT thread_id, step_documento_id, padre_id, figlio_id, qta_working, stato, nota, deciso_da, deciso_il, creato_il FROM rimozione_proposta WHERE thread_id = $1 AND stato = 'aperta' ORDER BY creato_il, padre_id, figlio_id
 `
