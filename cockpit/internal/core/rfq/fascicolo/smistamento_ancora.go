@@ -10,6 +10,11 @@ package fascicolo
 // (P32): l'ancora vuole il contenuto. Senza ancora, per quel prodotto l'automatismo delle destinazioni
 // tecniche si ferma (Domanda 4 = B); i file restano analizzati e si decidono a mano.
 //
+// Senza uno STEP, il disegno del prodotto con il codice del prodotto scritto dentro (il cartiglio, i metadati,
+// il testo) da' un'ancora «piatta» (giro 4, fase 4.2; A5.13.3, A-P1…A-P3): lega quel PDF al prodotto, non i
+// figli, e non arriva mai gia' scelta (scelta 2 della lista delle domande del giro 4). Un PDF senza testo, con il
+// testo non letto o illeggibile non ancora, e il motivo lo dice.
+//
 // Tutto qui e' puro: legge lo StatoFlusso (le evidenze che il core ha gia' normalizzato) e non scrive
 // niente. Il flusso non legge mai il JSON del worker: la struttura di uno STEP la conosce dalle righe di
 // componente_proposta e relazione_proposta che ApplicaStruttura ne ha tratto, con le correzioni
@@ -33,8 +38,8 @@ import (
 // destinazioni.
 const AlgoritmoFlusso = "flusso-ancorato-1"
 
-// I livelli di un'ancora (A5.13.3). L'ancora «piatta» (il codice del prodotto nel cartiglio del suo PDF)
-// entra con l'integrazione della lettura dei PDF (F9): qui la costante c'e', la regola non ancora.
+// I livelli di un'ancora (A5.13.3). L'ancora «piatta» e' il codice del prodotto scritto nel suo PDF (A-P1,
+// A-P2, A-P3): da' il prodotto, non i figli, e non e' un riferimento strutturale.
 const (
 	LivelloAutorizzata  = "autorizzata"
 	LivelloPiena        = "piena"
@@ -85,7 +90,9 @@ type FileFlusso struct {
 	DelCliente  bool // fonte del cliente o del progetto (P27)
 	Proposta    *PropostaFile
 	Analisi     string // AnalisiCorrente | AnalisiInCorso | AnalisiFallita | AnalisiAssente
-	// EvidenzePDF: i codici letti nel contenuto del PDF, normalizzati dal core (EvidenzeContenutoPDF).
+	// TestoPDF ed EvidenzePDF: lo stato del testo di un PDF (con la frase e l'OCR) e i codici letti nel suo
+	// contenuto, normalizzati dal core dai fatti correnti (EvidenzeContenutoPDF). Vuoti per gli altri file.
+	TestoPDF    TestoDelPDF
 	EvidenzePDF []EvidenzaContenutoPDF
 }
 
@@ -309,6 +316,10 @@ type Ancora struct {
 	// SoloGuida: l'ancora di un commerciale nell'indice. Il suo STEP si legge e si mostra, ma non e' una
 	// sorgente strutturale finche' una persona non cambia il tipo (Domanda 5 = B): i suoi nodi sono guida.
 	SoloGuida bool `json:"solo_guida,omitempty"`
+	// testiPdf: i PDF che il passo 4 ha guardato per il prodotto, con lo stato del loro testo («sha:stato»).
+	// Entrano nella firma dell'indice: quando un PDF prende il testo i motivi dell'ancora cambiano anche se
+	// l'ancora no, e le destinazioni che li riportano si rifanno.
+	testiPdf []string
 }
 
 // Ancorato dice se l'ancora da' una struttura da cui partire (anche da confermare: allora i candidati che ne
@@ -339,8 +350,14 @@ type Portatore struct {
 //     sottoassieme) e un file che il nome dice del prodotto ma la cui radice non c'entra (fonti_diverse);
 //  3. in attesa: uno STEP compatibile per nome sta ancora scendendo o si sta analizzando. Uno la cui analisi
 //     e' fallita non e' attesa: lo si dice, e si passa oltre;
-//  4. (l'ancora piatta dal PDF del prodotto entra con l'integrazione della lettura dei PDF);
-//  5. assente: per il prodotto l'automatismo delle destinazioni tecniche si ferma.
+//  4. piatta: un PDF del prodotto (un disegno, o un PDF di cui il tipo non si sa) il cui testo dice il
+//     prodotto in modo indipendente dal nome del file: nel cartiglio (A-P1), solo nei metadati (A-P2,
+//     solo_metadati), altrove nel testo (A-P3, da confermare). Da' il prodotto, non i figli: gli altri file
+//     tecnici restano «manca un riferimento strutturale», e niente si preseleziona (ancorePdf);
+//  5. in attesa: un PDF compatibile per nome si sta ancora analizzando, e il suo testo puo' dare l'ancora
+//     piatta;
+//  6. assente: per il prodotto l'automatismo delle destinazioni tecniche si ferma. Perche' i PDF compatibili
+//     per nome non ancorano lo dicono i motivi (perchePdfNonAncora).
 //
 // Pura.
 func Ancore(prodotti []Prodotto, s *StatoFlusso) map[string]Ancora {
@@ -391,8 +408,30 @@ func Ancore(prodotti []Prodotto, s *StatoFlusso) map[string]Ancora {
 			out[p.Codice] = a
 			continue
 		}
+		// il disegno del prodotto: l'ancora piatta (A5.13.3, passo 4)
+		piatte, motiviPdf := d.ancorePdf(p.Codice)
+		a.testiPdf = d.testiPdf(p.Codice)
+		if len(piatte) > 0 {
+			a.Livello, a.Portatori = LivelloPiatta, piatte
+			a.Discordanze = append(a.Discordanze, piatte[0].Discordanze...)
+			a.Motivi = append(a.Motivi, motiviPdf...)
+			a.Motivi = append(a.Motivi, d.perchePdfNonAncora(p.Codice, piatte)...)
+			a.Motivi = append(a.Motivi, fmt.Sprintf("nessuno STEP compatibile con %s: il disegno lega il file al prodotto, non ai suoi figli; "+
+				"l'automatismo delle destinazioni tecniche si ferma", p.Codice))
+			out[p.Codice] = a
+			continue
+		}
+		// un PDF compatibile per nome si sta ancora leggendo: il suo testo puo' dare l'ancora (passo 5)
+		if attesa := d.pdfInAttesa(p.Codice); len(attesa) > 0 {
+			a.Livello, a.Portatori = LivelloInAttesa, attesa
+			for _, x := range attesa {
+				a.Motivi = append(a.Motivi, fmt.Sprintf("il PDF %s, compatibile per nome, è ancora in analisi", x.Nome))
+			}
+			out[p.Codice] = a
+			continue
+		}
 		a.Livello = LivelloAssente
-		a.Motivi = append(a.Motivi, d.perchePdfNonAncora(p.Codice)...)
+		a.Motivi = append(a.Motivi, d.perchePdfNonAncora(p.Codice, nil)...)
 		a.Motivi = append(a.Motivi, fmt.Sprintf("nessuno STEP compatibile con %s: l'automatismo delle destinazioni tecniche si ferma", p.Codice))
 		out[p.Codice] = a
 	}
@@ -579,16 +618,173 @@ func (d *derivati) stepInAttesa(k string) (attesa []Portatore, perso []string) {
 	return attesa, perso
 }
 
-// perchePdfNonAncora: i PDF compatibili per nome con k non ancorano (oggi nessun PDF ha evidenze dal
-// contenuto: la loro lettura entra con F9), e lo si dice.
-func (d *derivati) perchePdfNonAncora(k string) []string {
-	var out []string
-	for _, f := range d.s.File {
-		if !f.pdf() || !f.nelFlusso() {
+// I pesi dell'ancora piatta (A5.13.3, A-P1…A-P3): ordinano i PDF del prodotto, e non si mostrano come
+// confidenza di una dimensione del file.
+const (
+	pesoPdfCartiglio = 80 // A-P1
+	pesoPdfNome      = 10 // A-P1 con il nome compatibile (A-N1, A-N2)
+	pesoPdfMetadati  = 50 // A-P2
+	pesoPdfTesto     = 30 // A-P3
+)
+
+// pdfDelProdotto: il PDF puo' essere il disegno del prodotto, cioe' un disegno o un PDF di cui il tipo non si
+// sa; mai un capitolato, un'offerta o una distinta che nominano il prodotto (A5.13.3, passo 4).
+func pdfDelProdotto(f FileFlusso) bool {
+	if f.Proposta == nil {
+		return true
+	}
+	switch f.Proposta.Valutazione.Tipo.Valore {
+	case "", "disegno_2d", "da_determinare":
+		return true
+	}
+	return false
+}
+
+// dicePdf dice dove il testo del PDF f porta il pezzo k in modo indipendente dal nome del file (non un indizio
+// dell'OCR, non una lettura che ripete il nome: P32): nel cartiglio, nei metadati, altrove nel testo.
+func (d *derivati) dicePdf(f FileFlusso, k string) (cartiglio, metadati, testo bool) {
+	for _, e := range f.EvidenzePDF {
+		if e.Indizio || e.DipendeDaNome || d.canonico(e.Codice) != k {
 			continue
 		}
-		if c := CompatibilitaNome(f.Nome, f.PathInterno, f.Zip, k, d.m); c.Compatibile() && len(f.EvidenzePDF) == 0 {
-			out = append(out, fmt.Sprintf("%s non ha evidenze dal contenuto (testo o cartiglio): il nome da solo non ancora", f.Nome))
+		switch e.Fonte {
+		case FontePDFCartiglio:
+			cartiglio = true
+		case FontePDFMetadati:
+			metadati = true
+		case FontePDFTesto:
+			testo = true
+		}
+	}
+	return
+}
+
+// ancorePdf sono i PDF della RFQ che danno l'ancora piatta del prodotto k (A5.13.3, passo 4), con i motivi: un
+// PDF del prodotto (pdfDelProdotto), nel flusso, con il testo letto, che dice k nel cartiglio (A-P1, 80, +10 con
+// il nome compatibile), solo nei metadati (A-P2, 50, solo_metadati) o altrove nel testo (A-P3, 30,
+// ancora_da_confermare), sempre in modo indipendente dal nome (dicePdf). Il cartiglio vale anche con un codice
+// generico: l'ancora piatta dice soltanto «questo e' il disegno del prodotto», e non si preseleziona mai.
+// Ordinati per peso, poi ricevuto_il, poi allegato.
+func (d *derivati) ancorePdf(k string) ([]Portatore, []string) {
+	var out []Portatore
+	motivo := map[uuid.UUID]string{}
+	for _, f := range d.s.File {
+		if !f.pdf() || !f.nelFlusso() || !pdfDelProdotto(f) || !f.TestoPDF.Letto() {
+			continue
+		}
+		p := Portatore{AllegatoID: f.AllegatoID, Sha: f.Sha, Nome: f.Nome, Livello: LivelloPiatta, ricevutoIl: f.RicevutoIl}
+		switch cartiglio, metadati, testo := d.dicePdf(f, k); {
+		case cartiglio:
+			p.Peso, p.Regole = pesoPdfCartiglio, []string{"A-P1"}
+			c := CompatibilitaNome(f.Nome, f.PathInterno, f.Zip, k, d.m)
+			for _, r := range []string{"A-N1", "A-N2"} {
+				if contiene(c.Regole, r) {
+					p.Peso += pesoPdfNome
+					p.Regole = append(p.Regole, r)
+					break
+				}
+			}
+			motivo[f.AllegatoID] = fmt.Sprintf("il cartiglio di %s dice %s (A-P1): è il disegno del prodotto", f.Nome, k)
+		case metadati:
+			p.Peso, p.Regole, p.Discordanze = pesoPdfMetadati, []string{"A-P2"}, []string{DiscSoloMetadati}
+			motivo[f.AllegatoID] = fmt.Sprintf("%s dice %s solo nei metadati (A-P2): un'ancora debole (%s)", f.Nome, k, DiscSoloMetadati)
+		case testo:
+			p.Peso, p.Regole, p.Discordanze = pesoPdfTesto, []string{"A-P3"}, []string{DiscAncoraDaConfermare}
+			motivo[f.AllegatoID] = fmt.Sprintf("il testo di %s cita %s fuori dal cartiglio (A-P3): da confermare", f.Nome, k)
+		default:
+			continue
+		}
+		out = append(out, p)
+	}
+	ordinaPortatori(out)
+	var motivi []string
+	for _, p := range out {
+		motivi = append(motivi, motivo[p.AllegatoID])
+	}
+	return out, motivi
+}
+
+// pdfInAttesa sono i PDF compatibili per nome con k il cui testo non c'e' ancora e che si stanno scaricando o
+// analizzando (A5.13.3, passo 5): quando arrivano possono dare l'ancora piatta.
+func (d *derivati) pdfInAttesa(k string) []Portatore {
+	var out []Portatore
+	for _, f := range d.s.File {
+		if !f.pdf() || !f.nelFlusso() || !pdfDelProdotto(f) || f.TestoPDF.Letto() || f.Analisi != AnalisiInCorso {
+			continue
+		}
+		if c := CompatibilitaNome(f.Nome, f.PathInterno, f.Zip, k, d.m); c.Compatibile() {
+			out = append(out, Portatore{AllegatoID: f.AllegatoID, Sha: f.Sha, Nome: f.Nome, Peso: c.Peso, Livello: LivelloInAttesa,
+				Regole: c.Regole, ricevutoIl: f.RicevutoIl})
+		}
+	}
+	ordinaPortatori(out)
+	return out
+}
+
+// pdfDaGuardare: il PDF f conta per l'ancora del prodotto k: e' nel flusso e il suo nome e' compatibile con k,
+// o il suo testo lo dice (anche solo con un indizio dell'OCR, o ripetendo il nome).
+func (d *derivati) pdfDaGuardare(f FileFlusso, k string) bool {
+	if !f.pdf() || !f.nelFlusso() {
+		return false
+	}
+	if CompatibilitaNome(f.Nome, f.PathInterno, f.Zip, k, d.m).Compatibile() {
+		return true
+	}
+	for _, e := range f.EvidenzePDF {
+		if d.canonico(e.Codice) == k {
+			return true
+		}
+	}
+	return false
+}
+
+// testiPdf sono i PDF che contano per l'ancora di k, con lo stato del loro testo (Ancora.testiPdf).
+func (d *derivati) testiPdf(k string) []string {
+	var out []string
+	for _, f := range d.s.File {
+		if d.pdfDaGuardare(f, k) {
+			out = append(out, f.Sha+":"+f.TestoPDF.Stato)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// perchePdfNonAncora dice perche' i PDF che contano per il prodotto k (pdfDaGuardare), fuori da quelli che lo
+// ancorano, non ancorano: il testo che non c'e' (la frase del suo stato: senza testo, non letto, illeggibile, da
+// analizzare, la stessa della valutazione e della schermata), il tipo che non e' un disegno, un indizio
+// dell'OCR, una lettura che ripete il nome, o un testo che non dice k. Il nome da solo non ancora mai (P32).
+func (d *derivati) perchePdfNonAncora(k string, ancorano []Portatore) []string {
+	usato := map[uuid.UUID]bool{}
+	for _, p := range ancorano {
+		usato[p.AllegatoID] = true
+	}
+	var out []string
+	for _, f := range d.s.File {
+		if !d.pdfDaGuardare(f, k) || usato[f.AllegatoID] {
+			continue
+		}
+		ocr, ripete := false, false
+		for _, e := range f.EvidenzePDF {
+			if d.canonico(e.Codice) == k {
+				ocr = ocr || e.Indizio
+				ripete = ripete || (!e.Indizio && e.DipendeDaNome)
+			}
+		}
+		switch {
+		case f.TestoPDF.Stato == "":
+			out = append(out, fmt.Sprintf("%s: il nome da solo non ancora", f.Nome))
+		case !f.TestoPDF.Letto():
+			out = append(out, fmt.Sprintf("%s: %s; non ancora %s", f.Nome, f.TestoPDF.Frase, k))
+		case !pdfDelProdotto(f):
+			out = append(out, fmt.Sprintf("%s è un documento (%s), non il disegno del prodotto: non ancora %s", f.Nome,
+				f.Proposta.Valutazione.Tipo.Valore, k))
+		case ocr:
+			out = append(out, fmt.Sprintf("%s: l'OCR legge %s, un indizio: non ancora", f.Nome, k))
+		case ripete:
+			out = append(out, fmt.Sprintf("%s: il testo dice %s solo ripetendo il nome del file, e il nome da solo non ancora", f.Nome, k))
+		default:
+			out = append(out, fmt.Sprintf("il testo di %s non dice %s: il nome da solo non ancora", f.Nome, k))
 		}
 	}
 	return out

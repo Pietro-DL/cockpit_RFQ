@@ -38,9 +38,9 @@ import (
 
 // LeggiStatoFlusso legge tutto cio' che il flusso vuole sapere della RFQ, e niente di piu': letture soltanto.
 // Nessun fatto grezzo del worker: della struttura di uno STEP le righe di proposta, del file la valutazione
-// (ValutazioneDellaRiga, che per le righe di prima la ricostruisce), del contenuto di un PDF le evidenze
-// normalizzate (EvidenzeContenutoPDF); dell'analisi, solo se i fatti correnti ci sono e com'e' finito l'ultimo
-// job.
+// (ValutazioneDellaRiga, che per le righe di prima la ricostruisce), del contenuto di un PDF lo stato del testo e
+// le evidenze normalizzate dai fatti correnti (EvidenzeContenutoPDF, la porta sola del testo dei PDF: giro 4,
+// fase 4.2); dell'analisi, solo se i fatti correnti ci sono e com'e' finito l'ultimo job.
 func LeggiStatoFlusso(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore) (StatoFlusso, error) {
 	var s StatoFlusso
 	tid := uuid.NullUUID{UUID: thread, Valid: true}
@@ -144,8 +144,9 @@ func LeggiStatoFlusso(ctx context.Context, q *db.Queries, thread uuid.UUID, an c
 		if p, ok := perAllegato[r.AllegatoID]; ok {
 			f.Proposta = propostaFile(p, r.NomeFile, r.Estensione.String)
 		}
-		if f.pdf() && f.Sha != "" {
-			if f.EvidenzePDF, err = EvidenzeContenutoPDF(ctx, q, f.Sha, s.Motore); err != nil {
+		if f.pdf() {
+			if f.TestoPDF, f.EvidenzePDF, err = EvidenzeContenutoPDF(ctx, q, f.Sha, f.Nome, pdfAnalizzato(f.Estensione, f.Sha, r.Stato),
+				an, s.Motore); err != nil {
 				return s, err
 			}
 		}
