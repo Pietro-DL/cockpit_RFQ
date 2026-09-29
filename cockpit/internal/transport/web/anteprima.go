@@ -16,6 +16,7 @@ import (
 
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/storage/staging"
 )
 
 // L'ANTEPRIMA: il PDF si guarda dal Cockpit, senza scaricarlo e senza cercarlo sul NAS a mano
@@ -59,6 +60,38 @@ import (
 // `autenticato`, come tutto il resto: nel Cockpit chi e' entrato vede le RFQ dell'ufficio, e un
 // allegato non e' piu' riservato del messaggio da cui si apre. Il giorno in cui i ruoli diventeranno
 // una matrice (voce 6.9) questa rotta si muovera' insieme a `/messaggio/{id}`, non da sola.
+//
+// # La cache del browser (cache C1, domanda 31a = A)
+//
+// Un file gia' visto il browser lo tiene su disco, e alla riapertura chiede solo «e' cambiato?»: un 304,
+// zero byte, ma comunque una richiesta con la sessione da toccare, le query e, dal NAS, le operazioni sul
+// NAS. Quella richiesta si toglie — `immutable` per un anno — solo quando i byte non possono essere
+// diversi da quelli che l'indirizzo promette, cioe' quando tutte queste cose sono vere insieme:
+//
+//  1. l'indirizzo porta l'impronta (`?v=<sha256>`) ed e' quella dell'allegato ADESSO. Lo sha256 di un
+//     allegato puo' cambiare a parita' di id (un «Riscarica» che scende con un altro hash, una nuova
+//     estrazione dell'archivio che riscrive le voci per posizione): con l'id soltanto, il browser terrebbe
+//     per sempre il contenuto di prima;
+//  2. i byte vengono dallo staging, e dal posto di un contenuto verificato: `_contenuti\<ab>\<sha256>.<ext>`
+//     con lo sha256 dell'allegato (`staging.EContenuto`). Il nome e' l'hash, e un file ci arriva solo dopo
+//     che l'hash e' stato verificato;
+//  3. in questa richiesta non e' scattato nessun ramo di dubbio.
+//
+// Dal NAS mai: li' il file e' verificato solo per dimensione e data, e un file sostituito con la stessa
+// dimensione e la stessa data resterebbe in cache per sempre sotto l'indirizzo dell'hash giusto, mentre
+// oggi la prima riapertura dopo la segnalazione del ricognitore risponde 409. Dal NAS resta la
+// rivalidazione a ogni apertura, come prima. Le risposte d'errore non si tengono (`no-store`): un 404 o un
+// 409 non deve restare in memoria quando il file torna.
+//
+// Il 304 e' l'altra strada per cui una copia puo' diventare definitiva: non porta byte, rinfresca le
+// intestazioni della copia che il browser ha gia', qualunque sia la risposta da cui l'aveva presa. Un file
+// visto dal NAS, e poi tornato nello staging (esce dopo 30 giorni, «Riscarica» lo riporta), riceverebbe un
+// 304 con `immutable`, e la copia del NAS varrebbe un anno. Per questo l'ETag dice anche QUANTO i byte sono
+// garantiti: `"<sha256>"` solo per il contenuto verificato, `"nas-<sha256>"` e `"staging-<sha256>"` per il
+// resto (`etagAnteprima`). Una copia presa altrove non combacia, ne' con If-None-Match ne' con If-Range, e il
+// browser riceve il file intero, quello verificato. E la risposta definitiva non porta la data: la data di un
+// file dello staging e' quella del suo ultimo uso (`staging.ToccaContenuto`), non del contenuto, e un
+// If-Modified-Since da solo non deve poter dare un 304 definitivo.
 
 // sorgente e' un file aperto pronto da servire, con cio' che serve alle intestazioni — e il conto dei
 // byte letti davvero.
@@ -73,7 +106,13 @@ type sorgente struct {
 	da      string // "staging" | "NAS": da quale dei due posti arrivano i byte
 	dim     int64
 	modtime time.Time
-	etag    string // sha256 dal database, non ricalcolato
+	etag    string // sha256 dal database, non ricalcolato (l'intestazione la compone etagAnteprima)
+	// percorso: il file aperto, com'e' stato controllato. Serve alla cache (C1): `immutable` solo per il
+	// posto di un contenuto verificato.
+	percorso string
+	// inDubbio: in questa richiesta e' scattato un ramo di dubbio (il file riletto per l'hash). Anche se poi
+	// l'hash torna, una risposta cosi' non si dichiara definitiva.
+	inDubbio bool
 }
 
 func (s *sorgente) Read(p []byte) (int, error) {
@@ -100,6 +139,88 @@ func (e erroreHTTP) Error() string {
 }
 
 func (e erroreHTTP) Unwrap() error { return e.err }
+
+// Le tre intestazioni `Cache-Control` dell'anteprima (cache C1).
+const (
+	cacheDefinitiva = "private, max-age=31536000, immutable" // i byte non possono cambiare: non si richiede
+	cacheRivalida   = "private, max-age=0, must-revalidate"  // si tiene, ma a ogni apertura si chiede (304)
+	cacheMai        = "no-store"                             // le risposte d'errore
+)
+
+// impronta e' lo sha256 come sta in un indirizzo: 64 cifre esadecimali in minuscolo, oppure "" se quello
+// che c'e' non e' un hash (un allegato non ancora sceso non ne ha uno).
+func impronta(sha string) string {
+	h := strings.ToLower(strings.TrimSpace(sha))
+	if len(h) != 64 || strings.Trim(h, "0123456789abcdef") != "" {
+		return ""
+	}
+	return h
+}
+
+// indirizzoAnteprima e' l'indirizzo dell'anteprima di un allegato. Porta l'impronta del contenuto quando la
+// pagina la conosce: e' l'unico indirizzo che il browser puo' tenere senza richiederlo (cache C1), perche'
+// lo stesso allegato con un contenuto diverso avrebbe un indirizzo diverso. Senza impronta resta
+// l'indirizzo di sempre, che si rivalida a ogni apertura.
+func indirizzoAnteprima(id uuid.UUID, sha string) string {
+	u := "/allegato/" + id.String() + "/anteprima"
+	if h := impronta(sha); h != "" {
+		u += "?v=" + h
+	}
+	return u
+}
+
+// contenutoVerificato: i byte di questa sorgente sono, per costruzione, quelli dello sha256 dell'allegato. Cioe'
+// vengono dallo staging, dal posto del contenuto con quello sha256 (_contenuti\<ab>\<sha256>.<ext>), e nessun
+// dubbio e' scattato. E' la sola garanzia che non passa da una dimensione o da una data, e decide due cose
+// (cache C1): la risposta definitiva e l'ETag nudo.
+func contenutoVerificato(radiceStaging, shaAllegato string, src *sorgente) bool {
+	h := impronta(shaAllegato)
+	if src == nil || h == "" || src.da != "staging" || src.inDubbio {
+		return false
+	}
+	return staging.EContenuto(radiceStaging, src.percorso, h)
+}
+
+// cacheAnteprima decide il `Cache-Control` di un'anteprima servita (cache C1): definitiva SOLO se l'impronta
+// chiesta `v` e' lo sha256 dell'allegato e i byte sono il contenuto verificato con quello sha256. Tutto il
+// resto si rivalida, come prima di C1. E' una funzione pura perche' e' la decisione che conta: le prove la
+// guardano caso per caso, compresi quelli che devono dire no.
+func cacheAnteprima(radiceStaging, shaAllegato, v string, src *sorgente) string {
+	if v == "" || v != impronta(shaAllegato) || !contenutoVerificato(radiceStaging, shaAllegato, src) {
+		return cacheRivalida
+	}
+	return cacheDefinitiva
+}
+
+// etagAnteprima e' l'ETag di un'anteprima servita: lo sha256 dal database, non ricalcolato, e davanti da dove
+// vengono i byte quando non sono il contenuto verificato (cache C1). Con lo stesso ETag per tutte le fonti,
+// una copia presa dal NAS — verificata solo per dimensione e data — riceverebbe un 304 definitivo il giorno
+// in cui lo stesso contenuto torna nello staging; cosi' non combacia, e il browser riceve il file intero. Il
+// NAS e lo staging non verificato restano distinti anche fra loro: sono due posti diversi, e che abbiano gli
+// stessi byte non l'ha verificato nessuno. Fra due risposte della stessa fonte l'ETag resta lo stesso, e il
+// 304 c'e' come prima.
+func etagAnteprima(radiceStaging, shaAllegato string, src *sorgente) string {
+	if src == nil || src.etag == "" {
+		return ""
+	}
+	if contenutoVerificato(radiceStaging, shaAllegato, src) {
+		return `"` + impronta(shaAllegato) + `"`
+	}
+	return `"` + strings.ToLower(src.da) + "-" + src.etag + `"`
+}
+
+// rispostaAnteprima e' la risposta della rotta: ricorda lo stato per la riga di log (la misura della cache,
+// domanda 31d), e fa partire ogni errore con `no-store`. Ogni errore, anche quelli che scrive ServeContent
+// (un Range fuori dal file, un If-Match che non torna): lui toglie il Cache-Control che avevamo messo per il
+// file, e senza questo l'errore uscirebbe senza.
+type rispostaAnteprima struct{ rispostaConStato }
+
+func (w *rispostaAnteprima) WriteHeader(stato int) {
+	if w.stato == 0 && stato >= 400 {
+		w.Header().Set("Cache-Control", cacheMai)
+	}
+	w.rispostaConStato.WriteHeader(stato)
+}
 
 // nonCeLaRiga distingue le due risposte che una query puo' dare quando non torna niente: «quella riga
 // non c'e'» e «il database non ha risposto». Sembrano la stessa cosa da dove le si riceve, e non lo
@@ -144,7 +265,8 @@ func pdfDavvero(r io.Reader) error {
 	return nil
 }
 
-func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
+func (s *Server) anteprima(rw http.ResponseWriter, r *http.Request) {
+	w := &rispostaAnteprima{rispostaConStato{ResponseWriter: rw}}
 	aid, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", http.StatusBadRequest)
@@ -194,15 +316,50 @@ func (s *Server) anteprima(w http.ResponseWriter, r *http.Request) {
 	// Un PDF puo' contenere JavaScript e moduli: nel viewer non deve eseguire niente e non deve
 	// poter chiamare nessuno.
 	h.Set("Content-Security-Policy", "sandbox; default-src 'none'")
-	h.Set("Cache-Control", "private, max-age=0, must-revalidate")
-	if src.etag != "" {
-		h.Set("ETag", `"`+src.etag+`"`)
+	// Prima di ServeContent, e quindi uguale per il 200, il 206 e il 304 della stessa richiesta: un 304
+	// rinfresca la copia che il browser ha, e con un'intestazione diversa la cambierebbe (cache C1).
+	cache := cacheAnteprima(s.Staging, a.Sha256.String, r.URL.Query().Get("v"), src)
+	h.Set("Cache-Control", cache)
+	if etag := etagAnteprima(s.Staging, a.Sha256.String, src); etag != "" {
+		h.Set("ETag", etag)
+	}
+	// La risposta definitiva si rivalida solo con l'ETag, mai con la data: senza data ServeContent non
+	// scrive Last-Modified, ignora If-Modified-Since e a un If-Range con la data risponde col file intero
+	// (cache C1). La data di un file dello staging e' quella del suo ultimo uso, non del contenuto.
+	modtime := src.modtime
+	if cache == cacheDefinitiva {
+		modtime = time.Time{}
 	}
 	// ServeContent fa il resto: Range, If-Range, If-None-Match, HEAD. Il nome e' vuoto di proposito,
 	// perche' il Content-Type l'abbiamo gia' deciso noi e non va dedotto dall'estensione.
-	http.ServeContent(w, r, "", src.modtime, src)
-	s.Log.Info("anteprima servita", "allegato", aid, "da", src.da, "byte_letti", src.letti,
-		"dimensione", src.dim, "range", r.Header.Get("Range"))
+	http.ServeContent(w, r, "", modtime, src)
+	s.registraServita(r, aid, w.stato, src, cache)
+}
+
+// registraServita scrive la riga «anteprima servita». E' la misura della cache (C0/C1, domanda 31d): lo stato
+// dice se il file e' uscito (200, 206) o se il browser l'aveva gia' (304), senza doverlo indovinare dai byte
+// letti — un 304 dopo una rilettura per dubbio ne ha letti quanti un 200 —; utente, postazione e indirizzo
+// dicono se i 200 dello stesso allegato tornano dallo stesso PC, cioe' dove la cache del browser non c'e'
+// (il certificato non attendibile, una policy). Solo una riga di log: la sessione non si tocca.
+func (s *Server) registraServita(r *http.Request, aid uuid.UUID, stato int, src *sorgente, cache string) {
+	if stato == 0 {
+		stato = http.StatusOK
+	}
+	sess := sessioneDa(r.Context())
+	utente, ip := "", ""
+	if sess.Utente != nil {
+		utente = sess.Utente.Sigla
+	}
+	if a, ok := s.indirizzoDi(r); ok {
+		ip = a.String()
+	}
+	politica := "rivalida"
+	if cache == cacheDefinitiva {
+		politica = "definitiva"
+	}
+	s.Log.Info("anteprima servita", "allegato", aid, "stato", stato, "da", src.da, "byte_letti", src.letti,
+		"dimensione", src.dim, "range", r.Header.Get("Range"), "cache", politica,
+		"utente", utente, "postazione", sess.NomeHost, "ip", ip)
 }
 
 // nomePerIlBrowser scrive il nome del file in `Content-Disposition` nelle DUE forme che
@@ -278,7 +435,7 @@ func (s *Server) sorgenteAnteprima(ctx context.Context, q *db.Queries, a db.Alle
 					return nil, erroreHTTP{http.StatusInternalServerError, "anteprima non disponibile", err}
 				}
 				return &sorgente{f: f, da: "staging", dim: st.Size(), modtime: st.ModTime(),
-					etag: a.Sha256.String}, nil
+					etag: a.Sha256.String, percorso: percorso}, nil
 			case !os.IsNotExist(err):
 				// Il file c'e' e non si apre (permessi, disco): il NAS puo' avere lo stesso contenuto,
 				// e provarci e' meglio che rispondere di no. Resta nel log, perche' un errore di
@@ -414,8 +571,9 @@ func (s *Server) dalNas(ctx context.Context, q *db.Queries, a db.Allegato) (*sor
 		return nil, erroreHTTP{http.StatusConflict,
 			"il file non e' al suo posto sul NAS: e' stato segnalato al controllo di integrita'", err}
 	}
-	src := &sorgente{f: f, da: "NAS", dim: st.Size(), modtime: st.ModTime(), etag: d.Sha256}
+	src := &sorgente{f: f, da: "NAS", dim: st.Size(), modtime: st.ModTime(), etag: d.Sha256, percorso: p.Assoluto}
 	if dubbio(d, st) {
+		src.inDubbio = true
 		// Qui, e solo qui, si rilegge il file intero — e lo si fa DA QUESTO handle, contando i byte:
 		// se l'hash non corrisponde l'anomalia resta scritta e non esce un solo byte.
 		if err := documenti.VerificaFileAperto(ctx, q, d, p.Relativo, src); err != nil {

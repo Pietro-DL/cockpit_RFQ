@@ -75,6 +75,7 @@ type tileDoc struct {
 	Codice    string
 	Titolo    string
 	Anteprima uuid.UUID // l'allegato da cui si disegna la miniatura; zero = nessuna
+	Impronta  string    // lo sha256 del suo contenuto, per l'indirizzo che il browser tiene (cache C1); "" = senza
 	Stato     string    // doc (disegno confermato), proposta (in arrivo), formato (un 2D che non si vede), manca
 	Condiviso bool
 	Decidere  int
@@ -158,6 +159,7 @@ type precedente struct {
 	Allegato string `json:"a"`
 	Nome     string `json:"nome"`
 	Note     int    `json:"n"`
+	V        string `json:"v,omitempty"` // l'impronta del contenuto della revisione, per l'indirizzo (cache C1)
 }
 
 type elementoIndice struct {
@@ -175,6 +177,9 @@ type fileIndi struct {
 	Pdf   bool   `json:"pdf"`
 	Ok    bool   `json:"ok"`    // si puo' aprire
 	Stato string `json:"stato"` // doc, proposta
+	// V: l'impronta del contenuto (sha256). Il viewer la mette nell'indirizzo del PDF, e solo con quella il
+	// browser puo' tenerlo senza richiederlo (cache C1).
+	V string `json:"v,omitempty"`
 }
 
 // propostaStruttura e' uno STEP con una struttura proposta da rivedere nell'editor.
@@ -546,7 +551,7 @@ func costruisciDocumenti(d *fascicoloDati, note []db.ListAnnotazioniThreadRow, u
 		k := "f:" + f.A.AllegatoID.String()
 		t := tileDoc{Chiave: k, Codice: f.A.NomeFile, Titolo: f.A.NomeFile, Stato: "manca"}
 		if servibile(f) {
-			t.Anteprima, t.Stato = f.A.AllegatoID, "proposta"
+			t.Anteprima, t.Impronta, t.Stato = f.A.AllegatoID, impronta(f.A.Sha256.String), "proposta"
 			if f.Doc != nil {
 				t.Stato = "doc"
 			}
@@ -637,7 +642,7 @@ func costruisciDocumenti(d *fascicoloDati, note []db.ListAnnotazioniThreadRow, u
 				v.Indice.Note[fi.A] = nn
 			}
 			if x, a, ok := precedenteDi(f); ok && a != uuid.Nil && len(perSha[x.Sha256]) > 0 {
-				v.Indice.Prec[fi.A] = precedente{Allegato: a.String(), Nome: x.NomeFile, Note: len(perSha[x.Sha256])}
+				v.Indice.Prec[fi.A] = precedente{Allegato: a.String(), Nome: x.NomeFile, Note: len(perSha[x.Sha256]), V: impronta(x.Sha256)}
 				if pf, ok := perAllegato[a]; ok {
 					v.Indice.Note[a.String()] = noteDi(pf, comp)
 				}
@@ -684,7 +689,8 @@ func fileIndice(f rigaFile) fileIndi {
 	if f.Doc != nil {
 		stato = "doc"
 	}
-	return fileIndi{A: f.A.AllegatoID.String(), Nome: f.A.NomeFile, Tipo: etichettaTipoDoc(f.Tipo), Pdf: f.Pdf(), Ok: servibile(f), Stato: stato}
+	return fileIndi{A: f.A.AllegatoID.String(), Nome: f.A.NomeFile, Tipo: etichettaTipoDoc(f.Tipo), Pdf: f.Pdf(), Ok: servibile(f), Stato: stato,
+		V: impronta(f.A.Sha256.String)}
 }
 
 // tileDi e' la miniatura di un componente: il 2D corrente, altrimenti il 2D in arrivo (tratteggiato), altrimenti
@@ -699,7 +705,7 @@ func tileDi(r rigaDoc, files []rigaFile) tileDoc {
 				continue
 			}
 			if servibile(f) {
-				t.Anteprima = f.A.AllegatoID
+				t.Anteprima, t.Impronta = f.A.AllegatoID, impronta(f.A.Sha256.String)
 				t.Stato = map[bool]string{true: "doc", false: "proposta"}[pass]
 				return t
 			}

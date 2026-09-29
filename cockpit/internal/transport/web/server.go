@@ -167,6 +167,9 @@ var funzioni = template.FuncMap{
 		return out
 	},
 	"uuidBreve": func(u uuid.UUID) string { return u.String()[:8] },
+	// cache C1: l'indirizzo dell'anteprima con l'impronta del contenuto, l'unico che il browser puo' tenere
+	// senza richiederlo (anteprima.go)
+	"indirizzoAnteprima": func(id uuid.UUID, sha pgtype.Text) string { return indirizzoAnteprima(id, sha.String) },
 	"tipiDocumento": func() []string {
 		out := make([]string, 0, len(db.AllTipoDocumentoValues()))
 		for _, t := range db.AllTipoDocumentoValues() {
