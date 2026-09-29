@@ -16,7 +16,8 @@ eseguono:
   5  il pannello di destra: il prodotto (con i file in arrivo) e una proposta (con chi la aspetta)
   6  l'editor della struttura: la proposta dello STEP si guarda e si conferma com'e'
   7  «Da verificare» chiede solo il codice del foglio, gia' suggerito dal nome
-  8  «Rivedi» e «Conferma Fascicolo»: un gesto porta nel fascicolo documenti e STEP strutturale
+  8  «Rivedi» e «Conferma Fascicolo»: il riepilogo con i percorsi sul NAS, poi «Conferma e copia sul NAS»
+     (giro 4, fase 4.1b) porta nel fascicolo i documenti
   9  «Aggiungi file › Importa dal NAS»: la ricerca per codice sotto la radice, poi la strada di tutti
 
 Alla fine stampa una riga «ESITO {json}» con il thread e la cronologia: il test Go la legge e controlla il
@@ -99,6 +100,19 @@ class Banco:
 
     def chiudi_cassetto(self):
         self.clic_e_aspetta(self.page.locator("#cassetto a.chiudi-cassetto"), "/fascicolo/parti")
+
+    def conferma_dal_riepilogo(self):
+        """«Conferma Fascicolo» (giro 4, fase 4.1b): il bottone apre il riepilogo con una GET, che non scrive; la
+        conferma e' «Conferma e copia sul NAS», dentro il riepilogo. Restituisce l'avviso della conferma, poi chiude
+        il cassetto (che coprirebbe la BOM; la navigazione toglie l'avviso)."""
+        self.clic_e_aspetta(self.page.locator("#conferma-fascicolo"), "/fascicolo/parti")
+        verifica(self.avviso() == "", "aprire il riepilogo ha dato un esito: %r" % self.avviso())
+        conferma = self.page.locator("#cassetto form.rivedi button[name=conferma]")
+        verifica(conferma.count() == 1, "il riepilogo non ha «Conferma e copia sul NAS»")
+        self.clic_e_aspetta(conferma, "/fascicolo/conferma")
+        esito = self.avviso()
+        self.chiudi_cassetto()
+        return esito
 
     def albero(self):
         return self.page.evaluate(JS_ALBERO)
@@ -299,7 +313,7 @@ def passo_6(b):
     verifica(b.viva(), "la pagina si e' ricaricata")
 
 
-@passo("«Rivedi» e «Conferma Fascicolo»: un gesto per documenti e STEP strutturale")
+@passo("«Rivedi» e «Conferma Fascicolo»: il riepilogo, poi la conferma scritta")
 def passo_7(b):
     b.chiudi_cassetto()
     verifica(b.pronti() == 6, "voci pronte: %d (%s)" % (b.pronti(), b.page.locator("#piano").inner_text()))
@@ -312,11 +326,13 @@ def passo_7(b):
     caselle = form.locator("input[type=checkbox]")
     verifica(caselle.count() == 6 and all(caselle.nth(i).is_checked() for i in range(caselle.count())), "le caselle del riepilogo: %d" % caselle.count())
     verifica(form.locator('input[name="struttura"]').count() == 0, "la struttura dello STEP si spunta ancora nel riepilogo")
+    # giro 4, fase 4.1b: il riepilogo dice per ogni voce il percorso sul NAS
+    verifica(form.locator(".rivedi-percorso").count() == 6, "i percorsi sul NAS nel riepilogo: %d" % form.locator(".rivedi-percorso").count())
     b.foto("06_rivedi.png")
     b.chiudi_cassetto()
-    b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/conferma")
-    b.dati["conferma"] = b.avviso()
-    verifica(b.avviso().startswith("Fascicolo confermato"), "avviso: %r" % b.avviso())
+    # «Conferma Fascicolo» non scrive: apre il riepilogo; si conferma da li', con «Conferma e copia sul NAS»
+    b.dati["conferma"] = b.conferma_dal_riepilogo()
+    verifica(b.dati["conferma"].startswith("Fascicolo confermato"), "avviso: %r" % b.dati["conferma"])
     verifica(b.page.locator("#conferma-fascicolo").is_disabled(), "dopo la conferma resta qualcosa di pronto: %r" % b.page.locator("#piano").inner_text())
     # il pannello di destra segue le conferme: la proposta scelta (77720517) e' diventata un componente
     # (nell'editor), e il corpo mostra il suo 2D, non piu' il riepilogo dello STEP con i nodi «aperta»
@@ -353,9 +369,8 @@ def passo_8(b):
     b.chiudi_cassetto()
     b.dati["dopo_nas"] = b.aspetta(lambda s: not s["lavoro"] and s["conferma"], 60, "il DXF importato")
     verifica(b.pronti() == 1, "dopo l'importazione le voci pronte sono %d" % b.pronti())
-    b.clic_e_aspetta(b.page.locator("#conferma-fascicolo"), "/fascicolo/conferma")
-    b.dati["conferma_dxf"] = b.avviso()
-    verifica(b.avviso().startswith("Fascicolo confermato"), "avviso: %r" % b.avviso())
+    b.dati["conferma_dxf"] = b.conferma_dal_riepilogo()
+    verifica(b.dati["conferma_dxf"].startswith("Fascicolo confermato"), "avviso: %r" % b.dati["conferma_dxf"])
     b.clic_e_aspetta(b.page.locator("#tela div.carta.prodotto a.carta-link").first, "/fascicolo/anteprima")
     b.clic_e_aspetta(b.page.locator("#anteprima nav.schede a", has_text="DXF"), "/fascicolo/anteprima")
     verifica(b.page.locator("#anteprima ul.det-doc", has_text="77722757.dxf").count() == 1, "il DXF non e' fra i documenti del prodotto")
