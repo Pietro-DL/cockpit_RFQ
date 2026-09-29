@@ -99,20 +99,33 @@ func BloccaCartella(ctx context.Context, q *db.Queries, thread uuid.UUID, cartel
 // progressivo contro se stesso. Il lucchetto lo prende chi chiama, per tutte le cartelle che tocca e
 // in ordine di percorso (BloccaCartella).
 func RiscegliPercorso(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, nome, attuale string) (string, error) {
-	return primoLiberoPer(ctx, q, thread, cartella, nome, attuale)
+	return primoLiberoPer(ctx, q, thread, cartella, nome, attuale, nil)
+}
+
+// PercorsoPrevisto e' il percorso che ScegliPercorso darebbe adesso a un file nuovo nella cartella, senza
+// prendere il lucchetto e senza riservare niente: serve a un riepilogo che non scrive (la GET di «Conferma
+// Fascicolo», giro 4, fase 4.1b). presi sono i percorsi, in minuscolo, che lo stesso riepilogo ha gia' dato
+// ai file che vengono prima: la conferma li sceglie uno dopo l'altro, nella stessa transazione, e il secondo
+// foglio dello stesso pezzo prende `_2`. Da sola non e' una promessa: chi scrive sceglie di nuovo con
+// ScegliPercorso, sotto il lucchetto, e confronta con quello che l'operatore ha visto.
+func PercorsoPrevisto(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, nome string, presi map[string]bool) (string, error) {
+	return primoLiberoPer(ctx, q, thread, cartella, nome, "", presi)
 }
 
 // primoLibero e' la scelta del nome senza il lucchetto: da sola non basta, perche' due transazioni
 // possono vedere libero lo stesso nome. Le prove la usano per mostrarlo.
 func primoLibero(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, nome string) (string, error) {
-	return primoLiberoPer(ctx, q, thread, cartella, nome, "")
+	return primoLiberoPer(ctx, q, thread, cartella, nome, "", nil)
 }
 
-func primoLiberoPer(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, nome, attuale string) (string, error) {
+func primoLiberoPer(ctx context.Context, q *db.Queries, thread uuid.UUID, cartella, nome, attuale string, presi map[string]bool) (string, error) {
 	for n := 1; n <= maxProgressivo; n++ {
 		p := NellaCartella(cartella, ConProgressivo(nome, n))
 		if attuale != "" && strings.EqualFold(p, attuale) {
 			return attuale, nil
+		}
+		if presi[strings.ToLower(p)] {
+			continue
 		}
 		occupato, err := q.PercorsoOccupato(ctx, db.PercorsoOccupatoParams{ThreadID: thread, Percorso: p})
 		if err != nil {

@@ -67,8 +67,9 @@ const (
 	gruppoRfq   = "rfq"
 )
 
-// I cassetti: «Da verificare» (il lavoro dell'operatore), «Rivedi» il piano prima della conferma, «Importa
-// dal NAS», e le due viste tecniche di B8.6/B8.7, Codici e Avvisi.
+// I cassetti: «Da verificare» (il lavoro dell'operatore), «Rivedi» il piano prima della conferma (dalla fase 4.1b
+// e' il riepilogo di «Conferma Fascicolo», con i percorsi sul NAS e la conferma scritta), «Importa dal NAS», e le
+// due viste tecniche di B8.6/B8.7, Codici e Avvisi.
 var cassettiFascicolo = map[string]bool{"verifica": true, "piano": true, "nas": true, "codici": true, "avvisi": true}
 
 // Le schede del dettaglio di un componente.
@@ -489,6 +490,11 @@ type fascicoloDati struct {
 	// B8.7b
 	Piano       fascicolo.PianoFascicolo // il piano di riconciliazione: che cosa entra con «Conferma Fascicolo»
 	ErrorePiano string
+	// Riepilogo: «Conferma Fascicolo» prima della conferma scritta (giro 4, fase 4.1b), solo con il cassetto «Rivedi»
+	// aperto: i file pronti con il componente, il tipo e il percorso sul NAS, e la firma di quello che si vede.
+	Riepilogo       *riepilogoConferma
+	ErroreRiepilogo string
+
 	Lavoro      fascicolo.Lavoro // download, estrazioni e analisi ancora in corso sui file della RFQ
 	Avanzamento avanzamento
 	Rifai       bool // la risposta del poll rifa' i pannelli: la firma e' cambiata
@@ -772,6 +778,15 @@ func (s *Server) caricaFascicolo(ctx context.Context, thread uuid.UUID, st stato
 	// B8.7b: il piano, il lavoro in corso, la BOM visuale, il dettaglio a destra; v3: la vista Documenti
 	if d.Piano, err = fascicolo.LeggiPianoFascicolo(ctx, q, thread); err != nil {
 		d.ErrorePiano = "il piano del Fascicolo non si è potuto calcolare: " + err.Error()
+	}
+	// giro 4, fase 4.1b: il riepilogo di «Conferma Fascicolo» si calcola solo quando lo si guarda (il cassetto
+	// «Rivedi»), e non scrive: i percorsi sul NAS sono quelli che la conferma sceglierebbe adesso
+	if st.Cassetto == "piano" && d.ErrorePiano == "" {
+		if rp, err := riepilogoDelPiano(ctx, q, thread, d.Piano); err != nil {
+			d.ErroreRiepilogo = "il riepilogo non si è potuto calcolare: " + err.Error()
+		} else {
+			d.Riepilogo = &rp
+		}
 	}
 	if d.Lavoro, err = fascicolo.LavoroInCorso(ctx, q, thread); err != nil {
 		d.Avanzamento.Errore = err.Error()

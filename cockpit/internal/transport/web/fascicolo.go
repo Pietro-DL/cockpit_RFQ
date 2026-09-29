@@ -82,13 +82,19 @@ func nuoviPercorsi(ctx context.Context, q *db.Queries, thread uuid.UUID) (*perco
 
 // cartellaDi e' la cartella che la conferma darebbe al documento d con il codice dato.
 func (p *percorsi) cartellaDi(ctx context.Context, q *db.Queries, d db.Documento, codice string) (string, error) {
-	l, ok := p.layout[d.Tipo]
+	return p.cartellaPer(ctx, q, d.Tipo, codice)
+}
+
+// cartellaPer e' la cartella di un documento del tipo e del codice dati: la stessa regola della conferma, anche
+// per un file che non e' ancora un documento (il riepilogo di «Conferma Fascicolo»).
+func (p *percorsi) cartellaPer(ctx context.Context, q *db.Queries, tipo db.TipoDocumento, codice string) (string, error) {
+	l, ok := p.layout[tipo]
 	if !ok {
 		var err error
-		if l, err = q.GetCartellaDocumento(ctx, d.Tipo); err != nil {
-			return "", fmt.Errorf("layout per %s: %w", d.Tipo, err)
+		if l, err = q.GetCartellaDocumento(ctx, tipo); err != nil {
+			return "", fmt.Errorf("layout per %s: %w", tipo, err)
 		}
-		p.layout[d.Tipo] = l
+		p.layout[tipo] = l
 	}
 	return documenti.CartellaDocumento(documenti.LayoutDocumento{Sottocartella: l.Sottocartella, PerCodice: l.PerCodice}, p.perCodice, codice)
 }
