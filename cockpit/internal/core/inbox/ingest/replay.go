@@ -19,7 +19,10 @@ import (
 //     l'unico modo che funzioni anche quando l'elemento nel frattempo è stato spostato o eliminato
 //     dalla casella, cioè proprio nei casi in cui si riprova a distanza di giorni.
 //   - origine 'lettura': il worker non era riuscito a leggere l'elemento, quindi un payload non c'è.
-//     Si accoda un job che lo rilegge da quella casella e lo rimanda in un lotto da uno.
+//     Si accoda un job che lo rilegge da quella casella e lo rimanda in un lotto da uno. Il worker lo
+//     ritrova per EntryID o, se è stato spostato, per Message-ID (Smistamento 4.13: prima il worker non
+//     aveva il ramo e il job moriva «tipo sconosciuto»); «non trovato» chiude il job come definitivo e
+//     lo scarto resta, con il motivo nel job. Il lotto chiude lo scarto e non muove il cursore.
 //
 // Restituisce una frase da mostrare a chi ha premuto il pulsante: chi riprova vuole sapere che cosa è
 // successo, non solo che «l'operazione è riuscita».

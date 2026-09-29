@@ -29,8 +29,8 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Err
                             cadenza_battito, carica_config, configura_log, diagnosi, leggi_marcatore_arresto,
                             nome_worker, riporta_risultato)
 from contratti import (MODO_STORICO, CartellaEsito, CursoreLotto, IngestRichiesta, Job, PayloadApriElemento,
-                       PayloadCreaBozza, PayloadSegnaLetto, PayloadSpostaCartella, PayloadStageAllegato,
-                       PayloadSyncOutlook, RisultatoBozza, RisultatoElemento, RisultatoRichiesta,
+                       PayloadCreaBozza, PayloadRileggiElemento, PayloadSegnaLetto, PayloadSpostaCartella,
+                       PayloadStageAllegato, PayloadSyncOutlook, RisultatoBozza, RisultatoElemento, RisultatoRichiesta,
                        RisultatoStage, RisultatoSync)
 from outlook_com import (ERRORI_ELEMENTO, ErroreDefinitivo, LetturaIncompleta, MemoriaRestrict, Outlook,
                          Saltati, confronta_insiemi, filtro_finestra)
@@ -328,6 +328,8 @@ class Worker:
             case "segna_letto":
                 l = PayloadSegnaLetto.model_validate(p)
                 return RisultatoElemento(**self.ol().segna_letto(l.entry_id, self.store_di(l.casella_id), l.letto, l.message_id)).model_dump(mode="json")
+            case "rileggi_elemento":
+                return self.rileggi(job, PayloadRileggiElemento.model_validate(p))
         raise ErroreDefinitivo(f"tipo job sconosciuto per il worker outlook: {job.tipo}")
 
     def svuota_tmp(self) -> int:
@@ -397,6 +399,27 @@ class Worker:
             raise                                   # 5xx: il job fallisce senza «definitivo» e viene ritentato
         log.info("allegato %s caricato al server (%d byte)", allegato_id, n)
 
+    # ------------------------------------------------------------ rilettura di un elemento (scarto di lettura)
+
+    def rileggi(self, job: Job, r: PayloadRileggiElemento) -> dict:
+        """Rilegge UN elemento che il sync non era riuscito a convertire e lo consegna in un lotto da
+        uno (Smistamento 4.13). Il server accoda il job da «Riprova» su uno scarto di lettura
+        (ingest/replay.go), ma il worker non aveva il ramo: il job finiva in «tipo job sconosciuto»,
+        definitivo, e lo scarto non si chiudeva mai.
+
+        L'elemento si cerca per EntryID e, se nel frattempo è stato spostato, per Message-ID
+        (`Outlook.rileggi`); «non trovato» è un errore definitivo. Il lotto non porta un cursore né
+        elementi saltati: una rilettura non dice niente della finestra da cui l'elemento viene, e non
+        la deve muovere. Il risultato dice dove l'elemento è stato trovato davvero.
+        """
+        store = self.store_di(r.casella_id)
+        if self.battito is not None:
+            self.battito.segna_fase(f"rileggi {r.message_id or r.entry_id[:16]}")
+        m = self.ol().rileggi(r.entry_id, store, r.message_id)
+        self.controlla()                           # punto di ripresa: fuori da COM, prima dell'invio
+        self._invia(job, r.casella_id, m.cartella, [m], None)
+        return RisultatoElemento(entry_id=m.entry_id, cartella=m.cartella).model_dump(mode="json")
+
     # ------------------------------------------------------------ sync
 
     def sync(self, job: Job, p: PayloadSyncOutlook) -> dict:
@@ -465,11 +488,11 @@ class Worker:
                     if not storico and quando and (esito.ultimo_received is None or quando > esito.ultimo_received):
                         esito.ultimo_received = quando
                     if len(lotto) >= p.lotto:
-                        esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
+                        esito.n_messaggi += self._invia(job, p.casella_id, c.cartella, lotto, esito.ultimo_received, saltati)
                         lotto = []
                 # anche a lotto vuoto: gli elementi saltati vanno riportati, o nessuno sa che ci sono
                 if lotto or saltati.elementi:
-                    esito.n_messaggi += self._invia(job, p, c.cartella, lotto, esito.ultimo_received, saltati)
+                    esito.n_messaggi += self._invia(job, p.casella_id, c.cartella, lotto, esito.ultimo_received, saltati)
                 # L'UNICA riga che fa muovere una frontiera. Sta dopo l'ultimo invio di proposito: se
                 # l'ingest dell'ultimo lotto non viene accettato, la finestra non e' conclusa.
                 esito.completa = True
@@ -493,7 +516,7 @@ class Worker:
                  t["com"], t["serializzazione"], t["https"], t["server"], max(0.0, t["https"] - t["server"]))
         return RisultatoSync(cartelle=esiti, tempi={k: round(v, 3) for k, v in t.items()}).model_dump(mode="json")
 
-    def _invia(self, job: Job, p: PayloadSyncOutlook, cartella: str, lotto: list, fin_qui,
+    def _invia(self, job: Job, casella_id, cartella: str, lotto: list, fin_qui,
                saltati: Saltati | None = None) -> int:
         """Manda un lotto e fa avanzare il cursore INSIEME a esso.
 
@@ -501,10 +524,13 @@ class Worker:
         stessa transazione: se il lotto non entra, il cursore non si muove e il lotto si ripete
         identico. Il contrario — cursore avanzato e lotto perso — vorrebbe dire messaggi mai
         acquisiti che nessuno andrà più a cercare.
+
+        `fin_qui` None = nessun cursore: è anche il caso della rilettura di un elemento, che consegna
+        un messaggio e non dice niente della finestra da cui viene.
         """
         richiesta = IngestRichiesta(
             messaggi=lotto,
-            casella_id=p.casella_id,
+            casella_id=casella_id,
             job_id=job.job_id,
             lease_token=job.lease_token,
             worker_id=self.worker_id,

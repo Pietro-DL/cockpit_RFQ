@@ -332,6 +332,11 @@ type RisultatoSync struct {
 
 // PayloadRileggiElemento: rilettura mirata di un solo elemento di una casella, dopo che il worker non
 // era riuscito a convertirlo. Il worker risponde con un lotto da uno.
+//
+// Dalla 4.13 dello Smistamento il worker ha il ramo (`Worker.rileggi`): cerca l'elemento per EntryID e,
+// se è stato spostato, per MessageID dentro lo store della casella; «non trovato» è un errore
+// definitivo. Il lotto non porta un cursore, e il server non ne scriverebbe uno (ingest.Ingerisci): una
+// rilettura non dice niente della finestra da cui l'elemento viene. Il result è un RisultatoElemento.
 type PayloadRileggiElemento struct {
 	CasellaID uuid.UUID `json:"casella_id"`
 	EntryID   string    `json:"entry_id"`
