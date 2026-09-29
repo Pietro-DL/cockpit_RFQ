@@ -18,7 +18,8 @@ import (
 //
 // Tre livelli, e chi sta sopra non guarda sotto:
 //   - i fatti del worker (worker.TestoPDF), che si leggono solo qui (testoDelPDF, non esportata): fuori dalla
-//     classificazione esce soltanto lo stato (StatoDelTestoPDF), mai il fatto;
+//     classificazione esce soltanto lo stato (StatoDelTestoPDF), mai il fatto (per il censimento delle forme,
+//     4.17a, escono i campi del cartiglio che nominano il pezzo, gia' interpretati: CampiIdentificativiDelPDF);
 //   - le LETTURE normalizzate (LetturaTesto): un codice, con la fonte (testo nativo del cartiglio, testo nativo
 //     altrove, metadati, OCR), la pagina, il riquadro, il campo del cartiglio in cui sta, la rev del cartiglio
 //     e se ripete il nome del file. Le da' EvidenzeTestoPDF (pura, per un Motore) e, per chi viene dopo e ha i
