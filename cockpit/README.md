@@ -1317,6 +1317,27 @@ markmap:
   - `/cruscotto` porta qui.
 - Il dettaglio di tutto questo è in [`internal/core/rfq/fascicolo/README.md`](internal/core/rfq/fascicolo/README.md) e [`internal/transport/web/README.md`](internal/transport/web/README.md).
 
+## La Distinta (29/09/2026)
+
+- `/thread/{id}/distinta`: la stessa RFQ del Fascicolo in quattro passi, nell'ordine del lavoro, con «Indietro» e
+  «Avanti» in fondo. La proposta e il mockup sono in `cockpit/_fasi/PROPOSTA_DISTINTA.md`.
+  - **Richiesta**: la mail, il prodotto, che cosa chiede il cliente (dalle regole dell'anagrafica), a che punto sono gli
+    altri passi.
+  - **Distinta**: lo schema del prodotto a tutta larghezza, una casella per pezzo con tipo, codice, nome, la miniatura del
+    disegno (un clic apre il visore con le note) e le caselle 3D / 2D / DXF.
+    - In testa la proposta degli STEP: i legami degli STEP autorizzati, tratteggiati, e la guida di uno STEP non ancora
+      autorizzato, che l'operatore puo' trasformare in pezzi scritti da lui («Crea questi pezzi nella distinta»).
+    - «+ Assieme» (con un codice interno proposto, `<prodotto>-A01`), «+ Particolare», «+ Particolare commerciale»,
+      il trascinamento, la quantita', «Togli», «↶ Annulla l'ultima»; niente si scrive finche' non si preme «Salva la
+      distinta» (`POST /fascicolo/bom/applica`).
+    - Sotto un particolare e sotto un particolare commerciale non si mette niente: lo dice la pagina e lo rifiuta il
+      server.
+  - **Documenti e NAS**: un blocco per pezzo con i suoi requisiti e i suoi file, «Da sistemare», gli archivi, e in fondo
+    la completezza, «Conferma e copia sul NAS» e il congelamento.
+  - **Fattibilita'**: che cosa si produce e che cosa si compra, con le quantita' totali.
+- La pagina della RFQ, la pagina Richieste e il Fascicolo portano alla Distinta; il Fascicolo resta per i gesti avanzati
+  (revisioni, autorizzazione degli STEP, deroghe, correzione del codice).
+
 ## Prove
 
 - Le prove Go stanno nel ramo `-qa` (vedi «I rami del repository»): sul ramo di prodotto `go test ./...` non trova niente da eseguire.

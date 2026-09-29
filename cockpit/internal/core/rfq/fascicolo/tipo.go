@@ -135,9 +135,10 @@ func MotivoTipoSpento(f FattiTipo, t db.TipoComponente) string {
 			return fmt.Sprintf("l'autorizzazione di %s per %s non vale (%s): un prodotto finito la vuole valida, perché il file diventa il suo STEP strutturale; si sistema o si revoca prima",
 				proprie[0].NomeFile, c.Codice, proprie[0].Problema)
 		}
-	case db.TipoComponenteSciolto:
+	case db.TipoComponenteSciolto, db.TipoComponenteCommerciale:
+		// sotto un particolare e sotto un particolare commerciale non si mette niente (Contenitore)
 		if n := len(f.Figli); n > 0 {
-			return fmt.Sprintf("%s ha %s: è un assieme", c.Codice, quanti(n, "figlio", "figli"))
+			return fmt.Sprintf("%s ha %s: è un assieme; per farlo diventare %s si spostano prima i suoi pezzi", c.Codice, quanti(n, "figlio", "figli"), NomeTipoFrase(t))
 		}
 	}
 	return ""
@@ -171,7 +172,7 @@ func (f FattiTipo) Opzioni() []OpzioneTipo {
 }
 
 // NomeTipoFrase e' il tipo dentro una frase: «un prodotto finito», «un assieme», «un particolare», «un
-// commerciale».
+// particolare commerciale».
 func NomeTipoFrase(t db.TipoComponente) string {
 	switch t {
 	case db.TipoComponenteFinito:
@@ -181,7 +182,7 @@ func NomeTipoFrase(t db.TipoComponente) string {
 	case db.TipoComponenteSciolto:
 		return "un particolare"
 	case db.TipoComponenteCommerciale:
-		return "un commerciale"
+		return "un particolare commerciale"
 	}
 	return string(t)
 }

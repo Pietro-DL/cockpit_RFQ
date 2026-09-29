@@ -460,6 +460,8 @@ func NomeTipo(t db.TipoComponente) string {
 		return "assieme"
 	case db.TipoComponenteSciolto:
 		return "particolare"
+	case db.TipoComponenteCommerciale:
+		return "particolare commerciale"
 	}
 	return string(t)
 }

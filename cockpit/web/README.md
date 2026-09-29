@@ -78,6 +78,12 @@ markmap:
 - **`fascicolo.html`**
   - Che cosa contiene: la schermata del Fascicolo (B8.7, B8.7b, v3): vedi la tabella sotto
   - Chi lo rende: `fascicolo_rotte.go`, `fascicolo_documenti.go`, `fascicolo_nas.go`, `fascicolo_preparazione.go`
+- **`distinta.html`**
+  - Che cosa contiene: la Distinta, una RFQ in quattro passi (Richiesta, Distinta, Documenti e NAS, Fattibilita'):
+    - `distinta_corpo` (il corpo che i gesti rifanno, con il JSON `#dst-dati`), `dst_richiesta`, `dst_distinta`,
+      `dst_documenti`, `dst_riga_file`, `dst_fattibilita`;
+    - fuori dal corpo il visore dei disegni (`#dst-visore`) e l'avviso breve (`#dst-toast`), che un gesto non chiude
+  - Chi lo rende: `distinta.go`
 - **`richieste.html`**
   - Che cosa contiene: la pagina Richieste:
     - `richieste_elenco`, `richiesta_card`, `richiesta_prodotti`;
@@ -171,6 +177,15 @@ markmap:
     - il visore della vista Documenti,
     - le note sul disegno,
     - l'editor della struttura (vedi i flussi)
+- **`distinta.css`** — che cosa e':
+  - lo stile della Distinta, tutto sotto `.dst` e con il prefisso `dst-`: fondo bianco, grigi neutri, colore solo per
+    lo stato e per il tipo di pezzo; nessun font da internet
+- **`distinta.mjs`** — che cosa e':
+  - il modulo ES della Distinta:
+    - lo schema della distinta (stesso stato e stessa `StrutturaVoluta` dell'editor di `fascicolo.mjs`, con la regola
+      «niente sotto un particolare» anche nel trascinamento),
+    - le miniature dei disegni (pdf.js, la prima pagina, una volta per file),
+    - il visore con le note (`/fascicolo/nota`, `/nota/{id}/modifica`, `/nota/{id}/elimina`)
 - **`pdfjs-6.3.289/`** — che cosa e':
   - pdf.js dal pacchetto npm `pdfjs-dist` 6.3.289 (Apache-2.0), senza modifiche:
     - `pdf.min.mjs`, `pdf.worker.min.mjs`,

@@ -63,6 +63,7 @@
     <span>Buyer: <b>{{if .Buyer.Valid}}{{.Buyer.String}}{{else}}—{{end}}</b></span>
     <span>Scadenza: <b>{{if .DataScadenza}}{{.DataScadenza.Format "02/01/2006"}}{{else}}—{{end}}</b></span>
     <span>Ultimo agg.: <b>{{if .UltimoAggiornamento}}{{data .UltimoAggiornamento}}{{else}}{{data .DataInizio}}{{end}}</b></span>
+    <a href="/thread/{{.ThreadID}}/distinta" title="La distinta di questa richiesta, in quattro passi"><b>Apri la Distinta →</b></a>
   </div>
   <div class="rq-segnali">
     {{if gt .NBloccanti 0}}<span class="rq-segnale bloc">⚠ {{.FraseBloccanti}}</span>{{end}}

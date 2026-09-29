@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup della Distinta: dati inventati, niente viene salvato. Vedi PROPOSTA_DISTINTA.md accanto. -->
+<title>Distinta RFQ 480011220</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: il cartiglio di un disegno tecnico incornicia la richiesta; sotto, i passi del lavoro in ordine, una
+   linguetta per passo; nella Distinta l'albero a tutta larghezza, con la miniatura del disegno in ogni casella;
+   in fondo la barra per andare avanti e indietro. Fondo bianco, grigi neutri, colore solo dove dice qualcosa. */
+:root {
+  --bg: #f4f4f2;
+  --surface: #ffffff;
+  --surface-2: #fafaf9;
+  --surface-3: #efefec;
+  --ink: #1c1c1a;
+  --ink-2: #5f5f5a;
+  --line: #e3e3df;
+  --line-strong: #c6c6c0;
+  --accent: #0f5a66;
+  --accent-ink: #ffffff;
+  --accent-soft: #e7f1f2;
+  --ok: #1e7445; --ok-soft: #e9f5ee;
+  --warn: #945800; --warn-soft: #fdf4e3;
+  --bad: #b0332a; --bad-soft: #fcece9;
+  --t-fin: #0f5a66; --t-fin-soft: #e7f1f2;
+  --t-ass: #2957a8; --t-ass-soft: #ebf0fa;
+  --t-par: #5e44ad; --t-par-soft: #f1edfa;
+  --t-com: #86561a; --t-com-soft: #f8f0e3;
+  --shadow: 0 1px 2px rgba(28,28,26,.06), 0 3px 10px rgba(28,28,26,.05);
+  --velo: rgba(28,28,26,.45);
+  --f-display: "Barlow Semi Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  --r: 8px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box }
+html, body { background: var(--bg) }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); margin: 0 }
+button, input, select, textarea { font: inherit; color: inherit }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px }
+.mono { font-family: var(--f-mono); font-weight: 600; letter-spacing: .01em }
+.k { color: var(--ink-2) }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15 }
+h2 { font-size: 1.45rem; font-weight: 700 }
+.label { font-family: var(--f-display); font-size: .78rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2) }
+.pagina { max-width: 1360px; margin: 0 auto; padding-inline: 16px; padding-block: 0 100px }
+
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 12px }
+.topbar .app { font-family: var(--f-display); font-weight: 700; font-size: 1.1rem }
+.topbar nav { color: var(--ink-2); font-size: .9rem; min-width: 0 }
+.topbar nav b { color: var(--ink) }
+.topbar .sp { flex: 1 }
+.mockup-tag { font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); border: 1px solid currentColor }
+
+/* il cartiglio */
+.cartiglio { display: grid; grid-template-columns: 2.2fr repeat(5, 1fr); border: 1.5px solid var(--ink); background: var(--surface); border-radius: 4px; overflow: hidden }
+.cartiglio > div { padding: 10px 14px; border-left: 1px solid var(--line-strong); min-width: 0 }
+.cartiglio > div:first-child { border-left: 0 }
+.cartiglio .titolo { grid-row: span 2; display: flex; flex-direction: column; justify-content: center; gap: 4px; background: var(--surface-2) }
+.cartiglio .titolo h1 { font-size: 1.7rem; font-weight: 700 }
+.cartiglio .titolo .num { font-family: var(--f-mono); font-size: 1.35rem; font-weight: 600; color: var(--accent) }
+.cartiglio .v { font-weight: 600; font-size: 1rem; overflow-wrap: anywhere }
+.cartiglio .riga2 { border-top: 1px solid var(--line-strong) }
+.cartiglio .span3 { grid-column: span 3 }
+.cartiglio .span2 { grid-column: span 2 }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent }
+.chip.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent) }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent) }
+.chip.bad { background: var(--bad-soft); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent) }
+.chip.neu { background: var(--surface-3); color: var(--ink-2) }
+.chip.acc { background: var(--accent-soft); color: var(--accent) }
+
+/* i passi */
+.passi-box { margin-top: 18px; overflow-x: auto }
+.passi { display: flex; gap: 4px; min-width: max-content; border-bottom: 1.5px solid var(--line-strong) }
+.passo { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; text-align: left; padding: 10px 18px 12px; border: 1.5px solid transparent; border-bottom: 0; border-radius: var(--r) var(--r) 0 0; background: transparent; cursor: pointer; margin-bottom: -1.5px; min-width: 210px }
+.passo:hover { background: var(--surface-2) }
+.passo[aria-selected="true"] { background: var(--surface); border-color: var(--line-strong); border-bottom: 1.5px solid var(--surface) }
+.passo .n { grid-row: span 2; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; border: 1.5px solid var(--line-strong); color: var(--ink-2); background: var(--surface) }
+.passo[aria-selected="true"] .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) }
+.passo .t { font-family: var(--f-display); font-weight: 700; font-size: 1.12rem }
+.passo .s { font-size: .82rem; font-weight: 600 }
+.s.ok { color: var(--ok) } .s.warn { color: var(--warn) } .s.bad { color: var(--bad) } .s.neu { color: var(--ink-2) }
+.passo.dopo .t, .passo.dopo .n { opacity: .7 }
+
+.pannello { background: var(--surface); border: 1.5px solid var(--line-strong); border-top: 0; border-radius: 0 0 var(--r) var(--r); padding: 22px; display: grid; gap: 22px }
+.pannello[hidden] { display: none }
+.intro { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 18px }
+.intro p { margin: 4px 0 0; color: var(--ink-2); max-width: 74ch }
+.intro .sp { flex: 1 }
+.sezione-titolo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; padding-top: 6px; border-top: 1.5px solid var(--line-strong) }
+.sezione-titolo h2 { padding-top: 14px }
+
+.box { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 16px; min-width: 0 }
+.box.tono-ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-soft) }
+.box.tono-warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-soft) }
+.box.tono-acc { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-soft) }
+.box.tono-2 { background: var(--surface-2) }
+.box > .label { display: block; margin-bottom: 8px }
+.griglia-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px }
+.griglia-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-weight: 600; cursor: pointer; white-space: nowrap }
+.btn:hover { border-color: var(--accent); color: var(--accent) }
+.btn.primario { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) }
+.btn.primario:hover { filter: brightness(1.08); color: var(--accent-ink) }
+.btn.piccolo { padding: 4px 10px; font-size: .88rem }
+.btn.pericolo { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--line)) }
+.btn[disabled] { opacity: .45; cursor: not-allowed }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent) }
+.btn .plus { font-size: 1.15em; line-height: 1 }
+
+dl.dati { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 }
+dl.dati dt { color: var(--ink-2) }
+dl.dati dd { margin: 0; font-weight: 500; min-width: 0; overflow-wrap: anywhere }
+ul.pulito { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.fatto-riga { display: flex; gap: 10px; align-items: center }
+.pallino { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; font-weight: 700; flex: none }
+.pallino.ok { background: var(--ok); color: var(--surface) }
+.pallino.warn { background: var(--warn); color: var(--surface) }
+.pallino.bad { background: var(--bad); color: var(--surface) }
+.pallino.neu { border: 1.5px solid var(--line-strong) }
+
+.tipo { display: inline-block; font-family: var(--f-display); font-weight: 700; font-size: .76rem; letter-spacing: .06em; text-transform: uppercase; padding: 1px 8px; border-radius: 4px; white-space: nowrap }
+.tipo.finito { background: var(--t-fin-soft); color: var(--t-fin) }
+.tipo.sottoassieme { background: var(--t-ass-soft); color: var(--t-ass) }
+.tipo.sciolto { background: var(--t-par-soft); color: var(--t-par) }
+.tipo.commerciale { background: var(--t-com-soft); color: var(--t-com) }
+
+.tab-scorre { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface) }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums }
+th { text-align: left; font-family: var(--f-display); font-weight: 600; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); background: var(--surface-2); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap }
+td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle }
+tr:last-child td { border-bottom: 0 }
+td.num { text-align: right }
+
+/* l'analisi del prodotto */
+.analisi { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px }
+.analisi-testa { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px }
+.analisi-testa .sp { flex: 1 }
+.letti li, .decisioni li { display: flex; gap: 10px; align-items: baseline; font-size: .93rem }
+.decisioni li::before { content: "→"; color: var(--accent); font-weight: 700; flex: none }
+.conta-tipi { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px }
+
+.strumenti { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r) }
+.strumenti .sep { width: 1px; align-self: stretch; background: var(--line) }
+.strumenti .sp { flex: 1 }
+.btn.t-ass { border-color: color-mix(in srgb, var(--t-ass) 50%, var(--line)); color: var(--t-ass) }
+.btn.t-par { border-color: color-mix(in srgb, var(--t-par) 50%, var(--line)); color: var(--t-par) }
+.btn.t-com { border-color: color-mix(in srgb, var(--t-com) 50%, var(--line)); color: var(--t-com) }
+
+.form-nuovo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; align-items: end }
+.campo { display: grid; gap: 4px; min-width: 0 }
+.campo span { font-size: .85rem; color: var(--ink-2); font-weight: 500 }
+.campo input, .campo select, .campo textarea { padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); width: 100% }
+.campo small { color: var(--ink-2) }
+
+/* l'albero */
+.tela { border: 1px solid var(--line); border-radius: var(--r); background-color: var(--surface); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 20px 20px; overflow-x: auto; padding: 26px 16px 30px }
+.tree, .tree ul { margin: 0; padding: 0 }
+.tree { min-width: max-content }
+.tree ul { padding-top: 28px; position: relative; display: flex; justify-content: center }
+.tree > ul { padding-top: 0 }
+.tree li { list-style: none; position: relative; padding: 28px 10px 0; display: flex; flex-direction: column; align-items: center }
+.tree > ul > li { padding-top: 0 }
+.tree li::before, .tree li::after { content: ""; position: absolute; top: 0; right: 50%; width: 50%; height: 28px; border-top: 1.5px solid var(--line-strong) }
+.tree li::after { right: auto; left: 50%; border-left: 1.5px solid var(--line-strong) }
+.tree li:only-child::before, .tree li:only-child::after { display: none }
+.tree li:first-child::before, .tree li:last-child::after { border: 0 }
+.tree li:last-child::before { border-right: 1.5px solid var(--line-strong); border-radius: 0 8px 0 0 }
+.tree li:first-child::after { border-radius: 8px 0 0 0 }
+.tree ul ul::before { content: ""; position: absolute; top: 0; left: 50%; height: 28px; border-left: 1.5px solid var(--line-strong) }
+.tree li:only-child > .nodo-box::before { content: ""; position: absolute; top: -28px; left: 50%; height: 28px; border-left: 1.5px solid var(--line-strong) }
+.tree > ul > li:only-child > .nodo-box::before { display: none }
+.nodo-box { position: relative; display: flex; flex-direction: column; align-items: center }
+.qta-arco { font-family: var(--f-mono); font-size: .82rem; font-weight: 600; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 999px; padding: 0 8px; margin-bottom: 5px }
+.nodo { width: 246px; text-align: left; background: var(--surface); border: 1.5px solid var(--line-strong); border-top-width: 5px; border-radius: var(--r); padding: 10px 11px 11px; cursor: grab; box-shadow: var(--shadow); display: grid; gap: 7px }
+.nodo:active { cursor: grabbing }
+.nodo-testa { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 22px }
+.nodo .cod { font-family: var(--f-mono); font-weight: 600; font-size: 1.04rem; line-height: 1.2 }
+.nodo .nome { font-size: .9rem; color: var(--ink-2); line-height: 1.25; margin-top: -4px }
+.nodo.finito { border-color: var(--t-fin) }
+.nodo.sottoassieme { border-color: var(--t-ass) }
+.nodo.sciolto { border-color: var(--t-par) }
+.nodo.commerciale { border-color: var(--t-com) }
+.nodo.proposto { border-style: dashed; border-top-style: solid; background: var(--surface-2) }
+.nodo.sel { outline: 3px solid var(--accent); outline-offset: 3px }
+.nodo.drop { background: var(--accent-soft); outline: 3px dashed var(--accent); outline-offset: 3px }
+.nodo.no-drop { outline: 3px dashed var(--bad); outline-offset: 3px }
+.proposto-tag { font-size: .74rem; font-weight: 700; color: var(--warn); white-space: nowrap }
+.miniatura { position: relative; display: block; width: 100%; aspect-ratio: 420 / 297; border: 1px solid var(--line-strong); border-radius: 4px; background: #ffffff; padding: 0; cursor: zoom-in; overflow: hidden }
+.miniatura svg { display: block; width: 100%; height: 100% }
+.miniatura .apri { position: absolute; right: 5px; bottom: 5px; font-size: .74rem; font-weight: 600; background: #ffffff; color: #1c1c1a; border: 1px solid #c6c6c0; border-radius: 4px; padding: 0 6px }
+.miniatura .note-mini { position: absolute; left: 5px; bottom: 5px; font-size: .74rem; font-weight: 700; background: #0f5a66; color: #ffffff; border-radius: 4px; padding: 0 6px }
+.miniatura:hover { border-color: var(--accent) }
+.miniatura.vuota { cursor: default; background: var(--surface-3); display: grid; place-items: center; align-content: center; gap: 4px; color: var(--ink-2); font-size: .8rem; text-align: center; padding: 8px }
+.miniatura.vuota svg { width: 38px; height: 38px }
+.nodo .docs { display: flex; flex-wrap: wrap; gap: 4px }
+.cella { font-size: .72rem; font-weight: 700; padding: 0 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--ink-2); font-family: var(--f-display); letter-spacing: .04em }
+.cella.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent) }
+.cella.sugg { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent) }
+.cella.manca { background: var(--bad-soft); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent) }
+.cella.fac { opacity: .75 }
+.legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .86rem; color: var(--ink-2); margin-top: 8px; align-items: center }
+.legenda i { display: inline-block; width: 22px; height: 12px; border: 1.5px solid var(--line-strong); border-radius: 3px; vertical-align: -1px; margin-right: 4px }
+.legenda i.tratt { border-style: dashed }
+.regola { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); font-size: .9rem }
+
+.dettaglio-griglia { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px }
+.dettaglio .fonti li { display: flex; gap: 8px; align-items: baseline; font-size: .9rem }
+.dettaglio .fonti li .chip { flex: none }
+.avviso-conf { border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--bad-soft); border-radius: 6px; padding: 10px; display: grid; gap: 8px }
+.salva-barra { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: var(--r); border: 1.5px solid color-mix(in srgb, var(--warn) 55%, var(--line)); background: var(--warn-soft) }
+.salva-barra[hidden] { display: none }
+
+/* Documenti */
+.riassunto { display: flex; flex-wrap: wrap; gap: 8px }
+.blocco-comp { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface) }
+.blocco-testa { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line) }
+.blocco-testa .cod { font-family: var(--f-mono); font-weight: 600; font-size: 1.05rem }
+.slot-riga { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line) }
+.slot { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); font-size: .88rem; color: var(--ink-2) }
+.slot b { font-family: var(--f-display); letter-spacing: .04em; color: var(--ink) }
+.slot.ok { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-soft); color: var(--ok) }
+.slot.sugg { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-soft); color: var(--warn) }
+.slot.manca { border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-soft); color: var(--bad) }
+.slot.ok b, .slot.sugg b, .slot.manca b { color: inherit }
+.file-tab td:first-child { width: 34% }
+.file-nome { font-family: var(--f-mono); font-weight: 600; overflow-wrap: anywhere }
+.perche { font-size: .87rem; color: var(--ink-2) }
+.perche b { color: var(--ink); font-weight: 600 }
+.azioni-cella { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end }
+.azioni-cella select { padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .88rem; max-width: 170px }
+.stato-file.ok { color: var(--ok); font-weight: 600 }
+.stato-file.sugg { color: var(--warn); font-weight: 600 }
+
+.matrice td.c { text-align: center }
+.mc { display: inline-grid; place-items: center; min-width: 32px; height: 26px; border-radius: 5px; padding: 0 6px; font-size: .85rem; font-weight: 700 }
+.mc.ok { background: var(--ok-soft); color: var(--ok) }
+.mc.sugg { background: var(--warn-soft); color: var(--warn) }
+.mc.manca { background: var(--bad-soft); color: var(--bad) }
+.mc.fac { color: var(--ink-2) }
+.mc.nr { color: var(--ink-2); opacity: .55 }
+.cartella { font-family: var(--f-mono); font-size: .88rem; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-wrap: anywhere }
+
+.nota-prog { border-left: 4px solid var(--accent); background: var(--surface-2); border-radius: 0 6px 6px 0; padding: 10px 14px; font-size: .9rem }
+.nota-prog summary { cursor: pointer; font-weight: 600; color: var(--accent) }
+.nota-prog ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px }
+
+/* il disegno tecnico: carta bianca e tratto nero in tutti e due i temi, come un PDF */
+.dw { background: #ffffff }
+.dw .l { fill: none; stroke: #1c1c1a; stroke-width: 1.3; vector-effect: non-scaling-stroke }
+.dw .f { fill: none; stroke: #1c1c1a; stroke-width: .7; vector-effect: non-scaling-stroke }
+.dw .c { fill: none; stroke: #6a6a64; stroke-width: .6; stroke-dasharray: 8 3 2 3; vector-effect: non-scaling-stroke }
+.dw .h { fill: none; stroke: #6a6a64; stroke-width: .6; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke }
+.dw .fill { fill: #1c1c1a }
+.dw text { font-family: "IBM Plex Mono", Consolas, monospace; fill: #1c1c1a }
+.dw .tb { font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif; font-weight: 700 }
+
+/* il visore dei disegni */
+.visore { position: fixed; inset: 0; z-index: 20; background: var(--velo); display: grid; place-items: center; padding: 16px }
+.visore[hidden] { display: none }
+.visore-box { width: min(1320px, 100%); height: min(900px, 100%); background: var(--surface); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.25); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden }
+.visore-barra { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line) }
+.visore-barra .titolo { display: grid; min-width: 0 }
+.visore-barra .titolo b { font-family: var(--f-mono); overflow-wrap: anywhere }
+.visore-barra .sp { flex: 1 }
+.visore-barra select { padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); max-width: 260px }
+.gruppo { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden }
+.gruppo button { border: 0; border-left: 1px solid var(--line-strong); background: var(--surface); padding: 6px 11px; cursor: pointer; font-weight: 600 }
+.gruppo button:first-child { border-left: 0 }
+.gruppo button:hover { background: var(--surface-2) }
+.gruppo .z { padding: 6px 10px; font-variant-numeric: tabular-nums; color: var(--ink-2); border-left: 1px solid var(--line-strong); font-size: .88rem }
+.visore-corpo { display: grid; grid-template-columns: minmax(0, 1fr) 330px; min-height: 0 }
+.scena { overflow: auto; background: var(--surface-3); padding: 24px; min-height: 0 }
+.carta { position: relative; margin: 0 auto; aspect-ratio: 420 / 297; box-shadow: 0 2px 12px rgba(0,0,0,.18); background: #ffffff }
+.carta svg { display: block; width: 100%; height: 100% }
+.carta.armata { cursor: crosshair }
+.pin { position: absolute; transform: translate(-50%, -50%); width: 28px; height: 28px; border-radius: 50%; background: #0f5a66; color: #ffffff; border: 2px solid #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,.35); font-weight: 700; font-size: .85rem; display: grid; place-items: center; cursor: pointer; padding: 0 }
+.pin.sel { background: #b0332a; transform: translate(-50%, -50%) scale(1.2) }
+.pin.nuovo { background: #945800 }
+.pop-nota { position: absolute; z-index: 2; width: 260px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.2); padding: 10px; display: grid; gap: 8px; cursor: default }
+.pop-nota textarea { width: 100%; min-height: 76px; resize: vertical; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface) }
+.lato-note { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; background: var(--surface) }
+.lato-note .testa { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 8px }
+.lista-note { overflow: auto; padding: 10px 12px; display: grid; gap: 8px; align-content: start }
+.nota { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; text-align: left; background: var(--surface); cursor: pointer; width: 100% }
+.nota.sel { border-color: #b0332a; background: var(--bad-soft) }
+.nota .n { width: 24px; height: 24px; border-radius: 50%; background: #0f5a66; color: #ffffff; display: grid; place-items: center; font-weight: 700; font-size: .8rem; grid-row: span 2 }
+.nota .meta { font-size: .8rem; color: var(--ink-2) }
+.nota .azioni { grid-column: 2; display: flex; gap: 6px }
+.visore-piede { padding: 8px 14px; border-top: 1px solid var(--line); font-size: .85rem; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 6px 16px }
+
+.navbar { position: fixed; left: 0; right: 0; bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--surface); border-top: 1.5px solid var(--line-strong); box-shadow: 0 -2px 10px rgba(28,28,26,.06); z-index: 5 }
+.navbar .dentro { max-width: 1360px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center }
+.navbar .dove { flex: 1; text-align: center; color: var(--ink-2); font-size: .92rem; min-width: 0 }
+.navbar .btn span.lungo { overflow: hidden; text-overflow: ellipsis }
+.toast { position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 8px; font-weight: 500; box-shadow: var(--shadow); z-index: 30; max-width: calc(100% - 32px) }
+
+@media (max-width: 1000px) {
+  .cartiglio { grid-template-columns: 1fr 1fr }
+  .cartiglio .titolo { grid-row: auto; grid-column: 1 / -1 }
+  .cartiglio > div { border-left: 0; border-top: 1px solid var(--line-strong) }
+  .cartiglio .span3, .cartiglio .span2 { grid-column: 1 / -1 }
+  .griglia-3, .analisi, .dettaglio-griglia { grid-template-columns: 1fr }
+  .visore-corpo { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 200px }
+  .lato-note { border-left: 0; border-top: 1px solid var(--line) }
+}
+@media (max-width: 700px) {
+  .griglia-2 { grid-template-columns: 1fr }
+  .pannello { padding: 14px }
+  .navbar .dove { display: none }
+  .navbar .dentro { justify-content: space-between }
+  .visore { padding: 0 }
+  .visore-box { height: 100%; border-radius: 0 }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nodo, .btn, .passo, .pin { transition: background-color .15s, border-color .15s, color .15s, transform .15s }
+}
+</style>
+</head>
+<body>
+<div class="pagina">
+  <header class="topbar">
+    <span class="app">Cockpit RFQ</span>
+    <nav aria-label="Percorso">Richieste › CLIENTE ESEMPIO › <b>480011220</b></nav>
+    <span class="sp"></span>
+    <span class="mockup-tag">Mockup · dati di esempio, niente viene salvato</span>
+    <span class="k">SV · admin</span>
+  </header>
+
+  <section class="cartiglio" aria-label="Dati della richiesta">
+    <div class="titolo">
+      <span class="label">Richiesta d'offerta</span>
+      <h1><span class="num">480011220</span></h1>
+      <span class="k">Supporto batteria · prodotto <span class="mono">5512300A1</span></span>
+    </div>
+    <div><span class="label">Cliente</span><div class="v">Cliente Esempio</div><span class="k">stabilimento Nord</span></div>
+    <div><span class="label">Buyer</span><div class="v">Rossi</div></div>
+    <div><span class="label">Ricevuta</span><div class="v">02/09/2026</div><span class="k">ore 15:07</span></div>
+    <div><span class="label">Scadenza</span><div class="v">29/10/2026</div><span class="chip warn">fra 30 giorni</span></div>
+    <div><span class="label">Fase</span><div class="v">Ricevuta</div></div>
+    <div class="riga2 span3"><span class="label">Cartella sul NAS</span><div class="v mono" style="font-size:.9rem">CLIENTE ESEMPIO\WIP\2026 09 02 Rossi RICHIESTA D'OFFERTA 480011220</div></div>
+    <div class="riga2 span2"><span class="label">Il cliente vuole</span><div class="v">Risposta entro 5 giorni · con Cost breakdown (CBD)</div></div>
+  </section>
+
+  <div class="passi-box"><div class="passi" role="tablist" aria-label="Passi della richiesta" id="passi"></div></div>
+
+  <!-- 1. RICHIESTA -->
+  <section class="pannello" id="p-richiesta" role="tabpanel" aria-labelledby="t-richiesta" hidden>
+    <div class="intro"><div><h2>Che cosa è arrivato</h2><p>La mail del cliente, che cosa chiede e a che punto siamo. Da qui si parte con la distinta.</p></div></div>
+    <div class="griglia-2">
+      <div class="box">
+        <span class="label">La mail</span>
+        <dl class="dati">
+          <dt>Da</dt><dd>Rossi · Cliente Esempio</dd>
+          <dt>Quando</dt><dd>02/09/2026, 15:07</dd>
+          <dt>Oggetto</dt><dd>RICHIESTA D'OFFERTA 480011220</dd>
+          <dt>Allegati</dt><dd>1 archivio con 14 file · il documento gestionale della richiesta</dd>
+        </dl>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <button class="btn piccolo" type="button" data-toast="Si apre la mail in Outlook sul tuo PC.">Apri in Outlook</button>
+          <button class="btn piccolo" type="button" data-toast="Qui si legge il testo della mail.">Leggi il testo</button>
+        </div>
+      </div>
+      <div class="box">
+        <span class="label">Il prodotto richiesto</span>
+        <p style="margin:0 0 8px"><span class="mono" style="font-size:1.2rem">5512300A1</span> <span class="tipo finito">Prodotto</span></p>
+        <dl class="dati">
+          <dt>Nome</dt><dd>Supporto batteria</dd>
+          <dt>Disegno</dt><dd><button class="btn piccolo" type="button" data-apri="5512300A_1.pdf">Apri 5512300A_1.pdf</button></dd>
+          <dt>Lavorazioni</dt><dd>Saldatura ad arco continua (SPEC-SALD-01)<br>Zincatura Fe/Zn 12 III Cr3 (SPEC-ZINC-01)</dd>
+          <dt>Tolleranze</dt><dd>UNI EN ISO 13920-BE</dd>
+        </dl>
+      </div>
+      <div class="box">
+        <span class="label">Che cosa chiede il cliente</span>
+        <ul class="pulito">
+          <li class="fatto-riga"><span class="pallino neu"></span>Risposta entro 5 giorni</li>
+          <li class="fatto-riga"><span class="pallino neu"></span>Cost breakdown (CBD) insieme all'offerta</li>
+          <li class="fatto-riga"><span class="pallino neu"></span>Paese di origine, codice doganale, peso in kg</li>
+        </ul>
+      </div>
+      <div class="box tono-acc">
+        <span class="label">A che punto siamo</span>
+        <ul class="pulito" id="punto"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. DISTINTA -->
+  <section class="pannello" id="p-distinta" role="tabpanel" aria-labelledby="t-distinta" hidden>
+    <div class="intro"><div><h2>Distinta del prodotto</h2><p>Quali pezzi compongono il prodotto, come stanno uno dentro l'altro e in che quantità. La struttura la propone l'analisi del prodotto: tu la controlli, la correggi e la salvi.</p></div></div>
+
+    <div class="box tono-ok">
+      <div class="analisi-testa">
+        <span class="label" style="margin:0">Analisi del prodotto</span>
+        <span class="chip ok">completata dal worker di analisi</span>
+        <span class="sp"></span>
+        <button class="btn piccolo" type="button" data-toast="Il worker di analisi rilegge disegni e STEP e rifà la proposta. Quello che hai già confermato resta.">Rifai l'analisi</button>
+        <button class="btn piccolo primario" type="button" id="btn-accetta-analisi">Accetta la struttura proposta</button>
+      </div>
+      <div class="analisi">
+        <div>
+          <p class="label" style="margin:0 0 6px">Come ha deciso</p>
+          <ul class="pulito decisioni">
+            <li><span>Il disegno <b class="mono">5512300A_1.pdf</b> ha un elenco particolari con 4 righe: <b>5512300A1</b> è il prodotto e contiene quei 4 pezzi.</span></li>
+            <li><span>Il disegno <b class="mono">5512290A_1.pdf</b> non ha un elenco particolari: <b>5512290A1</b> è un particolare, niente sotto.</span></li>
+            <li><span><b>3355400X1</b>, <b>1133200X1</b>, <b>2244100X1</b> sono dadi, senza disegno 2D e con lo STEP del fornitore: particolari commerciali.</span></li>
+            <li><span>Le quantità vengono dall'elenco del disegno e coincidono con lo STEP d'assieme <b class="mono">5512300A_1.STP</b>.</span></li>
+          </ul>
+        </div>
+        <div>
+          <p class="label" style="margin:0 0 6px">Che cosa ha letto</p>
+          <ul class="pulito letti">
+            <li><span class="chip ok">2D</span><span>2 disegni, di cui 1 con l'elenco particolari</span></li>
+            <li><span class="chip ok">3D</span><span>5 STEP e 5 IGES, 1 STEP d'assieme con 4 legami</span></li>
+            <li><span class="chip neu">nomi</span><span>lo stesso pezzo sotto più nomi: <span class="mono">3355400X_1</span> = <span class="mono">3355400X1</span> = <span class="mono">3355400X1_PRT</span></span></li>
+          </ul>
+          <div class="conta-tipi"><span class="tipo finito">1 prodotto</span><span class="tipo sottoassieme">0 assiemi</span><span class="tipo sciolto">1 particolare</span><span class="tipo commerciale">3 particolari commerciali</span></div>
+          <details style="margin-top:10px"><summary class="k" style="cursor:pointer">L'elenco particolari letto dal disegno</summary>
+            <div class="tab-scorre" style="margin-top:8px"><table><thead><tr><th>Pos.</th><th>Codice</th><th>Qtà</th><th>Denominazione</th></tr></thead><tbody id="elenco-disegno"></tbody></table></div>
+          </details>
+        </div>
+      </div>
+    </div>
+
+    <div class="strumenti" role="toolbar" aria-label="Strumenti della distinta">
+      <button class="btn t-ass" type="button" data-nuovo="sottoassieme"><span class="plus">+</span> Assieme</button>
+      <button class="btn t-par" type="button" data-nuovo="sciolto"><span class="plus">+</span> Particolare</button>
+      <button class="btn t-com" type="button" data-nuovo="commerciale"><span class="plus">+</span> Particolare commerciale</button>
+      <span class="sep"></span>
+      <button class="btn pericolo" type="button" id="btn-elimina">Elimina il selezionato</button>
+      <span class="sp"></span>
+      <span class="k" id="n-proposte"></span>
+    </div>
+
+    <div class="box tono-2" id="form-nuovo-box" hidden>
+      <span class="label" id="form-nuovo-titolo">Nuovo componente</span>
+      <form class="form-nuovo" id="form-nuovo" autocomplete="off">
+        <label class="campo"><span>Codice</span><input id="nuovo-codice" required maxlength="60"><small id="nuovo-codice-aiuto"></small></label>
+        <label class="campo"><span>Denominazione</span><input id="nuovo-nome" maxlength="120" placeholder="per esempio: Staffa laterale"></label>
+        <label class="campo"><span>Sotto</span><select id="nuovo-padre"></select><small>Solo il prodotto o un assieme</small></label>
+        <label class="campo"><span>Quantità</span><input id="nuovo-qta" type="number" min="1" value="1"></label>
+        <div style="display:flex;gap:8px"><button class="btn primario" type="submit">Aggiungi</button><button class="btn" type="button" id="nuovo-annulla">Annulla</button></div>
+      </form>
+    </div>
+
+    <div>
+      <div class="tela" id="tela" aria-label="Schema della distinta"><div class="tree" id="tree"></div></div>
+      <div class="legenda">
+        <span><i></i>confermato</span><span><i class="tratt"></i>proposto dall'analisi</span>
+        <span class="tipo finito">Prodotto</span><span class="tipo sottoassieme">Assieme</span><span class="tipo sciolto">Particolare</span><span class="tipo commerciale">Particolare commerciale</span>
+        <span>· clic sulla miniatura: si apre il disegno · trascina una casella sopra il prodotto o un assieme per metterla sotto</span>
+      </div>
+    </div>
+    <div class="regola"><span class="pallino neu" aria-hidden="true">i</span><span>Sotto un particolare e sotto un particolare commerciale non si mette niente: i pezzi stanno solo sotto il prodotto e sotto gli assiemi.</span></div>
+
+    <div class="box" id="dettaglio" aria-live="polite"></div>
+
+    <div class="salva-barra" id="salva-barra" hidden>
+      <span><b id="n-modifiche">0</b> modifiche non ancora salvate</span>
+      <span style="display:flex;gap:8px"><button class="btn" type="button" id="btn-annulla-tutto">Annulla le modifiche</button><button class="btn primario" type="button" id="btn-salva">Salva la distinta</button></span>
+    </div>
+
+    <details class="nota-prog"><summary>Note di progetto (per noi, non per l'operatore)</summary>
+      <ul>
+        <li>La struttura la propone il worker di analisi: legge l'elenco particolari del PDF d'assieme (l'analisi versione 4 legge già il testo dei PDF con le posizioni), scende nei disegni dei pezzi che hanno a loro volta un elenco (quelli sono assiemi), incrocia con gli STEP e con i nomi dei file, e manda al server la proposta di albero. Il server la tiene nelle tabelle delle proposte che ci sono già.</li>
+        <li>Da cambiare nel backend: oggi l'editor trasforma un particolare in assieme quando gli si mette qualcosa sotto; la regola nuova lo rifiuta.</li>
+        <li>Da aggiungere: il riconoscimento dello stesso pezzo sotto nomi diversi (<span class="mono">X_1</span>, <span class="mono">X1</span>, <span class="mono">X1_PRT</span>, la radice dello STEP senza la cifra della versione).</li>
+        <li>Salvare usa la rotta che c'è già (<code>bom/applica</code>, tutto in una volta); la miniatura e il visore usano il visore PDF e le note di oggi (tabella <code>annotazione_pdf</code>).</li>
+        <li>I disegni qui sono schizzi di esempio: i PDF veri dei clienti sono riservati e non stanno in questa pagina.</li>
+      </ul>
+    </details>
+  </section>
+
+  <!-- 3. DOCUMENTI E NAS -->
+  <section class="pannello" id="p-documenti" role="tabpanel" aria-labelledby="t-documenti" hidden>
+    <div class="intro">
+      <div><h2>Documenti di ogni pezzo</h2><p>Ogni file ricevuto accanto al pezzo a cui appartiene, con il motivo. Controlla, correggi se serve, conferma. In fondo, il controllo finale e la copia sul NAS.</p></div>
+      <span class="sp"></span>
+      <button class="btn primario" type="button" id="btn-conferma-file">Conferma tutti i riconosciuti</button>
+    </div>
+    <div class="riassunto" id="riassunto-file"></div>
+    <div id="blocchi-doc" style="display:grid;gap:14px"></div>
+    <div class="box tono-warn">
+      <span class="label">Da sistemare</span>
+      <div class="tab-scorre"><table class="file-tab"><tbody id="da-sistemare"></tbody></table></div>
+    </div>
+    <details class="box">
+      <summary class="label" style="cursor:pointer">Messi da parte (2)</summary>
+      <ul class="pulito" style="margin-top:10px">
+        <li><span class="file-nome">image001.jpg</span> <span class="k">· immagine nella firma della mail</span></li>
+        <li><span class="file-nome">5512300A_1 (2).zip</span> <span class="k">· l'archivio della mail: i suoi file sono tutti qui sopra</span></li>
+      </ul>
+    </details>
+
+    <div class="sezione-titolo"><h2>Controllo e copia sul NAS</h2><span class="k">Per ogni pezzo, i documenti che servono. Quando non manca niente di obbligatorio, confermi e i file vanno nella cartella della richiesta.</span></div>
+    <div class="tab-scorre">
+      <table class="matrice">
+        <thead><tr><th>Pezzo</th><th>Tipo</th><th>Qtà totale</th><th>3D</th><th>2D</th><th>DXF</th><th>Esito</th></tr></thead>
+        <tbody id="matrice"></tbody>
+      </table>
+    </div>
+    <div class="legenda">
+      <span><span class="mc ok">✓</span> confermato</span><span><span class="mc sugg">✓?</span> riconosciuto, da confermare</span>
+      <span><span class="mc manca">✗</span> manca, obbligatorio</span><span><span class="mc fac">○</span> manca, facoltativo</span><span><span class="mc nr">—</span> non serve</span>
+    </div>
+    <div class="griglia-2">
+      <div class="box" id="box-nas">
+        <span class="label">Copia sul NAS</span>
+        <p style="margin:0 0 8px" id="nas-frase"></p>
+        <div class="cartella">CLIENTE ESEMPIO\WIP\2026 09 02 Rossi RICHIESTA D'OFFERTA 480011220</div>
+        <div style="margin-top:12px"><button class="btn primario" type="button" id="btn-nas">Conferma e copia sul NAS</button></div>
+      </div>
+      <div class="box tono-2">
+        <span class="label">Congela la distinta</span>
+        <p style="margin:0 0 8px">La prima versione (V1) si congela all'inizio della fattibilità. Da lì in poi la distinta cambia solo aprendo una revisione.</p>
+        <button class="btn" type="button" disabled title="Si congela in fattibilità">Congela la V1</button>
+        <span class="k"> · si fa nel passo 4</span>
+      </div>
+    </div>
+    <details class="nota-prog"><summary>Note di progetto</summary>
+      <ul>
+        <li>Oggi <span class="mono">2244100X_1.IGS</span>, <span class="mono">2244100X_1.STP</span> e <span class="mono">1133200X_1.IGS</span> sono proposti con il codice del prodotto <span class="mono">5512300A1</span>, e il primo risulta «Pronto» sul prodotto: va corretto nel backend.</li>
+        <li>La completezza segue il fabbisogno di oggi: prodotto 3D e 2D obbligatori; assieme e particolare 2D obbligatorio, 3D e DXF facoltativi; particolare commerciale niente.</li>
+      </ul>
+    </details>
+  </section>
+
+  <!-- 4. FATTIBILITÀ -->
+  <section class="pannello" id="p-fattibilita" role="tabpanel" aria-labelledby="t-fattibilita" hidden>
+    <div class="intro"><div><h2>Fattibilità <span class="chip neu">fase successiva · anteprima</span></h2><p>Che cosa si produce, che cosa si compra, quali lavorazioni servono. Qui di solito nascono gli assiemi interni, con un codice automatico che si può cambiare.</p></div></div>
+    <div class="griglia-3">
+      <div class="box"><span class="label">Da produrre</span><ul class="pulito" id="da-produrre"></ul></div>
+      <div class="box"><span class="label">Da comprare, per un prodotto</span><ul class="pulito" id="da-comprare"></ul></div>
+      <div class="box"><span class="label">Lavorazioni dal disegno</span>
+        <ul class="pulito">
+          <li><b>Saldatura</b> ad arco continua<br><span class="k">specifica SPEC-SALD-01 · su 5512300A1</span></li>
+          <li><b>Zincatura</b> Fe/Zn 12 III Cr3<br><span class="k">specifica SPEC-ZINC-01 · su 5512300A1</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<footer class="navbar" aria-label="Navigazione fra i passi">
+  <div class="dentro">
+    <button class="btn" type="button" id="nav-prec">←&nbsp;<span class="lungo" id="nav-prec-t"></span></button>
+    <span class="dove" id="nav-dove"></span>
+    <button class="btn primario" type="button" id="nav-succ"><span class="lungo" id="nav-succ-t"></span>&nbsp;→</button>
+  </div>
+</footer>
+
+<div class="visore" id="visore" hidden>
+  <div class="visore-box" role="dialog" aria-modal="true" aria-labelledby="vis-titolo">
+    <div class="visore-barra">
+      <div class="titolo"><b id="vis-titolo"></b><span class="k" id="vis-sotto"></span></div>
+      <select id="vis-file" aria-label="Disegno da vedere"></select>
+      <span class="sp"></span>
+      <span class="gruppo" role="group" aria-label="Zoom"><button type="button" id="z-meno" aria-label="Rimpicciolisci">−</button><span class="z" id="z-val">100%</span><button type="button" id="z-piu" aria-label="Ingrandisci">+</button><button type="button" id="z-adatta">Adatta</button></span>
+      <button class="btn" type="button" id="vis-arma" aria-pressed="false">+ Aggiungi nota</button>
+      <button class="btn" type="button" id="vis-chiudi">Chiudi</button>
+    </div>
+    <div class="visore-corpo">
+      <div class="scena" id="scena"><div class="carta" id="carta"></div></div>
+      <aside class="lato-note" aria-label="Note sul disegno">
+        <div class="testa"><span class="label" id="vis-n-note">Note sul disegno</span><span class="k" style="font-size:.88rem" id="vis-aiuto">Premi «+ Aggiungi nota», poi fai clic sul punto del disegno.</span></div>
+        <div class="lista-note" id="lista-note"></div>
+      </aside>
+    </div>
+    <div class="visore-piede"><span>Esc per chiudere</span><span>Una nota sta su questa revisione del disegno; la cambia o la toglie solo chi l'ha scritta.</span><span>Schizzo di esempio: nel Cockpit si vede il PDF vero del cliente.</span></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, attrs = {}, ...figli) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === "class") e.className = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else if (k === "html") e.innerHTML = v;
+      else e.setAttribute(k, v === true ? "" : v);
+    }
+    for (const f of figli.flat()) if (f != null && f !== false) e.append(f.nodeType ? f : document.createTextNode(String(f)));
+    return e;
+  };
+
+  const TIPI = { finito: "Prodotto", sottoassieme: "Assieme", sciolto: "Particolare", commerciale: "Particolare commerciale" };
+  const CONTENITORI = new Set(["finito", "sottoassieme"]);
+  const SERVE = {
+    finito: { "3D": "obb", "2D": "obb", "DXF": "nr" },
+    sottoassieme: { "3D": "fac", "2D": "obb", "DXF": "fac" },
+    sciolto: { "3D": "fac", "2D": "obb", "DXF": "fac" },
+    commerciale: { "3D": "nr", "2D": "nr", "DXF": "nr" },
+  };
+  const SIMBOLO = { ok: "✓", sugg: "✓?", manca: "✗", fac: "○", nr: "—" };
+
+  // --- i disegni: schizzi originali con l'impaginazione di un disegno vero -------------------
+  const esagono = (cx, cy, r) => Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 6 + i * Math.PI / 3; return (cx + r * Math.cos(a)).toFixed(1) + "," + (cy + r * Math.sin(a)).toFixed(1); }).join(" ");
+  const pallina = (x, y, n, tx, ty) => `<line class="f" x1="${x}" y1="${y}" x2="${tx}" y2="${ty}"/><circle class="f" cx="${tx}" cy="${ty}" r="7" fill="#fff"/><text x="${tx}" y="${ty + 3}" font-size="8" text-anchor="middle">${n}</text><circle class="fill" cx="${x}" cy="${y}" r="1.4"/>`;
+  const cornice = (titolo, codice, scala) => `
+    <rect class="l" x="6" y="6" width="408" height="285"/>
+    <rect class="l" x="262" y="228" width="146" height="57"/>
+    <line class="f" x1="262" y1="248" x2="408" y2="248"/><line class="f" x1="262" y1="268" x2="408" y2="268"/><line class="f" x1="350" y1="268" x2="350" y2="285"/>
+    <text class="tb" x="268" y="242" font-size="11">${titolo}</text>
+    <text x="268" y="262" font-size="10" font-weight="600">${codice}</text><text x="370" y="262" font-size="7">REV 1</text>
+    <text x="268" y="280" font-size="7">SCALA ${scala}</text><text x="356" y="280" font-size="7">TAV. 1/1</text>
+    <text x="12" y="286" font-size="5.5" fill="#6a6a64">schizzo di esempio · non è il disegno del cliente</text>`;
+  const piastra = (dadi) => `
+    <path class="l" d="M40 44 H196 L204 52 V156 L196 164 H40 L32 156 V52 Z"/>
+    <line class="h" x1="32" y1="146" x2="204" y2="146"/>
+    <line class="c" x1="118" y1="36" x2="118" y2="172"/><line class="c" x1="24" y1="104" x2="212" y2="104"/>
+    ${[[52, 58], [184, 58], [52, 132], [184, 132]].map(([x, y]) => `<circle class="l" cx="${x}" cy="${y}" r="5"/><line class="c" x1="${x - 9}" y1="${y}" x2="${x + 9}" y2="${y}"/><line class="c" x1="${x}" y1="${y - 9}" x2="${x}" y2="${y + 9}"/>`).join("")}
+    <rect class="l" x="92" y="112" width="52" height="22" rx="3"/>
+    ${dadi}
+    <path class="f" d="M40 180 V188 M204 180 V188 M40 185 H204"/><path class="fill" d="M40 185 l6 -2 v4 z M204 185 l-6 -2 v4 z"/><text x="122" y="182" font-size="8" text-anchor="middle">170</text>
+    <path class="f" d="M22 44 H14 M22 164 H14 M18 44 V164"/><path class="fill" d="M18 44 l-2 6 h4 z M18 164 l-2 -6 h4 z"/><text x="12" y="108" font-size="8" transform="rotate(-90 12 108)" text-anchor="middle">120</text>
+    <rect class="l" x="228" y="60" width="7" height="104"/><rect class="l" x="228" y="157" width="28" height="7"/>
+    <text x="231" y="54" font-size="6.5" text-anchor="middle">VISTA A</text>`;
+  const disegnoProdotto = () => `<svg class="dw" viewBox="0 0 420 297" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Disegno d'assieme 5512300A1, schizzo di esempio">
+    <rect width="420" height="297" fill="#fff"/>
+    ${cornice("SUPPORTO BATTERIA", "5512300A1", "1:2")}
+    ${piastra(`<polygon class="l" points="${esagono(118, 70, 7)}"/><circle class="f" cx="118" cy="70" r="3"/>
+      ${[80, 118, 156].map((x) => `<polygon class="l" points="${esagono(x, 96, 8)}"/><circle class="f" cx="${x}" cy="96" r="3.5"/>`).join("")}
+      ${[64, 172].map((x) => `<polygon class="l" points="${esagono(x, 150, 9)}"/><circle class="f" cx="${x}" cy="150" r="4.5"/>`).join("")}`)}
+    ${pallina(125, 66, 1, 150, 30)}${pallina(160, 92, 2, 186, 30)}${pallina(172, 150, 3, 218, 186)}${pallina(40, 120, 4, 22, 206)}
+    <rect class="l" x="262" y="12" width="146" height="66"/>
+    <text class="tb" x="268" y="23" font-size="7.5">ELENCO PARTICOLARI</text>
+    <line class="f" x1="262" y1="27" x2="408" y2="27"/>
+    <text x="266" y="35" font-size="5.5">POS</text><text x="282" y="35" font-size="5.5">CODICE</text><text x="322" y="35" font-size="5.5">QTÀ</text><text x="338" y="35" font-size="5.5">DENOMINAZIONE</text>
+    <line class="f" x1="262" y1="38" x2="408" y2="38"/>
+    ${[["1", "2244100X1", "1", "DADO SDPR M5"], ["2", "1133200X1", "3", "DADO SDPR M6"], ["3", "3355400X1", "2", "DADO M8 CL 8"], ["4", "5512290A1", "1", "SUPPORTO"]].map((r, i) => `<text x="268" y="${47 + i * 9}" font-size="6">${r[0]}</text><text x="282" y="${47 + i * 9}" font-size="6">${r[1]}</text><text x="325" y="${47 + i * 9}" font-size="6">${r[2]}</text><text x="338" y="${47 + i * 9}" font-size="6">${r[3]}</text>`).join("")}
+    <text x="30" y="218" font-size="6.5">1 - SALDATURA AD ARCO CONTINUA</text>
+    <text x="30" y="228" font-size="6.5">2 - ZINCATURA FE/ZN 12</text>
+  </svg>`;
+  const disegnoSupporto = () => `<svg class="dw" viewBox="0 0 420 297" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Disegno del particolare 5512290A1, schizzo di esempio">
+    <rect width="420" height="297" fill="#fff"/>
+    ${cornice("SUPPORTO", "5512290A1", "1:2")}
+    ${piastra(`<circle class="l" cx="118" cy="70" r="3"/>${[80, 118, 156].map((x) => `<circle class="l" cx="${x}" cy="96" r="3.5"/>`).join("")}${[64, 172].map((x) => `<circle class="l" cx="${x}" cy="150" r="4.5"/>`).join("")}`)}
+    <text x="126" y="64" font-size="6.5">Ø6</text><text x="164" y="90" font-size="6.5">3× Ø7</text><text x="180" y="146" font-size="6.5">2× Ø9</text>
+    <text x="244" y="112" font-size="6.5">SP. 3</text><text x="244" y="152" font-size="6.5">R 3</text>
+    <text x="30" y="218" font-size="6.5">LAMIERA S235JR · SPESSORE 3</text>
+    <text x="30" y="228" font-size="6.5">SPIGOLI VIVI SMUSSATI</text>
+  </svg>`;
+  const DISEGNI = {
+    "5512300A_1.pdf": { comp: "p", svg: disegnoProdotto, nome: "Supporto batteria" },
+    "5512290A_1.pdf": { comp: "c4", svg: disegnoSupporto, nome: "Supporto" },
+  };
+  const iconaDado = `<svg viewBox="0 0 40 40" aria-hidden="true"><polygon points="${esagono(20, 20, 15)}" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="20" cy="20" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+
+  // --- i dati veri della RFQ 480011220 -----------------------------------------------------------
+  const INIZIO = [
+    { id: "p", codice: "5512300A1", nome: "Supporto batteria", tipo: "finito", padre: null, qta: 1, proposto: false,
+      fonti: [["acc", "Richiesta", "codice della RDO 480011220"], ["ok", "Disegno", "cartiglio di 5512300A_1.pdf: PART N° 5512300A1, con l'elenco particolari"], ["neu", "STEP", "5512300A_1.STP, dove si chiama 5512300A"]] },
+    { id: "c4", codice: "5512290A1", nome: "Supporto", tipo: "sciolto", padre: "p", qta: 1, proposto: true,
+      fonti: [["ok", "Disegno", "pos. 4 dell'elenco, qtà 1"], ["ok", "Suo disegno", "5512290A_1.pdf, senza elenco particolari: è un particolare"], ["neu", "STEP", "5512290A ×1 nello STEP d'assieme"]] },
+    { id: "c3", codice: "3355400X1", nome: "Dado M8 cl. 8 PL", tipo: "commerciale", padre: "p", qta: 2, proposto: true,
+      fonti: [["ok", "Disegno", "pos. 3 dell'elenco, qtà 2"], ["neu", "STEP", "3355400X1 ×2; nel suo STEP si chiama 3355400X1_PRT"], ["neu", "Tipo", "dado, senza disegno 2D: particolare commerciale"]] },
+    { id: "c2", codice: "1133200X1", nome: "Dado SDPR M6", tipo: "commerciale", padre: "p", qta: 3, proposto: true,
+      fonti: [["ok", "Disegno", "pos. 2 dell'elenco, qtà 3"], ["neu", "STEP", "1133200X1 ×3; nel suo STEP si chiama 1133200X1_PRT"], ["neu", "Tipo", "dado, senza disegno 2D: particolare commerciale"]] },
+    { id: "c1", codice: "2244100X1", nome: "Dado SDPR M5", tipo: "commerciale", padre: "p", qta: 1, proposto: true,
+      fonti: [["ok", "Disegno", "pos. 1 dell'elenco, qtà 1"], ["neu", "STEP", "2244100X ×1: lo STEP lo scrive senza la cifra della versione"], ["neu", "Tipo", "dado, senza disegno 2D: particolare commerciale"]] },
+  ];
+  const ELENCO = [
+    { pos: 1, codice: "2244100X1", qta: 1, den: "DADO SDPR M5" },
+    { pos: 2, codice: "1133200X1", qta: 3, den: "DADO SDPR M6" },
+    { pos: 3, codice: "3355400X1", qta: 2, den: "DADO M8 CL 8 PL" },
+    { pos: 4, codice: "5512290A1", qta: 1, den: "SUPPORTO" },
+  ];
+  const FILE_INIZIO = [
+    { n: "5512300A_1.pdf", k: "2D", c: "p", perche: "<b>cartiglio</b>: PART N° 5512300A1 · è il disegno d'assieme, con l'elenco particolari" },
+    { n: "5512300A_1.STP", k: "3D", c: "p", perche: "<b>nome</b> 5512300A_1 = 5512300A1 · è lo STEP d'assieme" },
+    { n: "5512300A_1.IGS", k: "3D", c: "p", perche: "<b>nome</b> 5512300A_1 = 5512300A1" },
+    { n: "5512290A_1.pdf", k: "2D", c: "c4", perche: "<b>cartiglio</b>: 5512290A1 · pos. 4 del disegno d'assieme" },
+    { n: "5512290A_1.STP", k: "3D", c: "c4", perche: "<b>nome</b> 5512290A_1 = 5512290A1 · pos. 4 del disegno d'assieme" },
+    { n: "5512290A_1.IGS", k: "3D", c: "c4", perche: "<b>nome</b> 5512290A_1 = 5512290A1" },
+    { n: "3355400X_1.STP", k: "3D", c: "c3", perche: "<b>nome</b> 3355400X_1 = 3355400X1 · pos. 3 · nello STEP: 3355400X1_PRT" },
+    { n: "3355400X_1.IGS", k: "3D", c: "c3", perche: "<b>nome</b> 3355400X_1 = 3355400X1 · pos. 3" },
+    { n: "1133200X_1.STP", k: "3D", c: "c2", perche: "<b>nome</b> 1133200X_1 = 1133200X1 · pos. 2 · nello STEP: 1133200X1_PRT" },
+    { n: "1133200X_1.IGS", k: "3D", c: "c2", perche: "<b>nome</b> 1133200X_1 = 1133200X1 · pos. 2" },
+    { n: "2244100X_1.STP", k: "3D", c: "c1", perche: "<b>nome</b> 2244100X_1 = 2244100X1 · pos. 1 · nello STEP: 2244100X_PRT" },
+    { n: "2244100X_1.IGS", k: "3D", c: "c1", perche: "<b>nome</b> 2244100X_1 = 2244100X1 · pos. 1" },
+  ];
+  const SISTEMARE = [
+    { n: "Documento RDO 480011220.msg", cosa: "Il documento gestionale della richiesta (RDO)", azioni: [["È la richiesta del cliente", "Messo fra i documenti della richiesta."], ["Metti da parte", "Messo da parte."]] },
+    { n: "5512290A_1.zip", cosa: "Un archivio dentro l'archivio: può contenere il DXF di 5512290A1", azioni: [["Apri l'archivio", "L'archivio si apre e i suoi file compaiono qui sopra."], ["Metti da parte", "Messo da parte."]] },
+    { n: "5512300A_1.zip", cosa: "Un archivio dentro l'archivio", azioni: [["Apri l'archivio", "L'archivio si apre e i suoi file compaiono qui sopra."], ["Metti da parte", "Messo da parte."]] },
+  ];
+
+  const clona = (x) => JSON.parse(JSON.stringify(x));
+  let comps = clona(INIZIO), salvati = clona(INIZIO);
+  let files = FILE_INIZIO.map((f) => ({ ...f, stato: "sugg" }));
+  let sistemare = SISTEMARE.map((s) => ({ ...s, fatto: null }));
+  let note = { "5512300A_1.pdf": [{ id: 1, x: 0.296, y: 0.305, testo: "Nota di esempio: controllare sul 3D il passo dei tre fori per i dadi M6.", autore: "SV", quando: "oggi 09:40", mia: true }] };
+  let prossimaNota = 2;
+  let sulNas = false, scelto = "p", nuovoTipo = null, confermaElimina = false, interni = 0, trascinato = null;
+
+  const byId = (id) => comps.find((c) => c.id === id);
+  const figli = (id) => comps.filter((c) => c.padre === id);
+  const discendente = (a, b) => { let x = byId(b); while (x && x.padre) { if (x.padre === a) return true; x = byId(x.padre); } return false; };
+  const inOrdine = () => { const out = []; const giu = (id, liv) => { const c = byId(id); if (!c) return; out.push([c, liv]); figli(id).forEach((f) => giu(f.id, liv + 1)); }; comps.filter((c) => !c.padre).forEach((r) => giu(r.id, 0)); return out; };
+  const qtaTotale = (c) => { if (!c.padre) return 1; let q = c.qta || 1, x = c; while (x.padre) { x = byId(x.padre); if (!x) break; if (x.padre) q *= x.qta || 1; } return q; };
+  const disegnoDi = (id) => Object.keys(DISEGNI).find((k) => DISEGNI[k].comp === id && files.some((f) => f.n === k && f.c === id));
+  const noteDi = (id) => Object.keys(DISEGNI).filter((k) => files.some((f) => f.n === k && f.c === id)).reduce((n, k) => n + (note[k] || []).length, 0);
+
+  const campiChiave = ["codice", "nome", "tipo", "padre", "qta", "proposto"];
+  const modifiche = () => {
+    let n = 0; const mappa = new Map(salvati.map((c) => [c.id, c]));
+    for (const c of comps) { const s = mappa.get(c.id); if (!s || campiChiave.some((k) => s[k] !== c[k])) n++; }
+    for (const s of salvati) if (!byId(s.id)) n++;
+    return n;
+  };
+  const cellaDi = (c, kind) => {
+    const suoi = files.filter((f) => f.c === c.id && f.k === kind);
+    if (suoi.some((f) => f.stato === "ok")) return "ok";
+    if (suoi.length) return "sugg";
+    const r = (SERVE[c.tipo] || {})[kind] || "nr";
+    return r === "obb" ? "manca" : r;
+  };
+
+  let tToast;
+  const toast = (t) => { const x = $("#toast"); x.textContent = t; x.hidden = false; clearTimeout(tToast); tToast = setTimeout(() => (x.hidden = true), 3400); };
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-toast]"); if (b) toast("Mockup: " + b.dataset.toast);
+    const a = e.target.closest("[data-apri]"); if (a) apriVisore(a.dataset.apri, a);
+  });
+
+  // --- i passi -----------------------------------------------------------------------------------
+  const PASSI = [
+    { id: "richiesta", t: "Richiesta" },
+    { id: "distinta", t: "Distinta" },
+    { id: "documenti", t: "Documenti e NAS" },
+    { id: "fattibilita", t: "Fattibilità", dopo: true },
+  ];
+  const mancanti = () => comps.reduce((n, c) => n + ["3D", "2D", "DXF"].filter((k) => cellaDi(c, k) === "manca").length, 0);
+  const statoPasso = (id) => {
+    if (id === "richiesta") return ["ok", "Letta"];
+    if (id === "distinta") {
+      const p = comps.filter((c) => c.proposto).length, m = modifiche();
+      if (p) return ["warn", p + (p === 1 ? " proposta" : " proposte") + " da confermare"];
+      if (m) return ["warn", "da salvare"];
+      return ["ok", comps.length + " pezzi"];
+    }
+    if (id === "documenti") {
+      if (sulNas) return ["ok", "sul NAS"];
+      const man = mancanti(); if (man) return ["bad", man + (man === 1 ? " documento manca" : " documenti mancano")];
+      const s = files.filter((f) => f.stato === "sugg").length, d = sistemare.filter((x) => !x.fatto).length;
+      if (s || d) return ["warn", [s ? s + " da confermare" : "", d ? d + " da sistemare" : ""].filter(Boolean).join(" · ")];
+      return ["warn", "pronti per il NAS"];
+    }
+    return ["neu", "fase successiva"];
+  };
+  let attivo = "distinta";
+  const disegnaPassi = () => {
+    const box = $("#passi"); box.replaceChildren();
+    PASSI.forEach((p, i) => {
+      const [cl, testo] = statoPasso(p.id);
+      box.append(el("button", { class: "passo" + (p.dopo ? " dopo" : ""), role: "tab", id: "t-" + p.id, "aria-selected": p.id === attivo ? "true" : "false", "aria-controls": "p-" + p.id, type: "button", onclick: () => vai(p.id) },
+        el("span", { class: "n" }, i + 1), el("span", { class: "t" }, p.t), el("span", { class: "s " + cl }, testo)));
+    });
+    const i = PASSI.findIndex((p) => p.id === attivo), prec = PASSI[i - 1], succ = PASSI[i + 1];
+    $("#nav-prec").disabled = !prec; $("#nav-prec-t").textContent = prec ? prec.t : "Inizio";
+    $("#nav-succ").disabled = !succ; $("#nav-succ-t").textContent = succ ? "Avanti: " + succ.t : "Fine";
+    $("#nav-dove").textContent = "Passo " + (i + 1) + " di " + PASSI.length + " · " + PASSI[i].t + " · " + statoPasso(attivo)[1];
+    const punto = $("#punto"); punto.replaceChildren();
+    PASSI.slice(1).forEach((p) => { const [c, t] = statoPasso(p.id); punto.append(el("li", { class: "fatto-riga" }, el("span", { class: "pallino " + (c === "neu" ? "neu" : c) }, c === "ok" ? "✓" : c === "neu" ? "" : "!"), el("span", {}, el("b", {}, p.t), " · " + t))); });
+  };
+  const vai = (id) => {
+    attivo = id;
+    for (const p of PASSI) $("#p-" + p.id).hidden = p.id !== id;
+    try { history.replaceState(null, "", "#" + id); } catch (e) {}
+    disegnaTutto(); window.scrollTo(0, 0);
+  };
+  $("#nav-prec").addEventListener("click", () => { const i = PASSI.findIndex((p) => p.id === attivo); if (i > 0) vai(PASSI[i - 1].id); });
+  $("#nav-succ").addEventListener("click", () => { const i = PASSI.findIndex((p) => p.id === attivo); if (i < PASSI.length - 1) vai(PASSI[i + 1].id); });
+
+  // --- Distinta ----------------------------------------------------------------------------------
+  const disegnaElenco = () => {
+    $("#elenco-disegno").replaceChildren(...ELENCO.map((r) => el("tr", {}, el("td", { class: "num" }, r.pos), el("td", { class: "mono" }, r.codice), el("td", { class: "num" }, r.qta), el("td", {}, r.den))));
+    const p = comps.filter((c) => c.proposto).length;
+    $("#n-proposte").textContent = p ? p + (p === 1 ? " casella proposta, da confermare" : " caselle proposte, da confermare") : "Tutte le caselle sono confermate";
+  };
+  const puoContenere = (verso, id) => { const v = byId(verso); return v && CONTENITORI.has(v.tipo) && verso !== id && !discendente(id, verso); };
+  const nodoEl = (c) => {
+    const box = el("div", { class: "nodo-box" });
+    if (c.padre) box.append(el("span", { class: "qta-arco", title: "quantità sotto " + (byId(c.padre) || {}).codice }, "×" + c.qta));
+    const dis = disegnoDi(c.id), nNote = noteDi(c.id);
+    let mini;
+    if (dis) {
+      mini = el("button", { class: "miniatura", type: "button", "aria-label": "Apri il disegno " + dis, title: "Apri il disegno " + dis, onclick: (e) => { e.stopPropagation(); apriVisore(dis, e.currentTarget); } });
+      mini.innerHTML = DISEGNI[dis].svg();
+      mini.append(el("span", { class: "apri" }, "Apri il disegno"));
+      if (nNote) mini.append(el("span", { class: "note-mini" }, "✎ " + nNote));
+    } else {
+      const solo3d = files.some((f) => f.c === c.id && f.k === "3D");
+      mini = el("div", { class: "miniatura vuota", html: (c.tipo === "commerciale" ? iconaDado : "") + "<span>" + (solo3d ? "Nessun disegno 2D · solo 3D" : "Nessun disegno") + (c.tipo === "commerciale" ? "<br>per un particolare commerciale non serve" : "") + "</span>" });
+    }
+    const docs = el("span", { class: "docs" }, ["3D", "2D", "DXF"].map((k) => { const s = cellaDi(c, k); return s === "nr" ? null : el("span", { class: "cella " + s, title: k + ": " + ({ ok: "confermato", sugg: "riconosciuto, da confermare", manca: "manca (obbligatorio)", fac: "manca (facoltativo)" })[s] }, k + " " + SIMBOLO[s]); }));
+    const n = el("div", {
+      class: "nodo " + c.tipo + (c.proposto ? " proposto" : "") + (c.id === scelto ? " sel" : ""), tabindex: "0", role: "button", draggable: c.padre ? "true" : "false", "data-id": c.id,
+      "aria-label": TIPI[c.tipo] + " " + c.codice + " " + (c.nome || "") + (c.proposto ? ", proposto" : ""),
+      onclick: () => { scelto = c.id; confermaElimina = false; disegnaTutto(); },
+      onkeydown: (e) => { if (e.target === n && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); scelto = c.id; confermaElimina = false; disegnaTutto(); } },
+      ondragstart: (e) => { trascinato = c.id; e.dataTransfer.setData("text/plain", c.id); e.dataTransfer.effectAllowed = "move"; },
+      ondragend: () => { trascinato = null; document.querySelectorAll(".nodo.drop,.nodo.no-drop").forEach((x) => x.classList.remove("drop", "no-drop")); },
+      ondragover: (e) => { if (!trascinato || trascinato === c.id) return; if (puoContenere(c.id, trascinato)) { e.preventDefault(); n.classList.add("drop"); } else n.classList.add("no-drop"); },
+      ondragleave: () => n.classList.remove("drop", "no-drop"),
+      ondrop: (e) => { e.preventDefault(); n.classList.remove("drop"); sposta(trascinato || e.dataTransfer.getData("text/plain"), c.id); },
+    },
+      el("span", { class: "nodo-testa" }, el("span", { class: "tipo " + c.tipo }, TIPI[c.tipo]), c.proposto ? el("span", { class: "proposto-tag" }, "da confermare") : null),
+      el("span", { class: "cod" }, c.codice),
+      c.nome ? el("span", { class: "nome" }, c.nome) : null,
+      mini, docs);
+    box.append(n);
+    return box;
+  };
+  const sposta = (id, verso) => {
+    if (!id || id === verso) return;
+    const c = byId(id), v = byId(verso); if (!c || !c.padre || !v) return;
+    if (!CONTENITORI.has(v.tipo)) { toast(v.codice + " è un " + TIPI[v.tipo].toLowerCase() + ": sotto non ci va niente. Mettilo sotto il prodotto o sotto un assieme."); return; }
+    if (discendente(id, verso)) { toast("Non si può: " + v.codice + " sta già sotto " + c.codice + "."); return; }
+    if (c.padre === verso) return;
+    c.padre = verso; scelto = id;
+    toast(c.codice + " ora è sotto " + v.codice + "."); disegnaTutto();
+  };
+  const disegnaAlbero = () => {
+    const giu = (c) => { const li = el("li", {}, nodoEl(c)); const f = figli(c.id); if (f.length) li.append(el("ul", {}, f.map(giu))); return li; };
+    $("#tree").replaceChildren(el("ul", {}, comps.filter((c) => !c.padre).map(giu)));
+  };
+
+  const disegnaDettaglio = () => {
+    const d = $("#dettaglio"); d.replaceChildren();
+    const c = byId(scelto);
+    if (!c) { d.append(el("p", { class: "k", style: "margin:0" }, "Scegli una casella nello schema per vederne i dati.")); return; }
+    d.className = "box" + (c.proposto ? " tono-warn" : "");
+    d.append(el("div", { class: "analisi-testa" }, el("span", { class: "label", style: "margin:0" }, c.proposto ? "Casella proposta · da confermare" : "Casella scelta"), el("span", { class: "tipo " + c.tipo }, TIPI[c.tipo]), el("b", { class: "mono" }, c.codice)));
+    const campo = (et, input, aiuto) => el("label", { class: "campo" }, el("span", {}, et), input, aiuto ? el("small", {}, aiuto) : null);
+    const sin = el("div", { style: "display:grid;gap:10px" });
+    sin.append(
+      campo("Codice", el("input", { id: "det-codice", value: c.codice, maxlength: "60", class: "mono", onchange: (e) => { c.codice = e.target.value.trim() || c.codice; disegnaTutto(); } })),
+      campo("Denominazione", el("input", { id: "det-nome", value: c.nome || "", maxlength: "120", onchange: (e) => { c.nome = e.target.value; disegnaTutto(); } })));
+    const tipoSel = el("select", { id: "det-tipo", disabled: c.tipo === "finito", onchange: (e) => {
+      const nuovo = e.target.value;
+      if (!CONTENITORI.has(nuovo) && figli(c.id).length) { toast(c.codice + " ha dei pezzi sotto: prima spostali, poi può diventare " + TIPI[nuovo].toLowerCase() + "."); e.target.value = c.tipo; return; }
+      c.tipo = nuovo; disegnaTutto();
+    } }, Object.entries(TIPI).filter(([k]) => c.tipo === "finito" || k !== "finito").map(([k, v]) => el("option", { value: k, selected: k === c.tipo }, v)));
+    sin.append(campo("Tipo", tipoSel, c.tipo === "finito" ? "È il prodotto della richiesta." : "Solo il prodotto e gli assiemi possono avere pezzi sotto."));
+    if (c.padre) {
+      const cand = comps.filter((x) => puoContenere(x.id, c.id));
+      sin.append(el("div", { style: "display:grid;grid-template-columns:1fr 90px;gap:10px" },
+        campo("Sotto", el("select", { id: "det-padre", onchange: (e) => sposta(c.id, e.target.value) }, cand.map((x) => el("option", { value: x.id, selected: x.id === c.padre }, TIPI[x.tipo] + " " + x.codice)))),
+        campo("Quantità", el("input", { id: "det-qta", type: "number", min: "1", value: c.qta, onchange: (e) => { const q = parseInt(e.target.value, 10); if (q > 0) { c.qta = q; disegnaTutto(); } } }))));
+    }
+    const des = el("div", { style: "display:grid;gap:12px;align-content:start" });
+    if (c.fonti) des.append(el("div", {}, el("span", { class: "label" }, "Da dove viene"), el("ul", { class: "pulito fonti", style: "margin-top:6px" }, c.fonti.map(([cl, a, b]) => el("li", {}, el("span", { class: "chip " + cl }, a), el("span", {}, b))))));
+    const az = el("div", { style: "display:flex;flex-wrap:wrap;gap:8px" });
+    const dis = disegnoDi(c.id);
+    if (dis) az.append(el("button", { class: "btn", type: "button", onclick: (e) => apriVisore(dis, e.currentTarget) }, "Apri il disegno" + (noteDi(c.id) ? " (✎ " + noteDi(c.id) + ")" : "")));
+    if (c.proposto) az.append(el("button", { class: "btn primario", type: "button", onclick: () => { c.proposto = false; toast(c.codice + " confermato."); disegnaTutto(); } }, "✓ Conferma"));
+    if (c.padre) az.append(el("button", { class: "btn pericolo", type: "button", onclick: () => { confermaElimina = true; disegnaDettaglio(); } }, "Elimina"));
+    des.append(az);
+    if (confermaElimina && c.padre) {
+      const sotto = comps.filter((x) => discendente(c.id, x.id)).length;
+      des.append(el("div", { class: "avviso-conf" },
+        el("span", {}, "Eliminare ", el("b", { class: "mono" }, c.codice), sotto ? " e i " + sotto + " pezzi che ha sotto?" : "?", " I suoi file restano, senza pezzo."),
+        el("span", { style: "display:flex;gap:8px" }, el("button", { class: "btn pericolo", type: "button", onclick: () => elimina(c.id) }, "Sì, elimina"), el("button", { class: "btn", type: "button", onclick: () => { confermaElimina = false; disegnaDettaglio(); } }, "Annulla"))));
+    }
+    d.append(el("div", { class: "dettaglio-griglia" }, sin, des));
+  };
+  const elimina = (id) => {
+    const via = new Set([id, ...comps.filter((x) => discendente(id, x.id)).map((x) => x.id)]);
+    const c = byId(id);
+    comps = comps.filter((x) => !via.has(x.id));
+    files.forEach((f) => { if (via.has(f.c)) { f.c = null; f.stato = "sugg"; } });
+    scelto = c.padre; confermaElimina = false;
+    toast(c.codice + " eliminato dalla distinta."); disegnaTutto();
+  };
+  $("#btn-elimina").addEventListener("click", () => { const c = byId(scelto); if (!c || !c.padre) { toast("Scegli prima una casella (il prodotto non si elimina)."); return; } confermaElimina = true; disegnaDettaglio(); $("#dettaglio").scrollIntoView({ block: "nearest" }); });
+  $("#btn-accetta-analisi").addEventListener("click", () => { const n = comps.filter((c) => c.proposto).length; comps.forEach((c) => (c.proposto = false)); toast(n ? n + " caselle confermate. Ricordati di salvare la distinta." : "La struttura proposta è già tutta confermata."); disegnaTutto(); });
+
+  const apriNuovo = (tipo) => {
+    nuovoTipo = tipo;
+    $("#form-nuovo-box").hidden = false;
+    $("#form-nuovo-titolo").textContent = "Nuovo " + TIPI[tipo].toLowerCase();
+    const cod = $("#nuovo-codice");
+    if (tipo === "sottoassieme") { cod.value = "5512300A1-A" + String(interni + 1).padStart(2, "0"); $("#nuovo-codice-aiuto").textContent = "Codice interno proposto: lo puoi cambiare."; }
+    else { cod.value = ""; $("#nuovo-codice-aiuto").textContent = "Il codice del cliente. Se non c'è, scrivi un codice interno."; }
+    const s = byId(scelto), preferito = s && CONTENITORI.has(s.tipo) ? s.id : "p";
+    $("#nuovo-padre").replaceChildren(...comps.filter((c) => CONTENITORI.has(c.tipo)).map((c) => el("option", { value: c.id, selected: c.id === preferito }, TIPI[c.tipo] + " " + c.codice)));
+    $("#nuovo-nome").value = ""; $("#nuovo-qta").value = 1;
+    (tipo === "sottoassieme" ? $("#nuovo-nome") : cod).focus();
+  };
+  document.querySelectorAll("[data-nuovo]").forEach((b) => b.addEventListener("click", () => apriNuovo(b.dataset.nuovo)));
+  $("#nuovo-annulla").addEventListener("click", () => { $("#form-nuovo-box").hidden = true; });
+  $("#form-nuovo").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const codice = $("#nuovo-codice").value.trim(); if (!codice) return;
+    if (comps.some((c) => c.codice.toUpperCase() === codice.toUpperCase())) { toast(codice + " c'è già nella distinta."); return; }
+    const padre = $("#nuovo-padre").value, qta = Math.max(1, parseInt($("#nuovo-qta").value, 10) || 1);
+    if (nuovoTipo === "sottoassieme" && codice.startsWith("5512300A1-A")) interni++;
+    const id = "n" + Date.now();
+    comps.push({ id, codice, nome: $("#nuovo-nome").value.trim(), tipo: nuovoTipo, padre, qta, proposto: false, fonti: [["acc", "A mano", "aggiunto da SV"]] });
+    scelto = id; $("#form-nuovo-box").hidden = true;
+    toast(codice + " aggiunto sotto " + byId(padre).codice + "." + (nuovoTipo === "sottoassieme" ? " Trascina qui sopra i pezzi che contiene." : ""));
+    disegnaTutto();
+  });
+  $("#btn-salva").addEventListener("click", () => { salvati = clona(comps); toast("Mockup: la distinta sarebbe salvata ora, tutta in una volta."); disegnaTutto(); });
+  $("#btn-annulla-tutto").addEventListener("click", () => { comps = clona(salvati); scelto = "p"; toast("Modifiche annullate."); disegnaTutto(); });
+
+  // --- Documenti e NAS ---------------------------------------------------------------------------
+  const rigaFile = (f) => {
+    const sel = el("select", { "aria-label": "sposta " + f.n, onchange: (e) => { f.c = e.target.value || null; f.stato = "sugg"; toast(f.n + (f.c ? " spostato su " + byId(f.c).codice : " senza pezzo") + "."); disegnaTutto(); } },
+      el("option", { value: "" }, f.c ? "Sposta su…" : "Scegli il pezzo…"), comps.filter((c) => c.id !== f.c).map((c) => el("option", { value: c.id }, c.codice)));
+    const nN = (note[f.n] || []).length;
+    return el("tr", {},
+      el("td", {}, el("span", { class: "file-nome" }, f.n), " ", el("span", { class: "chip neu" }, f.k)),
+      el("td", { class: "perche", html: f.c ? "Riconosciuto: " + f.perche : "Il pezzo non c'è più" }),
+      el("td", {}, f.stato === "ok" ? el("span", { class: "stato-file ok" }, "✓ confermato") : el("span", { class: "stato-file sugg" }, "da confermare")),
+      el("td", {}, el("div", { class: "azioni-cella" },
+        DISEGNI[f.n] ? el("button", { class: "btn piccolo", type: "button", "data-apri": f.n }, "Apri il disegno" + (nN ? " (✎ " + nN + ")" : "")) : null,
+        f.stato !== "ok" && f.c ? el("button", { class: "btn piccolo primario", type: "button", onclick: () => { f.stato = "ok"; disegnaTutto(); } }, "✓ Conferma") : null, sel)));
+  };
+  const disegnaDocumenti = () => {
+    const nS = files.filter((f) => f.stato === "sugg" && f.c).length, nO = files.filter((f) => f.stato === "ok").length;
+    const nSenza = files.filter((f) => !f.c).length, nD = sistemare.filter((x) => !x.fatto).length;
+    $("#riassunto-file").replaceChildren(
+      el("span", { class: "chip neu" }, "17 file ricevuti"), el("span", { class: "chip ok" }, nO + " confermati"),
+      el("span", { class: "chip warn" }, nS + " riconosciuti, da confermare"), nSenza ? el("span", { class: "chip bad" }, nSenza + " senza pezzo") : null,
+      el("span", { class: "chip warn" }, nD + " da sistemare"), el("span", { class: "chip neu" }, "2 messi da parte"));
+    const box = $("#blocchi-doc"); box.replaceChildren();
+    for (const [c, liv] of inOrdine()) {
+      const suoi = files.filter((f) => f.c === c.id), padre = c.padre ? byId(c.padre) : null;
+      const b = el("section", { class: "blocco-comp", style: liv ? "margin-left:" + Math.min(liv, 3) * 18 + "px" : null });
+      b.append(el("div", { class: "blocco-testa" }, el("span", { class: "tipo " + c.tipo }, TIPI[c.tipo]), el("span", { class: "cod" }, c.codice), el("span", {}, c.nome || ""),
+        el("span", { class: "k" }, padre ? "× " + c.qta + " sotto " + padre.codice : "il prodotto"), c.proposto ? el("span", { class: "chip warn" }, "pezzo ancora da confermare nella distinta") : null));
+      b.append(el("div", { class: "slot-riga" }, ["3D", "2D", "DXF"].map((k) => {
+        const s = cellaDi(c, k), r = (SERVE[c.tipo] || {})[k], n = files.filter((f) => f.c === c.id && f.k === k).length;
+        const txt = s === "ok" ? n + " confermat" + (n === 1 ? "o" : "i") : s === "sugg" ? n + " da confermare" : s === "manca" ? "manca · obbligatorio" : s === "fac" ? "manca · facoltativo" : "non serve";
+        return el("span", { class: "slot " + s }, el("b", {}, k), txt + (r === "obb" && s !== "manca" ? " · obbligatorio" : ""));
+      })));
+      if (suoi.length) b.append(el("div", { class: "tab-scorre", style: "border:0;border-radius:0" }, el("table", { class: "file-tab" }, el("tbody", {}, suoi.map(rigaFile)))));
+      else b.append(el("p", { class: "k", style: "margin:0;padding:10px 14px" }, "Nessun file per questo pezzo."));
+      box.append(b);
+    }
+    const senza = files.filter((f) => !f.c);
+    if (senza.length) box.append(el("section", { class: "blocco-comp", style: "border-color:var(--bad)" },
+      el("div", { class: "blocco-testa", style: "background:var(--bad-soft)" }, el("b", {}, "File senza pezzo"), el("span", { class: "k" }, "il loro pezzo è stato tolto dalla distinta: scegli dove vanno")),
+      el("div", { class: "tab-scorre", style: "border:0;border-radius:0" }, el("table", { class: "file-tab" }, el("tbody", {}, senza.map(rigaFile))))));
+    $("#da-sistemare").replaceChildren(...sistemare.map((s) => el("tr", {}, el("td", {}, el("span", { class: "file-nome" }, s.n)),
+      el("td", { class: "perche" }, s.fatto ? el("span", { class: "stato-file ok" }, "✓ " + s.fatto) : s.cosa),
+      el("td", {}, s.fatto ? null : el("div", { class: "azioni-cella" }, s.azioni.map(([t, esito], i) => el("button", { class: "btn piccolo" + (i === 0 ? " primario" : ""), type: "button", onclick: () => { s.fatto = esito; toast(esito); disegnaTutto(); } }, t)))))));
+    // controllo e NAS
+    const tb = $("#matrice"); tb.replaceChildren();
+    let man = 0, daConf = 0;
+    for (const [c, liv] of inOrdine()) {
+      const celle = ["3D", "2D", "DXF"].map((k) => cellaDi(c, k));
+      const m = celle.filter((s) => s === "manca").length, s = celle.filter((x) => x === "sugg").length;
+      man += m; daConf += s;
+      tb.append(el("tr", {},
+        el("td", { style: "padding-left:" + (12 + liv * 20) + "px" }, el("span", { class: "mono" }, c.codice), c.nome ? el("span", { class: "k" }, " · " + c.nome) : null),
+        el("td", {}, el("span", { class: "tipo " + c.tipo }, TIPI[c.tipo])), el("td", { class: "num" }, qtaTotale(c)),
+        celle.map((x) => el("td", { class: "c" }, el("span", { class: "mc " + x }, SIMBOLO[x]))),
+        el("td", {}, m ? el("span", { class: "chip bad" }, m === 1 ? "manca un documento" : "mancano " + m + " documenti") : s || c.proposto ? el("span", { class: "chip warn" }, "da confermare") : el("span", { class: "chip ok" }, "a posto"))));
+    }
+    const nFile = files.filter((f) => f.c).length, frase = $("#nas-frase"), btn = $("#btn-nas");
+    $("#box-nas").className = "box" + (sulNas ? " tono-ok" : man ? "" : " tono-acc");
+    if (sulNas) { frase.textContent = "Fatto: " + nFile + " file sono nella cartella della richiesta."; btn.disabled = true; btn.textContent = "✓ Copiati sul NAS"; }
+    else if (man) { frase.textContent = "Non ancora: " + (man === 1 ? "manca un documento obbligatorio" : "mancano " + man + " documenti obbligatori") + " (in rosso nella tabella)."; btn.disabled = true; btn.textContent = "Conferma e copia sul NAS"; }
+    else { frase.textContent = nFile + " file vanno nella cartella della richiesta" + (daConf ? ", compresi quelli ancora da confermare: questo pulsante li conferma." : "."); btn.disabled = false; btn.textContent = "Conferma e copia sul NAS"; }
+  };
+  $("#btn-conferma-file").addEventListener("click", () => { let n = 0; files.forEach((f) => { if (f.c && f.stato !== "ok") { f.stato = "ok"; n++; } }); toast(n ? n + " file confermati." : "Niente da confermare."); disegnaTutto(); });
+  $("#btn-nas").addEventListener("click", () => { files.forEach((f) => { if (f.c) f.stato = "ok"; }); comps.forEach((c) => (c.proposto = false)); salvati = clona(comps); sulNas = true; toast("Mockup: i file sarebbero confermati e copiati sul NAS ora."); disegnaTutto(); });
+
+  // --- Fattibilità -------------------------------------------------------------------------------
+  const disegnaFattibilita = () => {
+    $("#da-produrre").replaceChildren(...inOrdine().filter(([c]) => c.tipo !== "commerciale").map(([c]) => el("li", {}, el("span", { class: "mono" }, c.codice), " ", el("span", { class: "tipo " + c.tipo }, TIPI[c.tipo]), el("br"), el("span", { class: "k" }, (c.nome || "") + " · ×" + qtaTotale(c)))));
+    const com = inOrdine().filter(([c]) => c.tipo === "commerciale").map(([c]) => el("li", {}, el("span", { class: "mono" }, c.codice), " · " + (c.nome || ""), el("br"), el("span", { class: "k" }, "× " + qtaTotale(c) + " per prodotto")));
+    $("#da-comprare").replaceChildren(...(com.length ? com : [el("li", { class: "k" }, "Nessun particolare commerciale nella distinta.")]));
+  };
+
+  // --- il visore dei disegni con le note ---------------------------------------------------------
+  const ZOOM = [1, 1.25, 1.5, 2, 3];
+  const vis = { file: null, zoom: 0, armato: false, sel: null, nuovo: null, da: null };
+  const apriVisore = (file, da) => {
+    if (!DISEGNI[file]) return;
+    vis.file = file; vis.zoom = 0; vis.armato = false; vis.sel = null; vis.nuovo = null; vis.da = da || document.activeElement;
+    $("#vis-file").replaceChildren(...Object.keys(DISEGNI).map((k) => el("option", { value: k, selected: k === file }, k + " · " + DISEGNI[k].nome)));
+    $("#visore").hidden = false; document.body.style.overflow = "hidden";
+    disegnaVisore(); $("#vis-chiudi").focus();
+  };
+  const chiudiVisore = () => { $("#visore").hidden = true; document.body.style.overflow = ""; disegnaTutto(); if (vis.da && vis.da.isConnected) vis.da.focus(); };
+  const disegnaVisore = () => {
+    const d = DISEGNI[vis.file], c = byId(d.comp);
+    $("#vis-titolo").textContent = vis.file;
+    $("#vis-sotto").textContent = (c ? TIPI[c.tipo] + " " + c.codice + " · " : "") + d.nome + " · disegno 2D · pagina 1 di 1";
+    $("#z-val").textContent = Math.round(ZOOM[vis.zoom] * 100) + "%";
+    const arma = $("#vis-arma"); arma.setAttribute("aria-pressed", vis.armato ? "true" : "false"); arma.textContent = vis.armato ? "Fai clic sul disegno… (Esc annulla)" : "+ Aggiungi nota";
+    const carta = $("#carta");
+    carta.className = "carta" + (vis.armato ? " armata" : "");
+    carta.style.width = "calc(" + ZOOM[vis.zoom] * 100 + "% - 0px)";
+    carta.style.maxWidth = ZOOM[vis.zoom] === 1 ? "calc((100vh - 230px) * 420 / 297)" : "none";
+    carta.innerHTML = d.svg();
+    const lista = note[vis.file] || [];
+    lista.forEach((nt, i) => carta.append(el("button", { class: "pin" + (vis.sel === nt.id ? " sel" : ""), type: "button", style: "left:" + nt.x * 100 + "%;top:" + nt.y * 100 + "%", "aria-label": "Nota " + (i + 1) + ": " + nt.testo, onclick: (e) => { e.stopPropagation(); vis.sel = nt.id; disegnaVisore(); } }, i + 1)));
+    if (vis.nuovo) {
+      carta.append(el("span", { class: "pin nuovo", style: "left:" + vis.nuovo.x * 100 + "%;top:" + vis.nuovo.y * 100 + "%" }, lista.length + 1));
+      const pop = el("form", { class: "pop-nota", style: "left:min(calc(" + vis.nuovo.x * 100 + "% + 18px), calc(100% - 270px));top:min(calc(" + vis.nuovo.y * 100 + "% - 10px), calc(100% - 160px))", onclick: (e) => e.stopPropagation(),
+        onsubmit: (e) => { e.preventDefault(); const t = $("#nota-testo").value.trim(); if (!t) return; (note[vis.file] = note[vis.file] || []).push({ id: prossimaNota++, x: vis.nuovo.x, y: vis.nuovo.y, testo: t, autore: "SV", quando: "adesso", mia: true }); vis.sel = prossimaNota - 1; vis.nuovo = null; toast("Nota salvata sul disegno."); disegnaVisore(); } },
+        el("label", { class: "campo" }, el("span", {}, "Nota " + (lista.length + 1)), el("textarea", { id: "nota-testo", maxlength: "2000", placeholder: "Che cosa c'è da sapere su questo punto?" })),
+        el("span", { style: "display:flex;gap:8px;justify-content:flex-end" }, el("button", { class: "btn piccolo", type: "button", onclick: () => { vis.nuovo = null; disegnaVisore(); } }, "Annulla"), el("button", { class: "btn piccolo primario", type: "submit" }, "Salva la nota")));
+      carta.append(pop);
+      setTimeout(() => { const t = $("#nota-testo"); if (t) t.focus(); }, 0);
+    }
+    $("#vis-n-note").textContent = "Note sul disegno · " + lista.length;
+    const ln = $("#lista-note"); ln.replaceChildren();
+    if (!lista.length) ln.append(el("p", { class: "k", style: "margin:4px 2px" }, "Nessuna nota su questo disegno."));
+    lista.forEach((nt, i) => ln.append(el("div", { class: "nota" + (vis.sel === nt.id ? " sel" : ""), role: "button", tabindex: "0", onclick: () => { vis.sel = nt.id; disegnaVisore(); }, onkeydown: (e) => { if (e.key === "Enter") { vis.sel = nt.id; disegnaVisore(); } } },
+      el("span", { class: "n" }, i + 1), el("span", {}, nt.testo), el("span", { class: "meta" }, nt.autore + " · " + nt.quando + " · pag. 1"),
+      nt.mia ? el("span", { class: "azioni" }, el("button", { class: "btn piccolo pericolo", type: "button", onclick: (e) => { e.stopPropagation(); note[vis.file] = lista.filter((x) => x.id !== nt.id); vis.sel = null; toast("Nota tolta."); disegnaVisore(); } }, "Togli")) : null)));
+  };
+  $("#carta").addEventListener("click", (e) => {
+    if (!vis.armato) { vis.sel = null; disegnaVisore(); return; }
+    const r = $("#carta").getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    vis.nuovo = { x, y }; vis.armato = false; disegnaVisore();
+  });
+  $("#vis-arma").addEventListener("click", () => { vis.armato = !vis.armato; vis.nuovo = null; disegnaVisore(); });
+  $("#vis-chiudi").addEventListener("click", chiudiVisore);
+  $("#vis-file").addEventListener("change", (e) => { vis.file = e.target.value; vis.sel = null; vis.nuovo = null; vis.armato = false; disegnaVisore(); });
+  $("#z-piu").addEventListener("click", () => { vis.zoom = Math.min(ZOOM.length - 1, vis.zoom + 1); disegnaVisore(); });
+  $("#z-meno").addEventListener("click", () => { vis.zoom = Math.max(0, vis.zoom - 1); disegnaVisore(); });
+  $("#z-adatta").addEventListener("click", () => { vis.zoom = 0; disegnaVisore(); });
+  $("#visore").addEventListener("click", (e) => { if (e.target.id === "visore") chiudiVisore(); });
+  document.addEventListener("keydown", (e) => {
+    if ($("#visore").hidden || e.key !== "Escape") return;
+    if (vis.nuovo) { vis.nuovo = null; disegnaVisore(); } else if (vis.armato) { vis.armato = false; disegnaVisore(); } else chiudiVisore();
+  });
+
+  // --- tutto -------------------------------------------------------------------------------------
+  const disegnaTutto = () => {
+    disegnaPassi();
+    if (attivo === "distinta") { disegnaElenco(); disegnaAlbero(); disegnaDettaglio(); const m = modifiche(); $("#salva-barra").hidden = !m; $("#n-modifiche").textContent = m; }
+    if (attivo === "documenti") disegnaDocumenti();
+    if (attivo === "fattibilita") disegnaFattibilita();
+  };
+  const h = (location.hash || "").replace("#", "");
+  vai(PASSI.some((p) => p.id === h) ? h : "distinta");
+})();
+</script>
+</body>
+</html>

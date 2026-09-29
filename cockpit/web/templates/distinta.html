@@ -1,0 +1,378 @@
+{{/* La Distinta (cockpit/_fasi/PROPOSTA_DISTINTA.md): una RFQ in quattro passi, nell'ordine del lavoro —
+     Richiesta, Distinta, Documenti e NAS, Fattibilita' — con «Indietro» e «Avanti» in fondo.
+
+     Il corpo (#distinta) e' quello che i gesti rifanno: ogni modulo manda la sua rotta di sempre, e la risposta
+     (threadFrammento → rispondiDistinta, perche' HX-Current-URL e' questa pagina) e' il corpo nuovo con l'avviso.
+     Fuori dal corpo restano il visore dei disegni e l'avviso breve: un gesto non li chiude. La struttura (l'albero)
+     e il visore sono di distinta.mjs; il resto e' HTML del server. */}}
+{{define "contenuto"}}
+<link rel="stylesheet" href="{{statico "distinta.css"}}">
+<div id="distinta" class="dst{{if not .Dati.F.Scrive}} sola-lettura{{end}}" hx-target="this" hx-swap="innerHTML">{{template "distinta_corpo" .}}</div>
+{{/* La preparazione dei file, come nel Fascicolo: la GET non scrive, chi puo' scrivere la chiede una volta. */}}
+{{if .Dati.F.Scrive}}<div id="dst-prepara" hx-post="/thread/{{.Dati.F.T.ThreadID}}/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}' hx-swap="none"></div>{{end}}
+<div class="dst-visore" id="dst-visore" hidden>
+  <div class="dst-visore-box" role="dialog" aria-modal="true" aria-labelledby="dst-vis-titolo">
+    <div class="dst-visore-barra">
+      <div class="dst-vis-titolo"><b id="dst-vis-titolo"></b><span class="k" id="dst-vis-sotto"></span></div>
+      <select id="dst-vis-file" aria-label="Disegno da vedere"></select>
+      <span class="sp"></span>
+      <span class="dst-gruppo" role="group" aria-label="Pagina"><button type="button" id="dst-pag-prec" aria-label="Pagina precedente">‹</button><span class="z" id="dst-pag">1/1</span><button type="button" id="dst-pag-succ" aria-label="Pagina successiva">›</button></span>
+      <span class="dst-gruppo" role="group" aria-label="Zoom"><button type="button" id="dst-z-meno" aria-label="Rimpicciolisci">−</button><span class="z" id="dst-z" aria-live="polite"></span><button type="button" id="dst-z-piu" aria-label="Ingrandisci">+</button><button type="button" id="dst-z-adatta">Adatta</button></span>
+      <button class="dst-btn" type="button" id="dst-vis-arma" aria-pressed="false">+ Aggiungi nota</button>
+      <button class="dst-btn" type="button" id="dst-vis-chiudi">Chiudi</button>
+    </div>
+    <div class="dst-visore-corpo">
+      <div class="dst-scena" id="dst-scena"><div class="dst-carta" id="dst-carta"></div></div>
+      <aside class="dst-lato-note" aria-label="Note sul disegno">
+        <div class="testa"><span class="dst-label" id="dst-vis-n-note">Note sul disegno</span><span class="k" id="dst-vis-aiuto">Premi «+ Aggiungi nota», poi fai clic sul punto del disegno.</span></div>
+        <div class="dst-lista-note" id="dst-lista-note"></div>
+      </aside>
+    </div>
+    <div class="dst-visore-piede"><span>Esc per chiudere</span><span>Una nota sta su questa revisione del disegno; la cambia o la toglie solo chi l'ha scritta.</span></div>
+  </div>
+</div>
+<div class="dst-toast" id="dst-toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="{{statico "distinta.mjs"}}"></script>
+{{end}}
+
+{{/* ------------------------------------------------------------------ il corpo */}}
+{{define "distinta_corpo"}}{{with .Dati}}{{$v := .}}{{$f := .F}}
+<script type="application/json" id="dst-dati">{{.Dati}}</script>
+{{if .Avviso}}<div class="dst-avviso{{if .AvvisoNo}} no{{end}}" role="status" data-esito="{{if .AvvisoNo}}no{{else}}ok{{end}}">{{.Avviso}}</div>{{end}}
+
+<div class="dst-top">
+  <nav class="dst-briciole" aria-label="Percorso"><a href="/richieste">Richieste</a> › {{$f.Riga.Cliente}} › <b>{{oggettoVisibile $f.T.Oggetto}}</b></nav>
+  <span class="sp"></span>
+  <a class="dst-btn piccolo" href="/thread/{{$f.T.ThreadID}}">Pagina della RFQ</a>
+  <a class="dst-btn piccolo" href="{{$f.Base}}" title="La schermata di prima, con tutti i gesti avanzati: revisioni, autorizzazione degli STEP, deroghe">Fascicolo completo</a>
+</div>
+
+<section class="dst-cartiglio" aria-label="Dati della richiesta">
+  <div class="titolo">
+    <span class="dst-label">Richiesta d'offerta</span>
+    <h1><span class="num">{{if $f.T.RiferimentoCliente.Valid}}{{$f.T.RiferimentoCliente.String}}{{else}}{{oggettoVisibile $f.T.Oggetto}}{{end}}</span></h1>
+    <span class="k">{{range $i, $p := .Prodotti}}{{if $i}} · {{end}}{{if $p.Descrizione.Valid}}{{$p.Descrizione.String}} · {{end}}prodotto <span class="mono">{{$p.Codice}}</span>{{else}}nessun prodotto ancora{{end}}</span>
+  </div>
+  <div><span class="dst-label">Cliente</span><div class="v">{{$f.Riga.Cliente}}</div></div>
+  <div><span class="dst-label">Buyer</span><div class="v">{{if $f.Riga.Buyer.Valid}}{{$f.Riga.Buyer.String}}{{else}}—{{end}}</div></div>
+  <div><span class="dst-label">Ricevuta</span><div class="v">{{dataLunga $f.T.DataInizio}}</div></div>
+  <div><span class="dst-label">Scadenza</span><div class="v">{{with $f.T.DataScadenza}}{{.Format "02/01/2006"}}{{else}}—{{end}}</div>{{with .ScadenzaFrase}}<span class="dst-chip {{$v.ScadenzaClasse}}">{{.}}</span>{{end}}</div>
+  <div><span class="dst-label">Fase</span><div class="v">{{with $f.Fase}}{{.NomeFase}}{{else}}—{{end}}</div>{{if $f.Riga.GgInFase.Valid}}<span class="k">da {{$f.Riga.GgInFase.Int32}} gg</span>{{end}}</div>
+  <div class="riga2 span3"><span class="dst-label">Cartella sul NAS</span><div class="v mono piccolo">{{if $f.T.CartellaRelativa.Valid}}{{$f.T.CartellaRelativa.String}}{{else}}—{{end}}</div>{{if $f.T.CartellaCreata}}<span class="dst-chip ok">creata</span>{{else}}<span class="dst-chip warn">in creazione</span>{{end}}</div>
+  <div class="riga2 span2"><span class="dst-label">Il cliente vuole</span><div class="v">{{with .Regole}}{{if .RispostaEntroGg}}Risposta entro {{.RispostaEntroGg}} giorni{{else}}—{{end}}{{if .RichiedeCbd}} · con Cost breakdown (CBD){{end}}{{end}}</div></div>
+</section>
+
+<nav class="dst-passi-box" aria-label="Passi della richiesta">
+  <div class="dst-passi" role="tablist">
+  {{range .Passi}}<a class="dst-passo{{if .Attivo}} on{{end}}{{if .Dopo}} dopo{{end}}" role="tab" aria-selected="{{if .Attivo}}true{{else}}false{{end}}" href="{{$v.Base}}?passo={{.Chiave}}">
+    <span class="n">{{.Numero}}</span><span class="t">{{.Nome}}</span><span class="s {{.Classe}}">{{.Stato}}</span></a>{{end}}
+  </div>
+</nav>
+
+<section class="dst-pannello" role="tabpanel" data-passo="{{.Passo}}">
+{{if eq .Passo "richiesta"}}{{template "dst_richiesta" .}}
+{{else if eq .Passo "distinta"}}{{template "dst_distinta" .}}
+{{else if eq .Passo "documenti"}}{{template "dst_documenti" .}}
+{{else}}{{template "dst_fattibilita" .}}{{end}}
+</section>
+
+<footer class="dst-navbar" aria-label="Navigazione fra i passi">
+  {{with .Prec}}<a class="dst-btn" href="{{$v.Base}}?passo={{.Chiave}}">← {{.Nome}}</a>{{else}}<span class="dst-btn disabilitato" aria-disabled="true">← Inizio</span>{{end}}
+  <span class="dove">{{range .Passi}}{{if .Attivo}}Passo {{.Numero}} di 4 · {{.Nome}} · {{.Stato}}{{end}}{{end}}</span>
+  {{with .Succ}}<a class="dst-btn primario" href="{{$v.Base}}?passo={{.Chiave}}">Avanti: {{.Nome}} →</a>{{else}}<span class="dst-btn disabilitato" aria-disabled="true">Fine</span>{{end}}
+</footer>
+{{end}}{{end}}
+
+{{/* ------------------------------------------------------------------ 1. Richiesta */}}
+{{define "dst_richiesta"}}{{$v := .}}{{$f := .F}}
+<div class="dst-intro"><div><h2>Che cosa è arrivato</h2><p>La mail del cliente, che cosa chiede e a che punto siamo. Da qui si parte con la distinta.</p></div></div>
+<div class="dst-griglia-2">
+  <div class="dst-box">
+    <span class="dst-label">{{if eq (len .Th.Messaggi) 1}}La mail{{else}}Le mail ({{len .Th.Messaggi}}){{end}}</span>
+    {{range .Th.Messaggi}}
+    <article class="dst-msg">
+      <div class="r1"><span class="dst-chip {{if eq (print .M.Direzione) "uscita"}}acc{{else}}neu{{end}}">{{if eq (print .M.Direzione) "uscita"}}inviata{{else}}ricevuta{{end}}</span>
+        <b>{{mittente .M.MittenteNome .M.MittenteIndirizzo}}</b><span class="sp"></span><span class="k">{{dataLunga .M.DataEvento}}</span></div>
+      <div class="ogg">{{oggettoVisibile .M.Oggetto}}</div>
+      {{if .Allegati}}<div class="k">{{len .Allegati}} allegat{{if eq (len .Allegati) 1}}o{{else}}i{{end}}: {{range $i, $a := .Allegati}}{{if lt $i 4}}{{if $i}}, {{end}}{{$a.NomeFile}}{{end}}{{end}}{{if gt (len .Allegati) 4}}…{{end}}</div>{{end}}
+      <details class="dst-testo"><summary>Leggi il testo</summary>{{template "corpo_messaggio" .Corpo}}</details>
+      <div class="azioni">
+        {{if .Copia}}<button type="button" class="dst-btn piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-{{.M.MessaggioID}}" hx-swap="innerHTML" title="Si apre la copia in {{.Copia.CasellaNome}}">Apri in Outlook</button>{{else if .Motivo}}<button type="button" class="dst-btn piccolo" disabled title="{{.Motivo}}">Apri in Outlook</button>{{end}}
+        <a class="dst-btn piccolo" href="/messaggio/{{.M.MessaggioID}}">Apri nella Inbox</a>
+        <span id="esito-{{.M.MessaggioID}}" class="k"></span>
+      </div>
+    </article>
+    {{else}}<p class="k">Nessuna mail agganciata a questa richiesta.</p>{{end}}
+  </div>
+  <div class="dst-colonna">
+    <div class="dst-box">
+      <span class="dst-label">Il prodotto richiesto</span>
+      {{range .Prodotti}}
+      <div class="dst-prodotto">
+        <p><span class="mono grande">{{.Codice}}</span> <span class="dst-tipo finito">Prodotto</span>{{if .Rev.Valid}} <span class="k">rev {{.Rev.String}}</span>{{end}}</p>
+        {{if .Descrizione.Valid}}<p>{{.Descrizione.String}}</p>{{end}}
+        <button type="button" class="dst-btn piccolo" data-apri-comp="{{.ComponenteID}}" data-codice="{{.Codice}}">Apri il disegno</button>
+      </div>
+      {{else}}<p class="k">Nessun prodotto: i codici della richiesta, confermati nella Inbox, diventano prodotti da soli.</p>{{end}}
+      {{with .Th.Identificativi}}<p class="dst-label" style="margin-top:12px">Codici della richiesta</p>
+      <p class="dst-chips">{{range .}}<span class="dst-chip neu mono">{{.Codice}}</span>{{end}}</p>{{end}}
+    </div>
+    <div class="dst-box">
+      <span class="dst-label">Che cosa chiede il cliente</span>
+      <ul class="dst-pulito">
+        {{with .Regole}}
+        {{if .RispostaEntroGg}}<li class="dst-fatto"><span class="dst-pallino neu" aria-hidden="true"></span>Risposta entro {{.RispostaEntroGg}} giorni</li>{{end}}
+        {{if .RichiedeCbd}}<li class="dst-fatto"><span class="dst-pallino neu" aria-hidden="true"></span>Cost breakdown (CBD) insieme all'offerta</li>{{end}}
+        {{with .DatiRichiesti}}<li class="dst-fatto"><span class="dst-pallino neu" aria-hidden="true"></span>{{join . ", "}}</li>{{end}}
+        {{if .LinguaRisposta}}<li class="dst-fatto"><span class="dst-pallino neu" aria-hidden="true"></span>Risposta in lingua «{{.LinguaRisposta}}»</li>{{end}}
+        {{if not (or .RispostaEntroGg .RichiedeCbd .DatiRichiesti .LinguaRisposta)}}<li class="k">L'anagrafica di questo cliente non dice niente di particolare.</li>{{end}}
+        {{end}}
+      </ul>
+    </div>
+    <div class="dst-box tono-acc">
+      <span class="dst-label">A che punto siamo</span>
+      <ul class="dst-pulito">{{range .Passi}}{{if ne .Chiave "richiesta"}}
+        <li class="dst-fatto"><span class="dst-pallino {{.Classe}}" aria-hidden="true">{{if eq .Classe "ok"}}✓{{else if eq .Classe "neu"}}{{else}}!{{end}}</span><a href="{{$v.Base}}?passo={{.Chiave}}"><b>{{.Nome}}</b></a> · {{.Stato}}</li>{{end}}{{end}}
+      </ul>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{/* ------------------------------------------------------------------ 2. Distinta */}}
+{{define "dst_distinta"}}{{$v := .}}{{$f := .F}}
+<div class="dst-intro"><div><h2>Distinta del prodotto</h2><p>Quali pezzi compongono il prodotto, come stanno uno dentro l'altro e in che quantità. Le caselle tratteggiate sono proposte dagli STEP: le controlli, le correggi e salvi la distinta. Un clic sulla miniatura apre il disegno.</p></div></div>
+
+<div class="dst-box" id="dst-analisi">
+  <div class="dst-riga-testa">
+    <span class="dst-label">Proposta dagli STEP</span>
+    <span id="dst-analisi-chip"></span>
+    <span class="sp"></span>
+    {{if and $f.Scrive (not $f.Bloccata)}}<button type="button" class="dst-btn piccolo" hx-post="{{$f.Base}}/rianalizza" title="Rilegge gli STEP della RFQ con le regole del cliente e accoda le analisi che mancano">Rianalizza gli STEP</button>
+    <button type="button" class="dst-btn piccolo primario" data-azione="accetta-tutto" hidden>Accetta la struttura proposta</button>{{end}}
+  </div>
+  <div id="dst-analisi-corpo"><p class="k">Lettura della struttura…</p></div>
+</div>
+
+{{if $f.Bloccata}}<p class="dst-nota-blocco">La distinta è congelata nella V{{$f.Bloccata}}: si guarda e si annota, ma pezzi e legami si cambiano aprendo una revisione (dal Fascicolo completo).</p>{{end}}
+
+{{if and $f.Scrive (not $f.Bloccata)}}
+<div class="dst-strumenti" role="toolbar" aria-label="Strumenti della distinta">
+  <button type="button" class="dst-btn t-ass" data-nuovo="sottoassieme"><span class="plus">+</span> Assieme</button>
+  <button type="button" class="dst-btn t-par" data-nuovo="sciolto"><span class="plus">+</span> Particolare</button>
+  <button type="button" class="dst-btn t-com" data-nuovo="commerciale"><span class="plus">+</span> Particolare commerciale</button>
+  <span class="sep"></span>
+  <button type="button" class="dst-btn pericolo" data-azione="elimina">Togli il selezionato</button>
+  <button type="button" class="dst-btn" data-azione="indietro" disabled>↶ Annulla l'ultima</button>
+  <span class="sp"></span>
+  <span id="dst-prodotto-scelta"></span>
+</div>
+<div class="dst-box tono-2" id="dst-nuovo" hidden></div>
+{{else}}<div class="dst-strumenti"><span id="dst-prodotto-scelta"></span></div>{{end}}
+
+<div class="dst-tela" id="dst-tela" aria-label="Schema della distinta"><div class="dst-tree" id="dst-tree"><p class="k">Caricamento della distinta…</p></div></div>
+<div class="dst-legenda">
+  <span><i></i>confermato</span><span><i class="tratt"></i>proposto, da confermare</span>
+  <span class="dst-tipo finito">Prodotto</span><span class="dst-tipo sottoassieme">Assieme</span><span class="dst-tipo sciolto">Particolare</span><span class="dst-tipo commerciale">Particolare commerciale</span>
+  <span>· clic sulla miniatura: il disegno · trascina una casella sopra il prodotto o un assieme per metterla sotto</span>
+</div>
+<div class="dst-regola"><span class="dst-pallino neu" aria-hidden="true">i</span><span>Sotto un particolare e sotto un particolare commerciale non si mette niente: i pezzi stanno solo sotto il prodotto e sotto gli assiemi.</span></div>
+
+<div class="dst-box" id="dst-dettaglio" aria-live="polite"></div>
+<div class="dst-box tono-2" id="dst-vassoio" hidden></div>
+
+<div class="dst-salva" id="dst-salva" hidden>
+  <span><b id="dst-n-modifiche">0</b> modifiche non ancora salvate: nessuno le vede finché non salvi.</span>
+  <span class="dst-azioni"><button type="button" class="dst-btn" data-azione="annulla-tutto">Annulla le modifiche</button><button type="button" class="dst-btn primario" data-azione="salva">Salva la distinta</button></span>
+</div>
+{{end}}
+
+{{/* ------------------------------------------------------------------ 3. Documenti e NAS */}}
+{{define "dst_documenti"}}{{$v := .}}{{$f := .F}}
+<div class="dst-intro">
+  <div><h2>Documenti di ogni pezzo</h2><p>Ogni file ricevuto accanto al pezzo a cui va, con quello che c'è da decidere. In fondo, il controllo finale e la copia sul NAS.</p></div>
+</div>
+<div class="dst-chips">
+  <span class="dst-chip neu">{{.NFile}} file</span>
+  {{if .NPronti}}<span class="dst-chip warn">{{.NPronti}} pronti da confermare</span>{{end}}
+  {{with .DaSistemare}}<span class="dst-chip warn">{{len .}} da sistemare</span>{{end}}
+  {{if $f.NBloccanti}}<span class="dst-chip bad">{{$f.NBloccanti}} documenti obbligatori mancano</span>{{end}}
+  {{with .DaParte}}<span class="dst-chip neu">{{len .}} messi da parte</span>{{end}}
+</div>
+{{if $f.Bloccata}}<p class="dst-nota-blocco">La distinta è congelata nella V{{$f.Bloccata}}: i file si confermano, ma entrano senza pezzo finché non si apre una revisione.</p>{{end}}
+
+<div class="dst-blocchi">
+{{range .Blocchi}}{{$b := .}}{{$c := .N.C}}
+<section class="dst-blocco" style="--liv:{{.N.Livello}}" id="blocco-{{$c.ComponenteID}}">
+  <div class="dst-blocco-testa">
+    <span class="dst-tipo {{$c.Tipo}}">{{nomeTipo $c.Tipo}}</span>
+    <span class="cod mono">{{$c.Codice}}</span>{{if $c.Rev.Valid}} <span class="k">rev {{$c.Rev.String}}</span>{{end}}
+    {{if $c.Descrizione.Valid}}<span>{{$c.Descrizione.String}}</span>{{end}}
+    <span class="k">{{if .PadreCodice}}× {{.N.Qta}} sotto {{.PadreCodice}}{{else}}il prodotto{{end}}</span>
+  </div>
+  <div class="dst-slot-riga">
+    {{range .Celle}}<span class="dst-slot {{.Classe}}" title="{{.Titolo}}"><b>{{.Etichetta}}</b> {{.Simbolo}} {{.Titolo}}</span>{{else}}<span class="k">Per un {{nomeTipo $c.Tipo}} il fascicolo non chiede documenti.</span>{{end}}
+  </div>
+  {{if .File}}<div class="dst-tab-scorre"><table class="dst-file-tab"><tbody>
+  {{range .File}}{{template "dst_riga_file" (arr $v .)}}{{end}}
+  </tbody></table></div>
+  {{else}}<p class="k dst-vuoto-blocco">Nessun file per questo pezzo.</p>{{end}}
+</section>
+{{else}}<p class="k">La distinta è vuota: prima i pezzi, nel passo 2.</p>{{end}}
+</div>
+
+{{with .DaSistemare}}
+<div class="dst-box tono-warn">
+  <span class="dst-label">Da sistemare ({{len .}})</span>
+  <p class="k" style="margin:0 0 8px">File che non vanno ancora a nessun pezzo, o su cui serve una risposta.</p>
+  <div class="dst-tab-scorre"><table class="dst-file-tab"><tbody>
+  {{range .}}{{template "dst_riga_file" (arr $v .)}}{{end}}
+  </tbody></table></div>
+</div>
+{{end}}
+
+{{with .Generali}}
+<details class="dst-box" open>
+  <summary class="dst-label">Documenti della richiesta, senza pezzo ({{len .}})</summary>
+  <div class="dst-tab-scorre"><table class="dst-file-tab"><tbody>
+  {{range .}}{{template "dst_riga_file" (arr $v .)}}{{end}}
+  </tbody></table></div>
+</details>
+{{end}}
+
+{{with .Archivi}}
+<details class="dst-box">
+  <summary class="dst-label">Archivi già aperti ({{len .}})</summary>
+  <ul class="dst-pulito" style="margin-top:10px">{{range .}}<li><span class="mono">{{.F.A.NomeFile}}</span> <span class="k">· {{.Domanda}}</span></li>{{end}}</ul>
+</details>
+{{end}}
+
+{{with .DaParte}}
+<details class="dst-box">
+  <summary class="dst-label">Messi da parte ({{len .}})</summary>
+  <ul class="dst-pulito" style="margin-top:10px">{{range .}}<li><span class="mono">{{.F.A.NomeFile}}</span> <span class="k">· scartato o riconosciuto come rumore</span></li>{{end}}</ul>
+</details>
+{{end}}
+
+<div class="dst-sezione-titolo"><h2>Controllo e copia sul NAS</h2><span class="k">Per ogni pezzo, i documenti che servono. Quando non manca niente di obbligatorio, confermi e i file vanno nella cartella della richiesta.</span></div>
+<div class="dst-tab-scorre">
+  <table class="dst-matrice">
+    <thead><tr><th>Pezzo</th><th>Tipo</th><th title="Quantità complessiva, su tutti i padri">Qtà totale</th>{{range $f.ColonneGriglia}}<th>{{etichettaTipoDoc (print .)}}</th>{{end}}</tr></thead>
+    <tbody>
+    {{range $f.Albero.Righe}}{{$id := .C.ComponenteID}}
+    <tr><td style="padding-left:calc(12px + {{.Livello}} * 20px)"><span class="mono">{{.C.Codice}}</span>{{if .C.Descrizione.Valid}} <span class="k">· {{.C.Descrizione.String}}</span>{{end}}</td>
+      <td><span class="dst-tipo {{.C.Tipo}}">{{nomeTipo .C.Tipo}}</span></td>
+      <td class="num">{{index $f.Albero.Totali $id}}</td>
+      {{range $f.ColonneGriglia}}<td class="c">{{with $f.Cella $id .}}<span class="dst-mc {{.Classe}}" title="{{.Etichetta}}: {{.Titolo}}">{{.Simbolo}}</span>{{else}}<span class="dst-mc nr" title="non serve">—</span>{{end}}</td>{{end}}
+    </tr>
+    {{else}}<tr><td colspan="7" class="k">Nessun pezzo nella distinta.</td></tr>{{end}}
+    </tbody>
+  </table>
+</div>
+<div class="dst-legenda">
+  <span><span class="dst-mc ok">✓</span> sul NAS</span><span><span class="dst-mc coda">✓°</span> copia in coda</span><span><span class="dst-mc warn">?</span> da confermare</span>
+  <span><span class="dst-mc urg">✗</span> manca, obbligatorio</span><span><span class="dst-mc no">○</span> manca, facoltativo</span><span><span class="dst-mc info">≈</span> derogato</span><span><span class="dst-mc nr">—</span> non serve</span>
+</div>
+<div class="dst-griglia-2">
+  <div class="dst-box{{if $f.Piano.FilePronti}} tono-acc{{else if $f.SulNas.Completa}}{{if $f.SulNas.Documenti}} tono-ok{{end}}{{end}}" id="dst-box-nas">
+    <span class="dst-label">Copia sul NAS</span>
+    {{with $f.SulNas}}{{if .Documenti}}<p>Nella cartella: <b>{{.Scritti}}</b> di {{.Documenti}} document{{if eq .Documenti 1}}o{{else}}i{{end}} confermat{{if eq .Documenti 1}}o{{else}}i{{end}}{{if .InCoda}} · {{.InCoda}} in coda{{end}}{{if .Errore}} · <b class="bad-t">{{.Errore}} in errore</b>{{end}}.</p>{{else}}<p>Nessun documento ancora confermato.</p>{{end}}{{end}}
+    <div class="dst-cartella mono">{{if $f.T.CartellaRelativa.Valid}}{{$f.T.CartellaRelativa.String}}{{else}}la cartella della richiesta{{end}}</div>
+    {{if $f.Scrive}}
+    <form hx-post="{{$f.Base}}/conferma" class="dst-riga-azioni">
+      <input type="hidden" name="firma" value="{{$f.Piano.Firma}}">
+      <button type="submit" class="dst-btn primario"{{if not $f.Piano.FilePronti}} disabled title="Nessun file pronto: prima si decide quello che è da sistemare"{{end}}>Conferma {{if $f.Piano.FilePronti}}i {{$f.Piano.FilePronti}} file pronti {{end}}e copia sul NAS</button>
+    </form>
+    {{if .Th.NDaCopiare}}<p class="k">{{.Th.NDaCopiare}} document{{if eq .Th.NDaCopiare 1}}o confermato non è{{else}}i confermati non sono{{end}} ancora sul NAS.
+      <button type="button" class="dst-btn piccolo" hx-post="/thread/{{$f.T.ThreadID}}/riprova-copie">Riprova le copie</button></p>{{end}}
+    {{end}}
+  </div>
+  <div class="dst-box tono-2">
+    <span class="dst-label">Congela la distinta</span>
+    {{if $f.Bloccata}}<p>La distinta è congelata nella <b>V{{$f.Bloccata}}</b>. Una revisione si apre dal Fascicolo completo.</p>
+    {{else}}
+    <p>La prima versione (V1) si congela all'inizio della fattibilità: da lì in poi la distinta cambia solo aprendo una revisione.</p>
+    {{if not $f.Gate.Passa}}<p class="k"><b>Non ancora:</b></p><ul class="dst-elenco k">{{range $f.Gate.Problemi}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    {{if not $f.PuoCongelare}}<p class="k">{{with $f.Fase}}In {{.NomeFase}} non si congela: {{end}}si congela in FATTIBILITA.</p>{{end}}
+    {{if $f.Scrive}}<form hx-post="{{$f.Base}}/congela" class="dst-riga-azioni">
+      <input name="motivo" maxlength="300" placeholder="prima baseline" aria-label="motivo" class="dst-input">
+      <button type="submit" class="dst-btn"{{if or (not $f.Gate.Passa) (not $f.PuoCongelare)}} disabled{{end}}>Congela la V1</button>
+    </form>{{end}}
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{/* Una riga di file nella pagina Documenti: com'e', perche' sta li', che cosa se ne fa. Riceve (arr vista riga). */}}
+{{define "dst_riga_file"}}{{$v := index . 0}}{{$r := index . 1}}{{$f := $v.F}}{{$x := $r.F}}
+<tr class="dst-file {{$r.Stato}}">
+  <td class="nome"><span class="mono">{{$x.A.NomeFile}}</span>{{if $x.Tipo}} <span class="dst-chip neu">{{etichettaTipoDoc $x.Tipo}}</span>{{end}}{{if $x.Interno}} <span class="dst-chip acc">interno</span>{{end}}
+    {{if $x.Codice}}<div class="k">codice letto <span class="mono">{{$x.Codice}}</span>{{if $x.Rev}} · rev {{$x.Rev}}{{end}}{{if $x.CodiceLetto}} · <span class="bad-t">il file dice {{$x.CodiceLetto}}</span>{{end}}</div>{{end}}</td>
+  <td class="stato">
+    {{if eq $r.Stato "confermato"}}<span class="ok-t">✓ confermato</span>{{with $x.Doc}} <span class="k">· NAS {{if eq (print .StatoNas) "scritto"}}scritto{{else if eq (print .StatoNas) "errore"}}<b class="bad-t">in errore</b>{{else}}in coda{{end}}</span>{{end}}
+    {{else if eq $r.Stato "generale"}}<span class="ok-t">✓ documento della richiesta</span>
+    {{else if eq $r.Stato "pronto"}}<span class="warn-t">pronto da confermare</span>
+    {{else if eq $r.Stato "attesa"}}<span class="k">in preparazione (download o analisi)</span>
+    {{else if eq $r.Stato "parte"}}<span class="k">messo da parte</span>
+    {{else if eq $r.Stato "archivio"}}<span class="k">archivio</span>
+    {{else}}<span class="warn-t">da decidere</span>{{end}}
+    {{with $r.Domanda}}<div class="dst-domanda">{{.}}</div>{{end}}
+  </td>
+  <td class="azioni"><div class="dst-azioni">
+    {{if $r.Apre}}<button type="button" class="dst-btn piccolo" data-apri-file="{{$x.A.AllegatoID}}">Apri il disegno</button>{{end}}
+    {{if $f.Scrive}}
+      {{if eq $r.Stato "pronto"}}{{with $r.Voce}}<form hx-post="{{$f.Base}}/conferma"><input type="hidden" name="voce" value="{{.Proposta}}"><button type="submit" class="dst-btn piccolo primario">✓ Conferma</button></form>{{end}}{{end}}
+      {{with $r.Voce}}{{$dom := ""}}{{with .Domande}}{{$dom = (index . 0).Chiave}}{{end}}
+        {{if or (eq $dom "tipo") (eq $dom "codice") (eq $dom "revisione")}}
+        <form hx-post="{{$f.Base}}/proposta/{{.Proposta}}/decidi" class="dst-in-linea">
+          <select name="tipo" aria-label="che cos'è">{{range tipiDocumento}}{{if and (ne . "da_determinare") (ne . "rumore")}}<option value="{{.}}"{{if eq . (print $r.Voce.Tipo)}} selected{{end}}>{{etichettaTipoDoc .}}</option>{{end}}{{end}}</select>
+          <input name="codice" value="{{if .Codice}}{{.Codice}}{{else}}{{.Suggerito}}{{end}}" maxlength="60" placeholder="codice" aria-label="codice" class="dst-input medio">
+          <input name="rev" value="{{.Rev}}" maxlength="10" placeholder="rev" aria-label="revisione" class="dst-input corto">
+          <button type="submit" class="dst-btn piccolo primario">Salva</button>
+        </form>
+        {{else if eq $dom "file"}}
+        <button type="button" class="dst-btn piccolo" hx-post="/allegato/{{.Allegato}}/riscarica" hx-vals='{"ritorna_thread":"{{$f.T.ThreadID}}"}'>Riscarica</button>
+        {{else if eq $dom "sostituzione"}}{{if .Correnti}}
+        <form hx-post="/proposta/{{.Proposta}}/conferma" class="dst-in-linea">
+          <input type="hidden" name="ritorna_thread" value="{{$f.T.ThreadID}}">
+          {{with .Componente}}<input type="hidden" name="componente_id" value="{{.ComponenteID}}">{{end}}
+          <input type="hidden" name="tipo" value="{{.Tipo}}"><input type="hidden" name="codice" value="{{.Codice}}"><input type="hidden" name="rev" value="{{.Rev}}">
+          <select name="scelta" required aria-label="si aggiunge o sostituisce"><option value="">si aggiunge o sostituisce?</option><option value="aggiungi">si aggiunge</option>{{range .Correnti}}<option value="{{.DocumentoID}}">sostituisce {{.NomeFile}}</option>{{end}}</select>
+          <button type="submit" class="dst-btn piccolo primario">Conferma</button>
+        </form>
+        <a class="dst-link" href="{{$f.Base}}?file={{.Allegato}}" title="Sostituire lo STEP autorizzato si decide nel Fascicolo completo">nel Fascicolo</a>
+        {{end}}{{else if eq $dom "struttura_editor"}}
+        <span class="k">entra quando la struttura del suo STEP è confermata (passo 2)</span>
+        {{end}}
+      {{end}}
+      {{if and $x.Proposta (eq (print $x.Proposta.Stato) "aperta") (not $f.Bloccata) (ne $r.Stato "confermato") (ne $r.Stato "generale")}}{{with $x.Proposta}}
+        {{/* il pezzo a cui il file va gia' (assegnato, o dal piano): non si offre, e la tendina parte vuota */}}
+        {{$dest := ""}}{{if .ComponenteID.Valid}}{{$dest = print .ComponenteID.UUID}}{{else}}{{with $r.Voce}}{{with .Componente}}{{$dest = print .ComponenteID}}{{end}}{{end}}{{end}}
+        {{if and $f.Albero.Righe (ne $r.Stato "archivio")}}<form hx-post="{{$f.Base}}/assegna" class="dst-in-linea" hx-confirm="Il file va al pezzo scelto e ne prende il codice. Continuo?">
+          <input type="hidden" name="proposta" value="{{.PropostaID}}"><input type="hidden" name="correggi_codice" value="1">
+          <select name="componente" required aria-label="{{if $dest}}sposta su un altro pezzo{{else}}pezzo a cui va{{end}}"><option value="">{{if $dest}}— sposta su un altro pezzo —{{else}}— scegli il pezzo —{{end}}</option>{{range $f.Albero.Righe}}{{if ne (print .C.ComponenteID) $dest}}<option value="{{.C.ComponenteID}}">{{.C.Codice}}{{if .C.Descrizione.Valid}} · {{.C.Descrizione.String}}{{end}}</option>{{end}}{{end}}</select>
+          <button type="submit" class="dst-btn piccolo">{{if $dest}}Sposta{{else}}Assegna{{end}}</button>
+        </form>{{end}}
+        <span class="dst-menu-piccolo">
+          <button type="button" class="dst-btn piccolo" hx-post="{{$f.Base}}/file/{{.PropostaID}}/generale" hx-vals='{"tipo":"altro"}' title="Entra come documento della richiesta, senza pezzo, con la copia sul NAS">Documento della richiesta</button>
+          <button type="button" class="dst-btn piccolo pericolo" hx-post="/proposta/{{.PropostaID}}/scarta" hx-vals='{"ritorna_thread":"{{$f.T.ThreadID}}"}' hx-confirm="Mettere da parte {{$x.A.NomeFile}}? Non entra nel fascicolo.">Metti da parte</button>
+        </span>
+      {{end}}{{end}}
+    {{end}}
+  </div></td>
+</tr>
+{{end}}
+
+{{/* ------------------------------------------------------------------ 4. Fattibilita' */}}
+{{define "dst_fattibilita"}}{{$v := .}}{{$f := .F}}
+<div class="dst-intro"><div><h2>Fattibilità {{with $f.Fase}}{{if ne (print .NomeFase) "FATTIBILITA"}}<span class="dst-chip neu">fase successiva · anteprima</span>{{end}}{{end}}</h2>
+  <p>Che cosa si produce, che cosa si compra e in che quantità, per un prodotto. Qui di solito nascono gli assiemi interni, con un codice che si può cambiare.</p></div></div>
+<div class="dst-griglia-3">
+  <div class="dst-box"><span class="dst-label">Da produrre</span>
+    <ul class="dst-pulito">{{range .Produrre}}<li><span class="mono">{{.C.Codice}}</span> <span class="dst-tipo {{.C.Tipo}}">{{nomeTipo .C.Tipo}}</span><br><span class="k">{{if .C.Descrizione.Valid}}{{.C.Descrizione.String}} · {{end}}× {{.Totale}}</span></li>{{else}}<li class="k">Niente, per ora.</li>{{end}}</ul></div>
+  <div class="dst-box"><span class="dst-label">Da comprare</span>
+    <ul class="dst-pulito">{{range .Comprare}}<li><span class="mono">{{.C.Codice}}</span>{{if .C.Descrizione.Valid}} · {{.C.Descrizione.String}}{{end}}<br><span class="k">× {{.Totale}}</span></li>{{else}}<li class="k">Nessun particolare commerciale nella distinta.</li>{{end}}</ul></div>
+  <div class="dst-box tono-2"><span class="dst-label">Lavorazioni</span>
+    <p class="k" style="margin:0">Le lavorazioni lette dai disegni (saldature, trattamenti) arriveranno con l'analisi dei PDF. Per ora si leggono nel disegno: <button type="button" class="dst-btn piccolo" {{with .Prodotti}}data-apri-comp="{{(index . 0).ComponenteID}}"{{else}}disabled{{end}}>Apri il disegno del prodotto</button></p></div>
+</div>
+{{end}}
