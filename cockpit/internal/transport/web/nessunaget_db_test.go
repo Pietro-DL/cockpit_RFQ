@@ -159,6 +159,12 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // Giro 4, fase 4.1b: anche il riepilogo di «Conferma Fascicolo» (il cassetto «Rivedi», con htmx e senza), che
 // sceglie i percorsi sul NAS come la conferma ma senza lucchetto e senza riservarli. Perche' calcoli davvero dei
 // percorsi, la scena ha due file pronti: il disegno di 7120020 (un componente senza disegni) e un capitolato.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.17a): prima fissava che le GET le facessero soltanto
+// l'operatore e la consultazione, tutte con 200 dove la pagina c'e'. Adesso ci sono anche la pagina «Forme
+// viste» dell'Anagrafica e il suo export Markdown, che sono solo dell'amministratore: per l'operatore e la
+// consultazione rispondono 403, per l'amministratore 200. Per questo le GET le fa anche l'amministratore,
+// tutte: le asserzioni di prima restano, e per lui valgono le stesse.
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
@@ -171,59 +177,65 @@ func TestNessunaGetScrive(t *testing.T) {
 	op := operatore(b)
 	co := b.browser("10.0.0.9")
 	co.login("CO", "prova-co")
+	ad := b.browser("10.0.0.8")
+	ad.login("AD", "prova-ad")
 
 	get := []struct {
-		percorso string
-		hx       bool // richiesta htmx dalla schermata del Fascicolo
-		pagina   bool // deve rispondere 200
+		percorso  string
+		hx        bool // richiesta htmx dalla schermata del Fascicolo
+		pagina    bool // deve rispondere 200
+		soloAdmin bool // dell'amministratore: 200 per lui, 403 per gli altri
 	}{
-		{"/thread/" + s.thread.String(), false, true},
-		{base, false, true},
-		{base + "?vista=bom", false, true},
-		{base + "?vista=completezza", false, true},
-		{base + "?vista=file", false, true},
-		{base + "?vista=componenti", false, true},
-		{base + "?vista=albero", false, true},
-		{base + "?cassetto=verifica", false, true},
-		{base + "?cassetto=piano", false, true},
-		{base + "?cassetto=codici", false, true},
-		{base + "?cassetto=avvisi", false, true},
-		{base + "?nodo=" + s.pezzo.String(), false, true},
-		{base + "?file=" + s.letto.String(), false, true},
-		{base + "/parti?vista=bom", true, true},
-		{base + "/parti?cassetto=verifica", true, true},
-		{base + "/parti?cassetto=piano", true, true},
-		{base + "/parti?nodo=" + s.pezzo.String(), true, true},
-		{base + "/anteprima?nodo=" + s.pezzo.String(), true, true},
-		{base + "/anteprima?file=" + s.letto.String(), true, true},
-		{base + "/anteprima?file=" + s.pdfFermo.String(), true, true},
-		{base + "/vista?q=7120", true, true},
-		{base + "/avanzamento?firma=0&giro=0", true, true},
-		{base + "/sezione?nodo=" + s.pezzo.String(), true, true},
-		{base + "/bom/dati", true, true},
-		{base + "/bom/dati?step=" + s.letto.String(), true, true},
+		{"/thread/" + s.thread.String(), false, true, false},
+		{base, false, true, false},
+		{base + "?vista=bom", false, true, false},
+		{base + "?vista=completezza", false, true, false},
+		{base + "?vista=file", false, true, false},
+		{base + "?vista=componenti", false, true, false},
+		{base + "?vista=albero", false, true, false},
+		{base + "?cassetto=verifica", false, true, false},
+		{base + "?cassetto=piano", false, true, false},
+		{base + "?cassetto=codici", false, true, false},
+		{base + "?cassetto=avvisi", false, true, false},
+		{base + "?nodo=" + s.pezzo.String(), false, true, false},
+		{base + "?file=" + s.letto.String(), false, true, false},
+		{base + "/parti?vista=bom", true, true, false},
+		{base + "/parti?cassetto=verifica", true, true, false},
+		{base + "/parti?cassetto=piano", true, true, false},
+		{base + "/parti?nodo=" + s.pezzo.String(), true, true, false},
+		{base + "/anteprima?nodo=" + s.pezzo.String(), true, true, false},
+		{base + "/anteprima?file=" + s.letto.String(), true, true, false},
+		{base + "/anteprima?file=" + s.pdfFermo.String(), true, true, false},
+		{base + "/vista?q=7120", true, true, false},
+		{base + "/avanzamento?firma=0&giro=0", true, true, false},
+		{base + "/sezione?nodo=" + s.pezzo.String(), true, true, false},
+		{base + "/bom/dati", true, true, false},
+		{base + "/bom/dati?step=" + s.letto.String(), true, true, false},
 		// Smistamento F2: il controllo del codice che l'operatore scrive nell'editor (U4) legge soltanto
-		{base + "/bom/codice?codice=7120001A", true, true},
-		{base + "/bom/codice?codice=7120099", true, true},
+		{base + "/bom/codice?codice=7120001A", true, true, false},
+		{base + "/bom/codice?codice=7120099", true, true, false},
 		// Smistamento, fase T: la tendina e l'anteprima del tipo, l'anteprima della riattivazione
-		{base + "/componente/" + s.pezzo.String() + "/tipo", true, true},
-		{base + "/componente/" + s.pezzo.String() + "/tipo?tipo=commerciale", true, true},
-		{base + "/componente/" + s.pezzo.String() + "/step-strutturale/riattiva", true, true},
-		{base + "/nas", true, false},
-		{"/allegato/" + s.disegno.String() + "/anteprima", false, false},
-		{"/richieste", false, true},
-		{"/richieste/" + s.thread.String() + "/prodotti", true, false},
+		{base + "/componente/" + s.pezzo.String() + "/tipo", true, true, false},
+		{base + "/componente/" + s.pezzo.String() + "/tipo?tipo=commerciale", true, true, false},
+		{base + "/componente/" + s.pezzo.String() + "/step-strutturale/riattiva", true, true, false},
+		{base + "/nas", true, false, false},
+		{"/allegato/" + s.disegno.String() + "/anteprima", false, false, false},
+		{"/richieste", false, true, false},
+		{"/richieste/" + s.thread.String() + "/prodotti", true, false, false},
+		// Smistamento, giro 4, fase 4.17a: le forme viste e il loro export
+		{"/admin/anagrafica/forme", false, true, true},
+		{"/admin/anagrafica/forme.md", false, true, true},
 		// Giro 4, fase 4.3: le tre GET della Distinta, la pagina con cui si apre la RFQ (PR #8), anche in ogni passo
 		// e con un passo che non c'e'; i dati per distinta.mjs; l'anteprima del tipo, un tipo che si fa e uno spento
-		{distinta, false, true},
-		{distinta + "?passo=richiesta", false, true},
-		{distinta + "?passo=distinta", false, true},
-		{distinta + "?passo=documenti", false, true},
-		{distinta + "?passo=fattibilita", false, true},
-		{distinta + "?passo=boh", false, true},
-		{distinta + "/dati", false, true},
-		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=commerciale", false, true},
-		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=finito", false, true},
+		{distinta, false, true, false},
+		{distinta + "?passo=richiesta", false, true, false},
+		{distinta + "?passo=distinta", false, true, false},
+		{distinta + "?passo=documenti", false, true, false},
+		{distinta + "?passo=fattibilita", false, true, false},
+		{distinta + "?passo=boh", false, true, false},
+		{distinta + "/dati", false, true, false},
+		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=commerciale", false, true, false},
+		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=finito", false, true, false},
 	}
 	prima := fotoDelDatabase(t, b)
 	// il riepilogo c'e' davvero, con i percorsi che la conferma darebbe (e chi consulta lo vede senza il modulo)
@@ -243,9 +255,10 @@ func TestNessunaGetScrive(t *testing.T) {
 		}
 	}
 	for _, chi := range []struct {
-		nome string
-		w    *browser
-	}{{"operatore", op}, {"consultazione", co}} {
+		nome  string
+		w     *browser
+		admin bool
+	}{{"operatore", op, false}, {"consultazione", co, false}, {"amministratore", ad, true}} {
 		for _, g := range get {
 			var resp *http.Response
 			if g.hx {
@@ -253,7 +266,8 @@ func TestNessunaGetScrive(t *testing.T) {
 			} else {
 				resp, _ = chi.w.fai(http.MethodGet, g.percorso, nil, false)
 			}
-			if resp.StatusCode >= 500 || (g.pagina && resp.StatusCode != 200) {
+			negata := g.soloAdmin && !chi.admin
+			if resp.StatusCode >= 500 || (g.pagina && !negata && resp.StatusCode != 200) || (negata && resp.StatusCode != http.StatusForbidden) {
 				t.Errorf("%s, GET %s: %d", chi.nome, g.percorso, resp.StatusCode)
 			}
 		}
