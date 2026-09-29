@@ -46,7 +46,7 @@ def link_anteprima(page, base, a):
     """Il pulsante come lo vede l'occhio: dentro la riga dell'allegato, nella pagina della RFQ."""
     page.goto(base + "/thread/" + a.thread)
     page.wait_for_load_state("domcontentloaded")
-    return page.locator("a[href='/allegato/%s/anteprima']" % a.allegato)
+    return page.locator("a[href^='/allegato/%s/anteprima']" % a.allegato)
 
 
 @prova("A  il pulsante «Anteprima» e' nella riga dell'allegato")

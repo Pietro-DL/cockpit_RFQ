@@ -320,7 +320,8 @@ func raggruppaProdotti(prodotti []db.ListProdottiPanoramicaRow, anteprime []db.L
 		}
 		if a, ok := sceglieAnteprima(pr, candidati[pr.ThreadID]); ok {
 			pc.allegato = a.AllegatoID
-			pc.Anteprima = "/allegato/" + a.AllegatoID.String() + "/anteprima#toolbar=0&navpanes=0&view=Fit"
+			// con l'impronta del contenuto: il browser lo tiene senza richiederlo a ogni pagina (cache C1)
+			pc.Anteprima = indirizzoAnteprima(a.AllegatoID, a.Sha256.String) + "#toolbar=0&navpanes=0&view=Fit"
 			pc.NomePDF = a.NomeFile
 			pc.DaConfermare = a.Fonte != "documento"
 		}
