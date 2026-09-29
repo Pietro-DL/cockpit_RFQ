@@ -40,7 +40,8 @@ import (
 //   - quello che ha letto l'OCR e' un INDIZIO: si registra e si mostra con la sua fonte, ma non ha uno score
 //     finche' la calibrazione (S2) non l'ha misurato, non alza lo score di niente e non preseleziona;
 //   - il cartiglio di un testo letto con una sottoversione di prima (testoDiPrima) e' anche lui un indizio e una
-//     chiave, mai il codice del file, finche' «Rianalizza» non lo rilegge (giro 4, fase 4.6r).
+//     chiave, mai il codice del file, finche' «Rianalizza» non lo rilegge (giro 4, fase 4.6r); se dice un codice
+//     diverso da quello che vince, la dimensione e' discorde (fase 4.6r2).
 //
 // Domanda 7 = B (27/09): il titolo dei metadati uguale al nome del file, o un testo che ripete il nome del file,
 // DIPENDE dal nome e non alza lo score; il cartiglio che riporta un codice diverso dal nome e' una
@@ -117,6 +118,13 @@ func testoDiPrima(t *worker.TestoPDF) bool {
 // FraseTestoDiPrima e' la frase di un testo letto con una sottoversione di prima (testoDiPrima): il testo c'e', ma
 // quello che dice il suo cartiglio non e' contenuto finche' «Rianalizza» non lo rilegge (LetturaTesto.DaRileggere).
 const FraseTestoDiPrima = "testo letto con il worker di prima: da rianalizzare"
+
+// FraseCartiglioDiPrima e' la frase di una lettura del cartiglio di un testo di prima nella valutazione
+// (RegolaCartiglioDiPrima; giro 4, fase 4.6r2): il codice che quel testo dice, che non vota ma, se non e' quello
+// che vince, rende le fonti discordi (Componi).
+func FraseCartiglioDiPrima(codice string) string {
+	return "il testo letto con il worker di prima dice " + codice + ": da rianalizzare"
+}
 
 // FraseTestoPDF e' lo stato del testo di un PDF in parole, con quello che ha fatto l'OCR quando il file non
 // ha testo: una sola frase per la valutazione, la schermata e il flusso. "" per un testo letto.
@@ -893,6 +901,12 @@ const RegolaOCRIndizio = "pdf_ocr_indizio"
 // campo del codice) e il campo del worker di prima, per un disegno d'assieme l'intestazione dell'elenco
 // particolari con il primo figlio come valore, votava a 85 da solo: il bug 3 della Distinta, finche' nessuno
 // rianalizzava.
+//
+// Non vota, ma non tace (fase 4.6r2): se dice un codice diverso da quello che vince, la dimensione e' discorde
+// (Componi, contraddiceDiPrima). Quando era soltanto un indizio (fase 4.6r), un disegno d'assieme letto dal worker
+// di prima con un nome che non e' il codice del cartiglio («ACME-030P7120100.pdf») aveva il codice «unico» dal
+// nome, e il cartiglio che diceva altro spariva dallo stato: prima della 4.6 lo stesso file era discorde (ogni
+// codice della zona votava a 85).
 const RegolaCartiglioDiPrima = "pdf_cartiglio_da_rileggere"
 
 // Indizi sono le regole delle evidenze senza score, fuori dalla tabella S1, con le parole per la schermata.
@@ -900,15 +914,15 @@ var Indizi = map[string]RegolaScore{
 	RegolaOCRIndizio: {DimCodice, "cartiglio", 0, "codice letto con l'OCR: indizio, senza score finché non è calibrato", false,
 		"l'OCR è un'evidenza, non un automatismo (27/09 «ter»): si mostra, non pesa"},
 	RegolaCartiglioDiPrima: {DimCodice, "cartiglio", 0, "codice del cartiglio letto con il worker di prima: indizio, senza score finché il PDF non si rianalizza", false,
-		"il worker di prima non distingueva il campo del codice dall'intestazione dell'elenco particolari (fase 4.6): si mostra, non pesa"},
+		"il worker di prima non distingueva il campo del codice dall'intestazione dell'elenco particolari (fase 4.6): si mostra, non pesa; un codice diverso da quello che vince rende le fonti discordi"},
 }
 
 // evidenzeCodiceDelTesto sono le letture del codice che il testo di un PDF porta nella valutazione del file
 // (A5.14.3): ogni codice di FAMIGLIA del testo nativo in basso a destra della pagina 1 (pdf_testo_famiglia), il
 // codice del titolo o del soggetto (pdf_metadati: quello che il campo E', o un codice di famiglia che vi e'
 // citato), e come indizi senza voto i codici di famiglia che l'OCR ha letto in basso a destra della pagina 1 e
-// quelli del cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima, fase 4.6r). Gli altri
-// non votano.
+// quelli del cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima, fase 4.6r: se dicono un
+// codice diverso da quello che vince, la dimensione e' discorde, fase 4.6r2). Gli altri non votano.
 //
 // Domanda 7 = B, con le letture normalizzate (LettureDelPDF): il titolo o il soggetto con lo stesso codice del
 // nome DIPENDONO dal nome; il codice in basso a destra uguale al nome e' una conferma INDIPENDENTE (e
@@ -936,9 +950,10 @@ func evidenzeCodiceDelTesto(m *Motore, fatti json.RawMessage, nomeFile string) [
 			e := evidenza("pdf_testo_famiglia", k, c.Estratto)
 			e.Famiglia, e.Dove = c.Famiglia, DoveBassoDestra
 			if c.DaRileggere {
-				// il cartiglio di un testo letto con il worker di prima (fase 4.6r): un indizio, che non vota
+				// il cartiglio di un testo letto con il worker di prima (fase 4.6r): un indizio, che non vota; con
+				// un codice diverso da quello che vince fa le fonti discordi (Componi, fase 4.6r2), e lo dice
 				e = Evidenza{Regola: RegolaCartiglioDiPrima, Fonte: Indizi[RegolaCartiglioDiPrima].Fonte, Indizio: k,
-					Testo: tronca(c.Estratto, 200), Famiglia: c.Famiglia, Dove: DoveBassoDestra + ", " + FraseTestoDiPrima}
+					Testo: tronca(c.Estratto, 200), Famiglia: c.Famiglia, Dove: DoveBassoDestra + ", " + FraseCartiglioDiPrima(k)}
 			}
 			if c.DipendeDaNome {
 				e.DipendeDa = "nome_file"

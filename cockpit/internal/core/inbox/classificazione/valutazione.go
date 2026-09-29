@@ -142,9 +142,12 @@ const MaxEvidenze = 8
 // riconosce il nome stesso), non a step_radice_famiglia 80. Prima (A) la lettura dipendente vinceva con lo
 // score della sua regola, e `dipende_da` impediva soltanto `concorde`.
 //
-// Le evidenze senza valore restano nell'elenco e non votano. L'elenco torna in ordine di score e di
-// precedenza, e se e' piu' lungo di MaxEvidenze si tengono le piu' forti, e comunque le letture del nome del
-// file (taglia).
+// Le evidenze senza valore restano nell'elenco e non votano. Una sola eccezione, che non vota ma conta per lo
+// stato: il cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima) che dice un codice
+// diverso da quello che vince rende la dimensione discorde, mai «unica» ne' «concorde» (contraddiceDiPrima; giro
+// 4, fase 4.6r2). Lo stesso codice non cambia niente. L'elenco torna in ordine di score e di precedenza, e se e'
+// piu' lungo di MaxEvidenze si tengono le piu' forti, e comunque le letture del nome del file e la prima lettura
+// di prima che contraddice (taglia): quello che resta scritto spiega lo stato.
 func Componi(ev []Evidenza) Dimensione {
 	ord := limitaDipendenti(ev)
 	sort.SliceStable(ord, func(i, j int) bool {
@@ -183,6 +186,10 @@ func Componi(ev []Evidenza) Dimensione {
 	indipendenti := 0
 	for _, e := range ord {
 		switch {
+		case contraddiceDiPrima(e, w.Valore):
+			// il cartiglio letto con il worker di prima dice un altro codice: non vota, ma il valore che vince
+			// non e' sicuro finche' «Rianalizza» non lo rilegge (fase 4.6r2)
+			d.Stato = StatoDiscorde
 		case e.Valore == "":
 		case strings.EqualFold(e.Valore, w.Valore):
 			if e.DipendeDa == "" {
@@ -232,18 +239,35 @@ func limitaDipendenti(ev []Evidenza) []Evidenza {
 // (45), e con lei il ripiego della colonna sul nome quando le fonti discordano (letturaInColonna): la colonna
 // diventava un figlio. Una lettura del nome prende il posto della piu' debole delle altre; l'ordine resta quello
 // di score e precedenza.
+//
+// Resta anche la prima lettura del cartiglio di un testo di prima che contraddice il valore che vince
+// (contraddiceDiPrima, fase 4.6r2): senza score sta in fondo, e un taglio che la togliesse lascerebbe la dimensione
+// «unica» (o una discorde senza la lettura che lo dice) a chi la rilegge da `dettagli.valutazione`.
 func taglia(ord []Evidenza) []Evidenza {
-	delNome := 0
+	vincente := ""
 	for _, e := range ord {
-		if dalNome(e) {
-			delNome++
+		if e.Valore != "" {
+			vincente = e.Valore
+			break
 		}
 	}
-	posti := MaxEvidenze - delNome
-	out := make([]Evidenza, 0, MaxEvidenze)
-	for _, e := range ord {
+	tieni, riservate, contraddetto := make([]bool, len(ord)), 0, false
+	for i, e := range ord {
 		switch {
 		case dalNome(e):
+		case !contraddetto && contraddiceDiPrima(e, vincente):
+			contraddetto = true
+		default:
+			continue
+		}
+		tieni[i] = true
+		riservate++
+	}
+	posti := MaxEvidenze - riservate
+	out := make([]Evidenza, 0, MaxEvidenze)
+	for i, e := range ord {
+		switch {
+		case tieni[i]:
 			out = append(out, e)
 		case posti > 0:
 			out = append(out, e)
@@ -256,6 +280,16 @@ func taglia(ord []Evidenza) []Evidenza {
 // dalNome: una lettura del nome del file con un valore (il codice o la rev che il nome dice: la fonte «nome_file»
 // delle righe della tabella S1, quella che `dipende_da` nomina).
 func dalNome(e Evidenza) bool { return e.Fonte == "nome_file" && e.Valore != "" }
+
+// contraddiceDiPrima: una lettura del cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima,
+// fase 4.6r) che dice un codice diverso dal valore che vince (giro 4, fase 4.6r2). Il suo codice sta in Indizio e
+// non vota; ma il cartiglio fa fede (29/09), e un codice «unico» che il cartiglio forse smentisce non e' sicuro: la
+// dimensione e' discorde finche' «Rianalizza» non porta la sottoversione di oggi. Senza un valore che vince non
+// c'e' niente da contraddire (lo stato resta «nessuna»).
+func contraddiceDiPrima(e Evidenza, vincente string) bool {
+	return e.Regola == RegolaCartiglioDiPrima && e.Valore == "" && e.Indizio != "" && vincente != "" &&
+		!strings.EqualFold(e.Indizio, vincente)
+}
 
 // LeggiValutazione legge `dettagli.valutazione` di una riga, se c'e' e se e' in una forma che si conosce. Una
 // riga v1 (scritta prima della Domanda 7) ha le stesse chiavi e le evidenze con lo score della tabella: le sue
