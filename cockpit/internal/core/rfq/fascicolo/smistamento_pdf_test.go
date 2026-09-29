@@ -31,9 +31,11 @@ func motoreACME712(t *testing.T) *classificazione.Motore {
 }
 
 // testoFinto e' il fatto `testo_pdf` di un PDF finto: un frammento nativo in basso a destra della pagina 1 (il
-// probabile cartiglio) e uno nel resto della pagina, con i metadati dati.
+// probabile cartiglio) e uno nel resto della pagina, con i metadati dati, come lo scrive il worker di oggi
+// (worker.VersioneTestoPDF). Fino alla fase 4.6 la sottoversione era la 1 e non contava per la lettura; dalla 4.6r
+// il cartiglio di un testo della 1 e' da rileggere, e non e' contenuto: le prove che lo vogliono lo dicono.
 func testoFinto(bassoDestra, pagina string, meta worker.MetadatiPDF) worker.TestoPDF {
-	t := worker.TestoPDF{Versione: 1, Pagine: 1, PagineLette: 1, Metadati: meta, FormatoPagina1: []float64{842, 595},
+	t := worker.TestoPDF{Versione: worker.VersioneTestoPDF, Pagine: 1, PagineLette: 1, Metadati: meta, FormatoPagina1: []float64{842, 595},
 		OCR:    worker.OCRPDF{Stato: worker.OCRNonNecessario},
 		Limiti: worker.LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384}}
 	if bassoDestra != "" {
@@ -48,6 +50,26 @@ func testoFinto(bassoDestra, pagina string, meta worker.MetadatiPDF) worker.Test
 	}
 	t.Estraibile = t.Caratteri > 0
 	return t
+}
+
+// conCampo aggiunge al testo un campo del cartiglio in basso a destra della pagina 1, come lo riporta il worker
+// quando ne riconosce l'etichetta («DISEGNO N.» -> numero_disegno, «PART. N°» -> codice): dalla fase 4.6 nella
+// zona del cartiglio il codice del disegno lo dice soltanto il campo del codice (classificazione.EvidenzeTestoPDF).
+func conCampo(tp worker.TestoPDF, etichetta, letta, valore string) worker.TestoPDF {
+	tp.Cartiglio = append(append([]worker.CampoCartiglio(nil), tp.Cartiglio...), worker.CampoCartiglio{Etichetta: etichetta, Letta: letta,
+		Valore: valore, Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Riquadro: []float64{620, 530, 655, 543}})
+	return tp
+}
+
+// disegnoN e' il disegno finto con il campo «DISEGNO N.» del cartiglio (conCampo) e il suo testo in basso a destra.
+func disegnoN(codice string, altro ...string) worker.TestoPDF {
+	return conCampo(testoFinto(strings.Join(append([]string{"DISEGNO N. " + codice}, altro...), "\n"), "", worker.MetadatiPDF{}),
+		worker.CampoNumeroDisegno, "DISEGNO N.", codice)
+}
+
+// partN aggiunge al testo il campo «PART. N°» 7120001A1, il codice del disegno nelle prove del particolare simile.
+func partN(tp worker.TestoPDF) worker.TestoPDF {
+	return conCampo(tp, worker.CampoCodice, "PART. N°", "7120001A1")
 }
 
 // fattiPDF sono i fatti dell'analizzatore 4 di un disegno con quel testo.
@@ -84,6 +106,10 @@ func evidenzeIn(d Destinazione) string { return strings.Join(d.Evidenze, " | ") 
 // una nota con 7120012 nel resto della pagina e l'OCR con 7120010; poi i fatti senza testo, un PDF muto con l'OCR
 // assente, un PDF che non si apre. La controprova (a mano): con l'OCR non segnato come indizio, o con l'origine
 // persa, la prova fallisce.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava che il numero generico scritto nella zona del
+// cartiglio fuori dai campi («ORDINE 4500123») fosse un'evidenza del cartiglio (una chiave); adesso nella zona del
+// cartiglio conta soltanto il campo del codice, e quel numero non e' un'evidenza.
 func TestLeEvidenzeDelPdfSonoLeLettureNormalizzate(t *testing.T) {
 	m := motoreACME712(t)
 	if FontePDFCartiglio != classificazione.FonteTestoCartiglio || FontePDFTesto != classificazione.FonteTestoPagina ||
@@ -133,8 +159,10 @@ func TestLeEvidenzeDelPdfSonoLeLettureNormalizzate(t *testing.T) {
 		e.Etichetta != worker.CampoNumeroDisegno || !e.DalCartiglio() {
 		t.Errorf("il cartiglio di famiglia che conferma il nome: %+v %v", e, ok)
 	}
-	if e, ok := trova(FontePDFCartiglio, "4500123"); !ok || e.Origine != OrigineGenerico {
-		t.Errorf("il numero generico dove sta il cartiglio: %+v %v", e, ok)
+	for _, e := range ev {
+		if e.Codice == "4500123" {
+			t.Errorf("il numero generico dove sta il cartiglio, fuori dal campo del codice, e' un'evidenza: %+v", e)
+		}
 	}
 	if e, ok := trova(FontePDFMetadati, "7120001"); !ok || !e.DipendeDaNome {
 		t.Errorf("il titolo che ripete il nome dipende dal nome: %+v %v", e, ok)
@@ -176,19 +204,23 @@ func TestLeEvidenzeDelPdfSonoLeLettureNormalizzate(t *testing.T) {
 // il motivo dell'ancora piatta: l'ancora da' il prodotto, non i figli (Domanda 4 = B), e il testo del PDF non
 // entra nell'indice. L'ancora piatta entra nella firma dell'indice. La controprova (a mano): senza il passo 4
 // l'ancora torna assente e la prova fallisce.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il cartiglio dei disegni era il solo testo «DISEGNO N.
+// 7120002»; adesso nella zona del cartiglio vota soltanto il campo del codice, e i disegni lo portano (disegnoN),
+// come lo riporta il worker. Il resto e' com'era.
 func TestSenzaStepIlPdfDelProdottoEUnAncoraPiatta(t *testing.T) {
 	costruisci := func(conTesto bool) *scena {
 		sc := nuovaScena(t)
 		sc.s.Motore = motoreACME712(t)
 		sc.prodotto("7120002")
 		if conTesto {
-			sc.disegnoLetto("7120002.pdf", fattiPDF(t, testoFinto("DISEGNO N. 7120002\nSCALA 1:1", "", worker.MetadatiPDF{})))
+			sc.disegnoLetto("7120002.pdf", fattiPDF(t, disegnoN("7120002", "SCALA 1:1")))
 		} else {
 			sc.disegnoLetto("7120002.pdf", json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`))
 		}
 		sc.disegnoLetto("tavola.pdf", fattiPDF(t, testoFinto("SCALA 1:1", "", worker.MetadatiPDF{Titolo: "7120002"})))
 		sc.disegnoLetto("vista.pdf", fattiPDF(t, testoFinto("SCALA 1:5", "vista dell'assieme 7120002", worker.MetadatiPDF{})))
-		sc.disegnoLetto("7120020.pdf", fattiPDF(t, testoFinto("DISEGNO N. 7120020", "", worker.MetadatiPDF{})))
+		sc.disegnoLetto("7120020.pdf", fattiPDF(t, disegnoN("7120020")))
 		cap := fattiPDF(t, testoFinto("", "REQUISITI DI FORNITURA per 7120002", worker.MetadatiPDF{}))
 		sc.file("Capitolato 7120002.pdf", shaDel("capitolato"), sc.valuta("Capitolato 7120002.pdf",
 			&classificazione.Esito{Tipo: "capitolato", Fonte: "cartiglio"}, string(cap), nil))
@@ -276,7 +308,7 @@ func TestSenzaStepIlPdfDelProdottoEUnAncoraPiatta(t *testing.T) {
 	sc = nuovaScena(t)
 	sc.s.Motore = motoreACME712(t)
 	sc.identificativo("7120003", true)
-	sc.disegnoLetto("7120003.pdf", fattiPDF(t, testoFinto("DISEGNO N. 7120003", "", worker.MetadatiPDF{})))
+	sc.disegnoLetto("7120003.pdf", fattiPDF(t, disegnoN("7120003")))
 	if d := sc.dest(sc.calcola(), "7120003.pdf"); candidati(d) != "1 7120003 dest_identificativo" || d.Preselezionabile ||
 		d.Candidati[0].Chiave != "identificativo:7120003" {
 		t.Errorf("il disegno di un codice della richiesta senza componente: %s %v %+v", candidati(d), d.Preselezionabile, d.Candidati)
@@ -294,6 +326,11 @@ func TestSenzaStepIlPdfDelProdottoEUnAncoraPiatta(t *testing.T) {
 // diventa non letto, anche se l'ancora resta assente (Ancora.testiPdf). Le controprove (a mano): senza il
 // controllo dell'indizio in dicePdf, con l'OCR contato come cartiglio, il PDF col testo letto e l'OCR ancora
 // (A-P1) e la prova fallisce; senza testiPdf nella firma, la firma non cambia.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il testo che ripete il nome era il nome del file stampato
+// nella zona del cartiglio fuori dai campi («stampato da 7120002.pdf»); adesso quello non e' una lettura (conta
+// soltanto il campo del codice), e il testo che ripete il nome e' il campo «DISEGNO N.» con il nome del file. Un caso
+// in piu': il nome stampato fuori dal campo non dice 7120002, e non ancora.
 func TestUnPdfSenzaTestoNonAncoraELoDice(t *testing.T) {
 	muto := testoFinto("", "", worker.MetadatiPDF{})
 	muto.OCR = worker.OCRPDF{Stato: worker.OCRNonDisponibile, Motivo: "motore assente"}
@@ -302,7 +339,8 @@ func TestUnPdfSenzaTestoNonAncoraELoDice(t *testing.T) {
 	conOCR.Frammenti = []worker.FrammentoPDF{{Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoOCR, Testo: "DISEGNO N. 7120002",
 		Riquadro: []float64{600, 500, 700, 512}, Confidenza: &conf}}
 	conOCR.OCR = worker.OCRPDF{Stato: worker.OCREseguito, Motore: "finto"}
-	ripete := testoFinto("stampato da 7120002.pdf", "", worker.MetadatiPDF{})
+	ripete := conCampo(testoFinto("DISEGNO N. 7120002.pdf", "", worker.MetadatiPDF{}), worker.CampoNumeroDisegno, "DISEGNO N.", "7120002.pdf")
+	stampato := testoFinto("stampato da 7120002.pdf", "", worker.MetadatiPDF{})
 	// il testo nativo c'e' (letto) e il cartiglio raster lo legge l'OCR selettivo: l'OCR resta un indizio anche qui
 	misto := testoFinto("SCALA 1:1", "", worker.MetadatiPDF{})
 	misto.Frammenti = append(misto.Frammenti, conOCR.Frammenti...)
@@ -319,6 +357,7 @@ func TestUnPdfSenzaTestoNonAncoraELoDice(t *testing.T) {
 		{"illeggibile", json.RawMessage(`{"errore_pdf": "cannot open broken document"}`), "il PDF non si apre", "", false},
 		{"solo l'OCR", fattiPDF(t, conOCR), "letto con l'OCR, solo come indizio", "l'OCR legge 7120002 (pagina 1): un indizio, non un codice del file", false},
 		{"ripete il nome", fattiPDF(t, ripete), "il testo dice 7120002 solo ripetendo il nome del file", "", true},
+		{"il nome stampato fuori dal campo", fattiPDF(t, stampato), "il testo di 7120002.pdf non dice 7120002", "", true},
 		{"testo letto e OCR", fattiPDF(t, misto), "l'OCR legge 7120002, un indizio: non ancora", "l'OCR legge 7120002 (pagina 1): un indizio, non un codice del file", true},
 	}
 	for _, x := range casi {
@@ -401,10 +440,15 @@ func TestUnPdfSenzaTestoNonAncoraELoDice(t *testing.T) {
 // letture del cartiglio, senza nota, e il disegno del prodotto 7120001 lo ancora (A-P1). La controprova (a mano):
 // senza separaSimili, 7120012 torna fra i codici del cartiglio; senza aCapoDaSolo, il cartiglio a tabella perde
 // 7120001 e da' la nota «simile a 7120001».
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il codice del disegno veniva dal testo «PART. N° 7120001A1»
+// della zona, senza il campo; adesso nella zona del cartiglio vota soltanto il campo del codice, e il testo porta il
+// campo «PART. N°» che il worker della sottoversione 2 riporta (partN). Il particolare simile resta com'era: il
+// campo del codice non lo prende, e i simili si separano nel testo come prima.
 func TestIlParticolareSimileNonEUnCodice(t *testing.T) {
 	m := motoreACME712(t)
-	accanto := testoFinto("PARTICOLARE SIMILE / SIMILAR PART 7120012\nPART. N° 7120001A1\nSCALA 1:1", "", worker.MetadatiPDF{})
-	aCapo := testoFinto("PART. SIMILE\n7120012\nPART. N° 7120001A1", "", worker.MetadatiPDF{})
+	accanto := partN(testoFinto("PARTICOLARE SIMILE / SIMILAR PART 7120012\nPART. N° 7120001A1\nSCALA 1:1", "", worker.MetadatiPDF{}))
+	aCapo := partN(testoFinto("PART. SIMILE\n7120012\nPART. N° 7120001A1", "", worker.MetadatiPDF{}))
 	nelCampo := testoFinto("SCALA 1:1", "", worker.MetadatiPDF{})
 	nelCampo.Cartiglio = []worker.CampoCartiglio{{Etichetta: worker.CampoCodice, Letta: "PART. N°", Valore: "7120001A1   SIMILAR PART 7120012",
 		Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Riquadro: []float64{620, 530, 655, 543}}}
@@ -463,7 +507,7 @@ func TestIlParticolareSimileNonEUnCodice(t *testing.T) {
 		"PARTICOLARE SIMILE / SIMILAR PART\nInserire codice particolare simile\n7120001A1",
 		"PARTICOLARE SIMILE / SIMILAR PART Inserire codice particolare simile\nPART. N° 7120001A1",
 	} {
-		l := classificazione.LettureDelPDF(m, fattiPDF(t, testoFinto(testo, "", worker.MetadatiPDF{})), "tavola 1.pdf")
+		l := classificazione.LettureDelPDF(m, fattiPDF(t, partN(testoFinto(testo, "", worker.MetadatiPDF{}))), "tavola 1.pdf")
 		var codici []string
 		for _, y := range l.Letture {
 			codici = append(codici, y.Codice)
@@ -474,7 +518,7 @@ func TestIlParticolareSimileNonEUnCodice(t *testing.T) {
 	}
 
 	// il cartiglio a tabella con il campo simile vuoto: il codice sotto le etichette e' quello del file
-	tabella := fattiPDF(t, testoFinto("PART. N°   PARTICOLARE SIMILE / SIMILAR PART\n7120001A1", "", worker.MetadatiPDF{}))
+	tabella := fattiPDF(t, partN(testoFinto("PART. N°   PARTICOLARE SIMILE / SIMILAR PART\n7120001A1", "", worker.MetadatiPDF{})))
 	l := classificazione.LettureDelPDF(m, tabella, "7120001.pdf")
 	var codici []string
 	for _, y := range l.Letture {
@@ -514,6 +558,12 @@ func TestIlParticolareSimileNonEUnCodice(t *testing.T) {
 // riga resta una nota. La controprova (a mano): con la separaSimili di prima (il ramo HasPrefix «INSERIRE» e
 // l'etichetta cercata anche dentro il segnaposto), e con quella nuova senza fineSegnaposto, falliscono le forme 1,
 // 3, 7 e 9 in tutte le scritture, la spezzata, la prima dentro il campo e l'ancora del cartiglio a tabella.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il codice del disegno veniva dal testo della zona, senza il
+// campo; adesso nella zona del cartiglio vota soltanto il campo del codice, e ogni forma porta il campo «PART. N°»
+// 7120001A1 (partN), come lo riporta il worker della sottoversione 2 (l'etichetta sta nella cella sopra o accanto,
+// fuori dalla riga del segnaposto). Il segnaposto si prova nel testo come prima: se prendesse 7120001A1 per un
+// simile, i simili non sarebbero vuoti.
 func TestIlSegnapostoDelSimileNonDaNiente(t *testing.T) {
 	m := motoreACME712(t)
 	mRev := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
@@ -550,11 +600,11 @@ func TestIlSegnapostoDelSimileNonDaNiente(t *testing.T) {
 	for i, forma := range forme {
 		for _, s := range segnaposti {
 			testo := strings.ReplaceAll(forma, "{S}", s)
-			casi = append(casi, caso{"forma " + strconv.Itoa(i+1) + " «" + testo + "»", testoFinto(testo, "", worker.MetadatiPDF{})})
+			casi = append(casi, caso{"forma " + strconv.Itoa(i+1) + " «" + testo + "»", partN(testoFinto(testo, "", worker.MetadatiPDF{}))})
 		}
 	}
 	// il segnaposto spezzato su due righe dentro la cella della tabella
-	casi = append(casi, caso{"spezzato", testoFinto("PARTICOLARE SIMILE / SIMILAR PART   PART. N°\nInserire codice\nparticolare simile   7120001A1", "", worker.MetadatiPDF{})})
+	casi = append(casi, caso{"spezzato", partN(testoFinto("PARTICOLARE SIMILE / SIMILAR PART   PART. N°\nInserire codice\nparticolare simile   7120001A1", "", worker.MetadatiPDF{}))})
 	// dentro il valore di un campo del cartiglio, prima o dopo il codice
 	for _, valore := range []string{"Inserire codice particolare simile   7120001A1", "7120001A1   INSERIRE CODICE PARTICOLARE SIMILE"} {
 		tp := testoFinto("SCALA 1:1", "", worker.MetadatiPDF{})
@@ -604,7 +654,7 @@ func TestIlSegnapostoDelSimileNonDaNiente(t *testing.T) {
 	}
 
 	// il cartiglio a tabella dei disegni veri, con il nome del prodotto: il suo disegno ne e' l'ancora piatta (A-P1)
-	tabella := fattiPDF(t, testoFinto("PARTICOLARE SIMILE / SIMILAR PART   PART. N°\nInserire codice particolare simile   7120001A1", "", worker.MetadatiPDF{}))
+	tabella := fattiPDF(t, partN(testoFinto("PARTICOLARE SIMILE / SIMILAR PART   PART. N°\nInserire codice particolare simile   7120001A1", "", worker.MetadatiPDF{})))
 	sc := nuovaScena(t)
 	sc.s.Motore = m
 	sc.prodotto("7120001")
@@ -643,6 +693,9 @@ func TestIlSegnapostoDelSimileNonDaNiente(t *testing.T) {
 // segnaposti del simile sulla riga prima (le parole qualsiasi arrivano fino all'etichetta vera); senza almeno una
 // parola, le tre della sola parola INSERT; senza la gemella, le cinque bilingui; con la gemella solo sulla stessa
 // riga, la bilingue spezzata dopo la barra.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): come TestIlSegnapostoDelSimileNonDaNiente, ogni testo porta il
+// campo del codice 7120001A1 (partN), perche' nella zona del cartiglio vota soltanto quello.
 func TestIlSegnapostoDiUnAltroCampoNonSpegneIlSimile(t *testing.T) {
 	m := motoreACME712(t)
 	mRev := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
@@ -677,7 +730,7 @@ func TestIlSegnapostoDiUnAltroCampoNonSpegneIlSimile(t *testing.T) {
 		{"lunga spezzata", "PARTICOLARE SIMILE / SIMILAR PART   PART. N°\nInserire qui il numero\ndi codice del particolare simile   7120001A1", ""},
 		{"lunga in inglese", "SIMILAR PART   PART No.\nInsert here the code of the similar part   7120001A1", ""},
 	} {
-		casi = append(casi, caso{x.nome, testoFinto(x.testo, "", worker.MetadatiPDF{}), x.simile})
+		casi = append(casi, caso{x.nome, partN(testoFinto(x.testo, "", worker.MetadatiPDF{})), x.simile})
 	}
 	// dentro il valore di un campo del cartiglio
 	for _, x := range []struct{ valore, simile string }{
@@ -831,6 +884,12 @@ func TestIlTestoDelCorpoNonPreseleziona(t *testing.T) {
 // frase del suo stato; uno letto senza codici dice «il testo del PDF non porta codici del cliente». Quando il
 // cartiglio porta un codice di famiglia, e' un'evidenza indipendente: il candidato coerente con il cartiglio viene
 // primo, la discordanza con il nome non si preseleziona, e nessuna frase dice che il PDF non ha evidenze.
+//
+// Riscritta per lo Smistamento di nuovo (giro 4, fase 4.6): prima fissava che il testo «DISEGNO N. 7120010» nella
+// zona del cartiglio, senza il campo, fosse il codice di famiglia del cartiglio (un'evidenza dal contenuto contro il
+// nome); adesso nella zona del cartiglio vota soltanto il campo del codice, e il cartiglio con il codice di famiglia
+// porta il campo «DISEGNO N.» (disegnoN); lo stesso testo senza il campo e' un PDF letto senza codici, e lo dice (un
+// caso in piu').
 func TestSenzaEvidenzeIlPdfSiComportaComeUnPdfSenzaTesto(t *testing.T) {
 	muto := testoFinto("", "", worker.MetadatiPDF{})
 	muto.OCR = worker.OCRPDF{Stato: worker.OCRSpento}
@@ -850,6 +909,7 @@ func TestSenzaEvidenzeIlPdfSiComportaComeUnPdfSenzaTesto(t *testing.T) {
 		{"non letto", json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`), "da rianalizzare: il suo codice viene solo dal nome"},
 		{"illeggibile", json.RawMessage(`{"errore_pdf": "broken"}`), "il PDF non si apre: il suo codice viene solo dal nome"},
 		{"letto senza codici", fattiPDF(t, testoFinto("SCALA 1:2", "", worker.MetadatiPDF{})), "il testo del PDF non porta codici del cliente: il suo codice viene solo dal nome"},
+		{"il codice senza il campo", fattiPDF(t, testoFinto("DISEGNO N. 7120010", "", worker.MetadatiPDF{})), "il testo del PDF non porta codici del cliente: il suo codice viene solo dal nome"},
 	} {
 		sc := costruisci(x.fatti)
 		if n := len(sc.f("7120012.pdf").EvidenzePDF); n != 0 {
@@ -864,7 +924,7 @@ func TestSenzaEvidenzeIlPdfSiComportaComeUnPdfSenzaTesto(t *testing.T) {
 		}
 	}
 	// con un codice di famiglia nel cartiglio, diverso dal nome
-	sc := costruisci(fattiPDF(t, testoFinto("DISEGNO N. 7120010", "", worker.MetadatiPDF{})))
+	sc := costruisci(fattiPDF(t, disegnoN("7120010")))
 	d := sc.dest(sc.calcola(), "7120012.pdf")
 	if len(d.Candidati) != 2 || d.Candidati[0].Codice != "7120010" || d.Candidati[0].Regola != "dest_nodo_diretto_contenuto" ||
 		d.Candidati[1].Codice != "7120012" || d.Preselezionabile || !contiene(d.Discordanze, DiscFontiDiverse) {

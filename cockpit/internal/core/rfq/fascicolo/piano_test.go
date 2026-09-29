@@ -529,13 +529,17 @@ func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
 // 7120010?»), con il componente accanto; lo stesso per «vista.pdf», che 7120010 lo ha solo nel titolo. Le
 // controprove: «7120010.pdf», con lo stesso cartiglio e il nome che lo dice, e' pronto; il codice deciso da una
 // persona e' pronto. La controprova a mano: senza codiceSoloDalTesto la tavola torna pronta e la prova fallisce.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il cartiglio era il solo testo «DISEGNO N. 7120010»;
+// adesso nella zona del cartiglio vota soltanto il campo del codice, e il cartiglio lo porta (disegnoN).
 func TestIlCodiceLettoNelTestoNonFaPronto(t *testing.T) {
 	p := nuovoPiano()
 	m := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
 		Regex: `(?P<codice>712\d{4})`, Descrizione: "ACME 712", Esempio: "7120001"}}})
 	p.in.Motore = m
 	c := p.componente("7120010", db.TipoComponenteSciolto)
-	cartiglio := fattiPDF(t, testoFinto("DISEGNO N. 7120010\nSCALA 1:2", "", worker.MetadatiPDF{}))
+	// giro 4, fase 4.6: il cartiglio porta il campo «DISEGNO N.» (nella zona del cartiglio vota solo il campo del codice)
+	cartiglio := fattiPDF(t, disegnoN("7120010", "SCALA 1:2"))
 	titolo := fattiPDF(t, testoFinto("SCALA 1:2", "", worker.MetadatiPDF{Titolo: "7120010"}))
 	scrivi := func(nome string, fatti json.RawMessage) *FileAperto {
 		v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaAnalisi, NomeFile: nome, Direzione: "entrata", Motore: m,

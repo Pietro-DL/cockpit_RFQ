@@ -25,9 +25,11 @@ var (
 )
 
 // testoPDF e' il testo di un disegno finto: un frammento nativo in basso a destra della pagina 1 e uno nel resto
-// della pagina.
+// della pagina, come lo scrive il worker di oggi (worker.VersioneTestoPDF). Fino alla fase 4.6 la sottoversione era
+// la 1 e non contava per la lettura; dalla 4.6r il cartiglio di un testo della 1 non e' piu' contenuto (e' da
+// rileggere), e le prove che vogliono il testo di prima lo dicono (testoDiPrimaPDF).
 func testoPDF(bassoDestra, pagina string, meta worker.MetadatiPDF) worker.TestoPDF {
-	t := worker.TestoPDF{Versione: 1, Pagine: 1, PagineLette: 1, Metadati: meta, FormatoPagina1: []float64{842, 595},
+	t := worker.TestoPDF{Versione: worker.VersioneTestoPDF, Pagine: 1, PagineLette: 1, Metadati: meta, FormatoPagina1: []float64{842, 595},
 		OCR:    worker.OCRPDF{Stato: worker.OCRNonNecessario},
 		Limiti: worker.LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384}}
 	if bassoDestra != "" {
@@ -51,6 +53,15 @@ func conOCR(t worker.TestoPDF, pagina int, zona, testo string, confidenza float6
 		Testo: testo, Riquadro: []float64{600, 500, 700, 512}, Confidenza: &c})
 	t.OCR = worker.OCRPDF{Stato: worker.OCREseguito, Motore: "finto",
 		Tentativi: []worker.TentativoOCR{{Pagina: pagina, Zona: zona, Esito: "letto", Caratteri: len(testo)}}}
+	return t
+}
+
+// conCampoCodice aggiunge al testo un campo del cartiglio come lo riporta il worker quando ne riconosce l'etichetta
+// in basso a destra della pagina 1 («DISEGNO N.» -> numero_disegno, «PART. N°» -> codice, …): dalla fase 4.6, nella
+// zona del cartiglio il codice del disegno lo dice soltanto il campo del codice.
+func conCampoCodice(t worker.TestoPDF, etichetta, letta, valore string) worker.TestoPDF {
+	t.Cartiglio = append(append([]worker.CampoCartiglio(nil), t.Cartiglio...), worker.CampoCartiglio{Etichetta: etichetta, Letta: letta,
+		Valore: valore, Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Riquadro: []float64{620, 530, 655, 543}})
 	return t
 }
 
@@ -82,11 +93,16 @@ func evidenzaDi(d Dimensione, regola string) (Evidenza, bool) {
 }
 
 // TestEvidenzeTestoPDF (F9, A5.13.8, P33): i codici del testo, fonte per fonte, con le regole del cliente. Nel
-// testo nativo in basso a destra quelli di famiglia e i generici (le ancore piatte A-P1 li vogliono tutti e
-// due), con il riquadro e, quando stanno in un campo del cartiglio, l'etichetta e la rev del cartiglio; nei
+// testo nativo in basso a destra quelli del campo del codice del cartiglio, di famiglia e generici (le ancore
+// piatte A-P1 li vogliono tutti e due), con il riquadro del campo, l'etichetta e la rev del cartiglio; nei
 // metadati il titolo che E' un codice e i codici di famiglia citati; nel resto delle pagine gli altri, senza
 // ripetere quelli gia' visti; l'OCR in una lista sua. Il riferimento della richiesta non e' un codice; senza
 // famiglie resta l'estrattore generico; Chiavi li mette in fila per l'indice, senza l'OCR.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava che ogni codice della zona in basso a destra era
+// una lettura del cartiglio, anche fuori dai campi (il numero d'ordine generico «ORDINE 4500012345», con il
+// riquadro del suo frammento) e quindi una chiave; adesso nella zona del cartiglio contano solo i codici del campo
+// del codice (codice o numero di disegno), e il numero d'ordine della zona non e' ne' una lettura ne' una chiave.
 func TestEvidenzeTestoPDF(t *testing.T) {
 	tp := testoPDF("DISEGNO N. 7120010\nSCALA 1:2 REV. B\nORDINE 4500012345",
 		"NOTA 7120011 VEDERE CAPITOLATO\nMATERIALE S235JR 7120012",
@@ -111,16 +127,20 @@ func TestEvidenzeTestoPDF(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := vedi(e.Cartiglio), []atteso{{"7120010", "famiglia", ZonaBassoDestra, FonteTestoCartiglio},
-		{"4500012345", "generico", ZonaBassoDestra, FonteTestoCartiglio}}; !reflect.DeepEqual(got, want) {
-		t.Errorf("in basso a destra: %+v, attesi %+v", got, want)
+	if got, want := vedi(e.Cartiglio), []atteso{{"7120010", "famiglia", ZonaBassoDestra, FonteTestoCartiglio}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("in basso a destra: %+v, attesi %+v", got, want)
 	}
 	if c := e.Cartiglio[0]; c.Pagina != 1 || c.Dove != DoveBassoDestra || c.Estratto != "DISEGNO N. 7120010" || c.Famiglia != "ACME 712" ||
 		c.Etichetta != worker.CampoNumeroDisegno || !reflect.DeepEqual(c.Riquadro, campoDis) || c.RevCartiglio != "B" || c.Indizio() {
 		t.Errorf("il codice del cartiglio dice dove sta, in che campo, con che rev: %+v", c)
 	}
-	if c := e.Cartiglio[1]; c.Etichetta != "" || !reflect.DeepEqual(c.Riquadro, riquadroBD) {
-		t.Errorf("un codice fuori dai campi ha il riquadro del suo frammento: %+v", c)
+	// il numero d'ordine scritto nella zona del cartiglio, fuori dal campo del codice: niente lettura, niente chiave
+	for _, l := range [][]LetturaTesto{e.Cartiglio, e.Metadati, e.Altrove, e.OCR} {
+		for _, c := range l {
+			if c.Codice == "4500012345" {
+				t.Errorf("un codice della zona fuori dal campo del codice e' una lettura: %+v", c)
+			}
+		}
 	}
 	if got, want := vedi(e.Metadati), []atteso{{"7120010", "famiglia", ZonaTitolo, FonteMetadatiPDF},
 		{"7120012", "famiglia", ZonaSoggetto, FonteMetadatiPDF}}; !reflect.DeepEqual(got, want) {
@@ -145,7 +165,7 @@ func TestEvidenzeTestoPDF(t *testing.T) {
 	if c := e.OCR[0]; !c.Indizio() || c.Pagina != 2 || c.Confidenza == nil || *c.Confidenza != 63 || !strings.Contains(c.Dove, "OCR") {
 		t.Errorf("una lettura dell'OCR e' un indizio, con la confidenza e la fonte detta: %+v", c)
 	}
-	if k := e.Chiavi(); !reflect.DeepEqual(k, []string{"7120010", "4500012345", "7120012", "7120011", "S235JR"}) {
+	if k := e.Chiavi(); !reflect.DeepEqual(k, []string{"7120010", "7120012", "7120011", "S235JR"}) {
 		t.Errorf("chiavi di ricerca, nell'ordine delle fonti, senza ripetizioni e senza l'OCR: %v", k)
 	}
 
@@ -183,9 +203,16 @@ func TestEvidenzeTestoPDF(t *testing.T) {
 // LettureDelPDF normalizza i fatti in letture con la fonte (testo nativo del cartiglio, testo altrove, metadati,
 // OCR), il codice, la rev del cartiglio, la pagina, il riquadro e la dipendenza dal nome del file (Domanda 7 =
 // B), e dice lo stato del testo con la sua frase e l'esito dell'OCR.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava che il nome del file stampato in basso a destra
+// («C:\DISEGNI\7120011.pdf», fuori da ogni campo) fosse una lettura del cartiglio che dipende dal nome; adesso nella
+// zona del cartiglio e' una lettura soltanto il campo del codice (qui «DISEGNO N.» 7120010, come lo riporta il
+// worker), e il nome stampato fuori dal campo non e' una lettura. La dipendenza dal nome di un campo del codice che
+// ripete il nome del file la fissa TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore.
 func TestLettureDelPDF(t *testing.T) {
 	acme := motoreACME(t)
-	tp := testoPDF("DISEGNO N. 7120010\nC:\\DISEGNI\\7120011.pdf", "NOTA 7120012", worker.MetadatiPDF{Titolo: "7120011"})
+	tp := conCampoCodice(testoPDF("DISEGNO N. 7120010\nC:\\DISEGNI\\7120011.pdf", "NOTA 7120012", worker.MetadatiPDF{Titolo: "7120011"}),
+		worker.CampoNumeroDisegno, "DISEGNO N.", "7120010")
 	tp.Troncato = true
 	tp = conOCR(tp, 1, worker.ZonaBassoDestra, "DISEGNO N. 7120011", 58)
 	l := LettureDelPDF(acme, fattiDisegno(t, tp), "7120011.pdf")
@@ -202,13 +229,18 @@ func TestLettureDelPDF(t *testing.T) {
 	}
 	want := []atteso{
 		{FonteTestoCartiglio, "7120010", false}, // diverso dal nome: non dipende, e' la discordanza
-		{FonteTestoCartiglio, "7120011", true},  // in basso a destra solo dentro il nome del file stampato
-		{FonteMetadatiPDF, "7120011", true},     // il titolo uguale al nome dipende dal nome
+		// il nome del file stampato in basso a destra, fuori dal campo del codice: nessuna lettura (fase 4.6)
+		{FonteMetadatiPDF, "7120011", true}, // il titolo uguale al nome dipende dal nome
 		{FonteTestoPagina, "7120012", false},
 		{FonteOCR, "7120011", false}, // l'OCR l'ha letto scritto per conto suo: un indizio indipendente
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("letture:\n %+v\natteso\n %+v", got, want)
+	}
+	for _, x := range l.Letture {
+		if x.Fonte == FonteTestoCartiglio && x.Codice == "7120011" {
+			t.Errorf("il nome stampato fuori dal campo del codice e' una lettura del cartiglio: %+v", x)
+		}
 	}
 	if k := l.Chiavi(); !reflect.DeepEqual(k, []string{"7120010", "7120011", "7120012"}) {
 		t.Errorf("chiavi: %v", k)
@@ -259,14 +291,24 @@ func TestLettureDelPDF(t *testing.T) {
 	}
 }
 
-// TestIlCartiglioConfermaIlNome (F9, A5.14.3; Domanda 7 = B): il codice di famiglia in basso a destra della
-// pagina 1 uguale al codice del nome e' una conferma INDIPENDENTE: due fonti concordi, e vince la lettura del
-// contenuto (pdf_testo_famiglia 85, fonte cartiglio). La rev resta quella del nome (la rev del cartiglio non ha
-// una riga in S1: Domanda 3 = A). La valutazione resta piccola.
+// TestIlCartiglioConfermaIlNome (F9, A5.14.3; Domanda 7 = B): il codice di famiglia del campo del codice in basso a
+// destra della pagina 1 uguale al codice del nome e' una conferma INDIPENDENTE: due fonti concordi, e vince la
+// lettura del contenuto (pdf_testo_famiglia 85, fonte cartiglio). La rev resta quella del nome (la rev del cartiglio
+// non ha una riga in S1: Domanda 3 = A). La valutazione resta piccola.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il testo «DISEGNO N. 7120010» bastava, senza il campo;
+// adesso nella zona del cartiglio vota soltanto il campo del codice, e il testo porta il campo «DISEGNO N.» come lo
+// riporta il worker (lo riportava gia' quello della sottoversione 1). Senza il campo il codice resta quello del
+// nome: la controprova e' qui sotto.
 func TestIlCartiglioConfermaIlNome(t *testing.T) {
 	tp := testoPDF("TOLLERANZE GENERALI\nDISEGNO N. 7120010\nSCALA 1:2 REV. B", "NOTA 12345", worker.MetadatiPDF{})
+	senzaCampo := tp
 	tp.Cartiglio = []worker.CampoCartiglio{{Etichetta: worker.CampoRevisione, Letta: "REV.", Valore: "B", Pagina: 1,
 		Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo}}
+	tp = conCampoCodice(tp, worker.CampoNumeroDisegno, "DISEGNO N.", "7120010")
+	if v := valutaDisegno(t, "7120010_1.pdf", fattiDisegno(t, senzaCampo)); v.HaEvidenza("pdf_testo_famiglia") {
+		t.Errorf("senza il campo del codice il testo della zona non vota: %+v", v.Codice.Evidenze)
+	}
 	v := valutaDisegno(t, "7120010_1.pdf", fattiDisegno(t, tp))
 	controllaDim(t, "cartiglio concorde", "codice", v.Codice, dimAttesa{"7120010", 85, "pdf_testo_famiglia", StatoConcorde})
 	controllaDim(t, "cartiglio concorde", "rev", v.Rev, dimAttesa{"1", 40, "rev_suffisso_nome", StatoUnica})
@@ -284,10 +326,19 @@ func TestIlCartiglioConfermaIlNome(t *testing.T) {
 }
 
 // TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore (F9; Domanda 7 = B): il titolo dei metadati uguale al
-// nome e un codice che in basso a destra sta solo dentro il nome del file ripetuto («7120010_1.pdf» stampato
-// sotto il disegno) DIPENDONO dal nome: restano fra le evidenze, non fanno una seconda fonte e non valgono piu'
-// del nome. Il codice resta quello del nome, con la sua regola e il suo score.
+// nome e un campo del codice del cartiglio che dice soltanto il nome del file («DISEGNO N. 7120010_1.pdf») DIPENDONO
+// dal nome: restano fra le evidenze, non fanno una seconda fonte e non valgono piu' del nome. Il codice resta quello
+// del nome, con la sua regola e il suo score.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il nome del file stampato in basso a destra fuori da ogni
+// campo («C:\DISEGNI\7120010_1.pdf» sotto il disegno) era una lettura del cartiglio che dipendeva dal nome; adesso
+// nella zona del cartiglio vota soltanto il campo del codice, e il nome stampato fuori dal campo non e' una lettura
+// (i casi «stampato» qui sotto). La regola 7 = B resta per il campo del codice che ripete il nome, con o senza
+// estensione, e per il flusso (nelCartiglio), con il nome di QUESTO allegato (P15).
 func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
+	campoNome := func(testo, valore string) worker.TestoPDF {
+		return conCampoCodice(testoPDF(testo, "", worker.MetadatiPDF{}), worker.CampoNumeroDisegno, "DISEGNO N.", valore)
+	}
 	casi := []struct {
 		nome, file  string
 		tp          worker.TestoPDF
@@ -301,11 +352,11 @@ func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
 		{"titolo uguale al nome di famiglia", "7120010.pdf",
 			testoPDF("", "TOLLERANZE GENERALI", worker.MetadatiPDF{Titolo: "7120010", Soggetto: "7120010"}),
 			dimAttesa{"7120010", 70, "nome_codice_famiglia", StatoUnica}, "pdf_metadati", 40, 0},
-		{"il nome del file stampato in basso a destra", "7120010_1.pdf",
-			testoPDF("SCALA 1:2\nC:\\DISEGNI\\7120010_1.pdf", "", worker.MetadatiPDF{}),
+		{"il nome del file nel campo del codice", "7120010_1.pdf",
+			campoNome("SCALA 1:2\nDISEGNO N. 7120010_1.pdf", "7120010_1.pdf"),
 			dimAttesa{"7120010", 70, "nome_codice_famiglia", StatoUnica}, "pdf_testo_famiglia", 70, 85},
-		{"il nome senza estensione stampato in basso a destra", "7120010_1.pdf",
-			testoPDF("SCALA 1:2\n7120010_1", "", worker.MetadatiPDF{}),
+		{"il nome senza estensione nel campo del codice", "7120010_1.pdf",
+			campoNome("SCALA 1:2\nDISEGNO N. 7120010_1", "7120010_1"),
 			dimAttesa{"7120010", 70, "nome_codice_famiglia", StatoUnica}, "pdf_testo_famiglia", 70, 85},
 	}
 	for _, c := range casi {
@@ -327,9 +378,18 @@ func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
 		}
 	}
 
-	// il rovescio: lo stesso nome stampato E il codice scritto nel cartiglio. Il cartiglio conferma: due fonti
-	v := valutaDisegno(t, "7120010_1.pdf", fattiDisegno(t, testoPDF("DISEGNO N. 7120010\nC:\\DISEGNI\\7120010_1.pdf", "",
-		worker.MetadatiPDF{})))
+	// il nome stampato fuori dal campo del codice, con o senza estensione: nessuna lettura del testo (fase 4.6), e il
+	// codice resta quello del nome
+	for _, stampato := range []string{"SCALA 1:2\nC:\\DISEGNI\\7120010_1.pdf", "SCALA 1:2\n7120010_1"} {
+		v := valutaDisegno(t, "7120010_1.pdf", fattiDisegno(t, testoPDF(stampato, "", worker.MetadatiPDF{})))
+		controllaDim(t, "stampato «"+stampato+"»", "codice", v.Codice, dimAttesa{"7120010", 70, "nome_codice_famiglia", StatoUnica})
+		if v.HaEvidenza("pdf_testo_famiglia") {
+			t.Errorf("il nome stampato fuori dal campo del codice e' una lettura: %+v", v.Codice.Evidenze)
+		}
+	}
+
+	// il rovescio: lo stesso nome stampato E il codice scritto nel campo del cartiglio. Il cartiglio conferma: due fonti
+	v := valutaDisegno(t, "7120010_1.pdf", fattiDisegno(t, campoNome("DISEGNO N. 7120010\nC:\\DISEGNI\\7120010_1.pdf", "7120010")))
 	controllaDim(t, "nome stampato e cartiglio", "codice", v.Codice, dimAttesa{"7120010", 85, "pdf_testo_famiglia", StatoConcorde})
 
 	// la stessa regola per chi usa il cartiglio fuori dalla valutazione (il flusso ancorato, A-P1, P32), dalle
@@ -337,7 +397,8 @@ func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
 	// prendeva il fatto del worker (worker.TestoPDF) e non c'e' piu': F8 non legge il fatto, legge LettureDelPDF.
 	acme := motoreACME(t)
 	stampato := fattiDisegno(t, testoPDF("SCALA 1:2\nC:\\DISEGNI\\7120010_1.pdf", "", worker.MetadatiPDF{}))
-	scritto := fattiDisegno(t, testoPDF("DISEGNO N. 7120010\nC:\\DISEGNI\\7120010_1.pdf", "", worker.MetadatiPDF{}))
+	nelCampo := fattiDisegno(t, campoNome("SCALA 1:2\nDISEGNO N. 7120010_1.pdf", "7120010_1.pdf"))
+	scritto := fattiDisegno(t, campoNome("DISEGNO N. 7120010\nC:\\DISEGNI\\7120010_1.pdf", "7120010"))
 	nelCartiglio := func(fatti json.RawMessage, nomeFile string) (letto, dipende bool) {
 		t.Helper()
 		for _, x := range LettureDelPDF(acme, fatti, nomeFile).Letture {
@@ -347,15 +408,21 @@ func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
 		}
 		return false, false
 	}
-	if l, d := nelCartiglio(stampato, "7120010_1.pdf"); !l || !d {
-		t.Errorf("il codice che sta solo nel nome stampato e' il nome del file: letto %v, dipende %v", l, d)
+	if l, d := nelCartiglio(nelCampo, "7120010_1.pdf"); !l || !d {
+		t.Errorf("il campo del codice che dice solo il nome del file e' il nome del file: letto %v, dipende %v", l, d)
+	}
+	if l, _ := nelCartiglio(stampato, "7120010_1.pdf"); l {
+		t.Errorf("il nome stampato fuori dal campo del codice e' una lettura del cartiglio")
 	}
 	if l, d := nelCartiglio(scritto, "7120010_1.pdf"); !l || d {
 		t.Errorf("il codice scritto anche nel cartiglio non e' solo il nome: letto %v, dipende %v", l, d)
 	}
 	for _, altro := range []string{"tavola.pdf", "7120011.pdf"} {
-		if l, d := nelCartiglio(stampato, altro); !l || d {
-			t.Errorf("%s: il nome stampato di un ALTRO file e' contenuto, non il nome di questo (P15): letto %v, dipende %v", altro, l, d)
+		if l, d := nelCartiglio(nelCampo, altro); !l || d {
+			t.Errorf("%s: il campo con il nome di un ALTRO file e' contenuto, non il nome di questo (P15): letto %v, dipende %v", altro, l, d)
+		}
+		if l, _ := nelCartiglio(stampato, altro); l {
+			t.Errorf("%s: il nome stampato fuori dal campo del codice e' una lettura del cartiglio", altro)
 		}
 	}
 }
@@ -364,8 +431,12 @@ func TestUnaLetturaDelTestoCheRipeteIlNomeNonAlzaLoScore(t *testing.T) {
 // diverso da quello del nome non dipende da niente: la dimensione e' discorde, nessuno la precompila, e la
 // colonna resta la lettura del nome (niente E04 sotto un altro nome, D49): il nome non si corregge. Lo stesso
 // per un titolo diverso.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima bastava il testo «DISEGNO N. 7120011» nella zona; adesso
+// vota il campo del codice, e il testo lo porta come lo riporta il worker.
 func TestIlCartiglioDiversoDalNomeEUnaDiscordanza(t *testing.T) {
-	v := valutaDisegno(t, "7120010.pdf", fattiDisegno(t, testoPDF("DISEGNO N. 7120011\nSCALA 1:1", "", worker.MetadatiPDF{})))
+	v := valutaDisegno(t, "7120010.pdf", fattiDisegno(t, conCampoCodice(testoPDF("DISEGNO N. 7120011\nSCALA 1:1", "", worker.MetadatiPDF{}),
+		worker.CampoNumeroDisegno, "DISEGNO N.", "7120011")))
 	controllaDim(t, "cartiglio diverso", "codice", v.Codice, dimAttesa{"7120011", 85, "pdf_testo_famiglia", StatoDiscorde})
 	if e, _ := evidenzaDi(v.Codice, "pdf_testo_famiglia"); e.DipendeDa != "" {
 		t.Errorf("un codice diverso dal nome non dipende dal nome: %+v", e)

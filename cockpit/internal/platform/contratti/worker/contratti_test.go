@@ -657,6 +657,10 @@ func TestLaStrutturaV3PortaGliScartiInNumeri(t *testing.T) {
 // worker non sa per quale RFQ analizza (A5.13.7, A5.13.8). Frammenti e campi del cartiglio hanno pagina,
 // riquadro e fonte (nativo, ocr); l'OCR dice il suo stato; i metadati non portano l'autore: è il nome di una
 // persona, e i fatti restano archiviati per anni.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava sei voci dei campi del cartiglio; adesso sono sette,
+// con il particolare simile (worker.CampoParticolareSimile: un campo, non un codice), e la sottoversione del testo
+// che lo schema dichiara per difetto e' quella che il Go conosce (VersioneTestoPDF, la 2).
 func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 	s := leggiSchema(t, "testo_pdf")
 	defs, _ := s["$defs"].(map[string]any)
@@ -719,7 +723,11 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 	vuole("stato dell'OCR", enum(def("OCRPDF"), "stato"), OCRNonNecessario, OCRSpento, OCRNonDisponibile, OCREseguito,
 		OCRFallito, OCRScaduto, OCRIlleggibile)
 	vuole("etichette del cartiglio", enum(def("CampoCartiglio"), "etichetta"), CampoNumeroDisegno, CampoCodice,
-		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale)
+		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale, CampoParticolareSimile)
+	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 2 {
+		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d (la fase 4.6 porta la 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF)
+	}
 	// lo stesso, dalla parte del Go: i campi sono quelli e non altri
 	for nome, campi := range map[string]int{"FrammentoPDF": 6, "CampoCartiglio": 8, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
@@ -732,6 +740,10 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 // (falso) quando manca o quando la versione non e' una che conosce (0): falso non vuol dire «il PDF non ha
 // testo», che e' `estraibile` falso in un testo letto. Un fatto dell'analizzatore 4 scritto da un worker
 // vecchio non ha `testo_pdf`: e' un testo non letto, da rianalizzare (A5.13.8).
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava la sola versione 1 del testo; adesso anche la
+// sottoversione 2, con il campo del particolare simile e l'etichetta bilingue letta intera, e la 1 si legge ancora
+// (la riconosce come vecchia classificazione.TestoPDFDaRileggere, non la decodifica).
 func TestDecodificaTestoPDF(t *testing.T) {
 	dettagli := json.RawMessage(`{
 		"cartiglio": true, "termini_trovati": ["SCALA"],
@@ -783,6 +795,27 @@ func TestDecodificaTestoPDF(t *testing.T) {
 	if tp.Limiti != (LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384, CampiMax: 24,
 		OCRSogliaPagina: 20, OCRSogliaCartiglio: 8, OCRPagineMax: 2, OCRTempoMaxS: 60, OCRDpi: 300}) {
 		t.Errorf("i limiti non sono arrivati con il fatto: %+v", tp.Limiti)
+	}
+
+	// la sottoversione 2 (fase 4.6): il campo del particolare simile e l'etichetta con la gemella inglese
+	v2 := json.RawMessage(`{"testo_pdf": {"versione": 2, "estraibile": true, "pagine": 1, "pagine_lette": 1, "caratteri": 60,
+		"frammenti": [{"pagina": 1, "zona": "basso_destra", "fonte": "nativo", "testo": "PART. N° 7120001A1\nPARTICOLARE SIMILE / SIMILAR PART 7120012"}],
+		"cartiglio": [
+			{"etichetta": "codice", "letta": "PART. N°", "valore": "7120001A1", "pagina": 1, "zona": "basso_destra", "fonte": "nativo"},
+			{"etichetta": "particolare_simile", "letta": "PARTICOLARE SIMILE / SIMILAR PART", "valore": "7120012", "pagina": 1,
+				"zona": "basso_destra", "fonte": "nativo", "riquadro": [650, 440, 690, 452]},
+			{"etichetta": "titolo", "letta": "DENOMINAZIONE / NAME", "valore": "STAFFA ACME", "pagina": 1, "zona": "basso_destra", "fonte": "nativo"}],
+		"ocr": {"stato": "non_necessario"}}}`)
+	tp, ok = DecodificaTestoPDF(v2)
+	if !ok || tp.Versione != VersioneTestoPDF || len(tp.Cartiglio) != 3 {
+		t.Fatalf("il testo della sottoversione 2 non si decodifica: %v %+v", ok, tp)
+	}
+	if c := tp.Cartiglio[1]; c.Etichetta != CampoParticolareSimile || c.Valore != "7120012" || c.Letta != "PARTICOLARE SIMILE / SIMILAR PART" ||
+		len(c.Riquadro) != 4 {
+		t.Errorf("il campo del particolare simile letto male: %+v", c)
+	}
+	if c := tp.Cartiglio[2]; c.Etichetta != CampoTitolo || c.Letta != "DENOMINAZIONE / NAME" || c.Valore != "STAFFA ACME" {
+		t.Errorf("l'etichetta bilingue letta male: %+v", c)
 	}
 
 	// un PDF senza testo: si decodifica (e' una risposta), con estraibile falso e l'OCR che dice perche' no

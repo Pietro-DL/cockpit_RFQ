@@ -30,7 +30,27 @@ import (
 // file, con l'OCR che sulla postazione non c'e'.
 func fattiTesto(t *testing.T, bassoDestra, pagina, titolo string) string {
 	t.Helper()
-	tp := worker.TestoPDF{Versione: 1, Pagine: 1, PagineLette: 1, FormatoPagina1: []float64{842, 595}, Metadati: worker.MetadatiPDF{Titolo: titolo},
+	return fattiTestoCampi(t, bassoDestra, pagina, titolo)
+}
+
+// fattiCartiglio sono i fatti di un disegno con il cartiglio «DISEGNO N. <codice>» in basso a destra (e il resto
+// del testo della zona), con il campo del codice come lo riporta il worker: dalla fase 4.6 nella zona del cartiglio
+// il codice del disegno lo dice soltanto il campo del codice.
+func fattiCartiglio(t *testing.T, codice, resto string) string {
+	t.Helper()
+	testo := "DISEGNO N. " + codice
+	if resto != "" {
+		testo += "\n" + resto
+	}
+	return fattiTestoCampi(t, testo, "", "", worker.CampoCartiglio{Etichetta: worker.CampoNumeroDisegno, Letta: "DISEGNO N.",
+		Valore: codice, Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoNativo, Riquadro: []float64{620, 530, 655, 543}})
+}
+
+// fattiTestoCampi e' fattiTesto con i campi del cartiglio dati. La sottoversione del testo e' quella di oggi
+// (worker.VersioneTestoPDF): sono i fatti del worker aggiornato, che «Rianalizza» non riaccoda.
+func fattiTestoCampi(t *testing.T, bassoDestra, pagina, titolo string, campi ...worker.CampoCartiglio) string {
+	t.Helper()
+	tp := worker.TestoPDF{Versione: worker.VersioneTestoPDF, Cartiglio: campi, Pagine: 1, PagineLette: 1, FormatoPagina1: []float64{842, 595}, Metadati: worker.MetadatiPDF{Titolo: titolo},
 		OCR:    worker.OCRPDF{Stato: worker.OCRNonNecessario},
 		Limiti: worker.LimitiTestoPDF{PagineMax: 11, FrammentiMax: 200, FrammentoMax: 512, CaratteriMax: 16384}}
 	for _, f := range []struct{ zona, testo string }{{worker.ZonaBassoDestra, bassoDestra}, {worker.ZonaPagina, pagina}} {
@@ -105,18 +125,21 @@ func codiciEvidenze(ev []fascicolo.EvidenzaContenutoPDF) string {
 // di prima e' «non letto, da rianalizzare», uno con i fatti correnti senza il testo lo stesso, uno mai analizzato
 // «da analizzare»: nessuno ha evidenze. Tolti i fatti correnti, il disegno non ancora piu', la firma dell'indice
 // cambia e il giro dopo lo dice.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima i cartigli erano il solo testo «DISEGNO N. …»; adesso
+// nella zona del cartiglio vota soltanto il campo del codice, e i fatti lo portano (fattiCartiglio).
 func TestLeEvidenzeDelPdfVengonoDaiFattiCorrenti(t *testing.T) {
 	b := nuovoBanco(t)
 	b.acme()
 	b.prodottoConfermato("7120002")
 	msg := b.mail()
-	disegno := b.disegnoConFatti(msg, "7120002.pdf", fattiTesto(t, "DISEGNO N. 7120002\nSCALA 1:1", "", ""))
+	disegno := b.disegnoConFatti(msg, "7120002.pdf", fattiCartiglio(t, "7120002", "SCALA 1:1"))
 	shaDisegno := uno[string](b, `SELECT sha256 FROM allegato WHERE allegato_id = $1`, disegno)
 	b.esegui(`INSERT INTO analisi_fatti (sha256, versione_analizzatore, hash_configurazione, fatti) VALUES ($1, 2, $2, $3)`,
-		shaDisegno, hashCfg, fattiTesto(t, "DISEGNO N. 7120099", "", ""))
+		shaDisegno, hashCfg, fattiCartiglio(t, "7120099", ""))
 	vecchio := b.disegnoConFatti(msg, "7120003.pdf", "")
 	b.esegui(`INSERT INTO analisi_fatti (sha256, versione_analizzatore, hash_configurazione, fatti)
-		SELECT sha256, 2, $2, $3 FROM allegato WHERE allegato_id = $1`, vecchio, hashCfg, fattiTesto(t, "DISEGNO N. 7120003", "", ""))
+		SELECT sha256, 2, $2, $3 FROM allegato WHERE allegato_id = $1`, vecchio, hashCfg, fattiCartiglio(t, "7120003", ""))
 	senzaTesto := b.disegnoConFatti(msg, "7120004.pdf", `{"cartiglio": true, "termini_trovati": ["SCALA"]}`)
 	mai := b.disegnoConFatti(msg, "7120005.pdf", "")
 	b.esegui(`UPDATE allegato SET stato = 'in_staging' WHERE allegato_id = $1`, mai)
@@ -258,11 +281,14 @@ func TestRianalizzaPrimaIlDisegnoDelProdotto(t *testing.T) {
 //   - il gate guarda l'autorita' e non la guida (GateStrutturale a zero, l'avviso dell'assieme con il figlio in
 //     guida) e, fino a F11, non si ferma sui file tecnici senza destinazione (A5.4.8: la condizione L1 entra con
 //     la decisione): passa, e la V1 si congela.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il cartiglio della tavola era il solo testo «DISEGNO N.
+// 7120001»; adesso nella zona del cartiglio vota soltanto il campo del codice, e i fatti lo portano (fattiCartiglio).
 func TestIlGateIntegratoConIlTestoDeiPdf(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaGate(true)
 	msg := b.mail()
-	tavola := b.disegnoConFatti(msg, "tavola assieme.pdf", fattiTesto(t, "DISEGNO N. 7120001\nSCALA 1:5", "", ""))
+	tavola := b.disegnoConFatti(msg, "tavola assieme.pdf", fattiCartiglio(t, "7120001", "SCALA 1:5"))
 	muto := b.disegnoConFatti(msg, "7120010.pdf", fattiTesto(t, "", "", ""))
 	b.n++
 	dxf := uno[uuid.UUID](b, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine, bytes, sha256, ricevuto_il, stato)

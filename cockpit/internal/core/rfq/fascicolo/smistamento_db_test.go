@@ -336,6 +336,9 @@ func TestLaGetSegnalaLeProposteDaAggiornareSenzaScrivere(t *testing.T) {
 // fatti correnti, ha 7120002 nel cartiglio (un codice generico: la scena non ha regole del cliente): e' l'ancora
 // piatta del prodotto (A-P1), e il suo candidato verso il prodotto non e' preselezionato. «7120002.pdf», senza il
 // testo (nessun fatto corrente), resta «sospesa», con il motivo dell'ancora piatta.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.6): prima il cartiglio di «vista assieme.pdf» era il solo testo
+// «DISEGNO N. 7120002»; adesso nella zona del cartiglio vota soltanto il campo del codice, e i fatti lo portano.
 func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 	b := nuovoBanco(t)
 	s := b.scenaFlusso()
@@ -344,7 +347,7 @@ func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 	b.prodottoConfermato("7120004")
 	nonAut := b.stepLetto("7120004.stp", strings.Repeat("a4", 32), fattiSTEP{nodi: []string{"#1=7120004", "#2=7120040"}, archi: []string{"#1>#2"}})
 	d7120040 := b.disegnoPdf(s.msg, "7120040.pdf")
-	pdfAncora := b.disegnoConFatti(s.msg, "vista assieme.pdf", fattiTesto(t, "DISEGNO N. 7120002\nSCALA 1:5", "", ""))
+	pdfAncora := b.disegnoConFatti(s.msg, "vista assieme.pdf", fattiCartiglio(t, "7120002", "SCALA 1:5"))
 	decisa := b.disegnoPdf(s.msg, "7120010 vecchio.pdf")
 	b.esegui(`UPDATE documento_proposta SET stato = 'confermata', deciso_da = $2 WHERE allegato_id = $1`, decisa, b.utente)
 	b.rismista()
