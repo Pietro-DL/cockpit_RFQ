@@ -143,7 +143,8 @@ const MaxEvidenze = 8
 // score della sua regola, e `dipende_da` impediva soltanto `concorde`.
 //
 // Le evidenze senza valore restano nell'elenco e non votano. L'elenco torna in ordine di score e di
-// precedenza, e se e' piu' lungo di MaxEvidenze si tengono le piu' forti.
+// precedenza, e se e' piu' lungo di MaxEvidenze si tengono le piu' forti, e comunque le letture del nome del
+// file (taglia).
 func Componi(ev []Evidenza) Dimensione {
 	ord := limitaDipendenti(ev)
 	sort.SliceStable(ord, func(i, j int) bool {
@@ -158,7 +159,7 @@ func Componi(ev []Evidenza) Dimensione {
 		return precedenza(ord[i].Regola) < precedenza(ord[j].Regola)
 	})
 	if len(ord) > MaxEvidenze {
-		ord = ord[:MaxEvidenze]
+		ord = taglia(ord)
 	}
 	if ord == nil {
 		ord = []Evidenza{}
@@ -224,6 +225,37 @@ func limitaDipendenti(ev []Evidenza) []Evidenza {
 	}
 	return out
 }
+
+// taglia tiene le MaxEvidenze letture piu' forti di un elenco gia' ordinato, e comunque quelle del nome del file
+// (giro 4, fase 4.6). Prima il taglio era soltanto per score, e il testo di un PDF d'assieme con piu' di otto
+// letture a 85 (le righe dell'elenco particolari nella zona del cartiglio) toglieva proprio la lettura del nome
+// (45), e con lei il ripiego della colonna sul nome quando le fonti discordano (letturaInColonna): la colonna
+// diventava un figlio. Una lettura del nome prende il posto della piu' debole delle altre; l'ordine resta quello
+// di score e precedenza.
+func taglia(ord []Evidenza) []Evidenza {
+	delNome := 0
+	for _, e := range ord {
+		if dalNome(e) {
+			delNome++
+		}
+	}
+	posti := MaxEvidenze - delNome
+	out := make([]Evidenza, 0, MaxEvidenze)
+	for _, e := range ord {
+		switch {
+		case dalNome(e):
+			out = append(out, e)
+		case posti > 0:
+			out = append(out, e)
+			posti--
+		}
+	}
+	return out
+}
+
+// dalNome: una lettura del nome del file con un valore (il codice o la rev che il nome dice: la fonte «nome_file»
+// delle righe della tabella S1, quella che `dipende_da` nomina).
+func dalNome(e Evidenza) bool { return e.Fonte == "nome_file" && e.Valore != "" }
 
 // LeggiValutazione legge `dettagli.valutazione` di una riga, se c'e' e se e' in una forma che si conosce. Una
 // riga v1 (scritta prima della Domanda 7) ha le stesse chiavi e le evidenze con lo score della tabella: le sue
