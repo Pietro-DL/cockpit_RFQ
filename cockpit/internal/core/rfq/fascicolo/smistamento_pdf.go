@@ -16,7 +16,14 @@ package fascicolo
 //   - i metadati (titolo, soggetto) non sostengono mai una destinazione (A-P2, «solo_metadati»);
 //   - il resto del testo e' una chiave di ricerca (P33);
 //   - l'OCR e' un indizio: nessun candidato, solo la frase (27/09 «ter»: un'evidenza, non un automatismo);
-//   - il «particolare simile» non e' un codice: e' la nota «simile a X» (risposta 4 del 29/09).
+//   - il «particolare simile» non e' un codice: e' la nota «simile a X» (risposta 4 del 29/09); lo stesso per
+//     «SPECULARE DI X», la nota «speculare di X» (fase 4.6);
+//   - nella zona del cartiglio conta solo il campo del codice: le righe dell'elenco particolari di un disegno
+//     d'assieme non sono letture ne' chiavi (fase 4.6, classificazione.EvidenzeTestoPDF);
+//   - il cartiglio di un testo letto con il worker di prima (una sottoversione del testo di prima di quella di
+//     oggi) non e' contenuto: i suoi codici sono chiavi di ricerca, come il resto del testo, con la frase
+//     «testo letto con il worker di prima: da rianalizzare», finche' «Rianalizza» non lo rilegge (fase 4.6r,
+//     EvidenzaContenutoPDF.DaRileggere).
 //
 // Le stesse letture danno l'ancora «piatta» del prodotto (A-P1, A-P2, A-P3: smistamento_ancora.go), e lo
 // stato del testo (letto, senza testo, non letto, illeggibile, da analizzare) con la sua frase: un PDF il cui
@@ -67,6 +74,10 @@ type EvidenzaContenutoPDF struct {
 	DipendeDaNome bool `json:"dipende_da_nome,omitempty"`
 	// Indizio: letta con l'OCR. Non da' un candidato ne' un'ancora; si dice soltanto.
 	Indizio bool `json:"indizio,omitempty"`
+	// DaRileggere: letta nel cartiglio di un testo della sottoversione di prima (classificazione.LetturaTesto.
+	// DaRileggere, fase 4.6r): una chiave di ricerca, mai il codice del file ne' un sostegno, finche' «Rianalizza»
+	// non lo rilegge.
+	DaRileggere bool `json:"da_rileggere,omitempty"`
 }
 
 // RiquadroPDF e' la posizione di un'evidenza nella pagina, in punti, con l'origine in alto a sinistra.
@@ -80,19 +91,24 @@ type RiquadroPDF struct {
 // DalCartiglio dice se l'evidenza e' del cartiglio letto nel testo nativo: la lettura che il flusso tratta
 // come il codice del file. Le altre (il resto del testo, i metadati) sono evidenze piu' deboli; l'OCR, anche
 // della zona del cartiglio, e' un indizio e non conta (decisioni del 27/09 «ter»: un'evidenza, non un
-// automatismo; fino alla calibrazione S2 non ha uno score, e non sostiene ne' preseleziona niente).
+// automatismo; fino alla calibrazione S2 non ha uno score, e non sostiene ne' preseleziona niente). Nemmeno il
+// cartiglio di un testo letto con il worker di prima (DaRileggere, fase 4.6r).
 func (e EvidenzaContenutoPDF) DalCartiglio() bool {
-	return e.Fonte == FontePDFCartiglio && !e.Indizio
+	return e.Fonte == FontePDFCartiglio && !e.Indizio && !e.DaRileggere
 }
 
 // TestoDelPDF e' lo stato del testo di un PDF come lo vede il flusso: lo stato (classificazione.Testo…), la sua
-// frase (classificazione.FraseTestoPDF, "" per un testo letto), l'esito dell'OCR e i codici del particolare
-// simile (la nota «simile a X»). Vuoto per un file che non e' un PDF.
+// frase (classificazione.FraseTestoPDF, "" per un testo letto dal worker di oggi), l'esito dell'OCR, se il testo e'
+// di una sottoversione di prima (DaRileggere, fase 4.6r: la frase e' allora classificazione.FraseTestoDiPrima) e i
+// codici del particolare simile e dello speculare (le note «simile a X» e «speculare di X»). Vuoto per un file che
+// non e' un PDF.
 type TestoDelPDF struct {
-	Stato  string   `json:"stato,omitempty"`
-	Frase  string   `json:"frase,omitempty"`
-	OCR    string   `json:"ocr,omitempty"`
-	Simili []string `json:"simili,omitempty"`
+	Stato       string   `json:"stato,omitempty"`
+	Frase       string   `json:"frase,omitempty"`
+	OCR         string   `json:"ocr,omitempty"`
+	DaRileggere bool     `json:"da_rileggere,omitempty"`
+	Simili      []string `json:"simili,omitempty"`
+	Speculari   []string `json:"speculari,omitempty"`
 }
 
 // Letto dice se il testo del PDF c'e': i fatti correnti lo portano, con del testo nativo.
@@ -102,11 +118,13 @@ func (t TestoDelPDF) Letto() bool { return t.Stato == classificazione.TestoLetto
 // e le evidenze, nell'ordine delle letture (cartiglio, metadati, resto del testo, OCR). Pura: e' la sola
 // strada dalle letture al flusso.
 func evidenzeDalleLetture(l classificazione.LettureTestoPDF) (TestoDelPDF, []EvidenzaContenutoPDF) {
-	t := TestoDelPDF{Stato: l.Stato, Frase: l.Frase, OCR: l.OCR, Simili: append([]string(nil), l.Simili...)}
+	t := TestoDelPDF{Stato: l.Stato, Frase: l.Frase, OCR: l.OCR, DaRileggere: l.DaRileggere, Simili: append([]string(nil), l.Simili...),
+		Speculari: append([]string(nil), l.Speculari...)}
 	var out []EvidenzaContenutoPDF
 	for _, x := range l.Letture {
 		e := EvidenzaContenutoPDF{Fonte: x.Fonte, Codice: strings.ToUpper(strings.TrimSpace(x.Codice)), Rev: x.Rev, Pagina: x.Pagina,
-			Famiglia: x.Famiglia, Origine: OrigineGenerico, Etichetta: x.Etichetta, DipendeDaNome: x.DipendeDaNome, Indizio: x.Indizio()}
+			Famiglia: x.Famiglia, Origine: OrigineGenerico, Etichetta: x.Etichetta, DipendeDaNome: x.DipendeDaNome, Indizio: x.Indizio(),
+			DaRileggere: x.DaRileggere}
 		if x.Origine == OrigineFamiglia {
 			e.Origine = OrigineFamiglia
 		}

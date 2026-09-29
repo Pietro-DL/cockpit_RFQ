@@ -9,9 +9,14 @@ package fascicolo
 //
 // Come si riconoscono: un PDF della RFQ con il contenuto scaricato (sha256), gia' `analizzato`, senza i fatti
 // con la chiave dell'analizzatore corrente, oppure con quei fatti ma senza il testo (un worker non aggiornato
-// che ha risposto a un job della 4: classificazione.StatoDelTestoPDF dice TestoNonLetto). Che cosa vale finche'
-// non e' rianalizzato: «testo non letto» (classificazione.TestoNonLetto, «da rianalizzare»), mai «senza
-// testo»; la proposta resta quella di prima, e chi legge il testo corrente lo sa da TestoCorrenteDelPDF. Come
+// che ha risposto a un job della 4: classificazione.StatoDelTestoPDF dice TestoNonLetto), oppure con il testo di
+// una sottoversione di prima (giro 4, fase 4.6: worker.VersioneTestoPDF; classificazione.TestoPDFDaRileggere):
+// quel testo si legge, ma senza i campi che il worker di prima non vedeva (il campo del codice «PART N°», il
+// particolare simile), e con l'intestazione dell'elenco particolari presa per un campo: per questo, finche' non
+// e' riletto, il suo cartiglio non e' contenuto (fase 4.6r: chiavi di ricerca e indizi, con la frase «testo letto
+// con il worker di prima: da rianalizzare»). Che cosa vale finche' non e' rianalizzato: «testo non letto»
+// (classificazione.TestoNonLetto, «da rianalizzare»), mai «senza testo», o il testo di prima senza contenuto dal
+// cartiglio; la proposta resta quella di prima, e chi legge il testo corrente lo sa da TestoCorrenteDelPDF. Come
 // si accoda: solo con il gesto «Rianalizza» (RianalizzaRfq), pochi alla volta, con la stessa chiave idempotente
 // di ogni analisi; nessuna rianalisi in massa parte da sola (la preparazione della pagina non li accoda). Che cosa succede quando i fatti nuovi
 // arrivano: la strada normale del risultato dell'analisi (workerapi), con le sue regole di oggi. Le proposte
@@ -44,7 +49,8 @@ func pdfGiaAnalizzato(a db.Allegato) bool {
 
 // AccodaPdfDaRileggere accoda l'analisi dei PDF della RFQ che hanno soltanto fatti di un analizzatore
 // precedente (pdfGiaAnalizzato, senza i fatti con la chiave corrente) o fatti correnti senza il testo (worker
-// non aggiornato: coda.RiaccodaAnalisi, che non si ferma ai fatti gia' presenti), al massimo maxAccodati. E'
+// non aggiornato) o con il testo di una sottoversione di prima (fase 4.6: classificazione.TestoPDFDaRileggere;
+// coda.RiaccodaAnalisi, che non si ferma ai fatti gia' presenti), al massimo maxAccodati. E'
 // una meta' del gesto «Rianalizza» (RianalizzaRfq), e solo di quello: una persona l'ha chiesto, quindi riprova
 // anche un'analisi il cui ultimo tentativo e' fallito. Lo stesso contenuto in piu' allegati si accoda una volta: al
 // risultato i fatti vanno a tutte le copie con la proposta aperta. Un contenuto non piu' in staging non si
@@ -75,8 +81,10 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 		f, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{Sha256: a.Sha256.String,
 			VersioneAnalizzatore: int16(an.Versione), HashConfigurazione: hash})
 		switch {
-		case err == nil && classificazione.StatoDelTestoPDF(f.Fatti) != classificazione.TestoNonLetto:
-			continue // letto con l'analizzatore corrente (con il testo, senza, o illeggibile): niente da rianalizzare
+		case err == nil && !classificazione.TestoPDFDaRileggere(f.Fatti):
+			// letto con l'analizzatore corrente e con la sottoversione del testo di oggi (con il testo, senza, o
+			// illeggibile): niente da rianalizzare
+			continue
 		case err != nil && !errors.Is(err, pgx.ErrNoRows):
 			return r, err
 		}

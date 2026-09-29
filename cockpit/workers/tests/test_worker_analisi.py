@@ -330,13 +330,16 @@ def test_pdf_porta_il_testo_per_frammenti(tmp_path):
     """Prova 176. Il cartiglio sta nei frammenti della zona in basso a destra, con il riquadro dentro la zona; la
     nota in alto a sinistra sta in un frammento della zona `pagina`, e una riga senza cifre del resto della
     pagina non viaggia (non serve a interpretare il file). Il fatto e' valido per il contratto, non porta codici
-    ne' il testo intero, e l'OCR non serviva. Il codice in testa resta quello del nome, e `fonti` lo dice."""
+    ne' il testo intero, e l'OCR non serviva. Il codice in testa resta quello del nome, e `fonti` lo dice.
+
+    Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava la versione 1 del testo; adesso la sottoversione
+    del worker di oggi, la 2 (VERSIONE_TESTO_PDF), che il server riconosce (worker.VersioneTestoPDF)."""
     p = pdf_con_cartiglio(tmp_path, "7120010_1.pdf")
     res = analizza_file(p, "7120010_1.pdf")
     assert res["tipo_proposto"] == "disegno_2d", res
     t = res["dettagli"]["testo_pdf"]
     ModelloTestoPDF.model_validate(t)  # la forma e' quella del contratto
-    assert t["versione"] == 1 and t["estraibile"] is True
+    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 2 and t["estraibile"] is True
     assert t["pagine"] == 1 and t["pagine_lette"] == 1 and t["troncato"] is False
     assert t["formato_pagina1"] == [842.0, 595.0]
     bd = frammenti(t, "basso_destra")
@@ -416,6 +419,222 @@ def test_pdf_ruotato_il_cartiglio_resta_in_basso_a_destra(tmp_path):
         assert t["formato_pagina1"] == [842.0, 595.0], rotazione
         dis = campo(t, "numero_disegno")
         assert dis and dis["valore"] == "7120010" and dis["zona"] == "basso_destra", (rotazione, t["cartiglio"])
+
+
+# ---------------------------------------------------------------- il cartiglio della sottoversione 2 (giro 4, fase 4.6)
+#
+# Le etichette bilingui lette intere, «PART N°» e «PART NR» fra quelle del codice, il campo del particolare simile
+# (e il segnaposto del modello che non da' niente), l'intestazione di una tabella che non e' un campo. I disegni sono
+# finti, costruiti qui con pymupdf; i codici sono inventati (ACME, 7120001…).
+
+def pdf_con(tmp_path, nome: str, scritte, larghezza: float = 842, altezza: float = 595) -> str:
+    """Un PDF con le scritte date: (x, y, testo, corpo del carattere), ognuna un oggetto di testo a se', come le
+    scrive un CAD."""
+    doc = pymupdf.open()
+    pag = doc.new_page(width=larghezza, height=altezza)
+    for x, y, testo, corpo in scritte:
+        pag.insert_text((x, y), testo, fontsize=corpo)
+    percorso = tmp_path / nome
+    doc.save(str(percorso))
+    doc.close()
+    return str(percorso)
+
+
+def campi_di(t: dict, etichetta: str | None = None) -> list[tuple[str, str, str]]:
+    """I campi del cartiglio come (etichetta, letta, valore), di una voce sola se data."""
+    return [(c["etichetta"], c["letta"], c["valore"]) for c in t["cartiglio"]
+            if etichetta is None or c["etichetta"] == etichetta]
+
+
+def test_etichetta_bilingue_da_il_valore(tmp_path):
+    """Fase 4.6: un'etichetta seguita dalla barra e dalla sua gemella inglese («DENOMINAZIONE / NAME») e' UNA
+    etichetta, staccata o attaccata alla barra, sulla riga del valore o sopra: il valore e' quello che viene dopo, e
+    non piu' «/ NAME» (il difetto del titolo di un disegno vero). «NAME» da sola non e' un'etichetta; una gemella di
+    un'altra voce («CODICE / DESCRIPTION») non si unisce. La controprova (a mano): senza la gemella in etichetta_a il
+    primo titolo vale «/ NAME STAFFA».
+
+    Riscritta per lo Smistamento (giro 4, fase 4.6r): prima fissava che «NAME» da sola fosse l'etichetta del titolo
+    («NAME SUPPORTO ACME» dava il titolo «SUPPORTO ACME»); adesso «NAME» vale solo come gemella di un'etichetta del
+    titolo, e da sola non fa un campo (test_name_da_sola_non_e_il_titolo)."""
+    p = pdf_con(tmp_path, "bilingue.pdf", [
+        (480, 400, "DENOMINAZIONE / NAME", 9), (620, 400, "STAFFA ACME", 9),
+        (480, 425, "DENOMINAZIONE/NAME", 9), (620, 425, "PIASTRA ACME", 9),
+        (480, 450, "MATERIALE / MATERIAL", 9),
+        (480, 462, "S235JR", 9),
+        (480, 490, "NAME", 9), (540, 490, "SUPPORTO ACME", 9),
+        (480, 520, "SCALA /SCALE", 9), (560, 520, "1:2", 9),
+        (480, 550, "CODICE / DESCRIPTION", 9), (620, 550, "7120001", 9),
+    ])
+    t = analizza_file(p, "bilingue.pdf")["dettagli"]["testo_pdf"]
+    ModelloTestoPDF.model_validate(t)
+    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 2
+    titoli = campi_di(t, "titolo")
+    assert ("titolo", "DENOMINAZIONE / NAME", "STAFFA ACME") in titoli, titoli
+    assert ("titolo", "DENOMINAZIONE/NAME", "PIASTRA ACME") in titoli, titoli
+    assert not any(l == "NAME" or v == "SUPPORTO ACME" for _, l, v in titoli), titoli
+    assert not any(v.startswith("/") or v == "NAME" for _, _, v in titoli), titoli
+    assert campi_di(t, "materiale") == [("materiale", "MATERIALE / MATERIAL", "S235JR")], t["cartiglio"]
+    assert campi_di(t, "scala") == [("scala", "SCALA /SCALE", "1:2")], t["cartiglio"]
+    # «CODICE / DESCRIPTION»: due voci diverse, non una gemella; il codice non prende la barra, e il valore e' del
+    # titolo che gli sta accanto
+    assert all(not v.startswith("/") for _, _, v in campi_di(t, "codice")), t["cartiglio"]
+    assert ("titolo", "DESCRIPTION", "7120001") in titoli, titoli
+
+
+def test_part_n_e_il_codice(tmp_path):
+    """Fase 4.6: «PART. N°», «PART N°», «PART NR», «PART. NO.» sono etichette del codice (i cartigli di certi clienti
+    non ne hanno altre), con il valore accanto o nella riga sotto; anche con le etichette tutte su una riga e i
+    valori sotto («Family: Part Nr: Descrizione: Description:», i valori sotto nelle stesse colonne). Prima «Part Nr»
+    non c'era, e il codice del disegno non aveva un campo."""
+    p = pdf_con(tmp_path, "partn.pdf", [
+        (460, 380, "PART. N°", 9), (530, 380, "7120001A1", 9),
+        (460, 400, "PART N°", 9), (530, 400, "7120002", 9),
+        (460, 420, "PART NR", 9), (530, 420, "7120003", 9),
+        (460, 440, "PART. NO.", 9), (530, 440, "7120004", 9),
+        (460, 520, "Family:", 7), (520, 520, "Part Nr:", 7), (600, 520, "Descrizione:", 7),
+        (720, 520, "Description:", 7),
+        (460, 532, "--", 9), (520, 532, "7120005", 9), (600, 532, "STAFFA ACME", 9), (720, 532, "BRACKET", 9),
+    ])
+    t = analizza_file(p, "partn.pdf")["dettagli"]["testo_pdf"]
+    ModelloTestoPDF.model_validate(t)
+    codici = campi_di(t, "codice")
+    assert [v for _, _, v in codici] == ["7120001A1", "7120002", "7120003", "7120004", "7120005"], codici
+    assert [l for _, l, _ in codici] == ["PART. N°", "PART N°", "PART NR", "PART. NO.", "Part Nr:"], codici
+    assert all(c["zona"] == "basso_destra" for c in t["cartiglio"] if c["etichetta"] == "codice"), t["cartiglio"]
+    assert ("titolo", "Descrizione:", "STAFFA ACME") in campi_di(t, "titolo"), t["cartiglio"]
+
+
+def test_particolare_simile_e_un_campo(tmp_path):
+    """Fase 4.6 (risposta 4 del 29/09; domanda 3 del giro 4, A finche' l'utente non risponde): il particolare simile
+    («PARTICOLARE SIMILE / SIMILAR PART», «PART. SIMILE», «SIMILAR PART») e' un campo suo, con il valore grezzo: che
+    sia una nota («simile a 7120012») lo dice il server. Il segnaposto del modello nel campo vuoto («Inserire codice
+    particolare simile») da' un campo vuoto, cioe' nessun campo: non e' un valore, e le parole che contiene non sono
+    etichette («codice» non fa un campo del codice); nel cartiglio a tabella dei disegni veri (la colonna del simile
+    prima, «PART. N°» accanto) il codice del file resta il campo del codice. La controprova (a mano): senza
+    segnaposto_a il campo del simile vale «Inserire codice» e «codice» fa un campo del codice."""
+    vero = pdf_con(tmp_path, "simile.pdf", [
+        (460, 420, "PART. N°", 9), (530, 420, "7120001A1", 9),
+        (460, 450, "PARTICOLARE SIMILE / SIMILAR PART", 9), (650, 450, "7120012", 9),
+        (460, 480, "PART. SIMILE", 9),
+        (460, 492, "7120013", 9),
+        (460, 520, "SIMILAR PART", 9), (560, 520, "7120014", 9),
+    ])
+    t = analizza_file(vero, "simile.pdf")["dettagli"]["testo_pdf"]
+    ModelloTestoPDF.model_validate(t)
+    assert campi_di(t, "particolare_simile") == [
+        ("particolare_simile", "PARTICOLARE SIMILE / SIMILAR PART", "7120012"),
+        ("particolare_simile", "PART. SIMILE", "7120013"),
+        ("particolare_simile", "SIMILAR PART", "7120014")], t["cartiglio"]
+    assert campi_di(t, "codice") == [("codice", "PART. N°", "7120001A1")], t["cartiglio"]
+
+    # il cartiglio a tabella con il segnaposto: le etichette su una riga, sotto il segnaposto e il codice del file
+    for segnaposto in ("Inserire codice particolare simile", "INSERIRE CODICE PARTICOLARE SIMILE",
+                       "Inserire il codice del part. simile"):
+        p = pdf_con(tmp_path, "segnaposto.pdf", [
+            (440, 480, "PARTICOLARE SIMILE / SIMILAR PART", 8), (680, 480, "PART. N°", 8),
+            (440, 492, segnaposto, 8), (680, 492, "7120001A1", 8),
+        ])
+        t = analizza_file(p, "segnaposto.pdf")["dettagli"]["testo_pdf"]
+        ModelloTestoPDF.model_validate(t)
+        assert campi_di(t, "particolare_simile") == [], (segnaposto, t["cartiglio"])
+        assert campi_di(t, "codice") == [("codice", "PART. N°", "7120001A1")], (segnaposto, t["cartiglio"])
+    # il segnaposto accanto all'etichetta, sulla stessa riga, con il codice del file oltre
+    p = pdf_con(tmp_path, "riga.pdf", [
+        (440, 480, "PART. SIMILE", 8), (500, 480, "Inserire codice particolare simile", 8),
+        (440, 500, "PART N°", 8), (500, 500, "7120001A1", 8),
+    ])
+    t = analizza_file(p, "riga.pdf")["dettagli"]["testo_pdf"]
+    assert campi_di(t, "particolare_simile") == [], t["cartiglio"]
+    assert campi_di(t, "codice") == [("codice", "PART N°", "7120001A1")], t["cartiglio"]
+
+
+def test_l_intestazione_della_tabella_non_e_un_campo(tmp_path):
+    """Fase 4.6 (il bloccante dello scenario del 28/09): l'elenco particolari di un disegno d'assieme sta sopra il
+    cartiglio, dentro la zona in basso a destra. La sua intestazione («Pos. Part Number Descrizione Q.ty»,
+    «INDICE/INDEX CODICE/CODE Q.tà/Q.ty DENOMINAZIONE/DESCRIPTION») non e' una riga di etichette: prima «Part
+    Number» era il campo del codice, con il valore della riga sotto, cioe' il primo figlio. Adesso il campo del
+    codice e' il solo «Part Nr:» del cartiglio, con il codice dell'assieme; nessun campo ha il valore di una riga
+    dell'elenco. Il testo delle righe resta nei frammenti (le leggera' la fase 4.12). La controprova (a mano):
+    senza intestazione_tabella il campo del codice «Part Number» torna, con il valore 7120020."""
+    righe = [str(7120020 + i) for i in range(12)]
+
+    def assieme(intestazione):
+        scritte, x0, y = [(60, 80, "NOTE GENERALI ACME", 9)], 800, 540
+        for x, t in zip((x0, x0 + 35, x0 + 120, x0 + 330), intestazione):
+            scritte.append((x, y, t, 8))
+        for i, c in enumerate(righe):
+            y += 11
+            for x, t in ((x0, str(i + 1)), (x0 + 35, c), (x0 + 120, "PEZZO ACME"), (x0 + 330, "1")):
+                scritte.append((x, y, t, 8))
+        scritte += [(x0, y + 14, "SPECULARE DI", 8), (x0 + 70, y + 14, "7120003", 8)]
+        for x, t in ((x0, "Family:"), (x0 + 60, "Part Nr:"), (x0 + 140, "Descrizione:"), (x0 + 260, "Description:")):
+            scritte.append((x, 780, t, 7))
+        for x, t in ((x0, "--"), (x0 + 60, "7120002"), (x0 + 140, "STAFFA ASSIEME"), (x0 + 260, "BRACKET ASSEMBLY")):
+            scritte.append((x, 792, t, 9))
+        return pdf_con(tmp_path, "assieme.pdf", scritte, 1191, 842)
+
+    for intestazione in (("Pos.", "Part Number", "Descrizione", "Q.ty"),
+                         ("INDICE/INDEX", "CODICE/CODE", "DENOMINAZIONE/DESCRIPTION", "Q.tà/Q.ty")):
+        t = analizza_file(assieme(intestazione), "tavola assieme.pdf")["dettagli"]["testo_pdf"]
+        ModelloTestoPDF.model_validate(t)
+        assert campi_di(t, "codice") == [("codice", "Part Nr:", "7120002")], (intestazione, t["cartiglio"])
+        valori = " ".join(c["valore"] for c in t["cartiglio"])
+        assert not any(r in valori for r in righe), (intestazione, t["cartiglio"])
+        bd = unisci_testo(frammenti(t, "basso_destra"))
+        assert "7120020" in bd and "7120031" in bd and "7120002" in bd, bd
+    # una riga di un cartiglio vero con la sola quantita' (o la sola posizione) non e' un'intestazione
+    p = pdf_con(tmp_path, "quantita.pdf", [(460, 480, "PART NR", 8), (520, 480, "7120001", 8), (620, 480, "Q.ty", 8),
+                                           (660, 480, "2", 8)])
+    t = analizza_file(p, "quantita.pdf")["dettagli"]["testo_pdf"]
+    assert campi_di(t, "codice") == [("codice", "PART NR", "7120001")], t["cartiglio"]
+
+
+def test_l_intestazione_con_la_posizione_breve_non_e_un_campo(tmp_path):
+    """Fase 4.6r: la colonna della posizione di un'intestazione di tabella si scrive anche «N.», «N°», «NR», «RIF.»,
+    «ITEM NO.». «N. CODICE DESCRIZIONE QTA» e «RIF. PART NUMBER DESCRIPTION QTY» sono intestazioni: «CODICE» e «PART
+    NUMBER» non fanno un campo del codice con la prima riga dell'elenco come valore, e il campo del codice resta
+    «Part Nr:» del cartiglio. Il nome breve conta solo fuori da un'etichetta: «N. DISEGNO 7120001 QTA 2» e «PART N.
+    7120003 QTY 2» restano righe del cartiglio, con il loro campo. La controprova (a mano): senza
+    _COLONNA_POSIZIONE_BREVE le intestazioni danno il campo del codice 7120020; senza _parole_fuori_etichette (il nome
+    breve contato in ogni pezzo della riga) le due righe del cartiglio perdono il campo."""
+    for intestazione in (("N.", "CODICE", "DESCRIZIONE", "QTA"), ("RIF.", "PART NUMBER", "DESCRIPTION", "QTY"),
+                         ("N°", "CODICE", "DESCRIZIONE", "Q.tà"), ("NR", "CODICE", "DENOMINAZIONE", "QTA"),
+                         ("ITEM NO.", "PART NUMBER", "DESCRIPTION", "QTY")):
+        scritte = [(x, 440, t, 8) for x, t in zip((450, 510, 600, 740), intestazione)]
+        for i, c in enumerate(("7120020", "7120021")):
+            scritte += [(x, 452 + 12 * i, t, 8) for x, t in ((450, str(i + 1)), (510, c), (600, "PEZZO ACME"), (740, "1"))]
+        scritte += [(450, 540, "Part Nr:", 7), (450, 552, "7120002", 9)]
+        p = pdf_con(tmp_path, "posizione.pdf", scritte)
+        t = analizza_file(p, "tavola assieme.pdf")["dettagli"]["testo_pdf"]
+        ModelloTestoPDF.model_validate(t)
+        assert campi_di(t, "codice") == [("codice", "Part Nr:", "7120002")], (intestazione, t["cartiglio"])
+        valori = " ".join(c["valore"] for c in t["cartiglio"])
+        assert "7120020" not in valori and "7120021" not in valori, (intestazione, t["cartiglio"])
+    # dentro un'etichetta il nome breve non e' la colonna della posizione
+    p = pdf_con(tmp_path, "cartiglio.pdf", [
+        (450, 480, "N. DISEGNO", 8), (520, 480, "7120001", 8), (620, 480, "QTA", 8), (660, 480, "2", 8),
+        (450, 510, "PART N.", 8), (520, 510, "7120003", 8), (620, 510, "QTY", 8), (660, 510, "2", 8),
+    ])
+    t = analizza_file(p, "cartiglio.pdf")["dettagli"]["testo_pdf"]
+    assert campi_di(t, "numero_disegno") == [("numero_disegno", "N. DISEGNO", "7120001")], t["cartiglio"]
+    assert campi_di(t, "codice") == [("codice", "PART N.", "7120003")], t["cartiglio"]
+
+
+def test_name_da_sola_non_e_il_titolo(tmp_path):
+    """Fase 4.6r: «NAME» vale come titolo solo come gemella, dopo la barra, di un'etichetta del titolo
+    («DENOMINAZIONE / NAME»). Da sola, accanto a «DRAWN», «CHECKED», «DATE», e' il nome di chi ha disegnato o
+    controllato il disegno: «DRAWN NAME M. ROSSI DATE» non da' un titolo, ne' un altro campo con quel nome. La
+    controprova (a mano): con «NAME» fra le etichette del titolo il titolo vale «M. ROSSI»."""
+    p = pdf_con(tmp_path, "firme.pdf", [
+        (450, 470, "DRAWN", 8), (490, 470, "NAME", 8), (520, 470, "M. ROSSI", 8), (570, 470, "DATE", 8),
+        (450, 490, "CHECKED", 8), (500, 490, "NAME", 8), (530, 490, "ACME QUALITA", 8),
+        (480, 520, "DENOMINAZIONE / NAME", 9), (620, 520, "STAFFA ACME", 9),
+    ])
+    t = analizza_file(p, "firme.pdf")["dettagli"]["testo_pdf"]
+    ModelloTestoPDF.model_validate(t)
+    assert campi_di(t, "titolo") == [("titolo", "DENOMINAZIONE / NAME", "STAFFA ACME")], t["cartiglio"]
+    valori = " ".join(c["valore"] for c in t["cartiglio"])
+    assert "ROSSI" not in valori and "QUALITA" not in valori, t["cartiglio"]
 
 
 def test_pdf_solo_vettoriale_dice_non_estraibile(tmp_path):
