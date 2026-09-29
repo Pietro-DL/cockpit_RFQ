@@ -94,7 +94,9 @@ func (sc *scena) valuta(nome string, esito *classificazione.Esito, fatti string,
 }
 
 // disegno e' un PDF letto dal worker con i termini del cartiglio: tipo disegno_2d dal contenuto, codice dal
-// nome. Senza evidenze dal contenuto del PDF (EvidenzeContenutoPDF, oggi vuota).
+// nome. Senza il testo del PDF: TestoPDF ed EvidenzePDF restano vuoti (il nome da solo), e una prova che vuole
+// le evidenze dal contenuto le mette a mano o usa disegnoLetto, che le prende dai fatti con LettureDelPDF come
+// LeggiStatoFlusso (EvidenzeContenutoPDF, giro 4, fase 4.2).
 func (sc *scena) disegno(nome string) int {
 	return sc.file(nome, shaDel(nome), sc.valuta(nome, &classificazione.Esito{Tipo: "disegno_2d", Fonte: "cartiglio"},
 		`{"cartiglio": true, "termini_trovati": ["SCALA"]}`, nil))

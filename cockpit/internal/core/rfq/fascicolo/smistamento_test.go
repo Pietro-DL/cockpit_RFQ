@@ -3,11 +3,11 @@ package fascicolo
 // L1 — Smistamento F8: il flusso ancorato al prodotto come regole pure (addendum A5.13, A5.14.3-A5.14.4;
 // decisioni dell'utente del 27/09, «bis» e «ter»). Prove 156-162, 165-173 dell'addendum, e quelle chieste per
 // questa fase: il capitolato con il «documento generale» senza riferimento strutturale, la discordanza fra il
-// nome e lo STEP, il PDF senza evidenze dal contenuto. Le prove con il database (181-189, 191, 192, 233) stanno
-// in smistamento_db_test.go, in workerapi e in web.
+// nome e lo STEP, il PDF i cui codici vengono solo dalle sue evidenze normalizzate (EvidenzeContenutoPDF, giro
+// 4, fase 4.2; le prove del testo del PDF, con la frase del suo stato, in smistamento_pdf_test.go). Le prove con
+// il database (181-189, 191, 192, 233) stanno in smistamento_db_test.go, in workerapi e in web.
 
 import (
-	"context"
 	"math/rand"
 	"strings"
 	"testing"
@@ -400,7 +400,8 @@ func TestConUnaDiscordanzaNienteEPreselezionabile(t *testing.T) {
 		guasta func(sc *scena, p db.Componente)
 	}{
 		{DiscFontiDiverse, func(sc *scena, _ db.Componente) {
-			sc.f("7120010.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120012", Pagina: 1}}
+			// giro 4, fase 4.2: il cartiglio con un codice di famiglia (uno generico e' solo una chiave, P33)
+			sc.f("7120010.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120012", Pagina: 1, Origine: OrigineFamiglia}}
 		}},
 		{DiscTipoDiverso, func(sc *scena, _ db.Componente) {
 			sc.f("7120010.pdf").Proposta.Valutazione.Tipo.Stato = classificazione.StatoDiscorde
@@ -631,38 +632,6 @@ func TestLaDiscordanzaNomeStepMetteLoStepPrimoSenzaPreselezione(t *testing.T) {
 	}
 }
 
-// Il punto d'aggancio della lettura dei PDF (F9): oggi EvidenzeContenutoPDF non da' niente, e il flusso tratta
-// il PDF come un PDF senza testo: il codice viene dal nome, il candidato non e' «dal contenuto», e lo si dice.
-// Quando la normalizzazione di F9 dara' un codice del cartiglio, sara' un'evidenza indipendente: il candidato
-// coerente con il cartiglio viene primo, e la discordanza con il nome non si preseleziona.
-func TestSenzaEvidenzeIlPdfSiComportaComeUnPdfSenzaTesto(t *testing.T) {
-	if ev, err := EvidenzeContenutoPDF(context.Background(), nil, shaDel("x"), nil); err != nil || len(ev) != 0 {
-		t.Fatalf("il punto d'aggancio deve essere vuoto finche' F9 non c'e': %v %v", ev, err)
-	}
-	costruisci := func() *scena {
-		sc, _ := scenaPreselezionabile(t)
-		sc.accetta("7120001.stp", "#3", sc.componente("7120012", db.TipoComponenteSciolto, db.OrigineComponenteManuale))
-		sc.disegno("7120012.pdf")
-		return sc
-	}
-	sc := costruisci()
-	d := sc.dest(sc.calcola(), "7120012.pdf")
-	if candidati(d) != "1 7120012 dest_nodo_diretto_nome" || d.Candidati[0].DalContenuto || strings.Join(d.Candidati[0].Fonti, " ") != FonteNome {
-		t.Errorf("il PDF senza evidenze: %s %+v", candidati(d), d.Candidati)
-	}
-	if !strings.Contains(strings.Join(d.Evidenze, " | "), "non ha evidenze dal contenuto") {
-		t.Errorf("la destinazione dice che il PDF non ha evidenze dal contenuto: %v", d.Evidenze)
-	}
-	// con un codice nel cartiglio (quello che F9 portera'), diverso dal nome
-	sc = costruisci()
-	sc.f("7120012.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120010", Pagina: 1}}
-	d = sc.dest(sc.calcola(), "7120012.pdf")
-	if len(d.Candidati) != 2 || d.Candidati[0].Codice != "7120010" || d.Candidati[0].Regola != "dest_nodo_diretto_contenuto" ||
-		d.Candidati[1].Codice != "7120012" || d.Preselezionabile || !contiene(d.Discordanze, DiscFontiDiverse) {
-		t.Errorf("il cartiglio contro il nome: %s, preselezionabile %v, %v", candidati(d), d.Preselezionabile, d.Discordanze)
-	}
-}
-
 // Il flusso parte solo dai prodotti confermati (scelta 3): un finito nato da un codice trovato, che nessuno ha
 // confermato, non e' un prodotto; un finito creato a mano si'; un codice della richiesta il cui prodotto e'
 // stato tolto dalla BOM resta fuori.
@@ -719,9 +688,10 @@ func TestIlSoloComponenteDecisoNonBastaAllaPreselezione(t *testing.T) {
 	if s := d.Candidati[0].Sostegno; !contiene(s, SostegnoComponente) || sostegnoBasta(s) {
 		t.Errorf("il sostegno del candidato: %v", s)
 	}
-	// il codice nel cartiglio del PDF: un'evidenza dal contenuto, che basta
+	// il codice nel cartiglio del PDF: un'evidenza dal contenuto, che basta (giro 4, fase 4.2: un codice di
+	// famiglia del cliente; uno generico nel cartiglio e' solo una chiave, P33)
 	sc = costruisci()
-	sc.f("7120020.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120020", Pagina: 1}}
+	sc.f("7120020.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120020", Pagina: 1, Origine: OrigineFamiglia}}
 	if d := sc.dest(sc.calcola(), "7120020.pdf"); candidati(d) != "1 7120020 dest_componente_contenuto" || !d.Preselezionabile {
 		t.Errorf("con il codice nel cartiglio: %s, preselezionabile %v, %v", candidati(d), d.Preselezionabile, d.Candidati[0].Sostegno)
 	}
@@ -1360,5 +1330,331 @@ func TestLaRadiceVicinaNonDipendeDaiNomiDeiCodici(t *testing.T) {
 			len(v.Posizioni) != 1 || v.Posizioni[0].Padre != "7120020A" {
 			t.Errorf("S=%s: 7120021 sotto 7120020A: %+v", sub, v)
 		}
+	}
+}
+
+// Giro 4, fase 4.1 (U7, scelta 2 del giro 3, «bis»): lo STEP autorizzato per un sottoassieme sostiene i suoi
+// figli diretti solo se il sottoassieme si raggiunge dal prodotto per un cammino affidabile, con lo stesso
+// criterio di nodo_dell_ancora (RifNodo.affidabile). 7120020 e' aggiunto a mano sotto 7120001, ancorato pieno
+// dal suo STEP che non lo contiene; il sottoassieme 7120030, deciso da una persona, sta sotto il secondo
+// prodotto 7120002, e il suo STEP 7120030.stp, autorizzato per lui, ha 7120020 fra i figli diretti. Due
+// varianti dell'ancora di 7120002: da confermare (la sola variante.stp, con la radice vicina 7120002A: A-S3)
+// e due STEP pieni concorrenti. In tutte e due il disegno 7120020.pdf col solo nome non porta
+// step_autorizzato, non si preseleziona, e l'evidenza dice perche' lo STEP non sostiene. Il modello: con
+// 7120030 sotto 7120001 lo stesso disegno si preseleziona, sostenuto dallo STEP autorizzato. Prima le due
+// varianti uscivano preselezionabili con [componente_deciso step_autorizzato]: sostegnoAutorizzato guardava
+// solo il pezzo da rivedere (TramiteDaRivedere), non l'ancora.
+func TestLoStepAutorizzatoSottoUnAncoraNonAffidabileNonSostiene(t *testing.T) {
+	variante := func(sc *scena) {
+		sc.step("variante.stp", []string{"#1=7120002A", "#2=7120021"}, []string{"#1>#2"})
+	}
+	concorrenti := func(sc *scena) {
+		sc.step("7120002_a.stp", []string{"#1=7120002", "#2=7120021"}, []string{"#1>#2"})
+		sc.step("7120002_b.stp", []string{"#1=7120002", "#2=7120022"}, []string{"#1>#2"})
+	}
+	for _, x := range []struct {
+		nome          string
+		ancora        func(sc *scena) // i file di 7120002
+		sotto         string          // il prodotto sotto cui una persona ha messo 7120030
+		livelloAncora string          // l'ancora di 7120002
+		livelloNodo   string          // il nodo 7120020 di 7120030.stp
+		concorrenti   bool
+		perche        string
+		presel        bool
+	}{
+		{"ancora da confermare", variante, "7120002", LivelloDaConfermare, LivelloDaConfermare, false, "un'ancora da confermare", false},
+		{"due STEP pieni concorrenti", concorrenti, "7120002", LivelloPiena, LivelloPiena, true, "due file concorrenti", false},
+		{"il modello: sotto il prodotto con l'ancora piena", variante, "7120001", LivelloDaConfermare, LivelloPiena, false, "", true},
+	} {
+		sc := nuovaScena(t)
+		p := casoProdotto(sc, "7120001.stp")
+		sc.arco(p, sc.componente("7120020", db.TipoComponenteSciolto, db.OrigineComponenteManuale), 1)
+		q := sc.prodotto("7120002")
+		x.ancora(sc)
+		s := sc.componente("7120030", db.TipoComponenteSottoassieme, db.OrigineComponenteManuale)
+		if x.sotto == "7120001" {
+			sc.arco(p, s, 1)
+		} else {
+			sc.arco(q, s, 1)
+		}
+		sc.step("7120030.stp", []string{"#1=7120030", "#2=7120020"}, []string{"#1>#2"})
+		sc.autorizza(s, "7120030.stp", "#1")
+		sc.disegno("7120020.pdf")
+		c := sc.calcola()
+		if a := c.Ancore["7120002"]; a.Livello != x.livelloAncora || a.concorrenti() != x.concorrenti {
+			t.Fatalf("%s: la scena, l'ancora di 7120002: %+v", x.nome, a)
+		}
+		v := c.Indice.Voci["7120020"]
+		if v == nil || v.Autorita != AutoritaDecisa || v.Livello != LivelloPiena || v.Concorrenti || len(v.Nodi) != 1 {
+			t.Fatalf("%s: la scena, 7120020 deciso sotto 7120001 e nodo del solo 7120030.stp: %+v", x.nome, v)
+		}
+		if n := v.Nodi[0]; !n.NellAutorita || n.Ancora != "7120030" || n.TramiteDaRivedere != "" || n.Livello != x.livelloNodo ||
+			n.Concorrenti != x.concorrenti || n.affidabile() != x.presel {
+			t.Fatalf("%s: la scena, il nodo di 7120020 nell'autorita' di 7120030.stp: %+v", x.nome, n)
+		}
+		d := sc.dest(c, "7120020.pdf")
+		top := d.Candidati[0]
+		e := strings.Join(top.Evidenze, " | ")
+		stato := "da_scegliere"
+		if x.presel {
+			stato = "preselezionabile"
+		}
+		if candidati(d) != "1 7120020 dest_nodo_diretto_nome" || d.Preselezionabile != x.presel || d.Stato != stato ||
+			contiene(top.Sostegno, SostegnoStepAutorizzato) != x.presel || sostegnoBasta(top.Sostegno) != x.presel ||
+			!contiene(top.Sostegno, SostegnoComponente) || top.DalContenuto {
+			t.Errorf("%s: il disegno col solo nome: %s, preselezionabile %v, stato %s, sostegno %v", x.nome, candidati(d), d.Preselezionabile,
+				d.Stato, top.Sostegno)
+		}
+		if !strings.Contains(e, "7120020 è un figlio diretto di 7120030 nello STEP autorizzato 7120030.stp") {
+			t.Errorf("%s: l'evidenza non dice il nodo nell'autorita': %s", x.nome, e)
+		}
+		nonSostiene := "7120020 compare nello STEP autorizzato 7120030.stp, ma 7120030 si raggiunge dal prodotto solo con " + x.perche +
+			": non sostiene la destinazione"
+		switch {
+		case x.presel && strings.Contains(e, "non sostiene la destinazione"):
+			t.Errorf("%s: un'evidenza dice che il file non sostiene la destinazione preselezionata: %s", x.nome, e)
+		case !x.presel && (!strings.Contains(e, nonSostiene) || strings.Count(e, "non sostiene la destinazione") != 1):
+			t.Errorf("%s: l'evidenza non dice (una volta) perche' lo STEP autorizzato non sostiene: %s", x.nome, e)
+		}
+	}
+}
+
+// casoComponenteAMano: la scena di TestIlSoloComponenteDecisoNonBastaAllaPreselezione. 7120020 e' aggiunto a
+// mano sotto il prodotto ancorato dallo STEP, che non lo contiene: il disegno si preseleziona solo con un
+// codice letto nel contenuto del file.
+func casoComponenteAMano(t *testing.T, nomePdf string) *scena {
+	sc := nuovaScena(t)
+	p := casoProdotto(sc, "7120001.stp")
+	sc.arco(p, sc.componente("7120020", db.TipoComponenteSciolto, db.OrigineComponenteManuale), 1)
+	sc.disegno(nomePdf)
+	return sc
+}
+
+// conEvidenza aggiunge alla lettura del codice del file un'evidenza della valutazione, come la scriverebbe
+// la lettura del testo del PDF (F9).
+func conEvidenza(sc *scena, nome string, e classificazione.Evidenza) {
+	v := &sc.f(nome).Proposta.Valutazione
+	v.Codice.Evidenze = append(v.Codice.Evidenze, e)
+}
+
+// Giro 4, fase 4.1 (Domanda 7 = B): il codice di famiglia in basso a destra della pagina 1 che in quella zona
+// sta soltanto dentro il nome del file ripetuto non e' un codice «dal contenuto»: e' il nome, e il testo lo dice.
+// Il disegno 7120020.pdf di un componente aggiunto a mano resta col solo nome, non preselezionato. La
+// controprova: lo stesso codice indipendente dal nome e' il contenuto, e basta. Prima il cartiglio dipendente
+// contava come contenuto, e il disegno usciva preselezionabile.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.2): prima fissava la regola sulla lettura pdf_testo_famiglia della
+// valutazione (con DipendeDa); adesso il contenuto di un PDF entra nel flusso solo dalle sue evidenze
+// normalizzate (una porta sola), e la stessa regola vale per l'evidenza del cartiglio con DipendeDaNome. In piu':
+// la lettura pdf_testo_famiglia della valutazione, anche indipendente dal nome, non e' piu' una seconda porta,
+// e da sola non fa del disegno un disegno «dal contenuto».
+func TestIlCartiglioCheRipeteIlNomeNonEContenuto(t *testing.T) {
+	cartiglio := func(dipende bool) []EvidenzaContenutoPDF {
+		return []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120020", Pagina: 1, Origine: OrigineFamiglia, DipendeDaNome: dipende}}
+	}
+	sc := casoComponenteAMano(t, "7120020.pdf")
+	sc.f("7120020.pdf").EvidenzePDF = cartiglio(true)
+	d := sc.dest(sc.calcola(), "7120020.pdf")
+	top := d.Candidati[0]
+	if candidati(d) != "1 7120020 dest_componente_nome" || d.Preselezionabile || top.DalContenuto || contiene(top.Sostegno, SostegnoContenuto) ||
+		sostegnoBasta(top.Sostegno) {
+		t.Errorf("il cartiglio che ripete il nome: %s, preselezionabile %v, sostegno %v", candidati(d), d.Preselezionabile, top.Sostegno)
+	}
+	if len(d.Codici) != 1 || d.Codici[0].DalContenuto || strings.Join(d.Codici[0].Fonti, " ") != FonteCartiglio+" "+FonteNome {
+		t.Errorf("i codici del file: %+v", d.Codici)
+	}
+	if e := strings.Join(top.Evidenze, " | "); !strings.Contains(e, "il cartiglio del PDF dice 7120020 (pagina 1): ripete il nome del file, non è una seconda fonte") {
+		t.Errorf("l'evidenza non dice che il cartiglio ripete il nome: %s", e)
+	}
+
+	// la controprova: lo stesso codice, indipendente dal nome
+	sc = casoComponenteAMano(t, "7120020.pdf")
+	sc.f("7120020.pdf").EvidenzePDF = cartiglio(false)
+	d = sc.dest(sc.calcola(), "7120020.pdf")
+	top = d.Candidati[0]
+	if candidati(d) != "1 7120020 dest_componente_contenuto" || !d.Preselezionabile || !top.DalContenuto || !contiene(top.Sostegno, SostegnoContenuto) {
+		t.Errorf("il cartiglio indipendente dal nome: %s, preselezionabile %v, sostegno %v", candidati(d), d.Preselezionabile, top.Sostegno)
+	}
+	if e := strings.Join(top.Evidenze, " | "); !strings.Contains(e, "il cartiglio del PDF dice 7120020 (pagina 1)") || strings.Contains(e, "ripete il nome") {
+		t.Errorf("l'evidenza del cartiglio indipendente: %s", e)
+	}
+
+	// la valutazione non e' una seconda porta: la sua lettura pdf_testo_famiglia, anche indipendente, non conta
+	sc = casoComponenteAMano(t, "7120020.pdf")
+	conEvidenza(sc, "7120020.pdf", classificazione.Evidenza{Regola: "pdf_testo_famiglia", Valore: "7120020"})
+	d = sc.dest(sc.calcola(), "7120020.pdf")
+	if candidati(d) != "1 7120020 dest_componente_nome" || d.Preselezionabile || d.Candidati[0].DalContenuto ||
+		len(d.Codici) != 1 || strings.Join(d.Codici[0].Fonti, " ") != FonteNome {
+		t.Errorf("la lettura pdf_testo_famiglia della valutazione: %s, preselezionabile %v, %+v", candidati(d), d.Preselezionabile, d.Codici)
+	}
+}
+
+// Giro 4, fase 4.1 (A5.13.3, A-P2 «solo_metadati»): il titolo o il soggetto del PDF non sono mai «dal
+// contenuto». Il codice che dicono resta un candidato mostrato, senza il sostegno del contenuto, e un
+// candidato che viene soltanto dai metadati non si preseleziona nemmeno quando il bersaglio e' sostenuto da
+// uno STEP autorizzato. Due scene, ognuna con «vista generale.pdf», che nel nome non ha codici: 7120020
+// aggiunto a mano, col titolo nelle evidenze del PDF; 7120010, figlio diretto accettato dello STEP autorizzato
+// del prodotto, col titolo nelle evidenze del PDF. Le controprove: con il cartiglio al posto del titolo, e con
+// il codice nel nome (7120010.pdf), lo stesso bersaglio si preseleziona. Prima tutte e due uscivano
+// preselezionabili: il titolo diverso dal nome contava come contenuto.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.2): prima fissava anche una terza scena con il titolo nella
+// valutazione del file (pdf_metadati), che dava lo stesso candidato mostrato; adesso il contenuto di un PDF entra
+// solo dalle sue evidenze normalizzate (una porta sola), e la lettura pdf_metadati della valutazione non da'
+// nessun candidato: il disegno non ha codici, e l'esito lo dice. Il titolo uguale al nome si prova sia con
+// l'evidenza che dice DipendeDaNome (quella di LettureDelPDF) sia con quella che non lo dice, come prima.
+func TestIlTitoloDeiMetadatiNonPreseleziona(t *testing.T) {
+	scene := []struct {
+		nome, codice, regola string
+		sc                   func() *scena
+	}{
+		{"evidenze del PDF, componente a mano", "7120020", "dest_componente_nome", func() *scena {
+			sc := casoComponenteAMano(t, "vista generale.pdf")
+			sc.f("vista generale.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFMetadati, Codice: "7120020"}}
+			return sc
+		}},
+		{"evidenze del PDF, STEP autorizzato", "7120010", "dest_nodo_diretto_nome", func() *scena {
+			sc, _ := scenaPreselezionabile(t)
+			sc.disegno("vista generale.pdf")
+			sc.f("vista generale.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFMetadati, Codice: "7120010"}}
+			return sc
+		}},
+	}
+	for _, x := range scene {
+		sc := x.sc()
+		d := sc.dest(sc.calcola(), "vista generale.pdf")
+		if len(d.Candidati) == 0 {
+			t.Errorf("%s: il titolo deve dare un candidato mostrato: %s %s", x.nome, d.Esito, d.Evidenze)
+			continue
+		}
+		top := d.Candidati[0]
+		if candidati(d) != "1 "+x.codice+" "+x.regola || d.Preselezionabile || d.Stato != "da_scegliere" || top.DalContenuto ||
+			contiene(top.Sostegno, SostegnoContenuto) || strings.Join(top.Fonti, " ") != FonteMetadatiPDF {
+			t.Errorf("%s: il titolo dei metadati: %s, preselezionabile %v, stato %s, fonti %v, sostegno %v", x.nome, candidati(d),
+				d.Preselezionabile, d.Stato, top.Fonti, top.Sostegno)
+		}
+		if len(d.Codici) != 1 || d.Codici[0].DalContenuto {
+			t.Errorf("%s: i codici del file: %+v", x.nome, d.Codici)
+		}
+		if e := strings.Join(top.Evidenze, " | "); !strings.Contains(e, "i metadati del PDF dicono "+x.codice+": il titolo si mostra, ma non sostiene la destinazione") {
+			t.Errorf("%s: l'evidenza del titolo: %s", x.nome, e)
+		}
+	}
+
+	// il titolo nella valutazione: non e' una porta, e il disegno senza codici non ha candidati
+	sc := casoComponenteAMano(t, "vista generale.pdf")
+	conEvidenza(sc, "vista generale.pdf", classificazione.Evidenza{Regola: "pdf_metadati", Valore: "7120020"})
+	dv := sc.dest(sc.calcola(), "vista generale.pdf")
+	if len(dv.Candidati) != 0 || dv.Preselezionabile {
+		t.Errorf("il titolo della valutazione non da' un candidato: %s", candidati(dv))
+	}
+	if len(dv.Codici) != 0 {
+		t.Errorf("il titolo della valutazione non e' un codice del file: %+v", dv.Codici)
+	}
+	if dv.Esito != EsitoNessuna || !strings.Contains(evidenzeIn(dv), "nessun codice del file è un pezzo della RFQ") {
+		t.Errorf("il disegno senza codici: %s %s", dv.Esito, evidenzeIn(dv))
+	}
+	if strings.Contains(evidenzeIn(dv), "i metadati del PDF dicono") {
+		t.Errorf("la lettura della valutazione non si dice come un'evidenza del PDF: %s", evidenzeIn(dv))
+	}
+
+	// le controprove: il cartiglio al posto del titolo, e il codice nel nome
+	sc = casoComponenteAMano(t, "vista generale.pdf")
+	sc.f("vista generale.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120020", Pagina: 1, Origine: OrigineFamiglia}}
+	if d := sc.dest(sc.calcola(), "vista generale.pdf"); candidati(d) != "1 7120020 dest_componente_contenuto" || !d.Preselezionabile {
+		t.Errorf("il cartiglio al posto del titolo: %s, preselezionabile %v", candidati(d), d.Preselezionabile)
+	}
+	sc, _ = scenaPreselezionabile(t)
+	if d := sc.dest(sc.calcola(), "7120010.pdf"); candidati(d) != "1 7120010 dest_nodo_diretto_nome" || !d.Preselezionabile {
+		t.Errorf("il codice nel nome: %s, preselezionabile %v", candidati(d), d.Preselezionabile)
+	}
+	// il titolo uguale al nome lo ripete: non e' una seconda fonte, e il disegno resta quello del solo nome. Due
+	// varianti: l'evidenza che lo dice (DipendeDaNome, come la da' LettureDelPDF) e quella che non lo dice, di cui
+	// codiciDelFile se ne accorge da se' confrontando il codice canonico con il nome
+	for _, e := range []EvidenzaContenutoPDF{
+		{Fonte: FontePDFMetadati, Codice: "7120020", DipendeDaNome: true},
+		{Fonte: FontePDFMetadati, Codice: "7120020"},
+	} {
+		sc = casoComponenteAMano(t, "7120020.pdf")
+		sc.f("7120020.pdf").EvidenzePDF = []EvidenzaContenutoPDF{e}
+		d := sc.dest(sc.calcola(), "7120020.pdf")
+		if candidati(d) != "1 7120020 dest_componente_nome" || d.Preselezionabile || d.Candidati[0].DalContenuto ||
+			!strings.Contains(strings.Join(d.Candidati[0].Evidenze, " | "), "i metadati del PDF dicono 7120020: ripete il nome del file, non è una seconda fonte") {
+			t.Errorf("il titolo uguale al nome (DipendeDaNome %v): %s, preselezionabile %v, %v", e.DipendeDaNome, candidati(d),
+				d.Preselezionabile, d.Candidati[0].Evidenze)
+		}
+	}
+}
+
+// Giro 4, fase 4.1 (27/09 «ter»: l'OCR e' un'evidenza, non un automatismo decisionale): un codice letto con
+// l'OCR, anche nella zona del cartiglio, e' solo un indizio. DalCartiglio non lo conta; nel flusso non e' «dal
+// contenuto», non sostiene e non preseleziona: 7120020.pdf, del componente aggiunto a mano, resta col solo nome.
+// Nella valutazione l'indizio non ha un valore (pdf_ocr_indizio) e non da' nemmeno un codice. Le controprove:
+// con il cartiglio del testo nativo al posto dell'OCR, lo stesso disegno si preseleziona. Prima l'OCR contava
+// come contenuto e come cartiglio.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.2, «OCR = nessun candidato, solo la frase»): prima fissava l'OCR
+// come una fonte del codice del file (le fonti «nome_file ocr_pdf», e con l'OCR solo un candidato mostrato verso
+// il figlio diretto 7120010, mai preselezionato). Adesso l'OCR non da' ne' una fonte ne' un candidato: il codice
+// del disegno viene solo dal nome, e «vista generale.pdf» con l'OCR 7120010 non ha candidati; l'indizio si dice
+// fra le evidenze del file, con la sua frase.
+func TestLOCRENelloSoloUnIndizio(t *testing.T) {
+	if (EvidenzaContenutoPDF{Fonte: FontePDFOCR, Codice: "7120020", Indizio: true}).DalCartiglio() ||
+		(EvidenzaContenutoPDF{Fonte: FontePDFCartiglio, Codice: "7120020", Indizio: true}).DalCartiglio() {
+		t.Error("l'OCR non e' il cartiglio")
+	}
+	if !(EvidenzaContenutoPDF{Fonte: FontePDFCartiglio, Codice: "7120020"}).DalCartiglio() {
+		t.Error("il cartiglio del testo nativo e' il cartiglio")
+	}
+	ocr := func(codice string) []EvidenzaContenutoPDF {
+		return []EvidenzaContenutoPDF{{Fonte: FontePDFOCR, Codice: codice, Pagina: 1, Origine: OrigineFamiglia, Indizio: true}}
+	}
+
+	// l'OCR uguale al nome, per il componente aggiunto a mano
+	sc := casoComponenteAMano(t, "7120020.pdf")
+	sc.f("7120020.pdf").EvidenzePDF = ocr("7120020")
+	d := sc.dest(sc.calcola(), "7120020.pdf")
+	top := d.Candidati[0]
+	if candidati(d) != "1 7120020 dest_componente_nome" || d.Preselezionabile || top.DalContenuto || contiene(top.Sostegno, SostegnoContenuto) ||
+		strings.Join(top.Fonti, " ") != FonteNome {
+		t.Errorf("l'OCR uguale al nome: %s, preselezionabile %v, fonti %v, sostegno %v", candidati(d), d.Preselezionabile, top.Fonti, top.Sostegno)
+	}
+	if len(d.Codici) != 1 || d.Codici[0].DalContenuto || strings.Join(d.Codici[0].Fonti, " ") != FonteNome {
+		t.Errorf("i codici del file: %+v", d.Codici)
+	}
+	if e := evidenzeIn(d); !strings.Contains(e, "l'OCR legge 7120020 (pagina 1): un indizio, non un codice del file") {
+		t.Errorf("l'evidenza dell'OCR: %s", e)
+	}
+	// la controprova: il cartiglio del testo nativo
+	sc = casoComponenteAMano(t, "7120020.pdf")
+	sc.f("7120020.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120020", Pagina: 1, Origine: OrigineFamiglia}}
+	if d := sc.dest(sc.calcola(), "7120020.pdf"); candidati(d) != "1 7120020 dest_componente_contenuto" || !d.Preselezionabile {
+		t.Errorf("il cartiglio del testo nativo: %s, preselezionabile %v", candidati(d), d.Preselezionabile)
+	}
+
+	// l'OCR solo, con il codice di un figlio diretto dello STEP autorizzato: nessun candidato, l'indizio si dice
+	sc, _ = scenaPreselezionabile(t)
+	sc.disegno("vista generale.pdf")
+	sc.f("vista generale.pdf").EvidenzePDF = ocr("7120010")
+	d = sc.dest(sc.calcola(), "vista generale.pdf")
+	if len(d.Candidati) != 0 || len(d.Codici) != 0 || d.Preselezionabile || d.Esito != EsitoNessuna ||
+		!strings.Contains(evidenzeIn(d), "l'OCR legge 7120010 (pagina 1): un indizio, non un codice del file") {
+		t.Errorf("l'OCR solo: %s «%s», codici %+v, %s", d.Esito, candidati(d), d.Codici, evidenzeIn(d))
+	}
+	// la controprova: lo stesso, con il cartiglio del testo nativo
+	sc, _ = scenaPreselezionabile(t)
+	sc.disegno("vista generale.pdf")
+	sc.f("vista generale.pdf").EvidenzePDF = []EvidenzaContenutoPDF{{Fonte: FontePDFCartiglio, Codice: "7120010", Pagina: 1, Origine: OrigineFamiglia}}
+	if d := sc.dest(sc.calcola(), "vista generale.pdf"); candidati(d) != "1 7120010 dest_nodo_diretto_contenuto" || !d.Preselezionabile {
+		t.Errorf("il cartiglio solo: %s, preselezionabile %v", candidati(d), d.Preselezionabile)
+	}
+
+	// nella valutazione l'OCR e' un indizio senza valore: non da' un codice del file
+	sc = casoComponenteAMano(t, "7120020.pdf")
+	conEvidenza(sc, "7120020.pdf", classificazione.Evidenza{Regola: classificazione.RegolaOCRIndizio, Indizio: "7120020"})
+	d = sc.dest(sc.calcola(), "7120020.pdf")
+	if candidati(d) != "1 7120020 dest_componente_nome" || d.Preselezionabile || d.Candidati[0].DalContenuto ||
+		len(d.Codici) != 1 || strings.Join(d.Codici[0].Fonti, " ") != FonteNome {
+		t.Errorf("l'indizio della valutazione: %s, preselezionabile %v, %+v", candidati(d), d.Preselezionabile, d.Codici)
 	}
 }

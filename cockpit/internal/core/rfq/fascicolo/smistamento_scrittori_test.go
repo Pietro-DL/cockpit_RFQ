@@ -38,12 +38,17 @@ func chiamateSuQ(t *testing.T, file string) map[string]bool {
 	return out
 }
 
+// Aggiornata per lo Smistamento (giro 4, fase 4.2): fra le letture ammesse entra GetAnalisiFatti, una SELECT, con
+// cui la porta del testo dei PDF (smistamento_pdf.go) prende i fatti correnti e li passa alla classificazione
+// (LettureDelPDF) senza guardarli. In piu' la prova ferma chi nel flusso leggesse il JSON del worker da se': nessun
+// file del flusso importa i contratti del worker.
 func TestIlFlussoScriveSoloLeDestinazioni(t *testing.T) {
 	// le letture del flusso, e la sola scrittura
 	ammesse := map[string]bool{
 		"GetThread": true, "GetCliente": true, "ListIdentificativi": true, "ListComponentiThread": true, "ListRelazioniAttive": true,
 		"ListComponenteProposteThread": true, "ListRelazioneProposteThread": true, "ListFileDelFlusso": true,
 		"ListProposteDocumentoThread": true, "ListShaConFattiCorrenti": true, "ListLavoroPendenteRfq": true, "ListUltimiJobPerChiavi": true,
+		"GetAnalisiFatti":    true,
 		"ScriviDestinazione": true,
 	}
 	file, err := filepath.Glob("smistamento_*.go")
@@ -54,6 +59,9 @@ func TestIlFlussoScriveSoloLeDestinazioni(t *testing.T) {
 	for _, f := range file {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
+		}
+		if b, err := os.ReadFile(f); err != nil || strings.Contains(string(b), "internal/platform/contratti/worker") {
+			t.Errorf("%s legge i fatti del worker da se' (%v): il flusso consuma le evidenze normalizzate dal core", f, err)
 		}
 		for m := range chiamateSuQ(t, f) {
 			visti = append(visti, m)

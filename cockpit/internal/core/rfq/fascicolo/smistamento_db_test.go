@@ -331,6 +331,11 @@ func TestLaGetSegnalaLeProposteDaAggiornareSenzaScrivere(t *testing.T) {
 // prodotto: il suo 3D), radice vicina (bloccata), figlio diretto di uno STEP autorizzato accettato
 // (preselezionabile) e da accettare (no), candidato bloccato di uno STEP non autorizzato, «sospesa» senza
 // riferimento, il capitolato generale; nessuna scrittura sulle righe decise, e la GET non scrive.
+//
+// Giro 4, fase 4.2: in piu' la scena del PDF-ancora. Il prodotto 7120002 non ha STEP; «vista assieme.pdf», con i
+// fatti correnti, ha 7120002 nel cartiglio (un codice generico: la scena non ha regole del cliente): e' l'ancora
+// piatta del prodotto (A-P1), e il suo candidato verso il prodotto non e' preselezionato. «7120002.pdf», senza il
+// testo (nessun fatto corrente), resta «sospesa», con il motivo dell'ancora piatta.
 func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 	b := nuovoBanco(t)
 	s := b.scenaFlusso()
@@ -339,6 +344,7 @@ func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 	b.prodottoConfermato("7120004")
 	nonAut := b.stepLetto("7120004.stp", strings.Repeat("a4", 32), fattiSTEP{nodi: []string{"#1=7120004", "#2=7120040"}, archi: []string{"#1>#2"}})
 	d7120040 := b.disegnoPdf(s.msg, "7120040.pdf")
+	pdfAncora := b.disegnoConFatti(s.msg, "vista assieme.pdf", fattiTesto(t, "DISEGNO N. 7120002\nSCALA 1:5", "", ""))
 	decisa := b.disegnoPdf(s.msg, "7120010 vecchio.pdf")
 	b.esegui(`UPDATE documento_proposta SET stato = 'confermata', deciso_da = $2 WHERE allegato_id = $1`, decisa, b.utente)
 	b.rismista()
@@ -356,6 +362,7 @@ func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 		{"figlio diretto da accettare", s.d7120012, fascicolo.EsitoProposta, "1 7120012 dest_nodo_diretto_nome", false},
 		{"figlio di uno STEP non autorizzato", d7120040, fascicolo.EsitoProposta, "1 7120040 dest_nodo_non_autorizzato [step_non_autorizzato]", false},
 		{"prodotto senza riferimento", s.d7120002, fascicolo.EsitoSospesa, "", false},
+		{"il PDF-ancora del prodotto senza STEP", pdfAncora, fascicolo.EsitoProposta, "1 7120002 dest_componente_nome", false},
 		{"capitolato", s.capitolo, fascicolo.EsitoProposta, "1 generale dest_generale_contenuto", true},
 	}
 	for _, c := range casi {
@@ -369,6 +376,17 @@ func TestLeDestinazioniSulleScenePrincipali(t *testing.T) {
 	}
 	if d := b.dest(s.d7120002); d.Motivo != fascicolo.MotivoManca || strings.Join(d.ProdottiSenzaAncora, " ") != "7120002" {
 		t.Errorf("il prodotto senza riferimento: %s %v", d.Motivo, d.ProdottiSenzaAncora)
+	}
+	if d := b.dest(pdfAncora); d.Candidati[0].Ruolo != "disegno_del_prodotto" || d.Candidati[0].Bersaglio != "prodotto" {
+		t.Errorf("il PDF-ancora: %+v", d.Candidati[0])
+	}
+	if d := b.dest(s.d7120002); !strings.Contains(strings.Join(d.Evidenze, " | "), "il cartiglio di vista assieme.pdf dice 7120002 (A-P1)") {
+		t.Errorf("il disegno del prodotto senza testo dice l'ancora piatta: %v", d.Evidenze)
+	}
+	for _, a := range b.dest(pdfAncora).Ancore {
+		if a.Prodotto == "7120002" && (a.Livello != fascicolo.LivelloPiatta || strings.Join(a.File, " ") != "vista assieme.pdf" || strings.Join(a.Regole, " ") != "A-P1") {
+			t.Errorf("l'ancora piatta fotografata: %+v", a)
+		}
 	}
 	if d := b.dest(vicina.AllegatoID); d.Candidati[0].Ruolo != "candidato_strutturale" {
 		t.Errorf("la radice vicina: %+v", d.Candidati[0])

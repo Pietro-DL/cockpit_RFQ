@@ -16,6 +16,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/registro/regole"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -519,5 +520,54 @@ func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
 				t.Errorf("%s: il tipo e' detto (dal contenuto, o da una persona), e il piano chiede %q", nome, d.Testo)
 			}
 		}
+	}
+}
+
+// Giro 4, fase 4.2 (bug 3 della Distinta, 29/09): un PDF con il codice solo dal testo non e' «pronto» per sola
+// uguaglianza con un componente. «tavola.pdf» non ha codici nel nome, e il cartiglio dice 7120010 (un codice di
+// famiglia ACME): il componente 7120010 c'e', ma il file e' una domanda («il codice viene dal testo del PDF: e'
+// 7120010?»), con il componente accanto; lo stesso per «vista.pdf», che 7120010 lo ha solo nel titolo. Le
+// controprove: «7120010.pdf», con lo stesso cartiglio e il nome che lo dice, e' pronto; il codice deciso da una
+// persona e' pronto. La controprova a mano: senza codiceSoloDalTesto la tavola torna pronta e la prova fallisce.
+func TestIlCodiceLettoNelTestoNonFaPronto(t *testing.T) {
+	p := nuovoPiano()
+	m := classificazione.Compila("ACME", regole.Regole{FamiglieCodice: []regole.FamigliaCodice{{
+		Regex: `(?P<codice>712\d{4})`, Descrizione: "ACME 712", Esempio: "7120001"}}})
+	p.in.Motore = m
+	c := p.componente("7120010", db.TipoComponenteSciolto)
+	cartiglio := fattiPDF(t, testoFinto("DISEGNO N. 7120010\nSCALA 1:2", "", worker.MetadatiPDF{}))
+	titolo := fattiPDF(t, testoFinto("SCALA 1:2", "", worker.MetadatiPDF{Titolo: "7120010"}))
+	scrivi := func(nome string, fatti json.RawMessage) *FileAperto {
+		v := classificazione.Valuta(classificazione.IngressoFile{Da: classificazione.DaAnalisi, NomeFile: nome, Direzione: "entrata", Motore: m,
+			Esito: &classificazione.Esito{Tipo: "disegno_2d", Fonte: "cartiglio"}, Fatti: fatti})
+		dett, rp := classificazione.ConValutazione(fatti, v, time.Now())
+		f := p.file(nome, db.TipoDocumento(rp.Tipo), rp.Codice, rp.Rev)
+		f.Proposta.Confidenza, f.Proposta.Fonte, f.Proposta.Dettagli = int16(rp.Confidenza), db.FonteProposta(rp.Fonte), dett
+		return f
+	}
+	tavola := scrivi("tavola.pdf", cartiglio)
+	scrivi("vista.pdf", titolo)
+	scrivi("7120010.pdf", cartiglio)
+	deciso := scrivi("foglio 2.pdf", cartiglio)
+	deciso.Proposta.Fonte = db.FontePropostaOperatore
+	if tavola.Proposta.Codice.String != "7120010" {
+		t.Fatalf("la scena: il codice della tavola viene dal suo cartiglio: %+v", tavola.Proposta)
+	}
+
+	pf := PianoDelFascicolo(p.in)
+	for _, nome := range []string{"tavola.pdf", "vista.pdf"} {
+		v := vocePer(t, pf, nome)
+		deveEssere(t, v, VoceDecidere, DomandaCodice)
+		if len(v.Domande) == 0 || !strings.Contains(v.Domande[0].Testo, "il codice viene dal testo del PDF, non dal nome: è 7120010?") {
+			t.Errorf("%s: la domanda dice da dove viene il codice: %v", nome, v.Domande)
+		}
+		if v.Componente == nil || v.Componente.ComponenteID != c.ComponenteID {
+			t.Errorf("%s: la voce sa a quale componente il testo lo manderebbe: %+v", nome, v.Componente)
+		}
+	}
+	deveEssere(t, vocePer(t, pf, "7120010.pdf"), VocePronta, "")
+	deveEssere(t, vocePer(t, pf, "foglio 2.pdf"), VocePronta, "")
+	if pf.FilePronti() != 2 {
+		t.Errorf("i file pronti: %d, attesi 2 (il nome, la persona)", pf.FilePronti())
 	}
 }
