@@ -228,12 +228,15 @@ func TestScenarioMG(t *testing.T) {
 			"pdf_testo_famiglia per "+strings.Join(figli, ", "))
 	})
 
-	t.Run("da fare: la lettura del nome del file non esce dalle evidenze (MaxEvidenze)", func(t *testing.T) {
+	// Era un «da fare» del giro 4: la prova lo dava gia' soddisfatto nella base della fase 4.4a.1a (f87f5d2), e la fase
+	// l'ha sbloccato: adesso e' un'invariante.
+	t.Run("la lettura del nome del file non esce dalle evidenze (MaxEvidenze)", func(t *testing.T) {
 		_, gen := evidenzaDi(v100.Codice, "nome_codice_generico")
 		_, fam := evidenzaDi(v100.Codice, "nome_codice_famiglia")
-		daFare(t, gen || fam,
-			"con piu' di 8 letture a 85 il taglio a MaxEvidenze toglie quella del nome (45), e con lei il ripiego della colonna sul nome quando le fonti discordano",
-			fmt.Sprintf("%d evidenze, nessuna del nome", len(v100.Codice.Evidenze)))
+		if !gen && !fam {
+			t.Errorf("con piu' di 8 letture a 85 il taglio a MaxEvidenze ha tolto quella del nome (45), e con lei il ripiego della colonna "+
+				"sul nome quando le fonti discordano: %d evidenze, nessuna del nome", len(v100.Codice.Evidenze))
+		}
 	})
 
 	t.Run("da fare: il codice vero del disegno resta fra le evidenze", func(t *testing.T) {

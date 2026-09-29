@@ -165,6 +165,11 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // viste» dell'Anagrafica e il suo export Markdown, che sono solo dell'amministratore: per l'operatore e la
 // consultazione rispondono 403, per l'amministratore 200. Per questo le GET le fa anche l'amministratore,
 // tutte: le asserzioni di prima restano, e per lui valgono le stesse.
+//
+// Giro 4, fase 4.4a.1a: fra le GET anche l'albero proposto della Distinta e il riepilogo della bozza vuota; e la sola
+// POST che e' una LETTURA (distinta_albero.go), il riepilogo di una bozza, che l'operatore manda e chi consulta non
+// puo' mandare (403): anche lei non cambia una riga. La prova dedicata, con l'albero e le bozze che non si leggono, e'
+// TestAlberoPropostoNelWebNonScrive (distinta_albero_db_test.go).
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
@@ -236,6 +241,9 @@ func TestNessunaGetScrive(t *testing.T) {
 		{distinta + "/dati", false, true, false},
 		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=commerciale", false, true, false},
 		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=finito", false, true, false},
+		// Giro 4, fase 4.4a.1a: l'albero proposto e il riepilogo della bozza vuota
+		{distinta + "/albero", false, true, false},
+		{distinta + "/albero/riepilogo", false, true, false},
 	}
 	prima := fotoDelDatabase(t, b)
 	// il riepilogo c'e' davvero, con i percorsi che la conferma darebbe (e chi consulta lo vede senza il modulo)
@@ -274,6 +282,25 @@ func TestNessunaGetScrive(t *testing.T) {
 		if d := differenze(prima, fotoDelDatabase(t, b)); d != "" {
 			t.Errorf("le GET di %s hanno scritto in: %s", chi.nome, d)
 		}
+	}
+	// la POST che e' una lettura: il riepilogo di una bozza. L'operatore la manda (200), chi consulta no (403), e
+	// nessuna riga cambia
+	for _, c := range []struct {
+		w     *browser
+		corpo string
+		stato int
+	}{
+		{op, `{"formato": 1}`, http.StatusOK},
+		{op, `{"formato": 1, "tolti": [{"nodo": "cod:7129999"}]}`, http.StatusUnprocessableEntity},
+		{co, `{"formato": 1}`, http.StatusForbidden},
+		{co, `{"formato": 1, "tolti": [{"nodo": "cod:7129999"}]}`, http.StatusForbidden},
+	} {
+		if resp, _ := c.w.chiediJSON(http.MethodPost, distinta+"/albero/riepilogo", c.corpo); resp.StatusCode != c.stato {
+			t.Errorf("POST del riepilogo %s: %d, atteso %d", c.corpo, resp.StatusCode, c.stato)
+		}
+	}
+	if d := differenze(prima, fotoDelDatabase(t, b)); d != "" {
+		t.Errorf("la POST del riepilogo (una lettura) ha scritto in: %s", d)
 	}
 
 	if resp, _ := op.daFascicolo(http.MethodPost, base+"/prepara", url.Values{"auto": {"1"}}, s.thread, ""); resp.StatusCode != 200 {
