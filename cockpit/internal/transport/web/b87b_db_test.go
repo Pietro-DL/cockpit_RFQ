@@ -29,12 +29,13 @@ import (
 
 var reFirma = regexp.MustCompile(`name="firma" value="([0-9a-f]+)"`)
 
-// firmaDellaPagina e' la firma del piano che la pagina mostra.
+// firmaDellaPagina e' la firma del modulo che la pagina mostra: dal giro 4, fase 4.1b, quella del riepilogo di
+// «Conferma Fascicolo» (il cassetto «Rivedi»), non piu' quella del piano.
 func firmaDellaPagina(t *testing.T, html string) string {
 	t.Helper()
 	m := reFirma.FindStringSubmatch(html)
 	if m == nil {
-		t.Fatal("la pagina non porta la firma del piano")
+		t.Fatal("la pagina non porta la firma del riepilogo")
 	}
 	return m[1]
 }
@@ -304,6 +305,11 @@ func (b *bancoWeb) scenaConferma(chiave string) *scenaConferma {
 // la marcatura, e la struttura resta guida. Lo STEP si autorizza con l'anteprima e la casella (autorizzaDallaScheda,
 // che vuole l'analisi corrente del file: la scena ha i fatti dello STEP); da li' la struttura si vede e si
 // conferma nell'editor come prima.
+//
+// Riscritta di nuovo per il giro 4, fase 4.1b (domanda 9b = A): prima la conferma prendeva la firma del piano dalla
+// pagina (il modulo in fondo, con la firma gia' dentro) e con quella sola confermava tutto il pronto. Adesso la firma
+// e' quella del riepilogo (la GET del cassetto «Rivedi», che il bottone apre) e serve anche `conferma=1`: una firma
+// inventata dice che il riepilogo e' cambiato, la firma giusta senza la conferma non basta. Il resto e' com'era.
 func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	b := preparaBancoWeb(t)
 	ImpostaCapacitaProva(t, tutteAccese)
@@ -329,7 +335,10 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if !strings.Contains(verifica, "77722757.stp sarà l&#39;unico STEP di 77722757") {
 		t.Errorf("«Da verificare» dice lo STEP da autorizzare:\n%s", estratto(verifica, "STEP strutturale"))
 	}
-	firma := firmaDellaPagina(t, html)
+	if strings.Contains(html, `name="firma"`) {
+		t.Error("la pagina porta un modulo con la firma: la conferma si fa dal riepilogo")
+	}
+	firma := firmaDellaPagina(t, rivedi)
 	_, bom := w.fai(http.MethodGet, s.base()+"?vista=bom", nil, false)
 	if strings.Contains(bom, "Apri proposta BOM") || strings.Contains(bom, "+ proposto · assieme?") {
 		t.Error("la struttura di uno STEP non autorizzato e' guida: niente banner e niente proposte nella BOM")
@@ -341,8 +350,11 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 		t.Error("la struttura dello STEP non si applica piu' dal banner: si apre nell'editor")
 	}
 
-	if a := s.gestoC(w, url.Values{"firma": {"deadbeef00000000"}}); !strings.HasPrefix(a, "Niente è cambiato: il piano è cambiato") {
+	if a := s.gestoC(w, url.Values{"firma": {"deadbeef00000000"}, "conferma": {"1"}}); !strings.HasPrefix(a, "Niente è cambiato: il riepilogo è cambiato") {
 		t.Fatalf("firma vecchia: %q", a)
+	}
+	if a := s.gestoC(w, url.Values{"firma": {firma}}); !strings.HasPrefix(a, "Niente è cambiato: manca la conferma") {
+		t.Fatalf("la firma del riepilogo senza la conferma: %q", a)
 	}
 	if a := s.gestoC(w, url.Values{"voce": {s.pdfAssieme.String()}}); !strings.Contains(a, "77720517 non è nella BOM") {
 		t.Fatalf("il disegno di un pezzo che non c'e': %q", a)
@@ -360,7 +372,7 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 		t.Fatalf("i rifiuti hanno fatto nascere l'assieme: %d", n)
 	}
 
-	a := s.gestoC(w, url.Values{"firma": {firma}})
+	a := s.gestoC(w, url.Values{"firma": {firma}, "conferma": {"1"}})
 	for _, c := range []string{"Fascicolo confermato", "2 documenti (copie sul NAS in coda)"} {
 		if !strings.Contains(a, c) {
 			t.Errorf("avviso: manca %q in %q", c, a)
@@ -424,7 +436,8 @@ func TestConfermaFascicoloPortaNelFascicoloSoloIlPianoVisto(t *testing.T) {
 	if !strings.Contains(html, "<b>1</b> pronto") {
 		t.Errorf("dopo l'editor il disegno dell'assieme e' pronto:\n%s", estratto(html, `id="piano"`))
 	}
-	a = s.gestoC(w, url.Values{"firma": {firmaDellaPagina(t, html)}})
+	_, rivedi = w.fai(http.MethodGet, s.base()+"/parti?cassetto=piano", nil, true)
+	a = s.gestoC(w, url.Values{"firma": {firmaDellaPagina(t, rivedi)}, "conferma": {"1"}})
 	if !strings.Contains(a, "Fascicolo confermato") || !strings.Contains(a, "1 documento") {
 		t.Errorf("la seconda conferma: %q", a)
 	}

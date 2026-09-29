@@ -4,7 +4,8 @@
 // cartella, la riserva dei nomi da parte degli spostamenti e degli orfani, le cartelle che non si
 // tolgono finche' qualcuno le nomina.
 //
-// Nomi delle prove di A4.12 dell'addendum: 2, 3, 4, 7, 18, 55, 56, 58, e la parte L4 della 74.
+// Nomi delle prove di A4.12 dell'addendum: 2, 3, 4, 7, 18, 55, 56, 58, e la parte L4 della 74. Giro 4, fase 4.1b:
+// il percorso previsto del riepilogo di «Conferma Fascicolo», senza lucchetto e senza scrivere.
 
 package documenti
 
@@ -498,5 +499,64 @@ func TestIParteDeiTentativiViviTengonoLaCartella(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cartella, "x.dxf.parte."+vivo.String())); err != nil {
 		t.Errorf("il .parte vivo doveva restare: %v", err)
+	}
+}
+
+// ------------------------------------------------------------------ il percorso previsto (giro 4, fase 4.1b)
+
+// PercorsoPrevisto e' il percorso che la conferma sceglierebbe adesso, per il riepilogo di «Conferma Fascicolo»:
+// salta i nomi occupati (un documento, un orfano aperto) e quelli che il riepilogo ha gia' dato ai file prima
+// (presi); non scrive niente e non prende il lucchetto della cartella, quindi una GET non aspetta un gesto in
+// corso. La conferma che segue sceglie lo stesso percorso.
+func TestIlPercorsoPrevistoEQuelloCheLaConfermaSceglie(t *testing.T) {
+	conCapacita(t, tutto)
+	b := nuovoBancoNomi(t)
+	b.conferma(db.TipoDocumentoDisegno2d, "7120001", "B", "7120001 rev B.pdf", "foglio 1", uuid.NullUUID{})
+	cartella := `ELENCO DISEGNI\7120001`
+	nome := NomeSulNas(db.TipoDocumentoDisegno2d, "7120001", "B", "pdf", "7120001 foglio 2.pdf")
+	righe := func() string {
+		var n string
+		b.riga(`SELECT (SELECT count(*) FROM documento) || '/' || (SELECT count(*) FROM job) || '/' || (SELECT count(*) FROM nas_orfano)`, &n)
+		return n
+	}
+	prima := righe()
+
+	// un gesto tiene il lucchetto della cartella: il percorso previsto non lo aspetta
+	tx, err := b.p.Begin(b.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(b.ctx)
+	if err := BloccaCartella(b.ctx, db.New(tx), b.thread, cartella); err != nil {
+		t.Fatal(err)
+	}
+	ctx, fine := context.WithTimeout(b.ctx, 5*time.Second)
+	defer fine()
+	p, err := PercorsoPrevisto(ctx, b.q, b.thread, cartella, nome, nil)
+	if err != nil || p != `ELENCO DISEGNI\7120001\7120001_REV_B_2.pdf` {
+		t.Fatalf("il percorso previsto con il lucchetto preso da un altro: %q %v", p, err)
+	}
+	presi := map[string]bool{strings.ToLower(p): true}
+	if p, err := PercorsoPrevisto(ctx, b.q, b.thread, cartella, nome, presi); err != nil || p != `ELENCO DISEGNI\7120001\7120001_REV_B_3.pdf` {
+		t.Errorf("con il _2 gia' dato dal riepilogo: %q %v", p, err)
+	}
+	if err := tx.Rollback(b.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if dopo := righe(); dopo != prima {
+		t.Errorf("il percorso previsto ha scritto: %s → %s", prima, dopo)
+	}
+
+	// un orfano aperto sul _2: il previsto lo salta, e la conferma sceglie lo stesso percorso
+	if _, err := b.q.InsertNasOrfano(b.ctx, db.InsertNasOrfanoParams{ThreadID: b.thread, Percorso: `elenco disegni\7120001\7120001_rev_b_2.PDF`,
+		Motivo: db.MotivoOrfanoNonNostro}); err != nil {
+		t.Fatal(err)
+	}
+	p, err = PercorsoPrevisto(b.ctx, b.q, b.thread, cartella, nome, nil)
+	if err != nil || p != `ELENCO DISEGNI\7120001\7120001_REV_B_3.pdf` {
+		t.Fatalf("con l'orfano aperto: %q %v", p, err)
+	}
+	if d := b.conferma(db.TipoDocumentoDisegno2d, "7120001", "B", "7120001 foglio 2.pdf", "foglio 2", uuid.NullUUID{}); d.PathRelativo != p {
+		t.Errorf("la conferma sceglie %q, il previsto era %q", d.PathRelativo, p)
 	}
 }

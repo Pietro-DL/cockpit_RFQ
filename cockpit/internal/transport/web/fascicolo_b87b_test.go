@@ -82,9 +82,14 @@ func TestLaBomVisualeDisegnaIlProdottoELeProposteSottoDiLui(t *testing.T) {
 		"+ proposto · assieme?", "1 file lo aspetta", "+ arco proposto dallo STEP 77722757.stp", "prodotto finito")
 }
 
-// Il piano in fondo: pronti, da verificare, in preparazione; la conferma porta la firma del piano e si spegne
+// Il piano in fondo: pronti, da verificare, in preparazione; «Conferma Fascicolo» apre il riepilogo e si spegne
 // senza niente di pronto. Chi consulta vede i conti e non i comandi.
-func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
+//
+// Riscritta per il giro 4, fase 4.1b (domanda 9b = A): prima fissava che il piano portasse la firma del piano in
+// un modulo (hx-post su …/fascicolo/conferma) che, con un clic su «Conferma Fascicolo», confermava tutto il pronto
+// e faceva partire la copia sul NAS. Adesso «Conferma Fascicolo» e' un collegamento (una GET, come «Rivedi») al
+// riepilogo: nel piano non c'e' nessun modulo, nessuna firma, niente che scriva.
+func TestIlPianoInFondoApreIlRiepilogoSenzaFirma(t *testing.T) {
 	s := fascicoloSintetico()
 	comp := s.prodotto
 	s.d.Piano = fascicolo.PianoFascicolo{File: []fascicolo.VoceFile{
@@ -92,9 +97,11 @@ func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
 		{Proposta: uuid.New(), Nome: "anonimo.pdf", Tipo: db.TipoDocumentoDaDeterminare, Stato: fascicolo.VoceDecidere, Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaTipo, Testo: "che cos'è?"}}},
 		{Proposta: uuid.New(), Nome: "in arrivo.stp", Stato: fascicolo.VoceAttesa}}}
 	html := rendiParte(t, "fasc_piano", s.d)
-	haTesto(t, "piano", html, "<b>1</b> pronto", "<b>2</b> da verificare", "<b>1</b> in preparazione",
-		`name="firma" value="`+s.d.Piano.Firma()+`"`, `hx-post="/thread/`+s.d.T.ThreadID.String()+`/fascicolo/conferma"`, "Rivedi")
-	senzaTesto(t, "piano", html, `id="conferma-fascicolo" disabled`)
+	base := s.d.Base
+	haTesto(t, "piano", html, "<b>1</b> pronto", "<b>2</b> da verificare", "<b>1</b> in preparazione", "Rivedi",
+		`id="conferma-fascicolo" href="`+base+`?cassetto=piano" hx-get="`+base+`/parti?cassetto=piano"`, "Conferma Fascicolo…")
+	senzaTesto(t, "piano", html, `id="conferma-fascicolo" disabled`, `name="firma"`, `value="`+s.d.Piano.Firma()+`"`, "/fascicolo/conferma",
+		"<form", "hx-post")
 
 	s.d.Piano.File = s.d.Piano.File[1:]
 	html = rendiParte(t, "fasc_piano", s.d)
@@ -106,6 +113,11 @@ func TestIlPianoInFondoPortaLaFirmaDelPiano(t *testing.T) {
 }
 
 // «Da verificare» mostra solo le decisioni, ciascuna con il suo gesto; «Rivedi» le voci pronte, spuntate.
+//
+// Riscritta per il giro 4, fase 4.1b (domanda 9b = A), nella parte di «Rivedi»: prima fissava le caselle spuntate
+// con «Conferma i selezionati», senza percorsi e senza firma. Adesso «Rivedi» e' il riepilogo di «Conferma
+// Fascicolo»: le stesse caselle, con il componente e il percorso sul NAS, la firma del riepilogo (non quella del
+// piano) e «Conferma e copia sul NAS».
 //
 // Riscritta per lo Smistamento (R1, fase F2), nella voce 53999999.pdf («53999999 non è nella BOM»): prima
 // fissava il «+ Particolare» con la rotta …/codice/aggiungi, che faceva del codice letto dal file un
@@ -125,7 +137,7 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 				Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaComponente, Testo: "53999999 non è nella BOM"}}},
 			{Proposta: pSost, Allegato: uuid.New(), Nome: "77722757_B.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Rev: "B", Componente: &comp,
 				Correnti: []db.Documento{corrente}, Stato: fascicolo.VoceDecidere, Domande: []fascicolo.Domanda{{Chiave: fascicolo.DomandaSostituzione, Testo: "si aggiunge, o sostituisce quale?"}}},
-			{Proposta: pPronto, Allegato: uuid.New(), Nome: "77722757 foglio 2.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Componente: &comp,
+			{Proposta: pPronto, Allegato: uuid.New(), Nome: "77722757 foglio 2.pdf", Estensione: "pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77722757", Componente: &comp,
 				Aggiunge: true, Stato: fascicolo.VocePronta},
 			// Fascicolo v3: il file di un componente che nasce dalla struttura dello STEP la aspetta, e sa a quale nodo va
 			{Proposta: pAttesa, Allegato: uuid.New(), Nome: "77720517.pdf", Tipo: db.TipoDocumentoDisegno2d, Codice: "77720517", Stato: fascicolo.VoceDecidere,
@@ -152,11 +164,21 @@ func TestDaVerificareERivediMostranoCiascunoLeSueVoci(t *testing.T) {
 		t.Error("il file che aspetta la struttura offre di far nascere 77720517 fuori dalla struttura")
 	}
 
+	// «Rivedi» e' il riepilogo di «Conferma Fascicolo» (giro 4, fase 4.1b): la voce pronta, spuntata, con il suo
+	// componente e il percorso sul NAS; il modulo porta la firma del riepilogo e la conferma esplicita
 	s.d.Stato.Cassetto = "piano"
+	rp, err := riepilogoDa(s.d.Piano, `ACME\WIP\2026 09 29 RFQ 77722757`, percorsoFinto(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.d.Riepilogo = &rp
 	html = rendiParte(t, "fasc_cassetto", s.d)
 	haTesto(t, "rivedi", html, `name="voce" value="`+pPronto.String()+`" checked`, "77722757 foglio 2.pdf", "si aggiunge",
-		`class="k rivedi-strutture"`, "(assieme.stp) non entra da qui", "Struttura BOM", "Conferma i selezionati")
-	senzaTesto(t, "rivedi", html, `value="`+pTipo.String()+`"`, `value="`+pSost.String()+`"`, `value="`+pAttesa.String()+`"`, `name="struttura"`)
+		`class="k rivedi-strutture"`, "(assieme.stp) non entra da qui", "Struttura BOM", "Conferma e copia sul NAS",
+		`di <span class="mono">77722757</span>`, `sul NAS: <span class="mono">ELENCO DISEGNI\77722757\77722757_REV_ND.pdf</span>`,
+		`name="firma" value="`+rp.Firma+`"`, `name="conferma" value="1"`)
+	senzaTesto(t, "rivedi", html, `value="`+pTipo.String()+`"`, `value="`+pSost.String()+`"`, `value="`+pAttesa.String()+`"`, `name="struttura"`,
+		`value="`+s.d.Piano.Firma()+`"`, "Conferma i selezionati")
 }
 
 // L'avanzamento: con del lavoro in corso l'elemento porta il poll, e l'attesa si allunga quando non cambia

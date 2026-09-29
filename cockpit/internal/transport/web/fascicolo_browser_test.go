@@ -193,7 +193,8 @@ func TestL7CentoAllegati(t *testing.T) {
 
 // «Conferma Fascicolo» (B8.7b): il riepilogo spunta tutto il pronto, un gesto porta nel fascicolo i documenti
 // e lo STEP strutturale del prodotto, senza ricaricare. Fascicolo v3: la struttura dello STEP non entra con
-// quel gesto; entra dopo, dall'editor della Struttura BOM, e lo script lo verifica fra i due.
+// quel gesto; entra dopo, dall'editor della Struttura BOM, e lo script lo verifica fra i due. Giro 4, fase 4.1b:
+// il bottone apre il riepilogo (con i percorsi sul NAS) e non scrive; il gesto e' «Conferma e copia sul NAS».
 func TestL7ConfermaFascicolo(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaL7(t, "L7I", 0)

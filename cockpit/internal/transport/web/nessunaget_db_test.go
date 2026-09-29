@@ -155,9 +155,17 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // che con la PR #8 e' la pagina con cui si apre una richiesta. Prima l'elenco non le aveva (la Distinta non era nel
 // ramo delle prove); le verifiche di prima restano tutte. La prova dedicata, con ogni gruppo del passo 3, e'
 // TestLeGetDellaDistintaNonScrivono (distinta_db_test.go).
+//
+// Giro 4, fase 4.1b: anche il riepilogo di «Conferma Fascicolo» (il cassetto «Rivedi», con htmx e senza), che
+// sceglie i percorsi sul NAS come la conferma ma senza lucchetto e senza riservarli. Perche' calcoli davvero dei
+// percorsi, la scena ha due file pronti: il disegno di 7120020 (un componente senza disegni) e un capitolato.
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
+	s.componente("7120020")
+	s.propostaDa("7120020.pdf", "7120020")
+	capitolato, _ := s.propostaDa("Capitolato ACME.pdf", "")
+	s.esegui(`UPDATE documento_proposta SET tipo_proposto = 'capitolato', fonte = 'operatore', confidenza = 100 WHERE proposta_id = $1`, capitolato)
 	base := s.base()
 	distinta := "/thread/" + s.thread.String() + "/distinta"
 	op := operatore(b)
@@ -184,6 +192,7 @@ func TestNessunaGetScrive(t *testing.T) {
 		{base + "?file=" + s.letto.String(), false, true},
 		{base + "/parti?vista=bom", true, true},
 		{base + "/parti?cassetto=verifica", true, true},
+		{base + "/parti?cassetto=piano", true, true},
 		{base + "/parti?nodo=" + s.pezzo.String(), true, true},
 		{base + "/anteprima?nodo=" + s.pezzo.String(), true, true},
 		{base + "/anteprima?file=" + s.letto.String(), true, true},
@@ -217,6 +226,22 @@ func TestNessunaGetScrive(t *testing.T) {
 		{distinta + "/tipo?componente=" + s.pezzo.String() + "&tipo=finito", false, true},
 	}
 	prima := fotoDelDatabase(t, b)
+	// il riepilogo c'e' davvero, con i percorsi che la conferma darebbe (e chi consulta lo vede senza il modulo)
+	for _, chi := range []struct {
+		nome   string
+		w      *browser
+		modulo bool
+	}{{"operatore", op, true}, {"consultazione", co, false}} {
+		_, html := chi.w.fai(http.MethodGet, base+"?cassetto=piano", nil, false)
+		for _, c := range []string{`ELENCO DISEGNI\7120020\7120020_REV_ND.pdf`, `CAPITOLATI\Capitolato ACME.pdf`} {
+			if !strings.Contains(leggibile(html), c) {
+				t.Errorf("%s: il riepilogo non mostra %s", chi.nome, c)
+			}
+		}
+		if strings.Contains(html, "Conferma e copia sul NAS</button>") != chi.modulo {
+			t.Errorf("%s: il modulo della conferma nel riepilogo: %v", chi.nome, !chi.modulo)
+		}
+	}
 	for _, chi := range []struct {
 		nome string
 		w    *browser
