@@ -487,9 +487,14 @@ func TestIlPianoConISuffissiDecorativi(t *testing.T) {
 
 // Che cos'e' un file lo dice la dimensione `tipo` della sua valutazione (Smistamento F4, piano.go:529): il piano
 // chiede quando nessuna evidenza dice il tipo, o quando lo dice solo l'estensione («altro»). Prima guardava la
-// colonna (`altro` con fonte `estensione`), e con la fonte in colonna che adesso e' quella del codice un «.dft»
-// con il codice nel nome saltava la domanda. Una riga dell'operatore e' una decisione: non chiede; un tipo letto
-// nel contenuto nemmeno.
+// colonna (`altro` con fonte `estensione`), e con la fonte in colonna che adesso e' quella del codice un file
+// «altro» con il codice nel nome saltava la domanda. Una riga dell'operatore e' una decisione: non chiede; un tipo
+// letto nel contenuto nemmeno.
+//
+// Riscritta per lo Smistamento (4.13b, scelta 7 del 28/09): prima fissava «7120001.dft» come il file che solo
+// l'estensione dice «altro». Dalla 4.13b il `.dft` di Solid Edge e' un disegno 2D per tutti: l'esempio del file
+// «altro» e' un `.txt`, con le stesse asserzioni, e il `.dft` ha la sua: il tipo lo dice l'estensione, e il piano
+// non chiede piu' che cosa sia.
 func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
 	p := nuovoPiano()
 	p.componente("7120001", db.TipoComponenteFinito)
@@ -498,11 +503,13 @@ func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
 		f.Proposta.TipoProposto, f.Proposta.Codice, f.Proposta.Rev = db.TipoDocumento(rp.Tipo), testoP(rp.Codice), testoP(rp.Rev)
 		f.Proposta.Confidenza, f.Proposta.Fonte, f.Proposta.Dettagli = int16(rp.Confidenza), db.FonteProposta(rp.Fonte), dett
 	}
+	altro := p.file("7120001.txt", db.TipoDocumentoAltro, "7120001", "")
+	scrivi(altro, classificazione.IngressoFile{NomeFile: "7120001.txt", Bytes: 50_000})
+	if altro.Proposta.Fonte != db.FontePropostaNomeFile {
+		t.Fatalf("la fonte in colonna e' quella del codice: %s", altro.Proposta.Fonte)
+	}
 	dft := p.file("7120001.dft", db.TipoDocumentoAltro, "7120001", "")
 	scrivi(dft, classificazione.IngressoFile{NomeFile: "7120001.dft", Bytes: 50_000})
-	if dft.Proposta.Fonte != db.FontePropostaNomeFile {
-		t.Fatalf("la fonte in colonna e' quella del codice: %s", dft.Proposta.Fonte)
-	}
 	pdf := p.file("7120001.pdf", db.TipoDocumentoDisegno2d, "7120001", "")
 	scrivi(pdf, classificazione.IngressoFile{NomeFile: "7120001.pdf", Esito: &classificazione.Esito{Tipo: "disegno_2d", Fonte: "cartiglio"},
 		Fatti: json.RawMessage(`{"cartiglio": true, "termini_trovati": ["SCALA"]}`)})
@@ -512,9 +519,9 @@ func TestLaDomandaSulTipoLaFaLaValutazione(t *testing.T) {
 	deciso.Proposta.Fonte = db.FontePropostaOperatore
 
 	pf := PianoDelFascicolo(p.in)
-	deveEssere(t, vocePer(t, pf, "7120001.dft"), VoceDecidere, DomandaTipo)
+	deveEssere(t, vocePer(t, pf, "7120001.txt"), VoceDecidere, DomandaTipo)
 	deveEssere(t, vocePer(t, pf, "7120001_B.pdf"), VoceDecidere, DomandaTipo)
-	for _, nome := range []string{"7120001.pdf", "7120001.doc"} {
+	for _, nome := range []string{"7120001.pdf", "7120001.doc", "7120001.dft"} {
 		for _, d := range vocePer(t, pf, nome).Domande {
 			if d.Chiave == DomandaTipo {
 				t.Errorf("%s: il tipo e' detto (dal contenuto, o da una persona), e il piano chiede %q", nome, d.Testo)
@@ -573,5 +580,51 @@ func TestIlCodiceLettoNelTestoNonFaPronto(t *testing.T) {
 	deveEssere(t, vocePer(t, pf, "foglio 2.pdf"), VocePronta, "")
 	if pf.FilePronti() != 2 {
 		t.Errorf("i file pronti: %d, attesi 2 (il nome, la persona)", pf.FilePronti())
+	}
+}
+
+// Smistamento 4.13b, correzione 1: il numero d'ordine del cliente («ODA_0001234», la voce `numero_ordine`) non e'
+// mai il codice suggerito dal nome di un file. Ne' quando si rilegge dal nome (la proposta senza
+// `codici_nel_nome`), ne' da una proposta scritta prima della voce, che lo porta nei dettagli; e si toglie prima
+// di contare i codici citati, cosi' il codice vero accanto all'ordine resta suggerito. La controprova e' lo stesso
+// piano senza la voce: l'ordine torna suggerito come prima.
+func TestIlNumeroDOrdineNonESuggeritoDalNome(t *testing.T) {
+	r, err := regole.ValidaRegole([]byte(`{"numero_ordine": {"regex": "\\bODA_\\d{7}\\b", "descrizione": "ordini ODA", "esempio": "ODA_0001234"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := nuovoPiano()
+	// il file «altro», che il piano chiede che cosa sia suggerendo il codice citato nel nome
+	scrivi := func(nome, dettagli string) {
+		f := p.file(nome, db.TipoDocumentoAltro, "", "")
+		dett, rp := classificazione.ConValutazione(json.RawMessage(dettagli), classificazione.Valuta(classificazione.IngressoFile{NomeFile: nome, Bytes: 50_000}), time.Now())
+		f.Proposta.TipoProposto, f.Proposta.Confidenza, f.Proposta.Fonte, f.Proposta.Dettagli = db.TipoDocumento(rp.Tipo), int16(rp.Confidenza), db.FonteProposta(rp.Fonte), dett
+	}
+	scrivi("Ordine ODA_0001234.txt", `{}`)                                                   // si rilegge dal nome
+	scrivi("ODA_0001234 conferma.txt", `{"codici_nel_nome": ["ODA_0001234"]}`)               // scritta prima della voce
+	scrivi("ODA_0001234 per 7120010.txt", `{"codici_nel_nome": ["ODA_0001234", "7120010"]}`) // l'ordine e un codice vero
+	casi := []struct{ nome, conVoce, senzaVoce string }{
+		{"Ordine ODA_0001234.txt", "", "ODA_0001234"},
+		{"ODA_0001234 conferma.txt", "", "ODA_0001234"},
+		// con due codici citati il piano non suggerisce: senza l'ordine ne resta uno, e si suggerisce
+		{"ODA_0001234 per 7120010.txt", "7120010", ""},
+	}
+	for _, conVoce := range []bool{true, false} {
+		p.in.Motore = nil
+		if conVoce {
+			p.in.Motore = classificazione.Compila("ACME", r)
+		}
+		pf := PianoDelFascicolo(p.in)
+		for _, c := range casi {
+			v := vocePer(t, pf, c.nome)
+			deveEssere(t, v, VoceDecidere, DomandaTipo)
+			atteso := c.senzaVoce
+			if conVoce {
+				atteso = c.conVoce
+			}
+			if v.Suggerito != atteso {
+				t.Errorf("%s (voce %v): suggerito %q, atteso %q", c.nome, conVoce, v.Suggerito, atteso)
+			}
+		}
 	}
 }
