@@ -21,7 +21,10 @@ markmap:
 - **HTML, salvo le eccezioni dichiarate.** Rispondono con altro:
   - `GET /healthz`: JSON `worker.Salute` (`server.go:healthz`);
   - `GET /thread/{id}/fascicolo/bom/dati`: JSON con `Cache-Control: no-store` (`fascicolo_editor.go:fascicoloDatiEditor`),
-    chiesto da `fascicolo.mjs` con `fetch`, mai da htmx;
+    chiesto da `fascicolo.mjs` e da `distinta.mjs` con `fetch`, mai da htmx;
+  - `GET /thread/{id}/distinta/dati` (i PDF, le note e la completezza della Distinta) e `GET /thread/{id}/distinta/tipo`
+    (l'anteprima di un cambio di tipo, con la firma): JSON con `Cache-Control: no-store` (`distinta.go`), chiesti da
+    `distinta.mjs` con `fetch`;
   - `GET /allegato/{id}/anteprima`: i byte del PDF (`anteprima.go:anteprima`), che si aprono solo come documento (iframe,
     pdf.js, scheda nuova);
   - `POST /admin/postazioni/{host}/pacchetto`: lo zip del pacchetto, in download (`postazioni_admin.go:pacchettoWorker`);
@@ -103,6 +106,14 @@ markmap:
 - **Pagina Richieste**
   - File: `panoramica.go`
   - Schermata: `/richieste`: una card per RFQ
+- **Distinta (quattro passi)**
+  - File: `distinta.go`
+  - Schermata: `/thread/{id}/distinta?passo=richiesta|distinta|documenti|fattibilita`: la stessa RFQ del Fascicolo
+    nell'ordine del lavoro (proposta in `cockpit/_fasi/PROPOSTA_DISTINTA.md`).
+    - Legge `caricaThread` e `caricaFascicolo` e non scrive niente; i gesti sono le rotte del Fascicolo, e quando
+      `HX-Current-URL` e' la Distinta `threadFrammento` risponde con il suo corpo (`dallaDistinta`, `rispondiDistinta`).
+    - La struttura si salva con `POST /fascicolo/bom/applica`, come l'editor; il visore e le note sono quelli della vista
+      Documenti (`/allegato/{id}/anteprima`, `/fascicolo/nota`).
 - **Fascicolo: schermata e viste**
   - File: `fascicolo_pagina.go`, `fascicolo_rotte.go`, `fascicolo_bom.go`, `fascicolo_dettaglio.go`
   - Schermata: `/thread/{id}/fascicolo`

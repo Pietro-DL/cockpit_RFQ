@@ -22,9 +22,21 @@ import (
 	"promatec/cockpit/internal/platform/db"
 )
 
-// TipiNuovo sono i tipi con cui nasce un componente scritto nell'editor: assieme o particolare. Un prodotto
-// nasce dai codici della richiesta, un commerciale non si disegna nella struttura.
-var TipiNuovo = []db.TipoComponente{db.TipoComponenteSottoassieme, db.TipoComponenteSciolto}
+// TipiNuovo sono i tipi con cui nasce un componente scritto nell'editor: assieme, particolare o particolare
+// commerciale (la Distinta ha un pulsante per ciascuno). Un prodotto nasce dai codici della richiesta.
+var TipiNuovo = []db.TipoComponente{db.TipoComponenteSottoassieme, db.TipoComponenteSciolto, db.TipoComponenteCommerciale}
+
+// Contenitore dice se un componente di quel tipo puo' avere dei pezzi sotto: il prodotto e l'assieme si',
+// il particolare e il particolare commerciale no.
+func Contenitore(t db.TipoComponente) bool {
+	return t == db.TipoComponenteFinito || t == db.TipoComponenteSottoassieme
+}
+
+// fraseNonContenitore e' il rifiuto di un pezzo messo sotto un particolare, per l'operatore.
+func fraseNonContenitore(codice string, t db.TipoComponente) string {
+	return fmt.Sprintf("%s è %s: sotto non ci va niente. I pezzi stanno sotto il prodotto e sotto gli assiemi; "+
+		"se %s contiene dei pezzi, cambialo prima in assieme", codice, NomeTipoFrase(t), codice)
+}
 
 // EsitoCodiceNuovo e' quello che la RFQ sa del codice che l'operatore sta scrivendo.
 type EsitoCodiceNuovo struct {

@@ -128,6 +128,12 @@ func collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente u
 	case !errors.Is(err, pgx.ErrNoRows):
 		return "", false, err
 	}
+	// Sotto un particolare e sotto un particolare commerciale non si mette niente: i pezzi stanno sotto il
+	// prodotto e sotto gli assiemi. Il tipo lo cambia una persona, prima; un arco che c'e' gia' (la quantita'
+	// qui sopra) resta com'e'.
+	if !Contenitore(p.Tipo) {
+		return "", false, Rifiuto(fraseNonContenitore(p.Codice, p.Tipo))
+	}
 	archi, err := archiAttivi(ctx, q, thread)
 	if err != nil {
 		return "", false, err

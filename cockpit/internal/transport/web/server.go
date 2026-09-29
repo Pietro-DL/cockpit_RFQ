@@ -229,7 +229,9 @@ var funzioni = template.FuncMap{
 	// Smistamento M1: la proposta del triage senza percentuali («RFQ: forte», «nuova RFQ? score 60»)
 	"chipTriage": chipTriage,
 	"join":       strings.Join,
-	"hasPrefix":  strings.HasPrefix,
+	// arr mette piu' valori in un elenco, per passarli insieme a un template: {{template "x" (arr $v .)}}
+	"arr":       func(x ...any) []any { return x },
+	"hasPrefix": strings.HasPrefix,
 	// il colore della riga dell'Inbox, coerente col chip del triage (Smistamento M1)
 	"colore": coloreTriage,
 	// Smistamento M2: il chip dell'evento di una riga (nil se il triage non ha scritto un atto) e i
@@ -274,7 +276,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html", "distinta.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -320,6 +322,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.autenticato(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/inbox", http.StatusFound) }))
 	s.registraInbox(mux)
 	s.registraRFQ(mux)
+	s.registraDistinta(mux)
 	s.registraPostazioni(mux)
 	s.registraAdmin(mux)
 }

@@ -12,7 +12,7 @@
 <header class="thread-testata">
   <div>
     <p class="briciole"><a href="/richieste">Richieste</a> › {{.Riga.Cliente}}</p>
-    <h1>{{.T.Oggetto.String}}</h1>
+    <h1>{{.T.Oggetto.String}} <a class="bottone primario" href="/thread/{{.T.ThreadID}}/distinta" style="font-size:14px;vertical-align:middle">Apri la Distinta →</a></h1>
     <div class="meta">
       <div><b>Cartella:</b> <code>{{.T.CartellaRelativa.String}}</code> {{if .T.CartellaCreata}}<span class="chip fatto">creata</span>{{else}}<span class="chip pronto">in creazione</span>{{end}}</div>
       <div><b>Buyer:</b> {{if .Riga.Buyer.Valid}}{{.Riga.Buyer.String}}{{else}}<em class="muto">—</em>{{end}}
@@ -85,7 +85,7 @@
     {{/* B8.7: la struttura e il fascicolo per componente hanno la loro schermata. Qui resta il riepilogo,
          che dice se c'e' da andarci, e il link. */}}
     <div class="riepilogo-fascicolo">
-      <p><a class="bottone primario" href="/thread/{{.T.ThreadID}}/fascicolo">Apri il Fascicolo</a></p>
+      <p><a class="bottone primario" href="/thread/{{.T.ThreadID}}/distinta">Apri la Distinta</a> <a class="bottone" href="/thread/{{.T.ThreadID}}/fascicolo" title="La schermata di prima, con i gesti avanzati: revisioni, autorizzazione degli STEP, deroghe">Fascicolo completo</a></p>
       {{if .Scrive}}<form method="post" action="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-post="/thread/{{.T.ThreadID}}/fascicolo/prepara" hx-target="#thread">
         <button type="submit" class="piccolo" title="Scarica i file utili, estrae gli archivi e accoda le analisi che mancano. La pagina lo fa da sola quando si apre">Prepara i file</button>
       </form>{{end}}

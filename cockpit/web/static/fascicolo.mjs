@@ -1531,7 +1531,7 @@ class Editor {
       } else r.append(el("span", { class: "bomed-cod" }, this.nome(ref)));
       if (n.rev) r.append(el("span", { class: "k" }, "rev " + n.rev));
       if (n.desc) r.append(el("span", { class: "bomed-desc", title: n.desc }, n.desc));
-      r.append(el("span", { class: "bomed-tipo" }, n.finito ? "prodotto" : ({ sottoassieme: "assieme", sciolto: "particolare", commerciale: "commerciale" }[n.tipo] || "")));
+      r.append(el("span", { class: "bomed-tipo" }, n.finito ? "prodotto" : ({ sottoassieme: "assieme", sciolto: "particolare", commerciale: "particolare commerciale" }[n.tipo] || "")));
       if (n.proposto || (arco && arco.prop)) r.append(el("span", { class: "bomed-badge prop", title: n.file ? "dallo STEP " + n.file : "" }, "proposto"));
       if (n.nuovo) r.append(el("span", { class: "bomed-badge info", title: "Codice scritto da te: il componente nasce con la conferma" }, "nuovo"));
       if (arco && arco.prop && this.ritrovati.has(ref)) r.append(el("span", { class: "bomed-badge info", title: "Il nodo dello STEP ha lo stesso codice di questo componente: confermando lo accetti come questo componente" }, "ritrovato per codice"));

@@ -107,6 +107,10 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 // Se l'azione viene dalla schermata del Fascicolo di questa RFQ (B8.7), risponde come quella: l'avviso e
 // i pannelli fuori banda, senza toccare l'anteprima.
 func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid.UUID, avviso string) {
+	if passo, ok := dallaDistinta(r.Header, id); ok {
+		s.rispondiDistinta(w, r, id, passo, avviso)
+		return
+	}
 	if st, ok := dalFascicolo(r.Header, id); ok {
 		s.rispondiFascicolo(w, r, id, st, avviso)
 		return
