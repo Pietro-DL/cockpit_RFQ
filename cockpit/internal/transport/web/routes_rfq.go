@@ -37,9 +37,7 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	// La pagina Richieste, con le card delle RFQ e le schede dei prodotti (panoramica.go).
 	mux.HandleFunc("GET /richieste", s.autenticato(s.richieste))
-	// Le Richieste nuove (richieste_ui.go): la RFQ scelta accanto all'elenco, e il passaggio di fase a mano
-	mux.HandleFunc("GET /richieste/{id}/dettaglio", s.autenticato(s.richiestaDettaglio))
-	mux.HandleFunc("POST /thread/{id}/fase", s.autenticato(s.passaFase))
+	mux.HandleFunc("GET /richieste/{id}/prodotti", s.autenticato(s.richiestaProdotti))
 }
 
 // cruscotto non esiste piu' come tabella globale (checkpoint 3R §1): era la stessa lista di

@@ -140,20 +140,6 @@ func (q *Queries) CollegaConversazione(ctx context.Context, arg CollegaConversaz
 	return err
 }
 
-const contaDecisioniOggi = `-- name: ContaDecisioniOggi :one
-SELECT count(DISTINCT messaggio_id)::int FROM messaggio_aggancio_log
-WHERE utente_id = $1 AND azione IN ('aggancia', 'ignora') AND eseguito_il >= date_trunc('day', now())
-`
-
-// Le mail decise oggi da questa persona (agganciate o ignorate), per la barra dell'Inbox: una mail decisa due
-// volte conta una.
-func (q *Queries) ContaDecisioniOggi(ctx context.Context, utenteID uuid.NullUUID) (int32, error) {
-	row := q.db.QueryRow(ctx, contaDecisioniOggi, utenteID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const contaInbox = `-- name: ContaInbox :one
 SELECT count(*) FILTER (WHERE thread_id IS NULL AND NOT ignorato) AS orfani,
        count(*) FILTER (WHERE thread_id IS NOT NULL)             AS agganciati,
@@ -526,18 +512,8 @@ WHERE ($1::text = 'tutti'
   AND ($2::uuid IS NULL OR $2::uuid = ANY (caselle_id))
   AND ($3::text = '' OR quadrante = $3::text)
   AND ($4::text = '' OR direzione::text = $4::text)
-  -- La ricerca dell'Inbox: ` + "`" + `cerca` + "`" + ` e' gia' il modello ILIKE ('%testo%', % _ \ protetti dal Go) e guarda
-  -- oggetto, mittente, cliente e controparte, i nomi degli allegati e il testo della mail. NULL non filtra.
-  AND ($5::text IS NULL
-       OR oggetto ILIKE $5::text
-       OR mittente_nome ILIKE $5::text
-       OR mittente_indirizzo ILIKE $5::text
-       OR cliente ILIKE $5::text
-       OR controparte ILIKE $5::text
-       OR EXISTS (SELECT 1 FROM allegato a WHERE a.messaggio_id = v_inbox.messaggio_id AND a.nome_file ILIKE $5::text)
-       OR EXISTS (SELECT 1 FROM messaggio mm WHERE mm.messaggio_id = v_inbox.messaggio_id AND mm.corpo_testo ILIKE $5::text))
 ORDER BY data_evento DESC
-LIMIT $7 OFFSET $6
+LIMIT $6 OFFSET $5
 `
 
 type ListInboxParams struct {
@@ -545,7 +521,6 @@ type ListInboxParams struct {
 	Casella   uuid.NullUUID `json:"casella"`
 	Quadrante string        `json:"quadrante"`
 	Direzione string        `json:"direzione"`
-	Cerca     pgtype.Text   `json:"cerca"`
 	Salta     int32         `json:"salta"`
 	Limite    int32         `json:"limite"`
 }
@@ -562,7 +537,6 @@ func (q *Queries) ListInbox(ctx context.Context, arg ListInboxParams) ([]VInbox,
 		arg.Casella,
 		arg.Quadrante,
 		arg.Direzione,
-		arg.Cerca,
 		arg.Salta,
 		arg.Limite,
 	)
@@ -864,93 +838,6 @@ func (q *Queries) ListSyncCursoriCasella(ctx context.Context, casellaID uuid.UUI
 			&i.CasellaID,
 			&i.CopertoFinoA,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listVicini = `-- name: ListVicini :many
-SELECT v.messaggio_id, v.oggetto, v.mittente_nome, v.mittente_indirizzo, v.data_evento
-FROM v_inbox v, v_inbox x
-WHERE x.messaggio_id = $1
-  AND v.messaggio_id <> x.messaggio_id
-  AND v.thread_id IS NULL AND NOT v.ignorato
-  AND v.direzione = 'entrata'
-  AND v.dominio = x.dominio AND x.dominio IS NOT NULL AND x.dominio <> ''
-  AND NOT (x.dominio = ANY ($2::text[]))
-  AND v.data_evento BETWEEN x.data_evento - interval '30 minutes' AND x.data_evento + interval '30 minutes'
-ORDER BY v.data_evento
-LIMIT 5
-`
-
-type ListViciniParams struct {
-	MessaggioID uuid.UUID `json:"messaggio_id"`
-	Pubblici    []string  `json:"pubblici"`
-}
-
-type ListViciniRow struct {
-	MessaggioID       uuid.UUID   `json:"messaggio_id"`
-	Oggetto           pgtype.Text `json:"oggetto"`
-	MittenteNome      pgtype.Text `json:"mittente_nome"`
-	MittenteIndirizzo pgtype.Text `json:"mittente_indirizzo"`
-	DataEvento        time.Time   `json:"data_evento"`
-}
-
-// «Della stessa richiesta, forse»: gli orfani non ignorati dello stesso dominio del mittente, arrivati entro
-// mezz'ora da questo (il link del portale che segue la richiesta di un minuto). Si mostrano e basta: entrano
-// in una RFQ solo se chi decide li spunta, uno per uno. Un dominio pubblico non fa vicini.
-func (q *Queries) ListVicini(ctx context.Context, arg ListViciniParams) ([]ListViciniRow, error) {
-	rows, err := q.db.Query(ctx, listVicini, arg.MessaggioID, arg.Pubblici)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListViciniRow{}
-	for rows.Next() {
-		var i ListViciniRow
-		if err := rows.Scan(
-			&i.MessaggioID,
-			&i.Oggetto,
-			&i.MittenteNome,
-			&i.MittenteIndirizzo,
-			&i.DataEvento,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const nomiThread = `-- name: NomiThread :many
-SELECT thread_id, COALESCE(NULLIF(riferimento_cliente, ''), oggetto, cartella_relativa)::text AS nome
-FROM thread_offerta WHERE thread_id = ANY($1::uuid[])
-`
-
-type NomiThreadRow struct {
-	ThreadID uuid.UUID `json:"thread_id"`
-	Nome     string    `json:"nome"`
-}
-
-// Il nome breve di alcune RFQ, per le righe dell'Inbox che ne propongono una.
-func (q *Queries) NomiThread(ctx context.Context, threadIds []uuid.UUID) ([]NomiThreadRow, error) {
-	rows, err := q.db.Query(ctx, nomiThread, threadIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []NomiThreadRow{}
-	for rows.Next() {
-		var i NomiThreadRow
-		if err := rows.Scan(&i.ThreadID, &i.Nome); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

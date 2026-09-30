@@ -26,36 +26,11 @@ SELECT v.thread_id, t.cliente_id, v.cliente, c.ragione_sociale, c.peso AS peso_c
          WHERE f.thread_id = v.thread_id AND f.bloccante
            AND f.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato'))::int AS n_bloccanti,
        v.n_da_smistare, v.identificativi,
-       -- Le Richieste nuove (mockup_richieste.html): di chi e' la palla (l'ufficio della fase), le richieste ai
-       -- fornitori senza risposta e con l'offerta, e l'ultimo sollecito del buyer negli ultimi 14 giorni (l'atto
-       -- «sollecito» che il triage ha letto su una mail della RFQ).
-       COALESCE(fc.ufficio, '')::text AS ufficio,
-       (SELECT count(*) FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'inviata')::int AS n_forn_attesa,
-       (SELECT count(*) FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'offerta_ricevuta')::int AS n_forn_offerte,
-       -- senza sollecito: l'istante zero, che il Go legge come «nessuno» (time.Time.IsZero)
-       COALESCE((SELECT max(m.data_evento) FROM messaggio m JOIN proposta_triage pt ON pt.messaggio_id = m.messaggio_id
-         WHERE m.thread_id = v.thread_id AND pt.atto = 'sollecito' AND m.data_evento > now() - interval '14 days'),
-         '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS sollecito_il,
        count(*) OVER () AS totale
 FROM v_cruscotto v
 JOIN thread_offerta t ON t.thread_id = v.thread_id
 JOIN cliente c        ON c.cliente_id = t.cliente_id
-LEFT JOIN fase_catalogo fc ON fc.nome_fase = v.nome_fase
 WHERE (sqlc.narg(stato)::stato_thread IS NULL OR v.stato_thread = sqlc.narg(stato)::stato_thread)
-  AND (sqlc.narg(thread_id)::uuid IS NULL OR v.thread_id = sqlc.narg(thread_id)::uuid)
-  AND (sqlc.narg(ufficio)::text IS NULL OR COALESCE(fc.ufficio, '') = sqlc.narg(ufficio)::text
-       OR (sqlc.narg(ufficio)::text = 'Commerciale' AND fc.ufficio = 'Sistema'))
-  AND (NOT sqlc.arg(solo_scade)::boolean
-       OR (v.stato_thread = 'APERTA' AND v.data_scadenza IS NOT NULL AND v.data_scadenza <= current_date + 3))
-  AND (NOT sqlc.arg(solo_fornitori)::boolean
-       OR EXISTS (SELECT 1 FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'inviata'))
-  -- «Da seguire oggi»: le aperte che scadono entro tre giorni, sono oltre i giorni della fase o sono state
-  -- sollecitate dal buyer negli ultimi 14 giorni.
-  AND (NOT sqlc.arg(da_seguire)::boolean
-       OR (v.stato_thread = 'APERTA' AND ((v.data_scadenza IS NOT NULL AND v.data_scadenza <= current_date + 3)
-           OR v.semaforo = 'rosso'
-           OR EXISTS (SELECT 1 FROM messaggio m JOIN proposta_triage pt ON pt.messaggio_id = m.messaggio_id
-                       WHERE m.thread_id = v.thread_id AND pt.atto = 'sollecito' AND m.data_evento > now() - interval '14 days'))))
   AND (sqlc.narg(cliente_id)::uuid IS NULL OR t.cliente_id = sqlc.narg(cliente_id)::uuid)
   AND (sqlc.narg(fase)::fase IS NULL OR v.nome_fase = sqlc.narg(fase)::fase)
   AND (NOT sqlc.arg(solo_bloccanti)::boolean

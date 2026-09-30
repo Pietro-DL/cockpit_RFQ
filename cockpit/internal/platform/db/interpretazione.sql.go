@@ -286,20 +286,6 @@ func (q *Queries) ListRiferimentiPortaleThread(ctx context.Context, threadID uui
 	return items, nil
 }
 
-const riapriPropostaRifiutata = `-- name: RiapriPropostaRifiutata :execrows
-UPDATE proposta_triage SET stato = 'proposta', deciso_da = NULL, deciso_il = NULL
-WHERE messaggio_id = $1 AND stato = 'rifiutata'
-`
-
-// ...e una proposta vera che «Ignora» aveva rifiutato torna proposta, con il suo esito e i suoi motivi.
-func (q *Queries) RiapriPropostaRifiutata(ctx context.Context, messaggioID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, riapriPropostaRifiutata, messaggioID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const setBozzaAperta = `-- name: SetBozzaAperta :exec
 UPDATE bozza SET stato = 'aperta', entry_id = $2, errore = NULL WHERE bozza_id = $1
 `
@@ -341,20 +327,6 @@ type SetRiferimentoPortaleStatoParams struct {
 func (q *Queries) SetRiferimentoPortaleStato(ctx context.Context, arg SetRiferimentoPortaleStatoParams) error {
 	_, err := q.db.Exec(ctx, setRiferimentoPortaleStato, arg.RifID, arg.Stato, arg.ScaricatoDa)
 	return err
-}
-
-const togliIgnoraOperatore = `-- name: TogliIgnoraOperatore :execrows
-DELETE FROM proposta_triage
-WHERE messaggio_id = $1 AND stato = 'rifiutata' AND esito = 'ignora' AND motivi = '["ignorato dall''operatore"]'::jsonb
-`
-
-// «Rimetti fra i da decidere»: la riga che «Ignora» ha scritto da sola, senza una proposta sotto, si toglie.
-func (q *Queries) TogliIgnoraOperatore(ctx context.Context, messaggioID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, togliIgnoraOperatore, messaggioID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const upsertRiferimentoPortale = `-- name: UpsertRiferimentoPortale :one

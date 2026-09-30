@@ -1,8 +1,5 @@
 {{define "contenuto"}}
-<link rel="stylesheet" href="{{statico "ui.css"}}">
-<link rel="stylesheet" href="{{statico "anagrafica.css"}}">
-{{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-importa">{{template "importa_corpo" .}}</div>
+<div id="anagrafica">{{template "importa_corpo" .}}</div>
 {{end}}
 
 {{define "importa_corpo"}}
@@ -11,7 +8,14 @@
      bottone che scriva senza essere passato dall'anteprima: prima si vede che cosa verrebbe creato,
      che cosa c'e' gia' e che cosa NON si riesce a risolvere, poi si conferma. I nomi non risolti
      restano tali: non si inventano. */}}
-{{template "ana_testa" (arr "fornitori" "" false)}}
+<div class="ana-testa">
+  <h1>Anagrafica</h1>
+  <nav class="tabs">
+    <a href="/admin/anagrafica">Clienti</a>
+    <a href="/admin/fornitori" class="attivo">Fornitori</a>
+    <a href="/admin/anagrafica/articoli">Articoli</a>
+  </nav>
+</div>
 
 <p class="briciole"><a href="/admin/fornitori">Fornitori</a> › Importa da file</p>
 

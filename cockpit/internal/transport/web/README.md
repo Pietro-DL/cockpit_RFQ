@@ -83,15 +83,14 @@ markmap:
   - File: `server.go`, `ruoli.go`, `navigazione.go`
   - Schermata: guscio, login, divieto, statici
 - **Inbox**
-  - File: `routes_inbox.go`, `inbox_ui.go`, `inbox_viva.go`, `agente.go`
-  - Schermata: l'Inbox (cartelle | lista | la mail e «Che cosa fare», `cockpit/_fasi/mockup_inbox.html`) e la testata
+  - File: `routes_inbox.go`, `inbox_viva.go`, `agente.go`
+  - Schermata: l'Inbox a quadranti e la testata
 - **Triage**
   - File: `triage.go`
   - Schermata: Nuova RFQ, Aggancia, Ignora
 - **Anagrafica e censimento**
-  - File: `censisci.go`, `anagrafica.go`, `anagrafica_ui.go`, `anagrafica_admin.go`, `convenzioni_admin.go`,
-    `fornitori_admin.go`
-  - Schermata: «Da validare», Admin › Anagrafica e Fornitori (`cockpit/_fasi/mockup_anagrafica.html`)
+  - File: `censisci.go`, `anagrafica.go`, `anagrafica_admin.go`, `convenzioni_admin.go`, `fornitori_admin.go`
+  - Schermata: «Da validare», Admin › Anagrafica e Fornitori
 - **Postazioni**
   - File: `postazione.go`, `postazioni_admin.go`
   - Schermata: la postazione della sessione, i pacchetti dei worker
@@ -105,9 +104,8 @@ markmap:
   - File: `richieste.go`
   - Schermata: bozza marcata, risposta del fornitore
 - **Pagina Richieste**
-  - File: `panoramica.go`, `richieste_ui.go`
-  - Schermata: `/richieste`: filtri | elenco (o colonne per fase) | la RFQ scelta, con il passaggio di fase a mano
-    (`cockpit/_fasi/mockup_richieste.html`)
+  - File: `panoramica.go`
+  - Schermata: `/richieste`: una card per RFQ
 - **Distinta (quattro passi)**
   - File: `distinta.go`
   - Schermata: `/thread/{id}/distinta?passo=richiesta|distinta|documenti|fattibilita`: la stessa RFQ del Fascicolo
@@ -337,40 +335,22 @@ markmap:
   - `messaggio`, `caricaMessaggio` (`messaggioDati.Corpo` = `lettura.Presenta(corpo_testo, corpo_html)`)
   - `copiaInterattiva`, `accodaInterattivo`, `motivoCapacita`
   - `apriInOutlook`, `segnaLetto`, `bozza`, `rif`/`rifIn`, `statoWorker`
-- **`inbox_ui.go`**
-  - la lista: `gruppoRiga` (il gruppo di «Da fare adesso», il colore e le parole che il chip del triage non dice),
-    `righeInbox` (per gruppo o per giorno, con il nome delle RFQ proposte da `NomiThread`), `inboxDati.Voci`
-  - la carta «Che cosa fare»: `decisioneVista`, `messaggioDati.decisione` (il gestore) e `Scelta` (quella che il
-    template mostra: la stessa ricavata dai dati quando manca), `nomeThread`
-  - `ripristina` («Rimetti fra i da decidere»), `postaInbox` (lo stato delle caselle), `censisciAltro`,
-    `ignoraDopoIlCensimento`, i collegamenti (`Link`, `LinkSel`) e le funzioni dei template (`oraRiga`,
-    `quandoBreve`, `iniziali`, `estensione`)
 - **`inbox_viva.go`**
   - `novitaPer` (fino a 500 pallini), `lavoroSync`, `conSync`, `aggiornaOra`, `testata`, `syncAllApertura`,
     `cEUnWorkerOutlookVivo`, `segnaVista`, `avvisoShadow`
 - **`agente.go`**
   - `analisiPer` (proposta dell'agente già verificata), `chiediAnalisi`
 - **`web/templates/inbox.html`**
-  - pagina, `inbox_testa`, `inbox_stato`, `inbox_lista` (oggetto con `oggettoVisibile`), `controparte_riga`,
-    `inbox_posta`
+  - pagina, `inbox_stato`, `inbox_lista` (oggetto con `oggettoVisibile`), `controparte_riga`
 - **`frammenti.html`**
-  - `messaggio_pannello` (oggetto con `oggettoVisibile`, corpo con `corpo_messaggio`), `decisione_carta`,
-    `decisione_altri`, `allegati_inbox`
+  - `messaggio_pannello` (oggetto con `oggettoVisibile`, corpo con `corpo_messaggio`)
   - `corpo_messaggio`, `corpo_blocco`, `stato_worker`, `chip_controparte`, `candidati_aggancio`
 
 ### Entry point
 
 - Tutte le rotte sono `autenticato`: i GET da consultazione in su, i POST da operatore in su.
 - **`GET /inbox`**
-  - Gestore: `inbox` (param `q`, `dir`, `filtro`, `casella`, `sel`, `cerca`; `sel` passa solo se è un UUID).
-    Senza `q` (o con `q=adesso`) e' «Da fare adesso»: le mail da decidere di tutti i quadranti, per gruppo; `cerca`
-    cerca in tutte le cartelle (oggetto, mittente, cliente, nomi degli allegati, testo)
-- **`GET /inbox/posta`**
-  - Gestore: `postaInbox` (lo stato delle caselle in parole, e l'avviso sopra la lista quando una non risponde)
-- **`POST /messaggio/{id}/ripristina`**
-  - Ruolo: ≥ operatore
-  - Gestore: `ripristina` (toglie un «Ignora»: la riga scritta dal gesto sparisce, una proposta vera torna proposta;
-    nel registro delle decisioni resta `sgancia`)
+  - Gestore: `inbox` (param `q`, `dir`, `filtro`, `casella`, `sel`; `sel` passa solo se è un UUID)
 - **`POST /inbox/aggiorna`**
   - Gestore: `aggiornaOra` (risponde con la testata)
 - **`POST /inbox/sync-storico`, `GET /inbox/sync-storico/stato`**
@@ -389,10 +369,8 @@ markmap:
 ### Dati
 
 - **Letture:**
-  - `v_inbox` (`ListInbox`, fino a 200 righe, con `cerca`; `ContaInbox`, `ContaQuadranti`, `GetInboxRiga`),
-    `messaggio`, `messaggio_casella` (`ListPresenze`);
-  - `ListVicini` (orfani dello stesso dominio a ±30 minuti, non i domini di tutti), `NomiThread`,
-    `ContaDecisioniOggi` (da `messaggio_aggancio_log`: l'avanzamento del giorno);
+  - `v_inbox` (`ListInbox`, fino a 200 righe; `ContaInbox`, `ContaQuadranti`, `GetInboxRiga`), `messaggio`,
+    `messaggio_casella` (`ListPresenze`);
   - `candidato_aggancio` e le richieste candidate, `proposta_triage`, `richiesta_fornitore`, `riferimento_portale` e
     `bozza`;
   - `sync_cursore`, `job`, `worker_presenza`, `worker_credenziale`, `casella`, l'ultima analisi dell'agente;
@@ -406,9 +384,7 @@ markmap:
   - job `analizza_messaggio_ai` (chiave `analisi-ai:<id>`);
   - riga `bozza`, nella stessa transazione del suo job;
   - `messaggio_casella.non_letto`, solo per la copia su cui si è agito;
-  - `utente.ultima_vista_inbox`; `sessione.sync_inbox_il`;
-  - «Rimetti fra i da decidere»: `proposta_triage` (`TogliIgnoraOperatore`, `RiapriPropostaRifiutata`) e
-    `messaggio_aggancio_log`, in una transazione.
+  - `utente.ultima_vista_inbox`; `sessione.sync_inbox_il`.
 
 ### Flussi principali
 
@@ -560,9 +536,7 @@ markmap:
   - Gestore: `triageForm` (per la posta di un fornitore `nuova` diventa `aggancia`, con il motivo)
 - **`POST /messaggio/{id}/rfq`**
   - Ruolo: ≥ operatore
-  - Gestore: `nuovaRFQ` (rifiutata per la posta di un fornitore). Le mail spuntate in `insieme` entrano nella RFQ
-    con questa (non quelle gia' decise, non quelle dei fornitori); con `poi=distinta` risponde `HX-Redirect` alla
-    Distinta della RFQ nuova
+  - Gestore: `nuovaRFQ` (rifiutata per la posta di un fornitore)
 - **`POST /messaggio/{id}/aggancia`**
   - Ruolo: ≥ operatore
   - Gestore: `agganciaEsistente`
@@ -710,15 +684,8 @@ markmap:
   - `vincoloViolato`, `CreaCliente`, `AggiungiDominio`, `rendiAnagrafica`, `nuovoCliente`
   - `salvaCliente` (peso 0–15)
   - `salvaRegole`, `aggiungiDominioCliente`, `eliminaDominioCliente`, `bancoProva`, `txtN`
-- **`anagrafica_ui.go`**
-  - la scheda: `completezza` (cinque punti, con la sezione dove si aggiunge), `RigheClienti`, `Scheda`, `MailDi`
-  - il fabbisogno come tabella: `Matrice` (una riga per tipo di pezzo, da `fascicolo.TipiComponente`),
-    `fabbisognoTipo` (personalizza copiando i predefiniti, o torna ai predefiniti)
-  - il banco di prova dal vivo: `regoleDellaProva` (le regole del form, non quelle salvate), `esitoProva`
-  - «Chi fa cosa» dei fornitori: `chiFaCosa`
 - **`anagrafica_admin.go`**
-  - `salvaRegoleDalForm` («Rev nel codice» letta per numero di riga; le regole dal form con `regoleDalForm`),
-    `scriviRegole`
+  - `salvaRegoleDalForm` («Rev nel codice» letta per numero di riga), `scriviRegole`
   - `nuovoBuyerCliente`, `eliminaBuyerCliente` (solo un buyer del cliente della pagina)
   - `aggiungiFabbisogno` (riga e fonte attesa in una transazione), `eliminaFabbisogno`
   - tendine
@@ -734,16 +701,15 @@ markmap:
 
 ### Entry point
 
-- **Censimento, operatore:** `GET` e `POST /messaggio/{id}/censisci` (`come=cliente|fornitore|altro`; con `ignora=1`
-  la mail si ignora dopo il censimento).
+- **Censimento, operatore:** `GET` e `POST /messaggio/{id}/censisci`.
 - **Clienti, `soloAdmin`:**
   - `GET /admin/anagrafica`, `GET /admin/anagrafica/articoli` (scheletro);
   - `POST /admin/anagrafica`, `POST /admin/anagrafica/{id}`;
   - `…/{id}/regole`, `…/regole/form`;
   - `…/buyer`, `…/buyer/elimina`;
-  - `…/fabbisogno`, `…/fabbisogno/elimina`, `…/fabbisogno/personalizza`, `…/fabbisogno/predefiniti`;
+  - `…/fabbisogno`, `…/fabbisogno/elimina`;
   - `…/dominio`, `…/dominio/elimina`;
-  - `…/prova` (con htmx risponde il solo esito, calcolato sulle regole del form);
+  - `…/prova`;
   - `…/convenzione`, `…/convenzione/elimina`, `…/convenzione/attiva`;
   - `…/qualifica`, `…/qualifica/elimina`;
   - `…/lavorazioni/prova`.
@@ -1277,18 +1243,13 @@ markmap:
 
 ## Modulo Pagina Richieste
 
-- `panoramica.go`, `richieste_ui.go`
-- `GET /richieste`: le viste e i filtri con i loro numeri, una riga per RFQ (o le colonne per fase), la RFQ scelta
-  accanto; i filtri nell'indirizzo.
+- `panoramica.go`
+- `GET /richieste`: una card per RFQ con le schede dei prodotti, e i filtri nell'indirizzo.
 
 ### Scopo
 
-- Elencare le RFQ, aperte per impostazione predefinita, con filtri e ordinamento; «Da seguire oggi» sono le aperte
-  che scadono entro 3 giorni, sono oltre i giorni della fase o sono state sollecitate dal buyer.
-- Per ogni RFQ dire a che punto e': fase con i giorni e lo SLA, scadenza, bloccanti, file da smistare, prodotti con la
-  miniatura del 2D, fornitori in attesa, chi deve fare il prossimo passo.
-- Mostrare la RFQ scelta: le tappe, che cosa manca, i fornitori, le ultime mail, il cliente.
-- Passare di fase a mano lungo gli archi di `transizione` (`fascicolo.PassaFase`), con una conferma.
+- Elencare le RFQ, aperte per impostazione predefinita, con filtri e ordinamento.
+- Per ogni RFQ mostrare fino a sei prodotti con l'anteprima del 2D, poi gli altri a richiesta.
 - Aggiornare l'elenco con un poll che non ricarica niente se niente è cambiato.
 
 ### Non appartiene qui
@@ -1300,52 +1261,36 @@ markmap:
 
 - **`panoramica.go`**
   - `filtriRichieste`
-  - `leggiFiltriRichieste` (`q`, `cliente`, `fase`, `stato`, `bloccanti`, `smistare`, `sla`, `scade`, `fornitori`,
-    `uff`, `vista`, `modo`, `sel`, `sort`, `n`)
+  - `leggiFiltriRichieste` (`q`, `cliente`, `fase`, `stato`, `bloccanti`, `smistare`, `sla`, `sort`, `n`)
   - `valori`/`URL`/`Altre`
   - `modelloRicerca` e `testoLetterale` (`%`, `_` e `\` presi alla lettera; `testoLetterale` serve anche alla ricerca di
     «Aggancia a…»)
   - `costruisciPanoramica`, `raggruppaProdotti`, `sceglieAnteprima`, `firmaPanoramica`, `caricaPanoramica`,
-    `opzioniBarra`, `richieste`
-- **`richieste_ui.go`**
-  - i filtri come collegamenti (`filtriRichieste.Con`), i numeri di ogni voce (`panoramicaRichieste.conta`: una
-    seconda lettura senza i filtri della voce), `daSeguire`
-  - la riga: `Chi`, `Scadenza`, `Urgenza`, `SlaPerc`, `Prossimo`, `Miniature`, `Sollecito`; le colonne per fase
-    (`Colonne`)
-  - il dettaglio: `caricaDettaglioRichiesta` (tappe dal `fase_log`, che cosa manca dal Fascicolo, fornitori, mail,
-    cliente e regole), `richiestaDettaglio` (con `?passo=` la conferma), `passaFase`
+    `opzioniBarra`, `richieste`, `richiestaProdotti`
 - **`web/templates/richieste.html`**
-  - `richieste_titolo`, `richieste_stato` (filtri ed elenco insieme; la ricerca sta fuori), `rq_voce`,
-    `richiesta_riga`, `rq_fase`, `richiesta_dettaglio`, `rq_prodotto`
+  - barra dei filtri, `richieste_elenco`, `richiesta_card`, `richiesta_prodotti`
 
 ### Entry point
 
 - `GET /richieste`, autenticato: pagina intera, oppure l'elenco quando cambia un filtro (con `HX-Push-Url`), oppure il
   poll con `firma`.
-- `GET /richieste/{id}/dettaglio[?passo=FASE]`, autenticato: la RFQ scelta; con `passo` la conferma del passaggio.
-- `POST /thread/{id}/fase` (`a=FASE`), ≥ operatore: `passaFase`. Rifiuta in parole (e senza scrivere) un arco che non
-  c'e', FATTIBILITA → SCHEDA_COSTO (si fa congelando la BOM nella Distinta), un passaggio con una revisione della BOM
-  aperta; riuscito, `HX-Trigger: richieste-aggiorna`.
+- `GET /richieste/{id}/prodotti?meno=1`, autenticato.
 
 ### Dati
 
 - **Letture:**
-  - `ListRichiestePanoramica`: `v_cruscotto`, `thread_offerta` e `cliente`, con il totale prima di LIMIT; in piu'
-    l'ufficio della fase (`fase_catalogo`), i fornitori in attesa e con l'offerta, l'ultimo sollecito (14 giorni);
-  - il dettaglio: `ListFaseLog`, `ListTransizioniDa`, `ListFascicolo`, `ListRichiesteThread`, `ListMessaggiThread`,
-    `GetCliente`;
+  - `ListRichiestePanoramica`: `v_cruscotto`, `thread_offerta` e `cliente`, con il totale prima di LIMIT;
   - `ListProdottiPanoramica`: `identificativo_thread`;
   - `ListAnteprimePanoramica`: i 2D correnti con provenienza e le proposte 2D aperte;
   - per la barra `ListClientiTutti` e `ListFaseCatalogo`.
-- **Scritture:** solo `passaFase`: chiude la fase aperta del `fase_log` e apre la nuova, in una transazione con la
-  RFQ bloccata. Entrando in SCHEDA_COSTO porta la baseline dell'ultima BOM congelata.
+- **Scritture:** nessuna.
 
 ### Flussi principali
 
 1. **Pagina.**
    - Tre letture, qualunque sia il numero di RFQ.
    - 30 card, poi «Mostra altre» a passi di 30, fino a 600.
-   - Miniature dei 2D con pdf.js (`miniature.mjs`), la prima pagina, una volta per file.
+   - Anteprime in iframe con caricamento lento.
 2. **Poll.** Ogni 60 s, o ogni `PollRichieste`.
    - Con la stessa firma (sha256 di filtri, totale, card e prodotti) il server risponde 204 e il browser non tocca
      niente.

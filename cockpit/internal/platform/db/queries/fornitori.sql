@@ -178,12 +178,3 @@ SELECT (SELECT count(*) FROM cliente)::int               AS clienti,
        (SELECT count(*) FROM contatto_fornitore)::int    AS contatti_fornitore,
        (SELECT count(*) FROM fornitore_lavorazione)::int AS lavorazioni_fornitore,
        (SELECT count(*) FROM cliente_fornitore_lavorazione)::int AS qualifiche;
-
--- name: ListCapacitaTutte :many
--- Che cosa sa fare ogni fornitore (Anagrafica nuova): la matrice «Chi fa cosa» e le tendine delle qualifiche,
--- che offrono solo chi fa quella lavorazione.
-SELECT fornitore_id, lavorazione FROM fornitore_lavorazione ORDER BY fornitore_id, lavorazione;
-
--- name: ListQualificheTutte :many
--- Per quali lavorazioni un fornitore e' qualificato da almeno un cliente.
-SELECT DISTINCT fornitore_id, lavorazione FROM cliente_fornitore_lavorazione;

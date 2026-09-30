@@ -141,24 +141,3 @@ SELECT * FROM fabbisogno_documento WHERE cliente_id = $1 ORDER BY tipo_component
 
 -- name: SetFonteFabbisogno :exec
 UPDATE fabbisogno_documento SET fonte_attesa = sqlc.narg(fonte) WHERE fabbisogno_id = $1 AND cliente_id = $2;
-
--- name: ContaMailBuyer :many
--- Quante mail ha scritto ogni persona di un cliente, e l'ultima (Anagrafica nuova): chi ha scritto non si toglie,
--- e la scheda lo dice prima del clic.
-SELECT buyer_id, count(*)::int AS n, max(data_evento)::timestamptz AS ultima
-FROM messaggio WHERE buyer_id = ANY(sqlc.arg(buyer_ids)::uuid[])
-GROUP BY buyer_id;
-
--- name: CopiaFabbisognoPredefinito :execrows
--- «Personalizza» un tipo di pezzo: le righe predefinite diventano del cliente, cosi' si cambiano senza sparire.
--- Per un tipo di pezzo, una riga del cliente fa sparire TUTTI i predefiniti (la risoluzione e' in blocco):
--- copiarli prima e' il modo di non perderne nessuno.
-INSERT INTO fabbisogno_documento (cliente_id, tipo_componente, tipo, bloccante, fonte_attesa)
-SELECT sqlc.arg(cliente_id)::uuid, f.tipo_componente, f.tipo, f.bloccante, f.fonte_attesa
-FROM fabbisogno_documento f
-WHERE f.cliente_id IS NULL AND f.tipo_componente = sqlc.arg(tipo_componente)::tipo_componente
-ON CONFLICT (cliente_id, tipo_componente, tipo) DO NOTHING;
-
--- name: TogliFabbisognoTipo :execrows
--- «Torna ai predefiniti»: le righe del cliente per quel tipo di pezzo si tolgono, e tornano a valere i default.
-DELETE FROM fabbisogno_documento WHERE cliente_id = sqlc.arg(cliente_id)::uuid AND tipo_componente = sqlc.arg(tipo_componente)::tipo_componente;
