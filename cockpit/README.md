@@ -1317,6 +1317,55 @@ markmap:
   - `/cruscotto` porta qui.
 - Il dettaglio di tutto questo è in [`internal/core/rfq/fascicolo/README.md`](internal/core/rfq/fascicolo/README.md) e [`internal/transport/web/README.md`](internal/transport/web/README.md).
 
+## La Distinta (29/09/2026)
+
+- `/thread/{id}/distinta`: la stessa RFQ del Fascicolo in quattro passi, nell'ordine del lavoro, con «Indietro» e
+  «Avanti» in fondo. La proposta e il mockup sono in `cockpit/_fasi/PROPOSTA_DISTINTA.md`.
+  - **Richiesta**: la mail, il prodotto, che cosa chiede il cliente (dalle regole dell'anagrafica), a che punto sono gli
+    altri passi.
+  - **Distinta**: lo schema del prodotto a tutta larghezza, una casella per pezzo con tipo, codice, nome, la miniatura del
+    disegno (un clic apre il visore con le note) e le caselle 3D / 2D / DXF.
+    - In testa la proposta degli STEP: i legami degli STEP autorizzati, tratteggiati, e la guida di uno STEP non ancora
+      autorizzato, che l'operatore puo' trasformare in pezzi scritti da lui («Crea questi pezzi nella distinta»).
+    - «+ Assieme» (con un codice interno proposto, `<prodotto>-A01`), «+ Particolare», «+ Particolare commerciale»,
+      il trascinamento, la quantita', «Togli», «↶ Annulla l'ultima»; niente si scrive finche' non si preme «Salva la
+      distinta» (`POST /fascicolo/bom/applica`).
+    - Sotto un particolare e sotto un particolare commerciale non si mette niente: lo dice la pagina e lo rifiuta il
+      server.
+  - **Documenti e NAS**: un blocco per pezzo con i suoi requisiti e i suoi file, «Da sistemare», gli archivi, e in fondo
+    la completezza, «Conferma e copia sul NAS» e il congelamento.
+  - **Fattibilita'**: che cosa si produce e che cosa si compra, con le quantita' totali.
+- E' la pagina con cui si apre una richiesta: «Apri la Distinta» nella RFQ scelta di Richieste e nella Inbox portano
+  qui. La pagina della RFQ di prima resta («Pagina della RFQ» in alto, «pagina della RFQ» nella Inbox), e il Fascicolo
+  per i gesti avanzati (revisioni, autorizzazione degli STEP, deroghe, correzione del codice).
+
+## Inbox, Richieste e Anagrafica (30/09/2026)
+
+- Le tre pagine hanno la stessa impostazione della Distinta: fondo bianco, font di sistema, colore solo per lo stato.
+  Le colonne si allargano trascinando il bordo fra l'una e l'altra (doppio clic chiude), e la larghezza resta su quel
+  PC. Le scorciatoie da tastiera sono spente: si accendono dall'ingranaggio in alto. I mockup sono in `cockpit/_fasi/`
+  (`mockup_inbox.html`, `mockup_richieste.html`, `mockup_anagrafica.html`, dati inventati).
+- **Inbox**: si apre su «Da fare adesso», le mail da decidere di tutti i quadranti raggruppate per tipo (nuove
+  richieste, da mettere in una RFQ, fornitori, mittenti da riconoscere, da guardare, probabilmente da ignorare), con
+  l'avanzamento del giorno. La ricerca cerca in tutte le cartelle, anche nei nomi degli allegati e nel testo.
+  - A destra della mail «Che cosa fare»: la proposta del Cockpit in parole, il perche', il bottone con la RFQ scritta
+    sopra; i candidati con la forza («forte · score 86»), le mail dello stesso dominio arrivate a pochi minuti,
+    la lettura dell'assistente. Dopo una decisione si passa da soli alla mail dopo; «Ignora» si annulla dall'avviso,
+    e un ignorato si rimette fra i da decidere.
+  - «Nuova RFQ» e' un foglio sopra la mail: puo' prendere con se' le mail vicine, e finisce con «Crea e passa alla
+    prossima» o «Crea la RFQ e apri la Distinta». Il mittente sconosciuto si censisce come cliente, fornitore o
+    «altro» (corriere, banca, newsletter), anche ignorando la mail nello stesso gesto.
+- **Richieste**: a sinistra le viste («Da seguire oggi», aperte, chiuse) e i filtri con i loro numeri (segnali, fase,
+  cliente, di chi e'), al centro una riga per RFQ o le colonne per fase, a destra la RFQ scelta: le tappe, che cosa
+  manca, i fornitori, le ultime mail, il cliente.
+  - «Passa a…» sposta la RFQ di fase a mano, con una conferma, lungo gli archi della tabella `transizione`. Serve
+    perche' nessun automatismo sposta una RFQ da RICEVUTA; FATTIBILITA → SCHEDA_COSTO resta il congelamento della BOM
+    nella Distinta.
+- **Anagrafica**: l'elenco dei clienti dice quanto e' completa ogni scheda; la scheda e' divisa in sezioni. Le regole
+  si provano dal vivo mentre si scrivono (il banco di prova usa quelle del modulo, non quelle salvate), una famiglia
+  di codice dice subito se riconosce il suo esempio, e «Nuova famiglia dagli esempi» propone la regola. Il fabbisogno
+  e' una tabella tipo di pezzo × documento. Per i fornitori c'e' la matrice «Chi fa cosa».
+
 ## Prove
 
 - Le prove Go stanno nel ramo `-qa` (vedi «I rami del repository»): sul ramo di prodotto `go test ./...` non trova niente da eseguire.
@@ -1664,7 +1713,7 @@ markmap:
   - `censisci.go`: «Censisci come fornitore / cliente» dal pannello;
   - `richieste.go`: le richieste ai fornitori dalla RFQ (con la bozza marcata), le conferme dall'Inbox (7B);
   - `panoramica.go`: `/richieste`, la pagina delle RFQ dei clienti (non dei fornitori):
-    - una card per RFQ, una scheda per prodotto (`identificativo_thread`) con l'anteprima del 2D, i filtri nell'indirizzo, il poll con la firma (204 se niente e' cambiato) e `/richieste/{id}/prodotti` per «+ N altri»;
+    - una riga per RFQ (o le colonne per fase), i filtri nell'indirizzo, il poll con la firma (204 se niente e' cambiato), e la RFQ scelta accanto (`richieste_ui.go`: `/richieste/{id}/dettaglio`, con una scheda per prodotto e l'anteprima del 2D, e il passaggio di fase a mano);
   - `integrita_admin.go`: `/admin/nas`;
   - `fascicolo_*.go`: il Fascicolo (B8.7, B8.7b);
   - per la v3

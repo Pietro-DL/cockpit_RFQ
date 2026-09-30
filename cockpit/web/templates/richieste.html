@@ -1,91 +1,275 @@
 {{define "contenuto"}}
-{{/* La pagina Richieste (panoramica.go): la barra dei filtri e l'elenco delle RFQ, una card per RFQ con le
-     schede dei prodotti. La barra e' un form GET vero: senza JavaScript filtra ricaricando la pagina; con
-     HTMX cambia solo #elenco e il server rimette l'indirizzo con i filtri nella barra del browser. */}}
-<div class="rq">
-  <div class="rq-titolo"><h1>Richieste</h1>
-    <span class="muto">Le RFQ dei clienti. «Priorità» mette in cima i clienti con il peso più alto (lo si dà in <a href="/admin/anagrafica">Anagrafica</a>) e, a parità, chi scade prima.</span></div>
-  <form id="filtri" class="rq-barra" action="/richieste" method="get" role="search" aria-label="Filtri delle richieste"
-        hx-get="/richieste" hx-target="#elenco" hx-swap="innerHTML" hx-sync="this:replace"
-        hx-trigger="input changed delay:350ms from:#rq-q, search from:#rq-q, change">
-    <div class="rq-riga">
-      <label class="rq-cerca"><span class="sr">Cerca</span>
-        <input id="rq-q" type="search" name="q" value="{{.Dati.Filtri.Q}}" maxlength="100" autocomplete="off"
-               placeholder="Cerca RFQ, codice, cliente, buyer…"></label>
-      <div class="rq-seg" role="radiogroup" aria-label="Stato">
-        {{range .Dati.Stati}}<label><input type="radio" name="stato" value="{{.Valore}}" {{if .Scelta}}checked{{end}}><span>{{.Etichetta}}</span></label>{{end}}
-      </div>
-      <label class="rq-sel">Cliente
-        <select name="cliente" id="rq-cliente"><option value="">Tutti</option>
-          {{range .Dati.Clienti}}<option value="{{.Valore}}" title="{{.Titolo}}" {{if .Scelta}}selected{{end}}>{{.Etichetta}}</option>{{end}}
-        </select></label>
+{{/* Le Richieste (cockpit/_fasi/mockup_richieste.html, panoramica.go, richieste_ui.go): a sinistra le viste e i
+     filtri con i loro numeri, al centro l'elenco (o le colonne per fase), a destra la RFQ scelta. I filtri stanno
+     nell'indirizzo, cosi' una ricerca si salva, si manda a un collega e torna con «indietro». La colonna dei filtri
+     e l'elenco si rifanno insieme (#rq-stato); la ricerca sta fuori, e non perde il cursore. */}}
+<link rel="stylesheet" href="{{statico "ui.css"}}">
+<link rel="stylesheet" href="{{statico "richieste.css"}}">
+{{template "ui_icone"}}
+{{$f := .Dati.Filtri}}
+<div class="ui ui-rq" id="ui">
+  <div class="col el-testa">
+    {{template "richieste_titolo" .}}
+    <div class="riga2">
+      <label class="cerca" for="rq-q"><svg class="ico" aria-hidden="true"><use href="#i-cerca"/></svg>
+        <input id="rq-q" type="search" name="q" value="{{$f.Q}}" maxlength="100" autocomplete="off" placeholder="Cerca RFQ, codice, cliente, buyer…"
+               hx-get="/richieste" hx-trigger="input changed delay:350ms, search" hx-target="#rq-stato" hx-swap="outerHTML" hx-sync="this:replace"
+               hx-vals="js:{...cockpitStatoRichieste(['q', 'n'])}"></label>
+      <label class="k" for="rq-sort" style="font-size:.86rem">Ordina</label>
+      <select id="rq-sort" name="sort" hx-get="/richieste" hx-target="#rq-stato" hx-swap="outerHTML" hx-vals="js:{...cockpitStatoRichieste(['sort'])}">
+        {{range .Dati.Ordini}}<option value="{{.Valore}}" {{if .Scelta}}selected{{end}}>{{.Etichetta}}</option>{{end}}
+      </select>
     </div>
-    <div class="rq-riga">
-      <label class="rq-sel">Fase
-        <select name="fase" id="rq-fase"><option value="">Tutte</option>
-          {{range .Dati.Fasi}}<option value="{{.Valore}}" title="{{.Titolo}}" {{if .Scelta}}selected{{end}}>{{.Etichetta}}</option>{{end}}
-        </select></label>
-      <label class="rq-rapido"><input type="checkbox" name="bloccanti" value="1" {{if .Dati.Filtri.Bloccanti}}checked{{end}}><span>⚠ Bloccanti</span></label>
-      <label class="rq-rapido"><input type="checkbox" name="smistare" value="1" {{if .Dati.Filtri.DaSmistare}}checked{{end}}><span>Da smistare</span></label>
-      <label class="rq-rapido"><input type="checkbox" name="sla" value="1" {{if .Dati.Filtri.SLA}}checked{{end}}><span>SLA critico</span></label>
-      <span class="rq-spazio"></span>
-      <label class="rq-sel">Ordina
-        <select name="sort" id="rq-sort">{{range .Dati.Ordini}}<option value="{{.Valore}}" {{if .Scelta}}selected{{end}}>{{.Etichetta}}</option>{{end}}</select></label>
-      <noscript><button type="submit">Filtra</button></noscript>
-    </div>
-  </form>
-  <div id="elenco">{{template "richieste_elenco" .}}</div>
+  </div>
+  {{template "richieste_stato" .}}
+  <div class="maniglia" data-maniglia="m2"></div>
+  <section class="col dettaglio" id="rq-det" aria-label="La richiesta scelta"
+           {{if $f.Sel}}hx-get="/richieste/{{$f.Sel}}/dettaglio" hx-trigger="load"{{end}}>
+    <div class="vuoto-lettura"><div><b>Scegli una richiesta</b>Qui si vede a che punto è, che cosa manca e che cosa vuole il cliente.</div></div>
+  </section>
+  <div id="strato"></div>
+  <div id="ui-toast" aria-live="polite"></div>
 </div>
+<script>
+window.CockpitPagina = {
+  chiave: "richieste",
+  maniglie: {
+    m1: { v: "--w-filtri", def: 222, min: 180, max: 340, dir: 1, chiudi: "filtri", nome: "i filtri" },
+    m2: { v: "--w-det", def: 480, min: 360, max: 900, dir: -1, chiudi: "det", nome: "la richiesta scelta" }
+  },
+  preset: [
+    { nome: "Lavoro", sotto: "com'è all'inizio", schema: [[2, 0], [7, 1], [5, 1]], valori: [["m1", 222], ["m2", 480]] },
+    { nome: "Elenco largo", sotto: "senza la RFQ accanto", schema: [[2, 0], [12, 1]], valori: [["m1", 222], ["m2", 480, true]] },
+    { nome: "RFQ ampia", sotto: "filtri chiusi", schema: [[6, 0], [8, 1]], valori: [["m1", 222, true], ["m2", 760]] },
+    { nome: "Per fase", sotto: "colonne larghe", schema: [[11, 1], [4, 0]], valori: [["m1", 222, true], ["m2", 400]] }
+  ],
+  tasti: [["J", "richiesta successiva"], ["K", "richiesta precedente"], ["/", "cerca"], ["D", "apri la Distinta"], ["F", "elenco o per fase"], ["Esc", "chiude"]]
+};
+</script>
+<script src="{{statico "ui.js"}}"></script>
+<script type="module" src="{{statico "richieste.mjs"}}"></script>
 {{end}}
 
-{{define "richieste_elenco"}}{{with .Dati}}
-<p class="rq-conta" role="status">{{if .Totale}}<b>{{.Totale}}</b> {{if eq .Totale 1}}richiesta{{else}}richieste{{end}}{{if .Altre}} · ne vedi {{len .Card}}{{end}}{{end}}
-  {{if .Filtri.Attivi}}<a href="/richieste">Togli i filtri</a>{{end}}</p>
-{{if not .Card}}<p class="rq-vuoto">{{if .Filtri.Attivi}}Nessuna richiesta con questi filtri.{{else}}Nessuna richiesta aperta. Le richieste nascono dal triage dell'Inbox («Nuova RFQ»).{{end}}</p>{{end}}
-{{range .Card}}{{template "richiesta_card" .}}{{end}}
-{{if .Altre}}<button type="button" class="rq-altre" hx-get="{{.Filtri.Altre}}" hx-target="#elenco" hx-swap="innerHTML">Mostra altre ({{.Altre}} ancora)</button>{{end}}
-{{/* Il poll porta la firma di quello che si vede: stesso elenco, 204, e le anteprime restano dove sono. */}}
-<div class="rq-poll" hx-get="/richieste" hx-include="#filtri" hx-vals='{"firma":"{{.Firma}}","n":"{{.Filtri.N}}"}'
-     hx-trigger="every {{.Intervallo}}s" hx-target="#elenco" hx-swap="innerHTML" aria-hidden="true"></div>
+{{define "richieste_titolo"}}{{with .Dati}}
+<div class="riga1" id="rq-titolo" {{if $.Frammento}}hx-swap-oob="true"{{end}}>
+  <h2>{{.Filtri.NomeVista}} <small>{{.Totale}} {{if eq .Totale 1}}richiesta{{else}}richieste{{end}}{{if .Altre}} · ne vedi {{len .Card}}{{end}}</small></h2>
+  <span class="sp"></span>
+  <div class="vista-seg" role="group" aria-label="Come mostrarle">
+    <a href="{{.Filtri.Con "modo" ""}}" hx-get="{{.Filtri.Con "modo" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true" {{if ne .Filtri.Modo "fasi"}}aria-current="true"{{end}}><svg class="ico s" aria-hidden="true"><use href="#i-elenco"/></svg> Elenco</a>
+    <a href="{{.Filtri.Con "modo" "fasi"}}" hx-get="{{.Filtri.Con "modo" "fasi"}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true" {{if eq .Filtri.Modo "fasi"}}aria-current="true"{{end}}><svg class="ico s" aria-hidden="true"><use href="#i-colonne"/></svg> Per fase</a>
+  </div>
+</div>
 {{end}}{{end}}
 
-{{define "richiesta_card"}}
-<article class="rq-card{{if .Chiusa}} chiusa{{end}}" id="rfq-{{.ThreadID}}">
-  <header class="rq-card-testa">
-    <span class="rq-cliente" title="{{.RagioneSociale}}">{{.Cliente}}</span>
-    <span class="rq-spazio"></span>
-    {{if .Chiusa}}<span class="rq-badge chiusa">CHIUSA</span>{{end}}
-    {{with .FaseBreve}}<span class="rq-badge fase">{{.}}</span>{{end}}
-    {{if .SLA}}<span class="rq-sla" title="{{if .GgInFase.Valid}}{{.GgInFase.Int32}} giorni in fase{{if .SlaGg.Valid}} su {{.SlaGg.Int32}} di SLA{{end}}{{end}}"><span class="semaforo {{.SLA}}"></span>{{if .GgInFase.Valid}} {{.GgInFase.Int32}} gg{{end}}</span>{{end}}
-  </header>
-  <h2 class="rq-oggetto"><a href="/thread/{{.ThreadID}}" title="Apri la richiesta (ID {{.ThreadID}})">{{if .Oggetto.Valid}}{{.Oggetto.String}}{{else}}(senza oggetto){{end}}</a>{{if .RiferimentoCliente.Valid}} <span class="rq-rif">{{.RiferimentoCliente.String}}</span>{{end}}</h2>
-  <div class="rq-meta">
-    <span>Buyer: <b>{{if .Buyer.Valid}}{{.Buyer.String}}{{else}}—{{end}}</b></span>
-    <span>Scadenza: <b>{{if .DataScadenza}}{{.DataScadenza.Format "02/01/2006"}}{{else}}—{{end}}</b></span>
-    <span>Ultimo agg.: <b>{{if .UltimoAggiornamento}}{{data .UltimoAggiornamento}}{{else}}{{data .DataInizio}}{{end}}</b></span>
+{{/* richieste_stato: la colonna dei filtri e l'elenco, in un pezzo solo. Il blocco non disegna una scatola sua. */}}
+{{define "richieste_stato"}}{{with .Dati}}{{$f := .Filtri}}{{$c := .Conta}}
+<div id="rq-stato" class="rq-stato">
+  {{if $.Frammento}}{{template "richieste_titolo" $}}{{end}}
+  <aside class="col cartelle filtri-rq" aria-label="Viste e filtri">
+    <div class="gruppo"><span class="label">Viste</span>
+      {{template "rq_voce" (arr ($f.Con "vista" "oggi") "Da seguire oggi" $c.Oggi (eq $f.Vista "oggi") "adesso" "acc")}}
+      {{template "rq_voce" (arr ($f.Con "vista" "") "Aperte" $c.Aperte (and (ne $f.Vista "oggi") (eq $f.Stato "APERTA")) "" "ink2")}}
+      {{template "rq_voce" (arr ($f.Con "vista" "chiuse") "Chiuse" $c.Chiuse (eq $f.Stato "CHIUSA") "" "ink3")}}
+      {{template "rq_voce" (arr ($f.Con "vista" "tutte") "Tutte" $c.Tutte (eq $f.Stato "tutte") "" "vuoto")}}
+      <p class="aiuto-quad">{{if eq $f.Vista "oggi"}}Le aperte che scadono entro 3 giorni, sono oltre i giorni della fase o sono state sollecitate dal buyer.{{else}}«Priorità» mette in cima i clienti con il peso più alto (lo si dà in <a href="/admin/anagrafica">Anagrafica</a>) e, a parità, chi scade prima.{{end}}</p>
+    </div>
+    <div class="gruppo"><span class="label">Segnali</span>
+      {{template "rq_voce" (arr ($f.Con "bloccanti" (sel $f.Bloccanti "" "1")) "Bloccanti" (index $c.Segnali "bloccanti") $f.Bloccanti "segnale" "bad")}}
+      {{template "rq_voce" (arr ($f.Con "smistare" (sel $f.DaSmistare "" "1")) "Da smistare" (index $c.Segnali "smistare") $f.DaSmistare "segnale" "warn")}}
+      {{template "rq_voce" (arr ($f.Con "sla" (sel $f.SLA "" "1")) "SLA critico" (index $c.Segnali "sla") $f.SLA "segnale" "bad")}}
+      {{template "rq_voce" (arr ($f.Con "scade" (sel $f.Scade "" "1")) "Scade entro 3 giorni" (index $c.Segnali "scade") $f.Scade "segnale" "warn")}}
+      {{template "rq_voce" (arr ($f.Con "fornitori" (sel $f.Fornitori "" "1")) "Aspetta i fornitori" (index $c.Segnali "fornitori") $f.Fornitori "segnale" "acc")}}
+    </div>
+    {{if $c.Fasi}}<div class="gruppo"><span class="label">Fase</span>
+      {{range $c.Fasi}}{{template "rq_voce" (arr ($f.Con "fase" (sel (eq (printf "%s" $f.Fase) .Chiave) "" .Chiave)) .Nome .N (eq (printf "%s" $f.Fase) .Chiave) "" (sel .Fine "ink3" "acc"))}}{{end}}
+    </div>{{end}}
+    {{if $c.Clienti}}<div class="gruppo"><span class="label">Cliente</span>
+      {{range $c.Clienti}}{{template "rq_voce" (arr ($f.Con "cliente" (sel (eq $f.Cliente.String .Chiave) "" .Chiave)) .Nome .N (eq $f.Cliente.String .Chiave) "" "ink3")}}{{end}}
+    </div>{{end}}
+    {{if $c.Uffici}}<div class="gruppo"><span class="label">Di chi è</span>
+      {{range $c.Uffici}}{{template "rq_voce" (arr ($f.Con "uff" (sel (eq $f.Ufficio .Chiave) "" .Chiave)) .Nome .N (eq $f.Ufficio .Chiave) "" "ink3")}}{{end}}
+      <p class="aiuto-quad">L'ufficio della fase in cui si trova la RFQ.</p>
+    </div>{{end}}
+    <p class="nota aggiorna-nota">La lista si aggiorna da sola ogni {{.Intervallo}} secondi.</p>
+  </aside>
+  <div class="maniglia" data-maniglia="m1"></div>
+  <div class="col elenco" id="rq-elenco">
+    {{if $f.Attivi}}
+    <div class="attivi"><span>Filtri:</span>
+      {{if $f.Q}}<a class="chip acc" href="{{$f.Con "q" ""}}" hx-get="{{$f.Con "q" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">«{{$f.Q}}» ✕</a>{{end}}
+      {{if $f.Bloccanti}}<a class="chip acc" href="{{$f.Con "bloccanti" ""}}" hx-get="{{$f.Con "bloccanti" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">bloccanti ✕</a>{{end}}
+      {{if $f.DaSmistare}}<a class="chip acc" href="{{$f.Con "smistare" ""}}" hx-get="{{$f.Con "smistare" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">da smistare ✕</a>{{end}}
+      {{if $f.SLA}}<a class="chip acc" href="{{$f.Con "sla" ""}}" hx-get="{{$f.Con "sla" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">SLA critico ✕</a>{{end}}
+      {{if $f.Scade}}<a class="chip acc" href="{{$f.Con "scade" ""}}" hx-get="{{$f.Con "scade" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">scade entro 3 giorni ✕</a>{{end}}
+      {{if $f.Fornitori}}<a class="chip acc" href="{{$f.Con "fornitori" ""}}" hx-get="{{$f.Con "fornitori" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">aspetta i fornitori ✕</a>{{end}}
+      {{if $f.Fase}}<a class="chip acc" href="{{$f.Con "fase" ""}}" hx-get="{{$f.Con "fase" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">fase {{$f.NomeFaseFiltro}} ✕</a>{{end}}
+      {{if $f.Ufficio}}<a class="chip acc" href="{{$f.Con "uff" ""}}" hx-get="{{$f.Con "uff" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">{{$f.Ufficio}} ✕</a>{{end}}
+      {{if ne $f.Cliente.String "00000000-0000-0000-0000-000000000000"}}<a class="chip acc" href="{{$f.Con "cliente" ""}}" hx-get="{{$f.Con "cliente" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">un cliente ✕</a>{{end}}
+      <a href="{{$f.Con "tutti" ""}}" hx-get="{{$f.Con "tutti" ""}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">Togli i filtri</a>
+    </div>
+    {{end}}
+    <div class="corpo-elenco" role="list">
+    {{if not .Card}}
+      <div class="vuoto-lettura"><div><b>Nessuna richiesta</b>{{if $f.Attivi}}Nessuna richiesta con questi filtri.{{else}}Nessuna richiesta qui. Le richieste nascono dal triage dell'Inbox («Nuova RFQ»).{{end}}</div></div>
+    {{else if eq $f.Modo "fasi"}}
+      <div class="board">{{range .Colonne}}
+        <section class="colfase {{if not .Card}}vuota{{end}}" aria-label="{{.Nome}}"><header><b>{{.Nome}} <span class="mono">{{len .Card}}</span></b></header>
+          <div class="carte-fase">{{range .Card}}
+            <a class="cartafase {{.Urgenza}} {{if eq $f.Sel (.ThreadID.String)}}sel{{end}}" href="{{$f.Con "sel" (.ThreadID.String)}}" hx-get="/richieste/{{.ThreadID}}/dettaglio" hx-target="#rq-det" data-rq="{{.ThreadID}}">
+              <span class="cli">{{.Cliente}}</span><span class="ogg">{{if .Oggetto.Valid}}{{.Oggetto.String}}{{else}}(senza oggetto){{end}}</span>
+              <span class="fondo"><span class="scad {{.ScadClasse}}">{{.ScadTesto}}</span>{{if .GgInFase.Valid}}<span class="gg {{.SLA}}">{{.GgInFase.Int32}} gg</span>{{end}}</span>
+              {{if or (gt .NBloccanti 0) (gt .NDaSmistare 0)}}<span class="fondo">{{if gt .NBloccanti 0}}<span class="chip bad">{{.NBloccanti}} bloccanti</span>{{end}}{{if gt .NDaSmistare 0}}<span class="chip warn">{{.NDaSmistare}} da smistare</span>{{end}}</span>{{end}}
+            </a>{{end}}</div></section>{{end}}
+      </div>
+    {{else}}
+      {{range .Card}}{{template "richiesta_riga" (arr . $f)}}{{end}}
+      {{if .Altre}}<div class="altre"><button type="button" class="btn" hx-get="{{.Filtri.Altre}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true">Mostra altre ({{.Altre}} ancora)</button></div>{{end}}
+    {{end}}
+    </div>
   </div>
-  <div class="rq-segnali">
-    {{if gt .NBloccanti 0}}<span class="rq-segnale bloc">⚠ {{.FraseBloccanti}}</span>{{end}}
-    {{if gt .NDaSmistare 0}}<span class="rq-segnale smi">{{.FraseDaSmistare}}</span>{{end}}
-    <span class="rq-segnale">{{.FraseProdotti}}</span>
-  </div>
-  {{template "richiesta_prodotti" .}}
-</article>
+  {{/* Il poll porta la firma di quello che si vede: stesso elenco, 204, e le miniature restano dove sono. */}}
+  <div class="rq-poll" hidden hx-get="/richieste" hx-vals='js:{...cockpitStatoRichieste([]), firma: "{{.Firma}}"}'
+       hx-trigger="every {{.Intervallo}}s, richieste-aggiorna from:body" hx-target="#rq-stato" hx-swap="outerHTML"></div>
+</div>
+{{end}}{{end}}
+
+{{/* rq_voce: una voce della colonna dei filtri. (arr link nome numero acceso classe colore); il colore e' una
+     chiave (acc, ink2, ink3, vuoto, bad, warn): html/template non lascia passare var(...) in un attributo style. */}}
+{{define "rq_voce"}}{{$href := index . 0}}
+<a class="voce {{index . 4}} q-{{index . 5}}" href="{{$href}}" hx-get="{{$href}}" hx-target="#rq-stato" hx-swap="outerHTML" hx-push-url="true" {{if index . 3}}aria-current="true"{{end}}>
+  <span class="punto"></span>{{index . 1}}<span class="n">{{index . 2}}</span></a>
 {{end}}
 
-{{define "richiesta_prodotti"}}{{if .Prodotti}}
-<div class="rq-prodotti" id="prodotti-{{.ThreadID}}">
-  {{range .Mostrati}}
-  <div class="rq-prod{{if not .Anteprima}} vuoto{{end}}">
-    <div class="rq-ant">{{if .Anteprima}}<iframe src="{{.Anteprima}}" loading="lazy" tabindex="-1" aria-hidden="true" title="Anteprima di {{.NomePDF}}"></iframe>{{else}}<span>nessun PDF</span>{{end}}</div>
-    <a class="rq-prod-link" href="{{.Link}}" title="{{.Codice}}{{if .NomePDF}} · {{.NomePDF}}{{end}} · apri nel Fascicolo">
-      <span class="rq-cod">{{.Codice}}{{if .Rev}} <span class="rq-rev">rev {{.Rev}}</span>{{end}}</span>
-      {{if .Descrizione}}<span class="rq-desc">{{.Descrizione}}</span>{{end}}
-    </a>
-    {{if .DaConfermare}}<span class="rq-tag" title="Il disegno è una proposta, non ancora confermata nel Fascicolo">da confermare</span>{{end}}
+{{define "richiesta_riga"}}{{$c := index . 0}}{{$f := index . 1}}
+<a class="rq-riga {{$c.Urgenza}} {{if $c.Chiusa}}chiusa{{end}} {{if eq $f.Sel ($c.ThreadID.String)}}sel{{end}}" id="rfq-{{$c.ThreadID}}" data-rq="{{$c.ThreadID}}" role="listitem"
+   href="{{$f.Con "sel" ($c.ThreadID.String)}}" hx-get="/richieste/{{$c.ThreadID}}/dettaglio" hx-target="#rq-det" title="{{$c.RagioneSociale}}">
+  <span class="sx">
+    <span class="cli">{{$c.Cliente}}{{if $c.RiferimentoCliente.Valid}} <span class="chip mono">{{$c.RiferimentoCliente.String}}</span>{{end}}{{if $c.Chiusa}} <span class="chip">CHIUSA</span>{{end}}</span>
+    <span class="ogg">{{if $c.Oggetto.Valid}}{{$c.Oggetto.String}}{{else}}(senza oggetto){{end}}</span>
+    <span class="meta-rq">{{template "rq_fase" $c}}<span>Buyer <b>{{if $c.Buyer.Valid}}{{$c.Buyer.String}}{{else}}—{{end}}</b></span>
+      <span>Agg. <b>{{if $c.UltimoAggiornamento}}{{data $c.UltimoAggiornamento}}{{else}}{{data $c.DataInizio}}{{end}}</b></span></span>
+    <span class="segnali">
+      {{if gt $c.NBloccanti 0}}<span class="chip bad"><svg class="ico s" aria-hidden="true"><use href="#i-avviso"/></svg> {{$c.FraseBloccanti}}</span>{{end}}
+      {{if gt $c.NDaSmistare 0}}<span class="chip warn">{{$c.FraseDaSmistare}}</span>{{end}}
+      {{if $c.Prodotti}}<span class="miniature">{{range $c.Miniature}}{{if .AllegatoID}}<span class="mini" data-a="{{.AllegatoID}}" title="{{.Codice}}"></span>{{else}}<span class="mini vuoto" title="{{.Codice}}: nessun PDF"></span>{{end}}{{end}}{{if gt (len $c.Prodotti) 4}}<small>+{{sub (len $c.Prodotti) 4}}</small>{{end}}</span>{{end}}
+      <span class="chip vuoto">{{$c.FraseProdotti}}{{with $c.NDaConfermare}} · {{.}} da confermare{{end}}</span>
+      {{if or (gt $c.NFornAttesa 0) (gt $c.NFornOfferte 0)}}<span class="chip {{if gt $c.NFornAttesa 0}}acc{{else}}ok{{end}}">fornitori: {{if gt $c.NFornOfferte 0}}{{$c.NFornOfferte}} offert{{if eq $c.NFornOfferte 1}}a{{else}}e{{end}}{{end}}{{if and (gt $c.NFornOfferte 0) (gt $c.NFornAttesa 0)}} · {{end}}{{if gt $c.NFornAttesa 0}}{{$c.NFornAttesa}} in attesa{{end}}</span>{{end}}
+      {{if $c.Sollecito}}<span class="chip warn">sollecitata il {{$c.SollecitoIl.Format "02/01"}}</span>{{end}}
+    </span>
+    {{with $c.Prossimo}}<span class="prossimo">→ <b>{{$c.Chi}}</b>: {{.}}</span>{{end}}
+  </span>
+  <span class="dx"><span class="scad {{$c.ScadClasse}}">{{$c.ScadTesto}}<small>{{$c.ScadSotto}}</small></span></span>
+</a>
+{{end}}
+
+{{define "rq_fase"}}{{if .NomeFase.Valid}}<span class="fase-pill {{if .Chiusa}}fine{{end}}" title="{{if .GgInFase.Valid}}{{.GgInFase.Int32}} giorni in fase{{if .SlaGg.Valid}} su {{.SlaGg.Int32}} di SLA{{end}}{{end}}">{{.FaseBreve}}
+  {{if and .SlaGg.Valid (gt .SlaGg.Int32 0) (not .Chiusa)}}<span class="sla"><i class="{{.SLA}}" style="--p:{{.SlaPerc}}"></i></span>{{end}}
+  {{if and .GgInFase.Valid (not .Chiusa)}}<span class="gg {{.SLA}}">{{.GgInFase.Int32}} gg{{if and .SlaGg.Valid (gt .SlaGg.Int32 0)}} su {{.SlaGg.Int32}}{{end}}</span>{{end}}</span>{{end}}{{end}}
+
+{{define "rq_prodotto"}}
+<a class="prod" href="{{.Link}}" {{if .AllegatoID}}data-anteprima="/allegato/{{.AllegatoID}}/anteprima" data-titolo="{{.Codice}}"{{end}} title="{{.Codice}}{{if .NomePDF}} · {{.NomePDF}}{{end}}">
+  {{if .AllegatoID}}<span class="ant mini" data-a="{{.AllegatoID}}"></span>{{else}}<span class="ant vuoto">nessun PDF</span>{{end}}
+  <span class="t"><b>{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</b>{{if .Descrizione}}<small>{{.Descrizione}}</small>{{end}}
+    {{if .DaConfermare}}<span class="chip warn" title="Il disegno è una proposta, non ancora confermata">da confermare</span>{{end}}</span>
+</a>
+{{end}}
+
+{{/* richiesta_dettaglio: la RFQ scelta. Un passaggio di fase chiede la conferma scritta nella pagina prima di
+     partire (?passo=FASE), e il passaggio della BOM rimanda alla Distinta. */}}
+{{define "richiesta_dettaglio"}}{{with .Dati}}{{$c := .Card}}{{$d := .}}
+<div class="det" data-rq="{{$c.ThreadID}}">
+  <div class="det-testa">
+    <button type="button" class="btn quieto piccolo solo-stretto" data-azione="indietro"><svg class="ico s" aria-hidden="true"><use href="#i-sx"/></svg> Elenco</button>
+    <div class="sopra"><span class="label cliente-det">{{$c.Cliente}}</span><span class="chip vuoto" title="peso del cliente: ordina la lista">peso {{$c.PesoCliente}}</span>{{template "rq_fase" $c}}{{if $c.Chiusa}}<span class="chip">CHIUSA</span>{{end}}</div>
+    <h1>{{if $c.Oggetto.Valid}}{{$c.Oggetto.String}}{{else}}(senza oggetto){{end}}</h1>
+    <dl class="dati">
+      <div><dt>Riferimento</dt><dd class="mono">{{if $c.RiferimentoCliente.Valid}}{{$c.RiferimentoCliente.String}}{{else}}—{{end}}</dd></div>
+      <div><dt>Buyer</dt><dd>{{if $c.Buyer.Valid}}{{$c.Buyer.String}}{{else}}—{{end}}</dd></div>
+      <div><dt>Scadenza</dt><dd class="{{$c.ScadClasse}}">{{$c.ScadTesto}} <small class="k">{{$c.ScadSotto}}</small></dd></div>
+      <div><dt>Aperta il</dt><dd>{{data $c.DataInizio}}</dd></div>
+      <div><dt>Ultimo agg.</dt><dd>{{if $c.UltimoAggiornamento}}{{data $c.UltimoAggiornamento}}{{else}}—{{end}}</dd></div>
+    </dl>
+    <div class="det-azioni">
+      <a class="btn primario" href="/thread/{{$c.ThreadID}}/distinta">Apri la Distinta <svg class="ico s" aria-hidden="true"><use href="#i-freccia"/></svg></a>
+      <a class="btn" href="/thread/{{$c.ThreadID}}" title="La pagina di prima della richiesta: la mail con gli allegati, i codici trovati">Pagina della RFQ</a>
+      <a class="btn" href="{{$c.LinkPosta}}" title="La posta di questa RFQ, nell'Inbox"><svg class="ico s" aria-hidden="true"><use href="#i-outlook"/></svg> Posta</a>
+    </div>
+    {{if .Errore}}<div class="avviso-box bad" role="alert">{{.Errore}}</div>{{end}}
+    {{if .Fatto}}<div class="avviso-box ok" role="status">{{.Fatto}}</div>{{end}}
+    {{with $c.Prossimo}}<div class="prossimo-box"><svg class="ico" aria-hidden="true"><use href="#i-freccia"/></svg><b>{{.}}</b><small>Di chi è: {{$c.Chi}}</small></div>{{end}}
   </div>
+
+  {{if or .Mancano (gt $c.NDaSmistare 0)}}
+  <div class="sez"><div class="sez-titolo"><h3>Che cosa manca</h3><span class="k">la fattibilità parte quando non manca niente di bloccante</span></div>
+    <ul class="manca">
+      {{range .Mancano}}<li><svg class="ico" aria-hidden="true"><use href="#i-avviso"/></svg><span><b class="mono">{{.Codice}}</b> · {{etichettaTipoDoc (printf "%s" .TipoDocumento)}}</span><span class="k">{{if eq .Esito "sul_portale"}}sul portale{{else if eq .Esito "da_confermare"}}proposto, da confermare{{else}}manca{{end}}</span></li>{{end}}
+      {{if gt $c.NDaSmistare 0}}<li class="smi"><svg class="ico" aria-hidden="true"><use href="#i-archivio"/></svg><span><b>{{$c.FraseDaSmistare}}</b> nei Documenti della Distinta</span><a href="/thread/{{$c.ThreadID}}/distinta">Smista</a></li>{{end}}
+    </ul></div>
   {{end}}
-  {{if .Nascosti}}<button type="button" class="rq-prod rq-piu" hx-get="/richieste/{{.ThreadID}}/prodotti" hx-target="#prodotti-{{.ThreadID}}" hx-swap="outerHTML">+ {{.Nascosti}} altri</button>
-  {{else if .PuoRichiudere}}<button type="button" class="rq-prod rq-piu" hx-get="/richieste/{{.ThreadID}}/prodotti?meno=1" hx-target="#prodotti-{{.ThreadID}}" hx-swap="outerHTML">Mostra meno</button>{{end}}
+
+  <div class="sez"><div class="sez-titolo"><h3>A che punto è</h3></div>
+    <ol class="tappe">
+      {{range .Tappe}}
+      <li class="tappa {{.Stato}}"><span class="pt">{{if eq .Stato "fatta"}}✓{{end}}</span>
+        <span class="nome">{{.Nome}}<small>{{.Nota}}</small>
+        {{if and (eq .Stato "ora") (not $c.Chiusa) (or $d.Passaggi $d.Automatico)}}
+        <span class="passaggi">
+          {{with $d.Automatico}}<span class="nota">{{.}}</span>{{end}}
+          {{if $d.Passaggi}}<span class="nota">Per andare avanti a mano:</span>
+          <span class="fila">{{range $d.Passaggi}}
+            {{if .Link}}<a class="btn piccolo" href="{{.Link}}" title="Si passa congelando la BOM nella Distinta">{{.Etichetta}} → {{.Nome}} (nella Distinta)</a>
+            {{else}}<button type="button" class="btn piccolo {{if .Fine}}pericolo{{end}}" hx-get="/richieste/{{$c.ThreadID}}/dettaglio?passo={{.A}}" hx-target="#rq-det">{{.Etichetta}} → {{.Nome}}</button>{{end}}
+          {{end}}</span>{{end}}
+          {{with $d.Conferma}}
+          <span class="conferma-passo" role="alert">Passare a <b>{{.Nome}}</b> ({{.Etichetta}})? Il passaggio si scrive nel registro delle fasi con il tuo nome e l'ora{{if .Fine}}, e la RFQ si chiude{{end}}.
+            <span class="fila">
+              <button type="button" class="btn primario piccolo" hx-post="/thread/{{$c.ThreadID}}/fase" hx-vals='{"a":"{{.A}}"}' hx-target="#rq-det">Sì, passa a {{.Nome}}</button>
+              <button type="button" class="btn quieto piccolo" hx-get="/richieste/{{$c.ThreadID}}/dettaglio" hx-target="#rq-det">Annulla</button></span></span>
+          {{end}}
+        </span>
+        {{end}}</span>
+        <span class="quando">{{.Quando}}</span></li>
+      {{end}}
+    </ol></div>
+
+  <div class="sez"><div class="sez-titolo"><h3>Prodotti</h3><span class="k">{{$c.FraseProdotti}} · un clic apre il disegno</span></div>
+    {{if $c.Prodotti}}
+    <div class="prodotti">
+      {{range .Mostrati}}{{template "rq_prodotto" .}}{{end}}
+      {{if gt (len $c.Prodotti) (len .Mostrati)}}<button type="button" class="prod piu" hx-get="/richieste/{{$c.ThreadID}}/dettaglio?prodotti=tutti" hx-target="#rq-det">+ {{sub (len $c.Prodotti) (len .Mostrati)}} altri</button>
+      {{else if .Tutti}}<button type="button" class="prod piu" hx-get="/richieste/{{$c.ThreadID}}/dettaglio" hx-target="#rq-det">Mostra meno</button>{{end}}
+    </div>
+    {{else}}<p class="nota">Nessun codice della richiesta: si aggiungono nella Distinta.</p>{{end}}
+  </div>
+
+  {{if .Fornitori}}
+  <div class="sez"><div class="sez-titolo"><h3>Richieste ai fornitori</h3></div>
+    <div class="forn">{{range .Fornitori}}
+      <div class="r"><span><b>{{.Fornitore}}</b>{{if .LavorazioneDescrizione.Valid}} · {{.LavorazioneDescrizione.String}}{{end}}<br>
+        <small>{{if .InviataIl}}inviata il {{data .InviataIl}}{{else}}creata il {{data .CreataIl}}{{end}}{{if .RispostaIl}} · risposta il {{data .RispostaIl}}{{end}}{{if gt .NRisposte 0}} · {{.NRisposte}} mail in risposta{{end}}</small></span>
+        <span class="chip {{if eq .Stato "inviata"}}acc{{else if eq .Stato "offerta_ricevuta"}}ok{{else if eq .Stato "declinata"}}bad{{end}}">{{if eq .Stato "inviata"}}in attesa{{else if eq .Stato "offerta_ricevuta"}}offerta ricevuta{{else}}{{.Stato}}{{end}}</span></div>
+    {{end}}</div></div>
+  {{end}}
+
+  {{if .Mail}}
+  <div class="sez"><div class="sez-titolo"><h3>Ultime mail</h3><a href="{{$c.LinkPosta}}" class="k">tutte nell'Inbox</a></div>
+    <div class="posta-rq">{{range .Mail}}
+      <a href="/messaggio/{{.MessaggioID}}" title="Apri nell'Inbox"><span>{{if eq .Direzione "uscita"}}↑{{else}}↓{{end}}</span><span>{{oggettoVisibile .Oggetto}}</span><span>{{data .DataEvento}}</span></a>
+    {{end}}</div></div>
+  {{end}}
+
+  <div class="sez ultima"><div class="sez-titolo"><h3>Che cosa vuole il cliente</h3><a href="/admin/anagrafica?cliente={{$c.ClienteID}}&amp;sez=riconoscimento" class="k">in Anagrafica</a></div>
+    {{$r := .Regole}}
+    <ul class="perche">
+      {{if gt $r.RispostaEntroGG 0}}<li class="forte">risposta entro {{$r.RispostaEntroGG}} giorni lavorativi</li>{{end}}
+      {{if $r.RichiedeCBD}}<li class="forte">l'offerta vuole il cost breakdown (CBD)</li>{{end}}
+      {{if $r.NumeroOrdineAnticipato}}<li class="forte">emette il numero d'ordine prima dell'offerta</li>{{end}}
+      {{with $r.LinguaRisposta}}<li class="forte">si risponde in «{{.}}»</li>{{end}}
+    </ul>
+    {{if $r.DatiRichiesti}}<div class="chips"><span class="k">Dati da mettere nell'offerta:</span>{{range $r.DatiRichiesti}}<span class="chip">{{.}}</span>{{end}}</div>{{end}}
+    {{with .Cliente.PortaleNote.String}}<p class="nota">Portale: {{.}}</p>{{end}}
+    {{with .Cliente.Note.String}}<p class="nota">{{.}}</p>{{end}}
+    {{if not (or (gt $r.RispostaEntroGG 0) $r.RichiedeCBD $r.DatiRichiesti .Cliente.Note.Valid .Cliente.PortaleNote.Valid)}}<p class="nota">Niente di particolare in anagrafica.</p>{{end}}
+  </div>
 </div>
 {{end}}{{end}}

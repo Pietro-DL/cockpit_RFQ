@@ -128,8 +128,12 @@ type anagraficaDati struct {
 	Lavorazioni         []db.Lavorazione
 	Fornitori           []db.Fornitore
 	ProvaCodice         *provaCodice
-	Errore              string
-	Fatto               string
+	// L'Anagrafica nuova (anagrafica_ui.go): le mail di ogni persona, e che cosa sa fare ogni fornitore (le
+	// tendine delle qualifiche offrono solo chi fa quella lavorazione).
+	Mail     map[uuid.UUID]mailPersona
+	Capacita map[uuid.UUID][]string
+	Errore   string
+	Fatto    string
 }
 
 // sezioniAnagrafica sono le schede del cliente, nell'ordine in cui si usano: prima chi è, poi da
@@ -163,6 +167,9 @@ type provaDati struct {
 	Testo   string
 	Esito   classificazione.Riconoscimento
 	Cliente string
+	// L'Anagrafica nuova: la prova e' stata fatta con le regole del form non ancora salvate, e sono queste.
+	DalForm bool
+	Regole  regole.Regole
 }
 
 func (s *Server) adminAnagrafica(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +204,18 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 	if c := dati.Scelto; c != nil {
 		dati.Domini, _ = q.ListDominiCliente(ctx, c.ClienteID)
 		dati.Buyer, _ = q.ListBuyerCliente(ctx, c.ClienteID)
+		dati.Mail = map[uuid.UUID]mailPersona{}
+		if len(dati.Buyer) > 0 {
+			ids := make([]uuid.UUID, len(dati.Buyer))
+			for i, b := range dati.Buyer {
+				ids[i] = b.BuyerID
+			}
+			if mm, err := q.ContaMailBuyer(ctx, ids); err == nil {
+				for _, m := range mm {
+					dati.Mail[m.BuyerID.UUID] = mailPersona{N: m.N, Ultima: m.Ultima}
+				}
+			}
+		}
 		dati.Fabbisogno, _ = q.ListFabbisognoEffettivo(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
 		dati.Propri, _ = q.ListFabbisognoCliente(ctx, uuid.NullUUID{UUID: c.ClienteID, Valid: true})
 		dati.Regole, dati.Diagnosi = regole.LeggiRegole(c.Regole)
@@ -205,6 +224,12 @@ func (s *Server) rendiAnagrafica(w http.ResponseWriter, r *http.Request, dati an
 		}
 		if dati.Sez == "lavorazioni" {
 			s.caricaLavorazioniCliente(ctx, q, &dati, c.ClienteID)
+			dati.Capacita = map[uuid.UUID][]string{}
+			if cc, err := q.ListCapacitaTutte(ctx); err == nil {
+				for _, x := range cc {
+					dati.Capacita[x.FornitoreID] = append(dati.Capacita[x.FornitoreID], x.Lavorazione)
+				}
+			}
 		}
 	}
 	s.rendi(w, r, "anagrafica.html", "anagrafica_corpo", "Anagrafica", dati)
@@ -358,6 +383,12 @@ func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
 	q := db.New(s.Pool)
 	c, ok := s.clienteDaURL(w, r, q)
 	if !ok {
+		return
+	}
+	// L'Anagrafica nuova: il banco sta accanto alla scheda e risponde con il suo frammento, anche con le
+	// regole del form non ancora salvate (anagrafica_ui.go).
+	if r.Header.Get("HX-Request") == "true" {
+		s.esitoProva(w, r, c)
 		return
 	}
 	testo := r.FormValue("testo")

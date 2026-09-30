@@ -86,7 +86,7 @@
 {{/* ------------------------------------------------------------------ testata */}}
 {{define "fasc_testata"}}
 <div class="ft-riga">
-  <p class="briciole"><a href="/richieste">Richieste</a> › <a href="/thread/{{.T.ThreadID}}">{{.Riga.Cliente}} · RFQ</a> › Fascicolo</p>
+  <p class="briciole"><a href="/richieste">Richieste</a> › <a href="/thread/{{.T.ThreadID}}">{{.Riga.Cliente}} · RFQ</a> › Fascicolo · <a href="/thread/{{.T.ThreadID}}/distinta"><b>torna alla Distinta</b></a></p>
 </div>
 <div class="ft-riga ft-titolo">
   <h1>{{.T.Oggetto.String}}</h1>
@@ -891,7 +891,7 @@
       </form>
     </div>
     {{end}}
-    {{if eq (print $c.Tipo) "commerciale"}}<p class="k">{{$c.Codice}} è un commerciale: il suo STEP resta guida; per autorizzarlo cambia prima il tipo.</p>
+    {{if eq (print $c.Tipo) "commerciale"}}<p class="k">{{$c.Codice}} è un particolare commerciale: il suo STEP resta guida; per autorizzarlo cambia prima il tipo.</p>
     {{else}}
     {{if $n.Step}}
     <form class="in-linea" hx-get="/thread/{{.T.ThreadID}}/fascicolo/componente/{{$id}}/step-strutturale" hx-target="#autorizzazione-{{$id}}" hx-swap="innerHTML">

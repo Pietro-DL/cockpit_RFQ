@@ -40,6 +40,8 @@ type fornitoriDati struct {
 	Tipi        []db.TipoFornitore
 	Errore      string
 	Fatto       string
+	// L'Anagrafica nuova: la matrice «Chi fa cosa» (?vista=chifa), al posto della scheda.
+	ChiFa *chiFaCosa
 }
 
 var sezioniFornitore = []struct{ Chiave, Nome string }{
@@ -96,6 +98,21 @@ func (s *Server) rendiFornitori(w http.ResponseWriter, r *http.Request, dati for
 		dati.Qualifiche, _ = q.ListQualificheFornitore(ctx, f.FornitoreID)
 		dati.Clienti, _ = q.ListClientiTutti(ctx)
 		dati.Messaggi, _ = q.ListMessaggiPerControparteFornitore(ctx, uuid.NullUUID{UUID: f.FornitoreID, Valid: true})
+	}
+	if r.FormValue("vista") == "chifa" {
+		m := &chiFaCosa{Fornitori: dati.Fornitori, Fa: map[string]bool{}, Qual: map[string]bool{}}
+		m.Lavorazioni, _ = q.ListLavorazioni(ctx)
+		if cc, err := q.ListCapacitaTutte(ctx); err == nil {
+			for _, x := range cc {
+				m.Fa[x.FornitoreID.String()+"|"+x.Lavorazione] = true
+			}
+		}
+		if qq, err := q.ListQualificheTutte(ctx); err == nil {
+			for _, x := range qq {
+				m.Qual[x.FornitoreID.String()+"|"+x.Lavorazione] = true
+			}
+		}
+		dati.ChiFa = m
 	}
 	s.rendi(w, r, "fornitori.html", "fornitori_corpo", "Anagrafica", dati)
 }

@@ -36,6 +36,9 @@ type candidatiVista struct {
 	Carte       []cartaCandidato
 	PariMerito  bool
 	DiPrima     bool
+	// Proposta: nel pannello, la RFQ che ha gia' il suo bottone nella carta «Che cosa fare». La sua card non lo
+	// ripete: un bottone solo per RFQ.
+	Proposta string
 }
 
 type cartaCandidato struct {

@@ -1,0 +1,1824 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Mockup di Inbox: dati inventati, niente viene salvato. Le tre pagine (Inbox, Richieste, Anagrafica) si linkano fra loro. -->
+<title>Inbox Cockpit RFQ</title>
+<!-- Mockup della pagina Inbox del Cockpit RFQ: dati inventati, niente viene salvato. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+
+/* Layout: un banco di smistamento. A sinistra le cartelle (i quadranti) e lo stato della posta; poi la lista,
+   raggruppata per giorno; a destra la lettura, divisa in due: la mail da leggere e, accanto, «Che cosa fare»,
+   sempre in vista. I moduli (Nuova RFQ, Aggancia, Censisci) si aprono sopra la lettura, con la mail accanto.
+   Fondo bianco, grigi neutri; il colore dice solo lo stato (proposta chiara, da scegliere, manca) e l'evento. */
+:root {
+  --bg: #f4f4f2;
+  --surface: #ffffff;
+  --surface-2: #fafaf9;
+  --surface-3: #efefec;
+  --ink: #1c1c1a;
+  --ink-2: #5f5f5a;
+  --ink-3: #8a8a84;
+  --line: #e3e3df;
+  --line-strong: #c6c6c0;
+  --accent: #0f5a66;
+  --accent-ink: #ffffff;
+  --accent-soft: #e7f1f2;
+  --ok: #1e7445; --ok-soft: #e9f5ee;
+  --warn: #945800; --warn-soft: #fdf4e3;
+  --bad: #b0332a; --bad-soft: #fcece9;
+  --e-cad: #2957a8; --e-cad-soft: #ebf0fa;
+  --e-rev: #5e44ad; --e-rev-soft: #f1edfa;
+  --e-off: #86561a; --e-off-soft: #f8f0e3;
+  --nov: #c77d00;
+  --shadow: 0 1px 2px rgba(28,28,26,.06), 0 3px 10px rgba(28,28,26,.05);
+  --shadow-alto: 0 12px 40px rgba(28,28,26,.18);
+  --velo: rgba(28,28,26,.42);
+  --f-display: "Barlow Semi Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  --r: 8px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { height: 100%; background: var(--bg) }
+body { background: var(--bg); color: var(--ink); font: 14.5px/1.5 var(--f-body); margin: 0; overflow: hidden }
+button, input, select, textarea { font: inherit; color: inherit }
+button { cursor: pointer }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px }
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15 }
+p { margin: 0 }
+.mono { font-family: var(--f-mono); font-weight: 600; letter-spacing: .01em }
+.k { color: var(--ink-2) }
+.k3 { color: var(--ink-3) }
+.label { font-family: var(--f-display); font-size: .76rem; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2) }
+.sp { flex: 1 }
+.ico { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
+.ico.s { width: 13px; height: 13px }
+kbd { font: 600 .72rem var(--f-mono); padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--ink-2) }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important } }
+
+/* ---------------------------------------------------------------- struttura */
+.app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) }
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px 16px; background: var(--surface); border-bottom: 1.5px solid var(--line-strong) }
+.topbar .app-nome { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; letter-spacing: .01em }
+.topbar nav { display: flex; gap: 2px }
+.topbar nav a { padding: 5px 12px; border-radius: 6px; color: var(--ink-2); text-decoration: none; font-weight: 500 }
+.topbar nav a:hover { background: var(--surface-3); color: var(--ink) }
+.topbar nav a[aria-current] { background: var(--accent-soft); color: var(--accent); font-weight: 600 }
+.postazione { display: flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--ink-2) }
+.postazione select { padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .88rem }
+.postazione select.manca { border-color: var(--bad); color: var(--bad); background: var(--bad-soft) }
+.utente { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--surface); font: 700 .8rem var(--f-display); letter-spacing: .04em }
+.mockup-tag { font-size: .78rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); border: 1px solid currentColor; white-space: nowrap }
+.menu-mock { position: relative }
+.menu-mock > button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .85rem; font-weight: 600 }
+.menu-mock .pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 300px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: var(--shadow-alto); padding: 12px; display: grid; gap: 10px }
+.menu-mock label { display: flex; gap: 10px; align-items: flex-start; font-size: .9rem }
+.menu-mock label small { display: block; color: var(--ink-2) }
+
+.spazio { min-height: 0; display: grid; gap: 12px; padding: 12px 16px; grid-template-columns: 214px 400px minmax(0, 1fr); grid-template-areas: "cart lista lettura" }
+.col { min-height: 0; min-width: 0; background: var(--surface); border: 1.5px solid var(--line-strong); border-radius: var(--r) }
+
+/* ---------------------------------------------------------------- cartelle */
+.cartelle { grid-area: cart; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 12px 10px }
+.gruppo { display: grid; gap: 2px }
+.gruppo > .label { padding: 0 8px 4px }
+.voce { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; color: var(--ink); font-weight: 500 }
+.voce:hover { background: var(--surface-2) }
+.voce[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600 }
+.voce .punto { width: 9px; height: 9px; border-radius: 3px; flex: none; background: var(--q, var(--ink-3)) }
+.voce .n { margin-left: auto; font: 600 .8rem var(--f-mono); color: var(--ink-2); min-width: 22px; text-align: right }
+.voce .n.pieno { color: var(--surface); background: var(--q, var(--accent)); border-radius: 999px; padding: 0 7px; min-width: 0 }
+.voce.adesso { font-family: var(--f-display); font-size: 1.05rem; font-weight: 700; padding-block: 9px }
+.voce.adesso .punto { background: var(--accent); border-radius: 50% }
+.voce .aiuto { display: none }
+.aiuto-quad { font-size: .8rem; color: var(--ink-2); padding: 4px 8px 0; line-height: 1.4 }
+.seg { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 4px }
+.seg button { flex: 1 1 auto; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font-size: .84rem; color: var(--ink-2); white-space: nowrap }
+.seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600 }
+.seg button small { font-family: var(--f-mono); opacity: .8 }
+.cartelle select { margin: 0 4px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .88rem }
+.posta { margin-top: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); padding: 10px; display: grid; gap: 8px; font-size: .84rem }
+.posta .cas { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline }
+.posta .cas small { grid-column: 2; color: var(--ink-2) }
+.stato-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); display: inline-block }
+.stato-dot.off { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft) }
+.stato-dot.lavora { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft) }
+.posta .bottoni { display: flex; flex-wrap: wrap; gap: 6px }
+.posta .nota { color: var(--ink-2); font-size: .78rem; line-height: 1.4 }
+
+/* ---------------------------------------------------------------- bottoni e chip (come nella Distinta) */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 13px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font-weight: 600; white-space: nowrap; text-decoration: none; color: var(--ink) }
+.btn:hover { border-color: var(--accent); color: var(--accent) }
+.btn.primario { background: var(--accent); border-color: var(--accent); color: var(--accent-ink) }
+.btn.primario:hover { filter: brightness(1.1); color: var(--accent-ink) }
+.btn.piccolo { padding: 3px 9px; font-size: .84rem }
+.btn.pieno { width: 100% }
+.btn.pericolo { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)) }
+.btn.quieto { border-color: transparent; background: transparent; color: var(--ink-2) }
+.btn.quieto:hover { background: var(--surface-3); color: var(--ink) }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; pointer-events: none }
+.btn kbd { margin-left: 2px }
+.btn.primario kbd { background: transparent; color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent-ink) 50%, transparent) }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: .76rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; background: var(--surface-3); color: var(--ink-2); line-height: 1.55 }
+.chip.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 28%, transparent) }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 28%, transparent) }
+.chip.bad { background: var(--bad-soft); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 28%, transparent) }
+.chip.acc { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 22%, transparent) }
+.chip.vuoto { background: transparent; border-color: var(--line-strong) }
+.chip.mono { font-family: var(--f-mono); font-size: .74rem }
+/* l'evento: che cosa sta succedendo con la mail (M2). Non aggancia niente, si legge e basta */
+.ev { font-family: var(--f-display); font-size: .8rem; font-weight: 700; letter-spacing: .03em; padding: 1px 8px; border-radius: 4px; white-space: nowrap; background: var(--surface-3); color: var(--ink-2) }
+.ev.NUOVA_RFQ { background: var(--ok-soft); color: var(--ok) }
+.ev.ARRIVO_CAD { background: var(--e-cad-soft); color: var(--e-cad) }
+.ev.REVISIONE_CAD { background: var(--e-rev-soft); color: var(--e-rev) }
+.ev.RISPOSTA_COMMERCIALE { background: var(--accent-soft); color: var(--accent) }
+.ev.OFFERTA_FORNITORE { background: var(--e-off-soft); color: var(--e-off) }
+.ev.ORDINE { background: var(--ok); color: var(--surface) }
+.ev.SOLLECITO { background: var(--warn-soft); color: var(--warn) }
+.ctp { font-size: .8rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.ctp b { color: var(--ink); font-weight: 600 }
+.ctp.ignoto { color: var(--bad); font-style: italic }
+
+/* novità rispetto all'Inbox di oggi: si vedono con «Evidenzia le novità» */
+body.novita .nov { outline: 2px dashed var(--nov); outline-offset: 2px; position: relative }
+body.novita .nov::before { content: "nuovo"; position: absolute; top: -9px; right: 8px; z-index: 3; font: 700 .64rem/1.5 var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 0 6px; border-radius: 4px; background: var(--nov); color: var(--surface) }
+
+/* ---------------------------------------------------------------- pezzi comuni (carte, ricerca, note) */
+.cerca { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface) }
+.cerca:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft) }
+.cerca input { border: 0; outline: 0; flex: 1; min-width: 0; background: transparent }
+.cerca .ico { color: var(--ink-3) }
+.sez { padding: 14px 22px; display: grid; gap: 10px; border-bottom: 1px solid var(--line) }
+.sez-titolo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px }
+.sez-titolo h3 { font-size: 1.05rem; font-weight: 700 }
+.nota { font-size: .82rem; color: var(--ink-2); line-height: 1.45 }
+.carta { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; min-width: 0 }
+.carta h3 { font-size: 1.12rem; font-weight: 700 }
+.carta .sotto { font-size: .86rem; color: var(--ink-2) }
+.carta.tono-ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); box-shadow: inset 4px 0 0 var(--ok) }
+.carta.tono-warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); box-shadow: inset 4px 0 0 var(--warn) }
+.carta.tono-bad { border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); box-shadow: inset 4px 0 0 var(--bad) }
+.carta.tono-acc { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: inset 4px 0 0 var(--accent) }
+.decisione h3 { font-size: 1.3rem }
+.azioni { display: grid; gap: 6px }
+.azioni .fila { display: flex; gap: 6px }
+.azioni .fila .btn { flex: 1 }
+.perche { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: .86rem }
+.perche li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 6px; line-height: 1.4 }
+.perche li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); margin-top: 7px }
+.perche li.forte::before { background: var(--ok) }
+.perche li.contro::before { background: var(--bad) }
+.cand { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; gap: 6px; background: var(--surface) }
+.cand.primo { border-color: var(--line-strong); border-width: 1.5px }
+.cand.chiuso { background: var(--surface-2) }
+.cand .testa { display: flex; gap: 8px; align-items: flex-start }
+.cand .testa .t { min-width: 0; flex: 1 }
+.cand .testa .t b { font-family: var(--f-mono); font-size: .9rem; overflow-wrap: anywhere }
+.cand .testa .t small { display: block; color: var(--ink-2); font-size: .8rem }
+.liv { font: 700 .72rem var(--f-display); letter-spacing: .08em; text-transform: uppercase; padding: 1px 7px; border-radius: 4px; white-space: nowrap }
+.liv.forte { background: var(--ok); color: var(--surface) }
+.liv.medio { background: var(--ok-soft); color: var(--ok) }
+.liv.debole { background: var(--surface-3); color: var(--ink-2) }
+.cand ul { margin: 0; padding-left: 16px; font-size: .82rem; color: var(--ink-2); display: grid; gap: 2px }
+.dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: .86rem }
+.dl dt { color: var(--ink-2) }
+.dl dd { margin: 0; min-width: 0; overflow-wrap: anywhere }
+.chips { display: flex; flex-wrap: wrap; gap: 4px }
+.chips .chip { white-space: normal; text-align: left }
+.carta details > summary { cursor: pointer; font-size: .84rem; color: var(--ink-2); font-weight: 500 }
+.carta details[open] > summary { margin-bottom: 6px }
+.carta select, .carta textarea, .carta input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .88rem }
+.carta textarea { resize: vertical; min-height: 90px }
+
+/* ---------------------------------------------------------------- i moduli: si aprono sopra la lettura, con la mail accanto */
+.foglio { position: absolute; inset: 0; z-index: 10; background: var(--surface); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; animation: sale .18s ease-out }
+@keyframes sale { from { transform: translateY(8px); opacity: .4 } to { transform: none; opacity: 1 } }
+.foglio-testa { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 18px; border-bottom: 1.5px solid var(--line-strong) }
+.foglio-testa h2 { font-size: 1.45rem; font-weight: 700 }
+.foglio-testa .k { font-size: .88rem }
+.foglio-corpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 38%); min-height: 0 }
+.modulo { overflow: auto; padding: 18px; display: grid; gap: 16px; align-content: start; min-width: 0 }
+.fonte { overflow: auto; background: var(--surface-2); border-left: 1px solid var(--line); padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0 }
+.fonte .corpo { padding: 0; max-width: none; font-size: .9rem }
+.blocco { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 12px; min-width: 0 }
+.blocco > .testa { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px }
+.blocco > .testa h3 { font-size: 1.08rem; font-weight: 700 }
+.blocco > .testa small { color: var(--ink-2); font-size: .82rem }
+.blocco.tono-warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)) }
+.campi { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px }
+.campo { display: grid; gap: 3px; min-width: 0; font-size: .84rem; color: var(--ink-2); font-weight: 500 }
+.campo.largo { grid-column: 1 / -1 }
+.campo input, .campo select, .campo textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: .92rem; font-weight: 400 }
+.campo input:focus, .campo select:focus, .campo textarea:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft) }
+.campo small { font-weight: 400; color: var(--ink-2); font-size: .78rem; line-height: 1.35 }
+.campo small.letto { color: var(--warn) }
+.campo .con-bottone { display: flex; gap: 6px }
+.sola-lettura { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: .88rem; padding: 8px 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line) }
+.sola-lettura code { font: 600 .88rem var(--f-mono) }
+.percorso { font: 500 .84rem var(--f-mono); color: var(--ink); overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: center }
+.percorso span { color: var(--ink-3) }
+.codici-lista { display: grid; gap: 6px }
+.codice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer }
+.codice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft) }
+.codice input { width: 17px; height: 17px; accent-color: var(--accent) }
+.codice .c { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center }
+.codice .c b { font: 600 .95rem var(--f-mono) }
+.codice small { grid-column: 2; color: var(--ink-2); font-size: .8rem }
+.seg-campo { display: flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; width: max-content; max-width: 100% }
+.seg-campo button { border: 0; border-left: 1px solid var(--line-strong); background: var(--surface); padding: 6px 12px; font-size: .88rem; color: var(--ink-2) }
+.seg-campo button:first-child { border-left: 0 }
+.seg-campo button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600 }
+.seg-campo button.urg[aria-pressed="true"] { background: var(--bad) }
+.seg-campo button.alta[aria-pressed="true"] { background: var(--warn) }
+.interruttore { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; cursor: pointer; color: var(--ink) }
+.interruttore input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); position: relative; cursor: pointer; transition: background .15s; margin: 0 }
+.interruttore input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: left .15s }
+.interruttore input:checked { background: var(--accent) }
+.interruttore input:checked::after { left: 16px }
+.foglio-piede { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 18px; border-top: 1.5px solid var(--line-strong); background: var(--surface-2) }
+.foglio-piede .riep { flex: 1; min-width: 200px; font-size: .88rem; color: var(--ink-2) }
+.foglio-piede .riep b { color: var(--ink) }
+.risultati { display: grid; gap: 6px }
+.risultato { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px }
+.risultato small { color: var(--ink-2); font-size: .8rem }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: .9rem; color: var(--ink); font-weight: 400 }
+.check input { width: 16px; height: 16px; margin-top: 3px; accent-color: var(--accent); flex: none }
+.lavorazioni { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 12px }
+
+/* ---------------------------------------------------------------- visore, guida, avvisi */
+.velo { position: fixed; inset: 0; z-index: 50; background: var(--velo); display: grid; place-items: center; padding: 16px }
+.visore-box { width: min(1180px, 100%); height: min(860px, 100%); background: var(--surface); border-radius: 10px; box-shadow: var(--shadow-alto); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden }
+.visore-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line) }
+.visore-barra b { font-family: var(--f-mono); overflow-wrap: anywhere }
+.visore-corpo { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0 }
+.visore-foglio { overflow: auto; background: var(--surface-3); padding: 20px; display: grid; place-items: start center }
+.visore-foglio svg { width: 100%; max-width: 820px; height: auto; background: var(--surface); box-shadow: var(--shadow) }
+.visore-lato { border-left: 1px solid var(--line); padding: 14px; overflow: auto; display: grid; gap: 12px; align-content: start }
+.guida-box { width: min(760px, 100%); max-height: 100%; overflow: auto; background: var(--surface); border-radius: 10px; box-shadow: var(--shadow-alto); padding: 22px; display: grid; gap: 18px }
+.guida-box h2 { font-size: 1.5rem }
+.tasti { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px 18px; font-size: .9rem }
+.tasti div { display: flex; gap: 10px; align-items: center }
+.tasti kbd { min-width: 26px; text-align: center }
+.novita-lista { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: .92rem }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border-radius: 8px; background: var(--ink); color: var(--surface); box-shadow: var(--shadow-alto); font-size: .92rem; max-width: calc(100% - 32px); animation: sale .18s ease-out }
+.toast .btn { background: transparent; color: var(--surface); border-color: color-mix(in srgb, var(--surface) 40%, transparent) }
+.toast .btn:hover { color: var(--surface); background: color-mix(in srgb, var(--surface) 12%, transparent) }
+.solo-stretto { display: none }
+
+
+/* ---------------------------------------------------------------- pannelli che si allargano e si stringono
+   Un bordo fra due pannelli si trascina; doppio clic lo rimette com'era; un pannello che si può chiudere
+   si chiude trascinandolo quasi a zero e si riapre con la linguetta sul bordo. Le larghezze restano su questo PC. */
+.maniglia { position: relative; cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; min-height: 0; min-width: 0; z-index: 5; border-radius: 6px; outline-offset: -3px }
+.maniglia::before { content: ""; width: 3px; height: 48px; border-radius: 3px; background: var(--line-strong); opacity: .55; transition: opacity .15s, background .15s, height .15s }
+.maniglia:hover::before, .maniglia:focus-visible::before, .maniglia.tira::before { opacity: 1; background: var(--accent); height: 80px }
+.maniglia:hover, .maniglia.tira { background: color-mix(in srgb, var(--accent) 7%, transparent) }
+.maniglia.interna { background: var(--surface) }
+.maniglia.interna::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--line); z-index: -1 }
+.maniglia .riapri { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 64px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); display: none; place-items: center; box-shadow: var(--shadow); padding: 0; color: var(--ink-2); cursor: pointer }
+.maniglia .riapri:hover { border-color: var(--accent); color: var(--accent) }
+.maniglia.chiuso .riapri { display: grid }
+.maniglia.chiuso::before { opacity: 0 }
+body.tirando { cursor: col-resize; user-select: none }
+body.tirando iframe, body.tirando .col { pointer-events: none }
+
+/* ---------------------------------------------------------------- impostazioni e menu del mockup */
+.ingranaggio > button { padding: 5px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); display: grid; place-items: center }
+.ingranaggio > button:hover, .ingranaggio > button[aria-expanded="true"] { background: var(--surface-3); color: var(--ink) }
+.ingranaggio .ico { width: 19px; height: 19px }
+.pop .sez-imp { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--line) }
+.pop .sez-imp:first-of-type { border-top: 0; padding-top: 0 }
+.pop .sez-imp > b { font-family: var(--f-display); font-size: 1rem }
+.pop .sez-imp > small { color: var(--ink-2); font-size: .8rem; line-height: 1.4 }
+.preset { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px }
+.preset button { display: grid; gap: 2px; text-align: left; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); font-size: .86rem; font-weight: 600 }
+.preset button small { font-weight: 400; color: var(--ink-2); font-size: .74rem; line-height: 1.3 }
+.preset button:hover { border-color: var(--accent); color: var(--accent) }
+.preset .schema { display: flex; gap: 2px; height: 14px; margin-bottom: 3px }
+.preset .schema i { display: block; border-radius: 2px; background: var(--line-strong) }
+.preset .schema i.forte { background: var(--accent) }
+.tasti-mini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; font-size: .82rem }
+.tasti-mini div { display: flex; gap: 8px; align-items: center }
+.tasti-mini kbd { min-width: 24px; text-align: center }
+.menu-mock .pop button.voce-menu { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 0; border: 0; background: transparent; font-size: .9rem }
+.menu-mock .pop button.voce-menu small { display: block; color: var(--ink-2) }
+.menu-mock .pop button.voce-menu:hover { color: var(--accent) }
+.topbar nav a { position: relative }
+.topbar nav a .n { margin-left: 6px; font: 600 .72rem var(--f-mono); padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink) }
+
+/* ---------------------------------------------------------------- lista */
+.lista { grid-area: lista; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden }
+.lista-testa { padding: 12px 12px 10px; border-bottom: 1px solid var(--line); display: grid; gap: 10px }
+.lista-testa h2 { font-size: 1.35rem; font-weight: 700; display: flex; align-items: baseline; gap: 10px }
+.lista-testa h2 small { font: 500 .85rem var(--f-body); color: var(--ink-2) }
+.lista-strumenti { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: .84rem; color: var(--ink-2) }
+.progresso { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 150px }
+.progresso .barra { flex: 1; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden }
+.progresso .barra i { display: block; height: 100%; background: var(--ok); border-radius: inherit; transition: width .3s }
+.interr { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none }
+.avviso-posta { margin: 0; padding: 9px 12px; background: var(--bad-soft); color: var(--bad); border-bottom: 1px solid color-mix(in srgb, var(--bad) 25%, transparent); font-size: .84rem; line-height: 1.4 }
+.avviso-posta b { display: block }
+.righe { overflow: auto; min-height: 0 }
+.giorno { position: sticky; top: 0; z-index: 2; padding: 5px 12px; background: var(--surface-2); border-bottom: 1px solid var(--line); font-family: var(--f-display); font-weight: 600; font-size: .78rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2); display: flex; gap: 8px }
+.giorno small { font: 500 .78rem var(--f-body); letter-spacing: 0; text-transform: none; margin-left: auto }
+.riga { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 10px; padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; background: var(--surface) }
+.riga::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--striscia, transparent) }
+.riga.verde { --striscia: var(--ok) }
+.riga.giallo { --striscia: var(--warn) }
+.riga.rosso { --striscia: var(--bad) }
+.riga:hover { background: var(--surface-2) }
+.riga.sel { background: var(--accent-soft) }
+.riga.fatta { opacity: .62 }
+.riga .spunta { padding-top: 2px; display: none }
+.bulk .riga { grid-template-columns: auto minmax(0, 1fr) }
+.bulk .riga .spunta { display: block }
+.riga .spunta input { width: 16px; height: 16px; accent-color: var(--accent) }
+.riga .corpo-riga { min-width: 0; display: grid; gap: 2px }
+.r1 { display: flex; align-items: baseline; gap: 7px; min-width: 0 }
+.r1 .dir { color: var(--ink-3); font-weight: 700; width: 10px; flex: none }
+.r1 .mitt { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.nonletto .r1 .mitt { font-weight: 700 }
+.r1 .ora { margin-left: auto; font: 500 .8rem var(--f-mono); color: var(--ink-2); flex: none; font-variant-numeric: tabular-nums }
+.nuovo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; align-self: center }
+.r2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-size: .93rem }
+.nonletto .r2 { font-weight: 600 }
+.r3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin-top: 3px }
+.r3 .cosa { font-size: .78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px }
+.cosa.verde { color: var(--ok) } .cosa.giallo { color: var(--warn) } .cosa.grigio { color: var(--ink-2) } .cosa.rosso { color: var(--bad) }
+.vuoto-lista { padding: 40px 20px; text-align: center; color: var(--ink-2); display: grid; gap: 6px; justify-items: center }
+.vuoto-lista b { font-family: var(--f-display); font-size: 1.2rem; color: var(--ink) }
+.barra-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; background: var(--ink); color: var(--surface); font-size: .86rem }
+.barra-bulk .btn { background: transparent; color: var(--surface); border-color: color-mix(in srgb, var(--surface) 35%, transparent) }
+.barra-bulk .btn:hover { background: color-mix(in srgb, var(--surface) 12%, transparent); color: var(--surface) }
+
+/* ---------------------------------------------------------------- lettura: la mail e «Che cosa fare» */
+.lettura { grid-area: lettura; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 356px; overflow: hidden }
+.msg { overflow: auto; min-width: 0; min-height: 0; border-right: 1px solid var(--line) }
+.msg-barra { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line) }
+.msg-barra .pos { font: 500 .82rem var(--f-mono); color: var(--ink-2); padding-inline: 4px }
+.msg-testa { padding: 18px 22px 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--line) }
+.msg-testa .sopra { display: flex; flex-wrap: wrap; gap: 6px; align-items: center }
+.msg-testa h1 { font-size: 1.6rem; font-weight: 700; overflow-wrap: anywhere }
+.da { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center }
+.avatar { grid-row: span 2; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font: 700 .9rem var(--f-display); letter-spacing: .03em; background: var(--surface-3); color: var(--ink-2) }
+.avatar.cliente { background: var(--accent-soft); color: var(--accent) }
+.avatar.fornitore { background: var(--e-off-soft); color: var(--e-off) }
+.avatar.ignoto { background: var(--bad-soft); color: var(--bad) }
+.da .nome { font-weight: 600; min-width: 0; overflow-wrap: anywhere }
+.da .ind { font-size: .86rem; color: var(--ink-2); min-width: 0; overflow-wrap: anywhere }
+.da .quando { grid-row: span 2; text-align: right; font-size: .84rem; color: var(--ink-2) }
+.da .quando b { display: block; font: 600 .95rem var(--f-mono); color: var(--ink) }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .84rem; color: var(--ink-2) }
+.meta b { color: var(--ink); font-weight: 600 }
+.avviso-box { margin: 12px 22px 0; padding: 10px 12px; border-radius: var(--r); border: 1px solid; font-size: .88rem }
+.avviso-box.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent) }
+.avviso-box.bad { background: var(--bad-soft); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent) }
+.link-portale { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); background: var(--warn-soft); border-radius: var(--r) }
+.link-portale .ico { color: var(--warn); width: 20px; height: 20px }
+.link-portale .t { min-width: 0 }
+.link-portale .t small { display: block; color: var(--ink-2) }
+.conto { font: 700 1.05rem var(--f-display); color: var(--warn); text-align: right; white-space: nowrap }
+.conto small { display: block; font: 500 .74rem var(--f-body); color: var(--ink-2) }
+
+/* allegati */
+.allegati { display: grid; gap: 6px }
+.all { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface) }
+.all:hover { border-color: var(--line-strong) }
+.all.figlio { margin-left: 26px; background: var(--surface-2) }
+.all input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent) }
+.ext { width: 40px; height: 44px; border-radius: 5px; border: 1px solid var(--line-strong); display: grid; place-items: end center; padding-bottom: 5px; font: 700 .66rem var(--f-mono); letter-spacing: .04em; background: linear-gradient(135deg, var(--surface) 0 72%, var(--surface-3) 72%); color: var(--ink-2); position: relative }
+.ext.pdf { color: var(--bad) } .ext.stp, .ext.igs { color: var(--e-cad) } .ext.zip { color: var(--warn) } .ext.dxf { color: var(--e-rev) } .ext.msg { color: var(--accent) } .ext.xlsx { color: var(--ok) }
+.all .nome { min-width: 0 }
+.all .nome b { font: 600 .88rem var(--f-mono); overflow-wrap: anywhere; display: block }
+.all .nome small { color: var(--ink-2); font-size: .8rem }
+.all .dx { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px }
+.conferma-pop { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: end; gap: 8px; padding: 10px; margin-top: 6px; border-radius: 6px; background: var(--surface-2); border: 1px dashed var(--line-strong) }
+.conferma-pop label { display: grid; gap: 2px; font-size: .78rem; color: var(--ink-2) }
+.conferma-pop input, .conferma-pop select { padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); font-size: .86rem }
+
+/* corpo della mail: solo testo, i codici letti sono evidenziati dove il sistema li ha visti */
+.corpo { padding: 18px 22px 40px; display: grid; gap: 12px; max-width: 78ch }
+.corpo p { line-height: 1.6 }
+.corpo mark { background: var(--accent-soft); color: var(--accent); font: 600 .95em var(--f-mono); padding: 0 3px; border-radius: 3px; border-bottom: 1.5px solid var(--accent); cursor: help }
+.corpo mark.dato { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); font-family: var(--f-body) }
+.corpo table { border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums }
+.corpo td, .corpo th { border: 1px solid var(--line-strong); padding: 4px 10px; text-align: left }
+.corpo th { background: var(--surface-2); font-family: var(--f-display); font-size: .82rem; letter-spacing: .04em }
+.corpo details { border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2) }
+.corpo details > summary { padding: 6px 10px; cursor: pointer; font-size: .84rem; color: var(--ink-2); font-weight: 500 }
+.corpo details > div, .corpo details > pre { padding: 4px 12px 10px; margin: 0 }
+.corpo pre { white-space: pre-wrap; font: .82rem/1.5 var(--f-mono); color: var(--ink-2) }
+.citata { border-left: 3px solid var(--line-strong); padding-left: 12px; color: var(--ink-2); display: grid; gap: 8px }
+.firma { color: var(--ink-2); font-size: .9rem }
+.legenda-corpo { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: var(--ink-2) }
+.legenda-corpo span { display: inline-flex; align-items: center; gap: 5px }
+.legenda-corpo i { width: 14px; height: 10px; border-radius: 2px; display: inline-block }
+
+/* «Che cosa fare»: la proposta, i candidati, l'assistente. Sempre in vista accanto alla mail */
+.rail { overflow: auto; min-height: 0; background: var(--surface-2); padding: 14px; display: flex; flex-direction: column; gap: 12px }
+.rail > .label { padding-left: 2px }
+.censisci-riga { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .86rem; padding-top: 8px; border-top: 1px dashed var(--line) }
+.correlato { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); cursor: pointer; text-align: left; width: 100% }
+.correlato:hover { border-color: var(--accent) }
+.correlato small { grid-column: 2; color: var(--ink-2); font-size: .8rem }
+.vuoto-lettura { display: grid; place-items: center; text-align: center; color: var(--ink-2); padding: 40px; grid-column: 1 / -1 }
+.vuoto-lettura b { display: block; font-family: var(--f-display); font-size: 1.4rem; color: var(--ink); margin-bottom: 6px }
+
+
+/* ---------------------------------------------------------------- pannelli ridimensionabili */
+.spazio { gap: 0; grid-template-columns: var(--w-cart, 214px) 12px var(--w-lista, 400px) 12px minmax(0, 1fr); grid-template-areas: "cart m1 lista m2 lettura" }
+[data-maniglia="m1"] { grid-area: m1 } [data-maniglia="m2"] { grid-area: m2 }
+.chiuso-cart .cartelle { display: none }
+.lettura { grid-template-columns: minmax(0, 1fr) 12px var(--w-rail, 356px) }
+.chiuso-rail .lettura .rail { display: none }
+.msg { border-right: 0 }
+.foglio-corpo { grid-template-columns: minmax(0, 1fr) 12px var(--w-fonte, 380px) }
+.chiuso-fonte .foglio .fonte { display: none }
+.fonte { border-left: 0 }
+/* ---------------------------------------------------------------- larghezze */
+@media (max-width: 1480px) {
+  .spazio { grid-template-columns: var(--w-lista, 372px) 12px minmax(0, 1fr); grid-template-areas: "cart m2 lettura" "lista m2 lettura"; grid-template-rows: auto minmax(0, 1fr) }
+  [data-maniglia="m1"] { display: none }
+  .chiuso-cart .cartelle { display: flex }
+  .cartelle { flex-direction: row; flex-wrap: wrap; align-items: flex-start; padding: 8px; gap: 8px }
+  .cartelle .gruppo.quad { display: flex; flex-wrap: wrap; gap: 3px; width: 100% }
+  .cartelle .gruppo.quad > .label, .cartelle .aiuto-quad, .cartelle .gruppo.filtri > .label { display: none }
+  .cartelle .voce { width: auto; padding: 4px 8px; font-size: .86rem }
+  .cartelle .voce.adesso { font-size: .92rem; padding: 4px 9px }
+  .cartelle .voce .n { min-width: 0 }
+  .cartelle .gruppo.filtri { display: flex; flex-wrap: wrap; gap: 6px; width: 100% }
+  .cartelle .seg { padding: 0 }
+  .cartelle select { margin: 0 }
+  .posta { display: none }
+  .lettura { grid-template-columns: minmax(0, 1fr) 12px var(--w-rail, 324px) }
+}
+@media (max-width: 1180px) {
+  .lettura { display: block; overflow: auto }
+  .lettura .maniglia, .foglio .maniglia { display: none }
+  .chiuso-rail .lettura .rail, .chiuso-fonte .foglio .fonte { display: grid }
+  .msg { overflow: visible; border-right: 0 }
+  .rail { overflow: visible; border-bottom: 1px solid var(--line) }
+  .lettura .rail { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start }
+  .lettura .rail > .label { grid-column: 1 / -1 }
+  .foglio-corpo { grid-template-columns: minmax(0, 1fr) }
+  .fonte { border-left: 0; border-top: 1px solid var(--line); overflow: visible }
+  .foglio-corpo { overflow: auto }
+  .modulo { overflow: visible }
+  .visore-corpo { grid-template-columns: minmax(0, 1fr) }
+  .visore-lato { display: none }
+}
+@media (max-width: 860px) {
+  body { overflow: auto }
+  .app { height: auto; min-height: 100% }
+  .spazio { grid-template-columns: minmax(0, 1fr); grid-template-areas: "cart" "lista" "lettura"; grid-template-rows: auto }
+  .lista { max-height: none; overflow: visible }
+  .righe { overflow: visible }
+  .lettura { overflow: visible }
+  .app.aperto .cartelle, .app.aperto .lista { display: none }
+  [data-maniglia] { display: none }
+  .chiuso-cart .app:not(.aperto) .cartelle { display: flex }
+  .app:not(.aperto) .lettura { display: none }
+  .solo-stretto { display: inline-flex }
+  .foglio { position: fixed; inset: 0; z-index: 45 }
+  .foglio-corpo { overflow: auto }
+  .topbar nav, .postazione label span { display: none }
+  .msg-testa, .sez, .corpo { padding-inline: 14px }
+  .da { grid-template-columns: auto minmax(0, 1fr) }
+  .da .quando { grid-row: auto; grid-column: 2; text-align: left }
+  .all { grid-template-columns: auto minmax(0, 1fr) }
+  .all .dx { grid-column: 1 / -1; justify-content: flex-start }
+  .all input[type=checkbox] { display: none }
+}
+
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-cerca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></symbol>
+  <symbol id="i-cubo" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></symbol>
+  <symbol id="i-su" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-giu" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-sx" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-outlook" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-rispondi" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v4"/></symbol>
+  <symbol id="i-occhio" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-orologio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-aggiorna" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.7-4.3L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.7 4.3L20 16"/><path d="M20 20v-4h-4"/></symbol>
+  <symbol id="i-archivio" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-lettura" viewBox="0 0 24 24"><path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-guida" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.6 2.6 0 1 1 3.6 2.4c-.7.3-1.1.9-1.1 1.6v.5M12 17h.01"/></symbol>
+  <symbol id="i-aggancia" viewBox="0 0 24 24"><path d="M8 12h8"/><rect x="2" y="8" width="7" height="8" rx="2"/><rect x="15" y="8" width="7" height="8" rx="2"/></symbol>
+  <symbol id="i-piu" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-freccia" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-avviso" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-persona" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-ingranaggio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-elenco" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-colonne" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-calendario" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+  <symbol id="i-lucchetto" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-matita" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></symbol>
+  <symbol id="i-cestino" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-fabbrica" viewBox="0 0 24 24"><path d="M3 21V10l6 4V10l6 4V6l6 3v12z"/><path d="M7 17h2M12 17h2M17 17h2"/></symbol>
+  <symbol id="i-bandiera" viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5"/></symbol>
+  <symbol id="i-prova" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4 19a1.5 1.5 0 0 0 1.3 2h13.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/><path d="M7 15h10"/></symbol>
+  <symbol id="i-importa" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+</svg>
+<div class="app" id="app">
+  <header class="topbar" id="topbar"></header>
+  <main class="spazio">
+    <aside class="col cartelle" id="cartelle" aria-label="Cartelle e filtri"></aside>
+    <div id="h-m1"></div>
+    <section class="col lista" aria-label="Messaggi">
+      <div class="lista-testa">
+        <h2 id="titolo-lista">Da fare adesso</h2>
+        <label class="cerca nov" for="cerca">
+          <svg class="ico"><use href="#i-cerca"/></svg>
+          <input id="cerca" type="search" placeholder="Cerca mittente, oggetto, codice, RDO…" autocomplete="off">
+        </label>
+        <div class="lista-strumenti">
+          <div class="progresso nov" title="Le decisioni prese oggi su quelle che c'erano da prendere">
+            <span id="prog-testo">oggi 0 decise</span>
+            <span class="barra"><i id="prog-barra" style="width:0"></i></span>
+          </div>
+          <label class="interr nov"><input type="checkbox" id="sel-multipla"> selezione multipla</label>
+        </div>
+      </div>
+      <p class="avviso-posta" id="avviso-posta" hidden></p>
+      <div class="righe" id="righe"></div>
+      <div class="barra-bulk nov" id="barra-bulk" hidden></div>
+    </section>
+
+    <div id="h-m2"></div>
+    <section class="col lettura" id="lettura" aria-label="Lettura"></section>
+  </main>
+</div>
+<div id="strato"></div>
+<div id="toast-root" aria-live="polite"></div>
+<script>
+
+/* ---------------------------------------------------------------- comune alle tre pagine */
+const OGGI = "2026-09-29";
+const GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+const clona = x => JSON.parse(JSON.stringify(x));
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ico = (n, cl = "") => `<svg class="ico ${cl}"><use href="#i-${n}"/></svg>`;
+const giorno = d => d.slice(0, 10);
+const ora = d => d.slice(11, 16);
+const dataIt = d => { const [y, m, g] = d.slice(0, 10).split("-"); return `${g}/${m}`; };
+const dt = d => new Date(d.slice(0, 10) + "T12:00:00");
+function nomeGiorno(d) {
+  const x = dt(d), oggi = dt(OGGI), diff = Math.round((oggi - x) / 864e5);
+  const pieno = `${GIORNI[x.getDay()]} ${x.getDate()} ${MESI[x.getMonth()]}`;
+  return diff === 0 ? ["Oggi", pieno] : diff === 1 ? ["Ieri", pieno] : [pieno, ""];
+}
+function quando(d) {
+  const diff = Math.round((dt(OGGI) - dt(d)) / 864e5);
+  return diff === 0 ? ora(d) : diff === 1 ? "ieri " + ora(d) : dataIt(d);
+}
+function giorniA(d) { return Math.round((dt(d) - dt(OGGI)) / 864e5); }
+function iniziali(n) { return n.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join("").toUpperCase(); }
+function leggi(k, def) { try { const v = localStorage.getItem(k); return v === null ? def : JSON.parse(v); } catch (e) { return def; } }
+function scrivi(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+
+let toastTimer = null;
+function toast(testo, annulla) {
+  const root = $("#toast-root");
+  root.innerHTML = `<div class="toast" role="status">${ico("ok")}<span>${testo}</span>${annulla ? `<button type="button" class="btn piccolo" id="btn-annulla">Annulla</button>` : ""}</div>`;
+  if (annulla) $("#btn-annulla").onclick = () => { annulla(); root.innerHTML = ""; };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => root.innerHTML = "", 7000);
+}
+
+/* ---------------------------------------------------------------- la barra in alto, uguale per tutte le pagine */
+const PAGINA = { chiave: "", tasti: [], preset: [], mock: [], guida: null, reset: null, dopoPannelli: null };
+function topbar() {
+  const nav = [["inbox", "Inbox", "mockup_inbox.html"], ["richieste", "Richieste", "mockup_richieste.html"], ["anagrafica", "Anagrafica", "mockup_anagrafica.html"]];
+  $("#topbar").innerHTML = `
+    <span class="app-nome">Cockpit RFQ</span>
+    <nav aria-label="Sezioni">${nav.map(([k, t, h]) => `<a href="${h}" ${k === PAGINA.chiave ? 'aria-current="page"' : ""}>${t}</a>`).join("")}</nav>
+    <span class="sp"></span>
+    <div class="postazione" title="Il PC su cui lavori: «Apri in Outlook» e le bozze si aprono lì">
+      <label for="postazione"><span>Sei su</span></label>
+      <select id="postazione"><option value="">— scegli il PC —</option><option value="ufficio-1" selected>UFFICIO-1</option><option value="tecnico-2">TECNICO-2</option></select>
+    </div>
+    <div class="menu-mock">
+      <button type="button" id="btn-mock" aria-expanded="false">Mockup ${ico("giu", "s")}</button>
+      <div class="pop" id="pop-mock" hidden>
+        ${PAGINA.mock.map(m => `<label><input type="checkbox" id="${m.id}"> <span>${esc(m.testo)}<small>${esc(m.sotto)}</small></span></label>`).join("")}
+        <label><input type="checkbox" id="mk-novita"> <span>Evidenzia le novità<small>Contorno arancione su tutto ciò che la pagina di oggi non ha.</small></span></label>
+        <button type="button" class="voce-menu" id="mk-guida">${ico("guida")}<span>Che cosa c'è di nuovo<small>L'elenco delle novità e che cosa serve dal server.</small></span></button>
+        <button type="button" class="voce-menu" id="mk-reset">${ico("aggiorna")}<span>Ricomincia<small>Rimette i dati com'erano all'apertura del mockup.</small></span></button>
+      </div>
+    </div>
+    <div class="menu-mock ingranaggio">
+      <button type="button" id="btn-imp" aria-expanded="false" title="Impostazioni" aria-label="Impostazioni"><svg class="ico"><use href="#i-ingranaggio"/></svg></button>
+      <div class="pop" id="pop-imp" hidden style="width:330px"></div>
+    </div>
+    <span class="utente" title="SV">SV</span>
+    <span class="mockup-tag">MOCKUP · dati inventati</span>`;
+}
+function scorciatoie() { return !!leggi("cockpit.scorciatoie", false); }
+function renderImpostazioni() {
+  const on = scorciatoie();
+  $("#pop-imp").innerHTML = `
+    <div class="sez-imp"><b>Pannelli</b><small>Trascina i bordi fra i pannelli per allargarli o stringerli. Doppio clic su un bordo lo rimette com'era.</small>
+      ${PAGINA.preset.length ? `<div class="preset">${PAGINA.preset.map((p, i) => `<button type="button" data-preset="${i}"><span class="schema">${p.schema.map(([w, f]) => `<i style="flex:${w}" class="${f ? "forte" : ""}"></i>`).join("")}</span>${esc(p.nome)}<small>${esc(p.sotto)}</small></button>`).join("")}</div>` : ""}
+      <button type="button" class="btn quieto piccolo" data-preset="reset" style="justify-self:start">Ripristina le larghezze</button></div>
+    <div class="sez-imp"><label class="interruttore" for="imp-tasti"><input type="checkbox" id="imp-tasti" ${on ? "checked" : ""}> Scorciatoie da tastiera</label>
+      <small>Spente di base: si decidono a fine lavori. Accese qui valgono solo su questo PC.</small>
+      ${on && PAGINA.tasti.length ? `<div class="tasti-mini">${PAGINA.tasti.map(([k, t]) => `<div><kbd>${esc(k)}</kbd>${esc(t)}</div>`).join("")}</div>` : ""}</div>`;
+}
+
+/* ---------------------------------------------------------------- i bordi trascinabili */
+const MANIGLIE = {};   // id → { v: "--w-lista", def, min, max, dir: 1 | -1, chiudi: "cart" | null, nome }
+function statoPannelli() { return leggi("cockpit.pannelli." + PAGINA.chiave, {}); }
+function applicaPannelli() {
+  const st = statoPannelli(), root = document.documentElement;
+  for (const [id, m] of Object.entries(MANIGLIE)) {
+    const s = st[id] || {};
+    const chiuso = !!(m.chiudi && s.chiuso);
+    root.style.setProperty(m.v, chiuso ? "0px" : (s.w || m.def) + "px");
+    if (m.chiudi) root.classList.toggle("chiuso-" + m.chiudi, chiuso);
+    document.querySelectorAll(`[data-maniglia="${id}"]`).forEach(el => {
+      el.classList.toggle("chiuso", chiuso);
+      el.setAttribute("aria-valuenow", chiuso ? 0 : (s.w || m.def));
+      el.setAttribute("aria-valuemin", m.min); el.setAttribute("aria-valuemax", m.max);
+    });
+  }
+  if (PAGINA.dopoPannelli) PAGINA.dopoPannelli();
+}
+function salvaPannello(id, w, chiuso) { const st = statoPannelli(); st[id] = { w, chiuso }; scrivi("cockpit.pannelli." + PAGINA.chiave, st); applicaPannelli(); }
+function maniglia(id, interna = false) {
+  const m = MANIGLIE[id], chiuso = !!(m.chiudi && (statoPannelli()[id] || {}).chiuso);
+  return `<div class="maniglia ${interna ? "interna" : ""} ${chiuso ? "chiuso" : ""}" data-maniglia="${id}" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Allarga o stringi ${esc(m.nome)}" title="Trascina per allargare o stringere ${esc(m.nome)} · doppio clic: com'era">
+    ${m.chiudi ? `<button type="button" class="riapri" data-riapri="${id}" title="Riapri ${esc(m.nome)}" aria-label="Riapri ${esc(m.nome)}">${ico(m.dir > 0 ? "freccia" : "sx", "s")}</button>` : ""}</div>`;
+}
+let tiro = null;
+document.addEventListener("pointerdown", e => {
+  const h = e.target.closest(".maniglia"); if (!h || e.target.closest(".riapri")) return;
+  const id = h.dataset.maniglia, m = MANIGLIE[id], s = statoPannelli()[id] || {};
+  tiro = { id, h, x: e.clientX, w: s.chiuso ? 0 : (s.w || m.def) };
+  try { h.setPointerCapture(e.pointerId); } catch (err) { } h.classList.add("tira"); document.body.classList.add("tirando"); e.preventDefault();
+});
+document.addEventListener("pointermove", e => {
+  if (!tiro) return;
+  const m = MANIGLIE[tiro.id], grezza = tiro.w + (e.clientX - tiro.x) * m.dir;
+  const chiude = m.chiudi && grezza < m.min - 70;
+  const w = Math.max(m.min, Math.min(m.max, grezza));
+  document.documentElement.style.setProperty(m.v, chiude ? "0px" : w + "px");
+  if (m.chiudi) document.documentElement.classList.toggle("chiuso-" + m.chiudi, chiude);
+  tiro.ultimo = { w: chiude ? (statoPannelli()[tiro.id]?.w || m.def) : w, chiuso: chiude };
+});
+document.addEventListener("pointerup", () => {
+  if (!tiro) return;
+  tiro.h.classList.remove("tira"); document.body.classList.remove("tirando");
+  if (tiro.ultimo) salvaPannello(tiro.id, tiro.ultimo.w, tiro.ultimo.chiuso);
+  tiro = null;
+});
+document.addEventListener("dblclick", e => {
+  const h = e.target.closest(".maniglia"); if (!h) return;
+  const m = MANIGLIE[h.dataset.maniglia]; salvaPannello(h.dataset.maniglia, m.def, false);
+});
+document.addEventListener("keydown", e => {
+  const h = e.target.closest && e.target.closest(".maniglia"); if (!h) return;
+  const id = h.dataset.maniglia, m = MANIGLIE[id], s = statoPannelli()[id] || {}, w = s.chiuso ? m.min : (s.w || m.def);
+  const passo = e.shiftKey ? 64 : 16;
+  const k = { ArrowLeft: -passo * m.dir, ArrowRight: passo * m.dir }[e.key];
+  if (k !== undefined) { e.preventDefault(); salvaPannello(id, Math.max(m.min, Math.min(m.max, w + k)), false); h.focus(); }
+  if (e.key === "Enter" && m.chiudi) { e.preventDefault(); salvaPannello(id, w, !s.chiuso); }
+});
+
+/* ---------------------------------------------------------------- menu della barra in alto */
+document.addEventListener("click", e => {
+  const t = e.target;
+  const ri = t.closest("[data-riapri]"); if (ri) { const m = MANIGLIE[ri.dataset.riapri]; return salvaPannello(ri.dataset.riapri, (statoPannelli()[ri.dataset.riapri] || {}).w || m.def, false); }
+  for (const [b, p] of [["#btn-mock", "#pop-mock"], ["#btn-imp", "#pop-imp"]]) {
+    if (t.closest(b)) { const pop = $(p); pop.hidden = !pop.hidden; $(b).setAttribute("aria-expanded", !pop.hidden); if (b === "#btn-imp") renderImpostazioni(); return; }
+    if (!t.closest(p)) { $(p).hidden = true; $(b).setAttribute("aria-expanded", "false"); }
+  }
+  const pr = t.closest("[data-preset]");
+  if (pr) { if (pr.dataset.preset === "reset") scrivi("cockpit.pannelli." + PAGINA.chiave, {});
+    else { const p = PAGINA.preset[+pr.dataset.preset], st = {}; for (const [id, w, chiuso] of p.valori) st[id] = { w: w || MANIGLIE[id].def, chiuso: !!chiuso }; scrivi("cockpit.pannelli." + PAGINA.chiave, st); }
+    applicaPannelli(); return; }
+  if (t.closest("#mk-guida")) { $("#pop-mock").hidden = true; return PAGINA.guida && PAGINA.guida(); }
+  if (t.closest("#mk-reset")) { $("#pop-mock").hidden = true; return PAGINA.reset && PAGINA.reset(); }
+}, true);
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.id === "imp-tasti") { scrivi("cockpit.scorciatoie", t.checked); renderImpostazioni(); return toast(t.checked ? "Scorciatoie accese su questo PC" : "Scorciatoie spente"); }
+  if (t.id === "mk-novita") return document.body.classList.toggle("novita", t.checked);
+  const mk = PAGINA.mock.find(m => m.id === t.id); if (mk) mk.on(t.checked);
+});
+function avvia() { topbar(); applicaPannelli(); }
+
+
+/* Dati inventati. Nel corpo delle mail {…} è un codice letto dal sistema e […] un dato letto (quantità, date). */
+const RFQ = {
+  R1: { num: "480011220", cliente: "CLIENTE ESEMPIO", cartella: "2026 09 02 Rossi RICHIESTA D'OFFERTA 480011220", rif: "480011220", dal: "02/09", buyer: "Rossi Marco", fase: "Distinta", codici: ["7130001A1"] },
+  R2: { num: "480011230", cliente: "TRATTORI VALPADANA", cartella: "2026 09 21 Ferrari RICHIESTA D'OFFERTA 480011230", rif: "480011230", dal: "21/09", buyer: "Ferrari Paolo", fase: "Offerta inviata", codici: ["7130002A1"] },
+  R3: { num: "480011231", cliente: "TRATTORI VALPADANA", cartella: "2026 09 25 Ferrari RICHIESTA D'OFFERTA 480011231", rif: "480011231", dal: "25/09", buyer: "Ferrari Paolo", fase: "Fattibilità", codici: ["7130003A1", "7130004A3"] },
+  R4: { num: "76578.C", cliente: "SOLLEVAMENTI BASSA", cartella: "2026 09 10 Frisoni 76578.C STRUTTURA BRACCIO", rif: "", dal: "10/09", buyer: "Frisoni Luca", fase: "Fattibilità", codici: ["76578.C"] },
+  R5: { num: "76211.B", cliente: "SOLLEVAMENTI BASSA", cartella: "2026 08 28 Frisoni 76211.B TELAIO CABINA", rif: "", dal: "28/08", buyer: "Frisoni Luca", fase: "Offerta inviata", codici: ["76211.B", "76578.C"] },
+  R6: { num: "41772", cliente: "MANIPOLATORI LOIRA", cartella: "2026 07 14 Martin RFQ 41772 SUPPORTO VERIN", rif: "41772", dal: "14/07", buyer: "Martin Lucie", fase: "Offerta inviata", codici: ["52.418.330"] },
+  R7: { num: "40118", cliente: "MANIPOLATORI LOIRA", cartella: "2026 05 03 Martin RFQ 40118 PIASTRA", rif: "40118", dal: "03/05", buyer: "Martin Lucie", fase: "Chiusa", chiusa: true, codici: ["52.301.114"] }
+};
+const CLIENTI = [
+  { id: "valpadana", cartella: "TRATTORI VALPADANA", rs: "Trattori Valpadana S.p.A.", buyer: ["Bertolini Giulia <giulia.bertolini@trattorivalpadana.example>", "Ferrari Paolo <paolo.ferrari@trattorivalpadana.example>"] },
+  { id: "esempio", cartella: "CLIENTE ESEMPIO", rs: "Cliente Esempio S.r.l.", buyer: ["Rossi Marco <marco.rossi@cliente-esempio.example>"] },
+  { id: "bassa", cartella: "SOLLEVAMENTI BASSA", rs: "Sollevamenti Bassa S.r.l.", buyer: ["Frisoni Luca <l.frisoni@sollevamentibassa.example>"] },
+  { id: "loira", cartella: "MANIPOLATORI LOIRA", rs: "Manipulateurs Loire SAS", buyer: ["Martin Lucie <l.martin@manipulateurs-loire.fr>"] },
+  { id: "tecnofix", cartella: "TECNOFIX", rs: "Tecnofix S.r.l.", buyer: [] }
+];
+const LAVORAZIONI = ["Tornitura", "Fresatura", "Taglio laser", "Piegatura", "Curvatura tubi", "Saldatura", "Zincatura", "Cataforesi", "Verniciatura a polvere", "Lavaggio zinco", "Sabbiatura", "Trattamento termico", "Attrezzature"];
+const FIRMA_ESTERNA = { rumore: "testo automatico: avviso di mail esterna", testo: "ATTENZIONE: questa e-mail proviene dall'esterno dell'organizzazione. Non aprire link o allegati se non conosci il mittente." };
+
+const MESSAGGI0 = [
+{ id: "m1", data: "2026-09-29T07:52", dir: "entrata", quad: "clienti", stato: "orfano", nuovo: true, nonLetto: true,
+  da: { nome: "Bertolini Giulia", ind: "giulia.bertolini@trattorivalpadana.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "TRATTORI VALPADANA", ruolo: "buyer censita" }, cliente: "valpadana", buyer: 0,
+  oggetto: "RICHIESTA D'OFFERTA 480011232 E 480011233", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "NUOVA_RFQ", forza: "chiaro", ev: ["l'oggetto dice «richiesta d'offerta»", "il testo chiede un'offerta per 2 codici"] },
+  proposta: { tipo: "nuova", titolo: "Sembra una richiesta nuova", sotto: "TRATTORI VALPADANA · 2 codici · risposta entro lun 6/10",
+    motivi: [["il testo dice «si richiede offerta»", 1], ["la mittente è una buyer censita di TRATTORI VALPADANA", 1], ["2 codici della famiglia Valpadana: 7130005A1, 7130006A2", 1], ["nessuna RFQ aperta ha queste RDO o questi codici", 0]] },
+  candidati: [], correlati: ["m2"],
+  scadenza: { data: "2026-10-06", frase: "«entro 5 gg lavorativi dal ricevimento della richiesta»" },
+  rif: "480011232, 480011233", rifNota: "due RDO nello stesso oggetto",
+  noteProposte: "20 pz per avviamento produttivo · volume annuo 1200 (7130005A1) e 800 (7130006A2) · destinazione Stabilimento di Carpi, reparto Cabine",
+  codici: [{ c: "7130005A1", fam: "Valpadana", dove: "nel testo: «7130005A1 Volume annuo: 1200»", spunta: true }, { c: "7130006A2", fam: "Valpadana", dove: "nel testo: «7130006A2 Volume annuo: 800»", spunta: true }],
+  altri: [{ c: "480011232", perche: "è il numero della RDO: va nel riferimento del cliente" }, { c: "480011233", perche: "è il numero della seconda RDO" }, { c: "RP6E", perche: "sigla della macchina, non un codice" }],
+  portale: [{ testo: "Disegni trasmessi con sharing service", stato: "da scaricare", scade: "2026-10-29", msg: "m2" }],
+  allegati: [{ nome: "image001.jpg", kb: 3, ext: "jpg", inline: true },
+    { nome: "Documento RDO 480011232_100_290926.msg", kb: 24, ext: "msg", tipo: "corrispondenza", stato: "da scaricare", vista: "rdo" },
+    { nome: "Documento RDO 480011233_100_290926.msg", kb: 24, ext: "msg", tipo: "corrispondenza", stato: "da scaricare", vista: "rdo" }],
+  assistente: { intento: "richiesta d'offerta", rif: "480011232, 480011233", codici: ["7130005 rev A1", "7130006 rev A2"], manca: ["i disegni: arrivano con il link del portale", "il materiale non è indicato"],
+    ev: ["«SI RICHIEDE OFFERTA PER NR. 20 PEZZI PER AVVIAMENTO PRODUTTIVO»", "«Disegni trasmessi con sharing service»"],
+    bozza: "Buongiorno Giulia,\n\nconfermiamo di aver ricevuto la richiesta d'offerta 480011232 e 480011233 per i codici 7130005A1 e 7130006A2.\nScarichiamo i disegni dal portale e vi mandiamo l'offerta entro lunedì 6 ottobre.\n\nCordiali saluti",
+    scarti: [["codice", "7130007A1", "non compare nel testo: due cifre invertite"]] },
+  corpo: [{ p: "Buongiorno," }, { p: "Siamo a richiedere offerta per i seguenti nostri codici:" }, { p: "{7130005A1}      Volume annuo: [1200]" }, { p: "{7130006A2}      Volume annuo: [800]" },
+    { tab: [["*", "RP6E"], ["*", "Destinazione Stabilimento di Carpi, reparto Cabine"]] },
+    { p: "*** SI RICHIEDE OFFERTA PER NR. [20 PEZZI] PER AVVIAMENTO PRODUTTIVO ***" }, { p: "[Disegni trasmessi con sharing service]" },
+    { p: "L'offerta sarà ritenuta valida se perverrà [entro 5 gg lavorativi] dal ricevimento della richiesta e dovrà essere completa dei dati sotto citati:" },
+    { p: "- Paese di origine\n- Codice doganale\n- Lotto minimo e tempi di consegna" }, { firma: "Giulia Bertolini\nUfficio Acquisti · Trattori Valpadana S.p.A." }, FIRMA_ESTERNA] },
+
+{ id: "m2", data: "2026-09-29T07:53", dir: "entrata", quad: "clienti", stato: "orfano", nuovo: true, nonLetto: true,
+  da: { nome: "Bertolini Giulia tramite Valpadana Sharing Service", ind: "sharedoc@trattorivalpadana.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "TRATTORI VALPADANA", ruolo: "dal dominio" },
+  oggetto: "Bertolini Giulia ha condiviso «7130005_7130006.zip» con te", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "ARRIVO_CAD", forza: "probabile", ev: ["il testo annuncia file condivisi", "il nome del pacchetto ha 2 codici"] },
+  proposta: { tipo: "segue", segue: "m1", titolo: "Sono i disegni della richiesta delle 07:52", sotto: "Stesso buyer, stessi codici, un minuto dopo",
+    motivi: [["lo zip porta i codici 7130005 e 7130006, gli stessi della richiesta delle 07:52", 1], ["stessa buyer: Bertolini Giulia", 1], ["sharedoc@ manda solo i link del portale", 0]] },
+  candidati: [],
+  portale: [{ testo: "share.trattorivalpadana.example/s/Xk82pQ…  ·  7130005_7130006.zip", stato: "da scaricare", scade: "2026-10-29" }],
+  allegati: [],
+  corpo: [{ p: "Bertolini Giulia ha condiviso un file con te." }, { p: "{7130005}_{7130006}.zip  (2 file, 14,2 MB)" }, { p: "Il link scade il [29/10/2026]." }, { p: "Apri: https://share.trattorivalpadana.example/s/Xk82pQ…" }, { firma: "Valpadana Sharing Service · messaggio automatico" }] },
+
+{ id: "m8", data: "2026-09-29T08:30", dir: "entrata", quad: "fornitori", stato: "orfano", nuovo: true, nonLetto: true,
+  da: { nome: "Gatti Sara", ind: "s.gatti@verniciature-emiliane.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "fornitore", nome: "VERNICIATURE EMILIANE" },
+  oggetto: "Offerta 2026/1184 – sabbiatura + cataforesi + polveri", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "OFFERTA_FORNITORE", forza: "chiaro", ev: ["«vi inviamo la nostra migliore offerta»", "un PDF d'offerta allegato"] },
+  proposta: { tipo: "richiesta", titolo: "È l'offerta per la nostra richiesta del 24/09", sotto: "Trattamento superficiale per la RFQ 480011220",
+    motivi: [["risponde alla nostra richiesta del 24/09 a VERNICIATURE EMILIANE", 1], ["il testo dice «migliore offerta» e c'è un prezzo", 1]] },
+  richieste: [{ fornitore: "VERNICIATURE EMILIANE", rfq: "R1", lav: "cataforesi", stato: "inviata", perche: "risponde alla nostra mail del 24/09 (stessa conversazione)", atto: "offerta" }],
+  candidati: [{ rfq: "R1", liv: "medio", ev: ["la nostra richiesta del 24/09 è di questa RFQ", "codice 7130001A1 nel testo"] }],
+  allegati: [{ nome: "Offerta_2026-1184.pdf", kb: 145, ext: "pdf", tipo: "offerta fornitore", stato: "da scaricare", vista: "offerta" }],
+  corpo: [{ p: "Buongiorno," }, { p: "in riferimento alla vostra richiesta del 24/09 per il particolare {7130001A1}, vi inviamo la nostra migliore offerta per sabbiatura + cataforesi + verniciatura a polveri RAL 9005:" },
+    { tab: [["Lavorazione", "Lotto", "Prezzo"], ["Sabbiatura + cataforesi + polveri RAL 9005", "100 pz", "€ 4,80/pz"], ["Idem", "500 pz", "€ 4,10/pz"]], testa: true },
+    { p: "Consegna [10 giorni lavorativi] dal ricevimento del materiale." }, { firma: "Sara Gatti\nVerniciature Emiliane S.r.l." }] },
+
+{ id: "m11", data: "2026-09-29T06:58", dir: "entrata", quad: "validare", stato: "orfano", nuovo: true, nonLetto: true,
+  da: { nome: "Acciaierie Padane", ind: "news@acciaierie-padane.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "sconosciuto" },
+  oggetto: "Scopri ZincoPiù a EuroBlech 2026!", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "ALTRO", forza: "chiaro", atto: "non business", ev: ["link per annullare l'iscrizione", "nessuna richiesta"] },
+  proposta: { tipo: "ignora", titolo: "Sembra una newsletter", sotto: "Nessun codice, nessuna richiesta",
+    motivi: [["il mittente non è censito", 0], ["il testo ha un link per annullare l'iscrizione", 1], ["nessun codice e nessuna RFQ", 1]] },
+  candidati: [], allegati: [],
+  corpo: [{ p: "Vieni a trovarci a EuroBlech 2026, Hannover, padiglione 13 stand B42." }, { p: "ZincoPiù: la lamiera zincata con il 30% di zinco in meno e la stessa durata." }, { firma: "Per non ricevere più queste comunicazioni: annulla l'iscrizione." }] },
+
+{ id: "m7", data: "2026-09-28T14:21", dir: "entrata", quad: "clienti", stato: "orfano",
+  da: { nome: "Ferrari Paolo", ind: "paolo.ferrari@trattorivalpadana.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "TRATTORI VALPADANA", ruolo: "buyer censito" }, cliente: "valpadana", buyer: 1,
+  oggetto: "R: RICHIESTA D'OFFERTA 480011231 – sollecito", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "SOLLECITO", forza: "chiaro", ev: ["«quando possiamo aspettarci l'offerta?»"] },
+  proposta: { tipo: "aggancia", rfq: "R3", titolo: "Va nella RFQ 480011231", sotto: "TRATTORI VALPADANA · in Fattibilità · chiede l'offerta entro ven 2/10",
+    motivi: [["stesso riferimento del cliente: RDO 480011231", 1], ["risponde alla nostra mail del 25/09 della stessa RFQ", 1]] },
+  candidati: [{ rfq: "R3", liv: "forte", ev: ["stesso riferimento RDO 480011231 nell'oggetto", "risponde alla nostra mail del 25/09"] }],
+  allegati: [],
+  corpo: [{ p: "Buongiorno," }, { p: "quando possiamo aspettarci l'offerta per la RDO 480011231? Ci servirebbe entro [venerdì 2 ottobre]." }, { firma: "Grazie\nPaolo Ferrari" },
+    { citata: "Da: Commerciale · 25/09/2026 10:14", blocchi: [{ p: "Buongiorno Paolo, abbiamo ricevuto la richiesta e la stiamo valutando. Vi aggiorniamo appena possibile." }] }, FIRMA_ESTERNA] },
+
+{ id: "m3", data: "2026-09-28T16:20", dir: "entrata", quad: "clienti", stato: "orfano",
+  da: { nome: "Rossi Marco", ind: "marco.rossi@cliente-esempio.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "CLIENTE ESEMPIO", ruolo: "buyer censito" }, cliente: "esempio", buyer: 0,
+  oggetto: "R: RICHIESTA D'OFFERTA 480011220 – disegni aggiornati 7130001A2", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "REVISIONE_CAD", forza: "chiaro", ev: ["«sostituisce la versione A1»", "2 file con _2 nel nome"] },
+  proposta: { tipo: "aggancia", rfq: "R1", titolo: "Va nella RFQ 480011220", sotto: "CLIENTE ESEMPIO · nuova versione dei disegni del 7130001A",
+    motivi: [["stesso riferimento del cliente: RDO 480011220", 1], ["risponde alla nostra mail del 25/09", 1], ["il codice 7130001A è già nella Distinta", 1]] },
+  candidati: [{ rfq: "R1", liv: "forte", ev: ["stesso riferimento RDO 480011220 nell'oggetto", "risponde alla nostra mail del 25/09", "codice 7130001A nella Distinta"] }],
+  codici: [{ c: "7130001A2", fam: "Cliente Esempio", dove: "nel testo e nel nome di 2 allegati", spunta: false }],
+  allegati: [{ nome: "7130001A_2.PDF", kb: 412, ext: "pdf", tipo: "disegno 2D", cod: "7130001A", rev: "2", stato: "da scaricare", vista: "disegno" },
+    { nome: "7130001A_2.STP", kb: 2380, ext: "stp", tipo: "modello 3D", cod: "7130001A", rev: "2", stato: "da scaricare" }],
+  corpo: [{ p: "Buongiorno," }, { p: "in allegato i disegni aggiornati del {7130001A2}, che sostituisce la versione A1: cambia lo spessore della piastra di base da 8 a [10 mm]. Il resto della richiesta resta uguale." }, { firma: "Cordiali saluti\nMarco Rossi" },
+    { citata: "Da: Commerciale · 25/09/2026 09:02", blocchi: [{ p: "Buongiorno Marco, stiamo preparando l'offerta per la 480011220: vi confermiamo la consegna entro fine mese." }] }] },
+
+{ id: "m6", data: "2026-09-28T15:39", dir: "uscita", quad: "clienti", stato: "agganciato", rfq: "R2", comeAgganciato: "dal Cockpit: la bozza è partita dalla RFQ",
+  da: { nome: "Commerciale", ind: "commerciale@esempio.example" }, a: "paolo.ferrari@trattorivalpadana.example",
+  ctp: { tipo: "cliente", nome: "TRATTORI VALPADANA" }, dalCockpit: "dal Cockpit · RFQ 480011230",
+  oggetto: "R: RICHIESTA D'OFFERTA 480011230", caselle: ["commerciale · Posta inviata"],
+  evento: { c: "ALTRO", forza: "", ev: [] }, candidati: [],
+  allegati: [{ nome: "Offerta 2026-0412.pdf", kb: 220, ext: "pdf", tipo: "offerta", stato: "sul NAS", vista: "offerta" }],
+  bozze: [["28/09 15:31", "risposta", "inviata"]],
+  corpo: [{ p: "Buongiorno Paolo," }, { p: "in allegato la nostra offerta per il {7130002A1}, lotto da [500 pz], consegna 6 settimane." }, { firma: "Cordiali saluti\nUfficio Commerciale" }] },
+
+{ id: "m9", data: "2026-09-28T17:40", dir: "uscita", quad: "fornitori", stato: "orfano",
+  da: { nome: "Commerciale", ind: "commerciale@esempio.example" }, a: "preventivi@laserservice.example",
+  ctp: { tipo: "fornitore", nome: "LASER SERVICE" },
+  oggetto: "Richiesta prezzo taglio laser – 7130001A", caselle: ["commerciale · Posta inviata"],
+  evento: { c: "ALTRO", forza: "", ev: [] },
+  proposta: { tipo: "manuale", fornitore: "LASER SERVICE", rfq: "R1", titolo: "Sembra una richiesta a LASER SERVICE mandata a mano", sotto: "Per la RFQ 480011220 · non è partita dal Cockpit",
+    motivi: [["è una nostra mail a un fornitore censito", 1], ["cita il codice 7130001A della RFQ 480011220", 1], ["non è partita dal Cockpit", 0]] },
+  candidati: [],
+  allegati: [{ nome: "7130001A_2_piastra.dxf", kb: 88, ext: "dxf", tipo: "DXF", cod: "7130001A", rev: "2", stato: "da scaricare" }],
+  corpo: [{ p: "Buongiorno," }, { p: "vi chiediamo il prezzo per il taglio laser delle piastre del {7130001A2} (S355, sp. [10 mm], [40 pz]). DXF in allegato." }, { firma: "Grazie\nUfficio Commerciale" }] },
+
+{ id: "m12", data: "2026-09-28T11:39", dir: "entrata", quad: "validare", stato: "orfano",
+  da: { nome: "Scarpa Elena", ind: "e.scarpa@studio-scarpa.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "sconosciuto" },
+  oggetto: "Disegni aggiornati/modificati – Rif. MOD263", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "REVISIONE_CAD", forza: "incerto", ev: ["«disegni aggiornati/modificati»", "3 file CAD"] },
+  proposta: { tipo: "chi", titolo: "Prima di tutto: chi è?", sotto: "Mittente non censito che manda disegni",
+    motivi: [["indirizzo e dominio non sono in anagrafica", 0], ["i file portano il codice 76578.C di SOLLEVAMENTI BASSA", 1], ["il testo cita «l'ufficio tecnico di Sollevamenti Bassa»", 1]] },
+  candidati: [{ rfq: "R4", liv: "debole", ev: ["codice 76578.C nel nome di un allegato"] }],
+  allegati: [{ nome: "76578.C_MOD263.pdf", kb: 520, ext: "pdf", tipo: "disegno 2D", cod: "76578.C", rev: "MOD263", stato: "da scaricare", vista: "disegno" },
+    { nome: "76578.C_MOD263.stp", kb: 3100, ext: "stp", tipo: "modello 3D", cod: "76578.C", rev: "MOD263", stato: "da scaricare" },
+    { nome: "76578.C_MOD263.dxf", kb: 140, ext: "dxf", tipo: "DXF", cod: "76578.C", rev: "MOD263", stato: "da scaricare" }],
+  corpo: [{ p: "Buongiorno," }, { p: "come da accordi con l'ufficio tecnico di Sollevamenti Bassa vi inoltro i disegni aggiornati/modificati del {76578.C} (Rif. MOD263)." }, { firma: "Restiamo a disposizione.\nElena Scarpa · Studio Tecnico Scarpa" }] },
+
+{ id: "m4", data: "2026-09-28T11:05", dir: "entrata", quad: "clienti", stato: "orfano",
+  da: { nome: "Frisoni Luca", ind: "l.frisoni@sollevamentibassa.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "SOLLEVAMENTI BASSA", ruolo: "buyer censito" }, cliente: "bassa", buyer: 0,
+  oggetto: "76578.C – STRUTTURA BRACCIO 2-7 t: domanda sul materiale", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "RISPOSTA_COMMERCIALE", forza: "probabile", ev: ["il testo fa una domanda: «potete usare S355 al posto di S420?»"] },
+  proposta: { tipo: "scegli", titolo: "Due RFQ con la stessa forza", sotto: "Scegli tu guardando le evidenze",
+    motivi: [["76578.C è in due RFQ aperte dello stesso buyer", 0], ["nessuna delle due ha un riferimento nell'oggetto", 0]] },
+  pariMerito: true,
+  candidati: [{ rfq: "R4", liv: "medio", ev: ["codice 76578.C: è il prodotto della RFQ", "stesso buyer"] }, { rfq: "R5", liv: "medio", ev: ["codice 76578.C fra i codici della RFQ", "stesso buyer"] }],
+  allegati: [],
+  corpo: [{ p: "Buongiorno," }, { p: "per la struttura braccio {76578.C} potete usare S355 al posto di S420 sulle piastre laterali? Se cambia il prezzo indicatelo a parte." }, { firma: "Grazie\nLuca Frisoni" }] },
+
+{ id: "m10", data: "2026-09-28T10:02", dir: "entrata", quad: "interni", stato: "orfano",
+  da: { nome: "Bianchi Anna", ind: "a.bianchi@esempio.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "interno" }, cliente: "bassa", buyer: 0,
+  oggetto: "I: Richiesta quotazione staffa motore", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "NUOVA_RFQ", forza: "probabile", ev: ["è l'inoltro di una collega", "il testo girato chiede una quotazione"] },
+  proposta: { tipo: "nuova", titolo: "Una collega ti gira una richiesta nuova", sotto: "Da SOLLEVAMENTI BASSA · 1 codice · 30 pezzi",
+    motivi: [["il testo girato viene da l.frisoni@sollevamentibassa.example", 1], ["chiede una quotazione per 30 pezzi", 1], ["una RFQ aperta ha lo stesso buyer: guarda l'avviso", 0]] },
+  candidati: [{ rfq: "R4", liv: "debole", ev: ["stesso buyer nel testo girato"] }],
+  rif: "", noteProposte: "30 pz · girata da Anna Bianchi (l'aveva ricevuta lei)",
+  codici: [{ c: "77102.A", fam: "Sollevamenti Bassa", dove: "nel testo girato e nel nome di 2 allegati", spunta: true }],
+  altri: [], nomeFiglio: true,
+  allegati: [{ nome: "77102.A.pdf", kb: 310, ext: "pdf", tipo: "disegno 2D", cod: "77102.A", rev: "", stato: "da scaricare", vista: "disegno" },
+    { nome: "77102.A.stp", kb: 1840, ext: "stp", tipo: "modello 3D", cod: "77102.A", rev: "", stato: "da scaricare" }],
+  corpo: [{ p: "Ciao, ti giro questa di Frisoni: l'ha mandata a me per errore." }, { firma: "Anna" },
+    { citata: "Messaggio inoltrato · Da: Frisoni Luca <l.frisoni@sollevamentibassa.example> · 28/09/2026 08:47", blocchi: [{ p: "Buongiorno Anna, ci quotate [30 pezzi] della staffa motore {77102.A}? Disegno e 3D in allegato. Grazie" }] }] },
+
+{ id: "m5", data: "2026-09-28T09:11", dir: "entrata", quad: "clienti", stato: "orfano",
+  da: { nome: "Martin Lucie", ind: "l.martin@manipulateurs-loire.fr" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "MANIPOLATORI LOIRA", ruolo: "buyer censita" }, cliente: "loira", buyer: 0,
+  oggetto: "Commande d'Achat / Purchase Order 7130008 [41772]", caselle: ["commerciale · Posta in arrivo", "ufficio tecnico · Posta in arrivo"],
+  evento: { c: "ORDINE", forza: "chiaro", ev: ["«Commande d'Achat / Purchase Order» nell'oggetto", "un PDF d'ordine allegato"] },
+  proposta: { tipo: "aggancia", rfq: "R6", titolo: "Ordine per la RFQ 41772", sotto: "MANIPOLATORI LOIRA · 150 pezzi · consegna settimana 46",
+    motivi: [["il riferimento 41772 è quello della RFQ «SUPPORTO VERIN»", 1], ["il codice 52.418.330 è nella RFQ", 1]] },
+  diPrima: true,
+  candidati: [{ rfq: "R6", liv: "forte", ev: ["riferimento 41772 nell'oggetto", "codice 52.418.330 nella RFQ"] }, { rfq: "R7", liv: "debole", ev: ["stessa buyer"] }],
+  allegati: [{ nome: "PO_7130008.pdf", kb: 188, ext: "pdf", tipo: "ordine", stato: "da scaricare", vista: "ordine" }, { nome: "CGA_2026.pdf", kb: 96, ext: "pdf", tipo: "condizioni", stato: "da scaricare" }],
+  corpo: [{ p: "Bonjour," }, { p: "veuillez trouver ci-joint notre commande pour le {52.418.330}: [150 pièces], livraison [semaine 46]." }, { p: "Merci de nous retourner l'accusé de réception sous 48 h." }, { firma: "Cordialement\nLucie Martin · Service Achats" }] },
+
+{ id: "m15", data: "2026-09-24T12:06", dir: "entrata", quad: "clienti", stato: "agganciato", rfq: "R3", comeAgganciato: "RFQ nata da questa mail (SV, 25/09)",
+  da: { nome: "Ferrari Paolo", ind: "paolo.ferrari@trattorivalpadana.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "cliente", nome: "TRATTORI VALPADANA", ruolo: "buyer censito" },
+  oggetto: "RICHIESTA D'OFFERTA 480011231", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "NUOVA_RFQ", forza: "chiaro", ev: ["l'oggetto dice «richiesta d'offerta»"] }, candidati: [],
+  portale: [{ testo: "Disegni trasmessi con sharing service", stato: "scaricato", scade: "2026-10-24" }],
+  allegati: [{ nome: "Documento RDO 480011231_100_240926.msg", kb: 24, ext: "msg", tipo: "corrispondenza", stato: "analizzato", vista: "rdo" }],
+  corpo: [{ p: "Buongiorno," }, { p: "siamo a richiedere offerta per i seguenti nostri codici: {7130003A1}, {7130004A3}." }, { firma: "Paolo Ferrari" }] },
+
+{ id: "m13", data: "2026-09-24T09:20", dir: "entrata", quad: "validare", stato: "orfano",
+  da: { nome: "Amministrazione Tecnofix", ind: "amministrazione@tecnofix.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "ambiguo" },
+  oggetto: "Conferma d'ordine 88213", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "ALTRO", forza: "incerto", ev: [] },
+  proposta: { tipo: "chi", titolo: "Cliente o fornitore?", sotto: "tecnofix.example è in due anagrafiche",
+    motivi: [["tecnofix.example è il dominio del cliente TECNOFIX e del fornitore TECNOFIX VITERIE", 0], ["«conferma d'ordine» di viteria: sembra il fornitore", 1]] },
+  candidati: [], allegati: [],
+  corpo: [{ p: "Buongiorno," }, { p: "confermiamo il vostro ordine 88213 del 22/09: viti TCEI M10x30 8.8 zincate, [2.000 pz], consegna [02/10]." }, { firma: "Amministrazione Tecnofix" }] },
+
+{ id: "m14", data: "2026-09-24T08:05", dir: "entrata", quad: "altro", stato: "ignorato", ignorato: "SV, 24/09 alle 08:40",
+  da: { nome: "Corriere Espresso", ind: "noreply@corriere-esempio.example" }, a: "commerciale@esempio.example",
+  ctp: { tipo: "altro", nome: "corriere" },
+  oggetto: "La tua spedizione 1Z84E27 è in consegna oggi", caselle: ["commerciale · Posta in arrivo"],
+  evento: { c: "ALTRO", forza: "chiaro", atto: "notifica", ev: [] }, candidati: [], allegati: [],
+  corpo: [{ p: "La spedizione 1Z84E27 (2 colli) sarà consegnata oggi tra le 9 e le 13." }] }
+];
+
+
+const QUAD = [
+  { k: "clienti", nome: "Clienti", col: "var(--accent)", aiuto: "La posta dei clienti, in entrata e in uscita: le richieste d'offerta e tutto ciò che ci gira intorno." },
+  { k: "fornitori", nome: "Fornitori", col: "var(--e-off)", aiuto: "La posta dei fornitori censiti: offerte, domande, solleciti, e le nostre richieste a loro." },
+  { k: "interni", nome: "Interni", col: "var(--ink-2)", aiuto: "Posta fra i nostri indirizzi: un collega che gira una richiesta, una nota interna." },
+  { k: "altro", nome: "Altro", col: "var(--ink-3)", aiuto: "Soggetti censiti come diversi da cliente, fornitore e interno: corrieri, banche, notifiche." },
+  { k: "validare", nome: "Da validare", col: "var(--bad)", aiuto: "Mittenti non censiti e indirizzi in più anagrafiche: qui si decide chi sono, non che cosa vogliono." }
+];
+const GRUPPI = [
+  ["nuove", "Richieste nuove", "si crea la RFQ"], ["aggancia", "Da mettere in una RFQ", "si aggancia"], ["fornitori", "Fornitori", "offerte e nostre richieste"],
+  ["chi", "Mittenti da riconoscere", "si censisce"], ["ignora", "Probabilmente da ignorare", "newsletter e notifiche"]
+];
+const EV_NOME = { NUOVA_RFQ: "Nuova RFQ", ARRIVO_CAD: "Arrivo CAD", REVISIONE_CAD: "Revisione CAD", RISPOSTA_COMMERCIALE: "Risposta commerciale", OFFERTA_FORNITORE: "Offerta del fornitore", ORDINE: "Ordine", SOLLECITO: "Sollecito", ALTRO: "Altro" };
+
+const S = { msgs: clona(MESSAGGI0), vista: "adesso", stato: "orfano", dir: "", casella: "", q: "", sel: null, bulk: false, spunte: new Set(),
+  decise: 0, offline: false, foglio: null, rispondi: false, conferma: null, storico: "archivio caricato fino a mar 22/09" };
+S.totale = S.msgs.filter(m => m.stato === "orfano").length;
+
+const msg = id => S.msgs.find(m => m.id === id);
+
+/* il testo della controparte, come nella riga di oggi ma in parole */
+function ctpTesto(m) {
+  const c = m.ctp;
+  switch (c.tipo) {
+    case "cliente": return `<span class="ctp"><b>${esc(c.nome)}</b></span>`;
+    case "fornitore": return `<span class="ctp">fornitore · <b>${esc(c.nome)}</b></span>`;
+    case "altro": return `<span class="ctp">altro · ${esc(c.nome)}</span>`;
+    case "interno": return `<span class="ctp">interna</span>`;
+    case "ambiguo": return `<span class="ctp ignoto" title="l'indirizzo o il dominio stanno in più anagrafiche">cliente o fornitore?</span>`;
+    default: return `<span class="ctp ignoto">non censito</span>`;
+  }
+}
+
+/* che cosa propone il Cockpit, per la riga e per il colore. Niente numeri: parole */
+function proposta(m) {
+  if (m.stato === "agganciato") return { cosa: "", colore: "" };
+  if (m.stato === "ignorato") return { cosa: "", colore: "" };
+  const p = m.proposta || {};
+  switch (p.tipo) {
+    case "nuova": return { cosa: "→ Nuova RFQ", colore: m.evento.forza === "chiaro" ? "verde" : "giallo", gruppo: "nuove" };
+    case "aggancia": { const f = (m.candidati[0] || {}).liv; return { cosa: "→ RFQ " + RFQ[p.rfq].num, colore: f === "forte" ? "verde" : "giallo", gruppo: "aggancia" }; }
+    case "segue": { const t = msg(p.segue); const dentro = t && t.stato === "agganciato";
+      return { cosa: dentro ? "→ RFQ " + RFQ[t.rfq].num : "→ segue la mail delle " + ora(t.data), colore: dentro ? "verde" : "giallo", gruppo: "aggancia" }; }
+    case "scegli": return { cosa: `→ ${m.candidati.length} RFQ: scegli tu`, colore: "giallo", gruppo: "aggancia" };
+    case "richiesta": return { cosa: "→ offerta per la nostra richiesta", colore: "verde", gruppo: "fornitori" };
+    case "manuale": return { cosa: "→ richiesta a " + p.fornitore + "?", colore: "giallo", gruppo: "fornitori" };
+    case "chi": return { cosa: m.ctp.tipo === "ambiguo" ? "→ cliente o fornitore?" : "→ chi è?", colore: "rosso", gruppo: "chi" };
+    case "ignora": return { cosa: "→ da ignorare?", colore: "grigio", gruppo: "ignora" };
+  }
+  return { cosa: "", colore: "", gruppo: "aggancia" };
+}
+
+function testoRicerca(m) {
+  const parti = [m.oggetto, m.da.nome, m.da.ind, m.a, m.ctp.nome, (m.codici || []).map(c => c.c).join(" "), (m.allegati || []).map(a => a.nome).join(" "),
+    m.rfq ? RFQ[m.rfq].num : "", (m.corpo || []).map(b => b.p || b.firma || "").join(" ")];
+  return parti.join(" ").toLowerCase().replace(/[{}\[\]]/g, "");
+}
+
+function visibili() {
+  let l = S.msgs.slice();
+  if (S.q.trim()) {
+    const q = S.q.trim().toLowerCase();
+    return l.filter(m => testoRicerca(m).includes(q)).sort((a, b) => b.data.localeCompare(a.data));
+  }
+  if (S.vista === "adesso") l = l.filter(m => m.stato === "orfano");
+  else {
+    if (S.vista !== "tutti") l = l.filter(m => m.quad === S.vista);
+    if (S.stato !== "tutti") l = l.filter(m => m.stato === S.stato);
+  }
+  if (S.dir) l = l.filter(m => m.dir === S.dir);
+  if (S.casella) l = l.filter(m => m.caselle.some(c => c.startsWith(S.casella)));
+  l.sort((a, b) => b.data.localeCompare(a.data));
+  if (S.vista === "adesso") {
+    const ord = Object.fromEntries(GRUPPI.map((g, i) => [g[0], i]));
+    l.sort((a, b) => (ord[proposta(a).gruppo] - ord[proposta(b).gruppo]) || b.data.localeCompare(a.data));
+  }
+  return l;
+}
+
+/* ---------------------------------------------------------------- cartelle */
+function contaQuad(k) { return S.msgs.filter(m => m.quad === k && m.stato === "orfano").length; }
+function renderCartelle() {
+  const orfani = S.msgs.filter(m => m.stato === "orfano").length;
+  const qv = S.vista === "adesso" ? null : QUAD.find(q => q.k === S.vista);
+  const base = S.vista === "adesso" || S.vista === "tutti" ? S.msgs : S.msgs.filter(m => m.quad === S.vista);
+  const n = st => st === "tutti" ? base.length : base.filter(m => m.stato === st).length;
+  const nuove = S.msgs.filter(m => m.nuovo).length;
+  const casella = (nome, ultimo, nuove) => S.offline && nome === "commerciale"
+    ? `<div class="cas"><span class="stato-dot off"></span><b>${nome}</b><small>Outlook non risponde dalle 01:59</small></div>`
+    : `<div class="cas"><span class="stato-dot"></span><b>${nome}</b><small>aggiornata alle ${ultimo}${nuove ? ` · <b>${nuove} nuove</b>` : ""}</small></div>`;
+  $("#cartelle").innerHTML = `
+    <div class="gruppo quad">
+      <span class="label">Smistamento</span>
+      <button type="button" class="voce adesso nov" data-vista="adesso" aria-pressed="${S.vista === "adesso"}" title="Tutto ciò che aspetta una decisione, di ogni quadrante, raggruppato per tipo di decisione">
+        <span class="punto"></span>Da fare adesso<span class="n ${orfani ? "pieno" : ""}" style="--q:var(--accent)">${orfani}</span></button>
+      ${QUAD.map(q => { const c = contaQuad(q.k); return `
+      <button type="button" class="voce" data-vista="${q.k}" aria-pressed="${S.vista === q.k}" title="${esc(q.aiuto)}" style="--q:${q.col}">
+        <span class="punto"></span>${q.nome}<span class="n ${c && q.k === "validare" ? "pieno" : ""}">${c}</span></button>`; }).join("")}
+      <button type="button" class="voce" data-vista="tutti" aria-pressed="${S.vista === "tutti"}" title="Tutti i quadranti insieme: per cercare un messaggio senza sapere di chi è">
+        <span class="punto" style="background:transparent;border:1.5px solid var(--line-strong)"></span>Tutti<span class="n">${S.msgs.length}</span></button>
+      <p class="aiuto-quad">${S.vista === "adesso" ? "Le decisioni che aspettano, raggruppate per tipo: si fanno una dopo l'altra." : qv ? esc(qv.aiuto) : "Tutti i quadranti insieme."} Il numero è quante mail aspettano una decisione.</p>
+    </div>
+    <div class="gruppo filtri">
+      ${S.vista === "adesso" ? "" : `<span class="label">Stato</span>
+      <div class="seg" role="group" aria-label="Stato">
+        ${[["orfano", "da decidere", "non ancora in una RFQ né ignorati (orfani)"], ["agganciato", "in una RFQ", "agganciati"], ["ignorato", "ignorati", ""], ["tutti", "tutti", ""]].map(([k, t, h]) =>
+          `<button type="button" data-stato="${k}" aria-pressed="${S.stato === k}" title="${h}">${t} <small>${n(k)}</small></button>`).join("")}
+      </div>`}
+      <span class="label" style="margin-top:8px">Direzione</span>
+      <div class="seg" role="group" aria-label="Direzione">
+        ${[["", "↕ tutte"], ["entrata", "↓ ricevute"], ["uscita", "↑ mandate"]].map(([k, t]) => `<button type="button" data-dir="${k}" aria-pressed="${S.dir === k}">${t}</button>`).join("")}
+      </div>
+      <label class="label" for="filtro-casella" style="margin-top:8px;padding-left:8px">Casella</label>
+      <select id="filtro-casella" title="Filtro della schermata, non un permesso">
+        <option value="">tutte le caselle</option>
+        <option value="commerciale" ${S.casella === "commerciale" ? "selected" : ""}>commerciale</option>
+        <option value="ufficio tecnico" ${S.casella === "ufficio tecnico" ? "selected" : ""}>ufficio tecnico</option>
+      </select>
+    </div>
+    <div class="posta">
+      <span class="label">La posta</span>
+      ${casella("commerciale", "08:44", nuove)}
+      ${casella("ufficio tecnico", "08:43", 0)}
+      <div class="cas"><span class="stato-dot ${S.offline ? "off" : ""}"></span><b>assistente</b><small>${S.offline ? "non raggiungibile: la lettura aspetta" : "pronto a leggere"}</small></div>
+      <div class="bottoni">
+        <button type="button" class="btn piccolo" id="btn-aggiorna" title="Accoda subito un aggiornamento per ogni casella. Premerlo più volte non accoda altro lavoro.">${ico("aggiorna", "s")} Aggiorna ora</button>
+        <button type="button" class="btn piccolo" id="btn-storico" title="Scarica altri 2 giorni di archivio, per casella. Mentre carica, il worker Outlook non apre elementi e non scarica allegati.">${ico("archivio", "s")} Carica precedenti</button>
+      </div>
+      <p class="nota">Il worker Outlook aggiorna ogni 60 s · ${esc(S.storico)}</p>
+    </div>`;
+}
+
+/* ---------------------------------------------------------------- lista */
+function rigaHtml(m) {
+  const p = proposta(m);
+  const cad = (m.allegati || []).filter(a => ["stp", "igs", "dxf"].includes(a.ext)).length;
+  const nAll = (m.allegati || []).filter(a => !a.inline).length;
+  const link = (m.portale || []).find(x => x.stato === "da scaricare");
+  const chips = [
+    m.evento && m.evento.c !== "ALTRO" ? `<span class="ev ${m.evento.c}">${EV_NOME[m.evento.c]}</span>` : m.evento && m.evento.atto ? `<span class="ev">Altro · ${esc(m.evento.atto)}</span>` : "",
+    m.stato === "agganciato" ? `<span class="chip acc mono" title="${esc(m.comeAgganciato || "")}">RFQ ${RFQ[m.rfq].num}</span>` : "",
+    m.stato === "ignorato" ? `<span class="chip">ignorato</span>` : "",
+    p.cosa ? `<span class="cosa ${p.colore}">${esc(p.cosa)}</span>` : "",
+    nAll ? `<span class="chip" title="${nAll} allegati">${ico("clip", "s")}${nAll}</span>` : "",
+    cad ? `<span class="chip" title="file CAD">${ico("cubo", "s")}${cad}</span>` : "",
+    link ? `<span class="chip warn nov" title="Link del portale da scaricare: scade il ${dataIt(link.scade)}">${ico("link", "s")}scade ${dataIt(link.scade)}</span>` : "",
+    m.caselle.length > 1 ? `<span class="chip vuoto" title="${esc(m.caselle.join(", "))}">${m.caselle.length} caselle</span>` : "",
+    m.dalCockpit ? `<span class="chip vuoto" title="nostra mail preparata dal Cockpit">${esc(m.dalCockpit)}</span>` : ""
+  ].join("");
+  const chi = m.dir === "uscita" ? `a ${esc(m.a)}` : esc(m.da.nome);
+  return `<div class="riga ${p.colore === "grigio" ? "" : p.colore} ${m.nonLetto ? "nonletto" : ""} ${S.sel === m.id ? "sel" : ""} ${m.stato === "ignorato" ? "fatta" : ""}" data-id="${m.id}" tabindex="-1" role="option" aria-selected="${S.sel === m.id}">
+    <span class="spunta"><input type="checkbox" data-spunta="${m.id}" ${S.spunte.has(m.id) ? "checked" : ""} aria-label="seleziona"></span>
+    <div class="corpo-riga">
+      <div class="r1">${m.nuovo ? `<span class="nuovo-dot" title="Arrivato dopo la tua ultima apertura dell'Inbox"></span>` : ""}<span class="dir" title="${m.dir === "uscita" ? "mandata da noi" : "ricevuta"}">${m.dir === "uscita" ? "↑" : "↓"}</span><span class="mitt">${chi}</span>${ctpTesto(m)}<span class="ora">${S.vista === "adesso" || S.q ? quando(m.data) : ora(m.data)}</span></div>
+      <div class="r2">${esc(m.oggetto)}</div>
+      <div class="r3">${chips}</div>
+    </div></div>`;
+}
+
+function renderLista() {
+  const l = visibili();
+  const qv = QUAD.find(q => q.k === S.vista);
+  $("#titolo-lista").innerHTML = S.q.trim() ? `Risultati <small>${l.length} per «${esc(S.q.trim())}», in tutte le cartelle</small>`
+    : S.vista === "adesso" ? `Da fare adesso <small>${l.length} da decidere</small>`
+    : `${qv ? qv.nome : "Tutti"} <small>${l.length} ${S.stato === "orfano" ? "da decidere" : S.stato === "agganciato" ? "in una RFQ" : S.stato === "ignorato" ? "ignorati" : "messaggi"}</small>`;
+  let html = "", chiave = null;
+  for (const m of l) {
+    let k, testa;
+    if (S.vista === "adesso" && !S.q.trim()) { k = proposta(m).gruppo; const g = GRUPPI.find(x => x[0] === k); testa = [g[1], g[2]]; }
+    else { k = giorno(m.data); testa = nomeGiorno(m.data); }
+    if (k !== chiave) { chiave = k; const n = l.filter(x => (S.vista === "adesso" && !S.q.trim() ? proposta(x).gruppo : giorno(x.data)) === k).length;
+      html += `<div class="giorno">${esc(testa[0])}<small>${esc(testa[1])}${S.vista === "adesso" && !S.q.trim() ? ` · ${n}` : ""}</small></div>`; }
+    html += rigaHtml(m);
+  }
+  if (!l.length) html = S.vista === "adesso" && !S.q.trim()
+    ? `<div class="vuoto-lista"><b>Tutto smistato</b>Non c'è nessuna mail che aspetta una decisione. Le nuove compaiono qui da sole.</div>`
+    : `<div class="vuoto-lista"><b>Nessun messaggio</b>${S.q.trim() ? "Prova con un codice, un numero di RDO o il cognome del buyer." : "Cambia stato o direzione nella colonna a sinistra."}</div>`;
+  $("#righe").innerHTML = html;
+  $("#righe").classList.toggle("bulk", S.bulk);
+  $("#righe").setAttribute("role", "listbox");
+  const fatte = S.decise, tot = S.totale;
+  $("#prog-testo").textContent = `oggi ${fatte} decis${fatte === 1 ? "a" : "e"} · ne restano ${S.msgs.filter(m => m.stato === "orfano").length}`;
+  $("#prog-barra").style.width = Math.min(100, Math.round(fatte / Math.max(1, tot) * 100)) + "%";
+  const bb = $("#barra-bulk");
+  bb.hidden = !(S.bulk && S.spunte.size);
+  if (!bb.hidden) bb.innerHTML = `<b>${S.spunte.size} selezionat${S.spunte.size === 1 ? "o" : "i"}</b><span class="sp"></span>
+    <button type="button" class="btn piccolo" data-bulk="ignora">Ignora</button>
+    <button type="button" class="btn piccolo" data-bulk="letti">Segna letti</button>
+    <button type="button" class="btn piccolo" data-bulk="annulla">Deseleziona</button>`;
+  const av = $("#avviso-posta");
+  av.hidden = !S.offline;
+  if (S.offline) av.innerHTML = `<b>La posta di «commerciale» non arriva dalle 01:59</b>Il PC con Outlook non risponde: le mail nuove compariranno quando si riaccende. Qui sotto puoi decidere lo stesso; «Apri in Outlook» e le bozze aspettano.`;
+}
+
+
+/* ---------------------------------------------------------------- corpo della mail */
+function inline(s) {
+  return esc(s).replace(/\{([^}]+)\}/g, '<mark title="codice letto dal Cockpit: è fra i codici proposti">$1</mark>')
+    .replace(/\[([^\]]+)\]/g, '<mark class="dato" title="dato letto dal testo">$1</mark>').replace(/\n/g, "<br>");
+}
+function blocco(b) {
+  if (b.p) return `<p>${inline(b.p)}</p>`;
+  if (b.firma) return `<p class="firma">${inline(b.firma)}</p>`;
+  if (b.tab) return `<div style="overflow-x:auto"><table>${b.tab.map((r, i) => `<tr>${r.map(c => b.testa && i === 0 ? `<th>${esc(c)}</th>` : `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</table></div>`;
+  if (b.rumore) return `<details><summary>${esc(b.rumore)}</summary><pre>${esc(b.testo)}</pre></details>`;
+  if (b.citata) { const ino = b.citata.startsWith("Messaggio inoltrato");
+    return `<details ${ino ? "open" : ""}><summary>${ino ? "messaggio inoltrato" : "messaggi precedenti citati"} · ${esc(b.citata)}</summary><div class="citata">${b.blocchi.map(blocco).join("")}</div></details>`; }
+  return "";
+}
+function testoOriginale(bb) {
+  return bb.map(b => b.p || b.firma || (b.tab ? b.tab.map(r => r.join("  ")).join("\n") : "") || (b.rumore ? b.testo : "") || (b.citata ? "> " + b.citata + "\n> " + b.blocchi.map(x => x.p).join("\n> ") : ""))
+    .join("\n\n").replace(/[{}\[\]]/g, "");
+}
+function corpoHtml(m) {
+  const conMark = (m.corpo || []).some(b => /[{[]/.test(JSON.stringify(b)));
+  return `<div class="corpo">
+    ${conMark ? `<div class="legenda-corpo nov"><span><i style="background:var(--accent-soft);border-bottom:2px solid var(--accent)"></i>codice letto</span><span><i style="background:var(--warn-soft);border-bottom:2px solid var(--warn)"></i>dato letto (quantità, date, spessori)</span></div>` : ""}
+    ${(m.corpo || []).map(blocco).join("")}
+    <details><summary>testo originale</summary><pre>${esc(testoOriginale(m.corpo || []))}</pre></details>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------- allegati e link del portale */
+function statoAllegato(a) {
+  const c = { "da scaricare": "", "in coda": "warn", "analizzato": "ok", "sul NAS": "ok", "file mancante": "bad" }[a.stato] ?? "";
+  return `<span class="chip ${c}">${esc(a.stato)}</span>`;
+}
+function allegatiHtml(m) {
+  const tutti = m.allegati || [];
+  const veri = tutti.filter(a => !a.inline), inl = tutti.filter(a => a.inline);
+  if (!tutti.length) return "";
+  const dentro = m.stato === "agganciato";
+  const scaricabili = veri.filter(a => a.stato === "da scaricare");
+  return `<div class="sez"><div class="sez-titolo"><h3>Allegati</h3><span class="k">${veri.length} file${inl.length ? ` · ${inl.length} immagin${inl.length === 1 ? "e" : "i"} nel testo` : ""}</span></div>
+    <div class="allegati">${veri.map(a => { const i = tutti.indexOf(a); return `
+      <div class="all">
+        ${dentro && a.stato === "da scaricare" ? `<input type="checkbox" id="sc-${m.id}-${i}" data-scarica="${i}" aria-label="scarica ${esc(a.nome)}">` : `<span style="width:16px"></span>`}
+        <span class="ext ${a.ext}">${esc(a.ext.toUpperCase())}</span>
+        <span class="nome"><b>${esc(a.nome)}</b><small>${a.kb.toLocaleString("it-IT")} KB · ${esc(a.tipo || "")}${a.cod ? ` · <span class="mono">${esc(a.cod)}</span>${a.rev ? " rev " + esc(a.rev) : ""}` : ""}</small></span>
+        <span class="dx">${statoAllegato(a)}
+          ${a.vista ? `<button type="button" class="btn piccolo nov" data-azione="anteprima" data-idx="${i}">${ico("occhio", "s")} Anteprima</button>` : ""}
+          ${a.stato === "file mancante" && dentro ? `<button type="button" class="btn piccolo" data-azione="riscarica" data-idx="${i}">Riscarica</button>` : ""}</span>
+      </div>`; }).join("")}</div>
+    ${dentro && scaricabili.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><button type="button" class="btn primario piccolo" data-azione="scarica-sel">Scarica i selezionati</button><span class="nota">Vanno nello staging della RFQ, poi l'analisi li legge. Sul NAS vanno con la conferma della Distinta.</span></div>`
+      : !dentro && veri.length ? `<p class="nota">Gli allegati si scaricano quando la mail è in una RFQ: i file vanno nella sua cartella. CAD, disegni e archivi si preparano da soli.</p>` : ""}
+  </div>`;
+}
+function portaleHtml(m) {
+  if (!(m.portale || []).length) return "";
+  return `<div class="sez"><div class="sez-titolo"><h3>Link del portale</h3><span class="k">i disegni che il cliente manda con un link</span></div>
+    ${m.portale.map(p => { const g = giorniA(p.scade); const fatto = p.stato !== "da scaricare"; return `
+    <div class="link-portale ${fatto ? "" : "nov"}" style="${fatto ? "background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 30%,var(--line))" : ""}">
+      ${ico("link")}
+      <span class="t"><b>${esc(p.testo)}</b><small>${fatto ? "scaricato: i file sono nella RFQ" : `da scaricare · il link scade il ${dataIt(p.scade)}`}${p.msg ? " · il link è in un'altra mail" : ""}</small>
+        ${p.msg ? `<button type="button" class="btn piccolo" style="margin-top:6px" data-azione="apri-msg" data-id="${p.msg}">Vai alla mail del link ${ico("freccia", "s")}</button>` : ""}</span>
+      ${fatto ? `<span class="chip ok">${ico("ok", "s")} scaricato</span>` : `<span class="conto">${g} giorni<small>prima che scada</small></span>`}
+    </div>`; }).join("")}</div>`;
+}
+
+/* ---------------------------------------------------------------- «Che cosa fare» */
+function perche(motivi) {
+  if (!motivi || !motivi.length) return "";
+  return `<ul class="perche">${motivi.map(([t, f]) => `<li class="${f ? "forte" : ""}">${esc(t)}</li>`).join("")}</ul>`;
+}
+function bottoniBase(m, cosa) {
+  const b = [];
+  if (cosa.includes("aggancia")) b.push(`<button type="button" class="btn" data-azione="aggancia">${ico("aggancia", "s")} ${cosa.includes("altra") ? "Altra RFQ…" : "Aggancia a…"}</button>`);
+  if (cosa.includes("nuova") && m.ctp.tipo !== "fornitore") b.push(`<button type="button" class="btn" data-azione="nuova">${ico("piu", "s")} Nuova RFQ</button>`);
+  if (cosa.includes("ignora")) b.push(`<button type="button" class="btn" data-azione="ignora">Ignora</button>`);
+  return `<div class="fila">${b.join("")}</div>`;
+}
+function censisciHtml(m) {
+  if (["cliente", "interno"].includes(m.ctp.tipo) || m.stato !== "orfano") return "";
+  return `<div class="censisci-riga"><span class="k">Chi è? Censisci come</span>
+    <button type="button" class="btn piccolo" data-azione="censisci" data-come="cliente">cliente</button>
+    <button type="button" class="btn piccolo" data-azione="censisci" data-come="fornitore">fornitore</button>
+    <button type="button" class="btn piccolo nov" data-azione="censisci" data-come="altro" title="corriere, banca, newsletter: la sua posta va nel quadrante Altro">altro</button></div>`;
+}
+function decisioneHtml(m) {
+  if (m.stato === "agganciato") { const r = RFQ[m.rfq]; return `
+    <div class="carta decisione tono-acc"><span class="label">Fatto</span><h3>Nella RFQ ${r.num}</h3><p class="sotto">${esc(r.cliente)} · ${esc(r.fase)}</p>
+      <dl class="dl"><dt>Cartella</dt><dd class="mono" style="font-size:.8rem">${esc(r.cartella)}</dd><dt>Come</dt><dd>${esc(m.comeAgganciato || "agganciata a mano")}</dd></dl>
+      <div class="azioni"><a class="btn primario pieno" href="#" data-azione="distinta">Apri la Distinta ${ico("freccia", "s")}</a>
+      <a class="btn quieto piccolo" href="#" data-azione="distinta">pagina della RFQ</a></div></div>`; }
+  if (m.stato === "ignorato") return `
+    <div class="carta decisione"><span class="label">Fatto</span><h3>Ignorato</h3><p class="sotto">da ${esc(m.ignorato || "SV, adesso")} · resta in archivio fra gli ignorati</p>
+      <div class="azioni"><button type="button" class="btn nov" data-azione="ripristina">Rimetti fra i da decidere</button></div></div>`;
+  const p = m.proposta || {};
+  const tono = { nuova: m.evento.forza === "chiaro" ? "tono-ok" : "tono-warn", aggancia: "tono-ok", segue: "", scegli: "tono-warn", richiesta: "tono-ok", manuale: "tono-warn", chi: "tono-bad", ignora: "" }[p.tipo] || "";
+  let corpo = "";
+  switch (p.tipo) {
+    case "nuova": corpo = `<button type="button" class="btn primario pieno" data-azione="nuova">${ico("piu", "s")} Crea la RFQ…</button>${bottoniBase(m, "aggancia ignora")}`; break;
+    case "aggancia": corpo = `<button type="button" class="btn primario pieno" data-azione="aggancia-rfq" data-rfq="${p.rfq}">${ico("aggancia", "s")} Aggancia alla RFQ ${RFQ[p.rfq].num}</button>${bottoniBase(m, "aggancia altra ignora")}
+      ${m.ctp.tipo === "cliente" ? `<button type="button" class="btn quieto piccolo" data-azione="nuova">È una richiesta nuova</button>` : ""}`; break;
+    case "segue": { const t = msg(p.segue);
+      corpo = t.stato === "agganciato"
+        ? `<button type="button" class="btn primario pieno" data-azione="aggancia-rfq" data-rfq="${t.rfq}">${ico("aggancia", "s")} Aggancia alla RFQ ${RFQ[t.rfq].num}</button><p class="nota">La mail delle ${ora(t.data)} è già nella RFQ ${RFQ[t.rfq].num}: questa la segue.</p>${bottoniBase(m, "aggancia altra ignora")}`
+        : `<p class="nota">La mail delle ${ora(t.data)} non è ancora in una RFQ. Decidi prima quella: poi questa va nella stessa, oppure la metti insieme a lei nel modulo «Nuova RFQ».</p>
+           <button type="button" class="btn primario pieno" data-azione="apri-msg" data-id="${t.id}">Vai alla richiesta delle ${ora(t.data)} ${ico("freccia", "s")}</button>${bottoniBase(m, "aggancia ignora")}`; break; }
+    case "scegli": corpo = `<p class="nota">Nessuna RFQ è proposta: scegli fra i candidati qui sotto, guardando le evidenze.</p>${bottoniBase(m, "aggancia altra nuova ignora")}`; break;
+    case "richiesta": { const r = m.richieste[0]; corpo = `
+      <div class="cand primo"><div class="testa"><span class="t"><b>${esc(r.fornitore)}</b><small>RFQ ${RFQ[r.rfq].num} · ${esc(RFQ[r.rfq].cliente)} · ${esc(r.lav)}</small></span><span class="chip">${esc(r.stato)}</span></div>
+        <ul><li>${esc(r.perche)}</li></ul>
+        <label class="campo" for="atto-${m.id}">Che cos'è<select id="atto-${m.id}">
+          <option value="collegata">una risposta: la richiesta resta aperta</option>
+          <option value="offerta" ${r.atto === "offerta" ? "selected" : ""}>l'offerta del fornitore: offerta ricevuta</option>
+          <option value="declinata">il fornitore non quota: declinata</option></select></label></div>
+      <button type="button" class="btn primario pieno" data-azione="risposta-richiesta">È la risposta a questa richiesta</button>
+      <p class="nota">La mail entra nella RFQ cliente e resta legata alla richiesta. «Offerta ricevuta» propone l'allegato fra le OFFERTE FORNITORI.</p>
+      ${bottoniBase(m, "aggancia ignora")}<p class="nota">La posta di un fornitore non apre una RFQ nuova.</p>`; break; }
+    case "manuale": corpo = `
+      <label class="campo" for="lav-${m.id}">Lavorazione<select id="lav-${m.id}"><option value="">— non indicata —</option>${LAVORAZIONI.map(l => `<option ${l === "taglio laser" ? "" : ""}>${l}</option>`).join("")}</select></label>
+      <button type="button" class="btn primario pieno" data-azione="richiesta-manuale">Sì, è la richiesta a ${esc(p.fornitore)}</button>
+      <p class="nota">Nasce la richiesta (già inviata, con questa mail) e la mail entra nella RFQ ${RFQ[p.rfq].num}.</p>${bottoniBase(m, "aggancia ignora")}`; break;
+    case "chi": corpo = `<div class="fila"><button type="button" class="btn" data-azione="censisci" data-come="cliente">${ico("persona", "s")} È un cliente</button><button type="button" class="btn" data-azione="censisci" data-come="fornitore">${ico("persona", "s")} È un fornitore</button></div>
+      <p class="nota">Censito il mittente, questa mail e le altre non decise dello stesso indirizzo cambiano quadrante e proposta. Se sai già dove va, puoi anche agganciarla subito.</p>${bottoniBase(m, "aggancia nuova ignora")}`; break;
+    case "ignora": corpo = `<button type="button" class="btn primario pieno" data-azione="ignora">Ignora</button>
+      <button type="button" class="btn pieno nov" data-azione="censisci" data-come="altro">Ignora e mettilo fra «Altro»</button>
+      <p class="nota">Con «Altro» le sue prossime mail non finiscono più fra i mittenti da riconoscere.</p>${bottoniBase(m, "aggancia nuova")}`; break;
+  }
+  return `<div class="carta decisione ${tono}"><span class="label">Il Cockpit propone</span><h3>${esc(p.titolo)}</h3>${p.sotto ? `<p class="sotto">${esc(p.sotto)}</p>` : ""}
+    ${perche(p.motivi)}<div class="azioni">${corpo}</div>${p.tipo === "chi" || p.tipo === "ignora" ? "" : censisciHtml(m)}</div>`;
+}
+function candHtml(c, primo, bottone = true) {
+  const r = RFQ[c.rfq];
+  return `<div class="cand ${primo ? "primo" : ""} ${r.chiusa ? "chiuso" : ""}">
+    <div class="testa"><span class="t"><b>RFQ ${r.num}</b><small>${esc(r.cliente)} · aperta dal ${r.dal} · ${esc(r.fase)}</small></span><span class="liv ${c.liv}" title="la forza dell'evidenza migliore: ordina, non è una probabilità">${c.liv}</span></div>
+    <ul>${c.ev.map(e => `<li>${esc(e)}</li>`).join("")}</ul>
+    ${r.chiusa ? `<span class="chip bad">è CHIUSA: agganciare qui non la riapre</span>` : ""}
+    ${bottone ? `<button type="button" class="btn piccolo" data-azione="aggancia-rfq" data-rfq="${c.rfq}">Aggancia a questa RFQ</button>` : ""}</div>`;
+}
+function railHtml(m) {
+  const p = m.proposta || {}, carte = [decisioneHtml(m)];
+  if (m.stato === "orfano" && m.candidati.length && !["aggancia", "richiesta"].includes(p.tipo)) {
+    const avviso = p.tipo === "nuova";
+    carte.push(`<div class="carta ${avviso ? "tono-warn" : ""}"><h3>${avviso ? "Forse esiste già" : "Candidati"}</h3>
+      <p class="sotto">${avviso ? "Una RFQ aperta ha qualcosa in comune: se è quella, aggancia invece di crearne una doppia." : "Il sistema ordina e spiega, tu scegli."}</p>
+      ${m.pariMerito ? `<p class="chip warn" style="justify-self:start">stessa forza: nessuna è proposta</p>` : ""}
+      ${m.candidati.map((c, i) => candHtml(c, i === 0 && !m.pariMerito)).join("")}</div>`);
+  }
+  if (m.stato === "orfano" && p.tipo === "aggancia" && m.candidati.length > 1) {
+    carte.push(`<div class="carta"><h3>Altri candidati</h3>
+      ${m.diPrima ? `<p class="nota">Alcuni sono stati calcolati con le regole di prima: si leggono con prudenza. <button type="button" class="btn piccolo" data-azione="ricalcola">Ricalcola</button></p>` : ""}
+      ${m.candidati.slice(1).map(c => candHtml(c, false)).join("")}</div>`);
+  }
+  if ((m.correlati || []).length && m.stato === "orfano") {
+    carte.push(`<div class="carta nov"><h3>Della stessa richiesta</h3><p class="sotto">Mail che sembrano andare insieme a questa: si decidono insieme nel modulo.</p>
+      ${m.correlati.map(id => { const c = msg(id); return `<button type="button" class="correlato" data-azione="apri-msg" data-id="${id}">${ico("link")}<span><b>${esc(c.oggetto)}</b></span><small>${esc(c.da.nome)} · ${quando(c.data)} · ${esc(c.proposta ? c.proposta.motivi[0][0] : "")}</small></button>`; }).join("")}</div>`);
+  }
+  if (m.dir === "entrata" && m.quad !== "altro") {
+    const a = m.assistente;
+    carte.push(`<div class="carta"><div style="display:flex;gap:8px;align-items:center">${ico("lettura")}<h3>Lettura dell'assistente</h3></div>
+      ${a ? `<p class="sotto">Una proposta, già verificata sul testo della mail.</p>
+        <dl class="dl"><dt>Intento</dt><dd><b>${esc(a.intento)}</b></dd><dt>Riferimento</dt><dd class="mono">${esc(a.rif)}</dd>
+        <dt>Codici</dt><dd class="chips">${a.codici.map(c => `<span class="chip mono">${esc(c)}</span>`).join("")}</dd>
+        <dt>Manca</dt><dd class="chips">${a.manca.map(c => `<span class="chip warn">${esc(c)}</span>`).join("")}</dd></dl>
+        <details><summary>evidenze (${a.ev.length})</summary><ul class="perche">${a.ev.map(e => `<li>${esc(e)}</li>`).join("")}</ul></details>
+        <details><summary>bozza di risposta proposta</summary><pre style="white-space:pre-wrap;font:.82rem/1.5 var(--f-mono);margin:0 0 8px">${esc(a.bozza)}</pre>
+          <button type="button" class="btn piccolo nov" data-azione="usa-bozza">Usala per rispondere</button></details>
+        <details><summary>scartate dal controllo (${a.scarti.length})</summary><ul class="perche">${a.scarti.map(([c, v, mo]) => `<li><span class="mono">${esc(v)}</span> (${esc(c)}): ${esc(mo)}</li>`).join("")}</ul></details>`
+      : `<p class="sotto">Nessuna lettura chiesta per questa mail.</p>`}
+      <button type="button" class="btn piccolo" data-azione="rileggi" ${S.offline ? "disabled" : ""} title="Manda oggetto, corpo e nomi degli allegati al servizio di analisi. Non manda i file.">${a ? "Rileggi" : "Fai leggere all'assistente"}</button>
+      ${S.offline ? `<p class="nota">L'assistente non è raggiungibile adesso.</p>` : ""}</div>`);
+  }
+  if ((m.bozze || []).length) carte.push(`<div class="carta"><h3>Bozze create dal Cockpit</h3><ul class="perche">${m.bozze.map(([q, t, s]) => `<li>${esc(q)} · ${esc(t)} · <span class="chip ok">${esc(s)}</span></li>`).join("")}</ul></div>`);
+  return `<aside class="rail" aria-label="Che cosa fare"><span class="label">Che cosa fare</span>${carte.join("")}</aside>`;
+}
+
+
+function motivoOutlook() {
+  if (S.offline) return "il PC con Outlook non risponde";
+  if (!$("#postazione").value) return "scegli in alto il PC su cui lavori";
+  return "";
+}
+function testaHtml(m) {
+  const l = visibili(), i = l.findIndex(x => x.id === m.id);
+  const mo = motivoOutlook();
+  const ev = m.evento || {};
+  const av = { cliente: "cliente", fornitore: "fornitore", sconosciuto: "ignoto", ambiguo: "ignoto" }[m.ctp.tipo] || "";
+  const [g1, g2] = nomeGiorno(m.data);
+  return `<div class="msg-barra">
+      <button type="button" class="btn quieto piccolo solo-stretto" data-azione="indietro">${ico("sx", "s")} Lista</button>
+      <button type="button" class="btn quieto piccolo" data-azione="prev" title="Precedente" aria-label="precedente">${ico("su")}</button>
+      <button type="button" class="btn quieto piccolo" data-azione="next" title="Successiva" aria-label="successiva">${ico("giu")}</button>
+      <span class="pos">${i >= 0 ? `${i + 1} di ${l.length}` : "fuori dalla lista"}</span>
+      <span class="sp"></span>
+      <button type="button" class="btn piccolo" data-azione="outlook" ${mo ? "disabled" : ""} title="${mo ? "Non disponibile: " + mo : "Si apre la copia in commerciale sul PC " + $("#postazione").value.toUpperCase()}">${ico("outlook", "s")} Apri in Outlook</button>
+      <button type="button" class="btn piccolo" data-azione="letto" ${mo ? "disabled" : ""}>${m.nonLetto ? "Segna letto" : "Segna da leggere"}</button>
+      <button type="button" class="btn piccolo" data-azione="rispondi" aria-pressed="${S.rispondi}" ${mo ? "disabled" : ""}>${ico("rispondi", "s")} Rispondi</button>
+      ${mo ? `<span class="nota" style="flex-basis:100%;text-align:right">Azioni di Outlook in pausa: ${esc(mo)}.</span>` : ""}
+    </div>
+    <div class="msg-testa">
+      <div class="sopra">${ev.c ? `<span class="ev ${ev.c}" title="che cosa sta succedendo con questa mail: si legge, non aggancia">${EV_NOME[ev.c]}${ev.atto ? " · " + esc(ev.atto) : ""}</span>` : ""}
+        ${ev.forza ? `<span class="k3" style="font-size:.84rem">${esc(ev.forza)}${ev.ev && ev.ev.length ? " · " + esc(ev.ev.join("; ")) : ""}</span>` : ""}</div>
+      <h1>${esc(m.oggetto)}</h1>
+      <div class="da"><span class="avatar ${av}">${esc(iniziali(m.dir === "uscita" ? "Noi" : m.da.nome))}</span>
+        <span class="nome">${m.dir === "uscita" ? "Da noi · " : ""}${esc(m.da.nome)} ${ctpTesto(m)}${m.ctp.ruolo ? ` <span class="k3" style="font-size:.8rem">(${esc(m.ctp.ruolo)})</span>` : ""}</span>
+        <span class="quando"><b>${ora(m.data)}</b>${esc(g1 === "Oggi" || g1 === "Ieri" ? g1.toLowerCase() + ", " + g2 : g1)}</span>
+        <span class="ind">&lt;${esc(m.da.ind)}&gt;</span></div>
+      <div class="meta"><span><b>A:</b> ${esc(m.a)}</span><span><b>${m.caselle.length > 1 ? "Caselle" : "Casella"}:</b> ${m.caselle.map(esc).join(", ")}</span><span><b>Canale:</b> outlook</span>
+        <span><b>RFQ:</b> ${m.stato === "agganciato" ? `<a href="#" data-azione="distinta" class="mono">${RFQ[m.rfq].num}</a>` : m.stato === "ignorato" ? "ignorato" : "non ancora in una RFQ"}</span>
+        ${m.dalCockpit ? `<span class="chip vuoto">${esc(m.dalCockpit)}</span>` : ""}</div>
+    </div>`;
+}
+function rispondiHtml(m) {
+  if (!S.rispondi) return "";
+  return `<div class="sez" style="background:var(--surface-2)"><div class="sez-titolo"><h3>Rispondi</h3><span class="k">la bozza si apre in Outlook: l'invio resta tuo</span></div>
+    <div class="seg-campo" role="group" aria-label="Tipo di risposta">
+      ${[["risposta", "Rispondi"], ["tutti", "Rispondi a tutti"], ["inoltro", "Inoltra"]].map(([k, t], i) => `<button type="button" data-tiporisp="${k}" aria-pressed="${(S.tipoRisp || "risposta") === k}">${t}</button>`).join("")}</div>
+    <label class="campo" for="risp-testo">Testo (va sopra la citazione; firma e catena le aggiunge Outlook)
+      <textarea id="risp-testo" rows="6">${esc(S.testoRisp || "")}</textarea></label>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <button type="button" class="btn primario" data-azione="crea-bozza">Crea la bozza in Outlook</button>
+      ${m.assistente ? `<button type="button" class="btn nov" data-azione="usa-bozza">Usa la bozza dell'assistente</button>` : ""}
+      <button type="button" class="btn quieto" data-azione="rispondi">Chiudi</button></div>
+  </div>`;
+}
+function renderLettura() {
+  const el = $("#lettura"), m = S.sel && msg(S.sel);
+  $("#app").classList.toggle("aperto", !!m);
+  if (!m) { el.innerHTML = `<div class="vuoto-lettura"><div><b>Scegli una mail</b>La lista a sinistra parte da quelle che aspettano una decisione.</div></div>`; return; }
+  const alto = el.querySelector(".msg")?.dataset.id === m.id ? el.querySelector(".msg").scrollTop : 0;
+  el.innerHTML = `<article class="msg" data-id="${m.id}">${testaHtml(m)}${rispondiHtml(m)}${portaleHtml(m)}${allegatiHtml(m)}${corpoHtml(m)}</article>${maniglia("m3", true)}${railHtml(m)}${S.foglio ? foglioHtml(m) : ""}`;
+  el.querySelector(".msg").scrollTop = alto;
+  if (S.foglio && S.foglio.dopo) S.foglio.dopo(), S.foglio.dopo = null;
+}
+function render() { renderCartelle(); renderLista(); renderLettura(); }
+
+/* ---------------------------------------------------------------- scegliere, decidere, tornare indietro */
+function seleziona(id, apri = true) {
+  const m = msg(id); if (!m) return;
+  if (S.sel !== id) { S.rispondi = false; S.testoRisp = ""; S.foglio = null; }
+  S.sel = id;
+  if (apri && m.nonLetto) m.nonLetto = false;
+  render();
+  const r = document.querySelector(`.riga[data-id="${id}"]`);
+  if (r) r.scrollIntoView({ block: "nearest" });
+}
+function sposta(d) {
+  const l = visibili(); if (!l.length) return;
+  const i = l.findIndex(x => x.id === S.sel);
+  const j = i < 0 ? 0 : Math.max(0, Math.min(l.length - 1, i + d));
+  seleziona(l[j].id);
+}
+/* una decisione: si scrive, si può annullare per qualche secondo, e la lista passa alla mail dopo */
+function decidi(m, cambia, testo, avanti = true) {
+  const prima = clona(S.msgs), decisePrima = S.decise, selPrima = S.sel;
+  const l = visibili(), i = l.findIndex(x => x.id === m.id);
+  const eraOrfano = m.stato === "orfano";
+  cambia(m);
+  if (eraOrfano && m.stato !== "orfano") S.decise++;
+  S.foglio = null; S.rispondi = false;
+  if (avanti) {
+    const l2 = visibili();
+    const resta = l2.some(x => x.id === m.id);
+    const dopo = resta ? l2[l2.findIndex(x => x.id === m.id) + 1] : (l2[i] || l2[i - 1]);
+    S.sel = dopo ? dopo.id : (resta ? m.id : null);
+  }
+  render();
+  toast(testo, () => { S.msgs = prima; S.decise = decisePrima; S.sel = selPrima; render(); });
+}
+function aggancia(m, rfq, come) {
+  decidi(m, x => { x.stato = "agganciato"; x.rfq = rfq; x.comeAgganciato = come || "agganciata a mano da SV, adesso"; },
+    `Agganciata alla RFQ <b>${RFQ[rfq].num}</b> · ${esc(RFQ[rfq].cliente)}`);
+}
+function ignora(m) { decidi(m, x => { x.stato = "ignorato"; x.ignorato = "SV, adesso"; }, "Ignorata: resta in archivio fra gli ignorati"); }
+
+
+/* ---------------------------------------------------------------- i moduli */
+function fonteHtml(m) {
+  return `<aside class="fonte" aria-label="La mail"><span class="label">La mail, per controllare</span>
+    <div><b>${esc(m.da.nome)}</b> <span class="k">&lt;${esc(m.da.ind)}&gt;</span><br><span class="k">${quando(m.data)} · ${esc(m.oggetto)}</span></div>
+    ${corpoHtml(m)}
+    ${(m.allegati || []).filter(a => !a.inline).length ? `<div><span class="label">Allegati</span><ul class="perche" style="margin-top:6px">${m.allegati.filter(a => !a.inline).map(a => `<li class="mono" style="font-size:.8rem">${esc(a.nome)}</li>`).join("")}</ul></div>` : ""}
+  </aside>`;
+}
+function allegatiModulo(m) {
+  const v = (m.allegati || []).filter(a => !a.inline);
+  if (!v.length) return "";
+  const solo = a => ["msg", "jpg", "png"].includes(a.ext);
+  return `<div class="blocco"><div class="testa"><h3>Allegati</h3><small>CAD, disegni, offerte e archivi si preparano da soli; il NAS aspetta la conferma della Distinta</small></div>
+    <div class="codici-lista">${v.map((a, i) => solo(a)
+      ? `<label class="check" for="fa-${i}"><input type="checkbox" id="fa-${i}"> <span><span class="mono" style="font-size:.86rem">${esc(a.nome)}</span> <span class="k">· scarica anche questo</span></span></label>`
+      : `<div class="check"><span class="chip ok">${ico("ok", "s")} si prepara da solo</span><span class="mono" style="font-size:.86rem">${esc(a.nome)}</span></div>`).join("")}</div></div>`;
+}
+function codiciModulo(m, spunta) {
+  const cc = m.codici || [], altri = m.altri || [];
+  return `<div class="codici-lista">${cc.length ? cc.map((c, i) => `
+      <label class="codice" for="fc-${i}"><input type="checkbox" id="fc-${i}" data-codice="${esc(c.c)}" ${spunta && c.spunta ? "checked" : ""}>
+        <span class="c"><b>${esc(c.c)}</b><span class="chip acc" title="riconosciuto da una famiglia di codice del cliente">famiglia ${esc(c.fam)}</span></span><small>${esc(c.dove)}</small></label>`).join("")
+      : `<p class="nota">Nessun codice riconosciuto dalle regole del cliente: scrivi qui sotto quelli che servono.</p>`}
+    ${altri.length ? `<details><summary class="k" style="cursor:pointer;font-size:.86rem">Altri numeri trovati (${altri.length}): non sono codici di questo cliente</summary>
+      <div class="codici-lista" style="margin-top:6px">${altri.map((c, i) => `<label class="codice" for="fx-${i}"><input type="checkbox" id="fx-${i}" data-codice="${esc(c.c)}"><span class="c"><b>${esc(c.c)}</b></span><small>${esc(c.perche)}</small></label>`).join("")}</div></details>` : ""}
+    <label class="campo" for="f-mano">Altri codici, scritti da te<input id="f-mano" placeholder="separati da virgola"><small>risultano inseriti a mano</small></label></div>`;
+}
+function buyerCampi(m, nascosti) {
+  const [n1, n2] = m.da.nome.split(" ");
+  return `<div class="campi" id="buyer-nuovo" ${nascosti ? "hidden" : ""}>
+    <label class="campo" for="f-cognome">Cognome<span class="con-bottone"><input id="f-cognome" value="${esc(n1 || "")}"><button type="button" class="btn piccolo nov" data-azione="scambia" title="Scambia nome e cognome">⇄</button></span></label>
+    <label class="campo" for="f-nome">Nome<input id="f-nome" value="${esc(n2 || "")}"></label>
+    <label class="campo" for="f-email">E-mail<input id="f-email" value="${esc(m.da.ind)}"></label>
+    <label class="campo" for="f-tel">Telefono<input id="f-tel" placeholder="per le note WhatsApp"></label></div>`;
+}
+function foglioNuova(m) {
+  const cl = CLIENTI.find(c => c.id === m.cliente);
+  const oggetto = m.oggetto.replace(/^(I|R|FW|RE):\s*/i, "");
+  const cand = m.candidati || [];
+  return {
+    titolo: "Nuova RFQ", sotto: "da questa mail",
+    corpo: `
+    <div class="blocco"><div class="testa"><h3>Cliente</h3></div>
+      <label class="campo" for="f-cliente">Cliente<select id="f-cliente">${CLIENTI.map(c => `<option value="${c.id}" ${cl && cl.id === c.id ? "selected" : ""}>${esc(c.cartella)} — ${esc(c.rs)}</option>`).join("")}<option value="__nuovo__" ${cl ? "" : "selected"}>+ nuovo cliente…</option></select></label>
+      <div id="cliente-info"></div></div>
+    <div class="blocco"><div class="testa"><h3>Buyer</h3><small>${m.ctp.tipo === "interno" ? "letto dal messaggio inoltrato, non dalla collega che lo gira" : "il mittente"}</small></div>
+      <div id="buyer-sel"></div>${buyerCampi(m, !!cl)}</div>
+    <div class="blocco"><div class="testa"><h3>Richiesta</h3></div>
+      <div class="campi">
+        <label class="campo largo" for="f-oggetto">Oggetto (nome della cartella)<input id="f-oggetto" value="${esc(oggetto)}" required></label>
+        <label class="campo largo" for="f-rif">Riferimento del cliente<input id="f-rif" value="${esc(m.rif || "")}" placeholder="es. RDO 480011234">
+          <small>il numero con cui il cliente chiama la richiesta${m.rifNota ? ": " + esc(m.rifNota) : ""}. Non è un codice prodotto.</small></label>
+        <label class="campo" for="f-scad">Scadenza<input type="date" id="f-scad" value="${m.scadenza ? m.scadenza.data : ""}">
+          ${m.scadenza ? `<small class="letto nov">letta dal testo: ${esc(m.scadenza.frase)} · controlla</small>` : ""}</label>
+        <div class="campo">Priorità<div class="seg-campo" role="group" aria-label="Priorità">
+          <button type="button" data-prio="normale" aria-pressed="true">normale</button><button type="button" class="alta" data-prio="alta" aria-pressed="false">alta</button><button type="button" class="urg" data-prio="urgente" aria-pressed="false">urgente</button></div></div>
+        <div class="campo">Campionatura<label class="interruttore" for="f-camp"><input type="checkbox" id="f-camp"> servono campioni</label></div>
+        <label class="campo largo" for="f-note">Note<textarea id="f-note" rows="2">${esc(m.noteProposte || "")}</textarea>${m.noteProposte ? `<small class="letto nov">proposte dal testo: correggi o cancella</small>` : ""}</label>
+      </div></div>
+    <div class="blocco"><div class="testa"><h3>Codici da mettere nella RFQ</h3><small>il sistema propone, la spunta è tua</small></div>${codiciModulo(m, true)}</div>
+    ${(m.correlati || []).length ? `<div class="blocco nov"><div class="testa"><h3>Della stessa richiesta</h3><small>entrano nella RFQ insieme a questa, se le spunti</small></div>
+      ${m.correlati.map(id => { const c = msg(id); return `<label class="check" for="f-ins-${id}"><input type="checkbox" id="f-ins-${id}" data-insieme="${id}" ${c.stato !== "orfano" ? "disabled" : ""}><span><b>${esc(c.oggetto)}</b><br><span class="k" style="font-size:.84rem">${quando(c.data)} · ${esc(c.proposta.motivi[0][0])}</span></span></label>`; }).join("")}</div>` : ""}
+    ${cand.length ? `<div class="blocco tono-warn"><div class="testa"><h3>Attenzione: potrebbe esistere già</h3></div>
+      <p class="nota">Le regole di aggancio hanno trovato ${cand.length === 1 ? "una RFQ candidata" : cand.length + " RFQ candidate"}. Se è una di queste, aggancia: creare una RFQ nuova farebbe un doppione.</p>
+      ${cand.map(c => candHtml(c, false)).join("")}</div>` : ""}
+    ${allegatiModulo(m)}
+    <div class="blocco"><div class="testa"><h3>Dove va</h3><small>sotto la radice «PREVENTIVI DA FARE»</small></div><div class="percorso" id="f-percorso"></div></div>`,
+    piede: `<span class="riep" id="riep"></span>
+      <button type="button" class="btn quieto" data-azione="chiudi-foglio">Annulla</button>
+      <button type="button" class="btn" data-azione="crea-rfq" data-poi="prossima">Crea e passa alla prossima</button>
+      <button type="button" class="btn primario" data-azione="crea-rfq" data-poi="distinta">Crea la RFQ e apri la Distinta ${ico("freccia", "s")}</button>`,
+    dopo: () => { aggiornaCliente(m); aggiornaRiep(m); }
+  };
+}
+function foglioAggancia(m) {
+  return {
+    titolo: "Aggancia a una RFQ aperta", sotto: "si aggancia con il bottone della RFQ scelta: nessuna è scelta per te",
+    corpo: `
+    <div class="blocco"><div class="testa"><h3>Candidati, dal più forte</h3><small>il sistema ordina e spiega, tu scegli</small></div>
+      ${m.pariMerito ? `<p class="chip warn" style="justify-self:start">stessa forza: nessuna è proposta</p>` : ""}
+      ${m.candidati.length ? m.candidati.map((c, i) => candHtml(c, i === 0 && !m.pariMerito)).join("") : `<p class="nota">Nessun candidato: nessuna regola ha trovato una richiesta che corrisponda. Cercala qui sotto.</p>`}</div>
+    <div class="blocco"><div class="testa"><h3>Un'altra RFQ</h3><small>cerca fra le RFQ aperte</small></div>
+      <label class="cerca" for="f-cerca-rfq">${ico("cerca")}<input id="f-cerca-rfq" type="search" placeholder="oggetto, cliente, codice, riferimento…" autocomplete="off"></label>
+      <div class="risultati" id="f-risultati"></div></div>
+    <div class="blocco"><div class="testa"><h3>Codici da aggiungere alla RFQ</h3><small>diventano prodotti solo quelli che spunti o scrivi</small></div>${codiciModulo(m, false)}</div>
+    ${m.dir === "entrata" && m.ctp.tipo !== "interno" ? `<div class="blocco"><div class="testa"><h3>Mittente</h3></div>
+      <label class="check" for="f-crea-buyer"><input type="checkbox" id="f-crea-buyer" ${m.ctp.ruolo && m.ctp.ruolo.includes("buyer") ? "" : "checked"}> censisci il mittente come buyer del cliente della RFQ</label>${buyerCampi(m, false)}</div>` : ""}
+    ${allegatiModulo(m)}`,
+    piede: `<span class="riep">Si aggancia con «Aggancia a questa RFQ» accanto alla RFQ giusta.</span><button type="button" class="btn quieto" data-azione="chiudi-foglio">Annulla</button>`,
+    dopo: () => cercaRfq("")
+  };
+}
+function dominio(m) { return m.da.ind.split("@")[1] || ""; }
+function foglioCensisci(m) {
+  const come = S.foglio.come, dom = dominio(m), pubblico = /gmail|libero|hotmail|outlook\.|yahoo/.test(dom);
+  const stessi = S.msgs.filter(x => x.stato === "orfano" && dominio(x) === dom);
+  const nomeCome = { cliente: "cliente", fornitore: "fornitore", altro: "«altro»" }[come];
+  return {
+    titolo: "Censisci il mittente", sotto: `${m.da.nome} <${m.da.ind}>`,
+    corpo: `
+    <div class="seg-campo" role="group" aria-label="Come">${["cliente", "fornitore", "altro"].map(k => `<button type="button" data-come="${k}" aria-pressed="${come === k}">${k === "altro" ? "altro (corriere, banca, newsletter)" : k}</button>`).join("")}</div>
+    <div class="blocco"><div class="testa"><h3>${come === "cliente" ? "Cliente" : come === "fornitore" ? "Fornitore" : "Soggetto «altro»"}</h3></div>
+      <div class="campi">
+        <label class="campo largo" for="f-rs">Ragione sociale<input id="f-rs" placeholder="come compare in fattura" value="${esc(m.id === "m12" ? "Studio Tecnico Scarpa" : m.id === "m11" ? "Acciaierie Padane" : "")}"></label>
+        ${come === "cliente" ? `<label class="campo" for="f-cart">Cartella NAS<input id="f-cart" style="text-transform:uppercase" placeholder="MECCANICA NORD"><small>è la chiave del cliente e non si cambia dopo: i disegni finiscono lì</small></label>` : ""}
+        ${come === "fornitore" ? `<label class="campo" for="f-tipo">Tipo<select id="f-tipo"><option value="processi">processi (lavorazioni e trattamenti)</option><option value="verniciatore">verniciatore (verniciatura e cataforesi)</option><option value="materie_prime">materie prime</option></select></label>` : ""}
+        ${come === "altro" ? `<label class="campo" for="f-etich">Che cos'è<select id="f-etich"><option>newsletter</option><option>corriere</option><option>banca</option><option>servizio o portale</option></select></label>` : ""}
+        <label class="campo" for="f-lingua">Lingua<input id="f-lingua" maxlength="2" value="it"></label>
+      </div>
+      ${come === "fornitore" ? `<p class="nota">Se un fornitore con questa ragione sociale esiste già, dominio, contatto e lavorazioni si aggiungono a lui.</p>` : ""}</div>
+    <div class="blocco"><div class="testa"><h3>Come riconoscerlo</h3></div>
+      <label class="check" for="f-dom"><input type="checkbox" id="f-dom" ${pubblico ? "" : "checked"}> tutto il dominio <span class="mono">${esc(dom)}</span> è suo</label>
+      ${pubblico ? `<p class="nota">È un dominio pubblico: chiunque può avere una casella lì. Meglio l'indirizzo.</p>` : ""}
+      <label class="check" for="f-ind"><input type="checkbox" id="f-ind" checked> l'indirizzo <span class="mono">${esc(m.da.ind)}</span> è ${come === "cliente" ? "un suo buyer" : "un suo contatto"}</label>
+      <label class="campo" for="f-pers">Nome della persona<input id="f-pers" value="${esc(m.da.nome)}"></label></div>
+    ${come === "fornitore" ? `<div class="blocco"><div class="testa"><h3>Che cosa fa</h3><small>la qualifica per un cliente si dà dall'anagrafica</small></div>
+      <div class="lavorazioni">${LAVORAZIONI.map((l, i) => `<label class="check" for="fl-${i}"><input type="checkbox" id="fl-${i}"> ${l}</label>`).join("")}</div></div>` : ""}
+    <div class="blocco nov"><div class="testa"><h3>Che cosa cambia</h3></div>
+      <p class="nota">Al salvataggio si ricalcolano ${stessi.length === 1 ? "questa mail" : `${stessi.length} mail non decise`} di ${esc(dom)}: cambiano quadrante e proposta. Le decisioni già prese non si toccano.</p>
+      <ul class="perche">${stessi.map(x => `<li>${esc(x.oggetto)} <span class="k">· ${quando(x.data)}</span></li>`).join("")}</ul></div>`,
+    piede: `<span class="riep">Censito come <b>${nomeCome}</b>${m.proposta && m.proposta.tipo === "ignora" && come === "altro" ? " e ignorato" : ""}.</span>
+      <button type="button" class="btn quieto" data-azione="chiudi-foglio">Annulla</button>
+      <button type="button" class="btn primario" data-azione="salva-censimento">Censisci e ricalcola</button>`
+  };
+}
+function foglioHtml(m) {
+  const f = S.foglio.tipo === "nuova" ? foglioNuova(m) : S.foglio.tipo === "aggancia" ? foglioAggancia(m) : foglioCensisci(m);
+  S.foglio.dopo = f.dopo || null;
+  return `<div class="foglio" role="dialog" aria-label="${esc(f.titolo)}">
+    <div class="foglio-testa"><h2>${esc(f.titolo)}</h2><span class="k">${esc(f.sotto)}</span><span class="sp"></span>
+      <button type="button" class="btn quieto piccolo" data-azione="chiudi-foglio" aria-label="Chiudi">${ico("x")}</button></div>
+    <div class="foglio-corpo"><form class="modulo" id="modulo" onsubmit="return false">${f.corpo}</form>${maniglia("m4", true)}${fonteHtml(m)}</div>
+    <div class="foglio-piede">${f.piede}</div></div>`;
+}
+
+/* i pezzi vivi del modulo «Nuova RFQ» */
+function aggiornaCliente(m) {
+  const id = $("#f-cliente").value, cl = CLIENTI.find(c => c.id === id);
+  $("#cliente-info").innerHTML = cl
+    ? `<div class="sola-lettura">Cartella NAS <code>${esc(cl.cartella)}</code><span class="k">dall'anagrafica, non va riscritta</span></div>`
+    : `<div class="campi"><label class="campo" for="f-rsn">Ragione sociale<input id="f-rsn" placeholder="es. Meccanica Nord S.p.A."></label>
+       <label class="campo" for="f-cartn">Cartella NAS<input id="f-cartn" style="text-transform:uppercase" placeholder="es. MECCANICA NORD"></label>
+       <label class="campo" for="f-domn">Dominio mail<input id="f-domn" value="${esc(dominio(m))}"></label></div>`;
+  const bb = cl ? cl.buyer : [];
+  const pre = cl && cl.id === m.cliente && m.buyer !== undefined ? m.buyer : -1;
+  $("#buyer-sel").innerHTML = `<label class="campo" for="f-buyer">Buyer<select id="f-buyer">${bb.map((b, i) => `<option value="${i}" ${i === pre ? "selected" : ""}>${esc(b)}</option>`).join("")}
+    <option value="__nuovo__" ${pre < 0 ? "selected" : ""}>+ nuovo buyer (il mittente)…</option><option value="__nessuno__">nessun buyer</option></select></label>`;
+  $("#buyer-nuovo").hidden = pre >= 0;
+}
+function aggiornaRiep(m) {
+  const id = $("#f-cliente").value, cl = CLIENTI.find(c => c.id === id);
+  const cart = cl ? cl.cartella : ($("#f-cartn")?.value || "NUOVO CLIENTE").toUpperCase();
+  const bsel = $("#f-buyer")?.value;
+  const cognome = cl && bsel && !bsel.startsWith("__") ? cl.buyer[+bsel].split(" ")[0] : ($("#f-cognome")?.value || "");
+  const [y, mm, g] = OGGI.split("-");
+  $("#f-percorso").innerHTML = `PREVENTIVI DA FARE <span>›</span> ${esc(cart)} <span>›</span> <b>${esc(`${y} ${mm} ${g} ${cognome} ${$("#f-oggetto").value}`.replace(/\s+/g, " "))}</b>`;
+  const n = document.querySelectorAll("#modulo [data-codice]:checked").length + ($("#f-mano").value.split(",").filter(s => s.trim()).length);
+  const ins = document.querySelectorAll("#modulo [data-insieme]:checked").length;
+  const sc = $("#f-scad").value;
+  $("#riep").innerHTML = `Nasce la RFQ di <b>${esc(cart)}</b> con <b>${n} prodott${n === 1 ? "o" : "i"}</b>${sc ? ` · scadenza <b>${dataIt(sc)}</b>` : ""}${ins ? ` · con <b>${ins} mail collegat${ins === 1 ? "a" : "e"}</b>` : ""}`;
+}
+function cercaRfq(q) {
+  const t = q.trim().toLowerCase();
+  const l = Object.entries(RFQ).filter(([k, r]) => !r.chiusa && (!t || [r.num, r.cliente, r.cartella, r.rif, r.buyer, ...r.codici].join(" ").toLowerCase().includes(t)));
+  $("#f-risultati").innerHTML = (t ? "" : `<p class="nota">Le RFQ aperte, dalla più recente:</p>`) + (l.length ? l.map(([k, r]) => `<div class="risultato"><span><b class="mono">${r.num}</b> · ${esc(r.cliente)}<br><small>dal ${r.dal} · ${esc(r.buyer)} · ${esc(r.fase)} · ${r.codici.map(esc).join(", ")}</small></span>
+    <button type="button" class="btn piccolo" data-azione="aggancia-rfq" data-rfq="${k}">Aggancia qui</button></div>`).join("") : `<p class="nota">Nessuna RFQ aperta corrisponde.</p>`);
+}
+function creaRfq(m, poi) {
+  const id = $("#f-cliente").value, cl = CLIENTI.find(c => c.id === id);
+  const codici = [...document.querySelectorAll("#modulo [data-codice]:checked")].map(x => x.dataset.codice).concat($("#f-mano").value.split(",").map(s => s.trim()).filter(Boolean));
+  const insieme = [...document.querySelectorAll("#modulo [data-insieme]:checked")].map(x => x.dataset.insieme);
+  const k = "N" + (Object.keys(RFQ).length + 1), num = ($("#f-rif").value.split(",")[0] || "").trim() || $("#f-oggetto").value.slice(0, 24);
+  RFQ[k] = { num, cliente: cl ? cl.cartella : ($("#f-cartn").value || "NUOVO CLIENTE").toUpperCase(), cartella: $("#f-percorso").textContent.split("›").pop().trim(), rif: $("#f-rif").value, dal: dataIt(OGGI), buyer: m.da.nome, fase: "Distinta", codici };
+  decidi(m, x => {
+    x.stato = "agganciato"; x.rfq = k; x.comeAgganciato = "RFQ nata da questa mail (SV, adesso)";
+    insieme.forEach(i => { const c = msg(i); c.stato = "agganciato"; c.rfq = k; c.comeAgganciato = "insieme alla richiesta, nel modulo Nuova RFQ"; S.decise++; });
+  }, poi === "distinta" ? `Creata la RFQ <b>${esc(num)}</b> con ${codici.length} prodotti. Nel Cockpit qui si apre la sua Distinta.` : `Creata la RFQ <b>${esc(num)}</b> con ${codici.length} prodotti${insieme.length ? ` e ${insieme.length} mail collegata` : ""}`);
+}
+function salvaCensimento(m) {
+  const come = S.foglio.come, dom = dominio(m), rs = $("#f-rs").value || m.da.nome, cart = ($("#f-cart")?.value || rs).toUpperCase();
+  const stessi = S.msgs.filter(x => x.stato === "orfano" && dominio(x) === dom);
+  const ignoraAnche = come === "altro" && m.proposta && m.proposta.tipo === "ignora";
+  decidi(m, () => {
+    for (const x of stessi) {
+      if (come === "cliente") { x.ctp = { tipo: "cliente", nome: cart, ruolo: "buyer appena censito" }; x.quad = "clienti";
+        x.proposta = { tipo: x.candidati.length ? "scegli" : "nuova", titolo: x.candidati.length ? "Ricalcolata: scegli la RFQ" : "Sembra una richiesta nuova", sotto: `mittente appena censito come cliente ${cart}`, motivi: [["il mittente è appena stato censito come cliente", 1]] }; }
+      if (come === "fornitore") { x.ctp = { tipo: "fornitore", nome: rs.toUpperCase() }; x.quad = "fornitori";
+        x.proposta = { tipo: "scegli", titolo: "Posta di un fornitore: va nella RFQ per cui lavora", sotto: "un fornitore non apre una RFQ nuova", motivi: [["il mittente è appena stato censito come fornitore", 1]] }; }
+      if (come === "altro") { x.ctp = { tipo: "altro", nome: $("#f-etich").value }; x.quad = "altro"; if (ignoraAnche) { x.stato = "ignorato"; x.ignorato = "SV, adesso"; } }
+    }
+  }, `Censito <b>${esc(rs)}</b> come ${come}${ignoraAnche ? " e ignorata la mail" : ""} · ${stessi.length} mail ricalcolat${stessi.length === 1 ? "a" : "e"}`, ignoraAnche);
+}
+
+
+/* ---------------------------------------------------------------- visore: fogli disegnati a mano, niente PDF veri */
+const INK = "#1c1c1a", GR = "#c6c6c0", GR2 = "#efefec", ACC = "#0f5a66";
+const T = (x, y, s, o = {}) => `<text x="${x}" y="${y}" fill="${o.c || INK}" font-family="${o.mono ? "IBM Plex Mono, monospace" : "IBM Plex Sans, sans-serif"}" font-size="${o.fs || 12}" font-weight="${o.b ? 700 : 400}" text-anchor="${o.a || "start"}">${esc(s)}</text>`;
+const barre = (x, y, n, w) => Array.from({ length: n }, (_, i) => `<rect x="${x}" y="${y + i * 14}" width="${w - (i % 3) * 38}" height="6" rx="3" fill="${GR2}"/>`).join("");
+function disegnoSvg(m, a) {
+  const cod = a.cod || "", cl = m.ctp.nome || "SOLLEVAMENTI BASSA";
+  const fori = [[200, 220], [620, 220], [200, 420], [620, 420]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="16" fill="#fff" stroke="${INK}" stroke-width="2"/><path d="M${x - 26} ${y}h52M${x} ${y - 26}v52" stroke="${ACC}" stroke-width="1" stroke-dasharray="10 3 2 3"/>`).join("");
+  const tb = [["CODICE", cod, 0, 0, 230], ["REV", a.rev || "—", 230, 0, 110], ["FOGLIO", "1/1", 340, 0, 120], ["DENOMINAZIONE", cod.startsWith("7130001") ? "PIASTRA DI BASE" : cod.startsWith("77102") ? "STAFFA MOTORE" : "STRUTTURA BRACCIO", 0, 56, 340], ["SCALA", "1:2", 340, 56, 120], ["MATERIALE", "S355JR", 0, 112, 230], ["CLIENTE", cl, 230, 112, 230]];
+  return `<svg viewBox="0 0 1190 842" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Disegno ${esc(cod)}">
+    <rect x="0" y="0" width="1190" height="842" fill="#fff"/><rect x="14" y="14" width="1162" height="814" fill="none" stroke="${INK}" stroke-width="2"/>
+    <rect x="34" y="34" width="1122" height="774" fill="none" stroke="${INK}" stroke-width="1"/>
+    ${Array.from({ length: 8 }, (_, i) => T(34 + 70 + i * 140, 28, String(i + 1), { fs: 11, a: "middle" })).join("")}
+    <rect x="150" y="170" width="520" height="300" rx="6" fill="#fff" stroke="${INK}" stroke-width="2.4"/>
+    <rect x="330" y="290" width="160" height="60" rx="30" fill="#fff" stroke="${INK}" stroke-width="2"/>${fori}
+    <path d="M130 320h560M410 150v340" stroke="${ACC}" stroke-width="1" stroke-dasharray="18 4 3 4" fill="none"/>
+    <path d="M150 520h520M150 510v20M670 510v20" stroke="${INK}" stroke-width="1" fill="none"/>${T(410, 512, "520", { a: "middle", fs: 14 })}
+    <path d="M100 170v300M90 170h20M90 470h20" stroke="${INK}" stroke-width="1" fill="none"/>${T(92, 325, "300", { a: "end", fs: 14 })}
+    <rect x="780" y="170" width="${a.rev === "2" ? 50 : 40}" height="300" fill="#fff" stroke="${INK}" stroke-width="2.4"/>
+    <path d="M780 500h${a.rev === "2" ? 50 : 40}M780 490v20M${a.rev === "2" ? 830 : 820} 490v20" stroke="${INK}" stroke-width="1" fill="none"/>${T(805, 530, a.rev === "2" ? "10" : "8", { a: "middle", fs: 14, b: a.rev === "2", c: a.rev === "2" ? "#b0332a" : INK })}
+    ${T(805, 150, "VISTA LATERALE", { a: "middle", fs: 11 })}${T(410, 150, "VISTA DALL'ALTO", { a: "middle", fs: 11 })}
+    ${a.rev === "2" ? `<circle cx="860" cy="515" r="14" fill="#fff" stroke="#b0332a" stroke-width="1.6"/>${T(860, 520, "B", { a: "middle", fs: 12, b: true, c: "#b0332a" })}` : ""}
+    ${T(60, 640, "NOTE", { b: true, fs: 12 })}${T(60, 662, "1. Spigoli smussati 0,5 x 45°", { fs: 11 })}${T(60, 680, "2. Tolleranze generali ISO 2768-mK", { fs: 11 })}${T(60, 698, "3. Sabbiatura + cataforesi + polveri RAL 9005", { fs: 11 })}
+    ${a.rev === "2" ? T(60, 716, "B. Spessore da 8 a 10 mm (sostituisce la versione A1)", { fs: 11, c: "#b0332a" }) : ""}
+    <g transform="translate(696 640)"><rect x="0" y="0" width="460" height="168" fill="#fff" stroke="${INK}" stroke-width="1.6"/>
+      ${tb.map(([k, v, x, y, w]) => `<rect x="${x}" y="${y}" width="${w}" height="56" fill="none" stroke="${INK}" stroke-width="1"/>${T(x + 8, y + 16, k, { fs: 9, c: "#5f5f5a" })}${T(x + 8, y + 42, v, { fs: k === "CODICE" ? 18 : 14, mono: k === "CODICE" || k === "REV", b: k === "CODICE" })}`).join("")}</g>
+  </svg>`;
+}
+function documentoSvg(m, a) {
+  const tipo = a.vista, cl = (m.ctp.nome || "").toUpperCase();
+  const tit = { rdo: "RICHIESTA D'OFFERTA", offerta: "OFFERTA", ordine: "COMMANDE D'ACHAT / PURCHASE ORDER" }[tipo];
+  const num = (a.nome.match(/\d{5,}|\d{4}-\d{3,4}/) || ["—"])[0];
+  let righe;
+  if (tipo === "rdo") righe = [["Pos.", "Codice", "Descrizione", "Q.tà"], ...(m.codici || []).map((c, i) => [String(10 * (i + 1)), c.c, "PARTICOLARE SALDATO", "20"])];
+  else if (tipo === "ordine") righe = [["Pos.", "Code", "Désignation", "Qté"], ["10", "52.418.330", "SUPPORT VERIN", "150"]];
+  else righe = [["Pos.", "Lavorazione", "Lotto", "Prezzo"], ["1", "Sabbiatura + cataforesi + polveri", "100 pz", "€ 4,80"], ["2", "Idem", "500 pz", "€ 4,10"]];
+  if (righe.length === 1) righe.push(["10", "7130003A1", "PARTICOLARE SALDATO", "20"], ["20", "7130004A3", "PARTICOLARE SALDATO", "20"]);
+  const col = [40, 100, 250, 480];
+  return `<svg viewBox="0 0 595 842" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(a.nome)}">
+    <rect x="0" y="0" width="595" height="842" fill="#fff"/>
+    ${T(40, 60, tipo === "offerta" ? "VERNICIATURE EMILIANE S.R.L." : cl || "CLIENTE", { b: true, fs: 15 })}${barre(40, 74, 3, 180)}
+    ${T(555, 60, tit, { a: "end", b: true, fs: tipo === "ordine" ? 11 : 14, c: ACC })}${T(555, 80, "N. " + num, { a: "end", mono: true, fs: 13, b: true })}${T(555, 98, "del " + dataIt(m.data) + "/2026", { a: "end", fs: 11, c: "#5f5f5a" })}
+    <rect x="40" y="130" width="515" height="1" fill="${GR}"/>${barre(40, 150, 4, 420)}
+    <g transform="translate(0 230)">${righe.map((r, i) => `<rect x="36" y="${i * 30}" width="523" height="30" fill="${i ? "#fff" : GR2}" stroke="${GR}" stroke-width="1"/>${r.map((c, j) => T(col[j], i * 30 + 20, c, { fs: 11, b: !i, mono: j === 1 && i > 0 })).join("")}`).join("")}</g>
+    ${barre(40, 260 + righe.length * 30 + 30, 6, 470)}${barre(40, 260 + righe.length * 30 + 140, 4, 360)}
+    <rect x="40" y="790" width="515" height="1" fill="${GR}"/>${T(40, 810, "Documento di esempio · mockup", { fs: 9, c: "#8a8a84" })}
+  </svg>`;
+}
+function apriVisore(m, idx) {
+  const v = m.allegati.filter(a => a.vista), a = m.allegati[idx], k = v.indexOf(a);
+  $("#strato").innerHTML = `<div class="velo" data-chiudi="1"><div class="visore-box" role="dialog" aria-label="Anteprima di ${esc(a.nome)}">
+    <div class="visore-barra"><span class="ext ${a.ext}" style="width:30px;height:34px;font-size:.6rem">${a.ext.toUpperCase()}</span><b>${esc(a.nome)}</b><span class="k">${a.kb} KB</span><span class="sp"></span>
+      ${v.length > 1 ? `<button type="button" class="btn piccolo" data-visore="${m.allegati.indexOf(v[(k - 1 + v.length) % v.length])}">${ico("sx", "s")}</button><span class="k">${k + 1} di ${v.length}</span><button type="button" class="btn piccolo" data-visore="${m.allegati.indexOf(v[(k + 1) % v.length])}">${ico("freccia", "s")}</button>` : ""}
+      <button type="button" class="btn quieto piccolo" data-chiudi="1">${ico("x")}</button></div>
+    <div class="visore-corpo"><div class="visore-foglio">${a.vista === "disegno" ? disegnoSvg(m, a) : documentoSvg(m, a)}</div>
+      <div class="visore-lato"><span class="label">Letto da questo file</span>
+        <dl class="dl"><dt>Tipo</dt><dd>${esc(a.tipo || "—")}</dd><dt>Codice</dt><dd class="mono">${esc(a.cod || "—")}</dd><dt>Rev</dt><dd class="mono">${esc(a.rev || "—")}</dd><dt>Stato</dt><dd>${statoAllegato(a)}</dd></dl>
+        <p class="nota">Nel Cockpit il file si legge dallo staging, o dal NAS se è già lì. Le note sui disegni si scrivono nella Distinta.</p>
+        <span class="label">La mail</span><p class="nota"><b>${esc(m.da.nome)}</b> · ${quando(m.data)}<br>${esc(m.oggetto)}</p></div></div>
+  </div></div>`;
+}
+function chiudiStrato() { $("#strato").innerHTML = ""; }
+
+/* ---------------------------------------------------------------- gesti */
+function azione(nome, el) {
+  const m = S.sel && msg(S.sel);
+  switch (nome) {
+    case "nuova": if (m.ctp.tipo === "fornitore") return toast("La posta di un fornitore non apre una RFQ nuova: si aggancia alla RFQ per cui lavora");
+      S.foglio = { tipo: "nuova" }; return renderLettura();
+    case "aggancia": S.foglio = { tipo: "aggancia" }; return renderLettura();
+    case "censisci": S.foglio = { tipo: "censisci", come: el.dataset.come }; return renderLettura();
+    case "chiudi-foglio": S.foglio = null; return renderLettura();
+    case "ignora": return ignora(m);
+    case "aggancia-rfq": return aggancia(m, el.dataset.rfq, m.proposta && m.proposta.rfq === el.dataset.rfq ? "proposta del Cockpit, confermata da SV adesso" : null);
+    case "apri-msg": return seleziona(el.dataset.id);
+    case "ripristina": return decidi(m, x => { x.stato = "orfano"; delete x.ignorato; }, "Rimessa fra i da decidere", false);
+    case "risposta-richiesta": { const r = m.richieste[0], atto = $("#atto-" + m.id).value;
+      const fr = { collegata: "risposta collegata, la richiesta resta aperta", offerta: "offerta ricevuta", declinata: "declinata" }[atto];
+      return decidi(m, x => { x.stato = "agganciato"; x.rfq = r.rfq; x.comeAgganciato = `risposta alla richiesta a ${r.fornitore}: ${fr}`; }, `Nella RFQ <b>${RFQ[r.rfq].num}</b> · richiesta a ${esc(r.fornitore)}: ${fr}`); }
+    case "richiesta-manuale": return decidi(m, x => { x.stato = "agganciato"; x.rfq = m.proposta.rfq; x.comeAgganciato = `richiesta a ${m.proposta.fornitore} mandata a mano`; }, `Nata la richiesta a <b>${esc(m.proposta.fornitore)}</b> nella RFQ ${RFQ[m.proposta.rfq].num}`);
+    case "rileggi": return toast("Lettura chiesta all'assistente: il risultato compare qui appena pronto");
+    case "outlook": return toast(`Si apre in Outlook sul PC ${$("#postazione").value.toUpperCase()}`);
+    case "letto": m.nonLetto = !m.nonLetto; render(); return toast(m.nonLetto ? "Segnata da leggere in Outlook" : "Segnata letta in Outlook");
+    case "rispondi": S.rispondi = !S.rispondi; renderLettura(); if (S.rispondi) $("#risp-testo").focus(); return;
+    case "usa-bozza": S.rispondi = true; S.testoRisp = m.assistente.bozza; renderLettura(); return $(".msg").scrollTo({ top: 0 });
+    case "crea-bozza": (m.bozze ||= []).push([`${dataIt(OGGI)} adesso`, S.tipoRisp || "risposta", "aperta in Outlook"]); S.rispondi = false; S.testoRisp = ""; render();
+      return toast(`Bozza aperta in Outlook su ${$("#postazione").value.toUpperCase()}: rileggila e premi Invia lì`);
+    case "scarica-sel": { const ii = [...document.querySelectorAll("[data-scarica]:checked")].map(x => +x.dataset.scarica);
+      if (!ii.length) return toast("Spunta prima i file da scaricare");
+      ii.forEach(i => m.allegati[i].stato = "in coda"); renderLettura(); toast(`${ii.length} file in coda per lo staging`);
+      return setTimeout(() => { ii.forEach(i => m.allegati[i].stato = "analizzato"); renderLettura(); }, 1600); }
+    case "anteprima": return apriVisore(m, +el.dataset.idx);
+    case "ricalcola": m.diPrima = false; render(); return toast("Candidati ricalcolati con le regole di oggi");
+    case "distinta": return toast(`Qui il Cockpit apre la Distinta della RFQ <b>${RFQ[m.rfq].num}</b>`);
+    case "prev": return sposta(-1);
+    case "next": return sposta(1);
+    case "indietro": S.sel = null; return render();
+    case "crea-rfq": if (!$("#f-oggetto").value.trim()) return toast("Scrivi l'oggetto: è il nome della cartella");
+      return creaRfq(m, el.dataset.poi);
+    case "salva-censimento": if (S.foglio.come === "cliente" && !$("#f-cart").value.trim()) return toast("Scrivi la cartella NAS del cliente: è la sua chiave");
+      return salvaCensimento(m);
+    case "scambia": { const a = $("#f-cognome"), b = $("#f-nome"); [a.value, b.value] = [b.value, a.value]; return aggiornaRiep(m); }
+  }
+}
+document.addEventListener("input", e => {
+  const t = e.target, m = S.sel && msg(S.sel);
+  if (t.id === "cerca") { S.q = t.value; return renderLista(); }
+  if (t.id === "f-cerca-rfq") return cercaRfq(t.value);
+  if (t.id === "risp-testo") { S.testoRisp = t.value; return; }
+  if (t.closest("#modulo") && S.foglio && S.foglio.tipo === "nuova") aggiornaRiep(m);
+});
+
+
+/* ---------------------------------------------------------------- guida del mockup */
+function apriGuida() {
+  const nov = ["«Da fare adesso»: tutte le mail da decidere, di ogni quadrante, raggruppate per tipo di decisione.",
+    "«Che cosa fare» sempre accanto alla mail: la proposta scritta in parole, il perché, e un bottone che nomina la RFQ. Nessun punteggio a vista.",
+    "Dopo una decisione la lista passa da sola alla mail dopo; per qualche secondo si può annullare.",
+    "Una ricerca in tutta la posta: mittente, oggetto, codice, numero di RDO, nome di un allegato.",
+    "I pannelli si allargano e si stringono trascinando i bordi; le cartelle, «Che cosa fare» e la mail accanto ai moduli si chiudono trascinandoli quasi a zero. Sotto l'ingranaggio ci sono le disposizioni pronte.",
+    "I link del portale con i giorni che mancano alla scadenza, anche nella riga della lista.",
+    "Le mail della stessa richiesta (il link del portale che arriva un minuto dopo) entrano nella RFQ insieme.",
+    "Nel modulo Nuova RFQ: scadenza e note lette dal testo, da controllare; ⇄ per nome e cognome invertiti; il riepilogo e il percorso NAS che si aggiornano mentre scrivi.",
+    "Codici e dati evidenziati nel testo, dove il sistema li ha letti.",
+    "L'anteprima dei PDF dentro la pagina, come nella Distinta.",
+    "La selezione multipla: ignora o segna letti più messaggi insieme.",
+    "«Altro» fra i censimenti (newsletter, corriere) e «Rimetti fra i da decidere» per un ignorato.",
+    "La bozza dell'assistente come testo di partenza della risposta.",
+    "Lo stato della posta in parole, e un avviso sopra la lista quando Outlook non risponde."];
+  const server = ["annullare un aggancio o un «ignora» appena fatti, e rimettere un ignorato fra i da decidere",
+    "«stessa richiesta»: due mail orfane con lo stesso buyer e gli stessi codici (nel testo o nel nome dello zip) a pochi minuti di distanza",
+    "la scadenza e le quantità lette dal testo, come proposta (oggi le legge l'assistente, ma non vanno nel modulo)",
+    "la scadenza del link del portale (oggi c'è solo lo stato «da scaricare»)",
+    "il censimento come «altro», e la ricerca su tutta la posta",
+    "ignora e segna letti per più messaggi in una volta",
+    "niente per i pannelli: le larghezze restano nel browser di chi lavora"];
+  $("#strato").innerHTML = `<div class="velo" data-chiudi="1"><div class="guida-box" role="dialog" aria-label="Novità">
+    <div style="display:flex;align-items:center;gap:10px"><h2>L'Inbox nuova</h2><span class="sp"></span><button type="button" class="btn quieto piccolo" data-chiudi="1">${ico("x")} Chiudi</button></div>
+    <div><span class="label">Il colore della riga</span><ul class="perche" style="margin-top:8px">
+      <li class="forte">verde: il Cockpit ha una proposta chiara, di solito basta un clic</li><li>giallo: c'è da scegliere (due RFQ alla pari, una proposta incerta)</li>
+      <li class="contro">rosso: prima bisogna dire chi è il mittente</li><li>nessun colore: già deciso, o probabilmente da ignorare</li></ul></div>
+    <div><span class="label">Che cosa c'è di nuovo rispetto all'Inbox di oggi</span><ol class="novita-lista" style="margin-top:8px">${nov.map(n => `<li>${esc(n)}</li>`).join("")}</ol>
+      <p class="nota" style="margin-top:8px">Tutto il resto c'era già e resta: quadranti, filtri, caselle, candidati con le evidenze, risposta a una nostra richiesta, richiesta mandata a mano, lettura dell'assistente, allegati, bozze, Carica precedenti, Aggiorna ora. Le scorciatoie da tastiera sono spente e si decidono a fine lavori.</p></div>
+    <div><span class="label">Che cosa serve dal server</span><ul class="perche" style="margin-top:8px">${server.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>
+  </div></div>`;
+}
+
+/* ---------------------------------------------------------------- gesti della pagina */
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest("[data-chiudi]") && (t.closest("button[data-chiudi]") || t.classList.contains("velo"))) return chiudiStrato();
+  const vis = t.closest("[data-visore]"); if (vis) return apriVisore(msg(S.sel), +vis.dataset.visore);
+  const az = t.closest("[data-azione]"); if (az) { e.preventDefault(); return azione(az.dataset.azione, az); }
+  const v = t.closest("[data-vista]"); if (v) { S.vista = v.dataset.vista; S.q = ""; $("#cerca").value = ""; return render(); }
+  const st = t.closest("[data-stato]"); if (st) { S.stato = st.dataset.stato; return render(); }
+  const d = t.closest("[data-dir]"); if (d) { S.dir = d.dataset.dir; return render(); }
+  const pr = t.closest("[data-prio]"); if (pr) { pr.parentElement.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === pr)); return; }
+  const co = t.closest(".foglio [data-come]"); if (co) { S.foglio.come = co.dataset.come; return renderLettura(); }
+  const tr = t.closest("[data-tiporisp]"); if (tr) { S.tipoRisp = tr.dataset.tiporisp; S.testoRisp = $("#risp-testo").value; return renderLettura(); }
+  const bk = t.closest("[data-bulk]");
+  if (bk) { const ids = [...S.spunte], k = bk.dataset.bulk;
+    if (k === "ignora") { const prima = clona(S.msgs), dp = S.decise; ids.forEach(id => { const m = msg(id); if (m.stato === "orfano") { m.stato = "ignorato"; m.ignorato = "SV, adesso"; S.decise++; } });
+      S.spunte.clear(); render(); return toast(`${ids.length} mail ignorate`, () => { S.msgs = prima; S.decise = dp; render(); }); }
+    if (k === "letti") { ids.forEach(id => msg(id).nonLetto = false); S.spunte.clear(); render(); return toast(`${ids.length} mail segnate lette`); }
+    S.spunte.clear(); return render(); }
+  if (t.matches("[data-spunta]")) { t.checked ? S.spunte.add(t.dataset.spunta) : S.spunte.delete(t.dataset.spunta); return renderLista(); }
+  const r = t.closest(".riga[data-id]"); if (r && !t.closest(".spunta")) return seleziona(r.dataset.id);
+  if (t.closest("#btn-aggiorna")) return toast(S.offline ? "Accodato: parte quando il PC con Outlook risponde" : "Aggiornamento accodato per commerciale e ufficio tecnico");
+  if (t.closest("#btn-storico")) { S.storico = "sto caricando 20/09 e 21/09…"; renderCartelle(); toast("Carico altri 2 giorni di archivio, per casella");
+    return setTimeout(() => { S.storico = "archivio caricato fino a sab 20/09"; renderCartelle(); }, 2200); }
+});
+document.addEventListener("change", e => {
+  const t = e.target, m = S.sel && msg(S.sel);
+  if (t.id === "filtro-casella") { S.casella = t.value; return render(); }
+  if (t.id === "postazione") { t.classList.toggle("manca", !t.value); return renderLettura(); }
+  if (t.id === "f-cliente") { aggiornaCliente(m); return aggiornaRiep(m); }
+  if (t.id === "f-buyer") { $("#buyer-nuovo").hidden = t.value !== "__nuovo__"; return aggiornaRiep(m); }
+  if (t.id === "sel-multipla") { S.bulk = t.checked; S.spunte.clear(); return renderLista(); }
+  if (t.closest("#modulo") && S.foglio && S.foglio.tipo === "nuova") aggiornaRiep(m);
+});
+/* Esc chiude sempre (è il gesto di ogni finestra). Le altre scorciatoie solo se accese sotto l'ingranaggio. */
+document.addEventListener("keydown", e => {
+  const t = e.target, scrive = t.matches("input, textarea, select");
+  if (e.key === "Escape") { if ($("#strato").innerHTML) return chiudiStrato(); if (scrive) return t.blur(); if (S.foglio) { S.foglio = null; return renderLettura(); } return; }
+  if (!scorciatoie() || scrive || t.closest(".maniglia") || e.ctrlKey || e.metaKey || e.altKey || $("#strato").innerHTML) return;
+  const m = S.sel && msg(S.sel), orfano = m && m.stato === "orfano" && !S.foglio;
+  const k = e.key.toLowerCase();
+  const f = { j: () => sposta(1), arrowdown: () => sposta(1), k: () => sposta(-1), arrowup: () => sposta(-1), "/": () => $("#cerca").focus(),
+    n: () => orfano && azione("nuova"), a: () => orfano && azione("aggancia"), i: () => orfano && azione("ignora"),
+    r: () => m && !motivoOutlook() && azione("rispondi"), o: () => m && !motivoOutlook() && azione("outlook"),
+    x: () => { if (S.bulk && m) { S.spunte.has(m.id) ? S.spunte.delete(m.id) : S.spunte.add(m.id); renderLista(); } } }[k];
+  if (f) { e.preventDefault(); f(); }
+});
+
+/* ---------------------------------------------------------------- avvio */
+Object.assign(MANIGLIE, {
+  m1: { v: "--w-cart", def: 214, min: 170, max: 320, dir: 1, chiudi: "cart", nome: "le cartelle" },
+  m2: { v: "--w-lista", def: 400, min: 300, max: 780, dir: 1, chiudi: null, nome: "la lista" },
+  m3: { v: "--w-rail", def: 356, min: 280, max: 560, dir: -1, chiudi: "rail", nome: "«Che cosa fare»" },
+  m4: { v: "--w-fonte", def: 380, min: 260, max: 680, dir: -1, chiudi: "fonte", nome: "la mail accanto al modulo" }
+});
+Object.assign(PAGINA, {
+  chiave: "inbox",
+  tasti: [["J", "mail successiva"], ["K", "mail precedente"], ["/", "cerca"], ["N", "Nuova RFQ"], ["A", "Aggancia a…"], ["I", "Ignora"], ["R", "Rispondi"], ["O", "Apri in Outlook"], ["X", "seleziona"], ["Esc", "chiude"]],
+  preset: [
+    { nome: "Smistamento", sotto: "com'è all'inizio", schema: [[2, 0], [4, 1], [6, 0], [3, 1]], valori: [["m1", 214], ["m2", 400], ["m3", 356]] },
+    { nome: "Lettura ampia", sotto: "cartelle chiuse, mail larga", schema: [[3, 0], [9, 1], [3, 0]], valori: [["m1", 214, true], ["m2", 330], ["m3", 320]] },
+    { nome: "Lista larga", sotto: "per scorrere tante mail", schema: [[2, 0], [8, 1], [4, 0], [2, 0]], valori: [["m1", 214], ["m2", 640], ["m3", 300]] },
+    { nome: "Solo la mail", sotto: "senza «Che cosa fare»", schema: [[4, 0], [12, 1]], valori: [["m1", 214, true], ["m2", 340], ["m3", 356, true]] }
+  ],
+  mock: [{ id: "mk-offline", testo: "PC di Outlook spento", sotto: "La posta non arriva: come si vede e che cosa si può fare lo stesso.", on: v => { S.offline = v; render(); } }],
+  guida: apriGuida,
+  reset: () => { for (const k of Object.keys(RFQ)) if (k.startsWith("N")) delete RFQ[k];
+    Object.assign(S, { msgs: clona(MESSAGGI0), decise: 0, sel: "m1", vista: "adesso", stato: "orfano", foglio: null, q: "" }); $("#cerca").value = ""; render(); toast("Posta rimessa com'era all'apertura"); }
+});
+avvia();
+$("#h-m1").outerHTML = maniglia("m1");
+$("#h-m2").outerHTML = maniglia("m2");
+applicaPannelli();
+S.sel = "m1";
+render();
+
+</script>
+</body>
+</html>

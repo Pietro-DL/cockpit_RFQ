@@ -44,6 +44,18 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	raw, err := json.Marshal(regoleDalForm(r))
+	if err != nil {
+		s.rendiAnagrafica(w, r, anagraficaDati{Sez: "riconoscimento", Errore: err.Error()})
+		return
+	}
+	s.scriviRegole(w, r, id, raw, "riconoscimento")
+}
+
+// regoleDalForm legge le regole dal form «Riconoscimento». La usano il salvataggio e il banco di prova, che
+// prova le regole come sono scritte adesso, prima di salvarle (Anagrafica nuova): le due strade leggono gli
+// stessi campi nello stesso modo, e il banco non puo' promettere un riconoscimento che il salvataggio cambia.
+func regoleDalForm(r *http.Request) regole.Regole {
 	reg := regole.Regole{
 		CanaleAtteso:           strings.TrimSpace(r.FormValue("canale_atteso")),
 		LinguaRisposta:         strings.ToLower(strings.TrimSpace(r.FormValue("lingua_risposta"))),
@@ -108,12 +120,7 @@ func (s *Server) salvaRegoleDalForm(w http.ResponseWriter, r *http.Request) {
 		}
 		reg.FamiglieCodice = append(reg.FamiglieCodice, f)
 	}
-	raw, err := json.Marshal(reg)
-	if err != nil {
-		s.rendiAnagrafica(w, r, anagraficaDati{Sez: "riconoscimento", Errore: err.Error()})
-		return
-	}
-	s.scriviRegole(w, r, id, raw, "riconoscimento")
+	return reg
 }
 
 // scriviRegole è la porta unica: convalida e salva. La usano il form e il riquadro JSON.
