@@ -12,6 +12,7 @@ import (
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
+	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -52,6 +53,11 @@ type censisciDati struct {
 	UsaDominio     bool
 	UsaContatto    bool
 	Scelte         map[string]bool
+	// L'Inbox nuova: la mail accanto al modulo, le etichette «altro» che ci sono gia', e «Ignora e mettilo fra
+	// Altro» (dopo il censimento la mail si ignora).
+	Corpo     lettura.Corpo
+	Etichette []string
+	Ignora    bool
 }
 
 func (s *Server) censisciForm(w http.ResponseWriter, r *http.Request) {
@@ -71,11 +77,15 @@ func (s *Server) censisciForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	d.Ignora = r.URL.Query().Get("ignora") == "1"
+	if d.Come == "altro" && d.RagioneSociale == "" {
+		d.RagioneSociale = strings.TrimSpace(m.MittenteNome.String)
+	}
 	s.frammento(w, "censisci_form", d)
 }
 
 func (s *Server) datiCensisci(ctx context.Context, q *db.Queries, m db.Messaggio, come string) (*censisciDati, error) {
-	if come != "cliente" {
+	if come != "cliente" && come != "altro" {
 		come = "fornitore"
 	}
 	d := &censisciDati{M: m, Come: come, Lingua: "it", Tipo: string(db.TipoFornitoreProcessi), Scelte: map[string]bool{}}
@@ -94,6 +104,12 @@ func (s *Server) datiCensisci(ctx context.Context, q *db.Queries, m db.Messaggio
 		return nil, err
 	}
 	d.Tipi = db.AllTipoFornitoreValues()
+	d.Corpo = lettura.Presenta(m.CorpoTesto.String, m.CorpoHtml.String)
+	if ss, err := q.ListSoggettiAltro(ctx); err == nil {
+		for _, x := range ss {
+			d.Etichette = append(d.Etichette, x.Etichetta)
+		}
+	}
 	return d, nil
 }
 
@@ -124,6 +140,7 @@ func (s *Server) censisci(w http.ResponseWriter, r *http.Request) {
 	d.Cartella = documenti.NomeSicuro(strings.ToUpper(strings.TrimSpace(r.FormValue("cartella_nas"))), 80)
 	d.Lingua = strings.ToLower(strings.TrimSpace(r.FormValue("lingua")))
 	d.ContattoNome = strings.TrimSpace(r.FormValue("contatto_nome"))
+	d.Ignora = r.FormValue("ignora") == "1"
 	d.UsaDominio = r.FormValue("usa_dominio") == "1" && d.Dominio != ""
 	d.UsaContatto = r.FormValue("usa_contatto") == "1"
 	for _, l := range r.Form["lavorazione"] {
@@ -150,9 +167,13 @@ func (s *Server) censisci(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var avviso string
-	if d.Come == "fornitore" {
+	switch d.Come {
+	case "fornitore":
 		avviso, err = s.censisciFornitore(ctx, d)
-	} else {
+	case "altro":
+		// per un «altro» la ragione sociale e' l'etichetta: «corriere», «newsletter Acciaierie Padane»
+		avviso, err = s.censisciAltro(ctx, d, d.RagioneSociale)
+	default:
 		avviso, err = s.censisciCliente(ctx, d)
 	}
 	if err != nil {
@@ -175,6 +196,15 @@ func (s *Server) censisci(w http.ResponseWriter, r *http.Request) {
 		avviso += " Ricalcolo: " + esito.String() + "."
 		s.Log.Info("censimento dal pannello", "come", d.Come, "ragione_sociale", d.RagioneSociale,
 			"indirizzo", d.Indirizzo, "dominio", dominio, "ritriage", esito.String(), "utente", siglaDa(r))
+	}
+	// «Ignora e mettilo fra Altro»: il censimento e poi lo stesso gesto di «Ignora», per questa mail sola.
+	if d.Come == "altro" && r.FormValue("ignora") == "1" {
+		if err := s.ignoraDopoIlCensimento(ctx, id, utenteDa(ctx)); err != nil {
+			avviso += " La mail però non è stata ignorata: " + err.Error()
+		} else {
+			avviso += " Mail ignorata."
+			w.Header().Set("HX-Trigger", "inbox-aggiorna")
+		}
 	}
 	s.pannelloConAvviso(w, r, id, avviso)
 }

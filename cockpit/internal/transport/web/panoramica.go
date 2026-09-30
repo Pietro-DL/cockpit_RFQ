@@ -81,6 +81,15 @@ type filtriRichieste struct {
 	SLA        bool
 	Ordine     string
 	N          int // quante card: cardPerPagina, poi a passi di cardPerPagina
+	// Le Richieste nuove (richieste_ui.go): «Da seguire oggi» (Vista = "oggi"), due filtri rapidi in piu' (scade
+	// entro tre giorni, aspetta i fornitori), l'ufficio della fase, l'elenco o le colonne per fase (Modo), e la
+	// RFQ aperta accanto all'elenco (Sel).
+	Vista     string
+	Scade     bool
+	Fornitori bool
+	Ufficio   string
+	Modo      string
+	Sel       string
 }
 
 func leggiFiltriRichieste(v url.Values) filtriRichieste {
@@ -101,6 +110,21 @@ func leggiFiltriRichieste(v url.Values) filtriRichieste {
 		f.Stato = statoTutte
 	}
 	f.Bloccanti, f.DaSmistare, f.SLA = v.Get("bloccanti") == "1", v.Get("smistare") == "1", v.Get("sla") == "1"
+	f.Scade, f.Fornitori = v.Get("scade") == "1", v.Get("fornitori") == "1"
+	if v.Get("vista") == "oggi" {
+		f.Vista, f.Stato = "oggi", statoAperte
+	}
+	for _, u := range ufficiRichieste {
+		if v.Get("uff") == u {
+			f.Ufficio = u
+		}
+	}
+	if v.Get("modo") == "fasi" {
+		f.Modo = "fasi"
+	}
+	if id, err := uuid.Parse(v.Get("sel")); err == nil {
+		f.Sel = id.String()
+	}
 	for _, o := range ordiniRichieste {
 		if v.Get("sort") == o.Chiave {
 			f.Ordine = o.Chiave
@@ -132,13 +156,18 @@ func (f filtriRichieste) valori() url.Values {
 	for _, b := range []struct {
 		k  string
 		on bool
-	}{{"bloccanti", f.Bloccanti}, {"smistare", f.DaSmistare}, {"sla", f.SLA}} {
+	}{{"bloccanti", f.Bloccanti}, {"smistare", f.DaSmistare}, {"sla", f.SLA}, {"scade", f.Scade}, {"fornitori", f.Fornitori}} {
 		if b.on {
 			v.Set(b.k, "1")
 		}
 	}
 	if f.Ordine != "priorita" {
 		v.Set("sort", f.Ordine)
+	}
+	for k, x := range map[string]string{"vista": f.Vista, "uff": f.Ufficio, "modo": f.Modo, "sel": f.Sel} {
+		if x != "" {
+			v.Set(k, x)
+		}
 	}
 	if f.N != cardPerPagina {
 		v.Set("n", strconv.Itoa(f.N))
@@ -163,7 +192,7 @@ func (f filtriRichieste) Altre() string {
 
 // Attivi dice se qualcosa restringe l'elenco rispetto alla lista di lavoro (le aperte, tutte).
 func (f filtriRichieste) Attivi() bool {
-	return f.Q != "" || f.Cliente != uuid.Nil || f.Fase != "" || f.Stato != statoAperte || f.Bloccanti || f.DaSmistare || f.SLA
+	return f.Q != "" || f.Cliente != uuid.Nil || f.Fase != "" || f.Bloccanti || f.DaSmistare || f.SLA || f.Scade || f.Fornitori || f.Ufficio != ""
 }
 
 func (f filtriRichieste) parametri() db.ListRichiestePanoramicaParams {
@@ -172,6 +201,8 @@ func (f filtriRichieste) parametri() db.ListRichiestePanoramicaParams {
 		Fase:          db.NullFase{Fase: f.Fase, Valid: f.Fase != ""},
 		SoloBloccanti: f.Bloccanti, SoloDaSmistare: f.DaSmistare, SoloSlaCritico: f.SLA,
 		Modello: modelloRicerca(f.Q), Ordine: f.Ordine, Limite: int32(f.N),
+		SoloScade: f.Scade, SoloFornitori: f.Fornitori, DaSeguire: f.Vista == "oggi",
+		Ufficio: pgtype.Text{String: f.Ufficio, Valid: f.Ufficio != ""},
 	}
 	if f.Stato != statoTutte {
 		p.Stato = db.NullStatoThread{StatoThread: db.StatoThread(f.Stato), Valid: true}
@@ -207,6 +238,8 @@ type panoramicaRichieste struct {
 	Fasi    []opzione
 	Ordini  []opzione
 	Stati   []opzione
+	// Conta sono i numeri della colonna dei filtri (richieste_ui.go): quante RFQ vedresti premendo.
+	Conta contiRichieste
 }
 
 // opzione e' una voce di una tendina o di un gruppo di scelte della barra.
@@ -402,6 +435,9 @@ func (s *Server) caricaPanoramica(ctx context.Context, f filtriRichieste, conBar
 	}
 	p := costruisciPanoramica(f, righe, prodotti, anteprime)
 	p.Intervallo = int(s.pollRichieste() / time.Second)
+	if err := p.conta(ctx, q); err != nil {
+		return nil, err
+	}
 	if conBarra {
 		clienti, err := q.ListClientiTutti(ctx)
 		if err != nil {
@@ -467,36 +503,5 @@ func (s *Server) richieste(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("HX-Push-Url", f.URL())
 		}
 	}
-	s.rendi(w, r, "richieste.html", "richieste_elenco", "Richieste", p)
-}
-
-// richiestaProdotti: GET /richieste/{id}/prodotti. Le schede di una RFQ, tutte («+ N altri») o di nuovo
-// le prime sei (?meno=1). Due letture, per la sola RFQ aperta.
-func (s *Server) richiestaProdotti(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(r.PathValue("id"))
-	if err != nil {
-		http.Error(w, "id non valido", 400)
-		return
-	}
-	q := db.New(s.Pool)
-	prodotti, err := q.ListProdottiPanoramica(r.Context(), []uuid.UUID{id})
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	if len(prodotti) == 0 {
-		http.Error(w, "RFQ non trovata o senza prodotti", 404)
-		return
-	}
-	anteprime, err := q.ListAnteprimePanoramica(r.Context(), []uuid.UUID{id})
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
-	}
-	c := richiestaCard{Prodotti: raggruppaProdotti(prodotti, anteprime)[id], Tutti: r.URL.Query().Get("meno") != "1"}
-	c.ThreadID = id
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.pagine["richieste.html"].ExecuteTemplate(w, "richiesta_prodotti", c); err != nil {
-		s.Log.Error("template", "frammento", "richiesta_prodotti", "err", err)
-	}
+	s.rendi(w, r, "richieste.html", "richieste_stato", "Richieste", p)
 }

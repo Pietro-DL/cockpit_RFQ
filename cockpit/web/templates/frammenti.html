@@ -1,183 +1,312 @@
+{{/* ---------------------------------------------------------------- il pannello della mail (Inbox nuova)
+     A sinistra la mail da leggere, a destra «Che cosa fare»: la proposta del Cockpit in parole, il perché, e i
+     gesti. Un bordo fra i due si trascina (ui.js). Nessun gesto parte da solo: il bottone principale porta la
+     sua RFQ scritta sopra, e con piu' RFQ alla pari non c'e' (Smistamento M1). */}}
 {{define "messaggio_pannello"}}
 {{with .Dati}}
-<article class="messaggio">
-  {{if .Avviso}}<div class="avviso">{{.Avviso}}</div>{{end}}
-  <header>
-    <h2>{{oggettoVisibile .M.Oggetto}}</h2>
+<article class="msg" data-id="{{.M.MessaggioID}}" data-ignorato="{{.Riga.Ignorato}}">
+  <div class="msg-barra">
+    <button type="button" class="btn quieto piccolo solo-stretto" data-azione="indietro"><svg class="ico s" aria-hidden="true"><use href="#i-sx"/></svg> Lista</button>
+    <button type="button" class="btn quieto piccolo" data-azione="prev" title="Mail precedente" aria-label="Mail precedente"><svg class="ico" aria-hidden="true"><use href="#i-su"/></svg></button>
+    <button type="button" class="btn quieto piccolo" data-azione="next" title="Mail successiva" aria-label="Mail successiva"><svg class="ico" aria-hidden="true"><use href="#i-giu"/></svg></button>
+    <span class="pos" id="pos-lista"></span>
+    <span class="sp"></span>
+    {{if .Copia}}
+    <button type="button" class="btn piccolo" data-azione="outlook" hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML"
+            title="Si apre la copia in {{.Copia.CasellaNome}} sul PC di questa sessione"><svg class="ico s" aria-hidden="true"><use href="#i-outlook"/></svg> Apri in Outlook</button>
+    <button type="button" class="btn piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Copia.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione"
+            title="Vale per la copia in {{.Copia.CasellaNome}}">{{if .Copia.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
+    <button type="button" class="btn piccolo" data-azione="rispondi" aria-pressed="false"><svg class="ico s" aria-hidden="true"><use href="#i-rispondi"/></svg> Rispondi</button>
+    {{else if .Presenze}}
+    <button type="button" class="btn piccolo" disabled title="{{.MotivoAzioni}}"><svg class="ico s" aria-hidden="true"><use href="#i-outlook"/></svg> Apri in Outlook</button>
+    <span class="nota motivo-outlook">azioni Outlook non disponibili: {{.MotivoAzioni}}</span>
+    {{end}}
+  </div>
+  <div id="esito-azione" class="esito-azione"></div>
+  {{if .Avviso}}<div class="avviso-box ok avviso-pannello" role="status">{{.Avviso}}</div>{{end}}
+  <header class="msg-testa">
+    {{/* Smistamento M2: che cosa sta succedendo con questa mail. È un'evidenza da leggere e non aggancia: la RFQ si
+         sceglie in «Che cosa fare» */}}
+    {{with .Evento}}<div class="evento"><b>Evento:</b> <span class="ev {{.Codice}}" data-evento="{{.Codice}}" title="{{.Titolo}}">{{.Chip}}</span>
+      <span class="k3">{{if .Forza}} ({{.Forza}}){{end}}{{if .Evidenze}} — {{join .Evidenze "; "}}{{end}}{{if .InLettura}} · letto adesso dal messaggio{{end}}</span>
+      {{if not $.Dati.Thread}}<em class="k3">L'evento non aggancia: la RFQ la scegli in «Che cosa fare».</em>{{end}}</div>{{end}}
+    <h1>{{oggettoVisibile .M.Oggetto}}</h1>
+    <div class="da">
+      <span class="avatar {{if eq .Riga.ControparteTipo "cliente"}}cliente{{else if eq .Riga.ControparteTipo "fornitore"}}fornitore{{else if or (eq .Riga.ControparteTipo "sconosciuto") (eq .Riga.ControparteTipo "ambiguo")}}ignoto{{end}}">{{if eq .M.Direzione "uscita"}}NOI{{else}}{{iniziali .M.MittenteNome.String .M.MittenteIndirizzo.String}}{{end}}</span>
+      <span class="nome">{{if eq .M.Direzione "uscita"}}Da noi · {{end}}{{.M.MittenteNome.String}} {{template "controparte_riga" .Riga}}</span>
+      <span class="quando"><b>{{oraRiga .M.DataEvento}}</b>{{dataLunga .M.DataEvento}}</span>
+      <span class="ind">&lt;{{.M.MittenteIndirizzo.String}}&gt;</span>
+    </div>
     <div class="meta">
-      <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt;
-        {{template "chip_controparte" .Riga}}</div>
-      <div><b>Data:</b> {{dataLunga .M.DataEvento}} · <b>Canale:</b> {{.M.Canale}}{{if .M.Interno}} · <span class="chip">interna</span>{{end}}</div>
-      {{if .Presenze}}<div><b>{{if gt (len .Presenze) 1}}Caselle{{else}}Casella{{end}}:</b>
-        {{range .Presenze}}<span class="chip casella" title="{{.CasellaIndirizzo}}">{{.CasellaNome}}{{if .Cartella.Valid}} · {{.Cartella.String}}{{end}}</span> {{end}}</div>{{end}}
-      <div><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}/distinta">{{.Thread.CartellaRelativa.String}}</a> <small>({{.M.Aggancio}})</small>{{else}}<em>orfano</em>{{end}}
-        {{if .Richiesta}} · <b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip richiesta {{.Richiesta.Stato}}">{{.Richiesta.Stato}}</span>{{end}}
-        {{if .Riga.TriageEsito.Valid}} · <b>Proposta:</b> {{chipTriage .Riga}}
-          <small>{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>{{end}}
-        {{if .Riga.Ignorato}} · <span class="chip">ignorato</span>{{end}}</div>
-      {{/* Smistamento M2: che cosa sta succedendo con questa mail. È un'evidenza da leggere e non aggancia:
-           la RFQ si sceglie fra i candidati */}}
-      {{with .Evento}}<div class="evento"><b>Evento:</b> <span class="chip atto {{.Atto}}" data-evento="{{.Codice}}" title="{{.Titolo}}">{{.Chip}}</span>{{if .Forza}} ({{.Forza}}){{end}}{{if .Evidenze}} — {{join .Evidenze "; "}}{{end}}{{if .InLettura}} <small class="muto">letto adesso dal messaggio</small>{{end}}
-        {{if not $.Dati.Thread}}<em class="muto">L'evento non aggancia: la RFQ la scegli sotto.</em>{{end}}</div>{{end}}
+      {{if .Presenze}}<span><b>{{if gt (len .Presenze) 1}}Caselle{{else}}Casella{{end}}:</b> {{range $i, $p := .Presenze}}{{if $i}}, {{end}}<span title="{{$p.CasellaIndirizzo}}">{{$p.CasellaNome}}{{if $p.Cartella.Valid}} · {{$p.Cartella.String}}{{end}}</span>{{end}}</span>{{end}}
+      <span><b>Canale:</b> {{.M.Canale}}{{if .M.Interno}} · interna{{end}}</span>
+      <span><b>RFQ:</b> {{if .Thread}}<a href="/thread/{{.Thread.ThreadID}}/distinta">{{.Thread.CartellaRelativa.String}}</a> <small class="k">({{.M.Aggancio}})</small>{{else if .Riga.Ignorato}}ignorato{{else}}non ancora in una RFQ{{end}}</span>
+      {{if .Richiesta}}<span><b>Richiesta:</b> a {{.RichiestaFornitore}} <span class="chip {{if eq .Richiesta.Stato "offerta_ricevuta"}}ok{{else}}acc{{end}}">{{.Richiesta.Stato}}</span></span>{{end}}
+      {{if and (not .Thread) .Riga.TriageEsito.Valid}}<span><b>Proposta:</b> {{chipTriage .Riga}}</span>{{end}}
     </div>
-    <div class="azioni">
-      {{if .Copia}}
-      <button hx-post="/messaggio/{{.M.MessaggioID}}/apri" hx-target="#esito-azione" hx-swap="innerHTML"
-              title="Si apre la copia in {{.Copia.CasellaNome}} sul PC di questa sessione">Apri in Outlook</button>
-      <button hx-post="/messaggio/{{.M.MessaggioID}}/letto" hx-vals='{"letto":"{{if .Copia.NonLetto}}1{{else}}0{{end}}"}' hx-target="#esito-azione"
-              title="Vale per la copia in {{.Copia.CasellaNome}}">
-        {{if .Copia.NonLetto}}Segna letto{{else}}Segna da leggere{{end}}</button>
-      {{else if .Presenze}}
-      <button disabled title="{{.MotivoAzioni}}">Apri in Outlook</button>
-      <span class="muto azioni-motivo" title="{{.MotivoAzioni}}">azioni Outlook non disponibili: {{.MotivoAzioni}}</span>
-      {{end}}
-      <span class="separatore"></span>
-      {{if .Thread}}
-      <a class="bottone primario" href="/thread/{{.Thread.ThreadID}}/distinta">Apri la Distinta →</a>
-      {{else if eq .Riga.ControparteTipo "fornitore"}}
-      {{/* 7A: un fornitore non apre una RFQ cliente. Per costruzione, non per punteggio: il
-           pulsante non c'e', e il triage non lo propone. La sua posta si aggancia a una richiesta
-           che esiste (l'offerta per la RFQ X) o si ignora. */}}
-      <button class="primario" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Aggancia a…</button>
-      {{if not .Riga.Ignorato}}<button hx-post="/messaggio/{{.M.MessaggioID}}/ignora" hx-target="#pannello" hx-confirm="Ignorare questo messaggio? Resta in archivio nel filtro «ignorati».">Ignora</button>{{end}}
-      <span class="muto azioni-motivo" title="La posta di un fornitore si aggancia alla RFQ cliente per cui lavora: non ne apre una nuova">fornitore: niente «Nuova RFQ»</span>
-      {{else}}
-      <button class="primario" hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=nuova" hx-target="#pannello">Nuova RFQ</button>
-      <button hx-get="/messaggio/{{.M.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Aggancia a…</button>
-      {{if not .Riga.Ignorato}}<button hx-post="/messaggio/{{.M.MessaggioID}}/ignora" hx-target="#pannello" hx-confirm="Ignorare questo messaggio? Resta in archivio nel filtro «ignorati».">Ignora</button>{{end}}
-      {{if and (ne .Riga.ControparteTipo "cliente") (ne .Riga.ControparteTipo "interno")}}
-      <span class="censisci">
-        <button hx-get="/messaggio/{{.M.MessaggioID}}/censisci?come=fornitore" hx-target="#pannello" title="Crea il fornitore (o aggiunge a uno che esiste) e ricalcola i messaggi non decisi dello stesso indirizzo o dominio">Censisci come fornitore</button>
-        <button hx-get="/messaggio/{{.M.MessaggioID}}/censisci?come=cliente" hx-target="#pannello" title="Crea il cliente e ricalcola i messaggi non decisi dello stesso indirizzo o dominio">Censisci come cliente</button>
-      </span>
-      {{end}}
-      {{end}}
-    </div>
-    <div id="esito-azione"></div>
+    {{range .Origini}}<p class="nota origine">{{.}}</p>{{end}}
   </header>
 
   {{if .Copia}}
-  <details class="rispondi">
-    <summary>Rispondi (bozza in Outlook)</summary>
-    <form hx-post="/messaggio/{{.M.MessaggioID}}/bozza" hx-target="#esito-azione">
-      <label>Tipo
-        <select name="tipo"><option value="risposta">Rispondi</option><option value="rispondi_tutti">Rispondi a tutti</option><option value="inoltro">Inoltra</option></select>
-      </label>
-      <textarea name="corpo" rows="5" placeholder="Testo della risposta (viene messo sopra la citazione; firma e catena le aggiunge Outlook)"></textarea>
-      <button type="submit">Crea bozza in Outlook</button>
-      <small>L'invio resta manuale: la bozza si apre in Outlook, la rileggi e premi Invia lì.</small>
+  <section class="sez rispondi" id="rispondi" hidden>
+    <div class="sez-titolo"><h3>Rispondi</h3><span class="k">la bozza si apre in Outlook: l'invio resta tuo</span></div>
+    <form hx-post="/messaggio/{{.M.MessaggioID}}/bozza" hx-target="#esito-azione" class="rispondi-form">
+      <div class="seg-campo" role="radiogroup" aria-label="Tipo di risposta">
+        <label><input type="radio" name="tipo" value="risposta" checked><span>Rispondi</span></label>
+        <label><input type="radio" name="tipo" value="rispondi_tutti"><span>Rispondi a tutti</span></label>
+        <label><input type="radio" name="tipo" value="inoltro"><span>Inoltra</span></label>
+      </div>
+      <label class="campo" for="risp-testo">Testo (va sopra la citazione; firma e catena le aggiunge Outlook)
+        <textarea id="risp-testo" name="corpo" rows="6"></textarea></label>
+      <div class="fila">
+        <button type="submit" class="btn primario">Crea la bozza in Outlook</button>
+        {{with .Analisi.Proposta.Bozza}}<button type="button" class="btn" data-azione="usa-bozza">Usa la bozza dell'assistente</button>{{end}}
+        <button type="button" class="btn quieto" data-azione="rispondi">Chiudi</button>
+      </div>
     </form>
-  </details>
-  {{end}}
-
-  {{if .CandidatiRichiesta}}
-  <section class="candidati candidati-richiesta">
-    <h3>Risposta a una nostra richiesta? <small class="muto">il sistema propone, tu decidi</small></h3>
-    {{range .CandidatiRichiesta}}
-    <form hx-post="/messaggio/{{$.Dati.M.MessaggioID}}/risposta-fornitore" hx-target="#pannello" class="candidato">
-      <input type="hidden" name="richiesta_id" value="{{.RichiestaID}}">
-      <span class="muto">richiesta · {{score .Punteggio}}</span>
-      <span class="testo"><b>{{.Fornitore}}</b> per la RFQ <b>{{.Cliente}}</b> · {{txt .OggettoRfq}}
-        {{if .Lavorazione.Valid}}<span class="chip">{{.Lavorazione.String}}</span>{{end}} <span class="chip richiesta {{.RichiestaStato}}">{{.RichiestaStato}}</span>
-        <br><small class="muto">{{.Regola}} — {{.Evidenza}}</small>
-        <br><label class="inline">Che cos'è
-          <select name="atto">
-            <option value="collegata">una risposta: la richiesta resta aperta</option>
-            <option value="offerta" {{if eq $.Dati.Riga.TriageAtto "offerta"}}selected{{end}}>l'offerta del fornitore: offerta ricevuta</option>
-            <option value="declinata">il fornitore non quota: declinata</option>
-          </select></label></span>
-      <button class="primario piccolo">È la risposta a questa richiesta</button>
-    </form>
-    {{end}}
-    <p class="muto">Alla conferma la mail entra nella RFQ cliente e resta legata alla richiesta. Lo stato della richiesta
-      cambia solo con l'atto che scegli: «offerta ricevuta» propone anche gli allegati come offerta del fornitore
-      (OFFERTE FORNITORI); una risposta qualunque non chiude niente.</p>
-  </section>
-  {{end}}
-
-  {{if .PropostaThread}}
-  <section class="candidati candidati-richiesta">
-    <h3>Richiesta mandata a mano? <small class="muto">il sistema propone, tu decidi</small></h3>
-    <form hx-post="/messaggio/{{.M.MessaggioID}}/richiesta-fornitore" hx-target="#pannello" class="candidato">
-      <input type="hidden" name="thread_id" value="{{.PropostaThread.ThreadID}}">
-      <input type="hidden" name="fornitore_id" value="{{.PropostaFornitore.FornitoreID}}">
-      <span class="testo">Sembra la richiesta a <b>{{.PropostaFornitore.RagioneSociale}}</b> per la RFQ <b>{{.PropostaThread.CartellaRelativa.String}}</b>
-        <br><small class="muto">{{range motiviProposta .Riga.TriageMotivi}}· {{.}} {{end}}</small>
-        <br><label class="inline">Lavorazione <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label></span>
-      <button class="primario piccolo">Sì, è la richiesta a {{.PropostaFornitore.RagioneSociale}}</button>
-    </form>
-    <p class="muto">Nasce la richiesta (già inviata, con questa mail) e la mail entra nella RFQ. Una RFQ nuova non nasce da qui.</p>
-  </section>
-  {{end}}
-
-  {{range .Origini}}<div class="origine-cockpit">{{.}}</div>{{end}}
-
-  {{if .Candidati.Carte}}
-  <section class="candidati">
-    <h3>Candidati di aggancio <small class="muto">il sistema ordina e spiega, tu decidi</small></h3>
-    {{template "candidati_aggancio" .Candidati}}
-    <p class="muto">Nessuno di questi e' stato scelto: il messaggio e' ancora orfano. «Aggancia a questa RFQ»
-      lo aggancia a quella; «Aggancia a…» cerca anche fra le altre e censisce il mittente.</p>
-  </section>
-  {{end}}
-
-  {{if or .Analisi.Presente .Analisi.Disponibile}}
-  <section class="analisi-ai">
-    <h3>Lettura dell'assistente <small class="muto">proposta, gia' verificata sul testo</small></h3>
-    {{if .Analisi.Presente}}
-      {{with .Analisi.Proposta}}
-      <div>intento proposto: <strong>{{.Intento}}</strong>{{if .Riferimento}} &middot; riferimento <span class="mono">{{.Riferimento}}</span>{{end}}</div>
-      {{if .Codici}}<div class="riga-esito">codici: {{range .Codici}}<span class="chip" title="{{.Ruolo}}{{if .Dove}} · {{.Dove}}{{end}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span> {{end}}</div>{{end}}
-      {{if .CosaManca}}<div class="riga-esito">cosa manca: {{range .CosaManca}}<span class="chip avviso">{{.}}</span> {{end}}</div>{{end}}
-      {{if .Evidenze}}<details><summary class="muto">evidenze ({{len .Evidenze}})</summary>
-        <ul>{{range .Evidenze}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
-      {{if .Bozza}}<details><summary class="muto">bozza di risposta proposta</summary>
-        <pre class="corpo-msg">{{.Bozza}}</pre>
-        <p class="muto">E' una bozza: per mandarla si passa da «Rispondi», che apre Outlook. L'invio resta manuale.</p>
-      </details>{{end}}
-      {{end}}
-      {{if .Analisi.Scarti}}
-      <details><summary class="muto">scartate dal controllo: {{len .Analisi.Scarti}}</summary>
-        <ul>{{range .Analisi.Scarti}}<li><code>{{.Campo}}</code> = <span class="mono">{{.Valore}}</span> — {{.Motivo}}</li>{{end}}</ul>
-        <p class="muto">Il server ricontrolla ogni codice e ogni riferimento contro il testo del messaggio:
-          quello che non trova riscontro non arriva qui.</p>
-      </details>
-      {{end}}
-    {{else}}
-      <p class="muto">Nessuna lettura ancora chiesta per questo messaggio.</p>
-    {{end}}
-    {{if .Analisi.Disponibile}}
-    <button class="piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/analizza" hx-target="#pannello"
-            title="Manda oggetto, corpo e nomi degli allegati al servizio di analisi. Non manda i file.">
-      {{if .Analisi.Presente}}Rileggi{{else}}Fai leggere all'assistente{{end}}</button>
-    {{end}}
   </section>
   {{end}}
 
   {{if .Portale}}
-  <section class="portale">
-    <h3>Riferimenti portale rilevati</h3>
-    <ul>{{range .Portale}}<li><b>{{.Codice.String}}</b> <span class="muto">— «{{.TestoCitato}}»</span> <span class="chip">{{.Stato}}</span></li>{{end}}</ul>
+  <section class="sez">
+    <div class="sez-titolo"><h3>Link del portale</h3><span class="k">i disegni che il cliente manda con un link o su un portale</span></div>
+    {{range .Portale}}
+    <div class="link-portale {{if eq .Stato "scaricato"}}fatto{{end}}">
+      <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg>
+      <span class="t"><b>{{if .Codice.Valid}}{{.Codice.String}} · {{end}}«{{.TestoCitato}}»</b>
+        <small>{{if eq .Stato "da_scaricare"}}da scaricare: i file arrivano solo se qualcuno li prende dal portale{{else if eq .Stato "scaricato"}}scaricato{{else if eq .Stato "non_trovato"}}non trovato sul portale{{else}}{{.Stato}}{{end}}</small></span>
+      <span class="chip {{if eq .Stato "scaricato"}}ok{{else if eq .Stato "da_scaricare"}}warn{{end}}">{{.Stato}}</span>
+    </div>
+    {{end}}
   </section>
   {{end}}
 
-  {{if .Allegati}}
-  <section class="allegati">
-    <h3>Allegati</h3>
-    {{/* Smistamento F2: senza «Conferma… → NAS» e «Scarta» (i file si decidono dentro una RFQ, nel Fascicolo) */}}
-    {{template "allegati_tabella" (vistaAllegati .Allegati .M.MessaggioID .Agganciato "" false)}}
+  {{if .Allegati}}{{template "allegati_inbox" .}}{{end}}
+
+  <section class="corpo" data-codici="{{join .Codici "|"}}">
+    {{if .Codici}}<div class="legenda-corpo"><span><i class="l-cod"></i>codice letto dal Cockpit</span></div>{{end}}
+    {{template "corpo_messaggio" .Corpo}}
   </section>
+</article>
+<div class="maniglia interna" data-maniglia="m3"></div>
+<aside class="fare" aria-label="Che cosa fare">
+  <span class="label">Che cosa fare</span>
+  {{template "decisione_carta" .}}
+
+  {{if and .Candidati.Carte (ne .Scelta.Tipo "agganciato")}}
+  <div class="carta">
+    <h3>{{if eq .Scelta.Tipo "nuova"}}Forse esiste già{{else}}Candidati{{end}}</h3>
+    <p class="sotto">{{if eq .Scelta.Tipo "nuova"}}Una RFQ aperta ha qualcosa in comune: se è quella, aggancia invece di crearne una doppia.{{else}}Il sistema ordina e spiega, tu scegli. Nessuno è stato scelto: la mail è ancora da decidere.{{end}}</p>
+    {{template "candidati_aggancio" .Candidati}}
+  </div>
+  {{end}}
+
+  {{if .Vicini}}
+  <div class="carta">
+    <h3>Della stessa richiesta, forse</h3>
+    <p class="sotto">Mail dello stesso dominio arrivate a pochi minuti da questa. Nel modulo «Nuova RFQ» si possono mettere nella RFQ insieme a questa, spuntandole.</p>
+    {{range .Vicini}}
+    <a class="correlato" href="/messaggio/{{.MessaggioID}}" hx-get="/messaggio/{{.MessaggioID}}" hx-target="#pannello" data-vai="{{.MessaggioID}}">
+      <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg><span><b>{{oggettoVisibile .Oggetto}}</b></span>
+      <small>{{if .MittenteNome.Valid}}{{.MittenteNome.String}}{{else}}{{.MittenteIndirizzo.String}}{{end}} · {{quandoBreve .DataEvento}}</small></a>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if and (eq .M.Direzione "entrata") (or .Analisi.Presente .Analisi.Disponibile)}}
+  <div class="carta assistente">
+    <div class="titolo-ico"><svg class="ico" aria-hidden="true"><use href="#i-lettura"/></svg><h3>Lettura dell'assistente</h3></div>
+    {{if .Analisi.Presente}}{{with .Analisi.Proposta}}
+    <p class="sotto">Una proposta, già verificata sul testo della mail.</p>
+    <dl class="dl">
+      <dt>Intento</dt><dd><b>{{.Intento}}</b></dd>
+      {{if .Riferimento}}<dt>Riferimento</dt><dd class="mono">{{.Riferimento}}</dd>{{end}}
+      {{if .Codici}}<dt>Codici</dt><dd class="chips">{{range .Codici}}<span class="chip mono" title="{{.Ruolo}}{{if .Dove}} · {{.Dove}}{{end}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span>{{end}}</dd>{{end}}
+      {{if .CosaManca}}<dt>Manca</dt><dd class="chips">{{range .CosaManca}}<span class="chip warn">{{.}}</span>{{end}}</dd>{{end}}
+    </dl>
+    {{if .Evidenze}}<details><summary>evidenze ({{len .Evidenze}})</summary><ul class="perche">{{range .Evidenze}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+    {{if .Bozza}}<details><summary>bozza di risposta proposta</summary><pre class="bozza-assistente">{{.Bozza}}</pre>
+      <p class="nota">È una bozza: per mandarla si passa da «Rispondi», che apre Outlook. L'invio resta manuale.</p></details>{{end}}
+    {{end}}
+    {{if .Analisi.Scarti}}<details><summary>scartate dal controllo ({{len .Analisi.Scarti}})</summary>
+      <ul class="perche">{{range .Analisi.Scarti}}<li><span class="mono">{{.Valore}}</span> ({{.Campo}}): {{.Motivo}}</li>{{end}}</ul>
+      <p class="nota">Il server ricontrolla ogni codice e ogni riferimento contro il testo del messaggio: quello che non trova riscontro non arriva qui.</p></details>{{end}}
+    {{else}}<p class="sotto">Nessuna lettura ancora chiesta per questa mail.</p>{{end}}
+    {{if .Analisi.Disponibile}}
+    <button type="button" class="btn piccolo" hx-post="/messaggio/{{.M.MessaggioID}}/analizza" hx-target="#pannello"
+            title="Manda oggetto, corpo e nomi degli allegati al servizio di analisi. Non manda i file.">{{if .Analisi.Presente}}Rileggi{{else}}Fai leggere all'assistente{{end}}</button>
+    {{end}}
+  </div>
   {{end}}
 
   {{if .Bozze}}
-  <section class="bozze"><h3>Bozze create dal Cockpit</h3>
-    <ul>{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span>{{if .Errore.Valid}} <small class="errore">{{.Errore.String}}</small>{{end}}</li>{{end}}</ul>
-  </section>
+  <div class="carta"><h3>Bozze create dal Cockpit</h3>
+    <ul class="perche">{{range .Bozze}}<li>{{dataLunga .CreataIl}} · {{.Tipo}} · <span class="chip">{{.Stato}}</span>{{if .Errore.Valid}} <small class="errore">{{.Errore.String}}</small>{{end}}</li>{{end}}</ul>
+  </div>
   {{end}}
-
-  <section class="corpo">{{template "corpo_messaggio" .Corpo}}</section>
-</article>
+</aside>
 {{end}}
+{{end}}
+
+{{/* decisione_carta: la carta in cima a «Che cosa fare». Il tipo (decisioneVista) sceglie i gesti; le regole di
+     sempre restano: un fornitore non apre una RFQ cliente (7A), un mittente non censito si censisce prima o si
+     decide lo stesso, e una mail che ha le sue proposte di richiesta le mostra qui. */}}
+{{define "decisione_carta"}}
+{{$d := .Scelta}}{{$id := .M.MessaggioID}}{{$forn := eq .Riga.ControparteTipo "fornitore"}}
+<div class="carta decisione {{if $d.Tono}}tono-{{$d.Tono}}{{end}}">
+  <span class="label">{{if or (eq $d.Tipo "agganciato") (eq $d.Tipo "ignorato")}}Fatto{{else}}Il Cockpit propone{{end}}</span>
+  <h3>{{$d.Titolo}}</h3>
+  {{if $d.Sotto}}<p class="sotto">{{$d.Sotto}}</p>{{end}}
+  {{if $d.Motivi}}<ul class="perche">{{range $d.Motivi}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <div class="azioni">
+  {{if eq $d.Tipo "agganciato"}}
+    <a class="btn primario pieno" href="/thread/{{$d.ThreadID}}/distinta">Apri la Distinta <svg class="ico s" aria-hidden="true"><use href="#i-freccia"/></svg></a>
+    <a class="btn quieto piccolo" href="/thread/{{$d.ThreadID}}">pagina della RFQ</a>
+  {{else if eq $d.Tipo "ignorato"}}
+    <button type="button" class="btn" hx-post="/messaggio/{{$id}}/ripristina" hx-target="#pannello">Rimetti fra i da decidere</button>
+  {{else if eq $d.Tipo "richiesta"}}
+    {{range .CandidatiRichiesta}}
+    <form hx-post="/messaggio/{{$id}}/risposta-fornitore" hx-target="#pannello" class="cand primo" data-decisione="1">
+      <input type="hidden" name="richiesta_id" value="{{.RichiestaID}}">
+      <div class="testa"><span class="t"><b>{{.Fornitore}}</b><small>RFQ {{.Cliente}} · {{txt .OggettoRfq}}{{if .Lavorazione.Valid}} · {{.Lavorazione.String}}{{end}}</small></span><span class="chip acc">{{.RichiestaStato}}</span></div>
+      <ul><li>{{.Regola}} — {{.Evidenza}} <small>richiesta · {{score .Punteggio}}</small></li></ul>
+      <label class="campo">Che cos'è
+        <select name="atto">
+          <option value="collegata">una risposta: la richiesta resta aperta</option>
+          <option value="offerta" {{if eq $.Riga.TriageAtto "offerta"}}selected{{end}}>l'offerta del fornitore: offerta ricevuta</option>
+          <option value="declinata">il fornitore non quota: declinata</option>
+        </select></label>
+      <button class="btn primario">È la risposta a questa richiesta</button>
+    </form>
+    {{end}}
+    <p class="nota">La mail entra nella RFQ cliente e resta legata alla richiesta. «Offerta ricevuta» propone gli allegati fra le OFFERTE FORNITORI; una risposta qualunque non chiude niente.</p>
+    {{template "decisione_altri" (arr $id "aggancia ignora" $forn .Riga.Ignorato)}}
+  {{else if eq $d.Tipo "manuale"}}
+    <form hx-post="/messaggio/{{$id}}/richiesta-fornitore" hx-target="#pannello" class="cand primo" data-decisione="1">
+      <input type="hidden" name="thread_id" value="{{.PropostaThread.ThreadID}}">
+      <input type="hidden" name="fornitore_id" value="{{.PropostaFornitore.FornitoreID}}">
+      <label class="campo">Lavorazione <select name="lavorazione"><option value="">— non indicata —</option>{{range .Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label>
+      <button class="btn primario">Sì, è la richiesta a {{.PropostaFornitore.RagioneSociale}}</button>
+    </form>
+    <p class="nota">Nasce la richiesta (già inviata, con questa mail) e la mail entra nella RFQ. Una RFQ nuova non nasce da qui.</p>
+    {{template "decisione_altri" (arr $id "aggancia ignora" $forn .Riga.Ignorato)}}
+  {{else if eq $d.Tipo "aggancia"}}
+    <form hx-post="/messaggio/{{$id}}/aggancia" hx-target="#pannello" data-decisione="1">
+      <button type="submit" class="btn primario pieno" name="thread_id" value="{{$d.ThreadID}}"><svg class="ico s" aria-hidden="true"><use href="#i-aggancia"/></svg> Aggancia alla RFQ {{$d.ThreadNome}}</button>
+    </form>
+    {{template "decisione_altri" (arr $id "altra ignora" $forn .Riga.Ignorato)}}
+    {{if not $forn}}<button type="button" class="btn quieto piccolo" hx-get="/messaggio/{{$id}}/triage?azione=nuova" hx-target="#pannello" data-azione="nuova">È una richiesta nuova</button>{{end}}
+  {{else if and (eq $d.Tipo "nuova") (not $forn)}}
+    <button type="button" class="btn primario pieno" hx-get="/messaggio/{{$id}}/triage?azione=nuova" hx-target="#pannello" data-azione="nuova"><svg class="ico s" aria-hidden="true"><use href="#i-piu"/></svg> Nuova RFQ…</button>
+    {{template "decisione_altri" (arr $id "aggancia ignora" $forn .Riga.Ignorato)}}
+  {{else if eq $d.Tipo "chi"}}
+    <div class="fila">
+      <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=cliente" hx-target="#pannello">È un cliente</button>
+      <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=fornitore" hx-target="#pannello">È un fornitore</button>
+      <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=altro" hx-target="#pannello" title="corriere, banca, newsletter: la sua posta va nel quadrante Altro">Altro</button>
+    </div>
+    <p class="nota">Se sai già dove va, puoi anche decidere subito.</p>
+    {{template "decisione_altri" (arr $id "aggancia nuova ignora" $forn .Riga.Ignorato)}}
+  {{else if eq $d.Tipo "ignora"}}
+    <button type="button" class="btn primario pieno" hx-post="/messaggio/{{$id}}/ignora" hx-target="#pannello" data-decisione="ignora">Ignora</button>
+    {{if and (ne .Riga.ControparteTipo "cliente") (ne .Riga.ControparteTipo "fornitore") (ne .Riga.ControparteTipo "interno")}}
+    <button type="button" class="btn pieno" hx-get="/messaggio/{{$id}}/censisci?come=altro&amp;ignora=1" hx-target="#pannello">Ignora e mettilo fra «Altro»</button>
+    <p class="nota">Con «Altro» le sue prossime mail vanno nel quadrante Altro e non chiedono più di essere riconosciute.</p>
+    {{end}}
+    {{template "decisione_altri" (arr $id "aggancia nuova" $forn .Riga.Ignorato)}}
+  {{else}}
+    {{template "decisione_altri" (arr $id "aggancia nuova ignora" $forn .Riga.Ignorato)}}
+  {{end}}
+  {{if $forn}}{{if not (or (eq $d.Tipo "agganciato") (eq $d.Tipo "ignorato"))}}<p class="nota">La posta di un fornitore si aggancia alla RFQ cliente per cui lavora o si ignora: niente «Nuova RFQ».</p>{{end}}{{end}}
+  </div>
+  {{if and (ne $d.Tipo "chi") (ne $d.Tipo "agganciato") (ne $d.Tipo "ignorato") (ne .Riga.ControparteTipo "cliente") (ne .Riga.ControparteTipo "interno") (ne .Riga.ControparteTipo "fornitore")}}
+  <div class="censisci-riga"><span class="k">Chi è? Censisci come</span>
+    <button type="button" class="btn piccolo" hx-get="/messaggio/{{$id}}/censisci?come=cliente" hx-target="#pannello">cliente</button>
+    <button type="button" class="btn piccolo" hx-get="/messaggio/{{$id}}/censisci?come=fornitore" hx-target="#pannello">fornitore</button>
+    <button type="button" class="btn piccolo" hx-get="/messaggio/{{$id}}/censisci?come=altro" hx-target="#pannello">altro</button></div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* decisione_altri: i gesti di riserva sotto la proposta. Riceve (arr id "aggancia nuova ignora" fornitore ignorato):
+     quali mostrare, e le due regole che li tolgono (un fornitore non apre RFQ; un ignorato non si ignora due volte). */}}
+{{define "decisione_altri"}}{{$id := index . 0}}{{$quali := index . 1}}{{$forn := index . 2}}{{$ign := index . 3}}
+<div class="fila">
+  {{if or (contiene $quali "aggancia") (contiene $quali "altra")}}<button type="button" class="btn" hx-get="/messaggio/{{$id}}/triage?azione=aggancia" hx-target="#pannello" data-azione="aggancia"><svg class="ico s" aria-hidden="true"><use href="#i-aggancia"/></svg> {{if contiene $quali "altra"}}Altra RFQ…{{else}}Aggancia a…{{end}}</button>{{end}}
+  {{if and (contiene $quali "nuova") (not $forn)}}<button type="button" class="btn" hx-get="/messaggio/{{$id}}/triage?azione=nuova" hx-target="#pannello" data-azione="nuova"><svg class="ico s" aria-hidden="true"><use href="#i-piu"/></svg> Nuova RFQ</button>{{end}}
+  {{if and (contiene $quali "ignora") (not $ign)}}<button type="button" class="btn" hx-post="/messaggio/{{$id}}/ignora" hx-target="#pannello" data-decisione="ignora">Ignora</button>{{end}}
+</div>
+{{end}}
+
+{{/* allegati_inbox: gli allegati nel pannello della mail. Si guardano da qui (Anteprima, dentro la pagina) e si
+     scaricano quando la mail e' in una RFQ: i file vanno nella sua cartella (Smistamento F2: niente «Conferma → NAS»
+     ne' «Scarta» da qui, si decide nella Distinta). */}}
+{{define "allegati_inbox"}}
+{{$ag := .Agganciato}}{{$id := .M.MessaggioID}}
+<section class="sez allegati-sez">
+  <div class="sez-titolo"><h3>Allegati</h3><span class="k">{{len .Allegati}} file</span></div>
+  <form class="allegati" hx-post="/messaggio/{{$id}}/scarica" hx-target="#pannello">
+    {{range $a := .Allegati}}{{template "allegato_inbox" (arr $a $ag false)}}{{range $f := $a.Figli}}{{template "allegato_inbox" (arr $f $ag true)}}{{end}}{{end}}
+    {{if $ag}}<div class="fila"><button type="submit" class="btn primario piccolo">Scarica selezionati</button>
+      <span class="nota">Vanno nello staging della RFQ, poi l'analisi li legge. Sul NAS vanno con la conferma della Distinta.</span></div>
+    {{else}}<p class="nota">Gli allegati si scaricano quando la mail è in una RFQ: i file vanno nella sua cartella. CAD, disegni e archivi si preparano da soli.</p>{{end}}
+  </form>
+  {{range $a := .Allegati}}{{if and $a.FileMancante $ag (not $a.ContenitoreID.Valid)}}
+  <button type="button" class="btn piccolo" hx-post="/allegato/{{$a.AllegatoID}}/riscarica" hx-target="#pannello">Riscarica {{$a.NomeFile}}</button>
+  {{end}}{{end}}
+</section>
+{{end}}
+
+{{define "allegato_inbox"}}{{$a := index . 0}}{{$ag := index . 1}}{{$figlio := index . 2}}
+{{if eq $a.Natura "inline"}}<p class="nota inline-nota">immagine nel testo: {{$a.NomeFile}} ({{kb $a.Bytes}})</p>
+{{else}}
+<div class="all {{if $figlio}}figlio{{end}}">
+  {{if and $a.Scaricabile $ag}}<input type="checkbox" name="allegato_id" value="{{$a.AllegatoID}}" {{if $a.PreSpunta}}checked{{end}} aria-label="scarica {{$a.NomeFile}}">{{else}}<span class="spazio-check"></span>{{end}}
+  <span class="ext {{estensione $a.NomeFile}}">{{estensione $a.NomeFile}}</span>
+  <span class="nome"><b>{{if $figlio}}↳ {{end}}{{$a.NomeFile}}</b>
+    <small>{{kb $a.Bytes}}{{$v := valutazione $a.Proposta $a.NomeFile}}{{with $a.Proposta}} · <span title="{{(dim "Tipo" $v.Tipo).Testo}}">{{.TipoProposto}}</span>{{if .Codice.Valid}} · <span class="mono">{{.Codice.String}}</span>{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}{{end}}
+      · {{if $v.Decisa}}deciso da una persona{{else if $v.Codice.ConValore}}codice · {{score $v.Codice}} · {{$v.Codice.Regola}}{{else}}codice: nessuna evidenza{{end}}{{if ne .Stato "aperta"}} · proposta {{.Stato}}{{end}}{{end}}{{if $a.PathInterno.Valid}} · {{$a.PathInterno.String}}{{end}}</small></span>
+  <span class="dx">
+    {{if $a.Documento}}<span class="chip {{if eq $a.Documento.StatoNas "scritto"}}ok{{else if eq $a.Documento.StatoNas "errore"}}bad{{else}}acc{{end}}" title="{{$a.Documento.PathRelativo}}">NAS: {{$a.Documento.StatoNas}}</span>
+    {{else if $a.FileMancante}}<span class="chip bad" title="Il file non è più nella cartella di staging">file mancante</span>
+    {{else if $a.InCoda}}<span class="chip acc" title="Il download è chiesto: aspetta il worker di Outlook">in coda</span>
+    {{else if eq $a.Stato "errore"}}<span class="chip bad" title="{{$a.Errore.String}}">errore</span>
+    {{else if eq $a.Stato "grezzo"}}<span class="chip">da scaricare</span>
+    {{else}}<span class="chip {{if eq $a.Stato "analizzato"}}ok{{else}}acc{{end}}">{{$a.Stato}}</span>{{end}}
+    {{if $a.Anteprimabile}}<a class="btn piccolo" href="/allegato/{{$a.AllegatoID}}/anteprima" target="_blank" rel="noopener" data-anteprima="{{$a.NomeFile}}"
+      title="Si apre qui sopra: dallo staging se c'è, altrimenti dal file sul NAS"><svg class="ico s" aria-hidden="true"><use href="#i-occhio"/></svg> Anteprima</a>{{end}}
+  </span>
+</div>
+{{end}}
+{{end}}
+
+{{/* ui_icone: le icone di Inbox, Richieste e Anagrafica, una volta per pagina (<use href="#i-…">). */}}
+{{define "ui_icone"}}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-cerca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21 11-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l7.9-7.9"/></symbol>
+  <symbol id="i-cubo" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2"/></symbol>
+  <symbol id="i-su" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-giu" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-sx" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-outlook" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-rispondi" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v4"/></symbol>
+  <symbol id="i-occhio" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-ok" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-lettura" viewBox="0 0 24 24"><path d="M4 4h11l5 5v11H4z"/><path d="M15 4v5h5M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-aggancia" viewBox="0 0 24 24"><path d="M8 12h8"/><rect x="2" y="8" width="7" height="8" rx="2"/><rect x="15" y="8" width="7" height="8" rx="2"/></symbol>
+  <symbol id="i-piu" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-freccia" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-avviso" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-elenco" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-colonne" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-lucchetto" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-cestino" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-archivio" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-importa" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+</svg>
 {{end}}
 
 {{/* ---------------------------------------------------------------- corpo di un messaggio (pannello e schermata B)
@@ -278,139 +407,167 @@
 {{end}}
 {{end}}
 
-{{/* ---------------------------------------------------------------- triage (blocco 4) */}}
+{{/* ---------------------------------------------------------------- triage (blocco 4), nella forma dell'Inbox nuova
+     Il modulo si apre al posto della mail, e la mail resta accanto (la colonna «La mail, per controllare»): chi
+     compila guarda il testo senza cambiare schermata. I campi e i loro nomi sono quelli di sempre. */}}
 {{define "triage_form"}}
 {{with .Dati}}
-<article class="messaggio triage">
-  <header>
+<div class="foglio" data-id="{{.M.MessaggioID}}">
+  <div class="foglio-testa">
     <h2>{{if eq .Azione "nuova"}}Nuova RFQ{{else}}Aggancia a una RFQ aperta{{end}}</h2>
-    <div class="meta"><div><b>Da:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt; · {{dataLunga .M.DataEvento}}</div>
-      <div><b>Oggetto:</b> {{.M.Oggetto.String}}</div></div>
-    {{if .Errore}}<div class="avviso errore-box">{{.Errore}}</div>{{end}}
-  </header>
-
+    <span class="k">{{if eq .Azione "nuova"}}da questa mail{{else}}si aggancia con il bottone della RFQ scelta: nessuna è scelta per te{{end}}</span>
+    <span class="sp"></span>
+    <button type="button" class="btn quieto piccolo" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello" aria-label="Chiudi il modulo"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg> Chiudi</button>
+  </div>
+  <div class="foglio-corpo">
   {{if eq .Azione "nuova"}}
-  <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/rfq" hx-target="#pannello">
-    <fieldset>
-      <legend>Cliente</legend>
-      <label>Cliente
+  <form class="modulo form-triage" id="modulo-triage" hx-post="/messaggio/{{.M.MessaggioID}}/rfq" hx-target="#pannello">
+    {{/* il primo bottone del form e' inerte: Invio in un campo di testo non crea la RFQ (M1, P37) */}}
+    <button type="submit" class="invio-inerte" disabled hidden aria-hidden="true" tabindex="-1"></button>
+    {{if .Errore}}<div class="avviso-box bad errore-box" role="alert">{{.Errore}}</div>{{end}}
+    <fieldset class="blocco">
+      <div class="testa"><h3>Cliente</h3></div>
+      <label class="campo">Cliente
         <select name="cliente_id" hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="change"
                 hx-include="this,[name='oggetto'],[name='buyer_cognome'],[name='cliente_cartella']">
           {{range .Clienti}}<option value="{{.ClienteID}}" {{if and $.Dati.ClienteID.Valid (eq .ClienteID $.Dati.ClienteID.UUID)}}selected{{end}}>{{.CartellaNas}} — {{.RagioneSociale}}</option>{{end}}
-          <option value="__nuovo__" {{if not .ClienteID.Valid}}selected{{end}}>➕ nuovo cliente…</option>
+          <option value="__nuovo__" {{if not .ClienteID.Valid}}selected{{end}}>+ nuovo cliente…</option>
         </select>
       </label>
       {{template "cartella_cliente" $}}
       {{template "cliente_nuovo" $}}
     </fieldset>
 
-    <fieldset>
-      <legend>Buyer (mittente)</legend>
+    <fieldset class="blocco">
+      <div class="testa"><h3>Buyer</h3><small>{{if eq .Riga.ControparteTipo "interno"}}il mittente è un collega: controlla chi ha scritto davvero, nel messaggio inoltrato{{else}}il mittente{{end}}</small></div>
       <div id="buyer-select">{{template "buyer_select" $}}</div>
-      <div id="buyer-nuovo" class="griglia3">
-        <label>Cognome <input name="buyer_cognome" value="{{.Cognome}}"></label>
-        <label>Nome <input name="buyer_nome" value="{{.Nome}}"></label>
-        <label>E-mail <input name="buyer_email" value="{{.Email}}"></label>
-        <label>Telefono <input name="buyer_telefono" placeholder="per note WhatsApp"></label>
+      <div id="buyer-nuovo" class="campi" {{if .BuyerID.Valid}}hidden{{end}}>
+        <label class="campo">Cognome <span class="con-bottone"><input name="buyer_cognome" value="{{.Cognome}}"><button type="button" class="btn piccolo" data-azione="scambia" title="Scambia nome e cognome" aria-label="Scambia nome e cognome">⇄</button></span></label>
+        <label class="campo">Nome <input name="buyer_nome" value="{{.Nome}}"></label>
+        <label class="campo">E-mail <input name="buyer_email" value="{{.Email}}"></label>
+        <label class="campo">Telefono <input name="buyer_telefono" placeholder="per le note WhatsApp"></label>
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>RFQ</legend>
-      <label>Oggetto (nome cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
-      <label>Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 400012345, Anfrage_…">
-        <small class="muto">il numero con cui il cliente chiama questa richiesta. Non è un codice prodotto e non diventa un identificativo.</small></label>
-      {{template "candidati_codice" $}}
-      <div class="griglia3">
-        <label>Scadenza <input type="date" name="scadenza" value="{{.Scadenza}}"></label>
-        <label>Priorità <select name="priorita"><option value="1">normale</option><option value="2">alta</option><option value="3">urgente</option></select></label>
-        <label><input type="checkbox" name="campionatura" value="1"> campionatura</label>
+    <fieldset class="blocco">
+      <div class="testa"><h3>Richiesta</h3></div>
+      <div class="campi">
+        <label class="campo largo">Oggetto (nome della cartella) <input name="oggetto" value="{{.Oggetto}}" required></label>
+        <label class="campo largo">Riferimento del cliente <input name="riferimento_cliente" value="{{.Riferimento}}" placeholder="es. RDO 400012345, Anfrage_…">
+          <small>il numero con cui il cliente chiama questa richiesta. Non è un codice prodotto e non diventa un identificativo.</small></label>
+        <label class="campo">Scadenza <input type="date" name="scadenza" value="{{.Scadenza}}">
+          {{if .Scadenza}}<small class="letto">letta dal messaggio: controlla</small>{{end}}</label>
+        <div class="campo">Priorità
+          <div class="seg-campo" role="radiogroup" aria-label="Priorità">
+            <label><input type="radio" name="priorita" value="1" checked><span>normale</span></label>
+            <label><input type="radio" name="priorita" value="2"><span>alta</span></label>
+            <label><input type="radio" name="priorita" value="3"><span>urgente</span></label>
+          </div></div>
+        <div class="campo">Campionatura <label class="interruttore"><input type="checkbox" name="campionatura" value="1"> servono campioni</label></div>
+        <label class="campo largo">Note <input name="note"></label>
       </div>
-      <label>Note <input name="note"></label>
-      {{template "anteprima_cartella" $}}
     </fieldset>
+
+    <fieldset class="blocco">
+      <div class="testa"><h3>Codici da mettere nella RFQ</h3><small>il sistema propone, la spunta è tua</small></div>
+      {{template "candidati_codice" $}}
+    </fieldset>
+
+    {{if .Vicini}}
+    <fieldset class="blocco">
+      <div class="testa"><h3>Della stessa richiesta, forse</h3><small>entrano nella RFQ insieme a questa solo se le spunti</small></div>
+      {{range .Vicini}}<label class="check"><input type="checkbox" name="insieme" value="{{.MessaggioID}}"><span><b>{{oggettoVisibile .Oggetto}}</b><br><span class="k">{{if .MittenteNome.Valid}}{{.MittenteNome.String}}{{else}}{{.MittenteIndirizzo.String}}{{end}} · {{quandoBreve .DataEvento}}</span></span></label>{{end}}
+    </fieldset>
+    {{end}}
 
     {{with .CarteAvviso}}{{if .Carte}}
-    <fieldset class="avviso-candidati">
-      <legend>Attenzione: potrebbe essere una richiesta che esiste già</legend>
-      <p class="muto">Le regole di aggancio hanno trovato {{.N}} RFQ candidat{{if eq .N 1}}a{{else}}e{{end}}.
-        Se è una di queste, chiudi questo form e usa «Aggancia a…»: creare una RFQ nuova qui farebbe un doppione.</p>
+    <fieldset class="blocco tono-warn avviso-candidati">
+      <div class="testa"><h3>Attenzione: potrebbe essere una richiesta che esiste già</h3></div>
+      <p class="nota">Le regole di aggancio hanno trovato {{.N}} RFQ candidat{{if eq .N 1}}a{{else}}e{{end}}. Se è una di queste, chiudi questo modulo e usa «Aggancia a…»: creare una RFQ nuova farebbe un doppione.</p>
       {{template "candidati_aggancio" .}}
-      <button type="button" hx-get="/messaggio/{{.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
+      <button type="button" class="btn piccolo" hx-get="/messaggio/{{.MessaggioID}}/triage?azione=aggancia" hx-target="#pannello">Vai ad «Aggancia a…»</button>
     </fieldset>
     {{end}}{{end}}
 
     {{template "triage_allegati" $}}
 
-    <div class="azioni">
-      <button type="submit" class="primario">Crea RFQ</button>
-      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
-    </div>
+    <fieldset class="blocco">
+      <div class="testa"><h3>Dove va</h3><small>sotto la radice «PREVENTIVI DA FARE»</small></div>
+      {{template "anteprima_cartella" $}}
+    </fieldset>
   </form>
-
   {{else}}
-  <form class="form-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello">
-    {{/* Smistamento M1 (A5.16.4, P37): il bottone di default del form, cioè il primo submit, è inerte.
-         Senza, Invio in un campo di testo (la ricerca, il cognome) manderebbe il form con il bottone
-         della PRIMA card, o del primo risultato della ricerca: una scelta nascosta, anche a pari merito.
-         Un bottone di default disabilitato ferma l'invio implicito: si aggancia solo con un clic. */}}
+  <form class="modulo form-triage" id="modulo-triage" hx-post="/messaggio/{{.M.MessaggioID}}/aggancia" hx-target="#pannello" data-decisione="1">
+    {{/* Smistamento M1 (A5.16.4, P37): il bottone di default del form, cioe' il primo submit, e' inerte. Senza,
+         Invio in un campo di testo (la ricerca, il cognome) manderebbe il form con il bottone della PRIMA card:
+         una scelta nascosta, anche a pari merito. Si aggancia solo con un clic. */}}
     <button type="submit" class="invio-inerte" disabled hidden aria-hidden="true" tabindex="-1"></button>
-    <fieldset>
-      <legend>Candidati, dal più forte <small class="muto">il sistema ordina e spiega, tu scegli</small></legend>
+    {{if .Errore}}<div class="avviso-box bad errore-box" role="alert">{{.Errore}}</div>{{end}}
+    <fieldset class="blocco">
+      <div class="testa"><h3>Candidati, dal più forte</h3><small>il sistema ordina e spiega, tu scegli</small></div>
       {{template "candidati_aggancio" .CarteForm}}
     </fieldset>
-    <fieldset>
-      <legend>Altra RFQ… <small class="muto">cerca fra le RFQ aperte</small></legend>
-      <input type="search" name="q" placeholder="cerca per oggetto, cliente o codice…"
-             hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms" hx-target="#thread-risultati">
+    <fieldset class="blocco">
+      <div class="testa"><h3>Un'altra RFQ</h3><small>cerca fra le RFQ aperte</small></div>
+      <label class="cerca"><svg class="ico" aria-hidden="true"><use href="#i-cerca"/></svg>
+        <input type="search" name="q" placeholder="oggetto, cliente, codice, riferimento…"
+               hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms, search" hx-target="#thread-risultati"></label>
       <div id="thread-risultati"></div>
     </fieldset>
-    {{/* Scelta 6 dello Smistamento: l'aggancio fa diventare prodotti soltanto i codici spuntati o scritti qui,
-         e qui nessuno nasce spuntato (Spuntato). Un prodotto tolto dalla BOM rientra solo se qualcuno lo
-         conferma di nuovo: una mail che lo cita non basta. */}}
-    <fieldset>
-      <legend>Codici da aggiungere alla RFQ <small class="muto">con l'aggancio diventano prodotti solo quelli che spunti o scrivi</small></legend>
+    {{/* Scelta 6 dello Smistamento: l'aggancio fa diventare prodotti soltanto i codici spuntati o scritti qui, e
+         qui nessuno nasce spuntato (Spuntato). */}}
+    <fieldset class="blocco">
+      <div class="testa"><h3>Codici da aggiungere alla RFQ</h3><small>con l'aggancio diventano prodotti solo quelli che spunti o scrivi</small></div>
       {{template "candidati_codice" $}}
     </fieldset>
-    <fieldset>
-      <legend>Mittente</legend>
-      <label><input type="checkbox" name="crea_buyer" value="1" {{if not .BuyerID.Valid}}checked{{end}}> censisci il mittente come buyer del cliente della RFQ</label>
+    <fieldset class="blocco">
+      <div class="testa"><h3>Mittente</h3></div>
+      <label class="check"><input type="checkbox" name="crea_buyer" value="1" {{if not .BuyerID.Valid}}checked{{end}}> censisci il mittente come buyer del cliente della RFQ</label>
       <input type="hidden" name="buyer_id" value="__nuovo__">
-      <div class="griglia3">
-        <label>Cognome <input name="buyer_cognome" value="{{.Cognome}}"></label>
-        <label>Nome <input name="buyer_nome" value="{{.Nome}}"></label>
-        <label>E-mail <input name="buyer_email" value="{{.Email}}"></label>
+      <div class="campi">
+        <label class="campo">Cognome <span class="con-bottone"><input name="buyer_cognome" value="{{.Cognome}}"><button type="button" class="btn piccolo" data-azione="scambia" title="Scambia nome e cognome" aria-label="Scambia nome e cognome">⇄</button></span></label>
+        <label class="campo">Nome <input name="buyer_nome" value="{{.Nome}}"></label>
+        <label class="campo">E-mail <input name="buyer_email" value="{{.Email}}"></label>
       </div>
     </fieldset>
     {{template "triage_allegati" $}}
-    <div class="azioni">
-      {{/* Smistamento M1: nessun «Aggancia» generico e nessuna scelta preselezionata. Si aggancia con il
-           bottone della card o della riga di ricerca, che porta la sua RFQ. */}}
-      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
-    </div>
   </form>
   {{end}}
-</article>
+    <div class="maniglia interna" data-maniglia="m4"></div>
+    <aside class="fonte" aria-label="La mail">
+      <span class="label">La mail, per controllare</span>
+      <div class="fonte-da"><b>{{.M.MittenteNome.String}}</b> <span class="k">&lt;{{.M.MittenteIndirizzo.String}}&gt;</span><br><span class="k">{{dataLunga .M.DataEvento}} · {{.M.Oggetto.String}}</span></div>
+      <div class="corpo" data-codici="">{{template "corpo_messaggio" .Corpo}}</div>
+    </aside>
+  </div>
+  <div class="foglio-piede">
+    {{if eq .Azione "nuova"}}
+    <span class="riep" id="riep-triage">Nasce la RFQ con i codici spuntati.</span>
+    <button type="button" class="btn quieto" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    <button type="submit" class="btn" form="modulo-triage" name="poi" value="prossima" data-decisione="1">Crea e passa alla prossima</button>
+    <button type="submit" class="btn primario" form="modulo-triage" name="poi" value="distinta">Crea la RFQ e apri la Distinta <svg class="ico s" aria-hidden="true"><use href="#i-freccia"/></svg></button>
+    {{else}}
+    <span class="riep">Si aggancia con «Aggancia a questa RFQ» accanto alla RFQ giusta.</span>
+    <button type="button" class="btn quieto" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    {{end}}
+  </div>
+</div>
 {{end}}
 {{end}}
 
-{{/* B8.7b: i file utili non si spuntano piu'. Scendono da soli nello staging del server e l'analisi li
-     legge; sul NAS della RFQ vanno solo con «Conferma Fascicolo». La casella resta per gli altri (immagini,
-     PDF anonimi grandi), che si scaricano solo se qualcuno lo chiede. */}}
+{{/* B8.7b: i file utili non si spuntano piu'. Scendono da soli nello staging del server e l'analisi li legge; sul
+     NAS della RFQ vanno solo con la conferma. La casella resta per gli altri (immagini, PDF anonimi grandi). */}}
 {{define "triage_allegati"}}
 {{with .Dati}}
 {{if .Allegati}}
-<fieldset>
-  <legend>Allegati</legend>
-  <table>
-    {{range .Allegati}}{{if ne .Natura "inline"}}
-    <tr><td>{{if $.Dati.SiPrepara .}}<span class="chip fatto" title="Scende da solo nello staging del server e l'analisi lo legge: nel NAS della RFQ va solo con la conferma del Fascicolo">si prepara da solo</span>
-        {{else}}<label class="inline"><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}"> scarica anche questo</label>{{end}}</td>
-        <td>{{.NomeFile}}</td><td>{{kb .Bytes}}</td>
-        <td>{{with .Proposta}}<span class="chip {{.TipoProposto}}">{{.TipoProposto}}</span> {{.Codice.String}}{{if .Rev.Valid}} rev {{.Rev.String}}{{end}}{{end}}</td></tr>
-    {{end}}{{end}}
-  </table>
-  <small class="muto">CAD, disegni, offerte, fogli di calcolo e archivi si preparano da soli: staging, estrazione, analisi. Il NAS aspetta la conferma del Fascicolo. Immagini e PDF anonimi grandi solo se li spunti.</small>
+<fieldset class="blocco">
+  <div class="testa"><h3>Allegati</h3><small>CAD, disegni, offerte, fogli di calcolo e archivi si preparano da soli; il NAS aspetta la conferma della Distinta</small></div>
+  <div class="codici-lista">
+  {{range .Allegati}}{{if ne .Natura "inline"}}
+    {{if $.Dati.SiPrepara .}}<div class="check"><span class="chip ok" title="Scende da solo nello staging del server e l'analisi lo legge: nel NAS della RFQ va solo con la conferma">si prepara da solo</span><span class="mono">{{.NomeFile}}</span> <span class="k">{{kb .Bytes}}</span></div>
+    {{else}}<label class="check"><input type="checkbox" name="allegato_id" value="{{.AllegatoID}}"><span><span class="mono">{{.NomeFile}}</span> <span class="k">{{kb .Bytes}} · scarica anche questo</span></span></label>{{end}}
+  {{end}}{{end}}
+  </div>
 </fieldset>
 {{end}}
 {{end}}
@@ -418,33 +575,26 @@
 
 {{define "cartella_cliente"}}
 {{with .Dati}}
-<p class="muto" id="cartella-cliente" {{if .Oob}}hx-swap-oob="true"{{end}}>Cartella NAS:
+<p class="sola-lettura" id="cartella-cliente" {{if .Oob}}hx-swap-oob="true"{{end}}>Cartella NAS
   <code>{{.CartellaCliente}}</code>
-  {{if .DaAnagrafica}}<small>dall’Anagrafica — non va riscritta</small>
-  {{else}}<small>cliente nuovo: la cartella è quella scritta qui sotto</small>{{end}}
+  {{if .DaAnagrafica}}<span class="k">dall'Anagrafica, non va riscritta</span>
+  {{else}}<span class="k">cliente nuovo: la cartella è quella scritta qui sotto</span>{{end}}
 </p>
 {{end}}
 {{end}}
 
-{{/* cliente_nuovo: i campi con cui si CENSISCE un cliente, e ci sono solo quando c'e' un cliente da
-     censire. Per un cliente gia' in Anagrafica non vengono nemmeno scritti nella pagina: non esiste
-     una casella «Cartella NAS» da riscrivere, quindi non esiste il gesto con cui i disegni di un
-     cliente finirebbero nella cartella di un altro. La cartella vera si legge sopra, in sola lettura.
-
-     Prima i tre campi c'erano sempre e si contava sull'attributo `hidden`. Su questo elemento
-     `hidden` non nascondeva niente: la regola d'autore `.griglia3{display:grid}` vince su
-     `[hidden]{display:none}` del browser — le regole dell'autore battono quelle dello user agent — e
-     i campi restavano in pagina, modificabili, accanto alla riga che diceva di non riscriverli. */}}
+{{/* cliente_nuovo: i campi con cui si CENSISCE un cliente, e ci sono solo quando c'e' un cliente da censire. Per un
+     cliente gia' in anagrafica non vengono nemmeno scritti: non esiste una casella «Cartella NAS» da riscrivere. */}}
 {{define "cliente_nuovo"}}
 {{with .Dati}}
 <div id="cliente-nuovo" {{if .Oob}}hx-swap-oob="true"{{end}}>
   {{if not .ClienteID.Valid}}
-  <div class="griglia3">
-    <label>Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
-    <label>Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
+  <div class="campi">
+    <label class="campo">Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
+    <label class="campo">Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
            hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
            hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
-    <label>Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
+    <label class="campo">Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
   </div>
   {{end}}
 </div>
@@ -453,18 +603,16 @@
 
 {{define "anteprima_cartella"}}
 {{with .Dati}}
-<p class="muto anteprima" id="anteprima-cartella" {{if .Oob}}hx-swap-oob="true"{{end}}>Destinazione:
-  <code>{{.Anteprima}}</code> <small>(sotto la radice «PREVENTIVI DA FARE»)</small>
-</p>
+<p class="percorso anteprima" id="anteprima-cartella" {{if .Oob}}hx-swap-oob="true"{{end}}>PREVENTIVI DA FARE › <b>{{.Anteprima}}</b></p>
 {{end}}
 {{end}}
 
 {{define "buyer_select"}}
 {{with .Dati}}
-<label>Buyer
+<label class="campo">Buyer
   <select name="buyer_id" onchange="document.getElementById('buyer-nuovo').hidden = this.value !== '__nuovo__'">
     {{range .Buyers}}<option value="{{.BuyerID}}" {{if and $.Dati.BuyerID.Valid (eq .BuyerID $.Dati.BuyerID.UUID)}}selected{{end}}>{{.Cognome}} {{.Nome.String}}{{if .Email.Valid}} &lt;{{.Email.String}}&gt;{{end}}</option>{{end}}
-    <option value="__nuovo__" {{if not .BuyerID.Valid}}selected{{end}}>➕ nuovo buyer (mittente)…</option>
+    <option value="__nuovo__" {{if not .BuyerID.Valid}}selected{{end}}>+ nuovo buyer (il mittente)…</option>
     <option value="__nessuno__">nessun buyer</option>
   </select>
 </label>
@@ -473,12 +621,11 @@
 {{end}}
 
 {{define "thread_risultati"}}
-{{if not .Dati}}<p class="muto">Nessuna RFQ aperta corrisponde.</p>{{end}}
+{{if not .Dati}}<p class="nota">Nessuna RFQ aperta corrisponde.</p>{{end}}
 <ul class="risultati">
 {{range .Dati}}
-  <li><b>{{.Cliente}}</b> · {{.Oggetto.String}} <small class="muto">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}</small>
-    {{range .Identificativi}}<span class="chip">{{.}}</span> {{end}}
-    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button></li>
+  <li><span><b>{{.Cliente}}</b> · {{.Oggetto.String}}<br><small class="k">{{data .DataInizio}}{{if .Buyer.Valid}} · {{.Buyer.String}}{{end}}{{if .NomeFase.Valid}} · {{.NomeFase.Fase}}{{end}}{{range .Identificativi}} · {{.}}{{end}}</small></span>
+    <button type="submit" class="btn piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button></li>
 {{end}}
 </ul>
 {{end}}
@@ -508,148 +655,153 @@
 </span>
 {{end}}
 
-{{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza.
-     Prima erano una sola casella di testo precompilata che al submit confermava tutto. Nasce spuntato
-     solo cio' che dice Spuntato: un codice di famiglia, non dalla storia citata (blocco 6) e non visto solo
-     nel nome di un allegato (Smistamento P17). */}}
+{{/* candidati_codice — checkpoint 3R §4. I numeri trovati nel messaggio, con ruolo e provenienza. Nasce spuntato solo
+     cio' che dice Spuntato: un codice di famiglia, non dalla storia citata (blocco 6) e non visto solo nel nome di un
+     allegato (Smistamento P17). Il punteggio non si mostra: la provenienza si dice in parole. */}}
 {{define "candidati_codice"}}
 {{with .Dati}}{{$d := .}}
-<div class="candidati-codice">
-  <p class="etichetta">Codici da mettere nella RFQ <small class="muto">il sistema propone, la spunta è tua</small></p>
+<div class="codici-lista candidati-codice">
   {{if .Proponibili}}
-  <ul class="candidati">
-    {{range .Proponibili}}
-    <li>
-      <label>
-        <input type="checkbox" name="codice" value="{{.Codice}}" {{if $d.Spuntato .}}checked{{end}}>
-        <code>{{.Codice}}</code>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
-        {{if eq .Origine "famiglia"}}<span class="chip fatto" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
-        {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
-        {{if soloNelNome .}}<span class="chip" title="Un nome di file non è una richiesta: lo spunti tu se è un codice di questa RFQ">visto solo nel nome di un allegato</span>{{end}}
-        <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span>
-      </label>
-    </li>
-    {{end}}
-  </ul>
+  {{range .Proponibili}}
+  <label class="codice">
+    <input type="checkbox" name="codice" value="{{.Codice}}" {{if $d.Spuntato .}}checked{{end}}>
+    <span class="c"><b>{{.Codice}}</b>{{if .Rev}} <span class="chip">rev {{.Rev}}</span>{{end}}
+      {{if eq .Origine "famiglia"}}<span class="chip acc" title="Riconosciuto da una famiglia di codice del cliente">famiglia «{{.Famiglia}}»</span>
+      {{else}}<span class="chip" title="Ha la forma di un codice: nient'altro">generico</span>{{end}}
+      {{if soloNelNome .}}<span class="chip warn" title="Un nome di file non è una richiesta: lo spunti tu se è un codice di questa RFQ">visto solo nel nome di un allegato</span>{{end}}</span>
+    <small>{{.Evidenza}}</small>
+  </label>
+  {{end}}
   {{else}}
-  <p class="muto">Nessun codice riconosciuto dalle regole del cliente. Scrivi qui sotto quelli che servono.</p>
+  <p class="nota">Nessun codice riconosciuto dalle regole del cliente. Scrivi qui sotto quelli che servono.</p>
   {{end}}
   {{if .Altri}}
   <details class="altri-numeri">
-    <summary class="muto">Altri numeri trovati ({{len .Altri}}) — non sono codici di questo cliente</summary>
-    <p class="muto">Il cliente ha famiglie di codice dichiarate, e questi non ci rientrano: sono numeri con la forma
-      di un codice. Spuntane uno solo se sai che lo è.</p>
-    <ul class="candidati">
+    <summary class="k">Altri numeri trovati ({{len .Altri}}): non sono codici di questo cliente</summary>
+    <p class="nota">Il cliente ha famiglie di codice dichiarate, e questi non ci rientrano: sono numeri con la forma di un codice. Spuntane uno solo se sai che lo è.</p>
+    <div class="codici-lista">
       {{range .Altri}}
-      <li><label><input type="checkbox" name="codice" value="{{.Codice}}">
-        <code>{{.Codice}}</code>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}} <span class="muto">codice · {{score .Punteggio}} · {{.Evidenza}}</span></label></li>
+      <label class="codice"><input type="checkbox" name="codice" value="{{.Codice}}">
+        <span class="c"><b>{{.Codice}}</b>{{if soloNelNome .}} <span class="chip">visto solo nel nome di un allegato</span>{{end}}</span><small>{{.Evidenza}}</small></label>
       {{end}}
-    </ul>
+    </div>
   </details>
   {{end}}
-  <label>Altri codici, scritti da te <input name="identificativi" placeholder="separati da virgola">
-    <small class="muto">questi risultano inseriti a mano</small></label>
+  <label class="campo">Altri codici, scritti da te <input name="identificativi" placeholder="separati da virgola">
+    <small>questi risultano inseriti a mano</small></label>
 </div>
 {{end}}
 {{end}}
 
-{{/* candidati_aggancio — le proposte R0–R5 con l'evidenza. Si vedono TUTTE (T16): sceglierne una per
-     l'operatore è esattamente ciò che il checkpoint 3R toglie.
-     Smistamento M1 (A5.16.4): una card per RFQ, ordinate a livelli, con tutte le evidenze e lo score senza
-     percentuale. Nessun radio e nessun default: ogni card ha il suo bottone, la prima ha solo un bordo più
-     marcato, e a pari merito nessuna è marcata. Il modo dice dove sta la lista (pannello, form, avviso). */}}
+{{/* candidati_aggancio — le proposte R0–R5 con l'evidenza. Si vedono TUTTE (T16): sceglierne una per l'operatore e'
+     esattamente cio' che il checkpoint 3R toglie. Smistamento M1: una card per RFQ, ordinate a livelli, con tutte le
+     evidenze. Nessun radio e nessun default: ogni card ha il suo bottone, la prima ha solo un bordo piu' marcato, e a
+     pari merito nessuna e' marcata. La forza e' il livello con lo score, mai una percentuale (A5.16.4). */}}
 {{define "candidati_aggancio"}}
 {{if .Carte}}
-{{if .PariMerito}}<p class="avviso-inline pari-merito">Stessa forza: nessuna RFQ è proposta. Scegli guardando le evidenze.</p>{{end}}
-{{if .DiPrima}}<p class="muto regole-di-prima">Alcuni candidati sono stati calcolati con le regole di prima: si leggono con prudenza.
-  {{if eq .Modo "pannello"}}<button type="button" class="piccolo" hx-post="/messaggio/{{.MessaggioID}}/ricalcola" hx-target="#pannello">Ricalcola</button>{{end}}</p>{{end}}
+{{if .PariMerito}}<p class="chip warn pari-merito">stessa forza: nessuna RFQ è proposta, scegli guardando le evidenze</p>{{end}}
+{{if .DiPrima}}<p class="nota regole-di-prima">Alcuni candidati sono stati calcolati con le regole di prima: si leggono con prudenza.
+  {{if eq .Modo "pannello"}}<button type="button" class="btn piccolo" hx-post="/messaggio/{{.MessaggioID}}/ricalcola" hx-target="#pannello">Ricalcola</button>{{end}}</p>{{end}}
 <div class="candidati-aggancio">
   {{range .Carte}}
-  <div class="candidato carta {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
+  <div class="cand {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
     <div class="testa">
-      <span class="testo"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b> · {{.Cliente}}{{if .Riferimento}} <span class="chip">{{.Riferimento}}</span>{{end}}
-        <span class="muto">aperta dal {{data .DataInizio}}</span></span>
-      <span class="forza livello-{{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
+      <span class="t"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b><small>{{.Cliente}}{{if .Riferimento}} · {{.Riferimento}}{{end}} · aperta dal {{data .DataInizio}}</small></span>
+      <span class="liv forza {{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
     </div>
-    <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small class="muto">({{.Livello}})</small></li>{{end}}</ul>
-    {{if .Chiuso}}<small class="avviso-inline">questa richiesta è CHIUSA: agganciare qui non la riapre</small>{{end}}
-    {{if eq $.Modo "pannello"}}
-    <form hx-post="/messaggio/{{$.MessaggioID}}/aggancia" hx-target="#pannello" class="aggancia-carta">
-      <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small>({{.Livello}})</small></li>{{end}}</ul>
+    {{if .Chiuso}}<span class="chip bad">questa richiesta è CHIUSA: agganciare qui non la riapre</span>{{end}}
+    {{if and (eq $.Modo "pannello") (eq .ThreadID $.Proposta)}}
+    <p class="nota">È la proposta del Cockpit: si aggancia con il bottone qui sopra.</p>
+    {{else if eq $.Modo "pannello"}}
+    <form hx-post="/messaggio/{{$.MessaggioID}}/aggancia" hx-target="#pannello" class="aggancia-carta" data-decisione="1">
+      <button type="submit" class="btn piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
     </form>
     {{else if eq $.Modo "form"}}
-    <button type="submit" class="piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
+    <button type="submit" class="btn piccolo" name="thread_id" value="{{.ThreadID}}">Aggancia a questa RFQ</button>
     {{end}}
   </div>
   {{end}}
 </div>
 {{else}}
-<p class="muto">Nessun candidato: nessuna regola di aggancio ha trovato una richiesta che corrisponda.</p>
+<p class="nota">Nessun candidato: nessuna regola di aggancio ha trovato una richiesta che corrisponda.</p>
 {{end}}
 {{end}}
 
 {{/* ---------------------------------------------------------------- blocco 7A: controparte e censimento */}}
 
-{{/* chip_controparte: la stessa cosa di `controparte_riga` nell'Inbox, per la testata del pannello.
-     Vale per una riga di v_inbox. */}}
-{{define "chip_controparte"}}{{if eq .ControparteTipo "cliente"}}<span class="chip cliente" title="cliente">{{txt .Controparte}}</span>{{else if eq .ControparteTipo "fornitore"}}<span class="chip fornitore" title="fornitore censito">fornitore · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "altro"}}<span class="chip altro" title="soggetto censito come diverso da cliente, fornitore e interno">altro · {{txt .Controparte}}</span>{{else if eq .ControparteTipo "interno"}}<span class="chip">interna</span>{{else if eq .ControparteTipo "ambiguo"}}<em class="sconosciuto" title="l'indirizzo o il dominio stanno sia fra i clienti sia fra i fornitori: decidi tu">ambiguo: cliente o fornitore?</em>{{else}}<em class="sconosciuto">mittente non censito</em>{{end}}{{end}}
+{{/* chip_controparte: la stessa cosa di `controparte_riga` nell'Inbox. Vale per una riga di v_inbox. */}}
+{{define "chip_controparte"}}{{template "controparte_riga" .}}{{end}}
 
 {{define "censisci_form"}}
 {{with .Dati}}
-<article class="messaggio triage">
-  <header>
-    <h2>{{if eq .Come "fornitore"}}Censisci come fornitore{{else}}Censisci come cliente{{end}}</h2>
-    <div class="meta">
-      <div><b>{{if eq .M.Direzione "uscita"}}Da noi{{else}}Da{{end}}:</b> {{.M.MittenteNome.String}} &lt;{{.M.MittenteIndirizzo.String}}&gt; · {{dataLunga .M.DataEvento}}</div>
-      <div><b>Oggetto:</b> {{.M.Oggetto.String}}</div>
-      <div><b>Indirizzo da censire:</b> <span class="mono">{{.Indirizzo}}</span>{{if .Dominio}} · dominio <span class="mono">{{.Dominio}}</span>{{if .DominioPubblico}} <span class="chip avviso">dominio pubblico</span>{{end}}{{end}}</div>
-    </div>
-    {{if .Errore}}<div class="avviso errore-box">{{.Errore}}</div>{{end}}
-  </header>
-  <form class="form-censisci" hx-post="/messaggio/{{.M.MessaggioID}}/censisci" hx-target="#pannello">
+<div class="foglio" data-id="{{.M.MessaggioID}}">
+  <div class="foglio-testa">
+    <h2>Censisci come {{.Come}}</h2><span class="k">{{.M.MittenteNome.String}} &lt;{{.Indirizzo}}&gt;</span><span class="sp"></span>
+    <button type="button" class="btn quieto piccolo" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello" aria-label="Chiudi il modulo"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg> Chiudi</button>
+  </div>
+  <div class="foglio-corpo">
+  <form class="modulo form-censisci" id="modulo-censisci" hx-post="/messaggio/{{.M.MessaggioID}}/censisci" hx-target="#pannello">
     <input type="hidden" name="come" value="{{.Come}}">
-    <fieldset>
-      <legend>{{if eq .Come "fornitore"}}Fornitore{{else}}Cliente{{end}}</legend>
-      <label>Ragione sociale <input name="ragione_sociale" value="{{.RagioneSociale}}" required placeholder="come compare in fattura"></label>
-      {{if eq .Come "fornitore"}}
-      <div class="griglia3">
-        <label>Tipo <select name="tipo">{{range .Tipi}}<option value="{{.}}" {{if eq (printf "%s" .) $.Dati.Tipo}}selected{{end}}>{{.}}</option>{{end}}</select></label>
-        <label>Lingua <input name="lingua" maxlength="2" value="{{.Lingua}}"></label>
-      </div>
-      <p class="muto nota">Se un fornitore con questa ragione sociale esiste già, dominio, contatto e lavorazioni si aggiungono a lui: non se ne crea un secondo.</p>
-      {{else}}
-      <div class="griglia3">
-        <label>Cartella NAS <input name="cartella_nas" value="{{.Cartella}}" required placeholder="MECCANICA NORD"></label>
-        <label>Lingua <input name="lingua" maxlength="2" value="{{.Lingua}}"></label>
-      </div>
-      <p class="muto nota">La cartella NAS è la chiave del cliente e non si cambia dopo: i disegni finiscono lì dentro.</p>
+    {{if .Ignora}}<input type="hidden" name="ignora" value="1">{{end}}
+    {{if .Errore}}<div class="avviso-box bad errore-box" role="alert">{{.Errore}}</div>{{end}}
+    <div class="seg-link" role="group" aria-label="Come">
+      {{range $k := list "cliente" "fornitore" "altro"}}
+      <a href="#" hx-get="/messaggio/{{$.Dati.M.MessaggioID}}/censisci?come={{$k}}{{if $.Dati.Ignora}}&amp;ignora=1{{end}}" hx-target="#pannello" {{if eq $.Dati.Come $k}}aria-current="true"{{end}}>{{if eq $k "altro"}}altro (corriere, banca, newsletter){{else}}{{$k}}{{end}}</a>
       {{end}}
+    </div>
+    <fieldset class="blocco">
+      <div class="testa"><h3>{{if eq .Come "fornitore"}}Fornitore{{else if eq .Come "altro"}}Soggetto «altro»{{else}}Cliente{{end}}</h3></div>
+      <div class="campi">
+        {{if eq .Come "altro"}}
+        <label class="campo largo">Che cos'è <input name="ragione_sociale" value="{{.RagioneSociale}}" required list="etichette-altro" placeholder="corriere, banca, newsletter Acciaierie…">
+          <small>l'etichetta con cui compare nell'Inbox; se c'è già, il recapito si aggiunge a lei</small></label>
+        <datalist id="etichette-altro">{{range .Etichette}}<option value="{{.}}">{{end}}</datalist>
+        {{else}}
+        <label class="campo largo">Ragione sociale <input name="ragione_sociale" value="{{.RagioneSociale}}" required placeholder="come compare in fattura"></label>
+        {{end}}
+        {{if eq .Come "fornitore"}}
+        <label class="campo">Tipo <select name="tipo">{{range .Tipi}}<option value="{{.}}" {{if eq (printf "%s" .) $.Dati.Tipo}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+        {{else if eq .Come "cliente"}}
+        <label class="campo">Cartella NAS <input name="cartella_nas" value="{{.Cartella}}" required placeholder="MECCANICA NORD" style="text-transform:uppercase">
+          <small>è la chiave del cliente e non si cambia dopo: i disegni finiscono lì dentro</small></label>
+        {{end}}
+        {{if ne .Come "altro"}}<label class="campo">Lingua <input name="lingua" maxlength="2" value="{{.Lingua}}"></label>{{end}}
+      </div>
+      {{if eq .Come "fornitore"}}<p class="nota">Se un fornitore con questa ragione sociale esiste già, dominio, contatto e lavorazioni si aggiungono a lui: non se ne crea un secondo.</p>{{end}}
     </fieldset>
-    <fieldset>
-      <legend>Come riconoscerlo</legend>
+    <fieldset class="blocco">
+      <div class="testa"><h3>Come riconoscerlo</h3></div>
       {{if .Dominio}}
-      <label class="inline"><input type="checkbox" name="usa_dominio" value="1" {{if .UsaDominio}}checked{{end}}> tutto il dominio <span class="mono">{{.Dominio}}</span> è suo</label>
-      {{if .DominioPubblico}}<p class="muto nota">È un dominio pubblico: chiunque può avere una casella lì. Censire il dominio farebbe diventare {{.Come}} chiunque scriva da quel servizio. Meglio l'indirizzo.</p>{{end}}
+      <label class="check"><input type="checkbox" name="usa_dominio" value="1" {{if .UsaDominio}}checked{{end}}> <span>tutto il dominio <span class="mono">{{.Dominio}}</span> è suo</span></label>
+      {{if .DominioPubblico}}<p class="nota">È un dominio pubblico: chiunque può avere una casella lì. Censire il dominio farebbe diventare {{.Come}} chiunque scriva da quel servizio. Meglio l'indirizzo.</p>{{end}}
       {{end}}
-      <label class="inline"><input type="checkbox" name="usa_contatto" value="1" {{if .UsaContatto}}checked{{end}}> l'indirizzo <span class="mono">{{.Indirizzo}}</span> è {{if eq .Come "fornitore"}}un suo contatto{{else}}un suo buyer{{end}}</label>
-      <label>Nome della persona <input name="contatto_nome" value="{{.ContattoNome}}" placeholder="Nome Cognome"></label>
+      <label class="check"><input type="checkbox" name="usa_contatto" value="1" {{if .UsaContatto}}checked{{end}}> <span>l'indirizzo <span class="mono">{{.Indirizzo}}</span> è {{if eq .Come "fornitore"}}un suo contatto{{else if eq .Come "altro"}}suo{{else}}un suo buyer{{end}}</span></label>
+      {{if ne .Come "altro"}}<label class="campo">Nome della persona <input name="contatto_nome" value="{{.ContattoNome}}" placeholder="Nome Cognome"></label>{{end}}
     </fieldset>
     {{if eq .Come "fornitore"}}
-    <fieldset>
-      <legend>Che cosa fa</legend>
-      <div class="caselle-lavorazioni">
+    <fieldset class="blocco">
+      <div class="testa"><h3>Che cosa fa</h3><small>le capacità del fornitore; la qualifica per un cliente si dà dall'anagrafica</small></div>
+      <div class="lavorazioni caselle-lavorazioni">
         {{range .Lavorazioni}}<label><input type="checkbox" name="lavorazione" value="{{.Codice}}" {{if index $.Dati.Scelte .Codice}}checked{{end}}> {{.Descrizione}}</label>{{end}}
       </div>
-      <p class="muto nota">Sono le capacità del fornitore. La qualifica per un cliente si dà dall'anagrafica, cliente per cliente.</p>
     </fieldset>
     {{end}}
-    <p class="muto nota">Al salvataggio i messaggi non ancora decisi con lo stesso indirizzo o dominio vengono ricalcolati: cambiano quadrante e proposta. Le decisioni già prese non si toccano.</p>
-    <div class="azioni">
-      <button type="submit" class="primario">Censisci e ricalcola</button>
-      <button type="button" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
-    </div>
+    <p class="nota">Al salvataggio i messaggi non ancora decisi con lo stesso indirizzo o dominio vengono ricalcolati: cambiano quadrante e proposta. Le decisioni già prese non si toccano.{{if .Ignora}} Poi questa mail si ignora.{{end}}</p>
   </form>
-</article>
+    <div class="maniglia interna" data-maniglia="m4"></div>
+    <aside class="fonte" aria-label="La mail">
+      <span class="label">La mail, per controllare</span>
+      <div class="fonte-da"><b>{{.M.MittenteNome.String}}</b> <span class="k">&lt;{{.M.MittenteIndirizzo.String}}&gt;</span><br><span class="k">{{dataLunga .M.DataEvento}} · {{.M.Oggetto.String}}</span></div>
+      <div class="corpo" data-codici="">{{template "corpo_messaggio" .Corpo}}</div>
+    </aside>
+  </div>
+  <div class="foglio-piede">
+    <span class="riep">Censito come <b>{{.Come}}</b>{{if .Ignora}}, e la mail ignorata{{end}}.</span>
+    <button type="button" class="btn quieto" hx-get="/messaggio/{{.M.MessaggioID}}" hx-target="#pannello">Annulla</button>
+    <button type="submit" class="btn primario" form="modulo-censisci" {{if .Ignora}}data-decisione="1"{{end}}>Censisci e ricalcola</button>
+  </div>
+</div>
 {{end}}
 {{end}}
 
@@ -741,3 +893,23 @@
   <details class="dim-evidenze"{{if eq .D.Stato "discorde"}} open{{end}}><summary class="k muto">evidenze ({{len .D.Evidenze}})</summary>
     <ul>{{range .D.Evidenze}}<li>{{if .Valore}}<span class="mono">{{.Valore}}</span> · {{score .}}{{else if .Indizio}}<span class="mono">{{.Indizio}}</span> · <span class="k muto" title="un indizio si mostra e non pesa: niente score finché la calibrazione non l'ha misurato">indizio, senza score</span>{{else}}<span class="k muto">senza valore</span>{{end}} · {{parole .}}{{if .DipendeDa}} <span class="k muto">({{dipendenza .}})</span>{{end}}</li>{{end}}</ul>
   </details>{{end}}</span>{{end}}
+
+{{/* La testata di Anagrafica: le tre schede (Clienti, Fornitori, Articoli). La usano anche Fornitori e Importa. */}}
+{{define "ana_testa"}}{{$tab := index . 0}}{{$extra := index . 1}}{{$importa := index . 2}}
+<div class="ana-testa">
+  <h1>Anagrafica</h1>
+  <nav class="schede" aria-label="Che cosa">
+    <a href="/admin/anagrafica" {{if eq $tab "clienti"}}aria-current="page"{{end}}>Clienti</a>
+    <a href="/admin/fornitori" {{if eq $tab "fornitori"}}aria-current="page"{{end}}>Fornitori</a>
+    <a href="/admin/anagrafica/articoli" {{if eq $tab "articoli"}}aria-current="page"{{end}}>Articoli <small>presto</small></a>
+  </nav>
+  <span class="sp"></span>
+  {{with $extra}}<span class="chip warn">{{.}}</span>{{end}}
+  {{if $importa}}<a class="btn piccolo" href="/admin/fornitori/importa" title="Carica il seme dei fornitori con anteprima delle differenze e conferma"><svg class="ico s" aria-hidden="true"><use href="#i-importa"/></svg> Importa da file…</a>{{end}}
+</div>
+{{end}}
+
+{{/* ana_salva: la barra «modifiche non salvate» in fondo a un modulo della scheda: compare quando si cambia
+     qualcosa (anagrafica.js), e niente si scrive finche' non si preme il bottone. */}}
+{{define "ana_salva"}}<div class="salva-barra" hidden><b>Modifiche non salvate</b><span class="k-inv">niente si scrive finché non premi {{.}}</span><span class="sp"></span>
+  <button type="reset" class="btn piccolo">Annulla</button><button class="btn primario piccolo">{{.}}</button></div>{{end}}

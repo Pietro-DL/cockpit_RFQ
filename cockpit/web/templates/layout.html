@@ -119,10 +119,11 @@ document.body.addEventListener("htmx:beforeSwap", function (e) {
 //
 // Non e' il JavaScript che decide che cosa mostrare: decide solo che cosa CHIEDERE. Che linguetta
 // accendere e quali righe mettere sotto lo dice il server, nella stessa risposta.
-function cockpitStatoInbox() {
+function cockpitStatoInbox(senzaCerca) {
   var p = new URLSearchParams(window.location.search);
   var v = {};
-  ["q", "dir", "filtro", "casella", "sel"].forEach(function (k) { v[k] = p.get(k) || ""; });
+  // la casella della ricerca manda da se' il suo testo: qui non ce ne va un secondo, quello di prima
+  ["q", "dir", "filtro", "casella", "sel", "cerca"].forEach(function (k) { if (!(senzaCerca && k === "cerca")) v[k] = p.get(k) || ""; });
   return v;
 }
 window.cockpitStatoInbox = cockpitStatoInbox;
