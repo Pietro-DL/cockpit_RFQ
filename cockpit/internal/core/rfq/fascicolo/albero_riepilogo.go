@@ -262,7 +262,8 @@ type FuoriRiepilogo struct {
 	Perche     []string  `json:"perche,omitempty"`
 }
 
-// ScartataRiepilogo e' un pezzo proposto che la bozza toglie: le sue righe dello STEP si chiudono, «scartate».
+// ScartataRiepilogo e' un pezzo proposto che la bozza toglie: le sue righe dello STEP si chiudono, «scartate». Righe:
+// quante ne chiude la conferma (RigaAlbero.siChiudeNellAlbero); una chiusa da un automatismo non conta e resta com'e'.
 type ScartataRiepilogo struct {
 	Nodo   string `json:"nodo"`
 	Codice string `json:"codice"`
@@ -664,8 +665,19 @@ func applica(a *AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (*bozzaAppl
 			return nil, Rifiuto(p.codice + " c'è già nella distinta: il codice di un componente si corregge nel Fascicolo")
 		case p.albero.Ritrovato != nil && p.albero.Ritrovato.Agganciato:
 			// fase 4.4a.1b: la rinomina scrive il codice solo sulle righe aperte, e l'aggancio resterebbe al componente
-			// di prima
-			return nil, Rifiuto(p.codice + " è agganciato per codice a un componente da prima dello Smistamento: il codice di un componente si corregge nel Fascicolo")
+			// di prima. La frase dice il gesto che serve (fase 4.4a.1br): nel Fascicolo un aggancio non si scarta
+			// (ScartaNodo vuole una riga aperta) e non si rinomina (CodiceDelNodo lo stesso); si toglie dall'albero, e
+			// «Riapri il nodo» riporta la riga aperta e senza il componente (RiapriComponenteProposta). Il gesto ha il
+			// nome del pulsante della pagina della Distinta, «Riapri il pezzo» (dalla verifica). Qui il nodo e' proposto:
+			// il componente non sta nella distinta sotto un prodotto (se ci stesse il nodo sarebbe «nella distinta», e la
+			// rinomina si rifiuta sopra), quindi togliere il nodo chiude solo le sue righe e il componente resta com'e'
+			// (riepiloga lo mette fra le Scartate, mai fra i Fuori): la frase lo dice, perche' chi toglie un pezzo teme
+			// di perdere il componente
+			return nil, Rifiuto(fmt.Sprintf("%s è agganciato per codice al componente %s da prima dello Smistamento, e la rinomina lascerebbe "+
+				"la riga legata a quel componente. Se è sbagliato il codice del componente, correggilo nel Fascicolo (Azioni sul componente › "+
+				"Modifica › Correggi il codice); se il nodo è un altro pezzo, toglilo dall'albero e conferma (il componente %s resta com'è), "+
+				"poi «Riapri il pezzo»: la riga torna aperta, senza il componente, e la rinomini nella bozza nuova",
+				p.codice, p.albero.Ritrovato.Codice, p.albero.Ritrovato.Codice))
 		}
 		codice := strings.TrimSpace(r.Codice)
 		if err := codiceScritto(codice, r.Rev); err != nil {
@@ -1386,13 +1398,16 @@ func riepiloga(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		}
 		pc.via = append(pc.via, n)
 		if n.Stato == StatoAlberoProposto {
-			vive := 0
+			// le righe che la conferma chiude: quelle da decidere e quelle decise da una persona (un componente
+			// archiviato che il nodo ritrova), non quelle chiuse da un automatismo (fase 4.4a.1br: prima la conferma le
+			// chiudeva tutte, contate o no)
+			chiuse := 0
 			for _, rr := range n.Righe {
-				if rr.daDecidere() {
-					vive++
+				if rr.siChiudeNellAlbero() {
+					chiuse++
 				}
 			}
-			r.Scartate = append(r.Scartate, ScartataRiepilogo{Nodo: n.Chiave, Codice: x.nome(n.Chiave), Righe: vive})
+			r.Scartate = append(r.Scartate, ScartataRiepilogo{Nodo: n.Chiave, Codice: x.nome(n.Chiave), Righe: chiuse})
 			continue
 		}
 		// un componente della distinta che l'albero non tiene piu': ha ancora un padre fuori dall'albero?

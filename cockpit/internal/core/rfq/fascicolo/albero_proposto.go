@@ -186,6 +186,9 @@ type RigaAlbero struct {
 	// che la conferma decide (fase 4.4a.1b, dalla verifica: senza, la conferma la faceva diventare la decisione di una
 	// persona senza che il riepilogo la dicesse).
 	Agganciata bool `json:"agganciata,omitempty"`
+	// decisa: la riga l'ha decisa una persona (deciso_da). Non va nel JSON: serve a contare, nel riepilogo, le righe
+	// che la conferma chiude quando il nodo esce dall'albero (siChiudeNellAlbero).
+	decisa bool
 }
 
 // daDecidere: la riga non e' ancora una decisione di nessuno, e la conferma dell'albero la decide se il riepilogo
@@ -193,6 +196,16 @@ type RigaAlbero struct {
 // (scartata senza chi l'ha decisa) non lo e': la rilettura la riscrive, e la conferma la lascia com'e'.
 func (r RigaAlbero) daDecidere() bool {
 	return r.Stato == db.StatoPropostaAperta || r.Agganciata
+}
+
+// siChiudeNellAlbero: la riga che la conferma dell'albero chiude quando il suo nodo esce dall'albero, «tolto nell'albero
+// confermato»: una ancora da decidere, o una decisa da una persona che non e' uno scarto (una decisione nuova sulla
+// stessa riga: quella di prima va nella storia). Una chiusa da un automatismo (scartata senza chi l'ha decisa: un file
+// sostituito, un riferimento cambiato) resta com'e' (fase 4.4a.1br): non e' una decisione di nessuno, la rilettura la
+// riscrive (E33), e il riepilogo non la conta. Una scartata da una persona resta la sua decisione. Il riepilogo conta
+// queste righe (ScartataRiepilogo.Righe) e la conferma chiude queste: gli stessi conti.
+func (r RigaAlbero) siChiudeNellAlbero() bool {
+	return r.daDecidere() || (r.decisa && r.Stato != db.StatoPropostaScartata)
 }
 
 // ArcoAlbero e' un legame dell'albero: il padre, il figlio, la quantita' proposta e i file che lo dicono.
@@ -623,7 +636,7 @@ func (c *costruzione) riga(n *NodoAlbero, p db.ComponenteProposta, f FileFlusso)
 		}
 	}
 	n.Righe = append(n.Righe, RigaAlbero{Proposta: p.PropostaID, Allegato: f.AllegatoID, File: f.Nome, Chiave: p.Chiave, Stato: p.Stato,
-		Rev: strings.ToUpper(strings.TrimSpace(p.Rev.String)), Agganciata: AgganciatoPerCodice(p)})
+		Rev: strings.ToUpper(strings.TrimSpace(p.Rev.String)), Agganciata: AgganciatoPerCodice(p), decisa: p.DecisoDa.Valid})
 	if scartatoDaUnaPersona(p.Stato, p.DecisoDa) {
 		return
 	}
