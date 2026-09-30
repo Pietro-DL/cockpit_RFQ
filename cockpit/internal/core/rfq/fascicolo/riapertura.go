@@ -442,13 +442,18 @@ type ProvenienzaDi struct {
 // blocca qualcosa: e' un avviso («da rivedere»), e sparisce da sola quando una decisione nuova raggiunge il
 // componente: una riga nell'autorita' di un file autorizzato decisa da una persona che lo punta, oppure
 // un'autorizzazione valida sua.
+//
+// Giro 4, fase 4.4a.1b: anche una riga decisa da una persona con la conferma dell'albero (il segno
+// evidenza.albero, ConfermatoNellAlbero), a qualunque livello del file: la persona ha visto e confermato l'albero
+// intero, con il riepilogo firmato. Senza, i pezzi sotto il primo livello resterebbero «da rivedere».
 func Provenienza(p ProvenienzaDi, a Autorita) []string {
 	c := p.Componente
 	if _, ok := a.Dichiarazioni.Di(c.ComponenteID); ok {
 		return nil
 	}
 	for _, r := range p.Righe {
-		if id, ok := DecisoDaUnaPersona(r.Proposta); ok && id == c.ComponenteID && a.NodoNellAutorita(r.Proposta.AllegatoID, r.Proposta.Chiave) {
+		if id, ok := DecisoDaUnaPersona(r.Proposta); ok && id == c.ComponenteID &&
+			(a.NodoNellAutorita(r.Proposta.AllegatoID, r.Proposta.Chiave) || ConfermatoNellAlbero(r.Proposta)) {
 			return nil
 		}
 	}
@@ -480,6 +485,9 @@ type CoppiaDiComponenti [2]uuid.UUID
 // ArchiDecisiNellAutorita sono gli archi fra componenti che una persona ha deciso nell'autorita' di un file
 // autorizzato: la riga di relazione_proposta decisa da una persona (confermata o duplicato) su un arco che
 // parte da una sorgente valida, con il figlio che e' un componente per una decisione. Pura.
+//
+// Giro 4, fase 4.4a.1b: e quelli che una persona ha tenuto confermando l'albero, a qualunque livello del file: la
+// riga porta il segno evidenza.albero con i due componenti del legame (ArcoConfermatoNellAlbero).
 func ArchiDecisiNellAutorita(a Autorita, nodi []db.ComponenteProposta, archi []db.RelazioneProposta) map[CoppiaDiComponenti]bool {
 	perNodo := map[NodoFile]db.ComponenteProposta{}
 	for _, n := range nodi {
@@ -487,6 +495,10 @@ func ArchiDecisiNellAutorita(a Autorita, nodi []db.ComponenteProposta, archi []d
 	}
 	out := map[CoppiaDiComponenti]bool{}
 	for _, r := range archi {
+		if c, ok := ArcoConfermatoNellAlbero(r); ok {
+			out[c] = true
+			continue
+		}
 		if !r.DecisoDa.Valid || (r.Stato != db.StatoPropostaConfermata && r.Stato != db.StatoPropostaDuplicato) {
 			continue
 		}

@@ -456,6 +456,12 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 	}
 	visti := map[[2]chiaveNodo]bool{}
 	figliDi := map[chiaveNodo][]chiaveNodo{}
+	// gli archi della working, per sapere quali archi voluti sono nuovi: la regola del tipo guarda solo quelli
+	nellaWorking := map[[2]chiaveNodo]bool{}
+	for _, r := range cx.Attivi {
+		nellaWorking[[2]chiaveNodo{chiaveComponente(r.PadreID), chiaveComponente(r.FiglioID)}] = true
+	}
+	padriNuovi := map[chiaveNodo]bool{}
 	for _, a := range v.Archi {
 		p, err := risolvi(a.Padre)
 		if err != nil {
@@ -486,11 +492,16 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		pv.Archi = append(pv.Archi, arcoPiano{Padre: p, Figlio: f, Qta: a.Qta})
 		figliDi[p] = append(figliDi[p], f)
 		pv.Figli[p]++
+		if !nellaWorking[[2]chiaveNodo{p, f}] {
+			padriNuovi[p] = true
+		}
 	}
-	// i padri degli archi che l'operatore manda: la regola del tipo (in fondo) guarda solo loro, non gli archi
-	// della working che si tengono come sono
-	padriVoluti := make([]chiaveNodo, 0, len(figliDi))
-	for p := range figliDi {
+	// i padri degli archi NUOVI che l'operatore manda: la regola del tipo (in fondo) guarda solo loro. Un arco che c'e'
+	// gia' nella working si tiene com'e', anche con la quantita' cambiata (domanda 6, 29/09: «pianifica guarderà solo
+	// gli archi nuovi: quelli già nella distinta si tengono come sono»): un commerciale di prima con un figlio si
+	// salva, ma non ne riceve altri. Giro 4, fase 4.4a.1b: prima guardava i padri di tutti gli archi mandati.
+	padriVoluti := make([]chiaveNodo, 0, len(padriNuovi))
+	for p := range padriNuovi {
 		padriVoluti = append(padriVoluti, p)
 	}
 	sort.Slice(padriVoluti, func(i, j int) bool { return padriVoluti[i] < padriVoluti[j] })
@@ -746,8 +757,8 @@ func contieneID(ids []uuid.UUID, id uuid.UUID) bool {
 
 // esitoVoluta conta quello che e' cambiato, per la frase all'operatore.
 type esitoVoluta struct {
-	nuovi, ritrovati, aggiunti, tolti, quantita, scartati, chiuse, assiemi, codici, tenute, esistenti int
-	senzaPadre                                                                                        []string
+	nuovi, ritrovati, aggiunti, tolti, quantita, scartati, chiuse, codici, tenute, esistenti int
+	senzaPadre                                                                               []string
 }
 
 // ApplicaStrutturaVoluta porta la working alla struttura voluta sotto il prodotto v.Radice: nodi proposti
@@ -1077,18 +1088,10 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 		}
 	}
 
-	// 5. un particolare che adesso ha dei figli e' un assieme
-	for k := range pv.Albero {
-		id := compDi(k)
-		c, ok := cx.Componenti[id]
-		if !ok || pv.Figli[k] == 0 || c.Tipo != db.TipoComponenteSciolto {
-			continue
-		}
-		if err := q.SetTipoComponente(ctx, db.SetTipoComponenteParams{ComponenteID: id, Tipo: db.TipoComponenteSottoassieme, ConfermatoDa: utente}); err != nil {
-			return "", err
-		}
-		es.assiemi++
-	}
+	// 5. (tolto nel giro 4, fase 4.4a.1b) «un particolare che adesso ha dei figli e' un assieme»: E37 per un gesto a
+	// mano non c'e' piu' (6b = A, «un particolare non può avere figli»). pianifica rifiuta un arco nuovo sotto un
+	// particolare, e un arco di prima che c'era gia' si tiene com'e': nessun tipo cambia da solo. Il tipo lo cambia una
+	// persona, con il suo gesto; E37 resta solo per gli archi accettati da uno STEP autorizzato (29e = A, accettaRelazione).
 
 	// chi e' uscito dall'albero senza altri padri torna fra le radici, da sistemare
 	dopoArchi, err := archiAttivi(ctx, q, thread)
@@ -1255,9 +1258,6 @@ func fraseVoluta(radice string, es esitoVoluta) string {
 	}
 	if es.quantita > 0 {
 		parti = append(parti, quanti(es.quantita, "quantità cambiata", "quantità cambiate"))
-	}
-	if es.assiemi > 0 {
-		parti = append(parti, quanti(es.assiemi, "particolare diventa assieme", "particolari diventano assiemi"))
 	}
 	if es.scartati > 0 {
 		parti = append(parti, quanti(es.scartati, "nodo proposto scartato", "nodi proposti scartati"))

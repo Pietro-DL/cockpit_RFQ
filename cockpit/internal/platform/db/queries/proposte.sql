@@ -115,11 +115,74 @@ WHERE proposta_id = sqlc.arg(proposta_id) AND stato = 'aperta';
 -- scartato e di chi lo riapre. E' una correzione dell'evidenza (vale per un nodo di guida come per uno
 -- nell'autorita'), non tocca la BOM. Un nodo accettato non si riapre da qui: ha fatto nascere o ritrovato
 -- un componente, e quella e' una decisione sulla working.
+--
+-- Giro 4, fase 4.4a.1b: un nodo tolto nell'albero confermato porta il segno evidenza.albero (DecidiNodoNellAlbero)
+-- e la nota «tolto nell'albero confermato»; riaperto non e' piu' una decisione, e il segno e la nota vanno nella
+-- storia con lo scarto (la nota di una riga senza il segno resta com'e'). Gli archi che la stessa conferma aveva
+-- chiuso li riapre RiapriArchiToltiNellAlbero.
 UPDATE componente_proposta SET stato = 'aperta', componente_id = NULL, deciso_da = NULL, deciso_il = NULL,
-       evidenza = evidenza || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+       nota = CASE WHEN evidenza ? 'albero' THEN NULL ELSE nota END,
+       evidenza = (evidenza - 'albero') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
                   jsonb_build_object('evento', 'nodo_riaperto', 'scartato_da', deciso_da, 'scartato_il', deciso_il,
+                                     'albero', evidenza -> 'albero', 'nota', nota,
                                      'riaperto_da', sqlc.arg(utente)::uuid, 'riaperto_il', now())))
 WHERE proposta_id = sqlc.arg(proposta_id) AND stato = 'scartata';
+
+-- name: RiapriArchiToltiNellAlbero :execrows
+-- «Riapri il nodo» su un nodo che la conferma dell'albero ha tolto (giro 4, fase 4.4a.1b; studio
+-- docs/specs/studio_albero_distinta_29-09.md § 2.5: «RiapriNodo li riporta»). La stessa conferma aveva chiuso,
+-- scartate da una persona con la nota e il segno, anche le righe degli archi dello stesso file che toccano il nodo:
+-- senza riaprirle il nodo non si raggiunge piu' da un prodotto (le strutture saltano gli archi scartati da una
+-- persona) e non torna nell'albero. Si riaprono solo quelle chiuse da quella conferma (la stessa firma del riepilogo
+-- nel segno, la stessa nota): uno scarto a mano resta. La decisione, il segno e la nota vanno nella storia.
+UPDATE relazione_proposta SET stato = 'aperta', deciso_da = NULL, deciso_il = NULL, nota = NULL,
+       evidenza = (evidenza - 'albero') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'arco_riaperto', 'scartato_da', deciso_da, 'scartato_il', deciso_il,
+                                     'albero', evidenza -> 'albero', 'nota', nota,
+                                     'riaperto_da', sqlc.arg(utente)::uuid, 'riaperto_il', now())))
+WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id)
+  AND (padre_chiave = sqlc.arg(chiave) OR figlio_chiave = sqlc.arg(chiave))
+  AND stato = 'scartata' AND deciso_da IS NOT NULL AND nota = sqlc.arg(nota)::text
+  AND evidenza -> 'albero' ->> 'firma' = sqlc.arg(firma)::text;
+
+-- name: DecidiNodoNellAlbero :execrows
+-- La conferma dell'albero (giro 4, fase 4.4a.1b; studio docs/specs/studio_albero_distinta_29-09.md § 2.9): la riga di
+-- un nodo che l'albero confermato copre diventa la decisione di una persona, con gli stati di sempre (confermata: ha
+-- fatto nascere il componente; duplicato: lo ritrova; scartata: tolta nell'albero, con la nota) e con il segno
+-- «confermato nell'albero» in evidenza.albero (chi, quando, la firma del riepilogo; il ✓ o il ✗ della proposta
+-- commerciale). Senza migrazione: evidenza c'e' gia', e una riga decisa da una persona non si riscrive piu' (le
+-- letture riscrivono solo le righe aperte o chiuse da un automatismo: UpsertComponenteProposta). Una riga chiusa da un
+-- automatismo (senza chi l'ha decisa: l'aggancio per codice di prima, che il riepilogo elenca) si decide, e com'era va
+-- nella storia, con il segno di una conferma di prima se c'era. Una riga gia' decisa da una persona si
+-- tocca solo con anche_decise: quando la conferma di adesso toglie un pezzo che una decisione di prima aveva preso, e'
+-- una decisione nuova di una persona sulla stessa riga, e quella di prima va nella storia; una riga gia' scartata da una
+-- persona resta com'e'.
+UPDATE componente_proposta SET stato = sqlc.arg(stato), componente_id = sqlc.narg(componente_id),
+       deciso_da = sqlc.arg(deciso_da)::uuid, deciso_il = now(), nota = sqlc.narg(nota),
+       evidenza = evidenza || jsonb_build_object('albero', sqlc.arg(segno)::jsonb) ||
+                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
+                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'componente_id', componente_id,
+                                               'deciso_da', deciso_da, 'deciso_il', deciso_il, 'nota', nota,
+                                               'albero', evidenza -> 'albero', 'il', now()))) END
+WHERE proposta_id = sqlc.arg(proposta_id)
+  AND (deciso_da IS NULL OR (sqlc.arg(anche_decise)::bool AND stato <> 'scartata'));
+
+-- name: DecidiArcoNellAlbero :execrows
+-- La riga di un arco che l'albero confermato copre (fase 4.4a.1b), come DecidiNodoNellAlbero: confermata o duplicato
+-- per un legame che l'albero tiene, scartata con la nota per uno che la conferma toglie. Il segno evidenza.albero porta
+-- anche i due componenti del legame (padre, figlio): la radice del prodotto non e' una riga decisa, e il segno dice lo
+-- stesso quale arco della working la persona ha confermato. anche_decise come per i nodi: un legame tolto adesso che
+-- una decisione di prima aveva preso.
+UPDATE relazione_proposta SET stato = sqlc.arg(stato), nota = sqlc.narg(nota), deciso_da = sqlc.arg(deciso_da)::uuid, deciso_il = now(),
+       evidenza = evidenza || jsonb_build_object('albero', sqlc.arg(segno)::jsonb) ||
+                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
+                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'deciso_da', deciso_da,
+                                               'deciso_il', deciso_il, 'nota', nota, 'albero', evidenza -> 'albero', 'il', now()))) END
+WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id) AND padre_chiave = sqlc.arg(padre_chiave)
+  AND figlio_chiave = sqlc.arg(figlio_chiave)
+  AND (deciso_da IS NULL OR (sqlc.arg(anche_decise)::bool AND stato <> 'scartata'));
 
 -- name: BloccaRelazioneProposta :one
 SELECT * FROM relazione_proposta

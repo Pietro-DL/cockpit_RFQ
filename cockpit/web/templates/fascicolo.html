@@ -1259,7 +1259,6 @@
   {{with $e.ConLei}}<p class="avviso-riga warn">Si sospendono con lei le deleghe di {{join . ", "}}.</p>{{end}}
   {{with $e.SvuotaStep}}<p class="avviso-riga warn">{{.}} non è più il suo STEP strutturale: il riferimento si svuota, e torna solo con «Riattiva» e il ritorno a prodotto finito.</p>{{end}}
   {{if $e.Rimozioni}}<p class="k">{{$e.Rimozioni}} {{sel (eq $e.Rimozioni 1) "rimozione proposta si chiude" "rimozioni proposte si chiudono"}}, con la nota della sospensione.</p>{{end}}
-  {{with $e.FigliRestano}}<p class="k">I figli già nella BOM restano: {{join . ", "}} (li ha decisi una persona).</p>{{end}}
   {{range $e.RestaSospesa}}<p class="avviso-riga info">Resta sospesa {{.}}: non si riattiva da sola; dalla scheda si sceglie «Riattiva» oppure «Revoca».</p>{{end}}
   {{if $e.Autorizzabile}}<p class="k">Il suo STEP si potrà autorizzare dalla scheda: niente si autorizza da solo.</p>{{end}}
   {{with $e.StepStrutturale}}<p class="k">{{.}} diventa anche il suo STEP strutturale.</p>{{end}}

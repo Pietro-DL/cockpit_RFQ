@@ -2,7 +2,7 @@ package fascicolo
 
 // L'albero proposto della Distinta (giro 4, fase 4.4a.1a; domande 27 = A, 28 = A, 29a, 29b, 29e = A, 30 seconda
 // risposta, 6a, 6b; studio docs/specs/studio_albero_distinta_29-09.md § 1-2, con la verifica in coda). E' la LETTURA:
-// niente qui scrive. La conferma dell'albero, che scrive, e' la fase 4.4a.1b; la pagina la 4.4a.3.
+// niente qui scrive. La conferma dell'albero, che scrive, e' la fase 4.4a.1b (albero_conferma.go); la pagina la 4.4a.3.
 //
 // Per la RFQ una foresta: un albero per ogni prodotto confermato (ProdottiDellaRfq). L'albero parte dai file del
 // prodotto (lo STEP che F8 riconosce come la sua ancora, o lo STEP autorizzato) e scende a TUTTI i livelli di quel file
@@ -150,6 +150,9 @@ type RitrovatoAlbero struct {
 	Codice     string            `json:"codice"`
 	Tipo       db.TipoComponente `json:"tipo"`
 	Archiviato bool              `json:"archiviato,omitempty"`
+	// Agganciato: fra le righe da decidere c'e' un aggancio per codice di prima dello Smistamento (RigaAlbero.Agganciata):
+	// il riepilogo lo dice, perche' la conferma lo fa diventare la decisione di una persona (fase 4.4a.1b).
+	Agganciato bool `json:"agganciato,omitempty"`
 }
 
 // DomandaCommerciale e' la proposta del tipo «particolare commerciale» per una foglia (domanda 30, seconda risposta):
@@ -174,6 +177,22 @@ type RigaAlbero struct {
 	File     string           `json:"file"`
 	Chiave   string           `json:"chiave"`
 	Stato    db.StatoProposta `json:"stato"`
+	// Rev: la revisione che la riga dice (maiuscola; vuota se non ne dice una). Di un componente che c'e', una
+	// revisione nuova detta dalle righe ancora da decidere e' la revisione nuova dello stesso pezzo (fase 4.4a.1b).
+	Rev string `json:"rev,omitempty"`
+	// Agganciata: un aggancio per codice di prima dello Smistamento (AgganciatoPerCodice: duplicato con il componente,
+	// senza chi l'ha deciso, la forma F-A). Non e' una decisione (U5: il gate lo conta da decidere, una persona lo
+	// conferma): per l'albero e' una riga ancora da decidere come un'aperta, che il riepilogo elenca fra i ritrovati e
+	// che la conferma decide (fase 4.4a.1b, dalla verifica: senza, la conferma la faceva diventare la decisione di una
+	// persona senza che il riepilogo la dicesse).
+	Agganciata bool `json:"agganciata,omitempty"`
+}
+
+// daDecidere: la riga non e' ancora una decisione di nessuno, e la conferma dell'albero la decide se il riepilogo
+// elenca il suo nodo: aperta, o agganciata per codice prima dello Smistamento. Una chiusa da un automatismo
+// (scartata senza chi l'ha decisa) non lo e': la rilettura la riscrive, e la conferma la lascia com'e'.
+func (r RigaAlbero) daDecidere() bool {
+	return r.Stato == db.StatoPropostaAperta || r.Agganciata
 }
 
 // ArcoAlbero e' un legame dell'albero: il padre, il figlio, la quantita' proposta e i file che lo dicono.
@@ -198,6 +217,17 @@ type FonteArco struct {
 	File     string    `json:"file"`
 	Qta      int32     `json:"qta"`
 	Scartata bool      `json:"scartata,omitempty"`
+	// Righe: le righe di relazione_proposta che fanno la fonte (piu' d'una quando lo stesso codice sta piu' volte sotto
+	// lo stesso nodo del file). Sono quelle che la conferma dell'albero decide (fase 4.4a.1b).
+	Righe []RigaArco `json:"righe,omitempty"`
+}
+
+// RigaArco e' una riga di relazione_proposta: il file che la porta, i due nodi del file e la quantita'.
+type RigaArco struct {
+	Allegato uuid.UUID `json:"allegato"`
+	Padre    string    `json:"padre"`
+	Figlio   string    `json:"figlio"`
+	Qta      int32     `json:"qta"`
 }
 
 // RimozioneAlbero e' la rimozione proposta dallo STEP su un legame della working (rimozione_proposta aperta).
@@ -516,7 +546,7 @@ func (c *costruzione) cammina(sha string, sorgenti []string, radice string, conS
 			}
 			c.riga(c.nodo(k), n, f)
 			a := c.arco(x.padre, k)
-			a.fonte(f, x.chiave, r.Qta, true)
+			a.fonte(f, x.chiave, RigaArco{Allegato: r.AllegatoID, Padre: r.PadreChiave, Figlio: r.FiglioChiave, Qta: r.Qta}, true)
 		}
 		for _, a := range st.Figli[x.chiave] {
 			n, ok := st.Nodi[a.Figlio]
@@ -535,7 +565,7 @@ func (c *costruzione) cammina(sha string, sorgenti []string, radice string, conS
 			}
 			nodo := c.nodo(k)
 			c.riga(nodo, n, f)
-			c.arco(x.padre, k).fonte(f, x.chiave, int32(a.Qta), false)
+			c.arco(x.padre, k).fonte(f, x.chiave, RigaArco{Allegato: st.Portatore, Padre: x.chiave, Figlio: a.Figlio, Qta: int32(a.Qta)}, false)
 			if c.commerciale(nodo.Codice, nullo(DecisoDaUnaPersona(n))) {
 				if len(st.Figli[a.Figlio]) > 0 {
 					nodo.nota(fmt.Sprintf("è un particolare commerciale: i pezzi che %s gli mette sotto restano guida (6a)", f.Nome))
@@ -551,15 +581,17 @@ func (c *costruzione) cammina(sha string, sorgenti []string, radice string, conS
 }
 
 // commerciale: il pezzo e' un particolare commerciale che c'e' (il componente che una persona ha dato alla riga, o
-// quello con il suo codice canonico, che ritrova anche il pezzo nato con il suffisso del cliente).
+// quello con il suo codice canonico, che ritrova anche il pezzo nato con il suffisso del cliente). Anche archiviato
+// (fase 4.4a.1b, dalla verifica della 4.4a.1a): il nodo lo ritrova, la conferma lo ripristina con il suo tipo, e un
+// commerciale e' una foglia (6a) come quando e' attivo.
 func (c *costruzione) commerciale(codice string, acc uuid.NullUUID) bool {
 	if acc.Valid {
 		if x, ok := c.d.compPerID[acc.UUID]; ok {
-			return x.ArchiviatoIl == nil && x.Tipo == db.TipoComponenteCommerciale
+			return x.Tipo == db.TipoComponenteCommerciale
 		}
 	}
 	x, ok := c.perCan[codice]
-	return ok && codice != "" && x.ArchiviatoIl == nil && x.Tipo == db.TipoComponenteCommerciale
+	return ok && codice != "" && x.Tipo == db.TipoComponenteCommerciale
 }
 
 // chiaveRiga e' la chiave del nodo di una riga: il codice canonico, o la riga stessa se non ha codice.
@@ -590,7 +622,8 @@ func (c *costruzione) riga(n *NodoAlbero, p db.ComponenteProposta, f FileFlusso)
 			return
 		}
 	}
-	n.Righe = append(n.Righe, RigaAlbero{Proposta: p.PropostaID, Allegato: f.AllegatoID, File: f.Nome, Chiave: p.Chiave, Stato: p.Stato})
+	n.Righe = append(n.Righe, RigaAlbero{Proposta: p.PropostaID, Allegato: f.AllegatoID, File: f.Nome, Chiave: p.Chiave, Stato: p.Stato,
+		Rev: strings.ToUpper(strings.TrimSpace(p.Rev.String)), Agganciata: AgganciatoPerCodice(p)})
 	if scartatoDaUnaPersona(p.Stato, p.DecisoDa) {
 		return
 	}
@@ -642,8 +675,9 @@ func (c *costruzione) arco(padre, figlio string) *arcoInCostruzione {
 }
 
 // fonte aggiunge al legame il file che lo dice, sotto il nodo padre del file: i figli con lo stesso codice sotto lo
-// stesso nodo sono pezzi in piu', e le quantita' si sommano.
-func (a *arcoInCostruzione) fonte(f FileFlusso, padreNelFile string, qta int32, scartata bool) {
+// stesso nodo sono pezzi in piu', e le quantita' si sommano. La riga di relazione_proposta resta con la fonte: e'
+// quella che la conferma decide.
+func (a *arcoInCostruzione) fonte(f FileFlusso, padreNelFile string, riga RigaArco, scartata bool) {
 	k := f.AllegatoID.String() + "|" + padreNelFile
 	if scartata {
 		k += "|scartata"
@@ -654,7 +688,8 @@ func (a *arcoInCostruzione) fonte(f FileFlusso, padreNelFile string, qta int32, 
 		a.perFonte[k] = x
 		a.ordine = append(a.ordine, k)
 	}
-	x.Qta += qta
+	x.Qta += riga.Qta
+	x.Righe = append(x.Righe, riga)
 }
 
 // chiudi calcola quello che dipende dall'albero intero: lo stato e il tipo di ogni nodo, i padri e i figli, i
@@ -770,12 +805,17 @@ func (c *costruzione) chiudi(out *AlberoProposto, s *StatoFlusso) {
 				n.Nome = comp.Descrizione.String
 			}
 		}
-		aperte, decise, vive := 0, 0, 0
+		// aperte: le righe ancora da decidere, con gli agganci per codice di prima dello Smistamento (non sono decisioni:
+		// fase 4.4a.1b, RigaAlbero.Agganciata)
+		aperte, decise, vive, agganciate := 0, 0, 0, 0
 		for _, r := range n.Righe {
 			switch {
-			case r.Stato == db.StatoPropostaAperta:
+			case r.daDecidere():
 				aperte++
 				vive++
+				if r.Agganciata {
+					agganciate++
+				}
 			case r.Stato == db.StatoPropostaScartata:
 			default:
 				decise++
@@ -798,17 +838,25 @@ func (c *costruzione) chiudi(out *AlberoProposto, s *StatoFlusso) {
 		default:
 			n.Stato = StatoAlberoScartato
 		}
-		// il ritrovato per codice (P13): righe ancora aperte e un componente con lo stesso codice
-		if esiste && aperte > 0 && !n.Prodotto {
-			n.Ritrovato = &RitrovatoAlbero{Componente: comp.ComponenteID, Codice: comp.Codice, Tipo: comp.Tipo, Archiviato: comp.ArchiviatoIl != nil}
+		// il ritrovato per codice (P13): righe ancora da decidere e un componente con lo stesso codice. Un componente
+		// archiviato con lo stesso codice e' ritrovato anche con le righe gia' decise (fase 4.4a.1b): la conferma lo
+		// ripristina, e il riepilogo lo deve dire. Un aggancio per codice di prima e' ritrovato come una riga aperta: la
+		// conferma lo decide, quindi il riepilogo lo elenca (P13, U5)
+		if esiste && !n.Prodotto && (aperte > 0 || (!attivo && n.Stato == StatoAlberoProposto)) {
+			n.Ritrovato = &RitrovatoAlbero{Componente: comp.ComponenteID, Codice: comp.Codice, Tipo: comp.Tipo, Archiviato: comp.ArchiviatoIl != nil,
+				Agganciato: agganciate > 0}
 		}
-		// il tipo proposto
+		// il tipo proposto. Un componente archiviato che il nodo ritrova segue 6a e 6b come un attivo (fase 4.4a.1b,
+		// dalla verifica della 4.4a.1a): la conferma lo ripristina con il tipo che il riepilogo dice
 		switch {
 		case n.Prodotto:
 			n.Tipo, n.TipoMotivo = db.TipoComponenteFinito, "il prodotto della richiesta"
-		case attivo && n.Figli > 0 && comp.Tipo == db.TipoComponenteSciolto:
+		case esiste && n.Figli > 0 && comp.Tipo == db.TipoComponenteSciolto:
 			n.Tipo = db.TipoComponenteSottoassieme
 			n.TipoMotivo = fmt.Sprintf("è un particolare, ma nell'albero ha %d figli: un particolare non ha figli, è proposto come assieme (6b)", n.Figli)
+			if !attivo {
+				n.TipoMotivo = fmt.Sprintf("era un particolare (archiviato), ma nell'albero ha %d figli: un particolare non ha figli, è proposto come assieme (6b)", n.Figli)
+			}
 		case attivo:
 			n.Tipo, n.TipoMotivo = comp.Tipo, "il tipo del componente"
 		case esiste:
@@ -837,8 +885,11 @@ func (c *costruzione) chiudi(out *AlberoProposto, s *StatoFlusso) {
 			}
 			n.Vicini = Vicini(n.Codice, altri, d.m)
 		}
-		// la proposta commerciale: solo una foglia che nascerebbe, dal nome del pezzo (mai dal testo del disegno)
-		if nasce && n.Figli == 0 {
+		// la proposta commerciale: solo una foglia che nascerebbe, dal nome del pezzo (mai dal testo del disegno). Anche
+		// una foglia senza codice (fase 4.4a.1b, dalla verifica della 4.4a.1a): nasce quando nella bozza prende un
+		// codice, e allora la domanda vale (il riepilogo la conta solo da li')
+		senzaCodice := n.Codice == "" && !n.Prodotto && n.Stato == StatoAlberoProposto
+		if (nasce || senzaCodice) && n.Figli == 0 {
 			nome := nomeDelPezzo(n, righe)
 			switch e := classificazione.Minuteria(nome); {
 			case e.Proposta():
@@ -963,9 +1014,10 @@ func senzaPrefisso(chiavi []string) []string {
 }
 
 // firmaAlbero e' lo sha256 del JSON canonico dello stato dell'albero e della working: i nodi e gli archi con i loro
-// stati, i tipi, i componenti, le domande aperte e le righe; tutti i componenti e gli archi attivi della working; la
+// stati, i tipi, i componenti, le domande aperte e le righe (dalla fase 4.4a.1b con la revisione di ogni riga, se e'
+// un aggancio per codice di prima, e le righe di ogni fonte: sono quello che la conferma decide); tutti i componenti e gli archi attivi della working; la
 // firma dell'indice di F8 (ancore, regole del cliente, algoritmo). Le parole dei motivi e delle note non ci entrano:
-// cambiano con le frasi, non con lo stato. La conferma della fase 4.4a.1b la ricalcola sotto il lucchetto della RFQ.
+// cambiano con le frasi, non con lo stato. La conferma (ConfermaAlbero) la ricalcola sotto il lucchetto della RFQ.
 func firmaAlbero(a AlberoProposto, s *StatoFlusso) string {
 	type nodoFirma struct {
 		Chiave, Codice, Rev, Stato string
@@ -1019,14 +1071,20 @@ func firmaAlbero(a AlberoProposto, s *StatoFlusso) string {
 			x.Commerciale = n.Commerciale.Esito + ":" + n.Commerciale.Nome
 		}
 		for _, r := range n.Righe {
-			x.Righe = append(x.Righe, r.Proposta.String()+":"+string(r.Stato))
+			// l'aggancio per codice di prima: confermato da una persona (ConfermaNodoAgganciato) resta duplicato, e cambia
+			// solo chi l'ha deciso
+			x.Righe = append(x.Righe, fmt.Sprintf("%s:%s:%s:%v", r.Proposta, r.Stato, r.Rev, r.Agganciata))
 		}
 		f.Nodi = append(f.Nodi, x)
 	}
 	for _, r := range a.Archi {
 		x := arcoFirma{Padre: r.Padre, Figlio: r.Figlio, Stato: r.Stato, Qta: r.Qta, QtaWorking: r.QtaWorking, QtaDiscordi: r.QtaDiscordi}
 		for _, fo := range r.Fonti {
-			x.Fonti = append(x.Fonti, fmt.Sprintf("%s:%d:%v", fo.Allegato, fo.Qta, fo.Scartata))
+			fonte := fmt.Sprintf("%s:%d:%v", fo.Allegato, fo.Qta, fo.Scartata)
+			for _, rr := range fo.Righe {
+				fonte += fmt.Sprintf(":%s>%s*%d@%s", rr.Padre, rr.Figlio, rr.Qta, rr.Allegato)
+			}
+			x.Fonti = append(x.Fonti, fonte)
 		}
 		if r.Rimozione != nil {
 			x.Rimozione = r.Rimozione.Step.String()
