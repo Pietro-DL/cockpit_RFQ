@@ -14,7 +14,7 @@ import (
 )
 
 const listAnteprimePanoramica = `-- name: ListAnteprimePanoramica :many
-SELECT d.thread_id, d.componente_id, d.codice, a.allegato_id, a.nome_file, 'documento'::text AS fonte, dp.ricevuto_il AS quando
+SELECT d.thread_id, d.componente_id, d.codice, a.allegato_id, a.nome_file, a.sha256, 'documento'::text AS fonte, dp.ricevuto_il AS quando
   FROM documento d
   JOIN documento_provenienza dp ON dp.documento_id = d.documento_id
   JOIN allegato a ON a.allegato_id = dp.allegato_id
@@ -22,7 +22,7 @@ SELECT d.thread_id, d.componente_id, d.codice, a.allegato_id, a.nome_file, 'docu
  WHERE d.thread_id = ANY($1::uuid[])
    AND d.tipo = 'disegno_2d' AND d.sostituito_da IS NULL AND ca.archiviato_il IS NULL
 UNION ALL
-SELECT p.thread_id, p.componente_id, p.codice, a.allegato_id, a.nome_file, 'proposta'::text AS fonte, p.creato_il AS quando
+SELECT p.thread_id, p.componente_id, p.codice, a.allegato_id, a.nome_file, a.sha256, 'proposta'::text AS fonte, p.creato_il AS quando
   FROM documento_proposta p
   JOIN allegato a ON a.allegato_id = p.allegato_id
  WHERE p.thread_id = ANY($1::uuid[])
@@ -35,13 +35,15 @@ type ListAnteprimePanoramicaRow struct {
 	Codice       pgtype.Text   `json:"codice"`
 	AllegatoID   uuid.UUID     `json:"allegato_id"`
 	NomeFile     string        `json:"nome_file"`
+	Sha256       pgtype.Text   `json:"sha256"`
 	Fonte        string        `json:"fonte"`
 	Quando       time.Time     `json:"quando"`
 }
 
 // I disegni che possono fare da anteprima nelle RFQ date: i 2D correnti (non sostituiti, di un
 // componente non archiviato) con un allegato fra le provenienze, e le proposte 2D ancora aperte. Il Go
-// sceglie per ogni prodotto: prima il documento, poi la proposta; fra piu' candidati il piu' recente.
+// sceglie per ogni prodotto: prima il documento, poi la proposta; fra piu' candidati il piu' recente. Lo sha256
+// dell'allegato va nell'indirizzo dell'anteprima (cache C1).
 func (q *Queries) ListAnteprimePanoramica(ctx context.Context, threadIds []uuid.UUID) ([]ListAnteprimePanoramicaRow, error) {
 	rows, err := q.db.Query(ctx, listAnteprimePanoramica, threadIds)
 	if err != nil {
@@ -57,6 +59,7 @@ func (q *Queries) ListAnteprimePanoramica(ctx context.Context, threadIds []uuid.
 			&i.Codice,
 			&i.AllegatoID,
 			&i.NomeFile,
+			&i.Sha256,
 			&i.Fonte,
 			&i.Quando,
 		); err != nil {

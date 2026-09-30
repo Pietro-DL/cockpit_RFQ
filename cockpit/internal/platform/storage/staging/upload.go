@@ -107,6 +107,38 @@ func estensioneDi(nomeFile string) string {
 	return "." + e
 }
 
+// EContenuto dice se `percorso` e' il posto in cui PercorsoContenuto mette, sotto `staging`, il contenuto con
+// quell'hash: <staging>\_contenuti\<ab>\<sha256>.<ext>, con una qualunque delle estensioni che PercorsoContenuto
+// sa scrivere (lo stesso contenuto arrivato con due nomi diversi ne puo' avere due).
+//
+// Serve a chi deve FIDARSI del nome, non solo trovare il file: l'anteprima (cache C1) dice al browser di tenere
+// i byte per sempre solo quando sono, per costruzione, quelli dell'hash. Qui dentro un file arriva solo dopo che
+// il suo hash e' stato verificato, ed e' per questo che il nome vale una verifica. Un percorso che sta sotto la
+// radice ma altrove — lo staging vecchio per messaggio, `_parti`, una riga cambiata a mano, un file che si chiama
+// come un ALTRO hash — quella garanzia non ce l'ha, e la risposta e' no.
+//
+// La radice si confronta senza distinguere maiuscole e minuscole, come il contenimento dell'anteprima: NTFS non
+// le distingue, e la radice della configurazione puo' essere scritta diversamente da quella con cui il percorso
+// e' stato composto. Il resto no: lo scrive sempre PercorsoContenuto, in minuscolo.
+func EContenuto(staging, percorso, sha256 string) bool {
+	h := strings.ToLower(strings.TrimSpace(sha256))
+	base := strings.TrimRight(strings.TrimSpace(staging), `\/`)
+	if !reSha256.MatchString(h) || base == "" {
+		return false
+	}
+	base = filepath.Clean(base) + string(filepath.Separator)
+	p := filepath.Clean(percorso)
+	if len(p) <= len(base) || !strings.EqualFold(p[:len(base)], base) {
+		return false
+	}
+	parti := strings.Split(p[len(base):], string(filepath.Separator))
+	if len(parti) != 3 || parti[0] != CartellaContenuti || parti[1] != h[:2] {
+		return false
+	}
+	ext := filepath.Ext(parti[2])
+	return strings.TrimSuffix(parti[2], ext) == h && reEstensione.MatchString(strings.TrimPrefix(ext, "."))
+}
+
 // ContenutoGiaPresente dice se quel contenuto è già nello staging, verificandone l'hash.
 //
 // L'hash si ricalcola invece di fidarsi del nome: un file rimasto a metà da una versione precedente,
