@@ -46,6 +46,16 @@ INSERT INTO proposta_triage (messaggio_id, esito, confidenza, motivi, fonte, sta
 VALUES ($1, 'ignora', 100, '["ignorato dall''operatore"]', 'deterministico', 'rifiutata', $2, now())
 ON CONFLICT (messaggio_id, fonte) DO UPDATE SET stato = 'rifiutata', deciso_da = EXCLUDED.deciso_da, deciso_il = now();
 
+-- name: TogliIgnoraOperatore :execrows
+-- «Rimetti fra i da decidere»: la riga che «Ignora» ha scritto da sola, senza una proposta sotto, si toglie.
+DELETE FROM proposta_triage
+WHERE messaggio_id = $1 AND stato = 'rifiutata' AND esito = 'ignora' AND motivi = '["ignorato dall''operatore"]'::jsonb;
+
+-- name: RiapriPropostaRifiutata :execrows
+-- ...e una proposta vera che «Ignora» aveva rifiutato torna proposta, con il suo esito e i suoi motivi.
+UPDATE proposta_triage SET stato = 'proposta', deciso_da = NULL, deciso_il = NULL
+WHERE messaggio_id = $1 AND stato = 'rifiutata';
+
 -- name: DecidiTriage :execrows
 UPDATE proposta_triage SET stato = $2, deciso_da = $3, deciso_il = now() WHERE messaggio_id = $1 AND stato = 'proposta';
 

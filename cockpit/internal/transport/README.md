@@ -88,7 +88,7 @@ markmap:
 - **Pagina o frammento**:
   - alcune rotte esistono solo come frammento:
     - `/messaggio/{id}/triage`, `/censisci`, `/anagrafica/buyer`, `/thread/cerca`, `/stato/worker`,
-      `/inbox/sync-storico/stato`, `/richieste/{id}/prodotti`, le parti del Fascicolo;
+      `/inbox/sync-storico/stato`, `/inbox/posta`, `/richieste/{id}/dettaglio`, le parti del Fascicolo;
   - una richiesta non htmx a `/messaggio/{id}` viene rimandata all'Inbox, nel quadrante del messaggio e con il
     messaggio selezionato.
 - **Mai HTML della mail nella pagina**:
@@ -219,11 +219,13 @@ markmap:
 - **`GET /cruscotto`**
   - Effetto: 303 verso `/richieste`
   - Gestore: `routes_rfq.go:cruscotto`
-- **`GET /richieste` · `GET /richieste/{id}/prodotti`**
+- **`GET /richieste` · `GET /richieste/{id}/dettaglio` · `POST /thread/{id}/fase`**
   - Effetto:
-    - la pagina Richieste (una card per RFQ, filtri nell'indirizzo, poll con firma: 204 se niente è cambiato)
-    - e «+ N altri» (404 senza prodotti)
-  - Gestore: `panoramica.go:richieste`, `richiestaProdotti`
+    - la pagina Richieste (una riga per RFQ o le colonne per fase, filtri nell'indirizzo, poll con firma: 204 se
+      niente è cambiato)
+    - la RFQ scelta, con i prodotti («+ N altri» con `?prodotti=tutti`) e la conferma di un passaggio (`?passo=`)
+    - il passaggio di fase a mano (`fascicolo.PassaFase`)
+  - Gestore: `panoramica.go:richieste`, `richieste_ui.go:richiestaDettaglio`, `passaFase`
 
 ### Fascicolo: proposte e codici
 

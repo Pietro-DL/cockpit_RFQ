@@ -49,6 +49,8 @@ func (s *Server) registraInbox(mux *http.ServeMux) {
 	mux.HandleFunc("POST /messaggio/{id}/rfq", s.autenticato(s.nuovaRFQ))
 	mux.HandleFunc("POST /messaggio/{id}/aggancia", s.autenticato(s.agganciaEsistente))
 	mux.HandleFunc("POST /messaggio/{id}/ignora", s.autenticato(s.ignora))
+	mux.HandleFunc("POST /messaggio/{id}/ripristina", s.autenticato(s.ripristina))
+	mux.HandleFunc("GET /inbox/posta", s.autenticato(s.postaInbox))
 	// Smistamento M1: «Ricalcola» sui candidati scritti con le regole di prima (A5.10), un messaggio alla volta
 	mux.HandleFunc("POST /messaggio/{id}/ricalcola", s.autenticato(s.ricalcolaCandidati))
 	// blocco 7A.3: «Censisci come fornitore / cliente» dal pannello, con il ritriage mirato
@@ -95,6 +97,41 @@ type inboxDati struct {
 	// sulla schermata vede crescere il contatore e comparire i pallini ai poll successivi.
 	Nuovi  map[uuid.UUID]bool
 	NNuove int
+	// L'Inbox nuova (inbox_ui.go). Adesso: la vista «Da fare adesso», tutte le mail da decidere di ogni
+	// quadrante, raggruppate per tipo di decisione. Cerca: il testo della ricerca, che guarda in tutta la
+	// posta. Lista: le righe con l'intestazione del gruppo o del giorno. Decise: le mail decise oggi da chi
+	// guarda; DaDecidere: quante aspettano ancora, in tutti i quadranti.
+	Adesso     bool
+	Cerca      string
+	Lista      []rigaInbox
+	Decise     int32
+	DaDecidere int64
+}
+
+// NomeVista e' il titolo della lista.
+func (d inboxDati) NomeVista() string {
+	switch {
+	case d.Cerca != "":
+		return "Risultati"
+	case d.Adesso:
+		return "Da fare adesso"
+	}
+	for _, q := range quadranti {
+		if q.Chiave == d.Quadrante {
+			return q.Nome
+		}
+	}
+	return "Tutti"
+}
+
+// Progresso e' la barra «oggi N decise»: la parte delle decisioni di oggi su quelle di oggi piu' quelle che
+// restano, in percentuale della larghezza (non e' un punteggio: e' quanta barra e' piena).
+func (d inboxDati) Progresso() int {
+	tot := int64(d.Decise) + d.DaDecidere
+	if tot == 0 {
+		return 0
+	}
+	return int(int64(d.Decise) * 100 / tot)
 }
 
 // ENuovo dice se una riga della lista è arrivata dopo l'ultima visita dell'operatore.
@@ -103,6 +140,9 @@ func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
 // QuadranteURL è il quadrante come va scritto nei link: «tutti» e non vuoto, perché un `q` vuoto
 // tornerebbe al predefinito (Clienti) e la schermata cambierebbe quadrante da sola.
 func (d inboxDati) QuadranteURL() string {
+	if d.Adesso {
+		return vistaAdesso
+	}
 	if d.Quadrante == "" {
 		return "tutti"
 	}
@@ -191,7 +231,21 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	if !scelta.Valid {
 		grezzo = ""
 	}
-	quadrante := quadranteValido(r.URL.Query().Get("q"))
+	// «Da fare adesso» e' la vista con cui l'Inbox si apre: tutti i quadranti, solo le mail da decidere.
+	grezzoQ := r.URL.Query().Get("q")
+	adesso := grezzoQ == "" || grezzoQ == vistaAdesso
+	quadrante := quadranteValido(grezzoQ)
+	if adesso {
+		quadrante, filtro = "", "orfani"
+	}
+	// La ricerca guarda in tutta la posta: chi cerca un codice non sa in che quadrante sta la mail.
+	cerca := strings.TrimSpace(r.URL.Query().Get("cerca"))
+	if r := []rune(cerca); len(r) > maxTestoRicerca {
+		cerca = string(r[:maxTestoRicerca])
+	}
+	if cerca != "" {
+		quadrante, filtro = "", "tutti"
+	}
 	direzione := direzioneValida(r.URL.Query().Get("dir"))
 	// `sel` finisce in un indirizzo che la pagina chiede da sola (hx-get="/messaggio/{{sel}}" con
 	// hx-trigger="load") e nei parametri degli altri link. Un valore che non e' un uuid non e' un
@@ -201,7 +255,8 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	if id, err := uuid.Parse(r.URL.Query().Get("sel")); err == nil {
 		sel = id.String()
 	}
-	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione, Limite: 200, Salta: 0})
+	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione,
+		Cerca: modelloRicerca(cerca), Limite: 200, Salta: 0})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -213,7 +268,13 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
 		Righe: righe, Conta: conta, Selezion: sel,
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale,
-		DalCockpit: origineDellaPagina(r.Context(), q, righe)}
+		DalCockpit: origineDellaPagina(r.Context(), q, righe),
+		Adesso:     adesso && cerca == "", Cerca: cerca}
+	d.Lista = righeInbox(r.Context(), q, righe, d.Adesso)
+	d.DaDecidere = perQuadrante.Clienti + perQuadrante.Fornitori + perQuadrante.Interni + perQuadrante.Altro + perQuadrante.Validare
+	if u != nil {
+		d.Decise, _ = q.ContaDecisioniOggi(r.Context(), uuid.NullUUID{UUID: u.UtenteID, Valid: true})
+	}
 	// Il frammento e' «inbox_stato», non «inbox_lista»: i comandi e la lista si rifanno INSIEME.
 	// Rispondere con la sola lista lasciava sullo schermo le linguette del quadrante precedente
 	// (checkpoint 7B.5), cioe' una schermata che diceva una cosa e ne mostrava un'altra.
@@ -468,6 +529,11 @@ type messaggioDati struct {
 	Richiesta          *db.RichiestaFornitore
 	RichiestaFornitore string
 	Lavorazioni        []db.Lavorazione
+	// L'Inbox nuova: la proposta in parole per «Che cosa fare» (inbox_ui.go), le mail vicine che forse sono
+	// della stessa richiesta, e i codici che il Cockpit ha letto nel messaggio, da evidenziare nel testo.
+	Decisione decisioneVista
+	Vicini    []db.ListViciniRow
+	Codici    []string
 }
 
 // Agganciato: il messaggio appartiene a una RFQ (i download sono consentiti).
@@ -598,6 +664,18 @@ func (s *Server) caricaMessaggio(ctx context.Context, id uuid.UUID, sess session
 		caselle = append(caselle, p.CasellaIndirizzo)
 	}
 	d.Analisi = s.analisiPer(ctx, q, id, caselle)
+	d.Decisione = d.decisione(ctx, q)
+	if d.Decisione.Tipo == "aggancia" {
+		d.Candidati.Proposta = d.Decisione.ThreadID.String()
+	}
+	if !m.ThreadID.Valid && !d.Riga.Ignorato {
+		d.Vicini, _ = q.ListVicini(ctx, db.ListViciniParams{MessaggioID: id, Pubblici: dominiPubblici})
+	}
+	if cc, err := q.ListCandidatiCodice(ctx, id); err == nil {
+		for _, c := range cc {
+			d.Codici = append(d.Codici, c.Codice)
+		}
+	}
 	return d, nil
 }
 

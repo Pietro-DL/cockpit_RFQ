@@ -236,7 +236,16 @@ var funzioni = template.FuncMap{
 	"colore": coloreTriage,
 	// Smistamento M2: il chip dell'evento di una riga (nil se il triage non ha scritto un atto) e i
 	// motivi della proposta senza le righe dell'evento, che si mostrano a parte
-	"eventoRiga":     eventoDellaRiga,
+	"eventoRiga": eventoDellaRiga,
+	// L'Inbox nuova (inbox_ui.go): l'ora di una riga sotto il suo giorno, e «ieri 16:20» fuori dal giorno
+	"oraRiga":     oraRiga,
+	"quandoBreve": quandoBreve,
+	"contiene":    strings.Contains,
+	"iniziali":    iniziali,
+	"estensione":  estensione,
+	// L'Anagrafica nuova (anagrafica_ui.go)
+	"famigliaOk":     famigliaOk,
+	"nomeBreve":      nomeBreve,
 	"motiviProposta": motiviProposta,
 }
 

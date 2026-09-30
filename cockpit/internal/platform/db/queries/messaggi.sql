@@ -147,8 +147,45 @@ WHERE (sqlc.arg(filtro)::text = 'tutti'
   AND (sqlc.narg(casella)::uuid IS NULL OR sqlc.narg(casella)::uuid = ANY (caselle_id))
   AND (sqlc.arg(quadrante)::text = '' OR quadrante = sqlc.arg(quadrante)::text)
   AND (sqlc.arg(direzione)::text = '' OR direzione::text = sqlc.arg(direzione)::text)
+  -- La ricerca dell'Inbox: `cerca` e' gia' il modello ILIKE ('%testo%', % _ \ protetti dal Go) e guarda
+  -- oggetto, mittente, cliente e controparte, i nomi degli allegati e il testo della mail. NULL non filtra.
+  AND (sqlc.narg(cerca)::text IS NULL
+       OR oggetto ILIKE sqlc.narg(cerca)::text
+       OR mittente_nome ILIKE sqlc.narg(cerca)::text
+       OR mittente_indirizzo ILIKE sqlc.narg(cerca)::text
+       OR cliente ILIKE sqlc.narg(cerca)::text
+       OR controparte ILIKE sqlc.narg(cerca)::text
+       OR EXISTS (SELECT 1 FROM allegato a WHERE a.messaggio_id = v_inbox.messaggio_id AND a.nome_file ILIKE sqlc.narg(cerca)::text)
+       OR EXISTS (SELECT 1 FROM messaggio mm WHERE mm.messaggio_id = v_inbox.messaggio_id AND mm.corpo_testo ILIKE sqlc.narg(cerca)::text))
 ORDER BY data_evento DESC
 LIMIT sqlc.arg(limite) OFFSET sqlc.arg(salta);
+
+-- name: ListVicini :many
+-- «Della stessa richiesta, forse»: gli orfani non ignorati dello stesso dominio del mittente, arrivati entro
+-- mezz'ora da questo (il link del portale che segue la richiesta di un minuto). Si mostrano e basta: entrano
+-- in una RFQ solo se chi decide li spunta, uno per uno. Un dominio pubblico non fa vicini.
+SELECT v.messaggio_id, v.oggetto, v.mittente_nome, v.mittente_indirizzo, v.data_evento
+FROM v_inbox v, v_inbox x
+WHERE x.messaggio_id = sqlc.arg(messaggio_id)
+  AND v.messaggio_id <> x.messaggio_id
+  AND v.thread_id IS NULL AND NOT v.ignorato
+  AND v.direzione = 'entrata'
+  AND v.dominio = x.dominio AND x.dominio IS NOT NULL AND x.dominio <> ''
+  AND NOT (x.dominio = ANY (sqlc.arg(pubblici)::text[]))
+  AND v.data_evento BETWEEN x.data_evento - interval '30 minutes' AND x.data_evento + interval '30 minutes'
+ORDER BY v.data_evento
+LIMIT 5;
+
+-- name: ContaDecisioniOggi :one
+-- Le mail decise oggi da questa persona (agganciate o ignorate), per la barra dell'Inbox: una mail decisa due
+-- volte conta una.
+SELECT count(DISTINCT messaggio_id)::int FROM messaggio_aggancio_log
+WHERE utente_id = $1 AND azione IN ('aggancia', 'ignora') AND eseguito_il >= date_trunc('day', now());
+
+-- name: NomiThread :many
+-- Il nome breve di alcune RFQ, per le righe dell'Inbox che ne propongono una.
+SELECT thread_id, COALESCE(NULLIF(riferimento_cliente, ''), oggetto, cartella_relativa)::text AS nome
+FROM thread_offerta WHERE thread_id = ANY(sqlc.arg(thread_ids)::uuid[]);
 
 -- name: ContaInbox :one
 -- I numeri accanto ai filtri: del quadrante e della direzione scelti, così dicono quanti ne

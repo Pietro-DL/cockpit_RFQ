@@ -55,6 +55,10 @@ markmap:
   - `CongelaBom` (gate, V1 al primo congelamento, le quattro istantanee, per una versione `preventivo` il passaggio `FATTIBILITA → SCHEDA_COSTO` con la baseline)
   - `ApriRevisione` e `contestoRevisione` (fase → contesto; in `ACCETTATA` e `DISTINTA_ERP` sceglie chi apre)
   - `AbbandonaBozza` (solo a differenza vuota; una `preventivo` torna alla fase d'apertura)
+- **`passaggi.go`**
+  - `PassaggioAMano` (puro: FATTIBILITA → SCHEDA_COSTO no, si passa congelando la BOM; gli archi automatici solo da RICEVUTA e ATTESA_DISEGNI, finche' l'automatismo non c'e')
+  - `Terminale` (PERSA, RESPINTA, SCADUTA)
+  - `PassaFase` (il passaggio a mano della pagina Richieste: lucchetto della RFQ, fase aperta, arco di `transizione`, niente con una revisione della BOM aperta; in SCHEDA_COSTO con la baseline dell'ultima congelata; l'esito della fase chiusa e' KO verso una terminale, RINVIATA verso ATTESA_DISEGNI o da OFFERTA_INVIATA a SCHEDA_COSTO)
 - **`gate.go`**
   - `Valuta` (pura: requisiti bloccanti, proposte strutturali aperte, errori e anomalie NAS, esito dello STEP di ogni finito, cicli)
   - `LeggiGate`, `Ciclo`, `EtichettaStep` e le costanti `Step*` (gli esiti di `v_step_prodotto`)
@@ -131,6 +135,8 @@ markmap:
     - `AccettaFile` anche da `fascicolo_conferma.go:applicaPiano`
 - **`ApplicaStrutturaVoluta`**
   - Chi lo chiama: `transport/web/fascicolo_gesti_v3.go` (`POST /thread/{id}/fascicolo/bom/applica`)
+- **`PassaFase`, `PassaggioAMano`**
+  - Chi lo chiama: `transport/web/richieste_ui.go` (`passaFase`, `POST /thread/{id}/fase`; `caricaDettaglioRichiesta` per i bottoni)
 - **`ModificaComponente`, `Collega`, `Scollega`, `Sposta`, `ArchiviaComponente`, `RimuoviComponente`, `ScegliStepStrutturale`, `ConcediDeroga`, `RevocaDeroga`, `ConcediDerogaStruttura`, `RevocaDerogaStruttura`, `Sostituisci`, `AnnullaSostituzione`, `ApriRevisione`, `AbbandonaBozza`, `CongelaBom`, `AggiornaTutteLeRimozioni`**
   - Chi lo chiama:
     - `transport/web/fascicolo_rotte.go`
@@ -222,7 +228,7 @@ markmap:
 - La RFQ si blocca **prima** di componenti, documenti e proposte:
   - con l'ordine rovesciato due transazioni si aspettano a vicenda e PostgreSQL ne ferma una (40P01).
 - Lo prendono da sé:
-  - le tre funzioni di `versioni.go`, `AssicuraProdottiDellaRichiesta` e `ArchiviaComponente`;
+  - le tre funzioni di `versioni.go`, `PassaFase`, `AssicuraProdottiDellaRichiesta` e `ArchiviaComponente`;
   - `ScartaNodo`, `ScartaRelazione`, `ScartaRimozione` e `CodiceDelNodo`
     - (solo il lucchetto, senza D26: non cambiano la working e valgono anche con la BOM congelata);
   - tutto ciò che passa da `prepara`
@@ -457,7 +463,8 @@ markmap:
   - codici della RFQ (B8.6);
   - albero e correzioni a mano (B8.7);
   - preparazione e piano (B8.7b);
-  - editor della struttura e suffissi decorativi (Fascicolo v3).
+  - editor della struttura e suffissi decorativi (Fascicolo v3);
+  - passaggi di fase a mano (`passaggi.go`): finche' nessun automatismo sposta una RFQ da RICEVUTA, la sposta chi la segue.
 - **Aperto per decisione**: il gate non controlla «zero proposte di sostituzione pendenti» (A4.6),
   - perché il modello non registra una proposta di sostituzione (commento in testa a `gate.go`).
 - **Dal Fascicolo v3 la struttura di uno STEP non entra più con «Conferma Fascicolo»**:
