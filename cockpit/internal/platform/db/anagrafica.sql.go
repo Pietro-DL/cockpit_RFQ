@@ -14,64 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const contaMailBuyer = `-- name: ContaMailBuyer :many
-SELECT buyer_id, count(*)::int AS n, max(data_evento)::timestamptz AS ultima
-FROM messaggio WHERE buyer_id = ANY($1::uuid[])
-GROUP BY buyer_id
-`
-
-type ContaMailBuyerRow struct {
-	BuyerID uuid.NullUUID `json:"buyer_id"`
-	N       int32         `json:"n"`
-	Ultima  time.Time     `json:"ultima"`
-}
-
-// Quante mail ha scritto ogni persona di un cliente, e l'ultima (Anagrafica nuova): chi ha scritto non si toglie,
-// e la scheda lo dice prima del clic.
-func (q *Queries) ContaMailBuyer(ctx context.Context, buyerIds []uuid.UUID) ([]ContaMailBuyerRow, error) {
-	rows, err := q.db.Query(ctx, contaMailBuyer, buyerIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ContaMailBuyerRow{}
-	for rows.Next() {
-		var i ContaMailBuyerRow
-		if err := rows.Scan(&i.BuyerID, &i.N, &i.Ultima); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const copiaFabbisognoPredefinito = `-- name: CopiaFabbisognoPredefinito :execrows
-INSERT INTO fabbisogno_documento (cliente_id, tipo_componente, tipo, bloccante, fonte_attesa)
-SELECT $1::uuid, f.tipo_componente, f.tipo, f.bloccante, f.fonte_attesa
-FROM fabbisogno_documento f
-WHERE f.cliente_id IS NULL AND f.tipo_componente = $2::tipo_componente
-ON CONFLICT (cliente_id, tipo_componente, tipo) DO NOTHING
-`
-
-type CopiaFabbisognoPredefinitoParams struct {
-	ClienteID      uuid.UUID      `json:"cliente_id"`
-	TipoComponente TipoComponente `json:"tipo_componente"`
-}
-
-// «Personalizza» un tipo di pezzo: le righe predefinite diventano del cliente, cosi' si cambiano senza sparire.
-// Per un tipo di pezzo, una riga del cliente fa sparire TUTTI i predefiniti (la risoluzione e' in blocco):
-// copiarli prima e' il modo di non perderne nessuno.
-func (q *Queries) CopiaFabbisognoPredefinito(ctx context.Context, arg CopiaFabbisognoPredefinitoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, copiaFabbisognoPredefinito, arg.ClienteID, arg.TipoComponente)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const eliminaBuyer = `-- name: EliminaBuyer :execrows
 DELETE FROM buyer b WHERE b.buyer_id = $1 AND b.cliente_id = $2
   AND NOT EXISTS (SELECT 1 FROM messaggio m WHERE m.buyer_id = b.buyer_id)
@@ -803,24 +745,6 @@ func (q *Queries) SetRegoleCliente(ctx context.Context, arg SetRegoleClientePara
 		&i.Peso,
 	)
 	return i, err
-}
-
-const togliFabbisognoTipo = `-- name: TogliFabbisognoTipo :execrows
-DELETE FROM fabbisogno_documento WHERE cliente_id = $1::uuid AND tipo_componente = $2::tipo_componente
-`
-
-type TogliFabbisognoTipoParams struct {
-	ClienteID      uuid.UUID      `json:"cliente_id"`
-	TipoComponente TipoComponente `json:"tipo_componente"`
-}
-
-// «Torna ai predefiniti»: le righe del cliente per quel tipo di pezzo si tolgono, e tornano a valere i default.
-func (q *Queries) TogliFabbisognoTipo(ctx context.Context, arg TogliFabbisognoTipoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, togliFabbisognoTipo, arg.ClienteID, arg.TipoComponente)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const updateBuyer = `-- name: UpdateBuyer :one

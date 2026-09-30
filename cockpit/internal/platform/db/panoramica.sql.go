@@ -124,68 +124,38 @@ SELECT v.thread_id, t.cliente_id, v.cliente, c.ragione_sociale, c.peso AS peso_c
          WHERE f.thread_id = v.thread_id AND f.bloccante
            AND f.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato'))::int AS n_bloccanti,
        v.n_da_smistare, v.identificativi,
-       -- Le Richieste nuove (mockup_richieste.html): di chi e' la palla (l'ufficio della fase), le richieste ai
-       -- fornitori senza risposta e con l'offerta, e l'ultimo sollecito del buyer negli ultimi 14 giorni (l'atto
-       -- «sollecito» che il triage ha letto su una mail della RFQ).
-       COALESCE(fc.ufficio, '')::text AS ufficio,
-       (SELECT count(*) FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'inviata')::int AS n_forn_attesa,
-       (SELECT count(*) FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'offerta_ricevuta')::int AS n_forn_offerte,
-       -- senza sollecito: l'istante zero, che il Go legge come «nessuno» (time.Time.IsZero)
-       COALESCE((SELECT max(m.data_evento) FROM messaggio m JOIN proposta_triage pt ON pt.messaggio_id = m.messaggio_id
-         WHERE m.thread_id = v.thread_id AND pt.atto = 'sollecito' AND m.data_evento > now() - interval '14 days'),
-         '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS sollecito_il,
        count(*) OVER () AS totale
 FROM v_cruscotto v
 JOIN thread_offerta t ON t.thread_id = v.thread_id
 JOIN cliente c        ON c.cliente_id = t.cliente_id
-LEFT JOIN fase_catalogo fc ON fc.nome_fase = v.nome_fase
 WHERE ($1::stato_thread IS NULL OR v.stato_thread = $1::stato_thread)
-  AND ($2::uuid IS NULL OR v.thread_id = $2::uuid)
-  AND ($3::text IS NULL OR COALESCE(fc.ufficio, '') = $3::text
-       OR ($3::text = 'Commerciale' AND fc.ufficio = 'Sistema'))
+  AND ($2::uuid IS NULL OR t.cliente_id = $2::uuid)
+  AND ($3::fase IS NULL OR v.nome_fase = $3::fase)
   AND (NOT $4::boolean
-       OR (v.stato_thread = 'APERTA' AND v.data_scadenza IS NOT NULL AND v.data_scadenza <= current_date + 3))
-  AND (NOT $5::boolean
-       OR EXISTS (SELECT 1 FROM richiesta_fornitore rf WHERE rf.thread_id = v.thread_id AND rf.stato = 'inviata'))
-  -- «Da seguire oggi»: le aperte che scadono entro tre giorni, sono oltre i giorni della fase o sono state
-  -- sollecitate dal buyer negli ultimi 14 giorni.
-  AND (NOT $6::boolean
-       OR (v.stato_thread = 'APERTA' AND ((v.data_scadenza IS NOT NULL AND v.data_scadenza <= current_date + 3)
-           OR v.semaforo = 'rosso'
-           OR EXISTS (SELECT 1 FROM messaggio m JOIN proposta_triage pt ON pt.messaggio_id = m.messaggio_id
-                       WHERE m.thread_id = v.thread_id AND pt.atto = 'sollecito' AND m.data_evento > now() - interval '14 days'))))
-  AND ($7::uuid IS NULL OR t.cliente_id = $7::uuid)
-  AND ($8::fase IS NULL OR v.nome_fase = $8::fase)
-  AND (NOT $9::boolean
        OR EXISTS (SELECT 1 FROM v_fascicolo f
                    WHERE f.thread_id = v.thread_id AND f.bloccante
                      AND f.esito NOT IN ('ok', 'ok_in_coda', 'ok_errore_nas', 'derogato')))
-  AND (NOT $10::boolean OR v.n_da_smistare > 0)
-  AND (NOT $11::boolean OR v.semaforo = 'rosso')
-  AND ($12::text IS NULL
-       OR v.cliente ILIKE $12::text
-       OR c.ragione_sociale ILIKE $12::text
-       OR v.oggetto ILIKE $12::text
-       OR t.riferimento_cliente ILIKE $12::text
-       OR v.buyer ILIKE $12::text
+  AND (NOT $5::boolean OR v.n_da_smistare > 0)
+  AND (NOT $6::boolean OR v.semaforo = 'rosso')
+  AND ($7::text IS NULL
+       OR v.cliente ILIKE $7::text
+       OR c.ragione_sociale ILIKE $7::text
+       OR v.oggetto ILIKE $7::text
+       OR t.riferimento_cliente ILIKE $7::text
+       OR v.buyer ILIKE $7::text
        OR EXISTS (SELECT 1 FROM identificativo_thread i
-                   WHERE i.thread_id = v.thread_id AND i.codice ILIKE $12::text))
+                   WHERE i.thread_id = v.thread_id AND i.codice ILIKE $7::text))
 ORDER BY
-  CASE WHEN $13::text = 'priorita' THEN v.stato_thread = 'CHIUSA' END,
-  CASE WHEN $13::text = 'priorita' THEN c.peso END DESC,
-  CASE WHEN $13::text IN ('priorita', 'scadenza') THEN v.data_scadenza END ASC NULLS LAST,
+  CASE WHEN $8::text = 'priorita' THEN v.stato_thread = 'CHIUSA' END,
+  CASE WHEN $8::text = 'priorita' THEN c.peso END DESC,
+  CASE WHEN $8::text IN ('priorita', 'scadenza') THEN v.data_scadenza END ASC NULLS LAST,
   COALESCE(v.ultimo_aggiornamento, v.data_inizio) DESC,
   v.thread_id
-LIMIT $15::int OFFSET $14::int
+LIMIT $10::int OFFSET $9::int
 `
 
 type ListRichiestePanoramicaParams struct {
 	Stato          NullStatoThread `json:"stato"`
-	ThreadID       uuid.NullUUID   `json:"thread_id"`
-	Ufficio        pgtype.Text     `json:"ufficio"`
-	SoloScade      bool            `json:"solo_scade"`
-	SoloFornitori  bool            `json:"solo_fornitori"`
-	DaSeguire      bool            `json:"da_seguire"`
 	ClienteID      uuid.NullUUID   `json:"cliente_id"`
 	Fase           NullFase        `json:"fase"`
 	SoloBloccanti  bool            `json:"solo_bloccanti"`
@@ -217,10 +187,6 @@ type ListRichiestePanoramicaRow struct {
 	NBloccanti          int32       `json:"n_bloccanti"`
 	NDaSmistare         int64       `json:"n_da_smistare"`
 	Identificativi      []string    `json:"identificativi"`
-	Ufficio             string      `json:"ufficio"`
-	NFornAttesa         int32       `json:"n_forn_attesa"`
-	NFornOfferte        int32       `json:"n_forn_offerte"`
-	SollecitoIl         time.Time   `json:"sollecito_il"`
 	Totale              int64       `json:"totale"`
 }
 
@@ -246,11 +212,6 @@ type ListRichiestePanoramicaRow struct {
 func (q *Queries) ListRichiestePanoramica(ctx context.Context, arg ListRichiestePanoramicaParams) ([]ListRichiestePanoramicaRow, error) {
 	rows, err := q.db.Query(ctx, listRichiestePanoramica,
 		arg.Stato,
-		arg.ThreadID,
-		arg.Ufficio,
-		arg.SoloScade,
-		arg.SoloFornitori,
-		arg.DaSeguire,
 		arg.ClienteID,
 		arg.Fase,
 		arg.SoloBloccanti,
@@ -288,10 +249,6 @@ func (q *Queries) ListRichiestePanoramica(ctx context.Context, arg ListRichieste
 			&i.NBloccanti,
 			&i.NDaSmistare,
 			&i.Identificativi,
-			&i.Ufficio,
-			&i.NFornAttesa,
-			&i.NFornOfferte,
-			&i.SollecitoIl,
 			&i.Totale,
 		); err != nil {
 			return nil, err

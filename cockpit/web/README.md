@@ -47,41 +47,29 @@ markmap:
     - la guardia `htmx:beforeSwap` che non innesta risposte 2xx non HTML;
     - la pulizia delle bozze dell'editor (`cockpit.editor.*` nel sessionStorage) all'invio di «esci»;
     - lo scorrimento della lista Inbox tenuto fermo durante il poll;
-    - `cockpitStatoInbox` (il poll rilegge i parametri dalla barra degli indirizzi, compresa la ricerca `cerca`)
+    - `cockpitStatoInbox` (il poll rilegge i parametri dalla barra degli indirizzi)
   - Chi lo rende: tutte le pagine intere
 - **`frammenti.html`**
   - Che cosa contiene: i frammenti condivisi:
-    - `messaggio_pannello` (Inbox nuova: a sinistra la mail, `article.msg`, con l'oggetto da `oggettoVisibile`, la riga
-      dell'evento, la proposta del triage e il corpo da `corpo_messaggio`; a destra «Che cosa fare», `aside.fare`, con
-      `decisione_carta`, i candidati, le mail vicine e la lettura dell'assistente; fra i due una maniglia);
-    - `decisione_carta` (la carta di `messaggioDati.Scelta`: un tipo, i suoi gesti e i motivi) e `decisione_altri`
-      (i gesti di riserva: un fornitore non ha «Nuova RFQ», un ignorato non si ignora due volte);
-    - `allegati_inbox`, `allegato_inbox` (gli allegati nel pannello: anteprima nella pagina, scarica quando la mail e'
-      in una RFQ, lo stato «in coda», la lettura del codice con `score`; niente conferma ne' scarto da qui);
-    - `ui_icone` (le icone SVG di Inbox, Richieste e Anagrafica, una volta per pagina);
-    - `ana_testa`, `ana_salva` (la testata di Anagrafica con le linguette, la barra «modifiche non salvate»);
+    - `messaggio_pannello` (oggetto con `oggettoVisibile`, corpo con `corpo_messaggio`);
     - `corpo_messaggio` e `corpo_blocco` (il corpo di una mail da `lettura.Corpo`: anche nella pagina RFQ);
     - `allegati_tabella`, `allegato_riga`, `conferma_form` (gli allegati di un messaggio o di una RFQ: scarica,
       anteprima, conferma, scarta, riscarica);
-    - `triage_form` (un foglio sopra il pannello, `.foglio`: «Nuova RFQ» con le mail vicine da mettere insieme, il
-      riepilogo e «Crea e passa alla prossima» o «Crea la RFQ e apri la Distinta»; «Aggancia a…» con le card),
-      `triage_allegati`, `cartella_cliente`, `cliente_nuovo`, `anteprima_cartella`, `buyer_select`,
-      `thread_risultati`, `candidati_codice` (spunta iniziale da `triageDati.Spuntato`), `candidati_aggancio` (una
-      card per RFQ, la forza come «livello · score N», niente radio), `chip_controparte` (uguale a `controparte_riga`),
-      `censisci_form` (cliente, fornitore o «altro»);
+    - `triage_form`, `triage_allegati`, `cartella_cliente`, `cliente_nuovo`, `anteprima_cartella`,
+      `buyer_select`, `thread_risultati`, `candidati_codice` (spunta iniziale da `triageDati.Spuntato`),
+      `candidati_aggancio`, `chip_controparte` (cliente, fornitore, altro, interna, ambiguo, non censito),
+      `censisci_form`;
     - `stato_worker`;
     - `codici_rfq` e `codice_riga` (i codici della richiesta, B8.6: anche nel cassetto del Fascicolo)
   - Chi lo rende: `Server.frammento` (con il set di `inbox.html`), le pagine che li includono
 - **`inbox.html`**
-  - Che cosa contiene: l'Inbox (`cockpit/_fasi/mockup_inbox.html`), tre colonne con i bordi che si trascinano:
-    - `inbox_testa` (titolo, avanzamento del giorno, ricerca, selezione multipla), `inbox_stato` (cartelle con i
-      contatori, direzione, casella, la posta e la lista in un pezzo solo, `display: contents`),
-    - `inbox_lista` (le righe di `inboxDati.Voci`: in «Da fare adesso» per gruppo, altrimenti per giorno; il chip
-      dell'evento, il chip del triage con la sua forza e, quando si sa, «→ RFQ nome»),
-    - `controparte_riga`, `inbox_posta` (lo stato delle caselle, e l'avviso sopra la lista quando una non risponde);
-    - la posta si ricarica da sola (`hx-preserve`), il poll della lista sta su un elemento fratello;
+  - Che cosa contiene: l'Inbox a quadranti:
+    - `inbox_stato` (linguette, direzione, filtro, casella, contatori e righe in un pezzo solo),
+    - `inbox_lista` (oggetto con `oggettoVisibile`),
+    - `controparte_riga`;
+    - il poll di 15 s sta su un elemento fratello;
     - `sel` (sempre un UUID o vuoto) nell'`hx-get` del pannello e nei collegamenti
-  - Chi lo rende: `routes_inbox.go`, `inbox_ui.go`
+  - Chi lo rende: `routes_inbox.go`
 - **`thread.html`**
   - Che cosa contiene: la pagina della RFQ:
     - `thread_corpo`;
@@ -97,28 +85,18 @@ markmap:
     - fuori dal corpo il visore dei disegni (`#dst-visore`) e l'avviso breve (`#dst-toast`), che un gesto non chiude
   - Chi lo rende: `distinta.go`
 - **`richieste.html`**
-  - Che cosa contiene: la pagina Richieste (`cockpit/_fasi/mockup_richieste.html`), filtri | elenco | la RFQ scelta:
-    - `richieste_titolo`, `richieste_stato` (la colonna delle viste e dei filtri con i loro numeri e l'elenco, rifatti
-      insieme; la ricerca sta fuori e non perde il cursore), `rq_voce`, `richiesta_riga`, `rq_fase`;
-    - l'elenco o le colonne per fase (`?modo=fasi`); il poll porta la firma di quello che si vede;
-    - `richiesta_dettaglio` (le tappe, che cosa manca, i fornitori, le ultime mail, il cliente, e «Passa a…» con la
-      conferma: `POST /thread/{id}/fase`);
-    - `rq_prodotto` (una scheda di prodotto nel dettaglio: la miniatura del 2D, «da confermare», «nessun PDF»);
-    - i filtri sono collegamenti con l'indirizzo intero: una ricerca si salva e torna con «indietro»
-  - Chi lo rende: `panoramica.go`, `richieste_ui.go`
+  - Che cosa contiene: la pagina Richieste:
+    - `richieste_elenco`, `richiesta_card`, `richiesta_prodotti`;
+    - la barra dei filtri e' un form GET vero
+  - Chi lo rende: `panoramica.go`
 - **`anagrafica.html`**
-  - Che cosa contiene: Admin › Anagrafica, clienti (`cockpit/_fasi/mockup_anagrafica.html`, `anagrafica_corpo`):
-    - l'elenco dei clienti con la completezza della scheda, la scheda per sezioni (generale, contatti, regole,
-      fabbisogno, lavorazioni, RFQ, posta);
-    - il banco di prova delle regole dal vivo (`ana_prova_esito`) e la prova di un codice (`ana_prova_codice`);
-    - il fabbisogno come tabella tipo di pezzo × documento, con «personalizza» e «torna ai predefiniti»;
+  - Che cosa contiene: Admin › Anagrafica, clienti (`anagrafica_corpo`);
     - nel form delle famiglie di codice la casella «Rev nel codice» porta il numero della sua riga (`fam_rev`)
-  - Chi lo rende: `anagrafica.go`, `anagrafica_ui.go`
+  - Chi lo rende: `anagrafica.go`
 - **`fornitori.html`, `importa.html`**
   - Che cosa contiene:
-    - Admin › Anagrafica › Fornitori (`fornitori_corpo`: la scheda per sezioni e la matrice «Chi fa cosa»,
-      `?vista=chifa`)
-    - e l'import del seme dei fornitori con anteprima e conferma (`importa_corpo`, con la testata di Anagrafica)
+    - Admin › Anagrafica › Fornitori (`fornitori_corpo`)
+    - e l'import del seme dei fornitori con anteprima e conferma (`importa_corpo`)
   - Chi lo rende: `fornitori_admin.go`
 - **`integrita.html`**
   - Che cosa contiene: Admin › Integrita' NAS (`integrita_corpo`)
@@ -193,25 +171,6 @@ markmap:
     - `.corpo-sep`,
     - `.nota-corpo`.
   - Tiene `[hidden]{display:none!important}` e `.fasc.sola-lettura .gesto{display:none!important}`
-- **`ui.css`**, **`ui.js`** — che cosa sono:
-  - la base comune di Inbox, Richieste e Anagrafica, tutto sotto `.ui`: colori come variabili, font di sistema, chip,
-    carte, maniglie. Le classi globali di `style.css` che si scontrano (`.rail`, `.barra`, `.rq`, `.riga`, …) qui
-    non si usano o si riscrivono;
-  - `ui.js`: le maniglie fra le colonne (trascina, doppio clic chiude; `window.CockpitPagina` dice quali, la
-    larghezza resta nel localStorage `cockpit.pannelli.<pagina>`), l'ingranaggio nella testata (disposizioni pronte,
-    scorciatoie da tastiera, spente di serie: `cockpit.scorciatoie`) e gli avvisi brevi (`#ui-toast`)
-- **`inbox.css`**, **`inbox.js`** — che cosa sono: l'Inbox sotto `.ui-inbox`; lo script tiene la selezione multipla
-  (un POST per mail), evidenzia nel corpo i codici letti (`data-codici`), apre l'anteprima dei PDF nella pagina,
-  riassume il modulo «Nuova RFQ» mentre si scrive e, dopo una decisione (`[data-decisione]`), passa alla mail dopo;
-  «Ignora» si annulla dall'avviso
-- **`richieste.css`**, **`richieste.mjs`** — che cosa sono: le Richieste sotto `.ui-rq`; il modulo tiene lo stato dei
-  filtri per il poll (`window.cockpitStatoRichieste`), la riga scelta e le scorciatoie
-- **`miniature.mjs`** — che cosa e': le miniature dei disegni (`.mini[data-a]`) con pdf.js, la prima pagina, una volta
-  per file
-- **`anagrafica.css`**, **`anagrafica.js`** — che cosa sono: Anagrafica sotto `.ui-ana`; lo script filtra e ordina
-  l'elenco, mostra la barra «modifiche non salvate», dice se ogni famiglia di codice riconosce il suo esempio (la
-  regola in Go si legge in JavaScript cambiando `(?P<` in `(?<`), propone una famiglia dagli esempi e tiene nella
-  tendina delle qualifiche solo i fornitori che fanno la lavorazione. Non scrive niente: si salva con i moduli
 - **`htmx.min.js`** — che cosa e': htmx 2.0.4, minificato
 - **`fascicolo.mjs`** — che cosa e':
   - il modulo ES del Fascicolo v3:
@@ -416,14 +375,6 @@ markmap:
   - e usa `innerHTML` solo con HTML del server o con testo fisso.
 - La bozza dell'editor e' di chi la scrive: chiave con l'utente, cancellata all'uscita
   (`statici_test.go:TestLaBozzaDellEditorEDiChiLaScrive`).
-- Inbox, Richieste e Anagrafica (`ui.js`, `inbox.js`, `richieste.mjs`, `anagrafica.js`): quello che viene dalla pagina
-  entra in `innerHTML` solo passato da `CockpitUI.esc`, e l'avviso breve (`toast`) scrive il suo testo con
-  `textContent`.
-- In un attributo `style` un template scrive solo numeri: `html/template` sostituisce con `ZgotmplZ` un `var(...)` o
-  un colore. I colori passano da una classe, le larghezze da `--p` con il `* 1%` nel CSS: nessun template scrive
-  un numero seguito da «%» (`valutazione_test.go`), e nessuna pagina ha un `ZgotmplZ`.
-- Le larghezze delle colonne e le scorciatoie sono del browser (localStorage `cockpit.pannelli.*`,
-  `cockpit.scorciatoie`): non cambiano niente sul server, e senza di loro la pagina e' quella di sempre.
 
 ## Dipendenze
 

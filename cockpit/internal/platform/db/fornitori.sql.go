@@ -418,32 +418,6 @@ func (q *Queries) InsertQualifica(ctx context.Context, arg InsertQualificaParams
 	return result.RowsAffected(), nil
 }
 
-const listCapacitaTutte = `-- name: ListCapacitaTutte :many
-SELECT fornitore_id, lavorazione FROM fornitore_lavorazione ORDER BY fornitore_id, lavorazione
-`
-
-// Che cosa sa fare ogni fornitore (Anagrafica nuova): la matrice «Chi fa cosa» e le tendine delle qualifiche,
-// che offrono solo chi fa quella lavorazione.
-func (q *Queries) ListCapacitaTutte(ctx context.Context) ([]FornitoreLavorazione, error) {
-	rows, err := q.db.Query(ctx, listCapacitaTutte)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FornitoreLavorazione{}
-	for rows.Next() {
-		var i FornitoreLavorazione
-		if err := rows.Scan(&i.FornitoreID, &i.Lavorazione); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listContattiFornitore = `-- name: ListContattiFornitore :many
 SELECT contatto_id, fornitore_id, nome, email, ruolo, lingua, note FROM contatto_fornitore WHERE fornitore_id = $1 ORDER BY email
 `
@@ -1044,36 +1018,6 @@ func (q *Queries) ListQualificheFornitore(ctx context.Context, fornitoreID uuid.
 			&i.Cliente,
 			&i.LavorazioneDescrizione,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listQualificheTutte = `-- name: ListQualificheTutte :many
-SELECT DISTINCT fornitore_id, lavorazione FROM cliente_fornitore_lavorazione
-`
-
-type ListQualificheTutteRow struct {
-	FornitoreID uuid.UUID `json:"fornitore_id"`
-	Lavorazione string    `json:"lavorazione"`
-}
-
-// Per quali lavorazioni un fornitore e' qualificato da almeno un cliente.
-func (q *Queries) ListQualificheTutte(ctx context.Context) ([]ListQualificheTutteRow, error) {
-	rows, err := q.db.Query(ctx, listQualificheTutte)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListQualificheTutteRow{}
-	for rows.Next() {
-		var i ListQualificheTutteRow
-		if err := rows.Scan(&i.FornitoreID, &i.Lavorazione); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

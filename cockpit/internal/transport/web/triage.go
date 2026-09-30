@@ -17,7 +17,6 @@ import (
 	"promatec/cockpit/internal/core/inbox/aggancio"
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/inbox/ingest"
-	"promatec/cockpit/internal/core/inbox/lettura"
 	"promatec/cockpit/internal/core/registro/anagrafica"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
@@ -74,10 +73,6 @@ type triageDati struct {
 	Candidati aggancio.Lettura
 	// MaxAuto: oltre questa dimensione un file utile non scende da solo (il limite degli upload dei worker).
 	MaxAuto int64
-	// L'Inbox nuova: il modulo si apre con la mail accanto (Corpo), e le mail vicine che forse sono della
-	// stessa richiesta si possono mettere nella RFQ insieme a questa, spuntandole (Vicini, ListVicini).
-	Corpo  lettura.Corpo
-	Vicini []db.ListViciniRow
 }
 
 // CarteForm sono i candidati dentro «Aggancia a…»: ogni card è un bottone del form, che porta con sé
@@ -209,8 +204,6 @@ func (s *Server) datiTriage(ctx context.Context, q *db.Queries, id uuid.UUID) (*
 	}
 	d.Candidati, _ = aggancio.InLettura(ctx, q, id)
 	d.Allegati, _ = s.allegatiUI(ctx, q, id)
-	d.Corpo = lettura.Presenta(m.CorpoTesto.String, m.CorpoHtml.String)
-	d.Vicini, _ = q.ListVicini(ctx, db.ListViciniParams{MessaggioID: id, Pubblici: dominiPubblici})
 	d.cartella(ctx, q, "")
 	d.Anteprima = documenti.CartellaThread(d.CartellaCliente, m.DataEvento.Local(), d.Cognome, d.Oggetto)
 	return d, nil
@@ -421,25 +414,6 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	// «Della stessa richiesta»: le mail vicine che chi crea la RFQ ha spuntato, una per una (ListVicini). Ognuna
-	// e' una decisione sua, con la sua fotografia e la sua riga nel registro: nessuna segue da sola (T21). Una
-	// mail gia' decisa nel frattempo, o di un fornitore, resta dov'e'.
-	insieme := 0
-	for _, v := range r.Form["insieme"] {
-		vid, err := uuid.Parse(v)
-		if err != nil || vid == id {
-			continue
-		}
-		mm, deciso, err := messaggioDaDecidere(ctx, q, vid)
-		if err != nil || deciso || mm.ControparteTipo == db.TipoControparteFornitore {
-			continue
-		}
-		if err := s.agganciaMessaggioAThread(ctx, q, u, mm, t.ThreadID, uuid.NullUUID{}, classificazione.GestoAggancia); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		insieme++
-	}
 	// La RFQ nasce comunque: è una decisione dell'operatore e vive nel database. Con `nas_scrittura`
 	// spenta resta senza la sua cartella sul NAS finche' qualcuno non l'accende (SH1).
 	cartella := "Cartella in creazione."
@@ -467,15 +441,7 @@ func (s *Server) nuovaRFQ(w http.ResponseWriter, r *http.Request) {
 	// il flusso ancorato al prodotto, dopo il commit (Smistamento F8, IN1): i prodotti appena confermati e i
 	// file gia' analizzati per un'altra RFQ danno subito le loro destinazioni
 	s.rismista(ctx, t.ThreadID)
-	conInsieme := ""
-	if insieme > 0 {
-		conInsieme = fmt.Sprintf(" Con la RFQ anche %d mail della stessa richiesta.", insieme)
-	}
-	// «Crea la RFQ e apri la Distinta»: la RFQ appena nata si apre dove si lavora.
-	if r.FormValue("poi") == "distinta" {
-		w.Header().Set("HX-Redirect", "/thread/"+t.ThreadID.String()+"/distinta")
-	}
-	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s%s%s%s", t.CartellaRelativa.String, cartella, esiti.fraseSeCe(), prep, conInsieme))
+	s.pannelloConAvviso(w, r, id, fmt.Sprintf("RFQ creata: %s. %s%s%s", t.CartellaRelativa.String, cartella, esiti.fraseSeCe(), prep))
 }
 
 // confermaCodiciDelGesto scrive gli identificativi che chi decide ha confermato in questo gesto (la creazione

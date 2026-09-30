@@ -69,8 +69,8 @@ markmap:
   - Query: 8; senza chiamanti: 5 (+2)
   - Chi le chiama: `core/inbox/ingest`
 - **`anagrafica.sql`** — clienti, domini, buyer, fabbisogno, cataloghi
-  - Tabelle e viste: `cliente`, `dominio_cliente`, `buyer`, `fabbisogno_documento`, `fase_catalogo`, `transizione`, `regola`, `messaggio` (le mail di ogni buyer)
-  - Query: 29; senza chiamanti: 4
+  - Tabelle e viste: `cliente`, `dominio_cliente`, `buyer`, `fabbisogno_documento`, `fase_catalogo`, `transizione`, `regola`
+  - Query: 26; senza chiamanti: 4
   - Chi le chiama: `transport/web`, `core/registro/anagrafica`, `core/registro/fornitori`, `core/inbox/ingest`, `core/rfq/fascicolo`, `transport/workerapi`
 - **`analisi.sql`** — fatti dell'analisi, analizzatore corrente
   - Tabelle e viste: `analisi_fatti`, `analizzatore_corrente`, `documento_proposta`, `allegato`
@@ -106,7 +106,7 @@ markmap:
   - Chi le chiama: `platform/fondazioni`, `transport/web`, `transport/workerapi`, `core/inbox/ingest`, `platform/coda`
 - **`fornitori.sql`** — fornitori, lavorazioni, qualifiche, convenzioni di codice, controparte
   - Tabelle e viste: `fornitore`, `dominio_fornitore`, `contatto_fornitore`, `lavorazione`, `fornitore_lavorazione`, `cliente_fornitore_lavorazione`, `convenzione_codice(_lavorazione)`, `messaggio`
-  - Query: 37; senza chiamanti: 1
+  - Query: 35; senza chiamanti: 1
   - Chi le chiama: `transport/web`, `core/registro/fornitori`, `core/inbox/ingest`, `app/runtime`
 - **`inbox.sql`** — Inbox viva (voce 2.16)
   - Tabelle e viste: `utente`, `messaggio`, `messaggio_casella`, `job`
@@ -118,18 +118,18 @@ markmap:
   - Chi le chiama: `core/rfq/documenti`, `transport/web`
 - **`interpretazione.sql`** — portale, deroghe, triage, bozze
   - Tabelle e viste: `riferimento_portale`, `deroga_fabbisogno`, `proposta_triage`, `bozza`
-  - Query: 16; senza chiamanti: 3
+  - Query: 14; senza chiamanti: 3
   - Chi le chiama: `core/inbox/ingest`, `transport/web`, `transport/workerapi`, `core/rfq/fascicolo`
 - **`job.sql`** — coda dei job, presenza dei worker
   - Tabelle e viste: `job`, `worker_presenza`, `postazione`
   - Query: 31; senza chiamanti: 1 (+1)
   - Chi le chiama: `platform/coda`, `transport/web`, `transport/workerapi`, `app/runtime`, `core/rfq/documenti`, `core/inbox/ingest`, `platform/storage/staging`
 - **`messaggi.sql`** — messaggi, presenze per casella, cursori, Inbox
-  - Tabelle e viste: `conversazione`, `messaggio`, `messaggio_outlook`, `messaggio_casella`, `sync_cursore`, `v_inbox`, `messaggio_aggancio_log`, `thread_offerta`
-  - Query: 37; senza chiamanti: 4 (+1)
+  - Tabelle e viste: `conversazione`, `messaggio`, `messaggio_outlook`, `messaggio_casella`, `sync_cursore`, `v_inbox`
+  - Query: 34; senza chiamanti: 4 (+1)
   - Chi le chiama: `core/inbox/ingest`, `transport/web`, `transport/workerapi`, `platform/coda`, `core/rfq/fascicolo`, `core/rfq/documenti`, `ai/agente`
 - **`panoramica.sql`** — pagina Richieste
-  - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`, `fase_catalogo`, `richiesta_fornitore`, `proposta_triage` (l'ultimo sollecito)
+  - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
   - Query: 3; senza chiamanti: 0
   - Chi le chiama: `transport/web`
 - **`preparazione.sql`** — preparazione automatica del Fascicolo (B8.7b)

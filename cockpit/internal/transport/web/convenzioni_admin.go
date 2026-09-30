@@ -246,12 +246,5 @@ func (s *Server) provaCodiceCliente(w http.ResponseWriter, r *http.Request) {
 			p.Qualificati[t.Lavorazione], _ = q.ListFornitoriQualificati(ctx, db.ListFornitoriQualificatiParams{ClienteID: id, Lavorazione: t.Lavorazione})
 		}
 	}
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := s.pagine["anagrafica.html"].ExecuteTemplate(w, "ana_prova_codice", vista{Dati: anagraficaDati{Scelto: &c, ProvaCodice: p}, Frammento: true}); err != nil {
-			s.Log.Error("template", "frammento", "ana_prova_codice", "err", err)
-		}
-		return
-	}
 	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "lavorazioni", ProvaCodice: p})
 }
