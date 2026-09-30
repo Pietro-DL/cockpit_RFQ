@@ -151,22 +151,34 @@ WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id)
 -- fatto nascere il componente; duplicato: lo ritrova; scartata: tolta nell'albero, con la nota) e con il segno
 -- «confermato nell'albero» in evidenza.albero (chi, quando, la firma del riepilogo; il ✓ o il ✗ della proposta
 -- commerciale). Senza migrazione: evidenza c'e' gia', e una riga decisa da una persona non si riscrive piu' (le
--- letture riscrivono solo le righe aperte o chiuse da un automatismo: UpsertComponenteProposta). Una riga chiusa da un
--- automatismo (senza chi l'ha decisa: l'aggancio per codice di prima, che il riepilogo elenca) si decide, e com'era va
--- nella storia, con il segno di una conferma di prima se c'era. Una riga gia' decisa da una persona si
--- tocca solo con anche_decise: quando la conferma di adesso toglie un pezzo che una decisione di prima aveva preso, e'
--- una decisione nuova di una persona sulla stessa riga, e quella di prima va nella storia; una riga gia' scartata da una
--- persona resta com'e'.
+-- letture riscrivono solo le righe aperte o chiuse da un automatismo: UpsertComponenteProposta). Si decide una riga
+-- aperta, o l'aggancio per codice di prima (duplicato con il componente e senza chi l'ha deciso: AgganciatoPerCodice,
+-- che il riepilogo elenca), e com'era va nella storia, con il segno di una conferma di prima se c'era. Una riga gia'
+-- decisa da una persona si tocca solo con anche_decise: quando la conferma di adesso toglie un pezzo che una decisione
+-- di prima aveva preso, e' una decisione nuova di una persona sulla stessa riga, e quella di prima va nella storia; una
+-- riga gia' scartata da una persona resta com'e'.
+--
+-- Fase 4.4a.1br. Una riga chiusa da un automatismo (senza chi l'ha decisa, e non un aggancio: scartata per un file
+-- sostituito o un riferimento cambiato) resta com'e', anche con anche_decise: il riepilogo non la conta, e deve restare
+-- una riga che la rilettura riscrive (E33). Prima la conferma la faceva diventare lo scarto di una persona. La nota: una
+-- nota vuota lascia quella della riga (la lettura puo' averne scritta una su una riga aperta), come
+-- DecidiRelazioneProposta; una nota nuova sulla nota di una riga aperta la manda nella storia.
 UPDATE componente_proposta SET stato = sqlc.arg(stato), componente_id = sqlc.narg(componente_id),
-       deciso_da = sqlc.arg(deciso_da)::uuid, deciso_il = now(), nota = sqlc.narg(nota),
+       deciso_da = sqlc.arg(deciso_da)::uuid, deciso_il = now(), nota = COALESCE(sqlc.narg(nota)::text, nota),
        evidenza = evidenza || jsonb_build_object('albero', sqlc.arg(segno)::jsonb) ||
-                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
-                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  CASE WHEN stato <> 'aperta'
+                       THEN jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
                             jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'componente_id', componente_id,
                                                'deciso_da', deciso_da, 'deciso_il', deciso_il, 'nota', nota,
-                                               'albero', evidenza -> 'albero', 'il', now()))) END
+                                               'albero', evidenza -> 'albero', 'il', now())))
+                       WHEN nota IS NOT NULL AND sqlc.narg(nota)::text <> nota
+                       THEN jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'nota_della_lettura', 'nota', nota, 'il', now())))
+                       ELSE '{}'::jsonb END
 WHERE proposta_id = sqlc.arg(proposta_id)
-  AND (deciso_da IS NULL OR (sqlc.arg(anche_decise)::bool AND stato <> 'scartata'));
+  AND (stato = 'aperta'
+       OR (stato = 'duplicato' AND deciso_da IS NULL AND componente_id IS NOT NULL)
+       OR (sqlc.arg(anche_decise)::bool AND deciso_da IS NOT NULL AND stato <> 'scartata'));
 
 -- name: DecidiArcoNellAlbero :execrows
 -- La riga di un arco che l'albero confermato copre (fase 4.4a.1b), come DecidiNodoNellAlbero: confermata o duplicato
@@ -174,15 +186,26 @@ WHERE proposta_id = sqlc.arg(proposta_id)
 -- anche i due componenti del legame (padre, figlio): la radice del prodotto non e' una riga decisa, e il segno dice lo
 -- stesso quale arco della working la persona ha confermato. anche_decise come per i nodi: un legame tolto adesso che
 -- una decisione di prima aveva preso.
-UPDATE relazione_proposta SET stato = sqlc.arg(stato), nota = sqlc.narg(nota), deciso_da = sqlc.arg(deciso_da)::uuid, deciso_il = now(),
+--
+-- Fase 4.4a.1br, come per i nodi: si decide solo una riga aperta (o, con anche_decise, una decisa da una persona che
+-- non e' uno scarto). Una chiusa da un automatismo — la «tenuta dei conti» di Pianifica (duplicato senza chi l'ha
+-- deciso), lo stesso componente, un file sostituito — resta com'e', di un legame tenuto come di uno tolto: l'albero
+-- porta le righe degli archi senza lo stato, e la guardia sta qui. La nota della lettura su una riga aperta («qta
+-- diversa: …») resta con una nota vuota, e va nella storia se la conferma ne scrive un'altra.
+UPDATE relazione_proposta SET stato = sqlc.arg(stato), nota = COALESCE(sqlc.narg(nota)::text, nota), deciso_da = sqlc.arg(deciso_da)::uuid,
+       deciso_il = now(),
        evidenza = evidenza || jsonb_build_object('albero', sqlc.arg(segno)::jsonb) ||
-                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
-                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  CASE WHEN stato <> 'aperta'
+                       THEN jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
                             jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'deciso_da', deciso_da,
-                                               'deciso_il', deciso_il, 'nota', nota, 'albero', evidenza -> 'albero', 'il', now()))) END
+                                               'deciso_il', deciso_il, 'nota', nota, 'albero', evidenza -> 'albero', 'il', now())))
+                       WHEN nota IS NOT NULL AND sqlc.narg(nota)::text <> nota
+                       THEN jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'nota_della_lettura', 'nota', nota, 'il', now())))
+                       ELSE '{}'::jsonb END
 WHERE thread_id = sqlc.arg(thread_id) AND allegato_id = sqlc.arg(allegato_id) AND padre_chiave = sqlc.arg(padre_chiave)
   AND figlio_chiave = sqlc.arg(figlio_chiave)
-  AND (deciso_da IS NULL OR (sqlc.arg(anche_decise)::bool AND stato <> 'scartata'));
+  AND (stato = 'aperta' OR (sqlc.arg(anche_decise)::bool AND deciso_da IS NOT NULL AND stato <> 'scartata'));
 
 -- name: BloccaRelazioneProposta :one
 SELECT * FROM relazione_proposta

@@ -30,7 +30,11 @@ package fascicolo
 //     questo gesto cambia D29, «i figli diventano radici da sistemare», e il riepilogo lo dice pezzo per pezzo);
 //   - le righe degli STEP che l'albero copre, decise da una persona con il segno «confermato nell'albero»: dei nodi che
 //     restano, le righe ancora da decidere (le aperte e gli agganci per codice di prima dello Smistamento, che il
-//     riepilogo elenca fra i ritrovati: U5, P13); dei nodi che vanno via, tutte.
+//     riepilogo elenca fra i ritrovati: U5, P13); dei nodi che vanno via, quelle da decidere e quelle che una decisione
+//     di prima aveva preso (siChiudeNellAlbero, le stesse che il riepilogo conta). Una riga chiusa da un automatismo
+//     (senza chi l'ha decisa, e non un aggancio per codice), di un nodo o di un arco, resta com'e' (fase 4.4a.1br):
+//     il riepilogo non la dice, e la rilettura deve poterla riscrivere (E33). La nota che la lettura aveva scritto su
+//     una riga aperta resta, o va nella storia se la conferma ne scrive un'altra.
 //
 // Il segno (studio § 2.9, strada A) sta nelle colonne e negli stati che ci sono, senza migrazione: la riga diventa
 // una decisione di una persona come quando la si accetta a mano (confermata se ha fatto nascere il componente,
@@ -39,8 +43,10 @@ package fascicolo
 // porta anche i due componenti del legame (la radice del prodotto non e' una riga decisa). Una riga decisa da una
 // persona le letture non la riscrivono piu' (UpsertComponenteProposta, UpsertRelazioneProposta: solo le aperte e
 // quelle chiuse da un automatismo), quindi il segno resta; «Riapri il nodo» lo porta nella storia e, per un nodo che la
-// conferma ha tolto, riapre con lui le righe degli archi che la stessa conferma aveva chiuso (toltoNellAlbero), cosi'
-// il nodo torna nell'albero proposto (studio § 2.5). Lo leggono:
+// conferma ha tolto, riapre le righe che la stessa conferma aveva chiuso: quelle del nodo in ogni file (il segno di
+// una riga tolta dice il nodo), quelle dei padri nei file tolti con lui, e gli archi che le toccano (riapriToltoNellAlbero),
+// cosi' il nodo torna nell'albero proposto (studio § 2.5); su una riga che lo stesso gesto ha gia' riaperto ridice che
+// cosa ha riaperto, senza rifiutare (giaRiapertoNellAlbero). Lo leggono:
 //   - F7 (Provenienza e ArchiDecisiNellAutorita, riapertura.go): una riga con il segno conta come una decisione presa
 //     nell'autorita' di un file autorizzato, e il pezzo e l'arco non sono «da rivedere»;
 //   - l'indice di F8, con le stesse etichette (derivati.daRivedere e arcoDeciso): i pezzi dell'albero confermato
@@ -90,6 +96,9 @@ type SegnoAlbero struct {
 	// Padre e Figlio: i componenti del legame, sulla riga di un arco che la conferma tiene.
 	Padre  uuid.NullUUID `json:"padre"`
 	Figlio uuid.NullUUID `json:"figlio"`
+	// Nodo: sulla riga di un nodo che la conferma toglie, la chiave del nodo nell'albero («cod:<CODICE>»): le righe dello
+	// stesso pezzo negli altri file hanno la stessa, e «Riapri il nodo» le riapre insieme (fase 4.4a.1br).
+	Nodo string `json:"nodo,omitempty"`
 	// Commerciale: la risposta di una persona alla proposta commerciale del nodo.
 	Commerciale *SegnoCommerciale `json:"commerciale,omitempty"`
 }
@@ -123,19 +132,269 @@ func ArcoConfermatoNellAlbero(r db.RelazioneProposta) (CoppiaDiComponenti, bool)
 	return CoppiaDiComponenti{e.Albero.Padre.UUID, e.Albero.Figlio.UUID}, true
 }
 
-// toltoNellAlbero dice se la riga di un nodo l'ha chiusa una conferma dell'albero perche' la bozza lo toglieva, e con
-// quale firma: «Riapri il nodo» riapre con lei le righe degli archi che la stessa conferma aveva chiuso (RiapriNodo).
-func toltoNellAlbero(p db.ComponenteProposta) (string, bool) {
+// toltoNellAlbero dice se la riga di un nodo l'ha chiusa una conferma dell'albero perche' la bozza lo toglieva, con il
+// segno di quella conferma (la firma del riepilogo e il nodo): «Riapri il nodo» riapre con lei quello che la stessa
+// conferma aveva chiuso (riapriToltoNellAlbero).
+func toltoNellAlbero(p db.ComponenteProposta) (SegnoAlbero, bool) {
 	if p.Stato != db.StatoPropostaScartata || !p.DecisoDa.Valid || p.Nota.String != NotaToltoNellAlbero {
-		return "", false
+		return SegnoAlbero{}, false
 	}
 	var e struct {
 		Albero *SegnoAlbero `json:"albero"`
 	}
 	if json.Unmarshal(p.Evidenza, &e) != nil || e.Albero == nil || e.Albero.Firma == "" {
+		return SegnoAlbero{}, false
+	}
+	return *e.Albero, true
+}
+
+// nodoTolto e' il nodo di una riga che la conferma con quella firma ha tolto (nodoDelSegno).
+func nodoTolto(p db.ComponenteProposta, firma string) (string, bool) {
+	s, ok := toltoNellAlbero(p)
+	if !ok || s.Firma != firma {
 		return "", false
 	}
-	return e.Albero.Firma, true
+	return nodoDelSegno(s, p), true
+}
+
+// nodoDelSegno e' il nodo che il segno di una riga tolta dice, o la riga stessa per una riga chiusa prima che il segno
+// dicesse il nodo (fase 4.4a.1b).
+func nodoDelSegno(s SegnoAlbero, p db.ComponenteProposta) string {
+	if s.Nodo != "" {
+		return s.Nodo
+	}
+	return "riga:" + p.PropostaID.String()
+}
+
+// Gli eventi della storia di una riga riaperta (RiapriComponenteProposta, RiapriArchiToltiNellAlbero).
+const (
+	eventoNodoRiaperto = "nodo_riaperto"
+	eventoArcoRiaperto = "arco_riaperto"
+)
+
+// riapertura e' la riapertura di una riga tolta da una conferma dell'albero, come la storia della riga la ricorda: il
+// segno di quella conferma e l'istante (riaperto_il, il now() della transazione: lo stesso per tutte le righe che lo
+// stesso gesto ha riaperto).
+type riapertura struct {
+	segno SegnoAlbero
+	il    string
+}
+
+// riapertoNellAlbero dice se una riga (di un nodo o di un arco: evento) e' aperta perche' «Riapri il nodo» l'ha
+// riaperta annullando una conferma dell'albero, e con quale riapertura: l'ultimo evento della sua storia e' quello, con
+// il segno e la nota della conferma. Dopo, una decisione la chiude (e non e' piu' aperta) e una rilettura lascia la
+// storia com'e' (UpsertComponenteProposta): finche' la riga e' aperta, la riapertura e' l'ultima cosa che le e' successa.
+func riapertoNellAlbero(stato db.StatoProposta, evidenza []byte, evento string) (riapertura, bool) {
+	if stato != db.StatoPropostaAperta {
+		return riapertura{}, false
+	}
+	var e struct {
+		Storia []json.RawMessage `json:"storia"`
+	}
+	if json.Unmarshal(evidenza, &e) != nil || len(e.Storia) == 0 {
+		return riapertura{}, false
+	}
+	var ev struct {
+		Evento string       `json:"evento"`
+		Albero *SegnoAlbero `json:"albero"`
+		Nota   *string      `json:"nota"`
+		Il     string       `json:"riaperto_il"`
+	}
+	if json.Unmarshal(e.Storia[len(e.Storia)-1], &ev) != nil || ev.Evento != evento || ev.Albero == nil || ev.Albero.Firma == "" ||
+		ev.Nota == nil || *ev.Nota != NotaToltoNellAlbero || ev.Il == "" {
+		return riapertura{}, false
+	}
+	return riapertura{segno: *ev.Albero, il: ev.Il}, true
+}
+
+// stessoGesto dice se due riaperture le ha fatte lo stesso gesto: la stessa conferma annullata, nello stesso istante.
+func (x riapertura) stessoGesto(y riapertura) bool {
+	return x.segno.Firma == y.segno.Firma && x.il == y.il
+}
+
+// riaperturaAlbero e' quello che «Riapri il nodo» ha riaperto di una conferma dell'albero: le righe del nodo, i padri
+// riaperti con lui, gli archi.
+type riaperturaAlbero struct {
+	righe, archi int
+	padri        []string
+}
+
+// rigaNelFile e' una riga di uno STEP: il file e la chiave del nodo nel file.
+type rigaNelFile struct {
+	allegato uuid.UUID
+	chiave   string
+}
+
+// camminoTolto e' quello che «Riapri il nodo» riporta di una conferma dell'albero, partendo dalla riga p: il nodo di p
+// (il primo in ordine) e, risalendo negli stessi file, i padri tolti dalla stessa conferma, con le loro righe (perNodo)
+// e i nomi dei padri.
+type camminoTolto struct {
+	ordine  []string
+	perNodo map[string][]db.ComponenteProposta
+	padri   []string
+}
+
+// camminoDaRiaprire calcola il cammino di p. nodoDi dice il nodo di una riga, se la riga fa parte del gesto: tolta
+// dalla conferma che si annulla (per riaprire), o gia' riaperta dallo stesso gesto di p (per ridire che cosa ha
+// riaperto, senza scrivere). p ne fa parte: chi chiama l'ha letta cosi'.
+func camminoDaRiaprire(righe []db.ListComponenteProposteThreadRow, archi []db.ListRelazioneProposteThreadRow, p db.ComponenteProposta,
+	nodoDi func(db.ComponenteProposta) (string, bool)) camminoTolto {
+	c := camminoTolto{perNodo: map[string][]db.ComponenteProposta{}}
+	rigaDi := map[rigaNelFile]db.ComponenteProposta{}
+	for _, x := range righe {
+		r := x.ComponenteProposta
+		rigaDi[rigaNelFile{r.AllegatoID, r.Chiave}] = r
+		if k, ok := nodoDi(r); ok {
+			c.perNodo[k] = append(c.perNodo[k], r)
+		}
+	}
+	padriNelFile := map[rigaNelFile][]string{}
+	for _, x := range archi {
+		r := x.RelazioneProposta
+		padriNelFile[rigaNelFile{r.AllegatoID, r.FiglioChiave}] = append(padriNelFile[rigaNelFile{r.AllegatoID, r.FiglioChiave}], r.PadreChiave)
+	}
+	primo, _ := nodoDi(p)
+	visti := map[string]bool{primo: true}
+	c.ordine = []string{primo}
+	for i := 0; i < len(c.ordine); i++ {
+		for _, r := range c.perNodo[c.ordine[i]] {
+			for _, pk := range padriNelFile[rigaNelFile{r.AllegatoID, r.Chiave}] {
+				pr, ok := rigaDi[rigaNelFile{r.AllegatoID, pk}]
+				if !ok {
+					continue
+				}
+				k, ok := nodoDi(pr)
+				if !ok || visti[k] {
+					continue
+				}
+				visti[k] = true
+				c.ordine = append(c.ordine, k)
+				c.padri = append(c.padri, nomeNodo(pr))
+			}
+		}
+	}
+	return c
+}
+
+// riapriToltoNellAlbero riapre il nodo della riga p, che una conferma dell'albero ha tolto (il suo segno s), con quello
+// che la stessa conferma aveva chiuso e che serve perche' il nodo torni nell'albero proposto (studio § 2.5, «RiapriNodo
+// li riporta»; fase 4.4a.1br, dalla verifica della 4.4a.1b: prima si riapriva la riga sola e i suoi archi, e la frase
+// diceva «torna» anche quando non tornava):
+//   - le righe del nodo in ogni file (stessa firma, stesso nodo nel segno): la conferma le aveva chiuse tutte, e una
+//     sola non basta (la riga della radice nello STEP proprio di un sottoassieme tiene insieme quello STEP);
+//   - risalendo, i padri nei file che la stessa conferma aveva tolto, con tutte le loro righe: senza, il nodo resterebbe
+//     sotto un padre scartato da una persona, e nessun cammino da un prodotto lo raggiungerebbe (le strutture saltano
+//     le righe scartate da una persona). La frase li nomina;
+//   - gli archi degli stessi file che toccano quelle righe, chiusi dalla stessa conferma (RiapriArchiToltiNellAlbero).
+//
+// Solo quello che quella conferma aveva tolto: un padre scartato a mano, o da un'altra conferma, e' un'altra decisione e
+// resta com'e'; i figli tolti con il nodo restano tolti (si vedono, scartati, sotto di lui). Tutto e' una correzione
+// dell'evidenza: la working non cambia, e i pezzi nascono solo con la conferma dopo.
+func riapriToltoNellAlbero(ctx context.Context, q *db.Queries, thread uuid.UUID, p db.ComponenteProposta, s SegnoAlbero,
+	utente uuid.UUID) (riaperturaAlbero, error) {
+	var ra riaperturaAlbero
+	righe, err := q.ListComponenteProposteThread(ctx, thread)
+	if err != nil {
+		return ra, err
+	}
+	archi, err := q.ListRelazioneProposteThread(ctx, thread)
+	if err != nil {
+		return ra, err
+	}
+	// p e' tolta da questa conferma: chi chiama l'ha letta con toltoNellAlbero
+	c := camminoDaRiaprire(righe, archi, p, func(r db.ComponenteProposta) (string, bool) { return nodoTolto(r, s.Firma) })
+	ra.padri = c.padri
+	for i, k := range c.ordine {
+		for _, r := range c.perNodo[k] {
+			n, err := q.RiapriComponenteProposta(ctx, db.RiapriComponentePropostaParams{PropostaID: r.PropostaID, Utente: utente})
+			if err != nil {
+				return ra, err
+			}
+			if i == 0 {
+				ra.righe += int(n)
+			}
+			a, err := q.RiapriArchiToltiNellAlbero(ctx, db.RiapriArchiToltiNellAlberoParams{ThreadID: thread, AllegatoID: r.AllegatoID,
+				Chiave: r.Chiave, Nota: NotaToltoNellAlbero, Firma: s.Firma, Utente: utente})
+			if err != nil {
+				return ra, err
+			}
+			ra.archi += int(a)
+		}
+	}
+	if ra.righe == 0 {
+		// la riga del gesto e' bloccata (BloccaComponenteProposta) e scartata: qui non si arriva, se non per un errore
+		return ra, Rifiuto(nomeNodo(p) + ": la riga non è più quella che la conferma dell'albero aveva tolto: ricarica la pagina")
+	}
+	return ra, nil
+}
+
+// giaRiapertoNellAlbero ridice, senza scrivere niente, che cosa ha riaperto il gesto che ha riaperto la riga p (x, la
+// sua riapertura): le righe di quel gesto sono quelle con la stessa riapertura in fondo alla storia, e il cammino e' lo
+// stesso di riapriToltoNellAlbero, quindi i conti e la frase sono quelli che il gesto aveva detto (fase 4.4a.1br, dalla
+// verifica). Serve a chi riapre un pezzo riga per riga (la pagina della Distinta, «Riapri il pezzo»): la prima
+// riapertura porta con se' le altre righe dello stesso pezzo tolte dalla stessa conferma, e la chiamata dopo, su una di
+// quelle, trova la riga gia' aperta; con il rifiuto «non è scartato» la pagina mostrava un errore dopo una riapertura
+// riuscita, e non si rifaceva.
+func giaRiapertoNellAlbero(ctx context.Context, q *db.Queries, thread uuid.UUID, p db.ComponenteProposta, x riapertura) (riaperturaAlbero, error) {
+	var ra riaperturaAlbero
+	righe, err := q.ListComponenteProposteThread(ctx, thread)
+	if err != nil {
+		return ra, err
+	}
+	archi, err := q.ListRelazioneProposteThread(ctx, thread)
+	if err != nil {
+		return ra, err
+	}
+	c := camminoDaRiaprire(righe, archi, p, func(r db.ComponenteProposta) (string, bool) {
+		y, ok := riapertoNellAlbero(r.Stato, r.Evidenza, eventoNodoRiaperto)
+		if !ok || !y.stessoGesto(x) {
+			return "", false
+		}
+		return nodoDelSegno(y.segno, r), true
+	})
+	ra.righe, ra.padri = len(c.perNodo[c.ordine[0]]), c.padri
+	// gli archi: quelli dello stesso gesto che toccano le righe del cammino (il gesto li aveva riaperti per quelle)
+	toccate := map[rigaNelFile]bool{}
+	for _, k := range c.ordine {
+		for _, r := range c.perNodo[k] {
+			toccate[rigaNelFile{r.AllegatoID, r.Chiave}] = true
+		}
+	}
+	for _, a := range archi {
+		r := a.RelazioneProposta
+		y, ok := riapertoNellAlbero(r.Stato, r.Evidenza, eventoArcoRiaperto)
+		if ok && y.stessoGesto(x) && (toccate[rigaNelFile{r.AllegatoID, r.PadreChiave}] || toccate[rigaNelFile{r.AllegatoID, r.FiglioChiave}]) {
+			ra.archi++
+		}
+	}
+	return ra, nil
+}
+
+// frase dice all'operatore che cosa «Riapri il nodo» ha riaperto di una conferma dell'albero.
+func (ra riaperturaAlbero) frase(nome string) string {
+	var con []string
+	if ra.righe > 1 {
+		con = append(con, quanti(ra.righe-1, "altra riga dello stesso pezzo", "altre righe dello stesso pezzo"))
+	}
+	switch len(ra.padri) {
+	case 0:
+	case 1:
+		con = append(con, "il padre "+ra.padri[0])
+	default:
+		con = append(con, "i padri "+strings.Join(ra.padri, ", "))
+	}
+	if ra.archi > 0 {
+		con = append(con, quanti(ra.archi, "legame dello STEP", "legami dello STEP"))
+	}
+	frase := nome + " riaperto: torna fra le proposte"
+	switch len(con) {
+	case 0:
+	case 1:
+		frase += ", con " + con[0] + " che la conferma dell'albero aveva tolto"
+	default:
+		frase += ", con " + strings.Join(con[:len(con)-1], ", ") + " e " + con[len(con)-1] + " che la conferma dell'albero aveva tolto"
+	}
+	return frase + "."
 }
 
 // tipoConfermatoNellAlbero e' il tipo con cui nasce un pezzo dell'albero confermato: quello del riepilogo (proposto
@@ -400,7 +659,10 @@ func ConfermaAlbero(ctx context.Context, q *db.Queries, thread, utente uuid.UUID
 	// archi: tenuti (confermata se la conferma ha scritto il legame, duplicato se c'era gia'), o chiusi.
 	// Di un nodo che resta si decidono solo le righe ancora da decidere (RigaAlbero.daDecidere: le aperte e gli agganci
 	// per codice di prima), e di un componente che c'e' solo quelle dei nodi che il riepilogo elenca fra i ritrovati
-	// (P13: «solo i ritrovati elencati»; fase 4.4a.1b, dalla verifica). Una riga chiusa da un automatismo resta com'e'
+	// (P13: «solo i ritrovati elencati»; fase 4.4a.1b, dalla verifica); di un nodo che va via, quelle che il riepilogo
+	// conta (siChiudeNellAlbero), con il nodo nel segno (per «Riapri il nodo»). Una riga chiusa da un automatismo resta
+	// com'e', di un nodo come di un arco (fase 4.4a.1br: prima si chiudevano anche quelle dei nodi che vanno via e degli
+	// archi, e la rilettura non le riscriveva piu'); per gli archi, che l'albero porta senza lo stato, la salta la query
 	for _, g := range pc.gruppi {
 		if g.prodotto {
 			continue
@@ -436,8 +698,13 @@ func ConfermaAlbero(ctx context.Context, q *db.Queries, thread, utente uuid.UUID
 		}
 	}
 	for _, n := range pc.via {
+		s := segno
+		s.Nodo = n.Chiave
 		for _, rr := range n.Righe {
-			k, err := decidiNodoNellAlbero(ctx, q, rr.Proposta, db.StatoPropostaScartata, uuid.NullUUID{}, NotaToltoNellAlbero, segno, utente, true)
+			if !rr.siChiudeNellAlbero() {
+				continue
+			}
+			k, err := decidiNodoNellAlbero(ctx, q, rr.Proposta, db.StatoPropostaScartata, uuid.NullUUID{}, NotaToltoNellAlbero, s, utente, true)
 			if err != nil {
 				return "", err
 			}
@@ -553,9 +820,9 @@ func segnoCommercialeDi(g *gruppo, m *pezzoBozza) *SegnoCommerciale {
 	return nil
 }
 
-// decidiNodoNellAlbero decide la riga di un nodo con il segno. 0: la riga era gia' decisa da una persona e non si
-// tocca. anche: una riga che una decisione di prima aveva preso si decide di nuovo (un pezzo che la conferma toglie);
-// una scartata da una persona resta com'e'.
+// decidiNodoNellAlbero decide la riga di un nodo con il segno. 0: la riga era gia' decisa da una persona, o chiusa da un
+// automatismo (fase 4.4a.1br), e non si tocca. anche: una riga che una decisione di prima aveva preso si decide di nuovo
+// (un pezzo che la conferma toglie); una scartata da una persona resta com'e'. nota vuota: resta quella della lettura.
 func decidiNodoNellAlbero(ctx context.Context, q *db.Queries, proposta uuid.UUID, stato db.StatoProposta, comp uuid.NullUUID, nota string,
 	s SegnoAlbero, utente uuid.UUID, anche bool) (int64, error) {
 	raw, err := json.Marshal(s)
@@ -566,7 +833,8 @@ func decidiNodoNellAlbero(ctx context.Context, q *db.Queries, proposta uuid.UUID
 		Nota: testo(tagliaNota(nota)), Segno: raw, PropostaID: proposta, AncheDecise: anche})
 }
 
-// decidiArcoNellAlbero decide la riga di un arco con il segno, come decidiNodoNellAlbero.
+// decidiArcoNellAlbero decide la riga di un arco con il segno, come decidiNodoNellAlbero: una chiusa da un automatismo
+// (la «tenuta dei conti» di Pianifica, lo stesso componente, un file sostituito) resta com'e'.
 func decidiArcoNellAlbero(ctx context.Context, q *db.Queries, thread uuid.UUID, rr RigaArco, stato db.StatoProposta, nota string,
 	s SegnoAlbero, utente uuid.UUID, anche bool) (int64, error) {
 	raw, err := json.Marshal(s)
