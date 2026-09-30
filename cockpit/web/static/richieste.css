@@ -66,8 +66,8 @@
 .ui-rq .colfase.vuota { width: 150px; opacity: .7 }
 .ui-rq .colfase header { padding: 10px 10px 8px; border-bottom: 1px solid var(--line) }
 .ui-rq .colfase header b { font-family: var(--f-display); font-size: .95rem; letter-spacing: .06em; text-transform: uppercase; display: flex; justify-content: space-between; gap: 6px }
-.ui-rq .carte-fase { overflow: auto; padding: 8px; display: grid; gap: 8px; align-content: start }
-.ui-rq .cartafase { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px 8px 11px; display: grid; gap: 4px; color: var(--ink); overflow: hidden }
+.ui-rq .carte-fase { overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px }
+.ui-rq .cartafase { flex: none; position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px 8px 11px; display: grid; gap: 4px; color: var(--ink); overflow: hidden }
 .ui-rq .cartafase::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--striscia, transparent) }
 .ui-rq .cartafase.rosso { --striscia: var(--bad) } .ui-rq .cartafase.giallo { --striscia: var(--warn) }
 .ui-rq .cartafase:hover { border-color: var(--line-strong); color: var(--ink) }
@@ -140,7 +140,7 @@
   .ui-rq [data-maniglia="m1"] { display: none }
   .chiuso-filtri .ui-rq .filtri-rq { display: flex }
   .ui-rq .filtri-rq { flex-direction: row; flex-wrap: wrap; align-items: flex-start; padding: 8px; gap: 8px; max-height: 34vh; margin-bottom: 8px }
-  .ui-rq .filtri-rq .gruppo { display: flex; flex-wrap: wrap; gap: 3px; width: 100% }
+  .ui-rq .filtri-rq .gruppo { display: flex; flex-wrap: wrap; gap: 3px; width: auto; margin-right: 12px }
   .ui-rq .filtri-rq .gruppo > .label, .ui-rq .filtri-rq .aiuto-quad, .ui-rq .aggiorna-nota { display: none }
   .ui-rq .filtri-rq .voce { width: auto; padding: 4px 8px; font-size: .86rem }
 }
@@ -153,4 +153,17 @@
   .ui-rq .rq-riga { grid-template-columns: minmax(0, 1fr) }
   .ui-rq .rq-riga .dx { justify-items: start; text-align: left; grid-row: 1 }
   .ui-rq .solo-stretto { display: inline-flex }
+}
+.ui-rq .dettaglio dd small { display: block }
+
+/* con la navigazione aperta la pagina ha 184 px in meno: la disposizione stretta parte prima */
+@media (min-width: 861px) and (max-width: 1400px) {
+  body:not(.rail-chiusa) .ui-rq { grid-template-columns: minmax(0, 1fr) 12px var(--w-det, 420px); grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "filtri m2 det" "testa m2 det" "elenco m2 det" }
+  body:not(.rail-chiusa) .ui-rq [data-maniglia="m1"] { display: none }
+  .chiuso-filtri body:not(.rail-chiusa) .ui-rq .filtri-rq { display: flex }
+  body:not(.rail-chiusa) .ui-rq .filtri-rq { flex-direction: row; flex-wrap: wrap; align-items: flex-start; padding: 8px; gap: 8px; max-height: 34vh; margin-bottom: 8px }
+  body:not(.rail-chiusa) .ui-rq .filtri-rq .gruppo { display: flex; flex-wrap: wrap; gap: 3px; width: auto; margin-right: 12px }
+  body:not(.rail-chiusa) .ui-rq .filtri-rq .gruppo > .label, body:not(.rail-chiusa) .ui-rq .filtri-rq .aiuto-quad, body:not(.rail-chiusa) .ui-rq .aggiorna-nota { display: none }
+  body:not(.rail-chiusa) .ui-rq .filtri-rq .voce { width: auto; padding: 4px 8px; font-size: .86rem }
 }

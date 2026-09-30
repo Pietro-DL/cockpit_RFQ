@@ -34,7 +34,7 @@ main{padding:12px 16px}h1{font-size:20px;margin:4px 0 12px}h2{font-size:17px;mar
 .corpo-vista{background:#fafbfc;border:1px solid var(--bordo);border-radius:6px;padding:10px;max-height:50vh;overflow:auto}
 .msg-thread .corpo-vista{max-height:30vh;padding:8px}
 .corpo-vista pre{white-space:pre-wrap;font:inherit;margin:4px 0}
-.corpo-testo{white-space:pre-wrap}.corpo-link,.corpo-img{color:var(--muto)}.corpo-img{font-size:12px}
+.corpo-testo{white-space:pre-wrap;overflow-wrap:anywhere}.corpo-link,.corpo-img{color:var(--muto)}.corpo-img{font-size:12px}
 .corpo-tabella{overflow-x:auto;margin:6px 0}
 .corpo-tabella table{width:auto;font-size:12.5px;background:#fff}
 .corpo-tabella td,.corpo-tabella th{border:1px solid var(--bordo);padding:2px 6px;white-space:pre-line;color:var(--testo);font-size:inherit}
@@ -86,7 +86,7 @@ details.conferma{display:inline-block}details.conferma summary{list-style:none;c
    in sezioni, e la testata tiene solo il contesto operativo. Sotto i 900 px la rail torna una
    striscia orizzontale sopra il contenuto: su uno schermo stretto una colonna fissa mangia meta'
    della pagina proprio dove ce n'e' meno. */
-.guscio{display:grid;grid-template-columns:184px 1fr;align-items:start}
+.guscio{display:grid;grid-template-columns:184px minmax(0,1fr);align-items:start}
 .rail{position:sticky;top:0;padding:10px 8px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--bordo);background:var(--carta);min-height:calc(100vh - 41px)}
 .rail a{padding:6px 10px;border-radius:6px;color:var(--muto);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rail a:hover{background:#f0f4fa}
@@ -94,7 +94,7 @@ details.conferma{display:inline-block}details.conferma summary{list-style:none;c
 .rail h3{margin:14px 0 4px;padding:0 10px}
 .rail-toggle{border:0;background:none;padding:2px 8px 2px 0;color:var(--muto);font-size:16px;line-height:1}
 .rail-toggle:hover{color:var(--acc);border-color:transparent}
-body.rail-chiusa .guscio{grid-template-columns:0 1fr}
+body.rail-chiusa .guscio{grid-template-columns:minmax(0,1fr)}
 body.rail-chiusa .rail{display:none}
 @media (max-width:900px){
   .guscio{grid-template-columns:1fr}

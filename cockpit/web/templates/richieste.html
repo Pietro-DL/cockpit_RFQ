@@ -35,7 +35,7 @@ window.CockpitPagina = {
   chiave: "richieste",
   maniglie: {
     m1: { v: "--w-filtri", def: 222, min: 180, max: 340, dir: 1, chiudi: "filtri", nome: "i filtri" },
-    m2: { v: "--w-det", def: 480, min: 360, max: 900, dir: -1, chiudi: "det", nome: "la richiesta scelta" }
+    m2: { v: "--w-det", def: 480, stretta: { sotto: 1300, w: 420 }, min: 360, max: 900, dir: -1, chiudi: "det", nome: "la richiesta scelta" }
   },
   preset: [
     { nome: "Lavoro", sotto: "com'è all'inizio", schema: [[2, 0], [7, 1], [5, 1]], valori: [["m1", 222], ["m2", 480]] },

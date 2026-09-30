@@ -94,7 +94,7 @@ body:has(.ui) main { background: #f4f4f2; padding: 10px 12px; height: calc(100vh
 .ui .voce .punto { width: 9px; height: 9px; border-radius: 3px; flex: none; background: var(--q, var(--ink-3)) }
 .ui .voce .n { margin-left: auto; font: 600 .8rem var(--f-mono); color: var(--ink-2); min-width: 22px; text-align: right }
 .ui .voce .n.pieno { color: var(--surface); background: var(--q, var(--accent)); border-radius: 999px; padding: 0 7px; min-width: 0 }
-.ui .voce.adesso { font-family: var(--f-display); font-size: 1.05rem; font-weight: 700; padding-block: 9px }
+.ui .voce.adesso { font-weight: 700 }
 .ui .voce.adesso .punto { background: var(--accent); border-radius: 50% }
 .ui .aiuto-quad { font-size: .8rem; color: var(--ink-2); padding: 4px 8px 0; line-height: 1.4 }
 .ui .seg { display: flex; flex-wrap: wrap; gap: 3px; padding: 0 4px }
@@ -124,6 +124,11 @@ body:has(.ui) main { background: #f4f4f2; padding: 10px 12px; height: calc(100vh
 .ui .avviso-box.warn { background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent) }
 .ui .avviso-box.bad { background: var(--bad-soft); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent) }
 .ui .avviso-box.ok { background: var(--ok-soft); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent) }
+/* la rail della cornice (style.css) ha un'altezza minima pensata per la testata di prima: sotto le pagine nuove
+   e' alta quanto lo schermo sotto la testata, e la pagina non scorre di qualche pixel */
+body:has(.ui) .rail { min-height: 0; height: calc(100vh - var(--alto-barra, 46px)); overflow: auto }
+/* lo score (valutazione.go: <span class="punteggio">) con i colori di queste pagine, non il riquadro scuro di style.css */
+.ui .punteggio { min-width: 0; padding: 0 5px; border-radius: 4px; background: var(--surface-3); color: var(--ink-2); font-weight: 600 }
 .ui .carta { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; min-width: 0 }
 .ui .carta h3 { font-size: 1.12rem; font-weight: 700 }
 .ui .carta .sotto { font-size: .86rem; color: var(--ink-2) }
@@ -155,8 +160,9 @@ body:has(.ui) main { background: #f4f4f2; padding: 10px 12px; height: calc(100vh
 .ui .cand.chiuso { background: var(--surface-2) }
 .ui .cand .testa { display: flex; gap: 8px; align-items: flex-start }
 .ui .cand .testa .t { min-width: 0; flex: 1 }
-.ui .cand .testa .t b { font-family: var(--f-mono); font-size: .9rem; overflow-wrap: anywhere }
+.ui .cand .testa .t b { font-size: .95rem; overflow-wrap: anywhere }
 .ui .cand .testa .t small { display: block; color: var(--ink-2); font-size: .8rem }
+.ui .cand .testa .t small.mono { font-size: .72rem; color: var(--ink-3); overflow-wrap: anywhere }
 .ui .cand ul { margin: 0; padding-left: 16px; font-size: .82rem; color: var(--ink-2); display: grid; gap: 2px }
 .ui .cand form { margin: 0 }
 .ui .cand .liv.forza { text-transform: none; letter-spacing: 0; font: 600 .76rem var(--f-body) }
@@ -245,7 +251,7 @@ body.ui-tirando iframe, body.ui-tirando .ui .col { pointer-events: none }
 
 /* ---------------------------------------------------------------- l'ingranaggio in testata e il suo pannello */
 .ui-ingranaggio { position: relative; display: inline-flex }
-.ui-ingranaggio > button { padding: 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #5f5f5a; display: grid; place-items: center; cursor: pointer }
+.ui-ingranaggio > button { padding: 2px; margin: -4px 0; line-height: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #5f5f5a; display: grid; place-items: center; cursor: pointer }
 .ui-ingranaggio > button:hover, .ui-ingranaggio > button[aria-expanded="true"] { background: #efefec; color: #1c1c1a; border-color: transparent }
 .ui-ingranaggio svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
 .ui-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 70; width: 330px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: var(--shadow-alto); padding: 12px; display: grid; gap: 10px; font-size: .9rem }

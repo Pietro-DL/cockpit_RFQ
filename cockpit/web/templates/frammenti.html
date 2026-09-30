@@ -706,7 +706,7 @@
   {{range .Carte}}
   <div class="cand {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
     <div class="testa">
-      <span class="t"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b><small>{{.Cliente}}{{if .Riferimento}} · {{.Riferimento}}{{end}} · aperta dal {{data .DataInizio}}</small></span>
+      <span class="t"><b>RFQ {{if .Riferimento}}{{.Riferimento}}{{else if .Oggetto}}{{.Oggetto}}{{else}}{{.Cartella}}{{end}}</b><small>{{.Cliente}} · aperta dal {{data .DataInizio}}</small>{{if .Cartella}}<small class="mono" title="cartella sul NAS">{{.Cartella}}</small>{{end}}</span>
       <span class="liv forza {{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
     </div>
     <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small>({{.Livello}})</small></li>{{end}}</ul>
@@ -747,7 +747,7 @@
     {{if .Errore}}<div class="avviso-box bad errore-box" role="alert">{{.Errore}}</div>{{end}}
     <div class="seg-link" role="group" aria-label="Come">
       {{range $k := list "cliente" "fornitore" "altro"}}
-      <a href="#" hx-get="/messaggio/{{$.Dati.M.MessaggioID}}/censisci?come={{$k}}{{if $.Dati.Ignora}}&amp;ignora=1{{end}}" hx-target="#pannello" {{if eq $.Dati.Come $k}}aria-current="true"{{end}}>{{if eq $k "altro"}}altro (corriere, banca, newsletter){{else}}{{$k}}{{end}}</a>
+      <a href="#" hx-get="/messaggio/{{$.Dati.M.MessaggioID}}/censisci?come={{$k}}{{if $.Dati.Ignora}}&amp;ignora=1{{end}}" hx-target="#pannello" {{if eq $.Dati.Come $k}}aria-current="true"{{end}} {{if eq $k "altro"}}title="corriere, banca, newsletter: né cliente né fornitore"{{end}}>{{$k}}</a>
       {{end}}
     </div>
     <fieldset class="blocco">
