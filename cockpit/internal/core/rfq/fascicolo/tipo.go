@@ -25,8 +25,9 @@ package fascicolo
 //     sospensione: resta spento, con il motivo;
 //   - sciolto: non con dei figli nella working («ha 2 figli: è un assieme»);
 //   - commerciale: il nodo resta nella BOM Promatec; i suoi discendenti negli STEP restano guida (la sua
-//     autorizzazione non vale: ValutaDichiarazioni) e non entrano nella working; i figli gia' nella working
-//     restano, perche' li ha decisi una persona, e l'anteprima lo dice. Se ha un file autorizzato (sorgente o
+//     autorizzazione non vale: ValutaDichiarazioni) e non entrano nella working; un commerciale e' una foglia (PR
+//     #7, domanda 6a), quindi non con dei figli nella working, come il particolare (giro 4, fase 4.4a.1b: tolto
+//     FigliRestano, «i figli già nella BOM restano», che la regola rendeva irraggiungibile). Se ha un file autorizzato (sorgente o
 //     delega) il passaggio non si rifiuta: si fa, e l'autorita' si SOSPENDE. La sospensione si registra nella
 //     marcatura (chi, quando, «è diventato commerciale»: la forma che ValutaDichiarazioni legge); le rimozioni
 //     aperte della dichiarazione si chiudono con la nota (dopoLaDecisione); le deleghe che ne dipendono restano
@@ -200,9 +201,9 @@ type EffettoTipo struct {
 	Sospende  []string
 	ConLei    []string
 	Rimozioni int
-	// FigliRestano: i figli nella working di un componente che diventa commerciale (restano: li ha decisi una
-	// persona).
-	FigliRestano []string
+	// (giro 4, fase 4.4a.1b) FigliRestano non c'e' piu': i figli nella working di un componente che diventava
+	// commerciale, che restavano. Con la regola della PR #7 (6a: il commerciale e' una foglia) il passaggio con dei
+	// figli e' spento (MotivoTipoSpento), e la lista era sempre vuota.
 	// RestaSospesa: uscendo da commerciale, le autorizzazioni che restano sospese finche' una persona non le
 	// riattiva; Autorizzabile: uscendo da commerciale senza autorizzazioni, il suo STEP si potra' autorizzare.
 	RestaSospesa  []string
@@ -229,6 +230,31 @@ func (e EffettoTipo) Bottone() string {
 		s += ": " + quanti(len(e.Sospende), "autorizzazione si sospende", "autorizzazioni si sospendono")
 	}
 	return s
+}
+
+// frasi dice, con le parole dell'anteprima della scheda, che cosa il cambio fa oltre al tipo: il riepilogo della
+// conferma dell'albero le mostra per ogni tipo che cambia su un componente che c'e' (giro 4, fase 4.4a.1b).
+func (e EffettoTipo) frasi() []string {
+	var out []string
+	for _, x := range e.Sospende {
+		out = append(out, "si sospende "+x+": il file resta guida e non propone più i figli diretti, finché una persona non la riattiva")
+	}
+	if len(e.ConLei) > 0 {
+		out = append(out, "si sospendono con lei le deleghe di "+strings.Join(e.ConLei, ", "))
+	}
+	if e.Rimozioni > 0 {
+		out = append(out, quanti(e.Rimozioni, "rimozione proposta si chiude", "rimozioni proposte si chiudono")+", con la nota della sospensione")
+	}
+	if e.SvuotaStep != "" {
+		out = append(out, e.SvuotaStep+" non è più il suo STEP strutturale: il riferimento si svuota")
+	}
+	for _, x := range e.RestaSospesa {
+		out = append(out, "resta sospesa "+x+": non si riattiva da sola")
+	}
+	if e.StepStrutturale != "" {
+		out = append(out, e.StepStrutturale+" diventa anche il suo STEP strutturale")
+	}
+	return append(out, e.Avvisi...)
 }
 
 // leggiFattiTipo legge quello che le regole guardano. Non scrive niente.
@@ -290,6 +316,23 @@ func leggiFattiTipo(ctx context.Context, q *db.Queries, thread uuid.UUID, c db.C
 // sotto il lucchetto nella scrittura. tipo vuoto: solo la tendina (le opzioni con i loro motivi). Un errore e'
 // del database o un componente che non e' della RFQ; un cambio che non si puo' fare e' EffettoTipo.Spento.
 func EffettoCambioTipo(ctx context.Context, q *db.Queries, thread, comp uuid.UUID, tipo db.TipoComponente) (EffettoTipo, error) {
+	return effettoCambioTipo(ctx, q, thread, comp, tipo, nil)
+}
+
+// comeDopoLaConferma e' come la conferma dell'albero trova un componente che c'e' quando ne cambia il tipo (giro 4,
+// fase 4.4a.1b; ConfermaAlbero, passo 4): ripristinato se era archiviato (passo 3), con i figli che ha nell'albero
+// confermato (i legami che la bozza toglie sono gia' andati via, passo 2), e con le rimozioni dei legami dell'albero
+// gia' decise (passo 2). Il riepilogo la usa per dire prima di scrivere che cosa il cambio fara', con le regole e le
+// parole dell'anteprima della scheda.
+type comeDopoLaConferma struct {
+	figli []string
+	// rimozioni: step, padre, figlio
+	rimozioni map[[3]uuid.UUID]bool
+}
+
+// effettoCambioTipo e' EffettoCambioTipo; con conferma, i fatti sono quelli del componente quando la conferma
+// dell'albero ne cambia il tipo (comeDopoLaConferma). Non scrive niente.
+func effettoCambioTipo(ctx context.Context, q *db.Queries, thread, comp uuid.UUID, tipo db.TipoComponente, conferma *comeDopoLaConferma) (EffettoTipo, error) {
 	var e EffettoTipo
 	c, err := q.GetComponente(ctx, comp)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && c.ThreadID != thread) {
@@ -306,6 +349,10 @@ func EffettoCambioTipo(ctx context.Context, q *db.Queries, thread, comp uuid.UUI
 	prima := ValutaDichiarazioni(righe)
 	if e.fatti, err = leggiFattiTipo(ctx, q, thread, c, prima); err != nil {
 		return e, err
+	}
+	if conferma != nil {
+		e.fatti.Componente.ArchiviatoIl = nil
+		e.fatti.Figli = conferma.figli
 	}
 	e.Opzioni = e.fatti.Opzioni()
 	if tipo == "" {
@@ -339,11 +386,13 @@ func EffettoCambioTipo(ctx context.Context, q *db.Queries, thread, comp uuid.UUI
 			return e, err
 		}
 		for _, r := range aperte {
+			if conferma != nil && conferma.rimozioni[[3]uuid.UUID{r.StepDocumentoID, r.PadreID, r.FiglioID}] {
+				continue
+			}
 			if prima.RimozioneValida(r.StepDocumentoID, r.PadreID) && !dopo.RimozioneValida(r.StepDocumentoID, r.PadreID) {
 				e.Rimozioni++
 			}
 		}
-		e.FigliRestano = e.fatti.Figli
 		if c.StepStrutturaleID.Valid {
 			// un finito con lo STEP strutturale marcato (MotivoTipoSpento lascia passare solo quello): il CHECK
 			// lo vuole solo per un finito, e il riferimento si svuota
@@ -447,13 +496,13 @@ func fraseDichiarazione(d Dichiarazione) string {
 func (e EffettoTipo) firmata() EffettoTipo {
 	x := struct {
 		Componente, Da, A, Spento, Step, Svuota string
-		Sospende, ConLei, Figli, Resta          []string
+		Sospende, ConLei, Resta                 []string
 		Avvisi                                  []string
 		Rimozioni                               int
 		Autorizzabile                           bool
 		Opzioni                                 []OpzioneTipo
 	}{e.Componente.ComponenteID.String(), string(e.Componente.Tipo), string(e.Tipo), e.Spento, e.StepStrutturale, e.SvuotaStep,
-		e.Sospende, e.ConLei, e.FigliRestano, e.RestaSospesa, e.Avvisi, e.Rimozioni, e.Autorizzabile, e.Opzioni}
+		e.Sospende, e.ConLei, e.RestaSospesa, e.Avvisi, e.Rimozioni, e.Autorizzabile, e.Opzioni}
 	b, _ := json.Marshal(x)
 	h := sha256.Sum256(b)
 	e.Firma = hex.EncodeToString(h[:12])
@@ -560,9 +609,6 @@ func cambiaTipo(ctx context.Context, q *db.Queries, thread uuid.UUID, e EffettoT
 		if e.SvuotaStep != "" {
 			parti = append(parti, e.SvuotaStep+" non è più il suo STEP strutturale: torna con «Riattiva» e il ritorno a prodotto finito.")
 		}
-	}
-	if e.Tipo == db.TipoComponenteCommerciale && len(e.FigliRestano) > 0 {
-		parti = append(parti, "I figli già nella BOM restano ("+strings.Join(e.FigliRestano, ", ")+").")
 	}
 	if len(e.RestaSospesa) > 0 {
 		parti = append(parti, "Resta sospesa "+strings.Join(e.RestaSospesa, "; ")+": si riattiva o si revoca dalla scheda.")
