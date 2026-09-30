@@ -25,6 +25,7 @@ func (s *Server) registraProposte(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/rianalizza", s.autenticato(s.dopoIlGesto(s.rianalizza)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/accetta", s.autenticato(s.dopoIlGesto(s.accettaNodo)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/scarta", s.autenticato(s.dopoIlGesto(s.scartaNodo)))
+	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/riapri", s.autenticato(s.dopoIlGesto(s.riapriNodo)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/nodo/{pid}/codice", s.autenticato(s.dopoIlGesto(s.codiceNodo)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/accetta", s.autenticato(s.dopoIlGesto(s.accettaRelazione)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/relazione/scarta", s.autenticato(s.dopoIlGesto(s.scartaRelazione)))
@@ -171,6 +172,20 @@ func (s *Server) scartaNodo(w http.ResponseWriter, r *http.Request) {
 			return "", err
 		}
 		return fascicolo.ScartaNodo(ctx, q, thread, pid, utente)
+	})
+}
+
+// riapriNodo: POST .../nodo/{pid}/riapri, «Riapri il nodo» (F5, A5.4.5; la rotta dal giro 4, fase 4.4a.1b): un nodo
+// scartato torna aperto, con la storia di chi l'aveva scartato e di chi lo riapre. Serve anche ai nodi che la conferma
+// dell'albero ha tolto (scartati con la nota «tolto nell'albero confermato»): riaperti con gli archi dello stesso file
+// che la stessa conferma aveva chiuso (fascicolo.RiapriNodo), tornano nell'albero proposto.
+func (s *Server) riapriNodo(w http.ResponseWriter, r *http.Request) {
+	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
+		pid, err := idDa(r.PathValue("pid"), "proposta")
+		if err != nil {
+			return "", err
+		}
+		return fascicolo.RiapriNodo(ctx, q, thread, pid, utente)
 	})
 }
 

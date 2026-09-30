@@ -628,6 +628,11 @@ func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 // RiapriNodo: «Riapri il nodo» (F5, A5.4.5). Un nodo scartato torna aperto, con la storia di chi l'aveva
 // scartato e di chi lo riapre. Come lo scarto e' una correzione dell'evidenza: vale per un nodo di guida come
 // per uno nell'autorita', e anche con la BOM congelata. Un nodo accettato non si riapre da qui.
+//
+// Giro 4, fase 4.4a.1b: un nodo che la conferma dell'albero ha tolto torna nell'albero proposto. Con la sua riga si
+// riaprono le righe degli archi dello stesso file che lo toccano, chiuse dalla stessa conferma (la stessa firma nel
+// segno): senza, nessun arco vivo lo porterebbe sotto un prodotto e resterebbe fuori. Se anche il suo padre nel file
+// era stato tolto, si riapre anche lui.
 func RiapriNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID) (string, error) {
 	if err := bloccaThread(ctx, q, thread); err != nil {
 		return "", err
@@ -646,7 +651,21 @@ func RiapriNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 	if n != 1 {
 		return "", Rifiuto(fmt.Sprintf("%s non è scartato (%s): si riapre solo un nodo scartato", nomeNodo(p), p.Stato))
 	}
-	return dopoLaDecisione(ctx, q, thread, nomeNodo(p)+" riaperto: torna fra le proposte.", nil)
+	msg := nomeNodo(p) + " riaperto: torna fra le proposte."
+	// un nodo tolto dalla conferma dell'albero (giro 4, fase 4.4a.1b; studio § 2.5): la stessa conferma aveva chiuso
+	// gli archi dello stesso file che lo toccano, e senza di loro non tornerebbe nell'albero
+	if firma, ok := toltoNellAlbero(p); ok {
+		k, err := q.RiapriArchiToltiNellAlbero(ctx, db.RiapriArchiToltiNellAlberoParams{ThreadID: thread, AllegatoID: p.AllegatoID,
+			Chiave: p.Chiave, Nota: NotaToltoNellAlbero, Firma: firma, Utente: utente})
+		if err != nil {
+			return "", err
+		}
+		if k > 0 {
+			msg = fmt.Sprintf("%s riaperto: torna fra le proposte, con %s dello STEP che la conferma dell'albero aveva tolto.",
+				nomeNodo(p), quanti(int(k), "legame", "legami"))
+		}
+	}
+	return dopoLaDecisione(ctx, q, thread, msg, nil)
 }
 
 // ScartaRelazione: «questo arco non entra».

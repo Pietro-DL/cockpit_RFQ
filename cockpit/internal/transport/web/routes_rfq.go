@@ -34,8 +34,8 @@ func (s *Server) registraRFQ(mux *http.ServeMux) {
 	s.registraSmistamento(mux)
 	// Fascicolo v3: note sui disegni, struttura dall'editor, file di nessun componente (fascicolo_gesti_v3.go).
 	s.registraFascicoloV3(mux)
-	// Giro 4, fase 4.4a.1a: l'albero proposto della Distinta e il riepilogo della bozza, di sola lettura
-	// (distinta_albero.go).
+	// Giro 4, fase 4.4a.1a: l'albero proposto della Distinta e il riepilogo della bozza, di sola lettura; fase 4.4a.1b:
+	// «Conferma l'albero», che scrive (distinta_albero.go).
 	s.registraAlberoProposto(mux)
 	mux.HandleFunc("GET /cruscotto", s.autenticato(s.cruscotto))
 	// La pagina Richieste, con le card delle RFQ e le schede dei prodotti (panoramica.go).

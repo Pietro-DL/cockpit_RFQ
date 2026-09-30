@@ -3,13 +3,15 @@ package fascicolo
 // Il riepilogo dell'albero proposto (giro 4, fase 4.4a.1a; domande 27 = A, 28 = A, 29b = A, 30 seconda risposta; studio
 // docs/specs/studio_albero_distinta_29-09.md § 2.5 e § 2.8, con la verifica in coda). E' la bozza dell'operatore — le correzioni
 // che fa all'albero proposto prima di confermarlo — letta contro l'albero di adesso e detta riga per riga. E' una
-// LETTURA: qui niente scrive. La conferma (fase 4.4a.1b) ricalcolera' lo stesso riepilogo sotto il lucchetto della RFQ e
-// scrivera' solo se la sua firma torna, e solo se e' confermabile.
+// LETTURA: qui niente scrive. La conferma (fase 4.4a.1b, albero_conferma.go) ricalcola lo stesso riepilogo sotto il
+// lucchetto della RFQ e scrive solo se la sua firma torna, e solo se e' confermabile; scrive quello che il riepilogo
+// dice, con gli stessi conti (pianoConferma).
 //
 // La bozza ha un formato con il suo numero (FormatoBozza): e' lo stesso JSON che la pagina tiene nel browser (28 = A, il
-// primo tempo), che la conferma della fase 4.4a.1b ricevera' e che la tabella della fase 4.4b salvera'. I nodi si
-// nominano con le chiavi dell'albero («cod:<CODICE>», «nodo:<riga>» per un nodo senza codice), i pezzi aggiunti con la
-// loro («nuovo:<n>»). La bozza dice soltanto che cosa cambia: un albero accettato cosi' com'e' e' la bozza vuota.
+// primo tempo), che la conferma riceve e che la tabella della fase 4.4b salvera'. I nodi si nominano con le chiavi
+// dell'albero («cod:<CODICE>», «nodo:<riga>» per un nodo senza codice), i pezzi aggiunti con la loro («nuovo:<n>»). La
+// bozza dice soltanto che cosa cambia: un albero accettato cosi' com'e' e' la bozza vuota. Il particolare commerciale
+// scelto con la tendina per un nodo con la proposta commerciale e' il ✓ della proposta (vedi BozzaAlbero.Tipi).
 //
 // La cascata (29b = A): togliere un nodo toglie i legami che lo toccano; poi resta solo quello che si raggiunge ancora da
 // un prodotto. Un figlio in comune resta se un altro padre lo tiene; un pezzo che nessuno tiene piu' va via con i suoi
@@ -57,8 +59,12 @@ type BozzaAlbero struct {
 	// Legami: un legame in piu' fra due pezzi dell'albero («anche sotto»).
 	Legami []LegameBozza `json:"legami,omitempty"`
 	// Quantita: la quantita' scelta di un legame (anche di uno discorde).
-	Quantita    []LegameBozza   `json:"quantita,omitempty"`
-	Tipi        []TipoBozza     `json:"tipi,omitempty"`
+	Quantita []LegameBozza `json:"quantita,omitempty"`
+	// Tipi: il tipo scelto con la tendina. Scegliere «particolare commerciale» per un nodo con la proposta commerciale
+	// e' il ✓ di quella proposta (fase 4.4a.1b, dalla verifica della 4.4a.1a): e' un gesto esplicito della persona, come
+	// il clic sul ✓, e la conferma registra chi l'ha fatto. Un altro tipo scelto non e' il ✗: la risposta resta da dare.
+	Tipi []TipoBozza `json:"tipi,omitempty"`
+	// Commerciali: il ✓ o il ✗ di una persona sulle proposte commerciali (domanda 30, seconda risposta).
 	Commerciali []RispostaBozza `json:"commerciali,omitempty"`
 	// Diversi: i pezzi nuovi che una persona dice diversi dai loro codici quasi uguali (P4).
 	Diversi []string `json:"diversi,omitempty"`
@@ -145,6 +151,7 @@ type RiepilogoAlbero struct {
 	Nuovi            []PezzoRiepilogo       `json:"nuovi"`
 	Ritrovati        []RitrovatoRiepilogo   `json:"ritrovati"`
 	Tipi             []TipoRiepilogo        `json:"tipi"`
+	Revisioni        []RevisioneRiepilogo   `json:"revisioni"`
 	LegamiNuovi      []LegameRiepilogo      `json:"legami_nuovi"`
 	LegamiTolti      []LegameRiepilogo      `json:"legami_tolti"`
 	Quantita         []LegameRiepilogo      `json:"quantita"`
@@ -192,6 +199,26 @@ type TipoRiepilogo struct {
 	Da     db.TipoComponente `json:"da"`
 	A      db.TipoComponente `json:"a"`
 	Motivo string            `json:"motivo"`
+	// Effetti e Spento: di un componente che c'e', che cosa il cambio fa oltre al tipo (le autorizzazioni che si
+	// sospendono, le deleghe con loro, le rimozioni che si chiudono, lo STEP strutturale che si svuota) e perche' non si
+	// puo' fare, con le regole e le parole dell'anteprima della scheda (EffettoCambioTipo), calcolati su come la
+	// conferma trovera' il componente (comeDopoLaConferma). Uno Spento e' un blocco del riepilogo, e tutti e due entrano
+	// nella firma (fase 4.4a.1b, dalla verifica: prima si scoprivano solo alla conferma). Li calcola LeggiRiepilogo,
+	// che legge il database; Riepilogo, pura, li lascia vuoti.
+	Effetti []string `json:"effetti,omitempty"`
+	Spento  string   `json:"spento,omitempty"`
+}
+
+// RevisioneRiepilogo e' la revisione di un componente che c'e', che le righe ancora da decidere dei file dicono nuova:
+// «7121003: rev A → rev B» (fase 4.4a.1b; risposta 28: una revisione aggiorna lo stesso pezzo, non ne crea uno nuovo).
+// Con i file che dicono revisioni diverse (Discordi) non cambia niente: resta Da.
+type RevisioneRiepilogo struct {
+	Nodo       string    `json:"nodo"`
+	Codice     string    `json:"codice"`
+	Componente uuid.UUID `json:"componente"`
+	Da         string    `json:"da"`
+	A          string    `json:"a,omitempty"`
+	Discordi   []string  `json:"discordi,omitempty"`
 }
 
 // LegameRiepilogo e' un legame, padre → figlio × quantita', con i file che lo dicono o il perche'.
@@ -264,12 +291,14 @@ const (
 	CommercialeDecaduta = "decaduta" // il nodo non e' piu' una foglia che nasce (tolto, rinominato, con dei figli)
 )
 
-// CommercialeRiepilogo e' una proposta commerciale, una per riga, con lo stato.
+// CommercialeRiepilogo e' una proposta commerciale, una per riga, con lo stato. Tendina: il ✓ e' il particolare
+// commerciale scelto con la tendina (vedi BozzaAlbero.Tipi).
 type CommercialeRiepilogo struct {
-	Nodo   string `json:"nodo"`
-	Codice string `json:"codice"`
-	Motivo string `json:"motivo"`
-	Stato  string `json:"stato"`
+	Nodo    string `json:"nodo"`
+	Codice  string `json:"codice"`
+	Motivo  string `json:"motivo"`
+	Stato   string `json:"stato"`
+	Tendina bool   `json:"tendina,omitempty"`
 }
 
 // ViciniRiepilogo e' un pezzo nuovo con dei codici quasi uguali (P4): Diverso solo se una persona l'ha detto.
@@ -305,17 +334,23 @@ type ContestoRiepilogo struct {
 // l'albero; senza bozza (nil) legge la bozza vuota sull'albero di adesso: l'albero accettato cosi' com'e'. Solo
 // letture: nessuna riga cambia, nemmeno con una bozza.
 func LeggiRiepilogo(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, b *BozzaAlbero) (AlberoProposto, RiepilogoAlbero, error) {
+	a, r, _, err := leggiRiepilogo(ctx, q, thread, an, b)
+	return a, r, err
+}
+
+// leggiRiepilogo e' LeggiRiepilogo con il piano della conferma: la conferma lo chiama sotto il lucchetto della RFQ.
+func leggiRiepilogo(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, b *BozzaAlbero) (AlberoProposto, RiepilogoAlbero, *pianoConferma, error) {
 	s, err := LeggiStatoFlusso(ctx, q, thread, an)
 	if err != nil {
-		return AlberoProposto{}, RiepilogoAlbero{}, err
+		return AlberoProposto{}, RiepilogoAlbero{}, nil, err
 	}
 	rim, err := q.ListRimozioniAperte(ctx, thread)
 	if err != nil {
-		return AlberoProposto{}, RiepilogoAlbero{}, err
+		return AlberoProposto{}, RiepilogoAlbero{}, nil, err
 	}
 	storia, err := q.ListComponentiConStoria(ctx, thread)
 	if err != nil {
-		return AlberoProposto{}, RiepilogoAlbero{}, err
+		return AlberoProposto{}, RiepilogoAlbero{}, nil, err
 	}
 	p := ProdottiDellaRfq(&s)
 	anc := Ancore(p, &s)
@@ -331,8 +366,56 @@ func LeggiRiepilogo(ctx context.Context, q *db.Queries, thread uuid.UUID, an cod
 	if b != nil {
 		bozza = *b
 	}
-	r, err := Riepilogo(a, bozza, cx)
-	return a, r, err
+	r, pc, err := riepiloga(a, bozza, cx)
+	if err != nil {
+		return a, r, pc, err
+	}
+	if err := effettiDeiTipi(ctx, q, thread, &r, pc); err != nil {
+		return AlberoProposto{}, RiepilogoAlbero{}, nil, err
+	}
+	r.Firma = firmaRiepilogo(a.Firma, bozza, r.Fuori, r.Tipi)
+	return a, r, pc, nil
+}
+
+// effettiDeiTipi dice, per ogni tipo che cambia su un componente che c'e', che cosa il cambio fara' quando la conferma
+// lo scrive (fase 4.4a.1b, dalla verifica): l'anteprima della scheda (EffettoCambioTipo, solo letture) sul componente
+// come la conferma lo trovera' al passo 4 — ripristinato, con i figli dell'albero confermato, con le rimozioni dei
+// legami dell'albero gia' decise. Un cambio che non si puo' fare e' un blocco: la conferma non lo scoprira' dopo un
+// riepilogo «confermabile».
+func effettiDeiTipi(ctx context.Context, q *db.Queries, thread uuid.UUID, r *RiepilogoAlbero, pc *pianoConferma) error {
+	if len(pc.cambi) == 0 {
+		return nil
+	}
+	decise := map[[3]uuid.UUID]bool{}
+	for _, l := range pc.rimozioni {
+		p, okp := pc.a.Nodo(l.Padre)
+		f, okf := pc.a.Nodo(l.Figlio)
+		if okp && okf && p.Componente.Valid && f.Componente.Valid {
+			decise[[3]uuid.UUID{l.Rimozione.Step, p.Componente.UUID, f.Componente.UUID}] = true
+		}
+	}
+	for _, c := range pc.cambi {
+		dopo := &comeDopoLaConferma{rimozioni: decise}
+		for _, l := range pc.legami {
+			if l.padre == c.g {
+				dopo.figli = append(dopo.figli, l.figlio.codice)
+			}
+		}
+		sort.Strings(dopo.figli)
+		t := &r.Tipi[c.indice]
+		e, err := effettoCambioTipo(ctx, q, thread, c.g.comp.ComponenteID, t.A, dopo)
+		if err != nil {
+			return err
+		}
+		t.Spento, t.Effetti = e.Spento, nil
+		if e.Spento == "" {
+			t.Effetti = e.frasi()
+		} else {
+			r.Blocchi = append(r.Blocchi, t.Codice+": "+e.Spento)
+		}
+	}
+	r.Confermabile = len(r.Blocchi) == 0
+	return nil
 }
 
 // fraseStoria dice che cosa tiene un componente fuori dalla working, con le parole di cheCosaLoTiene.
@@ -366,11 +449,21 @@ type pezzoBozza struct {
 	codice     string         // il codice finale, come lo si scrive
 	identita   string         // «cod:<canonico>», o la chiave per un nodo senza codice
 	rev        string
+	revScritta string // la revisione scritta nella rinomina
 	tipo       db.TipoComponente
 	tipoScelto bool
 	rinominato bool
 	tolto      bool
 	risposta   string // ✓ o ✗ della proposta commerciale
+}
+
+// confermaCommerciale: una persona ha confermato la proposta commerciale del nodo, con il ✓ o scegliendo con la tendina
+// il particolare commerciale (un gesto esplicito anche quello: vedi BozzaAlbero.Tipi).
+func (p *pezzoBozza) confermaCommerciale() bool {
+	if p.albero == nil || p.albero.Commerciale == nil {
+		return false
+	}
+	return p.risposta == RispostaSi || (p.risposta == "" && p.tipoScelto && p.tipo == db.TipoComponenteCommerciale)
 }
 
 // legameBozza e' un legame dopo la bozza, fra due chiavi.
@@ -512,6 +605,14 @@ func applica(a *AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (*bozzaAppl
 		}
 		delete(x.legami, [2]string{t.Padre, t.Nodo})
 	}
+	// un pezzo aggiunto sotto un padre tolto nella stessa bozza (o tolto lui stesso) si rifiuta, come un legame: senza,
+	// andrebbe via con la cascata senza che il riepilogo lo dica (fase 4.4a.1b, dalla verifica della 4.4a.1a)
+	for i := range b.Aggiunti {
+		n := &b.Aggiunti[i]
+		if tolti[n.Padre] || tolti[n.ID] {
+			return nil, Rifiuto(fmt.Sprintf("%s sotto %s: uno dei due è tolto dall'albero", n.Codice, x.nome(n.Padre)))
+		}
+	}
 	// i legami in piu' («anche sotto»)
 	for _, l := range b.Legami {
 		p, err := esiste(l.Padre, "anche sotto")
@@ -561,6 +662,10 @@ func applica(a *AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (*bozzaAppl
 			return nil, Rifiuto(p.codice + " è un prodotto della RFQ: il suo codice viene dal triage")
 		case p.albero.Stato != StatoAlberoProposto:
 			return nil, Rifiuto(p.codice + " c'è già nella distinta: il codice di un componente si corregge nel Fascicolo")
+		case p.albero.Ritrovato != nil && p.albero.Ritrovato.Agganciato:
+			// fase 4.4a.1b: la rinomina scrive il codice solo sulle righe aperte, e l'aggancio resterebbe al componente
+			// di prima
+			return nil, Rifiuto(p.codice + " è agganciato per codice a un componente da prima dello Smistamento: il codice di un componente si corregge nel Fascicolo")
 		}
 		codice := strings.TrimSpace(r.Codice)
 		if err := codiceScritto(codice, r.Rev); err != nil {
@@ -568,7 +673,7 @@ func applica(a *AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (*bozzaAppl
 		}
 		p.codice, p.identita, p.rinominato = codice, "cod:"+x.canonico(codice), true
 		if rev := strings.ToUpper(strings.TrimSpace(r.Rev)); rev != "" {
-			p.rev = rev
+			p.rev, p.revScritta = rev, rev
 		}
 	}
 	for _, t := range b.Tipi {
@@ -681,18 +786,72 @@ type gruppo struct {
 // rappresentante e' il nodo che da' la chiave e il codice del gruppo: un nodo dell'albero prima di un aggiunto.
 func (g *gruppo) rappresentante() *pezzoBozza { return g.membri[0] }
 
+// commercialeConfermato: il pezzo nasce particolare commerciale perche' una persona ha confermato la sua proposta (il
+// ✓, o la tendina). Solo un pezzo nuovo di un nodo solo: con due nodi (una rinomina che li unisce) la proposta decade.
+func (g *gruppo) commercialeConfermato() bool {
+	return !g.esiste && len(g.membri) == 1 && g.membri[0].confermaCommerciale()
+}
+
+// legameFinale e' un legame fra due gruppi dopo la bozza, con i legami della bozza (e dell'albero) che lo fanno e la
+// quantita': quella scelta nella bozza vince; discordi, 0.
+type legameFinale struct {
+	padre, figlio *gruppo
+	qta           int32
+	discordi      bool
+	scelta        bool
+	scritto       bool
+	da            []*legameBozza
+}
+
+// pianoConferma e' quello che la conferma dell'albero scrive (albero_conferma.go), calcolato con gli stessi conti del
+// riepilogo: il riepilogo lo dice in parole, la conferma lo fa, e non c'e' un secondo calcolo che possa dire altro.
+type pianoConferma struct {
+	a *AlberoProposto
+	// gruppi: i pezzi dell'albero confermato (quelli che si raggiungono da un prodotto), in ordine; legami: i legami
+	// fra loro, in ordine
+	gruppi []*gruppo
+	legami []*legameFinale
+	// usati: i legami dell'albero che un legame finale tiene; gli altri (tolti dalla bozza, o sotto un pezzo che va
+	// via) si chiudono
+	usati map[*ArcoAlbero]bool
+	// tolti: i legami della working che vanno via; rimozioni: le rimozioni proposte dallo STEP, con la loro sorte
+	tolti     []*ArcoAlbero
+	rimozioni []*ArcoAlbero
+	fuori     []FuoriRiepilogo
+	// via: i nodi che escono dall'albero, le cui righe si chiudono
+	via []*NodoAlbero
+	// revisioni: la revisione nuova dei componenti che ci sono (per identita' del gruppo)
+	revisioni map[string]string
+	// cambi: i tipi che cambiano su un componente che c'e' (l'indice in RiepilogoAlbero.Tipi), di cui LeggiRiepilogo
+	// dice l'effetto (effettiDeiTipi)
+	cambi []cambioTipo
+}
+
+// cambioTipo e' un tipo che cambia su un componente che c'e': la riga del riepilogo e il gruppo.
+type cambioTipo struct {
+	indice int
+	g      *gruppo
+}
+
 // Riepilogo legge la bozza contro l'albero proposto e dice che cosa la conferma farebbe. Pura. Un rifiuto dice che la
 // bozza non si puo' leggere (un riferimento che non c'e', un codice non ammesso, un ciclo, un pezzo sotto un
 // particolare); le domande ancora aperte non sono un rifiuto: stanno nei Blocchi.
 func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (RiepilogoAlbero, error) {
+	r, _, err := riepiloga(a, b, cx)
+	return r, err
+}
+
+// riepiloga e' Riepilogo con il piano della conferma.
+func riepiloga(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (RiepilogoAlbero, *pianoConferma, error) {
 	if a.per == nil {
 		a.indicizza()
 	}
 	x, err := applica(&a, b, cx)
 	if err != nil {
-		return RiepilogoAlbero{}, err
+		return RiepilogoAlbero{}, nil, err
 	}
 	r := RiepilogoAlbero{Formato: FormatoBozza, AlberoFirma: a.Firma, Vecchia: b.Base != a.Firma}
+	pc := &pianoConferma{a: &a, usati: map[*ArcoAlbero]bool{}, revisioni: map[string]string{}}
 	perCan := map[string]db.Componente{}
 	comp := append([]db.Componente(nil), cx.Componenti...)
 	sort.Slice(comp, func(i, j int) bool { return comp[i].Codice < comp[j].Codice })
@@ -746,7 +905,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 				continue
 			}
 			if scelto != nil && scelto.tipo != m.tipo {
-				return RiepilogoAlbero{}, Rifiuto(fmt.Sprintf("%s: i nodi con questo codice hanno tipi scelti diversi", m.codice))
+				return RiepilogoAlbero{}, nil, Rifiuto(fmt.Sprintf("%s: i nodi con questo codice hanno tipi scelti diversi", m.codice))
 			}
 			scelto = m
 		}
@@ -761,14 +920,6 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 	// figli diversi sotto lo stesso nodo padre sono due posizioni, e le quantita' si sommano; lo stesso figlio sotto due
 	// nodi padre che diventano uno sono due descrizioni dello stesso assieme, e le quantita' devono dire lo stesso, se
 	// no sono discordi. Una quantita' scelta nella bozza vince.
-	type legameFinale struct {
-		padre, figlio *gruppo
-		qta           int32
-		discordi      bool
-		scelta        bool
-		scritto       bool
-		da            []*legameBozza
-	}
 	finali := map[[2]string]*legameFinale{}
 	var ordineLegami [][2]string
 	for _, k := range ordineChiavi(x.legami) {
@@ -778,7 +929,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			continue
 		}
 		if gp == gf {
-			return RiepilogoAlbero{}, Rifiuto(fmt.Sprintf("%s starebbe sotto se stesso: con la rinomina %s e %s sono lo stesso pezzo",
+			return RiepilogoAlbero{}, nil, Rifiuto(fmt.Sprintf("%s starebbe sotto se stesso: con la rinomina %s e %s sono lo stesso pezzo",
 				gp.codice, x.nome(l.padre), x.nome(l.figlio)))
 		}
 		fk := [2]string{gp.identita, gf.identita}
@@ -850,7 +1001,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 				frase = g.codice + " è confermato particolare commerciale (✓): un commerciale è una foglia, sotto non ci va niente (6a)"
 			}
 			if tocca {
-				return RiepilogoAlbero{}, Rifiuto(frase)
+				return RiepilogoAlbero{}, nil, Rifiuto(frase)
 			}
 			r.Blocchi = append(r.Blocchi, frase)
 		}
@@ -859,7 +1010,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		if f := finali[fk]; f.figlio.prodotto {
 			frase := f.figlio.codice + " è un prodotto della RFQ: non va sotto " + f.padre.codice
 			if f.scritto {
-				return RiepilogoAlbero{}, Rifiuto(frase)
+				return RiepilogoAlbero{}, nil, Rifiuto(frase)
 			}
 			r.Blocchi = append(r.Blocchi, frase+": togli il legame")
 		}
@@ -887,7 +1038,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			}
 		}
 		if Ciclo(prima) == nil {
-			return RiepilogoAlbero{}, Rifiuto(frase)
+			return RiepilogoAlbero{}, nil, Rifiuto(frase)
 		}
 		r.Blocchi = append(r.Blocchi, frase+": toglilo")
 	}
@@ -921,8 +1072,32 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		sort.Strings(out)
 		return out
 	}
+	for _, k := range ordineGruppi {
+		if raggiunto[k] {
+			pc.gruppi = append(pc.gruppi, gruppi[k])
+		}
+	}
+	// un pezzo aggiunto che non si raggiunge piu' da un prodotto (il suo padre va via a cascata) si rifiuta: andrebbe via
+	// senza che il riepilogo lo dica
+	for i := range b.Aggiunti {
+		n := &b.Aggiunti[i]
+		if g := gruppoDi[n.ID]; g == nil || !raggiunto[g.identita] {
+			return RiepilogoAlbero{}, nil, Rifiuto(fmt.Sprintf("%s sotto %s: %s non si raggiunge più da un prodotto", n.Codice, x.nome(n.Padre), x.nome(n.Padre)))
+		}
+	}
+	for _, fk := range ordineLegami {
+		if raggiunto[fk[0]] && raggiunto[fk[1]] {
+			f := finali[fk]
+			pc.legami = append(pc.legami, f)
+			for _, l := range f.da {
+				if l.albero != nil {
+					pc.usati[l.albero] = true
+				}
+			}
+		}
+	}
 
-	// i pezzi nuovi, i ritrovati, i tipi, i vicini, i nodi senza codice, le proposte commerciali
+	// i pezzi nuovi, i ritrovati, i tipi, le revisioni, i vicini, i nodi senza codice, le proposte commerciali
 	var codiciFinali []string
 	for _, c := range cx.Componenti {
 		codiciFinali = append(codiciFinali, c.Codice)
@@ -944,7 +1119,6 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			r.SenzaCodice = append(r.SenzaCodice, x.nome(rp.chiave))
 			continue
 		}
-		attivo := g.esiste && g.comp.ArchiviatoIl == nil
 		if !g.esiste {
 			pz := PezzoRiepilogo{Nodo: rp.chiave, Codice: g.codice, Rev: rp.rev, Tipo: g.tipo, Padri: codiciPadri(k)}
 			switch {
@@ -953,9 +1127,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			case rp.albero != nil:
 				pz.Fonte, pz.Origine = rp.albero.FonteCodice, rp.albero.OrigineCodice
 			}
-			for _, m := range g.membri {
-				pz.Commerciale = pz.Commerciale || m.risposta == RispostaSi
-			}
+			pz.Commerciale = g.commercialeConfermato()
 			r.Nuovi = append(r.Nuovi, pz)
 			// i vicini (P4): contro i componenti, la richiesta e gli altri pezzi dell'albero
 			var altri []string
@@ -986,21 +1158,43 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 					if m.albero.Stato != StatoAlberoProposto {
 						perche += " (è già nella distinta)"
 					}
+					if m.albero.Ritrovato.Agganciato {
+						// fase 4.4a.1b, dalla verifica (P13, U5): la conferma lo fa diventare la decisione di chi conferma
+						perche += "; agganciato per codice prima dello Smistamento, senza una persona: con la conferma lo decidi tu"
+					}
 				}
 				if perche != "" {
 					r.Ritrovati = append(r.Ritrovati, RitrovatoRiepilogo{Nodo: m.chiave, Codice: g.codice, Componente: g.comp.ComponenteID,
 						Archiviato: g.comp.ArchiviatoIl != nil, Perche: perche})
 				}
 			}
+			// la revisione (fase 4.4a.1b; risposta 28: una revisione aggiorna lo stesso pezzo, non ne fa uno nuovo): le
+			// righe ancora da decidere dicono una revisione diversa da quella del componente. Due revisioni diverse fra
+			// i file non decidono: resta quella che c'e', e il riepilogo le dice
+			if !g.prodotto {
+				if rv := revisioneDaiFile(g); len(rv) > 0 {
+					da := strings.ToUpper(strings.TrimSpace(g.comp.Rev.String))
+					switch {
+					case len(rv) > 1:
+						r.Revisioni = append(r.Revisioni, RevisioneRiepilogo{Nodo: rp.chiave, Codice: g.codice, Componente: g.comp.ComponenteID,
+							Da: da, Discordi: rv})
+					case rv[0] != da:
+						r.Revisioni = append(r.Revisioni, RevisioneRiepilogo{Nodo: rp.chiave, Codice: g.codice, Componente: g.comp.ComponenteID,
+							Da: da, A: rv[0]})
+						pc.revisioni[g.identita] = rv[0]
+					}
+				}
+			}
 		}
-		// i tipi che cambiano: per un componente che c'e' rispetto al suo tipo, per un pezzo nuovo rispetto alla proposta
+		// i tipi che cambiano: per un componente che c'e' (anche archiviato: la conferma lo ripristina, e segue 6a e
+		// 6b come un attivo) rispetto al suo tipo, per un pezzo nuovo rispetto alla proposta
 		scelto := false
 		for _, m := range g.membri {
 			scelto = scelto || (m.tipoScelto && m.aggiunto == nil)
 		}
 		da, motivo := db.TipoComponente(""), ""
 		switch {
-		case attivo && !g.prodotto:
+		case g.esiste && !g.prodotto:
 			da = g.comp.Tipo
 			motivo = "scelto nella bozza"
 			if rp.albero != nil && !scelto {
@@ -1011,16 +1205,27 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		}
 		if da != "" && da != g.tipo {
 			r.Tipi = append(r.Tipi, TipoRiepilogo{Nodo: rp.chiave, Codice: g.codice, Da: da, A: g.tipo, Motivo: motivo})
+			if g.esiste {
+				pc.cambi = append(pc.cambi, cambioTipo{indice: len(r.Tipi) - 1, g: g})
+			}
 		}
 	}
-	// le proposte commerciali, una per riga
+	// le proposte commerciali, una per riga. Quella di un nodo senza codice conta da quando nella bozza prende un
+	// codice: prima il nodo non nasce (lo ferma il codice che manca). Il particolare commerciale scelto con la tendina
+	// e' il ✓ della proposta: e' un gesto esplicito della persona (vedi BozzaAlbero)
 	for _, k := range x.ordine {
 		p := x.pezzi[k]
 		if p.albero == nil || p.albero.Commerciale == nil {
 			continue
 		}
-		cr := CommercialeRiepilogo{Nodo: k, Codice: p.albero.Codice, Motivo: p.albero.Commerciale.Motivo}
 		g := gruppoDi[k]
+		if (g == nil || g.codice == "") && p.albero.Codice == "" {
+			continue
+		}
+		cr := CommercialeRiepilogo{Nodo: k, Codice: p.albero.Codice, Motivo: p.albero.Commerciale.Motivo}
+		if g != nil {
+			cr.Codice = g.codice
+		}
 		switch {
 		case g == nil || !raggiunto[g.identita] || g.esiste || len(figliDi[g.identita]) > 0 || len(g.membri) > 1:
 			cr.Stato = CommercialeDecaduta
@@ -1028,6 +1233,8 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			cr.Stato = CommercialeSi
 		case p.risposta == RispostaNo:
 			cr.Stato = CommercialeNo
+		case p.confermaCommerciale():
+			cr.Stato, cr.Tendina = CommercialeSi, true
 		default:
 			cr.Stato = CommercialeAperta
 		}
@@ -1102,10 +1309,12 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 				st = RimozioneTolta
 			}
 			r.Rimozioni = append(r.Rimozioni, RimozioneRiepilogo{Padre: x.nome(k[0]), Figlio: x.nome(k[1]), Step: l.Rimozione.Step, Stato: st})
+			pc.rimozioni = append(pc.rimozioni, l)
 		}
 		if resta {
 			continue
 		}
+		pc.tolti = append(pc.tolti, l)
 		motivo := ""
 		switch {
 		case toltiEspliciti[k] && l.Rimozione != nil:
@@ -1157,7 +1366,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		r.Cascata = append(r.Cascata, c)
 	}
 
-	// i componenti che restano senza padri, e i nodi proposti che vanno via
+	// i componenti che restano senza padri, e i nodi che vanno via (le loro righe si chiudono)
 	padriWorking := map[uuid.UUID][]uuid.UUID{}
 	for _, l := range cx.Relazioni {
 		padriWorking[l.FiglioID] = append(padriWorking[l.FiglioID], l.PadreID)
@@ -1168,16 +1377,18 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 			chiaveComp[n.Componente.UUID] = n.Chiave
 		}
 	}
-	for _, n := range a.Nodi {
+	for i := range a.Nodi {
+		n := &a.Nodi[i]
 		g := gruppoDi[n.Chiave]
 		va := g == nil || !raggiunto[g.identita]
 		if n.Stato == StatoAlberoScartato || n.Prodotto || !va {
 			continue
 		}
+		pc.via = append(pc.via, n)
 		if n.Stato == StatoAlberoProposto {
 			vive := 0
 			for _, rr := range n.Righe {
-				if rr.Stato == db.StatoPropostaAperta {
+				if rr.daDecidere() {
 					vive++
 				}
 			}
@@ -1202,6 +1413,7 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 		}
 		r.Fuori = append(r.Fuori, fu)
 	}
+	pc.fuori = r.Fuori
 
 	// le domande aperte
 	if r.Vecchia {
@@ -1231,8 +1443,30 @@ func Riepilogo(a AlberoProposto, b BozzaAlbero, cx ContestoRiepilogo) (Riepilogo
 	}
 	r.Confermabile = len(r.Blocchi) == 0
 	r.vuoteNonNulle()
-	r.Firma = firmaRiepilogo(a.Firma, b, r.Fuori)
-	return r, nil
+	r.Firma = firmaRiepilogo(a.Firma, b, r.Fuori, r.Tipi)
+	return r, pc, nil
+}
+
+// revisioneDaiFile sono le revisioni (diverse, in ordine) che le righe ancora da decidere dei nodi del gruppo dicono,
+// piu' quella scritta nella bozza per un nodo rinominato. Le righe gia' decise non contano: una persona le ha gia'
+// viste, e la revisione del componente l'ha decisa (o corretta) lei.
+func revisioneDaiFile(g *gruppo) []string {
+	var out []string
+	for _, m := range g.membri {
+		if m.revScritta != "" && !contiene(out, m.revScritta) {
+			out = append(out, m.revScritta)
+		}
+		if m.albero == nil {
+			continue
+		}
+		for _, r := range m.albero.Righe {
+			if r.daDecidere() && r.Rev != "" && !contiene(out, r.Rev) {
+				out = append(out, r.Rev)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func contieneDiscorde(dd []DiscordeRiepilogo, padre, figlio string) bool {
@@ -1268,6 +1502,9 @@ func (r *RiepilogoAlbero) vuoteNonNulle() {
 	}
 	if r.Tipi == nil {
 		r.Tipi = []TipoRiepilogo{}
+	}
+	if r.Revisioni == nil {
+		r.Revisioni = []RevisioneRiepilogo{}
 	}
 	for _, l := range []*[]LegameRiepilogo{&r.LegamiNuovi, &r.LegamiTolti, &r.Quantita} {
 		if *l == nil {
@@ -1306,18 +1543,26 @@ func (r *RiepilogoAlbero) vuoteNonNulle() {
 // firmaRiepilogo e' lo sha256 della firma dell'albero (che porta la working), della bozza e della sorte dei componenti
 // che restano senza padri (archiviati o eliminati: dipende dalla loro storia). La bozza entra con il suo JSON: la
 // stessa bozza sullo stesso albero, la stessa firma. La storia degli altri componenti non ci entra: un documento
-// confermato nel frattempo per un pezzo che resta non cambia niente di quello che la conferma farebbe.
-func firmaRiepilogo(albero string, b BozzaAlbero, fuori []FuoriRiepilogo) string {
-	var storia []string
+// confermato nel frattempo per un pezzo che resta non cambia niente di quello che la conferma farebbe. Dalla fase
+// 4.4a.1b anche l'effetto dei cambi di tipo sui componenti che ci sono (TipoRiepilogo.Effetti e Spento): dipende dalle
+// autorizzazioni e dalle rimozioni aperte, che la firma dell'albero non porta tutte (una sospensione, una delega).
+func firmaRiepilogo(albero string, b BozzaAlbero, fuori []FuoriRiepilogo, tipi []TipoRiepilogo) string {
+	var storia, effetti []string
 	for _, f := range fuori {
 		storia = append(storia, f.Componente.String()+":"+f.Esito)
 	}
 	sort.Strings(storia)
+	for _, t := range tipi {
+		if t.Spento != "" || len(t.Effetti) > 0 {
+			effetti = append(effetti, t.Nodo+":"+t.Spento+":"+strings.Join(t.Effetti, "|"))
+		}
+	}
 	raw, _ := json.Marshal(struct {
-		Albero string
-		Bozza  BozzaAlbero
-		Fuori  []string
-	}{albero, b, storia})
+		Albero  string
+		Bozza   BozzaAlbero
+		Fuori   []string
+		Effetti []string
+	}{albero, b, storia, effetti})
 	h := sha256.Sum256(raw)
 	return hex.EncodeToString(h[:])
 }

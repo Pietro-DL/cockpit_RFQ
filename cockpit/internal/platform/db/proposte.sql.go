@@ -216,6 +216,53 @@ func (q *Queries) ConfermaNodoAgganciato(ctx context.Context, arg ConfermaNodoAg
 	return result.RowsAffected(), nil
 }
 
+const decidiArcoNellAlbero = `-- name: DecidiArcoNellAlbero :execrows
+UPDATE relazione_proposta SET stato = $1, nota = $2, deciso_da = $3::uuid, deciso_il = now(),
+       evidenza = evidenza || jsonb_build_object('albero', $4::jsonb) ||
+                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
+                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'deciso_da', deciso_da,
+                                               'deciso_il', deciso_il, 'nota', nota, 'albero', evidenza -> 'albero', 'il', now()))) END
+WHERE thread_id = $5 AND allegato_id = $6 AND padre_chiave = $7
+  AND figlio_chiave = $8
+  AND (deciso_da IS NULL OR ($9::bool AND stato <> 'scartata'))
+`
+
+type DecidiArcoNellAlberoParams struct {
+	Stato        StatoProposta   `json:"stato"`
+	Nota         pgtype.Text     `json:"nota"`
+	DecisoDa     uuid.UUID       `json:"deciso_da"`
+	Segno        json.RawMessage `json:"segno"`
+	ThreadID     uuid.UUID       `json:"thread_id"`
+	AllegatoID   uuid.UUID       `json:"allegato_id"`
+	PadreChiave  string          `json:"padre_chiave"`
+	FiglioChiave string          `json:"figlio_chiave"`
+	AncheDecise  bool            `json:"anche_decise"`
+}
+
+// La riga di un arco che l'albero confermato copre (fase 4.4a.1b), come DecidiNodoNellAlbero: confermata o duplicato
+// per un legame che l'albero tiene, scartata con la nota per uno che la conferma toglie. Il segno evidenza.albero porta
+// anche i due componenti del legame (padre, figlio): la radice del prodotto non e' una riga decisa, e il segno dice lo
+// stesso quale arco della working la persona ha confermato. anche_decise come per i nodi: un legame tolto adesso che
+// una decisione di prima aveva preso.
+func (q *Queries) DecidiArcoNellAlbero(ctx context.Context, arg DecidiArcoNellAlberoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, decidiArcoNellAlbero,
+		arg.Stato,
+		arg.Nota,
+		arg.DecisoDa,
+		arg.Segno,
+		arg.ThreadID,
+		arg.AllegatoID,
+		arg.PadreChiave,
+		arg.FiglioChiave,
+		arg.AncheDecise,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const decidiComponenteProposta = `-- name: DecidiComponenteProposta :execrows
 UPDATE componente_proposta SET stato = $1, componente_id = $2,
        deciso_da = $3, deciso_il = now()
@@ -235,6 +282,56 @@ func (q *Queries) DecidiComponenteProposta(ctx context.Context, arg DecidiCompon
 		arg.ComponenteID,
 		arg.DecisoDa,
 		arg.PropostaID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const decidiNodoNellAlbero = `-- name: DecidiNodoNellAlbero :execrows
+UPDATE componente_proposta SET stato = $1, componente_id = $2,
+       deciso_da = $3::uuid, deciso_il = now(), nota = $4,
+       evidenza = evidenza || jsonb_build_object('albero', $5::jsonb) ||
+                  CASE WHEN stato = 'aperta' THEN '{}'::jsonb
+                       ELSE jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                            jsonb_build_object('evento', 'deciso_nell_albero', 'stato', stato, 'componente_id', componente_id,
+                                               'deciso_da', deciso_da, 'deciso_il', deciso_il, 'nota', nota,
+                                               'albero', evidenza -> 'albero', 'il', now()))) END
+WHERE proposta_id = $6
+  AND (deciso_da IS NULL OR ($7::bool AND stato <> 'scartata'))
+`
+
+type DecidiNodoNellAlberoParams struct {
+	Stato        StatoProposta   `json:"stato"`
+	ComponenteID uuid.NullUUID   `json:"componente_id"`
+	DecisoDa     uuid.UUID       `json:"deciso_da"`
+	Nota         pgtype.Text     `json:"nota"`
+	Segno        json.RawMessage `json:"segno"`
+	PropostaID   uuid.UUID       `json:"proposta_id"`
+	AncheDecise  bool            `json:"anche_decise"`
+}
+
+// La conferma dell'albero (giro 4, fase 4.4a.1b; studio docs/specs/studio_albero_distinta_29-09.md § 2.9): la riga di
+// un nodo che l'albero confermato copre diventa la decisione di una persona, con gli stati di sempre (confermata: ha
+// fatto nascere il componente; duplicato: lo ritrova; scartata: tolta nell'albero, con la nota) e con il segno
+// «confermato nell'albero» in evidenza.albero (chi, quando, la firma del riepilogo; il ✓ o il ✗ della proposta
+// commerciale). Senza migrazione: evidenza c'e' gia', e una riga decisa da una persona non si riscrive piu' (le
+// letture riscrivono solo le righe aperte o chiuse da un automatismo: UpsertComponenteProposta). Una riga chiusa da un
+// automatismo (senza chi l'ha decisa: l'aggancio per codice di prima, che il riepilogo elenca) si decide, e com'era va
+// nella storia, con il segno di una conferma di prima se c'era. Una riga gia' decisa da una persona si
+// tocca solo con anche_decise: quando la conferma di adesso toglie un pezzo che una decisione di prima aveva preso, e'
+// una decisione nuova di una persona sulla stessa riga, e quella di prima va nella storia; una riga gia' scartata da una
+// persona resta com'e'.
+func (q *Queries) DecidiNodoNellAlbero(ctx context.Context, arg DecidiNodoNellAlberoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, decidiNodoNellAlbero,
+		arg.Stato,
+		arg.ComponenteID,
+		arg.DecisoDa,
+		arg.Nota,
+		arg.Segno,
+		arg.PropostaID,
+		arg.AncheDecise,
 	)
 	if err != nil {
 		return 0, err
@@ -1018,10 +1115,54 @@ func (q *Queries) RiapriArchiAutomaticiDiUnFile(ctx context.Context, arg RiapriA
 	return result.RowsAffected(), nil
 }
 
+const riapriArchiToltiNellAlbero = `-- name: RiapriArchiToltiNellAlbero :execrows
+UPDATE relazione_proposta SET stato = 'aperta', deciso_da = NULL, deciso_il = NULL, nota = NULL,
+       evidenza = (evidenza - 'albero') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+                  jsonb_build_object('evento', 'arco_riaperto', 'scartato_da', deciso_da, 'scartato_il', deciso_il,
+                                     'albero', evidenza -> 'albero', 'nota', nota,
+                                     'riaperto_da', $1::uuid, 'riaperto_il', now())))
+WHERE thread_id = $2 AND allegato_id = $3
+  AND (padre_chiave = $4 OR figlio_chiave = $4)
+  AND stato = 'scartata' AND deciso_da IS NOT NULL AND nota = $5::text
+  AND evidenza -> 'albero' ->> 'firma' = $6::text
+`
+
+type RiapriArchiToltiNellAlberoParams struct {
+	Utente     uuid.UUID `json:"utente"`
+	ThreadID   uuid.UUID `json:"thread_id"`
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	Chiave     string    `json:"chiave"`
+	Nota       string    `json:"nota"`
+	Firma      string    `json:"firma"`
+}
+
+// «Riapri il nodo» su un nodo che la conferma dell'albero ha tolto (giro 4, fase 4.4a.1b; studio
+// docs/specs/studio_albero_distinta_29-09.md § 2.5: «RiapriNodo li riporta»). La stessa conferma aveva chiuso,
+// scartate da una persona con la nota e il segno, anche le righe degli archi dello stesso file che toccano il nodo:
+// senza riaprirle il nodo non si raggiunge piu' da un prodotto (le strutture saltano gli archi scartati da una
+// persona) e non torna nell'albero. Si riaprono solo quelle chiuse da quella conferma (la stessa firma del riepilogo
+// nel segno, la stessa nota): uno scarto a mano resta. La decisione, il segno e la nota vanno nella storia.
+func (q *Queries) RiapriArchiToltiNellAlbero(ctx context.Context, arg RiapriArchiToltiNellAlberoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, riapriArchiToltiNellAlbero,
+		arg.Utente,
+		arg.ThreadID,
+		arg.AllegatoID,
+		arg.Chiave,
+		arg.Nota,
+		arg.Firma,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const riapriComponenteProposta = `-- name: RiapriComponenteProposta :execrows
 UPDATE componente_proposta SET stato = 'aperta', componente_id = NULL, deciso_da = NULL, deciso_il = NULL,
-       evidenza = evidenza || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
+       nota = CASE WHEN evidenza ? 'albero' THEN NULL ELSE nota END,
+       evidenza = (evidenza - 'albero') || jsonb_build_object('storia', COALESCE(evidenza -> 'storia', '[]'::jsonb) || jsonb_build_array(
                   jsonb_build_object('evento', 'nodo_riaperto', 'scartato_da', deciso_da, 'scartato_il', deciso_il,
+                                     'albero', evidenza -> 'albero', 'nota', nota,
                                      'riaperto_da', $1::uuid, 'riaperto_il', now())))
 WHERE proposta_id = $2 AND stato = 'scartata'
 `
@@ -1035,6 +1176,11 @@ type RiapriComponentePropostaParams struct {
 // scartato e di chi lo riapre. E' una correzione dell'evidenza (vale per un nodo di guida come per uno
 // nell'autorita'), non tocca la BOM. Un nodo accettato non si riapre da qui: ha fatto nascere o ritrovato
 // un componente, e quella e' una decisione sulla working.
+//
+// Giro 4, fase 4.4a.1b: un nodo tolto nell'albero confermato porta il segno evidenza.albero (DecidiNodoNellAlbero)
+// e la nota «tolto nell'albero confermato»; riaperto non e' piu' una decisione, e il segno e la nota vanno nella
+// storia con lo scarto (la nota di una riga senza il segno resta com'e'). Gli archi che la stessa conferma aveva
+// chiuso li riapre RiapriArchiToltiNellAlbero.
 func (q *Queries) RiapriComponenteProposta(ctx context.Context, arg RiapriComponentePropostaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, riapriComponenteProposta, arg.Utente, arg.PropostaID)
 	if err != nil {
