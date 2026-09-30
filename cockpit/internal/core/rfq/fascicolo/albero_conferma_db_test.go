@@ -8,7 +8,10 @@
 // assieme e lascia il figlio in comune; il segno lo leggono F7 (niente «da rivedere»), F8 (i file si preselezionano) e
 // il gate. Dalla verifica della fase: un aggancio per codice di prima si decide solo perche' il riepilogo lo elenca;
 // «Riapri il nodo» riporta nell'albero un nodo che la conferma ha tolto; il riepilogo dice l'effetto di un cambio di
-// tipo su un componente che c'e'. Solo dati inventati (ACME, 712…).
+// tipo su un componente che c'e'. Dal ritocco 4.4a.1br: le righe chiuse da un automatismo restano com'erano (e la
+// rilettura le riscrive), la nota della lettura non si perde, «Riapri il nodo» riapre il nodo in tutti i file e i
+// padri tolti con lui, un aggancio per codice si rinomina con il gesto che il rifiuto dice; su una riga che lo stesso
+// «Riapri» ha gia' riaperto ridice la frase invece di rifiutare. Solo dati inventati (ACME, 712…).
 
 package fascicolo_test
 
@@ -584,5 +587,322 @@ func TestIlRiepilogoDiceLEffettoDelCambioDiTipo(t *testing.T) {
 	const spento = "7120010: la BOM è congelata nella V1: il tipo si cambia aprendo una revisione"
 	if x := tipoDi(r, "7120010"); r.Confermabile || !strings.Contains(strings.Join(r.Blocchi, "|"), spento) || x.Spento == "" || len(x.Effetti) != 0 {
 		t.Errorf("con la BOM congelata: confermabile %v, blocchi %v, tipo %+v", r.Confermabile, r.Blocchi, x)
+	}
+}
+
+// rigaStep e' la riga di un nodo di uno STEP: «stato:nota:segno:deciso», con «-» per la nota vuota, il segno
+// dell'albero e se l'ha decisa una persona.
+func (b *banco) rigaStep(file, chiave string) string {
+	return uno[string](b, `SELECT cp.stato || ':' || coalesce(cp.nota, '-') || ':' || (cp.evidenza ? 'albero')::text || ':' || (cp.deciso_da IS NOT NULL)::text
+		FROM componente_proposta cp JOIN allegato a ON a.allegato_id = cp.allegato_id WHERE cp.thread_id = $1 AND a.nome_file = $2 AND cp.chiave = $3`,
+		b.thread, file, chiave)
+}
+
+// arcoStep e' la riga di un arco di uno STEP, come rigaStep.
+func (b *banco) arcoStep(file, padre, figlio string) string {
+	return uno[string](b, `SELECT r.stato || ':' || coalesce(r.nota, '-') || ':' || (r.evidenza ? 'albero')::text || ':' || (r.deciso_da IS NOT NULL)::text
+		FROM relazione_proposta r JOIN allegato a ON a.allegato_id = r.allegato_id
+		WHERE r.thread_id = $1 AND a.nome_file = $2 AND r.padre_chiave = $3 AND r.figlio_chiave = $4`, b.thread, file, padre, figlio)
+}
+
+// Prova (fase 4.4a.1br: la conferma scrive solo quello che il riepilogo dice; E33): nello STEP di 7120010 la riga di
+// 7121003 e quella dell'arco 7120010 → 7121003 le ha chiuse un automatismo (scartate senza chi le ha decise: lo STEP
+// sostituito). La bozza toglie 7121003: il riepilogo conta una riga che si chiude (quella aperta dello STEP del
+// prodotto), e la conferma chiude quella e il suo arco; le due chiuse da un automatismo restano com'erano, senza il
+// segno e senza chi le ha decise, e la rilettura del file le riapre (prima la conferma le faceva diventare lo scarto
+// di una persona, e la rilettura non le toccava piu'). La seconda meta': la riga dell'arco 7120010 → 7121005, un
+// legame che l'albero tiene, chiusa dalla «tenuta dei conti» di una lettura (duplicato senza chi l'ha deciso), resta
+// com'e' anche dopo una conferma (prima diventava la decisione di chi conferma).
+func TestLaConfermaLasciaComeSonoLeRigheChiuseDaUnAutomatismo(t *testing.T) {
+	b := nuovoBanco(t)
+	b.scenaAlberoDB()
+	const sostituito = "lo STEP è stato sostituito"
+	b.esegui(`UPDATE componente_proposta cp SET stato = 'scartata', deciso_da = NULL, deciso_il = now(), nota = $2 FROM allegato a
+		WHERE a.allegato_id = cp.allegato_id AND cp.thread_id = $1 AND a.nome_file = '7120010.stp' AND cp.chiave = '#2'`, b.thread, sostituito)
+	b.esegui(`UPDATE relazione_proposta r SET stato = 'scartata', deciso_da = NULL, deciso_il = now(), nota = $2 FROM allegato a
+		WHERE a.allegato_id = r.allegato_id AND r.thread_id = $1 AND a.nome_file = '7120010.stp' AND r.padre_chiave = '#1' AND r.figlio_chiave = '#2'`,
+		b.thread, sostituito)
+	msg, r := b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7121003"}}})
+	if len(r.Scartate) != 1 || r.Scartate[0].Codice != "7121003" || r.Scartate[0].Righe != 1 {
+		t.Errorf("il riepilogo: le righe che si chiudono %+v", r.Scartate)
+	}
+	if !strings.Contains(msg, "2 righe degli STEP chiuse") {
+		t.Errorf("la frase: %q", msg)
+	}
+	chiusa := "scartata:" + sostituito + ":false:false"
+	for _, c := range []struct{ nome, got, atteso string }{
+		{"la riga aperta di 7121003", b.rigaStep("7120001.stp", "#4"), "scartata:" + fascicolo.NotaToltoNellAlbero + ":true:true"},
+		{"il suo arco da 7120011", b.arcoStep("7120001.stp", "#3", "#4"), "scartata:" + fascicolo.NotaToltoNellAlbero + ":true:true"},
+		{"la riga chiusa da un automatismo", b.rigaStep("7120010.stp", "#2"), chiusa},
+		{"l'arco chiuso da un automatismo", b.arcoStep("7120010.stp", "#1", "#2"), chiusa},
+	} {
+		if c.got != c.atteso {
+			t.Errorf("%s dopo la conferma: %s, atteso %s", c.nome, c.got, c.atteso)
+		}
+	}
+
+	// un legame tenuto, con la riga chiusa dalla «tenuta dei conti» di una lettura: la conferma non la decide
+	b.esegui(`UPDATE relazione_proposta r SET stato = 'duplicato', deciso_da = NULL, nota = NULL, evidenza = r.evidenza - 'albero' FROM allegato a
+		WHERE a.allegato_id = r.allegato_id AND r.thread_id = $1 AND a.nome_file = '7120010.stp' AND r.padre_chiave = '#1' AND r.figlio_chiave = '#3'`, b.thread)
+	b.confermaVista(fascicolo.BozzaAlbero{})
+	if got := b.arcoStep("7120010.stp", "#1", "#3"); got != "duplicato:-:false:false" {
+		t.Errorf("la riga della tenuta dei conti di un legame tenuto, dopo la conferma: %s", got)
+	}
+	if got := b.rigaStep("7120010.stp", "#2"); got != chiusa {
+		t.Errorf("la riga chiusa da un automatismo, dopo la seconda conferma: %s", got)
+	}
+
+	// la rilettura del file (E33) riscrive le righe chiuse da un automatismo: tornano proposte
+	a10 := uno[uuid.UUID](b, `SELECT allegato_id FROM allegato WHERE nome_file = '7120010.stp'`)
+	var al db.Allegato
+	ok(t, b.tx(func(q *db.Queries) (err error) { al, err = q.GetAllegato(b.ctx, a10); return err }))
+	b.applica(al, fattiSTEP{nodi: []string{"#1=7120010", "#2=7121003", "#3=7121005"}, archi: []string{"#1>#2*2", "#1>#3"}}.json())
+	if got, arco := b.rigaStep("7120010.stp", "#2"), b.arcoStep("7120010.stp", "#1", "#2"); got != "aperta:-:false:false" || arco != "aperta:-:false:false" {
+		t.Errorf("dopo la rilettura: la riga %s, l'arco %s", got, arco)
+	}
+}
+
+// Prova (fase 4.4a.1br): la nota che la lettura ha scritto su una riga aperta non si perde. Le righe aperte di
+// 7120010 nello STEP del prodotto (il nodo e l'arco dal prodotto) hanno una nota; la conferma le decide senza una nota
+// sua, e la nota resta (come DecidiRelazioneProposta). Le righe di 7121005, che la bozza toglie, hanno una nota anche
+// loro: la conferma scrive la sua («tolto nell'albero confermato»), e quella della lettura va nella storia. Prima la
+// conferma le cancellava tutte.
+func TestLaConfermaNonPerdeLaNotaDellaLettura(t *testing.T) {
+	b := nuovoBanco(t)
+	b.scenaAlberoDB()
+	const letta = "nota della lettura (prova)"
+	b.esegui(`UPDATE componente_proposta cp SET nota = $2 FROM allegato a WHERE a.allegato_id = cp.allegato_id AND cp.thread_id = $1
+		AND ((a.nome_file = '7120001.stp' AND cp.chiave = '#2') OR (a.nome_file = '7120010.stp' AND cp.chiave = '#3'))`, b.thread, letta)
+	b.esegui(`UPDATE relazione_proposta r SET nota = $2 FROM allegato a WHERE a.allegato_id = r.allegato_id AND r.thread_id = $1
+		AND ((a.nome_file = '7120001.stp' AND r.padre_chiave = '#1' AND r.figlio_chiave = '#2')
+		  OR (a.nome_file = '7120010.stp' AND r.padre_chiave = '#1' AND r.figlio_chiave = '#3'))`, b.thread, letta)
+	b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7121005"}}})
+	tenuta := "confermata:" + letta + ":true:true"
+	tolta := "scartata:" + fascicolo.NotaToltoNellAlbero + ":true:true"
+	for _, c := range []struct{ nome, got, atteso string }{
+		{"la riga di 7120010", b.rigaStep("7120001.stp", "#2"), tenuta},
+		{"l'arco 7120001 → 7120010", b.arcoStep("7120001.stp", "#1", "#2"), tenuta},
+		{"la riga di 7121005", b.rigaStep("7120010.stp", "#3"), tolta},
+		{"l'arco 7120010 → 7121005", b.arcoStep("7120010.stp", "#1", "#3"), tolta},
+	} {
+		if c.got != c.atteso {
+			t.Errorf("%s dopo la conferma: %s, atteso %s", c.nome, c.got, c.atteso)
+		}
+	}
+	storia := uno[string](b, `SELECT coalesce(cp.evidenza -> 'storia' -> -1 ->> 'evento', '-') || ':' || coalesce(cp.evidenza -> 'storia' -> -1 ->> 'nota', '-') || ' ' ||
+		coalesce(r.evidenza -> 'storia' -> -1 ->> 'evento', '-') || ':' || coalesce(r.evidenza -> 'storia' -> -1 ->> 'nota', '-')
+		FROM componente_proposta cp JOIN allegato a ON a.allegato_id = cp.allegato_id
+		JOIN relazione_proposta r ON r.allegato_id = cp.allegato_id AND r.figlio_chiave = cp.chiave
+		WHERE cp.thread_id = $1 AND a.nome_file = '7120010.stp' AND cp.chiave = '#3'`, b.thread)
+	if storia != "nota_della_lettura:"+letta+" nota_della_lettura:"+letta {
+		t.Errorf("la nota della lettura nella storia delle righe tolte: %s", storia)
+	}
+}
+
+// Prova (studio § 2.5, «RiapriNodo li riporta»; fase 4.4a.1br): la conferma toglie 7120010, e con lui, a cascata,
+// 7121005 che stava solo sotto di lui (7121003 resta sotto 7120011). «Riapri il nodo» sulla riga di 7121005 (nello
+// STEP di 7120010, sotto la radice di quel file, che e' 7120010 stesso) riapre anche il padre tolto dalla stessa
+// conferma, con le sue righe in tutti e due i file, e gli archi: la frase lo dice, i due nodi tornano nell'albero, e la
+// conferma dopo li fa nascere. Prima si riapriva la riga sola con il suo arco: 7121005 restava fuori dall'albero, sotto
+// un padre scartato, e la frase diceva «torna». La seconda meta': 7121003, tolto, ha una riga in ogni file; «Riapri il
+// nodo» su una delle due le riapre tutte e due, e il nodo torna sotto i suoi due padri (prima solo sotto uno).
+func TestRiapriIlNodoRiportaAncheIlPadreToltoDallaStessaConferma(t *testing.T) {
+	riapri := func(b *banco, file, chiave string) string {
+		pid := uno[uuid.UUID](b, `SELECT cp.proposta_id FROM componente_proposta cp JOIN allegato a ON a.allegato_id = cp.allegato_id
+			WHERE cp.thread_id = $1 AND a.nome_file = $2 AND cp.chiave = $3`, b.thread, file, chiave)
+		msg, err := b.gesto(func(q *db.Queries) (string, error) { return fascicolo.RiapriNodo(b.ctx, q, b.thread, pid, b.utente) })
+		ok(b.t, err)
+		return msg
+	}
+	albero := func(b *banco) fascicolo.AlberoProposto {
+		var a fascicolo.AlberoProposto
+		ok(b.t, b.tx(func(q *db.Queries) (err error) {
+			a, err = fascicolo.LeggiAlberoProposto(b.ctx, q, b.thread, analizzatoreProva)
+			return err
+		}))
+		return a
+	}
+
+	t.Run("il padre tolto con lui", func(t *testing.T) {
+		b := nuovoBanco(t)
+		b.scenaAlberoDB()
+		_, r := b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7120010"}}})
+		if len(r.Cascata) != 3 || strings.Join(r.Cascata[2].Vanno, " ") != "7120010 7121005" || len(r.Cascata[2].Restano) != 1 ||
+			r.Cascata[2].Restano[0].Codice != "7121003" {
+			t.Fatalf("la cascata: %+v", r.Cascata)
+		}
+		tolta := "scartata:" + fascicolo.NotaToltoNellAlbero + ":true:true"
+		if b.rigaStep("7120001.stp", "#2") != tolta || b.rigaStep("7120010.stp", "#1") != tolta || b.rigaStep("7120010.stp", "#3") != tolta {
+			t.Fatalf("dopo la conferma: %s", b.righeDegliStep())
+		}
+		msg := riapri(b, "7120010.stp", "#3")
+		if msg != "7121005 riaperto: torna fra le proposte, con il padre 7120010 e 3 legami dello STEP che la conferma dell'albero aveva tolto." {
+			t.Errorf("la frase: %q", msg)
+		}
+		// lo stesso «Riapri» di nuovo (una pagina vecchia): la stessa frase, ricostruita dalla storia con il padre e i
+		// legami dei due file (giaRiapertoNellAlbero)
+		if again := riapri(b, "7120010.stp", "#3"); again != msg {
+			t.Errorf("la frase della riga gia' riaperta: %q", again)
+		}
+		for _, x := range []struct{ nome, got string }{
+			{"7120010 nello STEP del prodotto", b.rigaStep("7120001.stp", "#2")}, {"7120010 nel suo STEP", b.rigaStep("7120010.stp", "#1")},
+			{"7121005", b.rigaStep("7120010.stp", "#3")}, {"7120001 → 7120010", b.arcoStep("7120001.stp", "#1", "#2")},
+			{"7120010 → 7121003", b.arcoStep("7120010.stp", "#1", "#2")}, {"7120010 → 7121005", b.arcoStep("7120010.stp", "#1", "#3")},
+		} {
+			if x.got != "aperta:-:false:false" {
+				t.Errorf("%s dopo la riapertura: %s", x.nome, x.got)
+			}
+		}
+		a := albero(b)
+		for _, x := range []struct{ codice, padri string }{{"7121005", "cod:7120010"}, {"7120010", "cod:7120001"}} {
+			if n, trovato := a.Nodo("cod:" + x.codice); !trovato || n.Stato != fascicolo.StatoAlberoProposto || strings.Join(n.Padri, " ") != x.padri {
+				t.Errorf("%s dopo la riapertura: %+v (trovato %v)", x.codice, n, trovato)
+			}
+		}
+		_, r = b.confermaVista(fascicolo.BozzaAlbero{})
+		var nuovi []string
+		for _, n := range r.Nuovi {
+			nuovi = append(nuovi, n.Codice)
+		}
+		if strings.Join(nuovi, " ") != "7120010 7121005" {
+			t.Errorf("la conferma dopo la riapertura: nuovi %v", nuovi)
+		}
+		if got := b.laWorking(); !strings.Contains(got, "7120001>7120010*1:step") || !strings.Contains(got, "7120010>7121003*2:step") ||
+			!strings.Contains(got, "7120010>7121005*1:step") {
+			t.Errorf("la working: %s", got)
+		}
+	})
+
+	t.Run("le righe del nodo in ogni file", func(t *testing.T) {
+		b := nuovoBanco(t)
+		b.scenaAlberoDB()
+		b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7121003"}}})
+		msg := riapri(b, "7120001.stp", "#4")
+		if msg != "7121003 riaperto: torna fra le proposte, con 1 altra riga dello stesso pezzo e 2 legami dello STEP che la conferma dell'albero aveva tolto." {
+			t.Errorf("la frase: %q", msg)
+		}
+		a := albero(b)
+		if n, trovato := a.Nodo("cod:7121003"); !trovato || n.Stato != fascicolo.StatoAlberoProposto ||
+			strings.Join(n.Padri, " ") != "cod:7120010 cod:7120011" {
+			t.Errorf("7121003 dopo la riapertura: %+v (trovato %v)", n, trovato)
+		}
+	})
+}
+
+// Prova (fase 4.4a.1br, dalla verifica: la pagina della Distinta riapre un pezzo riga per riga): la conferma toglie
+// 7121003, che ha una riga nello STEP del prodotto e una in quello di 7120010. «Riapri» sulla prima le riapre tutte e
+// due; «Riapri» sulla seconda, subito dopo, la trova gia' aperta: risponde con la stessa frase, senza rifiutare e senza
+// scrivere niente (prima: «non è scartato (aperta)», e la pagina mostrava un errore dopo una riapertura riuscita). Il
+// resto resta un rifiuto: una riga aperta che nessun «Riapri» dell'albero ha riaperto (7121005), una riga riaperta a
+// mano dopo uno scarto a mano, e la riga riaperta che la conferma dopo ha deciso.
+func TestRiapriUnaRigaGiaRiapertaDalloStessoGestoRidiceLaFrase(t *testing.T) {
+	b := nuovoBanco(t)
+	b.scenaAlberoDB()
+	proposta := func(file, chiave string) uuid.UUID {
+		return uno[uuid.UUID](b, `SELECT cp.proposta_id FROM componente_proposta cp JOIN allegato a ON a.allegato_id = cp.allegato_id
+			WHERE cp.thread_id = $1 AND a.nome_file = $2 AND cp.chiave = $3`, b.thread, file, chiave)
+	}
+	riapri := func(pid uuid.UUID) (string, error) {
+		return b.gesto(func(q *db.Queries) (string, error) { return fascicolo.RiapriNodo(b.ctx, q, b.thread, pid, b.utente) })
+	}
+	// prima della conferma, su 7121005: una riga aperta che nessun «Riapri» ha riaperto, il rifiuto di sempre; scartata e
+	// riaperta a mano, la riapertura non viene da una conferma dell'albero, e la seconda si rifiuta
+	p05 := proposta("7120010.stp", "#3")
+	_, err := riapri(p05)
+	deveRifiutare(t, err, "7121005 non è scartato (aperta)")
+	_, err = b.gesto(func(q *db.Queries) (string, error) { return fascicolo.ScartaNodo(b.ctx, q, b.thread, p05, b.utente) })
+	ok(t, err)
+	_, err = riapri(p05)
+	ok(t, err)
+	_, err = riapri(p05)
+	deveRifiutare(t, err, "7121005 non è scartato (aperta)")
+
+	b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7121003"}}})
+	const frase = "7121003 riaperto: torna fra le proposte, con 1 altra riga dello stesso pezzo e 2 legami dello STEP che la conferma dell'albero aveva tolto."
+	msg, err := riapri(proposta("7120001.stp", "#4"))
+	ok(t, err)
+	if msg != frase {
+		t.Fatalf("la prima riapertura: %q", msg)
+	}
+	prima := b.fotoTabelle()
+	msg, err = riapri(proposta("7120010.stp", "#2"))
+	if err != nil || msg != frase {
+		t.Errorf("la seconda riga, gia' riaperta dalla prima: %q, %v", msg, err)
+	}
+	if d := tabelleCambiate(prima, b.fotoTabelle()); d != "" {
+		t.Errorf("la seconda riapertura ha scritto in %s", d)
+	}
+
+	// la conferma dopo decide le righe riaperte: non sono piu' aperte, e «Riapri» si rifiuta
+	b.confermaVista(fascicolo.BozzaAlbero{})
+	p03 := proposta("7120010.stp", "#2")
+	stato := uno[string](b, `SELECT stato::text FROM componente_proposta WHERE proposta_id = $1`, p03)
+	if stato != "confermata" && stato != "duplicato" {
+		t.Fatalf("7121003 nello STEP di 7120010 dopo la conferma: %s", stato)
+	}
+	_, err = riapri(p03)
+	deveRifiutare(t, err, "7121003 non è scartato ("+stato+")")
+}
+
+// Prova (fase 4.4a.1br): il rifiuto della rinomina di un aggancio per codice di prima dice il gesto che serve, e il
+// gesto funziona. 7121005 nello STEP di 7120010 e' agganciato al componente 7121005 (fuori dall'albero): la rinomina
+// si rifiuta, e la frase dice di togliere il nodo, confermare e riaprirlo («Riapri il pezzo», il nome del pulsante
+// della Distinta), e che il componente resta com'e'. Tolto e confermato, il riepilogo non tocca il componente (e' fra
+// le Scartate, non fra i Fuori) e il componente resta com'era; «Riapri il nodo» lo riporta aperto e senza il
+// componente; la rinomina ora si legge, e la conferma fa nascere 7125555 dalla stessa riga (il codice scritto da una
+// persona), mentre il componente 7121005 resta com'era.
+func TestLAggancioPerCodiceSiRinominaConIlGestoCheIlRifiutoDice(t *testing.T) {
+	b := nuovoBanco(t)
+	b.scenaAlberoDB()
+	c05 := b.componente("7121005", db.TipoComponenteSciolto)
+	b.esegui(`UPDATE componente_proposta cp SET stato = 'duplicato', componente_id = $2, deciso_il = now() FROM allegato a
+		WHERE a.allegato_id = cp.allegato_id AND a.nome_file = '7120010.stp' AND cp.codice = '7121005' AND cp.thread_id = $1`, b.thread, c05)
+	rinomina := fascicolo.BozzaAlbero{Rinomine: []fascicolo.RinominaBozza{{Nodo: "cod:7121005", Codice: "7125555"}}}
+	bozza := b.bozzaSu(rinomina)
+	err := b.tx(func(q *db.Queries) error {
+		_, _, err := fascicolo.LeggiRiepilogo(b.ctx, q, b.thread, analizzatoreProva, &bozza)
+		return err
+	})
+	deveRifiutare(t, err, "toglilo dall'albero e conferma (il componente 7121005 resta com'è), poi «Riapri il pezzo»")
+
+	// togliere il nodo chiude solo le sue righe: il riepilogo non tocca il componente (niente fra i Fuori), e il
+	// componente resta com'era, come la frase dice (fase 4.4a.1br, dalla verifica)
+	_, rt := b.confermaVista(fascicolo.BozzaAlbero{Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121098"}, {Nodo: "cod:7121099"}, {Nodo: "cod:7121005"}}})
+	scartato := false
+	for _, s := range rt.Scartate {
+		scartato = scartato || s.Codice == "7121005"
+	}
+	for _, f := range rt.Fuori {
+		if f.Codice == "7121005" {
+			t.Errorf("il riepilogo tocca il componente agganciato: %+v", f)
+		}
+	}
+	if w := b.laWorking(); !scartato || !strings.Contains(w, "7121005:sciolto:manuale:-") || strings.Contains(w, "7121005:sciolto:manuale:-:archiviato") {
+		t.Errorf("togliere l'aggancio: scartate %+v, la working %s", rt.Scartate, w)
+	}
+	pid := uno[uuid.UUID](b, `SELECT cp.proposta_id FROM componente_proposta cp JOIN allegato a ON a.allegato_id = cp.allegato_id
+		WHERE cp.thread_id = $1 AND a.nome_file = '7120010.stp' AND cp.chiave = '#3'`, b.thread)
+	if got := b.rigaStep("7120010.stp", "#3"); got != "scartata:"+fascicolo.NotaToltoNellAlbero+":true:true" {
+		t.Fatalf("l'aggancio tolto nella conferma: %s", got)
+	}
+	msg, err := b.gesto(func(q *db.Queries) (string, error) { return fascicolo.RiapriNodo(b.ctx, q, b.thread, pid, b.utente) })
+	ok(t, err)
+	if !strings.Contains(msg, "riaperto: torna fra le proposte") ||
+		uno[string](b, `SELECT stato || ':' || coalesce(componente_id::text, '-') FROM componente_proposta WHERE proposta_id = $1`, pid) != "aperta:-" {
+		t.Fatalf("la riapertura: %q", msg)
+	}
+
+	msg, r := b.confermaVista(rinomina)
+	if len(r.Nuovi) != 1 || r.Nuovi[0].Codice != "7125555" || !strings.Contains(msg, "1 pezzo nuovo") {
+		t.Errorf("la conferma con la rinomina: nuovi %+v, %q", r.Nuovi, msg)
+	}
+	c55 := b.codiceComp("7125555")
+	if got := uno[string](b, `SELECT codice || ':' || origine_codice || ':' || stato || ':' || (componente_id = $2)::text FROM componente_proposta
+		WHERE proposta_id = $1`, pid, c55); got != "7125555:operatore:confermata:true" {
+		t.Errorf("la riga rinominata: %s", got)
+	}
+	if got := b.laWorking(); !strings.Contains(got, "7120010>7125555*1:step") || !strings.Contains(got, "7121005:sciolto:manuale:-") ||
+		strings.Contains(got, ">7121005") {
+		t.Errorf("la working: %s", got)
 	}
 }

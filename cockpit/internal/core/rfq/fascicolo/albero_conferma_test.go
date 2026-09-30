@@ -5,7 +5,9 @@ package fascicolo
 // rifiuta, un componente archiviato segue 6a e 6b come un attivo, una foglia senza codice riceve la proposta
 // commerciale quando prende un codice, la revisione nuova di un componente che c'e', il segno letto da F7, il corpo
 // della conferma; dalla verifica della 4.4a.1b, l'aggancio per codice di prima che resta da decidere e la firma del
-// riepilogo con l'effetto dei cambi di tipo. Scene ACME inventate.
+// riepilogo con l'effetto dei cambi di tipo; dal ritocco 4.4a.1br, le righe che il riepilogo conta sono quelle che la
+// conferma chiude (non quelle chiuse da un automatismo), il rifiuto della rinomina di un aggancio dice il gesto che
+// serve, e una riga gia' riaperta da un «Riapri» dell'albero si riconosce dalla sua storia. Scene ACME inventate.
 
 import (
 	"encoding/json"
@@ -222,6 +224,57 @@ func TestIlSegnoDellAlberoPerF7(t *testing.T) {
 	}
 }
 
+// Prova (fase 4.4a.1br, dalla verifica: la pagina della Distinta riapre un pezzo riga per riga; pura): una riga e'
+// gia' riaperta da un «Riapri» dell'albero solo se e' aperta e l'ultimo evento della sua storia e' quella riapertura
+// (del nodo o dell'arco, quella che si chiede), con il segno e la nota della conferma e l'istante; lo stesso gesto e'
+// la stessa firma nello stesso istante. Una riapertura a mano (senza il segno), una nota diversa, una storia che dopo
+// ha altro, una riga che non e' aperta: no.
+func TestUnaRigaGiaRiapertaDaUnRiapriDellAlbero(t *testing.T) {
+	const il = "2026-09-30T10:00:00.123456+02:00"
+	evento := func(ev, firma, nota, quando string) string {
+		return fmt.Sprintf(`{"evento": %q, "albero": {"firma": %q, "nodo": "cod:7121003"}, "nota": %q, "riaperto_il": %q}`, ev, firma, nota, quando)
+	}
+	storia := func(eventi ...string) []byte { return []byte(`{"storia": [` + strings.Join(eventi, ", ") + `]}`) }
+	for _, c := range []struct {
+		nome     string
+		stato    db.StatoProposta
+		evidenza []byte
+		chiesto  string
+		atteso   bool
+	}{
+		{"il nodo riaperto dall'albero", db.StatoPropostaAperta, storia(evento(eventoNodoRiaperto, "f1", NotaToltoNellAlbero, il)), eventoNodoRiaperto, true},
+		{"l'arco riaperto dall'albero", db.StatoPropostaAperta, storia(evento(eventoArcoRiaperto, "f1", NotaToltoNellAlbero, il)), eventoArcoRiaperto, true},
+		{"l'evento di un arco su un nodo", db.StatoPropostaAperta, storia(evento(eventoArcoRiaperto, "f1", NotaToltoNellAlbero, il)), eventoNodoRiaperto, false},
+		{"una riga non aperta", db.StatoPropostaDuplicato, storia(evento(eventoNodoRiaperto, "f1", NotaToltoNellAlbero, il)), eventoNodoRiaperto, false},
+		{"riaperta a mano", db.StatoPropostaAperta, storia(`{"evento": "nodo_riaperto", "albero": null, "nota": null, "riaperto_il": "` + il + `"}`),
+			eventoNodoRiaperto, false},
+		{"un'altra nota", db.StatoPropostaAperta, storia(evento(eventoNodoRiaperto, "f1", "scartato a mano", il)), eventoNodoRiaperto, false},
+		{"senza l'istante", db.StatoPropostaAperta, storia(evento(eventoNodoRiaperto, "f1", NotaToltoNellAlbero, "")), eventoNodoRiaperto, false},
+		{"dopo, un altro evento", db.StatoPropostaAperta, storia(evento(eventoNodoRiaperto, "f1", NotaToltoNellAlbero, il),
+			`{"evento": "nota_della_lettura", "nota": "x"}`), eventoNodoRiaperto, false},
+		{"senza storia", db.StatoPropostaAperta, []byte(`{}`), eventoNodoRiaperto, false},
+	} {
+		x, ok := riapertoNellAlbero(c.stato, c.evidenza, c.chiesto)
+		if ok != c.atteso || (ok && (x.segno.Firma != "f1" || x.segno.Nodo != "cod:7121003" || x.il != il)) {
+			t.Errorf("%s: %+v %v, atteso %v", c.nome, x, ok, c.atteso)
+		}
+	}
+	a := riapertura{segno: SegnoAlbero{Firma: "f1"}, il: il}
+	for _, c := range []struct {
+		nome   string
+		b      riapertura
+		atteso bool
+	}{
+		{"la stessa firma nello stesso istante", riapertura{segno: SegnoAlbero{Firma: "f1", Nodo: "cod:7120010"}, il: il}, true},
+		{"un altro istante", riapertura{segno: SegnoAlbero{Firma: "f1"}, il: "2026-09-30T10:00:01+02:00"}, false},
+		{"un'altra conferma", riapertura{segno: SegnoAlbero{Firma: "f2"}, il: il}, false},
+	} {
+		if a.stessoGesto(c.b) != c.atteso {
+			t.Errorf("%s: atteso %v", c.nome, c.atteso)
+		}
+	}
+}
+
 // Il corpo della conferma: la firma e la bozza, nient'altro; senza la firma si rifiuta; la bozza con il suo formato.
 func TestLeggiConferma(t *testing.T) {
 	b, firma, err := LeggiConferma([]byte(`{"firma": " abc ", "bozza": {"formato": 1, "base": "x", "tolti": [{"nodo": "cod:7121001"}]}}`))
@@ -311,6 +364,20 @@ func TestAlberoPropostoLAggancioPerCodiceDiPrimaEDaDecidere(t *testing.T) {
 		!strings.Contains(err.Error(), "agganciato per codice") {
 		t.Errorf("la rinomina dell'agganciato: %v", err)
 	}
+	// il rifiuto dice quale gesto serve (fase 4.4a.1br): il componente a cui e' agganciato, e le due strade — correggere
+	// il codice del componente nel Fascicolo, o togliere il nodo, confermare e riaprirlo, e rinominarlo dopo. Dalla
+	// verifica: il gesto con il nome del pulsante della pagina della Distinta («Riapri il pezzo»), e che cosa succede al
+	// componente se si toglie il nodo (resta com'e': il nodo e' proposto, il componente non sta nella distinta)
+	if _, err := sc.riepilogo(BozzaAlbero{Rinomine: []RinominaBozza{{Nodo: "cod:7121002", Codice: "7129002"}}}); err == nil {
+		t.Error("la rinomina dell'agganciato non si rifiuta")
+	} else {
+		for _, c := range []string{"al componente 7121002", "Correggi il codice", "toglilo dall'albero e conferma (il componente 7121002 resta com'è)",
+			"«Riapri il pezzo»", "la rinomini nella bozza nuova"} {
+			if !strings.Contains(err.Error(), c) {
+				t.Errorf("il rifiuto della rinomina non dice %q: %v", c, err)
+			}
+		}
+	}
 	// confermato da una persona non e' piu' da decidere; con un'altra riga aperta e un arco della working cambia solo
 	// l'aggancio, e la firma lo vede
 	sc.step("7120012.stp", []string{"#1=7120012", "#2=7121002"}, []string{"#1>#2"})
@@ -318,6 +385,13 @@ func TestAlberoPropostoLAggancioPerCodiceDiPrimaEDaDecidere(t *testing.T) {
 	a = sc.albero()
 	if n, _ := a.Nodo("cod:7121002"); n.Ritrovato == nil || !n.Ritrovato.Agganciato || n.Stato != StatoAlberoNellaDistinta {
 		t.Fatalf("con la riga aperta e l'arco della working: %+v", n)
+	}
+	// il componente sta nella distinta sotto il prodotto: la rinomina si rifiuta come per ogni componente che c'e', e la
+	// frase dell'aggancio (che dice «il componente resta com'è» se si toglie il nodo) non si usa (fase 4.4a.1br, dalla
+	// verifica: togliere dall'albero un nodo nella distinta tocca il componente, e il riepilogo lo dice fra i Fuori)
+	if _, err := sc.riepilogo(BozzaAlbero{Rinomine: []RinominaBozza{{Nodo: "cod:7121002", Codice: "7129002"}}}); err == nil ||
+		!strings.Contains(err.Error(), "7121002 c'è già nella distinta") || strings.Contains(err.Error(), "resta com'è") {
+		t.Errorf("la rinomina dell'agganciato nella distinta: %v", err)
 	}
 	sc.s.Nodi[i].DecisoDa = uuid.NullUUID{UUID: idDa("persona"), Valid: true}
 	b := sc.albero()
@@ -330,6 +404,40 @@ func TestAlberoPropostoLAggancioPerCodiceDiPrimaEDaDecidere(t *testing.T) {
 	}
 	if m.Ritrovato == nil || m.Ritrovato.Agganciato || agganciate != 0 || m.Stato != StatoAlberoNellaDistinta || b.Firma == a.Firma {
 		t.Errorf("l'aggancio confermato: %+v, firma cambiata %v", m, b.Firma != a.Firma)
+	}
+}
+
+// Prova (fase 4.4a.1br: la conferma scrive solo quello che il riepilogo dice): 7121003 ha tre righe, una per file. Nello
+// STEP del prodotto e' aperta; nello STEP di 7120010 l'ha chiusa un automatismo (scartata senza chi l'ha decisa: lo
+// STEP sostituito); nello STEP di 7120011 una persona l'ha decisa come il componente 7121003, poi archiviato (il nodo e'
+// proposto, e ritrovato). La bozza toglie 7121003: il riepilogo conta 2 righe che si chiudono — l'aperta e la decisa,
+// che la conferma decide di nuovo — e non quella chiusa da un automatismo, che la conferma lascia com'e' (prima ne
+// contava 1, e la conferma ne chiudeva 3).
+func TestIlRiepilogoContaLeRigheCheLaConfermaChiude(t *testing.T) {
+	sc := scenaAlbero(t)
+	ieri := sc.t0
+	c03 := sc.componente("7121003", db.TipoComponenteSciolto, db.OrigineComponenteStep)
+	sc.s.Componenti[len(sc.s.Componenti)-1].ArchiviatoIl = &ieri
+	sc.accetta("7120011.stp", "#2", c03)
+	sha := sc.f("7120010.stp").Sha
+	for i, n := range sc.s.Nodi {
+		if n.Sha256 == sha && n.Chiave == "#4" {
+			sc.s.Nodi[i].Stato, sc.s.Nodi[i].Nota = db.StatoPropostaScartata, pgtype.Text{String: "lo STEP è stato sostituito", Valid: true}
+		}
+	}
+	a := sc.albero()
+	n := nodoDi(t, a, "7121003")
+	var righe []string
+	for _, r := range n.Righe {
+		righe = append(righe, fmt.Sprintf("%s:%s:%v", r.File, r.Stato, r.siChiudeNellAlbero()))
+	}
+	if got := strings.Join(righe, " "); got != "7120001.stp:aperta:true 7120010.stp:scartata:false 7120011.stp:confermata:true" ||
+		n.Stato != StatoAlberoProposto || n.Ritrovato == nil || !n.Ritrovato.Archiviato {
+		t.Fatalf("7121003: righe %s, stato %s, ritrovato %+v", got, n.Stato, n.Ritrovato)
+	}
+	r := sc.riepilogoOk(BozzaAlbero{Tolti: []ToltoBozza{{Nodo: "cod:7121003"}}})
+	if len(r.Scartate) != 1 || r.Scartate[0].Codice != "7121003" || r.Scartate[0].Righe != 2 {
+		t.Errorf("le righe che si chiudono: %+v", r.Scartate)
 	}
 }
 
