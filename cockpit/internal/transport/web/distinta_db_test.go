@@ -104,10 +104,11 @@ func (s *scenaDistintaDB) pdfLetto(t *testing.T, m *classificazione.Motore, nome
 
 func (s *scenaDistintaDB) distinta() string { return "/thread/" + s.thread.String() + "/distinta" }
 
-// rigaDistinta cerca la riga di un file nel passo 3: la sua classe (lo stato) e la domanda, se c'e'.
+// rigaDistinta cerca la riga di un file nel passo 3: la sua classe (lo stato) e la domanda, se c'e'. Dalla fase 4.4a.3
+// la riga ha anche data-riga e tabindex (il fuoco che torna dov'era dopo un gesto).
 func rigaDistinta(t *testing.T, html, nome string) (stato, domanda string) {
 	t.Helper()
-	m := regexp.MustCompile(`(?s)<tr class="dst-file ([a-z]+)">\s*<td class="nome"><span class="mono">` + regexp.QuoteMeta(nome) + `</span>(.*?)</tr>`).FindStringSubmatch(html)
+	m := regexp.MustCompile(`(?s)<tr class="dst-file ([a-z]+)"[^>]*>\s*<td class="nome"><span class="mono">` + regexp.QuoteMeta(nome) + `</span>(.*?)</tr>`).FindStringSubmatch(html)
 	if m == nil {
 		t.Fatalf("la riga di %s non c'e' nel passo 3", nome)
 	}
@@ -121,9 +122,15 @@ func rigaDistinta(t *testing.T, html, nome string) (stato, domanda string) {
 // passo (anche con un passo che non c'e'), i dati per distinta.mjs e l'anteprima del tipo (un tipo che si fa,
 // uno spento, un componente che non va), per chi lavora e per chi consulta: prima e dopo, ogni tabella dello
 // schema ha le stesse righe con lo stesso contenuto. La pagina di chi consulta e' in sola lettura e non chiede la
-// preparazione; i dati dicono chi scrive; i dati e l'anteprima non si tengono in cache. Controprova: il cambio di
-// tipo che l'anteprima prepara, mandato con la POST da chi lavora, il database lo cambia (e la fotografia lo vede);
-// da chi consulta si rifiuta e non scrive.
+// preparazione; i dati dicono chi scrive e chi guarda (la bozza dell'albero e' per utente); niente si tiene in cache,
+// nemmeno la pagina (fase 4.4a.3, bug 5: il tasto Indietro del browser ripresentava la pagina di prima del gesto).
+// Controprova: il cambio di tipo che l'anteprima prepara, mandato con la POST da chi lavora, il database lo cambia (e
+// la fotografia lo vede); da chi consulta si rifiuta e non scrive.
+//
+// Riscritta per lo Smistamento (Distinta, giro 4, fase 4.4a.3): prima il sottotest «l'anteprima del tipo non da' la
+// firma a chi consulta» era un «da fare 4.4» che si saltava quando la firma c'era; ora e' un'asserzione (distintaTipo
+// non la da' piu'), e in piu' la pagina in ogni passo non si tiene in cache e i dati dicono l'utente. Asserzioni:
+// prima 14 (con il sottotest), dopo 16.
 func TestLeGetDellaDistintaNonScrivono(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaDistintaDB(t, "DSTGET")
@@ -151,6 +158,10 @@ func TestLeGetDellaDistintaNonScrivono(t *testing.T) {
 				t.Errorf("%s, GET %s: %d", chi.nome, g, resp.StatusCode)
 				continue
 			}
+			// la pagina stessa non si tiene in cache (bug 5)
+			if cc := resp.Header.Get("Cache-Control"); !strings.Contains(g, "/dati") && !strings.Contains(g, "/tipo?") && cc != "no-store" {
+				t.Errorf("%s, GET %s (la pagina): Cache-Control %q", chi.nome, g, cc)
+			}
 			if strings.Contains(g, "/dati") || strings.Contains(g, "/tipo?") {
 				if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
 					t.Errorf("%s, GET %s: Cache-Control %q", chi.nome, g, cc)
@@ -161,6 +172,9 @@ func TestLeGetDellaDistintaNonScrivono(t *testing.T) {
 				}
 				if strings.Contains(g, "/dati") && x["scrive"] != chi.scrive {
 					t.Errorf("%s: i dati dicono scrive=%v", chi.nome, x["scrive"])
+				}
+				if u, _ := x["utente"].(string); strings.Contains(g, "/dati") && (u == "" || uuid.Validate(u) != nil) {
+					t.Errorf("%s: i dati non dicono chi guarda (la chiave della bozza dell'albero): %q", chi.nome, u)
 				}
 			}
 		}
@@ -189,18 +203,14 @@ func TestLeGetDellaDistintaNonScrivono(t *testing.T) {
 	if !strings.HasPrefix(spento.Spento, "7120010 ha 1 figlio: è un assieme; per farlo diventare un particolare commerciale") {
 		t.Errorf("l'anteprima di un tipo spento (il commerciale e' una foglia): %+v", spento)
 	}
-	t.Run("da fare 4.4: l'anteprima del tipo non da' la firma a chi consulta", func(t *testing.T) {
-		_, js := co.fai(http.MethodGet, tipo(s.particolare, "commerciale"), nil, false)
-		var x tipoDistinta
-		_ = json.Unmarshal([]byte(js), &x)
-		if x.Firma == "" {
-			return
-		}
-		// distintaTipo e' del frontendista (piano, «Chi tocca quali file»): la modifica sta nel suo elenco della
-		// 4.4; l'anteprima del Fascicolo la firma a chi consulta non la mostra (Scrive), questa si'. Nessuna
-		// scrittura ne segue: la POST del tipo a chi consulta e' rifiutata dal middleware (403)
-		t.Skipf("da fare giro 4 (4.4, distinta.go): distintaTipo da' la firma %q anche a chi consulta", x.Firma)
-	})
+	// l'anteprima del tipo non da' la firma a chi consulta (fase 4.4a.3, dall'elenco del frontendista della 4.3): la
+	// vede, con l'effetto, come l'anteprima del Fascicolo; la firma serve solo a chi puo' mandare il gesto
+	_, js = co.fai(http.MethodGet, tipo(s.particolare, "commerciale"), nil, false)
+	var consulta tipoDistinta
+	_ = json.Unmarshal([]byte(js), &consulta)
+	if consulta.Firma != "" || !strings.Contains(consulta.Bottone, "7120011 diventa un particolare commerciale") {
+		t.Errorf("l'anteprima del tipo di chi consulta: senza la firma, con l'effetto: %+v", consulta)
+	}
 
 	// la controprova: la POST del tipo di chi consulta si rifiuta e non scrive; quella di chi lavora, con la firma
 	// dell'anteprima, scrive, e la fotografia lo vede (altrimenti le GET non proverebbero niente)
@@ -225,9 +235,15 @@ func TestLeGetDellaDistintaNonScrivono(t *testing.T) {
 // solo dal testo non e' «pronto» per sola uguaglianza con un pezzo della distinta. «tavola.pdf» non ha codici nel
 // nome e il cartiglio dice 7120010, che e' l'assieme della distinta: non entra in Piano.FilePronti(), nel passo 3
 // non e' fra i pronti (niente «✓ Conferma»), sta sotto 7120010 da decidere con la domanda «il codice viene dal
-// testo del PDF, non dal nome: è 7120010?», e il gesto cumulativo non lo conta. Controprova: «7120010.pdf», con lo
-// stesso cartiglio e il nome che lo dice, e' pronto. La controprova a mano: senza codiceSoloDalTesto (piano.go) la
-// tavola torna pronta e la prova fallisce.
+// testo del PDF, non dal nome: è 7120010?», e la linguetta non lo conta fra i pronti. Controprova: «7120010.pdf», con
+// lo stesso cartiglio e il nome che lo dice, e' pronto, e il suo «✓ Conferma» chiede conferma con il pezzo e il
+// percorso sul NAS. La controprova a mano: senza codiceSoloDalTesto (piano.go) la tavola torna pronta e la prova
+// fallisce.
+//
+// Riscritta per lo Smistamento (Distinta, giro 4, fase 4.4a.3): prima fissava il gesto cumulativo «Conferma i 2 file
+// pronti e copia sul NAS» (che contava i pronti senza la tavola); con la domanda 9a = A quel gesto non c'e' piu': ora
+// fissa che non c'e', che la linguetta conta gli stessi 2 pronti, e la domanda di «✓ Conferma» con il percorso sul NAS
+// calcolato davvero (documenti.PercorsoPrevisto). Asserzioni: prima 10, dopo 11.
 func TestIlCodiceSoloDalTestoNonEProntoNellaDistinta(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaDistintaDB(t, "DSTTXT")
@@ -290,7 +306,10 @@ func TestIlCodiceSoloDalTestoNonEProntoNellaDistinta(t *testing.T) {
 	if stato, _ := rigaDistinta(t, pagina, "7120010.pdf"); stato != "pronto" {
 		t.Errorf("la riga di 7120010.pdf: %s", stato)
 	}
-	if !strings.Contains(pagina, "Conferma i 2 file pronti e copia sul NAS") || !strings.Contains(pagina, `<span class="dst-chip warn">2 pronti da confermare</span>`) {
-		t.Error("il gesto cumulativo e la linguetta contano 2 file pronti, non la tavola")
+	if strings.Contains(pagina, "file pronti e copia sul NAS") || !strings.Contains(pagina, `<span class="dst-chip warn">2 pronti da confermare</span>`) {
+		t.Error("niente gesto cumulativo (9a = A), e la linguetta conta 2 file pronti, non la tavola")
+	}
+	if riga := leggibile(estratto(pagina, "7120010.pdf</span>")); !strings.Contains(riga, `hx-confirm="Confermare «7120010.pdf» come 2D di 7120010? Va sul NAS in `+"ELENCO DISEGNI\\7120010\\") {
+		t.Errorf("«✓ Conferma» di 7120010.pdf chiede conferma con il pezzo e il percorso sul NAS: %s", riga)
 	}
 }

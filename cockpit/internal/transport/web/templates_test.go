@@ -247,6 +247,14 @@ func TestFrammentiEseguono(t *testing.T) {
 			ProvaCodice: &provaCodice{Codice: "AB-ZN", Trovate: []regole.LavorazioneTrovata{{Lavorazione: "zincatura", Descrizione: "zincato", Espressione: "-ZN"}},
 				Qualificati: map[string][]db.Fornitore{"zincatura": {{RagioneSociale: "Galvanica Esempio"}}}}},
 			[]string{"Convenzioni di codice", `class="spunta si"`, `class="spunta no"`, "la regex non compila", "Fornitori qualificati", "Prova un codice", "<b>zincatura</b>", "Galvanica Esempio", "Lavorazioni e fornitori"}},
+		// Giro 4, fase 4.4a.3: la Distinta, un passo per riga (distintaSintetica, in distinta_test.go). Che cosa non ci
+		// deve essere lo dicono TestIlPasso2DellaDistintaEAlberoProposto e TestIlPasso3DellaDistintaChiedeConfermaENonHaGestiCumulativi
+		{"distinta.html", "distinta_corpo", distintaSintetica("richiesta", true), []string{"Che cosa è arrivato", "Il prodotto richiesto", "7120001", `aria-current="step"`, "Mario Rossi"}},
+		{"distinta.html", "distinta_corpo", distintaSintetica("distinta", true), []string{"Distinta del prodotto", `id="dst-tree"`, `id="dst-ripresa"`, "Rivedi e conferma", "Scarta la bozza",
+			`<span class="plus">+</span> Assieme`, "Togli il selezionato", "Rianalizza gli STEP"}},
+		{"distinta.html", "distinta_corpo", distintaSintetica("documenti", true), []string{"Documenti di ogni pezzo", "✓ Conferma", "Da sistemare (2)", "Controllo e congelamento", "Congela la V1",
+			"2 da decidere accanto ai pezzi", "4 file da sistemare"}},
+		{"distinta.html", "distinta_corpo", distintaSintetica("fattibilita", true), []string{"Fattibilità", "Da produrre", "7121003", "Nessun particolare commerciale nella distinta."}},
 	}
 	stato := &statoUI{Postazione: "PC-FRANCESCO", PostazioneID: uuid.NullUUID{UUID: uuid.New(), Valid: true}, Origine: "ip",
 		Scelte:  []db.Postazione{{PostazioneID: uuid.New(), NomeHost: "PC-FRANCESCO"}},
