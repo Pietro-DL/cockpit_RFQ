@@ -756,7 +756,9 @@ func TestUnCommercialeConUnFiglioDiPrimaSiSalvaMaNonNeRiceveAltri(t *testing.T) 
 	v.Nuovi = []ComponenteNuovo{{Codice: "77899999", Tipo: db.TipoComponenteSciolto}}
 	rifiutata(t, b.contesto(), v, "77830000 è un particolare commerciale: sotto non ci va niente")
 
-	// la working com'e', e con la quantita' dell'arco di prima cambiata: si tiene
+	// la working com'e', e con la quantita' dell'arco di prima cambiata: si tiene. Giro 4, fase 4.4a.1b: tolto il salto
+	// «da fare giro 4» (il prodotto della PR #7 guardava i padri di TUTTI gli archi che l'editor manda, anche quelli
+	// gia' nella working); ora pianifica guarda solo gli archi nuovi, e le due strutture si salvano
 	var errori []string
 	if _, err := pianifica(b.contesto(), b.comeE()); err != nil {
 		errori = append(errori, "com'e': "+err.Error())
@@ -771,9 +773,6 @@ func TestUnCommercialeConUnFiglioDiPrimaSiSalvaMaNonNeRiceveAltri(t *testing.T) 
 		errori = append(errori, "con la quantita' cambiata: "+err.Error())
 	}
 	if len(errori) > 0 {
-		// Il prodotto della PR #7 guarda i padri di TUTTI gli archi che l'editor manda (voluta.go, padriVoluti),
-		// anche quelli gia' nella working, contro il suo stesso commento: la correzione e' della linea backend
-		// (piano, fase 4.3, «pianifica guarda solo gli archi che non sono già nella working»), non di questa prova.
-		t.Skipf("da fare giro 4: la working di prima con un commerciale che ha un figlio non si salva (%s)", strings.Join(errori, "; "))
+		t.Errorf("la working di prima con un commerciale che ha un figlio non si salva (%s)", strings.Join(errori, "; "))
 	}
 }

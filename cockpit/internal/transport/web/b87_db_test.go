@@ -366,7 +366,8 @@ func chiaveCorpoDi(t *testing.T, pagina string) string {
 // particolare ha il consiglio anche lui. Il prodotto commerciale senza figli: nel core,
 // TestIlFinitoSoloDoveSiPuo. Con la stessa regola l'assieme non va sotto il particolare: il ciclo si prova con il
 // prodotto sotto l'assieme, e lo spostamento che fallisce a meta' fallisce sul particolare. Asserzioni (righe con
-// t.Error, t.Fatal): prima 23, dopo 24.
+// t.Error, t.Fatal): prima 23, dopo 24. Giro 4, fase 4.4a.1b: in fondo torna l'anteprima del prodotto autorizzato che
+// diventa commerciale, una volta senza figli («il riferimento si svuota»): dopo 27.
 func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaB87("STR87")
@@ -471,6 +472,20 @@ func TestLaStrutturaSiCorreggeDallaSchermata(t *testing.T) {
 	}
 	if got := s.archi(); got != "77722757>77720517x2" {
 		t.Errorf("archi alla fine: %s", got)
+	}
+
+	// Giro 4, fase 4.4a.1b: la frase che la 4.3 aveva tolto da questa prova. Tolto anche l'assieme, il prodotto con lo
+	// STEP autorizzato non ha piu' figli: puo' diventare commerciale, e l'anteprima dice che il riferimento si svuota e
+	// che l'autorizzazione si sospende, con la firma. Solo l'anteprima: il prodotto resta com'e'
+	if a := s.gesto(w, s.comp(s.assieme, "sposta"), url.Values{"da": {s.prodotto.String()}, "a": {""}}); a != "77720517 non è più sotto 77722757. 77720517 è una radice." {
+		t.Errorf("l'assieme diventa radice: %q", a)
+	}
+	if a := leggibile(s.anteprimaTipo(w, s.prodotto, "commerciale")); !strings.Contains(a, "non è più il suo STEP strutturale: il riferimento si svuota") ||
+		!strings.Contains(a, "Si sospende l'autorizzazione di 77722757.stp per 77722757") || !strings.Contains(a, `name="firma"`) {
+		t.Errorf("un finito con lo STEP autorizzato e senza figli diventa commerciale, e l'anteprima lo dice: %s", a)
+	}
+	if got := s.valore(`SELECT tipo || '/' || (step_strutturale_id IS NOT NULL)::text FROM componente WHERE componente_id = $1`, s.prodotto); got != "finito/true" {
+		t.Errorf("l'anteprima non cambia il prodotto: %s", got)
 	}
 }
 

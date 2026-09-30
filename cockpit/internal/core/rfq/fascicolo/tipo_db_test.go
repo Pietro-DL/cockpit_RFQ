@@ -212,6 +212,11 @@ func (b *banco) rimozioneDi(padre, figlio uuid.UUID) string {
 // riapertura (E33), con una working di prima, restano in TestUnaDichiarazioneSospesaNonFermaIlGateENonSiRiattivaDaSola.
 // Il nome del tipo nel messaggio e' «particolare commerciale» (NomeTipo, PR #7). Asserzioni (chiamate t.Error,
 // t.Fatal, deveRifiutare, ok): prima 44, dopo 51.
+//
+// Riscritta per lo Smistamento (giro 4, fase 4.4a.1b): prima fissava anche che l'anteprima del passaggio a
+// commerciale non avesse figli che restano (EffettoTipo.FigliRestano vuoto). FigliRestano non c'e' piu' (con la regola
+// della PR #7 era irraggiungibile): la stessa condizione la dice la working (nessun arco «7120010>» nella BOM).
+// Asserzioni: prima 51, dopo 51.
 func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 	b := nuovoBanco(t)
 	sc := b.scenaTipo()
@@ -259,7 +264,7 @@ func TestIlCambioSottoassiemeCommercialeSospendeLAutorita(t *testing.T) {
 		t.Fatal("l'anteprima del cambio di tipo ha scritto")
 	}
 	if e.Spento != "" || strings.Join(e.Sospende, "|") != "l'autorizzazione di 7120010.stp per 7120010" || e.Rimozioni != 0 ||
-		len(e.FigliRestano) != 0 || len(e.ConLei) != 0 {
+		strings.Contains(b.bom(), "7120010>") || len(e.ConLei) != 0 {
 		t.Fatalf("anteprima del passaggio a commerciale: %+v", e)
 	}
 	if !strings.Contains(strings.Join(e.Avvisi, "|"), "i suoi discendenti negli STEP restano guida") || !strings.Contains(e.Bottone(), "1 autorizzazione si sospende") {

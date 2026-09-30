@@ -348,10 +348,23 @@ func TestIlConsiglioDellaRiattivazioneTrovaChiLaTiene(t *testing.T) {
 // non diventi una strada per aggirarla, nessun codice prende un tipo da TipiNuovo o da TipiComponente per
 // posizione (TipiNuovo[2] e' il commerciale scelto da un programma). Asserzioni (chiamate t.Error/t.Fatal):
 // prima 7, dopo 8 (gli indici delle liste).
+//
+// Allargata nel giro 4, fase 4.4a.1b, in modo esplicito e per un percorso solo (domanda 30, seconda risposta: il tipo
+// commerciale si propone, e lo scrive la conferma della persona, «la responsabilita' e' di chi conferma»): la conferma
+// dell'albero fa nascere il particolare commerciale quando una persona ha dato il ✓ alla proposta (o l'ha scelto con
+// la tendina). Il tipo lo nomina una funzione sola, tipoConfermatoNellAlbero in albero_conferma.go, in un return, con
+// la risposta della persona come argomento: la guardia la ammette per nome e per file, e vuole che ci sia, una volta
+// sola (un'eccezione che nessuno usa piu' si toglie); e come per tipoVoluto, senza la conferma di una persona quella
+// funzione non da' mai il commerciale. In piu' (dalla verifica della fase: ammettere la funzione per nome non basta, se
+// un altro automatismo la chiama con true) la guardia guarda chi la chiama: una chiamata sola, dentro ConfermaAlbero
+// in albero_conferma.go, con la risposta della bozza (g.commercialeConfermato()) come argomento; nessun'altra chiamata
+// e nessun uso come valore. Asserzioni: prima 8, dopo 12.
 func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 	radice := filepath.Join("..", "..", "..") // internal
 	fset := token.NewFileSet()
-	var usi, indici []string
+	var usi, indici, chiamateFuori []string
+	eccezione := 0 // gli usi dentro tipoConfermatoNellAlbero (albero_conferma.go)
+	chiamate := 0  // le chiamate ammesse a tipoConfermatoNellAlbero (in ConfermaAlbero)
 	err := filepath.WalkDir(radice, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -392,9 +405,56 @@ func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 							break
 						}
 					}
+				case *ast.ReturnStmt:
+					// la conferma dell'albero, con il ✓ di una persona (fase 4.4a.1b): solo in tipoConfermatoNellAlbero
+					for i := len(pila) - 1; i >= 0; i-- {
+						if fd, ok := pila[i].(*ast.FuncDecl); ok {
+							permesso = filepath.Base(p) == "albero_conferma.go" && fd.Recv == nil && fd.Name.Name == "tipoConfermatoNellAlbero"
+							break
+						}
+					}
+					if permesso {
+						eccezione++
+					}
 				}
 				if !permesso {
 					usi = append(usi, fset.Position(sel.Pos()).String())
+				}
+			}
+			// chi usa tipoConfermatoNellAlbero: la sua dichiarazione, e una chiamata sola, in ConfermaAlbero, con la
+			// risposta della persona nella bozza come argomento (fase 4.4a.1b)
+			if id, ok := n.(*ast.Ident); ok && id.Name == "tipoConfermatoNellAlbero" {
+				switch x := pila[len(pila)-1].(type) {
+				case *ast.FuncDecl:
+					if x.Name != id {
+						chiamateFuori = append(chiamateFuori, fset.Position(id.Pos()).String())
+					}
+				case *ast.CallExpr:
+					ammessa := false
+					for i := len(pila) - 1; i >= 0; i-- {
+						if fd, ok := pila[i].(*ast.FuncDecl); ok {
+							ammessa = filepath.Base(p) == "albero_conferma.go" && fd.Recv == nil && fd.Name.Name == "ConfermaAlbero"
+							break
+						}
+					}
+					if ammessa && x.Fun == id && len(x.Args) == 2 {
+						risposta, _ := x.Args[1].(*ast.CallExpr)
+						ammessa = risposta != nil && len(risposta.Args) == 0
+						if ammessa {
+							sel, _ := risposta.Fun.(*ast.SelectorExpr)
+							ammessa = sel != nil && sel.Sel.Name == "commercialeConfermato"
+						}
+					} else {
+						ammessa = false
+					}
+					if ammessa {
+						chiamate++
+					} else {
+						chiamateFuori = append(chiamateFuori, fset.Position(id.Pos()).String())
+					}
+				default:
+					// presa come valore (assegnata, passata): una strada per chiamarla da un'altra parte
+					chiamateFuori = append(chiamateFuori, fset.Position(id.Pos()).String())
 				}
 			}
 			// un tipo preso da una delle due liste per posizione e' un tipo scelto dal programma
@@ -423,6 +483,16 @@ func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 	}
 	if len(indici) > 0 {
 		t.Errorf("un tipo preso per posizione da TipiNuovo o TipiComponente (un automatismo che sceglie il tipo?):\n%s", strings.Join(indici, "\n"))
+	}
+	if eccezione != 1 {
+		t.Errorf("tipoConfermatoNellAlbero nomina il tipo commerciale %d volte, attesa 1: l'eccezione della guardia e' per quel return solo", eccezione)
+	}
+	if len(chiamateFuori) > 0 {
+		t.Errorf("tipoConfermatoNellAlbero usata fuori da ConfermaAlbero o senza la risposta della persona (un automatismo che scrive il tipo commerciale?):\n%s",
+			strings.Join(chiamateFuori, "\n"))
+	}
+	if chiamate != 1 {
+		t.Errorf("tipoConfermatoNellAlbero chiamata %d volte da ConfermaAlbero con la risposta della persona, attesa 1", chiamate)
 	}
 
 	// le query: nessuna scrive 'commerciale' in componente.tipo
@@ -459,6 +529,12 @@ func TestNessunAutomatismoScriveIlTipoCommerciale(t *testing.T) {
 			if got := tipoVoluto(p, figli); got == db.TipoComponenteCommerciale || got == db.TipoComponenteFinito {
 				t.Errorf("tipoVoluto(%q, %d figli) = %s", proposto, figli, got)
 			}
+		}
+	}
+	// e la conferma dell'albero: senza il ✓ di una persona il tipo resta quello proposto, mai commerciale
+	for _, proposto := range []db.TipoComponente{db.TipoComponenteSciolto, db.TipoComponenteSottoassieme} {
+		if got := tipoConfermatoNellAlbero(proposto, false); got != proposto {
+			t.Errorf("tipoConfermatoNellAlbero(%s, senza il ✓) = %s", proposto, got)
 		}
 	}
 }
