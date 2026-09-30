@@ -282,9 +282,13 @@ func (d *derivati) destinazione(ix Indice, f FileFlusso) Destinazione {
 	default:
 		d.destinazioneTecnica(&dest, ix, f)
 	}
-	// il particolare simile del cartiglio: una nota, mai un codice ne' una destinazione
+	// il particolare simile del cartiglio e lo speculare («SPECULARE DI X», fase 4.6): note, mai un codice ne' una
+	// destinazione
 	for _, c := range f.TestoPDF.Simili {
 		dest.Note = aggiungi(dest.Note, classificazione.NotaSimile(c))
+	}
+	for _, c := range f.TestoPDF.Speculari {
+		dest.Note = aggiungi(dest.Note, classificazione.NotaSpeculare(c))
 	}
 	return firmata(dest)
 }
@@ -497,7 +501,9 @@ func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlus
 // con un codice di famiglia del cliente e' contenuto; se ripete soltanto il nome del file (Domanda 7 = B) resta,
 // ma non e' una seconda fonte; un codice generico nel cartiglio, come il resto del testo, e' solo una chiave di
 // ricerca (P33). I metadati si mostrano e non sostengono mai (A5.13.3, A-P2 «solo_metadati»). L'OCR non da'
-// nemmeno un candidato: e' un indizio, e se ne dice solo la frase (27/09 «ter»).
+// nemmeno un candidato: e' un indizio, e se ne dice solo la frase (27/09 «ter»). Il cartiglio di un testo letto
+// con il worker di prima (DaRileggere, fase 4.6r) e' una chiave come il resto del testo: mai contenuto, mai
+// preselezionato, finche' «Rianalizza» non lo rilegge.
 func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string, []string) {
 	per := map[string]*lettura{}
 	var ordine []string
@@ -569,6 +575,14 @@ func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string, []string) {
 			if x := "l'OCR legge " + d.canonico(e.Codice) + dove + ": un indizio, non un codice del file"; !contiene(indizi, x) {
 				indizi = append(indizi, x)
 			}
+		case e.DaRileggere:
+			// il cartiglio di un testo letto con il worker di prima (fase 4.6r): i suoi campi non dicono quale codice
+			// della zona sia quello del disegno (l'intestazione dell'elenco particolari presa per il campo del
+			// codice, con il primo figlio come valore). E' una chiave di ricerca, come il resto del testo (P33): mai
+			// il codice del file, mai un sostegno, e nemmeno verso il figlio diretto di uno STEP autorizzato si
+			// preseleziona (soloIndizi)
+			agg(e.Codice, FonteTestoPDF, false, false, true, "il cartiglio del PDF cita "+e.Codice+dove+
+				", ma il testo è stato letto con il worker di prima: una chiave di ricerca, da rianalizzare")
 		case e.Fonte == FontePDFCartiglio && e.Origine == OrigineFamiglia:
 			// il codice di famiglia in basso a destra e' una conferma indipendente del nome, tranne quando in
 			// quella zona sta soltanto dentro il nome del file ripetuto (Domanda 7 = B): allora e' il nome
@@ -600,9 +614,10 @@ func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string, []string) {
 }
 
 // fraseTestoPDF e' che cosa dice il testo di un PDF quando non porta il codice del file: la frase del suo
-// stato (FraseTestoPDF: senza testo, non letto, illeggibile, da analizzare), o, per un testo letto senza
-// codici, «il testo del PDF non porta codici del cliente». "" quando il testo porta dei codici, o quando lo
-// stato non si sa (una scena delle prove senza testo).
+// stato (FraseTestoPDF: senza testo, non letto, illeggibile, da analizzare; FraseTestoDiPrima per un testo letto
+// con il worker di prima, il cui cartiglio non e' contenuto, fase 4.6r), o, per un testo letto senza codici, «il
+// testo del PDF non porta codici del cliente». "" quando il testo porta dei codici, o quando lo stato non si sa
+// (una scena delle prove senza testo).
 func (d *derivati) fraseTestoPDF(f FileFlusso) string {
 	perNome := ""
 	if c, _ := codiciDelNome(f.Nome, d.m); c != "" {
@@ -611,7 +626,7 @@ func (d *derivati) fraseTestoPDF(f FileFlusso) string {
 	switch {
 	case f.TestoPDF.Stato == "":
 		return ""
-	case !f.TestoPDF.Letto():
+	case !f.TestoPDF.Letto(), f.TestoPDF.DaRileggere:
 		return f.TestoPDF.Frase + perNome
 	}
 	for _, e := range f.EvidenzePDF {

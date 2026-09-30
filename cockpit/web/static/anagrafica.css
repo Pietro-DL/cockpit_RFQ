@@ -197,3 +197,14 @@
   body:not(.rail-chiusa) .ui-ana .prova, .chiuso-prova body:not(.rail-chiusa) .ui-ana .prova { display: flex; max-height: 32vh; margin-top: 12px }
   body:not(.rail-chiusa) .ui-ana.senza-prova .prova { display: none }
 }
+
+/* «Forme viste» (forme.html, giro 4 fase 4.17a): tabelle di sola lettura, dentro la testata di Anagrafica */
+.ui-forme .scheda .scheda { margin-top: 10px; border-width: 1px }
+.ui-forme h2 { font: 700 1.05rem var(--f-display); margin: 18px 0 6px }
+.ui-forme h3 { font: 700 .92rem var(--f-display); margin: 14px 0 4px }
+.ui-forme .muto { color: var(--ink-2) }
+.ui-forme table.tabella { border-collapse: collapse; margin: 4px 0 10px; font-size: .86rem }
+.ui-forme table.tabella th, .ui-forme table.tabella td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top }
+.ui-forme table.tabella th { font-size: .74rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap }
+.ui-forme table.tabella td small { display: block; color: var(--ink-2) }
+.ui-forme a.bottone { display: inline-flex; padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink) }

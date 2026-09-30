@@ -277,7 +277,7 @@
     {{else if eq $a.Stato "errore"}}<span class="chip bad" title="{{$a.Errore.String}}">errore</span>
     {{else if eq $a.Stato "grezzo"}}<span class="chip">da scaricare</span>
     {{else}}<span class="chip {{if eq $a.Stato "analizzato"}}ok{{else}}acc{{end}}">{{$a.Stato}}</span>{{end}}
-    {{if $a.Anteprimabile}}<a class="btn piccolo" href="/allegato/{{$a.AllegatoID}}/anteprima" target="_blank" rel="noopener" data-anteprima="{{$a.NomeFile}}"
+    {{if $a.Anteprimabile}}<a class="btn piccolo" href="{{indirizzoAnteprima $a.AllegatoID $a.Sha256}}" target="_blank" rel="noopener" data-anteprima="{{$a.NomeFile}}"
       title="Si apre qui sopra: dallo staging se c'è, altrimenti dal file sul NAS"><svg class="ico s" aria-hidden="true"><use href="#i-occhio"/></svg> Anteprima</a>{{end}}
   </span>
 </div>
@@ -387,7 +387,7 @@
     {{else}}<span class="chip {{if eq .Stato "analizzato"}}fatto{{else}}pronto{{end}}">{{.Stato}}</span>{{if .Sha256.Valid}} <small class="muto" title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}{{end}}
   </td>
   <td class="azioni-riga">
-    {{if .Anteprimabile}}<a class="piccolo" href="/allegato/{{.AllegatoID}}/anteprima" target="_blank" rel="noopener"
+    {{if .Anteprimabile}}<a class="piccolo" href="{{indirizzoAnteprima .AllegatoID .Sha256}}" target="_blank" rel="noopener"
       title="Apre il PDF in una scheda nuova: dallo staging se c'e', altrimenti dal file sul NAS">Anteprima</a>{{end}}
     {{if and .Confermabile $.Agganciato $.Gesti}}
       <details class="conferma">
@@ -906,6 +906,7 @@
     <a href="/admin/anagrafica" {{if eq $tab "clienti"}}aria-current="page"{{end}}>Clienti</a>
     <a href="/admin/fornitori" {{if eq $tab "fornitori"}}aria-current="page"{{end}}>Fornitori</a>
     <a href="/admin/anagrafica/articoli" {{if eq $tab "articoli"}}aria-current="page"{{end}}>Articoli <small>presto</small></a>
+    <a href="/admin/anagrafica/forme" {{if eq $tab "forme"}}aria-current="page"{{end}} title="Il censimento delle forme dei codici, in sola lettura">Forme viste</a>
   </nav>
   <span class="sp"></span>
   {{with $extra}}<span class="chip warn">{{.}}</span>{{end}}

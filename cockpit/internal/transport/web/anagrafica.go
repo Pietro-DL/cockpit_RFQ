@@ -170,6 +170,9 @@ type provaDati struct {
 	// L'Anagrafica nuova: la prova e' stata fatta con le regole del form non ancora salvate, e sono queste.
 	DalForm bool
 	Regole  regole.Regole
+	// Mittente è l'indirizzo da cui si finge che arrivi il testo (facoltativo): serve a provare un mittente
+	// di sistema del cliente (Smistamento 4.13b), che si riconosce da chi scrive e non dalle parole.
+	Mittente string
 }
 
 func (s *Server) adminAnagrafica(w http.ResponseWriter, r *http.Request) {
@@ -324,6 +327,10 @@ func (s *Server) salvaRegole(w http.ResponseWriter, r *http.Request) {
 		testo = "{}"
 	}
 	regole, err := regole.ValidaRegole([]byte(testo))
+	if err == nil {
+		// e i mittenti di sistema contro i domini e i contatti del cliente (4.13b, ritocco), come dal form
+		err = mittentiSulCliente(r.Context(), q, c.ClienteID, regole)
+	}
 	if err != nil {
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "riconoscimento", RegoleJSON: testo, Errore: err.Error(),
 			Diagnosi: diagnosiDiUnTestoRifiutato(testo)})
@@ -401,8 +408,9 @@ func (s *Server) bancoProva(w http.ResponseWriter, r *http.Request) {
 	if n := strings.TrimSpace(r.FormValue("allegati")); n != "" {
 		in.NomiAllegati = strings.Fields(n)
 	}
+	in.Mittente = strings.TrimSpace(r.FormValue("mittente"))
 	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: "prova",
-		Prova: &provaDati{Testo: testo, Cliente: c.RagioneSociale, Esito: classificazione.Riconosci(in, time.Now())}})
+		Prova: &provaDati{Testo: testo, Cliente: c.RagioneSociale, Mittente: in.Mittente, Esito: classificazione.Riconosci(in, time.Now())}})
 }
 
 // primaRigaEResto: nel banco si incolla una mail intera. La prima riga fa da oggetto — è come

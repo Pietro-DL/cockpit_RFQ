@@ -511,10 +511,9 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 		// si rileggono dal nome, che non cambia
 		dett.CodiciNelNome = classificazione.PropostaDaNome(a.NomeFile, 0, string(db.DirezioneEntrata)).CodiciNelNome
 	}
-	// il codice suggerito e' quello del pezzo, senza il suffisso decorativo del cliente
-	for i, c := range dett.CodiciNelNome {
-		dett.CodiciNelNome[i] = m.CanonicoNome(c)
-	}
+	// il codice suggerito e' quello del pezzo, senza il suffisso decorativo del cliente, e non e' mai un numero
+	// d'ordine del cliente (4.13b): anche in una proposta scritta prima della voce «numero_ordine»
+	dett.CodiciNelNome = m.CitatiNelNome(a.NomeFile, dett.CodiciNelNome)
 	// uguale e' uguale a meno del suffisso decorativo: il file «X» assegnato al pezzo «X_PRT» non ha un codice diverso
 	uguali := func(a, b string) bool {
 		ka, _ := m.Canonico(a, "")
@@ -523,9 +522,9 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 	}
 	// Che cos'e' il file lo dice la dimensione `tipo` della sua valutazione (Smistamento F4): si chiede quando
 	// nessuna evidenza lo dice, o quando lo dice solo l'estensione («altro»). Prima si guardava la colonna
-	// (`altro` con fonte `estensione`), ma la fonte in colonna e' quella del codice quando c'e': un «.dft» col
-	// codice nel nome avrebbe saltato la domanda. Il tipo deciso dall'operatore ha la regola `operatore`, e non
-	// si chiede di nuovo.
+	// (`altro` con fonte `estensione`), ma la fonte in colonna e' quella del codice quando c'e': un file «altro»
+	// (un «.txt») col codice nel nome avrebbe saltato la domanda. Il tipo deciso dall'operatore ha la regola
+	// `operatore`, e non si chiede di nuovo.
 	vt := classificazione.ValutazioneDellaRiga(string(pr.TipoProposto), pr.Codice.String, pr.Rev.String, string(pr.Fonte),
 		int(pr.Confidenza), pr.Dettagli, a.NomeFile, a.Estensione.String)
 	if vt.Tipo.Stato == classificazione.StatoNessuna || vt.Tipo.Regola == "ext_altro" {

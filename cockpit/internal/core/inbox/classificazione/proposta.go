@@ -106,14 +106,17 @@ func daScaricare(p Proposta, ext string, bytes int64) bool {
 }
 
 // TipoDaEstensione è la mappa estensione → tipo_documento, fonte, confidenza di base.
+//
+// La lamiera 3D (`.psm`) e il disegno (`.dft`) di Solid Edge sono tipi tecnici per tutti dalla 4.13b: prima
+// il `.dft` era «altro», e il disegno di un cliente che lavora in Solid Edge non si scaricava da solo.
 func TipoDaEstensione(ext string) (tipo, fonte string, conf int) {
 	switch ext {
-	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm":
+	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm", "psm":
 		return "cad_3d", "estensione", 70
 	case "dxf":
 		return "sviluppo_dxf", "estensione", 70
-	case "dwg":
-		return "disegno_2d", "estensione", 70 // un DWG è un disegno CAD: l'estensione lo dice
+	case "dwg", "dft":
+		return "disegno_2d", "estensione", 70 // un DWG (o un DFT) è un disegno CAD: l'estensione lo dice
 	case "pdf", "tif", "tiff":
 		// Checkpoint 3R §5: PDF NON significa disegno. Un PDF è un contenitore, e in una richiesta
 		// d'offerta vera contiene tanto spesso il capitolato, l'offerta o la conferma d'ordine quanto

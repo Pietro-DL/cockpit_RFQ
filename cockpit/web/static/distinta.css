@@ -36,22 +36,32 @@
 }
 body:has(.dst) { background: #f4f4f2 }
 body:has(.dst) main { background: #f4f4f2 }
-/* le stesse variabili per il visore e l'avviso, che stanno fuori dal corpo */
-.dst-visore, .dst-toast { --dst-surface: #ffffff; --dst-surface-2: #fafaf9; --dst-surface-3: #efefec; --dst-ink: #1c1c1a; --dst-ink-2: #5f5f5a;
+/* un gesto rifa' il corpo: lo scorrimento non si ancora al corpo vecchio (bug 4, la pagina saltava di migliaia di
+   pixel); il posto e il fuoco li rimette distinta.mjs */
+#distinta { overflow-anchor: none }
+/* le stesse variabili per il visore, la finestra dei comandi, il menu e l'avviso, che stanno fuori dal corpo */
+.dst-visore, .dst-toast, .dst-dialogo, .dst-menu { --dst-surface: #ffffff; --dst-surface-2: #fafaf9; --dst-surface-3: #efefec; --dst-ink: #1c1c1a; --dst-ink-2: #5f5f5a;
   --dst-line: #e3e3df; --dst-line-strong: #c6c6c0; --dst-accent: #0f5a66; --dst-accent-ink: #fff; --dst-accent-soft: #e7f1f2;
+  --dst-ok: #1e7445; --dst-ok-soft: #e9f5ee; --dst-warn: #945800; --dst-warn-soft: #fdf4e3;
   --dst-bad: #b0332a; --dst-bad-soft: #fcece9; --dst-f-display: "Barlow Semi Condensed", "Roboto Condensed", "Arial Narrow", "Segoe UI", sans-serif;
   --dst-f-body: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; --dst-f-mono: Consolas, "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  --dst-r: 8px;
   font: 15px/1.5 var(--dst-f-body); color: var(--dst-ink) }
 
-.dst *, .dst-visore * { box-sizing: border-box }
-.dst button, .dst input, .dst select, .dst textarea, .dst-visore button, .dst-visore select, .dst-visore textarea { font: inherit; color: inherit }
-.dst :focus-visible, .dst-visore :focus-visible { outline: 3px solid var(--dst-accent); outline-offset: 2px }
+.dst *, .dst-visore *, .dst-dialogo *, .dst-menu * { box-sizing: border-box }
+.dst button, .dst input, .dst select, .dst textarea, .dst-visore button, .dst-visore select, .dst-visore textarea,
+.dst-dialogo button, .dst-dialogo input, .dst-dialogo select, .dst-menu button { font: inherit; color: inherit }
+.dst :focus-visible, .dst-visore :focus-visible, .dst-dialogo :focus-visible, .dst-menu :focus-visible { outline: 3px solid var(--dst-accent); outline-offset: 2px }
+.dst tr.dst-file:focus { outline: 2px solid var(--dst-accent); outline-offset: -2px }
 .dst a { color: var(--dst-accent) }
 .dst h1, .dst h2, .dst h3 { font-family: var(--dst-f-display); text-wrap: balance; margin: 0; line-height: 1.15; color: var(--dst-ink); text-transform: none; letter-spacing: 0 }
 .dst h2 { font-size: 1.5rem; font-weight: 700 }
 .dst p { margin: 0 }
-.dst .k, .dst-visore .k { color: var(--dst-ink-2) }
-.dst .mono, .dst-visore .mono { font-family: var(--dst-f-mono); font-weight: 600; letter-spacing: .01em }
+.dst .k, .dst-visore .k, .dst-dialogo .k { color: var(--dst-ink-2) }
+.dst .mono, .dst-visore .mono, .dst-dialogo .mono { font-family: var(--dst-f-mono); font-weight: 600; letter-spacing: .01em }
+.dst-dialogo .ok-t { color: var(--dst-ok); font-weight: 600 }
+.dst-dialogo .warn-t { color: var(--dst-warn); font-weight: 600 }
+.dst-dialogo .bad-t { color: var(--dst-bad); font-weight: 600 }
 .dst .mono.grande { font-size: 1.2rem }
 .dst .mono.piccolo { font-size: .88rem }
 .dst .sp { flex: 1 }
@@ -60,7 +70,8 @@ body:has(.dst) main { background: #f4f4f2 }
 .dst .bad-t { color: var(--dst-bad); font-weight: 600 }
 .dst-label { font-family: var(--dst-f-display); font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dst-ink-2) }
 
-/* bottoni */
+/* bottoni (anche nella finestra dei comandi, fuori dal corpo) */
+.dst-dialogo .dst-label { font-family: var(--dst-f-display); font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dst-ink-2) }
 .dst-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--dst-line-strong);
   background: var(--dst-surface); color: var(--dst-ink); font-weight: 600; cursor: pointer; white-space: nowrap; text-decoration: none; line-height: 1.3 }
 .dst a.dst-btn { color: var(--dst-ink) }
@@ -232,9 +243,36 @@ details.dst-box > summary { cursor: pointer }
 .dst-cella.info { background: var(--dst-info-soft); color: var(--dst-info) }
 .dst-cella.no { opacity: .75 }
 .dst-nodo-azioni { display: flex; flex-wrap: wrap; gap: 6px }
+/* l'albero proposto (fase 4.4a.3): la casella non e' un bottone; il codice si', e la sceglie */
+.dst-nodo > .cod { display: block; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font-family: var(--dst-f-mono); color: var(--dst-ink) }
+.dst-nodo > .cod:hover { color: var(--dst-accent); text-decoration: underline }
+.dst-nodo .fonte { font-size: .78rem; color: var(--dst-ink-2); margin-top: -5px; overflow-wrap: anywhere }
+.dst-nodo .tags { display: flex; flex-wrap: wrap; gap: 4px }
+.dst-nodo .tags .dst-stato-tag { border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; font-weight: 600; white-space: normal }
+.dst-nodo.scartato { opacity: .6; background: var(--dst-surface-3); border-style: dotted; border-top-style: solid }
+.dst-nodo.scartato > .cod { text-decoration: line-through }
+.dst-stato-tag.no { color: var(--dst-ink-2) }
+.dst-stato-tag.bad { color: var(--dst-bad) }
+.dst-stato-tag.neu { color: var(--dst-ink-2) }
+.dst-minuteria { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 6px 8px; border-radius: 6px;
+  background: var(--dst-warn-soft); border: 1px solid color-mix(in srgb, var(--dst-warn) 40%, transparent); font-size: .82rem }
+.dst-minuteria .m { font-weight: 700; color: var(--dst-warn) }
+.dst-minuteria small { grid-column: 1 / -1; line-height: 1.25 }
+.dst-minuteria.si { background: var(--dst-t-com-soft); border-color: color-mix(in srgb, var(--dst-t-com) 40%, transparent) }
+.dst-minuteria.si .m { color: var(--dst-t-com) }
+.dst-minuteria.no { background: var(--dst-surface-2); border-color: var(--dst-line) }
+.dst-minuteria.no .m { color: var(--dst-ink-2) }
+.dst-minuteria button[aria-pressed="true"] { background: var(--dst-accent); color: var(--dst-accent-ink) }
+.dst-mini .proposto { position: absolute; left: 5px; top: 5px; font-size: .72rem; font-weight: 700; background: #fdf4e3; color: #945800; border: 1px solid #945800; border-radius: 4px; padding: 0 6px }
+.dst-qta-arco.discordi { border-color: var(--dst-warn); color: var(--dst-warn); background: var(--dst-warn-soft) }
+.dst-tree li.rimozione-arco::before, .dst-tree li.rimozione-arco::after { border-top-style: dashed; border-top-color: var(--dst-bad) }
+.dst-tree li.scartato-arco::before, .dst-tree li.scartato-arco::after { border-top-style: dotted }
 .dst-legenda { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .86rem; color: var(--dst-ink-2); align-items: center; margin-top: -8px }
 .dst-legenda i { display: inline-block; width: 22px; height: 12px; border: 1.5px solid var(--dst-line-strong); border-radius: 3px; vertical-align: -1px; margin-right: 4px }
 .dst-legenda i.tratt { border-style: dashed }
+.dst-legenda i.nuovo { border-color: var(--dst-accent) }
+.dst-legenda i.scart { border-style: dotted; background: var(--dst-surface-3) }
+.dst-legenda-caselle { margin-top: 0 }
 .dst-regola { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 6px; background: var(--dst-surface-2); border: 1px solid var(--dst-line); font-size: .9rem }
 .dst-dettaglio-griglia { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px }
 .dst-fonti li { display: flex; gap: 8px; align-items: baseline; font-size: .9rem }
@@ -250,6 +288,7 @@ details.dst-box > summary { cursor: pointer }
 /* Documenti */
 .dst-blocchi { display: grid; gap: 14px }
 .dst-blocco { border: 1px solid var(--dst-line); border-radius: var(--dst-r); overflow: hidden; background: var(--dst-surface); margin-left: calc(min(var(--liv, 0), 3) * 18px) }
+.dst-blocco.fuori { border-style: dashed; border-color: color-mix(in srgb, var(--dst-warn) 50%, var(--dst-line)) }
 .dst-blocco-testa { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; background: var(--dst-surface-2); border-bottom: 1px solid var(--dst-line) }
 .dst-blocco-testa .cod { font-size: 1.05rem }
 .dst-slot-riga { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--dst-line) }
@@ -327,11 +366,37 @@ details.dst-box > summary { cursor: pointer }
 .dst-nota { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 10px; border: 1px solid var(--dst-line); border-radius: 8px; background: var(--dst-surface); cursor: pointer; width: 100%; text-align: left }
 .dst-nota.sel { border-color: #b0332a; background: #fcece9 }
 .dst-nota .n { width: 24px; height: 24px; border-radius: 50%; background: #0f5a66; color: #ffffff; display: grid; place-items: center; font-weight: 700; font-size: .8rem; grid-row: span 2 }
+.dst-nota button.n { border: 0; padding: 0; cursor: pointer }
 .dst-nota .meta { font-size: .8rem; color: var(--dst-ink-2) }
 .dst-nota .azioni { grid-column: 2; display: flex; gap: 6px }
 .dst-nota textarea { grid-column: 1 / -1; width: 100%; min-height: 70px; padding: 6px 8px; border: 1px solid var(--dst-line-strong); border-radius: 6px }
 .dst-visore-piede { padding: 8px 14px; border-top: 1px solid var(--dst-line); font-size: .85rem; color: var(--dst-ink-2); display: flex; flex-wrap: wrap; gap: 6px 16px }
 .dst-visore .dst-btn { font-size: .92rem }
+
+/* la finestra dei comandi dell'albero (un <dialog>) e il menu del tasto destro */
+.dst-dialogo { width: min(620px, calc(100% - 32px)); max-height: calc(100% - 48px); padding: 0; border: 1.5px solid var(--dst-line-strong); border-radius: 10px;
+  background: var(--dst-surface); box-shadow: 0 10px 40px rgba(0,0,0,.25) }
+.dst-dialogo.largo { width: min(980px, calc(100% - 32px)) }
+.dst-dialogo::backdrop { background: rgba(28,28,26,.45) }
+.dst-dialogo[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto }
+.dst-dialogo-testa { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--dst-line) }
+.dst-dialogo-testa h2 { flex: 1; margin: 0; font-family: var(--dst-f-display); font-size: 1.35rem; line-height: 1.2 }
+.dst-dialogo-corpo { overflow: auto; padding: 14px 16px; display: grid; gap: 12px; align-content: start }
+.dst-dialogo-corpo p { margin: 0 }
+.dst-dialogo-azioni { padding: 12px 16px; border-top: 1px solid var(--dst-line); background: var(--dst-surface-2) }
+.dst-riep-sezione h3 { margin: 0 0 6px; font-family: var(--dst-f-display); font-size: 1.05rem; text-transform: none; letter-spacing: 0; color: var(--dst-ink) }
+.dst-dialogo-testa h2 { text-transform: none; letter-spacing: 0; color: var(--dst-ink) }
+.dst-riep-sezione.da-guardare { padding: 8px 10px; border-radius: 6px; background: var(--dst-warn-soft) }
+.dst-riep-sezione li .dst-btn { margin-left: 6px }
+.dst-menu { position: fixed; z-index: 70; min-width: 240px; max-width: 360px; padding: 6px; background: var(--dst-surface); border: 1px solid var(--dst-line-strong);
+  border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.22); display: grid; gap: 2px }
+.dst-menu[hidden] { display: none }
+.dst-menu .voce { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 5px; background: none; cursor: pointer }
+.dst-menu .voce:hover, .dst-menu .voce:focus { background: var(--dst-accent-soft); color: var(--dst-accent) }
+.dst-menu .voce.pericolo { color: var(--dst-bad) }
+.dst-menu .voce[aria-disabled="true"] { color: var(--dst-ink-2); cursor: not-allowed }
+.dst-menu .voce small { color: var(--dst-ink-2) }
+.dst-menu .sep { height: 1px; background: var(--dst-line); margin: 4px 2px }
 
 .dst-toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1c1c1a; color: #ffffff; padding: 10px 16px; border-radius: 8px;
   font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,.2); z-index: 60; max-width: min(640px, calc(100% - 32px)) }

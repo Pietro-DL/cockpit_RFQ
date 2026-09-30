@@ -1,7 +1,7 @@
 {
   "$defs": {
     "CampoCartiglio": {
-      "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale), `letta` e' com'e' scritta nel file, `valore` e' il testo GREZZO che\nle sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server. `riquadro` e' quello del valore; `zona` e' quella dell'etichetta.",
+      "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale e, dalla sottoversione 2, il particolare simile), `letta` e' com'e'\nscritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO\nche le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del\nvalore; `zona` e' quella dell'etichetta.",
       "properties": {
         "etichetta": {
           "enum": [
@@ -10,7 +10,8 @@
             "revisione",
             "titolo",
             "scala",
-            "materiale"
+            "materiale",
+            "particolare_simile"
           ],
           "title": "Etichetta",
           "type": "string"
@@ -308,10 +309,10 @@
       "type": "object"
     }
   },
-  "description": "Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli[\"testo_pdf\"]` (A5.13.8,\nanalizzatore 4).\n\nIl testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e\nriquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno\nalmeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.\n\n`estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,\nnon un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri\nnativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;\n`pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]\ndella pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto.",
+  "description": "Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli[\"testo_pdf\"]` (A5.13.8,\nanalizzatore 4).\n\nIl testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e\nriquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno\nalmeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.\n\n`estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,\nnon un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri\nnativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;\n`pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]\ndella pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la\nsottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette\nbilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6).",
   "properties": {
     "versione": {
-      "default": 1,
+      "default": 2,
       "title": "Versione",
       "type": "integer"
     },

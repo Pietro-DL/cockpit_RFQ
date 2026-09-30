@@ -142,8 +142,12 @@ const MaxEvidenze = 8
 // riconosce il nome stesso), non a step_radice_famiglia 80. Prima (A) la lettura dipendente vinceva con lo
 // score della sua regola, e `dipende_da` impediva soltanto `concorde`.
 //
-// Le evidenze senza valore restano nell'elenco e non votano. L'elenco torna in ordine di score e di
-// precedenza, e se e' piu' lungo di MaxEvidenze si tengono le piu' forti.
+// Le evidenze senza valore restano nell'elenco e non votano. Una sola eccezione, che non vota ma conta per lo
+// stato: il cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima) che dice un codice
+// diverso da quello che vince rende la dimensione discorde, mai «unica» ne' «concorde» (contraddiceDiPrima; giro
+// 4, fase 4.6r2). Lo stesso codice non cambia niente. L'elenco torna in ordine di score e di precedenza, e se e'
+// piu' lungo di MaxEvidenze si tengono le piu' forti, e comunque le letture del nome del file e la prima lettura
+// di prima che contraddice (taglia): quello che resta scritto spiega lo stato.
 func Componi(ev []Evidenza) Dimensione {
 	ord := limitaDipendenti(ev)
 	sort.SliceStable(ord, func(i, j int) bool {
@@ -158,7 +162,7 @@ func Componi(ev []Evidenza) Dimensione {
 		return precedenza(ord[i].Regola) < precedenza(ord[j].Regola)
 	})
 	if len(ord) > MaxEvidenze {
-		ord = ord[:MaxEvidenze]
+		ord = taglia(ord)
 	}
 	if ord == nil {
 		ord = []Evidenza{}
@@ -182,6 +186,10 @@ func Componi(ev []Evidenza) Dimensione {
 	indipendenti := 0
 	for _, e := range ord {
 		switch {
+		case contraddiceDiPrima(e, w.Valore):
+			// il cartiglio letto con il worker di prima dice un altro codice: non vota, ma il valore che vince
+			// non e' sicuro finche' «Rianalizza» non lo rilegge (fase 4.6r2)
+			d.Stato = StatoDiscorde
 		case e.Valore == "":
 		case strings.EqualFold(e.Valore, w.Valore):
 			if e.DipendeDa == "" {
@@ -223,6 +231,64 @@ func limitaDipendenti(ev []Evidenza) []Evidenza {
 		}
 	}
 	return out
+}
+
+// taglia tiene le MaxEvidenze letture piu' forti di un elenco gia' ordinato, e comunque quelle del nome del file
+// (giro 4, fase 4.6). Prima il taglio era soltanto per score, e il testo di un PDF d'assieme con piu' di otto
+// letture a 85 (le righe dell'elenco particolari nella zona del cartiglio) toglieva proprio la lettura del nome
+// (45), e con lei il ripiego della colonna sul nome quando le fonti discordano (letturaInColonna): la colonna
+// diventava un figlio. Una lettura del nome prende il posto della piu' debole delle altre; l'ordine resta quello
+// di score e precedenza.
+//
+// Resta anche la prima lettura del cartiglio di un testo di prima che contraddice il valore che vince
+// (contraddiceDiPrima, fase 4.6r2): senza score sta in fondo, e un taglio che la togliesse lascerebbe la dimensione
+// «unica» (o una discorde senza la lettura che lo dice) a chi la rilegge da `dettagli.valutazione`.
+func taglia(ord []Evidenza) []Evidenza {
+	vincente := ""
+	for _, e := range ord {
+		if e.Valore != "" {
+			vincente = e.Valore
+			break
+		}
+	}
+	tieni, riservate, contraddetto := make([]bool, len(ord)), 0, false
+	for i, e := range ord {
+		switch {
+		case dalNome(e):
+		case !contraddetto && contraddiceDiPrima(e, vincente):
+			contraddetto = true
+		default:
+			continue
+		}
+		tieni[i] = true
+		riservate++
+	}
+	posti := MaxEvidenze - riservate
+	out := make([]Evidenza, 0, MaxEvidenze)
+	for i, e := range ord {
+		switch {
+		case tieni[i]:
+			out = append(out, e)
+		case posti > 0:
+			out = append(out, e)
+			posti--
+		}
+	}
+	return out
+}
+
+// dalNome: una lettura del nome del file con un valore (il codice o la rev che il nome dice: la fonte «nome_file»
+// delle righe della tabella S1, quella che `dipende_da` nomina).
+func dalNome(e Evidenza) bool { return e.Fonte == "nome_file" && e.Valore != "" }
+
+// contraddiceDiPrima: una lettura del cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima,
+// fase 4.6r) che dice un codice diverso dal valore che vince (giro 4, fase 4.6r2). Il suo codice sta in Indizio e
+// non vota; ma il cartiglio fa fede (29/09), e un codice «unico» che il cartiglio forse smentisce non e' sicuro: la
+// dimensione e' discorde finche' «Rianalizza» non porta la sottoversione di oggi. Senza un valore che vince non
+// c'e' niente da contraddire (lo stato resta «nessuna»).
+func contraddiceDiPrima(e Evidenza, vincente string) bool {
+	return e.Regola == RegolaCartiglioDiPrima && e.Valore == "" && e.Indizio != "" && vincente != "" &&
+		!strings.EqualFold(e.Indizio, vincente)
 }
 
 // LeggiValutazione legge `dettagli.valutazione` di una riga, se c'e' e se e' in una forma che si conosce. Una
@@ -438,12 +504,16 @@ func tipoDaRiga(tipo, fonte string, confidenza int, ext string, dt dettagliRiga)
 
 // tipoDaEstensione e' la lettura del solo formato, con le regole di A5.14.3: un PDF e un archivio non
 // dicono il tipo (stato `nessuna`, la colonna resta `da_determinare`).
+//
+// La lamiera 3D (`.psm`) e il disegno (`.dft`) di Solid Edge dalla 4.13b: con le regole che ci sono, senza
+// toccare la tabella S1 (il «ter» la vuole invariata). Il `.psm` e' un 3D come il `.par`; il `.dft` e' un
+// formato di disegno CAD come il DWG, e ne prende la regola: l'evidenza dice l'estensione vera.
 func tipoDaEstensione(ext string) []Evidenza {
 	t := "." + ext
 	switch ext {
-	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm":
+	case "stp", "step", "sldprt", "sldasm", "igs", "iges", "x_t", "x_b", "prt", "par", "asm", "psm":
 		return []Evidenza{evidenza("ext_3d", "cad_3d", t)}
-	case "dwg":
+	case "dwg", "dft":
 		return []Evidenza{evidenza("ext_dwg", "disegno_2d", t)}
 	case "dxf":
 		return []Evidenza{evidenza("ext_dxf", "sviluppo_dxf", t)}

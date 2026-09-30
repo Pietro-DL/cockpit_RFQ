@@ -465,10 +465,12 @@ class CampoCartiglio(Base):
     """Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».
 
     `etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,
-    revisione, titolo, scala, materiale), `letta` e' com'e' scritta nel file, `valore` e' il testo GREZZO che
-    le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,
-    che resta al server. `riquadro` e' quello del valore; `zona` e' quella dell'etichetta."""
-    etichetta: Literal["numero_disegno", "codice", "revisione", "titolo", "scala", "materiale"]
+    revisione, titolo, scala, materiale e, dalla sottoversione 2, il particolare simile), `letta` e' com'e'
+    scritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO
+    che le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,
+    che resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del
+    valore; `zona` e' quella dell'etichetta."""
+    etichetta: Literal["numero_disegno", "codice", "revisione", "titolo", "scala", "materiale", "particolare_simile"]
     letta: str = ""
     valore: str = ""
     pagina: int = 1
@@ -543,8 +545,10 @@ class TestoPDF(Base):
     non un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri
     nativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;
     `pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]
-    della pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto."""
-    versione: int = 1
+    della pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la
+    sottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette
+    bilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6)."""
+    versione: int = 2
     estraibile: bool = False
     pagine: int = 0
     pagine_lette: int = 0

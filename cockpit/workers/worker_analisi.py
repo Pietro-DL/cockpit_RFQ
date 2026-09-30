@@ -143,7 +143,16 @@ def separa_codice_rev(nome_base: str) -> tuple[str, str]:
 # Le coordinate sono quelle della pagina COME SI VEDE (rotazione applicata), in punti, con l'origine in alto a
 # sinistra. `find_tables` non si usa: sui disegni vettoriali (migliaia di segmenti) costa piu' di tutta la
 # lettura, e i campi del cartiglio si ritrovano gia' con le parole e le loro coordinate.
-VERSIONE_TESTO_PDF = 1
+#
+# VERSIONE_TESTO_PDF e' la sottoversione della FORMA del testo, non la versione dell'analizzatore (quella la decide
+# il server, e il worker la ripete). La 2 (giro 4, fase 4.6) legge il cartiglio meglio della 1: l'etichetta con la
+# gemella inglese dopo la barra si legge intera («DENOMINAZIONE / NAME»: il valore non e' piu' «/ NAME»), «PART N°»
+# e «PART NR» sono etichette del codice, «NAME» e' il titolo solo come gemella, c'e' il campo del particolare simile
+# (e il segnaposto del modello non da' niente), l'intestazione di una tabella («Pos. Part Number Q.ty», «N. CODICE
+# DESCRIZIONE QTA») non e' un campo. Con la
+# sottoversione nuova il server riconosce i PDF letti prima, e «Rianalizza» li rilegge. La fase 4.12 (l'elenco
+# particolari) usera' la stessa: un solo pacchetto della postazione, una sola rianalisi.
+VERSIONE_TESTO_PDF = 2
 TESTO_PDF_PAGINE_MAX = 11        # le pagine lette: le stesse che si scorrevano gia' per i termini
 TESTO_PDF_FRAMMENTI_MAX = 200    # frammenti nel fatto
 TESTO_PDF_FRAMMENTO_MAX = 512    # caratteri di un frammento
@@ -266,32 +275,193 @@ def componi_frammenti(parole: list[Parola], pagina: int, fonte: str, zona_di) ->
 # lunga («DISEGNO N.» prima di «DISEGNO»). Il valore e' il testo che segue l'etichetta sulla stessa riga vista,
 # fino alla prossima etichetta o a un salto largo (un'altra cella); se sulla riga non c'e' niente, e' la riga
 # subito sotto, nella colonna dell'etichetta. Testo grezzo: nessuna regola di codice.
+#
+# Sottoversione 2 del testo (giro 4, fase 4.6):
+#   - un'etichetta seguita dalla barra e dalla sua gemella inglese della stessa voce («DENOMINAZIONE / NAME»,
+#     «PARTICOLARE SIMILE / SIMILAR PART», anche attaccate: «DENOMINAZIONE/NAME») e' UNA etichetta: prima la
+#     gemella che non si conosceva finiva nel valore («/ NAME»), e quella che si conosceva faceva un campo suo;
+#   - «PART N°», «PART NR» e le loro varianti sono etichette del codice (i cartigli di certi clienti non ne hanno
+#     altre); «NAME» e' il titolo, ma solo come gemella (SOLO_GEMELLE);
+#   - il particolare simile («PARTICOLARE SIMILE», «PART. SIMILE», «SIMILAR PART») e' un campo suo, con il valore
+#     grezzo: che cosa sia lo dice il server (una nota, «simile a X»). Il segnaposto del modello nel campo vuoto
+#     («Inserire codice particolare simile») non e' un valore, e le sue parole non sono etichette (segnaposto_a);
+#   - l'intestazione di una tabella non e' una riga di etichette (intestazione_tabella).
 ETICHETTE_CARTIGLIO = (
     ("numero_disegno", ("NUMERO DISEGNO", "N. DISEGNO", "N.DISEGNO", "N° DISEGNO", "NR. DISEGNO", "DISEGNO N.",
                         "DISEGNO N°", "DISEGNO NR.", "DIS. N.", "DRAWING NUMBER", "DRAWING NO.", "DRAWING NO",
                         "DRAWING N.", "DWG. NO.", "DWG NO.", "DWG NO")),
-    ("codice", ("PART NUMBER", "PART NO.", "PART NO", "P/N", "CODICE", "COD.", "CODE", "ARTICOLO")),
+    ("codice", ("PART NUMBER", "PART NO.", "PART NO", "PART. NO.", "PART. NO", "PART.NO.", "PART N°", "PART. N°",
+                "PART.N°", "PART N.", "PART. N.", "PART NR", "PART NR.", "PART. NR", "PART. NR.", "PART.NR", "PART.NR.",
+                "P/N", "CODICE", "COD.", "CODE", "ARTICOLO")),
     ("revisione", ("REVISIONE", "REVISION", "REV.", "REV", "EDIZIONE")),
     ("titolo", ("DENOMINAZIONE", "DESCRIZIONE", "TITOLO", "DESCRIPTION", "TITLE")),
     ("scala", ("SCALA", "SCALE")),
     ("materiale", ("MATERIALE", "MATERIAL")),
+    ("particolare_simile", ("PARTICOLARE SIMILE", "PART. SIMILE", "PART SIMILE", "PART.SIMILE", "SIMILAR PART")),
 )
-_ETICHETTE = sorted(((tuple(e.split()), campo) for campo, voci in ETICHETTE_CARTIGLIO for e in voci),
-                    key=lambda x: -len(x[0]))
-_SEPARATORI_VALORE = {":", "-", "=", "#", "–"}
+# Le scritte che sono un'etichetta soltanto come gemelle, dopo la barra, di un'etichetta della stessa voce (fase
+# 4.6r): «NAME» e' il titolo in «DENOMINAZIONE / NAME», ma da sola, accanto a «DRAWN», «CHECKED», «DATE», e' il nome
+# di chi ha disegnato o controllato il disegno, e faceva un titolo con il nome di una persona.
+SOLO_GEMELLE = (
+    ("titolo", ("NAME",)),
+)
+# i segni fra un'etichetta e il suo valore; la barra dalla sottoversione 2, perche' una barra da sola non e' un valore
+# («CODICE / DESCRIPTION»: la gemella di un'altra voce non si unisce, e il codice non vale «/»)
+_SEPARATORI_VALORE = {":", "-", "=", "#", "–", "/"}
 
 
 def _norm_etichetta(parola: str) -> str:
-    return parola.upper().rstrip(":")
+    """Una parola (o un pezzo di parola) come si confronta con le etichette: in maiuscolo, senza i due punti
+    finali, con il segno del numero in una forma sola («Nº», «N˚» -> «N°»)."""
+    return parola.upper().rstrip(":").replace("º", "°").replace("˚", "°")
+
+
+def _pezzi(testo: str) -> list[str]:
+    """Una parola divisa alla barra, con la barra come pezzo a se' («DENOMINAZIONE/NAME» -> DENOMINAZIONE, /, NAME;
+    «P/N» -> P, /, N), normalizzata. Le etichette si confrontano pezzo per pezzo: cosi' la gemella attaccata alla
+    barra e quella staccata sono la stessa cosa."""
+    out: list[str] = []
+    for k, p in enumerate(testo.split("/")):
+        if k:
+            out.append("/")
+        p = _norm_etichetta(p)
+        if p:
+            out.append(p)
+    return out
+
+
+def _in_pezzi(voci) -> list[tuple[tuple[str, ...], str]]:
+    """Le etichette in pezzi, le piu' lunghe prima."""
+    return sorted(((tuple(x for w in e.split() for x in _pezzi(w)), campo) for campo, scritte in voci for e in scritte),
+                  key=lambda x: -len(x[0]))
+
+
+# le etichette in pezzi; dopo la barra valgono anche le gemelle sole
+_ETICHETTE = _in_pezzi(ETICHETTE_CARTIGLIO)
+_GEMELLE = _in_pezzi(ETICHETTE_CARTIGLIO + SOLO_GEMELLE)
+
+
+# quante parole si guardano da un inizio per trovarci un'etichetta con le sue gemelle: le etichette piu' lunghe ne
+# hanno due, con le gemelle cinque o sei; cosi' una riga lunga (una nota) non costa il quadrato delle sue parole
+_PAROLE_ETICHETTA_MAX = 12
+
+
+def _flusso(parole: list[Parola], i: int) -> list[tuple[str, int, bool]]:
+    """I pezzi delle parole da parole[i] in poi (al piu' _PAROLE_ETICHETTA_MAX), ciascuno con l'indice della sua
+    parola e se chiude la parola."""
+    out = []
+    for w in range(i, min(len(parole), i + _PAROLE_ETICHETTA_MAX)):
+        pz = _pezzi(parole[w].testo)
+        for k, p in enumerate(pz):
+            out.append((p, w, k == len(pz) - 1))
+    return out
+
+
+def _combacia(flusso: list[tuple[str, int, bool]], da: int, campo: str | None = None) -> tuple[str, int] | None:
+    """(voce, quanti pezzi) dell'etichetta piu' lunga che comincia al pezzo `da` del flusso; con `campo`, la gemella
+    di quella voce (anche fra SOLO_GEMELLE). L'etichetta finisce alla fine di una parola o prima di una barra:
+    «CODICE» non e' l'inizio di «CODICEX»."""
+    for toks, c in (_ETICHETTE if campo is None else _GEMELLE):
+        n = len(toks)
+        if campo is not None and c != campo:
+            continue
+        if da + n > len(flusso) or any(flusso[da + k][0] != toks[k] for k in range(n)):
+            continue
+        if flusso[da + n - 1][2] or (da + n < len(flusso) and flusso[da + n][0] == "/"):
+            return c, n
+    return None
 
 
 def etichetta_a(parole: list[Parola], i: int) -> tuple[str, int] | None:
-    """(voce, quante parole) se da parole[i] comincia un'etichetta del cartiglio."""
-    for toks, campo in _ETICHETTE:
-        n = len(toks)
-        if i + n <= len(parole) and all(_norm_etichetta(parole[i + k].testo) == toks[k] for k in range(n)):
-            return campo, n
-    return None
+    """(voce, quante parole) se da parole[i] comincia un'etichetta del cartiglio. Una gemella della stessa voce dopo
+    la barra fa parte dell'etichetta («DENOMINAZIONE / NAME», «DENOMINAZIONE/NAME»: una etichetta, il valore dopo);
+    un'etichetta attaccata alla barra con dopo una parola che non e' un'etichetta si prende con tutta la parola
+    («DENOMINAZIONE/BEZEICHNUNG»)."""
+    flusso = _flusso(parole, i)
+    trovata = _combacia(flusso, 0)
+    if trovata is None:
+        return None
+    campo, k = trovata
+    while k < len(flusso) and flusso[k][0] == "/":
+        j = k
+        while j < len(flusso) and flusso[j][0] == "/":
+            j += 1
+        gemella = _combacia(flusso, j, campo) if j < len(flusso) else None
+        if gemella is None:
+            break
+        k = j + gemella[1]
+    # l'etichetta che finisce dentro una parola, prima di una barra senza gemella («DENOMINAZIONE/BEZEICHNUNG»):
+    # la parola intera e' l'etichetta
+    while not flusso[k - 1][2]:
+        k += 1
+    return campo, flusso[k - 1][1] - i + 1
+
+
+# Il segnaposto del modello nel campo del particolare simile, quando il campo e' vuoto: «Inserire codice particolare
+# simile» (anche «Inserire il codice del part. simile», «Insert the code of the similar part»). Non e' un valore, e
+# le parole che contiene non sono etichette: prese per tali, «codice» faceva un campo del codice con la parola dopo,
+# e nel cartiglio a tabella dei disegni veri (la cella del segnaposto, accanto quella di «PART. N°») la parola dopo
+# «particolare simile» e' il codice del file stesso. Fra «Inserire»/«Insert» e l'etichetta ci sono solo le parole
+# della frase del modello (le stesse della regola del server, classificazione.paroleSegnaposto), almeno una.
+_SEGNAPOSTO_INIZIO = {"INSERIRE", "INSERT"}
+_PAROLE_SEGNAPOSTO = {"QUI", "HERE", "IL", "LO", "LA", "THE", "DI", "DEL", "DELLO", "DELLA", "OF", "CODICE", "COD",
+                      "COD.", "CODE", "NUMERO", "NUMBER", "NUM", "NUM.", "NR", "NR.", "NO", "NO.", "N", "N.", "N°"}
+
+
+def segnaposto_a(parole: list[Parola], i: int) -> int:
+    """Quante parole fa il segnaposto del particolare simile che comincia in parole[i]; 0 se li' non comincia."""
+    if _norm_etichetta(parole[i].testo) not in _SEGNAPOSTO_INIZIO:
+        return 0
+    j = i + 1
+    while j < len(parole) and j - i <= 8 and _norm_etichetta(parole[j].testo) in _PAROLE_SEGNAPOSTO:
+        j += 1
+    if j == i + 1 or j >= len(parole):
+        return 0
+    e = etichetta_a(parole, j)
+    if e is None or e[0] != "particolare_simile":
+        return 0
+    return j + e[1] - i
+
+
+# L'intestazione di una tabella dentro la pagina (l'elenco particolari di un disegno d'assieme, sopra il cartiglio
+# e spesso dentro la zona in basso a destra): una riga vista con il nome della colonna della posizione e quello
+# della quantita' («Pos. Part Number Descrizione Q.ty», «INDICE/INDEX CODICE/CODE Q.tà/Q.ty DENOMINAZIONE/
+# DESCRIPTION», «Item Q.ty Denominazione-Name N. dis-P/N»). Le sue parole sono nomi di colonne, non etichette di
+# campi: prima «Part Number» era il campo del codice, e il suo valore «nella riga sotto» era la prima riga
+# dell'elenco, cioe' un figlio (scenario del 28/09). Le righe dell'elenco non si leggono qui (fase 4.12).
+_COLONNA_POSIZIONE = {"POS", "POS.", "POSIZIONE", "POSITION", "ITEM", "INDICE", "INDEX"}
+_COLONNA_QUANTITA = {"Q.TY", "QTY", "QTY.", "Q.TA", "Q.TÀ", "Q.TA'", "QTA", "QTÀ", "QUANTITA", "QUANTITÀ",
+                     "QUANTITA'", "QUANTITY"}
+# I nomi brevi della colonna della posizione (fase 4.6r: «N. CODICE DESCRIZIONE QTA», «RIF. PART NUMBER DESCRIPTION
+# QTY»; «ITEM NO.» ha gia' «ITEM»). Contano solo come parole a se', fuori da un'etichetta del cartiglio: in «N.
+# DISEGNO», «NR. DISEGNO» e «PART N.» sono pezzi dell'etichetta, e una riga del cartiglio con la quantita' accanto
+# non diventa un'intestazione (perderebbe il suo campo).
+_COLONNA_POSIZIONE_BREVE = {"N.", "N°", "NR", "NR.", "RIF", "RIF."}
+
+
+def _parole_fuori_etichette(riga: list[Parola]) -> list[int]:
+    """Gli indici delle parole della riga che non fanno parte di un'etichetta del cartiglio."""
+    fuori: list[int] = []
+    i = 0
+    while i < len(riga):
+        e = etichetta_a(riga, i)
+        if e:
+            i += e[1]
+            continue
+        fuori.append(i)
+        i += 1
+    return fuori
+
+
+def intestazione_tabella(riga: list[Parola]) -> bool:
+    """La riga vista e' l'intestazione di una tabella: ha la colonna della posizione e quella della quantita'. Un nome
+    breve della posizione («N.», «RIF.») conta solo fuori dalle etichette del cartiglio."""
+    pezzi = {p for w in riga for p in _pezzi(w.testo)}
+    if not pezzi & _COLONNA_QUANTITA:
+        return False
+    if pezzi & _COLONNA_POSIZIONE:
+        return True
+    return any(_norm_etichetta(riga[i].testo) in _COLONNA_POSIZIONE_BREVE for i in _parole_fuori_etichette(riga))
 
 
 def righe_viste(parole: list[Parola]) -> list[list[Parola]]:
@@ -315,13 +485,20 @@ def righe_viste(parole: list[Parola]) -> list[list[Parola]]:
 def _valore_da(parole: list[Parola], da: int, altezza: float, dopo_x1: float | None = None) -> list[Parola]:
     """Le parole di una riga da `da` in poi che fanno il valore: fino alla prossima etichetta o a un salto
     piu' largo di quattro altezze (un'altra cella del cartiglio), contato anche dalla fine dell'etichetta
-    (`dopo_x1`) quando il valore e' sulla sua stessa riga. I separatori in testa («:», «-») si tolgono."""
+    (`dopo_x1`) quando il valore e' sulla sua stessa riga. I separatori in testa («:», «-», «/») si tolgono. Il
+    segnaposto del particolare simile e' una cella intera: se il valore comincia con lui e' lui, e basta; dopo
+    altre parole chiude il valore."""
     out: list[Parola] = []
     ultimo = dopo_x1
     for i in range(da, len(parole)):
+        p = parole[i]
+        s = segnaposto_a(parole, i)
+        if s:
+            if not out and (ultimo is None or p.x0 - ultimo <= 4 * altezza):
+                out = parole[i:i + s]
+            break
         if etichetta_a(parole, i):
             break
-        p = parole[i]
         if ultimo is not None and p.x0 - ultimo > 4 * altezza:
             break
         ultimo = p.x1
@@ -331,12 +508,20 @@ def _valore_da(parole: list[Parola], da: int, altezza: float, dopo_x1: float | N
 
 
 def campi_cartiglio(parole: list[Parola], zona, fonte: str) -> list[dict]:
-    """I campi etichetta -> valore della pagina 1, con il riquadro del valore e la zona dell'etichetta."""
+    """I campi etichetta -> valore della pagina 1, con il riquadro del valore e la zona dell'etichetta. Le righe
+    che sono l'intestazione di una tabella non hanno etichette; il segnaposto del particolare simile non ha
+    etichette e non e' il valore del campo (un campo senza valore non si riporta)."""
     righe = righe_viste(parole)
     out: list[dict] = []
     for r_i, riga in enumerate(righe):
+        if intestazione_tabella(riga):
+            continue
         i = 0
         while i < len(riga):
+            s = segnaposto_a(riga, i)
+            if s:
+                i += s
+                continue
             trovata = etichetta_a(riga, i)
             if not trovata:
                 i += 1
@@ -346,11 +531,12 @@ def campi_cartiglio(parole: list[Parola], zona, fonte: str) -> list[dict]:
             h = max(p.y1 - p.y0 for p in et)
             valore = _valore_da(riga, i + n, h, et[-1].x1)
             if not valore:
-                # la riga subito sotto, nella colonna dell'etichetta
+                # la riga subito sotto, nella colonna dell'etichetta; l'intestazione di una tabella sotto dice che
+                # li' comincia la tabella, non il valore
                 x0, x1, y1 = et[0].x0 - 2 * h, et[-1].x1 + 2 * h, max(p.y1 for p in et)
                 for sotto in righe[r_i + 1:]:
                     dy = min(p.y0 for p in sotto) - y1
-                    if dy > 2.5 * h:
+                    if dy > 2.5 * h or intestazione_tabella(sotto):
                         break
                     if dy < -0.3 * h:
                         continue
@@ -358,6 +544,8 @@ def campi_cartiglio(parole: list[Parola], zona, fonte: str) -> list[dict]:
                     if inizio is not None:
                         valore = _valore_da(sotto, inizio, h)
                         break
+            if valore and segnaposto_a(valore, 0):
+                valore = []  # il segnaposto del modello: il campo e' vuoto
             testo = " ".join(p.testo for p in valore).strip()[:TESTO_PDF_VALORE_MAX]
             if testo:
                 out.append({"etichetta": campo, "letta": " ".join(p.testo for p in et), "valore": testo,

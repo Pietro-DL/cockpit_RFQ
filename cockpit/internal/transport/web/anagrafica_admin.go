@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -61,6 +62,7 @@ func regoleDalForm(r *http.Request) regole.Regole {
 		LinguaRisposta:         strings.ToLower(strings.TrimSpace(r.FormValue("lingua_risposta"))),
 		RichiedeCBD:            r.FormValue("richiede_cbd") == "1",
 		NumeroOrdineAnticipato: r.FormValue("numero_ordine_anticipato") == "1",
+		OrdineDaVerificare:     r.FormValue("ordine_da_verificare") == "1",
 	}
 	if n, e := strconv.Atoi(strings.TrimSpace(r.FormValue("finestra_aggancio_gg"))); e == nil {
 		reg.FinestraAggancioGG = n
@@ -88,6 +90,33 @@ func regoleDalForm(r *http.Request) regole.Regole {
 			Regex: rex, Descrizione: strings.TrimSpace(r.FormValue("rif_descrizione")),
 			Esempio: strings.TrimSpace(r.FormValue("rif_esempio")),
 		}
+	}
+	// Smistamento 4.13b: il numero d'ordine nella forma del cliente, come il riferimento
+	if rex := strings.TrimSpace(r.FormValue("ord_regex")); rex != "" {
+		reg.NumeroOrdine = &regole.Riferimento{
+			Regex: rex, Descrizione: strings.TrimSpace(r.FormValue("ord_descrizione")),
+			Esempio: strings.TrimSpace(r.FormValue("ord_esempio")),
+		}
+	}
+	// e i mittenti di sistema, come le famiglie: array paralleli, e una riga senza mittente è una riga
+	// cancellata. L'evento è una tendina, che il browser manda sempre: niente caselle di spunta, niente
+	// righe che si scambiano i valori.
+	mitt, eventi, mdesc, mesempi := r.Form["mit_mittente"], r.Form["mit_evento"], r.Form["mit_descrizione"], r.Form["mit_esempio"]
+	for i := range mitt {
+		if strings.TrimSpace(mitt[i]) == "" {
+			continue
+		}
+		x := regole.MittenteSistema{Mittente: strings.TrimSpace(mitt[i])}
+		if i < len(eventi) {
+			x.Evento = strings.TrimSpace(eventi[i])
+		}
+		if i < len(mdesc) {
+			x.Descrizione = strings.TrimSpace(mdesc[i])
+		}
+		if i < len(mesempi) {
+			x.Esempio = strings.TrimSpace(mesempi[i])
+		}
+		reg.MittentiSistema = append(reg.MittentiSistema, x)
 	}
 	// Le famiglie arrivano come array paralleli. Una riga con la regex vuota è una riga cancellata:
 	// è così che si toglie una famiglia, senza un bottone «elimina» per ognuna.
@@ -132,7 +161,11 @@ func (s *Server) scriviRegole(w http.ResponseWriter, r *http.Request, id uuid.UU
 		http.Error(w, "cliente non trovato", 404)
 		return
 	}
-	if _, err := regole.ValidaRegole(raw); err != nil {
+	reg, err := regole.ValidaRegole(raw)
+	if err == nil {
+		err = mittentiSulCliente(ctx, q, id, reg)
+	}
+	if err != nil {
 		// il testo rifiutato torna nel riquadro: riscriverlo da capo dopo un errore è il modo più
 		// sicuro per farne un secondo
 		s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &c, Sez: sez, RegoleJSON: string(raw), Errore: err.Error()})
@@ -145,6 +178,35 @@ func (s *Server) scriviRegole(w http.ResponseWriter, r *http.Request, id uuid.UU
 	}
 	s.rendiAnagrafica(w, r, anagraficaDati{Scelto: &nuovo, Sez: sez,
 		Fatto: "Regole salvate. Valgono dal prossimo lotto di posta."})
+}
+
+// mittentiSulCliente è la parte della convalida delle regole che vuole il database (4.13b, ritocco): legge
+// chi scrive per il cliente, i suoi domini e i suoi contatti, e ci controlla i mittenti di sistema
+// (regole.MittentiSulCliente). Un host da cui scrivono anche i buyer farebbe della loro posta, richieste
+// comprese, un avviso ignorato. Vale per il form e per il riquadro JSON, dopo regole.ValidaRegole.
+func mittentiSulCliente(ctx context.Context, q *db.Queries, cliente uuid.UUID, r regole.Regole) error {
+	if len(r.MittentiSistema) == 0 {
+		return nil
+	}
+	domini, err := q.ListDominiCliente(ctx, cliente)
+	if err != nil {
+		return fmt.Errorf("i domini del cliente: %w", err)
+	}
+	persone, err := q.ListBuyerCliente(ctx, cliente)
+	if err != nil {
+		return fmt.Errorf("i contatti del cliente: %w", err)
+	}
+	var chi regole.ChiScriveDalCliente
+	for _, d := range domini {
+		chi.Domini = append(chi.Domini, d.Dominio)
+	}
+	for _, b := range persone {
+		if b.Email.Valid {
+			chi.Contatti = append(chi.Contatti, regole.Contatto{
+				Nome: strings.TrimSpace(b.Cognome + " " + b.Nome.String), Indirizzo: b.Email.String})
+		}
+	}
+	return regole.MittentiSulCliente(r, chi)
 }
 
 // ---------------------------------------------------------------- persone (buyer)
@@ -325,3 +387,19 @@ func (d anagraficaDati) TipiDocumento() []db.TipoDocumento {
 }
 
 func (d anagraficaDati) FontiAttesa() []db.FonteFabbisogno { return db.AllFonteFabbisognoValues() }
+
+// EventiMittente alimenta la tendina dei mittenti di sistema (4.13b): gli eventi che lo schema ammette,
+// dallo schema stesso, così la tendina non offre mai un valore che il salvataggio rifiuterebbe.
+func (d anagraficaDati) EventiMittente() []string { return regole.EventiMittenteSistema }
+
+// EventiPer è la tendina di una riga già scritta: gli eventi ammessi, più quello della riga se non lo è (una
+// regola scritta a mano nel JSON). Senza, la tendina mostrerebbe il primo valore, e salvare il form senza
+// toccarla cambierebbe l'evento in silenzio: così lo tiene, e la convalida lo rifiuta con il suo motivo.
+func (d anagraficaDati) EventiPer(evento string) []string {
+	for _, e := range regole.EventiMittenteSistema {
+		if e == evento {
+			return regole.EventiMittenteSistema
+		}
+	}
+	return append(append([]string{}, regole.EventiMittenteSistema...), evento)
+}

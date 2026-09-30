@@ -190,6 +190,32 @@ window.CockpitPagina = {
           <label class="campo">Esempio <input name="rif_esempio" class="mono-in" value="{{with $r.RiferimentoRFQ}}{{.Esempio}}{{end}}"></label>
           <label class="campo largo">Regola <input name="rif_regex" class="regex-in" value="{{with $r.RiferimentoRFQ}}{{.Regex}}{{end}}" placeholder="\bRDO\s*\d{9}\b" spellcheck="false"></label>
         </div></div>
+      <div class="carta"><h3>Numero d'ordine</h3>
+        <p class="sotto">La forma del numero d'ordine di questo cliente («ODA_0001234»). Un numero così non è un codice prodotto e non si propone; nella mail è una parola d'ordine, e la mail è un ordine. Vale solo per questo cliente: per un altro la stessa forma può essere un codice vero.</p>
+        <div class="campi">
+          <label class="campo">Descrizione <input name="ord_descrizione" value="{{with $r.NumeroOrdine}}{{.Descrizione}}{{end}}"></label>
+          <label class="campo">Esempio <input name="ord_esempio" value="{{with $r.NumeroOrdine}}{{.Esempio}}{{end}}" class="mono-in"></label>
+          <label class="campo largo">Regola <input name="ord_regex" class="regex-in" value="{{with $r.NumeroOrdine}}{{.Regex}}{{end}}" placeholder="\bODA_\d{7}\b" spellcheck="false"></label>
+        </div></div>
+      <div class="carta"><h3>Mittenti di sistema</h3>
+        <p class="sotto">Gli indirizzi, o gli host, da cui questo cliente manda posta che nessuna persona ha scritto: avvisi di un gestionale, ordini generati da un sistema. La loro posta ha l'evento scritto qui prima di leggerne le parole, non propone una RFQ nuova e non propone i suoi codici come prodotti.</p>
+        <p class="nota">Un host vale per la posta che viene proprio da lì («server.cliente.example»), non per tutto il dominio: un dominio intero, un dominio principale del cliente o quello di un suo contatto non si accettano, perché anche le richieste dei buyer diventerebbero avvisi. L'esempio è un indirizzo vero da cui arriva quella posta. Svuotare il mittente di una riga la cancella; il banco di prova qui accanto ha il campo «Mittente» per provarla.</p>
+        <div class="mittenti">
+          {{range $r.MittentiSistema}}{{$ev := .Evento}}
+          <div class="campi mittente-riga">
+            <label class="campo">Mittente (indirizzo o host) <input name="mit_mittente" value="{{.Mittente}}" class="mono-in"></label>
+            <label class="campo">Evento <select name="mit_evento">{{range $d.EventiPer $ev}}<option value="{{.}}" {{if eq . $ev}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+            <label class="campo">Descrizione <input name="mit_descrizione" value="{{.Descrizione}}"></label>
+            <label class="campo">Esempio <input name="mit_esempio" value="{{.Esempio}}" class="mono-in"></label>
+          </div>
+          {{end}}
+          <div class="campi mittente-riga nuova">
+            <label class="campo">Nuovo mittente <input name="mit_mittente" class="mono-in" placeholder="avvisi@cliente.example"></label>
+            <label class="campo">Evento <select name="mit_evento">{{range $d.EventiMittente}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+            <label class="campo">Descrizione <input name="mit_descrizione" placeholder="avvisi del gestionale documentale"></label>
+            <label class="campo">Esempio <input name="mit_esempio" class="mono-in" placeholder="avvisi@cliente.example"></label>
+          </div>
+        </div></div>
       <div class="carta"><h3>Come si comporta</h3>
         <div class="campi">
           <label class="campo">Canale atteso <input name="canale_atteso" value="{{$r.CanaleAtteso}}" placeholder="mail con .msg annidato"></label>
@@ -204,7 +230,9 @@ window.CockpitPagina = {
         <div class="fila">
           <label class="interruttore"><input type="checkbox" name="richiede_cbd" value="1" {{if $r.RichiedeCBD}}checked{{end}}> l'offerta vuole il cost breakdown</label>
           <label class="interruttore"><input type="checkbox" name="numero_ordine_anticipato" value="1" {{if $r.NumeroOrdineAnticipato}}checked{{end}}> emette il numero d'ordine prima dell'offerta</label>
-        </div></div>
+          <label class="interruttore"><input type="checkbox" name="ordine_da_verificare" value="1" {{if $r.OrdineDaVerificare}}checked{{end}}> una mail con «ordine» va verificata: può essere una richiesta</label>
+        </div>
+        <p class="nota">Con il numero d'ordine prima dell'offerta, un ordine accanto a una parola di richiesta non fa un ordine: la mail si legge come se l'ordine non ci fosse (una richiesta nuova, un sollecito, una revisione dei disegni), e l'ordine resta fra le evidenze. «SI CTE» (l'oggetto delle mail del portale) vale come richiesta solo accanto all'ordine; «SI RFQ» contiene già «RFQ», che vale come richiesta per tutti i clienti. La seconda casella è la voce più debole: l'ordine resta un ordine, ma probabile, e sceglie l'operatore.</p></div>
       {{template "ana_salva" "Salva le regole"}}
     </form>
     {{if $d.Diagnosi}}<details class="carta"><summary><b>Tutte le regole, una per una</b></summary>
@@ -288,12 +316,14 @@ window.CockpitPagina = {
 <aside class="col prova" aria-label="Banco di prova">
 {{with $d.Scelto}}{{$c := .}}
   <span class="label">Banco di prova · {{$c.CartellaNas}}</span>
-  <form class="carta" id="form-prova" hx-post="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-target="#prova-esito" hx-trigger="submit, input changed delay:700ms, prova delay:700ms"
+  <form class="carta" id="form-prova" method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-post="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-target="#prova-esito" hx-trigger="submit, input changed delay:700ms, prova delay:700ms"
         hx-include="#form-regole" hx-vals='js:{dal_form: document.getElementById("form-regole") ? "1" : ""}'>
     <h3>Prova una mail</h3>
     <p class="sotto">Passa per lo stesso riconoscimento dei messaggi veri{{if eq $d.Sez "riconoscimento"}}, con le regole come sono scritte adesso, anche prima di salvarle{{end}}. Prima riga = oggetto, il resto = corpo.</p>
     <textarea name="testo" rows="9" spellcheck="false" placeholder="RICHIESTA D'OFFERTA …">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
     <label class="campo">Nomi degli allegati, separati da spazio <input name="allegati" class="mono-in" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
+    <label class="campo">Mittente (facoltativo, per provare un mittente di sistema) <input name="mittente" value="{{if $d.Prova}}{{$d.Prova.Mittente}}{{end}}" class="mono-in" placeholder="avvisi@cliente.example"></label>
+    <p class="nota" id="nota-mittente" {{if not (and $d.Prova $d.Prova.Mittente)}}hidden{{end}}>Con un mittente la prova parte da «Prova» e usa le regole salvate: salva prima quelle appena scritte.</p>
     <button class="btn piccolo" style="justify-self:start">Prova</button>
   </form>
   <div id="prova-esito">{{with $d.Prova}}{{template "ana_prova_esito_corpo" .}}{{end}}</div>
@@ -314,7 +344,7 @@ window.CockpitPagina = {
 {{define "ana_prova_esito_corpo"}}{{$t := .Esito.Triage}}
 <div class="carta {{if eq $t.Esito "nuova_rfq"}}tono-ok{{else if eq $t.Esito "aggancia"}}tono-acc{{end}}">
   <span class="label">L'Inbox proporrebbe{{if .DalForm}} · con le regole scritte adesso{{end}}</span>
-  <h3>{{if eq $t.Esito "nuova_rfq"}}Una richiesta nuova di {{.Cliente}}{{else if eq $t.Esito "aggancia"}}Di agganciare a una RFQ aperta{{else if eq $t.Esito "ignora"}}Di ignorarla{{else}}{{$t.Esito}}{{end}} <small class="k mono" title="l'esito del triage">{{$t.Esito}}</small></h3>
+  <h3>{{if eq $t.Esito "nuova_rfq"}}Una richiesta nuova di {{.Cliente}}{{else if eq $t.Esito "aggancia"}}Di agganciare a una RFQ aperta{{else if eq $t.Esito "ignora"}}Di ignorarla{{else}}{{$t.Esito}}{{end}} <small class="k mono" title="l'esito proposto dal triage"><strong>{{$t.Esito}}</strong></small></h3>
   <dl class="dl">
     <dt>Riferimento</dt><dd>{{if $t.Riferimento}}<span class="mono">{{$t.Riferimento}}</span> <small class="k">{{$t.RiferimentoNome}}: non è un codice prodotto</small>{{else}}<span class="k">nessuno</span>{{end}}</dd>
     <dt>Codici</dt><dd class="chips">{{range $t.Estrazione.Proponibili}}<span class="chip acc mono" title="famiglia «{{.Famiglia}}» · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span>{{else}}<span class="k">nessuno: aggiungi una famiglia</span>{{end}}</dd>

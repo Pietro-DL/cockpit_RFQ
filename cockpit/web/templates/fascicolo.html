@@ -569,7 +569,7 @@
   </aside>
   <nav class="docv-film" id="doc-film" aria-label="{{if .Righe}}Componenti del prodotto{{else}}File{{end}}">
   {{range .Film}}
-    <a class="docv-tile {{.Stato}}{{if eq .Chiave $v.Scelto}} sel{{end}}" data-k="{{.Chiave}}"{{if .HaAnteprima}} data-anteprima="{{.Anteprima}}"{{end}} title="{{.Titolo}}"
+    <a class="docv-tile {{.Stato}}{{if eq .Chiave $v.Scelto}} sel{{end}}" data-k="{{.Chiave}}"{{if .HaAnteprima}} data-anteprima="{{.Anteprima}}"{{with .Impronta}} data-v="{{.}}"{{end}}{{end}} title="{{.Titolo}}"
        href="{{if hasPrefix .Chiave "c:"}}{{$.Base}}{{$.Stato.Con "nodo" (slice .Chiave 2) "gruppo" $v.Gruppo.Chiave "file" ""}}{{else}}{{$.Base}}{{$.Stato.Con "file" (slice .Chiave 2) "gruppo" $v.Gruppo.Chiave "nodo" ""}}{{end}}">
       <span class="docv-mini" aria-hidden="true">{{if not .HaAnteprima}}<span class="docv-mini-testo">{{if eq .Stato "formato"}}2D senza anteprima{{else}}Disegno non presente{{end}}</span>{{end}}</span>
       <span class="docv-tile-cod mono">{{.Codice}}</span>
@@ -1021,7 +1021,7 @@
 {{with .Anteprima}}{{$f := .F}}
 {{if $f.Pdf}}
   {{if or (and $f.A.PathStaging.Valid (not $f.FileMancante)) (and $f.Doc (eq (print $f.Doc.StatoNas) "scritto"))}}
-  <iframe class="ant-pdf" id="anteprima-pdf" src="/allegato/{{$f.A.AllegatoID}}/anteprima" title="Anteprima di {{$f.A.NomeFile}}"></iframe>
+  <iframe class="ant-pdf" id="anteprima-pdf" src="{{indirizzoAnteprima $f.A.AllegatoID $f.A.Sha256}}" title="Anteprima di {{$f.A.NomeFile}}"></iframe>
   {{else}}<p class="k">Il PDF non è nello staging: si riscarica.</p>{{end}}
 {{else if $f.Modello}}
   {{with .Analisi}}
@@ -1259,7 +1259,6 @@
   {{with $e.ConLei}}<p class="avviso-riga warn">Si sospendono con lei le deleghe di {{join . ", "}}.</p>{{end}}
   {{with $e.SvuotaStep}}<p class="avviso-riga warn">{{.}} non è più il suo STEP strutturale: il riferimento si svuota, e torna solo con «Riattiva» e il ritorno a prodotto finito.</p>{{end}}
   {{if $e.Rimozioni}}<p class="k">{{$e.Rimozioni}} {{sel (eq $e.Rimozioni 1) "rimozione proposta si chiude" "rimozioni proposte si chiudono"}}, con la nota della sospensione.</p>{{end}}
-  {{with $e.FigliRestano}}<p class="k">I figli già nella BOM restano: {{join . ", "}} (li ha decisi una persona).</p>{{end}}
   {{range $e.RestaSospesa}}<p class="avviso-riga info">Resta sospesa {{.}}: non si riattiva da sola; dalla scheda si sceglie «Riattiva» oppure «Revoca».</p>{{end}}
   {{if $e.Autorizzabile}}<p class="k">Il suo STEP si potrà autorizzare dalla scheda: niente si autorizza da solo.</p>{{end}}
   {{with $e.StepStrutturale}}<p class="k">{{.}} diventa anche il suo STEP strutturale.</p>{{end}}
