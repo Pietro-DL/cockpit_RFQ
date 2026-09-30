@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}"{{if eq .Dati.Tab "clienti"}}{{with .Dati.Scelto}} data-indirizzo="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$.Dati.Sez}}"{{end}}{{end}}>{{template "anagrafica_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
+<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}"{{if eq .Dati.Tab "clienti"}}{{with .Dati.Scelto}} data-indirizzo="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{if eq $.Dati.Sez "prova"}}riconoscimento{{else}}{{$.Dati.Sez}}{{end}}"{{end}}{{end}}>{{template "anagrafica_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 <script>
 window.CockpitPagina = {
   chiave: "anagrafica",
@@ -25,6 +25,9 @@ window.CockpitPagina = {
 
 {{define "anagrafica_corpo"}}
 {{$d := .Dati}}
+{{/* La prova a pagina intera (POST …/prova, quella con il mittente) torna con la sezione «prova», che nella
+     scheda nuova non c'è: si resta su Riconoscimento, dove stanno le regole che la prova usa. */}}
+{{$sez := $d.Sez}}{{if eq $sez "prova"}}{{$sez = "riconoscimento"}}{{end}}
 {{template "ana_testa" (arr $d.Tab (sel (gt $d.DaCompletare 0) (printf "%d clienti attivi con la scheda da completare" $d.DaCompletare) "") false)}}
 {{if $d.Errore}}<div class="avviso-box bad ana-esito" role="alert"><b>Non salvato.</b> {{$d.Errore}}</div>{{end}}
 {{if $d.Fatto}}<div class="avviso-box ok ana-esito" role="status">{{$d.Fatto}}</div>{{end}}
@@ -56,7 +59,7 @@ window.CockpitPagina = {
   </div>
   <div class="ae-voci" id="ae-voci">
     {{range $d.RigheClienti}}{{$cc := .Completezza}}
-    <a href="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$d.Sez}}" class="ae-voce {{if not .Attivo}}spento{{end}}" {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}aria-current="page"{{end}}
+    <a href="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$sez}}" class="ae-voce {{if not .Attivo}}spento{{end}}" {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}aria-current="page"{{end}}
        data-nome="{{.RagioneSociale}} {{.CartellaNas}}" data-peso="{{.Peso}}" data-rfq="{{.NRichieste}}" data-incompleto="{{and .Attivo (not .Completa)}}" data-spento="{{not .Attivo}}">
       <b>{{.RagioneSociale}}</b>
       <small><span class="mono">{{.CartellaNas}}</span> · {{.NDomini}} domini · {{.NBuyer}} persone · {{.NRichieste}} RFQ{{if not .Attivo}} · non attivo{{end}}</small>
@@ -91,12 +94,12 @@ window.CockpitPagina = {
     {{if not $c.Attivo}}<span class="chip warn">non attivo</span>{{end}}</div>
   <nav class="passi-a" aria-label="Sezioni">
     {{range $d.Sezioni}}{{if ne .Chiave "prova"}}
-    <a class="passo-a" href="/admin/anagrafica?cliente={{$c.ClienteID}}&amp;sez={{.Chiave}}" {{if eq $d.Sez .Chiave}}aria-current="page"{{end}}><b>{{.Nome}}</b>
+    <a class="passo-a" href="/admin/anagrafica?cliente={{$c.ClienteID}}&amp;sez={{.Chiave}}" {{if eq $sez .Chiave}}aria-current="page"{{end}}><b>{{.Nome}}</b>
       <small>{{if eq .Chiave "generale"}}peso {{$c.Peso}}{{if $c.Lingua.Valid}} · {{$c.Lingua.String}}{{end}}{{else if eq .Chiave "contatti"}}{{len $d.Domini}} domini · {{len $d.Buyer}} persone{{else if eq .Chiave "riconoscimento"}}{{len $r.FamiglieCodice}} famigli{{if eq (len $r.FamiglieCodice) 1}}a{{else}}e{{end}}{{else if eq .Chiave "fabbisogno"}}{{if $d.Propri}}suo, in parte{{else}}predefinito{{end}}{{else}}convenzioni e qualifiche{{end}}</small></a>
     {{end}}{{end}}
   </nav>
   <div class="contenuto">
-  {{if eq $d.Sez "generale"}}
+  {{if eq $sez "generale"}}
     <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}" class="form-scheda" id="form-generale">
       <input type="hidden" name="sez" value="generale">
       <div class="riga-campo"><label for="g-rs">Ragione sociale<small>come compare in fattura</small></label><input id="g-rs" name="ragione_sociale" value="{{$c.RagioneSociale}}"></div>
@@ -113,7 +116,7 @@ window.CockpitPagina = {
     </form>
   {{end}}
 
-  {{if eq $d.Sez "contatti"}}
+  {{if eq $sez "contatti"}}
     <div class="carta"><h3>Domini</h3>
       <p class="sotto">Il dominio del mittente è il modo in cui la posta viene attribuita a questo cliente. Appartiene a un cliente solo: se è già di un altro, il Cockpit lo dice invece di spostarlo.</p>
       <div class="lista-chip">
@@ -144,7 +147,7 @@ window.CockpitPagina = {
     </div>
   {{end}}
 
-  {{if eq $d.Sez "riconoscimento"}}
+  {{if eq $sez "riconoscimento"}}
     {{/* Il form, non il JSON. «Rev nel codice» porta il numero della riga: il browser manda solo le caselle
          spuntate, e letta per posizione la spunta di una famiglia finiva su un'altra. Le spunte degli esempi le
          mette anagrafica.js con la regola scritta adesso; il banco di prova qui accanto usa le stesse regole. */}}
@@ -243,7 +246,7 @@ window.CockpitPagina = {
         <button class="btn piccolo">Salva il JSON</button></form></details>
   {{end}}
 
-  {{if eq $d.Sez "fabbisogno"}}
+  {{if eq $sez "fabbisogno"}}
     <div class="carta"><h3>Che cosa deve esserci</h3>
       <p class="sotto">Per tipo di pezzo, che cosa serve perché la fattibilità possa partire. Tratteggiato: predefinito, uguale per tutti i clienti. Una riga «sua» vale solo per questo cliente.</p>
       <div class="matrice-wrap"><table class="matrice"><thead><tr><th>Pezzo</th>{{range $d.DocFabbisogno}}<th>{{.Nome}}</th>{{end}}<th></th></tr></thead><tbody>
@@ -267,7 +270,7 @@ window.CockpitPagina = {
     </div>
   {{end}}
 
-  {{if eq $d.Sez "lavorazioni"}}
+  {{if eq $sez "lavorazioni"}}
     <div class="carta"><h3>Convenzioni di codice</h3>
       <p class="sotto">Come questo cliente scrive la lavorazione nel codice del pezzo: un suffisso, o una regola. Ogni convenzione vuole un esempio che le corrisponda e, se c'è, un controesempio che no. Un codice che corrisponde a più convenzioni richiede tutte le loro lavorazioni.</p>
       {{range $i, $cv := $d.Convenzioni}}{{$dg := index $d.DiagnosiConvenzioni $i}}
@@ -319,7 +322,7 @@ window.CockpitPagina = {
   <form class="carta" id="form-prova" method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-post="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-target="#prova-esito" hx-trigger="submit, input changed delay:700ms, prova delay:700ms"
         hx-include="#form-regole" hx-vals='js:{dal_form: document.getElementById("form-regole") ? "1" : ""}'>
     <h3>Prova una mail</h3>
-    <p class="sotto">Passa per lo stesso riconoscimento dei messaggi veri{{if eq $d.Sez "riconoscimento"}}, con le regole come sono scritte adesso, anche prima di salvarle{{end}}. Prima riga = oggetto, il resto = corpo.</p>
+    <p class="sotto">Passa per lo stesso riconoscimento dei messaggi veri{{if eq $sez "riconoscimento"}}, con le regole come sono scritte adesso, anche prima di salvarle{{end}}. Prima riga = oggetto, il resto = corpo.</p>
     <textarea name="testo" rows="9" spellcheck="false" placeholder="RICHIESTA D'OFFERTA …">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
     <label class="campo">Nomi degli allegati, separati da spazio <input name="allegati" class="mono-in" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
     <label class="campo">Mittente (facoltativo, per provare un mittente di sistema) <input name="mittente" value="{{if $d.Prova}}{{$d.Prova.Mittente}}{{end}}" class="mono-in" placeholder="avvisi@cliente.example"></label>
