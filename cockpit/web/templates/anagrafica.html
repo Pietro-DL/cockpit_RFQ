@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}">{{template "anagrafica_corpo" .}}</div>
+<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}"{{if eq .Dati.Tab "clienti"}}{{with .Dati.Scelto}} data-indirizzo="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$.Dati.Sez}}"{{end}}{{end}}>{{template "anagrafica_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 <script>
 window.CockpitPagina = {
   chiave: "anagrafica",
@@ -117,10 +117,10 @@ window.CockpitPagina = {
     <div class="carta"><h3>Domini</h3>
       <p class="sotto">Il dominio del mittente è il modo in cui la posta viene attribuita a questo cliente. Appartiene a un cliente solo: se è già di un altro, il Cockpit lo dice invece di spostarlo.</p>
       <div class="lista-chip">
-        {{range $d.Domini}}<form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina" class="chip vuoto"><span class="mono">{{.Dominio}}</span><input type="hidden" name="dominio" value="{{.Dominio}}"><button title="togli {{.Dominio}}" aria-label="togli {{.Dominio}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>
+        {{range $d.Domini}}<form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina" class="chip vuoto"><span class="mono">{{.Dominio}}</span><input type="hidden" name="sez" value="contatti"><input type="hidden" name="dominio" value="{{.Dominio}}"><button title="togli {{.Dominio}}" aria-label="togli {{.Dominio}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>
         {{else}}<span class="nota">Nessun dominio: la posta di questo cliente non viene riconosciuta dal mittente.</span>{{end}}
       </div>
-      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" class="aggiungi-in"><input name="dominio" placeholder="cliente.com" aria-label="dominio da aggiungere"><button class="btn piccolo">Aggiungi dominio</button></form>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" class="aggiungi-in"><input type="hidden" name="sez" value="contatti"><input name="dominio" placeholder="cliente.com" aria-label="dominio da aggiungere"><button class="btn piccolo">Aggiungi dominio</button></form>
     </div>
     <div class="carta"><h3>Persone</h3>
       <p class="sotto">La maggior parte si censisce da sola dal triage dell'Inbox. Chi ha già scritto non si toglie: non si saprebbe più chi ha mandato quei messaggi.</p>
@@ -267,10 +267,11 @@ window.CockpitPagina = {
     </div>
     <div class="carta"><h3>Fornitori qualificati</h3>
       <p class="sotto">Chi è abilitato a fare quale lavorazione per questo cliente. Non è la capacità del fornitore: un fornitore può fare la zincatura e non essere qualificato qui. Senza qualifiche il cliente non ha nessuno, non «tutti quelli che la fanno».</p>
-      {{range $d.Qualifiche}}
-      <div class="qual-riga"><b>{{.LavorazioneDescrizione}}</b><div class="lista-chip">
-        <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica/elimina" class="chip vuoto"><a href="/admin/fornitori?fornitore={{.FornitoreID}}">{{.Fornitore}}</a><input type="hidden" name="fornitore_id" value="{{.FornitoreID}}"><input type="hidden" name="lavorazione" value="{{.Lavorazione}}"><button aria-label="togli la qualifica"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form></div></div>
-      {{else}}<p class="nota">Nessun fornitore qualificato per questo cliente.</p>{{end}}
+      {{/* una riga per lavorazione, con tutti i suoi fornitori: le qualifiche arrivano ordinate per lavorazione */}}
+      {{$prec := ""}}{{range $i, $q := $d.Qualifiche}}{{if ne $q.Lavorazione $prec}}{{if $i}}</div></div>{{end}}
+      <div class="qual-riga"><b>{{$q.LavorazioneDescrizione}}</b><div class="lista-chip">{{$prec = $q.Lavorazione}}{{end}}
+        <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica/elimina" class="chip vuoto"><a href="/admin/fornitori?fornitore={{$q.FornitoreID}}">{{$q.Fornitore}}</a><input type="hidden" name="fornitore_id" value="{{$q.FornitoreID}}"><input type="hidden" name="lavorazione" value="{{$q.Lavorazione}}"><button aria-label="togli la qualifica di {{$q.Fornitore}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>{{end}}{{if $d.Qualifiche}}</div></div>{{else}}
+      <p class="nota">Nessun fornitore qualificato per questo cliente.</p>{{end}}
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica" class="passaggi-ana">
         <label class="campo">Lavorazione <select name="lavorazione" id="q-lav">{{range $d.Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label>
         <label class="campo">Fornitore <select name="fornitore_id" id="q-forn">{{range $d.Fornitori}}<option value="{{.FornitoreID}}" data-lav="{{$d.CapacitaDi .FornitoreID}}">{{.RagioneSociale}}</option>{{end}}</select></label>

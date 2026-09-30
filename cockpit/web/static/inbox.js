@@ -21,9 +21,24 @@
     const rr = righe(); if (!rr.length) return;
     const i = rr.findIndex(r => r.dataset.id === aperta());
     const j = i < 0 ? 0 : Math.max(0, Math.min(rr.length - 1, i + d));
-    if (rr[j] && (i !== j || i < 0)) { rr[j].click(); rr[j].scrollIntoView({ block: "nearest" }); }
+    if (rr[j] && (i !== j || i < 0)) { apriRiga(rr[j]); rr[j].scrollIntoView({ block: "nearest" }); }
   }
   // dopo una decisione: la mail che era sotto quella decisa (o sopra, se era l'ultima)
+  // Apre la mail di una riga come il clic dell'operatore, ma sempre con htmx: una riga appena ridisegnata puo'
+  // non essere ancora pronta, e il clic seguirebbe il collegamento (la pagina si ricaricava, spariva l'avviso
+  // con «Annulla» e si finiva in un'altra cartella).
+  function apriRiga(r) {
+    if (!r) return;
+    if (window.htmx) htmx.ajax("GET", r.getAttribute("hx-get") || "/messaggio/" + r.dataset.id, { source: r, target: "#pannello" });
+    else r.click();
+  }
+  // l'indirizzo porta la mail aperta (sel=): anche quando la si apre da un collegamento del pannello, cosi'
+  // ricaricando la pagina si ritrova la stessa mail
+  function indirizzoAperta() {
+    const id = aperta(); if (!id) return;
+    const u = new URL(location.href);
+    if (u.searchParams.get("sel") !== id) { u.searchParams.set("sel", id); history.replaceState(history.state, "", u); }
+  }
   function vicina(id) {
     const rr = righe(), i = rr.findIndex(r => r.dataset.id === id);
     if (i < 0) return "";
@@ -123,7 +138,7 @@
   document.body.addEventListener("htmx:afterSwap", e => {
     const t = e.detail.target;
     if (t && t.id === "pannello") {
-      segnaAperta(); evidenzia(t); riepilogo();
+      segnaAperta(); evidenzia(t); riepilogo(); indirizzoAperta();
       if (dopo && e.detail.xhr && e.detail.xhr.status === 200 && !t.querySelector(".errore-box")) {
         const d = dopo; dopo = null;
         const avviso = t.querySelector(".avviso-pannello")?.textContent.trim() || "Fatto.";
@@ -132,7 +147,7 @@
         } : null);
         if (d.prossima) {
           let fatto = false;
-          const apri = () => { if (fatto) return; fatto = true; const r = document.querySelector(`#lista .riga[data-id="${d.prossima}"]`); if (r) r.click(); };
+          const apri = () => { if (fatto) return; fatto = true; apriRiga(document.querySelector(`#lista .riga[data-id="${d.prossima}"]`)); };
           document.body.addEventListener("inbox-lista-pronta", apri, { once: true });
           setTimeout(apri, 2500);
         }

@@ -101,7 +101,10 @@
   const scorciatoie = () => !!leggi("cockpit.scorciatoie", false);
   function pannelloImpostazioni() {
     const p = P(), on = scorciatoie();
+    // con lo schermo stretto le colonne sono impilate e alcuni bordi non ci sono: le disposizioni valgono sugli schermi larghi
+    const stretto = [...document.querySelectorAll(".maniglia[data-maniglia]")].some(h => getComputedStyle(h).display === "none");
     return `<div class="sez-imp"><b>Pannelli</b><small>Trascina i bordi fra i pannelli per allargarli o stringerli. Doppio clic su un bordo lo rimette com'era.</small>
+        ${stretto ? `<small class="nota-stretto">Con questa larghezza dello schermo alcune colonne stanno una sopra l'altra: le disposizioni qui sotto si vedono per intero su uno schermo più largo, o chiudendo la navigazione (☰).</small>` : ""}
         ${(p.preset || []).length ? `<div class="preset">${p.preset.map((x, i) => `<button type="button" data-preset="${i}"><span class="schema">${x.schema.map(([w, f]) => `<i style="flex:${w}" class="${f ? "forte" : ""}"></i>`).join("")}</span>${esc(x.nome)}<small>${esc(x.sotto)}</small></button>`).join("")}</div>` : ""}
         <button type="button" class="quieto" data-preset="reset">Ripristina le larghezze</button></div>
       <div class="sez-imp"><label class="interruttore"><input type="checkbox" id="imp-tasti" ${on ? "checked" : ""}> Scorciatoie da tastiera</label>
@@ -144,7 +147,14 @@
   }
 
   window.CockpitUI = { toast, applica, prepara, scorciatoie, esc, leggi, scrivi };
-  function avvia() { misuraTestata(); montaIngranaggio(); prepara(document); }
+  // Le schede di Anagrafica salvano con un POST a pagina intera: l'indirizzo resterebbe quello del POST
+  // (F5 rimanda il modulo, il segnalibro non si apre). Si rimette quello della scheda aperta.
+  function indirizzoScheda() {
+    const d = document.querySelector("[data-indirizzo]"); if (!d) return;
+    const u = new URL(d.dataset.indirizzo, location.href);
+    if (u.pathname !== location.pathname || !location.search) history.replaceState(history.state, "", u);
+  }
+  function avvia() { misuraTestata(); montaIngranaggio(); indirizzoScheda(); prepara(document); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", avvia); else avvia();
   document.addEventListener("htmx:afterSettle", e => prepara(e.target));
 })();

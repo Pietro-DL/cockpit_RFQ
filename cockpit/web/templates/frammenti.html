@@ -205,6 +205,10 @@
       <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=fornitore" hx-target="#pannello">È un fornitore</button>
       <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=altro" hx-target="#pannello" title="corriere, banca, newsletter: la sua posta va nel quadrante Altro">Altro</button>
     </div>
+    {{if eq .Riga.TriageEsito.String "ignora"}}
+    <button type="button" class="btn pieno" hx-get="/messaggio/{{$id}}/censisci?come=altro&amp;ignora=1" hx-target="#pannello">Ignora e mettilo fra «Altro»</button>
+    <p class="nota">Newsletter e notifiche: con «Altro» le prossime mail di questo mittente vanno nel quadrante Altro.</p>
+    {{end}}
     <p class="nota">Se sai già dove va, puoi anche decidere subito.</p>
     {{template "decisione_altri" (arr $id "aggancia nuova ignora" $forn .Riga.Ignorato)}}
   {{else if eq $d.Tipo "ignora"}}
@@ -511,7 +515,7 @@
       <div class="testa"><h3>Un'altra RFQ</h3><small>cerca fra le RFQ aperte</small></div>
       <label class="cerca"><svg class="ico" aria-hidden="true"><use href="#i-cerca"/></svg>
         <input type="search" name="q" placeholder="oggetto, cliente, codice, riferimento…"
-               hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms, search" hx-target="#thread-risultati"></label>
+               hx-get="/thread/cerca" hx-trigger="input changed delay:300ms, search" hx-target="#thread-risultati"></label>
       <div id="thread-risultati"></div>
     </fieldset>
     {{/* Scelta 6 dello Smistamento: l'aggancio fa diventare prodotti soltanto i codici spuntati o scritti qui, e
@@ -592,7 +596,7 @@
   <div class="campi">
     <label class="campo">Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
     <label class="campo">Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
-           hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
+           hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="input changed delay:300ms"
            hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
     <label class="campo">Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
   </div>

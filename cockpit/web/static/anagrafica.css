@@ -17,6 +17,16 @@
 .ui .schede a[aria-current] { background: var(--surface); border-color: var(--line-strong); color: var(--ink) }
 .ui-importa { overflow: auto }
 .ui-importa .scheda { background: var(--surface); border: 1.5px solid var(--line-strong); border-radius: var(--r); padding: 16px; margin-top: 12px }
+.ui-importa .briciole { margin: 4px 2px 0; font-size: .86rem; color: var(--ink-2) }
+.ui-importa .scheda h2 { font-size: 1.15rem; font-weight: 700; margin: 0 0 8px }
+.ui-importa .scheda h3 { font-size: .95rem; font-weight: 700; margin: 16px 0 6px }
+.ui-importa .scheda h3.errore { color: var(--bad, #b42318) }
+.ui-importa .scheda .nota { margin: 0 0 12px; font-size: .88rem; color: var(--ink-2); max-width: 90ch }
+.ui-importa .scheda label { color: var(--ink-2); font-size: .86rem }
+.ui-importa textarea.json { width: 100%; min-height: 200px; font-family: var(--f-mono); font-size: .82rem; padding: 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface) }
+.ui-importa table.compatta td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--line); font-size: .88rem }
+.ui-importa details.avanzato { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line) }
+.ui-importa details.avanzato > summary { cursor: pointer; color: var(--ink-2); font-size: .88rem }
 
 .ui-ana .ana-elenco { grid-area: elenco; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden }
 .ui-ana .ae-testa { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px }
@@ -172,6 +182,11 @@
   .ui-ana .cartiglio-a > div:nth-child(2) { border-left: 0 }
   .ui-ana .passo-a { padding: 6px 9px 8px }
   .ui-ana .passo-a b { font-size: .92rem }
+}
+/* ancora piu' stretta: le sezioni senza il sottotitolo, e su due righe invece di uscire dal bordo */
+@container (max-width: 700px) {
+  .ui-ana .passi-a { flex-wrap: wrap; row-gap: 4px; overflow-x: visible }
+  .ui-ana .passo-a small { display: none }
 }
 
 /* con la navigazione aperta la pagina ha 184 px in meno: la disposizione stretta parte prima */

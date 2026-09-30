@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-importa">{{template "importa_corpo" .}}</div>
+<div id="anagrafica" class="ui ui-importa">{{template "importa_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 {{end}}
 
 {{define "importa_corpo"}}
@@ -28,9 +28,9 @@
     <label>File <input type="file" name="file" accept=".json,application/json"></label>
     <label>oppure incolla il JSON <textarea class="json" name="testo" spellcheck="false">{{$d.Testo}}</textarea></label>
     <div class="azioni-form">
-      <button name="azione" value="anteprima">Anteprima</button>
+      <button name="azione" value="anteprima" class="btn">Anteprima</button>
       {{if and $d.Anteprima (not $d.Applicato)}}
-      <button name="azione" value="applica" class="primario" {{if $d.Anteprima.Vuota}}disabled title="Niente da scrivere"{{end}}>Applica quello che vedi sotto</button>
+      <button name="azione" value="applica" class="btn primario" {{if $d.Anteprima.Vuota}}disabled title="Niente da scrivere"{{end}}>Applica quello che vedi sotto</button>
       {{end}}
     </div>
   </form>

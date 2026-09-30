@@ -2,7 +2,7 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-ana senza-prova">{{template "fornitori_corpo" .}}</div>
+<div id="anagrafica" class="ui ui-ana senza-prova"{{with .Dati.Scelto}}{{if not $.Dati.ChiFa}} data-indirizzo="/admin/fornitori?fornitore={{.FornitoreID}}&amp;sez={{$.Dati.Sez}}"{{end}}{{end}}>{{template "fornitori_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 <script>
 window.CockpitPagina = {
   chiave: "fornitori",

@@ -230,6 +230,8 @@ body:has(.ui) .rail { min-height: 0; height: calc(100vh - var(--alto-barra, 46px
 .ui .visore-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line) }
 .ui .visore-barra b { font-family: var(--f-mono); overflow-wrap: anywhere }
 .ui .visore-box iframe { width: 100%; height: 100%; border: 0; background: var(--surface-3) }
+/* il contenitore degli avvisi non occupa una casella della griglia della pagina */
+.ui #ui-toast { display: contents }
 .ui .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border-radius: 8px; background: var(--ink); color: var(--surface); box-shadow: var(--shadow-alto); font-size: .92rem; max-width: calc(100% - 32px); animation: ui-sale .18s ease-out }
 .ui .toast.errore { background: var(--bad) }
 .ui .toast .btn { background: transparent; color: var(--surface); border-color: color-mix(in srgb, var(--surface) 40%, transparent) }
@@ -280,3 +282,9 @@ body.ui-tirando iframe, body.ui-tirando .ui .col { pointer-events: none }
   .ui .maniglia { display: none }
   .ui .foglio-corpo { grid-template-columns: minmax(0, 1fr) }
 }
+
+/* Nei pannelli che scorrono le righe e le carte hanno la loro altezza: un pezzo con overflow (la scelta
+   cliente/fornitore/altro, le linguette delle sezioni) non si schiaccia a 0 px quando il contenuto e' lungo. */
+.ui .modulo, .ui .fonte { grid-auto-rows: max-content }
+.ui-inbox .fare > *, .ui-ana .scheda-col > * { flex: none }
+.ui-pop .nota-stretto { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-soft, #fdf3dc); color: var(--warn, #945800) }
