@@ -37,7 +37,7 @@ func (q *Queries) AlzaPrioritaJob(ctx context.Context, arg AlzaPrioritaJobParams
 }
 
 const listFileDelFlusso = `-- name: ListFileDelFlusso :many
-SELECT a.allegato_id, a.contenitore_id, a.nome_file, a.path_interno, a.estensione, a.sha256, a.ricevuto_il,
+SELECT a.allegato_id, a.contenitore_id, a.nome_file, a.path_interno, a.estensione, a.sha256, a.ricevuto_il, a.stato,
        c.nome_file AS nome_contenitore,
        (m.controparte_tipo <> 'fornitore' AND (m.direzione = 'entrata' OR m.canale = 'nota'))::bool AS del_cliente,
        (EXISTS (SELECT 1 FROM allegato v WHERE v.contenitore_id = a.allegato_id))::bool AS contenitore
@@ -56,6 +56,7 @@ type ListFileDelFlussoRow struct {
 	Estensione      pgtype.Text   `json:"estensione"`
 	Sha256          pgtype.Text   `json:"sha256"`
 	RicevutoIl      time.Time     `json:"ricevuto_il"`
+	Stato           StatoAllegato `json:"stato"`
 	NomeContenitore pgtype.Text   `json:"nome_contenitore"`
 	DelCliente      bool          `json:"del_cliente"`
 	Contenitore     bool          `json:"contenitore"`
@@ -64,7 +65,9 @@ type ListFileDelFlussoRow struct {
 // I file della RFQ come il flusso li vede: il nome e la cartella dentro l'archivio (le evidenze del nome),
 // il nome dell'archivio che li contiene, se sono a loro volta un archivio con delle voci, e se vengono da
 // una fonte del cliente (la stessa condizione di ListStepDellaRfq, P27: non da un fornitore, non da una
-// nostra mail in uscita fuori dal canale `nota`). Gli inline e i collegamenti non sono file da smistare.
+// nostra mail in uscita fuori dal canale `nota`). Gli inline e i collegamenti non sono file da smistare. Lo
+// stato dell'allegato dice se un PDF senza i fatti correnti e' gia' stato analizzato (testo «non letto, da
+// rianalizzare») o no («da analizzare»): giro 4, fase 4.2.
 func (q *Queries) ListFileDelFlusso(ctx context.Context, threadID uuid.NullUUID) ([]ListFileDelFlussoRow, error) {
 	rows, err := q.db.Query(ctx, listFileDelFlusso, threadID)
 	if err != nil {
@@ -82,6 +85,7 @@ func (q *Queries) ListFileDelFlusso(ctx context.Context, threadID uuid.NullUUID)
 			&i.Estensione,
 			&i.Sha256,
 			&i.RicevutoIl,
+			&i.Stato,
 			&i.NomeContenitore,
 			&i.DelCliente,
 			&i.Contenitore,

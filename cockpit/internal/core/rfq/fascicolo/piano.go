@@ -576,17 +576,30 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 		}
 	case tecnicoFile:
 		chiave := maiuscolo(v.Codice)
+		// giro 4, fase 4.2: il codice che un PDF ha soltanto dal suo testo (il cartiglio, i metadati) e che
+		// nessun'altra fonte dice non fa «pronto» per sola uguaglianza con un pezzo: e' una domanda. Il testo
+		// si legge bene, ma dove sta il cartiglio c'e' anche l'elenco particolari di un assieme, e il codice
+		// letto puo' essere quello di un figlio (lo scenario del 28/09): «Conferma Fascicolo» non lo decide per
+		// nessuno. La risposta (il codice scritto da una persona) fa pronto il file al giro dopo.
+		dalTesto := ext == "pdf" && codiceSoloDalTesto(vt)
+		domandaTesto := fmt.Sprintf("il codice viene dal testo del PDF, non dal nome: è %s? Si conferma, o si corregge", v.Codice)
 		if c, trovato := perCodice[chiave]; trovato {
 			if c.ArchiviatoIl != nil {
 				v.Componente = &c
 				return decidi(DomandaComponente, c.Codice+" è archiviato: si ripristina, o il file resta senza componente")
 			}
 			v.Componente = &c
+			if dalTesto {
+				return decidi(DomandaCodice, domandaTesto)
+			}
 			break
 		}
 		if n, trovato := inArrivo[chiave]; trovato {
 			n := n
 			v.DaStep = &n
+			if dalTesto {
+				return decidi(DomandaCodice, domandaTesto)
+			}
 			break
 		}
 		if n, trovato := inSospeso[chiave]; trovato {
@@ -633,6 +646,28 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 	}
 	v.Stato = VocePronta
 	return v, true
+}
+
+// codiceSoloDalTesto dice se il codice della lettura di un file viene soltanto dal testo del PDF (il codice di
+// famiglia dove sta il cartiglio, i metadati): nessun'altra lettura dello stesso codice (il nome del file, uno
+// STEP) lo dice. Una decisione di una persona non e' mai «solo dal testo».
+func codiceSoloDalTesto(v classificazione.Valutazione) bool {
+	if v.Decisa() || strings.TrimSpace(v.Codice.Valore) == "" {
+		return false
+	}
+	dalTesto := false
+	for _, e := range v.Codice.Evidenze {
+		if !strings.EqualFold(strings.TrimSpace(e.Valore), strings.TrimSpace(v.Codice.Valore)) {
+			continue
+		}
+		switch e.Regola {
+		case "pdf_testo_famiglia", "pdf_metadati":
+			dalTesto = true
+		default:
+			return false
+		}
+	}
+	return dalTesto
 }
 
 // fratelli guarda i file pronti che vanno allo stesso componente con lo stesso tipo. Con la stessa

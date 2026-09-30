@@ -78,6 +78,8 @@ const (
 	DiscPreassegnato       = "preassegnato_altrove"
 	DiscTipoDiverso        = "tipo_diverso"
 	DiscBomCongelata       = "bom_congelata"
+	// DiscSoloMetadati: il prodotto e' detto soltanto dai metadati del suo PDF (A-P2): un'ancora debole.
+	DiscSoloMetadati = "solo_metadati"
 )
 
 // Le fonti di un codice del file: da dove il flusso l'ha letto.
@@ -135,6 +137,9 @@ type Destinazione struct {
 	Evidenze            []string      `json:"evidenze,omitempty"`
 	ProdottiSenzaAncora []string      `json:"prodotti_senza_ancora,omitempty"`
 	Ancore              []AncoraDest  `json:"ancore,omitempty"`
+	// Note: quello che il file dice e che non e' una destinazione ne' un codice del file: il particolare simile
+	// del cartiglio, «simile a 7120012» (giro 4, fase 4.2; risposta 4 del 29/09).
+	Note []string `json:"note,omitempty"`
 }
 
 // LetturaDest e' la lettura del file su cui la destinazione e' stata calcolata: se la valutazione cambia dopo,
@@ -277,6 +282,10 @@ func (d *derivati) destinazione(ix Indice, f FileFlusso) Destinazione {
 	default:
 		d.destinazioneTecnica(&dest, ix, f)
 	}
+	// il particolare simile del cartiglio: una nota, mai un codice ne' una destinazione
+	for _, c := range f.TestoPDF.Simili {
+		dest.Note = aggiungi(dest.Note, classificazione.NotaSimile(c))
+	}
 	return firmata(dest)
 }
 
@@ -328,7 +337,7 @@ func (d *derivati) destinazioneGenerale(dest *Destinazione, f FileFlusso) {
 // destinazioneTecnica: i codici del file contro l'indice (A5.13.5).
 func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlusso) {
 	v := f.Proposta.Valutazione
-	letture, radici := d.codiciDelFile(f)
+	letture, radici, indizi := d.codiciDelFile(f)
 	var disc, evidenze []string
 	distinti := 0
 	for _, l := range letture {
@@ -358,10 +367,14 @@ func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlus
 	if v.Rev.Stato == classificazione.StatoDiscorde {
 		disc = append(disc, DiscRevFonti)
 	}
-	if f.pdf() && len(f.EvidenzePDF) == 0 {
-		// oggi nessun PDF ha evidenze dal contenuto (la lettura strutturata e' di F9): il PDF si comporta come un
-		// PDF senza testo, e il suo codice viene solo dal nome
-		evidenze = append(evidenze, "il PDF non ha evidenze dal contenuto (testo o cartiglio): il suo codice viene solo dal nome")
+	if f.pdf() {
+		// che cosa dice il testo del PDF, con le parole del suo stato (FraseTestoPDF: le stesse della valutazione e
+		// della schermata): un PDF senza testo, con il testo non letto o illeggibile ha il codice solo dal nome;
+		// uno letto che non porta codici lo dice. Mai «nessuna evidenza» accanto al cartiglio
+		if x := d.fraseTestoPDF(f); x != "" {
+			evidenze = append(evidenze, x)
+		}
+		evidenze = append(evidenze, indizi...)
 	}
 
 	var cands []Candidato
@@ -386,6 +399,17 @@ func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlus
 			}
 			if motivo := vicino(l.codice, w.Codice, d.m); motivo != "" {
 				cands = unisci(cands, d.candidatoVicino(w, l, motivo))
+			}
+		}
+	}
+	// il disegno del prodotto che ne e' l'ancora piatta (A-P1, A-P2, A-P3): un candidato verso il prodotto, mai
+	// preselezionato (il livello piatta non lo permette, scelta 2); gli altri file restano senza riferimento
+	for _, p := range ix.Prodotti {
+		if a := ix.Ancore[p.Codice]; a.Livello == LivelloPiatta {
+			for _, x := range a.Portatori {
+				if x.AllegatoID == f.AllegatoID {
+					cands = unisci(cands, candidatoPiatto(p, x, letture))
+				}
 			}
 		}
 	}
@@ -416,7 +440,9 @@ func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlus
 		switch ix.Ancore[p.Codice].Livello {
 		case LivelloInAttesa:
 			attesa = append(attesa, p.Codice)
-		case LivelloAssente:
+		case LivelloAssente, LivelloPiatta:
+			// l'ancora piatta lega al prodotto solo il suo disegno: per gli altri file tecnici il riferimento
+			// strutturale manca (Domanda 4 = B), e i motivi dell'ancora lo dicono
 			senza = append(senza, p.Codice)
 		}
 	}
@@ -464,9 +490,15 @@ func (d *derivati) destinazioneTecnica(dest *Destinazione, ix Indice, f FileFlus
 
 // codiciDelFile sono i codici che il file dice (P15: il SUO nome, mai quello di un'altra copia): il nome, la
 // radice del suo STEP (dalle righe della struttura, con le correzioni dell'operatore; se non ci sono, le
-// evidenze step_* della valutazione), le evidenze dal contenuto del PDF. Una lettura del contenuto uguale al
-// nome dipende dal nome (Domanda 7 = B): resta, ma non fa del codice un codice «dal contenuto».
-func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string) {
+// evidenze step_* della valutazione), le evidenze dal contenuto del PDF; e, a parte, le frasi degli indizi.
+//
+// Per un PDF il contenuto viene SOLO dalle evidenze normalizzate (EvidenzeContenutoPDF: giro 4, fase 4.2), non
+// piu' anche dalle letture pdf_* della valutazione, che vengono dagli stessi fatti: una porta sola. Il cartiglio
+// con un codice di famiglia del cliente e' contenuto; se ripete soltanto il nome del file (Domanda 7 = B) resta,
+// ma non e' una seconda fonte; un codice generico nel cartiglio, come il resto del testo, e' solo una chiave di
+// ricerca (P33). I metadati si mostrano e non sostengono mai (A5.13.3, A-P2 «solo_metadati»). L'OCR non da'
+// nemmeno un candidato: e' un indizio, e se ne dice solo la frase (27/09 «ter»).
+func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string, []string) {
 	per := map[string]*lettura{}
 	var ordine []string
 	agg := func(codice, fonte string, contenuto, radice, citato bool, testo string) {
@@ -512,6 +544,7 @@ func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string) {
 			agg(c, FonteStepRadice, c != nome, len(st.Radici) == 1, false, testo)
 		}
 	} else if f.Proposta != nil {
+		// le letture pdf_* della valutazione no: per un PDF il contenuto entra solo dalle sue evidenze, qui sotto
 		for _, e := range f.Proposta.Valutazione.Codice.Evidenze {
 			if e.Valore == "" {
 				continue
@@ -521,26 +554,36 @@ func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string) {
 				agg(e.Valore, FonteStepRadice, e.DipendeDa == "" && d.canonico(e.Valore) != nome, f.step(), false, "la radice dello STEP dice "+e.Valore)
 			case "step_primo_product":
 				agg(e.Valore, FonteStepProduct, e.DipendeDa == "" && d.canonico(e.Valore) != nome, false, false, "il PRODUCT dello STEP dice "+e.Valore)
-			case "pdf_testo_famiglia":
-				agg(e.Valore, FonteCartiglio, true, false, false, "il testo del PDF, dove sta il cartiglio, dice "+e.Valore)
-			case "pdf_metadati":
-				agg(e.Valore, FonteMetadatiPDF, e.DipendeDa == "" && d.canonico(e.Valore) != nome, false, false, "i metadati del PDF dicono "+e.Valore)
 			}
 		}
 	}
+	var indizi []string
 	for _, e := range f.EvidenzePDF {
 		dove := ""
 		if e.Pagina > 0 {
 			dove = fmt.Sprintf(" (pagina %d)", e.Pagina)
 		}
-		switch e.Fonte {
-		case FontePDFCartiglio:
-			agg(e.Codice, FonteCartiglio, true, false, false, "il cartiglio del PDF dice "+e.Codice+dove)
-		case FontePDFOCR:
-			agg(e.Codice, FonteOCR, true, false, false, "l'OCR del cartiglio legge "+e.Codice+dove+": un'evidenza, non una decisione")
-		case FontePDFMetadati:
-			agg(e.Codice, FonteMetadatiPDF, d.canonico(e.Codice) != nome, false, false, "i metadati del PDF dicono "+e.Codice)
-		case FontePDFTesto:
+		switch {
+		case e.Indizio || e.Fonte == FontePDFOCR:
+			// l'OCR e' un indizio (27/09 «ter»): nessun candidato, nessuna chiave di ricerca; si dice e basta
+			if x := "l'OCR legge " + d.canonico(e.Codice) + dove + ": un indizio, non un codice del file"; !contiene(indizi, x) {
+				indizi = append(indizi, x)
+			}
+		case e.Fonte == FontePDFCartiglio && e.Origine == OrigineFamiglia:
+			// il codice di famiglia in basso a destra e' una conferma indipendente del nome, tranne quando in
+			// quella zona sta soltanto dentro il nome del file ripetuto (Domanda 7 = B): allora e' il nome
+			testo := "il cartiglio del PDF dice " + e.Codice + dove
+			if e.DipendeDaNome {
+				testo += ": ripete il nome del file, non è una seconda fonte"
+			}
+			agg(e.Codice, FonteCartiglio, !e.DipendeDaNome, false, false, testo)
+		case e.Fonte == FontePDFCartiglio:
+			// un codice generico dove sta il cartiglio (una quota, un numero d'ordine, una norma) non e' il codice
+			// del file: e' una chiave di ricerca nell'indice (P33)
+			agg(e.Codice, FonteCartiglio, false, false, true, "il cartiglio del PDF cita "+e.Codice+dove+" (non un codice di famiglia del cliente)")
+		case e.Fonte == FontePDFMetadati:
+			agg(e.Codice, FonteMetadatiPDF, false, false, false, testoMetadati(e.Codice, e.DipendeDaNome || d.canonico(e.Codice) == nome))
+		case e.Fonte == FontePDFTesto:
 			// un token del corpo del PDF vale solo come chiave di ricerca nell'indice (P33): non e' il codice del
 			// file, e da solo non sostiene una destinazione piu' del nome
 			agg(e.Codice, FonteTestoPDF, false, false, true, "il testo del PDF cita "+e.Codice+dove)
@@ -553,7 +596,87 @@ func (d *derivati) codiciDelFile(f FileFlusso) ([]lettura, []string) {
 		sort.Strings(l.fonti)
 		out = append(out, *l)
 	}
-	return out, radici
+	return out, radici, indizi
+}
+
+// fraseTestoPDF e' che cosa dice il testo di un PDF quando non porta il codice del file: la frase del suo
+// stato (FraseTestoPDF: senza testo, non letto, illeggibile, da analizzare), o, per un testo letto senza
+// codici, «il testo del PDF non porta codici del cliente». "" quando il testo porta dei codici, o quando lo
+// stato non si sa (una scena delle prove senza testo).
+func (d *derivati) fraseTestoPDF(f FileFlusso) string {
+	perNome := ""
+	if c, _ := codiciDelNome(f.Nome, d.m); c != "" {
+		perNome = ": il suo codice viene solo dal nome"
+	}
+	switch {
+	case f.TestoPDF.Stato == "":
+		return ""
+	case !f.TestoPDF.Letto():
+		return f.TestoPDF.Frase + perNome
+	}
+	for _, e := range f.EvidenzePDF {
+		if !e.Indizio {
+			return ""
+		}
+	}
+	return "il testo del PDF non porta codici del cliente" + perNome
+}
+
+// candidatoPiatto e' la destinazione del disegno del prodotto p che ne e' l'ancora piatta (il portatore x):
+// il prodotto, con la regola S1 del caso (il componente del prodotto, dal contenuto o dal nome; il codice della
+// richiesta senza componente), il sostegno del prodotto confermato e il livello piatta, che non si preseleziona
+// mai (scelta 2). A-P2 e A-P3 portano la loro discordanza (solo_metadati, ancora_da_confermare).
+func candidatoPiatto(p Prodotto, x Portatore, letture []lettura) Candidato {
+	c := Candidato{Codice: p.Codice, Bersaglio: "prodotto", Ruolo: "disegno_del_prodotto", Fonti: []string{}, livello: LivelloPiatta,
+		Sostegno: []string{SostegnoProdotto}, Discordanze: append([]string(nil), x.Discordanze...)}
+	for _, l := range letture {
+		if l.codice == p.Codice {
+			c.Fonti, c.DalContenuto = append([]string(nil), l.fonti...), l.contenuto
+			c.Evidenze = append(c.Evidenze, l.testi...)
+		}
+	}
+	suffisso := "_nome"
+	if c.DalContenuto {
+		suffisso = "_contenuto"
+		c.Sostegno = append(c.Sostegno, SostegnoContenuto)
+	}
+	switch {
+	case p.ComponenteID.Valid:
+		c.Chiave, c.Regola = "componente:"+p.ComponenteID.UUID.String(), "dest_componente"+suffisso
+	default:
+		c.Chiave, c.Regola, c.Bersaglio = "identificativo:"+p.Codice, "dest_identificativo", "identificativo"
+	}
+	c.Evidenze = append(c.Evidenze, fmt.Sprintf("%s è il disegno del prodotto %s (%s): un'ancora piatta, che lega il file al prodotto e non ai suoi figli; "+
+		"lo decide una persona, niente è preselezionato", x.Nome, p.Codice, strings.Join(x.Regole, ", ")))
+	c.Score = classificazione.Punteggi[c.Regola].Score
+	return c
+}
+
+// testoMetadati dice il codice del titolo o del soggetto del PDF: un candidato che si mostra, mai un'evidenza
+// dal contenuto (A-P2: un prodotto citato solo nei metadati da' un'ancora debole, «solo_metadati»). Il titolo
+// lo scrive chi salva il file, spesso dal nome: quando lo ripete non e' nemmeno una seconda fonte.
+func testoMetadati(codice string, ripeteIlNome bool) string {
+	if ripeteIlNome {
+		return "i metadati del PDF dicono " + codice + ": ripete il nome del file, non è una seconda fonte"
+	}
+	return "i metadati del PDF dicono " + codice + ": il titolo si mostra, ma non sostiene la destinazione"
+}
+
+// soloIndizi dice se un candidato viene soltanto dai metadati del PDF, dall'OCR o dal testo del corpo del PDF:
+// si mostra, ma non si preseleziona mai, qualunque sia il sostegno del bersaglio. Il legame fra il file e il
+// pezzo sarebbe allora un titolo, un indizio o un numero citato fuori dal cartiglio, non il nome del file ne' il
+// suo contenuto (A-P2; 27/09 «ter»: l'OCR e' un'evidenza, non un automatismo; P33: un token del corpo vale solo
+// come chiave di ricerca nell'indice, e anche verso il figlio diretto di uno STEP autorizzato resta una chiave).
+func soloIndizi(fonti []string) bool {
+	if len(fonti) == 0 {
+		return false
+	}
+	for _, f := range fonti {
+		if f != FonteMetadatiPDF && f != FonteOCR && f != FonteTestoPDF {
+			return false
+		}
+	}
+	return true
 }
 
 // candidato e' la destinazione verso la voce v per il codice letto l, con la regola S1 del caso (A5.14.3).
@@ -755,21 +878,26 @@ func nodoDellAncora(v *Voce) (RifNodo, bool) {
 }
 
 // sostegnoAutorizzato aggiunge al candidato il sostegno dello STEP autorizzato nella cui autorita' sta il nodo
-// n, se quello STEP si raggiunge dal prodotto per un cammino che una persona ha deciso. L'autorizzazione dice
-// quali sono i figli diretti del pezzo dell'ancora, non che quel pezzo sta sotto il prodotto: se lo si
-// raggiunge solo attraverso un pezzo da rivedere (il pezzo stesso, o uno sopra di lui, nati da un'evidenza),
-// il legame fra il file e la RFQ passa ancora da un anello che nessuno ha deciso, e il sostegno non c'e', come
-// per nodo_dell_ancora (RifNodo.affidabile). Il nodo si mostra, e l'evidenza dice perche' non sostiene (U7:
-// nessuna evidenza che insieme sostiene e non sostiene la destinazione).
+// n, se quello STEP si raggiunge dal prodotto per un cammino affidabile, con lo stesso criterio di
+// nodo_dell_ancora (RifNodo.affidabile). L'autorizzazione dice quali sono i figli diretti del pezzo
+// dell'ancora, non che quel pezzo sta sotto il prodotto: il legame fra il file e la RFQ passa anche dal
+// cammino fino a lui, e regge quanto il suo anello piu' debole (U7). Il sostegno non c'e' se lo si raggiunge
+// solo attraverso un pezzo da rivedere (il pezzo stesso, o uno sopra di lui, nati da un'evidenza), ne' se lo
+// si raggiunge solo da un'ancora da confermare o da un'ancora con due file concorrenti: allora nessuna persona
+// ha deciso quale file dice la struttura sopra di lui, e un'autorizzazione piu' in basso non lo decide al suo
+// posto (scelta 2 del giro 3; «bis»). Il nodo si mostra, e l'evidenza dice perche' non sostiene (U7: nessuna
+// evidenza che insieme sostiene e non sostiene la destinazione).
 func sostegnoAutorizzato(c *Candidato, v *Voce, n RifNodo) {
-	if n.TramiteDaRivedere == "" {
+	if n.affidabile() {
 		c.Sostegno = append(c.Sostegno, SostegnoStepAutorizzato)
 		return
 	}
 	c.Evidenze = aggiungi(c.Evidenze, testoNodoNonAffidabile(v, n))
 }
 
-// testoNodoNonAffidabile dice perche' il nodo di uno STEP non sostiene la destinazione.
+// testoNodoNonAffidabile dice perche' il nodo di uno STEP non sostiene la destinazione. Per il nodo di uno
+// STEP autorizzato l'ancora debole non e' quella del file (autorizzata), ma una piu' in alto nel cammino dal
+// prodotto: il testo lo dice, perche' chi legge non cerchi il difetto nell'autorizzazione.
 func testoNodoNonAffidabile(v *Voce, n RifNodo) string {
 	switch {
 	case n.TramiteDaRivedere == n.Ancora:
@@ -779,8 +907,15 @@ func testoNodoNonAffidabile(v *Voce, n RifNodo) string {
 			v.Codice, n.File, n.Ancora, n.TramiteDaRivedere)
 	}
 	perche := "un'ancora da confermare"
-	if n.Concorrenti {
+	switch {
+	case n.Concorrenti:
 		perche = "due file concorrenti"
+	case n.NellAutorita && n.Livello != LivelloDaConfermare:
+		perche = "un'ancora né autorizzata né piena"
+	}
+	if n.NellAutorita {
+		return fmt.Sprintf("%s compare nello STEP autorizzato %s, ma %s si raggiunge dal prodotto solo con %s: non sostiene la destinazione",
+			v.Codice, n.File, n.Ancora, perche)
 	}
 	return fmt.Sprintf("%s compare nello STEP %s, che ancora %s con %s: non sostiene la destinazione", v.Codice, n.File, n.Ancora, perche)
 }
@@ -894,14 +1029,15 @@ func (d *derivati) chiudiDestinazione(dest *Destinazione, cands []Candidato, dis
 //     che fanno nascere un componente (scelta 1);
 //   - per un componente, un'ancora autorizzata o piena, un pezzo non da rivedere, e un sostegno che basta oltre
 //     al nome del file (scelta 2: il contenuto, un prodotto confermato, lo STEP autorizzato o che ancora il
-//     pezzo, raggiunti dal prodotto per un cammino deciso; mai il solo «componente deciso»); per il generale,
-//     il tipo dal contenuto.
+//     pezzo, raggiunti dal prodotto per un cammino deciso e affidabile, RifNodo.affidabile; mai il solo
+//     «componente deciso»); per il generale, il tipo dal contenuto;
+//   - il candidato non viene soltanto dai metadati del PDF, dall'OCR o dal testo del corpo del PDF (soloIndizi).
 func preselezionabile(cands []Candidato, discFile []string) bool {
 	if len(cands) == 0 || len(discFile) > 0 {
 		return false
 	}
 	top := cands[0]
-	if top.Bloccato != "" || len(top.Discordanze) > 0 {
+	if top.Bloccato != "" || len(top.Discordanze) > 0 || soloIndizi(top.Fonti) {
 		return false
 	}
 	for _, c := range cands[1:] {
