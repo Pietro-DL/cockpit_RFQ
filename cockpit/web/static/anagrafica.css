@@ -17,6 +17,16 @@
 .ui .schede a[aria-current] { background: var(--surface); border-color: var(--line-strong); color: var(--ink) }
 .ui-importa { overflow: auto }
 .ui-importa .scheda { background: var(--surface); border: 1.5px solid var(--line-strong); border-radius: var(--r); padding: 16px; margin-top: 12px }
+.ui-importa .briciole { margin: 4px 2px 0; font-size: .86rem; color: var(--ink-2) }
+.ui-importa .scheda h2 { font-size: 1.15rem; font-weight: 700; margin: 0 0 8px }
+.ui-importa .scheda h3 { font-size: .95rem; font-weight: 700; margin: 16px 0 6px }
+.ui-importa .scheda h3.errore { color: var(--bad, #b42318) }
+.ui-importa .scheda .nota { margin: 0 0 12px; font-size: .88rem; color: var(--ink-2); max-width: 90ch }
+.ui-importa .scheda label { color: var(--ink-2); font-size: .86rem }
+.ui-importa textarea.json { width: 100%; min-height: 200px; font-family: var(--f-mono); font-size: .82rem; padding: 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface) }
+.ui-importa table.compatta td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--line); font-size: .88rem }
+.ui-importa details.avanzato { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line) }
+.ui-importa details.avanzato > summary { cursor: pointer; color: var(--ink-2); font-size: .88rem }
 
 .ui-ana .ana-elenco { grid-area: elenco; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden }
 .ui-ana .ae-testa { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px }
@@ -49,8 +59,8 @@
 .ui-ana .cartiglio-a { display: grid; grid-template-columns: minmax(0, 2.2fr) repeat(4, minmax(0, 1fr)); border-bottom: 1.5px solid var(--line-strong) }
 .ui-ana .cartiglio-a > div { padding: 12px 14px; border-left: 1px solid var(--line); min-width: 0 }
 .ui-ana .cartiglio-a > div:first-child { border-left: 0; background: var(--surface-2); border-radius: var(--r) 0 0 0 }
-.ui-ana .cartiglio-a h2 { font-size: 1.45rem; font-weight: 700; overflow-wrap: anywhere }
-.ui-ana .cartiglio-a .v { font-weight: 600; overflow-wrap: anywhere; display: flex; gap: 6px; align-items: center }
+.ui-ana .cartiglio-a h2 { font-size: 1.45rem; font-weight: 700; overflow-wrap: break-word }
+.ui-ana .cartiglio-a .v { font-weight: 600; overflow-wrap: break-word; display: flex; gap: 6px; align-items: center }
 .ui-ana .cartiglio-a .v .ico { color: var(--ink-3) }
 .ui-ana .cartiglio-a a { font-weight: 600; font-size: .86rem }
 .ui-ana .completezza { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: .86rem }
@@ -58,7 +68,7 @@
 .ui-ana .completezza .avanz i { display: block; width: calc(var(--p, 0) * 1%); height: 100%; background: var(--ok) }
 .ui-ana .completezza a { color: var(--warn); font-weight: 600 }
 .ui-ana .passi-a { position: sticky; top: 0; z-index: 3; display: flex; gap: 2px; overflow-x: auto; padding: 10px 12px 0; background: var(--surface); border-bottom: 1.5px solid var(--line-strong) }
-.ui-ana .passo-a { display: grid; gap: 1px; padding: 7px 14px 9px; border: 1.5px solid transparent; border-bottom: 0; margin-bottom: -1.5px; border-radius: 6px 6px 0 0; color: var(--ink); flex: none }
+.ui-ana .passo-a { display: grid; gap: 1px; padding: 7px 11px 9px; border: 1.5px solid transparent; border-bottom: 0; margin-bottom: -1.5px; border-radius: 6px 6px 0 0; color: var(--ink); flex: none }
 .ui-ana .passo-a:hover { background: var(--surface-2); color: var(--ink) }
 .ui-ana .passo-a[aria-current] { border-color: var(--line-strong); background: var(--surface); box-shadow: 0 1.5px 0 var(--surface) }
 .ui-ana .passo-a b { font: 700 1rem var(--f-display) }
@@ -154,10 +164,8 @@
   .ui-ana, .ui-ana.senza-prova { grid-template-columns: var(--w-elenco, 280px) 12px minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto;
     grid-template-areas: "testa testa testa" "esito esito esito" "elenco m1 scheda" "elenco m1 prova" }
   .ui-ana [data-maniglia="m2"] { display: none }
-  .ui-ana .prova, .chiuso-prova .ui-ana .prova { display: flex; max-height: 40vh; margin-top: 12px }
+  .ui-ana .prova, .chiuso-prova .ui-ana .prova { display: flex; max-height: 32vh; margin-top: 12px }
   .ui-ana.senza-prova .prova { display: none }
-  .ui-ana .cartiglio-a { grid-template-columns: repeat(2, minmax(0, 1fr)) }
-  .ui-ana .cartiglio-a > div:first-child { grid-column: 1 / -1 }
 }
 @media (max-width: 860px) {
   .ui-ana, .ui-ana.senza-prova { grid-template-columns: minmax(0, 1fr); grid-template-areas: "testa" "esito" "elenco" "scheda" "prova"; grid-template-rows: auto }
@@ -165,3 +173,38 @@
   .ui-ana .ae-voci { max-height: 40vh; overflow: auto }
   .ui-ana .riga-campo, .ui-ana .esempio-riga { grid-template-columns: minmax(0, 1fr) }
 }
+
+/* la testata della scheda misura la sua colonna, non lo schermo: con il banco di prova accanto la colonna e' stretta */
+.ui-ana .scheda-col { container-type: inline-size }
+@container (max-width: 820px) {
+  .ui-ana .cartiglio-a { grid-template-columns: repeat(4, minmax(0, 1fr)) }
+  .ui-ana .cartiglio-a > div:first-child { grid-column: 1 / -1; border-radius: var(--r) var(--r) 0 0 }
+  .ui-ana .cartiglio-a > div:nth-child(2) { border-left: 0 }
+  .ui-ana .passo-a { padding: 6px 9px 8px }
+  .ui-ana .passo-a b { font-size: .92rem }
+}
+/* ancora piu' stretta: le sezioni senza il sottotitolo, e su due righe invece di uscire dal bordo */
+@container (max-width: 700px) {
+  .ui-ana .passi-a { flex-wrap: wrap; row-gap: 4px; overflow-x: visible }
+  .ui-ana .passo-a small { display: none }
+}
+
+/* con la navigazione aperta la pagina ha 184 px in meno: la disposizione stretta parte prima */
+@media (min-width: 861px) and (max-width: 1480px) {
+  body:not(.rail-chiusa) .ui-ana, body:not(.rail-chiusa) .ui-ana.senza-prova { grid-template-columns: var(--w-elenco, 280px) 12px minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "testa testa testa" "esito esito esito" "elenco m1 scheda" "elenco m1 prova" }
+  body:not(.rail-chiusa) .ui-ana [data-maniglia="m2"] { display: none }
+  body:not(.rail-chiusa) .ui-ana .prova, .chiuso-prova body:not(.rail-chiusa) .ui-ana .prova { display: flex; max-height: 32vh; margin-top: 12px }
+  body:not(.rail-chiusa) .ui-ana.senza-prova .prova { display: none }
+}
+
+/* «Forme viste» (forme.html, giro 4 fase 4.17a): tabelle di sola lettura, dentro la testata di Anagrafica */
+.ui-forme .scheda .scheda { margin-top: 10px; border-width: 1px }
+.ui-forme h2 { font: 700 1.05rem var(--f-display); margin: 18px 0 6px }
+.ui-forme h3 { font: 700 .92rem var(--f-display); margin: 14px 0 4px }
+.ui-forme .muto { color: var(--ink-2) }
+.ui-forme table.tabella { border-collapse: collapse; margin: 4px 0 10px; font-size: .86rem }
+.ui-forme table.tabella th, .ui-forme table.tabella td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top }
+.ui-forme table.tabella th { font-size: .74rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap }
+.ui-forme table.tabella td small { display: block; color: var(--ink-2) }
+.ui-forme a.bottone { display: inline-flex; padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink) }

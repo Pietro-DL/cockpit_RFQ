@@ -628,6 +628,19 @@ func ScartaNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 // RiapriNodo: «Riapri il nodo» (F5, A5.4.5). Un nodo scartato torna aperto, con la storia di chi l'aveva
 // scartato e di chi lo riapre. Come lo scarto e' una correzione dell'evidenza: vale per un nodo di guida come
 // per uno nell'autorita', e anche con la BOM congelata. Un nodo accettato non si riapre da qui.
+//
+// Giro 4, fase 4.4a.1b (ritoccata nella 4.4a.1br): un nodo che la conferma dell'albero ha tolto torna nell'albero
+// proposto (riapriToltoNellAlbero). Si riaprono, chiuse dalla stessa conferma (la stessa firma nel segno): le righe
+// del nodo in tutti i file, non solo quella del gesto; i padri nei file che la stessa conferma aveva tolto, risalendo,
+// con tutte le loro righe (senza, il nodo resterebbe sotto un padre scartato e fuori dall'albero, mentre la frase
+// diceva che tornava); gli archi degli stessi file che toccano quelle righe. La frase nomina i padri riaperti. Un padre
+// scartato a mano, o da un'altra conferma, resta scartato: e' un'altra decisione, e si riapre con il suo gesto.
+//
+// Su una riga che un «Riapri» ha gia' riaperto cosi' (aperta, con quella riapertura in fondo alla storia) non si
+// rifiuta: si ridice che cosa quel gesto ha riaperto, senza scrivere niente (giaRiapertoNellAlbero; fase 4.4a.1br,
+// dalla verifica). Chi riapre un pezzo riga per riga — la pagina della Distinta chiama la rotta per ogni riga scartata
+// del pezzo, e rifa' la pagina all'ultima — trovava le righe dopo la prima gia' riaperte dalla prima, e riceveva un
+// rifiuto dopo una riapertura riuscita. Una riga aperta che nessun «Riapri» dell'albero ha riaperto resta un rifiuto.
 func RiapriNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uuid.UUID) (string, error) {
 	if err := bloccaThread(ctx, q, thread); err != nil {
 		return "", err
@@ -638,6 +651,23 @@ func RiapriNodo(ctx context.Context, q *db.Queries, thread, proposta, utente uui
 	}
 	if err != nil {
 		return "", err
+	}
+	// un nodo tolto dalla conferma dell'albero (giro 4, fase 4.4a.1b; studio § 2.5): con lui torna quello che la stessa
+	// conferma aveva chiuso e che gli serve per tornare nell'albero
+	if s, ok := toltoNellAlbero(p); ok {
+		ra, err := riapriToltoNellAlbero(ctx, q, thread, p, s, utente)
+		if err != nil {
+			return "", err
+		}
+		return dopoLaDecisione(ctx, q, thread, ra.frase(nomeNodo(p)), nil)
+	}
+	// una riga che un «Riapri» ha gia' riaperto con il suo nodo: la frase di quel gesto, e niente cambia
+	if x, ok := riapertoNellAlbero(p.Stato, p.Evidenza, eventoNodoRiaperto); ok {
+		ra, err := giaRiapertoNellAlbero(ctx, q, thread, p, x)
+		if err != nil {
+			return "", err
+		}
+		return ra.frase(nomeNodo(p)), nil
 	}
 	n, err := q.RiapriComponenteProposta(ctx, db.RiapriComponentePropostaParams{PropostaID: proposta, Utente: utente})
 	if err != nil {

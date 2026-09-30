@@ -2,6 +2,7 @@ package classificazione
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -22,7 +23,12 @@ type Motore struct {
 	rifNome     string
 	frasi       []string
 	suffissi    []string // i suffissi decorativi del cliente, in maiuscolo, il piu' lungo prima
-	Regole      regole.Regole
+	// Smistamento 4.13b: il numero d'ordine nella forma del cliente e i mittenti di sistema (solo le
+	// righe ✓, gli indirizzi prima degli host)
+	ordine     *regexp.Regexp
+	ordineNome string
+	mittenti   []regole.MittenteSistema
+	Regole     regole.Regole
 }
 
 type famigliaCompilata struct {
@@ -82,7 +88,121 @@ func Compila(cliente string, r regole.Regole) *Motore {
 	}
 	// il piu' lungo prima: «_PRT_ASM» non deve perdere solo «_ASM»
 	sort.SliceStable(m.suffissi, func(i, j int) bool { return len(m.suffissi[i]) > len(m.suffissi[j]) })
+	if r.NumeroOrdine != nil && ok(regole.RegolaNumeroOrdine) {
+		m.ordine = regexp.MustCompile(r.NumeroOrdine.Regex)
+		if m.ordineNome = r.NumeroOrdine.Descrizione; m.ordineNome == "" {
+			m.ordineNome = "regex del cliente"
+		}
+	}
+	for i, x := range r.MittentiSistema {
+		if ok(regole.RegolaMittenteSistema(i)) {
+			m.mittenti = append(m.mittenti, x)
+		}
+	}
+	// l'indirizzo prima dell'host: «ordini@server.acme.example» dice di più di «server.acme.example»
+	sort.SliceStable(m.mittenti, func(i, j int) bool {
+		return strings.Contains(m.mittenti[i].Mittente, "@") && !strings.Contains(m.mittenti[j].Mittente, "@")
+	})
 	return m
+}
+
+// ---------------------------------------------------------------- posta: le voci della 4.13b
+
+// MittenteDiSistema dice se il mittente di una mail è uno dei mittenti di sistema del cliente, e quale
+// riga lo prende (Smistamento 4.13b). Un motore nil, o senza la voce, non ne ha.
+func (m *Motore) MittenteDiSistema(mittente string) (regole.MittenteSistema, bool) {
+	if m == nil {
+		return regole.MittenteSistema{}, false
+	}
+	for _, x := range m.mittenti {
+		if x.Corrisponde(mittente) {
+			return x, true
+		}
+	}
+	return regole.MittenteSistema{}, false
+}
+
+// OrdineAnticipato è `numero_ordine_anticipato`: il cliente emette il numero d'ordine prima dell'offerta.
+func (m *Motore) OrdineAnticipato() bool { return m != nil && m.Regole.NumeroOrdineAnticipato }
+
+// OrdineDaVerificare è `ordine_da_verificare`, la voce più debole: un ordine di questo cliente è probabile.
+func (m *Motore) OrdineDaVerificare() bool { return m != nil && m.Regole.OrdineDaVerificare }
+
+// NumeriOrdine sono i numeri d'ordine nella forma del cliente (`numero_ordine`) trovati in un testo, nel
+// loro ordine. Il testo si legge com'è, con le maiuscole: la regex è del cliente.
+//
+// Una corrispondenza vuota non è un numero d'ordine, e si salta (4.13b, ritocco). La convalida rifiuta già
+// una regex che prende il vuoto (regole.Verifica), e Compila non la usa; questa è la seconda difesa, per
+// un motore che la regola la riceva per un'altra strada. Senza, «(ODA_\d{7})?» dava un vuoto a ogni
+// lettera, e il primo vuoto nascondeva l'ordine vero che veniva dopo (trovaNumeroOrdine legge il primo).
+func (m *Motore) NumeriOrdine(t string) []string {
+	if m == nil || m.ordine == nil {
+		return nil
+	}
+	var out []string
+	for _, n := range m.ordine.FindAllString(senzaURL(t), -1) {
+		if n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// NomeNumeroOrdine è la descrizione della voce `numero_ordine`, per l'evidenza.
+func (m *Motore) NomeNumeroOrdine() string {
+	if m == nil {
+		return ""
+	}
+	return m.ordineNome
+}
+
+// senzaNumeriOrdine è il testo senza i numeri d'ordine del cliente: ogni occorrenza diventa uno spazio. Un
+// codice si legge solo fuori da lì: in «ordine ODA_7120001 per il pezzo 7120001» il pezzo resta, quello
+// dentro l'ordine no. Senza la voce il testo resta com'è.
+//
+// Una corrispondenza vuota non toglie niente e non aggiunge lo spazio (4.13b, ritocco): con una regex che
+// prende il vuoto, ReplaceAllString metteva uno spazio fra ogni carattere («7120001» → « 7 1 2 0 0 0 1 »), e
+// dalla mail e dai nomi dei file spariva ogni codice. Come in NumeriOrdine, è la seconda difesa.
+func (m *Motore) senzaNumeriOrdine(t string) string {
+	if m == nil || m.ordine == nil {
+		return t
+	}
+	return m.ordine.ReplaceAllStringFunc(t, func(n string) string {
+		if n == "" {
+			return ""
+		}
+		return " "
+	})
+}
+
+// dentroUnOrdine dice se un codice letto in un testo (il nome di un file) sta soltanto dentro i numeri
+// d'ordine del cliente: è uno di loro o un loro pezzo (il confronto largo del riferimento, contieneStringa), e
+// tolti i numeri d'ordine dal testo non c'è più. Un codice che il testo cita anche fuori dall'ordine resta un
+// codice. Serve dove il codice è già stato letto (la valutazione del nome, i `codici_nel_nome` già scritti);
+// il testo di una mail invece si legge già senza i numeri d'ordine (Estrai).
+func (m *Motore) dentroUnOrdine(testo, codice string) bool {
+	for _, o := range m.NumeriOrdine(testo) {
+		if contieneStringa(o, codice) {
+			return !contieneStringa(m.senzaNumeriOrdine(testo), codice)
+		}
+	}
+	return false
+}
+
+// CitatiNelNome sono i codici che il nome di un file cita senza esserlo (PropostaDaNome.CodiciNelNome, o
+// quelli già scritti in `codici_nel_nome`) come si conservano e si suggeriscono: senza il suffisso decorativo
+// del cliente, e senza i suoi numeri d'ordine (4.13b). «Ordine ODA_0001234.pdf» non cita un codice: cita
+// l'ordine. Nil se non ne resta nessuno.
+func (m *Motore) CitatiNelNome(nome string, citati []string) []string {
+	base := strings.TrimSuffix(nome, path.Ext(nome))
+	var out []string
+	for _, c := range citati {
+		if m.dentroUnOrdine(base, c) {
+			continue
+		}
+		out = append(out, m.CanonicoNome(c))
+	}
+	return out
 }
 
 // togliSuffisso toglie una volta, senza distinguere maiuscole, il primo suffisso decorativo del cliente che
@@ -227,6 +347,22 @@ type Estrazione struct {
 	RiferimentoDove string
 	Codici          []CodiceTrovato // riferimento escluso: un riferimento non è un codice prodotto
 	HaFamiglie      bool            // il cliente ha almeno una famiglia utilizzabile
+	// NessunProdotto dice perché nessun codice di questo messaggio si propone come prodotto: la mail
+	// viene da un mittente di sistema del cliente (Smistamento 4.13b). I codici restano tutti visti
+	// (Altri), con il ruolo «non classificato», e per entrare serve un clic. Vuoto = la regola di sempre.
+	NessunProdotto string
+}
+
+// senzaProdotti è l'estrazione di un mittente di sistema: gli stessi codici, nessuno proponibile.
+func (e Estrazione) senzaProdotti(perche string) Estrazione {
+	e.NessunProdotto = perche
+	cc := make([]CodiceTrovato, len(e.Codici))
+	for i, c := range e.Codici {
+		c.Ruolo = RuoloIgnoto
+		cc[i] = c
+	}
+	e.Codici = cc
+	return e
 }
 
 // Proponibili sono i codici che possono diventare identificativi della RFQ se l'operatore li spunta.
@@ -237,6 +373,9 @@ type Estrazione struct {
 // di presentarsi come codice prodotto. I numeri generici restano visibili sotto «altri numeri
 // trovati», non spuntati: si vedono, e per entrare serve un clic.
 func (e Estrazione) Proponibili() []CodiceTrovato {
+	if e.NessunProdotto != "" {
+		return nil
+	}
 	var out []CodiceTrovato
 	for _, c := range e.Codici {
 		if e.HaFamiglie && c.Origine != "famiglia" {
@@ -254,8 +393,12 @@ func (e Estrazione) Proponibili() []CodiceTrovato {
 	return out
 }
 
-// Altri sono i numeri visti ma non proponibili: si mostrano, non si spuntano.
+// Altri sono i numeri visti ma non proponibili: si mostrano, non si spuntano. Per un mittente di
+// sistema sono tutti (NessunProdotto).
 func (e Estrazione) Altri() []CodiceTrovato {
+	if e.NessunProdotto != "" {
+		return e.Codici
+	}
 	if !e.HaFamiglie {
 		return nil
 	}
@@ -390,7 +533,20 @@ func (m *Motore) Estrai(testi ...Testo) Estrazione {
 			}
 		}
 	}
-	for _, c := range m.CodiciDa(testi...) {
+	// Smistamento 4.13b: il numero d'ordine nella forma del cliente («ODA_0001234») non è un codice
+	// prodotto, come il riferimento. L'estrattore generico lo prendeva intero e lo proponeva. A differenza
+	// del riferimento, che si confronta per testo (contieneStringa), l'ordine si toglie per posizione: i
+	// codici si leggono nel testo senza i numeri d'ordine, e un 7120001 citato anche fuori da «ODA_7120001»
+	// resta un codice. Il testo con l'ordine serve solo a chi legge l'ordine (E4), non a chi legge i codici.
+	testiCodici := testi
+	if m != nil && m.ordine != nil {
+		testiCodici = make([]Testo, len(testi))
+		for i, t := range testi {
+			t.Corpo = m.senzaNumeriOrdine(t.Corpo)
+			testiCodici[i] = t
+		}
+	}
+	for _, c := range m.CodiciDa(testiCodici...) {
 		if e.Riferimento != "" && contieneStringa(e.Riferimento, c.Codice) {
 			continue // è il riferimento della richiesta, o un suo pezzo: non è un codice prodotto
 		}

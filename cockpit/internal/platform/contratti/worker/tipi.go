@@ -641,7 +641,22 @@ const (
 	CampoTitolo        = "titolo"
 	CampoScala         = "scala"
 	CampoMateriale     = "materiale"
+	// CampoParticolareSimile: «PARTICOLARE SIMILE / SIMILAR PART» (giro 4, fase 4.6). Il valore e' il codice di
+	// un pezzo gia' fatto di cui questo e' parente: per il server una nota («simile a X»), mai il codice del file.
+	CampoParticolareSimile = "particolare_simile"
 )
+
+// VersioneTestoPDF e' la sottoversione del testo dei PDF che il worker di oggi scrive (TestoPDF.Versione, la
+// forma di `testo_pdf`, non la versione dell'analizzatore). La 2 (giro 4, fase 4.6) legge il cartiglio meglio della
+// 1: le etichette bilingui intere («DENOMINAZIONE / NAME»), «PART N°» e «PART NR» fra quelle del codice, «NAME»
+// come gemella del titolo (da sola no), il campo del particolare simile (con il segnaposto del modello che non da'
+// niente), e l'intestazione di una tabella («Pos. Part Number Q.ty», «N. CODICE DESCRIZIONE QTA») che non e' un
+// campo. Un testo di una sottoversione precedente si legge lo stesso, ma il suo cartiglio non e' contenuto (chiavi
+// e indizi, fase 4.6r) e «Rianalizza» lo riaccoda (classificazione.TestoPDFDaRileggere): la versione
+// dell'analizzatore non cambia (domanda 21 del giro 4 senza risposta), e cosi' non decade niente di quello che e'
+// legato alla chiave dei fatti. La fase 4.12 (l'elenco particolari) usera' la stessa sottoversione: un solo
+// pacchetto della postazione, una sola rianalisi.
+const VersioneTestoPDF = 2
 
 // TestoPDF è la lettura strutturata del testo di un PDF, dentro `RisultatoAnalisi.dettagli["testo_pdf"]`
 // dall'analizzatore 4 (addendum A5.13.8, decisioni del 27/09 «ter»).
@@ -682,8 +697,9 @@ type FrammentoPDF struct {
 }
 
 // CampoCartiglio è un campo del probabile cartiglio della pagina 1, come etichetta → valore («DISEGNO N.» →
-// «7120010»): Etichetta è la voce riconosciuta (Campo…), Letta com'è scritta, Valore il testo GREZZO accanto,
-// Riquadro quello del valore, Zona quella dell'etichetta.
+// «7120010»): Etichetta è la voce riconosciuta (Campo…), Letta com'è scritta (con la gemella inglese dopo la
+// barra, dalla sottoversione 2: «DENOMINAZIONE / NAME»), Valore il testo GREZZO accanto, Riquadro quello del
+// valore, Zona quella dell'etichetta.
 type CampoCartiglio struct {
 	Etichetta  string    `json:"etichetta"`
 	Letta      string    `json:"letta"`

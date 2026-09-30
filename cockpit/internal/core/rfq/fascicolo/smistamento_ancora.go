@@ -641,18 +641,20 @@ func pdfDelProdotto(f FileFlusso) bool {
 }
 
 // dicePdf dice dove il testo del PDF f porta il pezzo k in modo indipendente dal nome del file (non un indizio
-// dell'OCR, non una lettura che ripete il nome: P32): nel cartiglio, nei metadati, altrove nel testo.
+// dell'OCR, non una lettura che ripete il nome: P32): nel cartiglio, nei metadati, altrove nel testo. Il cartiglio
+// di un testo letto con il worker di prima conta come il resto del testo (DaRileggere, fase 4.6r): A-P3, da
+// confermare, finche' non si rianalizza.
 func (d *derivati) dicePdf(f FileFlusso, k string) (cartiglio, metadati, testo bool) {
 	for _, e := range f.EvidenzePDF {
 		if e.Indizio || e.DipendeDaNome || d.canonico(e.Codice) != k {
 			continue
 		}
-		switch e.Fonte {
-		case FontePDFCartiglio:
+		switch {
+		case e.DalCartiglio():
 			cartiglio = true
-		case FontePDFMetadati:
+		case e.Fonte == FontePDFMetadati:
 			metadati = true
-		case FontePDFTesto:
+		case e.Fonte == FontePDFTesto, e.DaRileggere:
 			testo = true
 		}
 	}
@@ -691,6 +693,11 @@ func (d *derivati) ancorePdf(k string) ([]Portatore, []string) {
 		case testo:
 			p.Peso, p.Regole, p.Discordanze = pesoPdfTesto, []string{"A-P3"}, []string{DiscAncoraDaConfermare}
 			motivo[f.AllegatoID] = fmt.Sprintf("il testo di %s cita %s fuori dal cartiglio (A-P3): da confermare", f.Nome, k)
+			if f.TestoPDF.DaRileggere {
+				// il cartiglio di un testo di prima conta come il resto del testo (dicePdf, fase 4.6r)
+				motivo[f.AllegatoID] = fmt.Sprintf("il testo di %s cita %s, ma è stato letto con il worker di prima (A-P3): da confermare, "+
+					"o da rianalizzare", f.Nome, k)
+			}
 		default:
 			continue
 		}
@@ -738,12 +745,18 @@ func (d *derivati) pdfDaGuardare(f FileFlusso, k string) bool {
 	return false
 }
 
-// testiPdf sono i PDF che contano per l'ancora di k, con lo stato del loro testo (Ancora.testiPdf).
+// testiPdf sono i PDF che contano per l'ancora di k, con lo stato del loro testo (Ancora.testiPdf) e, per un testo
+// letto con il worker di prima, il segno «da rileggere» (fase 4.6r): la rianalisi lascia lo stato «letto», ma
+// cambia quello che le destinazioni dicono del PDF, e la firma deve cambiare.
 func (d *derivati) testiPdf(k string) []string {
 	var out []string
 	for _, f := range d.s.File {
 		if d.pdfDaGuardare(f, k) {
-			out = append(out, f.Sha+":"+f.TestoPDF.Stato)
+			s := f.Sha + ":" + f.TestoPDF.Stato
+			if f.TestoPDF.DaRileggere {
+				s += ":da_rileggere"
+			}
+			out = append(out, s)
 		}
 	}
 	sort.Strings(out)
@@ -753,7 +766,8 @@ func (d *derivati) testiPdf(k string) []string {
 // perchePdfNonAncora dice perche' i PDF che contano per il prodotto k (pdfDaGuardare), fuori da quelli che lo
 // ancorano, non ancorano: il testo che non c'e' (la frase del suo stato: senza testo, non letto, illeggibile, da
 // analizzare, la stessa della valutazione e della schermata), il tipo che non e' un disegno, un indizio
-// dell'OCR, una lettura che ripete il nome, o un testo che non dice k. Il nome da solo non ancora mai (P32).
+// dell'OCR, una lettura che ripete il nome, o un testo che non dice k (con la frase del testo letto con il
+// worker di prima, fase 4.6r). Il nome da solo non ancora mai (P32).
 func (d *derivati) perchePdfNonAncora(k string, ancorano []Portatore) []string {
 	usato := map[uuid.UUID]bool{}
 	for _, p := range ancorano {
@@ -783,6 +797,9 @@ func (d *derivati) perchePdfNonAncora(k string, ancorano []Portatore) []string {
 			out = append(out, fmt.Sprintf("%s: l'OCR legge %s, un indizio: non ancora", f.Nome, k))
 		case ripete:
 			out = append(out, fmt.Sprintf("%s: il testo dice %s solo ripetendo il nome del file, e il nome da solo non ancora", f.Nome, k))
+		case f.TestoPDF.DaRileggere:
+			// il testo di prima (fase 4.6r) puo' non vedere il campo del codice: lo si dice
+			out = append(out, fmt.Sprintf("il testo di %s non dice %s (%s): il nome da solo non ancora", f.Nome, k, f.TestoPDF.Frase))
 		default:
 			out = append(out, fmt.Sprintf("il testo di %s non dice %s: il nome da solo non ancora", f.Nome, k))
 		}

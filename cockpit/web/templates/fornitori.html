@@ -2,11 +2,11 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-ana senza-prova">{{template "fornitori_corpo" .}}</div>
+<div id="anagrafica" class="ui ui-ana senza-prova"{{with .Dati.Scelto}}{{if not $.Dati.ChiFa}} data-indirizzo="/admin/fornitori?fornitore={{.FornitoreID}}&amp;sez={{$.Dati.Sez}}"{{end}}{{end}}>{{template "fornitori_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 <script>
 window.CockpitPagina = {
   chiave: "fornitori",
-  maniglie: { m1: { v: "--w-elenco", def: 318, min: 240, max: 480, dir: 1, chiudi: "elenco", nome: "l'elenco" } },
+  maniglie: { m1: { v: "--w-elenco", def: 318, stretta: { sotto: 1300, w: 280 }, min: 240, max: 480, dir: 1, chiudi: "elenco", nome: "l'elenco" } },
   preset: [
     { nome: "Scheda", sotto: "com'è all'inizio", schema: [[4, 0], [11, 1]], valori: [["m1", 318]] },
     { nome: "Solo la scheda", sotto: "elenco chiuso", schema: [[15, 1]], valori: [["m1", 318, true]] }

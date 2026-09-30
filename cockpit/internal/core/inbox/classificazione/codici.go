@@ -457,10 +457,28 @@ type IngressoTriage struct {
 	InReplyTo string
 }
 
-// ingressoEvento è la parte del messaggio che legge l'evento: tutto tranne i candidati.
+// ingressoEvento è la parte del messaggio che legge l'evento: tutto tranne i candidati. Con le regole del
+// cliente (4.13b), che dicono chi scrive per lui senza essere una persona e come chiama i suoi ordini.
 func (in IngressoTriage) ingressoEvento() IngressoEvento {
 	return IngressoEvento{Controparte: in.Controparte, Direzione: in.Direzione, Interno: in.Interno,
-		Oggetto: in.Oggetto, Corpo: in.Corpo, InReplyTo: in.InReplyTo, NomiAllegati: in.NomiAllegati, Mittente: in.Mittente}
+		Oggetto: in.Oggetto, Corpo: in.Corpo, InReplyTo: in.InReplyTo, NomiAllegati: in.NomiAllegati, Mittente: in.Mittente,
+		Motore: in.Motore}
+}
+
+// mittenteDiSistema dice se il messaggio viene da un mittente di sistema del cliente (Smistamento 4.13b), con
+// la frase dei motivi. Vale per la posta in entrata di un cliente, anche con la controparte non dichiarata
+// (il banco di prova e i messaggi di prima della 0014 che hanno comunque il motore del cliente); mai per un
+// collega che gira una mail, né per un fornitore. La condizione è quella dell'evento (postaDelCliente, E1b).
+func (in IngressoTriage) mittenteDiSistema() (string, bool) {
+	if !postaDelCliente(in.Controparte, in.Direzione, in.Interno) {
+		return "", false
+	}
+	ms, ok := in.Motore.MittenteDiSistema(in.Mittente)
+	if !ok {
+		return "", false
+	}
+	return "mittente di sistema del cliente: " + descriviMittente(ms) + ", " + ms.Evento +
+		". Non è una richiesta nuova, e i suoi codici non si propongono come prodotti", true
 }
 
 // Testi sono i pezzi di messaggio in cui si cercano numeri, ognuno con l'etichetta di dove sta.
@@ -540,8 +558,11 @@ var reParoleRFQ = regexp.MustCompile(`\b(rfq|rdo|richiesta d['’]offerta|richie
 // capitolato, un'offerta del fornitore, una conferma d'ordine o la firma di qualcuno: dire «allegato
 // tecnico» prima di averlo aperto è un'affermazione su un file che nessuno ha letto. Contano lo stesso,
 // ma per quello che sono: allegati di tipo ancora da determinare.
+//
+// Il disegno (`.dft`) e la lamiera 3D (`.psm`) di Solid Edge ci sono dalla 4.13b, per tutti i clienti:
+// sono disegno quanto un DWG o uno STEP.
 var estensioniTecniche = map[string]bool{"stp": true, "step": true, "sldprt": true, "sldasm": true,
-	"igs": true, "iges": true, "x_t": true, "x_b": true, "dxf": true, "dwg": true,
+	"igs": true, "iges": true, "x_t": true, "x_b": true, "dxf": true, "dwg": true, "dft": true, "psm": true,
 	"zip": true, "7z": true, "rar": true}
 
 // estensioniDaDeterminare sono documenti che potrebbero essere tecnici e potrebbero non esserlo.
@@ -606,6 +627,10 @@ func triageEsito(in IngressoTriage) EsitoTriage {
 	// facendo una a noi che non è una RFQ cliente: in nessuno dei due casi si apre una RFQ. Se c'è
 	// l'evidenza di una nostra richiesta esistente si propone l'aggancio (è la sua offerta),
 	// altrimenti non si propone niente. I codici si estraggono lo stesso: la schermata li mostra.
+	//
+	// Smistamento 4.13b: un mittente di sistema del cliente si sa prima di leggere le parole, come
+	// nell'evento (E1b prima di E2): le parole generiche di NonBusiness («noreply») non lo spengono.
+	perche, sistema := in.mittenteDiSistema()
 	switch in.Controparte {
 	case ControparteFornitore:
 		return triageFornitore(in, motivi)
@@ -622,7 +647,7 @@ func triageEsito(in IngressoTriage) EsitoTriage {
 		// senza questa guardia una risposta con In-Reply-To verso una nostra RFQ (R0 a 98) diventava
 		// «ignora, non è posta di lavoro». Se un candidato dice che la richiesta esiste ed è aperta,
 		// decide lui (più sotto, nella precedenza); le parole contano solo quando non c'è evidenza.
-		if !EvidenzaDiRFQEsistente(in.Candidati) {
+		if !EvidenzaDiRFQEsistente(in.Candidati) && !sistema {
 			if si, m := NonBusiness(in.Mittente, in.Oggetto, in.Corpo); si {
 				motivi = append(motivi, m, "posta di un cliente che non è di lavoro: se l'indirizzo è automatico, censiscilo come Altro")
 				return EsitoTriage{Esito: "ignora", Confidenza: 0, Motivi: motivi, Codici: []string{}, Legame: LegameNessuno}
@@ -667,6 +692,14 @@ func triageEsito(in IngressoTriage) EsitoTriage {
 		motivi = append(motivi, "dominio mittente è un cliente censito")
 	}
 	e := in.Motore.Estrai(in.Testi()...)
+	// Smistamento 4.13b: un mittente di sistema del cliente (un avviso, un ordine generato da un sistema)
+	// non apre una RFQ e non propone i suoi codici come prodotti. I codici si vedono, fra gli altri numeri
+	// trovati, e l'aggancio resta quello delle evidenze: un ordine di una RFQ che c'è si aggancia.
+	if sistema {
+		// in testa: è la frase che spiega perché le parole trovate («rfq», «richiesta») non contano
+		e = e.senzaProdotti(perche)
+		motivi = append([]string{perche}, motivi...)
+	}
 	// `Codici` è ciò che può diventare identificativo della RFQ se l'operatore lo spunta. Con un
 	// cliente che ha famiglie dichiarate, l'estrattore generico non ci entra (Proponibili).
 	codici := dedup(SoloCodici(e.Proponibili()))
@@ -738,8 +771,13 @@ func triageEsito(in IngressoTriage) EsitoTriage {
 		}
 	}
 	out.Esito = "ignora"
-	if punti >= 50 {
+	if punti >= 50 && !sistema {
 		out.Esito = "nuova_rfq"
+	}
+	if sistema {
+		// «ignora» come per la posta che non è di lavoro: a zero, perché i punti del contenuto misurano
+		// quanto la mail SEMBRA una richiesta, e di questa si sa che non lo è
+		out.Confidenza = 0
 	}
 	if len(motivi) == 0 {
 		motivi = []string{"nessun indizio RFQ"}

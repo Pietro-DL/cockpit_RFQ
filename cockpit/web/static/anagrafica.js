@@ -101,6 +101,17 @@
   /* ---------------------------------------------------------------- «modifiche non salvate» e il banco di prova */
   function sporco(form) { const b = form?.querySelector(".salva-barra"); if (b) b.hidden = false; }
   function prova() { const f = $("#form-prova"); if (f && window.htmx) htmx.trigger(f, "prova"); }
+  // Il mittente di sistema (giro 4, 4.13b) si prova solo con la prova a pagina intera (POST …/prova senza htmx), che
+  // usa le regole salvate: con il campo pieno il banco non risponde mentre si scrive, e «Prova» manda il modulo.
+  document.addEventListener("htmx:confirm", e => {
+    const f = e.target; if (f.id !== "form-prova") return;
+    const m = f.querySelector("[name=mittente]"); if (!m || !m.value.trim()) return;
+    e.preventDefault();
+    if (e.detail.triggeringEvent?.type === "submit") f.submit();
+  });
+  function notaMittente() {
+    const m = $("#form-prova [name=mittente]"), n = $("#nota-mittente"); if (m && n) n.hidden = !m.value.trim();
+  }
 
   /* ---------------------------------------------------------------- qualifiche: solo chi fa la lavorazione */
   function qualifiche() {
@@ -120,6 +131,7 @@
     if (t.id === "g-peso") { const o = t.nextElementSibling; if (o) o.value = t.value; }
     const f = t.closest(".form-scheda"); if (f) sporco(f);
     if (t.closest("#form-regole")) { famiglie(); prova(); }
+    if (t.name === "mittente" && t.closest("#form-prova")) notaMittente();
   });
   document.addEventListener("change", e => {
     if (e.target.id === "ordina-ana") return elenco();

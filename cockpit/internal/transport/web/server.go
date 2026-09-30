@@ -167,6 +167,9 @@ var funzioni = template.FuncMap{
 		return out
 	},
 	"uuidBreve": func(u uuid.UUID) string { return u.String()[:8] },
+	// cache C1: l'indirizzo dell'anteprima con l'impronta del contenuto, l'unico che il browser puo' tenere
+	// senza richiederlo (anteprima.go)
+	"indirizzoAnteprima": func(id uuid.UUID, sha pgtype.Text) string { return indirizzoAnteprima(id, sha.String) },
 	"tipiDocumento": func() []string {
 		out := make([]string, 0, len(db.AllTipoDocumentoValues()))
 		for _, t := range db.AllTipoDocumentoValues() {
@@ -285,7 +288,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html", "distinta.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html", "distinta.html", "forme.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)

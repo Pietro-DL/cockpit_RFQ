@@ -2,12 +2,12 @@
 <link rel="stylesheet" href="{{statico "ui.css"}}">
 <link rel="stylesheet" href="{{statico "anagrafica.css"}}">
 {{template "ui_icone"}}
-<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}">{{template "anagrafica_corpo" .}}</div>
+<div id="anagrafica" class="ui ui-ana {{if ne .Dati.Tab "clienti"}}senza-prova{{end}} {{if not .Dati.Scelto}}senza-prova{{end}}"{{if eq .Dati.Tab "clienti"}}{{with .Dati.Scelto}} data-indirizzo="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{if eq $.Dati.Sez "prova"}}riconoscimento{{else}}{{$.Dati.Sez}}{{end}}"{{end}}{{end}}>{{template "anagrafica_corpo" .}}<div id="ui-toast" aria-live="polite"></div></div>
 <script>
 window.CockpitPagina = {
   chiave: "anagrafica",
   maniglie: {
-    m1: { v: "--w-elenco", def: 318, min: 240, max: 480, dir: 1, chiudi: "elenco", nome: "l'elenco" },
+    m1: { v: "--w-elenco", def: 318, stretta: { sotto: 1300, w: 280 }, min: 240, max: 480, dir: 1, chiudi: "elenco", nome: "l'elenco" },
     m2: { v: "--w-prova", def: 380, min: 300, max: 660, dir: -1, chiudi: "prova", nome: "il banco di prova" }
   },
   preset: [
@@ -25,6 +25,9 @@ window.CockpitPagina = {
 
 {{define "anagrafica_corpo"}}
 {{$d := .Dati}}
+{{/* La prova a pagina intera (POST …/prova, quella con il mittente) torna con la sezione «prova», che nella
+     scheda nuova non c'è: si resta su Riconoscimento, dove stanno le regole che la prova usa. */}}
+{{$sez := $d.Sez}}{{if eq $sez "prova"}}{{$sez = "riconoscimento"}}{{end}}
 {{template "ana_testa" (arr $d.Tab (sel (gt $d.DaCompletare 0) (printf "%d clienti attivi con la scheda da completare" $d.DaCompletare) "") false)}}
 {{if $d.Errore}}<div class="avviso-box bad ana-esito" role="alert"><b>Non salvato.</b> {{$d.Errore}}</div>{{end}}
 {{if $d.Fatto}}<div class="avviso-box ok ana-esito" role="status">{{$d.Fatto}}</div>{{end}}
@@ -56,7 +59,7 @@ window.CockpitPagina = {
   </div>
   <div class="ae-voci" id="ae-voci">
     {{range $d.RigheClienti}}{{$cc := .Completezza}}
-    <a href="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$d.Sez}}" class="ae-voce {{if not .Attivo}}spento{{end}}" {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}aria-current="page"{{end}}
+    <a href="/admin/anagrafica?cliente={{.ClienteID}}&amp;sez={{$sez}}" class="ae-voce {{if not .Attivo}}spento{{end}}" {{if and $d.Scelto (eq .ClienteID $d.Scelto.ClienteID)}}aria-current="page"{{end}}
        data-nome="{{.RagioneSociale}} {{.CartellaNas}}" data-peso="{{.Peso}}" data-rfq="{{.NRichieste}}" data-incompleto="{{and .Attivo (not .Completa)}}" data-spento="{{not .Attivo}}">
       <b>{{.RagioneSociale}}</b>
       <small><span class="mono">{{.CartellaNas}}</span> · {{.NDomini}} domini · {{.NBuyer}} persone · {{.NRichieste}} RFQ{{if not .Attivo}} · non attivo{{end}}</small>
@@ -91,12 +94,12 @@ window.CockpitPagina = {
     {{if not $c.Attivo}}<span class="chip warn">non attivo</span>{{end}}</div>
   <nav class="passi-a" aria-label="Sezioni">
     {{range $d.Sezioni}}{{if ne .Chiave "prova"}}
-    <a class="passo-a" href="/admin/anagrafica?cliente={{$c.ClienteID}}&amp;sez={{.Chiave}}" {{if eq $d.Sez .Chiave}}aria-current="page"{{end}}><b>{{.Nome}}</b>
+    <a class="passo-a" href="/admin/anagrafica?cliente={{$c.ClienteID}}&amp;sez={{.Chiave}}" {{if eq $sez .Chiave}}aria-current="page"{{end}}><b>{{.Nome}}</b>
       <small>{{if eq .Chiave "generale"}}peso {{$c.Peso}}{{if $c.Lingua.Valid}} · {{$c.Lingua.String}}{{end}}{{else if eq .Chiave "contatti"}}{{len $d.Domini}} domini · {{len $d.Buyer}} persone{{else if eq .Chiave "riconoscimento"}}{{len $r.FamiglieCodice}} famigli{{if eq (len $r.FamiglieCodice) 1}}a{{else}}e{{end}}{{else if eq .Chiave "fabbisogno"}}{{if $d.Propri}}suo, in parte{{else}}predefinito{{end}}{{else}}convenzioni e qualifiche{{end}}</small></a>
     {{end}}{{end}}
   </nav>
   <div class="contenuto">
-  {{if eq $d.Sez "generale"}}
+  {{if eq $sez "generale"}}
     <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}" class="form-scheda" id="form-generale">
       <input type="hidden" name="sez" value="generale">
       <div class="riga-campo"><label for="g-rs">Ragione sociale<small>come compare in fattura</small></label><input id="g-rs" name="ragione_sociale" value="{{$c.RagioneSociale}}"></div>
@@ -113,14 +116,14 @@ window.CockpitPagina = {
     </form>
   {{end}}
 
-  {{if eq $d.Sez "contatti"}}
+  {{if eq $sez "contatti"}}
     <div class="carta"><h3>Domini</h3>
       <p class="sotto">Il dominio del mittente è il modo in cui la posta viene attribuita a questo cliente. Appartiene a un cliente solo: se è già di un altro, il Cockpit lo dice invece di spostarlo.</p>
       <div class="lista-chip">
-        {{range $d.Domini}}<form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina" class="chip vuoto"><span class="mono">{{.Dominio}}</span><input type="hidden" name="dominio" value="{{.Dominio}}"><button title="togli {{.Dominio}}" aria-label="togli {{.Dominio}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>
+        {{range $d.Domini}}<form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio/elimina" class="chip vuoto"><span class="mono">{{.Dominio}}</span><input type="hidden" name="sez" value="contatti"><input type="hidden" name="dominio" value="{{.Dominio}}"><button title="togli {{.Dominio}}" aria-label="togli {{.Dominio}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>
         {{else}}<span class="nota">Nessun dominio: la posta di questo cliente non viene riconosciuta dal mittente.</span>{{end}}
       </div>
-      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" class="aggiungi-in"><input name="dominio" placeholder="cliente.com" aria-label="dominio da aggiungere"><button class="btn piccolo">Aggiungi dominio</button></form>
+      <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/dominio" class="aggiungi-in"><input type="hidden" name="sez" value="contatti"><input name="dominio" placeholder="cliente.com" aria-label="dominio da aggiungere"><button class="btn piccolo">Aggiungi dominio</button></form>
     </div>
     <div class="carta"><h3>Persone</h3>
       <p class="sotto">La maggior parte si censisce da sola dal triage dell'Inbox. Chi ha già scritto non si toglie: non si saprebbe più chi ha mandato quei messaggi.</p>
@@ -144,7 +147,7 @@ window.CockpitPagina = {
     </div>
   {{end}}
 
-  {{if eq $d.Sez "riconoscimento"}}
+  {{if eq $sez "riconoscimento"}}
     {{/* Il form, non il JSON. «Rev nel codice» porta il numero della riga: il browser manda solo le caselle
          spuntate, e letta per posizione la spunta di una famiglia finiva su un'altra. Le spunte degli esempi le
          mette anagrafica.js con la regola scritta adesso; il banco di prova qui accanto usa le stesse regole. */}}
@@ -190,6 +193,32 @@ window.CockpitPagina = {
           <label class="campo">Esempio <input name="rif_esempio" class="mono-in" value="{{with $r.RiferimentoRFQ}}{{.Esempio}}{{end}}"></label>
           <label class="campo largo">Regola <input name="rif_regex" class="regex-in" value="{{with $r.RiferimentoRFQ}}{{.Regex}}{{end}}" placeholder="\bRDO\s*\d{9}\b" spellcheck="false"></label>
         </div></div>
+      <div class="carta"><h3>Numero d'ordine</h3>
+        <p class="sotto">La forma del numero d'ordine di questo cliente («ODA_0001234»). Un numero così non è un codice prodotto e non si propone; nella mail è una parola d'ordine, e la mail è un ordine. Vale solo per questo cliente: per un altro la stessa forma può essere un codice vero.</p>
+        <div class="campi">
+          <label class="campo">Descrizione <input name="ord_descrizione" value="{{with $r.NumeroOrdine}}{{.Descrizione}}{{end}}"></label>
+          <label class="campo">Esempio <input name="ord_esempio" value="{{with $r.NumeroOrdine}}{{.Esempio}}{{end}}" class="mono-in"></label>
+          <label class="campo largo">Regola <input name="ord_regex" class="regex-in" value="{{with $r.NumeroOrdine}}{{.Regex}}{{end}}" placeholder="\bODA_\d{7}\b" spellcheck="false"></label>
+        </div></div>
+      <div class="carta"><h3>Mittenti di sistema</h3>
+        <p class="sotto">Gli indirizzi, o gli host, da cui questo cliente manda posta che nessuna persona ha scritto: avvisi di un gestionale, ordini generati da un sistema. La loro posta ha l'evento scritto qui prima di leggerne le parole, non propone una RFQ nuova e non propone i suoi codici come prodotti.</p>
+        <p class="nota">Un host vale per la posta che viene proprio da lì («server.cliente.example»), non per tutto il dominio: un dominio intero, un dominio principale del cliente o quello di un suo contatto non si accettano, perché anche le richieste dei buyer diventerebbero avvisi. L'esempio è un indirizzo vero da cui arriva quella posta. Svuotare il mittente di una riga la cancella; il banco di prova qui accanto ha il campo «Mittente» per provarla.</p>
+        <div class="mittenti">
+          {{range $r.MittentiSistema}}{{$ev := .Evento}}
+          <div class="campi mittente-riga">
+            <label class="campo">Mittente (indirizzo o host) <input name="mit_mittente" value="{{.Mittente}}" class="mono-in"></label>
+            <label class="campo">Evento <select name="mit_evento">{{range $d.EventiPer $ev}}<option value="{{.}}" {{if eq . $ev}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+            <label class="campo">Descrizione <input name="mit_descrizione" value="{{.Descrizione}}"></label>
+            <label class="campo">Esempio <input name="mit_esempio" value="{{.Esempio}}" class="mono-in"></label>
+          </div>
+          {{end}}
+          <div class="campi mittente-riga nuova">
+            <label class="campo">Nuovo mittente <input name="mit_mittente" class="mono-in" placeholder="avvisi@cliente.example"></label>
+            <label class="campo">Evento <select name="mit_evento">{{range $d.EventiMittente}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+            <label class="campo">Descrizione <input name="mit_descrizione" placeholder="avvisi del gestionale documentale"></label>
+            <label class="campo">Esempio <input name="mit_esempio" class="mono-in" placeholder="avvisi@cliente.example"></label>
+          </div>
+        </div></div>
       <div class="carta"><h3>Come si comporta</h3>
         <div class="campi">
           <label class="campo">Canale atteso <input name="canale_atteso" value="{{$r.CanaleAtteso}}" placeholder="mail con .msg annidato"></label>
@@ -204,7 +233,9 @@ window.CockpitPagina = {
         <div class="fila">
           <label class="interruttore"><input type="checkbox" name="richiede_cbd" value="1" {{if $r.RichiedeCBD}}checked{{end}}> l'offerta vuole il cost breakdown</label>
           <label class="interruttore"><input type="checkbox" name="numero_ordine_anticipato" value="1" {{if $r.NumeroOrdineAnticipato}}checked{{end}}> emette il numero d'ordine prima dell'offerta</label>
-        </div></div>
+          <label class="interruttore"><input type="checkbox" name="ordine_da_verificare" value="1" {{if $r.OrdineDaVerificare}}checked{{end}}> una mail con «ordine» va verificata: può essere una richiesta</label>
+        </div>
+        <p class="nota">Con il numero d'ordine prima dell'offerta, un ordine accanto a una parola di richiesta non fa un ordine: la mail si legge come se l'ordine non ci fosse (una richiesta nuova, un sollecito, una revisione dei disegni), e l'ordine resta fra le evidenze. «SI CTE» (l'oggetto delle mail del portale) vale come richiesta solo accanto all'ordine; «SI RFQ» contiene già «RFQ», che vale come richiesta per tutti i clienti. La seconda casella è la voce più debole: l'ordine resta un ordine, ma probabile, e sceglie l'operatore.</p></div>
       {{template "ana_salva" "Salva le regole"}}
     </form>
     {{if $d.Diagnosi}}<details class="carta"><summary><b>Tutte le regole, una per una</b></summary>
@@ -215,7 +246,7 @@ window.CockpitPagina = {
         <button class="btn piccolo">Salva il JSON</button></form></details>
   {{end}}
 
-  {{if eq $d.Sez "fabbisogno"}}
+  {{if eq $sez "fabbisogno"}}
     <div class="carta"><h3>Che cosa deve esserci</h3>
       <p class="sotto">Per tipo di pezzo, che cosa serve perché la fattibilità possa partire. Tratteggiato: predefinito, uguale per tutti i clienti. Una riga «sua» vale solo per questo cliente.</p>
       <div class="matrice-wrap"><table class="matrice"><thead><tr><th>Pezzo</th>{{range $d.DocFabbisogno}}<th>{{.Nome}}</th>{{end}}<th></th></tr></thead><tbody>
@@ -239,7 +270,7 @@ window.CockpitPagina = {
     </div>
   {{end}}
 
-  {{if eq $d.Sez "lavorazioni"}}
+  {{if eq $sez "lavorazioni"}}
     <div class="carta"><h3>Convenzioni di codice</h3>
       <p class="sotto">Come questo cliente scrive la lavorazione nel codice del pezzo: un suffisso, o una regola. Ogni convenzione vuole un esempio che le corrisponda e, se c'è, un controesempio che no. Un codice che corrisponde a più convenzioni richiede tutte le loro lavorazioni.</p>
       {{range $i, $cv := $d.Convenzioni}}{{$dg := index $d.DiagnosiConvenzioni $i}}
@@ -267,10 +298,11 @@ window.CockpitPagina = {
     </div>
     <div class="carta"><h3>Fornitori qualificati</h3>
       <p class="sotto">Chi è abilitato a fare quale lavorazione per questo cliente. Non è la capacità del fornitore: un fornitore può fare la zincatura e non essere qualificato qui. Senza qualifiche il cliente non ha nessuno, non «tutti quelli che la fanno».</p>
-      {{range $d.Qualifiche}}
-      <div class="qual-riga"><b>{{.LavorazioneDescrizione}}</b><div class="lista-chip">
-        <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica/elimina" class="chip vuoto"><a href="/admin/fornitori?fornitore={{.FornitoreID}}">{{.Fornitore}}</a><input type="hidden" name="fornitore_id" value="{{.FornitoreID}}"><input type="hidden" name="lavorazione" value="{{.Lavorazione}}"><button aria-label="togli la qualifica"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form></div></div>
-      {{else}}<p class="nota">Nessun fornitore qualificato per questo cliente.</p>{{end}}
+      {{/* una riga per lavorazione, con tutti i suoi fornitori: le qualifiche arrivano ordinate per lavorazione */}}
+      {{$prec := ""}}{{range $i, $q := $d.Qualifiche}}{{if ne $q.Lavorazione $prec}}{{if $i}}</div></div>{{end}}
+      <div class="qual-riga"><b>{{$q.LavorazioneDescrizione}}</b><div class="lista-chip">{{$prec = $q.Lavorazione}}{{end}}
+        <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica/elimina" class="chip vuoto"><a href="/admin/fornitori?fornitore={{$q.FornitoreID}}">{{$q.Fornitore}}</a><input type="hidden" name="fornitore_id" value="{{$q.FornitoreID}}"><input type="hidden" name="lavorazione" value="{{$q.Lavorazione}}"><button aria-label="togli la qualifica di {{$q.Fornitore}}"><svg class="ico s" aria-hidden="true"><use href="#i-x"/></svg></button></form>{{end}}{{if $d.Qualifiche}}</div></div>{{else}}
+      <p class="nota">Nessun fornitore qualificato per questo cliente.</p>{{end}}
       <form method="post" action="/admin/anagrafica/{{$c.ClienteID}}/qualifica" class="passaggi-ana">
         <label class="campo">Lavorazione <select name="lavorazione" id="q-lav">{{range $d.Lavorazioni}}<option value="{{.Codice}}">{{.Descrizione}}</option>{{end}}</select></label>
         <label class="campo">Fornitore <select name="fornitore_id" id="q-forn">{{range $d.Fornitori}}<option value="{{.FornitoreID}}" data-lav="{{$d.CapacitaDi .FornitoreID}}">{{.RagioneSociale}}</option>{{end}}</select></label>
@@ -287,12 +319,14 @@ window.CockpitPagina = {
 <aside class="col prova" aria-label="Banco di prova">
 {{with $d.Scelto}}{{$c := .}}
   <span class="label">Banco di prova · {{$c.CartellaNas}}</span>
-  <form class="carta" id="form-prova" hx-post="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-target="#prova-esito" hx-trigger="submit, input changed delay:700ms, prova delay:700ms"
+  <form class="carta" id="form-prova" method="post" action="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-post="/admin/anagrafica/{{$c.ClienteID}}/prova" hx-target="#prova-esito" hx-trigger="submit, input changed delay:700ms, prova delay:700ms"
         hx-include="#form-regole" hx-vals='js:{dal_form: document.getElementById("form-regole") ? "1" : ""}'>
     <h3>Prova una mail</h3>
-    <p class="sotto">Passa per lo stesso riconoscimento dei messaggi veri{{if eq $d.Sez "riconoscimento"}}, con le regole come sono scritte adesso, anche prima di salvarle{{end}}. Prima riga = oggetto, il resto = corpo.</p>
+    <p class="sotto">Passa per lo stesso riconoscimento dei messaggi veri{{if eq $sez "riconoscimento"}}, con le regole come sono scritte adesso, anche prima di salvarle{{end}}. Prima riga = oggetto, il resto = corpo.</p>
     <textarea name="testo" rows="9" spellcheck="false" placeholder="RICHIESTA D'OFFERTA …">{{if $d.Prova}}{{$d.Prova.Testo}}{{end}}</textarea>
     <label class="campo">Nomi degli allegati, separati da spazio <input name="allegati" class="mono-in" placeholder="7654322A2_B.pdf 7654322A2.stp"></label>
+    <label class="campo">Mittente (facoltativo, per provare un mittente di sistema) <input name="mittente" value="{{if $d.Prova}}{{$d.Prova.Mittente}}{{end}}" class="mono-in" placeholder="avvisi@cliente.example"></label>
+    <p class="nota" id="nota-mittente" {{if not (and $d.Prova $d.Prova.Mittente)}}hidden{{end}}>Con un mittente la prova parte da «Prova» e usa le regole salvate: salva prima quelle appena scritte.</p>
     <button class="btn piccolo" style="justify-self:start">Prova</button>
   </form>
   <div id="prova-esito">{{with $d.Prova}}{{template "ana_prova_esito_corpo" .}}{{end}}</div>
@@ -313,7 +347,7 @@ window.CockpitPagina = {
 {{define "ana_prova_esito_corpo"}}{{$t := .Esito.Triage}}
 <div class="carta {{if eq $t.Esito "nuova_rfq"}}tono-ok{{else if eq $t.Esito "aggancia"}}tono-acc{{end}}">
   <span class="label">L'Inbox proporrebbe{{if .DalForm}} · con le regole scritte adesso{{end}}</span>
-  <h3>{{if eq $t.Esito "nuova_rfq"}}Una richiesta nuova di {{.Cliente}}{{else if eq $t.Esito "aggancia"}}Di agganciare a una RFQ aperta{{else if eq $t.Esito "ignora"}}Di ignorarla{{else}}{{$t.Esito}}{{end}} <small class="k mono" title="l'esito del triage">{{$t.Esito}}</small></h3>
+  <h3>{{if eq $t.Esito "nuova_rfq"}}Una richiesta nuova di {{.Cliente}}{{else if eq $t.Esito "aggancia"}}Di agganciare a una RFQ aperta{{else if eq $t.Esito "ignora"}}Di ignorarla{{else}}{{$t.Esito}}{{end}} <small class="k mono" title="l'esito proposto dal triage"><strong>{{$t.Esito}}</strong></small></h3>
   <dl class="dl">
     <dt>Riferimento</dt><dd>{{if $t.Riferimento}}<span class="mono">{{$t.Riferimento}}</span> <small class="k">{{$t.RiferimentoNome}}: non è un codice prodotto</small>{{else}}<span class="k">nessuno</span>{{end}}</dd>
     <dt>Codici</dt><dd class="chips">{{range $t.Estrazione.Proponibili}}<span class="chip acc mono" title="famiglia «{{.Famiglia}}» · {{.Dove}}">{{.Codice}}{{if .Rev}} rev {{.Rev}}{{end}}</span>{{else}}<span class="k">nessuno: aggiungi una famiglia</span>{{end}}</dd>

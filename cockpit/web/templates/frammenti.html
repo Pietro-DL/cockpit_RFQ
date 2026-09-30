@@ -205,6 +205,10 @@
       <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=fornitore" hx-target="#pannello">È un fornitore</button>
       <button type="button" class="btn" hx-get="/messaggio/{{$id}}/censisci?come=altro" hx-target="#pannello" title="corriere, banca, newsletter: la sua posta va nel quadrante Altro">Altro</button>
     </div>
+    {{if eq .Riga.TriageEsito.String "ignora"}}
+    <button type="button" class="btn pieno" hx-get="/messaggio/{{$id}}/censisci?come=altro&amp;ignora=1" hx-target="#pannello">Ignora e mettilo fra «Altro»</button>
+    <p class="nota">Newsletter e notifiche: con «Altro» le prossime mail di questo mittente vanno nel quadrante Altro.</p>
+    {{end}}
     <p class="nota">Se sai già dove va, puoi anche decidere subito.</p>
     {{template "decisione_altri" (arr $id "aggancia nuova ignora" $forn .Riga.Ignorato)}}
   {{else if eq $d.Tipo "ignora"}}
@@ -273,7 +277,7 @@
     {{else if eq $a.Stato "errore"}}<span class="chip bad" title="{{$a.Errore.String}}">errore</span>
     {{else if eq $a.Stato "grezzo"}}<span class="chip">da scaricare</span>
     {{else}}<span class="chip {{if eq $a.Stato "analizzato"}}ok{{else}}acc{{end}}">{{$a.Stato}}</span>{{end}}
-    {{if $a.Anteprimabile}}<a class="btn piccolo" href="/allegato/{{$a.AllegatoID}}/anteprima" target="_blank" rel="noopener" data-anteprima="{{$a.NomeFile}}"
+    {{if $a.Anteprimabile}}<a class="btn piccolo" href="{{indirizzoAnteprima $a.AllegatoID $a.Sha256}}" target="_blank" rel="noopener" data-anteprima="{{$a.NomeFile}}"
       title="Si apre qui sopra: dallo staging se c'è, altrimenti dal file sul NAS"><svg class="ico s" aria-hidden="true"><use href="#i-occhio"/></svg> Anteprima</a>{{end}}
   </span>
 </div>
@@ -383,7 +387,7 @@
     {{else}}<span class="chip {{if eq .Stato "analizzato"}}fatto{{else}}pronto{{end}}">{{.Stato}}</span>{{if .Sha256.Valid}} <small class="muto" title="{{.Sha256.String}}">{{slice .Sha256.String 0 8}}</small>{{end}}{{end}}
   </td>
   <td class="azioni-riga">
-    {{if .Anteprimabile}}<a class="piccolo" href="/allegato/{{.AllegatoID}}/anteprima" target="_blank" rel="noopener"
+    {{if .Anteprimabile}}<a class="piccolo" href="{{indirizzoAnteprima .AllegatoID .Sha256}}" target="_blank" rel="noopener"
       title="Apre il PDF in una scheda nuova: dallo staging se c'e', altrimenti dal file sul NAS">Anteprima</a>{{end}}
     {{if and .Confermabile $.Agganciato $.Gesti}}
       <details class="conferma">
@@ -511,7 +515,7 @@
       <div class="testa"><h3>Un'altra RFQ</h3><small>cerca fra le RFQ aperte</small></div>
       <label class="cerca"><svg class="ico" aria-hidden="true"><use href="#i-cerca"/></svg>
         <input type="search" name="q" placeholder="oggetto, cliente, codice, riferimento…"
-               hx-get="/thread/cerca" hx-trigger="keyup changed delay:300ms, search" hx-target="#thread-risultati"></label>
+               hx-get="/thread/cerca" hx-trigger="input changed delay:300ms, search" hx-target="#thread-risultati"></label>
       <div id="thread-risultati"></div>
     </fieldset>
     {{/* Scelta 6 dello Smistamento: l'aggancio fa diventare prodotti soltanto i codici spuntati o scritti qui, e
@@ -592,7 +596,7 @@
   <div class="campi">
     <label class="campo">Ragione sociale <input name="cliente_nome" placeholder="es. Meccanica Nord S.p.A."></label>
     <label class="campo">Cartella NAS <input name="cliente_cartella" placeholder="es. ACME MACCHINE" style="text-transform:uppercase"
-           hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="keyup changed delay:300ms"
+           hx-get="/anagrafica/buyer?messaggio={{.M.MessaggioID}}" hx-target="#buyer-select" hx-trigger="input changed delay:300ms"
            hx-include="[name='cliente_id'],[name='oggetto'],[name='buyer_cognome'],this"></label>
     <label class="campo">Dominio mail <input name="cliente_dominio" value="{{.Dominio}}"></label>
   </div>
@@ -706,7 +710,7 @@
   {{range .Carte}}
   <div class="cand {{if .Chiuso}}chiuso{{end}} {{if .Primo}}primo{{end}}">
     <div class="testa">
-      <span class="t"><b>RFQ {{if .Cartella}}{{.Cartella}}{{else}}{{.Oggetto}}{{end}}</b><small>{{.Cliente}}{{if .Riferimento}} · {{.Riferimento}}{{end}} · aperta dal {{data .DataInizio}}</small></span>
+      <span class="t"><b>RFQ {{if .Riferimento}}{{.Riferimento}}{{else if .Oggetto}}{{.Oggetto}}{{else}}{{.Cartella}}{{end}}</b><small>{{.Cliente}} · aperta dal {{data .DataInizio}}</small>{{if .Cartella}}<small class="mono" title="cartella sul NAS">{{.Cartella}}</small>{{end}}</span>
       <span class="liv forza {{.Livello.Chiave}}" title="livello e score della sua evidenza più forte: ordinano, non sono una probabilità">{{.Forza}}</span>
     </div>
     <ul class="evidenze">{{range .Evidenze}}<li>{{.Evidenza}} <small>({{.Livello}})</small></li>{{end}}</ul>
@@ -747,7 +751,7 @@
     {{if .Errore}}<div class="avviso-box bad errore-box" role="alert">{{.Errore}}</div>{{end}}
     <div class="seg-link" role="group" aria-label="Come">
       {{range $k := list "cliente" "fornitore" "altro"}}
-      <a href="#" hx-get="/messaggio/{{$.Dati.M.MessaggioID}}/censisci?come={{$k}}{{if $.Dati.Ignora}}&amp;ignora=1{{end}}" hx-target="#pannello" {{if eq $.Dati.Come $k}}aria-current="true"{{end}}>{{if eq $k "altro"}}altro (corriere, banca, newsletter){{else}}{{$k}}{{end}}</a>
+      <a href="#" hx-get="/messaggio/{{$.Dati.M.MessaggioID}}/censisci?come={{$k}}{{if $.Dati.Ignora}}&amp;ignora=1{{end}}" hx-target="#pannello" {{if eq $.Dati.Come $k}}aria-current="true"{{end}} {{if eq $k "altro"}}title="corriere, banca, newsletter: né cliente né fornitore"{{end}}>{{$k}}</a>
       {{end}}
     </div>
     <fieldset class="blocco">
@@ -902,6 +906,7 @@
     <a href="/admin/anagrafica" {{if eq $tab "clienti"}}aria-current="page"{{end}}>Clienti</a>
     <a href="/admin/fornitori" {{if eq $tab "fornitori"}}aria-current="page"{{end}}>Fornitori</a>
     <a href="/admin/anagrafica/articoli" {{if eq $tab "articoli"}}aria-current="page"{{end}}>Articoli <small>presto</small></a>
+    <a href="/admin/anagrafica/forme" {{if eq $tab "forme"}}aria-current="page"{{end}} title="Il censimento delle forme dei codici, in sola lettura">Forme viste</a>
   </nav>
   <span class="sp"></span>
   {{with $extra}}<span class="chip warn">{{.}}</span>{{end}}

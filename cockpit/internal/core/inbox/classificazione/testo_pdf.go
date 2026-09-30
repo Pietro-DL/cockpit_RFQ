@@ -18,7 +18,8 @@ import (
 //
 // Tre livelli, e chi sta sopra non guarda sotto:
 //   - i fatti del worker (worker.TestoPDF), che si leggono solo qui (testoDelPDF, non esportata): fuori dalla
-//     classificazione esce soltanto lo stato (StatoDelTestoPDF), mai il fatto;
+//     classificazione esce soltanto lo stato (StatoDelTestoPDF), mai il fatto (per il censimento delle forme,
+//     4.17a, escono i campi del cartiglio che nominano il pezzo, gia' interpretati: CampiIdentificativiDelPDF);
 //   - le LETTURE normalizzate (LetturaTesto): un codice, con la fonte (testo nativo del cartiglio, testo nativo
 //     altrove, metadati, OCR), la pagina, il riquadro, il campo del cartiglio in cui sta, la rev del cartiglio
 //     e se ripete il nome del file. Le da' EvidenzeTestoPDF (pura, per un Motore) e, per chi viene dopo e ha i
@@ -28,14 +29,19 @@ import (
 //     riga nella tabella S1 (Domanda 3 = A: nessuno score nuovo).
 //
 // Che cosa pesa (A5.14.3, P33):
-//   - il codice di FAMIGLIA nel testo nativo in basso a destra della pagina 1 («probabile cartiglio») e il
-//     codice del titolo o del soggetto dei metadati entrano nella valutazione del file, dimensione codice
-//     (pdf_testo_famiglia 85, pdf_metadati 40);
-//   - gli altri codici (generici in basso a destra, tutto il resto delle pagine) servono solo come chiavi di
-//     ricerca nell'indice dei codici della RFQ (F8): una quota, una norma, un numero d'ordine stampato sul
-//     disegno non diventano mai il codice del file;
+//   - il codice di FAMIGLIA nel campo del codice del cartiglio (codice o numero di disegno, nel testo nativo in
+//     basso a destra della pagina 1, il «probabile cartiglio») e il codice del titolo o del soggetto dei metadati
+//     entrano nella valutazione del file, dimensione codice (pdf_testo_famiglia 85, pdf_metadati 40);
+//   - gli altri codici della zona del cartiglio (l'elenco particolari di un disegno d'assieme, la tabella delle
+//     revisioni, «speculare di») non sono letture del codice del disegno, e nemmeno chiavi (giro 4, fase 4.6:
+//     campoDelCodice);
+//   - i codici del resto delle pagine servono solo come chiavi di ricerca nell'indice dei codici della RFQ
+//     (F8): una quota, una norma, un numero d'ordine stampato sul disegno non diventano mai il codice del file;
 //   - quello che ha letto l'OCR e' un INDIZIO: si registra e si mostra con la sua fonte, ma non ha uno score
-//     finche' la calibrazione (S2) non l'ha misurato, non alza lo score di niente e non preseleziona.
+//     finche' la calibrazione (S2) non l'ha misurato, non alza lo score di niente e non preseleziona;
+//   - il cartiglio di un testo letto con una sottoversione di prima (testoDiPrima) e' anche lui un indizio e una
+//     chiave, mai il codice del file, finche' «Rianalizza» non lo rilegge (giro 4, fase 4.6r); se dice un codice
+//     diverso da quello che vince, la dimensione e' discorde (fase 4.6r2).
 //
 // Domanda 7 = B (27/09): il titolo dei metadati uguale al nome del file, o un testo che ripete il nome del file,
 // DIPENDE dal nome e non alza lo score; il cartiglio che riporta un codice diverso dal nome e' una
@@ -82,11 +88,42 @@ func testoDelPDF(fatti json.RawMessage) (*worker.TestoPDF, string) {
 }
 
 // StatoDelTestoPDF e' soltanto lo stato del testo nei fatti di un'analisi (TestoLetto, TestoAssente,
-// TestoNonLetto, TestoIlleggibile): per chi deve decidere se rileggere un PDF senza guardarne il contenuto
-// (fascicolo.AccodaPdfDaRileggere).
+// TestoNonLetto, TestoIlleggibile), per chi lo vuole sapere senza guardare il contenuto. Non dice se il PDF va
+// riletto: un testo letto con una sottoversione di prima e' TestoLetto e va riletto lo stesso. Quello lo dice
+// TestoPDFDaRileggere, che e' la condizione di fascicolo.AccodaPdfDaRileggere dalla fase 4.6.
 func StatoDelTestoPDF(fatti json.RawMessage) string {
 	_, stato := testoDelPDF(fatti)
 	return stato
+}
+
+// TestoPDFDaRileggere dice se «Rianalizza» deve riaccodare un PDF con questi fatti dell'analizzatore corrente
+// (fascicolo.AccodaPdfDaRileggere): il testo non e' stato letto (TestoNonLetto), oppure e' stato letto da un worker
+// con una sottoversione del testo di prima di quella di oggi (testoDiPrima; giro 4, fase 4.6: le etichette
+// bilingui, «PART N°», il campo del particolare simile, l'intestazione dell'elenco particolari che non e' un
+// campo). Un testo di prima si legge lo stesso finche' nessuno chiede di rileggerlo, ma il suo cartiglio non e'
+// contenuto (LetturaTesto.DaRileggere, fase 4.6r): chiavi e indizi, con la frase FraseTestoDiPrima. Un PDF che non
+// si apre no: e' una risposta.
+func TestoPDFDaRileggere(fatti json.RawMessage) bool {
+	t, stato := testoDelPDF(fatti)
+	return stato == TestoNonLetto || testoDiPrima(t)
+}
+
+// testoDiPrima dice se il testo e' di una sottoversione di prima di quella che il worker di oggi scrive
+// (worker.VersioneTestoPDF): chi l'ha letto non conosceva le etichette del cartiglio della fase 4.6, e prendeva
+// l'intestazione dell'elenco particolari di un disegno d'assieme per il campo del codice.
+func testoDiPrima(t *worker.TestoPDF) bool {
+	return t != nil && t.Versione < worker.VersioneTestoPDF
+}
+
+// FraseTestoDiPrima e' la frase di un testo letto con una sottoversione di prima (testoDiPrima): il testo c'e', ma
+// quello che dice il suo cartiglio non e' contenuto finche' «Rianalizza» non lo rilegge (LetturaTesto.DaRileggere).
+const FraseTestoDiPrima = "testo letto con il worker di prima: da rianalizzare"
+
+// FraseCartiglioDiPrima e' la frase di una lettura del cartiglio di un testo di prima nella valutazione
+// (RegolaCartiglioDiPrima; giro 4, fase 4.6r2): il codice che quel testo dice, che non vota ma, se non e' quello
+// che vince, rende le fonti discordi (Componi).
+func FraseCartiglioDiPrima(codice string) string {
+	return "il testo letto con il worker di prima dice " + codice + ": da rianalizzare"
 }
 
 // FraseTestoPDF e' lo stato del testo di un PDF in parole, con quello che ha fatto l'OCR quando il file non
@@ -152,6 +189,10 @@ type LetturaTesto struct {
 	Intero        bool      // metadati: il campo E' il codice (tolte estensione e rev), non lo cita
 	Confidenza    *float64  // solo OCR, se il motore la da'
 	DipendeDaNome bool      // ripete il nome del file (Domanda 7 = B): la da' LettureDelPDF, che il nome lo sa
+	// DaRileggere: sta nel cartiglio di un testo letto con una sottoversione di prima (testoDiPrima; giro 4, fase
+	// 4.6r). E' una chiave di ricerca e un indizio, mai il codice del file: non vota nella valutazione e nel flusso
+	// non e' contenuto, finche' «Rianalizza» non porta la sottoversione di oggi.
+	DaRileggere bool
 }
 
 // Indizio dice se la lettura e' solo un indizio: viene dall'OCR, e fino alla calibrazione (S2) non ha uno
@@ -164,8 +205,10 @@ func (l LetturaTesto) Indizio() bool { return l.Fonte == FonteOCR }
 // ricerca.
 type EvidenzeTesto struct {
 	Estraibile bool
-	// Cartiglio: i codici del testo nativo nella zona in basso a destra della pagina 1, di famiglia e generici
-	// (A-P1).
+	// Cartiglio: i codici del campo del codice del cartiglio (codice o numero di disegno) nel testo nativo della
+	// zona in basso a destra della pagina 1, di famiglia e generici (A-P1). Gli altri codici della zona no
+	// (campoDelCodice). In un testo di una sottoversione di prima ci sono tutti i codici della zona, segnati
+	// DaRileggere (fase 4.6r): i campi del worker di prima non dicono quale sia quello del disegno.
 	Cartiglio []LetturaTesto
 	// Metadati: i codici del titolo e del soggetto (A-P2).
 	Metadati []LetturaTesto
@@ -174,9 +217,13 @@ type EvidenzeTesto struct {
 	Altrove []LetturaTesto
 	// OCR: i codici letti dall'OCR, in qualunque zona. Indizi.
 	OCR []LetturaTesto
-	// Simili: i codici del campo «particolare simile» (etichettaSimile), in qualunque fonte. Non sono il codice
-	// del file, ne' una lettura del testo, ne' una chiave dell'indice: sono la nota «simile a X».
+	// Simili: i codici del campo «particolare simile» (etichettaSimile, e dalla sottoversione 2 il campo
+	// worker.CampoParticolareSimile), in qualunque fonte. Non sono il codice del file, ne' una lettura del testo,
+	// ne' una chiave dell'indice: sono la nota «simile a X».
 	Simili []LetturaTesto
+	// Speculari: i codici di «SPECULARE DI X», «SPECCHIATO DI X» (etichettaSpeculare), in qualunque fonte. Come i
+	// simili: la nota «speculare di X», mai un codice.
+	Speculari []LetturaTesto
 }
 
 // Il «particolare simile» (giro 4, fase 4.2; risposta 4 del 29/09; domanda 3 del giro 4, A finche' l'utente non
@@ -185,8 +232,9 @@ type EvidenzeTesto struct {
 // e' una nota, «simile a 7120012». Senza questa regola le letture lo mettevano fra i codici del cartiglio (con la
 // famiglia del cliente, a 85), e con il cartiglio che conta come contenuto nel flusso (F8) una rianalisi avrebbe
 // dato una discordanza su quasi ogni disegno di quel cliente. Il segnaposto del modello («Inserire codice
-// particolare simile») non da' niente. Il worker non conosce ancora il campo (arriva con la fase 4.6): qui si
-// riconosce l'etichetta nel testo che il worker gia' manda, nei frammenti e nei valori dei campi del cartiglio.
+// particolare simile») non da' niente. Dalla sottoversione 2 del testo (fase 4.6) il worker riporta il campo
+// (worker.CampoParticolareSimile, leggiCampo); qui si riconosce anche l'etichetta nel testo, nei frammenti e nei
+// valori degli altri campi, per i testi di prima e per le impaginazioni in cui il worker non lega il valore.
 var etichettaSimile = regexp.MustCompile(`(?i)` + etichettaSimileRE)
 
 // etichettaSimileRE sono le scritture dell'etichetta del particolare simile, per etichettaSimile e per il
@@ -226,6 +274,21 @@ const EtichettaSimile = "particolare_simile"
 // NotaSimile e' la nota di un particolare simile, per le letture e per la destinazione.
 func NotaSimile(codice string) string { return "simile a " + codice }
 
+// Lo speculare (giro 4, fase 4.6; scenario del 28/09): «SPECULARE DI 7120101», «COMPONENTE SPECCHIATO DI 7120118»
+// dicono che il pezzo e' il gemello speculare di un altro (il destro del sinistro). Quel codice non e' il codice del
+// file e non e' una seconda lettura: e' una nota, «speculare di 7120101». Prima finiva fra le letture (nella zona
+// del cartiglio con la famiglia del cliente, a 85), e nel flusso il primo candidato del disegno di un prodotto
+// diventava il suo speculare, cioe' l'altro prodotto. Le forme inglesi («MIRROR OF», «OPPOSITE HAND TO») valgono
+// lo stesso. Il valore e' la prima parola dopo la frase, se ha cifre (separaValori).
+var etichettaSpeculare = regexp.MustCompile(`(?i)\b(?:SPECCHIAT[OA]|SPECULARE|MIRROR(?:ED)?|OPPOSITE(?:\s+HAND)?)\s+(?:DI|A|OF|TO)\b`)
+
+// EtichettaSpeculare e' l'etichetta di una lettura dello speculare (LetturaTesto.Etichetta, in
+// EvidenzeTesto.Speculari).
+const EtichettaSpeculare = "speculare"
+
+// NotaSpeculare e' la nota di uno speculare, per le letture e per la destinazione.
+func NotaSpeculare(codice string) string { return "speculare di " + codice }
+
 // separaSimili toglie dal testo il valore di ogni campo «particolare simile»: la prima parola dopo l'etichetta
 // (o dopo la catena di etichette gemelle, «PARTICOLARE SIMILE / SIMILAR PART»), sulla stessa riga o, se la riga
 // finisce con l'etichetta, sulla prima riga non vuota dopo, ma solo quando l'etichetta e' da sola sulla sua riga
@@ -241,15 +304,29 @@ func NotaSimile(codice string) string { return "simile a " + codice }
 // segnaposto di un altro campo prima dell'etichetta vera non la spegne. Restituisce il testo senza quei valori e
 // i valori tolti.
 func separaSimili(testo string) (string, []string) {
-	if !etichettaSimile.MatchString(testo) {
+	return separaValori(testo, etichettaSimile, segnapostoSimile)
+}
+
+// separaSpeculari toglie dal testo il valore di ogni «SPECULARE DI X» (etichettaSpeculare), con la regola di
+// separaSimili (fase 4.6): X e' la nota «speculare di X», non un codice del testo. Non c'e' un segnaposto.
+func separaSpeculari(testo string) (string, []string) {
+	return separaValori(testo, etichettaSpeculare, nil)
+}
+
+// separaValori e' separaSimili per un'etichetta qualunque (e il suo segnaposto, se ce n'e' uno).
+func separaValori(testo string, etichetta, segnaposto *regexp.Regexp) (string, []string) {
+	if !etichetta.MatchString(testo) {
 		return testo, nil
 	}
-	segnaposti := segnapostoSimile.FindAllStringIndex(testo, -1)
+	var segnaposti [][]int
+	if segnaposto != nil {
+		segnaposti = segnaposto.FindAllStringIndex(testo, -1)
+	}
 	var b strings.Builder
 	var valori []string
 	i := 0
 	for {
-		loc := etichettaSimile.FindStringIndex(testo[i:])
+		loc := etichetta.FindStringIndex(testo[i:])
 		if loc == nil {
 			b.WriteString(testo[i:])
 			return b.String(), valori
@@ -264,7 +341,7 @@ func separaSimili(testo string) (string, []string) {
 		fine := i + loc[1]
 		for {
 			j := saltaSeparatori(testo, fine, false)
-			l := etichettaSimile.FindStringIndex(testo[j:])
+			l := etichetta.FindStringIndex(testo[j:])
 			if l == nil || l[0] != 0 {
 				break
 			}
@@ -338,14 +415,14 @@ func saltaSeparatori(testo string, i int, aCapo bool) int {
 	return i
 }
 
-// letturaSimili sono i codici dei valori «particolare simile» di un frammento o di un campo, con le regole del
-// cliente e il posto della lettura l.
-func letturaSimili(m *Motore, valori []string, l LetturaTesto) []LetturaTesto {
+// letturaNote sono i codici dei valori di una nota (il particolare simile, lo speculare) di un frammento o di un
+// campo, con le regole del cliente, l'etichetta della nota e il posto della lettura l.
+func letturaNote(m *Motore, valori []string, l LetturaTesto, etichetta, parole string) []LetturaTesto {
 	var out []LetturaTesto
 	for _, v := range valori {
-		for _, c := range m.Estrai(Testo{Dove: "cartiglio, particolare simile", Corpo: v}).Codici {
+		for _, c := range m.Estrai(Testo{Dove: "cartiglio, " + parole, Corpo: v}).Codici {
 			x := l
-			x.CodiceTrovato, x.Etichetta, x.Estratto = c, EtichettaSimile, tronca("particolare simile "+v, maxEstratto)
+			x.CodiceTrovato, x.Etichetta, x.Estratto = c, etichetta, tronca(parole+" "+v, maxEstratto)
 			out = append(out, x)
 		}
 	}
@@ -356,13 +433,32 @@ func letturaSimili(m *Motore, valori []string, l LetturaTesto) []LetturaTesto {
 // (A5.14.2); una riga di cartiglio ne ha poche decine.
 const maxEstratto = 80
 
+// campoDelCodice dice se un campo del cartiglio e' quello che porta il codice del disegno: il codice («PART N°»,
+// «PART NR», «CODICE», …) o il numero di disegno («DISEGNO N.», «DRAWING NO.», …).
+//
+// Giro 4, fase 4.6 (il bloccante dello scenario del 28/09): nella zona in basso a destra della pagina 1 non c'e'
+// solo il cartiglio. Sui disegni d'assieme di certi clienti c'e' anche l'ELENCO PARTICOLARI, i figli con la
+// quantita', subito sopra il cartiglio, e a volte la frase «SPECULARE DI X». Prima ogni codice di famiglia della
+// zona era una lettura del codice del disegno (pdf_testo_famiglia, 85): a parita' di score vinceva il primo
+// nell'ordine del file, cioe' la prima riga dell'elenco (un figlio), e il taglio a MaxEvidenze toglieva il codice
+// vero e la lettura del nome. Adesso nella zona del cartiglio il codice del disegno lo dice soltanto il CAMPO che
+// lo porta; gli altri codici della zona non sono letture del codice del disegno ne' chiavi dell'indice (l'elenco
+// particolari sara' la distinta del disegno, fase 4.12). Un disegno il cui campo del codice il worker non
+// riconosce non ha un codice dal cartiglio, e resta quello del nome: meno automatismo, mai un pezzo sbagliato; le
+// etichette che mancano le dice il censimento (4.17).
+func campoDelCodice(etichetta string) bool {
+	return etichetta == worker.CampoCodice || etichetta == worker.CampoNumeroDisegno
+}
+
 // EvidenzeTestoPDF cerca i codici nella lettura del testo di un PDF con le regole del cliente (m, anche nil:
 // allora solo l'estrattore generico), fonte per fonte. Pura. Il riferimento della richiesta del cliente (RDO)
 // non e' un codice (Estrai lo toglie), e un codice gia' visto in una fonte piu' forte non si ripete in una piu'
 // debole del testo nativo: in basso a destra prima, poi i metadati, poi il resto. L'OCR fa una lista sua. Una
 // lettura che sta in un campo del cartiglio ne porta l'etichetta e il riquadro; la rev del cartiglio passa alle
-// letture della zona in basso a destra della stessa fonte quando e' una sola. DipendeDaNome resta falso: il
-// nome del file lo sa LettureDelPDF.
+// letture della zona in basso a destra della stessa fonte quando e' una sola. Nella zona in basso a destra del
+// testo nativo restano soltanto i codici del campo del codice (campoDelCodice, fase 4.6); in un testo di una
+// sottoversione di prima restano tutti, segnati DaRileggere (fase 4.6r). Il particolare simile e lo speculare sono
+// note, in ogni fonte. DipendeDaNome resta falso: il nome del file lo sa LettureDelPDF.
 func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 	e := EvidenzeTesto{Estraibile: t.Estraibile}
 	var visti, vistiOCR = map[string]bool{}, map[string]bool{}
@@ -377,21 +473,45 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 		return out
 	}
 	revNativa, revOCR := revDelCartiglio(t, worker.FonteTestoNativo), revDelCartiglio(t, worker.FonteTestoOCR)
-	vistiSimili := map[string]bool{}
-	// simili tiene da parte le letture del particolare simile: una nota, mai un codice (separaSimili)
-	simili := func(letture, sim []LetturaTesto) []LetturaTesto {
-		e.Simili = append(e.Simili, nuove(vistiSimili, sim)...)
-		return letture
+	vistiSimili, vistiSpeculari := map[string]bool{}, map[string]bool{}
+	// note tiene da parte le letture del particolare simile e dello speculare: una nota, mai un codice
+	// (separaSimili, separaSpeculari)
+	note := func(l lettureDi) []LetturaTesto {
+		e.Simili = append(e.Simili, nuove(vistiSimili, l.simili)...)
+		e.Speculari = append(e.Speculari, nuove(vistiSpeculari, l.speculari)...)
+		return l.codici
+	}
+	// soloDelCodice: nella zona del cartiglio il codice del disegno e' soltanto quello del suo campo (fase 4.6).
+	// Non in un testo di una sottoversione di prima (fase 4.6r): il worker di prima prendeva l'intestazione
+	// dell'elenco particolari per il campo del codice, con il primo figlio come valore, e non conosceva certe
+	// etichette («PART N°»): i suoi campi non dicono quale codice della zona sia quello del disegno. Tenere il suo
+	// campo del codice rifaceva il bug 3 della Distinta (il disegno d'assieme letto «unico» con il codice del figlio),
+	// e toglierlo cancellava la lettura dei cartigli che non capiva. Li' restano tutti i codici della zona, segnati
+	// da rileggere: chiavi di ricerca e indizi, mai il codice del file, finche' «Rianalizza» non porta la
+	// sottoversione di oggi
+	diPrima := testoDiPrima(&t)
+	soloDelCodice := func(in []LetturaTesto) []LetturaTesto {
+		var out []LetturaTesto
+		for _, l := range in {
+			switch {
+			case diPrima:
+				l.DaRileggere = true
+				out = append(out, l)
+			case campoDelCodice(l.Etichetta):
+				out = append(out, l)
+			}
+		}
+		return out
 	}
 	for _, f := range t.Frammenti {
 		if f.Fonte == worker.FonteTestoNativo && f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
-			e.Cartiglio = append(e.Cartiglio, nuove(visti, simili(leggiFrammento(m, t, f, FonteTestoCartiglio, revNativa)))...)
+			e.Cartiglio = append(e.Cartiglio, nuove(visti, soloDelCodice(note(leggiFrammento(m, t, f, FonteTestoCartiglio, revNativa))))...)
 		}
 	}
 	// un campo del cartiglio il cui frammento e' rimasto fuori dai limiti porta lo stesso il suo codice
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoNativo && c.Zona == worker.ZonaBassoDestra {
-			e.Cartiglio = append(e.Cartiglio, nuove(visti, simili(leggiCampo(m, c, FonteTestoCartiglio, revNativa)))...)
+			e.Cartiglio = append(e.Cartiglio, nuove(visti, soloDelCodice(note(leggiCampo(m, c, FonteTestoCartiglio, revNativa))))...)
 		}
 	}
 	for _, md := range []struct{ zona, testo string }{{ZonaTitolo, t.Metadati.Titolo}, {ZonaSoggetto, t.Metadati.Soggetto}} {
@@ -411,12 +531,12 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 	}
 	for _, f := range t.Frammenti {
 		if f.Fonte == worker.FonteTestoNativo && !(f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra) {
-			e.Altrove = append(e.Altrove, nuove(visti, simili(leggiFrammento(m, t, f, FonteTestoPagina, "")))...)
+			e.Altrove = append(e.Altrove, nuove(visti, note(leggiFrammento(m, t, f, FonteTestoPagina, "")))...)
 		}
 	}
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoNativo && c.Zona != worker.ZonaBassoDestra {
-			e.Altrove = append(e.Altrove, nuove(visti, simili(leggiCampo(m, c, FonteTestoPagina, "")))...)
+			e.Altrove = append(e.Altrove, nuove(visti, note(leggiCampo(m, c, FonteTestoPagina, "")))...)
 		}
 	}
 	for _, f := range t.Frammenti {
@@ -425,21 +545,28 @@ func EvidenzeTestoPDF(m *Motore, t worker.TestoPDF) EvidenzeTesto {
 			if f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
 				rev = revOCR
 			}
-			e.OCR = append(e.OCR, nuove(vistiOCR, simili(leggiFrammento(m, t, f, FonteOCR, rev)))...)
+			e.OCR = append(e.OCR, nuove(vistiOCR, note(leggiFrammento(m, t, f, FonteOCR, rev)))...)
 		}
 	}
 	for _, c := range t.Cartiglio {
 		if c.Fonte == worker.FonteTestoOCR {
-			e.OCR = append(e.OCR, nuove(vistiOCR, simili(leggiCampo(m, c, FonteOCR, revOCR)))...)
+			e.OCR = append(e.OCR, nuove(vistiOCR, note(leggiCampo(m, c, FonteOCR, revOCR)))...)
 		}
 	}
 	return e
 }
 
+// lettureDi sono i codici di un frammento o di un campo e, a parte, le note che vi sono scritte (il particolare
+// simile, lo speculare): le note non sono codici del testo.
+type lettureDi struct {
+	codici, simili, speculari []LetturaTesto
+}
+
 // leggiFrammento sono i codici di un frammento, con il suo posto; un codice che sta nel valore di un campo del
-// cartiglio della stessa pagina e fonte prende l'etichetta e il riquadro del campo. A parte, le letture del
-// particolare simile (separaSimili): non sono codici del frammento.
-func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, rev string) ([]LetturaTesto, []LetturaTesto) {
+// cartiglio della stessa pagina e fonte prende l'etichetta e il riquadro del campo (campoCon). A parte, le
+// letture del particolare simile (separaSimili, e il codice che il campo del particolare simile riporta) e dello
+// speculare (separaSpeculari): non sono codici del frammento.
+func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, rev string) lettureDi {
 	dove := "testo del PDF, pagina " + strconv.Itoa(f.Pagina)
 	if f.Pagina == 1 && f.Zona == worker.ZonaBassoDestra {
 		dove = DoveBassoDestra
@@ -448,38 +575,112 @@ func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, 
 		dove += ", letto con l'OCR"
 	}
 	corpo, valoriSimili := separaSimili(f.Testo)
-	var out []LetturaTesto
+	corpo, valoriSpeculari := separaSpeculari(corpo)
+	var out lettureDi
+	posto := LetturaTesto{Fonte: fonte, Pagina: f.Pagina, Zona: f.Zona, Riquadro: f.Riquadro, Confidenza: f.Confidenza}
 	for _, c := range m.Estrai(Testo{Dove: dove, Corpo: corpo}).Codici {
 		l := LetturaTesto{CodiceTrovato: c, Fonte: fonte, Pagina: f.Pagina, Zona: f.Zona, Riquadro: f.Riquadro,
 			RevCartiglio: rev, Estratto: estratto(f.Testo, c.Codice), Confidenza: f.Confidenza}
-		for _, campo := range t.Cartiglio {
-			if campo.Fonte == f.Fonte && campo.Pagina == f.Pagina && campo.Etichetta != worker.CampoRevisione &&
-				strings.Contains(strings.ToUpper(campo.Valore), strings.ToUpper(c.Codice)) {
-				l.Etichetta, l.Riquadro = campo.Etichetta, campo.Riquadro
-				break
-			}
+		campo, ok := campoCon(t, f, c.Codice)
+		switch {
+		case ok && campo.Etichetta == worker.CampoParticolareSimile:
+			// il codice che il campo del particolare simile riporta (in un cartiglio a tabella non sta accanto
+			// all'etichetta, e separaSimili non lo vede): la nota, non un codice del frammento
+			valoriSimili = append(valoriSimili, c.Codice)
+			continue
+		case ok:
+			l.Etichetta, l.Riquadro = campo.Etichetta, campo.Riquadro
 		}
-		out = append(out, l)
+		out.codici = append(out.codici, l)
 	}
-	posto := LetturaTesto{Fonte: fonte, Pagina: f.Pagina, Zona: f.Zona, Riquadro: f.Riquadro, Confidenza: f.Confidenza}
-	return out, letturaSimili(m, valoriSimili, posto)
+	out.simili = letturaNote(m, valoriSimili, posto, EtichettaSimile, "particolare simile")
+	out.speculari = letturaNote(m, valoriSpeculari, posto, EtichettaSpeculare, "speculare di")
+	return out
+}
+
+// campoCon e' il campo del cartiglio della stessa pagina e fonte del frammento f il cui valore contiene il codice:
+// prima il campo del particolare simile (il codice e' la nota), poi un campo del codice della stessa zona
+// (campoDelCodice), poi un altro campo; mai la revisione, che un codice non e', ne' un campo del codice di
+// un'altra zona, che non dice niente di questa.
+func campoCon(t worker.TestoPDF, f worker.FrammentoPDF, codice string) (worker.CampoCartiglio, bool) {
+	k := strings.ToUpper(codice)
+	var delCodice, altro *worker.CampoCartiglio
+	for i := range t.Cartiglio {
+		c := &t.Cartiglio[i]
+		if c.Fonte != f.Fonte || c.Pagina != f.Pagina || c.Etichetta == worker.CampoRevisione ||
+			!strings.Contains(strings.ToUpper(c.Valore), k) {
+			continue
+		}
+		switch {
+		case c.Etichetta == worker.CampoParticolareSimile:
+			if !segnapostoSimile.MatchString(c.Valore) && parolaIn(c.Valore, k) {
+				return *c, true
+			}
+		case campoDelCodice(c.Etichetta):
+			if c.Zona == f.Zona && delCodice == nil {
+				delCodice = c
+			}
+		case altro == nil:
+			altro = c
+		}
+	}
+	switch {
+	case delCodice != nil:
+		return *delCodice, true
+	case altro != nil:
+		return *altro, true
+	}
+	return worker.CampoCartiglio{}, false
+}
+
+// parolaIn dice se k (in maiuscolo) sta nel valore come parola intera, fra due caratteri che non sono lettere ne'
+// cifre: il codice del file 7120001 non e' il particolare simile 7120001X.
+func parolaIn(valore, k string) bool {
+	up := strings.ToUpper(valore)
+	for i := 0; ; {
+		j := strings.Index(up[i:], k)
+		if j < 0 {
+			return false
+		}
+		a, b := i+j, i+j+len(k)
+		if (a == 0 || !alfanumerico(up[a-1])) && (b == len(up) || !alfanumerico(up[b])) {
+			return true
+		}
+		i = a + 1
+	}
+}
+
+func alfanumerico(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
 }
 
 // leggiCampo sono i codici del valore di un campo del cartiglio (non della revisione, che un codice non e'), e a
-// parte quelli del particolare simile scritto nel valore.
-func leggiCampo(m *Motore, c worker.CampoCartiglio, fonte, rev string) ([]LetturaTesto, []LetturaTesto) {
-	if c.Etichetta == worker.CampoRevisione {
-		return nil, nil
+// parte quelli del particolare simile e dello speculare scritti nel valore. Il campo del particolare simile
+// (sottoversione 2 del testo, fase 4.6) e' tutto una nota, con la stessa regola dei frammenti: il suo valore e'
+// «simile a X», mai un codice ne' una chiave; il segnaposto del modello («Inserire codice particolare simile») non
+// da' niente, nemmeno con un codice accanto, che in un cartiglio a tabella e' il valore di un'altra colonna.
+func leggiCampo(m *Motore, c worker.CampoCartiglio, fonte, rev string) lettureDi {
+	posto := LetturaTesto{Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro, Confidenza: c.Confidenza}
+	switch c.Etichetta {
+	case worker.CampoRevisione:
+		return lettureDi{}
+	case worker.CampoParticolareSimile:
+		if segnapostoSimile.MatchString(c.Valore) {
+			return lettureDi{}
+		}
+		return lettureDi{simili: letturaNote(m, []string{c.Valore}, posto, EtichettaSimile, "particolare simile")}
 	}
 	dove := "cartiglio, " + strings.ReplaceAll(c.Etichetta, "_", " ")
 	valore, valoriSimili := separaSimili(c.Valore)
-	var out []LetturaTesto
+	valore, valoriSpeculari := separaSpeculari(valore)
+	var out lettureDi
 	for _, k := range m.Estrai(Testo{Dove: dove, Corpo: valore}).Codici {
-		out = append(out, LetturaTesto{CodiceTrovato: k, Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro,
+		out.codici = append(out.codici, LetturaTesto{CodiceTrovato: k, Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro,
 			Etichetta: c.Etichetta, RevCartiglio: rev, Estratto: tronca(c.Letta+" "+c.Valore, maxEstratto), Confidenza: c.Confidenza})
 	}
-	posto := LetturaTesto{Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro, Confidenza: c.Confidenza}
-	return out, letturaSimili(m, valoriSimili, posto)
+	out.simili = letturaNote(m, valoriSimili, posto, EtichettaSimile, "particolare simile")
+	out.speculari = letturaNote(m, valoriSpeculari, posto, EtichettaSpeculare, "speculare di")
+	return out
 }
 
 // revDelCartiglio e' la revisione scritta nel campo «REV» del cartiglio in basso a destra della pagina 1, per
@@ -530,15 +731,21 @@ func chiaviDi(liste ...[]LetturaTesto) []string {
 // file. Nessun campo del worker passa di qui senza essere stato interpretato.
 type LettureTestoPDF struct {
 	Stato     string // TestoLetto, TestoAssente, TestoNonLetto, TestoIlleggibile, TestoDaAnalizzare (dal DB)
-	Frase     string // FraseTestoPDF: "" per un testo letto
+	Frase     string // FraseTestoPDF: "" per un testo letto dal worker di oggi; FraseTestoDiPrima per uno di prima
 	OCR       string // lo stato dell'OCR (worker.OCR…), "" se il testo non e' stato letto
 	MotivoOCR string
 	Troncato  bool // il worker si e' fermato ai limiti: le letture possono non essere tutte
+	// DaRileggere: il testo e' di una sottoversione di prima (testoDiPrima, fase 4.6r): le letture del cartiglio
+	// sono segnate (LetturaTesto.DaRileggere), e «Rianalizza» lo riaccoda (TestoPDFDaRileggere).
+	DaRileggere bool
 	// Letture: prima il cartiglio, poi i metadati, poi il resto del testo nativo, poi l'OCR (EvidenzeTesto).
 	Letture []LetturaTesto
 	// Simili: i codici del particolare simile, in maiuscolo e senza ripetizioni: la nota «simile a X»
 	// (NotaSimile), mai una lettura.
 	Simili []string
+	// Speculari: i codici di «SPECULARE DI X», allo stesso modo: la nota «speculare di X» (NotaSpeculare), mai una
+	// lettura (fase 4.6).
+	Speculari []string
 }
 
 // Chiavi sono le chiavi di ricerca nell'indice (EvidenzeTesto.Chiavi): testo nativo e metadati, non l'OCR.
@@ -567,7 +774,12 @@ func LettureDelPDF(m *Motore, fatti json.RawMessage, nomeFile string) LettureTes
 		return out
 	}
 	out.OCR, out.MotivoOCR, out.Troncato = t.OCR.Stato, t.OCR.Motivo, t.Troncato
-	out.Frase = FraseTestoPDF(stato, t.OCR.Stato)
+	out.Frase, out.DaRileggere = FraseTestoPDF(stato, t.OCR.Stato), testoDiPrima(t)
+	if out.DaRileggere && stato == TestoLetto {
+		// il testo c'e', ma il suo cartiglio non e' contenuto finche' non si rianalizza (fase 4.6r); un PDF senza
+		// testo resta con la frase del suo stato, che dice gia' di piu'
+		out.Frase = FraseTestoDiPrima
+	}
 	e := EvidenzeTestoPDF(m, *t)
 	nomeCod, _ := codiceDelNome(m, nomeFile)
 	for _, l := range [][]LetturaTesto{e.Cartiglio, e.Metadati, e.Altrove, e.OCR} {
@@ -576,7 +788,7 @@ func LettureDelPDF(m *Motore, fatti json.RawMessage, nomeFile string) LettureTes
 			out.Letture = append(out.Letture, x)
 		}
 	}
-	out.Simili = chiaviDi(e.Simili)
+	out.Simili, out.Speculari = chiaviDi(e.Simili), chiaviDi(e.Speculari)
 	return out
 }
 
@@ -683,17 +895,34 @@ func tronca(s string, n int) string {
 // non vota: non fa una fonte, non alza lo score, non fa discordanza e non preseleziona.
 const RegolaOCRIndizio = "pdf_ocr_indizio"
 
+// RegolaCartiglioDiPrima e' la «regola» di un codice di famiglia del cartiglio di un testo letto con una
+// sottoversione di prima (LetturaTesto.DaRileggere; giro 4, fase 4.6r). Come l'OCR: un indizio senza score, fuori
+// dalla tabella S1, che si mostra e non vota. Senza, quel testo si leggeva con la regola della 4.6 (vota il solo
+// campo del codice) e il campo del worker di prima, per un disegno d'assieme l'intestazione dell'elenco
+// particolari con il primo figlio come valore, votava a 85 da solo: il bug 3 della Distinta, finche' nessuno
+// rianalizzava.
+//
+// Non vota, ma non tace (fase 4.6r2): se dice un codice diverso da quello che vince, la dimensione e' discorde
+// (Componi, contraddiceDiPrima). Quando era soltanto un indizio (fase 4.6r), un disegno d'assieme letto dal worker
+// di prima con un nome che non e' il codice del cartiglio («ACME-030P7120100.pdf») aveva il codice «unico» dal
+// nome, e il cartiglio che diceva altro spariva dallo stato: prima della 4.6 lo stesso file era discorde (ogni
+// codice della zona votava a 85).
+const RegolaCartiglioDiPrima = "pdf_cartiglio_da_rileggere"
+
 // Indizi sono le regole delle evidenze senza score, fuori dalla tabella S1, con le parole per la schermata.
 var Indizi = map[string]RegolaScore{
 	RegolaOCRIndizio: {DimCodice, "cartiglio", 0, "codice letto con l'OCR: indizio, senza score finché non è calibrato", false,
 		"l'OCR è un'evidenza, non un automatismo (27/09 «ter»): si mostra, non pesa"},
+	RegolaCartiglioDiPrima: {DimCodice, "cartiglio", 0, "codice del cartiglio letto con il worker di prima: indizio, senza score finché il PDF non si rianalizza", false,
+		"il worker di prima non distingueva il campo del codice dall'intestazione dell'elenco particolari (fase 4.6): si mostra, non pesa; un codice diverso da quello che vince rende le fonti discordi"},
 }
 
 // evidenzeCodiceDelTesto sono le letture del codice che il testo di un PDF porta nella valutazione del file
 // (A5.14.3): ogni codice di FAMIGLIA del testo nativo in basso a destra della pagina 1 (pdf_testo_famiglia), il
 // codice del titolo o del soggetto (pdf_metadati: quello che il campo E', o un codice di famiglia che vi e'
-// citato), e come indizi senza voto i codici di famiglia che l'OCR ha letto in basso a destra della pagina 1.
-// Gli altri non votano.
+// citato), e come indizi senza voto i codici di famiglia che l'OCR ha letto in basso a destra della pagina 1 e
+// quelli del cartiglio di un testo letto con il worker di prima (RegolaCartiglioDiPrima, fase 4.6r: se dicono un
+// codice diverso da quello che vince, la dimensione e' discorde, fase 4.6r2). Gli altri non votano.
 //
 // Domanda 7 = B, con le letture normalizzate (LettureDelPDF): il titolo o il soggetto con lo stesso codice del
 // nome DIPENDONO dal nome; il codice in basso a destra uguale al nome e' una conferma INDIPENDENTE (e
@@ -720,6 +949,12 @@ func evidenzeCodiceDelTesto(m *Motore, fatti json.RawMessage, nomeFile string) [
 			}
 			e := evidenza("pdf_testo_famiglia", k, c.Estratto)
 			e.Famiglia, e.Dove = c.Famiglia, DoveBassoDestra
+			if c.DaRileggere {
+				// il cartiglio di un testo letto con il worker di prima (fase 4.6r): un indizio, che non vota; con
+				// un codice diverso da quello che vince fa le fonti discordi (Componi, fase 4.6r2), e lo dice
+				e = Evidenza{Regola: RegolaCartiglioDiPrima, Fonte: Indizi[RegolaCartiglioDiPrima].Fonte, Indizio: k,
+					Testo: tronca(c.Estratto, 200), Famiglia: c.Famiglia, Dove: DoveBassoDestra + ", " + FraseCartiglioDiPrima(k)}
+			}
 			if c.DipendeDaNome {
 				e.DipendeDa = "nome_file"
 			}

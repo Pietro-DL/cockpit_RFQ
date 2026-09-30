@@ -138,6 +138,11 @@ func Valuta(in IngressoFile) Valutazione {
 	} else {
 		nomeCod, nomeRev = "", ""
 	}
+	// un numero d'ordine nella forma del cliente («ODA_0001234.pdf») non e' il codice del file e non lo cita
+	// (Smistamento 4.13b): e' l'ordine, come nel testo della mail
+	if in.Motore.dentroUnOrdine(base, nomeCod) {
+		nomeCod, nomeRev = "", ""
+	}
 	var ec, er []Evidenza
 	if nomeCod != "" {
 		e := evidenza("nome_codice_generico", nomeCod, nome)
@@ -152,9 +157,10 @@ func Valuta(in IngressoFile) Valutazione {
 	} else {
 		// un nome che non e' un codice ma ne cita: si registrano, non votano (restano `codici_nel_nome`). Il
 		// testo e' il solo codice citato: il nome e' gia' il file, e ripeterlo in ogni evidenza porta una
-		// valutazione oltre la misura di A5.14.2
-		for _, c := range EstraiCodici(base) {
-			ec = append(ec, evidenza("nome_contiene_codice", "", in.Motore.CanonicoNome(c)))
+		// valutazione oltre la misura di A5.14.2. Senza i numeri d'ordine del cliente, come `codici_nel_nome`
+		// (CitatiNelNome, 4.13b)
+		for _, c := range in.Motore.CitatiNelNome(nome, EstraiCodici(base)) {
+			ec = append(ec, evidenza("nome_contiene_codice", "", c))
 		}
 	}
 	dipende := func(e *Evidenza) {

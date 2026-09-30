@@ -17,20 +17,29 @@
     const b = document.querySelector(".barra");
     if (b) document.documentElement.style.setProperty("--alto-barra", b.offsetHeight + "px");
   }
-  window.addEventListener("resize", misuraTestata);
+  window.addEventListener("resize", () => { misuraTestata(); applica(); });
+  // la navigazione a sinistra si apre e si chiude (layout.html): lo spazio utile cambia
+  document.addEventListener("click", e => { if (e.target.closest && e.target.closest(".rail-toggle")) setTimeout(applica, 0); });
   document.addEventListener("htmx:afterSettle", misuraTestata);
 
   /* ---------------------------------------------------------------- i bordi */
   const stato = () => leggi(chiavePannelli(), {});
+  // La larghezza di partenza di un bordo: quella della pagina, o quella «stretta» quando lo spazio utile (lo
+  // schermo meno la navigazione aperta) e' poco. Quella che l'utente ha trascinato vince sempre.
+  function def(m) {
+    const aperta = !document.body.classList.contains("rail-chiusa") && innerWidth > 900;
+    const libero = innerWidth - (aperta ? 184 : 0);
+    return m.stretta && libero < m.stretta.sotto ? m.stretta.w : m.def;
+  }
   function applica() {
     const st = stato(), root = document.documentElement;
     for (const [id, m] of Object.entries(P().maniglie || {})) {
       const s = st[id] || {}, chiuso = !!(m.chiudi && s.chiuso);
-      root.style.setProperty(m.v, chiuso ? "0px" : (s.w || m.def) + "px");
+      root.style.setProperty(m.v, chiuso ? "0px" : (s.w || def(m)) + "px");
       if (m.chiudi) root.classList.toggle("chiuso-" + m.chiudi, chiuso);
       document.querySelectorAll(`[data-maniglia="${id}"]`).forEach(el => {
         el.classList.toggle("chiuso", chiuso);
-        el.setAttribute("aria-valuenow", chiuso ? 0 : (s.w || m.def));
+        el.setAttribute("aria-valuenow", chiuso ? 0 : (s.w || def(m)));
         el.setAttribute("aria-valuemin", m.min); el.setAttribute("aria-valuemax", m.max);
       });
     }
@@ -53,7 +62,7 @@
     const h = e.target.closest && e.target.closest(".maniglia[data-maniglia]"); if (!h || e.target.closest(".riapri")) return;
     const id = h.dataset.maniglia, m = (P().maniglie || {})[id]; if (!m) return;
     const s = stato()[id] || {};
-    tiro = { id, h, x: e.clientX, w: s.chiuso ? 0 : (s.w || m.def) };
+    tiro = { id, h, x: e.clientX, w: s.chiuso ? 0 : (s.w || def(m)) };
     try { h.setPointerCapture(e.pointerId); } catch (err) { }
     h.classList.add("tira"); document.body.classList.add("ui-tirando"); e.preventDefault();
   });
@@ -63,7 +72,7 @@
     const chiude = !!m.chiudi && grezza < m.min - 70, w = Math.max(m.min, Math.min(m.max, grezza));
     document.documentElement.style.setProperty(m.v, chiude ? "0px" : w + "px");
     if (m.chiudi) document.documentElement.classList.toggle("chiuso-" + m.chiudi, chiude);
-    tiro.ultimo = { w: chiude ? ((stato()[tiro.id] || {}).w || m.def) : w, chiuso: chiude };
+    tiro.ultimo = { w: chiude ? ((stato()[tiro.id] || {}).w || def(m)) : w, chiuso: chiude };
   });
   document.addEventListener("pointerup", () => {
     if (!tiro) return;
@@ -73,26 +82,29 @@
   });
   document.addEventListener("dblclick", e => {
     const h = e.target.closest && e.target.closest(".maniglia[data-maniglia]"); if (!h) return;
-    const m = P().maniglie[h.dataset.maniglia]; if (m) salva(h.dataset.maniglia, m.def, false);
+    const m = P().maniglie[h.dataset.maniglia]; if (m) { const st = stato(); delete st[h.dataset.maniglia]; scrivi(chiavePannelli(), st); applica(); }
   });
   document.addEventListener("keydown", e => {
     const h = e.target.closest && e.target.closest(".maniglia[data-maniglia]"); if (!h) return;
     const id = h.dataset.maniglia, m = P().maniglie[id]; if (!m) return;
-    const s = stato()[id] || {}, w = s.chiuso ? m.min : (s.w || m.def), passo = e.shiftKey ? 64 : 16;
+    const s = stato()[id] || {}, w = s.chiuso ? m.min : (s.w || def(m)), passo = e.shiftKey ? 64 : 16;
     const d = { ArrowLeft: -passo * m.dir, ArrowRight: passo * m.dir }[e.key];
     if (d !== undefined) { e.preventDefault(); salva(id, Math.max(m.min, Math.min(m.max, w + d)), false); h.focus(); }
     if (e.key === "Enter" && m.chiudi) { e.preventDefault(); salva(id, w, !s.chiuso); }
   });
   document.addEventListener("click", e => {
     const r = e.target.closest && e.target.closest("[data-riapri]"); if (!r) return;
-    const id = r.dataset.riapri, m = P().maniglie[id]; salva(id, (stato()[id] || {}).w || m.def, false);
+    const id = r.dataset.riapri, m = P().maniglie[id]; salva(id, (stato()[id] || {}).w || def(m), false);
   });
 
   /* ---------------------------------------------------------------- l'ingranaggio */
   const scorciatoie = () => !!leggi("cockpit.scorciatoie", false);
   function pannelloImpostazioni() {
     const p = P(), on = scorciatoie();
+    // con lo schermo stretto le colonne sono impilate e alcuni bordi non ci sono: le disposizioni valgono sugli schermi larghi
+    const stretto = [...document.querySelectorAll(".maniglia[data-maniglia]")].some(h => getComputedStyle(h).display === "none");
     return `<div class="sez-imp"><b>Pannelli</b><small>Trascina i bordi fra i pannelli per allargarli o stringerli. Doppio clic su un bordo lo rimette com'era.</small>
+        ${stretto ? `<small class="nota-stretto">Con questa larghezza dello schermo alcune colonne stanno una sopra l'altra: le disposizioni qui sotto si vedono per intero su uno schermo più largo, o chiudendo la navigazione (☰).</small>` : ""}
         ${(p.preset || []).length ? `<div class="preset">${p.preset.map((x, i) => `<button type="button" data-preset="${i}"><span class="schema">${x.schema.map(([w, f]) => `<i style="flex:${w}" class="${f ? "forte" : ""}"></i>`).join("")}</span>${esc(x.nome)}<small>${esc(x.sotto)}</small></button>`).join("")}</div>` : ""}
         <button type="button" class="quieto" data-preset="reset">Ripristina le larghezze</button></div>
       <div class="sez-imp"><label class="interruttore"><input type="checkbox" id="imp-tasti" ${on ? "checked" : ""}> Scorciatoie da tastiera</label>
@@ -135,7 +147,14 @@
   }
 
   window.CockpitUI = { toast, applica, prepara, scorciatoie, esc, leggi, scrivi };
-  function avvia() { misuraTestata(); montaIngranaggio(); prepara(document); }
+  // Le schede di Anagrafica salvano con un POST a pagina intera: l'indirizzo resterebbe quello del POST
+  // (F5 rimanda il modulo, il segnalibro non si apre). Si rimette quello della scheda aperta.
+  function indirizzoScheda() {
+    const d = document.querySelector("[data-indirizzo]"); if (!d) return;
+    const u = new URL(d.dataset.indirizzo, location.href);
+    if (u.pathname !== location.pathname || !location.search) history.replaceState(history.state, "", u);
+  }
+  function avvia() { misuraTestata(); montaIngranaggio(); indirizzoScheda(); prepara(document); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", avvia); else avvia();
   document.addEventListener("htmx:afterSettle", e => prepara(e.target));
 })();

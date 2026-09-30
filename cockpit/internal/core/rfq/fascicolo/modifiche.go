@@ -101,6 +101,12 @@ func Collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente u
 // collega e' il cuore di Collega; nuovo dice se l'arco l'ha messo adesso (e non ne ha solo cambiato la
 // quantita').
 func collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente uuid.UUID, qta int32) (msg string, nuovo bool, err error) {
+	return collegaDa(ctx, q, thread, padre, figlio, utente, qta, db.OrigineComponenteManuale)
+}
+
+// collegaDa e' collega con l'origine dell'arco: manuale per un arco messo a mano, step per un legame che la conferma
+// dell'albero prende dalle righe di uno STEP (fase 4.4a.1b), che restano legate all'arco con il loro segno.
+func collegaDa(ctx context.Context, q *db.Queries, thread, padre, figlio, utente uuid.UUID, qta int32, origine db.OrigineComponente) (msg string, nuovo bool, err error) {
 	if qta < 1 || qta > MaxQtaArco {
 		return "", false, Rifiuto(fmt.Sprintf("la quantità va da 1 a %d", MaxQtaArco))
 	}
@@ -142,7 +148,7 @@ func collega(ctx context.Context, q *db.Queries, thread, padre, figlio, utente u
 		return "", false, Rifiuto(fmt.Sprintf("%s sotto %s chiuderebbe un ciclo (%s)", f.Codice, p.Codice, ciclo(ctx, q, giro)))
 	}
 	if _, err := q.InsertRelazione(ctx, db.InsertRelazioneParams{ThreadID: thread, PadreID: padre, FiglioID: figlio, Qta: qta,
-		Origine: db.OrigineComponenteManuale, ConfermatoDa: utente}); err != nil {
+		Origine: origine, ConfermatoDa: utente}); err != nil {
 		return "", false, err
 	}
 	return fmt.Sprintf("%s sotto %s ×%d.", f.Codice, p.Codice, qta), true, nil
