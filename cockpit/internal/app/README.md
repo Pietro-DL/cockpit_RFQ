@@ -37,7 +37,11 @@ markmap:
 
 ## File
 
-- Un package solo, `runtime`, in sette file.
+- Due package: `runtime`, il processo del server, in sette file; `bancoa`, il banco del motore A senza DB
+  (giro 5, A1a), che ha il suo README ([`bancoa/README.md`](bancoa/README.md)).
+- `bancoa` non è un processo di lungo periodo e non sa niente del server: legge il manifest del dataset
+  privato, gli attesi (è l'unico importatore della libreria YAML), l'indice e le grammatiche, fa girare le
+  modalità `regole` e `casi` sul motore A e scrive il rapporto con l'esito in testa.
 - File e che cosa tiene:
   - **`esegui.go`**
     - `Opzioni` (con `SoloLettura`) e `Esegui(cfgPath, rete config.Rete, Opzioni)`: la sequenza dell'avvio, un passo per riga, e niente altro
@@ -82,6 +86,10 @@ markmap:
   - **`ApriLog`, `ApriDatabase`, `ApriDatabaseInLettura`, `Semina`, `ImpostaCapacita`, `CostruisciServizi`, `PreparaTLS`, `Ascolta`, `SeminaAnagrafica`, `SemeFornitori`, `ContaAnagrafiche`, `EseguiInLettura`, `LivelloLog`**
     - solo `Esegui` (sono esportati per essere letti e provati uno per uno)
 - Nessun altro package importa `runtime`.
+- **`bancoa.Esegui`, `bancoa.Opzioni`**: `cmd/bancoa/main.go`, che legge i flag `-modalita regole|casi`,
+  `-dataset <manifest del dataset privato>`, `-uscita <cartella dei rapporti>` e traduce l'esito nei codici
+  d'uscita 0 (conforme), 1 (con differenze), 2 (uso o configurazione, nessun rapporto), 3 (NON ESEGUITO).
+  Non legge `cockpit.toml`. Dettaglio in `bancoa/README.md`.
 
 ### La riga di comando (`cmd/cockpit/main.go`)
 
@@ -269,6 +277,12 @@ markmap:
   - e il package radice del modulo (`embed.go`: l'`embed.FS` con migrazioni, template, statici e file dei worker).
 - È l'unica area che può conoscerle tutte insieme.
 - Lo importa solo `cmd/cockpit`.
+- `bancoa` importa:
+  - `core` (`inbox/classificazione/motorea`, `registro/regole/grammatica`, `estrazione/evidenze`)
+  - `platform` (`dataset`, `jsoncanonico`)
+  - la libreria YAML, di cui è l'unico importatore (G3)
+  - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`.
+- Lo importa solo `cmd/bancoa`.
 
 ## Test
 

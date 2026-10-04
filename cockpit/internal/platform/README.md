@@ -134,6 +134,18 @@ markmap:
   - la base delle impronte del motore A del giro 5; non sa niente di RFQ
 - README: [README](jsoncanonico/README.md)
 
+### `dataset`
+
+- Che cosa fa:
+  - legge il **manifest del dataset privato** della consegna A (giro 5), un JSON fuori dai due rami, con la
+    decodifica stretta: voci per nome logico con percorso, ruolo, sha256 e byte; il legame profilo → cliente;
+    lo storico
+  - dà un file solo dopo il controllo di **sha256 e byte**: un file mancante o cambiato è un errore tipizzato
+    (`ErrFileMancante`, `ErrImprontaDiversa`), che chi lo riceve mostra come NON ESEGUITO
+  - `FuoriDalModulo`: il dataset e le uscite del banco non entrano mai nel repository
+  - non conosce il formato dei file che elenca; nessun valore del dataset sta nel codice
+- README: [README](dataset/README.md)
+
 ### `testutil`
 
 - Che cosa fa:

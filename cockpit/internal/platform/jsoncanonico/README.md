@@ -68,7 +68,8 @@ markmap:
 
 - **Importa:** solo la libreria standard.
 - **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot;
-  `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole.
+  `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole; `internal/app/bancoa`, per
+  il rapporto del banco in JSON canonico.
 
 ## Test
 

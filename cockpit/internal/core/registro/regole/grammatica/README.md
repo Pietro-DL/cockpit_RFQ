@@ -90,7 +90,7 @@ markmap:
   chiama: `motorea` (`CompilaVerificato`), da A1a.
 - **`Decodifica`, `Grammatica.Valida`, `VerificaPattern`, `TettiLimiti`** — chi li chiama: `NuovoSnapshot`
   e `LeggiIndice`; il banco per i rapporti.
-- Oggi, nel codice di prodotto, solo `motorea`, che a sua volta non ha ancora chiamanti.
+- Oggi, nel codice di prodotto, `motorea` e il banco (`app/bancoa`, da A1a.5).
 
 ## Invarianti
 
@@ -123,7 +123,8 @@ markmap:
 
 - **Importa:** `core/estrazione/evidenze` (solo l'elenco chiuso di G8), `platform/jsoncanonico`,
   `github.com/google/uuid`, la libreria standard.
-- **È importato da:** `core/inbox/classificazione/motorea` (vedi Entry point).
+- **È importato da:** `core/inbox/classificazione/motorea`; `internal/app/bancoa`, per l'indice, i
+  limiti e i rapporti delle regole (vedi Entry point).
 
 ## Test
 

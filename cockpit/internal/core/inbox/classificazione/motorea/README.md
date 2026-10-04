@@ -93,7 +93,7 @@ markmap:
 - **`Motore.Riconosci`** — chi lo chiama: la verifica degli esempi; il banco (modalità `casi`); da A1b
   `Interpreta`. È la sola funzione di riconoscimento: non c'è un secondo motore.
 - **`ConfrontaBasi`, `ConfrontaRevisioni`** — chi li chiama: il banco; da A1c l'ancoraggio.
-- Oggi, nel codice di prodotto, ancora nessuno: il pacchetto nasce prima dei suoi chiamanti.
+- Oggi, nel codice di prodotto, il banco (`app/bancoa`, da A1a.5); l'anteprima arriva in A1d.
 
 ## Invarianti
 
@@ -129,7 +129,7 @@ markmap:
 - **Importa:** `core/registro/regole/grammatica`, `core/estrazione/evidenze`, `platform/jsoncanonico`
   (l'impronta dell'indice), `github.com/google/uuid`, la libreria standard. Mai il motore legacy
   (`core/inbox/classificazione`, `core/registro/regole`).
-- **È importato da:** nessun pacchetto di prodotto, per ora (vedi Entry point).
+- **È importato da:** `internal/app/bancoa`, il banco (vedi Entry point).
 
 ## Test
 
