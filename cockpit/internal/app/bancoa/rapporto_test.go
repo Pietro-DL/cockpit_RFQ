@@ -22,8 +22,10 @@ import (
 // I clienti di questi test sono inventati. Non è pigrizia: il dataset vero è privato, e questo repository è
 // pubblico. Il dataset ACME nasce in t.TempDir(), fuori dal modulo.
 
+// TestVersioneRapportoFissa: riscritta per A1b.11 (la versione passa a 2: nei casi le letture hanno la funzione
+// del router e l'esito porta gli attributi di Interpreta).
 func TestVersioneRapportoFissa(t *testing.T) {
-	if VersioneRapporto != 1 {
+	if VersioneRapporto != 2 {
 		t.Fatalf("VersioneRapporto = %d: cambiarla vuol dire riscrivere questa prova («Riscritta per …»)", VersioneRapporto)
 	}
 }
@@ -134,7 +136,7 @@ func TestEseguiConforme(t *testing.T) {
 		}
 	}
 	r, _ := esegue(t, d, ModalitaCasi)
-	if r.Casi == nil || r.Casi.Conteggi.Passati != 5 || r.Casi.Conteggi.Totale != 10 {
+	if r.Casi == nil || r.Casi.Conteggi.Passati != 10 || r.Casi.Conteggi.Totale != 14 {
 		t.Fatalf("casi: %+v", r.Casi)
 	}
 }

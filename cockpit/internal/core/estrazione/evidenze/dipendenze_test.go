@@ -31,7 +31,8 @@ import (
 //   - G3 (R9, R40 e, P-18): la libreria YAML la importa solo il runner del banco, internal/app/bancoa, anche
 //     contando gli import delle prove e i file con i tag integrazione, browser e privato;
 //   - G4 (P-08, R48 A): gli adattatori di core/estrazione usano di classificazione e lettura solo un elenco
-//     chiuso, il taglio con posizioni, EInoltro e le tabelle con origine.
+//     chiuso, il taglio con posizioni, EInoltro e le tabelle con origine;
+//   - F19 (R52 A): il banco, internal/app/bancoa, usa di core/estrazione solo DaTesto.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -84,11 +85,12 @@ var pacchettiMotoreA = []regolePacchetto{
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
 	// Il runner del banco: legge i file, non è puro. Usa lo stesso motore del prodotto e il manifest; è l'unico
-	// importatore della libreria YAML (G3, qui sotto). Mai app/runtime, transport, ai, platform/config.
+	// importatore della libreria YAML (G3, qui sotto). Mai app/runtime, transport, ai, platform/config. Da A1b.11
+	// importa core/estrazione, solo per DaTesto (F19, R52 A: la guardia è più sotto).
 	{percorso: "internal/app/bancoa",
 		progetto: []string{"internal/platform/dataset", "internal/core/registro/regole/grammatica",
 			"internal/core/inbox/classificazione/motorea", "internal/core/estrazione/evidenze",
-			"internal/platform/jsoncanonico"},
+			"internal/core/estrazione", "internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid", "gopkg.in/yaml.v3"}},
 	// Il comando del banco, sottile come cmd/cockpit: solo il runner (in A1a nemmeno le migrazioni incorporate).
 	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa"}},
@@ -691,5 +693,59 @@ func TestEstrazioneUsaDelLegacySoloIlTaglio(t *testing.T) {
 			}
 			return true
 		})
+	}
+}
+
+// TestIlBancoUsaDiEstrazioneSoloDaTesto (F19, R52 A; A1b.11): nei file non di prova di internal/app/bancoa ogni
+// estrazione.X è DaTesto. Il banco fa il documento del caso con DaTesto e lo passa a Interpreta: gli adattatori dei
+// fatti (DaAllegato, DaMessaggio) e il resto del pacchetto non entrano nel modo casi. Un import di core/estrazione
+// con il nome «.» o «_» fa fallire la prova: i nomi usati non si vedrebbero. Se nessun file usa DaTesto la prova
+// fallisce: legge i file sbagliati, o la freccia è sparita senza togliere la riga dalla tabella.
+func TestIlBancoUsaDiEstrazioneSoloDaTesto(t *testing.T) {
+	radice := radiceDelModulo(t)
+	const estrazione = modulo + "/internal/core/estrazione"
+	fset, files := fileAnalizzati(t, radice, "internal/app/bancoa")
+	if len(files) == 0 {
+		t.Fatal("nessun file di app/bancoa: la prova non legge i file giusti")
+	}
+	usi := 0
+	for _, f := range files {
+		nome := ""
+		for _, is := range f.Imports {
+			imp, _ := strconv.Unquote(is.Path.Value)
+			if imp != estrazione {
+				continue
+			}
+			nome = "estrazione"
+			if is.Name != nil {
+				nome = is.Name.Name
+			}
+			if nome == "." || nome == "_" {
+				t.Errorf("%s: import di %s con il nome %q: i nomi usati non si vedrebbero", fset.Position(is.Pos()), imp, nome)
+				nome = ""
+			}
+		}
+		if nome == "" {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok || id.Obj != nil || id.Name != nome {
+				return true
+			}
+			if sel.Sel.Name != "DaTesto" {
+				t.Errorf("%s: app/bancoa usa %s.%s: di core/estrazione il banco usa solo DaTesto (F19, R52 A)", fset.Position(sel.Pos()), id.Name, sel.Sel.Name)
+			} else {
+				usi++
+			}
+			return true
+		})
+	}
+	if usi == 0 {
+		t.Error("app/bancoa non usa estrazione.DaTesto: la freccia F19 della tabella non ha più motivo")
 	}
 }

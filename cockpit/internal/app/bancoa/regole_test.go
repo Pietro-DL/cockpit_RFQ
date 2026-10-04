@@ -10,7 +10,7 @@ import (
 	"promatec/cockpit/internal/platform/dataset"
 )
 
-// L1 — la modalità «regole» («profili attivi validi», A1a-BA; R43 B, R20 b, R47 b, CP-17): la grammatica
+// L1 — la modalità «regole» («profili attivi validi», A1a-BA, A1b-24; R43 B, R20 b, R47 b, CP-17): la grammatica
 // ACME compila con i limiti dell'indice; famiglie, forme attive e riservate, riserve, esempi verificati e
 // non verificati; la copertura minima con le lacune, che non cambiano l'esito; la coerenza fra gli esempi con
 // rif_caso e i casi che ripetono (stesso caso, stesso cliente, stesso selettore dopo R19, stesso testo,
@@ -47,7 +47,7 @@ func TestVerificaRegoleACME(t *testing.T) {
 	for _, f := range c.Famiglie {
 		famiglie = append(famiglie, f.ID)
 	}
-	if strings.Join(famiglie, " ") != "acme-etichetta-pn acme-lavagna acme-marcatore acme-prefisso acme-punti" {
+	if strings.Join(famiglie, " ") != "acme-campo acme-etichetta-pn acme-lavagna acme-marcatore acme-prefisso acme-punti" {
 		t.Errorf("famiglie in ordine di ID: %v", famiglie)
 	}
 	for _, f := range c.Famiglie {
@@ -61,12 +61,14 @@ func TestVerificaRegoleACME(t *testing.T) {
 	if len(c.Riserve) != 2 {
 		t.Errorf("riserve: %+v", c.Riserve)
 	}
-	if !reflect.DeepEqual(c.Esempi, ConteggioEsempi{Totali: 17, Verificati: 16, NonVerificati: 1,
+	// Da A1b.11 la famiglia acme-campo porta la menzione nel testo del PDF e la revisione in campo separato
+	// (A1b-24): quattro esempi in più, due con rif_caso.
+	if !reflect.DeepEqual(c.Esempi, ConteggioEsempi{Totali: 21, Verificati: 20, NonVerificati: 1,
 		NonVerificatiID: []string{"acme-lavagna/e-lavagna"}}) {
 		t.Errorf("esempi: %+v", c.Esempi)
 	}
-	if len(c.Coerenza) != 6 {
-		t.Errorf("esempi con rif_caso confrontati: %d, attesi 6", len(c.Coerenza))
+	if len(c.Coerenza) != 8 {
+		t.Errorf("esempi con rif_caso confrontati: %d, attesi 8", len(c.Coerenza))
 	}
 	for _, k := range c.Coerenza {
 		if !k.Coerente {
@@ -170,10 +172,14 @@ func TestClienteScartatoEIndiceNonValido(t *testing.T) {
 	}
 }
 
-// TestCoerenzaConLaRegolaDelRunner: ogni chiave si legge con la regola di traduzione.go (par.4.7.4, 4.7.5).
-// letture_identita = 0 contraddice un esempio che attende letture solo su un selettore d'identità; per «basi»
-// un esempio contraddice il caso solo se attende una base che il caso non elenca, perché non sa scrivere le
-// ripetizioni. Valori inventati, cliente ACME.
+// TestCoerenzaConLaRegolaDelRunner: ogni chiave si legge con la regola di traduzione.go (par.4.7.4, 4.7.5;
+// la lezione di D1: una sola fonte della semantica per chiave). Da A1b.11 la funzione del router sul selettore
+// dell'esempio, con l'uso del modo casi (funzioneNelBanco), decide quali letture attese contano: su un
+// selettore d'identità (anche il corpo, dove l'uso sconosciuto dà «richiesta») valgono per base, basi,
+// marcatore, revisione e contraddicono letture_identita = 0; sul testo del PDF sono menzioni e non valgono per
+// nessuna; su un campo della revisione valgono solo per revisione. Per «basi» un esempio contraddice il caso
+// solo se attende una base che il caso non elenca, perché non sa scrivere le ripetizioni. Valori inventati,
+// cliente ACME.
 func TestCoerenzaConLaRegolaDelRunner(t *testing.T) {
 	profili := map[string]string{"acme": clienteACME.String()}
 	caso := func(contesto, testo string, atteso ...ChiaveAttesa) map[string]CasoContratto {
@@ -196,8 +202,11 @@ func TestCoerenzaConLaRegolaDelRunner(t *testing.T) {
 		coerente bool
 		motivo   string
 	}{
-		{"letture di forma sul testo del PDF contro letture_identita 0: una menzione, A1b",
+		{"letture di forma sul testo del PDF contro letture_identita 0: una menzione (router-1 riga 16)",
 			esempio("testo_pdf", "vedi ACME-100", lettura("ACME-100")), caso("testo_pdf", "vedi ACME-100", zero), true, ""},
+		{"letture sul corpo contro letture_identita 0: con l'uso sconosciuto sono richieste (router-1 riga 2)",
+			esempio("corpo", "vedi ACME-100", lettura("ACME-100")), caso("corpo", "vedi ACME-100", zero), false,
+			"letture_identita"},
 		{"letture sul nome del file contro letture_identita 0",
 			esempio("nome_file", "ACME-100.pdf", lettura("ACME-100")), caso("nome_file", "ACME-100.pdf", zero), false,
 			"letture_identita"},
@@ -220,9 +229,21 @@ func TestCoerenzaConLaRegolaDelRunner(t *testing.T) {
 		{"una sola base, fuori dalle basi del caso",
 			esempio("nome_file", "ACME-109.pdf", lettura("ACME-109")), caso("nome_file", "ACME-109.pdf", basi), false,
 			"l'esempio attende anche ACME-109"},
-		{"sul testo del PDF le altre chiavi si controllano ancora",
-			esempio("testo_pdf", "vedi ACME-109", lettura("ACME-109")), caso("testo_pdf", "vedi ACME-109", zero, basi), false,
+		// Riscritta per A1b.11: sul testo del PDF le letture dell'esempio sono menzioni, e per il runner basi legge
+		// solo le letture d'identità (R25 a): l'esempio non dice niente su basi.
+		{"sul testo del PDF le letture dell'esempio non valgono per basi",
+			esempio("testo_pdf", "vedi ACME-109", lettura("ACME-109")), caso("testo_pdf", "vedi ACME-109", zero, basi), true, ""},
+		{"sul corpo le letture dell'esempio valgono per basi",
+			esempio("corpo", "vedi ACME-109", lettura("ACME-109")), caso("corpo", "vedi ACME-109", basi), false,
 			"l'esempio attende anche ACME-109"},
+		{"sul campo della revisione la revisione dell'esempio vale contro quella del caso",
+			esempio("cartiglio.revisione", "01", grammatica.LetturaAttesa{Revisione: "01"}),
+			caso("cartiglio.revisione", "01", ChiaveAttesa{Chiave: "revisione", Valore: ValoreAtteso{Tipo: TipoStringa, Testo: "02"}}),
+			false, "revisione:"},
+		{"sul campo della revisione la stessa revisione è coerente, e letture_identita 0 non la contraddice",
+			esempio("cartiglio.revisione", "01", grammatica.LetturaAttesa{Revisione: "01"}),
+			caso("cartiglio.revisione", "01", zero, ChiaveAttesa{Chiave: "revisione", Valore: ValoreAtteso{Tipo: TipoStringa, Testo: "01"}}),
+			true, ""},
 		{"nessuna lettura contro basi",
 			grammatica.EsempioCodice{ID: "e-acme", RifCaso: "caso-acme-90", Selettore: "nome_file", Testo: "ACME.pdf",
 				Atteso: grammatica.AttesoEsempio{Nessuna: true}}, caso("nome_file", "ACME.pdf", basi), false,

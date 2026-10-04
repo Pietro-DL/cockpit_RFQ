@@ -832,6 +832,143 @@
           }
         }
       ]
+    },
+    {
+      "id": "acme-campo",
+      "namespace": "acme-campo",
+      "descrizione": "codici del cartiglio con la revisione in campo separato a due cifre (D9), menzionati nel testo del PDF",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "prefisso",
+            "letterale": "Q+700",
+            "identitario": true
+          },
+          {
+            "nome": "centrale",
+            "pattern": "0[0-9]{5}",
+            "separatore": ".",
+            "identitario": true
+          },
+          {
+            "nome": "successivo",
+            "pattern": "0[0-9]0",
+            "separatore": ".",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "cartiglio",
+          "selettori": [
+            "cartiglio.codice"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "id": "testo",
+          "selettori": [
+            "testo_pdf"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ],
+      "revisioni": [
+        {
+          "id": "rev-campo",
+          "selettori": [
+            "cartiglio.revisione"
+          ],
+          "stato": "attiva",
+          "sorgente": "campo_separato",
+          "segmenti": [
+            {
+              "nome": "valore",
+              "pattern": "[0-9]{2}",
+              "significato": "nessuno"
+            }
+          ]
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-campo-cartiglio",
+          "origine": "sintetico",
+          "selettore": "cartiglio.codice",
+          "testo": "Q+700.099999.010",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "cartiglio",
+                "base": "Q+700.099999.010"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-campo-testo",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-09",
+          "selettore": "testo_pdf",
+          "testo": "vedi Q+700.099999.010 per il dettaglio",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "testo",
+                "base": "Q+700.099999.010"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-rev-campo",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-10",
+          "selettore": "cartiglio.revisione",
+          "testo": "01",
+          "atteso": {
+            "letture": [
+              {
+                "revisione": "01"
+              }
+            ]
+          }
+        },
+        {
+          "id": "n-campo-senza-successivo",
+          "origine": "sintetico",
+          "selettore": "cartiglio.codice",
+          "testo": "Q+700.099999",
+          "atteso": {
+            "nessuna": true
+          }
+        }
+      ]
     }
   ]
 }

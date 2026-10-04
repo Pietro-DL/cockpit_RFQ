@@ -18,8 +18,8 @@ func TestLeggiAttesiACME(t *testing.T) {
 	if a.Testata.VersioneAttesi != 1 || a.Testata.Data != "2026-10-04" || a.Testata.Stato != "sintetico" {
 		t.Fatalf("testata: %+v", a.Testata)
 	}
-	if len(a.Casi) != 10 {
-		t.Fatalf("%d casi, attesi 10", len(a.Casi))
+	if len(a.Casi) != 14 {
+		t.Fatalf("%d casi, attesi 14", len(a.Casi))
 	}
 	c := a.Casi[0]
 	if c.ID != "caso-acme-01" || c.Profilo != "acme" || c.Livello != "banco" || c.StatoAtteso != StatoAttesoDefinito ||
@@ -58,7 +58,7 @@ func TestLeggiAttesiACME(t *testing.T) {
 	if c := a.Casi[6]; c.StatoAtteso != StatoAttesoRiservato || c.Nota == "" {
 		t.Errorf("caso riservato: %+v", c)
 	}
-	if c := a.Casi[9]; c.Precondizioni == nil || !c.Precondizioni.EntitaCondivisaConCodice || c.Precondizioni.BaseStrutturata != "9123456" ||
+	if c := a.Casi[9]; c.Precondizioni == nil || !c.Precondizioni.EntitaCondivisaConCodice || c.Precondizioni.BaseStrutturata != "Q+700.099999.010" ||
 		c.AllegatoID != "allegato-acme-1" || c.Testo != "01" {
 		t.Errorf("precondizioni e allegato: %+v", c)
 	}

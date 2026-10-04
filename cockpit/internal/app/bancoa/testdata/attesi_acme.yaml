@@ -2,13 +2,13 @@ versione_attesi: 1
 data: 2026-10-04
 aggiornato: 2026-10-04 sera
 stato: sintetico
-piano: attesi inventati per le prove del banco (A1a-BA)
+piano: attesi inventati per le prove del banco (A1a-BA, A1b-24)
 base_repository: nessuna
 riservatezza: pubblico, cliente inventato ACME
 contratto_runner:
   uso: il runner traduce queste chiavi nei campi delle letture
   confronto: esatto per base, basi, marcatore, affisso e revisione
-  letture_identita: solo lo zero in A1a
+  letture_identita: le letture con funzione d'identità, per occorrenza
   dipende_da: un caso definito con dipende_da si valuta
   vietato: nessun completamento inventato
   "null": null vuol dire assente
@@ -92,6 +92,7 @@ casi_contratto:
       etichetta: PN
       identita_da_famiglia_etichettata: true
       fallback_generico_non_promuove: true
+      letture_identita: 1
   - id: caso-acme-07
     profilo: acme
     livello: banco
@@ -117,10 +118,12 @@ casi_contratto:
     stato_atteso: definito
     input:
       contesto: testo_pdf
-      testo: vedi 9123456A per il dettaglio
+      testo: vedi Q+700.099999.010 per il dettaglio
     atteso:
-      letture_identita: 1
-      base_menzionata: 9123456
+      letture_identita: 0
+      base_menzionata: Q+700.099999.010
+      identita_file_da_nota: false
+      nessuna_fusione: true
   - id: caso-acme-10
     profilo: acme
     livello: banco
@@ -130,11 +133,55 @@ casi_contratto:
       contesto: cartiglio.revisione
       testo: "01"
     precondizioni:
-      base_strutturata: 9123456
+      base_strutturata: Q+700.099999.010
       entita_condivisa_con_codice: true
     atteso:
       revisione: "01"
       cifre: 2
+      nessuna_inferenza_da_altro_profilo: true
+  - id: caso-acme-11
+    profilo: acme
+    livello: banco
+    stato_atteso: definito
+    nota: il campo della revisione con un testo che la regola non legge
+    input:
+      contesto: cartiglio.revisione
+      testo: VEDI NOTA 00
+    atteso:
+      revisione: null
+      stato: non_interpretabile
+      originale_conservato: true
+      letture_identita: 0
+  - id: caso-acme-12
+    profilo: acme
+    livello: banco
+    stato_atteso: definito
+    input:
+      contesto: corpo
+      testo: rif. 7654321 senza etichetta
+    atteso:
+      identita_da_famiglia_etichettata: false
+      fallback_generico_non_promuove: true
+      letture_identita: 0
+  - id: caso-acme-13
+    profilo: acme
+    livello: banco
+    stato_atteso: definito
+    input:
+      contesto: nome_file
+      testo: 9123456A_2.pdf
+    atteso:
+      base: 9123456
+      confronto_legacy: x
+  - id: caso-acme-14
+    profilo: acme
+    livello: banco
+    stato_atteso: definito
+    input:
+      contesto: nome_file
+      testo: disegno.pdf
+    atteso:
+      confronto_legacy: x
 scenario_inoltro: {}
 baseline_decisioni: []
 reali_archivi: []
