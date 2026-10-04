@@ -1,2 +1,9 @@
 contratto.selettore_non_ammesso
 contratto.selettore_generico
+documento.riferimento_pendente
+documento.intervallo_non_valido
+documento.utf8_non_valido
+documento.enum_ignoto
+documento.testo_diverso_da_originale
+documento.id_ripetuto
+documento.uso_non_valido
