@@ -83,6 +83,8 @@ markmap:
   - il ramo gemello **`<ramo>-qa`** è lo stesso codice con in più i `*_test.go`, compresi quelli che lanciano le prove nel browser.
   - Su un ramo di prodotto `go test ./...` non trova test da eseguire e finisce senza errori senza aver provato niente: le prove Go descritte in «Prove» si lanciano dal ramo `-qa`.
 - Si installa sempre il ramo di prodotto che contiene la versione voluta, con `git clone --branch`.
+- **Prima di ogni push** si lancia `scripts/controlla-privati.ps1 -Ramo <ramo>` su ciascuno dei due rami, nel suo worktree, dopo un `git fetch`: si spinge solo con l'uscita 0 su tutti e due.
+  - Il controllo legge gli elenchi del dataset privato, che sta fuori dal repository, dal manifest indicato da `COCKPIT_DATASET_A`: senza il dataset esce con 3 (NON ESEGUITO) e non si spinge.
 
 ## Prerequisiti
 
