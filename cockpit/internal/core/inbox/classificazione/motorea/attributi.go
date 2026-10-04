@@ -182,10 +182,18 @@ type regolaCampo struct {
 //     dà revisione.discordante: si conservano tutte e due.
 //   - Famiglie lette nell'entità senza una regola sul selettore: «non_attribuito», il campo c'è e nessuna regola
 //     lo attribuisce. Più regole attive senza letture nell'entità: «ambiguo», nessuna si sceglie.
+//   - Nessuna regola di revisione in campo separato sul selettore, né attiva né riservata, e il campo è la
+//     revisione del cartiglio: il default prudente (C-34; R21 e = A; P1 §3.4 r.110). Nessun valore, l'originale
+//     si conserva, stato «non_interpretabile», con revisione.non_interpretabile. Il legame è solo quello del
+//     campo con la sua entità, nessun codice: è il caso della grammatica che non ha una regola per quella
+//     revisione, perché nessuno gliel'ha data.
 func (it *interprete) revisioneCampo(u evidenze.UnitaEvidenza, letture []int) {
 	piani := it.m.revisioniCampo[u.Selettore]
 	riservate := it.regole.riservate[u.Selettore]
 	if len(piani) == 0 && len(riservate) == 0 {
+		if u.Selettore.Contesto == evidenze.ContestoCartiglio && u.Selettore.Campo.Valore == AttributoRevisione {
+			it.revisioneSenzaRegola(u)
+		}
 		return
 	}
 	var famiglie []string
@@ -239,6 +247,22 @@ func (it *interprete) revisioneCampo(u evidenze.UnitaEvidenza, letture []int) {
 	for _, c := range candidate {
 		it.applicaRevisione(u, c, letture)
 	}
+}
+
+// revisioneSenzaRegola: la revisione del cartiglio quando la grammatica non ha nessuna regola di revisione in
+// campo separato sul selettore (C-34, il default prudente di R21 e = A): nessuna revisione attribuita, il token
+// conservato, lo stato non_interpretabile e la diagnosi.
+func (it *interprete) revisioneSenzaRegola(u evidenze.UnitaEvidenza) {
+	a := it.attributoRevisione(u, regolaCampo{}, StatoNonInterpretabile, "")
+	it.attr = append(it.attr, a)
+	it.diag = append(it.diag, evidenze.Diagnostica{
+		Codice:    CodiceRevisioneNonInterpretabile,
+		Gravita:   evidenze.GravitaAvviso,
+		Natura:    evidenze.NaturaDati,
+		Percorso:  "attributi[" + a.ID + "]",
+		Messaggio: "nessuna regola di revisione in campo separato sul selettore: default prudente (C-34), l'originale si conserva, nessun valore",
+		Rif:       []string{a.ID, u.ID},
+	})
 }
 
 // applicaRevisione applica una regola candidata al testo intero del campo.
@@ -297,7 +321,7 @@ func (it *interprete) applicaRevisione(u evidenze.UnitaEvidenza, c regolaCampo, 
 // attributoRevisione: l'attributo di una revisione in campo separato. L'ID porta la famiglia e la regola che lo
 // hanno dato, se ci sono («a:<unità>:revisione:<famiglia>/<regola>»): due famiglie lette nella stessa entità
 // danno due attributi, e la regola che giustifica il legame resta leggibile nell'ID. Senza regola (non
-// attribuito, ambiguo) l'ID è «a:<unità>:revisione».
+// attribuito, ambiguo, non interpretabile per il default prudente) l'ID è «a:<unità>:revisione».
 func (it *interprete) attributoRevisione(u evidenze.UnitaEvidenza, c regolaCampo, stato, normalizzato string) AttributoLetto {
 	id := "a:" + u.ID + ":" + AttributoRevisione
 	if c.famiglia != "" {

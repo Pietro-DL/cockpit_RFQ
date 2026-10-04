@@ -120,9 +120,10 @@ markmap:
     `Impronta`;
   - `ImprontaUso`.
 - **`attributi.go`** — responsabilità (A1b.10):
-  - la revisione in campo separato con la `RegolaRevisione` della famiglia letta nella stessa entità, la
-    formazione STEP mai confrontata, titolo, scala e materiale grezzi, la quantità dalla colonna che una
-    `quantita_tabellare` attiva dichiara.
+  - la revisione in campo separato con la `RegolaRevisione` della famiglia letta nella stessa entità; senza
+    nessuna regola sul selettore, la revisione del cartiglio è `non_interpretabile`, con l'originale conservato
+    e nessun valore (il default prudente di C-34, R21 e = A); la formazione STEP mai confrontata, titolo, scala
+    e materiale grezzi, la quantità dalla colonna che una `quantita_tabellare` attiva dichiara.
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici che il pacchetto produce (R41 b): `grammatica.esempio_*`, `forma.collisione_esempi`,
     `regole.assenti`, `regole.non_valide`, `regole.file_assente`, `regole.sha256_discorde`,
