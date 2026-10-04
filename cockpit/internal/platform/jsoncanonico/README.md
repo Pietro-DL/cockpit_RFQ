@@ -67,7 +67,7 @@ markmap:
 ## Dipendenze
 
 - **Importa:** solo la libreria standard.
-- **È importato da:** nessun pacchetto di prodotto, per ora (vedi Entry point).
+- **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot.
 
 ## Test
 

@@ -108,7 +108,7 @@ markmap:
 - **`registro/regole/grammatica`**
   - Che cosa fa: le **grammatiche v1 del motore A** (giro 5), separate dallo schema legacy di `cliente.regole`:
     - i tipi delle grammatiche, la lettura stretta e la validazione, con le capacità riservate in A1
-    - i limiti dichiarati dall'indice (nel codice solo i tetti)
+    - i limiti dichiarati dall'indice (nel codice solo i tetti), la forma canonica con l'hash, l'indice per UUID
     - Puro; non compila regex per il riconoscimento
   - DB: no
   - README: [README](registro/regole/grammatica/README.md)
@@ -135,6 +135,7 @@ markmap:
     - è la foglia del motore A: la importano i suoi package, e lei non importa nessuno di loro
   - **`registro/regole/grammatica`** importa:
     - `estrazione/evidenze` (solo il vocabolario dei selettori e il tipo `Diagnostica`: G8)
+    - `platform/jsoncanonico`
     - mai `registro/regole`, il legacy: i due formati non si mescolano
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)

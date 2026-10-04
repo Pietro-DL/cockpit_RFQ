@@ -178,3 +178,14 @@ const (
 	// nessuna grammatica si attiva (R43 B).
 	CodiceLimiteOltreTetto = "limite.oltre_tetto"
 )
+
+// L'indice delle regole (LeggiIndice, ControllaRagioneSociale).
+const (
+	// CodiceRegoleClienteRipetuto — errore, contratto. Un cliente due volte nell'indice: nessuna grammatica si
+	// attiva.
+	CodiceRegoleClienteRipetuto = "regole.cliente_ripetuto"
+
+	// CodiceRegoleRagioneSocialeDiscorde — avviso, dati. La ragione sociale della grammatica è diversa da
+	// quella del DB (spazi ai bordi e maiuscole ASCII non contano): il thread non si valuta (par.3.6.3).
+	CodiceRegoleRagioneSocialeDiscorde = "regole.ragione_sociale_discorde"
+)
