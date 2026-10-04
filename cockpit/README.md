@@ -1362,6 +1362,11 @@ markmap:
 - **L5, L6, L8, L9**
   - Che cosa: prove reali: Outlook ed Exchange veri (L5, fra cui `workers\prova_lettura.py`), il banco a due PC e la share del NAS (L8), le altre prove sulla posta vera
   - Comando: a mano, nel registro degli esiti reali
+- **Banco del motore A (giro 5)**
+  - Che cosa: le grammatiche dei clienti e i casi degli attesi sul dataset privato, senza database: `regole` compila le grammatiche e ne verifica gli esempi, `casi` esegue i casi di contratto sul riconoscimento per forma
+  - Comando: `go run ./cmd/bancoa -modalita regole|casi -dataset <manifest del dataset privato> -uscita <cartella dei rapporti>`
+  - Il dataset privato non sta nel repository: si indica solo con il flag `-dataset` (lo stesso file di `COCKPIT_DATASET_A`), e la cartella dei rapporti sta anche lei fuori dal modulo.
+  - Uscite: 0 conforme, 1 con differenze, 2 uso o configurazione, 3 NON ESEGUITO (il dataset manca o non è quello del manifest: mai un rapporto verde). Il rapporto comincia con «ESITO: …» e contiene dati privati: non si incolla in commit o PR.
 - ```powershell
   go test ./...                        # L1: nessun database, anche con COCKPIT_TEST_DSN impostata
   python -m pytest -q workers          # L2: stanno in workers\tests\ (i moduli provati sono una cartella sopra); serve pytest
@@ -1599,6 +1604,8 @@ markmap:
   - un README per area (`internal/{core,platform,transport,ai,app}/README.md`) e uno per package
 - **`cmd/cockpit/main.go`**
   - la riga di comando: flag, `runtime.Opzioni`, codice di uscita
+- **`cmd/bancoa/main.go`**
+  - il banco del motore A senza database (giro 5): `-modalita regole|casi`, `-dataset` (il manifest del dataset privato, fuori dal repository), `-uscita`; codici di uscita 0/1/2/3; non legge cockpit.toml
 - **`embed.go`**
   - `embed.FS` di `migrations/`, `web/templates`, `web/static` e `workers/` (il pacchetto della postazione)
 - **`internal/platform/config`**
@@ -1630,6 +1637,8 @@ markmap:
   - estrazione zip (zip-slip, limiti); le voci finiscono fra i contenuti, con il proprio sha256 per nome
 - **`internal/platform/testutil`**
   - pool e schema pulito per i test d'integrazione (`COCKPIT_TEST_DSN`, solo verso un database il cui nome risolto contiene «test»)
+- **`internal/platform/dataset`**
+  - il manifest del dataset privato del motore A (giro 5): lettura stretta, sha256 e byte di ogni file controllati prima di darlo, i profili degli attesi legati ai clienti
 - **`internal/core/inbox/classificazione`**
   - regole pure + test: codici, proposta dal nome file, portale, scadenza, triage, oggetto ripulito dai RE:/FW:, taglio della catena di risposta (`catena.go`);
   - `controparte.go`: il resolver cliente/fornitore/interno/ambiguo (D33);
@@ -1719,6 +1728,8 @@ markmap:
   - `ascolto.go`: `PreparaTLS`, `Ascolta`;
   - `esecutore.go`: i job di tipo 'server' — prende il job, riconosce il tipo e chiama chi sa farlo (`core/rfq/documenti` per il fascicolo, `transport/workerapi` per gli archivi, `ai/agente` per l'analisi);
   - `vigilanza_nas.go`: quali job vogliono il NAS, il rinvio quando non c'e', il ritorno in coda quando torna
+- **`internal/app/bancoa`**
+  - il runner del banco del motore A (giro 5): attesi YAML (unico importatore della libreria), modalità `regole` e `casi` sullo stesso motore del prodotto, rapporto con l'esito in testa scritto in modo atomico fuori dal modulo
 - **`web/templates`, `web/static`**
   - template html/template, style.css, htmx 2.0.4;
   - `fascicolo.mjs` (il visore pdf.js e l'editor della struttura, Fascicolo v3);

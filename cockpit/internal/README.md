@@ -90,6 +90,10 @@ markmap:
   - **[`platform/contratti/README.md`](platform/contratti/README.md)** → i contratti JSON con i worker
   - **[`platform/coda/README.md`](platform/coda/README.md)** → la coda dei job, le tabelle per tipo, le capacità
   - **[`platform/jsoncanonico/README.md`](platform/jsoncanonico/README.md)** → il JSON canonico e le impronte sha256
+  - **[`platform/dataset/README.md`](platform/dataset/README.md)** → il manifest del dataset privato del motore A
+    (giro 5) e il controllo dello sha256 di ogni file
+  - **[`app/bancoa/README.md`](app/bancoa/README.md)** → il banco del motore A senza DB (giro 5): le modalità
+    `regole` e `casi`, gli attesi, il rapporto con l'esito in testa
   - **[`platform/storage/README.md`](platform/storage/README.md)** → staging, NAS, archivi
   - **[`transport/README.md`](transport/README.md)** → le regole comuni e la tabella completa delle rotte
   - **[`transport/web/README.md`](transport/web/README.md)** → le pagine dell'operatore, modulo per modulo
@@ -119,11 +123,19 @@ markmap:
   - **`platform/*`** → solo `platform` e librerie (`testutil` anche il package radice, per le migrazioni incorporate)
   - **`platform/coda`** → `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download)
   - **`platform/jsoncanonico`** → solo la libreria standard
+  - **`platform/dataset`** → solo la libreria standard
+    - legge il manifest del dataset privato; non importa `core`, quindi niente `evidenze.Diagnostica`
   - **`ai/agente`** → `core`, `platform`
   - **`transport/*`** → `core` (compreso `core/inbox/lettura`, usato da `transport/web`), `ai`, `platform`
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
+  - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
+    `core/estrazione/evidenze`, `platform/jsoncanonico`, `platform/dataset`, la libreria YAML
+    - è l'unico importatore della libreria YAML (G3): gli attesi entrano solo dal banco; mai `app/runtime`,
+      `transport`, `ai`, `platform/config`
   - **`cmd/cockpit`** → `app/runtime`, `platform/config`
+  - **`cmd/bancoa`** → `app/bancoa`
+    - non legge `cockpit.toml`
 - Frecce che esistono solo nei test:
   - `transport/web` → `transport/workerapi` (le prove L4 di B8.7 e delle postazioni)
   - e `platform/migrazioni` → `core/inbox/classificazione` (le larghezze delle colonne)
