@@ -17,3 +17,34 @@ const (
 	// la diagnosi di capacità.
 	CodiceSelettoreGenerico = "contratto.selettore_generico"
 )
+
+// Validazione del documento e dell'uso dei segmenti (ValidaDocumento, ValidaUso). Erano di A1b nella bozza:
+// con la foglia intera in A1a (R49 C) nascono qui.
+const (
+	// CodiceDocumentoRiferimentoPendente — errore, contratto. Un ID di fonte, segmento, entità o testo
+	// che non si risolve nel documento.
+	CodiceDocumentoRiferimentoPendente = "documento.riferimento_pendente"
+
+	// CodiceDocumentoIntervalloNonValido — errore, contratto. Un intervallo fuori dal testo, rovesciato o
+	// a metà di una runa.
+	CodiceDocumentoIntervalloNonValido = "documento.intervallo_non_valido"
+
+	// CodiceDocumentoUTF8NonValido — errore, contratto. Un testo del documento non è UTF-8 valido.
+	CodiceDocumentoUTF8NonValido = "documento.utf8_non_valido"
+
+	// CodiceDocumentoEnumIgnoto — errore, contratto. Un valore fuori da un enum del documento, o una
+	// coppia non ammessa (un selettore fuori tabella, un localizzatore con la variante sbagliata, una
+	// quantità su un legame che non la porta).
+	CodiceDocumentoEnumIgnoto = "documento.enum_ignoto"
+
+	// CodiceDocumentoTestoDiversoDaOriginale — errore, contratto. Localizzazione dichiarata esatta, ma il
+	// testo dell'unità è diverso da originale[inizio:fine] (A-C03).
+	CodiceDocumentoTestoDiversoDaOriginale = "documento.testo_diverso_da_originale"
+
+	// CodiceDocumentoIDRipetuto — errore, contratto. Due ID locali uguali nello stesso documento.
+	CodiceDocumentoIDRipetuto = "documento.id_ripetuto"
+
+	// CodiceDocumentoUsoNonValido — errore, contratto. Un uso dei segmenti di un altro bundle, di una
+	// versione ignota, con un segmento che non c'è o con un enum ignoto (parte 1 §9.3).
+	CodiceDocumentoUsoNonValido = "documento.uso_non_valido"
+)
