@@ -14,6 +14,9 @@ markmap:
   - **i tipi versionati**: famiglie di codice con ruoli e categorie, base a segmenti, forme (anche parziali,
     come proiezioni dichiarate), parti, etichette, affissi, revisioni, decorazioni, esempi, profilo con le
     riserve;
+  - **la colonna della quantità** nelle tabelle della mail (`QuantitaTabellare`, chiave
+    `quantita_tabellare`, da A1b.8): la dichiara il file regole del cliente con i letterali osservati, mai il
+    codice (R28 a). Qui si dichiara e si valida; la applica `motorea`;
   - **la porta stretta di lettura** (`Decodifica`) e **la validazione** (`Grammatica.Valida`), con i
     **vincoli RE2** dei pattern (`VerificaPattern`) e le **capacità riservate in A1** (R20 c);
   - **i limiti**, che non sono costanti del codice: li dichiara l'indice delle regole con la loro versione;
@@ -48,7 +51,16 @@ markmap:
   - i tipi del DTO v1: `Grammatica`, `ClienteGrammatica`, `Profilo`, `Riserva`, `FamigliaCodice`, `Ruolo`,
     `Categoria`, `Base`, `ClasseConfine`, `SegmentoBase`, `FormaCodice`, `Parte`, `Etichetta`, `Affisso`,
     `ValoreQualificatore`, `RegolaRevisione`, `SegmentoRevisione`, `TokenSospeso`, `Decorazione`,
-    `RegolaRiferimento`, `QualificatoreTestuale`, `EsempioCodice`, `AttesoEsempio`, `LetturaAttesa`.
+    `RegolaRiferimento`, `QualificatoreTestuale`, `EsempioCodice`, `AttesoEsempio`, `LetturaAttesa`; il
+    campo `Quantita` (`quantita_tabellare`, con `omitempty`: i file che non lo usano hanno il canonico e
+    l'hash di prima).
+- **`quantita.go`** — responsabilità (A1b.8; R28 a):
+  - `QuantitaTabellare` e `RegolaQuantitaPrimaRigaSopra`, l'unica regola in A1;
+  - la validazione, chiamata da `Grammatica.Valida` (regola 16): ID unico, intestazioni non vuote e senza
+    caratteri di controllo, regola nota, selettori letti con `evidenze.LeggiSelettore` e ammessi solo `corpo`
+    e `storia`, stato `attiva` o `riservata`. Nessun codice nuovo: bastano quelli di A1a;
+  - la forma canonica, chiamata da `Normalizza`: regole in ordine di ID, intestazioni e selettori come
+    insiemi.
 - **`vocabolario.go`** — responsabilità:
   - gli enum chiusi e i loro elenchi: ruoli, categorie, tipi di parte (anche dentro un suffisso), tipi e
     sottotipi di decorazione, posizione, sorgente, stato, profilo, fase, destinazione, classi di confine,
@@ -59,7 +71,8 @@ markmap:
     con maiuscole diverse, null, numeri non interi, booleani e interi obbligatori assenti, array a lunghezza
     fissa, UUID), infine `json.Decoder` con `DisallowUnknownFields` e `UseNumber`.
 - **`valida.go`** — responsabilità:
-  - `Grammatica.Valida`: le quindici regole del piano (par.4.4.4), con un codice per ciascuna.
+  - `Grammatica.Valida`: le quindici regole del piano (par.4.4.4), con un codice per ciascuna, più la
+    sedicesima, `quantita_tabellare` (`quantita.go`).
 - **`capacita.go`** — responsabilità:
   - `VersioneCapacita` (`capacita-a1-1`) e l'elenco delle capacità riservate in A1 (R20 c): selettori e
     campi, generici «<contesto>.*», decorazioni della parte 1. «storia» non è riservato (R48 A).
@@ -90,6 +103,8 @@ markmap:
   chiama: `motorea` (`CompilaVerificato`), da A1a.
 - **`Decodifica`, `Grammatica.Valida`, `VerificaPattern`, `TettiLimiti`** — chi li chiama: `NuovoSnapshot`
   e `LeggiIndice`; il banco per i rapporti.
+- **`Grammatica.Quantita`** (`QuantitaTabellare`) — chi la legge: `motorea` (`Interpreta`, da A1b.10), per la
+  colonna della quantità.
 - Oggi, nel codice di prodotto, `motorea` e il banco (`app/bancoa`, da A1a.5).
 
 ## Invarianti
@@ -146,6 +161,8 @@ markmap:
   e con significato; limiti fuori dall'hash; nessuno snapshot con un errore (A-C01); le versioni fisse.
 - **`indice_test.go`** — livello L1 — che cosa copre (A1a-SNP, A1a-LIM per l'indice): `LeggiIndice`, cliente
   ripetuto, limiti dell'indice assenti, nulli o oltre i tetti; `ControllaRagioneSociale`.
+- **`quantita_test.go`** — livello L1 — che cosa copre (A1b-20): la decodifica stretta e la validazione di
+  `quantita_tabellare`, con codice e percorso; l'hash invariato per i file che non la usano.
 - Il controllo degli import (G1, G8) e dei codici (A1a-CAT) sta in `core/estrazione/evidenze`.
 - I clienti dei test sono inventati (ACME); i test stanno nel ramo `-qa`.
 

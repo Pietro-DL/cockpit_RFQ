@@ -37,6 +37,8 @@ import (
 //  14. I limiti di validazione dell'indice (limite.superato, errore).
 //  15. Ogni famiglia ha almeno un esempio, ogni forma attiva almeno un esempio positivo
 //     (contratto.campo_obbligatorio). Una famiglia con sole forme riservate è ammessa.
+//  16. Le regole quantita_tabellare (quantita.go, A1b.8; R28 a): ID, intestazioni, regola, selettori corpo e
+//     storia, stato, con i codici di sopra.
 //
 // Gli esiti sono tre (C-10): errore (lo snapshot non nasce); riservato con diagnosi (capacita.non_supportata,
 // grammatica.forma_riservata, grammatica.riserva: quell'elemento non è attivo, il resto sì); attivo.
@@ -281,6 +283,7 @@ func (v *validatore) grammatica(g Grammatica) {
 		v.riservato("qualificatori_testuali", "i qualificatori testuali")
 		v.qualificatori(g.Qualificatori)
 	}
+	v.quantita(g.Quantita)
 }
 
 func (v *validatore) profilo(p Profilo) {

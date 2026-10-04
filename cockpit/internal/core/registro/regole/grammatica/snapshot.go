@@ -77,9 +77,10 @@ func NuovoSnapshot(raw []byte, lim Limiti) (SnapshotRegole, error) {
 // Normalizza dà la forma canonica della grammatica (par.3.4.2 del piano A, canonico-politica). È una copia:
 // la grammatica ricevuta non cambia.
 //   - Famiglie, forme, etichette, affissi, revisioni, decorazioni, esempi e riserve (e riferimenti e
-//     qualificatori, che hanno un ID) in ordine di ID: l'ordine nel file non ha significato.
+//     qualificatori, che hanno un ID, e le regole quantita_tabellare) in ordine di ID: l'ordine nel file non ha
+//     significato.
 //   - Gli insiemi (ruoli, categorie, selettori, letterali, separatori della revisione, testi dei
-//     qualificatori) in ordine di byte: un duplicato è già un errore di Valida. Ordinare i letterali non cambia il riconoscimento, perché il
+//     qualificatori, intestazioni della quantità) in ordine di byte: un duplicato è già un errore di Valida. Ordinare i letterali non cambia il riconoscimento, perché il
 //     compilatore legge la più lunga.
 //   - Parti, segmenti, sequenze interne, token sospesi, equivalenze, letture attese e ogni altro elenco
 //     restano nell'ordine dato: lì l'ordine conta, o il contratto non dice che non conta.
@@ -119,6 +120,8 @@ func Normalizza(g Grammatica) Grammatica {
 		n.Qualificatori = append(n.Qualificatori, q)
 	}
 	sort.SliceStable(n.Qualificatori, func(i, j int) bool { return n.Qualificatori[i].ID < n.Qualificatori[j].ID })
+
+	n.Quantita = normalizzaQuantita(g.Quantita)
 	return n
 }
 

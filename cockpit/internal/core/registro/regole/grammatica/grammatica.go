@@ -29,6 +29,7 @@ type Grammatica struct {
 	Famiglie       []FamigliaCodice        `json:"famiglie_codice"`
 	RiferimentiRFQ []RegolaRiferimento     `json:"riferimenti_rfq,omitempty"`        // parte 1 §7.1; senza fixture restano riservati (R20 c)
 	Qualificatori  []QualificatoreTestuale `json:"qualificatori_testuali,omitempty"` // riservati in A1: diagnosi di capacità non supportata
+	Quantita       []QuantitaTabellare     `json:"quantita_tabellare,omitempty"`     // la colonna della quantità nelle tabelle della mail (quantita.go; R28 a): senza, canonico e hash di prima
 }
 
 // ClienteGrammatica: il legame esplicito con il cliente, per UUID (v3 §10.5). La ragione sociale serve solo
