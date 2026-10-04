@@ -88,3 +88,12 @@ email.tabella_a_cavallo
 email.testo_da_html
 email.html_oltre_limite
 email.livelli_oltre_limite
+motore.letture_alternative
+motore.letture_annidate
+motore.id_nome_discordi
+motore.ripetizioni_discordanti
+motore.pertinenza_ignota
+revisione.formazione_non_confrontabile
+revisione.non_interpretabile
+revisione.discordante
+quantita.non_interpretabile
