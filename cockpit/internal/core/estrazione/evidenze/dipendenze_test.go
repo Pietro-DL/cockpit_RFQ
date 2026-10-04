@@ -44,6 +44,11 @@ type regolePacchetto struct {
 var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/platform/jsoncanonico", puro: true},
 	{percorso: "internal/core/estrazione/evidenze", puro: true, esterni: []string{"github.com/google/uuid"}},
+	// La grammatica: della foglia solo il vocabolario e le diagnostiche (G8, qui sotto); mai il legacy
+	// core/registro/regole, che sta nella cartella sopra ma non si importa (R40 a).
+	{percorso: "internal/core/registro/regole/grammatica", puro: true,
+		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni:  []string{"github.com/google/uuid"}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.
@@ -289,6 +294,98 @@ func TestIlLegacyNonCambiaImport(t *testing.T) {
 		if strings.Join(trovati, " ") != strings.Join(attesi[rel], " ") {
 			t.Errorf("%s importa %v dal progetto, attesi %v", rel, trovati, attesi[rel])
 		}
+	}
+}
+
+// ammessiAllaGrammatica: l'elenco chiuso della freccia grammatica → evidenze (R41 a; F1 del par.3.2.1 del
+// piano A): il vocabolario dei selettori e il tipo Diagnostica. Le costanti Contesto*, Gravita* e Natura* si
+// aggiungono lette dai sorgenti della foglia, per tipo dichiarato. Non ci sono: i tipi del documento, le
+// costanti di VarianteCampo, i codici della foglia (la grammatica passa avanti le sue diagnostiche, non le
+// ricostruisce).
+var ammessiAllaGrammatica = []string{
+	"Selettore", "LeggiSelettore", "Contesto", "VarianteCampo", "CampoFonte", "CampiAmmessi",
+	"Diagnostica", "Gravita", "Natura", "ErroreContratto",
+}
+
+// costantiDiTipo: i nomi delle costanti della foglia dichiarate con uno di questi tipi.
+func costantiDiTipo(t *testing.T, radice string, tipi ...string) []string {
+	t.Helper()
+	var out []string
+	_, files := fileAnalizzati(t, radice, "internal/core/estrazione/evidenze")
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			g, ok := decl.(*ast.GenDecl)
+			if !ok || g.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range g.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if id, ok := vs.Type.(*ast.Ident); ok && contiene(tipi, id.Name) {
+					for _, n := range vs.Names {
+						out = append(out, n.Name)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TestLaGrammaticaUsaDiEvidenzeSoloIlVocabolario (G8; R41 a): nei file non di prova della grammatica ogni
+// evidenze.X sta nell'elenco chiuso. DocumentoEvidenze, Fonte, Segmento, EntitaLocale, UnitaEvidenza,
+// Localizzatore, Pos*, LegameFonte, QualitaFonte, UsoSegmenti, ValidaDocumento e Intervallo fanno fallire la
+// prova: i DTO delle grammatiche tengono i selettori come stringhe, e la freccia serve alla validazione, non
+// ai dati.
+func TestLaGrammaticaUsaDiEvidenzeSoloIlVocabolario(t *testing.T) {
+	radice := radiceDelModulo(t)
+	ammessi := append(append([]string(nil), ammessiAllaGrammatica...), costantiDiTipo(t, radice, "Contesto", "Gravita", "Natura")...)
+	if len(ammessi) < len(ammessiAllaGrammatica)+11+3+4 {
+		t.Fatalf("costanti della foglia non trovate: %v", ammessi)
+	}
+	for _, vietato := range []string{"DocumentoEvidenze", "Fonte", "Segmento", "EntitaLocale", "UnitaEvidenza",
+		"Localizzatore", "PosTesto", "PosPDF", "PosSTEP", "PosTabella", "PosNomeFile", "LegameFonte", "QualitaFonte",
+		"UsoSegmenti", "UsoSconosciuto", "ValidaDocumento", "ValidaUso", "Intervallo", "VarianteNessuno",
+		"CodiceSelettoreNonAmmesso"} {
+		if contiene(ammessi, vietato) {
+			t.Fatalf("l'elenco chiuso ammette %s", vietato)
+		}
+	}
+	const foglia = modulo + "/internal/core/estrazione/evidenze"
+	fset, files := fileAnalizzati(t, radice, "internal/core/registro/regole/grammatica")
+	usi := 0
+	for _, f := range files {
+		nome := ""
+		for _, is := range f.Imports {
+			if imp, _ := strconv.Unquote(is.Path.Value); imp == foglia {
+				nome = "evidenze"
+				if is.Name != nil {
+					nome = is.Name.Name
+				}
+			}
+		}
+		if nome == "." || nome == "_" {
+			t.Errorf("%s: import della foglia con il nome %q: i nomi usati non si vedrebbero", fset.Position(f.Pos()), nome)
+			continue
+		}
+		if nome == "" {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == nome && id.Obj == nil {
+				usi++
+				if !contiene(ammessi, sel.Sel.Name) {
+					t.Errorf("%s: la grammatica usa evidenze.%s, fuori dall'elenco chiuso di R41 a", fset.Position(sel.Pos()), sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+	if usi == 0 {
+		t.Fatal("nessun uso della foglia trovato: la prova non legge i file giusti")
 	}
 }
 
