@@ -324,7 +324,15 @@ func attendeForma(e grammatica.EsempioCodice, famiglia, forma string) bool {
 }
 
 // coerenza: un esempio con rif_caso e il caso che ripete. I valori si confrontano solo dove tutti e due li
-// dicono: base, basi, marcatore, revisione, e «nessuna lettura» contro letture_identita = 0.
+// dicono: base, basi, marcatore, revisione, «nessuna lettura» contro base, basi e marcatore, e le letture
+// attese contro letture_identita = 0. Ogni chiave si legge con la regola di traduzione.go, che è l'unica
+// fonte della sua semantica (par.4.7.5): un esempio contraddice il caso solo se ciò che attende non può stare
+// con ciò che il caso dice, letto come lo legge il runner.
+//   - basi: per il runner è l'insieme delle basi delle letture e delle loro ripetizioni (basiConRipetizioni).
+//     Un esempio non sa scrivere le ripetizioni: dichiarare meno basi non è una contraddizione, dichiararne
+//     una che il caso non elenca sì.
+//   - letture_identita = 0: il runner la controlla solo sui selettori d'identità (selettoreDiIdentita, par.4.7.4);
+//     altrove una lettura di forma può essere una menzione (A1b) e non la contraddice.
 func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoContratto, profili map[string]string, cliente uuid.UUID) CoerenzaEsempio {
 	ce := CoerenzaEsempio{Famiglia: famiglia, Esempio: e.ID, Caso: e.RifCaso}
 	c, ok := casi[e.RifCaso]
@@ -368,7 +376,19 @@ func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoC
 		}
 	}
 	contraddice("base", basiEs)
-	contraddice("basi", basiEs)
+	if v, ok := atteso["basi"]; ok && len(basiEs) > 0 {
+		if attesi, ok := testiAttesi(v); ok {
+			var fuori []string
+			for _, b := range basiEs {
+				if !dentro(b, attesi) {
+					fuori = append(fuori, b)
+				}
+			}
+			if len(fuori) > 0 {
+				ce.Motivi = append(ce.Motivi, fmt.Sprintf("basi: il caso dice %s, l'esempio attende anche %s", v.String(), elenco(fuori)))
+			}
+		}
+	}
 	contraddice("marcatore", marcatoriEs)
 	if v, ok := atteso["revisione"]; ok {
 		if v.Tipo == TipoNullo && len(revisioniEs) > 0 {
@@ -377,8 +397,9 @@ func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoC
 			contraddice("revisione", revisioniEs)
 		}
 	}
-	if v, ok := atteso["letture_identita"]; ok && v.Tipo == TipoIntero && v.Testo == "0" && len(e.Atteso.Letture) > 0 {
-		ce.Motivi = append(ce.Motivi, "letture_identita: il caso dice 0, l'esempio attende letture")
+	if v, ok := atteso["letture_identita"]; ok && v.Tipo == TipoIntero && v.Testo == "0" && len(e.Atteso.Letture) > 0 &&
+		errEs == nil && selettoreDiIdentita(selEs) {
+		ce.Motivi = append(ce.Motivi, "letture_identita: il caso dice 0, l'esempio attende letture su "+selEs.String())
 	}
 	if e.Atteso.Nessuna {
 		for _, k := range []string{"base", "basi", "marcatore"} {
