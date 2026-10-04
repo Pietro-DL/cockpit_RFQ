@@ -79,6 +79,8 @@ markmap:
     del motore A (giro 5): i tipi, la lettura stretta, la validazione, i limiti dall'indice, l'hash, l'indice
   - **[`core/inbox/classificazione/motorea/README.md`](core/inbox/classificazione/motorea/README.md)** → il motore A
     (giro 5): il compilatore delle grammatiche, la verifica degli esempi, il riconoscimento per forma
+  - **[`core/fotorfq/README.md`](core/fotorfq/README.md)** → i record della fotografia di una RFQ per il motore A
+    (giro 5): messaggio, allegato, terna e fatti, senza DB, e l'impronta dei fatti
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -116,6 +118,9 @@ markmap:
   - **`core/inbox/classificazione/motorea`** → `core/registro/regole/grammatica`, `core/estrazione/evidenze`,
     `platform/jsoncanonico`. Mai il motore legacy
     - sta nella cartella di `core/inbox/classificazione` ma non la importa, e viceversa: niente `Minuteria` (R7)
+  - **`core/fotorfq`** → `core/estrazione/evidenze`, `platform/jsoncanonico`
+    - i record della fotografia, senza DB; in A1b importa solo `platform/jsoncanonico`, per l'impronta dei
+      fatti. Il caricatore, l'unico con il DB, è un pacchetto a parte (A1c)
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena`)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
