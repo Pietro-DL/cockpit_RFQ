@@ -70,6 +70,9 @@ markmap:
 - **`StrutturaSTEP`, `DecodificaStruttura`**
   - Chi lo usa: `core/rfq/fascicolo`, `transport/web`, `transport/workerapi`; dal giro 5 (A1b) `core/estrazione`,
     l'adattatore STEP del motore A
+- **`TestoPDF`, `DecodificaTestoPDF`**
+  - Chi lo usa: `core/inbox/classificazione` (`testoDelPDF`); dal giro 5 (A1b) `core/estrazione`, l'adattatore PDF
+    del motore A
 - **`PresenzaOnlineEntro`, `AttesaClaim`, `AttesaClaimMax`**
   - Chi lo usa: `transport/web` (testata, postazioni), `transport/workerapi` (long-poll)
 - **`Salute`**
@@ -99,7 +102,7 @@ markmap:
   - `core/inbox/ingest`
   - `core/rfq/documenti`
   - `core/rfq/fascicolo`
-  - `core/estrazione` (i fatti dello STEP per il motore A)
+  - `core/estrazione` (i fatti dello STEP e del testo dei PDF per il motore A)
   - `transport/web`
   - `transport/workerapi`
   - `app/runtime`

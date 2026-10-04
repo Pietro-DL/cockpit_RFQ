@@ -16,6 +16,12 @@ markmap:
   - lo **STEP** (`mappatura-step-1`): un'entità per nodo, un'unità per attributo grezzo, un legame
     `padre_figlio_step` per coppia con la quantità, le radici da `struttura.radici`, la formazione come dato
     grezzo mai confrontato (D1, E-12);
+  - il **PDF** (`mappatura-pdf-1`): i campi del cartiglio della pagina 1 legati all'entità `disegno`, con pagina,
+    riquadro in decimi di punto, zona e fonte; ogni frammento come unità `testo_pdf` con un'entità
+    `unita_isolata` sua; i metadati; lo stato del testo con la regola di `testoDelPDF`, replicata (un PDF senza
+    testo nativo, non letto, illeggibile o non analizzato ha la capacità `testo` non disponibile, mai «nessun
+    codice», A-C09); `elenco_pdf` sempre non disponibile; il cartiglio di una sottoversione di prima come
+    `testo_pdf`, un indizio;
   - un file senza fatti, o con fatti che nessuna mappatura legge (solo l'esito del worker, una natura diversa
     da «file», un archivio che l'acquisizione non apre), dà **il solo nome**, con la capacità `contenuto` non
     disponibile e il motivo. Non è mai un file «senza codici».
@@ -34,7 +40,7 @@ markmap:
 - **Il taglio della catena e le tabelle HTML**: `classificazione` (`TagliaCatenaConPosizioni`,
   `LivelliDellaStoria`, `EInoltro`) e `lettura` (`TabelleConOrigine`, `TestoDaHTML`), di cui questo pacchetto
   userà solo l'elenco chiuso di G4.
-- **Il testo dei PDF e la mail**: arrivano con le loro mappature (A1b.6, A1b.7).
+- **La mail**: arriva con la sua mappatura (A1b.7).
 
 ## File
 
@@ -70,7 +76,15 @@ markmap:
 - **`step.go`** — responsabilità: la mappatura STEP dai fatti decodificati con `worker.DecodificaStruttura`;
   la qualità della lettura (troncato, scarti, v2 senza scarti, file non letto); le unità candidate troncate;
   la capacità `grafo_completo` da `Fatti.MotivoParziale`.
-- **`codici_diagnostica.go`** — responsabilità: i codici `nome.*`, `archivio.*` e `step.*` (R41 b).
+- **`pdf.go`** — responsabilità: la mappatura PDF dai fatti decodificati con `worker.DecodificaTestoPDF`:
+  - lo stato del testo con la regola di `testoDelPDF` (`classificazione/testo_pdf.go:74-88`), replicata e non
+    importata (non è esportata, e G4 non la ammette): letto, senza testo nativo, non letto, illeggibile;
+  - il cartiglio (`e:pdf:p1`, `u:pdf:cartiglio:<etichetta>:<n>`), i frammenti (`e:pdf:frammento:<n>`,
+    `u:pdf:frammento:<n>`), i metadati (`u:pdf:metadati:<chiave>`); i riquadri in decimi interi
+    (`math.Round(x*10)`); il metodo «ocr» per ciò che ha letto l'OCR;
+  - la sottoversione di prima (`testoDiPrima`): i campi del cartiglio come `testo_pdf` isolati, mappatura
+    «sconosciuta», `pdf.testo_di_prima` (scelta tecnica del 5.10 n.6).
+- **`codici_diagnostica.go`** — responsabilità: i codici `nome.*`, `archivio.*`, `step.*` e `pdf.*` (R41 b).
 
 ## Entry point
 
@@ -84,19 +98,27 @@ markmap:
 - **Nessuna regola cliente** è applicata ai testi; nessuna lettura del worker (`esito.codice`, `esito.rev`,
   `product_step`) entra nel documento.
 - **Gli ID locali nascono da chiavi del contenuto**: `u:nome`, `u:percorso`, `u:testo`, `e:step:#n`, `u:step:#n:id`,
-  `u:step:#n:revisione:2`, `g:step:#p>#f`. Le mappe dell'evidenza del worker si leggono per chiave, mai in
-  ordine di mappa. L'ordine dei fatti in ingresso non cambia il documento.
+  `u:step:#n:revisione:2`, `g:step:#p>#f`, `e:pdf:p1`, `u:pdf:cartiglio:codice:1`, `u:pdf:frammento:3`,
+  `u:pdf:metadati:titolo`. Le mappe dell'evidenza del worker si leggono per chiave, mai in ordine di mappa.
+  Per lo STEP l'ordine dei fatti in ingresso non cambia il documento; per il PDF i numeri sono le posizioni nei
+  suoi elenchi (frammenti, campi con la stessa etichetta), che sono un fatto del worker e non l'ordine di una
+  mappa.
 - **Un'appartenenza sta in un campo solo** (`legami-1`, 5.4.1): l'attributo di un nodo è un'unità con
-  `EntitaID`; i `LegameFonte` nascono solo per `padre_figlio_step` (e, con la mail, `intestazione_di_cella`).
+  `EntitaID`, e così un campo del cartiglio con il disegno; un frammento o un metadato ha un'entità
+  `unita_isolata` sua, senza fingere un legame con il disegno. I `LegameFonte` nascono solo per
+  `padre_figlio_step` (e, con la mail, `intestazione_di_cella`).
   `occorrenza_step` non nasce: i riferimenti NAUO stanno nel legame della coppia (al più 20, più `Altre`).
 - **Niente numeri decimali nel documento**: tempi, riquadri e confidenze del worker restano nel payload,
   coperto da `DigestPayload`.
 - **Gli offset** sono in byte UTF-8 sul testo originale (`allegato.nome_file`, `allegato.path_interno`), mai su
-  un testo normalizzato. I valori STEP non hanno offset nel file: localizzazione «parziale», con il motivo.
+  un testo normalizzato. I valori STEP e PDF non hanno offset nel file: localizzazione «parziale», con il
+  motivo (per il PDF: riquadro del blocco, testo già normalizzato dal worker); un metadato PDF non ha pagina né
+  riquadro, localizzazione «assente».
 - **«Non disponibile» non è «vuoto»**: un file senza fatti ha la capacità `contenuto` non disponibile; uno STEP
   non analizzato, con la struttura assente o non letto ha la capacità `struttura` non disponibile e la sua
   diagnostica; la completezza senza motivo dal caricatore è «non determinabile» (`grafo_completo` non
-  disponibile, R32 b).
+  disponibile, R32 b); un PDF senza testo nativo, non letto, illeggibile o non analizzato ha la capacità `testo`
+  non disponibile e la sua diagnostica, e `elenco_pdf` non è mai disponibile.
 - **Il documento passa sempre `ValidaDocumento`**; se non la passa, l'adattatore restituisce l'errore con le
   diagnostiche `documento.*`, mai il documento.
 - **Puro**: niente orologio, file, DB, rete, goroutine, `uuid.New` (G2). `VersioneAdattatore` si cambia solo con
@@ -115,8 +137,8 @@ markmap:
 ## Dipendenze
 
 - **Importa:** `core/estrazione/evidenze` (il documento), `core/fotorfq` (i record), `platform/jsoncanonico` (il
-  `BundleID` e l'impronta dei testi), `platform/contratti/worker` (i fatti dello STEP), `github.com/google/uuid`,
-  la libreria standard.
+  `BundleID` e l'impronta dei testi), `platform/contratti/worker` (i fatti dello STEP e del testo dei PDF),
+  `github.com/google/uuid`, la libreria standard.
 - **Potrà importare** (tabella di `internal/README.md`): `core/inbox/classificazione` e `core/inbox/lettura`,
   solo per l'elenco chiuso di G4, con l'adattatore della mail.
 - **Mai:** `grammatica`, `motorea`, il DB, `ancoraggio`, `valutazione`, `confronto`.
@@ -129,8 +151,8 @@ markmap:
   - l'aiuto dei golden (5.6.3): confronto dei byte del JSON canonico, riscrittura solo con
     `COCKPIT_AGGIORNA_GOLDEN=1`, che fa fallire la corsa; rifiutata con il tag `privato` o con il dataset
     privato impostato (A1b-18);
-  - i golden degli adattatori (A1b-14 per lo STEP), con gli ingressi in `testdata/ingressi/` passati dalle
-    funzioni del contratto del worker;
+  - i golden degli adattatori (A1b-14 per lo STEP, A1b-15 per il PDF), con gli ingressi in
+    `testdata/ingressi/` passati dalle funzioni del contratto del worker;
   - la versione degli adattatori e delle mappature, fissata.
 - **`nome_test.go`** — livello L1 — che cosa copre (A1b-13): la tabella dei nomi (stem ed estensione, voce con
   cartella, NFC e NFD, emoji, spazi ai bordi, senza estensione, punto iniziale, più punti, maiuscole, 300 rune,
@@ -142,6 +164,10 @@ markmap:
   campi del cartiglio della foglia.
 - **`step_test.go`** — livello L1 — che cosa copre (A1b-14): gli ingressi F-STEP-1…10 contro i golden; le
   proprietà della mappatura (ordine dei fatti, candidate troncate, `lunghezzaPython`).
+- **`pdf_test.go`** — livello L1 — che cosa copre (A1b-15): gli ingressi F-PDF-1…11 contro i golden; lo stato
+  del testo uguale a quello di `classificazione.StatoDelTestoPDF` su ogni ingresso; senza testo, non letto,
+  illeggibile, non analizzato; il cartiglio con il disegno e i frammenti isolati; il cartiglio di prima; i
+  riquadri in decimi.
 
 ## Leggi anche
 
