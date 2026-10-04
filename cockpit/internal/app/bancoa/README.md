@@ -97,6 +97,10 @@ markmap:
 - **I casi sull'attributo della revisione in campo separato** (selettore `….revisione` o precondizioni) e le
   chiavi della funzione «menzione» si valutano in A1b; le letture d'identità si controllano in A1a solo
   sullo zero e solo sui selettori d'identità (nome del file, codice del cartiglio, id dello STEP).
+- **La coerenza esempio/caso legge ogni chiave come la legge il runner** (`traduzione.go` è l'unica fonte della
+  semantica di una chiave; par.4.10 n.3): `letture_identita = 0` contraddice le letture attese da un esempio
+  solo sui selettori d'identità; per `basi` un esempio contraddice il caso solo se attende una base che il caso
+  non elenca (non sa scrivere le ripetizioni). In un conflitto vincono gli attesi, e si corregge l'esempio.
 - **Un caso definito con `dipende_da` si valuta**, e il rapporto lo annota; un caso con `stato_atteso:
   riservato` non si valuta.
 - **Nessun ordine dipende da una mappa**: casi nell'ordine degli attesi, chiavi in ordine alfabetico, clienti
@@ -122,7 +126,8 @@ markmap:
     decadute;
   - **`casi_test.go`** — gli esiti dei dieci casi ACME; il caso fallito con atteso, ottenuto e regola; profilo
     senza cliente, cliente scartato, contesto illeggibile; il determinismo;
-  - **`regole_test.go`** — il rapporto delle regole; la coerenza con `rif_caso`; senza attesi; cliente scartato
+  - **`regole_test.go`** — il rapporto delle regole; la coerenza con `rif_caso`, con la regola del runner per
+    `letture_identita` e `basi`; senza attesi; cliente scartato
     e indice non valido;
   - **`rapporto_test.go`** — esito e codice d'uscita, prima riga, scrittura atomica fuori dal modulo, gli esiti
     di `Esegui` (conforme, con differenze, non eseguito, 1 su 3), gli errori d'uso senza rapporto.
