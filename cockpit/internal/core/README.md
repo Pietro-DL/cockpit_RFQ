@@ -112,6 +112,14 @@ markmap:
     - Puro; non compila regex per il riconoscimento
   - DB: no
   - README: [README](registro/regole/grammatica/README.md)
+- **`inbox/classificazione/motorea`**
+  - Che cosa fa: il **motore A** (giro 5), accanto al motore legacy di `inbox/classificazione` e senza usarlo:
+    - compila la grammatica v1 di un cliente in un motore immutabile e ne verifica tutti gli esempi; l'insieme dei motori dell'indice
+    - riconosce le forme sui testi (una regex per famiglia e forma) e restituisce le letture di forma; confronta basi e revisioni
+    - i limiti vengono dall'indice; nessun tipo o ramo per cliente
+    - Puro
+  - DB: no
+  - README: [README](inbox/classificazione/motorea/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -137,6 +145,11 @@ markmap:
     - `estrazione/evidenze` (solo il vocabolario dei selettori e il tipo `Diagnostica`: G8)
     - `platform/jsoncanonico`
     - mai `registro/regole`, il legacy: i due formati non si mescolano
+  - **`inbox/classificazione/motorea`** importa:
+    - `registro/regole/grammatica`
+    - `estrazione/evidenze`
+    - `platform/jsoncanonico`
+    - mai il motore legacy (`inbox/classificazione`, `registro/regole`): niente `Minuteria` (R7)
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:

@@ -63,6 +63,8 @@ markmap:
 - **`capacita.go`** — responsabilità:
   - `VersioneCapacita` (`capacita-a1-1`) e l'elenco delle capacità riservate in A1 (R20 c): selettori e
     campi, generici «<contesto>.*», decorazioni della parte 1. «storia» non è riservato (R48 A).
+  - `SelettoreAttivo`, `DecorazioneAttiva`, `ProiezioneAttiva`: la stessa politica, esposta a `motorea`, che
+    abbassa nel motore solo gli elementi attivi; l'elenco resta uno solo, qui.
 - **`pattern.go`** — responsabilità:
   - `VerificaPattern` sull'albero di `regexp/syntax` e sul testo del pattern; i caratteri vietati nei
     pattern e nei letterali.
@@ -84,9 +86,11 @@ markmap:
 - **`LeggiIndice`** — chi lo chiama: da A1a il banco (`app/bancoa`), da A1d l'avvio dell'anteprima.
 - **`NuovoSnapshot`** (che fa `Decodifica` e `Valida`), **`ControllaRagioneSociale`** — chi li chiama:
   `motorea` (`CompilaInsieme`, `MotoreDi`), da A1a.
+- **`Normalizza`, `Grammatica.Valida`, `SelettoreAttivo`, `DecorazioneAttiva`, `ProiezioneAttiva`** — chi li
+  chiama: `motorea` (`CompilaVerificato`), da A1a.
 - **`Decodifica`, `Grammatica.Valida`, `VerificaPattern`, `TettiLimiti`** — chi li chiama: `NuovoSnapshot`
   e `LeggiIndice`; il banco per i rapporti.
-- Oggi, nel codice di prodotto, ancora nessuno: il pacchetto nasce prima dei suoi chiamanti.
+- Oggi, nel codice di prodotto, solo `motorea`, che a sua volta non ha ancora chiamanti.
 
 ## Invarianti
 
@@ -119,7 +123,7 @@ markmap:
 
 - **Importa:** `core/estrazione/evidenze` (solo l'elenco chiuso di G8), `platform/jsoncanonico`,
   `github.com/google/uuid`, la libreria standard.
-- **È importato da:** nessun pacchetto di prodotto, per ora (vedi Entry point).
+- **È importato da:** `core/inbox/classificazione/motorea` (vedi Entry point).
 
 ## Test
 

@@ -112,7 +112,8 @@ markmap:
 
 - **Importa:** `github.com/google/uuid`, la libreria standard. Niente del progetto.
 - **È importato da:** `core/registro/regole/grammatica`, solo per il vocabolario dei selettori e per
-  `Diagnostica` (G8). Le prove usano anche `platform/jsoncanonico`.
+  `Diagnostica` (G8); `core/inbox/classificazione/motorea`, per i selettori, gli intervalli e le
+  diagnostiche. Le prove usano anche `platform/jsoncanonico`.
 
 ## Test
 
