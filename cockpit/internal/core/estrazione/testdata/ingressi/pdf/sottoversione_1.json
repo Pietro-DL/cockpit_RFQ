@@ -1,0 +1,224 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000036",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 6,
+    "nome_file": "ACME-030PB07XX0001.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 81920,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000036",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000036",
+    "terna": {"versione": 4, "hash_configurazione": "acme-configurazione-0"},
+    "calcolato_il": "2026-09-15T08:10:00Z",
+    "payload": {
+     "codice_riconosciuto": "ACME-030P7120100",
+     "testo_letto": 520,
+     "testo_pdf": {
+      "versione": 1,
+      "estraibile": true,
+      "pagine": 1,
+      "pagine_lette": 1,
+      "caratteri": 519,
+      "troncato": false,
+      "formato_pagina1": [
+       1191.0,
+       842.0
+      ],
+      "frammenti": [
+       {
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "testo": "Pos.\nPart Number\nDescrizione\nQ.ty\n1\n7120110\nPIASTRA A DX\n1\n2\n7120111\nLAMIERA B\n1\n3\n7120112\nTONDO C\n1\n4\n7120113\nPIASTRINA D\n1\n5\n7120130\nBUSSOLA E\n1\n6\n7120131\nBLOCCHETTO F\n1\n7\n7120114\nLAMIERA G\n1\n8\n7120115\nCOSTOLA H\n1\n9\n7120116\nSQUADRETTA K\n1\n10\n7120117\nCOPERCHIO L\n1",
+        "riquadro": [
+         800.0,
+         551.4,
+         1144.7,
+         672.4
+        ],
+        "confidenza": null
+       },
+       {
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "testo": "SPECULARE DI\n7120101",
+        "riquadro": [
+         800.0,
+         675.4,
+         901.1,
+         686.4
+        ],
+        "confidenza": null
+       },
+       {
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "testo": "Rev\nMod. N.\nModification object / Descrizione modifica\n00\nACME-P003\nPrima emissione",
+        "riquadro": [
+         800.0,
+         707.5,
+         1018.4,
+         727.1
+        ],
+        "confidenza": null
+       },
+       {
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "testo": "Family:\nPart Nr:\nDescrizione:\nDescription:\n--\n7120100\nTELAIO SALDATO DX\nRIGHT WELDED FRAME",
+        "riquadro": [
+         800.0,
+         772.5,
+         1163.0,
+         794.7
+        ],
+        "confidenza": null
+       },
+       {
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "testo": "ACME S.p.A. - DRAFT -",
+        "riquadro": [
+         800.0,
+         807.5,
+         875.1,
+         817.1
+        ],
+        "confidenza": null
+       }
+      ],
+      "cartiglio": [
+       {
+        "etichetta": "codice",
+        "letta": "Part Number",
+        "valore": "7120110",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         835.0,
+         562.4,
+         866.1,
+         573.4
+        ],
+        "confidenza": null
+       },
+       {
+        "etichetta": "titolo",
+        "letta": "Descrizione",
+        "valore": "PIASTRA A DX",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         920.0,
+         562.4,
+         975.1,
+         573.4
+        ],
+        "confidenza": null
+       },
+       {
+        "etichetta": "revisione",
+        "letta": "Rev",
+        "valore": "Mod. N. Modification object /",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         830.0,
+         707.5,
+         951.9,
+         717.1
+        ],
+        "confidenza": null
+       },
+       {
+        "etichetta": "titolo",
+        "letta": "Descrizione",
+        "valore": "modifica",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         992.3,
+         707.5,
+         1018.4,
+         717.1
+        ],
+        "confidenza": null
+       },
+       {
+        "etichetta": "titolo",
+        "letta": "Descrizione:",
+        "valore": "TELAIO SALDATO DX RIGHT WELDED FRAME",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         940.0,
+         782.3,
+         1163.0,
+         794.7
+        ],
+        "confidenza": null
+       },
+       {
+        "etichetta": "titolo",
+        "letta": "Description:",
+        "valore": "RIGHT WELDED FRAME",
+        "pagina": 1,
+        "zona": "basso_destra",
+        "fonte": "nativo",
+        "riquadro": [
+         1060.0,
+         782.3,
+         1163.0,
+         794.7
+        ],
+        "confidenza": null
+       }
+      ],
+      "metadati": {
+       "titolo": "",
+       "soggetto": "",
+       "parole_chiave": "",
+       "creatore": "",
+       "produttore": ""
+      },
+      "ocr": {
+       "stato": "non_necessario",
+       "motivo": "",
+       "motore": "",
+       "tentativi": []
+      },
+      "limiti": {
+       "pagine_max": 11,
+       "frammenti_max": 200,
+       "frammento_max": 512,
+       "caratteri_max": 16384,
+       "campi_max": 24,
+       "ocr_soglia_pagina": 20,
+       "ocr_soglia_cartiglio": 8,
+       "ocr_pagine_max": 2,
+       "ocr_tempo_max_s": 60,
+       "ocr_dpi": 300
+      }
+     },
+     "fonti": {
+      "codice": "nome_file"
+     }
+    }
+  }
+}

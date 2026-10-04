@@ -1,0 +1,300 @@
+{
+  "bundle_id": "958643b84e1f0702a344b50c45f5122deb1b92b1ebe75c48a86c4a1cdcfa7959",
+  "entita": [
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            1000,
+            2000,
+            3000,
+            2120
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 2",
+      "id": "e:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            6000,
+            5200,
+            7000,
+            5400
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato parole_chiave",
+      "id": "e:pdf:metadati:parole_chiave",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "pagina 1",
+      "id": "e:pdf:p1",
+      "posizione": {
+        "pdf": {
+          "pagina": 1
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "disegno"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-00000000003a",
+    "origine_id": "00000000-0000-4000-8000-00000000003a",
+    "provenienza": {
+      "bytes": 20480,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000900 perno Ø12.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00Z",
+      "digest_payload": "9ffd1638eb495ed529dd8548e91c2b3aabe7659c8f546fa97951bb37934d3ef1",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "000000000000000000000000000000000000000000000000000000000000003a",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "testo",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000900 perno Ø12.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 26,
+            "inizio": 23
+          },
+          "intervallo": {
+            "fine": 26,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 22,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000900 perno Ø12.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PART N°",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            6400,
+            5290,
+            7000,
+            5400
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000900"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "DENOMINAZIONE / NAME",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:pdf:cartiglio:titolo:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            6400,
+            5450,
+            7600,
+            5560
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.titolo",
+      "testo": "PERNO Ø12 — ACCIAIO 🔩"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            1000,
+            2000,
+            3000,
+            2120
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Ø12 ±0,05 — finitura 🔩 lucidatura è richiesta"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:2",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            6000,
+            5200,
+            7000,
+            5400
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "PART N°\nACME7000900"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "parole_chiave",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.parole_chiave"
+      },
+      "entita_id": "e:pdf:metadati:parole_chiave",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003a",
+      "id": "u:pdf:metadati:parole_chiave",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "N°, Ø, ±, è"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

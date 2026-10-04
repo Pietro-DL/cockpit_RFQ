@@ -1,0 +1,237 @@
+{
+  "bundle_id": "165be978049baa3dcb9135c7f280a24f4bf1c64da5bca4e48dfe7275abc53bc1",
+  "entita": [
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            400,
+            600,
+            5550,
+            7800
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 2",
+      "id": "e:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 2,
+          "riquadro_decimi": [
+            400,
+            600,
+            5550,
+            7800
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato titolo",
+      "id": "e:pdf:metadati:titolo",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000039",
+    "origine_id": "00000000-0000-4000-8000-000000000039",
+    "provenienza": {
+      "bytes": 2097152,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000800 capitolato.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00Z",
+      "digest_payload": "1479cc2dab7a9f0f62f64fb56d754109d2ee388cba0537441fb05c8f1cc4fbc2",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000039",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "il worker si è fermato sui suoi tetti (pagine, frammenti, caratteri)",
+        "nome": "testo",
+        "stato": "parziale"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "pdf.troncato",
+        "gravita": "nota",
+        "messaggio": "il worker ha letto 11 pagine su 40 e si è fermato su un suo tetto: il testo dopo non c'è",
+        "natura": "dati",
+        "percorso": "testo_pdf.troncato"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000800 capitolato.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000039",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 26,
+            "inizio": 23
+          },
+          "intervallo": {
+            "fine": 26,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 22,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000800 capitolato.pdf"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000039",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            400,
+            600,
+            5550,
+            7800
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "ACME-NOTA-0001 ACME-NOTA-0002 ACME-NOTA-0003 ACME-NOTA-0004 ACME-NOTA-0005 ACME-NOTA-0006 ACME-NOTA-0007 ACME-NOTA-0008 ACME-NOTA-0009 ACME-NOTA-0010 ACME-NOTA-0011 ACME-NOTA-0012 ACME-NOTA-0013 ACME-NOTA-0014 ACME-NOTA-0015 ACME-NOTA-0016 ACME-NOTA-0017 ACME-NOTA-0018 ACME-NOTA-0019 ACME-NOTA-0020 ACME-NOTA-0021 ACME-NOTA-0022 ACME-NOTA-0023 ACME-NOTA-0024 ACME-NOTA-0025 ACME-NOTA-0026 ACME-NOTA-0027 ACME-NOTA-0028 ACME-NOTA-0029 ACME-NOTA-0030 ACME-NOTA-0031 ACME-NOTA-0032 ACME-NOTA-0033 ACME-NOTA-0034 AB"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:2",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000039",
+      "id": "u:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 2,
+          "riquadro_decimi": [
+            400,
+            600,
+            5550,
+            7800
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "ACME-NOTA-0035 ACME-NOTA-0036 ACME-NOTA-0037 ACME-NOTA-0038 ACME-NOTA-0039 ACME-NOTA-0040 ACME-NOTA-0041 ACME-NOTA-0042 ACME-NOTA-0043 ACME-NOTA-0044 ACME-NOTA-0045 ACME-NOTA-0046 ACME-NOTA-0047 ACME-NOTA-0048 ACME-NOTA-0049 ACME-NOTA-0050 ACME-NOTA-0051 ACME-NOTA-0052 ACME-NOTA-0053 ACME-NOTA-0054 ACME-NOTA-0055 ACME-NOTA-0056 ACME-NOTA-0057 ACME-NOTA-0058 ACME-NOTA-0059 ACME-NOTA-0060 ACME-NOTA-0061 ACME-NOTA-0062 ACME-NOTA-0063 ACME-NOTA-0064 ACME-NOTA-0065 ACME-NOTA-0066 ACME-NOTA-0067 ACME-NOTA-0068 CD"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "titolo",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.titolo"
+      },
+      "entita_id": "e:pdf:metadati:titolo",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000039",
+      "id": "u:pdf:metadati:titolo",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "Capitolato ACME"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

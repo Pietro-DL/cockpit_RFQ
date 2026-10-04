@@ -1,0 +1,24 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000034",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 4,
+    "nome_file": "ACME7000400.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 10240,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000034",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000034",
+    "terna": {"versione": 3, "hash_configurazione": "acme-configurazione-0"},
+    "calcolato_il": "2026-09-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "disegno_2d", "codice": "ACME7000400", "rev": "01", "confidenza": 40, "fonte": "nome_file"}
+    }
+  }
+}

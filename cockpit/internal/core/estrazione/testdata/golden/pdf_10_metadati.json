@@ -1,0 +1,322 @@
+{
+  "bundle_id": "8a37da751bdd7738b1e12537fcbebc21fda728b471ee36053eaed74c6fb68fec",
+  "entita": [
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7600,
+            9000,
+            7800
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato creatore",
+      "id": "e:pdf:metadati:creatore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato produttore",
+      "id": "e:pdf:metadati:produttore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato soggetto",
+      "id": "e:pdf:metadati:soggetto",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato titolo",
+      "id": "e:pdf:metadati:titolo",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "pagina 1",
+      "id": "e:pdf:p1",
+      "posizione": {
+        "pdf": {
+          "pagina": 1
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "disegno"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-00000000003b",
+    "origine_id": "00000000-0000-4000-8000-00000000003b",
+    "provenienza": {
+      "bytes": 40960,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000100.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00Z",
+      "digest_payload": "2e0bd65c24d20c1c6e064b5ac696b90f0f7ec49ac4667d746db62297ccd21607",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "000000000000000000000000000000000000000000000000000000000000003b",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "testo",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000100.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 15,
+            "inizio": 12
+          },
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 11,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000100.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "DISEGNO N.",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8500,
+            7690,
+            9000,
+            7800
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000100"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7600,
+            9000,
+            7800
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "DISEGNO N.\nACME7000100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "creatore",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.creatore"
+      },
+      "entita_id": "e:pdf:metadati:creatore",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:metadati:creatore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "ACME CAD 7"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "produttore",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.produttore"
+      },
+      "entita_id": "e:pdf:metadati:produttore",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:metadati:produttore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "ACME PDF 2"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "soggetto",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.soggetto"
+      },
+      "entita_id": "e:pdf:metadati:soggetto",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:metadati:soggetto",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "Staffa per il gruppo ACME7000111"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "titolo",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.titolo"
+      },
+      "entita_id": "e:pdf:metadati:titolo",
+      "fonte_id": "allegato:00000000-0000-4000-8000-00000000003b",
+      "id": "u:pdf:metadati:titolo",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "ACME7000100"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

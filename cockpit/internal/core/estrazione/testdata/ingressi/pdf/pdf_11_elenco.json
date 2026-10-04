@@ -1,0 +1,43 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-00000000003c",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 12,
+    "nome_file": "ACME7001000 assieme.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 61440,
+    "sha256": "000000000000000000000000000000000000000000000000000000000000003c",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "000000000000000000000000000000000000000000000000000000000000003c",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "disegno_2d", "confidenza": 85, "fonte": "testo_pdf"},
+      "testo_pdf": {
+        "versione": 2,
+        "estraibile": true,
+        "pagine": 1,
+        "pagine_lette": 1,
+        "caratteri": 150,
+        "troncato": false,
+        "formato_pagina1": [1191.0, 842.0],
+        "frammenti": [
+          {"pagina": 1, "zona": "basso_destra", "fonte": "nativo", "testo": "POS.\nCODICE\nDESCRIZIONE\nQ.TA\n1\nACME7000111\nPIASTRA ACME\n2\n2\nACME7000112\nPERNO ACME\n4", "riquadro": [800.0, 550.0, 1140.0, 670.0], "confidenza": null},
+          {"pagina": 1, "zona": "basso_destra", "fonte": "nativo", "testo": "DISEGNO N.\nACME7001000", "riquadro": [800.0, 760.0, 900.0, 780.0], "confidenza": null}
+        ],
+        "cartiglio": [
+          {"etichetta": "codice", "letta": "DISEGNO N.", "valore": "ACME7001000", "pagina": 1, "zona": "basso_destra", "fonte": "nativo", "riquadro": [850.0, 769.0, 900.0, 780.0], "confidenza": null}
+        ],
+        "metadati": {"titolo": "", "soggetto": "", "parole_chiave": "", "creatore": "", "produttore": ""},
+        "ocr": {"stato": "non_necessario", "motivo": "", "motore": "", "tentativi": []},
+        "limiti": {"pagine_max": 11, "frammenti_max": 200, "frammento_max": 512, "caratteri_max": 16384, "campi_max": 24, "ocr_soglia_pagina": 20, "ocr_soglia_cartiglio": 8, "ocr_pagine_max": 2, "ocr_tempo_max_s": 60, "ocr_dpi": 300}
+      }
+    }
+  }
+}

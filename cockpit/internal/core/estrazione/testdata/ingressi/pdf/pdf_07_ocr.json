@@ -1,0 +1,47 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000038",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 8,
+    "nome_file": "ACME7000700.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 102400,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000038",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000038",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "disegno_2d", "confidenza": 40, "fonte": "estensione"},
+      "testo_pdf": {
+        "versione": 2,
+        "estraibile": true,
+        "pagine": 2,
+        "pagine_lette": 2,
+        "caratteri": 64,
+        "troncato": false,
+        "formato_pagina1": [1191.0, 842.0],
+        "frammenti": [
+          {"pagina": 1, "zona": "pagina", "fonte": "nativo", "testo": "NOTE GENERALI ACME", "riquadro": [40.0, 40.0, 200.0, 52.0], "confidenza": null},
+          {"pagina": 1, "zona": "basso_destra", "fonte": "ocr", "testo": "TITOLO\nCARTER ACME7000700", "riquadro": [800.0, 760.0, 1000.0, 790.0], "confidenza": 71.5},
+          {"pagina": 2, "zona": "pagina", "fonte": "ocr", "testo": "VISTA A-A", "riquadro": [300.0, 300.0, 360.0, 312.0], "confidenza": null}
+        ],
+        "cartiglio": [
+          {"etichetta": "titolo", "letta": "TITOLO", "valore": "CARTER ACME7000700", "pagina": 1, "zona": "basso_destra", "fonte": "ocr", "riquadro": [860.0, 775.0, 1000.0, 790.0], "confidenza": 71.5}
+        ],
+        "metadati": {"titolo": "", "soggetto": "", "parole_chiave": "", "creatore": "", "produttore": ""},
+        "ocr": {"stato": "eseguito", "motivo": "", "motore": "acme-ocr", "tentativi": [
+          {"pagina": 1, "zona": "basso_destra", "esito": "letto", "motivo": "", "caratteri": 25, "secondi": 1.5},
+          {"pagina": 2, "zona": "pagina", "esito": "letto", "motivo": "", "caratteri": 9, "secondi": 2.25}
+        ]},
+        "limiti": {"pagine_max": 11, "frammenti_max": 200, "frammento_max": 512, "caratteri_max": 16384, "campi_max": 24, "ocr_soglia_pagina": 20, "ocr_soglia_cartiglio": 8, "ocr_pagine_max": 2, "ocr_tempo_max_s": 60, "ocr_dpi": 300}
+      }
+    }
+  }
+}

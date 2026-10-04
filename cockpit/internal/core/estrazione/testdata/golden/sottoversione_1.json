@@ -1,0 +1,658 @@
+{
+  "bundle_id": "0b4a06a9d138d8dbec873b217bdcd24f829316b07f17885ed3501c7afa023ad5",
+  "entita": [
+    {
+      "chiave_originale": "campo Part Number",
+      "id": "e:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8350,
+            5624,
+            8661,
+            5734
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "campo Rev",
+      "id": "e:pdf:cartiglio:revisione:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8300,
+            7075,
+            9519,
+            7171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "campo Descrizione",
+      "id": "e:pdf:cartiglio:titolo:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9200,
+            5624,
+            9751,
+            5734
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "campo Descrizione",
+      "id": "e:pdf:cartiglio:titolo:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9923,
+            7075,
+            10184,
+            7171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "campo Descrizione:",
+      "id": "e:pdf:cartiglio:titolo:3",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9400,
+            7823,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "campo Description:",
+      "id": "e:pdf:cartiglio:titolo:4",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            10600,
+            7823,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            5514,
+            11447,
+            6724
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 2",
+      "id": "e:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            6754,
+            9011,
+            6864
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 3",
+      "id": "e:pdf:frammento:3",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7075,
+            10184,
+            7271
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 4",
+      "id": "e:pdf:frammento:4",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7725,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 5",
+      "id": "e:pdf:frammento:5",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            8075,
+            8751,
+            8171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000036",
+    "origine_id": "00000000-0000-4000-8000-000000000036",
+    "provenienza": {
+      "bytes": 81920,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME-030PB07XX0001.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-09-15T08:10:00Z",
+      "digest_payload": "5ca5794cfa251a1c379ceeccf9ecdc8e64763365cfa91c91723ac958ae39f7d9",
+      "hash_configurazione": "acme-configurazione-0",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000036",
+      "sottoversione_pdf": 1,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 4
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "testo letto con il worker di prima (sottoversione 1): il cartiglio è un indizio, da rianalizzare",
+        "nome": "cartiglio",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "testo",
+        "stato": "disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "pdf.testo_di_prima",
+        "gravita": "avviso",
+        "messaggio": "testo letto con il worker di prima (sottoversione 1, oggi 2): i campi del cartiglio sono testo_pdf, un indizio e mai il codice del file, finché il PDF non si rianalizza",
+        "natura": "dati",
+        "percorso": "testo_pdf.versione",
+        "rif": [
+          "u:pdf:cartiglio:codice:1",
+          "u:pdf:cartiglio:titolo:1",
+          "u:pdf:cartiglio:revisione:1",
+          "u:pdf:cartiglio:titolo:2",
+          "u:pdf:cartiglio:titolo:3",
+          "u:pdf:cartiglio:titolo:4"
+        ]
+      }
+    ],
+    "mappatura": "sconosciuta",
+    "metodo": "nativo",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME-030PB07XX0001.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 22,
+            "inizio": 19
+          },
+          "intervallo": {
+            "fine": 22,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 18,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME-030PB07XX0001.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Part Number",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:cartiglio:codice:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8350,
+            5624,
+            8661,
+            5734
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "7120110"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Rev",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.revisione"
+      },
+      "entita_id": "e:pdf:cartiglio:revisione:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:revisione:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8300,
+            7075,
+            9519,
+            7171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Mod. N. Modification object /"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Descrizione",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:cartiglio:titolo:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:titolo:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9200,
+            5624,
+            9751,
+            5734
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "PIASTRA A DX"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Descrizione",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:cartiglio:titolo:2",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:titolo:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9923,
+            7075,
+            10184,
+            7171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "modifica"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Descrizione:",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:cartiglio:titolo:3",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:titolo:3",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9400,
+            7823,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "TELAIO SALDATO DX RIGHT WELDED FRAME"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "Description:",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:cartiglio:titolo:4",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:cartiglio:titolo:4",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            10600,
+            7823,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "RIGHT WELDED FRAME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            5514,
+            11447,
+            6724
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Pos.\nPart Number\nDescrizione\nQ.ty\n1\n7120110\nPIASTRA A DX\n1\n2\n7120111\nLAMIERA B\n1\n3\n7120112\nTONDO C\n1\n4\n7120113\nPIASTRINA D\n1\n5\n7120130\nBUSSOLA E\n1\n6\n7120131\nBLOCCHETTO F\n1\n7\n7120114\nLAMIERA G\n1\n8\n7120115\nCOSTOLA H\n1\n9\n7120116\nSQUADRETTA K\n1\n10\n7120117\nCOPERCHIO L\n1"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:2",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            6754,
+            9011,
+            6864
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "SPECULARE DI\n7120101"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:3",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:frammento:3",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7075,
+            10184,
+            7271
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Rev\nMod. N.\nModification object / Descrizione modifica\n00\nACME-P003\nPrima emissione"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:4",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:frammento:4",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7725,
+            11630,
+            7947
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Family:\nPart Nr:\nDescrizione:\nDescription:\n--\n7120100\nTELAIO SALDATO DX\nRIGHT WELDED FRAME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:5",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000036",
+      "id": "u:pdf:frammento:5",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            8075,
+            8751,
+            8171
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "ACME S.p.A. - DRAFT -"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

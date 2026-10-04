@@ -1,0 +1,25 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000035",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 5,
+    "nome_file": "ACME7000500.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 512,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000035",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000035",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "disegno_2d", "confidenza": 40, "fonte": "estensione"},
+      "errore_pdf": "file danneggiato: tabella xref non trovata"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000039",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 9,
+    "nome_file": "ACME7000800 capitolato.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 2097152,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000039",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000039",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "documento", "confidenza": 30, "fonte": "estensione"},
+      "testo_pdf": {
+        "versione": 2,
+        "estraibile": true,
+        "pagine": 40,
+        "pagine_lette": 11,
+        "caratteri": 1024,
+        "troncato": true,
+        "formato_pagina1": [595.0, 842.0],
+        "frammenti": [
+          {"pagina": 1, "zona": "pagina", "fonte": "nativo", "testo": "ACME-NOTA-0001 ACME-NOTA-0002 ACME-NOTA-0003 ACME-NOTA-0004 ACME-NOTA-0005 ACME-NOTA-0006 ACME-NOTA-0007 ACME-NOTA-0008 ACME-NOTA-0009 ACME-NOTA-0010 ACME-NOTA-0011 ACME-NOTA-0012 ACME-NOTA-0013 ACME-NOTA-0014 ACME-NOTA-0015 ACME-NOTA-0016 ACME-NOTA-0017 ACME-NOTA-0018 ACME-NOTA-0019 ACME-NOTA-0020 ACME-NOTA-0021 ACME-NOTA-0022 ACME-NOTA-0023 ACME-NOTA-0024 ACME-NOTA-0025 ACME-NOTA-0026 ACME-NOTA-0027 ACME-NOTA-0028 ACME-NOTA-0029 ACME-NOTA-0030 ACME-NOTA-0031 ACME-NOTA-0032 ACME-NOTA-0033 ACME-NOTA-0034 AB", "riquadro": [40.0, 60.0, 555.0, 780.0], "confidenza": null},
+          {"pagina": 2, "zona": "pagina", "fonte": "nativo", "testo": "ACME-NOTA-0035 ACME-NOTA-0036 ACME-NOTA-0037 ACME-NOTA-0038 ACME-NOTA-0039 ACME-NOTA-0040 ACME-NOTA-0041 ACME-NOTA-0042 ACME-NOTA-0043 ACME-NOTA-0044 ACME-NOTA-0045 ACME-NOTA-0046 ACME-NOTA-0047 ACME-NOTA-0048 ACME-NOTA-0049 ACME-NOTA-0050 ACME-NOTA-0051 ACME-NOTA-0052 ACME-NOTA-0053 ACME-NOTA-0054 ACME-NOTA-0055 ACME-NOTA-0056 ACME-NOTA-0057 ACME-NOTA-0058 ACME-NOTA-0059 ACME-NOTA-0060 ACME-NOTA-0061 ACME-NOTA-0062 ACME-NOTA-0063 ACME-NOTA-0064 ACME-NOTA-0065 ACME-NOTA-0066 ACME-NOTA-0067 ACME-NOTA-0068 CD", "riquadro": [40.0, 60.0, 555.0, 780.0], "confidenza": null}
+        ],
+        "cartiglio": [],
+        "metadati": {"titolo": "Capitolato ACME", "soggetto": "", "parole_chiave": "", "creatore": "", "produttore": ""},
+        "ocr": {"stato": "non_necessario", "motivo": "", "motore": "", "tentativi": []},
+        "limiti": {"pagine_max": 11, "frammenti_max": 200, "frammento_max": 512, "caratteri_max": 16384, "campi_max": 24, "ocr_soglia_pagina": 20, "ocr_soglia_cartiglio": 8, "ocr_pagine_max": 2, "ocr_tempo_max_s": 60, "ocr_dpi": 300}
+      }
+    }
+  }
+}

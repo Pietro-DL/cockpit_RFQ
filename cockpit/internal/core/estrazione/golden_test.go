@@ -1,6 +1,6 @@
 // L1 — i golden degli adattatori (piano A, 5.6.3): l'aiuto che li legge, li confronta e li riscrive solo
 // dichiarandolo (A1b-18), la versione degli adattatori fissata (5.6.1), e i documenti degli adattatori contro i
-// loro golden, sugli ingressi sintetici di testdata/ingressi (A1b-14 per lo STEP).
+// loro golden, sugli ingressi sintetici di testdata/ingressi (A1b-14 per lo STEP, A1b-15 per il PDF).
 //
 // Tutti i dati sono sintetici: ACME, codici di fantasia (ACME7000100, 9999999A, CORDONE_ID_0001…), UUID della
 // forma 00000000-0000-4000-8000-0000000000nn. Le forme sono quelle dei fatti veri del worker, il contenuto no:
@@ -203,27 +203,43 @@ type ingressoAllegato struct {
 }
 
 // casoGolden: un ingresso e il suo golden. I nomi stanno qui, in una tabella, e non si cercano nelle cartelle.
-// struttura è ciò che worker.DecodificaStruttura deve dire del payload: un ingresso che non si decodifica come
-// la tabella dichiara è un errore della prova, non un caso dell'adattatore.
+// struttura e testoPDF sono ciò che worker.DecodificaStruttura e worker.DecodificaTestoPDF devono dire del
+// payload: un ingresso che non si decodifica come la tabella dichiara è un errore della prova, non un caso
+// dell'adattatore.
 type casoGolden struct {
-	tipo      string // step
+	tipo      string // step | pdf
 	nome      string // il file in testdata/ingressi/<tipo>/ e in testdata/golden/
 	struttura bool
+	testoPDF  bool
 }
 
-// casiGolden: F-STEP-1…10 (5.7.2). F-STEP-6 ha due ingressi: il file che non è Part 21 e la struttura v1.
+// casiGolden: F-STEP-1…10 e F-PDF-1…11 (5.7.2). F-STEP-6 ha due ingressi: il file che non è Part 21 e la
+// struttura v1. F-PDF-4 ne ha due: i fatti senza testo_pdf (4a) e l'errore_pdf (4b). F-PDF-5 è la fixture
+// sintetica di classificazione con il testo della sottoversione 1, copiata con un nome senza sigla (5.6.3).
 var casiGolden = []casoGolden{
-	{"step", "step_01_assieme", true},
-	{"step", "step_02_due_radici", true},
-	{"step", "step_03_figlio_con_due_padri", true},
-	{"step", "step_04_formazioni_alternative", true},
-	{"step", "step_05_troncata_con_scarti", true},
-	{"step", "step_06_non_step21", true},
-	{"step", "step_06b_struttura_v1", false},
-	{"step", "step_07_caratteri", true},
-	{"step", "step_08_formazioni", true},
-	{"step", "step_09_cordoni", true},
-	{"step", "step_10_v2_senza_scarti", true},
+	{"step", "step_01_assieme", true, false},
+	{"step", "step_02_due_radici", true, false},
+	{"step", "step_03_figlio_con_due_padri", true, false},
+	{"step", "step_04_formazioni_alternative", true, false},
+	{"step", "step_05_troncata_con_scarti", true, false},
+	{"step", "step_06_non_step21", true, false},
+	{"step", "step_06b_struttura_v1", false, false},
+	{"step", "step_07_caratteri", true, false},
+	{"step", "step_08_formazioni", true, false},
+	{"step", "step_09_cordoni", true, false},
+	{"step", "step_10_v2_senza_scarti", true, false},
+	{"pdf", "pdf_01_cartiglio", false, true},
+	{"pdf", "pdf_02_revisione_legale", false, true},
+	{"pdf", "pdf_03_senza_testo", false, true},
+	{"pdf", "pdf_04a_senza_testo_pdf", false, false},
+	{"pdf", "pdf_04b_errore_pdf", false, false},
+	{"pdf", "sottoversione_1", false, true},
+	{"pdf", "pdf_06_specchiato", false, true},
+	{"pdf", "pdf_07_ocr", false, true},
+	{"pdf", "pdf_08_troncato", false, true},
+	{"pdf", "pdf_09_caratteri", false, true},
+	{"pdf", "pdf_10_metadati", false, true},
+	{"pdf", "pdf_11_elenco", false, true},
 }
 
 // leggiIngressoAllegato decodifica un ingresso in modo stretto (chiavi sconosciute rifiutate), controlla che
@@ -249,16 +265,19 @@ func leggiIngressoAllegato(t *testing.T, c casoGolden) ingressoAllegato {
 	if _, ok := worker.DecodificaStruttura(in.Fatti.Payload); ok != c.struttura {
 		t.Fatalf("%s: DecodificaStruttura dice %v, la tabella dichiara %v", c.nome, ok, c.struttura)
 	}
+	if _, ok := worker.DecodificaTestoPDF(in.Fatti.Payload); ok != c.testoPDF {
+		t.Fatalf("%s: DecodificaTestoPDF dice %v, la tabella dichiara %v", c.nome, ok, c.testoPDF)
+	}
 	if in.Fatti.Digest, err = fotorfq.ImprontaPayload(in.Fatti.Payload); err != nil {
 		t.Fatalf("%s: %v", c.nome, err)
 	}
 	return in
 }
 
-// TestIGoldenDegliAdattatori (A1b-14): ogni ingresso dà il documento del suo golden, byte per byte nel JSON
-// canonico. Prima di tenere un golden lo si legge per intero: ogni unità, entità, legame, capacità e
-// diagnostica deve venire dall'ingresso e dalla mappatura (5.4.5). Un golden sbagliato si corregge nel prodotto,
-// mai a mano.
+// TestIGoldenDegliAdattatori (A1b-14 per lo STEP, A1b-15 per il PDF): ogni ingresso dà il documento del suo
+// golden, byte per byte nel JSON canonico. Prima di tenere un golden lo si legge per intero: ogni unità, entità,
+// legame, capacità e diagnostica deve venire dall'ingresso e dalla mappatura (5.4.5). Un golden sbagliato si
+// corregge nel prodotto, mai a mano.
 func TestIGoldenDegliAdattatori(t *testing.T) {
 	perTipo := map[string][]casoGolden{}
 	var tipi []string

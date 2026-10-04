@@ -76,3 +76,9 @@ step.carattere_sostituito
 step.formazioni_alternative
 step.scarti_non_noti
 step.testo_troncato
+pdf.senza_testo
+pdf.non_letto
+pdf.illeggibile
+pdf.testo_di_prima
+pdf.non_analizzato
+pdf.troncato

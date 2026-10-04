@@ -1,0 +1,38 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000033",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 3,
+    "nome_file": "ACME7000300 scansione.pdf",
+    "estensione": "pdf",
+    "content_type": "application/pdf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 204800,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000033",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000033",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "disegno_2d", "confidenza": 40, "fonte": "estensione"},
+      "testo_pdf": {
+        "versione": 2,
+        "estraibile": false,
+        "pagine": 2,
+        "pagine_lette": 2,
+        "caratteri": 0,
+        "troncato": false,
+        "formato_pagina1": [1191.0, 842.0],
+        "frammenti": [],
+        "cartiglio": [],
+        "metadati": {"titolo": "", "soggetto": "", "parole_chiave": "", "creatore": "", "produttore": "ACME Scanner 2"},
+        "ocr": {"stato": "non_disponibile", "motivo": "motore OCR assente sulla postazione", "motore": "", "tentativi": []},
+        "limiti": {"pagine_max": 11, "frammenti_max": 200, "frammento_max": 512, "caratteri_max": 16384, "campi_max": 24, "ocr_soglia_pagina": 20, "ocr_soglia_cartiglio": 8, "ocr_pagine_max": 2, "ocr_tempo_max_s": 60, "ocr_dpi": 300}
+      }
+    }
+  }
+}

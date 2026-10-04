@@ -1,0 +1,421 @@
+{
+  "bundle_id": "0a79de192ad524e0fcbdf20ef85ea33db493c31f010271108309aae4fccea154",
+  "entita": [
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            400,
+            305,
+            2103,
+            520
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "frammento 2",
+      "id": "e:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7604,
+            9600,
+            7902
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "pagina 1",
+      "id": "e:pdf:p1",
+      "posizione": {
+        "pdf": {
+          "pagina": 1
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "disegno"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000031",
+    "origine_id": "00000000-0000-4000-8000-000000000031",
+    "provenienza": {
+      "bytes": 40960,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000100.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00.25Z",
+      "digest_payload": "7a611e4e21aa10485d2648ed01d1e8fff376d7ad25efbed4be5f0be43758e74c",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000031",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "testo",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000100.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 15,
+            "inizio": 12
+          },
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 11,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000100.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "DISEGNO N.",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8600,
+            7604,
+            9408,
+            7714
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PART N°",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:codice:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            1000,
+            1200,
+            1801,
+            1310
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000101"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "MATERIALE",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.materiale"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:materiale:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8600,
+            7900,
+            9500,
+            8010
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.materiale",
+      "testo": "ACCIAIO ACME-S1"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PARTICOLARE SIMILE / SIMILAR PART",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.particolare_simile"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:particolare_simile:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            10200,
+            7900,
+            11000,
+            8010
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.particolare_simile",
+      "testo": "ACME7000099"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "REV",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.revisione"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:revisione:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            9600,
+            7604,
+            9750,
+            7714
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.revisione",
+      "testo": "02"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "SCALA",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.scala"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:scala:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            10200,
+            7750,
+            10400,
+            7860
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.scala",
+      "testo": "1:2"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "DENOMINAZIONE / NAME",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.titolo"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:cartiglio:titolo:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8600,
+            7750,
+            10100,
+            7860
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.titolo",
+      "testo": "STAFFA DI SUPPORTO ACME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            400,
+            305,
+            2103,
+            520
+          ],
+          "zona": "pagina"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "Rev 03\nAggiornata la quota di foratura"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:2",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000031",
+      "id": "u:pdf:frammento:2",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            8000,
+            7604,
+            9600,
+            7902
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "DISEGNO N.\nACME7000100\nREV\n02"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

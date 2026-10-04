@@ -1,0 +1,251 @@
+{
+  "bundle_id": "22ccdea0f712c2778d0aa600faf24e459a6fe825f3c1e91c5c7b9e30c1955982",
+  "entita": [
+    {
+      "chiave_originale": "frammento 1",
+      "id": "e:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            5000,
+            5200,
+            8000,
+            5600
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "metadato creatore",
+      "id": "e:pdf:metadati:creatore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    },
+    {
+      "chiave_originale": "pagina 1",
+      "id": "e:pdf:p1",
+      "posizione": {
+        "pdf": {
+          "pagina": 1
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "disegno"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000032",
+    "origine_id": "00000000-0000-4000-8000-000000000032",
+    "provenienza": {
+      "bytes": 30720,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000200.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00Z",
+      "digest_payload": "907954b4729b15b5cca0b147d02e56835e8a7e5a5c5ba637dc2b4eb1bbeba3ed",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000032",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "testo",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000200.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000032",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 15,
+            "inizio": 12
+          },
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 11,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000200.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "CODICE",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.codice"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000032",
+      "id": "u:pdf:cartiglio:codice:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            5200,
+            5000,
+            6000,
+            5110
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000200"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "REV",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.cartiglio.revisione"
+      },
+      "entita_id": "e:pdf:p1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000032",
+      "id": "u:pdf:cartiglio:revisione:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            5300,
+            5200,
+            8000,
+            5310
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "cartiglio.revisione",
+      "testo": "Questo disegno è proprietà di ACME S.p.A. dal 2019: vietata la riproduzione (art. 12)"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.frammenti"
+      },
+      "entita_id": "e:pdf:frammento:1",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000032",
+      "id": "u:pdf:frammento:1",
+      "posizione": {
+        "pdf": {
+          "fonte": "nativo",
+          "pagina": 1,
+          "riquadro_decimi": [
+            5000,
+            5200,
+            8000,
+            5600
+          ],
+          "zona": "basso_destra"
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del blocco, non del codice; testo già normalizzato dal worker: nessun offset nei byte del PDF"
+      },
+      "selettore": "testo_pdf",
+      "testo": "REV\nQuesto disegno è proprietà di ACME S.p.A. dal 2019: vietata la riproduzione (art. 12)"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "creatore",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.creatore"
+      },
+      "entita_id": "e:pdf:metadati:creatore",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000032",
+      "id": "u:pdf:metadati:creatore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "ACME CAD 7"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

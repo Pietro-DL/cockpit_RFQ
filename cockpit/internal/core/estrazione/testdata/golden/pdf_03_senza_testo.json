@@ -1,0 +1,140 @@
+{
+  "bundle_id": "bcc85b03bbe615c863f2c224531f22dfb2431e65b27b255c07d21b5d7a18c340",
+  "entita": [
+    {
+      "chiave_originale": "metadato produttore",
+      "id": "e:pdf:metadati:produttore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "tipo": "unita_isolata"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000033",
+    "origine_id": "00000000-0000-4000-8000-000000000033",
+    "provenienza": {
+      "bytes": 204800,
+      "content_type": "application/pdf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000300 scansione.pdf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00Z",
+      "digest_payload": "3bda12d748da48b91a243aa827f6fc5dc5a7f77fd13244a494ffee25417e4ed5",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000033",
+      "sottoversione_pdf": 2,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "nessun testo nativo nelle pagine lette (curve o scansione); OCR «non_disponibile»: motore OCR assente sulla postazione",
+        "nome": "cartiglio",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "il worker non legge le righe dell'elenco particolari: nessun fatto tabellare",
+        "nome": "elenco_pdf",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "nessun testo nativo nelle pagine lette (curve o scansione); OCR «non_disponibile»: motore OCR assente sulla postazione",
+        "nome": "testo",
+        "stato": "non_disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "pdf.senza_testo",
+        "gravita": "avviso",
+        "messaggio": "il PDF non ha testo nel file; OCR «non_disponibile»: non è un PDF senza codici",
+        "natura": "dati",
+        "percorso": "testo_pdf.estraibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000300 scansione.pdf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000033",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 25,
+            "inizio": 22
+          },
+          "intervallo": {
+            "fine": 25,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 21,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000300 scansione.pdf"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "produttore",
+        "mappatura": "mappatura-pdf-1",
+        "parser": "testo_pdf.metadati.produttore"
+      },
+      "entita_id": "e:pdf:metadati:produttore",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000033",
+      "id": "u:pdf:metadati:produttore",
+      "posizione": {
+        "pdf": {
+          "pagina": 0
+        },
+        "tipo": "pdf"
+      },
+      "qualita": {
+        "localizzazione": "assente",
+        "metodo": "nativo",
+        "motivo": "metadato del documento: nessuna pagina né riquadro"
+      },
+      "selettore": "metadati_pdf",
+      "testo": "ACME Scanner 2"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}
