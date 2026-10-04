@@ -74,6 +74,18 @@ markmap:
     - `TagliaCatena` → (utile, storia), `CorpoUtilePerInterpretazione`, `DoveStoria`
     - i quattro riconoscitori (`separatoreEsplicito`, `aperturaDiCitazione` con le forme di `apertureCitazione`,
       `intestazioneCitata`, `testoMarcato`) e `arretra`
+- **`catena_posizioni.go`** (giro 5, A1b.2; piano A, 5.4.3)
+  - Responsabilità: il **taglio con le posizioni**, accanto a `TagliaCatena`, per il motore A:
+    - `TagliaCatenaConPosizioni` → `Taglio`: le righe del corpo originale (`RigaTesto`, in byte, con il
+      terminatore), la riga di taglio, gli intervalli `Corrente`, `Storia`, `CorrenteUtile`, `StoriaUtile` in byte
+      sul corpo ORIGINALE, lo stato (`StatoTaglio`: `nessuna_storia`, `tagliato`, `storia_non_separabile`), il
+      riconoscitore che ha tagliato (`RegolaTaglio`) e il segno d'inoltro
+    - `LivelliDellaStoria` → `[]LivelloStoria`: le stesse regole riapplicate dentro la storia, per separare
+      l'inoltro dalle citazioni più vecchie (R27 b, minimale: nessuna regola nuova)
+    - `rigaDInoltro`: l'unico punto che decide il tipo «inoltro» (solo le frasi di `frasiInoltro`, come
+      `EInoltro`; «-----Messaggio originale-----» taglia e dà una citazione: R27 c)
+  - `catena.go` non cambia di un byte: il ciclo di `primaRigaDellaStoria` è duplicato (`primaRigaConRegola`),
+    le regole no — stessi aiuti, nello stesso ordine, sulle stesse righe normalizzate
 - **`atto.go`**
   - Responsabilità: il vocabolario del 7C.0:
     - le costanti `Atto*` (righe della tabella `atto_business`), `Atti`, `AttoValido`
@@ -144,6 +156,11 @@ markmap:
     - `transport/web/triage.go`
 - **`TagliaCatena`**
   - Chi lo chiama: `core/inbox/lettura/lettura.go:elabora` (la storia citata mostrata chiusa nel corpo della mail)
+- **`TagliaCatenaConPosizioni`, `Taglio`, `RigaTesto`, `StatoTaglio`, `RegolaTaglio`, `LivelliDellaStoria`,
+  `LivelloStoria`**
+  - Chi lo chiama: ancora nessuno nel prodotto. Li useranno le tabelle con l'origine di `core/inbox/lettura`
+    (A1b.3) e l'adattatore della mail di `core/estrazione` (A1b.7), che di questo package può usare solo
+    questi nomi ed `EInoltro` (G4)
 - **`R0Reply` … `R5Buyer`, `PuntiRegola`, `PuntiRiferimen`, `Candidato`, `OrdinaCandidati`, `Estrazione`,
   `CodiceTrovato`, `RuoloRiferimento`**
   - Chi lo chiama: `core/inbox/aggancio/aggancio.go` (`Calcola`, `SalvaCandidatiCodice`, `perSalvare`)
@@ -292,6 +309,19 @@ markmap:
 - **Il corpo originale non si tocca**:
   - `TagliaCatena` restituisce due stringhe;
   - se il taglio non lascia niente (un inoltro senza commento) il corpo resta intero.
+  - `TagliaCatenaConPosizioni` dice lo stesso di `TagliaCatena` (5.4.3 punto 5): con lo stato `tagliato`
+    l'utile e la storia sono `TrimSpace(normalizza(corpo[Corrente]))` e `TrimSpace(normalizza(corpo[Storia]))`;
+    negli altri due stati `TagliaCatena` restituisce il corpo intero. Dove il legacy ripiega, il taglio con le
+    posizioni dà `storia_non_separabile` con i confini: la storia resta storia, nessuna promozione (R48 A).
+  - Gli intervalli del taglio sono in byte sul corpo ORIGINALE, mai su un testo passato da `normalizza` o
+    `TrimSpace`; le righe si contano come in `normalizza` più `Split` (CRLF, CR o LF da soli; «\r\r\n» sono due
+    terminatori). `Taglio` usa `[2]int`: il package non importa niente di nuovo (G9).
+  - **Rischio di deriva** (5.10 n.1): il ciclo è duplicato in `catena_posizioni.go`, le regole no. Una modifica
+    ai riconoscitori arriva da sola ai due tagli; una modifica al ciclo di `TagliaCatena` (`catena.go:49-63`,
+    `primaRigaDellaStoria`) va riportata in `TagliaCatenaConPosizioni` e `primaRigaConRegola`. La fermano
+    l'equivalenza in tabella e il fuzz di `catena_posizioni_test.go` (A1b-05, A1b-06).
+  - `TagliaCatenaConPosizioni` guarda solo il corpo: l'inoltro senza nessun confine (l'oggetto con il prefisso
+    d'inoltro) lo dichiara l'adattatore della mail con `EInoltro` (R48 A, P-08).
   - Una riga `Da:` da sola non taglia: servono due intestazioni di ruolo diverso e, fra i valori, un indirizzo,
     una data o `Oggetto:`.
   - Un'apertura di citazione vale solo con prefisso **e** chiusura:
@@ -395,6 +425,20 @@ markmap:
     - inoltro senza commento, corpo vuoto, `\r\n`, spazio unificatore;
     - le aperture tedesca («Am … schrieb Name:») e di Thunderbird in italiano, anche spezzate su due righe,
     - e la prosa che comincia allo stesso modo
+- **`catena_posizioni_test.go`** (giro 5, A1b.2)
+  - Che cosa prova: il taglio con le posizioni:
+    - A1b-05: l'equivalenza con `TagliaCatena` sui corpi di `catena_test.go` riscritti in tabella (nomi
+      neutri, codici di fantasia), più quelli nuovi: CR soli, «\r\r\n», «\n\r», testo marcato, aperture e
+      separatori francesi e tedeschi, UTF-8 non valido, U+2007 e U+202F, emoji, i corpi di `lettura`;
+    - A1b-06: `FuzzTagliaCatenaConPosizioni`, con la stessa equivalenza e gli invarianti delle posizioni (righe
+      che coprono il corpo, confini su confini di runa, livelli che coprono la storia); il seme gira con
+      `go test`, a mano `-fuzz FuzzTagliaCatenaConPosizioni`;
+    - A1b-07: gli offset contati a mano sul corpo originale con CRLF, CR soli, «\r\r\n», spazio unificatore e
+      U+202F;
+    - A1b-08: l'inoltro senza commento dà `storia_non_separabile`, la parte corrente vuota e la storia intatta
+      (la prova legacy `TestUnInoltroSenzaCommentoTieneTutto` resta com'è);
+    - A1b-09: i livelli della storia (inoltro, poi citazione; il blocco d'intestazioni non apre un livello;
+      «Messaggio originale» dà una citazione; il testo marcato è un blocco solo; il massimo)
 - **`regole_test.go`**
   - Che cosa prova:
     - AN3 (regola ✗ vista e non usata),
@@ -507,6 +551,11 @@ markmap:
 - **Voglio capire perché un testo è finito nella storia citata**
   - Apri: `catena.go:primaRigaDellaStoria` e i quattro riconoscitori
     - `apertureCitazione` per «ha scritto», «wrote», «schrieb», «a écrit»
+- **Voglio cambiare il ciclo del taglio**
+  - Apri: `catena.go:TagliaCatena` e `primaRigaDellaStoria`, e riporta lo stesso cambio in
+    `catena_posizioni.go:TagliaCatenaConPosizioni` e `primaRigaConRegola` (rischio di deriva, 5.10 n.1)
+- **Voglio cambiare quando un segmento della storia è un «inoltro»**
+  - Apri: `catena_posizioni.go:rigaDInoltro` (il solo punto; oggi le frasi di `conversazione.go:frasiInoltro`)
 - **Voglio usare un campo nuovo di `cliente.regole` nel motore**
   - Apri: `core/registro/regole/regole.go` (schema e `Verifica`), poi `regole.go:Compila`
 - **Voglio cambiare i suffissi decorativi**
