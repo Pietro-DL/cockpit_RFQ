@@ -158,9 +158,9 @@ markmap:
   - Chi lo chiama: `core/inbox/lettura/lettura.go:elabora` (la storia citata mostrata chiusa nel corpo della mail)
 - **`TagliaCatenaConPosizioni`, `Taglio`, `RigaTesto`, `StatoTaglio`, `RegolaTaglio`, `LivelliDellaStoria`,
   `LivelloStoria`**
-  - Chi lo chiama: ancora nessuno nel prodotto. Li useranno le tabelle con l'origine di `core/inbox/lettura`
-    (A1b.3) e l'adattatore della mail di `core/estrazione` (A1b.7), che di questo package può usare solo
-    questi nomi ed `EInoltro` (G4)
+  - Chi lo chiama: `core/inbox/lettura/tabelle_origine.go:TabelleConOrigine` (`Taglio`, `RigaTesto`: le righe
+    del corpo originale a cui si agganciano le celle). Da A1b.7 l'adattatore della mail di `core/estrazione`,
+    che di questo package può usare solo questi nomi ed `EInoltro` (G4)
 - **`R0Reply` … `R5Buyer`, `PuntiRegola`, `PuntiRiferimen`, `Candidato`, `OrdinaCandidati`, `Estrazione`,
   `CodiceTrovato`, `RuoloRiferimento`**
   - Chi lo chiama: `core/inbox/aggancio/aggancio.go` (`Calcola`, `SalvaCandidatiCodice`, `perSalvare`)
@@ -373,7 +373,7 @@ markmap:
 - **È importato da:**
   - `core/inbox/ingest`,
   - `core/inbox/aggancio`,
-  - `core/inbox/lettura` (`TagliaCatena`),
+  - `core/inbox/lettura` (`TagliaCatena`; `Taglio` e `RigaTesto` per le tabelle con l'origine),
   - `core/rfq/documenti` (`OggettoPulito`),
   - `core/rfq/fascicolo`,
   - `ai/agente` (solo le costanti `Ruolo*`),

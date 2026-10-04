@@ -164,7 +164,7 @@ markmap:
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
-    - `inbox/classificazione` (solo `TagliaCatena`)
+    - `inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`inbox/aggancio`** importa:
     - `inbox/classificazione`
     - `platform/db`

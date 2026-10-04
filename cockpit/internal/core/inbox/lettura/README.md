@@ -24,8 +24,11 @@ markmap:
 ## Non appartiene qui
 
 - Il taglio della catena (dove finisce il testo nuovo e comincia la storia citata): `core/inbox/classificazione`
-  (`TagliaCatena`)
+  (`TagliaCatena`; per le tabelle con l'origine, il `Taglio` di `TagliaCatenaConPosizioni`)
   - che qui si usa e non si rifà.
+- Il documento delle evidenze di una mail (segmenti, unità, diagnostiche `email.*`): l'adattatore di
+  `core/estrazione` (A1b.7), che usa `TabelleConOrigine` e `TestoDaHTML`. Qui nessuna diagnostica e nessun tipo
+  del motore A.
 - L'interpretazione del testo (codici, triage, aggancio): `core/inbox/classificazione`, `core/inbox/aggancio`.
   - Il testo dato all'interpretazione NON passa da qui.
 - Il salvataggio del corpo: `core/inbox/ingest` (`corpo_testo` com'è arrivato, NUL sostituiti).
@@ -63,6 +66,17 @@ markmap:
     - `intestazione`,
     - `vista`;
   - `documentoHTML.testo` (il testo dall'HTML quando quello semplice manca) e il ripiego `testoDaToken`
+- **`tabelle_origine.go`** (giro 5, A1b.3; piano A, 5.4.4)
+  - **Responsabilità:** le **tabelle con la loro origine**, per il motore A:
+    - `TabelleConOrigine` → `[]TabellaOrigine` / `CellaOrigine`: le stesse tabelle di dati e gli stessi testi di
+      `vista()`, più gli indici (tabella, riga dopo la pulizia e `<tr>` originale, cella, colonna nella griglia),
+      il percorso nel DOM, le righe del `Taglio` a cui ogni cella si aggancia e `Coincide`; le tabelle non
+      agganciate e quelle a cavallo del taglio (`ACavallo`)
+    - `TestoDaHTML`: il testo che `Presenta` ricava dall'HTML quando il testo semplice manca
+  - `tabelle_html.go` non cambia: la lettura delle celle è una variante del ciclo di `esaminaTabella`
+    (`esaminaTabellaConOrigine`) con gli stessi aiuti e limiti; l'aggancio è quello di `ancora`, sulle righe del
+    corpo originale (`agganciaConOrigine`). L'alternativa dei campi in più in `cellaHTML` è esclusa: toccherebbe
+    `tabelle_html.go` (5.10 n.5)
 - **`ancoraggio.go`**
   - **Responsabilità:** `ancora`: ogni tabella HTML si mostra solo dove le sue parole compaiono identiche, di seguito, da inizio a fine
     riga nel testo
@@ -88,6 +102,9 @@ markmap:
 - **`SrotolaSafeLinks(u) (originale, ok)`**
   - **Chi lo chiama:** usata dentro il package;
   - esportata per le prove e per chi dovrà srotolare un indirizzo altrove
+- **`TabelleConOrigine(testo, html, taglio) []TabellaOrigine`, `TestoDaHTML(html) string`**
+  - **Chi lo chiama:** ancora nessuno nel prodotto; li userà l'adattatore della mail di `core/estrazione`
+    (A1b.7), che di questo package può usare solo questi nomi e i tipi `TabellaOrigine`, `CellaOrigine` (G4)
 - **`LimiteTesto`, `LimiteHTML`, i tipi e le costanti `Blocco*`, `Pezzo*`, `Motivo*`, `Origine*`**
   - **Chi lo chiama:** i template di `frammenti.html` confrontano `Tipo` con le stringhe `testo`, `tabella`,
     `rumore`, `separatore`, `link`, `immagine`
@@ -183,6 +200,21 @@ markmap:
   - colonne che variano al più di una;
   - mai intestazione.
 
+### Le tabelle con l'origine (motore A, giro 5)
+
+- `TabelleConOrigine(testo, html, taglio)`:
+  - `testo` è quello su cui il `Taglio` è calcolato: il `corpo_testo`, o `TestoDaHTML(html)` quando è vuoto, come
+    in `Presenta`; stessi limiti di `Presenta` (`LimiteTesto`, `LimiteHTML`, almeno una `<table`).
+  - Le tabelle di dati sono quelle di `leggiHTML`, con gli stessi criteri, nello stesso ordine.
+  - L'aggancio è quello di `ancora`, prima nella parte corrente poi nella storia, ma sulle righe del `Taglio`, cioè
+    sul corpo originale: le righe di una cella sono righe di `corpo_testo`.
+  - Una cella vuota non ha righe; una cella «coincide» quando le sue parole sono esattamente quelle delle sue
+    righe, e solo allora l'adattatore le dà un intervallo esatto.
+  - Una tabella che non si ritrova resta non agganciata; una che si ritrova solo a cavallo del taglio si segnala
+    (`ACavallo`) e non si aggancia. La diagnostica la scrive l'adattatore.
+- Con l'inoltro senza confine (R48 A) l'adattatore passa lo stesso `Taglio` (`nessuna_storia`): le righe delle
+  celle non cambiano, cambia solo il segmento a cui l'adattatore le assegna.
+
 ### `OggettoVisibile`
 
 - Toglie l'etichetta fra parentesi quadre solo in testa all'oggetto,
@@ -215,20 +247,27 @@ markmap:
   tipografico);
   - quello che si mostra è il testo del messaggio (`perVista` tocca solo gli spazi unificatori).
 - Deterministico: stesso input, stesso `Corpo`.
+- **Le tabelle con l'origine non cambiano la vista** (giro 5): `tabelle_html.go` e `ancoraggio.go` sono gli
+  stessi di prima, e `TabelleConOrigine` dà le stesse tabelle e gli stessi testi di `vista()` (troncati a 500
+  rune solo nella vista: qui il testo è intero) e le stesse tabelle agganciate di `Presenta`. Il ciclo di
+  `esaminaTabella` è duplicato: una modifica ai criteri va riportata in `esaminaTabellaConOrigine`, e la ferma
+  l'equivalenza di `tabelle_origine_test.go` (A1b-10).
+- Le righe di una cella sono indici in `Taglio.Righe`, sul corpo originale; nessun offset nei byte di
+  `corpo_html`, solo il percorso nel DOM (che dipende dalla versione del parser HTML).
 
 ## Dipendenze
 
 - **Importa:**
   - la libreria standard,
   - `golang.org/x/net/html` (il parser HTML5, tollerante),
-  - `core/inbox/classificazione` (solo `TagliaCatena`).
+  - `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni: `Taglio`, `RigaTesto`).
 - **È importato da:** `transport/web` (`routes_inbox.go`, `thread.go`, `server.go`).
 - Gli archi `lettura → classificazione` e `transport → lettura` sono nella tabella di `internal/README.md`.
 
 ## Test
 
 - Tutti L1 (nessun database, nessun tag), in `go test ./internal/core/inbox/lettura/`:
-  - 57 test,
+  - 60 test,
   - `FuzzPresenta`,
   - `BenchmarkPresenta` (un HTML di Word da circa 200 KB: pochi millisecondi)
   - e `BenchmarkPresentaCasiEstremi`.
@@ -265,6 +304,15 @@ markmap:
   - **Che cosa prova:** la risposta citata va in `Storia`,
   - l'inoltro senza commento non ha storia,
   - un ciclo di lavorazione «Da: … A: …» resta testo
+- **`tabelle_origine_test.go`** (giro 5, A1b.3)
+  - **Che cosa prova:** A1b-10, le tabelle con l'origine sono quelle di `vista()` (stessi testi, span, numeri,
+    intestazione) e le agganciate sono quelle di `Presenta`, su `excel.html` (testo a TAB, una cella per riga,
+    solo HTML) e su tabelle sintetiche; le parole delle righe sono quelle delle celle;
+  - A1b-11, la forma di F-MAIL-4 (una cella per riga, CRLF, «Q.TA» nella seconda riga, la riga fantasma di Word):
+    righe, `Coincide`, `RigaHTML` prima della pulizia, colonna e percorso di ogni cella; le righe a TAB, che non
+    coincidono; una cella su due righe; le colonne con il rowspan;
+  - A1b-12, F-MAIL-5: la tabella che il testo non dice, quella a cavallo del taglio, il testo marcato, il corpo
+    vuoto con solo HTML, il ripiego a TAB, i separatori tedesco e francese, i limiti, un taglio di un altro testo
 - **Altrove:** `transport/web/corpo_test.go` (i template `corpo_messaggio` / `corpo_blocco` con un corpo di prova).
 
 ## Stato dell'implementazione
