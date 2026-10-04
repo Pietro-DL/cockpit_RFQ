@@ -64,6 +64,12 @@ var pacchettiMotoreA = []regolePacchetto{
 		progetto: []string{"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze",
 			"internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid"}},
+	// I record della fotografia (A1b, -> R40 d): tipi puri, senza DB; del progetto solo le foglie (la tabella
+	// del par.3.1 ammette evidenze per le diagnostiche della fotografia di A1c, e jsoncanonico per l'impronta
+	// dei fatti). Il caricatore, che tocca il DB, è un pacchetto a parte e non entra qui (A1c).
+	{percorso: "internal/core/fotorfq", puro: true,
+		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni:  []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
