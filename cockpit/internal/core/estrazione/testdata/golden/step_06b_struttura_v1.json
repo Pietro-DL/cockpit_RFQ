@@ -1,0 +1,92 @@
+{
+  "bundle_id": "ad2bd2b50fa1f1e4352e9add7a2d3dba73865c4ad2e6df4077336593be97cdab",
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000007",
+    "origine_id": "00000000-0000-4000-8000-000000000007",
+    "provenienza": {
+      "bytes": 6144,
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7500200.stp",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-09-01T08:00:00Z",
+      "digest_payload": "f57c43c794dca7b43e4b0f49cdecb00cbee8a83604fa9ea3c0bce777e2673a75",
+      "hash_configurazione": "acme-configurazione-0",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000007",
+      "tipo": "analisi_file",
+      "versione_analizzatore": 2
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "i fatti non hanno una struttura che si legge (assente, o di una versione che portava le letture del worker)",
+        "nome": "struttura",
+        "stato": "non_disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "step.struttura_assente",
+        "gravita": "avviso",
+        "messaggio": "struttura STEP assente o di una versione precedente alla 2: va rianalizzata, non letta",
+        "natura": "dati",
+        "percorso": "struttura"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7500200.stp"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000007",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 15,
+            "inizio": 12
+          },
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 11,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7500200.stp"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

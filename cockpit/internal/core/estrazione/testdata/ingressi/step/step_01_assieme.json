@@ -1,0 +1,46 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 1,
+    "nome_file": "ACME7000100.stp",
+    "estensione": "stp",
+    "content_type": "application/octet-stream",
+    "natura": "file",
+    "origine": "outlook",
+    "stato": "analizzato",
+    "bytes": 18432,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T10:05:00.123456+02:00",
+    "motivo_parziale": "",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "codice": "ACME7000100", "rev": "1", "confidenza": 60, "fonte": "step"},
+      "struttura": {
+        "versione": 3,
+        "schema": "AP214",
+        "radici": ["#10"],
+        "nodi": [
+          {"chiave": "#10", "id_grezzo": "ACME7000100", "nome_grezzo": "ACME7000100", "descrizione_grezza": "TELAIO ACME", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#10", "formation": "#11", "definition": "#12"}},
+          {"chiave": "#20", "id_grezzo": "ACME7000111", "nome_grezzo": "ACME7000111", "descrizione_grezza": "PIASTRA", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#20", "formation": "#21", "definition": "#22"}},
+          {"chiave": "#30", "id_grezzo": "ACME7000112", "nome_grezzo": "ACME7000112", "descrizione_grezza": "STAFFA SIMILE A ACME7000199", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#30", "formation": "#31", "definition": "#32"}}
+        ],
+        "relazioni": [
+          {"padre": "#10", "figlio": "#20", "qta": 1, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#40"]}},
+          {"padre": "#10", "figlio": "#30", "qta": 3, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#41", "#42", "#43"]}}
+        ],
+        "avvisi": [],
+        "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0, "occorrenze_su_se_stesse": 0, "testi_troncati": 0},
+        "limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 18432, "tempo_s": 0.042, "troncato": false, "motivo": ""}
+      }
+    }
+  }
+}

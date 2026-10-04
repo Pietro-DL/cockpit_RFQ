@@ -1,0 +1,48 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 3,
+    "nome_file": "ACME7200100.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 30720,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:07:00Z",
+    "motivo_parziale": "",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "confidenza": 60, "fonte": "step"},
+      "struttura": {
+        "versione": 3,
+        "schema": "AP214",
+        "radici": ["#10"],
+        "nodi": [
+          {"chiave": "#10", "id_grezzo": "ACME7200100", "nome_grezzo": "ACME7200100", "descrizione_grezza": "ASSIEME ACME", "rev_grezza": "2",
+           "evidenza": {"entita": "PRODUCT", "riga": "#10", "formation": "#11", "definition": "#12"}},
+          {"chiave": "#20", "id_grezzo": "ACME7200110", "nome_grezzo": "ACME7200110", "descrizione_grezza": "GRUPPO DESTRO", "rev_grezza": "2",
+           "evidenza": {"entita": "PRODUCT", "riga": "#20", "formation": "#21", "definition": "#22"}},
+          {"chiave": "#30", "id_grezzo": "ACME7200120", "nome_grezzo": "ACME7200120", "descrizione_grezza": "GRUPPO SINISTRO", "rev_grezza": "2",
+           "evidenza": {"entita": "PRODUCT", "riga": "#30", "formation": "#31", "definition": "#32"}},
+          {"chiave": "#40", "id_grezzo": "ACME7200199", "nome_grezzo": "ACME7200199", "descrizione_grezza": "VITE", "rev_grezza": "",
+           "evidenza": {"entita": "PRODUCT", "riga": "#40", "formation": "#41", "definition": "#42"}}
+        ],
+        "relazioni": [
+          {"padre": "#10", "figlio": "#20", "qta": 1, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#60"]}},
+          {"padre": "#10", "figlio": "#30", "qta": 1, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#61"]}},
+          {"padre": "#20", "figlio": "#40", "qta": 2, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#62", "#63"]}},
+          {"padre": "#30", "figlio": "#40", "qta": 1, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#64"]}}
+        ],
+        "avvisi": [],
+        "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0, "occorrenze_su_se_stesse": 0, "testi_troncati": 0},
+        "limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 30720, "tempo_s": 0.063, "troncato": false, "motivo": ""}
+      }
+    }
+  }
+}

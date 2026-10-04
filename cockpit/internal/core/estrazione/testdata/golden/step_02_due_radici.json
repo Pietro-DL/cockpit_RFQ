@@ -1,0 +1,282 @@
+{
+  "bundle_id": "c57ae1da31f12748206eaccebdf1adfb3b6bf8af73a49c905865e96b5a225ebe",
+  "entita": [
+    {
+      "chiave_originale": "#10",
+      "id": "e:step:#10",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#10"
+        },
+        "tipo": "step"
+      },
+      "tipo": "nodo_step"
+    },
+    {
+      "chiave_originale": "#50",
+      "id": "e:step:#50",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#50"
+        },
+        "tipo": "step"
+      },
+      "tipo": "nodo_step"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000002",
+    "origine_id": "00000000-0000-4000-8000-000000000002",
+    "provenienza": {
+      "bytes": 9216,
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7100100 e ACME7100200.step",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:06:00Z",
+      "digest_payload": "3afab56fbc747de5ffa9308ad60e1dd624b4b4e2bbf7ee8d161a2269e01ca174",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "sottoversione_step": 3,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "completezza non determinabile: nessun motivo dal caricatore",
+        "nome": "grafo_completo",
+        "stato": "non_disponibile"
+      },
+      {
+        "nome": "struttura",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "parser",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7100100 e ACME7100200.step"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 30,
+            "inizio": 26
+          },
+          "intervallo": {
+            "fine": 30,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 25,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7100100 e ACME7100200.step"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "id_grezzo"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#10:id",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.id",
+      "testo": "ACME7100100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.name",
+        "mappatura": "mappatura-step-1",
+        "parser": "nome_grezzo"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#10:nome",
+      "posizione": {
+        "step": {
+          "attributo": "nome",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.nome",
+      "testo": "ACME7100100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT_DEFINITION_FORMATION.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "rev_grezza"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#10:revisione",
+      "posizione": {
+        "step": {
+          "attributo": "formazione",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.revisione",
+      "testo": "A"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "id_grezzo"
+      },
+      "entita_id": "e:step:#50",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#50:id",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#50",
+          "riferimenti": [
+            "#51",
+            "#52"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.id",
+      "testo": "ACME7100200"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.name",
+        "mappatura": "mappatura-step-1",
+        "parser": "nome_grezzo"
+      },
+      "entita_id": "e:step:#50",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#50:nome",
+      "posizione": {
+        "step": {
+          "attributo": "nome",
+          "chiave": "#50",
+          "riferimenti": [
+            "#51",
+            "#52"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.nome",
+      "testo": "ACME7100200"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT_DEFINITION_FORMATION.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "rev_grezza"
+      },
+      "entita_id": "e:step:#50",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000002",
+      "id": "u:step:#50:revisione",
+      "posizione": {
+        "step": {
+          "attributo": "formazione",
+          "chiave": "#50",
+          "riferimenti": [
+            "#51",
+            "#52"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.revisione",
+      "testo": "A"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

@@ -1,0 +1,41 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000005",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 5,
+    "nome_file": "ACME7400100.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 4194304,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:09:00Z",
+    "motivo_parziale": "lettura troncata dal worker (nodi)",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "confidenza": 60, "fonte": "step"},
+      "struttura": {
+        "versione": 3,
+        "schema": "AP214",
+        "radici": ["#10"],
+        "nodi": [
+          {"chiave": "#10", "id_grezzo": "ACME7400100", "nome_grezzo": "ACME7400100", "descrizione_grezza": "ASSIEME GRANDE", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#10", "formation": "#11", "definition": "#12"}},
+          {"chiave": "#20", "id_grezzo": "ACME7400110", "nome_grezzo": "ACME7400110_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "descrizione_grezza": "", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#20", "formation": "#21", "definition": "#22"}}
+        ],
+        "relazioni": [
+          {"padre": "#10", "figlio": "#20", "qta": 4, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#30", "#31", "#32", "#33"]}}
+        ],
+        "avvisi": ["oltre 2 PRODUCT: letti i primi", "1 testi troncati a 200 caratteri", "2 PRODUCT senza PRODUCT_DEFINITION: ignorati", "1 occorrenze con estremi non risolti: ignorate"],
+        "scarti": {"prodotti_senza_definizione": 2, "occorrenze_non_risolte": 1, "occorrenze_su_se_stesse": 0, "testi_troncati": 1},
+        "limiti": {"nodi_max": 2, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 4194304, "tempo_s": 1.5, "troncato": true, "motivo": "nodi"}
+      }
+    }
+  }
+}

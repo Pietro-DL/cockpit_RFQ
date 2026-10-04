@@ -1,0 +1,41 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 4,
+    "nome_file": "ACME7300100.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 12288,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:08:00Z",
+    "motivo_parziale": "",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "confidenza": 60, "fonte": "step"},
+      "struttura": {
+        "versione": 3,
+        "schema": "AP214",
+        "radici": ["#10"],
+        "nodi": [
+          {"chiave": "#10", "id_grezzo": "ACME7300100", "nome_grezzo": "ACME7300100", "descrizione_grezza": "TELAIO ACME", "rev_grezza": "A",
+           "evidenza": {"entita": "PRODUCT", "riga": "#10", "formation": "#11", "definition": "#12", "rev_alternative": ["B", "C"]}},
+          {"chiave": "#20", "id_grezzo": "ACME7300110", "nome_grezzo": "ACME7300110", "descrizione_grezza": "PIASTRA", "rev_grezza": "1",
+           "evidenza": {"entita": "PRODUCT", "riga": "#20", "formation": "#21", "definition": "#22"}}
+        ],
+        "relazioni": [
+          {"padre": "#10", "figlio": "#20", "qta": 2, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#30", "#31"]}}
+        ],
+        "avvisi": [],
+        "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0, "occorrenze_su_se_stesse": 0, "testi_troncati": 0},
+        "limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 12288, "tempo_s": 0.021, "troncato": false, "motivo": ""}
+      }
+    }
+  }
+}

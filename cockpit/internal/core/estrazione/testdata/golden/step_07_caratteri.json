@@ -1,0 +1,360 @@
+{
+  "bundle_id": "6f2b4721c839a2c2ec5cd562f0bf253de0ce2eba695aa1468fcbf00cc1bf7bf6",
+  "entita": [
+    {
+      "chiave_originale": "#10",
+      "id": "e:step:#10",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#10"
+        },
+        "tipo": "step"
+      },
+      "tipo": "nodo_step"
+    },
+    {
+      "chiave_originale": "#20",
+      "id": "e:step:#20",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#20"
+        },
+        "tipo": "step"
+      },
+      "tipo": "nodo_step"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-000000000008",
+    "origine_id": "00000000-0000-4000-8000-000000000008",
+    "provenienza": {
+      "bytes": 8192,
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7600100 è.stp",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:11:00Z",
+      "digest_payload": "234aaa31f821248b6322d76703715ce029c03fb2f77cba4ca89da9d4c8a1305a",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000008",
+      "sottoversione_step": 3,
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "legami": [
+    {
+      "a": "e:step:#20",
+      "da": "e:step:#10",
+      "evidenze": [
+        "#30"
+      ],
+      "id": "g:step:#10>#20",
+      "quantita": 1,
+      "tipo": "padre_figlio_step"
+    }
+  ],
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "grafo_completo",
+        "stato": "disponibile"
+      },
+      {
+        "nome": "struttura",
+        "stato": "disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "step.carattere_sostituito",
+        "gravita": "avviso",
+        "messaggio": "il valore contiene il carattere sostitutivo U+FFFD: un carattere non si è decodificato (per esempio un surrogato spezzato dal troncamento del worker)",
+        "natura": "dati",
+        "rif": [
+          "u:step:#20:descrizione"
+        ]
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "parser",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7600100 è.stp"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 18,
+            "inizio": 15
+          },
+          "intervallo": {
+            "fine": 18,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 14,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7600100 è.stp"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.description",
+        "mappatura": "mappatura-step-1",
+        "parser": "descrizione_grezza"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#10:descrizione",
+      "posizione": {
+        "step": {
+          "attributo": "descrizione",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.descrizione",
+      "testo": "RINFORZO 🔧 ACME7600100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "id_grezzo"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#10:id",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.id",
+      "testo": "ACME7600100"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.name",
+        "mappatura": "mappatura-step-1",
+        "parser": "nome_grezzo"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#10:nome",
+      "posizione": {
+        "step": {
+          "attributo": "nome",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.nome",
+      "testo": "ACME7600100 SUPPORTO 90° è"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT_DEFINITION_FORMATION.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "rev_grezza"
+      },
+      "entita_id": "e:step:#10",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#10:revisione",
+      "posizione": {
+        "step": {
+          "attributo": "formazione",
+          "chiave": "#10",
+          "riferimenti": [
+            "#11",
+            "#12"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "radice_step.revisione",
+      "testo": "1"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.description",
+        "mappatura": "mappatura-step-1",
+        "parser": "descrizione_grezza"
+      },
+      "entita_id": "e:step:#20",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#20:descrizione",
+      "posizione": {
+        "step": {
+          "attributo": "descrizione",
+          "chiave": "#20",
+          "riferimenti": [
+            "#21",
+            "#22"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "nodo_step.descrizione",
+      "testo": "LAMIERA ACME7600111 �"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "id_grezzo"
+      },
+      "entita_id": "e:step:#20",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#20:id",
+      "posizione": {
+        "step": {
+          "attributo": "id",
+          "chiave": "#20",
+          "riferimenti": [
+            "#21",
+            "#22"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "nodo_step.id",
+      "testo": "ACME7600110"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT.name",
+        "mappatura": "mappatura-step-1",
+        "parser": "nome_grezzo"
+      },
+      "entita_id": "e:step:#20",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#20:nome",
+      "posizione": {
+        "step": {
+          "attributo": "nome",
+          "chiave": "#20",
+          "riferimenti": [
+            "#21",
+            "#22"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "nodo_step.nome",
+      "testo": "STAFFA Ã¨ ACME7600110"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "PRODUCT_DEFINITION_FORMATION.id",
+        "mappatura": "mappatura-step-1",
+        "parser": "rev_grezza"
+      },
+      "entita_id": "e:step:#20",
+      "fonte_id": "allegato:00000000-0000-4000-8000-000000000008",
+      "id": "u:step:#20:revisione",
+      "posizione": {
+        "step": {
+          "attributo": "formazione",
+          "chiave": "#20",
+          "riferimenti": [
+            "#21",
+            "#22"
+          ]
+        },
+        "tipo": "step"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "valore decodificato dal worker; nessun offset nel file STEP"
+      },
+      "selettore": "nodo_step.revisione",
+      "testo": "1"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

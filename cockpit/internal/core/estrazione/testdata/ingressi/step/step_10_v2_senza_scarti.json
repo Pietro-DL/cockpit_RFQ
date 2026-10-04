@@ -1,0 +1,39 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000011",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 11,
+    "nome_file": "ACME7700100.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 10240,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000011",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000011",
+    "terna": {"versione": 4, "hash_configurazione": "acme-configurazione-0"},
+    "calcolato_il": "2026-09-15T08:00:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "confidenza": 60, "fonte": "step"},
+      "struttura": {
+        "versione": 2,
+        "schema": "AP214",
+        "radici": ["#10"],
+        "nodi": [
+          {"chiave": "#10", "id_grezzo": "ACME7700100", "nome_grezzo": "ACME7700100", "descrizione_grezza": "", "rev_grezza": "B",
+           "evidenza": {"entita": "PRODUCT", "riga": "#10", "formation": "#11", "definition": "#12"}},
+          {"chiave": "#20", "id_grezzo": "ACME7700110", "nome_grezzo": "ACME7700110", "descrizione_grezza": "", "rev_grezza": "B",
+           "evidenza": {"entita": "PRODUCT", "riga": "#20", "formation": "#21", "definition": "#22"}}
+        ],
+        "relazioni": [
+          {"padre": "#10", "figlio": "#20", "qta": 1, "evidenza": {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": ["#30"]}}
+        ],
+        "avvisi": [],
+        "limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 10240, "tempo_s": 0.015, "troncato": false, "motivo": ""}
+      }
+    }
+  }
+}

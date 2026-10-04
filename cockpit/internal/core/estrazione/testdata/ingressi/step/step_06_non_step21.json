@@ -1,0 +1,33 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000006",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 6,
+    "nome_file": "ACME7500100.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 512,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000006",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000006",
+    "terna": {"versione": 5, "hash_configurazione": "acme-configurazione-1"},
+    "calcolato_il": "2026-10-01T08:10:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "confidenza": 40, "fonte": "estensione"},
+      "struttura": {
+        "versione": 3,
+        "schema": "",
+        "radici": [],
+        "nodi": [],
+        "relazioni": [],
+        "avvisi": ["non e' un file STEP Part 21"],
+        "scarti": {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0, "occorrenze_su_se_stesse": 0, "testi_troncati": 0},
+        "limiti": {"nodi_max": 2000, "occorrenze_max": 50000, "tempo_max_s": 120.0, "byte_letti": 40, "tempo_s": 0.0, "troncato": false, "motivo": ""}
+      }
+    }
+  }
+}

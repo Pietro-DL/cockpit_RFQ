@@ -67,3 +67,12 @@ revisione.da_verificare
 nome.estensione_discorde
 nome.forse_troncato
 archivio.non_estraibile
+step.non_analizzato
+step.struttura_assente
+step.non_letto
+step.troncato
+step.scarti
+step.carattere_sostituito
+step.formazioni_alternative
+step.scarti_non_noti
+step.testo_troncato

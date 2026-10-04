@@ -1,0 +1,29 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-000000000007",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 7,
+    "nome_file": "ACME7500200.stp",
+    "estensione": "stp",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 6144,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000007",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000007",
+    "terna": {"versione": 2, "hash_configurazione": "acme-configurazione-0"},
+    "calcolato_il": "2026-09-01T08:00:00Z",
+    "payload": {
+      "esito": {"tipo_proposto": "cad_3d", "codice": "ACME7500200", "rev": "3", "confidenza": 80, "fonte": "step"},
+      "struttura": {
+        "versione": 1,
+        "radici": ["#10"],
+        "nodi": [{"chiave": "#10", "codice": "ACME7500200", "rev": "3"}],
+        "relazioni": []
+      }
+    }
+  }
+}

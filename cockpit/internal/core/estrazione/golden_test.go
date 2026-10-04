@@ -1,9 +1,10 @@
 // L1 — i golden degli adattatori (piano A, 5.6.3): l'aiuto che li legge, li confronta e li riscrive solo
-// dichiarandolo (A1b-18), e la versione degli adattatori fissata (5.6.1). I golden di ogni adattatore, con i
-// loro ingressi sintetici in testdata/ingressi, arrivano con la sua mappatura.
+// dichiarandolo (A1b-18), la versione degli adattatori fissata (5.6.1), e i documenti degli adattatori contro i
+// loro golden, sugli ingressi sintetici di testdata/ingressi (A1b-14 per lo STEP).
 //
-// Tutti i dati sono sintetici: ACME, codici di fantasia (ACME-030PB07XX0001), UUID della forma
-// 00000000-0000-4000-8000-0000000000nn. Il repository è pubblico, e un golden non nasce mai da dati reali.
+// Tutti i dati sono sintetici: ACME, codici di fantasia (ACME7000100, 9999999A, CORDONE_ID_0001…), UUID della
+// forma 00000000-0000-4000-8000-0000000000nn. Le forme sono quelle dei fatti veri del worker, il contenuto no:
+// il repository è pubblico, e un golden non nasce mai da dati reali.
 package estrazione
 
 import (
@@ -16,6 +17,8 @@ import (
 	"strings"
 	"testing"
 
+	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
 
@@ -186,5 +189,97 @@ func TestIGoldenSiRiscrivonoSoloDichiarandolo(t *testing.T) {
 	}
 	if err := verificaGolden(percorso, altro, false); err == nil || !strings.Contains(err.Error(), "al byte") {
 		t.Errorf("un risultato diverso passa, o l'errore non dice dove: %v", err)
+	}
+}
+
+// ---- i golden degli adattatori ----
+
+// ingressoAllegato: la forma degli ingressi di un file (5.6.3): il record dell'allegato, il contenitore e i
+// fatti, senza digest (lo calcola la prova, con fotorfq.ImprontaPayload, come chiunque riempia un Fatti).
+type ingressoAllegato struct {
+	Allegato    fotorfq.Allegato  `json:"allegato"`
+	Contenitore *fotorfq.Allegato `json:"contenitore"`
+	Fatti       *fotorfq.Fatti    `json:"fatti"`
+}
+
+// casoGolden: un ingresso e il suo golden. I nomi stanno qui, in una tabella, e non si cercano nelle cartelle.
+// struttura è ciò che worker.DecodificaStruttura deve dire del payload: un ingresso che non si decodifica come
+// la tabella dichiara è un errore della prova, non un caso dell'adattatore.
+type casoGolden struct {
+	tipo      string // step
+	nome      string // il file in testdata/ingressi/<tipo>/ e in testdata/golden/
+	struttura bool
+}
+
+// casiGolden: F-STEP-1…10 (5.7.2). F-STEP-6 ha due ingressi: il file che non è Part 21 e la struttura v1.
+var casiGolden = []casoGolden{
+	{"step", "step_01_assieme", true},
+	{"step", "step_02_due_radici", true},
+	{"step", "step_03_figlio_con_due_padri", true},
+	{"step", "step_04_formazioni_alternative", true},
+	{"step", "step_05_troncata_con_scarti", true},
+	{"step", "step_06_non_step21", true},
+	{"step", "step_06b_struttura_v1", false},
+	{"step", "step_07_caratteri", true},
+	{"step", "step_08_formazioni", true},
+	{"step", "step_09_cordoni", true},
+	{"step", "step_10_v2_senza_scarti", true},
+}
+
+// leggiIngressoAllegato decodifica un ingresso in modo stretto (chiavi sconosciute rifiutate), controlla che
+// il payload si decodifichi come la tabella dichiara, e calcola il Digest dei fatti.
+func leggiIngressoAllegato(t *testing.T, c casoGolden) ingressoAllegato {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "ingressi", c.tipo, c.nome+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var in ingressoAllegato
+	if err := dec.Decode(&in); err != nil {
+		t.Fatalf("%s: ingresso non valido: %v", c.nome, err)
+	}
+	if in.Fatti == nil {
+		return in
+	}
+	if in.Fatti.Digest != "" {
+		t.Fatalf("%s: il digest non sta negli ingressi: lo calcola la prova", c.nome)
+	}
+	if _, ok := worker.DecodificaStruttura(in.Fatti.Payload); ok != c.struttura {
+		t.Fatalf("%s: DecodificaStruttura dice %v, la tabella dichiara %v", c.nome, ok, c.struttura)
+	}
+	if in.Fatti.Digest, err = fotorfq.ImprontaPayload(in.Fatti.Payload); err != nil {
+		t.Fatalf("%s: %v", c.nome, err)
+	}
+	return in
+}
+
+// TestIGoldenDegliAdattatori (A1b-14): ogni ingresso dà il documento del suo golden, byte per byte nel JSON
+// canonico. Prima di tenere un golden lo si legge per intero: ogni unità, entità, legame, capacità e
+// diagnostica deve venire dall'ingresso e dalla mappatura (5.4.5). Un golden sbagliato si corregge nel prodotto,
+// mai a mano.
+func TestIGoldenDegliAdattatori(t *testing.T) {
+	perTipo := map[string][]casoGolden{}
+	var tipi []string
+	for _, c := range casiGolden {
+		if perTipo[c.tipo] == nil {
+			tipi = append(tipi, c.tipo)
+		}
+		perTipo[c.tipo] = append(perTipo[c.tipo], c)
+	}
+	for _, tipo := range tipi {
+		t.Run(tipo, func(t *testing.T) {
+			for _, c := range perTipo[tipo] {
+				t.Run(c.nome, func(t *testing.T) {
+					in := leggiIngressoAllegato(t, c)
+					doc, err := DaAllegato(in.Allegato, in.Fatti, in.Contenitore)
+					if err != nil {
+						t.Fatal(err)
+					}
+					confrontaGolden(t, filepath.Join("testdata", "golden", c.nome+".json"), doc)
+				})
+			}
+		})
 	}
 }
