@@ -29,7 +29,9 @@ import (
 //   - la guardia su RifCaso (R47 b): nei file non di prova di motorea nessun accesso al riferimento opaco al
 //     caso degli attesi che un esempio può portare;
 //   - G3 (R9, R40 e, P-18): la libreria YAML la importa solo il runner del banco, internal/app/bancoa, anche
-//     contando gli import delle prove e i file con i tag integrazione, browser e privato.
+//     contando gli import delle prove e i file con i tag integrazione, browser e privato;
+//   - G4 (P-08, R48 A): gli adattatori di core/estrazione usano di classificazione e lettura solo un elenco
+//     chiuso, il taglio con posizioni, EInoltro e le tabelle con origine.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -70,6 +72,14 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/core/fotorfq", puro: true,
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni:  []string{"github.com/google/uuid"}},
+	// Gli adattatori (A1b): il documento della foglia, i record della fotografia, i fatti del worker, il JSON
+	// canonico per il BundleID; del legacy solo il taglio con posizioni ed EInoltro (classificazione) e le
+	// tabelle con origine (lettura), con l'elenco chiuso di G4 (qui sotto). Mai grammatica né motorea: nessuna
+	// regola cliente nei testi (par.3.3.5).
+	{percorso: "internal/core/estrazione", puro: true,
+		progetto: []string{"internal/core/estrazione/evidenze", "internal/core/fotorfq", "internal/platform/jsoncanonico",
+			"internal/platform/contratti/worker", "internal/core/inbox/classificazione", "internal/core/inbox/lettura"},
+		esterni: []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
@@ -575,6 +585,109 @@ func TestIlMotoreANonLeggeRifCaso(t *testing.T) {
 						t.Errorf("%s: il riferimento al caso nominato in una stringa (R47 b)", fset.Position(x.Pos()))
 					}
 				}
+			}
+			return true
+		})
+	}
+}
+
+// ammessiDalLegacy: l'elenco chiuso di G4 (par.3.2, con P-08 e R48 A): di classificazione e lettura gli
+// adattatori usano solo il taglio con posizioni, EInoltro e le tabelle con origine. Le costanti dei tipi
+// StatoTaglio e RegolaTaglio si aggiungono lette dai sorgenti di classificazione, per tipo dichiarato, come le
+// costanti della foglia in G8.
+var ammessiDalLegacy = map[string][]string{
+	"internal/core/inbox/classificazione": {"TagliaCatenaConPosizioni", "Taglio", "StatoTaglio", "RegolaTaglio",
+		"RigaTesto", "LivelliDellaStoria", "LivelloStoria", "EInoltro"},
+	"internal/core/inbox/lettura": {"TabelleConOrigine", "TabellaOrigine", "CellaOrigine", "TestoDaHTML"},
+}
+
+// vietatiDalLegacy: i nomi che G4 nomina come vietati. Stanno già fuori dall'elenco chiuso; la prova controlla
+// che l'elenco non li ammetta per sbaglio.
+var vietatiDalLegacy = []string{"Minuteria", "Compila", "CodiciDa", "Riconosci", "Valuta", "Canonico", "TagliaCatena"}
+
+// costantiDelTipo: i nomi delle costanti di un pacchetto dichiarate con uno di questi tipi.
+func costantiDelTipo(t *testing.T, radice, rel string, tipi ...string) []string {
+	t.Helper()
+	var out []string
+	_, files := fileAnalizzati(t, radice, rel)
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			g, ok := decl.(*ast.GenDecl)
+			if !ok || g.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range g.Specs {
+				vs := spec.(*ast.ValueSpec)
+				if id, ok := vs.Type.(*ast.Ident); ok && contiene(tipi, id.Name) {
+					for _, n := range vs.Names {
+						out = append(out, n.Name)
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// TestEstrazioneUsaDelLegacySoloIlTaglio (G4; P-08, R48 A): nei file non di prova di core/estrazione ogni
+// classificazione.X e lettura.X sta nell'elenco chiuso. Il motore legacy (Minuteria, Compila, CodiciDa,
+// Riconosci, Valuta, Canonico, TagliaCatena senza posizioni) non entra negli adattatori. Un import del legacy
+// con il nome «.» o «_» fa fallire la prova: i nomi usati non si vedrebbero.
+func TestEstrazioneUsaDelLegacySoloIlTaglio(t *testing.T) {
+	radice := radiceDelModulo(t)
+	ammessi := map[string][]string{}
+	for _, rel := range []string{"internal/core/inbox/classificazione", "internal/core/inbox/lettura"} {
+		elenco := append([]string(nil), ammessiDalLegacy[rel]...)
+		if rel == "internal/core/inbox/classificazione" {
+			costanti := costantiDelTipo(t, radice, rel, "StatoTaglio", "RegolaTaglio")
+			if len(costanti) < 3+5 {
+				t.Fatalf("costanti di StatoTaglio e RegolaTaglio non trovate: %v", costanti)
+			}
+			elenco = append(elenco, costanti...)
+		}
+		for _, v := range vietatiDalLegacy {
+			if contiene(elenco, v) {
+				t.Fatalf("l'elenco chiuso di G4 ammette %s", v)
+			}
+		}
+		ammessi[modulo+"/"+rel] = elenco
+	}
+
+	fset, files := fileAnalizzati(t, radice, "internal/core/estrazione")
+	if len(files) == 0 {
+		t.Fatal("nessun file di core/estrazione: la prova non legge i file giusti")
+	}
+	for _, f := range files {
+		nomi := map[string]string{} // nome locale → percorso del pacchetto legacy
+		for _, is := range f.Imports {
+			imp, _ := strconv.Unquote(is.Path.Value)
+			if _, ok := ammessi[imp]; !ok {
+				continue
+			}
+			nome := imp[strings.LastIndex(imp, "/")+1:]
+			if is.Name != nil {
+				nome = is.Name.Name
+			}
+			if nome == "." || nome == "_" {
+				t.Errorf("%s: import di %s con il nome %q: i nomi usati non si vedrebbero", fset.Position(is.Pos()), imp, nome)
+				continue
+			}
+			nomi[nome] = imp
+		}
+		if len(nomi) == 0 {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok || id.Obj != nil {
+				return true
+			}
+			if imp, ok := nomi[id.Name]; ok && !contiene(ammessi[imp], sel.Sel.Name) {
+				t.Errorf("%s: core/estrazione usa %s.%s, fuori dall'elenco chiuso di G4", fset.Position(sel.Pos()), id.Name, sel.Sel.Name)
 			}
 			return true
 		})

@@ -64,3 +64,6 @@ regole.file_assente
 regole.sha256_discorde
 regole.cliente_discorde
 revisione.da_verificare
+nome.estensione_discorde
+nome.forse_troncato
+archivio.non_estraibile
