@@ -73,6 +73,8 @@ markmap:
   - **[`core/inbox/aggancio/README.md`](core/inbox/aggancio/README.md)** → i candidati di aggancio, di codice, verso una richiesta
   - **[`core/inbox/lettura/README.md`](core/inbox/lettura/README.md)** → il corpo di una mail pronto da leggere
   - **[`core/registro/README.md`](core/registro/README.md)** → regole del cliente, anagrafica, fornitori
+  - **[`core/estrazione/evidenze/README.md`](core/estrazione/evidenze/README.md)** → la foglia comune del motore A
+    (giro 5): il vocabolario dei selettori, il tipo delle diagnostiche, il contratto del suo ingresso
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -83,6 +85,7 @@ markmap:
   - **[`platform/rete/README.md`](platform/rete/README.md)** → certificato, filtro del listener, token
   - **[`platform/contratti/README.md`](platform/contratti/README.md)** → i contratti JSON con i worker
   - **[`platform/coda/README.md`](platform/coda/README.md)** → la coda dei job, le tabelle per tipo, le capacità
+  - **[`platform/jsoncanonico/README.md`](platform/jsoncanonico/README.md)** → il JSON canonico e le impronte sha256
   - **[`platform/storage/README.md`](platform/storage/README.md)** → staging, NAS, archivi
   - **[`transport/README.md`](transport/README.md)** → le regole comuni e la tabella completa delle rotte
   - **[`transport/web/README.md`](transport/web/README.md)** → le pagine dell'operatore, modulo per modulo
@@ -97,12 +100,15 @@ markmap:
 
 - **Area** → Può importare
   - **`core/registro/regole`** → **niente** del progetto
+  - **`core/estrazione/evidenze`** → **niente** del progetto
+    - è la foglia del motore A del giro 5: la importano i suoi pacchetti, e lei non importa nessuno di loro
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena`)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
   - **`core/*` (aggancio, ingest, registro, rfq)** → gli altri `core/*`, `platform`
   - **`platform/*`** → solo `platform` e librerie (`testutil` anche il package radice, per le migrazioni incorporate)
   - **`platform/coda`** → `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download)
+  - **`platform/jsoncanonico`** → solo la libreria standard
   - **`ai/agente`** → `core`, `platform`
   - **`transport/*`** → `core` (compreso `core/inbox/lettura`, usato da `transport/web`), `ai`, `platform`
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`

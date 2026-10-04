@@ -125,6 +125,15 @@ markmap:
     - e le copie vecchie restano
 - README: qui
 
+### `jsoncanonico`
+
+- Che cosa fa:
+  - il **JSON canonico**: lo stesso valore dà sempre gli stessi byte (chiavi in ordine, nessuno spazio, UTF-8
+    grezzo, solo numeri interi o letterali già scritti); float e UTF-8 non valido sono errori
+  - le **impronte** sha256 in esadecimale minuscolo, e la `Versione` della canonicalizzazione
+  - la base delle impronte del motore A del giro 5; non sa niente di RFQ
+- README: [README](jsoncanonico/README.md)
+
 ### `testutil`
 
 - Che cosa fa:
