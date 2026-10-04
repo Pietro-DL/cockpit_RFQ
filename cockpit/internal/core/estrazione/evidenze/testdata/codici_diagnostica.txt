@@ -52,3 +52,15 @@ limite.superato
 limite.oltre_tetto
 regole.cliente_ripetuto
 regole.ragione_sociale_discorde
+grammatica.esempio_mancante
+grammatica.esempio_in_eccesso
+grammatica.esempio_diverso
+grammatica.esempio_selettore_inattivo
+forma.collisione_esempi
+grammatica.esempio_non_verificato
+regole.assenti
+regole.non_valide
+regole.file_assente
+regole.sha256_discorde
+regole.cliente_discorde
+revisione.da_verificare

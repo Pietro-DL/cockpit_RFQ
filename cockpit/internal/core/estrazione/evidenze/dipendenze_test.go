@@ -20,7 +20,11 @@ import (
 //     raggiunge, nemmeno per transitività sul progetto, un pacchetto vietato (VP);
 //   - G2: nei pacchetti puri niente file, rete, caso, goroutine né orologio (VD);
 //   - G9: i pacchetti legacy che il motore A attraversa non cambiano import;
-//   - MOTORE-SENZA-LLM: nessun riferimento ad analisi_messaggio o all'agente nei sorgenti del motore.
+//   - MOTORE-SENZA-LLM: nessun riferimento ad analisi_messaggio o all'agente nei sorgenti del motore;
+//   - G1, il divieto del legacy (R7, R40 a-b): motorea e grammatica non raggiungono il motore legacy di
+//     classificazione né le regole legacy, e motorea non chiama il riconoscitore della minuteria;
+//   - la guardia su RifCaso (R47 b): nei file non di prova di motorea nessun accesso al riferimento opaco al
+//     caso degli attesi che un esempio può portare.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -49,6 +53,12 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "internal/core/registro/regole/grammatica", puro: true,
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni:  []string{"github.com/google/uuid"}},
+	// Il motore A: le grammatiche, il vocabolario e le diagnostiche della foglia, il JSON canonico. Mai il
+	// motore legacy di classificazione, che sta nella cartella sopra ma non si importa (R40 b; R7, qui sotto).
+	{percorso: "internal/core/inbox/classificazione/motorea", puro: true,
+		progetto: []string{"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze",
+			"internal/platform/jsoncanonico"},
+		esterni: []string{"github.com/google/uuid"}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.
@@ -396,4 +406,93 @@ func contiene(elenco []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// legacyVietati: il motore legacy di classificazione e le regole legacy, per percorso esatto: motorea e
+// grammatica stanno nelle loro cartelle ma non li importano, nemmeno per transitività (R7, R40 a-b).
+var legacyVietati = []string{
+	modulo + "/internal/core/inbox/classificazione",
+	modulo + "/internal/core/registro/regole",
+}
+
+// TestIlMotoreANonUsaIlLegacy (G1 con il divieto del legacy; R7): motorea e grammatica non raggiungono i
+// pacchetti legacy per nessuna catena di import del progetto, e nei file non di prova di motorea non c'è
+// nessun riferimento al riconoscitore legacy della minuteria: la categoria viene dalla famiglia dichiarata.
+func TestIlMotoreANonUsaIlLegacy(t *testing.T) {
+	radice := radiceDelModulo(t)
+	for _, partenza := range []string{"internal/core/inbox/classificazione/motorea", "internal/core/registro/regole/grammatica"} {
+		visti := map[string]bool{}
+		coda := []string{partenza}
+		for len(coda) > 0 {
+			rel := coda[0]
+			coda = coda[1:]
+			if visti[rel] {
+				continue
+			}
+			visti[rel] = true
+			for _, imp := range sorgenti(t, radice, rel).Imports {
+				for _, v := range legacyVietati {
+					if imp == v {
+						t.Errorf("%s raggiunge il legacy %s attraverso %s", partenza, imp, rel)
+					}
+				}
+				if delProgetto(imp) {
+					coda = append(coda, relativo(imp))
+				}
+			}
+		}
+	}
+
+	fset, files := fileAnalizzati(t, radice, "internal/core/inbox/classificazione/motorea")
+	if len(files) == 0 {
+		t.Fatal("nessun file di motorea: la prova non legge i file giusti")
+	}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.Ident:
+				if strings.EqualFold(x.Name, "Minuteria") {
+					t.Errorf("%s: riferimento a %s nel motore A (R7)", fset.Position(x.Pos()), x.Name)
+				}
+			case *ast.BasicLit:
+				if x.Kind == token.STRING && strings.Contains(strings.ToLower(x.Value), "minuteria(") {
+					t.Errorf("%s: chiamata alla minuteria scritta in una stringa", fset.Position(x.Pos()))
+				}
+			}
+			return true
+		})
+	}
+}
+
+// TestIlMotoreANonLeggeRifCaso (R47 b): il riferimento al caso degli attesi è un metadato opaco, che legge
+// solo il banco. Nei file non di prova di motorea nessun selettore .RifCaso, nessuna chiave RifCaso in un
+// letterale composto e nessuna stringa che lo nomini (per esempio per la riflessione o per la chiave JSON).
+func TestIlMotoreANonLeggeRifCaso(t *testing.T) {
+	radice := radiceDelModulo(t)
+	fset, files := fileAnalizzati(t, radice, "internal/core/inbox/classificazione/motorea")
+	if len(files) == 0 {
+		t.Fatal("nessun file di motorea: la prova non legge i file giusti")
+	}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "RifCaso" {
+					t.Errorf("%s: accesso a RifCaso nel motore (R47 b)", fset.Position(x.Pos()))
+				}
+			case *ast.KeyValueExpr:
+				if id, ok := x.Key.(*ast.Ident); ok && id.Name == "RifCaso" {
+					t.Errorf("%s: RifCaso in un letterale nel motore (R47 b)", fset.Position(x.Pos()))
+				}
+			case *ast.BasicLit:
+				if x.Kind == token.STRING {
+					v := strings.ToLower(x.Value)
+					if strings.Contains(v, "rifcaso") || strings.Contains(v, "rif_caso") {
+						t.Errorf("%s: il riferimento al caso nominato in una stringa (R47 b)", fset.Position(x.Pos()))
+					}
+				}
+			}
+			return true
+		})
+	}
 }
