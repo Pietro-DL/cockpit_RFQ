@@ -67,7 +67,8 @@ markmap:
 ## Dipendenze
 
 - **Importa:** solo la libreria standard.
-- **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot.
+- **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot;
+  `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole.
 
 ## Test
 

@@ -65,3 +65,44 @@ func selettoreGenerico(s string) bool {
 
 // decorazioneRiservata dice se un tipo di decorazione è fra quelli riservati in A1.
 func decorazioneRiservata(tipo string) bool { return in(tipo, capacitaRiservate.decorazioni) }
+
+// proiezioneInCoda: i segmenti mancanti sono gli ultimi della base. Una proiezione che ne toglie altri è
+// riservata in A1 (R20 c).
+func proiezioneInCoda(mancanti []string, b Base) bool {
+	n := len(mancanti)
+	if n > len(b.Segmenti) {
+		return false
+	}
+	for _, s := range b.Segmenti[len(b.Segmenti)-n:] {
+		if !in(s.Nome, mancanti) {
+			return false
+		}
+	}
+	return true
+}
+
+// SelettoreAttivo, DecorazioneAttiva e ProiezioneAttiva espongono la stessa politica che Valida applica a chi
+// abbassa la grammatica nel motore (motorea): un elemento riservato in A1 non entra nel motore, e il resto sì
+// (R20 c; par.12 del piano A, nessuna infrastruttura per ciò che è solo riservato). L'elenco dei riservati
+// resta uno solo, qui, con la sua VersioneCapacita: chi compila non ne tiene una copia. Non danno
+// diagnostiche: le dà Valida.
+
+// SelettoreAttivo: il selettore, nella forma testuale della grammatica, è una coppia ammessa, non generica e
+// fuori dall'elenco dei riservati in A1. «storia» è attivo (R48 A).
+func SelettoreAttivo(s string) bool {
+	if selettoreGenerico(s) {
+		return false
+	}
+	sel, err := evidenze.LeggiSelettore(s)
+	return err == nil && !selettoreRiservato(sel)
+}
+
+// DecorazioneAttiva: il tipo di decorazione è nell'enum e non è fra quelli della parte 1 riservati in A1.
+func DecorazioneAttiva(tipo string) bool {
+	return in(tipo, tipiDecorazione) && !decorazioneRiservata(tipo)
+}
+
+// ProiezioneAttiva: la forma è completa, o è una proiezione che toglie segmenti in coda alla base.
+func ProiezioneAttiva(fo FormaCodice, b Base) bool {
+	return fo.Completa || proiezioneInCoda(fo.SegmentiMancanti, b)
+}

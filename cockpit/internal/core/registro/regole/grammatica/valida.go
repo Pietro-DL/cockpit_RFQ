@@ -704,15 +704,13 @@ func (v *validatore) proiezione(fo FormaCodice, b Base, p string) bool {
 		return true
 	}
 	// In coda: i mancanti sono gli ultimi segmenti della base. Altrimenti la proiezione è riservata in A1.
-	n := len(fo.SegmentiMancanti)
-	if n > len(b.Segmenti) {
+	// La regola è una sola, in capacita.go (proiezioneInCoda): la usa anche ProiezioneAttiva, per motorea.
+	if len(fo.SegmentiMancanti) > len(b.Segmenti) {
 		return true // già segnalato come duplicato
 	}
-	for _, s := range b.Segmenti[len(b.Segmenti)-n:] {
-		if !in(s.Nome, fo.SegmentiMancanti) {
-			v.riservato(pm, "una proiezione che toglie segmenti non in coda alla base", fo.ID)
-			return false
-		}
+	if !proiezioneInCoda(fo.SegmentiMancanti, b) {
+		v.riservato(pm, "una proiezione che toglie segmenti non in coda alla base", fo.ID)
+		return false
 	}
 	return true
 }
