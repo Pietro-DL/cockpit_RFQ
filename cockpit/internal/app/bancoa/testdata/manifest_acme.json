@@ -1,0 +1,31 @@
+{
+  "versione_manifest": 1,
+  "voci": [
+    {
+      "nome": "attesi",
+      "percorso": "attesi_acme.yaml",
+      "ruolo": "attesi",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "byte": 0
+    },
+    {
+      "nome": "regole.indice",
+      "percorso": "regole/indice_acme.v1.json",
+      "ruolo": "regole",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "byte": 0
+    }
+  ],
+  "profili": {
+    "acme": "00000000-0000-4000-8000-00000000ac01"
+  },
+  "copia": {},
+  "storico": [
+    {
+      "data": "2026-10-04",
+      "voce": "attesi",
+      "sha256_prima": "0000000000000000000000000000000000000000000000000000000000000000",
+      "motivo": "riga inventata: le prove ricalcolano sha256 e byte"
+    }
+  ]
+}

@@ -2,10 +2,13 @@ package evidenze
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"go/ast"
 	"go/build"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,7 +27,9 @@ import (
 //   - G1, il divieto del legacy (R7, R40 a-b): motorea e grammatica non raggiungono il motore legacy di
 //     classificazione né le regole legacy, e motorea non chiama il riconoscitore della minuteria;
 //   - la guardia su RifCaso (R47 b): nei file non di prova di motorea nessun accesso al riferimento opaco al
-//     caso degli attesi che un esempio può portare.
+//     caso degli attesi che un esempio può portare;
+//   - G3 (R9, R40 e, P-18): la libreria YAML la importa solo il runner del banco, internal/app/bancoa, anche
+//     contando gli import delle prove e i file con i tag integrazione, browser e privato.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -59,6 +64,18 @@ var pacchettiMotoreA = []regolePacchetto{
 		progetto: []string{"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze",
 			"internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid"}},
+	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
+	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
+	{percorso: "internal/platform/dataset"},
+	// Il runner del banco: legge i file, non è puro. Usa lo stesso motore del prodotto e il manifest; è l'unico
+	// importatore della libreria YAML (G3, qui sotto). Mai app/runtime, transport, ai, platform/config.
+	{percorso: "internal/app/bancoa",
+		progetto: []string{"internal/platform/dataset", "internal/core/registro/regole/grammatica",
+			"internal/core/inbox/classificazione/motorea", "internal/core/estrazione/evidenze",
+			"internal/platform/jsoncanonico"},
+		esterni: []string{"github.com/google/uuid", "gopkg.in/yaml.v3"}},
+	// Il comando del banco, sottile come cmd/cockpit: solo il runner (in A1a nemmeno le migrazioni incorporate).
+	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa"}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.
@@ -461,6 +478,67 @@ func TestIlMotoreANonUsaIlLegacy(t *testing.T) {
 			}
 			return true
 		})
+	}
+}
+
+// TestLaLibreriaYAMLSoloNelBanco (G3; R9, R40 e, P-18): in tutto il modulo la libreria YAML la importa solo
+// internal/app/bancoa, contando anche gli import delle prove (TestImports, XTestImports) e i file con i tag
+// integrazione, browser e privato. Gli attesi entrano solo dal runner: il motore non li legge mai.
+func TestLaLibreriaYAMLSoloNelBanco(t *testing.T) {
+	radice := radiceDelModulo(t)
+	ctx := build.Default
+	ctx.BuildTags = []string{"integrazione", "browser", "privato"}
+	const banco = "internal/app/bancoa"
+	nelBanco, pacchetti := false, 0
+	err := filepath.WalkDir(radice, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if p != radice {
+			nome := d.Name()
+			if nome == "testdata" || strings.HasPrefix(nome, ".") || strings.HasPrefix(nome, "_") {
+				return filepath.SkipDir // il go tool li ignora
+			}
+			if _, err := os.Stat(filepath.Join(p, "go.mod")); err == nil {
+				return filepath.SkipDir // un altro modulo
+			}
+		}
+		pkg, err := ctx.ImportDir(p, 0)
+		if err != nil {
+			var nessuno *build.NoGoError
+			if errors.As(err, &nessuno) {
+				return nil
+			}
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		pacchetti++
+		rel, err := filepath.Rel(radice, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		for _, gruppo := range [][]string{pkg.Imports, pkg.TestImports, pkg.XTestImports} {
+			for _, imp := range gruppo {
+				if !strings.Contains(strings.ToLower(imp), "yaml") {
+					continue
+				}
+				if rel == banco {
+					nelBanco = true
+					continue
+				}
+				t.Errorf("%s importa %s: la libreria YAML sta solo in %s (G3)", rel, imp, banco)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nelBanco || pacchetti < 20 {
+		t.Fatalf("la prova non legge i file giusti: YAML nel banco %v, %d pacchetti letti", nelBanco, pacchetti)
 	}
 }
 

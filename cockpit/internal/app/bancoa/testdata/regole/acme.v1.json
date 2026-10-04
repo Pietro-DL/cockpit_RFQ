@@ -1,0 +1,837 @@
+{
+  "versione_schema": 1,
+  "cliente": {
+    "id": "00000000-0000-4000-8000-00000000ac01",
+    "ragione_sociale": "ACME S.p.A."
+  },
+  "profilo": {
+    "stato": "parziale",
+    "riserve": [
+      {
+        "id": "Q-ACME-1",
+        "motivo": "domanda aperta inventata",
+        "regole": [
+          "xx"
+        ]
+      },
+      {
+        "id": "R-ACME-LAVAGNA",
+        "motivo": "forma osservata senza fixture",
+        "regole": [
+          "lavagna"
+        ]
+      }
+    ]
+  },
+  "famiglie_codice": [
+    {
+      "id": "acme-marcatore",
+      "namespace": "acme-marcatore",
+      "descrizione": "codici a sette cifre con il marcatore A (D1)",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "numero",
+            "pattern": "9[1-3][0-9]{5}",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "cartiglio",
+          "selettori": [
+            "cartiglio.codice"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "marcatore",
+              "letterali": [
+                "A"
+              ],
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "revisione",
+              "rif": "rev-a",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "id": "nome-sottolineato",
+          "selettori": [
+            "nome_file"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "marcatore",
+              "letterali": [
+                "A"
+              ],
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "separatore",
+              "letterali": [
+                "_"
+              ],
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "revisione",
+              "rif": "rev-a",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "id": "pacchetto",
+          "selettori": [
+            "nome_file"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "id": "step",
+          "selettori": [
+            "nodo_step.id",
+            "radice_step.id"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "marcatore",
+              "letterali": [
+                "A"
+              ],
+              "min": 1,
+              "max": 1
+            }
+          ],
+          "confine_dopo": "parola_ascii"
+        }
+      ],
+      "revisioni": [
+        {
+          "id": "rev-a",
+          "selettori": [
+            "cartiglio.codice",
+            "nome_file"
+          ],
+          "stato": "attiva",
+          "sorgente": "inline",
+          "segmenti": [
+            {
+              "nome": "valore",
+              "pattern": "[0-9]",
+              "significato": "nessuno"
+            }
+          ]
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-cartiglio",
+          "origine": "sintetico",
+          "selettore": "cartiglio.codice",
+          "testo": "9123456A2",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "cartiglio",
+                "base": "9123456",
+                "marcatore": "A",
+                "revisione": "2"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-nome-sottolineato",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-01",
+          "selettore": "nome_file",
+          "testo": "9123456A_2.pdf",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "nome-sottolineato",
+                "base": "9123456",
+                "marcatore": "A",
+                "revisione": "2"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-pacchetto",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-02",
+          "selettore": "nome_file",
+          "testo": "9123456_9123457.zip",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "pacchetto",
+                "base": "9123456"
+              },
+              {
+                "forma": "pacchetto",
+                "base": "9123457"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-step-nodo",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-03",
+          "selettore": "nodo_step.id",
+          "testo": "9123456A",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "step",
+                "base": "9123456",
+                "marcatore": "A"
+              }
+            ]
+          }
+        },
+        {
+          "id": "n-cartiglio-cifra",
+          "origine": "sintetico",
+          "selettore": "cartiglio.codice",
+          "testo": "3",
+          "atteso": {
+            "nessuna": true
+          }
+        },
+        {
+          "id": "n-nome-senza-codice",
+          "origine": "sintetico",
+          "selettore": "nome_file",
+          "testo": "disegno.pdf",
+          "atteso": {
+            "nessuna": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "acme-punti",
+      "namespace": "acme-punti",
+      "descrizione": "codici a punti con il segmento T (A-C07)",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "prefisso",
+            "letterale": "9",
+            "identitario": true
+          },
+          {
+            "nome": "gruppo",
+            "pattern": "[0-9]{3}",
+            "separatore": ".",
+            "identitario": true
+          },
+          {
+            "nome": "numero",
+            "pattern": "[0-9]{4}",
+            "separatore": ".",
+            "identitario": true
+          },
+          {
+            "nome": "T",
+            "pattern": "[0-9]",
+            "separatore": ".",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "completa",
+          "selettori": [
+            "corpo",
+            "oggetto"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "affisso",
+              "rif": "S",
+              "min": 0,
+              "max": 1
+            },
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "revisione",
+              "rif": "rev-barra",
+              "min": 0,
+              "max": 1
+            }
+          ],
+          "confine_dopo": "parola_ascii"
+        },
+        {
+          "id": "parziale",
+          "selettori": [
+            "corpo",
+            "oggetto"
+          ],
+          "stato": "attiva",
+          "completa": false,
+          "segmenti_mancanti": [
+            "T"
+          ],
+          "parti": [
+            {
+              "tipo": "affisso",
+              "rif": "S",
+              "min": 0,
+              "max": 1
+            },
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "revisione",
+              "rif": "rev-barra",
+              "min": 0,
+              "max": 1
+            }
+          ],
+          "confine_dopo": "parola_ascii_o_punto_cifra"
+        }
+      ],
+      "affissi": [
+        {
+          "id": "S",
+          "letterali": [
+            "S"
+          ],
+          "posizione": "prefisso",
+          "riconoscimento": [
+            "corpo",
+            "oggetto"
+          ]
+        }
+      ],
+      "revisioni": [
+        {
+          "id": "rev-barra",
+          "selettori": [
+            "corpo",
+            "oggetto"
+          ],
+          "stato": "attiva",
+          "sorgente": "inline",
+          "separatori": [
+            "/"
+          ],
+          "segmenti": [
+            {
+              "nome": "forte",
+              "pattern": "[0-9]",
+              "significato": "forte"
+            },
+            {
+              "nome": "debole",
+              "pattern": "[0-9]",
+              "significato": "debole"
+            }
+          ],
+          "token_sospesi": [
+            {
+              "id": "xx",
+              "pattern": "xx",
+              "riserva": "Q-ACME-1"
+            }
+          ]
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-completa",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-04",
+          "selettore": "corpo",
+          "testo": "9.123.4567.3/01",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "completa",
+                "base": "9.123.4567.3",
+                "revisione": "01"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-completa-xx",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-05",
+          "selettore": "corpo",
+          "testo": "9.123.4567.3/xx",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "completa",
+                "base": "9.123.4567.3"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-completa-s",
+          "origine": "sintetico",
+          "selettore": "oggetto",
+          "testo": "S9.123.4567.3",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "completa",
+                "base": "9.123.4567.3",
+                "affissi": [
+                  "S"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-parziale",
+          "origine": "sintetico",
+          "selettore": "corpo",
+          "testo": "9.123.4567",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "parziale",
+                "base": "9.123.4567",
+                "mancanti": [
+                  "T"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "n-lettere-dopo",
+          "origine": "sintetico",
+          "selettore": "corpo",
+          "testo": "9.123.4567.3A",
+          "atteso": {
+            "nessuna": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "acme-etichetta-pn",
+      "namespace": "acme-etichetta",
+      "descrizione": "codici con l'etichetta obbligatoria PN (A-C08)",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "numero",
+            "pattern": "[0-9]{7}",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "pn",
+          "selettori": [
+            "corpo",
+            "oggetto"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "etichetta",
+              "rif": "pn",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ],
+      "etichette": [
+        {
+          "id": "pn",
+          "letterali": [
+            "PN"
+          ],
+          "spazi_max": 1,
+          "selettori": [
+            "corpo",
+            "oggetto"
+          ],
+          "obbligatoria": true
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-pn",
+          "origine": "sintetico",
+          "rif_caso": "caso-acme-06",
+          "selettore": "corpo",
+          "testo": "PN 7654321",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "pn",
+                "base": "7654321"
+              }
+            ]
+          }
+        },
+        {
+          "id": "n-senza-etichetta",
+          "origine": "sintetico",
+          "selettore": "corpo",
+          "testo": "7654321",
+          "atteso": {
+            "nessuna": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "acme-prefisso",
+      "namespace": "acme-prefisso",
+      "descrizione": "codici con il prefisso P di fase (D2)",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "codice",
+            "pattern": "712[0-9]{4}",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "mail",
+          "selettori": [
+            "corpo"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "affisso",
+              "rif": "P",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        },
+        {
+          "id": "nome-step",
+          "selettori": [
+            "nome_file"
+          ],
+          "stato": "attiva",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "decorazione",
+              "rif": "pacchetto",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "affisso",
+              "rif": "P",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "separatore",
+              "letterali": [
+                " "
+              ],
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "token",
+              "letterali": [
+                "00"
+              ],
+              "rimando": "Q1",
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "separatore",
+              "letterali": [
+                " "
+              ],
+              "min": 1,
+              "max": 1
+            },
+            {
+              "tipo": "decorazione",
+              "rif": "pdm",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ],
+      "affissi": [
+        {
+          "id": "P",
+          "letterali": [
+            "P"
+          ],
+          "posizione": "prefisso",
+          "riconoscimento": [
+            "corpo",
+            "nome_file"
+          ],
+          "attribuzione": [
+            "corpo",
+            "nome_file"
+          ],
+          "valore": {
+            "fase": "prototipo"
+          }
+        }
+      ],
+      "decorazioni": [
+        {
+          "id": "pacchetto",
+          "tipo": "involucro",
+          "sottotipo": "riferimento_pacchetto",
+          "letterali": [
+            "ACME-030"
+          ],
+          "selettori": [
+            "nome_file"
+          ]
+        },
+        {
+          "id": "pdm",
+          "tipo": "stato_pdm",
+          "letterali": [
+            "IN_WORK"
+          ],
+          "selettori": [
+            "nome_file"
+          ]
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-mail",
+          "origine": "sintetico",
+          "selettore": "corpo",
+          "testo": "P7120100",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "mail",
+                "base": "7120100",
+                "affissi": [
+                  "P"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-nome-step",
+          "origine": "sintetico",
+          "selettore": "nome_file",
+          "testo": "ACME-030P7120100 00 IN_WORK.stp",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "nome-step",
+                "base": "7120100",
+                "affissi": [
+                  "P"
+                ],
+                "decorazioni": [
+                  "ACME-030",
+                  "IN_WORK"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "n-mail-senza-p",
+          "origine": "sintetico",
+          "selettore": "corpo",
+          "testo": "7120100",
+          "atteso": {
+            "nessuna": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "acme-lavagna",
+      "namespace": "acme-lavagna",
+      "descrizione": "una forma osservata e riservata, senza fixture (R34 b)",
+      "ruoli": [
+        "prodotto",
+        "componente"
+      ],
+      "base": {
+        "segmenti": [
+          {
+            "nome": "prefisso",
+            "letterale": "T300",
+            "identitario": true
+          },
+          {
+            "nome": "centrale",
+            "pattern": "0[0-9]{5}",
+            "separatore": ".",
+            "identitario": true
+          },
+          {
+            "nome": "successivo",
+            "pattern": "0[0-9]0",
+            "separatore": ".",
+            "identitario": true
+          }
+        ],
+        "maiuscole": "esatte",
+        "normalizza": "nessuna",
+        "confine_prima": "alnum_ascii",
+        "confine_dopo": "alnum_ascii"
+      },
+      "forme": [
+        {
+          "id": "lavagna",
+          "selettori": [
+            "nome_file"
+          ],
+          "stato": "riservata",
+          "completa": true,
+          "parti": [
+            {
+              "tipo": "base",
+              "min": 1,
+              "max": 1
+            }
+          ]
+        }
+      ],
+      "esempi": [
+        {
+          "id": "e-lavagna",
+          "origine": "sintetico",
+          "selettore": "nome_file",
+          "testo": "T300.012345.010.pdf",
+          "atteso": {
+            "letture": [
+              {
+                "forma": "lavagna",
+                "base": "T300.012345.010"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
