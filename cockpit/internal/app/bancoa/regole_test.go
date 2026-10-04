@@ -169,3 +169,70 @@ func TestClienteScartatoEIndiceNonValido(t *testing.T) {
 		t.Fatalf("codice: %+v", r.IndiceNonValido[0])
 	}
 }
+
+// TestCoerenzaConLaRegolaDelRunner: ogni chiave si legge con la regola di traduzione.go (par.4.7.4, 4.7.5).
+// letture_identita = 0 contraddice un esempio che attende letture solo su un selettore d'identità; per «basi»
+// un esempio contraddice il caso solo se attende una base che il caso non elenca, perché non sa scrivere le
+// ripetizioni. Valori inventati, cliente ACME.
+func TestCoerenzaConLaRegolaDelRunner(t *testing.T) {
+	profili := map[string]string{"acme": clienteACME.String()}
+	caso := func(contesto, testo string, atteso ...ChiaveAttesa) map[string]CasoContratto {
+		return map[string]CasoContratto{"caso-acme-90": {ID: "caso-acme-90", Profilo: "acme", Contesto: contesto,
+			Testo: testo, Atteso: atteso}}
+	}
+	esempio := func(selettore, testo string, letture ...grammatica.LetturaAttesa) grammatica.EsempioCodice {
+		return grammatica.EsempioCodice{ID: "e-acme", Origine: "sintetico", RifCaso: "caso-acme-90", Selettore: selettore,
+			Testo: testo, Atteso: grammatica.AttesoEsempio{Letture: letture}}
+	}
+	zero := ChiaveAttesa{Chiave: "letture_identita", Valore: ValoreAtteso{Tipo: TipoIntero, Testo: "0"}}
+	basi := ChiaveAttesa{Chiave: "basi", Valore: ValoreAtteso{Tipo: TipoLista, Elementi: []string{"ACME-100", "ACME-101"}}}
+	lettura := func(base string) grammatica.LetturaAttesa {
+		return grammatica.LetturaAttesa{Famiglia: "acme-punti", Forma: "punti", Base: base}
+	}
+	for _, x := range []struct {
+		nome     string
+		esempio  grammatica.EsempioCodice
+		casi     map[string]CasoContratto
+		coerente bool
+		motivo   string
+	}{
+		{"letture di forma sul testo del PDF contro letture_identita 0: una menzione, A1b",
+			esempio("testo_pdf", "vedi ACME-100", lettura("ACME-100")), caso("testo_pdf", "vedi ACME-100", zero), true, ""},
+		{"letture sul nome del file contro letture_identita 0",
+			esempio("nome_file", "ACME-100.pdf", lettura("ACME-100")), caso("nome_file", "ACME-100.pdf", zero), false,
+			"letture_identita"},
+		{"nessuna lettura sul nome del file contro letture_identita 0",
+			grammatica.EsempioCodice{ID: "e-acme", RifCaso: "caso-acme-90", Selettore: "nome_file", Testo: "ACME.pdf",
+				Atteso: grammatica.AttesoEsempio{Nessuna: true}}, caso("nome_file", "ACME.pdf", zero), true, ""},
+		{"basi con la ripetizione discordante contro la sola base letta",
+			esempio("nome_file", "ACME-100_ACME-101.pdf", lettura("ACME-100")), caso("nome_file", "ACME-100_ACME-101.pdf", basi),
+			true, ""},
+		{"tutte e due le basi del caso",
+			esempio("nome_file", "ACME-100_ACME-101.pdf", lettura("ACME-100"), lettura("ACME-101")),
+			caso("nome_file", "ACME-100_ACME-101.pdf", basi), true, ""},
+		{"una base fuori dalle basi del caso",
+			esempio("nome_file", "ACME-100_ACME-101.pdf", lettura("ACME-100"), lettura("ACME-109")),
+			caso("nome_file", "ACME-100_ACME-101.pdf", basi), false, "ACME-109"},
+		{"base resta esatta",
+			esempio("nome_file", "ACME-100_ACME-101.pdf", lettura("ACME-100")),
+			caso("nome_file", "ACME-100_ACME-101.pdf", ChiaveAttesa{Chiave: "base", Valore: ValoreAtteso{Tipo: TipoStringa, Testo: "ACME-101"}}),
+			false, "base:"},
+		{"una sola base, fuori dalle basi del caso",
+			esempio("nome_file", "ACME-109.pdf", lettura("ACME-109")), caso("nome_file", "ACME-109.pdf", basi), false,
+			"l'esempio attende anche ACME-109"},
+		{"sul testo del PDF le altre chiavi si controllano ancora",
+			esempio("testo_pdf", "vedi ACME-109", lettura("ACME-109")), caso("testo_pdf", "vedi ACME-109", zero, basi), false,
+			"l'esempio attende anche ACME-109"},
+		{"nessuna lettura contro basi",
+			grammatica.EsempioCodice{ID: "e-acme", RifCaso: "caso-acme-90", Selettore: "nome_file", Testo: "ACME.pdf",
+				Atteso: grammatica.AttesoEsempio{Nessuna: true}}, caso("nome_file", "ACME.pdf", basi), false,
+			"basi: il caso attende una lettura"},
+	} {
+		ce := coerenza("acme-punti", x.esempio, x.casi, profili, clienteACME)
+		motivi := strings.Join(ce.Motivi, "; ")
+		// Un esempio incoerente lo è per il solo motivo atteso: non per un selettore o un testo sbagliati.
+		if ce.Coerente != x.coerente || !strings.Contains(motivi, x.motivo) || (!x.coerente && len(ce.Motivi) != 1) {
+			t.Errorf("%s: coerente %v, motivi %q; attesi %v e %q", x.nome, ce.Coerente, motivi, x.coerente, x.motivo)
+		}
+	}
+}
