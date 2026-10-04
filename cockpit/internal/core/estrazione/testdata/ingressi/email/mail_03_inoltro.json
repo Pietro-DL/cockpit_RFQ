@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000053",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c3",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio vendite",
+    "mittente_indirizzo": "vendite@fornitore.example",
+    "oggetto": "I: Richiesta ACME1111",
+    "corpo_testo": "---------- Messaggio inoltrato ----------\r\nDa: Ufficio acquisti ACME <acquisti@acme.example>\r\nData: 30 set 2026, 09:12\r\nOggetto: Richiesta ACME1111\r\nA: vendite@fornitore.example\r\n\r\nBuongiorno,\r\nci servirebbe l'offerta per ACME1111.\r\n\r\nUfficio acquisti ACME\r\nTel. interno ACME9999\r\n\r\nIl giorno 29 set 2026, alle ore 17:40, Ufficio tecnico ACME <tecnico@acme.example> ha scritto:\r\nVi giro il codice ACME2222 della revisione precedente.\r\nSaluti"
+  }
+}

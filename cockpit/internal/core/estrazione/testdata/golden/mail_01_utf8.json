@@ -1,0 +1,137 @@
+{
+  "bundle_id": "330bb40b1f2ebd3550355283ada3dea1cbec6c0bb89e299978a8ec1582319d83",
+  "fonte": {
+    "id": "messaggio:00000000-0000-4000-8000-000000000051",
+    "origine_id": "00000000-0000-4000-8000-000000000051",
+    "provenienza": {
+      "autore": "acquisti@acme.example",
+      "canale": "outlook",
+      "data": "2026-10-01T07:30:00.125Z",
+      "ignoti": [
+        "corpo_testo come l'ha dato la posta: l'acquisizione toglie gli spazi ai bordi (ingest.go:812)",
+        "oggetto come l'ha dato la posta: l'acquisizione lo tronca a 500 rune e toglie gli spazi ai bordi (ingest.go:812)"
+      ]
+    },
+    "riferimento_fatti": {
+      "digest_testi": "f260094518bb5059220097636db6b7664151dee6769f2030df5faca2b46ca10c",
+      "tipo": "messaggio"
+    },
+    "tipo": "messaggio"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "nessun riconoscitore della firma (R27 a): un codice nella firma resta nel segmento in cui sta",
+        "nome": "firma",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "i riconoscitori dei confini coprono italiano, inglese e tedesco, il francese in parte, lo spagnolo no: un confine in una lingua non coperta lascia il testo nel segmento in cui sta",
+        "nome": "segmentazione",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "nessun riconoscitore delle sezioni tecniche: il testo resta nel segmento in cui sta",
+        "nome": "sezione_tecnica",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "livelli con le regole del taglio di oggi (R27 b), al più 8",
+        "nome": "storia_annidata",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "il messaggio non ha corpo HTML",
+        "nome": "tabelle",
+        "stato": "non_disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "disponibile"
+  },
+  "segmenti": [
+    {
+      "id": "s:corrente",
+      "messaggio_logico_id": "m0",
+      "origine": "mittente_del_messaggio",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 212,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "corrente"
+    }
+  ],
+  "testi": [
+    {
+      "id": "messaggio.corpo_testo",
+      "origine": "messaggio.corpo_testo",
+      "testo": "Buongiorno,\r\nvi chiediamo l'offerta per ACME1111,ACME2222 e per ACME1111_ACME2222.\r\nQuantità: 10 pz, consegna entro venerdì.\r\nRif.​ACME4444 e 🔧ACME3333\r\n\r\nGrazie e cordiali saluti\r\nUfficio acquisti ACME"
+    },
+    {
+      "id": "messaggio.oggetto",
+      "origine": "messaggio.oggetto",
+      "testo": "Richiesta d'offerta ACME — 🔧ACME3333"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_testo"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000051",
+      "id": "u:corpo:s:corrente",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 212,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "corpo",
+      "testo": "Buongiorno,\r\nvi chiediamo l'offerta per ACME1111,ACME2222 e per ACME1111_ACME2222.\r\nQuantità: 10 pz, consegna entro venerdì.\r\nRif.​ACME4444 e 🔧ACME3333\r\n\r\nGrazie e cordiali saluti\r\nUfficio acquisti ACME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.oggetto"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000051",
+      "id": "u:oggetto",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 41,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.oggetto"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "oggetto",
+      "testo": "Richiesta d'offerta ACME — 🔧ACME3333"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

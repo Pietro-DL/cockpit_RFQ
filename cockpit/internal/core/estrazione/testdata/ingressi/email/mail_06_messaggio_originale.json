@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-00000000005a",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c6",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio acquisti ACME",
+    "mittente_indirizzo": "acquisti@acme.example",
+    "oggetto": "R: Richiesta ACME3333",
+    "corpo_testo": "Ok, procediamo con ACME3333.\r\n\r\n-----Messaggio originale-----\r\nDa: Ufficio vendite <vendite@fornitore.example>\r\nInviato: martedì 29 settembre 2026 11:00\r\nA: acquisti@acme.example\r\nOggetto: Richiesta ACME3333\r\n\r\nVi chiediamo conferma per ACME3333."
+  }
+}

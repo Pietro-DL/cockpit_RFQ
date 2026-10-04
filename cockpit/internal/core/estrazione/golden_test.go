@@ -1,6 +1,7 @@
 // L1 — i golden degli adattatori (piano A, 5.6.3): l'aiuto che li legge, li confronta e li riscrive solo
 // dichiarandolo (A1b-18), la versione degli adattatori fissata (5.6.1), e i documenti degli adattatori contro i
-// loro golden, sugli ingressi sintetici di testdata/ingressi (A1b-14 per lo STEP, A1b-15 per il PDF).
+// loro golden, sugli ingressi sintetici di testdata/ingressi (A1b-14 per lo STEP, A1b-15 per il PDF, A1b-16
+// per la mail).
 //
 // Tutti i dati sono sintetici: ACME, codici di fantasia (ACME7000100, 9999999A, CORDONE_ID_0001…), UUID della
 // forma 00000000-0000-4000-8000-0000000000nn. Le forme sono quelle dei fatti veri del worker, il contenuto no:
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/jsoncanonico"
@@ -113,8 +115,8 @@ func confrontaGolden(t *testing.T, percorso string, v any) {
 	}
 }
 
-// TestLaVersioneDegliAdattatoriEFissa (5.6.1): «adattatori-1» e le sue mappature. Se un valore cambia, questa
-// prova si riscrive con il titolo «Riscritta per …», insieme ai golden.
+// TestLaVersioneDegliAdattatoriEFissa (5.6.1): «adattatori-1», le sue mappature e il tetto dei livelli della
+// storia. Se un valore cambia, questa prova si riscrive con il titolo «Riscritta per …», insieme ai golden.
 func TestLaVersioneDegliAdattatoriEFissa(t *testing.T) {
 	for _, c := range [][2]string{
 		{VersioneAdattatore, "adattatori-1"},
@@ -126,6 +128,10 @@ func TestLaVersioneDegliAdattatoriEFissa(t *testing.T) {
 		if c[0] != c[1] {
 			t.Errorf("versione %q, attesa %q: un cambio di versione si dichiara nel commit", c[0], c[1])
 		}
+	}
+	// Il tetto dei livelli della storia sta nella versione degli adattatori (5.4.3 punto 6; 5.6.1).
+	if maxLivelliStoria != 8 {
+		t.Errorf("maxLivelliStoria = %d, atteso 8: un cambio si dichiara nel commit, con VersioneAdattatore", maxLivelliStoria)
 	}
 }
 
@@ -202,20 +208,30 @@ type ingressoAllegato struct {
 	Fatti       *fotorfq.Fatti    `json:"fatti"`
 }
 
+// ingressoMessaggio: la forma degli ingressi di una mail (5.6.3): il record del messaggio, con oggetto,
+// corpo_testo e corpo_html. I CRLF stanno dentro le stringhe JSON come \r\n.
+type ingressoMessaggio struct {
+	Messaggio fotorfq.Messaggio `json:"messaggio"`
+}
+
 // casoGolden: un ingresso e il suo golden. I nomi stanno qui, in una tabella, e non si cercano nelle cartelle.
 // struttura e testoPDF sono ciò che worker.DecodificaStruttura e worker.DecodificaTestoPDF devono dire del
 // payload: un ingresso che non si decodifica come la tabella dichiara è un errore della prova, non un caso
-// dell'adattatore.
+// dell'adattatore. Per la mail non ci sono fatti del worker, e i due valori sono falsi.
 type casoGolden struct {
-	tipo      string // step | pdf
+	tipo      string // step | pdf | email
 	nome      string // il file in testdata/ingressi/<tipo>/ e in testdata/golden/
 	struttura bool
 	testoPDF  bool
 }
 
-// casiGolden: F-STEP-1…10 e F-PDF-1…11 (5.7.2). F-STEP-6 ha due ingressi: il file che non è Part 21 e la
-// struttura v1. F-PDF-4 ne ha due: i fatti senza testo_pdf (4a) e l'errore_pdf (4b). F-PDF-5 è la fixture
-// sintetica di classificazione con il testo della sottoversione 1, copiata con un nome senza sigla (5.6.3).
+// casiGolden: F-STEP-1…10, F-PDF-1…11, F-MAIL-1…6 e F-MAIL-4b (5.7.2). F-STEP-6 ha due ingressi: il file che
+// non è Part 21 e la struttura v1. F-PDF-4 ne ha due: i fatti senza testo_pdf (4a) e l'errore_pdf (4b). F-PDF-5
+// è la fixture sintetica di classificazione con il testo della sottoversione 1, copiata con un nome senza sigla
+// (5.6.3). F-MAIL-5 ne ha quattro, perché i suoi casi non stanno in una mail sola: la tabella a TAB con una
+// tabella che non combacia (5a), la tabella a cavallo del taglio (5b), il corpo vuoto con solo HTML (5c), il
+// testo marcato con i separatori tedesco e francese (5d). Nessuna fixture mette righe «>» sotto un'apertura o un
+// separatore (domanda E1 aperta).
 var casiGolden = []casoGolden{
 	{"step", "step_01_assieme", true, false},
 	{"step", "step_02_due_radici", true, false},
@@ -240,6 +256,32 @@ var casiGolden = []casoGolden{
 	{"pdf", "pdf_09_caratteri", false, true},
 	{"pdf", "pdf_10_metadati", false, true},
 	{"pdf", "pdf_11_elenco", false, true},
+	{"email", "mail_01_utf8", false, false},
+	{"email", "mail_02_risposta", false, false},
+	{"email", "mail_03_inoltro", false, false},
+	{"email", "mail_04_inoltro_tabella", false, false},
+	{"email", "mail_04b_senza_prefisso", false, false},
+	{"email", "mail_05a_tab_e_non_combacia", false, false},
+	{"email", "mail_05b_a_cavallo", false, false},
+	{"email", "mail_05c_solo_html", false, false},
+	{"email", "mail_05d_marcato_e_separatori", false, false},
+	{"email", "mail_06_messaggio_originale", false, false},
+}
+
+// leggiIngressoMessaggio decodifica l'ingresso di una mail in modo stretto (chiavi sconosciute rifiutate).
+func leggiIngressoMessaggio(t *testing.T, c casoGolden) fotorfq.Messaggio {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "ingressi", c.tipo, c.nome+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	var in ingressoMessaggio
+	if err := dec.Decode(&in); err != nil {
+		t.Fatalf("%s: ingresso non valido: %v", c.nome, err)
+	}
+	return in.Messaggio
 }
 
 // leggiIngressoAllegato decodifica un ingresso in modo stretto (chiavi sconosciute rifiutate), controlla che
@@ -274,10 +316,10 @@ func leggiIngressoAllegato(t *testing.T, c casoGolden) ingressoAllegato {
 	return in
 }
 
-// TestIGoldenDegliAdattatori (A1b-14 per lo STEP, A1b-15 per il PDF): ogni ingresso dà il documento del suo
-// golden, byte per byte nel JSON canonico. Prima di tenere un golden lo si legge per intero: ogni unità, entità,
-// legame, capacità e diagnostica deve venire dall'ingresso e dalla mappatura (5.4.5). Un golden sbagliato si
-// corregge nel prodotto, mai a mano.
+// TestIGoldenDegliAdattatori (A1b-14 per lo STEP, A1b-15 per il PDF, A1b-16 per la mail): ogni ingresso dà il
+// documento del suo golden, byte per byte nel JSON canonico. Prima di tenere un golden lo si legge per intero:
+// ogni unità, entità, legame, capacità e diagnostica deve venire dall'ingresso e dalla mappatura (5.4.5). Un
+// golden sbagliato si corregge nel prodotto, mai a mano.
 func TestIGoldenDegliAdattatori(t *testing.T) {
 	perTipo := map[string][]casoGolden{}
 	var tipi []string
@@ -291,8 +333,14 @@ func TestIGoldenDegliAdattatori(t *testing.T) {
 		t.Run(tipo, func(t *testing.T) {
 			for _, c := range perTipo[tipo] {
 				t.Run(c.nome, func(t *testing.T) {
-					in := leggiIngressoAllegato(t, c)
-					doc, err := DaAllegato(in.Allegato, in.Fatti, in.Contenitore)
+					var doc evidenze.DocumentoEvidenze
+					var err error
+					if c.tipo == "email" {
+						doc, err = DaMessaggio(leggiIngressoMessaggio(t, c))
+					} else {
+						in := leggiIngressoAllegato(t, c)
+						doc, err = DaAllegato(in.Allegato, in.Fatti, in.Contenitore)
+					}
 					if err != nil {
 						t.Fatal(err)
 					}

@@ -1,0 +1,14 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000056",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c5",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio acquisti ACME",
+    "mittente_indirizzo": "acquisti@acme.example",
+    "oggetto": "Elenco ACME",
+    "corpo_testo": "Buongiorno,\r\necco l'elenco:\r\nCodice\tDescrizione\tQ.TA\r\nACME1111\tStaffa\t5\r\nACME2222\tPiastra\t3\r\n\r\nGrazie",
+    "corpo_html": "<html><body>\n<p class=MsoNormal>Buongiorno,</p>\n<p class=MsoNormal>ecco l'elenco:</p>\n<table class=MsoNormalTable>\n<tr><th>Codice</th><th>Descrizione</th><th>Q.TA</th></tr>\n<tr><td>ACME1111</td><td>Staffa</td><td>5</td></tr>\n<tr><td>ACME2222</td><td>Piastra</td><td>3</td></tr>\n</table>\n<p class=MsoNormal>Allegato tecnico:</p>\n<table class=MsoNormalTable>\n<tr><td>ACME5555</td><td>Flangia</td><td>7</td></tr>\n<tr><td>ACME6666</td><td>Dado</td><td>9</td></tr>\n</table>\n<p class=MsoNormal>Grazie</p>\n</body></html>"
+  }
+}

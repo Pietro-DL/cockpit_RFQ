@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000058",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c5",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio acquisti ACME",
+    "mittente_indirizzo": "acquisti@acme.example",
+    "oggetto": "Elenco ACME",
+    "corpo_html": "<p>Buongiorno,</p><table class=MsoNormalTable><tr><td><p class=MsoNormal>Codice<o:p></o:p></p></td><td><p class=MsoNormal>Descrizione<o:p></o:p></p></td><td><p class=MsoNormal>Q.TA<o:p></o:p></p></td></tr>\n<tr><td><p class=MsoNormal>ACME1111<o:p></o:p></p></td><td><p class=MsoNormal>Staffa<o:p></o:p></p></td><td><p class=MsoNormal>5<o:p></o:p></p></td></tr>\n<tr><td><p class=MsoNormal>ACME2222<o:p></o:p></p></td><td><p class=MsoNormal>Piastra<o:p></o:p></p></td><td><p class=MsoNormal>3<o:p></o:p></p></td></tr>\n</table><p>Grazie</p>"
+  }
+}

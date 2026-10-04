@@ -1,0 +1,14 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000055",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c4",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio vendite",
+    "mittente_indirizzo": "vendite@fornitore.example",
+    "oggetto": "Elenco codici ACME",
+    "corpo_testo": "Buongiorno,\r\nvi giro l'elenco dei codici.\r\n\r\nRichiesta\r\nACME\r\nCodice\r\nDescrizione\r\nQ.TA\r\nPB07XX0001\r\nStaffa\r\n5\r\nPB07XX0002\r\nPiastra\r\n5\r\nPB07XX0003\r\nPerno\r\n5\r\nPB07XX0004\r\nBoccola\r\n5\r\n\r\nGrazie",
+    "corpo_html": "<html><body><div class=WordSection1>\n<p class=MsoNormal>Buongiorno,</p>\n<p class=MsoNormal>vi giro l'elenco dei codici.</p>\n<table class=MsoNormalTable>\n<tr><td><p class=MsoNormal><o:p>&nbsp;</o:p></p></td><td><p class=MsoNormal><o:p>&nbsp;</o:p></p></td><td></td></tr>\n<tr><td>Richiesta</td><td>ACME</td><td></td></tr>\n<tr><td>Codice</td><td>Descrizione</td><td>Q.TA</td></tr>\n<tr><td>PB07XX0001</td><td>Staffa</td><td>5</td></tr>\n<tr><td>PB07XX0002</td><td>Piastra</td><td>5</td></tr>\n<tr><td>PB07XX0003</td><td>Perno</td><td>5</td></tr>\n<tr><td>PB07XX0004</td><td>Boccola</td><td>5</td></tr>\n</table>\n<p class=MsoNormal>Grazie</p>\n</div></body></html>"
+  }
+}

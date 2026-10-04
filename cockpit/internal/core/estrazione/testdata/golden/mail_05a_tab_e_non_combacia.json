@@ -1,0 +1,537 @@
+{
+  "bundle_id": "0283da1d603930bb8d0e1c6d5616c123eaaf1481558fa7266b067ce3aaa9009f",
+  "entita": [
+    {
+      "chiave_originale": "tabella 1 riga 1",
+      "id": "e:tab:1:r1",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/table[1]/tbody[1]/tr[1]",
+          "riga": 1,
+          "riga_html": 1,
+          "righe_testo": [
+            2,
+            3
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:corrente",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 2",
+      "id": "e:tab:1:r2",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/table[1]/tbody[1]/tr[2]",
+          "riga": 2,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            4
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:corrente",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 3",
+      "id": "e:tab:1:r3",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/table[1]/tbody[1]/tr[3]",
+          "riga": 3,
+          "riga_html": 3,
+          "righe_testo": [
+            4,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:corrente",
+      "tipo": "riga"
+    }
+  ],
+  "fonte": {
+    "id": "messaggio:00000000-0000-4000-8000-000000000056",
+    "origine_id": "00000000-0000-4000-8000-000000000056",
+    "provenienza": {
+      "autore": "acquisti@acme.example",
+      "canale": "outlook",
+      "data": "2026-10-01T07:30:00Z",
+      "ignoti": [
+        "corpo_testo come l'ha dato la posta: l'acquisizione toglie gli spazi ai bordi (ingest.go:812)",
+        "oggetto come l'ha dato la posta: l'acquisizione lo tronca a 500 rune e toglie gli spazi ai bordi (ingest.go:812)"
+      ]
+    },
+    "riferimento_fatti": {
+      "digest_testi": "6721ec2bed023e5459f2d21cbe38ff3d610d887059bad94890b2c26436d31345",
+      "tipo": "messaggio"
+    },
+    "tipo": "messaggio"
+  },
+  "legami": [
+    {
+      "a": "u:tab:1:r2:c1",
+      "da": "u:tab:1:r1:c1",
+      "id": "g:tab:1:r1:c1>r2:c1",
+      "tipo": "intestazione_di_cella"
+    },
+    {
+      "a": "u:tab:1:r3:c1",
+      "da": "u:tab:1:r1:c1",
+      "id": "g:tab:1:r1:c1>r3:c1",
+      "tipo": "intestazione_di_cella"
+    },
+    {
+      "a": "u:tab:1:r2:c2",
+      "da": "u:tab:1:r1:c2",
+      "id": "g:tab:1:r1:c2>r2:c2",
+      "tipo": "intestazione_di_cella"
+    },
+    {
+      "a": "u:tab:1:r3:c2",
+      "da": "u:tab:1:r1:c2",
+      "id": "g:tab:1:r1:c2>r3:c2",
+      "tipo": "intestazione_di_cella"
+    },
+    {
+      "a": "u:tab:1:r2:c3",
+      "da": "u:tab:1:r1:c3",
+      "id": "g:tab:1:r1:c3>r2:c3",
+      "tipo": "intestazione_di_cella"
+    },
+    {
+      "a": "u:tab:1:r3:c3",
+      "da": "u:tab:1:r1:c3",
+      "id": "g:tab:1:r1:c3>r3:c3",
+      "tipo": "intestazione_di_cella"
+    }
+  ],
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "nessun riconoscitore della firma (R27 a): un codice nella firma resta nel segmento in cui sta",
+        "nome": "firma",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "i riconoscitori dei confini coprono italiano, inglese e tedesco, il francese in parte, lo spagnolo no: un confine in una lingua non coperta lascia il testo nel segmento in cui sta",
+        "nome": "segmentazione",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "nessun riconoscitore delle sezioni tecniche: il testo resta nel segmento in cui sta",
+        "nome": "sezione_tecnica",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "livelli con le regole del taglio di oggi (R27 b), al più 8",
+        "nome": "storia_annidata",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "tabelle dell'HTML che non si agganciano al testo in un segmento solo, e le cui celle non sono unità: 1",
+        "nome": "tabelle",
+        "stato": "parziale"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "email.tabella_non_agganciata",
+        "gravita": "avviso",
+        "messaggio": "la tabella 2 (<table> n. 2 del documento) non si ritrova nel testo, parola per parola: nessuna unità, e quantità e ambito delle sue celle restano irrisolti",
+        "natura": "dati",
+        "percorso": "messaggio.corpo_html.tabella[2]"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "segmenti": [
+    {
+      "id": "s:corrente",
+      "messaggio_logico_id": "m0",
+      "origine": "mittente_del_messaggio",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 101,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "corrente"
+    }
+  ],
+  "testi": [
+    {
+      "id": "messaggio.corpo_testo",
+      "origine": "messaggio.corpo_testo",
+      "testo": "Buongiorno,\r\necco l'elenco:\r\nCodice\tDescrizione\tQ.TA\r\nACME1111\tStaffa\t5\r\nACME2222\tPiastra\t3\r\n\r\nGrazie"
+    },
+    {
+      "id": "messaggio.oggetto",
+      "origine": "messaggio.oggetto",
+      "testo": "Elenco ACME"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_testo"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:corpo:s:corrente",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 101,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "corpo",
+      "testo": "Buongiorno,\r\necco l'elenco:\r\nCodice\tDescrizione\tQ.TA\r\nACME1111\tStaffa\t5\r\nACME2222\tPiastra\t3\r\n\r\nGrazie"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.oggetto"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:oggetto",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 11,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.oggetto"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "oggetto",
+      "testo": "Elenco ACME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r1",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r1:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "percorso": "html/body/table[1]/tbody[1]/tr[1]/th[1]",
+          "riga": 1,
+          "riga_html": 1,
+          "righe_testo": [
+            2,
+            3
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "Codice"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r1",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r1:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "percorso": "html/body/table[1]/tbody[1]/tr[1]/th[2]",
+          "riga": 1,
+          "riga_html": 1,
+          "righe_testo": [
+            2,
+            3
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "Descrizione"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r1",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r1:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "percorso": "html/body/table[1]/tbody[1]/tr[1]/th[3]",
+          "riga": 1,
+          "riga_html": 1,
+          "righe_testo": [
+            2,
+            3
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "Q.TA"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r2:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "percorso": "html/body/table[1]/tbody[1]/tr[2]/td[1]",
+          "riga": 2,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            4
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "ACME1111"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r2:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "percorso": "html/body/table[1]/tbody[1]/tr[2]/td[2]",
+          "riga": 2,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            4
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "Staffa"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r2:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "percorso": "html/body/table[1]/tbody[1]/tr[2]/td[3]",
+          "riga": 2,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            4
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "5"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r3:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "percorso": "html/body/table[1]/tbody[1]/tr[3]/td[1]",
+          "riga": 3,
+          "riga_html": 3,
+          "righe_testo": [
+            4,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "ACME2222"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r3:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "percorso": "html/body/table[1]/tbody[1]/tr[3]/td[2]",
+          "riga": 3,
+          "riga_html": 3,
+          "righe_testo": [
+            4,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "Piastra"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000056",
+      "id": "u:tab:1:r3:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "percorso": "html/body/table[1]/tbody[1]/tr[3]/td[3]",
+          "riga": 3,
+          "riga_html": 3,
+          "righe_testo": [
+            4,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "parser",
+        "motivo": "testo della cella com'è nell'HTML: le sue parole non coincidono, da un capo all'altro, con le sue righe del testo"
+      },
+      "selettore": "corpo",
+      "testo": "3"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

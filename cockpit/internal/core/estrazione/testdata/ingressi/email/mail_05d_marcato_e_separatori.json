@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000059",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c5",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio vendite",
+    "mittente_indirizzo": "vendite@fornitore.example",
+    "oggetto": "R: Anfrage ACME1111",
+    "corpo_testo": "Va bene, procediamo.\r\n\r\n> Il codice ACME1111 va confermato\r\n> entro venerdì\r\n\r\n-----Ursprüngliche Nachricht-----\r\nVon: Einkauf ACME <einkauf@acme.example>\r\nBetreff: Anfrage ACME1111\r\n\r\nBitte um Angebot für ACME1111.\r\n\r\nLe 17 sept. 2026 à 09:12, Achats ACME <achats@acme.example> a écrit :\r\nMerci de nous envoyer l'offre pour ACME2222."
+  }
+}

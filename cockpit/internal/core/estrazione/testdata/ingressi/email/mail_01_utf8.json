@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000051",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c1",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00.125Z",
+    "mittente_nome": "Ufficio acquisti ACME",
+    "mittente_indirizzo": "acquisti@acme.example",
+    "oggetto": "Richiesta d'offerta ACME — 🔧ACME3333",
+    "corpo_testo": "Buongiorno,\r\nvi chiediamo l'offerta per ACME1111,ACME2222 e per ACME1111_ACME2222.\r\nQuantità:\u00a010\u202fpz, consegna entro venerdì.\r\nRif.\u200bACME4444 e 🔧ACME3333\r\n\r\nGrazie e cordiali saluti\r\nUfficio acquisti ACME"
+  }
+}

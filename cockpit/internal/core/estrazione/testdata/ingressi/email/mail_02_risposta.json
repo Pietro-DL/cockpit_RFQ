@@ -1,0 +1,13 @@
+{
+  "messaggio": {
+    "id": "00000000-0000-4000-8000-000000000052",
+    "conversazione_id": "00000000-0000-4000-8000-0000000000c2",
+    "canale": "outlook",
+    "direzione": "entrata",
+    "data_evento": "2026-10-01T07:30:00Z",
+    "mittente_nome": "Ufficio acquisti ACME",
+    "mittente_indirizzo": "acquisti@acme.example",
+    "oggetto": "R: Offerta ACME7000100",
+    "corpo_testo": "Buongiorno,\r\nconfermiamo la quantità per ACME7000100.\r\n\r\nSaluti\r\n\r\n________________________________\r\nDa: Ufficio tecnico ACME <tecnico@acme.example>\r\nInviato: lunedì 28 settembre 2026 10:15\r\nA: vendite@fornitore.example\r\nOggetto: Offerta ACME7000100\r\n\r\nCi inviate l'offerta per ACME7000100 rev 02?\r\nGrazie"
+  }
+}

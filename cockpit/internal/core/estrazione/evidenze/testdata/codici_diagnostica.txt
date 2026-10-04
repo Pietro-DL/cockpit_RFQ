@@ -82,3 +82,9 @@ pdf.illeggibile
 pdf.testo_di_prima
 pdf.non_analizzato
 pdf.troncato
+email.storia_non_separabile
+email.tabella_non_agganciata
+email.tabella_a_cavallo
+email.testo_da_html
+email.html_oltre_limite
+email.livelli_oltre_limite

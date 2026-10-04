@@ -1,0 +1,888 @@
+{
+  "bundle_id": "38daa0f6982568ddc6bad6cc84a6794b9b64395b79560061b1804d2b19dca5f0",
+  "entita": [
+    {
+      "chiave_originale": "tabella 1 riga 1",
+      "id": "e:tab:1:r1",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[2]",
+          "riga": 1,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 2",
+      "id": "e:tab:1:r2",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[3]",
+          "riga": 2,
+          "riga_html": 3,
+          "righe_testo": [
+            5,
+            8
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 3",
+      "id": "e:tab:1:r3",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[4]",
+          "riga": 3,
+          "riga_html": 4,
+          "righe_testo": [
+            8,
+            11
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 4",
+      "id": "e:tab:1:r4",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[5]",
+          "riga": 4,
+          "riga_html": 5,
+          "righe_testo": [
+            11,
+            14
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 5",
+      "id": "e:tab:1:r5",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[6]",
+          "riga": 5,
+          "riga_html": 6,
+          "righe_testo": [
+            14,
+            17
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    },
+    {
+      "chiave_originale": "tabella 1 riga 6",
+      "id": "e:tab:1:r6",
+      "posizione": {
+        "tabella": {
+          "cella": 0,
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[7]",
+          "riga": 6,
+          "riga_html": 7,
+          "righe_testo": [
+            17,
+            20
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "segmento_id": "s:storia:1",
+      "tipo": "riga"
+    }
+  ],
+  "fonte": {
+    "id": "messaggio:00000000-0000-4000-8000-000000000054",
+    "origine_id": "00000000-0000-4000-8000-000000000054",
+    "provenienza": {
+      "autore": "vendite@fornitore.example",
+      "canale": "outlook",
+      "data": "2026-10-01T07:30:00Z",
+      "ignoti": [
+        "corpo_testo come l'ha dato la posta: l'acquisizione toglie gli spazi ai bordi (ingest.go:812)",
+        "oggetto come l'ha dato la posta: l'acquisizione lo tronca a 500 rune e toglie gli spazi ai bordi (ingest.go:812)"
+      ]
+    },
+    "riferimento_fatti": {
+      "digest_testi": "fc81b7632fa9f67332ffcad5d54fa24011b0a0f42839ad647876b409d184ed1d",
+      "tipo": "messaggio"
+    },
+    "tipo": "messaggio"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "nessun riconoscitore della firma (R27 a): un codice nella firma resta nel segmento in cui sta",
+        "nome": "firma",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "indizio d'inoltro nell'oggetto, nessun confine nel corpo",
+        "nome": "segmentazione",
+        "stato": "parziale"
+      },
+      {
+        "motivo": "nessun riconoscitore delle sezioni tecniche: il testo resta nel segmento in cui sta",
+        "nome": "sezione_tecnica",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "livelli con le regole del taglio di oggi (R27 b), al più 8",
+        "nome": "storia_annidata",
+        "stato": "disponibile"
+      },
+      {
+        "nome": "tabelle",
+        "stato": "disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "email.storia_non_separabile",
+        "gravita": "avviso",
+        "messaggio": "storia non separabile: indizio d'inoltro nell'oggetto, nessun confine nel corpo; nessuna parte diventa corrente da sola",
+        "natura": "dati",
+        "percorso": "messaggio.corpo_testo",
+        "rif": [
+          "s:corrente",
+          "s:storia:1"
+        ]
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "segmenti": [
+    {
+      "id": "s:corrente",
+      "messaggio_logico_id": "m0",
+      "origine": "mittente_del_messaggio",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 0,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "corrente"
+    },
+    {
+      "id": "s:storia:1",
+      "messaggio_logico_id": "m1",
+      "origine": "ignota",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 190,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "inoltro"
+    }
+  ],
+  "testi": [
+    {
+      "id": "messaggio.corpo_testo",
+      "origine": "messaggio.corpo_testo",
+      "testo": "Buongiorno,\r\nvi giro l'elenco dei codici.\r\n\r\nRichiesta\r\nACME\r\nCodice\r\nDescrizione\r\nQ.TA\r\nPB07XX0001\r\nStaffa\r\n5\r\nPB07XX0002\r\nPiastra\r\n5\r\nPB07XX0003\r\nPerno\r\n5\r\nPB07XX0004\r\nBoccola\r\n5\r\n\r\nGrazie"
+    },
+    {
+      "id": "messaggio.oggetto",
+      "origine": "messaggio.oggetto",
+      "testo": "I: Elenco codici ACME"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.oggetto"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:oggetto",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 21,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.oggetto"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "oggetto",
+      "testo": "I: Elenco codici ACME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_testo"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:storia:s:storia:1",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 190,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:storia:1",
+      "selettore": "storia",
+      "testo": "Buongiorno,\r\nvi giro l'elenco dei codici.\r\n\r\nRichiesta\r\nACME\r\nCodice\r\nDescrizione\r\nQ.TA\r\nPB07XX0001\r\nStaffa\r\n5\r\nPB07XX0002\r\nPiastra\r\n5\r\nPB07XX0003\r\nPerno\r\n5\r\nPB07XX0004\r\nBoccola\r\n5\r\n\r\nGrazie"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r1",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r1:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 54,
+            "inizio": 45
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[2]/td[1]",
+          "riga": 1,
+          "riga_html": 2,
+          "righe_testo": [
+            3,
+            4
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Richiesta"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r1",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r1:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 60,
+            "inizio": 56
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[2]/td[2]",
+          "riga": 1,
+          "riga_html": 2,
+          "righe_testo": [
+            4,
+            5
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "ACME"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r2:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 68,
+            "inizio": 62
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[3]/td[1]",
+          "riga": 2,
+          "riga_html": 3,
+          "righe_testo": [
+            5,
+            6
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Codice"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r2:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 81,
+            "inizio": 70
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[3]/td[2]",
+          "riga": 2,
+          "riga_html": 3,
+          "righe_testo": [
+            6,
+            7
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Descrizione"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r2",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r2:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "esatto": {
+            "fine": 87,
+            "inizio": 83
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[3]/td[3]",
+          "riga": 2,
+          "riga_html": 3,
+          "righe_testo": [
+            7,
+            8
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Q.TA"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r3:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 99,
+            "inizio": 89
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[4]/td[1]",
+          "riga": 3,
+          "riga_html": 4,
+          "righe_testo": [
+            8,
+            9
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "PB07XX0001"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r3:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 107,
+            "inizio": 101
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[4]/td[2]",
+          "riga": 3,
+          "riga_html": 4,
+          "righe_testo": [
+            9,
+            10
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Staffa"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r3",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r3:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "esatto": {
+            "fine": 110,
+            "inizio": 109
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[4]/td[3]",
+          "riga": 3,
+          "riga_html": 4,
+          "righe_testo": [
+            10,
+            11
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "5"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r4",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r4:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 122,
+            "inizio": 112
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[5]/td[1]",
+          "riga": 4,
+          "riga_html": 5,
+          "righe_testo": [
+            11,
+            12
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "PB07XX0002"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r4",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r4:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 131,
+            "inizio": 124
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[5]/td[2]",
+          "riga": 4,
+          "riga_html": 5,
+          "righe_testo": [
+            12,
+            13
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Piastra"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r4",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r4:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "esatto": {
+            "fine": 134,
+            "inizio": 133
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[5]/td[3]",
+          "riga": 4,
+          "riga_html": 5,
+          "righe_testo": [
+            13,
+            14
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "5"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r5",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r5:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 146,
+            "inizio": 136
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[6]/td[1]",
+          "riga": 5,
+          "riga_html": 6,
+          "righe_testo": [
+            14,
+            15
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "PB07XX0003"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r5",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r5:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 153,
+            "inizio": 148
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[6]/td[2]",
+          "riga": 5,
+          "riga_html": 6,
+          "righe_testo": [
+            15,
+            16
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Perno"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r5",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r5:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "esatto": {
+            "fine": 156,
+            "inizio": 155
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[6]/td[3]",
+          "riga": 5,
+          "riga_html": 6,
+          "righe_testo": [
+            16,
+            17
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "5"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r6",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r6:c1",
+      "posizione": {
+        "tabella": {
+          "cella": 1,
+          "colonna": 1,
+          "esatto": {
+            "fine": 168,
+            "inizio": 158
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[7]/td[1]",
+          "riga": 6,
+          "riga_html": 7,
+          "righe_testo": [
+            17,
+            18
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "PB07XX0004"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r6",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r6:c2",
+      "posizione": {
+        "tabella": {
+          "cella": 2,
+          "colonna": 2,
+          "esatto": {
+            "fine": 177,
+            "inizio": 170
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[7]/td[2]",
+          "riga": 6,
+          "riga_html": 7,
+          "righe_testo": [
+            18,
+            19
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "Boccola"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_html"
+      },
+      "entita_id": "e:tab:1:r6",
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000054",
+      "id": "u:tab:1:r6:c3",
+      "posizione": {
+        "tabella": {
+          "cella": 3,
+          "colonna": 3,
+          "esatto": {
+            "fine": 180,
+            "inizio": 179
+          },
+          "percorso": "html/body/div[1]/table[1]/tbody[1]/tr[7]/td[3]",
+          "riga": 6,
+          "riga_html": 7,
+          "righe_testo": [
+            19,
+            20
+          ],
+          "tabella": 1,
+          "tabella_html": 1
+        },
+        "tipo": "tabella"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "parser"
+      },
+      "selettore": "storia",
+      "testo": "5"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

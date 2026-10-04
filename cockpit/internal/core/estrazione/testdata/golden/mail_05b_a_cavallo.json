@@ -1,0 +1,187 @@
+{
+  "bundle_id": "c4de47d14b509c6b448966447802d60a8b63db1928bef652cda9f50da4e4665b",
+  "fonte": {
+    "id": "messaggio:00000000-0000-4000-8000-000000000057",
+    "origine_id": "00000000-0000-4000-8000-000000000057",
+    "provenienza": {
+      "autore": "acquisti@acme.example",
+      "canale": "outlook",
+      "data": "2026-10-01T07:30:00Z",
+      "ignoti": [
+        "corpo_testo come l'ha dato la posta: l'acquisizione toglie gli spazi ai bordi (ingest.go:812)",
+        "oggetto come l'ha dato la posta: l'acquisizione lo tronca a 500 rune e toglie gli spazi ai bordi (ingest.go:812)"
+      ]
+    },
+    "riferimento_fatti": {
+      "digest_testi": "961925f0f5f169125be555306e036e6bdd90517515bb29b4504535abd05c81bd",
+      "tipo": "messaggio"
+    },
+    "tipo": "messaggio"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "nessun riconoscitore della firma (R27 a): un codice nella firma resta nel segmento in cui sta",
+        "nome": "firma",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "i riconoscitori dei confini coprono italiano, inglese e tedesco, il francese in parte, lo spagnolo no: un confine in una lingua non coperta lascia il testo nel segmento in cui sta",
+        "nome": "segmentazione",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "nessun riconoscitore delle sezioni tecniche: il testo resta nel segmento in cui sta",
+        "nome": "sezione_tecnica",
+        "stato": "non_disponibile"
+      },
+      {
+        "motivo": "livelli con le regole del taglio di oggi (R27 b), al più 8",
+        "nome": "storia_annidata",
+        "stato": "disponibile"
+      },
+      {
+        "motivo": "tabelle dell'HTML che non si agganciano al testo in un segmento solo, e le cui celle non sono unità: 1",
+        "nome": "tabelle",
+        "stato": "parziale"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "email.tabella_a_cavallo",
+        "gravita": "avviso",
+        "messaggio": "la tabella 1 (<table> n. 1 del documento) si ritrova nel testo solo a cavallo fra la parte corrente e la storia: nessuna unità, e quantità e ambito delle sue celle restano irrisolti",
+        "natura": "dati",
+        "percorso": "messaggio.corpo_html.tabella[1]"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "segmenti": [
+    {
+      "id": "s:corrente",
+      "messaggio_logico_id": "m0",
+      "origine": "mittente_del_messaggio",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 17,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "corrente"
+    },
+    {
+      "id": "s:storia:1",
+      "messaggio_logico_id": "m1",
+      "origine": "ignota",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 60,
+            "inizio": 17
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "tipo": "citazione"
+    }
+  ],
+  "testi": [
+    {
+      "id": "messaggio.corpo_testo",
+      "origine": "messaggio.corpo_testo",
+      "testo": "Codice ACME1111\r\nDa: acquisti@acme.example\r\nOggetto: offerta"
+    },
+    {
+      "id": "messaggio.oggetto",
+      "origine": "messaggio.oggetto",
+      "testo": "Codice ACME1111"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_testo"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000057",
+      "id": "u:corpo:s:corrente",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "corpo",
+      "testo": "Codice ACME1111"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.oggetto"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000057",
+      "id": "u:oggetto",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "testo_id": "messaggio.oggetto"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:corrente",
+      "selettore": "oggetto",
+      "testo": "Codice ACME1111"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-email-1",
+        "parser": "messaggio.corpo_testo"
+      },
+      "fonte_id": "messaggio:00000000-0000-4000-8000-000000000057",
+      "id": "u:storia:s:storia:1",
+      "posizione": {
+        "testo": {
+          "intervallo": {
+            "fine": 60,
+            "inizio": 17
+          },
+          "testo_id": "messaggio.corpo_testo"
+        },
+        "tipo": "testo"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore"
+      },
+      "segmento_id": "s:storia:1",
+      "selettore": "storia",
+      "testo": "Da: acquisti@acme.example\r\nOggetto: offerta"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}
