@@ -68,7 +68,8 @@ markmap:
       - `core/inbox/ingest` (rilettura)
     - chi esegue i job del server: `app/runtime/esecutore.go`
 - **`StrutturaSTEP`, `DecodificaStruttura`**
-  - Chi lo usa: `core/rfq/fascicolo`, `transport/web`, `transport/workerapi`
+  - Chi lo usa: `core/rfq/fascicolo`, `transport/web`, `transport/workerapi`; dal giro 5 (A1b) `core/estrazione`,
+    l'adattatore STEP del motore A
 - **`PresenzaOnlineEntro`, `AttesaClaim`, `AttesaClaimMax`**
   - Chi lo usa: `transport/web` (testata, postazioni), `transport/workerapi` (long-poll)
 - **`Salute`**
@@ -98,6 +99,7 @@ markmap:
   - `core/inbox/ingest`
   - `core/rfq/documenti`
   - `core/rfq/fascicolo`
+  - `core/estrazione` (i fatti dello STEP per il motore A)
   - `transport/web`
   - `transport/workerapi`
   - `app/runtime`
