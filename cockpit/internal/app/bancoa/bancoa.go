@@ -2,7 +2,8 @@
 // solo qui, tradotti nei DTO del runner; il motore non li legge mai (v3 §10.5). In A1a ha due modalità
 // senza DB:
 //   - «regole»: compila le grammatiche del manifest e ne verifica gli esempi («profili attivi validi»);
-//   - «casi»: esegue i casi_contratto degli attesi sul riconoscimento per forma (R24 a).
+//   - «casi»: esegue i casi_contratto degli attesi sul riconoscimento per forma (R24 a); da A1b.11 con
+//     estrazione.DaTesto più motorea.Interpreta e l'uso sconosciuto (5.4.5, R52 A).
 //
 // Le modalità «dsn» ed «exports» arrivano in A1c.
 //
@@ -10,7 +11,7 @@
 // (platform/dataset): attesi, indice delle regole e grammatiche. Nel codice nessun nome di cliente, nessun
 // profilo, nessun percorso reale: i profili degli attesi si legano ai clienti nel manifest (D-09), e la
 // tabella delle chiavi conosce solo i nomi neutri (R47 a). Usa lo stesso motore del prodotto
-// (motorea.CompilaInsieme, Riconosci): non c'è un secondo motore.
+// (motorea.CompilaInsieme, Riconosci, Interpreta): non c'è un secondo motore.
 package bancoa
 
 import (
@@ -35,7 +36,8 @@ import (
 )
 
 // VersioneRapporto: la versione della forma del rapporto. Cambiarla vuol dire riscrivere la prova che la fissa.
-const VersioneRapporto = 1
+// 2 da A1b.11: nei casi le letture hanno la funzione del router e l'esito porta gli attributi di Interpreta.
+const VersioneRapporto = 2
 
 // Le modalità di A1a (R24 a). dsn ed exports arrivano in A1c.
 const (

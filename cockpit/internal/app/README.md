@@ -278,7 +278,8 @@ markmap:
 - È l'unica area che può conoscerle tutte insieme.
 - Lo importa solo `cmd/cockpit`.
 - `bancoa` importa:
-  - `core` (`inbox/classificazione/motorea`, `registro/regole/grammatica`, `estrazione/evidenze`)
+  - `core` (`inbox/classificazione/motorea`, `registro/regole/grammatica`, `estrazione/evidenze`; da A1b.11
+    `estrazione`, solo `DaTesto`, per il modo `casi`)
   - `platform` (`dataset`, `jsoncanonico`)
   - la libreria YAML, di cui è l'unico importatore (G3)
   - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`.

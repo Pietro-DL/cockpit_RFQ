@@ -177,7 +177,8 @@ markmap:
   `CellaOrigine`, `TestoDaHTML`. I limiti della vista (`LimiteTesto`, `LimiteHTML`) non sono nell'elenco: il
   valore è ripetuto in `email.go`, e una prova lo confronta con quello di `lettura`.
 - **Mai:** `grammatica`, `motorea`, il DB, `ancoraggio`, `valutazione`, `confronto`.
-- **È importato da:** ancora nessuno nel prodotto.
+- **È importato da:** `internal/app/bancoa`, da A1b.11, solo per `DaTesto` (il modo `casi` del banco; F19,
+  R52 A).
 
 ## Test
 

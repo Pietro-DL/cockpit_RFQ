@@ -194,7 +194,10 @@ func testoCasi(riga func(string, ...any), rc RapportoCasi) {
 			riga("%s", t)
 		}
 		for _, l := range e.Letture {
-			riga("    lettura %s/%s [%d,%d): base %s, stato %s", l.Famiglia, l.Forma, l.Inizio, l.Fine, l.Base, l.Stato)
+			riga("    lettura %s/%s [%d,%d): base %s, stato %s, funzione %s", l.Famiglia, l.Forma, l.Inizio, l.Fine, l.Base, l.Stato, l.Funzione)
+		}
+		for _, a := range e.Attributi {
+			riga("    attributo %s %s: grezzo %q, normalizzato %q", a.ID, a.Stato, a.Grezzo, a.Normalizzato)
 		}
 		if len(e.Letture) == 0 {
 			riga("    nessuna lettura; forme riservate sul selettore: %s", elenco(e.RiservateSulSelettore))
