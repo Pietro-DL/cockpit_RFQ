@@ -81,6 +81,8 @@ markmap:
     (giro 5): il compilatore delle grammatiche, la verifica degli esempi, il riconoscimento per forma
   - **[`core/fotorfq/README.md`](core/fotorfq/README.md)** → i record della fotografia di una RFQ per il motore A
     (giro 5): messaggio, allegato, terna e fatti, senza DB, e l'impronta dei fatti
+  - **[`core/estrazione/README.md`](core/estrazione/README.md)** → gli adattatori del motore A (giro 5): dal nome
+    del file, dalla voce d'archivio, dai fatti dei worker e dalla mail ai documenti delle evidenze; il testo isolato
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -121,6 +123,11 @@ markmap:
   - **`core/fotorfq`** → `core/estrazione/evidenze`, `platform/jsoncanonico`
     - i record della fotografia, senza DB; in A1b importa solo `platform/jsoncanonico`, per l'impronta dei
       fatti. Il caricatore, l'unico con il DB, è un pacchetto a parte (A1c)
+  - **`core/estrazione`** → `core/estrazione/evidenze`, `core/fotorfq`, `core/inbox/classificazione` (solo il
+    taglio con posizioni ed `EInoltro`), `core/inbox/lettura` (solo le tabelle con origine e `TestoDaHTML`),
+    `platform/contratti/worker`, `platform/jsoncanonico`
+    - gli adattatori: nessuna regola cliente nei testi, quindi mai `core/registro/regole/grammatica` né
+      `core/inbox/classificazione/motorea`; del legacy solo l'elenco chiuso di G4
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
@@ -144,6 +151,8 @@ markmap:
 - Frecce che esistono solo nei test:
   - `transport/web` → `transport/workerapi` (le prove L4 di B8.7 e delle postazioni)
   - e `platform/migrazioni` → `core/inbox/classificazione` (le larghezze delle colonne)
+  - e `core/estrazione` → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica` (dall'adattatore
+    all'interpretazione, sulle fixture sintetiche)
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate
