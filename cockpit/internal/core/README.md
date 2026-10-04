@@ -97,6 +97,14 @@ markmap:
     - Non applica niente
   - DB: no
   - README: [README](registro/README.md)
+- **`estrazione/evidenze`**
+  - Che cosa fa: la **foglia comune del motore A** (giro 5):
+    - il vocabolario: dove si è letta un'osservazione (contesti, campi, selettori, intervalli)
+    - il tipo delle diagnostiche; i codici li dichiara ogni package che li produce
+    - il resto del contratto d'ingresso del motore è descritto nel README del package
+    - Puro, senza interpretazione dei clienti
+  - DB: no
+  - README: [README](estrazione/evidenze/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -116,6 +124,8 @@ markmap:
 - Gli archi che esistono davvero (`go list`), tutti dentro la regola «`core/*` → altri `core/*` e `platform`»:
   - **`registro/regole`** importa: **niente** del progetto
     - è lo schema, e uno schema non dipende da chi lo usa
+  - **`estrazione/evidenze`** importa: **niente** del progetto
+    - è la foglia del motore A: la importano i suoi package, e lei non importa nessuno di loro
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
