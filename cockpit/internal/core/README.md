@@ -131,6 +131,8 @@ markmap:
   - Che cosa fa: gli **adattatori del motore A** (giro 5):
     - dai record della fotografia e dai fatti dei worker ai documenti delle evidenze, con fonte, entità, unità,
       localizzatori e legami che vengono solo dai fatti; ciò che manca è una capacità dichiarata, mai «vuoto»
+    - la mail (`DaMessaggio`): segmenti sul corpo com'è nel DB, livelli della storia, tabelle agganciate; la
+      storia non separabile resta storia (R48 A)
     - il testo isolato (`DaTesto`) per gli esempi e per il banco
     - Puro; nessuna regola cliente nei testi
   - DB: no
@@ -174,9 +176,9 @@ markmap:
     - `fotorfq` (i record)
     - `platform/jsoncanonico` (il `BundleID`)
     - `platform/contratti/worker` (i fatti dello STEP e del testo dei PDF)
-    - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi;
-      la tabella di `internal/README.md` ammette anche `inbox/classificazione` e `inbox/lettura`, solo per
-      l'elenco chiuso di G4
+    - `inbox/classificazione`, solo il taglio con le posizioni, i livelli della storia ed `EInoltro` (G4)
+    - `inbox/lettura`, solo le tabelle con la loro origine e `TestoDaHTML` (G4)
+    - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
