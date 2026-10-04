@@ -142,7 +142,8 @@ type LivelloStoria struct {
 // oggi). La ricerca di un livello riparte dopo il blocco di confine del livello prima: la riga riconosciuta,
 // le intestazioni che la seguono (chiaveIntestazione), le righe vuote o di separazione; per il testo marcato,
 // tutte le righe che cominciano con «>» (5.10 n.2). Senza quel blocco la seconda ricerca si fermerebbe subito
-// sulle intestazioni sotto il separatore.
+// sulle intestazioni sotto il separatore. Un blocco di righe «>» che segue subito il confine appartiene allo
+// stesso livello e non ne apre un altro (E1 = B, 04/10 sera): è il testo del messaggio che il confine apre.
 //
 // I livelli coprono la storia senza buchi: il primo comincia a t.RigaTaglio, ognuno finisce dove comincia il
 // successivo (anche questo dopo arretra, ma mai prima della fine del blocco di confine di sopra), l'ultimo
@@ -257,22 +258,31 @@ func rigaDInoltro(riga string) bool {
 // fineDelConfine: la prima riga dopo il blocco di confine che comincia alla riga i (5.4.3, 5.10 n.2). Per il
 // testo marcato il blocco sono tutte le righe che cominciano con «>» (e quelle vuote in mezzo); per le altre
 // regole la riga riconosciuta, poi le intestazioni (chiaveIntestazione), le righe vuote e quelle di
-// separazione che la seguono.
+// separazione che la seguono e, se subito dopo vengono righe «>», anche quelle (E1 = B, 04/10 sera): la forma
+// «On … wrote:» seguita dal testo citato con «>» è un messaggio solo, non un livello con la sola riga
+// d'apertura più uno di testo marcato. Un blocco «>» che non segue subito il confine apre il suo livello.
 func fineDelConfine(righe []string, i int, regola RegolaTaglio) int {
 	k := i + 1
-	if regola == RegolaTestoMarcato {
+	if regola != RegolaTestoMarcato {
 		for k < len(righe) {
-			s := strings.TrimSpace(righe[k])
-			if s != "" && !strings.HasPrefix(s, ">") {
+			s := pulisciCitazione(righe[k])
+			if s != "" && !rigaDiSeparazione(s) && chiaveIntestazione(s) == "" {
 				break
 			}
 			k++
 		}
-		return k
+		if k >= len(righe) || !strings.HasPrefix(strings.TrimSpace(righe[k]), ">") {
+			return k
+		}
 	}
+	return fineDelleRigheMarcate(righe, k)
+}
+
+// fineDelleRigheMarcate: la prima riga, da k in poi, che non è vuota e non comincia con «>».
+func fineDelleRigheMarcate(righe []string, k int) int {
 	for k < len(righe) {
-		s := pulisciCitazione(righe[k])
-		if s != "" && !rigaDiSeparazione(s) && chiaveIntestazione(s) == "" {
+		s := strings.TrimSpace(righe[k])
+		if s != "" && !strings.HasPrefix(s, ">") {
 			break
 		}
 		k++

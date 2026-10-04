@@ -81,7 +81,8 @@ markmap:
       sul corpo ORIGINALE, lo stato (`StatoTaglio`: `nessuna_storia`, `tagliato`, `storia_non_separabile`), il
       riconoscitore che ha tagliato (`RegolaTaglio`) e il segno d'inoltro
     - `LivelliDellaStoria` → `[]LivelloStoria`: le stesse regole riapplicate dentro la storia, per separare
-      l'inoltro dalle citazioni più vecchie (R27 b, minimale: nessuna regola nuova)
+      l'inoltro dalle citazioni più vecchie (R27 b, minimale: nessuna regola nuova); un blocco di righe «>» che
+      segue subito un confine sta nello stesso livello (E1 = B)
     - `rigaDInoltro`: l'unico punto che decide il tipo «inoltro» (solo le frasi di `frasiInoltro`, come
       `EInoltro`; «-----Messaggio originale-----» taglia e dà una citazione: R27 c)
   - `catena.go` non cambia di un byte: il ciclo di `primaRigaDellaStoria` è duplicato (`primaRigaConRegola`),
@@ -438,7 +439,8 @@ markmap:
     - A1b-08: l'inoltro senza commento dà `storia_non_separabile`, la parte corrente vuota e la storia intatta
       (la prova legacy `TestUnInoltroSenzaCommentoTieneTutto` resta com'è);
     - A1b-09: i livelli della storia (inoltro, poi citazione; il blocco d'intestazioni non apre un livello;
-      «Messaggio originale» dà una citazione; il testo marcato è un blocco solo; il massimo)
+      «Messaggio originale» dà una citazione; il testo marcato è un blocco solo; le righe «>» subito dopo un
+      confine stanno nel suo livello, quelle più in basso ne aprono uno (E1); il massimo)
 - **`regole_test.go`**
   - Che cosa prova:
     - AN3 (regola ✗ vista e non usata),
