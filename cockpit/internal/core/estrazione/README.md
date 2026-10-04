@@ -12,11 +12,13 @@ markmap:
 - Porta **i fatti dentro `DocumentoEvidenze`** (giro 5, A1b; piano A, par.3.3.5 e 5.4.5): dai record della
   fotografia (`core/fotorfq`) e dai fatti del worker a un documento con fonte, testi originali, entità, unità,
   localizzatori, legami e qualità, senza applicare nessuna regola cliente.
-- **`DaAllegato`**: il nome del file (e, per una voce d'archivio, il percorso) più il contenuto secondo i fatti.
-  In questa versione nessuna mappatura legge ancora il contenuto: ogni file dà **il solo nome**, con la capacità
-  `contenuto` non disponibile e il motivo (senza fatti, solo l'esito del worker, fatti che nessuna mappatura
-  legge, una natura diversa da «file», un archivio che l'acquisizione non apre). Non è mai un file «senza
-  codici».
+- **`DaAllegato`**: il nome del file (e, per una voce d'archivio, il percorso) più il contenuto secondo i fatti:
+  - lo **STEP** (`mappatura-step-1`): un'entità per nodo, un'unità per attributo grezzo, un legame
+    `padre_figlio_step` per coppia con la quantità, le radici da `struttura.radici`, la formazione come dato
+    grezzo mai confrontato (D1, E-12);
+  - un file senza fatti, o con fatti che nessuna mappatura legge (solo l'esito del worker, una natura diversa
+    da «file», un archivio che l'acquisizione non apre), dà **il solo nome**, con la capacità `contenuto` non
+    disponibile e il motivo. Non è mai un file «senza codici».
 - **`DaTesto`**: un documento di una sola unità, per gli esempi e per i casi degli attesi (il banco, A1b.11).
 - **Il principio della provenance** (5.0): il pacchetto collega due cose solo quando i fatti lo dicono — stessa
   entità (`EntitaID`), stesso nodo STEP, relazione dichiarata dal worker. Mai per vicinanza, somiglianza o
@@ -32,7 +34,7 @@ markmap:
 - **Il taglio della catena e le tabelle HTML**: `classificazione` (`TagliaCatenaConPosizioni`,
   `LivelliDellaStoria`, `EInoltro`) e `lettura` (`TabelleConOrigine`, `TestoDaHTML`), di cui questo pacchetto
   userà solo l'elenco chiuso di G4.
-- **Lo STEP, il testo dei PDF e la mail**: arrivano con le loro mappature (A1b.5, A1b.6, A1b.7).
+- **Il testo dei PDF e la mail**: arrivano con le loro mappature (A1b.6, A1b.7).
 
 ## File
 
@@ -65,7 +67,10 @@ markmap:
   nome il localizzatore con stem ed estensione.
 - **`allegato.go`** — responsabilità: `DaAllegato`; le chiavi del primo livello dei fatti, per sapere quali
   parti ci sono; la capacità `contenuto` dei documenti con il solo nome.
-- **`codici_diagnostica.go`** — responsabilità: i codici `nome.*` e `archivio.*` (R41 b).
+- **`step.go`** — responsabilità: la mappatura STEP dai fatti decodificati con `worker.DecodificaStruttura`;
+  la qualità della lettura (troncato, scarti, v2 senza scarti, file non letto); le unità candidate troncate;
+  la capacità `grafo_completo` da `Fatti.MotivoParziale`.
+- **`codici_diagnostica.go`** — responsabilità: i codici `nome.*`, `archivio.*` e `step.*` (R41 b).
 
 ## Entry point
 
@@ -78,16 +83,20 @@ markmap:
 
 - **Nessuna regola cliente** è applicata ai testi; nessuna lettura del worker (`esito.codice`, `esito.rev`,
   `product_step`) entra nel documento.
-- **Gli ID locali nascono da chiavi del contenuto**: `u:nome`, `u:percorso`, `u:testo`, `e:testo`. L'ordine
-  dei fatti in ingresso non cambia il documento.
-- **Un'appartenenza sta in un campo solo** (`legami-1`, 5.4.1): l'attributo di un'entità è un'unità con
-  `EntitaID`; i `LegameFonte` nascono solo per ciò che non è già un campo.
+- **Gli ID locali nascono da chiavi del contenuto**: `u:nome`, `u:percorso`, `u:testo`, `e:step:#n`, `u:step:#n:id`,
+  `u:step:#n:revisione:2`, `g:step:#p>#f`. Le mappe dell'evidenza del worker si leggono per chiave, mai in
+  ordine di mappa. L'ordine dei fatti in ingresso non cambia il documento.
+- **Un'appartenenza sta in un campo solo** (`legami-1`, 5.4.1): l'attributo di un nodo è un'unità con
+  `EntitaID`; i `LegameFonte` nascono solo per `padre_figlio_step` (e, con la mail, `intestazione_di_cella`).
+  `occorrenza_step` non nasce: i riferimenti NAUO stanno nel legame della coppia (al più 20, più `Altre`).
 - **Niente numeri decimali nel documento**: tempi, riquadri e confidenze del worker restano nel payload,
   coperto da `DigestPayload`.
 - **Gli offset** sono in byte UTF-8 sul testo originale (`allegato.nome_file`, `allegato.path_interno`), mai su
-  un testo normalizzato.
-- **«Non disponibile» non è «vuoto»**: un file senza contenuto letto ha la capacità `contenuto` non disponibile,
-  con il motivo, e la fonte parziale.
+  un testo normalizzato. I valori STEP non hanno offset nel file: localizzazione «parziale», con il motivo.
+- **«Non disponibile» non è «vuoto»**: un file senza fatti ha la capacità `contenuto` non disponibile; uno STEP
+  non analizzato, con la struttura assente o non letto ha la capacità `struttura` non disponibile e la sua
+  diagnostica; la completezza senza motivo dal caricatore è «non determinabile» (`grafo_completo` non
+  disponibile, R32 b).
 - **Il documento passa sempre `ValidaDocumento`**; se non la passa, l'adattatore restituisce l'errore con le
   diagnostiche `documento.*`, mai il documento.
 - **Puro**: niente orologio, file, DB, rete, goroutine, `uuid.New` (G2). `VersioneAdattatore` si cambia solo con
@@ -97,7 +106,7 @@ markmap:
 
 - Fino al giro 4 i fatti del worker si leggevano **solo** in `classificazione`
   (`classificazione/testo_pdf.go:19-22`: «i fatti del worker (`worker.TestoPDF`), che si leggono solo qui»).
-- Da A1b li legge anche questo pacchetto, con le funzioni del contratto (`worker.DecodificaStruttura`,
+- Da A1b li legge anche questo pacchetto, con le funzioni del contratto (`worker.DecodificaStruttura`; dal PDF,
   `worker.DecodificaTestoPDF`), per il motore A. È un cambio voluto (5.10 n.11): due lettori dei fatti, ognuno
   per il suo motore.
 - **Il percorso esistente non cambia**: `classificazione` continua a leggere i fatti come prima, e il motore
@@ -106,10 +115,10 @@ markmap:
 ## Dipendenze
 
 - **Importa:** `core/estrazione/evidenze` (il documento), `core/fotorfq` (i record), `platform/jsoncanonico` (il
-  `BundleID` e l'impronta dei testi), `github.com/google/uuid`, la libreria standard.
-- **Potrà importare** (tabella di `internal/README.md`): `platform/contratti/worker`, per i fatti; e
-  `core/inbox/classificazione` e `core/inbox/lettura`, solo per l'elenco chiuso di G4, con l'adattatore della
-  mail.
+  `BundleID` e l'impronta dei testi), `platform/contratti/worker` (i fatti dello STEP), `github.com/google/uuid`,
+  la libreria standard.
+- **Potrà importare** (tabella di `internal/README.md`): `core/inbox/classificazione` e `core/inbox/lettura`,
+  solo per l'elenco chiuso di G4, con l'adattatore della mail.
 - **Mai:** `grammatica`, `motorea`, il DB, `ancoraggio`, `valutazione`, `confronto`.
 - **È importato da:** ancora nessuno nel prodotto.
 
@@ -120,6 +129,8 @@ markmap:
   - l'aiuto dei golden (5.6.3): confronto dei byte del JSON canonico, riscrittura solo con
     `COCKPIT_AGGIORNA_GOLDEN=1`, che fa fallire la corsa; rifiutata con il tag `privato` o con il dataset
     privato impostato (A1b-18);
+  - i golden degli adattatori (A1b-14 per lo STEP), con gli ingressi in `testdata/ingressi/` passati dalle
+    funzioni del contratto del worker;
   - la versione degli adattatori e delle mappature, fissata.
 - **`nome_test.go`** — livello L1 — che cosa copre (A1b-13): la tabella dei nomi (stem ed estensione, voce con
   cartella, NFC e NFD, emoji, spazi ai bordi, senza estensione, punto iniziale, più punti, maiuscole, 300 rune,
@@ -129,9 +140,12 @@ markmap:
   file, voce di zip con contenitore, `.7z` senza voci; i record incoerenti sono errori.
 - **`campi_test.go`** — livello L1 — che cosa copre (A1b-04): ogni costante `worker.Campo*` ha la sua voce fra i
   campi del cartiglio della foglia.
+- **`step_test.go`** — livello L1 — che cosa copre (A1b-14): gli ingressi F-STEP-1…10 contro i golden; le
+  proprietà della mappatura (ordine dei fatti, candidate troncate, `lunghezzaPython`).
 
 ## Leggi anche
 
 - `internal/core/estrazione/evidenze/README.md`
 - `internal/core/fotorfq/README.md`
+- `internal/platform/contratti/README.md`
 - `internal/README.md`

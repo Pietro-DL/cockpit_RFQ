@@ -19,10 +19,9 @@ const (
 )
 
 // DaAllegato costruisce il documento di un file (5.4.5): il nome e, per una voce d'archivio, il percorso, più
-// il contenuto secondo i fatti. In questa versione nessuna mappatura legge ancora il contenuto (STEP e PDF
-// arrivano con le loro mappature): ogni file dà il solo nome, con la capacità del contenuto dichiarata e il
-// motivo. esito.codice, esito.rev e product_step del worker non si usano: sono letture del worker, non fatti
-// (A1.2; tipi.go:486-500).
+// il contenuto secondo i fatti (STEP, solo esito o niente). Un file senza fatti, o con fatti che nessuna
+// mappatura legge, dà il solo nome, con la capacità del contenuto dichiarata e il motivo. esito.codice,
+// esito.rev e product_step del worker non si usano: sono letture del worker, non fatti (A1.2; tipi.go:486-500).
 //
 // contenitore è il record dello zip da cui la voce viene, se il chiamante l'ha: deve essere quello del record
 // (fonteDiAllegato). Il suo nome non entra fra le unità della voce.
@@ -52,6 +51,8 @@ func DaAllegato(a fotorfq.Allegato, f *fotorfq.Fatti, contenitore *fotorfq.Alleg
 		c.senzaContenuto(fmt.Sprintf("natura «%s»: solo un file ha un contenuto da leggere (un elemento Outlook non si espande)", a.Natura))
 	case estensioniNonEstratte[est]:
 		c.senzaContenuto(fmt.Sprintf("archivio .%s: l'acquisizione non lo apre, e le sue voci non sono allegati", est))
+	case eSTEP(est, chiavi):
+		c.contenutoSTEP(f)
 	case f == nil:
 		c.senzaContenuto("nessun fatto del worker per questo contenuto")
 	case len(chiavi) == 1 && chiavi[chiaveEsito]:

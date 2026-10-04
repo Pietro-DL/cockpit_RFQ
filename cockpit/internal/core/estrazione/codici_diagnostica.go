@@ -20,3 +20,41 @@ const (
 	// voci (zip.go:1-2), e A lo dice (REG §5.10, «Conseguenze»).
 	CodiceArchivioNonEstraibile = "archivio.non_estraibile"
 )
+
+// La struttura STEP (mappatura-step-1).
+const (
+	// CodiceSTEPNonAnalizzato — nota, dati. Uno STEP senza fatti del worker: del file si legge solo il nome.
+	CodiceSTEPNonAnalizzato = "step.non_analizzato"
+
+	// CodiceSTEPStrutturaAssente — avviso, dati. I fatti non hanno una struttura che si legge: assente, o di
+	// una versione precedente alla 2 (DecodificaStruttura falsa). Va rianalizzato, non letto.
+	CodiceSTEPStrutturaAssente = "step.struttura_assente"
+
+	// CodiceSTEPNonLetto — avviso, dati. Nessun nodo, e l'avviso del worker che il file non si è letto (non è
+	// Part 21, o la lettura è fallita): lo stato della fonte è «errore».
+	CodiceSTEPNonLetto = "step.non_letto"
+
+	// CodiceSTEPTroncato — avviso, dati. limiti.troncato: il worker si è fermato su un tetto, e il grafo letto
+	// è parziale.
+	CodiceSTEPTroncato = "step.troncato"
+
+	// CodiceSTEPScarti — avviso, dati. Gli scarti della v3 diversi da zero: PRODUCT senza definizione,
+	// occorrenze non risolte o di un pezzo in sé stesso.
+	CodiceSTEPScarti = "step.scarti"
+
+	// CodiceSTEPCarattereSostituito — avviso, dati. Un valore contiene U+FFFD: un carattere non si è
+	// decodificato (per esempio un surrogato spezzato dal troncamento del worker).
+	CodiceSTEPCarattereSostituito = "step.carattere_sostituito"
+
+	// CodiceSTEPFormazioniAlternative — avviso, dati. Il PRODUCT ha più formazioni con id diversi
+	// (evidenza.rev_alternative): tutte diventano unità, nessuna si sceglie.
+	CodiceSTEPFormazioniAlternative = "step.formazioni_alternative"
+
+	// CodiceSTEPScartiNonNoti — nota, dati. Struttura v2: gli scarti in numeri non ci sono, quindi che cosa il
+	// worker ha lasciato fuori non si sa.
+	CodiceSTEPScartiNonNoti = "step.scarti_non_noti"
+
+	// CodiceSTEPTestoTroncato — nota, dati. scarti.testi_troncati > 0: il worker ha tagliato dei testi a 200
+	// code point; le unità che arrivano al tetto sono candidate troncate (QualitaUnita.Troncata).
+	CodiceSTEPTestoTroncato = "step.testo_troncato"
+)

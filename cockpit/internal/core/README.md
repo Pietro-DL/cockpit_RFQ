@@ -173,9 +173,10 @@ markmap:
     - `estrazione/evidenze` (il documento)
     - `fotorfq` (i record)
     - `platform/jsoncanonico` (il `BundleID`)
+    - `platform/contratti/worker` (i fatti dello STEP)
     - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi;
-      la tabella di `internal/README.md` ammette anche `platform/contratti/worker`, per i fatti, e
-      `inbox/classificazione` e `inbox/lettura`, solo per l'elenco chiuso di G4
+      la tabella di `internal/README.md` ammette anche `inbox/classificazione` e `inbox/lettura`, solo per
+      l'elenco chiuso di G4
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
