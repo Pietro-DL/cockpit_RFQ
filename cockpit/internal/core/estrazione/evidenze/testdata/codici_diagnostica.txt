@@ -1,0 +1,2 @@
+contratto.selettore_non_ammesso
+contratto.selettore_generico

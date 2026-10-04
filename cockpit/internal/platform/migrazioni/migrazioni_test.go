@@ -28,6 +28,21 @@ func TestS1VerificaStaticaDelleMigrazioniReali(t *testing.T) {
 	}
 }
 
+// TestInA1LUltimaMigrazioneEla21 (G10; P-02; piano A, par.3.2): nel giro 5, consegna A1, nessuna migrazione
+// di schema. Il motore A legge e calcola: niente tabelle nuove, niente models.go cambiato, l'ultima resta la
+// 0021. Lo stesso controllo, al gate, lo fa il confronto dei file con il commit di partenza. A2 la riscrive,
+// con il titolo «Riscritta per A2», quando lo schema nuovo arriva davvero.
+func TestInA1LUltimaMigrazioneEla21(t *testing.T) {
+	migs, err := Elenca(risorse.FS)
+	if err != nil {
+		t.Fatalf("elenco migrazioni: %v", err)
+	}
+	ultima := migs[len(migs)-1]
+	if ultima.Versione != 21 {
+		t.Fatalf("l'ultima migrazione è %s (versione %d): in A1 deve restare la 21", ultima.Nome, ultima.Versione)
+	}
+}
+
 func fsFinto(file map[string]string) fstest.MapFS {
 	out := fstest.MapFS{}
 	for nome, sql := range file {
