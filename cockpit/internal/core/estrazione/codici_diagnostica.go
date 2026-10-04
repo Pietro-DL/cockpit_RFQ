@@ -86,3 +86,32 @@ const (
 	// frammenti, caratteri), e il testo dopo non c'è.
 	CodicePDFTroncato = "pdf.troncato"
 )
+
+// La mail (mappatura-email-1). email.inoltro_senza_confine non nasce: con R48 A l'inoltro senza confine nel
+// corpo è una storia non separabile, con il suo motivo.
+const (
+	// CodiceEmailStoriaNonSeparabile — avviso, dati. La storia non si separa dalla parte corrente, e resta
+	// storia: nessuna promozione (E-22; R48 A). Il motivo dice quale dei due casi: un confine riconosciuto con
+	// la parte corrente vuota, o l'indizio d'inoltro nell'oggetto senza nessun confine nel corpo.
+	CodiceEmailStoriaNonSeparabile = "email.storia_non_separabile"
+
+	// CodiceEmailTabellaNonAgganciata — avviso, dati. Una tabella dell'HTML non si ritrova nel testo: nessuna
+	// unità, e quantità e ambito delle sue celle restano irrisolti (v3 §10.2).
+	CodiceEmailTabellaNonAgganciata = "email.tabella_non_agganciata"
+
+	// CodiceEmailTabellaACavallo — avviso, dati. Una tabella si ritrova nel testo solo a cavallo di due
+	// segmenti: nessuna unità, perché le sue celle non hanno un segmento solo.
+	CodiceEmailTabellaACavallo = "email.tabella_a_cavallo"
+
+	// CodiceEmailTestoDaHTML — nota, dati. Il corpo di testo manca e il testo viene dall'HTML (TestoDaHTML,
+	// origine «derivato_da_html»): le unità hanno la localizzazione parziale.
+	CodiceEmailTestoDaHTML = "email.testo_da_html"
+
+	// CodiceEmailHTMLOltreLimite — avviso, limite. L'HTML supera il limite di lettura della vista
+	// (lettura.LimiteHTML): le tabelle non si leggono.
+	CodiceEmailHTMLOltreLimite = "email.html_oltre_limite"
+
+	// CodiceEmailLivelliOltreLimite — avviso, limite. La storia ha più livelli di maxLivelliStoria: il resto
+	// resta nell'ultimo livello (5.4.3 punto 6).
+	CodiceEmailLivelliOltreLimite = "email.livelli_oltre_limite"
+)

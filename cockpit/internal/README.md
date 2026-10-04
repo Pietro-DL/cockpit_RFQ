@@ -127,7 +127,10 @@ markmap:
     taglio con posizioni ed `EInoltro`), `core/inbox/lettura` (solo le tabelle con origine e `TestoDaHTML`),
     `platform/contratti/worker`, `platform/jsoncanonico`
     - gli adattatori: nessuna regola cliente nei testi, quindi mai `core/registro/regole/grammatica` né
-      `core/inbox/classificazione/motorea`; del legacy solo l'elenco chiuso di G4
+      `core/inbox/classificazione/motorea`; del legacy solo l'elenco chiuso di G4, che usa l'adattatore della
+      mail (A1b.7): `TagliaCatenaConPosizioni`, `Taglio`, `RigaTesto`, `StatoTaglio`, `RegolaTaglio`,
+      `LivelliDellaStoria`, `LivelloStoria`, `EInoltro`; `TabelleConOrigine`, `TabellaOrigine`, `CellaOrigine`,
+      `TestoDaHTML`
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`

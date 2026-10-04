@@ -1,6 +1,8 @@
 package estrazione
 
 import (
+	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"promatec/cockpit/internal/core/estrazione/evidenze"
@@ -32,3 +34,20 @@ func lunghezzaPython(s string) int {
 
 // runeDi: la lunghezza in rune, come la misura l'acquisizione ([]rune, ingest.go:640-645).
 func runeDi(s string) int { return utf8.RuneCountInString(s) }
+
+// daCoppia: l'intervallo di una coppia [inizio, fine) in byte, come la danno il taglio e i livelli della storia
+// di classificazione (che non importa la foglia, quindi usa [2]int).
+func daCoppia(iv [2]int) evidenze.Intervallo { return evidenze.Intervallo{Inizio: iv[0], Fine: iv[1]} }
+
+// ripulito: l'intervallo iv di s senza gli spazi ai bordi, con gli spazi di strings.TrimSpace (unicode.IsSpace).
+// Un intervallo di soli spazi diventa vuoto alla sua fine. Serve per il testo di un'unità, che non porta gli
+// spazi intorno al suo segmento; il segmento resta intero.
+func ripulito(s string, iv [2]int) evidenze.Intervallo {
+	t := s[iv[0]:iv[1]]
+	a := iv[0] + len(t) - len(strings.TrimLeftFunc(t, unicode.IsSpace))
+	b := iv[0] + len(strings.TrimRightFunc(t, unicode.IsSpace))
+	if b < a {
+		b = a
+	}
+	return evidenze.Intervallo{Inizio: a, Fine: b}
+}

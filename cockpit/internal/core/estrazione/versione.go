@@ -25,3 +25,8 @@ const (
 	mappaturaNome  = "mappatura-nome-1"  // il nome del file e la voce d'archivio
 	mappaturaEmail = "mappatura-email-1" // oggetto, segmenti e tabelle della mail
 )
+
+// maxLivelliStoria: quanti livelli della storia l'adattatore della mail separa al più (5.4.3 punto 6; 5.6.1).
+// Oltre, il resto resta nell'ultimo livello, con email.livelli_oltre_limite. Non è uno dei limiti dell'indice
+// delle regole (R43 B): gli adattatori non leggono l'indice, quindi il valore sta nella versione dell'adattatore.
+const maxLivelliStoria = 8
