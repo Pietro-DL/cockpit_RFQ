@@ -173,7 +173,7 @@ markmap:
     - `estrazione/evidenze` (il documento)
     - `fotorfq` (i record)
     - `platform/jsoncanonico` (il `BundleID`)
-    - `platform/contratti/worker` (i fatti dello STEP)
+    - `platform/contratti/worker` (i fatti dello STEP e del testo dei PDF)
     - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi;
       la tabella di `internal/README.md` ammette anche `inbox/classificazione` e `inbox/lettura`, solo per
       l'elenco chiuso di G4

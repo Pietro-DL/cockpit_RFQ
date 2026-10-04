@@ -58,3 +58,31 @@ const (
 	// code point; le unità che arrivano al tetto sono candidate troncate (QualitaUnita.Troncata).
 	CodiceSTEPTestoTroncato = "step.testo_troncato"
 )
+
+// Il testo dei PDF (mappatura-pdf-1).
+const (
+	// CodicePDFSenzaTesto — avviso, dati. testo_pdf letto con estraibile falso: nelle pagine lette non c'è
+	// testo nativo (curve, scansione). Le capacità testo e cartiglio non sono disponibili, con lo stato
+	// dell'OCR. Non è un PDF «senza codici» (A-C09).
+	CodicePDFSenzaTesto = "pdf.senza_testo"
+
+	// CodicePDFNonLetto — avviso, dati. I fatti non portano testo_pdf né errore_pdf (analizzatore di prima, o
+	// un worker non aggiornato): il testo non è stato letto, e il PDF va rianalizzato.
+	CodicePDFNonLetto = "pdf.non_letto"
+
+	// CodicePDFIlleggibile — avviso, dati. errore_pdf: il worker non ha aperto il PDF. Lo stato della fonte è
+	// «errore».
+	CodicePDFIlleggibile = "pdf.illeggibile"
+
+	// CodicePDFTestoDiPrima — avviso, dati. Il testo è di una sottoversione precedente a quella del worker di
+	// oggi (worker.VersioneTestoPDF): i campi del cartiglio diventano unità testo_pdf, un indizio e mai il codice
+	// del file, finché il PDF non si rianalizza (giro 4, fase 4.6r).
+	CodicePDFTestoDiPrima = "pdf.testo_di_prima"
+
+	// CodicePDFNonAnalizzato — nota, dati. Un PDF senza fatti del worker: del file si legge solo il nome.
+	CodicePDFNonAnalizzato = "pdf.non_analizzato"
+
+	// CodicePDFTroncato — nota, dati. testo_pdf.troncato: il worker si è fermato su un suo tetto (pagine,
+	// frammenti, caratteri), e il testo dopo non c'è.
+	CodicePDFTroncato = "pdf.troncato"
+)
