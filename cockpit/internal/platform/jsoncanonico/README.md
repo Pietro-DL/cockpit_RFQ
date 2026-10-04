@@ -45,8 +45,8 @@ markmap:
 ## Entry point
 
 - **`Codifica`, `ImprontaDi`, `Impronta`, `Versione`** — chi li chiama:
-  - nel giro 5, A1a, i pacchetti del motore A che calcolano impronte (grammatiche, motore); in A1b gli
-    adattatori, per il `BundleID`;
+  - nel giro 5, A1a, i pacchetti del motore A che calcolano impronte (grammatiche, motore); in A1b i record
+    della fotografia (`core/fotorfq`, l'impronta dei fatti) e gli adattatori, per il `BundleID`;
   - oggi, nel codice di prodotto, ancora nessuno: il pacchetto nasce prima dei suoi chiamanti.
 
 ## Invarianti
@@ -68,8 +68,8 @@ markmap:
 
 - **Importa:** solo la libreria standard.
 - **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot;
-  `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole; `internal/app/bancoa`, per
-  il rapporto del banco in JSON canonico.
+  `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole; `core/fotorfq`, per
+  l'impronta dei fatti (`ImprontaPayload`); `internal/app/bancoa`, per il rapporto del banco in JSON canonico.
 
 ## Test
 

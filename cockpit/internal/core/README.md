@@ -120,6 +120,13 @@ markmap:
     - Puro
   - DB: no
   - README: [README](inbox/classificazione/motorea/README.md)
+- **`fotorfq`**
+  - Che cosa fa: i **record della fotografia** di una RFQ per il motore A (giro 5):
+    - messaggio, allegato, terna e fatti come li dà il DB o un export, da riempire da fuori e leggere soltanto
+    - l'impronta dei fatti (`ImprontaPayload`), una sola per DB ed export
+    - Puro: niente DB, file né orologio; il caricatore, che legge il DB, è un package a parte (A1c)
+  - DB: no
+  - README: [README](fotorfq/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -150,6 +157,10 @@ markmap:
     - `estrazione/evidenze`
     - `platform/jsoncanonico`
     - mai il motore legacy (`inbox/classificazione`, `registro/regole`): niente `Minuteria` (R7)
+  - **`fotorfq`** importa:
+    - `platform/jsoncanonico` (l'impronta dei fatti)
+    - la tabella di `internal/README.md` ammette anche `estrazione/evidenze`, per le diagnostiche della
+      fotografia (A1c)
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
