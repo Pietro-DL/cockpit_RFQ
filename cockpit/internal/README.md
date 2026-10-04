@@ -76,7 +76,7 @@ markmap:
   - **[`core/estrazione/evidenze/README.md`](core/estrazione/evidenze/README.md)** → la foglia comune del motore A
     (giro 5): il vocabolario dei selettori, il tipo delle diagnostiche, il contratto del suo ingresso
   - **[`core/registro/regole/grammatica/README.md`](core/registro/regole/grammatica/README.md)** → le grammatiche v1
-    del motore A (giro 5): i tipi, la lettura stretta, la validazione, i limiti dall'indice
+    del motore A (giro 5): i tipi, la lettura stretta, la validazione, i limiti dall'indice, l'hash, l'indice
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -105,7 +105,7 @@ markmap:
   - **`core/estrazione/evidenze`** → **niente** del progetto
     - è la foglia del motore A del giro 5: la importano i suoi pacchetti, e lei non importa nessuno di loro
   - **`core/registro/regole/grammatica`** → `core/estrazione/evidenze` (solo il vocabolario dei selettori e il tipo
-    `Diagnostica`: lo controlla G8)
+    `Diagnostica`: lo controlla G8), `platform/jsoncanonico`
     - mai `core/registro/regole`: sta nella sua cartella ma non lo importa, e il legacy non importa lei
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena`)
