@@ -111,8 +111,8 @@ markmap:
 ## Dipendenze
 
 - **Importa:** `github.com/google/uuid`, la libreria standard. Niente del progetto.
-- **È importato da:** nessun pacchetto di prodotto, per ora (vedi Entry point). Le prove usano anche
-  `platform/jsoncanonico`.
+- **È importato da:** `core/registro/regole/grammatica`, solo per il vocabolario dei selettori e per
+  `Diagnostica` (G8). Le prove usano anche `platform/jsoncanonico`.
 
 ## Test
 

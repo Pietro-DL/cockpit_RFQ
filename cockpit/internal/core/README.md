@@ -105,6 +105,13 @@ markmap:
     - Puro, senza interpretazione dei clienti
   - DB: no
   - README: [README](estrazione/evidenze/README.md)
+- **`registro/regole/grammatica`**
+  - Che cosa fa: le **grammatiche v1 del motore A** (giro 5), separate dallo schema legacy di `cliente.regole`:
+    - i tipi delle grammatiche, la lettura stretta e la validazione, con le capacità riservate in A1
+    - i limiti dichiarati dall'indice (nel codice solo i tetti)
+    - Puro; non compila regex per il riconoscimento
+  - DB: no
+  - README: [README](registro/regole/grammatica/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -126,6 +133,9 @@ markmap:
     - è lo schema, e uno schema non dipende da chi lo usa
   - **`estrazione/evidenze`** importa: **niente** del progetto
     - è la foglia del motore A: la importano i suoi package, e lei non importa nessuno di loro
+  - **`registro/regole/grammatica`** importa:
+    - `estrazione/evidenze` (solo il vocabolario dei selettori e il tipo `Diagnostica`: G8)
+    - mai `registro/regole`, il legacy: i due formati non si mescolano
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
