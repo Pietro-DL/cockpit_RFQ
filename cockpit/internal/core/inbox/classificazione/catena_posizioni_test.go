@@ -496,9 +496,10 @@ Buongiorno, allego il disegno ACME1111 per quotazione.`
 	}
 }
 
-// TestLaStoriaSiDivideInLivelli (A1b-09; R27 b, c): l'inoltro e la citazione più vecchia sono due livelli; il
-// blocco d'intestazioni sotto il separatore non apre un livello; «Messaggio originale» dà una citazione; il
-// testo marcato è un blocco solo; il massimo tiene il resto nell'ultimo livello.
+// TestLaStoriaSiDivideInLivelli (A1b-09; R27 b, c; E1): l'inoltro e la citazione più vecchia sono due livelli;
+// il blocco d'intestazioni sotto il separatore non apre un livello; «Messaggio originale» dà una citazione; il
+// testo marcato è un blocco solo; le righe «>» subito dopo un confine stanno nel suo livello; il massimo tiene
+// il resto nell'ultimo livello.
 func TestLaStoriaSiDivideInLivelli(t *testing.T) {
 	t.Run("F-MAIL-3: inoltro, poi citazione", func(t *testing.T) {
 		tg := verificaTaglio(t, fMail3)
@@ -567,6 +568,59 @@ Serve il disegno ACME2222.`
 		}
 		if livelli := LivelliDellaStoria(corpo, tg, 8); len(livelli) != 1 {
 			t.Errorf("%d livelli, atteso 1: %+v", len(livelli), livelli)
+		}
+	})
+
+	// E1 = B (04/10 sera): un blocco di righe «>» che segue subito un confine riconosciuto appartiene al livello
+	// che il confine apre, e non ne crea uno in più.
+	t.Run("E1: «wrote:» seguito dalle righe «>» è un livello solo", func(t *testing.T) {
+		const corpo = "Va bene, procediamo.\n\nOn Thu, 1 Oct 2026 at 09:12, Buyer ACME <buyer@acme.example> wrote:\n> Vi chiediamo un'offerta per ACME2222.\n> Grazie.\n"
+		tg := verificaTaglio(t, corpo)
+		if tg.Regola != RegolaAperturaCitazione {
+			t.Fatalf("regola %q, attesa apertura_citazione", tg.Regola)
+		}
+		livelli := LivelliDellaStoria(corpo, tg, 8)
+		if len(livelli) != 1 || livelli[0].Regola != RegolaAperturaCitazione || livelli[0].Inoltro {
+			t.Fatalf("atteso un solo livello di citazione: %+v", livelli)
+		}
+		if l := fetta(corpo, livelli[0].Byte); !strings.Contains(l, "wrote:") || !strings.Contains(l, "ACME2222") {
+			t.Errorf("il livello deve tenere l'apertura e il testo citato: %q", l)
+		}
+	})
+
+	t.Run("E1: separatore, intestazioni e righe «>» sono un livello solo", func(t *testing.T) {
+		const corpo = "Ok, confermo.\r\n\r\n-----Original Message-----\r\nFrom: Buyer ACME <buyer@acme.example>\r\nSubject: RFQ\r\n\r\n> Serve il disegno ACME2222.\r\n>\r\n> Grazie.\r\n"
+		tg := verificaTaglio(t, corpo)
+		livelli := LivelliDellaStoria(corpo, tg, 8)
+		if len(livelli) != 1 || livelli[0].Regola != RegolaSeparatoreEsplicito || livelli[0].Inoltro {
+			t.Fatalf("atteso un solo livello di citazione: %+v", livelli)
+		}
+		if livelli[0].Byte[1] != len(corpo) {
+			t.Errorf("il livello finisce a %d, atteso alla fine del corpo (%d)", livelli[0].Byte[1], len(corpo))
+		}
+	})
+
+	t.Run("E1: inoltro, poi una citazione con le righe «>»: due livelli", func(t *testing.T) {
+		const corpo = "---------- Forwarded message ---------\nFrom: Buyer ACME <buyer@acme.example>\nSubject: RFQ\n\nVi giro la richiesta ACME1111.\n\nIl giorno mer 16 set 2026 alle 14:32 Ufficio Tecnico ACME <tecnico@acme.example> ha scritto:\n> Serve il disegno ACME2222.\n> Grazie."
+		tg := verificaTaglio(t, corpo)
+		livelli := LivelliDellaStoria(corpo, tg, 8)
+		if len(livelli) != 2 || !livelli[0].Inoltro || livelli[1].Inoltro || livelli[1].Regola != RegolaAperturaCitazione {
+			t.Fatalf("attesi un inoltro e una citazione: %+v", livelli)
+		}
+		if l := fetta(corpo, livelli[1].Byte); !strings.Contains(l, "ha scritto:") || !strings.Contains(l, "ACME2222") || strings.Contains(l, "ACME1111") {
+			t.Errorf("la citazione deve tenere l'apertura e il testo citato: %q", l)
+		}
+	})
+
+	t.Run("E1: le righe «>» che non seguono subito il confine aprono il loro livello", func(t *testing.T) {
+		const corpo = "Ok.\n\nOn Thu, 1 Oct 2026 at 09:12, Buyer ACME <buyer@acme.example> wrote:\nServe il disegno ACME2222.\n\n> Testo ancora più vecchio, ACME3333.\n> Fine.\n"
+		tg := verificaTaglio(t, corpo)
+		livelli := LivelliDellaStoria(corpo, tg, 8)
+		if len(livelli) != 2 || livelli[0].Regola != RegolaAperturaCitazione || livelli[1].Regola != RegolaTestoMarcato {
+			t.Fatalf("attesi due livelli (apertura, poi testo marcato): %+v", livelli)
+		}
+		if l := fetta(corpo, livelli[0].Byte); strings.Contains(l, "ACME3333") || !strings.Contains(l, "ACME2222") {
+			t.Errorf("il primo livello: %q", l)
 		}
 	})
 
