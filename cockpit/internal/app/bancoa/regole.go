@@ -331,8 +331,12 @@ func attendeForma(e grammatica.EsempioCodice, famiglia, forma string) bool {
 //   - basi: per il runner è l'insieme delle basi delle letture e delle loro ripetizioni (basiConRipetizioni).
 //     Un esempio non sa scrivere le ripetizioni: dichiarare meno basi non è una contraddizione, dichiararne
 //     una che il caso non elenca sì.
-//   - letture_identita = 0: il runner la controlla solo sui selettori d'identità (selettoreDiIdentita, par.4.7.4);
-//     altrove una lettura di forma può essere una menzione (A1b) e non la contraddice.
+//   - da A1b.11 il runner divide le letture con la funzione del router (R25 a), e la coerenza fa lo stesso con
+//     funzioneNelBanco, la funzione che il router dà sul selettore dell'esempio con l'uso del modo casi: le
+//     letture attese su un selettore d'identità (nome del file, codice del cartiglio, id dello STEP, oggetto e
+//     corpo) entrano in base, basi, marcatore e revisione e contraddicono letture_identita = 0; quelle su un
+//     selettore di menzione (testo del PDF, storia) sono menzioni, e non entrano in nessuna delle due; quelle su
+//     un campo della revisione danno l'attributo, e valgono solo per revisione.
 func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoContratto, profili map[string]string, cliente uuid.UUID) CoerenzaEsempio {
 	ce := CoerenzaEsempio{Famiglia: famiglia, Esempio: e.ID, Caso: e.RifCaso}
 	c, ok := casi[e.RifCaso]
@@ -355,11 +359,20 @@ func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoC
 	for _, k := range c.Atteso {
 		atteso[k.Chiave] = k.Valore
 	}
+	identita, attributo := false, false
+	if errEs == nil {
+		f := funzioneNelBanco(selEs)
+		identita, attributo = funzioneDIdentita(f), f == motorea.FunzAttributo
+	}
 	var basiEs, marcatoriEs, revisioniEs []string
 	for _, la := range e.Atteso.Letture {
-		basiEs = append(basiEs, la.Base)
-		marcatoriEs = append(marcatoriEs, la.Marcatore)
-		revisioniEs = append(revisioniEs, la.Revisione)
+		if identita {
+			basiEs = append(basiEs, la.Base)
+			marcatoriEs = append(marcatoriEs, la.Marcatore)
+		}
+		if identita || attributo {
+			revisioniEs = append(revisioniEs, la.Revisione)
+		}
 	}
 	basiEs, marcatoriEs, revisioniEs = unici(basiEs), unici(marcatoriEs), unici(revisioniEs)
 	contraddice := func(chiave string, valori []string) {
@@ -397,8 +410,7 @@ func coerenza(famiglia string, e grammatica.EsempioCodice, casi map[string]CasoC
 			contraddice("revisione", revisioniEs)
 		}
 	}
-	if v, ok := atteso["letture_identita"]; ok && v.Tipo == TipoIntero && v.Testo == "0" && len(e.Atteso.Letture) > 0 &&
-		errEs == nil && selettoreDiIdentita(selEs) {
+	if v, ok := atteso["letture_identita"]; ok && v.Tipo == TipoIntero && v.Testo == "0" && len(e.Atteso.Letture) > 0 && identita {
 		ce.Motivi = append(ce.Motivi, "letture_identita: il caso dice 0, l'esempio attende letture su "+selEs.String())
 	}
 	if e.Atteso.Nessuna {

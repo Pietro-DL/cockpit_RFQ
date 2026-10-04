@@ -2,36 +2,46 @@ package bancoa
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/estrazione"
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
 )
 
 // Gli esiti di un caso degli attesi (par.4.7.4). Un parziale, un riservato o un rimandato non è mai un passato.
 const (
-	CasoPassato   = "passato"   // tutte le chiavi controllate in A1a passano, nessuna rimandata
-	CasoParziale  = "parziale"  // le chiavi controllate passano, ma alcune sono rimandate ad A1b
+	CasoPassato   = "passato"   // tutte le chiavi controllate passano, nessuna rimandata
+	CasoParziale  = "parziale"  // le chiavi controllate passano, ma alcune sono rimandate (decadute o non verificabili)
 	CasoFallito   = "fallito"   // almeno una chiave non passa, o il caso non si può eseguire
 	CasoRiservato = "riservato" // stato_atteso riservato, o un predicato su una forma riservata
-	CasoRimandato = "rimandato" // nessuna chiave si controlla in A1a
+	CasoRimandato = "rimandato" // nessuna chiave si controlla
 )
 
+// chiavePrecondizioni: il nome con cui le precondizioni di un caso entrano nell'elenco delle chiavi del rapporto
+// (par.4.7.5: «precondizioni», attributo della revisione in campo separato, A1b). Non è una chiave di atteso:
+// la tabella delle chiavi non la conosce.
+const chiavePrecondizioni = "precondizioni"
+
 // EsitoCaso: come è andato un caso, con ciò che serve a capirlo senza rileggere gli attesi: per ogni chiave
-// l'atteso e l'ottenuto, le letture con famiglia e forma, le forme riservate sul selettore del caso, le
-// diagnostiche di Riconosci. L'ID e il profilo sono dati privati: stanno solo nei rapporti del banco.
+// l'atteso e l'ottenuto, le letture con famiglia, forma e funzione, gli attributi, le forme riservate sul
+// selettore del caso, le diagnostiche di Interpreta. L'ID e il profilo sono dati privati: stanno solo nei
+// rapporti del banco.
 type EsitoCaso struct {
-	ID                    string                 `json:"id"`
-	Profilo               string                 `json:"profilo"`
-	Selettore             string                 `json:"selettore"`
-	Esito                 string                 `json:"esito"`
-	Motivo                string                 `json:"motivo,omitempty"`
-	DipendeDa             string                 `json:"dipende_da,omitempty"` // un caso definito con dipende_da si valuta, e il rapporto lo annota
-	Chiavi                []EsitoChiave          `json:"chiavi,omitempty"`
-	Letture               []LetturaRapporto      `json:"letture,omitempty"`
-	RiservateSulSelettore []string               `json:"riservate_sul_selettore,omitempty"` // «famiglia/forma»
-	Diagnostiche          []evidenze.Diagnostica `json:"diagnostiche,omitempty"`
+	ID                    string                   `json:"id"`
+	Profilo               string                   `json:"profilo"`
+	Selettore             string                   `json:"selettore"`
+	Esito                 string                   `json:"esito"`
+	Motivo                string                   `json:"motivo,omitempty"`
+	DipendeDa             string                   `json:"dipende_da,omitempty"` // un caso definito con dipende_da si valuta, e il rapporto lo annota
+	Chiavi                []EsitoChiave            `json:"chiavi,omitempty"`
+	Letture               []LetturaRapporto        `json:"letture,omitempty"`
+	Attributi             []motorea.AttributoLetto `json:"attributi,omitempty"`               // da A1b.11: gli attributi di Interpreta
+	RiservateSulSelettore []string                 `json:"riservate_sul_selettore,omitempty"` // «famiglia/forma»
+	Diagnostiche          []evidenze.Diagnostica   `json:"diagnostiche,omitempty"`
 }
 
 // EsitoChiave: una chiave dell'atteso. Stato: passata | fallita | rimandata | riservata.
@@ -44,11 +54,12 @@ type EsitoChiave struct {
 	Motivo   string `json:"motivo,omitempty"`
 }
 
-// LetturaRapporto: una lettura di forma come la scrive il rapporto: la regola che l'ha prodotta (famiglia e
-// forma), che cosa ha letto e dove.
+// LetturaRapporto: una lettura come la scrive il rapporto: la regola che l'ha prodotta (famiglia e forma), la
+// funzione che le ha dato il router (da A1b.11), che cosa ha letto e dove.
 type LetturaRapporto struct {
 	Famiglia  string `json:"famiglia"`
 	Forma     string `json:"forma"`
+	Funzione  string `json:"funzione,omitempty"`
 	Originale string `json:"originale"`
 	Base      string `json:"base"`
 	Revisione string `json:"revisione,omitempty"`
@@ -57,26 +68,32 @@ type LetturaRapporto struct {
 	Fine      int    `json:"fine"`
 }
 
-// preparato: un caso con il suo selettore, il suo motore e le sue letture, prima di valutarne le chiavi.
+// preparato: un caso con il suo selettore, il suo motore e la sua interpretazione, prima di valutarne le
+// chiavi.
 type preparato struct {
 	caso    CasoContratto
 	sel     evidenze.Selettore
 	motore  *motorea.Motore
-	letture []motorea.LetturaForma
+	cliente uuid.UUID
+	interp  motorea.Interpretazione
 	diag    []evidenze.Diagnostica
 	errore  string
 }
 
-// EseguiCasiContratto: ogni caso sul motore del suo profilo. In A1a usa Riconosci e controlla solo le chiavi
-// definite sulle letture di forma; le altre sono «rimandate ad A1b», con il nome (par.4.7.5). Esiti: passato,
-// parziale, fallito, riservato, rimandato. Un parziale, un riservato o un rimandato non è mai un passato.
+// EseguiCasiContratto: ogni caso sul motore del suo profilo. Da A1b.11 il testo del caso diventa un documento di
+// una sola unità con estrazione.DaTesto, e motorea.Interpreta lo legge con l'uso sconosciuto del documento
+// (5.4.5, «L'uso dei segmenti nei casi di contratto»; R52 A): nessuna selezione viene inventata, quindi su
+// oggetto e corpo la riga 2 del router dà «richiesta» con l'incertezza nella lettura, sul testo del PDF
+// «menzione», sui campi della revisione «attributo». Le chiavi si leggono dall'Interpretazione divisa per
+// funzione (traduzione.go; R25 a). Esiti: passato, parziale, fallito, riservato, rimandato. Un parziale, un
+// riservato o un rimandato non è mai un passato.
 //
 // Il profilo si lega al cliente con i profili del manifest (D-09), poi al motore per UUID: nel codice nessun
 // nome di profilo o di cliente. Un profilo senza cliente, un cliente senza motore (scartato o assente
-// dall'indice) o un contesto che non si legge fanno fallire il caso, con il motivo. Un caso con stato_atteso
-// riservato non si valuta: le sue letture restano nel rapporto come informazione. I casi sull'attributo della
-// revisione in campo separato (un selettore «….revisione», o con precondizioni) si valutano in A1b (A-C02,
-// A-C09): tutte le loro chiavi sono rimandate. Gli esiti seguono l'ordine dei casi negli attesi.
+// dall'indice), un contesto che non si legge o un testo che DaTesto o Interpreta rifiutano fanno fallire il
+// caso, con il motivo; così un'interpretazione parziale (un limite superato), anche se le chiavi tornano. Un
+// caso con stato_atteso riservato non si valuta: le sue letture restano nel rapporto come informazione. Le precondizioni di un caso si verificano (verificaPrecondizioni) e stanno fra le chiavi
+// del rapporto. Gli esiti seguono l'ordine dei casi negli attesi.
 func EseguiCasiContratto(a Attesi, r motorea.InsiemeRegole, profili map[string]uuid.UUID) []EsitoCaso {
 	pp := make([]preparato, 0, len(a.Casi))
 	for _, c := range a.Casi {
@@ -102,6 +119,7 @@ func prepara(c CasoContratto, r motorea.InsiemeRegole, profili map[string]uuid.U
 		p.errore = "il profilo non è legato a un cliente nei profili del manifest (D-09)"
 		return p
 	}
+	p.cliente = cliente
 	m := r.Motori[cliente]
 	if m == nil {
 		p.diag = append(p.diag, r.Scartati[cliente]...)
@@ -113,8 +131,24 @@ func prepara(c CasoContratto, r motorea.InsiemeRegole, profili map[string]uuid.U
 		return p
 	}
 	p.motore = m
-	p.letture, p.diag = m.Riconosci(sel, c.Testo)
+	p.interp, p.errore = interpreta(m, sel, c.Testo)
+	p.diag = p.interp.Diagnostiche
 	return p
+}
+
+// interpreta: il documento di una sola unità di DaTesto (5.4.5) letto da Interpreta con l'uso sconosciuto del
+// documento: per il modo casi nessuna selezione dei segmenti viene inventata. Un errore di DaTesto (testo non
+// UTF-8) o di Interpreta (contratto, motore usato male) torna come motivo, con le diagnostiche.
+func interpreta(m *motorea.Motore, sel evidenze.Selettore, testo string) (motorea.Interpretazione, string) {
+	doc, err := estrazione.DaTesto(sel, testo)
+	if err != nil {
+		return motorea.Interpretazione{}, "il testo non diventa un documento (DaTesto): " + testoDiagnostiche(err)
+	}
+	in, err := m.Interpreta(doc, evidenze.UsoSconosciuto(doc.BundleID))
+	if err != nil {
+		return motorea.Interpretazione{}, "Interpreta non legge il documento del caso: " + testoDiagnostiche(err)
+	}
+	return in, ""
 }
 
 func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
@@ -122,7 +156,8 @@ func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
 	e := EsitoCaso{ID: c.ID, Profilo: c.Profilo, Selettore: c.Contesto, DipendeDa: c.DipendeDa, Diagnostiche: p.diag}
 	if p.errore == "" {
 		e.Selettore = p.sel.String()
-		e.Letture = rapportoLetture(p.letture)
+		e.Letture = rapportoLetture(p.interp.Letture)
+		e.Attributi = p.interp.Attributi
 		e.RiservateSulSelettore = riservateSul(p.motore, p.sel)
 	}
 	if p.errore != "" {
@@ -141,34 +176,42 @@ func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
 		}
 		return e
 	}
-	attributo := p.sel.Campo.Valore == "revisione" || c.Precondizioni != nil
 
-	sc := &scena{sel: p.sel, testo: c.Testo, letture: p.letture, motore: p.motore, atteso: map[string]ValoreAtteso{}}
+	sc := nuovaScena(p.sel, c.Testo, p.interp, p.motore, p.cliente)
 	for _, k := range c.Atteso {
 		sc.atteso[k.Chiave] = k.Valore
 	}
 	for j, q := range tutti {
 		if j != i && q.errore == "" && q.caso.Profilo == c.Profilo && q.sel == p.sel {
-			sc.formeAltri = append(sc.formeAltri, formeDi(q.letture))
+			identita, _ := dividiLetture(q.interp.Letture)
+			sc.formeAltri = append(sc.formeAltri, formeDi(identita))
 		}
 	}
 
-	passate, fallite, rimandate, riservate := 0, 0, 0, 0
 	for _, k := range c.Atteso {
 		regola := tabellaChiavi[k.Chiave]
 		ek := EsitoChiave{Chiave: k.Chiave, Sessione: regola.sessione, Atteso: k.Valore.String()}
-		switch {
-		case attributo:
-			ek.Stato, ek.Motivo = ChiaveRimandata, motivoAttributo
-		case regola.valuta == nil:
+		if regola.valuta == nil {
 			ek.Stato, ek.Motivo = ChiaveRimandata, regola.motivo
-		default:
+		} else {
 			v := regola.valuta(sc, k.Valore)
 			ek.Stato, ek.Ottenuto, ek.Motivo = v.stato, v.ottenuto, v.motivo
 		}
+		e.Chiavi = append(e.Chiavi, ek)
+	}
+	if c.Precondizioni != nil {
+		e.Chiavi = append(e.Chiavi, verificaPrecondizioni(p, sc))
+	}
+
+	// passate conta solo le chiavi dell'atteso: le precondizioni da sole non fanno passare un caso che non
+	// controlla niente (mai un passato per vuoto).
+	passate, fallite, rimandate, riservate := 0, 0, 0, 0
+	for _, ek := range e.Chiavi {
 		switch ek.Stato {
 		case ChiavePassata:
-			passate++
+			if ek.Chiave != chiavePrecondizioni {
+				passate++
+			}
 		case ChiaveFallita:
 			fallite++
 		case ChiaveRimandata:
@@ -176,7 +219,6 @@ func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
 		case ChiaveRiservata:
 			riservate++
 		}
-		e.Chiavi = append(e.Chiavi, ek)
 	}
 	switch {
 	case fallite > 0:
@@ -188,21 +230,113 @@ func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
 		if len(c.Atteso) == 0 {
 			e.Motivo = "l'atteso non ha chiavi"
 		} else {
-			e.Motivo = "nessuna chiave si controlla in A1a"
+			e.Motivo = "nessuna chiave si controlla"
 		}
 	case rimandate > 0:
-		e.Esito, e.Motivo = CasoParziale, "alcune chiavi sono rimandate ad A1b"
+		e.Esito, e.Motivo = CasoParziale, "alcune chiavi sono rimandate"
 	default:
 		e.Esito = CasoPassato
+	}
+	// Un'interpretazione parziale (un limite superato, 5.4.6 punto 16) non è una base per giudicare: le chiavi che
+	// passano sul vuoto (letture_identita 0, fallback_generico_non_promuove…) passerebbero per un taglio, non per
+	// il testo (A1b-22: mai un successo vuoto). Le chiavi restano nel rapporto come informazione.
+	if p.interp.Stato == motorea.StatoInterpretazioneParziale {
+		e.Esito, e.Motivo = CasoFallito, "interpretazione parziale (vedi le diagnostiche): un risultato tagliato non si giudica (5.4.6 punto 16; A1b-22)"
 	}
 	return e
 }
 
-func rapportoLetture(ls []motorea.LetturaForma) []LetturaRapporto {
+// verificaPrecondizioni: le precondizioni di un caso sull'attributo della revisione in campo separato
+// (par.4.7.5; A-C02). DaTesto fa una sola unità, quindi l'entità del caso non ha letture di codice, e Interpreta
+// applica «l'unica regola attiva sul selettore» (5.4.6 punto 12). Il banco non costruisce l'entità condivisa:
+// verifica che il risultato sarebbe lo stesso. Provenance: la precondizione degli attesi dichiara che il campo e
+// il codice stanno nella stessa entità; regola: la RegolaRevisione della famiglia che legge quel codice.
+//   - entita_condivisa_con_codice falso: niente da verificare, DaTesto non mette codici nell'entità (passata);
+//   - vero: il codice base_strutturata, letto da solo sul campo del codice della stessa entità (cartiglio.codice,
+//     o l'id dello STEP) con DaTesto e Interpreta, dà le famiglie delle sue letture d'identità con quella base.
+//     Ogni revisione del caso deve venire da una regola di una di quelle famiglie (l'ID dell'attributo): allora
+//     passata; una revisione senza regola, o di un'altra famiglia, fallita (nell'entità vera la regola sarebbe
+//     un'altra). Se la base non si legge da sola sul campo del codice la precondizione non si costruisce con
+//     DaTesto: rimandata, con il motivo, mai passata.
+func verificaPrecondizioni(p preparato, sc *scena) EsitoChiave {
+	pc := p.caso.Precondizioni
+	ek := EsitoChiave{Chiave: chiavePrecondizioni, Sessione: SessioneA1b,
+		Atteso: "base_strutturata " + pc.BaseStrutturata + ", entita_condivisa_con_codice " + strconv.FormatBool(pc.EntitaCondivisaConCodice)}
+	if !pc.EntitaCondivisaConCodice {
+		ek.Stato, ek.Ottenuto = ChiavePassata, "nessun codice nell'entità, come nel documento di DaTesto"
+		return ek
+	}
+	campo, ok := campoDelCodice(p.sel)
+	if !ok {
+		ek.Stato, ek.Motivo = ChiaveFallita, fmt.Sprintf("il selettore %q non ha un campo del codice nella stessa entità", p.sel.String())
+		return ek
+	}
+	if pc.BaseStrutturata == "" {
+		ek.Stato, ek.Motivo = ChiaveFallita, "entità condivisa con il codice senza base_strutturata: precondizione incompleta"
+		return ek
+	}
+	in, errore := interpreta(p.motore, campo, pc.BaseStrutturata)
+	if errore != "" {
+		ek.Stato, ek.Motivo = ChiaveFallita, errore
+		return ek
+	}
+	var famiglie []string
+	for _, l := range in.Letture {
+		if funzioneDIdentita(l.Funzione) && l.Forma.Base.Normalizzata == pc.BaseStrutturata && !dentro(l.Forma.Famiglia, famiglie) {
+			famiglie = append(famiglie, l.Forma.Famiglia)
+		}
+	}
+	if len(famiglie) == 0 {
+		ek.Stato, ek.Motivo = ChiaveRimandata, fmt.Sprintf("la base della precondizione non si legge da sola su %s: con DaTesto l'entità condivisa non si costruisce", campo.String())
+		return ek
+	}
+	if len(sc.attributi) == 0 {
+		ek.Stato, ek.Ottenuto, ek.Motivo = ChiaveFallita, "codice letto da "+elenco(unici(famiglie)), "nessuna revisione in campo separato nel caso"
+		return ek
+	}
+	var regole []string
+	ok = true
+	for _, a := range sc.attributi {
+		fam, reg, conRegola := regolaDellAttributo(a)
+		if !conRegola {
+			regole = append(regole, a.Stato+" senza regola")
+			ok = false
+			continue
+		}
+		regole = append(regole, fam+"/"+reg)
+		ok = ok && dentro(fam, famiglie)
+	}
+	ek.Ottenuto = "codice letto da " + elenco(unici(famiglie)) + "; revisione da " + strings.Join(unici(regole), ", ")
+	if ok {
+		ek.Stato = ChiavePassata
+	} else {
+		ek.Stato, ek.Motivo = ChiaveFallita, "la revisione non viene da una regola della famiglia del codice dell'entità (5.4.6 punto 12)"
+	}
+	return ek
+}
+
+// campoDelCodice: il campo del codice nella stessa entità del selettore: cartiglio.codice per il cartiglio (il
+// disegno), l'id per un nodo o una radice STEP.
+func campoDelCodice(s evidenze.Selettore) (evidenze.Selettore, bool) {
+	campo := ""
+	switch s.Contesto {
+	case evidenze.ContestoCartiglio:
+		campo = "codice"
+	case evidenze.ContestoRadiceSTEP, evidenze.ContestoNodoSTEP:
+		campo = "id"
+	default:
+		return evidenze.Selettore{}, false
+	}
+	sel, err := evidenze.LeggiSelettore(string(s.Contesto) + "." + campo)
+	return sel, err == nil
+}
+
+func rapportoLetture(ls []motorea.LetturaCodice) []LetturaRapporto {
 	var out []LetturaRapporto
-	for _, l := range ls {
-		lr := LetturaRapporto{Famiglia: l.Famiglia, Forma: l.Forma, Originale: l.Originale, Base: l.Base.Normalizzata,
-			Stato: l.Stato, Inizio: l.Intervallo.Inizio, Fine: l.Intervallo.Fine}
+	for _, lc := range ls {
+		l := lc.Forma
+		lr := LetturaRapporto{Famiglia: l.Famiglia, Forma: l.Forma, Funzione: string(lc.Funzione), Originale: l.Originale,
+			Base: l.Base.Normalizzata, Stato: l.Stato, Inizio: l.Intervallo.Inizio, Fine: l.Intervallo.Fine}
 		if l.Revisione != nil {
 			lr.Revisione = l.Revisione.Originale
 		}

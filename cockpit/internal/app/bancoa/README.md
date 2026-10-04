@@ -15,9 +15,13 @@ markmap:
     riservate, riserve, esempi verificati e non verificati, le **lacune** della copertura minima di P1 §5.4
     (R20 b, informative) e la **coerenza** fra gli esempi con `rif_caso` e i casi degli attesi che ripetono
     (R47 b, CP-17);
-  - **`casi`** (A1a-P2): esegue i `casi_contratto` degli attesi sul riconoscimento per forma (`Riconosci`) e
-    confronta le letture con l'atteso, chiave per chiave. Esiti: passato, parziale, fallito, riservato,
-    rimandato; un parziale, un riservato o un rimandato non è mai un passato.
+  - **`casi`** (A1a-P2; da A1b.11 A1b-P1): esegue i `casi_contratto` degli attesi e confronta l'esito con
+    l'atteso, chiave per chiave. Da A1b.11 il testo del caso diventa un documento di una sola unità con
+    `estrazione.DaTesto`, e `Motore.Interpreta` lo legge con l'uso sconosciuto del documento
+    (`evidenze.UsoSconosciuto`, 5.4.5): nessuna selezione inventata. Le letture si dividono per funzione del
+    router (R25 a): letture d'identità (`identita_file`, `struttura`, `richiesta`), menzioni, attributi.
+    Esiti: passato, parziale, fallito, riservato, rimandato; un parziale, un riservato o un rimandato non è
+    mai un passato.
 - Legge tutto **da fuori il repository**, attraverso il manifest del dataset privato (`platform/dataset`):
   attesi, indice delle regole, grammatiche. Ogni file del manifest passa dal controllo di sha256 e byte;
   l'indice controlla gli sha256 delle grammatiche.
@@ -30,20 +34,25 @@ markmap:
 
 ## Non appartiene qui
 
-- **Riconoscere i codici**: lo fa il motore del prodotto (`motorea.CompilaInsieme`, `Motore.Riconosci`). Il
-  runner è il giudice, non un secondo motore (R25): legge le letture e le confronta.
+- **Riconoscere e interpretare i codici**: lo fa il motore del prodotto (`motorea.CompilaInsieme`,
+  `Motore.Riconosci`, `Motore.Interpreta`). Il runner è il giudice, non un secondo motore (R25): legge
+  l'interpretazione e la confronta; la funzione di una lettura è quella che Interpreta ha scritto.
+- **Costruire documenti**: il documento del caso lo fa `estrazione.DaTesto`, l'unica funzione di
+  `core/estrazione` che il banco usa (F19, R52 A). Nessuna entità condivisa, nessuna selezione dei segmenti
+  costruita dal banco.
 - **Nomi di clienti, profili, percorsi o codici reali**: nel codice ci sono solo i nomi neutri delle chiavi
   degli attesi (R47 a, M-21). I profili si legano ai clienti nel manifest (D-09); i valori attesi vengono
   dagli attesi a runtime e compaiono solo nei rapporti privati.
 - **Il DB, gli export, la fotografia, le proposte di prodotti, il confronto con l'atteso dei prodotti e il
   gate**: le modalità `dsn` ed `exports` arrivano in A1c. `cockpit.toml` non si legge.
-- **L'interpretazione** (`DaTesto`, `Interpreta`, funzione, ruoli): A1b. In A1a le chiavi che ne dipendono sono
-  «rimandate», con il nome e la sessione.
+- **Il file dei casi** (uso «scenario» dei segmenti, R29 b): lo leggono il banco e l'anteprima in A1c e A1d.
+  Nel modo `casi` di A1b l'uso è sempre quello sconosciuto.
 
 ## File
 
 - **`bancoa.go`** — responsabilità:
-  - commento `// Package`; `VersioneRapporto` (1); le modalità; i nomi delle voci del manifest (`attesi`,
+  - commento `// Package`; `VersioneRapporto` (2 da A1b.11: funzione delle letture e attributi nei casi); le
+    modalità; i nomi delle voci del manifest (`attesi`,
     `regole.indice`);
   - `Opzioni`, `Esito` con `CodiceUscita` (0, 1, 3), `ErroreUso` (uscita 2), `Esegui`: manifest, profili,
     indice, attesi, la modalità, l'esito dai controlli (una differenza prevale su un non eseguito), il rapporto.
@@ -56,11 +65,14 @@ markmap:
   - `TraduciContesto` (`figlio_step.<campo>` → `nodo_step.<campo>`, R19 a; la notazione puntata di
     `evidenze.LeggiSelettore`, R19 b);
   - la tabella «chiave degli attesi → campo o predicato» del par.4.7.5, con le sessioni (A1a, A1b, decaduta):
-    `ChiaveNota`, `SessioneChiave`, `ChiaviNote`; i predicati sulle letture.
+    `ChiaveNota`, `SessioneChiave`, `ChiaviNote`; i predicati sulle letture e sugli attributi;
+  - la divisione dell'interpretazione per funzione (`nuovaScena`, `dividiLetture`, `funzioneDIdentita`) e
+    `funzioneNelBanco`, la funzione del router con l'uso del modo casi, che usa la coerenza.
 - **`regole.go`** — responsabilità:
   - `VerificaRegole`, `RapportoRegole` e le sue parti: clienti, famiglie, riserve, esempi, lacune, coerenza.
 - **`casi.go`** — responsabilità:
-  - `EseguiCasiContratto`, `EsitoCaso`, `EsitoChiave`, `LetturaRapporto`, `ConteggiCasi`, `Conta`.
+  - `EseguiCasiContratto` (con `DaTesto` più `Interpreta` e l'uso sconosciuto), la verifica delle precondizioni,
+    `EsitoCaso`, `EsitoChiave`, `LetturaRapporto`, `ConteggiCasi`, `Conta`.
 - **`rapporto.go`** — responsabilità:
   - `Rapporto`, `Versioni`, `Controllo`, `RapportoCasi`; `PrimaRiga`, `Testo`; `ScriviRapporto` (`.tmp`, poi
     `Rename`; rifiuta una cartella dentro il modulo).
@@ -90,17 +102,33 @@ markmap:
   manca o è cambiata dà NON ESEGUITO; un file presente ma non valido dà una differenza (par.3.6.5).
 - **1 prevale su 3**: una differenza trovata si vede sempre, anche se qualcosa non è stato eseguito.
 - **Una chiave degli attesi che la tabella non conosce rende gli attesi illeggibili**: una chiave nuova non si
-  ignora. Una chiave che A1a non sa controllare è «rimandata» con la sessione, mai passata.
+  ignora. Una chiave che il runner non sa controllare è «rimandata» con il motivo, mai passata: da A1b.11 lo
+  sono solo le chiavi decadute e le precondizioni che `DaTesto` non sa costruire.
+- **Il modo casi non inventa selezioni** (5.4.5): l'uso è sempre `evidenze.UsoSconosciuto` del documento di
+  `DaTesto`. Su oggetto e corpo la riga 2 del router dà «richiesta», che conta fra le letture d'identità.
+- **Letture d'identità** (R25 a): le letture con funzione `identita_file`, `struttura` o `richiesta`, per
+  occorrenza. Le leggono base, basi, `letture_identita` (su ogni selettore) e le chiavi dei campi; menzioni e
+  attributi stanno fuori, e li leggono le loro chiavi (`base_menzionata`, `identita_file_da_nota`,
+  `nessuna_fusione`; `revisione`, `stato`, `originale_conservato`, `cifre`). Sui selettori di A1a le letture
+  d'identità sono tutte le letture di forma: le chiavi di A1a non cambiano significato.
 - **Confronto** (R25 c, d): esatto per base, basi, marcatore, affisso e revisione; per le altre chiavi il valore
   atteso sta fra quelli letti, e una lista vuota vuole zero valori letti (mai un passato per vuoto); una
   chiave che l'atteso non nomina non si controlla.
-- **I casi sull'attributo della revisione in campo separato** (selettore `….revisione` o precondizioni) e le
-  chiavi della funzione «menzione» si valutano in A1b; le letture d'identità si controllano in A1a solo
-  sullo zero e solo sui selettori d'identità (nome del file, codice del cartiglio, id dello STEP).
+- **La revisione in campo separato** viene dall'attributo di Interpreta (5.4.6 punto 12): con `DaTesto`
+  l'entità non ha letture di codice, quindi vale l'unica regola attiva sul selettore; un valore che non la
+  rispetta è `non_interpretabile`, con l'originale. Le precondizioni (entità condivisa con un codice) si
+  verificano: il codice della precondizione, letto da solo sul campo del codice della stessa entità, deve
+  essere di una famiglia la cui regola ha dato la revisione; se non si legge da solo, la precondizione è
+  rimandata, mai passata. Le precondizioni da sole non fanno passare un caso senza chiavi dell'atteso.
+- **Un'interpretazione parziale non si giudica** (5.4.6 punto 16; A1b-22): con un limite superato il caso è
+  fallito, con il motivo, anche se le chiavi tornano.
 - **La coerenza esempio/caso legge ogni chiave come la legge il runner** (`traduzione.go` è l'unica fonte della
-  semantica di una chiave; par.4.10 n.3): `letture_identita = 0` contraddice le letture attese da un esempio
-  solo sui selettori d'identità; per `basi` un esempio contraddice il caso solo se attende una base che il caso
-  non elenca (non sa scrivere le ripetizioni). In un conflitto vincono gli attesi, e si corregge l'esempio.
+  semantica di una chiave; par.4.10 n.3): con la funzione del router sul selettore dell'esempio
+  (`funzioneNelBanco`), le letture attese su un selettore d'identità valgono per base, basi, marcatore,
+  revisione e contraddicono `letture_identita = 0`; su un selettore di menzione non valgono per nessuna di
+  queste; su un campo della revisione valgono solo per revisione. Per `basi` un esempio contraddice il caso solo
+  se attende una base che il caso non elenca (non sa scrivere le ripetizioni). In un conflitto vincono gli
+  attesi, e si corregge l'esempio.
 - **Un caso definito con `dipende_da` si valuta**, e il rapporto lo annota; un caso con `stato_atteso:
   riservato` non si valuta.
 - **Nessun ordine dipende da una mappa**: casi nell'ordine degli attesi, chiavi in ordine alfabetico, clienti
@@ -109,8 +137,8 @@ markmap:
 ## Dipendenze
 
 - **Importa:** `platform/dataset`, `core/registro/regole/grammatica`, `core/inbox/classificazione/motorea`,
-  `core/estrazione/evidenze`, `platform/jsoncanonico`, `github.com/google/uuid`, `gopkg.in/yaml.v3` (unico
-  importatore), la libreria standard.
+  `core/estrazione/evidenze`, `core/estrazione` (da A1b.11, solo `DaTesto`: F19, R52 A), `platform/jsoncanonico`,
+  `github.com/google/uuid`, `gopkg.in/yaml.v3` (unico importatore), la libreria standard.
 - **Non importa:** `app/runtime`, `transport/*`, `ai/*`, `platform/config`, `platform/db`.
 - **È importato da:** `cmd/bancoa`.
 
@@ -122,22 +150,25 @@ markmap:
   - **`attesi_test.go`** — la testata e i casi; chiavi sconosciute, ripetute o fuori posto; il testo dei valori
     come è scritto; le sezioni non lette;
   - **`traduzione_test.go`** — i contesti (R19); la tabella delle chiavi, completa e neutra; ogni chiave di A1a
-    con il valore giusto e con uno sbagliato; la lista attesa vuota («nessuno»); le chiavi rimandate e
-    decadute;
-  - **`casi_test.go`** — gli esiti dei dieci casi ACME; il caso fallito con atteso, ottenuto e regola; profilo
-    senza cliente, cliente scartato, contesto illeggibile; il determinismo;
+    con il valore giusto e con uno sbagliato; la lista attesa vuota («nessuno»); le chiavi decadute; da A1b.11
+    le chiavi del router e degli attributi (A1b-24), la funzione del banco uguale a quella di Interpreta;
+  - **`casi_test.go`** — gli esiti dei casi ACME; il caso fallito con atteso, ottenuto e regola; profilo
+    senza cliente, cliente scartato, contesto illeggibile; da A1b.11 le precondizioni (anche da sole, mai un
+    passato), il testo che DaTesto rifiuta e l'interpretazione parziale, che non si giudica; il determinismo;
   - **`regole_test.go`** — il rapporto delle regole; la coerenza con `rif_caso`, con la regola del runner per
-    `letture_identita` e `basi`; senza attesi; cliente scartato
+    `letture_identita`, `basi` e la funzione del selettore; senza attesi; cliente scartato
     e indice non valido;
   - **`rapporto_test.go`** — esito e codice d'uscita, prima riga, scrittura atomica fuori dal modulo, gli esiti
     di `Esegui` (conforme, con differenze, non eseguito, 1 su 3), gli errori d'uso senza rapporto.
 - `cmd/bancoa/main_test.go` prova flag e codici d'uscita del comando (0, 1, 2, 3).
-- Il controllo che la libreria YAML stia solo qui (G3) è in `core/estrazione/evidenze/dipendenze_test.go`.
+- Il controllo che la libreria YAML stia solo qui (G3) e quello che di `core/estrazione` il banco usi solo
+  `DaTesto` (F19) sono in `core/estrazione/evidenze/dipendenze_test.go`.
 
 ## Leggi anche
 
 - `internal/app/README.md`
 - `internal/platform/dataset/README.md`
 - `internal/core/inbox/classificazione/motorea/README.md`
+- `internal/core/estrazione/README.md`
 - `internal/core/registro/regole/grammatica/README.md`
 - `internal/README.md`

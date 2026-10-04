@@ -145,9 +145,12 @@ markmap:
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
   - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
-    `core/estrazione/evidenze`, `platform/jsoncanonico`, `platform/dataset`, la libreria YAML
+    `core/estrazione/evidenze`, `core/estrazione` (solo `DaTesto`), `platform/jsoncanonico`, `platform/dataset`,
+    la libreria YAML
     - è l'unico importatore della libreria YAML (G3): gli attesi entrano solo dal banco; mai `app/runtime`,
       `transport`, `ai`, `platform/config`
+    - da A1b.11 il modo `casi` fa il documento del caso con `estrazione.DaTesto` (F19, R52 A): nessun ciclo,
+      perché `core/estrazione` non importa `app`
   - **`cmd/cockpit`** → `app/runtime`, `platform/config`
   - **`cmd/bancoa`** → `app/bancoa`
     - non legge `cockpit.toml`
