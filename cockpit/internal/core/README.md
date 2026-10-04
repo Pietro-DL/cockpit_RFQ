@@ -127,6 +127,14 @@ markmap:
     - Puro: niente DB, file né orologio; il caricatore, che legge il DB, è un package a parte (A1c)
   - DB: no
   - README: [README](fotorfq/README.md)
+- **`estrazione`**
+  - Che cosa fa: gli **adattatori del motore A** (giro 5):
+    - dai record della fotografia e dai fatti dei worker ai documenti delle evidenze, con fonte, entità, unità,
+      localizzatori e legami che vengono solo dai fatti; ciò che manca è una capacità dichiarata, mai «vuoto»
+    - il testo isolato (`DaTesto`) per gli esempi e per il banco
+    - Puro; nessuna regola cliente nei testi
+  - DB: no
+  - README: [README](estrazione/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -161,6 +169,13 @@ markmap:
     - `platform/jsoncanonico` (l'impronta dei fatti)
     - la tabella di `internal/README.md` ammette anche `estrazione/evidenze`, per le diagnostiche della
       fotografia (A1c)
+  - **`estrazione`** importa:
+    - `estrazione/evidenze` (il documento)
+    - `fotorfq` (i record)
+    - `platform/jsoncanonico` (il `BundleID`)
+    - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi;
+      la tabella di `internal/README.md` ammette anche `platform/contratti/worker`, per i fatti, e
+      `inbox/classificazione` e `inbox/lettura`, solo per l'elenco chiuso di G4
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:

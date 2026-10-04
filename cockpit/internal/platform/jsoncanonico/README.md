@@ -69,7 +69,8 @@ markmap:
 - **Importa:** solo la libreria standard.
 - **È importato da:** `core/registro/regole/grammatica`, per la forma canonica e l'hash degli snapshot;
   `core/inbox/classificazione/motorea`, per l'impronta dell'indice delle regole; `core/fotorfq`, per
-  l'impronta dei fatti (`ImprontaPayload`); `internal/app/bancoa`, per il rapporto del banco in JSON canonico.
+  l'impronta dei fatti (`ImprontaPayload`); `core/estrazione`, per il `BundleID` dei documenti e l'impronta dei
+  testi di un messaggio; `internal/app/bancoa`, per il rapporto del banco in JSON canonico.
 
 ## Test
 

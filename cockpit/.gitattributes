@@ -5,3 +5,8 @@
 # pdf.js e' copiato com'e' dal pacchetto pdfjs-dist: nessuna conversione dei fine riga (i moduli minificati
 # contengono template literal, e un CRLF li cambierebbe).
 web/static/pdfjs-*/** -text
+
+# Gli ingressi e i golden degli adattatori del motore A (giro 5, A1b): il contenuto non dipende dai fine riga
+# (i CRLF dei casi stanno dentro le stringhe JSON come \r\n), ma i file restano LF anche su Windows, così il diff
+# dei golden è lo stesso su ogni postazione.
+internal/core/estrazione/testdata/** text eol=lf
