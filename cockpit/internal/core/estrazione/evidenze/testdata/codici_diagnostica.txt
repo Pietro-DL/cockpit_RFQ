@@ -50,3 +50,5 @@ grammatica.forma_riservata
 grammatica.riserva
 limite.superato
 limite.oltre_tetto
+regole.cliente_ripetuto
+regole.ragione_sociale_discorde
