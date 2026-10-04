@@ -827,14 +827,31 @@ func TestAC02UnAttributoStaConLaSuaEntita(t *testing.T) {
 		}
 	})
 
-	t.Run("nessuna regola in campo separato: nessuna revisione, e il campo si dice non letto", func(t *testing.T) {
+	// Riscritta per la correzione di A1b.10 (C-34; R21 e = A): senza nessuna regola sul selettore la revisione
+	// del cartiglio non è assente, è non_interpretabile con l'originale conservato. Prima la prova chiedeva
+	// nessun attributo, contro C-34 e il 5.4.6 punto 12.
+	t.Run("nessuna regola in campo separato: non interpretabile con l'originale, e il campo si dice non letto", func(t *testing.T) {
 		fc := famCodice()
 		fc.Revisioni = nil
 		fc.Esempi = fc.Esempi[:1]
 		m, _ := compilaBene(t, grammaticaACME(fc))
 		r := interpreta(t, m, docDisegni(t, "ACME7001", "ACME7002"), evidenze.UsoSconosciuto(bundleDSint))
-		if a := attributiDi(r, AttributoRevisione); len(a) != 0 {
-			t.Fatalf("revisioni senza una RegolaRevisione campo_separato: %+v", a)
+		// u:02, u:04 e u:05 hanno un'entità; u:06 no, e senza entità non c'è attributo (A-C02).
+		if a := attributiDi(r, AttributoRevisione); len(a) != 3 {
+			t.Fatalf("attese 3 revisioni non interpretabili, una per campo con un'entità: %+v", a)
+		}
+		for u, grezzo := range map[string]string{"u:02": "02", "u:04": "01", "u:05": "05"} {
+			a := attributoDellUnita(t, r, AttributoRevisione, u)
+			if a.Stato != StatoNonInterpretabile || a.Normalizzato != "" || a.Grezzo != grezzo || len(a.LettureCompatibili) != 0 || a.ID != "a:"+u+":revisione" {
+				t.Errorf("senza regola, %s: %+v; atteso non_interpretabile con l'originale, senza valore né legami", u, a)
+			}
+		}
+		if n := len(conCodice(r.Diagnostiche, CodiceRevisioneNonInterpretabile)); n != 3 {
+			t.Errorf("revisione.non_interpretabile: %d, attese 3:\n%s", n, elenco(r.Diagnostiche))
+		}
+		// Il titolo non è una revisione: resta il grezzo, e nessun default prudente lo tocca.
+		if a := attributoDellUnita(t, r, AttributoTitolo, "u:08"); a.Stato != StatoAttribuito {
+			t.Errorf("il titolo: %+v", a)
 		}
 		trovata := false
 		for _, d := range conCodice(r.Diagnostiche, grammatica.CodiceCapacitaNonSupportata) {
