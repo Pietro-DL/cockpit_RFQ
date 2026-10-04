@@ -122,7 +122,7 @@ markmap:
     - i record della fotografia, senza DB; in A1b importa solo `platform/jsoncanonico`, per l'impronta dei
       fatti. Il caricatore, l'unico con il DB, è un pacchetto a parte (A1c)
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
-  - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena`)
+  - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
   - **`core/*` (aggancio, ingest, registro, rfq)** → gli altri `core/*`, `platform`
   - **`platform/*`** → solo `platform` e librerie (`testutil` anche il package radice, per le migrazioni incorporate)
