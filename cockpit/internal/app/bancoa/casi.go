@@ -91,8 +91,8 @@ type preparato struct {
 // Il profilo si lega al cliente con i profili del manifest (D-09), poi al motore per UUID: nel codice nessun
 // nome di profilo o di cliente. Un profilo senza cliente, un cliente senza motore (scartato o assente
 // dall'indice), un contesto che non si legge o un testo che DaTesto o Interpreta rifiutano fanno fallire il
-// caso, con il motivo; così un'interpretazione parziale (un limite superato), anche se le chiavi tornano. Un
-// caso con stato_atteso riservato non si valuta: le sue letture restano nel rapporto come informazione. Le precondizioni di un caso si verificano (verificaPrecondizioni) e stanno fra le chiavi
+// caso, con il motivo; così un'interpretazione parziale (un limite superato) o non disponibile (nessun testo da
+// leggere), anche se le chiavi tornano. Un caso con stato_atteso riservato non si valuta: le sue letture restano nel rapporto come informazione. Le precondizioni di un caso si verificano (verificaPrecondizioni) e stanno fra le chiavi
 // del rapporto. Gli esiti seguono l'ordine dei casi negli attesi.
 func EseguiCasiContratto(a Attesi, r motorea.InsiemeRegole, profili map[string]uuid.UUID) []EsitoCaso {
 	pp := make([]preparato, 0, len(a.Casi))
@@ -240,8 +240,16 @@ func valutaCaso(p preparato, tutti []preparato, i int) EsitoCaso {
 	// Un'interpretazione parziale (un limite superato, 5.4.6 punto 16) non è una base per giudicare: le chiavi che
 	// passano sul vuoto (letture_identita 0, fallback_generico_non_promuove…) passerebbero per un taglio, non per
 	// il testo (A1b-22: mai un successo vuoto). Le chiavi restano nel rapporto come informazione.
-	if p.interp.Stato == motorea.StatoInterpretazioneParziale {
+	//
+	// Così un'interpretazione non disponibile (E5 b = A): con DaTesto succede solo con il testo del caso vuoto, e
+	// un caso senza evidenze non può diventare verde. Riguarda il caso del banco, non un messaggio di un thread:
+	// lì, in A1c, la fotografia e le proposte usano le altre interpretazioni del thread, senza fingere che quel
+	// messaggio contenga evidenze che non ha.
+	switch p.interp.Stato {
+	case motorea.StatoInterpretazioneParziale:
 		e.Esito, e.Motivo = CasoFallito, "interpretazione parziale (vedi le diagnostiche): un risultato tagliato non si giudica (5.4.6 punto 16; A1b-22)"
+	case motorea.StatoInterpretazioneNonDisponibile:
+		e.Esito, e.Motivo = CasoFallito, "interpretazione non disponibile: il caso non ha un testo da leggere, e un caso senza evidenze non si giudica (5.4.6 punto 16; A1b-22; E5 b)"
 	}
 	return e
 }
