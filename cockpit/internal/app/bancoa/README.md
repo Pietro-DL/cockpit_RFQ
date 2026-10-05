@@ -120,8 +120,11 @@ markmap:
   verificano: il codice della precondizione, letto da solo sul campo del codice della stessa entità, deve
   essere di una famiglia la cui regola ha dato la revisione; se non si legge da solo, la precondizione è
   rimandata, mai passata. Le precondizioni da sole non fanno passare un caso senza chiavi dell'atteso.
-- **Un'interpretazione parziale non si giudica** (5.4.6 punto 16; A1b-22): con un limite superato il caso è
-  fallito, con il motivo, anche se le chiavi tornano.
+- **Un'interpretazione parziale o non disponibile non si giudica** (5.4.6 punto 16; A1b-22): con un limite
+  superato, o con il testo del caso vuoto (E5 b = A), il caso è fallito, con il motivo, anche se le chiavi
+  tornano. Un testo senza codici invece è un'interpretazione completa con zero letture, e si giudica. Vale per
+  il caso del banco: un messaggio senza testo leggibile dentro un thread non è senza significato, e in A1c
+  fotografia e proposte usano le altre interpretazioni del thread.
 - **La coerenza esempio/caso legge ogni chiave come la legge il runner** (`traduzione.go` è l'unica fonte della
   semantica di una chiave; par.4.10 n.3): con la funzione del router sul selettore dell'esempio
   (`funzioneNelBanco`), le letture attese su un selettore d'identità valgono per base, basi, marcatore,
@@ -154,7 +157,8 @@ markmap:
     le chiavi del router e degli attributi (A1b-24), la funzione del banco uguale a quella di Interpreta;
   - **`casi_test.go`** — gli esiti dei casi ACME; il caso fallito con atteso, ottenuto e regola; profilo
     senza cliente, cliente scartato, contesto illeggibile; da A1b.11 le precondizioni (anche da sole, mai un
-    passato), il testo che DaTesto rifiuta e l'interpretazione parziale, che non si giudica; il determinismo;
+    passato), il testo che DaTesto rifiuta e l'interpretazione parziale o non disponibile, che non si
+    giudica; il determinismo;
   - **`regole_test.go`** — il rapporto delle regole; la coerenza con `rif_caso`, con la regola del runner per
     `letture_identita`, `basi` e la funzione del selettore; senza attesi; cliente scartato
     e indice non valido;
