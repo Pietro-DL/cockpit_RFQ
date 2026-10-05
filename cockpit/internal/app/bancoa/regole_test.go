@@ -202,9 +202,9 @@ func TestCoerenzaConLaRegolaDelRunner(t *testing.T) {
 		coerente bool
 		motivo   string
 	}{
-		{"letture di forma sul testo del PDF contro letture_identita 0: una menzione (router-1 riga 16)",
+		{"letture di forma sul testo del PDF contro letture_identita 0: una menzione (riga 16 del router)",
 			esempio("testo_pdf", "vedi ACME-100", lettura("ACME-100")), caso("testo_pdf", "vedi ACME-100", zero), true, ""},
-		{"letture sul corpo contro letture_identita 0: con l'uso sconosciuto sono richieste (router-1 riga 2)",
+		{"letture sul corpo contro letture_identita 0: con l'uso sconosciuto sono richieste (riga 2 del router)",
 			esempio("corpo", "vedi ACME-100", lettura("ACME-100")), caso("corpo", "vedi ACME-100", zero), false,
 			"letture_identita"},
 		{"letture sul nome del file contro letture_identita 0",

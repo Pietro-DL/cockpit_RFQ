@@ -532,11 +532,14 @@ func TestLaPortaDiInterpretaNonHaRipieghi(t *testing.T) {
 	interpreta(t, m, doc, usoValutato(selezione("s:storia:1", UsoPertinente, "scenario")))
 }
 
-// TestLoSnapshotCambiatoFermaInterpreta (par.3.3.4 e 3.4.2; R41 c): i ruoli, le revisioni riservate e la quantità
-// Interpreta li legge dallo snapshot del motore, che ha le slice del chiamante. Se la grammatica cambia dopo la
-// compilazione, il suo hash non è più HashSnapshot: Interpreta si ferma con un errore, mai un'interpretazione di
-// regole diverse sotto lo stesso ID. Così anche uno snapshot che non è nato da NuovoSnapshot (senza hash).
-func TestLoSnapshotCambiatoFermaInterpreta(t *testing.T) {
+// TestIlMotoreNonDipendeDalloSnapshotDelChiamante (E4 = A; par.3.3.4 e 3.4.2; R41 c, R43 B): le regole che
+// Interpreta legge oltre ai piani (ruoli, revisioni riservate, quantità) CompilaVerificato le congela nel Motore,
+// copiate dalla stessa grammatica normalizzata dei piani. Cambiare dopo la compilazione le slice dello snapshot
+// del chiamante non cambia l'interpretazione: stesso ID, stessa impronta, stessi ruoli. La versione dei limiti
+// scritta nell'interpretazione è quella dei valori che CompilaVerificato ha ricevuto, anche quando lo snapshot è
+// stato validato con un'altra. Riscritta per la correzione di A1b.10: prima la prova chiedeva un errore a ogni
+// chiamata dopo il cambio (la guardia per chiamata, che E4 toglie).
+func TestIlMotoreNonDipendeDalloSnapshotDelChiamante(t *testing.T) {
 	doc := docDSint([]evidenze.TestoOriginale{testoOrig(corpoDSint, "ACME1111")},
 		[]evidenze.Segmento{segDSint("s:corrente", evidenze.SegmentoCorrente, "m0", corpoDSint, 0, 8)}, nil,
 		[]evidenze.UnitaEvidenza{uTesto(t, "u:corpo:s:corrente", "s:corrente", "corpo", corpoDSint, "ACME1111", 0)})
@@ -556,19 +559,91 @@ func TestLoSnapshotCambiatoFermaInterpreta(t *testing.T) {
 		t.Fatalf("il documento non esercita i ruoli: %+v", prima.Letture)
 	}
 
-	// La slice dei ruoli è quella dello snapshot del chiamante: cambiarla cambia la grammatica del motore.
+	// Il chiamante cambia le slice del suo snapshot, che il motore conserva così come è arrivato (Snapshot): i
+	// ruoli della famiglia e le revisioni. L'interpretazione non cambia.
 	ruoli := s.Grammatica.Famiglie[0].Ruoli // {componente, prodotto}, in ordine di byte
 	ruoli[len(ruoli)-1] = grammatica.RuoloComponente
-	if r, err := m.Interpreta(doc, uso); err == nil || !reflect.DeepEqual(r, Interpretazione{}) {
-		t.Fatalf("grammatica cambiata dopo la compilazione: errore %v, risultato %+v", err, r)
+	for i := range s.Grammatica.Famiglie {
+		s.Grammatica.Famiglie[i].Revisioni = nil
+	}
+	if r := m.Snapshot().Grammatica.Famiglie[0].Ruoli; r[len(r)-1] != grammatica.RuoloComponente {
+		t.Fatal("la prova non cambia lo snapshot che il motore conserva")
+	}
+	if dopo := interpreta(t, m, doc, uso); !reflect.DeepEqual(dopo, prima) {
+		t.Fatalf("lo snapshot del chiamante cambiato dopo la compilazione cambia l'interpretazione:\nprima %+v\ndopo  %+v", prima, dopo)
 	}
 
-	senzaHash, _, err := CompilaVerificato(grammatica.SnapshotRegole{ClienteID: clienteACME, Grammatica: g}, limitiACME())
+	// La versione dei limiti è quella dei valori (E4): lo snapshot validato con limiti-acme-1, il motore compilato
+	// con limiti-acme-2.
+	s1, err := grammatica.NuovoSnapshot(fileJSON(t, grammaticaACME(famCodice())), limitiACME())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := senzaHash.Interpreta(doc, uso); err == nil {
-		t.Fatal("uno snapshot senza hash dà un'interpretazione senza identità")
+	lim2 := limitiACME()
+	lim2.Versione = "limiti-acme-2"
+	m2, _, err := CompilaVerificato(s1, lim2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2 := interpreta(t, m2, doc, uso)
+	if r2.VersioneLimiti != "limiti-acme-2" || m2.Snapshot().VersioneLimiti != "limiti-acme-1" || r2.ID == prima.ID {
+		t.Fatalf("versione dei limiti %q (snapshot %q), ID uguale a quello di limiti-acme-1: %v", r2.VersioneLimiti, m2.Snapshot().VersioneLimiti, r2.ID == prima.ID)
+	}
+
+	// Le revisioni riservate e le quantità sono congelate anche loro: una grammatica con la revisione in campo
+	// separato riservata e una quantita_tabellare attiva, un disegno con il campo revisione (non interpretabile,
+	// Q1) e una tabella con la colonna della quantità. Poi il chiamante attiva la revisione, cambia l'intestazione
+	// e riserva la quantità nel suo snapshot: le due interpretazioni non cambiano.
+	fc := famCodice()
+	fc.Revisioni[0].Stato = grammatica.StatoRiservata
+	gq := grammaticaACME(fc)
+	gq.Quantita = []grammatica.QuantitaTabellare{{ID: "q-acme", Intestazioni: []string{"Q.TA"},
+		Regola: grammatica.RegolaQuantitaPrimaRigaSopra, Selettori: sel("corpo"), Stato: grammatica.StatoAttiva}}
+	sq, err := grammatica.NuovoSnapshot(fileJSON(t, gq), limitiACME())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mq, _, err := CompilaVerificato(sq, limitiACME())
+	if err != nil {
+		t.Fatal(err)
+	}
+	disegno := docDSint(nil, nil, []evidenze.EntitaLocale{entDisegno("e:pdf:p1")},
+		[]evidenze.UnitaEvidenza{
+			uCampo(t, "u:01", "e:pdf:p1", "cartiglio.codice", "ACME1111"),
+			uCampo(t, "u:02", "e:pdf:p1", "cartiglio.revisione", "01"),
+		})
+	tabella := docDSint([]evidenze.TestoOriginale{testoOrig(corpoDSint, "x")},
+		[]evidenze.Segmento{segDSint("s:corrente", evidenze.SegmentoCorrente, "m0", corpoDSint, 0, 1)},
+		[]evidenze.EntitaLocale{entRiga("e:tab:1:r1", "s:corrente", 1, 1, [2]int{0, 1}), entRiga("e:tab:1:r2", "s:corrente", 1, 2, [2]int{0, 1})},
+		[]evidenze.UnitaEvidenza{
+			uCella(t, "u:tab:1:r1:c1", "e:tab:1:r1", "corpo", "Codice", 1, 1, 1, [2]int{0, 1}, nil),
+			uCella(t, "u:tab:1:r1:c2", "e:tab:1:r1", "corpo", "Q.TA", 1, 1, 2, [2]int{0, 1}, nil),
+			uCella(t, "u:tab:1:r2:c1", "e:tab:1:r2", "corpo", "ACME1111", 1, 2, 1, [2]int{0, 1}, nil),
+			uCella(t, "u:tab:1:r2:c2", "e:tab:1:r2", "corpo", "4", 1, 2, 2, [2]int{0, 1}, nil),
+		})
+	sconosciuto := evidenze.UsoSconosciuto(bundleDSint)
+	primaR, primaQ := interpreta(t, mq, disegno, sconosciuto), interpreta(t, mq, tabella, sconosciuto)
+	if a := attributoDellUnita(t, primaR, AttributoRevisione, "u:02"); a.Stato != StatoNonInterpretabile {
+		t.Fatalf("il disegno non esercita la revisione riservata: %+v", a)
+	}
+	if q := attributiDi(primaQ, AttributoQuantita); len(q) != 1 || q[0].Normalizzato != "4" {
+		t.Fatalf("la tabella non esercita la quantità: %+v", q)
+	}
+	for i := range sq.Grammatica.Famiglie {
+		for j := range sq.Grammatica.Famiglie[i].Revisioni {
+			sq.Grammatica.Famiglie[i].Revisioni[j].Stato = grammatica.StatoAttiva
+		}
+	}
+	sq.Grammatica.Quantita[0].Intestazioni[0] = "ALTRO"
+	sq.Grammatica.Quantita[0].Stato = grammatica.StatoRiservata
+	if q := mq.Snapshot().Grammatica.Quantita[0]; q.Intestazioni[0] != "ALTRO" || q.Stato != grammatica.StatoRiservata {
+		t.Fatal("la prova non cambia lo snapshot che il motore conserva")
+	}
+	if dopo := interpreta(t, mq, disegno, sconosciuto); !reflect.DeepEqual(dopo, primaR) {
+		t.Errorf("la revisione riservata cambia con lo snapshot del chiamante:\nprima %+v\ndopo  %+v", primaR.Attributi, dopo.Attributi)
+	}
+	if dopo := interpreta(t, mq, tabella, sconosciuto); !reflect.DeepEqual(dopo, primaQ) {
+		t.Errorf("la quantità cambia con lo snapshot del chiamante:\nprima %+v\ndopo  %+v", primaQ.Attributi, dopo.Attributi)
 	}
 }
 
@@ -702,6 +777,31 @@ func TestAC04IlRouterDentroInterpreta(t *testing.T) {
 		controlla(t, r, "u:storia:s:storia:1", FunzMenzione, UsoEscluso, "operatore")
 		if len(conCodice(r.Diagnostiche, CodiceMotorePertinenzaIgnota)) == 0 {
 			t.Fatal("una richiesta da valutare senza motore.pertinenza_ignota")
+		}
+	})
+
+	t.Run("corrente e storia pertinenti da riconoscimento: candidati, non conferme (E2)", func(t *testing.T) {
+		// Il corpo dà una richiesta da confermare, con la nota sul segmento; la storia e le celle della sua tabella
+		// restano menzioni. Uso e origine veri restano nella lettura.
+		r := interpreta(t, m, doc, usoValutato(selezione("s:corrente", UsoPertinente, "riconoscimento"), selezione("s:storia:1", UsoPertinente, "riconoscimento")))
+		controlla(t, r, "u:oggetto", FunzRichiesta, UsoPertinente, "riconoscimento")
+		controlla(t, r, "u:corpo:s:corrente", FunzRichiesta, UsoPertinente, "riconoscimento")
+		controlla(t, r, "u:storia:s:storia:1", FunzMenzione, UsoPertinente, "riconoscimento")
+		controlla(t, r, "u:tab:1:r1:c1", FunzMenzione, UsoPertinente, "riconoscimento")
+		fuoriDalMessaggio(t, r)
+		for _, l := range lettureDellUnita(r, "u:corpo:s:corrente") {
+			if !strings.HasPrefix(l.Motivi[0], "router-2 riga 2:") || !strings.Contains(l.Motivi[0], "riconoscimento automatico") {
+				t.Errorf("%s: motivo %q, atteso la riga 2 con il candidato", l.ID, l.Motivi[0])
+			}
+		}
+		note := conCodice(r.Diagnostiche, CodiceMotorePertinenzaIgnota)
+		if len(note) == 0 {
+			t.Fatalf("una richiesta da riconoscimento automatico senza motore.pertinenza_ignota:\n%s", elenco(r.Diagnostiche))
+		}
+		for _, n := range note {
+			if strings.Contains(strings.Join(n.Rif, " "), "storia") {
+				t.Errorf("la nota su un segmento di storia, che non dà richieste: %+v", n)
+			}
 		}
 	})
 

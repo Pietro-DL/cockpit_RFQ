@@ -233,7 +233,7 @@ func TestCasiACMEEsiti(t *testing.T) {
 	if !reflect.DeepEqual(r.RiservateSulSelettore, []string{"acme-lavagna/lavagna"}) {
 		t.Errorf("forme riservate sul selettore: %v", r.RiservateSulSelettore)
 	}
-	// La menzione nel testo del PDF (router-1 riga 16): fuori dall'insieme d'identità, letta da base_menzionata.
+	// La menzione nel testo del PDF (riga 16 del router): fuori dall'insieme d'identità, letta da base_menzionata.
 	m := got["caso-acme-09"]
 	if k := chiave(m, "letture_identita"); k.Stato != ChiavePassata || !strings.Contains(k.Ottenuto, "menzione") {
 		t.Errorf("menzione fuori dall'insieme: %+v", k)

@@ -1,7 +1,8 @@
-// L1 — il router router-1 e l'intersezione con i ruoli (A-C04; piano A, 5.4.6; P1 §4.3, §6; R23, R20 a): ogni
+// L1 — il router router-2 e l'intersezione con i ruoli (A-C04; piano A, 5.4.6; P1 §4.3, §6; R23, R20 a): ogni
 // riga della tabella dà la sua funzione e i suoi ruoli ammessi, con le famiglie {prodotto, componente},
-// {componente} e {prodotto}, insiemi vuoti compresi; l'origine dell'uso e le categorie della famiglia non
-// cambiano niente; le righe dei selettori riservati in A1 si provano su Instrada e RuoliAmmessi.
+// {componente} e {prodotto}, insiemi vuoti compresi; le categorie della famiglia non cambiano niente, e l'origine
+// dell'uso conta solo per un uso pertinente da riconoscimento automatico, che è un candidato (E2); le righe dei
+// selettori riservati in A1 si provano su Instrada e RuoliAmmessi.
 package motorea
 
 import (
@@ -25,7 +26,7 @@ var (
 	ruoliP  = []grammatica.Ruolo{grammatica.RuoloProdotto}
 )
 
-// rigaAttesa: una riga di router-1 come la scrive il piano (5.4.6).
+// rigaAttesa: una riga del router come la scrive il piano (5.4.6).
 type rigaAttesa struct {
 	numero    int
 	selettori []string
@@ -105,7 +106,7 @@ func stessiRuoli(a, b []grammatica.Ruolo) bool {
 }
 
 func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
-	if VersioneRouter != "router-1" {
+	if VersioneRouter != "router-2" {
 		t.Fatalf("VersioneRouter = %q: cambiare la tabella vuol dire cambiare la versione, e riscrivere questa prova", VersioneRouter)
 	}
 
@@ -118,6 +119,9 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 			for _, s := range r.selettori {
 				for _, u := range usi {
 					for _, o := range origini {
+						if r.numero <= 5 && u == UsoPertinente && o != "operatore" && o != "scenario" {
+							continue // il candidato di E2 non passa dalle righe 1 e 4: la sottoprova qui sotto
+						}
 						f, motivo := Instrada(Instradamento{Selettore: selettore(t, s), Uso: u, Origine: o})
 						if f != r.funzione {
 							t.Errorf("riga %d, %s, uso %q, origine %q: funzione %q, attesa %q", r.numero, s, u, o, f, r.funzione)
@@ -126,8 +130,8 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 							t.Errorf("riga %d, %s, uso %q: il motivo non dice la riga: %q", r.numero, s, u, motivo)
 						}
 						// Il motivo è una frase stabile: non cambia con l'origine (v3 §10.2: l'origine resta nella
-						// lettura, non nella funzione).
-						if _, m2 := Instrada(Instradamento{Selettore: selettore(t, s), Uso: u}); m2 != motivo {
+						// lettura), tranne che per il candidato di E2, saltato qui.
+						if _, m2 := Instrada(Instradamento{Selettore: selettore(t, s), Uso: u, Origine: "operatore"}); m2 != motivo {
 							t.Errorf("riga %d, %s, uso %q: il motivo cambia con l'origine: %q, %q", r.numero, s, u, motivo, m2)
 						}
 					}
@@ -135,6 +139,60 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 				if got := RuoliAmmessi(r.funzione); !stessiRuoli(got, r.ruoli) {
 					t.Errorf("riga %d: RuoliAmmessi(%s) = %v, attesi %v", r.numero, r.funzione, got, r.ruoli)
 				}
+			}
+		}
+	})
+
+	t.Run("un uso pertinente da riconoscimento automatico è un candidato, non una conferma (E2)", func(t *testing.T) {
+		// Oggetto e corpo: richiesta da confermare (riga 2), come un uso da valutare. Storia: menzione (riga 5),
+		// mai una richiesta (5.1; R48 A). Operatore e scenario restano scelte esplicite (righe 1 e 4).
+		casi := []struct {
+			sel      string
+			origine  string
+			funzione Funzione
+			riga     int
+		}{
+			{"oggetto", "riconoscimento", FunzRichiesta, 2},
+			{"corpo", "riconoscimento", FunzRichiesta, 2},
+			{"storia", "riconoscimento", FunzMenzione, 5},
+			// La lista bianca: un'origine vuota o fuori vocabolario non conferma (Interpreta non le riceve,
+			// ValidaUso le rifiuta; Instrada è pubblica).
+			{"corpo", "", FunzRichiesta, 2},
+			{"storia", "", FunzMenzione, 5},
+			{"oggetto", "automatica", FunzRichiesta, 2},
+			{"oggetto", "operatore", FunzRichiesta, 1},
+			{"corpo", "scenario", FunzRichiesta, 1},
+			{"storia", "operatore", FunzRichiesta, 4},
+			{"storia", "scenario", FunzRichiesta, 4},
+		}
+		for _, c := range casi {
+			f, motivo := Instrada(Instradamento{Selettore: selettore(t, c.sel), Uso: UsoPertinente, Origine: c.origine})
+			if f != c.funzione || !strings.HasPrefix(motivo, "router-2 riga "+itoa(c.riga)+":") {
+				t.Errorf("%s pertinente da %s: %s %q, attesa %s dalla riga %d", c.sel, c.origine, f, motivo, c.funzione, c.riga)
+			}
+			if candidato := c.origine != "operatore" && c.origine != "scenario"; strings.Contains(motivo, "riconoscimento automatico") != candidato {
+				t.Errorf("%s pertinente da %s: il motivo %q", c.sel, c.origine, motivo)
+			}
+		}
+		// Una riga che non guarda l'uso non cambia motivo con l'origine, nemmeno con un uso pertinente.
+		_, m1 := Instrada(Instradamento{Selettore: selettore(t, "nome_file"), Uso: UsoPertinente, Origine: "riconoscimento"})
+		_, m2 := Instrada(Instradamento{Selettore: selettore(t, "nome_file"), Uso: UsoNonApplicabile})
+		if m1 != m2 {
+			t.Errorf("nome_file: il motivo cambia con l'origine: %q, %q", m1, m2)
+		}
+		// daConfermare: con l'uso sconosciuto, da valutare o pertinente da riconoscimento; mai con una scelta
+		// esplicita né con un uso escluso.
+		for _, c := range []struct {
+			uso, origine string
+			atteso       bool
+		}{
+			{UsoSconosciuto, "", true}, {UsoDaValutare, "riconoscimento", true}, {UsoDaValutare, "operatore", true},
+			{UsoPertinente, "riconoscimento", true}, {UsoPertinente, "", true}, {UsoPertinente, "operatore", false},
+			{UsoPertinente, "scenario", false},
+			{UsoEscluso, "riconoscimento", false},
+		} {
+			if got := daConfermare(c.uso, c.origine); got != c.atteso {
+				t.Errorf("daConfermare(%q, %q) = %v, atteso %v", c.uso, c.origine, got, c.atteso)
 			}
 		}
 	})
@@ -163,7 +221,7 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 				continue
 			}
 			_, motivo := Instrada(Instradamento{Selettore: selettore(t, s), Uso: UsoNonApplicabile})
-			if !strings.HasPrefix(motivo, "router-1 riga "+itoa(n)+":") {
+			if !strings.HasPrefix(motivo, "router-2 riga "+itoa(n)+":") {
 				t.Errorf("%s: motivo %q, attesa la riga %d", s, motivo, n)
 			}
 		}
@@ -327,7 +385,7 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 				t.Errorf("%s: la prova lo considera riservato, la grammatica lo dice attivo", c.sel)
 			}
 			f, motivo := Instrada(Instradamento{Selettore: selettore(t, c.sel), Uso: UsoNonApplicabile})
-			if f != c.funzione || !strings.HasPrefix(motivo, "router-1 riga "+itoa(c.riga)+":") {
+			if f != c.funzione || !strings.HasPrefix(motivo, "router-2 riga "+itoa(c.riga)+":") {
 				t.Errorf("%s: %s %q, attesa %s dalla riga %d", c.sel, f, motivo, c.funzione, c.riga)
 			}
 			if got := RuoliAmmessi(f); !stessiRuoli(got, c.ruoli) {

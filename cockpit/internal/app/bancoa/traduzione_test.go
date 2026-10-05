@@ -357,7 +357,7 @@ func TestChiaviA1bSulleLetture(t *testing.T) {
 		nome, contesto, testo string
 		chiavi                []ChiaveAttesa
 	}{
-		{"menzione nel testo del PDF (router-1 riga 16; R25 a)", "testo_pdf", "vedi Q+700.099999.010 per il dettaglio", []ChiaveAttesa{
+		{"menzione nel testo del PDF (riga 16 del router; R25 a)", "testo_pdf", "vedi Q+700.099999.010 per il dettaglio", []ChiaveAttesa{
 			n("letture_identita", "0"), s("base_menzionata", "Q+700.099999.010"), b("identita_file_da_nota", false),
 			b("nessuna_fusione", true), b("fallback_generico_non_promuove", true),
 		}},
@@ -372,11 +372,11 @@ func TestChiaviA1bSulleLetture(t *testing.T) {
 		{"il generico non promuove (R25 e; A-C08)", "corpo", "rif. 7654321 senza etichetta", []ChiaveAttesa{
 			b("identita_da_famiglia_etichettata", false), b("fallback_generico_non_promuove", true), n("letture_identita", "0"),
 		}},
-		{"richiesta dall'oggetto con l'uso sconosciuto (router-1 riga 2)", "oggetto", "PN 7654321", []ChiaveAttesa{
+		{"richiesta dall'oggetto con l'uso sconosciuto (riga 2 del router)", "oggetto", "PN 7654321", []ChiaveAttesa{
 			n("letture_identita", "1"), b("identita_da_famiglia_etichettata", true), b("fallback_generico_non_promuove", true),
 			b("identita_file_da_nota", true), b("nessuna_fusione", true),
 		}},
-		{"identità del file dal codice del cartiglio (router-1 riga 8)", "cartiglio.codice", "Q+700.099999.010", []ChiaveAttesa{
+		{"identità del file dal codice del cartiglio (riga 8 del router)", "cartiglio.codice", "Q+700.099999.010", []ChiaveAttesa{
 			n("letture_identita", "1"), s("base", "Q+700.099999.010"), b("originale_conservato", true), s("stato", "completa"),
 		}},
 	}
