@@ -4,7 +4,8 @@
 //   - riconosce le forme sui testi, con una regex per ogni famiglia e forma, mai tutte in alternanza (v3
 //     §4.3), e restituisce le letture di forma (Riconosci).
 //
-// L'interpretazione di un DocumentoEvidenze, con il router, la funzione e i ruoli, arriva in A1b (R23).
+// In A1b interpreta un DocumentoEvidenze (Interpreta), con il router, la funzione, i ruoli e gli attributi
+// (R23).
 //
 // È puro e deterministico: niente DB, file, orologio, rete, goroutine o LLM; nessun ordine dipende da una
 // mappa. Non usa il motore legacy di classificazione (quindi nemmeno il riconoscitore della minuteria, R7) e
@@ -32,11 +33,17 @@ const VersioneAlgoritmo = "motorea-1"
 // È privato e minimo, non una copia dei tipi della grammatica (par.12): piani indicizzati per selettore,
 // regex RE2 compilate, gruppi catturati con la loro operazione. Una capacità riservata non ha piani. Dopo
 // CompilaVerificato non cambia più: si può usare da più goroutine del chiamante.
+//
+// È autosufficiente (E4): porta anche le regole che Interpreta legge oltre ai piani e la versione dei limiti
+// ricevuti, calcolate una volta in CompilaVerificato dalla stessa grammatica normalizzata dei piani. Nessuna
+// dipendenza successiva dalle slice del chiamante.
 type Motore struct {
 	snap           grammatica.SnapshotRegole
 	lim            grammatica.LimitiRiconoscimento
+	versioneLimiti string                                   // la versione dei limiti ricevuti, la stessa dei valori in lim (R43 B)
 	piani          map[evidenze.Selettore][]*pianoForma     // in ordine di (famiglia, forma)
 	revisioniCampo map[evidenze.Selettore][]*pianoRevisione // le revisioni in campo separato (D-07)
+	regole         regoleDiInterpretazione                  // ruoli, revisioni riservate, quantità attive (A1b)
 }
 
 // CompilaVerificato valida lo snapshot con i limiti ricevuti, compila una volta ogni coppia (famiglia, forma)
@@ -63,8 +70,10 @@ func CompilaVerificato(s grammatica.SnapshotRegole, lim grammatica.Limiti) (*Mot
 		m: &Motore{
 			snap:           s,
 			lim:            lim.Riconoscimento,
+			versioneLimiti: lim.Versione,
 			piani:          map[evidenze.Selettore][]*pianoForma{},
 			revisioniCampo: map[evidenze.Selettore][]*pianoRevisione{},
+			regole:         regoleDa(g),
 		},
 		abbassate:  map[string]bool{},
 		dichiarate: map[string]bool{},

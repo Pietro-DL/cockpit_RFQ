@@ -56,6 +56,10 @@ const (
 //   - Uso, OrigineUso: l'uso del segmento da cui viene la lettura e la sua origine (operatore | riconoscimento |
 //     scenario | "" senza selezione). L'incertezza sulla pertinenza accompagna la lettura (P1 §4.3) e l'origine
 //     resta visibile (v3 §10.2). Per le unità fuori da un messaggio l'uso è «non_applicabile».
+//     Per chi legge il risultato (E2): una lettura con funzione «richiesta» è confermata solo con l'uso
+//     «pertinente» e l'origine «operatore» o «scenario»; ogni altra richiesta è da confermare (riga 2 del
+//     router, con motore.pertinenza_ignota sul suo segmento), anche con l'uso «pertinente» e l'origine
+//     «riconoscimento».
 type LetturaCodice struct {
 	ID             string                 `json:"id"` // «l:<unità>:<famiglia>/<forma>:<inizio>-<fine>»: stabile a parità di ingresso
 	UnitaID        string                 `json:"unita_id"`
@@ -115,7 +119,7 @@ const (
 )
 
 // RelazioneSemantica: simile | speculare, dall'entità sorgente verso le letture bersaglio. Nessuna fusione. Nasce
-// solo da una lettura con funzione relazione (router-1 riga 12), cioè da una forma attiva sul campo del
+// solo da una lettura con funzione relazione (riga 12 del router), cioè da una forma attiva sul campo del
 // particolare simile: il testo libero resta menzione (parte 1 §10.1). In A1 quel campo è riservato, quindi
 // nessuna grammatica la produce.
 type RelazioneSemantica struct {

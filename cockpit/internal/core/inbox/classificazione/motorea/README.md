@@ -19,17 +19,19 @@ markmap:
 - Confronta basi e revisioni senza inventare niente (`ConfrontaBasi`, `ConfrontaRevisioni`): una base
   parziale resta compatibile con tutti i suoi completamenti (A-C07), una revisione si confronta solo con le
   equivalenze dichiarate.
-- Da A1b.9, il **router** `router-1` (R23; piano A, 5.4.6): la tabella fissa e versionata che dal selettore,
-  dall'uso del segmento e dalla sua origine dà la **funzione** di una lettura (`Instrada`), i **ruoli che la
-  funzione ammette** (`RuoliAmmessi`) e l'**intersezione** con i ruoli della famiglia, con il motivo per
-  esteso. Le categorie restano un'annotazione e non toccano l'intersezione (v3 §2; R7).
+- Da A1b.9, il **router** (R23; piano A, 5.4.6), `router-2` dalla correzione di A1b.10: la tabella fissa e
+  versionata che dal selettore, dall'uso del segmento e dalla sua origine dà la **funzione** di una lettura
+  (`Instrada`), i **ruoli che la funzione ammette** (`RuoliAmmessi`) e l'**intersezione** con i ruoli della
+  famiglia, con il motivo per esteso. Le categorie restano un'annotazione e non toccano l'intersezione (v3 §2;
+  R7). Un uso pertinente conferma solo con origine «operatore» o «scenario»; di origine «riconoscimento» è un
+  candidato, non una conferma, e vale come da valutare (E2).
 - Da A1b.10, **`Interpreta`** (parte 1 §7.3; piano A, 5.4.6): legge un `DocumentoEvidenze` con l'uso dei
   segmenti dato e restituisce un'`Interpretazione`: letture per occorrenza, con funzione, ruoli candidati,
   categorie, trasformazioni, qualità e motivi; la deduplica solo della stessa occorrenza; le alternative e le
   annidate con la diagnostica; gli attributi legati all'entità (revisione in campo separato, formazione STEP,
-  titolo, scala e materiale grezzi, quantità dalla colonna dichiarata); le relazioni solo da una forma
-  attiva; la copertura dei selettori senza forme; lo stato; `ID` e `Impronta`. `ImprontaUso` dà l'impronta
-  canonica di un uso dei segmenti.
+  titolo, scala e materiale grezzi, quantità dalla colonna dichiarata); nessuna relazione in A1 (E3); la
+  copertura dei selettori senza forme; lo stato; `ID` e `Impronta`. `ImprontaUso` dà l'impronta canonica di
+  un uso dei segmenti.
 - **Il principio della provenance** (5.0, 04/10 sera): il motore non indovina relazioni. Due cose si
   collegano solo se la provenance lo consente (stesso segmento, stessa entità, stessa riga di tabella, stesso
   nodo STEP, legame dichiarato nei fatti, uso esplicito) **e** una regola semantica lo fa nascere (una forma o
@@ -66,7 +68,9 @@ markmap:
 
 - **`motore.go`** — responsabilità:
   - commento `// Package`; `VersioneAlgoritmo` (`motorea-1`);
-  - `Motore`, `CompilaVerificato`, `Motore.Snapshot`, `Motore.Riconosci`;
+  - `Motore`, `CompilaVerificato`, `Motore.Snapshot`, `Motore.Riconosci`. Da A1b, il `Motore` porta anche
+    le regole d'interpretazione e la versione dei limiti ricevuti, calcolate una volta in
+    `CompilaVerificato` (E4);
   - l'abbassamento della grammatica nel motore: quali forme entrano (attive, con almeno un selettore attivo,
     non proiezioni riservate, senza decorazioni o revisioni riservate, con al più un'etichetta, un
     marcatore, un token e una revisione) e su quali selettori.
@@ -102,10 +106,12 @@ markmap:
   - l'applicazione dei limiti di riconoscimento ricevuti dall'indice (`grammatica.Limiti`): byte dell'unità,
     letture per unità, risultato parziale, `limite.superato`. Nessun valore proprio.
 - **`router.go`** — responsabilità (A1b.9; R23):
-  - `VersioneRouter` (`router-1`), `Funzione` e le sue costanti, le costanti degli usi, `Instradamento`;
-  - `Instrada`: le righe di router-1 come dati (una tabella fissa), con un motivo stabile per riga. Le celle
+  - `VersioneRouter` (`router-2`), `Funzione` e le sue costanti, le costanti degli usi, `Instradamento`;
+  - `Instrada`: le righe del router come dati (una tabella fissa), con un motivo stabile per riga. Le celle
     di una tabella passano dalle righe 1-5 con il selettore e l'uso del loro segmento (riga 6); un selettore
     o un uso fuori tabella dà una menzione, mai una richiesta;
+  - il candidato di E2 (`usoPerIlRouter`, `daConfermare`): su oggetto, corpo e storia un uso pertinente senza
+    origine «operatore» o «scenario» (una lista bianca) vale come da valutare, e il motivo lo dice;
   - `RuoliAmmessi` e l'intersezione con i ruoli della famiglia, con il motivo per esteso.
 - **`interpretazione.go`** — responsabilità (A1b.10):
   - `VersioneRisultato` (1); i tipi del risultato: `Interpretazione`, `LetturaCodice` (con `AltreUnita`,
@@ -116,8 +122,8 @@ markmap:
   - `Motore.Interpreta`, passo per passo (5.4.6 punti 1-17): validazione del documento e dell'uso, limiti
     del documento, riconoscimento per unità in ordine di ID, posizioni assolute, funzione e ruoli, categorie,
     trasformazioni, qualità e motivi (fonte OCR, etichetta fuori zona), deduplica della stessa occorrenza,
-    alternative e annidate, id e nome discordi, relazioni, copertura, pertinenza ignota, stato, `ID` e
-    `Impronta`;
+    alternative e annidate, id e nome discordi, copertura, pertinenza ignota, stato, `ID` e `Impronta`;
+  - le regole d'interpretazione (`regoleDa`), che `CompilaVerificato` congela nel `Motore` (E4);
   - `ImprontaUso`.
 - **`attributi.go`** — responsabilità (A1b.10):
   - la revisione in campo separato con la `RegolaRevisione` della famiglia letta nella stessa entità; senza
@@ -169,13 +175,24 @@ markmap:
   `regexp.Compile`, mai `MustCompile` (T18).
 - **Offset in byte UTF-8**, 0-based, fine esclusa, su un confine di runa, sul testo dato: `Originale` è
   sempre `testo[Inizio:Fine]`.
-- **Il router è una tabella fissa e versionata** (`router-1`): stessi ingressi, stessa funzione. Non guarda
+- **Il router è una tabella fissa e versionata** (`router-2`): stessi ingressi, stessa funzione. Non guarda
   la zona del cartiglio né la fonte OCR, e non nomina nessun cliente; cambiare una riga vuol dire cambiare
-  `VersioneRouter`, che sta nell'identità dell'interpretazione e non nello snapshot (R41 c). Le righe dei
-  selettori riservati in A1 ci sono lo stesso: la tabella è il router (R20 a).
+  `VersioneRouter`, che sta nell'identità dell'interpretazione e non nello snapshot (R41 c): `router-1`
+  diventa `router-2` con E2. Le righe dei selettori riservati in A1 ci sono lo stesso: la tabella è il router
+  (R20 a).
+- **Un riconoscimento automatico non conferma una richiesta** (E2): su oggetto, corpo e storia un uso
+  pertinente conferma solo con origine «operatore» o «scenario» (una lista bianca); di origine
+  «riconoscimento», o con un'origine non dichiarata, vale come da valutare. Oggetto e corpo danno una richiesta
+  da confermare, con l'incertezza nella lettura e `motore.pertinenza_ignota`; la storia dà una menzione, mai una
+  richiesta (5.1; R48 A). La lettura conserva uso e origine veri. Lo scenario è l'ingresso del banco che simula
+  il caso atteso, e nell'anteprima o nel prodotto non vale come una decisione dell'operatore. Nessun punteggio
+  e nessuna tassonomia degli intenti: la distinzione fra candidato e confermato usa gli usi che ci sono già.
+- **Per chi legge il risultato** (E2): una lettura con funzione «richiesta» è confermata solo con l'uso
+  «pertinente» e l'origine «operatore» o «scenario»; ogni altra richiesta è da confermare, anche con l'uso
+  «pertinente» e l'origine «riconoscimento». Il segmento da cui viene ha `motore.pertinenza_ignota`.
 - **`Interpreta` non riceve i target** (A-C11): solo documento e uso. L'errore è di contratto
-  (`*evidenze.ErroreContratto`), oppure di un motore usato male (nullo, o con la grammatica dello snapshot
-  cambiata dopo la compilazione); un limite dei dati dà lo stato `parziale`, mai un successo vuoto.
+  (`*evidenze.ErroreContratto`), oppure di un motore nullo; un limite dei dati dà lo stato `parziale`, mai un
+  successo vuoto.
 - **Lo stato** guarda solo le capacità di lettura (`testo`, `cartiglio`, `struttura`, `contenuto`), i limiti
   superati e le unità troncate dal worker. Firma, segmentazione, tabelle, elenco PDF e grafo completo restano
   qualità della fonte (R32 b): un PDF senza testo è `parziale`, mai «completa con zero letture» (A-C09).
@@ -195,22 +212,30 @@ markmap:
   `step.formazioni_alternative`, che dà l'adattatore). Riusa con le loro costanti `limite.superato` e
   `capacita.non_supportata` di `grammatica`; la seconda come nota, «campo ricevuto, non letto» (5.4.6
   punto 15), non come l'avviso con cui `grammatica` la emette per un elemento riservato del file regole.
-- **Della grammatica, oltre ai piani**, `Interpreta` legge dallo snapshot normalizzato solo i ruoli delle
-  famiglie, le revisioni in campo separato riservate e le `quantita_tabellare` attive. Lo snapshot ha le
-  slice del chiamante: prima di leggerle `Interpreta` controlla che la grammatica abbia ancora l'hash dello
-  snapshot, e altrimenti si ferma con un errore, mai un risultato di regole diverse sotto lo stesso ID.
+- **Il `Motore` è immutabile e autosufficiente** (E4): della grammatica, oltre ai piani, `Interpreta` usa
+  solo i ruoli delle famiglie, le revisioni in campo separato riservate e le `quantita_tabellare` attive.
+  `CompilaVerificato` le calcola una volta, dalla stessa grammatica normalizzata dei piani, e le copia nel
+  `Motore`: cambiare dopo la compilazione le slice dello snapshot del chiamante non cambia l'interpretazione,
+  e nessuna guardia gira a ogni chiamata. Le regole restano per selettore: lo stesso cliente può avere forme
+  diverse nel corpo della mail, nel nome del file e nel cartiglio, ognuna con le sue regole dello stesso
+  snapshot, mai una regola sola per tutti i selettori né una fusione per somiglianza.
+- **Limite noto, conseguenza voluta di E4**: `HashSnapshot` è quello dello snapshot ricevuto da
+  `CompilaVerificato`, che non lo ricalcola. Uno `SnapshotRegole` non nato da `NuovoSnapshot` (hash vuoto o
+  incoerente con la grammatica) dà quindi un'interpretazione con quell'hash, mentre prima la guardia per
+  chiamata dava un errore. `CompilaInsieme` prende lo snapshot sempre da `NuovoSnapshot`.
+- **La versione dei limiti è quella dei valori** (E4): `Interpretazione.VersioneLimiti` e `ImprontaLimiti`
+  vengono dai limiti che `CompilaVerificato` ha ricevuto, anche quando lo snapshot è stato validato con
+  un'altra versione.
 - **Valori che dichiarano gli adattatori** e che `motorea` ripete, perché non importa `core/estrazione`: il
   testo `messaggio.corpo_testo` su cui si misura `PosTabella.Esatto`; i nomi delle capacità di lettura
   (`testo`, `cartiglio`, `struttura`, `contenuto`) e lo stato `disponibile`; l'uso `valutato`; la
   localizzazione `esatta`, il metodo `ocr`, la zona `pagina`; i tipi di localizzatore `testo`, `tabella`,
   `nome_file`; i campi `id`, `nome`, `revisione`, `titolo`, `scala`, `materiale`. Se un adattatore li cambia,
   lo dicono le prove di `core/estrazione/interpreta_test.go` (A-C09, A-C10, A-C05), non un errore qui.
-- **Limite noto, la versione dei limiti**: `Interpretazione.VersioneLimiti` è quella con cui lo snapshot è
-  stato validato (`SnapshotRegole.VersioneLimiti`), i valori quelli che `CompilaVerificato` ha portato nel
-  motore; `CompilaVerificato` non controlla che coincidano. I valori entrano comunque in `ImprontaLimiti`.
-- **Le relazioni** (5.4.6 punto 13) nascono solo da una forma attiva su `cartiglio.particolare_simile`, che
-  in A1 è riservato: oggi `Relazioni` è sempre vuoto. Il codice è di poche righe; il par.12 vorrebbe niente
-  runtime per una capacità riservata: è un attrito del piano, dichiarato qui.
+- **Le relazioni** (5.4.6 punto 13): in A1 nessun codice (E3 = A; par.12, nessun runtime per una capacità
+  soltanto riservata). Restano il tipo `RelazioneSemantica`, il campo `Relazioni`, sempre vuoto, la riga 12
+  del router e le sue prove su `Instrada`. Il runtime nascerà quando una forma attiva su
+  `cartiglio.particolare_simile` potrà davvero produrle.
 - **Le collisioni osservate sugli esempi sono errori**: nessuna precedenza per ordine di array. Gli esempi
   delle forme che non entrano nel motore restano non verificati, mai passati.
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; nessun ordine dipende da
@@ -233,8 +258,9 @@ markmap:
     parziale e completamenti (A-C07); etichetta obbligatoria (A-C08);
   - revisioni (A1a-REV), decorazioni (A1a-DCR), marcatori e categorie (A1a-MRK), esempi (A1a-ESE),
     determinismo (A1a-DET), limiti (A1a-LIM), insieme delle regole (A1a-INS);
-  - da A1b.9, `router_test.go`: tutti i rami di router-1, con le famiglie {prodotto, componente},
-    {componente} e {prodotto}, gli insiemi vuoti e le categorie fuori dall'intersezione (A-C04);
+  - da A1b.9, `router_test.go`: tutti i rami del router, con le famiglie {prodotto, componente},
+    {componente} e {prodotto}, gli insiemi vuoti e le categorie fuori dall'intersezione (A-C04); il
+    candidato da riconoscimento automatico (E2);
   - da A1b.10, `interpreta_test.go` e `determinismo_test.go`, su documenti costruiti in Go: la firma senza
     target (A-C11), alternative e annidate, limiti, determinismo (A1b-21, A1b-22).
 - Dall'adattatore a `Interpreta`, sulle fixture sintetiche: `core/estrazione/interpreta_test.go` (A-C02,

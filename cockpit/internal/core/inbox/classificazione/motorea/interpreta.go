@@ -44,8 +44,9 @@ const (
 // Interpreta legge un documento con l'uso dei segmenti dato (parte 1 §7.3). Non riceve i prodotti della RFQ né
 // una classe desiderata: cambiare i target non cambia l'interpretazione (A-C11). L'errore è solo di contratto
 // (documento o uso non validi: *evidenze.ErroreContratto con le diagnostiche documento.*), oppure di un motore
-// usato male (nullo, o con la grammatica dello snapshot cambiata dopo la compilazione: regoleDiInterpretazione);
-// un limite dei dati sta dentro l'Interpretazione, con lo stato parziale, mai un successo vuoto.
+// nullo; un limite dei dati sta dentro l'Interpretazione, con lo stato parziale, mai un successo vuoto. Le
+// regole che legge oltre ai piani sono quelle che CompilaVerificato ha congelato nel Motore (E4): nessuna
+// lettura successiva dello snapshot del chiamante.
 //
 // È pura e deterministica: niente orologio, file, rete, goroutine; nessun ordine dipende da una mappa. Le unità
 // si leggono in ordine di ID, e il risultato ha ogni elenco in ordine canonico.
@@ -68,23 +69,17 @@ func (m *Motore) Interpreta(doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegm
 		}}
 		return Interpretazione{}, &evidenze.ErroreContratto{Diagnostiche: d}
 	}
-	improntaL, err := jsoncanonico.ImprontaDi(limitiUsati{Versione: m.snap.VersioneLimiti, Riconoscimento: m.lim})
+	improntaL, err := jsoncanonico.ImprontaDi(limitiUsati{Versione: m.versioneLimiti, Riconoscimento: m.lim})
 	if err != nil {
 		return Interpretazione{}, fmt.Errorf("motorea: impronta dei limiti: %w", err)
 	}
 
-	regole, err := m.regoleDiInterpretazione()
-	if err != nil {
-		return Interpretazione{}, err
-	}
-
-	it := nuovoInterprete(m, regole, doc, uso)
+	it := nuovoInterprete(m, doc, uso)
 	it.leggi()
 	it.deduplica()
 	it.alternative()
 	it.idNomeDiscordi()
 	it.attributi()
-	it.relazioni()
 	it.copertura()
 	it.pertinenza()
 
@@ -94,14 +89,13 @@ func (m *Motore) Interpreta(doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegm
 		HashSnapshot:      m.snap.Hash,
 		VersioneAlgoritmo: VersioneAlgoritmo,
 		VersioneRouter:    VersioneRouter,
-		VersioneLimiti:    m.snap.VersioneLimiti,
+		VersioneLimiti:    m.versioneLimiti,
 		ImprontaLimiti:    improntaL,
 		VersioneRisultato: VersioneRisultato,
 		ImprontaUso:       improntaU,
 		Stato:             it.stato(),
 		Letture:           it.letture,
 		Attributi:         it.attr,
-		Relazioni:         it.rel,
 		Diagnostiche:      it.diag,
 	}
 	return chiudiInterpretazione(r)
@@ -109,8 +103,8 @@ func (m *Motore) Interpreta(doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegm
 
 // limitiUsati: i limiti che Interpreta applica, con la loro versione (R43 B). Entrano nell'identità
 // dell'interpretazione con la loro impronta: la versione dice quale taratura, i valori che cosa si è applicato.
-// La versione è quella con cui lo snapshot è stato validato (SnapshotRegole.VersioneLimiti), i valori quelli
-// che CompilaVerificato ha portato nel motore.
+// Versione e valori sono quelli dei limiti che CompilaVerificato ha ricevuto e portato nel motore (E4): la
+// versione è sempre quella dei valori.
 type limitiUsati struct {
 	Versione       string                          `json:"versione_limiti"`
 	Riconoscimento grammatica.LimitiRiconoscimento `json:"riconoscimento"`
@@ -134,7 +128,6 @@ type identita struct {
 func chiudiInterpretazione(r Interpretazione) (Interpretazione, error) {
 	sort.SliceStable(r.Letture, func(i, j int) bool { return r.Letture[i].ID < r.Letture[j].ID })
 	sort.SliceStable(r.Attributi, func(i, j int) bool { return r.Attributi[i].ID < r.Attributi[j].ID })
-	sort.SliceStable(r.Relazioni, func(i, j int) bool { return r.Relazioni[i].ID < r.Relazioni[j].ID })
 	sort.SliceStable(r.Diagnostiche, func(i, j int) bool {
 		return chiaveDiagnostica(r.Diagnostiche[i]) < chiaveDiagnostica(r.Diagnostiche[j])
 	})
@@ -143,9 +136,6 @@ func chiudiInterpretazione(r Interpretazione) (Interpretazione, error) {
 	}
 	if len(r.Attributi) == 0 {
 		r.Attributi = nil
-	}
-	if len(r.Relazioni) == 0 {
-		r.Relazioni = nil
 	}
 	if len(r.Diagnostiche) == 0 {
 		r.Diagnostiche = nil
@@ -219,7 +209,6 @@ type interprete struct {
 	unita   []evidenze.UnitaEvidenza // le unità lette, in ordine di ID, entro max_unita_documento
 	letture []LetturaCodice
 	attr    []AttributoLetto
-	rel     []RelazioneSemantica
 	diag    []evidenze.Diagnostica
 	limite  bool // un limite superato: il risultato è parziale
 
@@ -228,15 +217,16 @@ type interprete struct {
 	// intero: su letture tagliate la regola si applicherebbe a famiglie e righe con codice che non sono tutte.
 	lette map[string]bool
 
-	// pertinenzaIgnota: i segmenti (o le unità senza segmento) da cui vengono richieste con l'uso non noto.
+	// pertinenzaIgnota: i segmenti (o le unità senza segmento) da cui vengono richieste con l'uso non noto o non
+	// confermato (daConfermare).
 	pertinenzaIgnota []string
 }
 
-func nuovoInterprete(m *Motore, regole regoleDiInterpretazione, doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegmenti) *interprete {
+func nuovoInterprete(m *Motore, doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegmenti) *interprete {
 	it := &interprete{
 		m:         m,
 		doc:       doc,
-		regole:    regole,
+		regole:    m.regole,
 		testi:     map[string]string{},
 		entita:    map[string]evidenze.EntitaLocale{},
 		unitaPer:  map[string]evidenze.UnitaEvidenza{},
@@ -282,14 +272,14 @@ func (it *interprete) superato(percorso, messaggio string) {
 
 // regoleDiInterpretazione: ciò che Interpreta legge della grammatica oltre ai piani: i ruoli delle famiglie,
 // per l'intersezione; le regole di revisione in campo separato riservate, che non hanno piani ma danno lo stato
-// «non_interpretabile» (Q1); le regole quantita_tabellare attive, per selettore. Viene dalla grammatica
-// normalizzata dello snapshot, quindi in ordine di ID qualunque sia l'ordine del file.
+// «non_interpretabile» (Q1); le regole quantita_tabellare attive, per selettore.
 //
-// Lo snapshot del motore ha le slice del chiamante (Motore.Snapshot), e i piani non ne dipendono; queste regole
-// sì. Perché l'interpretazione resti quella che il suo ID dice (HashSnapshot, par.3.4.2; R41 c), la grammatica
-// letta qui deve avere ancora l'hash dello snapshot: se è cambiata dopo NuovoSnapshot o CompilaVerificato, o lo
-// snapshot non è nato da NuovoSnapshot, Interpreta si ferma con un errore, mai con un risultato di regole
-// diverse sotto lo stesso ID. Non è un errore di contratto del documento: è un motore usato male.
+// Le calcola CompilaVerificato una volta sola, dalla stessa grammatica normalizzata da cui compila i piani, e
+// stanno nel Motore (E4): piani e regole d'interpretazione dello stesso snapshot nascono e si congelano insieme.
+// Sono copie: nessuna slice del chiamante, quindi una grammatica cambiata dopo la compilazione non cambia
+// l'interpretazione, e nessuna guardia a ogni chiamata. Le regole restano per selettore: lo stesso cliente può
+// avere forme diverse nel corpo, nel nome del file e nel cartiglio, e ognuna ha le sue regole, mai una regola
+// sola per tutti i selettori né una fusione per somiglianza.
 type regoleDiInterpretazione struct {
 	ruoli     map[string][]grammatica.Ruolo
 	riservate map[evidenze.Selettore][]revisioneRiservata
@@ -305,20 +295,16 @@ type quantitaAttiva struct {
 	intestazioni []string
 }
 
-func (m *Motore) regoleDiInterpretazione() (regoleDiInterpretazione, error) {
-	g := grammatica.Normalizza(m.snap.Grammatica)
-	can, err := jsoncanonico.Codifica(g)
-	if err != nil || jsoncanonico.Impronta(can) != m.snap.Hash {
-		return regoleDiInterpretazione{}, errors.New("motorea: la grammatica dello snapshot non ha più l'hash dello snapshot " +
-			"(cambiata dopo NuovoSnapshot o CompilaVerificato, o snapshot non nato da NuovoSnapshot): nessuna interpretazione")
-	}
+// regoleDa: le regole d'interpretazione di una grammatica già normalizzata (CompilaVerificato), in ordine di ID
+// qualunque sia l'ordine del file. Ogni slice è copiata.
+func regoleDa(g grammatica.Grammatica) regoleDiInterpretazione {
 	r := regoleDiInterpretazione{
 		ruoli:     map[string][]grammatica.Ruolo{},
 		riservate: map[evidenze.Selettore][]revisioneRiservata{},
 		quantita:  map[evidenze.Selettore][]quantitaAttiva{},
 	}
 	for _, f := range g.Famiglie {
-		r.ruoli[f.ID] = f.Ruoli
+		r.ruoli[f.ID] = append([]grammatica.Ruolo(nil), f.Ruoli...)
 		for _, rv := range f.Revisioni {
 			if rv.Stato == grammatica.StatoAttiva || rv.Sorgente != grammatica.SorgenteCampoSeparato {
 				continue
@@ -336,11 +322,11 @@ func (m *Motore) regoleDiInterpretazione() (regoleDiInterpretazione, error) {
 		}
 		for _, s := range q.Selettori {
 			if sel, err := evidenze.LeggiSelettore(s); err == nil {
-				r.quantita[sel] = append(r.quantita[sel], quantitaAttiva{id: q.ID, intestazioni: q.Intestazioni})
+				r.quantita[sel] = append(r.quantita[sel], quantitaAttiva{id: q.ID, intestazioni: append([]string(nil), q.Intestazioni...)})
 			}
 		}
 	}
-	return r, nil
+	return r
 }
 
 // ---- punti 3-8: riconoscimento, posizioni, funzione, categorie, trasformazioni, qualità ----
@@ -392,13 +378,14 @@ func (it *interprete) lettura(u evidenze.UnitaEvidenza, f LetturaForma) LetturaC
 
 	// Punto 5: la funzione. Provenance: il segmento dell'unità (UnitaEvidenza.SegmentoID) o, per una cella,
 	// quello della sua entità «riga» (EntitaLocale.SegmentoID, legami-1), con l'uso esplicito di quel segmento
-	// (UsoSegmenti). Regola: la riga di router-1 che Instrada sceglie.
+	// (UsoSegmenti). Regola: la riga del router che Instrada sceglie; un uso pertinente di origine
+	// «riconoscimento» è un candidato, e vale come da valutare (E2).
 	seg, usoSeg, origine := it.usoDi(u)
 	funz, motivo := Instrada(Instradamento{Selettore: u.Selettore, Uso: usoSeg, Origine: origine})
 	l.Funzione, l.Uso, l.OrigineUso = funz, usoSeg, origine
 	l.RuoliCandidati, l.MotivoRuoli = intersecaRuoli(it.regole.ruoli[f.Famiglia], funz)
 	l.Motivi = []string{motivo}
-	if funz == FunzRichiesta && (usoSeg == UsoSconosciuto || usoSeg == UsoDaValutare) {
+	if funz == FunzRichiesta && daConfermare(usoSeg, origine) {
 		dove := seg
 		if dove == "" {
 			dove = u.ID
@@ -892,25 +879,10 @@ func stesseLetture(l []LetturaCodice, a, b []int) bool {
 
 // ---- punti 13, 15, 16 ----
 
-// relazioni: solo da una lettura con funzione relazione (router-1 riga 12), cioè da una forma attiva sul campo
-// del particolare simile; nessuna fusione (punto 13). Provenance: l'entità dell'unità (il disegno). Regola: la
-// forma attiva e la riga 12. Dal testo libero nessuna relazione.
-func (it *interprete) relazioni() {
-	for _, l := range it.letture {
-		u := it.unitaPer[l.UnitaID]
-		if l.Funzione != FunzRelazione || u.EntitaID == "" {
-			continue
-		}
-		it.rel = append(it.rel, RelazioneSemantica{
-			ID:               "r:" + l.ID,
-			Tipo:             RelazioneSimile,
-			EntitaSorgente:   u.EntitaID,
-			Riconoscimento:   l.Forma.Famiglia + "/" + l.Forma.Forma,
-			LettureBersaglio: []string{l.ID},
-			Evidenze:         []string{u.ID},
-		})
-	}
-}
+// Punto 13, le relazioni: in A1 nessun codice (E3 = A; par.12). Nascono solo da una lettura con funzione
+// relazione (riga 12 del router), cioè da una forma attiva su cartiglio.particolare_simile, che in A1 è
+// riservato in ogni grammatica: Interpretazione.Relazioni resta vuoto. Il runtime nascerà quando una forma
+// attiva potrà davvero produrle.
 
 // copertura: per un selettore presente nel documento senza nessuna forma attiva e senza revisioni in campo
 // separato, una sola nota per selettore, con le unità in Rif: «campo ricevuto, non letto» (punto 15; v3 §2).
@@ -941,8 +913,9 @@ func (it *interprete) copertura() {
 	}
 }
 
-// pertinenza: una nota per segmento da cui vengono richieste con la pertinenza non nota (router-1 riga 2): la
-// richiesta è da confermare, e il servizio di proposta non la tratta come confermata (P1 §4.3).
+// pertinenza: una nota per segmento da cui vengono richieste con la pertinenza non nota o non confermata (riga 2
+// del router; daConfermare): la richiesta è da confermare, e il servizio di proposta non la tratta come
+// confermata (P1 §4.3).
 func (it *interprete) pertinenza() {
 	dove := append([]string(nil), it.pertinenzaIgnota...)
 	sort.Strings(dove)
@@ -952,7 +925,7 @@ func (it *interprete) pertinenza() {
 			Gravita:   evidenze.GravitaNota,
 			Natura:    evidenze.NaturaDati,
 			Percorso:  "segmento[" + s + "]",
-			Messaggio: "richieste da un segmento con la pertinenza non nota (uso sconosciuto o da valutare): da confermare",
+			Messaggio: "richieste da un segmento con la pertinenza non nota o non confermata (uso sconosciuto, da valutare, o pertinente per riconoscimento automatico): da confermare",
 			Rif:       []string{s},
 		})
 	}

@@ -147,7 +147,7 @@ func (it *interprete) notaFormazioni(formazioni []string) {
 // ---- titolo, scala, materiale ----
 
 // grezzo: titolo, scala e materiale del cartiglio, solo il grezzo, legato al disegno, senza normalizzazione.
-// Provenance: il disegno (EntitaID del campo del cartiglio). Regola: router-1 riga 13 e il punto 12 del piano.
+// Provenance: il disegno (EntitaID del campo del cartiglio). Regola: la riga 13 del router e il punto 12 del piano.
 // Nessun legame con un codice.
 func (it *interprete) grezzo(u evidenze.UnitaEvidenza) {
 	tipo := u.Selettore.Campo.Valore
