@@ -418,6 +418,22 @@ func TestUnaInterpretazioneParzialeNonSiGiudica(t *testing.T) {
 	}
 }
 
+// TestUnaInterpretazioneNonDisponibileNonSiGiudica (E5 b = A; 5.4.6 punto 16; A1b-22): il testo del caso vuoto
+// dà un'interpretazione non disponibile; una chiave che passerebbe sul vuoto (nessuna lettura d'identità) non fa
+// diventare verde il caso: fallisce con il motivo, e la chiave resta nel rapporto come informazione.
+func TestUnaInterpretazioneNonDisponibileNonSiGiudica(t *testing.T) {
+	a := Attesi{Casi: []CasoContratto{{ID: "caso-acme-vuoto", Profilo: "acme", StatoAtteso: StatoAttesoDefinito,
+		Contesto: "corpo", Testo: "",
+		Atteso: []ChiaveAttesa{{Chiave: "letture_identita", Valore: ValoreAtteso{Tipo: TipoIntero, Testo: "0"}}}}}}
+	e := EseguiCasiContratto(a, insiemeACME(t), profiliACME)[0]
+	if e.Esito != CasoFallito || !strings.Contains(e.Motivo, "non disponibile") {
+		t.Fatalf("testo vuoto: esito %q, motivo %q, chiavi %+v", e.Esito, e.Motivo, e.Chiavi)
+	}
+	if k := chiave(e, "letture_identita"); k.Stato != ChiavePassata {
+		t.Errorf("la chiave resta nel rapporto come informazione: %+v", k)
+	}
+}
+
 // TestLePrecondizioniDaSoleNonFannoPassare: un caso senza chiavi dell'atteso, con le sole precondizioni che
 // passano, non controlla niente: rimandato, mai passato.
 func TestLePrecondizioniDaSoleNonFannoPassare(t *testing.T) {
