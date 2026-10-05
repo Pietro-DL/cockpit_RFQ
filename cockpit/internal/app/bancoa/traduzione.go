@@ -24,7 +24,7 @@ import (
 // letture_identita e le chiavi dei campi; le menzioni stanno fuori, e le leggono le loro chiavi
 // (base_menzionata…); gli attributi della revisione in campo separato li leggono revisione, stato,
 // originale_conservato e cifre. Sui selettori d'identità di A1a (nome del file, codice del cartiglio, id dello
-// STEP) e su oggetto e corpo con l'uso sconosciuto (router-1 riga 2) le letture d'identità sono tutte le
+// STEP) e su oggetto e corpo con l'uso sconosciuto (riga 2 del router) le letture d'identità sono tutte le
 // letture di forma: le chiavi di A1a non cambiano significato.
 //
 // Confronto (R25 c, d): esatto per base, basi, marcatore, affisso e revisione; per le altre chiavi il valore
@@ -94,7 +94,7 @@ type scena struct {
 }
 
 // nuovaScena divide l'interpretazione di un caso per funzione (R25 a). La funzione è quella che Interpreta ha
-// scritto nella lettura (router-1): il runner non la ricalcola.
+// scritto nella lettura (il router): il runner non la ricalcola.
 func nuovaScena(sel evidenze.Selettore, testo string, in motorea.Interpretazione, m *motorea.Motore, cliente uuid.UUID) *scena {
 	sc := &scena{sel: sel, testo: testo, codici: in.Letture, interp: in, motore: m, cliente: cliente, atteso: map[string]ValoreAtteso{}}
 	sc.letture, sc.menzioni = dividiLetture(in.Letture)
