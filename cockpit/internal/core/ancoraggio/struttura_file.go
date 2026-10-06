@@ -16,14 +16,23 @@ import (
 // ingresso di ProponiStrutture (ContestoStrutturale.Strutture), che valutazione riempie con StrutturaDa. Solo lo STEP
 // dà una struttura (T-E1-09, R68 A): un PDF, un IGS, un DXF mai.
 
-// FileInterpretato: un allegato con il suo documento e la sua interpretazione (par.3.3.7), come MessaggioInterpretato
-// per un messaggio. Lo prepara valutazione dalla fotografia: estrazione.DaAllegato con i fatti alla terna corrente,
-// poi Interpreta con l'uso sconosciuto (un file non ha segmenti). La disponibilità del file (Disponibilita, par.3.3.7,
-// con senza_testo di T-B0-31) serve agli ancoraggi dei file e arriva con loro (B4): la struttura non la guarda.
+// FileInterpretato: un allegato con il suo documento, la sua interpretazione e la disponibilità (par.3.3.7), come
+// MessaggioInterpretato per un messaggio. Lo prepara valutazione dalla fotografia: estrazione.DaAllegato con i fatti
+// alla terna corrente, poi Interpreta con l'uso sconosciuto (un file non ha segmenti). La disponibilità (Disponibilita,
+// con senza_testo per una scansione: T-B0-31) la dà valutazione (6.4.6 passo 8) e la porta l'ancoraggio del file
+// (ProponiAncoraggi, B4); la struttura non la guarda.
+//
+// Disegno (B4, fase 3; lettura T-B4-31): il file è un disegno 2D, come lo dice valutazione, che conosce il tipo
+// documentale e i formati (il requisito disegno_2d, il formato come proprietà: R82, T-B0-30); in ancoraggio il tipo
+// non è noto (T-B4-29). Serve solo alla riconciliazione: un 2D associato a un nodo dà il suo codice documentale, anche
+// quando il cartiglio non si legge (un raster, un PDF senza testo: non_verificabile, LD-04); un file che non è un 2D non
+// ne dà nessuno. Non cambia i candidati.
 type FileInterpretato struct {
 	AllegatoID      uuid.UUID
 	Documento       evidenze.DocumentoEvidenze
 	Interpretazione motorea.Interpretazione
+	Disponibilita   Disponibilita
+	Disegno         bool
 }
 
 // I valori del documento che la struttura guarda, come li scrive l'adattatore STEP di A1b (mappatura-step-1): il
@@ -42,6 +51,8 @@ const (
 	riferimentoAnalisiFile   = "analisi_file"
 	campoID                  = "id"
 	campoNome                = "nome"
+	campoRevisione           = "revisione"  // per lo STEP è la formazione grezza, mai una revisione (D1)
+	parserRevGrezza          = "rev_grezza" // la prima formazione dei fatti; le alternative hanno un altro campo
 )
 
 // motivoGrafoNonDichiarato: il motivo di un grafo non completo quando il documento non dice perché (la capacità
@@ -92,11 +103,19 @@ const (
 //   - Letture: le letture d'identità del nodo, cioè quelle dei suoi campi id e nome (funzione identita_file per una
 //     radice, struttura per gli altri nodi: router-2, righe 9 e 10), in ordine di ID. Vuote: nessuna famiglia lo legge
 //     (le saldature, D10). Il nodo si mostra lo stesso, ma non è mai una radice candidata né un candidato (6.4.5).
+//   - Grezzi (B4): i valori grezzi dei campi id e nome, con l'unità e il localizzatore, com'è nei fatti (I-6): il
+//     grezzo della catena del codice (contratto §1.4). Prima l'id, poi il nome.
+//   - Formazioni (B4): la formazione grezza del nodo, rev_grezza (PRODUCT_DEFINITION_FORMATION.id della prima
+//     formazione), alla lettera di T-E1-22: le formazioni alternative dei fatti (rev_alternative) non entrano.
+//     Non sono revisioni e non si confrontano con nessuna revisione (D1): servono solo a dire se la
+//     revisione registrata di un componente coincide con la formazione (T-E1-22).
 type NodoStruttura struct {
-	Rif      string                  `json:"rif"`
-	EntitaID string                  `json:"entita_id"`
-	Chiave   string                  `json:"chiave"`
-	Letture  []motorea.LetturaCodice `json:"letture,omitempty"`
+	Rif        string                  `json:"rif"`
+	EntitaID   string                  `json:"entita_id"`
+	Chiave     string                  `json:"chiave"`
+	Letture    []motorea.LetturaCodice `json:"letture,omitempty"`
+	Grezzi     []ValoreGrezzo          `json:"grezzi,omitempty"`
+	Formazioni []string                `json:"formazioni,omitempty"`
 }
 
 // StrutturaFile: il grafo STEP di un file, ricavato dal suo documento e dalla sua interpretazione (6.4.5, E-20):
@@ -110,15 +129,19 @@ type NodoStruttura struct {
 //     (struttura_motivo_parziale, R32 b): una qualità della fonte, mai «completa» da sola (contratto T-10). Falso con
 //     il motivo, anche per un file «solo parti» o con più radici: la completezza che conta per un target è quella
 //     delle sue strutture (6.4.5, regola 2).
+//   - NomeFile (B4): le letture del nome del file (selettore nome_file), con il localizzatore del nome, in ordine di
+//     ID. Il nome è dell'allegato, non del contenuto: due allegati con lo stesso sha256 possono avere nomi diversi. La
+//     sua revisione è solo un candidato della radice del file (T-B0-27, T-B0-35), mai un ingresso del compositore.
 type StrutturaFile struct {
-	AllegatoID    uuid.UUID       `json:"allegato_id"`
-	BundleID      string          `json:"bundle_id"`
-	Sha256        string          `json:"sha256"`
-	Radici        []string        `json:"radici,omitempty"`
-	Nodi          []NodoStruttura `json:"nodi,omitempty"`
-	Archi         []ArcoPercorso  `json:"archi,omitempty"`
-	GrafoCompleto bool            `json:"grafo_completo"`
-	MotivoGrafo   string          `json:"motivo_grafo,omitempty"`
+	AllegatoID    uuid.UUID             `json:"allegato_id"`
+	BundleID      string                `json:"bundle_id"`
+	Sha256        string                `json:"sha256"`
+	Radici        []string              `json:"radici,omitempty"`
+	Nodi          []NodoStruttura       `json:"nodi,omitempty"`
+	Archi         []ArcoPercorso        `json:"archi,omitempty"`
+	GrafoCompleto bool                  `json:"grafo_completo"`
+	MotivoGrafo   string                `json:"motivo_grafo,omitempty"`
+	NomeFile      []LetturaConPosizione `json:"nome_file,omitempty"`
 }
 
 // StrutturaDa ricava la struttura di un file STEP (6.4.5). È pura: valutazione la usa per riempire
@@ -132,7 +155,8 @@ type StrutturaFile struct {
 //     struttura con le letture sbagliate sarebbe peggio di nessuna.
 //
 // Altrimenti la struttura c'è anche con il grafo non completo (GrafoCompleto falso, con il motivo), anche con la
-// lettura troncata (capacità «struttura» parziale), e anche con nodi che nessuna famiglia legge.
+// lettura troncata (capacità «struttura» parziale), e anche con nodi che nessuna famiglia legge. Dal commit di B4 porta
+// anche ciò che serve alla catena del codice: i grezzi e le formazioni dei nodi, le letture del nome del file.
 func StrutturaDa(f FileInterpretato) (StrutturaFile, bool) {
 	d := f.Documento
 	rf := d.Fonte.RiferimentoFatti
@@ -161,10 +185,17 @@ func StrutturaDa(f FileInterpretato) (StrutturaFile, bool) {
 	}
 
 	// Le radici: un nodo è radice se una sua unità ha il contesto radice_step (le radici dei fatti, A1b). Le unità
-	// d'identità: i campi id e nome di un nodo.
+	// d'identità: i campi id e nome di un nodo, con il loro grezzo; la formazione: il campo revisione che viene da
+	// rev_grezza, non dalle alternative (B4). Le unità del nome del file non hanno un'entità (B4).
 	radice := map[string]bool{}
 	identita := map[string]string{} // unità → entità del nodo
+	nome := map[string]evidenze.Localizzatore{}
+	formazioni := map[string][]evidenze.UnitaEvidenza{} // entità → unità della formazione
 	for _, u := range d.Unita {
+		if u.EntitaID == "" && u.Selettore.Contesto == evidenze.ContestoNomeFile {
+			nome[u.ID] = u.Posizione
+			continue
+		}
 		n := nodi[u.EntitaID]
 		if n == nil {
 			continue
@@ -172,8 +203,14 @@ func StrutturaDa(f FileInterpretato) (StrutturaFile, bool) {
 		if u.Selettore.Contesto == evidenze.ContestoRadiceSTEP {
 			radice[n.Rif] = true
 		}
-		if c := u.Selettore.Campo.Valore; c == campoID || c == campoNome {
+		switch c := u.Selettore.Campo.Valore; c {
+		case campoID, campoNome:
 			identita[u.ID] = u.EntitaID
+			n.Grezzi = append(n.Grezzi, ValoreGrezzo{Testo: u.Testo, Campo: c, UnitaID: u.ID, Posizione: copiaLocalizzatore(u.Posizione)})
+		case campoRevisione:
+			if u.CampoOriginale.Parser == parserRevGrezza {
+				formazioni[u.EntitaID] = append(formazioni[u.EntitaID], u)
+			}
 		}
 	}
 	for _, l := range f.Interpretazione.Letture {
@@ -183,8 +220,25 @@ func StrutturaDa(f FileInterpretato) (StrutturaFile, bool) {
 	}
 
 	s := StrutturaFile{AllegatoID: f.AllegatoID, BundleID: d.BundleID, Sha256: rf.Sha256}
+	for _, l := range f.Interpretazione.Letture {
+		if pos, ok := nome[l.UnitaID]; ok {
+			s.NomeFile = append(s.NomeFile, LetturaConPosizione{Lettura: l, Posizione: copiaLocalizzatore(pos)})
+		}
+	}
+	sort.SliceStable(s.NomeFile, func(i, j int) bool { return s.NomeFile[i].Lettura.ID < s.NomeFile[j].Lettura.ID })
 	for _, n := range ordine {
 		sort.SliceStable(n.Letture, func(i, j int) bool { return n.Letture[i].ID < n.Letture[j].ID })
+		sort.SliceStable(n.Grezzi, func(i, j int) bool {
+			if (n.Grezzi[i].Campo == campoID) != (n.Grezzi[j].Campo == campoID) {
+				return n.Grezzi[i].Campo == campoID
+			}
+			return n.Grezzi[i].UnitaID < n.Grezzi[j].UnitaID
+		})
+		fz := formazioni[n.EntitaID]
+		sort.SliceStable(fz, func(i, j int) bool { return fz[i].ID < fz[j].ID })
+		for _, u := range fz {
+			n.Formazioni = append(n.Formazioni, u.Testo)
+		}
 		if radice[n.Rif] {
 			s.Radici = append(s.Radici, n.Rif)
 		}
