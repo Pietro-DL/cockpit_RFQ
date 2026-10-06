@@ -87,6 +87,9 @@ markmap:
     delle query
   - **[`core/estrazione/README.md`](core/estrazione/README.md)** → gli adattatori del motore A (giro 5): dal nome
     del file, dalla voce d'archivio, dai fatti dei worker e dalla mail ai documenti delle evidenze; il testo isolato
+  - **[`core/ancoraggio/README.md`](core/ancoraggio/README.md)** → le proposte del motore A (giro 5): i prodotti
+    candidati della mail, sempre da confermare, con quantità ed esclusioni; il vocabolario comune e i tipi della
+    fonte strutturale
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -139,6 +142,10 @@ markmap:
       mail (A1b.7): `TagliaCatenaConPosizioni`, `Taglio`, `RigaTesto`, `StatoTaglio`, `RegolaTaglio`,
       `LivelliDellaStoria`, `LivelloStoria`, `EInoltro`; `TabelleConOrigine`, `TabellaOrigine`, `CellaOrigine`,
       `TestoDaHTML`
+  - **`core/ancoraggio`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
+    `core/estrazione/evidenze`, `platform/jsoncanonico`
+    - le proposte, pure e senza DB: mai `core/fotorfq` né il caricatore (la fotografia la legge
+      `core/valutazione`, T-B0-04), mai `core/estrazione`, `core/valutazione`, `core/confronto`
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
@@ -169,6 +176,8 @@ markmap:
   - e `platform/migrazioni` → `core/inbox/classificazione` (le larghezze delle colonne)
   - e `core/estrazione` → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica` (dall'adattatore
     all'interpretazione, sulle fixture sintetiche)
+  - e `core/ancoraggio` → `core/estrazione`, `core/fotorfq` (dall'adattatore della mail ai prodotti candidati,
+    sulle fixture sintetiche)
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate
