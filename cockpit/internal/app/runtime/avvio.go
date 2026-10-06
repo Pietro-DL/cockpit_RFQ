@@ -9,6 +9,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -71,14 +72,10 @@ func ApriDatabase(ctx context.Context, cfg *config.Config, fsys fs.FS, log *slog
 	return pool, ultimaApplicata(applicate), nil
 }
 
+// ultimaApplicata: la versione massima di schema_versione. E' un involucro di migrazioni.UltimaApplicata (A1c,
+// P-02): il controllo dello schema e' uno solo, per l'apertura in lettura e per il comando U5.
 func ultimaApplicata(applicate map[int]bool) int {
-	versione := 0
-	for v := range applicate {
-		if v > versione {
-			versione = v
-		}
-	}
-	return versione
+	return migrazioni.UltimaApplicata(applicate)
 }
 
 // ApriDatabaseInLettura apre il pool per i comandi che leggono soltanto (Opzioni.SoloLettura): niente
@@ -88,19 +85,32 @@ func ultimaApplicata(applicate map[int]bool) int {
 // Lo schema deve essere quello del binario. Con uno schema piu' vecchio i conti si farebbero su tabelle
 // che il binario non si aspetta, e migrarlo da qui vorrebbe dire cambiare il database con un comando che
 // si lancia per guardare, magari senza un backup: ci si ferma e si dice che cosa fare.
+//
+// E' migrazioni.ApriInLettura sul DSN della configurazione (A1c, P-02: l'apertura in sola lettura sta in
+// platform/migrazioni, dove la usano anche il banco del motore A e gli aiuti delle prove), con l'errore di
+// schema tradotto nel testo di sempre (spiegaSchema).
 func ApriDatabaseInLettura(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
-	return apriSenzaMigrare(ctx, cfg, fsys, true)
+	pool, err := migrazioni.ApriInLettura(ctx, cfg.DB.DSN, fsys)
+	if err != nil {
+		return nil, spiegaSchema(err, "legge soltanto e non migra")
+	}
+	return pool, nil
 }
 
 // ApriDatabaseSenzaMigrare apre il pool per un comando che scrive ma non deve cambiare lo schema: il comando
 // U5 in applicazione (-riapri-agganci, Smistamento F7, P38). E' ApriDatabaseInLettura senza la sola lettura:
 // niente migrazioni, niente semi, niente coda, e con uno schema diverso da quello del binario ci si ferma.
 // Migrare da qui vorrebbe dire cambiare il database prima del backup che il comando chiede.
+//
+// Resta in app/runtime (A1c, P-02): apre un pool scrivibile, che al banco e alle prove non serve. Il controllo
+// dello schema e' quello comune di platform/migrazioni (UltimaApplicata, SchemaDiverso).
 func ApriDatabaseSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
-	return apriSenzaMigrare(ctx, cfg, fsys, false)
+	return apriSenzaMigrare(ctx, cfg, fsys)
 }
 
-func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS, soloLettura bool) (*pgxpool.Pool, error) {
+// apriSenzaMigrare apre il pool scrivibile del comando U5 e controlla lo schema come migrazioni.ApriInLettura.
+// Il ramo della sola lettura, che c'era qui, ora e' di ApriInLettura.
+func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgxpool.Pool, error) {
 	migs, err := migrazioni.Elenca(fsys)
 	if err != nil {
 		return nil, err
@@ -109,12 +119,6 @@ func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS, soloL
 	pc, err := pgxpool.ParseConfig(cfg.DB.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
-	}
-	if soloLettura {
-		if pc.ConnConfig.RuntimeParams == nil {
-			pc.ConnConfig.RuntimeParams = map[string]string{}
-		}
-		pc.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, pc)
 	if err != nil {
@@ -125,15 +129,23 @@ func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS, soloL
 		pool.Close()
 		return nil, err
 	}
-	cosa := "legge soltanto e non migra"
-	if !soloLettura {
-		cosa = "non migra"
-	}
-	if err := schemaDelBinario(ultimaApplicata(applicate), delBinario, cosa); err != nil {
+	if v := migrazioni.UltimaApplicata(applicate); v != delBinario {
 		pool.Close()
-		return nil, err
+		return nil, spiegaSchema(&migrazioni.SchemaDiverso{DelDatabase: v, DelBinario: delBinario}, "non migra")
 	}
 	return pool, nil
+}
+
+// spiegaSchema traduce migrazioni.SchemaDiverso nel testo del Cockpit: «backup, poi cockpit.exe -migra» oppure
+// «serve il cockpit.exe aggiornato» (schemaDelBinario). cosa dice che cosa fa il comando («legge soltanto e non
+// migra», «non migra»). Gli altri errori passano com'erano. Per il banco il rimedio e' un altro, e lo scrive il
+// banco.
+func spiegaSchema(err error, cosa string) error {
+	var sd *migrazioni.SchemaDiverso
+	if errors.As(err, &sd) {
+		return schemaDelBinario(sd.DelDatabase, sd.DelBinario, cosa)
+	}
+	return err
 }
 
 // stessoSchema e' il rifiuto dei comandi in sola lettura quando lo schema del database non e' quello del

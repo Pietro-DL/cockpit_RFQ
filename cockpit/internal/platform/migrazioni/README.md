@@ -15,6 +15,11 @@ markmap:
   - un file, una transazione;
   - prima di toccare il database verifica i file senza database (`VerificaStatica`).
 - Rifiuta un database più recente del binario e uno con buchi nelle versioni.
+- Da A1c (giro 5, P-02) apre anche il database **in sola lettura**, senza migrare (`lettura.go`): il pool con
+  `default_transaction_read_only`, il controllo dello schema contro l'ultima migrazione incorporata, la
+  destinazione di un DSN senza password e il controllo dei permessi di un collegamento che deve solo leggere.
+  Serve al server (attraverso gli involucri di `app/runtime`), al banco del motore A e agli aiuti delle prove,
+  che così non dipendono da `app/runtime`.
 
 ## Non appartiene qui
 
@@ -22,6 +27,11 @@ markmap:
 - le query (`db/queries`, `platform/db`),
 - il ritorno indietro (non esiste nel migratore: backup e script manuali in `scripts/`),
 - il seed (`platform/fondazioni`).
+- L'apertura del pool scrivibile del comando U5 (`ApriDatabaseSenzaMigrare`): resta in `app/runtime` (P-02), e
+  per lo schema usa `UltimaApplicata` e `SchemaDiverso` di qui.
+- Il testo del rimedio a uno schema diverso: `SchemaDiverso` è neutro, il Cockpit lo traduce in «backup, poi
+  `-migra`» o «serve il cockpit.exe aggiornato» (`app/runtime`), il banco del motore A (A1c) in «una copia
+  migrata dal proprietario».
 
 ## File
 
@@ -33,6 +43,19 @@ markmap:
     - `Applica`, `ApplicaFinoA`, `ApplicaElenco`;
     - `applicaUna` (una transazione per file);
     - `VerificaStatica` con le sue espressioni regolari
+- **`lettura.go`** (A1c, P-02: per **aprire**, non per migrare; non chiama mai `Applica`, non aggiunge
+  migrazioni: in A1 l'ultima resta la 0021, G10)
+  - Responsabilità:
+    - `ApriInLettura` (il pool con `default_transaction_read_only=on`; schema diverso → `*SchemaDiverso` e pool
+      chiuso);
+    - `UltimaApplicata` (il massimo delle versioni registrate; 0 = nessuna);
+    - `SchemaDiverso` (database e binario a versioni diverse; testo neutro);
+    - `Destinazione` («host:porta/nome come utente», con il nome risolto come lo legge pgx, senza password; un
+      DSN illeggibile dà un errore che non lo ripete);
+    - `Collegamento` e `ControllaSolaLettura` (dal catalogo, in quest'ordine: `default_transaction_read_only`,
+      `current_user` = `session_user`, nessun attributo da superutente, nessuna appartenenza in
+      `pg_auth_members`, nessun privilegio di scrittura su una relazione di `public` né `CREATE` sullo schema,
+      nessuna tabella esclusa leggibile; il primo controllo che non passa dà un errore che lo nomina)
 
 ## Entry point
 
@@ -44,11 +67,25 @@ markmap:
 - **`Applicate(ctx, c)`**
   - Chi lo chiama:
     - `app/runtime.ApriDatabase`, per sapere la versione (serve a `fondazioni.UnaSolaCasellaAttiva` e all'analizzatore corrente dalla 20);
-    - `app/runtime.ApriDatabaseInLettura`, per confrontarla con quella del binario
+    - `ApriInLettura` e `app/runtime.ApriDatabaseSenzaMigrare`, per confrontarla con quella del binario;
+    - da A1c il caricatore del motore A, sulla sua transazione (`Fotografia.SchemaDB`)
 - **`Elenca(fsys)`**
-  - Chi lo chiama: `app/runtime.ApriDatabaseInLettura`:
+  - Chi lo chiama: `ApriInLettura` e `app/runtime.ApriDatabaseSenzaMigrare`:
     - l'ultima migrazione incorporata è la versione del binario;
     - con uno schema diverso i comandi in sola lettura si fermano con un errore che dice che cosa fare (backup e `-migra`, o il binario aggiornato) e non toccano il database
+- **`ApriInLettura(ctx, dsn, fsys)`**
+  - Chi lo chiama: `app/runtime.ApriDatabaseInLettura` (i comandi `-conta-anagrafiche`, `-anteprima-fornitori`,
+    `-calibrazione` e l'anteprima del comando U5), che traduce `SchemaDiverso` nel testo di sempre; da A1c il
+    banco del motore A e `platform/testutil.PoolDump`
+- **`UltimaApplicata`, `SchemaDiverso`**
+  - Chi lo chiama: `ApriInLettura`; `app/runtime` (`ultimaApplicata`, `ApriDatabaseSenzaMigrare`,
+    `spiegaSchema`); da A1c il caricatore del motore A
+- **`Destinazione(dsn)`**
+  - Chi lo chiama: `app/runtime.DestinazioneDelDSN` (la prima riga del comando U5), con il suo testo
+    d'errore; da A1c il banco del motore A
+- **`ControllaSolaLettura(ctx, c, escluse)`**
+  - Chi lo chiama: da A1c il banco del motore A (`-dsn`) e `platform/testutil.PoolDump`, prima di qualunque
+    lettura di dominio
 - **`ApplicaFinoA`**
   - Chi lo chiama: `platform/testutil.SchemaFinoA` (test S2: dati alla versione precedente, poi la migrazione)
 - **`ApplicaElenco`, `VerificaStatica`**
@@ -107,11 +144,18 @@ markmap:
 - Due istanze non migrano insieme.
 - **Dichiarato nel README principale e _non_ verificato dal codice:** «un file già applicato non va più modificato».
   - Una modifica a un file già registrato passa inosservata e non viene riapplicata.
+- **L'apertura in lettura non migra e non scrive** (P-02): `lettura.go` non chiama mai `Applica`, e il pool di
+  `ApriInLettura` ha `default_transaction_read_only=on` in ogni connessione. Con uno schema diverso il pool si
+  chiude prima di qualunque lettura.
+- **Nessun DSN e nessuna password negli errori di `Destinazione`**; `ControllaSolaLettura` fa solo letture del
+  catalogo, e il primo controllo che non passa ferma tutto.
 
 ## Dipendenze
 
-- Importa solo `pgx/v5`.
-- È importato da `app/runtime` e `platform/testutil`.
+- Importa solo `pgx/v5` (`pgx`, `pgxpool`) e la libreria standard (da A1c anche `net` e `strconv`, per
+  `Destinazione`): nessun pacchetto del progetto (G9).
+- È importato da `app/runtime` e `platform/testutil`; da A1c anche dal caricatore del motore A
+  (`core/fotorfq/caricatore`) e, con il banco sul DB, da `app/bancoa`.
 - Nessuna violazione.
 
 ## Test
@@ -148,6 +192,17 @@ markmap:
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara
+- **`lettura_test.go`** (A1c-L1-01)
+  - Livello: L1
+  - Che cosa prova:
+    - `SchemaDiverso` neutro, `UltimaApplicata`, `Destinazione` (senza password, errore senza il DSN);
+    - `ControllaSolaLettura` con un lettore finto, un controllo fallito per volta, ognuno con l'errore che lo nomina;
+    - `lettura.go` non ha `ApriSenzaMigrare` e non chiama mai le funzioni che applicano le migrazioni
+- **`lettura_db_test.go`** (A1c-L4S-01)
+  - Livello: L4
+  - Che cosa prova: `ApriInLettura` rifiuta la scrittura dal pool (25006) e uno schema alla versione prima
+    (`SchemaDiverso`, senza migrare); `ControllaSolaLettura` sul database di prova legge il catalogo e ferma un
+    ruolo che può scrivere
 - **I test L4**
   - stanno nel package esterno `migrazioni_test`,
   - partono da `testutil.SchemaFinoA(N-1)` quando provano una migrazione su dati esistenti,
@@ -179,7 +234,10 @@ markmap:
 - **Voglio… capire perché il server non parte dopo un aggiornamento**
   - Apro: l'errore di `ApplicaElenco` (versione più recente, buchi, file fallito)
 - **Voglio… capire perché `-conta-anagrafiche` o `-anteprima-fornitori` rifiutano il database**
-  - Apro: `app/runtime/avvio.go:ApriDatabaseInLettura` (schema del database diverso da `Elenca` del binario)
+  - Apro: `lettura.go:ApriInLettura` (schema del database diverso da `Elenca` del binario) e il testo di
+    `app/runtime/avvio.go:spiegaSchema`
+- **Voglio… capire perché un collegamento «in sola lettura» viene rifiutato**
+  - Apro: `lettura.go:ControllaSolaLettura` (l'errore nomina il controllo che non passa)
 - **Voglio… provare una migrazione su dati esistenti**
   - Apro: un `*_db_test.go` con `testutil.SchemaFinoA(t, p, N-1)`
 
