@@ -151,6 +151,7 @@ markmap:
       dalla colonna dichiarata con l'evidenza della cella, esclusioni con il motivo; sempre da confermare, mai
       target (R60 A)
     - il vocabolario comune (autorità, origini, stato della richiesta e gesti) e i tipi della fonte strutturale
+    - le strutture del file e del prodotto, la BOM di lavoro proposta sotto la radice scelta (B2)
     - dai blocchi successivi gli ancoraggi dei file
     - Puro: non importa la fotografia, che legge `valutazione`
   - DB: no

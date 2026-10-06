@@ -5,13 +5,13 @@ markmap:
   colorFreezeLevel: 2
 ---
 
-# `internal/core/ancoraggio` — le proposte del motore A: i prodotti chiesti dalla mail
+# `internal/core/ancoraggio` — le proposte del motore A: i prodotti chiesti dalla mail e le strutture dei prodotti
 
 ## Scopo
 
-- I **servizi di proposta** del motore A (giro 5; piano A, par.3.3.7, 6.4.4): la classificazione dice che cosa
-  significa un'evidenza, qui si decide a quali prodotti candidarla, conservando ambiguità, alternative, esclusioni
-  e motivi. È puro: nessuna scrittura, nessun DB.
+- I **servizi di proposta** del motore A (giro 5; piano A, par.3.3.7, 6.4.4, 6.4.5): la classificazione dice che
+  cosa significa un'evidenza, qui si decide a quali prodotti candidarla, conservando ambiguità, alternative,
+  esclusioni e motivi. È puro: nessuna scrittura, nessun DB.
 - In B1 (commit P5) c'è **`ProponiProdotti`**: dalle interpretazioni dei messaggi di una richiesta ai **prodotti
   candidati della mail**, con il codice richiesto originale separato dalla base letta, i qualificatori attribuiti,
   la quantità dalla colonna che la grammatica dichiara con l'evidenza della cella (R28), le letture escluse con il
@@ -22,6 +22,17 @@ markmap:
   `GestoMessaggio`, `RichiestaValutata`, `SegmentoPertinente`; e i **tipi della fonte strutturale** che
   `valutazione` usa per la fonte di un prodotto: `RiferimentoFonte`, `EsitoEstrazione`, `OrigineCandidato`,
   `DocumentoCandidato` (M1). Qui ci sono solo i tipi: il calcolo della fonte sta in `valutazione` (T-B0-04).
+- In B2 (commit P6a) ci sono le **strutture** (6.4.5, regole 1 e 2; contratto §1.3, §2.2):
+  - **`StrutturaDa`**: dal documento STEP dell'adattatore e dalla sua interpretazione, la **struttura del file**
+    (`StrutturaFile`): radici, nodi con le letture d'identità, archi dei fatti con quantità e occorrenze, la
+    completezza del grafo con il motivo. Solo lo STEP letto dà una struttura (T-E1-09, R68 A);
+  - **`ProponiStrutture`**: per ogni prodotto target (`ProdottoRichiesto`) e il contesto (`ContestoStrutturale`:
+    strutture, componenti e relazioni confermati, righe e archi aperti della tabella legacy), una **struttura del
+    prodotto per STEP e radice** (`StrutturaProdotto`, era `RadiceScenario`), con `NodoProposto` e `ArcoProposto`
+    (M2), gli archi del contesto con la loro origine, le righe da decidere, `GrafoCompleto`;
+  - lo **stato** (`StatoStruttura`): tutto è `struttura_candidata` finché la fonte non è confermata (R59 A); solo
+    la struttura sotto la radice scelta dello STEP confermato è `bom_di_lavoro_proposta`, nello stesso calcolo (R76 A,
+    R85), e resta una proposta. Un target senza strutture è `nessuna` (`StatoStrutturaDelTarget`).
 
 ## Non appartiene qui
 
@@ -29,8 +40,13 @@ markmap:
   valutata, con i gesti, la compone `core/valutazione` dalla fotografia; qui arriva già fatta.
 - **Il target, la sua identità e lo stato della fonte** (R70 A, R79, R65, R76 b, T-E1-09): `core/valutazione`
   (commit P7a).
-- **Gli ancoraggi dei file, le strutture e la BOM di lavoro** (`ProponiAncoraggi`, `StrutturaProdotto`,
-  `NodoProposto`, catena del codice, riconciliazione): arrivano con i commit di B2 (P6a) e di B4 (P6b).
+- **Gli ancoraggi dei file e la catena del codice** (`ProponiAncoraggi`, `AncoraggioFile`, `CandidatoAncoraggio`,
+  la disponibilità dei file, i file ancorati ai nodi, l'identità dei nodi, `CatenaCodice`, le decisioni accanto ai
+  nodi e agli archi, la riconciliazione, la pre-associazione): arrivano con il commit di B4 (P6b), che userà
+  `ProponiStrutture`.
+- **La verifica della BOM** (nomenclatura e gerarchia, R80), **i nodi della BOM con i 2D** (`NodoBOM`, T-B0-39) e
+  lo stato della struttura per prodotto nell'esito (`ProdottoValutato.Struttura`): `core/valutazione` (B5, B6). Qui
+  niente si dice verificato.
 - **Il router e l'interpretazione**: `core/inbox/classificazione/motorea`. Qui non si rilegge nessun testo: si
   usano le letture, gli attributi e le funzioni che l'interpretazione dà. Le scelte dei segmenti (`UsoSegmenti`)
   le applica `Interpreta`: una storia non scelta dall'operatore o dallo scenario resta menzione (R48 A, E2).
@@ -55,17 +71,35 @@ markmap:
   - `RiferimentoFonte` (il gesto 3: documento, sha256, radice, ruolo, forma, chi e quando, superato) con le
     costanti di `Tipo` e `Forma`;
   - `EsitoEstrazione`, `OrigineCandidato`, `DocumentoCandidato`: i tipi, con i loro commenti; nessuna funzione.
+- **`struttura_file.go`** — responsabilità:
+  - `FileInterpretato` (allegato, documento, interpretazione; la disponibilità arriva con B4);
+  - `RifNodo` e `PrefissoRifNodo`: il riferimento di un nodo, sha256 più chiave (T-E1-04);
+  - `ArcoPercorso` con le origini `fatti`, `confermato`, `proposto`; `NodoStruttura`, `StrutturaFile`;
+  - `StrutturaDa`, con l'ordine canonico di radici, nodi, letture e archi.
+- **`struttura_prodotto.go`** — responsabilità:
+  - `ProdottoRichiesto` (con `ComponenteID` e `FonteConfermata`); `ContestoStrutturale`, `ComponenteDeciso`,
+    `RigaPropostaLegacy` (il `NodoStrutturale` del 6.4.5, diviso: T-B0-02), `RifComponente`, `RifRigaProposta`;
+  - `StatoStruttura`, `NodoProposto`, `ArcoProposto`, `StrutturaProdotto`;
+  - `ProponiStrutture` (radici candidate, struttura, stato, diagnostiche), `StatoStrutturaDelTarget`, i controlli di
+    contratto.
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici che il pacchetto produce (R41 b): `ancoraggio.richiesta_non_valutata`,
-    `ancoraggio.righe_stessa_base`, `ancoraggio.quantita_non_intera`, `ancoraggio.alternative_conservate`.
+    `ancoraggio.righe_stessa_base`, `ancoraggio.quantita_non_intera`, `ancoraggio.alternative_conservate`;
+    `ancoraggio.target_senza_struttura`, `ancoraggio.grafo_incompleto` (le strutture).
 
 ## Entry point
 
 - **`ProponiProdotti`** — chi lo chiama: da A1c `core/valutazione` (`Calcola`, passo 5), per il banco e, da A1d,
   per l'anteprima.
+- **`StrutturaDa`** — chi lo chiama: da A1c `core/valutazione`, per gli STEP del thread (`Calcola`, passo 7: il
+  contesto).
+- **`ProponiStrutture`** e **`StatoStrutturaDelTarget`** — chi li chiama: da B4 `ProponiAncoraggi` (le radici e i
+  figli dove ancorare i file); da A1c `core/valutazione` lo stato della struttura per prodotto (B5, B6).
 - **I tipi del vocabolario e della fonte** — chi li usa: `core/valutazione` (la richiesta del thread, il target con
-  la sua autorità, la fonte di un prodotto con i documenti candidati); dai commit di B2 e B4 gli ancoraggi.
-- Oggi, nel codice di prodotto, ancora nessuno: il pacchetto nasce prima del suo chiamante.
+  la sua autorità, la fonte di un prodotto con i documenti candidati); dal commit di B4 gli ancoraggi.
+- Oggi, nel codice di prodotto: `core/valutazione` usa i tipi e chiama `ProponiProdotti` (da B1, `ValutaProdotti`);
+  `StrutturaDa` e `ProponiStrutture` ancora non li chiama nessuno: lo faranno B4, dentro `ProponiAncoraggi`, e B5 e
+  B6 in `core/valutazione`.
 
 ## Invarianti
 
@@ -103,13 +137,48 @@ markmap:
   quelli della sua lettura principale.
 - **Il riferimento della RFQ non è un prodotto**: in A1 non nasce nessuna lettura di riferimento
   (`riferimenti_rfq` riservato, R20 c), e nessuna famiglia lo legge come codice (C-31).
+- **Le regole delle strutture** (6.4.5, regole 1 e 2; R59 A, R76 A, R85):
+  1. radici candidate: per ogni target e ogni struttura, un nodo con una lettura d'identità compatibile con la base
+     del target (stesso namespace; `ConfrontaBasi` uguale, o compatibile parziale) è una radice candidata; di solito
+     la radice del file, anche un nodo interno (vale il suo sottoalbero: R76 b A); un nodo senza letture (le
+     saldature, D10) si mostra e non lo è mai;
+  2. la struttura: dalla radice, i nodi raggiungibili negli archi dei fatti, con i padri immediati, gli archi, le
+     quantità e le occorrenze (FIGLIO-CONDIVISO: un figlio sotto due padri è un nodo solo, con i due archi); accanto,
+     mai fusi, gli archi del contesto con la loro origine; la gerarchia viene solo dallo STEP (R68 A);
+  3. lo stato: tutto candidato; con la fonte confermata (tipo step, sha256, radice registrata, non superata), solo
+     la struttura sotto la radice scelta diventa BOM di lavoro proposta, al più una per prodotto, anche se la radice
+     scelta non ha la base del target; radice non registrata, fonte superata, STEP non letto o radice che nel file
+     non c'è: tutto resta candidato;
+  4. la riga aperta della radice si mostra a parte e non conta fra le righe da decidere (R80); le fonti di una
+     struttura ci sono solo se il file è un documento candidato della fonte del target (R76 b A, T-B0-07);
+  5. `ancoraggio.target_senza_struttura` per un target senza strutture, `ancoraggio.grafo_incompleto` per una
+     struttura con il grafo non completo; i file «solo parti» dei figli non contano.
+- **Le chiavi non sono il codice** (T-E1-04): un nodo è sha256 più chiave (`RifNodo`), un componente il suo UUID,
+  una riga legacy il suo UUID e, per il nodo, sha256 più chiave. Lo stesso contenuto in due allegati dà due
+  strutture con gli stessi riferimenti: nessuna fusione (6.4.5, regola 7).
+- **Confermato solo ciò che l'operatore ha confermato** (R29 e; R61 A): nel contesto un componente è confermato e
+  una riga aperta è proposta, altrimenti è un errore di contratto; le relazioni confermate non promuovono le
+  strutture.
+- **`SenzaFile`**: le strutture non ancorano file, quindi lo dicono di ogni nodo; lo ricalcola B4 dai file ancorati.
+  L'assenza di un file è ammessa e senza diagnostica (3.3.7, P-20).
+- **T-B2-01**: `ProponiStrutture` e `StatoStrutturaDelTarget` sono il punto d'ingresso di B2; B4 li chiama dentro
+  `ProponiAncoraggi`.
+- **T-B2-02**: per la fonte strutturale (asse 2) fanno fede i candidati di valutazione (`FonteProdotto.Candidati`,
+  B1); `StrutturaProdotto.Fonti` è una vista per struttura con lo stesso criterio (R76 b), e B6 ne proverà la coerenza.
+- **Fonte confermata senza BOM di lavoro** (STEP confermato non letto, radice assente nel file): `ancoraggio` non lo
+  dice; lo spiega il `MotivoFonte` di valutazione (B5, B6).
 - **L'errore è solo di contratto** (`*evidenze.ErroreContratto`, con i codici della foglia
-  `documento.riferimento_pendente` e `documento.id_ripetuto`): un messaggio ripetuto, un documento che non è
-  quello del messaggio, un'interpretazione di un altro documento, una lettura o un attributo su un'unità che non
-  c'è, un gesto ripetuto. Un limite dei dati sta nell'esito, con le diagnostiche.
+  `documento.riferimento_pendente`, `documento.id_ripetuto` e, per le strutture, `documento.enum_ignoto`): un
+  messaggio ripetuto, un documento che non è quello del messaggio, un'interpretazione di un altro documento, una
+  lettura o un attributo su un'unità che non c'è, un gesto ripetuto; per le strutture un target ripetuto, senza Rif
+  o con l'autorità proposta, una fonte confermata che non è uno STEP, una struttura senza allegato o sha256, un nodo
+  senza chiave, una riga senza allegato, sha256 o chiave (fuori dal suo file la chiave non significa niente: T-E1-04),
+  un nodo o un arco incoerente con la sua struttura, un componente non confermato, una riga non proposta, un arco del
+  contesto con l'origine o gli estremi sbagliati. Un limite dei dati sta nell'esito, con le diagnostiche.
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; nessun ordine che dipenda da una
-  mappa; messaggi, richiesta e gesti in ordine diverso danno gli stessi byte canonici. `time` serve solo per i tipi
-  e per portare in UTC al millisecondo i tempi dei gesti nell'impronta (par.3.4.3).
+  mappa; messaggi, richiesta e gesti in ordine diverso danno gli stessi byte canonici, e così target, strutture,
+  nodi, archi, componenti e righe per le strutture. `time` serve solo per i tipi e per portare in UTC al
+  millisecondo i tempi dei gesti nell'impronta (par.3.4.3).
 - `VersioneServizio` e i valori delle costanti del contratto si cambiano solo con un commit che lo dichiara; la
   prova che li fissa si riscrive con «Riscritta per …».
 
@@ -120,9 +189,9 @@ markmap:
   `github.com/google/uuid`, la libreria standard. Mai `core/fotorfq`, `core/estrazione`, `core/valutazione`,
   `core/confronto`, il caricatore, il DB (grafo del par.3.2.1).
 - **Solo nei test:** `core/estrazione` e `core/fotorfq`, per costruire il documento della mail con
-  `estrazione.DaMessaggio` e arrivare a `ProponiProdotti` dall'adattatore. Nessun ciclo: `core/estrazione` non
-  importa `ancoraggio`.
-- **È importato da:** ancora nessuno nel prodotto; da A1c `core/valutazione`.
+  `estrazione.DaMessaggio` e quello degli STEP con `estrazione.DaAllegato`, e arrivare a `ProponiProdotti` e a
+  `StrutturaDa` dall'adattatore. Nessun ciclo: `core/estrazione` non importa `ancoraggio`.
+- **È importato da:** `core/valutazione` (da B1: i tipi e `ProponiProdotti`; le strutture da B5 e B6).
 
 ## Test
 
@@ -139,6 +208,26 @@ markmap:
     quantità); l'inoltro senza confine (R48 A); la richiesta non valutata e il gesto del messaggio; solo i messaggi
     della richiesta; nessun candidato è mai un target;
   - la regola 6 (alternative), il determinismo, gli errori di contratto, i valori e i campi del contratto.
+- **`struttura_test.go`** — livello L1 — che cosa copre, dai fatti STEP del worker all'adattatore, a `Interpreta`,
+  a `StrutturaDa` e a `ProponiStrutture`, sulle fixture sintetiche:
+  - la struttura del file: radici, nodi con le letture, archi con quantità e occorrenze, il figlio sotto due padri,
+    la saldatura senza letture, il grafo incompleto con il motivo, due radici; il Rif sha256 più chiave anche con
+    lo stesso codice in due file, lo stesso contenuto in due allegati; niente struttura da un PDF, un IGS, uno STEP
+    senza fatti o illeggibile, un'interpretazione di un altro documento; le guardie di `StrutturaDa` una per una, su
+    un documento con i nodi (capacità «struttura» assente o non disponibile, qualità «errore», sha256 vuoto, fatti
+    non di un file, nessun nodo);
+  - la regola 1 con una radice compatibile parziale (la base a punti ACME) e con un nodo di un altro namespace con la
+    stessa base, che non è radice candidata;
+  - A1c-L1-07, -08, -09 e -20 nelle parti delle strutture, sulla scena ACME a due assiemi chiesti e uno no: una
+    struttura candidata per target, il figlio in comune in due file, i pezzi «solo parti» che non contano; il grafo
+    incompleto, il target senza STEP e quello non letto; il DAG a due livelli; figli senza file e nodi senza lettura;
+  - PO-05 (parte B2) e R59: senza fonte confermata tutto candidato; con il gesto solo la struttura sotto la radice
+    scelta è BOM di lavoro, con la stessa gerarchia; radice diversa, secondo STEP, stesso contenuto in un altro
+    allegato restano candidati; radice non registrata, fonte superata, STEP non letto: nessuna BOM; la radice
+    scelta senza la base del prodotto;
+  - il prodotto come nodo interno; il contesto con l'origine e la riga della radice esclusa; il determinismo; gli
+    errori di contratto, con il percorso dove serve (anche strutture e righe senza allegato, sha256 o chiave); i
+    valori e i campi del contratto.
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro
   (A1a-CAT, A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.

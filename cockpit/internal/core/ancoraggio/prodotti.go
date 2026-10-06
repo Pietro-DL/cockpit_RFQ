@@ -1,11 +1,13 @@
 // Package ancoraggio contiene i servizi di proposta del motore A: quali prodotti chiede la mail
-// (ProponiProdotti) e, dai commit che seguono, a quali target si ancorano i file (piano A, par.3.3.7; parte 1
-// §7.4, con le correzioni del v3 §2 e §10.4). La classificazione dice che cosa significa un'evidenza; qui si
-// decide a quali prodotti candidarla, conservando ambiguità, alternative, esclusioni e motivi.
+// (ProponiProdotti), le strutture dei prodotti target negli STEP (ProponiStrutture) e, dai commit che seguono, a
+// quali target si ancorano i file (piano A, par.3.3.7, 6.4.5; parte 1 §7.4, con le correzioni del v3 §2 e §10.4).
+// La classificazione dice che cosa significa un'evidenza; qui si decide a quali prodotti candidarla, conservando
+// ambiguità, alternative, esclusioni e motivi.
 //
 // È puro: nessuna scrittura, nessun DB, file, orologio o rete; non importa la fotografia (T-B0-04). Un candidato
 // non è mai una decisione: un prodotto letto dalla mail resta «da confermare» (R60 A), e il target lo decidono il
-// gesto 2 dell'operatore o lo scenario, che legge valutazione (R70 A, R75 A).
+// gesto 2 dell'operatore o lo scenario, che legge valutazione (R70 A, R75 A). Una struttura resta candidata finché
+// la fonte non è confermata, e la BOM di lavoro resta una proposta (R59 A, R76 A, R85).
 package ancoraggio
 
 import (
