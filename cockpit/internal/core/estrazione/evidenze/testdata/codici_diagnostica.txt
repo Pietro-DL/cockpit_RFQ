@@ -97,3 +97,8 @@ revisione.formazione_non_confrontabile
 revisione.non_interpretabile
 revisione.discordante
 quantita.non_interpretabile
+fotografia.nessun_analizzatore
+fotografia.fatti_assenti
+fotografia.terna_diversa
+fotografia.sezione_parziale
+fotografia.riferimento_non_risolto

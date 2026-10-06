@@ -32,7 +32,10 @@ import (
 //     contando gli import delle prove e i file con i tag integrazione, browser e privato;
 //   - G4 (P-08, R48 A): gli adattatori di core/estrazione usano di classificazione e lettura solo un elenco
 //     chiuso, il taglio con posizioni, EInoltro e le tabelle con origine;
-//   - F19 (R52 A): il banco, internal/app/bancoa, usa di core/estrazione solo DaTesto.
+//   - F19 (R52 A): il banco, internal/app/bancoa, usa di core/estrazione solo DaTesto;
+//   - A1c-L1-28 (la parte di B1): G1 sul caricatore della fotografia e su platform/migrazioni, G2 anche sul
+//     caricatore (il DB sì, l'orologio no), nessuna stringa analisi_messaggio nei sorgenti nuovi né nelle query
+//     della fotografia (queries/fotografia.sql).
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -47,6 +50,7 @@ const modulo = "promatec/cockpit"
 type regolePacchetto struct {
 	percorso string   // relativo alla radice del modulo
 	puro     bool     // vale VP anche per transitività, e VD come import diretto
+	g2       bool     // G2 anche se non è puro: niente orologio, file, rete, caso né goroutine (il caricatore)
 	progetto []string // import del progetto consentiti, relativi alla radice del modulo
 	esterni  []string // librerie esterne consentite (la libreria standard è consentita salvo VD)
 }
@@ -67,12 +71,23 @@ var pacchettiMotoreA = []regolePacchetto{
 		progetto: []string{"internal/core/registro/regole/grammatica", "internal/core/estrazione/evidenze",
 			"internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid"}},
-	// I record della fotografia (A1b, -> R40 d): tipi puri, senza DB; del progetto solo le foglie (la tabella
-	// del par.3.1 ammette evidenze per le diagnostiche della fotografia di A1c, e jsoncanonico per l'impronta
-	// dei fatti). Il caricatore, che tocca il DB, è un pacchetto a parte e non entra qui (A1c).
+	// I record della fotografia (A1b, -> R40 d) e, da A1c, la fotografia intera: tipi puri, senza DB; del
+	// progetto solo le foglie (evidenze per le diagnostiche della fotografia, jsoncanonico per le impronte).
 	{percorso: "internal/core/fotorfq", puro: true,
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni:  []string{"github.com/google/uuid"}},
+	// Il caricatore (A1c; F7-F10 del par.3.2.1): l'unico pacchetto del motore A con il DB, in sola lettura. Non è
+	// puro, perché legge il database; ma niente orologio, file, rete, caso né goroutine (G2: l'ora è SELECT now()
+	// del DB). Del progetto solo la fotografia, le diagnostiche, le query sqlc e le migrazioni (lo schema sulla
+	// transazione); mai un altro core/*, mai ai, app, transport, la libreria YAML.
+	{percorso: "internal/core/fotorfq/caricatore", g2: true,
+		progetto: []string{"internal/core/fotorfq", "internal/core/estrazione/evidenze", "internal/platform/db",
+			"internal/platform/migrazioni"},
+		esterni: []string{"github.com/google/uuid", "github.com/jackc/pgx/v5", "github.com/jackc/pgx/v5/pgtype"}},
+	// L'apertura in sola lettura (A1c, P-02): platform/migrazioni legge il DB, quindi non è pura; non importa
+	// niente del progetto (anche G9) e delle librerie esterne solo pgx.
+	{percorso: "internal/platform/migrazioni",
+		esterni: []string{"github.com/jackc/pgx/v5", "github.com/jackc/pgx/v5/pgxpool"}},
 	// Gli adattatori (A1b): il documento della foglia, i record della fotografia, i fatti del worker, il JSON
 	// canonico per il BundleID; del legacy solo il taglio con posizioni ed EInoltro (classificazione) e le
 	// tabelle con origine (lettura), con l'elenco chiuso di G4 (qui sotto). Mai grammatica né motorea: nessuna
@@ -246,7 +261,7 @@ func TestMotoreAImportaSoloIlConsentito(t *testing.T) {
 func TestMotoreASenzaOrologioFileNeRete(t *testing.T) {
 	radice := radiceDelModulo(t)
 	for _, r := range pacchettiMotoreA {
-		if !r.puro {
+		if !r.puro && !r.g2 {
 			continue
 		}
 		fset, files := fileAnalizzati(t, radice, r.percorso)
@@ -747,5 +762,25 @@ func TestIlBancoUsaDiEstrazioneSoloDaTesto(t *testing.T) {
 	}
 	if usi == 0 {
 		t.Error("app/bancoa non usa estrazione.DaTesto: la freccia F19 della tabella non ha più motivo")
+	}
+}
+
+// TestLeQueryDellaFotografiaSenzaLAgente (A1c-L1-28, MOTORE-SENZA-LLM, par.3.5): le query nuove della fotografia,
+// la sorgente e il codice generato, non nominano mai la tabella dei suggerimenti dell'agente. Il file deve
+// esserci: senza, la prova non legge il file giusto.
+func TestLeQueryDellaFotografiaSenzaLAgente(t *testing.T) {
+	radice := radiceDelModulo(t)
+	vietata := []byte("analisi" + "_messaggio")
+	for _, rel := range []string{"internal/platform/db/queries/fotografia.sql", "internal/platform/db/fotografia.sql.go"} {
+		b, err := os.ReadFile(filepath.Join(radice, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		if !bytes.Contains(b, []byte("ListFattiDelThread")) {
+			t.Fatalf("%s non ha le query della fotografia: la prova non legge il file giusto", rel)
+		}
+		if bytes.Contains(bytes.ToLower(b), vietata) {
+			t.Errorf("%s nomina la tabella dei suggerimenti dell'agente", rel)
+		}
 	}
 }
