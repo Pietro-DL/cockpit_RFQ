@@ -5,7 +5,7 @@ markmap:
   colorFreezeLevel: 2
 ---
 
-# `internal/core/inbox/classificazione/motorea` — il motore A: compilatore, riconoscimento per forma, router e interpretazione
+# `internal/core/inbox/classificazione/motorea` — il motore A: compilatore, riconoscimento per forma, router, interpretazione e compositore
 
 ## Scopo
 
@@ -32,6 +32,12 @@ markmap:
   titolo, scala e materiale grezzi, quantità dalla colonna dichiarata); nessuna relazione in A1 (E3); la
   copertura dei selettori senza forme; lo stato; `ID` e `Impronta`. `ImprontaUso` dà l'impronta canonica di
   un uso dei segmenti.
+- Da A1c (B3), il **compositore** (R63 B; contratto di A1c §2.1; T-B0-17, T-B0-37):
+  `ComponiCodiceDocumentale` porta una lettura (per esempio di un nodo STEP o del nome del file: base 9123456,
+  marcatore A, revisione 2 da «9123456A_2») nella forma documentale della stessa famiglia, la forma attiva su
+  `cartiglio.codice`: «9123456A2». Il risultato è un `CodiceComposto`: la stringa, oppure nessuna stringa con
+  uno dei sette motivi `MotivoComposizione*`, quando la grammatica non la determina in modo univoco (R87: senza
+  revisione nessuna stringa canonica). Versione propria: `VersioneComposizione` (`composizione-1`).
 - **Il principio della provenance** (5.0, 04/10 sera): il motore non indovina relazioni. Due cose si
   collegano solo se la provenance lo consente (stesso segmento, stessa entità, stessa riga di tabella, stesso
   nodo STEP, legame dichiarato nei fatti, uso esplicito) **e** una regola semantica lo fa nascere (una forma o
@@ -60,6 +66,10 @@ markmap:
 - **Legare un prodotto alla sua quantità** attraverso la riga, scegliere un prodotto, valutare i target:
   A1c. Qui la quantità resta l'attributo della riga.
 - **Le proposte di prodotti e ancoraggi**, la valutazione, il confronto con l'atteso: A1c.
+- **L'identità del nodo e la catena del codice** (`IdentitaNodo` con l'identità parziale, i candidati di
+  revisione come quella del nome del file STEP, `CatenaCodice`, la riconciliazione con il cartiglio):
+  `core/ancoraggio`, da B4 (R86, R87; T-B0-37). Il compositore riceve una lettura sola e non la completa con
+  altre: la revisione del nome del file non entra nel codice proposto di un nodo.
 - **Il riferimento al caso degli attesi** (`rif_caso`) che un esempio può portare: è un metadato opaco, lo
   legge solo il banco; qui non si legge mai (R47 b).
 - **I dati dei clienti**: grammatiche, indice e limiti stanno nel dataset privato, mai nel repository.
@@ -82,7 +92,14 @@ markmap:
   - le parti (etichetta, affisso, base, ripetizione della base, revisione, decorazione con la sequenza
     interna di un suffisso, separatore, marcatore, token), le alternative letterali con `QuoteMeta`, le
     maiuscole indifferenti ASCII senza `(?i)`;
-  - le revisioni in campo separato (D-07); le rune con cui una lettura può cominciare.
+  - le revisioni in campo separato (D-07); le rune con cui una lettura può cominciare;
+  - da A1c (B3), per ogni piano le parti come le legge il compositore (`scrittura`), calcolate una volta in
+    `compilaForma`.
+- **`componi.go`** — responsabilità (A1c, B3; R63 B):
+  - `VersioneComposizione`, `CodiceComposto`, le costanti `MotivoComposizione*`;
+  - `Motore.ComponiCodiceDocumentale`: la forma del cartiglio della famiglia (una sola, compilata), la lettura
+    nel suo insieme, la composizione parte per parte, la rilettura della stringa con `Riconosci`;
+  - `parteScritta` e `scritturaDi`: la forma ridotta a ciò che serve per scriverla.
 - **`scansione.go`** — responsabilità:
   - `scandisci`: ogni inizio di runa con il confine sinistro rispettato, match ancorato su una finestra
     lunga quanto la lettura più lunga più il confine, ripartenza di una runa; l'allungamento della lettura quando il confine destro ha consumato un carattere che poteva essere
@@ -150,6 +167,10 @@ markmap:
   chiamano anche per le righe dei selettori riservati in A1.
 - **`Motore.Interpreta`, `ImprontaUso`** — chi li chiama: da A1b.11 il banco (modo `casi`, con
   `estrazione.DaTesto` e l'uso sconosciuto); da A1c le proposte; da A1d l'anteprima.
+- **`Motore.ComponiCodiceDocumentale`, `VersioneComposizione`** — chi li chiama: da A1c solo la valutazione (il
+  passo 7a del 6.4.6, T-08). `ancoraggio` non lo chiama: ne riceve il risultato in
+  `ContestoStrutturale.CodiciProposti`, per ID di lettura, e lo mette in `CatenaCodice.Proposto` (B4). La
+  versione va nell'impronta dell'esito (B6). Alla fine di B3 nessun codice di prodotto lo chiama ancora.
 - Oggi, nel codice di prodotto, il banco (`app/bancoa`, da A1a.5); l'anteprima arriva in A1d.
 
 ## Invarianti
@@ -238,6 +259,33 @@ markmap:
   `cartiglio.particolare_simile` potrà davvero produrle.
 - **Le collisioni osservate sugli esempi sono errori**: nessuna precedenza per ordine di array. Gli esempi
   delle forme che non entrano nel motore restano non verificati, mai passati.
+- **Il compositore non cambia niente di A1a e A1b** (T-B0-17, D2): è un metodo nuovo; nessuna firma, nessun
+  campo di `LetturaForma` o di `LetturaCodice`, nessuna costante e nessun comportamento di riconoscimento e
+  interpretazione cambia (`VersioneAlgoritmo` resta `motorea-1`); la lettura che riceve resta com'è. Nessun
+  codice di diagnostica nuovo (T-15): il motivo sta nel `CodiceComposto`.
+- **La stringa non si inventa mai** (R63 B, R87; workflow, B3 A3.3). Si compone solo con la forma della famiglia
+  compilata nel motore su `cartiglio.codice`: una forma riservata, o con una parte riservata, non conta; con più
+  forme nessuna scelta. Parte per parte:
+  - base e ripetizione della base: la base normalizzata della lettura, che deve essere completa e della
+    famiglia; una proiezione sul cartiglio non è il codice;
+  - marcatore, token, affissi: dalla lettura, se la forma li ammette (i letterali sono esatti; un affisso per
+    regola). Una parte facoltativa senza valore resta fuori solo se l'assenza è letta, cioè se la forma della
+    lettura aveva quel posto;
+  - revisione: dalla lettura, della stessa regola, zeri compresi, con il separatore della regola se è uno solo;
+    una lettura senza revisione non dà stringa se la forma chiede o ammette la revisione (T-B3-01);
+  - separatori: fanno parte del codice; si scrivono solo se il testo è uno solo, mai presi dalla lettura;
+  - etichette e decorazioni della forma: stanno fuori dall'identità e la stringa proposta servirà alla
+    rinomina, quindi non vi entrano; una forma del cartiglio che chiede un'etichetta o una decorazione non dà
+    stringa, motivo `parte_non_determinata` (T-B3-02; anche facoltative, perché la scelta non si fa);
+  - della lettura restano fuori solo etichetta, decorazioni e ripetizioni concordanti; un affisso, un
+    marcatore, un token o una revisione letti senza posto nella forma bloccano la stringa. Le parti interne di
+    una decorazione contano come parti della lettura: un token dentro un `suffisso_documento` è il token della
+    lettura e blocca la stringa.
+  La stringa composta si rilegge con `Riconosci`: la stessa forma la deve leggere per intero, completa, con le
+  stesse parti; se no, nessuna stringa.
+- **L'ordine dei motivi è fisso**: forma assente, forme multiple, lettura non completa, revisione ambigua,
+  revisione non determinata, parte non determinata, qualificatore non trasferibile. La revisione non
+  determinata viene prima delle altre parti: è il segno dell'identità parziale di R87.
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; nessun ordine dipende da
   una mappa. Letture in ordine di (inizio, fine, famiglia, forma); la grammatica si rende canonica anche qui,
   quindi famiglie e forme permutate danno le stesse letture e le stesse diagnostiche.
@@ -247,7 +295,8 @@ markmap:
 - **Importa:** `core/registro/regole/grammatica`, `core/estrazione/evidenze`, `platform/jsoncanonico`
   (l'impronta dell'indice), `github.com/google/uuid`, la libreria standard. Mai il motore legacy
   (`core/inbox/classificazione`, `core/registro/regole`).
-- **È importato da:** `internal/app/bancoa`, il banco (vedi Entry point).
+- **È importato da:** `internal/app/bancoa`, il banco; da A1c `core/ancoraggio` e `core/valutazione` (vedi
+  Entry point).
 
 ## Test
 
@@ -262,7 +311,11 @@ markmap:
     {componente} e {prodotto}, gli insiemi vuoti e le categorie fuori dall'intersezione (A-C04); il
     candidato da riconoscimento automatico (E2);
   - da A1b.10, `interpreta_test.go` e `determinismo_test.go`, su documenti costruiti in Go: la firma senza
-    target (A-C11), alternative e annidate, limiti, determinismo (A1b-21, A1b-22).
+    target (A-C11), alternative e annidate, limiti, determinismo (A1b-21, A1b-22);
+  - da A1c (B3), `componi_test.go`, con la famiglia ACME del compositore (`acme-compositore`) e
+    `acme-maiuscole`: l'esempio del workflow, PO-06, un caso per motivo, la verifica avversariale (parti
+    facoltative, separatori, etichette, decorazioni, maiuscole, revisioni con gli zeri, basi parziali, letture
+    costruite a mano), le firme e i campi di A1a e A1b invariati, il determinismo, l'autosufficienza (E4).
 - Dall'adattatore a `Interpreta`, sulle fixture sintetiche: `core/estrazione/interpreta_test.go` (A-C02,
   A-C03, A-C05, A-C09, A-C10, A-C12, D1, HASH-CONFLITTO, A1b-19, A1b-23).
 - Il controllo degli import (G1, con il divieto del legacy), la guardia sul riferimento al caso degli

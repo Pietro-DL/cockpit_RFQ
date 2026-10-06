@@ -35,6 +35,7 @@ type pianoForma struct {
 	prime                      insiemeRune // le rune con cui una lettura può cominciare
 	maxByte                    int         // i byte di una lettura al più; -1 se la sequenza non ha un limite
 	gruppi                     []gruppo
+	scrittura                  []parteScritta // le parti come le legge il compositore (componi.go, A1c B3; R63 B)
 }
 
 // operazione: che cosa fare del testo di un gruppo. Sono poche, e nessuna nomina un cliente (par.12): il
@@ -346,6 +347,7 @@ func compilaForma(r regoleFamiglia, fo grammatica.FormaCodice) (*pianoForma, err
 	}
 	p.maxByte = lunghezzaMassima(albero)
 	p.gruppi = c.gruppi
+	p.scrittura = scritturaDi(r, fo)
 	return p, nil
 }
 
