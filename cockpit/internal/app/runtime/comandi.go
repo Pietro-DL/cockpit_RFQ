@@ -13,10 +13,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +28,7 @@ import (
 	"promatec/cockpit/internal/core/rfq/fascicolo"
 	"promatec/cockpit/internal/platform/config"
 	"promatec/cockpit/internal/platform/db"
+	"promatec/cockpit/internal/platform/migrazioni"
 )
 
 // Il seme dell'anagrafica (blocco 3). Si legge e si CONVALIDA prima di scrivere: se una sola
@@ -219,14 +218,16 @@ func RiapriAgganci(ctx context.Context, cfg *config.Config, cfgPath string, w io
 // DestinazioneDelDSN dice dove porta un DSN come lo leggera' pgx, senza la password: «host:porta/nome come
 // utente», e il nome del database. Il nome e' quello risolto (un DSN chiave=valore, un `?dbname=` che vince sul
 // percorso, un DSN senza database), non il testo del DSN: e' lo stesso criterio di testutil.DatabaseDiTest.
+//
+// E' un involucro di migrazioni.Destinazione (A1c, P-02), che serve anche al banco del motore A; qui resta il
+// testo dell'errore del Cockpit, che rimanda al file di configurazione.
 func DestinazioneDelDSN(dsn string) (testo, nome string, err error) {
-	pc, err := pgxpool.ParseConfig(dsn)
+	testo, nome, err = migrazioni.Destinazione(dsn)
 	if err != nil {
 		// l'errore di pgx puo' citare il DSN, password compresa: non si ripete
 		return "", "", fmt.Errorf("[db].dsn non si legge: controlla il file di configurazione")
 	}
-	cc := pc.ConnConfig
-	return fmt.Sprintf("%s/%s come %s", net.JoinHostPort(cc.Host, strconv.Itoa(int(cc.Port))), cc.Database, cc.User), cc.Database, nil
+	return testo, nome, nil
 }
 
 // ControllaNomeDatabase e' la guardia dell'applicazione (P38): il nome scritto sulla riga di comando deve

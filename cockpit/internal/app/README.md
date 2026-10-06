@@ -50,13 +50,19 @@ markmap:
   - **`avvio.go`**: i passi che vengono prima che esista un servizio
     - `ApriLog`
     - `ApriDatabase`
-    - `ApriDatabaseInLettura` (niente migrazioni, transazioni in sola lettura, schema uguale a quello del binario)
+    - `ApriDatabaseInLettura` (niente migrazioni, transazioni in sola lettura, schema uguale a quello del binario):
+      da A1c (P-02) è un involucro di `migrazioni.ApriInLettura`, con l'errore di schema tradotto da `spiegaSchema`
+    - `ApriDatabaseSenzaMigrare` e `apriSenzaMigrare` (il pool scrivibile del comando U5, che non migra): restano qui,
+      e per lo schema usano `migrazioni.UltimaApplicata` e `migrazioni.SchemaDiverso`
+    - `ultimaApplicata` (involucro di `migrazioni.UltimaApplicata`), `spiegaSchema`, `stessoSchema`, `schemaDelBinario`
+      (i testi del rifiuto: «backup, poi `-migra`» o «serve il cockpit.exe aggiornato»)
     - `Semina` (utenti, fondazioni, analizzatore corrente, una sola casella attiva prima della 0004)
     - `ImpostaCapacita`
   - **`comandi.go`**: i lavori della riga di comando, che fanno il loro e poi escono
     - `SeminaAnagrafica`
     - `SemeFornitori`
     - `ContaAnagrafiche`
+    - `DestinazioneDelDSN` (da A1c un involucro di `migrazioni.Destinazione`, con il testo d'errore del Cockpit)
     - e `ricalcola` (il ritriage delle sole chiavi appena scritte)
   - **`servizi.go`**
     - `Servizi`
@@ -85,6 +91,10 @@ markmap:
   - **`EsecutoreServer`, `RiaccodaAlRitornoDelNas`, `ScrivePerNas`**: l'avvio (`CostruisciServizi`, `Servizi.Avvia`) e le prove L4 del package
   - **`ApriLog`, `ApriDatabase`, `ApriDatabaseInLettura`, `Semina`, `ImpostaCapacita`, `CostruisciServizi`, `PreparaTLS`, `Ascolta`, `SeminaAnagrafica`, `SemeFornitori`, `ContaAnagrafiche`, `EseguiInLettura`, `LivelloLog`**
     - solo `Esegui` (sono esportati per essere letti e provati uno per uno)
+  - **`ApriDatabaseSenzaMigrare`, `DestinazioneDelDSN`**: il comando U5 (`RiapriAgganci`)
+  - L'apertura in sola lettura e il controllo dello schema che le serve stanno in `platform/migrazioni`
+    (`ApriInLettura`, `UltimaApplicata`, `SchemaDiverso`, `Destinazione`, `ControllaSolaLettura`: A1c, P-02),
+    dove li usano anche il banco del motore A e gli aiuti delle prove senza importare `runtime`.
 - Nessun altro package importa `runtime`.
 - **`bancoa.Esegui`, `bancoa.Opzioni`**: `cmd/bancoa/main.go`, che legge i flag `-modalita regole|casi`,
   `-dataset <manifest del dataset privato>`, `-uscita <cartella dei rapporti>` e traduce l'esito nei codici
