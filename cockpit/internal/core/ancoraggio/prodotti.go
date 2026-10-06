@@ -1,6 +1,8 @@
 // Package ancoraggio contiene i servizi di proposta del motore A: quali prodotti chiede la mail
-// (ProponiProdotti), le strutture dei prodotti target negli STEP (ProponiStrutture) e, dai commit che seguono, a
-// quali target si ancorano i file (piano A, par.3.3.7, 6.4.5; parte 1 §7.4, con le correzioni del v3 §2 e §10.4).
+// (ProponiProdotti), le strutture dei prodotti target negli STEP (ProponiStrutture), con la catena del codice e le
+// decisioni accanto a ogni nodo, e a quali prodotti e nodi si candidano i file (ProponiAncoraggi, con la
+// pre-associazione sulla BOM di lavoro) (piano A, par.3.3.7, 6.0.6, 6.4.5; parte 1 §7.4, con le correzioni del v3 §2 e
+// §10.4).
 // La classificazione dice che cosa significa un'evidenza; qui si decide a quali prodotti candidarla, conservando
 // ambiguità, alternative, esclusioni e motivi.
 //

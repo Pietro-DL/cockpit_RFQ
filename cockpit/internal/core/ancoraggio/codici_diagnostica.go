@@ -3,7 +3,7 @@ package ancoraggio
 // I codici che questo pacchetto produce (R41 b; piano A, 6.4.10). Ogni pacchetto del motore A dichiara i suoi in
 // un file con questo nome; un codice pubblicato non cambia nome né significato, e se non serve più resta qui con il
 // commento «ritirato». L'area «ancoraggio» dice di che cosa parla il codice. I codici degli ancoraggi dei file li
-// aggiunge il commit che li produce.
+// aggiunge il commit che li produce (P6b: la riconciliazione).
 
 // I prodotti della mail (ProponiProdotti, P5).
 const (
@@ -37,4 +37,19 @@ const (
 	// (la capacità grafo_completo, con il motivo della 0020: R32 b): la mancanza di un arco non è un'informazione.
 	// Contano solo le strutture dei target, mai i file «solo parti» dei figli (6.4.5, regola 2).
 	CodiceGrafoIncompleto = "ancoraggio.grafo_incompleto"
+)
+
+// La riconciliazione fra lo STEP e il cartiglio (ProponiAncoraggi, P6b, B4 fase 3; contratto §2.2, R41 b): una per
+// codice documentale con la correzione accanto, in avviso. Niente si applica: né il componente, né l'ancoraggio, né
+// l'identità del nodo cambiano (R64 A, R87).
+const (
+	// CodiceCompletamentoDocumentale — avviso, dati. Il cartiglio di un 2D associato a un nodo ha la base e il
+	// marcatore dell'identità proposta dallo STEP e aggiunge la revisione che lo STEP non dà: completamento_proposto
+	// (R87, T-B0-27), o discordante con il completamento accanto quando il file ha identità che non concordano.
+	CodiceCompletamentoDocumentale = "ancoraggio.completamento_documentale"
+
+	// CodiceCorrezioneDocumentale — avviso, dati. Il cartiglio di un 2D associato a un nodo dice un altro codice
+	// (un'altra base, un altro marcatore scritto, un'altra revisione): correzione_proposta, o discordante con la
+	// correzione accanto quando il file ha identità che non concordano (R64 A, T-B0-35).
+	CodiceCorrezioneDocumentale = "ancoraggio.correzione_documentale"
 )

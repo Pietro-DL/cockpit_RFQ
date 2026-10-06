@@ -152,7 +152,8 @@ markmap:
       target (R60 A)
     - il vocabolario comune (autorità, origini, stato della richiesta e gesti) e i tipi della fonte strutturale
     - le strutture del file e del prodotto, la BOM di lavoro proposta sotto la radice scelta (B2)
-    - dai blocchi successivi gli ancoraggi dei file
+    - la catena del codice dei nodi con l'identità e le decisioni accanto, gli ancoraggi dei file, la pre-associazione
+      e la riconciliazione fra lo STEP e il cartiglio dei 2D, mai applicata (B4)
     - Puro: non importa la fotografia, che legge `valutazione`
   - DB: no
   - README: [README](ancoraggio/README.md)
