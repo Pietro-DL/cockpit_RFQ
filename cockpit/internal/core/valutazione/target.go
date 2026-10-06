@@ -24,23 +24,31 @@ const (
 	IdentitaConfermata   StatoIdentitaTarget = "confermata"
 )
 
-// ProdottoValutato: un prodotto target della RFQ con i suoi assi (contratto §2.3). In B1 ci sono solo il
-// riferimento, l'autorità, il componente, il codice richiesto, la base letta, l'identità e la fonte; gli altri assi,
-// lo stato del prodotto e l'impronta li aggiungono B5 e B6 (T-E1-01: il solo booleano sarà Verificato, JSON
-// «prodotto_verificato»).
+// ProdottoValutato: un prodotto target della RFQ con i suoi assi (contratto §2.3). In B1 ci sono il riferimento,
+// l'autorità, il componente, il codice richiesto, la base letta, l'identità e la fonte; B5 aggiunge lo stato della
+// struttura, la verifica della BOM (gli assi 3 e 4) e la completezza documentale (l'asse 6); lo smistamento, i nodi, lo
+// stato del prodotto e l'impronta li aggiunge B6 (T-E1-01: il solo booleano sarà Verificato, JSON «prodotto_verificato»).
 //   - Rif: «componente:<uuid>» per un identificativo con il suo componente e per un finito manuale;
 //     «identificativo:<codice>» per un identificativo senza componente (emendamento E1 §4.2, LD-21: il legame è per
 //     codice, come nel DB); «scenario:<caso>:<n>» per un prodotto dello scenario.
 //   - CodiceRichiesto: il codice com'è nel DB (identificativo o componente) o come l'ha scritto la mail (scenario).
 //   - Base: la base letta con la grammatica del cliente; vuota se il codice non si legge (la base non si inventa).
+//   - Struttura (B5): lo stato della struttura del prodotto fra le strutture di ancoraggio (StatoStrutturaDelTarget:
+//     nessuna, struttura_candidata, bom_di_lavoro_proposta; R59 A, R76 A). Una BOM di lavoro resta una proposta.
+//   - BOM (B5): nomenclatura e gerarchia, gli assi 3 e 4 (R80; VerificaDellaBOM, letta in A1c dall'adattatore di
+//     «Conferma l'albero»).
+//   - Documenti (B5): la completezza documentale, l'asse 6 (Completezza: R72 D, R102 A; contratto §1.6).
 type ProdottoValutato struct {
-	Rif             string              `json:"rif"`
-	Autorita        ancoraggio.Autorita `json:"autorita"`
-	ComponenteID    *uuid.UUID          `json:"componente_id,omitempty"`
-	CodiceRichiesto string              `json:"codice_richiesto"`
-	Base            motorea.BaseLetta   `json:"base"`
-	Identita        StatoIdentitaTarget `json:"identita"`
-	Fonte           FonteProdotto       `json:"fonte"`
+	Rif             string                    `json:"rif"`
+	Autorita        ancoraggio.Autorita       `json:"autorita"`
+	ComponenteID    *uuid.UUID                `json:"componente_id,omitempty"`
+	CodiceRichiesto string                    `json:"codice_richiesto"`
+	Base            motorea.BaseLetta         `json:"base"`
+	Identita        StatoIdentitaTarget       `json:"identita"`
+	Fonte           FonteProdotto             `json:"fonte"`
+	Struttura       ancoraggio.StatoStruttura `json:"struttura"`
+	BOM             VerificaBOM               `json:"bom"`
+	Documenti       CompletezzaDocumentale    `json:"documenti"`
 }
 
 // TargetConfermato: il predicato del target confermato della RFQ (R70 A, R78; T-B0-21): l'identità confermata dal
@@ -84,7 +92,10 @@ type target struct {
 //     thread, dà target.possibile_rinomina; il target non si corregge.
 //
 // I candidati della mail che lo scenario non dichiara restano candidati, da confermare: mai target (R60 A).
-func targetDelThread(t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso, candidati []ancoraggio.CandidatoProdotto) ([]target, []evidenze.Diagnostica) {
+// interpretati sono le interpretazioni dei messaggi (le stesse di ProponiProdotti): danno la lettura principale di un
+// prodotto dello scenario per intero (B5).
+func targetDelThread(t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso, candidati []ancoraggio.CandidatoProdotto,
+	interpretati []ancoraggio.MessaggioInterpretato) ([]target, []evidenze.Diagnostica) {
 	componenti := append([]fotorfq.Componente(nil), t.Componenti...)
 	sort.SliceStable(componenti, func(i, j int) bool { return componenti[i].ID.String() < componenti[j].ID.String() })
 	perCodice := map[string]*fotorfq.Componente{}
@@ -191,14 +202,16 @@ func targetDelThread(t fotorfq.Thread, m *motorea.Motore, caso *IngressoCaso, ca
 
 	out := confermati
 	if caso != nil && caso.Autorita == ancoraggio.AutoritaScenario {
-		out = append(out, targetDelloScenario(caso, candidati, confermati)...)
+		out = append(out, targetDelloScenario(caso, candidati, confermati, interpretati)...)
 	}
 	return out, diag
 }
 
 // targetDelloScenario: i prodotti dello scenario (R75 A), in ordine di candidato, uno per (namespace, base,
-// qualificatori attribuiti).
-func targetDelloScenario(caso *IngressoCaso, candidati []ancoraggio.CandidatoProdotto, confermati []target) []target {
+// qualificatori attribuiti). La lettura del prodotto è quella principale del candidato, per intero (con il marcatore,
+// la revisione e gli affissi: B5, così la fonte e le strutture usano la stessa regola del marcatore, T-B4-30); se non
+// si trova fra le interpretazioni, solo namespace, base e codice.
+func targetDelloScenario(caso *IngressoCaso, candidati []ancoraggio.CandidatoProdotto, confermati []target, interpretati []ancoraggio.MessaggioInterpretato) []target {
 	var out []target
 	visti := map[string]bool{}
 	for _, c := range candidati {
@@ -210,6 +223,10 @@ func targetDelloScenario(caso *IngressoCaso, candidati []ancoraggio.CandidatoPro
 			continue
 		}
 		visti[k] = true
+		lettura := letturaPrincipale(c, interpretati)
+		if lettura == nil {
+			lettura = &motorea.LetturaForma{Namespace: c.Namespace, Base: copiaBase(c.Base), CodiceRichiesto: c.CodiceRichiesto}
+		}
 		out = append(out, target{
 			pv: ProdottoValutato{
 				Rif:             fmt.Sprintf("%s%s:%d", rifScenario, caso.ID, len(out)+1),
@@ -218,10 +235,28 @@ func targetDelloScenario(caso *IngressoCaso, candidati []ancoraggio.CandidatoPro
 				Base:            copiaBase(c.Base),
 				Identita:        IdentitaDaConfermare,
 			},
-			lettura: &motorea.LetturaForma{Namespace: c.Namespace, Base: copiaBase(c.Base), CodiceRichiesto: c.CodiceRichiesto},
+			lettura: lettura,
 		})
 	}
 	return out
+}
+
+// letturaPrincipale: la forma della lettura principale di un candidato (il messaggio e la lettura che il candidato
+// porta), cercata nelle interpretazioni dei messaggi; nil se non c'è, o se non ha il namespace e la base del candidato.
+func letturaPrincipale(c ancoraggio.CandidatoProdotto, interpretati []ancoraggio.MessaggioInterpretato) *motorea.LetturaForma {
+	for _, mi := range interpretati {
+		if mi.MessaggioID != c.MessaggioID {
+			continue
+		}
+		for _, l := range mi.Interpretazione.Letture {
+			if l.ID == c.Lettura && l.Forma.Namespace == c.Namespace && l.Forma.Base.Normalizzata == c.Base.Normalizzata {
+				f := l.Forma
+				f.Base = copiaBase(f.Base)
+				return &f
+			}
+		}
+	}
+	return nil
 }
 
 // dalloScenario: il candidato ha un'evidenza di un segmento che lo scenario ha scelto pertinente (uso pertinente,

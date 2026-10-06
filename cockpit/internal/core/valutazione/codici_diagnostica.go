@@ -34,3 +34,22 @@ const (
 	// sistema (T-B0-08).
 	CodiceRadiceNonRegistrata = "fonte_strutturale.radice_non_registrata"
 )
+
+// La verifica della BOM (P7b).
+const (
+	// CodiceBOMFonteNonRegistrata — avviso, dati. La BOM del prodotto è letta dal gesto legacy, «Conferma l'albero»,
+	// che conferma la BOM ma non registra da quale STEP, sha256 o radice venga l'albero (R61 A; contratto §1.3, §2.3):
+	// VerificaBOM.FonteRegistrata è falso, e la fonte resta quella dell'asse 2. Si dice per ogni prodotto il cui
+	// perimetro ha il segno della conferma.
+	CodiceBOMFonteNonRegistrata = "bom.fonte_non_registrata"
+)
+
+// La completezza documentale (P7b).
+const (
+	// CodiceDocumentiDerogaNonSostituisce2D — avviso, dati. Una deroga sul disegno 2D di un componente del perimetro
+	// (deroga_fabbisogno con il tipo disegno_2d): la deroga non sostituisce il 2D (R62 D.4; contratto §1.6, «La
+	// deroga»), quindi la voce del 2D resta con il suo esito, e senza un 2D valido è «manca» con il motivo
+	// derogato_non_sostituisce_2d. Sugli altri tipi la deroga vale come nella vista (S3). Si dice per ogni voce del 2D
+	// con una deroga, per prodotto.
+	CodiceDocumentiDerogaNonSostituisce2D = "documenti.deroga_non_sostituisce_2d"
+)
