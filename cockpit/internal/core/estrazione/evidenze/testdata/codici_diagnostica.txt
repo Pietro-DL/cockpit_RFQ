@@ -110,3 +110,5 @@ ancoraggio.target_non_leggibile
 target.possibile_rinomina
 fonte_strutturale.riferimento_incoerente
 fonte_strutturale.radice_non_registrata
+ancoraggio.target_senza_struttura
+ancoraggio.grafo_incompleto
