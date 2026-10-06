@@ -124,9 +124,17 @@ markmap:
   - Che cosa fa: i **record della fotografia** di una RFQ per il motore A (giro 5):
     - messaggio, allegato, terna e fatti come li dà il DB o un export, da riempire da fuori e leggere soltanto
     - l'impronta dei fatti (`ImprontaPayload`), una sola per DB ed export
-    - Puro: niente DB, file né orologio; il caricatore, che legge il DB, è un package a parte (A1c)
+    - da A1c la fotografia intera: le decisioni attuali con i tre gesti, le viste, i fabbisogni, la versione
+      della BOM; l'ordine totale, l'impronta della fotografia, i controlli di contratto
+    - Puro: niente DB, file né orologio; il caricatore, che legge il DB, è un package a parte
   - DB: no
   - README: [README](fotorfq/README.md)
+- **`fotorfq/caricatore`**
+  - Che cosa fa: il **caricatore del motore A** (giro 5, A1c): legge in una transazione REPEATABLE READ READ ONLY,
+    controllata con `SHOW`, tutti gli ingressi di una o più RFQ con un elenco chiuso di query sqlc, chiude con
+    ROLLBACK e restituisce la fotografia ordinata; nessuna interpretazione, nessuna proposta
+  - DB: sì, sola lettura
+  - README: [README](fotorfq/caricatore/README.md)
 - **`estrazione`**
   - Che cosa fa: gli **adattatori del motore A** (giro 5):
     - dai record della fotografia e dai fatti dei worker ai documenti delle evidenze, con fonte, entità, unità,
@@ -168,9 +176,14 @@ markmap:
     - `platform/jsoncanonico`
     - mai il motore legacy (`inbox/classificazione`, `registro/regole`): niente `Minuteria` (R7)
   - **`fotorfq`** importa:
-    - `platform/jsoncanonico` (l'impronta dei fatti)
-    - la tabella di `internal/README.md` ammette anche `estrazione/evidenze`, per le diagnostiche della
-      fotografia (A1c)
+    - `platform/jsoncanonico` (le impronte dei fatti e della fotografia)
+    - `estrazione/evidenze` (le diagnostiche della fotografia, A1c)
+  - **`fotorfq/caricatore`** importa:
+    - `fotorfq` (i tipi che riempie)
+    - `estrazione/evidenze` (le diagnostiche)
+    - `platform/db` (le query sqlc, solo su `db.New(tx)`)
+    - `platform/migrazioni` (`Applicate` sulla transazione, `UltimaApplicata`)
+    - nessun altro `core/*`: è l'unico package del motore A con il DB
   - **`estrazione`** importa:
     - `estrazione/evidenze` (il documento)
     - `fotorfq` (i record)

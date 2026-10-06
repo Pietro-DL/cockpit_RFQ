@@ -21,12 +21,24 @@ markmap:
 - Dà **un solo modo di calcolare l'impronta dei fatti**, `ImprontaPayload`: lo sha256 del JSON canonico del
   payload, con i numeri copiati come testo (5.4.2, par.3.4.2). È il valore di `Fatti.Digest`, per chiunque
   riempia un `Fatti`.
+- Da A1c (piano A, 6.4.1; **contratto di A1c, §3**, che prevale sul 6.4.1) c'è **la fotografia intera**:
+  - `Fotografia`, il contenitore (origine, schema, terna corrente, sezioni, clienti, thread, messaggi fuori RFQ,
+    utenti, diagnostiche) e `Thread`, una RFQ con i messaggi, gli allegati, i fatti e le decisioni attuali;
+  - i record delle decisioni, campo per campo come il contratto: il gesto 1 (`AggancioMessaggio`, fuori dal
+    record del messaggio: I-2), il gesto 2 (`Identificativo`), i componenti con il gesto 3
+    (`Componente.StepStrutturaleID`), le relazioni, le righe legacy `RigaComponenteProposta` e
+    `RigaRelazioneProposta` (M2) con `MarcaturaStrutturale` e `SegnoAlbero`, le rimozioni aperte, i documenti
+    confermati, le proposte, le righe di `v_step_prodotto` e di `v_fascicolo`, le deroghe, i fabbisogni
+    effettivi, la versione della BOM, il triage deterministico e i candidati di codice senza l'agente;
+  - `Ordina` (un ordine totale per chiave stabile), `ImprontaFotografia` (senza `PresaIl` e `Sorgente`),
+    `ValidaFotografia` (i riferimenti, i tempi, l'agente escluso) e i codici `fotografia.*`.
 
 ## Non appartiene qui
 
-- **Il caricatore** (`core/fotorfq/caricatore`), l'unico pacchetto del motore A con il DB, in sola lettura, e
-  **la fotografia intera** (`Fotografia`, `Thread`, le decisioni attuali, `Ordina`, `ImprontaFotografia`):
-  arrivano in A1c (par.6).
+- **Il caricatore** (`core/fotorfq/caricatore`), l'unico pacchetto del motore A con il DB, in sola lettura: è un
+  pacchetto a parte (A1c). Qui i tipi si riempiono da fuori.
+- **Qualunque calcolo sulle decisioni**: target, fonte, ancoraggi e valutazione stanno in `core/ancoraggio` e
+  `core/valutazione`. La fotografia dice che cosa c'è nel DB, non che cosa significa.
 - **L'interpretazione dei record**: i documenti delle evidenze li costruiscono gli adattatori di
   `core/estrazione`; qui nessun record porta una decisione o un'interpretazione (I-2, par.3.8.3).
 - **Il codificatore canonico**: sta in `platform/jsoncanonico` (-> R40 c); qui si usa e non si rifà.
@@ -40,6 +52,14 @@ markmap:
   - `Messaggio`, `Allegato`, `Terna`, `Fatti`, con i tag JSON delle colonne;
   - `ImprontaPayload`: payload vuoto o senza una forma unica (chiavi ripetute, UTF-8 non valido, surrogati
     soli, testo dopo il valore) → errore, mai un'impronta inventata.
+- **`fotografia.go`** (A1c) — responsabilità: i tipi del contratto §3.1–§3.3, con i tag JSON snake_case; le
+  origini (`dsn`, `exports`), gli stati delle sezioni, le chiavi di `Sezioni` (`ChiaviSezioni`).
+- **`ordina.go`** (A1c) — responsabilità: `Ordina`, l'ordine totale degli elenchi con il confronto dei byte
+  (messaggi per data e ID, allegati come `ListAllegatiFascicolo`, il resto per chiave primaria).
+- **`impronta.go`** (A1c) — responsabilità: `ImprontaFotografia`, lo sha256 del JSON canonico di una copia
+  ordinata, senza `PresaIl` e `Sorgente`.
+- **`valida.go`** (A1c) — responsabilità: `ValidaFotografia`, i controlli del 6.4.1 e del contratto §3.5.
+- **`codici_diagnostica.go`** (A1c) — responsabilità: i codici `fotografia.*` del 6.4.10.
 
 ## Entry point
 
@@ -48,7 +68,10 @@ markmap:
   riempiono.
 - **`ImprontaPayload`** — chi lo chiama: chi riempie un `Fatti` (le prove degli adattatori in A1b; il
   caricatore e il lettore degli export in A1c, che in bozza la chiamavano `DigestFatti`: il nome è uno solo).
-- Oggi, nel codice di prodotto, ancora nessuno: il pacchetto nasce prima dei suoi chiamanti.
+- **`Fotografia`, `Thread` e i record** — chi li riempie: il caricatore (A1c) e il lettore degli export del
+  banco; chi li legge: `core/valutazione` (A1c), il banco, l'anteprima (A1d).
+- **`Ordina`, `ImprontaFotografia`** — chi li chiama: il caricatore, il lettore degli export, le prove del
+  determinismo. **`ValidaFotografia`** — chi la chiama: `valutazione.Calcola`, prima di calcolare.
 
 ## Invarianti
 
@@ -60,14 +83,18 @@ markmap:
 - **L'impronta dei fatti non dipende dalla forma del JSON**: ordine delle chiavi, spazi, escape delle stringhe
   («\u00e8» ed «è») non contano; i numeri restano i letterali scritti («800» e «800.0» sono due impronte).
 - `VersioneSchema` si cambia solo con un commit che lo dichiara; la prova che la fissa si riscrive con
-  «Riscritta per …».
+  «Riscritta per …». A1c non la cambia (T-01): la fotografia si aggiunge, i record di A1b restano com'erano.
+- **Nessuna decisione dentro `Messaggio` o `Allegato`** (I-2): il gesto 1 sta in `AggancioMessaggio`.
+- **Tempi UTC al millisecondo**, puntatore nil = assente nel DB, tag JSON snake_case: in tutti i record di A1c.
+- **Due letture della stessa copia danno la stessa impronta**: `ImprontaFotografia` ordina e lascia fuori
+  `PresaIl` e `Sorgente`; l'ordine non dipende da una mappa né dalla collazione del database.
 
 ## Dipendenze
 
-- **Importa:** `platform/jsoncanonico` (l'impronta del payload), `github.com/google/uuid`, la libreria
-  standard. La tabella di `internal/README.md` ammette anche `core/estrazione/evidenze`, per le diagnostiche
-  della fotografia di A1c; in A1b non serve.
-- **È importato da:** ancora nessuno nel prodotto; da A1b `core/estrazione`, da A1c il caricatore.
+- **Importa:** `platform/jsoncanonico` (le impronte), `core/estrazione/evidenze` (da A1c: le diagnostiche della
+  fotografia), `github.com/google/uuid`, la libreria standard.
+- **È importato da:** `core/estrazione` (A1b); da A1c il caricatore (`core/fotorfq/caricatore`) e
+  `core/valutazione`.
 
 ## Test
 
@@ -78,7 +105,14 @@ markmap:
   - payload vuoto, non JSON, con una chiave ripetuta, UTF-8 non valido, surrogato solo, testo dopo il valore →
     errore;
   - la `VersioneSchema` fissa.
-- G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go` (A1b-03, parte `fotorfq`).
+- **`fotografia_test.go`** — livello L1 — che cosa copre (A1c-L1-03):
+  - `Ordina` totale e `ImprontaFotografia` uguale dopo le permutazioni, senza `PresaIl` e `Sorgente`, e diversa
+    per un dato che cambia; la fotografia di chi chiama non cambia;
+  - `ValidaFotografia`: una fotografia giusta senza diagnostiche; ogni riferimento che non si risolve, un
+    candidato dell'agente, un tempo non UTC al millisecondo, fatti a un'altra terna;
+  - `ImprontaPayload` uguale per i byte del jsonb e per la stringa dell'export con lo stesso contenuto;
+  - i tag JSON dei record di A1c, snake_case.
+- G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go` (A1b-03, parte `fotorfq`; A1c-L1-28).
 - I fatti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.
 
 ## Leggi anche
