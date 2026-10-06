@@ -340,6 +340,12 @@ func capacita(d evidenze.DocumentoEvidenze, nome string) evidenze.Capacita {
 // compatibilita: il confronto della base del prodotto con le letture di un nodo (motorea.ConfrontaBasi), nello
 // stesso namespace: il migliore fra uguale, compatibile_parziale, discordante, non_determinabile. Senza letture
 // del nodo nello stesso namespace: non_determinabile.
+//
+// Dalla fase 1 di B5 vale anche la regola unica del marcatore di ancoraggio (T-B4-30, nelle radici candidate di
+// ProponiStrutture: compatibilitaDelNodo): con il marcatore del prodotto e quello del nodo scritti tutti e due e
+// diversi, una base compatibile è discordante (R86: un altro marcatore è un'altra identità); un marcatore scritto da
+// una parte sola non cambia niente. Così il candidato del motore A, il nodo interno e la radice di una delega dicono la
+// stessa cosa delle strutture di ancoraggio (StrutturaProdotto.Fonti, T-B2-02).
 func compatibilita(p motorea.LetturaForma, letture []motorea.LetturaForma) motorea.Compatibilita {
 	rango := map[motorea.Compatibilita]int{motorea.CompatibilitaNonDeterminabile: 0, motorea.CompatibilitaDiscordante: 1,
 		motorea.CompatibilitaParziale: 2, motorea.CompatibilitaEquivalente: 3, motorea.CompatibilitaUguale: 4}
@@ -348,11 +354,29 @@ func compatibilita(p motorea.LetturaForma, letture []motorea.LetturaForma) motor
 		if l.Namespace != p.Namespace {
 			continue
 		}
-		if c := motorea.ConfrontaBasi(p.Base, l.Base); rango[c] > rango[migliore] {
+		if c := conMarcatore(motorea.ConfrontaBasi(p.Base, l.Base), marcatoreDi(p), marcatoreDi(l)); rango[c] > rango[migliore] {
 			migliore = c
 		}
 	}
 	return migliore
+}
+
+// conMarcatore: la compatibilità delle basi corretta con la regola unica del marcatore (T-B4-30, la stessa di
+// ancoraggio, che non la esporta): due basi compatibili con due marcatori scritti e diversi sono discordanti; un altro
+// esito delle basi resta com'è.
+func conMarcatore(basi motorea.Compatibilita, a, b string) motorea.Compatibilita {
+	if compatibile(basi) && a != "" && b != "" && a != b {
+		return motorea.CompatibilitaDiscordante
+	}
+	return basi
+}
+
+// marcatoreDi: il valore del marcatore di una lettura; "" senza marcatore.
+func marcatoreDi(f motorea.LetturaForma) string {
+	if f.Marcatore == nil {
+		return ""
+	}
+	return f.Marcatore.Valore
 }
 
 // compatibile: la base del nodo è quella del prodotto (uguale, o compatibile con una forma parziale: A-C07).
