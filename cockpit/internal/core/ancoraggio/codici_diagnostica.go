@@ -24,3 +24,17 @@ const (
 	// occorrenza: restano tutte e due, ognuna con l'altra fra le alternative; nessuna si sceglie (6.4.4, regola 6).
 	CodiceAlternativeConservate = "ancoraggio.alternative_conservate"
 )
+
+// Le strutture dei prodotti (ProponiStrutture, P6a). Gli ancoraggi dei file (B4) usano gli stessi codici come motivi
+// della collocazione non determinabile (6.4.5, regola 3).
+const (
+	// CodiceTargetSenzaStruttura — avviso, dati. Un prodotto target senza nessuna struttura: nessun nodo degli STEP
+	// letti ha la sua base (o il suo codice non è letto), e nessuna fonte confermata dà una radice che si trova fra le
+	// strutture. Il target resta un target: non si conclude che il prodotto non esiste (6.4.5, regola 3; 6.10 n.16).
+	CodiceTargetSenzaStruttura = "ancoraggio.target_senza_struttura"
+
+	// CodiceGrafoIncompleto — avviso, dati. Una struttura di un target sta in uno STEP con il grafo non completo
+	// (la capacità grafo_completo, con il motivo della 0020: R32 b): la mancanza di un arco non è un'informazione.
+	// Contano solo le strutture dei target, mai i file «solo parti» dei figli (6.4.5, regola 2).
+	CodiceGrafoIncompleto = "ancoraggio.grafo_incompleto"
+)
