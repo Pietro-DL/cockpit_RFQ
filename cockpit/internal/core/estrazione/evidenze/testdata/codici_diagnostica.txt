@@ -114,3 +114,5 @@ ancoraggio.target_senza_struttura
 ancoraggio.grafo_incompleto
 ancoraggio.completamento_documentale
 ancoraggio.correzione_documentale
+bom.fonte_non_registrata
+documenti.deroga_non_sostituisce_2d
