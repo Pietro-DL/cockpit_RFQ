@@ -151,6 +151,13 @@ markmap:
 - Che cosa fa:
   - il database di test usa e getta per le prove L4: `Pool`, `SchemaPulito`, `SchemaFinoA`
   - la guardia `DatabaseDiTest`
+  - gli aiuti delle prove del motore A (giro 5, A1c; piano A, 6.4.7), in file non di prova:
+    - `FotoDelDatabase` e `Differenze` (`foto.go`): l'impronta di ogni tabella leggibile, per dimostrare che una
+      lettura non scrive; le tabelle che il ruolo non legge restano nell'elenco come «non leggibili»
+    - `PoolConRegistro` e `RegistroSQL` (`registro.go`): il testo SQL eseguito, con la connessione, BEGIN e
+      ROLLBACK compresi; `Vietati` dà i testi che scrivono, prendono lucchetti o toccano le tabelle escluse
+    - `AnalisiMessaggioDiProva` (`analisi.go`): l'unico punto, nelle prove, che scrive i suggerimenti
+      dell'agente, solo sul database di prova o su una copia usa e getta del dump (R10)
 - README: qui
 
 ### `testutil` e la guardia del database
@@ -161,6 +168,9 @@ markmap:
   - per `?dbname=`
   - e per un DSN senza database (dove decidono `PGDATABASE` o il nome dell'utente).
 - Senza la variabile i test L4 sono SKIP, mai PASS.
+- `SchemaVuoto` guarda anche il collegamento, prima del DROP (A1c): `current_database()` deve contenere «test»
+  e `current_user` non deve essere il ruolo del banco (l'utente di `COCKPIT_DUMP_DSN`, quando c'è). Il nome
+  del ruolo non sta nel codice.
 - Ogni test che apre il database ha il tag `integrazione`:
   - `go test ./...` non lo tocca, anche con la variabile impostata.
 
