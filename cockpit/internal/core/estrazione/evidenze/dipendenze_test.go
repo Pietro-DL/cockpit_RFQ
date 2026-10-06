@@ -104,6 +104,14 @@ var pacchettiMotoreA = []regolePacchetto{
 		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/registro/regole/grammatica",
 			"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid"}},
+	// Il percorso puro del motore A (A1c, P7a; R42 B): la fotografia, gli adattatori, le proposte, il motore A e le
+	// grammatiche (i codici «contratto.*» della porta stretta del file dei casi), le foglie. Mai confronto (il motore
+	// non vede l'atteso, R2), mai il caricatore né il DB, mai la libreria YAML (grafo del par.3.2.1).
+	{percorso: "internal/core/valutazione", puro: true,
+		progetto: []string{"internal/core/fotorfq", "internal/core/estrazione", "internal/core/ancoraggio",
+			"internal/core/inbox/classificazione/motorea", "internal/core/registro/regole/grammatica",
+			"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni: []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},

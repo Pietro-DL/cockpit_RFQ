@@ -106,3 +106,7 @@ ancoraggio.richiesta_non_valutata
 ancoraggio.righe_stessa_base
 ancoraggio.quantita_non_intera
 ancoraggio.alternative_conservate
+ancoraggio.target_non_leggibile
+target.possibile_rinomina
+fonte_strutturale.riferimento_incoerente
+fonte_strutturale.radice_non_registrata
