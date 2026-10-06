@@ -7,6 +7,9 @@
 // In A1b interpreta un DocumentoEvidenze (Interpreta), con il router, la funzione, i ruoli e gli attributi
 // (R23).
 //
+// In A1c compone il codice proposto nella forma documentale della famiglia, con la forma attiva su
+// cartiglio.codice (ComponiCodiceDocumentale, R63 B): senza cambiare niente di A1a e A1b (D2).
+//
 // È puro e deterministico: niente DB, file, orologio, rete, goroutine o LLM; nessun ordine dipende da una
 // mappa. Non usa il motore legacy di classificazione (quindi nemmeno il riconoscitore della minuteria, R7) e
 // non lo può usare: sta nella sua cartella ma non lo importa. I limiti con cui lavora vengono dall'indice
