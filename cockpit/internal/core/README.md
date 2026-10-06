@@ -155,6 +155,15 @@ markmap:
     - Puro: non importa la fotografia, che legge `valutazione`
   - DB: no
   - README: [README](ancoraggio/README.md)
+- **`valutazione`**
+  - Che cosa fa: il **percorso puro del motore A** (giro 5), comune al banco e all'anteprima:
+    - gli ingressi del file dei casi, con la decodifica stretta
+    - la richiesta del thread dal gesto 1 di ogni messaggio (il triage solo evidenza)
+    - i prodotti target con l'identità (il gesto 2 o lo scenario, mai i candidati della mail) e la fonte
+      strutturale STEP (la vista, il gesto 3, i candidati con la radice)
+    - Puro: legge la fotografia già chiusa; mai confronto, mai il caricatore
+  - DB: no
+  - README: [README](valutazione/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -208,6 +217,15 @@ markmap:
     - `estrazione/evidenze` (il documento e le diagnostiche)
     - `platform/jsoncanonico` (le impronte)
     - mai `fotorfq`, `estrazione`, il caricatore, il DB: la fotografia la legge `valutazione` (T-B0-04)
+  - **`valutazione`** importa:
+    - `fotorfq` (la fotografia)
+    - `estrazione` (i documenti dei messaggi e degli STEP)
+    - `ancoraggio` (le proposte e i tipi della fonte)
+    - `inbox/classificazione/motorea` (l'interpretazione e il confronto delle basi)
+    - `registro/regole/grammatica` (i codici della porta stretta del file dei casi)
+    - `estrazione/evidenze` (il documento e le diagnostiche)
+    - `platform/jsoncanonico` (l'impronta delle decisioni)
+    - mai `confronto`, il caricatore, il DB, la libreria YAML
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:

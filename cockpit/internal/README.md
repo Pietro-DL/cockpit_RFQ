@@ -90,6 +90,8 @@ markmap:
   - **[`core/ancoraggio/README.md`](core/ancoraggio/README.md)** → le proposte del motore A (giro 5): i prodotti
     candidati della mail, sempre da confermare, con quantità ed esclusioni; il vocabolario comune e i tipi della
     fonte strutturale
+  - **[`core/valutazione/README.md`](core/valutazione/README.md)** → il percorso puro del motore A (giro 5): gli
+    ingressi del file dei casi, la richiesta del thread, i prodotti target con l'identità e la fonte strutturale STEP
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -146,6 +148,11 @@ markmap:
     `core/estrazione/evidenze`, `platform/jsoncanonico`
     - le proposte, pure e senza DB: mai `core/fotorfq` né il caricatore (la fotografia la legge
       `core/valutazione`, T-B0-04), mai `core/estrazione`, `core/valutazione`, `core/confronto`
+  - **`core/valutazione`** → `core/fotorfq`, `core/estrazione`, `core/ancoraggio`,
+    `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`, `core/estrazione/evidenze`,
+    `platform/jsoncanonico`
+    - il percorso puro comune del banco e dell'anteprima (R42 B): mai `core/confronto` (il motore non vede l'atteso,
+      R2), mai il caricatore né il DB, mai la libreria YAML
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
@@ -178,6 +185,8 @@ markmap:
     all'interpretazione, sulle fixture sintetiche)
   - e `core/ancoraggio` → `core/estrazione`, `core/fotorfq` (dall'adattatore della mail ai prodotti candidati,
     sulle fixture sintetiche)
+  - e `core/valutazione` → `core/fotorfq/caricatore`, `platform/testutil` (la L4 dei target e della fonte sul
+    database di prova)
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate
