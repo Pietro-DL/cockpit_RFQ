@@ -2,10 +2,18 @@ package testutil
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"promatec/cockpit/internal/platform/dataset"
 )
 
 // L1 — la guardia sul database di test si prova senza database: dice di no PRIMA di connettersi, ed
@@ -163,5 +171,229 @@ func TestDifferenzeFraDueFoto(t *testing.T) {
 	}
 	if d := Differenze(prima, prima); len(d) != 0 {
 		t.Errorf("la stessa foto ha differenze: %v", d)
+	}
+}
+
+// tbFinto: un testing.TB che registra Fatalf e Skipf invece di fermare la prova vera, e chiude la goroutine come
+// farebbero FailNow e SkipNow. Il resto (Cleanup, TempDir, Setenv) va alla prova vera.
+type tbFinto struct {
+	testing.TB
+	fatale, saltato string
+}
+
+func (f *tbFinto) Helper() {}
+
+func (f *tbFinto) Fatalf(format string, args ...any) {
+	f.fatale = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+func (f *tbFinto) Fatal(args ...any) {
+	f.fatale = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (f *tbFinto) FailNow() {
+	f.fatale = "FailNow"
+	runtime.Goexit()
+}
+
+func (f *tbFinto) Skipf(format string, args ...any) {
+	f.saltato = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+func (f *tbFinto) Skip(args ...any) {
+	f.saltato = fmt.Sprint(args...)
+	runtime.Goexit()
+}
+
+func (f *tbFinto) SkipNow() {
+	f.saltato = "SkipNow"
+	runtime.Goexit()
+}
+
+// conTBFinto esegue corpo con un tbFinto, in una goroutine sua, e dice come è finita.
+func conTBFinto(t *testing.T, corpo func(tb testing.TB)) (fatale, saltato string) {
+	t.Helper()
+	f := &tbFinto{TB: t}
+	fatto := make(chan struct{})
+	go func() {
+		defer close(fatto)
+		corpo(f)
+	}()
+	<-fatto
+	return f.fatale, f.saltato
+}
+
+// L1 — NON ESEGUITA (A1c-L1-02; R44): ferma la prova con il prefisso «NON ESEGUITA:» e il motivo, con un FAIL,
+// mai con uno SKIP.
+func TestNonEseguitaFallisceEMaiSalta(t *testing.T) {
+	fatale, saltato := conTBFinto(t, func(tb testing.TB) {
+		NonEseguita(tb, "manca la copia inventata: darla con la variabile")
+		tb.Errorf("dopo NonEseguita la prova è andata avanti")
+	})
+	if fatale != "NON ESEGUITA: manca la copia inventata: darla con la variabile" {
+		t.Errorf("messaggio: %q", fatale)
+	}
+	if saltato != "" {
+		t.Errorf("NonEseguita ha saltato la prova: %q", saltato)
+	}
+}
+
+// L1 — le risorse d'ambiente (piano A, 3.7.3; R44): una risorsa mancante salta con «SALTATO-AMBIENTE» nelle corse
+// di sviluppo, ed è NON ESEGUITA quando COCKPIT_PROVE_OBBLIGATORIE la dichiara (spazi e maiuscole non contano).
+func TestRichiestoSaltaONonEsegue(t *testing.T) {
+	for _, c := range []struct {
+		nome, obbligatorie, risorsa string
+		nonEseguita                 bool
+	}{
+		{"corsa di sviluppo", "", "L4", false},
+		{"un'altra risorsa obbligatoria", "PYTHON", "L4", false},
+		{"obbligatoria", "L4", "L4", true},
+		{"obbligatoria, con spazi e maiuscole", " python , l4 ", "L4", true},
+	} {
+		t.Setenv(variabileObbligatorie, c.obbligatorie)
+		fatale, saltato := conTBFinto(t, func(tb testing.TB) { Richiesto(tb, c.risorsa, "il DB di prova inventato non c'è") })
+		if c.nonEseguita {
+			if !strings.HasPrefix(fatale, "NON ESEGUITA: "+c.risorsa+": il DB di prova inventato non c'è") || saltato != "" {
+				t.Errorf("%s: fatale %q, saltato %q", c.nome, fatale, saltato)
+			}
+			continue
+		}
+		if saltato != "SALTATO-AMBIENTE: "+c.risorsa+": il DB di prova inventato non c'è" || fatale != "" {
+			t.Errorf("%s: fatale %q, saltato %q", c.nome, fatale, saltato)
+		}
+	}
+}
+
+// manifestDiProva scrive in una cartella temporanea (fuori dal modulo) un manifest sintetico con una voce degli
+// attesi e una delle regole, e ne restituisce il percorso. Nomi di file inventati, con «_acme».
+func manifestDiProva(t *testing.T) (string, []byte) {
+	t.Helper()
+	dir := t.TempDir()
+	attesi := []byte("versione_attesi: 1\n")
+	regole := []byte(`{"versione": 1}`)
+	for nome, b := range map[string][]byte{"attesi_acme.yaml": attesi, "indice_acme.v1.json": regole} {
+		if err := os.WriteFile(filepath.Join(dir, nome), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sha := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+	m := fmt.Sprintf(`{"versione_manifest": 1, "voci": [
+  {"nome": "attesi", "percorso": "attesi_acme.yaml", "ruolo": "attesi", "sha256": %q, "byte": %d},
+  {"nome": "regole.indice", "percorso": "indice_acme.v1.json", "ruolo": "regole", "sha256": %q, "byte": %d}
+], "copia": {}}`, sha(attesi), len(attesi), sha(regole), len(regole))
+	percorso := filepath.Join(dir, "manifest_acme.json")
+	if err := os.WriteFile(percorso, []byte(m), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return percorso, regole
+}
+
+// L1 — il dataset privato nelle prove (A1c-L1-02; P-11, R44): FileDelDataset dà i byte di una voce controllata,
+// rifiuta la voce degli attesi con un fallimento della prova (non manca niente: la prova chiede ciò che non può
+// avere), e senza la variabile, con una voce che manca, con un file cambiato o con un manifest dentro il modulo la
+// prova è NON ESEGUITA.
+func TestFileDelDatasetRifiutaGliAttesi(t *testing.T) {
+	percorso, regole := manifestDiProva(t)
+	t.Setenv(variabileDataset, percorso)
+
+	var letto []byte
+	fatale, _ := conTBFinto(t, func(tb testing.TB) { letto = FileDelDataset(tb, "regole.indice") })
+	if fatale != "" || string(letto) != string(regole) {
+		t.Errorf("voce delle regole: %q, %q", letto, fatale)
+	}
+
+	fatale, saltato := conTBFinto(t, func(tb testing.TB) { FileDelDataset(tb, "attesi") })
+	if !strings.Contains(fatale, "gli attesi li legge solo il runner") || strings.HasPrefix(fatale, "NON ESEGUITA") || saltato != "" {
+		t.Errorf("voce degli attesi: fatale %q, saltato %q: atteso un fallimento della prova, non una NON ESEGUITA", fatale, saltato)
+	}
+	if _, err := fileDelManifest(dataset.Manifest{Voci: []dataset.Voce{{Nome: "attesi", Ruolo: dataset.RuoloAttesi}}}, "attesi"); err != errAttesiSoloAlRunner {
+		t.Errorf("parte pura, voce degli attesi: %v", err)
+	}
+
+	for _, c := range []struct {
+		nome, voce, frase string
+		prepara           func(t *testing.T)
+	}{
+		{"voce che il manifest non ha", "regole.altre", "regole.altre", nil},
+		{"file cambiato", "regole.indice", "sha256", func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(filepath.Dir(percorso), "indice_acme.v1.json"), []byte(`{"versione": 2}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"senza la variabile", "regole.indice", variabileDataset + " non impostata", func(t *testing.T) { t.Setenv(variabileDataset, "") }},
+		{"manifest dentro il modulo", "regole.indice", "dentro il modulo", func(t *testing.T) { t.Setenv(variabileDataset, "manifest_acme.json") }},
+	} {
+		t.Run(c.nome, func(t *testing.T) {
+			if c.prepara != nil {
+				c.prepara(t)
+			}
+			fatale, saltato := conTBFinto(t, func(tb testing.TB) { FileDelDataset(tb, c.voce) })
+			if !strings.HasPrefix(fatale, "NON ESEGUITA: ") || !strings.Contains(fatale, c.frase) || saltato != "" {
+				t.Errorf("fatale %q, saltato %q; attesa una NON ESEGUITA che dica %q", fatale, saltato, c.frase)
+			}
+		})
+	}
+}
+
+// L1 — la cartella delle uscite delle prove private (piano A, 3.7.3): senza la variabile una cartella
+// temporanea; con la variabile, fuori dal modulo, quella cartella, creata; dentro il modulo, NON ESEGUITA.
+func TestCartellaRapportiFuoriDalModulo(t *testing.T) {
+	t.Setenv(variabileRapporti, "")
+	var c string
+	if fatale, _ := conTBFinto(t, func(tb testing.TB) { c = CartellaRapporti(tb) }); fatale != "" || c == "" {
+		t.Errorf("senza la variabile: %q, %q", c, fatale)
+	}
+	fuori := filepath.Join(t.TempDir(), "rapporti_acme")
+	t.Setenv(variabileRapporti, fuori)
+	if fatale, _ := conTBFinto(t, func(tb testing.TB) { c = CartellaRapporti(tb) }); fatale != "" || c != fuori {
+		t.Errorf("fuori dal modulo: %q, %q", c, fatale)
+	}
+	if fi, err := os.Stat(fuori); err != nil || !fi.IsDir() {
+		t.Errorf("la cartella non è stata creata: %v", err)
+	}
+	t.Setenv(variabileRapporti, "cartella_acme_rapporti")
+	if fatale, _ := conTBFinto(t, func(tb testing.TB) { CartellaRapporti(tb) }); !strings.HasPrefix(fatale, "NON ESEGUITA: ") {
+		t.Errorf("dentro il modulo: %q", fatale)
+	}
+	if _, err := os.Stat("cartella_acme_rapporti"); err == nil {
+		t.Error("una cartella dentro il modulo è stata creata")
+	}
+}
+
+// L1 — il DB di prova come risorsa d'ambiente (piano A, 3.7.3, 6.7.0 C-L4S e 6.7.3; R44): senza COCKPIT_TEST_DSN, DSN
+// passa da Richiesto; nelle corse di sviluppo la prova salta con «SALTATO-AMBIENTE: L4: …», con
+// COCKPIT_PROVE_OBBLIGATORIE=L4 è NON ESEGUITA, mai verde. Con la variabile, DSN la restituisce, e un database
+// senza «test» nel nome resta un fallimento della prova, non una NON ESEGUITA. I nomi sono inventati.
+func TestDSNPassaDaRichiesto(t *testing.T) {
+	const motivo = "L4: COCKPIT_TEST_DSN non impostata: test d'integrazione saltato"
+	t.Setenv("COCKPIT_TEST_DSN", "")
+
+	t.Setenv(variabileObbligatorie, "")
+	fatale, saltato := conTBFinto(t, func(tb testing.TB) {
+		DSN(tb)
+		tb.Errorf("dopo il salto la prova è andata avanti")
+	})
+	if saltato != "SALTATO-AMBIENTE: "+motivo || fatale != "" {
+		t.Errorf("corsa di sviluppo: saltato %q, fatale %q", saltato, fatale)
+	}
+
+	t.Setenv(variabileObbligatorie, "L4")
+	fatale, saltato = conTBFinto(t, func(tb testing.TB) { DSN(tb) })
+	if !strings.HasPrefix(fatale, "NON ESEGUITA: "+motivo) || saltato != "" {
+		t.Errorf("con L4 obbligatoria: fatale %q, saltato %q", fatale, saltato)
+	}
+
+	t.Setenv("COCKPIT_TEST_DSN", "postgres://prove_acme@127.0.0.1:5432/acme_prova_test")
+	var dsn string
+	if fatale, saltato = conTBFinto(t, func(tb testing.TB) { dsn = DSN(tb) }); fatale != "" || saltato != "" ||
+		dsn != "postgres://prove_acme@127.0.0.1:5432/acme_prova_test" {
+		t.Errorf("con la variabile: %q, fatale %q, saltato %q", dsn, fatale, saltato)
+	}
+	t.Setenv("COCKPIT_TEST_DSN", "postgres://prove_acme@127.0.0.1:5432/acme_dev")
+	if fatale, _ = conTBFinto(t, func(tb testing.TB) { DSN(tb) }); !strings.HasPrefix(fatale, "COCKPIT_TEST_DSN: ") {
+		t.Errorf("un database senza «test»: %q, atteso il fallimento della guardia", fatale)
 	}
 }

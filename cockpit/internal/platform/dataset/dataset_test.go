@@ -110,7 +110,7 @@ func TestLeggiManifestStretto(t *testing.T) {
 		"UTF-8 non valido":      strings.Replace(string(buono), "riga inventata", "riga \xff", 1),
 		"surrogato solo":        strings.Replace(string(buono), "riga inventata", `riga \ud800`, 1),
 		"testo dopo l'oggetto":  string(buono) + " {}",
-		"chiave sconosciuta":    strings.Replace(string(buono), `"copia": {}`, `"copia": {}, "export": {}`, 1),
+		"chiave sconosciuta":    strings.Replace(string(buono), `"copia": {}`, `"copia": {}, "sconosciuta": {}`, 1),
 		"chiave in una voce":    strings.Replace(string(buono), `"ruolo": "attesi"`, `"ruolo": "attesi", "nota": "x"`, 1),
 		"chiave ripetuta":       strings.Replace(string(buono), `"copia": {}`, `"copia": {}, "copia": {}`, 1),
 		"maiuscole diverse":     strings.Replace(string(buono), `"voci"`, `"Voci"`, 1),
@@ -210,5 +210,67 @@ func TestFuoriDalModulo(t *testing.T) {
 	}
 	if err := FuoriDalModulo(filepath.Join(altro, "dentro")); err == nil {
 		t.Fatal("una cartella sotto un altro go.mod andava rifiutata")
+	}
+}
+
+// L1 — le sezioni di A1c (A1c-L1-29; piano A, 6.4.8; R33 d): copia_run, con la forma di copia, ed export, con la
+// terna e lo schema degli export. Si leggono con i loro campi; la lettura resta stretta. Valori inventati: i veri
+// stanno solo nel manifest privato.
+func TestLeggiCopiaRunEExport(t *testing.T) {
+	dir, buono := scenaACME(t)
+	hash := strings.Repeat("ab", 32)
+	sezioni := `"copia": {"database": "acme_copia", "ruolo": "lettore_acme", "schema": 21, "escluse": ["tabella_esclusa"],
+    "sentinelle": {"componente": 3}},
+  "copia_run": {"database": "acme_copia_run", "ruolo": "prove_acme", "schema": 21, "sentinelle": {"componente": 3, "allegato": 5}},
+  "export": {"versione": 4, "hash_configurazione": "` + hash + `", "schema": 21}`
+	raw := strings.Replace(string(buono), `"copia": {}`, sezioni, 1)
+	m, err := Leggi([]byte(raw), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Copia.Database != "acme_copia" || m.Copia.Ruolo != "lettore_acme" || len(m.Copia.Escluse) != 1 {
+		t.Errorf("copia: %+v", m.Copia)
+	}
+	if m.CopiaRun.Database != "acme_copia_run" || m.CopiaRun.Ruolo != "prove_acme" || m.CopiaRun.Schema != 21 ||
+		m.CopiaRun.Sentinelle["allegato"] != 5 || len(m.CopiaRun.Sentinelle) != 2 {
+		t.Errorf("copia_run: %+v", m.CopiaRun)
+	}
+	if m.Export == nil || *m.Export != (ExportDichiarato{Versione: 4, HashConfigurazione: hash, Schema: 21}) {
+		t.Errorf("export: %+v", m.Export)
+	}
+
+	// senza le sezioni: copia_run vuota, export assente (nil, mai una terna inventata)
+	m, err = Leggi(buono, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Export != nil || m.CopiaRun.Database != "" || len(m.CopiaRun.Sentinelle) != 0 {
+		t.Errorf("senza le sezioni di A1c: export %+v, copia_run %+v", m.Export, m.CopiaRun)
+	}
+
+	casi := map[string]string{
+		"export: chiave sconosciuta":     strings.Replace(raw, `"schema": 21}`, `"schema": 21, "data": "x"}`, 1),
+		"export: senza la versione":      strings.Replace(raw, `"versione": 4, `, ``, 1),
+		"export: senza l'hash":           strings.Replace(raw, `"hash_configurazione": "`+hash+`", `, ``, 1),
+		"export: senza lo schema":        strings.Replace(raw, `, "schema": 21}`, `}`, 1),
+		"export: versione zero":          strings.Replace(raw, `"versione": 4`, `"versione": 0`, 1),
+		"export: versione con decimali":  strings.Replace(raw, `"versione": 4`, `"versione": 4.0`, 1),
+		"export: hash corto":             strings.Replace(raw, `"hash_configurazione": "`+hash, `"hash_configurazione": "`+hash[:10], 1),
+		"export: schema zero":            strings.Replace(raw, `"hash_configurazione": "`+hash+`", "schema": 21`, `"hash_configurazione": "`+hash+`", "schema": 0`, 1),
+		"export: null":                   strings.Replace(raw, `"export": {"versione": 4, "hash_configurazione": "`+hash+`", "schema": 21}`, `"export": null`, 1),
+		"export: nidificata nella terna": strings.Replace(raw, `"export": {"versione": 4, `, `"export": {"analizzatore": {"versione": 4}, `, 1),
+		"copia_run: chiave sconosciuta":  strings.Replace(raw, `"ruolo": "prove_acme"`, `"ruolo": "prove_acme", "porta": 5432`, 1),
+		"copia_run: maiuscole diverse":   strings.Replace(raw, `"copia_run"`, `"Copia_Run"`, 1),
+		"copia_run: ripetuta":            strings.Replace(raw, `"export": {`, `"copia_run": {}, "export": {`, 1),
+	}
+	for nome, r := range casi {
+		t.Run(nome, func(t *testing.T) {
+			if r == raw {
+				t.Fatal("la sostituzione non ha cambiato niente: il caso non prova nulla")
+			}
+			if _, err := Leggi([]byte(r), dir); err == nil {
+				t.Fatal("manifest accettato")
+			}
+		})
 	}
 }
