@@ -70,11 +70,51 @@ func Pool(t testing.TB) *pgxpool.Pool {
 }
 
 // SchemaVuoto distrugge e ricrea lo schema public senza applicare migrazioni.
+//
+// Prima del DROP guarda il database a cui il pool è davvero collegato (A1c, prima che esista un pool sul dump;
+// piano A, 6.4.7): current_database() deve contenere «test» e current_user non deve essere il ruolo del banco,
+// cioè l'utente di COCKPIT_DUMP_DSN quando la variabile c'è. DatabaseDiTest guarda il DSN prima di collegarsi;
+// questa guardia guarda il collegamento, così un pool aperto su un altro DSN non arriva mai al DROP.
 func SchemaVuoto(t testing.TB, p *pgxpool.Pool) {
 	t.Helper()
-	if _, err := p.Exec(context.Background(), "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); err != nil {
+	ctx := context.Background()
+	var database, utente string
+	if err := p.QueryRow(ctx, "SELECT current_database()::text, current_user::text").Scan(&database, &utente); err != nil {
+		t.Fatalf("reset schema: a quale database sono collegato: %v", err)
+	}
+	if err := schemaVuotoAmmesso(database, utente, ruoloDelBanco()); err != nil {
 		t.Fatalf("reset schema: %v", err)
 	}
+	if _, err := p.Exec(ctx, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); err != nil {
+		t.Fatalf("reset schema: %v", err)
+	}
+}
+
+// schemaVuotoAmmesso è la parte pura della guardia di SchemaVuoto: il database collegato deve avere «test» nel
+// nome, e l'utente non deve essere il ruolo del banco (ruoloBanco vuoto = non dichiarato). Il nome del ruolo non
+// sta nel codice: viene dalla variabile della copia del dump.
+func schemaVuotoAmmesso(database, utente, ruoloBanco string) error {
+	if !strings.Contains(strings.ToLower(database), "test") {
+		return fmt.Errorf("il pool è collegato a %q, che non ha «test» nel nome: lo schema non si distrugge", database)
+	}
+	if ruoloBanco != "" && utente == ruoloBanco {
+		return fmt.Errorf("il pool è collegato come %q, il ruolo del banco (COCKPIT_DUMP_DSN): lo schema non si distrugge", utente)
+	}
+	return nil
+}
+
+// ruoloDelBanco: l'utente di COCKPIT_DUMP_DSN, come lo leggerà pgx; "" senza la variabile o con un DSN che non si
+// legge (in quel caso la prova del dump si fermerà da sé, e qui resta la guardia sul nome).
+func ruoloDelBanco() string {
+	dsn := os.Getenv("COCKPIT_DUMP_DSN")
+	if dsn == "" {
+		return ""
+	}
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return ""
+	}
+	return cfg.User
 }
 
 // SchemaPulito ricrea lo schema e applica tutte le migrazioni incorporate.
