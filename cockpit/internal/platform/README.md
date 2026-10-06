@@ -158,6 +158,19 @@ markmap:
       ROLLBACK compresi; `Vietati` dà i testi che scrivono, prendono lucchetti o toccano le tabelle escluse
     - `AnalisiMessaggioDiProva` (`analisi.go`): l'unico punto, nelle prove, che scrive i suggerimenti
       dell'agente, solo sul database di prova o su una copia usa e getta del dump (R10)
+    - `NonEseguita` (`noneseguita.go`): ferma la prova con «NON ESEGUITA: <motivo>», un FAIL e mai un SKIP (R44);
+      `Richiesto` (`obbligo.go`): una risorsa d'ambiente mancante salta con «SALTATO-AMBIENTE», salvo che
+      `COCKPIT_PROVE_OBBLIGATORIE` la dichiari obbligatoria; la costante `Privato` (`privato_si.go`,
+      `privato_no.go`, tag di build `privato`)
+    - `DatasetA`, `FileDelDataset`, `CartellaRapporti` (`dataset.go`): il manifest del dataset privato e i suoi
+      file con lo sha256 controllato; `FileDelDataset` rifiuta la voce degli attesi, che legge solo il runner
+      (P-11)
+    - `DumpDSN`, `CopiaDelDump`, `PoolDump`, `ControllaCopia` (`dump.go`): la copia intatta del dump, in sola
+      lettura, controllata contro il manifest (ruolo, nome, sola lettura, codifica, schema, tabelle escluse,
+      sentinelle) e ricontrollata alla fine
+    - `PoolCopiaDelDump` (`copia.go`): una copia usa e getta del dump, scrivibile, con il marcatore nel commento
+      del database e le sentinelle del manifest
+    - nessun valore delle copie sta nel codice: nomi, ruoli, schema e sentinelle vengono dal manifest privato
 - README: qui
 
 ### `testutil` e la guardia del database
@@ -167,7 +180,9 @@ markmap:
   - vale anche per un DSN `chiave=valore`
   - per `?dbname=`
   - e per un DSN senza database (dove decidono `PGDATABASE` o il nome dell'utente).
-- Senza la variabile i test L4 sono SKIP, mai PASS.
+- Senza la variabile i test L4 sono SKIP, mai PASS: da A1c `DSN` passa da `Richiesto`, quindi il salto dice
+  «SALTATO-AMBIENTE: L4: …», e con `COCKPIT_PROVE_OBBLIGATORIE=L4` (le corse che chiudono una sessione) la prova
+  è NON ESEGUITA, mai verde (R44).
 - `SchemaVuoto` guarda anche il collegamento, prima del DROP (A1c): `current_database()` deve contenere «test»
   e `current_user` non deve essere il ruolo del banco (l'utente di `COCKPIT_DUMP_DSN`, quando c'è). Il nome
   del ruolo non sta nel codice.
@@ -183,7 +198,8 @@ markmap:
   - `fondazioni` → `config`, `db`, `rete`
   - `coda` → `contratti/worker`, `db`, `storage/staging`
   - `storage/staging` → `db`, `storage/nas`
-  - `testutil` → `migrazioni` e il package radice del modulo (`embed.go`, per le migrazioni incorporate).
+  - `testutil` → `migrazioni` e il package radice del modulo (`embed.go`, per le migrazioni incorporate); da A1c
+    anche `dataset` (il manifest del dataset privato e le copie attese del dump: F23).
 - L'unica freccia verso `core` sta in un test:
   - (`migrazioni/larghezze_db_test.go` → `core/inbox/classificazione`).
 

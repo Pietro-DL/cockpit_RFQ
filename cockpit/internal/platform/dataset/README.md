@@ -27,7 +27,9 @@ markmap:
   errori.
 - **Qualunque valore del dataset**: percorsi, impronte, profili, UUID, il nome della copia del dump. Stanno nel
   manifest, che è privato (R2); nemmeno le prove li contengono.
-- **La copia del dump e i suoi controlli** (`CopiaAttesa`): il tipo c'è, la usa A1c.
+- **La copia del dump e i suoi controlli**: qui ci sono solo i tipi che il manifest riempie (`CopiaAttesa` per
+  la copia intatta e per la copia `_run`); i controlli sul database li fa `platform/testutil` (`PoolDump`,
+  `ControllaCopia`, `PoolCopiaDelDump`), da A1c.
 
 ## File
 
@@ -35,6 +37,10 @@ markmap:
   - commento `// Package`; `VersioneManifest` (1);
   - `Manifest`, `Voce`, `CopiaAttesa`, `RigaStorico`; le costanti dei ruoli (`attesi`, `regole`, `casi`,
     `dump`, `export`, `fixture`, `storico`, `controllo`);
+  - da A1c (6.4.8): `Manifest.CopiaRun` (tag `copia_run`, la copia `_run` del dump, scrivibile: nome, ruolo,
+    schema, sentinelle, con la forma di `copia`) e `Manifest.Export` (tag `export`, `*ExportDichiarato`: la terna
+    dei fatti, `versione` e `hash_configurazione`, e lo `schema` del DB da cui vengono gli export, che gli export
+    non dicono da soli; se la sezione c'è, ha tutte e tre le chiavi);
   - `Leggi`: la decodifica stretta (prima i token contro lo schema delle chiavi, poi `DisallowUnknownFields`) e
     la validazione delle voci e dei profili;
   - `Manifest.LeggiFile`, `Manifest.PercorsoDi`; gli errori `ErrFileMancante` ed `ErrImprontaDiversa`;
@@ -43,7 +49,10 @@ markmap:
 ## Entry point
 
 - **`Leggi`, `Manifest.LeggiFile`, `Manifest.PercorsoDi`** — chi li chiama: il banco (`app/bancoa`), da A1a; da
-  A1c gli aiuti delle prove private (`platform/testutil`).
+  A1c gli aiuti delle prove private (`platform/testutil`: `DatasetA`, `FileDelDataset`).
+- **`Manifest.Copia`, `Manifest.CopiaRun`** — chi li legge: da A1c le prove private, attraverso
+  `testutil.PoolDump` e `testutil.PoolCopiaDelDump`. **`Manifest.Export`** — chi la legge: il lettore degli export
+  del banco (A1c).
 - **`FuoriDalModulo`** — chi lo chiama: il banco, per il manifest e per la cartella dei rapporti.
 - **`ErrFileMancante`, `ErrImprontaDiversa`** — chi li controlla: il banco (uscita 3, NON ESEGUITO); da A1c le
   prove private (`NonEseguita`).
@@ -52,8 +61,10 @@ markmap:
 
 - **Lettura stretta**, come le grammatiche: niente BOM, UTF-8 valido, nessun surrogato solo, un solo valore,
   nessuna chiave sconosciuta, ripetuta o con le maiuscole diverse dal tag, nessun null, solo numeri interi,
-  le chiavi obbligatorie presenti. Una sezione nuova (per esempio quella degli export, A1c) entra con il suo
-  campo, non passa in silenzio.
+  le chiavi obbligatorie presenti. Una sezione nuova entra con il suo campo, non passa in silenzio: quelle di A1c
+  sono `copia_run` ed `export`.
+- **La sezione `export`**, se c'è, ha `versione` positiva, `hash_configurazione` di 64 cifre esadecimali e
+  `schema` positivo: una terna a metà non si legge.
 - **Voci**: nome presente e unico, percorso relativo alla cartella del manifest, ruolo dell'elenco, sha256 di
   64 cifre esadecimali, byte non negativi.
 - **Ogni lettura controlla sha256 e byte**; un file mancante o cambiato non si dà. Una voce che il manifest non
@@ -64,7 +75,8 @@ markmap:
 ## Dipendenze
 
 - **Importa:** solo la libreria standard. Niente del progetto, nessuna libreria esterna.
-- **È importato da:** `internal/app/bancoa`.
+- **È importato da:** `internal/app/bancoa` e, da A1c, `internal/platform/testutil` (gli aiuti delle prove
+  private, mai per gli attesi).
 
 ## Test
 
@@ -75,7 +87,9 @@ markmap:
     percorso assoluto, voce ripetuta, byte negativi, profilo senza cliente;
   - file mancante, sha256 o byte cambiati, voce assente → `ErrFileMancante`, `ErrImprontaDiversa`;
   - `FuoriDalModulo` dentro e fuori dal modulo, anche per una cartella che non esiste ancora;
-  - la `VersioneManifest` fissa.
+  - la `VersioneManifest` fissa;
+  - da A1c (A1c-L1-29): le sezioni `copia_run` ed `export` lette, con le loro chiavi strette (sconosciute,
+    assenti, null, valori fuori dominio rifiutati).
 - I file del manifest nascono in `t.TempDir()`, con il cliente inventato ACME. I test stanno nel ramo `-qa`.
 
 ## Leggi anche

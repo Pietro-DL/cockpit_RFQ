@@ -6,9 +6,10 @@
 // Senza, due pacchetti si distruggono lo schema a vicenda e gli errori che ne escono ("cache lookup
 // failed for type …") non hanno nulla a che vedere con il codice in prova.
 //
-// Senza COCKPIT_TEST_DSN i test che lo richiedono vengono SALTATI (visibili come SKIP, mai come PASS).
-// Per sicurezza il nome del database deve contenere "test": lo schema viene distrutto e ricreato
-// (vedi DatabaseDiTest per come si legge il nome).
+// Senza COCKPIT_TEST_DSN i test che lo richiedono vengono SALTATI con «SALTATO-AMBIENTE» (visibili come SKIP,
+// mai come PASS); nelle corse che chiudono una sessione COCKPIT_PROVE_OBBLIGATORIE=L4 li rende NON ESEGUITI
+// (Richiesto, A1c). Per sicurezza il nome del database deve contenere "test": lo schema viene distrutto e
+// ricreato (vedi DatabaseDiTest per come si legge il nome).
 package testutil
 
 import (
@@ -26,12 +27,15 @@ import (
 	"promatec/cockpit/internal/platform/migrazioni"
 )
 
-// DSN restituisce COCKPIT_TEST_DSN o salta il test.
+// DSN restituisce COCKPIT_TEST_DSN. Senza la variabile il DB di prova è una risorsa d'ambiente che manca
+// (Richiesto, piano A, 3.7.3 e 6.7.3; R44): nelle corse di sviluppo la prova salta con
+// «SALTATO-AMBIENTE: L4: …»; se COCKPIT_PROVE_OBBLIGATORIE comprende L4, è NON ESEGUITA, mai verde.
 func DSN(t testing.TB) string {
 	t.Helper()
 	dsn := os.Getenv("COCKPIT_TEST_DSN")
 	if dsn == "" {
-		t.Skip("COCKPIT_TEST_DSN non impostata: test d'integrazione saltato")
+		Richiesto(t, "L4", "COCKPIT_TEST_DSN non impostata: test d'integrazione saltato")
+		return ""
 	}
 	if err := DatabaseDiTest(dsn); err != nil {
 		t.Fatalf("COCKPIT_TEST_DSN: %v", err)

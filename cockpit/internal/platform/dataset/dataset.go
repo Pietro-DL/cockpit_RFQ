@@ -38,7 +38,18 @@ type Manifest struct {
 	Voci     []Voce            `json:"voci"`              // ruoli in A1a: attesi, regole, controllo (gli elenchi del controllo prima del push)
 	Profili  map[string]string `json:"profili,omitempty"` // profilo degli attesi → cliente_id: solo per il runner (D-09)
 	Copia    CopiaAttesa       `json:"copia"`             // la copia intatta del dump: la usa A1c, in A1a è vuota
+	CopiaRun CopiaAttesa       `json:"copia_run"`         // la copia _run, scrivibile: nome, ruolo, schema, sentinelle (A1c, R33 d)
+	Export   *ExportDichiarato `json:"export,omitempty"`  // la terna e lo schema degli export (A1c)
 	Storico  []RigaStorico     `json:"storico,omitempty"`
+}
+
+// ExportDichiarato: ciò che gli export non dicono da soli, e che il manifest privato dichiara (piano A, 6.4.8): la
+// terna dei fatti (analizzatore_corrente non è esportato) e lo schema del DB da cui vengono. I valori stanno solo
+// nel manifest. Se la sezione c'è, ha tutte e tre le chiavi: una terna a metà non si inventa.
+type ExportDichiarato struct {
+	Versione           int16  `json:"versione"`            // la versione dell'analizzatore
+	HashConfigurazione string `json:"hash_configurazione"` // lo sha256 della configurazione, 64 cifre esadecimali
+	Schema             int    `json:"schema"`              // la versione dello schema del DB degli export
 }
 
 // Voce: un file del dataset, per nome logico. Ruolo: attesi | regole | casi | dump | export | fixture |
@@ -153,6 +164,16 @@ func (m Manifest) valida() error {
 			return errors.New("profili: un profilo senza nome o senza cliente")
 		}
 	}
+	if e := m.Export; e != nil {
+		switch {
+		case e.Versione <= 0:
+			return errors.New("export.versione: serve la versione dell'analizzatore, positiva")
+		case !sha256Esadecimale.MatchString(e.HashConfigurazione):
+			return errors.New("export.hash_configurazione: servono 64 cifre esadecimali")
+		case e.Schema <= 0:
+			return errors.New("export.schema: serve la versione dello schema, positiva")
+		}
+	}
 	return nil
 }
 
@@ -244,6 +265,13 @@ type schema struct {
 
 var foglia = &schema{}
 
+// schemaCopia: una copia del dump attesa (copia, copia_run), con le stesse chiavi.
+var schemaCopia = &schema{chiavi: map[string]*schema{
+	"database": foglia, "ruolo": foglia, "schema": foglia,
+	"escluse":    {elementi: foglia},
+	"sentinelle": {mappa: foglia},
+}}
+
 var schemaManifest = &schema{
 	chiavi: map[string]*schema{
 		"versione_manifest": foglia,
@@ -253,12 +281,13 @@ var schemaManifest = &schema{
 			},
 			obbligatorie: []string{"nome", "percorso", "ruolo", "sha256", "byte"},
 		}},
-		"profili": {mappa: foglia},
-		"copia": {chiavi: map[string]*schema{
-			"database": foglia, "ruolo": foglia, "schema": foglia,
-			"escluse":    {elementi: foglia},
-			"sentinelle": {mappa: foglia},
-		}},
+		"profili":   {mappa: foglia},
+		"copia":     schemaCopia,
+		"copia_run": schemaCopia,
+		"export": {
+			chiavi:       map[string]*schema{"versione": foglia, "hash_configurazione": foglia, "schema": foglia},
+			obbligatorie: []string{"versione", "hash_configurazione", "schema"},
+		},
 		"storico": {elementi: &schema{
 			chiavi:       map[string]*schema{"data": foglia, "voce": foglia, "sha256_prima": foglia, "motivo": foglia},
 			obbligatorie: []string{"data", "voce", "sha256_prima", "motivo"},
