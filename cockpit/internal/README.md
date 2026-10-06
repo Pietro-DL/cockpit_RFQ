@@ -140,6 +140,8 @@ markmap:
   - **`platform/jsoncanonico`** → solo la libreria standard
   - **`platform/dataset`** → solo la libreria standard
     - legge il manifest del dataset privato; non importa `core`, quindi niente `evidenze.Diagnostica`
+    - la importano `app/bancoa` e, da A1c, `platform/testutil` (gli aiuti delle prove private: il manifest, la
+      copia intatta del dump, le copie usa e getta; mai gli attesi)
   - **`ai/agente`** → `core`, `platform`
   - **`transport/*`** → `core` (compreso `core/inbox/lettura`, usato da `transport/web`), `ai`, `platform`
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
@@ -348,7 +350,8 @@ markmap:
 - `COCKPIT_TEST_DSN` deve portare a un database il cui nome **risolto** contiene «test»
   (`testutil.DatabaseDiTest`, con `pgconn.ParseConfig`: vale anche per un DSN `chiave=valore` o con
   `?dbname=`), altrimenti il test si ferma;
-- senza la variabile i test L4 sono SKIP, mai PASS.
+- senza la variabile i test L4 sono «SALTATO-AMBIENTE» nelle corse di sviluppo e NON ESEGUITA con
+  `COCKPIT_PROVE_OBBLIGATORIE=L4` (`testutil.Richiesto`), mai PASS.
 - `COCKPIT_TEST_SENZA_PYTHON=1` salta i TestE2E.
 - `scripts/prova-tutto.ps1` lancia L1, L3, L4 e L2 e non lancia L7.
 - I test Go stanno nel ramo `-qa` (vedi il README principale, «I rami del repository»).
