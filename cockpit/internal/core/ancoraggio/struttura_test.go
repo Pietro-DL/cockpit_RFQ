@@ -1320,6 +1320,16 @@ func TestProponiStruttureErroriDiContratto(t *testing.T) {
 // TestIValoriDelleStrutture (contratto §2.2, §2.5; 6.4.5; T-E1-04): i valori delle costanti, la forma dei
 // riferimenti e i campi dei tipi delle strutture, con i tag JSON snake_case. Se uno cambia, questa prova si riscrive
 // con «Riscritta per …».
+//
+// Riscritta per B4 (commit P6b, fase 1): i campi che il contratto (§2.2) lasciava al commit di B4 (NodoProposto.Codice,
+// Decisione, RigaLegacy, DecisoDaPersona; ArcoProposto.Decisione; ContestoStrutturale.CodiciProposti) e gli ingressi
+// della catena e delle decisioni (le righe decise, i codici dei messaggi, le decisioni sull'identità, il codice
+// manuale, la revisione e la lettura del componente, i grezzi, le formazioni e il nome del file), più
+// NodoProposto.RigaDecisa; ProdottoRichiesto.Marcatore (T-B4-06 rivisto). I valori e i campi dei tipi nuovi di B4 li fissa
+// catena_test.go.
+//
+// Riscritta per B4 (commit P6b, fase 2): NodoProposto.AbbinamentoPerBase (emendamento E1 §4.2, punto 2; lettura
+// dell'orchestratore T-B4-12). I valori e i campi dei tipi degli ancoraggi li fissa ancoraggi_test.go.
 func TestIValoriDelleStrutture(t *testing.T) {
 	id := uidS(0x5a0)
 	for _, c := range []struct{ got, want string }{
@@ -1343,16 +1353,22 @@ func TestIValoriDelleStrutture(t *testing.T) {
 		tipo  any
 		campi string
 	}{
-		{ancoraggio.StrutturaFile{}, "AllegatoID:allegato_id BundleID:bundle_id Sha256:sha256 Radici:radici Nodi:nodi Archi:archi GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo"},
-		{ancoraggio.NodoStruttura{}, "Rif:rif EntitaID:entita_id Chiave:chiave Letture:letture"},
+		{ancoraggio.StrutturaFile{}, "AllegatoID:allegato_id BundleID:bundle_id Sha256:sha256 Radici:radici Nodi:nodi Archi:archi GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo " +
+			"NomeFile:nome_file"},
+		{ancoraggio.NodoStruttura{}, "Rif:rif EntitaID:entita_id Chiave:chiave Letture:letture Grezzi:grezzi Formazioni:formazioni"},
 		{ancoraggio.ArcoPercorso{}, "Padre:padre Figlio:figlio Quantita:quantita Occorrenze:occorrenze Origine:origine"},
-		{ancoraggio.ProdottoRichiesto{}, "Rif:rif Autorita:autorita ClienteID:cliente_id Namespace:namespace CodiceRichiesto:codice_richiesto Base:base Revisione:revisione " +
+		{ancoraggio.ProdottoRichiesto{}, "Rif:rif Autorita:autorita ClienteID:cliente_id Namespace:namespace CodiceRichiesto:codice_richiesto Base:base Marcatore:marcatore Revisione:revisione " +
 			"Qualificatori:qualificatori Origine:origine VersioneDecisione:versione_decisione ComponenteID:componente_id FonteConfermata:fonte_confermata"},
-		{ancoraggio.ContestoStrutturale{}, "Strutture:strutture Confermato:confermato ArchiConfermati:archi_confermati Proposto:proposto ArchiProposti:archi_proposti"},
-		{ancoraggio.ComponenteDeciso{}, "ComponenteID:componente_id Codice:codice Autorita:autorita Origine:origine"},
-		{ancoraggio.RigaPropostaLegacy{}, "ID:id AllegatoID:allegato_id Sha256:sha256 Chiave:chiave Autorita:autorita Origine:origine"},
-		{ancoraggio.NodoProposto{}, "Rif:rif AllegatoID:allegato_id EntitaID:entita_id Padri:padri Leggibile:leggibile SenzaFile:senza_file"},
-		{ancoraggio.ArcoProposto{}, "Padre:padre Figlio:figlio Quantita:quantita Occorrenze:occorrenze"},
+		// riscritta per la fase 3 di B4: LettureDecise e AssociazioniDecise (T-B4-32, T-B4-33)
+		{ancoraggio.ContestoStrutturale{}, "Strutture:strutture Confermato:confermato ArchiConfermati:archi_confermati Proposto:proposto ArchiProposti:archi_proposti " +
+			"Decise:decise CodiciProposti:codici_proposti CodiciMessaggi:codici_messaggi DecisioniIdentita:decisioni_identita LettureDecise:letture_decise " +
+			"AssociazioniDecise:associazioni_decise"},
+		{ancoraggio.ComponenteDeciso{}, "ComponenteID:componente_id Codice:codice Autorita:autorita Origine:origine Rev:rev Lettura:lettura"},
+		{ancoraggio.RigaPropostaLegacy{}, "ID:id AllegatoID:allegato_id Sha256:sha256 Chiave:chiave Autorita:autorita Origine:origine " +
+			"CodiceManuale:codice_manuale RevManuale:rev_manuale LetturaManuale:lettura_manuale"},
+		{ancoraggio.NodoProposto{}, "Rif:rif AllegatoID:allegato_id EntitaID:entita_id Codice:codice Padri:padri Leggibile:leggibile SenzaFile:senza_file " +
+			"Decisione:decisione RigaLegacy:riga_legacy RigaDecisa:riga_decisa DecisoDaPersona:deciso_da_persona AbbinamentoPerBase:abbinamento_per_base"},
+		{ancoraggio.ArcoProposto{}, "Padre:padre Figlio:figlio Quantita:quantita Occorrenze:occorrenze Decisione:decisione"},
 		{ancoraggio.StrutturaProdotto{}, "Target:target AllegatoID:allegato_id Sha256:sha256 Radice:radice RadiceDelFile:radice_del_file Compatibilita:compatibilita " +
 			"Stato:stato Nodi:nodi Archi:archi ArchiContesto:archi_contesto Fonti:fonti GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo " +
 			"RigaRadice:riga_radice RigheDaDecidere:righe_da_decidere"},

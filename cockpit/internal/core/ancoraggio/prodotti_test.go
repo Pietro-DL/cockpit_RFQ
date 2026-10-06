@@ -574,7 +574,7 @@ func TestL106RichiestaEStoria(t *testing.T) {
 		}
 	})
 
-	// La chiave è (namespace, base, qualificatori, riga) (6.4.4, regola 3; decisione dell'orchestratore R-02): le
+	// La chiave è (namespace, base, qualificatori, riga) (6.4.4, regola 3; T-B1-02): le
 	// menzioni ammesse dello stesso codice in testo libero fanno un candidato solo, anche da segmenti diversi, e ogni
 	// evidenza conserva il suo segmento, il suo uso e la sua origine. La principale è quella con la scelta più forte.
 	// Una menzione della storia senza una scelta resta un'esclusione e non entra nel candidato.
@@ -837,7 +837,7 @@ func TestProponiProdottiDeterministico(t *testing.T) {
 	if err1 != nil || err2 != nil || string(c1) != string(c2) || e1.Impronta != e2.Impronta {
 		t.Fatalf("stessi ingressi in ordine diverso, esiti diversi:\n%s\n%s", c1, c2)
 	}
-	// I due codici dell'inoltro sono le righe della tabella dell'altro messaggio: evidenze di quelle righe (R-02).
+	// I due codici dell'inoltro sono le righe della tabella dell'altro messaggio: evidenze di quelle righe (T-B1-02).
 	if len(e1.Candidati) != 4 || e1.Candidati[0].MessaggioID != idMail || len(e1.Candidati[0].Evidenze) != 2 ||
 		e1.Candidati[0].Evidenze[1].MessaggioID != idInoltro {
 		t.Errorf("candidati %v", codiciRichiesti(e1))
