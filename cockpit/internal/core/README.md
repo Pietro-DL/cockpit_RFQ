@@ -145,6 +145,16 @@ markmap:
     - Puro; nessuna regola cliente nei testi
   - DB: no
   - README: [README](estrazione/README.md)
+- **`ancoraggio`**
+  - Che cosa fa: le **proposte del motore A** (giro 5):
+    - i prodotti candidati della mail (`ProponiProdotti`): codice richiesto e base separati, qualificatori, quantità
+      dalla colonna dichiarata con l'evidenza della cella, esclusioni con il motivo; sempre da confermare, mai
+      target (R60 A)
+    - il vocabolario comune (autorità, origini, stato della richiesta e gesti) e i tipi della fonte strutturale
+    - dai blocchi successivi gli ancoraggi dei file
+    - Puro: non importa la fotografia, che legge `valutazione`
+  - DB: no
+  - README: [README](ancoraggio/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -192,6 +202,12 @@ markmap:
     - `inbox/classificazione`, solo il taglio con le posizioni, i livelli della storia ed `EInoltro` (G4)
     - `inbox/lettura`, solo le tabelle con la loro origine e `TestoDaHTML` (G4)
     - mai `registro/regole/grammatica` né `inbox/classificazione/motorea`: nessuna regola cliente nei testi
+  - **`ancoraggio`** importa:
+    - `inbox/classificazione/motorea` (le interpretazioni e le letture)
+    - `registro/regole/grammatica` (i ruoli)
+    - `estrazione/evidenze` (il documento e le diagnostiche)
+    - `platform/jsoncanonico` (le impronte)
+    - mai `fotorfq`, `estrazione`, il caricatore, il DB: la fotografia la legge `valutazione` (T-B0-04)
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
