@@ -80,7 +80,11 @@ markmap:
   - **[`core/inbox/classificazione/motorea/README.md`](core/inbox/classificazione/motorea/README.md)** → il motore A
     (giro 5): il compilatore delle grammatiche, la verifica degli esempi, il riconoscimento per forma
   - **[`core/fotorfq/README.md`](core/fotorfq/README.md)** → i record della fotografia di una RFQ per il motore A
-    (giro 5): messaggio, allegato, terna e fatti, senza DB, e l'impronta dei fatti
+    (giro 5): messaggio, allegato, terna e fatti, senza DB, e l'impronta dei fatti; da A1c la fotografia intera,
+    con le decisioni attuali, l'ordine, l'impronta e i controlli
+  - **[`core/fotorfq/caricatore/README.md`](core/fotorfq/caricatore/README.md)** → il caricatore del motore A
+    (giro 5, A1c): la fotografia letta dal database in una transazione sola, in sola lettura, con l'elenco chiuso
+    delle query
   - **[`core/estrazione/README.md`](core/estrazione/README.md)** → gli adattatori del motore A (giro 5): dal nome
     del file, dalla voce d'archivio, dai fatti dei worker e dalla mail ai documenti delle evidenze; il testo isolato
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
@@ -121,8 +125,12 @@ markmap:
     `platform/jsoncanonico`. Mai il motore legacy
     - sta nella cartella di `core/inbox/classificazione` ma non la importa, e viceversa: niente `Minuteria` (R7)
   - **`core/fotorfq`** → `core/estrazione/evidenze`, `platform/jsoncanonico`
-    - i record della fotografia, senza DB; in A1b importa solo `platform/jsoncanonico`, per l'impronta dei
-      fatti. Il caricatore, l'unico con il DB, è un pacchetto a parte (A1c)
+    - i record della fotografia, senza DB: le diagnostiche della fotografia (A1c) e le impronte. Il caricatore,
+      l'unico con il DB, è un pacchetto a parte
+  - **`core/fotorfq/caricatore`** → `core/fotorfq`, `core/estrazione/evidenze`, `platform/db`,
+    `platform/migrazioni`
+    - è l'unico pacchetto del motore A con il DB, in sola lettura (A1c): una transazione REPEATABLE READ READ
+      ONLY, le query sqlc su `db.New(tx)`, nessun altro `core/*`, mai `ai`, `app`, `transport`, la libreria YAML
   - **`core/estrazione`** → `core/estrazione/evidenze`, `core/fotorfq`, `core/inbox/classificazione` (solo il
     taglio con posizioni ed `EInoltro`), `core/inbox/lettura` (solo le tabelle con origine e `TestoDaHTML`),
     `platform/contratti/worker`, `platform/jsoncanonico`
@@ -422,7 +430,7 @@ markmap:
     - Parziale o in attesa: l'esempio differisce di proposito dai default su tre voci (sync ogni 30 s,
       analizzatore 3, staging automatico)
   - **`platform/db`**
-    - Completo: 438 query in 28 file
+    - Completo: 482 query in 33 file
     - Parziale o in attesa: 47 query senza chiamanti e 10 solo dai test: funzioni non ancora costruite
       (anagrafica «Altro», B8.8, lettura di una versione congelata, …)
   - **`platform/migrazioni`**
