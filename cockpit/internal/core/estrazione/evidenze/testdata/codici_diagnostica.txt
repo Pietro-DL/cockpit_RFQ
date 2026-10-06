@@ -102,3 +102,7 @@ fotografia.fatti_assenti
 fotografia.terna_diversa
 fotografia.sezione_parziale
 fotografia.riferimento_non_risolto
+ancoraggio.richiesta_non_valutata
+ancoraggio.righe_stessa_base
+ancoraggio.quantita_non_intera
+ancoraggio.alternative_conservate

@@ -96,6 +96,14 @@ var pacchettiMotoreA = []regolePacchetto{
 		progetto: []string{"internal/core/estrazione/evidenze", "internal/core/fotorfq", "internal/platform/jsoncanonico",
 			"internal/platform/contratti/worker", "internal/core/inbox/classificazione", "internal/core/inbox/lettura"},
 		esterni: []string{"github.com/google/uuid"}},
+	// Le proposte del motore A (A1c, P5): i prodotti chiesti dalla mail e, dai commit di B2 e B4, gli ancoraggi.
+	// Le interpretazioni e le letture (motorea), i ruoli (grammatica), il documento e le diagnostiche della foglia,
+	// il JSON canonico delle impronte. Mai la fotografia né il caricatore, che legge valutazione (T-B0-04), mai gli
+	// adattatori, valutazione e confronto (grafo del par.3.2.1): estrazione e fotorfq solo nelle prove.
+	{percorso: "internal/core/ancoraggio", puro: true,
+		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/registro/regole/grammatica",
+			"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni: []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
