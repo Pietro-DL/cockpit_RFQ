@@ -37,7 +37,7 @@ type Manifest struct {
 	Cartella string            `json:"-"`
 	Voci     []Voce            `json:"voci"`              // ruoli in A1a: attesi, regole, controllo (gli elenchi del controllo prima del push)
 	Profili  map[string]string `json:"profili,omitempty"` // profilo degli attesi → cliente_id: solo per il runner (D-09)
-	Copia    CopiaAttesa       `json:"copia"`             // la copia intatta del dump: la usa A1c, in A1a è vuota
+	Copia    CopiaAttesa       `json:"copia"`             // la copia intatta del dump: la usa A1c, in A1a è vuota; con le impronte facoltative (R117 b)
 	CopiaRun CopiaAttesa       `json:"copia_run"`         // la copia _run, scrivibile: nome, ruolo, schema, sentinelle (A1c, R33 d)
 	Export   *ExportDichiarato `json:"export,omitempty"`  // la terna e lo schema degli export (A1c)
 	Storico  []RigaStorico     `json:"storico,omitempty"`
@@ -65,13 +65,34 @@ type Voce struct {
 }
 
 // CopiaAttesa: che cosa deve essere la copia intatta del dump (A1c). Nessun valore sta nel codice: nome del
-// DB, ruolo, schema, tabelle escluse e sentinelle vengono tutti dal manifest.
+// DB, ruolo, schema, tabelle escluse, sentinelle e impronte vengono tutti dal manifest.
 type CopiaAttesa struct {
 	Database   string           `json:"database,omitempty"`
 	Ruolo      string           `json:"ruolo,omitempty"`
 	Schema     int              `json:"schema,omitempty"`
 	Escluse    []string         `json:"escluse,omitempty"`
 	Sentinelle map[string]int64 `json:"sentinelle,omitempty"`
+	// Impronte: le impronte di contenuto, oltre ai conteggi delle sentinelle (R117 b, ratificata e ampliata; E2
+	// §2.10). Facoltative, e solo nella sezione copia: nella copia_run la chiave non si legge, perché ogni ambiente
+	// ha le sue condizioni attese e quelle degli altri ambienti vengono con loro. Le calcola e le confronta
+	// platform/testutil (ControllaCopia), mai il banco; qui c'è solo la forma.
+	Impronte *ImpronteCopia `json:"impronte,omitempty"`
+}
+
+// ImpronteCopia: le impronte di contenuto della copia intatta. Versione è la versione della formula
+// (testutil.VersioneImpronta): un'impronta di un'altra versione non si confronta. Tabelle va per nome di tabella.
+type ImpronteCopia struct {
+	Versione int                        `json:"versione_impronta"`
+	Tabelle  map[string]ImprontaTabella `json:"tabelle"`
+}
+
+// ImprontaTabella: l'impronta di una tabella. Colonne sono le colonne che entrano nell'impronta, nel loro ordine;
+// Ordine le colonne per cui si ordinano le righe prima di calcolarla; Sha256 il valore, in esadecimale. Che cosa
+// vuol dire ciascun campo lo dice la formula, in testutil: qui non si controlla il contenuto.
+type ImprontaTabella struct {
+	Colonne []string `json:"colonne"`
+	Ordine  []string `json:"ordine"`
+	Sha256  string   `json:"sha256"`
 }
 
 // RigaStorico: un cambio di un file già elencato, con lo sha256 di prima e il motivo (par.3.7.2).
@@ -259,17 +280,40 @@ func in(v string, elenco []string) bool {
 type schema struct {
 	chiavi       map[string]*schema
 	obbligatorie []string
-	mappa        *schema // oggetto con chiavi libere (profili, sentinelle)
+	mappa        *schema // oggetto con chiavi libere (profili, sentinelle, le tabelle delle impronte)
 	elementi     *schema // array
 }
 
 var foglia = &schema{}
 
-// schemaCopia: una copia del dump attesa (copia, copia_run), con le stesse chiavi.
+// schemaCopiaRun: la copia _run del dump (copia_run): database, ruolo, schema, escluse e sentinelle. Le impronte
+// no: R117 vuole un'identità e condizioni attese per ogni ambiente, senza condividerle in automatico, e quelle
+// della copia _run non sono ancora previste (E2 §2.10). Una chiave impronte qui è sconosciuta, non ignorata.
+var schemaCopiaRun = &schema{chiavi: map[string]*schema{
+	"database": foglia, "ruolo": foglia, "schema": foglia,
+	"escluse":    {elementi: foglia},
+	"sentinelle": {mappa: foglia},
+}}
+
+// schemaImpronte: la sezione impronte della copia intatta (R117 b). Se c'è, ha la versione della formula e le
+// tabelle, e ogni tabella ha colonne, ordine e sha256: un'impronta a metà non si legge.
+var schemaImpronte = &schema{
+	chiavi: map[string]*schema{
+		"versione_impronta": foglia,
+		"tabelle": {mappa: &schema{
+			chiavi:       map[string]*schema{"colonne": {elementi: foglia}, "ordine": {elementi: foglia}, "sha256": foglia},
+			obbligatorie: []string{"colonne", "ordine", "sha256"},
+		}},
+	},
+	obbligatorie: []string{"versione_impronta", "tabelle"},
+}
+
+// schemaCopia: la copia intatta del dump (copia): le chiavi della copia _run, più le impronte facoltative.
 var schemaCopia = &schema{chiavi: map[string]*schema{
 	"database": foglia, "ruolo": foglia, "schema": foglia,
 	"escluse":    {elementi: foglia},
 	"sentinelle": {mappa: foglia},
+	"impronte":   schemaImpronte,
 }}
 
 var schemaManifest = &schema{
@@ -283,7 +327,7 @@ var schemaManifest = &schema{
 		}},
 		"profili":   {mappa: foglia},
 		"copia":     schemaCopia,
-		"copia_run": schemaCopia,
+		"copia_run": schemaCopiaRun,
 		"export": {
 			chiavi:       map[string]*schema{"versione": foglia, "hash_configurazione": foglia, "schema": foglia},
 			obbligatorie: []string{"versione", "hash_configurazione", "schema"},

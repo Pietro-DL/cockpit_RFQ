@@ -30,6 +30,8 @@ markmap:
 - **La copia del dump e i suoi controlli**: qui ci sono solo i tipi che il manifest riempie (`CopiaAttesa` per
   la copia intatta e per la copia `_run`); i controlli sul database li fa `platform/testutil` (`PoolDump`,
   `ControllaCopia`, `PoolCopiaDelDump`), da A1c.
+- **La formula delle impronte di contenuto** e il controllo del loro contenuto (versione, nomi, sha256): li ha
+  `platform/testutil` (`VersioneImpronta`, `ControllaCopia`). Qui c'è solo la forma della sezione `impronte`.
 
 ## File
 
@@ -38,9 +40,15 @@ markmap:
   - `Manifest`, `Voce`, `CopiaAttesa`, `RigaStorico`; le costanti dei ruoli (`attesi`, `regole`, `casi`,
     `dump`, `export`, `fixture`, `storico`, `controllo`);
   - da A1c (6.4.8): `Manifest.CopiaRun` (tag `copia_run`, la copia `_run` del dump, scrivibile: nome, ruolo,
-    schema, sentinelle, con la forma di `copia`) e `Manifest.Export` (tag `export`, `*ExportDichiarato`: la terna
-    dei fatti, `versione` e `hash_configurazione`, e lo `schema` del DB da cui vengono gli export, che gli export
-    non dicono da soli; se la sezione c'è, ha tutte e tre le chiavi);
+    schema, sentinelle, con la forma di `copia` senza le impronte) e `Manifest.Export` (tag `export`,
+    `*ExportDichiarato`: la terna dei fatti, `versione` e `hash_configurazione`, e lo `schema` del DB da cui vengono
+    gli export, che gli export non dicono da soli; se la sezione c'è, ha tutte e tre le chiavi);
+  - da A1c, R117 b (E2 §2.10): `CopiaAttesa.Impronte` (tag `impronte`, `*ImpronteCopia`, facoltativo): le impronte
+    di contenuto della copia intatta, oltre ai conteggi delle sentinelle. `ImpronteCopia` ha `versione_impronta`
+    (la versione della formula, `testutil.VersioneImpronta`) e `tabelle`, per nome di tabella; `ImprontaTabella`
+    ha `colonne`, `ordine` e `sha256`. Forma nel manifest:
+    `"copia": {…, "sentinelle": {"t": 3}, "impronte": {"versione_impronta": 1, "tabelle": {"t": {"colonne": ["id",
+    "codice"], "ordine": ["id"], "sha256": "<64 cifre esadecimali>"}}}}`;
   - `Leggi`: la decodifica stretta (prima i token contro lo schema delle chiavi, poi `DisallowUnknownFields`) e
     la validazione delle voci e dei profili;
   - `Manifest.LeggiFile`, `Manifest.PercorsoDi`; gli errori `ErrFileMancante` ed `ErrImprontaDiversa`;
@@ -51,7 +59,8 @@ markmap:
 - **`Leggi`, `Manifest.LeggiFile`, `Manifest.PercorsoDi`** — chi li chiama: il banco (`app/bancoa`), da A1a; da
   A1c gli aiuti delle prove private (`platform/testutil`: `DatasetA`, `FileDelDataset`).
 - **`Manifest.Copia`, `Manifest.CopiaRun`** — chi li legge: da A1c le prove private, attraverso
-  `testutil.PoolDump` e `testutil.PoolCopiaDelDump`. **`Manifest.Export`** — chi la legge: il lettore degli export
+  `testutil.PoolDump` e `testutil.PoolCopiaDelDump`; `Manifest.Copia.Impronte` solo `testutil.ControllaCopia` (il
+  banco non le legge e non le calcola: T-B0-36). **`Manifest.Export`** — chi la legge: il lettore degli export
   del banco (A1c).
 - **`FuoriDalModulo`** — chi lo chiama: il banco, per il manifest e per la cartella dei rapporti.
 - **`ErrFileMancante`, `ErrImprontaDiversa`** — chi li controlla: il banco (uscita 3, NON ESEGUITO); da A1c le
@@ -65,6 +74,22 @@ markmap:
   sono `copia_run` ed `export`.
 - **La sezione `export`**, se c'è, ha `versione` positiva, `hash_configurazione` di 64 cifre esadecimali e
   `schema` positivo: una terna a metà non si legge.
+- **La sezione `impronte`** sta solo in `copia`: nella `copia_run` è una chiave sconosciuta, perché ogni ambiente
+  ha la sua identità e le sue condizioni attese, mai condivise in automatico (R117). Se c'è, ha `versione_impronta`
+  e `tabelle`, e ogni tabella ha `colonne`, `ordine` e `sha256`: un'impronta a metà non si legge. Il contenuto lo
+  controlla `testutil`, che le calcola: un manifest con un'impronta che non si sa calcolare si legge, e la prova
+  della copia lo dice NON ESEGUITA.
+- **Limite della formula, versione 1** (`testutil.VersioneImpronta`; R-141, T-B6-214 precisata): si rendono solo i
+  tipi di un elenco chiuso (bool, int2, int4, int8, numeric, text, varchar, bpchar, uuid, json, jsonb, date,
+  timestamp, inet, gli enum e gli array di questi; timestamptz e timetz in UTC; un dominio per il suo tipo di base,
+  a un livello). Ogni altro tipo (float, interval, bytea, money, range e multirange, compositi, array con un tempo
+  con il fuso, un dominio su un dominio, time, …) dà l'errore «tipo non reso dalla versione 1», e l'impronta della
+  sua tabella è una parte non eseguita: mai un'impronta che cambia con la sessione. Le altre tabelle si controllano
+  lo stesso. Nello schema di oggi non c'è nessuna colonna così; renderne una vuole una versione nuova della formula
+  e le impronte ricalcolate.
+- **Un'impronta o una sentinella cambiata** non si aggiorna con il valore appena trovato: vuole una diagnosi e una
+  riga di `storico` con il motivo (R117; per un'impronta, `voce` = `copia.impronte.<tabella>` e `sha256_prima` =
+  l'impronta di prima).
 - **Voci**: nome presente e unico, percorso relativo alla cartella del manifest, ruolo dell'elenco, sha256 di
   64 cifre esadecimali, byte non negativi.
 - **Ogni lettura controlla sha256 e byte**; un file mancante o cambiato non si dà. Una voce che il manifest non
@@ -89,7 +114,9 @@ markmap:
   - `FuoriDalModulo` dentro e fuori dal modulo, anche per una cartella che non esiste ancora;
   - la `VersioneManifest` fissa;
   - da A1c (A1c-L1-29): le sezioni `copia_run` ed `export` lette, con le loro chiavi strette (sconosciute,
-    assenti, null, valori fuori dominio rifiutati).
+    assenti, null, valori fuori dominio rifiutati);
+  - da A1c, R117 b: la sezione `impronte` di `copia` letta (facoltativa: senza, `nil`), con le chiavi strette
+    (sconosciute, assenti, ripetute, null, tipi sbagliati rifiutati), e rifiutata nella `copia_run`.
 - I file del manifest nascono in `t.TempDir()`, con il cliente inventato ACME. I test stanno nel ramo `-qa`.
 
 ## Leggi anche

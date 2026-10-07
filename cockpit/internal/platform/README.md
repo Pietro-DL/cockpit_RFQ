@@ -143,6 +143,8 @@ markmap:
   - dà un file solo dopo il controllo di **sha256 e byte**: un file mancante o cambiato è un errore tipizzato
     (`ErrFileMancante`, `ErrImprontaDiversa`), che chi lo riceve mostra come NON ESEGUITO
   - `FuoriDalModulo`: il dataset e le uscite del banco non entrano mai nel repository
+  - da A1c (R117 b): la forma delle **impronte di contenuto** della copia intatta (`CopiaAttesa.Impronte`, solo
+    nella sezione `copia`; nella `copia_run` la chiave non si legge); le calcola e le confronta `testutil`
   - non conosce il formato dei file che elenca; nessun valore del dataset sta nel codice
 - README: [README](dataset/README.md)
 
@@ -167,10 +169,16 @@ markmap:
       (P-11)
     - `DumpDSN`, `CopiaDelDump`, `PoolDump`, `ControllaCopia` (`dump.go`): la copia intatta del dump, in sola
       lettura, controllata contro il manifest (ruolo, nome, sola lettura, codifica, schema, tabelle escluse,
-      sentinelle) e ricontrollata alla fine
+      sentinelle, impronte di contenuto) e ricontrollata alla fine
+    - le **impronte di contenuto** (`dump.go`, R117 b): `VersioneImpronta` (1) e la formula, con l'SQL accanto a
+      quello dei conteggi, solo nelle prove; a righe uguali un'impronta diversa è l'errore «valori cambiati»; senza
+      impronte nel manifest `ControllaCopia` dà `ErrImpronteNonDichiarate` e `PoolDump` segna la parte NON ESEGUITA,
+      con il motivo, senza fermare la prova, che non è mai verde; i tipi resi sono un elenco chiuso (R-141): una
+      colonna di un altro tipo dà `ErrTipoNonReso` («tipo non reso dalla versione 1») e l'impronta della sua tabella
+      è una parte non eseguita, mai un'impronta che cambia con la sessione
     - `PoolCopiaDelDump` (`copia.go`): una copia usa e getta del dump, scrivibile, con il marcatore nel commento
       del database e le sentinelle del manifest
-    - nessun valore delle copie sta nel codice: nomi, ruoli, schema e sentinelle vengono dal manifest privato
+    - nessun valore delle copie sta nel codice: nomi, ruoli, schema, sentinelle e impronte vengono dal manifest privato
 - README: qui
 
 ### `testutil` e la guardia del database
