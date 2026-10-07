@@ -61,6 +61,10 @@ type esitoControllo struct {
 	// nonApplicabili: le parti che in questa corsa non si applicano, perché il piano le assegna all'altra modalità (la
 	// riga della C5 dell'altra modalità: R-117). Solo informazione: non cambiano lo stato del controllo.
 	nonApplicabili []string
+	// ambitiDedotti: le chiavi giudicate su un ambito dedotto dalle chiavi sorelle della voce, con l'unità (le chiavi
+	// dei token: T-B6-220, precisata dall'orchestratore con R-140). Solo informazione: non cambiano lo stato del
+	// controllo, ma il rapporto dice su quale unità la chiave è stata giudicata.
+	ambitiDedotti []string
 	// delegato: il controllo lo verifica una prova fuori dal runner, nominata nel motivo (R117 b: le sentinelle). Il
 	// controllo non è eseguito dal runner, ma non è NON ESEGUITO: è «delegato», e non decide l'uscita.
 	delegato bool
@@ -583,19 +587,27 @@ func righeDelFile(t *fotorfq.Thread, allegato uuid.UUID) (*fotorfq.PropostaAttua
 // è verificata ed è uguale; Differenze sono gli scarti; NonVerificate le parti che la corsa non può verificare
 // (deciso_da con gli export: R-102; il file di un thread che non si valuta per un limite degli ingressi: T-B6-104).
 // Una decisione è preservata solo senza differenze e senza parti non verificate.
+//
+// Revisione: l'indicatore di revisione della riga di confronto del file (valore, le due revisioni, la provenienza della
+// vecchia, il motivo), nil se il file non ha una riga. Serve alla voce del gate delle decisioni preservate, che conta le
+// differenze di revisione diagnosticate (R113 B ratificata; E2 §3.4); non entra in Righe né in Base, e non toglie la
+// preservazione: l'indicatore è separato dalla correttezza dell'associazione (R113).
 type esitoBaseline struct {
-	Percorso      string    `json:"percorso"`
-	ID            string    `json:"id,omitempty"`
-	AllegatoID    uuid.UUID `json:"allegato_id"`
-	Righe         bool      `json:"righe"`
-	Base          bool      `json:"base"`
-	Differenze    []string  `json:"differenze,omitempty"`
-	NonVerificate []string  `json:"non_verificate,omitempty"`
+	Percorso      string                         `json:"percorso"`
+	ID            string                         `json:"id,omitempty"`
+	AllegatoID    uuid.UUID                      `json:"allegato_id"`
+	Righe         bool                           `json:"righe"`
+	Base          bool                           `json:"base"`
+	Differenze    []string                       `json:"differenze,omitempty"`
+	NonVerificate []string                       `json:"non_verificate,omitempty"`
+	Revisione     *confronto.IndicatoreRevisione `json:"revisione,omitempty"`
 }
 
 // controllaBaseline: (1) e (2) per ogni voce risolta della baseline. Per un file che il motore non ha valutato la
-// differenza dice «file non valutato», con il motivo del motore (R-115), non «la base è diversa».
-func controllaBaseline(tr traduzione, f fotorfq.Fotografia, ix indiceFoto, nuovi map[uuid.UUID]confronto.File, cc contestoCorsa) []esitoBaseline {
+// differenza dice «file non valutato», con il motivo del motore (R-115), non «la base è diversa». revisioni: gli
+// indicatori di revisione delle righe di confronto, per allegato (R113 B).
+func controllaBaseline(tr traduzione, f fotorfq.Fotografia, ix indiceFoto, nuovi map[uuid.UUID]confronto.File,
+	revisioni map[uuid.UUID]confronto.IndicatoreRevisione, cc contestoCorsa) []esitoBaseline {
 	var out []esitoBaseline
 	for _, vt := range tr.voci {
 		if vt.voce.Sezione != confronto.SezioneBaseline || !vt.risolta {
@@ -604,6 +616,9 @@ func controllaBaseline(tr traduzione, f fotorfq.Fotografia, ix indiceFoto, nuovi
 		t := &f.Thread[ix.thread[vt.thread]]
 		p, d := righeDelFile(t, vt.file.AllegatoID)
 		eb := esitoBaseline{Percorso: vt.voce.Percorso, ID: vt.voce.ID, AllegatoID: vt.file.AllegatoID}
+		if r, ok := revisioni[vt.file.AllegatoID]; ok {
+			eb.Revisione = &r
+		}
 		cp := confrontaProposta(vt.voce.Proposta, p, cc.export)
 		cd := confrontaDocumento(vt.voce.Documento, d)
 		eb.Differenze = append(append(eb.Differenze, cp.differenze...), cd.differenze...)
@@ -787,9 +802,10 @@ func controlloLetture(s *SezioniAttesi, tr traduzione, file map[uuid.UUID]fileDe
 			}
 			letture = append(letture, k)
 		}
-		d, nf := lettureDelFile(v.Percorso, letture, file[vt.file.AllegatoID], ins, cc.nonValutabili[vt.thread])
+		d, nf, dedotti := lettureDelFileConAmbiti(v.Percorso, letture, file[vt.file.AllegatoID], ins, cc.nonValutabili[vt.thread])
 		e.differenze = append(e.differenze, d...)
 		e.nonFatti = append(e.nonFatti, nf...)
+		e.ambitiDedotti = append(e.ambitiDedotti, dedotti...)
 		if atteso, ok := v.invariante("target_presente"); ok {
 			p := v.Percorso + ".target_presente"
 			et := threadDi[vt.thread]
@@ -825,6 +841,44 @@ var ambitoDellaChiave = map[string]evidenze.Contesto{
 	"revisione_da_questo_campo": "",
 }
 
+// chiaviDelToken (T-B6-200; O-1 della controprova delle risposte): le chiavi dei token della revisione non nominano
+// un'unità, ma parlano del token di un'unità precisa. Sul file intero il token di un'altra unità (il cartiglio) farebbe
+// passare una voce che parla del nome: un passato falso, contro la regola «verificata, oppure dichiarata non
+// verificata». Si giudicano sul solo ambito che la voce degli attesi indica (ambitoDelToken); se l'ambito non si
+// determina, sono fra i nonFatti con il motivo. Mai sul file intero.
+var chiaviDelToken = map[string]bool{"token_revisione": true, "token_conservato": true, "identita_include_token": true}
+
+// ambitoDelToken: l'ambito che la voce indica per le sue chiavi dei token, cioè quello delle altre chiavi della sua
+// mappa «atteso» che hanno un ambito (ambitoDellaChiave), se è uno solo e dice un'unità [T]. Restituisce l'ambito, oppure
+// il motivo per cui non si determina: nessuna chiave con un ambito, chiavi con ambiti diversi, l'ambito «questo campo»
+// (che una voce di file non dice).
+func ambitoDelToken(letture []ChiaveAttesa) (evidenze.Contesto, string) {
+	visti := map[evidenze.Contesto]bool{}
+	var nomi []string
+	for _, k := range letture {
+		a, ok := ambitoDellaChiave[k.Chiave]
+		if !ok || visti[a] {
+			continue
+		}
+		visti[a] = true
+		if a == "" {
+			nomi = append(nomi, "«questo campo»")
+		} else {
+			nomi = append(nomi, string(a))
+		}
+	}
+	sort.Strings(nomi)
+	switch {
+	case len(visti) == 0:
+		return "", "la chiave del token non nomina un'unità e la voce non ne indica una (nessuna chiave con un ambito): sul file intero il confronto non è diretto (T-B6-200)"
+	case len(visti) > 1:
+		return "", "le chiavi con un ambito della voce indicano unità diverse (" + strings.Join(nomi, ", ") + "): l'ambito della chiave del token non si determina (T-B6-200)"
+	case visti[""]:
+		return "", "la voce indica l'ambito «questo campo», che una voce di file non dice: l'ambito della chiave del token non si determina (T-B6-200)"
+	}
+	return evidenze.Contesto(nomi[0]), ""
+}
+
 // lettureDelFile: le letture attese di un file contro la sua interpretazione, con le regole della tabella dei casi
 // (A1a), sul motore del cliente del thread. Restituisce le differenze e le parti non verificabili, con il percorso.
 //   - Il file non è valutato, o il thread non si valuta per un limite degli ingressi: ogni chiave è fra i nonFatti.
@@ -832,13 +886,39 @@ var ambitoDellaChiave = map[string]evidenze.Contesto{
 //     sempre per intero, anche quando il documento è parziale: le chiavi del nome si giudicano comunque. Un'altra unità
 //     vuole l'interpretazione completa. Senza letture di quell'unità, o con l'ambito «questo campo», la chiave è fra i
 //     nonFatti.
+//   - Una chiave dei token (chiaviDelToken) prende l'ambito che la voce indica (ambitoDelToken), e poi si giudica come
+//     una chiave con quell'ambito; se l'ambito non si determina, è fra i nonFatti con il motivo (T-B6-200). L'ambito è
+//     dedotto, non dichiarato (T-B6-220, precisata con R-140): un'asserzione negativa (asserzioneNegativa) è fra i
+//     nonFatti, perché su un'unità più stretta del file passerebbe a vuoto; un'asserzione positiva si giudica, e
+//     l'ambito dedotto si scrive nel rapporto (dedotti).
 //   - Una chiave senza ambito si giudica sul file intero, e vuole l'interpretazione completa: un risultato tagliato non
 //     si giudica (A1b-22).
 //   - Le chiavi che vogliono il testo di un caso o gli altri casi (chiaviNonDirette) e quelle che la regola non decide
 //     sono fra i nonFatti.
 func lettureDelFile(percorso string, letture []ChiaveAttesa, fd fileDelThread, ins *motorea.InsiemeRegole, nonValutabile string) (differenze, nonFatti []string) {
+	differenze, nonFatti, _ = lettureDelFileConAmbiti(percorso, letture, fd, ins, nonValutabile)
+	return differenze, nonFatti
+}
+
+// asserzioneNegativa: il valore atteso di una chiave dei token dice un'assenza (false, null, la lista vuota): su un
+// ambito dedotto non si giudica (R-140), perché sull'unità dedotta l'assenza può essere vera e sul file falsa.
+func asserzioneNegativa(v ValoreAtteso) bool {
+	switch v.Tipo {
+	case TipoNullo:
+		return true
+	case TipoBooleano:
+		return v.Testo == "false"
+	case TipoLista:
+		return len(v.Elementi) == 0
+	}
+	return false
+}
+
+// lettureDelFileConAmbiti: lettureDelFile, con in più le chiavi giudicate su un ambito dedotto (le chiavi dei token),
+// una riga per chiave con l'unità, per il rapporto (R-140).
+func lettureDelFileConAmbiti(percorso string, letture []ChiaveAttesa, fd fileDelThread, ins *motorea.InsiemeRegole, nonValutabile string) (differenze, nonFatti, dedotti []string) {
 	if len(letture) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	fermo := nonValutabile
 	if fermo == "" && (fd.fi == nil || !fd.valutato || fd.fi.Motivo != "") {
@@ -851,7 +931,7 @@ func lettureDelFile(percorso string, letture []ChiaveAttesa, fd fileDelThread, i
 		for _, k := range letture {
 			nonFatti = append(nonFatti, percorso+".atteso."+k.Chiave+": "+fermo)
 		}
-		return nil, nonFatti
+		return nil, nonFatti, nil
 	}
 	stato := fd.fi.Interpretazione.Stato
 	completa := stato == motorea.StatoInterpretazioneCompleta
@@ -892,7 +972,22 @@ func lettureDelFile(percorso string, letture []ChiaveAttesa, fd fileDelThread, i
 			continue
 		}
 		var sc *scena
-		if ambito, conAmbito := ambitoDellaChiave[k.Chiave]; conAmbito {
+		ambito, conAmbito := ambitoDellaChiave[k.Chiave]
+		dedotto := false
+		if chiaviDelToken[k.Chiave] {
+			a, motivo := ambitoDelToken(letture)
+			switch {
+			case motivo != "":
+				nonFatti = append(nonFatti, p+": "+motivo)
+				continue
+			case asserzioneNegativa(k.Valore):
+				nonFatti = append(nonFatti, p+": ambito dedotto, asserzione negativa: sull'unità "+string(a)+
+					", dedotta dalle chiavi sorelle, un'assenza può passare a vuoto (T-B6-220, R-140)")
+				continue
+			}
+			ambito, conAmbito, dedotto = a, true, true
+		}
+		if conAmbito {
 			switch {
 			case ambito == "":
 				nonFatti = append(nonFatti, p+": la chiave ha l'ambito «questo campo», che una voce di file non dice")
@@ -913,6 +1008,9 @@ func lettureDelFile(percorso string, letture []ChiaveAttesa, fd fileDelThread, i
 			}
 			sc = scenaDi("", true)
 		}
+		if dedotto {
+			dedotti = append(dedotti, p+": giudicata sull'unità "+string(ambito)+", ambito dedotto dalle chiavi sorelle (T-B6-220)")
+		}
 		switch v := regola.valuta(sc, k.Valore); v.stato {
 		case ChiavePassata:
 		case ChiaveFallita:
@@ -921,7 +1019,7 @@ func lettureDelFile(percorso string, letture []ChiaveAttesa, fd fileDelThread, i
 			nonFatti = append(nonFatti, p+": "+v.stato+conMotivo(v.motivo))
 		}
 	}
-	return differenze, nonFatti
+	return differenze, nonFatti, dedotti
 }
 
 // interpretazioneDellUnita: l'interpretazione di un file ridotta alle letture e agli attributi delle unità con quel
@@ -1055,9 +1153,10 @@ func controlloClientiExport(f fotorfq.Fotografia, senza map[uuid.UUID]string) es
 //     eseguita, con il motivo «il manifest non dichiara …»; la corsa continua, ma il controllo è NON ESEGUITO;
 //   - le sentinelle dichiarate: il runner non ha una query per contarle (T-B0-36). Con R117 b, ratificata e ampliata
 //     dall'utente il 07/10 (domande-a1c.md), le verifica A1c-L4D-01 (testutil.PoolDump) sull'ambiente della copia
-//     intatta: la riga è «delegata», un obbligatorio esterno con la prova e l'ambiente nel motivo, non NON ESEGUITO, e
-//     non decide l'uscita. La delega vale solo per quell'ambiente: con un database diverso dal manifest la corsa si è
-//     già fermata; se il manifest non dichiara il database, l'ambiente non si identifica e la riga resta NON ESEGUITA.
+//     intatta, con le impronte di contenuto oltre ai conteggi (B6b, lato QA: T-B6-219): la riga è «delegata», un
+//     obbligatorio esterno con la prova e l'ambiente nel motivo, non NON ESEGUITO, e non decide l'uscita. La delega vale
+//     solo per quell'ambiente: con un database diverso dal manifest la corsa si è già fermata; se il manifest non
+//     dichiara il database, l'ambiente non si identifica e la riga resta NON ESEGUITA.
 //
 // ultimaMigrazione: la versione dell'ultima migrazione incorporata nel binario (-1 se non si legge).
 func controllaCopia(attesa dataset.CopiaAttesa, col migrazioni.Collegamento, ultimaMigrazione int) (copia esitoControllo, fermo bool, sentinelle *esitoControllo) {
@@ -1092,7 +1191,7 @@ func controllaCopia(attesa dataset.CopiaAttesa, col migrazioni.Collegamento, ult
 			motivo: "il manifest non dichiara il database della copia: la delega ad A1c-L4D-01 vale solo per l'ambiente della copia intatta (R117 b)"}
 	default:
 		sentinelle = &esitoControllo{nome: ControlloSentinelle, delegato: true,
-			motivo: fmt.Sprintf("verificate fuori dal runner da A1c-L4D-01 (testutil.PoolDump), sull'ambiente della copia intatta: il database %q della sezione copia del manifest; il runner non le conta (T-B0-36: nessun SQL nuovo) e la riga non decide l'uscita (R117 b)", attesa.Database)}
+			motivo: fmt.Sprintf("sentinelle e impronte di contenuto verificate fuori dal runner da A1c-L4D-01 (testutil.PoolDump), sull'ambiente della copia intatta: il database %q della sezione copia del manifest; il runner non le conta e non le calcola (T-B0-36: nessun SQL nuovo) e la riga non decide l'uscita (R117 b)", attesa.Database)}
 	}
 	if len(diversi) > 0 {
 		return esitoControllo{nome: ControlloCopia, motivo: "la copia non è quella del manifest: " + strings.Join(diversi, "; ")}, true, nil

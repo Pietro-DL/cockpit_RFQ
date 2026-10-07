@@ -2,6 +2,7 @@ package bancoa
 
 import (
 	"bytes"
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -21,10 +22,13 @@ import (
 // SezioneProdotti: i prodotti valutati di ogni thread.
 //   - Calcolata: nessuna sezione della fotografia da cui dipendono gli assi è assente; SezioniAssenti: quelle che lo
 //     sono (gli export).
+//   - FontiScenario: con -attesi, la fonte attesa dei prodotti attesi dello scenario accanto a quella calcolata (PO-29,
+//     con la regola di R109: fontiDelloScenario).
 type SezioneProdotti struct {
-	Calcolata      bool             `json:"calcolata"`
-	SezioniAssenti []string         `json:"sezioni_assenti,omitempty"`
-	Thread         []ProdottiThread `json:"thread,omitempty"`
+	Calcolata      bool                `json:"calcolata"`
+	SezioniAssenti []string            `json:"sezioni_assenti,omitempty"`
+	Thread         []ProdottiThread    `json:"thread,omitempty"`
+	FontiScenario  *FontiDelloScenario `json:"fonti_scenario,omitempty"`
 }
 
 // ProdottiThread: i prodotti di un thread, il fascicolo e i conflitti.
@@ -39,10 +43,8 @@ type ProdottiThread struct {
 	DaSmistare   int                   `json:"da_smistare"`
 }
 
-// ProdottoInformativo: un prodotto valutato, asse per asse. Fonte è il confronto con il risultato atteso dagli attesi,
-// solo per i prodotti dello scenario con -attesi (PO-29). R109, precisata dall'utente il 07/10, senza scegliere una
-// lettera. Lettura [T]: la regola del runner (la A del testo della domanda) resta valida se la derivazione dagli attesi
-// è esplicita e indipendente dal motore; la derivazione arriva in B6b, prima di Q10.
+// ProdottoInformativo: un prodotto valutato, asse per asse. Il confronto con la fonte attesa non sta qui: si scorrono i
+// prodotti attesi, non quelli del motore (R109; SezioneProdotti.FontiScenario).
 type ProdottoInformativo struct {
 	Rif             string            `json:"rif"`
 	CodiceRichiesto string            `json:"codice_richiesto"`
@@ -53,7 +55,6 @@ type ProdottoInformativo struct {
 	Verificato      bool              `json:"prodotto_verificato"`
 	Motivi          []string          `json:"motivi,omitempty"`
 	Impronta        string            `json:"impronta,omitempty"`
-	Fonte           *ConfrontoFonte   `json:"fonte_contro_atteso,omitempty"`
 }
 
 // AsseInformativo: uno dei sette assi (R79), con lo stato com'è nell'esito, se è calcolato e il motivo.
@@ -84,13 +85,82 @@ type ConteggioConflitto struct {
 	N    int    `json:"n"`
 }
 
-// ConfrontoFonte: per un prodotto dello scenario, la fonte attesa accanto a quella calcolata (PO-29): informazione,
-// fuori dal gate. Differenze dice in che cosa non coincidono, senza un esito.
-type ConfrontoFonte struct {
-	Atteso     RisultatoFonte `json:"atteso"`
-	Calcolato  RisultatoFonte `json:"calcolato"`
-	Differenze []string       `json:"differenze,omitempty"`
+// FontiDelloScenario: PO-29 nel rapporto, con la regola di R109 (fontiDelloScenario). Informazione, fuori dal gate.
+//   - ThreadID: il thread dello scenario, come lo dicono gli attesi;
+//   - NonVerificabile: perché la corsa non può verificare la fonte calcolata dello scenario (il thread non è fra quelli
+//     scelti, o non si valuta per un limite degli ingressi: R-104, T-B6-104); i prodotti attesi ci sono lo stesso, con
+//     la loro derivazione, e la parte calcolata è fra le parti non verificate;
+//   - Prodotti: un confronto per prodotto atteso, nell'ordine delle basi;
+//   - CalcolatiSenzaAtteso: i prodotti calcolati del thread dello scenario che gli attesi non attendono («base (rif)»).
+type FontiDelloScenario struct {
+	ThreadID             *uuid.UUID       `json:"thread_id,omitempty"`
+	NonVerificabile      string           `json:"non_verificabile,omitempty"`
+	Prodotti             []ConfrontoFonte `json:"prodotti,omitempty"`
+	CalcolatiSenzaAtteso []string         `json:"calcolati_senza_atteso,omitempty"`
 }
+
+// ConfrontoFonte: per un prodotto atteso dello scenario, la fonte attesa accanto a quella calcolata (PO-29):
+// informazione, fuori dal gate.
+//   - Base: la base del prodotto atteso, com'è scritta negli attesi (la chiave del legame con il prodotto calcolato);
+//   - Derivazione: le voci degli attesi usate e l'identificativo della regola;
+//   - Atteso: la fonte attesa, derivata dagli attesi; Stato vuoto se non si deriva (una voce radice non risolta);
+//   - Calcolato: la fonte del prodotto calcolato con la stessa base; nil se non c'è (SenzaCalcolato, una differenza), se
+//     più prodotti calcolati hanno quella base (una differenza: il confronto non sceglie) o se la corsa non lo può
+//     verificare;
+//   - Livelli: presente, estrazione riuscita, struttura, associazione, autorizzazione come fonte, verifica operativa,
+//     distinti (R109; E1 §PO-29; R-144 per la struttura);
+//   - Differenze: in che cosa non coincidono, senza un esito; NonVerificate: le parti che non si confrontano, con il
+//     motivo (la regola delle chiavi accettate: verificata, oppure dichiarata non verificata).
+type ConfrontoFonte struct {
+	Base           string           `json:"base"`
+	Derivazione    DerivazioneFonte `json:"derivazione"`
+	Atteso         RisultatoFonte   `json:"atteso"`
+	Calcolato      *RisultatoFonte  `json:"calcolato,omitempty"`
+	SenzaCalcolato bool             `json:"senza_calcolato"`
+	Livelli        []LivelloFonte   `json:"livelli"`
+	Differenze     []string         `json:"differenze,omitempty"`
+	NonVerificate  []string         `json:"non_verificate,omitempty"`
+}
+
+// DerivazioneFonte: come la fonte attesa si deriva dagli attesi, prima del confronto e senza l'uscita del motore (R109:
+// «Gli attesi devono essere esplicitati e motivati prima del confronto»).
+//   - Regola: l'identificativo della regola (RegolaFonteAttesa);
+//   - Prodotti: i percorsi dei prodotti attesi dello scenario con la base;
+//   - Voci: i percorsi delle voci dello scenario con atteso radice e la base del target uguale, risolte nella fotografia
+//     (solo quelle: le voci figlio e fuori non entrano);
+//   - NonRisolte: le voci radice del target che non si risolvono, con il motivo: senza il file non si sa se sono STEP.
+type DerivazioneFonte struct {
+	Regola     string   `json:"regola"`
+	Prodotti   []string `json:"prodotti,omitempty"`
+	Voci       []string `json:"voci,omitempty"`
+	NonRisolte []string `json:"non_risolte,omitempty"`
+}
+
+// LivelloFonte: un livello della fonte di un prodotto atteso, con quello che fissano gli attesi e quello che dice la
+// corsa (i fatti della fotografia o l'esito del motore, detto nel testo). Mai un esito.
+type LivelloFonte struct {
+	Livello   string `json:"livello"`
+	Atteso    string `json:"atteso"`
+	Calcolato string `json:"calcolato"`
+}
+
+// I livelli della fonte, distinti (R109, precisata dall'utente il 07/10: «Mantieni però distinti estrazione riuscita,
+// struttura corretta, associazione al prodotto, autorizzazione come fonte e verifica operativa»; E1 §PO-29: file
+// presente, analizzato, proposto, confermato mai). La struttura corretta la misura l'asse della gerarchia del prodotto
+// calcolato: il livello «struttura» lo riporta, «calcolato, non confrontato» (T-B6-224, precisata dall'orchestratore con
+// R-144), perché gli attesi di PO-29 non fissano la gerarchia.
+const (
+	LivelloPresente       = "presente"
+	LivelloEstrazione     = "estrazione_riuscita"
+	LivelloStruttura      = "struttura"
+	LivelloAssociazione   = "associazione"
+	LivelloAutorizzazione = "autorizzazione_come_fonte"
+	LivelloVerifica       = "verifica_operativa"
+)
+
+// RegolaFonteAttesa: l'identificativo della regola con cui il runner deriva la fonte attesa di un prodotto dello
+// scenario dagli attesi (PO-29; R109 [T]; fontiDelloScenario). Cambiare la regola vuol dire cambiare l'identificativo.
+const RegolaFonteAttesa = "po29-radici-step-1"
 
 // RisultatoFonte: lo stato e il motivo della fonte, gli allegati candidati, se c'è una BOM di lavoro.
 type RisultatoFonte struct {
@@ -127,9 +197,10 @@ func sezioniAssenti(f fotorfq.Fotografia, sezioni []string) []string {
 	return out
 }
 
-// sezioneProdotti: la sezione informativa dei prodotti, dall'esito di valutazione. scenario e voci servono solo al
-// confronto della fonte dei prodotti dello scenario (R109), con gli attesi.
-func sezioneProdotti(f fotorfq.Fotografia, e valut.Esito, scenario *ScenarioAtteso, tr *traduzione, ix indiceFoto) *SezioneProdotti {
+// sezioneProdotti: la sezione informativa dei prodotti, dall'esito di valutazione. scenario, tr e nonVerificabile
+// servono solo al confronto della fonte dei prodotti attesi dello scenario (PO-29, R109), con gli attesi:
+// nonVerificabile è perché la corsa non può verificare lo scenario (scenarioNonVerificabile).
+func sezioneProdotti(f fotorfq.Fotografia, e valut.Esito, scenario *ScenarioAtteso, tr *traduzione, ix indiceFoto, nonVerificabile string) *SezioneProdotti {
 	var tutte []string
 	for _, a := range assiProdotto {
 		tutte = append(tutte, a.sezioni...)
@@ -141,11 +212,7 @@ func sezioneProdotti(f fotorfq.Fotografia, e valut.Esito, scenario *ScenarioAtte
 		pt := ProdottiThread{ThreadID: et.ThreadID, ClienteID: et.ClienteID, Valutato: et.Valutato,
 			Associazioni: len(et.Associazioni), DaSmistare: len(et.DaSmistare)}
 		for _, pv := range et.ProdottiValutati {
-			pi := prodottoInformativo(f, pv)
-			if scenario != nil && tr != nil && scenario.ThreadID != nil && *scenario.ThreadID == et.ThreadID {
-				pi.Fonte = fonteAttesaDelloScenario(pv, tr, ix)
-			}
-			pt.Prodotti = append(pt.Prodotti, pi)
+			pt.Prodotti = append(pt.Prodotti, prodottoInformativo(f, pv))
 		}
 		fa := et.Fascicolo
 		pt.Fascicolo = FascicoloInformativo{Calcolato: fa.Calcolato && len(sezioniAssenti(f, tutte)) == 0,
@@ -167,6 +234,7 @@ func sezioneProdotti(f fotorfq.Fotografia, e valut.Esito, scenario *ScenarioAtte
 		})
 		s.Thread = append(s.Thread, pt)
 	}
+	s.FontiScenario = fontiDelloScenario(f, e, scenario, tr, ix, nonVerificabile)
 	return s
 }
 
@@ -219,59 +287,300 @@ func prodottoInformativo(f fotorfq.Fotografia, pv valut.ProdottoValutato) Prodot
 	return pi
 }
 
-// fonteAttesaDelloScenario: per un prodotto dello scenario, la fonte attesa ricavata dagli attesi accanto a quella
-// calcolata (PO-29: «per ogni prodotto, il risultato atteso, ricavato dagli attesi: i file con esito radice per quel
-// target»).
+// fontiDelloScenario: PO-29 («per ogni prodotto, il risultato atteso, ricavato dagli attesi: i file con esito radice
+// per quel target»), con la derivazione esplicita e indipendente dal motore che R109 chiede.
 //
-// R109, precisata dall'utente il 07/10, senza scegliere una lettera. Lettura [T]: la regola del runner (la A del testo
-// della domanda) resta valida se la derivazione dagli attesi è esplicita e indipendente dal motore; la derivazione
-// arriva in B6b, prima di Q10. Oggi lo fa il runner con -attesi, solo come informazione, fuori dal gate, e nessun agente
-// legge gli attesi. I file attesi radice del prodotto sono le voci dello
-// scenario con atteso radice e la base del target uguale alla base del prodotto. Se fra questi c'è uno STEP
-// (l'estensione dichiarata, come in valutazione: T-E1-09), la fonte attesa è in_attesa_di_conferma con il motivo
-// documento_candidato e quegli STEP come candidati; altrimenti assente, con il motivo che il motore dichiara. Mai
-// confermata; nessuna BOM di lavoro. Il limite che B6b toglie: i prodotti scorsi e la chiave del confronto (la base
-// letta) vengono ancora dal motore, e il rapporto non porta la derivazione; la chiusura lo dice fra gli informativi
-// incompleti (classi.go).
-func fonteAttesaDelloScenario(pv valut.ProdottoValutato, tr *traduzione, ix indiceFoto) *ConfrontoFonte {
-	base := pv.Base.Normalizzata
-	cf := &ConfrontoFonte{Atteso: RisultatoFonte{Stato: string(valut.FonteAssente)}}
-	for _, vt := range tr.voci {
-		v := vt.voce
-		if v.Sezione != confronto.SezioneScenario || !vt.risolta || v.Atteso != confronto.AttesoRadice || v.TargetBase != base {
+// R109, precisata dall'utente il 07/10, senza scegliere una lettera; E2 §2.3. Lettura [T]: la regola del runner (la A
+// del testo della domanda) resta valida, con la derivazione dagli attesi esplicita e indipendente dal motore:
+//  1. si scorrono i prodotti attesi, non quelli del motore: le basi dei prodotti attesi dello scenario e le basi del
+//     target delle sue voci radice, distinte, in ordine di byte (T-B6-222);
+//  2. la fonte attesa di un prodotto, con la regola RegolaFonteAttesa (fonteAttesa): le voci dello scenario con atteso
+//     radice e la base del target uguale; se fra quelle risolte c'è uno STEP (l'estensione dichiarata o del nome, come in
+//     valutazione: T-E1-09; un fatto della fotografia, non un'uscita del motore), in_attesa_di_conferma con il motivo
+//     documento_candidato e quegli STEP come candidati; altrimenti assente, e il motivo gli attesi non lo fissano: il
+//     rapporto lo scrive, e il motivo calcolato non si confronta. Mai confermata, nessuna BOM di lavoro;
+//  3. il prodotto calcolato è quello del thread dello scenario con la stessa base, scritta com'è (nessuna
+//     normalizzazione): un prodotto atteso senza calcolato è una differenza esplicita, mai un «assente» che coincide per
+//     caso (fonteCalcolata);
+//  4. i livelli restano distinti (livelliDellaFonte): la struttura è l'asse della gerarchia del prodotto calcolato,
+//     calcolato e non confrontato; la verifica operativa non è mai di A1c.
+//
+// Solo informazione, fuori dal gate, con -attesi: gli attesi li legge il runner, nessun agente.
+func fontiDelloScenario(f fotorfq.Fotografia, e valut.Esito, s *ScenarioAtteso, tr *traduzione, ix indiceFoto, nonVerificabile string) *FontiDelloScenario {
+	if s == nil || tr == nil {
+		return nil
+	}
+	out := &FontiDelloScenario{NonVerificabile: nonVerificabile}
+	if s.ThreadID != nil {
+		id := *s.ThreadID
+		out.ThreadID = &id
+	} else if out.NonVerificabile == "" {
+		out.NonVerificabile = "lo scenario degli attesi non dice il thread"
+	}
+	perBase := map[string]*ConfrontoFonte{}
+	var basi []string
+	prodotto := func(base string) *ConfrontoFonte {
+		c := perBase[base]
+		if c == nil {
+			c = &ConfrontoFonte{Base: base, Derivazione: DerivazioneFonte{Regola: RegolaFonteAttesa}}
+			perBase[base] = c
+			basi = append(basi, base)
+		}
+		return c
+	}
+	for _, p := range s.Prodotti {
+		if p.Base == "" { // un prodotto atteso senza base è già una differenza della traduzione (prodottoAttesoDi)
 			continue
 		}
+		c := prodotto(p.Base)
+		c.Derivazione.Prodotti = append(c.Derivazione.Prodotti, p.Percorso)
+	}
+	for _, vt := range tr.voci {
+		v := vt.voce
+		if v.Sezione != confronto.SezioneScenario || v.Atteso != confronto.AttesoRadice || v.TargetBase == "" {
+			continue // una radice senza la base del target è già una differenza della traduzione (D8)
+		}
+		c := prodotto(v.TargetBase)
+		if !vt.risolta {
+			c.Derivazione.NonRisolte = append(c.Derivazione.NonRisolte, v.Percorso+": "+vt.motivoNR)
+			continue
+		}
+		c.Derivazione.Voci = append(c.Derivazione.Voci, v.Percorso)
 		if a, ok := ix.allegati[vt.file.AllegatoID]; ok && eSTEP(a.allegato) {
-			cf.Atteso.Candidati = append(cf.Atteso.Candidati, vt.file.AllegatoID)
+			c.Atteso.Candidati = append(c.Atteso.Candidati, vt.file.AllegatoID)
 		}
 	}
-	if len(cf.Atteso.Candidati) > 0 {
-		cf.Atteso.Stato, cf.Atteso.Motivo = string(valut.FonteInAttesaDiConferma), string(valut.MotivoFonteDocumentoCandidato)
-	}
-	cf.Calcolato = RisultatoFonte{Stato: string(pv.Fonte.Stato), Motivo: string(pv.Fonte.Motivo), BOMDiLavoro: len(pv.Nodi) > 0}
-	for _, c := range pv.Fonte.Candidati {
-		if c.AllegatoID != nil {
-			cf.Calcolato.Candidati = append(cf.Calcolato.Candidati, *c.AllegatoID)
+	sort.Strings(basi)
+
+	var et *valut.EsitoThread
+	var th *fotorfq.Thread
+	if s.ThreadID != nil {
+		for i := range e.Thread {
+			if e.Thread[i].ThreadID == *s.ThreadID {
+				et = &e.Thread[i]
+			}
+		}
+		if i, ok := ix.thread[*s.ThreadID]; ok {
+			th = &f.Thread[i]
 		}
 	}
-	ordinaUUID(cf.Atteso.Candidati)
-	ordinaUUID(cf.Calcolato.Candidati)
-	if cf.Atteso.Stato != cf.Calcolato.Stato {
-		cf.Differenze = append(cf.Differenze, "stato")
+	for _, base := range basi {
+		c := perBase[base]
+		confrontaCandidati := fonteAttesa(c)
+		var gerarchia *AsseInformativo
+		if pv := fonteCalcolata(c, et, out.NonVerificabile, confrontaCandidati); pv != nil {
+			// l'asse della gerarchia com'è nella sezione dei prodotti, con il «non calcolato» delle sezioni assenti (T-12)
+			for _, a := range prodottoInformativo(f, *pv).Assi {
+				if a.Asse == "gerarchia" {
+					x := a
+					gerarchia = &x
+				}
+			}
+		}
+		c.Livelli = livelliDellaFonte(*c, gerarchia, th, ix, out.NonVerificabile)
+		out.Prodotti = append(out.Prodotti, *c)
 	}
-	if cf.Atteso.Motivo != "" && cf.Atteso.Motivo != cf.Calcolato.Motivo {
-		cf.Differenze = append(cf.Differenze, "motivo")
+	if out.NonVerificabile == "" && et != nil && et.Valutato {
+		for _, pv := range et.ProdottiValutati {
+			if perBase[pv.Base.Normalizzata] == nil {
+				out.CalcolatiSenzaAtteso = append(out.CalcolatiSenzaAtteso, pv.Base.Normalizzata+" ("+pv.Rif+")")
+			}
+		}
+		sort.Strings(out.CalcolatiSenzaAtteso)
 	}
-	if len(cf.Atteso.Candidati) > 0 && !stessiUUID(cf.Atteso.Candidati, cf.Calcolato.Candidati) {
-		cf.Differenze = append(cf.Differenze, "candidati")
+	return out
+}
+
+// fonteAttesa: la fonte attesa di un prodotto dalle sue voci radice (RegolaFonteAttesa), con le parti che non si
+// derivano fra le non verificate. Restituisce se i candidati attesi sono tutti noti, cioè se si possono confrontare.
+//   - Uno STEP fra le radici risolte: in_attesa_di_conferma, documento_candidato, quegli STEP come candidati. Con una
+//     radice non risolta gli STEP attesi possono essere di più: i candidati non si confrontano.
+//   - Nessuno STEP e una radice non risolta: senza il file non si sa se è uno STEP, e la fonte attesa non si deriva
+//     (stato vuoto): né lo stato né il motivo si confrontano.
+//   - Nessuno STEP e nessuna radice non risolta: assente. Gli attesi non fissano il motivo: il rapporto lo scrive fra le
+//     parti non verificate, e il motivo calcolato non si confronta (R109; E2 §2.3).
+func fonteAttesa(c *ConfrontoFonte) bool {
+	ordinaUUID(c.Atteso.Candidati)
+	nr := len(c.Derivazione.NonRisolte)
+	switch {
+	case len(c.Atteso.Candidati) > 0:
+		c.Atteso.Stato, c.Atteso.Motivo = string(valut.FonteInAttesaDiConferma), string(valut.MotivoFonteDocumentoCandidato)
+		if nr > 0 {
+			c.NonVerificate = append(c.NonVerificate, fmt.Sprintf("candidati: %d voci radice del target non risolte, e gli STEP attesi possono essere di più", nr))
+			return false
+		}
+	case nr > 0:
+		c.NonVerificate = append(c.NonVerificate, fmt.Sprintf("stato e motivo: %d voci radice del target non risolte: senza i file non si sa se fra le radici c'è uno STEP, e la fonte attesa non si deriva", nr))
+	default:
+		c.Atteso.Stato = string(valut.FonteAssente)
+		c.NonVerificate = append(c.NonVerificate, "motivo: non fissato dagli attesi (la fonte attesa è assente: nessuno STEP fra le radici attese); il motivo calcolato non si confronta")
 	}
-	if cf.Calcolato.Stato == string(valut.FonteConfermata) {
-		cf.Differenze = append(cf.Differenze, "confermata: mai per lo scenario")
+	return true
+}
+
+// fonteCalcolata: il prodotto calcolato con la base attesa, e le differenze; restituisce il prodotto calcolato, nil se
+// non c'è o non si sceglie. Un prodotto atteso senza calcolato è una differenza; due prodotti calcolati con la stessa
+// base sono una differenza, e il confronto non sceglie; se la corsa non può verificare lo scenario, la parte calcolata
+// è fra le non verificate, mai una differenza.
+func fonteCalcolata(c *ConfrontoFonte, et *valut.EsitoThread, nonVerificabile string, confrontaCandidati bool) *valut.ProdottoValutato {
+	senza := func(perche string) {
+		c.SenzaCalcolato = true
+		c.Differenze = append(c.Differenze, "prodotto atteso senza calcolato: "+perche)
 	}
-	if cf.Calcolato.BOMDiLavoro {
-		cf.Differenze = append(cf.Differenze, "bom_di_lavoro: mai per lo scenario")
+	switch {
+	case nonVerificabile != "":
+		c.NonVerificate = append(c.NonVerificate, "calcolato: "+nonVerificabile)
+		return nil
+	case et == nil:
+		senza("il thread dello scenario non è nell'esito")
+		return nil
+	case !et.Valutato:
+		senza("il thread dello scenario non è valutato (" + string(et.Motivo) + ")")
+		return nil
 	}
-	return cf
+	var trovati []valut.ProdottoValutato
+	for _, pv := range et.ProdottiValutati {
+		if pv.Base.Normalizzata == c.Base {
+			trovati = append(trovati, pv)
+		}
+	}
+	switch len(trovati) {
+	case 0:
+		senza("nessun prodotto del thread dello scenario ha la base attesa")
+		return nil
+	case 1:
+	default:
+		c.Differenze = append(c.Differenze, fmt.Sprintf("%d prodotti calcolati con la base attesa: il confronto non sceglie", len(trovati)))
+		return nil
+	}
+	pv := trovati[0]
+	k := &RisultatoFonte{Stato: string(pv.Fonte.Stato), Motivo: string(pv.Fonte.Motivo), BOMDiLavoro: len(pv.Nodi) > 0}
+	for _, x := range pv.Fonte.Candidati {
+		if x.AllegatoID != nil {
+			k.Candidati = append(k.Candidati, *x.AllegatoID)
+		}
+	}
+	ordinaUUID(k.Candidati)
+	c.Calcolato = k
+	a := c.Atteso
+	if a.Stato != "" && a.Stato != k.Stato {
+		c.Differenze = append(c.Differenze, "stato")
+	}
+	if a.Motivo != "" && a.Motivo != k.Motivo {
+		c.Differenze = append(c.Differenze, "motivo")
+	}
+	if confrontaCandidati && len(a.Candidati) > 0 && !stessiUUID(a.Candidati, k.Candidati) {
+		c.Differenze = append(c.Differenze, "candidati")
+	}
+	if k.Stato == string(valut.FonteConfermata) {
+		c.Differenze = append(c.Differenze, "confermata: mai per lo scenario")
+	}
+	if k.BOMDiLavoro {
+		c.Differenze = append(c.Differenze, "bom_di_lavoro: mai per lo scenario")
+	}
+	return &pv
+}
+
+// livelliDellaFonte: i sei livelli di un prodotto atteso, distinti (R109; E1 §PO-29), ognuno con la sua sorgente:
+//   - presente: le voci radice degli attesi e i loro file nella fotografia;
+//   - estrazione riuscita: i fatti della fotografia degli STEP attesi (alla terna, il grafo dichiarato dal worker con
+//     motivo_parziale, il lavoro pendente): dati d'ingresso, non l'uscita del motore che si verifica;
+//   - struttura: l'asse della gerarchia del prodotto calcolato (gerarchia, com'è nella sezione dei prodotti), che misura
+//     la «struttura corretta» della risposta; «calcolato, non confrontato»: gli attesi di PO-29 non la fissano (R-144);
+//   - associazione: gli STEP attesi fra i candidati del motore per il prodotto;
+//   - autorizzazione come fonte: lo stato e il motivo della fonte, attesi e calcolati (mai confermata per lo scenario);
+//   - verifica operativa: mai in A1c (E2 §2.3).
+func livelliDellaFonte(c ConfrontoFonte, gerarchia *AsseInformativo, th *fotorfq.Thread, ix indiceFoto, nonVerificabile string) []LivelloFonte {
+	n, nr := len(c.Atteso.Candidati), len(c.Derivazione.NonRisolte)
+	senzaCalcolato := "nessun prodotto calcolato con la base attesa"
+	switch {
+	case nonVerificabile != "":
+		senzaCalcolato = "non verificato: " + nonVerificabile
+	case c.Calcolato == nil && !c.SenzaCalcolato:
+		senzaCalcolato = "più prodotti calcolati con la base attesa: nessuna scelta"
+	}
+
+	estrazione := "nessuno STEP fra le radici attese"
+	if n > 0 {
+		conFatti, completo, parziale, nonDeterminabile, pendenti := 0, 0, 0, 0, 0
+		for _, id := range c.Atteso.Candidati {
+			if th == nil {
+				break
+			}
+			if dentroUUID(th.InAttesa, id) {
+				pendenti++
+			}
+			a := ix.allegati[id].allegato
+			if a.Sha256 == nil {
+				continue
+			}
+			ft, ok := th.Fatti[*a.Sha256]
+			if !ok {
+				continue
+			}
+			conFatti++
+			switch {
+			case ft.MotivoParziale == nil:
+				nonDeterminabile++
+			case *ft.MotivoParziale == "":
+				completo++
+			default:
+				parziale++
+			}
+		}
+		estrazione = fmt.Sprintf("fatti della fotografia (dati d'ingresso, non l'uscita del motore): %d STEP attesi su %d con i fatti alla terna "+
+			"(grafo completo %d, parziale %d, non determinabile %d), %d con il lavoro pendente", conFatti, n, completo, parziale, nonDeterminabile, pendenti)
+		if th == nil {
+			estrazione = "il thread dello scenario non è nella fotografia"
+		}
+	}
+
+	struttura := senzaCalcolato
+	if gerarchia != nil {
+		struttura = "asse della gerarchia del prodotto calcolato: " + vuotoONo(gerarchia.Stato)
+		if gerarchia.Motivo != "" {
+			struttura += " (" + gerarchia.Motivo + ")"
+		}
+		struttura += "; calcolato, non confrontato"
+	}
+	associazione, autorizzazione := senzaCalcolato, senzaCalcolato
+	if k := c.Calcolato; k != nil {
+		comuni := 0
+		for _, id := range c.Atteso.Candidati {
+			if dentroUUID(k.Candidati, id) {
+				comuni++
+			}
+		}
+		associazione = fmt.Sprintf("motore: %d candidati per il prodotto, %d fra gli STEP attesi", len(k.Candidati), comuni)
+		autorizzazione = "motore: " + vuotoONo(k.Stato) + ", motivo " + vuotoONo(k.Motivo)
+	}
+	autorizzazioneAttesa := "non derivata: voci radice del target non risolte"
+	if c.Atteso.Stato != "" {
+		motivo := c.Atteso.Motivo
+		if motivo == "" {
+			motivo = "non fissato dagli attesi"
+		}
+		autorizzazioneAttesa = c.Atteso.Stato + ", motivo " + motivo + "; mai confermata"
+	}
+	return []LivelloFonte{
+		{Livello: LivelloPresente, Atteso: fmt.Sprintf("%d voci radice del target, %d STEP fra quelle risolte", len(c.Derivazione.Voci)+nr, n),
+			Calcolato: fmt.Sprintf("fotografia: %d voci radice con il file, %d senza (non risolte)", len(c.Derivazione.Voci), nr)},
+		{Livello: LivelloEstrazione, Atteso: "non fissata dagli attesi", Calcolato: estrazione},
+		{Livello: LivelloStruttura, Atteso: "non fissata dagli attesi: la «struttura corretta» la misura l'asse della gerarchia del prodotto (R-144)",
+			Calcolato: struttura},
+		{Livello: LivelloAssociazione, Atteso: fmt.Sprintf("%d STEP attesi come candidati", n), Calcolato: associazione},
+		{Livello: LivelloAutorizzazione, Atteso: autorizzazioneAttesa, Calcolato: autorizzazione},
+		{Livello: LivelloVerifica, Atteso: "mai in A1c", Calcolato: "non eseguita: mai in A1c (E2 §2.3)"},
+	}
+}
+
+func dentroUUID(s []uuid.UUID, x uuid.UUID) bool {
+	for _, y := range s {
+		if y == x {
+			return true
+		}
+	}
+	return false
 }
 
 // estensioniSTEP, naturaInline: la regola dello STEP di valutazione (fonte.go: estensioniSTEP, naturaInline,

@@ -32,10 +32,12 @@ func inFiles(ff []valut.FileConfrontabile) []confronto.File {
 	return out
 }
 
-// inVecchio: il vecchio di un allegato, con i 18 campi di CP.2: CodiceLettoBase subito dopo CodiceLetto (F0-19) e
+// inVecchio: il vecchio di un allegato, con i 19 campi di CP.2: CodiceLettoBase subito dopo CodiceLetto (F0-19),
 // CodiceLettoMarcatore subito dopo CodiceLettoBase (il gemello di R114: il marcatore della lettura del vecchio motore,
 // che la misura conta a parte in PrimaMarcatore e MarcatoreSoloDaUnLato; senza la copia un marcatore del solo codice
-// deciso conterebbe come «da un lato solo»).
+// deciso conterebbe come «da un lato solo») e RevisioneDa subito dopo CodiceLettoMarcatore (il gemello di R113 B
+// ratificata, E2 §2.6: da dove viene la revisione vecchia interpretata, «codice» o «colonna»; senza la copia
+// l'indicatore di revisione perderebbe la provenienza, e il banco non dividerebbe per stato la colonna letta).
 func inVecchio(v valut.VecchioPiatto) confronto.Vecchio {
 	return confronto.Vecchio{
 		Stato:                v.Stato,
@@ -50,6 +52,7 @@ func inVecchio(v valut.VecchioPiatto) confronto.Vecchio {
 		CodiceLetto:          v.CodiceLetto,
 		CodiceLettoBase:      v.CodiceLettoBase,
 		CodiceLettoMarcatore: v.CodiceLettoMarcatore,
+		RevisioneDa:          v.RevisioneDa,
 		Componente:           copiaUUID(v.Componente),
 		Documento:            copiaUUID(v.Documento),
 		ComponenteProposta:   copiaUUID(v.ComponenteProposta),

@@ -273,7 +273,8 @@ func versioniBanco() VersioniBanco {
 		SchemaGrammatiche: grammatica.VersioneSchema, Indice: grammatica.VersioneIndice, Capacita: grammatica.VersioneCapacita,
 		Algoritmo: motorea.VersioneAlgoritmo, SchemaFotografia: fotorfq.VersioneSchema, Casi: valut.VersioneCasi,
 		Valutazione: valut.VersioneValutazione, ImprontaProdotto: valut.VersioneImprontaProdotto,
-		Formati2D: valut.VersioneFormati2D, Composizione: motorea.VersioneComposizione, Confronto: confronto.VersioneConfronto,
+		Formati2D: valut.VersioneFormati2D, Composizione: motorea.VersioneComposizione,
+		RevisioneRegistrata: motorea.VersioneRevisioneRegistrata, Confronto: confronto.VersioneConfronto,
 	}
 }
 
@@ -294,9 +295,9 @@ func (b *banco) controllo(nome, stato string, differenze int, motivo string) {
 // esito: un controllo del banco nel rapporto, con il dettaglio delle differenze e delle parti non verificate.
 func (b *banco) esito(e esitoControllo) {
 	b.r.Controlli = append(b.r.Controlli, e.controllo())
-	if len(e.differenze) > 0 || len(e.nonFatti) > 0 || len(e.nonApplicabili) > 0 {
+	if len(e.differenze) > 0 || len(e.nonFatti) > 0 || len(e.nonApplicabili) > 0 || len(e.ambitiDedotti) > 0 {
 		b.r.Dettagli = append(b.r.Dettagli, DettaglioControllo{Nome: e.nome, Differenze: e.differenze, NonVerificate: e.nonFatti,
-			NonApplicabili: e.nonApplicabili})
+			NonApplicabili: e.nonApplicabili, AmbitiDedotti: e.ambitiDedotti})
 	}
 }
 
@@ -639,6 +640,7 @@ func (b *banco) valuta() {
 	nuovi := map[uuid.UUID]confronto.File{}
 	file := map[uuid.UUID]fileDelThread{}
 	badge := map[uuid.UUID]confronto.Badge{}
+	revisioni := map[uuid.UUID]confronto.IndicatoreRevisione{} // per la baseline (R113 B)
 	var impronte []string
 	var esitiVoci []esitoVoce
 	var prodottiScenario []confronto.EsitoProdottoAtteso
@@ -664,6 +666,7 @@ func (b *banco) valuta() {
 			if r.Badge != "" {
 				badge[r.File.AllegatoID] = r.Badge
 			}
+			revisioni[r.File.AllegatoID] = r.Revisione
 		}
 		tb := b.threadBanco(et, ce, ix)
 		if tr != nil {
@@ -684,7 +687,7 @@ func (b *banco) valuta() {
 		var eb []esitoBaseline
 		in := ingressoGate{Voci: esitiVoci, NonCoperti: nonCoperti, ProdottiScenario: prodottiScenario, Censimento: len(esito.FuoriRFQ)}
 		if tr != nil {
-			eb = controllaBaseline(*tr, f, ix, nuovi, cc)
+			eb = controllaBaseline(*tr, f, ix, nuovi, revisioni, cc)
 			b.esito(controlloBaselineDi(eb, true))
 			b.esito(controlloInvariantiC5(b.sezioni, *tr, f, ix, cc, badge))
 			b.esito(controlloLetture(b.sezioni, *tr, file, &esito, b.ins, cc))
@@ -718,7 +721,7 @@ func (b *banco) valuta() {
 	if b.sezioni != nil {
 		scenario = b.sezioni.Scenario
 	}
-	b.r.Prodotti = sezioneProdotti(f, esito, scenario, tr, ix)
+	b.r.Prodotti = sezioneProdotti(f, esito, scenario, tr, ix, scenarioNonVerificabile(scenario, ix, cc))
 }
 
 // contesto: ciò che i controlli devono sapere della corsa (contestoCorsa): i thread scelti, l'origine della fotografia,
@@ -1101,8 +1104,9 @@ func censimento(e valut.Esito) []VoceCensimento {
 // misura di ogni thread è quella di confronto (R114, precisata dall'utente il 07/10: lo stesso campione, il
 // denominatore, gli esclusi per motivo, «dopo» in tre parti), sommata campo per campo con Aggiungi (T-B6-186): il banco
 // non la ricalcola. Fuori dalla misura il banco conta solo due cose, sui file dei thread valutati:
-//   - RevisioneSoloInColonna: i file con la revisione vecchia solo nella colonna rev (R-65); R113 B ratificata, da
-//     realizzare prima di Q10;
+//   - RevisioneSoloInColonna: i file con la revisione vecchia solo nella colonna rev (R-65), divisi per lo stato della
+//     lettura della colonna con la regola della famiglia (R113 B ratificata; motorea.LeggiRevisioneRegistrata):
+//     RevisioneInColonna.conta;
 //   - StessaBaseAltroTarget: i decisi con il badge regressione_su_confermata e il motivo stessa_base_altro_target
 //     (T-B6-51), su tutti i decisi e non sul campione dei valutabili: non è una parte di Dopo (T-B6-191).
 func correzioniPerCliente(thread []ThreadBanco) []CorrezioniCliente {
@@ -1123,10 +1127,8 @@ func correzioniPerCliente(thread []ThreadBanco) []CorrezioniCliente {
 		c.Thread++
 		c.Correzioni.Aggiungi(t.Correzioni)
 		for _, f := range t.File {
-			v, n := f.Riga.File.Vecchio, f.Riga.File.Nuovo
-			if n.MotivoRevisioni == valut.MotivoRevisioniSoloInColonna { // R-65: il limite che R113 B toglierà si conta
-				c.RevisioneSoloInColonna++
-			}
+			v := f.Riga.File.Vecchio
+			c.RevisioneSoloInColonna.conta(f.Riga.File)
 			if v.Documento == nil { // deciso = un documento confermato porta il file (T-B6-52)
 				continue
 			}

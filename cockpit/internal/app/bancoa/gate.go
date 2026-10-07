@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/confronto"
+	valut "promatec/cockpit/internal/core/valutazione"
 )
 
 // gate.go: il gate del banco (piano 6.4.9, «Il gate nel rapporto»; v3 §6; ATT «gate»; R44, R58 B). Ogni voce ha il suo
@@ -77,25 +78,75 @@ type ConteggioScenario struct {
 // Gate: le voci e i loro numeri (6.4.9; il campo dei conteggi si chiama ConteggiScenario, senza sigle: E-07).
 //   - FalseAssociazioni: errato più falsa_associazione sui file dello scenario e della baseline, un esito per file;
 //     PerCliente: copertura (corretti e fuori richiesta) e astensioni (ambigui e senza risposta).
-//   - DecisioniPreservate su DecisioniBaseline: le voci della baseline che passano i controlli (1) e (2).
+//   - DecisioniPreservate su DecisioniBaseline: le voci della baseline che passano i controlli (1) e (2); accanto,
+//     RevisioniBaseline: le differenze di revisione diagnosticate sui loro file (R113 B ratificata), che non tolgono la
+//     preservazione.
 //   - Riservati, DipendeDa: le voci riservate e quelle con una domanda aperta, separate; mai contate come passate.
 //   - DaRivedere, NonCoperti, NonValutati: a parte, fuori dal gate.
 //   - NonVerificabili: le voci dello scenario e della baseline che la corsa non può verificare (il thread non si valuta
 //     per un limite degli ingressi: T-B6-104), con il motivo: non contano, e la voce non è mai superata.
 type Gate struct {
-	FalseAssociazioni   int                 `json:"false_associazioni"`
-	PerCliente          []CoperturaCliente  `json:"per_cliente,omitempty"`
-	ConteggiScenario    []ConteggioScenario `json:"conteggi_scenario,omitempty"`
-	DecisioniPreservate int                 `json:"decisioni_preservate"`
-	DecisioniBaseline   int                 `json:"decisioni_baseline"`
-	Riservati           []string            `json:"riservati,omitempty"`
-	DipendeDa           []string            `json:"dipende_da,omitempty"`
-	DaRivedere          int                 `json:"da_rivedere"`
-	NonCoperti          int                 `json:"non_coperti"`
-	NonValutati         []string            `json:"non_valutati,omitempty"`
-	NonVerificabili     []string            `json:"non_verificabili,omitempty"`
-	Voci                []VoceGate          `json:"voci"`
-	Esito               string              `json:"esito"`
+	FalseAssociazioni   int                    `json:"false_associazioni"`
+	PerCliente          []CoperturaCliente     `json:"per_cliente,omitempty"`
+	ConteggiScenario    []ConteggioScenario    `json:"conteggi_scenario,omitempty"`
+	DecisioniPreservate int                    `json:"decisioni_preservate"`
+	DecisioniBaseline   int                    `json:"decisioni_baseline"`
+	RevisioniBaseline   RevisioniDellaBaseline `json:"revisioni_baseline"`
+	Riservati           []string               `json:"riservati,omitempty"`
+	DipendeDa           []string               `json:"dipende_da,omitempty"`
+	DaRivedere          int                    `json:"da_rivedere"`
+	NonCoperti          int                    `json:"non_coperti"`
+	NonValutati         []string               `json:"non_valutati,omitempty"`
+	NonVerificabili     []string               `json:"non_verificabili,omitempty"`
+	Voci                []VoceGate             `json:"voci"`
+	Esito               string                 `json:"esito"`
+}
+
+// RevisioniDellaBaseline: l'indicatore di revisione dei file delle decisioni della baseline, contato per la voce «le
+// decisioni preservate, con le differenze di revisione diagnosticate» (R113 B ratificata; E2 §3.4).
+//   - Diagnosticate = Diverse + VecchieDiscordi: le revisioni diverse, e quelle non determinabili perché le due
+//     revisioni vecchie, del codice e della colonna, non concordano (revisione_vecchia_discorde: il confronto non sceglie
+//     e lo annota con confronto.revisione_non_confrontabile). Sono le differenze che il confronto diagnostica.
+//   - Uguali; NonDeterminabili: le altre non determinabili (una revisione che non si legge da un lato, la colonna che non
+//     si legge…), che non sono differenze; SenzaRiga: le voci il cui file non ha una riga di confronto.
+//
+// Nessuna toglie la preservazione: l'indicatore di revisione resta separato dalla correttezza dell'associazione (R113:
+// «Mantieni separato l'indicatore di revisione dalla correttezza dell'associazione»), e la sola revisione non è mai un
+// badge (v3 §6). La cautela sul vecchio motore non tocca le decisioni confermate: si conta, non si toglie.
+type RevisioniDellaBaseline struct {
+	Diagnosticate    int `json:"diagnosticate"`
+	Diverse          int `json:"diverse"`
+	VecchieDiscordi  int `json:"vecchie_discordi"`
+	Uguali           int `json:"uguali"`
+	NonDeterminabili int `json:"non_determinabili"`
+	SenzaRiga        int `json:"senza_riga"`
+}
+
+// revisioniDellaBaseline: l'indicatore di revisione delle voci della baseline, contato.
+func revisioniDellaBaseline(eb []esitoBaseline) RevisioniDellaBaseline {
+	var r RevisioniDellaBaseline
+	for _, b := range eb {
+		switch {
+		case b.Revisione == nil:
+			r.SenzaRiga++
+		case b.Revisione.Valore == confronto.RevisioneDiversa:
+			r.Diverse++
+		case b.Revisione.Valore == confronto.RevisioneUguale:
+			r.Uguali++
+		case b.Revisione.Motivo == valut.MotivoRevisioniVecchiaDiscorde:
+			r.VecchieDiscordi++
+		default:
+			r.NonDeterminabili++
+		}
+	}
+	r.Diagnosticate = r.Diverse + r.VecchieDiscordi
+	return r
+}
+
+// testoRevisioni: le revisioni della baseline nel motivo della voce delle decisioni preservate.
+func testoRevisioni(r RevisioniDellaBaseline) string {
+	return fmt.Sprintf("differenze di revisione diagnosticate %d (diverse %d, revisioni vecchie discordi %d), uguali %d, non determinabili %d, senza riga %d: l'indicatore di revisione è separato dall'associazione e non toglie la preservazione (R113 B)",
+		r.Diagnosticate, r.Diverse, r.VecchieDiscordi, r.Uguali, r.NonDeterminabili, r.SenzaRiga)
 }
 
 // esitoVoce: l'esito di una voce degli attesi contro il suo file, come lo legge il gate.
@@ -254,8 +305,12 @@ func calcolaGate(in ingressoGate) Gate {
 
 	// 3. le decisioni preservate: (1) e (2) della baseline. Una decisione con una differenza non è preservata; una con
 	// una parte non verificata (R-102: deciso_da con gli export; T-B6-104: il file non si valuta) non lo è nemmeno, ma
-	// rende la voce non eseguita, mai superata; così una voce della baseline che non si risolve.
+	// rende la voce non eseguita, mai superata; così una voce della baseline che non si risolve. Le differenze di
+	// revisione diagnosticate sui file della baseline stanno nel motivo, accanto (R113 B ratificata; E2 §3.4): si contano,
+	// e non cambiano lo stato della voce.
 	g.DecisioniBaseline = len(in.Baseline)
+	g.RevisioniBaseline = revisioniDellaBaseline(in.Baseline)
+	revisioni := testoRevisioni(g.RevisioniBaseline)
 	conDifferenze, nonVerificate := 0, 0
 	for _, b := range in.Baseline {
 		switch {
@@ -272,16 +327,17 @@ func calcolaGate(in ingressoGate) Gate {
 	switch {
 	case conDifferenze > 0:
 		g.Voci = append(g.Voci, VoceGate{Nome: VoceGateDecisioniPreservate, Stato: VoceNonSuperata,
-			Motivo: fmt.Sprintf("%d su %d; %d con differenze", g.DecisioniPreservate, g.DecisioniBaseline, conDifferenze)})
+			Motivo: fmt.Sprintf("%d su %d; %d con differenze; %s", g.DecisioniPreservate, g.DecisioniBaseline, conDifferenze, revisioni)})
 	case nonVerificate > 0 || in.BaselineNonRisolte > 0:
 		g.Voci = append(g.Voci, VoceGate{Nome: VoceGateDecisioniPreservate, Stato: VoceNonEseguita,
-			Motivo: fmt.Sprintf("%d su %d; %d con parti non verificate, %d voci non risolte", g.DecisioniPreservate, g.DecisioniBaseline, nonVerificate, in.BaselineNonRisolte)})
+			Motivo: fmt.Sprintf("%d su %d; %d con parti non verificate, %d voci non risolte; %s", g.DecisioniPreservate, g.DecisioniBaseline,
+				nonVerificate, in.BaselineNonRisolte, revisioni)})
 	case g.DecisioniBaseline == 0:
 		g.Voci = append(g.Voci, VoceGate{Nome: VoceGateDecisioniPreservate, Stato: VoceNonEseguita,
 			Motivo: "nessuna voce della baseline risolta"})
 	default:
 		g.Voci = append(g.Voci, VoceGate{Nome: VoceGateDecisioniPreservate, Stato: VoceSuperata,
-			Motivo: fmt.Sprintf("%d su %d; le differenze di revisione sono nell'indicatore di ogni file", g.DecisioniPreservate, g.DecisioniBaseline)})
+			Motivo: fmt.Sprintf("%d su %d; %s", g.DecisioniPreservate, g.DecisioniBaseline, revisioni)})
 	}
 
 	// 4. zero scritture di dominio: la parte del runner, più gli esiti delle L4 che stanno nel registro, e le voci dello
