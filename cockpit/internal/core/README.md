@@ -163,6 +163,17 @@ markmap:
     - la richiesta del thread dal gesto 1 di ogni messaggio (il triage solo evidenza)
     - i prodotti target con l'identità (il gesto 2 o lo scenario, mai i candidati della mail) e la fonte
       strutturale STEP (la vista, il gesto 3, i candidati con la radice)
+    - le strutture e gli ancoraggi dei file (con `ancoraggio`), la verifica della BOM (nomenclatura e gerarchia), i
+      disegni 2D e la completezza documentale
+    - `Calcola`, il punto d'ingresso comune del banco e dell'anteprima: l'esito di ogni thread, con un record per
+      allegato, i conflitti composti e l'impronta dell'esito; i messaggi fuori RFQ dei casi di censimento
+    - il vecchio di ogni file, letto con la grammatica, e i record piatti per `confronto`, che non importa
+    - lo smistamento dei file ai prodotti (l'asse 5): le associazioni di ogni allegato (perimetro, scarto, stato
+      terminale), la pertinenza per evidenza con il contesto del messaggio, gli orfani come avviso, «da smistare», i
+      conflitti dell'asse smistamento e la regola Smistamento, con i percorsi di revisione come ingresso
+    - i nodi della BOM di lavoro (NodoBOM), l'impronta dei dati decisi di ogni prodotto, il composto e lo stato del
+      prodotto (l'asse 7, con da_riesaminare solo per le condizioni nuove) e il fascicolo della RFQ: congelabile, mai
+      congelato senza il gesto del modello nuovo, con la bom_versione del legacy a parte
     - Puro: legge la fotografia già chiusa; mai confronto, mai il caricatore
   - DB: no
   - README: [README](valutazione/README.md)

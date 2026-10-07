@@ -91,7 +91,13 @@ markmap:
     candidati della mail, sempre da confermare, con quantità ed esclusioni; il vocabolario comune e i tipi della
     fonte strutturale
   - **[`core/valutazione/README.md`](core/valutazione/README.md)** → il percorso puro del motore A (giro 5): gli
-    ingressi del file dei casi, la richiesta del thread, i prodotti target con l'identità e la fonte strutturale STEP
+    ingressi del file dei casi, la richiesta del thread, i prodotti target con l'identità e la fonte strutturale STEP;
+    le strutture, la verifica della BOM, i disegni 2D e la completezza documentale; `Calcola`, il punto d'ingresso del
+    banco e dell'anteprima, con l'esito per thread, il vecchio di ogni file e i record piatti per `confronto`; lo
+    smistamento dei file ai prodotti (l'asse 5): le associazioni, il perimetro, la pertinenza per evidenza e il
+    contesto del messaggio, lo scarto, gli orfani, «da smistare», i conflitti dell'asse e la regola Smistamento; i nodi
+    della BOM di lavoro, l'impronta dei dati decisi di ogni prodotto, il composto e lo stato del prodotto (l'asse 7) e
+    il fascicolo della RFQ, con il congelamento legacy a parte
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`

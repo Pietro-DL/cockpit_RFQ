@@ -275,11 +275,47 @@ func rifDeiConflitti(conflitti []Conflitto, asse AsseConflitto) []string {
 // poi l'evidenza della proposta (allegato, documento, unità), così due conflitti che differiscono solo per il documento
 // (due rimozioni aperte dello stesso arco da due STEP) non dipendono dall'ordine degli elenchi della fotografia.
 func ordinaConflitti(c []Conflitto) {
-	chiave := func(x Conflitto) string {
-		return strings.Join([]string{string(x.Asse), x.Rif, x.Motivo, string(x.OrigineDecisione), x.Decisione, x.Proposta,
-			testoUUID(x.EvidenzaProposta.AllegatoID), testoUUID(x.EvidenzaProposta.DocumentoID), x.EvidenzaProposta.UnitaID}, "\x00")
+	sort.SliceStable(c, func(i, j int) bool { return chiaveOrdineConflitto(c[i]) < chiaveOrdineConflitto(c[j]) })
+}
+
+// chiaveOrdineConflitto: la chiave dell'ordine canonico di ordinaConflitti.
+func chiaveOrdineConflitto(x Conflitto) string {
+	return strings.Join([]string{string(x.Asse), x.Rif, x.Motivo, string(x.OrigineDecisione), x.Decisione, x.Proposta,
+		testoUUID(x.EvidenzaProposta.AllegatoID), testoUUID(x.EvidenzaProposta.DocumentoID), x.EvidenzaProposta.UnitaID}, "\x00")
+}
+
+// componiConflitti: i conflitti dell'esito del thread (EsitoThread.Conflitti; T-B6-10, F0-13), dai pezzi per prodotto: in
+// V1 quelli di nomenclatura e di gerarchia di B5 (ValutazioneProdotti.Conflitti), da V2 anche quelli dell'asse
+// smistamento. Ogni conflitto porta il suo prodotto: lo stesso conflitto su un componente condiviso da due prodotti resta
+// due voci, una per prodotto (F0-13). Senza doppioni, con la chiave di F0-13 (tipo, asse, Rif, prodotto, motivo, origine
+// e valore della decisione, proposta, allegato dell'evidenza della proposta), allargata al documento e all'unità
+// dell'evidenza della proposta: due rimozioni aperte dello stesso arco da due STEP sono due conflitti, non un doppione
+// (ordinaConflitti le distingue già; dubbio T-B6-23). Dei doppioni resta il primo, nell'ordine dei pezzi. Ordine:
+// ordinaConflitti, poi il prodotto e il tipo, così l'esito non dipende dall'ordine dei pezzi. È pura.
+func componiConflitti(pezzi ...[]Conflitto) []Conflitto {
+	var out []Conflitto
+	visti := map[string]bool{}
+	for _, p := range pezzi {
+		for _, c := range p {
+			k := strings.Join([]string{string(c.Tipo), string(c.Asse), c.Rif, c.Prodotto, c.Motivo, string(c.OrigineDecisione), c.Decisione,
+				c.Proposta, testoUUID(c.EvidenzaProposta.AllegatoID), testoUUID(c.EvidenzaProposta.DocumentoID), c.EvidenzaProposta.UnitaID}, "\x00")
+			if !visti[k] {
+				visti[k] = true
+				out = append(out, c)
+			}
+		}
 	}
-	sort.SliceStable(c, func(i, j int) bool { return chiave(c[i]) < chiave(c[j]) })
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ka, kb := chiaveOrdineConflitto(a), chiaveOrdineConflitto(b); ka != kb {
+			return ka < kb
+		}
+		if a.Prodotto != b.Prodotto {
+			return a.Prodotto < b.Prodotto
+		}
+		return a.Tipo < b.Tipo
+	})
+	return out
 }
 
 // testoDeciso: un codice deciso come si mostra, «codice» o «codice rev».

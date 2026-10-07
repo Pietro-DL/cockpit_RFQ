@@ -53,3 +53,40 @@ const (
 	// con una deroga, per prodotto.
 	CodiceDocumentiDerogaNonSostituisce2D = "documenti.deroga_non_sostituisce_2d"
 )
+
+// Calcola e il vecchio (P7c; B6, V1).
+const (
+	// CodiceErroreValutazione — errore, dati. La valutazione di un thread, o di un messaggio fuori RFQ, dà un errore che
+	// non porta già le diagnostiche di un errore di contratto: un caso del file dei casi di un altro thread o di un altro
+	// cliente, un messaggio che l'adattatore non legge, un messaggio di un caso di censimento che la fotografia non ha
+	// (F0-05; T-B6-09). Il thread non è valutato, con il motivo errore_valutazione se la grammatica c'è, e gli altri
+	// thread proseguono. Con un errore di contratto se ne copiano le diagnostiche, e questo codice non c'è. Come avviso,
+	// l'errore dell'adattatore o dell'interpretazione su un file solo, che resta fuori (documento_non_leggibile) mentre
+	// il thread prosegue (R-61 della revisione di V1).
+	CodiceErroreValutazione = "valutazione.errore_valutazione"
+
+	// CodiceCodiceRegistratoNonLeggibile — avviso, dati. Il codice registrato di un file (della proposta, o del documento
+	// confermato se il file è deciso) non si legge con la grammatica del cliente (6.4.6, LetturaRegistrata; R31 c): la
+	// base vecchia resta vuota, e il confronto non la sostituisce con la stringa (T-B1-07). Il prefisso dice di che cosa
+	// parla, il confronto del vecchio con il nuovo; lo dichiara valutazione, che lo produce (6.4.10; T-B6-06).
+	CodiceCodiceRegistratoNonLeggibile = "confronto.codice_registrato_non_leggibile"
+
+	// CodiceMessaggioFuoriRFQSenzaCaso — avviso, dati. Un messaggio fuori RFQ della fotografia che nessun caso senza thread
+	// del file dei casi elenca (R34; T-B6-04; T-B6-26 con R-63 della revisione di V1): non si valuta. È un'incoerenza fra
+	// chi chiama e il file dei casi: fra i fuori RFQ (caricatore.Richiesta.Messaggi) vanno solo i messaggi dei casi senza
+	// thread. Il messaggio di un caso che la fotografia non ha è invece un record non valutato, con
+	// valutazione.errore_valutazione (F0-05).
+	CodiceMessaggioFuoriRFQSenzaCaso = "valutazione.messaggio_fuori_rfq_senza_caso"
+)
+
+// Lo smistamento (P7c; B6, le correzioni dopo le risposte dell'utente a R106–R117 del 07/10).
+const (
+	// CodiceContestoDiscorde — avviso, dati. Il messaggio a cui il file è allegato nomina prodotti target che non hanno
+	// niente in comune con quelli a cui il file è già collegato: per le evidenze di pertinenza (un candidato del motore A,
+	// la collocazione non determinabile di un target senza struttura, la destinazione F8, l'«assegna», un documento
+	// confermato, lo STEP candidato della fonte) o, per un file terminale, per la decisione (i prodotti con il componente
+	// del documento confermato). Il contesto non aggiunge destinazioni e non sostituisce la decisione: «una
+	// contraddizione deve restare visibile» (R106 B, precisata dall'utente il 07/10). Non blocca niente, non cambia la
+	// pertinenza e non entra nell'impronta del prodotto. Porta l'allegato, i prodotti nominati e quelli collegati.
+	CodiceContestoDiscorde = "valutazione.contesto_discorde"
+)
