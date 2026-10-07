@@ -111,9 +111,10 @@ func TestConfrontaDeterministico(t *testing.T) {
 }
 
 // TestEsitoVuotoEVersione: senza file l'esito ha la versione, i cinque badge a zero e un'impronta; la versione è fissa
-// (cambiarla cambia l'impronta, e questa prova si riscrive). confronto-2: la misura delle correzioni di R114.
+// (cambiarla cambia l'impronta, e questa prova si riscrive). confronto-2: la misura delle correzioni di R114;
+// confronto-3: la provenienza della revisione vecchia di R113 (RevisioneDa, ProvenienzaVecchia; T-B6-205).
 func TestEsitoVuotoEVersione(t *testing.T) {
-	if confronto.VersioneConfronto != "confronto-2" {
+	if confronto.VersioneConfronto != "confronto-3" {
 		t.Errorf("VersioneConfronto = %q", confronto.VersioneConfronto)
 	}
 	e := confronto.Confronta(nil, nil, nil)
@@ -151,8 +152,9 @@ func TestCodiciEmessiDichiarati(t *testing.T) {
 }
 
 // formaAttesa: i campi dei DTO piatti, congelati nella fase 0 di B6 (CP.2, con l'emendamento F0-19: CodiceLettoBase
-// dopo CodiceLetto; con R114, precisata dall'utente il 07/10: CodiceLettoMarcatore dopo CodiceLettoBase, 18 campi in
-// Vecchio): nome, tag JSON e tipo, nell'ordine. I gemelli di valutazione (FileConfrontabile, VecchioPiatto,
+// dopo CodiceLetto; con R114, precisata dall'utente il 07/10: CodiceLettoMarcatore dopo CodiceLettoBase; con R113 B
+// ratificata, E2 §2.6: RevisioneDa dopo CodiceLettoMarcatore, 19 campi in Vecchio): nome, tag JSON e tipo,
+// nell'ordine. I gemelli di valutazione (FileConfrontabile, VecchioPiatto,
 // NuovoPiatto, CandidatoPiatto, ProdottoConfrontabile) hanno gli stessi; cambiare un campo qui vuol dire cambiarlo là,
 // prima del commit.
 var formaAttesa = map[string][]string{
@@ -163,7 +165,8 @@ var formaAttesa = map[string][]string{
 		"Stato stato string", "Fonte fonte string", "Codice codice string", "Rev rev string", "Base base string",
 		"Marcatore marcatore string", "Revisione revisione string", "Leggibile leggibile bool",
 		"MotivoLettura motivo_lettura string", "CodiceLetto codice_letto string", "CodiceLettoBase codice_letto_base string",
-		"CodiceLettoMarcatore codice_letto_marcatore string", "Componente componente,omitempty *uuid.UUID",
+		"CodiceLettoMarcatore codice_letto_marcatore string", "RevisioneDa revisione_da string",
+		"Componente componente,omitempty *uuid.UUID",
 		"Documento documento,omitempty *uuid.UUID", "ComponenteProposta componente_proposta,omitempty *uuid.UUID", "SostituitoDa sostituito_da,omitempty *uuid.UUID",
 		"DecisoIl deciso_il,omitempty *time.Time", "Destinazione destinazione,omitempty []string",
 	},

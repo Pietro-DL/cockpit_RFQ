@@ -2,7 +2,8 @@
 // v3 §6: la sola revisione non è mai una regressione; E-19): i file decisi danno regressione_su_confermata o uguale, i
 // non decisi, nell'ordine, fuori_richiesta, nuovo_ancoraggio, uguale o diverso con il motivo. Le righe «come C5» hanno il
 // badge calcolato contro la decisione confermata, senza «da rivedere». La lettura dei codici registrati con la
-// grammatica è di valutazione (A1c-L1-30): qui il vecchio arriva già letto.
+// grammatica è di valutazione (A1c-L1-30): qui il vecchio arriva già letto. L'indicatore copia la provenienza della
+// revisione vecchia (R113 B ratificata, E2 §2.6), e la provenienza non cambia né il badge né la misura.
 //
 // I clienti, i codici e gli ID sono inventati (ACME, 712xxxx, UUID 00000000-0000-4000-8000-0000000000nn): il repository
 // è pubblico.
@@ -261,6 +262,64 @@ func TestIndicatoreDiRevisione(t *testing.T) {
 					len(d.Rif) != 1 || d.Rif[0] != id(7).String() || d.Messaggio == "" {
 					t.Errorf("diagnostica %+v", d)
 				}
+			}
+		})
+	}
+}
+
+// TestIndicatoreConLaProvenienzaDellaRevisione (R113 B ratificata; E2 §2.6; T-B6-205): l'indicatore copia la provenienza
+// della revisione vecchia (Vecchio.RevisioneDa) in ProvenienzaVecchia, per ogni valore, senza interpretarla; il badge, il
+// suo motivo e il valore dell'indicatore non dipendono dalla provenienza: con la sola revisione diversa, letta nella
+// colonna, il badge resta uguale e la misura conta SoloRevisione, non una correzione. Le due revisioni vecchie discordi
+// (revisione_vecchia_discorde) danno non_determinabile, con la nota, e il badge resta uguale.
+func TestIndicatoreConLaProvenienzaDellaRevisione(t *testing.T) {
+	file := func(da, revisioni, motivo string) confronto.File {
+		v := decisoSu(1, "7120100", "7120100")
+		v.Rev, v.Revisione, v.RevisioneDa = "02", "02", da
+		v.CodiceLetto, v.CodiceLettoBase = "7120100", "7120100" // valutabile: la lettura del vecchio motore c'è
+		if da == "" {
+			v.Revisione = ""
+		}
+		n := valutato("figlio", "candidato_unico", []string{"7120100"}, candidato(1, "7120100"))
+		n.Revisione, n.Revisioni, n.MotivoRevisioni = "03", revisioni, motivo
+		return confronto.File{AllegatoID: id(8), Vecchio: v, Nuovo: n}
+	}
+	for _, c := range []struct {
+		nome, da, revisioni, motivo string
+		valore                      string
+		soloRevisione               int
+		nota                        bool
+	}{
+		{"dalla colonna, diversa", "colonna", "diverse", "", confronto.RevisioneDiversa, 1, false},
+		{"dal codice, diversa", "codice", "diverse", "", confronto.RevisioneDiversa, 1, false},
+		{"dalla colonna, uguale", "colonna", "uguali", "", confronto.RevisioneUguale, 0, false},
+		{"due revisioni vecchie discordi", "codice", "non_confrontabili", "revisione_vecchia_discorde", confronto.RevisioneNonDeterminabile, 0, true},
+		{"la colonna che non si legge", "", "non_confrontabili", "revisione_colonna_non_interpretabile", confronto.RevisioneNonDeterminabile, 0, true},
+	} {
+		t.Run(c.nome, func(t *testing.T) {
+			f := file(c.da, c.revisioni, c.motivo)
+			e := confronto.Confronta([]confronto.File{f}, nil, nil)
+			r := e.File[0]
+			if r.Badge != confronto.BadgeUguale || r.Motivo != "" {
+				t.Errorf("badge %s (%s): la revisione non cambia il badge", r.Badge, r.Motivo)
+			}
+			if r.Revisione.Valore != c.valore || r.Revisione.Vecchia != f.Vecchio.Revisione || r.Revisione.ProvenienzaVecchia != c.da ||
+				r.Revisione.Nuova != "03" || r.Revisione.Motivo != c.motivo {
+				t.Errorf("indicatore %+v", r.Revisione)
+			}
+			if e.Correzioni.Valutabili != 1 || e.Correzioni.SoloRevisione != c.soloRevisione || e.Correzioni.Prima != 0 || e.Correzioni.Dopo != 0 {
+				t.Errorf("misura %+v: la sola revisione sta a parte, mai una correzione", e.Correzioni)
+			}
+			if got := len(e.Diagnostiche) == 1; got != c.nota {
+				t.Errorf("diagnostiche %+v", e.Diagnostiche)
+			}
+			// lo stesso file senza la provenienza: stesso badge, stesso valore, stesse correzioni
+			g := f
+			g.Vecchio.RevisioneDa = ""
+			e2 := confronto.Confronta([]confronto.File{g}, nil, nil)
+			if e2.File[0].Badge != r.Badge || e2.File[0].Motivo != r.Motivo || e2.File[0].Revisione.Valore != r.Revisione.Valore ||
+				e2.Correzioni != e.Correzioni || len(e2.Diagnostiche) != len(e.Diagnostiche) {
+				t.Errorf("la provenienza cambia il confronto: %+v contro %+v", e2.File[0], r)
 			}
 		})
 	}
