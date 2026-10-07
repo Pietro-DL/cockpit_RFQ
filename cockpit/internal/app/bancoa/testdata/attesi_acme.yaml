@@ -182,11 +182,99 @@ casi_contratto:
       testo: disegno.pdf
     atteso:
       confronto_legacy: x
-scenario_inoltro: {}
-baseline_decisioni: []
-reali_archivi: []
-casi_integrazione: []
-riservati_non_bloccanti: []
+scenario_inoltro:
+  thread_id: 00000000-0000-4000-8000-000000000071
+  messaggio_id: 00000000-0000-4000-8000-000000000081
+  autorita_target: scenario_richiesta_inoltrata
+  prodotti_confermati_db: false
+  nota: lo scenario inventato della richiesta inoltrata
+  prodotti_attesi:
+    - originale: P9123456
+      base: 9123456
+      fase: prototipo
+      quantita_richiesta: 5
+      fonte_quantita: cella
+  conteggi:
+    radice: 1
+    figlio: 1
+    fuori_scenario: 1
+    file: 3
+    prodotti: 1
+  file:
+    - id: file-acme-01
+      allegato_id: 00000000-0000-4000-8000-000000000101
+      sha256: "0000000000000000000000000000000000000000000000000000000000000101"
+      nome_file: 9123456A_2.pdf
+      atteso: radice
+      atteso_stato: candidato_scenario
+      atteso_target_base: 9123456
+      autorita: scenario
+      scritture_consentite: false
+    - id: file-acme-02
+      allegato_id: 00000000-0000-4000-8000-000000000102
+      atteso: figlio
+      atteso_target_base: 9123457
+      radici: [9123456]
+      autorita: scenario
+    - id: file-acme-03
+      allegato_id: 00000000-0000-4000-8000-000000000103
+      atteso: fuori
+      atteso_stato: fuori_scenario
+      atteso_target_base: null
+baseline_decisioni:
+  - id: baseline-acme-01
+    allegato_id: 00000000-0000-4000-8000-000000000111
+    sha256: "0000000000000000000000000000000000000000000000000000000000000111"
+    atteso:
+      base: 9123456
+    decisione_proposta:
+      codice: 9123456A
+      rev: "2"
+      stato: confermata
+      componente_id: 00000000-0000-4000-8000-000000000031
+      deciso_il: "2026-10-01T09:00:00.000Z"
+    decisione_documento:
+      documento_id: 00000000-0000-4000-8000-000000000221
+      codice: 9123456A
+      sostituito_da: null
+    componente_id_proposta_vuoto_preservato: false
+reali_archivi:
+  - id: reale-acme-01
+    allegato_id: 00000000-0000-4000-8000-000000000104
+    atteso:
+      base: 9123460
+      revisione_dal_nome: null
+    target_presente: true
+casi_integrazione:
+  - id: integrazione-acme-01
+    allegato_id: 00000000-0000-4000-8000-000000000101
+    sha256: "0000000000000000000000000000000000000000000000000000000000000101"
+riservati_non_bloccanti:
+  - id: Q-ACME-1
+    motivo: domanda aperta inventata
 prerequisiti_gate_l4: []
 gate: []
-decisioni_successive_da_rivedere: {}
+decisioni_successive_da_rivedere:
+  file_confermati:
+    - id: rivedere-acme-01
+      allegato_id: 00000000-0000-4000-8000-000000000112
+      decisione_proposta:
+        stato: confermata
+        componente_id: 00000000-0000-4000-8000-000000000032
+      decisione_documento:
+        documento_id: 00000000-0000-4000-8000-000000000222
+      nell_export_0848:
+        stato: confermata
+        codice: 9123459A
+      sovrascritta_dal_motore: false
+      componente_id_proposta_vuoto_preservato: false
+      in_baseline: false
+      conta_nel_gate: false
+      mostrata_con_badge_di_confronto: true
+      etichetta: da rivedere
+      anomalie: [A-ACME-1]
+  conferma_albero:
+    documenti:
+      - documento_id: 00000000-0000-4000-8000-000000000222
+    allegati:
+      - allegato_id: 00000000-0000-4000-8000-000000000112

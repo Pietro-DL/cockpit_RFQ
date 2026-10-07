@@ -38,7 +38,10 @@ import (
 //     della fotografia (queries/fotografia.sql);
 //   - A1c-L1-28 (la parte di B6, P8): G1, G2 e MOTORE-SENZA-LLM anche su core/confronto, che importa del progetto solo
 //     evidenze e jsoncanonico; e delle due foglie usa solo Diagnostica, le costanti Gravita* e Natura*, ImprontaDi
-//     (fase 0 di B6, F0-11).
+//     (fase 0 di B6, F0-11);
+//   - A1c-L1-28 (la parte di B6, P9): G1 e MOTORE-SENZA-LLM sul banco allargato ai modi dsn ed exports (valutazione,
+//     confronto, la fotografia, il caricatore, platform/migrazioni; mai ancoraggio né pgx per nome) e sul suo comando,
+//     che prende dalla radice del modulo le migrazioni incorporate e non importa mai app/runtime; G3 e F19 non cambiano.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -125,16 +128,21 @@ var pacchettiMotoreA = []regolePacchetto{
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
-	// Il runner del banco: legge i file, non è puro. Usa lo stesso motore del prodotto e il manifest; è l'unico
-	// importatore della libreria YAML (G3, qui sotto). Mai app/runtime, transport, ai, platform/config. Da A1b.11
-	// importa core/estrazione, solo per DaTesto (F19, R52 A: la guardia è più sotto).
+	// Il runner del banco: legge i file e, da A1c, il DB in sola lettura attraverso il caricatore e platform/migrazioni;
+	// non è puro. Usa lo stesso motore del prodotto (valutazione, poi confronto con la copia di passaggio.go) e il
+	// manifest; è l'unico importatore della libreria YAML (G3, qui sotto). Mai app/runtime, transport, ai,
+	// platform/config, ancoraggio. Di core/estrazione solo DaTesto (F19, R52 A: la guardia è più sotto).
 	{percorso: "internal/app/bancoa",
 		progetto: []string{"internal/platform/dataset", "internal/core/registro/regole/grammatica",
 			"internal/core/inbox/classificazione/motorea", "internal/core/estrazione/evidenze",
-			"internal/core/estrazione", "internal/platform/jsoncanonico"},
+			"internal/core/estrazione", "internal/platform/jsoncanonico",
+			"internal/core/fotorfq", "internal/core/fotorfq/caricatore", "internal/platform/migrazioni",
+			"internal/core/valutazione", "internal/core/confronto"},
 		esterni: []string{"github.com/google/uuid", "gopkg.in/yaml.v3"}},
-	// Il comando del banco, sottile come cmd/cockpit: solo il runner (in A1a nemmeno le migrazioni incorporate).
-	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa"}},
+	// Il comando del banco, sottile come cmd/cockpit: il runner e, da A1c, la radice del modulo per le migrazioni
+	// incorporate (cockpit.FS, il controllo dello schema di ApriInLettura). Il flag -thread lo dà il runner
+	// (bancoa.FlagThread), così il comando non nomina la libreria degli UUID (I.2; R-114). Mai app/runtime (A1c-L1-28).
+	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa", "."}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.

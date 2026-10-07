@@ -193,3 +193,142 @@ func TestUscitaDifferenzaPiuVoceAssente(t *testing.T) {
 		t.Fatalf("uscita %d\n%s", codice, out)
 	}
 }
+
+// ---- A1c: le modalità dsn ed exports ----
+
+// L1 — A1c-L1-27: i flag delle modalità di A1c (piano 6.4.9; T-B6-03, F0-01; R32 c; R44): -dsn ed -exports si
+// escludono; -tutti solo con -dsn; con -dsn serve -thread oppure -tutti; -uscita e -dataset obbligatori; il DSN con la
+// password rifiutato nella forma URL e nella forma chiave=valore, senza ripeterlo; PGPASSWORD rifiutata; -manifest è un
+// sinonimo di -dataset; -thread vuole un UUID; l'aiuto ha solo segnaposti, nessun nome reale di copia, ruolo o script
+// (E-17). Errori d'uso: uscita 2, nessun rapporto. Una copia che non si raggiunge: NON ESEGUITO, uscita 3. Gli export
+// sintetici di un dataset senza RFQ: conforme, uscita 0.
+
+// datasetExport: il dataset ACME per la modalità exports, in t.TempDir(): attesi, indice con il puntatore ai casi,
+// grammatica, file dei casi, tre export vuoti (thread, messaggi, allegati) e il manifest con la terna degli export.
+func datasetExport(t *testing.T) (string, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	scrivi := func(rel, s string) string {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	zero := strings.Repeat("0", 64)
+	g := scrivi("dataset/regole/acme.v1.json", leggi(t, "regole/acme.v1.json"))
+	// Un caso senza thread né messaggi: gli export vuoti non hanno messaggi fuori RFQ da cercare.
+	casi := scrivi("dataset/regole/casi_acme.v1.json", `{"versione_casi": 1, "casi": [{"id": "ACME-SOLO", "cliente_id": "00000000-0000-4000-8000-00000000ac01"}]}`)
+	ix := strings.Replace(leggi(t, "regole/indice_acme.v1.json"), zero, shaDi([]byte(g)), 1)
+	ix = scrivi("dataset/regole/indice_acme.v1.json", strings.Replace(ix, zero, shaDi([]byte(casi)), 1))
+	at := scrivi("dataset/attesi_acme.yaml", leggi(t, "attesi_acme.yaml"))
+	voce := func(nome, percorso, ruolo, contenuto string) string {
+		return `{"nome": "` + nome + `", "percorso": "` + percorso + `", "ruolo": "` + ruolo + `", "sha256": "` + shaDi([]byte(contenuto)) +
+			`", "byte": ` + itoa(len(contenuto)) + `}`
+	}
+	voci := []string{voce("attesi", "attesi_acme.yaml", "attesi", at), voce("regole.indice", "regole/indice_acme.v1.json", "regole", ix),
+		voce("casi", "regole/casi_acme.v1.json", "casi", casi)}
+	for _, sez := range []string{"thread", "messaggi", "allegati"} {
+		x := scrivi("export/"+sez+"_acme.json", `{"select * from tabella_`+sez+` -- acme": []}`)
+		voci = append(voci, voce("export."+sez, "export/"+sez+"_acme.json", "export", x))
+	}
+	scrivi("dataset/manifest_acme.json", `{"versione_manifest": 1, "voci": [`+strings.Join(voci, ", ")+`], "profili": {"acme": "00000000-0000-4000-8000-00000000ac01"}, `+
+		`"copia": {}, "export": {"versione": 4, "hash_configurazione": "`+strings.Repeat("c", 64)+`", "schema": 21}}`)
+	return dir, filepath.Join(dir, "dataset", "manifest_acme.json"), filepath.Join(dir, "export")
+}
+
+func TestA1cFlagErroriDUso(t *testing.T) {
+	dir, manifest, export := datasetExport(t)
+	uscita := filepath.Join(dir, "banco")
+	dsn := "postgres://acme_banco@127.0.0.1:1/acme_prova"
+	casi := map[string][]string{
+		"-dsn ed -exports":          {"-dsn", dsn, "-exports", export, "-dataset", manifest, "-uscita", uscita},
+		"-tutti con -exports":       {"-exports", export, "-tutti", "-dataset", manifest, "-uscita", uscita},
+		"-dsn senza -thread":        {"-dsn", dsn, "-dataset", manifest, "-uscita", uscita},
+		"-dsn senza -uscita":        {"-dsn", dsn, "-tutti", "-dataset", manifest},
+		"-dsn senza -dataset":       {"-dsn", dsn, "-tutti", "-uscita", uscita},
+		"-exports senza -uscita":    {"-exports", export, "-dataset", manifest},
+		"-gate senza -attesi":       {"-exports", export, "-gate", "-dataset", manifest, "-uscita", uscita},
+		"-thread non UUID":          {"-exports", export, "-thread", "non-un-uuid", "-dataset", manifest, "-uscita", uscita},
+		"-dataset e -manifest":      {"-exports", export, "-dataset", manifest, "-manifest", manifest + "x", "-uscita", uscita},
+		"-modalita exports e -dsn":  {"-modalita", "exports", "-dsn", dsn, "-tutti", "-dataset", manifest, "-uscita", uscita},
+		"DSN con password, URL":     {"-dsn", "postgres://acme_banco:segreto-acme@127.0.0.1:1/acme_prova", "-tutti", "-dataset", manifest, "-uscita", uscita},
+		"DSN con password, chiave":  {"-dsn", "host=127.0.0.1 port=1 password=segreto-acme dbname=acme_prova", "-tutti", "-dataset", manifest, "-uscita", uscita},
+		"-exports dentro il modulo": {"-exports", testdataBanco, "-dataset", manifest, "-uscita", uscita},
+	}
+	for nome, args := range casi {
+		t.Run(nome, func(t *testing.T) {
+			codice, out, errb := lancia(args...)
+			if codice != 2 || out != "" || errb == "" {
+				t.Fatalf("uscita %d, stdout %q, stderr %q", codice, out, errb)
+			}
+			if strings.Contains(errb, "segreto-acme") {
+				t.Errorf("stderr ripete il DSN: %q", errb)
+			}
+		})
+	}
+	t.Run("PGPASSWORD impostata", func(t *testing.T) {
+		t.Setenv("PGPASSWORD", "segreto-acme")
+		codice, out, errb := lancia("-dsn", dsn, "-tutti", "-dataset", manifest, "-uscita", uscita)
+		if codice != 2 || out != "" || !strings.Contains(errb, "PGPASSWORD") || strings.Contains(errb, "segreto-acme") {
+			t.Fatalf("uscita %d, stdout %q, stderr %q", codice, out, errb)
+		}
+	})
+	if _, err := os.Stat(uscita); !os.IsNotExist(err) {
+		t.Fatalf("un errore d'uso ha scritto un rapporto: %v", err)
+	}
+}
+
+func TestA1cFlagAiutoConSegnaposti(t *testing.T) {
+	_, _, errb := lancia("-h")
+	for _, s := range []string{"<DSN della copia, senza password>", "<cartella degli export>", "<manifest del dataset privato>", "<cartella dei rapporti>",
+		"-thread", "-tutti", "-attesi", "-gate", "-manifest"} {
+		if !strings.Contains(errb, s) {
+			t.Errorf("l'aiuto non ha %q:\n%s", s, errb)
+		}
+	}
+	for _, vietato := range []string{"postgres://", "127.0.0.1", "_ro", "cockpit_", ".ps1", "pgpass.conf"} {
+		if strings.Contains(errb, vietato) {
+			t.Errorf("l'aiuto contiene %q (E-17)", vietato)
+		}
+	}
+}
+
+func TestA1cExportConforme(t *testing.T) {
+	dir, manifest, export := datasetExport(t)
+	for i, flagManifest := range []string{"-dataset", "-manifest"} {
+		uscita := filepath.Join(dir, "banco", itoa(i+1))
+		codice, out, errb := lancia("-exports", export, flagManifest, manifest, "-uscita", uscita)
+		if codice != 0 || !strings.HasPrefix(out, "sorgente: export ") || errb != "" || !strings.Contains(out, "\nESITO: ESEGUITO — conforme\n") {
+			t.Fatalf("%s: uscita %d\n%s\n%s", flagManifest, codice, out, errb)
+		}
+		if _, err := os.Stat(filepath.Join(uscita, "rapporto-exports.json")); err != nil {
+			t.Fatalf("%s: rapporto: %v", flagManifest, err)
+		}
+	}
+	// -modalita exports detto per esteso, uguale.
+	codice, _, errb := lancia("-modalita", "exports", "-exports", export, "-dataset", manifest, "-uscita", filepath.Join(dir, "banco", "3"))
+	if codice != 0 {
+		t.Fatalf("-modalita exports: uscita %d, %s", codice, errb)
+	}
+}
+
+func TestA1cDSNNonRaggiungibile(t *testing.T) {
+	if v, ok := os.LookupEnv("PGPASSWORD"); ok {
+		os.Unsetenv("PGPASSWORD")
+		t.Cleanup(func() { os.Setenv("PGPASSWORD", v) })
+	}
+	dir, manifest, _ := datasetExport(t)
+	uscita := filepath.Join(dir, "banco")
+	codice, out, _ := lancia("-dsn", "postgres://acme_banco@127.0.0.1:1/acme_prova?connect_timeout=2", "-tutti", "-dataset", manifest, "-uscita", uscita)
+	if codice != 3 || !strings.HasPrefix(out, "sorgente: 127.0.0.1:1/acme_prova come acme_banco (banco, sola lettura)\n") ||
+		!strings.Contains(out, "ESITO: NON ESEGUITO — ") {
+		t.Fatalf("uscita %d\n%s", codice, out)
+	}
+	if _, err := os.Stat(filepath.Join(uscita, "rapporto-dsn.json")); err != nil {
+		t.Fatalf("rapporto: %v", err)
+	}
+}
