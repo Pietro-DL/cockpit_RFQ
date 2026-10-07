@@ -5,7 +5,7 @@ markmap:
   colorFreezeLevel: 2
 ---
 
-# `internal/core/inbox/classificazione/motorea` — il motore A: compilatore, riconoscimento per forma, router, interpretazione e compositore
+# `internal/core/inbox/classificazione/motorea` — il motore A: compilatore, riconoscimento per forma, router, interpretazione, compositore e revisione registrata
 
 ## Scopo
 
@@ -38,6 +38,12 @@ markmap:
   `cartiglio.codice`: «9123456A2». Il risultato è un `CodiceComposto`: la stringa, oppure nessuna stringa con
   uno dei sette motivi `MotivoComposizione*`, quando la grammatica non la determina in modo univoco (R87: senza
   revisione nessuna stringa canonica). Versione propria: `VersioneComposizione` (`composizione-1`).
+- Da A1c (B6b), la **revisione registrata** (R113 B ratificata; emendamento E2 §2.6; come T-B0-17, un metodo solo):
+  `LeggiRevisioneRegistrata(famiglia, testo)` legge una revisione scritta a parte nel DB (la colonna `rev` del vecchio
+  motore) con le sole regole di revisione `campo_separato` della famiglia, e restituisce una `RevisioneRegistrata`:
+  l'originale, la lettura, lo stato (`letta`, `non_interpretabile`, `nessuna_regola`, `ambigua`), la regola
+  («famiglia/regola») e il motivo. Mai «codice + rev» composti. Versione propria: `VersioneRevisioneRegistrata`
+  (`revisione-registrata-1`).
 - **Il principio della provenance** (5.0, 04/10 sera): il motore non indovina relazioni. Due cose si
   collegano solo se la provenance lo consente (stesso segmento, stessa entità, stessa riga di tabella, stesso
   nodo STEP, legame dichiarato nei fatti, uso esplicito) **e** una regola semantica lo fa nascere (una forma o
@@ -100,6 +106,11 @@ markmap:
   - `Motore.ComponiCodiceDocumentale`: la forma del cartiglio della famiglia (una sola, compilata), la lettura
     nel suo insieme, la composizione parte per parte, la rilettura della stringa con `Riconosci`;
   - `parteScritta` e `scritturaDi`: la forma ridotta a ciò che serve per scriverla.
+- **`registrata.go`** — responsabilità (A1c, B6b; R113 B):
+  - `VersioneRevisioneRegistrata`, `RevisioneRegistrata`, le costanti `StatoRevisioneRegistrata*` e
+    `MotivoRevisioneRegistrata*`;
+  - `Motore.LeggiRevisioneRegistrata`: le regole `campo_separato` della famiglia da tutti i selettori, senza doppioni
+    per ID (le attive compilate nel motore e le riservate), lo stato, la regola applicata al testo intero (D-07).
 - **`scansione.go`** — responsabilità:
   - `scandisci`: ogni inizio di runa con il confine sinistro rispettato, match ancorato su una finestra
     lunga quanto la lettura più lunga più il confine, ripartenza di una runa; l'allungamento della lettura quando il confine destro ha consumato un carattere che poteva essere
@@ -171,6 +182,9 @@ markmap:
   passo 7a del 6.4.6, T-08). `ancoraggio` non lo chiama: ne riceve il risultato in
   `ContestoStrutturale.CodiciProposti`, per ID di lettura, e lo mette in `CatenaCodice.Proposto` (B4). La
   versione va nell'impronta dell'esito (B6). Alla fine di B3 nessun codice di prodotto lo chiama ancora.
+- **`Motore.LeggiRevisioneRegistrata`, `VersioneRevisioneRegistrata`** — chi li chiama: da A1c (B6b) solo la
+  valutazione, per la colonna `rev` del vecchio di ogni file (`VecchioPiatto.Revisione` e `RevisioneDa`), con la famiglia
+  della lettura del codice registrato. La versione va nell'impronta dell'esito.
 - Oggi, nel codice di prodotto, il banco (`app/bancoa`, da A1a.5); l'anteprima arriva in A1d.
 
 ## Invarianti
@@ -283,6 +297,18 @@ markmap:
     lettura e blocca la stringa.
   La stringa composta si rilegge con `Riconosci`: la stessa forma la deve leggere per intero, completa, con le
   stesse parti; se no, nessuna stringa.
+- **La revisione registrata non cambia niente di A1a, A1b e del compositore** (R113 B; E2 §2.6; come T-B0-17): è un
+  metodo nuovo, con una versione propria; nessuna firma, campo, costante o comportamento esistente cambia, e nessun
+  codice di diagnostica nuovo: lo stato e il motivo stanno nella `RevisioneRegistrata`. Le regole, nell'ordine:
+  - valgono le sole regole `campo_separato` della famiglia, da tutti i selettori e senza doppioni per ID, perché il
+    testo registrato non ha un selettore; le regole in linea non contano;
+  - nessuna regola, né attiva né riservata: `nessuna_regola` (il default prudente di C-34 non si rifà: il testo non è
+    un campo del cartiglio); più regole attive: `ambigua`, senza provarle; solo riservate: `non_interpretabile` (Q1);
+  - una regola attiva si applica al testo intero (D-07), con la stessa regex della revisione in campo separato di
+    `Interpreta`: letta, oppure `non_interpretabile` per un token sospeso (conservato), un testo non letto per intero
+    o vuoto;
+  - mai «codice + rev» composti; il testo non si ripulisce (gli spazi ai bordi li toglie chi chiama); il confronto
+    con altre revisioni resta di `ConfrontaRevisioni`, con le sole equivalenze dichiarate.
 - **L'ordine dei motivi è fisso**: forma assente, forme multiple, lettura non completa, revisione ambigua,
   revisione non determinata, parte non determinata, qualificatore non trasferibile. La revisione non
   determinata viene prima delle altre parti: è il segno dell'identità parziale di R87.
@@ -315,7 +341,11 @@ markmap:
   - da A1c (B3), `componi_test.go`, con la famiglia ACME del compositore (`acme-compositore`) e
     `acme-maiuscole`: l'esempio del workflow, PO-06, un caso per motivo, la verifica avversariale (parti
     facoltative, separatori, etichette, decorazioni, maiuscole, revisioni con gli zeri, basi parziali, letture
-    costruite a mano), le firme e i campi di A1a e A1b invariati, il determinismo, l'autosufficienza (E4).
+    costruite a mano), le firme e i campi di A1a e A1b invariati, il determinismo, l'autosufficienza (E4);
+  - da A1c (B6b), `registrata_test.go`, con `acme-campo-separato` e le sue varianti: una regola legge la colonna,
+    nessuna regola (anche con una regola in linea), due regole, un token sospeso, una regola riservata, un testo non
+    letto per intero o vuoto, la stessa regola su più selettori, la regola di un'altra famiglia, mai «codice + rev»
+    composti, la versione, la firma e il determinismo.
 - Dall'adattatore a `Interpreta`, sulle fixture sintetiche: `core/estrazione/interpreta_test.go` (A-C02,
   A-C03, A-C05, A-C09, A-C10, A-C12, D1, HASH-CONFLITTO, A1b-19, A1b-23).
 - Il controllo degli import (G1, con il divieto del legacy), la guardia sul riferimento al caso degli
