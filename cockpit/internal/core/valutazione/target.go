@@ -24,10 +24,12 @@ const (
 	IdentitaConfermata   StatoIdentitaTarget = "confermata"
 )
 
-// ProdottoValutato: un prodotto target della RFQ con i suoi assi (contratto §2.3). In B1 ci sono il riferimento,
-// l'autorità, il componente, il codice richiesto, la base letta, l'identità e la fonte; B5 aggiunge lo stato della
-// struttura, la verifica della BOM (gli assi 3 e 4) e la completezza documentale (l'asse 6); lo smistamento, i nodi, lo
-// stato del prodotto e l'impronta li aggiunge B6 (T-E1-01: il solo booleano sarà Verificato, JSON «prodotto_verificato»).
+// ProdottoValutato: un prodotto target della RFQ con i suoi assi (contratto §2.3; fase 0 di B6, F.2: completo, nell'ordine
+// dei campi del contratto). In B1 ci sono il riferimento, l'autorità, il componente, il codice richiesto, la base letta,
+// l'identità e la fonte; B5 aggiunge lo stato della struttura, la verifica della BOM (gli assi 3 e 4) e la completezza
+// documentale (l'asse 6); B6 aggiunge i nodi della BOM, lo smistamento (l'asse 5), il composto (T-E1-01: il solo booleano
+// è Verificato, JSON «prodotto_verificato»), lo stato del prodotto (l'asse 7), i motivi e l'impronta. Finché le fasi V2 e
+// V3 di B6 non li calcolano, valgono i valori prudenti di valoriPrudenti (F.3): mai «verificato» per difetto.
 //   - Rif: «componente:<uuid>» per un identificativo con il suo componente e per un finito manuale;
 //     «identificativo:<codice>» per un identificativo senza componente (emendamento E1 §4.2, LD-21: il legame è per
 //     codice, come nel DB); «scenario:<caso>:<n>» per un prodotto dello scenario.
@@ -38,6 +40,9 @@ const (
 //   - BOM (B5): nomenclatura e gerarchia, gli assi 3 e 4 (R80; VerificaDellaBOM, letta in A1c dall'adattatore di
 //     «Conferma l'albero»).
 //   - Documenti (B5): la completezza documentale, l'asse 6 (Completezza: R72 D, R102 A; contratto §1.6).
+//   - Nodi (B6, V3): i nodi della BOM di lavoro come li vedrà la UI (R91, T-B0-39; T-B6-11: solo la BOM di lavoro).
+//   - Smistamento (B6, V2): l'asse 5 (R81; contratto §1.5). Verificato, Stato, Motivi (B6, V3): il composto, l'asse 7 e
+//     i motivi (R79, T-E1-01, T-E1-14). Impronta (B6, V3): l'impronta dei dati decisi del prodotto (R90, T-B0-29).
 type ProdottoValutato struct {
 	Rif             string                    `json:"rif"`
 	Autorita        ancoraggio.Autorita       `json:"autorita"`
@@ -48,7 +53,13 @@ type ProdottoValutato struct {
 	Fonte           FonteProdotto             `json:"fonte"`
 	Struttura       ancoraggio.StatoStruttura `json:"struttura"`
 	BOM             VerificaBOM               `json:"bom"`
+	Nodi            []NodoBOM                 `json:"nodi,omitempty"`
+	Smistamento     VerificaSmistamento       `json:"smistamento"`
 	Documenti       CompletezzaDocumentale    `json:"documenti"`
+	Verificato      bool                      `json:"prodotto_verificato"`
+	Stato           StatoProdotto             `json:"stato"`
+	Motivi          []MotivoProdotto          `json:"motivi,omitempty"`
+	Impronta        string                    `json:"impronta"`
 }
 
 // TargetConfermato: il predicato del target confermato della RFQ (R70 A, R78; T-B0-21): l'identità confermata dal
@@ -288,11 +299,22 @@ var selettoriDelCodiceRegistrato = []string{"nome_file", "cartiglio.codice", "no
 // complete che coprono tutto il codice, con le forme dei selettori nell'ordine fisso, danno tutte lo stesso
 // namespace e la stessa base. Restituisce la prima. Nessuna lettura, o due basi diverse: non si legge, e la base non
 // si inventa. Nemmeno un confronto per stringa: sarebbe un legame senza provenance (5.0); il 6.4.6, passo 6, lo
-// ammetteva, B1 se ne discosta (lettura dell'orchestratore T-B1-07).
+// ammetteva, B1 se ne discosta (lettura dell'orchestratore T-B1-07). Il perché di una lettura mancata lo dice
+// letturaDelCodiceRegistrato, che B6 espone con LeggiCodiceRegistrato (vecchio.go).
 func leggiCodiceRegistrato(m *motorea.Motore, codice string) (motorea.LetturaForma, bool) {
+	l, motivo := letturaDelCodiceRegistrato(m, codice)
+	return l, motivo == ""
+}
+
+// letturaDelCodiceRegistrato: la regola di leggiCodiceRegistrato, con il motivo di una lettura mancata ("" = letto; B6,
+// LetturaRegistrata.Motivo): codice_vuoto, senza_grammatica, nessuna_lettura, basi_diverse.
+func letturaDelCodiceRegistrato(m *motorea.Motore, codice string) (motorea.LetturaForma, string) {
 	testo := strings.TrimSpace(codice)
-	if m == nil || testo == "" {
-		return motorea.LetturaForma{}, false
+	switch {
+	case testo == "":
+		return motorea.LetturaForma{}, MotivoLetturaCodiceVuoto
+	case m == nil:
+		return motorea.LetturaForma{}, MotivoLetturaSenzaGrammatica
 	}
 	var trovate []motorea.LetturaForma
 	for _, s := range selettoriDelCodiceRegistrato {
@@ -308,14 +330,14 @@ func leggiCodiceRegistrato(m *motorea.Motore, codice string) (motorea.LetturaFor
 		}
 	}
 	if len(trovate) == 0 {
-		return motorea.LetturaForma{}, false
+		return motorea.LetturaForma{}, MotivoLetturaNessunaLettura
 	}
 	for _, l := range trovate[1:] {
 		if l.Namespace != trovate[0].Namespace || l.Base.Normalizzata != trovate[0].Base.Normalizzata {
-			return motorea.LetturaForma{}, false
+			return motorea.LetturaForma{}, MotivoLetturaBasiDiverse
 		}
 	}
-	return trovate[0], true
+	return trovate[0], ""
 }
 
 // chiaveCodice: il confronto per codice del legame identificativo-componente, come lo fa il DB (upper, 0018) e

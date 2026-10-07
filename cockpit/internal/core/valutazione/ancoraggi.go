@@ -47,6 +47,9 @@ type collegamento struct {
 	sonoFile     map[uuid.UUID]bool
 	strutture    []ancoraggio.StrutturaFile
 	shaStruttura map[uuid.UUID]string // lo sha256 della struttura di ogni allegato
+	// errori: l'errore dell'adattatore o dell'interpretazione di ogni file lasciato fuori (R-61 della revisione di V1):
+	// Calcola lo porta fra le diagnostiche, come avviso (diagnosticheDeiFile).
+	errori map[uuid.UUID]error
 }
 
 // ancoraggiDelThread: gli ancoraggi del thread (6.4.6, passo 9), con i target di B1 e la loro fonte già calcolata.
@@ -73,7 +76,7 @@ func ancoraggiDelThread(t fotorfq.Thread, m *motorea.Motore, targets []target, i
 
 func nuovoCollegamento(t fotorfq.Thread, m *motorea.Motore) *collegamento {
 	c := &collegamento{t: t, m: m, allegati: map[uuid.UUID]*fotorfq.Allegato{}, inAttesa: map[uuid.UUID]bool{},
-		tipi: map[uuid.UUID]string{}, sonoFile: map[uuid.UUID]bool{}, shaStruttura: map[uuid.UUID]string{}}
+		tipi: map[uuid.UUID]string{}, sonoFile: map[uuid.UUID]bool{}, shaStruttura: map[uuid.UUID]string{}, errori: map[uuid.UUID]error{}}
 	allegati := append([]fotorfq.Allegato(nil), t.Allegati...)
 	sort.SliceStable(allegati, func(i, j int) bool { return allegati[i].ID.String() < allegati[j].ID.String() })
 	contenitori := map[uuid.UUID]bool{}
@@ -92,13 +95,16 @@ func nuovoCollegamento(t fotorfq.Thread, m *motorea.Motore) *collegamento {
 		if (a.Natura != "" && a.Natura != naturaFile) || contenitori[a.ID] {
 			continue
 		}
-		if f, ok := c.fileInterpretato(a); ok {
-			c.file = append(c.file, f)
-			c.sonoFile[a.ID] = true
-			if s, ok := ancoraggio.StrutturaDa(f); ok {
-				c.strutture = append(c.strutture, s)
-				c.shaStruttura[a.ID] = s.Sha256
-			}
+		f, err := c.fileInterpretato(a)
+		if err != nil {
+			c.errori[a.ID] = err
+			continue
+		}
+		c.file = append(c.file, f)
+		c.sonoFile[a.ID] = true
+		if s, ok := ancoraggio.StrutturaDa(f); ok {
+			c.strutture = append(c.strutture, s)
+			c.shaStruttura[a.ID] = s.Sha256
 		}
 	}
 	return c
@@ -131,9 +137,10 @@ func (c *collegamento) tipiDocumentali() {
 	}
 }
 
-// fileInterpretato: il file con il suo documento, l'interpretazione, la disponibilità e il segno del 2D. Falso se
-// l'adattatore o l'interpretazione danno un errore: il file resta fuori (6.4.6 passo 3, «non valutato»).
-func (c *collegamento) fileInterpretato(a fotorfq.Allegato) (ancoraggio.FileInterpretato, bool) {
+// fileInterpretato: il file con il suo documento, l'interpretazione, la disponibilità e il segno del 2D. Con l'errore
+// dell'adattatore o dell'interpretazione il file resta fuori (6.4.6 passo 3, «non valutato»), e l'errore torna a chi
+// chiama, che lo tiene nel collegamento (R-61).
+func (c *collegamento) fileInterpretato(a fotorfq.Allegato) (ancoraggio.FileInterpretato, error) {
 	var fatti *fotorfq.Fatti
 	if a.Sha256 != nil {
 		if f, ok := c.t.Fatti[*a.Sha256]; ok {
@@ -146,16 +153,16 @@ func (c *collegamento) fileInterpretato(a fotorfq.Allegato) (ancoraggio.FileInte
 	}
 	doc, err := estrazione.DaAllegato(a, fatti, contenitore)
 	if err != nil {
-		return ancoraggio.FileInterpretato{}, false
+		return ancoraggio.FileInterpretato{}, err
 	}
 	interp := motorea.Interpretazione{BundleID: doc.BundleID}
 	if c.m != nil {
 		if interp, err = c.m.Interpreta(doc, evidenze.UsoSconosciuto(doc.BundleID)); err != nil {
-			return ancoraggio.FileInterpretato{}, false
+			return ancoraggio.FileInterpretato{}, err
 		}
 	}
 	return ancoraggio.FileInterpretato{AllegatoID: a.ID, Documento: doc, Interpretazione: interp,
-		Disponibilita: disponibilitaDi(a, doc, c.inAttesa[a.ID]), Disegno: c.tipi[a.ID] == tipoDocumentoDisegno2D}, true
+		Disponibilita: disponibilitaDi(a, doc, c.inAttesa[a.ID]), Disegno: c.tipi[a.ID] == tipoDocumentoDisegno2D}, nil
 }
 
 // disponibilitaDi: la disponibilità di un file (6.4.6 passo 8, con T-B0-31 e la lettura T-B4-09), il primo che vale:

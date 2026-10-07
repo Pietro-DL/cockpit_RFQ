@@ -66,6 +66,9 @@ type disegniThread struct {
 	posizioni  map[string]uuid.UUID      // la posizione di un candidato → il componente del nodo
 	decisi     map[uuid.UUID][]uuid.UUID // per allegato: i componenti delle associazioni decise
 	formazioni map[string][]string       // per nodo: le formazioni STEP, per la provenienza di documento.rev
+	// conflitti: i pezzi identita_documento dei 2D dei componenti (ValutaDisegno senza prodotti), che lo smistamento (B6,
+	// V2) attribuisce ai prodotti a cui il documento è pertinente (T-E1R-08). In A1c nessuna decisione: sempre vuoti.
+	conflitti []Conflitto
 }
 
 // disegniDelThread: i 2D di ogni componente attivo del thread (contratto §1.6, «Gruppo dei 2D di un componente»), in
@@ -133,8 +136,9 @@ func disegniDelThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, es
 		c := x.componenteDaConfrontare(attivi[k.ID])
 		var disegni []Disegno2D
 		for _, v := range unaPerContenuto(voci[k.ID]) {
-			d, _ := ValutaDisegno(x.daValutare(v, k.ID), c, nil)
+			d, conflitti := ValutaDisegno(x.daValutare(v, k.ID), c, nil)
 			disegni = append(disegni, d)
+			x.conflitti = append(x.conflitti, conflitti...)
 		}
 		out = append(out, DisegniDelComponente{ComponenteID: k.ID, Gruppo: Primario(disegni)})
 	}
@@ -250,7 +254,7 @@ func chiaveContenuto(v voceDisegno) string {
 	case v.allegato != nil && v.allegato.Sha256 != nil && *v.allegato.Sha256 != "":
 		return "sha:" + *v.allegato.Sha256
 	case v.allegato != nil:
-		return "allegato:" + v.allegato.ID.String()
+		return rifAllegato(v.allegato.ID)
 	}
 	return ""
 }

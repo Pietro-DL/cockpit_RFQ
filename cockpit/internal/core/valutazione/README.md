@@ -5,7 +5,7 @@ markmap:
   colorFreezeLevel: 2
 ---
 
-# `internal/core/valutazione` — il percorso puro del motore A: richiesta, target, fonte, strutture, verifica della BOM, disegni 2D e completezza documentale
+# `internal/core/valutazione` — il percorso puro del motore A: richiesta, target, fonte, strutture, verifica della BOM, disegni 2D, completezza documentale, e da B6 `Calcola`, l'esito, il vecchio, i record piatti, lo smistamento, i nodi, lo stato del prodotto, il fascicolo e l'impronta
 
 ## Scopo
 
@@ -82,6 +82,65 @@ markmap:
     `documenti.deroga_non_sostituisce_2d`;
   - **il ritocco della fase 2** (T-B5-46 [T]): nel cartiglio il testo non interpretato della revisione si confronta con la
     revisione letta esatto dopo gli spazi ai bordi, come `stessaRevisione` (R-14).
+- In B6 (commit P7c, fase V1; fase 0 di B6 congelata, F.2, CP.2, IM.1–IM.2, con le decisioni F0-01…F0-18 e T-B6-01…12):
+  - **il punto d'ingresso `Calcola`** (6.4.6, la sequenza dei passi 1–11): `ValidaFotografia` e l'impronta della
+    fotografia; per ogni thread, in ordine di ID, il motore della grammatica del cliente, il caso del file dei casi,
+    `ValutaProdotti`, il vecchio e i record piatti; i messaggi fuori RFQ dei casi di censimento (R34); l'impronta
+    dell'esito per ultima. Un problema di un thread non ferma gli altri;
+  - **l'esito** (`Esito`, `EsitoThread`, `EsitoFuoriRFQ`, `EvidenzaFile`, `MotivoThread`, `VersioneValutazione`): il DTO
+    che il banco legge e, da A1d, l'anteprima, con i campi del contratto (§2.3). Il contenitore interno `ValutazioneProdotti`
+    non è un DTO: `Calcola` lo consuma e ne compone i campi nel thread (T-B6-10); i conflitti di B5 entrano con il prodotto
+    e senza doppioni (`componiConflitti`, F0-13); le diagnostiche di `ancoraggio` restano in `Ancoraggi` (F0-04);
+  - **gli involucri** `FileInterpretato` e `MessaggioInterpretato` (F0-03): gli stessi campi dei tipi di `ancoraggio`,
+    con i tag snake_case, e un record per ogni allegato del thread, anche per quelli che l'adattatore lascia fuori, con il
+    motivo (`MotivoFile*`). Attenzione al nome: `valutazione.FileInterpretato` non è `ancoraggio.FileInterpretato` (ha i
+    tag e il `Motivo`), e così `MessaggioInterpretato` (D-V1-6 della revisione di V1);
+  - **il vecchio** (T-B6-06): `LeggiCodiceRegistrato` e `LetturaRegistrata`, l'involucro esportato della regola di B1 con
+    il motivo di una lettura mancata; il vecchio di ogni file (`vecchioLetto`, interno: F0-10), dalla proposta attuale e,
+    se il file è deciso, dal documento confermato (registro §10.2); `confronto.codice_registrato_non_leggibile`;
+  - **i record piatti** per `confronto` (R53 B; CP.1–CP.3, F0-09): `FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`,
+    `CandidatoPiatto`, `ProdottoConfrontabile`, gemelli dei DTO di `confronto`, con le scelte fatte qui una volta sola (le
+    basi, la lettura del vecchio, il confronto delle revisioni con la grammatica);
+  - **i tipi degli assi 5 e 7, dei nodi e del fascicolo** che l'esito porta (`VerificaSmistamento`, `AssociazioneFile`,
+    `FileDaSmistare`, `NodoBOM`, `StatoProdotto`, `MotivoProdotto`, `StatoFascicolo`, …) e `ProdottoValutato` completo, con
+    i valori prudenti dei campi che le fasi V2 e V3 calcolano (F.3): mai «verificato» per difetto;
+  - **l'impronta dell'esito** (`VersioneImprontaProdotto = 1`, IM.1); `valutazione.errore_valutazione` (F0-05).
+- In B6 (commit P7c, fase V2) **lo smistamento**, l'asse 5 (R81, R85, R91, R93 [U][R], R95 A, R105 [U]; contratto §1.0
+  riga 5, §1.5, §1.7, §2.3, §2.5, §2.6; E1R §6; T-B0-12, T-B0-25, T-B0-29, T-B0-32; T-E1-03, T-E1-05, T-E1-11,
+  T-E1-12, T-E1-13, T-E1-15; T-E1R-08, T-E1R-10, T-E1R-11; T-B6-07, T-B6-08, F0-12, F0-17, F0-18):
+  - **le associazioni dei file** (`AssociazioneFile`, una per allegato in `EsitoThread.Associazioni`): la proposta del
+    motore A, la destinazione F8, l'«assegna», il documento confermato, l'origine più forte, «proposta e accettata» o
+    «corretta a mano», l'esclusione (solo il gesto «scarta»), lo stato terminale, il perimetro di R93 (b), la pertinenza;
+  - **la pertinenza per evidenza** e **il contesto del messaggio**, con R106 B e R107 come l'utente le ha precisate il
+    07/10 (domande-a1c.md; R107 non coincide con una lettera, e in A1c resta la formula dell'opzione A, lettura [T]),
+    ognuna in una funzione sola (`contestoApplicabile`, `prodottiNominati`); dopo le risposte, il contesto con la sua
+    provenienza per ogni file che conta (`AssociazioneFile.Contesto`, `ContestoMessaggio`) e la contraddizione visibile
+    (`valutazione.contesto_discorde`);
+  - **gli orfani** e **«da smistare»** (`FileDaSmistare` in `EsitoThread.DaSmistare`), con R108 A, confermata
+    dall'utente con il requisito operativo per lo spazio di verifica, in una funzione sola (`voceDaSmistare`); gli orfani
+    come avviso del fascicolo (`StatoFascicolo.Orfani`, `.Avvisi`, F0-18);
+  - **i conflitti dell'asse smistamento** (associazione, con i motivi `componente_diverso` e `codice_confermato`;
+    `nuovo_file`; `identita_documento` dai pezzi dei 2D, con i prodotti a cui il documento è pertinente), composti con
+    quelli di B5 (`componiConflitti`);
+  - **la regola dello smistamento** (`Smistamento`, su `IngressoSmistamento` e `FileDelloSmistamento`, con i percorsi di
+    revisione tecnica come ingresso: `PercorsoRevisione`, `OriginePercorso`; in A1c nessun adattatore, LD-18) e lo
+    smistamento di ogni prodotto in `ProdottoValutato.Smistamento`.
+- In B6 (commit P7c, fase V3) **i nodi, lo stato del prodotto, il fascicolo e l'impronta** (R78, R79, R88, R89, R90 [U],
+  R91, R94 A precisata [R], R96 (a) A, (b) B, (c) A [R], R100 A; contratto §0.3, §1.0 riga 7, §1.3, §1.7, §2.3, §2.5;
+  T-B0-21, T-B0-23, T-B0-28, T-B0-29, T-B0-39; T-E1-01, T-E1-14, T-E1-16, T-E1-19; T-E1R-04, T-E1R-12; LD-10, LD-23;
+  F0-06, F0-07, F0-08; T-B6-09, T-B6-11, T-B6-12):
+  - **i nodi della BOM di lavoro** (`NodoBOM` in `ProdottoValutato.Nodi`, solo per la BOM di lavoro: T-B6-11): la
+    parentela, i 2D del componente deciso o candidati del nodo, l'origine dell'associazione del primario, i motivi dei
+    file del nodo, la classificazione, gli altri prodotti con lo stesso componente (`AncheIn`), la descrizione;
+  - **l'impronta del prodotto** (`ImprontaProdotto` sui dati decisi, `DatiDecisiProdotto` e i suoi tipi): si calcola per
+    ogni prodotto, anche non verificato; la salverà A2 (R100 A);
+  - **il composto e lo stato del prodotto**, l'asse 7 (`StatoDelProdotto`, con l'ingresso `CondizioniNuove`): un solo
+    predicato, `Verificato`, e lo stato che ne deriva, con `da_riesaminare` secondo T-E1-14 e R111 A, precisata
+    dall'utente il 07/10, in una funzione sola (`vociNuoveDopoLaFonteSuperataR111`); il confronto semantico fra due STEP
+    che la risposta chiede arriva in B6b;
+  - **il fascicolo** (`Fascicolo`, con l'ingresso `IngressoFascicolo` e il gesto di congelamento del modello nuovo,
+    `GestoCongelamento`, senza adattatore: LD-23) e il congelamento legacy a parte (`CongelamentoLegacy`, dalla
+    bom_versione).
 
 ## Non appartiene qui
 
@@ -90,17 +149,28 @@ markmap:
   target (R60 A). Lo stesso per i tipi della fonte (`RiferimentoFonte`, `DocumentoCandidato`, …), che stanno in
   `ancoraggio`.
 - **Il confronto con le proposte attuali e con l'atteso**: `core/confronto` e `app/bancoa`. `valutazione` non importa
-  `confronto`, il caricatore, la libreria YAML.
-- **Lo smistamento** (l'asse 5), lo stato del prodotto, il fascicolo, l'impronta, `NodoBOM` (con `NodoBOM.Disegni` e
-  `NodoBOM.Classificazione`), `Calcola` ed `Esito`: B6, nello stesso pacchetto, dopo.
+  `confronto`, il caricatore, la libreria YAML. Qui si preparano i record piatti; badge, indicatore di revisione,
+  correzioni manuali ed esiti li calcola `confronto`, e la copia nei suoi DTO la fa chi chiama (`app/bancoa`,
+  `passaggio.go`).
+- **Il gesto di congelamento del modello nuovo e il suo servizio** (R89; LD-09, LD-23): il DB di oggi non lo ha; lo
+  registrerà lo spazio di verifica (SV). Qui è solo un ingresso della regola (`Calcola` passa nil), e il fascicolo non è
+  mai congelato sui dati veri (`gesto_non_registrato`). Così **l'avvio della fattibilità per prodotto** (LD-10): qui
+  `pronto_fattibilita` è un risultato calcolato, che non fa avanzare niente; la fase è del thread (`FaseThread`).
+- **Il salvataggio dell'impronta del prodotto e il confronto con un'impronta salvata**: A2 (R100 A, T-E1R-12). Qui
+  l'impronta si calcola soltanto.
+- **I nodi delle strutture candidate come `NodoBOM`**: il contratto dà `PV.Nodi` solo alla BOM di lavoro (T-B6-11); sui
+  dati veri i nodi stanno negli ancoraggi (`EsitoThread.Ancoraggi.Strutture`). Se la UI e il riquadro di A1d ne hanno
+  bisogno, lo valuta B7.
+- **I percorsi di revisione tecnica e il gesto di scarto come scritture**: il DB di oggi non ha percorsi (LD-18), e la
+  pulizia fisica delle copie scartate è di un servizio futuro (LD-26, E1R §6.3). Qui il percorso è solo un ingresso della
+  regola (`Calcola` passa nil), lo scarto si legge com'è (la proposta scartata con `deciso_da`), e niente si cancella.
 - **L'adattatore della conferma della categoria** (`ConfermaCategoria`): il DB non ha la categoria (LD-19); la
   scriverà lo spazio di verifica (SV). Qui la regola si prova con conferme sintetiche. La distinta del PDF di assieme e
   lo STEP multibody come evidenza (RC-01) sono fuori dal contratto congelato: niente qui.
 - **Le regole delle strutture, degli ancoraggi, della catena del codice e della riconciliazione**: `core/ancoraggio`.
   Qui si sceglie solo che cosa della fotografia entra, e si leggono i suoi segnali (le discordanze, `QuantitaDiscorde`).
-- **Il `Conflitto` composto per l'esito** (con lo smistamento, l'associazione, il file nuovo) e la pertinenza dei
-  documenti ai prodotti: B6. Qui escono i pezzi di nomenclatura e di gerarchia, per prodotto, e il pezzo
-  `identita_documento` dalla regola `ValutaDisegno`, per i prodotti che il chiamante le dà.
+- **Le azioni sui conflitti** (accettare, mantenere con un motivo, correggere, sistemare l'associazione) e la loro chiusura
+  persistente: la UI e il servizio futuro (T-E1-15, R95 A). Qui i conflitti si calcolano, con le evidenze dei due lati.
 - **L'adattatore delle decisioni sull'identità di un documento** (`DecisioneIdentita` con l'oggetto documento): il DB di
   oggi non le ha (LD-27); le scriverà lo spazio di verifica (SV). Qui la regola si prova con decisioni sintetiche.
 - **La decodifica delle immagini, il cartiglio raster, l'anteprima comune** (LD-01, LD-03, LD-04): il worker e A1d.
@@ -112,7 +182,62 @@ markmap:
   - commento `// Package`; `ValutazioneProdotti`, `ValutaProdotti`: i documenti dei messaggi, la richiesta,
     l'interpretazione, i candidati della mail, i target, la fonte di ogni target; da B5 gli ancoraggi del thread, lo
     stato della struttura e la verifica della BOM di ogni target, i conflitti, i 2D dei componenti, la completezza di
-    ogni target e la classificazione dei componenti; le diagnostiche in ordine.
+    ogni target e la classificazione dei componenti; le diagnostiche in ordine; da B6 `valutaThread`, la stessa con il
+    collegamento del thread, (V2) lo smistamento del thread e dei prodotti e (V3) i nodi, l'impronta e lo stato di ogni
+    prodotto.
+- **`calcola.go`** (B6, V1) — responsabilità:
+  - `Calcola`; l'esito di un thread (`esitoDelThread`: il motore e il motivo, l'errore della valutazione, i record dei
+    file, le evidenze, i record piatti, il vecchio dei prodotti; da V2 le associazioni, i file da smistare, i conflitti
+    dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
+    di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
+- **`esito.go`** (B6, V1) — responsabilità:
+  - `VersioneValutazione`, `Esito`, `EsitoThread`, `MotivoThread`, `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri
+    `FileInterpretato` e `MessaggioInterpretato` (F0-03); i motivi di un file non valutato (`MotivoFile*`).
+- **`vecchio.go`** (B6, V1) — responsabilità:
+  - `LetturaRegistrata`, i motivi `MotivoLettura*`, `LeggiCodiceRegistrato`; `vecchioLetto` e la scelta della proposta e
+    del documento di ogni allegato; la lettura dei dettagli (la lettura del vecchio motore, la destinazione F8);
+    `confronto.codice_registrato_non_leggibile`; il vecchio dei prodotti (`vecchiProdotti`).
+- **`confrontabile.go`** (B6, V1) — responsabilità:
+  - i record piatti `FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`, `CandidatoPiatto`, `ProdottoConfrontabile`; i
+    valori `Revisioni*` e `MotivoRevisioni*`; la costruzione: il nuovo di ogni allegato (le basi, i candidati con la base
+    del target, del componente deciso o del nodo, le radici, la revisione del file e il confronto con quella del codice
+    vecchio), i candidati prodotto piatti.
+- **`impronta.go`** (B6, V1 e V3) — responsabilità:
+  - `VersioneImprontaProdotto`; l'impronta dell'esito (`improntaEsito`);
+  - (V3) l'impronta del prodotto: l'ingresso astratto (`DatiDecisiProdotto`, `ImprontaFonte`, `ImprontaComponente`,
+    `ImprontaRelazione`, `ImprontaDocumento`), la regola `ImprontaProdotto`, l'adattatore (`datiDecisiDelProdotto`) e le
+    sezioni di T-12 (`improntaNonDeterminabile`, con quelle della fonte: R-82; `unaSezioneAssente`, l'aiuto che usa
+    anche il fascicolo).
+- **`smistamento.go`** (B6, V1 per i tipi, V2 per la regola) — responsabilità:
+  - i tipi dell'asse 5 che l'esito porta: `StatoSmistamento`, `MotivoSmistamento`, `VerificaSmistamento`, i valori di
+    `Perimetro`, `AssociazioneFile`, `FileDaSmistare`;
+  - i percorsi di revisione tecnica (`OriginePercorso`, `PercorsoRevisione`, l'ingresso astratto); l'ingresso della regola
+    (`IngressoSmistamento`, `FileDelloSmistamento`) e la regola `Smistamento`, con i motivi di un file e di un conflitto.
+- **`associazioni.go`** (B6, V2) — responsabilità:
+  - l'adattatore dello smistamento di un thread (`smistamentoThread`): per ogni allegato il perimetro, la proposta, il
+    documento, l'esclusione, lo stato terminale, l'«assegna», la destinazione F8 (`fileDelThread`); le associazioni
+    (`associazione`, `destinazioneCoincide`); i conflitti di associazione, `nuovo_file` e `identita_documento`; l'ingresso
+    della regola per ogni prodotto (`ingressoDelProdotto`).
+- **`pertinenza.go`** (B6, V2) — responsabilità:
+  - la pertinenza per evidenza (`evidenzeDiPertinenza`, `nomina`), il contesto del messaggio e gli orfani (`pertinenza`);
+    le tre risposte del 07/10 in una funzione sola ognuna: R106 B, precisata (`contestoApplicabile`), R107, precisata
+    (`prodottiNominati`, con la provenienza), R108 A, confermata con il requisito operativo (`voceDaSmistare`); i prodotti
+    con cui il contesto si confronta (`prodottiCollegati`) e `valutazione.contesto_discorde`
+    (`diagnosticaContestoDiscorde`); gli avvisi degli orfani (`avvisiDegliOrfani`).
+- **`nodi.go`** (B6, V1 per i tipi, V3) — responsabilità:
+  - `NodoBOM`, `Parentela`; i nodi della BOM di lavoro di un prodotto (`nodiThread`, `nodiDellaBOM`): la raggiungibilità
+    senza gli archi tolti, il componente del nodo, la descrizione, la parentela, i 2D, l'origine del primario, i motivi
+    (`motiviDelNodo`), la classificazione, `AncheIn`.
+- **`prodotti.go`** (B6, V1 per i tipi, V3) — responsabilità:
+  - `StatoProdotto`, `MotivoProdotto`, `CondizioniNuove`; la regola `StatoDelProdotto` con i motivi
+    (`motiviDelProdotto`), le condizioni nuove dello smistamento e della completezza (T-E1-14); l'adattatore delle
+    condizioni nuove della BOM (`condizioniNuoveDellaBOM`); R111 A, precisata dall'utente il 07/10, in una funzione sola
+    (`vociNuoveDopoLaFonteSuperataR111`).
+- **`fascicolo.go`** (B6, V1 per i tipi, V3) — responsabilità:
+  - `StatoFascicolo` con i valori di `MotivoNonCongelabile`, `MotivoNonCongelato` e `ConflittiCongelamento`,
+    `ProdottoBloccato`, `CongelamentoLegacy`, `GestoCongelamento`, `IngressoFascicolo`; la regola `Fascicolo`; le sezioni
+    di T-12 (`fascicoloNonDeterminabile`, con quelle dello smistamento: la nota di V2); il congelamento legacy dalla
+    fotografia (`congelamentoLegacy`).
 - **`ingressi.go`** — responsabilità:
   - `VersioneCasi` (1), `Ingressi`, `IngressoCaso`, `SegmentoDichiarato`, `Ingressi.CasoDelThread`, `LeggiIngressi`;
   - la porta stretta: BOM, UTF-8, surrogati soli, versione, chiavi sconosciute, ripetute o con le maiuscole diverse,
@@ -142,13 +267,15 @@ markmap:
 - **`bom.go`** (B5, fase 1) — responsabilità:
   - `GestiVerificaBOM`, `GestoVerifica`, `StatoVerificaAsse`, i motivi `MotivoAsse*`, `VerificaAsse`, `VerificaBOM`,
     `StrutturaDaVerificare`, `RifArco`;
-  - la regola `VerificaDellaBOM`, la gerarchia legacy senza la BOM di lavoro (`gerarchiaSenzaBOMDiLavoro`, T-B5-17) e
-    la lettura A di K-02 (`bomSenzaFonteConfermataK02`);
+  - la regola `VerificaDellaBOM`, con le voci da decidere di ogni asse (`vociDaDecidere`: da B6, V3, anche per lo stato
+    del prodotto), la gerarchia legacy senza la BOM di lavoro (`gerarchiaSenzaBOMDiLavoro`, T-B5-17) e la lettura A di
+    K-02 (`bomSenzaFonteConfermataK02`);
   - l'adattatore legacy (`gestiDaConfermaLAlbero`), la struttura del prodotto (`strutturaDaVerificare`,
     `struttureDellaVerifica`), il perimetro della BOM confermata, `bom.fonte_non_registrata`.
 - **`conflitti.go`** (B5, fase 1) — responsabilità:
   - `Conflitto`, `TipoConflitto`, `AsseConflitto`, `EvidenzaDecisione`, `EvidenzaProposta`, i motivi;
-  - `ConflittiDellaNomenclatura`, i conflitti di gerarchia (quantità e rimozioni), l'ordine canonico.
+  - `ConflittiDellaNomenclatura`, i conflitti di gerarchia (quantità e rimozioni), l'ordine canonico; da B6 la
+    composizione dei pezzi nell'esito del thread (`componiConflitti`).
 - **`disegni.go`** (B5, fase 2) — responsabilità:
   - `Formato2D`, `VersioneFormati2D`, `FormatoDisegno`, `FormatiDisegno2D`, `FormatoDi`; `ValiditaDisegno2D`,
     `MotivoFabbisogno` (i nove valori del contratto), `ContenutoDisegno`, la regola `ValiditaDisegno`;
@@ -186,12 +313,23 @@ markmap:
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici di B1: `ancoraggio.target_non_leggibile`, `target.possibile_rinomina`,
     `fonte_strutturale.riferimento_incoerente`, `fonte_strutturale.radice_non_registrata`; di B5:
-    `bom.fonte_non_registrata`, `documenti.deroga_non_sostituisce_2d`.
+    `bom.fonte_non_registrata`, `documenti.deroga_non_sostituisce_2d`; di B6: `valutazione.errore_valutazione`,
+    `confronto.codice_registrato_non_leggibile`, `valutazione.messaggio_fuori_rfq_senza_caso` (R-63 della revisione di
+    V1); dopo le risposte del 07/10, `valutazione.contesto_discorde` (R106 B, precisata).
 
 ## Entry point
 
-- **`ValutaProdotti`** — chi lo chiama: da B6 `Calcola`, per ogni thread, nel banco (`app/bancoa`) e da A1d
-  nell'anteprima (`transport/web`); in B1 le prove.
+- **`Calcola`** (B6) — chi lo chiama: il banco (`app/bancoa`, P9) e, da A1d, l'anteprima (`transport/web`), con la
+  stessa fotografia, le stesse regole e lo stesso file dei casi; oggi le prove.
+- **`LeggiCodiceRegistrato`** (B6) — chi lo chiama: `Calcola` per il vecchio, attraverso la regola privata; chi vuole la
+  lettura di un codice registrato con il motivo (A1d).
+- **`Smistamento`** (B6, V2) — chi la usa: `ValutaProdotti` (attraverso l'adattatore), senza percorsi; la regola si prova
+  con ingressi sintetici e percorsi sintetici (PO-24, PO-25); dopo A1c lo spazio di verifica, con i percorsi veri.
+- **`StatoDelProdotto`**, **`Fascicolo`**, **`ImprontaProdotto`** (B6, V3) — chi le usa: `ValutaProdotti` e `Calcola`
+  (attraverso gli adattatori), senza il gesto di congelamento; le regole si provano con ingressi sintetici (PO-24, PO-31,
+  il gesto sintetico); dopo A1c lo spazio di verifica (il gesto) e A2 (l'impronta salvata). Il banco (P9) legge i loro
+  risultati nella sezione `prodotti` del rapporto, solo come informazione (T-B0-16).
+- **`ValutaProdotti`** — chi lo chiama: `Calcola`, per ogni thread (attraverso `valutaThread`); le prove.
 - **`LeggiIngressi`, `Ingressi.CasoDelThread`** — chi li chiama: il banco, con la voce `casi` del manifest;
   l'anteprima, con il file che l'indice delle regole dichiara (R29 b C): lo stesso file.
 - **`RichiestaDelThread`, `TargetConfermato`** — chi li usa: `ValutaProdotti`; da B6 lo stato del prodotto
@@ -382,6 +520,257 @@ markmap:
 - **Il triage è solo evidenza** (R29 c): sta in `Evento` e nel motivo del riconoscimento, mai nello stato.
 - **La storia non si promuove**: con il caso valgono solo i segmenti dichiarati; senza, il riconoscimento tocca solo
   la parte corrente di un messaggio valutato (R48 A, E2).
+- **L'esito di `Calcola`** (B6, V1; 6.4.6; fase 0, F.2, F.3, IM.1; T-B6-09, F0-03, F0-04, F0-05, F0-13, F0-14):
+  - l'errore di `Calcola` è solo di contratto: una diagnostica di gravità errore di `ValidaFotografia` (le altre vanno in
+    `Esito.Diagnostiche`), un thread o un messaggio fuori RFQ ripetuto nella fotografia (`contratto.id_ripetuto`: R-66
+    della revisione di V1, perché l'esito dipenderebbe dall'ordine), o un'impronta della fotografia che non si calcola
+    (`contratto.json_non_valido`); allora l'esito è vuoto;
+  - un thread senza motore non è valutato, con il motivo della grammatica: `senza_grammatica_a` (nessuna voce
+    nell'indice, `regole.assenti`, o nessun insieme di regole), `grammatica_scartata`, `ragione_sociale_discorde`, con le
+    diagnostiche di `MotoreDi`. `ValutaProdotti` si chiama lo stesso, e i prodotti sono informazione (T-B6-09);
+  - un errore della valutazione rende il thread non valutato, con `errore_valutazione` se il motore c'è (altrimenti
+    resta il motivo della grammatica); se l'errore porta un errore di contratto se ne copiano le diagnostiche, altrimenti
+    `valutazione.errore_valutazione` (F0-05). Niente del nuovo; i record dei file e il vecchio ci sono lo stesso;
+  - **un record per allegato**, in ordine di `AllegatoID`, in `File` e in `Confrontabili`, anche per i contenitori, per
+    le nature che non sono «file» e per i thread non valutati (F0-03; CP.2). Il motivo di un file non valutato, il primo
+    che vale: `contenitore`, `natura_non_file`, `thread_non_valutato` (solo nel nuovo piatto), `documento_non_leggibile`;
+    allora l'associazione è `non_valutata` (A1c-L1-14). **L'errore dell'adattatore o dell'interpretazione su un file**
+    (R-61 della revisione di V1; F0-05) è una diagnostica di gravità **avviso**, nel thread o nel messaggio fuori RFQ, con
+    il percorso `file[<id>]` e l'allegato nei riferimenti: le diagnostiche dell'errore di contratto che porta (la natura
+    resta la loro), altrimenti `valutazione.errore_valutazione`. Il thread prosegue, e il file resta
+    `documento_non_leggibile`;
+  - **la deviazione `senza_testo`** (T-B6-02): il 6.4.6, passo 8, e A1c-L1-14 davano `illeggibile` alla scansione (un PDF
+    senza testo e senza OCR); vale il contratto (T-B0-31, LD-05): `senza_testo`, e `illeggibile` resta per un PDF che non
+    si apre. Lo stesso per l'esito atteso di A1c-L4D-07 (Q10);
+  - i messaggi fuori RFQ (R34): per ogni caso senza thread, ogni suo messaggio, cercato fra quelli della fotografia e
+    valutato con la grammatica del cliente del caso come un thread di un messaggio solo (il documento, l'interpretazione
+    con i segmenti del caso, i file, i prodotti della mail), mai con target né ancoraggi. Un messaggio del caso che la
+    fotografia non ha è un record non valutato con `valutazione.errore_valutazione`; un messaggio della fotografia che
+    nessun caso senza thread elenca è un avviso con il suo codice, `valutazione.messaggio_fuori_rfq_senza_caso` (R-63 della
+    revisione di V1; mai silenzio). Per chi chiama: fra i fuori RFQ (`caricatore.Richiesta.Messaggi`) vanno solo i
+    messaggi dei casi **senza** thread; i messaggi della richiesta di un caso con il thread stanno nel thread;
+  - i conflitti di B5 entrano nell'esito con il loro prodotto, senza doppioni (F0-13, con la chiave allargata al
+    documento e all'unità dell'evidenza della proposta: T-B6-23), in ordine canonico e poi di prodotto e tipo;
+  - i campi di V3 (i nodi, il composto, lo stato, i motivi, l'impronta, il fascicolo) li calcola V3: vedi «I nodi, lo
+    stato del prodotto, il fascicolo e l'impronta». **Mai «verificato» per difetto**;
+  - **l'impronta dell'esito** è lo sha256 del canonico dell'esito con l'impronta vuota: copre le quattro versioni,
+    l'impronta della fotografia, quella dell'indice (con i limiti: R43 B), ogni thread per intero, i messaggi fuori RFQ,
+    le diagnostiche. Fuori per costruzione: `PresaIl` e `Sorgente`, ogni orologio, l'atteso (R2), l'esito di `confronto`;
+  - **l'impronta per thread** (F0-14): l'esito è di tutta la fotografia, quindi l'impronta del banco e quella
+    dell'anteprima coincidono, per lo stesso thread, solo se il banco gira su quel thread solo (come A1d-L4-09: `Carica`
+    con quel thread). Con `-tutti` non esiste un'impronta per thread.
+- **Il vecchio e i record piatti** (B6, V1; 6.4.6; R31 c, R53 B; registro §10.2; T-B0-14, T-B1-07; F0-02, F0-09, F0-10):
+  - la proposta di un allegato è una (UNIQUE nel DB; con due righe vince la prima per ID); il documento è quello che lo
+    porta in `documento_provenienza`, prima i correnti, poi per ID. Un file deciso prende codice, revisione, componente,
+    documento e sostituzione dal documento, mai dalla proposta; la proposta dà stato, fonte, «assegna», la decisione e i
+    dettagli;
+  - il codice si legge con la grammatica (`LeggiCodiceRegistrato`, la regola di B1), mai per stringa: un codice che non
+    si legge ha la base vuota e, con la grammatica e un codice non vuoto, `confronto.codice_registrato_non_leggibile`;
+  - `CodiceLetto` viene da `dettagli.valutazione.codice` (T-B0-14; F0-02), il valore della dimensione del codice, salvo
+    la regola «operatore», che è la decisione di una persona (T-B6-22). Si conoscono solo le versioni 1 e 2 di
+    `dettagli.valutazione` (`v`, come `LeggiValutazione` del legacy; R-64 della revisione di V1): un'altra versione, o
+    nessuna, lascia `CodiceLetto` vuoto. **Per la `v: 1` vale il valore registrato allora**, cioè la lettura del vecchio
+    motore di quel giorno: il legacy ricompone le dimensioni di una riga v1, e qui una regola del legacy non si rifà;
+  - `CodiceLettoBase` (F0-19, emendamento di CP.2) è la base di `CodiceLetto` letta con la stessa grammatica
+    (`LeggiCodiceRegistrato(m, CodiceLetto).Base`), vuota se `CodiceLetto` è vuoto o non si legge: serve al «prima» delle
+    correzioni manuali di `confronto` (R30 f), che così confronta basi, non stringhe. **`CodiceLettoMarcatore`** (il
+    gemello per R114, precisata dall'utente il 07/10: 18 campi nel vecchio) è il marcatore della stessa lettura
+    (`LeggiCodiceRegistrato(m, CodiceLetto).Marcatore`, cioè `LetturaForma.Marcatore`), vuoto se il marcatore non c'è, se
+    `CodiceLetto` è vuoto o se non si legge: `confronto` conta a parte la stessa base con due marcatori scritti e diversi,
+    senza sommarla ai cambi di base. Quale dei due conteggi faccia da titolo è una scelta dell'utente (D-R114, aperta in
+    domande-a1c.md; non è la D1 della revisione di P8);
+  - la destinazione F8 sono le chiavi dei candidati di `dettagli.destinazione`, in ordine, senza doppioni; negli export,
+    senza dettagli, vuote;
+  - i record piatti sono gemelli dei DTO di `confronto` (stessi nomi, ordine, tipi Go, tag), fatti solo di tipi delle
+    foglie: nessun tipo con nome del motore, nemmeno un enumerato. La base di un candidato: quella del target per il
+    livello prodotto, del codice del componente deciso letto con la grammatica, della forma del nodo senza decisione.
+    **Per `componente:<uuid>` `CandidatoPiatto.Base` è la base del codice del componente, non quella letta nel file** (D1
+    della revisione di P8, chiusa; lo dice anche il README di `confronto`);
+  - **le radici** sono le basi dei target da cui il candidato si raggiunge, in ordine di byte, senza doppioni; **una o più
+    radici la cui base non si legge restano un solo `""`** (R-62 della revisione di V1): una radice in più non sparisce,
+    e `confronto` conta `""` come una radice che non coincide con nessuna base attesa, cioè una radice «in più»;
+  - le revisioni si confrontano con la grammatica (`motorea.ConfrontaRevisioni`): la revisione letta nel codice vecchio
+    contro quella comune alle letture d'identità del file. Una revisione scritta solo nella colonna `rev` della proposta
+    o del documento non si legge (la grammatica la legge nel codice): `non_confrontabili`, con il motivo
+    `revisione_solo_in_colonna` quando il codice si legge senza nessuna revisione e la colonna non è vuota (R-65 della
+    revisione di V1: il limite di T-B6-24 si conta), altrimenti `revisione_vecchia_non_letta` (il codice che non si legge,
+    o una revisione non letta, come un token sospeso). È un limite noto: R113 B ratificata, da realizzare prima di Q10
+    (la revisione legacy letta con la regola della grammatica, con il valore originale, l'interpretazione e la
+    provenienza).
+- **Lo smistamento** (B6, V2; R81, R93, R95 A, R105; contratto §1.5; E1R §6):
+  - **il perimetro di R93 (b)** (T-E1-12), il primo che vale: `inline`, `elemento_outlook` (un .msg come contenitore),
+    `collegamento`, `contenitore_estratto` (contano le sue voci), `messaggio_in_uscita` (non interno: l'inoltro interno
+    conta), `altra_controparte` (un fornitore, un altro cliente), altrimenti `dentro` (anche le controparti sconosciuto,
+    ambiguo, interno, altro, e i file proposti come rumore). Un file fuori perimetro non è pertinente, non entra in «da
+    smistare» né fra gli orfani, non toglie nessun fabbisogno;
+  - **lo scarto è solo un gesto** (T-E1R-10): `Esclusa` solo con la proposta `scartata` con `deciso_da`. **Terminale**
+    (T-B0-32): un documento confermato che porta il file (su un componente o generale), il duplicato con `deciso_da`,
+    lo scarto. Un file scartato non è da smistare, non è orfano, non tiene aperto niente e non soddisfa nessuna voce;
+  - **la pertinenza per evidenza** (T-E1-11), per un file che conta: un candidato del motore A su una struttura del
+    prodotto (le radici raggiungibili e le posizioni); la collocazione `non_determinabile` per un target senza strutture
+    il cui codice il file legge; la destinazione F8 (ogni chiave: componente del perimetro, nodo di una riga, codice di un
+    target), l'«assegna» o il documento su un componente del perimetro (R62 e A); uno STEP candidato della fonte
+    (`motore_a`, R76 b). È l'**elenco chiuso** delle sei evidenze che impediscono il ripiego sul contesto (R106 B,
+    precisata dall'utente il 07/10), ognuna solo se porta a un prodotto target; **non lo impediscono** l'estensione o la
+    natura del file, il tipo proposto, la collocazione `fuori_richiesta` proposta, un codice letto senza candidati (salvo
+    la collocazione non determinabile di un target senza struttura), la destinazione `generale`, la disponibilità («una
+    caratteristica generica del file, come l'estensione PDF, non è un collegamento a un prodotto»). Poi, solo per un file
+    che conta, non è terminale e non ha evidenze, il **contesto** come ripiego: le letture del motore A del messaggio
+    dell'allegato esterno, nei segmenti che la richiesta considera, con il ruolo «prodotto», che nominano un target
+    (R107, precisata dall'utente il 07/10; in A1c la formula dell'opzione A, alla lettera: R-71 della revisione di V2). I
+    segmenti sono il corrente di ogni messaggio (oggetto e corpo), anche senza il gesto 1, con la controparte sconosciuta
+    o la direzione non nota, più quelli che un caso dichiara pertinenti: le letture con la funzione «richiesta» del
+    router. Il caso aggiunge, non toglie il corrente; un corrente che il caso dichiara escluso è menzione e non conta
+    (dubbio T-B6-94); la storia conta solo se un caso la dichiara pertinente (R48 A). Un solo prodotto nominato:
+    pertinente, con `PertinenzaContesto`; più d'uno: orfano, con `ProdottiContesto` e l'avviso; nessuno: niente. Il
+    contesto non è mai un candidato né una conferma. **Il confine di R107 in A1c**: il contesto sono le letture
+    deterministiche del segmento corrente e dei segmenti di storia che un caso dichiara pertinenti; nessuna catena di
+    risposte, citazioni o inoltri, nessuna risposta senza codice ricostruita: sono del blocco nuovo dell'analisi dei
+    messaggi;
+  - **il contesto con la provenienza** (R106 B e R107, precisate il 07/10): per **ogni** file che conta, anche terminale
+    o con evidenze, `AssociazioneFile.Contesto` porta il messaggio dell'allegato esterno (`MessaggioID`), gli ID delle
+    letture che nominano un target (`Letture`: l'ID porta l'unità, quindi il segmento) e i prodotti nominati
+    (`Prodotti`); nil se il messaggio non nomina nessun target. La regola della pertinenza non cambia
+    (`PertinenzaContesto` resta l'unico effetto, solo come ripiego); i riferimenti di un messaggio che nomina più prodotti
+    si conservano anche quando il file non è orfano. Il contesto si calcola anche quando la pertinenza non si calcola per
+    T-12, perché `PertinenzaContesto` c'è anche lì (dubbio T-B6-171);
+  - **la contraddizione visibile** (`valutazione.contesto_discorde`, avviso, dati): i prodotti nominati non hanno niente
+    in comune con quelli a cui il file è già collegato, cioè quelli delle evidenze o, per un file terminale, quelli con il
+    componente del documento confermato nel perimetro (`prodottiCollegati`; un documento generale, un duplicato o uno
+    scarto non collegano: dubbio T-B6-172). I riferimenti: l'allegato, `contesto:<rif>` per i nominati, `evidenza:<rif>`
+    (o `decisione:<rif>`) per i collegati (dubbio T-B6-173). Solo quando la pertinenza si calcola; non blocca niente, non
+    cambia la pertinenza né la decisione, e non entra nell'impronta del prodotto. Un collegamento verso un elemento che
+    non è in nessun target non è un'evidenza e non dà la diagnostica (R106-3, estensione di B6b);
+  - **orfano**: conta, non è terminale, non è pertinente a nessuno; sta in «da smistare» e fa l'avviso
+    `orfano:<allegato_id>` (con il contesto `…:prodotti_contesto:<rif>|<rif>`), senza bloccare niente. **Solo quando la
+    pertinenza si calcola** (R-75 della revisione di V2): con una sezione dello smistamento assente (T-12: lo scarto, la
+    destinazione o un documento non si vedono) o in un thread senza grammatica (T-B6-61: niente candidati né contesto)
+    nessun file è orfano, `Fascicolo.Orfani` è 0 e il fascicolo non ha avvisi `orfano:`; i file senza evidenze stanno in
+    «da smistare» con il loro motivo, e lo smistamento dei prodotti non è calcolato. Una sezione assente solo della
+    completezza non tocca la pertinenza;
+  - **«da smistare»** (R108 A, confermata dall'utente il 07/10 con il requisito operativo per lo spazio di verifica: il
+    requisito, cioè vedere, correggere e confermare insieme, e distinguere assenza di destinazione, proposta da
+    confermare, analisi pendente o fallita, è dello spazio di verifica e del contratto dei DTO di B7): i file che contano,
+    non terminali, con uno dei cinque motivi (dai due assi
+    della proposta), più gli orfani; la pre-associazione e i file in conflitto si vedono nello smistamento del prodotto.
+    Un orfano senza candidati segue la tabella di E1 (§2.5) anche se è discordante (R-74 della revisione di V2):
+    `fuori_richiesta_non_confermato` con la collocazione fuori richiesta, altrimenti `nessun_candidato`; la discordanza
+    resta in `AssociazioneFile.Associazione`. Con R108 A un `candidato_unico` non entra mai, quindi
+    `FileDaSmistare.Proposta` è sempre vuota (nota per B7). La prima condizione dello smistamento (il documento presente
+    non confermato) non dipende dal perimetro (R93; T-B6-73, conforme): una voce certa con il file candidato fuori
+    perimetro ferma lo smistamento con `associazione_non_confermata` senza file non terminali, e il file si legge in
+    `VoceFabbisogno.FileCandidato`, perché fuori perimetro non compare fra i file dello smistamento;
+  - **i conflitti** dell'asse smistamento, uno per prodotto (F0-13), senza prodotti uno con il prodotto vuoto (mai
+    perso). Di associazione: il documento corrente o l'«assegna» su K, e l'identità letta adesso porta ad altri candidati
+    (`componente_diverso`) o un candidato su K non è più compatibile con il codice confermato di K (`codice_confermato`,
+    la parola di ancoraggio: T-B6-66); mai senza candidati (R62 g A); va ai prodotti con K nel perimetro e a quelli a cui
+    il file è pertinente. Il documento confermato dà il conflitto anche fuori perimetro (R-72 della revisione di V2,
+    decisione [T]: il perimetro di R93 vale per la seconda e la terza condizione, non per una decisione contraddetta, e il
+    documento soddisfa la voce della completezza); l'«assegna» solo per un file che conta (dubbio T-B6-95). `nuovo_file`:
+    un file che conta, non terminale, candidato per K che ha già un documento corrente dello stesso tipo, salvo il 2D; va
+    solo ai prodotti con K nel perimetro (R-73), mai fuori perimetro (PO-32). `identita_documento`: i pezzi dei 2D, sui
+    prodotti a cui il documento è pertinente. La decisione resta; il documento resta nella completezza. Il riferimento di
+    un allegato senza documento è `allegato:<uuid>` (`rifAllegato`, l'aiuto solo del pacchetto);
+  - **la regola** (`Smistamento`): le cinque condizioni con i loro motivi (il documento presente non confermato: T-B6-08;
+    ambiguo, discordante, non determinabile; i file non terminali; i conflitti; i percorsi aperti), poi in_revisione,
+    conflitto, verificato, da_verificare. **Non calcolata** (sempre da_verificare; F.2): il target senza componente
+    (T-B6-07, F0-17), una sezione assente (T-12, anche della completezza), il thread senza grammatica (T-B6-61, confermato
+    dalla revisione di V2: senza grammatica non ci sono candidati né contesto, e un prodotto con tutti i file noti
+    terminali risulterebbe verificato in silenzio, R90). Con un errore della valutazione niente associazioni né file da
+    smistare.
+- **I nodi, lo stato del prodotto, il fascicolo e l'impronta** (B6, V3; R79, R88, R89, R90, R91, R96; contratto §1.0,
+  §1.3, §1.7):
+  - **i nodi** (T-B6-11): solo quelli della BOM di lavoro, cioè della struttura sotto la radice scelta dello STEP
+    confermato; sui dati veri, senza STEP confermato, `PV.Nodi` è vuoto. Solo i nodi che la radice raggiunge senza un arco
+    tolto da una persona (la raggiungibilità dei previsti, T-B5-67); un nodo scartato ma raggiunto resta, con la sua riga
+    decisa. Il componente del nodo è la decisione per UUID, o il componente del target per la radice scelta (T-B4-38). I 2D
+    del nodo deciso sono il gruppo del componente, quelli del nodo senza decisione i candidati del nodo (`gruppoDelNodo`);
+    `Associazione` è la provenienza del primario in quel gruppo. I motivi vengono dai file del nodo (i candidati con una
+    posizione sul nodo e, per il nodo deciso, i file associati al componente) che contano e non sono terminali, e dai
+    conflitti dello smistamento del prodotto su quei file o sul componente. La classificazione del nodo senza decisione è
+    `non_determinata` (nessun tipo deciso), con la minuteria solo proposta: l'esenzione dal 2D la dice solo `EsenteDal2D`.
+    `AncheIn` sono gli altri prodotti la cui BOM confermata contiene il componente: lo stesso perimetro dell'impronta
+    (T-E1-19). La descrizione è quella del componente deciso, altrimenti quella del PRODUCT dello STEP;
+  - **l'impronta del prodotto** (R90 [U]; T-B0-29; IM.3): lo sha256 del canonico dei dati decisi, con gli elenchi in
+    ordine: la fonte del gesto 3 (documento, sha256, radice, `Superato`; mai l'allegato), il perimetro confermato (codici e
+    revisioni registrate com'è), le relazioni confermate con la quantità, i documenti confermati correnti dei componenti
+    del perimetro (tipo, sha256, revisione registrata). Fuori: i documenti generali, le proposte, l'«assegna», F8, i
+    candidati, le deroghe, le conferme della categoria, i gesti di verifica, i percorsi, le versioni del motore, il codice
+    manuale di una riga aperta (F0-08). Con T-12 (componenti, relazioni, documenti, provenienze, step_prodotto) è vuota;
+    è vuota anche con T-12 su una sezione della fonte (allegati, righe_componente_proposta, righe_relazione_proposta,
+    lavoro_pendente, proposte_documento), perché senza il riferimento della fonte sembrerebbe l'impronta dei dati decisi
+    e non lo sarebbe (R-82 della revisione di V3; scostamento [T] dall'elenco di IM.3, dubbio T-B6-151). Senza grammatica
+    (T-B1-11) la fonte si calcola, e l'impronta c'è. Un componente condiviso entra nell'impronta di ogni prodotto che lo
+    contiene (PO-26);
+  - **lo stato del prodotto** (R79; T-E1-01, T-E1-14): `Verificato` è il solo booleano (JSON `prodotto_verificato`), e
+    `pronto_fattibilita` vale se e solo se il prodotto è verificato (PO-35); un prodotto verificato non ha motivi, uno non
+    verificato ne ha uno per condizione che manca, nell'ordine dei valori (con `revisione_tecnica_aperta` quando c'è un
+    percorso, e `conflitto` con un conflitto aperto su un asse). `da_riesaminare` quando mancano solo condizioni nuove: un
+    conflitto aperto, un file pertinente non terminale, la fonte superata, una rimozione aperta (il perimetro aperto per
+    lei), un percorso aperto; la gerarchia ferma solo per `fonte_non_confermata` dopo una fonte superata (K-02); il
+    perimetro aperto per la fonte superata. Per nomenclatura e gerarchia conta lo stato di base dell'asse, senza i
+    conflitti (`condizioniNuoveDellaBOM`). Un thread senza grammatica, un target senza componente e T-12 hanno lo
+    smistamento non calcolato, quindi `non_pronto` (T-B6-09, T-B6-61);
+  - **le voci certe e il perimetro aperto** (R-81 della revisione di V3; T-E1-14, «non_calcolabile solo perché il
+    perimetro è aperto»; R94 A, «tutto il resto ci sarebbe»): con il perimetro aperto da una condizione nuova il prodotto
+    è `da_riesaminare` solo se ogni voce certa della completezza è `presente`, cioè se a perimetro chiuso sarebbe
+    `completa`. Una voce non presente per una ragione vecchia (il 2D confermato e mai analizzato, il documento non
+    confermato anche su un file pertinente non terminale, il formato non configurato) tiene il prodotto `non_pronto` anche
+    dietro il perimetro aperto, come a perimetro chiuso (`incompleta`). Lo smistamento non guarda le voci: il giudizio
+    sulle voci sta solo nella completezza, uguale per tutti i motivi (dubbio T-B6-82, riscritto da T-B6-150: prima una
+    voce `associazione_non_confermata` su un file non terminale contava come condizione nuova, e le voci degli altri
+    motivi passavano);
+  - **R111 A, precisata dall'utente il 07/10**, in una funzione sola: dopo una fonte superata contano come condizioni
+    nuove anche le voci da decidere della nuova fonte, cioè gli effetti della fonte superata (i nodi e gli archi, con le
+    chiavi del contratto, che lo STEP confermato prima non aveva). **Fra i due STEP oggi non c'è nessuna
+    corrispondenza**: le chiavi contengono lo sha256 del documento (T-E1-04, una chiave valida solo dentro un file), e il
+    confronto semantico che l'utente chiede (stessi padri e figli, occorrenze e quantità; gli affissi e le revisioni prima
+    dei codici nuovi; un criterio di corrispondenza esplicito, con i casi ambigui irrisolti) **arriva in B6b**: fino ad
+    allora è un limite dichiarato, e lo stato non cambia in questo giro. Il nuovo STEP è il documento corrente in fondo alla catena delle sostituzioni del
+    documento del riferimento. **Il limite dichiarato (R111 B)**: vale solo se la fotografia porta tutte e due le
+    versioni, cioè se il prodotto ha una struttura dello STEP di prima e una del nuovo (il caricatore legge tutti i
+    documenti del thread, anche quelli sostituiti, e i fatti dei loro contenuti alla terna corrente; la struttura c'è se il
+    file dello STEP è fra gli allegati e i suoi fatti si leggono). Se una delle due manca (lo STEP di prima analizzato con
+    un'altra terna, o senza allegato nel thread), le voci da decidere non sono mai nuove, e il prodotto è `non_pronto`
+    salvo che gli assi siano verificati o fermi per le condizioni che T-E1-14 elenca. **La regola effettiva** (R-85 della
+    revisione di V3): le chiavi dei nodi e degli archi comprendono lo sha256 del documento (T-E1-04), quindi ogni nodo e
+    ogni arco del nuovo STEP è nuovo, anche con lo stesso codice o la stessa struttura: con le due strutture leggibili,
+    dopo una fonte superata, sono nuove tutte e sole le voci del nuovo STEP. Lo STEP di prima serve solo a tre cose: la
+    sua struttura deve esserci (altrimenti vale la B); le sue voci, e quelle di un terzo STEP, restano vecchie; con lo
+    stesso sha256 nessuna voce è nuova. **La conseguenza per l'utente** (D-2 della revisione di V3): con il gesto 3 sul
+    nuovo STEP la fonte torna confermata, R111 non vale più, e le voci ancora da decidere tornano condizioni vecchie: il
+    prodotto passa da `da_riesaminare` a `non_pronto`, dopo un gesto che fa avanzare, e resta `non_pronto` finché le
+    voci nuove non sono decise. Il riesame calcolato non apre da solo un percorso di revisione tecnica;
+  - **il limite noto di T-B2-02** (dubbio T-B6-89; R-83 della revisione di V3): con la fonte non confermata (superata),
+    `ancoraggio` propone come fonte di una struttura candidata anche lo STEP del riferimento superato, mentre per
+    `valutazione` quello STEP non è un candidato: sta in `Fonte.Riferimento`, con `Superato`. Per T-B2-02 fanno fede i
+    candidati di valutazione, e `ancoraggio` è chiuso; quella struttura è proprio la «versione di prima» che la funzione di
+    R111 usa. La «prova generale» lo dichiara come sola eccezione, e solo con la fonte non confermata. Nota per B7: la UI
+    non deve proporre come fonte sceglibile la struttura dello STEP superato;
+  - **il fascicolo** (R88, R89; F0-06; T-B6-12): i conteggi, i pronti e i bloccati in ordine di Rif; congelabile se il
+    thread è valutato, il fascicolo calcolato e tutti i target, almeno uno, sono verificati (R96 a A). Il motivo, il primo
+    che vale: `thread_non_valutato` (anche per un errore della valutazione), `nessun_target`,
+    `bom_versione_con_prodotti_non_verificati` (la versione corrente della BOM legacy è congelata, e un prodotto non è
+    verificato), `prodotti_non_pronti`; gli altri che valgono insieme vanno in `Avvisi` come
+    `non_congelabile:<motivo>`, dopo gli avvisi degli orfani (che non cambiano `Congelabile`: T-E1-16). Non calcolato con
+    un errore della valutazione, con una sezione assente fra identificativi, componenti e versione della BOM (T-12), o fra
+    quelle dello smistamento (allegati, messaggi, proposte_documento, documenti, provenienze, relazioni,
+    righe_componente_proposta): senza, la pertinenza non si calcola e gli orfani non ci sono (R-75 della revisione di
+    V2), e un fascicolo calcolato direbbe «nessun orfano» senza saperlo. È più largo di F.2 («falso solo con T-12 sulle
+    sezioni dei target»): scostamento [T] da ratificare (dubbio T-B6-86, allargato da T-B6-152). Anche senza grammatica il
+    fascicolo non è calcolato, con lo stesso criterio della pertinenza (gli orfani non si calcolano: R-75), e il motivo
+    resta `thread_non_valutato` (R-86 della controprova di V3, che chiude T-B6-152);
+  - **il congelamento**: senza il gesto del modello nuovo (in A1c sempre: LD-23) `Congelato` è falso, con
+    `gesto_non_registrato`, anche con una bom_versione congelata (R96 b B), che si mostra in `Legacy` con la versione
+    corrente, l'ultima congelata e `Riaperta` per una bozza dopo una congelata (R96 c A). Con il gesto (sintetico, nelle
+    prove: PO-31) `Congelato` è vero con chi e quando, il gesto resta, e il fascicolo mostra i conflitti, mai in silenzio
+    (R96 [R]): `non_piu_congelabile`, `impronta_cambiata:<rif>` (anche per un target del gesto che oggi non c'è più:
+    F0-07), `target_nuovo:<rif>`, in quest'ordine e poi per Rif. Lo stato del prodotto non cambia per il gesto. Con un
+    gesto sintetico la regola non distingue un fatto da una prudenza (D-1 della revisione di V3): il fascicolo non
+    calcolato dà `non_piu_congelabile`, e le impronte vuote per T-12 danno `impronta_cambiata` per i loro target. È
+    prudente, perché non tace mai; la forma definitiva la decide A2, con l'adattatore del gesto;
+  - **la diagnostica della deroga** (`documenti.deroga_non_sostituisce_2d`, T-B5-61, T-B6-31): resta una per prodotto,
+    come i conflitti (F0-13), con il percorso della completezza di ognuno; nessuna diagnostica si fonde.
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; gli elenchi della fotografia si
   leggono in un ordine fisso, e la fotografia di chi chiama non cambia. Due esecuzioni sugli stessi ingressi, anche
   permutati, danno gli stessi byte canonici.
@@ -401,7 +790,7 @@ markmap:
   `github.com/google/uuid`, la libreria standard. Mai `core/confronto`, il caricatore, il DB, la libreria YAML (grafo
   del par.3.2.1).
 - **Solo nei test:** il caricatore e `platform/testutil`, nella L4 sul database di prova.
-- **È importato da:** ancora nessuno nel prodotto; da B6 il banco, da A1d l'anteprima.
+- **È importato da:** ancora nessuno nel prodotto; da B6 il banco (P9), da A1d l'anteprima.
 
 ## Test
 
@@ -472,6 +861,83 @@ markmap:
   (componente, tipo, bloccante) di A1c contro `v_fascicolo` con le esclusioni nominate E1-E5, la risoluzione delle
   regole di Go contro la vista, PO-33 come L4 sintetica, le deroghe; il database non cambia.
 - **`disegni_confine_test.go`** contiene anche il ritocco T-B5-46: il testo non interpretato con un'altra maiuscola.
+- **`valutazione_test.go`** (B6, V1) — L1 — A1c-L1-16: il percorso completo con quattro RFQ (valutata, senza voce
+  nell'indice, scartata, ragione sociale discorde), un adattatore in errore che non ferma il thread, gli errori della
+  valutazione (F0-05, T-B6-09), nessun insieme di regole, la fotografia non valida, i messaggi fuori RFQ (R34), il
+  determinismo con gli ingressi permutati; A1c-L1-14 riscritta su `senza_testo` (T-B6-02), con la deviazione dal piano
+  nominata; i record piatti del nuovo; i conflitti composti (T-B6-10, F0-13), anche sulla regola con pezzi sintetici.
+- **`vecchio_test.go`** (B6, V1) — L1 — A1c-L1-30: la lettura del codice registrato (con la A, la B, la X, una maiuscola
+  diversa, due spazi di codici, senza grammatica), il vecchio dal documento e dalla proposta, i dettagli, il documento
+  sostituito e quello corrente, le revisioni confrontate con la grammatica con ogni motivo, il codice che non si legge;
+  il vecchio dei prodotti (F0-18).
+- **`scenario_test.go`** (B6, V1) — L1 — A1c-L1-20, la parte di valutazione: la struttura del prodotto (era
+  `RadiceScenario`: T-B0-02) nell'esito, con i figli senza file e il nodo senza lettura.
+- **`esito_test.go`** (B6, V1) — L1 — i valori e i campi del contratto dei tipi nuovi, le versioni fissate, i codici di V1
+  (A1c-L1-32, la parte di valutazione), i record piatti fatti solo di tipi delle foglie (CP.2), nessun tipo dell'atteso
+  raggiungibile dall'esito né dagli ingressi (R2).
+- **`revisione_v1_test.go`** (B6, correzioni della revisione di V1) — L1 — R-61 (l'errore su un file, avviso, nel thread
+  e nel messaggio fuori RFQ), R-62 (la radice che non si legge, con due target), R-63, R-66 e un caso per ognuna delle
+  mutazioni vive di R-67 (i motivi e la disponibilità dei file di un thread non valutato, l'equivalenza delle revisioni,
+  il token sospeso, il caso con il thread che elenca i suoi messaggi, l'ordine dei conflitti composti). R-64, R-65 e
+  F0-19 sono in `vecchio_test.go`.
+- **`risposte_test.go`** (B6, le correzioni dopo le risposte del 07/10) — L1 — R106 B, precisata: la contraddizione
+  visibile (il file con un candidato nel secondo prodotto, nel messaggio che nomina solo il primo, con
+  `valutazione.contesto_discorde` e niente altro che cambia), il file terminale (la decisione resta), il file terminale
+  con un candidato nel prodotto nominato (si confronta con la sola decisione: T-B6-172, R-133 della revisione delle
+  correzioni), il messaggio che nomina tutti e due con l'evidenza in uno (i riferimenti conservati, nessuna
+  contraddizione), il messaggio che nomina due prodotti, nessuno collegato al file (tre target: R-133), le caratteristiche
+  generiche del file (il tipo e la destinazione generale non sono evidenze); R107, precisata: la provenienza (il messaggio
+  dell'allegato esterno anche per la voce di un archivio, le sole letture che nominano un target, la storia solo con il
+  caso); R114, precisata: il marcatore della lettura del vecchio motore che non c'è. Il marcatore letto e quello vuoto
+  sono anche in `vecchio_test.go`; gli invarianti del contesto e della diagnostica nell'aiuto `calcola`.
+- **`revisione_v2_test.go`** (B6, correzioni della revisione di V2) — L1 — R-71 (il contesto con la formula
+  dell'opzione A di R107, alla lettera: lettura [T], R107 precisata il 07/10, senza lettera; il corrente senza il gesto
+  1, con la controparte sconosciuta e la direzione non nota; il caso che aggiunge la storia e non toglie il corrente; il
+  corrente escluso), R-72 (il documento confermato fuori perimetro, il prodotto vuoto,
+  l'«assegna» fuori perimetro, il conflitto anche al prodotto a cui il file è pertinente: R-78), R-73, R-74 (le due
+  collocazioni), R-75 (T-12 su due sezioni, senza grammatica, la sezione solo della completezza), e un caso per ognuna
+  delle dodici mutazioni vive di R-76. L'invariante degli orfani dell'aiuto `calcola` segue R-75.
+- **`calcola_db_test.go`** (B6, V1) — L4 (`-tags integrazione`, il database di prova) — A1c-L4S-07, la parte di
+  `Calcola`: la fotografia conservata ridà l'esito di prima dopo un'analisi nuova alla stessa terna; `Calcola` non parla
+  con il database.
+- **`scena_calcola_test.go`** (B6, V1 e V2) — gli aiuti: l'insieme delle regole ACME dalla porta del prodotto, i thread
+  degli altri clienti, la fotografia con più thread, il messaggio fuori RFQ, la permutazione; gli invarianti di ogni esito,
+  con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei
+  conflitti, le funzioni di R106 B e R108 A e l'attribuzione dei conflitti `identita_documento`, la funzione di R111 A,
+  l'adattatore delle condizioni
+  nuove e i motivi del nodo, per le prove della regola.
+- **`smistamento_test.go`** (B6, V2) — L1 — la regola dello smistamento sugli ingressi astratti: le cinque condizioni con i
+  motivi, T-B6-08, PO-24 (in_revisione con un percorso sintetico, che vince sul conflitto), PO-25 nella parte dello
+  smistamento (anche il percorso `inbox_nuovo_cad` solo per i coinvolti), lo smistamento non calcolato (T-B6-07, F0-17,
+  T-12), il determinismo; R106 e R108 sulle loro funzioni; l'attribuzione dei conflitti `identita_documento` (T-E1R-08).
+- **`associazioni_test.go`** (B6, V2) — L1 — dalla fotografia, attraverso `Calcola`: PO-15 (parte B6), PO-04, PO-13,
+  PO-14 e PO-39, PO-21 (parte B6), PO-25, PO-27, PO-32, PO-40; R106, R107 (anche la storia con e senza il caso) e R108
+  sulla scena; la destinazione F8; le evidenze senza il ruolo «prodotto»; lo smistamento non calcolato; il determinismo.
+- **`scena_smistamento_test.go`** (B6, V2) — gli aiuti: il prodotto altrimenti verificato, il secondo prodotto, i messaggi
+  e i file con le proposte, la famiglia che legge la storia, le letture dell'esito.
+- **`associazioni_db_test.go`** (B6, V2) — L4 (`-tags integrazione`, il database di prova) — PO-14, PO-27 e PO-39: lo
+  scarto legacy scritto su `cockpit_test` come lo scrive il gesto «scarta», l'orfano con l'avviso, lo stesso orfano
+  scartato; `Calcola` non parla con il database.
+- **`prodotti_test.go`** (B6, V3) — L1 — lo stato del prodotto sulla regola condizione per condizione (PO-24 nella parte
+  dello stato, T-E1-14, K-02, le voci certe dietro il perimetro aperto: R-81), PO-35 sui campi del tipo, PO-18 (anche
+  PO-02 e PO-22 nella parte di B6), PO-25 e PO-19 nella parte dello stato; R-81 dalla fotografia (il 2D del finito mai
+  analizzato dietro una rimozione aperta e dietro la fonte superata, con i controlli); R111 nelle due direzioni dalla
+  fotografia e sulla funzione; l'adattatore delle condizioni nuove; il determinismo.
+- **`fascicolo_test.go`** (B6, V3) — L1 — PO-31 sulla regola con il gesto sintetico, PO-01, PO-02 con e senza la
+  bom_versione congelata, il thread non valutato e quello con l'errore, T-12 (anche sulle sezioni dello smistamento); la
+  deroga ripetuta per il componente condiviso (T-B5-61).
+- **`nodi_test.go`** (B6, V3) — L1 — i nodi solo della BOM di lavoro (T-B6-11), PO-20 nella parte di B6, `AncheIn`, gli
+  archi tolti, la descrizione, la classificazione del nodo senza decisione, i motivi del nodo (anche sulla regola, con
+  ingressi sintetici).
+- **`impronta_prodotto_test.go`** (B6, V3) — L1 — l'impronta sulla regola e dalla fotografia (che cosa la copre e che
+  cosa no, la fonte superata), T-12 (anche sulle sezioni della fonte: R-82), senza grammatica, il prodotto dello
+  scenario, PO-26.
+- **`scena_prodotti_test.go`** (B6, V3) — gli aiuti: gli invarianti di ogni prodotto e di ogni fascicolo, che gli aiuti
+  `valuta` e `calcola` controllano su tutti i casi delle prove (PO-35, T-B6-09, T-B6-11; il composto e le precondizioni
+  di `da_riesaminare`, R-84; il fascicolo non calcolato con T-12), e la «prova generale» della coerenza fra
+  `FonteProdotto.Candidati` e `StrutturaProdotto.Fonti` (T-B2-02), con la sola eccezione dichiarata (R-83).
+- **`prodotti_db_test.go`** (B6, V3) — L4 (`-tags integrazione`, il database di prova) — PO-01, PO-02 con e senza la
+  bom_versione congelata, PO-19 e PO-31 in L4 sintetica; `Calcola` non parla con il database, e la lettura non lo cambia.
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro (A1a-CAT,
   A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.

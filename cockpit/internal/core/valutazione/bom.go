@@ -194,13 +194,8 @@ func VerificaDellaBOM(g GestiVerificaBOM, s StrutturaDaVerificare) VerificaBOM {
 	senzaFigli := len(s.ArchiConfermati) == 0 && len(differenza(s.Nodi, s.Radici)) == 0
 	nom := VerificaAsse{Legacy: g.Legacy, Conflitti: rifDeiConflitti(s.Conflitti, AsseNomenclatura)}
 	ger := VerificaAsse{Legacy: g.Legacy, Conflitti: rifDeiConflitti(s.Conflitti, AsseGerarchia)}
-	if g.Legacy {
-		nom.DaDecidere = len(s.RigheDaDecidere) + len(differenza(s.ArchiConfermati, archiDel(g.Nomenclatura)))
-		ger.DaDecidere = len(s.RigheDaDecidere) + len(s.ArchiDaDecidere) + len(differenza(s.ArchiConfermati, archiDel(g.Gerarchia)))
-	} else {
-		nom.DaDecidere = len(differenza(s.Nodi, nodiDel(g.Nomenclatura))) + len(differenza(s.ArchiConfermati, archiDel(g.Nomenclatura)))
-		ger.DaDecidere = len(differenza(s.Archi, archiDel(g.Gerarchia))) + len(differenza(s.ArchiConfermati, archiDel(g.Gerarchia)))
-	}
+	vociNom, vociGer := vociDaDecidere(g, s)
+	nom.DaDecidere, ger.DaDecidere = len(vociNom), len(vociGer)
 
 	statoDi := func(a *VerificaAsse, gesto *GestoVerifica) {
 		switch {
@@ -231,6 +226,24 @@ func VerificaDellaBOM(g GestiVerificaBOM, s StrutturaDaVerificare) VerificaBOM {
 	return VerificaBOM{Nomenclatura: nom, Gerarchia: ger,
 		Verificata:      nom.Stato == StatoAsseVerificata && ger.Stato == StatoAsseVerificata,
 		FonteRegistrata: !g.Legacy && s.FonteConfermata, RimozioniAperte: len(s.RimozioniAperte), SenzaFigli: senzaFigli}
+}
+
+// vociDaDecidere: quello che resta da decidere sui due assi (VerificaAsse.DaDecidere è il loro numero), come elenco di Rif.
+// Legacy: per la nomenclatura le righe da decidere della struttura (RifRigaProposta, e il RifNodo dei nodi senza righe:
+// T-B5-15) e le relazioni confermate che il segno non copre; per la gerarchia anche le righe degli archi da decidere (e il
+// RifArco degli archi senza righe: R-21). Modello nuovo: i nodi (o gli archi) della struttura che il gesto non copre, più le
+// relazioni confermate che il gesto non copre (T-B5-99). Le parti non si sovrappongono (righe, nodi e archi delle strutture
+// contro archi fra due componenti), quindi il numero è quello di B5. B6 (V3) le classifica per lo stato del prodotto, dopo
+// una fonte superata (R111 A, precisata dall'utente il 07/10: vociNuoveDopoLaFonteSuperataR111).
+func vociDaDecidere(g GestiVerificaBOM, s StrutturaDaVerificare) (nomenclatura, gerarchia []string) {
+	if g.Legacy {
+		nomenclatura = append(append([]string(nil), s.RigheDaDecidere...), differenza(s.ArchiConfermati, archiDel(g.Nomenclatura))...)
+		gerarchia = append(append(append([]string(nil), s.RigheDaDecidere...), s.ArchiDaDecidere...), differenza(s.ArchiConfermati, archiDel(g.Gerarchia))...)
+		return nomenclatura, gerarchia
+	}
+	nomenclatura = append(differenza(s.Nodi, nodiDel(g.Nomenclatura)), differenza(s.ArchiConfermati, archiDel(g.Nomenclatura))...)
+	gerarchia = append(differenza(s.Archi, archiDel(g.Gerarchia)), differenza(s.ArchiConfermati, archiDel(g.Gerarchia))...)
+	return nomenclatura, gerarchia
 }
 
 // bomSenzaFonteConfermataK02: la BOM di un prodotto senza la fonte STEP confermata. È la lettura A di K-02, confermata
