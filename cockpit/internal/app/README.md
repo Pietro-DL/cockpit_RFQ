@@ -37,11 +37,13 @@ markmap:
 
 ## File
 
-- Due package: `runtime`, il processo del server, in sette file; `bancoa`, il banco del motore A senza DB
-  (giro 5, A1a), che ha il suo README ([`bancoa/README.md`](bancoa/README.md)).
+- Due package: `runtime`, il processo del server, in sette file; `bancoa`, il banco del motore A (giro 5, A1a e
+  A1c), che ha il suo README ([`bancoa/README.md`](bancoa/README.md)).
 - `bancoa` non è un processo di lungo periodo e non sa niente del server: legge il manifest del dataset
   privato, gli attesi (è l'unico importatore della libreria YAML), l'indice e le grammatiche, fa girare le
-  modalità `regole` e `casi` sul motore A e scrive il rapporto con l'esito in testa.
+  modalità `regole` e `casi` sul motore A e scrive il rapporto con l'esito in testa. Da A1c ha anche le modalità
+  `dsn` (la copia del dump in sola lettura, attraverso `platform/migrazioni` e il caricatore) ed `exports` (gli
+  export del DB), con lo stesso percorso puro del prodotto (`valutazione`, poi `confronto`) e il gate.
 - File e che cosa tiene:
   - **`esegui.go`**
     - `Opzioni` (con `SoloLettura`) e `Esegui(cfgPath, rete config.Rete, Opzioni)`: la sequenza dell'avvio, un passo per riga, e niente altro
@@ -100,6 +102,10 @@ markmap:
   `-dataset <manifest del dataset privato>`, `-uscita <cartella dei rapporti>` e traduce l'esito nei codici
   d'uscita 0 (conforme), 1 (con differenze), 2 (uso o configurazione, nessun rapporto), 3 (NON ESEGUITO).
   Non legge `cockpit.toml`. Dettaglio in `bancoa/README.md`.
+- **`bancoa.EseguiBanco`** (A1c): `cmd/bancoa/main.go`, con `-dsn <DSN della copia, senza password>` o
+  `-exports <cartella degli export>`, `-thread`/`-tutti`, `-attesi`, `-gate`; gli stessi codici d'uscita, con il gate
+  che decide l'uscita con `-gate`.
+  `bancoa.FlagThread` dà a `cmd/bancoa` il flag `-thread`, ripetibile, un UUID per volta.
 
 ### La riga di comando (`cmd/cockpit/main.go`)
 
@@ -289,10 +295,11 @@ markmap:
 - Lo importa solo `cmd/cockpit`.
 - `bancoa` importa:
   - `core` (`inbox/classificazione/motorea`, `registro/regole/grammatica`, `estrazione/evidenze`; da A1b.11
-    `estrazione`, solo `DaTesto`, per il modo `casi`)
-  - `platform` (`dataset`, `jsoncanonico`)
+    `estrazione`, solo `DaTesto`, per il modo `casi`; da A1c `fotorfq`, `fotorfq/caricatore`, `valutazione`,
+    `confronto`)
+  - `platform` (`dataset`, `jsoncanonico`; da A1c `migrazioni`)
   - la libreria YAML, di cui è l'unico importatore (G3)
-  - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`.
+  - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`, `core/ancoraggio`.
 - Lo importa solo `cmd/bancoa`.
 
 ## Test

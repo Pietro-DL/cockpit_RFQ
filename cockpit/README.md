@@ -137,6 +137,7 @@ markmap:
 
    - Le dipendenze si scaricano al primo `go build`.
    - Senza internet si compila su un altro PC e si copia `cockpit.exe`: porta dentro migrazioni, template, file statici e file dei worker.
+   - Il banco del motore A (`.\cmd\bancoa`) non serve al server: si compila sul PC delle prove (vedi «Il banco del motore A»).
 3. **PostgreSQL 16 o successivo**: un ruolo e un database di cui quel ruolo è **proprietario**.
    - La prima migrazione crea l'estensione `pgcrypto`: senza i diritti l'avvio si ferma lì.
 
@@ -684,6 +685,7 @@ markmap:
 
 - ```powershell
   go build -o cockpit.exe .\cmd\cockpit     # dalla cartella cockpit
+  go build -o bancoa.exe .\cmd\bancoa       # il banco del motore A (giro 5): per le prove, fuori dal server
   ```
 
 ## Avviare il server Go
@@ -1363,10 +1365,12 @@ markmap:
   - Che cosa: prove reali: Outlook ed Exchange veri (L5, fra cui `workers\prova_lettura.py`), il banco a due PC e la share del NAS (L8), le altre prove sulla posta vera
   - Comando: a mano, nel registro degli esiti reali
 - **Banco del motore A (giro 5)**
-  - Che cosa: le grammatiche dei clienti e i casi degli attesi sul dataset privato, senza database: `regole` compila le grammatiche e ne verifica gli esempi, `casi` esegue i casi di contratto sul riconoscimento per forma
+  - Che cosa: le grammatiche dei clienti e i casi degli attesi sul dataset privato, senza database: `regole` compila le grammatiche e ne verifica gli esempi, `casi` esegue i casi di contratto sul riconoscimento per forma; da A1c anche il motore A su una copia del dump in sola lettura (`-dsn`) o sugli export del DB (`-exports`), contro gli attesi e con il gate (vedi «Il banco del motore A»)
   - Comando: `go run ./cmd/bancoa -modalita regole|casi -dataset <manifest del dataset privato> -uscita <cartella dei rapporti>`
+  - Comando: `go run ./cmd/bancoa -dsn <DSN della copia, senza password> -dataset <manifest del dataset privato> -tutti -attesi -gate -uscita <cartella dei rapporti>`
+  - Comando: `go run ./cmd/bancoa -exports <cartella degli export> -dataset <manifest del dataset privato> -attesi -uscita <cartella dei rapporti>`
   - Il dataset privato non sta nel repository: si indica solo con il flag `-dataset` (lo stesso file di `COCKPIT_DATASET_A`), e la cartella dei rapporti sta anche lei fuori dal modulo.
-  - Uscite: 0 conforme, 1 con differenze, 2 uso o configurazione, 3 NON ESEGUITO (il dataset manca o non è quello del manifest: mai un rapporto verde). Il rapporto comincia con «ESITO: …» e contiene dati privati: non si incolla in commit o PR.
+  - Uscite: 0 conforme, 1 con differenze, 2 uso o configurazione, 3 NON ESEGUITO (il dataset manca o non è quello del manifest, la copia non si raggiunge o non è quella del manifest: mai un rapporto verde). Il rapporto comincia con «ESITO: …» e contiene dati privati: non si incolla in commit o PR.
 - ```powershell
   go test ./...                        # L1: nessun database, anche con COCKPIT_TEST_DSN impostata
   python -m pytest -q workers          # L2: stanno in workers\tests\ (i moduli provati sono una cartella sopra); serve pytest
@@ -1396,6 +1400,21 @@ markmap:
   - È l'unico livello in cui il client e il server si parlano davvero: gli altri provano una metà sola,
     - e un difetto che sta nel modo in cui il client compila il contratto — non nel contratto — passa indisturbato attraverso tutti (è successo il 15/09/2026).
   - Richiedono Python; con `COCKPIT_TEST_SENZA_PYTHON=1` (è quello che fa `prova-tutto.ps1 -SenzaPython`) vengono saltati e il registro li annota come non verificati.
+
+### Il banco del motore A
+
+- `bancoa` è il banco del motore A: lo stesso motore del prodotto (`valutazione.Calcola`, poi `confronto.Confronta`), su dati veri e senza scrivere niente. Le modalità `regole` e `casi` non usano il database; `-dsn` legge una copia del dump in sola lettura, `-exports` gli export del DB.
+- Le prime righe a video:
+  - `sorgente: <host:porta/database come ruolo> (banco, sola lettura)`, prima di collegarsi (con `-exports`: la cartella, il numero dei file e lo sha256 del manifest);
+  - `collegato in sola lettura: ruolo <ruolo>, scrittura possibile: no, tabelle escluse non leggibili: <n>` (con `-exports`: `nessun database aperto; fatti dagli export (bypass di Outlook, download e parser Python)`);
+  - `rapporto: <percorso>`: il rapporto si scrive subito, con `ESITO: NON ESEGUITO — lettura non cominciata`, prima di leggere; se la corsa si ferma, il rapporto lo dice;
+  - poi il riepilogo, con l'esito in testa e l'ultima riga `scritture: solo <rapporto>; nessuna scrittura sul database`.
+- Il DSN non porta la password: la legge pgx da `pgpass.conf`. Un DSN con la password, o `PGPASSWORD` impostata, è un errore d'uso, e l'errore non ripete il DSN.
+- Il rapporto (`rapporto-dsn.json` o `rapporto-exports.json`, con il `.txt` accanto) ha l'esito in testa e l'elenco dei controlli, ciascuno eseguito o non eseguito con il motivo. Si scrive in modo atomico, solo fuori dal modulo. A video vanno solo conteggi, ID e percorsi, mai i testi delle mail; il file contiene comunque dati privati.
+- Sempre, il file dei casi contro la fotografia: un thread o un messaggio di un caso che la copia non ha è una differenza (il file dei casi contraddice i dati); con `-exports` un messaggio che gli export non hanno (solo quelli in entrata) è una parte non verificata, e così i thread il cui cliente non ha la ragione sociale nell'export dei clienti.
+- Con `-attesi`: i controlli del runner (gli ingressi del caso dello scenario, gli ID e gli sha256 degli attesi risolti nella fotografia, gli export e le fonti nelle due direzioni, il file dei casi uguale a quello dell'indice, gli attesi letti per intero), la baseline, la C5, le letture attese dei file, gli esiti per file e per prodotto e il gate. Una chiave degli attesi che il runner non conosce non si ignora: è una differenza. Una chiave che il runner accetta è verificata oppure dichiarata non verificata, con il percorso, nei dettagli del controllo (che allora è NON ESEGUITO): mai buttata in silenzio. Con `-gate` il gate decide l'uscita: superato 0, non superato 1, incompleto 3; senza `-gate`, un gate non superato lo dice la prima riga.
+- Ogni controllo e ogni voce del gate hanno una classe (obbligatorio; obbligatorio verificato fuori dal runner, con la prova che lo chiude; informativo; fuori perimetro, con la motivazione) e un esito (passato, fallito, non eseguito). Il riepilogo «Chiusura» separa la parte obbligatoria del runner dalle verifiche esterne e dagli informativi. Le sentinelle della copia sono delegate alla prova L4 sul dump (riga «delegato»). Il 3 non diventa mai 0 per una classe.
+- Gli assi dei prodotti, lo stato e il fascicolo sono solo informazione (la sezione `prodotti` del rapporto), mai una voce del gate.
 
 ### Le prove nel browser (L7)
 
@@ -1605,7 +1624,7 @@ markmap:
 - **`cmd/cockpit/main.go`**
   - la riga di comando: flag, `runtime.Opzioni`, codice di uscita
 - **`cmd/bancoa/main.go`**
-  - il banco del motore A senza database (giro 5): `-modalita regole|casi`, `-dataset` (il manifest del dataset privato, fuori dal repository), `-uscita`; codici di uscita 0/1/2/3; non legge cockpit.toml
+  - il banco del motore A (giro 5): `-modalita regole|casi` senza database; da A1c `-dsn` (una copia del dump in sola lettura) ed `-exports` (gli export del DB), con `-thread`/`-tutti`, `-attesi`, `-gate`; `-dataset` (o `-manifest`: il manifest del dataset privato, fuori dal repository), `-uscita`; codici di uscita 0/1/2/3; non legge cockpit.toml
 - **`embed.go`**
   - `embed.FS` di `migrations/`, `web/templates`, `web/static` e `workers/` (il pacchetto della postazione)
 - **`internal/platform/config`**

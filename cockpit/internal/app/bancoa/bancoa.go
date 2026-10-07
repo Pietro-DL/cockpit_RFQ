@@ -5,7 +5,11 @@
 //   - «casi»: esegue i casi_contratto degli attesi sul riconoscimento per forma (R24 a); da A1b.11 con
 //     estrazione.DaTesto più motorea.Interpreta e l'uso sconosciuto (5.4.5, R52 A).
 //
-// Le modalità «dsn» ed «exports» arrivano in A1c.
+// Da A1c ha anche le modalità «dsn» ed «exports» (piano 6.4.9; T-B6-03 e F0-01): la fotografia del DB in sola
+// lettura, attraverso il caricatore e platform/migrazioni, o quella degli export; poi lo stesso percorso puro del
+// prodotto (valutazione.Calcola, poi confronto.Confronta con la copia di passaggio.go) e, con gli attesi, i controlli
+// del runner, gli esiti e il gate. Hanno un punto d'ingresso loro, EseguiBanco, e un rapporto loro (versione 3):
+// Esegui, il rapporto di A1a e le due modalità senza DB non cambiano.
 //
 // Legge tutto da un percorso esterno al repository, attraverso il manifest del dataset privato
 // (platform/dataset): attesi, indice delle regole e grammatiche. Nel codice nessun nome di cliente, nessun
@@ -21,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,23 +44,45 @@ import (
 // 2 da A1b.11: nei casi le letture hanno la funzione del router e l'esito porta gli attributi di Interpreta.
 const VersioneRapporto = 2
 
-// Le modalità di A1a (R24 a). dsn ed exports arrivano in A1c.
+// Le modalità di A1a (R24 a), senza DB, e quelle di A1c (6.4.9), che hanno il loro punto d'ingresso (EseguiBanco).
 const (
-	ModalitaRegole = "regole"
-	ModalitaCasi   = "casi"
+	ModalitaRegole  = "regole"
+	ModalitaCasi    = "casi"
+	ModalitaDSN     = "dsn"
+	ModalitaExports = "exports"
 )
 
-// I nomi logici delle voci del manifest che il banco legge in A1a.
+// I nomi logici delle voci del manifest che il banco legge: in A1a gli attesi e l'indice; da A1c anche il file dei
+// casi (6.6.2), che deve essere quello che l'indice dichiara per l'anteprima (controllo del runner n.4).
 const (
 	VoceAttesi = "attesi"
 	VoceIndice = "regole.indice"
+	VoceCasi   = "casi"
 )
 
 // Opzioni: che cosa eseguire. Dataset e Uscita sono obbligatori, e stanno fuori dal modulo.
+//
+// I campi dopo i tre di A1a li leggono solo le modalità dsn ed exports (6.4.9; T-B6-03, F0-01, F0-16): Esegui li
+// rifiuta, e nessun campo di A1a cambia.
+//   - DSN: la copia del dump, senza password (pgx la legge da pgpass.conf: R32 c); Exports: la cartella degli export;
+//     si escludono a vicenda.
+//   - Thread: le RFQ da fotografare; Tutti: tutte, lette nella stessa transazione (solo con dsn).
+//   - Attesi: gli esiti contro gli attesi e il gate; Gate: il gate decide l'uscita (0 superato, 1 non superato, 3
+//     incompleto: R44).
+//   - Migrazioni: le migrazioni incorporate del binario (cockpit.FS), per il controllo dello schema di
+//     migrazioni.ApriInLettura. Le dà il comando, perché questo pacchetto non importa la radice del modulo (F0-16).
 type Opzioni struct {
 	Modalita string // regole | casi (A1a); dsn | exports (A1c)
 	Dataset  string // il manifest: lo stesso file di COCKPIT_DATASET_A, che legge anche il controllo prima del push
 	Uscita   string // la cartella dei rapporti
+
+	DSN        string
+	Exports    string
+	Thread     []uuid.UUID
+	Tutti      bool
+	Attesi     bool
+	Gate       bool
+	Migrazioni fs.FS
 }
 
 // Esito: come è andata un'esecuzione, scritto nella prima riga del rapporto (R44).
@@ -126,8 +153,12 @@ func Esegui(ctx context.Context, o Opzioni, w io.Writer) (Rapporto, error) {
 
 func (o Opzioni) valida() error {
 	switch {
+	case o.Modalita == ModalitaDSN || o.Modalita == ModalitaExports:
+		return &ErroreUso{Motivo: fmt.Sprintf("modalità %q: si esegue con EseguiBanco, non con Esegui (F0-01)", o.Modalita)}
 	case o.Modalita != ModalitaRegole && o.Modalita != ModalitaCasi:
-		return &ErroreUso{Motivo: fmt.Sprintf("modalità %q: in A1a ci sono %s e %s", o.Modalita, ModalitaRegole, ModalitaCasi)}
+		return &ErroreUso{Motivo: fmt.Sprintf("modalità %q: ci sono %s, %s, %s ed %s", o.Modalita, ModalitaRegole, ModalitaCasi, ModalitaDSN, ModalitaExports)}
+	case o.campiDiA1c() != "":
+		return &ErroreUso{Motivo: fmt.Sprintf("%s vale solo con le modalità %s ed %s, non con %s (F0-01)", o.campiDiA1c(), ModalitaDSN, ModalitaExports, o.Modalita)}
 	case strings.TrimSpace(o.Dataset) == "":
 		return &ErroreUso{Motivo: "manca il manifest del dataset (-dataset)"}
 	case strings.TrimSpace(o.Uscita) == "":
@@ -140,6 +171,26 @@ func (o Opzioni) valida() error {
 		return &ErroreUso{Motivo: "manifest: " + err.Error()}
 	}
 	return nil
+}
+
+// campiDiA1c: il primo campo delle modalità di A1c impostato, come flag; "" se nessuno. Con regole e casi è un errore
+// d'uso (F0-01, condizione c).
+func (o Opzioni) campiDiA1c() string {
+	switch {
+	case o.DSN != "":
+		return "-dsn"
+	case o.Exports != "":
+		return "-exports"
+	case len(o.Thread) > 0:
+		return "-thread"
+	case o.Tutti:
+		return "-tutti"
+	case o.Attesi:
+		return "-attesi"
+	case o.Gate:
+		return "-gate"
+	}
+	return ""
 }
 
 // esecuzione: lo stato di un'esecuzione mentre si riempie il rapporto.
