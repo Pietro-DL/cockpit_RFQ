@@ -5,11 +5,12 @@ markmap:
   colorFreezeLevel: 2
 ---
 
-# `internal/app/bancoa` — il banco del motore A senza DB
+# `internal/app/bancoa` — il banco del motore A
 
 ## Scopo
 
-- Il **runner del banco** del motore A (giro 5, R24 a, R40 e). In A1a ha due modalità, tutte e due senza DB:
+- Il **runner del banco** del motore A (giro 5, R24 a, R40 e). In A1a ha due modalità, tutte e due senza DB (da A1c
+  ci sono anche `dsn` ed `exports`, qui sotto):
   - **`regole`** («profili attivi validi», A1a-P1): compila le grammatiche dell'indice con i limiti dell'indice
     (R43 B), ne verifica gli esempi e scrive per cliente hash, famiglie con ruoli e categorie, forme attive e
     riservate, riserve, esempi verificati e non verificati, le **lacune** della copertura minima di P1 §5.4
@@ -22,9 +23,31 @@ markmap:
     router (R25 a): letture d'identità (`identita_file`, `struttura`, `richiesta`), menzioni, attributi.
     Esiti: passato, parziale, fallito, riservato, rimandato; un parziale, un riservato o un rimandato non è
     mai un passato.
+- Da A1c (B6, P9; piano 6.4.9; T-B6-03, F0-01) le modalità **`dsn`** ed **`exports`**, con un punto d'ingresso loro
+  (`EseguiBanco`) e un rapporto loro (versione 3):
+  - **`dsn`**: la copia del dump in sola lettura. `migrazioni.ApriInLettura` con le migrazioni incorporate del binario
+    (`Opzioni.Migrazioni`, che dà `cmd/bancoa`: F0-16) e il controllo dello schema; `migrazioni.ControllaSolaLettura`
+    con le tabelle escluse del manifest; la copia del manifest (ruolo, database, schema, tabelle escluse, sentinelle:
+    `controllaCopia`, R-106; le sentinelle sono una riga delegata ad A1c-L4D-01, R117 b); la prima scrittura del
+    rapporto; `caricatore.Carica` (una transazione REPEATABLE READ
+    READ ONLY), con i messaggi fuori RFQ dei casi senza thread (T-B6-04, D-V1-3); un messaggio dei casi che la copia
+    non ha si toglie e si ricarica, ed è una differenza del controllo dei casi (`caricaSenzaIMancanti`);
+  - **`exports`**: gli export del DB (`FotografiaDaExport`), la stessa fotografia con `Coerente` falso e le sezioni
+    filtrate, parziali o assenti dichiarate (T-12);
+  - poi lo **stesso percorso puro del prodotto**: `valutazione.Calcola` (con il file dei casi, letto con
+    `valutazione.LeggiIngressi` prima della fotografia), la copia campo per campo di `passaggio.go` nei DTO di
+    `confronto` (R53 B), `confronto.Confronta`; per i thread con un caso, una seconda valutazione senza il caso
+    (`senza_caso`, R48 A);
+  - sempre, il file dei casi contro la fotografia (`casi_e_fotografia`, R-103) e, con gli export, i clienti dei thread
+    (`clienti_degli_export`, T-B6-104);
+  - con **`-attesi`**: le sezioni degli attesi lette con `LeggiSezioni` e tradotte con i nomi neutri (M-21, P-10), i
+    **controlli del runner 1–5**, la baseline, la C5, le letture e le chiavi booleane dei file
+    (`letture_e_invarianti_dei_file`, R-101), gli esiti contro l'atteso, i casi di contratto, il **gate**; con
+    **`-gate`** il gate decide l'uscita (0 superato, 1 non superato, 3 incompleto: R44).
 - Legge tutto **da fuori il repository**, attraverso il manifest del dataset privato (`platform/dataset`):
-  attesi, indice delle regole, grammatiche. Ogni file del manifest passa dal controllo di sha256 e byte;
-  l'indice controlla gli sha256 delle grammatiche.
+  attesi, indice delle regole, grammatiche, file dei casi, export. Ogni file del manifest passa dal controllo di
+  sha256 e byte; l'indice controlla gli sha256 delle grammatiche. Con `dsn` legge il DB solo in sola lettura, e scrive
+  solo i file del rapporto.
 - Scrive il **rapporto** con l'esito in testa (R44): «ESITO: ESEGUITO — conforme», «ESITO: ESEGUITO — con
   differenze (n)» o «ESITO: NON ESEGUITO — <motivo>», più l'elenco dei controlli, ciascuno eseguito o non
   eseguito con il motivo. In JSON canonico e in testo, in modo atomico.
@@ -43,10 +66,21 @@ markmap:
 - **Nomi di clienti, profili, percorsi o codici reali**: nel codice ci sono solo i nomi neutri delle chiavi
   degli attesi (R47 a, M-21). I profili si legano ai clienti nel manifest (D-09); i valori attesi vengono
   dagli attesi a runtime e compaiono solo nei rapporti privati.
-- **Il DB, gli export, la fotografia, le proposte di prodotti, il confronto con l'atteso dei prodotti e il
-  gate**: le modalità `dsn` ed `exports` arrivano in A1c. `cockpit.toml` non si legge.
-- **Il file dei casi** (uso «scenario» dei segmenti, R29 b): lo leggono il banco e l'anteprima in A1c e A1d.
-  Nel modo `casi` di A1b l'uso è sempre quello sconosciuto.
+- **Leggere il DB per conto suo**: la fotografia la legge il caricatore, l'unico che parla con il DB (in sola
+  lettura); l'apertura e i controlli del collegamento sono di `platform/migrazioni`. Questo pacchetto non nomina pgx:
+  il pool passa per inferenza di tipo. Nessuna query e nessuna scrittura (R92); le sentinelle della copia non si
+  contano qui (nessun SQL nuovo, T-B0-36): le controlla `testutil.PoolDump` nella L4 sul dump (A1c-L4D-01), e il
+  rapporto lo scrive come riga delegata (R117 b, ratificata e ampliata dall'utente il 07/10, domande-a1c.md). Le
+  impronte di contenuto per ambiente e gli ambienti della copia per PO-30 e della copia rianalizzata (le parti (b) e
+  (c) di R117) non sono qui.
+- **Valutare, proporre, confrontare**: lo fanno `valutazione` e `confronto`, gli stessi dell'anteprima. Il banco
+  traduce gli attesi nei DTO di atteso di `confronto` e li confronta solo lui (R2, P-11): il motore non li vede mai.
+- **`ancoraggio`**: il banco non lo importa (la freccia c'è solo nella prova di parità, `passaggio_test.go`). Le
+  costanti del motore che `confronto` ricopia come stringhe le controlla quella prova (T-B6-50).
+- **Il gate del prodotto**: gli assi del prodotto, lo stato e il fascicolo sono solo informazione nel rapporto
+  (sezione `prodotti`; T-B0-16, R69 A), mai una voce del gate né una NON ESEGUITA. `cockpit.toml` non si legge.
+- **I valori degli attesi, del file dei casi, degli export**: nel codice ci sono solo i nomi neutri delle sezioni e
+  delle chiavi; i nomi dei file degli export stanno nel manifest privato.
 
 ## File
 
@@ -75,11 +109,53 @@ markmap:
     `EsitoCaso`, `EsitoChiave`, `LetturaRapporto`, `ConteggiCasi`, `Conta`.
 - **`rapporto.go`** — responsabilità:
   - `Rapporto`, `Versioni`, `Controllo`, `RapportoCasi`; `PrimaRiga`, `Testo`; `ScriviRapporto` (`.tmp`, poi
-    `Rename`; rifiuta una cartella dentro il modulo).
+    `Rename`; rifiuta una cartella dentro il modulo). Il rapporto di A1a: non cambia. Da A1c `Controllo` ha anche
+    `Classe` ed `Esito`, con `omitempty`: li riempie solo il rapporto versione 3, e il JSON di A1a resta lo stesso, byte
+    per byte (R116 B).
+- **`banco.go`** (A1c) — responsabilità:
+  - `EseguiBanco`, `validaBanco` (le cinque condizioni di F0-01, il DSN senza password, `PGPASSWORD`, le regole dei
+    flag), `FlagThread` (il flag `-thread` del comando, R-114), le sequenze `-dsn` (con `caricaSenzaIMancanti`) ed
+    `-exports`, il percorso comune dalla fotografia al rapporto (`valuta`, con il contesto della corsa), i casi di
+    contratto, `senza_caso`, il censimento, le correzioni manuali per cliente, il profilo dei limiti.
+- **`export.go`** (A1c) — responsabilità:
+  - `FotografiaDaExport`, `VociExport`, `ErrExportNonValido`: gli export elencati dal manifest (`export.<sezione>`),
+    con sha256 e byte, nella forma `{query: righe}`, nella fotografia, con le sezioni dichiarate.
+- **`passaggio.go`** (A1c) — responsabilità:
+  - `inFile`, `inProdotti`: la copia campo per campo dai record piatti di `valutazione` ai DTO di `confronto`.
+- **`sezioni.go`** (A1c) — responsabilità:
+  - i DTO delle sezioni lette (`SezioniAttesi`, `ScenarioAtteso`, `VoceAttesa`…) e la traduzione in
+    `confronto.Atteso`, thread per thread (`traduci`), con gli errori di traduzione (D8, R-51).
+- **`controlli.go`** (A1c) — responsabilità:
+  - i controlli del runner 1–5, la traduzione, i controlli (1) e (2) della baseline, gli invarianti della C5, le
+    letture attese dei file (`controlloLetture`, con le regole della tabella dei casi), il file dei casi contro la
+    fotografia, i clienti degli export, la copia del manifest e la sola lettura (`controllaCopia`, `solaLetturaDi`),
+    le impronte del confronto; il contesto della corsa (`contestoCorsa`).
+- **`gate.go`** (A1c) — responsabilità:
+  - `Gate`, `VoceGate`, `calcolaGate` (le sette voci, una per una, con la classe e l'esito), l'uscita con `-gate`.
+- **`classi.go`** (A1c) — responsabilità:
+  - la classe e l'esito tri-stato di ogni controllo e di ogni voce del gate (R116 B, precisata dall'utente il 07/10):
+    `ClasseControllo`, `EsitoTriStato`, `ControlloDelegato` (R117 b), la tabella statica delle classi con la
+    motivazione, la fonte e, per gli esterni, la prova; il riepilogo `Chiusura`.
+- **`prodotti.go`** (A1c) — responsabilità:
+  - la sezione informativa `prodotti` (i sette assi, lo stato, il fascicolo, i conflitti; «non calcolato» dove manca
+    una sezione: T-12) e la fonte attesa dei prodotti dello scenario (`fonteAttesaDelloScenario`, PO-29). R109,
+    precisata dall'utente il 07/10, senza scegliere una lettera. Lettura [T]: la regola del runner (la A del testo
+    della domanda) resta valida se la derivazione dagli attesi è esplicita e indipendente dal motore; la derivazione
+    arriva in B6b, prima di Q10.
+- **`rapporto_banco.go`** (A1c) — responsabilità:
+  - `RapportoBanco` (versione 3) e le sue sezioni, con i dettagli dei controlli (`DettaglioControllo`: le differenze e
+    le parti non verificate una per una), `PrimaRiga`, `Testo`, `scriviRapportoBanco` (`rapporto-dsn.json` e `.txt`,
+    `rapporto-exports.json` e `.txt`).
+- **`attesi.go`**, in più da A1c: `LeggiSezioni`, la lettura stretta delle sezioni (unico file con la libreria YAML).
 
 ## Entry point
 
 - **`Esegui`, `Opzioni`, `Esito.CodiceUscita`, `ErroreUso`** — chi li chiama: `cmd/bancoa/main.go`.
+- **`EseguiBanco`, `RapportoBanco`** (A1c, modalità `dsn` ed `exports`) — chi li chiama: `cmd/bancoa/main.go`; da Q10
+  le L4 sul dump, attraverso il runner (R54).
+- **`FotografiaDaExport`, `LeggiSezioni`** — chi li chiama: `EseguiBanco`.
+- **`FlagThread`** — chi lo chiama: `cmd/bancoa/main.go`, per il flag `-thread` (così il comando non importa la
+  libreria degli UUID: I.2).
 - **`LeggiAttesi`, `VerificaRegole`, `EseguiCasiContratto`, `ScriviRapporto`** — chi li chiama: `Esegui`; da A1c
   le prove private sul dump, che passano dal runner (R54).
 
@@ -88,12 +164,25 @@ markmap:
 - `bancoa -modalita regole|casi -dataset <manifest del dataset privato> -uscita <cartella dei rapporti>`:
   - `-dataset` è lo stesso file di `COCKPIT_DATASET_A`; `-uscita` la cartella dei rapporti, che si crea se
     manca. Tutti e due fuori dal modulo.
+- `bancoa -dsn <DSN della copia, senza password> -dataset <manifest> (-thread <uuid> ... | -tutti) [-attesi [-gate]] -uscita <cartella>`
+- `bancoa -exports <cartella degli export> -dataset <manifest> [-thread <uuid> ...] [-attesi [-gate]] -uscita <cartella>`
+  - la modalità la dice `-dsn` o `-exports` (o `-modalita dsn|exports`); `-dsn` ed `-exports` si escludono; `-tutti`
+    solo con `-dsn`; `-manifest` è un sinonimo di `-dataset`; `-gate` vuole `-attesi`;
+  - il DSN non porta la password (pgx la legge da `pgpass.conf`), e con `PGPASSWORD` impostata il banco non parte
+    (R32 c); gli errori non ripetono il DSN;
+  - le righe a video: «sorgente: …», poi «collegato in sola lettura: ruolo …, scrittura possibile: no, tabelle escluse
+    non leggibili: n» (con `-dsn`) o «nessun database aperto; fatti dagli export (bypass di Outlook, download e parser
+    Python)» (con `-exports`), poi «rapporto: <percorso>», con la prima scrittura del rapporto («ESITO: NON ESEGUITO —
+    lettura non cominciata»); alla fine il riepilogo, con l'ultima riga «scritture: …».
 - Codici d'uscita, gli stessi del riepilogo delle prove e del controllo prima del push (R44):
   - **0** eseguito e conforme;
   - **1** eseguito, con differenze: un errore di grammatica, un caso fallito, un controllo del runner fallito;
   - **2** uso o configurazione (flag sbagliati o mancanti, uscita o dataset dentro il modulo): nessun rapporto,
     la causa su stderr;
-  - **3** NON ESEGUITO: il manifest manca o non si legge, una sua voce manca o ha un'impronta diversa.
+  - **3** NON ESEGUITO: il manifest manca o non si legge, una sua voce manca o ha un'impronta diversa; con `-dsn` la
+    copia non si raggiunge, ha uno schema diverso dal binario o non è quella del manifest; con `-gate`, un gate
+    incompleto (una voce non eseguita e nessuna non superata). Le sentinelle della copia, delegate ad A1c-L4D-01, non
+    danno il 3 (R117 b); le classi e la chiusura non cambiano mai l'uscita, e il 3 non diventa 0 (R116 B).
 - Il riepilogo va anche su stdout. Contiene dati privati: non si incolla in commit, PR o note pubbliche.
 
 ## Invarianti
@@ -137,12 +226,119 @@ markmap:
 - **Nessun ordine dipende da una mappa**: casi nell'ordine degli attesi, chiavi in ordine alfabetico, clienti
   nell'ordine dell'indice. Niente orologio nel rapporto.
 
+### Le modalità `dsn` ed `exports` (A1c)
+
+- **A1a non cambia** (F0-01): `Esegui`, il rapporto di A1a e `ScriviRapporto` restano com'erano; `Esegui` rifiuta
+  le modalità di A1c e i loro flag con regole e casi (errore d'uso); un'opzione `dsn` senza DSN, o `exports` senza la
+  cartella, è un errore d'uso.
+- **Il file dei casi prima della fotografia** (T-B6-04): `caricatore.Richiesta.Messaggi` ha solo i messaggi dei casi
+  senza thread (D-V1-3).
+- **I controlli del runner** girano prima degli esiti; un fallimento è una differenza (uscita 1), mai un «mancante»;
+  un ingresso che manca o è cambiato è NON ESEGUITO (uscita 3). Con i soli thread scelti (`-thread`) gli ID degli
+  attesi di altri thread non sono differenze ma parti non verificabili, e così lo scenario se il suo thread non è
+  scelto (il n.1 e i conteggi del gate: R-104); uno sha256 sbagliato resta una differenza.
+- **La regola delle chiavi accettate** (T-B6-102, precisata dopo la revisione di P9): una chiave degli attesi che il
+  runner accetta è verificata, oppure è dichiarata non verificata fra le parti non eseguite del controllo che la
+  riguarda, con il percorso e senza valori; il controllo senza differenze è allora NON ESEGUITO. Mai accettata e
+  buttata. I dettagli dei controlli nel rapporto le elencano una per una. Così, per esempio: `deciso_da` con gli
+  export (R-102); le righe della conferma dell'albero (R-109); le letture senza ambito di un file con
+  l'interpretazione parziale. Un campo che una riga della fotografia non ha (per esempio `confermato_il` in una
+  proposta) è un errore di traduzione. Due eccezioni, che non cambiano l'uscita: la riga della C5 dell'altra modalità
+  (la decisione con gli export, la riga dell'export con `-dsn`) non si applica alla corsa, perché il piano la assegna
+  all'altra modalità, e sta fra le parti «non applicabili» dei dettagli (R-117); nelle sezioni a forma libera le chiavi
+  che non sono ID vanno in un elenco informativo, «chiavi libere non verificate». `scritture_consentite` dello scenario,
+  un invariante del prodotto, la dichiara la voce del gate «zero scritture di dominio» (R-118). Accanto al percorso il
+  rapporto porta l'`id` della voce: negli esiti, nella baseline e nell'indice `attesi.id_voci` (R-119).
+- **Le letture attese dei file** della baseline (oltre a `base`, che è il controllo (2)) e dei file reali si
+  confrontano con l'interpretazione del file, con le regole della tabella dei casi (R-101); `target_presente` con il
+  predicato di R70 A; `nome_file` contro il nome dell'allegato (n.2); `mostrata_con_badge_di_confronto` contro le righe
+  del confronto (C5). Una chiave con un ambito (`revisione_dal_nome`, `decorazione_nome_file`, `revisione_dal_token`,
+  `revisione_da_token_base` sul nome del file; `identita_file_da_nota` sul testo del PDF) si giudica solo sulle letture
+  di quell'unità, mai sul file intero (R-116): il nome si legge sempre per intero, quindi le chiavi del nome si
+  giudicano anche con il documento parziale; senza letture di quell'unità, o con l'ambito «questo campo», la chiave è
+  fra le parti non verificate. Le chiavi senza ambito vogliono l'interpretazione completa.
+- **Il file dei casi contro la fotografia**, sempre: un thread o un messaggio di un caso che la fotografia non ha è
+  una differenza (con `-dsn`: il file dei casi contraddice i dati); con gli export i messaggi che mancano per
+  costruzione (solo quelli in entrata) sono parti non verificabili (T-B6-74, T-B6-112).
+- **Gli attesi si leggono con le chiavi del piano** (6.4.6, 6.4.9), con i nomi neutri: il codice non ha mai letto gli
+  attesi veri (P-11). Una chiave che il runner non conosce non si ignora: è una «chiave non tradotta», con il suo
+  percorso senza valori, e il controllo n.5 la conta; la prima corsa sugli attesi veri le dice tutte. Le sezioni
+  descrittive (`gate`, `riservati_non_bloccanti`, `prerequisiti_gate_l4`) si riportano riga per riga; da
+  `casi_integrazione` e dalla conferma dell'albero si raccolgono solo gli ID, per il n.2.
+- **Le contraddizioni di una voce** non arrivano a `confronto`: una voce `radice` o `figlio` senza la base del target
+  (D8), un `figlio` senza radici (in `confronto` «vuoto» vuol dire «nessuna radice»: R-51), una radice attesa vuota,
+  un valore fuori elenco sono errori di traduzione, cioè differenze.
+- **Un file in due sezioni** è una differenza del n.2, e il gate lo conta una volta sola (D7).
+- **L'impronta**: un'impronta vuota di `confronto` vuol dire «non calcolata», ed è una differenza (R-48); l'impronta
+  dell'esito di `valutazione` coincide con quella dell'anteprima solo con un thread solo (F0-14).
+- **Il gate** ha sette voci; quelle che il runner non verifica da sé (gli esiti di A1c-L4D-12, A1c-L4S-08 e -09,
+  A1c-L4T-01, G1, G5, che stanno nel registro; le forme dei profili ancora senza etichette, R34 c) restano NON
+  ESEGUITE: con `-gate` l'uscita è 3 finché mancano (R58 B). La C5, i non coperti e i thread non valutati stanno a
+  parte.
+- **La classe e l'esito di ogni controllo** (R116 B, precisata dall'utente il 07/10, domande-a1c.md; `classi.go`):
+  ogni controllo e ogni voce del gate del rapporto versione 3 dice se è `obbligatorio`, `obbligatorio_esterno`
+  (verificato fuori dal runner, con la prova che lo chiude), `informativo` o `fuori_perimetro` (con la motivazione), e
+  se è passato, fallito o non eseguito (l'esito si deriva dallo stato). La classificazione segue la revisione
+  d'impatto delle risposte (R116 §3):
+  - obbligatori del runner: il manifest e le sue voci, le grammatiche, la copia, la sola lettura, la fotografia o gli
+    export, la valutazione, i casi e la fotografia, i controlli del runner 1–5, la traduzione, la baseline, la C5, le
+    letture, il confronto, i casi di contratto; le voci del gate 1, 2, 3 e 5;
+  - obbligatori esterni: le sentinelle (A1c-L4D-01), le voci del gate «zero scritture» (A1c-L4D-12, A1c-L4S-09),
+    «motore senza LLM» (A1c-L4S-08, A1c-L4T-01, G1, G5) e «forme dei profili» (le etichette, M-22, R58 B);
+  - informativi: le sezioni prodotti, correzioni manuali, profilo dei limiti, censimento, parti non applicabili,
+    chiavi libere;
+  - fuori dal perimetro: PO-30 (E1 §11; R110, precisata dall'utente il 07/10);
+  - restano obbligatori, con la nota «classe da decidere dall'utente (D-R116)», il n.1 (con gli export, senza i
+    finiti), la C5 (le righe della «Conferma l'albero») e le letture (i file con l'interpretazione parziale, fuori dal
+    nome); resta obbligatorio `clienti_degli_export`, con la nota «classe da decidere dall'utente (D-R115)». Le sigle
+    sono quelle delle decisioni aperte in domande-a1c.md;
+  - una voce che la tabella non conosce è obbligatoria per difetto: nessuna esenzione generica.
+- **La chiusura** (`Chiusura`, R116 B) distingue la conclusione della parte obbligatoria del runner dall'incompletezza
+  del rapporto: gli obbligatori del runner, conclusi o no; gli obbligatori esterni, ognuno con la sua prova, da
+  chiudere nel registro; gli informativi incompleti; i fuori perimetro con la motivazione. Né le classi né la chiusura
+  cambiano l'uscita: una differenza resta 1, un controllo non eseguito resta 3, e il 3 non diventa mai 0. L'unica riga
+  che non decide l'uscita è quella delle sentinelle, «delegato», un'esclusione specifica e motivata (R117 b): vale solo
+  per l'ambiente della copia intatta (il database della sezione copia del manifest); senza quel database dichiarato
+  resta NON ESEGUITA.
+- **Le correzioni manuali per cliente** sono sui thread valutati; i thread non valutati stanno a parte (D5). «Deciso»
+  vuol dire che un documento confermato porta il file (T-B6-52). La misura è quella di `confronto` (R114, precisata
+  dall'utente il 07/10), sommata campo per campo: un indicatore ricostruito delle correzioni necessarie, non il tempo
+  risparmiato, con il denominatore (i valutabili), la copertura (valutabili su decisi) e gli esclusi per motivo (che
+  hanno preso il posto del vecchio «prima per stringa»); `prima` e `prima_marcatore` restano separati, perché la scelta
+  del titolo è aperta (D-R114); «dopo» ha tre parti: false associazioni, ambiguità, astensioni. Fuori dalla misura il
+  rapporto conta la stessa base su un altro target (su tutti i decisi) e la revisione solo in colonna (R-65; R113 B
+  ratificata, da realizzare prima di Q10).
+- **Il motivo di un esito** contro l'atteso si divide sulle virgole (T-B6-53: `ambiguo` può portarne due).
+- **Le diagnostiche** stanno in quattro sedi, tutte nel rapporto: la fotografia (il caricatore o il lettore degli
+  export: non entrano nell'esito, D-V1-2), l'esito, il thread, gli ancoraggi; il conteggio per codice le somma.
+- **La sezione `prodotti`** è solo informazione: con `-exports` un asse è «non calcolato» dove manca una sezione della
+  fotografia da cui dipende (T-12). Per i prodotti dello scenario, con `-attesi`, la fonte attesa accanto a quella
+  calcolata (PO-29). R109, precisata dall'utente il 07/10, senza scegliere una lettera. Lettura [T]: la regola del
+  runner (la A del testo della domanda) resta valida se la derivazione dagli attesi è esplicita e indipendente dal
+  motore; la derivazione arriva in B6b, prima di Q10. Fino ad allora la chiusura mette questa parte fra gli
+  informativi incompleti.
+- **Con `-exports` la ragione sociale del cliente** viene dall'export dei clienti, per UUID: senza, la grammatica non si
+  può controllare e il thread non si valuta (`ragione_sociale_discorde`). È un limite degli ingressi, non del motore:
+  il controllo `clienti_degli_export` è NON ESEGUITO, e per quei thread ciò che dipende dalla valutazione (la base
+  della baseline, il predicato del n.1, le letture, gli esiti nel gate) è fra le parti non verificate, mai fra le
+  differenze: l'uscita è 3 (T-B6-104). R115 A, ratificata dall'utente il 07/10 con un vincolo: un export nuovo non si
+  mescola al campione del 02/10, che resta con questo limite dichiarato; gli export nuovi possono formare un campione
+  separato, con un manifest suo (D-R115 aperta).
+- **Il gate non dà mai per superato ciò che non ha visto**: una voce dello scenario o della baseline non risolta o non
+  verificabile rende non eseguite le false associazioni e le decisioni preservate (una decisione con una parte non
+  verificata non è preservata, R-102); un prodotto in più del motore non supera i conteggi (R-108); una voce della C5
+  riservata non è un riservato «passato» (R-110). Con `-attesi` e senza `-gate` un gate non superato non decide
+  l'uscita, ma la prima riga lo dice.
+
 ## Dipendenze
 
 - **Importa:** `platform/dataset`, `core/registro/regole/grammatica`, `core/inbox/classificazione/motorea`,
   `core/estrazione/evidenze`, `core/estrazione` (da A1b.11, solo `DaTesto`: F19, R52 A), `platform/jsoncanonico`,
-  `github.com/google/uuid`, `gopkg.in/yaml.v3` (unico importatore), la libreria standard.
-- **Non importa:** `app/runtime`, `transport/*`, `ai/*`, `platform/config`, `platform/db`.
+  `github.com/google/uuid`, `gopkg.in/yaml.v3` (unico importatore), la libreria standard. Da A1c anche
+  `core/fotorfq`, `core/fotorfq/caricatore`, `platform/migrazioni`, `core/valutazione`, `core/confronto`.
+- **Non importa:** `app/runtime`, `transport/*`, `ai/*`, `platform/config`, `platform/db`, `core/ancoraggio`, pgx per
+  nome, la radice del modulo (le migrazioni incorporate le dà `cmd/bancoa`).
+- **Solo nelle prove:** `core/ancoraggio` (la prova di parità dei valori del motore, T-B6-50).
 - **È importato da:** `cmd/bancoa`.
 
 ## Test
@@ -164,7 +360,33 @@ markmap:
     e indice non valido;
   - **`rapporto_test.go`** — esito e codice d'uscita, prima riga, scrittura atomica fuori dal modulo, gli esiti
     di `Esegui` (conforme, con differenze, non eseguito, 1 su 3), gli errori d'uso senza rapporto.
-- `cmd/bancoa/main_test.go` prova flag e codici d'uscita del comando (0, 1, 2, 3).
+- Da A1c (Q9), sulla scena ACME di `scena_banco_test.go` (export sintetici con la forma di quelli veri, file dei casi
+  `testdata/regole/casi_acme.v1.json`, indice con il puntatore ai casi, attesi con tutte le sezioni):
+  - **`export_test.go`** — A1c-L1-22: `FotografiaDaExport`, le sezioni dichiarate, l'HTML «non esportato», le
+    proposte senza dettagli, i fatti a un'altra terna, gli sha256 sbagliati, i file mancanti;
+  - **`sezioni_test.go`** — A1c-L1-23: `LeggiSezioni`, le chiavi non tradotte, i valori non letti, la traduzione e
+    i suoi errori (D8, R-51);
+  - **`runner_test.go`** — A1c-L1-24: i controlli del runner 1–5, da soli e nella corsa;
+  - **`gate_test.go`** — A1c-L1-25: le voci del gate e le uscite con `-gate`;
+  - **`rapporto_banco_test.go`** — A1c-L1-26: il rapporto (versione 3), la prima scrittura, nessun testo di mail a
+    video, la stabilità;
+  - **`passaggio_test.go`** — A1c-L1-31 (18 campi nel vecchio, con `CodiceLettoMarcatore`; il marcatore arriva alla
+    misura) e la parità dei valori del motore (T-B6-50), anche per la misura di R114;
+  - **`banco_test.go`** — le cinque condizioni di F0-01 e le regole d'uso, la sequenza `-exports`, la sequenza `-dsn`
+    fino al collegamento;
+  - **`sezioni_rapporto_test.go`** — le sezioni del rapporto una per una (messaggi fuori RFQ, motivo diviso,
+    correzioni manuali e il testo della misura, `senza_caso`, censimento, profilo dei limiti, R109, 1 su 3);
+  - **`risposte_test.go`** — il banco dopo le risposte dell'utente del 07/10: la tabella delle classi e la sua
+    completezza sul sorgente, la classe e l'esito di ogni controllo e voce del gate, la chiusura, le uscite che non
+    cambiano, il JSON di A1a identico (R116); le sentinelle delegate (R117); la misura sugli export (R114);
+  - **`revisione_test.go`** — le correzioni della revisione di P9 (R-101…R-115) e i pareri che le accompagnano (gli
+    export con i clienti di un altro DB, i due ingressi incoerenti, il n.3 nelle due direzioni), una prova per
+    correzione;
+  - **`banco_db_test.go`** (tag `integrazione`, L4) — la sequenza `-dsn` sul DB di prova, fermata dal ruolo che
+    scrive, con le tabelle escluse «non controllate».
+- `cmd/bancoa/main_test.go` prova flag e codici d'uscita del comando (0, 1, 2, 3); da A1c anche A1c-L1-27 (i flag
+  dei modi nuovi, il DSN senza password, l'aiuto con i soli segnaposti).
+- Le corse sul dump e sulla copia `_run` (A1c-L4D, A1c-L4T) sono di Q10.
 - Il controllo che la libreria YAML stia solo qui (G3) e quello che di `core/estrazione` il banco usi solo
   `DaTesto` (F19) sono in `core/estrazione/evidenze/dipendenze_test.go`.
 

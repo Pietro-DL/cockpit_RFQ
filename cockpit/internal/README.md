@@ -114,8 +114,9 @@ markmap:
   - **[`platform/jsoncanonico/README.md`](platform/jsoncanonico/README.md)** → il JSON canonico e le impronte sha256
   - **[`platform/dataset/README.md`](platform/dataset/README.md)** → il manifest del dataset privato del motore A
     (giro 5) e il controllo dello sha256 di ogni file
-  - **[`app/bancoa/README.md`](app/bancoa/README.md)** → il banco del motore A senza DB (giro 5): le modalità
-    `regole` e `casi`, gli attesi, il rapporto con l'esito in testa
+  - **[`app/bancoa/README.md`](app/bancoa/README.md)** → il banco del motore A (giro 5): le modalità `regole` e
+    `casi` senza DB e, da A1c, `dsn` (una copia del dump in sola lettura) ed `exports` (gli export del DB), con lo
+    stesso motore del prodotto; gli attesi, i controlli del runner, il gate, il rapporto con l'esito in testa
   - **[`platform/storage/README.md`](platform/storage/README.md)** → staging, NAS, archivi
   - **[`transport/README.md`](transport/README.md)** → le regole comuni e la tabella completa delle rotte
   - **[`transport/web/README.md`](transport/web/README.md)** → le pagine dell'operatore, modulo per modulo
@@ -184,14 +185,20 @@ markmap:
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
   - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
     `core/estrazione/evidenze`, `core/estrazione` (solo `DaTesto`), `platform/jsoncanonico`, `platform/dataset`,
-    la libreria YAML
+    la libreria YAML; da A1c anche `core/fotorfq`, `core/fotorfq/caricatore`, `platform/migrazioni`,
+    `core/valutazione`, `core/confronto`
     - è l'unico importatore della libreria YAML (G3): gli attesi entrano solo dal banco; mai `app/runtime`,
-      `transport`, `ai`, `platform/config`
+      `transport`, `ai`, `platform/config`, `core/ancoraggio`, pgx per nome
     - da A1b.11 il modo `casi` fa il documento del caso con `estrazione.DaTesto` (F19, R52 A): nessun ciclo,
       perché `core/estrazione` non importa `app`
+    - da A1c (P9) i modi `dsn` ed `exports`: il DB solo in sola lettura, attraverso `platform/migrazioni`
+      (l'apertura e i controlli del collegamento) e il caricatore (la fotografia); poi `valutazione` e, con la copia
+      campo per campo di `passaggio.go`, `confronto` (R53 B). Le migrazioni incorporate le riceve da `cmd/bancoa`
   - **`cmd/cockpit`** → `app/runtime`, `platform/config`
-  - **`cmd/bancoa`** → `app/bancoa`
-    - non legge `cockpit.toml`
+  - **`cmd/bancoa`** → `app/bancoa` e, da A1c, il package radice (`cockpit.FS`: le migrazioni incorporate, per il
+    controllo dello schema della copia); il flag `-thread` glielo dà `bancoa.FlagThread`, così il comando non nomina
+    la libreria degli UUID (I.2)
+    - non legge `cockpit.toml`; mai `app/runtime`
 - Frecce che esistono solo nei test:
   - `transport/web` → `transport/workerapi` (le prove L4 di B8.7 e delle postazioni)
   - e `platform/migrazioni` → `core/inbox/classificazione` (le larghezze delle colonne)
@@ -204,6 +211,8 @@ markmap:
   - e `core/confronto` → `core/valutazione`, `core/fotorfq`, `core/fotorfq/caricatore`,
     `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`, `platform/testutil` (le L4 A1c-L4S-08 e
     -09 sul database di prova: il percorso del banco e dell'anteprima, dalla fotografia al confronto)
+  - e `app/bancoa` → `core/ancoraggio` (la parità dei valori del motore che `confronto` ricopia come stringhe,
+    T-B6-50), `platform/testutil` e il package radice (la L4 della sequenza `-dsn` sul database di prova)
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate

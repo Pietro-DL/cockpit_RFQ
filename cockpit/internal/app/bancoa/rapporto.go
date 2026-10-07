@@ -47,11 +47,18 @@ type Versioni struct {
 }
 
 // Controllo: una verifica del banco, eseguita o no. Mai «conforme» se un controllo è non eseguito (R44).
+//
+// Classe ed Esito li riempie solo il rapporto dei modi dsn ed exports (versione 3; R116 B, precisata dall'utente il
+// 07/10: classi.go): nel rapporto di A1a restano vuoti, e con omitempty il suo JSON non cambia di un byte. Lo stato
+// «delegato» (ControlloDelegato) c'è solo lì: un controllo verificato fuori dal runner, che non decide l'uscita
+// (R117 b).
 type Controllo struct {
-	Nome       string `json:"nome"`
-	Stato      string `json:"stato"` // eseguito | non_eseguito
-	Differenze int    `json:"differenze"`
-	Motivo     string `json:"motivo,omitempty"`
+	Nome       string          `json:"nome"`
+	Stato      string          `json:"stato"` // eseguito | non_eseguito (| delegato, solo nella versione 3)
+	Differenze int             `json:"differenze"`
+	Motivo     string          `json:"motivo,omitempty"`
+	Classe     ClasseControllo `json:"classe,omitempty"`
+	Esito      EsitoTriStato   `json:"esito,omitempty"`
 }
 
 // Gli stati di un controllo.
