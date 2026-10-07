@@ -64,7 +64,8 @@ func Calcola(f fotorfq.Fotografia, r *motorea.InsiemeRegole, in Ingressi) (Esito
 		}}}
 	}
 	e := Esito{VersioneValutazione: VersioneValutazione, VersioneImprontaProdotto: VersioneImprontaProdotto,
-		VersioneFormati2D: VersioneFormati2D, VersioneComposizione: motorea.VersioneComposizione, ImprontaFotografia: impronta}
+		VersioneFormati2D: VersioneFormati2D, VersioneComposizione: motorea.VersioneComposizione,
+		VersioneRevisioneRegistrata: motorea.VersioneRevisioneRegistrata, ImprontaFotografia: impronta}
 	if r != nil {
 		e.ImprontaIndice, e.VersioneLimiti = r.ImprontaIndice, r.Indice.Limiti.Versione
 	}

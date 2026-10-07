@@ -18,25 +18,28 @@ import (
 const VersioneValutazione = "valutazione-1"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
-//   - Le quattro versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)
+//   - Le cinque versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)
 //     e la versione dei limiti: con loro l'impronta dice con quale motore e quali regole l'esito è stato calcolato.
+//     VersioneRevisioneRegistrata (motorea, R113 B; E2 §2.6) è la versione della lettura della colonna rev del vecchio,
+//     come VersioneComposizione per il compositore.
 //   - Thread: in ordine di ThreadID. FuoriRFQ: i messaggi senza thread dei casi di censimento (R34), in ordine di
 //     (Caso, MessaggioID).
 //   - Diagnostiche: quelle fuori da un thread (le diagnostiche di ValidaFotografia sotto la gravità «errore», i messaggi
 //     fuori RFQ senza un caso), in ordine di (codice, percorso, riferimenti).
 //   - Impronta: lo sha256 del canonico dell'esito con Impronta vuota (improntaEsito). Nessun orario dentro.
 type Esito struct {
-	VersioneValutazione      string                 `json:"versione_valutazione"`
-	VersioneImprontaProdotto int                    `json:"versione_impronta_prodotto"`
-	VersioneFormati2D        int                    `json:"versione_formati_2d"`
-	VersioneComposizione     string                 `json:"versione_composizione"`
-	ImprontaFotografia       string                 `json:"impronta_fotografia"`
-	ImprontaIndice           string                 `json:"impronta_indice"`
-	VersioneLimiti           string                 `json:"versione_limiti"`
-	Thread                   []EsitoThread          `json:"thread,omitempty"`
-	FuoriRFQ                 []EsitoFuoriRFQ        `json:"fuori_rfq,omitempty"`
-	Diagnostiche             []evidenze.Diagnostica `json:"diagnostiche,omitempty"`
-	Impronta                 string                 `json:"impronta"`
+	VersioneValutazione         string                 `json:"versione_valutazione"`
+	VersioneImprontaProdotto    int                    `json:"versione_impronta_prodotto"`
+	VersioneFormati2D           int                    `json:"versione_formati_2d"`
+	VersioneComposizione        string                 `json:"versione_composizione"`
+	VersioneRevisioneRegistrata string                 `json:"versione_revisione_registrata"`
+	ImprontaFotografia          string                 `json:"impronta_fotografia"`
+	ImprontaIndice              string                 `json:"impronta_indice"`
+	VersioneLimiti              string                 `json:"versione_limiti"`
+	Thread                      []EsitoThread          `json:"thread,omitempty"`
+	FuoriRFQ                    []EsitoFuoriRFQ        `json:"fuori_rfq,omitempty"`
+	Diagnostiche                []evidenze.Diagnostica `json:"diagnostiche,omitempty"`
+	Impronta                    string                 `json:"impronta"`
 }
 
 // EsitoThread: la valutazione di un thread (par.3.3.8; contratto §2.3; fase 0, F.2).

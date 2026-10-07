@@ -236,7 +236,9 @@ func condizioniNuoveDellaBOM(pv ProdottoValutato, g GestiVerificaBOM, s Struttur
 // nessuna corrispondenza, perché le chiavi dei nodi e degli archi contengono lo sha256 del documento (T-E1-04, una chiave
 // valida solo dentro un file). Il confronto semantico che l'utente chiede (stessi padri e figli, occorrenze e quantità;
 // gli affissi e le revisioni prima dei codici nuovi; un criterio di corrispondenza esplicito, con i casi ambigui lasciati
-// irrisolti) arriva in B6b, con una funzione a parte; fino ad allora è un limite dichiarato (README).
+// irrisolti) esce da A1c come limite dichiarato (README): con la decisione dell'orchestratore del 07/10 sera (E2 §3.4,
+// un contrasto isolato con R111, dichiarato lì) è il primo pezzo dopo A1c, prerequisito del riesame nello spazio di
+// verifica, con una funzione a parte.
 //
 // Vero quando tutte le voci (i Rif di vociDaDecidere) sono della nuova fonte:
 //  1. la fonte del prodotto è superata, con il riferimento del gesto 3 (lo STEP confermato prima, il suo sha256);
