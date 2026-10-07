@@ -12,9 +12,10 @@ import (
 // revisioni sono confrontabili) le fa valutazione, una volta sola.
 //
 // Nomi, ordine, tipi e tag JSON sono quelli dei gemelli di valutazione, campo per campo (elenco congelato della fase 0
-// di B6, CP.2, con l'emendamento F0-19 e il campo CodiceLettoMarcatore di R114: 18 campi in Vecchio). Solo tipi delle
-// foglie: string, bool, int, uuid.UUID, time.Time, i loro puntatori, gli slice e le struct gemelle; nessun tipo con
-// nome del motore, nemmeno per gli enumerati (per esempio Collocazione è una string). I due pacchetti non si importano:
+// di B6, CP.2, con l'emendamento F0-19, il campo CodiceLettoMarcatore di R114 e il campo RevisioneDa di R113: 19 campi
+// in Vecchio). Solo tipi delle foglie: string, bool, int, uuid.UUID, time.Time, i loro puntatori, gli slice e le struct
+// gemelle; nessun tipo con nome del motore, nemmeno per gli enumerati (per esempio Collocazione è una string). I due
+// pacchetti non si importano:
 // che i campi coincidano lo controlla una prova nel chiamante (A1c-L1-31), con un confronto strutturale, perché i nomi
 // dei tipi annidati sono diversi. Un campo cambiato da una parte si annuncia all'altra prima del commit.
 
@@ -30,8 +31,11 @@ type File struct {
 // vecchia è sempre Base, mai la stringa: «7120100A» e la base 7120100 sono la stessa base.
 //   - Stato, Fonte: della proposta attuale (documento_proposta); Stato "" = nessuna proposta.
 //   - Codice, Rev: della proposta, o del documento confermato se il file è deciso (registro §10.2).
-//   - Base, Marcatore, Revisione, Leggibile, MotivoLettura: la lettura del codice con la grammatica; Base "" se il codice
-//     non si legge (Leggibile falso, con il motivo).
+//   - Base, Marcatore, Leggibile, MotivoLettura: la lettura del codice con la grammatica; Base "" se il codice non si
+//     legge (Leggibile falso, con il motivo). Revisione: la revisione vecchia interpretata da valutazione, con la sua
+//     provenienza in RevisioneDa (R113 B ratificata; E2 §2.6): «codice» se letta nel codice con la grammatica, «colonna»
+//     se letta nella colonna Rev con la regola in campo separato della famiglia, "" se non ce n'è una (allora Revisione
+//     è vuota). L'originale resta in Codice e in Rev.
 //   - CodiceLetto: la lettura del vecchio motore registrata nella proposta (fonte del contratto, T-B0-14); "" negli
 //     export, che non hanno i dettagli. CodiceLettoBase: la base di CodiceLetto letta con la grammatica del cliente
 //     (LetturaRegistrata.Base); "" se CodiceLetto è vuoto o non si legge (emendamento F0-19 di CP.2, R-44).
@@ -56,6 +60,7 @@ type Vecchio struct {
 	CodiceLetto          string     `json:"codice_letto"`
 	CodiceLettoBase      string     `json:"codice_letto_base"`
 	CodiceLettoMarcatore string     `json:"codice_letto_marcatore"`
+	RevisioneDa          string     `json:"revisione_da"`
 	Componente           *uuid.UUID `json:"componente,omitempty"`
 	Documento            *uuid.UUID `json:"documento,omitempty"`
 	ComponenteProposta   *uuid.UUID `json:"componente_proposta,omitempty"`

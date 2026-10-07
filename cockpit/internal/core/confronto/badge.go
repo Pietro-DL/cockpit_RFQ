@@ -48,15 +48,19 @@ const (
 )
 
 // IndicatoreRevisione: uguale | diversa | non_determinabile, con le due revisioni che valutazione ha confrontato, come le
-// ha lette (Vecchia: quella letta nel codice vecchio, Vecchio.Revisione; Nuova: quella letta nel file, Nuovo.Revisione),
-// e il motivo che valutazione ha dato. La colonna rev registrata resta nel vecchio della riga (Vecchio.Rev). Mai un
-// badge: la sola revisione non è una regressione (v3 §6; R31 b; E-19). Il valore lo traduce da Nuovo.Revisioni, che
-// decide valutazione con la grammatica.
+// ha lette (Vecchia: la revisione vecchia interpretata, Vecchio.Revisione; Nuova: quella letta nel file, Nuovo.Revisione),
+// e il motivo che valutazione ha dato. ProvenienzaVecchia dice da dove viene Vecchia (Vecchio.RevisioneDa: «codice»,
+// «colonna» o "", R113 B ratificata; E2 §2.6): si copia, non si interpreta, e non cambia né il valore né il badge. La
+// colonna rev registrata resta nel vecchio della riga (Vecchio.Rev). Mai un badge: la sola revisione non è una
+// regressione (v3 §6; R31 b; E-19), e l'indicatore resta separato dalla correttezza dell'associazione (R113). Il valore
+// lo traduce da Nuovo.Revisioni, che decide valutazione con la grammatica: le equivalenze sono solo quelle dichiarate
+// dalle regole, mai una normalizzazione fatta qui.
 type IndicatoreRevisione struct {
-	Valore  string `json:"valore"`
-	Vecchia string `json:"vecchia"`
-	Nuova   string `json:"nuova"`
-	Motivo  string `json:"motivo,omitempty"`
+	Valore             string `json:"valore"`
+	Vecchia            string `json:"vecchia"`
+	ProvenienzaVecchia string `json:"provenienza_vecchia"`
+	Nuova              string `json:"nuova"`
+	Motivo             string `json:"motivo,omitempty"`
 }
 
 // badgeDi: il badge di un file e il suo motivo, con la tavola del 6.4.6 (R31 d A), nell'ordine:
@@ -244,7 +248,8 @@ func motivoDiverso(v Vecchio, n Nuovo) string {
 //   - Nuovo.Revisioni vuoto (valutazione non ha confrontato) dà non_determinabile, senza diagnostica.
 //   - Un valore fuori vocabolario dà non_determinabile, sempre con la diagnostica: mai «uguale» per difetto.
 func indicatoreDi(f File) (IndicatoreRevisione, *evidenze.Diagnostica) {
-	ind := IndicatoreRevisione{Vecchia: f.Vecchio.Revisione, Nuova: f.Nuovo.Revisione, Motivo: f.Nuovo.MotivoRevisioni}
+	ind := IndicatoreRevisione{Vecchia: f.Vecchio.Revisione, ProvenienzaVecchia: f.Vecchio.RevisioneDa, Nuova: f.Nuovo.Revisione,
+		Motivo: f.Nuovo.MotivoRevisioni}
 	msg := ""
 	switch f.Nuovo.Revisioni {
 	case revisioniUguali:
