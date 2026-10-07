@@ -68,8 +68,9 @@ func letturaRegistrata(codice string, l motorea.LetturaForma, motivo string) Let
 // tipo interno, non un campo dell'esito (F0-10): VecchioPiatto porta già tutto.
 //   - Stato, Fonte: della proposta attuale; "" = nessuna proposta.
 //   - Codice, Rev: della proposta, o del documento confermato se il file è deciso (registro §10.2).
-//   - Lettura, forma: il codice letto con la grammatica; forma è la lettura intera, per confrontare le revisioni con la
-//     grammatica (ConfrontaRevisioni), nil se il codice non si legge.
+//   - Lettura: il codice letto con la grammatica. revisione: la revisione vecchia interpretata, dal codice o dalla
+//     colonna Rev, con la lettura da confrontare con la grammatica (ConfrontaRevisioni) o il motivo per cui non si
+//     confronta (revisioneVecchia; R113 B).
 //   - CodiceLetto: la lettura del vecchio motore, dettagli.valutazione.codice della proposta (T-B0-14, F0-02);
 //     CodiceLettoBase: la sua base, letta con la stessa grammatica (F0-19); CodiceLettoMarcatore: il marcatore della
 //     stessa lettura (LetturaForma.Marcatore), vuoto se non c'è o se il codice non si legge (il gemello per R114,
@@ -80,7 +81,7 @@ type vecchioLetto struct {
 	Stato, Fonte         string
 	Codice, Rev          string
 	Lettura              LetturaRegistrata
-	forma                *motorea.LetturaForma
+	revisione            revisioneVecchia
 	CodiceLetto          string
 	CodiceLettoBase      string
 	CodiceLettoMarcatore string
@@ -152,10 +153,69 @@ func (v *vecchioDelThread) delFile(allegato uuid.UUID) vecchioLetto {
 	out.CodiceLettoBase, out.CodiceLettoMarcatore = letto.Base, letto.Marcatore
 	l, motivo := letturaDelCodiceRegistrato(v.m, out.Codice)
 	out.Lettura = letturaRegistrata(out.Codice, l, motivo)
+	var forma *motorea.LetturaForma
 	if motivo == "" {
-		out.forma = &l
+		forma = &l
 	}
+	out.revisione = leggiRevisioneVecchia(v.m, forma, out.Rev)
 	return out
+}
+
+// revisioneVecchia: la revisione vecchia di un file, interpretata (R113 B ratificata: valore originale, interpretazione e
+// provenienza; E2 §2.6). valore e da vanno in VecchioPiatto.Revisione e RevisioneDa; rev è la lettura da confrontare con
+// quella del file; motivo è il motivo di non_confrontabili dal lato vecchio, "" se rev c'è.
+type revisioneVecchia struct {
+	valore string
+	da     string
+	rev    *motorea.RevisioneLetta
+	motivo string
+}
+
+// leggiRevisioneVecchia: la revisione vecchia dal codice letto (forma, nil se il codice non si legge) e dalla colonna rev
+// della riga che dà il codice (la proposta o il documento), letta con motorea.LeggiRevisioneRegistrata e con la famiglia
+// della lettura del codice: un codice che non si legge non ha una famiglia, e la colonna resta non determinabile. Il
+// primo caso che vale:
+//   - codice non letto, o con una revisione non «letta» (un token sospeso): nessuna revisione, revisione_vecchia_non_letta,
+//     qualunque cosa dica la colonna (il codice ha già una revisione, che non si legge: la colonna non la sostituisce);
+//   - codice con la revisione letta: quella, da «codice». Se la colonna si legge con la regola della famiglia e non
+//     concorda (ConfrontaRevisioni discordante), il confronto non si fa: revisione_vecchia_discorde, senza scegliere. Una
+//     colonna che non si legge non contraddice il codice;
+//   - codice senza revisione e colonna vuota: revisione_vecchia_non_letta;
+//   - codice senza revisione e colonna letta: quella, da «colonna»;
+//   - codice senza revisione e colonna che non si legge: un motivo per lo stato della lettura (T-B6-202).
+//
+// La colonna si legge senza gli spazi ai bordi, come il codice registrato (letturaDelCodiceRegistrato); l'originale resta
+// nel record piatto (Rev). Mai «codice + rev» composti: la colonna si legge da sola, con la regola della revisione.
+func leggiRevisioneVecchia(m *motorea.Motore, forma *motorea.LetturaForma, rev string) revisioneVecchia {
+	if forma == nil || (forma.Revisione != nil && forma.Revisione.Stato != motorea.StatoRevisioneLetta) {
+		return revisioneVecchia{motivo: MotivoRevisioniVecchiaNonLetta}
+	}
+	colonna := strings.TrimSpace(rev)
+	var registrata *motorea.RevisioneRegistrata
+	if colonna != "" {
+		r := m.LeggiRevisioneRegistrata(forma.Famiglia, colonna)
+		registrata = &r
+	}
+	letta := registrata != nil && registrata.Stato == motorea.StatoRevisioneRegistrataLetta && registrata.Revisione != nil
+	if forma.Revisione != nil {
+		out := revisioneVecchia{valore: forma.Revisione.Normalizzata, da: RevisioneDaCodice, rev: forma.Revisione}
+		if letta && motorea.ConfrontaRevisioni(*forma.Revisione, *registrata.Revisione) == motorea.CompatibilitaDiscordante {
+			out.rev, out.motivo = nil, MotivoRevisioniVecchiaDiscorde
+		}
+		return out
+	}
+	switch {
+	case registrata == nil:
+		return revisioneVecchia{motivo: MotivoRevisioniVecchiaNonLetta}
+	case letta:
+		return revisioneVecchia{valore: registrata.Revisione.Normalizzata, da: RevisioneDaColonna, rev: registrata.Revisione}
+	case registrata.Stato == motorea.StatoRevisioneRegistrataAmbigua:
+		return revisioneVecchia{motivo: MotivoRevisioniColonnaAmbigua}
+	case registrata.Stato == motorea.StatoRevisioneRegistrataNonInterpretabile:
+		return revisioneVecchia{motivo: MotivoRevisioniColonnaNonInterpretabile}
+	}
+	// nessuna_regola, e ogni stato che motorea aggiungesse: la colonna resta solo colonna, mai letta per stringa
+	return revisioneVecchia{motivo: MotivoRevisioniSoloInColonna}
 }
 
 // regolaOperatoreLegacy: la regola con cui il legacy scrive in dettagli.valutazione la decisione di una persona

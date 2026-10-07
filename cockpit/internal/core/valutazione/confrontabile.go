@@ -32,10 +32,19 @@ type FileConfrontabile struct {
 // (CodiceLetto) letta con la stessa grammatica, LeggiCodiceRegistrato(m, CodiceLetto).Base; vuota se CodiceLetto è
 // vuoto o non si legge (F0-19, emendamento di CP.2). CodiceLettoMarcatore: il marcatore della stessa lettura,
 // LeggiCodiceRegistrato(m, CodiceLetto).Marcatore (LetturaForma.Marcatore); vuoto se il marcatore non c'è, se
-// CodiceLetto è vuoto o se non si legge (il gemello per R114, precisata dall'utente il 07/10: 18 campi). Servono al
+// CodiceLetto è vuoto o se non si legge (il gemello per R114, precisata dall'utente il 07/10). Servono al
 // «prima» delle correzioni manuali di confronto (R30 f): la base per i cambi di base, il marcatore per contare a parte
 // la stessa base con due marcatori scritti e diversi, senza sommarla ai cambi di base; quale dei due conteggi faccia da
 // titolo resta una scelta dell'utente (D-R114, aperta in domande-a1c.md; non è la D1 della revisione di P8).
+//
+// Revisione e RevisioneDa (R113 B ratificata; il gemello di E2 §2.6, subito dopo CodiceLettoMarcatore: 19 campi):
+// Revisione è la revisione vecchia interpretata e RevisioneDa da dove viene: «codice» se è quella letta nel codice con la
+// grammatica (la stessa di prima di R113), «colonna» se il codice si legge senza nessuna revisione e la colonna Rev si
+// legge con la regola in campo separato della famiglia del codice (motorea.LeggiRevisioneRegistrata), "" se non ce n'è
+// una interpretata. Revisione è vuota se e solo se RevisioneDa è vuoto. L'originale resta in Codice e in Rev. Quando le
+// due revisioni lette discordano, Revisione resta quella del codice e il confronto non si fa
+// (revisione_vecchia_discorde): RevisioneDa dice la provenienza del valore, mai una scelta fra codice e colonna
+// (T-B6-201).
 type VecchioPiatto struct {
 	Stato                string     `json:"stato"`
 	Fonte                string     `json:"fonte"`
@@ -49,6 +58,7 @@ type VecchioPiatto struct {
 	CodiceLetto          string     `json:"codice_letto"`
 	CodiceLettoBase      string     `json:"codice_letto_base"`
 	CodiceLettoMarcatore string     `json:"codice_letto_marcatore"`
+	RevisioneDa          string     `json:"revisione_da"`
 	Componente           *uuid.UUID `json:"componente,omitempty"`
 	Documento            *uuid.UUID `json:"documento,omitempty"`
 	ComponenteProposta   *uuid.UUID `json:"componente_proposta,omitempty"`
@@ -109,31 +119,54 @@ type ProdottoConfrontabile struct {
 	QuantitaDaCella bool   `json:"quantita_da_cella"`
 }
 
-// I valori di NuovoPiatto.Revisioni (6.4.6 passo 10): il confronto della revisione del codice vecchio con quella del
-// file, con motorea.ConfrontaRevisioni (solo le equivalenze dichiarate, nessun ordinamento).
+// I valori di NuovoPiatto.Revisioni (6.4.6 passo 10): il confronto della revisione vecchia (letta nel codice, oppure
+// nella colonna: VecchioPiatto.RevisioneDa) con quella del file, con motorea.ConfrontaRevisioni (solo le equivalenze
+// dichiarate, nessun ordinamento).
 const (
 	RevisioniUguali           = "uguali"
 	RevisioniDiverse          = "diverse"
 	RevisioniNonConfrontabili = "non_confrontabili"
 )
 
+// I valori di VecchioPiatto.RevisioneDa (R113 B ratificata; E2 §2.6): la provenienza della revisione vecchia
+// interpretata; "" vuol dire che non ce n'è una.
+const (
+	RevisioneDaCodice  = "codice"
+	RevisioneDaColonna = "colonna"
+)
+
 // I motivi di NuovoPiatto.MotivoRevisioni [T]: "" per uguali e diverse, equivalente per una coppia che la regola della
-// revisione dichiara equivalente; per non_confrontabili il primo che vale, nell'ordine:
+// revisione dichiara equivalente; per non_confrontabili il primo che vale, nell'ordine (il file, poi il lato vecchio,
+// poi il lato nuovo):
 //   - nuovo_non_valutato: il file non è valutato;
-//   - revisione_solo_in_colonna: il codice vecchio si legge, senza nessuna revisione, e la colonna rev non è vuota: la
-//     revisione vecchia c'è solo nella colonna, che la grammatica non legge (la regola in campo separato è privata di
-//     motorea), e non si confronta per stringa (R-65 della revisione di V1: rende misurabile il limite di T-B6-24);
-//   - revisione_vecchia_non_letta: il codice vecchio non si legge, o non ne legge una (anche un token sospeso), e non c'è
-//     il caso di sopra;
+//   - revisione_vecchia_non_letta: il codice vecchio non si legge (senza la sua famiglia la colonna non si legge: R113,
+//     non determinabile), oppure ne legge una non «letta» (un token sospeso), oppure si legge senza nessuna revisione e
+//     la colonna rev è vuota;
+//   - revisione_vecchia_discorde: il codice legge una revisione e la colonna, letta con la regola della famiglia, un'altra
+//     che non concorda (motorea.ConfrontaRevisioni discordante): due revisioni vecchie, e nessuna si sceglie (R113 B; E2
+//     §2.6). Una colonna che non si legge accanto alla revisione del codice non la contraddice: vale quella del codice;
+//   - il codice si legge senza nessuna revisione e la colonna non è vuota ma non si legge, con un motivo per ogni stato
+//     di motorea.LeggiRevisioneRegistrata, così chi conta la colonna la divide per stato (T-B6-202):
+//     revisione_solo_in_colonna per nessuna_regola (la famiglia non ha una regola in campo separato: la revisione
+//     vecchia c'è solo nella colonna, che la grammatica non legge, e non si confronta per stringa; R-65 della revisione
+//     di V1); revisione_colonna_non_interpretabile per non_interpretabile (una regola riservata, una colonna che la
+//     regola non legge per intero, un token sospeso); revisione_colonna_ambigua per ambigua (più regole, nessuna si
+//     sceglie);
 //   - revisione_nuova_non_letta: nessuna lettura d'identità del file legge una revisione;
 //   - revisioni_nuove_discordi: le letture d'identità del file leggono revisioni diverse.
+//
+// Con la colonna letta (RevisioneDa «colonna») il confronto si fa con la revisione della colonna, come con quella del
+// codice: solo le equivalenze dichiarate dalle due regole, nessuna rappresentazione diversa resa uguale.
 const (
-	MotivoRevisioniEquivalente      = "equivalente"
-	MotivoRevisioniNuovoNonValutato = "nuovo_non_valutato"
-	MotivoRevisioniSoloInColonna    = "revisione_solo_in_colonna"
-	MotivoRevisioniVecchiaNonLetta  = "revisione_vecchia_non_letta"
-	MotivoRevisioniNuovaNonLetta    = "revisione_nuova_non_letta"
-	MotivoRevisioniNuoveDiscordi    = "revisioni_nuove_discordi"
+	MotivoRevisioniEquivalente              = "equivalente"
+	MotivoRevisioniNuovoNonValutato         = "nuovo_non_valutato"
+	MotivoRevisioniSoloInColonna            = "revisione_solo_in_colonna"
+	MotivoRevisioniColonnaNonInterpretabile = "revisione_colonna_non_interpretabile"
+	MotivoRevisioniColonnaAmbigua           = "revisione_colonna_ambigua"
+	MotivoRevisioniVecchiaDiscorde          = "revisione_vecchia_discorde"
+	MotivoRevisioniVecchiaNonLetta          = "revisione_vecchia_non_letta"
+	MotivoRevisioniNuovaNonLetta            = "revisione_nuova_non_letta"
+	MotivoRevisioniNuoveDiscordi            = "revisioni_nuove_discordi"
 	// motivoRevisioniNonDeterminabile: ConfrontaRevisioni non decide anche con due revisioni lette; oggi non succede, ma
 	// la regola è sua, e qui non si sceglie al suo posto.
 	motivoRevisioniNonDeterminabile = "non_determinabile"
@@ -201,11 +234,12 @@ func (p *piatti) confrontabili(t fotorfq.Thread) ([]FileConfrontabile, []evidenz
 	return out, diag
 }
 
-// piatto: il vecchio come record piatto.
+// piatto: il vecchio come record piatto. Revisione e RevisioneDa vengono dalla revisione vecchia interpretata (R113 B):
+// per un codice che legge la sua revisione sono quella del codice, come prima.
 func (v vecchioLetto) piatto() VecchioPiatto {
 	return VecchioPiatto{Stato: v.Stato, Fonte: v.Fonte, Codice: v.Codice, Rev: v.Rev, Base: v.Lettura.Base, Marcatore: v.Lettura.Marcatore,
-		Revisione: v.Lettura.Revisione, Leggibile: v.Lettura.Leggibile, MotivoLettura: v.Lettura.Motivo, CodiceLetto: v.CodiceLetto,
-		CodiceLettoBase: v.CodiceLettoBase, CodiceLettoMarcatore: v.CodiceLettoMarcatore, Componente: copiaUUID(v.Componente), Documento: copiaUUID(v.Documento), ComponenteProposta: copiaUUID(v.ComponenteProposta),
+		Revisione: v.revisione.valore, Leggibile: v.Lettura.Leggibile, MotivoLettura: v.Lettura.Motivo, CodiceLetto: v.CodiceLetto,
+		CodiceLettoBase: v.CodiceLettoBase, CodiceLettoMarcatore: v.CodiceLettoMarcatore, RevisioneDa: v.revisione.da, Componente: copiaUUID(v.Componente), Documento: copiaUUID(v.Documento), ComponenteProposta: copiaUUID(v.ComponenteProposta),
 		SostituitoDa: copiaUUID(v.SostituitoDa), DecisoIl: copiaTempo(v.DecisoIl), Destinazione: append([]string(nil), v.Destinazione...)}
 }
 
@@ -241,7 +275,7 @@ func (p *piatti) nuovo(a fotorfq.Allegato, vl vecchioLetto) NuovoPiatto {
 		if rev != nil {
 			n.Revisione = rev.Normalizzata
 		}
-		n.Revisioni, n.MotivoRevisioni = confrontaLeRevisioni(vl.forma, vl.Rev, rev, motivo)
+		n.Revisioni, n.MotivoRevisioni = confrontaLeRevisioni(vl.revisione, rev, motivo)
 		return n
 	}
 	n.Revisioni, n.MotivoRevisioni = RevisioniNonConfrontabili, MotivoRevisioniNuovoNonValutato
@@ -333,18 +367,19 @@ func revisioneDelFile(letture []motorea.LetturaCodice) (*motorea.RevisioneLetta,
 	return rev, ""
 }
 
-// confrontaLeRevisioni: la revisione del codice vecchio contro quella del file, con la grammatica (ConfrontaRevisioni);
-// revColonna è la colonna rev del vecchio, che serve solo al motivo (R-65).
-func confrontaLeRevisioni(vecchia *motorea.LetturaForma, revColonna string, nuova *motorea.RevisioneLetta, motivoNuova string) (string, string) {
+// confrontaLeRevisioni: la revisione vecchia interpretata (dal codice o dalla colonna: revisioneVecchia) contro quella
+// del file, con la grammatica (ConfrontaRevisioni). Il lato vecchio viene prima del nuovo: un motivo del vecchio vale
+// anche se il file non legge nessuna revisione.
+func confrontaLeRevisioni(vecchia revisioneVecchia, nuova *motorea.RevisioneLetta, motivoNuova string) (string, string) {
 	switch {
-	case vecchia != nil && vecchia.Revisione == nil && strings.TrimSpace(revColonna) != "":
-		return RevisioniNonConfrontabili, MotivoRevisioniSoloInColonna
-	case vecchia == nil || vecchia.Revisione == nil || vecchia.Revisione.Stato != motorea.StatoRevisioneLetta:
+	case vecchia.motivo != "":
+		return RevisioniNonConfrontabili, vecchia.motivo
+	case vecchia.rev == nil: // non succede: senza motivo la revisione c'è; se succede non si sceglie
 		return RevisioniNonConfrontabili, MotivoRevisioniVecchiaNonLetta
 	case nuova == nil:
 		return RevisioniNonConfrontabili, motivoNuova
 	}
-	switch motorea.ConfrontaRevisioni(*vecchia.Revisione, *nuova) {
+	switch motorea.ConfrontaRevisioni(*vecchia.rev, *nuova) {
 	case motorea.CompatibilitaUguale:
 		return RevisioniUguali, ""
 	case motorea.CompatibilitaEquivalente:

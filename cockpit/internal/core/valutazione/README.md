@@ -137,7 +137,7 @@ markmap:
   - **il composto e lo stato del prodotto**, l'asse 7 (`StatoDelProdotto`, con l'ingresso `CondizioniNuove`): un solo
     predicato, `Verificato`, e lo stato che ne deriva, con `da_riesaminare` secondo T-E1-14 e R111 A, precisata
     dall'utente il 07/10, in una funzione sola (`vociNuoveDopoLaFonteSuperataR111`); il confronto semantico fra due STEP
-    che la risposta chiede arriva in B6b;
+    che la risposta chiede esce da A1c come limite dichiarato (E2 §3.4: il primo pezzo dopo A1c);
   - **il fascicolo** (`Fascicolo`, con l'ingresso `IngressoFascicolo` e il gesto di congelamento del modello nuovo,
     `GestoCongelamento`, senza adattatore: LD-23) e il congelamento legacy a parte (`CongelamentoLegacy`, dalla
     bom_versione).
@@ -196,12 +196,14 @@ markmap:
 - **`vecchio.go`** (B6, V1) — responsabilità:
   - `LetturaRegistrata`, i motivi `MotivoLettura*`, `LeggiCodiceRegistrato`; `vecchioLetto` e la scelta della proposta e
     del documento di ogni allegato; la lettura dei dettagli (la lettura del vecchio motore, la destinazione F8);
-    `confronto.codice_registrato_non_leggibile`; il vecchio dei prodotti (`vecchiProdotti`).
+    `confronto.codice_registrato_non_leggibile`; il vecchio dei prodotti (`vecchiProdotti`); da B6b la revisione vecchia
+    interpretata (`revisioneVecchia`, `leggiRevisioneVecchia`: il codice, oppure la colonna `rev` letta con
+    `motorea.LeggiRevisioneRegistrata`; R113 B).
 - **`confrontabile.go`** (B6, V1) — responsabilità:
   - i record piatti `FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`, `CandidatoPiatto`, `ProdottoConfrontabile`; i
-    valori `Revisioni*` e `MotivoRevisioni*`; la costruzione: il nuovo di ogni allegato (le basi, i candidati con la base
-    del target, del componente deciso o del nodo, le radici, la revisione del file e il confronto con quella del codice
-    vecchio), i candidati prodotto piatti.
+    valori `Revisioni*`, `RevisioneDa*` e `MotivoRevisioni*`; la costruzione: il nuovo di ogni allegato (le basi, i
+    candidati con la base del target, del componente deciso o del nodo, le radici, la revisione del file e il confronto
+    con la revisione vecchia, del codice o della colonna), i candidati prodotto piatti.
 - **`impronta.go`** (B6, V1 e V3) — responsabilità:
   - `VersioneImprontaProdotto`; l'impronta dell'esito (`improntaEsito`);
   - (V3) l'impronta del prodotto: l'ingresso astratto (`DatiDecisiProdotto`, `ImprontaFonte`, `ImprontaComponente`,
@@ -553,7 +555,8 @@ markmap:
     documento e all'unità dell'evidenza della proposta: T-B6-23), in ordine canonico e poi di prodotto e tipo;
   - i campi di V3 (i nodi, il composto, lo stato, i motivi, l'impronta, il fascicolo) li calcola V3: vedi «I nodi, lo
     stato del prodotto, il fascicolo e l'impronta». **Mai «verificato» per difetto**;
-  - **l'impronta dell'esito** è lo sha256 del canonico dell'esito con l'impronta vuota: copre le quattro versioni,
+  - **l'impronta dell'esito** è lo sha256 del canonico dell'esito con l'impronta vuota: copre le cinque versioni (da
+    B6b anche `VersioneRevisioneRegistrata` di `motorea`, R113 B),
     l'impronta della fotografia, quella dell'indice (con i limiti: R43 B), ogni thread per intero, i messaggi fuori RFQ,
     le diagnostiche. Fuori per costruzione: `PresaIl` e `Sorgente`, ogni orologio, l'atteso (R2), l'esito di `confronto`;
   - **l'impronta per thread** (F0-14): l'esito è di tutta la fotografia, quindi l'impronta del banco e quella
@@ -574,7 +577,7 @@ markmap:
   - `CodiceLettoBase` (F0-19, emendamento di CP.2) è la base di `CodiceLetto` letta con la stessa grammatica
     (`LeggiCodiceRegistrato(m, CodiceLetto).Base`), vuota se `CodiceLetto` è vuoto o non si legge: serve al «prima» delle
     correzioni manuali di `confronto` (R30 f), che così confronta basi, non stringhe. **`CodiceLettoMarcatore`** (il
-    gemello per R114, precisata dall'utente il 07/10: 18 campi nel vecchio) è il marcatore della stessa lettura
+    gemello per R114, precisata dall'utente il 07/10) è il marcatore della stessa lettura
     (`LeggiCodiceRegistrato(m, CodiceLetto).Marcatore`, cioè `LetturaForma.Marcatore`), vuoto se il marcatore non c'è, se
     `CodiceLetto` è vuoto o se non si legge: `confronto` conta a parte la stessa base con due marcatori scritti e diversi,
     senza sommarla ai cambi di base. Quale dei due conteggi faccia da titolo è una scelta dell'utente (D-R114, aperta in
@@ -589,14 +592,28 @@ markmap:
   - **le radici** sono le basi dei target da cui il candidato si raggiunge, in ordine di byte, senza doppioni; **una o più
     radici la cui base non si legge restano un solo `""`** (R-62 della revisione di V1): una radice in più non sparisce,
     e `confronto` conta `""` come una radice che non coincide con nessuna base attesa, cioè una radice «in più»;
-  - le revisioni si confrontano con la grammatica (`motorea.ConfrontaRevisioni`): la revisione letta nel codice vecchio
-    contro quella comune alle letture d'identità del file. Una revisione scritta solo nella colonna `rev` della proposta
-    o del documento non si legge (la grammatica la legge nel codice): `non_confrontabili`, con il motivo
-    `revisione_solo_in_colonna` quando il codice si legge senza nessuna revisione e la colonna non è vuota (R-65 della
-    revisione di V1: il limite di T-B6-24 si conta), altrimenti `revisione_vecchia_non_letta` (il codice che non si legge,
-    o una revisione non letta, come un token sospeso). È un limite noto: R113 B ratificata, da realizzare prima di Q10
-    (la revisione legacy letta con la regola della grammatica, con il valore originale, l'interpretazione e la
-    provenienza).
+  - **la revisione vecchia** (R113 B ratificata; E2 §2.6; B6b): il valore originale resta in `Codice` e `Rev`;
+    l'interpretazione è `VecchioPiatto.Revisione` e la provenienza `RevisioneDa` (il gemello subito dopo
+    `CodiceLettoMarcatore`: 19 campi nel vecchio). Il primo caso che vale (`leggiRevisioneVecchia`):
+    - il codice che non si legge non ha una famiglia, e la colonna non si legge: nessuna revisione,
+      `revisione_vecchia_non_letta` (non determinabile); lo stesso per un codice con una revisione non letta (un token
+      sospeso);
+    - il codice con la revisione letta: quella, da `codice`. Se la colonna, letta con la regola in campo separato della
+      famiglia, non concorda (`ConfrontaRevisioni` discordante), il confronto non si fa: `revisione_vecchia_discorde`,
+      senza scegliere; il valore resta quello del codice. Una colonna che non si legge non lo contraddice;
+    - il codice senza revisione: con la colonna vuota `revisione_vecchia_non_letta`; con la colonna letta
+      (`motorea.LeggiRevisioneRegistrata`, con la famiglia della lettura del codice, senza gli spazi ai bordi) quella, da
+      `colonna`; con la colonna che non si legge un motivo per stato, perché il banco la conti per stato (T-B6-202):
+      `revisione_solo_in_colonna` (nessuna regola: R-65), `revisione_colonna_non_interpretabile`,
+      `revisione_colonna_ambigua`;
+    - `Revisione` è vuota se e solo se `RevisioneDa` è vuoto; `RevisioneDa` dice la provenienza del valore, mai una
+      scelta fra codice e colonna (T-B6-201). Mai «codice + rev» composti;
+    - **limite noto** (T-B6-207; R-148 della revisione di B6b): una colonna `rev` che non si legge (nessuna regola, non
+      interpretabile, ambigua) accanto a una revisione letta nel codice non lascia traccia nel record piatto: vale il
+      codice, senza motivo, e il banco non la conta fra le colonne per stato.
+  - le revisioni si confrontano con la grammatica (`motorea.ConfrontaRevisioni`): la revisione vecchia interpretata
+    contro quella comune alle letture d'identità del file, con le sole equivalenze dichiarate dalle regole. I motivi di
+    `non_confrontabili` vengono nell'ordine: il file non valutato, il lato vecchio, il lato nuovo.
 - **Lo smistamento** (B6, V2; R81, R93, R95 A, R105; contratto §1.5; E1R §6):
   - **il perimetro di R93 (b)** (T-E1-12), il primo che vale: `inline`, `elemento_outlook` (un .msg come contenitore),
     `collegamento`, `contenitore_estratto` (contano le sue voci), `messaggio_in_uscita` (non interno: l'inoltro interno
@@ -617,7 +634,8 @@ markmap:
     caratteristica generica del file, come l'estensione PDF, non è un collegamento a un prodotto»). Poi, solo per un file
     che conta, non è terminale e non ha evidenze, il **contesto** come ripiego: le letture del motore A del messaggio
     dell'allegato esterno, nei segmenti che la richiesta considera, con il ruolo «prodotto», che nominano un target
-    (R107, precisata dall'utente il 07/10; in A1c la formula dell'opzione A, alla lettera: R-71 della revisione di V2). I
+    (R107, precisata dall'utente il 07/10; in A1c la formula dell'opzione A, alla lettera [T]: R-71 della revisione di
+    V2). I
     segmenti sono il corrente di ogni messaggio (oggetto e corpo), anche senza il gesto 1, con la controparte sconosciuta
     o la direzione non nota, più quelli che un caso dichiara pertinenti: le letture con la funzione «richiesta» del
     router. Il caso aggiunge, non toglie il corrente; un corrente che il caso dichiara escluso è menzione e non conta
@@ -640,7 +658,8 @@ markmap:
     scarto non collegano: dubbio T-B6-172). I riferimenti: l'allegato, `contesto:<rif>` per i nominati, `evidenza:<rif>`
     (o `decisione:<rif>`) per i collegati (dubbio T-B6-173). Solo quando la pertinenza si calcola; non blocca niente, non
     cambia la pertinenza né la decisione, e non entra nell'impronta del prodotto. Un collegamento verso un elemento che
-    non è in nessun target non è un'evidenza e non dà la diagnostica (R106-3, estensione di B6b);
+    non è in nessun target non è un'evidenza e non dà la diagnostica (R106-3: la sua visibilità esce da A1c come limite
+    dichiarato, E2 §3.4);
   - **orfano**: conta, non è terminale, non è pertinente a nessuno; sta in «da smistare» e fa l'avviso
     `orfano:<allegato_id>` (con il contesto `…:prodotti_contesto:<rif>|<rif>`), senza bloccare niente. **Solo quando la
     pertinenza si calcola** (R-75 della revisione di V2): con una sezione dello smistamento assente (T-12: lo scarto, la
@@ -725,9 +744,11 @@ markmap:
     chiavi del contratto, che lo STEP confermato prima non aveva). **Fra i due STEP oggi non c'è nessuna
     corrispondenza**: le chiavi contengono lo sha256 del documento (T-E1-04, una chiave valida solo dentro un file), e il
     confronto semantico che l'utente chiede (stessi padri e figli, occorrenze e quantità; gli affissi e le revisioni prima
-    dei codici nuovi; un criterio di corrispondenza esplicito, con i casi ambigui irrisolti) **arriva in B6b**: fino ad
-    allora è un limite dichiarato, e lo stato non cambia in questo giro. Il nuovo STEP è il documento corrente in fondo alla catena delle sostituzioni del
-    documento del riferimento. **Il limite dichiarato (R111 B)**: vale solo se la fotografia porta tutte e due le
+    dei codici nuovi; un criterio di corrispondenza esplicito, con i casi ambigui irrisolti) **esce da A1c come limite
+    dichiarato**: con la decisione dell'orchestratore del 07/10 sera (E2 §3.4; un contrasto isolato con R111, dichiarato
+    lì) diventa il primo pezzo dopo A1c, prerequisito del riesame nello spazio di verifica. In A1c lo stato non cambia.
+    Il nuovo STEP è il documento corrente in fondo alla catena delle sostituzioni del documento del riferimento. **Il
+    limite dichiarato (il limite B previsto dalla R111 A)**: vale solo se la fotografia porta tutte e due le
     versioni, cioè se il prodotto ha una struttura dello STEP di prima e una del nuovo (il caricatore legge tutti i
     documenti del thread, anche quelli sostituiti, e i fatti dei loro contenuti alla terna corrente; la struttura c'è se il
     file dello STEP è fra gli allegati e i suoi fatti si leggono). Se una delle due manca (lo STEP di prima analizzato con
@@ -736,7 +757,7 @@ markmap:
     revisione di V3): le chiavi dei nodi e degli archi comprendono lo sha256 del documento (T-E1-04), quindi ogni nodo e
     ogni arco del nuovo STEP è nuovo, anche con lo stesso codice o la stessa struttura: con le due strutture leggibili,
     dopo una fonte superata, sono nuove tutte e sole le voci del nuovo STEP. Lo STEP di prima serve solo a tre cose: la
-    sua struttura deve esserci (altrimenti vale la B); le sue voci, e quelle di un terzo STEP, restano vecchie; con lo
+    sua struttura deve esserci (altrimenti vale il limite B); le sue voci, e quelle di un terzo STEP, restano vecchie; con lo
     stesso sha256 nessuna voce è nuova. **La conseguenza per l'utente** (D-2 della revisione di V3): con il gesto 3 sul
     nuovo STEP la fonte torna confermata, R111 non vale più, e le voci ancora da decidere tornano condizioni vecchie: il
     prodotto passa da `da_riesaminare` a `non_pronto`, dopo un gesto che fa avanzare, e resta `non_pronto` finché le
@@ -870,6 +891,11 @@ markmap:
   diversa, due spazi di codici, senza grammatica), il vecchio dal documento e dalla proposta, i dettagli, il documento
   sostituito e quello corrente, le revisioni confrontate con la grammatica con ogni motivo, il codice che non si legge;
   il vecchio dei prodotti (F0-18).
+- **`revisione_vecchia_test.go`** (B6b, R113 B ratificata) — L1 — la colonna letta con la regola della famiglia (uguale,
+  diversa, con gli spazi ai bordi), il codice con la revisione, concorde e discorde con la colonna (in tutti e due i
+  versi), la colonna che non si legge accanto al codice, il codice che non si legge, la colonna che non si legge per
+  stato (nessuna regola, non letta per intero, riservata, token sospeso, due regole), la provenienza e l'invariante
+  «Revisione vuota se e solo se RevisioneDa vuoto», la versione della lettura nell'esito e nella sua impronta.
 - **`scenario_test.go`** (B6, V1) — L1 — A1c-L1-20, la parte di valutazione: la struttura del prodotto (era
   `RadiceScenario`: T-B0-02) nell'esito, con i figli senza file e il nodo senza lettura.
 - **`esito_test.go`** (B6, V1) — L1 — i valori e i campi del contratto dei tipi nuovi, le versioni fissate, i codici di V1
