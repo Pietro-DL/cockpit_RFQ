@@ -208,7 +208,11 @@ func TestL4TargetEFonteDalDatabase(t *testing.T) {
 		r.ConfermatoDa == nil || *r.ConfermatoDa != s.operatore || r.ConfermatoIl == "" || r.Superato || fin.Fonte.Estrazione != ancoraggio.EstrazioneRiuscita {
 		t.Errorf("finito: fonte %+v, riferimento %+v", fin.Fonte, r)
 	}
-	if len(v.Diagnostiche) != 0 {
-		t.Errorf("diagnostiche %+v", v.Diagnostiche)
+	// Nessuna diagnostica dei target e della fonte. C'è solo la contraddizione fra il contesto e la decisione (R106 B,
+	// precisata dall'utente il 07/10): lo STEP autorizzato del finito 7120300 è allegato al messaggio che nomina solo il
+	// codice confermato P7120100, e la contraddizione resta visibile, senza bloccare niente.
+	attesa := []string{s.aFinito.String(), "contesto:" + rifIdent, "decisione:" + rifFinito}
+	if len(v.Diagnostiche) != 1 || v.Diagnostiche[0].Codice != valutazione.CodiceContestoDiscorde || fmt.Sprint(v.Diagnostiche[0].Rif) != fmt.Sprint(attesa) {
+		t.Errorf("diagnostiche %+v: attesa solo %s con %v", v.Diagnostiche, valutazione.CodiceContestoDiscorde, attesa)
 	}
 }

@@ -47,6 +47,11 @@ func valuta(t *testing.T, th fotorfq.Thread, m *motorea.Motore, caso *valutazion
 			t.Errorf("candidato %s: origine %q", c.CodiceRichiesto, c.Origine)
 		}
 	}
+	// B6, V3: PO-35 e gli invarianti del prodotto su tutti i casi delle prove, e la coerenza delle fonti (T-B2-02).
+	for _, p := range v.ProdottiValutati {
+		invariantiDelProdotto(t, fotografia(th), m != nil, p)
+	}
+	coerenzaDelleFonti(t, v.ProdottiValutati, v.Ancoraggi.Strutture)
 	for i := 1; i < len(v.Diagnostiche); i++ {
 		a, b := v.Diagnostiche[i-1], v.Diagnostiche[i]
 		if a.Codice > b.Codice {

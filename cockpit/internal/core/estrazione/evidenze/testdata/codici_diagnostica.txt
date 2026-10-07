@@ -116,3 +116,7 @@ ancoraggio.completamento_documentale
 ancoraggio.correzione_documentale
 bom.fonte_non_registrata
 documenti.deroga_non_sostituisce_2d
+valutazione.errore_valutazione
+confronto.codice_registrato_non_leggibile
+valutazione.messaggio_fuori_rfq_senza_caso
+valutazione.contesto_discorde
