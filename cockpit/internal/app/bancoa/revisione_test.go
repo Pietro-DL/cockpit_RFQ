@@ -228,6 +228,142 @@ func TestR116ChiaviConAmbito(t *testing.T) {
 	}
 }
 
+// TestO1ChiaviDelTokenSullAmbitoDellaVoce (T-B6-200; O-1 della controprova delle risposte): token_revisione,
+// token_conservato e identita_include_token si giudicano sul solo ambito che la voce degli attesi indica, con le sue
+// chiavi che hanno un ambito; mai sul file intero. Il nome non ha token, il cartiglio ha «xx»:
+//   - senza chiavi con un ambito nella voce, l'ambito non si determina: le tre chiavi sono fra i nonFatti, con il motivo
+//     (prima token_conservato «xx» passava sul token del cartiglio: un passato falso);
+//   - con una chiave del nome nella voce, la chiave del token si giudica sul nome: token_conservato «xx» è una differenza,
+//     e con il token nel nome passa;
+//   - con chiavi di unità diverse, o con l'ambito «questo campo», l'ambito non si determina: nonFatti.
+func TestO1ChiaviDelTokenSullAmbitoDellaVoce(t *testing.T) {
+	ins := insiemeACME(t)
+	lettura := func(unita string, ctx evidenze.Contesto, token string) motorea.LetturaCodice {
+		l := motorea.LetturaCodice{UnitaID: unita, Funzione: motorea.FunzIdentitaFile,
+			Forma: motorea.LetturaForma{Famiglia: "acme-marcatore", Selettore: evidenze.Selettore{Contesto: ctx},
+				Base: motorea.BaseLetta{Normalizzata: "9123460", Completa: true}}}
+		if token != "" {
+			l.Forma.Token = &motorea.ParteLetta{Valore: token, Originale: token}
+			l.Forma.Revisione = &motorea.RevisioneLetta{Originale: token, Stato: motorea.StatoRevisioneNonInterpretabile,
+				Token: &motorea.ParteLetta{Valore: token, Originale: token}}
+		}
+		return l
+	}
+	file := func(letture ...motorea.LetturaCodice) fileDelThread {
+		return fileDelThread{fi: &valut.FileInterpretato{AllegatoID: allBaseline, Interpretazione: motorea.Interpretazione{ClienteID: clienteACME,
+			Stato: motorea.StatoInterpretazioneCompleta, Letture: letture}}, valutato: true, cliente: clienteACME}
+	}
+	k := func(chiave string, v ValoreAtteso) ChiaveAttesa { return ChiaveAttesa{Chiave: chiave, Valore: v} }
+	xx := ValoreAtteso{Tipo: TipoStringa, Testo: "xx"}
+	null := ValoreAtteso{Tipo: TipoNullo}
+	vero := ValoreAtteso{Tipo: TipoBooleano, Testo: "true"}
+	falso := ValoreAtteso{Tipo: TipoBooleano, Testo: "false"}
+	fd := file(lettura("u:nome", evidenze.ContestoNomeFile, ""), lettura("u:pdf:cartiglio:1", evidenze.ContestoCartiglio, "xx"))
+
+	d, nf := lettureDelFile("baseline_decisioni[0]", []ChiaveAttesa{k("identita_include_token", vero), k("token_conservato", xx), k("token_revisione", xx)}, fd, &ins, "")
+	if len(d) != 0 || len(nf) != 3 {
+		t.Fatalf("senza un ambito nella voce: differenze %q, non fatti %q", d, nf)
+	}
+	for _, x := range nf {
+		if !strings.Contains(x, "la chiave del token non nomina un'unità e la voce non ne indica una") || !strings.Contains(x, "T-B6-200") {
+			t.Errorf("il motivo: %q", x)
+		}
+	}
+
+	d, nf = lettureDelFile("baseline_decisioni[0]", []ChiaveAttesa{k("revisione_dal_nome", null), k("token_conservato", xx)}, fd, &ins, "")
+	if len(nf) != 0 || len(d) != 1 || !strings.HasPrefix(d[0], "baseline_decisioni[0].atteso.token_conservato: atteso xx") {
+		t.Errorf("con l'ambito del nome, il token del cartiglio non vale: differenze %q, non fatti %q", d, nf)
+	}
+	conToken := file(lettura("u:nome", evidenze.ContestoNomeFile, "xx"), lettura("u:pdf:cartiglio:1", evidenze.ContestoCartiglio, ""))
+	if d, nf := lettureDelFile("baseline_decisioni[0]", []ChiaveAttesa{k("revisione_dal_token", null), k("token_conservato", xx),
+		k("token_revisione", xx)}, conToken, &ins, ""); len(nf) != 0 || conPrefisso(d, "baseline_decisioni[0].atteso.token_") {
+		t.Errorf("con il token nel nome: differenze %q, non fatti %q", d, nf)
+	}
+
+	for nome, c := range map[string]struct {
+		letture []ChiaveAttesa
+		motivo  string
+	}{
+		"unità diverse": {[]ChiaveAttesa{k("identita_file_da_nota", falso), k("revisione_dal_nome", null), k("token_revisione", xx)},
+			"le chiavi con un ambito della voce indicano unità diverse (nome_file, testo_pdf)"},
+		"questo campo": {[]ChiaveAttesa{k("revisione_da_questo_campo", null), k("token_revisione", xx)}, "l'ambito «questo campo»"},
+	} {
+		_, nf := lettureDelFile("baseline_decisioni[0]", c.letture, fd, &ins, "")
+		token := ""
+		for _, x := range nf {
+			if strings.HasPrefix(x, "baseline_decisioni[0].atteso.token_revisione: ") {
+				token = x
+			}
+		}
+		if !strings.Contains(token, c.motivo) || !strings.Contains(token, "T-B6-200") {
+			t.Errorf("%s: non fatti %q", nome, nf)
+		}
+	}
+}
+
+// TestR140AmbitoDedottoEAsserzioniNegative (R-140 della revisione di B6b; T-B6-220, precisata dall'orchestratore): lo
+// scenario del revisore, la voce {revisione_dal_nome: null, token_conservato: false}, con il nome senza token e il token
+// «xx» solo nel cartiglio. Prima la voce passava in silenzio sul nome, l'ambito dedotto dalla chiave sorella (HEAD dava
+// una differenza sul file intero); ora un'asserzione negativa (false, null, la lista vuota) su un ambito dedotto è fra i
+// nonFatti, con il motivo «ambito dedotto, asserzione negativa», per le tre chiavi dei token. Un valore positivo resta
+// verificabile, e il rapporto scrive su quale unità la chiave è stata giudicata, anche nella corsa sulla scena.
+func TestR140AmbitoDedottoEAsserzioniNegative(t *testing.T) {
+	ins := insiemeACME(t)
+	lettura := func(unita string, ctx evidenze.Contesto, token string) motorea.LetturaCodice {
+		l := motorea.LetturaCodice{UnitaID: unita, Funzione: motorea.FunzIdentitaFile,
+			Forma: motorea.LetturaForma{Famiglia: "acme-marcatore", Selettore: evidenze.Selettore{Contesto: ctx},
+				Base: motorea.BaseLetta{Normalizzata: "9123460", Completa: true}}}
+		if token != "" {
+			l.Forma.Token = &motorea.ParteLetta{Valore: token, Originale: token}
+		}
+		return l
+	}
+	fd := fileDelThread{fi: &valut.FileInterpretato{AllegatoID: allBaseline, Interpretazione: motorea.Interpretazione{ClienteID: clienteACME,
+		Stato: motorea.StatoInterpretazioneCompleta, Letture: []motorea.LetturaCodice{lettura("u:nome", evidenze.ContestoNomeFile, ""),
+			lettura("u:pdf:cartiglio:1", evidenze.ContestoCartiglio, "xx")}}}, valutato: true, cliente: clienteACME}
+	sorella := ChiaveAttesa{Chiave: "revisione_dal_nome", Valore: ValoreAtteso{Tipo: TipoNullo}}
+	for _, k := range []ChiaveAttesa{
+		{Chiave: "token_conservato", Valore: ValoreAtteso{Tipo: TipoBooleano, Testo: "false"}},
+		{Chiave: "token_conservato", Valore: ValoreAtteso{Tipo: TipoNullo}},
+		{Chiave: "identita_include_token", Valore: ValoreAtteso{Tipo: TipoBooleano, Testo: "false"}},
+		{Chiave: "token_revisione", Valore: ValoreAtteso{Tipo: TipoLista}},
+		{Chiave: "token_revisione", Valore: ValoreAtteso{Tipo: TipoNullo}},
+	} {
+		d, nf, dedotti := lettureDelFileConAmbiti("baseline_decisioni[0]", []ChiaveAttesa{sorella, k}, fd, &ins, "")
+		if len(d) != 0 || len(dedotti) != 0 || len(nf) != 1 ||
+			!strings.HasPrefix(nf[0], "baseline_decisioni[0].atteso."+k.Chiave+": ambito dedotto, asserzione negativa: sull'unità nome_file") {
+			t.Errorf("%s %s: differenze %q, non fatti %q, ambiti dedotti %q", k.Chiave, k.Valore.String(), d, nf, dedotti)
+		}
+	}
+	// Un valore positivo si giudica sull'ambito dedotto, e il rapporto lo scrive; la chiave sorella, che l'ambito lo
+	// dichiara, non è fra gli ambiti dedotti.
+	d, nf, dedotti := lettureDelFileConAmbiti("baseline_decisioni[0]", []ChiaveAttesa{sorella,
+		{Chiave: "token_conservato", Valore: ValoreAtteso{Tipo: TipoStringa, Testo: "xx"}}}, fd, &ins, "")
+	if len(d) != 1 || len(nf) != 0 || strings.Join(dedotti, "\n") !=
+		"baseline_decisioni[0].atteso.token_conservato: giudicata sull'unità nome_file, ambito dedotto dalle chiavi sorelle (T-B6-220)" {
+		t.Errorf("il valore positivo: differenze %q, non fatti %q, ambiti dedotti %q", d, nf, dedotti)
+	}
+
+	// Sulla scena: l'archivio dei reali ha revisione_dal_nome; con token_conservato «00» la chiave si giudica sul nome e
+	// il rapporto lo dice; con false è un'asserzione negativa, fra le parti non verificate.
+	r := corsaBanco(t, attesiMutati(func(a string) string {
+		return sostituisci(t, a, "      revisione_dal_nome: null\n", "      revisione_dal_nome: null\n      token_conservato: \"00\"\n")
+	}), true, false)
+	dl := dettaglio(r, ControlloLetture)
+	if !conPrefisso(dl.AmbitiDedotti, "reali_archivi[0].atteso.token_conservato: giudicata sull'unità nome_file") ||
+		!strings.Contains(r.Testo(), "letture_e_invarianti_dei_file, ambito dedotto: reali_archivi[0].atteso.token_conservato: giudicata sull'unità nome_file") {
+		t.Errorf("l'ambito dedotto nel rapporto: %+v", dl)
+	}
+	r = corsaBanco(t, attesiMutati(func(a string) string {
+		return sostituisci(t, a, "      revisione_dal_nome: null\n", "      revisione_dal_nome: null\n      token_conservato: false\n")
+	}), true, false)
+	dl = dettaglio(r, ControlloLetture)
+	if !conPrefisso(dl.NonVerificate, "reali_archivi[0].atteso.token_conservato: ambito dedotto, asserzione negativa") || len(dl.AmbitiDedotti) != 0 ||
+		conPrefisso(dl.Differenze, "reali_archivi[0].atteso.token_conservato") {
+		t.Errorf("l'asserzione negativa sulla scena: %+v", dl)
+	}
+}
+
 // ---- R-102: le parti della riga della baseline che non si confrontano ----
 
 // TestR102DecisoDaNegliExport: deciso_da non è negli export. La baseline lo dichiara fra le parti non verificate (NON

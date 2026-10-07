@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -393,15 +394,20 @@ func TestRispostaR116LeClassiNonCambianoLUscita(t *testing.T) {
 
 // TestRispostaR116GliInformativiIncompleti: le sezioni informative che la corsa non ha completato stanno nella chiusura,
 // ognuna con il motivo, e non toccano la conclusione della parte obbligatoria: la fonte contro l'atteso dei prodotti
-// dello scenario, finché la derivazione dagli attesi arriva in B6b (R109, precisata dall'utente il 07/10); le parti non
-// applicabili; le chiavi libere non verificate; il profilo dei limiti assente dopo una fotografia letta. Una sezione
-// prodotti calcolata e senza fonte contro l'atteso non è incompleta.
+// attesi dello scenario con parti non verificate, o che la corsa non verifica (PO-29; R109, precisata dall'utente il
+// 07/10); le parti non applicabili; le chiavi libere non verificate; il profilo dei limiti assente dopo una fotografia
+// letta. Una sezione prodotti calcolata, con la fonte contro l'atteso verificata per intero, non è incompleta.
 func TestRispostaR116GliInformativiIncompleti(t *testing.T) {
 	prodotti := func(fonte *ConfrontoFonte) *SezioneProdotti {
-		return &SezioneProdotti{Calcolata: true, Thread: []ProdottiThread{{Prodotti: []ProdottoInformativo{{Rif: "identificativo:9123456", Fonte: fonte}}}}}
+		s := &SezioneProdotti{Calcolata: true, Thread: []ProdottiThread{{Prodotti: []ProdottoInformativo{{Rif: "identificativo:9123456"}}}}}
+		if fonte != nil {
+			s.FontiScenario = &FontiDelloScenario{Prodotti: []ConfrontoFonte{*fonte}}
+		}
+		return s
 	}
 	g := Gate{Esito: GateSuperato}
-	r := RapportoBanco{Controlli: controlliPassatiACME(), Fotografia: &SintesiFotografia{}, Prodotti: prodotti(&ConfrontoFonte{}), Gate: &g,
+	nonVerificata := &ConfrontoFonte{Base: "9123456", NonVerificate: []string{"motivo: non fissato dagli attesi"}}
+	r := RapportoBanco{Controlli: controlliPassatiACME(), Fotografia: &SintesiFotografia{}, Prodotti: prodotti(nonVerificata), Gate: &g,
 		Dettagli: []DettaglioControllo{{Nome: ControlloInvariantiC5, NonApplicabili: []string{"a", "b"}}},
 		Attesi:   &SintesiAttesi{ChiaviLibere: []string{"x"}}}
 	ch := chiusuraDi(r)
@@ -410,7 +416,7 @@ func TestRispostaR116GliInformativiIncompleti(t *testing.T) {
 		motivi[v.Nome] = v.Motivo
 	}
 	for nome, parte := range map[string]string{
-		SezioneInformativaProdotti:       "la derivazione dagli attesi, esplicita e indipendente dal motore, arriva in B6b",
+		SezioneInformativaProdotti:       "1 prodotti attesi dello scenario su 1 con parti della fonte contro l'atteso non verificate (PO-29, R109)",
 		SezioneInformativaNonApplicabili: "2 parti non applicabili",
 		SezioneInformativaChiaviLibere:   "1 chiavi libere non verificate",
 		SezioneInformativaProfilo:        "non calcolato",
@@ -422,9 +428,15 @@ func TestRispostaR116GliInformativiIncompleti(t *testing.T) {
 	if len(ch.Informativi) != 4 || ch.Conclusione != ConclusioneConclusa || ch.RapportoCompleto {
 		t.Errorf("gli informativi incompleti non toccano la conclusione, ma il rapporto non è completo: %+v", ch)
 	}
-	r.Prodotti, r.Dettagli, r.Attesi, r.ProfiloLimiti = prodotti(nil), nil, nil, &ProfiloLimiti{}
+	// La fonte di uno scenario che la corsa non verifica è incompleta anche senza prodotti.
+	r.Prodotti = prodotti(nil)
+	r.Prodotti.FontiScenario = &FontiDelloScenario{NonVerificabile: "il thread dello scenario non è fra quelli scelti"}
+	if ch := chiusuraDi(r); !strings.Contains(fmt.Sprint(ch.Informativi), "la fonte contro l'atteso dei prodotti dello scenario non si verifica in questa corsa: il thread dello scenario non è fra quelli scelti") {
+		t.Errorf("lo scenario non verificabile: %+v", ch.Informativi)
+	}
+	r.Prodotti, r.Dettagli, r.Attesi, r.ProfiloLimiti = prodotti(&ConfrontoFonte{Base: "9123456", Differenze: []string{"stato"}}), nil, nil, &ProfiloLimiti{}
 	if ch := chiusuraDi(r); len(ch.Informativi) != 0 || !ch.RapportoCompleto {
-		t.Errorf("senza informativi incompleti: %+v", ch)
+		t.Errorf("senza informativi incompleti (una differenza della fonte è informazione, non una parte incompleta): %+v", ch)
 	}
 }
 
@@ -515,7 +527,9 @@ func TestRispostaR117SentinelleDelegate(t *testing.T) {
 		ch.Esterni[0].Prova != "A1c-L4D-01" || !strings.Contains(ch.Esterni[0].Motivo, `"copia_acme"`) {
 		t.Errorf("le sentinelle nella chiusura: %+v", ch)
 	}
-	if !strings.Contains(b.r.Testo(), "\n  - sentinelle: delegato [obbligatorio_esterno, non_eseguito] — verificate fuori dal runner da A1c-L4D-01") {
+	// T-B6-219: la riga dice sentinelle e impronte di contenuto, che A1c-L4D-01 verifica sulla copia intatta (R117 b).
+	if !strings.Contains(b.r.Testo(), "\n  - sentinelle: delegato [obbligatorio_esterno, non_eseguito] — sentinelle e impronte di contenuto verificate fuori dal runner da A1c-L4D-01") ||
+		!strings.Contains(classeDi(SedeControllo, ControlloSentinelle).Motivazione, "le sentinelle e le impronte di contenuto della copia") {
 		t.Errorf("il riepilogo:\n%s", b.r.Testo())
 	}
 	vecchia := *sent

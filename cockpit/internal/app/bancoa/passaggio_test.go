@@ -96,12 +96,15 @@ func TestA1cL131StessaForma(t *testing.T) {
 			t.Errorf("%s e %s non hanno la stessa forma:\n%s", a, b, strings.Join(d, "\n"))
 		}
 	}
-	// F0-19 e il gemello di R114: 18 campi nel vecchio, con CodiceLettoBase subito dopo CodiceLetto e
-	// CodiceLettoMarcatore subito dopo CodiceLettoBase, nei due pacchetti.
+	// F0-19 e i gemelli di R114 e di R113 B ratificata: 19 campi nel vecchio, con CodiceLettoBase subito dopo
+	// CodiceLetto, CodiceLettoMarcatore subito dopo CodiceLettoBase e RevisioneDa subito dopo CodiceLettoMarcatore, nei
+	// due pacchetti (E2 §2.6).
 	for _, tipo := range []reflect.Type{reflect.TypeOf(confronto.Vecchio{}), reflect.TypeOf(valut.VecchioPiatto{})} {
-		if tipo.NumField() != 18 || tipo.Field(9).Name != "CodiceLetto" || tipo.Field(10).Name != "CodiceLettoBase" ||
-			tipo.Field(11).Name != "CodiceLettoMarcatore" || tipo.Field(11).Tag.Get("json") != "codice_letto_marcatore" {
-			t.Errorf("%s: %d campi, i campi 10 e 11 sono %s e %s (F0-19, R114)", tipo, tipo.NumField(), tipo.Field(10).Name, tipo.Field(11).Name)
+		if tipo.NumField() != 19 || tipo.Field(9).Name != "CodiceLetto" || tipo.Field(10).Name != "CodiceLettoBase" ||
+			tipo.Field(11).Name != "CodiceLettoMarcatore" || tipo.Field(11).Tag.Get("json") != "codice_letto_marcatore" ||
+			tipo.Field(12).Name != "RevisioneDa" || tipo.Field(12).Tag.Get("json") != "revisione_da" {
+			t.Errorf("%s: %d campi, i campi 10, 11 e 12 sono %s, %s e %s (F0-19, R114, R113)", tipo, tipo.NumField(),
+				tipo.Field(10).Name, tipo.Field(11).Name, tipo.Field(12).Name)
 		}
 	}
 	// La guardia stessa: un tipo con nome del motore contro string non passa, un campo in più nemmeno.

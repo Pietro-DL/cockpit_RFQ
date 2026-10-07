@@ -11,7 +11,6 @@ import (
 
 	"promatec/cockpit/internal/core/confronto"
 	"promatec/cockpit/internal/core/estrazione/evidenze"
-	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
 	"promatec/cockpit/internal/core/registro/regole/grammatica"
 	valut "promatec/cockpit/internal/core/valutazione"
@@ -27,7 +26,7 @@ import (
 //   - senza_caso: senza il caso la richiesta dello scenario perde il segmento dichiarato (R48 A);
 //   - il censimento forma per forma; il profilo dei limiti contro l'indice e i tetti (R43 B);
 //   - la fonte attesa dei prodotti dello scenario accanto a quella calcolata (PO-29; R109, precisata dall'utente il 07/10:
-//     la derivazione esplicita dagli attesi arriva in B6b).
+//     la regola del runner; la derivazione esplicita dagli attesi la provano le prove di fonti_scenario_test.go).
 //
 // I clienti di questi test sono inventati: vedi scena_banco_test.go.
 
@@ -118,8 +117,8 @@ func TestCorrezioniPerCliente(t *testing.T) {
 	if x.Thread != 2 || x.ThreadNonValutati != 1 || x.CorrezioniNonValutati != z {
 		t.Errorf("i thread non valutati a parte (D5): %+v", x)
 	}
-	if x.StessaBaseAltroTarget != 1 || x.RevisioneSoloInColonna != 3 {
-		t.Errorf("fuori dalla misura: stessa base %d (solo i decisi), solo in colonna %d", x.StessaBaseAltroTarget, x.RevisioneSoloInColonna)
+	if x.StessaBaseAltroTarget != 1 || x.RevisioneSoloInColonna != (RevisioneInColonna{NessunaRegola: 3}) {
+		t.Errorf("fuori dalla misura: stessa base %d (solo i decisi), solo in colonna %+v", x.StessaBaseAltroTarget, x.RevisioneSoloInColonna)
 	}
 }
 
@@ -187,19 +186,12 @@ func TestProfiloLimiti(t *testing.T) {
 // uno STEP fra loro la fonte attesa è in_attesa_di_conferma, motivo documento_candidato, con quegli STEP come
 // candidati; senza, assente. Le differenze dicono dove la fonte calcolata non coincide, senza un esito.
 func TestFonteAttesaDelloScenario(t *testing.T) {
-	stp, pdf := "stp", "pdf"
-	ix := indiceFoto{allegati: map[uuid.UUID]rifAllegato{
-		allFiglio: {allegato: fotorfq.Allegato{ID: allFiglio, NomeFile: "9123456A_1.stp", Estensione: &stp}},
-		allRadice: {allegato: fotorfq.Allegato{ID: allRadice, NomeFile: "9123456A_2.pdf", Estensione: &pdf}},
-	}}
-	voce := func(id uuid.UUID, atteso, base string) voceTradotta {
-		return voceTradotta{voce: VoceAttesa{Sezione: confronto.SezioneScenario, Atteso: atteso, TargetBase: base}, risolta: true,
-			file: confronto.FileAtteso{AllegatoID: id}}
-	}
-	tr := &traduzione{voci: []voceTradotta{voce(allFiglio, "radice", "9123456"), voce(allRadice, "radice", "9123456"), voce(allFuori, "fuori", "")}}
-	pv := valut.ProdottoValutato{Base: motorea.BaseLetta{Normalizzata: "9123456"},
+	ix := indiceFontiACME()
+	tr := &traduzione{voci: []voceTradotta{voceScenarioACME(0, allFiglio, "radice", "9123456"), voceScenarioACME(1, allRadice, "radice", "9123456"),
+		voceScenarioACME(2, allFuori, "fuori", "")}}
+	pv := valut.ProdottoValutato{Rif: "identificativo:9123456", Base: motorea.BaseLetta{Normalizzata: "9123456"},
 		Fonte: valut.FonteProdotto{Stato: valut.FonteAssente, Motivo: valut.MotivoFonteStepPresenteNonAnalizzato}}
-	cf := fonteAttesaDelloScenario(pv, tr, ix)
+	cf := fonteUnicaACME(t, tr, ix, pv)
 	if cf.Atteso.Stato != string(valut.FonteInAttesaDiConferma) || cf.Atteso.Motivo != string(valut.MotivoFonteDocumentoCandidato) ||
 		len(cf.Atteso.Candidati) != 1 || cf.Atteso.Candidati[0] != allFiglio {
 		t.Fatalf("fonte attesa: %+v", cf.Atteso)
@@ -208,10 +200,10 @@ func TestFonteAttesaDelloScenario(t *testing.T) {
 		t.Errorf("differenze: %v", cf.Differenze)
 	}
 	// Senza STEP fra i file radice: assente; una fonte calcolata confermata o una BOM di lavoro non sono mai per lo scenario.
-	tr = &traduzione{voci: []voceTradotta{voce(allRadice, "radice", "9123456")}}
+	tr = &traduzione{voci: []voceTradotta{voceScenarioACME(0, allRadice, "radice", "9123456")}}
 	pv.Fonte = valut.FonteProdotto{Stato: valut.FonteConfermata}
 	pv.Nodi = []valut.NodoBOM{{}}
-	cf = fonteAttesaDelloScenario(pv, tr, ix)
+	cf = fonteUnicaACME(t, tr, ix, pv)
 	if cf.Atteso.Stato != string(valut.FonteAssente) || len(cf.Atteso.Candidati) != 0 ||
 		strings.Join(cf.Differenze, ",") != "stato,confermata: mai per lo scenario,bom_di_lavoro: mai per lo scenario" {
 		t.Errorf("senza STEP: %+v, differenze %v", cf.Atteso, cf.Differenze)
