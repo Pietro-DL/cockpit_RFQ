@@ -1,8 +1,8 @@
 // L1 — la copia intatta del dump, senza database (A1c-L1-02; piano A, 6.4.7; R10, R44): CopiaDelDump rifiuta i nomi
 // che non possono essere la copia (con «test», «dev», «prod», o uguali al database di prova) senza ripetere il DSN;
 // ControllaCopia, con un lettore finto, dà un errore per ogni deviazione dal manifest (ruolo, nome, sola lettura,
-// codifica, schema diverso o con buchi, tabelle escluse leggibili, sentinelle) e per un manifest che non descrive
-// una copia.
+// codifica, schema diverso o con buchi, tabelle escluse leggibili, sentinelle, impronte: R117 b) e per un manifest
+// che non descrive una copia. Le impronte una per una stanno in impronte_test.go.
 //
 // Copie, ruoli, tabelle e numeri sono inventati: i valori veri stanno solo nel manifest privato, e il repository
 // è pubblico.
@@ -77,17 +77,32 @@ func ultimaDelBinario(t *testing.T) int {
 	return migs[len(migs)-1].Versione
 }
 
-// copiaACME: la copia intatta come il manifest (inventato) la dichiara, e le risposte di un database che è
-// proprio quella copia.
+// improntaACME: un'impronta inventata, 64 cifre esadecimali.
+var improntaACME = strings.Repeat("ac", 32)
+
+// improntaComponenteACME: l'impronta dichiarata della tabella componente nella copia inventata: tre colonne, una con
+// il fuso orario, ordinate per id.
+func improntaComponenteACME() dataset.ImprontaTabella {
+	return dataset.ImprontaTabella{Colonne: []string{"id", "codice", "creato_il"}, Ordine: []string{"id"}, Sha256: improntaACME}
+}
+
+// classiComponenteACME: le classi che il catalogo inventato dà alle colonne di componente.
+var classiComponenteACME = map[string]string{"id": classeTesto, "codice": classeTesto, "creato_il": classeFuso}
+
+// copiaACME: la copia intatta come il manifest (inventato) la dichiara, con le sentinelle e l'impronta di una delle
+// due tabelle (R117 b), e le risposte di un database che è proprio quella copia.
 func copiaACME(t *testing.T) (dataset.CopiaAttesa, map[string]string) {
 	t.Helper()
 	ultima := ultimaDelBinario(t)
+	imp := improntaComponenteACME()
 	attesa := dataset.CopiaAttesa{
 		Database:   "acme_copia",
 		Ruolo:      "lettore_acme",
 		Schema:     ultima,
 		Escluse:    []string{"tabella_esclusa"},
 		Sentinelle: map[string]int64{"componente": 3, "allegato": 5},
+		Impronte: &dataset.ImpronteCopia{Versione: VersioneImpronta,
+			Tabelle: map[string]dataset.ImprontaTabella{"componente": imp}},
 	}
 	n := strconv.Itoa(ultima)
 	risposte := map[string]string{
@@ -101,6 +116,8 @@ func copiaACME(t *testing.T) (dataset.CopiaAttesa, map[string]string) {
 		sqlRighe("componente"):          "3",
 		sqlRighe("allegato"):            "5",
 	}
+	risposte[sqlClassiColonne("componente", imp.Colonne)] = "codice:testo creato_il:fuso id:testo"
+	risposte[sqlImpronta("componente", imp.Colonne, imp.Ordine, classiComponenteACME)] = "3 " + improntaACME
 	return attesa, risposte
 }
 
@@ -135,6 +152,14 @@ func TestControllaCopiaUnaDeviazionePerVolta(t *testing.T) {
 		{nome: "tabella esclusa leggibile", risposta: map[string]string{sqlLeggibile("tabella_esclusa"): "true"}, frase: "escluse"},
 		{nome: "esclusa con un nome non valido", manifest: func(a *dataset.CopiaAttesa) { a.Escluse = []string{"x; drop"} }, frase: "non è un nome"},
 		{nome: "una sentinella diversa", risposta: map[string]string{sqlRighe("componente"): "4"}, frase: "sentinelle: componente"},
+		{nome: "un'impronta diversa, a righe uguali", risposta: map[string]string{
+			sqlImpronta("componente", improntaComponenteACME().Colonne, improntaComponenteACME().Ordine, classiComponenteACME): "3 " + strings.Repeat("0", 64)},
+			frase: "impronte: valori cambiati: componente"},
+		{nome: "le righe dell'impronta diverse dalla sentinella", risposta: map[string]string{
+			sqlImpronta("componente", improntaComponenteACME().Colonne, improntaComponenteACME().Ordine, classiComponenteACME): "4 " + improntaACME},
+			frase: "le righe sono cambiate fra un controllo e l'altro"},
+		{nome: "manifest senza impronte", manifest: func(a *dataset.CopiaAttesa) { a.Impronte = nil }, frase: "parte delle impronte non è eseguita"},
+		{nome: "impronte di un'altra versione", manifest: func(a *dataset.CopiaAttesa) { a.Impronte.Versione = VersioneImpronta + 1 }, frase: "versione_impronta"},
 		{nome: "manifest senza ruolo", manifest: func(a *dataset.CopiaAttesa) { a.Ruolo = "" }, frase: "ruolo"},
 		{nome: "manifest senza database", manifest: func(a *dataset.CopiaAttesa) { a.Database = "" }, frase: "database"},
 		{nome: "manifest senza sentinelle", manifest: func(a *dataset.CopiaAttesa) { a.Sentinelle = nil }, frase: "sentinelle"},

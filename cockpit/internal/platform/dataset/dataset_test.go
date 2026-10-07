@@ -274,3 +274,70 @@ func TestLeggiCopiaRunEExport(t *testing.T) {
 		})
 	}
 }
+
+// L1 — le impronte della copia intatta (R117 b, ratificata e ampliata; E2 §2.10): la sezione impronte di copia si
+// legge con la versione della formula e, per tabella, colonne, ordine e sha256; è facoltativa (senza, nil). La
+// lettura resta stretta: chiavi sconosciute, assenti, ripetute o null rifiutate. Nella copia_run la chiave impronte
+// è sconosciuta: ogni ambiente ha le sue condizioni attese, e quelle della copia _run non sono ancora previste. Il
+// contenuto (versione, nomi, sha256) lo controlla platform/testutil, che calcola le impronte. Valori inventati.
+func TestLeggiImpronteDellaCopia(t *testing.T) {
+	dir, buono := scenaACME(t)
+	hash := strings.Repeat("cd", 32)
+	impronte := `"impronte": {"versione_impronta": 1, "tabelle": {"componente": {"colonne": ["id", "codice"], "ordine": ["id"], "sha256": "` + hash + `"}}}`
+	raw := strings.Replace(string(buono), `"copia": {}`, `"copia": {"database": "acme_copia", "ruolo": "lettore_acme", "schema": 21,
+    "sentinelle": {"componente": 3}, `+impronte+`},
+  "copia_run": {"database": "acme_copia_run", "ruolo": "prove_acme", "schema": 21, "sentinelle": {"componente": 3}}`, 1)
+	m, err := Leggi([]byte(raw), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imp := m.Copia.Impronte
+	if imp == nil || imp.Versione != 1 || len(imp.Tabelle) != 1 {
+		t.Fatalf("impronte: %+v", imp)
+	}
+	c := imp.Tabelle["componente"]
+	if strings.Join(c.Colonne, ",") != "id,codice" || strings.Join(c.Ordine, ",") != "id" || c.Sha256 != hash {
+		t.Errorf("l'impronta di componente: %+v", c)
+	}
+	if m.CopiaRun.Impronte != nil {
+		t.Errorf("la copia_run ha delle impronte: %+v", m.CopiaRun.Impronte)
+	}
+
+	// senza la sezione: nil, mai delle impronte inventate
+	senza := strings.Replace(raw, `, `+impronte, ``, 1)
+	if senza == raw {
+		t.Fatal("la sostituzione non ha tolto le impronte")
+	}
+	if m, err = Leggi([]byte(senza), dir); err != nil || m.Copia.Impronte != nil {
+		t.Fatalf("senza impronte: %+v, %v", m.Copia.Impronte, err)
+	}
+
+	casi := map[string]string{
+		"impronte: chiave sconosciuta":          strings.Replace(raw, `"versione_impronta": 1,`, `"versione_impronta": 1, "data": "x",`, 1),
+		"impronte: senza la versione":           strings.Replace(raw, `"versione_impronta": 1, `, ``, 1),
+		"impronte: senza le tabelle":            strings.Replace(raw, `, "tabelle": {"componente": {"colonne": ["id", "codice"], "ordine": ["id"], "sha256": "`+hash+`"}}`, ``, 1),
+		"impronte: null":                        strings.Replace(raw, impronte, `"impronte": null`, 1),
+		"impronte: versione con decimali":       strings.Replace(raw, `"versione_impronta": 1`, `"versione_impronta": 1.0`, 1),
+		"impronte: versione come testo":         strings.Replace(raw, `"versione_impronta": 1`, `"versione_impronta": "1"`, 1),
+		"impronte: ripetute":                    strings.Replace(raw, impronte, impronte+`, `+impronte, 1),
+		"impronte: maiuscole diverse":           strings.Replace(raw, `"impronte"`, `"Impronte"`, 1),
+		"tabella: chiave sconosciuta":           strings.Replace(raw, `"ordine": ["id"],`, `"ordine": ["id"], "righe": 3,`, 1),
+		"tabella: senza le colonne":             strings.Replace(raw, `"colonne": ["id", "codice"], `, ``, 1),
+		"tabella: senza l'ordine":               strings.Replace(raw, `"ordine": ["id"], `, ``, 1),
+		"tabella: senza lo sha256":              strings.Replace(raw, `, "sha256": "`+hash+`"`, ``, 1),
+		"tabella: colonne non un array":         strings.Replace(raw, `"colonne": ["id", "codice"]`, `"colonne": "id, codice"`, 1),
+		"tabella: una colonna null":             strings.Replace(raw, `"colonne": ["id", "codice"]`, `"colonne": ["id", null]`, 1),
+		"tabella: un valore semplice":           strings.Replace(raw, `"componente": {"colonne": ["id", "codice"], "ordine": ["id"], "sha256": "`+hash+`"}`, `"componente": "`+hash+`"`, 1),
+		"copia_run: le impronte non si leggono": strings.Replace(raw, `"copia_run": {"database": "acme_copia_run",`, `"copia_run": {`+impronte+`, "database": "acme_copia_run",`, 1),
+	}
+	for nome, r := range casi {
+		t.Run(nome, func(t *testing.T) {
+			if r == raw {
+				t.Fatal("la sostituzione non ha cambiato niente: il caso non prova nulla")
+			}
+			if _, err := Leggi([]byte(r), dir); err == nil {
+				t.Fatal("manifest accettato")
+			}
+		})
+	}
+}
