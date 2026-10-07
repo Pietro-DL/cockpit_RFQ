@@ -40,6 +40,11 @@ func TestIValoriDellEsito(t *testing.T) {
 		{valutazione.MotivoRevisioniVecchiaNonLetta, "revisione_vecchia_non_letta"}, {valutazione.MotivoRevisioniNuovaNonLetta, "revisione_nuova_non_letta"},
 		{valutazione.MotivoRevisioniSoloInColonna, "revisione_solo_in_colonna"},
 		{valutazione.MotivoRevisioniNuoveDiscordi, "revisioni_nuove_discordi"},
+		// la revisione del vecchio motore (R113 B ratificata; E2 §2.6; T-B6-202)
+		{valutazione.RevisioneDaCodice, "codice"}, {valutazione.RevisioneDaColonna, "colonna"},
+		{valutazione.MotivoRevisioniVecchiaDiscorde, "revisione_vecchia_discorde"},
+		{valutazione.MotivoRevisioniColonnaNonInterpretabile, "revisione_colonna_non_interpretabile"},
+		{valutazione.MotivoRevisioniColonnaAmbigua, "revisione_colonna_ambigua"},
 		{string(valutazione.SmistamentoDaVerificare), "da_verificare"}, {string(valutazione.SmistamentoVerificato), "verificato"},
 		{string(valutazione.SmistamentoConflitto), "conflitto"}, {string(valutazione.SmistamentoInRevisione), "in_revisione"},
 		{string(valutazione.MotivoSmistamentoFileDaSmistare), "file_da_smistare"}, {string(valutazione.MotivoSmistamentoNessunCandidato), "nessun_candidato"},
@@ -90,7 +95,8 @@ func TestICampiDellEsito(t *testing.T) {
 		campi string
 	}{
 		{valutazione.Esito{}, "VersioneValutazione:versione_valutazione VersioneImprontaProdotto:versione_impronta_prodotto VersioneFormati2D:versione_formati_2d " +
-			"VersioneComposizione:versione_composizione ImprontaFotografia:impronta_fotografia ImprontaIndice:impronta_indice VersioneLimiti:versione_limiti " +
+			"VersioneComposizione:versione_composizione VersioneRevisioneRegistrata:versione_revisione_registrata " +
+			"ImprontaFotografia:impronta_fotografia ImprontaIndice:impronta_indice VersioneLimiti:versione_limiti " +
 			"Thread:thread FuoriRFQ:fuori_rfq Diagnostiche:diagnostiche Impronta:impronta"},
 		{valutazione.EsitoThread{}, "ThreadID:thread_id ClienteID:cliente_id Valutato:valutato Motivo:motivo HashSnapshot:hash_snapshot Richiesta:richiesta " +
 			"File:file Prodotti:prodotti Ancoraggi:ancoraggi VecchiProdotti:vecchi_prodotti Evidenze:evidenze Confrontabili:confrontabili " +
@@ -105,7 +111,7 @@ func TestICampiDellEsito(t *testing.T) {
 		{valutazione.FileConfrontabile{}, "AllegatoID:allegato_id Vecchio:vecchio Nuovo:nuovo"},
 		{valutazione.VecchioPiatto{}, "Stato:stato Fonte:fonte Codice:codice Rev:rev Base:base Marcatore:marcatore Revisione:revisione Leggibile:leggibile " +
 			"MotivoLettura:motivo_lettura CodiceLetto:codice_letto CodiceLettoBase:codice_letto_base CodiceLettoMarcatore:codice_letto_marcatore " +
-			"Componente:componente Documento:documento " +
+			"RevisioneDa:revisione_da Componente:componente Documento:documento " +
 			"ComponenteProposta:componente_proposta " +
 			"SostituitoDa:sostituito_da DecisoIl:deciso_il Destinazione:destinazione"},
 		{valutazione.NuovoPiatto{}, "Valutato:valutato Motivo:motivo Basi:basi Candidati:candidati Collocazione:collocazione Associazione:associazione " +
@@ -178,15 +184,15 @@ func TestIRecordPiattiSoloTipiDelleFoglie(t *testing.T) {
 	visita(reflect.TypeFor[valutazione.FileConfrontabile](), "FileConfrontabile")
 	visita(reflect.TypeFor[valutazione.ProdottoConfrontabile](), "ProdottoConfrontabile")
 	// Il numero dei campi di CP.2, con l'emendamento F0-19 (CodiceLettoBase) e il gemello di R114, precisata dall'utente il
-	// 07/10 (CodiceLettoMarcatore): 18 campi nel vecchio.
+	// 07/10 (CodiceLettoMarcatore) e il gemello di R113 B ratificata (RevisioneDa, E2 §2.6): 19 campi nel vecchio.
 	for _, c := range []struct {
 		tp     reflect.Type
 		numero int
-	}{{reflect.TypeFor[valutazione.FileConfrontabile](), 3}, {reflect.TypeFor[valutazione.VecchioPiatto](), 18},
+	}{{reflect.TypeFor[valutazione.FileConfrontabile](), 3}, {reflect.TypeFor[valutazione.VecchioPiatto](), 19},
 		{reflect.TypeFor[valutazione.NuovoPiatto](), 10}, {reflect.TypeFor[valutazione.CandidatoPiatto](), 5},
 		{reflect.TypeFor[valutazione.ProdottoConfrontabile](), 5}} {
 		if c.tp.NumField() != c.numero {
-			t.Errorf("%s: %d campi, attesi %d (CP.2, F0-19, R114)", c.tp.Name(), c.tp.NumField(), c.numero)
+			t.Errorf("%s: %d campi, attesi %d (CP.2, F0-19, R114, R113)", c.tp.Name(), c.tp.NumField(), c.numero)
 		}
 	}
 }

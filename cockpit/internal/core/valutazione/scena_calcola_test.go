@@ -139,8 +139,10 @@ func calcola(t *testing.T, f fotorfq.Fotografia, r *motorea.InsiemeRegole, in va
 		t.Fatalf("Calcola: %v", err)
 	}
 	if e.VersioneValutazione != valutazione.VersioneValutazione || e.VersioneImprontaProdotto != valutazione.VersioneImprontaProdotto ||
-		e.VersioneFormati2D != valutazione.VersioneFormati2D || e.VersioneComposizione != motorea.VersioneComposizione {
-		t.Errorf("versioni %q %d %d %q", e.VersioneValutazione, e.VersioneImprontaProdotto, e.VersioneFormati2D, e.VersioneComposizione)
+		e.VersioneFormati2D != valutazione.VersioneFormati2D || e.VersioneComposizione != motorea.VersioneComposizione ||
+		e.VersioneRevisioneRegistrata != motorea.VersioneRevisioneRegistrata {
+		t.Errorf("versioni %q %d %d %q %q", e.VersioneValutazione, e.VersioneImprontaProdotto, e.VersioneFormati2D, e.VersioneComposizione,
+			e.VersioneRevisioneRegistrata)
 	}
 	for i, et := range e.Thread {
 		if i > 0 && e.Thread[i-1].ThreadID.String() >= et.ThreadID.String() {

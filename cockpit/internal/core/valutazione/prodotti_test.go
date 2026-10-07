@@ -546,7 +546,7 @@ func TestR111LaFonteSuperataNelleDueDirezioni(t *testing.T) {
 		p := prodottoDi(t, esitoSmistamento(t, th), rifProdB)
 		if asse(p.BOM.Nomenclatura) != "da_verificare/da_decidere" || p.Stato != valutazione.ProdottoNonPronto ||
 			!strings.HasPrefix(motiviProdotto(p.Motivi), "fonte_superata nomenclatura_non_verificata") {
-			t.Errorf("R111 B: %s, nomenclatura %s", statoProdotto(p), asse(p.BOM.Nomenclatura))
+			t.Errorf("il limite B previsto dalla R111 A: %s, nomenclatura %s", statoProdotto(p), asse(p.BOM.Nomenclatura))
 		}
 	})
 	t.Run("una voce vecchia", func(t *testing.T) {
@@ -813,7 +813,7 @@ func TestCondizioniNuoveDellaBOM(t *testing.T) {
 	}
 	s.RigheDaDecidere = []string{"componente_proposta:x"}
 	if got := f(sup, legacy, s, nil, fotorfq.Thread{}); got != (valutazione.CondizioniNuove{}) {
-		t.Errorf("una voce da decidere senza le due versioni (R111 B): %+v", got)
+		t.Errorf("una voce da decidere senza le due versioni (il limite B previsto dalla R111 A): %+v", got)
 	}
 }
 

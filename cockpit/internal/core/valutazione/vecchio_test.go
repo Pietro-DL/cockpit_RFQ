@@ -96,7 +96,8 @@ func TestL130IlVecchioDiOgniFile(t *testing.T) {
 		v := confrontabileDi(t, et, aDisegno).Vecchio
 		il := time.Date(2026, 10, 2, 9, 30, 0, 123000000, time.UTC)
 		atteso := valutazione.VecchioPiatto{Stato: "confermata", Fonte: "cartiglio", Codice: "7120200A1", Rev: "1", Base: "7120200", Marcatore: "A",
-			Revisione: "1", Leggibile: true, CodiceLetto: "7120299A1", CodiceLettoBase: "7120299", CodiceLettoMarcatore: "A", Componente: ptr(cSciolto), Documento: ptr(dDisegno),
+			Revisione: "1", Leggibile: true, CodiceLetto: "7120299A1", CodiceLettoBase: "7120299", CodiceLettoMarcatore: "A",
+			RevisioneDa: valutazione.RevisioneDaCodice, Componente: ptr(cSciolto), Documento: ptr(dDisegno),
 			ComponenteProposta: ptr(cTerzo), DecisoIl: &il, Destinazione: []string{"componente:" + cSciolto.String(), nodo}}
 		if !reflect.DeepEqual(v, atteso) {
 			t.Errorf("vecchio\n%+v\natteso\n%+v", v, atteso)
