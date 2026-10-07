@@ -68,11 +68,11 @@ markmap:
   dagli attesi a runtime e compaiono solo nei rapporti privati.
 - **Leggere il DB per conto suo**: la fotografia la legge il caricatore, l'unico che parla con il DB (in sola
   lettura); l'apertura e i controlli del collegamento sono di `platform/migrazioni`. Questo pacchetto non nomina pgx:
-  il pool passa per inferenza di tipo. Nessuna query e nessuna scrittura (R92); le sentinelle della copia non si
-  contano qui (nessun SQL nuovo, T-B0-36): le controlla `testutil.PoolDump` nella L4 sul dump (A1c-L4D-01), e il
-  rapporto lo scrive come riga delegata (R117 b, ratificata e ampliata dall'utente il 07/10, domande-a1c.md). Le
-  impronte di contenuto per ambiente e gli ambienti della copia per PO-30 e della copia rianalizzata (le parti (b) e
-  (c) di R117) non sono qui.
+  il pool passa per inferenza di tipo. Nessuna query e nessuna scrittura (R92); le sentinelle e le impronte di
+  contenuto della copia non si contano né si calcolano qui (nessun SQL nuovo, T-B0-36): le controlla `testutil.PoolDump`
+  nella L4 sul dump (A1c-L4D-01), per l'ambiente della copia intatta, e il rapporto lo scrive come riga delegata
+  (R117 b, ratificata e ampliata dall'utente il 07/10, domande-a1c.md; T-B6-219). Gli ambienti della copia per PO-30 e
+  della copia rianalizzata (la parte (c) di R117) non sono qui.
 - **Valutare, proporre, confrontare**: lo fanno `valutazione` e `confronto`, gli stessi dell'anteprima. Il banco
   traduce gli attesi nei DTO di atteso di `confronto` e li confronta solo lui (R2, P-11): il motore non li vede mai.
 - **`ancoraggio`**: il banco non lo importa (la freccia c'è solo nella prova di parità, `passaggio_test.go`). Le
@@ -131,17 +131,18 @@ markmap:
     fotografia, i clienti degli export, la copia del manifest e la sola lettura (`controllaCopia`, `solaLetturaDi`),
     le impronte del confronto; il contesto della corsa (`contestoCorsa`).
 - **`gate.go`** (A1c) — responsabilità:
-  - `Gate`, `VoceGate`, `calcolaGate` (le sette voci, una per una, con la classe e l'esito), l'uscita con `-gate`.
+  - `Gate`, `VoceGate`, `calcolaGate` (le sette voci, una per una, con la classe e l'esito), l'uscita con `-gate`;
+    `RevisioniDellaBaseline`, le differenze di revisione diagnosticate accanto alle decisioni preservate (R113 B).
 - **`classi.go`** (A1c) — responsabilità:
   - la classe e l'esito tri-stato di ogni controllo e di ogni voce del gate (R116 B, precisata dall'utente il 07/10):
     `ClasseControllo`, `EsitoTriStato`, `ControlloDelegato` (R117 b), la tabella statica delle classi con la
     motivazione, la fonte e, per gli esterni, la prova; il riepilogo `Chiusura`.
 - **`prodotti.go`** (A1c) — responsabilità:
   - la sezione informativa `prodotti` (i sette assi, lo stato, il fascicolo, i conflitti; «non calcolato» dove manca
-    una sezione: T-12) e la fonte attesa dei prodotti dello scenario (`fonteAttesaDelloScenario`, PO-29). R109,
-    precisata dall'utente il 07/10, senza scegliere una lettera. Lettura [T]: la regola del runner (la A del testo
-    della domanda) resta valida se la derivazione dagli attesi è esplicita e indipendente dal motore; la derivazione
-    arriva in B6b, prima di Q10.
+    una sezione: T-12) e la fonte contro l'atteso dei prodotti attesi dello scenario (`fontiDelloScenario`, PO-29, con
+    la regola `RegolaFonteAttesa`, la derivazione e i livelli). R109, precisata dall'utente il 07/10, senza scegliere
+    una lettera. Lettura [T]: la regola del runner (la A del testo della domanda) resta valida, con la derivazione dagli
+    attesi esplicita e indipendente dal motore (E2 §2.3).
 - **`rapporto_banco.go`** (A1c) — responsabilità:
   - `RapportoBanco` (versione 3) e le sue sezioni, con i dettagli dei controlli (`DettaglioControllo`: le differenze e
     le parti non verificate una per una), `PrimaRiga`, `Testo`, `scriviRapportoBanco` (`rapporto-dsn.json` e `.txt`,
@@ -256,7 +257,14 @@ markmap:
   `revisione_da_token_base` sul nome del file; `identita_file_da_nota` sul testo del PDF) si giudica solo sulle letture
   di quell'unità, mai sul file intero (R-116): il nome si legge sempre per intero, quindi le chiavi del nome si
   giudicano anche con il documento parziale; senza letture di quell'unità, o con l'ambito «questo campo», la chiave è
-  fra le parti non verificate. Le chiavi senza ambito vogliono l'interpretazione completa.
+  fra le parti non verificate. Le chiavi dei token (`token_revisione`, `token_conservato`, `identita_include_token`)
+  non nominano un'unità: si giudicano sul solo ambito che la voce indica con le sue chiavi che ne hanno uno, se è uno
+  solo e dice un'unità; altrimenti sono fra le parti non verificate, con il motivo, e mai sul file intero (T-B6-200).
+  L'ambito è dedotto, non dichiarato (T-B6-220, precisata con R-140): un'asserzione negativa (false, null, la lista
+  vuota) è fra le parti non verificate, «ambito dedotto, asserzione negativa», perché su un'unità più stretta del file
+  passerebbe a vuoto; un'asserzione positiva si giudica, e i dettagli del controllo dicono su quale unità
+  (`ambiti_dedotti`, nel riepilogo «ambito dedotto: …»), solo come informazione.
+  Le chiavi senza ambito vogliono l'interpretazione completa.
 - **Il file dei casi contro la fotografia**, sempre: un thread o un messaggio di un caso che la fotografia non ha è
   una differenza (con `-dsn`: il file dei casi contraddice i dati); con gli export i messaggi che mancano per
   costruzione (solo quelli in entrata) sono parti non verificabili (T-B6-74, T-B6-112).
@@ -306,17 +314,36 @@ markmap:
   risparmiato, con il denominatore (i valutabili), la copertura (valutabili su decisi) e gli esclusi per motivo (che
   hanno preso il posto del vecchio «prima per stringa»); `prima` e `prima_marcatore` restano separati, perché la scelta
   del titolo è aperta (D-R114); «dopo» ha tre parti: false associazioni, ambiguità, astensioni. Fuori dalla misura il
-  rapporto conta la stessa base su un altro target (su tutti i decisi) e la revisione solo in colonna (R-65; R113 B
-  ratificata, da realizzare prima di Q10).
+  rapporto conta la stessa base su un altro target (su tutti i decisi) e la revisione vecchia solo nella colonna rev
+  (R-65), divisa per lo stato della lettura della colonna con la regola della famiglia (R113 B ratificata;
+  `RevisioneInColonna`): letta, nessuna regola, non interpretabile, ambigua, e a parte i file non valutati il cui stato
+  non è nel record piatto.
+- **La revisione del vecchio motore** (R113 B ratificata; E2 §2.6): valutazione la interpreta (dal codice o dalla colonna
+  rev, con `motorea.LeggiRevisioneRegistrata`) e ne dice la provenienza nel gemello `RevisioneDa`, che `passaggio.go`
+  copia in `confronto.Vecchio` (19 campi, A1c-L1-31); l'indicatore di revisione la porta in `provenienza_vecchia`. Il
+  banco non interpreta niente: copia e conta. La versione della lettura della colonna sta fra le versioni del rapporto.
 - **Il motivo di un esito** contro l'atteso si divide sulle virgole (T-B6-53: `ambiguo` può portarne due).
 - **Le diagnostiche** stanno in quattro sedi, tutte nel rapporto: la fotografia (il caricatore o il lettore degli
   export: non entrano nell'esito, D-V1-2), l'esito, il thread, gli ancoraggi; il conteggio per codice le somma.
 - **La sezione `prodotti`** è solo informazione: con `-exports` un asse è «non calcolato» dove manca una sezione della
-  fotografia da cui dipende (T-12). Per i prodotti dello scenario, con `-attesi`, la fonte attesa accanto a quella
-  calcolata (PO-29). R109, precisata dall'utente il 07/10, senza scegliere una lettera. Lettura [T]: la regola del
-  runner (la A del testo della domanda) resta valida se la derivazione dagli attesi è esplicita e indipendente dal
-  motore; la derivazione arriva in B6b, prima di Q10. Fino ad allora la chiusura mette questa parte fra gli
-  informativi incompleti.
+  fotografia da cui dipende (T-12). Con `-attesi`, la fonte contro l'atteso dei prodotti attesi dello scenario (PO-29,
+  `prodotti.fonti_scenario`). R109, precisata dall'utente il 07/10, senza scegliere una lettera; E2 §2.3. Lettura [T]:
+  la regola del runner (la A del testo della domanda) resta valida, con la derivazione dagli attesi esplicita e
+  indipendente dal motore:
+  - si scorrono i prodotti attesi (le basi dei prodotti attesi e le basi del target delle voci radice), non quelli del
+    motore; un prodotto atteso senza calcolato è una differenza, e i prodotti del motore senza atteso sono elencati;
+  - la regola (`RegolaFonteAttesa`, `po29-radici-step-1`): uno STEP fra le voci radice risolte del target dà
+    `in_attesa_di_conferma` con `documento_candidato` e quegli STEP come candidati; nessuno STEP dà `assente`, e il
+    motivo, che gli attesi non fissano, il rapporto lo dice («motivo non fissato dagli attesi») invece di confrontarlo;
+    mai confermata, nessuna BOM di lavoro;
+  - la derivazione nel rapporto: la regola, i prodotti attesi e le sole voci radice del target; una voce radice non
+    risolta rende la derivazione incompleta, e lo dice;
+  - i livelli distinti: presente (attesi e fotografia), estrazione riuscita (i fatti della fotografia: dati d'ingresso),
+    struttura (l'asse della gerarchia del prodotto calcolato, che misura la «struttura corretta» della risposta:
+    «calcolato, non confrontato», R-144), associazione (i candidati del motore), autorizzazione come fonte (lo stato
+    della fonte), verifica operativa (mai in A1c);
+  - le parti non verificate (il motivo non fissato, le radici non risolte, lo scenario che la corsa non verifica) la
+    chiusura le mette fra gli informativi incompleti; le differenze sono informazione, fuori dal gate.
 - **Con `-exports` la ragione sociale del cliente** viene dall'export dei clienti, per UUID: senza, la grammatica non si
   può controllare e il thread non si valuta (`ragione_sociale_discorde`). È un limite degli ingressi, non del motore:
   il controllo `clienti_degli_export` è NON ESEGUITO, e per quei thread ciò che dipende dalla valutazione (la base
@@ -329,6 +356,12 @@ markmap:
   verificata non è preservata, R-102); un prodotto in più del motore non supera i conteggi (R-108); una voce della C5
   riservata non è un riservato «passato» (R-110). Con `-attesi` e senza `-gate` un gate non superato non decide
   l'uscita, ma la prima riga lo dice.
+- **Le decisioni preservate, con le differenze di revisione diagnosticate** (R113 B ratificata; E2 §3.4): ogni voce
+  della baseline porta l'indicatore di revisione del suo file (`attesi.baseline[].revisione`, con la provenienza della
+  revisione vecchia), e la voce 3 del gate conta le differenze diagnosticate (le revisioni diverse e le revisioni
+  vecchie discordi), con le uguali, le altre non determinabili e le voci senza riga (`gate.revisioni_baseline`). Non
+  tolgono la preservazione e non cambiano lo stato della voce: l'indicatore di revisione resta separato dalla
+  correttezza dell'associazione, e la cautela sul vecchio motore non indebolisce le decisioni confermate.
 
 ## Dipendenze
 
@@ -370,18 +403,25 @@ markmap:
   - **`gate_test.go`** — A1c-L1-25: le voci del gate e le uscite con `-gate`;
   - **`rapporto_banco_test.go`** — A1c-L1-26: il rapporto (versione 3), la prima scrittura, nessun testo di mail a
     video, la stabilità;
-  - **`passaggio_test.go`** — A1c-L1-31 (18 campi nel vecchio, con `CodiceLettoMarcatore`; il marcatore arriva alla
-    misura) e la parità dei valori del motore (T-B6-50), anche per la misura di R114;
+  - **`passaggio_test.go`** — A1c-L1-31 (19 campi nel vecchio, con `CodiceLettoMarcatore` e `RevisioneDa`; il
+    marcatore arriva alla misura) e la parità dei valori del motore (T-B6-50), anche per la misura di R114;
   - **`banco_test.go`** — le cinque condizioni di F0-01 e le regole d'uso, la sequenza `-exports`, la sequenza `-dsn`
     fino al collegamento;
   - **`sezioni_rapporto_test.go`** — le sezioni del rapporto una per una (messaggi fuori RFQ, motivo diviso,
     correzioni manuali e il testo della misura, `senza_caso`, censimento, profilo dei limiti, R109, 1 su 3);
   - **`risposte_test.go`** — il banco dopo le risposte dell'utente del 07/10: la tabella delle classi e la sua
     completezza sul sorgente, la classe e l'esito di ogni controllo e voce del gate, la chiusura, le uscite che non
-    cambiano, il JSON di A1a identico (R116); le sentinelle delegate (R117); la misura sugli export (R114);
+    cambiano, il JSON di A1a identico (R116); le sentinelle delegate, con le impronte nel testo della riga (R117,
+    T-B6-219); la misura sugli export (R114);
   - **`revisione_test.go`** — le correzioni della revisione di P9 (R-101…R-115) e i pareri che le accompagnano (gli
     export con i clienti di un altro DB, i due ingressi incoerenti, il n.3 nelle due direzioni), una prova per
-    correzione;
+    correzione; da B6b le chiavi dei token sull'ambito della voce (T-B6-200) e, con l'ambito dedotto, le asserzioni
+    negative fra le parti non verificate e l'ambito nel rapporto (R-140);
+  - **`fonti_scenario_test.go`** (B6b) — R109: i prodotti attesi scorsi al posto di quelli del motore, il prodotto
+    atteso senza calcolato, l'«assente» senza motivo fissato, la derivazione, i livelli, lo scenario non verificabile,
+    la scena;
+  - **`revisione_colonna_test.go`** (B6b) — R113, la parte del banco: la colonna per stato, le differenze di revisione
+    della baseline nel gate, la provenienza da valutazione alla baseline, la scena;
   - **`banco_db_test.go`** (tag `integrazione`, L4) — la sequenza `-dsn` sul DB di prova, fermata dal ruolo che
     scrive, con le tabelle escluse «non controllate».
 - `cmd/bancoa/main_test.go` prova flag e codici d'uscita del comando (0, 1, 2, 3); da A1c anche A1c-L1-27 (i flag

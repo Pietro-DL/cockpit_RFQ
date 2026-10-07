@@ -107,7 +107,7 @@ var tabellaClassi = []voceClassificata{
 	{SedeControllo, "sola_lettura", ClasseObbligatorio, "il collegamento alla copia non può scrivere", "6.4.9, passo 2; R92; R32 c", "", ""},
 	{SedeControllo, ControlloCopia, ClasseObbligatorio, "la copia raggiunta è quella del manifest: ruolo, database, schema, tabelle escluse", "6.4.9, passo 3; R-106; F0-16", "", ""},
 	{SedeControllo, ControlloSentinelle, ClasseObbligatorioEsterno,
-		"le sentinelle della copia le conta testutil.PoolDump nella L4 sul dump; il runner non ha una query (T-B0-36: nessun SQL nuovo). La delega vale solo per l'ambiente della copia intatta, il database della sezione copia del manifest, e la riga non decide l'uscita",
+		"le sentinelle e le impronte di contenuto della copia le verifica testutil.PoolDump nella L4 sul dump; il runner non ha una query (T-B0-36: nessun SQL nuovo). La delega vale solo per l'ambiente della copia intatta, il database della sezione copia del manifest, e la riga non decide l'uscita; si chiude nel registro con A1c-L4D-01 verde, cioè con le impronte dichiarate nel manifest",
 		"R117 b, precisata e ampliata dall'utente il 07/10 (domande-a1c.md); T-B6-105", "A1c-L4D-01", ""},
 	{SedeControllo, "fotografia", ClasseObbligatorio, "la fotografia letta dal caricatore, in una transazione REPEATABLE READ READ ONLY", "6.4.9, passi 4–5", "", ""},
 	{SedeControllo, "export", ClasseObbligatorio, "gli export del manifest, con sha256 e byte, nella fotografia", "6.4.9; A1c-B-02; T-12", "", ""},
@@ -152,8 +152,8 @@ var tabellaClassi = []voceClassificata{
 		"6.4.9, voce 7; R34 c; M-22; R58 B", "le etichette dei due profili negli attesi (M-22), con l'esito nel registro (R58 B)", ""},
 	// Le sezioni informative del rapporto.
 	{SedeRapporto, SezioneInformativaProdotti, ClasseInformativo,
-		"gli assi, lo stato e il fascicolo sui dati veri sono informazione, mai voci del gate; la fonte attesa dei prodotti dello scenario (PO-29) accanto a quella calcolata",
-		"T-B0-16; R69 A; PO-29; R109, precisata dall'utente il 07/10 (domande-a1c.md)", "", ""},
+		"gli assi, lo stato e il fascicolo sui dati veri sono informazione, mai voci del gate; la fonte attesa dei prodotti attesi dello scenario (PO-29), derivata dagli attesi con una regola dichiarata, accanto a quella calcolata",
+		"T-B0-16; R69 A; PO-29; R109, precisata dall'utente il 07/10, senza lettera (domande-a1c.md); E2 §2.3", "", ""},
 	{SedeRapporto, SezioneInformativaCorrezioni, ClasseInformativo,
 		"un indicatore ricostruito delle correzioni necessarie, non il tempo risparmiato; dichiara denominatore, copertura ed esclusi",
 		"R30 f A; R114, precisata dall'utente il 07/10 (domande-a1c.md); D-R114 aperta", "", ""},
@@ -355,9 +355,9 @@ func chiusuraDi(r RapportoBanco) *Chiusura {
 
 // informativiIncompleti: le sezioni informative del rapporto che la corsa non ha completato, con il motivo, in ordine
 // di tabella:
-//   - prodotti: assente, o non calcolata dove manca una sezione della fotografia (T-12); con la fonte contro l'atteso dei
-//     prodotti dello scenario, la derivazione dagli attesi, esplicita e indipendente dal motore, che arriva in B6b
-//     (R109, precisata dall'utente il 07/10);
+//   - prodotti: assente, o non calcolata dove manca una sezione della fotografia (T-12); la fonte contro l'atteso dei
+//     prodotti attesi dello scenario che la corsa non verifica, o non per intero (PO-29, R109: il motivo non fissato
+//     dagli attesi, le voci radice non risolte, lo scenario non verificabile);
 //   - correzioni_manuali: assenti, o con decisi esclusi dal denominatore (la copertura non è piena) o thread non
 //     valutati a parte;
 //   - profilo_limiti, censimento: solo se assenti;
@@ -374,16 +374,19 @@ func informativiIncompleti(r RapportoBanco) [][2]string {
 		if !p.Calcolata {
 			m = append(m, "non calcolata dove manca: "+strings.Join(p.SezioniAssenti, ", "))
 		}
-		fonti := 0
-		for _, t := range p.Thread {
-			for _, x := range t.Prodotti {
-				if x.Fonte != nil {
-					fonti++
+		if fs := p.FontiScenario; fs != nil {
+			nonVerificati := 0
+			for _, c := range fs.Prodotti {
+				if len(c.NonVerificate) > 0 {
+					nonVerificati++
 				}
 			}
-		}
-		if fonti > 0 {
-			m = append(m, fmt.Sprintf("%d prodotti dello scenario con la fonte contro l'atteso: la derivazione dagli attesi, esplicita e indipendente dal motore, arriva in B6b, prima di Q10 (R109)", fonti))
+			switch {
+			case fs.NonVerificabile != "":
+				m = append(m, "la fonte contro l'atteso dei prodotti dello scenario non si verifica in questa corsa: "+fs.NonVerificabile+" (PO-29, R109)")
+			case nonVerificati > 0:
+				m = append(m, fmt.Sprintf("%d prodotti attesi dello scenario su %d con parti della fonte contro l'atteso non verificate (PO-29, R109)", nonVerificati, len(fs.Prodotti)))
+			}
 		}
 		if len(m) > 0 {
 			out = append(out, [2]string{SezioneInformativaProdotti, strings.Join(m, "; ")})

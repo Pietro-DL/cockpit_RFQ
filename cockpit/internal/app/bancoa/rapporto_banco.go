@@ -13,6 +13,7 @@ import (
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/registro/regole/grammatica"
+	valut "promatec/cockpit/internal/core/valutazione"
 	"promatec/cockpit/internal/platform/dataset"
 	"promatec/cockpit/internal/platform/jsoncanonico"
 )
@@ -81,30 +82,36 @@ type RapportoBanco struct {
 //
 // NonApplicabili: le parti che il piano assegna all'altra modalità, e che questa corsa non verifica né dichiara non
 // verificate (R-117): solo informazione, «non applicabile in questa corsa».
+//
+// AmbitiDedotti: le chiavi giudicate su un ambito dedotto dalle chiavi sorelle della voce, con l'unità (le chiavi dei
+// token: T-B6-220, precisata con R-140): solo informazione, dice su quale unità la chiave è stata giudicata.
 type DettaglioControllo struct {
 	Nome           string   `json:"nome"`
 	Differenze     []string `json:"differenze,omitempty"`
 	NonVerificate  []string `json:"non_verificate,omitempty"`
 	NonApplicabili []string `json:"non_applicabili,omitempty"`
+	AmbitiDedotti  []string `json:"ambiti_dedotti,omitempty"`
 }
 
 // VersioniBanco: le versioni del codice del rapporto (quelle di A1a, più quelle del motore di A1c che entrano
-// nell'impronta dell'esito di valutazione e di confronto).
+// nell'impronta dell'esito di valutazione e di confronto; RevisioneRegistrata è la lettura della colonna rev del vecchio
+// motore, motorea.LeggiRevisioneRegistrata, R113 B ratificata).
 type VersioniBanco struct {
-	Rapporto           int    `json:"rapporto"`
-	Manifest           int    `json:"manifest"`
-	Canonicalizzazione string `json:"canonicalizzazione"`
-	SchemaGrammatiche  int    `json:"schema_grammatiche"`
-	Indice             int    `json:"indice"`
-	Capacita           string `json:"capacita"`
-	Algoritmo          string `json:"algoritmo"`
-	SchemaFotografia   int    `json:"schema_fotografia"`
-	Casi               int    `json:"casi"`
-	Valutazione        string `json:"valutazione"`
-	ImprontaProdotto   int    `json:"impronta_prodotto"`
-	Formati2D          int    `json:"formati_2d"`
-	Composizione       string `json:"composizione"`
-	Confronto          string `json:"confronto"`
+	Rapporto            int    `json:"rapporto"`
+	Manifest            int    `json:"manifest"`
+	Canonicalizzazione  string `json:"canonicalizzazione"`
+	SchemaGrammatiche   int    `json:"schema_grammatiche"`
+	Indice              int    `json:"indice"`
+	Capacita            string `json:"capacita"`
+	Algoritmo           string `json:"algoritmo"`
+	SchemaFotografia    int    `json:"schema_fotografia"`
+	Casi                int    `json:"casi"`
+	Valutazione         string `json:"valutazione"`
+	ImprontaProdotto    int    `json:"impronta_prodotto"`
+	Formati2D           int    `json:"formati_2d"`
+	Composizione        string `json:"composizione"`
+	RevisioneRegistrata string `json:"revisione_registrata"`
+	Confronto           string `json:"confronto"`
 }
 
 // SolaLettura: che cosa può fare il collegamento al DB (migrazioni.ControllaSolaLettura) e come la transazione del
@@ -259,16 +266,60 @@ type SintesiThread struct {
 //     niente). Prima e PrimaMarcatore restano separati: la scelta del titolo è aperta (D-R114).
 //   - StessaBaseAltroTarget: i decisi con una regressione verso un candidato con la stessa base su un altro target
 //     (T-B6-51), su tutti i decisi: fuori dalla misura, non una parte di Dopo (T-B6-191).
-//   - RevisioneSoloInColonna: i file con la revisione vecchia solo nella colonna rev (R-65; R113 B ratificata, da
-//     realizzare prima di Q10).
+//   - RevisioneSoloInColonna: i file con la revisione vecchia solo nella colonna rev (R-65), divisi per lo stato della
+//     lettura della colonna (R113 B ratificata: RevisioneInColonna).
 type CorrezioniCliente struct {
 	ClienteID              uuid.UUID                   `json:"cliente_id"`
 	Thread                 int                         `json:"thread"`
 	Correzioni             confronto.CorrezioniManuali `json:"correzioni"`
 	StessaBaseAltroTarget  int                         `json:"stessa_base_altro_target_fuori_misura"`
-	RevisioneSoloInColonna int                         `json:"revisione_solo_in_colonna"`
+	RevisioneSoloInColonna RevisioneInColonna          `json:"revisione_solo_in_colonna"`
 	ThreadNonValutati      int                         `json:"thread_non_valutati"`
 	CorrezioniNonValutati  confronto.CorrezioniManuali `json:"correzioni_non_valutati"`
+}
+
+// RevisioneInColonna: i file la cui revisione vecchia c'è solo nella colonna rev (il codice vecchio si legge senza
+// nessuna revisione e la colonna non è vuota: R-65), divisi per lo stato della lettura della colonna con la regola in
+// campo separato della famiglia del codice (R113 B ratificata; motorea.LeggiRevisioneRegistrata; T-B6-202). Lo stato
+// non è un campo del record piatto: si legge dalla provenienza e dal motivo che valutazione ha dato.
+//   - Letta: la colonna si legge, e la revisione vecchia viene da lì (Vecchio.RevisioneDa «colonna»);
+//   - NessunaRegola: la famiglia non ha una regola in campo separato (revisione_solo_in_colonna: il limite di R-65);
+//   - NonInterpretabile: una regola riservata, una colonna che la regola non legge per intero, un token sospeso
+//     (revisione_colonna_non_interpretabile);
+//   - Ambigua: più regole, nessuna si sceglie (revisione_colonna_ambigua);
+//   - StatoNonNelRecord: il file non è valutato (nuovo_non_valutato prevale sui motivi della colonna), il codice si
+//     legge, la revisione vecchia non è interpretata e la colonna non è vuota: lo stato della colonna non si vede, e
+//     si conta a parte invece di sparire (T-B6-221). Comprende anche un codice che porta la revisione come token
+//     sospeso: il record piatto non li distingue.
+type RevisioneInColonna struct {
+	Letta             int `json:"letta"`
+	NessunaRegola     int `json:"nessuna_regola"`
+	NonInterpretabile int `json:"non_interpretabile"`
+	Ambigua           int `json:"ambigua"`
+	StatoNonNelRecord int `json:"stato_non_nel_record"`
+}
+
+// conta: un file nel contatore della colonna, nel suo stato; un file che non ha la revisione solo nella colonna non
+// conta.
+func (c *RevisioneInColonna) conta(f confronto.File) {
+	v, n := f.Vecchio, f.Nuovo
+	switch {
+	case v.RevisioneDa == valut.RevisioneDaColonna:
+		c.Letta++
+	case n.MotivoRevisioni == valut.MotivoRevisioniSoloInColonna:
+		c.NessunaRegola++
+	case n.MotivoRevisioni == valut.MotivoRevisioniColonnaNonInterpretabile:
+		c.NonInterpretabile++
+	case n.MotivoRevisioni == valut.MotivoRevisioniColonnaAmbigua:
+		c.Ambigua++
+	case n.MotivoRevisioni == valut.MotivoRevisioniNuovoNonValutato && v.Leggibile && v.RevisioneDa == "" && strings.TrimSpace(v.Rev) != "":
+		c.StatoNonNelRecord++
+	}
+}
+
+// totale: tutti i file del contatore.
+func (c RevisioneInColonna) totale() int {
+	return c.Letta + c.NessunaRegola + c.NonInterpretabile + c.Ambigua + c.StatoNonNelRecord
 }
 
 // ProfiloLimiti: i massimi osservati, contro i limiti che l'indice dichiara e contro i tetti del codice (R43 B; C-23):
@@ -331,9 +382,9 @@ func (r RapportoBanco) Testo() string {
 	riga("indice: sha256 %s, impronta %s; casi: sha256 %s", vuotoONo(r.Sha256Indice), vuotoONo(r.ImprontaIndice), vuotoONo(r.Sha256Casi))
 	riga("versione_limiti: %s", vuotoONo(r.VersioneLimiti))
 	v := r.Versioni
-	riga("versioni: rapporto %d, manifest %d, %s, schema %d, indice %d, %s, %s, fotografia %d, casi %d, %s, impronta prodotto %d, formati 2D %d, %s, %s",
+	riga("versioni: rapporto %d, manifest %d, %s, schema %d, indice %d, %s, %s, fotografia %d, casi %d, %s, impronta prodotto %d, formati 2D %d, %s, %s, %s",
 		v.Rapporto, v.Manifest, v.Canonicalizzazione, v.SchemaGrammatiche, v.Indice, v.Capacita, v.Algoritmo,
-		v.SchemaFotografia, v.Casi, v.Valutazione, v.ImprontaProdotto, v.Formati2D, v.Composizione, v.Confronto)
+		v.SchemaFotografia, v.Casi, v.Valutazione, v.ImprontaProdotto, v.Formati2D, v.Composizione, v.RevisioneRegistrata, v.Confronto)
 	if s := r.SolaLettura; s != nil {
 		escluse := "non controllate"
 		if s.EscluseNonLeggibili != nil {
@@ -377,6 +428,9 @@ func (r RapportoBanco) Testo() string {
 		}
 		for _, x := range d.NonApplicabili {
 			riga("  %s, non applicabile in questa corsa: %s", d.Nome, x)
+		}
+		for _, x := range d.AmbitiDedotti {
+			riga("  %s, ambito dedotto: %s", d.Nome, x)
 		}
 	}
 	for _, pc := range perClienteTesto(r) {
@@ -431,6 +485,9 @@ func (r RapportoBanco) Testo() string {
 			}
 		}
 		riga("prodotti (solo informazione): %d, %s%s", n, elencoConteggi(stati), seNonCalcolata(p))
+		if p.FontiScenario != nil {
+			testoFonti(riga, p.FontiScenario)
+		}
 	}
 	if l := r.ProfiloLimiti; l != nil {
 		riga("profilo_limiti (%s): byte per unità %d, unità per documento %d, letture per unità %d, letture per documento %d; oltre l'indice: %s",
@@ -472,6 +529,41 @@ func elencoConteggi(m map[string]int) string {
 		return "—"
 	}
 	return strings.Join(parti, ", ")
+}
+
+// testoFonti: la fonte contro l'atteso dei prodotti attesi dello scenario nel riepilogo (PO-29, R109): una riga per
+// prodotto atteso, con la regola, le voci usate, l'atteso e il calcolato, le differenze e le parti non verificate. Un
+// «assente» senza motivo negli attesi lo dice («motivo non fissato dagli attesi»), non tace.
+func testoFonti(riga func(string, ...any), fs *FontiDelloScenario) {
+	if fs.NonVerificabile != "" {
+		riga("fonte contro l'atteso dello scenario (PO-29, solo informazione): %d prodotti attesi, non verificata in questa corsa — %s",
+			len(fs.Prodotti), fs.NonVerificabile)
+	} else {
+		riga("fonte contro l'atteso dello scenario (PO-29, solo informazione): %d prodotti attesi; calcolati senza atteso: %s",
+			len(fs.Prodotti), elenco(fs.CalcolatiSenzaAtteso))
+	}
+	for _, c := range fs.Prodotti {
+		atteso := "non derivato"
+		switch {
+		case c.Atteso.Motivo != "":
+			atteso = c.Atteso.Stato + ", " + c.Atteso.Motivo
+		case c.Atteso.Stato != "":
+			atteso = c.Atteso.Stato + ", motivo non fissato dagli attesi"
+		}
+		calcolato := "nessuno"
+		if k := c.Calcolato; k != nil {
+			calcolato = vuotoONo(k.Stato) + ", " + vuotoONo(k.Motivo)
+		}
+		s := fmt.Sprintf("  prodotto atteso %s (regola %s, %d voci radice): atteso %s; calcolato %s", c.Base, c.Derivazione.Regola,
+			len(c.Derivazione.Voci)+len(c.Derivazione.NonRisolte), atteso, calcolato)
+		if len(c.Differenze) > 0 {
+			s += "; differenze: " + strings.Join(c.Differenze, ", ")
+		}
+		if len(c.NonVerificate) > 0 {
+			s += "; non verificate: " + strings.Join(c.NonVerificate, "; ")
+		}
+		riga("%s", s)
+	}
 }
 
 func seNonCalcolata(p *SezioneProdotti) string {
@@ -531,17 +623,19 @@ func perClienteTesto(r RapportoBanco) []string {
 // motivo; «prima» e «prima_marcatore» separati, perché il titolo della misura è ancora da scegliere (D-R114); «dopo»
 // nelle sue tre parti. Nessuna misura di tempo.
 func testoCorrezioni(c CorrezioniCliente) string {
-	x, e := c.Correzioni, c.Correzioni.Esclusi
+	x, e, r := c.Correzioni, c.Correzioni.Esclusi, c.RevisioneSoloInColonna
 	return fmt.Sprintf("correzioni manuali, cliente %s (indicatore ricostruito delle correzioni necessarie): decisi %d, denominatore %d valutabili (copertura %d su %d); "+
 		"esclusi per motivo: solo_origine_manuale %d, senza_lettura_vecchia %d, codice_non_leggibile %d, documento_senza_componente %d, nuovo_non_valutato %d; "+
 		"prima %d (cambi di base), prima_marcatore %d (non sommato a prima: D-R114 aperta), marcatore solo da un lato %d; "+
 		"dopo %d (false associazioni %d, ambiguità %d, astensioni %d); solo revisione %d; "+
-		"fuori dalla misura: stessa base su un altro target %d, revisione solo in colonna %d; a parte %d thread non valutati (decisi %d)",
+		"fuori dalla misura: stessa base su un altro target %d, revisione solo in colonna %d (letta %d, nessuna regola %d, non interpretabile %d, ambigua %d, stato non nel record %d); "+
+		"a parte %d thread non valutati (decisi %d)",
 		c.ClienteID, x.Decisi, x.Valutabili, x.Valutabili, x.Decisi,
 		e.SoloOrigineManuale, e.SenzaLetturaVecchia, e.CodiceNonLeggibile, e.DocumentoSenzaComponente, e.NuovoNonValutato,
 		x.Prima, x.PrimaMarcatore, x.MarcatoreSoloDaUnLato,
 		x.Dopo, x.FalseAssociazioni, x.Ambiguita, x.Astensioni, x.SoloRevisione,
-		c.StessaBaseAltroTarget, c.RevisioneSoloInColonna, c.ThreadNonValutati, c.CorrezioniNonValutati.Decisi)
+		c.StessaBaseAltroTarget, c.RevisioneSoloInColonna.totale(), r.Letta, r.NessunaRegola, r.NonInterpretabile, r.Ambigua, r.StatoNonNelRecord,
+		c.ThreadNonValutati, c.CorrezioniNonValutati.Decisi)
 }
 
 // nomeEsitoNelRiepilogo: «mancante» si scrive «senza risposta», per non confonderlo con la disponibilità del file (R30 c).
