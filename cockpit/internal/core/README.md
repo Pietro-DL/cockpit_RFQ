@@ -177,6 +177,16 @@ markmap:
     - Puro: legge la fotografia già chiusa; mai confronto, mai il caricatore
   - DB: no
   - README: [README](valutazione/README.md)
+- **`confronto`**
+  - Che cosa fa: il **confronto del motore A** (giro 5, A1c), comune al banco e all'anteprima:
+    - riceve il vecchio (proposte e decisioni, con i codici già letti dalla grammatica) e il nuovo di ogni file come
+      DTO propri e piatti, e, solo nel banco, l'atteso come struttura
+    - il badge di ogni file e l'indicatore di revisione, separati; i conteggi per badge; le correzioni manuali prima e
+      dopo (R30 f, R31)
+    - con l'atteso, gli esiti per file e per prodotto, con il peso nel gate (R30)
+    - Puro: delle foglie solo la diagnostica e l'impronta; mai il motore, la fotografia, `valutazione`, la libreria YAML
+  - DB: no
+  - README: [README](confronto/README.md)
 - **`registro/anagrafica`**
   - Che cosa fa:
     - il seme dei clienti (una volta, senza sovrascrivere)
@@ -239,6 +249,10 @@ markmap:
     - `estrazione/evidenze` (il documento e le diagnostiche)
     - `platform/jsoncanonico` (l'impronta delle decisioni)
     - mai `confronto`, il caricatore, il DB, la libreria YAML
+  - **`confronto`** importa:
+    - `estrazione/evidenze` (solo `Diagnostica`, con le costanti di gravità e natura: F0-11)
+    - `platform/jsoncanonico` (solo `ImprontaDi`)
+    - mai i pacchetti del motore, `fotorfq`, il caricatore, `valutazione`, il DB, la libreria YAML
   - **`inbox/classificazione`** importa:
     - `registro/regole` (il motore lavora sullo schema)
   - **`inbox/lettura`** importa:
