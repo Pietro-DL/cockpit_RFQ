@@ -23,8 +23,9 @@ import (
 // VersioneConfronto: la versione delle regole di questo pacchetto (badge, indicatore, correzioni, esiti). Entra
 // nell'impronta dell'esito: cambiarla cambia l'impronta. confronto-2: la misura delle correzioni manuali con la
 // definizione di R114 (denominatore, esclusi, marcatore a parte, «dopo» diviso) e il campo CodiceLettoMarcatore nel
-// vecchio.
-const VersioneConfronto = "confronto-2"
+// vecchio. confronto-3: la provenienza della revisione vecchia (R113 B ratificata; E2 §2.6), il campo RevisioneDa nel
+// vecchio e IndicatoreRevisione.ProvenienzaVecchia; badge, correzioni ed esiti non cambiano (T-B6-205).
+const VersioneConfronto = "confronto-3"
 
 // Esito: il confronto dei file di un thread. Il thread lo conosce chi chiama, che mette l'esito accanto a quello di
 // valutazione; A2 salverà i due (par.8).

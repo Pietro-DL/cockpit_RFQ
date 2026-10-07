@@ -15,7 +15,8 @@ markmap:
 - **Riceve DTO propri e piatti** (`File`, `Vecchio`, `Nuovo`, `Candidato`, `ProdottoNuovo`): chi chiama li copia campo per
   campo dai record piatti di `valutazione` (`FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`, `CandidatoPiatto`,
   `ProdottoConfrontabile`), senza scelte. I campi sono quelli congelati nella fase 0 di B6 (CP.2, con `CodiceLettoBase`
-  di F0-19 e `CodiceLettoMarcatore` di R114: 18 campi in `Vecchio`), identici nei due pacchetti: stessi nomi, ordine,
+  di F0-19, `CodiceLettoMarcatore` di R114 e `RevisioneDa` di R113: 19 campi in `Vecchio`), identici nei due pacchetti:
+  stessi nomi, ordine,
   tipi e tag, solo tipi delle foglie.
 - **Calcola** (`Confronta`):
   - per ogni file il **badge** (`uguale`, `nuovo_ancoraggio`, `diverso`, `regressione_su_confermata`, `fuori_richiesta`)
@@ -47,7 +48,8 @@ markmap:
 ## File
 
 - **`confronto.go`** — responsabilità:
-  - commento `// Package`; `VersioneConfronto` (`confronto-2`: la misura di R114 e `CodiceLettoMarcatore`);
+  - commento `// Package`; `VersioneConfronto` (`confronto-3`: la misura di R114 e `CodiceLettoMarcatore`, poi la
+    provenienza della revisione vecchia di R113, `RevisioneDa` e `IndicatoreRevisione.ProvenienzaVecchia`);
   - `Esito` (righe, conteggi, correzioni, esiti contro l'atteso, diagnostiche, impronta), `EsitoFile`;
   - `Confronta`; l'impronta (`jsoncanonico.ImprontaDi`) e l'ordine dei file e delle diagnostiche.
 - **`dto.go`** — responsabilità:
@@ -118,6 +120,13 @@ markmap:
   C5 hanno il badge della tavola; «da rivedere» è un esito contro l'atteso, mai un badge.
 - **La sola revisione non è mai una regressione**: l'indicatore sta a parte, e una revisione diversa con il badge `uguale`
   conta in `CorrezioniManuali.SoloRevisione`, sui valutabili.
+- **La provenienza della revisione vecchia** (R113 B ratificata; E2 §2.6): `Vecchio.Revisione` è la revisione vecchia
+  interpretata da `valutazione` e `Vecchio.RevisioneDa` da dove viene (`codice`, `colonna` o vuoto: la colonna `rev`
+  letta con la regola in campo separato della famiglia). L'indicatore la copia in `ProvenienzaVecchia`, senza
+  interpretarla: il badge, il suo motivo, il valore dell'indicatore e la misura non cambiano con la provenienza. Le
+  equivalenze fra revisioni sono solo quelle dichiarate dalle regole, che applica `valutazione`; qui nessuna
+  rappresentazione diversa diventa uguale. Due revisioni vecchie discordi arrivano come `non_confrontabili` con
+  `revisione_vecchia_discorde`, e l'indicatore è `non_determinabile`.
 - **Gli esiti contro l'atteso** (R30 a, b, d, e A), con T = la base attesa del target e C = i candidati del file valutato,
   con le loro basi. Un candidato la cui base non si legge sta in C ma non è mai in T (R-41):
   - `da_rivedere` (sezione C5) e `riservato` prima di tutto;
@@ -225,7 +234,9 @@ markmap:
 ## Test
 
 - **`badge_test.go`** — livello L1 — A1c-L1-18: la tavola dei badge riga per riga, con i motivi; l'ambiguo visibile; le
-  righe «come C5»; l'indicatore di revisione con la diagnostica.
+  righe «come C5»; l'indicatore di revisione con la diagnostica; da B6b la provenienza della revisione vecchia (R113),
+  copiata nell'indicatore, che non cambia né il badge né la misura (la sola revisione diversa, letta nella colonna, conta
+  in `SoloRevisione`).
 - **`atteso_test.go`** — livello L1 — A1c-L1-19: la tavola degli esiti riga per riga con il peso; la voce che dipende da
   una domanda aperta; i non coperti e le voci senza file; le sezioni neutre; `ConfrontaProdotti`; l'atteso non cambia
   l'impronta.
@@ -234,8 +245,8 @@ markmap:
   con le basi lette (F0-19), senza il ripiego per stringa; l'ambiguità contata con il badge `uguale`; il marcatore a
   parte, non sommato; lo stesso campione per prima e dopo; la somma campo per campo.
 - **`confronto_test.go`** — livello L1 — il determinismo (permutazioni, impronta ricalcolata, la stessa senza atteso), la
-  versione, l'esito vuoto, A1c-L1-32 (la parte dei codici emessi), la forma dei DTO piatti (CP.2 con F0-19 e con
-  `CodiceLettoMarcatore` di R114).
+  versione, l'esito vuoto, A1c-L1-32 (la parte dei codici emessi), la forma dei DTO piatti (CP.2 con F0-19, con
+  `CodiceLettoMarcatore` di R114 e con `RevisioneDa` di R113).
 - **`scena_db_test.go`** — livello L4 (tag `integrazione`) — la scena ACME scritta con SQL sul database di prova, la
   grammatica e l'insieme delle regole ACME, il percorso del banco e dell'anteprima (`caricatore.Carica`,
   `valutazione.Calcola`, la copia nei DTO via JSON, `Confronta`), comuni alle due L4.
