@@ -8,7 +8,8 @@
 // (R23).
 //
 // In A1c compone il codice proposto nella forma documentale della famiglia, con la forma attiva su
-// cartiglio.codice (ComponiCodiceDocumentale, R63 B): senza cambiare niente di A1a e A1b (D2).
+// cartiglio.codice (ComponiCodiceDocumentale, R63 B), e legge una revisione registrata a parte con le regole in campo
+// separato della famiglia (LeggiRevisioneRegistrata, R113 B): senza cambiare niente di A1a e A1b (D2).
 //
 // È puro e deterministico: niente DB, file, orologio, rete, goroutine o LLM; nessun ordine dipende da una
 // mappa. Non usa il motore legacy di classificazione (quindi nemmeno il riconoscitore della minuteria, R7) e
