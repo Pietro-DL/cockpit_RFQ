@@ -35,7 +35,10 @@ import (
 //   - F19 (R52 A): il banco, internal/app/bancoa, usa di core/estrazione solo DaTesto;
 //   - A1c-L1-28 (la parte di B1): G1 sul caricatore della fotografia e su platform/migrazioni, G2 anche sul
 //     caricatore (il DB sì, l'orologio no), nessuna stringa analisi_messaggio nei sorgenti nuovi né nelle query
-//     della fotografia (queries/fotografia.sql).
+//     della fotografia (queries/fotografia.sql);
+//   - A1c-L1-28 (la parte di B6, P8): G1, G2 e MOTORE-SENZA-LLM anche su core/confronto, che importa del progetto solo
+//     evidenze e jsoncanonico; e delle due foglie usa solo Diagnostica, le costanti Gravita* e Natura*, ImprontaDi
+//     (fase 0 di B6, F0-11).
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -112,6 +115,13 @@ var pacchettiMotoreA = []regolePacchetto{
 			"internal/core/inbox/classificazione/motorea", "internal/core/registro/regole/grammatica",
 			"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
 		esterni: []string{"github.com/google/uuid"}},
+	// Il confronto (A1c, P8; R42 B, R53 B): DTO propri e piatti, badge, indicatore di revisione, correzioni manuali,
+	// esiti contro l'atteso. Delle foglie solo la diagnostica (evidenze) e l'impronta (jsoncanonico); mai i pacchetti
+	// del motore, la fotografia, il caricatore, la libreria YAML (grafo del par.3.2.1). Che valutazione non lo importi
+	// lo dice già la voce di valutazione.
+	{percorso: "internal/core/confronto", puro: true,
+		progetto: []string{"internal/core/estrazione/evidenze", "internal/platform/jsoncanonico"},
+		esterni:  []string{"github.com/google/uuid"}},
 	// Il manifest del dataset privato: legge i file, quindi non è puro; non importa niente del progetto né
 	// librerie esterne (platform non importa core: nessuna evidenze.Diagnostica).
 	{percorso: "internal/platform/dataset"},
@@ -462,6 +472,69 @@ func TestLaGrammaticaUsaDiEvidenzeSoloIlVocabolario(t *testing.T) {
 	}
 	if usi == 0 {
 		t.Fatal("nessun uso della foglia trovato: la prova non legge i file giusti")
+	}
+}
+
+// TestIlConfrontoUsaDelleFoglieSoloDiagnosticaEImpronta (A1c-L1-28, la parte di B6; piano A, par.3.2.1 e 6.4.6; fase 0
+// di B6, F0-11): nei file non di prova di core/confronto ogni evidenze.X è Diagnostica o una costante di tipo Gravita o
+// Natura (lette dai sorgenti della foglia, come in G8), e ogni jsoncanonico.X è ImprontaDi. I tipi del documento, i
+// codici della foglia, Codifica e il resto restano fuori: il confronto riceve DTO piatti, e della foglia gli servono
+// solo la diagnostica che emette (confronto.revisione_non_confrontabile) e l'impronta dell'esito. Un import di una
+// foglia con il nome «.» o «_» fa fallire la prova; se una delle due foglie non è usata, la prova legge i file sbagliati.
+func TestIlConfrontoUsaDelleFoglieSoloDiagnosticaEImpronta(t *testing.T) {
+	radice := radiceDelModulo(t)
+	costanti := costantiDiTipo(t, radice, "Gravita", "Natura")
+	if len(costanti) < 3+4 {
+		t.Fatalf("costanti della foglia non trovate: %v", costanti)
+	}
+	ammessi := map[string][]string{
+		modulo + "/internal/core/estrazione/evidenze": append([]string{"Diagnostica"}, costanti...),
+		modulo + "/internal/platform/jsoncanonico":    {"ImprontaDi"},
+	}
+	fset, files := fileAnalizzati(t, radice, "internal/core/confronto")
+	if len(files) == 0 {
+		t.Fatal("nessun file di core/confronto: la prova non legge i file giusti")
+	}
+	usi := map[string]int{}
+	for _, f := range files {
+		nomi := map[string]string{} // nome locale → percorso della foglia
+		for _, is := range f.Imports {
+			imp, _ := strconv.Unquote(is.Path.Value)
+			if _, ok := ammessi[imp]; !ok {
+				continue
+			}
+			nome := imp[strings.LastIndex(imp, "/")+1:]
+			if is.Name != nil {
+				nome = is.Name.Name
+			}
+			if nome == "." || nome == "_" {
+				t.Errorf("%s: import di %s con il nome %q: i nomi usati non si vedrebbero", fset.Position(is.Pos()), imp, nome)
+				continue
+			}
+			nomi[nome] = imp
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok || id.Obj != nil {
+				return true
+			}
+			if imp, ok := nomi[id.Name]; ok {
+				usi[imp]++
+				if !contiene(ammessi[imp], sel.Sel.Name) {
+					t.Errorf("%s: core/confronto usa %s.%s, fuori dall'elenco chiuso (F0-11)", fset.Position(sel.Pos()), id.Name, sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+	for imp := range ammessi {
+		if usi[imp] == 0 {
+			t.Errorf("core/confronto non usa %s: la prova non legge i file giusti, o la freccia della tabella non ha più motivo", imp)
+		}
 	}
 }
 
