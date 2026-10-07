@@ -98,6 +98,9 @@ markmap:
     contesto del messaggio, lo scarto, gli orfani, «da smistare», i conflitti dell'asse e la regola Smistamento; i nodi
     della BOM di lavoro, l'impronta dei dati decisi di ogni prodotto, il composto e lo stato del prodotto (l'asse 7) e
     il fascicolo della RFQ, con il congelamento legacy a parte
+  - **[`core/confronto/README.md`](core/confronto/README.md)** → il confronto del motore A (giro 5): il vecchio, il
+    nuovo e, nel banco, l'atteso dei file di un thread; badge, indicatore di revisione, correzioni manuali, esiti per
+    file e per prodotto
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
@@ -159,6 +162,11 @@ markmap:
     `platform/jsoncanonico`
     - il percorso puro comune del banco e dell'anteprima (R42 B): mai `core/confronto` (il motore non vede l'atteso,
       R2), mai il caricatore né il DB, mai la libreria YAML
+  - **`core/confronto`** → `core/estrazione/evidenze` (solo `Diagnostica` con le costanti `Gravita*` e `Natura*`),
+    `platform/jsoncanonico` (solo `ImprontaDi`)
+    - riceve DTO propri e piatti, che chi chiama copia campo per campo dai record piatti di `core/valutazione` (R53 B):
+      mai i pacchetti del motore, `core/fotorfq`, il caricatore, `core/valutazione`, la libreria YAML; l'atteso glielo
+      dà il runner come struttura
   - **`core/inbox/classificazione`** → `core/registro/regole` (il motore lavora sullo schema)
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
@@ -193,6 +201,9 @@ markmap:
     sulle fixture sintetiche)
   - e `core/valutazione` → `core/fotorfq/caricatore`, `platform/testutil` (la L4 dei target e della fonte sul
     database di prova)
+  - e `core/confronto` → `core/valutazione`, `core/fotorfq`, `core/fotorfq/caricatore`,
+    `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`, `platform/testutil` (le L4 A1c-L4S-08 e
+    -09 sul database di prova: il percorso del banco e dell'anteprima, dalla fotografia al confronto)
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate
