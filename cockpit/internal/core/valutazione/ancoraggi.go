@@ -305,12 +305,7 @@ func (c *collegamento) contestoStrutturale(interpretati []ancoraggio.MessaggioIn
 			continue
 		}
 		attivi[k.ID] = true
-		d := ancoraggio.ComponenteDeciso{ComponenteID: k.ID, Codice: k.Codice, Autorita: ancoraggio.AutoritaConfermata,
-			Origine: ancoraggio.OrigineConfermato, Rev: copiaTesto(k.Rev)}
-		if l, ok := leggiCodiceRegistrato(c.m, k.Codice); ok {
-			d.Lettura = &l
-		}
-		ctx.Confermato = append(ctx.Confermato, d)
+		ctx.Confermato = append(ctx.Confermato, c.componenteDeciso(k))
 	}
 	for _, r := range relazioniAttive(c.t.Relazioni, attivi) {
 		q := r.Qta
@@ -379,6 +374,19 @@ func (c *collegamento) contestoStrutturale(interpretati []ancoraggio.MessaggioIn
 	}
 	ctx.AssociazioniDecise = c.associazioniDecise()
 	return ctx
+}
+
+// componenteDeciso: un componente attivo come lo vede il contesto di ancoraggio (ContestoStrutturale.Confermato): il codice
+// e componente.rev registrati, l'autorità confermata, l'origine confermato, il codice letto con la grammatica (R31 c; nil
+// se non si legge). È la sola costruzione: la usano contestoStrutturale e, da EB7-1, i confermati senza STEP
+// (NodoBOM.Nodo.Decisione, bozza §1.4: «lo stesso del contesto di ancoraggio»). Ogni chiamata dà valori nuovi.
+func (c *collegamento) componenteDeciso(k fotorfq.Componente) ancoraggio.ComponenteDeciso {
+	d := ancoraggio.ComponenteDeciso{ComponenteID: k.ID, Codice: k.Codice, Autorita: ancoraggio.AutoritaConfermata,
+		Origine: ancoraggio.OrigineConfermato, Rev: copiaTesto(k.Rev)}
+	if l, ok := leggiCodiceRegistrato(c.m, k.Codice); ok {
+		d.Lettura = &l
+	}
+	return d
 }
 
 // tipoLocalizzatoreTesto: il tipo del localizzatore di un intervallo su un testo originale (evidenze.Localizzatore).

@@ -15,7 +15,11 @@ import (
 
 // VersioneValutazione: la versione del percorso di valutazione (6.4.6). Entra in Esito, quindi nella sua impronta:
 // cambia con un commit che lo dichiara, e la prova che la fissa si riscrive.
-const VersioneValutazione = "valutazione-1"
+//   - valutazione-2 (P7e, 08/10): gli emendamenti EB7 ratificati dall'utente l'08/10 aggiungono campi all'esito, e quindi
+//     ne cambiano il canonico e l'impronta: le strutture candidate e i confermati senza STEP (EB7-1 B), il tipo del nodo
+//     con l'origine (EB7-2 A), il documento e lo stato del NAS nella voce del 2D (EB7-4 A). Stato, assi, motivi,
+//     autorità e impronta del prodotto (R90) non cambiano.
+const VersioneValutazione = "valutazione-2"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
 //   - Le cinque versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)

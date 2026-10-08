@@ -54,7 +54,6 @@ type completezzaThread struct {
 	vista      map[uuid.UUID][]fotorfq.RigaFascicolo // le righe di v_fascicolo per componente, in ordine di tipo di documento
 	proposte   []fotorfq.PropostaAttuale             // in ordine di ID
 	scartati   []uuid.UUID                           // gli allegati con la proposta scartata da una persona, in ordine
-	tipi       map[string]string                     // il tipo proposto di ogni nodo (RifNodo), dalle righe legacy
 	categorie  map[uuid.UUID][]string
 	prodotti   map[uuid.UUID]bool // i componenti dei prodotti target
 }
@@ -62,7 +61,7 @@ type completezzaThread struct {
 func nuovaCompletezzaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, b *bomDelThread, dis *disegniThread,
 	disegni []DisegniDelComponente, prodotti []ProdottoValutato) *completezzaThread {
 	c := &completezzaThread{t: t, m: m, sezioni: f.Sezioni, b: b, dis: dis, gruppi: map[uuid.UUID]*GruppoDisegni2D{},
-		componenti: map[uuid.UUID]*fotorfq.Componente{}, vista: map[uuid.UUID][]fotorfq.RigaFascicolo{}, tipi: map[string]string{},
+		componenti: map[uuid.UUID]*fotorfq.Componente{}, vista: map[uuid.UUID][]fotorfq.RigaFascicolo{},
 		categorie: map[uuid.UUID][]string{}, prodotti: map[uuid.UUID]bool{}}
 	for _, pv := range prodotti {
 		if pv.ComponenteID != nil {
@@ -88,14 +87,6 @@ func nuovaCompletezzaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.M
 	for _, p := range c.proposte {
 		if p.Stato == statoPropostaScartata && p.DecisoDa != nil {
 			c.scartati = append(c.scartati, p.AllegatoID)
-		}
-	}
-	righe := append([]fotorfq.RigaComponenteProposta(nil), t.RigheComponenteProposta...)
-	sort.SliceStable(righe, func(i, j int) bool { return righe[i].ID.String() < righe[j].ID.String() })
-	for _, r := range righe {
-		k := ancoraggio.RifNodo(r.Sha256, r.Chiave)
-		if _, ok := c.tipi[k]; !ok && r.TipoProposto != nil && strings.TrimSpace(*r.TipoProposto) != "" && r.Sha256 != "" && r.Chiave != "" {
-			c.tipi[k] = strings.TrimSpace(*r.TipoProposto)
 		}
 	}
 	return c
@@ -125,6 +116,12 @@ func (c *completezzaThread) nonDeterminabile() bool {
 //     strutture candidate del prodotto), esclusa la radice, che è il prodotto (nodiDaPrevedere);
 //   - le conferme della categoria (in A1c nessuna: LD-19).
 //
+// Dopo la regola, nella voce del 2D, il documento che la decide e il suo stato del NAS (EB7-4 A, ratificata dall'utente
+// l'08/10; bozza del contratto con il frontendista §1.5): documentoDellaVoceDel2D sul gruppo della voce, e lo stato dalla
+// fotografia (fotorfq.DocumentoConfermato.StatoNas, com'è, come in esitoComeLaVista). È un dato copiato accanto: l'esito e
+// il motivo della voce restano quelli di VoceDelDisegno, e una conferma non vuol dire copia completata (lo dice solo
+// «scritto»). Senza un 2D corrente e confermato, tutti e due vuoti.
+//
 // Con una sezione assente la completezza non si calcola: non_calcolabile, non_determinabile (T-12).
 func (c *completezzaThread) completezzaDelProdotto(pv ProdottoValutato, s StrutturaDaVerificare, strutture []ancoraggio.StrutturaProdotto,
 	conferme []ConfermaCategoria) (CompletezzaDocumentale, []evidenze.Diagnostica) {
@@ -151,6 +148,15 @@ func (c *completezzaThread) completezzaDelProdotto(pv ProdottoValutato, s Strutt
 	}
 	in.Nodi = c.nodiDaPrevedere(pv, strutture, perimetro)
 	doc := Completezza(in)
+	for i := range doc.Voci {
+		v := &doc.Voci[i]
+		if v.TipoDocumento != tipoDocumentoDisegno2D {
+			continue
+		}
+		if id := documentoDellaVoceDel2D(v.Disegni); id != nil {
+			v.DocumentoID, v.StatoNas = id, c.statoNasDel(*id)
+		}
+	}
 
 	var diag []evidenze.Diagnostica
 	for _, v := range doc.Voci {
@@ -315,6 +321,18 @@ func (c *completezzaThread) allegatoDellaProposta(id *uuid.UUID) *uuid.UUID {
 	return nil
 }
 
+// statoNasDel: lo stato del NAS di un documento confermato della fotografia (documento.stato_nas: in_coda, scritto,
+// errore), com'è; "" se la fotografia non ha il documento (EB7-4: il valore non si inventa). La fotografia porta la
+// colonna, non le anomalie del NAS che v_fascicolo aggiunge (ok_errore_nas): limite della bozza §1.5.
+func (c *completezzaThread) statoNasDel(id uuid.UUID) string {
+	for _, d := range c.t.Documenti {
+		if d.ID == id {
+			return d.StatoNas
+		}
+	}
+	return ""
+}
+
 // disegnoDellaVoce: ciò che serve alla voce del 2D di un componente (VoceDelDisegno): il suo gruppo dei 2D (fase 2), la
 // deroga e la proposta aperta della riga del 2D della vista (senza la riga, calcolate come la vista), l'allegato della
 // proposta se il file è in un formato configurato (T-B0-30: un DWG proposto non soddisferebbe la voce nemmeno confermato,
@@ -352,8 +370,10 @@ func (c *completezzaThread) disegnoDellaVoce(comp *fotorfq.Componente, del2D *fo
 //     componente e il suo gruppo dei 2D (nodo_deciso_fuori_perimetro);
 //   - un nodo senza decisione con la riga decisa da una persona (scartato, o con un componente archiviato) è uscito
 //     dalla BOM: non è previsto;
-//   - gli altri nodi: previsti con il tipo proposto (tipoProposto), il codice proposto della catena (CatenaCodice.Proposto),
-//     le categorie della sua lettura e i 2D candidati del nodo (gruppoDelNodo) (nodo_proposto).
+//   - gli altri nodi: previsti con il tipo proposto (bomDelThread.tipoProposto, la stessa funzione del tipo dei nodi:
+//     EB7-2), il codice proposto della catena (CatenaCodice.Proposto), le categorie della sua lettura e i 2D candidati
+//     del nodo (gruppoDelNodo) (nodo_proposto). Qui «con figli» guarda tutti gli archi delle strutture che contano,
+//     anche quelli tolti da una persona, com'era prima di EB7-2; nei nodi solo gli archi non tolti (dubbio T-P7e-05).
 //
 // Il Rif è un riferimento di testo, mai analizzato (T-B5-93).
 func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto, perimetro map[uuid.UUID]bool) []NodoDaPrevedere {
@@ -425,7 +445,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				Motivo: MotivoPrevistoNodoDecisoFuoriPerimetro})
 		case i.tolto:
 		default:
-			tipo := c.tipoProposto(rif, i.conFigli)
+			tipo, _ := c.b.tipoProposto(rif, i.conFigli)
 			regole, cliente := FabbisogniDelTipo(tipo, c.t.Fabbisogni)
 			var categorie []string
 			if f := i.n.Codice.Forma; f != nil {
@@ -436,19 +456,6 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 		}
 	}
 	return out
-}
-
-// tipoProposto: il tipo proposto di un nodo (tabella dell'analista, T29): componente_proposta.tipo_proposto della sua riga
-// legacy (la prima per ID, su qualunque allegato); senza, la regola con cui il legacy lo scrive (rfq/fascicolo,
-// Pianifica): sottoassieme se nella struttura il nodo ha dei figli, altrimenti sciolto; mai finito (dubbio T-B5-58).
-func (c *completezzaThread) tipoProposto(rif string, conFigli bool) string {
-	if t, ok := c.tipi[rif]; ok {
-		return t
-	}
-	if conFigli {
-		return tipoSottoassieme
-	}
-	return tipoSciolto
 }
 
 // categorieDel: le categorie della grammatica sulla lettura del codice registrato del componente (6.4.6,

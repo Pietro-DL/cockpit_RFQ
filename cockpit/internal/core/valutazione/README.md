@@ -155,7 +155,9 @@ markmap:
 - **Il gesto di congelamento del modello nuovo e il suo servizio** (R89; LD-09, LD-23): il DB di oggi non lo ha; lo
   registrerà lo spazio di verifica (SV). Qui è solo un ingresso della regola (`Calcola` passa nil), e il fascicolo non è
   mai congelato sui dati veri (`gesto_non_registrato`). Così **l'avvio della fattibilità per prodotto** (LD-10): qui
-  `pronto_fattibilita` è un risultato calcolato, che non fa avanzare niente; la fase è del thread (`FaseThread`).
+  `pronto_fattibilita` è un risultato calcolato, che non fa avanzare niente. **La fase registrata** non è nell'esito: la
+  legge il gestore di A1d dalla vista `v_thread_fase` (EB7-3 A, E2 §6.4); `FaseThread` (`fase_thread`) è lo **stato del
+  thread**, `APERTA` o `CHIUSA` (`thread_offerta.stato`, LD-10), non la fase di lavoro. Pronto non vuol dire partito.
 - **Il salvataggio dell'impronta del prodotto e il confronto con un'impronta salvata**: A2 (R100 A, T-E1R-12). Qui
   l'impronta si calcola soltanto.
 - **I nodi delle strutture candidate come `NodoBOM`**: il contratto dà `PV.Nodi` solo alla BOM di lavoro (T-B6-11); sui

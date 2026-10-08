@@ -2,6 +2,7 @@ package valutazione
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -285,7 +286,7 @@ func gerarchiaSenzaBOMDiLavoro(gerarchia VerificaAsse, fonteConfermata, bomDiLav
 // bomDelThread: ciò che serve alla verifica della BOM dei prodotti di un thread, calcolato una volta: i componenti
 // attivi, le relazioni confermate fra loro per padre, i segni di «Conferma l'albero» sugli archi, le righe degli archi,
 // le rimozioni aperte, i nodi (sha256, chiave) e gli archi (sha256, chiavi) che hanno almeno una riga legacy, gli archi
-// tolti da una persona.
+// tolti da una persona, il tipo proposto delle righe legacy (per i previsti della completezza e, da EB7-2, per i nodi).
 type bomDelThread struct {
 	t           fotorfq.Thread
 	figli       map[uuid.UUID][]fotorfq.Relazione
@@ -297,6 +298,7 @@ type bomDelThread struct {
 	// stato; archiTolti: quelli le cui righe sono tutte scartate da una persona (l'arco tolto: dubbio T-B5-67).
 	archiConRiga map[string]bool
 	archiTolti   map[string]bool
+	tipi         map[string]string // il tipo proposto di ogni nodo (RifNodo), dalle righe legacy (tipoProposto)
 }
 
 // segnoArco: il segno di «Conferma l'albero» su una riga di arco tenuta: i due componenti del legame, chi e quando.
@@ -308,10 +310,19 @@ type segnoArco struct {
 
 func nuovaBOMDelThread(t fotorfq.Thread) *bomDelThread {
 	b := &bomDelThread{t: t, figli: map[uuid.UUID][]fotorfq.Relazione{}, relazioni: map[string]fotorfq.Relazione{}, shaAll: map[uuid.UUID]string{},
-		nodiConRiga: map[string]bool{}}
+		nodiConRiga: map[string]bool{}, tipi: map[string]string{}}
 	for _, r := range t.RigheComponenteProposta {
 		if r.Sha256 != "" && r.Chiave != "" {
 			b.nodiConRiga[ancoraggio.RifNodo(r.Sha256, r.Chiave)] = true
+		}
+	}
+	// Il tipo proposto di ogni nodo: quello della prima riga per ID che lo ha, su qualunque allegato (tipoProposto).
+	righe := append([]fotorfq.RigaComponenteProposta(nil), t.RigheComponenteProposta...)
+	sort.SliceStable(righe, func(i, j int) bool { return righe[i].ID.String() < righe[j].ID.String() })
+	for _, r := range righe {
+		k := ancoraggio.RifNodo(r.Sha256, r.Chiave)
+		if _, ok := b.tipi[k]; !ok && r.TipoProposto != nil && strings.TrimSpace(*r.TipoProposto) != "" && r.Sha256 != "" && r.Chiave != "" {
+			b.tipi[k] = strings.TrimSpace(*r.TipoProposto)
 		}
 	}
 	attivi := map[uuid.UUID]bool{}
@@ -383,6 +394,22 @@ func (b *bomDelThread) perimetro(componente *uuid.UUID) (map[uuid.UUID]bool, []f
 		}
 	}
 	return dentro, archi
+}
+
+// tipoProposto: il tipo proposto di un nodo senza decisione (tabella dell'analista, T29), con la sua origine (EB7-2 A):
+// componente_proposta.tipo_proposto della sua riga legacy (la prima per ID, su qualunque allegato: proposto_dalla_riga);
+// senza, la regola con cui il legacy lo scrive (rfq/fascicolo, Pianifica: proposto_dalla_regola): sottoassieme se nella
+// struttura il nodo ha dei figli, altrimenti sciolto; mai finito (dubbio T-B5-58). È la sola funzione della regola: la
+// usano i previsti della completezza (nodiDaPrevedere) e i nodi (datiDelNodo), e chi la chiama dice se il nodo ha dei
+// figli.
+func (b *bomDelThread) tipoProposto(rif string, conFigli bool) (string, OrigineTipo) {
+	if t, ok := b.tipi[rif]; ok {
+		return t, OrigineTipoPropostoDallaRiga
+	}
+	if conFigli {
+		return tipoSottoassieme, OrigineTipoPropostoDallaRegola
+	}
+	return tipoSciolto, OrigineTipoPropostoDallaRegola
 }
 
 // gestiDaConfermaLAlbero: l'adattatore legacy di «Conferma l'albero» (R80, R61 A; contratto §1.3; T-B0-22). Il gesto

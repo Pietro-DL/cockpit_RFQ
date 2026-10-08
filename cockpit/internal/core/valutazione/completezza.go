@@ -112,9 +112,12 @@ const (
 //   - TipoDocumento, Bloccante: il fabbisogno; RegolaCliente: i fabbisogni del suo tipo sono del cliente
 //     (RigaFabbisogno.Proprio sulle righe dello stesso tipo di componente: decisioni sull'analista, punto 8).
 //   - Esito, Motivo: per il 2D dal gruppo (VoceDelDisegno); per gli altri tipi dalla vista (EsitoDallaVista).
-//   - Disegni: il gruppo dei 2D del componente (solo per il 2D; nil senza 2D). DocumentoID, StatoNas: il documento della
-//     vista (gli altri tipi). DerogaID, PropostaAperta: la deroga e la proposta aperta della vista. FileCandidato:
-//     l'allegato che porta la voce a da_verificare per un'associazione non confermata.
+//   - Disegni: il gruppo dei 2D del componente (solo per il 2D; nil senza 2D). DocumentoID, StatoNas: per gli altri tipi
+//     il documento della vista; per il 2D (EB7-4 A, ratificata dall'utente l'08/10) il documento che decide la voce
+//     (documentoDellaVoceDel2D) con lo stato del NAS della fotografia, che l'adattatore mette dopo la regola
+//     (completezzaDelProdotto); vuoti senza un 2D corrente e confermato. StatoNas: in_coda, scritto, errore; una conferma
+//     non vuol dire copia completata, lo dice solo «scritto». DerogaID, PropostaAperta: la deroga e la proposta aperta
+//     della vista. FileCandidato: l'allegato che porta la voce a da_verificare per un'associazione non confermata.
 //   - CalcolataDa: vista (l'esito della vista, gli altri tipi) o go (il 2D, e ciò che la vista non ha).
 //   - Invariante: un requisito che le regole del cliente non tolgono (R99, R103 C): il 2D. NotaRegola: quale regola
 //     tocca il 2D (NotaSchemaSenza2D, NotaRegolaClienteSenza2D, NotaRegolaCliente2DNonBloccante). Categoria: la
@@ -425,6 +428,30 @@ func VoceDelDisegno(d DisegnoDellaVoce) (EsitoFabbisogno, MotivoFabbisogno, *uui
 		}
 	}
 	return EsitoManca, MotivoFabbisognoNessunDocumento, nil
+}
+
+// documentoDellaVoceDel2D: il documento che decide la voce del 2D (EB7-4 A; bozza del contratto con il frontendista
+// §1.5), nell'ordine di VoceDelDisegno sullo stesso gruppo (il primario, poi gli alternativi): il primo 2D corrente e
+// confermato sul componente con la validità valido, poi da_verificare, poi formato_non_configurato. nil senza un 2D
+// corrente e confermato. È pura, e non tocca VoceDelDisegno: l'esito e il motivo della voce restano i suoi. Con una voce
+// decisa dall'associazione o dalla deroga e un documento corrente in un formato non configurato, il documento c'è lo
+// stesso (dubbio T-P7e-10).
+func documentoDellaVoceDel2D(g *GruppoDisegni2D) *uuid.UUID {
+	var tutti []Disegno2D
+	if g != nil {
+		if g.Primario != nil {
+			tutti = append(tutti, *g.Primario)
+		}
+		tutti = append(tutti, g.Alternativi...)
+	}
+	for _, v := range []ValiditaDisegno2D{ValiditaValido, ValiditaDaVerificare, ValiditaFormatoNonConfigurato} {
+		for _, x := range tutti {
+			if x.Provenienza == ancoraggio.OrigineConfermato && x.Corrente && x.Validita == v {
+				return copiaUUID(x.DocumentoID)
+			}
+		}
+	}
+	return nil
 }
 
 // EsitoDallaVista: l'esito di una voce di un tipo diverso dal 2D dall'esito di v_fascicolo (contratto §1.6, «per gli altri

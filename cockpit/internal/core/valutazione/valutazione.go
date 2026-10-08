@@ -90,6 +90,9 @@ type ValutazioneProdotti struct {
 //     (StatoDelProdotto: R79, T-E1-01, T-E1-14), con le condizioni nuove della BOM (condizioniNuoveDellaBOM, con R111 A,
 //     precisata dall'utente il 07/10). Senza grammatica lo smistamento non si calcola, quindi il prodotto è non_pronto
 //     (T-B6-09, T-B6-61).
+//  12. P7e (EB7-1 B, EB7-2 A, ratificate dall'utente l'08/10): per ogni prodotto, dopo l'impronta e lo stato, le strutture
+//     candidate con i loro nodi (struttureCandidate) e i componenti confermati senza STEP (confermatiSenzaSTEP); ogni nodo
+//     con il suo tipo e l'origine. Nella voce del 2D, il documento che la decide e lo stato del NAS (EB7-4 A, nel passo 9).
 //
 // m è il motore della grammatica del cliente; nil = nessuna grammatica A: niente interpretazioni né candidati, i
 // target confermati senza la base letta, e la fonte senza il confronto delle radici (non_determinabile dove servirebbe);
@@ -205,6 +208,10 @@ func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, cas
 			pv.Impronta, _ = ImprontaProdotto(datiDecisiDelProdotto(*pv, t, b))
 		}
 		pv.Verificato, pv.Stato, pv.Motivi = StatoDelProdotto(*pv, condizioniNuoveDellaBOM(*pv, gesti[i], daVerificare[i], esito.Strutture, t))
+		// EB7-1 B: le strutture candidate e i confermati senza STEP, dopo l'impronta e lo stato, che quindi non li vedono:
+		// esporli non cambia stato, assi, motivi né autorità (vincolo dell'utente dell'08/10).
+		pv.StruttureCandidate = nt.struttureCandidate(*pv, esito.Strutture)
+		pv.ConfermatiSenzaSTEP = nt.confermatiSenzaSTEP(*pv, esito.Strutture)
 	}
 	sort.SliceStable(diag, func(i, j int) bool { return chiaveDiagnostica(diag[i]) < chiaveDiagnostica(diag[j]) })
 	out.Diagnostiche = diag
