@@ -147,14 +147,14 @@ func TestControlloFontiCasiEAttesi(t *testing.T) {
 	// n.3
 	s := sezioniACME(t, nil)
 	s.Fonti = []string{shaACME(1), shaACME(2)}
-	if c := controlloFonti(&s, []string{shaACME(1), shaACME(2)}).controllo(); c.Differenze != 0 || c.Stato != ControlloEseguito {
+	if c := controlloFonti(&s, []string{shaACME(1), shaACME(2)}, nil).controllo(); c.Differenze != 0 || c.Stato != ControlloEseguito {
 		t.Errorf("fonti coincidenti: %+v", c)
 	}
 	// Un export fuori dalle fonti, e una fonte fuori dal manifest: le due direzioni (6.4.9: «coincidono»).
-	if c := controlloFonti(&s, []string{shaACME(1), shaACME(3)}).controllo(); c.Differenze != 2 {
+	if c := controlloFonti(&s, []string{shaACME(1), shaACME(3)}, nil).controllo(); c.Differenze != 2 {
 		t.Errorf("un export fuori dalle fonti e una fonte fuori dagli export: %+v", c)
 	}
-	if c := controlloFonti(nil, []string{shaACME(1)}).controllo(); c.Stato != ControlloNonEseguito {
+	if c := controlloFonti(nil, []string{shaACME(1)}, nil).controllo(); c.Stato != ControlloNonEseguito {
 		t.Errorf("attesi non letti: %+v", c)
 	}
 	// n.4
@@ -204,10 +204,13 @@ var nonVerificateACME = map[string][]string{
 	},
 }
 
-// nonApplicabiliACME: le parti che sugli export non si applicano (R-117): la decisione del dump della C5.
+// nonApplicabiliACME: le parti che sugli export non si applicano (R-117): la decisione del dump della C5 e, dalla
+// seconda corsa vera (10/10), componente_id_proposta_vuoto_preservato, che descrive la riga della proposta del DB e si
+// verifica con -dsn (prima si confrontava con la riga della fotografia degli export, e le parti erano due).
 var nonApplicabiliACME = []string{
 	"decisioni_successive_da_rivedere.file_confermati[0].decisione_proposta: si verifica con -dsn",
 	"decisioni_successive_da_rivedere.file_confermati[0].decisione_documento: si verifica con -dsn",
+	"decisioni_successive_da_rivedere.file_confermati[0].componente_id_proposta_vuoto_preservato: si verifica con -dsn",
 }
 
 // controllaNonVerificate: i dettagli dei controlli coincidono con le parti attese, una per una, nell'ordine.

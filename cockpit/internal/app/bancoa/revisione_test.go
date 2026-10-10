@@ -961,9 +961,13 @@ func TestC5LaRigaDellAltraModalita(t *testing.T) {
 		!conPrefisso(dsn.nonApplicabili, "decisioni_successive_da_rivedere.file_confermati[0].nell_export_proposte: si verifica con -exports") {
 		t.Errorf("con -dsn: differenze %q, non fatti %q, non applicabili %q", dsn.differenze, dsn.nonFatti, dsn.nonApplicabili)
 	}
+	// Con gli export le parti non applicabili sono tre: dalla seconda corsa vera (10/10) anche
+	// componente_id_proposta_vuoto_preservato, che descrive la riga della proposta del DB come decisione_proposta e si
+	// verifica con -dsn (prima erano due, e l'invariante si confrontava con la riga della fotografia).
 	exp := controlloInvariantiC5(&sez, tr, f, ix, contestoCorsa{export: true}, badge)
-	if len(exp.differenze) != 0 || len(exp.nonFatti) != 0 || len(exp.nonApplicabili) != 2 ||
-		!conPrefisso(exp.nonApplicabili, "decisioni_successive_da_rivedere.file_confermati[0].decisione_proposta: si verifica con -dsn") {
+	if len(exp.differenze) != 0 || len(exp.nonFatti) != 0 || len(exp.nonApplicabili) != 3 ||
+		!conPrefisso(exp.nonApplicabili, "decisioni_successive_da_rivedere.file_confermati[0].decisione_proposta: si verifica con -dsn") ||
+		!conPrefisso(exp.nonApplicabili, "decisioni_successive_da_rivedere.file_confermati[0].componente_id_proposta_vuoto_preservato: si verifica con -dsn") {
 		t.Errorf("con gli export: differenze %q, non fatti %q, non applicabili %q", exp.differenze, exp.nonFatti, exp.nonApplicabili)
 	}
 	// Le parti non applicabili non cambiano lo stato: senza le righe dell'albero il controllo è eseguito.

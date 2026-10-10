@@ -89,7 +89,9 @@ func TestRispostaR116LaTabellaDelleClassi(t *testing.T) {
 		if !ok || (attesa != "" && v.Classe != attesa) {
 			t.Errorf("%v: sede %q con la classe %q", k, v.Sede, v.Classe)
 		}
-		if v.Nota != "" || strings.Contains(v.Fonte, "aperta") {
+		// La nota della voce delle forme degli altri profili dice dove si verificano le etichette (D-M22, decisa
+		// dall'utente il 10/10, supera la classe dell'08/10): non è una classe da decidere. Nessun'altra riga ha una nota.
+		if (v.Nota != "" && k != [2]string{SedeGate, VoceGateAltriProfili}) || strings.Contains(v.Nota, "decidere") || strings.Contains(v.Fonte, "aperta") {
 			t.Errorf("%v: dopo le decisioni dell'08/10 nessuna classe resta da decidere: nota %q, fonte %q", k, v.Nota, v.Fonte)
 		}
 	}
@@ -106,7 +108,7 @@ func TestRispostaR116LaTabellaDelleClassi(t *testing.T) {
 		{SedeGate, VoceGateRiservati}:                    ClasseObbligatorio,
 		{SedeGate, VoceGateZeroScritture}:                ClasseObbligatorioEsterno,
 		{SedeGate, VoceGateMotoreSenzaLLM}:               ClasseObbligatorioEsterno,
-		{SedeGate, VoceGateAltriProfili}:                 ClasseObbligatorioEsterno,
+		{SedeGate, VoceGateAltriProfili}:                 ClasseFuoriPerimetro, // D-M22, decisa dall'utente il 10/10, supera la classe dell'08/10
 		{SedeRapporto, SezioneInformativaProdotti}:       ClasseInformativo,
 		{SedeRapporto, SezioneInformativaCorrezioni}:     ClasseInformativo,
 		{SedeRapporto, SezioneInformativaProfilo}:        ClasseInformativo,
@@ -133,6 +135,7 @@ func TestRispostaR116LaTabellaDelleClassi(t *testing.T) {
 		{SedeRapporto, SezioneInformativaConfermaAlbero}: "D-R116 I, decisa dall'utente l'08/10",
 		{SedeRapporto, SezioneInformativaCorrezioni}:     "D-R114 B, decisa dall'utente l'08/10",
 		{SedeFuori, ParteFinitiConGliExport}:             "D-R116 F, decisa dall'utente l'08/10, coerente con D-R115 A",
+		{SedeGate, VoceGateAltriProfili}:                 "D-M22, decisa dall'utente il 10/10",
 	} {
 		if c := classeDi(k[0], k[1]); !strings.Contains(c.Fonte, fonte) {
 			t.Errorf("%v: fonte %q, attesa «%s»", k, c.Fonte, fonte)
@@ -312,7 +315,9 @@ func TestRispostaR116ChiusuraConISoliEsterni(t *testing.T) {
 		ch.Obbligatori.Passati != ch.Obbligatori.Totale || len(ch.Obbligatori.NonPassati) != 0 || ch.RapportoCompleto {
 		t.Fatalf("chiusura: %+v", ch)
 	}
-	if len(ch.Esterni) != 3 {
+	// Gli esterni sono due: la voce delle forme degli altri profili è fuori perimetro (D-M22, decisa dall'utente il 10/10,
+	// supera la classe dell'08/10, quando gli esterni erano tre).
+	if len(ch.Esterni) != 2 {
 		t.Fatalf("gli obbligatori esterni: %+v", ch.Esterni)
 	}
 	for _, e := range ch.Esterni {
@@ -320,10 +325,11 @@ func TestRispostaR116ChiusuraConISoliEsterni(t *testing.T) {
 			t.Errorf("esterno senza prova o con un esito sbagliato: %+v", e)
 		}
 	}
-	// Fuori perimetro: clienti_degli_export, dai controlli, e PO-30; la parte dei finiti del n.1 no, perché la corsa non ne
+	// Fuori perimetro: clienti_degli_export, dai controlli, la voce del gate delle forme degli altri profili (D-M22, decisa
+	// dall'utente il 10/10, supera la classe dell'08/10) e PO-30; la parte dei finiti del n.1 no, perché la corsa non ne
 	// ha (partiDelControllo).
-	if len(ch.FuoriPerimetro) != 2 || ch.FuoriPerimetro[0].Nome != ControlloClientiExport || ch.FuoriPerimetro[1].Nome != "PO-30" ||
-		ch.FuoriPerimetro[1].Motivazione == "" {
+	if len(ch.FuoriPerimetro) != 3 || ch.FuoriPerimetro[0].Nome != ControlloClientiExport || ch.FuoriPerimetro[1].Nome != VoceGateAltriProfili ||
+		ch.FuoriPerimetro[2].Nome != "PO-30" || ch.FuoriPerimetro[2].Motivazione == "" {
 		t.Errorf("fuori perimetro: %+v", ch.FuoriPerimetro)
 	}
 	if b.r.Gate.Esito != GateIncompleto || b.r.Esito.CodiceUscita() != UscitaNonEseguito {
@@ -371,7 +377,8 @@ func TestRispostaR116ChiusuraConISoliEsterni(t *testing.T) {
 		tutte.Voci = append(tutte.Voci, v)
 	}
 	classificaVoci(tutte.Voci)
-	if ch := chiudiCon(passati, &tutte); ch.Conclusione != ConclusioneConclusa || !ch.RapportoCompleto || len(ch.Esterni) != 3 {
+	// (gli esterni sono due da D-M22, decisa dall'utente il 10/10, che supera la classe dell'08/10)
+	if ch := chiudiCon(passati, &tutte); ch.Conclusione != ConclusioneConclusa || !ch.RapportoCompleto || len(ch.Esterni) != 2 {
 		t.Errorf("tutto passato: %+v", ch)
 	}
 	if ch := chiudiCon(passati, nil); ch.Conclusione != ConclusioneConclusa || ch.RapportoCompleto || !strings.HasPrefix(ch.Gate, "assente") {
