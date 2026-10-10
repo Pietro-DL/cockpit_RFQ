@@ -1,0 +1,35 @@
+{
+  "versione_indice": 1,
+  "limiti": {
+    "versione_limiti": "limiti-acme-1",
+    "grammatica": {
+      "max_famiglie": 20,
+      "max_forme_per_famiglia": 16,
+      "max_parti_per_forma": 12,
+      "max_esempi": 64,
+      "max_lunghezza_pattern": 64,
+      "max_ripetizione": 40,
+      "max_lunghezza_letterale": 40
+    },
+    "riconoscimento": {
+      "max_byte_unita": 1048576,
+      "max_unita_documento": 10000,
+      "max_letture_per_unita": 1000,
+      "max_letture_documento": 20000
+    },
+    "anteprima": {
+      "tempo_massimo_ms": 20000
+    }
+  },
+  "grammatiche": [
+    {
+      "cliente_id": "00000000-0000-4000-8000-00000000ac01",
+      "file": "acme.v1.json",
+      "sha256": "116183f578b61080a05f003e2d2ea12d602ba00f9ade5180b5209b765ec4063a"
+    }
+  ],
+  "casi": {
+    "file": "casi_acme.v1.json",
+    "sha256": "ba1ffccc9c61956e748aa01971a7ee52c754098a53071a1d15d9f542d23ff29d"
+  }
+}

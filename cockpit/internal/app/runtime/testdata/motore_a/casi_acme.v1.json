@@ -1,0 +1,25 @@
+{
+  "versione_casi": 1,
+  "casi": [
+    {
+      "id": "ACME-SCENARIO",
+      "thread_id": "00000000-0000-4000-8000-000000000071",
+      "cliente_id": "00000000-0000-4000-8000-00000000ac01",
+      "segmenti": [
+        {
+          "messaggio_id": "00000000-0000-4000-8000-000000000081",
+          "segmento_id": "s:storia:1",
+          "uso": "pertinente",
+          "origine": "scenario",
+          "motivo": "richiesta inoltrata senza confine: la storia non è separabile (R48 A)"
+        }
+      ],
+      "autorita": "scenario"
+    },
+    {
+      "id": "ACME-ELENCO",
+      "cliente_id": "00000000-0000-4000-8000-00000000ac01",
+      "messaggi": ["00000000-0000-4000-8000-000000000091", "00000000-0000-4000-8000-000000000092"]
+    }
+  ]
+}
