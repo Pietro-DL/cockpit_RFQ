@@ -801,7 +801,13 @@ func (b *banco) controlliDelRunner(esito *valut.Esito, tr *traduzione, ix indice
 		b.esito(controlloRisoluzione(*b.sezioni, *tr, ix, b.foto, b.parziale()))
 	}
 	if b.o.Modalita == ModalitaExports {
-		b.esito(controlloFonti(b.sezioni, b.shaExport))
+		var dump []string
+		for _, v := range b.manifest.Voci {
+			if v.Ruolo == dataset.RuoloDump {
+				dump = append(dump, strings.ToLower(v.Sha256))
+			}
+		}
+		b.esito(controlloFonti(b.sezioni, b.shaExport, dump))
 	}
 	b.esito(controlloCasiIndice(b.r.Sha256Casi, b.indice))
 	b.esito(controlloAttesiInteri(b.attesiLett, b.motivoAtt, b.sezioni))

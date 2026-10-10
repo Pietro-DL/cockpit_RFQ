@@ -337,7 +337,17 @@ func LeggiSezioni(raw []byte) (SezioniAttesi, error) {
 					l.out.Fonti = append(l.out.Fonti, strings.ToLower(id.Valore))
 				}
 			}
-			l.out.ChiaviLibere = append(l.out.ChiaviLibere, chiaviLibere(v, k)...)
+			// Dalla seconda corsa vera (10/10): gli attesi scrivono lo sha256 del file della fonte come sha256_file.
+			// È lo stesso valore del controllo n.3 con un altro nome (solo lessicale, come i sinonimi di T-B6c-13):
+			// vale solo qui, e non è più una chiave libera.
+			for _, s := range valoriDellaChiave(v, chiaveShaDellaFonte) {
+				l.out.Fonti = append(l.out.Fonti, strings.ToLower(s))
+			}
+			for _, c := range chiaviLibere(v, k) {
+				if !strings.HasSuffix(c, "."+chiaveShaDellaFonte) {
+					l.out.ChiaviLibere = append(l.out.ChiaviLibere, c)
+				}
+			}
 		case "gate", "riservati_non_bloccanti", "prerequisiti_gate_l4":
 			l.out.Riportate = append(l.out.Riportate, riporta(v, k)...)
 		default:
@@ -387,9 +397,14 @@ var (
 	// chiaviDellaVoceInAtteso (T-B6c-01): le chiavi della voce che gli attesi scrivono dentro la mappa «atteso» delle
 	// letture, per sezione. Non sono letture del file: si leggono come le chiavi della voce (gli invarianti, l'esito con il
 	// target), con lo stesso significato. La stessa chiave nella voce e in atteso è un errore: un valore solo.
+	// Dalla seconda corsa vera (10/10) anche la C5: con la chiave atteso tradotta (T-B6c-07), la corsa ha mostrato che la
+	// mappa porta gli invarianti della voce (chiaviDaRivedere), non letture; si leggono come nella voce (controlli.go,
+	// invarianti_da_rivedere).
 	chiaviDellaVoceInAtteso = map[string][]string{
 		confronto.SezioneBaseline: {"componente_id_proposta_vuoto_preservato", "decisioni_invariate", "revisione_confrontata_separatamente"},
 		confronto.SezioneReali:    {"target_presente", "esito_con_target"},
+		confronto.SezioneDaRivedere: {"componente_id_proposta_vuoto_preservato", "sovrascritta_dal_motore", "in_baseline",
+			"conta_nel_gate", "mostrata_con_badge_di_confronto"},
 	}
 	// sinonimiDelleLetture: le chiavi delle letture dei file che il piano dà come lo stesso concetto di una chiave della
 	// tabella dei casi (6.4.9, «Traduzione degli attesi»; C-30: token_conservato e token_00_conservato). Valgono solo
@@ -844,6 +859,38 @@ func (l *lettoreSezioni) decisione(n *yaml.Node, p string) []CampoAtteso {
 var chiaviID = []string{"allegato_id", "thread_id", "messaggio_id", "componente_id", "padre_id", "figlio_id",
 	"documento_id", "sha256"}
 
+// chiaveShaDellaFonte: il nome con cui la sezione fonti degli attesi scrive lo sha256 del file (LeggiSezioni).
+const chiaveShaDellaFonte = "sha256_file"
+
+// valoriDellaChiave: i valori semplici, non nulli, di una chiave a qualunque profondità di un nodo, nell'ordine.
+func valoriDellaChiave(n *yaml.Node, chiave string) []string {
+	var out []string
+	var visita func(n *yaml.Node)
+	visita = func(n *yaml.Node) {
+		n = risolvi(n)
+		if n == nil {
+			return
+		}
+		switch n.Kind {
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k, v := n.Content[i].Value, risolvi(n.Content[i+1])
+				if k == chiave && v != nil && v.Kind == yaml.ScalarNode && v.ShortTag() != "!!null" {
+					out = append(out, v.Value)
+					continue
+				}
+				visita(v)
+			}
+		case yaml.SequenceNode:
+			for _, e := range n.Content {
+				visita(e)
+			}
+		}
+	}
+	visita(n)
+	return out
+}
+
 // raccogliID: gli ID e gli sha256 di una sezione a forma libera, con il percorso: una chiave di chiaviID con un valore
 // semplice o un elenco di valori semplici.
 func raccogliID(n *yaml.Node, p string) []IDAtteso {
@@ -904,6 +951,10 @@ func chiaviLibere(n *yaml.Node, p string) []string {
 				switch {
 				case v == nil:
 				case dentro(k, chiaviID) && (v.Kind == yaml.ScalarNode || v.Kind == yaml.SequenceNode):
+				case v.Kind == yaml.SequenceNode && soloValoriSemplici(v):
+					// Un elenco di valori semplici è una chiave libera come un valore semplice: prima si perdeva in
+					// silenzio, né giudicato né dichiarato (revisione A6.4 della seconda corsa vera, 10/10).
+					out = append(out, indiciDegliElenchi.ReplaceAllString(pk, "[]"))
 				case v.Kind == yaml.MappingNode || v.Kind == yaml.SequenceNode:
 					visita(v, pk)
 				case k == "id" || k == "nota":
@@ -919,6 +970,19 @@ func chiaviLibere(n *yaml.Node, p string) []string {
 	}
 	visita(n, p)
 	return out
+}
+
+// soloValoriSemplici: un elenco non vuoto i cui elementi sono tutti valori semplici (chiaviLibere).
+func soloValoriSemplici(n *yaml.Node) bool {
+	if len(n.Content) == 0 {
+		return false
+	}
+	for _, e := range n.Content {
+		if e = risolvi(e); e == nil || e.Kind != yaml.ScalarNode {
+			return false
+		}
+	}
+	return true
 }
 
 // righeAlbero (R-109): le righe della conferma dell'albero, una per elemento di ogni elenco (e una per ogni mappa) al

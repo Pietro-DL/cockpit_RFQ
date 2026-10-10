@@ -157,8 +157,13 @@ var tabellaClassi = []voceClassificata{
 	{SedeGate, VoceGateRiservati, ClasseObbligatorio, "nessun riservato contato come passato", "v3 §6; 6.4.9, voce 5; R21 c A; R-110", "", ""},
 	{SedeGate, VoceGateMotoreSenzaLLM, ClasseObbligatorioEsterno, "il motore senza LLM lo verificano le L4 e le guardie G1 e G5, nel registro",
 		"6.4.9, voce 6; piano 3.5 (MOTORE-SENZA-LLM); R58 B", "A1c-L4S-08, A1c-L4T-01 (con la copia _run), G1, G5", ""},
-	{SedeGate, VoceGateAltriProfili, ClasseObbligatorioEsterno, "le forme dei due profili ancora senza etichette: oggi c'è solo il censimento",
-		"6.4.9, voce 7; R34 c; M-22; R58 B", "le etichette dei due profili negli attesi (M-22), con l'esito nel registro (R58 B)", ""},
+	// D-M22 (decisa dall'utente il 10/10, R34 c = B): la voce esce dal perimetro obbligatorio di A1c e va alla corsia
+	// del censimento. Resta non eseguita, mai superata: cambia solo la classe nella chiusura. RapportoCompleto non
+	// cambia significato: il controllo del gate resta NON ESEGUITO finché la voce non lo è (conNonEseguiti).
+	{SedeGate, VoceGateAltriProfili, ClasseFuoriPerimetro,
+		"le forme dei due profili ancora senza etichette: oggi c'è solo il censimento; la copertura estesa dei due profili va alla corsia parallela del censimento, e la voce resta non eseguita, mai superata",
+		"6.4.9, voce 7; R34 c = B (D-M22, decisa dall'utente il 10/10); D-PERIMETRO-A1C; M-22", "",
+		"le etichette dei due profili (M-22) si verificano nella corsia del censimento"},
 	// Le sezioni informative del rapporto.
 	{SedeRapporto, SezioneInformativaProdotti, ClasseInformativo,
 		"gli assi, lo stato e il fascicolo sui dati veri sono informazione, mai voci del gate; la fonte attesa dei prodotti attesi dello scenario (PO-29), derivata dagli attesi con una regola dichiarata, accanto a quella calcolata",

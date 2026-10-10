@@ -525,10 +525,16 @@ func (c *compositore) componi(fuori []uuid.UUID) (fotorfq.Fotografia, error) {
 		f.Sezioni[fotorfq.SezioneRelazioni] = fotorfq.StatoSezione{Stato: fotorfq.StatoSezioneParziale,
 			Motivo: "senza i componenti non si sa se gli estremi sono archiviati"}
 	}
+	// creato_il del triage ordina i triage di un messaggio (valutazione, eventiDelTriage: il più recente). Un export che
+	// non porta la colonna (nessuna riga la ha) si legge solo se ogni messaggio ha al più un triage deterministico, cioè
+	// se l'ordine non serve: la sezione è parziale, con il motivo. Con più triage per messaggio l'ordine non si
+	// ricostruisce e l'export non è valido: nessuna data inventata (D-R115 A: niente export alterati). Una colonna
+	// presente con un valore NULL resta un errore.
+	triageConData := len(colonneAssenti(c.righe[ExportTriage], "creato_il")) == 0
 	triage := map[uuid.UUID][]fotorfq.Triage{}
 	esclusi := 0
 	for _, r := range c.righe[ExportTriage] {
-		x, deterministico, err := triageDaExport(r)
+		x, deterministico, err := triageDaExport(r, triageConData)
 		if err != nil {
 			return fotorfq.Fotografia{}, err
 		}
@@ -538,11 +544,30 @@ func (c *compositore) componi(fuori []uuid.UUID) (fotorfq.Fotografia, error) {
 		}
 		triage[x.MessaggioID] = append(triage[x.MessaggioID], x)
 	}
+	if !triageConData {
+		piu := 0
+		for _, xs := range triage {
+			if len(xs) > 1 {
+				piu++
+			}
+		}
+		if piu > 0 {
+			return fotorfq.Fotografia{}, erroreColonna(ExportTriage, "creato_il",
+				fmt.Sprintf("manca, e %d messaggi hanno più di un triage deterministico: l'ordine per data non si ricostruisce", piu))
+		}
+	}
 	if _, ok := c.presenti[ExportTriage]; ok {
 		st := fotorfq.StatoSezione{Stato: fotorfq.StatoSezioneCompleta}
+		var motivi []string
 		if esclusi > 0 {
-			st = fotorfq.StatoSezione{Stato: fotorfq.StatoSezioneFiltrata, Motivo: fmt.Sprintf("solo deterministico: %d righe di un'altra fonte escluse", esclusi)}
+			st.Stato = fotorfq.StatoSezioneFiltrata
+			motivi = append(motivi, fmt.Sprintf("solo deterministico: %d righe di un'altra fonte escluse", esclusi))
 		}
+		if !triageConData {
+			st.Stato = fotorfq.StatoSezioneParziale
+			motivi = append(motivi, "senza creato_il: al più un triage deterministico per messaggio, l'ordine per data non serve")
+		}
+		st.Motivo = strings.Join(motivi, "; ")
 		f.Sezioni[fotorfq.SezioneTriage] = st
 	}
 
@@ -1049,7 +1074,8 @@ func relazioneDaExport(r rigaExport) (uuid.UUID, fotorfq.Relazione, error) {
 // fonteDeterministica: la fonte del triage che una fotografia porta (6.4.1: mai la fonte dell'agente LLM).
 const fonteDeterministica = "deterministico"
 
-func triageDaExport(r rigaExport) (fotorfq.Triage, bool, error) {
+// triageDaExport: una riga del triage; conData dice se l'export porta la colonna creato_il (FotografiaDaExport).
+func triageDaExport(r rigaExport, conData bool) (fotorfq.Triage, bool, error) {
 	const s = ExportTriage
 	var x fotorfq.Triage
 	var err error
@@ -1074,8 +1100,10 @@ func triageDaExport(r rigaExport) (fotorfq.Triage, bool, error) {
 	if x.Identificativi, err = r.testi(s, "identificativi"); err != nil {
 		return x, false, err
 	}
-	if x.CreatoIl, err = r.tempoObbligatorio(s, "creato_il"); err != nil {
-		return x, false, err
+	if conData {
+		if x.CreatoIl, err = r.tempoObbligatorio(s, "creato_il"); err != nil {
+			return x, false, err
+		}
 	}
 	if x.DecisoIl, err = r.tempo(s, "deciso_il", false); err != nil {
 		return x, false, err
