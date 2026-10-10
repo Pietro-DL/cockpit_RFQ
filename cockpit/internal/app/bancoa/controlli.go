@@ -453,9 +453,12 @@ func siglaDellaSezione(x IDAtteso, f fotorfq.Fotografia) (differenza, nonFatto s
 
 // controlloFonti (n.3, solo -exports): gli export del manifest e le fonti degli attesi coincidono, nelle due direzioni
 // (6.4.9: «coincidono»). Lo sha256 di ogni export del manifest sta fra le fonti; e ogni sha256 delle fonti (la chiave
-// sha256, che negli attesi hanno gli export: il dump ha sha256_file e non entra) è un export del manifest, altrimenti
-// un export che gli attesi elencano si vedrebbe solo come sezione assente [T].
-func controlloFonti(s *SezioniAttesi, export []string) esitoControllo {
+// sha256 o sha256_file) è un export del manifest, altrimenti un export che gli attesi elencano si vedrebbe solo come
+// sezione assente [T]. Il dump non entra: la seconda corsa vera (10/10) ha mostrato che negli attesi tutte le fonti
+// scrivono sha256_file, dump compreso, e il dump si riconosce dallo sha della voce di ruolo dump del manifest (dump);
+// non è un export, e qui va fra le parti non applicabili (nessun controllo del runner confronta lo sha del dump: la
+// copia la controllano A1c-L4D-01 e le sentinelle).
+func controlloFonti(s *SezioniAttesi, export, dump []string) esitoControllo {
 	e := esitoControllo{nome: ControlloFonti, eseguito: true}
 	if s == nil {
 		e.eseguito, e.motivo = false, "gli attesi non sono stati letti"
@@ -469,6 +472,10 @@ func controlloFonti(s *SezioniAttesi, export []string) esitoControllo {
 		}
 	}
 	for _, sha := range s.Fonti {
+		if dentro(sha, dump) {
+			e.nonApplicabili = append(e.nonApplicabili, "la fonte "+sha+" è il dump del manifest, non un export: il n.3 confronta solo gli export (la copia del dump la controllano A1c-L4D-01 e le sentinelle)")
+			continue
+		}
 		if !dentro(sha, manifest) {
 			e.differenze = append(e.differenze, "uno sha256 delle fonti degli attesi non è fra gli export del manifest: "+sha)
 		}
@@ -1004,7 +1011,8 @@ func controlloBaselineDi(eb []esitoBaseline, letti bool) esitoControllo {
 //     chiave, come M-21). La riga dell'altra modalità non si applica a questa corsa (il piano assegna ogni riga a una
 //     modalità sola, e la verifica la corsa dell'altra): va fra le parti non applicabili, un elenco informativo che non
 //     cambia l'uscita (R-117). Chi ha deciso e chi ha confermato la C5 lo scrive con la sigla: confrontaUtente;
-//   - componente_id_proposta_vuoto_preservato uguale al valore dichiarato;
+//   - componente_id_proposta_vuoto_preservato uguale al valore dichiarato, solo con -dsn: descrive la riga della proposta
+//     del DB, e con -exports va fra le parti non applicabili (seconda corsa vera, 10/10);
 //   - in_baseline uguale a «il file è nella baseline degli attesi»; conta_nel_gate falso (la C5 è fuori dal gate);
 //   - mostrata_con_badge_di_confronto: il file ha una riga di confronto, e quindi il badge calcolato contro la decisione
 //     (R31 a); badge sono i badge del confronto, per allegato.
@@ -1067,8 +1075,16 @@ func controlloInvariantiC5(s *SezioniAttesi, tr traduzione, f fotorfq.Fotografia
 		if v, ok := vt.voce.invariante("sovrascritta_dal_motore"); ok && v {
 			e.differenze = append(e.differenze, vt.voce.Percorso+": sovrascritta_dal_motore vero: una decisione sovrascritta non è un invariante")
 		}
-		if v, ok := vt.voce.invariante("componente_id_proposta_vuoto_preservato"); ok && (p == nil || (p.ComponenteID == nil) != v) {
-			e.differenze = append(e.differenze, vt.voce.Percorso+": componente_id_proposta_vuoto_preservato non coincide")
+		// componente_id_proposta_vuoto_preservato descrive la riga della proposta del DB, come decisione_proposta: con
+		// -exports la riga è quella dell'export, che la voce descrive a parte (nell_export_proposte, sopra), e la C5 può
+		// essere successiva all'export. Si verifica con -dsn (seconda corsa vera, 10/10).
+		if v, ok := vt.voce.invariante("componente_id_proposta_vuoto_preservato"); ok {
+			switch {
+			case cc.export:
+				e.nonApplicabili = append(e.nonApplicabili, vt.voce.Percorso+".componente_id_proposta_vuoto_preservato: si verifica con -dsn")
+			case p == nil || (p.ComponenteID == nil) != v:
+				e.differenze = append(e.differenze, vt.voce.Percorso+": componente_id_proposta_vuoto_preservato non coincide")
+			}
 		}
 		if v, ok := vt.voce.invariante("in_baseline"); ok && v != inBaseline[vt.file.AllegatoID] {
 			e.differenze = append(e.differenze, vt.voce.Percorso+": in_baseline non coincide con la baseline degli attesi")

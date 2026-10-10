@@ -630,8 +630,11 @@ func tempoAtteso(s string) (time.Time, error) {
 }
 
 // prodottoAttesoDi: un prodotto atteso dello scenario come confronto.ProdottoAtteso. Il campo dell'evidenza in una
-// cella (fonte_quantita) si traduce solo per il valore «cella» [T]: un altro valore non si inventa, ed è un errore di
-// traduzione (va aggiunto qui quando la prima corsa lo mostra).
+// cella (fonte_quantita) si traduce solo per i valori elencati [T]: un altro valore non si inventa, ed è un errore di
+// traduzione (va aggiunto qui quando una corsa lo mostra). «righe HTML verificate» è il valore della seconda corsa vera
+// (10/10): la quantità presa dalle righe della tabella HTML della mail, che il motore legge come una cella con la sua
+// origine (E-16, la quantità legata alla cella; R28 A/A: una cella è una sola evidenza); «verificate» dice chi ha
+// controllato l'atteso, non un'altra evidenza.
 func prodottoAttesoDi(p ProdottoScenario) (confronto.ProdottoAtteso, string) {
 	pa := confronto.ProdottoAtteso{CodiceRichiesto: p.Originale, Base: p.Base, Fase: p.Fase}
 	if p.Base == "" {
@@ -643,7 +646,7 @@ func prodottoAttesoDi(p ProdottoScenario) (confronto.ProdottoAtteso, string) {
 	}
 	switch p.FonteQuantita {
 	case "":
-	case "cella":
+	case "cella", "righe HTML verificate":
 		v := true
 		pa.QuantitaDaCella = &v
 	default:
