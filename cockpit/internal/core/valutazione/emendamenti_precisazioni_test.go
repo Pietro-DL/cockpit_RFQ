@@ -91,7 +91,8 @@ func TestD3LaRigaScartataNonDaIlTipo(t *testing.T) {
 // TestD3IlValoreFuoriEnum (D3: «i valori proposti devono appartenere all'enum tipo_componente»; T-P7e-12): una riga
 // aperta con un valore fuori dall'enum non è una proposta, e il nodo prende la regola (#3 ha il figlio #4: sottoassieme),
 // anche nei previsti; un valore dell'enum con gli spazi intorno vale, come prima; la maiuscola no (l'enum del DB la
-// distingue).
+// distingue). «finito» è dell'enum, ma #3 non è il target: da D-P7e-1 (11/10, A) la riga non ha autorità e #3 prende la
+// regola (prima di D-P7e-1 questa prova fissava finito/proposto_dalla_riga; le prove di D-P7e-1 in finito_target_test.go).
 func TestD3IlValoreFuoriEnum(t *testing.T) {
 	p := prodottoDi(t, esitoSmistamento(t, scenaD3FuoriEnum(t)), rifProdB)
 	if n := nodoBOMDi(t, p, rifNodo3); tipoDi(n) != "sottoassieme/proposto_dalla_regola" || n.Nodo.RigaLegacy == nil {
@@ -103,7 +104,7 @@ func TestD3IlValoreFuoriEnum(t *testing.T) {
 	for _, c := range []struct{ valore, atteso string }{
 		{"  sciolto ", "sciolto/proposto_dalla_riga"},
 		{"Sciolto", "sottoassieme/proposto_dalla_regola"},
-		{"finito", "finito/proposto_dalla_riga"},
+		{"finito", "sottoassieme/proposto_dalla_regola"},
 	} {
 		th := scenaTreNodi(t, true)
 		rigaDi(t, &th, "#3").TipoProposto = testo(c.valore)

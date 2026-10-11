@@ -553,8 +553,11 @@ func q10ChiaviLibereDelleIntegrazioni(r RapportoBanco) []string {
 	return out
 }
 
-// q10NonEseguitaSeLibere: NON ESEGUITA per le chiavi del caso che stanno fra le libere di casi_integrazione; il nucleo del
-// caso coperto da altri controlli lo dice il chiamante nel log.
+// q10NonEseguitaSeLibere: NON ESEGUITA se fra le chiavi libere c'è una chiave qualunque di casi_integrazione, non solo
+// una del caso: il rapporto dà i percorsi delle chiavi libere senza il caso, e la prova non scrive nel codice le chiavi di
+// ogni caso. Finché restano libere chiavi descrittive come livello e fixture, la prova non diventa verde (limite
+// dichiarato, debiti di copertura di A1c dell'11/10). Il nucleo del caso coperto da altri controlli lo dice il chiamante
+// nel log; una regressione di quel nucleo è un errore senza il prefisso NON ESEGUITA.
 func q10NonEseguitaSeLibere(t *testing.T, r RapportoBanco, caso string) {
 	libere := q10ChiaviLibereDelleIntegrazioni(r)
 	for _, k := range libere {
