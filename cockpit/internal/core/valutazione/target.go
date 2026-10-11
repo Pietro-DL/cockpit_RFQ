@@ -41,25 +41,32 @@ const (
 //     «Conferma l'albero»).
 //   - Documenti (B5): la completezza documentale, l'asse 6 (Completezza: R72 D, R102 A; contratto §1.6).
 //   - Nodi (B6, V3): i nodi della BOM di lavoro come li vedrà la UI (R91, T-B0-39; T-B6-11: solo la BOM di lavoro).
+//   - StruttureCandidate, ConfermatiSenzaSTEP (EB7-1 B, ratificata dall'utente l'08/10; bozza del contratto con il
+//     frontendista §1.3, §1.4): a parte, le strutture candidate con i loro nodi, una per allegato e radice, e i componenti
+//     del perimetro confermato che nessun nodo della BOM di lavoro rappresenta. Sono solo esposizione: niente si promuove,
+//     e stato, assi, motivi, autorità e impronta del prodotto si calcolano senza di loro. Struttura candidata, fonte
+//     confermata (Fonte.Stato), BOM di lavoro (Nodi) e BOM verificata (BOM.Verificata) restano quattro cose distinte [U].
 //   - Smistamento (B6, V2): l'asse 5 (R81; contratto §1.5). Verificato, Stato, Motivi (B6, V3): il composto, l'asse 7 e
 //     i motivi (R79, T-E1-01, T-E1-14). Impronta (B6, V3): l'impronta dei dati decisi del prodotto (R90, T-B0-29).
 type ProdottoValutato struct {
-	Rif             string                    `json:"rif"`
-	Autorita        ancoraggio.Autorita       `json:"autorita"`
-	ComponenteID    *uuid.UUID                `json:"componente_id,omitempty"`
-	CodiceRichiesto string                    `json:"codice_richiesto"`
-	Base            motorea.BaseLetta         `json:"base"`
-	Identita        StatoIdentitaTarget       `json:"identita"`
-	Fonte           FonteProdotto             `json:"fonte"`
-	Struttura       ancoraggio.StatoStruttura `json:"struttura"`
-	BOM             VerificaBOM               `json:"bom"`
-	Nodi            []NodoBOM                 `json:"nodi,omitempty"`
-	Smistamento     VerificaSmistamento       `json:"smistamento"`
-	Documenti       CompletezzaDocumentale    `json:"documenti"`
-	Verificato      bool                      `json:"prodotto_verificato"`
-	Stato           StatoProdotto             `json:"stato"`
-	Motivi          []MotivoProdotto          `json:"motivi,omitempty"`
-	Impronta        string                    `json:"impronta"`
+	Rif                 string                    `json:"rif"`
+	Autorita            ancoraggio.Autorita       `json:"autorita"`
+	ComponenteID        *uuid.UUID                `json:"componente_id,omitempty"`
+	CodiceRichiesto     string                    `json:"codice_richiesto"`
+	Base                motorea.BaseLetta         `json:"base"`
+	Identita            StatoIdentitaTarget       `json:"identita"`
+	Fonte               FonteProdotto             `json:"fonte"`
+	Struttura           ancoraggio.StatoStruttura `json:"struttura"`
+	BOM                 VerificaBOM               `json:"bom"`
+	Nodi                []NodoBOM                 `json:"nodi,omitempty"`
+	StruttureCandidate  []StrutturaCandidata      `json:"strutture_candidate,omitempty"`
+	ConfermatiSenzaSTEP []NodoBOM                 `json:"confermati_senza_step,omitempty"`
+	Smistamento         VerificaSmistamento       `json:"smistamento"`
+	Documenti           CompletezzaDocumentale    `json:"documenti"`
+	Verificato          bool                      `json:"prodotto_verificato"`
+	Stato               StatoProdotto             `json:"stato"`
+	Motivi              []MotivoProdotto          `json:"motivi,omitempty"`
+	Impronta            string                    `json:"impronta"`
 }
 
 // TargetConfermato: il predicato del target confermato della RFQ (R70 A, R78; T-B0-21): l'identità confermata dal

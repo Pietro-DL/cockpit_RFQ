@@ -2,6 +2,7 @@ package valutazione
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -285,7 +286,8 @@ func gerarchiaSenzaBOMDiLavoro(gerarchia VerificaAsse, fonteConfermata, bomDiLav
 // bomDelThread: ciò che serve alla verifica della BOM dei prodotti di un thread, calcolato una volta: i componenti
 // attivi, le relazioni confermate fra loro per padre, i segni di «Conferma l'albero» sugli archi, le righe degli archi,
 // le rimozioni aperte, i nodi (sha256, chiave) e gli archi (sha256, chiavi) che hanno almeno una riga legacy, gli archi
-// tolti da una persona.
+// tolti da una persona, il tipo proposto delle righe legacy aperte (per i previsti della completezza e, da EB7-2, per i
+// nodi; D3).
 type bomDelThread struct {
 	t           fotorfq.Thread
 	figli       map[uuid.UUID][]fotorfq.Relazione
@@ -297,6 +299,7 @@ type bomDelThread struct {
 	// stato; archiTolti: quelli le cui righe sono tutte scartate da una persona (l'arco tolto: dubbio T-B5-67).
 	archiConRiga map[string]bool
 	archiTolti   map[string]bool
+	tipi         map[string]string // il tipo proposto di ogni nodo (RifNodo), dalle righe legacy aperte (tipoPropostoDellaRiga)
 }
 
 // segnoArco: il segno di «Conferma l'albero» su una riga di arco tenuta: i due componenti del legame, chi e quando.
@@ -308,10 +311,23 @@ type segnoArco struct {
 
 func nuovaBOMDelThread(t fotorfq.Thread) *bomDelThread {
 	b := &bomDelThread{t: t, figli: map[uuid.UUID][]fotorfq.Relazione{}, relazioni: map[string]fotorfq.Relazione{}, shaAll: map[uuid.UUID]string{},
-		nodiConRiga: map[string]bool{}}
+		nodiConRiga: map[string]bool{}, tipi: map[string]string{}}
 	for _, r := range t.RigheComponenteProposta {
 		if r.Sha256 != "" && r.Chiave != "" {
 			b.nodiConRiga[ancoraggio.RifNodo(r.Sha256, r.Chiave)] = true
+		}
+	}
+	// Il tipo proposto di ogni nodo: quello della prima riga per ID che lo propone davvero, su qualunque allegato
+	// (tipoPropostoDellaRiga, tipoProposto).
+	righe := append([]fotorfq.RigaComponenteProposta(nil), t.RigheComponenteProposta...)
+	sort.SliceStable(righe, func(i, j int) bool { return righe[i].ID.String() < righe[j].ID.String() })
+	for _, r := range righe {
+		k := ancoraggio.RifNodo(r.Sha256, r.Chiave)
+		if _, ok := b.tipi[k]; ok || r.Sha256 == "" || r.Chiave == "" {
+			continue
+		}
+		if tipo, ok := tipoPropostoDellaRiga(r); ok {
+			b.tipi[k] = tipo
 		}
 	}
 	attivi := map[uuid.UUID]bool{}
@@ -383,6 +399,52 @@ func (b *bomDelThread) perimetro(componente *uuid.UUID) (map[uuid.UUID]bool, []f
 		}
 	}
 	return dentro, archi
+}
+
+// tipiComponente: i valori dell'enum tipo_componente del DB (0001), i soli che una riga può proporre (D3 dell'utente del
+// 10/10: «I valori proposti devono appartenere all'enum tipo_componente»).
+var tipiComponente = map[string]bool{tipoFinito: true, tipoSottoassieme: true, tipoSciolto: true, tipoCommerciale: true}
+
+// tipoPropostoDellaRiga: il tipo che una riga di componente_proposta propone, se lo propone davvero (D3 dell'utente del
+// 10/10, «Precedenza delle fonti del tipo», applicazione a P7e; T-P7e-12):
+//   - solo una riga aperta è una proposta attiva. Una riga scartata non ha autorità sul tipo, anche se resta nella
+//     fotografia; una riga già decisa (confermata o duplicato) vale attraverso la decisione registrata, cioè il componente
+//     del nodo (NodoProposto.Decisione, con il tipo confermato del componente), non come una proposta aperta;
+//   - il valore, senza gli spazi in testa e in coda, deve stare nell'enum tipo_componente: un valore fuori dall'enum non
+//     vale come proposta (nel DB la colonna è dell'enum, quindi capita solo con dati che non vengono dal DB).
+//
+// Senza una proposta così il nodo prende la regola (tipoProposto). Nessuna priorità nuova: la decisione prima della
+// proposta, la proposta prima della regola, come prima.
+//
+// Una riga decisa la cui decisione non arriva al nodo (il componente è archiviato, quindi il contesto non lo ha e il nodo
+// è senza Decisione) non propone e non conferma niente: il nodo prende la regola (T-P7e-17, lettura [T]). L'altra lettura
+// possibile di D3 («vale attraverso la decisione effettivamente registrata») sarebbe il tipo del componente archiviato
+// della riga, come confermato, oppure nessun tipo (""): non è stata scelta, perché un componente archiviato non entra in
+// nessun calcolo di valutazione (contesto, perimetro, relazioni attive) e qui non si introduce una fonte nuova.
+func tipoPropostoDellaRiga(r fotorfq.RigaComponenteProposta) (string, bool) {
+	if r.Stato != statoPropostaAperta || r.TipoProposto == nil {
+		return "", false
+	}
+	tipo := strings.TrimSpace(*r.TipoProposto)
+	return tipo, tipiComponente[tipo]
+}
+
+// tipoProposto: il tipo proposto di un nodo senza decisione (tabella dell'analista, T29), con la sua origine (EB7-2 A):
+// componente_proposta.tipo_proposto della sua riga legacy che lo propone davvero (la prima per ID, su qualunque allegato,
+// fra le righe aperte con un valore dell'enum: tipoPropostoDellaRiga, D3: proposto_dalla_riga); senza, la regola con cui
+// il legacy lo scrive (rfq/fascicolo, Pianifica: proposto_dalla_regola): sottoassieme se nella struttura il nodo ha dei
+// figli, altrimenti sciolto; mai finito (dubbio T-B5-58). È l'unica interpretazione delle fonti del tipo proposto (D3): la
+// usano i previsti della completezza (nodiDaPrevedere) e i nodi (datiDelNodo), e chi la chiama dice se il nodo ha dei
+// figli. Il filtro di D3 cambia quindi anche il tipo dei previsti: è un cambiamento voluto dall'utente, e la prova di non
+// regressione di P7e lo isola (resoconto di P7e).
+func (b *bomDelThread) tipoProposto(rif string, conFigli bool) (string, OrigineTipo) {
+	if t, ok := b.tipi[rif]; ok {
+		return t, OrigineTipoPropostoDallaRiga
+	}
+	if conFigli {
+		return tipoSottoassieme, OrigineTipoPropostoDallaRegola
+	}
+	return tipoSciolto, OrigineTipoPropostoDallaRegola
 }
 
 // gestiDaConfermaLAlbero: l'adattatore legacy di «Conferma l'albero» (R80, R61 A; contratto §1.3; T-B0-22). Il gesto

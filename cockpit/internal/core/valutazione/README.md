@@ -141,6 +141,54 @@ markmap:
   - **il fascicolo** (`Fascicolo`, con l'ingresso `IngressoFascicolo` e il gesto di congelamento del modello nuovo,
     `GestoCongelamento`, senza adattatore: LD-23) e il congelamento legacy a parte (`CongelamentoLegacy`, dalla
     bom_versione).
+- In P7e (gli emendamenti EB7 ratificati dall'utente l'08/10, E2 §6.4; con le precisazioni D1–D6 del 10/10, E2 §7.3;
+  la forma dei campi è quella della bozza del contratto con il frontendista, §1.3–§1.6) **più dati esposti, nessuna
+  regola nuova degli assi**:
+  - **EB7-1 B, le strutture candidate e i confermati senza STEP**: `ProdottoValutato.StruttureCandidate`
+    (`StrutturaCandidata`, una per ogni struttura di ancoraggio del prodotto con lo stato `struttura_candidata`, nello
+    stesso ordine, con la chiave (`AllegatoID`, `Radice`) e i suoi nodi) e `ProdottoValutato.ConfermatiSenzaSTEP` (i
+    componenti del perimetro confermato che nessun nodo della BOM di lavoro rappresenta, come `NodoBOM` senza file, con
+    il Rif `componente:<uuid>`). `PV.Nodi` resta solo la BOM di lavoro (T-B6-11);
+  - **EB7-2 A, il tipo del nodo**: `NodoBOM.Tipo` e `NodoBOM.OrigineTipo` (`confermato`, `proposto_dalla_riga`,
+    `proposto_dalla_regola`) per `Nodi`, `StruttureCandidate[].Nodi` e `ConfermatiSenzaSTEP`. Il frontend legge il tipo
+    da qui e non lo deduce dai figli;
+  - **EB7-4 A, la voce del 2D**: `VoceFabbisogno.DocumentoID` e `StatoNas` del documento confermato e corrente che
+    decide la voce, con lo stato del NAS della fotografia; vuoti quando la voce la decide l'associazione non confermata o
+    la deroga (D2);
+  - **EB7-3 A**: solo il testo di `FaseThread` (lo stato del thread, non la fase di lavoro);
+  - **la versione dell'esito** passa a `valutazione-2` (sotto, «Versioni dell'esito»); l'impronta del prodotto non
+    cambia (`VersioneImprontaProdotto` resta 1).
+  Le **quattro cose da non confondere** [U]: la struttura candidata (`StruttureCandidate`), la fonte confermata
+  (`Fonte.Stato == confermata`), la BOM di lavoro (`Nodi`), la BOM verificata (`BOM.Verificata`). I campi nuovi si
+  calcolano dopo l'impronta e lo stato del prodotto, che quindi non li vedono: esporli non cambia stato, assi, motivi né
+  autorità. Le precisazioni dell'utente del 10/10, nei limiti scritti per P7e:
+  - **D1 (Pater Familias)**: il tipo confermato e il tipo proposto restano distinti; il tipo proposto dalla regola
+    deriva dagli archi della struttura del nodo che una persona non ha tolto, una struttura alla volta. I previsti della
+    completezza guardano invece ancora tutti gli archi, anche quelli tolti, e «con figli» è un OR su tutte le strutture
+    che contano (un previsto per Rif): **la divergenza è dichiarata, non risolta** (T-P7e-05). Ha due lati: un nodo può
+    essere `sciolto` nei nodi e previsto con i fabbisogni del `sottoassieme` (l'arco tolto), e con due candidate dello
+    stesso file e radici diverse lo stesso Rif può avere due tipi della regola nelle candidate e uno solo nel previsto.
+    Allinearla cambierebbe i fabbisogni documentali; la prova di non regressione la copre;
+  - **D2 (documenti proposti e confermati)**: `DocumentoID` è sempre l'ID di un documento confermato e corrente, mai di
+    un candidato (la proposta resta nelle associazioni e nei disegni candidati); Esito, Motivo, DocumentoID,
+    FileCandidato e DerogaID dicono cose distinte, e l'esito della voce non cambia (T-P7e-10);
+  - **D3 (fonti del tipo)**: solo una riga aperta, con un valore dell'enum `tipo_componente`, propone il tipo; una riga
+    scartata non ha autorità; una riga decisa vale attraverso la decisione del nodo. È l'unica interpretazione, condivisa
+    con i previsti: il filtro cambia i previsti dei soli nodi con una riga scartata senza una persona, decisa senza la
+    decisione al nodo, o fuori dall'enum (cambiamento autorizzato, isolato dalla non regressione: T-P7e-12, T-P7e-13).
+    Una riga decisa la cui decisione non arriva al nodo (componente archiviato) dà la regola, non il tipo del componente
+    archiviato né «nessun tipo»: è una lettura [T] (T-P7e-17), con l'altra lettura dichiarata nel codice;
+  - **D4**: la radice di uno STEP candidato non è il prodotto: è normale che il prodotto sia `finito/confermato` (fra i
+    confermati senza STEP) e la radice della candidata `sottoassieme/proposto_dalla_regola` (T-P7e-07);
+  - **D5**: `NodoBOM.Parentela` dei nodi di uno STEP porta i legami del file (gli archi, con il segno dell'arco
+    confermato accanto), non la gerarchia confermata; nessuna tabella di provenienza nuova (T-P7e-14). **Il limite è
+    completo**: una relazione confermata il cui figlio è un nodo di uno STEP compare solo se un arco del file la porta;
+    non compaiono né la relazione fra due componenti rappresentati da nodi senza un arco, né quella fra un padre che è un
+    confermato senza STEP e un figlio rappresentato in `Nodi`. L'adattatore di A1d legge le relazioni confermate correnti
+    dalla fotografia e dagli ancoraggi, e non ricava la gerarchia confermata da `Parentela`;
+  - **D6**: nessun identificativo persistito nuovo; lo stesso `Rif` di nodo può stare in `Nodi` e in una candidata (o
+    in due prodotti): la chiave di presentazione con il contesto (prodotto, gruppo, allegato e radice) è dell'adattatore
+    di A1d (T-P7e-15).
 
 ## Non appartiene qui
 
@@ -155,12 +203,21 @@ markmap:
 - **Il gesto di congelamento del modello nuovo e il suo servizio** (R89; LD-09, LD-23): il DB di oggi non lo ha; lo
   registrerà lo spazio di verifica (SV). Qui è solo un ingresso della regola (`Calcola` passa nil), e il fascicolo non è
   mai congelato sui dati veri (`gesto_non_registrato`). Così **l'avvio della fattibilità per prodotto** (LD-10): qui
-  `pronto_fattibilita` è un risultato calcolato, che non fa avanzare niente; la fase è del thread (`FaseThread`).
+  `pronto_fattibilita` è un risultato calcolato, che non fa avanzare niente. **La fase registrata** non è nell'esito: la
+  legge il gestore di A1d dalla vista `v_thread_fase` (EB7-3 A, E2 §6.4); `FaseThread` (`fase_thread`) è lo **stato del
+  thread**, `APERTA` o `CHIUSA` (`thread_offerta.stato`, LD-10), non la fase di lavoro. Pronto non vuol dire partito.
 - **Il salvataggio dell'impronta del prodotto e il confronto con un'impronta salvata**: A2 (R100 A, T-E1R-12). Qui
   l'impronta si calcola soltanto.
-- **I nodi delle strutture candidate come `NodoBOM`**: il contratto dà `PV.Nodi` solo alla BOM di lavoro (T-B6-11); sui
-  dati veri i nodi stanno negli ancoraggi (`EsitoThread.Ancoraggi.Strutture`). Se la UI e il riquadro di A1d ne hanno
-  bisogno, lo valuta B7.
+- **I gesti strutturali di Pater Familias** (D1 dell'utente del 10/10): la proposta di cambio del tipo quando un gesto
+  toglie l'ultimo figlio o ne aggiunge uno, l'avviso, la conferma coerente del legame e del tipo, la bozza distinta dalle
+  decisioni persistite. Sono requisiti operativi di A1d e dello spazio di verifica (SV); qui il tipo si espone soltanto,
+  e il frontend non lo ricalcola in JavaScript.
+- **La conferma documentale individuale e cumulativa** (D2): la conferma e il rifiuto dal pannello del nodo, la conferma
+  cumulativa delle associazioni eleggibili. Requisiti di UX di A1d e dello SV, con i gesti che esistono; la cumulativa
+  dello SV non si simula con una sequenza di chiamate. Qui nessuna scrittura.
+- **La chiave di presentazione dei nodi e le provenienze nuove** (D5, D6): la chiave contestuale di una casella (prodotto,
+  gruppo, allegato e radice, Rif) e la distinzione fra relazioni del file e relazioni confermate correnti nella pagina
+  sono dell'adattatore di A1d; nessun identificativo persistito e nessuna tabella di provenienza nuovi in A1c.
 - **I percorsi di revisione tecnica e il gesto di scarto come scritture**: il DB di oggi non ha percorsi (LD-18), e la
   pulizia fisica delle copie scartate è di un servizio futuro (LD-26, E1R §6.3). Qui il percorso è solo un ingresso della
   regola (`Calcola` passa nil), lo scarto si legge com'è (la proposta scartata con `deciso_da`), e niente si cancella.
@@ -184,15 +241,16 @@ markmap:
     stato della struttura e la verifica della BOM di ogni target, i conflitti, i 2D dei componenti, la completezza di
     ogni target e la classificazione dei componenti; le diagnostiche in ordine; da B6 `valutaThread`, la stessa con il
     collegamento del thread, (V2) lo smistamento del thread e dei prodotti e (V3) i nodi, l'impronta e lo stato di ogni
-    prodotto.
+    prodotto; da P7e (passo 12) le strutture candidate e i confermati senza STEP, dopo l'impronta e lo stato.
 - **`calcola.go`** (B6, V1) — responsabilità:
   - `Calcola`; l'esito di un thread (`esitoDelThread`: il motore e il motivo, l'errore della valutazione, i record dei
     file, le evidenze, i record piatti, il vecchio dei prodotti; da V2 le associazioni, i file da smistare, i conflitti
     dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
     di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
 - **`esito.go`** (B6, V1) — responsabilità:
-  - `VersioneValutazione`, `Esito`, `EsitoThread`, `MotivoThread`, `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri
-    `FileInterpretato` e `MessaggioInterpretato` (F0-03); i motivi di un file non valutato (`MotivoFile*`).
+  - `VersioneValutazione` (`valutazione-2` da P7e, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
+    `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` e `MessaggioInterpretato` (F0-03); i motivi di un
+    file non valutato (`MotivoFile*`).
 - **`vecchio.go`** (B6, V1) — responsabilità:
   - `LetturaRegistrata`, i motivi `MotivoLettura*`, `LeggiCodiceRegistrato`; `vecchioLetto` e la scelta della proposta e
     del documento di ogni allegato; la lettura dei dettagli (la lettura del vecchio motore, la destinazione F8);
@@ -226,10 +284,15 @@ markmap:
     (`prodottiNominati`, con la provenienza), R108 A, confermata con il requisito operativo (`voceDaSmistare`); i prodotti
     con cui il contesto si confronta (`prodottiCollegati`) e `valutazione.contesto_discorde`
     (`diagnosticaContestoDiscorde`); gli avvisi degli orfani (`avvisiDegliOrfani`).
-- **`nodi.go`** (B6, V1 per i tipi, V3) — responsabilità:
+- **`nodi.go`** (B6, V1 per i tipi, V3; P7e) — responsabilità:
   - `NodoBOM`, `Parentela`; i nodi della BOM di lavoro di un prodotto (`nodiThread`, `nodiDellaBOM`): la raggiungibilità
     senza gli archi tolti, il componente del nodo, la descrizione, la parentela, i 2D, l'origine del primario, i motivi
-    (`motiviDelNodo`), la classificazione, `AncheIn`.
+    (`motiviDelNodo`), la classificazione, `AncheIn`;
+  - da P7e (EB7-1 B, EB7-2 A): `OrigineTipo` con i suoi valori, `StrutturaCandidata`; i nodi di una struttura
+    (`nodiDellaStruttura`, la stessa costruzione per la BOM di lavoro e per le candidate), il componente del nodo
+    (`componenteDelNodo`: il componente del target solo per la radice della BOM di lavoro, T-B4-38), ciò che un nodo
+    prende dal suo componente o da sé con il tipo (`datiDelNodo`), le strutture candidate (`struttureCandidate`), i
+    componenti confermati senza STEP (`confermatiSenzaSTEP`).
 - **`prodotti.go`** (B6, V1 per i tipi, V3) — responsabilità:
   - `StatoProdotto`, `MotivoProdotto`, `CondizioniNuove`; la regola `StatoDelProdotto` con i motivi
     (`motiviDelProdotto`), le condizioni nuove dello smistamento e della completezza (T-E1-14); l'adattatore delle
@@ -265,7 +328,8 @@ markmap:
     documentale e il segno del 2D), `prodottiRichiesti` con `allegatoPortatore` (T-B5-15), `contestoStrutturale`
     (componenti, relazioni, righe aperte e
     decise, codici composti e dei messaggi, associazioni decise), `ancoraggiDelThread` (che restituisce anche il
-    collegamento, per i 2D); le copie profonde.
+    collegamento, per i 2D); le copie profonde; da P7e `componenteDeciso`, l'unica costruzione del componente confermato
+    del contesto, che usano `contestoStrutturale` e i confermati senza STEP (T-P7e-04).
 - **`bom.go`** (B5, fase 1) — responsabilità:
   - `GestiVerificaBOM`, `GestoVerifica`, `StatoVerificaAsse`, i motivi `MotivoAsse*`, `VerificaAsse`, `VerificaBOM`,
     `StrutturaDaVerificare`, `RifArco`;
@@ -273,7 +337,10 @@ markmap:
     del prodotto), la gerarchia legacy senza la BOM di lavoro (`gerarchiaSenzaBOMDiLavoro`, T-B5-17) e la lettura A di
     K-02 (`bomSenzaFonteConfermataK02`);
   - l'adattatore legacy (`gestiDaConfermaLAlbero`), la struttura del prodotto (`strutturaDaVerificare`,
-    `struttureDellaVerifica`), il perimetro della BOM confermata, `bom.fonte_non_registrata`.
+    `struttureDellaVerifica`), il perimetro della BOM confermata, `bom.fonte_non_registrata`;
+  - da P7e il tipo proposto di un nodo, l'unica interpretazione delle fonti del tipo proposto (D3), condivisa dai nodi
+    e dai previsti della completezza: le righe che propongono davvero (`tipoPropostoDellaRiga`: solo aperte, con un
+    valore dell'enum `tipo_componente`), la mappa `tipi` costruita una volta, la regola (`tipoProposto`).
 - **`conflitti.go`** (B5, fase 1) — responsabilità:
   - `Conflitto`, `TipoConflitto`, `AsseConflitto`, `EvidenzaDecisione`, `EvidenzaProposta`, i motivi;
   - `ConflittiDellaNomenclatura`, i conflitti di gerarchia (quantità e rimozioni), l'ordine canonico; da B6 la
@@ -306,12 +373,17 @@ markmap:
   - gli ingressi astratti `IngressoCompletezza`, `RigaDelPerimetro`, `FabbisognoDellaRiga`, `DisegnoDellaVoce`,
     `NodoDaPrevedere`, `RegolaFabbisogno`, `FabbisognoRisolto`;
   - le regole `FabbisogniDelTipo`, `FabbisogniDelComponente` (con la lettura A di K-01 in `rigaNonBloccanteDel2DK01`),
-    `VoceDelDisegno`, `EsitoDallaVista`, `ChiusuraDelPerimetro`, `StatoDellaCompletezza`, `Completezza`.
+    `VoceDelDisegno`, `EsitoDallaVista`, `ChiusuraDelPerimetro`, `StatoDellaCompletezza`, `Completezza`;
+  - da P7e `documentoDellaVoceDel2D` (EB7-4 A con D2): il documento del passo di `VoceDelDisegno` che ha deciso la
+    voce, letto dall'esito e dal motivo; `VoceDelDisegno` non cambia.
 - **`completezza_thread.go`** (B5, fase 3) — responsabilità:
   - l'adattatore: per ogni target le righe certe del perimetro con i fabbisogni della vista o delle regole effettive
     (con l'esito calcolato come la vista senza righe), la voce del 2D, le righe con una rimozione aperta, i nodi da
-    prevedere con il tipo proposto; le sezioni assenti (T-12); `documenti.deroga_non_sostituisce_2d`;
-    `ComponenteClassificato` e la classificazione dei componenti attivi.
+    prevedere con il tipo proposto (da P7e `bomDelThread.tipoProposto`, la stessa funzione dei nodi; «con figli» qui
+    guarda ancora tutti gli archi: T-P7e-05); le sezioni assenti (T-12); `documenti.deroga_non_sostituisce_2d`;
+    `ComponenteClassificato` e la classificazione dei componenti attivi;
+  - da P7e, dopo la regola, nella voce del 2D il documento che la decide e il suo stato del NAS (`statoNasDel`, dalla
+    fotografia, com'è). Chi chiama `Completezza` da sola non vede questo dato (T-P7e-11).
 - **`codici_diagnostica.go`** — responsabilità:
   - i codici di B1: `ancoraggio.target_non_leggibile`, `target.possibile_rinomina`,
     `fonte_strutturale.riferimento_incoerente`, `fonte_strutturale.radice_non_registrata`; di B5:
@@ -792,6 +864,42 @@ markmap:
     prudente, perché non tace mai; la forma definitiva la decide A2, con l'adattatore del gesto;
   - **la diagnostica della deroga** (`documenti.deroga_non_sostituisce_2d`, T-B5-61, T-B6-31): resta una per prodotto,
     come i conflitti (F0-13), con il percorso della completezza di ognuno; nessuna diagnostica si fonde.
+- **I campi di P7e** (EB7-1 B, EB7-2 A, EB7-4 A; D1–D6 del 10/10; le sigle T-P7e nel resoconto di P7e):
+  - **le strutture candidate**: una per struttura di ancoraggio del prodotto con lo stato `struttura_candidata`, nello
+    stesso ordine (sha256, allegato, radice); i campi della struttura come sono; i nodi come quelli della BOM di lavoro
+    (la radice per prima, poi per Rif; solo quelli raggiunti senza un arco tolto da una persona; uno per Rif), ma la
+    radice non prende il componente del target: il componente di un nodo viene solo dalla sua decisione. Una struttura
+    `bom_di_lavoro_proposta` non è mai una candidata. Nessuna promozione;
+  - **i confermati senza STEP**: il perimetro confermato (`bomDelThread.perimetro`, lo stesso dell'impronta e di
+    `AncheIn`) meno i componenti rappresentati dai nodi di `PV.Nodi`; senza BOM di lavoro tutti, il componente del target
+    compreso; il componente del target per primo, poi per `ComponenteID`. Il nodo è senza file (`AllegatoID` nullo,
+    `EntitaID` vuoto, `SenzaFile`, la catena del codice vuota); `Decisione` è il componente come lo costruisce il
+    contesto di ancoraggio (`componenteDeciso`), nil per un componente che il contesto non ha (con `Calcola` non
+    capita: gli archiviati non sono target e non entrano nelle relazioni attive). `Parentela`: le relazioni confermate del
+    perimetro verso il componente, con la quantità confermata e `Decisa` vera; `Padre` è il Rif del primo nodo di
+    `PV.Nodi` che rappresenta il padre, altrimenti `componente:<uuid>`; in ordine di `Padre` (T-P7e-02). `ConfermatiSenzaSTEP`
+    non vuol dire «creato a mano» (D5): la provenienza non si inventa;
+  - **il tipo del nodo**: per il nodo con un componente il tipo del componente, `confermato` (per la radice della BOM di
+    lavoro senza una decisione propria il componente del target); un componente senza tipo, o che la fotografia non ha,
+    non dà un tipo (`""` e `""`, senza ricadere sulla proposta: T-P7e-06). Per il nodo senza componente il tipo proposto
+    della sua riga aperta con un valore dell'enum (`proposto_dalla_riga`), altrimenti la regola: `sottoassieme` con dei
+    figli negli archi non tolti della sua struttura, altrimenti `sciolto` (`proposto_dalla_regola`; mai `finito` dalla
+    regola: T-B5-58). `tipo` e `origine_tipo` stanno sempre nel JSON, anche vuoti (T-P7e-01). Il tipo non cambia la
+    classificazione: un commerciale resta un pezzo con il suo 2D;
+  - **la voce del 2D**: `DocumentoID` e `StatoNas` solo dal passo di `VoceDelDisegno` che decide la voce (il primo 2D
+    corrente e confermato valido per la voce presente, da verificare per la voce da verificare per il contenuto, in un
+    formato non configurato per la voce che manca per il formato); vuoti per la voce decisa dall'associazione non
+    confermata (la decide `FileCandidato`), dalla deroga (`DerogaID`: una deroga non conferma un documento) o senza
+    documento (D2, T-P7e-10). Quindi **`DocumentoID` vuoto non vuol dire «nessun 2D confermato»**: il componente può
+    avere un 2D confermato e corrente che non decide la voce (un DWG accanto a un «assegna» o a una deroga), e lo si
+    legge in `Disegni`. Lo stato del NAS è `documento.stato_nas` della fotografia com'è (`in_coda`, `scritto`,
+    `errore`; T-P7e-09): una conferma non è una copia completata, lo dice solo `scritto`. **Limite** [L]: la fotografia
+    non ha le anomalie del NAS che `v_fascicolo` aggiunge (`ok_errore_nas`);
+  - **nessun effetto sugli assi**: le due chiamate di EB7-1 stanno dopo l'impronta e lo stato del prodotto; il dato della
+    voce del 2D si aggiunge dopo la regola della completezza; `datiDecisiDelProdotto` non legge né i nodi né le voci.
+    L'unico calcolo condiviso che P7e tocca è il tipo proposto dei previsti (D3): cambia solo l'elenco dei previsti dei
+    nodi con una riga scartata, decisa senza la decisione al nodo o fuori dall'enum; lo stato, il motivo e il perimetro
+    della completezza non dipendono dai previsti (`StatoDellaCompletezza`).
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; gli elenchi della fotografia si
   leggono in un ordine fisso, e la fotografia di chi chiama non cambia. Due esecuzioni sugli stessi ingressi, anche
   permutati, danno gli stessi byte canonici.
@@ -801,6 +909,17 @@ markmap:
   adattatori, l'elenco degli altri 3D del legacy; da B5, fase 2, il selettore del nome del file, i campi del codice e della revisione del cartiglio, la regola della radice che rappresenta il prodotto di
   `ancoraggio`; da B5, fase 3, i tipi di componente, il tipo documentale da_determinare, gli stati del NAS e gli esiti di
   `v_fascicolo`. Se cambiano, lo dicono le prove del pacchetto.
+
+## Versioni dell'esito
+
+- `VersioneValutazione` entra in `Esito`, quindi nella sua impronta: cambia con un commit che lo dichiara, e la prova
+  che la fissa (`TestLeVersioniFissate`) si riscrive con lui.
+  - **`valutazione-1`**: da B6 (P7c) fino a B6b e B6c (`1cc6409`, `b6a2f3b` nel ramo delle prove);
+  - **`valutazione-2`**: da P7e (EB7-1 B, EB7-2 A, EB7-4 A, ratificati l'08/10; con D2 e D3 del 10/10). I campi nuovi
+    cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no.
+- **`VersioneImprontaProdotto` resta 1**: i campi di P7e non entrano nei dati decisi (R90).
+- Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
+  del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.
 
 ## Dipendenze
 
@@ -964,6 +1083,22 @@ markmap:
   `FonteProdotto.Candidati` e `StrutturaProdotto.Fonti` (T-B2-02), con la sola eccezione dichiarata (R-83).
 - **`prodotti_db_test.go`** (B6, V3) — L4 (`-tags integrazione`, il database di prova) — PO-01, PO-02 con e senza la
   bom_versione congelata, PO-19 e PO-31 in L4 sintetica; `Calcola` non parla con il database, e la lettura non lo cambia.
+- **`emendamenti_test.go`** (P7e) — L1 — EB7-1 B (la candidata con i nodi e la radice senza il componente del target,
+  due STEP candidati, dopo «Conferma l'albero», i confermati senza STEP, il componente accanto alla BOM, la decisione
+  del contesto), EB7-2 A (il tipo del nodo, il commerciale), EB7-4 A con D2 (lo stato del NAS, il documento che non
+  decide la voce, la regola su gruppi sintetici); gli assi di ogni scena contro quelli di prima di P7e.
+- **`emendamenti_precisazioni_test.go`** (P7e) — L1 — le precisazioni del 10/10: D1 (la divergenza dichiarata), D3 (la
+  riga scartata, fuori dall'enum, decisa), D4 (il tipo nelle candidate), D5 (la parentela del file); il componente senza
+  tipo, il target senza componente o archiviato, la parentela con due padri, lo stato del NAS di un documento che la
+  fotografia non ha, la forma JSON dei campi nuovi, il determinismo.
+- **`p7e_nonregressione_test.go`** e **`testdata/p7e_prima_acme.json`** (P7e) — L1 — la non regressione: su un catalogo
+  di scene ACME (i costruttori `scena*`, le varianti delle prove di EB7 e dei previsti, le scene di D3, le fotografie
+  con più thread e i messaggi fuori RFQ, con quattro insiemi di regole, con la vista calcolata e senza), l'esito di
+  `Calcola` senza i soli campi di P7e è uguale al «prima» generato sul commit di prima con lo stesso file (il comando è
+  in testa al file); le sole differenze autorizzate sono i previsti delle scene di D3 (una parte a sé del confronto: il
+  resto della completezza, con lo stato e le voci, deve restare uguale anche lì).
+- **`scena_emendamenti_test.go`** (P7e) — gli aiuti: le scene della candidata, della BOM senza STEP, del componente
+  accanto, dei due prodotti; l'impronta degli assi del prodotto (si compila anche con il codice di prima di P7e).
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro (A1a-CAT,
   A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.
