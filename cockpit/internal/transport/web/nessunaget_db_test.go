@@ -170,6 +170,11 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // POST che e' una LETTURA (distinta_albero.go), il riepilogo di una bozza, che l'operatore manda e chi consulta non
 // puo' mandare (403): anche lei non cambia una riga. La prova dedicata, con l'albero e le bozze che non si leggono, e'
 // TestAlberoPropostoNelWebNonScrive (distinta_albero_db_test.go).
+//
+// Giro 5, A1d (A1d-L4-03; contratto A1d §2.1, §5; DB7-6): fra le GET anche quelle della Distinta nuova del motore A, a
+// flag acceso con le regole ACME: la pagina in ogni vista e con un prodotto che non c'e', il frammento, i dati e
+// l'anteprima dello STEP. Sono dell'amministratore: 200 per lui, 403 per gli altri. La prova dedicata, con il testo SQL
+// mandato e la coda dei job, e' TestMotoreAL4LeGetNonScrivono (motore_a_db_test.go).
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
@@ -179,6 +184,9 @@ func TestNessunaGetScrive(t *testing.T) {
 	s.esegui(`UPDATE documento_proposta SET tipo_proposto = 'capitolato', fonte = 'operatore', confidenza = 100 WHERE proposta_id = $1`, capitolato)
 	base := s.base()
 	distinta := "/thread/" + s.thread.String() + "/distinta"
+	// giro 5, A1d: la Distinta nuova, accesa prima dell'elenco e spenta alla fine (maAccendi)
+	motoreA := "/thread/" + s.thread.String() + "/motore-a"
+	maAccendi(t, b, regoleACMEPerLaScena(t, uuidSQL(t, b, `SELECT cliente_id FROM thread_offerta WHERE thread_id = $1`, s.thread), "Acme S.p.A.", 20000))
 	op := operatore(b)
 	co := b.browser("10.0.0.9")
 	co.login("CO", "prova-co")
@@ -244,6 +252,14 @@ func TestNessunaGetScrive(t *testing.T) {
 		// Giro 4, fase 4.4a.1a: l'albero proposto e il riepilogo della bozza vuota
 		{distinta + "/albero", false, true, false},
 		{distinta + "/albero/riepilogo", false, true, false},
+		// Giro 5, A1d: la Distinta nuova del motore A, solo dell'amministratore (A1d-L4-03)
+		{motoreA, false, true, true},
+		{motoreA + "?vista=documenti", false, true, true},
+		{motoreA + "?vista=rfq", false, true, true},
+		{motoreA + "?prodotto=boh", false, true, true},
+		{motoreA, true, true, true},
+		{motoreA + "/dati", false, true, true},
+		{motoreA + "/anteprima/step-strutturale?componente=" + s.pezzo.String(), false, true, true},
 	}
 	prima := fotoDelDatabase(t, b)
 	// il riepilogo c'e' davvero, con i percorsi che la conferma darebbe (e chi consulta lo vede senza il modulo)

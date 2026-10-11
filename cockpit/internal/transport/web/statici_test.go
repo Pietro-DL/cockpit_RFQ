@@ -45,6 +45,11 @@ func TestIFileStaticiHannoIlTipoGiustoELaCacheGiusta(t *testing.T) {
 		// giro 5, A1d: il ponte dei gesti della Distinta nuova (A1d-P2; piano A1d backend §7.2)
 		{"/static/motore_a_gesti.mjs", "text/javascript; charset=utf-8", false},
 		{s.statico("motore_a_gesti.mjs"), "text/javascript; charset=utf-8", true},
+		// giro 5, A1d: il modulo e il foglio di stile della pagina (A1d-P3; piano A1d backend §9.1)
+		{"/static/motore_a.mjs", "text/javascript; charset=utf-8", false},
+		{s.statico("motore_a.mjs"), "text/javascript; charset=utf-8", true},
+		{"/static/motore_a.css", "text/css; charset=utf-8", false},
+		{s.statico("motore_a.css"), "text/css; charset=utf-8", true},
 	}
 	for _, c := range casi {
 		rec := chiedi(c.percorso)

@@ -17,7 +17,9 @@ package web
 // montate come conMotoreA(soloAdmin(…)); il calcolo con il limite e il recover; la versione dell'esito; la pagina
 // composta sulla scena ACME dell'indice (scenaIndiceACME, motore_a_indice_test.go); il JSON di /dati; HEAD senza
 // calcolo; la fase e l'esistenza della RFQ in una transazione READ ONLY con un iniziatore finto; nessuna scrittura e
-// nessuna tabella dell'agente nei sorgenti motore_a*.go.
+// nessuna tabella dell'agente nei sorgenti motore_a*.go. A1d-Q3 (piano A1d backend §9.1): l'importmap del ponte nel
+// contenuto (P-10, RAC-17, RAC-18), la pagina e il frammento di rendiMotoreA e i rami di motoreAPagina (T-A1d-05,
+// T-A1d-13), la terza GET e la sua riga gemella nelle prove della porta.
 //
 // Sta a L1: nessun database, nessun server (httptest); il Pool è nil e una lettura del database va in panic, che le
 // prove recuperano e dicono. Le prove con le sessioni e le RFQ vere (403 per ruolo, 404 di una RFQ che non c'è, le GET
@@ -33,10 +35,12 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"regexp"
@@ -53,6 +57,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/net/html"
 
 	risorse "promatec/cockpit"
 	"promatec/cockpit/internal/core/confronto"
@@ -728,8 +733,9 @@ func maContaCalcoli(n *int) func(context.Context, uuid.UUID) (fotorfq.Fotografia
 	}
 }
 
-// maRotteMotoreA: le due GET di A1d-P2 sotto /thread/{id} (la pagina arriva in A1d-P3).
-var maRotteMotoreA = []string{"/motore-a/dati", "/motore-a/anteprima/step-strutturale?componente=" + maUUID(10).String()}
+// maRotteMotoreA: le tre GET sotto /thread/{id}: la pagina (A1d-P3) e le due di A1d-P2. Le prove della porta valgono
+// così anche per la pagina (D-A1d-P2I-04).
+var maRotteMotoreA = []string{"/motore-a", "/motore-a/dati", "/motore-a/anteprima/step-strutturale?componente=" + maUUID(10).String()}
 
 // A flag spento ogni rotta di motore-a risponde 404 a tutti, anonimi compresi, PRIMA della sessione (R36): con il cookie
 // di una sessione e Pool nil, una porta che leggesse la sessione andrebbe in panic. Con e senza HX-Request, GET e HEAD,
@@ -839,8 +845,8 @@ func TestMotoreAAccesoGliAltriMetodiSono405(t *testing.T) {
 }
 
 // Il ruolo: dietro la porta accesa passa solo l'admin, gli altri ruoli hanno il 403 di nega (con htmx il frammento
-// «vietato», che non legge il DB) e nessun calcolo; l'admin arriva al gestore (HEAD di /dati: 200 senza calcolo;
-// l'anteprima con un componente non valido: 200 JSON senza DB). La catena è quella di registraMotoreA meno
+// «vietato», che non legge il DB) e nessun calcolo; l'admin arriva al gestore (HEAD della pagina e di /dati: 200 senza
+// calcolo; l'anteprima con un componente non valido: 200 JSON senza DB). La catena è quella di registraMotoreA meno
 // autenticato, che legge la sessione dal DB (soloAdmin = autenticato + soloRuolo admin, ruoli.go): che le rotte siano
 // montate proprio con conMotoreA(soloAdmin(…)) lo controlla TestMotoreALeRotteSiMontano; la catena intera con le
 // sessioni vere è A1d-L4-01/-02 (NON ESEGUIBILE QUI).
@@ -853,6 +859,7 @@ func TestMotoreASoloLAdmin(t *testing.T) {
 		h                      http.HandlerFunc
 		tipo                   string
 	}{
+		{"pagina", http.MethodHead, "/thread/" + id + "/motore-a", s.motoreAPagina, "text/html; charset=utf-8"},
 		{"dati", http.MethodHead, "/thread/" + id + "/motore-a/dati", s.motoreADati, "application/json; charset=utf-8"},
 		{"anteprima", http.MethodGet, "/thread/" + id + "/motore-a/anteprima/step-strutturale?componente=xyz", s.motoreAAnteprimaStep,
 			"application/json; charset=utf-8"},
@@ -884,8 +891,8 @@ func TestMotoreASoloLAdmin(t *testing.T) {
 	}
 }
 
-// Registra intero non va in panic (nessun pattern in conflitto) e le due GET di P2 arrivano ai loro pattern, anche con
-// HEAD; gli altri metodi arrivano alla riga gemella senza metodo (S-01). Nel sorgente ogni GET di registraMotoreA è
+// Registra intero non va in panic (nessun pattern in conflitto) e le tre GET (la pagina di P3, dati e anteprima di P2)
+// arrivano ai loro pattern, anche con HEAD; gli altri metodi arrivano alla riga gemella senza metodo (S-01). Nel sorgente ogni GET di registraMotoreA è
 // montata come conMotoreA(soloAdmin(gestore)): prima il flag, poi la sessione e il ruolo (piano §5.1.3, M-A1d-03); ogni
 // riga gemella come conMotoreA(metodoNonAmmessoMotoreA), una per ogni GET e con lo stesso indirizzo.
 func TestMotoreALeRotteSiMontano(t *testing.T) {
@@ -901,6 +908,8 @@ func TestMotoreALeRotteSiMontano(t *testing.T) {
 	}()
 	id := maUUID(1).String()
 	for _, c := range []struct{ percorso, pattern string }{
+		{"/thread/" + id + "/motore-a", "GET /thread/{id}/motore-a"},
+		{"/thread/" + id + "/motore-a?vista=documenti", "GET /thread/{id}/motore-a"},
 		{"/thread/" + id + "/motore-a/dati", "GET /thread/{id}/motore-a/dati"},
 		{"/thread/" + id + "/motore-a/anteprima/step-strutturale?componente=" + maUUID(10).String(), "GET /thread/{id}/motore-a/anteprima/step-strutturale"},
 	} {
@@ -961,9 +970,9 @@ func TestMotoreALeRotteSiMontano(t *testing.T) {
 			return true
 		})
 	}
-	if montate != 4 || len(get) != 2 {
-		t.Errorf("registraMotoreA monta %d schemi (%d GET), attesi 4 in A1d-P2: dati e anteprima dello STEP, con le loro "+
-			"righe gemelle", montate, len(get))
+	if montate != 6 || len(get) != 3 {
+		t.Errorf("registraMotoreA monta %d schemi (%d GET), attesi 6 dopo A1d-P3: la pagina, dati e anteprima dello STEP, "+
+			"con le loro righe gemelle", montate, len(get))
 	}
 	sort.Strings(get)
 	sort.Strings(gemelle)
@@ -1747,6 +1756,198 @@ func TestMotoreANessunaTabellaDellAgente(t *testing.T) {
 			if strings.HasPrefix(p, "promatec/cockpit/internal/ai/") || strings.HasPrefix(p, "promatec/cockpit/internal/app/") {
 				t.Errorf("%s importa %s", nome, p)
 			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------- la pagina (A1d-P3; piano A1d backend §8, §9.1)
+
+// L'importmap del ponte (P-10, RAC-17, RAC-18; piano A1d backend §5.7.4): nel define «contenuto», reso con Init vero, c'è
+// un solo <script type="importmap">, prima del modulo motore_a.mjs; la mappa è JSON e porta /static/motore_a_gesti.mjs
+// all'indirizzo con l'impronta (s.statico, con ?v=); nessun <script> carica il ponte; l'import di motore_a.mjs
+// («./motore_a_gesti.mjs», risolto dall'indirizzo del modulo) è proprio la chiave della mappa. Anche nella pagina intera
+// (layout) la mappa è l'unica e viene prima di ogni modulo. Il foglio di stile passa da {{statico}}.
+func TestMotoreAIlContenutoHaLImportmap(t *testing.T) {
+	s := maRServer(t)
+	r := maRCaso(t, s, "e3_bom_di_lavoro", vistaDistinta, "", true)
+	for nome, b := range map[string][]byte{"contenuto": r.Contenuto, "pagina": r.Pagina.Body.Bytes()} {
+		doc := maRDoc(t, b)
+		mappe := maRTutti(doc, func(n *html.Node) bool { return n.Data == "script" && maRA(n, "type") == "importmap" })
+		moduli := maRTutti(doc, func(n *html.Node) bool { return n.Data == "script" && maRA(n, "type") == "module" })
+		if len(mappe) != 1 || len(moduli) != 1 {
+			t.Fatalf("%s: %d importmap e %d moduli, attesi uno e uno", nome, len(mappe), len(moduli))
+		}
+		ordine := maRTutti(doc, func(n *html.Node) bool { return n.Data == "script" && (n == mappe[0] || n == moduli[0]) })
+		if ordine[0] != mappe[0] {
+			t.Errorf("%s: la mappa viene dopo il modulo: il browser la ignorerebbe", nome)
+		}
+		if g := maRA(moduli[0], "src"); g != s.statico("motore_a.mjs") || !strings.Contains(g, "?v=") {
+			t.Errorf("%s: il modulo è %q, atteso %q con l'impronta", nome, g, s.statico("motore_a.mjs"))
+		}
+		var m struct {
+			Imports map[string]string `json:"imports"`
+		}
+		if err := json.Unmarshal([]byte(maRTesto(mappe[0])), &m); err != nil {
+			t.Fatalf("%s: la mappa non è JSON: %v (%q)", nome, err, maRTesto(mappe[0]))
+		}
+		atteso := s.statico("motore_a_gesti.mjs")
+		if len(m.Imports) != 1 || m.Imports["/static/motore_a_gesti.mjs"] != atteso || !strings.Contains(atteso, "?v=") {
+			t.Errorf("%s: la mappa %v, attesa {/static/motore_a_gesti.mjs: %s}", nome, m.Imports, atteso)
+		}
+		for _, sc := range maRTutti(doc, maRCon("script", "src")) {
+			if strings.Contains(maRA(sc, "src"), "motore_a_gesti") {
+				t.Errorf("%s: un <script> carica il ponte (%q): due copie farebbero partire ogni gesto due volte", nome, maRA(sc, "src"))
+			}
+		}
+		fogli := maRTutti(doc, func(n *html.Node) bool { return n.Data == "link" && strings.Contains(maRA(n, "href"), "motore_a.css") })
+		if len(fogli) != 1 || maRA(fogli[0], "href") != s.statico("motore_a.css") {
+			t.Errorf("%s: il foglio di stile della pagina non passa da {{statico}}", nome)
+		}
+	}
+	// l'import del modulo si risolve proprio nella chiave della mappa
+	js, err := fs.ReadFile(risorse.FS, "web/static/motore_a.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), `import * as Gesti from "./motore_a_gesti.mjs";`) {
+		t.Fatal("motore_a.mjs non importa il ponte con «./motore_a_gesti.mjs»")
+	}
+	base, _ := url.Parse(s.statico("motore_a.mjs"))
+	if g := base.ResolveReference(&url.URL{Path: "./motore_a_gesti.mjs"}).String(); g != "/static/motore_a_gesti.mjs" {
+		t.Errorf("l'import del modulo si risolve in %q, non nella chiave della mappa", g)
+	}
+}
+
+// rendiMotoreA e motoreAPagina (T-A1d-05, T-A1d-13; piano A1d backend §8 n.3; contratto §2.1, §3.3), con la pagina del
+// caso e3 (leggiCasoMotoreA, RAC-20): senza HX-Request la pagina intera (layout, #ma-avviso, #ma); con HX-Request solo
+// motore_a_corpo (niente <html, niente #ma-avviso); con HX-History-Restore-Request la pagina; sempre no-store e
+// text/html. Un template che fallisce a metà è un 500 testuale senza un pezzo di pagina (il buffer, M-A1d-31); senza il
+// template «pagina non disponibile». Il gestore: id non valido 400, HEAD 200 senza corpo né calcolo, la RFQ che non c'è
+// 404 «RFQ non trovata», il calcolo riuscito la pagina con l'esito, l'errore la pagina con il testo così com'è (RAC-05);
+// mai una lettura del database (Pool nil, nessun utente nel contesto).
+func TestMotoreAPaginaEFrammento(t *testing.T) {
+	s := maRServer(t)
+	c := leggiCasoMotoreA(t, "e3")
+	p := maRPagina(c, vistaDistinta, "", true)
+	indirizzo := "/thread/" + p.ThreadID.String() + "/motore-a"
+	for _, x := range []struct {
+		nome         string
+		intestazioni map[string]string
+		pagina       bool
+	}{
+		{"senza htmx", nil, true},
+		{"htmx", map[string]string{"HX-Request": "true"}, false},
+		{"htmx, ritorno nella storia", map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true"}, true},
+	} {
+		req := httptest.NewRequest(http.MethodGet, indirizzo, nil)
+		for k, v := range x.intestazioni {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		s.rendiMotoreA(rec, req, p)
+		corpo := rec.Body.String()
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/html; charset=utf-8" || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: %d %q %q", x.nome, rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Cache-Control"))
+		}
+		intera := strings.Contains(strings.ToLower(corpo), "<html") && strings.Contains(corpo, `id="ma-avviso"`) && strings.Contains(corpo, `id="ma"`) &&
+			strings.Contains(corpo, "<title>Distinta · Cockpit RFQ</title>")
+		frammento := strings.HasPrefix(strings.TrimSpace(corpo), `<div class="ma" data-ma-thread="`+p.ThreadID.String()+`"`) &&
+			!strings.Contains(corpo, "<html") && !strings.Contains(corpo, `id="ma-avviso"`)
+		if x.pagina != intera || x.pagina == frammento {
+			t.Errorf("%s: pagina intera %v, frammento %v; attesa la pagina: %v", x.nome, intera, frammento, x.pagina)
+		}
+	}
+
+	// un template che si rompe a metà: 500 testuale, nessun pezzo di pagina (le intestazioni dopo l'esecuzione)
+	var registro strings.Builder
+	rotto := &Server{Log: slog.New(slog.NewTextHandler(&registro, nil)), pagine: map[string]*template.Template{
+		"motore_a.html": template.Must(template.New("layout").Parse(
+			`{{define "layout"}}inizio della pagina ACME {{.Dati.NonCe}}{{end}}{{define "motore_a_corpo"}}inizio del frammento ACME {{.Dati.NonCe}}{{end}}`)),
+	}}
+	for _, hx := range []bool{false, true} {
+		req := httptest.NewRequest(http.MethodGet, indirizzo, nil)
+		if hx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		rotto.rendiMotoreA(rec, req, p)
+		if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "inizio del") ||
+			!strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+			t.Errorf("template rotto (htmx %v): %d %q %q", hx, rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+		}
+	}
+	if !strings.Contains(registro.String(), "level=ERROR") || !strings.Contains(registro.String(), "motore_a.html") {
+		t.Errorf("il template rotto non va nel log: %q", registro.String())
+	}
+	senza := &Server{Log: slog.New(slog.DiscardHandler), pagine: map[string]*template.Template{}}
+	rec := httptest.NewRecorder()
+	senza.rendiMotoreA(rec, httptest.NewRequest(http.MethodGet, indirizzo, nil), p)
+	if rec.Code != http.StatusInternalServerError || strings.TrimSpace(rec.Body.String()) != "pagina non disponibile" {
+		t.Errorf("senza il template: %d %q", rec.Code, rec.Body.String())
+	}
+
+	// il gestore, con la lettura della fase e il calcolo finti (come TestMotoreAIRamiDellaPagina)
+	fase := &faseRegistrata{Nome: string(db.FaseFATTIBILITA), Etichetta: "Fattibilità ACME di prova", Semaforo: "verde"}
+	calcoli := 0
+	riuscito := func(context.Context, uuid.UUID) (fotorfq.Fotografia, valutazione.Esito, confronto.Esito, error) {
+		calcoli++
+		f, e, c := scenaIndiceACME()
+		return f, e, c, nil
+	}
+	leggi := func(f *faseRegistrata, err error) func(context.Context, uuid.UUID) (*faseRegistrata, error) {
+		return func(context.Context, uuid.UUID) (*faseRegistrata, error) { return f, err }
+	}
+	regole := &motorea.InsiemeRegole{}
+	for _, x := range []struct {
+		nome, metodo, id string
+		hx               bool
+		a                AnteprimaMotoreA
+		stato            int
+		contiene         []string
+		calcoli          int
+	}{
+		{"id non valido", http.MethodGet, "xyz", false, AnteprimaMotoreA{Regole: regole, leggiFase: leggi(fase, nil), Calcola: riuscito},
+			http.StatusBadRequest, []string{"id non valido"}, 0},
+		{"HEAD", http.MethodHead, maUUID(1).String(), false, AnteprimaMotoreA{Regole: regole, leggiFase: leggi(fase, nil), Calcola: riuscito},
+			http.StatusOK, nil, 0},
+		{"la RFQ non c'è", http.MethodGet, maUUID(1).String(), false, AnteprimaMotoreA{Regole: regole, leggiFase: leggi(nil, errRFQAssente), Calcola: riuscito},
+			http.StatusNotFound, []string{"RFQ non trovata"}, 0},
+		{"regole non caricate", http.MethodGet, maUUID(1).String(), false, AnteprimaMotoreA{Errore: "Regole ACME non caricate.", leggiFase: leggi(fase, nil), Calcola: riuscito},
+			http.StatusOK, []string{"Regole ACME non caricate.", `id="ma-avviso"`, "Fattibilità ACME di prova"}, 0},
+		{"riuscito, pagina", http.MethodGet, maUUID(1).String(), false, AnteprimaMotoreA{Regole: regole, Limite: 20 * time.Second, leggiFase: leggi(fase, nil), Calcola: riuscito},
+			http.StatusOK, []string{`id="ma-avviso"`, `data-ma-thread="` + maUUID(1).String() + `"`, "ACME-030P7120001"}, 1},
+		{"riuscito, frammento", http.MethodGet, maUUID(1).String(), true, AnteprimaMotoreA{Regole: regole, Limite: 20 * time.Second, leggiFase: leggi(fase, nil), Calcola: riuscito},
+			http.StatusOK, []string{`<div class="ma" data-ma-thread="` + maUUID(1).String() + `"`, "ACME-030P7120001"}, 1},
+	} {
+		x.a.Accesa = true
+		s.MotoreA = x.a
+		calcoli = 0
+		req := httptest.NewRequest(x.metodo, "/thread/"+x.id+"/motore-a", nil)
+		req.SetPathValue("id", x.id)
+		if x.hx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec, panico := maServi(http.HandlerFunc(s.motoreAPagina), req)
+		if panico != nil {
+			t.Errorf("%s: il gestore ha letto il database: %v", x.nome, panico)
+			continue
+		}
+		if rec.Code != x.stato || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Errorf("%s: %d %q, attesi %d e no-store", x.nome, rec.Code, rec.Header().Get("Cache-Control"), x.stato)
+		}
+		if x.metodo == http.MethodHead && (rec.Body.Len() != 0 || rec.Header().Get("Content-Type") != "text/html; charset=utf-8") {
+			t.Errorf("HEAD: corpo %q, Content-Type %q", rec.Body.String(), rec.Header().Get("Content-Type"))
+		}
+		for _, v := range x.contiene {
+			if !strings.Contains(rec.Body.String(), v) {
+				t.Errorf("%s: la risposta non ha %q", x.nome, v)
+			}
+		}
+		if x.hx && strings.Contains(rec.Body.String(), "<html") {
+			t.Errorf("%s: con htmx la pagina intera", x.nome)
+		}
+		if calcoli != x.calcoli {
+			t.Errorf("%s: %d calcoli, attesi %d", x.nome, calcoli, x.calcoli)
 		}
 	}
 }

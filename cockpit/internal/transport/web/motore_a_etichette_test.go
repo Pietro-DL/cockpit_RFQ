@@ -419,3 +419,40 @@ func TestEtichettaTestiPuliti(t *testing.T) {
 		t.Errorf("motivo_conflitto ha %d voci", len(mc))
 	}
 }
+
+// A1d-Q3 (piano A1d backend §9.1; RAC-11): ogni dominio che motore_a.html passa a etichetta, scritto
+// {{etichetta "x" …}} o {{template "ma_st" (arr "x" …)}}, è nella tabella; l'unica etichetta con il dominio in una
+// variabile è quella di ma_st (così nessun dominio sfugge alla lettura qui sotto); Classificazione.Origine passa da
+// origine_categoria (RAC-11: con origine_dato «derivato_dal_tipo» uscirebbe fra quadre).
+func TestEtichettaIDominiDelTemplate(t *testing.T) {
+	b, err := fs.ReadFile(risorse.FS, "web/templates/motore_a.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	usati := map[string]bool{}
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`etichetta "([a-z0-9_]+)"`),
+		regexp.MustCompile(`template "ma_st" \(arr "([a-z0-9_]+)"`),
+	} {
+		for _, m := range re.FindAllStringSubmatch(src, -1) {
+			usati[m[1]] = true
+		}
+	}
+	for d := range usati {
+		if _, ok := etichetteMotoreA[d]; !ok {
+			t.Errorf("motore_a.html usa il dominio %q, che la tabella non ha: ogni suo valore uscirebbe fra quadre", d)
+		}
+	}
+	if n := len(regexp.MustCompile(`[{(]-?\s*etichetta [^"\s]`).FindAllString(src, -1)); n != 1 ||
+		!strings.Contains(src, `{{etichetta $dom $val}}`) {
+		t.Errorf("%d etichette con il dominio non scritto: attesa solo quella di ma_st", n)
+	}
+	if !strings.Contains(src, `{{etichetta "origine_categoria" .}}`) {
+		t.Error("Classificazione.Origine non passa da origine_categoria (RAC-11)")
+	}
+	if len(usati) == 0 {
+		t.Fatal("nessun dominio nel template")
+	}
+	t.Logf("%d domini usati da motore_a.html, %d nella tabella", len(usati), len(etichetteMotoreA))
+}
