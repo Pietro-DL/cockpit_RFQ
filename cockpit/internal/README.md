@@ -181,6 +181,9 @@ markmap:
       copia intatta del dump, le copie usa e getta; mai gli attesi)
   - **`ai/agente`** → `core`, `platform`
   - **`transport/*`** → `core` (compreso `core/inbox/lettura`, usato da `transport/web`), `ai`, `platform`
+    - `transport/web/motore_a` (giro 5, A1d: la Distinta nuova del motore A) è un sottopackage di `transport/web`: lo
+      importano `transport/web` e `app/runtime`; non importa mai `transport/web` né `app/*` (lista chiusa in
+      `core/estrazione/evidenze/dipendenze_test.go`, `pacchettiMotoreA`)
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
   - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,

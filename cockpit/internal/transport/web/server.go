@@ -38,6 +38,7 @@ import (
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
 	"promatec/cockpit/internal/platform/storage/nas"
+	motorea_web "promatec/cockpit/internal/transport/web/motore_a"
 )
 
 type Server struct {
@@ -111,6 +112,9 @@ type Server struct {
 	// stesse del workerapi. Servono alla rianalisi degli STEP di una RFQ (B8.5): si rileggono quelli
 	// che hanno i fatti con questa chiave, si accodano gli altri. Versione 0 = nessuna rianalisi.
 	Analizzatore coda.Analizzatore
+	// MotoreA: le regole della Distinta nuova del motore A (giro 5, A1d), preparate una volta all'avvio da app/runtime.
+	// Il valore zero è la Distinta spenta: le sue rotte (A1d-P2) rispondono 404 a tutti prima della sessione.
+	MotoreA motorea_web.Regole
 }
 
 type chiaveCtx int
