@@ -525,9 +525,13 @@ markmap:
   `core/estrazione/evidenze`, `core/estrazione` (da A1b.11, solo `DaTesto`: F19, R52 A), `platform/jsoncanonico`,
   `github.com/google/uuid`, `gopkg.in/yaml.v3` (unico importatore), la libreria standard. Da A1c anche
   `core/fotorfq`, `core/fotorfq/caricatore`, `platform/migrazioni`, `core/valutazione`, `core/confronto`.
-- **Non importa:** `app/runtime`, `transport/*`, `ai/*`, `platform/config`, `platform/db`, `core/ancoraggio`, pgx per
-  nome, la radice del modulo (le migrazioni incorporate le dà `cmd/bancoa`).
-- **Solo nelle prove:** `core/ancoraggio` (la prova di parità dei valori del motore, T-B6-50).
+- **Non importa** (nel codice di prodotto): `app/runtime`, `transport/*`, `ai/*`, `platform/config`, `platform/db`,
+  `core/ancoraggio`, pgx per nome, la radice del modulo (le migrazioni incorporate le dà `cmd/bancoa`).
+- **Solo nelle prove:** `core/ancoraggio` (la prova di parità dei valori del motore, T-B6-50); `platform/testutil` e
+  la radice del modulo (le L4 sul database di prova); da A1d-Q2 `transport/web/motore_a` (la L4 di equivalenza fra la
+  Distinta nuova del motore A e il percorso del banco, `motore_a_equivalenza_db_test.go`, che usa le funzioni non
+  esportate del banco; con lei, per transitività, il Fascicolo, la fotografia e pgx). Le stesse prove leggono le regole
+  ACME da `app/runtime/testdata/motore_a`.
 - **È importato da:** `cmd/bancoa`.
 
 ## Test
@@ -589,7 +593,14 @@ markmap:
     fotografia (`TestB6cLaSiglaDellaSezioneC5`). Il titolo della misura (D-R114 B) è in `sezioni_rapporto_test.go`, la
     tabella delle classi in `risposte_test.go`;
   - **`banco_db_test.go`** (tag `integrazione`, L4) — la sequenza `-dsn` sul DB di prova, fermata dal ruolo che
-    scrive, con le tabelle escluse «non controllate».
+    scrive, con le tabelle escluse «non controllate»;
+  - **`motore_a_equivalenza_db_test.go`** (tag `integrazione`, L4, A1d-Q2) — l'equivalenza fra la Distinta nuova del
+    motore A (`transport/web/motore_a`, `Servizio.Calcola`) e il percorso del banco: le funzioni del banco con la
+    Richiesta di `fotografiaDSN` e la sequenza di `valuta` ricopiate, il pool di `migrazioni.ApriInLettura`; con
+    `-thread` e con `-tutti` (un secondo thread dello stesso cliente con lo stesso STEP) l'`EsitoThread` canonico e
+    l'impronta del confronto sono uguali, con un caso di scenario diversi solo per gli ingressi;
+  - **`motore_a_equivalenza_test.go`** (L1, A1d-Q2) — la guardia di deriva della prova qui sopra: legge `banco.go` e la
+    prova e confronta la Richiesta di `fotografiaDSN` e la sequenza di `valuta` (senza `-attesi` l'atteso è nil).
 - `cmd/bancoa/main_test.go` prova flag e codici d'uscita del comando (0, 1, 2, 3); da A1c anche A1c-L1-27 (i flag
   dei modi nuovi, il DSN senza password, l'aiuto con i soli segnaposti).
 - Le corse sul dump e sulla copia `_run` (A1c-L4D, A1c-L4T) sono di Q10.

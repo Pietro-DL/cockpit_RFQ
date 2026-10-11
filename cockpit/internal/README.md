@@ -183,7 +183,9 @@ markmap:
   - **`transport/*`** → `core` (compreso `core/inbox/lettura`, usato da `transport/web`), `ai`, `platform`
     - `transport/web/motore_a` (giro 5, A1d: la Distinta nuova del motore A) è un sottopackage di `transport/web`: lo
       importano `transport/web` e `app/runtime`; non importa mai `transport/web` né `app/*` (lista chiusa in
-      `core/estrazione/evidenze/dipendenze_test.go`, `pacchettiMotoreA`)
+      `core/estrazione/evidenze/dipendenze_test.go`, `pacchettiMotoreA`). Da A1d-P2 importa il caricatore,
+      `core/valutazione`, `core/confronto`, `core/fotorfq`, `core/ancoraggio`, `core/rfq/fascicolo` (l'anteprima dello
+      STEP e le dichiarazioni, riusate), `platform/db` e pgx
   - **`app/runtime`** → `core`, `ai`, `platform`, `transport`
     - è l'unica area che le può conoscere tutte insieme, perché è quella che monta il processo
   - **`app/bancoa`** → `core/inbox/classificazione/motorea`, `core/registro/regole/grammatica`,
@@ -216,6 +218,17 @@ markmap:
     -09 sul database di prova: il percorso del banco e dell'anteprima, dalla fotografia al confronto)
   - e `app/bancoa` → `core/ancoraggio` (la parità dei valori del motore che `confronto` ricopia come stringhe,
     T-B6-50), `platform/testutil` e il package radice (la L4 della sequenza `-dsn` sul database di prova)
+  - e `app/bancoa` → `transport/web/motore_a` (giro 5, A1d-Q2: la L4 dell'equivalenza fra la Distinta nuova e il
+    percorso del banco, `motore_a_equivalenza_db_test.go`, che usa le funzioni non esportate del banco; nel codice di
+    prodotto il banco non importa mai `transport`)
+- Dipendenze delle prove dal file system (giro 5, A1d-Q2; S-06 della revisione di A1d-P2): le L4 di `transport/web`
+  (`motore_a_db_test.go`, `nessunaget_db_test.go`), di `transport/web/motore_a` (`servizio_db_test.go`) e di
+  `app/bancoa` (`motore_a_equivalenza_db_test.go`) leggono le regole ACME da `app/runtime/testdata/motore_a` (le
+  testdata della PR #18) per percorso relativo, e le riscrivono per il cliente della loro scena. Chi cambia quelle
+  testdata o le sposta cambia anche l'esito di quelle prove. Un aiuto unico (in `platform/testutil`) è rinviato:
+  `platform/*` non si tocca in A1d-P2.
+- Le prove L1 che leggono sorgenti di un altro package dal disco: `transport/web/motore_a/passaggio_test.go` legge
+  `app/bancoa` (la copia di passaggio); `app/bancoa/motore_a_equivalenza_test.go` legge la propria L4.
 - A runtime `transport/web` riceve la pipeline dei worker come interfaccia, collegata da `app/runtime`.
 
 ## Eccezioni dichiarate

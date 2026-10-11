@@ -304,7 +304,9 @@ markmap:
     `confronto`)
   - `platform` (`dataset`, `jsoncanonico`; da A1c `migrazioni`)
   - la libreria YAML, di cui è l'unico importatore (G3)
-  - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`, `core/ancoraggio`.
+  - mai `runtime`, `transport`, `ai`, `platform/config`, `platform/db`, `core/ancoraggio` nel codice di prodotto;
+    nelle sole prove anche `core/ancoraggio`, `platform/testutil`, la radice del modulo e, da A1d-Q2,
+    `transport/web/motore_a` (la L4 di equivalenza con la Distinta nuova: `bancoa/README.md`).
 - Lo importa solo `cmd/bancoa`.
 
 ## Test

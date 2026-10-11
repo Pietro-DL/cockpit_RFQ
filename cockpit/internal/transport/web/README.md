@@ -25,6 +25,11 @@ markmap:
   - `GET /thread/{id}/distinta/dati` (i PDF, le note e la completezza della Distinta) e `GET /thread/{id}/distinta/tipo`
     (l'anteprima di un cambio di tipo, con la firma): JSON con `Cache-Control: no-store` (`distinta.go`), chiesti da
     `distinta.mjs` con `fetch`;
+  - `GET /thread/{id}/motore-a/dati` e `GET /thread/{id}/motore-a/anteprima/step-strutturale` (la Distinta nuova del
+    motore A, da A1d-P2): JSON con `Cache-Control: no-store` e `nosniff` in ogni risposta dei gestori di `motore_a.go`,
+    2xx e 4xx/5xx; solo per l'admin e solo a `[motore_a].anteprima` accesa; si chiedono con `fetch`, mai con htmx. Non
+    sono JSON le risposte della catena che non arrivano al gestore: il 404 a flag spento (quello del router), il
+    302/401 di `aLogin` e il 403 di `nega` (HTML legacy), il 405 (testo, con `Allow`). Vedi «Il client» nel modulo;
   - `GET /allegato/{id}/anteprima`: i byte del PDF (`anteprima.go:anteprima`), che si aprono solo come documento (iframe,
     pdf.js, scheda nuova);
   - `POST /admin/postazioni/{host}/pacchetto`: lo zip del pacchetto, in download (`postazioni_admin.go:pacchettoWorker`);
@@ -137,10 +142,176 @@ markmap:
   - Schermata: download, conferma, PDF, caricamento interno
 - **Distinta nuova del motore A (giro 5, A1d)**
   - Sottopackage: `motore_a/` (modelli, calcolo in sola lettura, indice, etichette, anteprima dello STEP; non importa
-    questo package né `app/*`); adattatore: `motore_a.go` (da A1d-P2).
-  - In A1d-P1 c'è solo il tipo delle regole caricate all'avvio (`motore_a.Regole`, campo `Server.MotoreA`); le rotte
-    arrivano con A1d-P2, la pagina con A1d-P4.
+    questo package né `app/*`); adattatore: `motore_a.go` (da A1d-P2). Vedi «Modulo Distinta nuova del motore A».
+  - A1d-P1: il tipo delle regole caricate all'avvio (`motore_a.Regole`, campo `Server.MotoreA`). A1d-P2: il servizio
+    e le due rotte JSON. La pagina arriva con A1d-P4, il ramo dei gesti di `threadFrammento` con A1d-P3.
 - Il front-end (template, CSS, `fascicolo.mjs`, pdf.js) è descritto in `web/README.md`.
+
+## Modulo Distinta nuova del motore A (giro 5, A1d)
+
+- Adattatore: `motore_a.go` (l'unico file Go di A1d in questo package, direttiva A1d dell'11/10, §1).
+- Sottopackage: `motore_a/` (package `motore_a`, importato con l'alias `motorea_web` per non confonderlo con
+  `core/inbox/classificazione/motorea`). Derivato dalla PR #18 di Stefano Valo (c543e89, 67dcc02), ristrutturato.
+
+### Chi fa che cosa
+
+| Responsabilità | Dove |
+|---|---|
+| Rotte, porta del flag, `no-store`, `soloAdmin`, codici HTTP, JSON, HEAD | `motore_a.go` |
+| Gli aiuti privati del Fascicolo legacy per l'anteprima (`richiestaAutorizzazione`, `spiegaErrore`, `rifiuto`, `almeno`, `utenteDa`) | restano in questo package, usati da `motore_a.go` |
+| Le regole caricate all'avvio (`Regole`, `Stato`, `Casi`) | `motore_a/regole.go` (le costruisce `app/runtime`) |
+| Il servizio (`Servizio{Regole, Pool, Log}`, immutabile, costruito per richiesta), gli errori distinti, il tetto dei calcoli (`MassimoCalcoli`) e il limite di ripiego (`LimiteDiRipiego`) | `motore_a/servizio.go` |
+| Lo snapshot unico REPEATABLE READ READ ONLY (esistenza, fase, fotografia con un savepoint per il caricatore, dichiarazioni STEP) | `motore_a/snapshot.go` |
+| Il calcolo: `caricatore.Carica` → `valutazione.Calcola` → passaggio → `confronto.Confronta(…, nil)` | `motore_a/calcolo.go` |
+| La pagina e il JSON di `/dati` (contratto §2.2, §2.4) | `motore_a/modelli.go` |
+| La copia di `app/bancoa/passaggio.go` | `motore_a/passaggio.go` |
+| L'indice delle ricerche (contratto §2.3) | `motore_a/indice.go` |
+| Le etichette (`Etichetta`, 67 domini) | `motore_a/etichette.go` |
+| L'anteprima dello STEP (`fascicolo.EffettoAutorizzazione`, DTO proprio) | `motore_a/anteprima.go` |
+
+### Le rotte (A1d-P2)
+
+- **`GET /thread/{id}/motore-a/dati`** (`Adm`, dietro il flag)
+  - 200: il JSON del contratto §2.4 (`motore_a.Pagina`: `thread_id`, `vista`, `prodotto`, `testa`, `esito`,
+    `confronto`, `errore` sempre vuoto, `calcolato`); l'indice non c'è (Q-A1d-11 = A, da confermare).
+  - 400 id non valido; 404 RFQ inesistente; 503 regole non pronte (testo generico di `Regole.Errore()`, delle regole
+    del servizio della richiesta) o troppi calcoli in corso (`ErrOccupato`, testo generico); 504 tempo scaduto
+    (`limiti.anteprima.tempo_massimo_ms` dell'indice); 500 ogni altro errore, testo generico e dettaglio nel log, anche
+    un valore che non si codifica in JSON. Corpo `{"errore": "…"}`.
+  - HEAD: id, regole pronte e `GetThread` in sola lettura, nessun calcolo: 200, 400, 404, 503, 504, come la GET.
+- **`GET /thread/{id}/motore-a/anteprima/step-strutturale?componente={cid}&documento=…|nodo=…&sorgente=…`** (`Adm`,
+  dietro il flag)
+  - 200: `motore_a.AnteprimaSTEP` (`motore`; di che cosa parla: `componente` con `id` e `codice`, `delega`,
+    `titolare`, `allegato`, `sha256`, `nome_file`, `documento_id`, in modo delega il file del padre; poi `spento`,
+    `gia`, `autorizzabile`, `inviabile`, `frasi`, `sorgente`, `figli`, `sorgenti`, `raggruppamenti`, `deleghe` con
+    `spenta` e `revoca`, `guida`, `guida_sotto`, `rimozioni`, `rimozioni_sospese`, `revoche`, `avvisi`, `presa_d_atto`,
+    `bottone`, `firma` solo dal ruolo operatore); un rifiuto della richiesta o del Fascicolo è 200 con `errore`, come il
+    modulo legacy (lì `componente`, `allegato` e `documento_id` sono `null`). Con `sha256` e la `chiave` di un nodo si
+    ricompone il Rif del motore A (`ancoraggio.RifNodo`): la discordanza di Q-A1d-05 si calcola dal JSON.
+  - 400 id, componente o form non validi; 404 RFQ inesistente (diversamente dal legacy); 504 tempo scaduto; 500 errore
+    del database.
+  - HEAD: id e componente validati come la GET (400), poi solo `GetThread`, nessun effetto calcolato (200, 404, 504).
+- Ogni GET ha una riga gemella senza metodo sullo stesso indirizzo: a flag spento 404, a flag acceso 405 con
+  `Allow: GET, HEAD`.
+- La pagina `GET /thread/{id}/motore-a` non è montata: arriva con A1d-P4, insieme a `Init` e alla funzione `etichetta`
+  del template.
+
+### La porta
+
+- Flag spento (`[motore_a].anteprima = false`, il valore zero di `Server.MotoreA`): `http.NotFound` a tutti, con ogni
+  metodo, PRIMA della sessione (nessun `GetSessione` né `ToccaSessione`) e senza intestazioni in più: la rotta non si
+  distingue da un indirizzo che non esiste (R36; Q-A1d-12 = A, da confermare).
+- Flag acceso: `Cache-Control: no-store` su ogni risposta (anche il 302/401 di `aLogin`, il 403 di `nega`, il 405),
+  poi `soloAdmin`. I 403 e i rimandi al login restano quelli HTML legacy.
+
+### Il client (fetch)
+
+- Le due rotte si chiedono con `fetch`. Il client manda **`HX-Request: true`**: così una sessione scaduta risponde
+  401 con `HX-Redirect: /login` invece del 302 verso la pagina di login, che `fetch` seguirebbe dando un 200 HTML.
+- Una risposta con un `Content-Type` diverso da `application/json` (il 403 HTML di `nega`, il 404 a flag spento, il
+  405 di testo) o con `res.redirected` vero non è un errore dei dati: è accesso negato, sessione scaduta o rotta spenta.
+  Solo una risposta JSON ha `{"errore": "…"}`.
+- Nessun cambiamento ad `aLogin` né a `nega` (legacy, HTTP-05 della revisione di A1d-P2): è un obbligo del client, che
+  arriva con A1d-P4.
+
+### Sola lettura e snapshot
+
+- Nessuna scrittura di dominio, nessun job, nessuna cache, nessuno stato del dominio fra le richieste: lo stato è
+  `Server.MotoreA`, preparato una volta all'avvio, più il semaforo dei calcoli (`MassimoCalcoli`, un limite di
+  risorse che non tiene dati). La guardia statica `TestLaDistintaNuovaLeggeSoltanto`
+  (`core/estrazione/evidenze/dipendenze_test.go`) tiene il sottopackage in sola lettura: di `core/rfq/fascicolo` solo
+  le letture riusate, di `*db.Queries` solo `GetThread`, `GetFaseCorrente`, `ListFaseCatalogo`, mai `Exec`, `Commit`,
+  `pgx.ReadWrite` né un testo SQL suo.
+- `/dati` legge tutto in **una** transazione REPEATABLE READ READ ONLY: `GetThread`, la fase (`GetFaseCorrente`,
+  `ListFaseCatalogo`), la fotografia (`caricatore.Carica` con un `Iniziatore` che apre un savepoint della transazione
+  esterna: i due `SHOW` del caricatore leggono «on» e «repeatable read»; il suo ROLLBACK diventa ROLLBACK TO SAVEPOINT)
+  e le dichiarazioni dello STEP (`fascicolo.LeggiDichiarazioni`). Il caricatore non cambia.
+- L'anteprima dello STEP apre una transazione REPEATABLE READ READ ONLY sua: è una seconda lettura, in un istante
+  successivo a quello della pagina.
+- Il ROLLBACK di ogni transazione usa un contesto staccato dalla richiesta, con un limite di 2 s: un limite scaduto o
+  una richiesta chiusa non costano una connessione distrutta.
+
+### I limiti
+
+- **Il tempo**: `/dati` ha il limite dell'indice (`Regole.Limite`); l'anteprima e gli HEAD lo stesso, e con le regole
+  non pronte (indice assente o rifiutato: nessun limite letto) `LimiteDiRipiego` (30 s) [T]: nessuna lettura è senza
+  scadenza. Al limite la risposta è 504, anche per l'anteprima e per HEAD.
+- **I calcoli insieme**: al più `MassimoCalcoli` (2) [T] nel processo, contando i calcoli orfani (oltre il limite ma non
+  ancora finiti, perché `valutazione.Calcola` non guarda il contesto). Oltre, 503 subito, senza leggere. Un calcolo
+  orfano che finisce va nel log: a Info se riuscito, a Error con la pila se in panic o in errore.
+- La composizione della pagina (`ComponiPagina`, `NuovoIndice`) gira dentro il calcolo: un suo panic è un 500 JSON con
+  la pila nel log, non una connessione interrotta.
+
+### Differenze dichiarate
+
+- **Il banco**: la pagina non passa gli ingressi del file dei casi (Q-A1d-10 = B, da confermare). Per un thread senza
+  un caso di scenario l'`EsitoThread` canonico e `confronto.Esito.Impronta` sono quelli del banco; con un caso di
+  scenario possono differire, per scelta. `Esito.Impronta` ed `Esito.ImprontaFotografia` sono sempre diverse: la
+  fotografia della pagina ha il solo thread, nessun messaggio fuori RFQ e il solo cliente del thread.
+- **Il Fascicolo legacy**: l'anteprima dello STEP calcola gli effetti con `fascicolo.EffettoAutorizzazione`, che
+  classifica i nodi con il motore legacy (`MotoreDellaRfq`, `cliente.regole`); la pagina e `/dati` usano il motore A
+  (`valutazione-3`, le grammatiche dell'indice). Codici e tipi possono differire: il campo `motore` dell'anteprima vale
+  `fascicolo_legacy` (Q-A1d-05, da confermare); la resa della discordanza è di A1d-P4.
+- **Il tempo**: `valutazione.Calcola` non riceve un contesto; oltre il limite la risposta è 504 e il calcolo orfano
+  finisce in memoria, senza scritture (con il tetto dei calcoli insieme: «I limiti»).
+- **Le copie di regole del core** (nessuna modifica a `core/` in A1d):
+  - `motore_a/passaggio.go`, copia di `app/bancoa/passaggio.go` e degli aiuti del banco che chiama: la confronta
+    `TestMotoreAPassaggioUgualeAlBanco` (i corpi stampati; gli aiuti si trovano dalle chiamate, non da un elenco);
+  - `Indice.componenteDelNodo` (`motore_a/indice.go`), copia di `componenteDelNodo` di `core/valutazione/nodi.go`
+    (T-B4-38: la radice della BOM di lavoro prende il componente del target, quella di una candidata no): la confronta
+    con l'esito vero la L4 `TestL4MotoreACalcoloVero` (`motore_a/servizio_db_test.go`); chi cambia la regola nel core
+    la trova cadere;
+  - `estensioneDi` (`motore_a/indice.go`), la lettura dell'estensione di un allegato come la fa `valutazione` per la
+    fonte. Il `Disponibile` dell'anteprima di un allegato che non è un 2D dell'esito è sempre falso: la regola di
+    `valutazione` (`anteprimaDisponibile`) non si ricopia.
+- **Le quantità confermate e i padri confermati, per gruppo**: `QuantitaConfermata(prodotto, gruppo, padre, figlio)`
+  legge solo la struttura del gruppo (il contratto §2.3 non aveva il gruppo: da ratificare con la v1.1), e in una
+  candidata il padre confermato che il gruppo non rappresenta è `componente:<uuid>`, mai un Rif della BOM di lavoro.
+
+### Dipendenze
+
+- Il sottopackage `motore_a/` importa `core/inbox/classificazione/motorea`, `core/valutazione`, `core/confronto`,
+  `core/fotorfq`, `core/fotorfq/caricatore`, `core/ancoraggio`, `core/rfq/fascicolo` (solo le letture: vedi «Sola
+  lettura e snapshot»), `platform/db`, `uuid`, `pgx` e `pgconn`; mai `transport/web` né `app/*` (la lista chiusa di
+  `pacchettiMotoreA` in `core/estrazione/evidenze/dipendenze_test.go`).
+- Lo importano `app/runtime` (le regole all'avvio) e questo package (`motore_a.go`); nelle sole prove anche
+  `app/bancoa` (la L4 di equivalenza, `motore_a_equivalenza_db_test.go`), freccia dichiarata in `internal/README.md`.
+- Le L4 di questo package, del sottopackage e di `app/bancoa` leggono le regole ACME da `app/runtime/testdata/motore_a`
+  (le testdata della PR #18): una dipendenza dal file system, dichiarata in `internal/README.md`.
+
+### Test
+
+- **L1 del sottopackage** (`motore_a/`)
+  - `indice_test.go`, `indice_a1d_test.go`: le 29 ricerche sulla scena ACME, il tipo per casella (D-CHIUS-4),
+    `ComponenteDelNodo`, `Figlio.Origine`, `NelFile`, `CandidatiFuori`, la candidata con gli stessi Rif della BOM
+    (quantità confermata e padri confermati per gruppo), `Marcatura`, `StepProdotto`, `Autorizzazioni`.
+  - `etichette_test.go`: ogni costante di ogni dominio ha il suo testo (letta con go/parser), anche i codici delle
+    diagnostiche del confronto e delle regole; il tipo solo nello `switch`.
+  - `passaggio_test.go`: la copia di passaggio uguale a quella del banco (i byte JSON e i corpi delle funzioni).
+  - `calcolo_test.go`, `limiti_test.go`: regole non pronte prima di leggere, nessun ingresso, gli errori distinti, il
+    tempo, la versione, l'esito consegnato a limite scaduto, il tetto dei calcoli, il log dopo il limite, il ROLLBACK
+    staccato, il limite di ripiego, la composizione protetta.
+  - `snapshot_test.go`, `anteprima_test.go`, `modelli_test.go`: la transazione e il savepoint, l'anteprima (le frasi,
+    di che cosa parla, la forma del JSON), i modelli JSON di `/dati`.
+- **L1 di questo package** (`motore_a_test.go`, httptest): la porta, i ruoli, le rotte montate, i codici (anche 504
+  dell'anteprima e di HEAD, 400 di HEAD, 503 del tetto, il JSON che non si codifica), la deriva dell'anteprima contro
+  il modulo legacy.
+- **L1 altrove**: `TestLaDistintaNuovaLeggeSoltanto` (`core/estrazione/evidenze`), la guardia di deriva della prova di
+  equivalenza `TestEquivalenzaMotoreAIlPercorsoDelBancoNonDeriva` (`app/bancoa/motore_a_equivalenza_test.go`).
+- **L4** (tag `integrazione`, `cockpit_test`)
+  - `motore_a/servizio_db_test.go`: il calcolo vero con l'esito pieno e la prova gemella di T-B4-38, lo snapshot dal
+    registro SQL, la sonda 25006, la RFQ inesistente, l'anteprima come il legacy, il tempo scaduto all'apertura e
+    durante la lettura.
+  - `motore_a_db_test.go`: le rotte con le sessioni vere (flag spento, solo l'admin, RFQ inesistente, stessa firma del
+    legacy); le due righe di `TestNessunaGetScrive` (`nessunaget_db_test.go`).
+  - `app/bancoa/motore_a_equivalenza_db_test.go`: l'equivalenza col banco (`-thread`, `-tutti`, con un caso di
+    scenario).
+
+### Non appartiene qui
+
+- Regole di classificazione, di autorizzazione o di BOM: le dicono `core/valutazione` e `core/rfq/fascicolo`.
+- Il template, il CSS, `motore_a.mjs`, il rendering (A1d-P4); il ponte dei gesti e il ramo di `threadFrammento`
+  (A1d-P3).
 
 ## Modulo Server e ruoli
 
