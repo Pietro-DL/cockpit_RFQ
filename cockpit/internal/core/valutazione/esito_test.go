@@ -19,9 +19,10 @@ import (
 )
 
 // TestLeVersioniFissate (IM.2): le costanti di versione dell'esito; se una cambia, la prova si riscrive con il commit che
-// la dichiara, e cambia Esito.Impronta.
+// la dichiara, e cambia Esito.Impronta. valutazione-2 da P7e (gli emendamenti EB7 dell'08/10 aggiungono campi all'esito);
+// la versione dell'impronta del prodotto resta 1, perché i campi nuovi non entrano nei dati decisi (R90).
 func TestLeVersioniFissate(t *testing.T) {
-	if valutazione.VersioneValutazione != "valutazione-1" || valutazione.VersioneImprontaProdotto != 1 {
+	if valutazione.VersioneValutazione != "valutazione-2" || valutazione.VersioneImprontaProdotto != 1 {
 		t.Errorf("versioni %q %d", valutazione.VersioneValutazione, valutazione.VersioneImprontaProdotto)
 	}
 }
@@ -80,6 +81,9 @@ func TestIValoriDellEsito(t *testing.T) {
 		{valutazione.CodiceMessaggioFuoriRFQSenzaCaso, "valutazione.messaggio_fuori_rfq_senza_caso"},
 		// le correzioni dopo le risposte del 07/10 (R106 B, precisata)
 		{valutazione.CodiceContestoDiscorde, "valutazione.contesto_discorde"},
+		// EB7-2 A (P7e; bozza del contratto con il frontendista §1.6): l'origine del tipo del nodo
+		{string(valutazione.OrigineTipoConfermato), "confermato"}, {string(valutazione.OrigineTipoPropostoDallaRiga), "proposto_dalla_riga"},
+		{string(valutazione.OrigineTipoPropostoDallaRegola), "proposto_dalla_regola"},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("%q, atteso %q", c[0], c[1])
@@ -118,9 +122,12 @@ func TestICampiDellEsito(t *testing.T) {
 			"Disponibilita:disponibilita Revisione:revisione Revisioni:revisioni MotivoRevisioni:motivo_revisioni"},
 		{valutazione.CandidatoPiatto{}, "Target:target Livello:livello Base:base Autorita:autorita Radici:radici"},
 		{valutazione.ProdottoConfrontabile{}, "CodiceRichiesto:codice_richiesto Base:base Fase:fase Quantita:quantita QuantitaDaCella:quantita_da_cella"},
+		// EB7-1 B (P7e; bozza §1.2, §1.3): StruttureCandidate e ConfermatiSenzaSTEP dopo Nodi.
 		{valutazione.ProdottoValutato{}, "Rif:rif Autorita:autorita ComponenteID:componente_id CodiceRichiesto:codice_richiesto Base:base Identita:identita " +
-			"Fonte:fonte Struttura:struttura BOM:bom Nodi:nodi Smistamento:smistamento Documenti:documenti Verificato:prodotto_verificato Stato:stato " +
-			"Motivi:motivi Impronta:impronta"},
+			"Fonte:fonte Struttura:struttura BOM:bom Nodi:nodi StruttureCandidate:strutture_candidate ConfermatiSenzaSTEP:confermati_senza_step " +
+			"Smistamento:smistamento Documenti:documenti Verificato:prodotto_verificato Stato:stato Motivi:motivi Impronta:impronta"},
+		{valutazione.StrutturaCandidata{}, "AllegatoID:allegato_id Sha256:sha256 Radice:radice RadiceDelFile:radice_del_file Compatibilita:compatibilita " +
+			"GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo Nodi:nodi"},
 		{valutazione.VerificaSmistamento{}, "Stato:stato FileNonTerminali:file_non_terminali Motivi:motivi Conflitti:conflitti Calcolata:calcolata Percorsi:percorsi"},
 		{valutazione.AssociazioneFile{}, "AllegatoID:allegato_id Associazione:associazione Collocazione:collocazione Proposta:proposta DestinazioneF8:destinazione_f8 " +
 			"Manuale:manuale Confermata:confermata DocumentoID:documento_id Origine:origine DestinazioneCoincide:destinazione_coincide Conflitto:conflitto " +
@@ -128,8 +135,9 @@ func TestICampiDellEsito(t *testing.T) {
 		// R106 B e R107, precisate il 07/10: il contesto del messaggio con la provenienza.
 		{valutazione.ContestoMessaggio{}, "MessaggioID:messaggio_id Letture:letture Prodotti:prodotti"},
 		{valutazione.FileDaSmistare{}, "AllegatoID:allegato_id NomeFile:nome_file Motivo:motivo Prodotti:prodotti Proposta:proposta Orfano:orfano ProdottiContesto:prodotti_contesto"},
+		// EB7-2 A (P7e; bozza §1.6): Tipo e OrigineTipo in fondo.
 		{valutazione.NodoBOM{}, "Nodo:nodo Descrizione:descrizione Parentela:parentela Disegni:disegni Associazione:associazione Motivi:motivi " +
-			"Classificazione:classificazione AncheIn:anche_in"},
+			"Classificazione:classificazione AncheIn:anche_in Tipo:tipo OrigineTipo:origine_tipo"},
 		{valutazione.Parentela{}, "Padre:padre Quantita:quantita Decisa:decisa"},
 		{valutazione.StatoFascicolo{}, "NumeroTarget:numero_target NumeroVerificati:numero_verificati Pronti:pronti Bloccati:bloccati Congelabile:congelabile " +
 			"MotivoNonCongelabile:motivo_non_congelabile Congelato:congelato CongelatoDa:congelato_da CongelatoIl:congelato_il Calcolato:calcolato " +

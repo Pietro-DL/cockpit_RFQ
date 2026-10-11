@@ -2,7 +2,8 @@
 // con ingressi sintetici (la composizione dei conflitti dell'esito: T-B6-10, F0-13; R106 B e R108 A, le risposte del
 // 07/10; l'attribuzione dei conflitti identita_documento ai prodotti: T-E1R-08; le diagnostiche degli errori dei file:
 // R-61 della revisione di V1; da V3 la funzione di R111 A, precisata il 07/10, e l'adattatore delle condizioni nuove,
-// T-E1-14; le sezioni dello smistamento per l'invariante degli orfani: R-75 della revisione di V2). Nessun cliente qui.
+// T-E1-14; le sezioni dello smistamento per l'invariante degli orfani: R-75 della revisione di V2; da P7e il documento
+// che decide la voce del 2D e lo stato del NAS di un documento, EB7-4 A con D2). Nessun cliente qui.
 package valutazione
 
 import (
@@ -78,3 +79,13 @@ func MotiviDelNodoPerProva(prodotto string, n ancoraggio.NodoProposto, component
 // SezioniDelloSmistamentoPerProva: le sezioni della fotografia da cui lo smistamento dipende (T-12), per l'invariante
 // degli orfani dell'aiuto calcola (R-75 della revisione di V2).
 var SezioniDelloSmistamentoPerProva = sezioniDelloSmistamento
+
+// DocumentoDellaVoceDel2DPerProva: documentoDellaVoceDel2D, il documento che decide la voce del 2D (EB7-4 A con D2, P7e),
+// per la prova della regola su gruppi sintetici.
+var DocumentoDellaVoceDel2DPerProva = documentoDellaVoceDel2D
+
+// StatoNasDelPerProva: statoNasDel sui documenti confermati di un thread (EB7-4 A, P7e; T-P7e-09): lo stato com'è, ""
+// per un documento che la fotografia non ha (con Calcola non capita: il gruppo dei 2D viene dalla stessa fotografia).
+func StatoNasDelPerProva(t fotorfq.Thread, id uuid.UUID) string {
+	return (&completezzaThread{t: t}).statoNasDel(id)
+}
