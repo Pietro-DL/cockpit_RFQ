@@ -152,11 +152,14 @@ func scenaDueTarget(t *testing.T) fotorfq.Thread {
 	return th
 }
 
-// TestDP7e1PiuTarget (d): nella RFQ con due target nessuna unicità nuova. La riga «finito» di #3, la radice scelta della
-// BOM di lavoro del secondo target, vale anche dove #3 è un nodo senza decisione della BOM di lavoro del primo
-// (finito/proposto_dalla_riga): #3 è identificato come un target dalle decisioni pertinenti, anche se ha un padre; nella
-// BOM di lavoro del secondo target #3 ha il suo componente, finito e confermato. La riga «finito» di #4, che non è la
-// radice di nessuna struttura di un target, non vale né nell'una né nell'altra BOM di lavoro: la diagnostica è una per
+// TestDP7e1PiuTarget (d; D-CHIUS-4 = B [U] dell'11/10: «Il tipo finito proposto ha autorità soltanto nella BOM di lavoro
+// del target a cui appartiene. Se la radice del secondo target compare nella BOM del primo, non eredita automaticamente il
+// tipo finito. Conservare le decisioni confermate e la tracciabilità delle proposte»): nella RFQ con due target nessuna
+// unicità nuova. Nella BOM di lavoro del secondo target #3, la sua radice scelta, ha il componente del secondo target,
+// finito e confermato. Nella BOM di lavoro del primo target lo stesso #3 è un nodo senza decisione: la sua riga «finito»
+// non vale lì, e #3 prende la regola (sottoassieme, perché ha il figlio #4), anche nei previsti (i fabbisogni del
+// sottoassieme), con la diagnostica del caso non determinato che porta la riga (la tracciabilità della proposta). La riga
+// «finito» di #4, che non è la radice di nessuna struttura di un target, non vale in nessuna delle due: una diagnostica per
 // prodotto.
 func TestDP7e1PiuTarget(t *testing.T) {
 	th := scenaDueTarget(t)
@@ -167,7 +170,7 @@ func TestDP7e1PiuTarget(t *testing.T) {
 	if len(p2.Nodi) == 0 {
 		t.Fatalf("il secondo target non ha la BOM di lavoro (struttura %s)", p2.Struttura)
 	}
-	if n := nodoBOMDi(t, p1, rifNodo3); tipoDi(n) != "finito/proposto_dalla_riga" || n.Nodo.Decisione != nil {
+	if n := nodoBOMDi(t, p1, rifNodo3); tipoDi(n) != "sottoassieme/proposto_dalla_regola" || n.Nodo.Decisione != nil {
 		t.Errorf("#3 nella BOM di lavoro del primo target: %s", tipoDi(n))
 	}
 	if n := nodoBOMDi(t, p2, rifNodo3); tipoDi(n) != "finito/confermato" {
@@ -178,22 +181,27 @@ func TestDP7e1PiuTarget(t *testing.T) {
 			t.Errorf("%s: #4 non target: %s", p.Rif, tipoDi(n))
 		}
 	}
-	// I previsti del primo target: #3 è un nodo della sua BOM di lavoro con la proposta «finito» che vale, quindi ha i
-	// fabbisogni del finito. Fissa la lettura in vigore (l'autorità in una casella di una BOM di lavoro qualunque), che è
-	// la domanda D-CHIUS-4: se la risposta è l'altra, questa parte cambia con il codice.
-	if got := previstiDelNodo(p1.Documenti, rifNodo3); !reflect.DeepEqual(got, []string{"cad_3d", "disegno_2d"}) {
-		t.Errorf("i previsti di #3 nella BOM di lavoro del primo target: %v", got)
+	if got := previstiDelNodo(p1.Documenti, rifNodo3); !reflect.DeepEqual(got, []string{"disegno_2d"}) {
+		t.Errorf("i previsti di #3 nella BOM di lavoro del primo target: %v (attesi i fabbisogni del sottoassieme)", got)
 	}
-	d := diagnosticheDelFinito(et)
-	var prodotti []string
-	for _, x := range d {
-		if x.Codice != codiceFinitoFuoriTarget || x.Rif[1] != rif4 {
+	var di4 []string
+	var di3 []evidenze.Diagnostica
+	for _, x := range diagnosticheDelFinito(et) {
+		switch {
+		case x.Rif[1] == rif4 && x.Codice == codiceFinitoFuoriTarget:
+			di4 = append(di4, x.Rif[0])
+		case x.Rif[1] == rifNodo3:
+			di3 = append(di3, x)
+		default:
 			t.Errorf("una diagnostica inattesa: %+v", x)
 		}
-		prodotti = append(prodotti, x.Rif[0])
 	}
-	if !reflect.DeepEqual(prodotti, []string{rifProdB, rifSecondoTarget}) && !reflect.DeepEqual(prodotti, []string{rifSecondoTarget, rifProdB}) {
-		t.Errorf("le diagnostiche di #4, una per prodotto: %v", prodotti)
+	if !reflect.DeepEqual(di4, []string{rifProdB, rifSecondoTarget}) && !reflect.DeepEqual(di4, []string{rifSecondoTarget, rifProdB}) {
+		t.Errorf("le diagnostiche di #4, una per prodotto: %v", di4)
+	}
+	if len(di3) != 1 || di3[0].Codice != codiceFinitoTargetNonDeterminato || di3[0].Rif[0] != rifProdB ||
+		!strings.Contains(di3[0].Messaggio, "la BOM di lavoro di un altro target") || len(di3[0].Rif) != 3 {
+		t.Errorf("la diagnostica di #3 nella BOM di lavoro del primo target, con la riga della proposta: %+v", di3)
 	}
 }
 
