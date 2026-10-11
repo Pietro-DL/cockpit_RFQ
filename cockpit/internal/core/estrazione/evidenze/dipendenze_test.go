@@ -143,6 +143,12 @@ var pacchettiMotoreA = []regolePacchetto{
 	// incorporate (cockpit.FS, il controllo dello schema di ApriInLettura). Il flag -thread lo dà il runner
 	// (bancoa.FlagThread), così il comando non nomina la libreria degli UUID (I.2; R-114). Mai app/runtime (A1c-L1-28).
 	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa", "."}},
+	// La Distinta nuova nel web (giro 5, A1d; direttiva A1d dell'11/10, §1): sottopackage non puro di transport/web,
+	// importato da app/runtime e da web; non importa mai transport/web né app/* (la lista chiusa lo impedisce). A1d-P1:
+	// solo le regole caricate all'avvio.
+	{percorso: "internal/transport/web/motore_a",
+		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/valutazione"},
+		esterni:  []string{"github.com/google/uuid"}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.
