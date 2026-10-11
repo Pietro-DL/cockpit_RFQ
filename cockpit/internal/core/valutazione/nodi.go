@@ -35,7 +35,8 @@ import (
 // OrigineTipo: da dove viene NodoBOM.Tipo (EB7-2 A; bozza §1.6).
 //   - confermato: il tipo del componente deciso del nodo (per la radice della BOM di lavoro senza una decisione propria,
 //     il componente del target, T-B4-38; per un confermato senza STEP, il suo componente);
-//   - proposto_dalla_riga: componente_proposta.tipo_proposto della riga legacy del nodo;
+//   - proposto_dalla_riga: componente_proposta.tipo_proposto della riga legacy del nodo (una riga aperta con un valore
+//     dell'enum; «finito» solo per la radice della BOM di lavoro di un target: D-P7e-1);
 //   - proposto_dalla_regola: senza la riga, la regola con cui il legacy lo scrive (sottoassieme con dei figli nella
 //     struttura, altrimenti sciolto).
 //

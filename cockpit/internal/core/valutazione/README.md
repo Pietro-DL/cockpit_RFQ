@@ -178,6 +178,16 @@ markmap:
     decisione al nodo, o fuori dall'enum (cambiamento autorizzato, isolato dalla non regressione: T-P7e-12, T-P7e-13).
     Una riga decisa la cui decisione non arriva al nodo (componente archiviato) dà la regola, non il tipo del componente
     archiviato né «nessun tipo»: è una lettura [T] (T-P7e-17), con l'altra lettura dichiarata nel codice;
+  - **D-P7e-1 A (dell'11/10: «finito» proposto da una riga)**: una riga aperta `tipo_proposto = finito` vale solo per
+    un nodo identificato come il target dalle decisioni pertinenti, cioè la radice scelta della BOM di lavoro di un
+    target del thread (di qualunque target: più target nella stessa RFQ, nessuna unicità nuova). Per ogni altro nodo senza
+    decisione non ha autorità: il nodo prende la riga aperta successiva che vale (`commerciale` compreso) o la regola
+    strutturale, nei nodi e nei previsti (`propostaConAutorita`, nella stessa funzione unica di D3). La radice di una
+    struttura candidata è il caso in cui il target non si determina (D4): la proposta non si applica, il nodo prende la
+    regola come ogni radice candidata, e `bom.tipo_finito_target_non_determinato` lo segnala senza dire che non è il
+    target; per gli altri nodi `bom.tipo_finito_fuori_target`. Le righe restano nella fotografia (la diagnostica le
+    elenca: la provenienza), e i nodi decisi hanno il tipo del loro componente, confermato, anche se è un `finito`
+    legacy che non è target. Lettura [T] di «identificato come target» e di «non determinabile»: T-P7e-18;
   - **D4**: la radice di uno STEP candidato non è il prodotto: è normale che il prodotto sia `finito/confermato` (fra i
     confermati senza STEP) e la radice della candidata `sottoassieme/proposto_dalla_regola` (T-P7e-07);
   - **D5**: `NodoBOM.Parentela` dei nodi di uno STEP porta i legami del file (gli archi, con il segno dell'arco
@@ -340,7 +350,9 @@ markmap:
     `struttureDellaVerifica`), il perimetro della BOM confermata, `bom.fonte_non_registrata`;
   - da P7e il tipo proposto di un nodo, l'unica interpretazione delle fonti del tipo proposto (D3), condivisa dai nodi
     e dai previsti della completezza: le righe che propongono davvero (`tipoPropostoDellaRiga`: solo aperte, con un
-    valore dell'enum `tipo_componente`), la mappa `tipi` costruita una volta, la regola (`tipoProposto`).
+    valore dell'enum `tipo_componente`), la mappa `tipi` costruita una volta, la regola (`tipoProposto`); da D-P7e-1
+    l'autorità di «finito» (`propostaConAutorita`, con il ruolo delle radici dei target: `conLeRadiciDeiTarget`) e le sue
+    diagnostiche (`diagnosticheDelFinitoSenzaAutorita`).
 - **`conflitti.go`** (B5, fase 1) — responsabilità:
   - `Conflitto`, `TipoConflitto`, `AsseConflitto`, `EvidenzaDecisione`, `EvidenzaProposta`, i motivi;
   - `ConflittiDellaNomenclatura`, i conflitti di gerarchia (quantità e rimozioni), l'ordine canonico; da B6 la
@@ -389,7 +401,8 @@ markmap:
     `fonte_strutturale.riferimento_incoerente`, `fonte_strutturale.radice_non_registrata`; di B5:
     `bom.fonte_non_registrata`, `documenti.deroga_non_sostituisce_2d`; di B6: `valutazione.errore_valutazione`,
     `confronto.codice_registrato_non_leggibile`, `valutazione.messaggio_fuori_rfq_senza_caso` (R-63 della revisione di
-    V1); dopo le risposte del 07/10, `valutazione.contesto_discorde` (R106 B, precisata).
+    V1); dopo le risposte del 07/10, `valutazione.contesto_discorde` (R106 B, precisata); da D-P7e-1 (11/10)
+    `bom.tipo_finito_fuori_target` e `bom.tipo_finito_target_non_determinato`.
 
 ## Entry point
 
@@ -898,8 +911,9 @@ markmap:
   - **nessun effetto sugli assi**: le due chiamate di EB7-1 stanno dopo l'impronta e lo stato del prodotto; il dato della
     voce del 2D si aggiunge dopo la regola della completezza; `datiDecisiDelProdotto` non legge né i nodi né le voci.
     L'unico calcolo condiviso che P7e tocca è il tipo proposto dei previsti (D3): cambia solo l'elenco dei previsti dei
-    nodi con una riga scartata, decisa senza la decisione al nodo o fuori dall'enum; lo stato, il motivo e il perimetro
-    della completezza non dipendono dai previsti (`StatoDellaCompletezza`).
+    nodi con una riga scartata, decisa senza la decisione al nodo o fuori dall'enum, e da D-P7e-1 dei nodi con una riga
+    «finito» senza autorità; lo stato, il motivo e il perimetro della completezza non dipendono dai previsti
+    (`StatoDellaCompletezza`).
 - **Determinismo**: niente orologio, file, DB, rete, goroutine, `uuid.New`, LLM; gli elenchi della fotografia si
   leggono in un ordine fisso, e la fotografia di chi chiama non cambia. Due esecuzioni sugli stessi ingressi, anche
   permutati, danno gli stessi byte canonici.
@@ -916,7 +930,10 @@ markmap:
   che la fissa (`TestLeVersioniFissate`) si riscrive con lui.
   - **`valutazione-1`**: da B6 (P7c) fino a B6b e B6c (`1cc6409`, `b6a2f3b` nel ramo delle prove);
   - **`valutazione-2`**: da P7e (EB7-1 B, EB7-2 A, EB7-4 A, ratificati l'08/10; con D2 e D3 del 10/10). I campi nuovi
-    cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no.
+    cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no. D-P7e-1
+    (11/10) chiude una domanda di P7e prima del congelamento di A1c e resta in `valutazione-2` (lettura [T], T-P7e-19):
+    cambia l'esito solo dove una riga aperta propone «finito» per un nodo che non è il target, e sui dati veri del banco
+    non ce n'è nessuna.
 - **`VersioneImprontaProdotto` resta 1**: i campi di P7e non entrano nei dati decisi (R90).
 - Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
   del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.

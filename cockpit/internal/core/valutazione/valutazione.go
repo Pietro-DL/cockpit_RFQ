@@ -165,6 +165,7 @@ func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, cas
 	}
 	out.Ancoraggi = esito
 	b := nuovaBOMDelThread(t)
+	b.conLeRadiciDeiTarget(esito.Strutture)
 	var daVerificare []StrutturaDaVerificare
 	var gesti []GestiVerificaBOM
 	for _, tg := range targets {
@@ -176,6 +177,7 @@ func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, cas
 		if g.Legacy && (g.Nomenclatura != nil || g.Gerarchia != nil) {
 			diag = append(diag, diagnosticaFonteNonRegistrata(pv))
 		}
+		diag = append(diag, b.diagnosticheDelFinitoSenzaAutorita(pv, esito.Strutture)...)
 		out.ProdottiValutati = append(out.ProdottiValutati, pv)
 		out.Conflitti = append(out.Conflitti, s.Conflitti...)
 		daVerificare = append(daVerificare, s)

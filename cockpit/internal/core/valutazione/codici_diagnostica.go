@@ -42,6 +42,20 @@ const (
 	// VerificaBOM.FonteRegistrata è falso, e la fonte resta quella dell'asse 2. Si dice per ogni prodotto il cui
 	// perimetro ha il segno della conferma.
 	CodiceBOMFonteNonRegistrata = "bom.fonte_non_registrata"
+
+	// CodiceBOMTipoFinitoFuoriTarget — avviso, dati. Una riga aperta di componente_proposta propone «finito» per un nodo
+	// senza decisione che non è identificato come il target della RFQ (non è la radice di nessuna struttura di un
+	// target): la proposta non ha autorità di classificazione (D-P7e-1 dell'utente dell'11/10, A), e il nodo prende la
+	// riga aperta successiva che vale o la regola strutturale (bomDelThread.tipoProposto), nei nodi e nei previsti. La
+	// riga resta nella fotografia; i riferimenti sono il prodotto, il nodo e le righe. Una per prodotto e nodo.
+	CodiceBOMTipoFinitoFuoriTarget = "bom.tipo_finito_fuori_target"
+
+	// CodiceBOMTipoFinitoTargetNonDeterminato — avviso, dati. Come bom.tipo_finito_fuori_target, ma il nodo è la radice di
+	// una struttura candidata di un target, che nessuna BOM di lavoro identifica: che sia il target non si determina
+	// (D4: la radice candidata non coincide automaticamente con il prodotto). La proposta non si applica e il nodo prende
+	// la regola (come ogni radice candidata senza decisione, D4), senza che questo dica che non è il target: è il caso
+	// ambiguo che D-P7e-1 chiede di segnalare (lettura [T], T-P7e-18).
+	CodiceBOMTipoFinitoTargetNonDeterminato = "bom.tipo_finito_target_non_determinato"
 )
 
 // La completezza documentale (P7b).
