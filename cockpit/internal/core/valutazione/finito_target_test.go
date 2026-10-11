@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"promatec/cockpit/internal/core/ancoraggio"
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/fotorfq"
 	"promatec/cockpit/internal/core/valutazione"
@@ -269,5 +270,112 @@ func TestDP7e1IlCommerciale(t *testing.T) {
 	}
 	if d := diagnosticheDelFinito(et); len(d) != 1 || !reflect.DeepEqual(d[0].Rif, []string{rifProdB, rif4, rifRigaProposta(rigaB4)}) {
 		t.Errorf("la diagnostica elenca la sola riga «finito»: %+v", d)
+	}
+}
+
+// Gli ID delle scene della revisione indipendente: la riga del secondo STEP e la riga «finito» della copia.
+var (
+	rigaStepB2Radice = uid(0xe7f6)
+	rigaCopiaFinito  = uid(0xe7f7)
+)
+
+// conCopiaDelloSTEP: lo stesso STEP del prodotto in un secondo allegato, senza righe proprie: la sua struttura è una
+// candidata, con gli stessi Rif della BOM di lavoro (lo stesso contenuto).
+func conCopiaDelloSTEP(th *fotorfq.Thread) {
+	conAllegato(th, allegato(aStepCopia, 9, "7120100A_1-copia.stp", "stp", shaStepB), nil)
+}
+
+// TestDP7e1LaDiagnosticaSoloDoveServe (revisione indipendente dell'11/10, R3): la diagnostica di D-P7e-1 esce solo per le
+// caselle che chiedono il tipo proposto, cioè senza decisione e raggiunte. Il nodo #3 deciso nella BOM di lavoro, con una
+// seconda riga aperta «finito» nella copia dello STEP, resta sciolto e confermato; nella candidata della copia lo stesso
+// Rif non ha una decisione (la riga di quell'allegato è aperta), prende la regola, e la diagnostica è per lui, con la riga
+// della copia. Un nodo raggiunto solo da un arco tolto da una persona è uscito dalla BOM: nessuna diagnostica.
+func TestDP7e1LaDiagnosticaSoloDoveServe(t *testing.T) {
+	th := scenaTreNodi(t, true)
+	confermaComponente(&th, cDecisoFinito, "7120300A", cProdotto, 1)
+	op := operatore
+	decidi(t, &th, "#3", "confermata", cDecisoFinito, &op)
+	conCopiaDelloSTEP(&th)
+	seconda := *rigaDi(t, &th, "#3")
+	seconda.ID, seconda.AllegatoID, seconda.NomeFile, seconda.Stato, seconda.ComponenteID, seconda.DecisoDa, seconda.DecisoIl =
+		rigaCopiaFinito, aStepCopia, "7120100A_1-copia.stp", "aperta", nil, nil, nil
+	seconda.TipoProposto = testo("finito")
+	th.RigheComponenteProposta = append(th.RigheComponenteProposta, seconda)
+	et := esitoSmistamento(t, th)
+	p := prodottoDi(t, et, rifProdB)
+	if n := nodoBOMDi(t, p, rifNodo3); tipoDi(n) != "sciolto/confermato" {
+		t.Errorf("il nodo deciso nella BOM di lavoro: %s", tipoDi(n))
+	}
+	if len(p.StruttureCandidate) == 0 {
+		t.Fatalf("la copia dello STEP non dà una candidata")
+	}
+	if n := nodoFra(t, p.StruttureCandidate[0].Nodi, rifNodo3); tipoDi(n) != "sottoassieme/proposto_dalla_regola" || n.Nodo.Decisione != nil {
+		t.Errorf("#3 nella candidata della copia: %s", tipoDi(n))
+	}
+	if d := diagnosticheDelFinito(et); len(d) != 1 || !reflect.DeepEqual(d[0].Rif, []string{rifProdB, rifNodo3, rifRigaProposta(rigaCopiaFinito)}) {
+		t.Errorf("la diagnostica della casella senza decisione: %+v", d)
+	}
+
+	th = scenaTreNodiArcoTolto(t)
+	rigaDi(t, &th, "#4").TipoProposto = testo("finito")
+	if d := diagnosticheDelFinito(esitoSmistamento(t, th)); len(d) != 0 {
+		t.Errorf("nessuna diagnostica per il nodo uscito dalla BOM: %+v", d)
+	}
+}
+
+// TestDP7e1LeLettureDaRatificare (revisione indipendente dell'11/10, R4; T-P7e-18, da ratificare): fissano tre scelte che la
+// regola contiene, perché la ratifica le veda.
+//   - 1: l'identità è per Rif nel thread. La copia dello STEP dà una candidata con la stessa radice #1 della BOM di lavoro;
+//     senza decisione propria nella candidata, la radice ha la riga «finito» con autorità, perché lo stesso contenuto è la
+//     radice scelta della BOM di lavoro del target: finito/proposto_dalla_riga, nessuna diagnostica.
+//   - 2: la radice candidata di un secondo STEP di un prodotto che ha già la BOM di lavoro non è identificata (nessuna BOM
+//     di lavoro sceglie quella radice): la regola e la diagnostica del caso non determinato.
+//   - 3: prima della regola vale la riga aperta successiva: «finito» poi «sottoassieme» dà sottoassieme/proposto_dalla_riga.
+func TestDP7e1LeLettureDaRatificare(t *testing.T) {
+	th := scenaFinitoSu(t, "#1")
+	conCopiaDelloSTEP(&th)
+	et := esitoSmistamento(t, th)
+	p := prodottoDi(t, et, rifProdB)
+	if len(p.StruttureCandidate) == 0 {
+		t.Fatalf("1: la copia dello STEP non dà una candidata")
+	}
+	if r := nodoFra(t, p.StruttureCandidate[0].Nodi, nodoB("#1")); tipoDi(r) != "finito/proposto_dalla_riga" {
+		t.Errorf("1: la radice della candidata con lo stesso Rif della BOM di lavoro: %s", tipoDi(r))
+	}
+	if d := diagnosticheDelFinito(et); len(d) != 0 {
+		t.Errorf("1: nessuna diagnostica: %+v", d)
+	}
+
+	th = scenaTreNodi(t, true)
+	conSecondoSTEP(t, &th)
+	th.RigheComponenteProposta = append(th.RigheComponenteProposta, fotorfq.RigaComponenteProposta{ID: rigaStepB2Radice, AllegatoID: aStepB2,
+		NomeFile: "7120100A_2.stp", Sha256: shaStepB2, Chiave: "#1", IDGrezzo: "7120100A", Famiglia: "acme-catena", Fonte: "step", Stato: "aperta",
+		TipoProposto: testo("finito")})
+	et = esitoSmistamento(t, th)
+	p = prodottoDi(t, et, rifProdB)
+	radice2 := ancoraggio.RifNodo(shaStepB2, "#1")
+	var trovata bool
+	for _, c := range p.StruttureCandidate {
+		if c.Radice == radice2 {
+			trovata = true
+			if r := nodoFra(t, c.Nodi, radice2); tipoDi(r) != "sottoassieme/proposto_dalla_regola" {
+				t.Errorf("2: la radice candidata del secondo STEP: %s", tipoDi(r))
+			}
+		}
+	}
+	if !trovata {
+		t.Fatalf("2: il secondo STEP non dà una candidata: %v", chiaviCandidate(p))
+	}
+	if d := diagnosticheDelFinito(et); len(d) != 1 || d[0].Codice != codiceFinitoTargetNonDeterminato || d[0].Rif[1] != radice2 {
+		t.Errorf("2: la diagnostica del caso non determinato: %+v", d)
+	}
+
+	th = scenaFinitoSu(t, "#4")
+	conCopiaDelloSTEP(&th)
+	s := *rigaDi(t, &th, "#4")
+	s.ID, s.AllegatoID, s.NomeFile, s.TipoProposto = rigaB4Seconda, aStepCopia, "7120100A_1-copia.stp", testo("sottoassieme")
+	th.RigheComponenteProposta = append(th.RigheComponenteProposta, s)
+	if n := nodoBOMDi(t, prodottoDi(t, esitoSmistamento(t, th), rifProdB), rif4); tipoDi(n) != "sottoassieme/proposto_dalla_riga" {
+		t.Errorf("3: «finito» poi «sottoassieme»: %s", tipoDi(n))
 	}
 }
