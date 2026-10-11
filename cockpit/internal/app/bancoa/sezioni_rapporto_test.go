@@ -1,6 +1,7 @@
 package bancoa
 
 import (
+	"bytes"
 	"context"
 	"reflect"
 	"regexp"
@@ -39,6 +40,31 @@ func TestMessaggiFuoriSoloDaiCasiSenzaThread(t *testing.T) {
 	got := b.messaggiFuori()
 	if len(got) != 2 || got[0] != msgFuori1 || got[1] != msgFuori2 {
 		t.Fatalf("messaggi fuori RFQ: %v (solo i casi senza thread, una volta, in ordine)", got)
+	}
+}
+
+// TestClientiFuoriSoloDaiCasiSenzaThread (D-Q10-4 = A ristretta, T-DQ104-2): i clienti che il banco chiede al
+// caricatore sono quelli dichiarati dai casi senza thread, ognuno una volta, in ordine di byte; il cliente di un caso con
+// il thread no (arriva dal suo thread); senza file dei casi nessuno.
+func TestClientiFuoriSoloDaiCasiSenzaThread(t *testing.T) {
+	th := threadScenario
+	altro, terzo := uidACME(0x2f1), uidACME(0x2f0)
+	b := &banco{ingressi: valut.Ingressi{Versione: 1, Casi: []valut.IngressoCaso{
+		{ID: "con-thread", ThreadID: &th, ClienteID: terzo, Messaggi: []uuid.UUID{msgScenario}},
+		{ID: "elenco", ClienteID: altro, Messaggi: []uuid.UUID{msgFuori1}},
+		{ID: "elenco-2", ClienteID: clienteACME, Messaggi: []uuid.UUID{msgFuori2}},
+		{ID: "elenco-3", ClienteID: altro},
+	}}}
+	got := b.clientiFuori()
+	want := []uuid.UUID{clienteACME, altro}
+	if bytes.Compare(want[0][:], want[1][:]) > 0 {
+		want[0], want[1] = want[1], want[0]
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("clienti dei casi senza thread: %v, attesi %v (una volta, in ordine, senza il cliente del caso con thread)", got, want)
+	}
+	if got := (&banco{}).clientiFuori(); got != nil {
+		t.Errorf("senza file dei casi: %v", got)
 	}
 }
 

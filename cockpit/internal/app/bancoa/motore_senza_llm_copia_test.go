@@ -65,10 +65,11 @@ type q10Giro struct {
 
 // q10GiroCopia: Carica sul pool con il registro (ROLLBACK in fondo, una connessione, nessun testo vietato), poi Calcola
 // con gli ingressi del runner e Confronta senza atteso, come l'anteprima; Calcola e Confronta non parlano con il
-// database. Un thread o un messaggio chiesti che la copia non ha: NON ESEGUITA (T-Q10-08).
+// database. Un thread o un messaggio chiesti che la copia non ha: NON ESEGUITA (T-Q10-08). I clienti dei casi senza
+// thread si chiedono come li chiede il banco (clientiFuori, D-Q10-4).
 func q10GiroCopia(t *testing.T, nome string, pr *pgxpool.Pool, reg *testutil.RegistroSQL, thread, fuori []uuid.UUID, b *banco) q10Giro {
 	t.Helper()
-	f, err := q10CaricaRegistrata(t, nome, pr, reg, caricatore.Richiesta{Thread: thread, Messaggi: fuori})
+	f, err := q10CaricaRegistrata(t, nome, pr, reg, caricatore.Richiesta{Thread: thread, Messaggi: fuori, Clienti: b.clientiFuori()})
 	if err != nil {
 		if strings.Contains(err.Error(), "non esiste") {
 			testutil.NonEseguita(t, nome+": un thread dell'oracolo o un messaggio dei casi non c'è nella copia _run (T-Q10-08): "+err.Error())

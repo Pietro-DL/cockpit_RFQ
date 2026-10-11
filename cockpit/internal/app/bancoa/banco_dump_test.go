@@ -238,7 +238,7 @@ func q10Esegui(t testing.TB, s *q10Corsa) {
 
 	s.runner = q10IngressiDelRunner(t, uscita)
 	f, mancanti, err := caricaSenzaIMancanti(func(messaggi []uuid.UUID) (fotorfq.Fotografia, error) {
-		return caricatore.Carica(ctx, p, caricatore.Richiesta{Tutti: true, Messaggi: messaggi})
+		return caricatore.Carica(ctx, p, caricatore.Richiesta{Tutti: true, Messaggi: messaggi, Clienti: s.runner.clientiFuori()})
 	}, s.runner.messaggiFuori())
 	if err != nil {
 		testutil.NonEseguita(t, "la fotografia del percorso della prova non si legge: "+err.Error())
@@ -566,6 +566,22 @@ func q10NonEseguitaSeLibere(t *testing.T, r RapportoBanco, caso string) {
 	if len(libere) > 0 {
 		t.Errorf("NON ESEGUITA: %s: %d chiavi di casi_integrazione sono chiavi libere, che il runner riporta e non giudica (R-109): il caso specifico non è verificato (T-Q10-02)", caso, len(libere))
 	}
+}
+
+// q10ClientiNellaCopia: dei clienti dichiarati dai casi senza thread, quelli che la copia ha (D-Q10-4; T-DQ104-1).
+// Codice della prova, in sola lettura, sulla stessa copia del banco: non è SQL di prodotto.
+func q10ClientiNellaCopia(t *testing.T, s *q10Corsa) map[uuid.UUID]bool {
+	t.Helper()
+	p := testutil.PoolDump(t, s.m.Copia)
+	out := map[uuid.UUID]bool{}
+	for _, id := range s.runner.clientiFuori() {
+		var n int
+		if err := p.QueryRow(context.Background(), `SELECT count(*) FROM cliente WHERE cliente_id = $1`, id).Scan(&n); err != nil {
+			t.Fatalf("i clienti dei casi nella copia: %v", err)
+		}
+		out[id] = n > 0
+	}
+	return out
 }
 
 func q10ConteggioSQL(t *testing.T, p *pgxpool.Pool, sql string) int {
@@ -1334,7 +1350,8 @@ func TestL4DumpCensimentoAltriProfili(t *testing.T) {
 	}
 	casi := 0
 	astensioni, conLetture, nonValutati := map[string]int{}, map[string]int{}, map[string]int{}
-	discordi, senzaCliente := map[string]int{}, map[string]int{}
+	discordi, senzaCliente, nonNellaCopia := map[string]int{}, map[string]int{}, map[string]int{}
+	clientiNellaCopia := q10ClientiNellaCopia(t, s)
 	clientiDellaFoto := map[uuid.UUID]bool{}
 	for _, cl := range s.foto.Clienti {
 		clientiDellaFoto[cl.ID] = true
@@ -1364,10 +1381,16 @@ func TestL4DumpCensimentoAltriProfili(t *testing.T) {
 				// Decisione dell'utente del 10/10: un'astensione dichiarata dentro un censimento non certificato, in una
 				// categoria propria. Non è «grammatica mancante» e non è prova della qualità del riconoscimento: può
 				// essere una discrepanza fra l'identità del cliente nella fotografia e quella delle regole. Accanto, nel
-				// log, i messaggi il cui cliente la fotografia non porta (la causa trovata da A6.4: D-Q10-4).
+				// log, i messaggi il cui cliente la fotografia non porta. Dopo D-Q10-4 (A ristretta, 11/10) il caricatore
+				// fotografa il cliente dichiarato dal caso: se la copia ce l'ha e la fotografia no, è un errore; se la copia
+				// non ce l'ha, è il limite dichiarato di T-DQ104-1, visibile nel log.
 				discordi[c.ID]++
-				if !clientiDellaFoto[v.ClienteID] {
+				switch {
+				case clientiDellaFoto[v.ClienteID]:
+				case clientiNellaCopia[v.ClienteID]:
 					senzaCliente[c.ID]++
+				default:
+					nonNellaCopia[c.ID]++
 				}
 			case !v.Valutato:
 				// Un altro motivo non è «una grammatica non ancora prevista» (revisione A6.4 del 10/10): per esempio il
@@ -1393,8 +1416,11 @@ func TestL4DumpCensimentoAltriProfili(t *testing.T) {
 		t.Logf("censimento, astensione dichiarata (D-PERIMETRO-A1C), caso %s: %d", k, astensioni[k])
 	}
 	for _, k := range slices.Sorted(maps.Keys(discordi)) {
-		t.Logf("censimento, caso %s: %d messaggi non valutati per ragione sociale discorde: astensione dichiarata di un censimento non certificato, NON prova del riconoscimento; di questi, %d con il cliente assente dalla fotografia (D-Q10-4)",
-			k, discordi[k], senzaCliente[k])
+		t.Logf("censimento, caso %s: %d messaggi non valutati per ragione sociale discorde: astensione dichiarata di un censimento non certificato, NON prova del riconoscimento; di questi, %d con un cliente che la copia non ha (T-DQ104-1)",
+			k, discordi[k], nonNellaCopia[k])
+		if senzaCliente[k] > 0 {
+			t.Errorf("censimento, caso %s: %d messaggi con un cliente che la copia ha e la fotografia no: il caricatore non porta il cliente del caso (D-Q10-4)", k, senzaCliente[k])
+		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(nonValutati)) {
 		t.Errorf("NON ESEGUITA: censimento, caso %s: %d messaggi non valutati per un motivo che non è la grammatica mancante: non è un'astensione dichiarata", k, nonValutati[k])
