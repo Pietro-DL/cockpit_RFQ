@@ -135,6 +135,11 @@ markmap:
 - **Allegati, anteprima, caricamento**
   - File: `allegati.go`, `anteprima.go`, `caricamento.go`
   - Schermata: download, conferma, PDF, caricamento interno
+- **Distinta nuova del motore A (giro 5, A1d)**
+  - Sottopackage: `motore_a/` (modelli, calcolo in sola lettura, indice, etichette, anteprima dello STEP; non importa
+    questo package né `app/*`); adattatore: `motore_a.go` (da A1d-P2).
+  - In A1d-P1 c'è solo il tipo delle regole caricate all'avvio (`motore_a.Regole`, campo `Server.MotoreA`); le rotte
+    arrivano con A1d-P2, la pagina con A1d-P4.
 - Il front-end (template, CSS, `fascicolo.mjs`, pdf.js) è descritto in `web/README.md`.
 
 ## Modulo Server e ruoli
