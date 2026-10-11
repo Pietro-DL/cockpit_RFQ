@@ -1,0 +1,381 @@
+{
+  "nota": "Le risposte che ponte.cjs fa dare al fetch finto (QFE-04). Solo dati inventati: ACME, codici 712xxxx, UUID 00000000-0000-4000-8000-0000000000nn, il dominio acme.example. Le voci con «avviso» sono i corpi di rispondiMotoreA (il ramo motore-a di threadFrammento, motore_a.go): TestMotoreALeRisposteDelKitSonoQuelleDelServer le confronta byte per byte con quello che il server scrive. «rifiuti» sono le 9 frasi dell'elenco chiuso (T-A1d-11), una per voce, come le genera il codice.",
+  "pagina": "http://cockpit.acme.example/thread/00000000-0000-4000-8000-000000000001/motore-a",
+  "thread": "00000000-0000-4000-8000-000000000001",
+  "gesti": {
+    "ok": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Proposta scartata.",
+      "esito": "ok",
+      "corpo": "<div data-ma-esito=\"ok\">Proposta scartata.</div>"
+    },
+    "ok_vuoto": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "",
+      "esito": "ok",
+      "corpo": "<div data-ma-esito=\"ok\"></div>"
+    },
+    "ok_escape": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Nota aggiunta su 7120110.pdf, pagina 1 (<b>quota</b> & \"foro\" l'angolo).",
+      "esito": "ok",
+      "corpo": "<div data-ma-esito=\"ok\">Nota aggiunta su 7120110.pdf, pagina 1 (&lt;b&gt;quota&lt;/b&gt; &amp; &#34;foro&#34; l&#39;angolo).</div>"
+    },
+    "idempotente": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Nessun cambiamento: il codice è già 7120010.",
+      "esito": "ok",
+      "corpo": "<div data-ma-esito=\"ok\">Nessun cambiamento: il codice è già 7120010.</div>"
+    },
+    "no": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Niente è cambiato: la proposta non è più aperta.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Niente è cambiato: la proposta non è più aperta.</div>"
+    },
+    "no_gia_decisa": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "La proposta era già stata decisa: nessun cambiamento.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">La proposta era già stata decisa: nessun cambiamento.</div>"
+    },
+    "senza_esito": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div>Proposta scartata.</div>"
+    },
+    "vuoto_200": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": ""
+    },
+    "senza_corpo_204": {
+      "stato": 204,
+      "intestazioni": {},
+      "corpo": ""
+    },
+    "due_div": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div data-ma-esito=\"ok\">Proposta scartata.</div><div data-ma-esito=\"no\">Niente è cambiato.</div>"
+    },
+    "testo_fuori": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div data-ma-esito=\"ok\">Proposta scartata.</div> e qualcos'altro"
+    },
+    "esito_in_uno_span": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<span data-ma-esito=\"ok\">Proposta scartata.</span>"
+    },
+    "pagina_intera": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>RFQ · Cockpit RFQ</title></head><body><div data-ma-esito=\"ok\">Proposta scartata.</div></body></html>"
+    },
+    "forse": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div data-ma-esito=\"forse\">Proposta scartata.</div>"
+    },
+    "legacy_thread_corpo": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<section class=\"thread-corpo\" id=\"thread-corpo-acme\"><div class=\"avviso ok\">Proposta scartata.</div><h2>RFQ 7120001 · ACME S.p.A.</h2><table class=\"documenti\"><tr><td>7120110.pdf</td><td>disegno 2D</td></tr></table><form method=\"post\" action=\"/thread/00000000-0000-4000-8000-000000000001/fascicolo/conferma\"><button>Conferma Fascicolo</button></form><div data-ma-esito=\"ok\">esito dentro la vecchia interfaccia</div><img src=\"x\" onerror=\"window.__iniettato = 1\"><script>window.__iniettato = 2;</script></section>"
+    },
+    "login_401": {
+      "stato": 401,
+      "intestazioni": {
+        "HX-Redirect": "/login"
+      },
+      "corpo": ""
+    },
+    "login_401_nudo": {
+      "stato": 401,
+      "intestazioni": {},
+      "corpo": ""
+    },
+    "login_302": {
+      "stato": 200,
+      "rediretto": true,
+      "url": "http://cockpit.acme.example/login",
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<!doctype html><html lang=\"it\"><head><title>Accesso · Cockpit RFQ</title></head><body><form method=\"post\" action=\"/login\"><input name=\"sigla\"><input name=\"password\" type=\"password\"><button>Entra</button></form></body></html>"
+    },
+    "vietato_403": {
+      "stato": 403,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8"
+      },
+      "corpo": "<div class=\"pannello errore-box\">\n  <strong>Non autorizzato.</strong> Il ruolo «consultazione» vede il Cockpit e non lo cambia.\n  Il tuo ruolo è <code>consultazione</code>; serve <code>operatore</code>. Chiedi a chi\n  amministra il Cockpit.\n</div>"
+    },
+    "rifiuto_422": {
+      "stato": 422,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "Niente è cambiato: la firma del riepilogo non coincide con quella di adesso.\n"
+    },
+    "errore_500": {
+      "stato": 500,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "errore del database: la connessione si è chiusa\n"
+    },
+    "errore_400": {
+      "stato": 400,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "id non valido\n"
+    },
+    "errore_404": {
+      "stato": 404,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "proposta non trovata\n"
+    }
+  },
+  "rifiuti": [
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Copie NON rimesse in coda: la capacita' [sicurezza].nas_scrittura e' spenta su questo server.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Copie NON rimesse in coda: la capacita&#39; [sicurezza].nas_scrittura e&#39; spenta su questo server.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Nessuna copia nuova (1 non accodato: la coda dei job non risponde).",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Nessuna copia nuova (1 non accodato: la coda dei job non risponde).</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Le proposte di una RFQ chiusa non si aggiornano.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Le proposte di una RFQ chiusa non si aggiornano.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Nessun file scelto: niente da assegnare.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Nessun file scelto: niente da assegnare.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Prima crea la RFQ o aggancia il messaggio a una RFQ esistente: i file scaricati vanno nella sua cartella.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Prima crea la RFQ o aggancia il messaggio a una RFQ esistente: i file scaricati vanno nella sua cartella.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Scegli un fornitore.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Scegli un fornitore.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Fornitore non trovato.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Fornitore non trovato.</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Richiesta non creata: la lavorazione \"zincatura ACME\" non esiste nel catalogo",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Richiesta non creata: la lavorazione &#34;zincatura ACME&#34; non esiste nel catalogo</div>"
+    },
+    {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "avviso": "Richiesta non trovata in questa RFQ.",
+      "esito": "no",
+      "corpo": "<div data-ma-esito=\"no\">Richiesta non trovata in questa RFQ.</div>"
+    }
+  ],
+  "albero": {
+    "ok": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"testo\":\"Albero confermato: 3 componenti e 2 legami nella BOM verificata.\"}\n"
+    },
+    "ok_vuoto": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"testo\":\"\"}\n"
+    },
+    "rifiuto_422": {
+      "stato": 422,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"errore\":\"il riepilogo è cambiato mentre lo guardavi: rileggilo\"}\n"
+    },
+    "troppo_413": {
+      "stato": 413,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"errore\":\"la bozza mandata è troppo grande\"}\n"
+    },
+    "errore_500": {
+      "stato": 500,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "l'albero non si legge o non si conferma: riprova\n"
+    },
+    "non_json_200": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div data-ma-esito=\"ok\">Albero confermato.</div>"
+    }
+  },
+  "letture": {
+    "dati": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"thread_id\":\"00000000-0000-4000-8000-000000000001\",\"vista\":\"distinta\",\"prodotto\":\"componente:00000000-0000-4000-8000-000000000010\",\"errore\":\"\",\"testa\":{\"cliente\":\"ACME S.p.A.\",\"oggetto\":\"RFQ 7120001\",\"riferimento_cliente\":\"ACME-030P7120001\",\"stato_thread\":\"APERTA\",\"fase\":null}}\n"
+    },
+    "tipo": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "{\"spento\":false,\"frasi\":[\"7120010 diventa un sottoassieme: i figli restano.\"],\"bottone\":\"Cambia il tipo\",\"firma\":\"f-7120010-sottoassieme\",\"errore\":\"\"}\n"
+    },
+    "non_json": {
+      "stato": 200,
+      "intestazioni": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      },
+      "corpo": "<div>non è JSON</div>"
+    },
+    "errore_500": {
+      "stato": 500,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "dati non disponibili\n"
+    },
+    "assente_404": {
+      "stato": 404,
+      "intestazioni": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "corpo": "RFQ non trovata\n"
+    }
+  }
+}

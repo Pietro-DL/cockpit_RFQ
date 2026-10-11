@@ -42,6 +42,9 @@ func TestIFileStaticiHannoIlTipoGiustoELaCacheGiusta(t *testing.T) {
 		{"/static/pdfjs-6.3.289/wasm/openjpeg.wasm", "application/wasm", true},
 		{"/static/pdfjs-6.3.289/wasm/jbig2.wasm", "application/wasm", true},
 		{"/static/pdfjs-6.3.289/cmaps/78-H.bcmap", "application/octet-stream", true},
+		// giro 5, A1d: il ponte dei gesti della Distinta nuova (A1d-P2; piano A1d backend §7.2)
+		{"/static/motore_a_gesti.mjs", "text/javascript; charset=utf-8", false},
+		{s.statico("motore_a_gesti.mjs"), "text/javascript; charset=utf-8", true},
 	}
 	for _, c := range casi {
 		rec := chiedi(c.percorso)
@@ -78,6 +81,15 @@ func TestIFileStaticiHannoIlTipoGiustoELaCacheGiusta(t *testing.T) {
 	h6 := sha256.Sum256(b)
 	if got, atteso := s.statico("fascicolo.mjs"), "/static/fascicolo.mjs?v="+hex.EncodeToString(h6[:6]); got != atteso {
 		t.Errorf("statico: %q, atteso %q", got, atteso)
+	}
+	// giro 5, A1d: anche l'impronta del ponte è quella del suo contenuto (la usa l'importmap di P-10, T-A1d-30)
+	b, err = fs.ReadFile(risorse.FS, "web/static/motore_a_gesti.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h6 = sha256.Sum256(b)
+	if got, atteso := s.statico("motore_a_gesti.mjs"), "/static/motore_a_gesti.mjs?v="+hex.EncodeToString(h6[:6]); got != atteso {
+		t.Errorf("statico del ponte: %q, atteso %q", got, atteso)
 	}
 	if got := s.statico("non-c-e.js"); got != "/static/non-c-e.js" {
 		t.Errorf("un file che non c'e': %q", got)
