@@ -332,6 +332,7 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	s.registraDistinta(mux)
 	s.registraPostazioni(mux)
 	s.registraAdmin(mux)
+	s.registraMotoreA(mux)
 }
 
 // statici serve i file statici. Quelli che non cambiano mai sotto lo stesso indirizzo (pdf.js, che sta in

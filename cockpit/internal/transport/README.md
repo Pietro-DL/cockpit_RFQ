@@ -78,7 +78,10 @@ markmap:
 - **CSRF**: `http.CrossOriginProtection` (sulle intestazioni `Origin` / `Sec-Fetch-Site`, non un token) avvolge
   tutto il mux, rotte dei worker comprese (`web.ProtezioneCSRF`).
 - **`web` risponde HTML** (pagina intera o frammento htmx, secondo `HX-Request`), con eccezioni dichiarate:
-  - JSON per `GET /healthz` e `GET /thread/{id}/fascicolo/bom/dati`;
+  - JSON per `GET /healthz`, `GET /thread/{id}/fascicolo/bom/dati` e, da A1d-P2, `GET /thread/{id}/motore-a/dati` e
+    `GET /thread/{id}/motore-a/anteprima/step-strutturale` (solo admin, dietro `[motore_a].anteprima`; JSON nelle
+    risposte dei gestori, mentre il 404 a flag spento, il 302/401 del login, il 403 e il 405 restano quelli del router e
+    del legacy);
   - PDF per `GET /allegato/{id}/anteprima`;
   - zip per il pacchetto delle postazioni;
   - i file statici;
@@ -192,6 +195,23 @@ markmap:
     - CSP `sandbox`;
     - 409 con un'anomalia aperta, 503 con il NAS assente, 400 a una richiesta htmx
   - Gestore: `anteprima.go:anteprima`
+
+### Distinta nuova del motore A (giro 5, A1d)
+
+- `motore_a.go:registraMotoreA`, dietro la porta `conMotoreA` (flag spento = 404 a tutti prima della sessione) e
+  `no-store`; dettagli in `web/README.md`, «Modulo Distinta nuova del motore A».
+- **`GET /thread/{id}/motore-a/dati`** (`Adm`)
+  - Effetto: nessuno (sola lettura, una transazione REPEATABLE READ READ ONLY); JSON del contratto A1d §2.4; 400, 404,
+    503 (regole non pronte o troppi calcoli in corso), 504, 500 con `{"errore"}` (le risposte del gestore; il 404 a
+    flag spento, il 302/401, il 403 e il 405 no); HEAD senza calcolo, con il codice della GET
+  - Gestore: `motore_a.go:motoreADati`
+- **`GET /thread/{id}/motore-a/anteprima/step-strutturale`** (`Adm`)
+  - Effetto: nessuno (sola lettura); JSON dell'anteprima dell'autorizzazione dello STEP
+    (`fascicolo.EffettoAutorizzazione`), con il componente e il file di cui parla; 400, 404 per una RFQ inesistente,
+    504, 500; HEAD con i 400 della GET
+  - Gestore: `motore_a.go:motoreAAnteprimaStep`
+- Gli altri metodi sugli stessi indirizzi: 404 a flag spento, 405 a flag acceso.
+- La pagina `GET /thread/{id}/motore-a` arriva con A1d-P4.
 
 ### Pagina della RFQ, proposte, Richieste
 
