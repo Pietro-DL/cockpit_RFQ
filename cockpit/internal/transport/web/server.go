@@ -111,6 +111,11 @@ type Server struct {
 	// stesse del workerapi. Servono alla rianalisi degli STEP di una RFQ (B8.5): si rileggono quelli
 	// che hanno i fatti con questa chiave, si accodano gli altri. Versione 0 = nessuna rianalisi.
 	Analizzatore coda.Analizzatore
+	// MotoreA è la Distinta nuova del motore A (giro 5, A1d; contratto A1d §2.1; piano 7.4.2). Spenta (il valore zero):
+	// le sue rotte rispondono 404 a tutti prima della sessione e il ramo di threadFrammento non scatta. Accesa: la vede
+	// solo l'admin. Si legge a ogni richiesta e mai al montaggio delle rotte, perché le prove la cambiano a server
+	// acceso, come Analizzatore.
+	MotoreA AnteprimaMotoreA
 }
 
 type chiaveCtx int
@@ -241,6 +246,8 @@ var funzioni = template.FuncMap{
 	// motivi della proposta senza le righe dell'evento, che si mostrano a parte
 	"eventoRiga":     eventoDellaRiga,
 	"motiviProposta": motiviProposta,
+	// giro 5, A1d (contratto §2.3): il testo di un valore di enum, per tutte le pagine
+	"etichetta": etichetta,
 }
 
 // intero legge un numero intero di qualunque larghezza, per le poche somme dei template.
@@ -279,7 +286,7 @@ func (s *Server) Init() error {
 		return err
 	}
 	s.pagine = map[string]*template.Template{}
-	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html", "distinta.html", "forme.html"} {
+	for _, p := range []string{"inbox.html", "login.html", "job.html", "scarti.html", "thread.html", "fascicolo.html", "postazioni.html", "vietato.html", "anagrafica.html", "richieste.html", "integrita.html", "fornitori.html", "importa.html", "distinta.html", "forme.html", "motore_a.html"} {
 		t, err := template.Must(base.Clone()).ParseFS(s.Templ, p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
@@ -326,6 +333,8 @@ func (s *Server) Registra(mux *http.ServeMux) {
 	s.registraInbox(mux)
 	s.registraRFQ(mux)
 	s.registraDistinta(mux)
+	// giro 5, A1d: la Distinta nuova, dietro [motore_a] (motore_a.go)
+	s.registraMotoreA(mux)
 	s.registraPostazioni(mux)
 	s.registraAdmin(mux)
 }
