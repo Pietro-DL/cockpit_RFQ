@@ -744,6 +744,10 @@ func TestL4DumpAncoraggiDelloScenario(t *testing.T) {
 	q10VoceSuperata(t, g, VoceGateConteggiScenario)
 	q10VoceSuperata(t, g, VoceGateFalseAssociazioni)
 	t.Logf("esiti dello scenario: %v", conti)
+	// Archi e quantità dello scenario stanno fra le chiavi libere di casi_integrazione, come le chiavi dedicate dello
+	// speculare e della formazione (revisione A6.4 e verifica del resoconto conclusivo, 11/10): per T-Q10-02 non sono
+	// verificati; gli esiti delle voci sopra restano giudicati.
+	q10NonEseguitaSeLibere(t, r, "archi e quantità dello scenario")
 }
 
 // A1c-L4D-05 (lo speculare): le letture dei file e lo scenario senza differenze né parti non
