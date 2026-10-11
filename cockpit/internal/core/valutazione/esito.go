@@ -22,7 +22,7 @@ import (
 //     10/10 una riga scartata, decisa o fuori dall'enum non propone più il tipo: cambiano i previsti di quei soli nodi.
 //     Stato, assi, motivi, autorità e impronta del prodotto (R90) non cambiano. Le impronte dell'esito delle due versioni
 //     non si confrontano come se dovessero coincidere;
-//   - valutazione-3 (11/10): D-CHIUS-3 = B [UR], raccomandazione adottata dall'utente l'11/10 («Versionamento rigoroso di un esito semanticamente
+//   - valutazione-3 (11/10): D-CHIUS-3 = B [U] dell'11/10 («Versionamento rigoroso di un esito semanticamente
 //     modificato»). Con D-P7e-1 e D-CHIUS-2 C una riga aperta «finito» non ha autorità fuori dalla casella della BOM di
 //     lavoro scelta di un target: lo stesso ingresso può dare un tipo, dei previsti e due diagnostiche nuove
 //     (bom.tipo_finito_*). valutazione-2 era già pubblicata, quindi la versione avanza. Stato, assi, motivi, autorità e

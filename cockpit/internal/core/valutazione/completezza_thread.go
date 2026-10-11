@@ -387,18 +387,19 @@ func (c *completezzaThread) disegnoDellaVoce(comp *fotorfq.Componente, del2D *fo
 //     nelle due candidate e un solo tipo nel previsto. Le fonti della proposta, invece, sono già quelle di D3
 //     (tipoPropostoDellaRiga): una riga scartata, decisa o fuori dall'enum non dà il tipo nemmeno qui; e quelle di
 //     D-P7e-1 (propostaConAutorita): una riga «finito» per un nodo che non è il target non dà il tipo nemmeno qui; e per
-//     D-CHIUS-2 C la radice di una BOM di lavoro ha l'autorità solo se il previsto viene da una BOM di lavoro (le
-//     strutture che contano sono tutte BOM di lavoro o tutte candidate: struttureDellaVerifica).
+//     D-CHIUS-2 C e D-CHIUS-4 B la radice di una BOM di lavoro ha l'autorità solo se il previsto viene dalla BOM di lavoro
+//     del suo target (le strutture che contano sono tutte BOM di lavoro del prodotto o tutte candidate:
+//     struttureDellaVerifica; il previsto esclude la radice, quindi qui l'autorità non si dà mai con Calcola).
 //
 // Il Rif è un riferimento di testo, mai analizzato (T-B5-93).
 func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto, perimetro map[uuid.UUID]bool) []NodoDaPrevedere {
 	type infoNodo struct {
-		n         ancoraggio.NodoProposto
-		deciso    *uuid.UUID
-		tolto     bool
-		conFigli  bool
-		nellaBOM  bool
-		raggiunto bool
+		n            ancoraggio.NodoProposto
+		deciso       *uuid.UUID
+		tolto        bool
+		conFigli     bool
+		bomDelTarget string
+		raggiunto    bool
 	}
 	per := map[string]*infoNodo{}
 	var ordine []string
@@ -441,7 +442,9 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				i.tolto = true
 			}
 			i.conFigli = i.conFigli || padri[n.Rif]
-			i.nellaBOM = i.nellaBOM || st.Stato == ancoraggio.StatoBOMDiLavoroProposta
+			if st.Stato == ancoraggio.StatoBOMDiLavoroProposta {
+				i.bomDelTarget = st.Target
+			}
 			i.raggiunto = i.raggiunto || raggiunti[n.Rif]
 		}
 	}
@@ -462,7 +465,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				Motivo: MotivoPrevistoNodoDecisoFuoriPerimetro})
 		case i.tolto:
 		default:
-			tipo, _ := c.b.tipoProposto(rif, i.nellaBOM, i.conFigli)
+			tipo, _ := c.b.tipoProposto(rif, i.bomDelTarget, i.conFigli)
 			regole, cliente := FabbisogniDelTipo(tipo, c.t.Fabbisogni)
 			var categorie []string
 			if f := i.n.Codice.Forma; f != nil {

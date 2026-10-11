@@ -42,7 +42,7 @@ type Iniziatore interface {
 
 // Richiesta: che cosa fotografare. Con Tutti, l'elenco delle RFQ si legge nella stessa transazione (non sul pool,
 // come fa il comando U5). Messaggi sono i messaggi senza RFQ dei casi del banco (R34). Clienti sono i clienti che i casi
-// senza thread del banco dichiarano (cliente_id del file dei casi; D-Q10-4 = A ristretta [UR], raccomandazione adottata dall'utente l'11/10):
+// senza thread del banco dichiarano (cliente_id del file dei casi; D-Q10-4 = A ristretta [U] dell'11/10):
 // si fotografano accanto a quelli dei thread, con la stessa query e solo per la ragione sociale. Il caricatore non li
 // deduce dai messaggi e non li controlla: un cliente che la copia non ha resta fuori dalla fotografia, senza errore
 // (T-DQ104-1), e il messaggio del suo caso resta non valutato con ragione_sociale_discorde, visibile nel rapporto.
