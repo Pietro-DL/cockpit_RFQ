@@ -313,7 +313,7 @@ type tipoDellaRiga struct {
 }
 
 // radiceDiTarget: il ruolo di un nodo che è la radice di una struttura di un target del thread (D-P7e-1 dell'utente
-// dell'11/10, con D-CHIUS-2 = C decisa con l'utente; T-P7e-18):
+// dell'11/10, con D-CHIUS-2 = C [UR], raccomandazione adottata dall'utente l'11/10; T-P7e-18):
 //   - radiceDellaBOMDiLavoro: la radice scelta della BOM di lavoro di un target (la fonte confermata con la radice
 //     registrata: R76 A). È il nodo identificato come il target dalle decisioni pertinenti al target;
 //   - radiceCandidata: la radice di una struttura candidata di un target (la sua lettura è compatibile con la base del
@@ -524,8 +524,8 @@ func (b *bomDelThread) conLeRadiciDeiTarget(strutture []ancoraggio.StrutturaProd
 // sarebbe valsa prima di D-P7e-1): bom.tipo_finito_fuori_target per un nodo che non è la radice di nessuna struttura di
 // un target; bom.tipo_finito_target_non_determinato per la radice di una struttura candidata (il caso ambiguo: che sia
 // il target non si determina) e per la radice scelta di una BOM di lavoro vista in una casella fuori da una BOM di lavoro
-// (lo stesso articolo, non la rappresentazione confermata: D-CHIUS-2 C). Se le caselle dello stesso nodo danno i due
-// casi, vale quello ambiguo. Solo le caselle che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo
+// (lo stesso articolo, non la rappresentazione confermata: D-CHIUS-2 C). Il caso ambiguo dipende solo dal ruolo del Rif
+// (b.radici), quindi è lo stesso per tutte le caselle del nodo. Solo le caselle che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo
 // del suo componente, e la proposta non valeva nemmeno prima) e raggiunte dalla radice senza gli archi tolti da una
 // persona (raggiuntiNellaStruttura, la stessa dei nodi). I riferimenti sono il prodotto, il
 // nodo e le righe della proposta, cioè la sua provenienza; il percorso dice il prodotto e il Rif del nodo, non la casella

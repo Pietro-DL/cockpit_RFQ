@@ -181,7 +181,7 @@ markmap:
   - **D-P7e-1 A (dell'11/10: «finito» proposto da una riga)**: una riga aperta `tipo_proposto = finito` vale solo per
     un nodo identificato come il target dalle decisioni pertinenti, cioè la radice scelta della BOM di lavoro di un
     target del thread (di qualunque target: più target nella stessa RFQ, nessuna unicità nuova), e solo nella casella di
-    una BOM di lavoro (D-CHIUS-2 = C, decisa con l'utente: «Il Rif identifica, ma non conferisce autorità alla struttura
+    una BOM di lavoro (D-CHIUS-2 = C [UR]: «Il Rif identifica, ma non conferisce autorità alla struttura
     candidata»; la stessa radice in una candidata, per esempio lo stesso STEP in un altro allegato, è lo stesso articolo,
     non la rappresentazione confermata, e lì dà `bom.tipo_finito_target_non_determinato`). Per ogni altro nodo senza
     decisione non ha autorità: il nodo prende la riga aperta successiva che vale (`commerciale` compreso) o la regola
@@ -936,7 +936,7 @@ markmap:
   - **`valutazione-1`**: da B6 (P7c) fino a B6b e B6c (`1cc6409`, `b6a2f3b` nel ramo delle prove);
   - **`valutazione-2`**: da P7e (EB7-1 B, EB7-2 A, EB7-4 A, ratificati l'08/10; con D2 e D3 del 10/10). I campi nuovi
     cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no;
-  - **`valutazione-3`**: dall'11/10, D-CHIUS-3 = B, decisa con l'utente. D-P7e-1 e D-CHIUS-2 C cambiano l'esito dove una
+  - **`valutazione-3`**: dall'11/10, D-CHIUS-3 = B [UR]. D-P7e-1 e D-CHIUS-2 C cambiano l'esito dove una
     riga aperta propone «finito» fuori dalla casella della BOM di lavoro scelta di un target (sui dati veri del banco
     nessuna), e `valutazione-2` era già pubblicata. L'impronta dell'esito cambia sempre, perché la versione ci entra;
     stato, assi, motivi, autorità e impronta del prodotto no.

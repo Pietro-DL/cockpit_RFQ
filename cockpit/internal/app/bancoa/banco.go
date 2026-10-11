@@ -446,7 +446,7 @@ func (b *banco) messaggiFuori() []uuid.UUID {
 }
 
 // clientiFuori: i clienti che i casi senza thread dichiarano (cliente_id del file dei casi), una volta, in ordine di
-// byte (D-Q10-4 = A ristretta, decisa con l'utente l'11/10; T-DQ104-2: tutti i casi senza thread, anche quelli i cui
+// byte (D-Q10-4 = A ristretta [UR], raccomandazione adottata dall'utente l'11/10; T-DQ104-2: tutti i casi senza thread, anche quelli i cui
 // messaggi la copia non ha). Il caricatore li fotografa accanto ai clienti dei thread, così valutaFuoriRFQ trova la
 // ragione sociale del cliente del caso. Non si deducono dai messaggi (controparte, mittente, catena, aggancio): solo il
 // dato del caso. Non decidono la RFQ di nessun messaggio. Con -exports non si usano (T-DQ104-3: limite dichiarato).
