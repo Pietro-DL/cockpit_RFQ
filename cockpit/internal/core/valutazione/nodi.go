@@ -36,8 +36,8 @@ import (
 //   - confermato: il tipo del componente deciso del nodo (per la radice della BOM di lavoro senza una decisione propria,
 //     il componente del target, T-B4-38; per un confermato senza STEP, il suo componente);
 //   - proposto_dalla_riga: componente_proposta.tipo_proposto della riga legacy del nodo (una riga aperta con un valore
-//     dell'enum; «finito» solo per la radice della BOM di lavoro di un target, nella casella di una BOM di lavoro:
-//     D-P7e-1, D-CHIUS-2 C);
+//     dell'enum; «finito» solo per la radice della BOM di lavoro di un target, nella casella della BOM di lavoro di quel
+//     target: D-P7e-1, D-CHIUS-2 C, D-CHIUS-4 B);
 //   - proposto_dalla_regola: senza la riga, la regola con cui il legacy lo scrive (sottoassieme con dei figli nella
 //     struttura, altrimenti sciolto).
 //
@@ -253,7 +253,11 @@ func (x *nodiThread) nodo(pv ProdottoValutato, st ancoraggio.StrutturaProdotto, 
 			out.Parentela = append(out.Parentela, Parentela{Padre: a.Padre, Quantita: copiaIntero(a.Quantita), Decisa: a.Decisione != nil})
 		}
 	}
-	x.datiDelNodo(pv, &out, componenteDelNodo(pv, st, n), st.Stato == ancoraggio.StatoBOMDiLavoroProposta, conFigli)
+	bomDelTarget := ""
+	if st.Stato == ancoraggio.StatoBOMDiLavoroProposta {
+		bomDelTarget = st.Target
+	}
+	x.datiDelNodo(pv, &out, componenteDelNodo(pv, st, n), bomDelTarget, conFigli)
 	return out
 }
 
@@ -274,10 +278,11 @@ func (x *nodiThread) nodo(pv ProdottoValutato, st ancoraggio.StrutturaProdotto, 
 //   - Tipo, OrigineTipo (EB7-2 A; bozza §1.6): per il nodo con il componente il tipo del componente, confermato (un
 //     componente che la fotografia non ha, o senza tipo, non dà un tipo: "" e "", senza ricadere sulla proposta:
 //     T-P7e-06); per il nodo senza componente il tipo proposto della sua riga aperta o della regola
-//     (bomDelThread.tipoProposto, con le fonti di D3, con nellaBOM: la casella sta in una BOM di lavoro, D-CHIUS-2 C, e
-//     con conFigli: il nodo ha dei figli negli archi non tolti della sua struttura, D1). Il tipo non cambia la
-//     classificazione: un commerciale resta un pezzo con il suo 2D.
-func (x *nodiThread) datiDelNodo(pv ProdottoValutato, out *NodoBOM, k *uuid.UUID, nellaBOM, conFigli bool) {
+//     (bomDelThread.tipoProposto, con le fonti di D3, con bomDelTarget: il target della BOM di lavoro in cui sta la
+//     casella, "" fuori da una BOM di lavoro, D-CHIUS-2 C e D-CHIUS-4 B, e con conFigli: il nodo ha dei figli negli archi
+//     non tolti della sua struttura, D1). Il tipo non cambia la classificazione: un commerciale resta un pezzo con il
+//     suo 2D.
+func (x *nodiThread) datiDelNodo(pv ProdottoValutato, out *NodoBOM, k *uuid.UUID, bomDelTarget string, conFigli bool) {
 	n := out.Nodo
 	out.Descrizione = x.descrizione(n, k)
 	if k != nil {
@@ -303,7 +308,7 @@ func (x *nodiThread) datiDelNodo(pv ProdottoValutato, out *NodoBOM, k *uuid.UUID
 			categorie = categorieDi(f.Categorie)
 		}
 		out.Classificazione = Classifica(ComponenteDaClassificare{Categorie: categorie}, nil)
-		out.Tipo, out.OrigineTipo = x.b.tipoProposto(n.Rif, nellaBOM, conFigli)
+		out.Tipo, out.OrigineTipo = x.b.tipoProposto(n.Rif, bomDelTarget, conFigli)
 	}
 	if p := out.Disegni.Primario; p != nil {
 		o := p.Provenienza
@@ -388,7 +393,7 @@ func (x *nodiThread) confermatiSenzaSTEP(pv ProdottoValutato, strutture []ancora
 		}
 		sort.SliceStable(nb.Parentela, func(i, j int) bool { return nb.Parentela[i].Padre < nb.Parentela[j].Padre })
 		id := k
-		x.datiDelNodo(pv, &nb, &id, false, false)
+		x.datiDelNodo(pv, &nb, &id, "", false)
 		out = append(out, nb)
 	}
 	return out

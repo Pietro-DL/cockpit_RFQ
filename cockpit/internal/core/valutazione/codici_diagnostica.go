@@ -55,9 +55,10 @@ const (
 	// una struttura candidata di un target, che nessuna BOM di lavoro identifica: che sia il target non si determina
 	// (D4: la radice candidata non coincide automaticamente con il prodotto). La proposta non si applica e il nodo prende
 	// la regola (come ogni radice candidata senza decisione, D4), senza che questo dica che non è il target: è il caso
-	// ambiguo che D-P7e-1 chiede di segnalare (T-P7e-18, deciso con D-CHIUS-2 = C). Dopo D-CHIUS-2 anche la radice scelta di
-	// una BOM di lavoro vista in una casella fuori da una BOM di lavoro (lo stesso articolo, non la rappresentazione
-	// confermata). La classificazione della regola è provvisoria: non dimostra che il nodo sia un non target.
+	// ambiguo che D-P7e-1 chiede di segnalare (T-P7e-18, deciso con D-CHIUS-2 = C). Dopo D-CHIUS-2 e D-CHIUS-4 anche la
+	// radice scelta di una BOM di lavoro vista in una casella fuori dalla BOM di lavoro del suo target (lo stesso articolo,
+	// non la rappresentazione confermata). La classificazione della regola è provvisoria: non dimostra che il nodo sia un
+	// non target.
 	CodiceBOMTipoFinitoTargetNonDeterminato = "bom.tipo_finito_target_non_determinato"
 )
 
