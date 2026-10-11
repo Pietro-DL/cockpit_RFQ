@@ -323,11 +323,12 @@ func TestDP7e1LaDiagnosticaSoloDoveServe(t *testing.T) {
 	}
 }
 
-// TestDP7e1LeLettureDaRatificare (revisione indipendente dell'11/10, R4; T-P7e-18, da ratificare): fissano tre scelte che la
-// regola contiene, perché la ratifica le veda.
-//   - 1: l'identità è per Rif nel thread. La copia dello STEP dà una candidata con la stessa radice #1 della BOM di lavoro;
-//     senza decisione propria nella candidata, la radice ha la riga «finito» con autorità, perché lo stesso contenuto è la
-//     radice scelta della BOM di lavoro del target: finito/proposto_dalla_riga, nessuna diagnostica.
+// TestDP7e1LeLettureDaRatificare (revisione indipendente dell'11/10, R4; D-CHIUS-2 = C [UR] dell'11/10): le letture di
+// D-P7e-1 che la decisione fissa.
+//   - 1 (C: «Il Rif identifica, ma non conferisce autorità alla struttura candidata»): la copia dello STEP dà una candidata
+//     con la stessa radice #1 della BOM di lavoro. È lo stesso articolo, non la rappresentazione confermata: nella casella
+//     della candidata la riga «finito» non vale, la radice prende la regola (sottoassieme, in via provvisoria) e la
+//     diagnostica è quella del caso non determinato. Nella BOM di lavoro la radice resta finito e confermata.
 //   - 2: la radice candidata di un secondo STEP di un prodotto che ha già la BOM di lavoro non è identificata (nessuna BOM
 //     di lavoro sceglie quella radice): la regola e la diagnostica del caso non determinato.
 //   - 3: prima della regola vale la riga aperta successiva: «finito» poi «sottoassieme» dà sottoassieme/proposto_dalla_riga.
@@ -339,11 +340,15 @@ func TestDP7e1LeLettureDaRatificare(t *testing.T) {
 	if len(p.StruttureCandidate) == 0 {
 		t.Fatalf("1: la copia dello STEP non dà una candidata")
 	}
-	if r := nodoFra(t, p.StruttureCandidate[0].Nodi, nodoB("#1")); tipoDi(r) != "finito/proposto_dalla_riga" {
+	if r := nodoFra(t, p.StruttureCandidate[0].Nodi, nodoB("#1")); tipoDi(r) != "sottoassieme/proposto_dalla_regola" {
 		t.Errorf("1: la radice della candidata con lo stesso Rif della BOM di lavoro: %s", tipoDi(r))
 	}
-	if d := diagnosticheDelFinito(et); len(d) != 0 {
-		t.Errorf("1: nessuna diagnostica: %+v", d)
+	if n := nodoBOMDi(t, p, nodoB("#1")); tipoDi(n) != "finito/confermato" {
+		t.Errorf("1: la radice della BOM di lavoro: %s", tipoDi(n))
+	}
+	if d := diagnosticheDelFinito(et); len(d) != 1 || d[0].Codice != codiceFinitoTargetNonDeterminato ||
+		!reflect.DeepEqual(d[0].Rif, []string{rifProdB, nodoB("#1"), rifRigaProposta(rigaRadB)}) {
+		t.Errorf("1: la diagnostica del caso non determinato: %+v", d)
 	}
 
 	th = scenaTreNodi(t, true)
