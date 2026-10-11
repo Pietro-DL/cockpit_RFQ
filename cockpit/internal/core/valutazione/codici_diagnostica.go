@@ -47,7 +47,8 @@ const (
 	// senza decisione che non è identificato come il target della RFQ (non è la radice di nessuna struttura di un
 	// target): la proposta non ha autorità di classificazione (D-P7e-1 dell'utente dell'11/10, A), e il nodo prende la
 	// riga aperta successiva che vale o la regola strutturale (bomDelThread.tipoProposto), nei nodi e nei previsti. La
-	// riga resta nella fotografia; i riferimenti sono il prodotto, il nodo e le righe. Una per prodotto e nodo.
+	// riga resta nella fotografia; i riferimenti sono il prodotto, il nodo e le righe. Una per prodotto e nodo, solo per i
+	// nodi senza decisione e raggiunti (quelli che chiedono il tipo proposto); il percorso dice il prodotto e il Rif.
 	CodiceBOMTipoFinitoFuoriTarget = "bom.tipo_finito_fuori_target"
 
 	// CodiceBOMTipoFinitoTargetNonDeterminato — avviso, dati. Come bom.tipo_finito_fuori_target, ma il nodo è la radice di

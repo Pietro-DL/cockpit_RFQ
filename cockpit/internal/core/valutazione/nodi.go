@@ -231,30 +231,9 @@ func componenteDelNodo(pv ProdottoValutato, st ancoraggio.StrutturaProdotto, n a
 }
 
 // raggiunti: i nodi della struttura che la radice raggiunge negli archi, senza gli archi tolti da una persona, e i nodi
-// che in quegli archi hanno dei figli (per la regola del tipo proposto, EB7-2: «con figli» guarda gli archi della
-// struttura del nodo che una persona non ha tolto).
+// che in quegli archi hanno dei figli (bomDelThread.raggiuntiNellaStruttura, la stessa delle diagnostiche di D-P7e-1).
 func (x *nodiThread) raggiunti(st ancoraggio.StrutturaProdotto) (map[string]bool, map[string]bool) {
-	figli := map[string][]string{}
-	conFigli := map[string]bool{}
-	for _, a := range st.Archi {
-		if !x.b.archiTolti[RifArco(a.Padre, a.Figlio)] {
-			figli[a.Padre] = append(figli[a.Padre], a.Figlio)
-			conFigli[a.Padre] = true
-		}
-	}
-	out := map[string]bool{st.Radice: true}
-	coda := []string{st.Radice}
-	for len(coda) > 0 {
-		p := coda[0]
-		coda = coda[1:]
-		for _, f := range figli[p] {
-			if !out[f] {
-				out[f] = true
-				coda = append(coda, f)
-			}
-		}
-	}
-	return out, conFigli
+	return x.b.raggiuntiNellaStruttura(st)
 }
 
 // nodo: il NodoBOM di un nodo di una struttura del prodotto (la BOM di lavoro o una candidata).

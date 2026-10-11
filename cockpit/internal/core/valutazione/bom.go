@@ -517,8 +517,12 @@ func (b *bomDelThread) conLeRadiciDeiTarget(strutture []ancoraggio.StrutturaProd
 // delle strutture del prodotto in cui una riga «finito» precede la proposta che vale (cioè sarebbe valsa prima di
 // D-P7e-1): bom.tipo_finito_fuori_target per un nodo che non è la radice di nessuna struttura di un target,
 // bom.tipo_finito_target_non_determinato per la radice di una struttura candidata (il caso ambiguo: che sia il target non
-// si determina). I riferimenti sono il prodotto, il nodo e le righe della proposta, cioè la sua provenienza. In ordine
-// di nodo. Le diagnostiche del thread non entrano nello stato, negli assi né nell'impronta del prodotto.
+// si determina). Solo i nodi che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo del suo
+// componente, e la proposta non valeva nemmeno prima) e raggiunti dalla radice senza gli archi tolti da una persona, in
+// almeno una struttura del prodotto (raggiuntiNellaStruttura, la stessa dei nodi). I riferimenti sono il prodotto, il
+// nodo e le righe della proposta, cioè la sua provenienza; il percorso dice il prodotto e il Rif del nodo, non la casella
+// (lo stesso Rif può stare nella BOM di lavoro e in una candidata: D6). In ordine di nodo. Le diagnostiche del thread non
+// entrano nello stato, negli assi né nell'impronta del prodotto.
 func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto) []evidenze.Diagnostica {
 	visti := map[string]bool{}
 	var rifs []string
@@ -526,8 +530,9 @@ func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, s
 		if st.Target != pv.Rif {
 			continue
 		}
+		raggiunti, _ := b.raggiuntiNellaStruttura(st)
 		for _, n := range st.Nodi {
-			if !visti[n.Rif] {
+			if !visti[n.Rif] && raggiunti[n.Rif] && n.Decisione == nil {
 				visti[n.Rif] = true
 				rifs = append(rifs, n.Rif)
 			}
@@ -558,6 +563,34 @@ func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, s
 		out = append(out, d)
 	}
 	return out
+}
+
+// raggiuntiNellaStruttura: i nodi della struttura che la radice raggiunge negli archi, senza gli archi tolti da una
+// persona, e i nodi che in quegli archi hanno dei figli (per la regola del tipo proposto, EB7-2: «con figli» guarda gli
+// archi della struttura del nodo che una persona non ha tolto). La usano i nodi (nodiThread.raggiunti) e le diagnostiche
+// di D-P7e-1.
+func (b *bomDelThread) raggiuntiNellaStruttura(st ancoraggio.StrutturaProdotto) (map[string]bool, map[string]bool) {
+	figli := map[string][]string{}
+	conFigli := map[string]bool{}
+	for _, a := range st.Archi {
+		if !b.archiTolti[RifArco(a.Padre, a.Figlio)] {
+			figli[a.Padre] = append(figli[a.Padre], a.Figlio)
+			conFigli[a.Padre] = true
+		}
+	}
+	out := map[string]bool{st.Radice: true}
+	coda := []string{st.Radice}
+	for len(coda) > 0 {
+		p := coda[0]
+		coda = coda[1:]
+		for _, f := range figli[p] {
+			if !out[f] {
+				out[f] = true
+				coda = append(coda, f)
+			}
+		}
+	}
+	return out, conFigli
 }
 
 // gestiDaConfermaLAlbero: l'adattatore legacy di «Conferma l'albero» (R80, R61 A; contratto §1.3; T-B0-22). Il gesto
