@@ -386,7 +386,9 @@ func (c *completezzaThread) disegnoDellaVoce(comp *fotorfq.Componente, del2D *fo
 //     due strutture candidate dello stesso file e radici diverse lo stesso Rif può avere un tipo della regola diverso
 //     nelle due candidate e un solo tipo nel previsto. Le fonti della proposta, invece, sono già quelle di D3
 //     (tipoPropostoDellaRiga): una riga scartata, decisa o fuori dall'enum non dà il tipo nemmeno qui; e quelle di
-//     D-P7e-1 (propostaConAutorita): una riga «finito» per un nodo che non è il target non dà il tipo nemmeno qui.
+//     D-P7e-1 (propostaConAutorita): una riga «finito» per un nodo che non è il target non dà il tipo nemmeno qui; e per
+//     D-CHIUS-2 C la radice di una BOM di lavoro ha l'autorità solo se il previsto viene da una BOM di lavoro (le
+//     strutture che contano sono tutte BOM di lavoro o tutte candidate: struttureDellaVerifica).
 //
 // Il Rif è un riferimento di testo, mai analizzato (T-B5-93).
 func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto, perimetro map[uuid.UUID]bool) []NodoDaPrevedere {
@@ -395,6 +397,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 		deciso    *uuid.UUID
 		tolto     bool
 		conFigli  bool
+		nellaBOM  bool
 		raggiunto bool
 	}
 	per := map[string]*infoNodo{}
@@ -438,6 +441,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				i.tolto = true
 			}
 			i.conFigli = i.conFigli || padri[n.Rif]
+			i.nellaBOM = i.nellaBOM || st.Stato == ancoraggio.StatoBOMDiLavoroProposta
 			i.raggiunto = i.raggiunto || raggiunti[n.Rif]
 		}
 	}
@@ -458,7 +462,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				Motivo: MotivoPrevistoNodoDecisoFuoriPerimetro})
 		case i.tolto:
 		default:
-			tipo, _ := c.b.tipoProposto(rif, i.conFigli)
+			tipo, _ := c.b.tipoProposto(rif, i.nellaBOM, i.conFigli)
 			regole, cliente := FabbisogniDelTipo(tipo, c.t.Fabbisogni)
 			var categorie []string
 			if f := i.n.Codice.Forma; f != nil {

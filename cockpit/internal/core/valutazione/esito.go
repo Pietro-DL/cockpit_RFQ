@@ -21,8 +21,13 @@ import (
 //     con l'origine (EB7-2 A), il documento e lo stato del NAS nella voce del 2D (EB7-4 A, con D2 del 10/10). Con D3 del
 //     10/10 una riga scartata, decisa o fuori dall'enum non propone più il tipo: cambiano i previsti di quei soli nodi.
 //     Stato, assi, motivi, autorità e impronta del prodotto (R90) non cambiano. Le impronte dell'esito delle due versioni
-//     non si confrontano come se dovessero coincidere.
-const VersioneValutazione = "valutazione-2"
+//     non si confrontano come se dovessero coincidere;
+//   - valutazione-3 (11/10): D-CHIUS-3 = B, decisa con l'utente («Versionamento rigoroso di un esito semanticamente
+//     modificato»). Con D-P7e-1 e D-CHIUS-2 C una riga aperta «finito» non ha autorità fuori dalla casella della BOM di
+//     lavoro scelta di un target: lo stesso ingresso può dare un tipo, dei previsti e due diagnostiche nuove
+//     (bom.tipo_finito_*). valutazione-2 era già pubblicata, quindi la versione avanza. Stato, assi, motivi, autorità e
+//     impronta del prodotto non cambiano; l'impronta dell'esito cambia sempre, perché la versione ci entra.
+const VersioneValutazione = "valutazione-3"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
 //   - Le cinque versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)

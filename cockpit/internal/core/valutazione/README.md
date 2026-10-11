@@ -180,14 +180,19 @@ markmap:
     archiviato né «nessun tipo»: è una lettura [T] (T-P7e-17), con l'altra lettura dichiarata nel codice;
   - **D-P7e-1 A (dell'11/10: «finito» proposto da una riga)**: una riga aperta `tipo_proposto = finito` vale solo per
     un nodo identificato come il target dalle decisioni pertinenti, cioè la radice scelta della BOM di lavoro di un
-    target del thread (di qualunque target: più target nella stessa RFQ, nessuna unicità nuova). Per ogni altro nodo senza
+    target del thread (di qualunque target: più target nella stessa RFQ, nessuna unicità nuova), e solo nella casella di
+    una BOM di lavoro (D-CHIUS-2 = C, decisa con l'utente: «Il Rif identifica, ma non conferisce autorità alla struttura
+    candidata»; la stessa radice in una candidata, per esempio lo stesso STEP in un altro allegato, è lo stesso articolo,
+    non la rappresentazione confermata, e lì dà `bom.tipo_finito_target_non_determinato`). Per ogni altro nodo senza
     decisione non ha autorità: il nodo prende la riga aperta successiva che vale (`commerciale` compreso) o la regola
     strutturale, nei nodi e nei previsti (`propostaConAutorita`, nella stessa funzione unica di D3). La radice di una
     struttura candidata è il caso in cui il target non si determina (D4): la proposta non si applica, il nodo prende la
     regola come ogni radice candidata, e `bom.tipo_finito_target_non_determinato` lo segnala senza dire che non è il
     target; per gli altri nodi `bom.tipo_finito_fuori_target`. Le righe restano nella fotografia (la diagnostica le
     elenca: la provenienza), e i nodi decisi hanno il tipo del loro componente, confermato, anche se è un `finito`
-    legacy che non è target. Lettura [T] di «identificato come target» e di «non determinabile»: T-P7e-18;
+    legacy che non è target. La classificazione della regola nel caso non determinabile è provvisoria: non dimostra che
+    il nodo sia un non target (D-CHIUS-2). Le diagnostiche escono solo per le caselle senza decisione e raggiunte
+    (revisione indipendente, R3); il percorso dice il prodotto e il Rif, non la casella;
   - **D4**: la radice di uno STEP candidato non è il prodotto: è normale che il prodotto sia `finito/confermato` (fra i
     confermati senza STEP) e la radice della candidata `sottoassieme/proposto_dalla_regola` (T-P7e-07);
   - **D5**: `NodoBOM.Parentela` dei nodi di uno STEP porta i legami del file (gli archi, con il segno dell'arco
@@ -258,7 +263,7 @@ markmap:
     dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
     di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
 - **`esito.go`** (B6, V1) — responsabilità:
-  - `VersioneValutazione` (`valutazione-2` da P7e, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
+  - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
     `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` e `MessaggioInterpretato` (F0-03); i motivi di un
     file non valutato (`MotivoFile*`).
 - **`vecchio.go`** (B6, V1) — responsabilità:
@@ -930,10 +935,11 @@ markmap:
   che la fissa (`TestLeVersioniFissate`) si riscrive con lui.
   - **`valutazione-1`**: da B6 (P7c) fino a B6b e B6c (`1cc6409`, `b6a2f3b` nel ramo delle prove);
   - **`valutazione-2`**: da P7e (EB7-1 B, EB7-2 A, EB7-4 A, ratificati l'08/10; con D2 e D3 del 10/10). I campi nuovi
-    cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no. D-P7e-1
-    (11/10) chiude una domanda di P7e prima del congelamento di A1c e resta in `valutazione-2` (lettura [T], T-P7e-19):
-    cambia l'esito solo dove una riga aperta propone «finito» per un nodo che non è il target, e sui dati veri del banco
-    non ce n'è nessuna.
+    cambiano il canonico e l'impronta dell'esito; stato, assi, motivi, autorità e impronta del prodotto no;
+  - **`valutazione-3`**: dall'11/10, D-CHIUS-3 = B, decisa con l'utente. D-P7e-1 e D-CHIUS-2 C cambiano l'esito dove una
+    riga aperta propone «finito» fuori dalla casella della BOM di lavoro scelta di un target (sui dati veri del banco
+    nessuna), e `valutazione-2` era già pubblicata. L'impronta dell'esito cambia sempre, perché la versione ci entra;
+    stato, assi, motivi, autorità e impronta del prodotto no.
 - **`VersioneImprontaProdotto` resta 1**: i campi di P7e non entrano nei dati decisi (R90).
 - Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
   del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.

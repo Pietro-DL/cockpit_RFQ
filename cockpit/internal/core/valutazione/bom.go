@@ -313,7 +313,7 @@ type tipoDellaRiga struct {
 }
 
 // radiceDiTarget: il ruolo di un nodo che è la radice di una struttura di un target del thread (D-P7e-1 dell'utente
-// dell'11/10, lettura [T], T-P7e-18):
+// dell'11/10, con D-CHIUS-2 = C decisa con l'utente; T-P7e-18):
 //   - radiceDellaBOMDiLavoro: la radice scelta della BOM di lavoro di un target (la fonte confermata con la radice
 //     registrata: R76 A). È il nodo identificato come il target dalle decisioni pertinenti al target;
 //   - radiceCandidata: la radice di una struttura candidata di un target (la sua lettura è compatibile con la base del
@@ -464,9 +464,10 @@ func tipoPropostoDellaRiga(r fotorfq.RigaComponenteProposta) (string, bool) {
 // (nodiDaPrevedere) e i nodi (datiDelNodo), e chi la chiama dice se il nodo ha dei figli. Il filtro di D3 cambia quindi
 // anche il tipo dei previsti: è un cambiamento voluto dall'utente, e la prova di non regressione di P7e lo isola
 // (resoconto di P7e). Lo stesso vale per D-P7e-1: una proposta «finito» senza autorità lascia il posto alla riga aperta
-// successiva o alla regola, anche nei previsti, e la diagnostica lo dice (diagnosticheDelFinitoSenzaAutorita).
-func (b *bomDelThread) tipoProposto(rif string, conFigli bool) (string, OrigineTipo) {
-	if t, _, ok := b.propostaDelNodo(rif); ok {
+// successiva o alla regola, anche nei previsti, e la diagnostica lo dice (diagnosticheDelFinitoSenzaAutorita). Chi la
+// chiama dice anche se la casella del nodo sta in una BOM di lavoro (nellaBOM: D-CHIUS-2 C, propostaConAutorita).
+func (b *bomDelThread) tipoProposto(rif string, nellaBOM, conFigli bool) (string, OrigineTipo) {
+	if t, _, ok := b.propostaDelNodo(rif, nellaBOM); ok {
 		return t, OrigineTipoPropostoDallaRiga
 	}
 	if conFigli {
@@ -476,10 +477,11 @@ func (b *bomDelThread) tipoProposto(rif string, conFigli bool) (string, OrigineT
 }
 
 // propostaDelNodo: la proposta del tipo che vale per il nodo (la prima per ID con autorità: propostaConAutorita) e le
-// righe «finito» che la precedono senza autorità (per la diagnostica); ok falso senza una proposta che valga.
-func (b *bomDelThread) propostaDelNodo(rif string) (tipo string, senzaAutorita []uuid.UUID, ok bool) {
+// righe «finito» che la precedono senza autorità (per la diagnostica); ok falso senza una proposta che valga. nellaBOM:
+// la casella del nodo sta in una BOM di lavoro.
+func (b *bomDelThread) propostaDelNodo(rif string, nellaBOM bool) (tipo string, senzaAutorita []uuid.UUID, ok bool) {
 	for _, p := range b.tipi[rif] {
-		if b.propostaConAutorita(rif, p.tipo) {
+		if b.propostaConAutorita(rif, p.tipo, nellaBOM) {
 			return p.tipo, senzaAutorita, true
 		}
 		senzaAutorita = append(senzaAutorita, p.riga)
@@ -491,12 +493,16 @@ func (b *bomDelThread) propostaDelNodo(rif string) (tipo string, senzaAutorita [
 // aperta tipo_proposto=finito su un nodo che non è identificato come target RFQ non ha autorità di classificazione. Il
 // target deriva dalle decisioni pertinenti, non dall'assenza di padre o dalla sola proposta»). «finito» vale solo per la
 // radice scelta della BOM di lavoro di un target del thread (radiceDellaBOMDiLavoro, di qualunque target: più target
-// nella stessa RFQ sono possibili, e nessuna unicità nuova); per ogni altro nodo senza decisione no, compresa la radice
-// di una struttura candidata (D4: non coincide automaticamente con il prodotto). Gli altri valori dell'enum valgono come
-// prima, «commerciale» compreso. Le righe restano nella fotografia com'erano: la proposta grezza non si cancella, e
-// nessuna decisione registrata si riscrive (un nodo deciso ha il tipo del suo componente e non passa di qui).
-func (b *bomDelThread) propostaConAutorita(rif, tipo string) bool {
-	return tipo != tipoFinito || b.radici[rif] == radiceDellaBOMDiLavoro
+// nella stessa RFQ sono possibili, e nessuna unicità nuova), e solo nella casella di una BOM di lavoro (nellaBOM:
+// D-CHIUS-2 = C [UR] dell'11/10, «Il Rif identifica, ma non conferisce autorità alla struttura candidata»; «soltanto
+// una struttura effettivamente scelta e confermata possiede l'autorità di rappresentare il target nella BOM di lavoro»).
+// La stessa radice in una struttura candidata (per esempio lo stesso STEP in un altro allegato) è lo stesso articolo,
+// ma non la rappresentazione confermata: lì la proposta non vale. Per ogni altro nodo senza decisione no, compresa la
+// radice di una struttura candidata (D4: non coincide automaticamente con il prodotto). Gli altri valori dell'enum
+// valgono come prima, «commerciale» compreso. Le righe restano nella fotografia com'erano: la proposta grezza non si
+// cancella, e nessuna decisione registrata si riscrive (un nodo deciso ha il tipo del suo componente e non passa di qui).
+func (b *bomDelThread) propostaConAutorita(rif, tipo string, nellaBOM bool) bool {
+	return tipo != tipoFinito || (nellaBOM && b.radici[rif] == radiceDellaBOMDiLavoro)
 }
 
 // conLeRadiciDeiTarget: il ruolo delle radici delle strutture dei target del thread (radiceDiTarget), da tutte le
@@ -514,37 +520,54 @@ func (b *bomDelThread) conLeRadiciDeiTarget(strutture []ancoraggio.StrutturaProd
 }
 
 // diagnosticheDelFinitoSenzaAutorita: le diagnostiche delle proposte «finito» senza autorità (D-P7e-1), una per nodo
-// delle strutture del prodotto in cui una riga «finito» precede la proposta che vale (cioè sarebbe valsa prima di
-// D-P7e-1): bom.tipo_finito_fuori_target per un nodo che non è la radice di nessuna struttura di un target,
-// bom.tipo_finito_target_non_determinato per la radice di una struttura candidata (il caso ambiguo: che sia il target non
-// si determina). Solo i nodi che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo del suo
-// componente, e la proposta non valeva nemmeno prima) e raggiunti dalla radice senza gli archi tolti da una persona, in
-// almeno una struttura del prodotto (raggiuntiNellaStruttura, la stessa dei nodi). I riferimenti sono il prodotto, il
+// delle strutture del prodotto in cui, in almeno una casella, una riga «finito» precede la proposta che vale (cioè
+// sarebbe valsa prima di D-P7e-1): bom.tipo_finito_fuori_target per un nodo che non è la radice di nessuna struttura di
+// un target; bom.tipo_finito_target_non_determinato per la radice di una struttura candidata (il caso ambiguo: che sia
+// il target non si determina) e per la radice scelta di una BOM di lavoro vista in una casella fuori da una BOM di lavoro
+// (lo stesso articolo, non la rappresentazione confermata: D-CHIUS-2 C). Se le caselle dello stesso nodo danno i due
+// casi, vale quello ambiguo. Solo le caselle che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo
+// del suo componente, e la proposta non valeva nemmeno prima) e raggiunte dalla radice senza gli archi tolti da una
+// persona (raggiuntiNellaStruttura, la stessa dei nodi). I riferimenti sono il prodotto, il
 // nodo e le righe della proposta, cioè la sua provenienza; il percorso dice il prodotto e il Rif del nodo, non la casella
 // (lo stesso Rif può stare nella BOM di lavoro e in una candidata: D6). In ordine di nodo. Le diagnostiche del thread non
 // entrano nello stato, negli assi né nell'impronta del prodotto.
 func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto) []evidenze.Diagnostica {
-	visti := map[string]bool{}
+	type casoDelNodo struct {
+		ambiguo       bool
+		senzaAutorita []uuid.UUID
+	}
+	casi := map[string]*casoDelNodo{}
 	var rifs []string
 	for _, st := range strutture {
 		if st.Target != pv.Rif {
 			continue
 		}
+		nellaBOM := st.Stato == ancoraggio.StatoBOMDiLavoroProposta
 		raggiunti, _ := b.raggiuntiNellaStruttura(st)
 		for _, n := range st.Nodi {
-			if !visti[n.Rif] && raggiunti[n.Rif] && n.Decisione == nil {
-				visti[n.Rif] = true
+			if !raggiunti[n.Rif] || n.Decisione != nil {
+				continue
+			}
+			_, senza, _ := b.propostaDelNodo(n.Rif, nellaBOM)
+			if len(senza) == 0 {
+				continue
+			}
+			c := casi[n.Rif]
+			if c == nil {
+				c = &casoDelNodo{}
+				casi[n.Rif] = c
 				rifs = append(rifs, n.Rif)
+			}
+			c.ambiguo = c.ambiguo || b.radici[n.Rif] != 0
+			if len(senza) > len(c.senzaAutorita) {
+				c.senzaAutorita = senza
 			}
 		}
 	}
 	sort.Strings(rifs)
 	var out []evidenze.Diagnostica
 	for _, rif := range rifs {
-		_, senzaAutorita, _ := b.propostaDelNodo(rif)
-		if len(senzaAutorita) == 0 {
-			continue
-		}
+		senzaAutorita := casi[rif].senzaAutorita
 		d := evidenze.Diagnostica{
 			Codice:    CodiceBOMTipoFinitoFuoriTarget,
 			Gravita:   evidenze.GravitaAvviso,
@@ -553,9 +576,13 @@ func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, s
 			Messaggio: "una riga aperta propone «finito» per un nodo che non è identificato come il target della RFQ: la proposta non ha autorità di classificazione (D-P7e-1), e il nodo prende un'altra proposta aperta o la regola strutturale; la riga resta com'è",
 			Rif:       []string{pv.Rif, rif},
 		}
-		if b.radici[rif] == radiceCandidata {
+		switch {
+		case casi[rif].ambiguo && b.radici[rif] == radiceDellaBOMDiLavoro:
 			d.Codice = CodiceBOMTipoFinitoTargetNonDeterminato
-			d.Messaggio = "una riga aperta propone «finito» per la radice di una struttura candidata: che sia il target non si determina (nessuna BOM di lavoro la identifica, e la radice candidata non coincide automaticamente con il prodotto: D4), quindi la proposta non si applica (D-P7e-1) e il nodo prende un'altra proposta aperta o la regola strutturale, senza che questo dica che non è il target; la riga resta com'è"
+			d.Messaggio = "una riga aperta propone «finito» per la radice scelta della BOM di lavoro di un target, vista in una struttura che non è quella scelta (per esempio lo stesso STEP in un altro allegato): è lo stesso articolo, non la rappresentazione confermata (D-CHIUS-2), quindi lì la proposta non si applica e la casella prende un'altra proposta aperta o la regola strutturale, in via provvisoria e senza che questo dica che non è il target; la riga resta com'è"
+		case casi[rif].ambiguo:
+			d.Codice = CodiceBOMTipoFinitoTargetNonDeterminato
+			d.Messaggio = "una riga aperta propone «finito» per la radice di una struttura candidata: che sia il target non si determina (nessuna BOM di lavoro la identifica, e la radice candidata non coincide automaticamente con il prodotto: D4), quindi la proposta non si applica (D-P7e-1) e il nodo prende un'altra proposta aperta o la regola strutturale, in via provvisoria e senza che questo dica che non è il target; la riga resta com'è"
 		}
 		for _, id := range senzaAutorita {
 			d.Rif = append(d.Rif, "componente_proposta:"+id.String())
