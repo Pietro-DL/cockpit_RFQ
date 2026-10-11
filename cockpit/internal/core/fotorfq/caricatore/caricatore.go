@@ -41,12 +41,17 @@ type Iniziatore interface {
 }
 
 // Richiesta: che cosa fotografare. Con Tutti, l'elenco delle RFQ si legge nella stessa transazione (non sul pool,
-// come fa il comando U5). Messaggi sono i messaggi senza RFQ dei casi del banco (R34). Sorgente è la destinazione
-// senza password (migrazioni.Destinazione), per il rapporto: resta fuori dall'impronta.
+// come fa il comando U5). Messaggi sono i messaggi senza RFQ dei casi del banco (R34). Clienti sono i clienti che i casi
+// senza thread del banco dichiarano (cliente_id del file dei casi; D-Q10-4 = A ristretta, decisa con l'utente l'11/10):
+// si fotografano accanto a quelli dei thread, con la stessa query e solo per la ragione sociale. Il caricatore non li
+// deduce dai messaggi e non li controlla: un cliente che la copia non ha resta fuori dalla fotografia, senza errore
+// (T-DQ104-1), e il messaggio del suo caso resta non valutato con ragione_sociale_discorde, visibile nel rapporto.
+// Sorgente è la destinazione senza password (migrazioni.Destinazione), per il rapporto: resta fuori dall'impronta.
 type Richiesta struct {
 	Thread   []uuid.UUID
 	Tutti    bool
 	Messaggi []uuid.UUID
+	Clienti  []uuid.UUID
 	Sorgente string
 }
 
@@ -100,7 +105,7 @@ func apriInSolaLettura(ctx context.Context, p Iniziatore) (pgx.Tx, error) {
 //     fotografia.nessun_analizzatore;
 //  4. il perimetro: Richiesta.Thread, e con Tutti ListRfqPerLaRiapertura sulla stessa transazione;
 //  5. per ogni thread le sue letture, nella stessa transazione (leggiThread);
-//  6. i clienti dei thread (ListClientiDellaFotografia, mai cliente.regole);
+//  6. i clienti dei thread e quelli di Richiesta.Clienti, in una sola ListClientiDellaFotografia (mai cliente.regole);
 //  7. i messaggi fuori RFQ, con i loro allegati e i fatti per sha256;
 //  8. le sigle degli utenti (ListSigleUtenti, mai password_hash);
 //  9. ROLLBACK esplicito; poi, a transazione chiusa, la conversione nei tipi puri, ImprontaPayload, Ordina.
@@ -197,7 +202,7 @@ func leggi(ctx context.Context, tx pgx.Tx, r Richiesta) (letture, error) {
 		}
 		perimetro = unici(perimetro)
 	}
-	clienti := []uuid.UUID{}
+	clienti := append([]uuid.UUID{}, r.Clienti...) // D-Q10-4: i clienti dichiarati dai casi senza thread
 	for _, id := range perimetro {
 		lt, err := leggiThread(ctx, q, id, l.analizzatore)
 		if err != nil {

@@ -445,6 +445,25 @@ func (b *banco) messaggiFuori() []uuid.UUID {
 	return out
 }
 
+// clientiFuori: i clienti che i casi senza thread dichiarano (cliente_id del file dei casi), una volta, in ordine di
+// byte (D-Q10-4 = A ristretta, decisa con l'utente l'11/10; T-DQ104-2: tutti i casi senza thread, anche quelli i cui
+// messaggi la copia non ha). Il caricatore li fotografa accanto ai clienti dei thread, così valutaFuoriRFQ trova la
+// ragione sociale del cliente del caso. Non si deducono dai messaggi (controparte, mittente, catena, aggancio): solo il
+// dato del caso. Non decidono la RFQ di nessun messaggio. Con -exports non si usano (T-DQ104-3: limite dichiarato).
+func (b *banco) clientiFuori() []uuid.UUID {
+	var out []uuid.UUID
+	visti := map[uuid.UUID]bool{}
+	for _, c := range b.ingressi.Casi {
+		if c.ThreadID != nil || visti[c.ClienteID] {
+			continue
+		}
+		visti[c.ClienteID] = true
+		out = append(out, c.ClienteID)
+	}
+	sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i][:], out[j][:]) < 0 })
+	return out
+}
+
 // fotografiaDSN: la sequenza -dsn (6.4.9, passi 2–5): l'apertura in sola lettura con il controllo dello schema, i
 // controlli del collegamento con le tabelle escluse del manifest, la copia del manifest (ruolo, database, schema), la
 // prima scrittura del rapporto, poi caricatore.Carica.
@@ -486,7 +505,8 @@ func (b *banco) fotografiaDSN(ctx context.Context) {
 		return
 	}
 	f, mancanti, err := caricaSenzaIMancanti(func(messaggi []uuid.UUID) (fotorfq.Fotografia, error) {
-		return caricatore.Carica(ctx, pool, caricatore.Richiesta{Thread: b.o.Thread, Tutti: b.o.Tutti, Messaggi: messaggi, Sorgente: b.destinazione})
+		return caricatore.Carica(ctx, pool, caricatore.Richiesta{Thread: b.o.Thread, Tutti: b.o.Tutti, Messaggi: messaggi,
+			Clienti: b.clientiFuori(), Sorgente: b.destinazione})
 	}, b.messaggiFuori())
 	b.mancantiCopia = mancanti
 	if err != nil {

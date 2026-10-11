@@ -38,7 +38,9 @@ markmap:
     (deve essere `on`) e `SHOW transaction_isolation` (deve essere `repeatable read`); se no, `ROLLBACK` ed
     `ErrNonInSolaLettura`, prima di qualunque lettura di dominio;
   - `Carica`: la sequenza del 6.4.2 (schema con `migrazioni.Applicate` sulla transazione, `SELECT now()`,
-    l'analizzatore corrente, il perimetro, le letture per RFQ, i clienti, i messaggi fuori RFQ, le sigle), poi
+    l'analizzatore corrente, il perimetro, le letture per RFQ, i clienti dei thread e quelli dichiarati dai casi senza
+    thread (`Richiesta.Clienti`, D-Q10-4: un cliente che la copia non ha resta fuori, senza errore), i messaggi fuori
+    RFQ, le sigle), poi
     il `ROLLBACK` esplicito e, a transazione chiusa, la conversione;
   - `leggiThread`, `leggiFuori`: le letture di una RFQ e di un messaggio senza RFQ.
 - **`conversioni.go`** — responsabilità:

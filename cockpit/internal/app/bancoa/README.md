@@ -240,7 +240,9 @@ markmap:
   le modalità di A1c e i loro flag con regole e casi (errore d'uso); un'opzione `dsn` senza DSN, o `exports` senza la
   cartella, è un errore d'uso.
 - **Il file dei casi prima della fotografia** (T-B6-04): `caricatore.Richiesta.Messaggi` ha solo i messaggi dei casi
-  senza thread (D-V1-3).
+  senza thread (D-V1-3), e `caricatore.Richiesta.Clienti` solo i loro `cliente_id` (`clientiFuori`; D-Q10-4 = A
+  ristretta, T-DQ104-2): il cliente del caso, mai dedotto dal messaggio. Con `-exports` no (T-DQ104-3: il limite resta,
+  dichiarato).
 - **I controlli del runner** girano prima degli esiti; un fallimento è una differenza (uscita 1), mai un «mancante»;
   un ingresso che manca o è cambiato è NON ESEGUITO (uscita 3). Con i soli thread scelti (`-thread`) gli ID degli
   attesi di altri thread non sono differenze ma parti non verificabili, e così lo scenario se il suo thread non è
