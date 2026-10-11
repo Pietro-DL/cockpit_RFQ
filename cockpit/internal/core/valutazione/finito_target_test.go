@@ -8,6 +8,7 @@ package valutazione_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -176,6 +177,12 @@ func TestDP7e1PiuTarget(t *testing.T) {
 		if n := nodoBOMDi(t, p, rif4); tipoDi(n) != "sciolto/proposto_dalla_regola" {
 			t.Errorf("%s: #4 non target: %s", p.Rif, tipoDi(n))
 		}
+	}
+	// I previsti del primo target: #3 è un nodo della sua BOM di lavoro con la proposta «finito» che vale, quindi ha i
+	// fabbisogni del finito. Fissa la lettura in vigore (l'autorità in una casella di una BOM di lavoro qualunque), che è
+	// la domanda D-CHIUS-4: se la risposta è l'altra, questa parte cambia con il codice.
+	if got := previstiDelNodo(p1.Documenti, rifNodo3); !reflect.DeepEqual(got, []string{"cad_3d", "disegno_2d"}) {
+		t.Errorf("i previsti di #3 nella BOM di lavoro del primo target: %v", got)
 	}
 	d := diagnosticheDelFinito(et)
 	var prodotti []string
@@ -347,8 +354,9 @@ func TestDP7e1LeLettureDaRatificare(t *testing.T) {
 		t.Errorf("1: la radice della BOM di lavoro: %s", tipoDi(n))
 	}
 	if d := diagnosticheDelFinito(et); len(d) != 1 || d[0].Codice != codiceFinitoTargetNonDeterminato ||
-		!reflect.DeepEqual(d[0].Rif, []string{rifProdB, nodoB("#1"), rifRigaProposta(rigaRadB)}) {
-		t.Errorf("1: la diagnostica del caso non determinato: %+v", d)
+		!reflect.DeepEqual(d[0].Rif, []string{rifProdB, nodoB("#1"), rifRigaProposta(rigaRadB)}) ||
+		!strings.Contains(d[0].Messaggio, "non è quella scelta") || !strings.Contains(d[0].Messaggio, "non la rappresentazione confermata") {
+		t.Errorf("1: la diagnostica del caso non determinato, con il messaggio della radice scelta vista fuori dalla BOM: %+v", d)
 	}
 
 	th = scenaTreNodi(t, true)
@@ -382,5 +390,45 @@ func TestDP7e1LeLettureDaRatificare(t *testing.T) {
 	th.RigheComponenteProposta = append(th.RigheComponenteProposta, s)
 	if n := nodoBOMDi(t, prodottoDi(t, esitoSmistamento(t, th), rifProdB), rif4); tipoDi(n) != "sottoassieme/proposto_dalla_riga" {
 		t.Errorf("3: «finito» poi «sottoassieme»: %s", tipoDi(n))
+	}
+}
+
+// TestDP7e1IPrevistiFuoriDallaBOM (revisione indipendente del pomeriggio dell'11/10, rilievo 2; D-CHIUS-2 = C [UR]): il
+// primo target senza la fonte confermata ha solo strutture candidate, e la sua candidata contiene #3, la radice scelta
+// della BOM di lavoro del secondo target, con la riga «finito». Fuori da una BOM di lavoro la proposta non vale: nei
+// previsti del primo target #3 ha i fabbisogni del sottoassieme della regola (#4 è suo figlio), nei nodi della candidata
+// la regola, e la diagnostica è quella del caso non determinato. Nella BOM di lavoro del secondo target #3 resta finito e
+// confermato.
+func TestDP7e1IPrevistiFuoriDallaBOM(t *testing.T) {
+	th := scenaDueTarget(t)
+	senzaFonte(&th)
+	rigaDi(t, &th, "#3").TipoProposto = testo("finito")
+	et := esitoSmistamento(t, th)
+	p1, p2 := prodottoDi(t, et, rifProdB), prodottoDi(t, et, rifSecondoTarget)
+	if len(p1.Nodi) != 0 || len(p1.StruttureCandidate) == 0 || len(p2.Nodi) == 0 {
+		t.Fatalf("il primo target senza BOM di lavoro e con una candidata, il secondo con la BOM di lavoro: %d nodi, %v candidate, %d nodi",
+			len(p1.Nodi), chiaviCandidate(p1), len(p2.Nodi))
+	}
+	if got := previstiDelNodo(p1.Documenti, rifNodo3); !reflect.DeepEqual(got, []string{"disegno_2d"}) {
+		t.Errorf("i previsti di #3 fuori dalla BOM di lavoro: %v (attesi i fabbisogni del sottoassieme)", got)
+	}
+	for _, c := range p1.StruttureCandidate {
+		for _, n := range c.Nodi {
+			if n.Nodo.Rif == rifNodo3 && tipoDi(n) != "sottoassieme/proposto_dalla_regola" {
+				t.Errorf("#3 nella candidata del primo target: %s", tipoDi(n))
+			}
+		}
+	}
+	if n := nodoBOMDi(t, p2, rifNodo3); tipoDi(n) != "finito/confermato" {
+		t.Errorf("#3, la radice del secondo target: %s", tipoDi(n))
+	}
+	var codici []string
+	for _, x := range diagnosticheDelFinito(et) {
+		if x.Rif[0] == rifProdB && x.Rif[1] == rifNodo3 {
+			codici = append(codici, x.Codice)
+		}
+	}
+	if !reflect.DeepEqual(codici, []string{codiceFinitoTargetNonDeterminato}) {
+		t.Errorf("la diagnostica di #3 nel primo target: %v", codici)
 	}
 }
