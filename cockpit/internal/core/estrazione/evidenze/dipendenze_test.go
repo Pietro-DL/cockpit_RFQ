@@ -41,7 +41,10 @@ import (
 //     (fase 0 di B6, F0-11);
 //   - A1c-L1-28 (la parte di B6, P9): G1 e MOTORE-SENZA-LLM sul banco allargato ai modi dsn ed exports (valutazione,
 //     confronto, la fotografia, il caricatore, platform/migrazioni; mai ancoraggio né pgx per nome) e sul suo comando,
-//     che prende dalla radice del modulo le migrazioni incorporate e non importa mai app/runtime; G3 e F19 non cambiano.
+//     che prende dalla radice del modulo le migrazioni incorporate e non importa mai app/runtime; G3 e F19 non cambiano;
+//   - A1d-Q2 (S-01 della revisione di A1d-P2): la Distinta nuova nel web, internal/transport/web/motore_a, legge
+//     soltanto: di core/rfq/fascicolo usa un elenco chiuso di simboli di lettura, di *db.Queries solo le letture che
+//     usa, mai una transazione in scrittura, un Commit, un Exec o un testo SQL suo.
 //
 // I file di prova restano fuori: per le prove vale un controllo a parte. Il file si estende: ogni sessione
 // aggiunge a pacchettiMotoreA i pacchetti che crea, e qui i suoi controlli (la grammatica che usa della
@@ -145,10 +148,16 @@ var pacchettiMotoreA = []regolePacchetto{
 	{percorso: "cmd/bancoa", progetto: []string{"internal/app/bancoa", "."}},
 	// La Distinta nuova nel web (giro 5, A1d; direttiva A1d dell'11/10, §1): sottopackage non puro di transport/web,
 	// importato da app/runtime e da web; non importa mai transport/web né app/* (la lista chiusa lo impedisce). A1d-P1:
-	// solo le regole caricate all'avvio.
+	// solo le regole caricate all'avvio. A1d-P2: il calcolo in sola lettura (il caricatore, valutazione, confronto con la
+	// copia di passaggio, la fotografia, ancoraggio per i Rif dell'indice), le query sqlc dello snapshot (platform/db:
+	// GetThread, la fase) e dell'anteprima dello STEP con le dichiarazioni (core/rfq/fascicolo, EffettoAutorizzazione e
+	// LeggiDichiarazioni: riusati, non copiati), pgx per la transazione e pgconn per il SQLSTATE 25006. Mai transport/web,
+	// app/*, ai/*, platform/config, la libreria YAML.
 	{percorso: "internal/transport/web/motore_a",
-		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/valutazione"},
-		esterni:  []string{"github.com/google/uuid"}},
+		progetto: []string{"internal/core/inbox/classificazione/motorea", "internal/core/valutazione",
+			"internal/core/confronto", "internal/core/fotorfq", "internal/core/fotorfq/caricatore", "internal/core/ancoraggio",
+			"internal/core/rfq/fascicolo", "internal/platform/db"},
+		esterni: []string{"github.com/google/uuid", "github.com/jackc/pgx/v5", "github.com/jackc/pgx/v5/pgconn"}},
 }
 
 // vietatiAiPuri (VP): vietati ai pacchetti puri, anche per transitività sugli import del progetto.
@@ -866,6 +875,229 @@ func TestIlBancoUsaDiEstrazioneSoloDaTesto(t *testing.T) {
 	if usi == 0 {
 		t.Error("app/bancoa non usa estrazione.DaTesto: la freccia F19 della tabella non ha più motivo")
 	}
+}
+
+// fascicoloDellaDistintaNuova: i simboli di core/rfq/fascicolo che la Distinta nuova nel web può usare (S-01 della
+// revisione di A1d-P2): le letture riusate (EffettoAutorizzazione per l'anteprima dello STEP, LeggiDichiarazioni e
+// ValutaDichiarazioni per le dichiarazioni dello snapshot), la richiesta del gesto e i tipi e le costanti che quelle
+// letture restituiscono. Nessuna funzione che scrive (DichiaraStrutturale, RevocaStrutturale, ApplicaStruttura, …).
+var fascicoloDellaDistintaNuova = []string{"EffettoAutorizzazione", "LeggiDichiarazioni", "ValutaDichiarazioni",
+	"RichiestaAutorizzazione", "Effetto", "NodoEffetto", "DelegaPossibile", "Dichiarazioni", "Dichiarazione", "Rifiuto",
+	"Raggruppamento", "OrigineSmistamento", "OrigineStepStrutturale"}
+
+// queriesDellaDistintaNuova: i metodi di *db.Queries che la Distinta nuova chiama da sé (lo snapshot: l'esistenza della
+// RFQ e la fase). Solo letture (Get*, List*), e tutte usate: una lettura che non serve più si toglie da qui.
+var queriesDellaDistintaNuova = []string{"GetThread", "GetFaseCorrente", "ListFaseCatalogo"}
+
+// chiamateCheScrivono: i metodi di una transazione pgx che la Distinta nuova non chiama mai da sé: le letture passano
+// dalle query generate (db.Queries), dal caricatore e dal Fascicolo; la transazione si chiude solo con Rollback.
+var chiamateCheScrivono = []string{"Exec", "Commit", "Query", "QueryRow", "CopyFrom", "SendBatch", "Prepare", "LargeObjects"}
+
+// TestLaDistintaNuovaLeggeSoltanto (A1d-Q2; S-01 e Q2-06 b della revisione di A1d-P2; nello stile di F19): nei file non
+// di prova di internal/transport/web/motore_a
+//   - ogni fascicolo.X è in fascicoloDellaDistintaNuova, ed EffettoAutorizzazione e LeggiDichiarazioni sono usati (se
+//     non lo sono, la prova legge i file sbagliati o la freccia verso il Fascicolo non ha più motivo);
+//   - ogni chiamata a un metodo di *db.Queries (i metodi si leggono da platform/db) è in queriesDellaDistintaNuova, e
+//     ognuna è usata; di db, come funzione, solo New (i tipi e le costanti sì);
+//   - nessuna chiamata in chiamateCheScrivono, nessun pgx.ReadWrite; ogni pgx.TxOptions scritto ha AccessMode pgx.ReadOnly;
+//     ogni BeginTx chiamato riceve opzioniSnapshot; Begin (il savepoint) solo dentro savepoint.BeginTx.
+//
+// Un import di fascicolo, db o pgx con il nome «.» o «_» fa fallire la prova: i nomi usati non si vedrebbero. Le L4
+// (servizio_db_test.go) provano la sola lettura sul database; questa guardia copre anche i rami d'errore che le L4 non
+// percorrono.
+func TestLaDistintaNuovaLeggeSoltanto(t *testing.T) {
+	radice := radiceDelModulo(t)
+	const (
+		fascicolo = modulo + "/internal/core/rfq/fascicolo"
+		dbImp     = modulo + "/internal/platform/db"
+		pgxImp    = "github.com/jackc/pgx/v5"
+	)
+	// i metodi di *Queries e le funzioni di platform/db, letti dai sorgenti generati
+	_, fileDB := fileAnalizzati(t, radice, "internal/platform/db")
+	metodiQueries, funzioniDB := map[string]bool{}, map[string]bool{}
+	for _, f := range fileDB {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			if fd.Recv == nil {
+				funzioniDB[fd.Name.Name] = true
+				continue
+			}
+			if st, ok := fd.Recv.List[0].Type.(*ast.StarExpr); ok {
+				if id, ok := st.X.(*ast.Ident); ok && id.Name == "Queries" {
+					metodiQueries[fd.Name.Name] = true
+				}
+			}
+		}
+	}
+	if len(metodiQueries) < 50 || !funzioniDB["New"] {
+		t.Fatalf("platform/db: %d metodi di Queries, New %v: la prova non legge i file giusti", len(metodiQueries), funzioniDB["New"])
+	}
+	for _, m := range queriesDellaDistintaNuova {
+		if !metodiQueries[m] || !(strings.HasPrefix(m, "Get") || strings.HasPrefix(m, "List")) {
+			t.Errorf("%s non è una lettura di *db.Queries", m)
+		}
+	}
+
+	fset, files := fileAnalizzati(t, radice, "internal/transport/web/motore_a")
+	if len(files) == 0 {
+		t.Fatal("nessun file di transport/web/motore_a: la prova non legge i file giusti")
+	}
+	usiFascicolo, usiQueries := map[string]int{}, map[string]int{}
+	for _, f := range files {
+		nomi := map[string]string{} // import → nome nel file
+		for _, is := range f.Imports {
+			imp, _ := strconv.Unquote(is.Path.Value)
+			if imp != fascicolo && imp != dbImp && imp != pgxImp {
+				continue
+			}
+			nome := imp[strings.LastIndex(imp, "/")+1:]
+			if imp == pgxImp {
+				nome = "pgx"
+			}
+			if is.Name != nil {
+				nome = is.Name.Name
+			}
+			if nome == "." || nome == "_" {
+				t.Errorf("%s: import di %s con il nome %q: i nomi usati non si vedrebbero", fset.Position(is.Pos()), imp, nome)
+				continue
+			}
+			nomi[imp] = nome
+		}
+		pacchetto := func(e ast.Expr, imp string) bool {
+			id, ok := e.(*ast.Ident)
+			return ok && id.Obj == nil && nomi[imp] != "" && id.Name == nomi[imp]
+		}
+		// diQueries: l'espressione è un *db.Queries che si vede dal sorgente: db.New(…), un parametro *db.Queries, una
+		// variabile assegnata da db.New(…)
+		eDbNew := func(e ast.Expr) bool {
+			c, ok := e.(*ast.CallExpr)
+			if !ok {
+				return false
+			}
+			sel, ok := c.Fun.(*ast.SelectorExpr)
+			return ok && pacchetto(sel.X, dbImp) && sel.Sel.Name == "New"
+		}
+		diQueries := func(e ast.Expr) bool {
+			if eDbNew(e) {
+				return true
+			}
+			id, ok := e.(*ast.Ident)
+			if !ok || id.Obj == nil {
+				return false
+			}
+			switch d := id.Obj.Decl.(type) {
+			case *ast.Field:
+				st, ok := d.Type.(*ast.StarExpr)
+				if !ok {
+					return false
+				}
+				sel, ok := st.X.(*ast.SelectorExpr)
+				return ok && pacchetto(sel.X, dbImp) && sel.Sel.Name == "Queries"
+			case *ast.AssignStmt:
+				for i, l := range d.Lhs {
+					if li, ok := l.(*ast.Ident); ok && li.Name == id.Name && i < len(d.Rhs) {
+						return eDbNew(d.Rhs[i])
+					}
+				}
+			}
+			return false
+		}
+		// ogni dichiarazione, funzioni e variabili; per Begin si sa se si è dentro savepoint.BeginTx
+		for _, d := range f.Decls {
+			nelSavepoint := false
+			if fd, ok := d.(*ast.FuncDecl); ok {
+				nelSavepoint = fd.Name.Name == "BeginTx" && fd.Recv != nil && len(fd.Recv.List) == 1 &&
+					exprNome(fd.Recv.List[0].Type) == "savepoint"
+			}
+			ast.Inspect(d, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.SelectorExpr:
+					switch {
+					case pacchetto(x.X, fascicolo):
+						usiFascicolo[x.Sel.Name]++
+						if !contiene(fascicoloDellaDistintaNuova, x.Sel.Name) {
+							t.Errorf("%s: transport/web/motore_a usa fascicolo.%s, fuori dall'elenco chiuso delle letture (S-01)", fset.Position(x.Pos()), x.Sel.Name)
+						}
+					case pacchetto(x.X, dbImp):
+						if funzioniDB[x.Sel.Name] && x.Sel.Name != "New" {
+							t.Errorf("%s: transport/web/motore_a chiama db.%s: di platform/db, come funzione, solo New", fset.Position(x.Pos()), x.Sel.Name)
+						}
+					case pacchetto(x.X, pgxImp):
+						if x.Sel.Name == "ReadWrite" {
+							t.Errorf("%s: transport/web/motore_a nomina pgx.ReadWrite", fset.Position(x.Pos()))
+						}
+					case metodiQueries[x.Sel.Name] && diQueries(x.X) && !contiene(queriesDellaDistintaNuova, x.Sel.Name):
+						// su un *db.Queries riconosciuto, anche un metodo preso come valore, senza chiamarlo subito
+						t.Errorf("%s: transport/web/motore_a usa il metodo %s di *db.Queries, fuori dall'elenco chiuso delle letture (S-01)", fset.Position(x.Pos()), x.Sel.Name)
+					}
+				case *ast.CompositeLit:
+					if sel, ok := x.Type.(*ast.SelectorExpr); ok && pacchetto(sel.X, pgxImp) && sel.Sel.Name == "TxOptions" {
+						solaLettura := false
+						for _, el := range x.Elts {
+							if kv, ok := el.(*ast.KeyValueExpr); ok && exprNome(kv.Key) == "AccessMode" {
+								if v, ok := kv.Value.(*ast.SelectorExpr); ok && pacchetto(v.X, pgxImp) && v.Sel.Name == "ReadOnly" {
+									solaLettura = true
+								}
+							}
+						}
+						if !solaLettura {
+							t.Errorf("%s: un pgx.TxOptions senza AccessMode: pgx.ReadOnly", fset.Position(x.Pos()))
+						}
+					}
+				case *ast.CallExpr:
+					sel, ok := x.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					nome := sel.Sel.Name
+					if pacchetto(sel.X, fascicolo) || pacchetto(sel.X, dbImp) || pacchetto(sel.X, pgxImp) {
+						return true // funzioni dei pacchetti: le guarda il caso SelectorExpr
+					}
+					switch {
+					case contiene(chiamateCheScrivono, nome):
+						t.Errorf("%s: transport/web/motore_a chiama .%s(: le letture passano da db.Queries, dal caricatore e dal Fascicolo (S-01)", fset.Position(x.Pos()), nome)
+					case metodiQueries[nome]:
+						usiQueries[nome]++
+						if !diQueries(sel.X) && !contiene(queriesDellaDistintaNuova, nome) {
+							// un ricevitore che la prova non riconosce come *db.Queries: basta il nome del metodo
+							t.Errorf("%s: transport/web/motore_a chiama il metodo %s di *db.Queries, fuori dall'elenco chiuso delle letture (S-01)", fset.Position(x.Pos()), nome)
+						}
+					case nome == "Begin" && !nelSavepoint:
+						t.Errorf("%s: .Begin( fuori da savepoint.BeginTx", fset.Position(x.Pos()))
+					case nome == "BeginTx":
+						if len(x.Args) != 2 || exprNome(x.Args[1]) != "opzioniSnapshot" {
+							t.Errorf("%s: BeginTx senza opzioniSnapshot (REPEATABLE READ READ ONLY)", fset.Position(x.Pos()))
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	for _, n := range []string{"EffettoAutorizzazione", "LeggiDichiarazioni"} {
+		if usiFascicolo[n] == 0 {
+			t.Errorf("transport/web/motore_a non usa fascicolo.%s: la prova legge i file sbagliati, o la freccia non ha più motivo", n)
+		}
+	}
+	for _, m := range queriesDellaDistintaNuova {
+		if usiQueries[m] == 0 {
+			t.Errorf("transport/web/motore_a non chiama più %s: va tolto da queriesDellaDistintaNuova", m)
+		}
+	}
+}
+
+// exprNome: il nome di un identificatore, o di un identificatore dietro un puntatore; "" altrimenti.
+func exprNome(e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.StarExpr:
+		return exprNome(x.X)
+	}
+	return ""
 }
 
 // TestLeQueryDellaFotografiaSenzaLAgente (A1c-L1-28, MOTORE-SENZA-LLM, par.3.5): le query nuove della fotografia,

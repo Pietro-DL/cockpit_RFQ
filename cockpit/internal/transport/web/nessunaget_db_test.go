@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -170,6 +171,12 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // POST che e' una LETTURA (distinta_albero.go), il riepilogo di una bozza, che l'operatore manda e chi consulta non
 // puo' mandare (403): anche lei non cambia una riga. La prova dedicata, con l'albero e le bozze che non si leggono, e'
 // TestAlberoPropostoNelWebNonScrive (distinta_albero_db_test.go).
+//
+// Giro 5, A1d-Q2: anche le due GET JSON della Distinta nuova del motore A (i dati e l'anteprima dello STEP), solo
+// dell'amministratore, a flag acceso con le regole ACME del cliente della scena (mwRegoleACME, motore_a_db_test.go): 200
+// per lui, 403 per gli altri, nessuna riga cambiata e nessun job (la controprova della preparazione resta). Le prove
+// dedicate sono in motore_a_db_test.go e, per lo snapshot, in transport/web/motore_a/servizio_db_test.go. Le due righe
+// vengono dalla PR #18 di Stefano Valo (153117d: nessunaget_db_test.go).
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
@@ -244,7 +251,12 @@ func TestNessunaGetScrive(t *testing.T) {
 		// Giro 4, fase 4.4a.1a: l'albero proposto e il riepilogo della bozza vuota
 		{distinta + "/albero", false, true, false},
 		{distinta + "/albero/riepilogo", false, true, false},
+		// Giro 5, A1d-Q2: le due GET JSON della Distinta nuova del motore A, dell'amministratore
+		{"/thread/" + s.thread.String() + "/motore-a/dati", false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a/anteprima/step-strutturale?componente=" + s.pezzo.String(), false, true, true},
 	}
+	clienteMA := uuidSQL(t, b, `SELECT cliente_id FROM thread_offerta WHERE thread_id = $1`, s.thread)
+	mwAccendi(t, b, mwRegoleACME(t, clienteMA, "Acme S.p.A.", 20*time.Second))
 	prima := fotoDelDatabase(t, b)
 	// il riepilogo c'e' davvero, con i percorsi che la conferma darebbe (e chi consulta lo vede senza il modulo)
 	for _, chi := range []struct {
