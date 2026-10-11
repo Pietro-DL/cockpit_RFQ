@@ -385,7 +385,8 @@ func (c *completezzaThread) disegnoDellaVoce(comp *fotorfq.Componente, del2D *fo
 //     loro, e il previsto è uno per Rif), mentre nei nodi vale per struttura (raggiunti, una struttura alla volta): con
 //     due strutture candidate dello stesso file e radici diverse lo stesso Rif può avere un tipo della regola diverso
 //     nelle due candidate e un solo tipo nel previsto. Le fonti della proposta, invece, sono già quelle di D3
-//     (tipoPropostoDellaRiga): una riga scartata, decisa o fuori dall'enum non dà il tipo nemmeno qui.
+//     (tipoPropostoDellaRiga): una riga scartata, decisa o fuori dall'enum non dà il tipo nemmeno qui; e quelle di
+//     D-P7e-1 (propostaConAutorita): una riga «finito» per un nodo che non è il target non dà il tipo nemmeno qui.
 //
 // Il Rif è un riferimento di testo, mai analizzato (T-B5-93).
 func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []ancoraggio.StrutturaProdotto, perimetro map[uuid.UUID]bool) []NodoDaPrevedere {
