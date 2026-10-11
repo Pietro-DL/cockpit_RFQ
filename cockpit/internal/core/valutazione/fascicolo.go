@@ -54,7 +54,9 @@ const statoVersioneCongelata = "congelata"
 //   - Legacy: il congelamento legacy, da Thread.VersioneBOM e UltimaCongelata (R96 b B, T-B0-28).
 //   - Orfani, Avvisi: i file orfani (formato degli avvisi in F0-18: «orfano:<allegato_id>», con il contesto
 //     «orfano:<allegato_id>:prodotti_contesto:<rif>|<rif>») e, dopo, i motivi di non congelabilità che valgono insieme al
-//     primo («non_congelabile:<motivo>»). FaseThread: fotorfq.Thread.Stato (LD-10).
+//     primo («non_congelabile:<motivo>»). FaseThread: lo stato del thread, APERTA o CHIUSA (fotorfq.Thread.Stato, cioè
+//     thread_offerta.stato; LD-10). Non è la fase di lavoro: la fase registrata la legge il gestore di A1d dalla vista
+//     v_thread_fase, fuori dall'esito (EB7-3 A, E2 §6.4); fase, stato del thread e prontezza del prodotto sono tre dati.
 type StatoFascicolo struct {
 	NumeroTarget          int                 `json:"numero_target"`
 	NumeroVerificati      int                 `json:"numero_verificati"`
@@ -106,7 +108,8 @@ type GestoCongelamento struct {
 //   - Calcolato: le sezioni dei target, della versione della BOM e dello smistamento ci sono (T-12), la valutazione non
 //     ha dato un errore e il thread ha la grammatica (lo stesso criterio della pertinenza: R-86 della controprova di V3).
 //   - Prodotti: i prodotti target valutati (ProdottiValutati, con Verificato, Motivi e Impronta).
-//   - Legacy: il congelamento legacy (congelamentoLegacy). FaseThread: la fase del thread (LD-10).
+//   - Legacy: il congelamento legacy (congelamentoLegacy). FaseThread: lo stato del thread, APERTA o CHIUSA (LD-10), non
+//     la fase di lavoro, che il gestore di A1d legge da v_thread_fase (EB7-3 A).
 //   - DaSmistare: «da smistare» del thread, per gli orfani e i loro avvisi (avvisiDegliOrfani, V2).
 type IngressoFascicolo struct {
 	Valutato   bool                `json:"valutato"`

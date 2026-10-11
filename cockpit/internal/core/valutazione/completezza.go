@@ -112,9 +112,14 @@ const (
 //   - TipoDocumento, Bloccante: il fabbisogno; RegolaCliente: i fabbisogni del suo tipo sono del cliente
 //     (RigaFabbisogno.Proprio sulle righe dello stesso tipo di componente: decisioni sull'analista, punto 8).
 //   - Esito, Motivo: per il 2D dal gruppo (VoceDelDisegno); per gli altri tipi dalla vista (EsitoDallaVista).
-//   - Disegni: il gruppo dei 2D del componente (solo per il 2D; nil senza 2D). DocumentoID, StatoNas: il documento della
-//     vista (gli altri tipi). DerogaID, PropostaAperta: la deroga e la proposta aperta della vista. FileCandidato:
-//     l'allegato che porta la voce a da_verificare per un'associazione non confermata.
+//   - Disegni: il gruppo dei 2D del componente (solo per il 2D; nil senza 2D). DocumentoID, StatoNas: per gli altri tipi
+//     il documento della vista; per il 2D (EB7-4 A, ratificata dall'utente l'08/10, con D2 del 10/10) il documento
+//     confermato e corrente che decide la voce (documentoDellaVoceDel2D) con lo stato del NAS della fotografia, che
+//     l'adattatore mette dopo la regola (completezzaDelProdotto); vuoti senza un 2D corrente e confermato, e vuoti quando
+//     la voce la decide l'associazione non confermata o la deroga. StatoNas: in_coda, scritto, errore; una conferma non
+//     vuol dire copia completata, lo dice solo «scritto». DerogaID, PropostaAperta: la deroga e la proposta aperta della
+//     vista. FileCandidato: l'allegato che porta la voce a da_verificare per un'associazione non confermata. Esito,
+//     Motivo, DocumentoID, FileCandidato e DerogaID dicono cose distinte (D2).
 //   - CalcolataDa: vista (l'esito della vista, gli altri tipi) o go (il 2D, e ciò che la vista non ha).
 //   - Invariante: un requisito che le regole del cliente non tolgono (R99, R103 C): il 2D. NotaRegola: quale regola
 //     tocca il 2D (NotaSchemaSenza2D, NotaRegolaClienteSenza2D, NotaRegolaCliente2DNonBloccante). Categoria: la
@@ -425,6 +430,49 @@ func VoceDelDisegno(d DisegnoDellaVoce) (EsitoFabbisogno, MotivoFabbisogno, *uui
 		}
 	}
 	return EsitoManca, MotivoFabbisognoNessunDocumento, nil
+}
+
+// documentoDellaVoceDel2D: il documento che decide la voce del 2D (EB7-4 A; bozza del contratto con il frontendista
+// §1.5; D2 dell'utente del 10/10; T-P7e-10), dall'esito e dal motivo che VoceDelDisegno ha dato alla voce sullo stesso
+// gruppo: il documento del passo che l'ha decisa, cercato come lo cerca quel passo (il primo 2D corrente e confermato
+// sul componente, il primario e poi gli alternativi, con quella validità):
+//   - presente (passo 1): il primo con la validità valido;
+//   - da_verificare per il contenuto (passo 2, il motivo della validità): il primo con la validità da_verificare;
+//   - manca con formato_non_configurato (passo 4): il primo con la validità formato_non_configurato;
+//   - con ogni altro esito nil: da_verificare per l'associazione (associazione_non_confermata: la decide il file
+//     candidato, FileCandidato), manca con la deroga (derogato_non_sostituisce_2d: la deroga non conferma un documento,
+//     DerogaID) o senza documento. Un 2D confermato che c'è ma non decide la voce (un DWG accanto a un «assegna» o a una
+//     deroga) non si descrive come il documento della voce (D2: «non descrivere un documento confermato non pertinente
+//     come se fosse necessariamente quello che determina l'esito della voce»).
+//
+// DocumentoID resta così l'ID di un documento confermato e corrente, mai di un candidato (D2): la proposta resta nelle
+// associazioni e nei disegni candidati. È pura, e non tocca VoceDelDisegno: l'esito e il motivo della voce restano i
+// suoi, e qui si leggono soltanto.
+func documentoDellaVoceDel2D(esito EsitoFabbisogno, motivo MotivoFabbisogno, g *GruppoDisegni2D) *uuid.UUID {
+	var validita ValiditaDisegno2D
+	switch {
+	case esito == EsitoPresente:
+		validita = ValiditaValido
+	case esito == EsitoDaVerificare && motivo != MotivoFabbisognoAssociazioneNonConfermata:
+		validita = ValiditaDaVerificare
+	case esito == EsitoManca && motivo == MotivoFabbisognoFormatoNonConfigurato:
+		validita = ValiditaFormatoNonConfigurato
+	default:
+		return nil
+	}
+	var tutti []Disegno2D
+	if g != nil {
+		if g.Primario != nil {
+			tutti = append(tutti, *g.Primario)
+		}
+		tutti = append(tutti, g.Alternativi...)
+	}
+	for _, x := range tutti {
+		if x.Provenienza == ancoraggio.OrigineConfermato && x.Corrente && x.Validita == validita {
+			return copiaUUID(x.DocumentoID)
+		}
+	}
+	return nil
 }
 
 // EsitoDallaVista: l'esito di una voce di un tipo diverso dal 2D dall'esito di v_fascicolo (contratto §1.6, «per gli altri
