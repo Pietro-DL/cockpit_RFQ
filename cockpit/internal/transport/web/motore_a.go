@@ -13,8 +13,11 @@ package web
 //   - GET /thread/{id}/motore-a/anteprima/step-strutturale: l'anteprima dell'autorizzazione dello STEP (§3.4 A).
 //
 // La pagina GET /thread/{id}/motore-a, la voce di Init e la funzione etichetta del template arrivano con A1d-P4, insieme
-// al template (direttiva §3.2: prima di P4 non si registra un template che non c'è). Il ramo Motore A di threadFrammento
-// è di A1d-P3.
+// al template (direttiva §3.2: prima di P4 non si registra un template che non c'è).
+//
+// A1d-P3 aggiunge qui il ramo Motore A di threadFrammento (dalMotoreA, esitoMotoreA, rispondiMotoreA, scriviEsitoMotoreA:
+// in fondo al file),
+// e in thread.go le sole righe che lo chiamano. Il ponte del browser che manda i gesti è web/static/motore_a_gesti.mjs.
 //
 // La catena di ogni rotta: conMotoreA (flag spento = http.NotFound, prima della sessione e senza intestazioni in più:
 // Q-A1d-12 = A, raccomandazione della bozza; R36) → conNoStore (Cache-Control: no-store su ogni risposta che segue,
@@ -44,6 +47,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -282,4 +287,102 @@ func (s *Server) scriviJSONMotoreA(w http.ResponseWriter, r *http.Request, stato
 		return
 	}
 	scriviJSONNoStore(w, stato, json.RawMessage(buf.Bytes()))
+}
+
+// ---------------------------------------------------------------- il ramo dei gesti (A1d-P3)
+//
+// I gesti della Distinta nuova partono dal ponte (web/static/motore_a_gesti.mjs) verso le rotte operative che già
+// esistono (la lista chiusa del ponte: mappa dei gesti A1d-P3, §2.1), con HX-Request e con HX-Current-URL = la pagina
+// /thread/{id}/motore-a. Le loro risposte passano da threadFrammento, che sceglie la vecchia interfaccia
+// dall'intestazione (la Distinta, il Fascicolo, la pagina della RFQ) e dice un rifiuto con HTTP 200 dentro il frammento.
+// Per la pagina nuova threadFrammento ha un ramo, il primo, solo a flag acceso: un solo <div data-ma-esito="ok|no">
+// con il testo dell'avviso, mai la vecchia interfaccia. Il ponte legge l'esito come testo e, dopo un «ok», rilegge la
+// pagina dal server.
+//
+// L'esito è avvisoNegativo (distinta.go) così com'è (Q-A1d-09 = A, raccomandazione della bozza): nessun elenco
+// aggiuntivo di frasi. Il rifiutiMotoreA della PR #18 (le 9 frasi che avvisoNegativo legge «ok» e che la PR leggeva
+// «no») non c'è. Le letture ambigue che restano (rifiuti con 200 letti «ok», errori tecnici letti «no», successi con
+// testo negativo, idempotenti, successi parziali) sono fissate dalle prove di caratterizzazione
+// (motore_a_gesti_test.go) e scritte nel README del package; il problema degli esiti HTTP NON è risolto qui.
+//
+// Vincolo per A1d-P4 (P3-GO-04 della revisione di P3): il ramo guarda solo HX-Current-URL, che htmx manda da solo con
+// l'indirizzo della pagina. Una richiesta htmx della pagina motore-a (un hx-post del template) verso una rotta che
+// finisce in threadFrammento riceverebbe il div compatto al posto della vecchia interfaccia: dalla pagina nuova quelle
+// rotte si chiamano solo tramite il ponte, e il template non ha hx-post/hx-put/hx-delete verso /thread/{id}/… o
+// /proposta/… (prova statica di Q4).
+//
+// Derivati dalla PR #18 di Stefano Valo (c543e89: dallaMotoreA, rispondiMotoreA; esitoMotoreA ridotto ad
+// avvisoNegativo, rifiutiMotoreA tolto). Ristretti dopo la revisione di P3: dalMotoreA riconosce solo l'indirizzo
+// esatto (P3-GO-01), rispondiMotoreA toglie le intestazioni HX-* messe prima (P3-GO-02) e conserva il 404 del legacy
+// per una RFQ che non c'è (P3-GO-03).
+
+// dalMotoreA dice se la richiesta viene dalla Distinta nuova di questa RFQ: HX-Current-URL è esattamente la pagina
+// /thread/{id}/motore-a, come la manda il ponte (pagina() in motore_a_gesti.mjs):
+//   - il percorso esatto, senza / finale, senza query, senza frammento, senza segmenti codificati (%2F);
+//   - un indirizzo assoluto vale solo con lo stesso host della richiesta (r.Host) e lo schema http o https;
+//   - l'id nella forma canonica di 36 caratteri, uguale al thread della rotta senza badare alle maiuscole: il ponte copia
+//     l'id da location.pathname, che può essere scritto maiuscolo, e il router lo accetta. Niente graffe, urn: o 32
+//     cifre senza trattini (forme che uuid.Parse accetterebbe).
+//
+// Non guarda il flag: lo guarda chi lo chiama (threadFrammento). L'intestazione la scrive il client: il controllo non è
+// una difesa (le POST d'altra origine le ferma già CrossOriginProtection), sceglie solo la forma della risposta.
+func dalMotoreA(r *http.Request, thread uuid.UUID) bool {
+	u, err := url.Parse(r.Header.Get("HX-Current-URL"))
+	if err != nil || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return false
+	}
+	if u.Scheme != "" || u.Host != "" {
+		if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || !strings.EqualFold(u.Host, r.Host) {
+			return false
+		}
+	}
+	id, ok := strings.CutPrefix(u.EscapedPath(), "/thread/")
+	if !ok {
+		return false
+	}
+	id, ok = strings.CutSuffix(id, "/motore-a")
+	return ok && len(id) == 36 && strings.EqualFold(id, thread.String())
+}
+
+// esitoMotoreA: «no» se avvisoNegativo legge il testo come un gesto che non ha fatto niente, altrimenti «ok». Nessuna
+// frase in più: la semantica è quella della Distinta e del Fascicolo legacy (Q-A1d-09 = A).
+func esitoMotoreA(avviso string) string {
+	if avvisoNegativo(avviso) {
+		return "no"
+	}
+	return "ok"
+}
+
+// intestazioniHXMotoreA: le intestazioni di risposta che htmx eseguirebbe. Nessuna esce dal ramo motore-a: oggi l'unica
+// messa prima è l'HX-Trigger: inbox-aggiorna di pannelloConAvviso (allegati.go) su /proposta/{u}/scarta, che resta nel
+// gestore legacy e si toglie solo qui.
+var intestazioniHXMotoreA = []string{"HX-Trigger", "HX-Trigger-After-Settle", "HX-Trigger-After-Swap", "HX-Redirect",
+	"HX-Refresh", "HX-Location", "HX-Push-Url", "HX-Replace-Url", "HX-Retarget", "HX-Reswap", "HX-Reselect"}
+
+// rispondiMotoreA risponde a un gesto partito dalla Distinta nuova. Toglie le intestazioni HX-* che un gestore legacy
+// ha messo prima (P3-GO-02). Poi legge soltanto se la RFQ esiste (GetThread, la stessa prima lettura di caricaThread):
+// se non c'è, 404 «thread non trovato», come il percorso legacy di threadFrammento, che il ponte legge «errore»; mai un
+// «ok» per una RFQ che non esiste (P3-GO-03: riprova-copie su un id inventato rispondeva «ok»). Altrimenti
+// scriviEsitoMotoreA. Nessun'altra lettura: la vecchia interfaccia non si compone.
+func (s *Server) rispondiMotoreA(w http.ResponseWriter, r *http.Request, thread uuid.UUID, avviso string) {
+	for _, k := range intestazioniHXMotoreA {
+		w.Header().Del(k)
+	}
+	if _, err := db.New(s.Pool).GetThread(r.Context(), thread); err != nil {
+		http.Error(w, "thread non trovato", 404)
+		return
+	}
+	scriviEsitoMotoreA(w, avviso)
+}
+
+// scriviEsitoMotoreA: 200, text/html, Cache-Control: no-store, un solo elemento <div data-ma-esito="ok|no">testo</div>,
+// con l'escape di html/template; mai la vecchia interfaccia, nessuna intestazione HX-* (anche quelle messe prima si
+// tolgono). Un avviso vuoto dà <div data-ma-esito="ok"></div>.
+func scriviEsitoMotoreA(w http.ResponseWriter, avviso string) {
+	for _, k := range intestazioniHXMotoreA {
+		w.Header().Del(k)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	fmt.Fprintf(w, `<div data-ma-esito="%s">%s</div>`, esitoMotoreA(avviso), template.HTMLEscapeString(avviso))
 }

@@ -186,6 +186,26 @@ markmap:
       «niente sotto un particolare» anche nel trascinamento),
     - le miniature dei disegni (pdf.js, la prima pagina, una volta per file),
     - il visore con le note (`/fascicolo/nota`, `/nota/{id}/modifica`, `/nota/{id}/elimina`)
+- **`motore_a_gesti.mjs`** — che cosa e' (giro 5, A1d-P3; deriva dal ponte della PR #18 di Stefano Valo, c543e89):
+  - il ponte dei gesti della Distinta nuova del motore A, con un'API fissa (`esegui`, `leggi`,
+    `confermaAlbero(firma, base)`, `aggiorna`) e l'intercettazione di `data-ma-gesto`; l'unico punto della pagina
+    `/thread/{id}/motore-a` che chiama le rotte che scrivono;
+  - una lista chiusa di 27 POST legacy (mappa dei gesti A1d-P3, §2.1; fuori «Accetta» e «Scarta la relazione»), più
+    «Conferma l'albero» a parte (JSON, bozza vuota della v1) e quattro GET JSON di sola lettura; stessa origine,
+    `HX-Request` e `HX-Current-URL` = la pagina su ogni richiesta, corpo urlencoded con i campi ripetuti senza `[]`;
+  - le guardie di invio sui nomi dei campi (il gesto non parte e lo dice: vedi `internal/transport/web/README.md`);
+  - l'esito letto come testo dal solo `<div data-ma-esito="ok|no">` di un 200 `text/html` (DOMParser in un documento
+    a parte): il corpo della risposta di un gesto non entra mai nella pagina; ogni altro 2xx, un 403, ogni 4xx e 5xx
+    sono «errore»; 401 o `HX-Redirect` verso `/login` = la sessione scaduta, detta in `#ma-avviso` (regione viva);
+  - un solo stato «occupato»: un gesto in volo o la rilettura che lo segue; la pagina si rilegge solo dopo un «ok»,
+    ed è l'unico HTML del server che entra nella pagina: lo swap `innerHTML` di htmx in `#ma` con la GET della pagina,
+    con un limite di tempo e solo se la risposta è dello stesso percorso e il frammento ha il marcatore
+    `data-ma-pagina` della RFQ, senza `#ma`/`#ma-avviso`, senza `<script>` e senza attributi htmx che chiamino il
+    server, sostituiscano fuori banda o eseguano codice (il contratto del template di P4: vedi
+    `internal/transport/web/README.md`);
+  - nessun modo dimostrativo, nessuna risposta simulata, nessuna conferma automatica, nessuna gerarchia ricostruita,
+    nessun tipo o quantità trasformati o messi da sé, nessun import;
+  - nessun template lo carica ancora: la pagina e l'importmap arrivano con A1d-P4
 - **`pdfjs-6.3.289/`** — che cosa e':
   - pdf.js dal pacchetto npm `pdfjs-dist` 6.3.289 (Apache-2.0), senza modifiche:
     - `pdf.min.mjs`, `pdf.worker.min.mjs`,
@@ -423,7 +443,15 @@ markmap:
     - le cartelle non si elencano;
     - il layout carica `style.css` e `htmx.min.js` con l'impronta e ha la guardia `htmx:beforeSwap`;
     - la chiave della bozza dell'editor con l'utente e la pulizia all'uscita;
-    - la copia di pdf.js uguale a `VERSIONE.txt`
+    - la copia di pdf.js uguale a `VERSIONE.txt`;
+    - tipo, cache e impronta di `motore_a_gesti.mjs`
+- **`internal/transport/web/motore_a_ponte_test.go`**
+  - Livello: L1 (statico sul sorgente)
+  - Che cosa prova: il ponte dei gesti, sul testo del sorgente (lista chiusa di 27 POST confrontata con le POST che il
+    server registra, rotte esistenti nel server, niente HTML inserito salvo la rilettura htmx di `#ma` alle sue
+    condizioni, nessun altro canale d'invio, niente resti dimostrativi, niente import, intestazioni htmx su ogni fetch,
+    guardie di invio, nessuna quantità implicita, le righe che decidono per testo esatto, rilettura solo dopo «ok», un
+    solo stato occupato)
 - **`internal/transport/web/ruoli_test.go`**
   - Livello: L1
   - Che cosa prova: `vietato.html` dice il ruolo che serve davvero, o nessuno
@@ -447,6 +475,8 @@ markmap:
     - Fascicolo (`fascicolo.py`),
     - Fascicolo v3 con pdf.js, note ed editor (`fascicolo_v3.py`)
 - `fascicolo.mjs` non ha test unitari JavaScript: lo prova solo L7.
+- `motore_a_gesti.mjs`: il comportamento nel DOM lo proverebbe il kit jsdom della PR #18 (Node, ramo d'archivio), che
+  qui non gira (Node non c'e'); la prova da capo a fondo della pagina e' di A1d-P4.
 
 ## Stato dell'implementazione
 
