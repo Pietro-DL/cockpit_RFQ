@@ -144,7 +144,8 @@ markmap:
   - Sottopackage: `motore_a/` (modelli, calcolo in sola lettura, indice, etichette, anteprima dello STEP; non importa
     questo package né `app/*`); adattatore: `motore_a.go` (da A1d-P2). Vedi «Modulo Distinta nuova del motore A».
   - A1d-P1: il tipo delle regole caricate all'avvio (`motore_a.Regole`, campo `Server.MotoreA`). A1d-P2: il servizio
-    e le due rotte JSON. La pagina arriva con A1d-P4, il ramo dei gesti di `threadFrammento` con A1d-P3.
+    e le due rotte JSON. A1d-P3: il ramo dei gesti di `threadFrammento` (`dalMotoreA`, `rispondiMotoreA`) e il ponte
+    statico `web/static/motore_a_gesti.mjs`. La pagina arriva con A1d-P4.
 - Il front-end (template, CSS, `fascicolo.mjs`, pdf.js) è descritto in `web/README.md`.
 
 ## Modulo Distinta nuova del motore A (giro 5, A1d)
@@ -158,6 +159,7 @@ markmap:
 | Responsabilità | Dove |
 |---|---|
 | Rotte, porta del flag, `no-store`, `soloAdmin`, codici HTTP, JSON, HEAD | `motore_a.go` |
+| Il ramo dei gesti di `threadFrammento`: `dalMotoreA`, `esitoMotoreA` (= `avvisoNegativo`), `rispondiMotoreA`, `scriviEsitoMotoreA` (A1d-P3) | `motore_a.go`; in `thread.go` le sole righe del ramo |
 | Gli aiuti privati del Fascicolo legacy per l'anteprima (`richiestaAutorizzazione`, `spiegaErrore`, `rifiuto`, `almeno`, `utenteDa`) | restano in questo package, usati da `motore_a.go` |
 | Le regole caricate all'avvio (`Regole`, `Stato`, `Casi`) | `motore_a/regole.go` (le costruisce `app/runtime`) |
 | Il servizio (`Servizio{Regole, Pool, Log}`, immutabile, costruito per richiesta), gli errori distinti, il tetto dei calcoli (`MassimoCalcoli`) e il limite di ripiego (`LimiteDiRipiego`) | `motore_a/servizio.go` |
@@ -242,6 +244,99 @@ markmap:
 - La composizione della pagina (`ComponiPagina`, `NuovoIndice`) gira dentro il calcolo: un suo panic è un 500 JSON con
   la pila nel log, non una connessione interrotta.
 
+### I gesti: il ponte e il ramo di `threadFrammento` (A1d-P3)
+
+- **Il ponte** è `web/static/motore_a_gesti.mjs` (deriva dalla PR #18, c543e89; vedi `web/README.md`). È l'unico punto
+  della pagina nuova che chiama le rotte che scrivono, e solo quelle di una lista chiusa: le 27 POST della mappa dei
+  gesti A1d-P3 (§2.1), più «Conferma l'albero» a parte (`POST /thread/{id}/distinta/albero/conferma`, JSON
+  `{firma, bozza: {formato: 1, base}}`, esito dallo stato HTTP: 200 ok, 422 no, altro errore) e le quattro GET JSON
+  (`/motore-a/dati`, `/motore-a/anteprima/step-strutturale`, `/distinta/tipo`, `/distinta/albero/riepilogo`). Fuori:
+  «Accetta la relazione» (Q-A1d-06 = A [U]) e «Scarta la relazione» (Q-P3-01, base di lavoro); fuori anche
+  `bom/applica`, `file/{aid}/accetta`, `proposta/{pid}/decidi`, `/proposta/{id}/conferma`, `riattiva`, le note,
+  `congela`, `revisione/*`, `deroga-struttura`, `annulla-sostituzione`.
+- Ogni richiesta del ponte porta `HX-Request: true` e `HX-Current-URL` = `/thread/{id}/motore-a`; i gesti sono
+  `application/x-www-form-urlencoded`, campi ripetuti senza `[]`; i valori dei campi solo stringhe e numeri finiti
+  (`null`, `undefined`, oggetti: il gesto non parte). Le guardie di invio sui nomi dei campi (Q-P3-02, base di lavoro
+  A); un campo che il gestore legge con `r.FormValue` (il primo valore) si controlla com'è letto: una volta sola, e non
+  vuoto dove vuoto non è ammesso (un campo ripetuto non parte mai):
+  - niente `tipo=commerciale` in «Accetta il nodo»;
+  - niente `tipo`, e sempre `rev` e `descrizione`, una volta sola, in «Rev e descrizione»;
+  - `qta` scritta, una volta sola, in «Collega»;
+  - in «Sposta» `da` e `a` sempre, una volta sola, anche vuoti come scelta esplicita (`da` vuoto = era una radice:
+    aggiunge un padre; `a` vuoto = diventa una radice); `qta` scritta solo con `a` non vuoto: con `a` vuoto il gestore
+    non la usa e il ponte non la chiede (allineata al legacy, [T], da ratificare dentro Q-P3-02);
+  - una sola `voce` e nessuno di `struttura`, `strutturale`, `firma`, `conferma`, `selezione` in «Conferma il
+    documento»; niente `correggi_codice` né `nuovo_riferimento*` in «Assegna»; niente `nuovo_riferimento*` in
+    «Sostituisci»; niente `rumore` nello scarto del file; niente `auto` in «Prepara i file».
+- **Gli esiti nel ponte**: si legge l'esito solo da un 200 `text/html` che sia un solo `<div data-ma-esito="ok|no">`;
+  ogni altro 2xx, o un corpo d'altro tipo, è «errore»; 4xx e 5xx «errore» con il testo; la sessione scaduta si dice in
+  `#ma-avviso` e si va al login. `#ma-avviso` è una regione viva (`role="status"`, `aria-live="polite"` se il template
+  non dice altro; se manca, il ponte la crea vuota in fondo al `body`).
+- **La rilettura** (dopo un «ok»): il corpo della risposta di un gesto non entra mai nella pagina, ma la rilettura sì:
+  è uno swap `innerHTML` di htmx in `#ma` con la GET della pagina stessa. È un'eccezione ammessa solo a queste
+  condizioni, che il ponte controlla prima dello swap (`htmx:beforeSwap`) e che sono il contratto del template di P4:
+  - la GET HX di `/thread/{id}/motore-a` risponde con il solo frammento del corpo di `#ma`, dallo stesso percorso
+    (nessun rimando seguito altrove), entro il limite di tempo del ponte (60 s, `htmx:configRequest`);
+  - il frammento ha un solo elemento con `data-ma-pagina="{id}"` (l'id della RFQ);
+  - dentro `#ma` nessun `hx-get`/`hx-post`/`hx-put`/`hx-patch`/`hx-delete`, nessun `hx-swap-oob`, nessun `hx-on*` e
+    nessuno `<script>`; `#ma` e `#ma-avviso` non sono nel frammento, e `#ma-avviso` sta fuori da `#ma` (lo swap
+    cancellerebbe l'esito appena scritto).
+  Altrimenti niente swap e l'avviso «la pagina non si è riletta». Durante la rilettura `#ma` ha `aria-busy` e la
+  pagina resta occupata: un altro gesto non parte finché non finisce.
+- **Il ramo**: in `threadFrammento` (thread.go) il primo controllo è `s.MotoreA.Accesa && dalMotoreA(r, id)`:
+  `HX-Current-URL` esattamente `/thread/{id}/motore-a`, come lo manda il ponte: niente barra finale, query, frammento
+  o `/` codificata; un indirizzo assoluto solo con lo stesso host della richiesta e lo schema http/https; l'id nella
+  forma canonica di 36 caratteri, uguale al thread senza badare alle maiuscole. Allora `rispondiMotoreA`: toglie le
+  intestazioni `HX-*` già messe (oggi l'`HX-Trigger: inbox-aggiorna` di `pannelloConAvviso` su `/proposta/{u}/scarta`,
+  che resta nel gestore legacy), legge solo se la RFQ esiste (`GetThread`, la prima lettura di `caricaThread`: se non
+  c'è, 404 «thread non trovato» come il legacy, mai «ok») e risponde 200, `text/html`, `Cache-Control: no-store`, un
+  solo `<div data-ma-esito="ok|no">testo</div>` con l'escape di `html/template`, nessun `HX-*`. A flag spento, da
+  un'altra pagina, da un'altra RFQ o con un indirizzo non esatto il ramo non scatta: risponde la vecchia interfaccia,
+  che il ponte legge «errore» anche dopo una scrittura riuscita (TEC-01). Il ramo guarda `Accesa`, non `Pronta`: con
+  le regole in errore scatta lo stesso.
+- **Vincolo per P4**: htmx manda da solo `HX-Current-URL` con l'indirizzo della pagina. Dalla pagina motore-a le rotte
+  che passano da `threadFrammento` si chiamano solo tramite il ponte: un `hx-post` del template verso una di queste
+  riceverebbe il div compatto al posto della vecchia interfaccia. Il template non ha `hx-post`/`hx-put`/`hx-delete`
+  verso `/thread/{id}/…` o `/proposta/…` (prova statica di Q4).
+- **L'esito** è `avvisoNegativo` (distinta.go) così com'è (Q-A1d-09 = A): «no» se la frase comincia con «Niente è
+  cambiato», «Assegnazione non riuscita», «Conferma non riuscita», «Correzione non riuscita», «Preparazione dei file
+  non riuscita», «La proposta era già stata decisa», o se contiene «nessun cambiamento» (minuscolo). Il
+  `rifiutiMotoreA` della PR non c'è. Il problema degli esiti HTTP NON è risolto: un contratto strutturato di risposta
+  ai gesti va proposto a parte.
+- **Le frasi ambigue note** (caratterizzate in `motore_a_gesti_test.go`, mappa §3; nessuna corretta):
+  - rifiuti con 200 letti «ok»: «Nessun file scelto: niente da assegnare.», «Copie NON rimesse in coda: …»,
+    «Le proposte di una RFQ chiusa / unita a un'altra RFQ non si aggiornano.» (TEC-04);
+  - errori tecnici letti «no», cioè come un rifiuto: ogni errore dentro `s.gesto` / `gestoPoi` (anche un 40P01 o un
+    Commit fallito) diventa «Niente è cambiato: …»; così «Correzione non riuscita…», «Assegnazione non riuscita…», gli
+    errori di aggiorna e prepara, la conferma del documento con HX (TEC-02); «Nessuna copia nuova (… non accodat…)»
+    è invece un errore dentro un «ok»;
+  - successi con testo negativo letti «no»: una deroga con «nessun cambiamento» nel motivo, un nome grezzo che lo
+    contiene (TEC-06): il gesto è scritto e la pagina non si rilegge;
+  - idempotenti: «Nessun cambiamento: …» (maiuscolo) e «… è già …» sono «ok»; «La proposta era già stata decisa:
+    nessun cambiamento.» è «no» (TEC-07);
+  - successi parziali letti «ok» senza distinzione: «l'autorizzazione non vale», «rimozioni non calcolate», le copie
+    in parte non accodate, la preparazione con file rimandati (TEC-05);
+  - il rismistamento gira dopo ogni risposta < 400, anche dopo un rifiuto con 200 (TEC-03; la L4 lo misura: dopo il
+    rifiuto di «Rianalizza» la destinazione di un disegno è scritta).
+- **La mappa in breve**: 30 gesti nella mappa (G-01…G-30, con i nove campi e i disallineamenti), 28 nel ponte (27 POST
+  più «Conferma l'albero»). Fuori dal ponte i due della relazione: «Accetta la relazione» (Q-A1d-06 = A [U]: la BOM si
+  conferma dal riepilogo con «Conferma l'albero», e il gesto applicherebbe E37 senza anteprima né firma) e «Scarta la
+  relazione» (Q-P3-01: sospesa finché non è decisa; lo scarto è definitivo). I 28 del ponte: nodi (accetta, scarta,
+  riapri, codice del nodo), codici e dati (codice del componente, rev e descrizione, tipo con la firma di
+  `GET /distinta/tipo`), struttura (collega, sposta, scollega, conferma l'albero), STEP e rimozioni (autorizza con la
+  firma della GET JSON di P2, revoca, accetta e scarta la rimozione), componenti (archivia, rimuovi, ripristina,
+  deroga e revoca), documenti (conferma una voce, assegna, sostituisci, scarta il file), operazioni (riprova copie,
+  prepara, rianalizza, aggiorna smistamento). Nessuna scrittura nuova: sono i gestori legacy, invariati.
+- **Disallineamenti B7 che il ponte non corregge** (registrati nella mappa §4; le L4 li fissano dove indicato):
+  - R-B7-04: la relazione accettata da sola resta senza il segno di «Conferma l'albero» e la BOM non risulta verificata
+    (CR-01…05d); dopo «Conferma l'albero» lo scollega (anche dell'arco d'autorità) lascia la BOM verificata e la riga
+    orfana col segno, il cambio di quantità la toglie solo per il conflitto con lo STEP (DOM-10);
+  - E37: «Accetta la relazione» con un padre sciolto lo rende sottoassieme; la rotta è fuori dal ponte, ma l'avviso
+    dell'anteprima dello STEP lo promette ancora (nessuna prova: la scena con un padre sciolto non c'è);
+  - D1 (DOM-03): lo scollega dell'ultimo figlio lascia il sottoassieme senza figli, con «ok» e nessun avviso (L4);
+  - DB7-3 (DOM-07): «Correggi il codice» rinomina anche il prodotto della RFQ e stacca il legame per codice: la sola
+    protezione è il template di P4 (L4).
+
 ### Differenze dichiarate
 
 - **Il banco**: la pagina non passa gli ingressi del file dei casi (Q-A1d-10 = B, da confermare). Per un thread senza
@@ -296,6 +391,19 @@ markmap:
 - **L1 di questo package** (`motore_a_test.go`, httptest): la porta, i ruoli, le rotte montate, i codici (anche 504
   dell'anteprima e di HEAD, 400 di HEAD, 503 del tetto, il JSON che non si codifica), la deriva dell'anteprima contro
   il modulo legacy.
+  - `motore_a_gesti_test.go` (A1d-Q3): `dalMotoreA` (solo l'indirizzo esatto), `scriviEsitoMotoreA` (un solo div,
+    escape, no-store, intestazioni `HX-*` tolte), il ramo di `threadFrammento` (a flag spento, da un'altra pagina, da
+    un'altra RFQ o con un indirizzo non esatto non scatta; a flag acceso dalla pagina toglie `HX-Trigger` e legge
+    l'esistenza della RFQ prima della vecchia interfaccia; la risposta con il database è nelle L4), la
+    caratterizzazione di `avvisoNegativo` sulle frasi dei gesti (mappa §3, CQ-01) e la guardia dei testi, che li cerca
+    nei sorgenti di questo package e di `core/rfq/fascicolo`.
+  - `motore_a_ponte_test.go` (A1d-Q3): prove statiche sul sorgente del ponte: la lista chiusa (27 POST, mondo chiuso
+    rispetto alle POST che il server registra, le due della relazione registrate ed escluse), le rotte nel mux, niente
+    HTML inserito salvo la rilettura htmx di `#ma` alle sue condizioni (mai la risposta di un gesto), nessun altro
+    canale d'invio, nessuna rotta aggiunta fuori dal blocco, niente resti dimostrativi né import, intestazioni, le righe
+    che decidono per testo esatto (esiti, altra RFQ, guardie, rilettura, stato occupato), nessuna quantità implicita;
+    `statici_test.go`: tipo, cache e impronta di `motore_a_gesti.mjs`. Sono prove sul testo: il comportamento nel DOM lo
+    proverà il kit jsdom (Node, che qui non c'è) con A1d-P4.
 - **L1 altrove**: `TestLaDistintaNuovaLeggeSoltanto` (`core/estrazione/evidenze`), la guardia di deriva della prova di
   equivalenza `TestEquivalenzaMotoreAIlPercorsoDelBancoNonDeriva` (`app/bancoa/motore_a_equivalenza_test.go`).
 - **L4** (tag `integrazione`, `cockpit_test`)
@@ -304,14 +412,19 @@ markmap:
     durante la lettura.
   - `motore_a_db_test.go`: le rotte con le sessioni vere (flag spento, solo l'admin, RFQ inesistente, stessa firma del
     legacy); le due righe di `TestNessunaGetScrive` (`nessunaget_db_test.go`).
+  - `motore_a_gesti_db_test.go` (A1d-Q3): i gesti come li manda il ponte (un rifiuto noto → «no» e nessuna tabella
+    cambiata, un successo → «ok» e l'effetto riletto dal database, ogni risposta senza `HX-*`). Coperte: P3-L4-00…04,
+    -08…13, -17, -19…25, -27, -28, CQ-03, CR-01…05d (meno CR-05e), la RFQ inesistente (404), DB7-3 e D1. Non coperte
+    (NON ESEGUITE negli esiti di Q3): P3-L4-05, -06, -07, -14, -15, -16, -18, -26, e il controllo «GET /motore-a/dati
+    mostra l'effetto» della mappa §5.1, fatto solo per la BOM.
   - `app/bancoa/motore_a_equivalenza_db_test.go`: l'equivalenza col banco (`-thread`, `-tutti`, con un caso di
     scenario).
 
 ### Non appartiene qui
 
 - Regole di classificazione, di autorizzazione o di BOM: le dicono `core/valutazione` e `core/rfq/fascicolo`.
-- Il template, il CSS, `motore_a.mjs`, il rendering (A1d-P4); il ponte dei gesti e il ramo di `threadFrammento`
-  (A1d-P3).
+- Il template, il CSS, `motore_a.mjs`, il rendering, la registrazione della pagina e `Init` (A1d-P4).
+- Le correzioni degli esiti legacy (`avvisoNegativo`, i gestori): sono decisioni separate (Q-A1d-09).
 
 ## Modulo Server e ruoli
 

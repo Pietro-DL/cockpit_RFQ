@@ -107,6 +107,13 @@ func (s *Server) thread(w http.ResponseWriter, r *http.Request) {
 // Se l'azione viene dalla schermata del Fascicolo di questa RFQ (B8.7), risponde come quella: l'avviso e
 // i pannelli fuori banda, senza toccare l'anteprima.
 func (s *Server) threadFrammento(w http.ResponseWriter, r *http.Request, id uuid.UUID, avviso string) {
+	// Giro 5, A1d-P3 (dalla PR #18 di Stefano Valo, c543e89): un gesto partito dalla Distinta nuova di questa RFQ riceve
+	// solo l'esito, un <div data-ma-esito> (rispondiMotoreA, motore_a.go), mai la vecchia interfaccia; il ramo c'è solo
+	// a flag acceso.
+	if s.MotoreA.Accesa && dalMotoreA(r, id) {
+		s.rispondiMotoreA(w, r, id, avviso)
+		return
+	}
 	if passo, ok := dallaDistinta(r.Header, id); ok {
 		s.rispondiDistinta(w, r, id, passo, avviso)
 		return
