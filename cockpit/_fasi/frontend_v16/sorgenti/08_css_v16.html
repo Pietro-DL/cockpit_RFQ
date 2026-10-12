@@ -1,0 +1,325 @@
+<style>
+/* v16 · costruttore 2: stili di Ciclo, Sequenza e albero del processo. Solo var(--…), nessun colore scritto a mano (M12).
+   Caricato dopo 07_css_lavoro.html: può sovrascrivere. Classi dell'albero del processo: pp-* (mai ma-*).
+   Tre dimensioni di testo (13 corpo, 12 dati, 11 etichette); corsivo solo per le proposte ◇. */
+
+/* ---------------- comuni: menu «⋯» e «▾», segni ---------------- */
+.seq-menu{position:absolute;z-index:30;top:calc(100% + 4px);left:0;display:grid;gap:2px;min-width:200px;padding:4px;background:var(--surf);border:1px solid var(--line2);border-radius:var(--r2);box-shadow:0 10px 24px var(--ombra)}
+.seq-menu--dx{left:auto;right:0}
+.seq-menu>button,.seq-menu>.ma-btn{justify-content:flex-start;text-align:left;border:0;background:none;padding:6px 10px;min-height:30px;border-radius:var(--r1);font-size:var(--t-sm);cursor:pointer;color:var(--ink)}
+.seq-menu>button:hover,.seq-menu>.ma-btn:hover{background:var(--sunken);color:var(--ink)}
+.seq-piu,.seq-agg,.seq-zoom,.ent-az,.prep-agg,.dis-piu,.fase-az{position:relative}
+.pp-tag{display:inline-flex;align-items:center;font:600 var(--t-xs)/1.4 var(--fb);padding:0 6px;border-radius:999px;border:1px solid var(--line2);background:var(--surf2);color:var(--ink2);white-space:nowrap;margin-left:4px;vertical-align:1px}
+/* M-7: la pre-unione NON è un sottoassieme: niente blu (che nella Struttura vuol dire sottoassieme); chip neutro con la parola */
+.pp-tag--pre{border-style:dashed;border-color:var(--ink3);background:var(--surf);color:var(--ink)}
+.pp-lett{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 3px;border-radius:var(--r1);background:var(--acc-soft);color:var(--acc);font:700 var(--t-xs)/1 var(--fd);letter-spacing:.02em}
+
+/* ---------------- ③ Ciclo: il disegno con le due schede ---------------- */
+.dis-barra{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dis-schede{flex:0 1 auto;min-width:0}
+.dis-schede>button{padding:3px 9px;min-height:28px;font-size:var(--t-sm);white-space:nowrap}
+.dis-schede>button .mono{font-size:var(--t-xs)}
+.dis-file{display:flex;align-items:center;gap:6px;padding:2px 10px 4px;font-size:var(--t-xs);color:var(--ink2);min-width:0}
+.dis-file .ma-palco-file{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.dis-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;display:grid;gap:2px;min-width:190px;padding:4px;background:var(--surf);border:1px solid var(--line2);border-radius:var(--r2);box-shadow:0 10px 24px var(--ombra)}
+.dis-menu button{text-align:left;border:0;background:none;padding:6px 10px;border-radius:var(--r1);cursor:pointer;font-size:var(--t-sm)}
+.dis-menu button:hover{background:var(--sunken)}
+@media (min-width:1024px){ .cl-disegno{grid-template-rows:auto auto minmax(260px,1fr) auto} }
+
+/* la riga di fase: un «⋯» al posto di ↑ ↓ ✕ */
+/* B-5: il «⋯» è fratello della riga cliccabile, non dentro (un controllo dentro un altro) */
+.fase-testa{display:flex;align-items:center;gap:2px;padding-right:6px}
+.fase-testa>.fase-t{flex:1;min-width:0}
+.fase-t{grid-template-columns:34px minmax(0,1fr) auto auto}
+.fase-az:empty{display:none}
+.fase-piu{width:28px;height:26px;border:1px solid var(--line2);background:var(--surf);border-radius:var(--r1);cursor:pointer;color:var(--ink2);font-size:var(--t-md);line-height:1;padding:0}
+.fase-piu:hover,.fase-piu[aria-expanded="true"]{border-color:var(--acc);color:var(--acc)}
+.fase-acc:empty{display:none}
+
+/* «Entrano»: la scelta dei figli del padre, lo stesso pezzo nel Ciclo e nella Sequenza */
+.ent{display:grid;gap:6px;min-width:0}
+.ent .lab{font-size:var(--t-xs)}
+.ent-chips{display:flex;flex-wrap:wrap;gap:4px}
+.ent-chips .ma-btn{min-height:26px;padding:1px 8px;font-size:var(--t-sm);font-weight:500}
+.ent-chips .ma-btn i{font-style:normal;color:var(--info);font-size:var(--t-xs)}
+.ma-btn.ent--su{background:var(--ok-soft);border-color:var(--ok-line);color:var(--ink)}
+.ma-btn.ent--no{background:var(--surf);border-style:dashed;color:var(--ink2)}
+.ent-dividi{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;border:1px dashed var(--line2);border-radius:var(--r2);background:var(--surf2)}
+.ent-dividi select,.ent-dividi input{min-height:28px;padding:2px 6px;border:1px solid var(--line-campo);border-radius:var(--r1);font-size:var(--t-sm)}
+.ent-dividi input{width:150px}
+.ent-az{display:flex;gap:6px;align-items:center}
+.sald-entra{display:block}
+
+/* preparazioni: riepilogo chiuso, una riga per preparazione con tre controlli */
+.prep>summary .lab{font-family:var(--fd);font-weight:700;font-size:var(--t-xs);letter-spacing:.04em;text-transform:uppercase}
+.prep-riga{grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:4px 10px}
+.prep-riga>.prep-nome{grid-column:1/-1}
+.prep-riga>.prep-az{justify-self:end}
+.prep-riga--evid{box-shadow:0 0 0 2px var(--acc);border-radius:var(--r1)}
+.prep-nome{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline;min-width:0;font-size:var(--t-sm)}
+.prep-nome .k3{font-size:var(--t-xs)}
+.prep-costo{display:inline-flex;align-items:center;gap:3px}
+.prep-costo input{width:96px;min-height:26px;padding:2px 6px;border:1px solid var(--line-campo);border-radius:var(--r1);font-family:var(--fm);font-size:var(--t-sm)}
+.prep-costo input.prep-sett{width:56px}
+.prep-costo input:disabled{background:var(--sunken)}
+.prep-az{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
+.prep-rich{display:inline-flex;gap:4px;align-items:center}
+.prep-rich .k3{font-size:var(--t-xs)}
+.prep-togli{width:24px;height:24px;border:1px solid var(--line2);background:var(--surf);border-radius:var(--r1);cursor:pointer;color:var(--ink2);padding:0}
+.prep-togli:hover{border-color:var(--ko);color:var(--ko)}
+.prep-agg{display:flex;align-items:center;gap:6px}
+.prep-altra{display:flex;gap:4px;padding:4px 6px}
+.prep-altra input{flex:1;min-width:0;min-height:28px;padding:2px 6px;border:1px solid var(--line-campo);border-radius:var(--r1);font-size:var(--t-sm)}
+.prep-mini{display:inline-flex;flex-wrap:wrap;gap:4px 6px;align-items:center;font-size:var(--t-sm);padding:2px 8px;border:1px solid var(--line2);border-radius:var(--r2);background:var(--surf2)}
+.prep-mini svg{color:var(--ink2)}
+
+/* controlli del componente: un riquadro chiuso */
+.ctrl-det>summary{cursor:pointer;display:flex;align-items:center;gap:6px;font-size:var(--t-sm);list-style:none}
+.ctrl-det>summary::-webkit-details-marker{display:none}
+.ctrl-det>summary::after{content:"▸";color:var(--ink2);margin-left:auto}
+.ctrl-det[open]>summary::after{content:"▴"}
+/* requisiti: chiuso è un chip */
+.req-riga--chiusa{display:inline-flex;align-self:flex-start;-webkit-mask-image:none;mask-image:none;min-height:28px;padding:1px 6px}
+
+/* ---------------- ④ Sequenza: albero + pannello + barra ---------------- */
+.seq16{display:flex;flex-direction:column;height:100%;min-height:0}
+.seq16-main{flex:1;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+.seq-testa{padding-bottom:6px}
+.seq-testa .seg>button{padding:3px 9px;min-height:28px;font-size:var(--t-sm)}
+.seq16-corpo{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:0;border-top:1px solid var(--line)}
+.seq16-corpo--vuoto{grid-template-columns:minmax(0,1fr) 260px}
+.seq16-tela{min-width:0;min-height:0;overflow:auto;background:var(--surf2)}
+.seq16-pannello{min-width:0;min-height:0;overflow:auto;padding:10px 14px 16px;border-left:1px solid var(--line);background:var(--surf);display:grid;gap:10px;align-content:start;font-size:var(--t-sm)}
+.seq16-pannello{grid-template-columns:minmax(0,1fr)}
+.seq16-pannello>*{grid-column:1/-1;min-width:0}
+.seq16-pannello .cb{display:grid;gap:4px}
+.seq-vuoto{color:var(--ink2);font-size:var(--t-sm);padding:6px 0}
+.seq-chiudi{justify-self:end}
+.seq-p-testa{display:flex;align-items:center;gap:8px;min-width:0}
+.seq-p-testa h3{font-size:var(--t-md);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis}
+.seq-p-sotto{color:var(--ink2);font-size:var(--t-xs);margin-top:-6px}
+.seq-p-riga{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.seq-p-riga .lab,.seq-prot .lab{font-size:var(--t-xs);min-width:84px}
+.seq-p-mot code{font:600 var(--t-xs)/1.4 var(--fm);color:var(--ver)}
+.seq-p-az{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.seq-rif{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.seq-rif>span{font:700 var(--t-xs)/1.2 var(--fd);text-transform:uppercase;letter-spacing:.04em;color:var(--ink2);min-width:84px}
+.seq-rif select{min-height:30px;padding:2px 6px;border:1px solid var(--line-campo);border-radius:var(--r1);font-size:var(--t-sm);max-width:100%}
+.seq-masch{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.seq-prot{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.seq-prot .ma-btn{min-height:26px;padding:1px 8px}
+.seq-rin{display:flex;gap:6px}
+.seq-rin input{flex:1;min-width:0;min-height:30px;padding:2px 8px;border:1px solid var(--line-campo);border-radius:var(--r1)}
+.seq-det{border:1px solid var(--line);border-radius:var(--r2);padding:6px 10px;background:var(--surf2);display:grid;gap:8px}
+.seq-det>summary{cursor:pointer;font-size:var(--t-sm);color:var(--ink2)}
+.seq-det .seq-prop{background:var(--surf)}
+.seq-stadio-chip{display:inline-flex;gap:3px;font:600 var(--t-xs)/1.5 var(--fm);padding:0 6px;border-radius:var(--r1);background:var(--acc-soft);color:var(--acc)}
+.seq-stadio-chip--0{background:var(--sunken);color:var(--ink2)}
+.seq-barra{gap:10px}
+.seq-barra .sp{flex:1}
+.seq-manca{border-color:var(--ver-line);background:var(--ver-soft);color:var(--ver)}
+.seq-chiedi{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-sm);padding:4px 8px;border:1px solid var(--ver-line);background:var(--ver-soft);border-radius:var(--r2);white-space:normal}
+
+/* ---------------- l'albero del processo: lo stesso linguaggio dell'albero della Struttura ---------------- */
+.pp-tela{padding:14px 10px 24px;min-width:max-content}
+.pp-zoom{display:flex;justify-content:center;zoom:var(--z,1)}
+.pp-albero,.pp-albero ul{margin:0;padding:0}
+.pp-albero{--pp-linea:var(--linea-file)}
+.pp-albero--conf{--pp-linea:var(--linea-conf)}
+.pp-albero{display:flex;justify-content:center}
+.pp-albero ul{padding-top:22px;position:relative;display:flex;justify-content:center}
+.pp-albero li{list-style:none;position:relative;padding:22px 6px 0;display:flex;flex-direction:column;align-items:center}
+.pp-albero>li{padding-top:0}
+.pp-albero li::before,.pp-albero li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:22px;border-top:var(--pp-linea)}
+.pp-albero li::after{right:auto;left:50%;border-left:var(--pp-linea)}
+.pp-albero>li::before,.pp-albero>li::after{display:none}
+.pp-albero li:only-child::before{display:none}
+.pp-albero li:only-child::after{border-top:0}
+.pp-albero li:first-child::before,.pp-albero li:last-child::after{border:0}
+.pp-albero li:last-child::before{border-right:var(--pp-linea);border-radius:0 8px 0 0}
+.pp-albero li:first-child::after{border-radius:8px 0 0 0}
+.pp-albero li:only-child::after{border-left:var(--pp-linea);border-radius:0}
+.pp-albero ul::before{content:"";position:absolute;top:0;left:50%;height:22px;border-left:var(--pp-linea)}
+/* il rastrello: oltre 5 foglie, una griglia nel riquadro tratteggiato (come la Struttura) */
+.pp-albero ul.pp-rastrello{display:grid;grid-template-columns:repeat(var(--col,3),172px);gap:12px 10px;justify-content:center;padding:14px 10px 10px;border:1.5px dashed var(--line2);border-radius:10px;background:var(--surf)}
+.pp-albero ul.pp-rastrello::before{top:-23px;height:22px}
+.pp-albero ul.pp-rastrello>li{padding:0;align-items:stretch}
+.pp-albero ul.pp-rastrello>li::before,.pp-albero ul.pp-rastrello>li::after{display:none}
+.pp-albero li.pp-li--rastrello{padding-top:22px}
+/* la casella: componente, sottoassieme, prodotto */
+.pp-box{position:relative;width:172px;display:grid;gap:3px;padding:6px 8px 7px;border:1.5px solid var(--line2);border-top-width:4px;border-radius:var(--r2);background:var(--surf);cursor:pointer;text-align:left;font-size:var(--t-sm)}
+.pp-box:hover{background:var(--surf2)}
+.pp-box--prodotto{width:auto;min-width:240px;max-width:340px;border-top-color:var(--t-finito)}
+.pp-t--sciolto{border-top-color:var(--t-sciolto)}
+.pp-t--sottoassieme{border-top-color:var(--t-sottoassieme)}
+.pp-t--commerciale{border-top-color:var(--t-commerciale)}
+.pp-box--manca{border-color:var(--ko-line);border-top-color:var(--ko)}
+.pp-box--senza{border-style:dashed;border-color:var(--ko-line);border-top-width:1.5px;background:var(--ko-soft)}
+.pp-box--su,.pp-unione--su{outline:3px solid var(--acc);outline-offset:2px}
+.pp-box:focus-visible,.pp-unione:focus-visible{outline:2.5px dashed var(--acc);outline-offset:3px}
+.pp-riga1{display:flex;flex-wrap:wrap;align-items:center;gap:2px 5px;min-width:0}
+.pp-riga1 .pp-st{margin-left:auto}
+.pp-tipo{font:700 var(--t-xs)/1 var(--fd);text-transform:uppercase;letter-spacing:.05em;color:var(--acc)}
+.pp-cod{font-size:var(--t-sm);white-space:nowrap;min-width:0}
+.pp-qta{font-family:var(--fm);font-size:var(--t-xs);color:var(--ink2);white-space:nowrap}
+.pp-pr{color:var(--pa);font-style:italic;font-size:var(--t-xs)}
+.pp-descr{font-size:var(--t-xs);color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-ultime{display:flex;flex-wrap:wrap;gap:3px 5px;align-items:center;font-size:var(--t-xs);color:var(--ink2)}
+.pp-ultime [data-pp-stadio]{cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+.pp-st{display:inline-flex;align-items:center;gap:2px;font:600 var(--t-xs)/1.4 var(--fb);padding:0 5px;border-radius:999px;white-space:nowrap}
+.pp-st--ok{background:var(--ok-soft);color:var(--ok)}
+.pp-st--bozza{background:var(--ver-soft);color:var(--ver)}
+.pp-st--proposta{background:var(--pa-soft);color:var(--pa)}
+.pp-st--manca{background:var(--ko-soft);color:var(--ko)}
+.pp-mot{font:600 var(--t-xs)/1.4 var(--fm);color:var(--ko)}
+.pp-catena{display:flex;flex-wrap:wrap;gap:2px 3px;align-items:center}
+.pp-catena>i{font-style:normal;color:var(--ink4);font-size:var(--t-xs)}
+.pp-sg{display:inline-flex;align-items:center;font:600 var(--t-xs)/1.5 var(--fm);padding:0 5px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surf2);color:var(--ink);cursor:pointer;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.pp-sg:hover{border-color:var(--acc);color:var(--acc)}
+.pp-sg--est{border-color:var(--info-line);background:var(--info-soft);color:var(--info)}
+.pp-anche{font-size:var(--t-xs);color:var(--info)}
+.pp-apri{justify-self:start;border:1px solid var(--line2);background:var(--surf2);border-radius:999px;padding:0 8px;font-size:var(--t-xs);cursor:pointer;color:var(--ink2);min-height:22px}
+.pp-prep{display:inline-flex;align-items:center;gap:3px;font-size:var(--t-xs);font-weight:600;padding:0 6px;border-radius:999px;border:1px solid;cursor:pointer;white-space:nowrap}
+.pp-prep--off{color:var(--off);background:var(--off-soft);border-color:var(--line2)}
+.pp-prep--ver{color:var(--ver);background:var(--ver-soft);border-color:var(--ver-line)}
+.pp-prep--ok{color:var(--ok);background:var(--ok-soft);border-color:var(--ok-line)}
+.pp-u-p{display:flex;flex-wrap:wrap;gap:3px}
+/* l'unione: un rombo con l'etichetta, mai una casella (non è un nodo della BOM) */
+.pp-unione{position:relative;display:grid;justify-items:center;gap:2px;padding:4px 10px 6px;max-width:260px;cursor:pointer;text-align:center;border-radius:var(--r2);font-size:var(--t-sm)}
+.pp-unione:hover{background:var(--surf)}
+.pp-rombo{width:22px;height:22px;transform:rotate(45deg);border:2px solid var(--acc);background:var(--acc-soft);margin:2px 0 4px}
+.pp-unione--pre .pp-rombo{width:16px;height:16px;border-color:var(--acc);background:var(--surf)}
+.pp-u--vuota .pp-rombo{border-style:dotted;background:var(--surf)}
+.pp-st--vuota{background:var(--sunken);color:var(--ink2)}
+.pp-u--manca .pp-rombo{border-color:var(--ko);background:var(--ko-soft)}
+.pp-u--proposta .pp-rombo{border-style:dashed}
+.pp-u-t{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 4px;line-height:1.3}
+.pp-u-t b{font-family:var(--fd);font-size:var(--t-md);font-weight:700}
+.pp-u-d{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 6px;font-size:var(--t-xs);color:var(--ink2)}
+/* il ramo che sale: le fasi del padre fra due unioni, i viaggi ⇄ */
+.pp-ramo{display:grid;justify-items:center;gap:3px;padding:0 0 8px;position:relative}
+.pp-ramo::before{content:"";position:absolute;top:0;bottom:0;left:50%;border-left:var(--pp-linea);z-index:0}
+.pp-ramo-f{position:relative;z-index:1;display:inline-flex;align-items:center;gap:4px;font-size:var(--t-xs);padding:1px 8px;border:1px solid var(--line2);border-radius:999px;background:var(--surf);cursor:pointer;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.pp-ramo-f:hover{border-color:var(--acc)}
+.pp-ramo-f--su{outline:3px solid var(--acc);outline-offset:1px}
+.pp-ramo-f:focus-visible{outline:2.5px dashed var(--acc);outline-offset:2px}
+.pp-ramo-su{position:relative;z-index:1;font:700 var(--t-xs)/1 var(--fm);color:var(--ink2);background:var(--surf2);padding:0 4px}
+.pp-mot{font:600 var(--t-xs)/1.4 var(--fb)!important}
+.pp-ramo-f--est{border-color:var(--info-line);background:var(--info-soft);color:var(--ink)}
+.pp-ramo-f--manca{border-color:var(--ver-line);background:var(--ver-soft)}
+.pp-ramo-f svg{display:inline-block;vertical-align:-2px}
+
+/* ---------------- strette: sotto 1280 il pannello si stringe; sotto 820 l'albero diventa un elenco rientrato ---------------- */
+@media (max-width:1279px){ .seq16-corpo{grid-template-columns:minmax(0,1fr) 340px} }
+@media (max-width:1023px){
+  .seq16-corpo,.seq16-corpo--vuoto{grid-template-columns:minmax(0,1fr)}
+  .seq16-pannello{border-left:0;border-top:1px solid var(--line)}
+  .seq16-corpo--vuoto .seq16-pannello{display:none}
+}
+@media (max-width:819px){
+  .seq16{height:auto;display:block}
+  .seq16-main{display:block}
+  .seq-testa{padding-left:16px;padding-right:16px}
+  .seq16-tela{overflow:visible;background:var(--surf)}
+  .pp-tela{min-width:0;padding:8px 16px 12px}
+  .pp-zoom{display:block;zoom:1!important}
+  .pp-albero,.pp-albero ul{display:block}
+  .pp-albero ul{padding:0 0 0 12px;margin-left:8px;border-left:var(--pp-linea)}
+  .pp-albero li{display:block;padding:8px 0 0}
+  .pp-albero li::before,.pp-albero li::after,.pp-albero ul::before,.pp-ramo::before{display:none}
+  .pp-albero ul.pp-rastrello{display:block;padding:0 0 0 12px;border:0;border-left:var(--pp-linea);border-radius:0;background:none}
+  .pp-albero ul.pp-rastrello>li{padding:8px 0 0}
+  .pp-box,.pp-box--prodotto{width:100%;max-width:none}
+  .pp-unione{justify-items:start;text-align:left;max-width:none;grid-template-columns:auto minmax(0,1fr);column-gap:8px}
+  .pp-unione>.pp-rombo{grid-row:1/span 3;width:14px;height:14px;margin:6px 4px}
+  .pp-u-t,.pp-u-d{justify-content:flex-start}
+  .pp-ramo{justify-items:start;padding:0 0 4px}
+  .pp-ramo-f{max-width:100%;white-space:normal}
+  .seq16-pannello{padding:12px 16px 20px}
+  .seq-barra{flex-wrap:wrap;padding:8px 16px}
+  .dis-schede>button{padding:3px 6px}
+  .prep-riga{grid-template-columns:minmax(0,1fr)}
+  .prep-riga>.prep-az{justify-self:start}
+}
+/* integrazione v16 (12/10): a 1024 px il Ciclo stava stretto */
+.sald-q .seg{min-width:0}
+.cl-riga .cl-tag{grid-column:2/-1}
+.barra-conf .bc-stato>*{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+.barra-conf .bc-stato>.mono,.barra-conf .bc-stato>.ma-st{flex:none}
+.pp-ramo-f{display:inline-block;white-space:normal;border-radius:10px;text-align:left;line-height:1.35;padding:2px 8px}
+.fase-nome .pp-tag{margin-right:6px}
+
+/* ---------------- prova Cervi (RL-01, RL-04, RL-10, RL-17): zona B in prugna, solo var(--…) ---------------- */
+.r38{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);display:grid;gap:6px;min-width:0}
+.r38-testa{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.r38-testa .banda-b-t{color:var(--pa);font:600 var(--t-xs)/1.3 var(--fb)}
+.r38-riga{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;min-width:0}
+.r38-riga label{display:grid;gap:2px;font-size:var(--t-xs);color:var(--ink2);min-width:0}
+.r38-riga input,.r38-riga select{min-height:28px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surf);color:var(--ink);font:inherit;font-size:var(--t-sm);width:14ch;max-width:100%}
+.r38-riga .r38-c input{width:6ch}.r38-riga .r38-l input{width:22ch}
+.r38-nota{margin:0;line-height:1.45}.r38-nota .ma-na{display:inline-flex;margin-left:6px;vertical-align:middle}
+.banda-b--3d{margin:6px 0}
+.rq-reg{display:grid;gap:6px;margin:6px 0 0;padding:8px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);min-width:0}
+.rq-reg>summary{cursor:pointer;font-weight:600;color:var(--pa)}
+.rq-reg-g{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end}
+.rq-reg-g label{display:grid;gap:2px;font-size:var(--t-xs);color:var(--ink2);min-width:0}
+.rq-reg-g input{min-height:28px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surf);color:var(--ink);font:inherit;font-size:var(--t-sm);max-width:100%}
+.rq-cod-sel{display:flex;flex-wrap:wrap;gap:8px;font-size:var(--t-xs)}
+.cf-mat--no{color:var(--ver);font-weight:600}
+.cedit--lotti{display:grid;gap:3px}.qsel-l{display:flex;gap:4px;align-items:center}.qsel-l select{max-width:260px}
+.so-carta--rev{outline:2px dashed var(--pa-line);outline-offset:-2px}
+.tratt-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0;padding:6px 8px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);font-size:var(--t-sm)}
+.neg{color:var(--ko)}
+.rq-risp,.rq-risp>span{min-width:0;overflow-wrap:anywhere}
+</style>
+
+<style>
+/* v16 rev. · revisioni di Lino, Pietro e frontend (12/10) */
+/* il cassetto ✉: la carta è il bisogno, sotto una riga per fornitore (P-02, M7) */
+.rq-forni{display:grid;gap:6px}
+.rq-forn{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surf)}
+.rq-forn--annullata{opacity:.75}
+.rq-forn>.rq-risp,.rq-forn>.rq-giri{flex:1 1 100%}
+.rq-f-nome{display:grid;min-width:0}
+.rq-f-nome small{font-size:var(--t-xs)}
+.rq-nota{display:grid;gap:4px}
+.rq-testa{margin:6px 12px}
+/* la barra delle stazioni: «Poi: ② Come →» fuori da #ma (P-13, M1) */
+.staz-poi{align-self:center;margin:0 8px;padding:3px 10px;min-height:28px;border:1px solid var(--acc-line);border-radius:999px;background:var(--acc-soft);color:var(--acc);font-weight:600;font-size:var(--t-sm);cursor:pointer;white-space:nowrap}
+.staz-poi:hover{background:var(--acc);color:var(--paper)}
+/* Ciclo: le proposte che «Accetta N ◇» accetta, scritte prima del gesto (P-06) */
+.bc-proposte{font-size:var(--t-xs);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sald-ogg{font-size:var(--t-sm);color:var(--ink)}
+.cl-filtro-l select{min-height:28px;padding:2px 6px;border:1px solid var(--line-campo);border-radius:var(--r1);font-size:var(--t-sm);background:var(--surf)}
+/* Esito: le regole in più della riga si leggono sulla riga scelta */
+.perche-n{cursor:help;margin-left:4px}
+.esito-perche{display:flex;flex-wrap:wrap;gap:2px 8px}
+.zona-a-ro--cambio{border-color:var(--ver-line);background:var(--ver-soft)}
+/* B-3: un primario spento con aria-disabled si vede spento, ma il clic porta a quello che manca */
+.ma-btn[aria-disabled="true"]:not([disabled]){opacity:.55;cursor:help}
+/* B-4: i controlli della zona B almeno 24 px (WCAG 2.5.8); quelli di Pietro non si toccano */
+.staz-b .ma-btn--sm,.ciclo .ma-btn--sm,.seq16 .ma-btn--sm,.cassetto .ma-btn--sm,.req-chip,.pp-sg{min-height:24px}
+
+/* ---------------- prova Cervi (RL-01, RL-04, RL-10, RL-17): zona B in prugna, solo var(--…) ---------------- */
+.r38{margin:8px 0 4px;padding:8px 10px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);display:grid;gap:6px;min-width:0}
+.r38-testa{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.r38-testa .banda-b-t{color:var(--pa);font:600 var(--t-xs)/1.3 var(--fb)}
+.r38-riga{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;min-width:0}
+.r38-riga label{display:grid;gap:2px;font-size:var(--t-xs);color:var(--ink2);min-width:0}
+.r38-riga input,.r38-riga select{min-height:28px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surf);color:var(--ink);font:inherit;font-size:var(--t-sm);width:14ch;max-width:100%}
+.r38-riga .r38-c input{width:6ch}.r38-riga .r38-l input{width:22ch}
+.r38-nota{margin:0;line-height:1.45}.r38-nota .ma-na{display:inline-flex;margin-left:6px;vertical-align:middle}
+.banda-b--3d{margin:6px 0}
+.rq-reg{display:grid;gap:6px;margin:6px 0 0;padding:8px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);min-width:0}
+.rq-reg>summary{cursor:pointer;font-weight:600;color:var(--pa)}
+.rq-reg-g{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end}
+.rq-reg-g label{display:grid;gap:2px;font-size:var(--t-xs);color:var(--ink2);min-width:0}
+.rq-reg-g input{min-height:28px;padding:2px 6px;border:1px solid var(--line2);border-radius:var(--r1);background:var(--surf);color:var(--ink);font:inherit;font-size:var(--t-sm);max-width:100%}
+.rq-cod-sel{display:flex;flex-wrap:wrap;gap:8px;font-size:var(--t-xs)}
+.cf-mat--no{color:var(--ver);font-weight:600}
+/* RIPROVA: il confronto dei terzisti con più giri resta leggibile (una quotazione per riga) */
+.cf-tab td{vertical-align:top}.cf-tab .cf-l{white-space:nowrap}
+.cedit--lotti{display:grid;gap:3px}.qsel-l{display:flex;gap:4px;align-items:center}.qsel-l select{max-width:260px}
+.so-carta--rev{outline:2px dashed var(--pa-line);outline-offset:-2px}
+.tratt-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0;padding:6px 8px;border:1px dashed var(--pa-line);border-radius:var(--r2);background:var(--pa-soft);font-size:var(--t-sm)}
+</style>
