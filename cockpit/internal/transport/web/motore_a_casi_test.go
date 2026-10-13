@@ -648,7 +648,7 @@ func (s *maScena) chiudi(info infoCaso, scrive bool) casoMotoreA {
 		return s.cf.File[i].File.AllegatoID.String() < s.cf.File[j].File.AllegatoID.String()
 	})
 	s.cf.Conteggi = map[confronto.Badge]int{confronto.BadgeUguale: 0, confronto.BadgeNuovoAncoraggio: 0, confronto.BadgeDiverso: 0,
-		confronto.BadgeRegressioneSuConfermata: 0, confronto.BadgeFuoriRichiesta: 0}
+		confronto.BadgeRegressioneSuConfermata: 0, confronto.BadgeFuoriRichiesta: 0, confronto.BadgeNonFile: 0}
 	for _, f := range s.cf.File {
 		s.cf.Conteggi[f.Badge]++
 	}
@@ -1955,7 +1955,7 @@ func maControllaCaso(c *casoMotoreA) []string {
 	for _, n := range cf.Conteggi {
 		somma += n
 	}
-	if len(cf.Conteggi) != 5 || somma != len(cf.File) || cf.VersioneConfronto != confronto.VersioneConfronto {
+	if len(cf.Conteggi) != 6 || somma != len(cf.File) || cf.VersioneConfronto != confronto.VersioneConfronto { // sei badge da confronto-4
 		e("conteggi %v per %d file", cf.Conteggi, len(cf.File))
 	}
 	for _, m := range []map[uuid.UUID]int{nFile, nAssoc, nBadge} {

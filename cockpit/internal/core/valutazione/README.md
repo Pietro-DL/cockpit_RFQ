@@ -308,7 +308,12 @@ markmap:
   - i record piatti `FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`, `CandidatoPiatto`, `ProdottoConfrontabile`; i
     valori `Revisioni*`, `RevisioneDa*` e `MotivoRevisioni*`; la costruzione: il nuovo di ogni allegato (le basi, i
     candidati con la base del target, del componente deciso o del nodo, le radici, la revisione del file e il confronto
-    con la revisione vecchia, del codice o della colonna), i candidati prodotto piatti.
+    con la revisione vecchia, del codice o della colonna), i candidati prodotto piatti;
+  - (notte 14/10, WP-C; il gemello di `confronto-4`) `CandidatoPiatto.ChiaviF8`: le chiavi F8 `nodo:<id della riga>`
+    delle righe di `componente_proposta` con lo stesso sha256 e la stessa chiave del nodo del target o dei nodi delle
+    posizioni (`chiaviF8Di`), di qualunque stato. È la corrispondenza riga ↔ nodo che `confronto` non può fare da solo
+    (il Rif del nodo e la chiave F8 hanno lo stesso prefisso `nodo:` con due significati): senza, un figlio ancorato al
+    nodo che la destinazione F8 indicava usciva `diverso/target_diverso`.
 - **`impronta.go`** (B6, V1 e V3) — responsabilità:
   - `VersioneImprontaProdotto`; l'impronta dell'esito (`improntaEsito`);
   - (V3) l'impronta del prodotto: l'ingresso astratto (`DatiDecisiProdotto`, `ImprontaFonte`, `ImprontaComponente`,
@@ -1095,7 +1100,10 @@ markmap:
   nell'indice, scartata, ragione sociale discorde), un adattatore in errore che non ferma il thread, gli errori della
   valutazione (F0-05, T-B6-09), nessun insieme di regole, la fotografia non valida, i messaggi fuori RFQ (R34), il
   determinismo con gli ingressi permutati; A1c-L1-14 riscritta su `senza_testo` (T-B6-02), con la deviazione dal piano
-  nominata; i record piatti del nuovo; i conflitti composti (T-B6-10, F0-13), anche sulla regola con pezzi sintetici.
+  nominata; i record piatti del nuovo (da `confronto-4` con le chiavi F8 delle righe degli stessi nodi); i conflitti
+  composti (T-B6-10, F0-13), anche sulla regola con pezzi sintetici; `TestChiaviF8DelCandidato` (notte 14/10, WP-C): le
+  chiavi F8 per il nodo del target e per le posizioni, più righe dello stesso nodo, la stessa chiave in un altro
+  contenuto, le righe senza sha256 o senza chiave, il candidato senza nodi, l'ordine delle righe che non conta.
 - **`vecchio_test.go`** (B6, V1) — L1 — A1c-L1-30: la lettura del codice registrato (con la A, la B, la X, una maiuscola
   diversa, due spazi di codici, senza grammatica), il vecchio dal documento e dalla proposta, i dettagli, il documento
   sostituito e quello corrente, le revisioni confrontate con la grammatica con ogni motivo, il codice che non si legge;
@@ -1140,7 +1148,8 @@ markmap:
   con quelli dello smistamento e, dopo le risposte del 07/10, del contesto. **`export_test.go`**: la composizione dei
   conflitti, le funzioni di R106 B e R108 A e l'attribuzione dei conflitti `identita_documento`, la funzione di R111 A,
   l'adattatore delle condizioni
-  nuove e i motivi del nodo, per le prove della regola.
+  nuove e i motivi del nodo, per le prove della regola; da `confronto-4` le chiavi F8 di un candidato
+  (`ChiaviF8DelCandidatoPerProva`).
 - **`smistamento_test.go`** (B6, V2) — L1 — la regola dello smistamento sugli ingressi astratti: le cinque condizioni con i
   motivi, T-B6-08, PO-24 (in_revisione con un percorso sintetico, che vince sul conflitto), PO-25 nella parte dello
   smistamento (anche il percorso `inbox_nuovo_cad` solo per i coinvolti), lo smistamento non calcolato (T-B6-07, F0-17,
@@ -1190,7 +1199,8 @@ markmap:
   voci che cambiano con le radici di riserva (`autorizzateRiserveP7e`: il finito o la candidata con lo STEP confermato
   sul componente e la radice che l'insieme non legge, ora con la struttura candidata `associazione_step`), intere; le parti che L-2D e T-6 cambiano, scena per scena
   (`autorizzateNotte1410`, lette sul JSON delle due versioni); `riconoscimento_2d` si toglie come i campi di P7e; il
-  «prima» non si rigenera.
+  «prima» non si rigenera. Da `confronto-4` (notte 14/10, WP-C) la normalizzazione toglie anche `chiavi_f8` dai
+  candidati dei record piatti: un campo in più, nient'altro cambia.
 - **`disegni_dal_formato_test.go`** (notte del 14/10, L-2D) — L1 — la regola del riconoscimento (tipi ed estensioni,
   l'elenco che non si cambia da fuori, l'elenco chiuso dei formati che non cambia); i nodi con il 2D dal formato (il
   primario PDF, poi TIFF, poi DXF, qualunque sia l'ordine degli allegati; i previsti; il 2D registrato; i file

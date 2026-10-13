@@ -100,12 +100,20 @@ type NuovoPiatto struct {
 //   - Radici: le basi dei target da cui il candidato si raggiunge, in ordine di byte, senza doppioni. Una o più radici la
 //     cui base non si legge restano un solo "" (R-62 della revisione di V1): una radice in più non sparisce, e confronto
 //     conta "" come una radice che non coincide con nessuna base attesa.
+//   - ChiaviF8 (il gemello di confronto-4, notte 14/10, WP-C): le chiavi della destinazione F8 che nominano gli stessi
+//     nodi STEP del candidato, «nodo:<id della riga di componente_proposta>», in ordine di byte, senza doppioni: per
+//     ogni riga di componente_proposta con lo stesso sha256 e la stessa chiave del nodo del target (un Target
+//     «nodo:<sha256>:<chiave>») o di un nodo delle sue posizioni (PosizioneCandidato.Nodo), di qualunque stato. È la
+//     corrispondenza riga ↔ nodo di NodoProposto.RigaLegacy e della pertinenza (chiaveF8Nodo): il Rif del nodo e la
+//     chiave F8 hanno lo stesso prefisso «nodo:» con due significati, e confronto non può collegarli da solo. Vuoto se
+//     nessuna riga ha quel nodo (e sempre per un candidato senza nodi).
 type CandidatoPiatto struct {
 	Target   string   `json:"target"`
 	Livello  string   `json:"livello"`
 	Base     string   `json:"base"`
 	Autorita string   `json:"autorita"`
 	Radici   []string `json:"radici,omitempty"`
+	ChiaviF8 []string `json:"chiavi_f8,omitempty"`
 }
 
 // ProdottoConfrontabile: un candidato prodotto della mail, piatto (confronto.ProdottoNuovo; da EsitoProdotti.Candidati).
@@ -186,12 +194,14 @@ type piatti struct {
 	basiTarget  map[string]string    // Rif del target → base normalizzata
 	basiNodo    map[string]string    // Rif del nodo → base normalizzata della sua forma letta
 	componenti  map[uuid.UUID]string // componente → codice
+	chiaviF8    map[string][]string  // Rif del nodo → chiavi F8 «nodo:<riga>» delle righe legacy dello stesso nodo
 }
 
 func nuoviPiatti(t fotorfq.Thread, m *motorea.Motore, valutato bool, col *collegamento, v ValutazioneProdotti) *piatti {
 	p := &piatti{m: m, valutato: valutato, vecchio: nuovoVecchioDelThread(t, m), contenitori: contenitoriDi(t.Allegati),
 		file: map[uuid.UUID]ancoraggio.FileInterpretato{}, ancoraggi: map[uuid.UUID]ancoraggio.AncoraggioFile{},
-		basiTarget: map[string]string{}, basiNodo: map[string]string{}, componenti: map[uuid.UUID]string{}}
+		basiTarget: map[string]string{}, basiNodo: map[string]string{}, componenti: map[uuid.UUID]string{},
+		chiaviF8: map[string][]string{}}
 	if col != nil {
 		for _, f := range col.file {
 			p.file[f.AllegatoID] = f
@@ -212,6 +222,12 @@ func nuoviPiatti(t fotorfq.Thread, m *motorea.Motore, valutato bool, col *colleg
 	}
 	for _, c := range t.Componenti {
 		p.componenti[c.ID] = c.Codice
+	}
+	for _, r := range t.RigheComponenteProposta { // una riga senza sha256 o senza chiave non nomina un nodo
+		if r.Sha256 != "" && r.Chiave != "" {
+			nodo := ancoraggio.RifNodo(r.Sha256, r.Chiave)
+			p.chiaviF8[nodo] = append(p.chiaviF8[nodo], chiaveF8Nodo+r.ID.String())
+		}
 	}
 	return p
 }
@@ -269,7 +285,7 @@ func (p *piatti) nuovo(a fotorfq.Allegato, vl vecchioLetto) NuovoPiatto {
 		n.Basi = basiDi(letture)
 		for _, c := range af.Candidati {
 			n.Candidati = append(n.Candidati, CandidatoPiatto{Target: c.Target, Livello: c.Livello, Base: p.baseDelCandidato(c),
-				Autorita: string(c.Autorita), Radici: p.basiDelleRadici(c.RadiciRaggiungibili)})
+				Autorita: string(c.Autorita), Radici: p.basiDelleRadici(c.RadiciRaggiungibili), ChiaviF8: p.chiaviF8Di(c)})
 		}
 		rev, motivo := revisioneDelFile(letture)
 		if rev != nil {
@@ -333,6 +349,20 @@ func (p *piatti) baseDelCandidato(c ancoraggio.CandidatoAncoraggio) string {
 		}
 	}
 	return ""
+}
+
+// chiaviF8Di: le chiavi F8 delle righe legacy degli stessi nodi del candidato (CandidatoPiatto.ChiaviF8; confronto-4):
+// il nodo del target, se il target è un nodo, e i nodi delle posizioni. In ordine di byte, senza doppioni: l'ordine
+// delle righe e delle posizioni non conta.
+func (p *piatti) chiaviF8Di(c ancoraggio.CandidatoAncoraggio) []string {
+	var out []string
+	if strings.HasPrefix(c.Target, ancoraggio.PrefissoRifNodo) {
+		out = append(out, p.chiaviF8[c.Target]...)
+	}
+	for _, pos := range c.Posizioni {
+		out = append(out, p.chiaviF8[pos.Nodo]...)
+	}
+	return ordinatiUnici(out)
 }
 
 // basiDelleRadici: le basi dei target da cui un candidato si raggiunge (CandidatoPiatto.Radici), in ordine di byte, senza

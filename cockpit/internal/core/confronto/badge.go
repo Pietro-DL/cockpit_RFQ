@@ -10,6 +10,12 @@ import (
 // grammatica, mai dall'atteso: nel banco e nell'anteprima è lo stesso (R31 a A, ristretta dalla R2: P-14). Le righe C5
 // non hanno un badge apposito: il loro badge esce dalla tavola contro la decisione confermata, e «da rivedere» compare
 // solo nel rapporto del banco.
+//
+// non_file (confronto-4, notte 14/10, WP-C): una voce che non è un file (la natura non «file» di valutazione: un
+// elemento in linea della mail, un elemento di Outlook), non decisa. Il motore A non la valuta per costruzione e il
+// legacy non le dà un codice: non è una differenza fra i due, e contarla fra i «diverso» era rumore. Il badge è neutro
+// (né uguale né diverso) e il motivo resta vuoto. Un contenitore resta com'era (diverso, non_valutato): è un file, e il
+// legacy gli dà spesso un codice.
 type Badge string
 
 const (
@@ -18,16 +24,18 @@ const (
 	BadgeDiverso                 Badge = "diverso"
 	BadgeRegressioneSuConfermata Badge = "regressione_su_confermata"
 	BadgeFuoriRichiesta          Badge = "fuori_richiesta"
+	BadgeNonFile                 Badge = "non_file"
 )
 
 // I badge in un ordine fisso: le chiavi di Esito.Conteggi, tutte presenti.
-var tuttiIBadge = []Badge{BadgeUguale, BadgeNuovoAncoraggio, BadgeDiverso, BadgeRegressioneSuConfermata, BadgeFuoriRichiesta}
+var tuttiIBadge = []Badge{BadgeUguale, BadgeNuovoAncoraggio, BadgeDiverso, BadgeRegressioneSuConfermata, BadgeFuoriRichiesta,
+	BadgeNonFile}
 
 // I motivi di EsitoFile.Motivo: perché un file deciso ha regressione_su_confermata, o perché un file non deciso ha
 // diverso. Per gli altri badge il motivo è vuoto: un'associazione ambigua resta visibile nel nuovo del file, e per un
 // file deciso si conta nella misura (CorrezioniManuali.Ambiguita, R114), mai nel badge.
 const (
-	MotivoNonValutato                  = "non_valutato"                    // il motore non risponde: thread non valutato, contenitore, natura non «file»
+	MotivoNonValutato                  = "non_valutato"                    // il motore non risponde: thread non valutato, contenitore, natura non «file» di un file deciso
 	MotivoDocumentoSenzaComponente     = "documento_senza_componente"      // il documento deciso non ha componente: il motore non può proporlo
 	MotivoFuoriRichiesta               = "fuori_richiesta"                 // il motore dice il file deciso fuori richiesta
 	MotivoNessunCandidato              = "nessun_candidato"                // il motore non ha candidati
@@ -68,6 +76,7 @@ type IndicatoreRevisione struct {
 //     fra i candidati, oppure gli dà un'altra base, oppure dice il file fuori richiesta, oppure non risponde:
 //     regressione_su_confermata;
 //  2. file deciso e il componente del documento fra i candidati con la stessa base: uguale;
+//     2-bis. (confronto-4) voce non decisa che non è un file (Nuovo.Motivo natura_non_file): non_file, senza motivo;
 //  3. file non deciso e collocazione fuori_richiesta: fuori_richiesta;
 //  4. vecchio senza destinazione (nessun componente, nessuna proposta «assegna», nessun candidato F8, proposta non
 //     scartata) e nuovo con almeno un candidato: nuovo_ancoraggio;
@@ -78,7 +87,8 @@ type IndicatoreRevisione struct {
 //
 // La base vecchia è sempre Vecchio.Base, letta da valutazione con la grammatica, mai la stringa; una base vuota non è
 // mai uguale a niente. I target si confrontano solo come riferimenti scritti nella stessa forma (componente:<uuid> per
-// un componente): nessuna inferenza fra forme diverse.
+// un componente), oppure con l'equivalenza che valutazione dichiara nel candidato (Candidato.ChiaviF8: la chiave F8
+// «nodo:<riga>» della riga legacy dello stesso nodo STEP; confronto-4): nessuna inferenza fra forme diverse fatta qui.
 func badgeDi(f File) (Badge, string) {
 	v, n := f.Vecchio, f.Nuovo
 	if deciso(v) {
@@ -86,6 +96,9 @@ func badgeDi(f File) (Badge, string) {
 			return BadgeRegressioneSuConfermata, m
 		}
 		return BadgeUguale, ""
+	}
+	if nonFile(n) {
+		return BadgeNonFile, ""
 	}
 	if n.Collocazione == collocazioneFuoriRichiesta {
 		return BadgeFuoriRichiesta, ""
@@ -97,6 +110,13 @@ func badgeDi(f File) (Badge, string) {
 		return BadgeUguale, ""
 	}
 	return BadgeDiverso, motivoDiverso(v, n)
+}
+
+// nonFile (riga 2-bis; confronto-4): il motore non ha valutato la voce perché la sua natura non è «file»
+// (valutazione.MotivoFileNaturaNonFile). Solo per una voce non decisa: una decisione confermata su una voce così resta
+// nella riga 1, perché il motore che non risponde su un file deciso va visto.
+func nonFile(n Nuovo) bool {
+	return !n.Valutato && n.Motivo == motivoFileNaturaNonFile
 }
 
 // deciso: un documento confermato porta il file (Vecchio.Documento, dalla provenienza). È la stessa definizione di
@@ -186,15 +206,32 @@ func senzaDestinazione(v Vecchio) bool {
 	return v.Stato != statoScartata && v.Componente == nil && v.ComponenteProposta == nil && len(v.Destinazione) == 0
 }
 
-// stessaBaseEStessoTarget (riga 5, prima parte): un candidato del nuovo, valutato, ha un target del vecchio e la base
-// vecchia.
+// targetDelVecchio: il candidato ha un target del vecchio, scritto nella stessa forma (c.Target), oppure sta sullo
+// stesso nodo STEP di una chiave F8 del vecchio (c.ChiaviF8, l'equivalenza riga ↔ nodo dichiarata da valutazione;
+// confronto-4, notte 14/10, WP-C). Senza questa seconda via il Rif del nodo («nodo:<sha256>:<chiave>») e la chiave F8
+// della riga legacy dello stesso nodo («nodo:<id della riga>») non coincidevano mai, e ogni figlio ancorato bene al
+// nodo che il legacy indicava usciva diverso con target_diverso.
+func targetDelVecchio(vecchi map[string]bool, c Candidato) bool {
+	if vecchi[c.Target] {
+		return true
+	}
+	for _, k := range c.ChiaviF8 {
+		if vecchi[k] {
+			return true
+		}
+	}
+	return false
+}
+
+// stessaBaseEStessoTarget (riga 5, prima parte): un candidato del nuovo, valutato, ha un target del vecchio
+// (targetDelVecchio) e la base vecchia.
 func stessaBaseEStessoTarget(v Vecchio, n Nuovo) bool {
 	if v.Base == "" || !n.Valutato {
 		return false
 	}
 	vecchi := targetVecchi(v)
 	for _, c := range n.Candidati {
-		if vecchi[c.Target] && c.Base == v.Base {
+		if targetDelVecchio(vecchi, c) && c.Base == v.Base {
 			return true
 		}
 	}
@@ -229,7 +266,7 @@ func motivoDiverso(v Vecchio, n Nuovo) string {
 		return MotivoAncoraggioAssente
 	}
 	for _, c := range n.Candidati {
-		if vecchi[c.Target] {
+		if targetDelVecchio(vecchi, c) {
 			return MotivoBaseDiversa // il target c'è, la base no
 		}
 	}
