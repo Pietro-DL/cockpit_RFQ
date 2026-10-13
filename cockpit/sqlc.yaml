@@ -25,6 +25,12 @@ sql:
           relazione_propostum: "RelazioneProposta"
           v_documento_storia: "VDocumentoStoria"
           v_documento_storium: "VDocumentoStoria"
+          # 0022 (P4): deroga_fabbisogno_storia, non «Storium» (nota B1, R11 della revisione SQL)
+          deroga_fabbisogno_storia: "DerogaFabbisognoStoria"
+          deroga_fabbisogno_storium: "DerogaFabbisognoStoria"
+          # revisioni della notte (RSC-05): deroga_struttura_storia, non «Storium»
+          deroga_struttura_storia: "DerogaStrutturaStoria"
+          deroga_struttura_storium: "DerogaStrutturaStoria"
         overrides:
           - db_type: "uuid"
             go_type: "github.com/google/uuid.UUID"
@@ -76,6 +82,9 @@ sql:
             go_type: "github.com/jackc/pgx/v5/pgtype.Int8"
           - column: "v_fascicolo.rev_diversa"
             go_type: { type: "bool" }
+          # 0022 (P4, D-SHOCK-DOC-02): copertura_id viene dal LEFT JOIN LATERAL del documento, NULL senza copertura
+          - column: "v_fascicolo.copertura_id"
+            go_type: { import: "github.com/google/uuid", type: "NullUUID" }
           - column: "v_componente_albero.percorso"
             go_type: { import: "github.com/google/uuid", type: "UUID", slice: true }
           # 0020: v_step_prodotto. Le colonne dei LEFT JOIN LATERAL possono essere NULL; motivo_parziale

@@ -133,6 +133,11 @@ func apriSenzaMigrare(ctx context.Context, cfg *config.Config, fsys fs.FS) (*pgx
 		pool.Close()
 		return nil, spiegaSchema(&migrazioni.SchemaDiverso{DelDatabase: v, DelBinario: delBinario}, "non migra")
 	}
+	// stessa versione, altro testo della migrazione (variante, dalla 0022): ci si ferma come il migratore
+	if err := migrazioni.ControllaVarianti(ctx, pool, migs, applicate); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	return pool, nil
 }
 

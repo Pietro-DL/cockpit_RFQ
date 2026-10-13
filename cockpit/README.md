@@ -1508,6 +1508,8 @@ markmap:
 - Il ritorno manuale è `scripts\0021_indietro.sql`, a server fermo:
   - toglie la tabella e riporta lo schema alla 20,
   - e si ferma se ci sono delle note (per perderle davvero si mette `cockpit.perdi_le_note` a `true` nel file).
+- La 0022 (P4) aggiunge tabelle e trigger nuovi e ridefinisce la vista `v_fascicolo` (le colonne di prima uguali, `copertura_id` in coda); nessuna riga riscritta: il ritorno è il backup.
+  - Si applica a server e worker fermi: se una transazione tiene `componente`, `componente_relazione`, `deroga_fabbisogno` o `deroga_struttura` per più di 30 secondi, la migrazione si annulla e il server non parte.
 
 ### Se qualcosa non va
 
@@ -1774,7 +1776,8 @@ markmap:
   - `0018_fascicolo.sql` (componente = identità (thread, upper(codice)), `componente_relazione` al posto di `padre_id`, `componente_proposta` e `relazione_proposta`, FK composite con il thread, `v_fascicolo` v2, `v_componente_albero`, `v_codici_candidati_thread`; guardie che fermano la migrazione sui dati da riconciliare),
   - `0019_sposta_nas.sql` (`tipo_job` `sposta_nas`, `nas_orfano` con una riga aperta per file, `nas_creazione`),
   - `0020_bom_versioni.sql` (catena delle revisioni dei documenti, percorso unico per RFQ, versioni della BOM e le quattro istantanee, working bloccata dopo il congelamento, STEP strutturale, deroga strutturale, archiviazione, `rimozione_proposta`, `analizzatore_corrente`, `v_step_prodotto`, `v_bom_versioni`, `v_documento_storia`, `v_thread_da_riesaminare`),
-  - `0021_annotazioni_pdf.sql` (`annotazione_pdf`: le note sui disegni del Fascicolo v3)
+  - `0021_annotazioni_pdf.sql` (`annotazione_pdf`: le note sui disegni del Fascicolo v3),
+  - `0022_p4_conferme_working.sql` (giro 5, A1d, P4: contatori della working, bozza della distinta con snapshot e giornale, conferme strutturali, esito degli intenti, stato di F8, registri di correzioni, associazioni, fonte STEP, attestazioni, storia delle deroghe, coperture documentali e `v_fascicolo` ridefinita)
 - **`contracts/*.schema.json`**
   - JSON Schema generati da `workers/contratti.py`
 - **`workers/`**

@@ -39,7 +39,7 @@ markmap:
   - `WithTx` (nessun chiamante: si usa `db.New(tx)`)
 - **`models.go`**
   - 47 enum (`TipoJob`, `StatoNas`, `TipoDocumento`, `Fase`…) con `Null<Enum>`, `Valid()` e `All<Enum>Values()`
-  - una struct per ognuna delle 69 tabelle e delle 11 viste (`Messaggio`, `Documento`, `VInbox`, `VFascicolo`, `VStepProdotto`…)
+  - una struct per ognuna delle 87 tabelle (69 fino alla 0021, 18 della 0022 di P4) e delle 11 viste (`Messaggio`, `Documento`, `VInbox`, `VFascicolo`, `VStepProdotto`…)
 - **`queries/<nome>.sql`**
   - la sorgente: una o più query `-- name: <Nome> :one|:many|:exec|:execrows`
 - **`<nome>.sql.go`**
@@ -49,7 +49,8 @@ markmap:
 
 ### Le query per file
 
-- 33 file, 482 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`, A1c).
+- 34 file, 509 query (contati con `ls queries/*.sql` e `grep -h '^-- name:' queries/*.sql`; A1c: 33 e 482, A1d-P4-B1: +
+  `p4_conferme.sql` con 27 query, 22 piu' le 5 delle correzioni del 13/10).
 - «Senza chiamanti» = nessun chiamante, né in produzione né nei test; il «+n» fra parentesi conta quelle chiamate soltanto dai test.
 - L'elenco per nome è in «Stato dell'implementazione».
 - **`agente.sql`** — analisi semantica dell'agente
@@ -133,6 +134,11 @@ markmap:
   - Tabelle e viste: `conversazione`, `messaggio`, `messaggio_outlook`, `messaggio_casella`, `sync_cursore`, `v_inbox`
   - Query: 34; senza chiamanti: 4 (+1)
   - Chi le chiama: `core/inbox/ingest`, `transport/web`, `transport/workerapi`, `platform/coda`, `core/rfq/fascicolo`, `core/rfq/documenti`, `ai/agente`
+- **`p4_conferme.sql`** — la 0022 di P4 (giro 5, A1d, B1): la bozza della distinta, le conferme strutturali, l'esito degli intenti, i contatori della working
+  - Tabelle e viste: `distinta_bozza`, `distinta_bozza_versione`, `distinta_bozza_evento`, `conferma_strutturale`, `conferma_strutturale_componente`, `conferma_strutturale_arco`, `esito_intento`, `working_contatore`; in lettura `componente` (il prodotto e il perimetro registrato), `componente_relazione` (gli archi della working), `allegato` + `messaggio` (la fonte)
+  - Query: 27; senza chiamanti: 0 (+7: `ListDistinteBozzeProdotto`, `ListConfermeStrutturali`, `GetConfermaStrutturale`, `ListConfermaStrutturaleComponenti`, `ListConfermaStrutturaleArchi`, `InsertEsitoIntento`, `GetEsitoIntento`, che useranno B2 e B3)
+  - Chi le chiama: `core/rfq/distintabozza`
+  - Le colonne `tx` (xid8) non si leggono; le date le scrive il database; ogni lettura porta la RFQ nel `WHERE`: le testate direttamente, versioni ed eventi con una JOIN sulla testata (RC-19); gli eventi si leggono fino a una versione e a pagine
 - **`panoramica.sql`** — pagina Richieste
   - Tabelle e viste: `v_cruscotto`, `identificativo_thread`, `componente`, `documento`, `documento_proposta`
   - Query: 3; senza chiamanti: 0
@@ -178,8 +184,8 @@ markmap:
 
 ## Entry point
 
-- **`New(DBTX) *Queries` e i 482 metodi delle query**
-  - Chi lo usa: `ai/agente`, `app/runtime`, `core/inbox/aggancio`, `core/inbox/ingest`, `core/registro/anagrafica`, `core/registro/fornitori`, `core/rfq/documenti`, `core/rfq/fascicolo`, `platform/coda`, `platform/fondazioni`, `platform/storage/staging`, `transport/web`, `transport/workerapi`; da A1c `core/fotorfq/caricatore` (solo `db.New(tx)`, in sola lettura)
+- **`New(DBTX) *Queries` e i 504 metodi delle query**
+  - Chi lo usa: `ai/agente`, `app/runtime`, `core/inbox/aggancio`, `core/inbox/ingest`, `core/registro/anagrafica`, `core/registro/fornitori`, `core/rfq/documenti`, `core/rfq/fascicolo`, `platform/coda`, `platform/fondazioni`, `platform/storage/staging`, `transport/web`, `transport/workerapi`; da A1c `core/fotorfq/caricatore` (solo `db.New(tx)`, in sola lettura); da A1d-P4-B1 `core/rfq/distintabozza` (le query della bozza)
 - **i tipi enum (`RuoloUtente`, `AllRuoloUtenteValues`…)**
   - Chi lo usa: anche `platform/config` (validazione dei ruoli di `[[utenti]]`) e il test L3 di `platform/contratti/worker` (i valori dei contratti contro gli enum)
 - **i modelli (`db.Messaggio`, `db.Documento`, `db.VInbox`…)**
@@ -195,7 +201,7 @@ markmap:
 ### Lucchetti presi dalle query
 
 - valgono dentro la transazione di chi chiama
-- **`BloccaMessaggio`, `BloccaThread`, `BloccaComponente`, `BloccaDocumento`, `BloccaProposta`, `BloccaComponenteProposta`, `BloccaRelazioneProposta`, `BloccaRimozioneProposta`, `ListDocumentiComponente`**
+- **`BloccaMessaggio`, `BloccaThread`, `BloccaComponente`, `BloccaDocumento`, `BloccaProposta`, `BloccaComponenteProposta`, `BloccaRelazioneProposta`, `BloccaRimozioneProposta`, `ListDocumentiComponente`, `BloccaDistintaBozza`**
   - Lucchetto: `FOR UPDATE` sulla riga (o sulle righe)
 - **`BloccaTentativo`, `BloccaCopiaPendente`, `BloccaSpostamentoPendente`**
   - Lucchetto: `FOR UPDATE` sul job; un job `pronto` bloccato viene saltato dal claim
@@ -218,13 +224,16 @@ markmap:
     - `SetDocumentoScritto` (vale solo per il percorso passato)
     - `SetPathDocumentoInCoda`
     - `PrendiSyncAperturaInbox`
+    - `AbbandonaDistintaBozza` (stato `aperta` e versione attesa nel `WHERE`)
     - e le sei query con il predicato di validità del tentativo (`HeartbeatJob`, `CompletaJob`, `FallisciJob`, `RinviaJob`, `BloccaTentativo`, `VerificaTentativo`, commento in testa a `queries/job.sql`).
 
 ### Il perimetro sta nel `WHERE`
 
 - Quando l'id arriva da un form o da un indirizzo, la query porta anche la riga a cui deve appartenere, e fuori da quella tocca 0 righe:
   - `EliminaBuyer` (il buyer del cliente della pagina, `cliente_id`; e non cancella un buyer citato da un messaggio, da una RFQ o da una proposta di triage, `proposta_triage.buyer_proposto`)
-  - `DeleteDeroga` e `DeleteDerogaStruttura` (la deroga della RFQ, `thread_id`).
+  - `DeleteDeroga` e `DeleteDerogaStruttura` (la deroga della RFQ, `thread_id`)
+  - tutte le query di `p4_conferme.sql` che leggono una bozza, una conferma, un esito, un prodotto o un allegato (la RFQ,
+    `thread_id`).
 - Due scritture non scavalcano uno stato più forte:
   - `SetDocumentoErrore` non tocca un documento già `scritto`
   - `PropostaDocumentoDaRadice` non riscrive una proposta con `fonte = 'operatore'`.
@@ -247,6 +256,9 @@ markmap:
 
 - Le scritture sulla BOM possono fallire con gli SQLSTATE `BOM01`–`BOM05` della 0020
 - li traduce `transport/web/fascicolo.go`.
+- Dalla 0022 (P4) anche `P4X01`–`P4X07` (conferma, registri in sola aggiunta, esiti e F8, ciclo della bozza,
+  contatore: commento in testa a `migrations/0022_p4_conferme_working.sql`); per la bozza li dice prima, con i suoi
+  codici, `core/rfq/distintabozza`.
 
 ## Flussi principali
 
@@ -264,6 +276,13 @@ markmap:
 - Il codice di questo ramo è generato con sqlc v1.31.1 (intestazione dei file)
   - `README.md` chiede la 1.31 o successiva
   - `scripts/prova-tutto.ps1` lo cerca nel `PATH` o in `%LOCALAPPDATA%\cockpit_rfq_test\sqlc\`.
+  - A1d-P4-B1: `p4_conferme.sql.go` e il `models.go` della 0022 sono generati con la stessa v1.31.1, compilata
+    dalla cache dei moduli fuori dal `PATH`; `sqlc generate` su una copia ha cambiato solo `models.go` (15 struct
+    nuove) e ha aggiunto `p4_conferme.sql.go`.
+  - A1d-P4, emendamento della direttiva 11: la stessa v1.31.1 su una copia ha cambiato `models.go` (3 struct nuove,
+    `CoperturaDocumento`, `DistintaBozzaRegistro`, `SchemaVariante`; 4 campi nuovi in `FonteStepEvento`; `CoperturaID`
+    in coda a `VFascicolo`; i commenti) e la sola `ListFascicolo` di `fascicolo.sql.go` (`SELECT *` su `v_fascicolo`:
+    `copertura_id` in coda); `copertura_id` e' `NullUUID` per l'override di `sqlc.yaml`.
 - **Dopo:** `go build ./...`, `go vet ./internal/platform/db/`, e le prove L4 dei package che usano le query toccate.
 
 ### Aggiungere una query
@@ -287,8 +306,8 @@ markmap:
 
 ## Invarianti
 
-- I 35 file `.go` portano l'intestazione `Code generated by sqlc. DO NOT EDIT.`.
-- Le query di `queries/` e i metodi di `*Queries` (salvo `WithTx`) sono gli stessi 482 nomi
+- I 36 file `.go` portano l'intestazione `Code generated by sqlc. DO NOT EDIT.`.
+- Le query di `queries/` e i metodi di `*Queries` (salvo `WithTx`) sono gli stessi 504 nomi
   - ogni `queries/<nome>.sql` è stato committato insieme al suo `<nome>.sql.go`
   - e l'ultimo commit che tocca `migrations/` è anche l'ultimo che tocca `models.go`.
 - **Tipi:**
@@ -301,6 +320,8 @@ markmap:
 - La nullabilità delle colonne di `v_fascicolo`, `v_step_prodotto`, `v_bom_versioni`, `v_documento_storia`, `v_thread_da_riesaminare`, `v_cruscotto`, `v_inbox`, `v_componente_albero` è quella di `sqlc.yaml`, non quella che sqlc dedurrebbe.
 - `rename` in `sqlc.yaml` corregge i singolari latini di sqlc (`documento_propostum` → `DocumentoProposta` e simili).
   - Non copre `candidato_richiesta` e `nas_anomalia`: i modelli si chiamano `CandidatoRichiestum` e `NasAnomalium`.
+  - Dalla 0022 copre `deroga_fabbisogno_storia` (`DerogaFabbisognoStoria`, R11 della revisione SQL della 0022) e
+    `deroga_struttura_storia` (`DerogaStrutturaStoria`).
 - L'SQL applicativo fuori da `queries/` è poco e noto:
   - `SET CONSTRAINTS … DEFERRED` (`transport/web/fascicolo.go`)
   - `min(ricevuto_il)` di una casella e le letture di `riferimento_portale` e `bozza` per il pannello del messaggio (`transport/web/routes_inbox.go`)
@@ -327,7 +348,9 @@ markmap:
     - Dove: `platform/contratti/worker`
     - Che cosa: i valori dei contratti coincidono con gli enum generati (`Direzione`, `NaturaAllegato`…)
   - **L4**
-    - Dove: `*_db_test.go` di `core/inbox/ingest`, `core/rfq/documenti`, `core/rfq/fascicolo`, `core/registro/*`, `platform/coda`, `platform/fondazioni`, `platform/storage/staging`, `transport/web`, `transport/workerapi`, `app/runtime`
+    - Dove: `*_db_test.go` di `core/inbox/ingest`, `core/rfq/documenti`, `core/rfq/fascicolo`, `core/rfq/distintabozza` (le 15
+      query della bozza, per nome), `platform/migrazioni` (`p4_0022_db_test.go`: le conferme e gli esiti di `p4_conferme.sql` e le
+      query legacy che scrivono la working), `core/registro/*`, `platform/coda`, `platform/fondazioni`, `platform/storage/staging`, `transport/web`, `transport/workerapi`, `app/runtime`
     - Che cosa: le query contro PostgreSQL vero, attraverso le funzioni che le usano
 - Delle 387 query con un chiamante in produzione, 97 sono chiamate per nome anche dai test
   - le altre sono provate, quando lo sono, attraverso le funzioni che le usano.
@@ -356,6 +379,9 @@ markmap:
     - **fattibilità:** `SetNoteComponente`
     - **RFQ:** `SetCartellaThread`, `SetScadenzaThread`, `GetFaseCorrente`, `ListFaseLog`
     - **buyer:** `UpdateBuyer`
+    - **P4 (B2-B3), solo test:** `ListDistinteBozzeProdotto`, `ListConfermeStrutturali`, `GetUltimaConfermaStrutturale`,
+      `ListConfermaStrutturaleComponenti`, `ListConfermaStrutturaleArchi`, `InsertEsitoIntento`, `GetEsitoIntento`,
+      `GetWorkingContatore`
   - **tolte di proposito dalla schermata**
     - richieste ai fornitori a livello di RFQ (blocco 8, `internal/README.md`): `ListRichiesteThread`, `ListRichiesteFornitore`, `ContaRichiesteAperte`, `SetAttoTriage`
   - **senza chiamante e senza un motivo scritto**
@@ -365,7 +391,8 @@ markmap:
 - `BloccaSpostamentoPendente` ha un chiamante (`core/rfq/documenti/nomi_nas.go:AccodaSpostamento`)
   - ma `AccodaSpostamento` lo chiamano solo le prove
   - finché B8.8 non arriva, il job `sposta_nas` non ha un esecutore in `app/runtime` (l'esecutore del server chiude un tipo che non gestisce come fallimento definitivo).
-- **Per rifare il conto** dalla cartella `cockpit/`: il comando elenca le query senza chiamanti in produzione (oggi 57, cioè le 47 e le 10).
+- **Per rifare il conto** dalla cartella `cockpit/`: il comando elenca le query senza chiamanti in produzione (A1c: 57, cioè le 47 e le 10; dopo A1d-P4-B1 e le correzioni del 13/10 il comando ne elenca 62, fra cui le 7 di `p4_conferme.sql`
+  chiamate solo dalle prove).
   - Sei nomi coincidono con funzioni di altri package (per esempio `fascicolo.ArchiviaComponente`)
   - e il comando li conta come usati anche quando a chiamarli è solo quella funzione: vanno guardati a mano.
 

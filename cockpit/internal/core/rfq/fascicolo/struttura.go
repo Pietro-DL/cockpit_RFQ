@@ -154,6 +154,22 @@ func cheCosaLoTiene(tabella string) string {
 		return "è in una baseline congelata"
 	case "annotazione_pdf":
 		return "ha delle note sui disegni"
+	// la 0022 (P4, nota B1 par.11.6 n. 14): la storia della distinta tiene il componente
+	case "conferma_strutturale_componente":
+		return "è in una conferma strutturale della distinta"
+	case "conferma_strutturale":
+		return "ha delle conferme strutturali"
+	case "distinta_bozza":
+		return "ha una bozza della distinta (anche chiusa)"
+	case "fonte_step_evento":
+		return "ha una storia della fonte STEP"
+	case "attestazione_fascicolo":
+		return "ha un fascicolo attestato"
+	// la 0022 emendata (direttiva 11): il registro permanente delle bozze (P-04a) e le coperture documentali
+	case "distinta_bozza_registro":
+		return "ha una storia di bozze della distinta"
+	case "copertura_documento":
+		return "è coperto da un documento condiviso"
 	}
 	return "è ancora usato (" + tabella + ")"
 }

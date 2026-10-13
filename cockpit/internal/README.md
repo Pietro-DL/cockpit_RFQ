@@ -53,6 +53,7 @@ markmap:
   - **anagrafiche, fornitori, i loro semi** → `core/registro/`
   - **il nome di una cartella o di un file sul NAS, la copia, l'integrità** → `core/rfq/documenti`
   - **la BOM, le proposte dagli STEP, il piano, la preparazione, l'editor** → `core/rfq/fascicolo`
+  - **la bozza della distinta salvata sul server (P4: snapshot, giornale, riconciliazione)** → `core/rfq/distintabozza`
   - **una rotta del browser, una schermata** → `transport/web` (e `web/` per template e statici)
   - **il protocollo con i worker** → `transport/workerapi` + `platform/contratti/worker`
   - **la coda, le capacità, l'instradamento dei job** → `platform/coda`
@@ -103,6 +104,9 @@ markmap:
     file e per prodotto
   - **[`core/rfq/documenti/README.md`](core/rfq/documenti/README.md)** → nomi sul NAS, copia, ripresa, integrità
   - **[`core/rfq/fascicolo/README.md`](core/rfq/fascicolo/README.md)** → la BOM nel tempo, proposte, decisioni, piano, preparazione, editor
+  - **[`core/rfq/distintabozza/README.md`](core/rfq/distintabozza/README.md)** → la bozza della distinta formato 2 salvata
+    sul server (giro 5, A1d, P4-B1): snapshot completo a ogni versione, giornale delle azioni, riconciliazione, letture
+    e abbandono; le rotte R1-R3 sono di B2
   - **[`platform/README.md`](platform/README.md)** → le regole comuni di `platform`, `logfile` e `testutil`
   - **[`platform/config/README.md`](platform/config/README.md)** → `cockpit.toml`, voce per voce
   - **[`platform/db/README.md`](platform/db/README.md)** → il codice sqlc, le query per file
@@ -172,6 +176,9 @@ markmap:
   - **`core/inbox/lettura`** → `core/inbox/classificazione` (solo `TagliaCatena` e il taglio con posizioni)
   - **`core/rfq/documenti`** → `core/inbox/classificazione` (`OggettoPulito`: il nome della cartella nasce dall'oggetto ripulito), `platform`
   - **`core/*` (aggancio, ingest, registro, rfq)** → gli altri `core/*`, `platform`
+    - `core/rfq/distintabozza` (P4-B1) importa solo `core/inbox/classificazione` (i limiti di codice e rev),
+      `platform/db`, `platform/jsoncanonico`, pgx, uuid e `golang.org/x/text/unicode/norm` (le stringhe in NFC della
+      forma canonica); mai `core/rfq/fascicolo` (solo nelle prove)
   - **`platform/*`** → solo `platform` e librerie (`testutil` anche il package radice, per le migrazioni incorporate)
   - **`platform/coda`** → `platform/storage/staging` (l'interfaccia `Staging`, per la guardia del doppio download)
   - **`platform/jsoncanonico`** → solo la libreria standard
@@ -218,6 +225,11 @@ markmap:
     -09 sul database di prova: il percorso del banco e dell'anteprima, dalla fotografia al confronto)
   - e `app/bancoa` → `core/ancoraggio` (la parità dei valori del motore che `confronto` ricopia come stringhe,
     T-B6-50), `platform/testutil` e il package radice (la L4 della sequenza `-dsn` sul database di prova)
+  - e `core/rfq/distintabozza` → `core/rfq/fascicolo`, `platform/testutil` (giro 5, A1d-P4-B1: i limiti del formato 1
+    confrontati con quelli della bozza, `RimuoviComponente` con la frase della storia nuova, le L4 sul database di
+    prova)
+  - e `platform/migrazioni` → `platform/db` (A1d-P4-B1: le L4 della 0022 usano le query legacy vere per provare il
+    contatore della working)
   - e `app/bancoa` → `transport/web/motore_a` (giro 5, A1d-Q2: la L4 dell'equivalenza fra la Distinta nuova e il
     percorso del banco, `motore_a_equivalenza_db_test.go`, che usa le funzioni non esportate del banco; nel codice di
     prodotto il banco non importa mai `transport`)
@@ -490,12 +502,12 @@ markmap:
     - Parziale o in attesa: l'esempio differisce di proposito dai default su tre voci (sync ogni 30 s,
       analizzatore 3, staging automatico)
   - **`platform/db`**
-    - Completo: 482 query in 33 file
+    - Completo: 509 query in 34 file (A1d-P4-B1: + `p4_conferme.sql`)
     - Parziale o in attesa: 47 query senza chiamanti e 10 solo dai test: funzioni non ancora costruite
       (anagrafica «Altro», B8.8, lettura di una versione congelata, …)
   - **`platform/migrazioni`**
     - Completo:
-      - schema alla 0021
+      - schema alla 0022 (P4, nei soli rami locali finché non è spinta)
       - verifica statica
       - rifiuto di uno schema più recente
     - Parziale o in attesa: nessun controllo che un file già applicato non sia cambiato

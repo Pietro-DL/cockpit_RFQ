@@ -11,12 +11,15 @@ markmap:
 
 ## Scopo
 
-- Lo schema del database in file numerati `NNNN_nome.sql`, dalla 0001 alla 0021.
+- Lo schema del database in file numerati `NNNN_nome.sql`, dalla 0001 alla 0022.
 - Il binario li porta dentro di sé (`embed.go`) e li applica da solo all'avvio, in ordine, uno per transazione
   (`internal/platform/migrazioni`).
 - Gli stessi file sono lo schema che sqlc legge per generare `internal/platform/db`: una migrazione nuova è anche
   codice Go nuovo.
-- **Stato alla 0021 (l'ultima):** 69 tabelle, 11 viste, 47 enum, 14 funzioni, 21 trigger.
+- **Stato alla 0022 (l'ultima, P4 del giro 5: nei soli rami locali finché non è spinta):** 88 tabelle, 11 viste,
+  47 enum, 40 funzioni (14 + 26 della 0022), 88 trigger (21 + 67 della 0022; contati sul catalogo di `cockpit_test`).
+  La 0022 ridefinisce la vista `v_fascicolo` (deroga dichiarata, direttiva 11) e dichiara la sua variante
+  (`schema_variante`).
 - PostgreSQL 16 o successivo, come dice il README principale:
   - le prove L4 girano sulla 16 (`scripts/db-test.ps1`);
   - `UNIQUE NULLS NOT DISTINCT` vuole almeno la 15.
@@ -140,6 +143,30 @@ markmap:
     - 5 guardie
 - **`0021_annotazioni_pdf.sql`** · Blocco: Fascicolo v3
   - Che cosa introduce: `annotazione_pdf`
+- **`0022_p4_conferme_working.sql`** · Blocco: giro 5, A1d, P4 (B1; l'unica migrazione di P4, additiva)
+  - Che cosa introduce:
+    - `working_contatore` (contatori struttura e dati della working per RFQ, mossi da trigger su `componente` e
+      `componente_relazione`: tutti gli scrittori, una volta per transazione, niente su un UPDATE identico)
+    - la bozza della distinta: `distinta_bozza`, `distinta_bozza_versione` (snapshot completo), `distinta_bozza_evento`
+      (giornale)
+    - la conferma strutturale: `conferma_strutturale`, `conferma_strutturale_componente`, `conferma_strutturale_arco`
+    - `esito_intento`, `f8_stato`
+    - i registri: `correzione_documento`, `associazione_evento`, `fonte_step_evento`, `attestazione_fascicolo`,
+      `attestazione_fascicolo_documento`, `deroga_fabbisogno_storia` (scritta solo dal trigger di `deroga_fabbisogno`)
+    - dalla direttiva 11: `distinta_bozza_registro` (il ciclo di ogni bozza, permanente), `copertura_documento`
+      (le pagine di un documento ufficiale che soddisfano il `disegno_2d` di un altro componente), le colonne
+      `ruolo`, `componente_id`, `chiave_bozza`, `destinazione`, `risolve_evento_id` di `fonte_step_evento` (fonti
+      secondarie, con la copia del nodo e la risoluzione al COMMIT), il controllo di `mono_pezzo` al COMMIT,
+      `schema_variante`
+    - dalle revisioni della notte: `deroga_struttura_storia` (concessioni e revoche di `deroga_struttura`, scritta
+      solo dal suo trigger), il perimetro chiuso con la visita dalla radice, la bozza chiusa con la conferma, l'origine
+      degli archi in formato 2, `mono_pezzo` legato alla dichiarazione nello snapshot, il contatore scritto solo dai
+      trigger, il controllo finale che chiude il contenuto della conferma
+    - `v_fascicolo` ridefinita con `CREATE OR REPLACE VIEW` (deroga dichiarata: le 19 colonne della 0020 uguali,
+      `copertura_id` in coda; un disegno_2d coperto da una copertura valida conta come presente)
+    - i codici d'errore `P4X01`–`P4X07` dei trigger
+    - nessun valore di enum nuovo, nessuna colonna o vincolo esistente toccato, nessuna riga riscritta, nessun
+      riempimento; `SET LOCAL lock_timeout = '30s'`
 
 ## Lo schema per dominio
 
@@ -291,6 +318,40 @@ markmap:
   - le istantanee `bom_versione_componente`, `bom_versione_relazione`, `bom_versione_documento`,
     `bom_versione_deroga`.
 - `annotazione_pdf` (0021): punto normalizzato 0..1, pagina 1–10000, testo fino a 2000 caratteri.
+
+### Distinta: bozza, conferma, registri (0022, P4)
+
+- `working_contatore` (0022): una riga per RFQ, nasce alla prima scrittura (riga mancante = 0, 0); cresce soltanto,
+  non si cancella né si svuota (`P4X05`); `tx_conferma` ferma le scritture della working dopo una conferma nella
+  stessa transazione (`P4X01`).
+- `distinta_bozza` (0022): aperta / confermata / abbandonata, una aperta per prodotto (`ux_distinta_bozza_aperta`),
+  versione ottimistica con la riga di `distinta_bozza_versione` (FK differita), base e fonte copiate dal trigger;
+  chiusa non cambia; si cancella solo abbandonata da oltre 90 giorni, con versioni ed eventi; confermata mai (`P4X04`).
+- `distinta_bozza_versione`, `distinta_bozza_evento` (0022): snapshot jsonb fino a 4 MiB con l'impronta; un evento solo
+  alla versione corrente nella transazione che l'ha salvata; un cambio di fonte vuole un evento motivato (al COMMIT);
+  non si riscrivono (`P4X02`).
+- `conferma_strutturale` e il suo contenuto (0022): numero progressivo per prodotto finito, formato 1 o 2, contatori
+  registrati uguali ai correnti, componenti e archi uguali alla working e scritti solo nella sua transazione, al
+  COMMIT una radice, criterio coerente, perimetro chiuso (ogni componente raggiunto dalla radice) e la bozza citata
+  chiusa come confermata; in formato 2 ogni arco con la sua origine e `mono_pezzo` se e solo se lo snapshot ha la
+  dichiarazione; immutabile (`P4X01`). Un componente citato non si cancella (FK): si archivia.
+- `esito_intento` (0022): immutabile, si cancella oltre 90 giorni (`P4X03`); `f8_stato`: transizioni ammesse, non si
+  cancella.
+- `correzione_documento`, `associazione_evento`, `fonte_step_evento`, `attestazione_fascicolo(_documento)`,
+  `deroga_fabbisogno_storia`, `deroga_struttura_storia` (0022): solo aggiunte (`P4X02`); le date le scrive il
+  database. `working_contatore` (0022) la scrivono solo i trigger (`P4X05`).
+- `distinta_bozza_registro` (0022): un passo per apertura, conferma, abbandono e cancellazione per conservazione,
+  scritto solo dal trigger di `distinta_bozza`; `bozza_id` storico senza FK, `prodotto_id` con la FK: il prodotto
+  su cui si e' aperta una bozza si archivia, non si rimuove, anche dopo i 90 giorni (`P4X02`).
+- `fonte_step_evento.ruolo` (0022): `prodotto` come prima; `sottoassieme` con la destinazione `componente_id`
+  oppure, finche' il nodo non ha un UUID, `bozza_id` + `chiave_bozza` di un nodo della versione corrente di una
+  bozza aperta (`P4X07`), con la copia del nodo in `destinazione`; al COMMIT della conferma che certifica la chiave
+  il database aggiunge un evento `risoluzione`, e rifiuta una chiave riusata per un nodo diverso (`P4X07`).
+- `copertura_documento` (0022): solo `disegno_2d`, catena in sola aggiunta (copre, rettifica, revoca); alla nascita
+  documento corrente del proprietario dichiarato con lo sha256 e la rev dichiarati, componente attivo con la rev
+  dichiarata, pagine in ordine, motivo su ogni riga, rettifica e revoca sullo stesso proprietario (`P4X06`); con la
+  BOM congelata `BOM01`. La validita' la calcola `v_fascicolo`.
+- `schema_variante` (0022): la variante del testo della migrazione, confrontata dal migratore.
 
 ### Integrità del NAS
 
@@ -541,7 +602,7 @@ markmap:
     - Vale solo su un database alla 18 esatta
 - **`scripts/0021_indietro.sql`** · Da → a: 21 → 20
   - Che cosa non riporta: le note sui disegni, se si sceglie di perderle
-- La 0019 e la 0020 non hanno un ritorno manuale: solo il backup.
+- La 0019, la 0020 e la 0022 non hanno un ritorno manuale: solo il backup.
 
 ## Invarianti
 
@@ -587,13 +648,27 @@ markmap:
       l'archiviazione, `analizzatore_corrente`, le tabelle della 0019
   - **`fascicolo0021_db_test.go`** · Livello: L4
     - Che cosa: il ritorno 21 → 20 e il suo arresto se ci sono note
+  - **`p4_0022_db_test.go`** · Livello: L4
+    - Che cosa: la 0022 da zero e due avvii identici, la riapplicazione che si ferma, l'upgrade 21 → 22 con righe
+      sintetiche (schema identico a quello da zero), ogni vincolo FK e CHECK delle tabelle nuove (145 su 145, confronto
+      con il catalogo), il contatore su ogni scrittore legacy e diretto, la conferma che si scrive per ultima, la storia
+      che non si modifica, i limiti dei campi, mono_pezzo al COMMIT
+  - **`p4_0022_dir11_db_test.go`** · Livello: L4
+    - Che cosa: coperture e `v_fascicolo` (concordi con `v_thread_bloccanti`, `v_cruscotto`, `ListFascicolo`,
+      `ContaBloccantiLogici`; senza coperture uguale alla 0020), registro delle bozze, fonti secondarie e
+      risoluzione al COMMIT, le due varianti della 0022, i mutanti sopravvissuti della revisione B1/Q1
   - **`larghezze_db_test.go`** · Livello: L4
     - Che cosa: `codice` e `rev` larghe almeno quanto `classificazione.MaxCodice` / `MaxRev`
 - L4: `COCKPIT_TEST_DSN=… go test -tags integrazione -count=1 -p 1 ./internal/platform/migrazioni/`.
 
 ## Stato dell'implementazione
 
-- Lo schema è completo fino alla 0021.
+- Lo schema è completo fino alla 0022.
+- La 0022 (P4) esiste prima della maggior parte del codice che la usa: in B1 scrive solo la bozza
+  (`core/rfq/distintabozza`); conferme, esiti, F8, correzioni, associazioni, fonte STEP e attestazioni li scrivono
+  per ora solo le prove (B2-B4). I contatori e la storia delle deroghe li muovono già i trigger, da ogni scrittore.
+  Il registro delle bozze e la risoluzione delle fonti secondarie li scrivono i trigger; le coperture le scrivera'
+  il lotto R9 (B4), e `v_fascicolo` le legge gia'.
 - Alcune parti esistono prima del codice che le usa:
   - `nas_orfano` e `nas_creazione` (0019):
     - le leggono `PercorsoOccupato` e `CartellaReferenziata`, le scrivono solo le prove;
