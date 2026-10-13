@@ -66,6 +66,12 @@ type disegniThread struct {
 	posizioni  map[string]uuid.UUID      // la posizione di un candidato → il componente del nodo
 	decisi     map[uuid.UUID][]uuid.UUID // per allegato: i componenti delle associazioni decise
 	formazioni map[string][]string       // per nodo: le formazioni STEP, per la provenienza di documento.rev
+	// componenteDelTarget: il componente di ogni target (per Rif), per i candidati a livello prodotto senza posizioni (L-2D,
+	// estensione notte 14/10). sorgenti: per componente, gli allegati delle strutture STEP in cui un nodo lo rappresenta
+	// (la stessa regola di posizioni), in ordine di allegato e senza doppioni: i 3D proposti come sorgente della struttura
+	// (T-6, notte 14/10).
+	componenteDelTarget map[string]*uuid.UUID
+	sorgenti            map[uuid.UUID][]uuid.UUID
 	// conflitti: i pezzi identita_documento dei 2D dei componenti (ValutaDisegno senza prodotti), che lo smistamento (B6,
 	// V2) attribuisce ai prodotti a cui il documento è pertinente (T-E1R-08). In A1c nessuna decisione: sempre vuoti.
 	conflitti []Conflitto
@@ -77,7 +83,12 @@ type disegniThread struct {
 //   - le proposte aperte con «assegna» sul componente di un file che è un 2D (manuale);
 //   - i candidati del motore A: i 2D con un candidato che ha una posizione su un nodo del componente (la decisione per
 //     UUID del nodo, o la radice che rappresenta il prodotto, per il componente del target: T-B5-95, i candidati vengono
-//     dagli ancoraggi dei file); un 2D può stare nei gruppi di più componenti (T-B5-96).
+//     dagli ancoraggi dei file), e dalla notte del 14/10 il candidato a livello prodotto senza posizioni, per il
+//     componente del suo target (componentiDelCandidato); un 2D può stare nei gruppi di più componenti (T-B5-96).
+//
+// Un file è un 2D con il riconoscimento del collegamento (RiconosciDisegno2D: il tipo disegno_2d, o nessun tipo o
+// da_determinare con un formato di un 2D; L-2D, estensione notte 14/10), e ogni 2D porta il suo perché
+// (Disegno2D.Riconoscimento2D).
 //
 // Un contenuto solo per gruppo: lo stesso sha256 da più vie dà una voce sola, la più forte (documento corrente, poi
 // «assegna», poi candidato, poi documento non corrente: dubbio T-B5-33). Poi ValutaDisegno per ognuno, contro il
@@ -117,9 +128,8 @@ func disegniDelThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, es
 		}
 		visti := map[uuid.UUID]bool{}
 		for _, c := range a.Candidati {
-			for _, p := range c.Posizioni {
-				k, ok := x.posizioni[chiavePosizione(p.Target, p.AllegatoID, p.Radice, p.Nodo)]
-				if !ok || attivi[k] == nil || visti[k] {
+			for _, k := range x.componentiDelCandidato(c) {
+				if attivi[k] == nil || visti[k] {
 					continue
 				}
 				visti[k] = true
@@ -148,7 +158,8 @@ func disegniDelThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, es
 func nuoviDisegniThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, esito ancoraggio.EsitoAncoraggi, targets []target) *disegniThread {
 	x := &disegniThread{t: t, m: m, col: col, file: map[uuid.UUID]*ancoraggio.FileInterpretato{}, ancoraggi: map[uuid.UUID]*ancoraggio.AncoraggioFile{},
 		nodi: map[uuid.UUID][]nodoDellEntita{}, nodoPerRif: map[string]nodoDellEntita{}, posizioni: map[string]uuid.UUID{},
-		decisi: map[uuid.UUID][]uuid.UUID{}, formazioni: map[string][]string{}}
+		decisi: map[uuid.UUID][]uuid.UUID{}, formazioni: map[string][]string{}, componenteDelTarget: map[string]*uuid.UUID{},
+		sorgenti: map[uuid.UUID][]uuid.UUID{}}
 	for i := range col.file {
 		x.file[col.file[i].AllegatoID] = &col.file[i]
 	}
@@ -156,14 +167,14 @@ func nuoviDisegniThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, 
 		x.ancoraggi[esito.File[i].AllegatoID] = &esito.File[i]
 		x.ordineFile = append(x.ordineFile, esito.File[i].AllegatoID)
 	}
-	componenteDelTarget := map[string]*uuid.UUID{}
+	componenteDelTarget := x.componenteDelTarget
 	for _, tg := range targets {
 		componenteDelTarget[tg.pv.Rif] = tg.pv.ComponenteID
 	}
 	// I nodi dei componenti: la decisione per UUID del nodo, o la radice che rappresenta il prodotto (la sua base, o la
 	// radice scelta della BOM di lavoro) per il componente del target, come per l'origine dell'associazione di
-	// ancoraggio (T-B4-37).
-	visti := map[string]bool{}
+	// ancoraggio (T-B4-37). Con lo stesso nodo, l'allegato della sua struttura è una sorgente del componente (T-6).
+	visti, sorgentiViste := map[string]bool{}, map[string]bool{}
 	for _, s := range esito.Strutture {
 		for _, n := range s.Nodi {
 			var k *uuid.UUID
@@ -185,10 +196,17 @@ func nuoviDisegniThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, 
 				visti[kk] = true
 				x.nodi[*k] = append(x.nodi[*k], x.nodoPerRif[n.Rif])
 			}
+			if kk := k.String() + "\x00" + s.AllegatoID.String(); !sorgentiViste[kk] {
+				sorgentiViste[kk] = true
+				x.sorgenti[*k] = append(x.sorgenti[*k], s.AllegatoID)
+			}
 		}
 	}
 	for k := range x.nodi {
 		sort.SliceStable(x.nodi[k], func(i, j int) bool { return x.nodi[k][i].rif < x.nodi[k][j].rif })
+	}
+	for k := range x.sorgenti {
+		sort.SliceStable(x.sorgenti[k], func(i, j int) bool { return x.sorgenti[k][i].String() < x.sorgenti[k][j].String() })
 	}
 	for _, a := range col.associazioniDecise() {
 		x.decisi[a.AllegatoID] = append(x.decisi[a.AllegatoID], a.ComponenteID)
@@ -218,6 +236,64 @@ func radiceDelProdotto(s ancoraggio.StrutturaProdotto) bool {
 // chiavePosizione: la chiave di una posizione di un candidato (target, allegato e radice della struttura, nodo).
 func chiavePosizione(target string, allegato uuid.UUID, radice, nodo string) string {
 	return target + "\x00" + allegato.String() + "\x00" + radice + "\x00" + nodo
+}
+
+// componentiDelCandidato: i componenti su cui sta un candidato di ancoraggio, in ordine di posizione e senza doppioni:
+//   - le sue posizioni sui nodi che rappresentano un componente (posizioni: la decisione per UUID del nodo, o la radice
+//     che rappresenta il prodotto per il componente del target: T-B5-95);
+//   - un candidato a livello prodotto senza posizioni, cioè senza una struttura del target che lo rappresenti (una RFQ
+//     senza STEP, o con la radice dello STEP non letta), il componente del suo target, se c'è (L-2D, estensione notte
+//     14/10): prima un 2D ancorato al prodotto per nome o per cartiglio non arrivava mai alla voce del prodotto.
+func (x *disegniThread) componentiDelCandidato(c ancoraggio.CandidatoAncoraggio) []uuid.UUID {
+	var out []uuid.UUID
+	visti := map[uuid.UUID]bool{}
+	for _, p := range c.Posizioni {
+		if k, ok := x.posizioni[chiavePosizione(p.Target, p.AllegatoID, p.Radice, p.Nodo)]; ok && !visti[k] {
+			visti[k] = true
+			out = append(out, k)
+		}
+	}
+	if c.Livello == ancoraggio.LivelloProdotto && len(c.Posizioni) == 0 {
+		if k := x.componenteDelTarget[c.Target]; k != nil && !visti[*k] {
+			out = append(out, *k)
+		}
+	}
+	return out
+}
+
+// candidati3D: i 3D che il motore A propone per un componente (T-6 / L1, notte 14/10), per la voce del cad_3d
+// (FabbisognoDellaRiga.CandidatiMotoreA), nell'ordine degli ancoraggi e poi delle sorgenti, senza doppioni:
+//   - ancorato: uno STEP (estensioniSTEP) con l'associazione candidato_unico il cui candidato sta su un nodo del
+//     componente o sul prodotto del suo target (componentiDelCandidato);
+//   - sorgente_struttura: lo STEP della struttura in cui un nodo rappresenta il componente (sorgenti: la radice che
+//     rappresenta il prodotto, o un nodo deciso), anche senza un candidato unico.
+//
+// Lo scarto di una persona lo toglie chi chiama (completezzaThread), come per il 2D (T-E1R-10). Nessun candidato non vuol
+// dire niente: la voce resta quella della vista.
+func (x *disegniThread) candidati3D(componente uuid.UUID) []CandidatoDocumento {
+	var out []CandidatoDocumento
+	visti := map[uuid.UUID]bool{}
+	for _, id := range x.ordineFile {
+		a, all := x.ancoraggi[id], x.col.allegati[id]
+		if a == nil || all == nil || a.Associazione != ancoraggio.AssociazioneCandidatoUnico || !estensioniSTEP[estensioneDi(all)] || visti[id] {
+			continue
+		}
+		for _, c := range a.Candidati {
+			for _, k := range x.componentiDelCandidato(c) {
+				if k == componente && !visti[id] {
+					visti[id] = true
+					out = append(out, CandidatoDocumento{AllegatoID: id, Via: ViaCandidatoAncorato})
+				}
+			}
+		}
+	}
+	for _, id := range x.sorgenti[componente] {
+		if !visti[id] {
+			visti[id] = true
+			out = append(out, CandidatoDocumento{AllegatoID: id, Via: ViaCandidatoSorgenteStruttura})
+		}
+	}
+	return out
 }
 
 // unaPerContenuto: le voci di un componente, una per contenuto (lo sha256; senza, il documento o l'allegato), la più
@@ -296,7 +372,11 @@ func piuForte(v, w voceDisegno) bool {
 // gruppoDelNodo: i 2D candidati di un nodo senza decisione, per FabbisognoPrevisto.Disegni (fase 3): i file 2D con un
 // candidato del motore A che ha una posizione sul nodo nelle strutture del prodotto (la stessa raccolta dei candidati di
 // un componente, con il nodo al posto del componente), una voce per contenuto, valutati contro l'identità del nodo
-// (la sua lettura e la revisione interpretata, mai rev_grezza: T-E1R-05), poi Primario. nil senza candidati.
+// (la sua lettura e la revisione interpretata, mai rev_grezza: T-E1R-05), poi Primario. nil senza candidati. I file 2D
+// sono quelli del riconoscimento (RiconosciDisegno2D): dalla notte del 14/10 anche i PDF, i TIFF, i DXF e i DWG senza tipo
+// registrato o da_determinare, con Riconoscimento2D dal_formato (L-2D: prima i nodi delle RFQ vere non avevano 2D). Il
+// primario è quello di R84 (Primario): la compatibilità con il nodo, poi la validità e il formato (PDF, TIFF, PNG, poi i
+// formati non configurati come DXF e DWG), poi il più recente e lo sha256.
 func (x *disegniThread) gruppoDelNodo(prodotto string, n ancoraggio.NodoProposto) *GruppoDisegni2D {
 	var voci []voceDisegno
 	for _, id := range x.ordineFile {
@@ -374,9 +454,14 @@ type contenutoLetto struct {
 
 // daValutare: l'ingresso astratto di ValutaDisegno per una voce (DisegnoDaValutare): il file, il contenuto con la
 // validità (ValiditaDisegno), il cartiglio, l'anteprima, la revisione registrata con la provenienza (T-E1R-07), le
-// fonti d'identità (il cartiglio, lo STEP dell'entità, il nome del file, il documento), la rev_diversa della vista.
+// fonti d'identità (il cartiglio, lo STEP dell'entità, il nome del file, il documento), la rev_diversa della vista; il
+// riconoscimento del 2D (L-2D, estensione notte 14/10): tipo_registrato per un documento confermato (è un disegno_2d),
+// quello del collegamento per un file.
 func (x *disegniThread) daValutare(v voceDisegno, componente uuid.UUID) DisegnoDaValutare {
-	d := Disegno2D{Provenienza: v.provenienza}
+	d := Disegno2D{Provenienza: v.provenienza, Riconoscimento2D: Riconoscimento2DTipoRegistrato}
+	if v.documento == nil && v.allegato != nil {
+		d.Riconoscimento2D = x.col.riconoscimenti[v.allegato.ID]
+	}
 	var cont contenutoLetto
 	var nome, estensione string
 	if doc := v.documento; doc != nil {

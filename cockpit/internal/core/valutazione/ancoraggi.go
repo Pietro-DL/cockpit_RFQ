@@ -50,6 +50,9 @@ type collegamento struct {
 	// errori: l'errore dell'adattatore o dell'interpretazione di ogni file lasciato fuori (R-61 della revisione di V1):
 	// Calcola lo porta fra le diagnostiche, come avviso (diagnosticheDeiFile).
 	errori map[uuid.UUID]error
+	// riconoscimenti: perché un file letto è un 2D (RiconosciDisegno2D sul tipo e sull'estensione; L-2D, estensione notte
+	// 14/10); un file che non è un 2D non c'è.
+	riconoscimenti map[uuid.UUID]Riconoscimento2D
 }
 
 // ancoraggiDelThread: gli ancoraggi del thread (6.4.6, passo 9), con i target di B1 e la loro fonte già calcolata.
@@ -76,7 +79,8 @@ func ancoraggiDelThread(t fotorfq.Thread, m *motorea.Motore, targets []target, i
 
 func nuovoCollegamento(t fotorfq.Thread, m *motorea.Motore) *collegamento {
 	c := &collegamento{t: t, m: m, allegati: map[uuid.UUID]*fotorfq.Allegato{}, inAttesa: map[uuid.UUID]bool{},
-		tipi: map[uuid.UUID]string{}, sonoFile: map[uuid.UUID]bool{}, shaStruttura: map[uuid.UUID]string{}, errori: map[uuid.UUID]error{}}
+		tipi: map[uuid.UUID]string{}, riconoscimenti: map[uuid.UUID]Riconoscimento2D{}, sonoFile: map[uuid.UUID]bool{},
+		shaStruttura: map[uuid.UUID]string{}, errori: map[uuid.UUID]error{}}
 	allegati := append([]fotorfq.Allegato(nil), t.Allegati...)
 	sort.SliceStable(allegati, func(i, j int) bool { return allegati[i].ID.String() < allegati[j].ID.String() })
 	contenitori := map[uuid.UUID]bool{}
@@ -102,6 +106,9 @@ func nuovoCollegamento(t fotorfq.Thread, m *motorea.Motore) *collegamento {
 		}
 		c.file = append(c.file, f)
 		c.sonoFile[a.ID] = true
+		if r := c.riconoscimentoDi(&a); r != "" {
+			c.riconoscimenti[a.ID] = r
+		}
 		if s, ok := ancoraggio.StrutturaDa(f); ok {
 			c.strutture = append(c.strutture, s)
 			c.shaStruttura[a.ID] = s.Sha256
@@ -137,9 +144,17 @@ func (c *collegamento) tipiDocumentali() {
 	}
 }
 
-// fileInterpretato: il file con il suo documento, l'interpretazione, la disponibilità e il segno del 2D. Con l'errore
-// dell'adattatore o dell'interpretazione il file resta fuori (6.4.6 passo 3, «non valutato»), e l'errore torna a chi
-// chiama, che lo tiene nel collegamento (R-61).
+// riconoscimentoDi: perché l'allegato è un 2D (L-2D, estensione notte 14/10): RiconosciDisegno2D sul tipo documentale
+// del DB (tipiDocumentali, T-B4-31) e sull'estensione dichiarata o del nome (estensioneDi). Prima della notte del 14/10
+// il segno del 2D era il solo tipo disegno_2d: sulle RFQ vere i PDF e i TIFF hanno la proposta legacy da_determinare (o
+// nessuna), e nessun nodo aveva un 2D. "" se non è un 2D.
+func (c *collegamento) riconoscimentoDi(a *fotorfq.Allegato) Riconoscimento2D {
+	return RiconosciDisegno2D(c.tipi[a.ID], estensioneDi(a))
+}
+
+// fileInterpretato: il file con il suo documento, l'interpretazione, la disponibilità e il segno del 2D (il
+// riconoscimento del 2D: riconoscimentoDi). Con l'errore dell'adattatore o dell'interpretazione il file resta fuori
+// (6.4.6 passo 3, «non valutato»), e l'errore torna a chi chiama, che lo tiene nel collegamento (R-61).
 func (c *collegamento) fileInterpretato(a fotorfq.Allegato) (ancoraggio.FileInterpretato, error) {
 	var fatti *fotorfq.Fatti
 	if a.Sha256 != nil {
@@ -162,7 +177,7 @@ func (c *collegamento) fileInterpretato(a fotorfq.Allegato) (ancoraggio.FileInte
 		}
 	}
 	return ancoraggio.FileInterpretato{AllegatoID: a.ID, Documento: doc, Interpretazione: interp,
-		Disponibilita: disponibilitaDi(a, doc, c.inAttesa[a.ID]), Disegno: c.tipi[a.ID] == tipoDocumentoDisegno2D}, nil
+		Disponibilita: disponibilitaDi(a, doc, c.inAttesa[a.ID]), Disegno: c.riconoscimentoDi(&a) != ""}, nil
 }
 
 // disponibilitaDi: la disponibilità di un file (6.4.6 passo 8, con T-B0-31 e la lettura T-B4-09), il primo che vale:

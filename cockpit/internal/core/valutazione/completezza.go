@@ -111,7 +111,9 @@ const (
 //   - ComponenteID, Codice, TipoComponente, DelProdotto: la riga confermata (DelProdotto: il componente del target).
 //   - TipoDocumento, Bloccante: il fabbisogno; RegolaCliente: i fabbisogni del suo tipo sono del cliente
 //     (RigaFabbisogno.Proprio sulle righe dello stesso tipo di componente: decisioni sull'analista, punto 8).
-//   - Esito, Motivo: per il 2D dal gruppo (VoceDelDisegno); per gli altri tipi dalla vista (EsitoDallaVista).
+//   - Esito, Motivo: per il 2D dal gruppo (VoceDelDisegno); per gli altri tipi dalla vista (EsitoDallaVista) e, quando
+//     la vista dice «manca», dai candidati del motore A (EsitoConIlMotoreA, T-6 della notte del 14/10: il cad_3d con lo
+//     STEP proposto è da verificare, con FileCandidato, e CalcolataDa = go).
 //   - Disegni: il gruppo dei 2D del componente (solo per il 2D; nil senza 2D). DocumentoID, StatoNas: per gli altri tipi
 //     il documento della vista; per il 2D (EB7-4 A, ratificata dall'utente l'08/10, con D2 del 10/10) il documento
 //     confermato e corrente che decide la voce (documentoDellaVoceDel2D) con lo stato del NAS della fotografia, che
@@ -205,17 +207,37 @@ type FabbisognoRisolto struct {
 
 // FabbisognoDellaRiga: un fabbisogno di una riga confermata com'è nella vista (R62 d C: la vista è la base dei
 // componenti confermati), o nelle regole effettive per un componente senza righe nella vista, con l'esito della vista o
-// quello calcolato allo stesso modo in Go (CalcolataDa).
+// quello calcolato allo stesso modo in Go (CalcolataDa). CandidatiMotoreA: i file che il motore A propone per quel tipo
+// di documento (T-6 / L1, notte 14/10; EsitoConIlMotoreA), senza quelli scartati da una persona; oggi l'adattatore li dà
+// solo per il cad_3d (gli STEP ancorati o sorgente della struttura: disegniThread.candidati3D).
 type FabbisognoDellaRiga struct {
-	TipoDocumento  string     `json:"tipo_documento"`
-	Bloccante      bool       `json:"bloccante"`
-	EsitoVista     string     `json:"esito_vista,omitempty"`
-	CalcolataDa    string     `json:"calcolata_da"`
-	DocumentoID    *uuid.UUID `json:"documento_id,omitempty"`
-	StatoNas       string     `json:"stato_nas,omitempty"`
-	DerogaID       *uuid.UUID `json:"deroga_id,omitempty"`
-	PropostaAperta *uuid.UUID `json:"proposta_aperta,omitempty"`
-	FileCandidato  *uuid.UUID `json:"file_candidato,omitempty"`
+	TipoDocumento    string               `json:"tipo_documento"`
+	Bloccante        bool                 `json:"bloccante"`
+	EsitoVista       string               `json:"esito_vista,omitempty"`
+	CalcolataDa      string               `json:"calcolata_da"`
+	DocumentoID      *uuid.UUID           `json:"documento_id,omitempty"`
+	StatoNas         string               `json:"stato_nas,omitempty"`
+	DerogaID         *uuid.UUID           `json:"deroga_id,omitempty"`
+	PropostaAperta   *uuid.UUID           `json:"proposta_aperta,omitempty"`
+	FileCandidato    *uuid.UUID           `json:"file_candidato,omitempty"`
+	CandidatiMotoreA []CandidatoDocumento `json:"candidati_motore_a,omitempty"`
+}
+
+// I valori di CandidatoDocumento.Via (T-6 / L1, notte 14/10), nell'ordine in cui decidono (EsitoConIlMotoreA):
+//   - ancorato: il file ha l'associazione candidato_unico, con il candidato su un nodo del componente o sul prodotto del
+//     suo target;
+//   - sorgente_struttura: il file è lo STEP della struttura in cui un nodo rappresenta il componente (la radice che
+//     rappresenta il prodotto, o un nodo deciso), anche senza un candidato unico.
+const (
+	ViaCandidatoAncorato          = "ancorato"
+	ViaCandidatoSorgenteStruttura = "sorgente_struttura"
+)
+
+// CandidatoDocumento: un file che il motore A propone per un fabbisogno diverso dal 2D (T-6 / L1, notte 14/10): l'allegato
+// e la via (ViaCandidato*). È una proposta, mai una conferma: porta la voce a da_verificare, non a presente.
+type CandidatoDocumento struct {
+	AllegatoID uuid.UUID `json:"allegato_id"`
+	Via        string    `json:"via"`
 }
 
 // DisegnoDellaVoce: ciò che serve alla voce del 2D di un componente (VoceDelDisegno).
@@ -498,6 +520,40 @@ func EsitoDallaVista(esito string) (EsitoFabbisogno, MotivoFabbisogno) {
 	return EsitoDaVerificare, ""
 }
 
+// EsitoConIlMotoreA: l'esito di una voce di un tipo diverso dal 2D con i candidati del motore A (T-6 / L1, notte 14/10).
+// Prima della notte del 14/10 l'esito veniva solo dalla vista: con lo STEP proposto dal motore A sul nodo la pagina
+// mostrava insieme «◇ proposto» e «✕ 3D manca». È pura, e l'ordine dei candidati non conta:
+//  1. la vista, con EsitoDallaVista: quando dice presente (un documento confermato, anche in coda o con l'errore del NAS;
+//     la deroga) o da_verificare (la proposta legacy da confermare, il portale, un valore che non conosce), vince sempre;
+//     il file candidato della proposta legacy resta quello della vista (nil qui);
+//  2. solo quando la vista dice «manca», un candidato del motore A porta la voce a da_verificare,
+//     associazione_non_confermata, con il file (lo stesso vocabolario del 2D proposto: VoceDelDisegno, passo 3): prima un
+//     ancorato, poi una sorgente della struttura (ViaCandidato*), a parità l'allegato minore;
+//  3. altrimenti manca, nessun_documento, come la vista.
+//
+// Il terzo valore è il file del passo 2 (nil negli altri casi). Gli scarti di una persona non entrano (li toglie
+// l'adattatore, come Scartati per il 2D: T-E1R-10).
+func EsitoConIlMotoreA(esitoVista string, candidati []CandidatoDocumento) (EsitoFabbisogno, MotivoFabbisogno, *uuid.UUID) {
+	esito, motivo := EsitoDallaVista(esitoVista)
+	if esito != EsitoManca || len(candidati) == 0 {
+		return esito, motivo, nil
+	}
+	rango := func(via string) int {
+		if via == ViaCandidatoAncorato {
+			return 0
+		}
+		return 1
+	}
+	primo := candidati[0]
+	for _, c := range candidati[1:] {
+		if rc, rp := rango(c.Via), rango(primo.Via); rc < rp || (rc == rp && c.AllegatoID.String() < primo.AllegatoID.String()) {
+			primo = c
+		}
+	}
+	id := primo.AllegatoID
+	return EsitoDaVerificare, MotivoFabbisognoAssociazioneNonConfermata, &id
+}
+
 // ChiusuraDelPerimetro: PerimetroChiuso del contratto (§1.6; R102 A, T-E1-10), con il motivo quando è aperto
 // (MotivoPerimetro*), dalla struttura della verifica della BOM (fase 1). È pura.
 //
@@ -562,7 +618,9 @@ func StatoDellaCompletezza(conComponente bool, voci []VoceFabbisogno, perimetroC
 //  1. Il perimetro (ChiusuraDelPerimetro).
 //  2. Le righe certe del perimetro: la classificazione (Classifica, con le conferme), i fabbisogni dopo gli invarianti
 //     (FabbisogniDelComponente); per ogni fabbisogno bloccante una voce (il 2D con VoceDelDisegno, CalcolataDa = go;
-//     gli altri tipi con EsitoDallaVista, con CalcolataDa della loro riga), per ogni non bloccante un FabbisognoInformativo.
+//     gli altri tipi con EsitoDallaVista, con CalcolataDa della loro riga; dalla notte del 14/10, sulla vista che dice
+//     «manca», con i candidati del motore A della riga, EsitoConIlMotoreA, CalcolataDa = go: T-6), per ogni non
+//     bloccante un FabbisognoInformativo.
 //     Le voci sono VociCerte: le voci bloccanti delle righe confermate del perimetro, con gli invarianti, tolto il solo 2D
 //     della minuteria confermata.
 //  3. Una riga con una rimozione aperta non dà voci certe: i suoi fabbisogni bloccanti vanno fra i previsti
@@ -630,6 +688,10 @@ func Completezza(in IngressoCompletezza) CompletezzaDocumentale {
 				v.PropostaAperta, v.CalcolataDa = copiaUUID(riga.PropostaAperta), riga.CalcolataDa
 				if v.Esito == EsitoDaVerificare && v.Motivo == MotivoFabbisognoAssociazioneNonConfermata {
 					v.FileCandidato = copiaUUID(riga.FileCandidato)
+				}
+				// T-6 / L1 (notte 14/10): sulla vista che dice «manca», il candidato del motore A; l'esito allora è di Go.
+				if e, m, f := EsitoConIlMotoreA(riga.EsitoVista, riga.CandidatiMotoreA); f != nil {
+					v.Esito, v.Motivo, v.FileCandidato, v.CalcolataDa = e, m, f, CalcolataDaGo
 				}
 			default:
 				// un fabbisogno senza la sua riga non nasce (le regole vengono dalle righe): per prudenza, nessun documento.

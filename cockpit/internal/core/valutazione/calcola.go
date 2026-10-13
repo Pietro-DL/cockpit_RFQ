@@ -293,7 +293,7 @@ func fileInterpretati(allegati []fotorfq.Allegato, col *collegamento) []FileInte
 	for _, a := range ordinati {
 		if f, ok := letti[a.ID]; ok {
 			out = append(out, FileInterpretato{AllegatoID: f.AllegatoID, Documento: f.Documento, Interpretazione: f.Interpretazione,
-				Disponibilita: f.Disponibilita, Disegno: f.Disegno})
+				Disponibilita: f.Disponibilita, Disegno: f.Disegno, Riconoscimento2D: col.riconoscimenti[a.ID]})
 			continue
 		}
 		motivo := MotivoFileDocumentoNonLeggibile

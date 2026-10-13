@@ -71,6 +71,61 @@ func normaEstensione(e string) string {
 	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(e), "."))
 }
 
+// ---- il riconoscimento del 2D (L-2D, estensione notte 14/10) ----
+
+// Riconoscimento2D: perché un file è un 2D per il motore A (L-2D, estensione notte 14/10). "" vuol dire «non è un 2D».
+//   - tipo_registrato: il tipo documentale che il DB registra per il file è disegno_2d (il documento confermato che lo
+//     porta, altrimenti la sua proposta: T-B4-31). Nella pagina: «2D registrato».
+//   - dal_formato: il DB non registra un tipo (nessun documento né proposta) o registra da_determinare (il legacy lo dà
+//     a ogni PDF e TIFF prima dell'analisi: «un PDF non vuol dire disegno»), e il formato del file è di un 2D
+//     (EstensioniDel2DSenzaTipo). Nella pagina: «2D dal formato del file, tipo non registrato». È solo una proposta: non
+//     conferma il tipo, non scrive niente, e una voce che il file porta resta da verificare finché una persona non lo
+//     conferma (VoceDelDisegno, passo 3).
+type Riconoscimento2D string
+
+const (
+	Riconoscimento2DTipoRegistrato Riconoscimento2D = "tipo_registrato"
+	Riconoscimento2DDalFormato     Riconoscimento2D = "dal_formato"
+)
+
+// EstensioniDel2DSenzaTipo: le estensioni con cui un file senza tipo registrato (o da_determinare) è un 2D (L-2D,
+// estensione notte 14/10): pdf, tif e tiff (i formati configurati di FormatiDisegno2D senza il PNG: un'immagine senza
+// tipo è più spesso una foto, un logo o una firma che un disegno) e dxf, dwg (formati CAD 2D che l'elenco chiuso non
+// configura: entrano nel gruppo con formato_non_configurato, ultimi nel primario, e non soddisfano il fabbisogno, LD-02).
+// Gli altri formati (STEP, IGES, Parasolid, i modelli nativi, le immagini, gli archivi, i documenti d'ufficio) no. Non
+// cambia l'elenco chiuso né VersioneFormati2D. Ogni chiamata dà una copia nuova.
+func EstensioniDel2DSenzaTipo() []string {
+	var out []string
+	for _, f := range FormatiDisegno2D() {
+		if f.Formato != Formato2DPNG {
+			out = append(out, f.Estensioni...)
+		}
+	}
+	return append(out, "dxf", "dwg")
+}
+
+// RiconosciDisegno2D: la regola del riconoscimento (L-2D, estensione notte 14/10), pura, sul tipo documentale che il DB
+// registra per il file ("" senza documento né proposta) e sulla sua estensione dichiarata, il primo che vale:
+//   - il tipo disegno_2d: tipo_registrato, qualunque sia il formato (un DWG registrato è un 2D, con il suo formato non
+//     configurato: T-B0-30);
+//   - nessun tipo, o da_determinare, e l'estensione in EstensioniDel2DSenzaTipo: dal_formato;
+//   - altrimenti "": un tipo registrato diverso (cad_3d, sviluppo_dxf, capitolato, altro, …) non si scavalca con il
+//     formato, e un file senza tipo in un altro formato non è un 2D.
+func RiconosciDisegno2D(tipo, estensione string) Riconoscimento2D {
+	switch tipo {
+	case tipoDocumentoDisegno2D:
+		return Riconoscimento2DTipoRegistrato
+	case "", tipoDocumentoDaDeterminare:
+		e := normaEstensione(estensione)
+		for _, x := range EstensioniDel2DSenzaTipo() {
+			if x == e {
+				return Riconoscimento2DDalFormato
+			}
+		}
+	}
+	return ""
+}
+
 // rangoFormato: il criterio 3 del primario (R84): PDF, poi TIFF, poi PNG; un formato non configurato dopo tutti.
 func rangoFormato(f Formato2D) int {
 	switch f {
@@ -207,6 +262,9 @@ const (
 //     FonteIdentita dice da dove viene la revisione; il codice è il testo letto nella prima fonte che lo dà.
 //   - Provenienza: l'origine dell'associazione al componente: confermato (un documento confermato sul componente),
 //     manuale («assegna»), proposto (un candidato del motore A sul nodo del componente).
+//   - Riconoscimento2D: perché il file è un 2D (L-2D, estensione notte 14/10): tipo_registrato (un documento confermato
+//     disegno_2d, o un file con il tipo disegno_2d) o dal_formato (un file senza tipo registrato, o da_determinare, in un
+//     formato di un 2D: RiconosciDisegno2D). Vuoto solo nei 2D costruiti a mano dalle prove delle regole.
 //   - Corrente: un documento confermato e non sostituito (sostituito_da nullo). ConfermatoIl: quando è stato
 //     confermato; nil per un 2D che non è un documento.
 //   - CompatibilitaCodice, CompatibilitaRevisione, ConfrontatoCon: il criterio 2 del primario, contro il componente
@@ -232,6 +290,7 @@ type Disegno2D struct {
 	Revisione              *string                `json:"revisione,omitempty"`
 	FonteIdentita          string                 `json:"fonte_identita,omitempty"`
 	Provenienza            ancoraggio.OrigineDato `json:"provenienza"`
+	Riconoscimento2D       Riconoscimento2D       `json:"riconoscimento_2d,omitempty"`
 	Corrente               bool                   `json:"corrente"`
 	ConfermatoIl           *time.Time             `json:"confermato_il,omitempty"`
 	CompatibilitaCodice    motorea.Compatibilita  `json:"compatibilita_codice"`

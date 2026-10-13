@@ -110,7 +110,8 @@ func TestICampiDellEsito(t *testing.T) {
 		{valutazione.EsitoFuoriRFQ{}, "Caso:caso MessaggioID:messaggio_id ClienteID:cliente_id Valutato:valutato Motivo:motivo HashSnapshot:hash_snapshot " +
 			"Messaggio:messaggio File:file Prodotti:prodotti Diagnostiche:diagnostiche"},
 		{valutazione.EvidenzaFile{}, "AllegatoID:allegato_id UnitaID:unita_id LetturaID:lettura_id Testo:testo Intervallo:intervallo Selettore:selettore Posizione:posizione"},
-		{valutazione.FileInterpretato{}, "AllegatoID:allegato_id Documento:documento Interpretazione:interpretazione Disponibilita:disponibilita Disegno:disegno Motivo:motivo"},
+		{valutazione.FileInterpretato{}, "AllegatoID:allegato_id Documento:documento Interpretazione:interpretazione Disponibilita:disponibilita Disegno:disegno " +
+			"Riconoscimento2D:riconoscimento_2d Motivo:motivo"},
 		{valutazione.MessaggioInterpretato{}, "MessaggioID:messaggio_id Documento:documento Interpretazione:interpretazione"},
 		{valutazione.LetturaRegistrata{}, "Originale:originale Base:base Marcatore:marcatore Revisione:revisione Leggibile:leggibile Motivo:motivo"},
 		{valutazione.FileConfrontabile{}, "AllegatoID:allegato_id Vecchio:vecchio Nuovo:nuovo"},

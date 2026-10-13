@@ -210,7 +210,9 @@ func (c *completezzaThread) perimetroSenzaRimozioni(componente *uuid.UUID) map[u
 //     vista (esitoComeLaVista, CalcolataDa = go);
 //   - RegolaCliente: dalle regole effettive del suo tipo (RigaFabbisogno.Proprio: decisioni sull'analista, punto 8);
 //   - le categorie della grammatica sul codice (Classificazione.Proposta);
-//   - la voce del 2D (disegnoDellaVoce).
+//   - la voce del 2D (disegnoDellaVoce);
+//   - per il cad_3d, i candidati del motore A (candidati3D; T-6 / L1, notte 14/10): la regola li guarda solo quando la
+//     vista dice «manca» (EsitoConIlMotoreA).
 func (c *completezzaThread) rigaDelPerimetro(comp *fotorfq.Componente, pv ProdottoValutato) RigaDelPerimetro {
 	r := RigaDelPerimetro{ComponenteID: comp.ID, Codice: comp.Codice, TipoComponente: comp.Tipo,
 		DelProdotto: pv.ComponenteID != nil && *pv.ComponenteID == comp.ID, Categorie: c.categorieDel(comp)}
@@ -234,8 +236,30 @@ func (c *completezzaThread) rigaDelPerimetro(comp *fotorfq.Componente, pv Prodot
 			r.Fabbisogni = append(r.Fabbisogni, f)
 		}
 	}
+	for i := range r.Fabbisogni {
+		if r.Fabbisogni[i].TipoDocumento == tipoDocumentoCad3D {
+			r.Fabbisogni[i].CandidatiMotoreA = c.candidati3D(comp.ID)
+		}
+	}
 	r.Disegno = c.disegnoDellaVoce(comp, del2D)
 	return r
+}
+
+// candidati3D: i 3D che il motore A propone per il componente (disegniThread.candidati3D: gli STEP ancorati con un
+// candidato unico sui suoi nodi o sul prodotto del suo target, e gli STEP sorgente della struttura che lo rappresenta),
+// senza quelli con la proposta scartata da una persona (T-E1R-10, come per il 2D). nil senza. T-6 / L1, notte 14/10.
+func (c *completezzaThread) candidati3D(componente uuid.UUID) []CandidatoDocumento {
+	scartato := map[uuid.UUID]bool{}
+	for _, a := range c.scartati {
+		scartato[a] = true
+	}
+	var out []CandidatoDocumento
+	for _, x := range c.dis.candidati3D(componente) {
+		if !scartato[x.AllegatoID] {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // esitoComeLaVista: l'esito di un fabbisogno di un componente senza righe nella vista, calcolato come lo calcola
