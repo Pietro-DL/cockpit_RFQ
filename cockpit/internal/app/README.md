@@ -214,6 +214,7 @@ markmap:
   - radice di produzione in shadow, o in produzione con `nas_scrittura` senza `consenti_nas_produzione`
   - lo staging non si può creare
   - `giorni_sync_iniziale < 0` o `dal` non `AAAA-MM-GG`
+  - `giorni_carica_precedenti` fuori da 0…365 o `inbox_max_messaggi` fuori da 0…5000
   - utenti, caselle, postazioni o worker incoerenti
     - sigla doppia
     - ruolo sconosciuto

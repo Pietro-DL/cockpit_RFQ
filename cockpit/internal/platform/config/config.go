@@ -482,6 +482,14 @@ type Outlook struct {
 	// cursore. Vale una volta sola: appena il primo sync scrive un cursore decide il cursore, e un
 	// riavvio non riporta la casella qui. Assente (o 0) = coda.GiorniSyncInizialeDefault.
 	GiorniSyncIniziale int `toml:"giorni_sync_iniziale"`
+	// GiorniCaricaPrecedenti: quanti giorni di archivio scarica UN clic su «Carica precedenti», per
+	// casella. Assente (o 0) = web.GiorniStoricoDefault (2). Il worker Outlook è seriale: una finestra
+	// grande lo tiene occupato a lungo, e intanto non apre elementi e non scarica allegati.
+	GiorniCaricaPrecedenti int `toml:"giorni_carica_precedenti"`
+	// InboxMaxMessaggi: quante righe mostra al massimo la lista dell'Inbox, le più recenti del filtro
+	// scelto. Assente (o 0) = web.RigheInboxDefault (200). La lista si rifà a ogni poll (15 s): un
+	// numero molto alto la rende lenta.
+	InboxMaxMessaggi int `toml:"inbox_max_messaggi"`
 	// SyncAperturaInbox: alla PRIMA apertura dell'Inbox di una sessione si accoda un aggiornamento,
 	// una volta sola. Assente = true.
 	//
@@ -1028,6 +1036,14 @@ func (c *Config) normalizzaOutlook() error {
 		return fmt.Errorf("config: [outlook].giorni_sync_iniziale = %d non valido (sono giorni: togli la riga per il valore predefinito)",
 			c.Outlook.GiorniSyncIniziale)
 	}
+	if c.Outlook.GiorniCaricaPrecedenti < 0 || c.Outlook.GiorniCaricaPrecedenti > MaxGiorniCaricaPrecedenti {
+		return fmt.Errorf("config: [outlook].giorni_carica_precedenti = %d non valido (da 1 a %d giorni: togli la riga per il valore predefinito, 2)",
+			c.Outlook.GiorniCaricaPrecedenti, MaxGiorniCaricaPrecedenti)
+	}
+	if c.Outlook.InboxMaxMessaggi < 0 || c.Outlook.InboxMaxMessaggi > MaxInboxMessaggi {
+		return fmt.Errorf("config: [outlook].inbox_max_messaggi = %d non valido (da 1 a %d righe: togli la riga per il valore predefinito, 200)",
+			c.Outlook.InboxMaxMessaggi, MaxInboxMessaggi)
+	}
 	c.Outlook.Dal = strings.TrimSpace(c.Outlook.Dal)
 	if c.Outlook.Dal != "" {
 		if _, err := DataDal(c.Outlook.Dal); err != nil {
@@ -1036,6 +1052,14 @@ func (c *Config) normalizzaOutlook() error {
 	}
 	return nil
 }
+
+// I tetti di [outlook].giorni_carica_precedenti e [outlook].inbox_max_messaggi. Oltre, il server non
+// parte: un anno di archivio in un clic occuperebbe il worker per giorni, e una lista di decine di
+// migliaia di righe rifatta ogni quindici secondi non è più una schermata.
+const (
+	MaxGiorniCaricaPrecedenti = 365
+	MaxInboxMessaggi          = 5000
+)
 
 // DataDal legge `[outlook].dal` nel fuso locale del server. Sta in un posto solo perché la leggono in
 // due — la validazione all'avvio e chi accoda il sync — e due letture diverse della stessa riga

@@ -232,6 +232,18 @@ giorni_sync_iniziale = 7
 # iniziale a quella data mentre i giorni passano.
 # dal = "2026-08-01"
 
+# Quanti giorni di archivio scarica UN clic su «Carica precedenti», per casella. Assente = 2.
+# Alzarlo serve a risalire in fretta nella posta vecchia (per esempio 30 per caricare un mese per clic):
+# il prezzo è che, finché il job storico gira, il worker Outlook non apre elementi e non scarica
+# allegati per chi lavora. Da 1 a 365; fuori da lì il server non parte.
+# giorni_carica_precedenti = 2
+
+# Quanti messaggi mostra al massimo la lista dell'Inbox: i più recenti del filtro scelto (quadrante,
+# direzione, casella). Assente = 200. I contatori dei filtri contano sempre tutto: quando la lista è
+# piena la pagina lo dice in fondo. La lista si rifà a ogni poll (15 s), quindi un numero molto alto
+# la rende lenta. Da 1 a 5000; fuori da lì il server non parte.
+# inbox_max_messaggi = 200
+
 lotto = 50
 # `consenti_invio` non c'è più qui: il server prepara bozze e non ha un invio da accendere. Se la riga
 # è in un file di prima, il server lo dice nel log all'avvio (la voce del worker.toml è un'altra cosa).

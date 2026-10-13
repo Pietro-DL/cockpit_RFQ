@@ -687,7 +687,7 @@ markmap:
    - La testata si ricarica ogni 15 s, ogni 3 s mentre un sync gira.
 3. **Carica precedenti.**
    - Per ogni casella Outlook attiva si fa un solo job storico.
-   - La finestra è di `GiorniStorico` (2) giorni per cartella, sotto il suo `storico_fino_a`.
+   - La finestra è di `[outlook].giorni_carica_precedenti` giorni per cartella (assente = `GiorniStoricoDefault`, 2), sotto il suo `storico_fino_a`.
    - Una cartella che non ha ancora un limite parte dalla SUA mail più vecchia (`partenzaDellaCartella`), mai dal limite
      di un'altra cartella né dalla mail più vecchia della casella; senza posta, da adesso.
      - Il nome del cursore («Inbox») e quello della copia («Posta in arrivo») si riconoscono come la stessa cartella con
@@ -767,7 +767,9 @@ markmap:
 - **capire perché un messaggio sta in quel quadrante**
   - Apro: `v_inbox.quadrante`, `routes_inbox.go:quadranteValido`
 - **cambiare l'ampiezza di «Carica precedenti»**
-  - Apro: `routes_inbox.go:GiorniStorico`, `finestraStorico`
+  - Apro: `[outlook].giorni_carica_precedenti`, `routes_inbox.go:giorniStorico`, `finestraStorico`
+- **mostrare più (o meno) righe nella lista dell'Inbox**
+  - Apro: `[outlook].inbox_max_messaggi`, `routes_inbox.go:righeInbox`, `inboxDati.Piena`
 - **da dove parte «Carica precedenti» per una cartella nuova**
   - Apro: `routes_inbox.go:partenzaDellaCartella`, `nomiCartellaPredefinita`
 - **cambiare la testata**

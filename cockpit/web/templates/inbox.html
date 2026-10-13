@@ -82,7 +82,7 @@
     {{end}}
     <span class="spazio"></span>
     {{if gt .Dati.NNuove 0}}<span class="chip nuove" title="Messaggi registrati dopo la tua ultima apertura dell'Inbox: hanno il pallino nella lista">{{.Dati.NNuove}} nuove</span>{{end}}
-    <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica altri 2 giorni di archivio, per casella. Finestre piccole perché il worker Outlook è uno solo: mentre carica l'archivio non apre elementi e non scarica allegati.">Carica Precedenti</button>
+    <button class="btn-storico" hx-post="/inbox/sync-storico" hx-target="#sync-status" hx-swap="innerHTML" title="Scarica altri {{.Dati.GiorniStorico}} giorni di archivio, per casella ([outlook].giorni_carica_precedenti). Finestre piccole perché il worker Outlook è uno solo: mentre carica l'archivio non apre elementi e non scarica allegati.">Carica Precedenti</button>
   </div>
   <div id="lista">
     {{template "inbox_lista" .}}
@@ -117,6 +117,7 @@
   </div>
 </a>
 {{end}}
+{{if .Dati.Piena}}<p class="muto lista-piena" role="status">Sono i {{.Dati.Limite}} messaggi più recenti di questo filtro. Per i più vecchi: un filtro più stretto (quadrante, direzione, casella), oppure alza <code>[outlook].inbox_max_messaggi</code> nel cockpit.toml del server e riavvialo.</p>{{end}}
 {{end}}
 
 {{/* controparte_riga: chi c'e' dall'altra parte, come lo dice il messaggio (7A, 7C.0). Vale per una
