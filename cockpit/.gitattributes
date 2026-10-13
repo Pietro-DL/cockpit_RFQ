@@ -10,3 +10,9 @@ web/static/pdfjs-*/** -text
 # (i CRLF dei casi stanno dentro le stringhe JSON come \r\n), ma i file restano LF anche su Windows, così il diff
 # dei golden è lo stesso su ogni postazione.
 internal/core/estrazione/testdata/** text eol=lf
+
+# I casi del Motore A (valutazione, pagina web): le prove confrontano i byte del JSON con quelli del costruttore e con
+# il file dei casi letto in modo stretto; con core.autocrlf un checkout su Windows li riscriverebbe con CRLF e le prove
+# fallirebbero su una postazione pulita (notte del 14/10).
+internal/core/valutazione/testdata/** text eol=lf
+internal/transport/web/testdata/** text eol=lf

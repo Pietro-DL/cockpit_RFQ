@@ -77,6 +77,8 @@ var spiegazioni = map[string]voceSpiegazione{
 	// WP-A (notte 14/10): la radice proposta dal nome del file
 	"radice_dal_nome_file": {"radice dal nome del file",
 		"I nodi dello STEP non portano il codice del prodotto, ma il nome del file sì: la radice del file è proposta come struttura candidata. Va guardata prima di autorizzarla."},
+	"radice_dallo_step_associato": {"radice dallo STEP associato",
+		"Lo STEP è stato associato al prodotto da una persona, ma i suoi nodi non portano il codice del prodotto: la sua radice è proposta come struttura candidata. Va guardata prima di autorizzarla."},
 	// i motivi della collocazione di un file (ancoraggi.go, MotivoAncoraggio*)
 	"target_ignoti": {"nessun prodotto della RFQ",
 		"La RFQ non ha prodotti: un file non si può mettere sotto nessuno."},
