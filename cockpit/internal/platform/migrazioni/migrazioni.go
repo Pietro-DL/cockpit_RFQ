@@ -8,7 +8,11 @@
 //   - un file che aggiunge un valore a un enum (ALTER TYPE ... ADD VALUE) non lo usa nello stesso file,
 //     perché PostgreSQL non permette di usare il valore prima del commit (S4);
 //   - ogni REFERENCES punta a una tabella creata nello stesso file o in uno precedente (S1, N43);
-//   - un lock consultivo di sessione evita che due istanze del server migrino insieme.
+//   - un lock consultivo di sessione evita che due istanze del server migrino insieme;
+//   - un file puo' dichiarare la propria variante (INSERT INTO schema_variante (versione, variante) VALUES (N,
+//     '...'), dalla 0022): se la sua versione risulta gia' registrata, il database deve avere la stessa variante,
+//     altrimenti il migratore si ferma prima di toccare qualunque cosa (ControllaVarianti). schema_versione
+//     registra solo il numero, e due testi diversi dello stesso file non devono passare per «schema presente».
 package migrazioni
 
 import (
@@ -32,6 +36,9 @@ type Migrazione struct {
 	Versione int
 	Nome     string // es. "0002_fondazioni.sql"
 	SQL      string
+	// Variante: il testo dichiarato con INSERT INTO schema_variante nel file; vuoto = il file non ne dichiara
+	// (0001..0021) e non e' controllato.
+	Variante string
 }
 
 // lockMigrazioni è la chiave del lock consultivo ("COCK" in ASCII).
@@ -59,7 +66,7 @@ func Elenca(fsys fs.FS) ([]Migrazione, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, Migrazione{Versione: n, Nome: v.Name(), SQL: string(b)})
+		out = append(out, Migrazione{Versione: n, Nome: v.Name(), SQL: string(b), Variante: varianteDichiarata(string(b))})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Versione < out[j].Versione })
 	for i, m := range out {
@@ -157,6 +164,9 @@ func ApplicaElenco(ctx context.Context, pool *pgxpool.Pool, migs []Migrazione, f
 			return 0, fmt.Errorf("migrazioni: schema_versione ha la %d ma non la %d: DB incoerente, serve intervento manuale", massimaDB, v)
 		}
 	}
+	if err := ControllaVarianti(ctx, conn, migs, fatte); err != nil {
+		return 0, err
+	}
 	n := 0
 	for _, m := range migs {
 		if m.Versione > finoA {
@@ -195,7 +205,90 @@ func applicaUna(ctx context.Context, conn *pgx.Conn, m Migrazione) error {
 	if !registrata {
 		return fmt.Errorf("migrazione %s: il file non registra la propria versione (manca INSERT INTO schema_versione)", m.Nome)
 	}
+	if m.Variante != "" {
+		if err := controllaVariante(ctx, tx, m); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
+}
+
+// ---------------------------------------------------------------- varianti (0022, direttiva 11 par.2)
+
+var reVariante = regexp.MustCompile(`(?i)INSERT\s+INTO\s+schema_variante\s*\(\s*versione\s*,\s*variante\s*\)\s*VALUES\s*\(\s*(\d+)\s*,\s*'([^']*)'\s*\)`)
+
+// varianteDichiarata: la variante che il file registra, fuori dai commenti; vuota se non ne registra.
+func varianteDichiarata(sql string) string {
+	if v := reVariante.FindStringSubmatch(reCommento.ReplaceAllString(sql, "")); v != nil {
+		return v[2]
+	}
+	return ""
+}
+
+// VarianteDiversa: il database ha la versione di una migrazione registrata, ma non con la variante del file
+// incorporato nel binario. DelDatabase vuota = nessuna variante registrata (un testo precedente del file, che
+// non la dichiarava).
+type VarianteDiversa struct {
+	Nome                    string
+	Versione                int
+	DelDatabase, DelBinario string
+}
+
+func (e *VarianteDiversa) Error() string {
+	db := e.DelDatabase
+	if db == "" {
+		db = "nessuna"
+	}
+	return fmt.Sprintf("migrazioni: il database ha la versione %d registrata con un altro testo di %s (variante nel database: %s, "+
+		"nel binario: %s); schema_versione registra solo il numero, quindi lo schema non e' quello che il binario conosce. "+
+		"Il database non e' stato toccato: serve un database ricreato da zero (prove) o un intervento manuale",
+		e.Versione, e.Nome, db, e.DelBinario)
+}
+
+// ControllaVarianti: per ogni migrazione che dichiara una variante e la cui versione risulta registrata, il
+// database deve avere in schema_variante la stessa variante. Solo letture. La chiamano il migratore (prima di
+// applicare qualunque file), l'apertura in sola lettura e il comando U5.
+func ControllaVarianti(ctx context.Context, c lettore, migs []Migrazione, applicate map[int]bool) error {
+	var daControllare []Migrazione
+	for _, m := range migs {
+		if m.Variante != "" && applicate[m.Versione] {
+			daControllare = append(daControllare, m)
+		}
+	}
+	if len(daControllare) == 0 {
+		return nil
+	}
+	var esiste bool
+	if err := c.QueryRow(ctx, "SELECT to_regclass('public.schema_variante') IS NOT NULL").Scan(&esiste); err != nil {
+		return fmt.Errorf("migrazioni: verifica di schema_variante: %w", err)
+	}
+	for _, m := range daControllare {
+		var delDB string
+		if esiste {
+			err := c.QueryRow(ctx, "SELECT variante FROM schema_variante WHERE versione = $1", m.Versione).Scan(&delDB)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("migrazioni: variante della %d: %w", m.Versione, err)
+			}
+		}
+		if delDB != m.Variante {
+			return &VarianteDiversa{Nome: m.Nome, Versione: m.Versione, DelDatabase: delDB, DelBinario: m.Variante}
+		}
+	}
+	return nil
+}
+
+// controllaVariante: dopo l'esecuzione di un file che dichiara una variante, nella sua transazione, la riga c'e'
+// ed e' quella dichiarata (come la riga di schema_versione).
+func controllaVariante(ctx context.Context, tx pgx.Tx, m Migrazione) error {
+	var delDB string
+	err := tx.QueryRow(ctx, "SELECT variante FROM schema_variante WHERE versione = $1", m.Versione).Scan(&delDB)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("migrazione %s: schema_variante: %w", m.Nome, err)
+	}
+	if delDB != m.Variante {
+		return fmt.Errorf("migrazione %s: il file dichiara la variante %q ma registra %q", m.Nome, m.Variante, delDB)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- verifica statica (S1, S4)
@@ -221,6 +314,11 @@ func VerificaStatica(migs []Migrazione) error {
 		}
 		if n, _ := strconv.Atoi(v[1]); n != m.Versione {
 			return fmt.Errorf("verifica %s: registra la versione %d invece di %d", m.Nome, n, m.Versione)
+		}
+		if va := reVariante.FindStringSubmatch(sql); va != nil {
+			if n, _ := strconv.Atoi(va[1]); n != m.Versione {
+				return fmt.Errorf("verifica %s: dichiara la variante della versione %d invece di %d", m.Nome, n, m.Versione)
+			}
 		}
 		for _, t := range reCreaTab.FindAllStringSubmatch(sql, -1) {
 			tabelle[strings.ToLower(t[1])] = true

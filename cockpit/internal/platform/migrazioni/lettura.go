@@ -32,10 +32,11 @@ import (
 //
 // Gli errori di apertura sono quelli di prima (avvio.go, «db: …»): pgx toglie la password dal DSN che cita.
 func ApriInLettura(ctx context.Context, dsn string, fsys fs.FS) (*pgxpool.Pool, error) {
-	delBinario, err := ultimaDelBinario(fsys)
+	migs, err := Elenca(fsys)
 	if err != nil {
 		return nil, err
 	}
+	delBinario := migs[len(migs)-1].Versione
 	pc, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
@@ -57,16 +58,12 @@ func ApriInLettura(ctx context.Context, dsn string, fsys fs.FS) (*pgxpool.Pool, 
 		pool.Close()
 		return nil, &SchemaDiverso{DelDatabase: v, DelBinario: delBinario}
 	}
-	return pool, nil
-}
-
-// ultimaDelBinario: la versione dell'ultima migrazione incorporata, cioè lo schema che il binario conosce.
-func ultimaDelBinario(fsys fs.FS) (int, error) {
-	migs, err := Elenca(fsys)
-	if err != nil {
-		return 0, err
+	// stessa versione ma un altro testo della migrazione (variante, dalla 0022): non e' lo schema del binario
+	if err := ControllaVarianti(ctx, pool, migs, applicate); err != nil {
+		pool.Close()
+		return nil, err
 	}
-	return migs[len(migs)-1].Versione, nil
+	return pool, nil
 }
 
 // UltimaApplicata: il massimo delle versioni registrate in schema_versione; 0 = nessuna. È il controllo dello

@@ -41,8 +41,10 @@ markmap:
     - `Elenca` (legge e ordina, versioni 1..n senza buchi);
     - `Applicate` (le versioni in `schema_versione`);
     - `Applica`, `ApplicaFinoA`, `ApplicaElenco`;
-    - `applicaUna` (una transazione per file);
-    - `VerificaStatica` con le sue espressioni regolari
+    - `applicaUna` (una transazione per file; con una variante dichiarata, vuole anche la sua riga);
+    - `VerificaStatica` con le sue espressioni regolari;
+    - le varianti (dalla 0022, direttiva 11 par.2): `Migrazione.Variante` (letta dal file con `varianteDichiarata`),
+      `ControllaVarianti` e l'errore `*VarianteDiversa`
 - **`lettura.go`** (A1c, P-02: per **aprire**, non per migrare; non chiama mai `Applica`, non aggiunge
   migrazioni: in A1 l'ultima resta la 0021, G10)
   - Responsabilità:
@@ -96,7 +98,11 @@ markmap:
 - **`schema_versione (versione int PRIMARY KEY, applicata_il timestamptz)`**
   - creata dalla 0001;
   - ogni file inserisce la propria riga.
-  - È l'**unica** traccia di che cosa è stato applicato: non si conserva un hash del file.
+  - Registra solo il numero: non si conserva un hash del file.
+- **`schema_variante (versione int PRIMARY KEY, variante text)`** (dalla 0022)
+  - la scrive il file che dichiara una variante (`INSERT INTO schema_variante (versione, variante) VALUES (N, '…')`);
+  - `ControllaVarianti` la confronta con la variante del file incorporato: un database con la stessa versione e un
+    altro testo della migrazione (un'altra variante, nessuna riga, nessuna tabella) non si apre e non si migra.
 - **Lucchetto consultivo di sessione** `pg_advisory_lock(0x434f434b)` («COCK»)
   - preso su una connessione dedicata del pool per tutta la durata e rilasciato in `defer`:
     - due server che partono insieme non migrano in parallelo.
@@ -117,7 +123,9 @@ markmap:
 5. versione massima del database **maggiore** dell'ultima del binario → errore «il DB è alla versione N ma il binario conosce solo la M: aggiornare cockpit.exe»:
    - il server non parte e non tocca niente;
 6. una versione mancante sotto la massima → errore «DB incoerente, serve intervento manuale»;
-7. ogni file non registrato e `≤ finoA` si applica in ordine;
+7. `ControllaVarianti`: per ogni file registrato che dichiara una variante, la stessa variante nel database,
+   altrimenti `*VarianteDiversa` («il database non è stato toccato») prima di applicare qualunque file;
+8. ogni file non registrato e `≤ finoA` si applica in ordine;
    - il primo che fallisce annulla la propria transazione e ferma l'avvio (i precedenti restano applicati).
 
 ### La verifica statica (sul testo senza i commenti `--`)
@@ -143,7 +151,9 @@ markmap:
 - Un database più recente del binario, o con buchi, non viene toccato.
 - Due istanze non migrano insieme.
 - **Dichiarato nel README principale e _non_ verificato dal codice:** «un file già applicato non va più modificato».
-  - Una modifica a un file già registrato passa inosservata e non viene riapplicata.
+  - Una modifica a un file già registrato passa inosservata e non viene riapplicata, salvo per i file con una
+    variante (dalla 0022): un testo nuovo con una variante nuova trova il database con la vecchia e si ferma
+    (`*VarianteDiversa`). La prova L1 `TestP4VarianteDella0022` lega la variante della 0022 alla sua impronta.
 - **L'apertura in lettura non migra e non scrive** (P-02): `lettura.go` non chiama mai `Applica`, e il pool di
   `ApriInLettura` ha `default_transaction_read_only=on` in ogni connessione. Con uno schema diverso il pool si
   chiude prima di qualunque lettura.
@@ -164,7 +174,10 @@ markmap:
   - Livello: L1
   - Che cosa prova:
     - la verifica statica delle migrazioni vere;
-    - riferimento in avanti, enum usato nello stesso file, versione non registrata, versioni con buchi, nome non valido
+    - riferimento in avanti, enum usato nello stesso file, versione non registrata, versioni con buchi, nome non valido;
+    - G10 riscritta per P4 (`TestDopoP4LUltimaMigrazioneEla22`): l'ultima e' la `0022_p4_conferme_working.sql`;
+    - le impronte sha256 delle 0001..0021 lette dal binario, fine riga portati a LF
+      (`TestP4LeMigrazioniStoricheNonCambiano`: un file applicato non si tocca piu')
 - **`migrazioni_db_test.go`**
   - Livello: L4
   - Che cosa prova:
@@ -189,6 +202,43 @@ markmap:
 - **`fascicolo0021_db_test.go`**
   - Livello: L4
   - Che cosa prova: `scripts/0021_indietro.sql` e il suo rifiuto con note presenti
+- **`p4_0022_db_test.go`** (giro 5, A1d, Q1)
+  - Livello: L4
+  - Che cosa prova:
+    - la 0022 da zero e due avvii identici del migratore (il secondo applica 0 file e non cambia lo schema);
+    - il testo della 0022 rieseguito su uno schema 22 si ferma al primo oggetto e non cambia niente;
+    - l'upgrade 21 → 22 con righe sintetiche: catalogo e dati delle tabelle storiche invariati, solo oggetti nuovi,
+      nessuna riga nelle tabelle nuove, schema identico a quello da zero;
+    - **ogni** vincolo FK e CHECK delle 18 tabelle nuove violato da solo (trigger utente spenti nella transazione), con
+      il confronto finale con il catalogo: un vincolo senza prova fa fallire la prova (145 su 145);
+    - sulle tabelle storiche l'upgrade aggiunge solo i tre trigger AFTER; v_fascicolo e' l'unico oggetto ridefinito
+      (deroga dichiarata), con le 19 colonne di prima e copertura_id in coda;
+    - il contatore della working su ogni scrittore legacy (le query sqlc vere) e sull'SQL diretto, una volta per
+      transazione, niente su un UPDATE identico; la storia delle deroghe con l'autore della transazione;
+    - la conferma che si scrive per ultima (R1 della revisione DDL: P4X01 dopo la conferma nella stessa transazione),
+      contatori registrati uguali ai correnti, perimetro chiuso al COMMIT, e le letture delle conferme e degli esiti di
+      `p4_conferme.sql`;
+    - la storia che non si modifica e non si cancella (P4X01-P4X05), la conservazione di 90 giorni degli esiti;
+    - i limiti dei campi (varchar e JSON);
+    - mono_pezzo al COMMIT (direttiva 11): radice finito, STEP autorizzato sulla radice, nessun figlio ne' arco
+  - Importa `platform/db` (solo nelle prove: le query legacy e quelle di `p4_conferme.sql`)
+- **`p4_0022_dir11_db_test.go`**
+  - Livello: L4
+  - Che cosa prova (l'emendamento della direttiva 11):
+    - le coperture documentali e `v_fascicolo`: pagina condivisa, figlio su piu' pagine, figlio senza 2D, rettifica,
+      revoca, ripristino, ogni condizione di validita' (sha256, rev del documento e del componente, proprietario e
+      tipo del documento D1, archiviazioni, perimetro, sostituzione con una revisione nuova), identita' condivisa;
+      v_thread_bloccanti, v_cruscotto, ListFascicolo e ContaBloccantiLogici concordi a ogni passo; le regole di
+      nascita (P4X06), le FK per RFQ, la catena, P4X02, BOM01;
+    - senza coperture ogni riga di `v_fascicolo` e' quella della definizione della 0020 (vista temporanea dal file);
+    - `distinta_bozza_registro`: un passo per apertura, abbandono, conservazione, conferma; il prodotto non si
+      rimuove dopo la conservazione; solo dal trigger, solo aggiunte;
+    - le fonti STEP secondarie: destinazione su UUID e temporanea, P4X07, la risoluzione al COMMIT senza UPDATE, la
+      storia dopo la conservazione;
+    - le due varianti della 0022: un'altra variante, nessuna riga, nessuna tabella, la 0022 senza variante sopra la
+      21 → `*VarianteDiversa` dal migratore e dall'apertura in sola lettura, schema invariato;
+    - i mutanti sopravvissuti alla revisione delle prove B1/Q1 (conferma, ciclo della bozza, attestazioni, F8,
+      storia delle deroghe)
 - **`larghezze_db_test.go`**
   - Livello: L4
   - Che cosa prova: le colonne `codice` e `rev` larghe almeno quanto `classificazione` dichiara
@@ -218,10 +268,13 @@ markmap:
 
 ## Stato dell'implementazione
 
-- Completo, schema fino alla 0021 (Fascicolo v3).
+- Completo, schema fino alla 0022 (P4, giro 5, A1d: la bozza della distinta, le conferme strutturali e i registri;
+  file nei soli rami locali finche' non e' spinto).
+- La 0022 ha `SET LOCAL lock_timeout = '30s'`: si applica a server e worker fermi; con una transazione aperta su
+  `componente`, `componente_relazione` o `deroga_fabbisogno` si annulla dopo 30 secondi e il server non parte.
 - Nessun verso «giù»: il ritorno è il backup, e per la 0018 e la 0021 uno script manuale in `scripts/`.
 - **Limiti:**
-  - niente hash dei file applicati;
+  - niente hash dei file applicati (dalla 0022 una variante dichiarata, confrontata da `ControllaVarianti`);
   - la verifica statica è per espressioni regolari (non riconosce, per esempio, `REFERENCES schema.tabella` né identificatori fra virgolette);
   - un file che richiede di stare fuori da una transazione (`CREATE INDEX CONCURRENTLY`) non si può scrivere.
 

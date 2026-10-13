@@ -63,10 +63,13 @@ markmap:
 - **`struttura.go`**
   - `ArchiviaComponente` (per un prodotto chiude anche le rimozioni aperte del suo STEP strutturale)
   - `RipristinaComponente`
-  - `RimuoviComponente` (cancellazione fisica; se la FK la rifiuta, `cheCosaLoTiene` dice quale tabella)
+  - `RimuoviComponente` (cancellazione fisica; se la FK la rifiuta, `cheCosaLoTiene` dice quale tabella; dalla 0022
+    anche conferma strutturale, bozza della distinta e suo registro, storia della fonte STEP, fascicolo attestato,
+    copertura documentale; il riepilogo dell'albero lo sa prima, da `ListComponentiConStoria`, e dice «si archivia»)
   - `Step`
   - `ScegliStepStrutturale` (rifiutato su un archiviato)
-  - `ConcediDerogaStruttura` / `RevocaDerogaStruttura` (solo una deroga della stessa RFQ)
+  - `ConcediDerogaStruttura` / `RevocaDerogaStruttura` (solo una deroga della stessa RFQ; dalla 0022 la concessione
+    e la revoca restano in `deroga_struttura_storia`, scritta dal trigger)
   - `Sostituisci` (il nuovo riferimento strutturale rifiutato su un archiviato) / `AnnullaSostituzione`
   - `chiudiProposteDi` (nota tagliata a 200 caratteri)
 - **`classifica.go`**

@@ -437,6 +437,13 @@ func fraseStoria(x db.ListComponentiConStoriaRow) []string {
 	if x.Note {
 		out = append(out, "ha delle note sui disegni")
 	}
+	// la 0022 (P4): conferme strutturali, bozze e il loro registro, storia della fonte STEP, attestazioni; coperture
+	if x.Distinta {
+		out = append(out, "ha una storia della distinta (conferme, bozze, fonte STEP o fascicolo attestato)")
+	}
+	if x.Coperture {
+		out = append(out, "è coperto da un documento condiviso")
+	}
 	return out
 }
 

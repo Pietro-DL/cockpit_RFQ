@@ -3194,6 +3194,53 @@ type AnnotazionePdf struct {
 	ModificataIl *time.Time     `json:"modificata_il"`
 }
 
+// Chi e quando di ogni associazione di proposte e documenti (assegna, sgancia, scarta, riapri,
+// preassociazione, caricamento, spostamento), da tutte le strade quando le scriveranno: gli scrittori sono di B4, e
+// la storia comincia dal primo evento scritto da B4. Solo aggiunte.
+type AssociazioneEvento struct {
+	EventoID          int64         `json:"evento_id"`
+	ThreadID          uuid.UUID     `json:"thread_id"`
+	PropostaID        uuid.NullUUID `json:"proposta_id"`
+	DocumentoID       uuid.NullUUID `json:"documento_id"`
+	Azione            string        `json:"azione"`
+	ComponentePrima   uuid.NullUUID `json:"componente_prima"`
+	ComponenteDopo    uuid.NullUUID `json:"componente_dopo"`
+	ConfermaID        uuid.NullUUID `json:"conferma_id"`
+	Motivo            pgtype.Text   `json:"motivo"`
+	Origine           string        `json:"origine"`
+	ChiaveIdempotenza uuid.NullUUID `json:"chiave_idempotenza"`
+	AutoreID          uuid.UUID     `json:"autore_id"`
+	Quando            time.Time     `json:"quando"`
+}
+
+// Attestazione esplicita del fascicolo di un prodotto (campo attesta di R9), sull'ultima conferma strutturale.
+// Progressiva e immutabile; «da riverificare» si deriva.
+type AttestazioneFascicolo struct {
+	AttestazioneID        uuid.UUID       `json:"attestazione_id"`
+	ThreadID              uuid.UUID       `json:"thread_id"`
+	ProdottoID            uuid.UUID       `json:"prodotto_id"`
+	Numero                int32           `json:"numero"`
+	PrecedenteID          uuid.NullUUID   `json:"precedente_id"`
+	ConfermaStrutturaleID uuid.UUID       `json:"conferma_strutturale_id"`
+	FirmaPiano            string          `json:"firma_piano"`
+	Requisiti             json.RawMessage `json:"requisiti"`
+	ChiaveIdempotenza     uuid.NullUUID   `json:"chiave_idempotenza"`
+	AttestatoDa           uuid.UUID       `json:"attestato_da"`
+	AttestatoIl           time.Time       `json:"attestato_il"`
+	Tx                    pgtype.Uint64   `json:"tx"`
+}
+
+// I documenti correnti attestati, con componente, tipo, rev e sha256 di quel momento.
+type AttestazioneFascicoloDocumento struct {
+	AttestazioneID uuid.UUID     `json:"attestazione_id"`
+	ThreadID       uuid.UUID     `json:"thread_id"`
+	DocumentoID    uuid.UUID     `json:"documento_id"`
+	ComponenteID   uuid.UUID     `json:"componente_id"`
+	Tipo           TipoDocumento `json:"tipo"`
+	Rev            pgtype.Text   `json:"rev"`
+	Sha256         string        `json:"sha256"`
+}
+
 type AttoBusiness struct {
 	Codice      string `json:"codice"`
 	Descrizione string `json:"descrizione"`
@@ -3464,6 +3511,104 @@ type ComponenteRelazione struct {
 	CreatoIl     time.Time         `json:"creato_il"`
 }
 
+// La conferma ufficiale della struttura di un prodotto: progressiva (numero) e immutabile. Formato 1 (giro 4,
+// senza_riepilogo_v2) o 2 (R5, con chiave di idempotenza). Diversa da bom_versione e da BOM.Verificata.
+// mono_pezzo con motivo, senza figli e con lo STEP autorizzato sulla radice. criterio_verifica: step, mono_pezzo
+// o nessuno. La struttura ufficiale nasce da questa conferma umana, non dall'accettazione dello STEP
+// (D-SHOCK-S1 B).
+type ConfermaStrutturale struct {
+	ConfermaID       uuid.UUID     `json:"conferma_id"`
+	ThreadID         uuid.UUID     `json:"thread_id"`
+	ProdottoID       uuid.UUID     `json:"prodotto_id"`
+	Numero           int32         `json:"numero"`
+	PrecedenteID     uuid.NullUUID `json:"precedente_id"`
+	Formato          int16         `json:"formato"`
+	SenzaRiepilogoV2 bool          `json:"senza_riepilogo_v2"`
+	FirmaStruttura   string        `json:"firma_struttura"`
+	FirmaAnteprima   pgtype.Text   `json:"firma_anteprima"`
+	BaseConfermaID   uuid.NullUUID `json:"base_conferma_id"`
+	BaseContatore    int64         `json:"base_contatore"`
+	FirmaBase        pgtype.Text   `json:"firma_base"`
+	// working_contatore.struttura della RFQ letto DOPO le scritture della conferma, nella sua transazione; il
+	// trigger di nascita vuole che sia quello corrente.
+	Contatore        int64           `json:"contatore"`
+	ContatoreDati    int64           `json:"contatore_dati"`
+	BozzaID          uuid.NullUUID   `json:"bozza_id"`
+	BozzaVersione    pgtype.Int4     `json:"bozza_versione"`
+	FonteAllegatoID  uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256      pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo      pgtype.Text     `json:"fonte_gruppo"`
+	Origine          json.RawMessage `json:"origine"`
+	Snapshot         json.RawMessage `json:"snapshot"`
+	ImprontaSnapshot string          `json:"impronta_snapshot"`
+	Delta            json.RawMessage `json:"delta"`
+	Mappa            json.RawMessage `json:"mappa"`
+	Decisioni        json.RawMessage `json:"decisioni"`
+	// La classificazione del nodo finito prodotto_id come pezzo unico, decisa e motivata da una persona
+	// (mono_pezzo_motivo): mai una proprieta' del documento STEP, mai dedotta dall'assenza di figli (D-P4A-02 A,
+	// D-P4A-03 A'). componente.tipo resta finito: «finito mono_pezzo» si legge dall'ultima conferma valida
+	// (tipo_visualizzato nelle letture, scelta tecnica consigliata dalla direttiva 11, non una decisione
+	// dell'utente), senza un quinto valore di tipo_componente. Al COMMIT: radice finito, nessun figlio ne' arco,
+	// STEP autorizzato sulla radice certificata; che la fonte sia corrente lo controlla il Go (K-02). Una
+	// dichiarazione ancora senza STEP resta nella bozza: R5 la blocca, non la registra come mono_pezzo = false (in
+	// formato 2 lo vieta ck_conferma_mono_pezzo_snapshot: mono_pezzo se e solo se lo snapshot ha la dichiarazione). Al
+	// COMMIT conta anche un arco rimasto verso un figlio archiviato (piu' prudente del perimetro chiuso).
+	MonoPezzo       bool        `json:"mono_pezzo"`
+	MonoPezzoMotivo pgtype.Text `json:"mono_pezzo_motivo"`
+	// Su che cosa puo' poggiare la verifica di questa conferma. step: lo STEP autorizzato del prodotto e' la fonte
+	// confermata (la radice certificata lo ha, con il suo sha256); gli archi possono venire dallo STEP o essere
+	// decisi da una persona, come dice conferma_strutturale_arco.origine: un arco con origine utente (manuale) e'
+	// una decisione dell'operatore, mai un arco estratto dallo STEP, e non va presentato come tale. mono_pezzo: la
+	// dichiarazione motivata di questa conferma insieme allo STEP autorizzato del prodotto (D-P4B1-02 A): la
+	// dichiarazione non esenta dallo STEP. nessuno: la verifica non poggia su uno STEP, perche' alla conferma il
+	// prodotto non aveva uno STEP autorizzato e corrente (K-02); e' il caso normale prima dell'autorizzazione, che poi
+	// chiede la conferma n+1, e quello di uno STEP sostituito o revocato. Il criterio non e' la verifica:
+	// BOM.Verificata la calcola il Motore A e non si scrive. Il gesto di entrambi gli assi (nomenclatura e
+	// gerarchia) si ricostruisce dall'ultima conferma valida (componenti e archi certificati), non dai soli segni
+	// sulle proposte; quando lo STEP non determina la gerarchia (nessuna occorrenza di assieme), la verifica positiva
+	// vuole anche una deroga_struttura motivata e valida per quello STEP, il suo sha256 e la sua analisi
+	// (D-SHOCK-S1 B): nessuna deroga universale, nessun Verificata scritto.
+	CriterioVerifica string `json:"criterio_verifica"`
+	// La verifica del Motore A calcolata al COMMIT (al_momento_della_conferma). Non e' BOM.Verificata, che si
+	// ricalcola a ogni lettura.
+	Verifica          json.RawMessage `json:"verifica"`
+	ChiaveIdempotenza uuid.NullUUID   `json:"chiave_idempotenza"`
+	ConfermatoDa      uuid.UUID       `json:"confermato_da"`
+	ConfermatoIl      time.Time       `json:"confermato_il"`
+	Tx                pgtype.Uint64   `json:"tx"`
+}
+
+// Gli archi del perimetro con la qta al COMMIT: la gerarchia e' verificata solo se gli archi correnti
+// coincidono con quelli dell'ultima conferma (R-02, DOM-10).
+type ConfermaStrutturaleArco struct {
+	ConfermaID uuid.UUID   `json:"conferma_id"`
+	PadreID    uuid.UUID   `json:"padre_id"`
+	FiglioID   uuid.UUID   `json:"figlio_id"`
+	Qta        int32       `json:"qta"`
+	Posizione  pgtype.Text `json:"posizione"`
+	// Da dove viene l'arco: step (estratto dalla fonte STEP), utente (deciso da una persona), conferma o
+	// registrato (gia' nella conferma precedente o nella working). Obbligatoria in formato 2 (trigger). La ricalcola il
+	// server in R4/R5 confrontando con la fonte dichiarata, mai copiata da quello che dice la pagina: un arco
+	// disegnato a mano non diventa «estratto dallo STEP» (D-SHOCK-S1 B, E2.1; origine_gerarchia si calcola da qui).
+	Origine pgtype.Text `json:"origine"`
+}
+
+// I componenti del perimetro certificati dalla conferma, uguali alla working al COMMIT. Il componente citato
+// diventa storia: si archivia, non si cancella.
+type ConfermaStrutturaleComponente struct {
+	ConfermaID        uuid.UUID      `json:"conferma_id"`
+	ThreadID          uuid.UUID      `json:"thread_id"`
+	ComponenteID      uuid.UUID      `json:"componente_id"`
+	Radice            bool           `json:"radice"`
+	ChiaveBozza       pgtype.Text    `json:"chiave_bozza"`
+	Codice            string         `json:"codice"`
+	Rev               pgtype.Text    `json:"rev"`
+	Descrizione       pgtype.Text    `json:"descrizione"`
+	Tipo              TipoComponente `json:"tipo"`
+	StepStrutturaleID uuid.NullUUID  `json:"step_strutturale_id"`
+	StepSha256        pgtype.Text    `json:"step_sha256"`
+}
+
 type ContattoFornitore struct {
 	ContattoID  uuid.UUID   `json:"contatto_id"`
 	FornitoreID uuid.UUID   `json:"fornitore_id"`
@@ -3504,6 +3649,57 @@ type Conversazione struct {
 	PrimoMessaggioIl time.Time     `json:"primo_messaggio_il"`
 }
 
+// Copertura documentale condivisa (D-SHOCK-DOC-01): le pagine di un documento ufficiale che soddisfano il
+// disegno_2d di un altro componente della stessa RFQ. Non e' un documento e non copia niente sul NAS. In sola
+// aggiunta, a catena (copre, rettifica, revoca); corrente = ultima riga della catena. Valida = corrente e non
+// revocata, documento non sostituito con lo stesso sha256 e la stessa rev, ancora del proprietario registrato e
+// dello stesso tipo, proprietario e componente attivi, rev del componente uguale, componente raggiungibile dal
+// proprietario (derivata in v_fascicolo, mai scritta). Ogni riga ha un motivo; rettifica e revoca restano sul
+// proprietario registrato. Nasce solo dal lotto R9 (lotto_fascicolo).
+type CoperturaDocumento struct {
+	CoperturaID         uuid.UUID     `json:"copertura_id"`
+	ThreadID            uuid.UUID     `json:"thread_id"`
+	DocumentoID         uuid.UUID     `json:"documento_id"`
+	Sha256              string        `json:"sha256"`
+	DocumentoComponente uuid.UUID     `json:"documento_componente"`
+	ComponenteID        uuid.UUID     `json:"componente_id"`
+	Tipo                TipoDocumento `json:"tipo"`
+	Azione              string        `json:"azione"`
+	PrecedenteID        uuid.NullUUID `json:"precedente_id"`
+	Pagine              []int16       `json:"pagine"`
+	PagineTotali        pgtype.Int2   `json:"pagine_totali"`
+	RevDocumento        pgtype.Text   `json:"rev_documento"`
+	RevComponente       pgtype.Text   `json:"rev_componente"`
+	Motivo              pgtype.Text   `json:"motivo"`
+	ChiaveIdempotenza   uuid.UUID     `json:"chiave_idempotenza"`
+	AutoreID            uuid.UUID     `json:"autore_id"`
+	Quando              time.Time     `json:"quando"`
+	Tx                  pgtype.Uint64 `json:"tx"`
+}
+
+// Audit delle correzioni di codice e rev di proposte e documenti: valore letto, prima, dopo, motivo, autore, ora.
+type CorrezioneDocumento struct {
+	CorrezioneID      uuid.UUID     `json:"correzione_id"`
+	ThreadID          uuid.UUID     `json:"thread_id"`
+	PropostaID        uuid.NullUUID `json:"proposta_id"`
+	DocumentoID       uuid.NullUUID `json:"documento_id"`
+	ComponenteID      uuid.NullUUID `json:"componente_id"`
+	AllegatoID        uuid.UUID     `json:"allegato_id"`
+	NomeFile          string        `json:"nome_file"`
+	Sha256            string        `json:"sha256"`
+	CodiceLetto       pgtype.Text   `json:"codice_letto"`
+	RevLetta          pgtype.Text   `json:"rev_letta"`
+	CodicePrima       pgtype.Text   `json:"codice_prima"`
+	RevPrima          pgtype.Text   `json:"rev_prima"`
+	CodiceDopo        pgtype.Text   `json:"codice_dopo"`
+	RevDopo           pgtype.Text   `json:"rev_dopo"`
+	Motivo            pgtype.Text   `json:"motivo"`
+	Origine           string        `json:"origine"`
+	ChiaveIdempotenza uuid.NullUUID `json:"chiave_idempotenza"`
+	AutoreID          uuid.UUID     `json:"autore_id"`
+	CreatoIl          time.Time     `json:"creato_il"`
+}
+
 type DerogaFabbisogno struct {
 	DerogaID     uuid.UUID     `json:"deroga_id"`
 	ThreadID     uuid.UUID     `json:"thread_id"`
@@ -3512,6 +3708,23 @@ type DerogaFabbisogno struct {
 	Motivo       string        `json:"motivo"`
 	UtenteID     uuid.UUID     `json:"utente_id"`
 	CreataIl     time.Time     `json:"creata_il"`
+}
+
+// Copia append-only di ogni scrittura su deroga_fabbisogno, scritta solo dal trigger. autore_id dal Go
+// (set_config('cockpit.autore_id', ..., true) nella transazione) o, per un INSERT, da chi ha concesso; NULL per
+// un UPDATE o una revoca senza dichiarazione.
+type DerogaFabbisognoStoria struct {
+	StoriaID     int64            `json:"storia_id"`
+	Operazione   string           `json:"operazione"`
+	DerogaID     uuid.UUID        `json:"deroga_id"`
+	ThreadID     uuid.UUID        `json:"thread_id"`
+	ComponenteID uuid.UUID        `json:"componente_id"`
+	Tipo         TipoDocumento    `json:"tipo"`
+	Prima        *json.RawMessage `json:"prima"`
+	Dopo         *json.RawMessage `json:"dopo"`
+	AutoreID     uuid.NullUUID    `json:"autore_id"`
+	Tx           pgtype.Uint64    `json:"tx"`
+	Quando       time.Time        `json:"quando"`
 }
 
 // Deroga per congelare con uno STEP strutturale letto in parte o non analizzato (A4.5, D33, D36). Vale solo
@@ -3530,6 +3743,104 @@ type DerogaStruttura struct {
 	Motivo               string      `json:"motivo"`
 	ConcessaDa           uuid.UUID   `json:"concessa_da"`
 	ConcessaIl           time.Time   `json:"concessa_il"`
+}
+
+// Copia append-only di ogni concessione (INSERT) e revoca (DELETE) di deroga_struttura, con la riga intera, scritta
+// solo dal trigger. autore_id dal Go (set_config('cockpit.autore_id', ..., true) nella transazione) o, per una
+// concessione, da chi l'ha concessa; NULL per una revoca senza dichiarazione. Con D-SHOCK-S1 B la deroga regge la
+// verifica positiva: questa storia la rende ricostruibile anche dopo la revoca.
+type DerogaStrutturaStoria struct {
+	StoriaID          int64           `json:"storia_id"`
+	Operazione        string          `json:"operazione"`
+	DerogaStrutturaID uuid.UUID       `json:"deroga_struttura_id"`
+	ThreadID          uuid.UUID       `json:"thread_id"`
+	ComponenteID      uuid.UUID       `json:"componente_id"`
+	StepDocumentoID   uuid.UUID       `json:"step_documento_id"`
+	StepSha256        string          `json:"step_sha256"`
+	Riga              json.RawMessage `json:"riga"`
+	AutoreID          uuid.NullUUID   `json:"autore_id"`
+	Tx                pgtype.Uint64   `json:"tx"`
+	Quando            time.Time       `json:"quando"`
+}
+
+// La bozza di lavoro della distinta di un prodotto, salvata sul server (P4): aperta, confermata o abbandonata.
+// versione e' l'ultima riga di distinta_bozza_versione; base e fonte sono la copia di quella riga, scritta dal
+// trigger. Una aperta per prodotto. Salvare non tocca componenti, relazioni, proposte, NAS. Una confermata non si
+// cancella; una abbandonata si cancella oltre 90 giorni, con versioni ed eventi. Ogni passo del ciclo resta in
+// distinta_bozza_registro.
+type DistintaBozza struct {
+	BozzaID         uuid.UUID     `json:"bozza_id"`
+	ThreadID        uuid.UUID     `json:"thread_id"`
+	ProdottoID      uuid.UUID     `json:"prodotto_id"`
+	Stato           string        `json:"stato"`
+	Formato         int16         `json:"formato"`
+	Versione        int32         `json:"versione"`
+	BaseConfermaID  uuid.NullUUID `json:"base_conferma_id"`
+	BaseNumero      int32         `json:"base_numero"`
+	BaseContatore   int64         `json:"base_contatore"`
+	FirmaBase       string        `json:"firma_base"`
+	FonteAllegatoID uuid.NullUUID `json:"fonte_allegato_id"`
+	FonteSha256     pgtype.Text   `json:"fonte_sha256"`
+	FonteGruppo     pgtype.Text   `json:"fonte_gruppo"`
+	CreataDa        uuid.UUID     `json:"creata_da"`
+	CreataIl        time.Time     `json:"creata_il"`
+	AggiornataDa    uuid.UUID     `json:"aggiornata_da"`
+	AggiornataIl    time.Time     `json:"aggiornata_il"`
+	ChiusaDa        uuid.NullUUID `json:"chiusa_da"`
+	ChiusaIl        *time.Time    `json:"chiusa_il"`
+	MotivoChiusura  pgtype.Text   `json:"motivo_chiusura"`
+}
+
+// Il giornale della bozza: ogni azione (anche annullata) con prima, dopo, origine, autore e data. Solo
+// aggiunte. Il server lo riconcilia con gli snapshot: un evento del browser non e' una prova senza confronto.
+type DistintaBozzaEvento struct {
+	BozzaID     uuid.UUID        `json:"bozza_id"`
+	N           int32            `json:"n"`
+	Versione    int32            `json:"versione"`
+	Vocabolario int16            `json:"vocabolario"`
+	Azione      string           `json:"azione"`
+	ChiaveBozza pgtype.Text      `json:"chiave_bozza"`
+	Prima       *json.RawMessage `json:"prima"`
+	Dopo        *json.RawMessage `json:"dopo"`
+	Origine     string           `json:"origine"`
+	Motivo      pgtype.Text      `json:"motivo"`
+	UtenteID    uuid.UUID        `json:"utente_id"`
+	Quando      time.Time        `json:"quando"`
+}
+
+// Il ciclo di ogni bozza della distinta (aperta, confermata, abbandonata, cancellata per conservazione), scritto
+// solo dal trigger di distinta_bozza: chi, quando, motivo. Solo aggiunte. bozza_id e' storico, senza FK; la FK
+// verso il prodotto resta anche dopo la conservazione della bozza: un prodotto su cui si e' aperta una bozza si
+// archivia, non si rimuove (D-P4B1-04 A, D-P4A-01 P-04a).
+type DistintaBozzaRegistro struct {
+	RegistroID int64         `json:"registro_id"`
+	BozzaID    uuid.UUID     `json:"bozza_id"`
+	ThreadID   uuid.UUID     `json:"thread_id"`
+	ProdottoID uuid.UUID     `json:"prodotto_id"`
+	Passo      string        `json:"passo"`
+	UtenteID   uuid.NullUUID `json:"utente_id"`
+	Motivo     pgtype.Text   `json:"motivo"`
+	Quando     time.Time     `json:"quando"`
+	Tx         pgtype.Uint64 `json:"tx"`
+}
+
+// Lo snapshot formato 2 completo di ogni versione salvata della bozza, con la base e la fonte di quel momento.
+// Non si riscrive.
+type DistintaBozzaVersione struct {
+	BozzaID         uuid.UUID       `json:"bozza_id"`
+	Versione        int32           `json:"versione"`
+	Snapshot        json.RawMessage `json:"snapshot"`
+	Impronta        string          `json:"impronta"`
+	BaseConfermaID  uuid.NullUUID   `json:"base_conferma_id"`
+	BaseNumero      int32           `json:"base_numero"`
+	BaseContatore   int64           `json:"base_contatore"`
+	FirmaBase       string          `json:"firma_base"`
+	FonteAllegatoID uuid.NullUUID   `json:"fonte_allegato_id"`
+	FonteSha256     pgtype.Text     `json:"fonte_sha256"`
+	FonteGruppo     pgtype.Text     `json:"fonte_gruppo"`
+	SalvataDa       uuid.UUID       `json:"salvata_da"`
+	SalvataIl       time.Time       `json:"salvata_il"`
+	Tx              pgtype.Uint64   `json:"tx"`
 }
 
 type Documento struct {
@@ -3597,6 +3908,34 @@ type DominioFornitore struct {
 	FornitoreID uuid.UUID `json:"fornitore_id"`
 }
 
+// L'esito (la risposta 200) di un gesto idempotente, scritto nella sua transazione prima del COMMIT. Una
+// risposta persa si recupera con la stessa chiave. Non si modifica; si cancella oltre 90 giorni.
+type EsitoIntento struct {
+	Chiave        uuid.UUID       `json:"chiave"`
+	ThreadID      uuid.UUID       `json:"thread_id"`
+	Gesto         string          `json:"gesto"`
+	UtenteID      uuid.UUID       `json:"utente_id"`
+	ImprontaCorpo string          `json:"impronta_corpo"`
+	Esito         json.RawMessage `json:"esito"`
+	ConfermaID    uuid.NullUUID   `json:"conferma_id"`
+	CreatoIl      time.Time       `json:"creato_il"`
+}
+
+// Lo stato del rismistamento F8, che gira dopo il COMMIT fuori dalla transazione: nasce in_attesa con il gesto,
+// diventa eseguito (finale) o errore con una scrittura propria. Nessuna riga = F8 non previsto.
+type F8Stato struct {
+	F8ID          int64         `json:"f8_id"`
+	ThreadID      uuid.UUID     `json:"thread_id"`
+	ChiaveIntento uuid.NullUUID `json:"chiave_intento"`
+	ConfermaID    uuid.NullUUID `json:"conferma_id"`
+	Stato         string        `json:"stato"`
+	Errore        pgtype.Text   `json:"errore"`
+	Tentativi     int32         `json:"tentativi"`
+	RisoltoDa     pgtype.Text   `json:"risolto_da"`
+	CreatoIl      time.Time     `json:"creato_il"`
+	AggiornatoIl  time.Time     `json:"aggiornato_il"`
+}
+
 // Che cosa deve esserci nel fascicolo perche' la fattibilita' possa iniziare. RISOLUZIONE IN BLOCCO: per un dato tipo_componente valgono le righe del cliente SE NE HA ALMENO UNA, altrimenti i default (cliente_id IS NULL). Non si mescolano: scrivere una riga per un cliente significa prendersi in carico tutte le righe di quel tipo_componente per quel cliente. E' cosi' che la risolve v_fascicolo, ed e' cosi' che la mostra Admin - Anagrafica.
 type FabbisognoDocumento struct {
 	FabbisognoID   uuid.UUID      `json:"fabbisogno_id"`
@@ -3627,6 +3966,43 @@ type FaseLog struct {
 	Esito          NullEsitoFase `json:"esito"`
 	Note           pgtype.Text   `json:"note"`
 	BomVersioneID  uuid.NullUUID `json:"bom_versione_id"`
+}
+
+// La storia della fonte STEP di un prodotto finito: scelta, rifiuto con motivo, sostituzione con la fonte di
+// prima, caricamento, conferma del documento sorgente, autorizzazione e revoca. Solo aggiunte. ruolo prodotto:
+// la fonte del finito; ruolo sottoassieme: una fonte secondaria (scelta, rifiuto, risoluzione) con la sua
+// destinazione, componente_id oppure bozza_id + chiave_bozza finche' il nodo non ha un UUID; la risoluzione al
+// COMMIT la scrive il database. fonte_rifiutata, storico R7 e rebase del prodotto leggono solo ruolo prodotto.
+type FonteStepEvento struct {
+	EventoID     int64         `json:"evento_id"`
+	ThreadID     uuid.UUID     `json:"thread_id"`
+	ProdottoID   uuid.UUID     `json:"prodotto_id"`
+	Ruolo        string        `json:"ruolo"`
+	ComponenteID uuid.NullUUID `json:"componente_id"`
+	// Destinazione temporanea di una fonte secondaria: un nodo senza UUID della versione corrente della bozza
+	// bozza_id. Si risolve con un evento risoluzione (risolve_evento_id) quando la conferma certifica quella chiave;
+	// altrimenti resta com'e', leggibile con destinazione e con distinta_bozza_registro anche dopo la conservazione
+	// della bozza.
+	ChiaveBozza pgtype.Text `json:"chiave_bozza"`
+	// Con chiave_bozza: {versione, nodo}, la copia del nodo della bozza che la chiave nominava (la versione corrente
+	// in quel momento), scritta dal database qualunque valore porti il chiamante; la risoluzione porta la stessa. Resta
+	// dopo la conservazione della bozza: la storia dei rifiuti dice quale nodo era, non solo la sua chiave (D-SHOCK-S2).
+	Destinazione         *json.RawMessage `json:"destinazione"`
+	RisolveEventoID      pgtype.Int8      `json:"risolve_evento_id"`
+	Azione               string           `json:"azione"`
+	AllegatoID           uuid.UUID        `json:"allegato_id"`
+	Sha256               string           `json:"sha256"`
+	Gruppo               pgtype.Text      `json:"gruppo"`
+	PropostaID           uuid.NullUUID    `json:"proposta_id"`
+	DocumentoID          uuid.NullUUID    `json:"documento_id"`
+	PrecedenteAllegatoID uuid.NullUUID    `json:"precedente_allegato_id"`
+	PrecedenteSha256     pgtype.Text      `json:"precedente_sha256"`
+	PrecedenteGruppo     pgtype.Text      `json:"precedente_gruppo"`
+	BozzaID              uuid.NullUUID    `json:"bozza_id"`
+	Motivo               pgtype.Text      `json:"motivo"`
+	ChiaveIdempotenza    uuid.NullUUID    `json:"chiave_idempotenza"`
+	AutoreID             uuid.UUID        `json:"autore_id"`
+	Quando               time.Time        `json:"quando"`
 }
 
 type Fornitore struct {
@@ -3939,6 +4315,14 @@ type RimozioneProposta struct {
 	CreatoIl        time.Time     `json:"creato_il"`
 }
 
+// Quale testo di una migrazione ha creato lo schema, per le migrazioni che lo dichiarano (dalla 0022). Il
+// migratore confronta la variante del file incorporato con questa riga: un database con la stessa versione ma
+// un'altra variante (o nessuna) non si avvia. schema_versione registra solo il numero.
+type SchemaVariante struct {
+	Versione int32  `json:"versione"`
+	Variante string `json:"variante"`
+}
+
 type SchemaVersione struct {
 	Versione    int32     `json:"versione"`
 	ApplicataIl time.Time `json:"applicata_il"`
@@ -4115,6 +4499,10 @@ type VDocumentoStoria struct {
 	Corrente     bool          `json:"corrente"`
 }
 
+// Completezza del fascicolo per componente attivo e tipo richiesto. Ridefinita dalla 0022 (deroga dichiarata,
+// D-SHOCK-DOC-02): le colonne della 0020 restano uguali; copertura_id in coda dice quale copertura valida
+// soddisfa il requisito, quando non c'e' un documento proprio. La leggono v_thread_bloccanti, v_cruscotto, il
+// Fascicolo, il gate del congelamento (ContaBloccantiLogici) e la fotografia del Motore A.
 type VFascicolo struct {
 	ThreadID        uuid.UUID           `json:"thread_id"`
 	ComponenteID    uuid.UUID           `json:"componente_id"`
@@ -4135,6 +4523,7 @@ type VFascicolo struct {
 	DocumentoRev    pgtype.Text         `json:"documento_rev"`
 	RevDiversa      bool                `json:"rev_diversa"`
 	AnomaliaID      pgtype.Int8         `json:"anomalia_id"`
+	CoperturaID     uuid.NullUUID       `json:"copertura_id"`
 }
 
 type VInbox struct {
@@ -4253,4 +4642,23 @@ type WorkerPresenza struct {
 	Avviso        pgtype.Text `json:"avviso"`
 	// Ultima richiesta autenticata ricevuta da questo worker, scritta dal middleware di autenticazione PRIMA di servire la rotta: ingresso di un claim, heartbeat, caselle, ingest, upload, cursori. E' la sola colonna su cui si decide online/offline, con la soglia api.PresenzaOnlineEntro (2 x l'attesa del claim).
 	UltimoContatto time.Time `json:"ultimo_contatto"`
+}
+
+// Due contatori della BOM working per RFQ, mossi dai trigger su componente e componente_relazione (tutti gli
+// scrittori, legacy compresi): struttura (codice, tipo, archiviazione, STEP autorizzato, archi e qta) e dati
+// (rev, descrizione, posizione). Una transazione conta al piu' una volta per asse; un UPDATE identico non conta.
+// Riga mancante = (0, 0). Crescono soltanto. Una conferma strutturale e' valida se il contatore struttura e'
+// quello registrato oppure la firma del perimetro ricalcolata coincide (contratto v2 §4.2). Il contatore e' per
+// RFQ: una scrittura in un altro prodotto lo muove, e allora decide la firma.
+type WorkingContatore struct {
+	ThreadID    uuid.UUID     `json:"thread_id"`
+	Struttura   int64         `json:"struttura"`
+	Dati        int64         `json:"dati"`
+	TxStruttura pgtype.Uint64 `json:"tx_struttura"`
+	TxDati      pgtype.Uint64 `json:"tx_dati"`
+	// La transazione dell'ultima conferma strutturale della RFQ: in quella transazione, dopo la conferma, la
+	// working della RFQ non si scrive piu' (P4X01). Fuori da quella transazione non ha effetto. Come tx_struttura e
+	// tx_dati la scrivono solo i trigger, con la transazione corrente: non torna a NULL (P4X05).
+	TxConferma   pgtype.Uint64 `json:"tx_conferma"`
+	AggiornatoIl time.Time     `json:"aggiornato_il"`
 }

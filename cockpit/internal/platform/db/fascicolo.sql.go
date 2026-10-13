@@ -714,7 +714,7 @@ func (q *Queries) ListDocumentiThread(ctx context.Context, threadID uuid.UUID) (
 }
 
 const listFascicolo = `-- name: ListFascicolo :many
-SELECT thread_id, componente_id, codice, rev, tipo_componente, tipo_documento, bloccante, documento_id, stato_nas, path_relativo, proposta_aperta, atteso_da_portale, deroga_id, esito, fonte_attesa, n_proposte_aperte, documento_rev, rev_diversa, anomalia_id FROM v_fascicolo WHERE thread_id = $1 ORDER BY codice, tipo_documento
+SELECT thread_id, componente_id, codice, rev, tipo_componente, tipo_documento, bloccante, documento_id, stato_nas, path_relativo, proposta_aperta, atteso_da_portale, deroga_id, esito, fonte_attesa, n_proposte_aperte, documento_rev, rev_diversa, anomalia_id, copertura_id FROM v_fascicolo WHERE thread_id = $1 ORDER BY codice, tipo_documento
 `
 
 func (q *Queries) ListFascicolo(ctx context.Context, threadID uuid.UUID) ([]VFascicolo, error) {
@@ -746,6 +746,7 @@ func (q *Queries) ListFascicolo(ctx context.Context, threadID uuid.UUID) ([]VFas
 			&i.DocumentoRev,
 			&i.RevDiversa,
 			&i.AnomaliaID,
+			&i.CoperturaID,
 		); err != nil {
 			return nil, err
 		}

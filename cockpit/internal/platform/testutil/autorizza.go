@@ -21,6 +21,10 @@ import (
 //
 // Le righe del file devono esserci gia' (ApplicaStruttura prima): senza, non c'e' un nodo da marcare, e la
 // prova si ferma. Dopo, chi prova rilegge il file, come fara' il gesto. Restituisce il documento.
+//
+// Dalla 0022 (P4; R-S12 della revisione «scrittori»): SQL grezzo, quindi non scrive i registri che scriveranno i
+// gesti veri di B4 (fonte_step_evento, associazione_evento). Il contatore della working lo muove comunque il
+// trigger su step_strutturale_id. Le prove dei registri passano dai gesti veri, non da qui.
 func AutorizzaStep(t testing.TB, p *pgxpool.Pool, thread, componente, allegato, utente uuid.UUID) uuid.UUID {
 	t.Helper()
 	ctx := context.Background()

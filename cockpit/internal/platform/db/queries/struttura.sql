@@ -24,7 +24,9 @@ DELETE FROM componente WHERE componente_id = $1;
 -- I componenti della RFQ che una riga fuori dalla working tiene, e che cosa: un documento, una proposta (di documento,
 -- di struttura, di rimozione), una deroga, una baseline congelata, una nota su un disegno. Sono le FK che fermano
 -- DeleteComponente (cheCosaLoTiene): un componente cosi' non si cancella, si archivia. Solo lettura: il riepilogo
--- dell'albero proposto lo dice prima della conferma (giro 4, fase 4.4a.1a; domanda 29b = A).
+-- dell'albero proposto lo dice prima della conferma (giro 4, fase 4.4a.1a; domanda 29b = A). Dalla 0022 (P4) anche
+-- la storia della distinta (conferme strutturali, bozze e il loro registro, storia della fonte STEP, attestazioni) e
+-- le coperture documentali: le tabelle nuove con una FK verso componente (revisioni della notte, RD-04 / RSC-03).
 SELECT c.componente_id,
        EXISTS (SELECT 1 FROM documento x WHERE x.componente_id = c.componente_id)::bool AS documenti,
        (EXISTS (SELECT 1 FROM documento_proposta x WHERE x.componente_id = c.componente_id)
@@ -33,7 +35,14 @@ SELECT c.componente_id,
        (EXISTS (SELECT 1 FROM deroga_fabbisogno x WHERE x.componente_id = c.componente_id)
         OR EXISTS (SELECT 1 FROM deroga_struttura x WHERE x.componente_id = c.componente_id))::bool AS deroghe,
        EXISTS (SELECT 1 FROM bom_versione_componente x WHERE x.componente_id = c.componente_id)::bool AS baseline,
-       EXISTS (SELECT 1 FROM annotazione_pdf x WHERE x.componente_id = c.componente_id)::bool AS note
+       EXISTS (SELECT 1 FROM annotazione_pdf x WHERE x.componente_id = c.componente_id)::bool AS note,
+       (EXISTS (SELECT 1 FROM conferma_strutturale_componente x WHERE x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM conferma_strutturale x WHERE x.prodotto_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM distinta_bozza x WHERE x.prodotto_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM distinta_bozza_registro x WHERE x.prodotto_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM fonte_step_evento x WHERE x.prodotto_id = c.componente_id OR x.componente_id = c.componente_id)
+        OR EXISTS (SELECT 1 FROM attestazione_fascicolo x WHERE x.prodotto_id = c.componente_id))::bool AS distinta,
+       EXISTS (SELECT 1 FROM copertura_documento x WHERE x.componente_id = c.componente_id)::bool AS coperture
   FROM componente c
  WHERE c.thread_id = $1
  ORDER BY c.componente_id;

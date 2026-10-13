@@ -90,6 +90,14 @@ markmap:
     - le note e i caricamenti interni
   - DB: sì
   - README: [README](rfq/fascicolo/README.md)
+- **`rfq/distintabozza`** (giro 5, A1d, P4-B1)
+  - Che cosa fa:
+    - la bozza formato 2 di un prodotto salvata sul server: snapshot completo a ogni versione e giornale delle azioni
+    - la riconciliazione: le azioni dichiarate si rifanno sullo snapshot precedente e devono dare quello nuovo
+    - le letture (R1), l'abbandono (R3), il rifacimento del giornale dopo un riavvio
+    - le rotte R1-R3 sono di B2: NON ANCORA IMPLEMENTATE
+  - DB: sì (solo le tre tabelle `distinta_bozza*` della 0022)
+  - README: [README](rfq/distintabozza/README.md)
 - **`registro/regole`**
   - Che cosa fa:
     - lo **schema** di ciò che un cliente dichiara di sé (`cliente.regole`, suffissi decorativi compresi) e le convenzioni di codice
@@ -282,6 +290,12 @@ markmap:
     - `platform/coda`
     - `platform/contratti/worker`
     - `platform/storage/staging`
+  - **`rfq/distintabozza`** importa:
+    - `inbox/classificazione` (solo i limiti di codice e rev)
+    - `platform/db`
+    - `platform/jsoncanonico`
+    - `golang.org/x/text/unicode/norm` (NFC della forma canonica)
+    - mai `rfq/fascicolo` nel codice di prodotto (solo le prove)
   - **`registro/anagrafica`** importa:
     - `registro/regole`
     - `platform/db`
@@ -378,6 +392,8 @@ markmap:
   - e `componente` / `componente_relazione` nei gesti di decisione, nell'editor e nella preparazione;
   - accoda `stage_allegato`, `estrai_archivio` e `analizza_allegato` (preparazione e rianalisi);
   - crea il messaggio «nota interna» della RFQ e i suoi allegati per i caricamenti interni.
+- `rfq/distintabozza` scrive solo `distinta_bozza`, `distinta_bozza_versione`, `distinta_bozza_evento` (0022): mai la
+  working, le proposte, i documenti o il NAS.
 - `inbox/classificazione`, `inbox/lettura` e `registro/regole` non hanno effetti.
 
 ## Test
@@ -388,12 +404,14 @@ markmap:
   - su `inbox/aggancio` (le chiavi citate, i tagli per carattere, la revisione della storia)
   - su `registro/regole`
   - e sulle parti pure di `rfq/documenti` e `rfq/fascicolo` (nomi, gate, cicli, differenza, classificazione dei nodi, unione dei codici, albero, piano, editor, note).
+  - e su `rfq/distintabozza` (forma dello snapshot, limiti, forma canonica, riconciliazione delle azioni).
 - **L4** (`-tags integrazione`, PostgreSQL di prova) per tutto ciò che scrive:
   - `ingest`
   - `aggancio`
   - `registro/fornitori` e `registro/anagrafica`
   - `rfq/documenti` (contro file veri)
   - `rfq/fascicolo`
+  - `rfq/distintabozza` (le query della bozza, i 35 nodi ripristinati dopo il riavvio, conflitti, conservazione)
   - compresi gli invarianti I4/I5 del contratto di classificazione.
 - Ogni test che usa il database ha il tag `integrazione`.
 
