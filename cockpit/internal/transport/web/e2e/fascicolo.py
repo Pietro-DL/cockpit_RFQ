@@ -18,6 +18,10 @@ Le prove (lettere, scelte dal test Go con --prove):
   I  «Rivedi» e «Conferma Fascicolo»: il riepilogo con i percorsi sul NAS, poi «Conferma e copia sul NAS»; la
      struttura dello STEP poi nell'editor
   J  il tipo dall'editor della Struttura BOM: menu della riga, riquadro, anteprima, cambio, l'editor che si riapre
+  K  A1d P4, Scenario G: la domanda del cambio di tipo al posto dell'avviso; «No» non manda niente, «Sì» rimanda
+     il gesto e il particolare diventa assieme con il suo arco (solo da TestL7LaDomandaDelCambioDiTipo, con --stp
+     lo STEP autorizzato del particolare). Prima, dalla vista Documenti: nessuna domanda (li' il «Sì» non
+     partirebbe, revisione D-E del 13/10, rilievo 1), il rifiuto che nomina la vista Albero, niente cambiato
 
 Fascicolo v3: la vista predefinita e' Documenti (la provano fascicolo_v3.py); queste prove aprono la
 Struttura BOM (?vista=bom) o una vista di servizio. «Senza F5» si verifica con due segni messi da
@@ -455,6 +459,68 @@ def prova_i(b):
     verifica(b.page.locator('[id="proposta-%s-#3"]' % b.a.stp).count() == 0, "la card proposta di 77811111 e' rimasta")
     verifica(b.carta_confermata("77811111", b.a.assieme).count() == 1, "77811111 non e' nato sotto l'assieme")
     b.foto("15_dopo_editor.png")
+
+
+@prova("K", "la domanda del cambio di tipo: «No» non manda niente, «Sì» rimanda il gesto (A1d P4, Scenario G)")
+def prova_k(b):
+    # --stp e' lo STEP autorizzato del particolare 77817300, che propone il figlio diretto 77817301
+    # (TestL7LaDomandaDelCambioDiTipo). Il nodo prima, dalla vista Albero; poi l'arco, che chiede la conferma.
+    b.apri("?vista=albero")
+    riga = lambda: b.page.locator('[id="albero-proposta-%s-#2"]' % b.a.stp).first
+    verifica(riga().count() == 1, "la proposta di 77817301 sotto 77817300 non c'e' nella vista Albero")
+    b.clic_e_aspetta(riga().get_by_role("button", name="Accetta il nodo"), "/accetta")
+
+    # dalla vista Documenti, la predefinita: lo stesso arco non da' la domanda, ma il rifiuto con la vista Albero.
+    # Nel cassetto «Da verificare» l'arco ha un pulsante solo se la proposta ha una nota, e questa scena non ce l'ha:
+    # la richiesta parte dalla pagina come la manderebbe quel pulsante (htmx, sorgente #fascicolo, la risposta in
+    # #fasc-avviso), con l'indirizzo della vista Documenti nell'intestazione di htmx.
+    b.apri("?cassetto=verifica")
+    verifica(b.page.locator("#doc-vista").count() == 1, "la pagina non e' nella vista Documenti: %s" % b.page.url)
+    with b.page.expect_response(lambda r: "/relazione/accetta" in r.url, timeout=15000) as risp:
+        b.page.evaluate(
+            "([base, stp]) => htmx.ajax('POST', base + '/relazione/accetta', {source: '#fascicolo', target: '#fasc-avviso',"
+            " swap: 'innerHTML', values: {allegato: stp, padre: '#1', figlio: '#2'}})",
+            [b.base, b.a.stp])
+    verifica(risp.value.status == 200, "risposta %d dalla vista Documenti" % risp.value.status)
+    b.page.wait_for_timeout(250)
+    verifica(b.page.locator("#fasc-avviso .conferma-tipo").count() == 0, "dalla vista Documenti e' comparsa la domanda")
+    av = b.avviso()
+    verifica(av.startswith("Niente è cambiato: 77817300 → 77817301") and "vista Albero" in av,
+             "il rifiuto dalla vista Documenti non nomina la vista Albero: %r" % av)
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    b.foto("19_documenti_rifiuto.png")
+
+    b.apri("?vista=albero")
+    arco = lambda: riga().get_by_role("button", name=re.compile("^Accetta l'arco"))
+    b.clic_e_aspetta(arco(), "/relazione/accetta")
+    dom = b.page.locator("#fasc-avviso .conferma-tipo")
+    verifica(dom.count() == 1, "la domanda non e' comparsa al posto dell'avviso: %r" % b.avviso())
+    testo = dom.inner_text()
+    verifica("Il componente 77817300 è attualmente un particolare. Aggiungendo 77817301 come figlio, 77817300 diventerà un sottoassieme."
+             in testo, "il testo della domanda: %r" % testo)
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    b.foto("20_domanda_tipo.png")
+
+    # «No»: la domanda si chiude e nessuna richiesta parte
+    partite = []
+    ascolta = lambda r: partite.append(r.url) if "/fascicolo/" in r.url else None
+    b.page.on("request", ascolta)
+    dom.get_by_role("button", name="No, lascia com'è").click()
+    b.page.wait_for_timeout(400)
+    b.page.remove_listener("request", ascolta)
+    verifica(b.page.locator("#fasc-avviso .conferma-tipo").count() == 0, "«No» non ha chiuso la domanda")
+    verifica(not partite, "«No» ha mandato delle richieste: %r" % partite)
+    verifica(arco().count() == 1, "dopo «No» l'arco resta da decidere")
+
+    # di nuovo, e «Sì»: il gesto rimandato con l'id del componente, la risposta al posto dell'avviso
+    b.clic_e_aspetta(arco(), "/relazione/accetta")
+    dom = b.page.locator("#fasc-avviso .conferma-tipo")
+    verifica(dom.count() == 1, "la domanda non e' tornata")
+    b.clic_e_aspetta(dom.get_by_role("button", name=re.compile("^Sì, 77817300 diventa un sottoassieme")), "/relazione/accetta")
+    verifica(b.avviso() == "77817300 → 77817301 ×1 entra nella BOM; 77817300 diventa un assieme.", "avviso dopo «Sì»: %r" % b.avviso())
+    verifica(b.page.locator("#fasc-avviso .conferma-tipo").count() == 0, "la domanda e' rimasta dopo «Sì»")
+    verifica(b.viva(), "la pagina si e' ricaricata")
+    b.foto("21_dopo_si.png")
 
 
 def main():

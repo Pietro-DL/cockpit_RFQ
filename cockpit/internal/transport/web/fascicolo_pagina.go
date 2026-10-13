@@ -447,6 +447,9 @@ type fascicoloDati struct {
 	Fase     *db.FaseLog
 	Versioni []db.VBomVersioni
 	Ultima   *db.VBomVersioni
+	// ConfermaTipo: la domanda contestuale del cambio di tipo, al posto dell'avviso (D-K6-01 = A [U], direttiva 12
+	// §6; fascicolo_conversione.go). Solo nella risposta del gesto che l'ha chiesta.
+	ConfermaTipo *confermaTipo
 	// Bloccata e' il numero della versione congelata che blocca la working (D26); 0 = libera.
 	Bloccata int32
 	Bozza    *db.VBomVersioni

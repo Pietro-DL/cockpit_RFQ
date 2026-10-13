@@ -71,7 +71,18 @@
 <div id="piano" hx-swap-oob="innerHTML">{{template "fasc_piano" .}}</div>
 <div id="cassetto" hx-swap-oob="innerHTML">{{template "fasc_cassetto" .}}</div>{{end}}{{end}}
 
-{{define "fasc_avviso"}}{{if .Avviso}}<div class="avviso-f{{if hasPrefix .Avviso "Niente è cambiato"}} no{{end}}{{if hasPrefix .Avviso "Assegnazione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Conferma non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Correzione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Preparazione dei file non riuscita"}} no{{end}}" role="status">{{.Avviso}}</div>{{end}}{{end}}
+{{/* L'avviso del gesto. Al suo posto, la domanda contestuale del cambio di tipo (A1d P4, D-K6-01 = A [U], direttiva
+     12 §6; fascicolo_conversione.go): il gesto non ha scritto niente, «Sì» lo rimanda con l'id del componente in
+     `assieme` (il form eredita hx-target, hx-swap e hx-include da #fascicolo, come i pulsanti da cui il gesto e'
+     partito), «No» chiude la domanda nel browser. La classe «no»: per chi legge l'esito (fascicolo.mjs) non e' fatto. */}}
+{{define "fasc_avviso"}}{{with .ConfermaTipo}}<div class="avviso-f no conferma-tipo" role="alertdialog" aria-labelledby="conferma-tipo-domanda" data-componente="{{.Componente}}">
+  <p id="conferma-tipo-domanda">{{.Domanda}}</p>
+  <p class="k">Finché non confermi, niente è cambiato.</p>
+  <form class="in-linea gesto" hx-post="{{.Azione}}">{{range .Campi}}<input type="hidden" name="{{.Nome}}" value="{{.Valore}}">{{end}}
+    <button type="submit" class="btn small primary">Sì, {{.Codice}} diventa un sottoassieme</button>
+    <button type="button" class="btn small" onclick="this.closest('.conferma-tipo').remove()">No, lascia com'è</button>
+  </form>
+</div>{{end}}{{if .Avviso}}<div class="avviso-f{{if hasPrefix .Avviso "Niente è cambiato"}} no{{end}}{{if hasPrefix .Avviso "Assegnazione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Conferma non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Correzione non riuscita"}} no{{end}}{{if hasPrefix .Avviso "Preparazione dei file non riuscita"}} no{{end}}" role="status">{{.Avviso}}</div>{{end}}{{end}}
 
 {{/* ------------------------------------------------------------------ avanzamento */}}
 {{define "fasc_avanzamento"}}{{with .Avanzamento}}

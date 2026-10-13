@@ -259,7 +259,44 @@ func componenteConSuffisso(ctx context.Context, q *db.Queries, thread uuid.UUID,
 // la working ha ancora (evidenza.qta_working), e accettarla cambia la quantita'. Altrimenti e' la stessa
 // coppia vista da un altro file: resta la quantita' che c'e', e la proposta diventa un duplicato con la
 // nota, perche' la scelta e' dell'ingegnere e non del secondo file.
+//
+// Un arco nuovo sotto un particolare non entra da solo (A1d P4, B2.11): il tipo non cambia da solo. Fino a P4 il
+// particolare diventava un assieme al primo figlio accettato (E37, Smistamento F5b, A5.4.1); era una
+// conversione tacita, e toglierla e' una correzione voluta (R-14, K6, contratto rev. 3 Δ41). Il gesto risponde
+// con RichiestaConversione, senza scrivere niente (D-K6-01 = A [U], direttiva 12 §6); la conferma della persona
+// passa da AccettaRelazioneDecisa, con il campo di decisione esplicito.
 func AccettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID) (string, error) {
+	return AccettaRelazioneDecisa(ctx, q, thread, k, utente, DecisioneTipo{})
+}
+
+// DecisioneTipo e' il campo di decisione esplicito dei percorsi legacy che accettano archi da uno STEP
+// autorizzato (A1d P4, B2.11; R-14). Senza, un arco che darebbe il primo figlio a un particolare non entra e il
+// gesto risponde con RichiestaConversione (la domanda per quel componente); un avviso dopo la conversione sarebbe
+// ancora una conversione tacita (direttiva 01 §3.2). Il web lo riempie dal campo `assieme` del form, ripetuto,
+// che la conferma contestuale del Fascicolo rimanda (transport/web/proposte.go).
+//
+// La dichiarazione nomina i suoi componenti, uno per uno (revisione della corsia D, M2): un gesto con piu'
+// sorgenti (un file con deleghe, autorita.go) converte solo i particolari che la persona ha nominato, non
+// tutti quelli che il gesto tocca. E' la stessa forma di StrutturaVoluta.Assiemi.
+type DecisioneTipo struct {
+	// Assiemi: i componenti che la persona ha detto essere assiemi. Un padre particolare fra questi diventa
+	// assieme nella stessa transazione del suo primo arco; un padre che e' gia' un assieme (o il prodotto)
+	// resta com'e'. Un id che il gesto non usa come padre non cambia niente.
+	Assiemi []uuid.UUID
+}
+
+// dichiaraAssieme dice se la persona ha nominato comp fra gli assiemi.
+func (d DecisioneTipo) dichiaraAssieme(comp uuid.UUID) bool {
+	for _, id := range d.Assiemi {
+		if id == comp {
+			return true
+		}
+	}
+	return false
+}
+
+// AccettaRelazioneDecisa e' AccettaRelazione con il campo di decisione esplicito sul tipo del padre.
+func AccettaRelazioneDecisa(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID, d DecisioneTipo) (string, error) {
 	if err := prepara(ctx, q, thread, "si accetta una proposta di struttura"); err != nil {
 		return "", err
 	}
@@ -267,14 +304,47 @@ func AccettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 	if err != nil {
 		return "", err
 	}
-	msg, err := accettaRelazione(ctx, q, thread, k, utente, nil, aut)
+	msg, err := accettaRelazione(ctx, q, thread, k, utente, nil, aut, d)
 	return dopoLaDecisione(ctx, q, thread, msg, err)
 }
 
+// RichiestaConversione e' la risposta di un gesto legacy che, per entrare, cambierebbe un particolare in un assieme
+// (A1d P4, D-K6-01 = A [U] con la precisazione della direttiva 12 §6: nessuna conversione silenziosa, ma una conferma
+// contestuale riferita a quel componente). Non scrive niente: e' un errore, e la transazione del gesto si annulla
+// per intero. Chi ha un form che sa rimandare il gesto (il Fascicolo, relazione/accetta e file/accetta) mostra
+// Domanda e, se la persona conferma, rimanda lo stesso gesto con Componente in DecisioneTipo.Assiemi: conversione e
+// arco nella stessa transazione, con tutti i controlli di prima (ciclo, archiviati, autorita') rifatti. Chi non lo
+// sa fare riceve il rifiuto di sempre (Error, e errors.As con Rifiuto), che nomina solo la strada che c'e' gia':
+// cambiare il tipo dalla scheda.
+type RichiestaConversione struct {
+	Componente uuid.UUID // il particolare che diventerebbe assieme
+	Codice     string    // il suo codice
+	Figlio     string    // il codice del figlio che il gesto gli darebbe
+}
+
+// Domanda e' la frase della conferma contestuale, con il componente e il cambiamento (direttiva 12 §6).
+func (e RichiestaConversione) Domanda() string {
+	return fmt.Sprintf("Il componente %s è attualmente un particolare. Aggiungendo %s come figlio, %s diventerà un sottoassieme. "+
+		"Vuoi confermare questa modifica?", e.Codice, e.Figlio, e.Codice)
+}
+
+func (e RichiestaConversione) rifiuto() Rifiuto {
+	return Rifiuto(fmt.Sprintf("%s → %s: %s è un particolare, e il tipo non cambia da solo: se contiene dei pezzi, "+
+		"cambialo prima in assieme dalla sua scheda", e.Codice, e.Figlio, e.Codice))
+}
+
+// Error e' il rifiuto per chi non sa chiedere la conferma: la strada della scheda (CambiaTipoComponenteVisto).
+func (e RichiestaConversione) Error() string { return string(e.rifiuto()) }
+
+// Unwrap fa di RichiestaConversione anche un Rifiuto (errors.As): per chi la riceve senza saperla trattare e' un
+// «no» per l'operatore come gli altri, con «Niente è cambiato».
+func (e RichiestaConversione) Unwrap() error { return e.rifiuto() }
+
 // accettaRelazione e' il cuore di AccettaRelazione. archi, se non e' nil, sono gli archi attivi della
 // working gia' letti da chi chiama, e vi si aggiunge l'arco scritto: accettare un file intero li legge
-// una volta sola invece che una per arco (su uno STEP vero da 246 archi era la meta' del tempo).
-func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID, archi *[]Arco, aut Autorita) (string, error) {
+// una volta sola invece che una per arco (su uno STEP vero da 246 archi era la meta' del tempo). d e' il
+// campo di decisione sul tipo del padre (DecisioneTipo).
+func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k ChiaveRelazione, utente uuid.UUID, archi *[]Arco, aut Autorita, d DecisioneTipo) (string, error) {
 	r, err := q.BloccaRelazioneProposta(ctx, db.BloccaRelazionePropostaParams{ThreadID: thread, AllegatoID: k.Allegato,
 		PadreChiave: k.Padre, FiglioChiave: k.Figlio})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -338,6 +408,14 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 		if giro := CreerebbeCiclo(*archi, padre, figlio); giro != nil {
 			return "", Rifiuto(fmt.Sprintf("%s: la relazione chiuderebbe un ciclo (%s)", nome, ciclo(ctx, q, giro)))
 		}
+		// il primo figlio di un particolare: solo con il campo di decisione (B2.11, R-14). Senza, il gesto chiede la
+		// conferma contestuale per QUESTO componente (D-K6-01 = A [U], direttiva 12 §6) e non scrive niente. Dopo il
+		// ciclo, che dice di piu': dichiarare il padre assieme non scioglie un ciclo, e la domanda non deve
+		// nasconderlo (revisione della corsia D, A1; TestUnCicloVieneRifiutatoAllAccettazione). Un arco che c'e'
+		// gia' (qui sotto: duplicato o quantita') non cambia il tipo e non chiede niente
+		if tipoPadre == db.TipoComponenteSciolto && !d.dichiaraAssieme(padre) {
+			return "", RichiestaConversione{Componente: padre, Codice: codiceDi(ctx, q, padre), Figlio: codiceDi(ctx, q, figlio)}
+		}
 		if _, err := q.InsertRelazione(ctx, db.InsertRelazioneParams{ThreadID: thread, PadreID: padre, FiglioID: figlio,
 			Qta: r.Qta, Origine: db.OrigineComponenteStep, ConfermatoDa: utente}); err != nil {
 			return "", err
@@ -347,8 +425,8 @@ func accettaRelazione(ctx context.Context, q *db.Queries, thread uuid.UUID, k Ch
 			return "", err
 		}
 		if tipoPadre == db.TipoComponenteSciolto {
-			// E37 (Smistamento F5b, A5.4.1): un particolare con uno STEP autorizzato diventa un assieme al primo
-			// figlio accettato, come nell'editor
+			// la persona ha nominato il particolare fra gli assiemi (DecisioneTipo.Assiemi): prima di P4 lo
+			// faceva E37 da sola al primo figlio (Smistamento F5b, A5.4.1)
 			if err := q.SetTipoComponente(ctx, db.SetTipoComponenteParams{ComponenteID: padre, Tipo: db.TipoComponenteSottoassieme, ConfermatoDa: utente}); err != nil {
 				return "", err
 			}
@@ -454,18 +532,34 @@ func codiceDi(ctx context.Context, q *db.Queries, id uuid.UUID) string {
 // da una persona (F5, Domanda 1 = B). Una sola transazione, quella di chi chiama: un solo rifiuto (un nodo
 // senza codice, un ciclo) annulla tutto (A1.1).
 func AccettaSottoalbero(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, chiave string, utente uuid.UUID) (string, error) {
-	return accettaGrafo(ctx, q, thread, allegato, []string{chiave}, utente)
+	return accettaGrafo(ctx, q, thread, allegato, []string{chiave}, utente, DecisioneTipo{})
+}
+
+// AccettaSottoalberoDeciso e' AccettaSottoalbero con il campo di decisione esplicito sul tipo della sorgente
+// (DecisioneTipo, B2.11).
+func AccettaSottoalberoDeciso(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, chiave string, utente uuid.UUID, d DecisioneTipo) (string, error) {
+	return accettaGrafo(ctx, q, thread, allegato, []string{chiave}, utente, d)
 }
 
 // AccettaFile e' «accetta i figli diretti di C da questo STEP» (F5): i figli diretti di ogni sorgente del
-// file, con gli archi. Prima era il file intero, con i nipoti.
+// file, con gli archi. Prima era il file intero, con i nipoti. Da A1d P4 (B2.11) una sorgente particolare
+// ferma il primo arco con RichiestaConversione, e con lui tutto il gesto, nodi compresi: il tipo non cambia da
+// solo. La conferma della persona per quel componente passa da AccettaFileDeciso.
 func AccettaFile(ctx context.Context, q *db.Queries, thread, allegato, utente uuid.UUID) (string, error) {
-	return accettaGrafo(ctx, q, thread, allegato, nil, utente)
+	return accettaGrafo(ctx, q, thread, allegato, nil, utente, DecisioneTipo{})
+}
+
+// AccettaFileDeciso e' AccettaFile con il campo di decisione esplicito sul tipo delle sorgenti (DecisioneTipo,
+// B2.11): una sorgente particolare nominata in d.Assiemi diventa un assieme al primo arco accettato; le altre
+// sorgenti particolari del file (deleghe comprese) fermano il gesto come in AccettaFile, ciascuna con la sua
+// RichiestaConversione: una conferma vale per un componente solo.
+func AccettaFileDeciso(ctx context.Context, q *db.Queries, thread, allegato, utente uuid.UUID, d DecisioneTipo) (string, error) {
+	return accettaGrafo(ctx, q, thread, allegato, nil, utente, d)
 }
 
 // accettaGrafo accetta i figli diretti indicati (partenze nil = tutte le sorgenti del file): prima i nodi,
-// poi gli archi dalle sorgenti.
-func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, partenze []string, utente uuid.UUID) (string, error) {
+// poi gli archi dalle sorgenti, con il campo di decisione d sul tipo delle sorgenti.
+func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID, partenze []string, utente uuid.UUID, d DecisioneTipo) (string, error) {
 	if err := prepara(ctx, q, thread, "si accettano proposte di struttura"); err != nil {
 		return "", err
 	}
@@ -581,7 +675,7 @@ func accettaGrafo(ctx context.Context, q *db.Queries, thread, allegato uuid.UUID
 			}
 			continue
 		}
-		if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, aut); err != nil {
+		if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, aut, d); err != nil {
 			return "", err
 		}
 		nArchi++

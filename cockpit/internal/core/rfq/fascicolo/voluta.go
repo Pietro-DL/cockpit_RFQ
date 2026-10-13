@@ -104,6 +104,11 @@ type StrutturaVoluta struct {
 	Codici map[string]CodiceScritto `json:"codici"`
 	// Nuovi: i componenti scritti con «+ Componente con codice» (U4), le carte "n:<codice>".
 	Nuovi []ComponenteNuovo `json:"nuovi"`
+	// Assiemi: i nodi proposti che l'operatore dichiara assiemi (A1d P4, B2.11; R-14). E' il campo di decisione
+	// esplicito: un nodo che nello STEP e' un particolare (nel file non ha figli) e nella struttura ne riceve
+	// nasce assieme solo se e' qui; senza, la struttura si rifiuta. Per un nodo senza figli nella struttura non
+	// cambia niente.
+	Assiemi []uuid.UUID `json:"assiemi"`
 }
 
 // ComponenteNuovo e' un pezzo che l'operatore scrive nell'editor: il codice e' suo, mai precompilato.
@@ -252,6 +257,10 @@ type pianoVoluta struct {
 	Disegnati map[uuid.UUID]bool
 	Carte     map[uuid.UUID]bool
 	Tenute    map[Arco]bool // gli archi tenuti: restano, non sono confermati
+	// Assieme: i codici nuovi da proposte che possono nascere assieme con dei figli (B2.11): lo STEP lo dice di una
+	// delle loro proposte, l'operatore l'ha dichiarato (StrutturaVoluta.Assiemi), o la carta «n:» con lo stesso
+	// codice e' un assieme.
+	Assieme map[chiaveNodo]bool
 }
 
 // nome dice come si chiama un nodo per chi legge un rifiuto.
@@ -271,7 +280,7 @@ func (cx contestoVoluta) nome(k chiaveNodo) string {
 func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 	pv := pianoVoluta{Radice: v.Radice, Albero: map[chiaveNodo]bool{}, Figli: map[chiaveNodo]int{},
 		Nuovi: map[chiaveNodo][]uuid.UUID{}, Scritti: map[chiaveNodo]ComponenteNuovo{}, Ritrovati: map[uuid.UUID]uuid.UUID{},
-		Codici: map[uuid.UUID]CodiceScritto{}, Esistenti: map[uuid.UUID]bool{}, Visti: map[Arco]int32{}}
+		Codici: map[uuid.UUID]CodiceScritto{}, Esistenti: map[uuid.UUID]bool{}, Visti: map[Arco]int32{}, Assieme: map[chiaveNodo]bool{}}
 	radice, ok := cx.Componenti[v.Radice]
 	if !ok {
 		return pv, Rifiuto("la radice della struttura non è un componente di questa RFQ")
@@ -723,9 +732,27 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 			nomeNodo(cx.Proposte[id]), cx.nome(chiaveComponente(pv.Ritrovati[id]))))
 	}
 	// Sotto un particolare e sotto un particolare commerciale non si mette niente. Un nodo proposto con dei
-	// figli nasce assieme (tipoVoluto: lo dice lo STEP); un componente che c'e' e un codice scritto qui tengono
-	// il tipo che hanno, che una persona cambia prima. Dopo gli altri controlli, che dicono di piu'; in ordine,
-	// perche' il rifiuto sia sempre lo stesso.
+	// figli nasce assieme solo se lo e' (pianoVoluta.Assieme: lo STEP lo suggerisce assieme, l'operatore lo
+	// dichiara in v.Assiemi, o la carta «n:» dello stesso codice e' assieme), altrimenti si rifiuta (B2.11); un
+	// componente che c'e' e un codice scritto qui tengono il tipo che hanno, che una persona cambia prima. Dopo
+	// gli altri controlli, che dicono di piu'; in ordine, perche' il rifiuto sia sempre lo stesso.
+	dichiarati := map[uuid.UUID]bool{}
+	for _, id := range v.Assiemi {
+		if _, ok := cx.Proposte[id]; !ok {
+			return pv, Rifiuto("un nodo dichiarato assieme non è di questa RFQ")
+		}
+		dichiarati[id] = true
+	}
+	for k, ids := range pv.Nuovi {
+		if n, ok := pv.Scritti[k]; ok && n.Tipo == db.TipoComponenteSottoassieme {
+			pv.Assieme[k] = true
+		}
+		for _, id := range ids {
+			if dichiarati[id] || suggeritoAssieme(cx.Proposte[id]) {
+				pv.Assieme[k] = true
+			}
+		}
+	}
 	for _, p := range padriVoluti {
 		tipo, noto := db.TipoComponente(""), false
 		if id, ok := p.componente(); ok {
@@ -735,6 +762,10 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		} else if codice, ok := strings.CutPrefix(string(p), "n:"); ok {
 			if n, ok := scritti[codice]; ok {
 				tipo, noto = n.Tipo, true
+			} else if len(pv.Nuovi[p]) > 0 && !pv.Assieme[p] {
+				// un nodo proposto che lo STEP dice particolare e qui riceve dei figli: il tipo non cambia da solo
+				// (B2.11, R-14). Prima nasceva assieme in silenzio (tipoVoluto)
+				return pv, rifiutoNodoParticolare(cx.nome(p))
 			}
 		}
 		if noto && !Contenitore(tipo) {
@@ -742,6 +773,20 @@ func pianifica(cx contestoVoluta, v StrutturaVoluta) (pianoVoluta, error) {
 		}
 	}
 	return pv, nil
+}
+
+// rifiutoNodoParticolare e' il rifiuto di un nodo proposto che lo STEP dice particolare e che la struttura vuole
+// con dei figli, senza la dichiarazione dell'operatore (StrutturaVoluta.Assiemi, B2.11). Il testo nomina la strada
+// che la pagina ha oggi, «accetta il nodo» come assieme (AccettaNodo con il tipo): l'editor non manda ancora
+// Assiemi (revisione della corsia D, M1). Quando lo mandera', la frase potra' dire anche «oppure dichiaralo assieme».
+func rifiutoNodoParticolare(nome string) error {
+	return Rifiuto(fmt.Sprintf("%s: nello STEP è un particolare (nel file non ha figli) e qui riceve dei pezzi. Il tipo "+
+		"non cambia da solo: se è un assieme, accetta prima il nodo come assieme, poi riapri l'editor", nome))
+}
+
+// suggeritoAssieme dice se lo STEP propone il nodo come assieme (nel file ha dei figli: Pianifica).
+func suggeritoAssieme(p db.ComponenteProposta) bool {
+	return p.TipoProposto.Valid && p.TipoProposto.TipoComponente == db.TipoComponenteSottoassieme
 }
 
 func contieneID(ids []uuid.UUID, id uuid.UUID) bool {
@@ -883,7 +928,11 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 					if p.Stato != db.StatoPropostaAperta {
 						continue
 					}
-					if _, err := accettaNodo(ctx, q, p, utente, tipoVoluto(p, pv.Figli[k]), cx.Autorita); err != nil {
+					tipo, err := tipoVoluto(p, pv.Figli[k], pv.Assieme[k])
+					if err != nil {
+						return "", err
+					}
+					if _, err := accettaNodo(ctx, q, p, utente, tipo, cx.Autorita); err != nil {
 						return "", err
 					}
 					fatto = true
@@ -893,14 +942,15 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 				return "", Rifiuto(codice + ": le proposte sono state decise nel frattempo: riapri l'editor")
 			}
 		} else {
-			// la carta «n:» (U4): il codice scritto dall'operatore, il tipo che ha scelto (assieme se nella
-			// struttura ha dei figli, E37), origine manuale. Nessuna riconciliazione: un nodo aperto con lo
-			// stesso codice in uno STEP resta una proposta, che si decide dove la si vede. Il controllo che il
-			// codice non ci sia gia' l'ha fatto pianifica, sotto il lucchetto della RFQ
+			// la carta «n:» (U4): il codice scritto dall'operatore, il tipo che ha scelto, origine manuale. Nessuna
+			// riconciliazione: un nodo aperto con lo stesso codice in uno STEP resta una proposta, che si decide dove
+			// la si vede. Il controllo che il codice non ci sia gia' l'ha fatto pianifica, sotto il lucchetto della RFQ.
+			// Un particolare con dei figli non diventa assieme (A1d P4, B2.11; R-14): prima il tipo si forzava qui
+			// (E37); pianifica lo rifiuta gia', e questo rifiuto e' la difesa se un giorno non lo facesse
 			n := pv.Scritti[k]
 			tipo := n.Tipo
-			if pv.Figli[k] > 0 {
-				tipo = db.TipoComponenteSottoassieme
+			if pv.Figli[k] > 0 && !Contenitore(tipo) {
+				return "", Rifiuto(fraseNonContenitore(n.Codice, tipo))
 			}
 			if _, err := q.InsertComponente(ctx, db.InsertComponenteParams{ThreadID: thread, Codice: n.Codice, Rev: testo(n.Rev), Qta: 1,
 				Tipo: tipo, Origine: db.OrigineComponenteManuale, ConfermatoDa: utente}); err != nil {
@@ -1012,7 +1062,8 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 			if ora.Stato != db.StatoPropostaAperta {
 				continue
 			}
-			if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, cx.Autorita); err != nil {
+			// nessun campo di decisione sul tipo: un arco nuovo sotto un particolare pianifica l'ha gia' rifiutato
+			if _, err := accettaRelazione(ctx, q, thread, k, utente, &archi, cx.Autorita, DecisioneTipo{}); err != nil {
 				return "", err
 			}
 			fatto = true
@@ -1091,7 +1142,8 @@ func ApplicaStrutturaVoluta(ctx context.Context, q *db.Queries, thread, utente u
 	// 5. (tolto nel giro 4, fase 4.4a.1b) «un particolare che adesso ha dei figli e' un assieme»: E37 per un gesto a
 	// mano non c'e' piu' (6b = A, «un particolare non può avere figli»). pianifica rifiuta un arco nuovo sotto un
 	// particolare, e un arco di prima che c'era gia' si tiene com'e': nessun tipo cambia da solo. Il tipo lo cambia una
-	// persona, con il suo gesto; E37 resta solo per gli archi accettati da uno STEP autorizzato (29e = A, accettaRelazione).
+	// persona, con il suo gesto; E37 restava per gli archi accettati da uno STEP autorizzato (29e = A, accettaRelazione), e da
+	// A1d P4 (B2.11, R-14) anche li' solo con il campo di decisione esplicito (DecisioneTipo).
 
 	// chi e' uscito dall'albero senza altri padri torna fra le radici, da sistemare
 	dopoArchi, err := archiAttivi(ctx, q, thread)
@@ -1144,18 +1196,24 @@ func componenteNato(ctx context.Context, q *db.Queries, thread uuid.UUID, codice
 	return c, err
 }
 
-// tipoVoluto e' il tipo con cui nasce un nodo proposto: assieme se nella struttura ha dei figli, altrimenti
-// quello che lo STEP suggerisce (mai «prodotto»: sta sotto un padre; mai commerciale: il make/buy lo decide
-// solo una persona, decisioni del 27/09 ter), altrimenti particolare.
-func tipoVoluto(p db.ComponenteProposta, figli int) db.TipoComponente {
+// tipoVoluto e' il tipo con cui nasce un nodo proposto. Senza figli nella struttura: quello che lo STEP suggerisce
+// (mai «prodotto»: sta sotto un padre; mai commerciale: il make/buy lo decide solo una persona, decisioni del 27/09
+// ter), altrimenti particolare. Con dei figli: assieme, se lo STEP lo suggerisce o se assieme (pianoVoluta.Assieme:
+// la dichiarazione dell'operatore, la carta «n:» assieme, un'altra proposta dello stesso codice che lo STEP dice
+// assieme); altrimenti un rifiuto. Fino ad A1d P4 un nodo con dei figli nasceva assieme in ogni caso: era una
+// conversione tacita del tipo suggerito (B2.11, R-14).
+func tipoVoluto(p db.ComponenteProposta, figli int, assieme bool) (db.TipoComponente, error) {
 	if figli > 0 {
-		return db.TipoComponenteSottoassieme
+		if assieme || suggeritoAssieme(p) {
+			return db.TipoComponenteSottoassieme, nil
+		}
+		return "", rifiutoNodoParticolare(nomeNodo(p))
 	}
 	if p.TipoProposto.Valid && p.TipoProposto.TipoComponente != db.TipoComponenteFinito &&
 		p.TipoProposto.TipoComponente != db.TipoComponenteCommerciale {
-		return p.TipoProposto.TipoComponente
+		return p.TipoProposto.TipoComponente, nil
 	}
-	return db.TipoComponenteSciolto
+	return db.TipoComponenteSciolto, nil
 }
 
 // propostaArco e' una proposta di arco aperta nell'autorita' di un file autorizzato: il padre e' la sorgente

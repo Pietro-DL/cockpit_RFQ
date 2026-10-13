@@ -443,6 +443,15 @@ func (s *Server) applicaPiano(ctx context.Context, q *db.Queries, thread uuid.UU
 			continue
 		}
 		msg, err := fascicolo.AccettaFile(ctx, q, thread, v.Allegato, u.UtenteID)
+		var rc fascicolo.RichiestaConversione
+		if errors.As(err, &rc) {
+			// il lotto non sa rimandare se stesso con la conferma (firma del riepilogo, voci scelte): la frase dice
+			// le due strade che ci sono, la vista Albero (che chiede la conferma per il componente) e la scheda
+			// (A1d P4, D-K6-01 = A [U], direttiva 12 §6)
+			return "", rifiuto(fmt.Sprintf("la struttura di %s: %s è un particolare, e il file gli darebbe dei figli (%s); il tipo "+
+				"non cambia da solo. Accetta i suoi archi dalla vista Albero, che chiede di confermare il cambio, oppure cambialo "+
+				"prima in assieme dalla sua scheda", v.Nome, rc.Codice, rc.Figlio))
+		}
 		if err != nil {
 			return "", rifiuto("la struttura di " + v.Nome + ": " + spiegaErrore(err))
 		}

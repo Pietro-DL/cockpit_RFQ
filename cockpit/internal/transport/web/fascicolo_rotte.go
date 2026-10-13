@@ -130,12 +130,20 @@ func (s *Server) fascicoloVista(w http.ResponseWriter, r *http.Request) {
 // area principale, piano, cassetto e intestazione del pannello di destra fuori banda. Il corpo del pannello
 // solo se la pagina ne mostra un altro (corpo_chiave, vedi chiaveCorpo): il PDF aperto resta aperto.
 func (s *Server) rispondiFascicolo(w http.ResponseWriter, r *http.Request, thread uuid.UUID, st statoFascicolo, avviso string) {
+	s.rispondiFascicoloCon(w, r, thread, st, avviso, nil)
+}
+
+// rispondiFascicoloCon e' rispondiFascicolo con, al posto dell'avviso, la domanda contestuale del cambio di tipo
+// (conferma non nil; fascicolo_conversione.go). Il resto della schermata si rifa' come dopo un rifiuto: niente e'
+// cambiato.
+func (s *Server) rispondiFascicoloCon(w http.ResponseWriter, r *http.Request, thread uuid.UUID, st statoFascicolo, avviso string, conferma *confermaTipo) {
 	d, err := s.caricaFascicolo(r.Context(), thread, st, utenteDa(r.Context()))
 	if err != nil {
 		http.Error(w, "RFQ non trovata", 404)
 		return
 	}
 	d.Avviso = avviso
+	d.ConfermaTipo = conferma
 	d.RifaiCorpo = r.FormValue("corpo_chiave") != d.ChiaveCorpo
 	s.eseguiFascicolo(w, "fasc_parti", d)
 }
