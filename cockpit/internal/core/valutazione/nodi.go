@@ -94,6 +94,9 @@ type Parentela struct {
 // (quella sta in ProdottoValutato.Nodi), e non promuove niente: nessuna conferma della fonte, nessuna BOM verificata.
 //   - AllegatoID, Sha256, Radice, RadiceDelFile, Compatibilita, GrafoCompleto, MotivoGrafo: quelli della struttura di
 //     ancoraggio (ancoraggio.StrutturaProdotto con lo stato struttura_candidata), com'è.
+//   - Origine: quella della struttura di ancoraggio, com'è (estensione di R76 b, notte 14/10): "" per la radice con la
+//     base del prodotto; nome_file_step o associazione_step per una radice di riserva, senza la base, che la pagina
+//     mostra come candidata da confermare con la fonte. Una candidata resta una candidata (R59 A).
 //   - Nodi: i nodi che la radice raggiunge senza gli archi tolti da una persona, uno per Rif, la radice per prima, come i
 //     nodi della BOM di lavoro, con una differenza: la radice non prende il componente del target (T-B4-38 vale solo per
 //     la radice scelta della BOM di lavoro). Il componente di un nodo viene solo dalla sua decisione.
@@ -103,6 +106,7 @@ type StrutturaCandidata struct {
 	Radice        string                `json:"radice"`
 	RadiceDelFile bool                  `json:"radice_del_file"`
 	Compatibilita motorea.Compatibilita `json:"compatibilita"`
+	Origine       string                `json:"origine,omitempty"`
 	GrafoCompleto bool                  `json:"grafo_completo"`
 	MotivoGrafo   string                `json:"motivo_grafo,omitempty"`
 	Nodi          []NodoBOM             `json:"nodi,omitempty"`
@@ -191,7 +195,7 @@ func (x *nodiThread) struttureCandidate(pv ProdottoValutato, strutture []ancorag
 			continue
 		}
 		out = append(out, StrutturaCandidata{AllegatoID: st.AllegatoID, Sha256: st.Sha256, Radice: st.Radice, RadiceDelFile: st.RadiceDelFile,
-			Compatibilita: st.Compatibilita, GrafoCompleto: st.GrafoCompleto, MotivoGrafo: st.MotivoGrafo,
+			Compatibilita: st.Compatibilita, Origine: st.Origine, GrafoCompleto: st.GrafoCompleto, MotivoGrafo: st.MotivoGrafo,
 			Nodi: x.nodiDellaStruttura(pv, st, map[string]bool{})})
 	}
 	return out

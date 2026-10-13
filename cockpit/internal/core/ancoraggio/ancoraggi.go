@@ -71,7 +71,9 @@ const (
 //   - radice: i candidati sono tutti a livello prodotto;
 //   - figlio: i candidati sono tutti a livello componente;
 //   - fuori_richiesta: nessun candidato, con l'identità letta, i target noti e lo scenario completo (ogni target con
-//     almeno una struttura, tutte con il grafo completo). È una proposta, mai uno scarto (R105);
+//     almeno una struttura, tutte con il grafo completo), e almeno un'identità del file in un namespace che si
+//     confronta (quello di un target o di una lettura di un nodo delle strutture dei target: L8, notte 14/10). È una
+//     proposta, mai uno scarto (R105);
 //   - non_determinabile: altrimenti, con i motivi (Motivo*).
 type Collocazione string
 
@@ -95,6 +97,9 @@ const (
 //     ancoraggio.target_senza_struttura (un target senza strutture: un file può essere un suo figlio);
 //     nessuna_lettura_identita (il file non ha letture d'identità). I due motivi con il nome di un codice sono gli
 //     stessi valori delle diagnostiche delle strutture (6.4.5: «con il motivo»); sui file nessuna diagnostica in più.
+//     namespace_non_confrontabile (L8, notte 14/10): lo scenario è completo, ma tutte le identità del file sono in
+//     namespace che nessun target e nessun nodo delle strutture dei target usa; il file non si confronta con niente, e
+//     non si dice fuori richiesta.
 //   - livelli_diversi: un file sia fra i target sia fra i figli di un altro target (6.4.5 regola 3): la collocazione
 //     non si sceglie, ed è non determinabile.
 //   - identita_discordanti: l'associazione è discordante (R64 A, T-B0-35).
@@ -102,24 +107,28 @@ const (
 //     completamenti_multipli (una forma parziale compatibile con più completamenti: A-C07), candidati_multipli
 //     (gli altri casi).
 const (
-	MotivoAncoraggioTargetIgnoti          = "target_ignoti"
-	MotivoAncoraggioGrafoIncompleto       = CodiceGrafoIncompleto
-	MotivoAncoraggioTargetSenzaStruttura  = CodiceTargetSenzaStruttura
-	MotivoAncoraggioNessunaLettura        = "nessuna_lettura_identita"
-	MotivoAncoraggioLivelliDiversi        = "livelli_diversi"
-	MotivoAncoraggioIdentitaDiscordanti   = "identita_discordanti"
-	MotivoAncoraggioRevisioniDiscordanti  = "revisioni_discordanti"
-	MotivoAncoraggioCompletamentiMultipli = "completamenti_multipli"
-	MotivoAncoraggioCandidatiMultipli     = "candidati_multipli"
+	MotivoAncoraggioTargetIgnoti              = "target_ignoti"
+	MotivoAncoraggioGrafoIncompleto           = CodiceGrafoIncompleto
+	MotivoAncoraggioTargetSenzaStruttura      = CodiceTargetSenzaStruttura
+	MotivoAncoraggioNessunaLettura            = "nessuna_lettura_identita"
+	MotivoAncoraggioNamespaceNonConfrontabile = "namespace_non_confrontabile"
+	MotivoAncoraggioLivelliDiversi            = "livelli_diversi"
+	MotivoAncoraggioIdentitaDiscordanti       = "identita_discordanti"
+	MotivoAncoraggioRevisioniDiscordanti      = "revisioni_discordanti"
+	MotivoAncoraggioCompletamentiMultipli     = "completamenti_multipli"
+	MotivoAncoraggioCandidatiMultipli         = "candidati_multipli"
 )
 
 // I motivi di un candidato (CandidatoAncoraggio.Motivo): la base di un'identità del file è quella del target, o
 // quella di un nodo raggiungibile (6.4.5 regola 3); radice_scelta: l'identità del file è quella della radice scelta
-// dall'operatore per la BOM di lavoro, che non ha la base del prodotto (R76 A, T-B4-25).
+// dall'operatore per la BOM di lavoro, che non ha la base del prodotto (R76 A, T-B4-25); radice_di_riserva: l'identità
+// del file è quella della radice di una struttura candidata con un'origine (nome_file_step, associazione_step: il passo
+// 3 bis di ProponiStrutture, notte 14/10), che rappresenta il prodotto senza averne la base.
 const (
-	MotivoCandidatoBaseDelTarget = "base_del_target"
-	MotivoCandidatoBaseDelNodo   = "base_di_un_nodo_raggiungibile"
-	MotivoCandidatoRadiceScelta  = "radice_scelta"
+	MotivoCandidatoBaseDelTarget   = "base_del_target"
+	MotivoCandidatoBaseDelNodo     = "base_di_un_nodo_raggiungibile"
+	MotivoCandidatoRadiceScelta    = "radice_scelta"
+	MotivoCandidatoRadiceDiRiserva = "radice_di_riserva"
 )
 
 // Le dimensioni di un candidato (DimensioneCompatibilita.Dimensione; 6.4.5 regola 4), più le due della compatibilità
@@ -274,7 +283,8 @@ type DimensioneCompatibilita struct {
 //     unica, T-B4-06 rivisto, T-B4-30: due marcatori scritti e diversi sono un'altra identità), con «prodotto» fra i ruoli
 //     candidati della lettura. Con la bom_di_lavoro_proposta sotto una radice scelta senza la base del prodotto, anche
 //     un'identità del file che è quella della radice (motivo radice_scelta; la base discordante con il target resta
-//     visibile nelle dimensioni: R76 A, T-B4-25).
+//     visibile nelle dimensioni: R76 A, T-B4-25). Lo stesso con la radice di una struttura candidata con un'origine
+//     (radice di riserva, passo 3 bis di ProponiStrutture, notte 14/10; motivo radice_di_riserva).
 //  3. Candidati a livello componente: le identità raggiungibili, cioè i nodi delle strutture dei target (la radice
 //     esclusa quando è il prodotto) raggruppati per namespace, base, marcatore e revisione letta (un nodo senza
 //     marcatore sta con l'unico marcatore scritto della sua base). Un candidato per identità compatibile (stesso
@@ -292,7 +302,10 @@ type DimensioneCompatibilita struct {
 //     A): i candidati di tutte le identità restano.
 //  6. La collocazione: radice o figlio dai livelli dei candidati (non determinabile se sono tutti e due); senza
 //     candidati, fuori_richiesta solo con l'identità letta, i target noti e lo scenario completo, altrimenti non
-//     determinabile, con i motivi. I file «solo parti» dei figli non contano: contano le strutture dei target.
+//     determinabile, con i motivi. I file «solo parti» dei figli non contano: contano le strutture dei target. Con lo
+//     scenario completo e le identità del file tutte in namespace che nessun target e nessun nodo delle strutture dei
+//     target usa, non determinabile con namespace_non_confrontabile (L8, notte 14/10): un file che non si confronta
+//     con niente non è fuori richiesta.
 //  7. Le dimensioni di ogni candidato, e la compatibilità con il codice confermato o manuale del nodo, che si ricalcola
 //     a ogni fotografia: dopo una correzione del codice il nodo e il componente restano gli stessi (T-E1-04), e un file
 //     che non è più compatibile lo dice con il conflitto della dimensione (T-E1-05; il conflitto composto è di B6).
@@ -352,7 +365,8 @@ type ancoratore struct {
 	letture    map[uuid.UUID]map[string][]motorea.LetturaCodice // per allegato e nodo
 	padri      []map[string][]ArcoProposto                      // per struttura: figlio → archi entranti
 	identita   []*identitaRaggiungibile
-	motiviNonD []string // i motivi dello scenario che impediscono fuori_richiesta
+	motiviNonD []string        // i motivi dello scenario che impediscono fuori_richiesta
+	namespace  map[string]bool // i namespace che si confrontano: dei target e delle letture dei nodi delle loro strutture (L8)
 }
 
 // identitaRaggiungibile: un'identità dei nodi delle strutture dei target (regola 3): namespace, base, marcatore e
@@ -373,7 +387,7 @@ type nodoRaggiungibile struct {
 
 func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutture []StrutturaProdotto) *ancoratore {
 	a := &ancoratore{autorita: map[string]Autorita{}, strutture: strutture, file: map[uuid.UUID]StrutturaFile{},
-		letture: map[uuid.UUID]map[string][]motorea.LetturaCodice{}}
+		letture: map[uuid.UUID]map[string][]motorea.LetturaCodice{}, namespace: map[string]bool{}}
 	a.target = append([]ProdottoRichiesto(nil), target...)
 	sort.SliceStable(a.target, func(i, j int) bool { return a.target[i].Rif < a.target[j].Rif })
 	for _, t := range a.target {
@@ -419,13 +433,39 @@ func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutt
 		}
 	}
 	a.motiviNonD = unici(a.motiviNonD)
+
+	// I namespace che si confrontano (L8, notte 14/10): quelli dei target letti e quelli delle letture dei nodi delle
+	// strutture dei target. Un file letto solo in altri namespace non è fuori richiesta: non si confronta con niente.
+	for _, t := range a.target {
+		if t.Namespace != "" {
+			a.namespace[t.Namespace] = true
+		}
+	}
+	for _, s := range strutture {
+		for _, n := range s.Nodi {
+			for _, l := range a.letture[s.AllegatoID][n.Rif] {
+				a.namespace[l.Forma.Namespace] = true
+			}
+		}
+	}
 	return a
 }
 
-// radiceProdotto: la radice della struttura rappresenta il prodotto: ha la sua base (regola 1), o è la radice scelta
-// dall'operatore per la BOM di lavoro (R76 A). Una radice così non è un nodo da componente.
+// confrontabile (L8): almeno un'identità del file è in un namespace che si confronta (ancoratore.namespace).
+func (a *ancoratore) confrontabile(ident []motorea.LetturaCodice) bool {
+	for _, l := range ident {
+		if a.namespace[l.Forma.Namespace] {
+			return true
+		}
+	}
+	return false
+}
+
+// radiceProdotto: la radice della struttura rappresenta il prodotto: ha la sua base (regola 1), è la radice scelta
+// dall'operatore per la BOM di lavoro (R76 A), o è una radice di riserva, con l'origine (passo 3 bis di
+// ProponiStrutture, notte 14/10). Una radice così non è un nodo da componente.
 func radiceProdotto(s StrutturaProdotto) bool {
-	return compatibile(s.Compatibilita) || s.Stato == StatoBOMDiLavoroProposta
+	return compatibile(s.Compatibilita) || s.Stato == StatoBOMDiLavoroProposta || s.Origine != ""
 }
 
 // identitaRaggiungibili raggruppa le letture d'identità dei nodi delle strutture dei target (regola 3), per namespace e
@@ -557,21 +597,26 @@ func (g *identitaRaggiungibile) rif() string {
 }
 
 // sostegno: una lettura del file che sostiene un candidato, con la base che si è confrontata (la base, o una sua
-// ripetizione che non concorda: D2). Per il candidato sulla radice scelta (T-B4-25) anche la radice e la sua lettura.
+// ripetizione che non concorda: D2). Per il candidato sulla radice scelta (T-B4-25) anche la radice e la sua lettura;
+// riserva dice che la radice è una radice di riserva (passo 3 bis di ProponiStrutture), non la radice scelta.
 type sostegno struct {
-	l      motorea.LetturaCodice
-	base   motorea.BaseLetta
-	radice string
-	lr     motorea.LetturaForma
+	l       motorea.LetturaCodice
+	base    motorea.BaseLetta
+	radice  string
+	lr      motorea.LetturaForma
+	riserva bool
 }
 
 // sostegnoRadiceScelta (T-B4-25; R76 A): con la bom_di_lavoro_proposta di un target sotto una radice scelta che non ha
 // la base del prodotto, la lettura del file che ha l'identità della radice (lo stesso namespace, una base compatibile,
 // il marcatore compatibile: T-B4-30) sostiene il candidato a livello prodotto: la radice l'ha scelta l'operatore con il
 // gesto 3, e il suo file non è fuori richiesta. Con la radice compatibile vale la base del target, come sempre.
+// Lo stesso per la radice di una struttura candidata con un'origine (passo 3 bis, notte 14/10: nome_file_step,
+// associazione_step), che rappresenta il prodotto (radiceProdotto) e non è più un nodo da componente: senza, un file
+// con l'identità della radice, letta in un altro namespace, resterebbe senza candidati e diventerebbe fuori richiesta.
 func (a *ancoratore) sostegnoRadiceScelta(t ProdottoRichiesto, l motorea.LetturaCodice) (sostegno, bool) {
 	for _, s := range a.strutture {
-		if s.Target != t.Rif || s.Stato != StatoBOMDiLavoroProposta || compatibile(s.Compatibilita) {
+		if s.Target != t.Rif || compatibile(s.Compatibilita) || (s.Stato != StatoBOMDiLavoroProposta && s.Origine == "") {
 			continue
 		}
 		for _, r := range a.letture[s.AllegatoID][s.Radice] {
@@ -580,7 +625,7 @@ func (a *ancoratore) sostegnoRadiceScelta(t ProdottoRichiesto, l motorea.Lettura
 			}
 			for _, b := range basiDi(l.Forma) {
 				if compatibile(motorea.ConfrontaBasi(r.Forma.Base, b)) {
-					return sostegno{l: l, base: b, radice: s.Radice, lr: r.Forma}, true
+					return sostegno{l: l, base: b, radice: s.Radice, lr: r.Forma, riserva: s.Stato != StatoBOMDiLavoroProposta}, true
 				}
 			}
 		}
@@ -704,6 +749,10 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 	case len(a.motiviNonD) > 0:
 		af.Collocazione = CollocazioneNonDeterminabile
 		af.Motivi = append(af.Motivi, a.motiviNonD...)
+	case !a.confrontabile(ident):
+		// L8 (notte 14/10): le identità del file sono tutte in namespace che nessun target e nessun nodo usa.
+		af.Collocazione = CollocazioneNonDeterminabile
+		af.Motivi = append(af.Motivi, MotivoAncoraggioNamespaceNonConfrontabile)
 	default:
 		af.Collocazione = CollocazioneFuoriRichiesta
 	}
@@ -720,6 +769,9 @@ func (a *ancoratore) candidatoProdotto(t ProdottoRichiesto, sost, scelta []soste
 		RadiciRaggiungibili: []string{t.Rif}, Motivo: MotivoCandidatoBaseDelTarget}
 	if len(sost) == 0 {
 		c.Motivo = MotivoCandidatoRadiceScelta
+		if len(scelta) > 0 && scelta[0].riserva {
+			c.Motivo = MotivoCandidatoRadiceDiRiserva
+		}
 	}
 	var motivi []string
 	for _, s := range a.strutture {

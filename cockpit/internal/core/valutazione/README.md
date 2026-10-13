@@ -307,7 +307,8 @@ markmap:
   - `NodoBOM`, `Parentela`; i nodi della BOM di lavoro di un prodotto (`nodiThread`, `nodiDellaBOM`): la raggiungibilità
     senza gli archi tolti, il componente del nodo, la descrizione, la parentela, i 2D, l'origine del primario, i motivi
     (`motiviDelNodo`), la classificazione, `AncheIn`;
-  - da P7e (EB7-1 B, EB7-2 A): `OrigineTipo` con i suoi valori, `StrutturaCandidata`; i nodi di una struttura
+  - da P7e (EB7-1 B, EB7-2 A): `OrigineTipo` con i suoi valori, `StrutturaCandidata` (dalla notte del 14/10 con
+    l'`Origine` della struttura di ancoraggio: le radici di riserva); i nodi di una struttura
     (`nodiDellaStruttura`, la stessa costruzione per la BOM di lavoro e per le candidate), il componente del nodo
     (`componenteDelNodo`: il componente del target solo per la radice della BOM di lavoro, T-B4-38), ciò che un nodo
     prende dal suo componente o da sé con il tipo (`datiDelNodo`), le strutture candidate (`struttureCandidate`), i
@@ -341,7 +342,10 @@ markmap:
   - gli STEP del thread letti dai fatti con gli adattatori di `estrazione` e con le letture della grammatica, il
     confronto delle basi con `motorea.ConfrontaBasi` e, da B5, con la regola unica del marcatore (T-B4-30);
   - la fonte di un prodotto: la tabella di R65 sugli esiti della vista, il gesto 3, i candidati, l'ordine dei motivi
-    di una fonte assente, T-12.
+    di una fonte assente, T-12;
+  - dalla notte del 14/10 i candidati dal nome dello STEP (`riserveDalNome`, `togliRiserveDalNome`; le letture del nome
+    del file in `fileStep.nome`), con lo stesso criterio delle radici di riserva di ancoraggio
+    (`ancoraggio.NomeDiceIlProdotto`, T-B2-02).
 - **`ancoraggi.go`** (B5, fase 1) — responsabilità:
   - il collegamento con `ancoraggio`: i file del thread (documento, interpretazione, `disponibilitaDi`, il tipo
     documentale e il segno del 2D), `prodottiRichiesti` con `allegatoPortatore` (T-B5-15), `contestoStrutturale`
@@ -384,7 +388,8 @@ markmap:
     con lo stesso sha256, dai suoi fatti), l'adattatore dei fatti al `ContenutoDisegno`, il cartiglio, le fonti
     d'identità (il cartiglio, lo STEP dell'entità, il nome del file, il documento), la provenienza di documento.rev, la
     rev_diversa della vista, il lato del componente; per la fase 3 i 2D candidati di un nodo senza decisione
-    (`gruppoDelNodo`) e i candidati da_determinare di un componente (`candidatiDaDeterminare`).
+    (`gruppoDelNodo`) e i candidati da_determinare di un componente (`candidatiDaDeterminare`); `radiceDelProdotto`,
+    la regola di ancoraggio della radice che rappresenta il prodotto (dalla notte del 14/10 anche la radice di riserva).
 - **`classificazione.go`** (B5, fase 3) — responsabilità:
   - `Classificazione` con i valori di ruolo, categoria, origine e motivo, `ConfermaCategoria`,
     `ComponenteDaClassificare`; la regola `Classifica`, l'esenzione `EsenteDal2D`.
@@ -460,7 +465,11 @@ markmap:
   la vista (R65 A, l'unica definizione). Un candidato del motore A porta una fonte assente in attesa di conferma, mai
   una confermata né una in attesa (T-B0-07). Candidato è solo uno STEP la cui **radice** ha la base del prodotto
   (R76 b A); un prodotto solo come nodo interno dà `solo_nodo_interno`. Solo lo STEP è fonte, mai un PDF (R68 A,
-  T-E1-09).
+  T-E1-09). Dalla notte del 14/10 (estensione di R76 b, le radici di riserva di ancoraggio) è candidato del motore A
+  anche lo STEP il cui nome dice il prodotto, con una radice sola senza letture nel namespace del prodotto, quando
+  nessun nodo di nessuno STEP del thread ha la base del prodotto: con il motivo `nome_file_step` e senza radice
+  compatibile (la radice da scegliere è fra le `Radici`). Porta la fonte assente in attesa di conferma come ogni
+  candidato del motore A; con la fonte confermata non resta, perché ancoraggio non propone radici di riserva.
 - **L'ordine dei motivi di una fonte assente** (T-E1-09): `estrazione_fallita`, `analisi_in_corso`,
   `step_presente_non_analizzato`, poi `solo_nodo_interno`, `indicata_sul_portale`, `solo_altro_3d`,
   `prodotto_senza_componente` (un target senza componente, T-B0-07), `nessuna_fonte`.
@@ -971,6 +980,11 @@ markmap:
 - **`fonte_test.go`** — L1 — ogni riga della tabella di R65, il gesto 3 con la marcatura e nelle forme rare
   (T-B0-08), la delega, R76 b A con il nodo interno, T-B0-07, PO-34 con l'ordine dei motivi coppia per coppia, un PDF
   mai fonte, T-12, i valori del contratto.
+- **`riserve_test.go`** (notte del 14/10) — L1 — con due spazi di codici ACME (materiale e documento): il finito senza
+  strutture dalla regola 1 e lo STEP con il materiale nel nome e la radice letta come documento: la struttura candidata
+  con l'origine `nome_file_step` nel prodotto, la fonte in attesa di conferma con il candidato del motore A dal nome
+  (motivo, radici, nessuna radice compatibile), la coerenza con le strutture (T-B2-02, in `calcola`); con un nome che
+  non dice il finito niente cambia.
 - **`fonte_db_test.go`** — L4 (`-tags integrazione`, il database di prova) — la scena ACME scritta con SQL, letta con il
   caricatore: PO-19 sul DB, la fonte del finito dalla vista e dal gesto 3, la fonte dell'identificativo dallo STEP
   del thread; il database non cambia.
@@ -1123,7 +1137,10 @@ markmap:
   con più thread e i messaggi fuori RFQ, con quattro insiemi di regole, con la vista calcolata e senza), l'esito di
   `Calcola` senza i soli campi di P7e è uguale al «prima» generato sul commit di prima con lo stesso file (il comando è
   in testa al file); le sole differenze autorizzate sono i previsti delle scene di D3 (una parte a sé del confronto: il
-  resto della completezza, con lo stato e le voci, deve restare uguale anche lì).
+  resto della completezza, con lo stato e le voci, deve restare uguale anche lì) e, dalla notte del 14/10, le cinque
+  voci che cambiano con le radici di riserva (`autorizzateRiserveP7e`: il finito o la candidata con lo STEP confermato
+  sul componente e la radice che l'insieme non legge, ora con la struttura candidata `associazione_step`), intere; il
+  «prima» non si rigenera.
 - **`scena_emendamenti_test.go`** (P7e) — gli aiuti: le scene della candidata, della BOM senza STEP, del componente
   accanto, dei due prodotti; l'impronta degli assi del prodotto (si compila anche con il codice di prima di P7e).
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro (A1a-CAT,

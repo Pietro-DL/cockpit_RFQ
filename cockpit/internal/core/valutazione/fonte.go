@@ -135,7 +135,8 @@ type fileStep struct {
 	motivoGrafo   string
 	radici        []nodoLetto
 	interni       []nodoLetto
-	letto         bool // l'interpretazione c'è: con il motore del cliente e i fatti letti
+	nome          []motorea.LetturaCodice // le letture del nome del file (radici di riserva, notte 14/10)
+	letto         bool                    // l'interpretazione c'è: con il motore del cliente e i fatti letti
 }
 
 // contesto: un thread con ciò che serve alla fonte di ogni suo prodotto, calcolato una volta.
@@ -289,8 +290,10 @@ func (c *contesto) leggi(fs *fileStep, a fotorfq.Allegato, contenitore *fotorfq.
 		chiave[e.ID] = e.ChiaveOriginale
 	}
 	entitaDi := map[string]string{}
+	nomeFile := map[string]bool{} // le unità del nome del file, che non hanno un'entità
 	for _, u := range doc.Unita {
 		if u.EntitaID == "" {
+			nomeFile[u.ID] = u.Selettore.Contesto == evidenze.ContestoNomeFile
 			continue
 		}
 		entitaDi[u.ID] = u.EntitaID
@@ -307,7 +310,11 @@ func (c *contesto) leggi(fs *fileStep, a fotorfq.Allegato, contenitore *fotorfq.
 				if e := entitaDi[l.UnitaID]; e != "" && (campo == "id" || campo == "nome") {
 					letture[e] = append(letture[e], l.Forma)
 				}
+				if nomeFile[l.UnitaID] {
+					fs.nome = append(fs.nome, l)
+				}
 			}
+			sort.SliceStable(fs.nome, func(i, j int) bool { return fs.nome[i].ID < fs.nome[j].ID })
 		}
 	}
 	var entita []string
@@ -525,6 +532,11 @@ func (c *contesto) fonte(tg target) (FonteProdotto, []evidenze.Diagnostica) {
 			Riferimento: f.Riferimento, Candidati: f.Candidati, Estrazione: f.Estrazione, DerogaStruttura: f.DerogaStruttura}, diag
 	default:
 		f.Stato, f.Motivo = FonteAssente, c.motivoDellAssenza(comp == nil, interno, portale, soloAltro3DVista)
+	}
+	// Con la fonte confermata ancoraggio non propone radici di riserva (passo 3 bis di ProponiStrutture): i candidati
+	// dal nome dello STEP non restano (T-B2-02).
+	if f.Stato == FonteConfermata && f.Riferimento != nil {
+		f.Candidati = togliRiserveDalNome(f.Candidati)
 	}
 	return f, diag
 }
@@ -759,6 +771,17 @@ func (c *contesto) candidati(tg target, rif *ancoraggio.RiferimentoFonte, vista 
 			}
 		}
 	}
+	// Le radici di riserva dal nome dello STEP (estensione di R76 b, notte 14/10; ancoraggio, passo 3 bis di
+	// ProponiStrutture): con lo stesso criterio delle strutture (T-B2-02).
+	if tg.lettura != nil {
+		for _, fs := range c.riserveDalNome(*tg.lettura) {
+			if usati[fs.sha] && fs.sha != "" {
+				continue
+			}
+			aggiungi(ancoraggio.CandidatoDaMotoreA, fs.allegatoID, fs.documentoID, fs)
+			out[len(out)-1].Motivo = ancoraggio.MotivoFonteNomeFileSTEP
+		}
+	}
 	ordine := map[ancoraggio.OrigineCandidato]int{ancoraggio.CandidatoDaDocumentoDelProdotto: 0, ancoraggio.CandidatoDaPropostaAperta: 1, ancoraggio.CandidatoDaMotoreA: 2}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -771,6 +794,54 @@ func (c *contesto) candidati(tg target, rif *ancoraggio.RiferimentoFonte, vista 
 		return a.RadiceCompatibile < b.RadiceCompatibile
 	})
 	return out, interno, determinabile
+}
+
+// riserveDalNome (estensione di R76 b, notte 14/10): gli STEP del thread che ancoraggio propone come struttura candidata
+// di un prodotto senza strutture perché il nome del file lo dice (StrutturaProdotto.Origine nome_file_step, passo 3 bis
+// di ProponiStrutture), con le stesse condizioni: nessun nodo di nessuno STEP analizzato e letto ha la base del prodotto
+// (né una radice né un nodo interno: altrimenti la struttura c'è già); lo STEP ha una radice sola, che non ha letture
+// nel namespace del prodotto; il nome del file dice il prodotto (ancoraggio.NomeDiceIlProdotto, la stessa funzione).
+// In ordine di allegato. La fonte confermata, che in ancoraggio toglie le radici di riserva, la guarda fonte: con la
+// fonte confermata questi candidati non restano (togliRiserveDalNome).
+func (c *contesto) riserveDalNome(p motorea.LetturaForma) []*fileStep {
+	var letti []*fileStep
+	for _, fs := range c.stepAllegati {
+		if fs.estrazione != ancoraggio.EstrazioneRiuscita || !fs.letto {
+			continue
+		}
+		for _, n := range append(append([]nodoLetto(nil), fs.radici...), fs.interni...) {
+			if compatibile(compatibilita(p, n.letture)) {
+				return nil
+			}
+		}
+		letti = append(letti, fs)
+	}
+	var out []*fileStep
+	for _, fs := range letti {
+		if len(fs.radici) != 1 || !ancoraggio.NomeDiceIlProdotto(p, fs.nome) {
+			continue
+		}
+		muta := true
+		for _, l := range fs.radici[0].letture {
+			muta = muta && l.Namespace != p.Namespace
+		}
+		if muta {
+			out = append(out, fs)
+		}
+	}
+	return out
+}
+
+// togliRiserveDalNome: i candidati senza quelli delle radici di riserva dal nome dello STEP (riserveDalNome), per una
+// fonte confermata: ancoraggio non propone radici di riserva a un prodotto con la fonte confermata (T-B2-02).
+func togliRiserveDalNome(cand []ancoraggio.DocumentoCandidato) []ancoraggio.DocumentoCandidato {
+	var out []ancoraggio.DocumentoCandidato
+	for _, d := range cand {
+		if d.Motivo != ancoraggio.MotivoFonteNomeFileSTEP {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // radiceCompatibile: una radice del file ha la base del prodotto.

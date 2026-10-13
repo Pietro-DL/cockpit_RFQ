@@ -37,6 +37,16 @@ const (
 	// (la capacità grafo_completo, con il motivo della 0020: R32 b): la mancanza di un arco non è un'informazione.
 	// Contano solo le strutture dei target, mai i file «solo parti» dei figli (6.4.5, regola 2).
 	CodiceGrafoIncompleto = "ancoraggio.grafo_incompleto"
+
+	// CodiceRadiceDalNomeFile — nota, dati. Un target senza strutture prende come struttura candidata la radice, l'unica,
+	// di uno STEP il cui nome dice il target, quando la radice non ha letture nel namespace del target (muta, o letta
+	// in un altro namespace): StrutturaProdotto.Origine nome_file_step (estensione di R76 b, notte 14/10). Resta una
+	// candidata: la BOM di lavoro viene solo dal gesto 3 (R59 A, R76 A).
+	CodiceRadiceDalNomeFile = "ancoraggio.radice_dal_nome_file"
+
+	// CodiceRadiceDalloSTEPAssociato — nota, dati. Come CodiceRadiceDalNomeFile, con la prova di un'associazione decisa
+	// (manuale o confermata) dello STEP al componente del target: StrutturaProdotto.Origine associazione_step.
+	CodiceRadiceDalloSTEPAssociato = "ancoraggio.radice_dallo_step_associato"
 )
 
 // La riconciliazione fra lo STEP e il cartiglio (ProponiAncoraggi, P6b, B4 fase 3; contratto §2.2, R41 b): una per

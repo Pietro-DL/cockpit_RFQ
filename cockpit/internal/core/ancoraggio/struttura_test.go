@@ -201,13 +201,15 @@ func targetS(t *testing.T, m *motorea.Motore, rif string, autorita ancoraggio.Au
 //   - gli ingressi di chi chiama non cambiano;
 //   - ogni struttura è candidata o BOM di lavoro proposta, mai altro (niente «verificata»: R80); al più una BOM per
 //     target, e solo sotto la radice della sua fonte confermata, non superata (R76 A);
-//   - una struttura candidata ha la radice compatibile con la base del target (regola 1);
+//   - una struttura candidata ha la radice compatibile con la base del target (regola 1), salvo una radice di riserva
+//     (passo 3 bis, notte 14/10): con l'origine, la radice del file, la compatibilità non determinabile, mai una BOM;
 //   - la radice è il primo nodo e non ha padri dentro la struttura; ogni altro nodo ha un arco entrante; i padri di
 //     un nodo sono i padri dei suoi archi; ogni nodo è del file della struttura, con il Rif sha256 più chiave
 //     (T-E1-04), e dice SenzaFile (nessun file si ancora qui);
 //   - gli archi del contesto sono confermati o proposti, mai fatti;
-//   - le fonti ci sono solo per una radice del file compatibile, fuori dallo STEP della fonte confermata (R76 b A);
-//   - le diagnostiche sono quelle delle strutture, in avviso.
+//   - le fonti ci sono solo per una radice del file compatibile, fuori dallo STEP della fonte confermata (R76 b A), o
+//     per una radice di riserva dal nome dello STEP, con il motivo e senza radice compatibile;
+//   - le diagnostiche sono quelle delle strutture, in avviso, più quelle delle radici di riserva, in nota.
 func proponiS(t *testing.T, target []ancoraggio.ProdottoRichiesto, ctx ancoraggio.ContestoStrutturale) ([]ancoraggio.StrutturaProdotto, []evidenze.Diagnostica) {
 	t.Helper()
 	primaT, primaC := canonico(t, target), canonico(t, ctx)
@@ -231,10 +233,22 @@ func proponiS(t *testing.T, target []ancoraggio.ProdottoRichiesto, ctx ancoraggi
 		}
 		switch s.Stato {
 		case ancoraggio.StatoStrutturaCandidata:
-			if !compatibileS(s.Compatibilita) {
-				t.Errorf("struttura candidata %s/%s con la radice %s non compatibile (%s): la regola 1 non la dà", s.Target, s.AllegatoID, s.Radice, s.Compatibilita)
+			switch s.Origine {
+			case "":
+				if !compatibileS(s.Compatibilita) {
+					t.Errorf("struttura candidata %s/%s con la radice %s non compatibile (%s): la regola 1 non la dà", s.Target, s.AllegatoID, s.Radice, s.Compatibilita)
+				}
+			case ancoraggio.OrigineStrutturaNomeFileSTEP, ancoraggio.OrigineStrutturaAssociazioneSTEP:
+				if s.Compatibilita != motorea.CompatibilitaNonDeterminabile || !s.RadiceDelFile || tg.FonteConfermata != nil {
+					t.Errorf("radice di riserva %s/%s: compatibilità %s, radice del file %v, fonte confermata %+v", s.Target, s.Radice, s.Compatibilita, s.RadiceDelFile, tg.FonteConfermata)
+				}
+			default:
+				t.Errorf("struttura %s/%s con l'origine %q", s.Target, s.Radice, s.Origine)
 			}
 		case ancoraggio.StatoBOMDiLavoroProposta:
+			if s.Origine != "" {
+				t.Errorf("BOM di lavoro %s/%s con l'origine %q: la BOM viene solo dal gesto 3 (R76 A)", s.Target, s.Radice, s.Origine)
+			}
 			bom[s.Target]++
 			f := tg.FonteConfermata
 			if f == nil || f.Superato || s.Sha256 != f.Sha256 || s.Radice != ancoraggio.RifNodo(f.Sha256, f.Radice) {
@@ -271,8 +285,18 @@ func proponiS(t *testing.T, target []ancoraggio.ProdottoRichiesto, ctx ancoraggi
 			}
 		}
 		fonteQui := tg.FonteConfermata != nil && tg.FonteConfermata.Sha256 == s.Sha256
-		if attese := s.RadiceDelFile && compatibileS(s.Compatibilita) && !fonteQui; attese != (len(s.Fonti) == 1) || len(s.Fonti) > 1 {
-			t.Errorf("struttura %s/%s: fonti %+v (radice del file %v, compatibilità %s, STEP della fonte confermata %v)", s.Target, s.Radice, s.Fonti, s.RadiceDelFile, s.Compatibilita, fonteQui)
+		switch s.Origine {
+		case "":
+			if attese := s.RadiceDelFile && compatibileS(s.Compatibilita) && !fonteQui; attese != (len(s.Fonti) == 1) || len(s.Fonti) > 1 || (len(s.Fonti) == 1 && s.Fonti[0].Motivo != "") {
+				t.Errorf("struttura %s/%s: fonti %+v (radice del file %v, compatibilità %s, STEP della fonte confermata %v)", s.Target, s.Radice, s.Fonti, s.RadiceDelFile, s.Compatibilita, fonteQui)
+			}
+		default:
+			// Dal nome dello STEP sempre, con l'associazione solo se lo dice anche il nome.
+			if (s.Origine == ancoraggio.OrigineStrutturaNomeFileSTEP && len(s.Fonti) != 1) || len(s.Fonti) > 1 ||
+				(len(s.Fonti) == 1 && (s.Fonti[0].Motivo != ancoraggio.MotivoFonteNomeFileSTEP || s.Fonti[0].RadiceCompatibile != "" ||
+					s.Fonti[0].Compatibilita != motorea.CompatibilitaNonDeterminabile || s.Fonti[0].Origine != ancoraggio.CandidatoDaMotoreA)) {
+				t.Errorf("radice di riserva %s/%s: fonti %+v", s.Target, s.Radice, s.Fonti)
+			}
 		}
 	}
 	for k, n := range bom {
@@ -281,7 +305,16 @@ func proponiS(t *testing.T, target []ancoraggio.ProdottoRichiesto, ctx ancoraggi
 		}
 	}
 	for _, d := range diag {
-		if (d.Codice != ancoraggio.CodiceTargetSenzaStruttura && d.Codice != ancoraggio.CodiceGrafoIncompleto) || d.Gravita != evidenze.GravitaAvviso || d.Natura != evidenze.NaturaDati {
+		switch d.Codice {
+		case ancoraggio.CodiceTargetSenzaStruttura, ancoraggio.CodiceGrafoIncompleto:
+			if d.Gravita != evidenze.GravitaAvviso || d.Natura != evidenze.NaturaDati {
+				t.Errorf("diagnostica delle strutture: %+v", d)
+			}
+		case ancoraggio.CodiceRadiceDalNomeFile, ancoraggio.CodiceRadiceDalloSTEPAssociato:
+			if d.Gravita != evidenze.GravitaNota || d.Natura != evidenze.NaturaDati || len(d.Rif) != 3 {
+				t.Errorf("diagnostica delle radici di riserva: %+v", d)
+			}
+		default:
 			t.Errorf("diagnostica fuori dalle strutture: %+v", d)
 		}
 	}
@@ -1341,6 +1374,14 @@ func TestIValoriDelleStrutture(t *testing.T) {
 		{ancoraggio.OrigineArcoProposto, "proposto"},
 		{ancoraggio.CodiceTargetSenzaStruttura, "ancoraggio.target_senza_struttura"},
 		{ancoraggio.CodiceGrafoIncompleto, "ancoraggio.grafo_incompleto"},
+		// le radici di riserva (estensione di R76 b, notte 14/10)
+		{ancoraggio.CodiceRadiceDalNomeFile, "ancoraggio.radice_dal_nome_file"},
+		{ancoraggio.CodiceRadiceDalloSTEPAssociato, "ancoraggio.radice_dallo_step_associato"},
+		{ancoraggio.OrigineStrutturaNomeFileSTEP, "nome_file_step"},
+		{ancoraggio.OrigineStrutturaAssociazioneSTEP, "associazione_step"},
+		{ancoraggio.MotivoFonteNomeFileSTEP, "nome_file_step"},
+		{ancoraggio.MotivoAncoraggioNamespaceNonConfrontabile, "namespace_non_confrontabile"},
+		{ancoraggio.MotivoCandidatoRadiceDiRiserva, "radice_di_riserva"},
 		{ancoraggio.RifNodo(shaS("a"), "#12"), "nodo:" + shaS("a") + ":#12"},
 		{ancoraggio.RifComponente(id), "componente:" + id.String()},
 		{ancoraggio.RifRigaProposta(id), "componente_proposta:" + id.String()},
@@ -1370,7 +1411,7 @@ func TestIValoriDelleStrutture(t *testing.T) {
 			"Decisione:decisione RigaLegacy:riga_legacy RigaDecisa:riga_decisa DecisoDaPersona:deciso_da_persona AbbinamentoPerBase:abbinamento_per_base"},
 		{ancoraggio.ArcoProposto{}, "Padre:padre Figlio:figlio Quantita:quantita Occorrenze:occorrenze Decisione:decisione"},
 		{ancoraggio.StrutturaProdotto{}, "Target:target AllegatoID:allegato_id Sha256:sha256 Radice:radice RadiceDelFile:radice_del_file Compatibilita:compatibilita " +
-			"Stato:stato Nodi:nodi Archi:archi ArchiContesto:archi_contesto Fonti:fonti GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo " +
+			"Stato:stato Origine:origine Nodi:nodi Archi:archi ArchiContesto:archi_contesto Fonti:fonti GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo " +
 			"RigaRadice:riga_radice RigheDaDecidere:righe_da_decidere"},
 	} {
 		tp := reflect.TypeOf(c.tipo)

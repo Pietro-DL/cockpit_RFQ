@@ -80,6 +80,10 @@ const (
 //   - Compatibilita: il confronto della base della radice con quella del prodotto (motorea.ConfrontaBasi).
 //   - Estrazione: l'esito dell'estrazione dei suoi fatti. GrafoCompleto e MotivoGrafo: la completezza del grafo
 //     STEP, con il motivo della 0020 quando non è completo («dati insufficienti»).
+//   - Motivo (estensione di R76 b, notte 14/10): perché un candidato del motore A lo è senza radice compatibile. ""
+//     per la regola di sempre (la radice ha la base del prodotto); nome_file_step (MotivoFonteNomeFileSTEP) quando il
+//     nome dello STEP dice il prodotto e la sua radice, l'unica, non ha letture nel suo namespace: RadiceCompatibile
+//     resta vuota, e la radice da scegliere è quella di Radici. Resta un candidato: niente si conferma (R59 A).
 type DocumentoCandidato struct {
 	Origine           OrigineCandidato      `json:"origine"`
 	AllegatoID        *uuid.UUID            `json:"allegato_id,omitempty"`
@@ -91,4 +95,5 @@ type DocumentoCandidato struct {
 	Estrazione        EsitoEstrazione       `json:"estrazione"`
 	GrafoCompleto     bool                  `json:"grafo_completo"`
 	MotivoGrafo       string                `json:"motivo_grafo,omitempty"`
+	Motivo            string                `json:"motivo,omitempty"`
 }

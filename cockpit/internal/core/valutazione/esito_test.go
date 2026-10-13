@@ -128,7 +128,7 @@ func TestICampiDellEsito(t *testing.T) {
 			"Fonte:fonte Struttura:struttura BOM:bom Nodi:nodi StruttureCandidate:strutture_candidate ConfermatiSenzaSTEP:confermati_senza_step " +
 			"Smistamento:smistamento Documenti:documenti Verificato:prodotto_verificato Stato:stato Motivi:motivi Impronta:impronta"},
 		{valutazione.StrutturaCandidata{}, "AllegatoID:allegato_id Sha256:sha256 Radice:radice RadiceDelFile:radice_del_file Compatibilita:compatibilita " +
-			"GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo Nodi:nodi"},
+			"Origine:origine GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo Nodi:nodi"},
 		{valutazione.VerificaSmistamento{}, "Stato:stato FileNonTerminali:file_non_terminali Motivi:motivi Conflitti:conflitti Calcolata:calcolata Percorsi:percorsi"},
 		{valutazione.AssociazioneFile{}, "AllegatoID:allegato_id Associazione:associazione Collocazione:collocazione Proposta:proposta DestinazioneF8:destinazione_f8 " +
 			"Manuale:manuale Confermata:confermata DocumentoID:documento_id Origine:origine DestinazioneCoincide:destinazione_coincide Conflitto:conflitto " +

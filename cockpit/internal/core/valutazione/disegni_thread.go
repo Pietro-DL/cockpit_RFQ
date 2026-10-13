@@ -204,14 +204,15 @@ func nuoviDisegniThread(t fotorfq.Thread, m *motorea.Motore, col *collegamento, 
 }
 
 // radiceDelProdotto: la radice della struttura rappresenta il prodotto: la sua base è compatibile con quella del target,
-// o è la radice scelta della BOM di lavoro (R76 A). È la regola di ancoraggio per l'origine dell'associazione del 2D del
-// prodotto (T-B4-37), ripetuta perché ancoraggio non la esporta.
+// è la radice scelta della BOM di lavoro (R76 A), o è una radice di riserva, con l'origine (passo 3 bis di
+// ProponiStrutture, notte 14/10). È la regola di ancoraggio per l'origine dell'associazione del 2D del prodotto
+// (T-B4-37), ripetuta perché ancoraggio non la esporta.
 func radiceDelProdotto(s ancoraggio.StrutturaProdotto) bool {
 	switch s.Compatibilita {
 	case motorea.CompatibilitaUguale, motorea.CompatibilitaEquivalente, motorea.CompatibilitaParziale:
 		return true
 	}
-	return s.Stato == ancoraggio.StatoBOMDiLavoroProposta
+	return s.Stato == ancoraggio.StatoBOMDiLavoroProposta || s.Origine != ""
 }
 
 // chiavePosizione: la chiave di una posizione di un candidato (target, allegato e radice della struttura, nodo).

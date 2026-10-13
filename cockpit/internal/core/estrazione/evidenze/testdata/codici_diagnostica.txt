@@ -112,6 +112,8 @@ fonte_strutturale.riferimento_incoerente
 fonte_strutturale.radice_non_registrata
 ancoraggio.target_senza_struttura
 ancoraggio.grafo_incompleto
+ancoraggio.radice_dal_nome_file
+ancoraggio.radice_dallo_step_associato
 ancoraggio.completamento_documentale
 ancoraggio.correzione_documentale
 bom.fonte_non_registrata
