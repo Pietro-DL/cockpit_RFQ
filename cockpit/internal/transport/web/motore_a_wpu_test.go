@@ -20,11 +20,13 @@ package web
 import (
 	"bytes"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/net/html"
 
 	"promatec/cockpit/internal/core/ancoraggio"
@@ -54,7 +56,8 @@ func wpuDocSTEP(nodi []string, radici map[string]string) evidenze.DocumentoEvide
 
 // wpuCasoSenzaStruttura: e10 (il prodotto 7120100 senza strutture, i file da smistare, l'immagine inline 3c) con
 // quello che una RFQ come quella della diagnosi porta in più, in forma ACME:
-//   - 3e «ACM-9001.stp»: uno STEP con una proposta aperta di 3D con un altro codice (→ «Usa come STEP», con la correzione);
+//   - 3e «ACM-9001.stp»: uno STEP con una proposta aperta di 3D con un altro codice (→ nessun gesto, perché il prodotto
+//     ha già il 3D corrente 5e; senza 5e «Usa come STEP», con la correzione: TestMotoreAWPUUsaSenza3DCorrente);
 //   - 3f «7120100_B.stp»: uno STEP già documento corrente del prodotto (→ «Autorizza come STEP»);
 //   - le diagnostiche dell'ancoraggio: target_senza_struttura del prodotto, radice_dal_nome_file della RFQ;
 //   - i motivi dell'ancoraggio di 3a (Scansione_ACME.pdf, in Da smistare) e di 3e.
@@ -148,13 +151,13 @@ func TestMotoreAWPUPercheEStepDellaRFQ(t *testing.T) {
 				!strings.Contains(tx, "nessun codice letto dal file") {
 				t.Errorf("%s: #ma-step-rfq senza le radici o il perché: %q", r, tx)
 			}
-			usa := wpuPrimo(t, r, step, "«Usa come STEP» di 3e", func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "usa-step" })
-			for k, v := range map[string]string{"data-ma-proposta": maU("7e").String(), "data-ma-componente": maU("10").String(),
-				"data-ma-correggi": "1", "data-ma-codice": "7120100", "data-ma-codice-file": "ACM-9001", "data-ma-file": "ACM-9001.stp",
-				"data-ma-associato": ""} {
-				if maRA(usa, k) != v || !maRHa(usa, k) {
-					t.Errorf("%s: «Usa come STEP» con %s=%q, atteso %q", r, k, maRA(usa, k), v)
-				}
+			// revisione della notte 14/10: il prodotto ha già il 3D corrente 5e, quindi 3e non ha «Usa come STEP» e il
+			// motivo lo dice (con il collegamento al Fascicolo)
+			if n := maRTutti(step, func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "usa-step" }); len(n) != 0 {
+				t.Errorf("%s: «Usa come STEP» con il 3D corrente del prodotto", r)
+			}
+			if tx := maRTesto(step); !strings.Contains(tx, "7120100 ha già un 3D corrente: si aggiunge o si sostituisce dalla pagina del Fascicolo.") {
+				t.Errorf("%s: #ma-step-rfq senza il motivo del 3D corrente: %q", r, tx)
 			}
 			aut := wpuPrimo(t, r, step, "«Autorizza come STEP» di 3f", func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "step" })
 			if maRA(aut, "data-ma-documento") != maU("5e").String() || maRA(aut, "data-ma-componente") != maU("10").String() ||
@@ -162,8 +165,8 @@ func TestMotoreAWPUPercheEStepDellaRFQ(t *testing.T) {
 				t.Errorf("%s: «Autorizza come STEP» con documento %q, componente %q, sorgente %v", r, maRA(aut, "data-ma-documento"),
 					maRA(aut, "data-ma-componente"), maRHa(aut, "data-ma-sorgente"))
 			}
-			if maRSpento(usa) == scrive || maRSpento(aut) == scrive {
-				t.Errorf("%s: i gesti degli STEP della RFQ accesi %v / %v con Scrive %v", r, !maRSpento(usa), !maRSpento(aut), scrive)
+			if maRSpento(aut) == scrive {
+				t.Errorf("%s: «Autorizza come STEP» acceso %v con Scrive %v", r, !maRSpento(aut), scrive)
 			}
 			fasc := "/thread/" + thread.String() + "/fascicolo?nodo=" + maU("10").String()
 			if n := maRTutti(step, func(n *html.Node) bool { return n.Data == "a" && maRA(n, "href") == fasc }); len(n) != 2 {
@@ -188,6 +191,116 @@ func TestMotoreAWPUPercheEStepDellaRFQ(t *testing.T) {
 			if len(tg) != 1 || maRA(tg[0], "type") != "checkbox" || maRHa(tg[0], "checked") || !strings.Contains(maRTesto(tg[0].Parent), "mostra elementi della mail (1)") {
 				t.Errorf("%s: l'interruttore degli elementi della mail: %d", r, len(tg))
 			}
+		}
+	}
+}
+
+// TestMotoreAWPUUsaSenza3DCorrente (revisione della notte 14/10): senza il 3D corrente del prodotto (il documento 5e
+// tolto dalla fotografia) 3e ha «Usa come STEP» con la proposta, la correzione dichiarata e lo stato che la finestra
+// mostra e manda ad assegna (data-ma-codice-file, data-ma-componente-attuale: vuoto, la proposta non è associata); 3f
+// non è più un documento del prodotto e non ha «Autorizza». Acceso solo con Scrive. Con la proposta associata a un altro
+// componente, data-ma-componente-attuale ne porta l'id.
+func TestMotoreAWPUUsaSenza3DCorrente(t *testing.T) {
+	s := maRServer(t)
+	c := wpuCasoSenzaStruttura(t)
+	var docs []fotorfq.DocumentoConfermato
+	for _, d := range c.Foto.Documenti {
+		if d.ID != maU("5e") {
+			docs = append(docs, d)
+		}
+	}
+	c.Foto.Documenti = docs
+	p := c.Pagina.Esito.ProdottiValutati[0]
+	rotte := maRRotte(t, c.Pagina.ThreadID)
+	for _, scrive := range []bool{true, false} {
+		r := maRRendi(s, "e10+wpu-5e", c, motorea_web.VistaDistinta, p.Rif, scrive)
+		maRControlliGenerici(t, r, rotte)
+		doc := maRDoc(t, r.Frammento.Body.Bytes())
+		step := wpuPrimo(t, r, doc, "#ma-step-rfq", func(n *html.Node) bool { return maRA(n, "id") == "ma-step-rfq" })
+		usa := wpuPrimo(t, r, step, "«Usa come STEP» di 3e", func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "usa-step" })
+		for k, v := range map[string]string{"data-ma-proposta": maU("7e").String(), "data-ma-componente": maU("10").String(),
+			"data-ma-correggi": "1", "data-ma-codice": "7120100", "data-ma-codice-file": "ACM-9001", "data-ma-file": "ACM-9001.stp",
+			"data-ma-associato": "", "data-ma-componente-attuale": ""} {
+			if maRA(usa, k) != v || !maRHa(usa, k) {
+				t.Errorf("%s: «Usa come STEP» con %s=%q, atteso %q", r, k, maRA(usa, k), v)
+			}
+		}
+		if maRSpento(usa) == scrive {
+			t.Errorf("%s: «Usa come STEP» acceso %v con Scrive %v", r, !maRSpento(usa), scrive)
+		}
+		if n := maRTutti(step, func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "step" }); len(n) != 0 {
+			t.Errorf("%s: «Autorizza» senza il documento del prodotto", r)
+		}
+	}
+
+	// la proposta associata a un altro componente (20, dalla scena e10 se c'è, altrimenti un id ACME qualsiasi)
+	altro := maU("20")
+	for i := range c.Foto.Proposte {
+		if c.Foto.Proposte[i].ID == maU("7e") {
+			c.Foto.Proposte[i].ComponenteID = &altro
+		}
+	}
+	r := maRRendi(s, "e10+wpu-5e+associata", c, motorea_web.VistaDistinta, p.Rif, true)
+	usa := wpuPrimo(t, r, maRDoc(t, r.Frammento.Body.Bytes()), "«Usa come STEP» di 3e", func(n *html.Node) bool { return maRA(n, "data-ma-azione") == "usa-step" })
+	if maRA(usa, "data-ma-componente-attuale") != altro.String() || maRA(usa, "data-ma-associato") == "" {
+		t.Errorf("%s: la proposta associata a un altro componente: attuale %q, associato %q", r, maRA(usa, "data-ma-componente-attuale"), maRA(usa, "data-ma-associato"))
+	}
+}
+
+// TestAssegnaConLaPropostaAttesa (revisione della notte 14/10): codice_atteso e componente_atteso del form di assegna
+// (leggiAttesa) e il confronto con la proposta bloccata (attesaProposta.controlla). Assenti, nessun controllo (il
+// Fascicolo legacy); presenti, il codice (senza spazi ai bordi) e il componente ("" = nessuno) devono essere ancora
+// quelli, altrimenti il rifiuto «la proposta è cambiata nel frattempo: rileggi la pagina». Senza database.
+func TestAssegnaConLaPropostaAttesa(t *testing.T) {
+	c10, c20 := maU("10"), maU("20")
+	proposta := func(codice string, comp *uuid.UUID) db.DocumentoProposta {
+		p := db.DocumentoProposta{Stato: db.StatoPropostaAperta}
+		if codice != "" {
+			p.Codice = pgtype.Text{String: codice, Valid: true}
+		}
+		if comp != nil {
+			p.ComponenteID = uuid.NullUUID{UUID: *comp, Valid: true}
+		}
+		return p
+	}
+	for _, x := range []struct {
+		nome     string
+		form     url.Values
+		p        db.DocumentoProposta
+		cambiata bool
+	}{
+		{"assenti: come prima", url.Values{"correggi_codice": {"1"}}, proposta("ACM-7777", &c20), false},
+		{"lo stesso codice, nessun componente", url.Values{"codice_atteso": {"ACM-9001"}, "componente_atteso": {""}}, proposta(" ACM-9001 ", nil), false},
+		{"senza codice, come atteso", url.Values{"codice_atteso": {""}, "componente_atteso": {""}}, proposta("", nil), false},
+		{"lo stesso componente", url.Values{"codice_atteso": {"ACM-9001"}, "componente_atteso": {c20.String()}}, proposta("ACM-9001", &c20), false},
+		{"un collega l'ha associata", url.Values{"codice_atteso": {"ACM-9001"}, "componente_atteso": {""}}, proposta("ACM-2000", &c20), true},
+		{"solo il componente è cambiato", url.Values{"codice_atteso": {"ACM-9001"}, "componente_atteso": {c20.String()}}, proposta("ACM-9001", &c10), true},
+		{"il componente tolto", url.Values{"componente_atteso": {c20.String()}}, proposta("ACM-9001", nil), true},
+		{"il codice scritto nel frattempo", url.Values{"codice_atteso": {""}}, proposta("ACM-9001", nil), true},
+		{"il codice con altre maiuscole è un altro codice", url.Values{"codice_atteso": {"acm-9001"}}, proposta("ACM-9001", nil), true},
+	} {
+		t.Run(x.nome, func(t *testing.T) {
+			a, err := leggiAttesa(x.form)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, codice := x.form["codice_atteso"]
+			_, comp := x.form["componente_atteso"]
+			if a.presente() != (codice || comp) {
+				t.Errorf("presente = %v", a.presente())
+			}
+			err = a.controlla(x.p, "ACM-9001.stp")
+			if (err != nil) != x.cambiata {
+				t.Fatalf("controlla = %v, atteso cambiata %v", err, x.cambiata)
+			}
+			if err != nil && err.Error() != "ACM-9001.stp: la proposta è cambiata nel frattempo: rileggi la pagina" {
+				t.Errorf("il rifiuto: %q", err.Error())
+			}
+		})
+	}
+	for _, form := range []url.Values{{"componente_atteso": {"non-un-uuid"}}, {"codice_atteso": {"A", "B"}}, {"componente_atteso": {"", ""}}} {
+		if _, err := leggiAttesa(form); err == nil {
+			t.Errorf("leggiAttesa(%v) senza errore", form)
 		}
 	}
 }
@@ -259,7 +372,9 @@ func TestMotoreAWPUAutorizzaDocumentoDelProdotto(t *testing.T) {
 
 // TestMotoreAWPUStatici: il CSS nasconde gli elementi della mail finché l'interruttore non è spuntato; motore_a.mjs ha
 // il ramo usa-step, e apriUsaStep manda prima «assegna» e poi «Conferma il documento», con correggi_codice solo con la
-// correzione dichiarata dal template (data-ma-correggi) e la presa d'atto spuntata.
+// correzione dichiarata dal template (data-ma-correggi) e la presa d'atto spuntata. Revisione della notte 14/10: con
+// la correzione anche codice_atteso e componente_atteso; mentre la catena è in corso la finestra non si chiude
+// (annulla e ✕ spenti, cancel fermato), e la conferma parte solo con la finestra ancora aperta.
 func TestMotoreAWPUStatici(t *testing.T) {
 	css := maSFile(t, maSCSS)
 	if !strings.Contains(css, ".ma:not(:has(#ma-mostra-mail:checked)) [data-ma-elemento-mail] { display: none; }") {
@@ -285,6 +400,20 @@ func TestMotoreAWPUStatici(t *testing.T) {
 	}
 	if strings.Contains(f, "apriStep(") {
 		t.Error("apriUsaStep apre da sé l'autorizzazione: il terzo gesto resta di chi guarda")
+	}
+	if !regexp.MustCompile(`campi\.correzione_confermata = [^\n]*\n(\s*//[^\n]*\n)?\s*if \("maCodiceFile" in ds\) campi\.codice_atteso = ds\.maCodiceFile;\s*if \("maComponenteAttuale" in ds\) campi\.componente_atteso = ds\.maComponenteAttuale;`).MatchString(f) {
+		t.Error("apriUsaStep: codice_atteso e componente_atteso insieme alla correzione")
+	}
+	if !strings.Contains(f, "const blocca = (si) => { inCorso = si; annulla.disabled = si; w.x.disabled = si; };") ||
+		!strings.Contains(f, `w.d.addEventListener("cancel", (e) => { if (inCorso) e.preventDefault(); });`) {
+		t.Error("apriUsaStep: la finestra si chiude a catena in corso")
+	}
+	ap := strings.Index(f, "if (!aperta()) {")
+	if ap < 0 || ap < k || cf < ap {
+		t.Error("apriUsaStep: la conferma parte senza controllare che la finestra sia ancora aperta")
+	}
+	if !strings.Contains(js, "return { d, corpo, piede, x, chiudi:") {
+		t.Error("dialogo() non dà la ✕ a chi la deve spegnere")
 	}
 }
 

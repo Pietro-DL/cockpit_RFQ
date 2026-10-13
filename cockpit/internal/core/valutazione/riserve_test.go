@@ -60,7 +60,8 @@ func scenaRiserva(t *testing.T, nome string) fotorfq.Thread {
 // TestLaRadiceDalNomeNellaValutazione: con il nome dello STEP che dice il finito, il prodotto ha la struttura candidata
 // con l'origine nome_file_step, e la fonte è in attesa di conferma con il candidato del motore A dal nome (il motivo, la
 // radice da scegliere fra le radici, nessuna radice compatibile). Con un nome che non dice il finito, niente: la
-// struttura è nessuna e lo STEP non è un candidato della fonte.
+// struttura è nessuna e lo STEP non è un candidato della fonte; lo stesso con un nome che dice il finito e un documento
+// diverso da quello della radice.
 func TestLaRadiceDalNomeNellaValutazione(t *testing.T) {
 	r := insiemeRiserve(t)
 	rif := ancoraggio.RifComponente(cFinito)
@@ -79,8 +80,12 @@ func TestLaRadiceDalNomeNellaValutazione(t *testing.T) {
 		t.Errorf("il candidato della fonte dal nome dello STEP: %+v", c)
 	}
 
-	p = prodottoDi(t, esitoSmistamentoCon(t, scenaRiserva(t, "assieme.stp"), r), rif)
-	if p.Struttura != ancoraggio.StatoStrutturaNessuna || len(p.StruttureCandidate) != 0 || len(p.Fonte.Candidati) != 0 || p.Fonte.Stato != valutazione.FonteAssente {
-		t.Errorf("senza il nome che dice il finito niente cambia: %s %+v %+v", p.Struttura, p.StruttureCandidate, p.Fonte)
+	// senza il nome che dice il finito, o con il nome che dice anche un documento che non è quello della radice
+	// (ancoraggio.NomeContraddiceLaRadice, revisione della notte 14/10), niente cambia
+	for _, nome := range []string{"assieme.stp", "210000001_101000555_01.stp"} {
+		p = prodottoDi(t, esitoSmistamentoCon(t, scenaRiserva(t, nome), r), rif)
+		if p.Struttura != ancoraggio.StatoStrutturaNessuna || len(p.StruttureCandidate) != 0 || len(p.Fonte.Candidati) != 0 || p.Fonte.Stato != valutazione.FonteAssente {
+			t.Errorf("%s: niente cambia: %s %+v %+v", nome, p.Struttura, p.StruttureCandidate, p.Fonte)
+		}
 	}
 }

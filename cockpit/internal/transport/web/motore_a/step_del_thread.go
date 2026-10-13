@@ -20,7 +20,9 @@ package motore_a
 //     nuova solo da questa azione esplicita, con la finestra che elenca che cosa si scrive (motore_a.mjs, apriUsaStep;
 //     la guardia del ponte, motore_a_gesti.mjs, lo ammette solo con correzione_confermata);
 //   - nessun gesto (Motivo): il prodotto senza componente, il file documento di un altro componente, nessuna proposta
-//     aperta di 3D: la pagina lo dice e porta al Fascicolo sul componente del prodotto.
+//     aperta di 3D, il componente che ha già un 3D corrente (revisione della notte 14/10: la conferma del file singolo
+//     chiederebbe se si aggiunge o si sostituisce, e la catena si fermerebbe a metà, con l'associazione e la correzione
+//     del codice già scritte): la pagina lo dice e porta al Fascicolo sul componente del prodotto.
 // Se il gesto riesce lo dice il server, non questa ricerca: le verifiche restano quelle delle rotte (FK, codice del
 // componente, scelta della revisione, anteprima e firma dell'autorizzazione).
 //
@@ -141,10 +143,29 @@ func (x *Indice) gestoDelloStep(s *StepDelThread, componente *uuid.UUID) {
 		s.Motivo = "il file non ha una proposta aperta: si decide dalla pagina del Fascicolo"
 	case pr.Tipo != string(db.TipoDocumentoCad3d):
 		s.Motivo = "la proposta aperta del file non è un 3D: si corregge dalla pagina del Fascicolo"
+	case x.ha3DCorrente(*componente):
+		chi := s.CodiceComponente
+		if chi == "" {
+			chi = "il componente del prodotto"
+		}
+		s.Motivo = chi + " ha già un 3D corrente: si aggiunge o si sostituisce dalla pagina del Fascicolo"
 	default:
 		s.Gesto = GestoUsa
 		s.Correzione = pr.Codice != "" && !stessoCodiceVista(pr.Codice, s.CodiceComponente)
 	}
+}
+
+// ha3DCorrente: il componente ha già un documento corrente (non sostituito) di tipo cad_3d. Con un 3D corrente la
+// conferma del file singolo («Conferma il documento») chiede se il file si aggiunge o sostituisce quale
+// (DomandaSostituzione del piano della conferma) e non passa: «Usa come STEP» non si offre (revisione della notte 14/10).
+func (x *Indice) ha3DCorrente(componente uuid.UUID) bool {
+	for i := range x.t.Documenti {
+		d := &x.t.Documenti[i]
+		if d.SostituitoDa == nil && d.ComponenteID != nil && *d.ComponenteID == componente && d.Tipo == string(db.TipoDocumentoCad3d) {
+			return true
+		}
+	}
+	return false
 }
 
 // documentoDiAltri: il motivo, se il file è già un documento corrente di un altro componente o della RFQ senza

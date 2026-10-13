@@ -186,7 +186,8 @@ const GUARDIE = {
   // del prodotto…» (motore_a.mjs, apriUsaStep), dopo la finestra che elenca che cosa si scrive (giro 5, A1d, notte
   // 14/10, WP-U: decisione autonoma dell'orchestratore su Q-P3-03 [T, da ratificare]); il server ignora
   // correzione_confermata e decide come sempre (codiceDaComponente). Da soli, nessuno dei due; nuovo_riferimento* fuori
-  // (DOM-20)
+  // (DOM-20). codice_atteso e componente_atteso (revisione della notte 14/10) passano: li controlla il server contro la
+  // proposta bloccata (attesaProposta, fascicolo.go)
   "/thread/{id}/fascicolo/assegna": (p) => {
     const confermata = p.has("correggi_codice") && !unico(p, "correggi_codice", false) && !unico(p, "correzione_confermata", false);
     const v = (confermata ? "" : presente(p, ["correggi_codice", "correzione_confermata"])) || conPrefisso(p, "nuovo_riferimento");

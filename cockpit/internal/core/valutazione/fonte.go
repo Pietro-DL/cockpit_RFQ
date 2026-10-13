@@ -800,7 +800,8 @@ func (c *contesto) candidati(tg target, rif *ancoraggio.RiferimentoFonte, vista 
 // di un prodotto senza strutture perché il nome del file lo dice (StrutturaProdotto.Origine nome_file_step, passo 3 bis
 // di ProponiStrutture), con le stesse condizioni: nessun nodo di nessuno STEP analizzato e letto ha la base del prodotto
 // (né una radice né un nodo interno: altrimenti la struttura c'è già); lo STEP ha una radice sola, che non ha letture
-// nel namespace del prodotto; il nome del file dice il prodotto (ancoraggio.NomeDiceIlProdotto, la stessa funzione).
+// nel namespace del prodotto; il nome del file dice il prodotto (ancoraggio.NomeDiceIlProdotto, la stessa funzione) e
+// non contraddice la radice (ancoraggio.NomeContraddiceLaRadice, revisione della notte 14/10).
 // In ordine di allegato. La fonte confermata, che in ancoraggio toglie le radici di riserva, la guarda fonte: con la
 // fonte confermata questi candidati non restano (togliRiserveDalNome).
 func (c *contesto) riserveDalNome(p motorea.LetturaForma) []*fileStep {
@@ -818,7 +819,7 @@ func (c *contesto) riserveDalNome(p motorea.LetturaForma) []*fileStep {
 	}
 	var out []*fileStep
 	for _, fs := range letti {
-		if len(fs.radici) != 1 || !ancoraggio.NomeDiceIlProdotto(p, fs.nome) {
+		if len(fs.radici) != 1 || !ancoraggio.NomeDiceIlProdotto(p, fs.nome) || ancoraggio.NomeContraddiceLaRadice(fs.nome, fs.radici[0].letture) {
 			continue
 		}
 		muta := true

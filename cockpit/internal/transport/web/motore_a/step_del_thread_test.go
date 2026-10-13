@@ -56,8 +56,10 @@ func maDocSTEP(nodi []string, radici map[string]map[string]string) evidenze.Docu
 // maScenaStep: il prodotto ACM-1000 (componente 10, senza strutture) e sei allegati:
 //
 //	31 STEP, documento corrente del componente 10 (→ autorizza), due radici: una con id e nome, una con il solo nome;
-//	32 STEP con una proposta aperta di 3D con un altro codice (→ usa, con la correzione), associata al componente 20;
-//	33 STEP con una proposta aperta di 3D senza codice (→ usa, senza correzione);
+//	32 STEP con una proposta aperta di 3D con un altro codice, associata al componente 20 (→ nessun gesto: il
+//	   componente 10 ha già il 3D corrente 51; senza, usa con la correzione: TestStepDelThreadUsaSenza3DCorrente);
+//	33 STEP con una proposta aperta di 3D senza codice (→ nessun gesto per lo stesso motivo; senza il 3D, usa senza
+//	   correzione);
 //	34 STEP con una proposta aperta di 2D (→ nessun gesto);
 //	35 STEP, documento corrente del componente 20 (→ nessun gesto, si sposta dal Fascicolo);
 //	36 STEP senza proposta (→ nessun gesto);
@@ -134,8 +136,8 @@ func TestStepDelThreadGestiERadici(t *testing.T) {
 	}
 	want := []riga{
 		{31, GestoAutorizza, false, 4, "#1=ACM-5001_01  -  staffa;#4=solo nome", false},
-		{32, GestoUsa, true, 2, "#1=ACM-5002", false},
-		{33, GestoUsa, false, 1, "#7=#7", false},
+		{32, "", false, 2, "#1=ACM-5002", true},
+		{33, "", false, 1, "#7=#7", true},
 		{34, "", false, 1, "#1=ACM-5003", true},
 		{35, "", false, 1, "#1=ACM-5004", true},
 		{36, "", false, 2, "", true},
@@ -148,6 +150,12 @@ func TestStepDelThreadGestiERadici(t *testing.T) {
 	}
 	if p := got[1].Proposta; p == nil || p.ID != maUUID(71) || p.Codice != "acm-9001" || p.ComponenteID == nil || *p.ComponenteID != maUUID(20) {
 		t.Errorf("32: la proposta %+v", p)
+	}
+	// revisione della notte 14/10: con il 3D corrente del componente la catena «Usa come STEP» non si offre
+	for _, i := range []int{1, 2} {
+		if got[i].Motivo != "ACM-1000 ha già un 3D corrente: si aggiunge o si sostituisce dalla pagina del Fascicolo" || got[i].Proposta == nil {
+			t.Errorf("%s: il motivo %q, la proposta %+v", got[i].NomeFile, got[i].Motivo, got[i].Proposta)
+		}
 	}
 	if !strings.Contains(got[3].Motivo, "non è un 3D") || !strings.Contains(got[4].Motivo, "ACM-2000") ||
 		!strings.Contains(got[5].Motivo, "non ha una proposta aperta") {
@@ -176,6 +184,32 @@ func TestStepDelThreadGestiERadici(t *testing.T) {
 	// senza la fotografia: niente gesti, il motivo
 	if s := NuovoIndice(nil, e, nil, nil).StepDelThread(maP1); len(s) != 6 || s[0].Gesto != "" || s[0].Motivo == "" {
 		t.Errorf("senza fotografia: %+v", s)
+	}
+}
+
+// TestStepDelThreadUsaSenza3DCorrente (revisione della notte 14/10): «Usa come STEP» si offre solo se il componente
+// del prodotto non ha un 3D corrente. Nella scena il 3D 51 del componente 10 è sostituito (un documento sostituito non
+// conta): 32 e 33 hanno la catena, 32 con la correzione del codice; 31 non è più un documento corrente, quindi non ha
+// l'autorizzazione (e non ha una proposta). Un 3D corrente di un altro componente (52, di 20) non conta.
+func TestStepDelThreadUsaSenza3DCorrente(t *testing.T) {
+	th, e := maScenaStep()
+	th.Documenti[0].SostituitoDa = maUUIDp(59)
+	got := NuovoIndice(th, e, nil, nil).StepDelThread(maP1)
+	if len(got) != 6 {
+		t.Fatalf("%d STEP, attesi 6", len(got))
+	}
+	for _, c := range []struct {
+		i          int
+		gesto      string
+		correzione bool
+	}{{0, "", false}, {1, GestoUsa, true}, {2, GestoUsa, false}} {
+		s := got[c.i]
+		if s.Gesto != c.gesto || s.Correzione != c.correzione || (c.gesto == GestoUsa) != (s.Motivo == "") {
+			t.Errorf("%s: gesto %q, correzione %v, motivo %q", s.NomeFile, s.Gesto, s.Correzione, s.Motivo)
+		}
+	}
+	if got[0].Documento != nil || !strings.Contains(got[0].Motivo, "non ha una proposta aperta") {
+		t.Errorf("31 con il documento sostituito: %+v", got[0])
 	}
 }
 

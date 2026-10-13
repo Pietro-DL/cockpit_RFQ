@@ -272,7 +272,9 @@ markmap:
     documento»; in «Assegna» niente `nuovo_riferimento*`, e `correggi_codice` solo insieme a `correzione_confermata`,
     tutti e due una volta sola e non vuoti (li manda soltanto «Usa come STEP del prodotto…», dopo la sua finestra: WP-U,
     notte 14/10, decisione autonoma dell'orchestratore su Q-P3-03 [T, da ratificare]; il server ignora
-    `correzione_confermata`); niente `nuovo_riferimento*` in «Sostituisci»; niente `rumore` nello scarto del file;
+    `correzione_confermata`, e con la correzione la finestra manda anche `codice_atteso` e `componente_atteso`, che il
+    server controlla contro la proposta bloccata: revisione della notte 14/10); niente `nuovo_riferimento*` in
+    «Sostituisci»; niente `rumore` nello scarto del file;
     niente `auto` in «Prepara i file».
 - **Gli esiti nel ponte**: si legge l'esito solo da un 200 `text/html` che sia un solo `<div data-ma-esito="ok|no">`;
   ogni altro 2xx, o un corpo d'altro tipo, è «errore»; 4xx e 5xx «errore» con il testo; la sessione scaduta si dice in
@@ -366,14 +368,22 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   - il file è già documento corrente del componente del prodotto: «Autorizza come STEP di …», il dialogo esistente
     dell'anteprima (`data-ma-azione="step"` con `data-ma-documento`, senza sorgente: la radice si sceglie
     nell'anteprima del server, con presa d'atto e firma);
-  - il file ha una proposta aperta di 3D: «Usa come STEP di …» (`data-ma-azione="usa-step"`): la finestra di
+  - il file ha una proposta aperta di 3D e il componente del prodotto non ha un 3D corrente: «Usa come STEP di …»
+    (`data-ma-azione="usa-step"`): la finestra di
     `motore_a.mjs` (`apriUsaStep`) elenca che cosa si scrive, chiede la presa d'atto e manda nell'ordine due gesti
     esistenti del ponte, ognuno con il suo esito: «assegna» al componente del prodotto (con `correggi_codice` e
     `correzione_confermata` solo se il codice della proposta è scritto e diverso da quello del componente) e «Conferma
     il documento» della stessa proposta; se il primo non riesce il secondo non parte. Dopo la rilettura il file è un
-    documento del prodotto e il gesto diventa «Autorizza come STEP di …»: il terzo passo resta di chi guarda;
-  - altrimenti il motivo (prodotto senza componente, documento di un altro componente, nessuna proposta aperta di 3D),
-    e sempre «Apri nel Fascicolo» sul componente del prodotto (`?nodo=`).
+    documento del prodotto e il gesto diventa «Autorizza come STEP di …»: il terzo passo resta di chi guarda.
+    Revisione della notte 14/10: con la correzione «assegna» riceve anche `codice_atteso` e `componente_atteso`
+    (`data-ma-codice-file`, `data-ma-componente-attuale`: lo stato che la finestra ha mostrato) e rifiuta «la proposta
+    è cambiata nel frattempo: rileggi la pagina» se un collega l'ha cambiata; mentre la catena è in corso la finestra
+    non si chiude (annulla e ✕ spenti, Esc fermato), e se si è chiusa lo stesso la conferma non parte e l'avviso dice
+    che il file è associato ma non confermato;
+  - altrimenti il motivo (prodotto senza componente, documento di un altro componente, nessuna proposta aperta di 3D,
+    il componente con un 3D corrente: la conferma del file singolo chiederebbe se si aggiunge o si sostituisce, e la
+    catena si fermerebbe a metà; revisione della notte 14/10), e sempre «Apri nel Fascicolo» sul componente del
+    prodotto (`?nodo=`).
   «Autorizza come STEP di …» c'è anche su un documento del prodotto fra gli «Altri documenti candidati alla fonte»
   (origine `documento_del_prodotto`, con il documento). Le verifiche restano quelle delle rotte (FK, codice del
   componente, scelta della revisione, anteprima e firma dell'autorizzazione).
@@ -435,8 +445,8 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
     di che cosa parla, la forma del JSON), i modelli JSON di `/dati`.
   - `spiegazioni_test.go`, `step_del_thread_test.go` (WP-U): le spiegazioni (note, sconosciute, mai fra quadre; ogni
     motivo e codice delle strutture di `core/ancoraggio` ne ha una, letti con go/parser), le diagnostiche per prodotto
-    e della RFQ, i motivi di un file, il badge dell'origine letto per nome, gli STEP della RFQ con i gesti e le radici,
-    la determinazione, gli elementi della mail, l'indirizzo del Fascicolo, il vocabolario ripetuto come testo.
+    e della RFQ, i motivi di un file, il badge dell'origine letto per nome, gli STEP della RFQ con i gesti e le radici
+    («Usa come STEP» solo senza un 3D corrente del componente: revisione della notte 14/10), la determinazione, gli elementi della mail, l'indirizzo del Fascicolo, il vocabolario ripetuto come testo.
 - **L1 di questo package** (`motore_a_test.go`, httptest): la porta, i ruoli, le rotte montate, i codici (anche 504
   dell'anteprima e di HEAD, 400 di HEAD, 503 del tetto, il JSON che non si codifica), la deriva dell'anteprima contro
   il modulo legacy.
@@ -457,6 +467,10 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   template), il perché del prodotto, della RFQ e del file, gli STEP della RFQ con i due gesti (spenti in sola lettura),
   «Autorizza» su un documento del prodotto fra i candidati, gli elementi della mail e l'interruttore, la regola del CSS
   e l'ordine dei due gesti in `apriUsaStep`; sui casi ACME cambiati in memoria, con i controlli generici della resa.
+  Dalla revisione della notte 14/10: «Usa come STEP» solo senza il 3D corrente del prodotto
+  (`TestMotoreAWPUUsaSenza3DCorrente`, con `data-ma-componente-attuale`), la finestra che non si chiude a catena in
+  corso e lo stato atteso mandato con la correzione (`TestMotoreAWPUStatici`), il confronto di `codice_atteso` e
+  `componente_atteso` con la proposta bloccata, senza database (`TestAssegnaConLaPropostaAttesa`).
 - **L1 altrove**: `TestLaDistintaNuovaLeggeSoltanto` (`core/estrazione/evidenze`), la guardia di deriva della prova di
   equivalenza `TestEquivalenzaMotoreAIlPercorsoDelBancoNonDeriva` (`app/bancoa/motore_a_equivalenza_test.go`).
 - **L4** (tag `integrazione`, `cockpit_test`)
@@ -1823,7 +1837,10 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 - Percorso (sotto `/thread/{id}/fascicolo`):
   - **`/assegna`**
     - Campi: `componente` (vuoto = sgancia), `documento`… e `proposta`…, `correggi_codice`, `scelta_<doc>`/`scelta`,
-      `nuovo_riferimento_<doc>`, `motivo_<doc>`
+      `nuovo_riferimento_<doc>`, `motivo_<doc>`; facoltativi, con una proposta sola, `codice_atteso` e
+      `componente_atteso` (`attesaProposta`, revisione della notte 14/10: lo stato che la pagina ha mostrato; se la
+      proposta bloccata non lo ha più, il rifiuto «la proposta è cambiata nel frattempo: rileggi la pagina»; assenti,
+      come prima: il Fascicolo legacy non li manda)
     - Chiama: `assegnaAlComponente`, in una transazione sua, con la RFQ bloccata per prima
   - **`/componente/{cid}/codice`**
     - Campi: `codice`
