@@ -14,6 +14,7 @@
 package fascicolo_test
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -448,15 +449,20 @@ func TestUnCommercialeNonSiAutorizza(t *testing.T) {
 	}
 }
 
-// Prova 203 (A5.4.1, E37): un particolare si autorizza (l'anteprima avvisa), e al primo figlio accettato dal
-// suo STEP diventa un assieme.
+// Prova 203 (A5.4.1, E37; riscritta in A1d P4 per D-K6-01 = A [U], direttiva 12 §6): un particolare si autorizza
+// (l'anteprima avvisa), e al primo figlio accettato dal suo STEP NON diventa piu' un assieme da solo. Il gesto
+// risponde con la richiesta di conferma per quel componente (fascicolo.RichiestaConversione), senza scrivere niente;
+// con la conferma (AccettaRelazioneDecisa, DecisioneTipo.Assiemi con il suo id) arco e conversione entrano insieme.
+// Prima di P4 l'arco entrava e il particolare diventava assieme in silenzio: e' la correzione voluta K6 (contratto
+// rev. 3 Δ41). Stato: eseguita e passata nell'integrazione della corsia D (13/10/2026, L4).
 func TestUnParticolareAutorizzatoDiventaAssiemeAlPrimoFiglio(t *testing.T) {
 	b := nuovoBanco(t)
 	b.acme()
 	p := b.componente("7120012", db.TipoComponenteSciolto)
 	doc, a := b.stepDelProdotto(p, "7120012", fattiSTEP{nodi: []string{"#1=7120012", "#2=7120021", "#3=7120022"}, archi: []string{"#1>#2", "#1>#3*4"}})
 	r := fascicolo.RichiestaAutorizzazione{Componente: p, Documento: doc}
-	if e := b.effetto(r); e.Spento != "" || !strings.Contains(strings.Join(e.Avvisi, "|"), "7120012 è un particolare: diventa un assieme al primo figlio accettato") {
+	if e := b.effetto(r); e.Spento != "" || !strings.Contains(strings.Join(e.Avvisi, "|"),
+		"7120012 è un particolare: non diventa un assieme da solo. Accettando il primo figlio dalla vista Albero il Fascicolo chiede di confermare il cambio") {
 		t.Errorf("anteprima di un particolare: %q %v", e.Spento, e.Avvisi)
 	}
 	b.dichiaraOk(r)
@@ -466,13 +472,31 @@ func TestUnParticolareAutorizzatoDiventaAssiemeAlPrimoFiglio(t *testing.T) {
 	if got := uno[string](b, `SELECT tipo::text FROM componente WHERE componente_id = $1`, p); got != "sciolto" {
 		t.Errorf("un nodo accettato non basta, serve l'arco: %s", got)
 	}
-	msg, err := b.accettaArco(a, "#1", "#2")
+	prima, righe := b.bom(), b.relazioniProposte()
+	_, err := b.accettaArco(a, "#1", "#2")
+	var rc fascicolo.RichiestaConversione
+	if !errors.As(err, &rc) || rc.Componente != p || rc.Codice != "7120012" || rc.Figlio != "7120021" {
+		t.Fatalf("al primo figlio il gesto chiede la conferma per 7120012: %#v", err)
+	}
+	if want := "Il componente 7120012 è attualmente un particolare. Aggiungendo 7120021 come figlio, 7120012 diventerà un sottoassieme. Vuoi confermare questa modifica?"; rc.Domanda() != want {
+		t.Errorf("domanda: %q", rc.Domanda())
+	}
+	if got := uno[string](b, `SELECT tipo::text FROM componente WHERE componente_id = $1`, p); got != "sciolto" {
+		t.Errorf("senza conferma il particolare resta particolare: %s", got)
+	}
+	if b.bom() != prima || b.relazioniProposte() != righe {
+		t.Errorf("la domanda non scrive niente: working %s → %s, proposte %s → %s", prima, b.bom(), righe, b.relazioniProposte())
+	}
+	msg, err := b.gesto(func(q *db.Queries) (string, error) {
+		return fascicolo.AccettaRelazioneDecisa(b.ctx, q, b.thread, fascicolo.ChiaveRelazione{Allegato: a.AllegatoID, Padre: "#1", Figlio: "#2"},
+			b.utente, fascicolo.DecisioneTipo{Assiemi: []uuid.UUID{p}})
+	})
 	ok(t, err)
 	if !strings.Contains(msg, "7120012 diventa un assieme") {
 		t.Errorf("messaggio: %q", msg)
 	}
 	if got := uno[string](b, `SELECT tipo::text FROM componente WHERE componente_id = $1`, p); got != "sottoassieme" {
-		t.Errorf("al primo figlio il particolare diventa un assieme: %s", got)
+		t.Errorf("confermato il cambio, il particolare diventa un assieme con il suo primo figlio: %s", got)
 	}
 }
 

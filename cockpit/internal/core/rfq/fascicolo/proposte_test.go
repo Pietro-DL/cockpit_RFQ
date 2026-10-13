@@ -284,8 +284,10 @@ func TestIlTipoSuggeritoNonEMaiCommerciale(t *testing.T) {
 			p.TipoProposto = db.NullTipoComponente{TipoComponente: proposto, Valid: true}
 		}
 		for _, figli := range []int{0, 2} {
-			if got := tipoVoluto(p, figli); got == db.TipoComponenteCommerciale || got == db.TipoComponenteFinito {
-				t.Errorf("tipoVoluto(proposto %q, %d figli) = %s", proposto, figli, got)
+			for _, assieme := range []bool{false, true} { // B2.11: con e senza la dichiarazione dell'operatore
+				if got, _ := tipoVoluto(p, figli, assieme); got == db.TipoComponenteCommerciale || got == db.TipoComponenteFinito {
+					t.Errorf("tipoVoluto(proposto %q, %d figli, %v) = %s", proposto, figli, assieme, got)
+				}
 			}
 		}
 	}

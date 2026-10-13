@@ -344,6 +344,9 @@ func TestPianificaRifiutaEIlProdotto(t *testing.T) {
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(guida), Qta: 1})
 	rifiutata(t, cx, v, "77866666 è guida")
 
+	// la radice dello STEP ha dei figli nel file: lo STEP la propone assieme (Pianifica). Da A1d P4 (B2.11) serve
+	// che lo dica: un nodo senza suggerimento che qui riceve dei figli si rifiuta (TestPianificaNessunaConversioneTacita…)
+	b.radice.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSottoassieme, Valid: true}
 	v = b.comeE()
 	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: p(b.radice), Qta: 1}, ArcoVoluto{Padre: p(b.radice), Figlio: p(b.nuovo), Qta: 2})
 	pv, err := pianifica(b.contesto(), v)
@@ -407,23 +410,149 @@ func TestFraseVoluta(t *testing.T) {
 	}
 }
 
-// Il tipo con cui nasce un nodo: assieme con dei figli, altrimenti quello suggerito (mai prodotto).
+// Il tipo con cui nasce un nodo: senza figli quello suggerito (mai prodotto); con dei figli assieme solo se lo STEP
+// lo suggerisce o se e' dichiarato, altrimenti un rifiuto. Riscritta per A1d P4 (B2.11, R-14): prima un nodo con dei
+// figli nasceva assieme in ogni caso (tipoVoluto(n, 2) = sottoassieme anche con il suggerimento «particolare»).
 func TestTipoVoluto(t *testing.T) {
 	n := propostaVoluta("#3", "77811111", db.StatoPropostaAperta)
-	if got := tipoVoluto(n, 2); got != db.TipoComponenteSottoassieme {
-		t.Errorf("con figli: %s", got)
+	tipo := func(figli int, assieme bool) (db.TipoComponente, error) {
+		t.Helper()
+		return tipoVoluto(n, figli, assieme)
 	}
-	if got := tipoVoluto(n, 0); got != db.TipoComponenteSciolto {
-		t.Errorf("senza suggerimento: %s", got)
+	if got, err := tipo(2, true); err != nil || got != db.TipoComponenteSottoassieme {
+		t.Errorf("con figli, dichiarato: %s %v", got, err)
+	}
+	if got, err := tipo(2, false); err == nil || !strings.Contains(err.Error(), "tipo non cambia da solo") {
+		t.Errorf("con figli, senza suggerimento ne' dichiarazione: atteso un rifiuto, %s %v", got, err)
+	}
+	if got, err := tipo(0, false); err != nil || got != db.TipoComponenteSciolto {
+		t.Errorf("senza suggerimento: %s %v", got, err)
+	}
+	n.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSciolto, Valid: true}
+	if _, err := tipo(2, false); err == nil {
+		t.Error("lo STEP lo dice particolare e qui ha dei figli: senza dichiarazione si rifiuta")
+	}
+	if got, _ := tipo(0, true); got != db.TipoComponenteSciolto {
+		t.Errorf("senza figli la dichiarazione non cambia niente: %s", got)
 	}
 	n.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteFinito, Valid: true}
-	if got := tipoVoluto(n, 0); got != db.TipoComponenteSciolto {
+	if got, _ := tipo(0, false); got != db.TipoComponenteSciolto {
 		t.Errorf("un nodo sotto un padre non nasce prodotto: %s", got)
 	}
 	n.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSottoassieme, Valid: true}
-	if got := tipoVoluto(n, 0); got != db.TipoComponenteSottoassieme {
-		t.Errorf("il suggerimento dello STEP: %s", got)
+	if got, err := tipo(0, false); err != nil || got != db.TipoComponenteSottoassieme {
+		t.Errorf("il suggerimento dello STEP: %s %v", got, err)
 	}
+	if got, err := tipo(2, false); err != nil || got != db.TipoComponenteSottoassieme {
+		t.Errorf("lo STEP lo dice assieme: con dei figli non serve la dichiarazione: %s %v", got, err)
+	}
+}
+
+// A1d P4, B2.11 (R-14, K6): la struttura voluta non converte in silenzio il tipo suggerito di un nodo proposto. Un
+// nodo che lo STEP dice particolare e che qui riceve dei figli si rifiuta, salvo la dichiarazione dell'operatore
+// (StrutturaVoluta.Assiemi) o una carta «n:» assieme con lo stesso codice; un nodo che lo STEP dice assieme passa
+// come prima. La dichiarazione di un nodo che non e' di questa RFQ si rifiuta.
+func TestPianificaNessunaConversioneTacitaDelNodoProposto(t *testing.T) {
+	b := nuovoBancoVoluta()
+	b.nuovo.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSciolto, Valid: true}
+	conFiglio := func() StrutturaVoluta {
+		v := b.comeE()
+		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 1},
+			ArcoVoluto{Padre: p(b.nuovo), Figlio: "n:77899999", Qta: 2})
+		v.Nuovi = []ComponenteNuovo{{Codice: "77899999", Tipo: db.TipoComponenteSciolto}}
+		return v
+	}
+	rifiutata(t, b.contesto(), conFiglio(), "77811111: nello STEP è un particolare")
+	rifiutata(t, b.contesto(), conFiglio(), "tipo non cambia da solo")
+
+	// con la dichiarazione dell'operatore passa, e il codice nuovo puo' nascere assieme
+	v := conFiglio()
+	v.Assiemi = []uuid.UUID{b.nuovo.PropostaID}
+	pv, err := pianifica(b.contesto(), v)
+	if err != nil {
+		t.Fatalf("dichiarato assieme: %v", err)
+	}
+	if !pv.Assieme["n:77811111"] || pv.Figli["n:77811111"] != 1 {
+		t.Errorf("il piano deve dire che 77811111 nasce assieme: %v %v", pv.Assieme, pv.Figli)
+	}
+	if got, err := tipoVoluto(b.nuovo, pv.Figli["n:77811111"], pv.Assieme["n:77811111"]); err != nil || got != db.TipoComponenteSottoassieme {
+		t.Errorf("all'applicazione nasce assieme: %s %v", got, err)
+	}
+
+	// senza figli nella struttura il nodo particolare passa come prima, anche senza dichiarazione
+	v = b.comeE()
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 1})
+	if _, err := pianifica(b.contesto(), v); err != nil {
+		t.Errorf("un nodo particolare senza figli: %v", err)
+	}
+
+	// lo STEP lo dice assieme: passa senza dichiarazione (nessuna conversione)
+	b2 := nuovoBancoVoluta()
+	b2.nuovo.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSottoassieme, Valid: true}
+	v = b2.comeE()
+	v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b2.assieme), Figlio: p(b2.nuovo), Qta: 1},
+		ArcoVoluto{Padre: p(b2.nuovo), Figlio: "n:77899999", Qta: 2})
+	v.Nuovi = []ComponenteNuovo{{Codice: "77899999", Tipo: db.TipoComponenteSciolto}}
+	if _, err := pianifica(b2.contesto(), v); err != nil {
+		t.Errorf("un nodo che lo STEP dice assieme: %v", err)
+	}
+
+	// una dichiarazione che non e' di questa RFQ
+	v = conFiglio()
+	v.Assiemi = []uuid.UUID{uuid.New()}
+	rifiutata(t, b.contesto(), v, "un nodo dichiarato assieme non è di questa RFQ")
+}
+
+// B2.11: la carta «n:» con dei figli tiene il tipo scritto dall'operatore. Particolare o commerciale: pianifica la
+// rifiuta (gia' prima: TestPianificaNienteSottoUnParticolare); assieme: passa. Prima l'applicazione forzava
+// comunque «sottoassieme» (voluta.go, carta «n:»): adesso, se un giorno pianifica non la fermasse, si rifiuta.
+// Qui la parte pura; la parte che scrive e' in conversioni_tacite_db_test.go.
+func TestPianificaLaCartaConFigliTieneIlSuoTipo(t *testing.T) {
+	b := nuovoBancoVoluta()
+	carta := func(tipo db.TipoComponente) StrutturaVoluta {
+		v := b.comeE()
+		v.Nuovi = []ComponenteNuovo{{Codice: "77899990", Tipo: tipo}, {Codice: "77899999", Tipo: db.TipoComponenteSciolto}}
+		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.assieme), Figlio: "n:77899990", Qta: 1},
+			ArcoVoluto{Padre: "n:77899990", Figlio: "n:77899999", Qta: 1})
+		return v
+	}
+	rifiutata(t, b.contesto(), carta(db.TipoComponenteSciolto), "77899990 è un particolare: sotto non ci va niente")
+	pv, err := pianifica(b.contesto(), carta(db.TipoComponenteSottoassieme))
+	if err != nil {
+		t.Fatalf("una carta assieme con un figlio: %v", err)
+	}
+	if got := pv.Scritti["n:77899990"].Tipo; got != db.TipoComponenteSottoassieme {
+		t.Errorf("la carta tiene il tipo scritto: %s", got)
+	}
+}
+
+// B2.11 (revisione della corsia D, B5): la carta «n:» assieme e un nodo proposto che lo STEP dice particolare, con lo
+// stesso codice, sono lo stesso codice nuovo. In pianifica decide la carta; all'applicazione il nodo passa da
+// tipoVoluto con pianoVoluta.Assieme, che quindi deve dire assieme: altrimenti l'applicazione rifiuterebbe una
+// struttura che pianifica ha accettato. Con la carta particolare, invece, si rifiuta.
+func TestPianificaLaCartaAssiemeValeAnchePerIlNodoDelloStessoCodice(t *testing.T) {
+	b := nuovoBancoVoluta()
+	b.nuovo.TipoProposto = db.NullTipoComponente{TipoComponente: db.TipoComponenteSciolto, Valid: true}
+	struttura := func(tipo db.TipoComponente) StrutturaVoluta {
+		v := b.comeE()
+		v.Nuovi = []ComponenteNuovo{{Codice: "77811111", Tipo: tipo}, {Codice: "77899999", Tipo: db.TipoComponenteSciolto}}
+		// la carta sotto il prodotto, il nodo sotto l'assieme: tutti e due nel disegno, lo stesso codice
+		v.Archi = append(v.Archi, ArcoVoluto{Padre: c(b.prodotto), Figlio: "n:77811111", Qta: 1},
+			ArcoVoluto{Padre: c(b.assieme), Figlio: p(b.nuovo), Qta: 1},
+			ArcoVoluto{Padre: p(b.nuovo), Figlio: "n:77899999", Qta: 2})
+		return v
+	}
+	pv, err := pianifica(b.contesto(), struttura(db.TipoComponenteSottoassieme))
+	if err != nil {
+		t.Fatalf("la carta assieme con lo stesso codice del nodo: %v", err)
+	}
+	if !pv.Assieme["n:77811111"] || !contieneID(pv.Nuovi["n:77811111"], b.nuovo.PropostaID) {
+		t.Fatalf("il piano deve dire che 77811111 (carta e nodo) nasce assieme: %v %v", pv.Assieme, pv.Nuovi)
+	}
+	if got, err := tipoVoluto(b.nuovo, pv.Figli["n:77811111"], pv.Assieme["n:77811111"]); err != nil || got != db.TipoComponenteSottoassieme {
+		t.Errorf("all'applicazione il nodo nasce assieme, come la carta: %s %v", got, err)
+	}
+	rifiutata(t, b.contesto(), struttura(db.TipoComponenteSciolto), "77811111 è un particolare: sotto non ci va niente")
 }
 
 // Un nodo senza codice a cui l'operatore scrive il codice di un assieme che c'e' gia' (sotto un altro prodotto):
