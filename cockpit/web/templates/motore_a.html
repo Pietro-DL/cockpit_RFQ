@@ -115,7 +115,12 @@
 {{/* Il workspace (U-05; piano del frontend §4.1): uguale per distinta e documenti. Al centro fonte (R3), barra
    dell'albero (R4, SOPRA le schede), schede (R5) e conflitti della struttura (R7); a destra l'anteprima (R6) e «Da
    smistare» (R8); in fondo, a tutta larghezza, il riepilogo documentale (R9). Le colonne le fa il CSS (container
-   query su .ma-ws: tre da 1180 px, due da 860 px, sotto una e l'anteprima come foglio dal basso). */}}
+   query su .ma-ws: tre da 1180 px, due da 860 px, sotto una e l'anteprima come foglio dal basso).
+   Il riepilogo documentale sta FUORI da .ma-ws-griglia, dopo: l'anteprima (e da 860 a 1180 px la colonna destra) è
+   position: sticky, e un elemento sticky scorre dentro il suo blocco contenitore, che per una cella di griglia è la
+   griglia intera. Con il riepilogo nella griglia l'anteprima scendeva sopra di lui, testi uno sopra l'altro
+   (collaudo dell'utente del 13/10, rapporto 2026-10-13-uifix-ispettore.md); fuori dalla griglia si ferma dove finisce
+   la prima riga. Resta dentro .ma-ws per le container query della tabella delle voci. */}}
 {{define "ma_workspace"}}{{$v := index . 0}}{{$p := index . 1}}
 <div class="ma-ws" data-ma-ws><div class="ma-ws-griglia">
   <div class="ma-ws-centro">
@@ -128,8 +133,9 @@
     {{template "ma_anteprime" (arr $v $p)}}
     {{template "ma_da_smistare" (arr $v $p)}}
   </div>
-  {{template "ma_documenti" (arr $v $p)}}
-</div></div>
+</div>
+{{template "ma_documenti" (arr $v $p)}}
+</div>
 {{end}}
 
 {{/* ================================================================ icone (tratto 1.7, griglia 24, una famiglia) */}}
