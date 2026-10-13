@@ -251,3 +251,16 @@ func TestMotoreAScenarioHNelBrowser(t *testing.T) {
 		t.Errorf("dopo H6 le regole non sono quelle della scena: %q", b.ws.MotoreA.Stato)
 	}
 }
+
+// TestMotoreAImpaginazioneNelBrowser: la prova 7 dello script (collaudo dell'utente del 13/10, rapporto
+// 2026-10-13-uifix-ispettore.md): con una casella scelta e la vista Documenti, a 1900x950, 1440x900, 1280x800 e 1024x768 e nel tema
+// scuro del sistema, i blocchi del workspace non si sovrappongono (l'anteprima non scende sopra il riepilogo
+// documentale), il pannello ha uno sfondo pieno, «Ispeziona» apre la finestra modale sopra tutto. Nessuna scrittura.
+func TestMotoreAImpaginazioneNelBrowser(t *testing.T) {
+	b := preparaBancoWeb(t)
+	s := b.maScenaHNelBrowser(t, "MAI01")
+	lanciaScenarioH(t, s, "7")
+	if n := contaSQL(t, b, `SELECT count(*) FROM documento_proposta WHERE thread_id = $1 AND stato = 'scartata'`, s.thread); n != 0 {
+		t.Errorf("proposte scartate dopo la prova dell'impaginazione: %d, attese zero", n)
+	}
+}
