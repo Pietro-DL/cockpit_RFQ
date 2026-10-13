@@ -12,8 +12,9 @@ package web
 //   - GET /thread/{id}/motore-a/dati: il JSON della pagina (contratto §2.4);
 //   - GET /thread/{id}/motore-a/anteprima/step-strutturale: l'anteprima dell'autorizzazione dello STEP (§3.4 A).
 //
-// La pagina GET /thread/{id}/motore-a, la voce di Init e la funzione etichetta del template arrivano con A1d-P4, insieme
-// al template (direttiva §3.2: prima di P4 non si registra un template che non c'è).
+// A1d-P4, passo B5.1: la pagina GET /thread/{id}/motore-a e il suo frammento htmx, con il template, la funzione
+// etichetta e la loro catena, stanno in motore_a_pagina.go; registraMotoreA li monta con registraPaginaMotoreA. Questo
+// file resta quello delle rotte JSON. Le rotte nuove di P4 (R1-R14 del contratto rev. 3) non ci sono ancora.
 //
 // A1d-P3 aggiunge qui il ramo Motore A di threadFrammento (dalMotoreA, esitoMotoreA, rispondiMotoreA, scriviEsitoMotoreA:
 // in fondo al file),
@@ -79,8 +80,8 @@ type erroreMotoreA struct {
 	Errore string `json:"errore"`
 }
 
-// registraMotoreA monta le due rotte JSON della Distinta nuova (A1d-P2) e le loro righe gemelle. Prima il flag, poi il
-// no-store, poi soloAdmin: la protezione sta nel punto di montaggio.
+// registraMotoreA monta le due rotte JSON della Distinta nuova (A1d-P2) e le loro righe gemelle, poi la pagina (A1d-P4,
+// B5.1: registraPaginaMotoreA). Prima il flag, poi il no-store, poi soloAdmin: la protezione sta nel punto di montaggio.
 func (s *Server) registraMotoreA(mux *http.ServeMux) {
 	mux.HandleFunc("GET /thread/{id}/motore-a/dati", s.conMotoreA(conNoStore(s.soloAdmin(s.motoreADati))))
 	mux.HandleFunc("GET /thread/{id}/motore-a/anteprima/step-strutturale", s.conMotoreA(conNoStore(s.soloAdmin(s.motoreAAnteprimaStep))))
@@ -88,6 +89,8 @@ func (s *Server) registraMotoreA(mux *http.ServeMux) {
 	// righe qui sopra; il resto arriva qui, a flag spento 404 come un indirizzo che non c'è, a flag acceso 405.
 	mux.HandleFunc("/thread/{id}/motore-a/dati", s.conMotoreA(conNoStore(metodoNonAmmessoMotoreA)))
 	mux.HandleFunc("/thread/{id}/motore-a/anteprima/step-strutturale", s.conMotoreA(conNoStore(metodoNonAmmessoMotoreA)))
+	// A1d-P4, B5.1: la pagina e la sua riga gemella, con la stessa catena (motore_a_pagina.go)
+	s.registraPaginaMotoreA(mux)
 }
 
 // conMotoreA è la porta: a flag spento il 404 standard del router (http.NotFound) a tutti, anonimi compresi, PRIMA della
