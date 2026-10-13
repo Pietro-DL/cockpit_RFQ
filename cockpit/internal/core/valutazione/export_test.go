@@ -66,6 +66,10 @@ var VociNuoveDopoLaFonteSuperataR111PerProva = vociNuoveDopoLaFonteSuperataR111
 // CondizioniNuoveDellaBOMPerProva: condizioniNuoveDellaBOM, l'adattatore delle condizioni nuove di T-E1-14.
 var CondizioniNuoveDellaBOMPerProva = condizioniNuoveDellaBOM
 
+// CondizioniNuoveDallaConfermaPerProva: condizioniNuoveDallaConferma, l'adattatore delle condizioni nuove di T-E1-14 per
+// i prodotti con una conferma strutturale (P4, R-02 della revisione di B3; consegna a B3.5).
+var CondizioniNuoveDallaConfermaPerProva = condizioniNuoveDallaConferma
+
 // MotiviDelNodoPerProva: motiviDelNodo, sugli ancoraggi, le associazioni (in ordine di allegato) e i conflitti dati.
 func MotiviDelNodoPerProva(prodotto string, n ancoraggio.NodoProposto, componente *uuid.UUID, ancoraggi []ancoraggio.AncoraggioFile,
 	associazioni []AssociazioneFile, conflitti []Conflitto) []MotivoSmistamento {

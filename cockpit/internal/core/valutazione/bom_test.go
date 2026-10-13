@@ -899,7 +899,9 @@ func TestIValoriDellaVerifica(t *testing.T) {
 		{valutazione.GestiVerificaBOM{}, "Nomenclatura:nomenclatura Gerarchia:gerarchia Legacy:legacy"},
 		{valutazione.GestoVerifica{}, "Da:da Il:il Nodi:nodi Archi:archi"},
 		{valutazione.VerificaAsse{}, "Stato:stato Legacy:legacy DaDecidere:da_decidere Conflitti:conflitti Motivo:motivo"},
-		{valutazione.VerificaBOM{}, "Nomenclatura:nomenclatura Gerarchia:gerarchia Verificata:verificata FonteRegistrata:fonte_registrata RimozioniAperte:rimozioni_aperte SenzaFigli:senza_figli"},
+		// Riscritta per P4 B3.2-B3.4 (regola della conferma strutturale): quattro campi in coda, tutti omitempty, vuoti con
+		// l'adattatore legacy (TestSenzaConfermaEJSONLegacy prova che il JSON legacy resta quello di prima).
+		{valutazione.VerificaBOM{}, "Nomenclatura:nomenclatura Gerarchia:gerarchia Verificata:verificata FonteRegistrata:fonte_registrata RimozioniAperte:rimozioni_aperte SenzaFigli:senza_figli Criterio:criterio OrigineGerarchia:origine_gerarchia GerarchiaStep:gerarchia_step Conferma:conferma"},
 		{valutazione.Conflitto{}, "Tipo:tipo Asse:asse Rif:rif Prodotto:prodotto Decisione:decisione OrigineDecisione:origine_decisione Proposta:proposta Documentale:documentale Motivo:motivo EvidenzaDecisione:evidenza_decisione EvidenzaProposta:evidenza_proposta"},
 	} {
 		if got := campiJSON(c.tipo); got != c.campi {
