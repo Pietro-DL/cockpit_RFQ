@@ -290,6 +290,14 @@ func (s *Server) Init() error {
 		}
 		s.pagine[p] = t
 	}
+	// La Distinta nuova del motore A (giro 5, A1d-P4, B5.1; R-06 della revisione di B5.1): il suo template vuole anche
+	// etichetta, che sta solo in funzioniMotoreA (motore_a_pagina.go) e non nella FuncMap di tutte le pagine. Si compone
+	// anche a flag spento: un errore del template ferma l'avvio, come per le altre pagine.
+	tma, err := template.Must(base.Clone()).Funcs(funzioniMotoreA).ParseFS(s.Templ, "motore_a.html")
+	if err != nil {
+		return fmt.Errorf("template motore_a.html: %w", err)
+	}
+	s.pagine["motore_a.html"] = tma
 	return nil
 }
 
