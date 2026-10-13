@@ -163,6 +163,12 @@ markmap:
 - **`giorni_sync_iniziale`**
   - Default: `0` = `coda.GiorniSyncInizialeDefault` (7)
   - Verifica / effetto: negativo = errore
+- **`giorni_carica_precedenti`**
+  - Default: `0` = `web.GiorniStoricoDefault` (2)
+  - Verifica / effetto: i giorni di un clic su «Carica precedenti»; fuori da 0…365 = errore
+- **`inbox_max_messaggi`**
+  - Default: `0` = `web.RigheInboxDefault` (200)
+  - Verifica / effetto: le righe della lista dell'Inbox; fuori da 0…5000 = errore
 - **`sync_apertura_inbox`**
   - Default: assente = `true`
   - Verifica / effetto: —

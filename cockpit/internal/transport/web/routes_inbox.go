@@ -95,7 +95,15 @@ type inboxDati struct {
 	// sulla schermata vede crescere il contatore e comparire i pallini ai poll successivi.
 	Nuovi  map[uuid.UUID]bool
 	NNuove int
+	// Limite sono le righe che la lista mostra al massimo ([outlook].inbox_max_messaggi): quando la
+	// lista è piena la pagina lo dice, invece di lasciar credere che non ci sia altro.
+	// GiorniStorico è il passo di «Carica precedenti», detto sul pulsante.
+	Limite        int
+	GiorniStorico int
 }
+
+// Piena dice se la lista si è fermata al limite: oltre ci sono messaggi più vecchi che non si vedono.
+func (d inboxDati) Piena() bool { return d.Limite > 0 && len(d.Righe) >= d.Limite }
 
 // ENuovo dice se una riga della lista è arrivata dopo l'ultima visita dell'operatore.
 func (d inboxDati) ENuovo(id uuid.UUID) bool { return d.Nuovi[id] }
@@ -201,7 +209,8 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	if id, err := uuid.Parse(r.URL.Query().Get("sel")); err == nil {
 		sel = id.String()
 	}
-	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione, Limite: 200, Salta: 0})
+	limite := s.righeInbox()
+	righe, err := q.ListInbox(r.Context(), db.ListInboxParams{Filtro: filtro, Casella: scelta, Quadrante: quadrante, Direzione: direzione, Limite: int32(limite), Salta: 0})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -213,7 +222,7 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	d := inboxDati{Filtro: filtro, Quadrante: quadrante, Direzione: direzione, Quadranti: perQuadrante,
 		Righe: righe, Conta: conta, Selezion: sel,
 		Caselle: caselle, Casella: grezzo, Sync: s.descrizioneSync(), Nuovi: nov.Id, NNuove: nov.Totale,
-		DalCockpit: origineDellaPagina(r.Context(), q, righe)}
+		DalCockpit: origineDellaPagina(r.Context(), q, righe), Limite: limite, GiorniStorico: s.giorniStorico()}
 	// Il frammento e' «inbox_stato», non «inbox_lista»: i comandi e la lista si rifanno INSIEME.
 	// Rispondere con la sola lista lasciava sullo schermo le linguette del quadrante precedente
 	// (checkpoint 7B.5), cioe' una schermata che diceva una cosa e ne mostrava un'altra.
@@ -227,7 +236,9 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GiorniStorico è quanto archivio scarica UN clic su «Carica precedenti», per casella: due giorni.
+// GiorniStoricoDefault è quanto archivio scarica UN clic su «Carica precedenti», per casella, se
+// [outlook].giorni_carica_precedenti non dice altro: due giorni. Chi lo alza sa che il worker resta
+// occupato più a lungo per ogni clic; le ragioni del valore predefinito sono qui sotto.
 //
 // Non è una misura di prudenza generica, è la forma del worker. Il worker Outlook è seriale e ce n'è
 // uno per PC: finché macina un job storico non prende «Apri in Outlook», non scarica un allegato e
@@ -239,7 +250,24 @@ func (s *Server) inbox(w http.ResponseWriter, r *http.Request) {
 // preme ancora. La catena non si costruisce da sola di proposito (nessun job storico ne accoda un
 // altro): una catena lunga occuperebbe il worker per settimane senza che nessuno l'abbia chiesto,
 // che è esattamente il difetto di prima con un vestito nuovo.
-const GiorniStorico = 2
+const GiorniStoricoDefault = 2
+
+// RigheInboxDefault sono le righe della lista dell'Inbox se [outlook].inbox_max_messaggi non dice altro.
+const RigheInboxDefault = 200
+
+func (s *Server) giorniStorico() int {
+	if s.GiorniStorico > 0 {
+		return s.GiorniStorico
+	}
+	return GiorniStoricoDefault
+}
+
+func (s *Server) righeInbox() int {
+	if s.InboxMaxMessaggi > 0 {
+		return s.InboxMaxMessaggi
+	}
+	return RigheInboxDefault
+}
 
 // syncStorico accoda la finestra di GiorniStorico PRIMA di quanto già coperto: il limite superiore è
 // il cursore storico_fino_a (se un "Carica precedenti" è già riuscito) oppure la mail più vecchia in
@@ -336,7 +364,7 @@ func (s *Server) finestraStorico(ctx context.Context, q *db.Queries, casella uui
 				return
 			}
 		}
-		inizio := fine.AddDate(0, 0, -GiorniStorico)
+		inizio := fine.AddDate(0, 0, -s.giorniStorico())
 		f, i := fine, inizio
 		cartelle = append(cartelle, worker.CartellaCursore{Cartella: nome, Dal: &i, Al: &f})
 		if al.IsZero() || fine.After(al) {
@@ -420,7 +448,7 @@ func (s *Server) badgeStorico(w http.ResponseWriter, j *db.Job) {
 	case db.StatoJobPronto, db.StatoJobInCorso:
 		fmt.Fprintf(w, `<span class="badge avviso" hx-get="/inbox/sync-storico/stato" hx-trigger="every 3s" hx-swap="outerHTML">Sync storico #%d %s [%s]…</span>`, j.JobID, j.Stato, finestra)
 	case db.StatoJobFatto:
-		fmt.Fprintf(w, `<span class="badge verde">Sync storico #%d completato [%s]. Premi di nuovo per i %d giorni prima.</span>`, j.JobID, finestra, GiorniStorico)
+		fmt.Fprintf(w, `<span class="badge verde">Sync storico #%d completato [%s]. Premi di nuovo per i %d giorni prima.</span>`, j.JobID, finestra, s.giorniStorico())
 	default:
 		fmt.Fprintf(w, `<span class="badge errore">Sync storico #%d fallito: %s</span>`, j.JobID, template.HTMLEscapeString(j.Errore.String))
 	}

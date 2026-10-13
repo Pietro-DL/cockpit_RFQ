@@ -89,6 +89,7 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 	static, _ := fs.Sub(risorse.FS, "web/static")
 	ws := &web.Server{Pool: s.Pool, Log: log, NAS: s.Scrittore, Ingest: s.Ingest, Templ: templ, Static: static,
 		IntervalloSync: s.IntervalloSync, Sync: s.OpzioniSync, SyncAperturaInbox: s.SyncApertura, Modalita: cfg.Server.Modalita,
+		GiorniStorico: cfg.Outlook.GiorniCaricaPrecedenti, InboxMaxMessaggi: cfg.Outlook.InboxMaxMessaggi,
 		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, URLPubblico: cfg.Server.URLPubblico, Workers: risorse.FS, Agente: s.Agente,
 		Ricognitore: s.Ricognitore, Staging: s.RadiceStaging, MotoreA: s.MotoreA,
 		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri}}

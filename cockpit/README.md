@@ -348,6 +348,12 @@ markmap:
   - Default **7**.
   - Vale una volta sola: appena il primo sync scrive un cursore comanda il cursore, e un riavvio non riporta indietro la casella.
   - Sette e non trenta perché il primo caricamento è l'unico in cui il worker scarica davvero tutto (corpo e allegati), e finché è occupato non apre elementi e non scarica allegati per chi sta lavorando
+- **`giorni_carica_precedenti`**
+  - i giorni di archivio di un clic su «Carica precedenti», per casella. Default **2**, da 1 a 365.
+  - Più alto = si risale prima nella posta vecchia, ma il worker Outlook resta occupato più a lungo per ogni clic
+- **`inbox_max_messaggi`**
+  - quante righe mostra al massimo la lista dell'Inbox (le più recenti del filtro). Default **200**, da 1 a 5000.
+  - Quando la lista è piena la pagina lo dice in fondo; i contatori dei filtri contano sempre tutto
 - **`dal`**
   - `"2026-08-01"`: **override esplicito** della finestra iniziale, per import controllati.
   - Non tocca le cartelle che hanno già un cursore, e scritto male ferma l'avvio.
