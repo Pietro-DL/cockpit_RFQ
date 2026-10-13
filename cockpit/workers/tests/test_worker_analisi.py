@@ -923,6 +923,35 @@ def test_la_configurazione_dell_ocr(caplog):
     assert motore is None and "Tesseract" in motivo
 
 
+def test_l_ocr_scritto_dal_pacchetto_arriva_al_worker(tmp_path):
+    """Il pacchetto della pagina Postazioni scrive l'OCR della [[postazione]] nella tabella [analisi] del worker.toml
+    (13/10/2026), nella forma di workerTOML: le stringhe fra virgolette, ocr_dpi numero, ocr_tessdata fra apici
+    singoli. Il worker di analisi lo legge con i backslash del percorso intatti; quello Outlook non lo vede."""
+    from cockpit_client import carica_config
+    f = tmp_path / "worker.toml"
+    f.write_text(r"""server_url = "http://127.0.0.1:8080"
+staging = 'C:\cockpit\staging'   # cartella locale del worker: file temporanei e log
+consenti_invio = false
+
+[outlook]
+worker_id = "outlook@PC-NOME"
+token     = "segreto-outlook"
+
+[analisi]
+worker_id = "analisi@PC-NOME"
+token     = "segreto-analisi"
+# OCR di questa postazione, da [[postazione]] nel cockpit.toml del server: cambiarlo lì,
+# perché una modifica fatta qui si perde al prossimo pacchetto.
+ocr          = "automatico"
+ocr_lingua   = "eng"
+ocr_dpi      = 400
+ocr_tessdata = 'C:\Program Files\Tesseract-OCR\tessdata'
+""", encoding="utf-8")
+    c = ocr_da_config(carica_config(str(f), sezione="analisi"))
+    assert (c.modo, c.lingua, c.dpi, c.tessdata) == ("automatico", "eng", 400, r"C:\Program Files\Tesseract-OCR\tessdata")
+    assert "ocr_tessdata" not in carica_config(str(f), sezione="outlook")
+
+
 def test_pdf_illeggibile_non_porta_un_testo(tmp_path):
     """Prova 177, il rovescio. Un PDF che non si apre non e' un PDF senza testo: e' un PDF che non si e'
     letto. Niente `testo_pdf`, e resta `errore_pdf`."""

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -526,6 +527,87 @@ type Postazione struct {
 	NomeHost    string `toml:"nome_host"` // 'PC-FRANCESCO' (normalizzato in maiuscolo)
 	Descrizione string `toml:"descrizione"`
 	Utente      string `toml:"utente"` // sigla di chi ci lavora
+
+	// L'OCR del worker di analisi di QUESTO PC (13/10/2026, richiesta dal collaudo): le stesse quattro chiavi
+	// che il worker legge da [analisi] del suo worker.toml, con gli stessi nomi. Stanno qui perché il
+	// pacchetto della pagina Postazioni riscrive il worker.toml da zero a ogni generazione: scritte a mano
+	// sul PC si perdevano alla prima rigenerazione, e su un PC con Tesseract installato ma fuori dal PATH,
+	// senza ocr_tessdata, l'OCR restava spento. Il server non le usa: le copia nel pacchetto.
+	// Tutte facoltative; assenti = il worker fa da sé (i suoi default). Valori controllati all'avvio (validaOCR).
+	OCR         string `toml:"ocr"`          // "" | "automatico" | "spento" (normalizzato minuscolo)
+	OCRLingua   string `toml:"ocr_lingua"`   // lingue di Tesseract separate da '+': "eng", "ita+eng"
+	OCRDPI      int    `toml:"ocr_dpi"`      // 0 = non dichiarato, altrimenti MinOCRDPI..MaxOCRDPI
+	OCRTessdata string `toml:"ocr_tessdata"` // cartella tessdata SUL PC della postazione, assoluta
+}
+
+// HaOCR dice se la postazione dichiara almeno una chiave dell'OCR.
+func (p Postazione) HaOCR() bool {
+	return p.OCR != "" || p.OCRLingua != "" || p.OCRDPI != 0 || p.OCRTessdata != ""
+}
+
+// Limiti di [[postazione]].ocr_dpi: sotto i 72 dpi Tesseract non legge un cartiglio, sopra i 1200 l'immagine
+// di una tavola grande non sta più in memoria su un portatile.
+const (
+	MinOCRDPI = 72
+	MaxOCRDPI = 1200
+)
+
+// lingueOCR: le lingue di Tesseract come le chiamano i file di tessdata («eng», «ita», «chi_sim»), unite da '+'.
+var lingueOCR = regexp.MustCompile(`^[a-z_]{3,}(\+[a-z_]{3,})*$`)
+
+// validaOCR normalizza e controlla le chiavi dell'OCR di una postazione. Il controllo è severo per una ragione
+// precisa: i valori finiscono, copiati tali e quali, nel worker.toml di un altro PC, e un valore che lì rompe
+// la sintassi del TOML vorrebbe dire un worker che non parte, scoperto solo dopo aver installato il pacchetto.
+// Qui invece è il server che non parte, con la chiave e la postazione nell'errore.
+//
+// ocr_tessdata non si cerca sul disco: è un percorso del PC della postazione, non di questo. Deve essere
+// assoluto (il worker parte da una cartella che non è detto sia quella del pacchetto) e scrivibile come
+// stringa letterale TOML fra apici singoli, cioè senza apici singoli e senza caratteri di controllo: è la
+// forma che tiene i backslash di Windows così come sono, la stessa della riga `staging`.
+func (p *Postazione) validaOCR() error {
+	p.OCR = strings.ToLower(strings.TrimSpace(p.OCR))
+	switch p.OCR {
+	case "", "automatico", "spento":
+	default:
+		return fmt.Errorf("config: postazione %q: ocr = %q non valido (automatico | spento)", p.NomeHost, p.OCR)
+	}
+	p.OCRLingua = strings.TrimSpace(p.OCRLingua)
+	if p.OCRLingua != "" && !lingueOCR.MatchString(p.OCRLingua) {
+		return fmt.Errorf("config: postazione %q: ocr_lingua = %q non valido: lingue di Tesseract separate da '+', "+
+			"in minuscolo e senza spazi (per esempio \"eng\" o \"ita+eng\")", p.NomeHost, p.OCRLingua)
+	}
+	if p.OCRDPI != 0 && (p.OCRDPI < MinOCRDPI || p.OCRDPI > MaxOCRDPI) {
+		return fmt.Errorf("config: postazione %q: ocr_dpi = %d non valido (fra %d e %d; assente = il default del worker)",
+			p.NomeHost, p.OCRDPI, MinOCRDPI, MaxOCRDPI)
+	}
+	p.OCRTessdata = strings.TrimSpace(p.OCRTessdata)
+	if t := p.OCRTessdata; t != "" {
+		if strings.ContainsRune(t, '\'') || strings.ContainsFunc(t, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+			return fmt.Errorf("config: postazione %q: ocr_tessdata = %q non valido: niente apici singoli, a capo o "+
+				"caratteri di controllo (va scritto nel worker.toml fra apici singoli)", p.NomeHost, t)
+		}
+		if !percorsoAssolutoDelPC(t) {
+			return fmt.Errorf("config: postazione %q: ocr_tessdata = %q non valido: serve un percorso assoluto del PC "+
+				"della postazione (per esempio 'C:\\Program Files\\Tesseract-OCR\\tessdata')", p.NomeHost, t)
+		}
+	}
+	return nil
+}
+
+// percorsoAssolutoDelPC dice se un percorso è assoluto per il PC su cui girerà il worker, che di solito è
+// Windows e non è detto abbia il sistema del server: una lettera di disco con la barra («C:\», «C:/»), un UNC
+// («\\server\share», «//server/share») o un percorso POSIX («/opt/...»). Non bastano «C:tessdata», relativo
+// alla cartella corrente di quel disco, né «\tessdata», relativo al disco corrente.
+func percorsoAssolutoDelPC(p string) bool {
+	switch {
+	case len(p) >= 3 && conDisco(p) && (p[2] == '\\' || p[2] == '/'):
+		return true
+	case strings.HasPrefix(p, `\\`), strings.HasPrefix(p, "//"):
+		return len(p) > 2
+	case strings.HasPrefix(p, "/"):
+		return true
+	}
+	return false
 }
 
 // Worker è una voce [[worker]]: credenziale individuale e caselle autorizzate.
@@ -970,6 +1052,9 @@ func (c *Config) normalizzaFondazioni() error {
 		}
 		host[p.NomeHost] = true
 		p.Utente = strings.ToUpper(strings.TrimSpace(p.Utente))
+		if err := p.validaOCR(); err != nil {
+			return err
+		}
 	}
 	nomi := map[string]bool{}
 	tokenDi := map[string]string{} // token → il primo worker che l'ha dichiarato
@@ -1008,6 +1093,21 @@ func (c *Config) normalizzaFondazioni() error {
 			if !indirizzi[w.Caselle[j]] {
 				return fmt.Errorf("config: worker %q: casella %q non dichiarata in [[casella]]", w.Nome, w.Caselle[j])
 			}
+		}
+	}
+	// L'OCR dichiarato su una postazione senza worker di analisi non va da nessuna parte: il pacchetto lo
+	// scrive solo nella tabella [analisi]. Non ferma l'avvio (il worker si aggiunge dopo, o la riga è
+	// rimasta da prima), ma si dice: altrimenti si crede di averlo acceso.
+	conAnalisi := map[string]bool{}
+	for _, w := range c.Worker {
+		if w.Tipo == "analisi" && w.Postazione != "" {
+			conAnalisi[w.Postazione] = true
+		}
+	}
+	for _, p := range c.Postazioni {
+		if p.HaOCR() && !conAnalisi[p.NomeHost] {
+			c.Avvisi = append(c.Avvisi, fmt.Sprintf("la postazione %q dichiara l'OCR ma non ha un [[worker]] di tipo analisi: "+
+				"il pacchetto scrive le chiavi ocr* solo nella tabella [analisi], quindi qui non hanno effetto", p.NomeHost))
 		}
 	}
 	c.Outlook.CasellaDefault = strings.ToLower(strings.TrimSpace(c.Outlook.CasellaDefault))

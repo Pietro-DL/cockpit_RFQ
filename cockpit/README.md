@@ -517,6 +517,9 @@ markmap:
   nome_host   = "PC-NOME"    # il nome del PC, come lo stampa `hostname`
   descrizione = "portatile commerciale"
   utente      = "NC"
+  # facoltative: l'OCR del worker di analisi di questo PC, copiato nel pacchetto (vedi sotto)
+  # ocr_tessdata = 'C:\Program Files\Tesseract-OCR\tessdata'
+  # ocr_lingua   = "eng"
 
   # Un worker per postazione e per tipo. Il token sta solo qui: in database va il suo sha256.
   [[worker]]
@@ -532,6 +535,7 @@ markmap:
   - **Controllo: una casella `condivisa = true` non può avere `utente`.** Perché: una cassetta condivisa non ha un proprietario: dargliene uno falserebbe le autorizzazioni
   - **Controllo: `postazione` e `caselle` di un `[[worker]]` devono esistere altrove nel file.** Perché: un worker autorizzato su una casella mai dichiarata è autorizzato su niente, e lo si scoprirebbe solo quando un job non parte. (Un `utente` di `[[casella]]` o `[[postazione]]` che non è in `[[utenti]]` invece non ferma l'avvio: il log lo dice e la casella o la postazione restano senza proprietario)
   - **Controllo: la stessa casella dichiarata due volte.** Perché: idem: due righe, due identità
+  - **Controllo: le chiavi OCR di una `[[postazione]]` (`ocr`, `ocr_lingua`, `ocr_dpi`, `ocr_tessdata`) hanno valori validi.** Perché: il server non le usa, le scrive tali e quali nella tabella `[analisi]` del `worker.toml` a ogni generazione del pacchetto; un valore che lì rompesse il TOML darebbe un worker che non parte, scoperto solo sul PC. Si dichiarano qui e non sul PC perché il pacchetto riscrive il `worker.toml` da zero. Servono quando Tesseract è installato ma il worker non lo trova (`ocr_tessdata`) o le lingue installate sono altre (`ocr_lingua`). Dettagli in `cockpit.toml.example` e in `internal/platform/config/README.md`
 - **Più di una casella attiva** si può, dalla migrazione `0004` (fase 2, voce 2.1): ognuna ha il proprio cursore.
   - Con lo schema fermo alla `0003` il server rifiutava l'avvio dicendo quale disattivare, perché due caselle si sarebbero sovrascritte il cursore a vicenda **perdendo messaggi in silenzio**.
 - Il seed di queste sezioni è **non distruttivo**: togliere una riga dal file non disattiva nulla nel database, lo scrive soltanto nel log.
@@ -788,6 +792,9 @@ markmap:
 - Le attività girano nella sessione interattiva dell'utente perché Outlook classico lo richiede.
 - **Rigenerare il pacchetto invalida il precedente** nel momento in cui si preme il pulsante:
   - la sequenza è `-Ferma` sul PC → genera sul Cockpit → scompatta sopra → rilancia lo script.
+- L'OCR del worker di analisi (`ocr_tessdata`, `ocr_lingua`, `ocr`, `ocr_dpi`) si dichiara nella `[[postazione]]` del PC nel `cockpit.toml` e il pacchetto lo scrive da sé in `[analisi]`:
+  - una modifica vale dal **riavvio del server**; poi si rigenera con la sequenza qui sopra;
+  - righe aggiunte a mano nel `worker.toml` del PC vanno riportate nella `[[postazione]]` prima di rigenerare, o il pacchetto nuovo le cancella (procedura in `cockpit.toml.example`).
 - `scripts\installa-attivita.ps1` resta per il banco, e non fa la stessa cosa:
   - registra sempre tutti e due i worker a partire dalla cartella `workers\` del repository,
   - con `python.exe` e non `pythonw`,
@@ -935,7 +942,7 @@ markmap:
 - **I worker non cambiano codice**, ma il pacchetto sì.
   - Il client dei worker legge `server_url` e `impronta` da `worker.toml`, fissa il certificato per impronta e non guarda il nome:
     - un IPv4, un IPv6 fra parentesi (`https://[fd12:3456:789a:1::7]:8443`) o un nome vanno bene uguale.
-- La pagina *Postazioni* genera il pacchetto con l'`url_pubblico` e l'impronta **dell'avvio in corso**. Quindi:
+- La pagina *Postazioni* genera il pacchetto con l'`url_pubblico`, l'impronta e l'OCR delle `[[postazione]]` **dell'avvio in corso**. Quindi:
   - un pacchetto vale per **una** modalità:
     - indirizzo e certificato di `lan` e `https` sono diversi, e un worker installato con il pacchetto dell'una non parla con il server avviato nell'altra (si ferma con «certificato diverso da quello atteso», oppure non trova il server).
     - Cambiare modalità vuol dire rigenerare e reinstallare il pacchetto su ogni PC (`installa-postazione.ps1 -Ferma` → genera → scompatta sopra → rilancia).

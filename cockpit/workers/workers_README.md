@@ -168,6 +168,9 @@ markmap:
 1. `cockpit_client.py:carica_config` legge `worker.toml`:
    - in cima `server_url`, `impronta` del certificato (se TLS) e `staging`;
    - nella sezione del worker (`[outlook]` o `[analisi]`) `worker_id` e `token`, che vincono su quelli in cima;
+   - in `[analisi]` anche l'OCR dei PDF (`ocr`, `ocr_lingua`, `ocr_dpi`, `ocr_tessdata`: `worker_analisi.ocr_da_config`).
+     Con il pacchetto di *Postazioni* queste chiavi non si scrivono a mano: le dichiara la `[[postazione]]` del PC nel
+     `cockpit.toml` del server e il pacchetto le copia in `[analisi]` a ogni generazione (riscrive il file da zero);
    - le variabili d'ambiente `COCKPIT_URL`, `COCKPIT_TOKEN`, `COCKPIT_IMPRONTA`, `COCKPIT_STAGING` e
      `COCKPIT_WORKER_ID` vincono sul file (le usano i test E2E);
    - il token è **individuale**: viene generato dalla pagina *Postazioni* («genera e scarica il pacchetto», o

@@ -565,6 +565,27 @@ utente    = "NC"
 nome_host   = "PC-NOME"
 descrizione = "portatile commerciale"
 utente      = "NC"
+# L'OCR del worker di analisi di QUESTO PC (facoltativo). Si scrive qui e non nel worker.toml del PC
+# perché il pacchetto della pagina Postazioni riscrive il worker.toml da zero a ogni generazione: queste
+# righe ci finiscono da sole, nella tabella [analisi], e una modifica fatta a mano là si perderebbe.
+# Servono quando Tesseract è installato ma il worker non lo trova (fuori dal PATH, senza TESSDATA_PREFIX:
+# serve ocr_tessdata) o quando le lingue installate non sono quelle predefinite del worker ("ita+eng").
+# Assenti = il worker usa i suoi default. Hanno effetto solo se la postazione ha un [[worker]] di tipo
+# analisi (altrimenti il log lo dice all'avvio). Valori sbagliati fermano l'avvio:
+# ocr          = "automatico"   # "automatico" (l'OCR quando serve, se Tesseract c'e') | "spento"
+# ocr_lingua   = "ita+eng"      # lingue di Tesseract separate da '+', presenti in tessdata su quel PC
+# ocr_dpi      = 300            # fra 72 e 1200
+# ocr_tessdata = 'C:\Program Files\Tesseract-OCR\tessdata'   # assoluto, sul PC della postazione, fra apici singoli
+#
+# Per applicarle, o cambiarle, su un PC già installato, in quest'ordine:
+#   1. scriverle qui. Se sul PC sono già state aggiunte a mano nel suo worker.toml, copiarle qui con gli
+#      stessi valori PRIMA di rigenerare: il pacchetto nuovo sovrascrive quel file e le cancella;
+#   2. riavviare il server: il cockpit.toml si legge solo all'avvio, e un pacchetto generato prima del
+#      riavvio esce senza queste righe;
+#   3. sul PC: installa-postazione.ps1 -Ferma;
+#   4. da Admin > Postazioni: genera e scarica il pacchetto di quel PC (invalida i token del precedente);
+#   5. sul PC: scompattare sopra e rilanciare installa-postazione.ps1.
+# Il worker.toml scompattato le riporta nella tabella [analisi], sotto un commento che dice da dove vengono.
 
 # Un worker per postazione e per tipo. Il token sta solo qui: nel database finisce il suo sha256.
 # `caselle` è l'autorizzazione: il server interseca con quello che il worker dichiara al claim.

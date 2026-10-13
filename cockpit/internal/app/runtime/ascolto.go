@@ -85,14 +85,7 @@ func PreparaTLS(cfg *config.Config, log *slog.Logger) (*rete.Materiale, error) {
 // ascolto», che dice dove si scrive il log e a che livello. Ricavarli qui vorrebbe dire decidere una
 // seconda volta una cosa gia' decisa.
 func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *rete.Materiale, log *slog.Logger, percorsoLog string, livello slog.Level) error {
-	templ, _ := fs.Sub(risorse.FS, "web/templates")
-	static, _ := fs.Sub(risorse.FS, "web/static")
-	ws := &web.Server{Pool: s.Pool, Log: log, NAS: s.Scrittore, Ingest: s.Ingest, Templ: templ, Static: static,
-		IntervalloSync: s.IntervalloSync, Sync: s.OpzioniSync, SyncAperturaInbox: s.SyncApertura, Modalita: cfg.Server.Modalita,
-		GiorniStorico: cfg.Outlook.GiorniCaricaPrecedenti, InboxMaxMessaggi: cfg.Outlook.InboxMaxMessaggi,
-		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, URLPubblico: cfg.Server.URLPubblico, Workers: risorse.FS, Agente: s.Agente,
-		Ricognitore: s.Ricognitore, Staging: s.RadiceStaging, MotoreA: s.MotoreA,
-		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri}}
+	ws := serverWeb(cfg, s, materiale, log)
 	if err := ws.Init(); err != nil {
 		return err
 	}
@@ -160,6 +153,37 @@ func Ascolta(ctx context.Context, cfg *config.Config, s *Servizi, materiale *ret
 		return err
 	}
 	return nil
+}
+
+// serverWeb monta il server delle pagine con quello che gli serve della configurazione e dei servizi, senza
+// avviarlo: niente Init, niente listener. Sta fuori da Ascolta per una ragione sola: i valori presi da cfg
+// (l'OCR delle [[postazione]], i giorni di «Carica precedenti», le righe dell'Inbox, ...) sono campi con nome
+// di un letterale, e toglierne uno non dà nessun errore di compilazione. Il server partirebbe lo stesso, e il
+// pacchetto di un PC uscirebbe senza le righe ocr* senza che niente lo dica. Questa funzione si prova in L1
+// partendo dal cockpit.toml letto; Ascolta, che apre una porta, no.
+func serverWeb(cfg *config.Config, s *Servizi, materiale *rete.Materiale, log *slog.Logger) *web.Server {
+	templ, _ := fs.Sub(risorse.FS, "web/templates")
+	static, _ := fs.Sub(risorse.FS, "web/static")
+	return &web.Server{Pool: s.Pool, Log: log, NAS: s.Scrittore, Ingest: s.Ingest, Templ: templ, Static: static,
+		IntervalloSync: s.IntervalloSync, Sync: s.OpzioniSync, SyncAperturaInbox: s.SyncApertura, Modalita: cfg.Server.Modalita,
+		GiorniStorico: cfg.Outlook.GiorniCaricaPrecedenti, InboxMaxMessaggi: cfg.Outlook.InboxMaxMessaggi,
+		TLS: materiale, Indirizzo: cfg.Server.Indirizzo, URLPubblico: cfg.Server.URLPubblico, Workers: risorse.FS, Agente: s.Agente,
+		Ricognitore: s.Ricognitore, Staging: s.RadiceStaging, MotoreA: s.MotoreA, OCRPostazioni: ocrDellePostazioni(cfg),
+		Analizzatore: coda.Analizzatore{Versione: cfg.Analisi.Versione, Parametri: cfg.Analisi.Parametri}}
+}
+
+// ocrDellePostazioni copia l'OCR dichiarato nelle [[postazione]] (già normalizzato e controllato da config)
+// nella forma che il server web scrive nel pacchetto: web non importa config. Solo le postazioni che
+// dichiarano qualcosa; le chiavi sono i nomi host già normalizzati da config (maiuscolo, senza spazi).
+func ocrDellePostazioni(cfg *config.Config) map[string]web.OCRPostazione {
+	m := map[string]web.OCRPostazione{}
+	for _, p := range cfg.Postazioni {
+		if p.HaOCR() {
+			m[p.NomeHost] = web.OCRPostazione{
+				Modo: p.OCR, Lingua: p.OCRLingua, DPI: p.OCRDPI, Tessdata: p.OCRTessdata}
+		}
+	}
+	return m
 }
 
 func logga(log *slog.Logger, h http.Handler) http.Handler {

@@ -222,6 +222,7 @@ markmap:
     - casella o postazione non dichiarata
     - token uguale per due worker
     - più caselle senza `casella_default`
+    - chiavi OCR di una postazione non valide (`ocr`, `ocr_lingua`, `ocr_dpi`, `ocr_tessdata`; l'errore dice postazione e chiave)
   - `[motore_a].anteprima = true` senza `regole` (un indice del motore A rotto invece non ferma: vedi sotto)
 - **database**
   - PostgreSQL non raggiungibile o credenziali sbagliate
@@ -257,6 +258,7 @@ markmap:
   - il certificato che non nomina l'host di `url_pubblico`
   - l'agente acceso senza chiave
   - l'indice del motore A che non si legge, è rifiutato o non attiva nessuna grammatica (riga ERROR), e il suo file dei casi non letto (avviso; `[motore_a]` accesa: la pagina mostra l'errore, il log il motivo)
+  - l'OCR dichiarato su una postazione senza `[[worker]]` di tipo analisi (il pacchetto non lo scrive da nessuna parte)
   - `[retention].giorni_staging` deprecata.
 
 ### Il job del server

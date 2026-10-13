@@ -85,6 +85,10 @@ type Server struct {
 	// URLPubblico e' [server].url_pubblico (7C.1, P1): l'indirizzo che finisce nel pacchetto della
 	// postazione. Vuoto = si deriva dal bind (URLServer).
 	URLPubblico string
+	// OCRPostazioni: l'OCR del worker di analisi per nome host (maiuscolo), dalle [[postazione]] del
+	// cockpit.toml. Il pacchetto della postazione lo scrive nella tabella [analisi] del worker.toml. Un host
+	// assente (o la mappa nil) = nessuna chiave ocr nel pacchetto: il worker usa i suoi default.
+	OCRPostazioni map[string]OCRPostazione
 	// Agente è l'analisi semantica (checkpoint 3R §9). Nil o spenta: la schermata non offre il
 	// pulsante, e la rotta risponde che l'analisi non è attiva. Nascondere non è autorizzare, quindi
 	// il controllo sta in tutti e due i posti.
