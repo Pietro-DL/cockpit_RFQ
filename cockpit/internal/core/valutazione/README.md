@@ -295,7 +295,7 @@ markmap:
     dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
     di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
 - **`esito.go`** (B6, V1) — responsabilità:
-  - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
+  - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, `valutazione-4` dalla notte del 14/10, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
     `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` (dalla notte del 14/10 con `Riconoscimento2D`) e
     `MessaggioInterpretato` (F0-03); i motivi di un file non valutato (`MotivoFile*`).
 - **`vecchio.go`** (B6, V1) — responsabilità:
@@ -1003,10 +1003,9 @@ markmap:
     riga aperta propone «finito» fuori dalla casella della BOM di lavoro scelta di un target (sui dati veri del banco
     nessuna), e `valutazione-2` era già pubblicata. L'impronta dell'esito cambia sempre, perché la versione ci entra;
     stato, assi, motivi, autorità e impronta del prodotto no.
-  - **notte del 14/10 (L-2D, T-6)**: l'esito cambia sullo stesso ingresso, ma la versione resta `valutazione-3` in
-    questo pacchetto: `valutazione-4` va dichiarata una volta sola all'integrazione dei pacchetti della notte, con il
-    letterale dell'anteprima (`motore_a.VersioneAttesa`). Fino ad allora due esiti `valutazione-3` dello stesso ingresso
-    possono differire.
+  - **`valutazione-4`**: dalla notte del 14/10 (mandato autonomo, da ratificare). L-2D, T-6 e le radici di riserva
+    dell'ancoraggio cambiano l'esito sullo stesso ingresso; la versione è avanzata all'integrazione dei pacchetti della
+    notte, insieme al letterale dell'anteprima (`motore_a.VersioneAttesa`).
 - **`VersioneImprontaProdotto` resta 1**: i campi di P7e e della notte del 14/10 non entrano nei dati decisi (R90).
 - Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
   del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.

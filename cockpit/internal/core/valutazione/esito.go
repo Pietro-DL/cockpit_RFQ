@@ -28,10 +28,12 @@ import (
 //     (bom.tipo_finito_*). valutazione-2 era già pubblicata, quindi la versione avanza. Stato, assi, motivi, autorità e
 //     impronta del prodotto non cambiano; l'impronta dell'esito cambia sempre, perché la versione ci entra.
 //
-// Notte del 14/10 (A1d, L-2D e T-6): l'esito cambia sullo stesso ingresso (README, «Notte del 14/10»), ma la versione
-// qui non avanza: con D-CHIUS-3 = B va dichiarata una volta sola all'integrazione dei pacchetti di lavoro della notte,
-// insieme al letterale dell'anteprima (motore_a.VersioneAttesa), che altrimenti rifiuterebbe l'esito.
-const VersioneValutazione = "valutazione-3"
+//   - valutazione-4 (notte del 14/10, A1d, mandato autonomo, da ratificare): sullo stesso ingresso l'esito cambia per
+//     L-2D (il 2D riconosciuto anche dal formato del file, con riconoscimento_2d), T-6 (il cad_3d proposto dallo STEP
+//     del Motore A) e per le radici di riserva dell'ancoraggio (Origine della struttura candidata: nome_file_step,
+//     associazione_step). Avanza una volta sola, all'integrazione dei pacchetti della notte, insieme al letterale
+//     dell'anteprima (motore_a.VersioneAttesa).
+const VersioneValutazione = "valutazione-4"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
 //   - Le cinque versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)

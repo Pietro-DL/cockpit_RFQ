@@ -126,7 +126,7 @@ func TestCalcolaRiuscito(t *testing.T) {
 // La versione (direttiva §0): il letterale del package è la costante del core, e un esito di un'altra versione è
 // ErrVersione con le due versioni nel testo (per il log).
 func TestCalcolaLaVersioneDellEsito(t *testing.T) {
-	letterale := "valutazione-3" // la direttiva A1d, §0
+	letterale := "valutazione-4" // la direttiva A1d, §0, con la notte del 14/10
 	if VersioneAttesa != letterale {
 		t.Fatalf("VersioneAttesa %q, la direttiva vuole %q", VersioneAttesa, letterale)
 	}
@@ -143,7 +143,7 @@ func TestCalcolaLaVersioneDellEsito(t *testing.T) {
 		return e, err
 	}
 	_, err := s.Calcola(context.Background(), maUUID(1))
-	if !errors.Is(err, ErrVersione) || !strings.Contains(err.Error(), "valutazione-2") || !strings.Contains(err.Error(), "valutazione-3") {
+	if !errors.Is(err, ErrVersione) || !strings.Contains(err.Error(), "valutazione-2") || !strings.Contains(err.Error(), "valutazione-4") {
 		t.Errorf("errore %v, atteso ErrVersione con le due versioni", err)
 	}
 }

@@ -259,7 +259,7 @@ func TestMotoreAConLeRegoleACME(t *testing.T) {
 	for _, parte := range []string{"stato=pronta", "versione_limiti=limiti-acme-1", "versione_indice=1",
 		"casi=letti", "impronta_casi=" + improntaCasi, "numero_casi=2", "clienti_attivi=1", clienteACME.String(),
 		"clienti_scartati=0", "impronta_indice=" + improntaIndiceACME, "sha256_indice=" + grezzo, "limite=20s",
-		"versione_valutazione=valutazione-3", "solo al ruolo admin"} {
+		"versione_valutazione=valutazione-4", "solo al ruolo admin"} {
 		if !contiene(accesa, "anteprima motore A accesa", parte) {
 			t.Errorf("la riga dell'avvio non dice %q:\n%s", parte, buf)
 		}

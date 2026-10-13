@@ -390,7 +390,7 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   fotografia della pagina ha il solo thread, nessun messaggio fuori RFQ e il solo cliente del thread.
 - **Il Fascicolo legacy**: l'anteprima dello STEP calcola gli effetti con `fascicolo.EffettoAutorizzazione`, che
   classifica i nodi con il motore legacy (`MotoreDellaRfq`, `cliente.regole`); la pagina e `/dati` usano il motore A
-  (`valutazione-3`, le grammatiche dell'indice). Codici e tipi possono differire: il campo `motore` dell'anteprima vale
+  (`valutazione-4` dalla notte del 14/10, le grammatiche dell'indice). Codici e tipi possono differire: il campo `motore` dell'anteprima vale
   `fascicolo_legacy` (Q-A1d-05, da confermare); la resa della discordanza è di A1d-P4.
 - **Il tempo**: `valutazione.Calcola` non riceve un contesto; oltre il limite la risposta è 504 e il calcolo orfano
   finisce in memoria, senza scritture (con il tetto dei calcoli insieme: «I limiti»).

@@ -27,10 +27,10 @@ import (
 )
 
 // VersioneAttesa: la versione dell'esito che questo package sa leggere (direttiva A1d §0: «obbligatoriamente
-// valutazione-3»). È un letterale, non valutazione.VersioneValutazione: confrontare la costante con sé stessa sarebbe
+// valutazione-3», avanzata a valutazione-4 nella notte del 14/10). È un letterale, non valutazione.VersioneValutazione: confrontare la costante con sé stessa sarebbe
 // sempre vero. Se il core cambia versione, Calcola risponde ErrVersione finché i modelli, l'indice e le etichette non
 // sono riletti contro la versione nuova; una prova del QA confronta questo letterale con la costante del core.
-const VersioneAttesa = "valutazione-3"
+const VersioneAttesa = "valutazione-4"
 
 // Gli errori del calcolo, distinti (direttiva §3.1: «distinguere errori di configurazione, RFQ inesistente, timeout ed
 // errori di valutazione»). Si riconoscono con errors.Is; il testo che li accompagna è tecnico e va solo nel log: al

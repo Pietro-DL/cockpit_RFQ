@@ -23,7 +23,7 @@ import (
 // valutazione-3 dall'11/10 (D-CHIUS-3 = B: con D-P7e-1 e D-CHIUS-2 C lo stesso ingresso può dare un esito diverso);
 // la versione dell'impronta del prodotto resta 1, perché i campi nuovi non entrano nei dati decisi (R90).
 func TestLeVersioniFissate(t *testing.T) {
-	if valutazione.VersioneValutazione != "valutazione-3" || valutazione.VersioneImprontaProdotto != 1 {
+	if valutazione.VersioneValutazione != "valutazione-4" || valutazione.VersioneImprontaProdotto != 1 {
 		t.Errorf("versioni %q %d", valutazione.VersioneValutazione, valutazione.VersioneImprontaProdotto)
 	}
 }
