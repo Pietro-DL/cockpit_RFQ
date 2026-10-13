@@ -297,8 +297,51 @@ func (s *Server) workerTOML(host string, cred []db.WorkerCredenziale, segreti ma
 		fmt.Fprintf(&b, "\n[%s]\n", sezione)
 		fmt.Fprintf(&b, "worker_id = %q\n", c.WorkerNome)
 		fmt.Fprintf(&b, "token     = %q\n", segreti[c.WorkerNome])
+		if c.WorkerTipo == db.WorkerTipoAnalisi {
+			s.ocrDi(host).scrivi(&b)
+		}
 	}
 	return b.String()
+}
+
+// OCRPostazione è l'OCR del worker di analisi di un PC, come lo dichiara la sua [[postazione]] nel cockpit.toml
+// del server (ocr, ocr_lingua, ocr_dpi, ocr_tessdata): app/runtime lo copia qui da config, che questo package
+// non importa. I valori arrivano già controllati dall'avvio (config.validaOCR): niente apici singoli né a capo
+// in Tessdata, lingue di sole lettere. Il valore zero è «la postazione non dichiara niente».
+type OCRPostazione struct {
+	Modo     string // "" | "automatico" | "spento"
+	Lingua   string // "ita+eng"
+	DPI      int    // 0 = non dichiarato
+	Tessdata string // cartella tessdata sul PC della postazione
+}
+
+// ocrDi è l'OCR dichiarato per l'host, o il valore zero.
+func (s *Server) ocrDi(host string) OCRPostazione {
+	return s.OCRPostazioni[strings.ToUpper(strings.TrimSpace(host))]
+}
+
+// scrivi aggiunge alla tabella [analisi] le sole chiavi dichiarate, con i nomi che il worker legge
+// (worker_analisi.ocr_da_config). Il pacchetto riscrive il worker.toml da zero: senza questo, l'OCR
+// sistemato a mano sul PC spariva alla rigenerazione successiva. Tessdata va fra apici singoli, una
+// stringa letterale TOML, perché i backslash di un percorso Windows restino quello che sono.
+func (o OCRPostazione) scrivi(b *strings.Builder) {
+	if o == (OCRPostazione{}) {
+		return
+	}
+	b.WriteString("# OCR di questa postazione, da [[postazione]] nel cockpit.toml del server: cambiarlo lì,\n")
+	b.WriteString("# perché una modifica fatta qui si perde al prossimo pacchetto.\n")
+	if o.Modo != "" {
+		fmt.Fprintf(b, "ocr          = %q\n", o.Modo)
+	}
+	if o.Lingua != "" {
+		fmt.Fprintf(b, "ocr_lingua   = %q\n", o.Lingua)
+	}
+	if o.DPI != 0 {
+		fmt.Fprintf(b, "ocr_dpi      = %d\n", o.DPI)
+	}
+	if o.Tessdata != "" {
+		fmt.Fprintf(b, "ocr_tessdata = '%s'\n", o.Tessdata)
+	}
 }
 
 // istruzioni è il foglio che accompagna il pacchetto. Sta nello zip e non in una pagina web perché
@@ -335,6 +378,10 @@ func istruzioni(host, url string, conTLS bool) string {
 	b.WriteString("    1. sul PC:   installa-postazione.ps1 -Ferma      (ferma attivita' e worker)\n")
 	b.WriteString("    2. sul Cockpit: genera e scarica il pacchetto nuovo\n")
 	b.WriteString("    3. sul PC:   scompattare sopra, poi installa-postazione.ps1   (riparte tutto)\n\n")
+	b.WriteString("L'OCR del worker di analisi (ocr, ocr_lingua, ocr_dpi, ocr_tessdata) arriva dal server, dalla\n")
+	b.WriteString("[[postazione]] di questo PC nel cockpit.toml: si cambia li', non a mano in worker.toml.\n")
+	b.WriteString("Una modifica al cockpit.toml vale dal RIAVVIO del server: prima riavviarlo, poi un pacchetto\n")
+	b.WriteString("nuovo con i tre passi qui sopra (un pacchetto generato prima del riavvio esce senza).\n\n")
 	if conTLS {
 		b.WriteString("Il collegamento e' cifrato e il worker verifica l'IMPRONTA del certificato scritta in\n")
 		b.WriteString("worker.toml. Se il certificato del server viene rifatto, il worker si ferma con un errore\n")

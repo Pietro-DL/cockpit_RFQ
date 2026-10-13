@@ -1163,7 +1163,10 @@ markmap:
   - `sessione.postazione_id` e `postazione_origine`, che vale `ip` o `scelta`;
   - `worker_credenziale.token_hash`: lo sha256 del token nuovo, `rete.ImprontaToken`.
 - **Pacchetto:** zip in memoria con
-  - `worker.toml`: URL, impronta TLS, un token per worker;
+  - `worker.toml`: URL, impronta TLS, un token per worker; nella tabella `[analisi]` anche l'OCR della postazione
+    (`ocr`, `ocr_lingua`, `ocr_dpi`, `ocr_tessdata`), se la sua `[[postazione]]` nel `cockpit.toml` lo dichiara: arriva
+    in `Server.OCRPostazioni` (`OCRPostazione`, per host maiuscolo) da `app/runtime`, senza database. Solo le chiavi
+    dichiarate; `ocr_tessdata` fra apici singoli (stringa letterale TOML, i backslash restano tali);
   - `ISTRUZIONI.txt`;
   - `cert.pem`, solo con TLS e solo il certificato pubblico;
   - i file di `workers/` incorporati nel binario, meno i test e gli strumenti di sviluppo.
@@ -1201,7 +1204,8 @@ markmap:
 
 ### Test
 
-- **L1:** `postazione_test.go` (M2, i tre stati; presenza dal contatto; `puoUsarePostazione`).
+- **L1:** `postazione_test.go` (M2, i tre stati; presenza dal contatto; `puoUsarePostazione`);
+  `pacchetto_ocr_test.go` (l'OCR della postazione solo sotto `[analisi]`, TOML valido, valori riletti identici).
 - **L4**
   - `postazione_db_test.go`: W14 sessione, riabbinamento, P1, M2 testata.
   - `presenza_db_test.go`: 4 test.
@@ -1229,6 +1233,9 @@ markmap:
   - Apro: `postazione.go:abbinaPostazione`, `finestraAbbinamentoIP`
 - **cambiare il contenuto del pacchetto**
   - Apro: `postazioni_admin.go:workerTOML`, `zipPacchetto`, `servePostazione`, `embed.go`
+- **aggiungere una chiave del worker.toml che si dichiara per postazione** (come l'OCR)
+  - Apro: `platform/config` (`Postazione`, `validaOCR`), `app/runtime/ascolto.go:ocrDellePostazioni`,
+    `postazioni_admin.go:OCRPostazione.scrivi`
 
 ### Leggi anche
 

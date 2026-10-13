@@ -222,8 +222,14 @@ markmap:
   - Campi: `indirizzo`, `nome`, `canale`, `condivisa`, `utente`, `attiva`
   - Regole: indirizzo obbligatorio, unico, in minuscolo; `nome` = parte locale se manca; `canale` = `outlook` se manca (validato solo al seed); condivisa senza `utente`; `attiva` assente = vera
 - **`[[postazione]]`**
-  - Campi: `nome_host`, `descrizione`, `utente`
+  - Campi: `nome_host`, `descrizione`, `utente`, e l'OCR del worker di analisi del PC: `ocr`, `ocr_lingua`, `ocr_dpi`, `ocr_tessdata` (facoltativi)
   - Regole: nome host obbligatorio, unico, in maiuscolo
+  - OCR (13/10/2026): il server non lo usa, lo copia nella tabella `[analisi]` del worker.toml a ogni generazione del pacchetto (che riscrive il file da zero: scritte a mano sul PC le chiavi si perdevano). Si ferma l'avvio, con postazione e chiave nell'errore, se:
+    - `ocr` non è vuoto, `automatico` o `spento` (normalizzato minuscolo);
+    - `ocr_lingua` non è fatto di lingue Tesseract `[a-z_]{3,}` unite da `+` (`eng`, `ita+eng`, `chi_sim`);
+    - `ocr_dpi` non è 0 (non dichiarato) o fra 72 e 1200;
+    - `ocr_tessdata` non è un percorso assoluto del PC della postazione (`X:\`, UNC, `/...`) o contiene apici singoli, a capo o caratteri di controllo (va scritto fra apici singoli). Non si cerca sul disco: è un percorso dell'altro PC.
+  - OCR dichiarato su una postazione senza `[[worker]]` di tipo analisi: avviso nel log (`Avvisi`), non errore.
 - **`[[worker]]`**
   - Campi: `nome`, `tipo`, `token`, `postazione`, `caselle`
   - Regole: nome obbligatorio e unico; tipo `outlook` o `analisi`; token facoltativo ma mai uguale a quello di un altro worker; postazione e caselle devono essere dichiarate
