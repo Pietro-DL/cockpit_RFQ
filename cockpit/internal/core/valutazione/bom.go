@@ -22,7 +22,9 @@ import (
 // T-B0-22). In A1c l'unico produttore è l'adattatore di «Conferma l'albero» (Legacy vero), che dà lo stesso gesto per
 // nomenclatura e gerarchia, perché un solo gesto le ha confermate tutte e due (R80); nello spazio di verifica sarà il
 // gesto nuovo (R100 A, Legacy falso), con due controlli distinti anche nella stessa schermata (R80, E1). nil vuol dire
-// «nessun gesto».
+// «nessun gesto». Da P4 c'è un secondo produttore, non legacy: l'ultima conferma strutturale valida del prodotto
+// (gestiDallaConferma in bom_conferma.go; direttiva 11 D-SHOCK-S1 B [U]; addendum ad A1c AD-1). L'adattatore legacy
+// resta per i prodotti senza conferma.
 type GestiVerificaBOM struct {
 	Nomenclatura *GestoVerifica `json:"nomenclatura,omitempty"`
 	Gerarchia    *GestoVerifica `json:"gerarchia,omitempty"`
@@ -115,13 +117,20 @@ type VerificaAsse struct {
 //   - RimozioniAperte: le rimozioni proposte aperte sul perimetro del prodotto (ognuna è anche un conflitto di
 //     gerarchia: T-B0-24).
 //   - SenzaFigli: il prodotto non ha figli, né confermati né proposti (R80).
+//   - Criterio, OrigineGerarchia, GerarchiaStep, Conferma: solo dalla regola della conferma strutturale (P4, B3.2-B3.4:
+//     VerificaDallaConferma, bom_conferma.go). Con l'adattatore legacy restano vuoti e, con omitempty, il JSON di un
+//     prodotto senza conferma resta byte per byte quello di prima.
 type VerificaBOM struct {
-	Nomenclatura    VerificaAsse `json:"nomenclatura"`
-	Gerarchia       VerificaAsse `json:"gerarchia"`
-	Verificata      bool         `json:"verificata"`
-	FonteRegistrata bool         `json:"fonte_registrata"`
-	RimozioniAperte int          `json:"rimozioni_aperte"`
-	SenzaFigli      bool         `json:"senza_figli"`
+	Nomenclatura     VerificaAsse       `json:"nomenclatura"`
+	Gerarchia        VerificaAsse       `json:"gerarchia"`
+	Verificata       bool               `json:"verificata"`
+	FonteRegistrata  bool               `json:"fonte_registrata"`
+	RimozioniAperte  int                `json:"rimozioni_aperte"`
+	SenzaFigli       bool               `json:"senza_figli"`
+	Criterio         CriterioVerifica   `json:"criterio,omitempty"`
+	OrigineGerarchia OrigineGerarchia   `json:"origine_gerarchia,omitempty"`
+	GerarchiaStep    GerarchiaStep      `json:"gerarchia_step,omitempty"`
+	Conferma         *DettaglioConferma `json:"conferma,omitempty"`
 }
 
 // StrutturaDaVerificare: la struttura di un prodotto come la vede la regola della verifica, l'altro ingresso astratto
