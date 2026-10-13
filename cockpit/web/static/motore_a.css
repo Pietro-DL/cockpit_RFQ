@@ -265,26 +265,31 @@
 .ma .ma-corpo-solo { display: grid; gap: var(--ma-sp5); }
 
 /* ---------------------------------------------------------------- il workspace (§6.2, container query su .ma-ws)
-   Una colonna: centro, anteprima, «Da smistare», documenti. Il contenitore si accende solo da 860 px di finestra:
-   sotto, l'anteprima è un foglio position: fixed che deve stare sulla finestra (D-PF-17). */
-.ma .ma-ws { min-width: 0; }
-.ma .ma-ws-griglia { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "centro" "lato" "smistare" "doc"; min-width: 0; }
+   Una colonna: centro, anteprima, «Da smistare»; poi, fuori dalla griglia, il riepilogo documentale. Il contenitore si
+   accende solo da 860 px di finestra: sotto, l'anteprima è un foglio position: fixed che deve stare sulla finestra
+   (D-PF-17). Le colonne sticky (anteprima, e da 860 a 1180 px la colonna destra) scorrono dentro .ma-ws-griglia, che
+   finisce con la prima riga: il riepilogo documentale sta dopo la griglia e nessuna colonna gli scende sopra
+   (collaudo dell'utente del 13/10, rapporto 2026-10-13-uifix-ispettore.md: con il riepilogo nella griglia, area «doc»,
+   l'anteprima sticky lo copriva, e i gesti spenti con opacity, dipinti dopo, le passavano sopra). */
+.ma .ma-ws { min-width: 0; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.ma .ma-ws-griglia { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "centro" "lato" "smistare"; min-width: 0; }
 .ma .ma-ws-centro { grid-area: centro; min-width: 0; display: grid; gap: 16px; align-content: start; grid-template-columns: minmax(0, 1fr); }
 .ma .ma-ws-centro > * { min-width: 0; }
 .ma .ma-ws-destra { display: contents; }
 .ma .ma-ws-lato { grid-area: lato; min-width: 0; display: grid; gap: var(--ma-sp4); align-content: start; }
 .ma .ma-ws-smistare { grid-area: smistare; min-width: 0; }
-.ma #ma-documenti { grid-area: doc; }
+/* l'anteprima vuota («Scegli una casella…») sparisce quando una casella è scelta: non resta sopra il pannello */
+.ma .ma-anteprime:has(> .ma-anteprima:not([hidden])) > .ma-anteprima-vuota { display: none; }
 
 @media (min-width: 860px) { .ma .ma-ws { container: ma-ws / inline-size; } }
 
 @container ma-ws (min-width: 860px) {
-  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(320px, 36cqi, 400px); grid-template-areas: "centro destra" "doc doc"; }
+  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(320px, 36cqi, 400px); grid-template-areas: "centro destra"; }
   .ma .ma-ws-destra { display: flex; flex-direction: column; gap: 16px; grid-area: destra; align-self: start; min-width: 0;
     position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; overscroll-behavior: contain; }
 }
 @container ma-ws (min-width: 1180px) {
-  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(320px, 28cqi, 400px) clamp(240px, 20cqi, 300px); grid-template-areas: "centro lato smistare" "doc doc doc"; }
+  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(320px, 28cqi, 400px) clamp(240px, 20cqi, 300px); grid-template-areas: "centro lato smistare"; }
   .ma .ma-ws-destra { display: contents; position: static; max-height: none; overflow: visible; }
   .ma .ma-ws-lato { position: sticky; top: 8px; align-self: start; max-height: calc(100vh - 16px); overflow: auto; overscroll-behavior: contain; }
   .ma .ma-ws-smistare { align-self: start; }
@@ -292,7 +297,7 @@
 
 /* il foglio dal basso (§6.3): sotto 860 px di finestra l'anteprima esce dal flusso */
 @media (max-width: 859.98px) {
-  .ma .ma-ws-griglia { grid-template-areas: "centro" "smistare" "doc"; }
+  .ma .ma-ws-griglia { grid-template-areas: "centro" "smistare"; }
   .ma .ma-ws-lato { position: fixed; inset: auto 0 0 0; z-index: 50; max-height: 92vh; overflow: auto; overscroll-behavior: contain;
     padding: var(--ma-sp4); border-radius: 12px 12px 0 0; box-shadow: var(--ma-sh3); background: var(--ma-surf);
     transform: translateY(100%); visibility: hidden; }

@@ -29,6 +29,13 @@ Le prove (cifre, scelte dal test Go con --prove; si eseguono nell'ordine dato, s
   5  le diagnostiche del thread visibili; con l'esito incompleto nessun badge di verifica positivo
   6  il calcolo che non riesce e «Aggiorna»: errore visibile, avviso «errore», indirizzo intatto; poi di nuovo pronto,
      e l'avviso non dice piu' che la pagina e' senza esito (revisione D-E del 13/10, rilievo 4)
+  7  l'impaginazione con l'anteprima aperta (collaudo dell'utente del 13/10: il pannello del pezzo scelto scendeva sopra
+     il riepilogo documentale, testi uno sopra l'altro), a 1900x950, 1440x900, 1280x800 (due colonne) e 1024x768 e nel
+     tema scuro del sistema:
+     una casella scelta, la vista Documenti, tre posizioni di scorrimento; i blocchi del workspace (centro, anteprima,
+     «Da smistare», riepilogo documentale) non si sovrappongono, il pannello ha uno sfondo pieno, la pagina non scorre
+     di lato, i gesti spenti delle barre non si accavallano; «Ispeziona» apre la finestra modale sopra tutto e la
+     richiude. Nessuna scrittura (la sonda resta uguale)
 
 I clienti, i codici e i nomi dei file sono inventati (ACME, 712xxxx, acme.example).
 """
@@ -276,6 +283,182 @@ def prova_6(b):
     verifica(PAGINA_SENZA_ESITO not in testo, "dopo il ritorno l'avviso dice ancora che la pagina e' senza esito: %r" % testo)
     verifica(PAGINA_DI_NUOVO_CON_ESITO in testo, "dopo il ritorno l'avviso non dice che la pagina ha di nuovo l'esito: %r" % testo)
     verifica(av.get_attribute("data-ma-errore") in (None, ""), "dopo il ritorno l'avviso ha ancora la tipologia: %r" % av.get_attribute("data-ma-errore"))
+
+
+# --------------------------------------------------------------------------- 7: impaginazione con l'anteprima aperta
+
+# le tre del collaudo e 1280x800, dove il workspace ha due colonne (da 860 a 1180 px di contenitore: la colonna destra
+# sticky con anteprima e «Da smistare»)
+MISURE = [(1900, 950), (1440, 900), (1280, 800), (1024, 768)]
+
+# i blocchi del workspace a vista (rettangoli nella finestra), il pannello scelto e i suoi sfondi, le sovrapposizioni;
+# un blocco senza scatola (display: contents, hidden) non conta; un blocco dentro un riquadro che scorre (overflow non
+# visible, come la colonna destra sticky da 860 a 1180 px) conta solo per la parte che il riquadro lascia vedere
+JS_IMPAGINAZIONE = r"""() => {
+  const r = document.querySelector('#ma > .ma');
+  if (!r) return {errore: 'nessuna radice'};
+  const visibile = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const scatola = (nome, e) => {
+    if (!visibile(e)) return null;
+    const b = e.getBoundingClientRect();
+    let x = b.left, y = b.top, dx = b.right, giu = b.bottom;
+    for (let p = e.parentElement; p && p !== r; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (cs.display === 'contents' || (cs.overflowX === 'visible' && cs.overflowY === 'visible')) continue;
+      const c = p.getBoundingClientRect();
+      x = Math.max(x, c.left); y = Math.max(y, c.top); dx = Math.min(dx, c.right); giu = Math.min(giu, c.bottom);
+    }
+    return dx - x > 0 && giu - y > 0 ? {nome, x, y, r: dx, b: giu} : null;
+  };
+  const pannello = r.querySelector('#ma-anteprima .ma-anteprima:not([hidden])');
+  const blocchi = [
+    scatola('centro', r.querySelector('.ma-ws-centro')),
+    scatola('anteprima', r.querySelector('#ma-anteprima')),
+    scatola('da smistare', r.querySelector('#ma-da-smistare')),
+    scatola('riepilogo documentale', r.querySelector('#ma-documenti')),
+  ].filter(Boolean);
+  const sopra = [];
+  for (let i = 0; i < blocchi.length; i++) for (let j = i + 1; j < blocchi.length; j++) {
+    const a = blocchi[i], b = blocchi[j];
+    const w = Math.min(a.r, b.r) - Math.max(a.x, b.x), h = Math.min(a.b, b.b) - Math.max(a.y, b.y);
+    if (w > 1 && h > 1) sopra.push(a.nome + ' su ' + b.nome + ' (' + Math.round(w) + 'x' + Math.round(h) + ' px)');
+  }
+  // i gesti spenti di ogni barra del riepilogo: nessuno sopra un altro
+  for (const barra of r.querySelectorAll('#ma-documenti .ma-toolbar')) {
+    const na = [...barra.querySelectorAll(':scope > .ma-na')].map((e, k) => scatola('gesto spento ' + (k + 1), e)).filter(Boolean);
+    for (let i = 0; i < na.length; i++) for (let j = i + 1; j < na.length; j++) {
+      const a = na[i], b = na[j];
+      if (Math.min(a.r, b.r) - Math.max(a.x, b.x) > 1 && Math.min(a.b, b.b) - Math.max(a.y, b.y) > 1) sopra.push(a.nome + ' su ' + b.nome + ' della barra');
+    }
+  }
+  const alfa = (c) => { const m = /rgba?\(([^)]+)\)/.exec(c || ''); if (!m) return 0; const p = m[1].split(/[ ,\/]+/).filter(Boolean); return p.length > 3 ? parseFloat(p[3]) : 1; };
+  return {
+    sopra,
+    pannello: pannello ? pannello.dataset.maPannello : '',
+    sfondo_pannello: pannello ? getComputedStyle(pannello).backgroundColor : '',
+    alfa_pannello: pannello ? alfa(getComputedStyle(pannello).backgroundColor) : 0,
+    alfa_smistare: alfa(getComputedStyle(r.querySelector('#ma-da-smistare') || r).backgroundColor),
+    alfa_documenti: alfa(getComputedStyle(r.querySelector('#ma-documenti') || r).backgroundColor),
+    di_lato: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    blocchi,
+  };
+}"""
+
+# la finestra di «Ispeziona» aperta: modale (top layer), dentro la finestra del browser, sfondo pieno, sopra tutto
+JS_FINESTRA = r"""() => {
+  const d = [...document.querySelectorAll('dialog.ma-dialogo--cassetto')].find((x) => x.open);
+  if (!d) return null;
+  const b = d.getBoundingClientRect();
+  const cx = Math.round(b.left + b.width / 2), cy = Math.round(b.top + Math.min(b.height / 2, 60));
+  const e = document.elementFromPoint(cx, cy);
+  const sfondo = getComputedStyle(d).backgroundColor;
+  const m = /rgba?\(([^)]+)\)/.exec(sfondo || '');
+  const p = m ? m[1].split(/[ ,\/]+/).filter(Boolean) : [];
+  return {id: d.id, modale: d.matches(':modal'), dentro: b.left >= 0 && b.top >= 0 && b.right <= innerWidth + 0.5 && b.bottom <= innerHeight + 0.5,
+          sopra: !!(e && d.contains(e)), alfa: m ? (p.length > 3 ? parseFloat(p[3]) : 1) : 0, sfondo};
+}"""
+
+CASELLE = "#ma-schede-albero [role=tabpanel]:not([hidden]) .ma-dtree .ma-nodo"
+PANNELLO = "#ma-anteprima .ma-anteprima:not([hidden])"
+
+
+def misura_impaginazione(b, contesto, rotture):
+    m = b.page.evaluate(JS_IMPAGINAZIONE)
+    if m.get("errore"):
+        rotture.append("%s: %s" % (contesto, m["errore"]))
+        return m
+    for s in m["sopra"]:
+        rotture.append("%s: %s" % (contesto, s))
+    if m["pannello"] and m["alfa_pannello"] < 1:
+        rotture.append("%s: il pannello del pezzo scelto ha uno sfondo trasparente (%s)" % (contesto, m["sfondo_pannello"]))
+    if m["alfa_smistare"] < 1 or m["alfa_documenti"] < 1:
+        rotture.append("%s: «Da smistare» o il riepilogo documentale senza sfondo pieno" % contesto)
+    if m["di_lato"] > 1:
+        rotture.append("%s: la pagina scorre di lato di %d px" % (contesto, m["di_lato"]))
+    return m
+
+
+def scegli_una_casella(b):
+    """Una casella dell'albero scelta (il pannello dell'anteprima a vista); False se l'albero non ha caselle."""
+    caselle = b.page.locator(CASELLE)
+    if caselle.count() == 0:
+        return False
+    caselle.first.click()
+    b.aspetta("() => !!document.querySelector(%s)" % json.dumps(PANNELLO), "scelta la casella, il pannello dell'anteprima non compare")
+    return True
+
+
+def impaginazione_a(b, larghezza, altezza, prodotto, rotture, tema=""):
+    nome = "%dx%d%s" % (larghezza, altezza, ("_" + tema) if tema else "")
+    b.page.set_viewport_size({"width": larghezza, "height": altezza})
+    b.page.goto(b.pagina + "?prodotto=" + prodotto + "&vista=distinta")
+    b.page.wait_for_selector("#ma > .ma")
+    verifica(scegli_una_casella(b), "%s: il prodotto %s non ha caselle nell'albero" % (nome, prodotto))
+    misura_impaginazione(b, nome + " distinta, casella scelta", rotture)
+    b.foto("i7_%s_distinta.png" % nome)
+    b.page.locator("#ma-viste a:has-text('Documenti')").click()
+    b.aspetta_scelta(prodotto, "documenti", "%s: «Documenti» non porta alla vista documenti: %s" % (nome, b.page.url))
+    b.page.wait_for_timeout(300)
+    # la casella scelta resta (sessionStorage); se non c'e' piu', la si sceglie di nuovo
+    if not b.page.locator(PANNELLO).count():
+        scegli_una_casella(b)
+    b.page.evaluate("() => document.getElementById('ma-documenti').scrollIntoView({block: 'start'})")
+    b.page.wait_for_timeout(200)
+    m = misura_impaginazione(b, nome + " documenti, in cima al riepilogo", rotture)
+    verifica(m.get("pannello"), "%s: nella vista Documenti nessun pannello dell'anteprima scelto" % nome)
+    b.foto("i7_%s_documenti.png" % nome)
+    b.page.evaluate("() => { const t = document.querySelector('#ma-documenti .ma-voci') || document.querySelector('#ma-documenti .ma-toolbar--p4'); if (t) t.scrollIntoView({block: 'center'}); }")
+    b.page.wait_for_timeout(200)
+    misura_impaginazione(b, nome + " documenti, tabella al centro", rotture)
+    b.foto("i7_%s_tabella.png" % nome)
+    b.page.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+    b.page.wait_for_timeout(200)
+    misura_impaginazione(b, nome + " documenti, in fondo alla pagina", rotture)
+    b.foto("i7_%s_fondo.png" % nome)
+    # «Ispeziona» della prima voce: la finestra modale sopra tutto, poi Esc
+    isp = b.page.locator("#ma-documenti button[data-ma-azione=ispeziona]")
+    verifica(isp.count() >= 1, "%s: nessun «Ispeziona» nel riepilogo documentale" % nome)
+    isp.first.scroll_into_view_if_needed()
+    try:
+        isp.first.click(timeout=5000)
+    except Exception as e:
+        # un blocco che copre il pulsante: Playwright dice chi intercetta il clic
+        chi = [r.strip() for r in str(e).splitlines() if "intercepts pointer events" in r]
+        rotture.append("%s: «Ispeziona» non si clicca, %s" % (nome, chi[0] if chi else str(e).splitlines()[0]))
+        b.foto("i7_%s_ispeziona.png" % nome)
+        return
+    b.aspetta("() => [...document.querySelectorAll('dialog.ma-dialogo--cassetto')].some((x) => x.open)", "%s: «Ispeziona» non apre la finestra" % nome)
+    f = b.page.evaluate(JS_FINESTRA)
+    b.foto("i7_%s_ispeziona.png" % nome)
+    if not (f and f["modale"] and f["dentro"] and f["sopra"] and f["alfa"] >= 1):
+        rotture.append("%s: la finestra di «Ispeziona» non sta sopra tutto, dentro la finestra, con sfondo pieno: %s" % (nome, f))
+    b.page.keyboard.press("Escape")
+    b.aspetta("() => ![...document.querySelectorAll('dialog.ma-dialogo--cassetto')].some((x) => x.open)", "%s: Esc non chiude la finestra di «Ispeziona»" % nome)
+
+
+@prova("7", "impaginazione con l'anteprima aperta, quattro misure e tema scuro: nessun blocco sopra un altro")
+def prova_7(b):
+    prima = b.sonda()
+    # il prodotto con l'albero: il primo dei due che ne ha uno
+    prodotto = ""
+    for rif in (b.a.primo, b.a.secondo):
+        b.page.goto(b.pagina + "?prodotto=" + rif + "&vista=distinta")
+        b.page.wait_for_selector("#ma > .ma")
+        if b.page.locator(CASELLE).count():
+            prodotto = rif
+            break
+    verifica(prodotto, "nessuno dei due prodotti ha caselle nell'albero")
+    rotture = []
+    try:
+        for w, h in MISURE:
+            impaginazione_a(b, w, h, prodotto, rotture)
+        b.page.emulate_media(color_scheme="dark")
+        impaginazione_a(b, 1440, 900, prodotto, rotture, tema="scuro")
+    finally:
+        b.page.emulate_media(color_scheme="light")
+        b.page.set_viewport_size({"width": 1440, "height": 900})
+    verifica(b.sonda() == prima, "la prova dell'impaginazione ha cambiato la sonda")
+    verifica(not rotture, "%d difetti di impaginazione:\n      %s" % (len(rotture), "\n      ".join(rotture)))
 
 
 def main():
