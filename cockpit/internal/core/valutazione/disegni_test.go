@@ -674,7 +674,7 @@ func TestIValoriDeiDisegni(t *testing.T) {
 		{valutazione.RiferimentoAnteprima{}, "Sha256:sha256 Formato:formato DocumentoID:documento_id AllegatoID:allegato_id Disponibile:disponibile"},
 		{valutazione.Disegno2D{}, "DocumentoID:documento_id AllegatoID:allegato_id Sha256:sha256 NomeFile:nome_file Formato:formato Estensione:estensione " +
 			"Validita:validita MotivoValidita:motivo_validita Testo:testo Cartiglio:cartiglio Codice:codice Revisione:revisione FonteIdentita:fonte_identita " +
-			"Provenienza:provenienza Corrente:corrente ConfermatoIl:confermato_il CompatibilitaCodice:compatibilita_codice " +
+			"Provenienza:provenienza Riconoscimento2D:riconoscimento_2d Corrente:corrente ConfermatoIl:confermato_il CompatibilitaCodice:compatibilita_codice " +
 			"CompatibilitaRevisione:compatibilita_revisione ConfrontatoCon:confrontato_con Anteprima:anteprima Confermata:confermata " +
 			"CodiceConfermato:codice_confermato EvidenzeRevisione:evidenze_revisione RevisioneProposta:revisione_proposta Registrata:registrata " +
 			"RevProvenienza:rev_provenienza StatoRevisione:stato_revisione Discordanze:discordanze"},

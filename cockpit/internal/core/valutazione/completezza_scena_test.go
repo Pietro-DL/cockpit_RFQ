@@ -229,7 +229,11 @@ func TestIlCommercialeELeRegoleDelClienteSullaFotografia(t *testing.T) {
 		if haVoce(d, cProdotto, "cad_3d") {
 			t.Error("il finito senza il cad_3d del cliente non ha la voce: lo STEP strutturale è l'asse della fonte")
 		}
-		if v := voceDi(t, d, cSciolto, "cad_3d"); esitoDi(v) != "manca/nessun_documento" || !v.RegolaCliente || v.CalcolataDa != valutazione.CalcolataDaVista {
+		// Riscritta per T-6 (notte 14/10): la vista dice «manca», ma il nodo dello sciolto sta nello STEP del prodotto (la
+		// sorgente della struttura), quindi il cad_3d è proposto dal motore A: da verificare, con lo STEP, calcolato in Go.
+		// Prima la voce era «manca»: era il difetto (la pagina diceva insieme «proposto» e «3D manca»).
+		if v := voceDi(t, d, cSciolto, "cad_3d"); esitoDi(v) != "da_verificare/associazione_non_confermata" || !v.RegolaCliente ||
+			v.CalcolataDa != valutazione.CalcolataDaGo || v.FileCandidato == nil || *v.FileCandidato != aStepB {
 			t.Errorf("il cad_3d dello sciolto %+v", v)
 		}
 		if haVoce(d, cSciolto, "disegno_2d") {
@@ -267,12 +271,18 @@ func TestIlCommercialeELeRegoleDelClienteSullaFotografia(t *testing.T) {
 func TestGliEsitiDellaVistaSullaFotografia(t *testing.T) {
 	m := motoreCatena(t)
 	pa, aPA := uid(0x9a1), uid(0x9a2)
+	// Riscritta per T-6 (notte 14/10) nel solo caso «manca»: lo STEP strutturale del prodotto c'è (la sorgente della
+	// struttura), quindi la voce è proposta dal motore A, da verificare con lo STEP e calcolata in Go; prima era «manca»,
+	// ed era il difetto. Gli altri esiti della vista vincono come prima (la proposta legacy da confermare tiene il suo file).
 	for _, c := range []struct {
-		esito  string
-		atteso string
+		esito     string
+		atteso    string
+		calcolata string
 	}{
-		{"ok_in_coda", "presente/"}, {"ok_errore_nas", "presente/"}, {"derogato", "presente/"}, {"sul_portale", "da_verificare/sul_portale"},
-		{"da_confermare", "da_verificare/associazione_non_confermata"}, {"manca", "manca/nessun_documento"},
+		{"ok_in_coda", "presente/", valutazione.CalcolataDaVista}, {"ok_errore_nas", "presente/", valutazione.CalcolataDaVista},
+		{"derogato", "presente/", valutazione.CalcolataDaVista}, {"sul_portale", "da_verificare/sul_portale", valutazione.CalcolataDaVista},
+		{"da_confermare", "da_verificare/associazione_non_confermata", valutazione.CalcolataDaVista},
+		{"manca", "da_verificare/associazione_non_confermata", valutazione.CalcolataDaGo},
 	} {
 		th := scenaCompletezza(t, true)
 		th.Proposte = append(th.Proposte, fotorfq.PropostaAttuale{ID: pa, AllegatoID: aPA, Tipo: "cad_3d", Fonte: "estensione", Stato: "aperta"})
@@ -289,11 +299,14 @@ func TestGliEsitiDellaVistaSullaFotografia(t *testing.T) {
 			}
 		}
 		v := voceDi(t, documentiDi(t, valuta(t, th, m, nil), rifProdB), cProdotto, "cad_3d")
-		if esitoDi(v) != c.atteso || v.CalcolataDa != valutazione.CalcolataDaVista {
+		if esitoDi(v) != c.atteso || v.CalcolataDa != c.calcolata {
 			t.Errorf("%s: %+v", c.esito, v)
 		}
 		if c.esito == "da_confermare" && (v.FileCandidato == nil || *v.FileCandidato != aPA || *v.PropostaAperta != pa) {
 			t.Errorf("%s: il file candidato %+v", c.esito, v)
+		}
+		if c.esito == "manca" && (v.FileCandidato == nil || *v.FileCandidato != aStepB) {
+			t.Errorf("%s: lo STEP proposto dal motore A %+v", c.esito, v)
 		}
 		if c.esito == "derogato" && (v.DerogaID == nil || *v.DerogaID != derogaB) {
 			t.Errorf("%s: la deroga %+v", c.esito, v)
@@ -319,8 +332,8 @@ func TestGliEsitiDellaVistaSullaFotografia(t *testing.T) {
 // TestLaVoceDelDisegnoSullaFotografia (contratto §1.6; R62 b A, R62 D.4; LD-17; T-E1R-10; T-B0-31): la deroga sul 2D non
 // lo sostituisce, con documenti.deroga_non_sostituisce_2d; «assegna» da verificare, con il file e la proposta della
 // vista; un candidato del motore A da verificare, e scartato da una persona non soddisfa la voce; un da_determinare
-// candidato del motore A da verificare (la vista non lo vede), e non entra nel gruppo dei 2D; un PDF confermato che non si
-// apre da verificare.
+// candidato del motore A da verificare (la vista non lo vede), e dalla notte del 14/10 (L-2D) nel gruppo dei 2D, dal
+// formato; un PDF confermato che non si apre da verificare.
 func TestLaVoceDelDisegnoSullaFotografia(t *testing.T) {
 	m := motoreCatena(t)
 	op := operatore
@@ -382,10 +395,12 @@ func TestLaVoceDelDisegnoSullaFotografia(t *testing.T) {
 		if esitoDi(v) != "da_verificare/associazione_non_confermata" || v.FileCandidato == nil || *v.FileCandidato != aDaDet {
 			t.Errorf("voce %+v", v)
 		}
-		for _, x := range tutto.Disegni {
-			if x.ComponenteID == cSciolto {
-				t.Errorf("il da_determinare non è un 2D del gruppo: %+v", x.Gruppo)
-			}
+		// Riscritta per L-2D (notte 14/10): prima il da_determinare non entrava nel gruppo dei 2D, e nessun nodo delle RFQ
+		// vere aveva un 2D (era il difetto). Ora è un 2D proposto, con il suo perché: dal formato, tipo non registrato.
+		g := gruppoDi(t, tutto, cSciolto)
+		if g.Primario == nil || g.Primario.AllegatoID == nil || *g.Primario.AllegatoID != aDaDet ||
+			g.Primario.Provenienza != ancoraggio.OrigineProposto || g.Primario.Riconoscimento2D != valutazione.Riconoscimento2DDalFormato {
+			t.Errorf("il da_determinare è un 2D proposto del gruppo, dal formato: %+v", g.Primario)
 		}
 		il := dataACME.Add(5 * time.Hour)
 		th.Proposte[len(th.Proposte)-1].Stato, th.Proposte[len(th.Proposte)-1].DecisoDa, th.Proposte[len(th.Proposte)-1].DecisoIl = "scartata", &op, &il
@@ -611,6 +626,11 @@ func TestLEsitoCalcolatoComeLaVista(t *testing.T) {
 	propostaCad := func(th *fotorfq.Thread, stato string) {
 		th.Proposte = append(th.Proposte, fotorfq.PropostaAttuale{ID: pa, AllegatoID: aStepB, Tipo: "cad_3d", Codice: testo("7120100a"), Fonte: "step", Stato: stato})
 	}
+	// Riscritta per T-6 (notte 14/10): dove il calcolo come la vista dà «manca», lo STEP strutturale del prodotto (la
+	// sorgente della struttura) porta la voce a da verificare con il file e senza la proposta legacy (dalT6); prima la voce
+	// restava «manca», ed era il difetto. Il calcolo come la vista resta quello: lo dicono la proposta aperta, che vince e
+	// tiene la sua proposta, e i casi presenti.
+	const dalT6 = "da_verificare/associazione_non_confermata (T-6)"
 	for _, c := range []struct {
 		nome   string
 		cambia func(*fotorfq.Thread)
@@ -618,7 +638,7 @@ func TestLEsitoCalcolatoComeLaVista(t *testing.T) {
 	}{
 		{"il documento corrente", func(*fotorfq.Thread) {}, "presente/"},
 		{"lo stato del NAS in errore non toglie la presenza", func(th *fotorfq.Thread) { th.Documenti[0].StatoNas = "errore" }, "presente/"},
-		{"il documento sostituito non conta", func(th *fotorfq.Thread) { th.Documenti[0].SostituitoDa = ptr(uid(0x9b2)) }, "manca/nessun_documento"},
+		{"il documento sostituito non conta", func(th *fotorfq.Thread) { th.Documenti[0].SostituitoDa = ptr(uid(0x9b2)) }, dalT6},
 		{"la deroga", func(th *fotorfq.Thread) {
 			th.Documenti[0].SostituitoDa = ptr(uid(0x9b2))
 			th.Deroghe = []fotorfq.DerogaFabbisogno{{ID: derogaB, ComponenteID: cProdotto, Tipo: "cad_3d", Motivo: "prova", UtenteID: op, CreataIl: dataACME}}
@@ -626,7 +646,7 @@ func TestLEsitoCalcolatoComeLaVista(t *testing.T) {
 		{"la deroga di un altro tipo non conta", func(th *fotorfq.Thread) {
 			th.Documenti[0].SostituitoDa = ptr(uid(0x9b2))
 			th.Deroghe = []fotorfq.DerogaFabbisogno{{ID: derogaB, ComponenteID: cProdotto, Tipo: "sviluppo_dxf", Motivo: "prova", UtenteID: op, CreataIl: dataACME}}
-		}, "manca/nessun_documento"},
+		}, dalT6},
 		{"la proposta aperta con lo stesso codice", func(th *fotorfq.Thread) {
 			th.Documenti[0].SostituitoDa = ptr(uid(0x9b2))
 			propostaCad(th, "aperta")
@@ -634,16 +654,22 @@ func TestLEsitoCalcolatoComeLaVista(t *testing.T) {
 		{"la proposta chiusa non conta", func(th *fotorfq.Thread) {
 			th.Documenti[0].SostituitoDa = ptr(uid(0x9b2))
 			propostaCad(th, "confermata")
-		}, "manca/nessun_documento"},
+		}, dalT6},
 	} {
 		th := scenaCompletezza(t, true)
 		c.cambia(&th)
 		v := cad(t, th)
-		if esitoDi(v) != c.atteso || v.CalcolataDa != valutazione.CalcolataDaGo {
-			t.Errorf("%s: %+v", c.nome, v)
-		}
-		if c.atteso == "da_verificare/associazione_non_confermata" && (v.FileCandidato == nil || *v.FileCandidato != aStepB || v.PropostaAperta == nil || *v.PropostaAperta != pa) {
+		atteso := c.atteso
+		if atteso == dalT6 {
+			atteso = "da_verificare/associazione_non_confermata"
+			if v.FileCandidato == nil || *v.FileCandidato != aStepB || v.PropostaAperta != nil {
+				t.Errorf("%s: lo STEP proposto dal motore A, senza proposta legacy %+v", c.nome, v)
+			}
+		} else if atteso == "da_verificare/associazione_non_confermata" && (v.FileCandidato == nil || *v.FileCandidato != aStepB || v.PropostaAperta == nil || *v.PropostaAperta != pa) {
 			t.Errorf("%s: il file candidato %+v", c.nome, v)
+		}
+		if esitoDi(v) != atteso || v.CalcolataDa != valutazione.CalcolataDaGo {
+			t.Errorf("%s: %+v", c.nome, v)
 		}
 		if c.nome == "la deroga" && (v.DerogaID == nil || *v.DerogaID != derogaB) {
 			t.Errorf("%s: %+v", c.nome, v)
@@ -736,13 +762,30 @@ func TestICasiDiConfineDellaCompletezza(t *testing.T) {
 			t.Errorf("il da_determinare dello sciolto non tocca il finito: %+v", v)
 		}
 	})
+	// Riscritta per L-2D (notte 14/10): prima un PDF da_determinare non era un 2D candidato del nodo, e i nodi delle RFQ
+	// vere restavano senza 2D (era il difetto). Ora lo è, dal formato; restano fuori un file con un altro tipo registrato e
+	// un'immagine senza tipo.
 	t.Run("i 2D candidati di un nodo sono solo i file 2D", func(t *testing.T) {
-		th := scenaTreNodi(t, true)
-		f := conCartiglio(t, shaDaDet, [2]string{"codice", "7120310A1"})
-		conAllegato(&th, allegato(aDaDet, 4, "scansione-acme.pdf", "pdf", shaDaDet), f)
-		th.Proposte = append(th.Proposte, fotorfq.PropostaAttuale{ID: pDaDet, AllegatoID: aDaDet, Tipo: "da_determinare", Fonte: "estensione", Stato: "aperta"})
-		if p := previstoDi(t, documentiDi(t, valutaConVista(t, th, m), rifProdB), nodoB("#4"), "disegno_2d"); p.Disegni != nil {
-			t.Errorf("un da_determinare non è un 2D candidato del nodo: %+v", p.Disegni)
+		for _, c := range []struct {
+			nome, est, tipo string
+			atteso          valutazione.Riconoscimento2D
+		}{
+			{"scansione-acme.pdf", "pdf", "da_determinare", valutazione.Riconoscimento2DDalFormato},
+			{"scansione-acme.pdf", "pdf", "altro", ""},
+			{"scansione-acme.png", "png", "da_determinare", ""},
+		} {
+			th := scenaTreNodi(t, true)
+			f := conCartiglio(t, shaDaDet, [2]string{"codice", "7120310A1"})
+			conAllegato(&th, allegato(aDaDet, 4, c.nome, c.est, shaDaDet), f)
+			th.Proposte = append(th.Proposte, fotorfq.PropostaAttuale{ID: pDaDet, AllegatoID: aDaDet, Tipo: c.tipo, Fonte: "estensione", Stato: "aperta"})
+			p := previstoDi(t, documentiDi(t, valutaConVista(t, th, m), rifProdB), nodoB("#4"), "disegno_2d")
+			switch {
+			case c.atteso == "" && p.Disegni != nil:
+				t.Errorf("%s, %s: non è un 2D candidato del nodo: %+v", c.nome, c.tipo, p.Disegni)
+			case c.atteso != "" && (p.Disegni == nil || p.Disegni.Primario == nil || p.Disegni.Primario.Riconoscimento2D != c.atteso ||
+				p.Disegni.Primario.AllegatoID == nil || *p.Disegni.Primario.AllegatoID != aDaDet):
+				t.Errorf("%s, %s: il 2D candidato del nodo, %s: %+v", c.nome, c.tipo, c.atteso, p.Disegni)
+			}
 		}
 	})
 }

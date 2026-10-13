@@ -208,6 +208,34 @@ markmap:
   - **D6**: nessun identificativo persistito nuovo; lo stesso `Rif` di nodo può stare in `Nodi` e in una candidata (o
     in due prodotti): la chiave di presentazione con il contesto (prodotto, gruppo, allegato e radice) è dell'adattatore
     di A1d (T-P7e-15).
+- Nella **notte del 14/10** (A1d, la diagnosi del 14/10 sulle RFQ vere; pacchetto di lavoro WP-V) **due difetti di
+  logica**, corretti nel motore e non nelle grammatiche:
+  - **L-2D, il 2D dal formato del file**: prima il segno del 2D era il solo tipo documentale `disegno_2d` del DB, e sulle
+    RFQ vere i PDF e i TIFF hanno la proposta legacy `da_determinare` (o nessuna): nessun nodo aveva un 2D. Ora un file
+    è un 2D con il tipo `disegno_2d` (`tipo_registrato`) oppure, senza tipo registrato o con `da_determinare`, in un
+    formato di un 2D (`dal_formato`: pdf, tif, tiff, dxf, dwg; `EstensioniDel2DSenzaTipo`, `RiconosciDisegno2D`); un
+    altro tipo registrato (`cad_3d`, `sviluppo_dxf`, `altro`, …) non si scavalca con il formato, e PNG, JPG, STEP, IGES,
+    archivi e documenti d'ufficio senza tipo non sono 2D. Il perché esce nell'esito (`Disegno2D.Riconoscimento2D`,
+    `FileInterpretato.Riconoscimento2D`), così la pagina distingue «2D registrato» da «2D dal formato del file, tipo non
+    registrato». L'elenco chiuso dei formati e `VersioneFormati2D` non cambiano: DXF e DWG entrano nel gruppo con
+    `formato_non_configurato`, ultimi nel primario, e non soddisfano il fabbisogno (LD-02). Con il segno, i nodi
+    proposti hanno i loro 2D (`gruppoDelNodo`, `NodoBOM.Disegni`, `FabbisognoPrevisto.Disegni`) con il primario di R84,
+    e ancoraggio riceve lo stesso segno per la riconciliazione dei codici documentali (T-B4-31: «il tipo documentale e i
+    formati li conosce valutazione»). In più un 2D ancorato a livello prodotto senza posizioni (nessuna struttura del
+    target: una RFQ senza STEP, o con la radice non letta) arriva al gruppo del componente del target
+    (`componentiDelCandidato`);
+  - **T-6 / L1, il 3D proposto**: prima la voce del `cad_3d` veniva solo dalla vista, e con lo STEP proposto la pagina
+    mostrava insieme «proposto» e «3D manca». Ora, quando la vista dice «manca», un candidato del motore A porta la voce
+    a `da_verificare`, `associazione_non_confermata`, con il file e `CalcolataDa = go` (lo stesso vocabolario del 2D
+    proposto: `EsitoConIlMotoreA`). I candidati (`disegniThread.candidati3D`, `CandidatoDocumento`) sono gli STEP con
+    l'associazione `candidato_unico` sul nodo del componente o sul prodotto del suo target (`ancorato`), poi gli STEP
+    sorgente della struttura in cui un nodo rappresenta il componente (`sorgente_struttura`), senza gli scarti di una
+    persona. Ogni esito della vista che dice qualcosa (presente, deroga, proposta legacy da confermare, portale) vince;
+  - **la versione dell'esito non avanza in questo pacchetto**: l'esito cambia sullo stesso ingresso (i gruppi dei 2D, le
+    voci, lo stato della completezza e del prodotto, lo smistamento con una voce da verificare, l'ingresso di
+    ancoraggio), quindi con D-CHIUS-3 = B serve `valutazione-4`; va dichiarata una volta sola all'integrazione dei
+    pacchetti della notte, insieme al letterale dell'anteprima (`motore_a.VersioneAttesa`), che altrimenti rifiuterebbe
+    l'esito. La non regressione di P7e autorizza queste differenze scena per scena (`autorizzateNotte1410`).
 
 ## Non appartiene qui
 
@@ -268,8 +296,8 @@ markmap:
     di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
 - **`esito.go`** (B6, V1) — responsabilità:
   - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
-    `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` e `MessaggioInterpretato` (F0-03); i motivi di un
-    file non valutato (`MotivoFile*`).
+    `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` (dalla notte del 14/10 con `Riconoscimento2D`) e
+    `MessaggioInterpretato` (F0-03); i motivi di un file non valutato (`MotivoFile*`).
 - **`vecchio.go`** (B6, V1) — responsabilità:
   - `LetturaRegistrata`, i motivi `MotivoLettura*`, `LeggiCodiceRegistrato`; `vecchioLetto` e la scelta della proposta e
     del documento di ogni allegato; la lettura dei dettagli (la lettura del vecchio motore, la destinazione F8);
@@ -344,7 +372,7 @@ markmap:
     di una fonte assente, T-12.
 - **`ancoraggi.go`** (B5, fase 1) — responsabilità:
   - il collegamento con `ancoraggio`: i file del thread (documento, interpretazione, `disponibilitaDi`, il tipo
-    documentale e il segno del 2D), `prodottiRichiesti` con `allegatoPortatore` (T-B5-15), `contestoStrutturale`
+    documentale e il segno del 2D, dalla notte del 14/10 con il suo perché: `riconoscimentoDi`, L-2D), `prodottiRichiesti` con `allegatoPortatore` (T-B5-15), `contestoStrutturale`
     (componenti, relazioni, righe aperte e
     decise, codici composti e dei messaggi, associazioni decise), `ancoraggiDelThread` (che restituisce anche il
     collegamento, per i 2D); le copie profonde; da P7e `componenteDeciso`, l'unica costruzione del componente confermato
@@ -367,7 +395,9 @@ markmap:
   - `ConflittiDellaNomenclatura`, i conflitti di gerarchia (quantità e rimozioni), l'ordine canonico; da B6 la
     composizione dei pezzi nell'esito del thread (`componiConflitti`).
 - **`disegni.go`** (B5, fase 2) — responsabilità:
-  - `Formato2D`, `VersioneFormati2D`, `FormatoDisegno`, `FormatiDisegno2D`, `FormatoDi`; `ValiditaDisegno2D`,
+  - `Formato2D`, `VersioneFormati2D`, `FormatoDisegno`, `FormatiDisegno2D`, `FormatoDi`; dalla notte del 14/10 (L-2D)
+    il riconoscimento del 2D: `Riconoscimento2D` con i suoi valori, `EstensioniDel2DSenzaTipo`, la regola
+    `RiconosciDisegno2D`, e `Disegno2D.Riconoscimento2D`; `ValiditaDisegno2D`,
     `MotivoFabbisogno` (i nove valori del contratto), `ContenutoDisegno`, la regola `ValiditaDisegno`;
   - i valori del cartiglio, `RiferimentoAnteprima`, `Disegno2D` con i valori di `FonteIdentita` e `ConfrontatoCon`;
   - `GruppoDisegni2D`, `RelazioneDisegni` con i loro valori; `Primario` (l'ordine dei criteri, la regola che decide, le
@@ -384,7 +414,10 @@ markmap:
     con lo stesso sha256, dai suoi fatti), l'adattatore dei fatti al `ContenutoDisegno`, il cartiglio, le fonti
     d'identità (il cartiglio, lo STEP dell'entità, il nome del file, il documento), la provenienza di documento.rev, la
     rev_diversa della vista, il lato del componente; per la fase 3 i 2D candidati di un nodo senza decisione
-    (`gruppoDelNodo`) e i candidati da_determinare di un componente (`candidatiDaDeterminare`).
+    (`gruppoDelNodo`) e i candidati da_determinare di un componente (`candidatiDaDeterminare`); dalla notte del 14/10 i
+    componenti su cui sta un candidato di ancoraggio, con il candidato a livello prodotto senza posizioni
+    (`componentiDelCandidato`, L-2D), le sorgenti STEP di ogni componente e i 3D proposti per la voce del `cad_3d`
+    (`candidati3D`, T-6).
 - **`classificazione.go`** (B5, fase 3) — responsabilità:
   - `Classificazione` con i valori di ruolo, categoria, origine e motivo, `ConfermaCategoria`,
     `ComponenteDaClassificare`; la regola `Classifica`, l'esenzione `EsenteDal2D`.
@@ -395,6 +428,8 @@ markmap:
     `NodoDaPrevedere`, `RegolaFabbisogno`, `FabbisognoRisolto`;
   - le regole `FabbisogniDelTipo`, `FabbisogniDelComponente` (con la lettura A di K-01 in `rigaNonBloccanteDel2DK01`),
     `VoceDelDisegno`, `EsitoDallaVista`, `ChiusuraDelPerimetro`, `StatoDellaCompletezza`, `Completezza`;
+  - dalla notte del 14/10 (T-6) `CandidatoDocumento` con i valori `ViaCandidato*`, `FabbisognoDellaRiga.CandidatiMotoreA`
+    e la regola `EsitoConIlMotoreA` (la vista vince quando dice qualcosa; su «manca» il 3D proposto dal motore A);
   - da P7e `documentoDellaVoceDel2D` (EB7-4 A con D2): il documento del passo di `VoceDelDisegno` che ha deciso la
     voce, letto dall'esito e dal motivo; `VoceDelDisegno` non cambia.
 - **`completezza_thread.go`** (B5, fase 3) — responsabilità:
@@ -403,6 +438,8 @@ markmap:
     prevedere con il tipo proposto (da P7e `bomDelThread.tipoProposto`, la stessa funzione dei nodi; «con figli» qui
     guarda ancora tutti gli archi: T-P7e-05); le sezioni assenti (T-12); `documenti.deroga_non_sostituisce_2d`;
     `ComponenteClassificato` e la classificazione dei componenti attivi;
+  - dalla notte del 14/10 (T-6), per il `cad_3d` di ogni riga certa, i 3D proposti dal motore A senza gli scarti di una
+    persona (`candidati3D`);
   - da P7e, dopo la regola, nella voce del 2D il documento che la decide e il suo stato del NAS (`statoNasDel`, dalla
     fotografia, com'è). Chi chiama `Completezza` da sola non vede questo dato (T-P7e-11).
 - **`codici_diagnostica.go`** — responsabilità:
@@ -433,6 +470,9 @@ markmap:
 - **`VerificaDellaBOM`** — chi la usa: `ValutaProdotti`, con i gesti dell'adattatore di «Conferma l'albero»; dopo A1c
   lo spazio di verifica, con il gesto nuovo (R100 A). **`ConflittiDellaNomenclatura`**, **`RifArco`** — chi li usa:
   `ValutaProdotti`; da B6 la composizione del `Conflitto` e lo stato del prodotto.
+- **`RiconosciDisegno2D`**, **`EstensioniDel2DSenzaTipo`** (notte del 14/10, L-2D) — chi li usa: il collegamento
+  (`riconoscimentoDi`), per il segno del 2D dei file e il suo perché; la regola si prova con tipi ed estensioni
+  sintetici. **`EsitoConIlMotoreA`** (notte del 14/10, T-6) — chi la usa: `Completezza`, per le voci che non sono il 2D.
 - **`ValiditaDisegno`**, **`FormatoDi`**, **`FormatiDisegno2D`** — chi li usa: l'adattatore dei 2D; la regola si prova
   con contenuti sintetici (PO-08, PO-09). **`Primario`**, **`ValutaDisegno`**, **`PropostaDiRevisione`** — chi li usa:
   `ValutaProdotti` (attraverso l'adattatore); dalla fase 3 la completezza (`VoceFabbisogno.Disegni`), da B6
@@ -470,8 +510,10 @@ markmap:
   - la disponibilità, il primo che vale: `mancante` (senza sha256), `pendente` (analisi in attesa), `illeggibile`
     (`pdf.illeggibile`), `errore` (la qualità «errore»), `senza_testo` (`pdf.senza_testo`: una scansione, T-B0-31),
     `illeggibile` (la qualità «non_disponibile», che gli adattatori oggi non danno), `parziale`, `disponibile`;
-  - il 2D è il tipo `disegno_2d` del documento confermato che porta il file (prima i correnti), altrimenti della sua
-    proposta;
+  - il tipo documentale di un file è quello del documento confermato che lo porta (prima i correnti), altrimenti della
+    sua proposta; il file è un 2D con il tipo `disegno_2d` (`tipo_registrato`) o, senza tipo o con `da_determinare`, in
+    un formato di un 2D (`dal_formato`: pdf, tif, tiff, dxf, dwg; L-2D, notte del 14/10); un altro tipo registrato non è
+    mai un 2D;
   - il target porta la fonte confermata solo con lo stato `confermata` della vista: una fonte in attesa, anche con il
     riferimento, non fa la BOM di lavoro (R76 A, R65 A);
   - la BOM di lavoro sta sull'allegato **portatore** delle righe legacy di quel contenuto (T-B5-15; il legacy scrive le
@@ -594,7 +636,10 @@ markmap:
     della vista, un da_determinare candidato: LD-17), mai per un file scartato da una persona (T-E1R-10) né per un
     file in un formato non configurato; manca con la deroga (`derogato_non_sostituisce_2d`, R62 D.4), con un documento
     in un formato non configurato (`formato_non_configurato`), altrimenti `nessun_documento`. Gli altri tipi bloccanti
-    come nella vista (`derogato` presente: S3; `da_confermare` e `sul_portale` da verificare);
+    come nella vista (`derogato` presente: S3; `da_confermare` e `sul_portale` da verificare); dalla notte del 14/10
+    (T-6) solo dove la vista dice «manca», un candidato del motore A (per il `cad_3d`: lo STEP ancorato con un candidato
+    unico, poi lo STEP sorgente della struttura) porta la voce a da verificare (`associazione_non_confermata`, con il
+    file, `CalcolataDa = go`): una proposta non è mai «presente»;
   - una riga che il prodotto raggiunge solo attraverso archi con una rimozione aperta non dà voci certe (potrebbe
     uscire dal perimetro): i suoi fabbisogni bloccanti vanno fra i previsti (`rimozione_aperta`). Un figlio di una
     rimozione aperta raggiungibile anche per un'altra via resta fra le voci certe, e una sua mancanza certa non si perde
@@ -944,7 +989,11 @@ markmap:
     riga aperta propone «finito» fuori dalla casella della BOM di lavoro scelta di un target (sui dati veri del banco
     nessuna), e `valutazione-2` era già pubblicata. L'impronta dell'esito cambia sempre, perché la versione ci entra;
     stato, assi, motivi, autorità e impronta del prodotto no.
-- **`VersioneImprontaProdotto` resta 1**: i campi di P7e non entrano nei dati decisi (R90).
+  - **notte del 14/10 (L-2D, T-6)**: l'esito cambia sullo stesso ingresso, ma la versione resta `valutazione-3` in
+    questo pacchetto: `valutazione-4` va dichiarata una volta sola all'integrazione dei pacchetti della notte, con il
+    letterale dell'anteprima (`motore_a.VersioneAttesa`). Fino ad allora due esiti `valutazione-3` dello stesso ingresso
+    possono differire.
+- **`VersioneImprontaProdotto` resta 1**: i campi di P7e e della notte del 14/10 non entrano nei dati decisi (R90).
 - Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
   del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.
 
@@ -1123,7 +1172,19 @@ markmap:
   con più thread e i messaggi fuori RFQ, con quattro insiemi di regole, con la vista calcolata e senza), l'esito di
   `Calcola` senza i soli campi di P7e è uguale al «prima» generato sul commit di prima con lo stesso file (il comando è
   in testa al file); le sole differenze autorizzate sono i previsti delle scene di D3 (una parte a sé del confronto: il
-  resto della completezza, con lo stato e le voci, deve restare uguale anche lì).
+  resto della completezza, con lo stato e le voci, deve restare uguale anche lì) e, dalla notte del 14/10, le parti che
+  L-2D e T-6 cambiano, scena per scena (`autorizzateNotte1410`, lette sul JSON delle due versioni); `riconoscimento_2d`
+  si toglie come i campi di P7e.
+- **`disegni_dal_formato_test.go`** (notte del 14/10, L-2D) — L1 — la regola del riconoscimento (tipi ed estensioni,
+  l'elenco che non si cambia da fuori, l'elenco chiuso dei formati che non cambia); i nodi con il 2D dal formato (il
+  primario PDF, poi TIFF, poi DXF, qualunque sia l'ordine degli allegati; i previsti; il 2D registrato; i file
+  dell'esito con il perché); il prodotto senza struttura con il 2D ancorato al prodotto, e lo stesso file con un altro
+  tipo registrato.
+- **`completezza_3d_proposto_test.go`** (notte del 14/10, T-6) — L1 — `EsitoConIlMotoreA` (la vista che vince, l'ordine
+  dei candidati), la regola della completezza con i candidati della riga, lo STEP ancorato al prodotto senza struttura
+  e lo scarto di una persona. Le prove che dicevano il vecchio comportamento, dove era il difetto, sono riscritte con
+  il perché accanto (`completezza_scena_test.go`: il da_determinare nel gruppo e nel nodo, il cad_3d dello sciolto e
+  del finito con lo STEP strutturale; i campi in `disegni_test.go` ed `esito_test.go`).
 - **`scena_emendamenti_test.go`** (P7e) — gli aiuti: le scene della candidata, della BOM senza STEP, del componente
   accanto, dei due prodotti; l'impronta degli assi del prodotto (si compila anche con il codice di prima di P7e).
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro (A1a-CAT,

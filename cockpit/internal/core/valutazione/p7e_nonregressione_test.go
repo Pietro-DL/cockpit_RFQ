@@ -10,12 +10,15 @@
 //     campi nuovi (valutazione-2);
 //   - in ogni prodotto valutato strutture_candidate e confermati_senza_step (EB7-1 B);
 //   - in ogni nodo di PV.Nodi tipo e origine_tipo (EB7-2 A);
-//   - nella voce del 2D documento_id e stato_nas (EB7-4 A): prima di P7e la voce del 2D non li aveva mai.
+//   - nella voce del 2D documento_id e stato_nas (EB7-4 A): prima di P7e la voce del 2D non li aveva mai;
+//   - dalla notte del 14/10 (L-2D) riconoscimento_2d, il perché del 2D, in ogni 2D e in ogni file.
 //
 // Tutto il resto deve restare uguale: stato, assi, motivi, autorità, l'impronta del prodotto (R90), i nodi senza il tipo,
 // i previsti e le altre voci della completezza, gli ancoraggi, lo smistamento, il fascicolo. Una differenza è una
 // regressione da riportare, non da «aggiornare»: il file si rigenera solo con un commit che dichiara un cambiamento di
-// regola (e allora sul commit di prima di quel cambiamento).
+// regola (e allora sul commit di prima di quel cambiamento). Le differenze autorizzate sono due elenchi, con il loro
+// perché e le parti che possono cambiare: D3 del 10/10 (autorizzateP7e) e L-2D con T-6 della notte del 14/10
+// (autorizzateNotte1410).
 package valutazione_test
 
 import (
@@ -362,6 +365,49 @@ func parteAutorizzataP7e(voce, parte string) (string, bool) {
 	return scena, autorizzateP7e[scena] && parte == "thread "+threadACME.String()+" | prodotto "+rifProdB+" | previsti"
 }
 
+// autorizzateNotte1410: le differenze autorizzate dai due difetti di logica della diagnosi del 14/10 (A1d, WP-V), con le
+// parti che possono cambiare in ogni scena («thread»: il thread senza i prodotti; poi le parti di un prodotto):
+//   - L-2D: un PDF, un TIFF, un DXF o un DWG senza tipo registrato o da_determinare è un 2D (RiconosciDisegno2D). Nel
+//     thread cambia il segno del 2D dei file (file[].disegno) e quindi l'ingresso di ancoraggio (hash_ingresso,
+//     impronta) e, dove il 2D sta su un nodo, il codice documentale della riconciliazione; nel prodotto i 2D dei nodi
+//     (nodi), dei previsti (previsti) e la voce del 2D (documenti), che diventa da verificare con il file candidato;
+//   - T-6: la voce del cad_3d che la vista dice «manca» è da verificare con lo STEP proposto dal motore A
+//     (EsitoConIlMotoreA): cambiano la voce (documenti) e, con lo stato della completezza, i motivi e lo stato del
+//     prodotto e del suo smistamento (resto: una voce da verificare per l'associazione non è uno smistamento verificato),
+//     e i bloccati del fascicolo (thread).
+//
+// Ogni scena qui deve cambiare almeno in una voce del catalogo, altrimenti l'autorizzazione non serve più. Le differenze
+// sono state lette una per una sul JSON delle due versioni (P7E_DUMP) prima di scriverle qui.
+var autorizzateNotte1410 = map[string][]string{
+	"collegamento":                         {"thread"},
+	"vecchio-codice-corto":                 {"thread"},
+	"vecchio-codice-01":                    {"thread"},
+	"vecchio-con-valutazione":              {"thread"},
+	"quattro-thread":                       {"thread"},
+	"quattro-thread con fuori rfq e casi":  {"thread"},
+	"contesto":                             {"thread", "documenti", "resto"},
+	"radice-illeggibile":                   {"thread", "documenti", "nodi", "previsti"},
+	"tre-nodi-riga-3-sciolto-senza-riga-4": {"thread", "documenti", "resto"},
+}
+
+// parteAutorizzataNotte1410: la differenza della voce nella parte è autorizzata da L-2D e T-6 (autorizzateNotte1410).
+// Restituisce la scena.
+func parteAutorizzataNotte1410(voce, parte string) (string, bool) {
+	scena, _, _ := strings.Cut(voce, " | ")
+	tipo := "thread"
+	if strings.Contains(parte, " | prodotto ") {
+		tipo = parte[strings.LastIndex(parte, " | ")+3:]
+	} else if !strings.HasPrefix(parte, "thread ") {
+		return scena, false
+	}
+	for _, t := range autorizzateNotte1410[scena] {
+		if t == tipo {
+			return scena, true
+		}
+	}
+	return scena, false
+}
+
 // normalizzaP7e: toglie dal JSON dell'esito i soli campi che P7e aggiunge o cambia per costruzione (in testa al file).
 // Ogni oggetto con prodotti_valutati, a qualunque profondità, ha i suoi prodotti normalizzati.
 func normalizzaP7e(v any) {
@@ -374,6 +420,8 @@ func normalizzaP7e(v any) {
 				}
 			}
 		}
+		// L-2D (notte 14/10): il perché del 2D è un campo in più, in ogni 2D e in ogni file (riconoscimento_2d).
+		delete(x, "riconoscimento_2d")
 		for _, c := range x {
 			normalizzaP7e(c)
 		}
@@ -597,8 +645,8 @@ func TestP7eNonRegressione(t *testing.T) {
 		}
 	}
 	sort.Strings(nomi)
-	parti, diverse, autorizzate := 0, 0, 0
-	viste := map[string]bool{}
+	parti, diverse, autorizzate, autorizzate1410 := 0, 0, 0, 0
+	viste, viste1410 := map[string]bool{}, map[string]bool{}
 	for _, nome := range nomi {
 		p, ok := prima.Scene[nome]
 		d, ok2 := calcolate[nome]
@@ -628,6 +676,12 @@ func TestP7eNonRegressione(t *testing.T) {
 				t.Logf("%s: la parte %q è cambiata, autorizzata da D3", nome, k)
 				continue
 			}
+			if scena, ok := parteAutorizzataNotte1410(nome, k); ok {
+				autorizzate1410++
+				viste1410[scena] = true
+				t.Logf("%s: la parte %q è cambiata, autorizzata da L-2D e T-6 (notte 14/10)", nome, k)
+				continue
+			}
 			diverse++
 			t.Errorf("%s: la parte %q è cambiata (prima %q, dopo %q)", nome, k, p[k], d[k])
 		}
@@ -637,8 +691,14 @@ func TestP7eNonRegressione(t *testing.T) {
 			t.Errorf("la scena %q è fra le differenze autorizzate da D3, ma non cambia: l'autorizzazione non serve più", scena)
 		}
 	}
+	for scena := range autorizzateNotte1410 {
+		if !viste1410[scena] {
+			t.Errorf("la scena %q è fra le differenze autorizzate da L-2D e T-6, ma non cambia: l'autorizzazione non serve più", scena)
+		}
+	}
 	if len(catalogo) < 260 || parti < 1300 {
 		t.Errorf("il catalogo è troppo piccolo: %d voci, %d parti", len(catalogo), parti)
 	}
-	t.Logf("non regressione di P7e: %d voci, %d parti, %d diverse, %d autorizzate da D3", len(nomi), parti, diverse, autorizzate)
+	t.Logf("non regressione di P7e: %d voci, %d parti, %d diverse, %d autorizzate da D3, %d da L-2D e T-6", len(nomi), parti, diverse,
+		autorizzate, autorizzate1410)
 }

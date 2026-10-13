@@ -27,6 +27,10 @@ import (
 //     lavoro scelta di un target: lo stesso ingresso può dare un tipo, dei previsti e due diagnostiche nuove
 //     (bom.tipo_finito_*). valutazione-2 era già pubblicata, quindi la versione avanza. Stato, assi, motivi, autorità e
 //     impronta del prodotto non cambiano; l'impronta dell'esito cambia sempre, perché la versione ci entra.
+//
+// Notte del 14/10 (A1d, L-2D e T-6): l'esito cambia sullo stesso ingresso (README, «Notte del 14/10»), ma la versione
+// qui non avanza: con D-CHIUS-3 = B va dichiarata una volta sola all'integrazione dei pacchetti di lavoro della notte,
+// insieme al letterale dell'anteprima (motore_a.VersioneAttesa), che altrimenti rifiuterebbe l'esito.
 const VersioneValutazione = "valutazione-3"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
@@ -145,14 +149,17 @@ type EvidenzaFile struct {
 // FileInterpretato: l'involucro di ancoraggio.FileInterpretato per l'esito (F0-03): gli stessi campi, con i tag
 // snake_case, perché ancoraggio è chiuso e il suo tipo non ha tag. In più il motivo di un allegato che l'adattatore
 // lascia fuori (Motivo*): allora il documento e l'interpretazione sono vuoti. Un file di un thread senza grammatica ha il
-// documento e un'interpretazione vuota del documento (solo il bundle).
+// documento e un'interpretazione vuota del documento (solo il bundle). Accanto al segno del 2D (Disegno) il suo perché
+// (Riconoscimento2D: tipo_registrato o dal_formato, RiconosciDisegno2D; L-2D, estensione notte 14/10), così la pagina
+// distingue «2D registrato» da «2D dal formato del file, tipo non registrato»; vuoto per un file che non è un 2D.
 type FileInterpretato struct {
-	AllegatoID      uuid.UUID                  `json:"allegato_id"`
-	Documento       evidenze.DocumentoEvidenze `json:"documento"`
-	Interpretazione motorea.Interpretazione    `json:"interpretazione"`
-	Disponibilita   ancoraggio.Disponibilita   `json:"disponibilita,omitempty"`
-	Disegno         bool                       `json:"disegno"`
-	Motivo          string                     `json:"motivo,omitempty"`
+	AllegatoID       uuid.UUID                  `json:"allegato_id"`
+	Documento        evidenze.DocumentoEvidenze `json:"documento"`
+	Interpretazione  motorea.Interpretazione    `json:"interpretazione"`
+	Disponibilita    ancoraggio.Disponibilita   `json:"disponibilita,omitempty"`
+	Disegno          bool                       `json:"disegno"`
+	Riconoscimento2D Riconoscimento2D           `json:"riconoscimento_2d,omitempty"`
+	Motivo           string                     `json:"motivo,omitempty"`
 }
 
 // MessaggioInterpretato: l'involucro di ancoraggio.MessaggioInterpretato per l'esito (F0-03), con i tag snake_case.
