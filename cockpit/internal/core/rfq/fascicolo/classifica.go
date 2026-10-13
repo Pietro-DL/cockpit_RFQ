@@ -59,7 +59,8 @@ type NodoClassificato struct {
 //
 // Per ogni nodo: il primo codice di famiglia, cercato nell'id, poi nel nome, poi nella descrizione;
 // altrimenti il primo generico, nello stesso ordine; altrimenti nessuno. La revisione e' quella del
-// file (rev_grezza) se c'e', altrimenti quella che la famiglia separa dal codice. Un codice o una
+// file (rev_grezza) se c'e' e non e' il segnaposto «ANY» (RevGrezzaSegnaposto), altrimenti quella che la
+// famiglia separa dal codice. Un codice o una
 // revisione fuori misura non entrano nel campo: restano nell'evidenza, con il loro nome.
 func ClassificaNodi(m *classificazione.Motore, s worker.StrutturaSTEP) []NodoClassificato {
 	out := make([]NodoClassificato, 0, len(s.Nodi))
@@ -91,7 +92,11 @@ func ClassificaNodi(m *classificazione.Motore, s worker.StrutturaSTEP) []NodoCla
 				c.Evidenza["alternativo"] = alt
 			}
 		}
-		if r := strings.TrimSpace(n.RevGrezza); r != "" {
+		if r := strings.TrimSpace(n.RevGrezza); RevGrezzaSegnaposto(r) {
+			// «ANY» non e' una revisione: e' quello che l'esportatore scrive quando non ne ha una (A1d P4, B4.10).
+			// Resta nell'evidenza, e la rev resta quella che la famiglia separa dal codice, se c'e'
+			c.Evidenza["rev_grezza_segnaposto"] = r
+		} else if r != "" {
 			c.Rev = r
 		}
 		if c.Codice != "" && !classificazione.CodiceAmmissibile(c.Codice) {
@@ -105,6 +110,15 @@ func ClassificaNodi(m *classificazione.Motore, s worker.StrutturaSTEP) []NodoCla
 		out = append(out, c)
 	}
 	return out
+}
+
+// RevGrezzaSegnaposto dice se la formazione grezza di un PRODUCT (rev_grezza, PRODUCT_DEFINITION_FORMATION.id) e'
+// il segnaposto «ANY» dell'esportatore, in qualunque grafia, invece di una revisione. Il Motore A non prende mai
+// rev_grezza come revisione (estrazione/step.go, attributoFormazione); il legacy la prende, e con «ANY» proponeva
+// «ANY» come rev del pezzo (shock test del 12/10, SABC §B.2). Solo «ANY»: gli altri valori restano revisioni
+// come prima, e una formazione vuota resta vuota.
+func RevGrezzaSegnaposto(rev string) bool {
+	return strings.EqualFold(strings.TrimSpace(rev), "ANY")
 }
 
 // primo sceglie il codice del nodo: famiglia prima di generico, e dentro ciascuno id, nome, descrizione.

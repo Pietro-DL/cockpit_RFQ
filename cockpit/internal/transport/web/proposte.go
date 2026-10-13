@@ -8,6 +8,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -44,6 +45,17 @@ func (s *Server) gesto(w http.ResponseWriter, r *http.Request, fai func(ctx cont
 // commit) con la frase per l'operatore, e puo' mettere un'intestazione, per esempio l'evento dell'editor.
 func (s *Server) gestoPoi(w http.ResponseWriter, r *http.Request, fai func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error),
 	poi func(w http.ResponseWriter, ok bool, testo string)) {
+	s.gestoConDomanda(w, r, fai, poi, nil)
+}
+
+// gestoConDomanda e' gestoPoi con la conferma contestuale del cambio di tipo (D-K6-01 = A [U], direttiva 12 §6;
+// fascicolo_conversione.go). Se fai risponde con fascicolo.RichiestaConversione e la richiesta viene dalla schermata
+// del Fascicolo di questa RFQ (non dalla vista Documenti), la risposta e' la domanda costruita da domanda, al posto
+// dell'avviso; altrimenti e' il rifiuto di sempre, con «Niente è cambiato» (dalla vista Documenti con la strada della
+// vista Albero). In tutti e due i casi la transazione e' annullata: la domanda non
+// scrive niente, e poi non la riceve (non e' un esito).
+func (s *Server) gestoConDomanda(w http.ResponseWriter, r *http.Request, fai func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error),
+	poi func(w http.ResponseWriter, ok bool, testo string), domanda func(uuid.UUID, fascicolo.RichiestaConversione) *confermaTipo) {
 	thread, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "id non valido", 400)
@@ -67,7 +79,18 @@ func (s *Server) gestoPoi(w http.ResponseWriter, r *http.Request, fai func(ctx c
 	}
 	if err != nil {
 		_ = tx.Rollback(ctx)
+		var rc fascicolo.RichiestaConversione
+		conversione := domanda != nil && errors.As(err, &rc)
+		if conversione {
+			if st, ok := s.soloDalFascicolo(r, thread); ok {
+				if c := domanda(thread, rc); c != nil {
+					s.rispondiFascicoloCon(w, r, thread, st, "", c)
+					return
+				}
+			}
+		}
 		msg := "Niente è cambiato: " + spiegaErrore(err)
+		msg += s.stradaInPiuDellaConversione(r, thread, conversione)
 		if poi != nil {
 			poi(w, false, msg)
 		}
@@ -213,14 +236,22 @@ func chiaveRelazione(r *http.Request) (fascicolo.ChiaveRelazione, error) {
 	return k, nil
 }
 
+// accettaRelazione: POST .../relazione/accetta, campi `allegato`, `padre`, `figlio` e, ripetuto, `assieme` (gli id
+// dei componenti che la persona ha confermato assiemi, DecisioneTipo). Se l'arco darebbe il primo figlio a un
+// particolare non confermato, dalla schermata del Fascicolo la risposta e' la domanda per quel componente
+// (fascicolo_conversione.go), che rimanda lo stesso gesto con il suo id in `assieme`.
 func (s *Server) accettaRelazione(w http.ResponseWriter, r *http.Request) {
-	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
+	s.gestoConDomanda(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		k, err := chiaveRelazione(r)
 		if err != nil {
 			return "", err
 		}
-		return fascicolo.AccettaRelazione(ctx, q, thread, k, utente)
-	})
+		d, err := decisioneTipoDal(r)
+		if err != nil {
+			return "", err
+		}
+		return fascicolo.AccettaRelazioneDecisa(ctx, q, thread, k, utente, d)
+	}, nil, domandaConversione(r, "/relazione/accetta", "allegato", "padre", "figlio"))
 }
 
 func (s *Server) scartaRelazione(w http.ResponseWriter, r *http.Request) {
@@ -233,18 +264,27 @@ func (s *Server) scartaRelazione(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// accettaFile: POST .../file/{aid}/accetta; con `chiave` accetta solo il sottoalbero di quel nodo.
+// accettaFile: POST .../file/{aid}/accetta; con `chiave` accetta solo il sottoalbero di quel nodo. `assieme`, ripetuto,
+// come in accettaRelazione: una sorgente particolare non confermata ferma il gesto con la domanda per lei.
 func (s *Server) accettaFile(w http.ResponseWriter, r *http.Request) {
-	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
+	percorso := ""
+	if aid, err := uuid.Parse(strings.TrimSpace(r.PathValue("aid"))); err == nil {
+		percorso = "/file/" + aid.String() + "/accetta"
+	}
+	s.gestoConDomanda(w, r, func(ctx context.Context, q *db.Queries, thread, utente uuid.UUID) (string, error) {
 		aid, err := idDa(r.PathValue("aid"), "allegato")
 		if err != nil {
 			return "", err
 		}
-		if chiave := strings.TrimSpace(r.FormValue("chiave")); chiave != "" {
-			return fascicolo.AccettaSottoalbero(ctx, q, thread, aid, chiave, utente)
+		d, err := decisioneTipoDal(r)
+		if err != nil {
+			return "", err
 		}
-		return fascicolo.AccettaFile(ctx, q, thread, aid, utente)
-	})
+		if chiave := strings.TrimSpace(r.FormValue("chiave")); chiave != "" {
+			return fascicolo.AccettaSottoalberoDeciso(ctx, q, thread, aid, chiave, utente, d)
+		}
+		return fascicolo.AccettaFileDeciso(ctx, q, thread, aid, utente, d)
+	}, nil, domandaConversione(r, percorso, "chiave"))
 }
 
 // chiaveRimozione legge `step`, `padre`, `figlio` (documento e componenti).

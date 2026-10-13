@@ -429,7 +429,12 @@ func EffettoAutorizzazione(ctx context.Context, q *db.Queries, thread uuid.UUID,
 	e.rimozioni(ctx, q, thread, *st, comp)
 
 	if c.Tipo == db.TipoComponenteSciolto {
-		e.Avvisi = append(e.Avvisi, c.Codice+" è un particolare: diventa un assieme al primo figlio accettato")
+		// A1d P4: il particolare non diventa piu' assieme da solo (B2.11, D-K6-01 = A [U], direttiva 12 §6). La frase
+		// nomina le due strade che ci sono: la conferma contestuale degli archi dalla vista Albero (RichiestaConversione)
+		// e il cambio di tipo dalla scheda. L'editor e il lotto di «Conferma Fascicolo» non chiedono la conferma
+		avviso := c.Codice + " è un particolare: non diventa un assieme da solo. Accettando il primo figlio dalla vista Albero " +
+			"il Fascicolo chiede di confermare il cambio; oppure lo si cambia prima in assieme dalla sua scheda"
+		e.Avvisi = append(e.Avvisi, avviso)
 	}
 	if c.Tipo == db.TipoComponenteFinito && !e.Delega {
 		e.Avvisi = append(e.Avvisi, "è un prodotto finito: il file diventa anche il suo STEP strutturale")

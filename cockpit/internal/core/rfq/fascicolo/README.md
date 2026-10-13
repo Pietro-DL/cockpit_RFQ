@@ -42,6 +42,9 @@ markmap:
 - La classificazione dei testi e i suffissi decorativi (`Canonico`, `CanonicoNome`, `HaSuffissi`): `core/inbox/classificazione`.
   - Questo package li usa, non li definisce.
 - L'esecuzione dei job e l'applicazione dei risultati del worker: `app/runtime`, `transport/workerapi`.
+- Il Motore A (`core/inbox/classificazione/motorea`, `core/valutazione`): classifica con le grammatiche dell'indice
+  letto all'avvio (`[motore_a]`), non con `cliente.regole`, e in sola lettura.
+  - Questo package non lo importa.
 
 ## File
 
@@ -74,20 +77,29 @@ markmap:
   - `chiudiProposteDi` (nota tagliata a 200 caratteri)
 - **`classifica.go`**
   - `ClassificaNodi` (pura: il codice di ogni PRODUCT dal `Motore` del cliente; famiglia prima di generico, id → nome → descrizione; codici e revisioni fuori misura restano nell'evidenza)
+    - la revisione proposta è la formazione dello STEP (`rev_grezza`, cioè `PRODUCT_DEFINITION_FORMATION.id`) quando
+      c'è, e vince su quella che la famiglia separa dal codice;
+    - il segnaposto «ANY» non è una revisione: resta nell'evidenza (`rev_grezza_segnaposto`) e la revisione resta
+      quella della famiglia, se c'è (`RevGrezzaSegnaposto`, A1d P4, B4.10)
+  - `RevGrezzaSegnaposto`
   - `MotoreDellaRfq`
 - **`proposte.go`**
   - `Pianifica` (pura: il file classificato contro la working → righe aperte o `duplicato`)
-  - `Working` / `NuovaWorking` / `conCanonici`, `Contesto`, `Piano`, `CreerebbeCiclo`
-  - `Rimozioni` (pura)
-  - `RadiceDiFamiglia` (D16)
+  - `Working` / `NuovaWorking` (solo gli archi fra componenti attivi), `Contesto`, `Piano`, `CreerebbeCiclo`
+  - `RimozioniFigliDiretti` (pura)
+  - `RadiceDelloStep` (la radice del file, se è una sola e il motore del cliente ne legge il codice: un'evidenza del
+    codice del documento STEP)
 - **`applica.go`**
   - `ApplicaStruttura`: il fan-out idempotente dei fatti di uno STEP in una RFQ
-  - `propostaDelDocumento` (la radice riconosciuta da una famiglia corregge la proposta del documento, fonte `regola_cliente`)
+  - `valutaLaRadice` (la radice dello STEP entra come evidenza nella valutazione del codice del documento,
+    `classificazione.Valuta`; una radice diversa dal nome rende la dimensione discorde e la colonna tiene il nome, D49;
+    prima era `propostaDelDocumento`, la D16)
 - **`rimozioni.go`**
   - `AggiornaRimozioni` (solo dallo STEP strutturale letto per intero)
   - `AggiornaTutteLeRimozioni`, `rileggiLoStep`
 - **`decisioni.go`**
   - `AccettaNodo`, `AccettaRelazione`, `AccettaSottoalbero`, `AccettaFile`, `ScartaNodo`, `ScartaRelazione`, `CodiceDelNodo`, `AccettaRimozione`, `ScartaRimozione`
+  - A1d P4 (B2.11; D-K6-01 = A [U], direttiva 12 §6): `DecisioneTipo{Assiemi}`, `AccettaRelazioneDecisa`, `AccettaSottoalberoDeciso`, `AccettaFileDeciso`; un particolare non diventa assieme da solo: senza dichiarazione il gesto risponde con `RichiestaConversione` (componente, codice, figlio, `Domanda`), non scrive niente, ed e' anche un `Rifiuto` per chi non sa chiedere la conferma
   - `prepara` (lucchetto della RFQ + D26)
   - `dopoLaDecisione` (ricalcolo delle rimozioni)
   - `componenteConSuffisso`
@@ -160,10 +172,10 @@ markmap:
     - `transport/web/caricamento.go` (carica a mano)
     - `fascicolo_nas.go` (importa dal NAS)
 - **`RevisioneProponibile`**
-  - Chi lo chiama:
-    - `transport/workerapi/workerapi.go` (`propostaDaAnalisi`, `scriviProposta`)
-    - qui dentro `propostaDelDocumento`
-- **`Ciclo`, `CreerebbeCiclo`, `Valuta`, `Differenze`, `ClassificaNodi`, `Pianifica`, `Rimozioni`, `RadiceDiFamiglia`, `PianoDelFascicolo`, `AggiornaRimozioni`, `SeBloccata`, `LeggiIngressoPiano`**
+  - Chi lo chiama: nessuno, né il codice né le prove.
+    - La stessa regola (un file caricato a mano non propone la revisione del cliente) la applica
+      `classificazione.Valuta` con `IngressoFile.Interno`, che `valutaLaRadice` passa.
+- **`Ciclo`, `CreerebbeCiclo`, `Valuta`, `Differenze`, `ClassificaNodi`, `Pianifica`, `RimozioniFigliDiretti`, `RadiceDelloStep`, `PianoDelFascicolo`, `AggiornaRimozioni`, `SeBloccata`, `LeggiIngressoPiano`**
   - Chi lo chiama: solo questo package e le sue prove
 
 ## Dati
@@ -184,8 +196,9 @@ markmap:
   - `bom_versione_componente` / `_relazione` / `_documento` / `_deroga` (le istantanee)
   - `fase_log` (chiude la riga aperta e ne apre una)
 - **`ApplicaStruttura`**
-  - `componente_proposta`, `relazione_proposta` (solo le righe che cambiano)
-  - `documento_proposta` (`PropostaDocumentoDaRadice`: solo una proposta aperta, senza componente e con `fonte <> 'operatore'`)
+  - `componente_proposta`, `relazione_proposta` (solo le righe riscrivibili che cambiano)
+  - `documento_proposta` (`valutaLaRadice` con `AggiornaValutazioneProposta`: solo una proposta aperta, senza componente
+    e con `fonte <> 'operatore'`)
   - poi `AggiornaRimozioni`
 - **`AggiornaRimozioni`**
   - `rimozione_proposta` (upsert delle aperte, chiusura di quelle che non valgono più)
@@ -251,14 +264,23 @@ markmap:
 ### Dai fatti di uno STEP alle proposte
 
 - `ApplicaStruttura`, a ogni risultato dell'analisi, a ogni riuso dei fatti, a ogni apertura della RFQ con `RianalizzaRfq`:
-  1. nessuna chiave `struttura` nei fatti o nessuno sha256 → niente;
+  1. nessuna chiave `struttura` nei fatti o nessuno sha256 → niente; un file fuori dal flusso (`FileNelFlusso`) →
+     niente, con `FuoriFlusso`;
      - `MotivoParziale` dice se la lettura è completa;
   2. il **portatore**: lo stesso contenuto arrivato due volte nella RFQ propone una volta sola (`PortatoreDelFile`);
   3. `ClassificaNodi` con il `Motore` del cliente;
-     - un codice scritto dall'operatore sostituisce la classificazione;
-  4. la working (`leggiWorking` + `conCanonici` per i suffissi decorativi), gli identificativi della richiesta, il prodotto di cui il file è lo STEP strutturale (`ProdottoDelloStepStrutturale`);
-  5. `Pianifica` → upsert solo delle righe aperte che cambiano;
-  6. `propostaDelDocumento` (D16) e, se il file è uno STEP strutturale, `AggiornaRimozioni`.
+     - la classificazione del server resta nell'evidenza della riga (`evidenza.classificato`, K2);
+     - un codice scritto dall'operatore vince sulla classificazione: codice, rev, famiglia e confidenza della riga
+       restano i suoi;
+  4. `Pianifica`, con il `Contesto`: la working (`leggiWorking`, solo gli archi fra componenti attivi), i nodi del file
+     decisi da una persona (`DecisoDaUnaPersona`) e le sorgenti autorizzate del file (`LeggiDichiarazioni`);
+     - una riga non riscrivibile (decisa da una persona: `riscrivibile` vuole una riga aperta, o scartata da un
+       automatismo, E33) o già uguale (`stessoNodo`) si salta; le altre vanno in `UpsertComponenteProposta`;
+  5. gli archi (`scriviArchi`, con la stessa regola);
+     - se le sorgenti sono cambiate durante la lettura, gli archi si ripianificano e si riscrivono;
+     - `ancoraAperte` conta le righe che chiedono ancora una decisione;
+  6. `valutaLaRadice` (la radice dello STEP come evidenza del codice del documento, `AggiornaValutazioneProposta`) e
+     poi `AggiornaRimozioni` per ogni autorizzazione del file (una non valida dà solo `Sospese`).
 
 ### Le rimozioni (`AggiornaRimozioni`)
 
@@ -267,7 +289,8 @@ markmap:
 - → struttura leggibile con una radice sola
 - → ogni nodo del file ha un componente, oppure un codice nuovo, oppure è scartato;
   - un nodo senza codice ancora aperto **sospende** il calcolo (`EsitoRimozioni.Sospese` dice perché).
-- Poi `Rimozioni` (gli archi della working raggiungibili dal prodotto che il file non contiene)
+- Poi `RimozioniFigliDiretti` (gli archi della working che partono dal componente e che il file non contiene, a
+  profondità 1)
 - → upsert delle aperte, chiusura di quelle che non valgono più.
 - Si ricalcolano dopo ogni decisione (`dopoLaDecisione`, o `dopo` in `transport/web/fascicolo_rotte.go`).
 - Le chiudono senza ricalcolo:
@@ -355,11 +378,13 @@ markmap:
   - `ApplicaStruttura`, `Pianifica` e `AggiornaRimozioni` scrivono solo le tabelle di proposta e `documento_proposta`;
   - `componente_relazione` la scrivono solo `accettaRelazione`, `collega`, `scollega`, `AccettaRimozione`, `ArchiviaComponente` e `ApplicaStrutturaVoluta` (con le stesse primitive, più `SetQtaRelazione`).
 - **Una proposta decisa non si riscrive**:
-  - il Go la salta (`ApplicaStruttura`, `AggiornaRimozioni`) e le upsert hanno `WHERE stato = 'aperta'`.
+  - il Go la salta (`ApplicaStruttura` con `riscrivibile`, `AggiornaRimozioni`) e le upsert di nodi e archi riscrivono
+    solo una riga aperta o scartata senza `deciso_da`.
   - Un codice scritto dall'operatore resta anche se le regole cambiano (override in `ApplicaStruttura`, `CASE` in `UpsertComponenteProposta`),
-  - e D16 non riscrive la proposta di un documento con `fonte = 'operatore'` (il muro sta nella query `PropostaDocumentoDaRadice`).
+  - e `valutaLaRadice` non riscrive la proposta di un documento con `fonte = 'operatore'` (il muro sta nella query
+    `AggiornaValutazioneProposta`).
 - **Il codice di un componente non si riscrive per i suffissi decorativi**:
-  - gli alias si cercano (`proposte.go:Working.conCanonici`, `decisioni.go:componenteConSuffisso`, `voluta.go:conAlias`, la mappa `alias` di `piano.go:PianoDelFascicolo`, `candidati.go`).
+  - gli alias si cercano (`decisioni.go:componenteConSuffisso`, `voluta.go:conAlias`, la mappa `alias` di `piano.go:PianoDelFascicolo`, `candidati.go`).
   - Senza le regole del cliente lette non si decide: ogni chiamante restituisce l'errore del database di `MotoreDellaRfq` invece di proseguire con un motore vuoto.
 - **Un prodotto archiviato non tiene rimozioni aperte e non riceve un nuovo STEP strutturale**
   - `ArchiviaComponente` chiude quelle del suo STEP;
@@ -419,7 +444,7 @@ markmap:
   - **`proposte_test.go`**
     - `ClassificaNodi` (famiglia, generico, id contro nome, rev del file, misure)
     - `Pianifica` (tipi, duplicati, radice dichiarata, qta da lettura troncata)
-    - `Rimozioni`, `CreerebbeCiclo`, `RadiceDiFamiglia`
+    - `RimozioniFigliDiretti`, `CreerebbeCiclo`, `RadiceDelloStep`
   - **`candidati_test.go`**: `Unisci`: forte/debole, riferimento escluso, storia citata, conflitto di revisioni, situazioni, BOM congelata, ordine delle righe, suffisso decorativo
   - **`albero_test.go`**: `NuovoAlbero`:
     - radici multiple, condiviso, archiviati, ciclo;
@@ -463,6 +488,11 @@ markmap:
   - editor della struttura e suffissi decorativi (Fascicolo v3).
 - **Aperto per decisione**: il gate non controlla «zero proposte di sostituzione pendenti» (A4.6),
   - perché il modello non registra una proposta di sostituzione (commento in testa a `gate.go`).
+- **Aperto per decisione: la revisione di un nodo STEP** (domanda D-REV-01, in attesa della risposta dell'utente).
+  - Qui la formazione dello STEP (`rev_grezza`) diventa la revisione proposta, salvo «ANY» (`ClassificaNodi`, B4.10).
+  - Il Motore A non la usa mai come revisione: la conserva come formazione (D1, `core/estrazione/step.go`,
+    `core/ancoraggio/struttura_file.go`).
+  - La divergenza è registrata nell'audit dei due classificatori del 13/10; fino alla risposta il codice resta com'è.
 - **Dal Fascicolo v3 la struttura di uno STEP non entra più con «Conferma Fascicolo»**:
   - `struttureDi` mette ogni struttura con nodi o archi aperti in `decidere` (`DomandaStrutturaEditor`),
   - quindi la mappa `inArrivo` resta vuota e un file che va a un nodo proposto aspetta l'editor (`DaStep` con `DomandaComponente`).

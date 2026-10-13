@@ -1358,6 +1358,16 @@ markmap:
   - `registraProposte`, `gesto`/`gestoPoi` (tutto o niente, «Niente è cambiato: …»), `idDa`
   - `rianalizza` (fino a `MaxAccodatiSuRichiesta` = 20), `rileggiAllApertura`
   - accetta/scarta per nodo, relazione, file o sottoalbero, rimozione
+  - `gestoConDomanda`: per `relazione/accetta` e `file/{aid}/accetta` (campo `assieme`, ripetuto), la conferma
+    contestuale del cambio di tipo (A1d P4, D-K6-01 = A [U], direttiva 12 §6)
+- **`fascicolo_conversione.go`**
+  - `confermaTipo`, `domandaConversione`, `decisioneTipoDal`, `soloDalFascicolo`: la domanda «Il componente B è
+    attualmente un particolare…» al posto dell'avviso (`fasc_avviso`), solo dalla schermata del Fascicolo e non
+    dalla vista Documenti; «Sì» rimanda lo stesso gesto con l'id di quel componente, «No» chiude la domanda nel
+    browser. Altrove il rifiuto che nomina la scheda
+  - `stradaInPiuDellaConversione`, `dallaVistaDocumenti`, `stradaDallaVistaAlbero`: dalla vista Documenti, dove `fascicolo.mjs`
+    svuota l'avviso al primo clic e il «Sì» non partirebbe, il rifiuto nomina anche la vista Albero (revisione D-E
+    del 13/10, rilievo 1)
 - **`codici.go`**
   - `registraCodici`, `aggiungiCodice`, `ripristinaComponente`, `rigaCodice`, `etichettaTipo`, `BersaglioCodici`,
     `codiciDellaRfq`
