@@ -641,6 +641,8 @@ var etichette = map[string]map[string]string{
 		"ancoraggio.alternative_conservate":          "letture alternative conservate",
 		"ancoraggio.target_senza_struttura":          "prodotto senza struttura",
 		"ancoraggio.grafo_incompleto":                "struttura dello STEP incompleta",
+		"ancoraggio.radice_dal_nome_file":            "struttura candidata dal nome dello STEP",
+		"ancoraggio.radice_dallo_step_associato":     "struttura candidata dallo STEP associato",
 		"ancoraggio.completamento_documentale":       "codice completato dal documento",
 		"ancoraggio.correzione_documentale":          "codice corretto dal documento",
 		"confronto.revisione_non_confrontabile":      "revisioni del vecchio e del nuovo non confrontabili",

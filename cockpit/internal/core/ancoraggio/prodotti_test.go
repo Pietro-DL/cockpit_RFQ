@@ -931,7 +931,7 @@ func TestIValoriDelContratto(t *testing.T) {
 	}{
 		{ancoraggio.GestoMessaggio{}, "MessaggioID:messaggio_id Stato:stato Aggancio:aggancio AgganciatoDa:agganciato_da AgganciatoIl:agganciato_il Evento:evento Motivo:motivo"},
 		{ancoraggio.RiferimentoFonte{}, "Tipo:tipo DocumentoID:documento_id Sha256:sha256 AllegatoID:allegato_id Radice:radice Ruolo:ruolo Forma:forma ConfermatoDa:confermato_da ConfermatoIl:confermato_il Superato:superato"},
-		{ancoraggio.DocumentoCandidato{}, "Origine:origine AllegatoID:allegato_id DocumentoID:documento_id Sha256:sha256 Radici:radici RadiceCompatibile:radice_compatibile Compatibilita:compatibilita Estrazione:estrazione GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo"},
+		{ancoraggio.DocumentoCandidato{}, "Origine:origine AllegatoID:allegato_id DocumentoID:documento_id Sha256:sha256 Radici:radici RadiceCompatibile:radice_compatibile Compatibilita:compatibilita Estrazione:estrazione GrafoCompleto:grafo_completo MotivoGrafo:motivo_grafo Motivo:motivo"},
 	} {
 		tp := reflect.TypeOf(c.tipo)
 		var campi []string

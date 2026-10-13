@@ -9,6 +9,7 @@ import (
 
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
+	"promatec/cockpit/internal/core/registro/regole/grammatica"
 )
 
 // Le strutture del prodotto (piano A, 6.4.5, regole 1 e 2; contratto §0 punto 1, §1.2, §1.3, §2.2; commit P6a, B2):
@@ -256,6 +257,11 @@ type ArcoProposto struct {
 //     stesso namespace, la migliore). Uguale o compatibile parziale per una radice candidata (regola 1); la BOM di
 //     lavoro sta sotto la radice scelta dall'operatore, qualunque sia (R76 A), e qui si vede se ha la base.
 //   - Stato: struttura_candidata o bom_di_lavoro_proposta (R59 A, R76 A).
+//   - Origine (estensione di R76 b, notte 14/10): perché la radice è quella del prodotto quando non ne ha la base. ""
+//     per la regola 1 (la radice ha la base del target) e per la radice scelta con il gesto 3 (R76 A); nome_file_step
+//     quando lo dice il nome dello STEP (OrigineStrutturaNomeFileSTEP); associazione_step quando lo STEP è associato al
+//     componente del target da una decisione (OrigineStrutturaAssociazioneSTEP). Con un'origine la struttura resta
+//     candidata (R59 A) e Compatibilita è non_determinabile: la radice non ha letture nel namespace del target.
 //   - Nodi: la radice, poi i nodi raggiungibili dalla radice negli archi dei fatti, in ordine di Rif (regola 2).
 //   - Archi: gli archi dei fatti fra i nodi della struttura, in ordine di (padre, figlio).
 //   - ArchiContesto: gli archi del contesto con la loro origine (regola 2): quelli proposti (relazione_proposta) con il
@@ -263,7 +269,9 @@ type ArcoProposto struct {
 //     mai fusi con l'albero proposto (contratto §1.4).
 //   - Fonti: il file come documento candidato della fonte del target (M1), solo se lo è: la sua radice ha la base del
 //     prodotto (R76 b A, lo stesso criterio di valutazione) e non è lo STEP della fonte confermata (T-B0-07). Vuoto
-//     per un prodotto che compare solo come nodo interno.
+//     per un prodotto che compare solo come nodo interno. Con il nome dello STEP che dice il target (radiceDiRiserva)
+//     il file è candidato anche senza la base nella radice, con il motivo nome_file_step e senza radice compatibile;
+//     con la sola associazione decisa no: il candidato lo dà già valutazione (documento_del_prodotto).
 //   - GrafoCompleto, MotivoGrafo: la completezza del grafo del file, una qualità della fonte (R32 b), mai
 //     «completa» da sola.
 //   - RigaRadice, RigheDaDecidere: le righe aperte della tabella legacy dei nodi della struttura. Quella della radice
@@ -277,6 +285,7 @@ type StrutturaProdotto struct {
 	RadiceDelFile   bool                  `json:"radice_del_file"`
 	Compatibilita   motorea.Compatibilita `json:"compatibilita"`
 	Stato           StatoStruttura        `json:"stato"`
+	Origine         string                `json:"origine,omitempty"`
 	Nodi            []NodoProposto        `json:"nodi,omitempty"`
 	Archi           []ArcoProposto        `json:"archi,omitempty"`
 	ArchiContesto   []ArcoPercorso        `json:"archi_contesto,omitempty"`
@@ -286,6 +295,17 @@ type StrutturaProdotto struct {
 	RigaRadice      string                `json:"riga_radice,omitempty"`
 	RigheDaDecidere []string              `json:"righe_da_decidere,omitempty"`
 }
+
+// I valori di StrutturaProdotto.Origine (estensione di R76 b, notte 14/10): "" vuol dire la regola 1 o la radice scelta
+// (R76 A). Con tutte e due le prove vale associazione_step, la decisione di una persona.
+const (
+	OrigineStrutturaNomeFileSTEP     = "nome_file_step"
+	OrigineStrutturaAssociazioneSTEP = "associazione_step"
+)
+
+// MotivoFonteNomeFileSTEP: il motivo di un documento candidato della fonte che viene dal nome dello STEP
+// (DocumentoCandidato.Motivo; radiceDiRiserva), lo stesso valore dell'origine della struttura.
+const MotivoFonteNomeFileSTEP = OrigineStrutturaNomeFileSTEP
 
 // ---- ProponiStrutture ----
 
@@ -312,9 +332,15 @@ type StrutturaProdotto struct {
 //     Senza BOM di lavoro, e tutto candidato: la radice non registrata (T-B0-08: non la sceglie il sistema), la fonte
 //     superata (la conferma valeva per un'altra versione: R65, riferimento_superato), lo STEP confermato senza una
 //     struttura letta, o una radice che nel file non c'è.
+//     3 bis. Le radici di riserva (estensione di R76 b, notte 14/10; radiceDiRiserva): solo per un target senza
+//     nessuna struttura dai punti 1 e 3 e senza fonte confermata, uno STEP con una radice sola che non ha letture nel
+//     namespace del target diventa la sua struttura candidata quando lo dice il nome del file (nome_file_step) o
+//     un'associazione decisa del file al componente del target (associazione_step). Mai bom_di_lavoro_proposta: la
+//     BOM di lavoro resta del gesto 3 (R76 A). Con un target che ha già una struttura non cambia niente.
 //  4. Le diagnostiche: ancoraggio.target_senza_struttura per un target senza strutture, ancoraggio.grafo_incompleto
 //     per una struttura con il grafo non completo, con il motivo. La completezza dei file dei figli («solo parti») non
-//     conta: contano le strutture dei target (regola 2).
+//     conta: contano le strutture dei target (regola 2). Per una radice di riserva, in nota, il suo perché:
+//     ancoraggio.radice_dal_nome_file o ancoraggio.radice_dallo_step_associato.
 //  5. I nodi e gli archi, nello stesso calcolo (B4, fase 1; R85): ogni nodo con la decisione accanto per UUID, la riga
 //     legacy dello stesso nodo e la catena del codice con l'identità, anche parziale (6.0.6; R86, R87; T-B0-33,
 //     T-E1-05, T-E1-06, T-E1-22, T-E1R-08); ogni arco con l'arco confermato accanto. Niente si fonde e niente si
@@ -357,6 +383,15 @@ func ProponiStrutture(target []ProdottoRichiesto, ctx ContestoStrutturale) ([]St
 				c.archiDellaRadiceScelta(t, &s)
 				c.confermatoDellaRadiceScelta(t, &s)
 				proprie = append(proprie, s)
+			}
+		}
+		// 3 bis: le radici di riserva, solo senza nessuna struttura e senza fonte confermata.
+		if len(proprie) == 0 && t.FonteConfermata == nil {
+			for _, f := range c.file {
+				if s, d, ok := c.radiceDiRiserva(t, f); ok {
+					proprie = append(proprie, s)
+					diag = append(diag, d)
+				}
 			}
 		}
 
@@ -458,6 +493,7 @@ type contestoIndicizzato struct {
 	messaggi            []CodiceDiMessaggio
 	confermatiInOrdine  []ComponenteDeciso              // per l'abbinamento per base (fase 2), in ordine di componente
 	lettureDecise       map[string]motorea.LetturaForma // per la riconciliazione (fase 3), per Rif del componente
+	associati           map[string]bool                 // per le radici di riserva (3 bis): (allegato, componente) decisi
 }
 
 // chiaveRigaNodo: la riga legacy di un nodo si cerca per (allegato, RifNodo): lo stesso contenuto in due allegati ha
@@ -471,7 +507,14 @@ func indicizza(ctx ContestoStrutturale) *contestoIndicizzato {
 		righe: map[uuid.UUID][]RigaPropostaLegacy{}, aperte: map[string]RigaPropostaLegacy{}, decise: map[string]RigaDecisaLegacy{},
 		componenti: map[uuid.UUID]ComponenteDeciso{}, decisioniComponente: map[uuid.UUID]DecisioneIdentita{},
 		coppieConfermate: map[string]ArcoPercorso{}, formazioni: map[string][]string{}, nodiDelComponente: map[uuid.UUID][]string{},
-		codiciProposti: ctx.CodiciProposti, lettureDecise: ctx.LettureDecise}
+		codiciProposti: ctx.CodiciProposti, lettureDecise: ctx.LettureDecise, associati: map[string]bool{}}
+	// Le associazioni decise, manuali o confermate (contratto §1.5): le altre origini le rifiuta ProponiAncoraggi, e qui
+	// non provano niente.
+	for _, a := range ctx.AssociazioniDecise {
+		if a.Origine == OrigineManuale || a.Origine == OrigineConfermato {
+			c.associati[a.AllegatoID.String()+"\x00"+a.ComponenteID.String()] = true
+		}
+	}
 	strutture := append([]StrutturaFile(nil), ctx.Strutture...)
 	sort.SliceStable(strutture, func(i, j int) bool {
 		if strutture[i].Sha256 != strutture[j].Sha256 {
@@ -634,6 +677,99 @@ func (c *contestoIndicizzato) radiceScelta(f *RiferimentoFonte) (*fileIndicizzat
 		return nil, NodoStruttura{}, false
 	}
 	return scelto, scelto.nodi[rif], true
+}
+
+// radiceDiRiserva (passo 3 bis di ProponiStrutture; estensione di R76 b, notte 14/10): la struttura candidata di un
+// target senza strutture sotto la radice di uno STEP che non ne ha la base, quando un'altra prova dice che quella
+// radice è il prodotto. Le condizioni, tutte:
+//   - il file ha una radice sola: con più radici nessuna si sceglie (T-E1-07);
+//   - la radice non è discordante con il target: la sua compatibilità è non_determinabile (R76 b resta la regola
+//     quando la radice si confronta). Per il nome del file, in più, la radice non ha nessuna lettura nel namespace del
+//     target: è muta, o letta solo in un altro namespace (un numero di documento al posto del codice articolo);
+//   - la prova: il nome del file dice il target (nomeDiceIlTarget: nome_file_step), oppure un'associazione decisa,
+//     manuale o confermata, lega il file al componente del target (associazione_step, la decisione di una persona,
+//     che prevale quando ci sono tutte e due).
+//
+// La struttura è candidata (R59 A), con la compatibilità non_determinabile e l'origine; con il nome del file il file è
+// anche documento candidato della fonte, con il motivo nome_file_step e senza radice compatibile (lo stesso criterio di
+// valutazione, fonte.go, T-B2-02). La diagnostica, in nota, dice perché. Nessuna somiglianza di stringhe (E-18): il
+// nome è un'identità letta dalla grammatica, l'associazione è un gesto.
+func (c *contestoIndicizzato) radiceDiRiserva(t ProdottoRichiesto, f *fileIndicizzato) (StrutturaProdotto, evidenze.Diagnostica, bool) {
+	if len(f.s.Radici) != 1 {
+		return StrutturaProdotto{}, evidenze.Diagnostica{}, false
+	}
+	radice, ok := f.nodi[f.s.Radici[0]]
+	if !ok || compatibilitaDelNodo(t, radice) != motorea.CompatibilitaNonDeterminabile {
+		return StrutturaProdotto{}, evidenze.Diagnostica{}, false
+	}
+	dalNome := !letturaNelNamespace(radice, t.Namespace) && nomeDiceIlTarget(t, f.s.NomeFile)
+	associato := t.ComponenteID != nil && c.associati[f.s.AllegatoID.String()+"\x00"+t.ComponenteID.String()]
+	if !dalNome && !associato {
+		return StrutturaProdotto{}, evidenze.Diagnostica{}, false
+	}
+	s := c.struttura(t, f, radice, motorea.CompatibilitaNonDeterminabile)
+	d := evidenze.Diagnostica{Codice: CodiceRadiceDalNomeFile, Gravita: evidenze.GravitaNota, Natura: evidenze.NaturaDati,
+		Percorso: percorsoStrutture + "[" + t.Rif + "]", Rif: []string{t.Rif, idFonteAllegato(f.s.AllegatoID), radice.Rif}}
+	s.Origine = OrigineStrutturaNomeFileSTEP
+	d.Messaggio = "nessun nodo degli STEP ha la base del target: il nome dello STEP la dice, e la sua radice, l'unica, non ha letture nel namespace del target; è la struttura candidata, da confermare con la fonte (R59 A)"
+	if associato {
+		s.Origine, d.Codice = OrigineStrutturaAssociazioneSTEP, CodiceRadiceDalloSTEPAssociato
+		d.Messaggio = "nessun nodo degli STEP ha la base del target: lo STEP è associato al componente del target da una decisione, e la sua radice, l'unica, non è discordante; è la struttura candidata, da confermare con la fonte (R59 A)"
+	}
+	if dalNome {
+		aid := f.s.AllegatoID
+		s.Fonti = []DocumentoCandidato{{Origine: CandidatoDaMotoreA, AllegatoID: &aid, Sha256: f.s.Sha256, Radici: []string{radice.Chiave},
+			Compatibilita: motorea.CompatibilitaNonDeterminabile, Estrazione: EstrazioneRiuscita, GrafoCompleto: f.s.GrafoCompleto,
+			MotivoGrafo: f.s.MotivoGrafo, Motivo: MotivoFonteNomeFileSTEP}}
+	}
+	return s, d, true
+}
+
+// letturaNelNamespace: il nodo ha almeno una lettura d'identità nel namespace dato.
+func letturaNelNamespace(n NodoStruttura, namespace string) bool {
+	for _, l := range n.Letture {
+		if l.Forma.Namespace == namespace {
+			return true
+		}
+	}
+	return false
+}
+
+// nomeDiceIlTarget (3 bis): il nome dello STEP dice il target (NomeDiceIlProdotto, con la lettura del target).
+func nomeDiceIlTarget(t ProdottoRichiesto, nome []LetturaConPosizione) bool {
+	letture := make([]motorea.LetturaCodice, 0, len(nome))
+	for _, x := range nome {
+		letture = append(letture, x.Lettura)
+	}
+	return NomeDiceIlProdotto(letturaDelTarget(t), letture)
+}
+
+// NomeDiceIlProdotto (passo 3 bis di ProponiStrutture, notte 14/10): le letture del nome di uno STEP dicono il prodotto
+// letto in p (namespace, base, marcatore). Fra le letture con la funzione identita_file, quelle nel namespace di p:
+// almeno una con il ruolo prodotto e la base uguale o equivalente, con il marcatore compatibile (la regola unica,
+// T-B4-30); nessuna con un altro esito (un altro codice dello stesso namespace, una forma parziale) né con una
+// ripetizione della base che non concorda (D2). Le letture di un altro namespace non contano: sono alternative, non
+// identità discordanti (identitaDiscordanti). È esportata perché valutazione la usa per i candidati della fonte con lo
+// stesso criterio delle strutture (T-B2-02): una regola sola, non una copia.
+func NomeDiceIlProdotto(p motorea.LetturaForma, nome []motorea.LetturaCodice) bool {
+	trovato := false
+	for _, l := range nome {
+		if l.Funzione != motorea.FunzIdentitaFile || l.Forma.Namespace != p.Namespace {
+			continue
+		}
+		for _, r := range l.Forma.Ripetizioni {
+			if !r.Concorda {
+				return false
+			}
+		}
+		switch conMarcatore(motorea.ConfrontaBasi(p.Base, l.Forma.Base), marcatoreDi(p), marcatoreDi(l.Forma)) {
+		case motorea.CompatibilitaUguale, motorea.CompatibilitaEquivalente:
+			trovato = trovato || haRuolo(l.RuoliCandidati, grammatica.RuoloProdotto)
+		default:
+			return false
+		}
+	}
+	return trovato
 }
 
 // struttura costruisce la struttura candidata di un target in un file, sotto una radice (regola 2).

@@ -355,6 +355,21 @@ var autorizzateP7e = map[string]bool{
 	"d3-riga-confermata-componente-archiviato": true,
 }
 
+// autorizzateRiserveP7e: le voci che cambiano per un cambiamento di regola dichiarato dopo P7e, le radici di riserva
+// (estensione di R76 b, notte 14/10; ancoraggio, passo 3 bis di ProponiStrutture): un prodotto senza strutture, con lo
+// STEP confermato sul suo componente (un'associazione decisa) e la radice che la grammatica dell'insieme non legge,
+// prende la struttura candidata sotto quella radice (associazione_step). Cambiano le parti che ne dipendono: le
+// diagnostiche e gli ancoraggi del thread (non più target_senza_struttura), la struttura, la verifica, la completezza e
+// i previsti del prodotto. Solo queste voci, intere; ogni voce qui deve cambiare, altrimenti l'autorizzazione non serve
+// più. Il «prima» resta quello di P7e: niente si rigenera.
+var autorizzateRiserveP7e = map[string]bool{
+	"candidata | famiglia-acme | vista":     true,
+	"due-candidate | famiglia-acme | vista": true,
+	"finito-mancante | catena":              true,
+	"finito-mancante | catena | vista":      true,
+	"finito-mancante | storia | vista":      true,
+}
+
 // parteAutorizzataP7e: la differenza della voce nella parte è autorizzata da D3 (autorizzateP7e): i soli previsti del
 // prodotto della scena ACME, su una scena di D3. Restituisce la scena.
 func parteAutorizzataP7e(voce, parte string) (string, bool) {
@@ -598,7 +613,7 @@ func TestP7eNonRegressione(t *testing.T) {
 	}
 	sort.Strings(nomi)
 	parti, diverse, autorizzate := 0, 0, 0
-	viste := map[string]bool{}
+	viste, visteRiserve := map[string]bool{}, map[string]bool{}
 	for _, nome := range nomi {
 		p, ok := prima.Scene[nome]
 		d, ok2 := calcolate[nome]
@@ -628,6 +643,12 @@ func TestP7eNonRegressione(t *testing.T) {
 				t.Logf("%s: la parte %q è cambiata, autorizzata da D3", nome, k)
 				continue
 			}
+			if autorizzateRiserveP7e[nome] {
+				autorizzate++
+				visteRiserve[nome] = true
+				t.Logf("%s: la parte %q è cambiata, autorizzata dalle radici di riserva (notte 14/10)", nome, k)
+				continue
+			}
 			diverse++
 			t.Errorf("%s: la parte %q è cambiata (prima %q, dopo %q)", nome, k, p[k], d[k])
 		}
@@ -635,6 +656,11 @@ func TestP7eNonRegressione(t *testing.T) {
 	for scena := range autorizzateP7e {
 		if !viste[scena] {
 			t.Errorf("la scena %q è fra le differenze autorizzate da D3, ma non cambia: l'autorizzazione non serve più", scena)
+		}
+	}
+	for voce := range autorizzateRiserveP7e {
+		if !visteRiserve[voce] {
+			t.Errorf("la voce %q è fra le differenze autorizzate dalle radici di riserva, ma non cambia: l'autorizzazione non serve più", voce)
 		}
 	}
 	if len(catalogo) < 260 || parti < 1300 {
