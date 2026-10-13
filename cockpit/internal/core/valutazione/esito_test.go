@@ -121,7 +121,7 @@ func TestICampiDellEsito(t *testing.T) {
 			"SostituitoDa:sostituito_da DecisoIl:deciso_il Destinazione:destinazione"},
 		{valutazione.NuovoPiatto{}, "Valutato:valutato Motivo:motivo Basi:basi Candidati:candidati Collocazione:collocazione Associazione:associazione " +
 			"Disponibilita:disponibilita Revisione:revisione Revisioni:revisioni MotivoRevisioni:motivo_revisioni"},
-		{valutazione.CandidatoPiatto{}, "Target:target Livello:livello Base:base Autorita:autorita Radici:radici"},
+		{valutazione.CandidatoPiatto{}, "Target:target Livello:livello Base:base Autorita:autorita Radici:radici ChiaviF8:chiavi_f8"},
 		{valutazione.ProdottoConfrontabile{}, "CodiceRichiesto:codice_richiesto Base:base Fase:fase Quantita:quantita QuantitaDaCella:quantita_da_cella"},
 		// EB7-1 B (P7e; bozza §1.2, §1.3): StruttureCandidate e ConfermatiSenzaSTEP dopo Nodi.
 		{valutazione.ProdottoValutato{}, "Rif:rif Autorita:autorita ComponenteID:componente_id CodiceRichiesto:codice_richiesto Base:base Identita:identita " +
@@ -193,12 +193,13 @@ func TestIRecordPiattiSoloTipiDelleFoglie(t *testing.T) {
 	visita(reflect.TypeFor[valutazione.FileConfrontabile](), "FileConfrontabile")
 	visita(reflect.TypeFor[valutazione.ProdottoConfrontabile](), "ProdottoConfrontabile")
 	// Il numero dei campi di CP.2, con l'emendamento F0-19 (CodiceLettoBase) e il gemello di R114, precisata dall'utente il
-	// 07/10 (CodiceLettoMarcatore) e il gemello di R113 B ratificata (RevisioneDa, E2 §2.6): 19 campi nel vecchio.
+	// 07/10 (CodiceLettoMarcatore) e il gemello di R113 B ratificata (RevisioneDa, E2 §2.6): 19 campi nel vecchio. Il
+	// gemello di confronto-4 (notte 14/10, WP-C): ChiaviF8, 6 campi nel candidato.
 	for _, c := range []struct {
 		tp     reflect.Type
 		numero int
 	}{{reflect.TypeFor[valutazione.FileConfrontabile](), 3}, {reflect.TypeFor[valutazione.VecchioPiatto](), 19},
-		{reflect.TypeFor[valutazione.NuovoPiatto](), 10}, {reflect.TypeFor[valutazione.CandidatoPiatto](), 5},
+		{reflect.TypeFor[valutazione.NuovoPiatto](), 10}, {reflect.TypeFor[valutazione.CandidatoPiatto](), 6},
 		{reflect.TypeFor[valutazione.ProdottoConfrontabile](), 5}} {
 		if c.tp.NumField() != c.numero {
 			t.Errorf("%s: %d campi, attesi %d (CP.2, F0-19, R114, R113)", c.tp.Name(), c.tp.NumField(), c.numero)

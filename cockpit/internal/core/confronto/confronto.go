@@ -24,8 +24,12 @@ import (
 // nell'impronta dell'esito: cambiarla cambia l'impronta. confronto-2: la misura delle correzioni manuali con la
 // definizione di R114 (denominatore, esclusi, marcatore a parte, «dopo» diviso) e il campo CodiceLettoMarcatore nel
 // vecchio. confronto-3: la provenienza della revisione vecchia (R113 B ratificata; E2 §2.6), il campo RevisioneDa nel
-// vecchio e IndicatoreRevisione.ProvenienzaVecchia; badge, correzioni ed esiti non cambiano (T-B6-205).
-const VersioneConfronto = "confronto-3"
+// vecchio e IndicatoreRevisione.ProvenienzaVecchia; badge, correzioni ed esiti non cambiano (T-B6-205). confronto-4
+// (notte 14/10, WP-C): il campo Candidato.ChiaviF8, con cui un candidato su un nodo STEP ha il target del vecchio
+// quando la destinazione F8 nomina la riga legacy dello stesso nodo (badge uguale invece di diverso/target_diverso),
+// e il badge non_file per una voce non decisa che non è un file (prima diverso/non_valutato), con la sua chiave nei
+// conteggi; correzioni ed esiti contro l'atteso non cambiano.
+const VersioneConfronto = "confronto-4"
 
 // Esito: il confronto dei file di un thread. Il thread lo conosce chi chiama, che mette l'esito accanto a quello di
 // valutazione; A2 salverà i due (par.8).

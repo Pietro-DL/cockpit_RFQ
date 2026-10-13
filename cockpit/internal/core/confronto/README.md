@@ -15,13 +15,13 @@ markmap:
 - **Riceve DTO propri e piatti** (`File`, `Vecchio`, `Nuovo`, `Candidato`, `ProdottoNuovo`): chi chiama li copia campo per
   campo dai record piatti di `valutazione` (`FileConfrontabile`, `VecchioPiatto`, `NuovoPiatto`, `CandidatoPiatto`,
   `ProdottoConfrontabile`), senza scelte. I campi sono quelli congelati nella fase 0 di B6 (CP.2, con `CodiceLettoBase`
-  di F0-19, `CodiceLettoMarcatore` di R114 e `RevisioneDa` di R113: 19 campi in `Vecchio`), identici nei due pacchetti:
-  stessi nomi, ordine,
+  di F0-19, `CodiceLettoMarcatore` di R114 e `RevisioneDa` di R113: 19 campi in `Vecchio`; con `confronto-4`, notte
+  14/10, WP-C, `ChiaviF8` in fondo a `Candidato`: 6 campi), identici nei due pacchetti: stessi nomi, ordine,
   tipi e tag, solo tipi delle foglie.
 - **Calcola** (`Confronta`):
-  - per ogni file il **badge** (`uguale`, `nuovo_ancoraggio`, `diverso`, `regressione_su_confermata`, `fuori_richiesta`)
-    con il motivo, dalla tavola del 6.4.6 (R31 d A), solo dallo stato del DB e dalle basi lette, mai dall'atteso (R31 a A,
-    ristretta dalla R2: P-14);
+  - per ogni file il **badge** (`uguale`, `nuovo_ancoraggio`, `diverso`, `regressione_su_confermata`, `fuori_richiesta`
+    e, da `confronto-4`, `non_file`) con il motivo, dalla tavola del 6.4.6 (R31 d A), solo dallo stato del DB e dalle
+    basi lette, mai dall'atteso (R31 a A, ristretta dalla R2: P-14);
   - l'**indicatore di revisione** (`uguale`, `diversa`, `non_determinabile`), separato dal badge: la sola revisione non è
     mai una regressione (R31 b A; E-19). Il confronto lo fa `valutazione` con la grammatica; qui si traduce;
   - i **conteggi per badge** e le **correzioni manuali** prima e dopo sui file decisi (R30 f A), con la definizione di
@@ -48,16 +48,19 @@ markmap:
 ## File
 
 - **`confronto.go`** — responsabilità:
-  - commento `// Package`; `VersioneConfronto` (`confronto-3`: la misura di R114 e `CodiceLettoMarcatore`, poi la
-    provenienza della revisione vecchia di R113, `RevisioneDa` e `IndicatoreRevisione.ProvenienzaVecchia`);
+  - commento `// Package`; `VersioneConfronto` (`confronto-4`: la misura di R114 e `CodiceLettoMarcatore`, poi la
+    provenienza della revisione vecchia di R113, `RevisioneDa` e `IndicatoreRevisione.ProvenienzaVecchia`, poi, la
+    notte del 14/10 (WP-C), `Candidato.ChiaviF8` e il badge `non_file`);
   - `Esito` (righe, conteggi, correzioni, esiti contro l'atteso, diagnostiche, impronta), `EsitoFile`;
   - `Confronta`; l'impronta (`jsoncanonico.ImprontaDi`) e l'ordine dei file e delle diagnostiche.
 - **`dto.go`** — responsabilità:
-  - i DTO piatti `File`, `Vecchio`, `Nuovo`, `Candidato`, `ProdottoNuovo`;
+  - i DTO piatti `File`, `Vecchio`, `Nuovo`, `Candidato` (con `ChiaviF8`, le chiavi F8 delle righe legacy degli stessi
+    nodi, dichiarate da `valutazione`), `ProdottoNuovo`;
   - i valori stringa che le regole leggono (stati della proposta, fonte, collocazioni, associazioni, autorità, la forma
     `componente:<uuid>`, i valori di `Revisioni`), riscritti come stringhe perché il pacchetto non importa il motore.
 - **`badge.go`** — responsabilità:
-  - `Badge` e i cinque valori; i motivi (`Motivo*`); la tavola dei badge (`badgeDi`), nell'ordine del 6.4.6;
+  - `Badge` e i sei valori; i motivi (`Motivo*`); la tavola dei badge (`badgeDi`), nell'ordine del 6.4.6, con la riga
+    2-bis di `non_file` (`nonFile`) e il target del vecchio anche per equivalenza di nodo (`targetDelVecchio`);
   - `IndicatoreRevisione`, i valori `Revisione*`, la traduzione di `Nuovo.Revisioni` con la diagnostica.
 - **`correzioni.go`** — responsabilità:
   - `CorrezioniManuali` ed `EsclusiCorrezioni` (con `Totale`), la somma campo per campo (`Aggiungi`, T-B6-186);
@@ -96,6 +99,11 @@ markmap:
      target con la stessa base è un legame che nessuno ha deciso;
   2. file deciso e il componente del documento fra i candidati con la stessa base: `uguale` (l'associazione `ambiguo`
      resta visibile nel nuovo della riga, e si conta nella misura come `Ambiguita`: R114);
+     - 2-bis (`confronto-4`, notte 14/10, WP-C): voce non decisa che non è un file (`Nuovo.Motivo` `natura_non_file`: un
+       elemento in linea, un elemento di Outlook): `non_file`, senza motivo. È un badge neutro: il motore non valuta la
+       voce per costruzione e il legacy non le dà un codice, quindi non è una differenza, e prima gonfiava i `diverso`.
+       Un contenitore resta `diverso` con `non_valutato` (è un file, e il legacy gli dà spesso un codice), e una voce
+       non file decisa resta nella riga 1;
   3. file non deciso e collocazione `fuori_richiesta`: `fuori_richiesta`;
   4. vecchio senza destinazione (nessun componente, nessun «assegna», nessun candidato F8, proposta non scartata) e nuovo
      con almeno un candidato: `nuovo_ancoraggio`;
@@ -115,7 +123,13 @@ markmap:
     dire «il motore propone il componente deciso» (R-53).
 - **I target si confrontano solo nella stessa forma** (`componente:<uuid>` per un componente, la forma di
   `ancoraggio.RifComponente`): nessuna inferenza fra forme diverse (per esempio una chiave F8 `identificativo:…` e un
-  target `componente:…`).
+  target `componente:…`). **L'unica equivalenza fra forme è quella dichiarata da `valutazione`** in
+  `Candidato.ChiaviF8` (`confronto-4`, notte 14/10, WP-C): un candidato sul nodo `nodo:<sha256>:<chiave>` (o con quel
+  nodo fra le posizioni) ha il target del vecchio se la destinazione F8 nomina `nodo:<id della riga>` di una riga di
+  `componente_proposta` dello stesso nodo (stesso sha256 e stessa chiave). Le due forme hanno lo stesso prefisso
+  `nodo:` con due significati, e dalle sole stringhe non si collegano mai: prima ogni figlio ancorato bene al nodo
+  della destinazione F8 usciva `diverso` con `target_diverso`. L'equivalenza vale per le righe 5 e 6 (non decisi); per
+  un file deciso conta solo il componente del documento (riga 1 e 2).
 - **Il badge e l'indicatore non dipendono dall'atteso**, e nemmeno l'impronta: banco e anteprima danno lo stesso. Le righe
   C5 hanno il badge della tavola; «da rivedere» è un esito contro l'atteso, mai un badge.
 - **La sola revisione non è mai una regressione**: l'indicatore sta a parte, e una revisione diversa con il badge `uguale`
@@ -221,6 +235,10 @@ markmap:
   un'identità che ha anche nodi non decisi) dà regressione: il record piatto non porta le posizioni del candidato, e il
   legame con il componente non si vede (T-B6-51, variante; va a B7).
 - **`Decisione`, `Invarianti`, `BaseLetta`** dell'atteso non si valutano qui: li controlla il runner.
+- **L'equivalenza di nodo** (`Candidato.ChiaviF8`, `confronto-4`) copre solo le chiavi F8 `nodo:<riga>` con una riga
+  di `componente_proposta` che ha sha256 e chiave: una riga senza uno dei due non nomina un nodo, e il badge resta
+  `target_diverso`. Un contenitore (zip) resta `diverso` con `non_valutato`: se mostrarlo anche lui come voce neutra è
+  una scelta dell'utente, non fatta qui.
 
 ## Dipendenze
 
@@ -236,7 +254,10 @@ markmap:
 - **`badge_test.go`** — livello L1 — A1c-L1-18: la tavola dei badge riga per riga, con i motivi; l'ambiguo visibile; le
   righe «come C5»; l'indicatore di revisione con la diagnostica; da B6b la provenienza della revisione vecchia (R113),
   copiata nell'indicatore, che non cambia né il badge né la misura (la sola revisione diversa, letta nella colonna, conta
-  in `SoloRevisione`).
+  in `SoloRevisione`); da `confronto-4` (notte 14/10, WP-C) `TestBadgeStessoNodoDellaRigaLegacy` (la riga dichiarata
+  dello stesso nodo: uguale con la stessa base, `base_diversa` con un'altra; senza dichiarazione o con la riga di un
+  altro nodo `target_diverso`; il deciso e la proposta scartata non cambiano) e `TestBadgeNonFile` (il badge neutro,
+  i conteggi, il contenitore, il thread non valutato e la voce non file decisa come prima).
 - **`atteso_test.go`** — livello L1 — A1c-L1-19: la tavola degli esiti riga per riga con il peso; la voce che dipende da
   una domanda aperta; i non coperti e le voci senza file; le sezioni neutre; `ConfrontaProdotti`; l'atteso non cambia
   l'impronta.
@@ -246,7 +267,7 @@ markmap:
   parte, non sommato; lo stesso campione per prima e dopo; la somma campo per campo.
 - **`confronto_test.go`** — livello L1 — il determinismo (permutazioni, impronta ricalcolata, la stessa senza atteso), la
   versione, l'esito vuoto, A1c-L1-32 (la parte dei codici emessi), la forma dei DTO piatti (CP.2 con F0-19, con
-  `CodiceLettoMarcatore` di R114 e con `RevisioneDa` di R113).
+  `CodiceLettoMarcatore` di R114, con `RevisioneDa` di R113 e con `ChiaviF8` di `confronto-4`).
 - **`scena_db_test.go`** — livello L4 (tag `integrazione`) — la scena ACME scritta con SQL sul database di prova, la
   grammatica e l'insieme delle regole ACME, il percorso del banco e dell'anteprima (`caricatore.Carica`,
   `valutazione.Calcola`, la copia nei DTO via JSON, `Confronta`), comuni alle due L4.

@@ -105,20 +105,21 @@ func TestConfrontaDeterministico(t *testing.T) {
 	if strings.Join(badge, " ") != "uguale regressione_su_confermata fuori_richiesta nuovo_ancoraggio diverso" {
 		t.Errorf("badge %v", badge)
 	}
-	if fmt.Sprint(primo.Conteggi) != "map[diverso:1 fuori_richiesta:1 nuovo_ancoraggio:1 regressione_su_confermata:1 uguale:1]" {
+	if fmt.Sprint(primo.Conteggi) != "map[diverso:1 fuori_richiesta:1 non_file:0 nuovo_ancoraggio:1 regressione_su_confermata:1 uguale:1]" {
 		t.Errorf("conteggi %v", primo.Conteggi)
 	}
 }
 
-// TestEsitoVuotoEVersione: senza file l'esito ha la versione, i cinque badge a zero e un'impronta; la versione è fissa
+// TestEsitoVuotoEVersione: senza file l'esito ha la versione, i sei badge a zero e un'impronta; la versione è fissa
 // (cambiarla cambia l'impronta, e questa prova si riscrive). confronto-2: la misura delle correzioni di R114;
-// confronto-3: la provenienza della revisione vecchia di R113 (RevisioneDa, ProvenienzaVecchia; T-B6-205).
+// confronto-3: la provenienza della revisione vecchia di R113 (RevisioneDa, ProvenienzaVecchia; T-B6-205);
+// confronto-4: Candidato.ChiaviF8 e il badge non_file (notte 14/10, WP-C).
 func TestEsitoVuotoEVersione(t *testing.T) {
-	if confronto.VersioneConfronto != "confronto-3" {
+	if confronto.VersioneConfronto != "confronto-4" {
 		t.Errorf("VersioneConfronto = %q", confronto.VersioneConfronto)
 	}
 	e := confronto.Confronta(nil, nil, nil)
-	if e.VersioneConfronto != confronto.VersioneConfronto || len(e.File) != 0 || len(e.Conteggi) != 5 || len(e.Impronta) != 64 ||
+	if e.VersioneConfronto != confronto.VersioneConfronto || len(e.File) != 0 || len(e.Conteggi) != 6 || len(e.Impronta) != 64 ||
 		e.Correzioni != (confronto.CorrezioniManuali{}) || e.Diagnostiche != nil {
 		t.Errorf("esito vuoto %+v", e)
 	}
@@ -153,7 +154,8 @@ func TestCodiciEmessiDichiarati(t *testing.T) {
 
 // formaAttesa: i campi dei DTO piatti, congelati nella fase 0 di B6 (CP.2, con l'emendamento F0-19: CodiceLettoBase
 // dopo CodiceLetto; con R114, precisata dall'utente il 07/10: CodiceLettoMarcatore dopo CodiceLettoBase; con R113 B
-// ratificata, E2 §2.6: RevisioneDa dopo CodiceLettoMarcatore, 19 campi in Vecchio): nome, tag JSON e tipo,
+// ratificata, E2 §2.6: RevisioneDa dopo CodiceLettoMarcatore, 19 campi in Vecchio; con confronto-4, notte 14/10, WP-C:
+// ChiaviF8 in fondo a Candidato): nome, tag JSON e tipo,
 // nell'ordine. I gemelli di valutazione (FileConfrontabile, VecchioPiatto,
 // NuovoPiatto, CandidatoPiatto, ProdottoConfrontabile) hanno gli stessi; cambiare un campo qui vuol dire cambiarlo là,
 // prima del commit.
@@ -178,7 +180,7 @@ var formaAttesa = map[string][]string{
 	},
 	"Candidato": {
 		"Target target string", "Livello livello string", "Base base string", "Autorita autorita string",
-		"Radici radici,omitempty []string",
+		"Radici radici,omitempty []string", "ChiaviF8 chiavi_f8,omitempty []string",
 	},
 	"ProdottoNuovo": {
 		"CodiceRichiesto codice_richiesto string", "Base base string", "Fase fase string",

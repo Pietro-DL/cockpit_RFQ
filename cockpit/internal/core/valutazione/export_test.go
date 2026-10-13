@@ -93,3 +93,9 @@ var DocumentoDellaVoceDel2DPerProva = documentoDellaVoceDel2D
 func StatoNasDelPerProva(t fotorfq.Thread, id uuid.UUID) string {
 	return (&completezzaThread{t: t}).statoNasDel(id)
 }
+
+// ChiaviF8DelCandidatoPerProva: chiaviF8Di sulle righe di componente_proposta del thread (CandidatoPiatto.ChiaviF8, il
+// gemello di confronto-4, notte 14/10, WP-C), per la prova della regola con un candidato sintetico.
+func ChiaviF8DelCandidatoPerProva(t fotorfq.Thread, c ancoraggio.CandidatoAncoraggio) []string {
+	return nuoviPiatti(t, nil, true, nil, ValutazioneProdotti{}).chiaviF8Di(c)
+}

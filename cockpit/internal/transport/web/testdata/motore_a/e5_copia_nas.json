@@ -833,7 +833,7 @@
       }
     },
     "confronto": {
-      "versione_confronto": "confronto-3",
+      "versione_confronto": "confronto-4",
       "file": [
         {
           "file": {
@@ -987,6 +987,7 @@
       "conteggi": {
         "diverso": 0,
         "fuori_richiesta": 0,
+        "non_file": 0,
         "nuovo_ancoraggio": 1,
         "regressione_su_confermata": 0,
         "uguale": 3

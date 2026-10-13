@@ -186,6 +186,8 @@ func TestL116UnAdattatoreInErroreNonFermaIlThread(t *testing.T) {
 // fatte qui una volta sola. Le basi delle letture d'identità; i candidati nell'ordine e con il target, il livello e
 // l'autorità di ancoraggio; la base del target per il livello prodotto, del codice del componente deciso, della forma del
 // nodo senza decisione; le radici come basi dei target; la collocazione, l'associazione, la disponibilità, la revisione.
+// Da confronto-4 (notte 14/10, WP-C) le chiavi F8 delle righe legacy degli stessi nodi: la radice per il prodotto, il
+// nodo della posizione per il componente deciso, il nodo del target.
 func TestIRecordPiattiDelNuovo(t *testing.T) {
 	th := scenaCollegamento(t)
 	nome := uid(0x6c3)
@@ -199,12 +201,12 @@ func TestIRecordPiattiDelNuovo(t *testing.T) {
 		collocazione ancoraggio.Collocazione
 		revisione    string
 	}{
-		{aStepB, []string{"7120100"}, valutazione.CandidatoPiatto{Target: rifProdB, Livello: ancoraggio.LivelloProdotto, Base: "7120100", Radici: []string{"7120100"}},
-			ancoraggio.CollocazioneRadice, "1"},
+		{aStepB, []string{"7120100"}, valutazione.CandidatoPiatto{Target: rifProdB, Livello: ancoraggio.LivelloProdotto, Base: "7120100", Radici: []string{"7120100"},
+			ChiaviF8: []string{"nodo:" + rigaRadB.String()}}, ancoraggio.CollocazioneRadice, "1"},
 		{aDisegno, []string{"7120200"}, valutazione.CandidatoPiatto{Target: "componente:" + cSciolto.String(), Livello: ancoraggio.LivelloComponente, Base: "7120200",
-			Radici: []string{"7120100"}}, ancoraggio.CollocazioneFiglio, "1"},
+			Radici: []string{"7120100"}, ChiaviF8: []string{"nodo:" + rigaB2.String()}}, ancoraggio.CollocazioneFiglio, "1"},
 		{nome, []string{"7120400"}, valutazione.CandidatoPiatto{Target: nodoB("#4"), Livello: ancoraggio.LivelloComponente, Base: "7120400",
-			Radici: []string{"7120100"}}, ancoraggio.CollocazioneFiglio, "1"},
+			Radici: []string{"7120100"}, ChiaviF8: []string{"nodo:" + rigaB4.String()}}, ancoraggio.CollocazioneFiglio, "1"},
 	} {
 		n := confrontabileDi(t, et, c.allegato).Nuovo
 		var af ancoraggio.AncoraggioFile
@@ -553,5 +555,52 @@ func TestL114LaDisponibilitaEIFileNonValutati(t *testing.T) {
 	}
 	if n := confrontabileDi(t, et, voce).Nuovo; !n.Valutato || n.Motivo != "" {
 		t.Errorf("la voce dell'archivio è un file a sé: %+v", n)
+	}
+}
+
+// TestChiaviF8DelCandidato (confronto-4, notte 14/10, WP-C): CandidatoPiatto.ChiaviF8 dichiara le chiavi F8
+// «nodo:<riga>» delle righe di componente_proposta con lo stesso sha256 e la stessa chiave del nodo del target o dei
+// nodi delle posizioni, di qualunque stato e anche da un altro allegato con lo stesso contenuto; in ordine di byte,
+// senza doppioni. Una riga senza sha256 o senza chiave non nomina un nodo; un candidato senza nodi non ha chiavi.
+func TestChiaviF8DelCandidato(t *testing.T) {
+	shaA, shaB := sha("a"), sha("b")
+	riga := func(n int, s, chiave, stato string) fotorfq.RigaComponenteProposta {
+		return fotorfq.RigaComponenteProposta{ID: uid(0x900 + n), AllegatoID: uid(0x300 + n), Sha256: s, Chiave: chiave, Stato: stato}
+	}
+	th := fotorfq.Thread{RigheComponenteProposta: []fotorfq.RigaComponenteProposta{
+		riga(3, shaA, "#5", "aperta"), riga(1, shaA, "#5", "scartata"), // lo stesso nodo, due righe
+		riga(2, shaA, "#6", "aperta"),
+		riga(4, shaB, "#5", "aperta"), // la stessa chiave in un altro contenuto: un altro nodo
+		riga(5, "", "#5", "aperta"), riga(6, shaA, "", "aperta"),
+	}}
+	f8 := func(n int) string { return "nodo:" + uid(0x900+n).String() }
+	casi := []struct {
+		nome string
+		c    ancoraggio.CandidatoAncoraggio
+		atte []string
+	}{
+		{"il nodo del target, due righe", ancoraggio.CandidatoAncoraggio{Target: ancoraggio.RifNodo(shaA, "#5"), Livello: ancoraggio.LivelloComponente},
+			[]string{f8(1), f8(3)}},
+		{"un nodo senza righe", ancoraggio.CandidatoAncoraggio{Target: ancoraggio.RifNodo(shaA, "#7"), Livello: ancoraggio.LivelloComponente}, nil},
+		{"un componente deciso: i nodi delle posizioni", ancoraggio.CandidatoAncoraggio{Target: ancoraggio.RifComponente(uid(0x10)), Livello: ancoraggio.LivelloComponente,
+			Posizioni: []ancoraggio.PosizioneCandidato{{Nodo: ancoraggio.RifNodo(shaB, "#5")}, {Nodo: ancoraggio.RifNodo(shaA, "#6")}, {Nodo: ancoraggio.RifNodo(shaA, "#6")}}},
+			[]string{f8(2), f8(4)}},
+		{"il target e le posizioni, senza doppioni", ancoraggio.CandidatoAncoraggio{Target: ancoraggio.RifNodo(shaA, "#6"), Livello: ancoraggio.LivelloComponente,
+			Posizioni: []ancoraggio.PosizioneCandidato{{Nodo: ancoraggio.RifNodo(shaA, "#6")}}}, []string{f8(2)}},
+		{"un prodotto senza posizioni", ancoraggio.CandidatoAncoraggio{Target: "scenario:ACME-SCENARIO:1", Livello: ancoraggio.LivelloProdotto}, nil},
+	}
+	for _, c := range casi {
+		if got := valutazione.ChiaviF8DelCandidatoPerProva(th, c.c); !reflect.DeepEqual(got, c.atte) {
+			t.Errorf("%s: %v, attese %v", c.nome, got, c.atte)
+		}
+	}
+	// L'ordine delle righe nella fotografia non conta.
+	inv := th
+	inv.RigheComponenteProposta = append([]fotorfq.RigaComponenteProposta(nil), th.RigheComponenteProposta...)
+	for i, j := 0, len(inv.RigheComponenteProposta)-1; i < j; i, j = i+1, j-1 {
+		inv.RigheComponenteProposta[i], inv.RigheComponenteProposta[j] = inv.RigheComponenteProposta[j], inv.RigheComponenteProposta[i]
+	}
+	if got := valutazione.ChiaviF8DelCandidatoPerProva(inv, casi[0].c); !reflect.DeepEqual(got, casi[0].atte) {
+		t.Errorf("righe permutate: %v", got)
 	}
 }

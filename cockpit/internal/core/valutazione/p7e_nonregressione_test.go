@@ -10,7 +10,9 @@
 //     campi nuovi (valutazione-2);
 //   - in ogni prodotto valutato strutture_candidate e confermati_senza_step (EB7-1 B);
 //   - in ogni nodo di PV.Nodi tipo e origine_tipo (EB7-2 A);
-//   - nella voce del 2D documento_id e stato_nas (EB7-4 A): prima di P7e la voce del 2D non li aveva mai.
+//   - nella voce del 2D documento_id e stato_nas (EB7-4 A): prima di P7e la voce del 2D non li aveva mai;
+//   - nei candidati dei record piatti (confrontabili[].nuovo.candidati[]) chiavi_f8: il gemello di confronto-4 (notte
+//     14/10, WP-C), un campo in più che dichiara le righe legacy degli stessi nodi, senza cambiare nient'altro.
 //
 // Tutto il resto deve restare uguale: stato, assi, motivi, autorità, l'impronta del prodotto (R90), i nodi senza il tipo,
 // i previsti e le altre voci della completezza, gli ancoraggi, lo smistamento, il fascicolo. Una differenza è una
@@ -363,7 +365,8 @@ func parteAutorizzataP7e(voce, parte string) (string, bool) {
 }
 
 // normalizzaP7e: toglie dal JSON dell'esito i soli campi che P7e aggiunge o cambia per costruzione (in testa al file).
-// Ogni oggetto con prodotti_valutati, a qualunque profondità, ha i suoi prodotti normalizzati.
+// Ogni oggetto con prodotti_valutati, a qualunque profondità, ha i suoi prodotti normalizzati; ogni oggetto con
+// confrontabili i suoi candidati senza chiavi_f8 (confronto-4).
 func normalizzaP7e(v any) {
 	switch x := v.(type) {
 	case map[string]any:
@@ -371,6 +374,13 @@ func normalizzaP7e(v any) {
 			for _, p := range pv {
 				if m, ok := p.(map[string]any); ok {
 					normalizzaProdottoP7e(m)
+				}
+			}
+		}
+		if cf, ok := x["confrontabili"].([]any); ok {
+			for _, f := range cf {
+				if m, ok := f.(map[string]any); ok {
+					normalizzaConfrontabileP7e(m)
 				}
 			}
 		}
@@ -404,6 +414,22 @@ func normalizzaProdottoP7e(p map[string]any) {
 					delete(m, "documento_id")
 					delete(m, "stato_nas")
 				}
+			}
+		}
+	}
+}
+
+// normalizzaConfrontabileP7e: un record piatto con i candidati del nuovo senza chiavi_f8 (il gemello di confronto-4,
+// notte 14/10, WP-C).
+func normalizzaConfrontabileP7e(f map[string]any) {
+	n, ok := f["nuovo"].(map[string]any)
+	if !ok {
+		return
+	}
+	if cc, ok := n["candidati"].([]any); ok {
+		for _, c := range cc {
+			if m, ok := c.(map[string]any); ok {
+				delete(m, "chiavi_f8")
 			}
 		}
 	}

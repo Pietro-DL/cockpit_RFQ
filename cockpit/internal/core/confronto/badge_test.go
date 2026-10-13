@@ -193,8 +193,8 @@ func TestBadgeRigheComeC5(t *testing.T) {
 		t.Errorf("righe come C5: %s, %s (%s)", uguale.Badge, regressione.Badge, regressione.Motivo)
 	}
 	e := confronto.Confronta(nil, nil, nil)
-	if len(e.Conteggi) != 5 {
-		t.Fatalf("conteggi %v: i badge sono cinque", e.Conteggi)
+	if len(e.Conteggi) != 6 {
+		t.Fatalf("conteggi %v: i badge sono sei (con non_file, confronto-4)", e.Conteggi)
 	}
 	for b := range e.Conteggi {
 		if b == "da_rivedere" {
@@ -322,5 +322,103 @@ func TestIndicatoreConLaProvenienzaDellaRevisione(t *testing.T) {
 				t.Errorf("la provenienza cambia il confronto: %+v contro %+v", e2.File[0], r)
 			}
 		})
+	}
+}
+
+// rifNodoStep: il Rif inventato di un nodo STEP, «nodo:<sha256>:<chiave>» (la forma di ancoraggio.RifNodo), con lo
+// sha256 = %064x del numero del file.
+func rifNodoStep(file int, chiave string) string { return fmt.Sprintf("nodo:%064x:%s", file, chiave) }
+
+// rifRigaF8: la chiave F8 di una riga legacy di componente_proposta, «nodo:<id della riga>» (il vocabolario dello
+// Smistamento legacy).
+func rifRigaF8(n int) string { return "nodo:" + id(n).String() }
+
+// candidatoNodo: un candidato di livello componente sul nodo STEP del file, con la base del nodo e le chiavi F8 che
+// valutazione dichiara per lo stesso nodo.
+func candidatoNodo(file int, chiave, base string, chiaviF8 ...string) confronto.Candidato {
+	return confronto.Candidato{Target: rifNodoStep(file, chiave), Livello: "componente", Base: base, Autorita: "proposta",
+		ChiaviF8: chiaviF8}
+}
+
+// TestBadgeStessoNodoDellaRigaLegacy (confronto-4, notte 14/10, WP-C): il legacy indica il nodo con la chiave F8
+// della sua riga («nodo:<riga>»), il motore A con il Rif del nodo («nodo:<sha256>:<chiave>»). Quando valutazione
+// dichiara che la riga è dello stesso nodo (Candidato.ChiaviF8), il target è lo stesso: uguale con la stessa base,
+// diverso con base_diversa con un'altra base. Senza la dichiarazione, o con la riga di un altro nodo, resta
+// target_diverso: le due forme non si collegano mai dalle stringhe.
+func TestBadgeStessoNodoDellaRigaLegacy(t *testing.T) {
+	vecchio := confronto.Vecchio{Stato: "aperta", Fonte: "nome_file", Codice: "7120105", Base: "7120105", Leggibile: true,
+		Destinazione: []string{rifRigaF8(90)}}
+	basi := []string{"7120105"}
+	casi := []struct {
+		nome   string
+		c      confronto.Candidato
+		badge  confronto.Badge
+		motivo string
+	}{
+		{"stessa riga, stessa base: uguale", candidatoNodo(31, "#5", "7120105", rifRigaF8(90)), confronto.BadgeUguale, ""},
+		{"la riga fra più righe dello stesso nodo", candidatoNodo(31, "#5", "7120105", rifRigaF8(89), rifRigaF8(90)), confronto.BadgeUguale, ""},
+		{"stessa riga, un'altra base", candidatoNodo(31, "#5", "7120106", rifRigaF8(90)), confronto.BadgeDiverso, confronto.MotivoBaseDiversa},
+		{"nessuna riga dichiarata: il Rif non è la chiave F8", candidatoNodo(31, "#5", "7120105"), confronto.BadgeDiverso, confronto.MotivoTargetDiverso},
+		{"la riga di un altro nodo", candidatoNodo(31, "#6", "7120105", rifRigaF8(91)), confronto.BadgeDiverso, confronto.MotivoTargetDiverso},
+	}
+	for _, c := range casi {
+		r := unoSolo(t, confronto.File{AllegatoID: id(31), Vecchio: vecchio, Nuovo: valutato("figlio", "candidato_unico", basi, c.c)})
+		if r.Badge != c.badge || r.Motivo != c.motivo {
+			t.Errorf("%s: %s (%s), atteso %s (%s)", c.nome, r.Badge, r.Motivo, c.badge, c.motivo)
+		}
+	}
+	// Un file deciso guarda solo il componente del documento: le chiavi F8 non lo fanno uguale (il candidato sul nodo
+	// ha la stessa base, quindi il motivo è stessa_base_altro_target).
+	d := decisoSu(1, "7120105", "7120105")
+	d.Destinazione = []string{rifRigaF8(90)}
+	r := unoSolo(t, confronto.File{AllegatoID: id(32), Vecchio: d,
+		Nuovo: valutato("figlio", "candidato_unico", basi, candidatoNodo(31, "#5", "7120105", rifRigaF8(90)))})
+	if r.Badge != confronto.BadgeRegressioneSuConfermata || r.Motivo != confronto.MotivoStessaBaseAltroTarget {
+		t.Errorf("deciso su un componente, candidato sul nodo: %s (%s)", r.Badge, r.Motivo)
+	}
+	// Una proposta scartata non ha destinazioni: lo scarto resta la decisione.
+	sc := vecchio
+	sc.Stato = "scartata"
+	r = unoSolo(t, confronto.File{AllegatoID: id(33), Vecchio: sc,
+		Nuovo: valutato("figlio", "candidato_unico", basi, candidatoNodo(31, "#5", "7120105", rifRigaF8(90)))})
+	if r.Badge != confronto.BadgeDiverso || r.Motivo != confronto.MotivoPropostaScartata {
+		t.Errorf("proposta scartata: %s (%s)", r.Badge, r.Motivo)
+	}
+}
+
+// TestBadgeNonFile (confronto-4, notte 14/10, WP-C): una voce non decisa che non è un file (natura_non_file) ha il
+// badge neutro non_file, senza motivo, e si conta sotto la sua chiave, non fra i diverso. Un contenitore, un thread
+// non valutato e una voce non file decisa restano come prima.
+func TestBadgeNonFile(t *testing.T) {
+	nonFile := confronto.Nuovo{Valutato: false, Motivo: "natura_non_file", Associazione: "non_valutata"}
+	contenitore := confronto.Nuovo{Valutato: false, Motivo: "contenitore", Associazione: "non_valutata"}
+	file := []confronto.File{
+		{AllegatoID: id(41), Vecchio: confronto.Vecchio{}, Nuovo: nonFile},
+		{AllegatoID: id(42), Vecchio: confronto.Vecchio{Stato: "aperta", Codice: "7120100", Base: "7120100", Leggibile: true}, Nuovo: nonFile},
+		{AllegatoID: id(43), Vecchio: confronto.Vecchio{Stato: "aperta", Codice: "7120100", Base: "7120100", Leggibile: true}, Nuovo: contenitore},
+		{AllegatoID: id(44), Vecchio: decisoSu(1, "7120100", "7120100"), Nuovo: nonFile},
+	}
+	e := confronto.Confronta(file, nil, nil)
+	attesi := []struct {
+		badge  confronto.Badge
+		motivo string
+	}{
+		{confronto.BadgeNonFile, ""},
+		{confronto.BadgeNonFile, ""},
+		{confronto.BadgeDiverso, confronto.MotivoNonValutato},
+		{confronto.BadgeRegressioneSuConfermata, confronto.MotivoNonValutato},
+	}
+	for i, a := range attesi {
+		if r := e.File[i]; r.Badge != a.badge || r.Motivo != a.motivo {
+			t.Errorf("file %d: %s (%s), atteso %s (%s)", i, r.Badge, r.Motivo, a.badge, a.motivo)
+		}
+	}
+	if e.Conteggi[confronto.BadgeNonFile] != 2 || e.Conteggi[confronto.BadgeDiverso] != 1 ||
+		e.Conteggi[confronto.BadgeRegressioneSuConfermata] != 1 {
+		t.Errorf("conteggi %v", e.Conteggi)
+	}
+	// La voce non file non è un deciso: la misura delle correzioni non la vede.
+	if e.Correzioni.Decisi != 1 {
+		t.Errorf("decisi %d, atteso 1", e.Correzioni.Decisi)
 	}
 }

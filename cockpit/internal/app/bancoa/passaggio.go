@@ -92,6 +92,7 @@ func inCandidato(c valut.CandidatoPiatto) confronto.Candidato {
 		Base:     c.Base,
 		Autorita: c.Autorita,
 		Radici:   copiaStringhe(c.Radici),
+		ChiaviF8: copiaStringhe(c.ChiaviF8),
 	}
 }
 

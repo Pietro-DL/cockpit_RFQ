@@ -280,6 +280,7 @@ var etichette = map[string]map[string]string{
 		"diverso":                   "diverso",
 		"regressione_su_confermata": "regressione su proposta confermata",
 		"fuori_richiesta":           "fuori richiesta",
+		"non_file":                  "non è un file", // confronto-4 (notte 14/10, WP-C): tono neutro, nessun confronto
 	},
 	// contratto §2.3. Campi: StatoFascicolo.MotivoNonCongelabile.
 	"motivo_non_congelabile": {

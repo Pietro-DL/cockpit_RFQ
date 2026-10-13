@@ -92,12 +92,20 @@ type Nuovo struct {
 // Candidato: un candidato di ancoraggio, piatto: il target (per il livello prodotto il Rif del target, per il livello
 // componente il componente deciso, il nodo o l'identità), il livello (prodotto | componente), la base del target o del
 // nodo, l'autorità e le basi dei target delle radici raggiungibili.
+//
+// ChiaviF8 (confronto-4, notte 14/10, WP-C): le chiavi della destinazione F8 che nominano gli stessi nodi STEP del
+// candidato, nella forma del legacy («nodo:<id della riga di componente_proposta>»), in ordine di byte, senza doppioni.
+// Le calcola valutazione dalle righe di componente_proposta con lo stesso sha256 e la stessa chiave del nodo del
+// target (Rif «nodo:<sha256>:<chiave>») o dei nodi delle sue posizioni: la stessa corrispondenza riga ↔ nodo di
+// NodoProposto.RigaLegacy e della pertinenza. Il Rif del nodo e la chiave F8 usano lo stesso prefisso «nodo:» con due
+// significati (gap-backend-v3, S4): qui l'equivalenza è dichiarata da chi ha i dati, mai indovinata dalle stringhe.
 type Candidato struct {
 	Target   string   `json:"target"`
 	Livello  string   `json:"livello"`
 	Base     string   `json:"base"`
 	Autorita string   `json:"autorita"`
 	Radici   []string `json:"radici,omitempty"`
+	ChiaviF8 []string `json:"chiavi_f8,omitempty"`
 }
 
 // ProdottoNuovo: un candidato prodotto della mail, piatto, per ConfrontaProdotti: il codice richiesto com'è scritto, la
@@ -137,4 +145,6 @@ const (
 	revisioniNonConfrontabili = "non_confrontabili"
 
 	motivoRevisioniNuoveDiscordi = "revisioni_nuove_discordi" // valutazione.MotivoRevisioniNuoveDiscordi
+
+	motivoFileNaturaNonFile = "natura_non_file" // valutazione.MotivoFileNaturaNonFile (Nuovo.Motivo; confronto-4)
 )
