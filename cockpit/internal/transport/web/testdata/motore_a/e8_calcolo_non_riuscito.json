@@ -1,0 +1,42 @@
+{
+  "_caso": {
+    "titolo": "E8: il calcolo non è riuscito",
+    "contratto": "A1d §2.1; RAC-05",
+    "attese": [
+      "la striscia d'errore con il testo di Errore così com'è, nessun workspace",
+      "nessun titolo della pagina che dica «calcolo non riuscito» oltre al testo di Errore"
+    ]
+  },
+  "scrive": true,
+  "pagina": {
+    "thread_id": "00000000-0000-4000-8000-000000000001",
+    "vista": "distinta",
+    "prodotto": "",
+    "testa": {
+      "cliente": "",
+      "oggetto": "",
+      "riferimento_cliente": "",
+      "stato_thread": "",
+      "fase": {
+        "nome": "FATTIBILITA",
+        "etichetta": "Fattibilità",
+        "inizio": "2026-09-29T07:00:00Z",
+        "gg_in_fase": 2,
+        "semaforo": "verde",
+        "terminale": false
+      }
+    },
+    "esito": null,
+    "confronto": null,
+    "errore": "Il calcolo del motore A non è finito nel tempo che l'indice delle regole concede: il dettaglio è nel log del server.",
+    "calcolato": "0001-01-01T00:00:00Z"
+  },
+  "foto": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "cliente_id": "00000000-0000-4000-8000-000000000002",
+    "stato": "APERTA",
+    "oggetto": "Richiesta di prova ACME",
+    "riferimento": "ACME-030P7120100",
+    "creato_il": "2026-10-01T08:00:00Z"
+  }
+}

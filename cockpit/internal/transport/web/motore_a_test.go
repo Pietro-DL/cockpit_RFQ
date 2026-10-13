@@ -8,8 +8,9 @@ package web
 //     senza cookie, con e senza htmx (R36; Q-A1d-12 = A);
 //   - flag acceso: senza sessione 302 verso /login, o 401 con HX-Redirect per htmx, sempre con no-store; gli altri
 //     metodi 405 con Allow e no-store; chi non è admin il 403 di nega con no-store, l'admin arriva al gestore;
-//   - registraMotoreA monta proprio conMotoreA(conNoStore(soloAdmin(gestore))) e le righe gemelle, e solo le due rotte
-//     JSON: la pagina /thread/{id}/motore-a non c'è (P4), la funzione etichetta non è fra quelle dei template;
+//   - registraMotoreA monta proprio conMotoreA(conNoStore(soloAdmin(gestore))) e le righe gemelle delle due rotte JSON;
+//     da A1d-P4 (B5.1) anche la pagina, con registraPaginaMotoreA (prove in motore_a_pagina_test.go), e la funzione
+//     etichetta sta solo fra quelle del template della pagina;
 //   - i codici: 400, 404 (RFQ inesistente, anche nell'anteprima), 503 (regole non pronte, senza toccare il database, con
 //     il testo delle regole del servizio: S-05; troppi calcoli in corso: R-01), 504 (tempo scaduto, anche nell'anteprima
 //     e negli HEAD: HTTP-01), 500 (testo generico, senza il dettaglio), sempre JSON con no-store e nosniff, anche
@@ -64,8 +65,9 @@ func mwUUID(nn int) uuid.UUID {
 	return uuid.MustParse(fmt.Sprintf("00000000-0000-4000-8000-%012d", nn))
 }
 
-// mwRotte: le due GET di A1d-P2 sotto /thread/{id}.
-var mwRotte = []string{"/motore-a/dati", "/motore-a/anteprima/step-strutturale?componente=" + mwUUID(10).String()}
+// mwRotte: le due GET di A1d-P2 sotto /thread/{id} e, da A1d-P4 (B5.1), la pagina, anche con vista e prodotto.
+var mwRotte = []string{"/motore-a/dati", "/motore-a/anteprima/step-strutturale?componente=" + mwUUID(10).String(),
+	"/motore-a", "/motore-a?vista=documenti&prodotto=7120010"}
 
 // mwServer: il server delle prove della porta, con i template, il log scartato e le regole date. Pool nil.
 func mwServer(t *testing.T, r motorea_web.Regole) *Server {
@@ -238,8 +240,10 @@ func TestMotoreASoloLAdmin(t *testing.T) {
 
 // Registra intero non va in panic e le due GET arrivano ai loro pattern, anche con HEAD; gli altri metodi alla riga
 // gemella. Nel sorgente ogni GET di registraMotoreA è montata come conMotoreA(conNoStore(soloAdmin(gestore))) e ogni
-// riga gemella come conMotoreA(conNoStore(metodoNonAmmessoMotoreA)): quattro schemi, due GET. La pagina
-// /thread/{id}/motore-a non è montata in A1d-P2, e la funzione etichetta non è fra quelle dei template (arrivano con P4).
+// riga gemella come conMotoreA(conNoStore(metodoNonAmmessoMotoreA)): quattro schemi, due GET. A1d-P4, B5.1: la pagina
+// /thread/{id}/motore-a è montata (da registraPaginaMotoreA, che la sua prova controlla nel sorgente:
+// TestMotoreAPaginaSiMonta) e arriva al suo pattern; la funzione etichetta resta fuori dalla FuncMap di tutte le pagine
+// (sta in funzioniMotoreA, solo per motore_a.html: scelta [T] di B5.1).
 func TestMotoreALeRotteSiMontano(t *testing.T) {
 	s := mwServer(t, motorea_web.Regole{})
 	mux := http.NewServeMux()
@@ -255,6 +259,7 @@ func TestMotoreALeRotteSiMontano(t *testing.T) {
 	for _, c := range []struct{ percorso, pattern string }{
 		{"/thread/" + id + "/motore-a/dati", "GET /thread/{id}/motore-a/dati"},
 		{"/thread/" + id + "/motore-a/anteprima/step-strutturale?componente=" + mwUUID(10).String(), "GET /thread/{id}/motore-a/anteprima/step-strutturale"},
+		{"/thread/" + id + "/motore-a?vista=documenti", "GET /thread/{id}/motore-a"},
 	} {
 		for _, metodo := range []string{http.MethodGet, http.MethodHead} {
 			if _, pat := mux.Handler(httptest.NewRequest(metodo, c.percorso, nil)); pat != c.pattern {
@@ -268,11 +273,11 @@ func TestMotoreALeRotteSiMontano(t *testing.T) {
 			}
 		}
 	}
-	if _, pat := mux.Handler(httptest.NewRequest(http.MethodGet, "/thread/"+id+"/motore-a", nil)); strings.Contains(pat, "motore-a") {
-		t.Errorf("la pagina /thread/{id}/motore-a è montata (%q): arriva con A1d-P4", pat)
-	}
 	if _, ok := funzioni["etichetta"]; ok {
-		t.Error("la funzione etichetta è fra quelle dei template: arriva con A1d-P4")
+		t.Error("la funzione etichetta è fra quelle di tutte le pagine: con B5.1 sta solo in funzioniMotoreA")
+	}
+	if _, ok := funzioniMotoreA["etichetta"]; !ok {
+		t.Error("la funzione etichetta manca dalle funzioni del template della pagina (funzioniMotoreA)")
 	}
 
 	fset := token.NewFileSet()

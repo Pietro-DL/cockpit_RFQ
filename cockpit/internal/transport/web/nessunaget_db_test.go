@@ -177,6 +177,12 @@ func (b *bancoWeb) scenaSenzaGet(t *testing.T, chiave string) *scenaSenzaGet {
 // per lui, 403 per gli altri, nessuna riga cambiata e nessun job (la controprova della preparazione resta). Le prove
 // dedicate sono in motore_a_db_test.go e, per lo snapshot, in transport/web/motore_a/servizio_db_test.go. Le due righe
 // vengono dalla PR #18 di Stefano Valo (153117d: nessunaget_db_test.go).
+//
+// Giro 5, A1d-P4, B5.1 (R-05 della revisione di B5.1; direttiva 12, §9: «non introdurre scritture in apertura della
+// pagina»): anche la pagina della Distinta nuova, GET /thread/{id}/motore-a, dell'amministratore: in ogni vista, con un
+// prodotto e una vista che non ci sono, e il frammento htmx. Sono le righe della PR #18 (153117d); la prova dedicata,
+// con la rilettura del ponte (HX-Target "ma" e HX-Current-URL) e HEAD, è TestMotoreAPaginaL4NessunaGetScrive
+// (motore_a_pagina_db_test.go).
 func TestNessunaGetScrive(t *testing.T) {
 	b := preparaBancoWeb(t)
 	s := b.scenaSenzaGet(t, "GET98")
@@ -254,6 +260,12 @@ func TestNessunaGetScrive(t *testing.T) {
 		// Giro 5, A1d-Q2: le due GET JSON della Distinta nuova del motore A, dell'amministratore
 		{"/thread/" + s.thread.String() + "/motore-a/dati", false, true, true},
 		{"/thread/" + s.thread.String() + "/motore-a/anteprima/step-strutturale?componente=" + s.pezzo.String(), false, true, true},
+		// Giro 5, A1d-P4, B5.1: la pagina della Distinta nuova, dell'amministratore (con hx: il frammento)
+		{"/thread/" + s.thread.String() + "/motore-a", false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a?vista=documenti", false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a?vista=rfq", false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a?vista=boh&prodotto=boh", false, true, true},
+		{"/thread/" + s.thread.String() + "/motore-a?vista=documenti", true, true, true},
 	}
 	clienteMA := uuidSQL(t, b, `SELECT cliente_id FROM thread_offerta WHERE thread_id = $1`, s.thread)
 	mwAccendi(t, b, mwRegoleACME(t, clienteMA, "Acme S.p.A.", 20*time.Second))

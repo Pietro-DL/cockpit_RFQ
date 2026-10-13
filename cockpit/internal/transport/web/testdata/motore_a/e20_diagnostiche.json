@@ -1,0 +1,1030 @@
+{
+  "_caso": {
+    "titolo": "E20: le diagnostiche della valutazione del thread, sulla BOM di lavoro di E3",
+    "contratto": "P4-0c; F-07; R-02 della revisione di B5.1",
+    "attese": [
+      "nelle strisce del thread «Diagnostiche della valutazione del thread (3)», nell'ordine del server",
+      "per ognuna gravità, codice a parole (il grezzo nel title), messaggio e natura; nessun filtro",
+      "il percorso della terza (prodotti_valutati[0].documenti) solo nel title del codice"
+    ]
+  },
+  "scrive": true,
+  "pagina": {
+    "thread_id": "00000000-0000-4000-8000-000000000001",
+    "vista": "distinta",
+    "prodotto": "componente:00000000-0000-4000-8000-000000000010",
+    "testa": {
+      "cliente": "ACME S.p.A.",
+      "oggetto": "Richiesta di prova ACME",
+      "riferimento_cliente": "ACME-030P7120100",
+      "stato_thread": "APERTA",
+      "fase": {
+        "nome": "FATTIBILITA",
+        "etichetta": "Fattibilità",
+        "inizio": "2026-09-29T07:00:00Z",
+        "gg_in_fase": 2,
+        "semaforo": "verde",
+        "terminale": false
+      }
+    },
+    "esito": {
+      "thread_id": "00000000-0000-4000-8000-000000000001",
+      "cliente_id": "00000000-0000-4000-8000-000000000002",
+      "valutato": true,
+      "richiesta": {
+        "cliente_id": "00000000-0000-4000-8000-000000000002",
+        "messaggi": [
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "stato": "valutata"
+      },
+      "file": [
+        {
+          "allegato_id": "00000000-0000-4000-8000-000000000030",
+          "documento": {
+            "bundle_id": "",
+            "versione_schema": 0,
+            "versione_adattatore": "",
+            "fonte": {
+              "id": "",
+              "tipo": "",
+              "origine_id": "00000000-0000-0000-0000-000000000000",
+              "provenienza": {},
+              "riferimento_fatti": {
+                "tipo": ""
+              }
+            },
+            "testi": null,
+            "unita": null,
+            "qualita": {
+              "stato": ""
+            }
+          },
+          "interpretazione": {
+            "id": "",
+            "bundle_id": "",
+            "cliente_id": "00000000-0000-0000-0000-000000000000",
+            "hash_snapshot": "",
+            "versione_algoritmo": "",
+            "versione_router": "",
+            "versione_limiti": "",
+            "impronta_limiti": "",
+            "versione_risultato": 0,
+            "impronta_uso": "",
+            "stato": "",
+            "impronta": ""
+          },
+          "disponibilita": "disponibile",
+          "disegno": false
+        }
+      ],
+      "prodotti": {
+        "versione_servizio": "",
+        "hash_ingresso": "",
+        "impronta": ""
+      },
+      "ancoraggi": {
+        "versione_servizio": "",
+        "hash_ingresso": "",
+        "hash_target": "",
+        "strutture": [
+          {
+            "target": "componente:00000000-0000-4000-8000-000000000010",
+            "allegato_id": "00000000-0000-4000-8000-000000000030",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+            "radice": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+            "radice_del_file": true,
+            "compatibilita": "uguale",
+            "stato": "bom_di_lavoro_proposta",
+            "archi": [
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+                "quantita": 1
+              },
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#40",
+                "quantita": 1,
+                "decisione": {
+                  "padre": "componente:00000000-0000-4000-8000-000000000010",
+                  "figlio": "componente:00000000-0000-4000-8000-000000000014",
+                  "quantita": 1,
+                  "origine": "confermato"
+                }
+              },
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#50",
+                "quantita": 1
+              },
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#60",
+                "quantita": 8
+              },
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#70",
+                "quantita": 1
+              },
+              {
+                "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+                "figlio": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#40",
+                "quantita": 2
+              }
+            ],
+            "grafo_completo": true
+          }
+        ],
+        "impronta": ""
+      },
+      "prodotti_valutati": [
+        {
+          "rif": "componente:00000000-0000-4000-8000-000000000010",
+          "autorita": "confermata",
+          "componente_id": "00000000-0000-4000-8000-000000000010",
+          "codice_richiesto": "7120100",
+          "base": {
+            "Originale": "7120100",
+            "Normalizzata": "7120100",
+            "Segmenti": null,
+            "Mancanti": null,
+            "Completa": true
+          },
+          "identita": "confermata",
+          "fonte": {
+            "stato": "confermata",
+            "motivo": "estrazione_riuscita",
+            "esito_vista": "presente_analizzato",
+            "riferimento": {
+              "tipo": "step",
+              "documento_id": "00000000-0000-4000-8000-000000000050",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+              "allegato_id": "00000000-0000-4000-8000-000000000030",
+              "radice": "#10",
+              "ruolo": "radice",
+              "forma": "smistamento",
+              "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+              "confermato_il": "2026-09-30T10:00:00Z",
+              "superato": false
+            },
+            "estrazione": "riuscita",
+            "calcolata": true
+          },
+          "struttura": "bom_di_lavoro_proposta",
+          "bom": {
+            "nomenclatura": {
+              "stato": "da_verificare",
+              "legacy": false,
+              "da_decidere": 1,
+              "motivo": "da_decidere"
+            },
+            "gerarchia": {
+              "stato": "conflitto",
+              "legacy": false,
+              "da_decidere": 1,
+              "conflitti": [
+                "arco:componente:00000000-0000-4000-8000-000000000010>componente:00000000-0000-4000-8000-000000000017"
+              ],
+              "motivo": "conflitto"
+            },
+            "verificata": false,
+            "fonte_registrata": true,
+            "rimozioni_aperte": 1,
+            "senza_figli": false
+          },
+          "nodi": [
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#10",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7120100",
+                    "campo": "id"
+                  },
+                  "lettura": "7120100",
+                  "identita": {
+                    "base": "7120100",
+                    "parziale": false,
+                    "provenienza": "radice_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7120100",
+                  "confermato": {
+                    "componente_id": "00000000-0000-4000-8000-000000000010",
+                    "codice": "7120100",
+                    "base": {
+                      "Originale": "",
+                      "Normalizzata": "",
+                      "Segmenti": null,
+                      "Mancanti": null,
+                      "Completa": false
+                    },
+                    "origine": "confermato"
+                  }
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "deciso_da_persona": false
+              },
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "prodotto",
+                "categoria": "fabbricato",
+                "origine": "derivato_dal_tipo",
+                "confermata": false
+              },
+              "tipo": "finito",
+              "origine_tipo": "confermato"
+            },
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#20",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7120110",
+                    "campo": "id"
+                  },
+                  "lettura": "7120110",
+                  "identita": {
+                    "base": "7120110",
+                    "parziale": false,
+                    "provenienza": "nodo_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7120110",
+                  "manuale": {
+                    "codice": "7120110-B",
+                    "base": {
+                      "Originale": "",
+                      "Normalizzata": "",
+                      "Segmenti": null,
+                      "Mancanti": null,
+                      "Completa": false
+                    },
+                    "origine": "manuale"
+                  }
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "riga_legacy": {
+                  "id": "00000000-0000-4000-8000-000000000091",
+                  "allegato_id": "00000000-0000-4000-8000-000000000030",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+                  "chiave": "#20",
+                  "autorita": "proposta",
+                  "origine": "proposto",
+                  "codice_manuale": "7120110-B"
+                },
+                "deciso_da_persona": false
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 1,
+                  "decisa": false
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "non_determinata",
+                "origine": "proposto",
+                "confermata": false,
+                "motivo": "tipo_non_determinato"
+              },
+              "tipo": "sottoassieme",
+              "origine_tipo": "proposto_dalla_riga"
+            },
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#40",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#40",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7120140",
+                    "campo": "id"
+                  },
+                  "lettura": "7120140",
+                  "identita": {
+                    "base": "7120140",
+                    "parziale": false,
+                    "provenienza": "nodo_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7120140",
+                  "confermato": {
+                    "componente_id": "00000000-0000-4000-8000-000000000014",
+                    "codice": "7120140",
+                    "base": {
+                      "Originale": "",
+                      "Normalizzata": "",
+                      "Segmenti": null,
+                      "Mancanti": null,
+                      "Completa": false
+                    },
+                    "origine": "confermato",
+                    "rev_provenienza": "non_registrata"
+                  }
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "decisione": {
+                  "componente_id": "00000000-0000-4000-8000-000000000014",
+                  "codice": "7120140",
+                  "autorita": "confermata",
+                  "origine": "confermato"
+                },
+                "riga_decisa": {
+                  "id": "00000000-0000-4000-8000-000000000094",
+                  "allegato_id": "00000000-0000-4000-8000-000000000030",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+                  "chiave": "#40",
+                  "stato": "confermata",
+                  "componente_id": "00000000-0000-4000-8000-000000000014",
+                  "deciso_da": "00000000-0000-4000-8000-0000000000b0"
+                },
+                "deciso_da_persona": true
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 1,
+                  "decisa": true
+                },
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+                  "quantita": 2,
+                  "decisa": false
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "fabbricato",
+                "origine": "derivato_dal_tipo",
+                "confermata": false
+              },
+              "tipo": "sciolto",
+              "origine_tipo": "confermato"
+            },
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#50",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#50",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7120150",
+                    "campo": "id"
+                  },
+                  "lettura": "7120150",
+                  "identita": {
+                    "base": "7120150",
+                    "parziale": false,
+                    "provenienza": "nodo_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7120150"
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "riga_decisa": {
+                  "id": "00000000-0000-4000-8000-000000000092",
+                  "allegato_id": "00000000-0000-4000-8000-000000000030",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+                  "chiave": "#50",
+                  "stato": "scartata",
+                  "deciso_da": "00000000-0000-4000-8000-0000000000b0"
+                },
+                "deciso_da_persona": true,
+                "abbinamento_per_base": {
+                  "motivo": "nodo_scartato"
+                }
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 1,
+                  "decisa": false
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "non_determinata",
+                "origine": "proposto",
+                "confermata": false,
+                "motivo": "tipo_non_determinato"
+              },
+              "tipo": "sciolto",
+              "origine_tipo": "proposto_dalla_regola"
+            },
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#60",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#60",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7129020",
+                    "campo": "id"
+                  },
+                  "lettura": "7129020",
+                  "identita": {
+                    "base": "7129020",
+                    "parziale": false,
+                    "provenienza": "nodo_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7129020",
+                  "confermato": {
+                    "componente_id": "00000000-0000-4000-8000-000000000016",
+                    "codice": "7129020",
+                    "base": {
+                      "Originale": "",
+                      "Normalizzata": "",
+                      "Segmenti": null,
+                      "Mancanti": null,
+                      "Completa": false
+                    },
+                    "origine": "confermato",
+                    "rev_provenienza": "non_registrata"
+                  }
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "decisione": {
+                  "componente_id": "00000000-0000-4000-8000-000000000016",
+                  "codice": "7129020",
+                  "autorita": "confermata",
+                  "origine": "confermato"
+                },
+                "riga_decisa": {
+                  "id": "00000000-0000-4000-8000-000000000096",
+                  "allegato_id": "00000000-0000-4000-8000-000000000030",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+                  "chiave": "#60",
+                  "stato": "confermata",
+                  "componente_id": "00000000-0000-4000-8000-000000000016",
+                  "deciso_da": "00000000-0000-4000-8000-0000000000b0"
+                },
+                "deciso_da_persona": true
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 8,
+                  "decisa": false
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "minuteria",
+                "origine": "confermato",
+                "confermata": true
+              },
+              "tipo": "commerciale",
+              "origine_tipo": "confermato"
+            },
+            {
+              "nodo": {
+                "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#70",
+                "allegato_id": "00000000-0000-4000-8000-000000000030",
+                "entita_id": "#70",
+                "codice": {
+                  "grezzo": {
+                    "testo": "7120180",
+                    "campo": "id"
+                  },
+                  "lettura": "7120180",
+                  "identita": {
+                    "base": "7120180",
+                    "parziale": false,
+                    "provenienza": "nodo_step",
+                    "stato_revisione": "assente"
+                  },
+                  "proposto": "7120180"
+                },
+                "leggibile": true,
+                "senza_file": false,
+                "deciso_da_persona": false
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 1,
+                  "decisa": false
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "non_determinata",
+                "origine": "proposto",
+                "confermata": false,
+                "motivo": "tipo_non_determinato"
+              },
+              "tipo": "",
+              "origine_tipo": ""
+            }
+          ],
+          "confermati_senza_step": [
+            {
+              "nodo": {
+                "rif": "componente:00000000-0000-4000-8000-000000000017",
+                "allegato_id": "00000000-0000-0000-0000-000000000000",
+                "entita_id": "",
+                "codice": {
+                  "grezzo": {
+                    "testo": ""
+                  },
+                  "identita": {
+                    "parziale": false,
+                    "provenienza": "",
+                    "stato_revisione": ""
+                  },
+                  "proposto": "7120170",
+                  "confermato": {
+                    "componente_id": "00000000-0000-4000-8000-000000000017",
+                    "codice": "7120170",
+                    "base": {
+                      "Originale": "",
+                      "Normalizzata": "",
+                      "Segmenti": null,
+                      "Mancanti": null,
+                      "Completa": false
+                    },
+                    "origine": "confermato",
+                    "rev_provenienza": "non_registrata"
+                  }
+                },
+                "leggibile": false,
+                "senza_file": true,
+                "decisione": {
+                  "componente_id": "00000000-0000-4000-8000-000000000017",
+                  "codice": "7120170",
+                  "autorita": "confermata",
+                  "origine": "confermato"
+                },
+                "deciso_da_persona": false
+              },
+              "parentela": [
+                {
+                  "padre": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10",
+                  "quantita": 1,
+                  "decisa": true
+                }
+              ],
+              "disegni": {},
+              "classificazione": {
+                "ruolo": "componente",
+                "categoria": "fabbricato",
+                "origine": "derivato_dal_tipo",
+                "confermata": false
+              },
+              "tipo": "sciolto",
+              "origine_tipo": "confermato"
+            }
+          ],
+          "smistamento": {
+            "stato": "verificato",
+            "calcolata": true
+          },
+          "documenti": {
+            "stato": "incompleta",
+            "voci": [
+              {
+                "componente_id": "00000000-0000-4000-8000-000000000010",
+                "codice": "7120100",
+                "tipo_componente": "finito",
+                "del_prodotto": true,
+                "tipo_documento": "disegno_2d",
+                "bloccante": true,
+                "regola_cliente": false,
+                "esito": "manca",
+                "motivo": "nessun_documento",
+                "calcolata_da": "go",
+                "invariante": true,
+                "categoria": "fabbricato"
+              },
+              {
+                "componente_id": "00000000-0000-4000-8000-000000000014",
+                "codice": "7120140",
+                "tipo_componente": "sciolto",
+                "del_prodotto": false,
+                "tipo_documento": "disegno_2d",
+                "bloccante": true,
+                "regola_cliente": false,
+                "esito": "manca",
+                "motivo": "nessun_documento",
+                "calcolata_da": "go",
+                "invariante": true,
+                "categoria": "fabbricato"
+              },
+              {
+                "componente_id": "00000000-0000-4000-8000-000000000017",
+                "codice": "7120170",
+                "tipo_componente": "sciolto",
+                "del_prodotto": false,
+                "tipo_documento": "disegno_2d",
+                "bloccante": true,
+                "regola_cliente": false,
+                "esito": "manca",
+                "motivo": "nessun_documento",
+                "calcolata_da": "go",
+                "invariante": true,
+                "categoria": "fabbricato"
+              }
+            ],
+            "previsti": [
+              {
+                "nodo": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+                "codice_proposto": "7120110-B",
+                "tipo_documento": "disegno_2d",
+                "motivo": "nodo_proposto"
+              },
+              {
+                "nodo": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#70",
+                "codice_proposto": "7120180",
+                "tipo_documento": "disegno_2d",
+                "motivo": "nodo_proposto"
+              }
+            ],
+            "motivo": "voce_mancante",
+            "perimetro_chiuso": false,
+            "motivo_perimetro": "nodi_da_decidere"
+          },
+          "prodotto_verificato": false,
+          "stato": "non_pronto",
+          "motivi": [
+            "nomenclatura_non_verificata",
+            "gerarchia_non_verificata",
+            "documentazione_incompleta",
+            "conflitto"
+          ],
+          "impronta": ""
+        }
+      ],
+      "associazioni": [
+        {
+          "allegato_id": "00000000-0000-4000-8000-000000000030",
+          "associazione": "candidato_unico",
+          "collocazione": "radice",
+          "proposta": [
+            "componente:00000000-0000-4000-8000-000000000010"
+          ],
+          "confermata": "00000000-0000-4000-8000-000000000010",
+          "documento_id": "00000000-0000-4000-8000-000000000050",
+          "origine": "confermato",
+          "conflitto": false,
+          "esclusa": false,
+          "terminale": true,
+          "perimetro": "dentro"
+        }
+      ],
+      "conflitti": [
+        {
+          "tipo": "arco",
+          "asse": "gerarchia",
+          "rif": "arco:componente:00000000-0000-4000-8000-000000000010>componente:00000000-0000-4000-8000-000000000017",
+          "prodotto": "componente:00000000-0000-4000-8000-000000000010",
+          "decisione": "qta 1",
+          "origine_decisione": "confermato",
+          "proposta": "rimozione",
+          "motivo": "rimozione",
+          "evidenza_decisione": {
+            "origine": "confermato",
+            "da": "00000000-0000-4000-8000-0000000000b0",
+            "il": "2026-10-01T08:00:00Z"
+          },
+          "evidenza_proposta": {
+            "documento_id": "00000000-0000-4000-8000-000000000050"
+          }
+        },
+        {
+          "tipo": "codice",
+          "asse": "nomenclatura",
+          "rif": "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20",
+          "prodotto": "componente:00000000-0000-4000-8000-000000000010",
+          "decisione": "7120110-B",
+          "origine_decisione": "manuale",
+          "proposta": "7120110",
+          "documentale": "discordante",
+          "motivo": "codice",
+          "evidenza_decisione": {
+            "origine": "manuale"
+          },
+          "evidenza_proposta": {
+            "allegato_id": "00000000-0000-4000-8000-000000000030",
+            "evidenza": {
+              "fonte": "step_entita",
+              "valore": "7120110"
+            },
+            "riferimenti": [
+              "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20"
+            ]
+          }
+        }
+      ],
+      "fascicolo": {
+        "numero_target": 1,
+        "numero_verificati": 0,
+        "bloccati": [
+          {
+            "rif": "componente:00000000-0000-4000-8000-000000000010",
+            "motivi": [
+              "nomenclatura_non_verificata",
+              "gerarchia_non_verificata",
+              "documentazione_incompleta",
+              "conflitto"
+            ]
+          }
+        ],
+        "congelabile": false,
+        "motivo_non_congelabile": "prodotti_non_pronti",
+        "congelato": false,
+        "calcolato": true,
+        "orfani": 0,
+        "fase_thread": "APERTA"
+      },
+      "diagnostiche": [
+        {
+          "codice": "ancoraggio.grafo_incompleto",
+          "gravita": "nota",
+          "natura": "dati",
+          "messaggio": "Lo STEP 7120100_C.stp non dichiara la completezza del grafo.",
+          "rif": [
+            "nodo:0000000000000000000000000000000000000000000000000000000000000030:#10"
+          ]
+        },
+        {
+          "codice": "bom.tipo_finito_fuori_target",
+          "gravita": "avviso",
+          "natura": "dati",
+          "messaggio": "«finito» proposto per il nodo #20 di 7120100_C.stp, che non è il prodotto 7120100.",
+          "rif": [
+            "nodo:0000000000000000000000000000000000000000000000000000000000000030:#20"
+          ]
+        },
+        {
+          "codice": "valutazione.errore_valutazione",
+          "gravita": "errore",
+          "natura": "contratto",
+          "percorso": "prodotti_valutati[0].documenti",
+          "messaggio": "Errore inventato per la prova ACME sui documenti di 7120100."
+        }
+      ]
+    },
+    "confronto": {
+      "versione_confronto": "confronto-3",
+      "file": [
+        {
+          "file": {
+            "allegato_id": "00000000-0000-4000-8000-000000000030",
+            "vecchio": {
+              "stato": "",
+              "fonte": "",
+              "codice": "",
+              "rev": "",
+              "base": "",
+              "marcatore": "",
+              "revisione": "",
+              "leggibile": false,
+              "motivo_lettura": "",
+              "codice_letto": "",
+              "codice_letto_base": "",
+              "codice_letto_marcatore": "",
+              "revisione_da": ""
+            },
+            "nuovo": {
+              "valutato": true,
+              "motivo": "",
+              "collocazione": "",
+              "associazione": "",
+              "disponibilita": "",
+              "revisione": "",
+              "revisioni": "",
+              "motivo_revisioni": ""
+            }
+          },
+          "badge": "uguale",
+          "revisione": {
+            "valore": "",
+            "vecchia": "",
+            "provenienza_vecchia": "",
+            "nuova": ""
+          }
+        }
+      ],
+      "conteggi": {
+        "diverso": 0,
+        "fuori_richiesta": 0,
+        "nuovo_ancoraggio": 0,
+        "regressione_su_confermata": 0,
+        "uguale": 1
+      },
+      "correzioni": {
+        "decisi": 0,
+        "valutabili": 0,
+        "esclusi": {
+          "solo_origine_manuale": 0,
+          "senza_lettura_vecchia": 0,
+          "codice_non_leggibile": 0,
+          "documento_senza_componente": 0,
+          "nuovo_non_valutato": 0
+        },
+        "prima": 0,
+        "prima_marcatore": 0,
+        "marcatore_solo_da_un_lato": 0,
+        "dopo": 0,
+        "false_associazioni": 0,
+        "ambiguita": 0,
+        "astensioni": 0,
+        "solo_revisione": 0
+      },
+      "impronta": ""
+    },
+    "errore": "",
+    "calcolato": "2026-10-01T08:00:00Z"
+  },
+  "foto": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "cliente_id": "00000000-0000-4000-8000-000000000002",
+    "stato": "APERTA",
+    "oggetto": "Richiesta di prova ACME",
+    "riferimento": "ACME-030P7120100",
+    "creato_il": "2026-10-01T08:00:00Z",
+    "allegati": [
+      {
+        "id": "00000000-0000-4000-8000-000000000030",
+        "messaggio_id": "00000000-0000-4000-8000-000000000003",
+        "indice": 0,
+        "nome_file": "7120100_C.stp",
+        "estensione": "stp",
+        "natura": "file",
+        "origine": "outlook",
+        "stato": "analizzato",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "ricevuto_il": "2026-10-01T08:00:00Z"
+      }
+    ],
+    "documenti": [
+      {
+        "id": "00000000-0000-4000-8000-000000000050",
+        "thread_id": "00000000-0000-4000-8000-000000000001",
+        "componente_id": "00000000-0000-4000-8000-000000000010",
+        "tipo": "cad_3d",
+        "codice": "7120100",
+        "nome_file": "7120100_C.stp",
+        "estensione": "stp",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "stato_nas": "scritto",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "confermato_il": "2026-10-01T08:00:00Z",
+        "allegati": [
+          "00000000-0000-4000-8000-000000000030"
+        ]
+      }
+    ],
+    "componenti": [
+      {
+        "id": "00000000-0000-4000-8000-000000000010",
+        "codice": "7120100",
+        "tipo": "finito",
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z",
+        "step_strutturale_id": "00000000-0000-4000-8000-000000000050"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000014",
+        "codice": "7120140",
+        "tipo": "sciolto",
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000016",
+        "codice": "7129020",
+        "tipo": "commerciale",
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000017",
+        "codice": "7120170",
+        "tipo": "sciolto",
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      }
+    ],
+    "relazioni": [
+      {
+        "padre_id": "00000000-0000-4000-8000-000000000010",
+        "figlio_id": "00000000-0000-4000-8000-000000000014",
+        "qta": 1,
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      },
+      {
+        "padre_id": "00000000-0000-4000-8000-000000000010",
+        "figlio_id": "00000000-0000-4000-8000-000000000017",
+        "qta": 1,
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      }
+    ],
+    "righe_componente_proposta": [
+      {
+        "id": "00000000-0000-4000-8000-000000000091",
+        "allegato_id": "00000000-0000-4000-8000-000000000030",
+        "nome_file": "7120100_C.stp",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "chiave": "#20",
+        "id_grezzo": "#20",
+        "nome_grezzo": "nodo #20",
+        "codice": "7120110-B",
+        "famiglia": "acme",
+        "origine_codice": "operatore",
+        "tipo_proposto": "sottoassieme",
+        "fonte": "step",
+        "stato": "aperta"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000092",
+        "allegato_id": "00000000-0000-4000-8000-000000000030",
+        "nome_file": "7120100_C.stp",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "chiave": "#50",
+        "id_grezzo": "#50",
+        "nome_grezzo": "nodo #50",
+        "famiglia": "acme",
+        "fonte": "step",
+        "stato": "scartata",
+        "deciso_da": "00000000-0000-4000-8000-0000000000b0",
+        "deciso_il": "2026-10-01T08:00:00Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000094",
+        "allegato_id": "00000000-0000-4000-8000-000000000030",
+        "nome_file": "7120100_C.stp",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "chiave": "#40",
+        "id_grezzo": "#40",
+        "nome_grezzo": "nodo #40",
+        "famiglia": "acme",
+        "fonte": "step",
+        "stato": "confermata",
+        "componente_id": "00000000-0000-4000-8000-000000000014",
+        "deciso_da": "00000000-0000-4000-8000-0000000000b0",
+        "deciso_il": "2026-10-01T08:00:00Z"
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000096",
+        "allegato_id": "00000000-0000-4000-8000-000000000030",
+        "nome_file": "7120100_C.stp",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000030",
+        "chiave": "#60",
+        "id_grezzo": "#60",
+        "nome_grezzo": "nodo #60",
+        "famiglia": "acme",
+        "fonte": "step",
+        "stato": "confermata",
+        "componente_id": "00000000-0000-4000-8000-000000000016",
+        "deciso_da": "00000000-0000-4000-8000-0000000000b0",
+        "deciso_il": "2026-10-01T08:00:00Z"
+      }
+    ],
+    "righe_relazione_proposta": [
+      {
+        "allegato_id": "00000000-0000-4000-8000-000000000030",
+        "nome_file": "7120100_C.stp",
+        "padre_chiave": "#10",
+        "figlio_chiave": "#20",
+        "qta": 1,
+        "stato": "aperta"
+      }
+    ],
+    "rimozioni_aperte": [
+      {
+        "step_documento_id": "00000000-0000-4000-8000-000000000050",
+        "padre_id": "00000000-0000-4000-8000-000000000010",
+        "figlio_id": "00000000-0000-4000-8000-000000000017",
+        "qta_working": 1
+      }
+    ]
+  }
+}

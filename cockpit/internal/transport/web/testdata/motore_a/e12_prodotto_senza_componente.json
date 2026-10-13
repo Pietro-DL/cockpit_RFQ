@@ -1,0 +1,181 @@
+{
+  "_caso": {
+    "titolo": "E12: il prodotto senza componente",
+    "contratto": "T-B0-07; D-PF-10",
+    "attese": [
+      "nessun gruppo: «il prodotto non ha ancora un componente»",
+      "«Autorizza» spento con il motivo",
+      "nessun gesto con {cid}"
+    ]
+  },
+  "scrive": true,
+  "pagina": {
+    "thread_id": "00000000-0000-4000-8000-000000000001",
+    "vista": "distinta",
+    "prodotto": "identificativo:7120300",
+    "testa": {
+      "cliente": "ACME S.p.A.",
+      "oggetto": "Richiesta di prova ACME",
+      "riferimento_cliente": "ACME-030P7120100",
+      "stato_thread": "APERTA",
+      "fase": {
+        "nome": "FATTIBILITA",
+        "etichetta": "Fattibilità",
+        "inizio": "2026-09-29T07:00:00Z",
+        "gg_in_fase": 2,
+        "semaforo": "verde",
+        "terminale": false
+      }
+    },
+    "esito": {
+      "thread_id": "00000000-0000-4000-8000-000000000001",
+      "cliente_id": "00000000-0000-4000-8000-000000000002",
+      "valutato": true,
+      "richiesta": {
+        "cliente_id": "00000000-0000-4000-8000-000000000002",
+        "messaggi": [
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "stato": "valutata"
+      },
+      "prodotti": {
+        "versione_servizio": "",
+        "hash_ingresso": "",
+        "impronta": ""
+      },
+      "ancoraggi": {
+        "versione_servizio": "",
+        "hash_ingresso": "",
+        "hash_target": "",
+        "impronta": ""
+      },
+      "prodotti_valutati": [
+        {
+          "rif": "identificativo:7120300",
+          "autorita": "confermata",
+          "codice_richiesto": "7120300",
+          "base": {
+            "Originale": "7120300",
+            "Normalizzata": "7120300",
+            "Segmenti": null,
+            "Mancanti": null,
+            "Completa": true
+          },
+          "identita": "confermata",
+          "fonte": {
+            "stato": "assente",
+            "motivo": "prodotto_senza_componente",
+            "calcolata": true
+          },
+          "struttura": "nessuna",
+          "bom": {
+            "nomenclatura": {
+              "stato": "non_verificabile",
+              "legacy": false,
+              "da_decidere": 0,
+              "motivo": "target_senza_componente"
+            },
+            "gerarchia": {
+              "stato": "non_verificabile",
+              "legacy": false,
+              "da_decidere": 0,
+              "motivo": "target_senza_componente"
+            },
+            "verificata": false,
+            "fonte_registrata": false,
+            "rimozioni_aperte": 0,
+            "senza_figli": false
+          },
+          "smistamento": {
+            "stato": "verificato",
+            "calcolata": true
+          },
+          "documenti": {
+            "stato": "incompleta",
+            "motivo": "target_senza_componente",
+            "perimetro_chiuso": false,
+            "motivo_perimetro": "target_senza_componente"
+          },
+          "prodotto_verificato": false,
+          "stato": "non_pronto",
+          "motivi": [
+            "fonte_strutturale_step_mancante_o_non_confermata",
+            "nomenclatura_non_verificata",
+            "gerarchia_non_verificata",
+            "documentazione_incompleta"
+          ],
+          "impronta": ""
+        }
+      ],
+      "fascicolo": {
+        "numero_target": 1,
+        "numero_verificati": 0,
+        "bloccati": [
+          {
+            "rif": "identificativo:7120300",
+            "motivi": [
+              "fonte_strutturale_step_mancante_o_non_confermata",
+              "nomenclatura_non_verificata",
+              "gerarchia_non_verificata",
+              "documentazione_incompleta"
+            ]
+          }
+        ],
+        "congelabile": false,
+        "motivo_non_congelabile": "prodotti_non_pronti",
+        "congelato": false,
+        "calcolato": true,
+        "orfani": 0,
+        "fase_thread": "APERTA"
+      }
+    },
+    "confronto": {
+      "versione_confronto": "confronto-3",
+      "conteggi": {
+        "diverso": 0,
+        "fuori_richiesta": 0,
+        "nuovo_ancoraggio": 0,
+        "regressione_su_confermata": 0,
+        "uguale": 0
+      },
+      "correzioni": {
+        "decisi": 0,
+        "valutabili": 0,
+        "esclusi": {
+          "solo_origine_manuale": 0,
+          "senza_lettura_vecchia": 0,
+          "codice_non_leggibile": 0,
+          "documento_senza_componente": 0,
+          "nuovo_non_valutato": 0
+        },
+        "prima": 0,
+        "prima_marcatore": 0,
+        "marcatore_solo_da_un_lato": 0,
+        "dopo": 0,
+        "false_associazioni": 0,
+        "ambiguita": 0,
+        "astensioni": 0,
+        "solo_revisione": 0
+      },
+      "impronta": ""
+    },
+    "errore": "",
+    "calcolato": "2026-10-01T08:00:00Z"
+  },
+  "foto": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "cliente_id": "00000000-0000-4000-8000-000000000002",
+    "stato": "APERTA",
+    "oggetto": "Richiesta di prova ACME",
+    "riferimento": "ACME-030P7120100",
+    "creato_il": "2026-10-01T08:00:00Z",
+    "identificativi": [
+      {
+        "codice": "7120300",
+        "origine": "manuale",
+        "confermato_da": "00000000-0000-4000-8000-0000000000b0",
+        "creato_il": "2026-10-01T08:00:00Z"
+      }
+    ]
+  }
+}
