@@ -79,6 +79,15 @@ func (s *Server) registraPaginaMotoreA(mux *http.ServeMux) {
 	mux.HandleFunc("/thread/{id}/motore-a", s.conMotoreA(conNoStore(metodoNonAmmessoMotoreA)))
 }
 
+// distintaNuovaVisibile: il collegamento «Distinta nuova (Motore A)» delle pagine Richieste e RFQ (giro 5, A1d, notte
+// 14/10, WP-U, U1; diagnosi UI del 14/10, G2: la pagina non era raggiungibile dal flusso dell'operatore). Si mostra con
+// la stessa guardia della rotta (registraPaginaMotoreA): il flag [motore_a].anteprima acceso (conMotoreA) e il ruolo
+// admin (soloAdmin, con almeno, la stessa funzione del wrapper). Un collegamento che porterebbe a un 404 o a un 403 non
+// si mostra. Quando la pagina si aprirà agli operatori [D], cambiano insieme la rotta e questa funzione.
+func (s *Server) distintaNuovaVisibile(u *db.Utente) bool {
+	return s.MotoreA.Accesa && almeno(u, db.RuoloUtenteAdmin)
+}
+
 // motoreAPagina: GET /thread/{id}/motore-a.
 func (s *Server) motoreAPagina(w http.ResponseWriter, r *http.Request) {
 	s.paginaMotoreA(w, r, s.servizioMotoreA())

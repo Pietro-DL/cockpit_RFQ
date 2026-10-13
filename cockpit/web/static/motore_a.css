@@ -784,3 +784,20 @@
 .ma[data-ma-calcolo="incompleto"] .ma-asse--tot.ma-asse--ok { border-color: var(--ma-ver-line); background: var(--ma-ver-soft); }
 .ma[data-ma-calcolo="incompleto"] .ma-badge--ok { color: var(--ma-ver); border-color: var(--ma-ver-line); }
 .ma .ma-incompleto b { font-weight: 600; }
+
+/* Giro 5, A1d, notte 14/10, WP-U. U2: il perché dell'ancoraggio accanto al prodotto e al file (titolo, frase, messaggio
+   del server). U3: gli STEP della RFQ sotto un prodotto senza strutture candidate. U4: gli elementi della mail
+   ([data-ma-elemento-mail]) nascosti finché l'interruttore #ma-mostra-mail non è spuntato; :has() serve anche senza
+   JavaScript, motore_a.mjs ricorda solo la scelta. */
+.ma .ma-perche { margin-top: var(--ma-sp3); display: grid; gap: var(--ma-sp1); min-width: 0; }
+.ma .ma-perche .ma-elenco { margin: 0; }
+.ma .ma-perche-file { font-size: var(--ma-t-sm); }
+.ma .ma-spiegazione { overflow-wrap: anywhere; }
+.ma .ma-spiegazione b { font-weight: 600; }
+.ma .ma-spiegazione-msg { display: block; }
+.ma .ma-perche-rfq { margin-top: var(--ma-sp3); }
+.ma .ma-step-rfq { margin-top: var(--ma-sp4); padding-top: var(--ma-sp3); border-top: 1px dashed var(--ma-line2); display: grid; gap: var(--ma-sp2); min-width: 0; }
+.ma .ma-step-rfq-elenco { display: grid; gap: var(--ma-sp2); margin: 0; padding: 0; list-style: none; }
+.ma .ma-radice-testo { overflow-wrap: anywhere; }
+.ma .ma-mostra-mail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--ma-sp2); margin: 0 0 var(--ma-sp3); font-size: var(--ma-t-sm); }
+.ma:not(:has(#ma-mostra-mail:checked)) [data-ma-elemento-mail] { display: none; }

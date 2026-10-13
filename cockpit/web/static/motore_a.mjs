@@ -7,7 +7,9 @@
 // Che cosa NON fa: non calcola stati, assi, fabbisogni, esenzioni, tipi, quantità, prontezza o fasi; non conta e non
 // filtra dati per decidere che cosa mostrare (lo decide il template); non chiama rotte di scrittura: scrive solo il
 // ponte motore_a_gesti.mjs (data-ma-gesto, Gesti.esegui, Gesti.confermaAlbero); non legge il corpo delle risposte dei
-// gesti; non simula una riuscita e non concatena gesti; costruisce i nodi con el() e textContent, mai con l'HTML.
+// gesti; non simula una riuscita e non concatena gesti (salvo «Usa come STEP del prodotto», apriUsaStep: due gesti del
+// ponte nell'ordine, ognuno con il suo esito, dopo una finestra che elenca che cosa si scrive; WP-U, notte 14/10);
+// costruisce i nodi con el() e textContent, mai con l'HTML.
 // Dopo un gesto riuscito il ponte rilegge #ma: lo stato nuovo arriva SOLO dal server (X-08 anche per l'albero).
 // Le miniature e il disegno: una GET semplice di /allegato/{id}/anteprima?v=<sha>, senza le intestazioni di htmx (con
 // quelle la rotta risponde 400) e mai in un riquadro incorporato (la risposta ha la CSP sandbox): solo pdf.js.
@@ -892,6 +894,80 @@ async function apriStep(btn) {
   carica();
 }
 
+// ------------------------------------------------------------------ Usa come STEP del prodotto (WP-U, U3)
+// Giro 5, A1d, notte 14/10 (diagnosi UI del 14/10, G1). Un prodotto senza strutture candidate e uno STEP della RFQ con
+// una proposta aperta di 3D: la catena del Fascicolo legacy, due gesti esistenti del ponte nell'ordine, ognuno con il
+// suo esito e la sua rilettura: «assegna» al componente del prodotto (con correggi_codice e correzione_confermata solo
+// se il codice letto dal file è scritto e diverso, data-ma-correggi) e «Conferma il documento» della stessa proposta.
+// Prima la finestra elenca che cosa si scrive e chiede la presa d'atto; se il primo gesto non riesce il secondo non
+// parte. L'autorizzazione resta un terzo gesto, dalla pagina riletta («Autorizza come STEP di …»), con l'anteprima e la
+// firma: questa finestra non la apre da sé. È l'unico punto del modulo che manda due gesti di seguito (decisione
+// autonoma della notte 14/10 su Q-P3-03 [T, da ratificare]).
+
+function apriUsaStep(btn) {
+  const t = thread();
+  const ds = btn.dataset;
+  const codice = ds.maCodice || "il prodotto";
+  const file = ds.maFile || "lo STEP";
+  const correggi = ds.maCorreggi === "1";
+  const w = dialogo(file, { cassetto: true, sopra: "Usa come STEP di " + codice });
+  const errore = el("p", { class: "ma-errore", role: "alert", hidden: true });
+  const annulla = el("button", { type: "button", class: "ma-btn", onclick: w.chiudi }, "Chiudi senza scrivere");
+  const invia = el("button", { type: "button", class: "ma-btn ma-btn--pri", disabled: true }, "Associa e conferma");
+  w.piede.append(errore, annulla, invia);
+  const passi = [
+    el("li", {}, `Associa ${file} al componente ${codice}, il prodotto.`,
+      ds.maAssociato ? ` Oggi la proposta del file è associata a ${ds.maAssociato}: passa a ${codice}.` : ""),
+    correggi ? el("li", {}, `Il codice del file, ${ds.maCodiceFile || "letto dal nome"}, diventa ${codice}: è la correzione del codice (correggi_codice), come nella pagina del Fascicolo.`) : null,
+    el("li", {}, `Conferma il documento: ${file} diventa il 3D di ${codice}. La copia sul NAS parte subito.`),
+    el("li", {}, `Poi, nella pagina riletta, «Autorizza come STEP di ${codice}…» apre l'anteprima dell'autorizzazione: la radice si sceglie lì, e niente si autorizza senza la tua firma.`),
+  ];
+  const presa = el("input", { type: "checkbox", name: "presa_d_atto_usa", value: "1" });
+  w.corpo.append(
+    el("p", { class: "ma-nota" }, "Che cosa si scrive, in quest'ordine (due gesti, ognuno con il suo esito; se il primo non riesce il secondo non parte):"),
+    el("ol", { class: "ma-frasi" }, passi.filter(Boolean)),
+    correggi ? el("p", { class: "ma-nota--ver" }, "Il codice del file è diverso da quello del prodotto: associarlo vuol dire dire che il file è comunque lo STEP di " + codice + ".") : null,
+    el("label", { class: "ma-scelta ma-firma" }, presa, el("span", {}, "Ho letto: associa e conferma")),
+  );
+  presa.addEventListener("change", () => { invia.disabled = !presa.checked; });
+
+  invia.addEventListener("click", async () => {
+    if (invia.disabled || !presa.checked) return;
+    invia.disabled = true;
+    errore.hidden = true;
+    const campi = { proposta: ds.maProposta, componente: ds.maComponente };
+    if (correggi) {
+      campi.correggi_codice = "1";
+      campi.correzione_confermata = (ds.maCodiceFile || "?") + " → " + codice;
+    }
+    let esito;
+    try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/assegna`, campi); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
+    if (!esito || esito.esito !== "ok") {
+      errore.textContent = "Associazione non riuscita, niente è stato confermato: " + ((esito && esito.testo) || "nessun esito");
+      errore.hidden = false;
+      return;
+    }
+    try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/conferma`, { voce: ds.maProposta }); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
+    if (!esito || esito.esito !== "ok") {
+      errore.textContent = "Il file è associato a " + codice + " ma non è confermato: " + ((esito && esito.testo) || "nessun esito") +
+        ". Si conferma da «Da smistare» o dalla pagina del Fascicolo.";
+      errore.hidden = false;
+      annulla.textContent = "Chiudi";
+      return;
+    }
+    w.chiudi(); // il ponte ha scritto l'avviso e riletto la pagina: il prossimo passo è «Autorizza come STEP di …»
+  });
+}
+
+// ------------------------------------------------------------------ gli elementi della mail (WP-U, U4)
+// L'interruttore «mostra elementi della mail» (#ma-mostra-mail, reso dal template solo se ce ne sono): il CSS nasconde
+// [data-ma-elemento-mail] finché non è spuntato; qui si ricorda la scelta per la RFQ e si rimette dopo la rilettura.
+
+function ripristinaMostraMail(r) {
+  const c = $("#ma-mostra-mail", r);
+  if (c) c.checked = memoria.leggi(chiave("mostra-mail")) === "1";
+}
+
 // ------------------------------------------------------------------ il tipo: prima l'effetto, poi la firma
 
 async function apriTipo(form) {
@@ -1162,6 +1238,7 @@ function azione(x) {
     case "dati": apriDati(); break;
     case "albero": apriAlbero(); break;
     case "step": apriStep(x); break;
+    case "usa-step": apriUsaStep(x); break;
     case "pdf": apriPdf(x); break;
     default: break;
   }
@@ -1215,6 +1292,8 @@ function installa() {
   document.addEventListener("change", (e) => {
     const s = e.target instanceof Element ? e.target.closest("#ma select[data-ma-scelte]") : null;
     if (s) aggiornaScelte(s);
+    const m = e.target instanceof Element ? e.target.closest("#ma input[data-ma-mostra-mail]") : null;
+    if (m) memoria.scrivi(chiave("mostra-mail"), m.checked ? "1" : null);
   });
 
   document.addEventListener("toggle", (e) => {
@@ -1553,6 +1632,7 @@ function avvia() {
   if (w) w.classList.remove("ma-ws--foglio");
   togliModale(r);
   ripristinaDettagli(r);
+  ripristinaMostraMail(r);
   ripristinaRami(r);
   ripristinaScheda(r);
   preparaTabindex(r);

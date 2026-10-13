@@ -194,6 +194,8 @@ markmap:
     «Conferma l'albero» a parte (JSON, bozza vuota della v1) e quattro GET JSON di sola lettura; stessa origine,
     `HX-Request` e `HX-Current-URL` = la pagina su ogni richiesta, corpo urlencoded con i campi ripetuti senza `[]`;
   - le guardie di invio sui nomi dei campi (il gesto non parte e lo dice: vedi `internal/transport/web/README.md`);
+    da WP-U (giro 5, A1d, notte 14/10) in «Assegna» `correggi_codice` passa solo insieme a `correzione_confermata`, che
+    manda soltanto «Usa come STEP del prodotto…» di `motore_a.mjs` (decisione autonoma su Q-P3-03 [T, da ratificare]);
   - l'esito letto come testo dal solo `<div data-ma-esito="ok|no">` di un 200 `text/html` (DOMParser in un documento
     a parte): il corpo della risposta di un gesto non entra mai nella pagina; ogni altro 2xx, un 403, ogni 4xx e 5xx
     sono «errore»; 401 o `HX-Redirect` verso `/login` = la sessione scaduta, detta in `#ma-avviso` (regione viva);
@@ -206,6 +208,14 @@ markmap:
   - nessun modo dimostrativo, nessuna risposta simulata, nessuna conferma automatica, nessuna gerarchia ricostruita,
     nessun tipo o quantità trasformati o messi da sé, nessun import;
   - nessun template lo carica ancora: la pagina e l'importmap arrivano con A1d-P4
+- **`motore_a.mjs`, `motore_a.css`** — WP-U (giro 5, A1d, notte 14/10), oltre a quanto descritto in
+  `internal/transport/web/README.md` (modulo Distinta nuova del motore A):
+  - `motore_a.mjs`, `apriUsaStep` (`data-ma-azione="usa-step"`): la finestra di «Usa come STEP del prodotto…», che
+    elenca che cosa si scrive, chiede la presa d'atto e manda nell'ordine due gesti del ponte, «assegna» e «Conferma il
+    documento», ognuno con il suo esito (il secondo solo se il primo riesce): l'unico punto del modulo che manda due
+    gesti di seguito; `ripristinaMostraMail` ricorda per la RFQ l'interruttore degli elementi della mail;
+  - `motore_a.css`: il perché dell'ancoraggio, gli STEP della RFQ, e gli elementi della mail
+    (`[data-ma-elemento-mail]`) nascosti con `:has()` finché `#ma-mostra-mail` non è spuntato
 - **`pdfjs-6.3.289/`** — che cosa e':
   - pdf.js dal pacchetto npm `pdfjs-dist` 6.3.289 (Apache-2.0), senza modifiche:
     - `pdf.min.mjs`, `pdf.worker.min.mjs`,
