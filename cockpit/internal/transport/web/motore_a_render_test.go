@@ -602,7 +602,8 @@ func TestMotoreASolaLetturaTuttoSpento(t *testing.T) {
 				doc := maRDoc(t, r.Frammento.Body.Bytes())
 				gesti := maRTutti(doc, func(n *html.Node) bool {
 					a := maRA(n, "data-ma-azione")
-					return maRHa(n, "data-ma-gesto") || a == "step" || a == "tipo" || a == "albero"
+					// WP-U, notte 14/10: anche «Usa come STEP del prodotto» (usa-step), che manda due gesti del ponte
+					return maRHa(n, "data-ma-gesto") || a == "step" || a == "tipo" || a == "albero" || a == "usa-step"
 				})
 				for _, g := range gesti {
 					controlli := maRControlli(g)

@@ -168,6 +168,9 @@ markmap:
 | La pagina e il JSON di `/dati` (contratto §2.2, §2.4) | `motore_a/modelli.go` |
 | La copia di `app/bancoa/passaggio.go` | `motore_a/passaggio.go` |
 | L'indice delle ricerche (contratto §2.3) | `motore_a/indice.go` |
+| Il perché dell'ancoraggio detto all'operatore (`Spiega`, `DiagnosticheAncoraggio`, `DiagnosticheAncoraggioDellaRFQ`, `MotiviAncoraggio`, il badge `OrigineStruttura`; WP-U, notte 14/10) | `motore_a/spiegazioni.go` |
+| Gli STEP della RFQ di un prodotto senza strutture (`StepDelThread`, `IndirizzoFascicolo`) e gli elementi della mail (`ElementoDellaMail`, `ElementiDellaMail`; WP-U) | `motore_a/step_del_thread.go` |
+| La pagina `GET /thread/{id}/motore-a` e il suo frammento (B5.1); il collegamento «Distinta nuova (Motore A)» delle pagine Richieste e RFQ con la guardia della rotta (`distintaNuovaVisibile`, WP-U) | `motore_a_pagina.go`; i campi `DistintaNuova` in `panoramica.go` e `thread.go` |
 | Le etichette (`Etichetta`, 67 domini) | `motore_a/etichette.go` |
 | L'anteprima dello STEP (`fascicolo.EffettoAutorizzazione`, DTO proprio) | `motore_a/anteprima.go` |
 
@@ -266,8 +269,11 @@ markmap:
     aggiunge un padre; `a` vuoto = diventa una radice); `qta` scritta solo con `a` non vuoto: con `a` vuoto il gestore
     non la usa e il ponte non la chiede (allineata al legacy, [T], da ratificare dentro Q-P3-02);
   - una sola `voce` e nessuno di `struttura`, `strutturale`, `firma`, `conferma`, `selezione` in «Conferma il
-    documento»; niente `correggi_codice` né `nuovo_riferimento*` in «Assegna»; niente `nuovo_riferimento*` in
-    «Sostituisci»; niente `rumore` nello scarto del file; niente `auto` in «Prepara i file».
+    documento»; in «Assegna» niente `nuovo_riferimento*`, e `correggi_codice` solo insieme a `correzione_confermata`,
+    tutti e due una volta sola e non vuoti (li manda soltanto «Usa come STEP del prodotto…», dopo la sua finestra: WP-U,
+    notte 14/10, decisione autonoma dell'orchestratore su Q-P3-03 [T, da ratificare]; il server ignora
+    `correzione_confermata`); niente `nuovo_riferimento*` in «Sostituisci»; niente `rumore` nello scarto del file;
+    niente `auto` in «Prepara i file».
 - **Gli esiti nel ponte**: si legge l'esito solo da un 200 `text/html` che sia un solo `<div data-ma-esito="ok|no">`;
   ogni altro 2xx, o un corpo d'altro tipo, è «errore»; 4xx e 5xx «errore» con il testo; la sessione scaduta si dice in
   `#ma-avviso` e si va al login. `#ma-avviso` è una regione viva (`role="status"`, `aria-live="polite"` se il template
@@ -337,6 +343,45 @@ markmap:
   - DB7-3 (DOM-07): «Correggi il codice» rinomina anche il prodotto della RFQ e stacca il legame per codice: la sola
     protezione è il template di P4 (L4).
 
+### La pagina: il perché, gli STEP della RFQ, gli elementi della mail (WP-U, notte 14/10)
+
+Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessuna rotta nuova, nessuno schema nuovo.
+
+- **U1, il collegamento.** «Distinta nuova (Motore A)» nella card della pagina Richieste (`richieste.html`,
+  `richiestaCard.DistintaNuova`) e nella pagina della RFQ (`thread.html`, testata e riepilogo del Fascicolo,
+  `threadDati.DistintaNuova`), solo con la guardia della rotta: `distintaNuovaVisibile` = flag `[motore_a].anteprima`
+  acceso e ruolo admin (`almeno`, come `soloAdmin`). Il campo della card non entra nella firma del poll.
+- **U2, il perché.** Le diagnostiche dell'ancoraggio (`esito.ancoraggi.diagnostiche`) del prodotto (il suo Rif fra i
+  Rif della diagnostica) in «Analisi del prodotto» (`#ma-perche-prodotto`), quelle di nessun prodotto in un
+  `<details>` (`#ma-perche-rfq`); i motivi dell'ancoraggio di un file (`esito.ancoraggi.file[].motivi`) sulla sua scheda
+  di «Da smistare» e sotto gli STEP della RFQ. Titolo e frase in italiano piano da `motore_a/spiegazioni.go`, il codice
+  grezzo nel `title`, il messaggio del server così com'è. Un codice sconosciuto non va mai fra quadre: titolo
+  dall'etichetta della diagnostica o dal codice. La tabella porta già i codici di WP-A (`radice_dal_nome_file`,
+  `namespace_non_confrontabile`). Il badge dell'origine di una struttura candidata («radice dal nome del file» per
+  `nome_file_step`, «radice dallo STEP associato» per `associazione_step`) legge il campo `Origine` per nome (reflect),
+  dalla struttura di ancoraggio o dalla candidata: compila e si rende prima e dopo l'unione con WP-A.
+- **U3, il prodotto senza strutture candidate.** Con struttura «nessuna», sotto l'analisi del prodotto, «STEP della
+  RFQ» (`#ma-step-rfq`): ogni STEP con entità `nodo_step` nel documento delle evidenze, con il testo delle radici
+  (contesto `radice_step`, campo id, poi nome, poi la chiave) e il gesto che `StepDelThread` gli dà:
+  - il file è già documento corrente del componente del prodotto: «Autorizza come STEP di …», il dialogo esistente
+    dell'anteprima (`data-ma-azione="step"` con `data-ma-documento`, senza sorgente: la radice si sceglie
+    nell'anteprima del server, con presa d'atto e firma);
+  - il file ha una proposta aperta di 3D: «Usa come STEP di …» (`data-ma-azione="usa-step"`): la finestra di
+    `motore_a.mjs` (`apriUsaStep`) elenca che cosa si scrive, chiede la presa d'atto e manda nell'ordine due gesti
+    esistenti del ponte, ognuno con il suo esito: «assegna» al componente del prodotto (con `correggi_codice` e
+    `correzione_confermata` solo se il codice della proposta è scritto e diverso da quello del componente) e «Conferma
+    il documento» della stessa proposta; se il primo non riesce il secondo non parte. Dopo la rilettura il file è un
+    documento del prodotto e il gesto diventa «Autorizza come STEP di …»: il terzo passo resta di chi guarda;
+  - altrimenti il motivo (prodotto senza componente, documento di un altro componente, nessuna proposta aperta di 3D),
+    e sempre «Apri nel Fascicolo» sul componente del prodotto (`?nodo=`).
+  «Autorizza come STEP di …» c'è anche su un documento del prodotto fra gli «Altri documenti candidati alla fonte»
+  (origine `documento_del_prodotto`, con il documento). Le verifiche restano quelle delle rotte (FK, codice del
+  componente, scelta della revisione, anteprima e firma dell'autorizzazione).
+- **U4, gli elementi della mail.** Gli allegati con `motivo = natura_non_file` (inline, elementi di Outlook,
+  collegamenti) portano `data-ma-elemento-mail` in «Da smistare» e in «Fuori perimetro»; il CSS li nasconde finché
+  `#ma-mostra-mail` («mostra elementi della mail (N)», nella testata di «Da smistare») non è spuntato (`:has()`, anche
+  senza JavaScript); `motore_a.mjs` ricorda la scelta per la RFQ (sessionStorage) e la rimette dopo la rilettura.
+
 ### Differenze dichiarate
 
 - **Il banco**: la pagina non passa gli ingressi del file dei casi (Q-A1d-10 = B, da confermare). Per un thread senza
@@ -377,8 +422,8 @@ markmap:
 ### Test
 
 - **L1 del sottopackage** (`motore_a/`)
-  - `indice_test.go`, `indice_a1d_test.go`: le 29 ricerche sulla scena ACME, il tipo per casella (D-CHIUS-4),
-    `ComponenteDelNodo`, `Figlio.Origine`, `NelFile`, `CandidatiFuori`, la candidata con gli stessi Rif della BOM
+  - `indice_test.go`, `indice_a1d_test.go`: le 29 ricerche (più le 8 di WP-U) sulla scena ACME, il tipo per
+    casella (D-CHIUS-4), `ComponenteDelNodo`, `Figlio.Origine`, `NelFile`, `CandidatiFuori`, la candidata con gli stessi Rif della BOM
     (quantità confermata e padri confermati per gruppo), `Marcatura`, `StepProdotto`, `Autorizzazioni`.
   - `etichette_test.go`: ogni costante di ogni dominio ha il suo testo (letta con go/parser), anche i codici delle
     diagnostiche del confronto e delle regole; il tipo solo nello `switch`.
@@ -388,6 +433,10 @@ markmap:
     staccato, il limite di ripiego, la composizione protetta.
   - `snapshot_test.go`, `anteprima_test.go`, `modelli_test.go`: la transazione e il savepoint, l'anteprima (le frasi,
     di che cosa parla, la forma del JSON), i modelli JSON di `/dati`.
+  - `spiegazioni_test.go`, `step_del_thread_test.go` (WP-U): le spiegazioni (note, sconosciute, mai fra quadre; ogni
+    motivo e codice delle strutture di `core/ancoraggio` ne ha una, letti con go/parser), le diagnostiche per prodotto
+    e della RFQ, i motivi di un file, il badge dell'origine letto per nome, gli STEP della RFQ con i gesti e le radici,
+    la determinazione, gli elementi della mail, l'indirizzo del Fascicolo, il vocabolario ripetuto come testo.
 - **L1 di questo package** (`motore_a_test.go`, httptest): la porta, i ruoli, le rotte montate, i codici (anche 504
   dell'anteprima e di HEAD, 400 di HEAD, 503 del tetto, il JSON che non si codifica), la deriva dell'anteprima contro
   il modulo legacy.
@@ -404,6 +453,10 @@ markmap:
     che decidono per testo esatto (esiti, altra RFQ, guardie, rilettura, stato occupato), nessuna quantità implicita;
     `statici_test.go`: tipo, cache e impronta di `motore_a_gesti.mjs`. Sono prove sul testo: il comportamento nel DOM lo
     proverà il kit jsdom (Node, che qui non c'è) con A1d-P4.
+- **L1 della pagina, WP-U** (`motore_a_wpu_test.go`): il collegamento con la guardia (`distintaNuovaVisibile`, i due
+  template), il perché del prodotto, della RFQ e del file, gli STEP della RFQ con i due gesti (spenti in sola lettura),
+  «Autorizza» su un documento del prodotto fra i candidati, gli elementi della mail e l'interruttore, la regola del CSS
+  e l'ordine dei due gesti in `apriUsaStep`; sui casi ACME cambiati in memoria, con i controlli generici della resa.
 - **L1 altrove**: `TestLaDistintaNuovaLeggeSoltanto` (`core/estrazione/evidenze`), la guardia di deriva della prova di
   equivalenza `TestEquivalenzaMotoreAIlPercorsoDelBancoNonDeriva` (`app/bancoa/motore_a_equivalenza_test.go`).
 - **L4** (tag `integrazione`, `cockpit_test`)
@@ -1577,6 +1630,8 @@ markmap:
     `opzioniBarra`, `richieste`, `richiestaProdotti`
 - **`web/templates/richieste.html`**
   - barra dei filtri, `richieste_elenco`, `richiesta_card`, `richiesta_prodotti`
+  - nella card, «Distinta nuova (Motore A)» solo con `richiestaCard.DistintaNuova` (la guardia della rotta motore-a,
+    `distintaNuovaVisibile`; giro 5, A1d, WP-U)
 
 ### Entry point
 

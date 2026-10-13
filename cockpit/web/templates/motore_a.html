@@ -402,6 +402,7 @@ neu
         {{end}}
         {{if not $p.ComponenteID}}<li><span class="ma-nota--ver">Il prodotto non ha ancora un componente, quindi lo STEP strutturale non si può autorizzare finché il prodotto non è un componente.</span></li>{{end}}
       </ul>
+      {{template "ma_perche_prodotto" (arr $v $p)}}
     </div>
     <div>
       <span class="ma-lab">Che cosa ha letto</span>
@@ -429,10 +430,17 @@ neu
           {{with .Estrazione}}<span class="ma-motivo" title="estrazione = {{.}}">estrazione: {{etichetta "estrazione" .}}</span>{{end}}
           {{with .Compatibilita}}{{template "ma_st" (arr "compatibilita" .)}}{{end}}
           {{if not .GrafoCompleto}}<span class="ma-motivo">grafo incompleto{{with .MotivoGrafo}}: {{etichetta "motivo_grafo" .}}{{end}}</span>{{end}}
+          {{/* WP-U, U3: un documento del prodotto (origine documento_del_prodotto) si autorizza da qui, con l'anteprima del
+             server e senza radice scelta (la sceglie chi guarda nell'anteprima); il server dice se si può. */}}
+          {{if and (eq .Origine "documento_del_prodotto") .DocumentoID $p.ComponenteID}}
+          <button type="button" class="ma-btn ma-btn--sm" data-ma-azione="step" data-ma-componente="{{$p.ComponenteID}}" data-ma-documento="{{.DocumentoID}}"
+                  data-ma-file="{{with .AllegatoID}}{{$d.Indice.NomeFile .}}{{end}}" data-ma-codice="{{$p.CodiceRichiesto}}" {{if not $s}}disabled{{end}}>{{template "ma_ic" "check"}} Autorizza come STEP di {{or $p.CodiceRichiesto "questo prodotto"}}…</button>
+          {{end}}
         </li>{{end}}
         </ul>
       </details>
       {{end}}
+      {{if eq $p.Struttura "nessuna"}}{{template "ma_step_del_thread" (arr $v $p)}}{{end}}
       {{template "ma_step_secondario" (arr $v $p)}}
       <div class="ma-toolbar ma-toolbar--p4" role="group" aria-label="Gesti della fonte che arrivano con P4">
         {{template "ma_na" (arr "Rifiuta la candidata…" "In arrivo con P4: il rifiuto motivato di una candidata (R12) non c'è ancora.")}}
@@ -472,7 +480,8 @@ neu
 {{with $g.Struttura}}{{$sc := .}}
 <li class="ma-letto" aria-label="Struttura candidata {{$g.NomeFile}}">
   <span class="ma-letto-r1"><span class="ma-ext ma-ext--step">STEP</span><b class="ma-mono" title="allegato {{$sc.AllegatoID}} · sha256 {{$sc.Sha256}}">{{with $g.NomeFile}}{{.}}{{else}}file {{uuidBreve $sc.AllegatoID}}{{end}}</b>
-    {{if $sc.RadiceDelFile}}<span class="ma-motivo">radice del file</span>{{else}}<span class="ma-motivo" title="radice = {{$sc.Radice}}">nodo interno del file</span>{{end}}</span>
+    {{if $sc.RadiceDelFile}}<span class="ma-motivo">radice del file</span>{{else}}<span class="ma-motivo" title="radice = {{$sc.Radice}}">nodo interno del file</span>{{end}}
+    {{with $d.Indice.OrigineStruttura $p.Rif $sc.AllegatoID $sc.Radice}}<span class="ma-badge ma-badge--ver" data-ma-origine-struttura title="{{.Titolo}}">{{.Testo}}</span>{{end}}</span>
   <span class="ma-letto-r2">codice {{template "ma_st" (arr "compatibilita" $sc.Compatibilita)}}
     · grafo {{if $sc.GrafoCompleto}}<span class="ma-st ma-st--ok">completo</span>{{else}}<span class="ma-st ma-st--ver">incompleto</span>{{with $sc.MotivoGrafo}} <span class="ma-motivo" title="motivo_grafo = {{.}}">{{etichetta "motivo_grafo" .}}</span>{{end}}{{end}}
     · {{len $sc.Nodi}} nodi <button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="vai-scheda" data-ma-gruppo="{{$g.Chiave}}">vedi lo schema ↓</button></span>
@@ -491,6 +500,89 @@ neu
   </span>
 </li>
 {{end}}{{end}}
+
+{{/* ================================================================ il perché dell'ancoraggio e gli STEP della RFQ
+  Giro 5, A1d, notte 14/10, WP-U (diagnosi UI del 14/10, G1 e G4). U2: le diagnostiche dell'ancoraggio del prodotto
+  (Indice.DiagnosticheAncoraggio, il Rif del prodotto fra i Rif della diagnostica) e quelle della RFQ che non sono di
+  nessun prodotto (Indice.DiagnosticheAncoraggioDellaRFQ), i motivi dell'ancoraggio di un file (Indice.MotiviAncoraggio):
+  titolo e frase da motore_a/spiegazioni.go (mai fra quadre: un codice sconosciuto ha il titolo dal codice), il codice
+  grezzo nel title, il messaggio del server così com'è. U3: sotto un prodotto con struttura «nessuna», gli STEP della
+  RFQ (Indice.StepDelThread) con il testo delle radici e il gesto esistente che li porta all'autorizzazione: «Autorizza
+  come STEP di …» (il dialogo dell'anteprima, data-ma-azione="step" con il documento e senza sorgente) o «Usa come STEP
+  di …» (data-ma-azione="usa-step": la finestra di motore_a.mjs elenca che cosa si scrive e manda, ognuno con il suo
+  esito, «assegna» e «Conferma il documento»); altrimenti il motivo e la pagina del Fascicolo sul prodotto. U4: gli
+  elementi della mail (natura_non_file) nascosti finché non si spunta «mostra elementi della mail». */}}
+
+{{define "ma_spiegazione"}}<li class="ma-spiegazione" data-ma-motivo-ancoraggio="{{.Codice}}">
+  {{with .Gravita}}<span class="ma-st ma-st--{{if eq . "errore"}}ko{{else if eq . "avviso"}}ver{{else}}neu{{end}} ma-st--sm" title="gravita = {{.}}">{{etichetta "gravita_diagnostica" .}}</span>{{end}}
+  <b title="codice = {{.Codice}}">{{.Titolo}}</b>{{with .Frase}} <span>{{.}}</span>{{end}}
+  {{with .Messaggio}}<small class="ma-muto ma-spiegazione-msg" title="il messaggio del server, così com'è">{{.}}</small>{{end}}
+</li>{{end}}
+
+{{define "ma_perche_prodotto"}}{{$v := index . 0}}{{$p := index . 1}}{{$d := $v.Dati}}
+{{with $d.Indice.DiagnosticheAncoraggio $p.Rif}}
+<div class="ma-perche" id="ma-perche-prodotto" role="group" aria-labelledby="ma-perche-prodotto-t">
+  <span class="ma-lab" id="ma-perche-prodotto-t">Perché, secondo l'ancoraggio</span>
+  <ul class="ma-elenco">{{range .}}{{template "ma_spiegazione" .}}{{end}}</ul>
+</div>
+{{end}}
+{{with $d.Indice.DiagnosticheAncoraggioDellaRFQ}}
+<details class="ma-dettagli ma-perche-rfq" id="ma-perche-rfq" data-ma-ricorda="perche-rfq">
+  <summary>Diagnostiche dell'ancoraggio della RFQ ({{len .}})</summary>
+  <ul class="ma-elenco">{{range .}}{{template "ma_spiegazione" .}}{{end}}</ul>
+</details>
+{{end}}
+{{end}}
+
+{{/* Prende (arr $v allegato_id). */}}
+{{define "ma_perche_file"}}{{$v := index . 0}}{{$a := index . 1}}{{$d := $v.Dati}}
+{{with $d.Indice.MotiviAncoraggio $a}}<div class="ma-perche ma-perche-file"><span class="ma-pick-k">perché</span>
+  <ul class="ma-elenco">{{range .}}{{template "ma_spiegazione" .}}{{end}}</ul></div>{{end}}
+{{end}}
+
+{{define "ma_mostra_mail"}}{{$d := .Dati}}{{with $d.Indice.ElementiDellaMail}}
+<label class="ma-mostra-mail"><input type="checkbox" id="ma-mostra-mail" data-ma-mostra-mail>
+  <span>mostra elementi della mail ({{.}})</span>
+  <small class="ma-muto">immagini nel testo, elementi di Outlook, collegamenti: non sono file</small></label>
+{{end}}{{end}}
+
+{{define "ma_step_del_thread"}}{{$v := index . 0}}{{$p := index . 1}}{{$d := $v.Dati}}{{$s := $d.Scrive}}{{$cod := or $p.CodiceRichiesto "questo prodotto"}}
+<div class="ma-step-rfq" id="ma-step-rfq" role="group" aria-labelledby="ma-step-rfq-t">
+  <span class="ma-lab" id="ma-step-rfq-t">STEP della RFQ</span>
+  {{with $d.Indice.StepDelThread $p.Rif}}
+  <p class="ma-hint">In questi STEP il motore non ha trovato una radice con il codice del prodotto. Se uno di loro è lo STEP di {{$cod}}, sceglilo qui: la radice la scegli tu nell'anteprima dell'autorizzazione, e niente si autorizza senza la tua firma.</p>
+  <ul class="ma-elenco ma-step-rfq-elenco">
+  {{range .}}{{$st := .}}
+    <li class="ma-letto ma-step-rfq-file" data-ma-allegato="{{$st.AllegatoID}}" aria-label="STEP della RFQ {{$st.NomeFile}}">
+      <span class="ma-letto-r1"><span class="ma-ext ma-ext--step">STEP</span><b class="ma-mono" title="allegato {{$st.AllegatoID}}">{{with $st.NomeFile}}{{.}}{{else}}file {{uuidBreve $st.AllegatoID}}{{end}}</b>
+        <span class="ma-muto">{{$st.Nodi}} {{if eq $st.Nodi 1}}nodo{{else}}nodi{{end}} nel file</span></span>
+      <span class="ma-letto-r2">{{with $st.Radici}}{{if eq (len .) 1}}radice{{else}}{{len .}} radici{{end}}: {{range $j, $r := .}}{{if $j}} · {{end}}<span class="ma-mono ma-radice-testo" title="nodo {{$r.Chiave}}">{{$r.Testo}}</span>{{end}}{{else}}<span class="ma-muto">nessuna radice letta nel file</span>{{end}}</span>
+      {{template "ma_perche_file" (arr $v $st.AllegatoID)}}
+      <span class="ma-letto-gesti">
+      {{if eq $st.Gesto "autorizza"}}
+        <button type="button" class="ma-btn ma-btn--sm ma-btn--pri" data-ma-azione="step" data-ma-componente="{{$p.ComponenteID}}" data-ma-documento="{{$st.Documento}}"
+                data-ma-file="{{$st.NomeFile}}" data-ma-codice="{{$p.CodiceRichiesto}}" {{if not $s}}disabled{{end}}>{{template "ma_ic" "check"}} Autorizza come STEP di {{$cod}}…</button>
+        <small class="ma-muto">Il file è già un documento del prodotto. Prima si legge l'anteprima del server; la radice si sceglie lì.</small>
+      {{else if eq $st.Gesto "usa"}}{{with $st.Proposta}}{{$pr := .}}
+        <button type="button" class="ma-btn ma-btn--sm ma-btn--pri" data-ma-azione="usa-step" data-ma-proposta="{{$pr.ID}}" data-ma-componente="{{$p.ComponenteID}}"
+                data-ma-file="{{$st.NomeFile}}" data-ma-codice="{{$st.CodiceComponente}}" data-ma-codice-file="{{$pr.Codice}}"{{if $st.Correzione}} data-ma-correggi="1"{{end}}
+                data-ma-associato="{{with $pr.ComponenteID}}{{if ne .String $p.ComponenteID.String}}{{with $d.Indice.Componente .}}{{.Codice}}{{else}}un altro componente{{end}}{{end}}{{end}}"
+                {{if not $s}}disabled{{end}}>{{template "ma_ic" "link"}} Usa come STEP di {{$cod}}…</button>
+        <small class="ma-muto">Associa il file al prodotto{{if $st.Correzione}} correggendo il codice del file{{end}} e conferma il documento: prima una finestra elenca che cosa si scrive.</small>
+      {{end}}{{else}}
+        <span class="ma-muto ma-piccolo">{{$st.Motivo}}.</span>
+      {{end}}
+      {{with $d.Indice.IndirizzoFascicolo $p.Rif}}<a class="ma-btn ma-btn--sm ma-btn--ghost" href="{{.}}" title="La pagina del Fascicolo sul componente del prodotto: assegna, conferma e autorizza con i gesti di prima">Apri nel Fascicolo</a>{{end}}
+      </span>
+    </li>
+  {{end}}
+  </ul>
+  {{else}}
+  <p class="ma-muto">Fra i file della RFQ non c'è uno STEP con una struttura letta: lo STEP si carica dalla pagina del Fascicolo.
+    {{with $d.Indice.IndirizzoFascicolo $p.Rif}}<a href="{{.}}">Apri nel Fascicolo</a>{{end}}</p>
+  {{end}}
+</div>
+{{end}}
 
 {{/* ================================================================ R4 conferma dell'albero (SOPRA le schede)
   È la conferma della struttura, per tutta la RFQ: prima il riepilogo del server, poi la firma. Non conferma la fonte
@@ -1213,9 +1305,10 @@ neu
 {{define "ma_da_smistare"}}{{$v := index . 0}}{{$p := index . 1}}{{$d := $v.Dati}}{{$s := $d.Scrive}}{{$t := $d.ThreadID}}
 <section class="ma-fs ma-ws-smistare" id="ma-da-smistare" aria-labelledby="ma-ds-t">
   <header>{{template "ma_ic" "folder"}}<h2 id="ma-ds-t">Da smistare</h2><span class="ma-k3 ma-piccolo">tutta la RFQ</span><span class="ma-sp"></span><span class="ma-k3">{{len $d.Esito.DaSmistare}}</span></header>
+  {{template "ma_mostra_mail" $v}}
   {{with $d.Esito.DaSmistare}}
   {{range $i, $f := .}}{{$a := $f.AllegatoID}}{{$nome := $f.NomeFile}}
-    <article class="ma-pick" aria-label="File {{$nome}}" data-ma-allegato="{{$a}}">
+    <article class="ma-pick" aria-label="File {{$nome}}" data-ma-allegato="{{$a}}"{{if $d.Indice.ElementoDellaMail $a}} data-ma-elemento-mail{{end}}>
       {{template "ma_mini" (arr ($d.Indice.Anteprima $a) $nome "riga")}}
       <div class="ma-pick-corpo">
         <span class="ma-fn" title="{{$nome}}">{{$nome}}</span>
@@ -1223,6 +1316,7 @@ neu
         <span class="ma-pick-stati"><span class="ma-pick-k">motivo</span>{{template "ma_st" (arr "motivo_smistamento" $f.Motivo)}}
           <span class="ma-pick-k">file</span>{{with $d.Indice.File $a}}{{template "ma_st" (arr "disponibilita" .Disponibilita)}}{{with .Motivo}} <span class="ma-motivo" title="motivo del file = {{.}}">{{etichetta "motivo_file" .}}</span>{{end}}{{else}}<span class="ma-st ma-st--na" title="il file non è nell'esito">—</span>{{end}}</span>
         {{template "ma_contesto_file" (arr $v $f)}}
+        {{template "ma_perche_file" (arr $v $a)}}
       </div>
       <div class="ma-pick-gesti">
       {{with $d.Indice.PropostaAperta $a}}{{$pid := .}}
@@ -1544,7 +1638,8 @@ neu
 </details>
 <details class="ma-fs ma-fs--chiusa" data-ma-ricorda="fuori">
   <summary><h3>Fuori perimetro</h3></summary>
-  <ul class="ma-elenco">{{range $e.Associazioni}}{{if ne .Perimetro "dentro"}}<li>
+  {{with $d.Indice.ElementiDellaMail}}<p class="ma-hint ma-mail-nota">Gli elementi della mail ({{.}}) si vedono con «mostra elementi della mail», in Da smistare.</p>{{end}}
+  <ul class="ma-elenco">{{range $e.Associazioni}}{{if ne .Perimetro "dentro"}}<li{{if $d.Indice.ElementoDellaMail .AllegatoID}} data-ma-elemento-mail{{end}}>
     {{template "ma_mini" (arr ($d.Indice.Anteprima .AllegatoID) ($d.Indice.NomeFile .AllegatoID) "riga")}}
     <span class="ma-mono">{{with $d.Indice.NomeFile .AllegatoID}}{{.}}{{else}}file {{uuidBreve .AllegatoID}}{{end}}</span>
     {{template "ma_st" (arr "perimetro" .Perimetro)}}

@@ -182,9 +182,14 @@ const GUARDIE = {
   },
   // lo scarto del file non segna il rumore dalla pagina nuova
   "/proposta/{u}/scarta": (p) => (p.has("rumore") ? "lo scarto del file dalla Distinta nuova non segna il rumore" : ""),
-  // correggi_codice fuori finché Q-P3-03 non è decisa; nuovo_riferimento* fuori (DOM-20)
+  // correggi_codice solo insieme a correzione_confermata, una volta sola e non vuoti: li manda soltanto «Usa come STEP
+  // del prodotto…» (motore_a.mjs, apriUsaStep), dopo la finestra che elenca che cosa si scrive (giro 5, A1d, notte
+  // 14/10, WP-U: decisione autonoma dell'orchestratore su Q-P3-03 [T, da ratificare]); il server ignora
+  // correzione_confermata e decide come sempre (codiceDaComponente). Da soli, nessuno dei due; nuovo_riferimento* fuori
+  // (DOM-20)
   "/thread/{id}/fascicolo/assegna": (p) => {
-    const v = presente(p, ["correggi_codice"]) || conPrefisso(p, "nuovo_riferimento");
+    const confermata = p.has("correggi_codice") && !unico(p, "correggi_codice", false) && !unico(p, "correzione_confermata", false);
+    const v = (confermata ? "" : presente(p, ["correggi_codice", "correzione_confermata"])) || conPrefisso(p, "nuovo_riferimento");
     return v ? "l'associazione dalla Distinta nuova non manda «" + v + "»" : "";
   },
   "/thread/{id}/fascicolo/documento/{u}/sostituisci": (p) => {

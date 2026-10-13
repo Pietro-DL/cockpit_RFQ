@@ -228,6 +228,10 @@ type richiestaCard struct {
 	db.ListRichiestePanoramicaRow
 	Prodotti []prodottoCard
 	Tutti    bool // la card e' aperta su tutti i prodotti (dopo «+ N altri»)
+	// DistintaNuova: la card mostra il collegamento «Distinta nuova (Motore A)», con la guardia della rotta
+	// (distintaNuovaVisibile, motore_a_pagina.go: flag acceso e admin; giro 5, A1d, notte 14/10, WP-U, U1). Non entra
+	// nella firma del poll: e' dell'utente, non dell'elenco.
+	DistintaNuova bool
 }
 
 // Mostrati sono le schede visibili: tutte se la card e' aperta, altrimenti le prime prodottiInCard.
@@ -466,6 +470,11 @@ func (s *Server) richieste(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			w.Header().Set("HX-Push-Url", f.URL())
+		}
+	}
+	if s.distintaNuovaVisibile(utenteDa(r.Context())) {
+		for i := range p.Card {
+			p.Card[i].DistintaNuova = true
 		}
 	}
 	s.rendi(w, r, "richieste.html", "richieste_elenco", "Richieste", p)

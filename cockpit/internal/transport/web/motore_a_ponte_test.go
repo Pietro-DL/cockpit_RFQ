@@ -537,7 +537,10 @@ func TestPonteLeGuardieDiInvio(t *testing.T) {
 		"/thread/{id}/fascicolo/conferma": {`if (p.getAll("voce").length !== 1) return "«Conferma il documento» conferma esattamente una voce";`,
 			`const v = presente(p, ["struttura", "strutturale", "firma", "conferma", "selezione"]);`, `return v ? "«Conferma il documento» non manda`},
 		"/proposta/{u}/scarta": {`(p.has("rumore") ? "lo scarto del file dalla Distinta nuova non segna il rumore" : "")`},
-		"/thread/{id}/fascicolo/assegna": {`const v = presente(p, ["correggi_codice"]) || conPrefisso(p, "nuovo_riferimento");`,
+		// WP-U, notte 14/10: correggi_codice solo con correzione_confermata (Usa come STEP del prodotto, Q-P3-03 [T])
+		"/thread/{id}/fascicolo/assegna": {
+			`const confermata = p.has("correggi_codice") && !unico(p, "correggi_codice", false) && !unico(p, "correzione_confermata", false);`,
+			`const v = (confermata ? "" : presente(p, ["correggi_codice", "correzione_confermata"])) || conPrefisso(p, "nuovo_riferimento");`,
 			`return v ? "l'associazione dalla Distinta nuova non manda`},
 		"/thread/{id}/fascicolo/documento/{u}/sostituisci": {`const v = conPrefisso(p, "nuovo_riferimento");`, `return v ? "«Sostituisci» dalla Distinta nuova non manda`},
 		"/thread/{id}/fascicolo/prepara":                   {`(p.has("auto") ? "“Prepara i file” è solo il pulsante (DB7-6)" : "")`},

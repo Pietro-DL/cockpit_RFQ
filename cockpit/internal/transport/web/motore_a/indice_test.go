@@ -361,8 +361,9 @@ func maQ(v *int) string {
 
 // ---- le prove ----
 
-// Le 29 ricerche (11 del contratto §2.3, 14 della v1.1 §4.3, 4 di A1d-P2), né una di più né una di meno: il template le
-// chiama per nome.
+// Le 29 ricerche (11 del contratto §2.3, 14 della v1.1 §4.3, 4 di A1d-P2), più le 8 di WP-U (notte 14/10:
+// spiegazioni.go e step_del_thread.go), né una di più né una di meno: il template le chiama per nome. Il nome della prova
+// resta quello di A1d-P2.
 func TestIndiceMotoreAHaLeVentinoveRicerche(t *testing.T) {
 	attese := []string{
 		"File", "NomeFile", "Associazione", "Badge", "Prodotto", "Nodo", "QuantitaConfermata", "PropostaAperta",
@@ -371,6 +372,9 @@ func TestIndiceMotoreAHaLeVentinoveRicerche(t *testing.T) {
 		"ConflittiDelThread", "Voce", "CopieAperte", "CandidatiFuori", "AutorizzazioneDiStruttura",
 		// A1d-P2: le autorizzazioni dello STEP (F-16) e il componente del nodo in un punto solo (F-15)
 		"ComponenteDelNodo", "Autorizzazioni", "Marcatura", "StepProdotto",
+		// WP-U, notte 14/10: il perché dell'ancoraggio (U2), gli STEP della RFQ (U3), gli elementi della mail (U4)
+		"DiagnosticheAncoraggio", "DiagnosticheAncoraggioDellaRFQ", "MotiviAncoraggio", "OrigineStruttura",
+		"StepDelThread", "IndirizzoFascicolo", "ElementoDellaMail", "ElementiDellaMail",
 	}
 	tipo := reflect.TypeOf((*Indice)(nil))
 	var visti []string
@@ -390,7 +394,7 @@ func TestIndiceMotoreAHaLeVentinoveRicerche(t *testing.T) {
 	for n := range vuoi {
 		t.Errorf("ricerca mancante: %s", n)
 	}
-	if len(attese) != 29 {
+	if len(attese) != 29+8 {
 		t.Fatalf("l'elenco della prova ha %d nomi", len(attese))
 	}
 }

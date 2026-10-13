@@ -57,9 +57,12 @@ type threadDati struct {
 	Admin  bool
 	// Scrive: chi guarda puo' cambiare la RFQ (almeno operatore). Solo per lui la pagina manda da sola la
 	// preparazione dei file e mostra il bottone di riserva; chi consulta non ha niente da mandare.
-	Scrive   bool
-	Avviso   string
-	Selezion string
+	Scrive bool
+	// DistintaNuova: la pagina mostra il collegamento «Distinta nuova (Motore A)», con la guardia della rotta
+	// (distintaNuovaVisibile, motore_a_pagina.go: flag acceso e admin; giro 5, A1d, notte 14/10, WP-U, U1).
+	DistintaNuova bool
+	Avviso        string
+	Selezion      string
 	// Codici: i codici che la RFQ ha visto, uniti per codice, con quello che e' gia' deciso di ciascuno
 	// (B8.6). DocumentiDi sono i documenti di ogni componente, per aprirlo dal pannello. CodiciErrore dice
 	// perche' il pannello e' vuoto quando la lettura non e' riuscita.
@@ -269,6 +272,7 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d := &threadDati{T: t}
 	d.Admin = almeno(utenteDa(ctx), db.RuoloUtenteAdmin)
 	d.Scrive = almeno(utenteDa(ctx), db.RuoloUtenteOperatore)
+	d.DistintaNuova = s.distintaNuovaVisibile(utenteDa(ctx))
 	if n, err := q.ContaAnomalieThread(ctx, id); err == nil {
 		d.NAnomalie = int(n)
 	}
