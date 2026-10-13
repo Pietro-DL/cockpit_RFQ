@@ -154,3 +154,69 @@ func TestLaStoriaDeiComponenti(t *testing.T) {
 		t.Errorf("i componenti della RFQ: %d", len(righe))
 	}
 }
+
+// RD-04 / RSC-03 (revisioni della notte): le tabelle della 0022 che tengono un componente entrano nella storia. Un
+// componente tenuto solo dalla storia della fonte STEP (una fonte secondaria scelta per lui) o solo da una copertura
+// documentale si archivia, e il riepilogo lo dice prima della conferma, invece di promettere «si elimina» e poi cadere
+// sulla FK.
+func TestLaStoriaDellaDistintaTieneIlComponente(t *testing.T) {
+	b := nuovoBanco(t)
+	pr, c98, c99 := b.scenaAlberoDB()
+	c97 := b.componente("7121097", db.TipoComponenteSciolto)
+	b.arco(pr, c97, 1)
+	var allegato uuid.UUID
+	var shaAllegato string
+	if err := b.p.QueryRow(b.ctx, `SELECT a.allegato_id, a.sha256 FROM allegato a JOIN messaggio m ON m.messaggio_id = a.messaggio_id
+		WHERE m.thread_id = $1 AND a.sha256 IS NOT NULL ORDER BY a.allegato_id LIMIT 1`, b.thread).Scan(&allegato, &shaAllegato); err != nil {
+		t.Fatal(err)
+	}
+	// 7121098: una fonte STEP secondaria scelta per lui (ruolo sottoassieme, destinazione con UUID)
+	b.esegui(`INSERT INTO fonte_step_evento (thread_id, prodotto_id, ruolo, componente_id, azione, allegato_id, sha256, gruppo, autore_id)
+		VALUES ($1, $2, 'sottoassieme', $3, 'scelta', $4, $5, 'cand:a:r', $6)`, b.thread, pr, c98, allegato, shaAllegato, b.utente)
+	// 7121097: coperto dalla pagina 1 del disegno di 7121099
+	var doc uuid.UUID
+	var shaDoc string
+	if err := b.p.QueryRow(b.ctx, `SELECT documento_id, sha256 FROM documento WHERE componente_id = $1 AND tipo = 'disegno_2d'`, c99).Scan(&doc, &shaDoc); err != nil {
+		t.Fatal(err)
+	}
+	b.esegui(`INSERT INTO copertura_documento (thread_id, documento_id, sha256, documento_componente, componente_id, tipo, azione, pagine, pagine_totali,
+			rev_documento, rev_componente, motivo, chiave_idempotenza, autore_id)
+		VALUES ($1, $2, $3, $4, $5, 'disegno_2d', 'copre', '{1}', 1, NULL, NULL, 'il disegno della staffa e'' nel PDF di 7121099', gen_random_uuid(), $6)`,
+		b.thread, doc, shaDoc, c99, c97, b.utente)
+
+	righe, err := db.New(b.p).ListComponentiConStoria(b.ctx, b.thread)
+	ok(t, err)
+	per := map[uuid.UUID]db.ListComponentiConStoriaRow{}
+	for _, r := range righe {
+		per[r.ComponenteID] = r
+	}
+	if r := per[c98]; !r.Distinta || r.Coperture || r.Documenti {
+		t.Errorf("7121098 ha la storia della fonte STEP: %+v", r)
+	}
+	if r := per[c97]; r.Distinta || !r.Coperture || r.Documenti {
+		t.Errorf("7121097 e' coperto da un documento condiviso: %+v", r)
+	}
+	if r := per[pr]; !r.Distinta {
+		t.Errorf("il prodotto ha la storia della fonte STEP (prodotto_id): %+v", r)
+	}
+	var conBozza fascicolo.RiepilogoAlbero
+	ok(t, b.tx(func(q *db.Queries) (err error) {
+		a, err := fascicolo.LeggiAlberoProposto(b.ctx, q, b.thread, analizzatoreProva)
+		if err != nil {
+			return err
+		}
+		bozza := fascicolo.BozzaAlbero{Formato: fascicolo.FormatoBozza, Base: a.Firma,
+			Tolti: []fascicolo.ToltoBozza{{Nodo: "cod:7121097"}, {Nodo: "cod:7121098"}}}
+		_, conBozza, err = fascicolo.LeggiRiepilogo(b.ctx, q, b.thread, analizzatoreProva, &bozza)
+		return err
+	}))
+	var fuori []string
+	for _, f := range conBozza.Fuori {
+		fuori = append(fuori, fmt.Sprintf("%s:%s:%s", f.Codice, f.Esito, strings.Join(f.Perche, ",")))
+	}
+	atteso := "7121097:si_archivia:è coperto da un documento condiviso | " +
+		"7121098:si_archivia:ha una storia della distinta (conferme, bozze, fonte STEP o fascicolo attestato)"
+	if strings.Join(fuori, " | ") != atteso {
+		t.Errorf("i componenti senza padri: %v; attesi: %s", strings.Join(fuori, " | "), atteso)
+	}
+}
