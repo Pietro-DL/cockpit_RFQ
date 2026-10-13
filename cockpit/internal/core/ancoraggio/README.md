@@ -86,17 +86,24 @@ markmap:
   - le **radici di riserva** (estensione di R76 b; passo 3 bis di `ProponiStrutture`, `radiceDiRiserva`): un target
     senza nessuna struttura dalla regola 1 e senza fonte confermata prende come struttura candidata la radice, l'unica,
     di uno STEP che non ne ha la base, quando lo dice il **nome dello STEP** (`StrutturaProdotto.Origine`
-    `nome_file_step`: una lettura del nome nel namespace del target, con la base uguale e il marcatore compatibile, e la
-    radice senza letture in quel namespace) o un'**associazione decisa** del file al componente del target
+    `nome_file_step`: una lettura del nome nel namespace del target, con la base uguale e il marcatore compatibile, la
+    radice senza letture in quel namespace, e nessuna lettura del nome, in un namespace in cui la radice è letta, che
+    non concorda con la radice: `NomeContraddiceLaRadice`, revisione della notte del 14/10) o un'**associazione
+    decisa** del file al componente del target
     (`associazione_step`, manuale o confermata; prevale quando ci sono tutte e due). La struttura resta candidata (R59
     A), con la compatibilità non determinabile; la radice rappresenta il prodotto (`radiceProdotto`), quindi non è un
-    nodo da componente e le sue identità danno il candidato a livello prodotto (motivo `radice_di_riserva`). Con il
+    nodo da componente e le sue identità danno il candidato a livello prodotto (motivo `radice_di_riserva`), anche
+    per una lettura con il solo ruolo componente (revisione della notte del 14/10: il file della radice non va fuori
+    richiesta). Con il
     nome dello STEP il file è anche documento candidato della fonte (`DocumentoCandidato.Motivo` `nome_file_step`,
     senza radice compatibile), con lo stesso criterio di valutazione (`NomeDiceIlProdotto`, T-B2-02). Le note
     `ancoraggio.radice_dal_nome_file` e `ancoraggio.radice_dallo_step_associato` dicono perché;
   - la **guardia su `fuori_richiesta`** (L8): con lo scenario completo, un file con le identità tutte in namespace che
     nessun target e nessun nodo delle strutture dei target usa è `non_determinabile` con il motivo
-    `namespace_non_confrontabile`: non si confronta con niente, e non si dice fuori richiesta;
+    `namespace_non_confrontabile`: non si confronta con niente, e non si dice fuori richiesta. Il namespace di un
+    target conta solo se il target ha almeno una struttura senza origine (regola 1 o BOM di lavoro): una radice di
+    riserva non ha letture nel namespace del target, e il 2D di un figlio letto solo come materiale resta non
+    determinabile (revisione della notte del 14/10);
   - lo STEP «solo parti» (una radice, nessuna occorrenza di assieme) **resta un grafo non completo**, con il motivo
     della 0020: non dimostra che i figli non esistano (D-SHOCK-S1 B, D-SHOCK-S2 B dell'utente), quindi la sua
     struttura dà `grafo_incompleto` e blocca `fuori_richiesta` come prima.
@@ -242,8 +249,9 @@ markmap:
   B6), per comporre i conflitti di nomenclatura e di gerarchia e il conflitto `identita_documento` (R95 A, T-E1R-08); `EvidenzaDa` anche chi produrrà le decisioni, perché le evidenze viste e
   quelle nuove si scrivono nella stessa forma (T-B4-22). **`ChiaveCodiceProposto`** — chi la usa: `core/valutazione`,
   quando mette i codici composti nel contesto (T-08).
-- **`NomeDiceIlProdotto`** (notte del 14/10) — chi la chiama: le radici di riserva di `ProponiStrutture` e
-  `core/valutazione` (la fonte: i candidati dal nome dello STEP), così le due viste hanno lo stesso criterio (T-B2-02).
+- **`NomeDiceIlProdotto`** e **`NomeContraddiceLaRadice`** (notte del 14/10; la seconda dalla revisione della notte)
+  — chi le chiama: le radici di riserva di `ProponiStrutture` e `core/valutazione` (la fonte: i candidati dal nome
+  dello STEP), così le due viste hanno lo stesso criterio (T-B2-02).
 - Oggi, nel codice di prodotto: `core/valutazione` usa i tipi e chiama `ProponiProdotti` (da B1, `ValutaProdotti`);
   `ProponiStrutture` la chiama `ProponiAncoraggi`; `StrutturaDa` e `ProponiAncoraggi` ancora non li chiama nessuno:
   lo faranno B5 e B6 in `core/valutazione`.
@@ -305,7 +313,8 @@ markmap:
      regole 1 e 3 e senza fonte confermata; uno STEP con una radice sola, non discordante con il target, è la sua
      struttura candidata con il nome del file che dice il target (la radice senza letture nel suo namespace:
      `nome_file_step`) o con un'associazione decisa del file al componente (`associazione_step`). Mai una BOM di lavoro,
-     mai con più radici (T-E1-07), mai con un altro codice dello stesso namespace nel nome; con la nota del perché.
+     mai con più radici (T-E1-07), mai con un altro codice dello stesso namespace nel nome, mai con un nome che in un
+     namespace della radice dice un altro codice (`NomeContraddiceLaRadice`); con la nota del perché.
 - **Le chiavi non sono il codice** (T-E1-04): un nodo è sha256 più chiave (`RifNodo`), un componente il suo UUID,
   una riga legacy il suo UUID e, per il nodo, sha256 più chiave. Lo stesso contenuto in due allegati dà due
   strutture con gli stessi riferimenti: nessuna fusione (6.4.5, regola 7).
@@ -343,7 +352,8 @@ markmap:
      l'identità letta, i target noti e ogni target con strutture complete, altrimenti `non_determinabile` con i motivi
      (`target_ignoti`, `ancoraggio.grafo_incompleto`, `ancoraggio.target_senza_struttura`, `nessuna_lettura_identita`);
      con lo scenario completo e le identità del file tutte in namespace che nessun target e nessun nodo delle strutture
-     dei target usa, `non_determinabile` con `namespace_non_confrontabile` (L8, notte del 14/10);
+     dei target usa, `non_determinabile` con `namespace_non_confrontabile` (L8, notte del 14/10); il namespace di un
+     target con sole strutture di riserva non conta (revisione della notte del 14/10);
   7. le dimensioni (namespace, base, marcatore, revisione, qualificatori e la compatibilità con il codice confermato o
      manuale del nodo) restano visibili, con i conflitti; le dimensioni «radici» e «tipo documento» del 6.4.5 non si
      calcolano: le radici sono già campi del candidato, il tipo documentale è di valutazione (T-B4-29); l'origine di un
@@ -562,10 +572,12 @@ markmap:
   210000001 e il documento 101000001_01): la struttura dal nome dello STEP (l'origine, la compatibilità non
   determinabile, i figli, la fonte con il motivo, la nota al posto di `target_senza_struttura`); le condizioni che la
   tolgono (la radice discordante nel namespace del target, due radici, un altro materiale o due materiali nel nome, il
-  nome senza il materiale, la fonte confermata senza la radice); la regola 1 che non cambia con una struttura classica
-  accanto; la struttura dallo STEP associato (anche con la radice muta, con il nome e l'associazione insieme, con
-  un'associazione a un altro componente); gli ancoraggi sotto la radice di riserva (lo STEP e il 2D della radice a
-  livello prodotto, il 2D del figlio, nessun fuori richiesta, il determinismo); la guardia su `fuori_richiesta` (L8);
+  nome senza il materiale, la fonte confermata senza la radice, il nome con un documento diverso da quello della
+  radice); la regola 1 che non cambia con una struttura classica accanto; la struttura dallo STEP associato (anche con
+  la radice muta, con il nome e l'associazione insieme, con un'associazione a un altro componente); gli ancoraggi sotto
+  la radice di riserva (lo STEP e il 2D della radice a livello prodotto, il 2D del figlio, il 2D del figlio letto solo
+  come materiale non determinabile, nessun fuori richiesta, il determinismo); il 2D della radice con la famiglia del
+  documento a ruolo solo componente; la guardia su `fuori_richiesta` (L8);
   lo STEP «solo parti» che resta incompleto (D-SHOCK-S1 B, D-SHOCK-S2 B).
 - **`ancoraggi_test.go`** (B4, fase 2) — livello L1 — che cosa copre, dai fatti STEP e PDF del worker all'adattatore,
   a `Interpreta`, a `StrutturaDa` e a `ProponiAncoraggi`, sulla scena ACME delle strutture con i PDF dei pezzi:

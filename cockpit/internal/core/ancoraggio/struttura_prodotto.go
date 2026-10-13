@@ -686,7 +686,9 @@ func (c *contestoIndicizzato) radiceScelta(f *RiferimentoFonte) (*fileIndicizzat
 //   - la radice non è discordante con il target: la sua compatibilità è non_determinabile (R76 b resta la regola
 //     quando la radice si confronta). Per il nome del file, in più, la radice non ha nessuna lettura nel namespace del
 //     target: è muta, o letta solo in un altro namespace (un numero di documento al posto del codice articolo);
-//   - la prova: il nome del file dice il target (nomeDiceIlTarget: nome_file_step), oppure un'associazione decisa,
+//   - la prova: il nome del file dice il target (nomeDiceIlTarget: nome_file_step) e non contraddice la radice
+//     (NomeContraddiceLaRadice: revisione della notte 14/10, «210000001_101000555_01.stp» con la radice 101000001_01
+//     non è una riserva), oppure un'associazione decisa,
 //     manuale o confermata, lega il file al componente del target (associazione_step, la decisione di una persona,
 //     che prevale quando ci sono tutte e due).
 //
@@ -702,7 +704,8 @@ func (c *contestoIndicizzato) radiceDiRiserva(t ProdottoRichiesto, f *fileIndici
 	if !ok || compatibilitaDelNodo(t, radice) != motorea.CompatibilitaNonDeterminabile {
 		return StrutturaProdotto{}, evidenze.Diagnostica{}, false
 	}
-	dalNome := !letturaNelNamespace(radice, t.Namespace) && nomeDiceIlTarget(t, f.s.NomeFile)
+	dalNome := !letturaNelNamespace(radice, t.Namespace) && nomeDiceIlTarget(t, f.s.NomeFile) &&
+		!NomeContraddiceLaRadice(lettureDelNome(f.s.NomeFile), formeDi(radice.Letture))
 	associato := t.ComponenteID != nil && c.associati[f.s.AllegatoID.String()+"\x00"+t.ComponenteID.String()]
 	if !dalNome && !associato {
 		return StrutturaProdotto{}, evidenze.Diagnostica{}, false
@@ -737,11 +740,63 @@ func letturaNelNamespace(n NodoStruttura, namespace string) bool {
 
 // nomeDiceIlTarget (3 bis): il nome dello STEP dice il target (NomeDiceIlProdotto, con la lettura del target).
 func nomeDiceIlTarget(t ProdottoRichiesto, nome []LetturaConPosizione) bool {
+	return NomeDiceIlProdotto(letturaDelTarget(t), lettureDelNome(nome))
+}
+
+// lettureDelNome: le letture del nome del file, senza il localizzatore.
+func lettureDelNome(nome []LetturaConPosizione) []motorea.LetturaCodice {
 	letture := make([]motorea.LetturaCodice, 0, len(nome))
 	for _, x := range nome {
 		letture = append(letture, x.Lettura)
 	}
-	return NomeDiceIlProdotto(letturaDelTarget(t), letture)
+	return letture
+}
+
+// formeDi: le forme delle letture di un nodo.
+func formeDi(l []motorea.LetturaCodice) []motorea.LetturaForma {
+	out := make([]motorea.LetturaForma, 0, len(l))
+	for _, x := range l {
+		out = append(out, x.Forma)
+	}
+	return out
+}
+
+// NomeContraddiceLaRadice (passo 3 bis di ProponiStrutture; revisione della notte 14/10): il nome di uno STEP ha una
+// lettura identita_file, in un namespace in cui la radice è letta, che non concorda con le letture della radice in
+// quel namespace: la regola del nome e delle radici di identitaDiscordanti (concorda una lettura della radice con
+// ConfrontaBasi né discordante né non determinabile e i marcatori compatibili; una ripetizione della base che non
+// concorda basta per dire sì, D2). Con un nome così la radice non è una riserva: il nome dice il target, ma dice anche
+// un altro documento accanto (un assieme di contesto, un altro pezzo). Le letture in namespace in cui la radice non è
+// letta non contano. È esportata perché valutazione la usa per i candidati della fonte con lo stesso criterio
+// (T-B2-02: una regola sola, non una copia).
+func NomeContraddiceLaRadice(nome []motorea.LetturaCodice, radice []motorea.LetturaForma) bool {
+	for _, l := range nome {
+		if l.Funzione != motorea.FunzIdentitaFile {
+			continue
+		}
+		letta, concorda := false, false
+		for _, r := range radice {
+			if r.Namespace != l.Forma.Namespace {
+				continue
+			}
+			letta = true
+			b := motorea.ConfrontaBasi(l.Forma.Base, r.Base)
+			concorda = concorda || (b != motorea.CompatibilitaDiscordante && b != motorea.CompatibilitaNonDeterminabile &&
+				marcatoriCompatibili(marcatoreDi(l.Forma), marcatoreDi(r)))
+		}
+		if !letta {
+			continue
+		}
+		for _, r := range l.Forma.Ripetizioni {
+			if !r.Concorda {
+				return true
+			}
+		}
+		if !concorda {
+			return true
+		}
+	}
+	return false
 }
 
 // NomeDiceIlProdotto (passo 3 bis di ProponiStrutture, notte 14/10): le letture del nome di uno STEP dicono il prodotto

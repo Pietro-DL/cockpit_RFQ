@@ -133,7 +133,8 @@ func TestRadiceDalNomeDelloSTEP(t *testing.T) {
 // TestRadiceDalNomeLeCondizioni (passo 3 bis): senza tutte le condizioni la radice di riserva non c'è, e il target resta
 // senza struttura (target_senza_struttura): la radice letta nel namespace del target con un'altra base (la regola 1 la
 // dice discordante: R76 b resta la regola), due radici nel file (nessuna scelta: T-E1-07), il nome con un altro
-// materiale, il nome che non dice il materiale, la fonte confermata con la radice non registrata (T-B0-08).
+// materiale, il nome che non dice il materiale, la fonte confermata con la radice non registrata (T-B0-08), il nome
+// con un documento che non concorda con quello della radice (NomeContraddiceLaRadice, revisione della notte 14/10).
 func TestRadiceDalNomeLeCondizioni(t *testing.T) {
 	m := motoreRis(t)
 	tg := targetRis(t, m, cProdottoR)
@@ -151,6 +152,8 @@ func TestRadiceDalNomeLeCondizioni(t *testing.T) {
 		{"il nome senza il materiale", "101000001_01.stp", []string{"#1"}, nodiStepR, archiStepR, false},
 		{"due materiali nel nome", "210000001_210000009.stp", []string{"#1"}, nodiStepR, archiStepR, false},
 		{"la fonte confermata senza la radice", "210000001_101000001_01.stp", []string{"#1"}, nodiStepR, archiStepR, true},
+		// revisione della notte 14/10: il nome dice il target, ma anche un documento che non è quello della radice
+		{"il nome contraddice la radice", "210000001_101000555_01.stp", []string{"#1"}, nodiStepR, archiStepR, false},
 	} {
 		t.Run(c.nome, func(t *testing.T) {
 			_, s := stepRis(t, m, idStepR, c.file, shaStepR, c.radici, c.nodi, c.archi, "")
@@ -235,12 +238,16 @@ func TestRadiceDalloSTEPAssociato(t *testing.T) {
 // è la radice (il suo nome ha la base del target), il 2D della radice, letto come documento, è un candidato a livello
 // prodotto con il motivo radice_di_riserva (la radice rappresenta il prodotto, e non è un nodo da componente), il 2D del
 // figlio è un figlio. Nessun file della scena è fuori richiesta, e il determinismo regge con gli ingressi rovesciati.
+// Il 2D di un figlio letto solo come materiale (revisione della notte 14/10) non ha candidati e non si confronta con
+// niente: nessun nodo della struttura di riserva è letto nel namespace del target, che quindi non conta. Non
+// determinabile con namespace_non_confrontabile, non fuori richiesta.
 func TestGliAncoraggiSottoLaRadiceDiRiserva(t *testing.T) {
 	m := motoreRis(t)
 	step, s := stepRis(t, m, idStepR, "210000001_101000001_01.stp", shaStepR, []string{"#1"}, nodiStepR, archiStepR, "")
 	tg := targetRis(t, m, cProdottoR)
 	pdfRadice, pdfFiglio := cartiglio(t, m, 0x911, "101000001_01"), cartiglio(t, m, 0x912, "101000002_01")
-	file := []ancoraggio.FileInterpretato{step, pdfRadice, pdfFiglio}
+	pdfMateriale := cartiglio(t, m, 0x913, "210000002")
+	file := []ancoraggio.FileInterpretato{step, pdfRadice, pdfFiglio, pdfMateriale}
 	ctx := ancoraggio.ContestoStrutturale{Strutture: []ancoraggio.StrutturaFile{s}}
 	e := ancoraA(t, file, []ancoraggio.ProdottoRichiesto{tg}, ctx)
 	radice := ancoraggio.RifNodo(shaStepR, "#1")
@@ -262,6 +269,10 @@ func TestGliAncoraggiSottoLaRadiceDiRiserva(t *testing.T) {
 	if f.Collocazione != ancoraggio.CollocazioneFiglio || len(f.Candidati) != 1 || f.Candidati[0].Posizioni[0].Nodo != ancoraggio.RifNodo(shaStepR, "#2") {
 		t.Errorf("il 2D del figlio: %+v", f)
 	}
+	if a := ancoraggioDi(t, e, pdfMateriale.AllegatoID); a.Collocazione != ancoraggio.CollocazioneNonDeterminabile || len(a.Candidati) != 0 ||
+		!reflect.DeepEqual(a.Motivi, []string{ancoraggio.MotivoAncoraggioNamespaceNonConfrontabile}) {
+		t.Errorf("il 2D del figlio letto solo come materiale: %+v", a)
+	}
 	for _, a := range e.File {
 		if a.Collocazione == ancoraggio.CollocazioneFuoriRichiesta {
 			t.Errorf("%s: fuori richiesta sotto la radice di riserva: %+v", a.AllegatoID, a)
@@ -280,6 +291,53 @@ func TestGliAncoraggiSottoLaRadiceDiRiserva(t *testing.T) {
 	if b := ancoraA(t, fileRov, []ancoraggio.ProdottoRichiesto{tg}, rov); canonico(t, e) != canonico(t, b) {
 		t.Errorf("le radici di riserva dipendono dall'ordine degli ingressi")
 	}
+}
+
+// TestLaRadiceDiRiservaConIlSoloRuoloComponente (revisione della notte 14/10): la famiglia del documento ha il solo ruolo
+// componente, quindi la lettura del 2D della radice non ha il ruolo prodotto. La radice di riserva non è fra le identità
+// raggiungibili (radiceProdotto), ma la sua identità sostiene lo stesso il candidato a livello prodotto, con il motivo
+// radice_di_riserva: il 2D della radice non è fuori richiesta. Il 2D del figlio resta un figlio.
+func TestLaRadiceDiRiservaConIlSoloRuoloComponente(t *testing.T) {
+	doc := famDocumentoRis()
+	doc.Ruoli = []grammatica.Ruolo{grammatica.RuoloComponente}
+	m := motore(t, famMaterialeRis(), doc)
+	step, s := stepRis(t, m, idStepR, "210000001_101000001_01.stp", shaStepR, []string{"#1"}, nodiStepR, archiStepR, "")
+	tg := targetRis(t, m, cProdottoR)
+	pdfRadice, pdfFiglio := cartiglio(t, m, 0x941, "101000001_01"), cartiglio(t, m, 0x942, "101000002_01")
+	for _, l := range pdfRadice.Interpretazione.Letture {
+		if l.Funzione == motorea.FunzIdentitaFile && haRuoloR(l.RuoliCandidati, grammatica.RuoloProdotto) {
+			t.Fatalf("la lettura del 2D della radice ha il ruolo prodotto: %+v", l)
+		}
+	}
+	ctx := ancoraggio.ContestoStrutturale{Strutture: []ancoraggio.StrutturaFile{s}}
+	strutture, _ := proponiS(t, []ancoraggio.ProdottoRichiesto{tg}, ctx)
+	if len(strutture) != 1 || strutture[0].Origine != ancoraggio.OrigineStrutturaNomeFileSTEP {
+		t.Fatalf("la struttura dal nome dello STEP: %+v", strutture)
+	}
+	e := ancoraA(t, []ancoraggio.FileInterpretato{step, pdfRadice, pdfFiglio}, []ancoraggio.ProdottoRichiesto{tg}, ctx)
+	a := ancoraggioDi(t, e, pdfRadice.AllegatoID)
+	if a.Collocazione != ancoraggio.CollocazioneRadice || a.Associazione != ancoraggio.AssociazioneCandidatoUnico ||
+		a.Candidati[0].Livello != ancoraggio.LivelloProdotto || a.Candidati[0].Motivo != ancoraggio.MotivoCandidatoRadiceDiRiserva {
+		t.Errorf("il 2D della radice con il solo ruolo componente: %+v", a)
+	}
+	if f := ancoraggioDi(t, e, pdfFiglio.AllegatoID); f.Collocazione != ancoraggio.CollocazioneFiglio {
+		t.Errorf("il 2D del figlio: %+v", f)
+	}
+	for _, x := range e.File {
+		if x.Collocazione == ancoraggio.CollocazioneFuoriRichiesta {
+			t.Errorf("%s: fuori richiesta sotto la radice di riserva: %+v", x.AllegatoID, x)
+		}
+	}
+}
+
+// haRuoloR: il ruolo è fra quelli dati.
+func haRuoloR(ruoli []grammatica.Ruolo, r grammatica.Ruolo) bool {
+	for _, x := range ruoli {
+		if x == r {
+			return true
+		}
+	}
+	return false
 }
 
 // TestFuoriRichiestaSoloConfrontabile (L8 della diagnosi del 14/10): con lo scenario completo (un target, la sua

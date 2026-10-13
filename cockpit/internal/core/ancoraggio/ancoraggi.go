@@ -305,7 +305,8 @@ type DimensioneCompatibilita struct {
 //     determinabile, con i motivi. I file «solo parti» dei figli non contano: contano le strutture dei target. Con lo
 //     scenario completo e le identità del file tutte in namespace che nessun target e nessun nodo delle strutture dei
 //     target usa, non determinabile con namespace_non_confrontabile (L8, notte 14/10): un file che non si confronta
-//     con niente non è fuori richiesta.
+//     con niente non è fuori richiesta. Il namespace di un target conta solo se il target ha una struttura senza
+//     origine: una radice di riserva non porta letture nel namespace del target (revisione della notte 14/10).
 //  7. Le dimensioni di ogni candidato, e la compatibilità con il codice confermato o manuale del nodo, che si ricalcola
 //     a ogni fotografia: dopo una correzione del codice il nodo e il componente restano gli stessi (T-E1-04), e un file
 //     che non è più compatibile lo dice con il conflitto della dimensione (T-E1-05; il conflitto composto è di B6).
@@ -436,8 +437,13 @@ func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutt
 
 	// I namespace che si confrontano (L8, notte 14/10): quelli dei target letti e quelli delle letture dei nodi delle
 	// strutture dei target. Un file letto solo in altri namespace non è fuori richiesta: non si confronta con niente.
+	// Il namespace di un target conta solo se il target ha almeno una struttura senza origine (regola 1, o la BOM di
+	// lavoro sotto la radice scelta): una radice di riserva (passo 3 bis, Origine != "") non ha per costruzione letture
+	// nel namespace del target, e senza questa guardia completerebbe lo scenario per file che non può confrontare (un
+	// 2D di un figlio letto solo come materiale diventerebbe fuori richiesta; revisione della notte 14/10). Per un
+	// target con sole strutture di riserva contano i namespace delle letture dei nodi.
 	for _, t := range a.target {
-		if t.Namespace != "" {
+		if t.Namespace != "" && senzaOrigine(t.Rif, strutture) {
 			a.namespace[t.Namespace] = true
 		}
 	}
@@ -449,6 +455,17 @@ func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutt
 		}
 	}
 	return a
+}
+
+// senzaOrigine: il target ha almeno una struttura senza origine (Origine == ""): della regola 1 o la BOM di lavoro
+// sotto la radice scelta, non una radice di riserva.
+func senzaOrigine(target string, strutture []StrutturaProdotto) bool {
+	for _, s := range strutture {
+		if s.Target == target && s.Origine == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // confrontabile (L8): almeno un'identità del file è in un namespace che si confronta (ancoratore.namespace).
@@ -614,6 +631,8 @@ type sostegno struct {
 // Lo stesso per la radice di una struttura candidata con un'origine (passo 3 bis, notte 14/10: nome_file_step,
 // associazione_step), che rappresenta il prodotto (radiceProdotto) e non è più un nodo da componente: senza, un file
 // con l'identità della radice, letta in un altro namespace, resterebbe senza candidati e diventerebbe fuori richiesta.
+// Per la radice di riserva ancora() la chiede anche per le letture con il solo ruolo componente (revisione della notte
+// 14/10): la radice non è fra le identità raggiungibili, e il suo file non deve finire fuori richiesta.
 func (a *ancoratore) sostegnoRadiceScelta(t ProdottoRichiesto, l motorea.LetturaCodice) (sostegno, bool) {
 	for _, s := range a.strutture {
 		if s.Target != t.Rif || compatibile(s.Compatibilita) || (s.Stato != StatoBOMDiLavoroProposta && s.Origine == "") {
@@ -652,6 +671,14 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 		var sost, scelta []sostegno
 		for _, l := range ident {
 			if !haRuolo(l.RuoliCandidati, grammatica.RuoloProdotto) {
+				// La radice di riserva (passo 3 bis) non è un nodo da componente (radiceProdotto): una lettura con il solo
+				// ruolo componente che ha la sua identità la sostiene lo stesso, altrimenti il file della radice resterebbe
+				// senza candidati e, a scenario completo, fuori richiesta (revisione della notte 14/10).
+				if haRuolo(l.RuoliCandidati, grammatica.RuoloComponente) {
+					if x, ok := a.sostegnoRadiceScelta(t, l); ok && x.riserva {
+						scelta = append(scelta, x)
+					}
+				}
 				continue
 			}
 			// La regola unica dell'identità (T-B4-06 rivisto, T-B4-30): un marcatore scritto dal file e uno diverso scritto

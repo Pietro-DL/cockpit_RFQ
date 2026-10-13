@@ -755,7 +755,8 @@ function dialogo(titolo, { largo = false, cassetto = false, sopra = "" } = {}) {
   });
   document.body.append(d);
   if (typeof d.showModal === "function") d.showModal(); else d.setAttribute("open", "");
-  return { d, corpo, piede, chiudi: () => { if (d.open) d.close(); else if (d.isConnected) d.remove(); } };
+  // x: la ✕ della testa, per chi deve spegnerla mentre un gesto è in corso (apriUsaStep)
+  return { d, corpo, piede, x, chiudi: () => { if (d.open) d.close(); else if (d.isConnected) d.remove(); } };
 }
 
 let apertoDa = null;
@@ -903,6 +904,11 @@ async function apriStep(btn) {
 // parte. L'autorizzazione resta un terzo gesto, dalla pagina riletta («Autorizza come STEP di …»), con l'anteprima e la
 // firma: questa finestra non la apre da sé. È l'unico punto del modulo che manda due gesti di seguito (decisione
 // autonoma della notte 14/10 su Q-P3-03 [T, da ratificare]).
+// Revisione della notte 14/10: mentre la catena è in corso la finestra non si chiude («Chiudi senza scrivere» e la ✕
+// spenti, Esc fermato con preventDefault sull'evento cancel); se si è chiusa lo stesso (un secondo Esc del browser),
+// la conferma non parte e l'avviso della pagina dice che il file è associato ma non confermato. Con la correzione del
+// codice la finestra manda anche il codice e il componente attuali che ha mostrato (codice_atteso, componente_atteso,
+// da data-ma-codice-file e data-ma-componente-attuale): se nel frattempo la proposta è cambiata, assegna rifiuta.
 
 function apriUsaStep(btn) {
   const t = thread();
@@ -931,31 +937,52 @@ function apriUsaStep(btn) {
   );
   presa.addEventListener("change", () => { invia.disabled = !presa.checked; });
 
+  // la catena in corso: la finestra non si chiude (annulla e ✕ spenti, Esc fermato)
+  let inCorso = false;
+  const blocca = (si) => { inCorso = si; annulla.disabled = si; w.x.disabled = si; };
+  w.d.addEventListener("cancel", (e) => { if (inCorso) e.preventDefault(); });
+  const aperta = () => w.d.isConnected && w.d.open;
+
   invia.addEventListener("click", async () => {
     if (invia.disabled || !presa.checked) return;
     invia.disabled = true;
     errore.hidden = true;
-    const campi = { proposta: ds.maProposta, componente: ds.maComponente };
-    if (correggi) {
-      campi.correggi_codice = "1";
-      campi.correzione_confermata = (ds.maCodiceFile || "?") + " → " + codice;
+    blocca(true);
+    try {
+      const campi = { proposta: ds.maProposta, componente: ds.maComponente };
+      if (correggi) {
+        campi.correggi_codice = "1";
+        campi.correzione_confermata = (ds.maCodiceFile || "?") + " → " + codice;
+        // lo stato che la finestra ha mostrato: assegna rifiuta se la proposta è cambiata nel frattempo
+        if ("maCodiceFile" in ds) campi.codice_atteso = ds.maCodiceFile;
+        if ("maComponenteAttuale" in ds) campi.componente_atteso = ds.maComponenteAttuale;
+      }
+      let esito;
+      try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/assegna`, campi); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
+      if (!esito || esito.esito !== "ok") {
+        errore.textContent = "Associazione non riuscita, niente è stato confermato: " + ((esito && esito.testo) || "nessun esito");
+        errore.hidden = false;
+        return;
+      }
+      if (!aperta()) {
+        // la finestra si è chiusa durante l'associazione: la conferma (con la copia sul NAS) non parte
+        aggiungiAvviso(`${file} è associato a ${codice} ma non è confermato: la finestra si è chiusa prima della conferma. Si conferma da «Da smistare» o dalla pagina del Fascicolo.`, "no");
+        return;
+      }
+      try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/conferma`, { voce: ds.maProposta }); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
+      if (!esito || esito.esito !== "ok") {
+        const frase = "Il file è associato a " + codice + " ma non è confermato: " + ((esito && esito.testo) || "nessun esito") +
+          ". Si conferma da «Da smistare» o dalla pagina del Fascicolo.";
+        if (!aperta()) { aggiungiAvviso(frase, "no"); return; }
+        errore.textContent = frase;
+        errore.hidden = false;
+        annulla.textContent = "Chiudi";
+        return;
+      }
+      w.chiudi(); // il ponte ha scritto l'avviso e riletto la pagina: il prossimo passo è «Autorizza come STEP di …»
+    } finally {
+      blocca(false);
     }
-    let esito;
-    try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/assegna`, campi); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
-    if (!esito || esito.esito !== "ok") {
-      errore.textContent = "Associazione non riuscita, niente è stato confermato: " + ((esito && esito.testo) || "nessun esito");
-      errore.hidden = false;
-      return;
-    }
-    try { esito = await Gesti.esegui(`/thread/${t}/fascicolo/conferma`, { voce: ds.maProposta }); } catch (err) { esito = { esito: "errore", testo: testoDi(err) }; }
-    if (!esito || esito.esito !== "ok") {
-      errore.textContent = "Il file è associato a " + codice + " ma non è confermato: " + ((esito && esito.testo) || "nessun esito") +
-        ". Si conferma da «Da smistare» o dalla pagina del Fascicolo.";
-      errore.hidden = false;
-      annulla.textContent = "Chiudi";
-      return;
-    }
-    w.chiudi(); // il ponte ha scritto l'avviso e riletto la pagina: il prossimo passo è «Autorizza come STEP di …»
   });
 }
 

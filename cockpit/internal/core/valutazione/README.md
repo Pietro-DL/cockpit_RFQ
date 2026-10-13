@@ -378,7 +378,8 @@ markmap:
     di una fonte assente, T-12;
   - dalla notte del 14/10 i candidati dal nome dello STEP (`riserveDalNome`, `togliRiserveDalNome`; le letture del nome
     del file in `fileStep.nome`), con lo stesso criterio delle radici di riserva di ancoraggio
-    (`ancoraggio.NomeDiceIlProdotto`, T-B2-02).
+    (`ancoraggio.NomeDiceIlProdotto`, T-B2-02); dalla revisione della notte anche `ancoraggio.NomeContraddiceLaRadice`:
+    un nome che dice anche un altro documento accanto a quello della radice non dà il candidato.
 - **`ancoraggi.go`** (B5, fase 1) — responsabilità:
   - il collegamento con `ancoraggio`: i file del thread (documento, interpretazione, `disponibilitaDi`, il tipo
     documentale e il segno del 2D, dalla notte del 14/10 con il suo perché: `riconoscimentoDi`, L-2D), `prodottiRichiesti` con `allegatoPortatore` (T-B5-15), `contestoStrutturale`
@@ -1037,7 +1038,7 @@ markmap:
   strutture dalla regola 1 e lo STEP con il materiale nel nome e la radice letta come documento: la struttura candidata
   con l'origine `nome_file_step` nel prodotto, la fonte in attesa di conferma con il candidato del motore A dal nome
   (motivo, radici, nessuna radice compatibile), la coerenza con le strutture (T-B2-02, in `calcola`); con un nome che
-  non dice il finito niente cambia.
+  non dice il finito, o che dice anche un documento diverso da quello della radice, niente cambia.
 - **`fonte_db_test.go`** — L4 (`-tags integrazione`, il database di prova) — la scena ACME scritta con SQL, letta con il
   caricatore: PO-19 sul DB, la fonte del finito dalla vista e dal gesto 3, la fonte dell'identificativo dallo STEP
   del thread; il database non cambia.

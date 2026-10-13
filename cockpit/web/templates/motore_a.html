@@ -567,6 +567,7 @@ neu
         <button type="button" class="ma-btn ma-btn--sm ma-btn--pri" data-ma-azione="usa-step" data-ma-proposta="{{$pr.ID}}" data-ma-componente="{{$p.ComponenteID}}"
                 data-ma-file="{{$st.NomeFile}}" data-ma-codice="{{$st.CodiceComponente}}" data-ma-codice-file="{{$pr.Codice}}"{{if $st.Correzione}} data-ma-correggi="1"{{end}}
                 data-ma-associato="{{with $pr.ComponenteID}}{{if ne .String $p.ComponenteID.String}}{{with $d.Indice.Componente .}}{{.Codice}}{{else}}un altro componente{{end}}{{end}}{{end}}"
+                data-ma-componente-attuale="{{with $pr.ComponenteID}}{{.}}{{end}}"
                 {{if not $s}}disabled{{end}}>{{template "ma_ic" "link"}} Usa come STEP di {{$cod}}…</button>
         <small class="ma-muto">Associa il file al prodotto{{if $st.Correzione}} correggendo il codice del file{{end}} e conferma il documento: prima una finestra elenca che cosa si scrive.</small>
       {{end}}{{else}}

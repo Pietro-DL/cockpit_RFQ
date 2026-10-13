@@ -195,7 +195,8 @@ markmap:
     `HX-Request` e `HX-Current-URL` = la pagina su ogni richiesta, corpo urlencoded con i campi ripetuti senza `[]`;
   - le guardie di invio sui nomi dei campi (il gesto non parte e lo dice: vedi `internal/transport/web/README.md`);
     da WP-U (giro 5, A1d, notte 14/10) in «Assegna» `correggi_codice` passa solo insieme a `correzione_confermata`, che
-    manda soltanto «Usa come STEP del prodotto…» di `motore_a.mjs` (decisione autonoma su Q-P3-03 [T, da ratificare]);
+    manda soltanto «Usa come STEP del prodotto…» di `motore_a.mjs` (decisione autonoma su Q-P3-03 [T, da ratificare]),
+    con `codice_atteso` e `componente_atteso` che il server controlla (revisione della notte 14/10);
   - l'esito letto come testo dal solo `<div data-ma-esito="ok|no">` di un 200 `text/html` (DOMParser in un documento
     a parte): il corpo della risposta di un gesto non entra mai nella pagina; ogni altro 2xx, un 403, ogni 4xx e 5xx
     sono «errore»; 401 o `HX-Redirect` verso `/login` = la sessione scaduta, detta in `#ma-avviso` (regione viva);
@@ -213,7 +214,10 @@ markmap:
   - `motore_a.mjs`, `apriUsaStep` (`data-ma-azione="usa-step"`): la finestra di «Usa come STEP del prodotto…», che
     elenca che cosa si scrive, chiede la presa d'atto e manda nell'ordine due gesti del ponte, «assegna» e «Conferma il
     documento», ognuno con il suo esito (il secondo solo se il primo riesce): l'unico punto del modulo che manda due
-    gesti di seguito; `ripristinaMostraMail` ricorda per la RFQ l'interruttore degli elementi della mail;
+    gesti di seguito. Revisione della notte 14/10: a catena in corso la finestra non si chiude («Chiudi senza
+    scrivere» e la ✕ spenti, `cancel` fermato; `dialogo()` dà anche la ✕), la conferma parte solo con la finestra
+    ancora aperta (altrimenti l'avviso della pagina), e con la correzione «assegna» riceve anche il codice e il
+    componente attuali mostrati; `ripristinaMostraMail` ricorda per la RFQ l'interruttore degli elementi della mail;
   - `motore_a.css`: il perché dell'ancoraggio, gli STEP della RFQ, e gli elementi della mail
     (`[data-ma-elemento-mail]`) nascosti con `:has()` finché `#ma-mostra-mail` non è spuntato
 - **`pdfjs-6.3.289/`** — che cosa e':

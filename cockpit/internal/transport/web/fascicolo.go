@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -290,6 +291,63 @@ func assegnaProposta(ctx context.Context, q *db.Queries, p db.DocumentoProposta,
 	return nil
 }
 
+// attesaProposta: lo stato della proposta che la pagina ha mostrato quando chi guarda ha deciso (giro 5, A1d, notte
+// 14/10, revisione): il codice e il componente attuali che la finestra «Usa come STEP» ha elencato (motore_a.mjs,
+// apriUsaStep, con correggi_codice). Campi facoltativi del form di assegna: codice_atteso ("" = la proposta senza
+// codice) e componente_atteso ("" = nessun componente). Assenti, nessun controllo: il Fascicolo legacy non li manda, e
+// tutto resta come prima. Presenti, la proposta bloccata (BloccaProposta) deve averli ancora: altrimenti un collega l'ha
+// cambiata nel frattempo, e correggi_codice sovrascriverebbe un codice o un'associazione che la finestra non ha detto.
+type attesaProposta struct {
+	codice     *string        // nil = campo assente
+	componente *uuid.NullUUID // nil = campo assente; non valido = «nessun componente»
+}
+
+// presente: almeno uno dei due campi è nel form.
+func (a attesaProposta) presente() bool { return a.codice != nil || a.componente != nil }
+
+// leggiAttesa legge codice_atteso e componente_atteso dal form (assenti = attesaProposta vuota).
+func leggiAttesa(form url.Values) (attesaProposta, error) {
+	var a attesaProposta
+	if v, ok := form["codice_atteso"]; ok {
+		if len(v) != 1 {
+			return a, errors.New("codice_atteso una volta sola")
+		}
+		c := strings.TrimSpace(v[0])
+		a.codice = &c
+	}
+	if v, ok := form["componente_atteso"]; ok {
+		if len(v) != 1 {
+			return a, errors.New("componente_atteso una volta sola")
+		}
+		var c uuid.NullUUID
+		if s := strings.TrimSpace(v[0]); s != "" {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				return a, errors.New("componente_atteso non valido")
+			}
+			c = uuid.NullUUID{UUID: id, Valid: true}
+		}
+		a.componente = &c
+	}
+	return a, nil
+}
+
+// controlla confronta l'attesa con la proposta bloccata: il codice (senza spazi ai bordi, la stringa com'è) e il
+// componente. Un campo assente non si controlla.
+func (a attesaProposta) controlla(p db.DocumentoProposta, nome string) error {
+	cambiata := false
+	if a.codice != nil && strings.TrimSpace(p.Codice.String) != *a.codice {
+		cambiata = true
+	}
+	if a.componente != nil && (a.componente.Valid != p.ComponenteID.Valid || (p.ComponenteID.Valid && a.componente.UUID != p.ComponenteID.UUID)) {
+		cambiata = true
+	}
+	if cambiata {
+		return rifiuto(nome + ": la proposta è cambiata nel frattempo: rileggi la pagina")
+	}
+	return nil
+}
+
 // sceltaRevisione e' la risposta alla domanda che si fa quando un file entra in un componente che ha gia'
 // un documento corrente dello stesso tipo (decisione del 24/09/2026 sulla condizione aperta di A4.10):
 // il file nuovo si AGGIUNGE, e restano correnti tutti e due (il secondo foglio di un 2D), oppure
@@ -447,8 +505,11 @@ func notaSostituzione(ctx context.Context, q *db.Queries, vecchio, nuovo uuid.UU
 // Un documento che entra in un componente con un documento corrente dello stesso tipo vuole la sua
 // scelta in scelte (aggiungi / sostituisce); una proposta no: la domanda gliela fa la conferma, quando
 // diventa documento.
+//
+// attesa (facoltativa, attesaProposta): lo stato delle proposte che la pagina ha mostrato; se c'è, ogni proposta
+// bloccata deve averlo ancora, altrimenti il rifiuto «la proposta è cambiata nel frattempo».
 func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, comp uuid.NullUUID, docs, props []uuid.UUID, correggi bool,
-	scelte map[uuid.UUID]sceltaRevisione, utente uuid.UUID) (string, error) {
+	attesa attesaProposta, scelte map[uuid.UUID]sceltaRevisione, utente uuid.UUID) (string, error) {
 	// La RFQ prima di componenti, documenti e proposte: e' l'ordine del congelamento e degli altri gesti.
 	// Rovesciato (i documenti bloccati qui, poi il trigger della working che chiede la RFQ) basta un
 	// congelamento nello stesso istante perche' le due transazioni si aspettino a vicenda (40P01).
@@ -543,6 +604,9 @@ func assegnaAlComponente(ctx context.Context, q *db.Queries, thread uuid.UUID, c
 		nome := "file"
 		if a, err := q.GetAllegato(ctx, p.AllegatoID); err == nil {
 			nome = a.NomeFile
+		}
+		if err := attesa.controlla(p, nome); err != nil {
+			return "", err
 		}
 		if err := assegnaProposta(ctx, q, p, nome, c, correggi); err != nil {
 			return "", err
@@ -705,6 +769,9 @@ func uuidDalForm(valori []string) ([]uuid.UUID, error) {
 //	documento        uno o piu' documenti della RFQ
 //	proposta         una o piu' proposte aperte della RFQ
 //	correggi_codice  "1" = il codice dei file diventa quello del componente anche se era diverso
+//	codice_atteso, componente_atteso  facoltativi, con una proposta sola: il codice e il componente ("" = nessuno)
+//	                 che la pagina ha mostrato (attesaProposta); se la proposta bloccata non li ha più, il rifiuto
+//	                 «la proposta è cambiata nel frattempo: rileggi la pagina». Assenti, come prima
 //	scelta_<doc>     per un documento che entra in un componente con un corrente dello stesso tipo:
 //	                 "aggiungi" oppure l'id del documento che sostituisce (con un solo documento basta
 //	                 `scelta`)
@@ -740,6 +807,15 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 		s.threadFrammento(w, r, thread, "Nessun file scelto: niente da assegnare.")
 		return
 	}
+	attesa, err := leggiAttesa(r.Form)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if attesa.presente() && (len(props) != 1 || len(docs) != 0) {
+		http.Error(w, "codice_atteso e componente_atteso valgono per una proposta sola", 400)
+		return
+	}
 	ctx := r.Context()
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -766,7 +842,7 @@ func (s *Server) assegna(w http.ResponseWriter, r *http.Request) {
 		}
 		scelte[d] = sc
 	}
-	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", scelte, utenteDa(ctx).UtenteID)
+	msg, err := assegnaAlComponente(ctx, db.New(tx), thread, comp, docs, props, r.FormValue("correggi_codice") == "1", attesa, scelte, utenteDa(ctx).UtenteID)
 	if err == nil {
 		err = tx.Commit(ctx)
 	}
