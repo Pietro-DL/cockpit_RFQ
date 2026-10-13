@@ -1,0 +1,12 @@
+{
+  "name": "cockpit-frontend-mockup",
+  "version": "16.0.0",
+  "private": true,
+  "description": "Mockup del frontend del Cockpit RFQ: prova che clicca tutti i percorsi",
+  "scripts": {
+    "test": "node test_clic.cjs && node test_v16_c1.cjs && node test_v16_c2.cjs && node test_tirante.cjs && node conta_passi.cjs"
+  },
+  "dependencies": {
+    "jsdom": "^24.1.3"
+  }
+}
