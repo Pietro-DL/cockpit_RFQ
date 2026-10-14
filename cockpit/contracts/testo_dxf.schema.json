@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "CampoCartiglio": {
+      "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale e, dalla sottoversione 2, il particolare simile), `letta` e' com'e'\nscritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO\nche le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del\nvalore; `zona` e' quella dell'etichetta.\n\nK4: lo stesso campo porta il cartiglio di un DXF (TestoDXF), e c'e' la voce `riferimento_3d`: «ref.3D doc. /\nRef.3D Dok.», il documento 3D della stessa parte (un dato del cartiglio, mai il codice del file). Nel testo dei\nPDF la voce si riconosce senza cambiare la sottoversione.",
+      "properties": {
+        "etichetta": {
+          "enum": [
+            "numero_disegno",
+            "codice",
+            "revisione",
+            "titolo",
+            "scala",
+            "materiale",
+            "particolare_simile",
+            "riferimento_3d"
+          ],
+          "title": "Etichetta",
+          "type": "string"
+        },
+        "letta": {
+          "default": "",
+          "title": "Letta",
+          "type": "string"
+        },
+        "valore": {
+          "default": "",
+          "title": "Valore",
+          "type": "string"
+        },
+        "pagina": {
+          "default": 1,
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "zona": {
+          "default": "pagina",
+          "enum": [
+            "basso_destra",
+            "pagina"
+          ],
+          "title": "Zona",
+          "type": "string"
+        },
+        "fonte": {
+          "default": "nativo",
+          "enum": [
+            "nativo",
+            "ocr"
+          ],
+          "title": "Fonte",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "confidenza": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidenza"
+        }
+      },
+      "required": [
+        "etichetta"
+      ],
+      "title": "CampoCartiglio",
+      "type": "object"
+    },
+    "LimitiTestoDXF": {
+      "description": "Fin dove si e' letto: i tetti in vigore QUANDO il DXF e' stato letto, come LimitiTestoPDF.",
+      "properties": {
+        "byte_max": {
+          "default": 0,
+          "title": "Byte Max",
+          "type": "integer"
+        },
+        "testi_max": {
+          "default": 0,
+          "title": "Testi Max",
+          "type": "integer"
+        },
+        "testo_max": {
+          "default": 0,
+          "title": "Testo Max",
+          "type": "integer"
+        },
+        "campi_max": {
+          "default": 0,
+          "title": "Campi Max",
+          "type": "integer"
+        }
+      },
+      "title": "LimitiTestoDXF",
+      "type": "object"
+    }
+  },
+  "description": "Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli[\"testo_dxf\"]` (K4).\n\n`esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un\nfile che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si\nsono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto\naltrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,\n`annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'\nvero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del\ncartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,\ncon la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di\nquesto oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il\nserver lo rianalizza con «Rianalizza».",
+  "properties": {
+    "versione": {
+      "default": 1,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "esito": {
+      "default": "letto",
+      "enum": [
+        "letto",
+        "non_letto"
+      ],
+      "title": "Esito",
+      "type": "string"
+    },
+    "motivo": {
+      "default": "",
+      "title": "Motivo",
+      "type": "string"
+    },
+    "versione_dxf": {
+      "default": "",
+      "title": "Versione Dxf",
+      "type": "string"
+    },
+    "codifica": {
+      "default": "",
+      "title": "Codifica",
+      "type": "string"
+    },
+    "testi": {
+      "default": 0,
+      "title": "Testi",
+      "type": "integer"
+    },
+    "annidati": {
+      "default": 0,
+      "title": "Annidati",
+      "type": "integer"
+    },
+    "troncato": {
+      "default": false,
+      "title": "Troncato",
+      "type": "boolean"
+    },
+    "cartiglio": {
+      "items": {
+        "$ref": "#/$defs/CampoCartiglio"
+      },
+      "title": "Cartiglio",
+      "type": "array"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiTestoDXF"
+    }
+  },
+  "title": "TestoDXF",
+  "type": "object",
+  "$id": "cockpit/testo_dxf"
+}

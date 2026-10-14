@@ -27,17 +27,25 @@ package fascicolo
 // Un fatto corrente senza testo si riscrive (UpsertAnalisiFatti, stessa chiave) quando il worker aggiornato
 // risponde; se risponde di nuovo un worker vecchio resta «non letto», e il gesto lo riaccoda di nuovo solo
 // quando una persona lo ripreme.
+//
+// K4: lo stesso vale per i DXF. Fino al K4 il worker di un DXF leggeva solo il nome, e i fatti avevano i dettagli
+// vuoti; dal K4 portano il testo (`dettagli.testo_dxf`, worker.VersioneTestoDXF). Un DXF gia' analizzato senza il
+// testo di oggi (worker.TestoDXFDaRileggere) si riaccoda con lo stesso gesto e la stessa chiave, contato a parte
+// (Rianalisi.Dxf…); la versione dell'analizzatore non cambia. Un DXF binario ha il testo («non letto»): e' una
+// risposta, e non si riaccoda.
 
 import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/platform/coda"
+	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -45,6 +53,12 @@ import (
 // qualunque): il candidato a una rianalisi.
 func pdfGiaAnalizzato(a db.Allegato) bool {
 	return a.Natura == db.NaturaAllegatoFile && a.Sha256.Valid && pdfAnalizzato(a.Estensione.String, a.Sha256.String, a.Stato)
+}
+
+// dxfGiaAnalizzato dice se l'allegato e' un DXF della RFQ che un'analisi ha gia' letto (K4): come pdfGiaAnalizzato.
+func dxfGiaAnalizzato(a db.Allegato) bool {
+	return a.Natura == db.NaturaAllegatoFile && a.Sha256.Valid && a.Sha256.String != "" && a.Stato == db.StatoAllegatoAnalizzato &&
+		strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(a.Estensione.String), "."), "dxf")
 }
 
 // AccodaPdfDaRileggere accoda l'analisi dei PDF della RFQ che hanno soltanto fatti di un analizzatore
@@ -60,6 +74,9 @@ func pdfGiaAnalizzato(a db.Allegato) bool {
 // prodotto, da cui puo' arrivare l'ancora piatta), con la priorita' che li fa passare prima nella coda
 // (coda.PrioritaAnalisiCompatibile, 5); anche quelli gia' in coda passano avanti. Il limite vale per tutti: i
 // compatibili lo usano per primi. Gli altri restano alla priorita' di sempre.
+//
+// K4: accoda anche i DXF gia' analizzati senza il testo di oggi (dxfGiaAnalizzato, worker.TestoDXFDaRileggere), con
+// lo stesso limite e contati a parte.
 func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.Analizzatore, maxAccodati int) (Rianalisi, error) {
 	var r Rianalisi
 	allegati, err := q.ListAllegatiThread(ctx, uuid.NullUUID{UUID: thread, Valid: true})
@@ -75,13 +92,21 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 	hash := an.Hash()
 	accodato := map[string]bool{}
 	for _, a := range allegati {
-		if !pdfGiaAnalizzato(a) || accodato[a.Sha256.String] {
+		pdf, dxf := pdfGiaAnalizzato(a), dxfGiaAnalizzato(a)
+		if (!pdf && !dxf) || accodato[a.Sha256.String] {
 			continue
+		}
+		// i contatori del suo tipo: i PDF e i DXF si dicono a parte
+		accodati, giaInCoda, rimandati, senzaStaging := &r.PdfAccodati, &r.PdfGiaInCoda, &r.PdfRimandati, &r.PdfSenzaStaging
+		daRileggere := classificazione.TestoPDFDaRileggere
+		if dxf {
+			accodati, giaInCoda, rimandati, senzaStaging = &r.DxfAccodati, &r.DxfGiaInCoda, &r.DxfRimandati, &r.DxfSenzaStaging
+			daRileggere = worker.TestoDXFDaRileggere
 		}
 		f, err := q.GetAnalisiFatti(ctx, db.GetAnalisiFattiParams{Sha256: a.Sha256.String,
 			VersioneAnalizzatore: int16(an.Versione), HashConfigurazione: hash})
 		switch {
-		case err == nil && !classificazione.TestoPDFDaRileggere(f.Fatti):
+		case err == nil && !daRileggere(f.Fatti):
 			// letto con l'analizzatore corrente e con la sottoversione del testo di oggi (con il testo, senza, o
 			// illeggibile): niente da rianalizzare
 			continue
@@ -89,11 +114,11 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 			return r, err
 		}
 		if !a.PathStaging.Valid || !inStaging(a.PathStaging.String) {
-			r.PdfSenzaStaging++
+			*senzaStaging++
 			continue
 		}
-		if r.PdfAccodati >= maxAccodati {
-			r.PdfRimandati++
+		if r.PdfAccodati+r.DxfAccodati >= maxAccodati {
+			*rimandati++
 			continue
 		}
 		// RiaccodaAnalisi e non AccodaAnalisi: quella si ferma ai fatti correnti, anche a quelli senza testo
@@ -107,10 +132,10 @@ func AccodaPdfDaRileggere(ctx context.Context, q *db.Queries, thread uuid.UUID, 
 		}
 		accodato[a.Sha256.String] = true
 		if j == nil {
-			r.PdfGiaInCoda++ // un'analisi con la stessa chiave e' gia' pendente
+			*giaInCoda++ // un'analisi con la stessa chiave e' gia' pendente
 			continue
 		}
-		r.PdfAccodati++
+		*accodati++
 	}
 	return r, nil
 }

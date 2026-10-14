@@ -144,7 +144,8 @@ func cartiglio(t *testing.T, m *motorea.Motore, n int, codice string, frammenti 
 //   - le strutture sono quelle di ProponiStrutture, salvo SenzaFile, che è falso solo per un nodo con un file candidato
 //     o per la radice del suo STEP (3.3.7, P-20), e salvo la riconciliazione (fase 3: il codice documentale, i
 //     candidati del cartiglio, lo stato della revisione), con i suoi invarianti (controllaRiconciliazione);
-//   - le diagnostiche sono quelle di ProponiStrutture, più quelle della riconciliazione;
+//   - le diagnostiche sono quelle di ProponiStrutture, più quelle della riconciliazione e, da K4, quelle delle
+//     equivalenze del cartiglio contese;
 //   - le impronte ci sono.
 func ancoraA(t *testing.T, file []ancoraggio.FileInterpretato, target []ancoraggio.ProdottoRichiesto, ctx ancoraggio.ContestoStrutturale) ancoraggio.EsitoAncoraggi {
 	t.Helper()
@@ -276,11 +277,13 @@ func ancoraA(t *testing.T, file []ancoraggio.FileInterpretato, target []ancoragg
 		senza = nil
 	}
 	// Riscritta per la fase 3: la riconciliazione aggiunge ai nodi solo il codice documentale, i candidati del
-	// cartiglio (con lo stato della revisione che ne segue) e le sue diagnostiche; tutto il resto è di ProponiStrutture,
+	// cartiglio (con lo stato della revisione che ne segue) e le sue diagnostiche, e K4 il codice della parte dal cartiglio
+	// (CatenaCodice.Equivalente) con le contese delle equivalenze; tutto il resto è di ProponiStrutture,
 	// quindi niente si applica (R64 A, R87).
 	var diagStrutture []evidenze.Diagnostica
 	for _, d := range e.Diagnostiche {
-		if d.Codice != ancoraggio.CodiceCompletamentoDocumentale && d.Codice != ancoraggio.CodiceCorrezioneDocumentale {
+		if d.Codice != ancoraggio.CodiceCompletamentoDocumentale && d.Codice != ancoraggio.CodiceCorrezioneDocumentale &&
+			d.Codice != ancoraggio.CodiceEquivalenzaCartiglioContesa {
 			diagStrutture = append(diagStrutture, d)
 		}
 	}
@@ -1585,6 +1588,9 @@ func TestProponiAncoraggiErroriDiContratto(t *testing.T) {
 //
 // Riscritta per T-B4-25…T-B4-27: il motivo radice_scelta,
 // PosizioneCandidato.Motivo, le due parti di AbbinamentoPerBase (Decisione, MotivoDecisione) e i loro motivi nuovi.
+//
+// Riscritta per K4: il motivo equivalenza_cartiglio, CandidatoAncoraggio.Equivalenze con ProvaEquivalenza e le sue
+// fonti, il codice ancoraggio.equivalenza_cartiglio_contesa.
 func TestIValoriDegliAncoraggi(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{string(ancoraggio.DisponibilitaDisponibile), "disponibile"},
@@ -1617,6 +1623,10 @@ func TestIValoriDegliAncoraggi(t *testing.T) {
 		{ancoraggio.MotivoCandidatoBaseDelTarget, "base_del_target"},
 		{ancoraggio.MotivoCandidatoBaseDelNodo, "base_di_un_nodo_raggiungibile"},
 		{ancoraggio.MotivoCandidatoRadiceScelta, "radice_scelta"},
+		{ancoraggio.MotivoCandidatoEquivalenzaCartiglio, "equivalenza_cartiglio"},
+		{ancoraggio.FonteEquivalenzaCartiglio, "cartiglio"},
+		{ancoraggio.FonteEquivalenzaNomeFile, "nome_file"},
+		{ancoraggio.CodiceEquivalenzaCartiglioContesa, "ancoraggio.equivalenza_cartiglio_contesa"},
 		{ancoraggio.DimensioneNamespace, "namespace"},
 		{ancoraggio.DimensioneBase, "base"},
 		{ancoraggio.DimensioneMarcatore, "marcatore"},
@@ -1647,7 +1657,8 @@ func TestIValoriDegliAncoraggi(t *testing.T) {
 			"Candidati:candidati Motivi:motivi"},
 		{ancoraggio.CandidatoAncoraggio{}, "Target:target Livello:livello Autorita:autorita Origine:origine RadiciDelFile:radici_del_file " +
 			"RadiciRaggiungibili:radici_raggiungibili Padri:padri Percorsi:percorsi Archi:archi Posizioni:posizioni Letture:letture Dimensioni:dimensioni " +
-			"Conflitti:conflitti IdentitaParziale:identita_parziale MotiviIdentita:motivi_identita Motivo:motivo"},
+			"Conflitti:conflitti IdentitaParziale:identita_parziale MotiviIdentita:motivi_identita Motivo:motivo Equivalenze:equivalenze"},
+		{ancoraggio.ProvaEquivalenza{}, "AllegatoID:allegato_id Entita:entita LetturaCodice:lettura_codice LetturaRiferimento:lettura_riferimento Fonte:fonte"},
 		{ancoraggio.PosizioneCandidato{}, "Target:target AllegatoID:allegato_id Radice:radice Nodo:nodo Stato:stato Motivo:motivo"},
 		{ancoraggio.DimensioneCompatibilita{}, "Dimensione:dimensione Esito:esito Lettura:lettura Rif:rif"},
 		{ancoraggio.AbbinamentoPerBase{}, "Componenti:componenti Motivo:motivo Decisione:decisione MotivoDecisione:motivo_decisione Compatibilita:compatibilita"},

@@ -14,6 +14,12 @@
 //   - dalla notte del 14/10 (L-2D) riconoscimento_2d, il perché del 2D, in ogni 2D e in ogni file.
 //   - nei candidati dei record piatti (confrontabili[].nuovo.candidati[]) chiavi_f8: il gemello di confronto-4 (notte
 //     14/10, WP-C), un campo in più che dichiara le righe legacy degli stessi nodi, senza cambiare nient'altro.
+//   - da K4 (router-3) la versione del router, che sta nell'identità dell'interpretazione (R41 c) e nei motivi delle
+//     letture («router-N riga M»): in ogni interpretazione versione_router, id e impronta; in ogni motivo la versione
+//     del prefisso; negli esiti con un'impronta dell'ingresso (ancoraggi, prodotti) hash_ingresso, hash_target e
+//     impronta, che hanno fra gli ingressi l'ID delle interpretazioni. Il contenuto resta confrontato per intero.
+//   - da K4 (ancoraggio-2) la versione del servizio negli stessi esiti (versione_servizio): le equivalenze del cartiglio
+//     non cambiano niente nelle scene ACME, che non leggono cartiglio.riferimento_3d.
 //
 // Tutto il resto deve restare uguale: stato, assi, motivi, autorità, l'impronta del prodotto (R90), i nodi senza il tipo,
 // i previsti e le altre voci della completezza, gli ancoraggi, lo smistamento, il fascicolo. Una differenza è una
@@ -440,6 +446,28 @@ func normalizzaP7e(v any) {
 		}
 		// L-2D (notte 14/10): il perché del 2D è un campo in più, in ogni 2D e in ogni file (riconoscimento_2d).
 		delete(x, "riconoscimento_2d")
+		// K4 (router-3): la versione del router e ciò che la porta fra gli ingressi.
+		if _, ok := x["versione_router"]; ok {
+			x["versione_router"] = "router"
+			delete(x, "id")
+			delete(x, "impronta")
+		}
+		if _, ok := x["hash_ingresso"]; ok {
+			delete(x, "hash_ingresso")
+			delete(x, "hash_target")
+			delete(x, "impronta")
+			// K4 (ancoraggio-2): la versione del servizio degli ancoraggi e dei prodotti.
+			if _, ok := x["versione_servizio"]; ok {
+				x["versione_servizio"] = "ancoraggio"
+			}
+		}
+		if mm, ok := x["motivi"].([]any); ok {
+			for i, m := range mm {
+				if s, ok := m.(string); ok {
+					mm[i] = motivoSenzaRouterP7e(s)
+				}
+			}
+		}
 		if cf, ok := x["confrontabili"].([]any); ok {
 			for _, f := range cf {
 				if m, ok := f.(map[string]any); ok {
@@ -455,6 +483,23 @@ func normalizzaP7e(v any) {
 			normalizzaP7e(c)
 		}
 	}
+}
+
+// motivoSenzaRouterP7e: un motivo del router senza la versione nel prefisso («router-3 riga 7: …» → «router riga 7:
+// …»; K4). Gli altri motivi restano com'erano.
+func motivoSenzaRouterP7e(s string) string {
+	resto, ok := strings.CutPrefix(s, "router-")
+	if !ok {
+		return s
+	}
+	i := 0
+	for i < len(resto) && resto[i] >= '0' && resto[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return s
+	}
+	return "router" + resto[i:]
 }
 
 // normalizzaProdottoP7e: un prodotto valutato senza i campi di EB7-1 B, il tipo dei nodi (EB7-2 A) e il documento con lo

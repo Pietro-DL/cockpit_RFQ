@@ -48,6 +48,12 @@ type Rianalisi struct {
 	PdfGiaInCoda    int
 	PdfRimandati    int
 	PdfSenzaStaging int
+	// I DXF analizzati senza il testo di oggi (K4, worker.TestoDXFDaRileggere): la stessa meta' del gesto dei PDF,
+	// contati a parte.
+	DxfAccodati     int
+	DxfGiaInCoda    int
+	DxfRimandati    int
+	DxfSenzaStaging int
 }
 
 // piu somma due esiti: RianalizzaRfq e' le due meta' insieme, e il gesto dice il totale.
@@ -55,7 +61,9 @@ func (r Rianalisi) piu(o Rianalisi) Rianalisi {
 	return Rianalisi{Riletti: r.Riletti + o.Riletti, Accodati: r.Accodati + o.Accodati, GiaInCoda: r.GiaInCoda + o.GiaInCoda,
 		Rimandati: r.Rimandati + o.Rimandati, SenzaStaging: r.SenzaStaging + o.SenzaStaging, Proposte: r.Proposte + o.Proposte,
 		PdfAccodati: r.PdfAccodati + o.PdfAccodati, PdfGiaInCoda: r.PdfGiaInCoda + o.PdfGiaInCoda,
-		PdfRimandati: r.PdfRimandati + o.PdfRimandati, PdfSenzaStaging: r.PdfSenzaStaging + o.PdfSenzaStaging}
+		PdfRimandati: r.PdfRimandati + o.PdfRimandati, PdfSenzaStaging: r.PdfSenzaStaging + o.PdfSenzaStaging,
+		DxfAccodati: r.DxfAccodati + o.DxfAccodati, DxfGiaInCoda: r.DxfGiaInCoda + o.DxfGiaInCoda,
+		DxfRimandati: r.DxfRimandati + o.DxfRimandati, DxfSenzaStaging: r.DxfSenzaStaging + o.DxfSenzaStaging}
 }
 
 // RianalizzaRfq e' il gesto «Rianalizza»: rilegge gli STEP della RFQ con i fatti correnti e accoda

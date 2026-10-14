@@ -15,7 +15,7 @@ var (
 	tipiSegmento      = []string{SegmentoCorrente, SegmentoCitazione, SegmentoInoltro, SegmentoFirma, SegmentoSezioneTecnica}
 	originiSegmento   = []string{"mittente_del_messaggio", "ignota"}
 	tipiEntita        = []string{"disegno", "nodo_step", "riga", "sezione", "unita_isolata"}
-	tipiLocalizzatore = []string{"testo", "pdf", "step", "tabella", "nome_file"}
+	tipiLocalizzatore = []string{"testo", "pdf", "step", "tabella", "nome_file", "dxf"}
 	localizzazioni    = []string{"esatta", "parziale", "assente"}
 	metodi            = []string{"nativo", "ocr", "parser", "adattatore"}
 	zonePDF           = []string{"basso_destra", "pagina"}
@@ -281,6 +281,7 @@ func (v *validatore) localizzatore(percorso string, l Localizzatore, relativo *s
 		"step":      l.STEP != nil,
 		"tabella":   l.Tabella != nil,
 		"nome_file": l.NomeFile != nil,
+		"dxf":       l.DXF != nil,
 	}
 	for _, nome := range tipiLocalizzatore {
 		if varianti[nome] != (nome == l.Tipo) {

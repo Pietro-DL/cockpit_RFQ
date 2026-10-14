@@ -19,7 +19,8 @@ markmap:
 - Confronta basi e revisioni senza inventare niente (`ConfrontaBasi`, `ConfrontaRevisioni`): una base
   parziale resta compatibile con tutti i suoi completamenti (A-C07), una revisione si confronta solo con le
   equivalenze dichiarate.
-- Da A1b.9, il **router** (R23; piano A, 5.4.6), `router-2` dalla correzione di A1b.10: la tabella fissa e
+- Da A1b.9, il **router** (R23; piano A, 5.4.6), `router-2` dalla correzione di A1b.10, `router-3` da K4 (la
+  riga 17, `cartiglio.riferimento_3d` come relazione, mai identità del file): la tabella fissa e
   versionata che dal selettore, dall'uso del segmento e dalla sua origine dà la **funzione** di una lettura
   (`Instrada`), i **ruoli che la funzione ammette** (`RuoliAmmessi`) e l'**intersezione** con i ruoli della
   famiglia, con il motivo per esteso. Le categorie restano un'annotazione e non toccano l'intersezione (v3 §2;
@@ -134,7 +135,7 @@ markmap:
   - l'applicazione dei limiti di riconoscimento ricevuti dall'indice (`grammatica.Limiti`): byte dell'unità,
     letture per unità, risultato parziale, `limite.superato`. Nessun valore proprio.
 - **`router.go`** — responsabilità (A1b.9; R23):
-  - `VersioneRouter` (`router-2`), `Funzione` e le sue costanti, le costanti degli usi, `Instradamento`;
+  - `VersioneRouter` (`router-3`), `Funzione` e le sue costanti, le costanti degli usi, `Instradamento`;
   - `Instrada`: le righe del router come dati (una tabella fissa), con un motivo stabile per riga. Le celle
     di una tabella passano dalle righe 1-5 con il selettore e l'uso del loro segmento (riga 6); un selettore
     o un uso fuori tabella dà una menzione, mai una richiesta;
@@ -210,10 +211,10 @@ markmap:
   `regexp.Compile`, mai `MustCompile` (T18).
 - **Offset in byte UTF-8**, 0-based, fine esclusa, su un confine di runa, sul testo dato: `Originale` è
   sempre `testo[Inizio:Fine]`.
-- **Il router è una tabella fissa e versionata** (`router-2`): stessi ingressi, stessa funzione. Non guarda
+- **Il router è una tabella fissa e versionata** (`router-3`): stessi ingressi, stessa funzione. Non guarda
   la zona del cartiglio né la fonte OCR, e non nomina nessun cliente; cambiare una riga vuol dire cambiare
   `VersioneRouter`, che sta nell'identità dell'interpretazione e non nello snapshot (R41 c): `router-1`
-  diventa `router-2` con E2. Le righe dei selettori riservati in A1 ci sono lo stesso: la tabella è il router
+  diventa `router-2` con E2, `router-3` con la riga 17 di K4 (i motivi dicono «router-3 riga N»). Le righe dei selettori riservati in A1 ci sono lo stesso: la tabella è il router
   (R20 a).
 - **Un riconoscimento automatico non conferma una richiesta** (E2): su oggetto, corpo e storia un uso
   pertinente conferma solo con origine «operatore» o «scenario» (una lista bianca); di origine

@@ -97,7 +97,7 @@ const (
 
 	// CodiceMotorePertinenzaIgnota — nota, dati. Letture con funzione richiesta da un segmento di cui la
 	// pertinenza non è nota o non è confermata (uso sconosciuto, da valutare, o pertinente per riconoscimento
-	// automatico: router-2 riga 2; E2): la richiesta è da confermare (P1 §4.3).
+	// automatico: router-3 riga 2; E2): la richiesta è da confermare (P1 §4.3).
 	CodiceMotorePertinenzaIgnota = "motore.pertinenza_ignota"
 
 	// CodiceRevisioneFormazioneNonConfrontabile — nota, dati. Il documento ha formazioni STEP: dati grezzi,

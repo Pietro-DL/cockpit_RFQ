@@ -880,9 +880,10 @@ func stesseLetture(l []LetturaCodice, a, b []int) bool {
 // ---- punti 13, 15, 16 ----
 
 // Punto 13, le relazioni: in A1 nessun codice (E3 = A; par.12). Nascono solo da una lettura con funzione
-// relazione (riga 12 del router), cioè da una forma attiva su cartiglio.particolare_simile, che in A1 è
-// riservato in ogni grammatica: Interpretazione.Relazioni resta vuoto. Il runtime nascerà quando una forma
-// attiva potrà davvero produrle.
+// relazione (righe 12 e 17 del router). cartiglio.particolare_simile in A1 è riservato in ogni grammatica;
+// cartiglio.riferimento_3d (K4) è attivo, ma la sua lettura resta una lettura con la funzione relazione, senza
+// ruoli: l'equivalenza con il codice dello stesso cartiglio la propone l'ancoraggio, con le prove.
+// Interpretazione.Relazioni resta vuoto. Il runtime nascerà quando una forma attiva potrà davvero produrle.
 
 // copertura: per un selettore presente nel documento senza nessuna forma attiva e senza revisioni in campo
 // separato, una sola nota per selettore, con le unità in Rif: «campo ricevuto, non letto» (punto 15; v3 §2).

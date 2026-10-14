@@ -15,6 +15,10 @@ package estrazione
 // 5.6.1). Comprende le mappature qui sotto e la regola legami-1 (5.4.1): un'appartenenza sta in un campo solo,
 // e i LegameFonte nascono solo per ciò che non è già un campo. Entra nel BundleID di ogni documento. Si cambia
 // solo con un commit che lo dichiara, e la prova che la fissa si riscrive con «Riscritta per …» (par.3.4.1).
+//
+// K4 aggiunge mappatura-dxf-1 SENZA cambiare questa versione: la mappatura legge solo una parte nuova dei fatti
+// (testo_dxf), che nessun documento di prima aveva. Per ogni ingresso di prima il documento resta lo stesso, byte
+// per byte (il golden dxf_02 lo fissa), e il BundleID con lui. Da ratificare.
 const VersioneAdattatore = "adattatori-1"
 
 // Le mappature che VersioneAdattatore comprende. Ognuna si scrive in CampoOriginale.Mappatura delle unità che
@@ -24,6 +28,7 @@ const (
 	mappaturaPDF   = "mappatura-pdf-1"   // i fatti del testo dei PDF
 	mappaturaNome  = "mappatura-nome-1"  // il nome del file e la voce d'archivio
 	mappaturaEmail = "mappatura-email-1" // oggetto, segmenti e tabelle della mail
+	mappaturaDXF   = "mappatura-dxf-1"   // i fatti del testo dei DXF (K4)
 )
 
 // maxLivelliStoria: quanti livelli della storia l'adattatore della mail separa al più (5.4.3 punto 6; 5.6.1).

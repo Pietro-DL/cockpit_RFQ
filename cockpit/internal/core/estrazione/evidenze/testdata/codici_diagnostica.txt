@@ -82,6 +82,9 @@ pdf.illeggibile
 pdf.testo_di_prima
 pdf.non_analizzato
 pdf.troncato
+dxf.non_letto
+dxf.senza_cartiglio
+dxf.troncato
 email.storia_non_separabile
 email.tabella_non_agganciata
 email.tabella_a_cavallo
@@ -116,6 +119,7 @@ ancoraggio.radice_dal_nome_file
 ancoraggio.radice_dallo_step_associato
 ancoraggio.completamento_documentale
 ancoraggio.correzione_documentale
+ancoraggio.equivalenza_cartiglio_contesa
 bom.fonte_non_registrata
 documenti.deroga_non_sostituisce_2d
 confronto.revisione_non_confrontabile

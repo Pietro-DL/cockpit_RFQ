@@ -520,3 +520,58 @@ func TestIlCartiglioDiPrimaDiversoNonESicuro(t *testing.T) {
 		t.Error("il testo di oggi non ha letture da rileggere")
 	}
 }
+
+// TestIlRiferimento3DelCampoNonEUnCodice (K4): il campo del riferimento 3D (worker.CampoRiferimento3D, «REF.3D
+// DOC.») porta il documento 3D della stessa parte, non il codice del file. Nel percorso di classificazione di prima
+// non e' mai un codice: ne' come campo, ne' come codice di un frammento che sta nel suo valore, nella zona del
+// cartiglio, nel resto della pagina, letto dall'OCR (il caso dei PDF senza testo). Il codice del file resta
+// quello del suo campo; l'equivalenza fra i due la propone soltanto il motore A, con le prove. Dati inventati.
+//
+// La controprova (a mano): con leggiCampo e leggiFrammento che trattano il campo come gli altri, 7120015 torna fra
+// le letture dell'OCR e fra le chiavi.
+func TestIlRiferimento3DelCampoNonEUnCodice(t *testing.T) {
+	m := motoreACME(t)
+	rif := func(tp worker.TestoPDF, zona, fonte string) worker.TestoPDF {
+		tp.Cartiglio = append(append([]worker.CampoCartiglio(nil), tp.Cartiglio...), worker.CampoCartiglio{Etichetta: worker.CampoRiferimento3D,
+			Letta: "REF.3D DOC.", Valore: "7120015", Pagina: 1, Zona: zona, Fonte: fonte, Riquadro: []float64{560, 560, 600, 572}})
+		return tp
+	}
+	partN := func(tp worker.TestoPDF) worker.TestoPDF {
+		return conCampoCodice(tp, worker.CampoCodice, "PART NO.", "7120001")
+	}
+	ocr := conOCR(testoPDF("", "", worker.MetadatiPDF{}), 1, worker.ZonaBassoDestra, "PART NO. REF.3D DOC.\n7120001 7120015", 61)
+	ocr.Cartiglio = append(ocr.Cartiglio, worker.CampoCartiglio{Etichetta: worker.CampoCodice, Letta: "PART NO.", Valore: "7120001",
+		Pagina: 1, Zona: worker.ZonaBassoDestra, Fonte: worker.FonteTestoOCR, Riquadro: []float64{620, 530, 655, 543}})
+	casi := []struct {
+		nome string
+		tp   worker.TestoPDF
+	}{
+		{"il cartiglio a tabella", rif(partN(testoPDF("REF.3D DOC.   PART NO.\n7120015   7120001", "", worker.MetadatiPDF{})),
+			worker.ZonaBassoDestra, worker.FonteTestoNativo)},
+		{"fuori dalla zona del cartiglio", rif(partN(testoPDF("SCALA 1:1", "REF.3D DOC. 7120015", worker.MetadatiPDF{})),
+			worker.ZonaPagina, worker.FonteTestoNativo)},
+		{"letto dall'OCR", rif(ocr, worker.ZonaBassoDestra, worker.FonteTestoOCR)},
+	}
+	for _, c := range casi {
+		l := LettureDelPDF(m, fattiDisegno(t, c.tp), "tavola.pdf")
+		trovato := false
+		for _, x := range l.Letture {
+			if x.Codice == "7120015" {
+				t.Errorf("%s: il riferimento 3D e' una lettura: %+v", c.nome, x)
+			}
+			trovato = trovato || x.Codice == "7120001"
+		}
+		if !trovato {
+			t.Errorf("%s: il codice del suo campo non e' fra le letture: %+v", c.nome, l.Letture)
+		}
+		if slices.Contains(l.Chiavi(), "7120015") {
+			t.Errorf("%s: il riferimento 3D e' una chiave: %v", c.nome, l.Chiavi())
+		}
+		e := EvidenzeTestoPDF(m, c.tp)
+		for _, x := range slices.Concat(e.Cartiglio, e.Altrove, e.OCR) {
+			if x.Codice == "7120015" || x.Etichetta == worker.CampoRiferimento3D {
+				t.Errorf("%s: il riferimento 3D e' un codice del testo: %+v", c.nome, x)
+			}
+		}
+	}
+}

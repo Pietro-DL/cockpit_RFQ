@@ -22,6 +22,12 @@ markmap:
     testo nativo, non letto, illeggibile o non analizzato ha la capacità `testo` non disponibile, mai «nessun
     codice», A-C09); `elenco_pdf` sempre non disponibile; il cartiglio di una sottoversione di prima come
     `testo_pdf`, un indizio;
+  - il **DXF** (`mappatura-dxf-1`, K4), solo quando i fatti hanno `testo_dxf`: i campi del cartiglio che il
+    worker riconosce legati all'entità `disegno` `e:dxf:cartiglio`, con il localizzatore `dxf` (riquadro in
+    decimi di unità del disegno); `cartiglio.riferimento_3d` è il documento 3D della stessa parte. Un DXF binario
+    o con un testo di una versione sconosciuta ha `dxf.non_letto`; troncato o con INSERT annidati non seguiti
+    `dxf.troncato`; senza campi `dxf.senza_cartiglio`. Un DXF senza `testo_dxf` (analizzato prima del K4) resta
+    il documento di prima, con il solo nome;
   - un file senza fatti, o con fatti che nessuna mappatura legge (solo l'esito del worker, una natura diversa
     da «file», un archivio che l'acquisizione non apre), dà **il solo nome**, con la capacità `contenuto` non
     disponibile e il motivo. Non è mai un file «senza codici».
@@ -57,8 +63,10 @@ markmap:
 
 - **`versione.go`** — responsabilità:
   - commento `// Package`; `VersioneAdattatore` («adattatori-1»), che entra nel `BundleID`;
-  - i nomi delle mappature (`mappatura-step-1`, `mappatura-pdf-1`, `mappatura-nome-1`, `mappatura-email-1`),
-    scritti in `CampoOriginale.Mappatura` di ogni unità;
+  - i nomi delle mappature (`mappatura-step-1`, `mappatura-pdf-1`, `mappatura-nome-1`, `mappatura-email-1`,
+    `mappatura-dxf-1`), scritti in `CampoOriginale.Mappatura` di ogni unità. `mappatura-dxf-1` (K4) non ha
+    cambiato `VersioneAdattatore`: legge solo una parte nuova dei fatti, e ogni ingresso di prima dà lo stesso
+    documento (da ratificare);
   - `maxLivelliStoria` = 8, il tetto dei livelli della storia (5.4.3 punto 6), parte della versione.
 - **`documento.go`** — responsabilità: il costruttore comune.
   - testi, segmenti, entità, unità (con `FonteID` messo qui), legami, capacità, diagnostiche; lo stato della
@@ -97,6 +105,10 @@ markmap:
     (`math.Round(x*10)`); il metodo «ocr» per ciò che ha letto l'OCR;
   - la sottoversione di prima (`testoDiPrima`): i campi del cartiglio come `testo_pdf` isolati, mappatura
     «sconosciuta», `pdf.testo_di_prima` (scelta tecnica del 5.10 n.6).
+- **`dxf.go`** — responsabilità: la mappatura DXF (K4) dai fatti decodificati con `worker.DecodificaTestoDXF`,
+  guidata dalla chiave `testo_dxf`: il cartiglio (`e:dxf:cartiglio`, `u:dxf:cartiglio:<etichetta>:<n>`), il
+  localizzatore `dxf` con i riquadri in decimi interi, la sola capacità `cartiglio` (il worker non riporta i
+  testi del disegno, di proposito), `dxf.non_letto`, `dxf.troncato`, `dxf.senza_cartiglio`.
 - **`email.go`** — responsabilità: `DaMessaggio`:
   - il testo (`corpo_testo`, o `TestoDaHTML` se manca, con `email.testo_da_html`), il taglio con le posizioni,
     l'indizio d'inoltro (`EInoltro`) per la storia non separabile senza confine (R48 A);

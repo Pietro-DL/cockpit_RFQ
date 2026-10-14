@@ -10,7 +10,7 @@ markmap:
 ## Che cosa documenta
 
 - Documentazione dei due client Python (`worker_outlook.py`, `worker_analisi.py`), dei moduli comuni
-  (`cockpit_client.py`, `contratti.py`, `protocollo.py`, `outlook_com.py`, `step_struttura.py`), dei comandi
+  (`cockpit_client.py`, `contratti.py`, `protocollo.py`, `outlook_com.py`, `step_struttura.py`, `dxf_testo.py`), dei comandi
   diagnostici `diagnostica_step.py` e `prova_lettura.py` e di `installa-postazione.ps1`.
 - Il lato server dello stesso protocollo sta in `internal/transport/workerapi` (le rotte) e in
   `internal/platform/coda` (la coda).
@@ -533,7 +533,14 @@ markmap:
   - `analizza_file()`:
     - PDF con PyMuPDF (testo, termini di cartiglio, righe che sembrano codici);
     - STEP con `step_struttura.py` (tokenizer Part 21, nessuna dipendenza nuova): il grafo `PRODUCT` →
-      `NEXT_ASSEMBLY_USAGE_OCCURRENCE` finisce in `dettagli.struttura` come nodi, relazioni e quantita'.
+      `NEXT_ASSEMBLY_USAGE_OCCURRENCE` finisce in `dettagli.struttura` come nodi, relazioni e quantita';
+    - DXF ASCII con `dxf_testo.py` (K4, nessuna dipendenza nuova): i testi TEXT/MTEXT/ATTRIB delle ENTITIES e dei
+      blocchi richiamati con un INSERT, e da quelli in `dettagli.testo_dxf` SOLO i campi del cartiglio riconosciuti
+      (codice, numero del disegno, la sua revisione, riferimento al documento 3D) come etichetta → valore grezzo;
+      un DXF binario è un esito (`non_letto`), non un errore. Tipo, codice e rev in testa restano quelli del nome.
+      L'intestazione dell'elenco particolari non dà etichette, la ricerca del valore non passa nella cella sotto,
+      gli INSERT ruotati non si seguono (lo dice `motivo`, con l'esito `letto`), la lettura tiene al piu' un
+      multiplo di `testi_max` elementi, e un DXF ASCII senza testi ne' blocchi e' `letto` con il cartiglio vuoto.
   - **Gli archivi non li vede**: li scompatta il server (`estrai_archivio`) e ogni voce diventa un allegato figlio con
     il proprio job di analisi
 - **Risultato**

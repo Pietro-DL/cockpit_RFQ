@@ -123,12 +123,15 @@ const (
 // quella di un nodo raggiungibile (6.4.5 regola 3); radice_scelta: l'identità del file è quella della radice scelta
 // dall'operatore per la BOM di lavoro, che non ha la base del prodotto (R76 A, T-B4-25); radice_di_riserva: l'identità
 // del file è quella della radice di una struttura candidata con un'origine (nome_file_step, associazione_step: il passo
-// 3 bis di ProponiStrutture, notte 14/10), che rappresenta il prodotto senza averne la base.
+// 3 bis di ProponiStrutture, notte 14/10), che rappresenta il prodotto senza averne la base; equivalenza_cartiglio (K4):
+// un'identità del file ha un'equivalenza del cartiglio (equivalenze.go) verso il documento 3D che è l'identità del nodo,
+// con le prove in CandidatoAncoraggio.Equivalenze.
 const (
-	MotivoCandidatoBaseDelTarget   = "base_del_target"
-	MotivoCandidatoBaseDelNodo     = "base_di_un_nodo_raggiungibile"
-	MotivoCandidatoRadiceScelta    = "radice_scelta"
-	MotivoCandidatoRadiceDiRiserva = "radice_di_riserva"
+	MotivoCandidatoBaseDelTarget        = "base_del_target"
+	MotivoCandidatoBaseDelNodo          = "base_di_un_nodo_raggiungibile"
+	MotivoCandidatoRadiceScelta         = "radice_scelta"
+	MotivoCandidatoRadiceDiRiserva      = "radice_di_riserva"
+	MotivoCandidatoEquivalenzaCartiglio = "equivalenza_cartiglio"
 )
 
 // Le dimensioni di un candidato (DimensioneCompatibilita.Dimensione; 6.4.5 regola 4), più le due della compatibilità
@@ -227,6 +230,9 @@ type AncoraggioFile struct {
 //     prodotto le radici delle strutture del target): la proposta non aspetta la nomenclatura e la porta accanto
 //     (T-E1-03, PO-20; campi in più, T-B4-10).
 //   - Motivo: MotivoCandidato*.
+//   - Equivalenze (K4): per il motivo equivalenza_cartiglio, le prove dell'equivalenza del cartiglio (l'allegato,
+//     l'entità, le due letture, la fonte), in ordine; vuoto per gli altri motivi, e allora non c'è nel JSON (gli esiti
+//     di prima hanno gli stessi byte canonici).
 type CandidatoAncoraggio struct {
 	Target              string                    `json:"target"`
 	Livello             string                    `json:"livello"`
@@ -244,6 +250,7 @@ type CandidatoAncoraggio struct {
 	IdentitaParziale    bool                      `json:"identita_parziale"`
 	MotiviIdentita      []string                  `json:"motivi_identita,omitempty"`
 	Motivo              string                    `json:"motivo"`
+	Equivalenze         []ProvaEquivalenza        `json:"equivalenze,omitempty"`
 }
 
 // PosizioneCandidato: un nodo di una struttura su cui sta un candidato (T-B4-10): il target, l'allegato e la radice
@@ -341,8 +348,12 @@ func ProponiAncoraggi(file []FileInterpretato, target []ProdottoRichiesto, ctx C
 	files := append([]FileInterpretato(nil), file...)
 	sort.SliceStable(files, func(i, j int) bool { return files[i].AllegatoID.String() < files[j].AllegatoID.String() })
 
+	// Le equivalenze del cartiglio (K4) si calcolano sui file in ordine, prima degli ancoraggi: la tabella è del thread.
+	equivalenze, dEq := equivalenzeDelThread(files)
 	a := nuovoAncoratore(target, ctx, strutture)
-	esito := EsitoAncoraggi{VersioneServizio: VersioneServizio, Strutture: strutture, Diagnostiche: diag}
+	a.equivalenze = equivalenze
+	equivalenzeSuiNodi(strutture, equivalenze)
+	esito := EsitoAncoraggi{VersioneServizio: VersioneServizio, Strutture: strutture, Diagnostiche: append(diag, dEq...)}
 	for _, f := range files {
 		esito.File = append(esito.File, a.ancora(f))
 	}
@@ -368,6 +379,9 @@ type ancoratore struct {
 	identita   []*identitaRaggiungibile
 	motiviNonD []string        // i motivi dello scenario che impediscono fuori_richiesta
 	namespace  map[string]bool // i namespace che si confrontano: dei target e delle letture dei nodi delle loro strutture (L8)
+	// le equivalenze del cartiglio del thread (K4), per chiave del codice della parte (chiaveEquivalenza); mai fra i
+	// namespace che si confrontano
+	equivalenze map[string]*equivalenza
 }
 
 // identitaRaggiungibile: un'identità dei nodi delle strutture dei target (regola 3): namespace, base, marcatore e
@@ -604,6 +618,15 @@ func nuovaIdentita(x nodoRaggiungibile, marcatore string, r *motorea.RevisioneLe
 		baseLetta: x.l.Forma.Base, revisione: r}
 }
 
+// candidata: l'identità su cui sta un candidato a livello componente, per i motivi dell'ambiguità.
+func (g *identitaRaggiungibile) candidata() identitaCandidata {
+	rev := ""
+	if g.revisione != nil {
+		rev = g.revisione.Normalizzata
+	}
+	return identitaCandidata{livello: LivelloComponente, namespace: g.namespace, base: g.base, marcatore: g.marcatore, revisione: rev}
+}
+
 // rif: il riferimento dell'identità (RifIdentita).
 func (g *identitaRaggiungibile) rif() string {
 	rev := ""
@@ -702,6 +725,7 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 			identita = append(identita, identitaCandidata{livello: LivelloProdotto, namespace: t.Namespace, base: t.Base.Normalizzata})
 		}
 	}
+	diretti := map[*identitaRaggiungibile]bool{}
 	for _, g := range a.identita {
 		// Una lettura con il marcatore del gruppo (o senza) sostiene il gruppo intero; una con un altro marcatore scritto
 		// sostiene solo i nodi del gruppo che non scrivono il marcatore, compatibili con lei da una parte sola (la regola
@@ -731,12 +755,29 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 				continue
 			}
 			candidati = append(candidati, a.candidatoComponente(x.g, x.sost))
-			rev := ""
-			if x.g.revisione != nil {
-				rev = x.g.revisione.Normalizzata
-			}
-			identita = append(identita, identitaCandidata{livello: LivelloComponente, namespace: x.g.namespace, base: x.g.base, marcatore: x.g.marcatore, revisione: rev})
+			identita = append(identita, x.g.candidata())
+			diretti[g] = true
 		}
+	}
+	// Il secondo giro (K4): un'identità del file con un'equivalenza del cartiglio verso il documento 3D di un'identità
+	// raggiungibile che il file non sostiene già da sé dà un candidato proposto, con il motivo equivalenza_cartiglio.
+	// Con un riferimento con un altro marcatore scritto, come nel primo giro, solo i nodi del gruppo senza marcatore.
+	for _, g := range a.identita {
+		if diretti[g] || len(a.equivalenze) == 0 {
+			continue
+		}
+		sost, eq := a.sostegniPerEquivalenza(g, ident)
+		if len(sost) == 0 {
+			continue
+		}
+		x := g
+		if !marcatoriCompatibili(marcatoreDi(eq.forma), g.marcatore) {
+			if x = g.senzaMarcatore(); x == nil {
+				continue
+			}
+		}
+		candidati = append(candidati, a.candidatoEquivalenza(x, sost, eq))
+		identita = append(identita, x.candidata())
 	}
 	for i := range candidati {
 		candidati[i].RadiciDelFile = copiaStringhe(radiciDelFile)
@@ -862,7 +903,39 @@ func motivoPosizione(n NodoProposto) string {
 // radici raggiungibili, i padri, i percorsi e gli archi (FIGLIO-CONDIVISO), le dimensioni con i nodi e con le loro
 // decisioni.
 func (a *ancoratore) candidatoComponente(g *identitaRaggiungibile, sost []sostegno) CandidatoAncoraggio {
-	c := CandidatoAncoraggio{Livello: LivelloComponente, Origine: OrigineProposto, Motivo: MotivoCandidatoBaseDelNodo}
+	c, perDim := a.candidatoSuIdentita(g, MotivoCandidatoBaseDelNodo)
+	for _, x := range sost {
+		f := x.l.Forma
+		c.Letture = append(c.Letture, x.l.ID)
+		for _, nr := range perDim {
+			n := a.strutture[nr.s].Nodi[nr.n]
+			nf := nr.l.Forma
+			c.Dimensioni = append(c.Dimensioni,
+				DimensioneCompatibilita{Dimensione: DimensioneNamespace, Esito: motorea.CompatibilitaUguale, Lettura: x.l.ID, Rif: n.Rif},
+				DimensioneCompatibilita{Dimensione: DimensioneBase, Esito: motorea.ConfrontaBasi(nf.Base, x.base), Lettura: x.l.ID, Rif: n.Rif},
+				DimensioneCompatibilita{Dimensione: DimensioneMarcatore, Esito: compatibilitaMarcatori(marcatoreDi(nf), marcatoreDi(f)), Lettura: x.l.ID, Rif: n.Rif},
+				DimensioneCompatibilita{Dimensione: DimensioneRevisione, Esito: confrontaRevisioni(nf.Revisione, f.Revisione), Lettura: x.l.ID, Rif: n.Rif},
+				DimensioneCompatibilita{Dimensione: DimensioneQualificatori, Esito: confrontaQualificatori(nf.Affissi, f.Affissi), Lettura: x.l.ID, Rif: n.Rif})
+			if n.Decisione != nil {
+				c.Dimensioni = append(c.Dimensioni, DimensioneCompatibilita{Dimensione: DimensioneCodiceConfermato,
+					Esito: compatibilitaConDecisione(f, x.base, n.Decisione.Lettura, n.Codice.Confermato), Lettura: x.l.ID, Rif: RifComponente(n.Decisione.ComponenteID)})
+			}
+			if n.RigaLegacy != nil && n.RigaLegacy.CodiceManuale != nil {
+				c.Dimensioni = append(c.Dimensioni, DimensioneCompatibilita{Dimensione: DimensioneCodiceManuale,
+					Esito: compatibilitaConDecisione(f, x.base, n.RigaLegacy.LetturaManuale, n.Codice.Manuale), Lettura: x.l.ID, Rif: RifRigaProposta(n.RigaLegacy.ID)})
+			}
+		}
+	}
+	chiudiCandidato(&c)
+	return c
+}
+
+// candidatoSuIdentita: la parte di un candidato a livello componente che viene dall'identità raggiungibile, comune al
+// primo giro (candidatoComponente) e al secondo (candidatoEquivalenza, K4): le posizioni, le radici raggiungibili, i
+// padri, i percorsi, gli archi, l'incertezza dell'identità, il Target, l'autorità, il motivo; e i nodi con le loro
+// letture da confrontare, uno per nodo e lettura.
+func (a *ancoratore) candidatoSuIdentita(g *identitaRaggiungibile, motivo string) (CandidatoAncoraggio, []nodoRaggiungibile) {
+	c := CandidatoAncoraggio{Livello: LivelloComponente, Origine: OrigineProposto, Motivo: motivo}
 	var motivi []string
 	nodi := map[string]bool{}
 	componenti := map[string]bool{}
@@ -919,31 +992,7 @@ func (a *ancoratore) candidatoComponente(g *identitaRaggiungibile, sost []sosteg
 			c.Autorita = a.autorita[r]
 		}
 	}
-
-	for _, x := range sost {
-		f := x.l.Forma
-		c.Letture = append(c.Letture, x.l.ID)
-		for _, nr := range perDim {
-			n := a.strutture[nr.s].Nodi[nr.n]
-			nf := nr.l.Forma
-			c.Dimensioni = append(c.Dimensioni,
-				DimensioneCompatibilita{Dimensione: DimensioneNamespace, Esito: motorea.CompatibilitaUguale, Lettura: x.l.ID, Rif: n.Rif},
-				DimensioneCompatibilita{Dimensione: DimensioneBase, Esito: motorea.ConfrontaBasi(nf.Base, x.base), Lettura: x.l.ID, Rif: n.Rif},
-				DimensioneCompatibilita{Dimensione: DimensioneMarcatore, Esito: compatibilitaMarcatori(marcatoreDi(nf), marcatoreDi(f)), Lettura: x.l.ID, Rif: n.Rif},
-				DimensioneCompatibilita{Dimensione: DimensioneRevisione, Esito: confrontaRevisioni(nf.Revisione, f.Revisione), Lettura: x.l.ID, Rif: n.Rif},
-				DimensioneCompatibilita{Dimensione: DimensioneQualificatori, Esito: confrontaQualificatori(nf.Affissi, f.Affissi), Lettura: x.l.ID, Rif: n.Rif})
-			if n.Decisione != nil {
-				c.Dimensioni = append(c.Dimensioni, DimensioneCompatibilita{Dimensione: DimensioneCodiceConfermato,
-					Esito: compatibilitaConDecisione(f, x.base, n.Decisione.Lettura, n.Codice.Confermato), Lettura: x.l.ID, Rif: RifComponente(n.Decisione.ComponenteID)})
-			}
-			if n.RigaLegacy != nil && n.RigaLegacy.CodiceManuale != nil {
-				c.Dimensioni = append(c.Dimensioni, DimensioneCompatibilita{Dimensione: DimensioneCodiceManuale,
-					Esito: compatibilitaConDecisione(f, x.base, n.RigaLegacy.LetturaManuale, n.Codice.Manuale), Lettura: x.l.ID, Rif: RifRigaProposta(n.RigaLegacy.ID)})
-			}
-		}
-	}
-	chiudiCandidato(&c)
-	return c
+	return c, perDim
 }
 
 // chiudiCandidato mette in ordine canonico gli elenchi del candidato, senza doppioni, e ne ricava i conflitti.

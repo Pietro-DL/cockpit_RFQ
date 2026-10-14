@@ -1,7 +1,7 @@
 package evidenze
 
 // Localizzatore: dove si è letto, in modo verificabile (parte 1 §3.3). È un'unione: è valorizzata solo la
-// variante indicata da Tipo (testo | pdf | step | tabella | nome_file). Le coordinate che i fatti non
+// variante indicata da Tipo (testo | pdf | step | tabella | nome_file | dxf). Le coordinate che i fatti non
 // hanno restano assenti, mai inventate.
 type Localizzatore struct {
 	Tipo     string       `json:"tipo"`
@@ -10,6 +10,7 @@ type Localizzatore struct {
 	STEP     *PosSTEP     `json:"step,omitempty"`
 	Tabella  *PosTabella  `json:"tabella,omitempty"`
 	NomeFile *PosNomeFile `json:"nome_file,omitempty"`
+	DXF      *PosDXF      `json:"dxf,omitempty"`
 }
 
 // PosTesto: un intervallo su un TestoOriginale del documento, indicato per ID.
@@ -26,6 +27,13 @@ type PosPDF struct {
 	Zona           string      `json:"zona,omitempty"`            // basso_destra | pagina
 	Fonte          string      `json:"fonte,omitempty"`           // nativo | ocr
 	Intervallo     *Intervallo `json:"intervallo,omitempty"`      // dentro il testo del frammento o del valore, già normalizzato dal worker
+}
+
+// PosDXF: dove sta un testo nel disegno di un DXF (K4). Il riquadro è in DECIMI DI UNITÀ DEL DISEGNO interi, nello
+// spazio del modello con la y verso l'alto (non sono punti di una pagina, e l'origine non è in alto a sinistra:
+// per questo non è un PosPDF), stimato dal worker dal punto d'inserimento, dall'altezza e dall'attacco del testo.
+type PosDXF struct {
+	RiquadroDecimi *[4]int `json:"riquadro_decimi,omitempty"` // [x0,y0,x1,y1]
 }
 
 // PosSTEP: la chiave del PRODUCT nel file ("#19": non è un numero di riga), l'attributo letto e i

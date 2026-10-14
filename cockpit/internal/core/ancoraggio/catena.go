@@ -37,6 +37,9 @@ import (
 //     decisione propria, il componente del target (T-B4-38).
 //   - Documentale: i codici del cartiglio dei 2D associati, con la riconciliazione, in ordine di allegato (fase 3:
 //     li calcola ProponiAncoraggi; ProponiStrutture, che non vede i file, lo lascia vuoto).
+//   - Equivalente (K4): il codice della parte che i cartigli del thread scrivono accanto al documento 3D che è
+//     l'identità del nodo (CodiceEquivalente), proposto; lo calcola ProponiAncoraggi, e senza equivalenze non c'è nel
+//     JSON (gli esiti di prima hanno gli stessi byte canonici).
 type CatenaCodice struct {
 	Grezzo         ValoreGrezzo          `json:"grezzo"`
 	Lettura        string                `json:"lettura,omitempty"`
@@ -48,6 +51,7 @@ type CatenaCodice struct {
 	Manuale        *CodiceDeciso         `json:"manuale,omitempty"`
 	Confermato     *CodiceDeciso         `json:"confermato,omitempty"`
 	Documentale    []CodiceDocumentale   `json:"documentale,omitempty"`
+	Equivalente    *CodiceEquivalente    `json:"equivalente,omitempty"`
 }
 
 // ValoreGrezzo: il grezzo con il suo localizzatore (contratto §2.2): il testo del campo com'è nei fatti (id o nome del
@@ -798,6 +802,14 @@ func copiaLocalizzatore(l evidenze.Localizzatore) evidenze.Localizzatore {
 		}
 		p.Intervallo = copiaIntervallo(p.Intervallo)
 		l.PDF = &p
+	}
+	if l.DXF != nil {
+		x := *l.DXF
+		if x.RiquadroDecimi != nil {
+			r := *x.RiquadroDecimi
+			x.RiquadroDecimi = &r
+		}
+		l.DXF = &x
 	}
 	if l.Tabella != nil {
 		t := *l.Tabella

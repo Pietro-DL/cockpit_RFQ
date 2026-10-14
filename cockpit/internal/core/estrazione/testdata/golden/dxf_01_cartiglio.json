@@ -1,0 +1,206 @@
+{
+  "bundle_id": "ae2330a612aabd849d78347d12b119c631eaaccb1786838dd1fa7690f082b30d",
+  "entita": [
+    {
+      "chiave_originale": "cartiglio del DXF",
+      "id": "e:dxf:cartiglio",
+      "posizione": {
+        "dxf": {},
+        "tipo": "dxf"
+      },
+      "tipo": "disegno"
+    }
+  ],
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-0000000000d1",
+    "origine_id": "00000000-0000-4000-8000-0000000000d1",
+    "provenienza": {
+      "bytes": 81920,
+      "content_type": "application/dxf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000200_D42_ACME7100300_000_00.dxf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00.25Z",
+      "digest_payload": "e13ed8d0c5cd2ff4734c04f365cf4848a16f4e1ea7441262b91e5f6467bf7246",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "00000000000000000000000000000000000000000000000000000000000000d1",
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "nome": "cartiglio",
+        "stato": "disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "nativo",
+    "stato": "disponibile"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000200_D42_ACME7100300_000_00.dxf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "etichetta": "part no./Mat. Nr.",
+        "mappatura": "mappatura-dxf-1",
+        "parser": "testo_dxf.cartiglio.codice"
+      },
+      "entita_id": "e:dxf:cartiglio",
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d1",
+      "id": "u:dxf:cartiglio:codice:1",
+      "posizione": {
+        "dxf": {
+          "riquadro_decimi": [
+            4393,
+            0,
+            4624,
+            35
+          ]
+        },
+        "tipo": "dxf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del valore in unità del disegno (y verso l'alto), stimato dal worker dall'inserimento, dall'altezza e dall'attacco; testo già ripulito dai codici di formato: nessun offset nei byte del DXF"
+      },
+      "selettore": "cartiglio.codice",
+      "testo": "ACME7000200"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "doc. no./Dok. Nr.",
+        "mappatura": "mappatura-dxf-1",
+        "parser": "testo_dxf.cartiglio.numero_disegno"
+      },
+      "entita_id": "e:dxf:cartiglio",
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d1",
+      "id": "u:dxf:cartiglio:numero_disegno:1",
+      "posizione": {
+        "dxf": {
+          "riquadro_decimi": [
+            4753,
+            0,
+            4984,
+            35
+          ]
+        },
+        "tipo": "dxf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del valore in unità del disegno (y verso l'alto), stimato dal worker dall'inserimento, dall'altezza e dall'attacco; testo già ripulito dai codici di formato: nessun offset nei byte del DXF"
+      },
+      "selettore": "cartiglio.numero_disegno",
+      "testo": "ACME7100300"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "rev./Rev.",
+        "mappatura": "mappatura-dxf-1",
+        "parser": "testo_dxf.cartiglio.revisione"
+      },
+      "entita_id": "e:dxf:cartiglio",
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d1",
+      "id": "u:dxf:cartiglio:revisione:1",
+      "posizione": {
+        "dxf": {
+          "riquadro_decimi": [
+            5129,
+            0,
+            5171,
+            35
+          ]
+        },
+        "tipo": "dxf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del valore in unità del disegno (y verso l'alto), stimato dal worker dall'inserimento, dall'altezza e dall'attacco; testo già ripulito dai codici di formato: nessun offset nei byte del DXF"
+      },
+      "selettore": "cartiglio.revisione",
+      "testo": "00"
+    },
+    {
+      "campo_originale": {
+        "etichetta": "ref.3D doc./Ref.3D Dok.",
+        "mappatura": "mappatura-dxf-1",
+        "parser": "testo_dxf.cartiglio.riferimento_3d"
+      },
+      "entita_id": "e:dxf:cartiglio",
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d1",
+      "id": "u:dxf:cartiglio:riferimento_3d:1",
+      "posizione": {
+        "dxf": {
+          "riquadro_decimi": [
+            4240,
+            0,
+            4306,
+            20
+          ]
+        },
+        "tipo": "dxf"
+      },
+      "qualita": {
+        "localizzazione": "parziale",
+        "metodo": "nativo",
+        "motivo": "riquadro del valore in unità del disegno (y verso l'alto), stimato dal worker dall'inserimento, dall'altezza e dall'attacco; testo già ripulito dai codici di formato: nessun offset nei byte del DXF"
+      },
+      "selettore": "cartiglio.riferimento_3d",
+      "testo": "ACME7100400"
+    },
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d1",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 38,
+            "inizio": 35
+          },
+          "intervallo": {
+            "fine": 38,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 34,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000200_D42_ACME7100300_000_00.dxf"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

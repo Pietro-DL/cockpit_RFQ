@@ -115,8 +115,9 @@ func confrontaGolden(t *testing.T, percorso string, v any) {
 	}
 }
 
-// TestLaVersioneDegliAdattatoriEFissa (5.6.1): «adattatori-1», le sue mappature e il tetto dei livelli della
-// storia. Se un valore cambia, questa prova si riscrive con il titolo «Riscritta per …», insieme ai golden.
+// TestLaVersioneDegliAdattatoriEFissa (5.6.1): «adattatori-1», le sue mappature (da K4 anche mappatura-dxf-1,
+// che legge solo una parte nuova dei fatti) e il tetto dei livelli della storia. Se un valore cambia, questa
+// prova si riscrive con il titolo «Riscritta per …», insieme ai golden.
 func TestLaVersioneDegliAdattatoriEFissa(t *testing.T) {
 	for _, c := range [][2]string{
 		{VersioneAdattatore, "adattatori-1"},
@@ -124,6 +125,7 @@ func TestLaVersioneDegliAdattatoriEFissa(t *testing.T) {
 		{mappaturaPDF, "mappatura-pdf-1"},
 		{mappaturaNome, "mappatura-nome-1"},
 		{mappaturaEmail, "mappatura-email-1"},
+		{mappaturaDXF, "mappatura-dxf-1"},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("versione %q, attesa %q: un cambio di versione si dichiara nel commit", c[0], c[1])
@@ -215,14 +217,15 @@ type ingressoMessaggio struct {
 }
 
 // casoGolden: un ingresso e il suo golden. I nomi stanno qui, in una tabella, e non si cercano nelle cartelle.
-// struttura e testoPDF sono ciò che worker.DecodificaStruttura e worker.DecodificaTestoPDF devono dire del
-// payload: un ingresso che non si decodifica come la tabella dichiara è un errore della prova, non un caso
+// struttura, testoPDF e testoDXF sono ciò che worker.DecodificaStruttura, worker.DecodificaTestoPDF e
+// worker.DecodificaTestoDXF devono dire del payload: un ingresso che non si decodifica come la tabella dichiara è un errore della prova, non un caso
 // dell'adattatore. Per la mail non ci sono fatti del worker, e i due valori sono falsi.
 type casoGolden struct {
-	tipo      string // step | pdf | email
+	tipo      string // step | pdf | dxf | email
 	nome      string // il file in testdata/ingressi/<tipo>/ e in testdata/golden/
 	struttura bool
 	testoPDF  bool
+	testoDXF  bool
 }
 
 // casiGolden: F-STEP-1…10, F-PDF-1…11, F-MAIL-1…6 e F-MAIL-4b (5.7.2). F-STEP-6 ha due ingressi: il file che
@@ -231,41 +234,45 @@ type casoGolden struct {
 // (5.6.3). F-MAIL-5 ne ha quattro, perché i suoi casi non stanno in una mail sola: la tabella a TAB con una
 // tabella che non combacia (5a), la tabella a cavallo del taglio (5b), il corpo vuoto con solo HTML (5c), il
 // testo marcato con i separatori tedesco e francese (5d). Nessuna fixture mette righe «>» sotto un'apertura o un
-// separatore (domanda E1 aperta).
+// separatore (domanda E1 aperta). K4 aggiunge i DXF: il cartiglio letto (dxf_01), un DXF analizzato prima del
+// K4, con il solo esito, che resta il documento di prima (dxf_02), e un DXF binario (dxf_03).
 var casiGolden = []casoGolden{
-	{"step", "step_01_assieme", true, false},
-	{"step", "step_02_due_radici", true, false},
-	{"step", "step_03_figlio_con_due_padri", true, false},
-	{"step", "step_04_formazioni_alternative", true, false},
-	{"step", "step_05_troncata_con_scarti", true, false},
-	{"step", "step_06_non_step21", true, false},
-	{"step", "step_06b_struttura_v1", false, false},
-	{"step", "step_07_caratteri", true, false},
-	{"step", "step_08_formazioni", true, false},
-	{"step", "step_09_cordoni", true, false},
-	{"step", "step_10_v2_senza_scarti", true, false},
-	{"pdf", "pdf_01_cartiglio", false, true},
-	{"pdf", "pdf_02_revisione_legale", false, true},
-	{"pdf", "pdf_03_senza_testo", false, true},
-	{"pdf", "pdf_04a_senza_testo_pdf", false, false},
-	{"pdf", "pdf_04b_errore_pdf", false, false},
-	{"pdf", "sottoversione_1", false, true},
-	{"pdf", "pdf_06_specchiato", false, true},
-	{"pdf", "pdf_07_ocr", false, true},
-	{"pdf", "pdf_08_troncato", false, true},
-	{"pdf", "pdf_09_caratteri", false, true},
-	{"pdf", "pdf_10_metadati", false, true},
-	{"pdf", "pdf_11_elenco", false, true},
-	{"email", "mail_01_utf8", false, false},
-	{"email", "mail_02_risposta", false, false},
-	{"email", "mail_03_inoltro", false, false},
-	{"email", "mail_04_inoltro_tabella", false, false},
-	{"email", "mail_04b_senza_prefisso", false, false},
-	{"email", "mail_05a_tab_e_non_combacia", false, false},
-	{"email", "mail_05b_a_cavallo", false, false},
-	{"email", "mail_05c_solo_html", false, false},
-	{"email", "mail_05d_marcato_e_separatori", false, false},
-	{"email", "mail_06_messaggio_originale", false, false},
+	{"step", "step_01_assieme", true, false, false},
+	{"step", "step_02_due_radici", true, false, false},
+	{"step", "step_03_figlio_con_due_padri", true, false, false},
+	{"step", "step_04_formazioni_alternative", true, false, false},
+	{"step", "step_05_troncata_con_scarti", true, false, false},
+	{"step", "step_06_non_step21", true, false, false},
+	{"step", "step_06b_struttura_v1", false, false, false},
+	{"step", "step_07_caratteri", true, false, false},
+	{"step", "step_08_formazioni", true, false, false},
+	{"step", "step_09_cordoni", true, false, false},
+	{"step", "step_10_v2_senza_scarti", true, false, false},
+	{"pdf", "pdf_01_cartiglio", false, true, false},
+	{"pdf", "pdf_02_revisione_legale", false, true, false},
+	{"pdf", "pdf_03_senza_testo", false, true, false},
+	{"pdf", "pdf_04a_senza_testo_pdf", false, false, false},
+	{"pdf", "pdf_04b_errore_pdf", false, false, false},
+	{"pdf", "sottoversione_1", false, true, false},
+	{"pdf", "pdf_06_specchiato", false, true, false},
+	{"pdf", "pdf_07_ocr", false, true, false},
+	{"pdf", "pdf_08_troncato", false, true, false},
+	{"pdf", "pdf_09_caratteri", false, true, false},
+	{"pdf", "pdf_10_metadati", false, true, false},
+	{"pdf", "pdf_11_elenco", false, true, false},
+	{"dxf", "dxf_01_cartiglio", false, false, true},
+	{"dxf", "dxf_02_senza_testo_dxf", false, false, false},
+	{"dxf", "dxf_03_non_letto", false, false, true},
+	{"email", "mail_01_utf8", false, false, false},
+	{"email", "mail_02_risposta", false, false, false},
+	{"email", "mail_03_inoltro", false, false, false},
+	{"email", "mail_04_inoltro_tabella", false, false, false},
+	{"email", "mail_04b_senza_prefisso", false, false, false},
+	{"email", "mail_05a_tab_e_non_combacia", false, false, false},
+	{"email", "mail_05b_a_cavallo", false, false, false},
+	{"email", "mail_05c_solo_html", false, false, false},
+	{"email", "mail_05d_marcato_e_separatori", false, false, false},
+	{"email", "mail_06_messaggio_originale", false, false, false},
 }
 
 // leggiIngressoMessaggio decodifica l'ingresso di una mail in modo stretto (chiavi sconosciute rifiutate).
@@ -309,6 +316,9 @@ func leggiIngressoAllegato(t *testing.T, c casoGolden) ingressoAllegato {
 	}
 	if _, ok := worker.DecodificaTestoPDF(in.Fatti.Payload); ok != c.testoPDF {
 		t.Fatalf("%s: DecodificaTestoPDF dice %v, la tabella dichiara %v", c.nome, ok, c.testoPDF)
+	}
+	if _, ok := worker.DecodificaTestoDXF(in.Fatti.Payload); ok != c.testoDXF {
+		t.Fatalf("%s: DecodificaTestoDXF dice %v, la tabella dichiara %v", c.nome, ok, c.testoDXF)
 	}
 	if in.Fatti.Digest, err = fotorfq.ImprontaPayload(in.Fatti.Payload); err != nil {
 		t.Fatalf("%s: %v", c.nome, err)

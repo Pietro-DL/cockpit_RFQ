@@ -171,6 +171,7 @@ func decisioneRic(componente uuid.UUID, codice, revisione string, viste ...ancor
 // fonti del cartiglio) e con lo stato della revisione che ne segue: deve essere quella di ProponiStrutture.
 func senzaRiconciliazione(c ancoraggio.CatenaCodice) ancoraggio.CatenaCodice {
 	c.Documentale = nil
+	c.Equivalente = nil // K4: il codice della parte dal cartiglio, anche lui di ProponiAncoraggi
 	var cand []ancoraggio.CandidatoRevisione
 	for _, x := range c.Identita.CandidatiRevisione {
 		if x.Fonte != ancoraggio.FonteRevisioneCartiglio {

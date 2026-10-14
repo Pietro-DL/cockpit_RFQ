@@ -56,7 +56,9 @@ const (
 // CampoFonte: che tipo di dato è stato letto. Sono due stringhe confrontabili, quindi una chiave di mappa
 // (v3 §4.3). Con la variante "nessuno" il valore è vuoto: "nessuno" non è un jolly che accetta ogni campo.
 // I valori ammessi:
-//   - cartiglio: codice, numero_disegno, revisione, titolo, scala, materiale, particolare_simile, sconosciuto;
+//   - cartiglio: codice, numero_disegno, revisione, titolo, scala, materiale, particolare_simile, riferimento_3d,
+//     sconosciuto. «riferimento_3d» è il documento 3D della stessa parte (il Ref.3D del cartiglio, K4): una
+//     relazione, mai l'identità del disegno;
 //   - step: id, nome, descrizione, revisione. Per lo STEP «revisione» è la formazione grezza, un dato non
 //     confrontabile senza una politica (v3 D1);
 //   - elenco: codice, descrizione, revisione, quantita, posizione, sconosciuto.
@@ -68,7 +70,7 @@ type CampoFonte struct {
 // valoriPerVariante: la tabella della parte 1 §4.2, valori nell'ordine in cui la parte 1 li elenca.
 var valoriPerVariante = map[VarianteCampo][]string{
 	VarianteNessuno:   nil,
-	VarianteCartiglio: {"codice", "numero_disegno", "revisione", "titolo", "scala", "materiale", "particolare_simile", "sconosciuto"},
+	VarianteCartiglio: {"codice", "numero_disegno", "revisione", "titolo", "scala", "materiale", "particolare_simile", "riferimento_3d", "sconosciuto"},
 	VarianteStep:      {"id", "nome", "descrizione", "revisione"},
 	VarianteElenco:    {"codice", "descrizione", "revisione", "quantita", "posizione", "sconosciuto"},
 }

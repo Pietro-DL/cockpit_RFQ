@@ -87,6 +87,23 @@ const (
 	CodicePDFTroncato = "pdf.troncato"
 )
 
+// Il testo dei DXF (mappatura-dxf-1; K4). Un DXF senza testo_dxf nei fatti (analizzato prima del K4) non ne
+// produce nessuno: resta il documento di prima, con il solo nome.
+const (
+	// CodiceDXFNonLetto — avviso, dati. testo_dxf con l'esito «non_letto» (un DXF binario, un file che non è un DXF
+	// ASCII, una lettura fallita: il motivo del worker), o di una versione che non si decodifica. La capacità del
+	// cartiglio non è disponibile: non è un DXF «senza codici».
+	CodiceDXFNonLetto = "dxf.non_letto"
+
+	// CodiceDXFSenzaCartiglio — nota, dati. Il DXF si è letto, ma il worker non ha riconosciuto nessun campo del
+	// cartiglio: le etichette che conosce non ci sono, o non hanno un valore sotto. Non è «nessun codice».
+	CodiceDXFSenzaCartiglio = "dxf.senza_cartiglio"
+
+	// CodiceDXFTroncato — nota, dati. testo_dxf.troncato: il worker si è fermato su un suo tetto (byte, testi,
+	// campi): i testi dopo non ci sono, e il cartiglio è parziale.
+	CodiceDXFTroncato = "dxf.troncato"
+)
+
 // La mail (mappatura-email-1). email.inoltro_senza_confine non nasce: con R48 A l'inoltro senza confine nel
 // corpo è una storia non separabile, con il suo motivo.
 const (

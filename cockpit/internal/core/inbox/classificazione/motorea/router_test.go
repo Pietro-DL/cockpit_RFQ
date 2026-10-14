@@ -1,4 +1,4 @@
-// L1 — il router router-2 e l'intersezione con i ruoli (A-C04; piano A, 5.4.6; P1 §4.3, §6; R23, R20 a): ogni
+// L1 — il router router-3 e l'intersezione con i ruoli (A-C04; piano A, 5.4.6; P1 §4.3, §6; R23, R20 a): ogni
 // riga della tabella dà la sua funzione e i suoi ruoli ammessi, con le famiglie {prodotto, componente},
 // {componente} e {prodotto}, insiemi vuoti compresi; le categorie della famiglia non cambiano niente, e l'origine
 // dell'uso conta solo per un uso pertinente da riconoscimento automatico, che è un candidato (E2); le righe dei
@@ -44,9 +44,9 @@ var tuttiGliUsi = []string{UsoPertinente, UsoEscluso, UsoDaValutare, UsoSconosci
 // origini: le origini di una selezione, più «nessuna selezione».
 var origini = []string{"operatore", "riconoscimento", "scenario", ""}
 
-// tabellaDelPiano: le righe 1-5 e 7-16 del 5.4.6. La riga 6 (celle) non ha un selettore suo: la cella ha il
-// selettore e l'uso del segmento in cui la tabella si aggancia, e passa dalle righe 1-5 (la prova con le celle
-// vere sta in interpreta_test.go).
+// tabellaDelPiano: le righe 1-5 e 7-16 del 5.4.6, più la 17 di K4. La riga 6 (celle) non ha un selettore suo: la
+// cella ha il selettore e l'uso del segmento in cui la tabella si aggancia, e passa dalle righe 1-5 (la prova con
+// le celle vere sta in interpreta_test.go).
 var tabellaDelPiano = []rigaAttesa{
 	{1, []string{"oggetto", "corpo"}, []string{UsoPertinente}, FunzRichiesta, ruoliP},
 	{2, []string{"oggetto", "corpo"}, []string{UsoSconosciuto, UsoDaValutare}, FunzRichiesta, ruoliP},
@@ -64,6 +64,8 @@ var tabellaDelPiano = []rigaAttesa{
 	{14, []string{"radice_step.descrizione", "nodo_step.descrizione"}, nil, FunzMenzione, nil},
 	{15, []string{"elenco_pdf.descrizione", "elenco_pdf.revisione", "elenco_pdf.quantita", "elenco_pdf.posizione"}, nil, FunzAttributo, nil},
 	{16, []string{"testo_pdf", "metadati_pdf", "cartiglio.sconosciuto", "elenco_pdf.sconosciuto"}, nil, FunzMenzione, nil},
+	// K4 (router-3): il documento 3D della stessa parte, una relazione e mai un'identità del file.
+	{17, []string{"cartiglio.riferimento_3d"}, nil, FunzRelazione, nil},
 }
 
 // contestiDelVocabolario: tutti i contesti della foglia (evidenze, vocabolario chiuso).
@@ -106,7 +108,7 @@ func stessiRuoli(a, b []grammatica.Ruolo) bool {
 }
 
 func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
-	if VersioneRouter != "router-2" {
+	if VersioneRouter != "router-3" {
 		t.Fatalf("VersioneRouter = %q: cambiare la tabella vuol dire cambiare la versione, e riscrivere questa prova", VersioneRouter)
 	}
 
@@ -167,7 +169,7 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 		}
 		for _, c := range casi {
 			f, motivo := Instrada(Instradamento{Selettore: selettore(t, c.sel), Uso: UsoPertinente, Origine: c.origine})
-			if f != c.funzione || !strings.HasPrefix(motivo, "router-2 riga "+itoa(c.riga)+":") {
+			if f != c.funzione || !strings.HasPrefix(motivo, "router-3 riga "+itoa(c.riga)+":") {
 				t.Errorf("%s pertinente da %s: %s %q, attesa %s dalla riga %d", c.sel, c.origine, f, motivo, c.funzione, c.riga)
 			}
 			if candidato := c.origine != "operatore" && c.origine != "scenario"; strings.Contains(motivo, "riconoscimento automatico") != candidato {
@@ -221,7 +223,7 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 				continue
 			}
 			_, motivo := Instrada(Instradamento{Selettore: selettore(t, s), Uso: UsoNonApplicabile})
-			if !strings.HasPrefix(motivo, "router-2 riga "+itoa(n)+":") {
+			if !strings.HasPrefix(motivo, "router-3 riga "+itoa(n)+":") {
 				t.Errorf("%s: motivo %q, attesa la riga %d", s, motivo, n)
 			}
 		}
@@ -385,7 +387,7 @@ func TestAC04OgniRamoDelRouterDaLaSuaFunzioneEISuoiRuoli(t *testing.T) {
 				t.Errorf("%s: la prova lo considera riservato, la grammatica lo dice attivo", c.sel)
 			}
 			f, motivo := Instrada(Instradamento{Selettore: selettore(t, c.sel), Uso: UsoNonApplicabile})
-			if f != c.funzione || !strings.HasPrefix(motivo, "router-2 riga "+itoa(c.riga)+":") {
+			if f != c.funzione || !strings.HasPrefix(motivo, "router-3 riga "+itoa(c.riga)+":") {
 				t.Errorf("%s: %s %q, attesa %s dalla riga %d", c.sel, f, motivo, c.funzione, c.riga)
 			}
 			if got := RuoliAmmessi(f); !stessiRuoli(got, c.ruoli) {
@@ -438,4 +440,25 @@ func grammaticaRouter() grammatica.Grammatica {
 		famiglia("acme-c", "ACMEC", ruoliC, []grammatica.Categoria{grammatica.CategoriaMinuteria}, "ACMEC1002"),
 		famiglia("acme-p", "ACMEP", ruoliP, nil, "ACMEP1003"),
 	)
+}
+
+// TestK4IlRiferimento3DelCartiglioNonEIdentitaDelFile: cartiglio.riferimento_3d (router-3, riga 17) è attivo in
+// A1 e porta il documento 3D della stessa parte. Il router lo fa relazione: nessun ruolo, quindi mai l'identità
+// del 2D, né in quel namespace né in un altro. L'equivalenza con il codice del cartiglio la fa l'ancoraggio, con
+// le sue prove.
+func TestK4IlRiferimento3DelCartiglioNonEIdentitaDelFile(t *testing.T) {
+	if !grammatica.SelettoreAttivo("cartiglio.riferimento_3d") {
+		t.Fatal("cartiglio.riferimento_3d riservato: K4 lo vuole attivo")
+	}
+	for _, u := range append(append([]string(nil), tuttiGliUsi...), "") {
+		for _, o := range origini {
+			f, motivo := Instrada(Instradamento{Selettore: selettore(t, "cartiglio.riferimento_3d"), Uso: u, Origine: o})
+			if f != FunzRelazione || !strings.HasPrefix(motivo, "router-3 riga 17:") {
+				t.Fatalf("uso %q, origine %q: %s %q, attesa la relazione della riga 17", u, o, f, motivo)
+			}
+			if r := RuoliAmmessi(f); len(r) != 0 {
+				t.Fatalf("la relazione ammette dei ruoli: %v", r)
+			}
+		}
+	}
 }

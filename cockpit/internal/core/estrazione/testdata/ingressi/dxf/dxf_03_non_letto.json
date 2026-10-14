@@ -1,0 +1,50 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-0000000000d3",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 1,
+    "nome_file": "ACME7000300.dxf",
+    "estensione": "dxf",
+    "content_type": "application/dxf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 81920,
+    "sha256": "00000000000000000000000000000000000000000000000000000000000000d3",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "00000000000000000000000000000000000000000000000000000000000000d3",
+    "terna": {
+      "versione": 5,
+      "hash_configurazione": "acme-configurazione-1"
+    },
+    "calcolato_il": "2026-10-01T08:10:00.250Z",
+    "payload": {
+      "esito": {
+        "tipo_proposto": "sviluppo_dxf",
+        "codice": "ACME7000300",
+        "rev": "",
+        "confidenza": 85,
+        "fonte": "nome_file"
+      },
+      "testo_dxf": {
+        "versione": 1,
+        "esito": "non_letto",
+        "motivo": "DXF binario: si leggono solo i DXF ASCII",
+        "versione_dxf": "",
+        "codifica": "",
+        "testi": 0,
+        "annidati": 0,
+        "troncato": false,
+        "cartiglio": [],
+        "limiti": {
+          "byte_max": 67108864,
+          "testi_max": 5000,
+          "testo_max": 512,
+          "campi_max": 24
+        }
+      }
+    }
+  }
+}

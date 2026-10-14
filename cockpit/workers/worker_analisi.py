@@ -26,7 +26,8 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Con
                             ImprontaSbagliata, cadenza_battito, carica_config, configura_log, diagnosi,
                             leggi_marcatore_arresto, nome_worker, riporta_risultato)
 from contratti import (OCRPDF, CampoCartiglio, FrammentoPDF, Job, LimitiTestoPDF, MetadatiPDF,
-                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TestoPDF)
+                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TestoDXF, TestoPDF)
+from dxf_testo import leggi_testo_dxf
 from step_struttura import leggi_struttura
 
 log = logging.getLogger("worker-analisi")
@@ -298,6 +299,10 @@ ETICHETTE_CARTIGLIO = (
     ("scala", ("SCALA", "SCALE")),
     ("materiale", ("MATERIALE", "MATERIAL")),
     ("particolare_simile", ("PARTICOLARE SIMILE", "PART. SIMILE", "PART SIMILE", "PART.SIMILE", "SIMILAR PART")),
+    # K4: il riferimento al documento 3D della stessa parte («ref.3D doc./Ref.3D Dok.»), un campo suo e mai il
+    # codice del file. Nei PDF arriva quasi sempre dall'OCR (i cartigli che lo portano sono tracciati, senza
+    # testo); la sottoversione del testo non cambia: un PDF letto prima semplicemente non ha il campo.
+    ("riferimento_3d", ("REF.3D DOC.", "REF.3D DOC", "REF.3D DOK.", "REF.3D DOK", "REF. 3D DOC.", "REF. 3D DOK.")),
 )
 # Le scritte che sono un'etichetta soltanto come gemelle, dopo la barra, di un'etichetta della stessa voce (fase
 # 4.6r): «NAME» e' il titolo in «DENOMINAZIONE / NAME», ma da sola, accanto a «DRAWN», «CHECKED», «DATE», e' il nome
@@ -1071,6 +1076,9 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
     if ext in ("stp", "step"):
         return analizza_step(path_staging, nome_file)
     if ext == "dxf":
+        # Tipo, codice e rev in testa restano quelli del nome, per compatibilita'. Dal K4 c'e' anche il testo
+        # (dxf_testo): i campi del cartiglio che si riconoscono, passati per il contratto. Un DXF binario o
+        # illeggibile e' un esito dentro il fatto, mai un job fallito.
         codice, rev = separa_codice_rev(Path(nome_file).stem)
         return {
             "tipo_proposto": "sviluppo_dxf",
@@ -1078,7 +1086,7 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "rev": rev,
             "confidenza": 85 if codice else 70,
             "fonte": "nome_file" if codice else "estensione",
-            "dettagli": {},
+            "dettagli": {"testo_dxf": TestoDXF(**leggi_testo_dxf(path_staging)).model_dump(mode="json")},
         }
     if ext == "dwg":
         # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone.

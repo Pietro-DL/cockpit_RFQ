@@ -1,0 +1,84 @@
+{
+  "bundle_id": "bf35c690c054ade1a616a930d305808c479baf8ba800f4e3bb33df9346af4f4b",
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-0000000000d2",
+    "origine_id": "00000000-0000-4000-8000-0000000000d2",
+    "provenienza": {
+      "bytes": 81920,
+      "content_type": "application/dxf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000200_D42_ACME7100300_000_00.dxf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00.25Z",
+      "digest_payload": "0ba6fdc9f20c45c12285e9e5443f2418e35d77a5de0951feef77cbde4866cae2",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "00000000000000000000000000000000000000000000000000000000000000d2",
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "i fatti hanno solo l'esito del worker: è una sua lettura, non un fatto, e non si usa (A1.2)",
+        "nome": "contenuto",
+        "stato": "non_disponibile"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000200_D42_ACME7100300_000_00.dxf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d2",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 38,
+            "inizio": 35
+          },
+          "intervallo": {
+            "fine": 38,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 34,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000200_D42_ACME7100300_000_00.dxf"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

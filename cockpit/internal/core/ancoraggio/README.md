@@ -107,6 +107,30 @@ markmap:
   - lo STEP «solo parti» (una radice, nessuna occorrenza di assieme) **resta un grafo non completo**, con il motivo
     della 0020: non dimostra che i figli non esistano (D-SHOCK-S1 B, D-SHOCK-S2 B dell'utente), quindi la sua
     struttura dà `grafo_incompleto` e blocca `fuori_richiesta` come prima.
+- Con K4 (opzione A dell'utente; `VersioneServizio` `ancoraggio-2`) ci sono **le equivalenze del cartiglio**
+  (`equivalenze.go`): un cartiglio che scrive il codice della parte (A:M) e, nella stessa entità, il documento 3D della
+  stessa parte (`cartiglio.riferimento_3d`, B:D3, una relazione per il router, mai un'identità del file) dice che M e
+  D3 sono la stessa parte. La regola è generica e si accende solo se una grammatica legge `cartiglio.riferimento_3d`:
+  - la tabella è del thread (`equivalenzeDelThread`, in `ProponiAncoraggi` sui file in ordine): per ogni entità del
+    cartiglio i codici sono le letture d'identità su `cartiglio.codice` (solo se mancano, quelle del nome dello stesso
+    file fuori dai namespace dei riferimenti: il nome di un 2D vero dice anche il documento 2D), i riferimenti le
+    letture su `cartiglio.riferimento_3d`; basi complete, una chiave (namespace, base, marcatore scritto) per lato,
+    namespace diversi. Uno stesso D3 con due M, o uno stesso M con due D3, toglie tutte le coppie coinvolte, con
+    l'avviso `ancoraggio.equivalenza_cartiglio_contesa` (anche per un cartiglio con più codici o più riferimenti; più
+    identità rimaste nel nome del file non propongono niente e non sono una contesa);
+  - in `ancora`, dopo il primo giro, un'identità del file con il ruolo componente e un'equivalenza verso un'identità
+    raggiungibile (stesso namespace del riferimento, base uguale o equivalente, marcatore compatibile) che il file non
+    sostiene già da sé dà un candidato proposto a livello componente, con il motivo `equivalenza_cartiglio` e le prove
+    in `CandidatoAncoraggio.Equivalenze` (allegato, entità, letture, fonte `cartiglio` | `nome_file`; `omitempty`: gli
+    esiti di prima hanno gli stessi byte). Le dimensioni misurano il riferimento contro il nodo (namespace e revisione
+    non determinabili). La chiave è quella della lettura: il gemello di un DXF (un PDF letto solo dal nome) ha il
+    candidato solo se il nome dice lo stesso codice. L'equivalenza non entra fra i namespace che si confrontano: la
+    guardia L8 resta com'è, perché la tabella è parziale.
+  - sui nodi (`equivalenzeSuiNodi`, collaudo dell'utente del 14/10: il nodo dello STEP si chiama col Ref.3D, la parte
+    è il P/N del cartiglio): un nodo la cui identità è il riferimento di un'unica equivalenza del thread porta il codice
+    della parte in `CatenaCodice.Equivalente` (`CodiceEquivalente`: namespace, base, marcatore, prove; `omitempty`).
+    È una proposta: l'identità del nodo resta quella dello STEP, niente si decide; la pagina del Motore A lo mostra
+    come codice della casella, col 3D accanto.
 - In B4 (commit P6b, fase 3) c'è **la riconciliazione fra lo STEP e il cartiglio** (6.0.6; workflow, passo 10 e il
   caso del §4; contratto §0 punto 4, §1.4, §2.2, §2.5, §2.6), dentro `ProponiAncoraggi`, dopo gli ancoraggi:
   - per ogni nodo con un **2D associato** (un file che valutazione segna come disegno, `FileInterpretato.Disegno`,
@@ -162,7 +186,7 @@ markmap:
 ## File
 
 - **`prodotti.go`** — responsabilità:
-  - commento `// Package`; `VersioneServizio` (`ancoraggio-1`);
+  - commento `// Package`; `VersioneServizio` (`ancoraggio-2` da K4: le equivalenze del cartiglio);
   - il vocabolario: `Autorita`, `OrigineDato`, `StatoRichiesta`, `GestoMessaggio`, `RichiestaValutata`,
     `SegmentoPertinente`;
   - `MessaggioInterpretato` (messaggio, documento, interpretazione: il documento dà il segmento di un'unità e la
@@ -217,6 +241,12 @@ markmap:
     dei namespace che si confrontano, L8), `SenzaFile` ricalcolato, la
     riconciliazione (fase 3), i controlli di contratto dei file e delle associazioni decise, le impronte con il
     contesto in ordine canonico.
+- **`equivalenze.go`** (K4) — responsabilità:
+  - `ProvaEquivalenza` con le fonti (`FonteEquivalenzaCartiglio`, `FonteEquivalenzaNomeFile`); `CodiceEquivalente`, il
+    codice della parte sui nodi (`equivalenzeSuiNodi`);
+  - la tabella delle equivalenze del cartiglio del thread con le contese (`equivalenzeDelThread`), le letture del file
+    che le usano e il candidato per equivalenza (`candidatoEquivalenza`, sopra `candidatoSuIdentita` di
+    `ancoraggi.go`).
 - **`riconciliazione.go`** (B4, fase 3) — responsabilità:
   - gli ingressi `AssociazioneDecisa` e il segnale `DiscordanzaDecisione`, con le costanti di parte, effetto e motivo;
     i motivi del codice documentale;
@@ -229,7 +259,8 @@ markmap:
     `ancoraggio.righe_stessa_base`, `ancoraggio.quantita_non_intera`, `ancoraggio.alternative_conservate`;
     `ancoraggio.target_senza_struttura`, `ancoraggio.grafo_incompleto` (le strutture);
     `ancoraggio.radice_dal_nome_file`, `ancoraggio.radice_dallo_step_associato` (le radici di riserva, in nota: notte
-    del 14/10); `ancoraggio.completamento_documentale`, `ancoraggio.correzione_documentale` (la riconciliazione, fase 3).
+    del 14/10); `ancoraggio.completamento_documentale`, `ancoraggio.correzione_documentale` (la riconciliazione, fase 3);
+    `ancoraggio.equivalenza_cartiglio_contesa` (le equivalenze del cartiglio, in avviso: K4).
 
 ## Entry point
 

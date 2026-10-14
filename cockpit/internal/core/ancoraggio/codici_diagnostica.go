@@ -63,3 +63,15 @@ const (
 	// correzione accanto quando il file ha identità che non concordano (R64 A, T-B0-35).
 	CodiceCorrezioneDocumentale = "ancoraggio.correzione_documentale"
 )
+
+// Le equivalenze del cartiglio (ProponiAncoraggi, K4; equivalenze.go): un cartiglio che scrive il codice della parte e
+// il documento 3D della stessa parte (cartiglio.riferimento_3d) propone il candidato sul nodo del documento 3D, con le
+// prove. Niente si conferma: il candidato resta proposto (T-B0-09).
+const (
+	// CodiceEquivalenzaCartiglioContesa — avviso, dati. Un'equivalenza del cartiglio non si propone perché non è
+	// univoca: un cartiglio con più codici della parte o più riferimenti 3D, uno stesso riferimento 3D accanto a due
+	// codici della parte, o uno stesso codice accanto a due riferimenti 3D nei cartigli del thread. Le coppie coinvolte
+	// cadono tutte. Più identità nel nome del file, quando il cartiglio non dice il codice, non sono una contesa: il
+	// ripiego sul nome non propone e non lo dice. Rif: le identità (RifIdentita senza revisione) e gli allegati.
+	CodiceEquivalenzaCartiglioContesa = "ancoraggio.equivalenza_cartiglio_contesa"
+)

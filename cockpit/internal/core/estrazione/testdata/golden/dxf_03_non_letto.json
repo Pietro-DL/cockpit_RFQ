@@ -1,0 +1,93 @@
+{
+  "bundle_id": "70cd913d05d1f2d58e41305f82f41ff16219d6dca9d8e1a1f0cfe08136fd2e43",
+  "fonte": {
+    "contenitore_id": "messaggio:00000000-0000-4000-8000-000000000090",
+    "id": "allegato:00000000-0000-4000-8000-0000000000d3",
+    "origine_id": "00000000-0000-4000-8000-0000000000d3",
+    "provenienza": {
+      "bytes": 81920,
+      "content_type": "application/dxf",
+      "data": "2026-10-01T08:00:00Z",
+      "ignoti": [
+        "autore: il record dell'allegato non lo porta",
+        "nome come l'ha dato la posta: l'acquisizione lo tronca a 300 rune e toglie gli spazi ai bordi (ingest.go:895, :640-645)"
+      ],
+      "nome_ricevuto": "ACME7000300.dxf",
+      "origine_dichiarata": "outlook"
+    },
+    "riferimento_fatti": {
+      "calcolato_il": "2026-10-01T08:10:00.25Z",
+      "digest_payload": "79d18af343674cee8dd025aef5e4457a7a4e2e1c5ed935bf165a5a564ceb4f58",
+      "hash_configurazione": "acme-configurazione-1",
+      "sha256": "00000000000000000000000000000000000000000000000000000000000000d3",
+      "tipo": "analisi_file",
+      "versione_analizzatore": 5
+    },
+    "tipo": "allegato"
+  },
+  "qualita": {
+    "capacita": [
+      {
+        "motivo": "il worker non ha letto il DXF (esito «non_letto»: DXF binario: si leggono solo i DXF ASCII)",
+        "nome": "cartiglio",
+        "stato": "non_disponibile"
+      }
+    ],
+    "diagnostiche": [
+      {
+        "codice": "dxf.non_letto",
+        "gravita": "avviso",
+        "messaggio": "il worker non ha letto il DXF (esito «non_letto»: DXF binario: si leggono solo i DXF ASCII): non è un DXF senza codici",
+        "natura": "dati",
+        "percorso": "testo_dxf"
+      }
+    ],
+    "mappatura": "verificata",
+    "metodo": "adattatore",
+    "stato": "parziale"
+  },
+  "testi": [
+    {
+      "id": "allegato.nome_file",
+      "origine": "allegato.nome_file",
+      "testo": "ACME7000300.dxf"
+    }
+  ],
+  "unita": [
+    {
+      "campo_originale": {
+        "mappatura": "mappatura-nome-1",
+        "parser": "allegato.nome_file"
+      },
+      "fonte_id": "allegato:00000000-0000-4000-8000-0000000000d3",
+      "id": "u:nome",
+      "posizione": {
+        "nome_file": {
+          "campo": "allegato.nome_file",
+          "estensione": {
+            "fine": 15,
+            "inizio": 12
+          },
+          "intervallo": {
+            "fine": 15,
+            "inizio": 0
+          },
+          "stem": {
+            "fine": 11,
+            "inizio": 0
+          }
+        },
+        "tipo": "nome_file"
+      },
+      "qualita": {
+        "localizzazione": "esatta",
+        "metodo": "adattatore",
+        "motivo": "il nome com'è nel DB, già trasformato dall'acquisizione (Provenienza.Ignoti)"
+      },
+      "selettore": "nome_file",
+      "testo": "ACME7000300.dxf"
+    }
+  ],
+  "versione_adattatore": "adattatori-1",
+  "versione_schema": 1
+}

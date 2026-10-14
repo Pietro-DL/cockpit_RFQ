@@ -57,7 +57,8 @@ markmap:
     `Capacita`.
 - **`localizzatore.go`** — responsabilità:
   - `Localizzatore` (un'unione: solo la variante del tipo), `PosTesto`, `PosPDF` (riquadro in decimi di
-    punto interi), `PosSTEP`, `PosTabella` (con `Esatto`), `PosNomeFile`.
+    punto interi), `PosSTEP`, `PosTabella` (con `Esatto`), `PosNomeFile`, `PosDXF` (K4: riquadro in decimi di
+    unità del disegno, y verso l'alto; da ratificare come cambio della parte 1 §3.3).
 - **`uso.go`** — responsabilità:
   - `UsoSegmenti`, `SelezioneSegmento`, `UsoSconosciuto` (la forma canonica di «nessuna selezione»),
     `ValidaUso`.

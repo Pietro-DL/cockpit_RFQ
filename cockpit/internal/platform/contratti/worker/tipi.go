@@ -644,6 +644,10 @@ const (
 	// CampoParticolareSimile: «PARTICOLARE SIMILE / SIMILAR PART» (giro 4, fase 4.6). Il valore e' il codice di
 	// un pezzo gia' fatto di cui questo e' parente: per il server una nota («simile a X»), mai il codice del file.
 	CampoParticolareSimile = "particolare_simile"
+	// CampoRiferimento3D: «ref.3D doc. / Ref.3D Dok.» (K4), il documento 3D della stessa parte, letto nel cartiglio
+	// di un DXF (TestoDXF) o con l'OCR di un PDF. È un dato del cartiglio, mai il codice del file: che cosa lega lo
+	// dice il motore (ancoraggio per equivalenza), con la provenienza.
+	CampoRiferimento3D = "riferimento_3d"
 )
 
 // VersioneTestoPDF e' la sottoversione del testo dei PDF che il worker di oggi scrive (TestoPDF.Versione, la
@@ -778,6 +782,74 @@ func DecodificaTestoPDF(dettagli json.RawMessage) (*TestoPDF, bool) {
 		return nil, false
 	}
 	return involucro.Testo, true
+}
+
+// ---------------------------------------------------------------- testo dei DXF (K4)
+
+// Gli esiti della lettura di un DXF (TestoDXF.Esito).
+const (
+	DXFLetto    = "letto"     // il file si è letto: un cartiglio vuoto è una risposta
+	DXFNonLetto = "non_letto" // un DXF binario, un file che non è un DXF ASCII, un errore di lettura (Motivo)
+)
+
+// VersioneTestoDXF è la versione della forma di `testo_dxf` che il worker di oggi scrive (TestoDXF.Versione, non la
+// versione dell'analizzatore). Un DXF con i fatti correnti senza `testo_dxf`, o con una versione di prima, si
+// riaccoda con «Rianalizza» (fascicolo.AccodaPdfDaRileggere, TestoDXFDaRileggere), come i PDF della sottoversione
+// di prima: la versione dell'analizzatore non cambia.
+const VersioneTestoDXF = 1
+
+// TestoDXF è la lettura del testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli["testo_dxf"]` (K4,
+// workers/dxf_testo.py). Come TestoPDF sono FATTI, senza codici: solo i campi del cartiglio che il worker riconosce
+// (CampoCartiglio, con Zona «pagina», Fonte «nativo» e il Riquadro del valore in unità del disegno, con la y verso
+// l'alto), mai gli altri testi del disegno. Testi sono i testi risolti dopo gli INSERT, Annidati gli INSERT dentro un
+// blocco che non si seguono. Motivo con Esito DXFNonLetto dice perché; con DXFLetto dice i testi non letti per una
+// ragione che non è un tetto (gli INSERT ruotati, che il worker non segue), vuoto altrimenti.
+type TestoDXF struct {
+	Versione    int              `json:"versione"`
+	Esito       string           `json:"esito"`
+	Motivo      string           `json:"motivo"`
+	VersioneDXF string           `json:"versione_dxf"`
+	Codifica    string           `json:"codifica"`
+	Testi       int              `json:"testi"`
+	Annidati    int              `json:"annidati"`
+	Troncato    bool             `json:"troncato"`
+	Cartiglio   []CampoCartiglio `json:"cartiglio"`
+	Limiti      LimitiTestoDXF   `json:"limiti"`
+}
+
+// LimitiTestoDXF: i tetti in vigore QUANDO il DXF è stato letto (come LimitiTestoPDF).
+type LimitiTestoDXF struct {
+	ByteMax  int `json:"byte_max"`
+	TestiMax int `json:"testi_max"`
+	TestoMax int `json:"testo_max"`
+	CampiMax int `json:"campi_max"`
+}
+
+// DecodificaTestoDXF estrae la lettura del testo di un DXF dai dettagli di un'analisi, come DecodificaTestoPDF: falso
+// quando non c'è (un DXF analizzato prima del K4 ha i dettagli vuoti: il suo testo non è stato letto) o quando la
+// versione è sconosciuta (< 1). Un DXF binario si decodifica: è una risposta (Esito DXFNonLetto). Tollera i campi
+// sconosciuti.
+func DecodificaTestoDXF(dettagli json.RawMessage) (*TestoDXF, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Testo *TestoDXF `json:"testo_dxf"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Testo == nil {
+		return nil, false
+	}
+	if involucro.Testo.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Testo, true
+}
+
+// TestoDXFDaRileggere dice se «Rianalizza» deve riaccodare un DXF con questi fatti dell'analizzatore corrente: il
+// testo non c'è (un worker di prima del K4) o è di una versione di prima di VersioneTestoDXF.
+func TestoDXFDaRileggere(fatti json.RawMessage) bool {
+	t, ok := DecodificaTestoDXF(fatti)
+	return !ok || t.Versione < VersioneTestoDXF
 }
 
 // ---------------------------------------------------------------- healthz

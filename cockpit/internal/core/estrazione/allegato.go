@@ -19,7 +19,7 @@ const (
 )
 
 // DaAllegato costruisce il documento di un file (5.4.5): il nome e, per una voce d'archivio, il percorso, più
-// il contenuto secondo i fatti (STEP, PDF, solo esito o niente). Un file senza fatti, o con fatti che nessuna
+// il contenuto secondo i fatti (STEP, PDF, il cartiglio di un DXF dal K4, solo esito o niente). Un file senza fatti, o con fatti che nessuna
 // mappatura legge, dà il solo nome, con la capacità del contenuto dichiarata e il motivo. esito.codice,
 // esito.rev e product_step del worker non si usano: sono letture del worker, non fatti (A1.2; tipi.go:486-500).
 //
@@ -55,6 +55,8 @@ func DaAllegato(a fotorfq.Allegato, f *fotorfq.Fatti, contenitore *fotorfq.Alleg
 		c.contenutoSTEP(f)
 	case ePDF(est, chiavi):
 		c.contenutoPDF(f)
+	case eDXF(chiavi):
+		c.contenutoDXF(f)
 	case f == nil:
 		c.senzaContenuto("nessun fatto del worker per questo contenuto")
 	case len(chiavi) == 1 && chiavi[chiaveEsito]:

@@ -764,10 +764,11 @@ func TestLoStatoSegueLeCapacitaDiLetturaSuOgniFixture(t *testing.T) {
 			"step_09_cordoni", "step_10_v2_senza_scarti"},
 		"pdf": {"pdf_01_cartiglio", "pdf_02_revisione_legale", "pdf_03_senza_testo", "pdf_04a_senza_testo_pdf", "pdf_04b_errore_pdf",
 			"sottoversione_1", "pdf_06_specchiato", "pdf_07_ocr", "pdf_08_troncato", "pdf_09_caratteri", "pdf_10_metadati", "pdf_11_elenco"},
+		"dxf": {"dxf_01_cartiglio", "dxf_02_senza_testo_dxf", "dxf_03_non_letto"},
 	}
 	var docs []evidenze.DocumentoEvidenze
 	var nomi []string
-	for _, tipo := range []string{"step", "pdf"} {
+	for _, tipo := range []string{"step", "pdf", "dxf"} {
 		for _, n := range file[tipo] {
 			docs = append(docs, docFile(t, tipo, n))
 			nomi = append(nomi, n)
@@ -1257,5 +1258,48 @@ func TestNessunaRelazioneDalTestoLibero(t *testing.T) {
 	}
 	if len(specchiato) != 1 || specchiato[0].Funzione != motorea.FunzMenzione || len(specchiato[0].RuoliCandidati) != 0 {
 		t.Errorf("il codice dopo «SPECCHIATO DI»: %v", ids(specchiato))
+	}
+}
+
+// famDoc3D: i documenti 3D «ACME71» con cinque cifre, letti solo sul riferimento 3D del cartiglio (K4), in un
+// namespace diverso da quello del materiale.
+func famDoc3D() grammatica.FamigliaCodice {
+	return grammatica.FamigliaCodice{
+		ID: "acme-doc3d", Namespace: "acme-doc3d", Ruoli: ruoliPC, Base: baseACME("ACME71", "[0-9]{5}"),
+		Forme: []grammatica.FormaCodice{formaACME("cartiglio-3d", []string{"cartiglio.riferimento_3d"}, parteBase())},
+		Esempi: []grammatica.EsempioCodice{esempioACME("e-3d", "cartiglio.riferimento_3d", "ACME7100400",
+			grammatica.LetturaAttesa{Forma: "cartiglio-3d", Base: "ACME7100400"})},
+	}
+}
+
+// TestIlRiferimento3DelDXFEUnaRelazioneDelDisegno (K4): dal DXF (mappatura-dxf-1) a Interpreta. Il codice del
+// cartiglio è l'identità del file nel suo namespace; il riferimento 3D, letto da una forma attiva del suo
+// namespace, è una relazione (router-3, riga 17): nessun ruolo, quindi mai un'identità del 2D. Le due letture
+// stanno nella stessa entità «disegno» del DXF: è la co-occorrenza che l'ancoraggio userà, con la provenienza.
+// Il numero del disegno resta riservato in A1 (nessuna lettura). Le relazioni semantiche restano vuote (punto 13).
+func TestIlRiferimento3DelDXFEUnaRelazioneDelDisegno(t *testing.T) {
+	m := motore(t, grammaticaGACME(nil, famDisegno(), famDoc3D()))
+	d := docFile(t, "dxf", "dxf_01_cartiglio")
+	r := interpretaDoc(t, m, d, usoSconosciuto(d))
+
+	codice := lettureDi(r, "u:dxf:cartiglio:codice:1")
+	if len(codice) != 1 || codice[0].Funzione != motorea.FunzIdentitaFile || codice[0].Forma.Namespace != "acme-disegno" ||
+		codice[0].Forma.Originale != "ACME7000200" {
+		t.Fatalf("il codice del cartiglio del DXF: %+v", codice)
+	}
+	rif := lettureDi(r, "u:dxf:cartiglio:riferimento_3d:1")
+	if len(rif) != 1 || rif[0].Funzione != motorea.FunzRelazione || len(rif[0].RuoliCandidati) != 0 ||
+		rif[0].Forma.Namespace != "acme-doc3d" || rif[0].Forma.Originale != "ACME7100400" ||
+		len(rif[0].Motivi) == 0 || !strings.HasPrefix(rif[0].Motivi[0], "router-3 riga 17:") {
+		t.Fatalf("il riferimento 3D del cartiglio del DXF: %+v", rif)
+	}
+	if entitaDi(d, codice[0].UnitaID) != "e:dxf:cartiglio" || entitaDi(d, rif[0].UnitaID) != "e:dxf:cartiglio" {
+		t.Errorf("codice e riferimento 3D non stanno nella stessa entità del DXF: %q, %q", entitaDi(d, codice[0].UnitaID), entitaDi(d, rif[0].UnitaID))
+	}
+	if l := lettureDi(r, "u:dxf:cartiglio:numero_disegno:1"); len(l) != 0 {
+		t.Errorf("il numero del disegno è riservato in A1: %v", ids(l))
+	}
+	if len(r.Relazioni) != 0 {
+		t.Errorf("relazioni semantiche in A1: %+v", r.Relazioni)
 	}
 }

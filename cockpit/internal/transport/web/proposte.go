@@ -160,6 +160,19 @@ func fraseRianalisi(ri fascicolo.Rianalisi) string {
 	if ri.PdfSenzaStaging > 0 {
 		parti = append(parti, conta(ri.PdfSenzaStaging, "PDF non più in staging", "PDF non più in staging")+" (Riscarica)")
 	}
+	// i DXF analizzati senza il testo (K4): come i PDF, contati a parte
+	if ri.DxfAccodati > 0 {
+		parti = append(parti, conta(ri.DxfAccodati, "DXF accodato", "DXF accodati")+" per rileggerne il testo")
+	}
+	if ri.DxfGiaInCoda > 0 {
+		parti = append(parti, conta(ri.DxfGiaInCoda, "DXF già in coda", "DXF già in coda"))
+	}
+	if ri.DxfRimandati > 0 {
+		parti = append(parti, conta(ri.DxfRimandati, "DXF rimandato", "DXF rimandati")+" al prossimo giro")
+	}
+	if ri.DxfSenzaStaging > 0 {
+		parti = append(parti, conta(ri.DxfSenzaStaging, "DXF non più in staging", "DXF non più in staging")+" (Riscarica)")
+	}
 	if len(parti) == 0 {
 		// dal F9 il gesto guarda anche i PDF: la frase dice tutti e due, non solo gli STEP
 		return "Niente da rileggere in questa RFQ: STEP e PDF sono già letti con l'analizzatore corrente."

@@ -588,6 +588,10 @@ func leggiFrammento(m *Motore, t worker.TestoPDF, f worker.FrammentoPDF, fonte, 
 			// all'etichetta, e separaSimili non lo vede): la nota, non un codice del frammento
 			valoriSimili = append(valoriSimili, c.Codice)
 			continue
+		case ok && campo.Etichetta == worker.CampoRiferimento3D:
+			// il documento 3D che il campo del riferimento 3D riporta (K4): un altro documento della stessa parte,
+			// non un codice del frammento (l'equivalenza con il codice la propone il motore A, con le sue prove)
+			continue
 		case ok:
 			l.Etichetta, l.Riquadro = campo.Etichetta, campo.Riquadro
 		}
@@ -654,15 +658,16 @@ func alfanumerico(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z'
 }
 
-// leggiCampo sono i codici del valore di un campo del cartiglio (non della revisione, che un codice non e'), e a
-// parte quelli del particolare simile e dello speculare scritti nel valore. Il campo del particolare simile
+// leggiCampo sono i codici del valore di un campo del cartiglio (non della revisione, che un codice non e', ne' del
+// riferimento 3D, che e' il documento 3D della stessa parte: K4), e a parte quelli del particolare simile e dello
+// speculare scritti nel valore. Il campo del particolare simile
 // (sottoversione 2 del testo, fase 4.6) e' tutto una nota, con la stessa regola dei frammenti: il suo valore e'
 // «simile a X», mai un codice ne' una chiave; il segnaposto del modello («Inserire codice particolare simile») non
 // da' niente, nemmeno con un codice accanto, che in un cartiglio a tabella e' il valore di un'altra colonna.
 func leggiCampo(m *Motore, c worker.CampoCartiglio, fonte, rev string) lettureDi {
 	posto := LetturaTesto{Fonte: fonte, Pagina: c.Pagina, Zona: c.Zona, Riquadro: c.Riquadro, Confidenza: c.Confidenza}
 	switch c.Etichetta {
-	case worker.CampoRevisione:
+	case worker.CampoRevisione, worker.CampoRiferimento3D:
 		return lettureDi{}
 	case worker.CampoParticolareSimile:
 		if segnapostoSimile.MatchString(c.Valore) {

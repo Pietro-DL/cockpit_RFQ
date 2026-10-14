@@ -469,8 +469,13 @@ class CampoCartiglio(Base):
     scritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO
     che le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,
     che resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del
-    valore; `zona` e' quella dell'etichetta."""
-    etichetta: Literal["numero_disegno", "codice", "revisione", "titolo", "scala", "materiale", "particolare_simile"]
+    valore; `zona` e' quella dell'etichetta.
+
+    K4: lo stesso campo porta il cartiglio di un DXF (TestoDXF), e c'e' la voce `riferimento_3d`: «ref.3D doc. /
+    Ref.3D Dok.», il documento 3D della stessa parte (un dato del cartiglio, mai il codice del file). Nel testo dei
+    PDF la voce si riconosce senza cambiare la sottoversione."""
+    etichetta: Literal["numero_disegno", "codice", "revisione", "titolo", "scala", "materiale", "particolare_simile",
+                       "riferimento_3d"]
     letta: str = ""
     valore: str = ""
     pagina: int = 1
@@ -562,6 +567,46 @@ class TestoPDF(Base):
     limiti: LimitiTestoPDF = Field(default_factory=LimitiTestoPDF)
 
 
+# ---------------------------------------------------------------- testo dei DXF (K4)
+#
+# Fino a qui il worker di un DXF leggeva solo il nome. Dal K4 legge anche il testo (workers/dxf_testo.py) e ne
+# riporta i FATTI in `dettagli.testo_dxf`: i campi del cartiglio che riconosce, come CampoCartiglio, e niente
+# altro (nel cartiglio ci sono i nomi delle persone). Come per il PDF, nessun codice: il valore e' testo grezzo.
+
+
+class LimitiTestoDXF(Base):
+    """Fin dove si e' letto: i tetti in vigore QUANDO il DXF e' stato letto, come LimitiTestoPDF."""
+    byte_max: int = 0    # byte del file letti al massimo
+    testi_max: int = 0   # testi risolti (dopo gli INSERT) al massimo
+    testo_max: int = 0   # caratteri conservati di un testo
+    campi_max: int = 0   # campi del cartiglio
+
+
+class TestoDXF(Base):
+    """Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli["testo_dxf"]` (K4).
+
+    `esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un
+    file che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si
+    sono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto
+    altrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,
+    `annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'
+    vero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del
+    cartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,
+    con la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di
+    questo oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il
+    server lo rianalizza con «Rianalizza»."""
+    versione: int = 1
+    esito: Literal["letto", "non_letto"] = "letto"
+    motivo: str = ""
+    versione_dxf: str = ""
+    codifica: str = ""
+    testi: int = 0
+    annidati: int = 0
+    troncato: bool = False
+    cartiglio: list[CampoCartiglio] = Field(default_factory=list)
+    limiti: LimitiTestoDXF = Field(default_factory=LimitiTestoDXF)
+
+
 class RisultatoAnalisi(Base):
     allegato_id: UUID
     tipo_proposto: str
@@ -601,4 +646,5 @@ CONTRATTI = {
     "risultato_analisi": RisultatoAnalisi,
     "struttura_step": StrutturaSTEP,
     "testo_pdf": TestoPDF,
+    "testo_dxf": TestoDXF,
 }

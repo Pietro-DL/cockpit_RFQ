@@ -13,7 +13,9 @@ package motore_a
 // namespace_non_confrontabile; finché il motore non li produce non compaiono mai, e la pagina non si rompe quando
 // arrivano. La prova TestSpiegazioniCopronoICodiciDiAncoraggio legge le costanti dai sorgenti di core/ancoraggio:
 // ogni motivo e ogni codice delle strutture ha la sua spiegazione; una voce senza costante deve stare fra quelle attese
-// da WP-A (codiciAttesiWPA).
+// da WP-A (codiciAttesiWPA). Da K4 anche il codice delle equivalenze del cartiglio contese, che la pagina mostra fra le
+// diagnostiche della RFQ; il motivo del candidato (equivalenza_cartiglio) non ha spiegazione, perché la pagina non
+// mostra i motivi dei candidati.
 //
 // Tolleranza [T]: un codice che la tabella non conosce non torna mai fra quadre (la pagina non le ammette, T-A1d-29):
 // il titolo è l'etichetta del dominio codice_diagnostica se il codice ce l'ha (le altre diagnostiche dell'ancoraggio:
@@ -79,6 +81,9 @@ var spiegazioni = map[string]voceSpiegazione{
 		"I nodi dello STEP non portano il codice del prodotto, ma il nome del file sì: la radice del file è proposta come struttura candidata. Va guardata prima di autorizzarla."},
 	"radice_dallo_step_associato": {"radice dallo STEP associato",
 		"Lo STEP è stato associato al prodotto da una persona, ma i suoi nodi non portano il codice del prodotto: la sua radice è proposta come struttura candidata. Va guardata prima di autorizzarla."},
+	// K4: l'equivalenza del cartiglio fra il codice della parte e il documento 3D che non si propone
+	"equivalenza_cartiglio_contesa": {"equivalenza del cartiglio non univoca",
+		"Un cartiglio scrive il codice della parte accanto al documento 3D, ma non in modo univoco (più codici, più riferimenti, o lo stesso riferimento con codici diversi in altri disegni): il motore non propone il disegno sul nodo del 3D, va guardato a mano."},
 	// i motivi della collocazione di un file (ancoraggi.go, MotivoAncoraggio*)
 	"target_ignoti": {"nessun prodotto della RFQ",
 		"La RFQ non ha prodotti: un file non si può mettere sotto nessuno."},

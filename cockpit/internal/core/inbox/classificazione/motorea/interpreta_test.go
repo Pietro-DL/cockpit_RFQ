@@ -790,7 +790,7 @@ func TestAC04IlRouterDentroInterpreta(t *testing.T) {
 		controlla(t, r, "u:tab:1:r1:c1", FunzMenzione, UsoPertinente, "riconoscimento")
 		fuoriDalMessaggio(t, r)
 		for _, l := range lettureDellUnita(r, "u:corpo:s:corrente") {
-			if !strings.HasPrefix(l.Motivi[0], "router-2 riga 2:") || !strings.Contains(l.Motivi[0], "riconoscimento automatico") {
+			if !strings.HasPrefix(l.Motivi[0], "router-3 riga 2:") || !strings.Contains(l.Motivi[0], "riconoscimento automatico") {
 				t.Errorf("%s: motivo %q, atteso la riga 2 con il candidato", l.ID, l.Motivi[0])
 			}
 		}

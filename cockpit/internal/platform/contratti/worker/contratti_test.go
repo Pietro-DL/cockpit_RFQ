@@ -66,6 +66,7 @@ var tipiContratto = map[string]any{
 	"risultato_analisi":         RisultatoAnalisi{},
 	"struttura_step":            StrutturaSTEP{},
 	"testo_pdf":                 TestoPDF{},
+	"testo_dxf":                 TestoDXF{},
 }
 
 // tipiAnnidati: i modelli che compaiono dentro gli altri come $ref. Il nome del tipo Go e il nome
@@ -93,6 +94,7 @@ var tipiAnnidati = map[string]any{
 	"TentativoOCR":        TentativoOCR{},
 	"MetadatiPDF":         MetadatiPDF{},
 	"LimitiTestoPDF":      LimitiTestoPDF{},
+	"LimitiTestoDXF":      LimitiTestoDXF{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -661,6 +663,9 @@ func TestLaStrutturaV3PortaGliScartiInNumeri(t *testing.T) {
 // Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava sei voci dei campi del cartiglio; adesso sono sette,
 // con il particolare simile (worker.CampoParticolareSimile: un campo, non un codice), e la sottoversione del testo
 // che lo schema dichiara per difetto e' quella che il Go conosce (VersioneTestoPDF, la 2).
+//
+// Riscritta per il K4: le voci sono otto, con il riferimento al documento 3D (worker.CampoRiferimento3D, un dato del
+// cartiglio e mai il codice del file); la sottoversione del testo dei PDF resta la 2.
 func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 	s := leggiSchema(t, "testo_pdf")
 	defs, _ := s["$defs"].(map[string]any)
@@ -723,7 +728,7 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 	vuole("stato dell'OCR", enum(def("OCRPDF"), "stato"), OCRNonNecessario, OCRSpento, OCRNonDisponibile, OCREseguito,
 		OCRFallito, OCRScaduto, OCRIlleggibile)
 	vuole("etichette del cartiglio", enum(def("CampoCartiglio"), "etichetta"), CampoNumeroDisegno, CampoCodice,
-		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale, CampoParticolareSimile)
+		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale, CampoParticolareSimile, CampoRiferimento3D)
 	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go
 	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 2 {
 		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d (la fase 4.6 porta la 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF)
@@ -841,6 +846,116 @@ func TestDecodificaTestoPDF(t *testing.T) {
 		t.Run(nome, func(t *testing.T) {
 			if tp, ok := DecodificaTestoPDF(d); ok {
 				t.Errorf("testo accettato: %+v", tp)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------- testo dei DXF (K4)
+
+// K4. Il testo del DXF non porta codici, come quello del PDF: solo i campi del cartiglio riconosciuti (lo stesso
+// CampoCartiglio, con le stesse voci), l'esito della lettura e i limiti in vigore. La forma che lo schema dichiara per
+// difetto e' quella che il Go conosce (VersioneTestoDXF, la 1), e le voci chiuse sono quelle delle costanti Go.
+func TestIlTestoDelDxfNonPortaCodici(t *testing.T) {
+	s := leggiSchema(t, "testo_dxf")
+	defs, _ := s["$defs"].(map[string]any)
+	def := func(nome string) map[string]map[string]any {
+		t.Helper()
+		m, ok := defs[nome].(map[string]any)
+		if !ok {
+			t.Fatalf("%s non è fra i $defs di testo_dxf", nome)
+		}
+		return proprieta(m)
+	}
+	for _, v := range []string{"codice", "codici", "rev", "tipo", "famiglia", "testo", "frammenti"} {
+		if _, c := proprieta(s)[v]; c {
+			t.Errorf("TestoDXF dichiara %q: la classificazione è del server, e gli altri testi del disegno non viaggiano", v)
+		}
+	}
+	for _, a := range []string{"versione", "esito", "motivo", "versione_dxf", "codifica", "testi", "annidati", "troncato",
+		"cartiglio", "limiti"} {
+		if _, c := proprieta(s)[a]; !c {
+			t.Errorf("TestoDXF non dichiara %q", a)
+		}
+	}
+	got := formaSchema(proprieta(s)["esito"]).valori
+	sort.Strings(got)
+	if want := []string{DXFLetto, DXFNonLetto}; !reflect.DeepEqual(got, want) {
+		t.Errorf("esito del DXF: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	got = formaSchema(def("CampoCartiglio")["etichetta"]).valori
+	sort.Strings(got)
+	want := []string{CampoNumeroDisegno, CampoCodice, CampoRevisione, CampoTitolo, CampoScala, CampoMateriale,
+		CampoParticolareSimile, CampoRiferimento3D}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("etichette del cartiglio del DXF: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoDXF || VersioneTestoDXF != 1 {
+		t.Errorf("la versione del testo del DXF: lo schema dice %v, il Go conosce %d", proprieta(s)["versione"]["default"], VersioneTestoDXF)
+	}
+	for nome, campi := range map[string]int{"LimitiTestoDXF": 4, "CampoCartiglio": 8} {
+		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
+			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
+		}
+	}
+	if n := reflect.TypeOf(TestoDXF{}).NumField(); n != 10 {
+		t.Errorf("TestoDXF ha %d campi, attesi 10", n)
+	}
+}
+
+// K4. DecodificaTestoDXF legge il testo del DXF e tollera i campi sconosciuti; un DXF binario si decodifica (e' una
+// risposta: esito non_letto); falso quando il testo non c'e' (un DXF analizzato prima del K4 ha i dettagli vuoti) o
+// la versione e' sconosciuta. TestoDXFDaRileggere riaccoda il primo caso e non un DXF binario.
+func TestDecodificaTestoDXF(t *testing.T) {
+	letto := json.RawMessage(`{"esito": {"tipo_proposto": "sviluppo_dxf"}, "testo_dxf": {"versione": 1, "esito": "letto",
+		"motivo": "", "versione_dxf": "AC1014", "codifica": "cp1252", "testi": 12, "annidati": 0, "troncato": false,
+		"cartiglio": [
+			{"etichetta": "codice", "letta": "part no./Mat. Nr.", "valore": "ACME1001", "pagina": 1, "zona": "pagina",
+				"fonte": "nativo", "riquadro": [10, 20, 30, 23.5], "confidenza": null},
+			{"etichetta": "riferimento_3d", "letta": "ref.3D doc./Ref.3D Dok.", "valore": "ACME3001", "pagina": 1,
+				"zona": "pagina", "fonte": "nativo", "riquadro": [10, 38, 25, 40], "campo_del_futuro": true}],
+		"limiti": {"byte_max": 67108864, "testi_max": 5000, "testo_max": 512, "campi_max": 24}, "sezione_nuova": 1}}`)
+	td, ok := DecodificaTestoDXF(letto)
+	if !ok {
+		t.Fatal("testo del DXF non decodificato")
+	}
+	if td.Versione != VersioneTestoDXF || td.Esito != DXFLetto || td.VersioneDXF != "AC1014" || td.Codifica != "cp1252" ||
+		td.Testi != 12 || td.Troncato || len(td.Cartiglio) != 2 {
+		t.Errorf("testo del DXF letto male: %+v", td)
+	}
+	if c := td.Cartiglio[1]; c.Etichetta != CampoRiferimento3D || c.Valore != "ACME3001" || c.Letta != "ref.3D doc./Ref.3D Dok." ||
+		len(c.Riquadro) != 4 {
+		t.Errorf("il riferimento al documento 3D letto male: %+v", c)
+	}
+	if td.Limiti != (LimitiTestoDXF{ByteMax: 67108864, TestiMax: 5000, TestoMax: 512, CampiMax: 24}) {
+		t.Errorf("i limiti non sono arrivati con il fatto: %+v", td.Limiti)
+	}
+	if TestoDXFDaRileggere(letto) {
+		t.Error("un DXF letto con la versione di oggi non si rianalizza")
+	}
+
+	binario := json.RawMessage(`{"testo_dxf": {"versione": 1, "esito": "non_letto", "motivo": "DXF binario", "cartiglio": []}}`)
+	if td, ok := DecodificaTestoDXF(binario); !ok || td.Esito != DXFNonLetto || TestoDXFDaRileggere(binario) {
+		t.Errorf("un DXF binario e' una risposta, non un fatto da rileggere: %v %+v", ok, td)
+	}
+
+	casi := map[string]json.RawMessage{
+		"DXF di prima del K4": json.RawMessage(`{"esito": {"tipo_proposto": "sviluppo_dxf"}}`),
+		"versione 0":          json.RawMessage(`{"testo_dxf": {"versione": 0, "esito": "letto"}}`),
+		"senza versione":      json.RawMessage(`{"testo_dxf": {"esito": "letto"}}`),
+		"testo_dxf nullo":     json.RawMessage(`{"testo_dxf": null}`),
+		"testo di un PDF":     json.RawMessage(`{"testo_pdf": {"versione": 2, "estraibile": true}}`),
+		"dettagli vuoti":      json.RawMessage(``),
+		"dettagli rotti":      json.RawMessage(`non sono json`),
+	}
+	for nome, d := range casi {
+		t.Run(nome, func(t *testing.T) {
+			if td, ok := DecodificaTestoDXF(d); ok {
+				t.Errorf("testo accettato: %+v", td)
+			}
+			if !TestoDXFDaRileggere(d) {
+				t.Error("un DXF senza il testo di oggi va rianalizzato")
 			}
 		})
 	}

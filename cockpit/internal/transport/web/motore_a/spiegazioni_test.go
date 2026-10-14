@@ -55,7 +55,8 @@ func TestSpiegaCodiciNotiESconosciuti(t *testing.T) {
 
 // TestSpiegazioniCopronoICodiciDiAncoraggio: ogni motivo dell'ancoraggio di un file (il blocco const di
 // MotivoAncoraggioTargetIgnoti) e ogni codice delle strutture dei prodotti (il blocco di CodiceTargetSenzaStruttura) ha
-// la sua spiegazione; ogni voce della tabella viene da una di quelle costanti o è fra quelle attese da WP-A.
+// la sua spiegazione; ogni voce della tabella viene da una di quelle costanti o è fra quelle attese da WP-A. Riscritta
+// per K4: anche il blocco delle equivalenze del cartiglio (CodiceEquivalenzaCartiglioContesa).
 func TestSpiegazioniCopronoICodiciDiAncoraggio(t *testing.T) {
 	const anc = "../../../core/ancoraggio"
 	costanti := maCostantiDi(t, anc)
@@ -78,7 +79,7 @@ func TestSpiegazioniCopronoICodiciDiAncoraggio(t *testing.T) {
 		return out
 	}
 	visti := map[string]bool{}
-	for _, v := range append(blocco("MotivoAncoraggioTargetIgnoti"), blocco("CodiceTargetSenzaStruttura")...) {
+	for _, v := range append(append(blocco("MotivoAncoraggioTargetIgnoti"), blocco("CodiceTargetSenzaStruttura")...), blocco("CodiceEquivalenzaCartiglioContesa")...) {
 		caso := strings.TrimPrefix(v, prefissoAncoraggio)
 		visti[caso] = true
 		if _, ok := spiegazioni[caso]; !ok {

@@ -25,6 +25,10 @@ const VersioneCapacita = "capacita-a1-1"
 //   - decorazioni foglio, formato, sigla_interna, copia, annotazione (qui sotto);
 //   - una proiezione parziale che toglie segmenti non in coda alla base (Valida, sulla forma).
 //
+// Non è riservato cartiglio.riferimento_3d (K4): il worker lo legge nel cartiglio dei DXF, il router lo fa
+// relazione (router-3, riga 17), e una forma che lo legge abilita l'equivalenza del cartiglio dell'ancoraggio.
+// Aggiungerlo al vocabolario non ha cambiato VersioneCapacita: nessun elemento di prima cambia stato.
+//
 // Non è riservato il selettore «storia»: una grammatica può dichiararvi forme, affissi ed esempi, come fa la
 // forma della mail di uno scenario d'inoltro (R48 A; P-16). Che un segmento di storia valga come richiesta
 // lo dice UsoSegmenti, non la grammatica.

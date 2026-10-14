@@ -646,6 +646,7 @@ var etichette = map[string]map[string]string{
 		"ancoraggio.radice_dallo_step_associato":     "struttura candidata dallo STEP associato",
 		"ancoraggio.completamento_documentale":       "codice completato dal documento",
 		"ancoraggio.correzione_documentale":          "codice corretto dal documento",
+		"ancoraggio.equivalenza_cartiglio_contesa":   "equivalenza del cartiglio non univoca",
 		"confronto.revisione_non_confrontabile":      "revisioni del vecchio e del nuovo non confrontabili",
 		"regole.assenti":                             "cliente senza grammatica del motore A",
 		"regole.non_valide":                          "grammatica del cliente non valida",

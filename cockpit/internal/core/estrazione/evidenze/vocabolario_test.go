@@ -32,7 +32,7 @@ func TestA1aVOCUndiciContestiChiusi(t *testing.T) {
 
 // TestA1aVOCTabellaDelleCoppie: la parte 1 §4.2, contesto per contesto. Lo STEP ha anche «revisione».
 func TestA1aVOCTabellaDelleCoppie(t *testing.T) {
-	cartiglio := []string{"codice", "numero_disegno", "revisione", "titolo", "scala", "materiale", "particolare_simile", "sconosciuto"}
+	cartiglio := []string{"codice", "numero_disegno", "revisione", "titolo", "scala", "materiale", "particolare_simile", "riferimento_3d", "sconosciuto"}
 	step := []string{"id", "nome", "descrizione", "revisione"}
 	elenco := []string{"codice", "descrizione", "revisione", "quantita", "posizione", "sconosciuto"}
 	casi := []struct {
@@ -102,8 +102,8 @@ func TestA1aVOCAndataERitorno(t *testing.T) {
 			n++
 		}
 	}
-	// 7 contesti senza campo, il cartiglio con 8 campi, l'elenco con 6, i due STEP con 4.
-	if n != 7+8+6+4+4 {
+	// 7 contesti senza campo, il cartiglio con 9 campi (riferimento_3d da K4), l'elenco con 6, i due STEP con 4.
+	if n != 7+9+6+4+4 {
 		t.Fatalf("coppie provate: %d", n)
 	}
 	sel, _ := LeggiSelettore("storia")

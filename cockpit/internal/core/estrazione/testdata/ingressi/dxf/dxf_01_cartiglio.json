@@ -1,0 +1,111 @@
+{
+  "allegato": {
+    "id": "00000000-0000-4000-8000-0000000000d1",
+    "messaggio_id": "00000000-0000-4000-8000-000000000090",
+    "indice": 1,
+    "nome_file": "ACME7000200_D42_ACME7100300_000_00.dxf",
+    "estensione": "dxf",
+    "content_type": "application/dxf",
+    "natura": "file",
+    "origine": "outlook",
+    "bytes": 81920,
+    "sha256": "00000000000000000000000000000000000000000000000000000000000000d1",
+    "ricevuto_il": "2026-10-01T08:00:00Z"
+  },
+  "contenitore": null,
+  "fatti": {
+    "sha256": "00000000000000000000000000000000000000000000000000000000000000d1",
+    "terna": {
+      "versione": 5,
+      "hash_configurazione": "acme-configurazione-1"
+    },
+    "calcolato_il": "2026-10-01T08:10:00.250Z",
+    "payload": {
+      "esito": {
+        "tipo_proposto": "sviluppo_dxf",
+        "codice": "ACME7000200_D42_ACME7100300_000",
+        "rev": "00",
+        "confidenza": 85,
+        "fonte": "nome_file"
+      },
+      "testo_dxf": {
+        "versione": 1,
+        "esito": "letto",
+        "motivo": "",
+        "versione_dxf": "AC1014",
+        "codifica": "cp1252",
+        "testi": 158,
+        "annidati": 0,
+        "troncato": false,
+        "cartiglio": [
+          {
+            "etichetta": "riferimento_3d",
+            "letta": "ref.3D doc./Ref.3D Dok.",
+            "valore": "ACME7100400",
+            "pagina": 1,
+            "zona": "pagina",
+            "fonte": "nativo",
+            "riquadro": [
+              424.03,
+              0.0,
+              430.63,
+              2.0
+            ],
+            "confidenza": null
+          },
+          {
+            "etichetta": "codice",
+            "letta": "part no./Mat. Nr.",
+            "valore": "ACME7000200",
+            "pagina": 1,
+            "zona": "pagina",
+            "fonte": "nativo",
+            "riquadro": [
+              439.28,
+              0.0,
+              462.38,
+              3.5
+            ],
+            "confidenza": null
+          },
+          {
+            "etichetta": "numero_disegno",
+            "letta": "doc. no./Dok. Nr.",
+            "valore": "ACME7100300",
+            "pagina": 1,
+            "zona": "pagina",
+            "fonte": "nativo",
+            "riquadro": [
+              475.28,
+              0.0,
+              498.38,
+              3.5
+            ],
+            "confidenza": null
+          },
+          {
+            "etichetta": "revisione",
+            "letta": "rev./Rev.",
+            "valore": "00",
+            "pagina": 1,
+            "zona": "pagina",
+            "fonte": "nativo",
+            "riquadro": [
+              512.9,
+              0.0,
+              517.1,
+              3.5
+            ],
+            "confidenza": null
+          }
+        ],
+        "limiti": {
+          "byte_max": 67108864,
+          "testi_max": 5000,
+          "testo_max": 512,
+          "campi_max": 24
+        }
+      }
+    }
+  }
+}

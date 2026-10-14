@@ -1593,7 +1593,9 @@ func TestIValoriDellaCatena(t *testing.T) {
 		campi string
 	}{
 		{ancoraggio.CatenaCodice{}, "Grezzo:grezzo Lettura:lettura Forma:forma MotivoLettura:motivo_lettura Identita:identita Proposto:proposto " +
-			"MotivoProposto:motivo_proposto Manuale:manuale Confermato:confermato Documentale:documentale"},
+			"MotivoProposto:motivo_proposto Manuale:manuale Confermato:confermato Documentale:documentale Equivalente:equivalente"},
+		// K4: il codice della parte dal cartiglio (collaudo del 14/10)
+		{ancoraggio.CodiceEquivalente{}, "Namespace:namespace Base:base Marcatore:marcatore Prove:prove"},
 		{ancoraggio.ValoreGrezzo{}, "Testo:testo Campo:campo UnitaID:unita_id Posizione:posizione"},
 		{ancoraggio.IdentitaNodo{}, "Base:base Marcatore:marcatore Revisione:revisione Parziale:parziale Provenienza:provenienza Qualita:qualita Motivo:motivo " +
 			"CandidatiRevisione:candidati_revisione FontiSenzaRevisione:fonti_senza_revisione StatoRevisione:stato_revisione"},

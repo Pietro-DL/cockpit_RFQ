@@ -894,9 +894,11 @@ func TestProponiProdottiErroriDiContratto(t *testing.T) {
 
 // TestIValoriDelContratto (contratto §2.2; par.3.4.1): la versione del servizio e i valori delle costanti del
 // vocabolario e della fonte sono quelli del contratto. Se uno cambia, questa prova si riscrive con «Riscritta per …».
+//
+// Riscritta per K4: VersioneServizio ancoraggio-2 (le equivalenze del cartiglio negli ancoraggi).
 func TestIValoriDelContratto(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
-		{ancoraggio.VersioneServizio, "ancoraggio-1"},
+		{ancoraggio.VersioneServizio, "ancoraggio-2"},
 		{string(ancoraggio.AutoritaConfermata), "confermata"},
 		{string(ancoraggio.AutoritaProposta), "proposta"},
 		{string(ancoraggio.AutoritaScenario), "scenario"},

@@ -29,7 +29,10 @@ import (
 
 // VersioneServizio: le regole di proposta (par.3.4.1). È la versione_servizio della parte 1 §9.4 ed entra nell'ID
 // degli esiti (HashIngresso). Cambia con un commit che lo dichiara, e la prova che la fissa si riscrive.
-const VersioneServizio = "ancoraggio-1"
+// ancoraggio-2 (K4): le equivalenze del cartiglio negli ancoraggi dei file (equivalenze.go: il motivo
+// equivalenza_cartiglio, CandidatoAncoraggio.Equivalenze, ancoraggio.equivalenza_cartiglio_contesa). Le regole di
+// ProponiProdotti non cambiano, ma la versione è una sola, e cambia anche l'ID dei suoi esiti.
+const VersioneServizio = "ancoraggio-2"
 
 // ---- il vocabolario comune (contratto §2.2) ----
 

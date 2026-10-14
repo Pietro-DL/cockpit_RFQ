@@ -910,3 +910,79 @@ func TestMotoreAPaginaSenzaCodiceUnico(t *testing.T) {
 		t.Error("la catena dell'anteprima non scrive «(senza codice)»")
 	}
 }
+
+// K4, collaudo del 14/10: un nodo dello STEP che si chiama col Ref.3D, con il codice della parte scritto nei cartigli
+// accanto (CatenaCodice.Equivalente), mostra il P/N come codice della casella, con il segno ◇ (proposto) e il 3D
+// accanto; l'anteprima lo dice nel titolo e nella catena. Il caso e3 con il codice di un nodo della BOM di lavoro
+// sostituito in memoria da una lettura senza decisioni (nessun caso dei diciotto ha un'equivalenza).
+func TestMotoreAPaginaPNDalCartiglio(t *testing.T) {
+	s := maRServer(t)
+	c := leggiCasoMotoreA(t, "e3")
+	p := &c.Pagina.Esito.ProdottiValutati[0]
+	rif := ""
+	for i := range p.Nodi {
+		n := &p.Nodi[i]
+		if len(n.Parentela) == 0 {
+			continue
+		}
+		n.Nodo.Codice, n.Nodo.Decisione = ancoraggio.CatenaCodice{
+			Grezzo:      ancoraggio.ValoreGrezzo{Testo: "101000002_00 - lamiera"},
+			Identita:    ancoraggio.IdentitaNodo{Base: "101000002", Provenienza: ancoraggio.ProvenienzaNodoSTEP, StatoRevisione: ancoraggio.StatoRevisioneAssente},
+			Equivalente: &ancoraggio.CodiceEquivalente{Namespace: "acme", Base: "210000002", Prove: []ancoraggio.ProvaEquivalenza{{Fonte: ancoraggio.FonteEquivalenzaCartiglio}}},
+		}, nil
+		rif = n.Nodo.Rif
+		break
+	}
+	if rif == "" {
+		t.Fatal("e3 senza un nodo figlio nella BOM di lavoro")
+	}
+	r := maRRendi(s, "e3 con il P/N dal cartiglio", c, motorea_web.VistaDistinta, p.Rif, true)
+	if r.Frammento.Code != http.StatusOK {
+		t.Fatalf("resa: %d", r.Frammento.Code)
+	}
+	doc := maRDoc(t, r.Frammento.Body.Bytes())
+	casella := maRTutti(doc, func(n *html.Node) bool { return maRA(n, "data-ma-chiave") == "bom|"+rif })
+	if len(casella) != 1 {
+		t.Fatalf("%d caselle bom|%s, attesa una", len(casella), rif)
+	}
+	cod := maRTutti(casella[0], func(n *html.Node) bool { return maRClasse(n, "ma-nodo-cod") })
+	if len(cod) == 0 || !strings.HasPrefix(strings.Join(strings.Fields(maRTesto(cod[0])), ""), "◇2100000023D101000002") || !strings.Contains(maRTesto(cod[0]), "3D 101000002") ||
+		strings.Contains(maRTesto(cod[0]), "«") {
+		t.Errorf("la casella: %q, atteso il P/N col 3D accanto", maRTesto(cod[0]))
+	}
+	if !strings.HasPrefix(maRA(casella[0], "aria-label"), "210000002 (P/N dal cartiglio, 3D 101000002)") {
+		t.Errorf("aria-label della casella: %q", maRA(casella[0], "aria-label"))
+	}
+	pannello := maRTutti(doc, func(n *html.Node) bool { return maRA(n, "data-ma-pannello") == "bom|"+rif })
+	if len(pannello) != 1 {
+		t.Fatalf("%d anteprime bom|%s, attesa una", len(pannello), rif)
+	}
+	if h := maRTutti(pannello[0], maRCon("h2", "")); len(h) == 0 || !strings.HasPrefix(maRTesto(h[0]), "210000002") {
+		t.Error("il titolo dell'anteprima non comincia dal P/N")
+	}
+	testo := strings.Join(strings.Fields(maRTesto(pannello[0])), " ")
+	if !strings.Contains(testo, "P/N dal cartiglio") || !strings.Contains(testo, "◇ P/N 210000002 3D 101000002") || !strings.Contains(testo, "un file del disegno lo dice") {
+		t.Errorf("l'anteprima non dice il P/N dal cartiglio col 3D accanto: %q", testo)
+	}
+
+	// Revisione del 14/10: un P/N che viene solo dal nome del file (il cartiglio scrive solo il Ref.3D) non si dice «dal
+	// cartiglio».
+	for i := range p.Nodi {
+		if p.Nodi[i].Nodo.Rif == rif {
+			p.Nodi[i].Nodo.Codice.Equivalente.Prove = []ancoraggio.ProvaEquivalenza{{Fonte: ancoraggio.FonteEquivalenzaNomeFile}}
+		}
+	}
+	r = maRRendi(s, "e3 con il P/N dal nome del 2D", c, motorea_web.VistaDistinta, p.Rif, true)
+	if r.Frammento.Code != http.StatusOK {
+		t.Fatalf("resa: %d", r.Frammento.Code)
+	}
+	doc = maRDoc(t, r.Frammento.Body.Bytes())
+	casella = maRTutti(doc, func(n *html.Node) bool { return maRA(n, "data-ma-chiave") == "bom|"+rif })
+	if len(casella) != 1 || !strings.HasPrefix(maRA(casella[0], "aria-label"), "210000002 (P/N dal nome del 2D, 3D 101000002)") {
+		t.Errorf("aria-label della casella col P/N dal nome: %v", casella)
+	}
+	pannello = maRTutti(doc, func(n *html.Node) bool { return maRA(n, "data-ma-pannello") == "bom|"+rif })
+	if len(pannello) != 1 || strings.Contains(maRTesto(pannello[0]), "P/N dal cartiglio") || !strings.Contains(maRTesto(pannello[0]), "P/N dal nome del 2D") {
+		t.Error("l'anteprima col P/N dal nome del file lo dice dal cartiglio")
+	}
+}
