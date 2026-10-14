@@ -17,6 +17,10 @@ markmap:
   - **la colonna della quantità** nelle tabelle della mail (`QuantitaTabellare`, chiave
     `quantita_tabellare`, da A1b.8): la dichiara il file regole del cliente con i letterali osservati, mai il
     codice (R28 a). Qui si dichiara e si valida; la applica `motorea`;
+  - **la tabella delle classi** di una famiglia (`TabellaClassi`, chiave `classi`, dal 14/10, decisione
+    dell'utente [U]): valore di un segmento identitario (per esempio la serie di 9.SSSS.AAA.T) → categoria
+    (`minuteria` | `commerciale`), descrizione e fonte (la normativa del cliente). Qui si dichiara, si valida e
+    si rende canonica; la applica `motorea` (`LetturaForma.Classe`). Facoltativa e inerte quando manca;
   - **la porta stretta di lettura** (`Decodifica`) e **la validazione** (`Grammatica.Valida`), con i
     **vincoli RE2** dei pattern (`VerificaPattern`) e le **capacità riservate in A1** (R20 c);
   - **i limiti**, che non sono costanti del codice: li dichiara l'indice delle regole con la loro versione;
@@ -61,8 +65,23 @@ markmap:
     e `storia`, stato `attiva` o `riservata`. Nessun codice nuovo: bastano quelli di A1a;
   - la forma canonica, chiamata da `Normalizza`: regole in ordine di ID, intestazioni e selettori come
     insiemi.
+- **`classi.go`** — responsabilità (14/10, [U]):
+  - `TabellaClassi`, `VoceClasse`, `MaxByteDescrizioneClasse` e `MaxByteFonteClasse` (la misura dei due campi, 200
+    byte: non una taratura, che starebbe nell'indice);
+  - la validazione, chiamata da `Grammatica.Valida` (regola 17): niente `categorie` accanto alla tabella
+    (`contratto.classi_con_categorie`), segmento identitario della base (`contratto.classi_segmento_non_identitario`),
+    ogni valore riconosciuto per intero dal segmento compilato come lo compila il motore e già normalizzato
+    (`contratto.classi_valore_non_conforme`; con normalizza «maiuscolo» il segmento si piega nelle due maiuscole anche
+    con le maiuscole esatte, perché la chiave è la normalizzata: `piegaPerLeVoci`, correzione del 14/10), valori unici, categoria nell'enum, descrizione obbligatoria, testi senza
+    controlli e nelle loro misure, al più `max_voci_classi` voci (con l'indice che non dichiara la chiave nessuna
+    tabella si attiva);
+  - la forma canonica, chiamata da `Normalizza`: voci in ordine di valore.
+- **`maiuscole.go`** — responsabilità (14/10, spostato da `motorea/piani.go`):
+  - `LetteraleBase`, `PatternBase`, `AltraMaiuscola`, `PiegaASCII`: come un letterale o un pattern della base diventa
+    un pezzo di regex con le maiuscole della base (T9). Una funzione sola per il compilatore di `motorea` e per la
+    validazione della tabella delle classi.
 - **`vocabolario.go`** — responsabilità:
-  - gli enum chiusi e i loro elenchi: ruoli, categorie, tipi di parte (anche dentro un suffisso), tipi e
+  - gli enum chiusi e i loro elenchi: ruoli, categorie (minuteria e, dal 14/10, commerciale), tipi di parte (anche dentro un suffisso), tipi e
     sottotipi di decorazione, posizione, sorgente, stato, profilo, fase, destinazione, classi di confine,
     maiuscole, normalizzazione, significato dei segmenti di revisione, origine degli esempi, ambito.
 - **`decodifica.go`** — responsabilità:
@@ -72,7 +91,7 @@ markmap:
     fissa, UUID), infine `json.Decoder` con `DisallowUnknownFields` e `UseNumber`.
 - **`valida.go`** — responsabilità:
   - `Grammatica.Valida`: le quindici regole del piano (par.4.4.4), con un codice per ciascuna, più la
-    sedicesima, `quantita_tabellare` (`quantita.go`).
+    sedicesima, `quantita_tabellare` (`quantita.go`), e la diciassettesima, la tabella delle classi (`classi.go`).
 - **`capacita.go`** — responsabilità:
   - `VersioneCapacita` (`capacita-a1-1`) e l'elenco delle capacità riservate in A1 (R20 c): selettori e
     campi, generici «<contesto>.*», decorazioni della parte 1. «storia» non è riservato (R48 A).
@@ -83,7 +102,9 @@ markmap:
     pattern e nei letterali.
 - **`limiti.go`** — responsabilità:
   - `Limiti` (`versione_limiti`; gruppi `grammatica`, `riconoscimento`, `anteprima`), `TettiLimiti`,
-    `Limiti.Valida`. Nessun valore predefinito.
+    `Limiti.Valida`. Nessun valore predefinito. Dal 14/10 `grammatica.max_voci_classi` (tetto 1024) è l'unica
+    chiave facoltativa: gli indici scritti prima restano validi senza modifiche e con l'impronta di prima
+    (omitempty), e senza la chiave nessuna tabella delle classi si attiva.
 - **`snapshot.go`** — responsabilità:
   - `SnapshotRegole`, `NuovoSnapshot`, `Normalizza` (la politica canonica).
 - **`indice.go`** — responsabilità:
@@ -163,6 +184,11 @@ markmap:
   ripetuto, limiti dell'indice assenti, nulli o oltre i tetti; `ControllaRagioneSociale`.
 - **`quantita_test.go`** — livello L1 — che cosa copre (A1b-20): la decodifica stretta e la validazione di
   `quantita_tabellare`, con codice e percorso; l'hash invariato per i file che non la usano.
+- **`classi_test.go`** — livello L1 — che cosa copre (14/10): la tabella valida, l'hash che non dipende
+  dall'ordine delle voci, ogni errore con codice e percorso, le maiuscole come le compila il motore (anche esatte con
+  normalizza «maiuscolo» e un pattern minuscolo: regressione del 14/10), l'indice senza
+  `max_voci_classi`, il limite nell'indice; la grammatica e i limiti ACME senza tabella con il canonico e le
+  impronte del codice di prima (aabe52c); la categoria commerciale nell'enum.
 - Il controllo degli import (G1, G8) e dei codici (A1a-CAT) sta in `core/estrazione/evidenze`.
 - I clienti dei test sono inventati (ACME); i test stanno nel ramo `-qa`.
 

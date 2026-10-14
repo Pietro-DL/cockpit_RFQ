@@ -1,6 +1,8 @@
 package motorea
 
 import (
+	"slices"
+
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/registro/regole/grammatica"
 )
@@ -8,6 +10,9 @@ import (
 // LetturaForma: ciò che una forma riconosce in un testo, prima del router. È il risultato, non il runtime: i
 // campi seguono gli attesi e R16, e li riempiono le operazioni dei gruppi del piano (par.12). Non ha funzione
 // né ruoli: li assegna Interpreta, in A1b (R23).
+//
+// Nel JSON i campi hanno i nomi di Go, senza omitempty, tranne Classe (14/10): con omitempty, perché una lettura di
+// una famiglia senza tabella delle classi resti byte per byte quella di prima.
 type LetturaForma struct {
 	Famiglia, Namespace, Forma string
 	Selettore                  evidenze.Selettore
@@ -15,15 +20,28 @@ type LetturaForma struct {
 	Intervallo                 evidenze.Intervallo // in byte, sul testo dato
 	CodiceRichiesto            string              // affissi e base, senza etichetta, decorazioni, token e revisione
 	Base                       BaseLetta
-	Marcatore                  *ParteLetta        // il marcatore dopo la base (D1, R7)
-	Token                      *ParteLetta        // la parte token (R16): conservata e mai attribuita (Q1, D10)
-	Etichetta                  *ParteLetta        // A-C08
-	Affissi                    []AffissoLetto     // nell'ordine del testo
-	Revisione                  *RevisioneLetta    // nil se la forma non ne legge una
-	Decorazioni                []DecorazioneLetta // mai dentro la base
-	Ripetizioni                []RipetizioneLetta // la base ripetuta: concordante o discordante (D2)
-	Categorie                  []grammatica.Categoria
-	Stato                      string // completa | parziale | discordante | da_verificare
+	Marcatore                  *ParteLetta            // il marcatore dopo la base (D1, R7)
+	Token                      *ParteLetta            // la parte token (R16): conservata e mai attribuita (Q1, D10)
+	Etichetta                  *ParteLetta            // A-C08
+	Affissi                    []AffissoLetto         // nell'ordine del testo
+	Revisione                  *RevisioneLetta        // nil se la forma non ne legge una
+	Decorazioni                []DecorazioneLetta     // mai dentro la base
+	Ripetizioni                []RipetizioneLetta     // la base ripetuta: concordante o discordante (D2)
+	Categorie                  []grammatica.Categoria // della famiglia, più quella della voce della tabella delle classi
+	Stato                      string                 // completa | parziale | discordante | da_verificare
+	Classe                     *ClasseLetta           `json:"Classe,omitempty"` // la voce della tabella delle classi; nil senza
+}
+
+// ClasseLetta: la voce della tabella delle classi della famiglia (grammatica.TabellaClassi; decisione dell'utente del
+// 14/10, [U]) che vale per la lettura: il valore normalizzato del segmento della tabella (SegmentoLetto.Normalizzato)
+// è uguale al valore di una voce. Segmento e Valore dicono quale; Categoria, Descrizione e Fonte sono quelle della
+// voce, com'è nel file regole. È un dato del cliente, non una scelta del motore: nessuna voce, nessuna Classe (e una
+// forma parziale che non legge quel segmento non ne ha). I nomi nel JSON sono quelli di Go, come in LetturaForma.
+type ClasseLetta struct {
+	Segmento, Valore string
+	Categoria        grammatica.Categoria
+	Descrizione      string
+	Fonte            string
 }
 
 // Gli stati di una lettura. Se ne valgono più d'uno, vince il più forte: discordante, poi da_verificare, poi
@@ -176,6 +194,7 @@ func (p *pianoForma) lettura(sel evidenze.Selettore, testo string, inizio int, l
 			discordante = true
 		}
 	}
+	p.classifica(&l)
 	switch {
 	case discordante:
 		l.Stato = StatoDiscordante
@@ -187,6 +206,39 @@ func (p *pianoForma) lettura(sel evidenze.Selettore, testo string, inizio int, l
 		l.Stato = StatoCompleta
 	}
 	return l
+}
+
+// classifica: la voce della tabella delle classi della famiglia per la lettura (ClasseLetta), dal valore normalizzato
+// del segmento della tabella, con una mappa precalcolata (tabellaClassi). Provenance: il segmento letto della base
+// della lettura stessa; regola: la voce dichiarata nel file regole del cliente. Le categorie della lettura diventano
+// quelle della famiglia più quella della voce, in ordine e senza doppioni (con la tabella la famiglia non ne dichiara,
+// Valida: quindi di fatto la sola categoria della voce). Senza tabella o senza voce la lettura non cambia.
+func (p *pianoForma) classifica(l *LetturaForma) {
+	if p.classi == nil {
+		return
+	}
+	for _, s := range l.Base.Segmenti {
+		if s.Nome != p.classi.segmento {
+			continue
+		}
+		v, ok := p.classi.voci[s.Normalizzato]
+		if !ok {
+			return
+		}
+		l.Classe = &ClasseLetta{Segmento: s.Nome, Valore: s.Normalizzato, Categoria: v.Categoria, Descrizione: v.Descrizione, Fonte: v.Fonte}
+		l.Categorie = unisciCategorie(l.Categorie, v.Categoria)
+		return
+	}
+}
+
+// unisciCategorie: le categorie con una in più, in ordine di byte e senza doppioni (un elenco nuovo).
+func unisciCategorie(c []grammatica.Categoria, x grammatica.Categoria) []grammatica.Categoria {
+	out := append([]grammatica.Categoria(nil), c...)
+	if !slices.Contains(out, x) {
+		out = append(out, x)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // match: un match di un piano, con gli indici relativi a testo[inizio:].

@@ -138,8 +138,12 @@ func testoRegole(riga func(string, ...any), rr RapportoRegole) {
 	for _, c := range rr.Clienti {
 		riga("  cliente %s (%s), file %s: %s, hash %s", c.ClienteID, strings.Join(c.Profili, ", "), c.File, c.Stato, vuotoONo(c.Hash))
 		for _, f := range c.Famiglie {
-			riga("    famiglia %s: ruoli %s; categorie %s; forme attive %s; riservate %s", f.ID,
-				elenco(f.Ruoli), elenco(f.Categorie), elenco(f.FormeAttive), elenco(f.FormeRiservate))
+			tabella := ""
+			if f.VociClassi > 0 {
+				tabella = fmt.Sprintf("; tabella delle classi sul segmento %s: %d voci", f.SegmentoClassi, f.VociClassi)
+			}
+			riga("    famiglia %s: ruoli %s; categorie %s; forme attive %s; riservate %s%s", f.ID,
+				elenco(f.Ruoli), elenco(f.Categorie), elenco(f.FormeAttive), elenco(f.FormeRiservate), tabella)
 		}
 		for _, x := range c.Riserve {
 			riga("    riserva %s: %s", x.ID, x.Motivo)

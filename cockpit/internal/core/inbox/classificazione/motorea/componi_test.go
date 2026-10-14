@@ -342,7 +342,9 @@ func TestComponiCostantiDelContratto(t *testing.T) {
 }
 
 // TestComponiNessunCampoCambiatoNelleLetture (T-B0-17, D2): i campi di LetturaForma e di LetturaCodice sono
-// quelli di A1a e A1b, nello stesso ordine: il compositore non ne aggiunge e non ne toglie.
+// quelli di A1a e A1b, nello stesso ordine: il compositore non ne aggiunge e non ne toglie. Dal 14/10 LetturaForma ha
+// in fondo Classe, la voce della tabella delle classi (decisione dell'utente, [U]): non viene dal compositore, e con
+// omitempty una lettura senza tabella ha il JSON di prima (TestClassiJSONComePrima).
 func TestComponiNessunCampoCambiatoNelleLetture(t *testing.T) {
 	campi := func(v any) []string {
 		var out []string
@@ -354,7 +356,7 @@ func TestComponiNessunCampoCambiatoNelleLetture(t *testing.T) {
 	}
 	attesi := map[string][]string{
 		"LetturaForma": {"Famiglia", "Namespace", "Forma", "Selettore", "Originale", "Intervallo", "CodiceRichiesto", "Base",
-			"Marcatore", "Token", "Etichetta", "Affissi", "Revisione", "Decorazioni", "Ripetizioni", "Categorie", "Stato"},
+			"Marcatore", "Token", "Etichetta", "Affissi", "Revisione", "Decorazioni", "Ripetizioni", "Categorie", "Stato", "Classe"},
 		"LetturaCodice": {"ID", "UnitaID", "AltreUnita", "Occorrenza", "Assoluto", "Forma", "Funzione", "Uso", "OrigineUso",
 			"RuoliCandidati", "MotivoRuoli", "Categorie", "Trasformazioni", "Qualita", "Motivi"},
 		"CodiceComposto": {"Testo", "Famiglia", "Forma", "Motivo"},

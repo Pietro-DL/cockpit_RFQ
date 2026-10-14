@@ -103,7 +103,9 @@ markmap:
   - la divisione dell'interpretazione per funzione (`nuovaScena`, `dividiLetture`, `funzioneDIdentita`) e
     `funzioneNelBanco`, la funzione del router con l'uso del modo casi, che usa la coerenza.
 - **`regole.go`** — responsabilità:
-  - `VerificaRegole`, `RapportoRegole` e le sue parti: clienti, famiglie, riserve, esempi, lacune, coerenza.
+  - `VerificaRegole`, `RapportoRegole` e le sue parti: clienti, famiglie, riserve, esempi, lacune, coerenza. Dal 14/10
+    `FamigliaRapporto.SegmentoClassi` e `VociClassi` (la tabella delle classi della famiglia, con omitempty) e, nel testo,
+    «tabella delle classi sul segmento S: N voci» solo per le famiglie che la hanno (`tabella_classi_test.go`).
 - **`casi.go`** — responsabilità:
   - `EseguiCasiContratto` (con `DaTesto` più `Interpreta` e l'uso sconosciuto), la verifica delle precondizioni,
     `EsitoCaso`, `EsitoChiave`, `LetturaRapporto`, `ConteggiCasi`, `Conta`.

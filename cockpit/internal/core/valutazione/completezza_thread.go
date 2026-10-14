@@ -489,7 +489,7 @@ func (c *completezzaThread) nodiDaPrevedere(pv ProdottoValutato, strutture []anc
 				Motivo: MotivoPrevistoNodoDecisoFuoriPerimetro})
 		case i.tolto:
 		default:
-			tipo, _ := c.b.tipoProposto(rif, i.bomDelTarget, i.conFigli)
+			tipo, _ := c.b.tipoProposto(rif, i.bomDelTarget, i.conFigli, classeLetta(i.n))
 			regole, cliente := FabbisogniDelTipo(tipo, c.t.Fabbisogni)
 			var categorie []string
 			if f := i.n.Codice.Forma; f != nil {

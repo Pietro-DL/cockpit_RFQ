@@ -168,6 +168,7 @@ markmap:
 | La pagina e il JSON di `/dati` (contratto §2.2, §2.4) | `motore_a/modelli.go` |
 | La copia di `app/bancoa/passaggio.go` | `motore_a/passaggio.go` |
 | L'indice delle ricerche (contratto §2.3) | `motore_a/indice.go` |
+| La voce della tabella delle classi del cliente (14/10): sotto il codice della casella «categoria · descrizione · fonte» (`ma_classe_breve`), la riga «Normativa» dell'anteprima, il segno «minuteria ?» per il commerciale proposto con la minuteria proposta, l'etichetta di `proposto_dalla_grammatica` | `web/templates/motore_a.html`, `motore_a/etichette.go`; prova `motore_a_classi_test.go` |
 | Il perché dell'ancoraggio detto all'operatore (`Spiega`, `DiagnosticheAncoraggio`, `DiagnosticheAncoraggioDellaRFQ`, `MotiviAncoraggio`, il badge `OrigineStruttura`; WP-U, notte 14/10) | `motore_a/spiegazioni.go` |
 | Gli STEP della RFQ di un prodotto senza strutture (`StepDelThread`, `IndirizzoFascicolo`) e gli elementi della mail (`ElementoDellaMail`, `ElementiDellaMail`; WP-U) | `motore_a/step_del_thread.go` |
 | La pagina `GET /thread/{id}/motore-a` e il suo frammento (B5.1); il collegamento «Distinta nuova (Motore A)» delle pagine Richieste e RFQ con la guardia della rotta (`distintaNuovaVisibile`, WP-U) | `motore_a_pagina.go`; i campi `DistintaNuova` in `panoramica.go` e `thread.go` |
@@ -400,7 +401,7 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   fotografia della pagina ha il solo thread, nessun messaggio fuori RFQ e il solo cliente del thread.
 - **Il Fascicolo legacy**: l'anteprima dello STEP calcola gli effetti con `fascicolo.EffettoAutorizzazione`, che
   classifica i nodi con il motore legacy (`MotoreDellaRfq`, `cliente.regole`); la pagina e `/dati` usano il motore A
-  (`valutazione-4` dalla notte del 14/10, le grammatiche dell'indice). Codici e tipi possono differire: il campo `motore` dell'anteprima vale
+  (`valutazione-5` dal 14/10, le grammatiche dell'indice). Codici e tipi possono differire: il campo `motore` dell'anteprima vale
   `fascicolo_legacy` (Q-A1d-05, da confermare); la resa della discordanza è di A1d-P4.
 - **Il tempo**: `valutazione.Calcola` non riceve un contesto; oltre il limite la risposta è 504 e il calcolo orfano
   finisce in memoria, senza scritture (con il tetto dei calcoli insieme: «I limiti»).

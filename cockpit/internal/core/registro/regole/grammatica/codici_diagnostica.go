@@ -103,6 +103,24 @@ const (
 	CodiceConfineNonAmmesso = "contratto.confine_non_ammesso"
 )
 
+// La tabella delle classi di una famiglia (classi.go; decisione dell'utente del 14/10). Errori di contratto. Gli altri
+// controlli della tabella usano i codici di sopra: campo_obbligatorio, enum_ignoto, insieme_con_duplicati,
+// carattere_di_controllo, limite.superato.
+const (
+	// CodiceClassiSegmentoNonIdentitario — errore, contratto. Il segmento della tabella non è della base della
+	// famiglia, o non è identitario.
+	CodiceClassiSegmentoNonIdentitario = "contratto.classi_segmento_non_identitario"
+
+	// CodiceClassiValoreNonConforme — errore, contratto. Il valore di una voce non è riconosciuto per intero dal
+	// segmento (compilato come lo compila il motore, con le maiuscole della base), o non è scritto come il valore
+	// normalizzato (lettere minuscole con normalizza «maiuscolo»): nessuna lettura lo darebbe.
+	CodiceClassiValoreNonConforme = "contratto.classi_valore_non_conforme"
+
+	// CodiceClassiConCategorie — errore, contratto. Una famiglia con la tabella delle classi dichiara anche delle
+	// categorie: quale valga per un codice non si decide.
+	CodiceClassiConCategorie = "contratto.classi_con_categorie"
+)
+
 // I pattern RE2 e i letterali (VerificaPattern, Valida). Errori di contratto.
 const (
 	// CodicePatternNonCompila — errore, contratto. regexp/syntax rifiuta il pattern.

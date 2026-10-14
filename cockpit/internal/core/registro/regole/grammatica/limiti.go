@@ -32,6 +32,11 @@ type LimitiGrammatica struct {
 	MaxLunghezzaPattern   int `json:"max_lunghezza_pattern"`
 	MaxRipetizione        int `json:"max_ripetizione"` // il massimo di un {n,m}
 	MaxLunghezzaLetterale int `json:"max_lunghezza_letterale"`
+	// MaxVociClassi: le voci della tabella delle classi di una famiglia (classi.go, dal 14/10). È l'unica chiave
+	// facoltativa: un indice scritto prima non la ha e resta valido senza modifiche; senza la chiave (0) nessuna
+	// tabella si attiva, perché il codice non ha valori suoi (R43 B). Con omitempty i limiti senza la chiave hanno il
+	// canonico e l'impronta di prima.
+	MaxVociClassi int `json:"max_voci_classi,omitempty"`
 }
 
 // LimitiRiconoscimento: byte di un'unità, unità di un documento, letture per unità e per documento. In A1a li
@@ -58,7 +63,8 @@ type LimitiAnteprima struct {
 // dell'indice, che a loro volta stanno larghi sopra le grammatiche v1 private (la forma più ricca ha meno di
 // dieci parti, il pattern più lungo e il letterale più lungo meno di venti byte, il testo più lungo visto
 // negli export meno di un decimo di max_byte_unita). max_ripetizione resta sotto i 1000 che regexp/syntax
-// accetta comunque.
+// accetta comunque. max_voci_classi (14/10): la tabella più ricca censita ha meno di cento serie; 1024 lascia lo
+// spazio di una normativa intera, e la ricerca di una voce è una mappa.
 func TettiLimiti() Limiti {
 	return Limiti{
 		Grammatica: LimitiGrammatica{
@@ -69,6 +75,7 @@ func TettiLimiti() Limiti {
 			MaxLunghezzaPattern:   256,
 			MaxRipetizione:        100,
 			MaxLunghezzaLetterale: 128,
+			MaxVociClassi:         1024,
 		},
 		Riconoscimento: LimitiRiconoscimento{
 			MaxByteUnita:        8 << 20,
@@ -86,6 +93,10 @@ type valoreLimite struct {
 	valore, tetto int
 }
 
+// limitiFacoltativi: le chiavi per cui lo zero vuol dire «non dichiarato», non un errore. Solo max_voci_classi (14/10):
+// chi lo usa tratta lo zero come «nessuna voce ammessa», così gli indici scritti prima restano validi senza modifiche.
+var limitiFacoltativi = []string{"limiti.grammatica.max_voci_classi"}
+
 // valori: i valori dei limiti nell'ordine dell'indice, così le diagnostiche hanno un ordine fisso.
 func (l Limiti) valori() []valoreLimite {
 	t := TettiLimiti()
@@ -97,6 +108,7 @@ func (l Limiti) valori() []valoreLimite {
 		{"limiti.grammatica.max_lunghezza_pattern", l.Grammatica.MaxLunghezzaPattern, t.Grammatica.MaxLunghezzaPattern},
 		{"limiti.grammatica.max_ripetizione", l.Grammatica.MaxRipetizione, t.Grammatica.MaxRipetizione},
 		{"limiti.grammatica.max_lunghezza_letterale", l.Grammatica.MaxLunghezzaLetterale, t.Grammatica.MaxLunghezzaLetterale},
+		{"limiti.grammatica.max_voci_classi", l.Grammatica.MaxVociClassi, t.Grammatica.MaxVociClassi},
 		{"limiti.riconoscimento.max_byte_unita", l.Riconoscimento.MaxByteUnita, t.Riconoscimento.MaxByteUnita},
 		{"limiti.riconoscimento.max_unita_documento", l.Riconoscimento.MaxUnitaDocumento, t.Riconoscimento.MaxUnitaDocumento},
 		{"limiti.riconoscimento.max_letture_per_unita", l.Riconoscimento.MaxLetturePerUnita, t.Riconoscimento.MaxLetturePerUnita},
@@ -107,8 +119,8 @@ func (l Limiti) valori() []valoreLimite {
 
 // Valida rifiuta limiti assenti, nulli o oltre i tetti: con un indice così non si attiva nessuna grammatica
 // (R43 B). Codici: contratto.campo_obbligatorio (i limiti mancano, manca la versione, un valore è zero o
-// negativo), limite.oltre_tetto (un valore supera il tetto). I percorsi sono quelli dell'indice («limiti.…»).
-// nil vuol dire validi.
+// negativo; per il solo max_voci_classi, facoltativo, lo zero è ammesso e il negativo no), limite.oltre_tetto (un
+// valore supera il tetto). I percorsi sono quelli dell'indice («limiti.…»). nil vuol dire validi.
 func (l Limiti) Valida() []evidenze.Diagnostica {
 	if l == (Limiti{}) {
 		return []evidenze.Diagnostica{{
@@ -131,6 +143,7 @@ func (l Limiti) Valida() []evidenze.Diagnostica {
 	}
 	for _, v := range l.valori() {
 		switch {
+		case v.valore == 0 && in(v.percorso, limitiFacoltativi):
 		case v.valore <= 0:
 			out = append(out, evidenze.Diagnostica{
 				Codice:    CodiceCampoObbligatorio,

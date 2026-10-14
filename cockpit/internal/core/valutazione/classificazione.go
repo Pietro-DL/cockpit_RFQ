@@ -68,7 +68,9 @@ const (
 //   - Origine, Confermata: da dove viene la categoria, e se una persona l'ha confermata.
 //   - Motivo: MotivoCategoria*, quando serve.
 //   - Proposta: la categoria della grammatica, quando non coincide (uno sciolto o un commerciale della famiglia
-//     minuteria hanno Proposta = minuteria): la nota «minuteria proposta, da confermare». Non esenta mai.
+//     minuteria hanno Proposta = minuteria): la nota «minuteria proposta, da confermare». Dal 14/10 anche commerciale,
+//     da una voce della tabella delle classi del cliente (N-CATEGORIA, [U]); la minuteria ha la precedenza. Non esenta
+//     mai.
 //
 // L'esenzione dal 2D vale solo con Categoria = minuteria e Confermata, e mai per il prodotto (EsenteDal2D).
 type Classificazione struct {
@@ -113,7 +115,9 @@ type ComponenteDaClassificare struct {
 //     categoria) sostituisce la categoria, con l'origine confermato; una categoria fuori da fabbricato, commerciale,
 //     minuteria non conta (conferma_non_ammessa). Sul prodotto (il finito o il componente del target) la minuteria
 //     confermata si mostra, ma il 2D resta (finito_chiede_sempre_il_2d).
-//  4. La proposta: minuteria, se la grammatica la dà e la categoria non è già minuteria. Non esenta mai.
+//  4. La proposta: minuteria, se la grammatica la dà e la categoria non è già minuteria; altrimenti commerciale, se la
+//     grammatica la dà (la voce della tabella delle classi, 14/10) e la categoria non è già commerciale. Non esenta
+//     mai: l'esenzione dal 2D la dice solo EsenteDal2D, sulla minuteria confermata (R103 C, R99 A).
 func Classifica(c ComponenteDaClassificare, conferme []ConfermaCategoria) Classificazione {
 	out := Classificazione{Ruolo: RuoloComponente}
 	switch c.Tipo {
@@ -140,10 +144,22 @@ func Classifica(c ComponenteDaClassificare, conferme []ConfermaCategoria) Classi
 			out.Motivo = MotivoCategoriaConfermaNonAmmessa
 		}
 	}
+	minuteria, commerciale := false, false
 	for _, x := range c.Categorie {
-		if x == string(grammatica.CategoriaMinuteria) && out.Categoria != CategoriaMinuteria {
+		switch x {
+		case string(grammatica.CategoriaMinuteria):
+			minuteria = true
+		case string(grammatica.CategoriaCommerciale):
+			commerciale = true
+		}
+	}
+	switch {
+	case minuteria:
+		if out.Categoria != CategoriaMinuteria {
 			out.Proposta = CategoriaMinuteria
 		}
+	case commerciale && out.Categoria != CategoriaCommerciale:
+		out.Proposta = CategoriaCommerciale
 	}
 	return out
 }

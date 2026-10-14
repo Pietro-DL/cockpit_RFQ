@@ -16,11 +16,13 @@ import (
 
 // TestA1aLIMTettiDelCodice fissa i tetti: alzarne uno vuol dire riscrivere questa prova con il titolo
 // «Riscritta per …», in un commit che lo dichiara (par.3.4.1).
+//
+// Riscritta per la tabella delle classi (14/10, [U]): un tetto nuovo, max_voci_classi 1024; gli altri non cambiano.
 func TestA1aLIMTettiDelCodice(t *testing.T) {
 	atteso := Limiti{
 		Grammatica: LimitiGrammatica{
 			MaxFamiglie: 64, MaxFormePerFamiglia: 64, MaxPartiPerForma: 32, MaxEsempi: 256,
-			MaxLunghezzaPattern: 256, MaxRipetizione: 100, MaxLunghezzaLetterale: 128,
+			MaxLunghezzaPattern: 256, MaxRipetizione: 100, MaxLunghezzaLetterale: 128, MaxVociClassi: 1024,
 		},
 		Riconoscimento: LimitiRiconoscimento{
 			MaxByteUnita: 8388608, MaxUnitaDocumento: 100000, MaxLetturePerUnita: 10000, MaxLettureDocumento: 200000,

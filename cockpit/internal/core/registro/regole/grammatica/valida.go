@@ -39,6 +39,9 @@ import (
 //     (contratto.campo_obbligatorio). Una famiglia con sole forme riservate è ammessa.
 //  16. Le regole quantita_tabellare (quantita.go, A1b.8; R28 a): ID, intestazioni, regola, selettori corpo e
 //     storia, stato, con i codici di sopra.
+//  17. La tabella delle classi di una famiglia (classi.go, 14/10): segmento identitario, valori riconosciuti dal
+//     segmento e unici, categoria nell'enum, descrizione, lunghezze, max_voci_classi, nessuna categoria accanto
+//     (contratto.classi_*, e i codici di sopra).
 //
 // Gli esiti sono tre (C-10): errore (lo snapshot non nasce); riservato con diagnosi (capacita.non_supportata,
 // grammatica.forma_riservata, grammatica.riserva: quell'elemento non è attivo, il resto sì); attivo.
@@ -372,6 +375,7 @@ func (v *validatore) famiglia(f FamigliaCodice, p string) {
 	v.duplicati(p+".categorie", catStr)
 
 	v.base(f.Base, p+".base")
+	v.classi(f, p)
 	r := indicizza(f)
 	v.etichette(f.Etichette, p)
 	v.affissi(f.Affissi, p)

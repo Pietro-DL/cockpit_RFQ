@@ -150,8 +150,15 @@ markmap:
     componenti del perimetro confermato che nessun nodo della BOM di lavoro rappresenta, come `NodoBOM` senza file, con
     il Rif `componente:<uuid>`). `PV.Nodi` resta solo la BOM di lavoro (T-B6-11);
   - **EB7-2 A, il tipo del nodo**: `NodoBOM.Tipo` e `NodoBOM.OrigineTipo` (`confermato`, `proposto_dalla_riga`,
-    `proposto_dalla_regola`) per `Nodi`, `StruttureCandidate[].Nodi` e `ConfermatiSenzaSTEP`. Il frontend legge il tipo
-    da qui e non lo deduce dai figli;
+    `proposto_dalla_regola` e, dal 14/10, `proposto_dalla_grammatica`) per `Nodi`, `StruttureCandidate[].Nodi` e
+    `ConfermatiSenzaSTEP`. Il frontend legge il tipo da qui e non lo deduce dai figli;
+  - **la tabella delle classi del cliente** (14/10, decisione dell'utente [U]; `valutazione-5`): `NodoBOM.Classe`
+    (`ClasseNodo`: categoria, descrizione, fonte e valore della voce sulla lettura scelta del nodo, per il nodo deciso e
+    per quello senza decisione); il tipo proposto `commerciale` con l'origine `proposto_dalla_grammatica` per un nodo
+    senza decisione e senza figli la cui lettura ha una voce commerciale o minuteria («il commerciale è SEMPRE una
+    foglia», 29/09), prima della riga e della regola, nella funzione unica `bomDelThread.tipoProposto` (quindi anche
+    nei previsti); `Classificazione.Proposta` vale anche `commerciale` (la minuteria ha la precedenza). Mai
+    un'esenzione dal 2D (R103 C, R99 A), e nessuna scrittura di `tipo_componente`: è una proposta dell'esito;
   - **EB7-4 A, la voce del 2D**: `VoceFabbisogno.DocumentoID` e `StatoNas` del documento confermato e corrente che
     decide la voce, con lo stato del NAS della fotografia; vuoti quando la voce la decide l'associazione non confermata o
     la deroga (D2);
@@ -196,7 +203,9 @@ markmap:
     elenca: la provenienza), e i nodi decisi hanno il tipo del loro componente, confermato, anche se è un `finito`
     legacy che non è target. La classificazione della regola nel caso non determinabile è provvisoria: non dimostra che
     il nodo sia un non target (D-CHIUS-2). Le diagnostiche escono solo per le caselle senza decisione e raggiunte
-    (revisione indipendente, R3); il percorso dice il prodotto e il Rif, non la casella;
+    (revisione indipendente, R3), e non per quelle in cui il tipo proposto lo dà la grammatica
+    (`propostoDallaGrammatica`, 14/10: lì nessuna riga decide il tipo); il percorso dice il prodotto e il Rif, non la
+    casella;
   - **D4**: la radice di uno STEP candidato non è il prodotto: è normale che il prodotto sia `finito/confermato` (fra i
     confermati senza STEP) e la radice della candidata `sottoassieme/proposto_dalla_regola` (T-P7e-07);
   - **D5**: `NodoBOM.Parentela` dei nodi di uno STEP porta i legami del file (gli archi, con il segno dell'arco
@@ -295,7 +304,7 @@ markmap:
     dello smistamento composti con quelli di B5; da V3 il fascicolo, con gli orfani di V2); i messaggi fuori RFQ dei casi
     di censimento (`fuoriRFQ`, `valutaFuoriRFQ`); l'ordine delle diagnostiche.
 - **`esito.go`** (B6, V1) — responsabilità:
-  - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, `valutazione-4` dalla notte del 14/10, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
+  - `VersioneValutazione` (`valutazione-2` da P7e, `valutazione-3` dall'11/10, `valutazione-4` dalla notte del 14/10, `valutazione-5` dal 14/10 con la tabella delle classi, con il perché), `Esito`, `EsitoThread`, `MotivoThread`,
     `EsitoFuoriRFQ`, `EvidenzaFile`; gli involucri `FileInterpretato` (dalla notte del 14/10 con `Riconoscimento2D`) e
     `MessaggioInterpretato` (F0-03); i motivi di un file non valutato (`MotivoFile*`).
 - **`vecchio.go`** (B6, V1) — responsabilità:
@@ -431,7 +440,8 @@ markmap:
     `cad_3d` (`candidati3D`, T-6).
 - **`classificazione.go`** (B5, fase 3) — responsabilità:
   - `Classificazione` con i valori di ruolo, categoria, origine e motivo, `ConfermaCategoria`,
-    `ComponenteDaClassificare`; la regola `Classifica`, l'esenzione `EsenteDal2D`.
+    `ComponenteDaClassificare`; la regola `Classifica` (la proposta minuteria, poi dal 14/10 commerciale), l'esenzione
+    `EsenteDal2D`.
 - **`completezza.go`** (B5, fase 3) — responsabilità:
   - `StatoDocumenti`, `EsitoFabbisogno`, i valori di `NotaRegola`, i motivi della completezza, del perimetro e dei
     previsti; `VoceFabbisogno`, `FabbisognoPrevisto`, `FabbisognoInformativo`, `CompletezzaDocumentale`;
@@ -1007,6 +1017,10 @@ markmap:
   - **`valutazione-4`**: dalla notte del 14/10 (mandato autonomo, da ratificare). L-2D, T-6 e le radici di riserva
     dell'ancoraggio cambiano l'esito sullo stesso ingresso; la versione è avanzata all'integrazione dei pacchetti della
     notte, insieme al letterale dell'anteprima (`motore_a.VersioneAttesa`).
+  - **`valutazione-5`**: dal 14/10 (la tabella delle classi del cliente, [U]). L'origine nuova del tipo
+    `proposto_dalla_grammatica` e `NodoBOM.Classe`; con grammatiche senza tabella cambiano solo la versione e
+    l'impronta dell'esito (la non regressione di P7e le normalizza già, e le scene ACME restano uguali). Avanza insieme
+    al letterale dell'anteprima (`motore_a.VersioneAttesa`).
 - **`VersioneImprontaProdotto` resta 1**: i campi di P7e e della notte del 14/10 non entrano nei dati decisi (R90).
 - Le impronte dell'esito di due versioni diverse non si confrontano come se dovessero coincidere (per esempio i rapporti
   del banco fatti con `valutazione-1`): si confrontano gli assi, gli obbligatori e le uscite.
@@ -1024,6 +1038,11 @@ markmap:
 
 ## Test
 
+- **`classi_test.go`**, **`classi_interna_test.go`** (14/10) — L1: una struttura candidata ACME con la famiglia
+  acme-classi (la tabella sulla serie): la foglia con la voce prende `commerciale/proposto_dalla_grammatica`, il nodo
+  con dei figli la regola, la voce in `NodoBOM.Classe` (e nel JSON), la proposta della categoria, il 2D sempre
+  previsto; `Classifica` con commerciale e minuteria; `tipoProposto` sulla funzione (foglia, figli, riga, nessuna voce);
+  nessuna diagnostica del «finito» senza autorità sulla foglia in cui decide la grammatica (regressione del 14/10).
 - **`ingressi_test.go`** — L1 — A1c-L1-21: il file `testdata/casi_acme.v1.json` letto per intero; ogni violazione
   della porta stretta e del contenuto con il suo codice e il suo percorso.
 - **`richiesta_test.go`** — L1 — A1c-L1-17 riscritta: lo stato di ogni messaggio (gesto, direzione, controparte;

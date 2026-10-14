@@ -36,6 +36,28 @@ type pianoForma struct {
 	maxByte                    int         // i byte di una lettura al più; -1 se la sequenza non ha un limite
 	gruppi                     []gruppo
 	scrittura                  []parteScritta // le parti come le legge il compositore (componi.go, A1c B3; R63 B)
+	classi                     *tabellaClassi // la tabella delle classi della famiglia, condivisa dalle sue forme; nil senza
+}
+
+// tabellaClassi: la tabella delle classi di una famiglia abbassata (grammatica.TabellaClassi, 14/10): il segmento e le
+// voci per valore, calcolate una volta in CompilaVerificato. La mappa serve solo a cercare, mai a scorrere.
+type tabellaClassi struct {
+	segmento string
+	voci     map[string]grammatica.VoceClasse
+}
+
+// tabellaDi: la tabella abbassata; nil senza tabella. Le voci sono già validate (valori unici, Valida).
+func tabellaDi(t *grammatica.TabellaClassi) *tabellaClassi {
+	if t == nil {
+		return nil
+	}
+	out := &tabellaClassi{segmento: t.Segmento, voci: make(map[string]grammatica.VoceClasse, len(t.Voci))}
+	for _, v := range t.Voci {
+		if _, gia := out.voci[v.Valore]; !gia {
+			out.voci[v.Valore] = v
+		}
+	}
+	return out
 }
 
 // operazione: che cosa fare del testo di un gruppo. Sono poche, e nessuna nomina un cliente (par.12): il
@@ -129,34 +151,15 @@ func alternativa(letterali []string) string {
 	return "(?:" + strings.Join(l, "|") + ")"
 }
 
-// letteraleBase: un letterale della base (segmento o separatore), con le maiuscole della base.
-func (c *costruttore) letteraleBase(s string) string {
-	if !c.piega {
-		return regexp.QuoteMeta(s)
-	}
-	var b strings.Builder
-	for _, r := range s {
-		if altra, ok := altraMaiuscola(r); ok {
-			fmt.Fprintf(&b, "[%c%c]", min(r, altra), max(r, altra))
-		} else {
-			b.WriteString(regexp.QuoteMeta(string(r)))
-		}
-	}
-	return b.String()
-}
+// letteraleBase: un letterale della base (segmento o separatore), con le maiuscole della base
+// (grammatica.LetteraleBase: la stessa funzione della validazione della tabella delle classi).
+func (c *costruttore) letteraleBase(s string) string { return grammatica.LetteraleBase(s, c.piega) }
 
 // patternBase: un pattern della base, con le maiuscole della base. Le maiuscole indifferenti si ottengono
 // aggiungendo alle lettere ASCII l'altra maiuscola, mai con (?i), che piega anche lettere fuori dall'ASCII
-// (T9).
+// (T9; grammatica.PatternBase, come sopra).
 func (c *costruttore) patternBase(p string) (string, error) {
-	if !c.piega {
-		return "(?:" + p + ")", nil
-	}
-	albero, err := syntax.Parse(p, syntax.Perl)
-	if err != nil {
-		return "", err
-	}
-	return "(?:" + piegaASCII(albero).String() + ")", nil
+	return grammatica.PatternBase(p, c.piega)
 }
 
 // base scrive la base (o la sua ripetizione) con i segmenti dati: tutti, o la proiezione di una forma
@@ -245,10 +248,12 @@ func abbassaRevisione(r grammatica.RegolaRevisione) (*regolaRevisione, error) {
 	return rr, nil
 }
 
-// regoleFamiglia: le regole di una famiglia che le parti citano per ID. Le revisioni sono già abbassate.
+// regoleFamiglia: le regole di una famiglia che le parti citano per ID. Le revisioni sono già abbassate, e così la
+// tabella delle classi.
 type regoleFamiglia struct {
 	f         grammatica.FamigliaCodice
 	revisioni map[string]*regolaRevisione // per ID: solo per cercare
+	classi    *tabellaClassi
 }
 
 func (r regoleFamiglia) etichetta(id string) *grammatica.Etichetta {
@@ -298,6 +303,7 @@ func compilaForma(r regoleFamiglia, fo grammatica.FormaCodice) (*pianoForma, err
 		namespace:    f.Namespace,
 		forma:        fo.ID,
 		categorie:    f.Categorie,
+		classi:       r.classi,
 		completa:     fo.Completa,
 		mancanti:     fo.SegmentiMancanti,
 		maiuscolo:    f.Base.Normalizza == grammatica.NormalizzaMaiuscolo,
@@ -463,75 +469,8 @@ func (p *pianoRevisione) leggi(testo string) *RevisioneLetta {
 
 // ---- maiuscole indifferenti ASCII (T9) ----
 
-// altraMaiuscola: per una lettera ASCII, la stessa lettera con l'altra maiuscola.
-func altraMaiuscola(r rune) (rune, bool) {
-	switch {
-	case 'a' <= r && r <= 'z':
-		return r - ('a' - 'A'), true
-	case 'A' <= r && r <= 'Z':
-		return r + ('a' - 'A'), true
-	}
-	return 0, false
-}
-
-// piegaASCII: lo stesso albero, con le lettere ASCII dei letterali e delle classi in tutte e due le
-// maiuscole. Le rune fuori dall'ASCII restano come sono: la K del Kelvin non diventa una k (T9).
-func piegaASCII(re *syntax.Regexp) *syntax.Regexp {
-	switch re.Op {
-	case syntax.OpLiteral:
-		subs := make([]*syntax.Regexp, 0, len(re.Rune))
-		for _, r := range re.Rune {
-			if altra, ok := altraMaiuscola(r); ok {
-				subs = append(subs, &syntax.Regexp{Op: syntax.OpCharClass, Rune: []rune{min(r, altra), min(r, altra), max(r, altra), max(r, altra)}})
-			} else {
-				subs = append(subs, &syntax.Regexp{Op: syntax.OpLiteral, Rune: []rune{r}})
-			}
-		}
-		if len(subs) == 1 {
-			return subs[0]
-		}
-		return &syntax.Regexp{Op: syntax.OpConcat, Sub: subs}
-	case syntax.OpCharClass:
-		return &syntax.Regexp{Op: syntax.OpCharClass, Rune: piegaClasse(re.Rune)}
-	}
-	n := *re
-	if len(re.Sub) > 0 {
-		n.Sub = make([]*syntax.Regexp, len(re.Sub))
-		for i, s := range re.Sub {
-			n.Sub[i] = piegaASCII(s)
-		}
-	}
-	return &n
-}
-
-// piegaClasse: gli intervalli di una classe, più quelli delle lettere ASCII con l'altra maiuscola, ordinati e
-// fusi.
-func piegaClasse(intervalli []rune) []rune {
-	tutti := append([]rune(nil), intervalli...)
-	for i := 0; i+1 < len(intervalli); i += 2 {
-		lo, hi := intervalli[i], intervalli[i+1]
-		if a, b := max(lo, 'a'), min(hi, 'z'); a <= b {
-			tutti = append(tutti, a-('a'-'A'), b-('a'-'A'))
-		}
-		if a, b := max(lo, 'A'), min(hi, 'Z'); a <= b {
-			tutti = append(tutti, a+('a'-'A'), b+('a'-'A'))
-		}
-	}
-	coppie := make([][2]rune, 0, len(tutti)/2)
-	for i := 0; i+1 < len(tutti); i += 2 {
-		coppie = append(coppie, [2]rune{tutti[i], tutti[i+1]})
-	}
-	sort.Slice(coppie, func(i, j int) bool { return coppie[i][0] < coppie[j][0] })
-	var out []rune
-	for _, c := range coppie {
-		if n := len(out); n > 0 && c[0] <= out[n-1]+1 {
-			out[n-1] = max(out[n-1], c[1])
-			continue
-		}
-		out = append(out, c[0], c[1])
-	}
-	return out
-}
+// AltraMaiuscola, PiegaASCII e la piega delle classi stanno in grammatica (maiuscole.go) dal 14/10: le usa anche la
+// validazione della tabella delle classi, che controlla i valori con il segmento compilato come qui. Una regola sola.
 
 // ---- la lunghezza massima di una lettura ----
 

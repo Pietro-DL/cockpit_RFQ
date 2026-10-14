@@ -64,7 +64,8 @@ type FamigliaCodice struct {
 	Namespace   string            `json:"namespace"` // lo spazio di confronto degli articoli del cliente
 	Descrizione string            `json:"descrizione,omitempty"`
 	Ruoli       []Ruolo           `json:"ruoli"`               // ⊆ {prodotto, componente}, almeno uno (R17 c)
-	Categorie   []Categoria       `json:"categorie,omitempty"` // ⊆ {minuteria}: annotazione della lettura (R7)
+	Categorie   []Categoria       `json:"categorie,omitempty"` // ⊆ {minuteria, commerciale}: annotazione della lettura (R7)
+	Classi      *TabellaClassi    `json:"classi,omitempty"`    // la tabella serie → normativa del cliente (classi.go); senza, canonico e hash di prima
 	Base        Base              `json:"base"`
 	Forme       []FormaCodice     `json:"forme"`
 	Etichette   []Etichetta       `json:"etichette,omitempty"`
@@ -79,8 +80,9 @@ type FamigliaCodice struct {
 // «parte» e «finito» qui sono valori ignoti, senza adattatore (R6).
 type Ruolo string
 
-// Categoria: un'annotazione trasversale della lettura (v3 §2): "minuteria". La minuteria nasce dalla famiglia
-// dichiarata, non da un riconoscitore sul nome (R7).
+// Categoria: un'annotazione trasversale della lettura (v3 §2): "minuteria" o "commerciale". La categoria nasce
+// dalla famiglia dichiarata, o da una voce della sua tabella delle classi (classi.go), mai da un riconoscitore sul
+// nome (R7).
 type Categoria string
 
 // Base: la forma completa del codice, a segmenti nominati e ordinati, senza match vuoti (parte 1 §5.1).

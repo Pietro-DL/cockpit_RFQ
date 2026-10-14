@@ -31,6 +31,9 @@ contratto.cardinalita_non_valida
 contratto.etichetta_obbligatoria_assente
 contratto.selettore_conteso
 contratto.confine_non_ammesso
+contratto.classi_segmento_non_identitario
+contratto.classi_valore_non_conforme
+contratto.classi_con_categorie
 grammatica.pattern_non_compila
 grammatica.pattern_operatore_non_re2
 grammatica.pattern_confine

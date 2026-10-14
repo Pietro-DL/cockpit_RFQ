@@ -78,7 +78,8 @@ func NuovoSnapshot(raw []byte, lim Limiti) (SnapshotRegole, error) {
 // la grammatica ricevuta non cambia.
 //   - Famiglie, forme, etichette, affissi, revisioni, decorazioni, esempi e riserve (e riferimenti e
 //     qualificatori, che hanno un ID, e le regole quantita_tabellare) in ordine di ID: l'ordine nel file non ha
-//     significato.
+//     significato. Le voci della tabella delle classi (classi.go) in ordine di valore, per la stessa ragione; una
+//     famiglia senza tabella resta senza (nil), con il canonico di prima.
 //   - Gli insiemi (ruoli, categorie, selettori, letterali, separatori della revisione, testi dei
 //     qualificatori, intestazioni della quantità) in ordine di byte: un duplicato è già un errore di Valida. Ordinare i letterali non cambia il riconoscimento, perché il
 //     compilatore legge la più lunga.
@@ -131,6 +132,7 @@ func normalizzaFamiglia(f FamigliaCodice) FamigliaCodice {
 	sort.SliceStable(n.Ruoli, func(i, j int) bool { return n.Ruoli[i] < n.Ruoli[j] })
 	n.Categorie = append([]Categoria(nil), f.Categorie...)
 	sort.SliceStable(n.Categorie, func(i, j int) bool { return n.Categorie[i] < n.Categorie[j] })
+	n.Classi = normalizzaClassi(f.Classi)
 
 	n.Base.Segmenti = copiaSegmenti(f.Base.Segmenti)
 	if n.Base.ConfinePrima == "" {

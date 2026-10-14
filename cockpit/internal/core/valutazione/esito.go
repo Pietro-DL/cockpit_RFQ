@@ -15,13 +15,16 @@ import (
 
 // VersioneValutazione: la versione del percorso di valutazione (6.4.6). Entra in Esito, quindi nella sua impronta:
 // cambia con un commit che lo dichiara, e la prova che la fissa si riscrive.
+//
 //   - valutazione-1: da B6 (P7c) a B6c;
+//
 //   - valutazione-2 (P7e, 08/10): gli emendamenti EB7 ratificati dall'utente l'08/10 aggiungono campi all'esito, e quindi
 //     ne cambiano il canonico e l'impronta: le strutture candidate e i confermati senza STEP (EB7-1 B), il tipo del nodo
 //     con l'origine (EB7-2 A), il documento e lo stato del NAS nella voce del 2D (EB7-4 A, con D2 del 10/10). Con D3 del
 //     10/10 una riga scartata, decisa o fuori dall'enum non propone più il tipo: cambiano i previsti di quei soli nodi.
 //     Stato, assi, motivi, autorità e impronta del prodotto (R90) non cambiano. Le impronte dell'esito delle due versioni
 //     non si confrontano come se dovessero coincidere;
+//
 //   - valutazione-3 (11/10): D-CHIUS-3 = B [U] dell'11/10 («Versionamento rigoroso di un esito semanticamente
 //     modificato»). Con D-P7e-1 e D-CHIUS-2 C una riga aperta «finito» non ha autorità fuori dalla casella della BOM di
 //     lavoro scelta di un target: lo stesso ingresso può dare un tipo, dei previsti e due diagnostiche nuove
@@ -33,7 +36,13 @@ import (
 //     del Motore A) e per le radici di riserva dell'ancoraggio (Origine della struttura candidata: nome_file_step,
 //     associazione_step). Avanza una volta sola, all'integrazione dei pacchetti della notte, insieme al letterale
 //     dell'anteprima (motore_a.VersioneAttesa).
-const VersioneValutazione = "valutazione-4"
+//
+//   - valutazione-5 (14/10, decisione dell'utente sulla tabella delle classi, [U]): il tipo proposto di un nodo foglia
+//     senza decisione la cui lettura ha una voce della tabella (commerciale o minuteria) è commerciale, con l'origine
+//     nuova proposto_dalla_grammatica; NodoBOM.Classe porta la voce; Classificazione.Proposta può valere commerciale.
+//     Con grammatiche senza tabella l'esito cambia solo per la versione e l'impronta (le scene ACME non ne hanno: la
+//     prova di non regressione di P7e normalizza già versione e impronta).
+const VersioneValutazione = "valutazione-5"
 
 // Esito: la valutazione di una fotografia (par.3.3.8; contratto §2.3; IM.1).
 //   - Le cinque versioni, l'impronta della fotografia, quella dell'indice delle regole (che copre anche i limiti: R43 B)

@@ -245,7 +245,9 @@ type casoErrore struct {
 var casiAC01 = []casoErrore{
 	{"ruolo finito", []string{`"ruoli": ["componente"]`, `"ruoli": ["finito"]`}, CodiceEnumIgnoto, "famiglie_codice[acme-punti].ruoli[0]"},
 	{"ruolo parte, il legacy", []string{`"ruoli": ["componente"]`, `"ruoli": ["parte"]`}, CodiceEnumIgnoto, "famiglie_codice[acme-punti].ruoli[0]"},
-	{"categoria commerciale", []string{`"categorie": ["minuteria"]`, `"categorie": ["commerciale"]`}, CodiceEnumIgnoto, "famiglie_codice[acme-punti].categorie[0]"},
+	// «commerciale» è nell'enum dal 14/10 (N-CATEGORIA, [U]): qui resta fuori elenco «fabbricato», che è una categoria
+	// della valutazione, mai della grammatica.
+	{"categoria fabbricato", []string{`"categorie": ["minuteria"]`, `"categorie": ["fabbricato"]`}, CodiceEnumIgnoto, "famiglie_codice[acme-punti].categorie[0]"},
 	{"tipo di parte inventato", []string{`"parti": [{"tipo": "base", "min": 1, "max": 1}], "confine_dopo"`, `"parti": [{"tipo": "base", "min": 1, "max": 1}, {"tipo": "coda", "min": 0, "max": 1}], "confine_dopo"`}, CodiceEnumIgnoto, "famiglie_codice[acme-punti].forme[parziale].parti[1].tipo"},
 	{"tipo di decorazione inventato", []string{`"tipo": "stato_pdm"`, `"tipo": "colore"`}, CodiceEnumIgnoto, "famiglie_codice[acme-documento].decorazioni[stato].tipo"},
 	{"posizione centro", []string{`"posizione": "prefisso"`, `"posizione": "centro"`}, CodiceEnumIgnoto, "famiglie_codice[acme-prefisso].affissi[fase].posizione"},

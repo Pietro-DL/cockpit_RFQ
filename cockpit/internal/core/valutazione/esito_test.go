@@ -22,8 +22,10 @@ import (
 // la dichiara, e cambia Esito.Impronta. valutazione-2 da P7e (gli emendamenti EB7 dell'08/10 aggiungono campi all'esito),
 // valutazione-3 dall'11/10 (D-CHIUS-3 = B: con D-P7e-1 e D-CHIUS-2 C lo stesso ingresso può dare un esito diverso);
 // la versione dell'impronta del prodotto resta 1, perché i campi nuovi non entrano nei dati decisi (R90).
+// Riscritta per valutazione-5 (14/10, la tabella delle classi del cliente: l'origine proposto_dalla_grammatica e
+// NodoBOM.Classe).
 func TestLeVersioniFissate(t *testing.T) {
-	if valutazione.VersioneValutazione != "valutazione-4" || valutazione.VersioneImprontaProdotto != 1 {
+	if valutazione.VersioneValutazione != "valutazione-5" || valutazione.VersioneImprontaProdotto != 1 {
 		t.Errorf("versioni %q %d", valutazione.VersioneValutazione, valutazione.VersioneImprontaProdotto)
 	}
 }
@@ -137,9 +139,10 @@ func TestICampiDellEsito(t *testing.T) {
 		// R106 B e R107, precisate il 07/10: il contesto del messaggio con la provenienza.
 		{valutazione.ContestoMessaggio{}, "MessaggioID:messaggio_id Letture:letture Prodotti:prodotti"},
 		{valutazione.FileDaSmistare{}, "AllegatoID:allegato_id NomeFile:nome_file Motivo:motivo Prodotti:prodotti Proposta:proposta Orfano:orfano ProdottiContesto:prodotti_contesto"},
-		// EB7-2 A (P7e; bozza §1.6): Tipo e OrigineTipo in fondo.
+		// EB7-2 A (P7e; bozza §1.6): Tipo e OrigineTipo in fondo; dal 14/10 Classe, la voce della tabella delle classi.
 		{valutazione.NodoBOM{}, "Nodo:nodo Descrizione:descrizione Parentela:parentela Disegni:disegni Associazione:associazione Motivi:motivi " +
-			"Classificazione:classificazione AncheIn:anche_in Tipo:tipo OrigineTipo:origine_tipo"},
+			"Classificazione:classificazione AncheIn:anche_in Tipo:tipo OrigineTipo:origine_tipo Classe:classe"},
+		{valutazione.ClasseNodo{}, "Categoria:categoria Descrizione:descrizione Fonte:fonte Valore:valore"},
 		{valutazione.Parentela{}, "Padre:padre Quantita:quantita Decisa:decisa"},
 		{valutazione.StatoFascicolo{}, "NumeroTarget:numero_target NumeroVerificati:numero_verificati Pronti:pronti Bloccati:bloccati Congelabile:congelabile " +
 			"MotivoNonCongelabile:motivo_non_congelabile Congelato:congelato CongelatoDa:congelato_da CongelatoIl:congelato_il Calcolato:calcolato " +

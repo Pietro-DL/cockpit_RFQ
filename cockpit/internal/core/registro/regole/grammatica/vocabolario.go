@@ -10,7 +10,8 @@ const (
 	RuoloProdotto   Ruolo = "prodotto"
 	RuoloComponente Ruolo = "componente"
 
-	CategoriaMinuteria Categoria = "minuteria"
+	CategoriaMinuteria   Categoria = "minuteria"
+	CategoriaCommerciale Categoria = "commerciale" // dal 14/10 [U]: un pezzo comprato (una boccola, un raccordo), con la tabella delle classi
 )
 
 // Tipi delle parti di una forma (parte 1 §5.1; marcatore, ripetizione_base e token da R16).
@@ -104,7 +105,7 @@ const (
 // Gli elenchi chiusi, nell'ordine in cui il contratto li elenca. Servono a Valida e ai messaggi.
 var (
 	ruoli     = []string{string(RuoloProdotto), string(RuoloComponente)}
-	categorie = []string{string(CategoriaMinuteria)}
+	categorie = []string{string(CategoriaMinuteria), string(CategoriaCommerciale)}
 	tipiParte = []string{TipoParteEtichetta, TipoParteAffisso, TipoParteBase, TipoParteRevisione, TipoParteDecorazione,
 		TipoParteSeparatore, TipoParteMarcatore, TipoParteRipetizioneBase, TipoParteToken}
 	tipiParteInterna = []string{TipoParteSeparatore, TipoParteToken, TipoParteRipetizioneBase} // dentro un suffisso_documento, un livello solo (D-03)

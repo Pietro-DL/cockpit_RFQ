@@ -148,6 +148,7 @@
 .ma .ma-tipo--sottoassieme { color: var(--ma-t-sottoassieme); background: var(--ma-info-soft); }
 .ma .ma-tipo--sciolto { color: var(--ma-t-sciolto); background: #F1ECF9; }
 .ma .ma-tipo--commerciale { color: var(--ma-t-commerciale); background: var(--ma-ver-soft); }
+.ma .ma-tipo--minuteria { letter-spacing: .05em; } /* «minuteria ?»: il commerciale proposto con la minuteria proposta (14/10) */
 .ma .ma-tipo--proposto { background: transparent; border-style: dashed; border-color: currentColor; }
 .ma .ma-tipo-q { font-weight: 700; }
 
@@ -417,6 +418,7 @@
 .ma .ma-nodo-cod .ma-st { font-family: var(--ma-fb); }
 .ma .ma-grezzo { font-style: italic; font-weight: 500; color: var(--ma-ink2); }
 .ma .ma-piu { font: 500 var(--ma-t-xs)/1 var(--ma-fb); color: var(--ma-ink3); border: 1px dotted var(--ma-line2); border-radius: 999px; padding: 1px 5px; margin-left: 5px; vertical-align: 2px; }
+.ma .ma-classe { font-size: var(--ma-t-xs); color: var(--ma-ink2); line-height: 1.3; margin-top: -3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .ma .ma-nodo-nome { font-size: var(--ma-t-ms); color: var(--ma-ink2); line-height: 1.25; margin-top: -4px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .ma .ma-nodo-badge { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
 .ma .ma-celle { display: flex; flex-wrap: wrap; gap: 4px; }

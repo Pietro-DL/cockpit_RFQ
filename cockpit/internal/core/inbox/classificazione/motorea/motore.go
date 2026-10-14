@@ -228,7 +228,7 @@ func percorsoRevisione(famiglia, id string) string {
 func (c *compilazione) abbassa() []evidenze.Diagnostica {
 	var diag []evidenze.Diagnostica
 	for _, f := range c.g.Famiglie {
-		r := regoleFamiglia{f: f, revisioni: map[string]*regolaRevisione{}}
+		r := regoleFamiglia{f: f, revisioni: map[string]*regolaRevisione{}, classi: tabellaDi(f.Classi)}
 		riservate := map[string]bool{} // revisioni riservate, per ID
 		for _, rv := range f.Revisioni {
 			if rv.Stato != grammatica.StatoAttiva {

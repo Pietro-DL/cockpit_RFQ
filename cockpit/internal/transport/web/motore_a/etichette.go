@@ -240,13 +240,15 @@ var etichette = map[string]map[string]string{
 		"struttura_candidata":    "struttura candidata",
 		"bom_di_lavoro_proposta": "BOM di lavoro",
 	},
-	// contratto §2.3 (EB7-2, P7e). Campi: NodoBOM.OrigineTipo.
+	// contratto §2.3 (EB7-2, P7e; dal 14/10 la tabella delle classi del cliente). Campi: NodoBOM.OrigineTipo.
 	"origine_tipo": {
-		"confermato":            "confermato",
-		"proposto_dalla_riga":   "proposto dalla riga",
-		"proposto_dalla_regola": "proposto dalla regola",
+		"confermato":                "confermato",
+		"proposto_dalla_riga":       "proposto dalla riga",
+		"proposto_dalla_regola":     "proposto dalla regola",
+		"proposto_dalla_grammatica": "proposto dalla normativa del cliente",
 	},
-	// contratto §2.3. Campi: Classificazione.Categoria, Classificazione.Proposta, VoceFabbisogno.Categoria.
+	// contratto §2.3. Campi: Classificazione.Categoria, Classificazione.Proposta, VoceFabbisogno.Categoria, NodoBOM.Classe.Categoria
+	// (la voce della tabella delle classi, 14/10: minuteria o commerciale).
 	"categoria": {
 		"fabbricato":      "fabbricato",
 		"commerciale":     "commerciale",

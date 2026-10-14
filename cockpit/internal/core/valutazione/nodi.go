@@ -39,16 +39,32 @@ import (
 //     dell'enum; «finito» solo per la radice della BOM di lavoro di un target, nella casella della BOM di lavoro di quel
 //     target: D-P7e-1, D-CHIUS-2 C, D-CHIUS-4 B);
 //   - proposto_dalla_regola: senza la riga, la regola con cui il legacy lo scrive (sottoassieme con dei figli nella
-//     struttura, altrimenti sciolto).
+//     struttura, altrimenti sciolto);
+//   - proposto_dalla_grammatica (14/10, [U]): la lettura scelta del nodo ha una voce della tabella delle classi del
+//     cliente (motorea.ClasseLetta) commerciale o minuteria, e il nodo non ha figli nella struttura: commerciale («il
+//     commerciale è SEMPRE una foglia», 29/09). Viene prima della riga e della regola; un nodo con dei figli tiene la
+//     catena di prima e la voce resta in NodoBOM.Classe. È solo una proposta: niente scrive tipo_componente.
 //
 // Le due proposte sono la stessa ricerca dei nodi previsti della completezza (bomDelThread.tipoProposto): una regola sola.
 type OrigineTipo string
 
 const (
-	OrigineTipoConfermato          OrigineTipo = "confermato"
-	OrigineTipoPropostoDallaRiga   OrigineTipo = "proposto_dalla_riga"
-	OrigineTipoPropostoDallaRegola OrigineTipo = "proposto_dalla_regola"
+	OrigineTipoConfermato              OrigineTipo = "confermato"
+	OrigineTipoPropostoDallaRiga       OrigineTipo = "proposto_dalla_riga"
+	OrigineTipoPropostoDallaRegola     OrigineTipo = "proposto_dalla_regola"
+	OrigineTipoPropostoDallaGrammatica OrigineTipo = "proposto_dalla_grammatica"
 )
+
+// ClasseNodo: la voce della tabella delle classi del cliente sulla lettura scelta del codice del nodo
+// (CatenaCodice.Forma.Classe, motorea.ClasseLetta; decisione dell'utente del 14/10, [U]): la categoria (minuteria o
+// commerciale), la descrizione e la fonte della voce, e il valore del segmento che la sceglie. È un'informazione sul
+// codice: c'è per il nodo deciso e per quello senza decisione, e non decide niente (né il 2D, né il tipo confermato).
+type ClasseNodo struct {
+	Categoria   string `json:"categoria"`
+	Descrizione string `json:"descrizione"`
+	Fonte       string `json:"fonte,omitempty"`
+	Valore      string `json:"valore"`
+}
 
 // NodoBOM: un nodo della BOM di lavoro del prodotto, di una sua struttura candidata o, con il Rif «componente:<uuid>», un
 // componente confermato senza STEP (EB7-1).
@@ -62,6 +78,8 @@ const (
 //     e da dove viene (OrigineTipo*); tutti e due "" se il tipo non si determina. Il frontend legge il tipo da qui e non
 //     lo deduce dai figli. Stanno in fondo al tipo e senza omitempty: nel JSON ci sono sempre, anche vuoti (la bozza non
 //     fissa il posto: T-P7e-01).
+//   - Classe (14/10): la voce della tabella delle classi sulla lettura scelta del nodo (ClasseNodo); nil senza, e con
+//     omitempty un nodo senza voce ha il JSON di prima.
 type NodoBOM struct {
 	Nodo            ancoraggio.NodoProposto `json:"nodo"`
 	Descrizione     *string                 `json:"descrizione,omitempty"`
@@ -73,6 +91,7 @@ type NodoBOM struct {
 	AncheIn         []string                `json:"anche_in,omitempty"`
 	Tipo            string                  `json:"tipo"`
 	OrigineTipo     OrigineTipo             `json:"origine_tipo"`
+	Classe          *ClasseNodo             `json:"classe,omitempty"`
 }
 
 // Parentela: un padre del nodo (contratto §2.3): il Rif del nodo padre, la quantità, l'arco confermato accanto. Per un
@@ -289,6 +308,7 @@ func (x *nodiThread) nodo(pv ProdottoValutato, st ancoraggio.StrutturaProdotto, 
 func (x *nodiThread) datiDelNodo(pv ProdottoValutato, out *NodoBOM, k *uuid.UUID, bomDelTarget string, conFigli bool) {
 	n := out.Nodo
 	out.Descrizione = x.descrizione(n, k)
+	out.Classe = classeDelNodo(n)
 	if k != nil {
 		if c := copiaGruppo(x.gruppi[*k]); c != nil {
 			out.Disegni = *c
@@ -312,7 +332,7 @@ func (x *nodiThread) datiDelNodo(pv ProdottoValutato, out *NodoBOM, k *uuid.UUID
 			categorie = categorieDi(f.Categorie)
 		}
 		out.Classificazione = Classifica(ComponenteDaClassificare{Categorie: categorie}, nil)
-		out.Tipo, out.OrigineTipo = x.b.tipoProposto(n.Rif, bomDelTarget, conFigli)
+		out.Tipo, out.OrigineTipo = x.b.tipoProposto(n.Rif, bomDelTarget, conFigli, classeLetta(n))
 	}
 	if p := out.Disegni.Primario; p != nil {
 		o := p.Provenienza
@@ -486,6 +506,24 @@ func (x *nodiThread) motiviDelNodo(pv ProdottoValutato, n ancoraggio.NodoPropost
 		}
 	}
 	return out
+}
+
+// classeLetta: la voce della tabella delle classi sulla lettura scelta del codice del nodo; nil senza lettura o senza
+// voce.
+func classeLetta(n ancoraggio.NodoProposto) *motorea.ClasseLetta {
+	if n.Codice.Forma == nil {
+		return nil
+	}
+	return n.Codice.Forma.Classe
+}
+
+// classeDelNodo: NodoBOM.Classe dalla voce della lettura scelta (una copia); nil senza.
+func classeDelNodo(n ancoraggio.NodoProposto) *ClasseNodo {
+	c := classeLetta(n)
+	if c == nil {
+		return nil
+	}
+	return &ClasseNodo{Categoria: string(c.Categoria), Descrizione: c.Descrizione, Fonte: c.Fonte, Valore: c.Valore}
 }
 
 // copiaIntero: un intero puntato che non condivide memoria con quello di partenza.

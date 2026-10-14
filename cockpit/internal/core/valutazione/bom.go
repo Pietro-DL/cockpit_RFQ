@@ -9,6 +9,8 @@ import (
 	"promatec/cockpit/internal/core/ancoraggio"
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/fotorfq"
+	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
+	"promatec/cockpit/internal/core/registro/regole/grammatica"
 )
 
 // La verifica della BOM, gli assi 3 e 4 (B5, fase 1; R80; contratto §1.0 righe 3 e 4, §1.3, §2.3, §2.6; T-B0-07,
@@ -480,7 +482,18 @@ func tipoPropostoDellaRiga(r fotorfq.RigaComponenteProposta) (string, bool) {
 // successiva o alla regola, anche nei previsti, e la diagnostica lo dice (diagnosticheDelFinitoSenzaAutorita). Chi la
 // chiama dice anche di quale target è la BOM di lavoro in cui sta la casella del nodo, "" se la casella non sta in una
 // BOM di lavoro (bomDelTarget: D-CHIUS-2 C e D-CHIUS-4 B, propostaConAutorita).
-func (b *bomDelThread) tipoProposto(rif, bomDelTarget string, conFigli bool) (string, OrigineTipo) {
+//
+// Dal 14/10 (decisione dell'utente sulla tabella delle classi, [U]) la prima fonte è la grammatica: se la lettura
+// scelta del nodo (classe: CatenaCodice.Forma.Classe, nil senza) ha una voce commerciale o minuteria e il nodo non ha
+// figli (conFigli falso: «il commerciale è SEMPRE una foglia», 29/09), il tipo proposto è commerciale, con l'origine
+// proposto_dalla_grammatica. Un nodo con dei figli tiene la riga e la regola come prima. Resta una proposta: niente
+// scrive tipo_componente (rfq/fascicolo: «nessun automatismo scrive il tipo di componente commerciale»), e il 2D resta
+// richiesto anche per il commerciale (FabbisogniDelComponente). Cambia anche il tipo dei previsti di quei nodi, perché
+// la funzione è una sola (D3): con le grammatiche senza tabella non cambia niente.
+func (b *bomDelThread) tipoProposto(rif, bomDelTarget string, conFigli bool, classe *motorea.ClasseLetta) (string, OrigineTipo) {
+	if propostoDallaGrammatica(conFigli, classe) {
+		return tipoCommerciale, OrigineTipoPropostoDallaGrammatica
+	}
 	if t, _, ok := b.propostaDelNodo(rif, bomDelTarget); ok {
 		return t, OrigineTipoPropostoDallaRiga
 	}
@@ -488,6 +501,13 @@ func (b *bomDelThread) tipoProposto(rif, bomDelTarget string, conFigli bool) (st
 		return tipoSottoassieme, OrigineTipoPropostoDallaRegola
 	}
 	return tipoSciolto, OrigineTipoPropostoDallaRegola
+}
+
+// propostoDallaGrammatica: se il tipo proposto del nodo lo dà la grammatica (la prima fonte di tipoProposto): una voce
+// commerciale o minuteria sulla lettura scelta, e nessun figlio. Una funzione sola per il tipo proposto e per la
+// diagnostica del «finito» senza autorità, che in quel caso non si emette (la riga non decide il tipo comunque).
+func propostoDallaGrammatica(conFigli bool, classe *motorea.ClasseLetta) bool {
+	return classe != nil && !conFigli && (classe.Categoria == grammatica.CategoriaCommerciale || classe.Categoria == grammatica.CategoriaMinuteria)
 }
 
 // propostaDelNodo: la proposta del tipo che vale per il nodo (la prima per ID con autorità: propostaConAutorita) e le
@@ -549,7 +569,10 @@ func (b *bomDelThread) conLeRadiciDeiTarget(strutture []ancoraggio.StrutturaProd
 // rappresentazione confermata: D-CHIUS-2 C, D-CHIUS-4 B). Il caso ambiguo dipende solo dal ruolo del Rif
 // (b.radici), quindi è lo stesso per tutte le caselle del nodo. Solo le caselle che chiedono il tipo proposto: senza decisione (un nodo deciso ha il tipo
 // del suo componente, e la proposta non valeva nemmeno prima) e raggiunte dalla radice senza gli archi tolti da una
-// persona (raggiuntiNellaStruttura, la stessa dei nodi). I riferimenti sono il prodotto, il
+// persona (raggiuntiNellaStruttura, la stessa dei nodi). Non le caselle in cui il tipo proposto lo dà la grammatica
+// (propostoDallaGrammatica, dal 14/10): lì nessuna riga decide il tipo, con o senza autorità, e il messaggio («il nodo
+// prende un'altra proposta aperta o la regola strutturale») direbbe il falso accanto a «proposto dalla normativa del
+// cliente». I riferimenti sono il prodotto, il
 // nodo e le righe della proposta, cioè la sua provenienza; il percorso dice il prodotto e il Rif del nodo, non la casella
 // (lo stesso Rif può stare nella BOM di lavoro e in una candidata: D6). In ordine di nodo. Le diagnostiche del thread non
 // entrano nello stato, negli assi né nell'impronta del prodotto.
@@ -568,9 +591,9 @@ func (b *bomDelThread) diagnosticheDelFinitoSenzaAutorita(pv ProdottoValutato, s
 		if st.Stato == ancoraggio.StatoBOMDiLavoroProposta {
 			bomDelTarget = st.Target
 		}
-		raggiunti, _ := b.raggiuntiNellaStruttura(st)
+		raggiunti, conFigli := b.raggiuntiNellaStruttura(st)
 		for _, n := range st.Nodi {
-			if !raggiunti[n.Rif] || n.Decisione != nil {
+			if !raggiunti[n.Rif] || n.Decisione != nil || propostoDallaGrammatica(conFigli[n.Rif], classeLetta(n)) {
 				continue
 			}
 			_, senza, _ := b.propostaDelNodo(n.Rif, bomDelTarget)

@@ -49,13 +49,17 @@ const (
 	ClienteScartato = "scartato"
 )
 
-// FamigliaRapporto: una famiglia con ruoli, categorie e forme, secondo lo stato dichiarato nel file.
+// FamigliaRapporto: una famiglia con ruoli, categorie e forme, secondo lo stato dichiarato nel file. SegmentoClassi e
+// VociClassi: la tabella delle classi della famiglia (grammatica.TabellaClassi, 14/10), il segmento che guarda e quante
+// voci ha; vuoti senza tabella, e con omitempty il rapporto di una grammatica senza tabelle resta quello di prima.
 type FamigliaRapporto struct {
 	ID             string   `json:"id"`
 	Ruoli          []string `json:"ruoli"`
 	Categorie      []string `json:"categorie,omitempty"`
 	FormeAttive    []string `json:"forme_attive,omitempty"`
 	FormeRiservate []string `json:"forme_riservate,omitempty"`
+	SegmentoClassi string   `json:"segmento_classi,omitempty"`
+	VociClassi     int      `json:"voci_classi,omitempty"`
 }
 
 // RiservaRapporto: una voce di profilo.riserve.
@@ -156,6 +160,9 @@ func VerificaRegole(m dataset.Manifest, ind grammatica.IndiceRegole, contenuti m
 			}
 			for _, x := range f.Categorie {
 				fr.Categorie = append(fr.Categorie, string(x))
+			}
+			if f.Classi != nil {
+				fr.SegmentoClassi, fr.VociClassi = f.Classi.Segmento, len(f.Classi.Voci)
 			}
 			for _, fo := range f.Forme {
 				if fo.Stato == grammatica.StatoAttiva {

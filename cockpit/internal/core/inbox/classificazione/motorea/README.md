@@ -98,7 +98,10 @@ markmap:
     il compilatore («g0», «g1»…) e ognuno porta l'operazione da fare sul testo catturato;
   - le parti (etichetta, affisso, base, ripetizione della base, revisione, decorazione con la sequenza
     interna di un suffisso, separatore, marcatore, token), le alternative letterali con `QuoteMeta`, le
-    maiuscole indifferenti ASCII senza `(?i)`;
+    maiuscole indifferenti ASCII senza `(?i)` (dal 14/10 con `grammatica.LetteraleBase` e `grammatica.PatternBase`,
+    le stesse funzioni della validazione della tabella delle classi);
+  - dal 14/10 la tabella delle classi della famiglia abbassata una volta (`tabellaClassi`: segmento e voci per
+    valore), condivisa dai piani delle sue forme;
   - le revisioni in campo separato (D-07); le rune con cui una lettura può cominciare;
   - da A1c (B3), per ogni piano le parti come le legge il compositore (`scrittura`), calcolate una volta in
     `compilaForma`.
@@ -123,7 +126,12 @@ markmap:
   - `LetturaForma`, `BaseLetta`, `SegmentoLetto`, `ParteLetta`, `AffissoLetto`, `RevisioneLetta`,
     `DecorazioneLetta`, `RipetizioneLetta` e le costanti degli stati;
   - la costruzione di una lettura dai gruppi: codice richiesto, attribuzione degli affissi, ripetizioni
-    concordanti o discordanti, revisione letta o token sospeso.
+    concordanti o discordanti, revisione letta o token sospeso;
+  - dal 14/10 (decisione dell'utente, [U]) `ClasseLetta` e `LetturaForma.Classe` (nel JSON `Classe`, con
+    omitempty): se il valore normalizzato del segmento della tabella delle classi è una voce, la lettura porta la
+    voce e le categorie diventano quelle della famiglia più quella della voce (ordinate, senza doppioni). Senza voce
+    la lettura non cambia. `VersioneAlgoritmo` e `VersioneRisultato` restano: senza tabelle letture e
+    interpretazioni hanno gli stessi byte di prima (`classi_test.go`).
 - **`confronta.go`** — responsabilità:
   - `Compatibilita` e le sue costanti, `ConfrontaBasi`, `ConfrontaRevisioni`.
 - **`esempi.go`** — responsabilità:
@@ -326,6 +334,11 @@ markmap:
   Entry point).
 
 ## Test
+
+- **`classi_test.go`** (14/10) — L1: la lettura con la voce (completa e parziale), senza voce, la copia; la voce di un
+  segmento minuscolo con le maiuscole esatte e normalizza «maiuscolo» (regressione del 14/10); l'unione
+  delle categorie sul piano; la voce nell'interpretazione e nel JSON; senza tabelle il JSON delle letture e
+  dell'interpretazione e l'impronta uguali a quelli del codice di prima (aabe52c), con le versioni del motore.
 
 - Nel ramo `-qa` (piano A, par.4.3, Q4), tutti L1 e sintetici, con le grammatiche ACME dai nomi neutri
   (`acme-prefisso`, `acme-marcatore`, `acme-documento`, `acme-punti`, `acme-etichetta`,

@@ -880,5 +880,9 @@ func copiaLetturaForma(f motorea.LetturaForma) motorea.LetturaForma {
 	if f.Categorie != nil {
 		f.Categorie = append(f.Categorie[:0:0], f.Categorie...)
 	}
+	if f.Classe != nil {
+		c := *f.Classe // la voce della tabella delle classi (14/10): solo stringhe, la copia basta
+		f.Classe = &c
+	}
 	return f
 }
