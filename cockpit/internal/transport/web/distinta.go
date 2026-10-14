@@ -36,6 +36,7 @@ import (
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -397,7 +398,7 @@ func (s *Server) documentiDistinta(v *distintaVista) {
 		if rd.Voce != nil {
 			rd.CodiceDaScrivere, rd.CodiceNelNome = codiceDaScrivere(v.motore, rd.Voce)
 		}
-		if x.Doc == nil && strings.EqualFold(x.estensione(), "zip") {
+		if x.Doc == nil && archivio.Estraibile(x.estensione()) {
 			// un archivio non e' un documento: o i suoi file sono gia' qui uno per uno, o non e' stato aperto
 			rd.Stato = "archivio"
 			if n := figliDi[x.A.AllegatoID]; n > 0 {

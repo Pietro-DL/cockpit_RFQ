@@ -54,6 +54,8 @@ func (s *Server) registraFascicolo(mux *http.ServeMux) {
 	mux.HandleFunc("POST /thread/{id}/fascicolo/revisione/abbandona", s.autenticato(s.dopoIlGesto(s.abbandonaRevisione)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/congela", s.autenticato(s.dopoIlGesto(s.congela)))
 	mux.HandleFunc("POST /thread/{id}/fascicolo/carica", s.autenticato(s.dopoICaricamenti(s.caricaVersioneInterna)))
+	// 14/10: file, zip e 7z dalla pagina della RFQ, del cliente o versioni interne (caricamento_rfq.go)
+	mux.HandleFunc("POST /thread/{id}/carica", s.autenticato(s.dopoICaricamenti(s.caricaNellaRFQ)))
 }
 
 // ------------------------------------------------------------------ pagina e pannelli

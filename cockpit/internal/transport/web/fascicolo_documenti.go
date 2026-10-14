@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -285,7 +286,7 @@ func costruisciDocumenti(d *fascicoloDati, note []db.ListAnnotazioniThreadRow, u
 	}
 	for _, f := range d.File {
 		perAllegato[f.A.AllegatoID] = f
-		if f.estensione() == "zip" {
+		if archivio.Estraibile(f.estensione()) {
 			continue
 		}
 		switch {

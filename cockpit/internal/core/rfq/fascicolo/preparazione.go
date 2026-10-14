@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -250,7 +251,7 @@ func PreparaFile(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.A
 			p.Rimandati++
 			continue
 		}
-		if strings.EqualFold(strings.TrimPrefix(a.Estensione.String, "."), "zip") {
+		if archivio.Estraibile(a.Estensione.String) {
 			chiave := "estrai:" + a.AllegatoID.String()
 			if provato, err := giaProvato(ctx, q, chiave); err != nil || provato {
 				if err != nil {
@@ -303,6 +304,45 @@ func PreparaFile(ctx context.Context, q *db.Queries, thread uuid.UUID, an coda.A
 		}
 		if j != nil {
 			p.Analisi++
+			fatti++
+		}
+	}
+
+	// Gli archivi che il server non sapeva aprire quando sono scesi (i 7z, prima del 14/10) sono rimasti
+	// «analizzati» senza voci: da quando il 7z si apre diventano contenitori, e senza le voci non si vedrebbe
+	// niente. Si accoda l'estrazione una volta sola, se non è mai stata provata.
+	tutti, err := q.ListAllegatiThread(ctx, tid)
+	if err != nil {
+		return p, err
+	}
+	conVoci := map[uuid.UUID]bool{}
+	for _, a := range tutti {
+		if a.ContenitoreID.Valid {
+			conVoci[a.ContenitoreID.UUID] = true
+		}
+	}
+	for _, a := range tutti {
+		if a.Natura != db.NaturaAllegatoFile || a.ContenitoreID.Valid || conVoci[a.AllegatoID] || a.Stato != db.StatoAllegatoAnalizzato ||
+			!archivio.Estraibile(a.Estensione.String) || !a.PathStaging.Valid || !inStaging(a.PathStaging.String) {
+			continue
+		}
+		if fatti >= max {
+			p.Rimandati++
+			continue
+		}
+		chiave := "estrai:" + a.AllegatoID.String()
+		if provato, err := giaProvato(ctx, q, chiave); err != nil || provato {
+			if err != nil {
+				return p, err
+			}
+			continue
+		}
+		j, err := coda.Accoda(ctx, q, db.TipoJobEstraiArchivio, worker.PayloadEstraiArchivio{AllegatoID: a.AllegatoID}, chiave, 4)
+		if err != nil {
+			return p, err
+		}
+		if j != nil {
+			p.Estrazioni++
 			fatti++
 		}
 	}

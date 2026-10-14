@@ -145,6 +145,7 @@ var ponteEscluse = map[string]string{
 	"/thread/{id}/distinta/albero/riepilogo":                            "la POST del riepilogo con una bozza non vuota: fuori dalla v1 (la GET è in LETTURE)",
 	"/thread/{id}/fascicolo/nas/importa":                                "non è un gesto della Distinta: caricamenti del Fascicolo",
 	"/thread/{id}/fascicolo/carica":                                     "non è un gesto della Distinta: caricamenti del Fascicolo",
+	"/thread/{id}/carica":                                               "non è un gesto della Distinta: file, zip e 7z dalla pagina della RFQ (14/10)",
 	"/thread/{id}/fascicolo/file/{pid}/generale":                        "non è un gesto della Distinta: documenti generali del Fascicolo",
 	"/thread/{id}/richiesta":                                            "non è un gesto della Distinta: richieste ai fornitori",
 	"/thread/{id}/richiesta/{rid}/annulla":                              "non è un gesto della Distinta: richieste ai fornitori",

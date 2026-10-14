@@ -3,6 +3,7 @@
 {{/* La preparazione dei file (Smistamento F1): aprire la pagina non scrive; chi puo' scrivere la chiede qui,
      una volta. Fuori da thread_corpo, che i gesti rifanno: non riparte a ogni gesto. La risposta non serve a
      questa pagina (hx-swap none): il lavoro si vede nel Fascicolo. */}}
+{{if and .Dati.Scrive .Dati.Caricamento}}<script type="module" src="{{statico "carica_rfq.mjs"}}"></script>{{end}}
 {{if .Dati.Scrive}}<div id="thread-prepara" hx-post="/thread/{{.Dati.T.ThreadID}}/fascicolo/prepara" hx-trigger="load" hx-vals='{"auto": "1"}' hx-swap="none"></div>{{end}}
 {{end}}
 
@@ -83,6 +84,28 @@
 
     <h3 id="codici">Codici della richiesta</h3>
     {{template "codici_rfq" .}}
+
+    {{/* 14/10 (collaudo dell'utente): file, zip e 7z dalla pagina della RFQ, per esempio l'archivio del portale del
+         cliente. Il gestore è caricaNellaRFQ (caricamento_rfq.go); trascinamento e avanzamento in carica_rfq.mjs. */}}
+    {{if and .Scrive .Caricamento}}
+    <h3 id="rfq-carica-t">Aggiungi file alla RFQ</h3>
+    <form class="rfq-carica" id="rfq-carica" data-max-file="{{.MaxCaricamentoMB}}" data-max-totale="{{.MaxRichiestaMB}}" hx-post="/thread/{{.T.ThreadID}}/carica" hx-encoding="multipart/form-data" hx-target="#thread" hx-disabled-elt="find button" aria-labelledby="rfq-carica-t">
+      <fieldset class="rfq-carica-origine">
+        <legend class="muto">Di chi sono i file?</legend>
+        <label><input type="radio" name="origine" value="portale" checked> del cliente <small class="muto">(portale, archivio arrivato a parte): la revisione letta si propone come per un allegato della mail</small></label>
+        <label><input type="radio" name="origine" value="interna"> versioni interne <small class="muto">(CAD, disegni, DXF e archivi rifatti in casa)</small></label>
+      </fieldset>
+      <label class="rfq-carica-zona" data-rfq-carica-zona>
+        <input type="file" name="file" multiple required aria-describedby="rfq-carica-aiuto">
+        <span>Trascina qui file, zip o 7z, oppure clicca per sceglierli</span>
+        <small class="muto" data-rfq-carica-scelti></small>
+      </label>
+      <p class="muto" id="rfq-carica-aiuto">Fino a {{.MaxCaricamentoMB}} MB per file e {{.MaxRichiestaMB}} MB in tutto, al massimo 50 file per volta; le cartelle non si caricano. Carica lo zip così com'è, non la cartella estratta: le cartelle dentro l'archivio («2D data», «3D data») restano nel percorso di ogni file.</p>
+      <progress data-rfq-carica-avanzamento max="100" value="0" hidden></progress>
+      <p class="errore" data-rfq-carica-errore role="alert" hidden></p>
+      <button type="submit" class="bottone primario">Carica</button>
+    </form>
+    {{end}}
 
     <h3>Fascicolo</h3>
     {{/* B8.7: la struttura e il fascicolo per componente hanno la loro schermata. Qui resta il riepilogo,

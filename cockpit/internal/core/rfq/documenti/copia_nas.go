@@ -175,7 +175,7 @@ func cercaSorgente(ctx context.Context, q *db.Queries, d db.Documento) (string, 
 			sparito = &all[i]
 		}
 	}
-	if sparito != nil && sparito.Origine == db.OrigineAllegatoManuale {
+	if sparito != nil && CaricatoDalPC(sparito.Origine) {
 		// caricato a mano: in Outlook non c'e', e «Riscarica» non porterebbe da nessuna parte
 		return "", sparito, contenutoCaricatoAMano(*sparito, *sparito)
 	}

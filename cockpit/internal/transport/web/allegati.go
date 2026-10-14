@@ -16,6 +16,7 @@ import (
 	"promatec/cockpit/internal/core/inbox/classificazione"
 	"promatec/cockpit/internal/core/rfq/documenti"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/storage/staging"
@@ -45,7 +46,7 @@ func (a AllegatoUI) Scaricabile() bool {
 // Confermabile: file presente in staging con una proposta ancora aperta.
 func (a AllegatoUI) Confermabile() bool {
 	return a.Proposta != nil && a.Proposta.Stato == db.StatoPropostaAperta && a.PathStaging.Valid && !a.FileMancante &&
-		(a.Stato == db.StatoAllegatoInStaging || a.Stato == db.StatoAllegatoAnalizzato) && strings.ToLower(a.Estensione.String) != "zip"
+		(a.Stato == db.StatoAllegatoInStaging || a.Stato == db.StatoAllegatoAnalizzato) && !archivio.Estraibile(a.Estensione.String)
 }
 
 // Anteprimabile: un PDF che sta su questo server — in staging, oppure come documento scritto sul

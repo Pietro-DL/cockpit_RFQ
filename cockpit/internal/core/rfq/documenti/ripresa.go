@@ -61,7 +61,7 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 		}
 		bersaglio = z
 	}
-	if bersaglio.Origine == db.OrigineAllegatoManuale {
+	if CaricatoDalPC(bersaglio.Origine) {
 		return contenutoCaricatoAMano(a, bersaglio)
 	}
 	chiave := "stage:" + bersaglio.AllegatoID.String()
@@ -101,11 +101,17 @@ func RiprendiContenuto(ctx context.Context, q *db.Queries, j *db.Job, a db.Alleg
 // manca, caricato e' il file caricato (la voce stessa, o l'archivio che la conteneva).
 func contenutoCaricatoAMano(a, caricato db.Allegato) error {
 	if caricato.AllegatoID == a.AllegatoID {
-		return fmt.Errorf("%w: il contenuto di %q, caricato a mano nel Fascicolo, non e' piu' nello staging del server "+
-			"e in Outlook non c'e': si ricarica il file dal Fascicolo («+ Aggiungi file»), poi «Riprova copie»",
+		return fmt.Errorf("%w: il contenuto di %q, caricato a mano, non e' piu' nello staging del server "+
+			"e in Outlook non c'e': si ricarica il file dal Fascicolo («+ Aggiungi file») o dalla pagina della RFQ («Aggiungi file alla RFQ»), poi «Riprova copie»",
 			ErrContenutoMancante, a.NomeFile)
 	}
 	return fmt.Errorf("%w: il contenuto di %q non e' piu' nello staging del server, e nemmeno l'archivio %q da cui "+
-		"era uscito, caricato a mano nel Fascicolo: in Outlook non c'e', si ricarica l'archivio dal Fascicolo "+
-		"(«+ Aggiungi file»), poi «Riprova copie»", ErrContenutoMancante, a.NomeFile, caricato.NomeFile)
+		"era uscito, caricato a mano: in Outlook non c'e', si ricarica l'archivio dalla pagina della RFQ "+
+		"(«Aggiungi file alla RFQ»), poi «Riprova copie»", ErrContenutoMancante, a.NomeFile, caricato.NomeFile)
+}
+
+// CaricatoDalPC: un allegato caricato a mano da una pagina (versione interna o file del cliente dal
+// portale): in Outlook non c'e', quindi un contenuto sparito si ricarica dalla pagina, non con «Riscarica».
+func CaricatoDalPC(o db.OrigineAllegato) bool {
+	return o == db.OrigineAllegatoManuale || o == db.OrigineAllegatoPortale
 }

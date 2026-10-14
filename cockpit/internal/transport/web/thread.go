@@ -61,6 +61,11 @@ type threadDati struct {
 	// DistintaNuova: la pagina mostra il collegamento «Distinta nuova (Motore A)», con la guardia della rotta
 	// (distintaNuovaVisibile, motore_a_pagina.go: flag acceso e admin; giro 5, A1d, notte 14/10, WP-U, U1).
 	DistintaNuova bool
+	// Caricamento: il server ha staging e strada dell'analisi, quindi la pagina offre «Aggiungi file alla RFQ»
+	// (caricamento_rfq.go, 14/10); MaxCaricamentoMB è il limite per file, da dire accanto al controllo.
+	Caricamento      bool
+	MaxCaricamentoMB int64
+	MaxRichiestaMB   int64
 	Avviso        string
 	Selezion      string
 	// Codici: i codici che la RFQ ha visto, uniti per codice, con quello che e' gia' deciso di ciascuno
@@ -273,6 +278,9 @@ func (s *Server) caricaThread(ctx context.Context, id uuid.UUID, sess sessioneUI
 	d.Admin = almeno(utenteDa(ctx), db.RuoloUtenteAdmin)
 	d.Scrive = almeno(utenteDa(ctx), db.RuoloUtenteOperatore)
 	d.DistintaNuova = s.distintaNuovaVisibile(utenteDa(ctx))
+	d.Caricamento = s.Pipeline != nil && s.Staging != ""
+	d.MaxCaricamentoMB = s.maxCaricamentoEffettivo() >> 20
+	d.MaxRichiestaMB = s.maxRichiestaCaricamento() >> 20
 	if n, err := q.ContaAnomalieThread(ctx, id); err == nil {
 		d.NAnomalie = int(n)
 	}

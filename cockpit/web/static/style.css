@@ -716,3 +716,12 @@ body.fasc-intero .fasc-testata .ft-bom,body.fasc-intero .fasc-testata .briciole{
 .bomed-esito{font-weight:600}
 .bomed-esito.no{color:#B03A16}.bomed-esito.ok{color:#1D6B41}
 .bomed-vuoto{color:#8A939E;font-size:12.5px;padding:10px;text-align:center}
+
+/* «Aggiungi file alla RFQ» (14/10): file, zip e 7z dalla pagina della RFQ (caricamento_rfq.go, carica_rfq.mjs) */
+.rfq-carica{display:grid;gap:8px;padding:10px;background:var(--carta);border:1px solid var(--bordo);border-radius:8px}
+.rfq-carica-origine{border:0;margin:0;padding:0;display:grid;gap:4px}.rfq-carica-origine legend{padding:0;margin-bottom:2px}
+.rfq-carica-zona{display:grid;gap:4px;justify-items:center;text-align:center;padding:18px 12px;border:2px dashed var(--bordo);border-radius:8px;cursor:pointer;color:var(--muto)}
+.rfq-carica-zona input[type=file]{max-width:100%}
+.rfq-carica-zona.sopra{border-color:var(--acc);background:#eef4fd;color:var(--testo)}
+.rfq-carica progress{width:100%}
+.rfq-carica [data-rfq-carica-scelti]{overflow-wrap:anywhere}

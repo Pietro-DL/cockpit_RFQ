@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 
 	"promatec/cockpit/internal/core/inbox/classificazione"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/db"
 )
 
@@ -483,7 +484,7 @@ func voceFile(f FileAperto, bloccata int32, perCodice map[string]db.Componente, 
 	v := VoceFile{Allegato: a.AllegatoID, Proposta: pr.PropostaID, Nome: a.NomeFile, Estensione: ext, Sha256: a.Sha256.String,
 		Tipo: pr.TipoProposto, Codice: strings.TrimSpace(pr.Codice.String), Rev: strings.TrimSpace(pr.Rev.String),
 		Interno: a.Origine == db.OrigineAllegatoManuale}
-	if pr.Stato != db.StatoPropostaAperta || ext == "zip" || pr.TipoProposto == db.TipoDocumentoRumore {
+	if pr.Stato != db.StatoPropostaAperta || archivio.Estraibile(ext) || pr.TipoProposto == db.TipoDocumentoRumore {
 		return v, false
 	}
 	decidi := func(chiave, testo string) (VoceFile, bool) {

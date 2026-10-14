@@ -335,15 +335,31 @@ func RevisioneProponibile(origine db.OrigineAllegato, rev string) (proponibile, 
 // ChiaveNotaInterna e' la chiave esterna del contenitore dei caricamenti interni di una RFQ.
 func ChiaveNotaInterna(thread uuid.UUID) string { return "nota:caricamenti:" + thread.String() }
 
+// ChiaveNotaPortale e' la chiave esterna del contenitore dei file del cliente caricati a mano (14/10): lo
+// zip scaricato dal portale del cliente, un PDF arrivato per un'altra strada. Non sono versioni interne.
+func ChiaveNotaPortale(thread uuid.UUID) string { return "nota:portale:" + thread.String() }
+
 // NotaInterna restituisce il messaggio che contiene i file caricati a mano nella RFQ: del canale `nota`,
 // uno per RFQ, gia' agganciato. Lo crea al primo caricamento; dopo lo ritrova.
 func NotaInterna(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Utente) (db.Messaggio, error) {
+	return notaDellaRFQ(ctx, q, thread, u, ChiaveNotaInterna(thread), "Caricamenti interni",
+		"File caricati a mano nel Fascicolo di questa RFQ: nuove versioni interne di CAD e disegni. Ognuno fa la strada degli allegati (staging, analisi, proposta) e diventa un documento solo con una decisione.")
+}
+
+// NotaPortale e' il contenitore dei file del cliente caricati dalla pagina della RFQ (origine `portale`):
+// uno per RFQ, del canale `nota`, separato dai caricamenti interni, perche' i suoi file sono del cliente
+// e la revisione letta nel nome o nel cartiglio si propone come per un allegato della mail.
+func NotaPortale(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Utente) (db.Messaggio, error) {
+	return notaDellaRFQ(ctx, q, thread, u, ChiaveNotaPortale(thread), "File del cliente caricati a mano",
+		"File del cliente caricati dalla pagina della RFQ (per esempio l'archivio scaricato dal portale del cliente). Ognuno fa la strada degli allegati della mail (staging, estrazione degli archivi, analisi, proposta) e diventa un documento solo con una decisione.")
+}
+
+func notaDellaRFQ(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Utente, chiave, oggetto, corpo string) (db.Messaggio, error) {
 	if _, err := q.GetThread(ctx, thread); errors.Is(err, pgx.ErrNoRows) {
 		return db.Messaggio{}, Rifiuto("RFQ non trovata")
 	} else if err != nil {
 		return db.Messaggio{}, err
 	}
-	chiave := ChiaveNotaInterna(thread)
 	conv, err := q.UpsertConversazione(ctx, db.UpsertConversazioneParams{Canale: db.CanaleNota, ChiaveEsterna: chiave, PrimoMessaggioIl: adesso()})
 	if err != nil {
 		return db.Messaggio{}, err
@@ -352,14 +368,13 @@ func NotaInterna(ctx context.Context, q *db.Queries, thread uuid.UUID, u db.Uten
 		return db.Messaggio{}, err
 	}
 	m, err := q.UpsertNotaInterna(ctx, db.UpsertNotaInternaParams{Chiave: chiave, ConversazioneID: conv.ConversazioneID,
-		MittenteNome: testo(u.Nome), Oggetto: testo("Caricamenti interni"),
-		Corpo:    testo("File caricati a mano nel Fascicolo di questa RFQ: nuove versioni interne di CAD e disegni. Ognuno fa la strada degli allegati (staging, analisi, proposta) e diventa un documento solo con una decisione."),
+		MittenteNome: testo(u.Nome), Oggetto: testo(oggetto), Corpo: testo(corpo),
 		ThreadID: uid(thread), Utente: uid(u.UtenteID)})
 	if err != nil {
 		return db.Messaggio{}, err
 	}
 	if !m.ThreadID.Valid || m.ThreadID.UUID != thread {
-		return db.Messaggio{}, fmt.Errorf("la nota interna %s non è di questa RFQ", chiave)
+		return db.Messaggio{}, fmt.Errorf("la nota %s non è di questa RFQ", chiave)
 	}
 	return m, nil
 }
@@ -374,9 +389,13 @@ type Caricato struct {
 	// PathInterno: da dove viene, quando non viene dal PC di chi carica: per un file importato dal NAS
 	// (B8.7b) «NAS: <percorso sotto la radice>». Solo informativo, come per le voci di uno zip.
 	PathInterno string
+	// Origine: `manuale` (versione interna, il valore se vuoto) o `portale` (file del cliente caricato
+	// dalla pagina della RFQ, 14/10). Le voci di un archivio la ereditano.
+	Origine db.OrigineAllegato
 }
 
-// RegistraCaricamento aggiunge il file alla nota interna come allegato di origine manuale, gia' in staging.
+// RegistraCaricamento aggiunge il file alla nota come allegato di origine manuale (o quella di f.Origine),
+// gia' in staging.
 // Da qui fa la strada degli altri: proposta dal nome, analisi, decisione. Il messaggio si blocca prima di
 // scegliere il posto del file, cosi' due caricamenti insieme non prendono lo stesso indice.
 func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, utente uuid.UUID, f Caricato) (db.Allegato, error) {
@@ -394,8 +413,12 @@ func RegistraCaricamento(ctx context.Context, q *db.Queries, nota db.Messaggio, 
 	if len(ext) > 10 {
 		ext = ""
 	}
+	origine := f.Origine
+	if origine == "" {
+		origine = db.OrigineAllegatoManuale
+	}
 	a, err := q.UpsertAllegato(ctx, db.UpsertAllegatoParams{MessaggioID: nota.MessaggioID, Indice: int16(indice), NomeFile: f.Nome,
-		PathInterno: testo(tronca(f.PathInterno, 500)), Estensione: testo(ext), ContentType: testo(tronca(f.Tipo, 120)), Natura: db.NaturaAllegatoFile, Origine: db.OrigineAllegatoManuale,
+		PathInterno: testo(tronca(f.PathInterno, 500)), Estensione: testo(ext), ContentType: testo(tronca(f.Tipo, 120)), Natura: db.NaturaAllegatoFile, Origine: origine,
 		Bytes: pgtype.Int8{Int64: f.Bytes, Valid: true}, Sha256: testo(f.Sha256), RicevutoIl: adesso(), CaricatoDa: uid(utente)})
 	if err != nil {
 		return db.Allegato{}, err

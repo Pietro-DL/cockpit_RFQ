@@ -29,6 +29,7 @@ import (
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
@@ -1269,7 +1270,7 @@ func (s *Server) dopoStaging(ctx context.Context, q *db.Queries, r worker.Risult
 	if rp.Tipo == "rumore" {
 		return q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: a.AllegatoID, Stato: db.StatoAllegatoAnalizzato})
 	}
-	if ext == "zip" {
+	if archivio.Estraibile(ext) {
 		// L'archivio si scompatta in un job suo: qui si sta ancora dentro la richiesta HTTP con cui il
 		// worker consegna il download, e il worker aspetta. La chiave di idempotenza è per allegato,
 		// quindi un «Riscarica» che rimette lo stesso zip non accoda una seconda estrazione finché la

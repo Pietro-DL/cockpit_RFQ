@@ -30,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"promatec/cockpit/internal/core/rfq/fascicolo"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 )
@@ -310,7 +311,7 @@ func (f rigaFile) Modello() bool {
 // Confermabile: in staging, con una proposta aperta; uno zip no (si estrae).
 func (f rigaFile) Confermabile() bool {
 	return f.Proposta != nil && f.Proposta.Stato == db.StatoPropostaAperta && f.A.PathStaging.Valid && !f.FileMancante &&
-		(f.A.Stato == db.StatoAllegatoInStaging || f.A.Stato == db.StatoAllegatoAnalizzato) && f.estensione() != "zip"
+		(f.A.Stato == db.StatoAllegatoInStaging || f.A.Stato == db.StatoAllegatoAnalizzato) && !archivio.Estraibile(f.estensione())
 }
 
 // DaScaricare: non ancora in staging, o sparito.
@@ -1123,7 +1124,7 @@ func (d *fascicoloDati) filtraFile() {
 	}
 	for i := range d.File {
 		f := &d.File[i]
-		zip := f.estensione() == "zip"
+		zip := archivio.Estraibile(f.estensione())
 		assegnato := f.Comp != nil
 		nonAssegnato := !assegnato && !zip && !f.Rumore() && !(f.Doc != nil && f.Doc.SostituitoDa.Valid) &&
 			(f.Doc != nil || (f.Proposta != nil && f.Proposta.Stato == db.StatoPropostaAperta))

@@ -70,7 +70,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 	if errEstrazione != nil && !troncato {
 		s.Log.Warn("archivio non leggibile", "allegato", allegatoID, "file", a.NomeFile, "err", errEstrazione)
 		return 0, q.SetAllegatoStato(ctx, db.SetAllegatoStatoParams{AllegatoID: allegatoID,
-			Stato: db.StatoAllegatoErrore, Errore: txt("zip non leggibile: " + errEstrazione.Error())})
+			Stato: db.StatoAllegatoErrore, Errore: txt("archivio non leggibile: " + errEstrazione.Error())})
 	}
 
 	// Le righe in una transazione sola: o l'archivio ha le sue voci con le loro proposte e le loro
@@ -131,7 +131,7 @@ func (s *Server) EstraiArchivio(ctx context.Context, allegatoID uuid.UUID, token
 		}
 	}
 	// Lo zip stesso resta un contenitore: non va sul NAS a meno di una conferma esplicita.
-	dettagli := map[string]any{"voci": len(voci), "estensione": "zip", "bytes": a.Bytes.Int64}
+	dettagli := map[string]any{"voci": len(voci), "estensione": estensioneArchivio(a.PathStaging.String, a.Estensione.String), "bytes": a.Bytes.Int64}
 	if troncato {
 		dettagli["troncato"] = true
 	}
@@ -186,4 +186,13 @@ func (s *Server) estraiInContenuti(zip string, token uuid.UUID) ([]archivio.Voce
 		voci[i].Path = dest
 	}
 	return voci, errEstrazione
+}
+
+// estensioneArchivio: il formato vero dell'archivio (zip o 7z, dai primi byte) per i dettagli della
+// proposta; se i byte non si leggono, l'estensione del nome.
+func estensioneArchivio(percorso, ext string) string {
+	if f, err := archivio.Formato(percorso); err == nil {
+		return f
+	}
+	return strings.ToLower(strings.TrimPrefix(ext, "."))
 }
