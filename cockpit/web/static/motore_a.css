@@ -272,12 +272,12 @@
    (collaudo dell'utente del 13/10, rapporto 2026-10-13-uifix-ispettore.md: con il riepilogo nella griglia, area «doc»,
    l'anteprima sticky lo copriva, e i gesti spenti con opacity, dipinti dopo, le passavano sopra). */
 .ma .ma-ws { min-width: 0; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
-.ma .ma-ws-griglia { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "centro" "lato" "smistare"; min-width: 0; }
+.ma .ma-ws-griglia { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "centro" "lato"; min-width: 0; }
 .ma .ma-ws-centro { grid-area: centro; min-width: 0; display: grid; gap: 16px; align-content: start; grid-template-columns: minmax(0, 1fr); }
 .ma .ma-ws-centro > * { min-width: 0; }
 .ma .ma-ws-destra { display: contents; }
 .ma .ma-ws-lato { grid-area: lato; min-width: 0; display: grid; gap: var(--ma-sp4); align-content: start; }
-.ma .ma-ws-smistare { grid-area: smistare; min-width: 0; }
+.ma .ma-ws-smistare { min-width: 0; }
 /* l'anteprima vuota («Scegli una casella…») sparisce quando una casella è scelta: non resta sopra il pannello */
 .ma .ma-anteprime:has(> .ma-anteprima:not([hidden])) > .ma-anteprima-vuota { display: none; }
 
@@ -289,15 +289,14 @@
     position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; overscroll-behavior: contain; }
 }
 @container ma-ws (min-width: 1180px) {
-  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(320px, 28cqi, 400px) clamp(240px, 20cqi, 300px); grid-template-areas: "centro lato smistare"; }
+  .ma .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(340px, 30cqi, 480px); grid-template-areas: "centro lato"; }
   .ma .ma-ws-destra { display: contents; position: static; max-height: none; overflow: visible; }
   .ma .ma-ws-lato { position: sticky; top: 8px; align-self: start; max-height: calc(100vh - 16px); overflow: auto; overscroll-behavior: contain; }
-  .ma .ma-ws-smistare { align-self: start; }
 }
 
 /* il foglio dal basso (§6.3): sotto 860 px di finestra l'anteprima esce dal flusso */
 @media (max-width: 859.98px) {
-  .ma .ma-ws-griglia { grid-template-areas: "centro" "smistare"; }
+  .ma .ma-ws-griglia { grid-template-areas: "centro"; }
   .ma .ma-ws-lato { position: fixed; inset: auto 0 0 0; z-index: 50; max-height: 92vh; overflow: auto; overscroll-behavior: contain;
     padding: var(--ma-sp4); border-radius: 12px 12px 0 0; box-shadow: var(--ma-sh3); background: var(--ma-surf);
     transform: translateY(100%); visibility: hidden; }
@@ -369,7 +368,8 @@
 .ma .ma-tela {
   border: 1px solid var(--ma-line); border-radius: var(--ma-r2); background-color: var(--ma-surf);
   background-image: radial-gradient(var(--ma-line) 1px, transparent 1px); background-size: 20px 20px;
-  overflow-x: auto; padding: 26px 16px 30px; min-width: 0; max-width: 100%; width: 100%; contain: inline-size;
+  overflow: auto; padding: 26px 16px 30px; min-width: 0; max-width: 100%; width: 100%; contain: inline-size;
+  max-height: min(78vh, 1100px); cursor: grab; overscroll-behavior: contain;
 }
 .ma .ma-dtree, .ma .ma-dtree ul { margin: 0; padding: 0; }
 .ma .ma-dtree { display: flex; justify-content: center; gap: 24px; min-width: max-content; }
@@ -598,8 +598,6 @@
 }
 @container ma-ws (min-width: 1180px) {
   .ma .ma-doc-sotto { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
-  .ma .ma-ws-smistare .ma-pick { grid-template-columns: minmax(0, 1fr); }
-  .ma .ma-ws-smistare .ma-pick > .ma-mini { width: 100%; max-width: 280px; }
 }
 
 /* ---------------------------------------------------------------- R10 riepilogo della RFQ */
@@ -801,3 +799,28 @@
 .ma .ma-radice-testo { overflow-wrap: anywhere; }
 .ma .ma-mostra-mail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--ma-sp2); margin: 0 0 var(--ma-sp3); font-size: var(--ma-t-sm); }
 .ma:not(:has(#ma-mostra-mail:checked)) [data-ma-elemento-mail] { display: none; }
+
+/* ---------------------------------------------------------------- zoom, pan e schermo intero della tela (14/10)
+   Collaudo dell'utente: lo zoom è la proprietà zoom sull'organigramma (impaginazione e clic restano veri), il pan è il
+   trascinamento dello sfondo (motore_a.mjs, installaTela). «Da smistare» ora sta sotto la griglia, a tutta larghezza.
+   Lo schermo intero tiene solo albero e anteprima: «Da smistare», riepilogo documentale, fonte e barra restano nella
+   pagina normale. */
+.ma .ma-dtree { zoom: var(--ma-zoom, 1); }
+.ma .ma-tela .ma-nodo { cursor: pointer; }
+.ma .ma-tela.ma-tela--pan { cursor: grabbing; user-select: none; }
+.ma .ma-zoom { display: inline-flex; align-items: center; gap: 2px; padding: 0 4px; border-left: 1px solid var(--ma-line); }
+.ma .ma-zoom-val { min-width: 4.5ch; text-align: center; font-size: var(--ma-t-xs); color: var(--ma-ink2); font-variant-numeric: tabular-nums; }
+.ma [data-ma-azione="intero"] { gap: 6px; }
+.ma .ma-segno--letto { color: var(--ma-ink2); }
+.ma .ma-cod--letto { color: var(--ma-ink); border-color: var(--ma-line2); background: transparent; }
+.ma .ma-ws.ma-ws--intero { position: fixed; inset: 0; z-index: 60; background: var(--ma-paper); padding: 12px; overflow: auto; overscroll-behavior: contain; }
+.ma .ma-ws--intero > .ma-ws-smistare, .ma .ma-ws--intero > #ma-documenti,
+.ma .ma-ws--intero .ma-ws-centro > :not(#ma-schede-albero),
+.ma .ma-ws--intero .ma-strumenti, .ma .ma-ws--intero .ma-legenda, .ma .ma-ws--intero .ma-regola,
+.ma .ma-ws--intero .ma-nota--cand { display: none; }
+.ma .ma-ws--intero .ma-tela { max-height: none; height: calc(100vh - 190px); }
+@media (min-width: 860px) {
+  .ma .ma-ws--intero .ma-ws-griglia { grid-template-columns: minmax(0, 1fr) clamp(340px, 28vw, 520px); grid-template-areas: "centro lato"; }
+  .ma .ma-ws--intero .ma-ws-destra { display: contents; position: static; max-height: none; overflow: visible; }
+  .ma .ma-ws--intero .ma-ws-lato { position: sticky; top: 0; align-self: start; max-height: calc(100vh - 24px); overflow: auto; }
+}

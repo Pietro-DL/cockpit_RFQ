@@ -1267,6 +1267,8 @@ function azione(x) {
     case "step": apriStep(x); break;
     case "usa-step": apriUsaStep(x); break;
     case "pdf": apriPdf(x); break;
+    case "zoom": zoomDaPulsante(x.dataset.maZoom); break;
+    case "intero": mettiIntero(!interoAttivo); break;
     default: break;
   }
 }
@@ -1441,12 +1443,135 @@ function installa() {
     avvia();
     evidenziaDocumenti(radice());
   });
+  installaTela();
   // la finestra si allarga oltre 860 px con il foglio aperto: il foglio non c'è più, la pagina torna usabile
   if (mqFoglio) {
     const cambia = () => { if (!mqFoglio.matches && foglioAperto()) chiudiFoglio(); };
     if (typeof mqFoglio.addEventListener === "function") mqFoglio.addEventListener("change", cambia);
     else if (typeof mqFoglio.addListener === "function") mqFoglio.addListener(cambia);
   }
+}
+
+// ------------------------------------------------------------------ zoom, pan e schermo intero della tela (14/10)
+// Richiesta dell'utente al collaudo: guardare le strutture grandi senza scorrere la pagina. Lo zoom è la proprietà CSS
+// zoom sull'organigramma (--ma-zoom su .ma-tela): l'impaginazione, lo scorrimento e i clic restano quelli veri, senza
+// trasformazioni da ricalcolare. Il pan è il trascinamento dello sfondo della tela (mai di una casella, che ha i suoi
+// gesti e il trascinamento di «Sposta»); Ctrl + rotella fa lo zoom attorno al puntatore. Lo schermo intero mette
+// albero e anteprima soli sulla finestra (classe ma-ws--intero) e chiede anche lo schermo intero del browser; se il
+// browser lo rifiuta resta la vista allargata, e Esc la chiude. Zoom e schermo intero sopravvivono alla rilettura.
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 2;
+let zoomTela = 1;
+let interoAttivo = false;
+let pan = null;
+
+const telaVisibile = () => $("#ma-schede-albero [role='tabpanel']:not([hidden]) .ma-tela");
+
+function applicaZoom(z, { tela = null, x = null, y = null } = {}) {
+  const prima = zoomTela;
+  zoomTela = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+  const r = radice();
+  if (!r) return;
+  // il punto sotto il puntatore resta lì: lo si legge prima, in coordinate dell'organigramma a zoom 1
+  let px = null;
+  let py = null;
+  if (tela && x != null && y != null) {
+    px = (tela.scrollLeft + x) / prima;
+    py = (tela.scrollTop + y) / prima;
+  }
+  for (const t of $$(".ma-tela", r)) t.style.setProperty("--ma-zoom", String(zoomTela));
+  for (const o of $$("[data-ma-zoom-val]", r)) o.textContent = `${Math.round(zoomTela * 100)}%`;
+  if (px != null) {
+    tela.scrollLeft = Math.max(0, px * zoomTela - x);
+    tela.scrollTop = Math.max(0, py * zoomTela - y);
+  }
+  memoria.scrivi(chiave(`zoom.${prodotto()}`), String(zoomTela));
+}
+
+function adatta() {
+  const t = telaVisibile();
+  const d = t && t.querySelector(".ma-dtree");
+  if (!d) return;
+  const rd = d.getBoundingClientRect();
+  const w = rd.width / zoomTela;
+  const h = rd.height / zoomTela;
+  if (!w || !h) return;
+  const z = Math.min((t.clientWidth - 40) / w, (t.clientHeight - 60) / h, 1);
+  applicaZoom(z);
+  t.scrollLeft = Math.max(0, (t.scrollWidth - t.clientWidth) / 2);
+  t.scrollTop = 0;
+}
+
+function zoomDaPulsante(cosa) {
+  if (cosa === "+") applicaZoom(zoomTela * 1.2);
+  else if (cosa === "-") applicaZoom(zoomTela / 1.2);
+  else if (cosa === "adatta") adatta();
+  else applicaZoom(1);
+}
+
+function mettiIntero(si) {
+  interoAttivo = si;
+  const w = ws();
+  if (w) w.classList.toggle("ma-ws--intero", si);
+  for (const b of $$("#ma [data-ma-azione='intero']")) {
+    b.setAttribute("aria-pressed", si ? "true" : "false");
+    const s = b.querySelector("[data-ma-intero-testo]");
+    if (s) s.textContent = si ? "Esci dallo schermo intero" : "Schermo intero";
+  }
+  const doc = document.documentElement;
+  try {
+    if (si && !document.fullscreenElement && doc.requestFullscreen) doc.requestFullscreen().catch(() => {});
+    if (!si && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  } catch (e) { /* niente: resta la vista allargata */ }
+}
+
+function preparaTela(r) {
+  const m = Number(memoria.leggi(chiave(`zoom.${prodotto()}`)));
+  zoomTela = m >= ZOOM_MIN && m <= ZOOM_MAX ? m : 1;
+  applicaZoom(zoomTela);
+  if (interoAttivo) mettiIntero(true);
+}
+
+function installaTela() {
+  document.addEventListener("pointerdown", (e) => {
+    const t = e.target instanceof Element ? e.target.closest("#ma .ma-tela") : null;
+    if (!t || e.button !== 0) return;
+    if (e.target.closest(".ma-nodo-box, a, button, input, select, textarea, label, summary, [draggable='true']")) return;
+    pan = { t, x: e.clientX, y: e.clientY, l: t.scrollLeft, s: t.scrollTop, id: e.pointerId };
+    t.classList.add("ma-tela--pan");
+    try { t.setPointerCapture(e.pointerId); } catch (err) { /* niente */ }
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!pan || e.pointerId !== pan.id) return;
+    pan.t.scrollLeft = pan.l - (e.clientX - pan.x);
+    pan.t.scrollTop = pan.s - (e.clientY - pan.y);
+  });
+  const fine = (e) => {
+    if (!pan || e.pointerId !== pan.id) return;
+    pan.t.classList.remove("ma-tela--pan");
+    try { pan.t.releasePointerCapture(e.pointerId); } catch (err) { /* niente */ }
+    pan = null;
+  };
+  document.addEventListener("pointerup", fine);
+  document.addEventListener("pointercancel", fine);
+  document.addEventListener("wheel", (e) => {
+    if (!e.ctrlKey) return;
+    const t = e.target instanceof Element ? e.target.closest("#ma .ma-tela") : null;
+    if (!t) return;
+    e.preventDefault();
+    const rt = t.getBoundingClientRect();
+    applicaZoom(zoomTela * Math.exp(-e.deltaY * 0.0015), { tela: t, x: e.clientX - rt.left, y: e.clientY - rt.top });
+  }, { passive: false });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !interoAttivo || document.fullscreenElement) return;
+    if (document.querySelector("dialog[open]")) return;
+    mettiIntero(false);
+  });
+  // Esc dello schermo intero del browser: si esce anche dalla vista allargata
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && interoAttivo) mettiIntero(false);
+  });
 }
 
 // ------------------------------------------------------------------ prodotto e vista nell'indirizzo (direttiva 12, R-01)
@@ -1664,6 +1789,7 @@ function avvia() {
   ripristinaScheda(r);
   preparaTabindex(r);
   ripristinaTele(r);
+  preparaTela(r);
   preparaScelte(r);
   ripristinaSelezione(r);
   miniature(r);

@@ -120,7 +120,10 @@
    position: sticky, e un elemento sticky scorre dentro il suo blocco contenitore, che per una cella di griglia è la
    griglia intera. Con il riepilogo nella griglia l'anteprima scendeva sopra di lui, testi uno sopra l'altro
    (collaudo dell'utente del 13/10, rapporto 2026-10-13-uifix-ispettore.md); fuori dalla griglia si ferma dove finisce
-   la prima riga. Resta dentro .ma-ws per le container query della tabella delle voci. */}}
+   la prima riga. Resta dentro .ma-ws per le container query della tabella delle voci.
+   14/10 (collaudo dell'utente): «Da smistare» (tutta la RFQ) esce dalla colonna destra e scende sotto la griglia, a
+   tutta larghezza: a destra resta solo l'anteprima della casella, che è quella che serve per giudicare le
+   associazioni. Non va in un <details> chiuso, perché i suoi cassetti (dialog#ma-ds-<i>) stanno dentro la sezione. */}}
 {{define "ma_workspace"}}{{$v := index . 0}}{{$p := index . 1}}
 <div class="ma-ws" data-ma-ws><div class="ma-ws-griglia">
   <div class="ma-ws-centro">
@@ -131,9 +134,9 @@
   </div>
   <div class="ma-ws-destra">
     {{template "ma_anteprime" (arr $v $p)}}
-    {{template "ma_da_smistare" (arr $v $p)}}
   </div>
 </div>
+{{template "ma_da_smistare" (arr $v $p)}}
 {{template "ma_documenti" (arr $v $p)}}
 </div>
 {{end}}
@@ -674,7 +677,16 @@ neu
     {{template "ma_tipo_visualizzato" (arr $d $p.Rif)}}
     {{if not $p.Nodi}}<span class="ma-st ma-st--na" title="nessun nodo nella BOM di lavoro">BOM di lavoro: non ancora (si forma con lo STEP autorizzato)</span>{{end}}
     <span class="ma-sp"></span>
-    {{if $gruppi}}<button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="rami" data-ma-aperti="1">Apri tutto</button><button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="rami" data-ma-aperti="0">Chiudi tutto</button>{{end}}
+    {{if $gruppi}}<button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="rami" data-ma-aperti="1">Apri tutto</button><button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="rami" data-ma-aperti="0">Chiudi tutto</button>
+    {{/* 14/10: zoom, pan (trascinare lo sfondo) e schermo intero della tela; li fa motore_a.mjs (installaTela) */}}
+    <span class="ma-zoom" role="group" aria-label="Zoom dell'albero" title="Ctrl + rotella sulla tela: zoom attorno al puntatore · trascinare lo sfondo: spostarsi">
+      <button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="zoom" data-ma-zoom="-" aria-label="Riduci">−</button>
+      <output class="ma-zoom-val" data-ma-zoom-val aria-live="polite">100%</output>
+      <button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="zoom" data-ma-zoom="+" aria-label="Ingrandisci">+</button>
+      <button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="zoom" data-ma-zoom="adatta" title="Tutto l'albero nella tela">Adatta</button>
+      <button type="button" class="ma-btn ma-btn--sm ma-btn--ghost" data-ma-azione="zoom" data-ma-zoom="1" title="Dimensione reale">1:1</button>
+    </span>
+    <button type="button" class="ma-btn ma-btn--sm" data-ma-azione="intero" aria-pressed="false" title="Albero e anteprima della casella a schermo intero (Esc per uscire)">{{template "ma_ic" "grid"}}<span data-ma-intero-testo>Schermo intero</span></button>{{end}}
   </header>
   {{template "ma_strumenti" (arr $v $p)}}
   {{/* revisione P3, M5: i tasti dell'albero sono quelli dell'organigramma (motore_a.mjs, tastiAlbero), non quelli del
@@ -718,7 +730,7 @@ neu
     <span><span class="ma-badge ma-badge--conf">confermato sotto Y ✓×q</span> relazione confermata fuori dal file</span>
     <span><span class="ma-badge">⧉ 2 padri nel file</span> sotto più padri</span>
     <span><i class="ma-leg-box"></i>componente · <i class="ma-leg-box ma-leg-box--tratt"></i>proposta · <i class="ma-leg-box ma-leg-box--scart"></i>scartata</span>
-    <span><b class="ma-segno ma-segno--conf">✓</b> confermato · <b class="ma-segno ma-segno--man">✎</b> a mano · <b class="ma-segno ma-segno--prop">◇</b> proposto · <b class="ma-segno">«»</b> letto nel file</span>
+    <span><b class="ma-segno ma-segno--conf">✓</b> confermato · <b class="ma-segno ma-segno--man">✎</b> a mano · <b class="ma-segno ma-segno--prop">◇</b> proposto · <b class="ma-segno ma-segno--letto">◦</b> letto dalla grammatica · <b class="ma-segno">«»</b> testo del file non letto</span>
     <span class="ma-muto">· si trascina solo nella BOM di lavoro e fra i confermati senza STEP: apre il modulo «Sposta»</span>
   </div>
   <div class="ma-regola">{{template "ma_ic" "alert"}}<span>Che cosa può stare sotto che cosa lo decide il server: se uno spostamento non è ammesso, il rifiuto lo dice e niente cambia.</span></div>
@@ -826,7 +838,8 @@ neu
 {{- else}}{{with $n.Nodo.Decisione}}<b class="ma-segno ma-segno--conf" title="codice del componente confermato">✓</b>{{.Codice}}{{with .Rev}}<span class="ma-rev">rev {{.}}</span>{{end}}
 {{- else}}{{with $c.Manuale}}<b class="ma-segno ma-segno--man" title="codice corretto a mano">✎</b>{{.Codice}}{{with .Rev}}<span class="ma-rev">rev {{.}}</span>{{end}}
 {{- else}}{{with $c.Proposto}}<b class="ma-segno ma-segno--prop" title="codice proposto dal file">◇</b>{{.}}
-{{- else}}{{with $c.Grezzo.Testo}}<span class="ma-grezzo" title="testo letto nel file: non è ancora un codice">«{{.}}»</span>{{else}}{{template "ma_senza_codice" "nessun codice: né confermato, né a mano, né proposto, né letto nel file"}}{{end}}{{end}}{{end}}{{end}}{{end}}
+{{- else}}{{if $c.Identita.Base}}<b class="ma-segno ma-segno--letto" title="codice letto dalla grammatica del cliente: non è confermato">◦</b><span title="testo nel file: «{{$c.Grezzo.Testo}}»">{{$c.Identita.Base}}{{$c.Identita.Marcatore}}</span>{{with $c.Identita.Revisione}}<span class="ma-rev">rev {{.}}</span>{{end}}
+{{- else}}{{with $c.Grezzo.Testo}}<span class="ma-grezzo" title="testo letto nel file: non è ancora un codice">«{{.}}»</span>{{else}}{{template "ma_senza_codice" "nessun codice: né confermato, né a mano, né proposto, né letto nel file"}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}
 {{- if gt $k 1}}<span class="ma-piu" title="{{with $c.Manuale}}a mano: {{.Codice}} · {{end}}{{with $c.Proposto}}proposto: {{.}}{{end}} — la catena intera è nell'anteprima">+{{sub $k 1}}</span>{{end -}}
 </span>{{end}}
 
@@ -835,11 +848,11 @@ neu
 {{with $c.Confermato}}<span class="ma-cod ma-cod--conf" title="codice confermato · origine {{.Origine}}">✓ {{.Codice}}{{with .Rev}}<span class="ma-rev">rev {{.}}</span>{{end}}</span>{{else}}{{with $n.Nodo.Decisione}}<span class="ma-cod ma-cod--conf" title="codice del componente confermato · origine {{.Origine}}">✓ {{.Codice}}{{with .Rev}}<span class="ma-rev">rev {{.}}</span>{{end}}</span>{{end}}{{end}}
 {{with $c.Manuale}}<span class="ma-cod ma-cod--man" title="codice corretto a mano · origine {{.Origine}}">✎ {{.Codice}}{{with .Rev}}<span class="ma-rev">rev {{.}}</span>{{end}}</span>{{end}}
 {{with $c.Proposto}}<span class="ma-cod ma-cod--prop" title="codice proposto dal file">◇ {{.}}</span>{{end}}
-{{if not (or $c.Confermato $n.Nodo.Decisione $c.Manuale $c.Proposto)}}{{with $c.Grezzo.Testo}}<span class="ma-cod ma-cod--grezzo" title="testo letto nel file: non è ancora un codice">«{{.}}»</span>{{else}}{{template "ma_senza_codice" "nessun codice: né confermato, né a mano, né proposto, né letto nel file"}}{{end}}{{end}}
+{{if not (or $c.Confermato $n.Nodo.Decisione $c.Manuale $c.Proposto)}}{{if $c.Identita.Base}}<span class="ma-cod ma-cod--letto" title="codice letto dalla grammatica del cliente: non è confermato · testo nel file: «{{$c.Grezzo.Testo}}»">◦ {{$c.Identita.Base}}{{$c.Identita.Marcatore}}{{with $c.Identita.Revisione}}<span class="ma-rev">rev {{.}}</span>{{end}}</span>{{else}}{{with $c.Grezzo.Testo}}<span class="ma-cod ma-cod--grezzo" title="testo letto nel file: non è ancora un codice">«{{.}}»</span>{{else}}{{template "ma_senza_codice" "nessun codice: né confermato, né a mano, né proposto, né letto nel file"}}{{end}}{{end}}{{end}}
 </span>{{end}}
 
 {{/* Testo semplice della catena, per le domande di conferma e le etichette */}}
-{{define "ma_catena_testo"}}{{$c := .Nodo.Codice}}{{with $c.Confermato}}{{.Codice}}{{else}}{{with $.Nodo.Decisione}}{{.Codice}}{{else}}{{with $c.Manuale}}{{.Codice}} (a mano){{else}}{{with $c.Proposto}}{{.}} (proposto){{else}}{{with $c.Grezzo.Testo}}«{{.}}»{{else}}(senza codice){{end}}{{end}}{{end}}{{end}}{{end}}{{end}}
+{{define "ma_catena_testo"}}{{$c := .Nodo.Codice}}{{with $c.Confermato}}{{.Codice}}{{else}}{{with $.Nodo.Decisione}}{{.Codice}}{{else}}{{with $c.Manuale}}{{.Codice}} (a mano){{else}}{{with $c.Proposto}}{{.}} (proposto){{else}}{{if $c.Identita.Base}}{{$c.Identita.Base}}{{$c.Identita.Marcatore}}{{with $c.Identita.Revisione}} rev {{.}}{{end}} (letto){{else}}{{with $c.Grezzo.Testo}}«{{.}}»{{else}}(senza codice){{end}}{{end}}{{end}}{{end}}{{end}}{{end}}{{end}}
 
 {{/* Il tipo lo dà il server (Tipo, OrigineTipo): qui solo la forma (pieno se confermato, tratteggio e «?» se no) */}}
 {{define "ma_tipo"}}{{if .Tipo}}{{$prop := ne .OrigineTipo "confermato"}}<span class="ma-tipo ma-tipo--{{.Tipo}}{{if $prop}} ma-tipo--proposto{{end}}" title="tipo_componente = {{.Tipo}} · origine_tipo = {{.OrigineTipo}}{{with .OrigineTipo}} ({{etichetta "origine_tipo" .}}){{end}}">{{etichetta "tipo_componente" .Tipo}}{{if $prop}}<span class="ma-tipo-q" aria-hidden="true"> ?</span><span class="ma-vh"> (tipo proposto, non confermato)</span>{{end}}</span>{{else}}<span class="ma-st ma-st--na" title="tipo vuoto">tipo non determinato</span>{{end}}{{end}}
@@ -1359,7 +1372,11 @@ neu
    pertinenza, pertinenza dal contesto e prodotti del messaggio, dati distinti (R106 B, R107, F0-18). */}}
 {{define "ma_contesto_file"}}{{$v := index . 0}}{{$f := index . 1}}{{$d := $v.Dati}}
 <div class="ma-contesto">
-  <span><span class="ma-pick-k">del file</span>{{range $f.Prodotti}}<span class="ma-badge" title="{{.}}">{{with $d.Indice.Prodotto .}}{{or .CodiceRichiesto .Rif}}{{else}}{{.}}{{end}}</span> {{else}}<span class="ma-muto">—</span>{{end}}</span>
+  {{/* Prodotti è la pertinenza, non un codice letto dal file: per evidenza del file oppure, se il file non dice niente,
+     dal contesto della mail (PertinenzaContesto). Si dice quale delle due, perché «del file» faceva credere a
+     un'associazione (collaudo dell'utente del 14/10). */}}
+  {{$as := $d.Indice.Associazione $f.AllegatoID}}
+  <span><span class="ma-pick-k" title="prodotti a cui il file è pertinente: per evidenza del file, o dal contesto della mail quando il file non dice niente. Non è un'associazione.">pertinente</span>{{range $f.Prodotti}}{{$rif := .}}{{$ctx := false}}{{with $as}}{{range .PertinenzaContesto}}{{if eq . $rif}}{{$ctx = true}}{{end}}{{end}}{{end}}<span class="ma-badge{{if $ctx}} ma-badge--prop{{end}}" title="{{$rif}}{{if $ctx}} · solo dal contesto della mail: il file non dice niente{{end}}">{{with $d.Indice.Prodotto $rif}}{{or .CodiceRichiesto .Rif}}{{else}}{{$rif}}{{end}}{{if $ctx}} · dalla mail{{end}}</span> {{else}}<span class="ma-muto">—</span>{{end}}</span>
   <span><span class="ma-pick-k">dal messaggio</span>{{range $f.ProdottiContesto}}<span class="ma-badge ma-badge--prop" title="{{.}}">{{with $d.Indice.Prodotto .}}{{or .CodiceRichiesto .Rif}}{{else}}{{.}}{{end}}</span> {{else}}<span class="ma-muto">—</span>{{end}}</span>
   {{with $d.Indice.Associazione $f.AllegatoID}}
   <span><span class="ma-pick-k">associazione</span>{{template "ma_st" (arr "associazione" .Associazione)}}{{with .Collocazione}} <span class="ma-motivo" title="collocazione = {{.}}">{{etichetta "collocazione" .}}</span>{{end}}
