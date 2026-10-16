@@ -639,6 +639,7 @@ var etichette = map[string]map[string]string{
 		"confronto.codice_registrato_non_leggibile":  "codice registrato non leggibile con la grammatica",
 		"valutazione.messaggio_fuori_rfq_senza_caso": "messaggio fuori RFQ senza caso",
 		"valutazione.contesto_discorde":              "il messaggio nomina altri prodotti",
+		"richiesta.codice_solo_in_mail":              "codice solo nella mail (da chiarire)",
 		"ancoraggio.richiesta_non_valutata":          "richiesta non valutata",
 		"ancoraggio.righe_stessa_base":               "più righe con la stessa base",
 		"ancoraggio.quantita_non_intera":             "quantità non intera",

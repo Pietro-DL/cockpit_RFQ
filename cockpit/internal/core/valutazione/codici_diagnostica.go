@@ -108,3 +108,10 @@ const (
 	// pertinenza e non entra nell'impronta del prodotto. Porta l'allegato, i prodotti nominati e quelli collegati.
 	CodiceContestoDiscorde = "valutazione.contesto_discorde"
 )
+
+// I segnali della richiesta (G-6, direttiva 21 §5.2; segnali.go).
+const (
+	// CodiceRichiestaCodiceSoloInMail — nota, dati. Un codice citato nella mail come menzione (funzione del router o
+	// funzione massima della forma) e in nessun file del thread: da chiarire, mai un target. Porta i messaggi e le letture.
+	CodiceRichiestaCodiceSoloInMail = "richiesta.codice_solo_in_mail"
+)

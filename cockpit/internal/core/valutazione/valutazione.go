@@ -216,6 +216,9 @@ func valutaThread(f fotorfq.Fotografia, t fotorfq.Thread, m *motorea.Motore, cas
 		pv.StruttureCandidate = nt.struttureCandidate(*pv, esito.Strutture)
 		pv.ConfermatiSenzaSTEP = nt.confermatiSenzaSTEP(*pv, esito.Strutture)
 	}
+	if col != nil {
+		diag = append(diag, segnaliCodiceSoloInMail(interpretati, col.file)...) // G-6 (direttiva 21 §5.2)
+	}
 	sort.SliceStable(diag, func(i, j int) bool { return chiaveDiagnostica(diag[i]) < chiaveDiagnostica(diag[j]) })
 	out.Diagnostiche = diag
 	return out, col, nil

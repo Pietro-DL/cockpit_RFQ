@@ -143,3 +143,4 @@ motore.legame_incompleto
 motore.legame_ambiguo
 motore.suffisso_non_letto
 contesto.codifica_contraddetta
+richiesta.codice_solo_in_mail
