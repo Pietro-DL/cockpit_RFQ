@@ -289,10 +289,27 @@ def confidenza_media(parole: list[Parola]) -> float | None:
     return round(sum(c) / len(c), 1)
 
 
+# GP-3 (G-8.6): i caratteri che l'OCR scambia facilmente. Nei testi letti con l'OCR ogni carattere di queste classi si
+# segnala (`ambigui`: posizione, letto, alternative), senza correggerlo: niente sostituzione silenziosa B/8 o 0/O.
+CLASSI_AMBIGUE = ("0Oo", "1Il", "5S", "8B", "2Z")
+_AMBIGUO = {c: [x for x in classe if x != c] for classe in CLASSI_AMBIGUE for c in classe}
+AMBIGUI_MAX = 20       # caratteri ambigui segnalati per frammento o campo
+PAROLE_OCR_MAX = 60    # parole OCR con la loro confidenza per frammento
+
+
+def ambigui(testo: str) -> list[dict]:
+    """I caratteri ambigui per l'OCR nel testo, con la posizione e le alternative (CLASSI_AMBIGUE)."""
+    return [{"posizione": i, "letto": c, "alternative": _AMBIGUO[c]} for i, c in enumerate(testo)
+            if c in _AMBIGUO][:AMBIGUI_MAX]
+
+
 def componi_frammenti(parole: list[Parola], pagina: int, fonte: str, zona_di) -> list[dict]:
     """I frammenti di una pagina: un frammento per blocco del file (o dell'OCR) e per zona, con le righe del
     blocco nell'ordine del file e il riquadro delle sue parole. Un blocco a cavallo del bordo della zona in
-    basso a destra diventa due frammenti, cosi' nessuna parola del cartiglio finisce fuori dalla zona."""
+    basso a destra diventa due frammenti, cosi' nessuna parola del cartiglio finisce fuori dalla zona.
+
+    GP-3 (G-8.6): un frammento dell'OCR porta anche le sue parole con la confidenza di ciascuna (quando il motore la
+    da') e i caratteri ambigui del testo; uno nativo no."""
     gruppi: dict[tuple[str, int], list[Parola]] = {}
     for p in parole:
         gruppi.setdefault((zona_di(p), p.blocco), []).append(p)
@@ -304,8 +321,13 @@ def componi_frammenti(parole: list[Parola], pagina: int, fonte: str, zona_di) ->
         testo = normalizza_testo("\n".join(" ".join(q.testo for q in sorted(r, key=lambda q: q.n))
                                            for _, r in sorted(righe.items())))
         if testo:
-            out.append({"pagina": pagina, "zona": zona, "fonte": fonte, "testo": testo,
-                        "riquadro": riquadro(ps), "confidenza": confidenza_media(ps)})
+            f = {"pagina": pagina, "zona": zona, "fonte": fonte, "testo": testo,
+                 "riquadro": riquadro(ps), "confidenza": confidenza_media(ps)}
+            if fonte == "ocr":
+                f["parole"] = [{"testo": q.testo[:TESTO_PDF_VALORE_MAX], "confidenza": q.confidenza,
+                                "riquadro": riquadro([q])} for q in ps[:PAROLE_OCR_MAX]]
+                f["ambigui"] = ambigui(testo)
+            out.append(f)
     return out
 
 
@@ -593,9 +615,12 @@ def campi_cartiglio(parole: list[Parola], zona, fonte: str) -> list[dict]:
                 valore = []  # il segnaposto del modello: il campo e' vuoto
             testo = " ".join(p.testo for p in valore).strip()[:TESTO_PDF_VALORE_MAX]
             if testo:
-                out.append({"etichetta": campo, "letta": " ".join(p.testo for p in et), "valore": testo,
-                            "pagina": 1, "zona": ZONA_BASSO_DESTRA if in_zona(et[0], zona) else ZONA_PAGINA,
-                            "fonte": fonte, "riquadro": riquadro(valore), "confidenza": confidenza_media(valore)})
+                c = {"etichetta": campo, "letta": " ".join(p.testo for p in et), "valore": testo,
+                     "pagina": 1, "zona": ZONA_BASSO_DESTRA if in_zona(et[0], zona) else ZONA_PAGINA,
+                     "fonte": fonte, "riquadro": riquadro(valore), "confidenza": confidenza_media(valore)}
+                if fonte == "ocr":
+                    c["ambigui"] = ambigui(testo)
+                out.append(c)
             i += n
     return out
 
@@ -622,17 +647,103 @@ class MotoreTesseract:
                     for x0, y0, x1, y1, w, b, r, n in p.get_text("words")]
 
 
+class MotoreTesseractTSV:
+    """GP-3 (G-8.6): Tesseract da riga di comando con l'uscita TSV, per avere la CONFIDENZA parola per parola (l'OCR
+    di PyMuPDF non la da'). L'immagine della sola zona (alla risoluzione data) passa da stdin, il TSV torna da stdout;
+    nessun file temporaneo, un tempo massimo per passaggio. Le parole si riportano sulla pagina vista, in punti.
+
+    `esegui` e' il modo di lanciare il processo (subprocess.run), sostituibile nelle prove: su questa postazione di
+    sviluppo Tesseract non ha la lingua italiana, e le prove reali sono NON ESEGUITE."""
+    nome = "tesseract (tsv)"
+
+    def __init__(self, eseguibile: str, lingua: str, dpi: int, tempo_s: float = 30.0, esegui=None):
+        self.eseguibile, self.lingua, self.dpi, self.tempo_s = eseguibile, lingua, dpi, tempo_s
+        self.esegui = esegui or _esegui_processo
+
+    @staticmethod
+    def parole_da_tsv(tsv: str, clip, dpi: int) -> list[Parola]:
+        """Le parole (livello 5) di un TSV di Tesseract, con la confidenza 0-100, riportate da pixel a punti nella
+        zona `clip` della pagina vista. Le righe senza testo o con la confidenza -1 non sono parole."""
+        out: list[Parola] = []
+        scala = 72.0 / dpi
+        righe = tsv.splitlines()
+        if not righe:
+            return out
+        testa = righe[0].split("\t")
+        try:
+            k = {n: testa.index(n) for n in ("level", "block_num", "par_num", "line_num", "word_num", "left", "top",
+                                              "width", "height", "conf", "text")}
+        except ValueError:
+            return out
+        for r in righe[1:]:
+            c = r.split("\t")
+            if len(c) < len(testa) or c[k["level"]] != "5":
+                continue
+            testo = c[k["text"]]
+            try:
+                conf = float(c[k["conf"]])
+                x, y, w, h = (float(c[k[n]]) for n in ("left", "top", "width", "height"))
+                blocco, par, linea, n = (int(c[k[q]]) for q in ("block_num", "par_num", "line_num", "word_num"))
+            except ValueError:
+                continue
+            if not testo.strip() or conf < 0:
+                continue
+            out.append(Parola(clip.x0 + x * scala, clip.y0 + y * scala, clip.x0 + (x + w) * scala,
+                              clip.y0 + (y + h) * scala, testo, blocco, par * 1000 + linea, n, conf))
+        return out
+
+    def leggi(self, pag, clip) -> list[Parola]:
+        pix = pag.get_pixmap(dpi=self.dpi, clip=clip)
+        png = pix.tobytes("png")
+        r = self.esegui([self.eseguibile, "stdin", "stdout", "-l", self.lingua, "--psm", "11", "tsv"], png, self.tempo_s)
+        if r.returncode != 0:
+            raise RuntimeError(f"tesseract uscito con {r.returncode}: {r.stderr[:200]!r}")
+        return self.parole_da_tsv(r.stdout.decode("utf-8", errors="replace"), clip, self.dpi)
+
+
+def _esegui_processo(argomenti: list[str], ingresso: bytes | None, tempo_s: float):
+    import subprocess
+    return subprocess.run(argomenti, input=ingresso, capture_output=True, timeout=tempo_s, check=False)
+
+
+def trova_tesseract(eseguibile: str, lingua: str, esegui=None) -> tuple[str, str]:
+    """(percorso dell'eseguibile, "") se Tesseract c'e' con TUTTE le lingue chieste («ita+eng»), altrimenti ("",
+    perche' no). L'eseguibile: quello configurato, quello nel PATH, quello dell'installazione predefinita."""
+    import shutil
+    esegui = esegui or _esegui_processo
+    candidati = [eseguibile] if eseguibile else []
+    candidati += [shutil.which("tesseract") or "", r"C:\Program Files\Tesseract-OCR\tesseract.exe"]
+    for exe in candidati:
+        if not exe or not os.path.isfile(exe):
+            continue
+        try:
+            r = esegui([exe, "--list-langs"], None, 15.0)
+        except Exception as e:  # noqa: BLE001 — l'eseguibile non parte: non c'e'
+            return "", f"Tesseract non avviabile ({type(e).__name__})"
+        lingue = {x.strip() for x in (r.stdout + r.stderr).decode("utf-8", errors="replace").splitlines()}
+        mancano = [x for x in lingua.split("+") if x not in lingue]
+        if mancano:
+            return "", f"Tesseract senza le lingue {', '.join(mancano)}"
+        return exe, ""
+    return "", "Tesseract non trovato (configurazione, PATH, installazione predefinita)"
+
+
 class ConfigOCR:
     """Come si fa l'OCR su questa postazione: `[analisi] ocr` di worker.toml («automatico», il default: se il
     testo nativo non basta e Tesseract c'e'; «spento»: mai), la lingua, la risoluzione, la cartella tessdata.
 
     Il motore si cerca la prima volta che serve (pymupdf.get_tessdata lancia un processo) e l'esito si
-    ricorda. `motore` e `orologio` si possono passare per le prove (un motore finto, un tempo finto)."""
+    ricorda. `motore` e `orologio` si possono passare per le prove (un motore finto, un tempo finto).
+
+    GP-3 (G-8.6): prima si cerca Tesseract da riga di comando con le lingue chieste (MotoreTesseractTSV, che da' la
+    confidenza parola per parola), poi l'OCR di PyMuPDF; senza nessuno dei due, `non_disponibile` con i motivi."""
 
     def __init__(self, modo: str = "automatico", lingua: str = OCR_LINGUA, dpi: int = OCR_DPI, tessdata: str = "",
-                 tempo_max_s: float = OCR_TEMPO_MAX_S, motore=None, orologio=time.monotonic):
+                 tempo_max_s: float = OCR_TEMPO_MAX_S, motore=None, orologio=time.monotonic, tesseract: str = "",
+                 esegui=None):
         self.modo, self.lingua, self.dpi, self.tessdata = modo, lingua, dpi, tessdata
         self.tempo_max_s, self.motore, self.orologio = tempo_max_s, motore, orologio
+        self.tesseract, self.esegui = tesseract, esegui
         self._pronto: tuple[object | None, str] | None = None
 
     def motore_pronto(self) -> tuple[object | None, str]:
@@ -640,11 +751,16 @@ class ConfigOCR:
         if self.motore is not None:
             return self.motore, ""
         if self._pronto is None:
+            exe, perche_tsv = trova_tesseract(self.tesseract, self.lingua, self.esegui)
+            if exe:
+                self._pronto = (MotoreTesseractTSV(exe, self.lingua, self.dpi, esegui=self.esegui), "")
+                return self._pronto
             try:
                 td = pymupdf.get_tessdata(self.tessdata or None)
                 self._pronto = (MotoreTesseract(self.lingua, self.dpi, td), "")
             except Exception as e:  # noqa: BLE001 — qualunque motivo, il motore non c'e'
-                self._pronto = (None, f"Tesseract non disponibile su questa postazione ({type(e).__name__}: {e})"[:300])
+                self._pronto = (None, f"Tesseract non disponibile su questa postazione ({perche_tsv}; "
+                                      f"{type(e).__name__}: {e})"[:300])
         return self._pronto
 
 
@@ -656,7 +772,8 @@ def ocr_da_config(cfg: dict) -> ConfigOCR:
         log.warning("ocr = %r non e' un valore previsto (automatico, spento): vale «automatico»", cfg.get("ocr"))
         modo = "automatico"
     return ConfigOCR(modo=modo, lingua=str(cfg.get("ocr_lingua") or OCR_LINGUA),
-                     dpi=int(cfg.get("ocr_dpi") or OCR_DPI), tessdata=str(cfg.get("ocr_tessdata") or ""))
+                     dpi=int(cfg.get("ocr_dpi") or OCR_DPI), tessdata=str(cfg.get("ocr_tessdata") or ""),
+                     tesseract=str(cfg.get("ocr_tesseract") or ""))
 
 
 # La configurazione dell'OCR di questo processo: WorkerAnalisi la sostituisce con quella del suo worker.toml.
@@ -894,6 +1011,8 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
         tetto = min(TESTO_PDF_FRAMMENTO_MAX, resto)
         if len(f["testo"]) > tetto:
             f["testo"], troncato = f["testo"][:tetto], True
+            if "ambigui" in f:
+                f["ambigui"] = [a for a in f["ambigui"] if a["posizione"] < tetto]
         frammenti.append(f)
         resto -= len(f["testo"])
     visti, unici = set(), []

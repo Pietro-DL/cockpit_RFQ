@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "AmbiguoOCR": {
+      "description": "Un carattere di un testo letto con l'OCR che appartiene a una classe di caratteri facili da scambiare (0/O/o,\n1/I/l, 5/S, 8/B, 2/Z): la posizione nel testo, il carattere letto e le alternative. Segnalato, MAI corretto.",
+      "properties": {
+        "posizione": {
+          "title": "Posizione",
+          "type": "integer"
+        },
+        "letto": {
+          "title": "Letto",
+          "type": "string"
+        },
+        "alternative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternative",
+          "type": "array"
+        }
+      },
+      "required": [
+        "posizione",
+        "letto"
+      ],
+      "title": "AmbiguoOCR",
+      "type": "object"
+    },
     "CampoCartiglioDWG": {
       "description": "Un campo del cartiglio di un DWG: come CampoCartiglio (riquadro del valore in unita' del disegno, y verso\nl'alto), con la sorgente nel file.",
       "properties": {
@@ -68,6 +94,13 @@
           ],
           "default": null,
           "title": "Confidenza"
+        },
+        "ambigui": {
+          "items": {
+            "$ref": "#/$defs/AmbiguoOCR"
+          },
+          "title": "Ambigui",
+          "type": "array"
         },
         "sorgente": {
           "$ref": "#/$defs/SorgenteDWG"

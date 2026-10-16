@@ -368,7 +368,9 @@ def test_pdf_porta_il_testo_per_frammenti(tmp_path):
                            "cella_max": 200}
     # nessun codice nel fatto: ne' fra le chiavi del testo ne' fra quelle dei frammenti e dei campi
     assert not VIETATI_NEL_TESTO & set(t)
-    assert all(set(f) == {"pagina", "zona", "fonte", "testo", "riquadro", "confidenza"} for f in t["frammenti"])
+    # GP-3 (G-8.6): le parole OCR con la confidenza e i caratteri ambigui, vuoti per un frammento nativo
+    assert all(set(f) == {"pagina", "zona", "fonte", "testo", "riquadro", "confidenza", "parole", "ambigui"}
+               and f["parole"] == [] and f["ambigui"] == [] for f in t["frammenti"])
     assert not VIETATI_NEL_TESTO & {k for c in t["cartiglio"] for k in c}
     # in testa, il nome del file (compatibilita'), e detto
     assert res["codice"] == "7120010" and res["rev"] == "1"

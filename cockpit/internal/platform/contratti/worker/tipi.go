@@ -863,6 +863,25 @@ type FrammentoPDF struct {
 	Testo      string    `json:"testo"`
 	Riquadro   []float64 `json:"riquadro"`
 	Confidenza *float64  `json:"confidenza"`
+	// GP-3 (G-8.6), solo per la fonte ocr: le parole con la confidenza di ciascuna e i caratteri ambigui del testo
+	Parole  []ParolaOCR  `json:"parole"`
+	Ambigui []AmbiguoOCR `json:"ambigui"`
+}
+
+// ParolaOCR è una parola letta con l'OCR: il testo, la confidenza 0–100 del motore (nil se non la dà), il riquadro.
+type ParolaOCR struct {
+	Testo      string    `json:"testo"`
+	Confidenza *float64  `json:"confidenza"`
+	Riquadro   []float64 `json:"riquadro"`
+}
+
+// AmbiguoOCR è un carattere di un testo OCR che appartiene a una classe facile da scambiare (0/O/o, 1/I/l, 5/S, 8/B,
+// 2/Z): la posizione nel testo (in caratteri), il carattere letto e le alternative. Il worker lo segnala e non lo
+// corregge: la tolleranza vale solo con la provenienza ocr, e mai come conferma.
+type AmbiguoOCR struct {
+	Posizione   int      `json:"posizione"`
+	Letto       string   `json:"letto"`
+	Alternative []string `json:"alternative"`
 }
 
 // CampoCartiglio è un campo del probabile cartiglio della pagina 1, come etichetta → valore («DISEGNO N.» →
@@ -878,6 +897,25 @@ type CampoCartiglio struct {
 	Fonte      string    `json:"fonte"`
 	Riquadro   []float64 `json:"riquadro"`
 	Confidenza *float64  `json:"confidenza"`
+	// GP-3 (G-8.6), solo per la fonte ocr: i caratteri ambigui del valore (mai corretti)
+	Ambigui []AmbiguoOCR `json:"ambigui"`
+}
+
+// TestoPDFAttendeOCR dice se un PDF letto senza motore OCR (OCR «non_disponibile» con dei passaggi saltati) va
+// rianalizzato quando la postazione del worker dichiara l'OCR disponibile (GP-3, G-8.6). Prima nessun predicato lo
+// diceva: un PDF letto senza motore restava così per sempre. Chi sa se l'OCR adesso c'è è il chiamante (la presenza
+// della postazione): qui si dice solo che il fatto lo aspetta.
+func TestoPDFAttendeOCR(fatti json.RawMessage) bool {
+	t, ok := DecodificaTestoPDF(fatti)
+	if !ok || t.OCR.Stato != OCRNonDisponibile {
+		return false
+	}
+	for _, p := range t.OCR.Tentativi {
+		if p.Esito == "saltato" {
+			return true
+		}
+	}
+	return false
 }
 
 // OCRPDF è quello che ha fatto l'OCR selettivo: lo stato (OCR…), il motivo di quello che non è andato, il

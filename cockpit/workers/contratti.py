@@ -476,6 +476,21 @@ ZonaPDF = Literal["basso_destra", "pagina"]
 FonteTestoPDF = Literal["nativo", "ocr"]
 
 
+class AmbiguoOCR(Base):
+    """Un carattere di un testo letto con l'OCR che appartiene a una classe di caratteri facili da scambiare (0/O/o,
+    1/I/l, 5/S, 8/B, 2/Z): la posizione nel testo, il carattere letto e le alternative. Segnalato, MAI corretto."""
+    posizione: int
+    letto: str
+    alternative: list[str] = Field(default_factory=list)
+
+
+class ParolaOCR(Base):
+    """Una parola letta con l'OCR, con la confidenza 0-100 del motore (None se il motore non la da') e il riquadro."""
+    testo: str = ""
+    confidenza: float | None = None
+    riquadro: list[float] = Field(default_factory=list)
+
+
 class FrammentoPDF(Base):
     """Un pezzo di testo del PDF con il suo posto: un blocco del file (o dell'OCR) dentro una zona.
 
@@ -490,6 +505,9 @@ class FrammentoPDF(Base):
     testo: str = ""
     riquadro: list[float] = Field(default_factory=list)
     confidenza: float | None = None
+    # GP-3 (G-8.6), solo per la fonte `ocr`: le parole con la loro confidenza (al piu' 60) e i caratteri ambigui
+    parole: list[ParolaOCR] = Field(default_factory=list)
+    ambigui: list[AmbiguoOCR] = Field(default_factory=list)
 
 
 class CampoCartiglio(Base):
@@ -514,6 +532,8 @@ class CampoCartiglio(Base):
     fonte: FonteTestoPDF = "nativo"
     riquadro: list[float] = Field(default_factory=list)
     confidenza: float | None = None
+    # GP-3 (G-8.6), solo per la fonte `ocr`: i caratteri ambigui del valore (mai corretti)
+    ambigui: list[AmbiguoOCR] = Field(default_factory=list)
 
 
 class TentativoOCR(Base):

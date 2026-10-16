@@ -114,6 +114,8 @@ var tipiAnnidati = map[string]any{
 	"LimitiTestoDWG":      LimitiTestoDWG{},
 	"GeometriaSTEP":       GeometriaSTEP{},
 	"IstanzaSTEP":         IstanzaSTEP{},
+	"ParolaOCR":           ParolaOCR{},
+	"AmbiguoOCR":          AmbiguoOCR{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -819,7 +821,7 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 	vuole("verso di una tabella", enum(def("TabellaPDF"), "verso"), VersoSotto, VersoSopra)
 	vuole("stato della completezza", enum(def("CompletezzaPDF"), "stato"), CompletezzaCompleta, CompletezzaParziale, CompletezzaNonLeggibile)
 	// lo stesso, dalla parte del Go: i campi sono quelli e non altri
-	for nome, campi := range map[string]int{"FrammentoPDF": 6, "CampoCartiglio": 8, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
+	for nome, campi := range map[string]int{"FrammentoPDF": 8, "CampoCartiglio": 9, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
 			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
 		}
@@ -989,7 +991,7 @@ func TestIlTestoDelDxfNonPortaCodici(t *testing.T) {
 			t.Errorf("TestoDXF v2 non dichiara %q", a)
 		}
 	}
-	for nome, campi := range map[string]int{"LimitiTestoDXF": 6, "CampoCartiglio": 8} {
+	for nome, campi := range map[string]int{"LimitiTestoDXF": 6, "CampoCartiglio": 9} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
 			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
 		}
@@ -1115,6 +1117,43 @@ func TestDecodificaTestoPDFV3Tabelle(t *testing.T) {
 	}
 	if CartiglioPDFDiPrima(nil) {
 		t.Error("un testo che non c'e' non ha un cartiglio di prima")
+	}
+}
+
+// GP-3 (G-8.6). L'OCR con la confidenza parola per parola e i caratteri ambigui (segnalati, mai corretti); un PDF letto
+// senza motore, con dei passaggi saltati, aspetta l'OCR (TestoPDFAttendeOCR); uno che non ne aveva bisogno, o letto con
+// l'OCR, no.
+func TestOCRConConfidenzaEAmbigui(t *testing.T) {
+	letto := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": false, "pagine": 1, "pagine_lette": 1,
+		"frammenti": [{"pagina": 1, "zona": "basso_destra", "fonte": "ocr", "testo": "DWG NO. 1650B0", "confidenza": 71.5,
+			"parole": [{"testo": "1650B0", "confidenza": 58.0, "riquadro": [600, 500, 640, 510]}],
+			"ambigui": [{"posizione": 8, "letto": "1", "alternative": ["I", "l"]}, {"posizione": 12, "letto": "B", "alternative": ["8"]}]}],
+		"cartiglio": [{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "1650B0", "fonte": "ocr", "zona": "basso_destra",
+			"ambigui": [{"posizione": 4, "letto": "B", "alternative": ["8"]}]}],
+		"ocr": {"stato": "eseguito", "motore": "tesseract (tsv)"}}}`)
+	tp, ok := DecodificaTestoPDF(letto)
+	if !ok || len(tp.Frammenti) != 1 || len(tp.Frammenti[0].Parole) != 1 || *tp.Frammenti[0].Parole[0].Confidenza != 58.0 {
+		t.Fatalf("parole OCR lette male: %v %+v", ok, tp)
+	}
+	if a := tp.Cartiglio[0].Ambigui; len(a) != 1 || a[0].Letto != "B" || a[0].Alternative[0] != "8" || tp.Cartiglio[0].Valore != "1650B0" {
+		t.Errorf("ambigui letti male, o il valore corretto: %+v", tp.Cartiglio[0])
+	}
+	if TestoPDFAttendeOCR(letto) {
+		t.Error("un PDF letto con l'OCR non aspetta l'OCR")
+	}
+	senza := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": false, "ocr": {"stato": "non_disponibile",
+		"motivo": "Tesseract senza le lingue ita", "tentativi": [{"pagina": 1, "zona": "pagina", "esito": "saltato"}]}}}`)
+	if !TestoPDFAttendeOCR(senza) {
+		t.Error("un PDF letto senza motore, con dei passaggi saltati, aspetta l'OCR")
+	}
+	for nome, d := range map[string]json.RawMessage{
+		"OCR non necessario": json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": true, "ocr": {"stato": "non_necessario"}}}`),
+		"OCR spento":         json.RawMessage(`{"testo_pdf": {"versione": 3, "ocr": {"stato": "spento", "tentativi": [{"esito": "saltato"}]}}}`),
+		"senza testo":        json.RawMessage(`{"errore_pdf": "rotto"}`),
+	} {
+		if TestoPDFAttendeOCR(d) {
+			t.Errorf("%s: non aspetta l'OCR", nome)
+		}
 	}
 }
 

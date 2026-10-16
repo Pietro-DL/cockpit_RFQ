@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "AmbiguoOCR": {
+      "description": "Un carattere di un testo letto con l'OCR che appartiene a una classe di caratteri facili da scambiare (0/O/o,\n1/I/l, 5/S, 8/B, 2/Z): la posizione nel testo, il carattere letto e le alternative. Segnalato, MAI corretto.",
+      "properties": {
+        "posizione": {
+          "title": "Posizione",
+          "type": "integer"
+        },
+        "letto": {
+          "title": "Letto",
+          "type": "string"
+        },
+        "alternative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternative",
+          "type": "array"
+        }
+      },
+      "required": [
+        "posizione",
+        "letto"
+      ],
+      "title": "AmbiguoOCR",
+      "type": "object"
+    },
     "CampoCartiglio": {
       "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale e, dalla sottoversione 2, il particolare simile), `letta` e' com'e'\nscritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO\nche le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del\nvalore; `zona` e' quella dell'etichetta.\n\nK4: lo stesso campo porta il cartiglio di un DXF (TestoDXF), e c'e' la voce `riferimento_3d`: «ref.3D doc. /\nRef.3D Dok.», il documento 3D della stessa parte (un dato del cartiglio, mai il codice del file). Nel testo dei\nPDF la voce si riconosce senza cambiare la sottoversione.",
       "properties": {
@@ -68,6 +94,13 @@
           ],
           "default": null,
           "title": "Confidenza"
+        },
+        "ambigui": {
+          "items": {
+            "$ref": "#/$defs/AmbiguoOCR"
+          },
+          "title": "Ambigui",
+          "type": "array"
         }
       },
       "required": [
