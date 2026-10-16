@@ -76,6 +76,158 @@
       "title": "CampoCartiglio",
       "type": "object"
     },
+    "CellaTabella": {
+      "description": "Una cella di una riga: la colonna (indice, intestazione, ruolo ripetuti per chi legge la riga da sola), il valore\nGREZZO (le parole della cella, da sinistra a destra) e il riquadro. `sorgente`: gli offset delle entita' nel file da\ncui viene il valore (righe d'elenco dei DWG); vuoto per i PDF, dove vale il riquadro.",
+      "properties": {
+        "colonna": {
+          "title": "Colonna",
+          "type": "integer"
+        },
+        "intestazione": {
+          "default": "",
+          "title": "Intestazione",
+          "type": "string"
+        },
+        "ruolo": {
+          "default": "",
+          "enum": [
+            "",
+            "posizione",
+            "livello",
+            "codice",
+            "descrizione",
+            "quantita",
+            "unita",
+            "materiale",
+            "revisione",
+            "documento",
+            "nota"
+          ],
+          "title": "Ruolo",
+          "type": "string"
+        },
+        "valore": {
+          "default": "",
+          "title": "Valore",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "omessa": {
+          "default": false,
+          "title": "Omessa",
+          "type": "boolean"
+        },
+        "sorgente": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Sorgente",
+          "type": "array"
+        }
+      },
+      "required": [
+        "colonna"
+      ],
+      "title": "CellaTabella",
+      "type": "object"
+    },
+    "ColonnaTabella": {
+      "description": "Una colonna di una tabella: l'intestazione com'e' scritta, il suo ruolo tipico e il riquadro dell'intestazione.\n`omessa`: una colonna personale (chi ha disegnato, controllato, firmato): i suoi valori non viaggiano.",
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "intestazione": {
+          "default": "",
+          "title": "Intestazione",
+          "type": "string"
+        },
+        "ruolo": {
+          "default": "",
+          "enum": [
+            "",
+            "posizione",
+            "livello",
+            "codice",
+            "descrizione",
+            "quantita",
+            "unita",
+            "materiale",
+            "revisione",
+            "documento",
+            "nota"
+          ],
+          "title": "Ruolo",
+          "type": "string"
+        },
+        "omessa": {
+          "default": false,
+          "title": "Omessa",
+          "type": "boolean"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        }
+      },
+      "required": [
+        "indice"
+      ],
+      "title": "ColonnaTabella",
+      "type": "object"
+    },
+    "CompletezzaPDF": {
+      "description": "Fin dove la lettura delle tabelle copre il documento, perche' il server possa dire «verifica incompleta» e non\n«codice assente» (direttiva 21 §5.2). `stato`: `completa` (tutte le pagine lette, tutte con testo nativo, nessun\ntetto raggiunto), `parziale` (pagine oltre il tetto, pagine senza testo nativo, righe o celle troncate: `motivo`),\n`non_leggibile` (nessun testo nativo nelle pagine lette). `pagine_senza_testo` conta le pagine lette con meno di\n`ocr_soglia_pagina` caratteri nativi: li' una tabella non si vede.",
+      "properties": {
+        "stato": {
+          "default": "non_leggibile",
+          "enum": [
+            "completa",
+            "parziale",
+            "non_leggibile"
+          ],
+          "title": "Stato",
+          "type": "string"
+        },
+        "pagine": {
+          "default": 0,
+          "title": "Pagine",
+          "type": "integer"
+        },
+        "pagine_lette": {
+          "default": 0,
+          "title": "Pagine Lette",
+          "type": "integer"
+        },
+        "pagine_senza_testo": {
+          "default": 0,
+          "title": "Pagine Senza Testo",
+          "type": "integer"
+        },
+        "righe_troncate": {
+          "default": false,
+          "title": "Righe Troncate",
+          "type": "boolean"
+        },
+        "motivo": {
+          "default": "",
+          "title": "Motivo",
+          "type": "string"
+        }
+      },
+      "title": "CompletezzaPDF",
+      "type": "object"
+    },
     "FrammentoPDF": {
       "description": "Un pezzo di testo del PDF con il suo posto: un blocco del file (o dell'OCR) dentro una zona.\n\n`zona` e' un fatto GEOMETRICO, non un'interpretazione: `basso_destra` e' la parte della pagina 1 con\nx0 >= 0,5 della larghezza e y0 >= 0,6 dell'altezza (sulla pagina vista); `pagina` e' tutto il resto. Che in\nbasso a destra ci sia probabilmente il cartiglio lo dice il server. `fonte` dice se il testo e' quello\nscritto nel file (`nativo`) o letto dall'immagine (`ocr`, con la `confidenza` 0-100 quando il motore la\nda'): un frammento OCR e' un'evidenza piu' debole, e il server lo tratta come tale.",
       "properties": {
@@ -184,6 +336,26 @@
           "default": 0,
           "title": "Ocr Dpi",
           "type": "integer"
+        },
+        "tabelle_pagine_max": {
+          "default": 0,
+          "title": "Tabelle Pagine Max",
+          "type": "integer"
+        },
+        "tabelle_max": {
+          "default": 0,
+          "title": "Tabelle Max",
+          "type": "integer"
+        },
+        "righe_max": {
+          "default": 0,
+          "title": "Righe Max",
+          "type": "integer"
+        },
+        "cella_max": {
+          "default": 0,
+          "title": "Cella Max",
+          "type": "integer"
         }
       },
       "title": "LimitiTestoPDF",
@@ -259,6 +431,88 @@
       "title": "OCRPDF",
       "type": "object"
     },
+    "RigaTabella": {
+      "description": "Una riga di dati, in ordine dall'intestazione in fuori. `continuazione`: la riga non ha la cella della posizione\n(o, se la tabella non ha la colonna della posizione, quella del codice), o ce l'ha senza nessuna cifra: di solito\nprosegue la riga prima (una descrizione su due righe). Si riporta com'e', mai fusa.",
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "continuazione": {
+          "default": false,
+          "title": "Continuazione",
+          "type": "boolean"
+        },
+        "celle": {
+          "items": {
+            "$ref": "#/$defs/CellaTabella"
+          },
+          "title": "Celle",
+          "type": "array"
+        }
+      },
+      "required": [
+        "indice"
+      ],
+      "title": "RigaTabella",
+      "type": "object"
+    },
+    "TabellaPDF": {
+      "description": "Una tabella riconosciuta dalla sua intestazione (workers/tabelle_testo.py), su una pagina. Il worker ESTRAE le\nrighe e non dice che cosa siano (prodotti richiesti, componenti, menzioni): lo decide il server (PM-35R).\n`verso`: dove stanno le righe rispetto all'intestazione (`sotto` in un modulo o in una distinta, `sopra`\nnell'elenco particolari di un disegno, con l'intestazione appoggiata al cartiglio); le righe sono numerate\ndall'intestazione in fuori.",
+      "properties": {
+        "pagina": {
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "verso": {
+          "default": "sotto",
+          "enum": [
+            "sotto",
+            "sopra"
+          ],
+          "title": "Verso",
+          "type": "string"
+        },
+        "riquadro_intestazione": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro Intestazione",
+          "type": "array"
+        },
+        "colonne": {
+          "items": {
+            "$ref": "#/$defs/ColonnaTabella"
+          },
+          "title": "Colonne",
+          "type": "array"
+        },
+        "righe": {
+          "items": {
+            "$ref": "#/$defs/RigaTabella"
+          },
+          "title": "Righe",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pagina",
+        "indice"
+      ],
+      "title": "TabellaPDF",
+      "type": "object"
+    },
     "TentativoOCR": {
       "description": "Un passaggio dell'OCR su una pagina intera (`zona: pagina`) o sulla sola zona in basso a destra della\npagina 1. `esito`: `letto` (testo leggibile), `vuoto` (il motore non ha letto niente di leggibile),\n`fallito` (eccezione del motore: `motivo`), `scaduto` (il tempo dell'OCR era finito prima di questo\npassaggio), `saltato` (OCR spento, motore assente, oltre il limite di pagine).",
       "properties": {
@@ -310,10 +564,10 @@
       "type": "object"
     }
   },
-  "description": "Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli[\"testo_pdf\"]` (A5.13.8,\nanalizzatore 4).\n\nIl testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e\nriquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno\nalmeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.\n\n`estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,\nnon un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri\nnativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;\n`pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]\ndella pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la\nsottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette\nbilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6).",
+  "description": "Il testo di un PDF letto per frammenti, dentro `RisultatoAnalisi.dettagli[\"testo_pdf\"]` (A5.13.8,\nanalizzatore 4).\n\nIl testo INTEGRALE di un documento grande non c'e', di proposito: ci sono i frammenti utili con pagina e\nriquadro (tutti quelli della zona in basso a destra della pagina 1, e quelli delle pagine che hanno\nalmeno una cifra: un codice ne ha), i campi del cartiglio, i metadati, l'esito dell'OCR e i limiti.\n\n`estraibile = false` quando nelle pagine lette non c'e' testo NATIVO (curve, scansioni): e' la risposta,\nnon un errore, e l'OCR non la cambia (i suoi frammenti hanno `fonte: ocr`). `caratteri` sono i caratteri\nnativi delle pagine lette; `troncato` e' vero quando i frammenti o i campi si sono fermati ai limiti;\n`pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]\ndella pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la\nsottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette\nbilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6). La 3\n(GP-3, direttiva 21) aggiunge le `tabelle` (righe con le colonne e i riquadri, cercate fino a\n`limiti.tabelle_pagine_max` pagine) e la `completezza` di quella lettura; il cartiglio si legge come nella 2, e i\ntermini della distinta si confrontano senza dieresi (QUANTITY, MENGE, POSITION, STÜCKLISTE).",
   "properties": {
     "versione": {
-      "default": 2,
+      "default": 3,
       "title": "Versione",
       "type": "integer"
     },
@@ -371,6 +625,16 @@
     },
     "limiti": {
       "$ref": "#/$defs/LimitiTestoPDF"
+    },
+    "tabelle": {
+      "items": {
+        "$ref": "#/$defs/TabellaPDF"
+      },
+      "title": "Tabelle",
+      "type": "array"
+    },
+    "completezza": {
+      "$ref": "#/$defs/CompletezzaPDF"
     }
   },
   "title": "TestoPDF",

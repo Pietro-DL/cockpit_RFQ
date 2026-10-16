@@ -103,16 +103,21 @@ func StatoDelTestoPDF(fatti json.RawMessage) string {
 // campo). Un testo di prima si legge lo stesso finche' nessuno chiede di rileggerlo, ma il suo cartiglio non e'
 // contenuto (LetturaTesto.DaRileggere, fase 4.6r): chiavi e indizi, con la frase FraseTestoDiPrima. Un PDF che non
 // si apre no: e' una risposta.
+//
+// GP-3 (direttiva 21): dalla sottoversione 3 un testo della 2 si riaccoda anche lui (le tabelle e la loro completezza
+// non ci sono), ma il suo cartiglio NON e' di prima: la soglia del cartiglio e' worker.VersioneCartiglioPDF.
 func TestoPDFDaRileggere(fatti json.RawMessage) bool {
 	t, stato := testoDelPDF(fatti)
-	return stato == TestoNonLetto || testoDiPrima(t)
+	return stato == TestoNonLetto || (t != nil && t.Versione < worker.VersioneTestoPDF)
 }
 
-// testoDiPrima dice se il testo e' di una sottoversione di prima di quella che il worker di oggi scrive
-// (worker.VersioneTestoPDF): chi l'ha letto non conosceva le etichette del cartiglio della fase 4.6, e prendeva
-// l'intestazione dell'elenco particolari di un disegno d'assieme per il campo del codice.
+// testoDiPrima dice se il cartiglio del testo e' stato letto con una sottoversione di prima della fase 4.6
+// (worker.CartiglioPDFDiPrima, soglia worker.VersioneCartiglioPDF): chi l'ha letto non conosceva le etichette del
+// cartiglio della fase 4.6, e prendeva l'intestazione dell'elenco particolari di un disegno d'assieme per il campo del
+// codice. Fino alla sottoversione 2 la soglia era worker.VersioneTestoPDF; la 3 (GP-3) aggiunge le tabelle e non
+// cambia il cartiglio.
 func testoDiPrima(t *worker.TestoPDF) bool {
-	return t != nil && t.Versione < worker.VersioneTestoPDF
+	return worker.CartiglioPDFDiPrima(t)
 }
 
 // FraseTestoDiPrima e' la frase di un testo letto con una sottoversione di prima (testoDiPrima): il testo c'e', ma

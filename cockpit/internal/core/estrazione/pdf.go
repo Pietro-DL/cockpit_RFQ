@@ -118,13 +118,16 @@ func errorePDF(payload json.RawMessage) string {
 //   - Estraibile falso: nelle pagine lette non c'è testo nativo. Le capacità testo e cartiglio non sono
 //     disponibili, con lo stato dell'OCR; pdf.senza_testo. Non è «nessun codice» (A-C09).
 //   - Troncato: il worker si è fermato su un suo tetto; pdf.troncato, la fonte è parziale.
-//   - Sottoversione di prima (< worker.VersioneTestoPDF, come testoDiPrima di testo_pdf.go:114-116): il
-//     cartiglio di quel worker non è contenuto, è un indizio (giro 4, fase 4.6r). I suoi campi diventano unità
-//     testo_pdf isolate, con l'etichetta conservata, la mappatura «sconosciuta» e pdf.testo_di_prima.
+//   - Cartiglio di prima (worker.CartiglioPDFDiPrima: sottoversione < worker.VersioneCartiglioPDF, come testoDiPrima
+//     di classificazione/testo_pdf.go): il cartiglio di quel worker non è contenuto, è un indizio (giro 4, fase
+//     4.6r). I suoi campi diventano unità testo_pdf isolate, con l'etichetta conservata, la mappatura «sconosciuta»
+//     e pdf.testo_di_prima. GP-3: la soglia era worker.VersioneTestoPDF fino alla 2; la 3 aggiunge le tabelle e non
+//     cambia il cartiglio, quindi un testo della 2 si mappa come prima, byte per byte (le tabelle non si mappano
+//     ancora: il contesto delle righe è una decisione del contratto, G-9).
 //   - I fatti che ci sono si mappano sempre (campi, frammenti, metadati): un fatto non si scarta.
 func (c *documento) testoPDF(t *worker.TestoPDF) {
 	c.d.Fonte.RiferimentoFatti.SottoversionePDF = t.Versione
-	diPrima := t.Versione < worker.VersioneTestoPDF
+	diPrima := worker.CartiglioPDFDiPrima(t)
 
 	switch {
 	case t.Estraibile:
@@ -180,7 +183,7 @@ func (c *documento) testoPDF(t *worker.TestoPDF) {
 			Gravita:   evidenze.GravitaAvviso,
 			Natura:    evidenze.NaturaDati,
 			Percorso:  chiaveTestoPDF + ".versione",
-			Messaggio: fmt.Sprintf("testo letto con il worker di prima (sottoversione %d, oggi %d): i campi del cartiglio sono testo_pdf, un indizio e mai il codice del file, finché il PDF non si rianalizza", t.Versione, worker.VersioneTestoPDF),
+			Messaggio: fmt.Sprintf("testo letto con il worker di prima (sottoversione %d, oggi %d): i campi del cartiglio sono testo_pdf, un indizio e mai il codice del file, finché il PDF non si rianalizza", t.Versione, worker.VersioneCartiglioPDF),
 			Rif:       diPrimaIDs,
 		})
 	}

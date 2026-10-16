@@ -319,4 +319,5 @@ def test_nei_pdf_il_riferimento_3d_e_un_etichetta_e_doc_no_no():
     parole = [Parola(0, 0, 10, 2, w) for w in ("ref.3D", "doc./Ref.3D", "Dok.", "ACME3001")]
     assert etichetta_a(parole, 0) == ("riferimento_3d", 3)
     assert etichetta_a([Parola(0, 0, 10, 2, w) for w in ("doc.", "no./Dok.", "Nr.")], 0) is None
-    assert VERSIONE_TESTO_PDF == 2
+    # riscritta per GP-3: la sottoversione del testo e' la 3 (le tabelle), il cartiglio e' quello della 2
+    assert VERSIONE_TESTO_PDF == 3

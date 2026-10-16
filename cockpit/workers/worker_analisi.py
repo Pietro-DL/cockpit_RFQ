@@ -25,10 +25,12 @@ import pymupdf
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ContenutoIncompleto, ErroreHTTP,
                             ImprontaSbagliata, cadenza_battito, carica_config, configura_log, diagnosi,
                             leggi_marcatore_arresto, nome_worker, riporta_risultato)
-from contratti import (OCRPDF, CampoCartiglio, FrammentoPDF, Job, LimitiTestoPDF, MetadatiPDF,
-                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TestoDXF, TestoPDF)
+from colonne import piega
+from contratti import (OCRPDF, CampoCartiglio, CompletezzaPDF, FrammentoPDF, Job, LimitiTestoPDF, MetadatiPDF,
+                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDXF, TestoPDF)
 from dxf_testo import leggi_testo_dxf
 from step_struttura import leggi_struttura
+from tabelle_testo import LIMITI_TABELLE, trova_tabelle
 
 log = logging.getLogger("worker-analisi")
 
@@ -73,7 +75,10 @@ TERMINI_CAPITOLATO = [
     "QUALITY REQUIREMENTS",
 ]
 
-# Distinta del cliente: l'intestazione di una tabella di codici con quantita'.
+# Distinta del cliente: l'intestazione di una tabella di codici con quantita'. Si confrontano sul testo PIEGATO
+# (colonne.piega: maiuscolo, senza dieresi ne' accenti): «Materialstückliste» contiene STUCKLISTE, «QUANTITÀ»
+# QUANTITA. GP-3 (direttiva 21 §5.2): QUANTITY, MENGE, POSITION e STUECKLISTE, perche' le distinte di un ERP in
+# inglese e in tedesco ne avevano uno solo (BILL OF MATERIAL) o nessuno (la dieresi non si confrontava).
 TERMINI_DISTINTA = [
     "DISTINTA BASE",
     "DISTINTA MATERIALI",
@@ -81,10 +86,35 @@ TERMINI_DISTINTA = [
     "PARTS LIST",
     "ELENCO PARTI",
     "STUCKLISTE",
+    "STUECKLISTE",
     "POS.",
     "Q.TA",
     "QUANTITA",
+    "QUANTITY",
+    "MENGE",
+    "POSITION",
 ]
+# Come prima, un termine si cerca come pezzo del testo («MATERIALSTUCKLISTE» contiene STUCKLISTE); POSITION e MENGE
+# solo come parole intere, perche' come pezzi stanno in COMPOSITION, DISPOSITION, MENGENLEHRE.
+_TERMINI_A_PAROLA = {"POSITION", "MENGE"}
+_RE_TERMINI_DISTINTA = [(t, re.compile((r"(?<![A-Z0-9])" + re.escape(t) + r"(?![A-Z0-9])") if t in _TERMINI_A_PAROLA
+                                       else re.escape(t)))
+                        for t in TERMINI_DISTINTA]
+
+
+def termini_distinta(testo_piegato: str) -> list[str]:
+    """I termini della distinta nel testo gia' piegato (colonne.piega)."""
+    return [t for t, r in _RE_TERMINI_DISTINTA if r.search(testo_piegato)]
+
+# I segni di un DISEGNO che non si vedono nei termini del cartiglio (SCALA e' gia' li'): la scala in inglese, in
+# tedesco, in francese. Servono solo a non degradare a distinta un disegno d'assieme con la tabella degli elementi
+# (direttiva 21 §5.2): con questi segni, e i termini della distinta, il file e' un disegno «con evidenza
+# tabellare». Contano anche i campi del cartiglio della scala, del numero del disegno e del riferimento 3D.
+TERMINI_SEGNI_DISEGNO = ["SCALE", "MASSSTAB", "ECHELLE"]
+CAMPI_SEGNI_DISEGNO = {"scala", "numero_disegno", "riferimento_3d"}
+# Quante righe di una tabella riconosciuta (non continuazioni) bastano, con due termini, per una distinta: la
+# tabella ha gia' un'intestazione con la posizione o la quantita', che e' piu' di una riga «che somiglia a un codice».
+RIGHE_TABELLA_DISTINTA = 2
 
 # Una riga di distinta: qualcosa che sembra un codice, e poi un numero che sembra una quantita'.
 RE_RIGA_DISTINTA = re.compile(r"\b[A-Z0-9][A-Z0-9._\-/]{4,}\b[^\n]{0,40}?\b\d{1,4}(?:[.,]\d{1,3})?\b")
@@ -153,8 +183,15 @@ def separa_codice_rev(nome_base: str) -> tuple[str, str]:
 # DESCRIZIONE QTA») non e' un campo. Con la
 # sottoversione nuova il server riconosce i PDF letti prima, e «Rianalizza» li rilegge. La fase 4.12 (l'elenco
 # particolari) usera' la stessa: un solo pacchetto della postazione, una sola rianalisi.
-VERSIONE_TESTO_PDF = 2
+#
+# La 3 (GP-3, direttiva 21 §5.1-5.2) aggiunge le TABELLE (tabelle_testo: righe con le colonne e i riquadri, da
+# qualunque PDF con testo nativo e un'intestazione riconoscibile, fino a TABELLE_PAGINE_MAX pagine) e la loro
+# COMPLETEZZA (pagine lette, pagine senza testo, righe troncate), e i termini della distinta piegati (senza
+# dieresi). Il cartiglio si legge come nella 2: il server lo sa (worker.VersioneCartiglioPDF) e non declassa i
+# cartigli della 2; «Rianalizza» rilegge i PDF della 2 per le tabelle.
+VERSIONE_TESTO_PDF = 3
 TESTO_PDF_PAGINE_MAX = 11        # le pagine lette: le stesse che si scorrevano gia' per i termini
+TABELLE_PAGINE_MAX = 30          # le pagine in cui si cercano le tabelle (una richiesta o una distinta lunga)
 TESTO_PDF_FRAMMENTI_MAX = 200    # frammenti nel fatto
 TESTO_PDF_FRAMMENTO_MAX = 512    # caratteri di un frammento
 TESTO_PDF_CARATTERI_MAX = 16384  # caratteri di tutti i frammenti insieme
@@ -750,12 +787,50 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
     ocr = ocr or OCR_PREDEFINITO
     testo_completo = ""
     pagine: list[tuple] = []  # (vista, parole, caratteri nativi) di ogni pagina letta
+    tabelle: list[dict] = []
+    tab_troncate = False
+    tab_pagine = 0            # pagine in cui si sono cercate le tabelle
+    senza_testo = 0           # pagine lette (per le tabelle) senza testo nativo
+    caratteri_tab = 0
     for i, pag in enumerate(doc):
-        if i >= TESTO_PDF_PAGINE_MAX:  # non serve scorrere oltre
+        if i >= max(TESTO_PDF_PAGINE_MAX, TABELLE_PAGINE_MAX):  # non serve scorrere oltre
             break
-        grezzo = pag.get_text()
-        testo_completo += grezzo + "\n"
-        pagine.append((pag.rect, parole_native(pag), len(normalizza_testo(grezzo))))
+        if i < TESTO_PDF_PAGINE_MAX:
+            grezzo = pag.get_text()
+            testo_completo += grezzo + "\n"
+            parole = parole_native(pag)
+            car = len(normalizza_testo(grezzo))
+            pagine.append((pag.rect, parole, car))
+        else:
+            parole = parole_native(pag)
+            car = len(normalizza_testo(" ".join(p.testo for p in parole)))
+        if i < TABELLE_PAGINE_MAX:
+            tab_pagine += 1
+            caratteri_tab += car
+            if car < OCR_SOGLIA_PAGINA:
+                senza_testo += 1
+            try:
+                trovate, fermo = trova_tabelle(parole, i + 1, gia=sum(len(t["righe"]) for t in tabelle))
+            except Exception as e:  # noqa: BLE001 — una tabella che non si legge non fa fallire il testo
+                log.warning("tabelle non lette a pagina %d: %s", i + 1, e)
+                trovate, fermo = [], True
+            tabelle += trovate
+            tab_troncate = tab_troncate or fermo
+    if len(tabelle) > LIMITI_TABELLE["tabelle_max"]:
+        tabelle, tab_troncate = tabelle[:LIMITI_TABELLE["tabelle_max"]], True
+    for k, t in enumerate(tabelle):
+        t["indice"] = k + 1
+    motivi = []
+    if doc.page_count > tab_pagine:
+        motivi.append(f"lette {tab_pagine} pagine su {doc.page_count} (tetto {TABELLE_PAGINE_MAX})")
+    if senza_testo:
+        motivi.append(f"{senza_testo} pagine lette senza testo nativo: una tabella li' non si vede")
+    if tab_troncate:
+        motivi.append("righe, celle o tabelle oltre i tetti")
+    completezza = CompletezzaPDF(
+        stato="non_leggibile" if caratteri_tab == 0 else ("parziale" if motivi else "completa"),
+        pagine=doc.page_count, pagine_lette=tab_pagine, pagine_senza_testo=senza_testo,
+        righe_troncate=tab_troncate, motivo="; ".join(motivi)[:300])
 
     zona1 = zona_basso_destra(pagine[0][0]) if pagine else None
 
@@ -846,7 +921,11 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
                               frammento_max=TESTO_PDF_FRAMMENTO_MAX, caratteri_max=TESTO_PDF_CARATTERI_MAX,
                               campi_max=TESTO_PDF_CAMPI_MAX, ocr_soglia_pagina=OCR_SOGLIA_PAGINA,
                               ocr_soglia_cartiglio=OCR_SOGLIA_CARTIGLIO, ocr_pagine_max=OCR_PAGINE_MAX,
-                              ocr_tempo_max_s=int(ocr.tempo_max_s), ocr_dpi=ocr.dpi),
+                              ocr_tempo_max_s=int(ocr.tempo_max_s), ocr_dpi=ocr.dpi,
+                              tabelle_pagine_max=TABELLE_PAGINE_MAX, tabelle_max=LIMITI_TABELLE["tabelle_max"],
+                              righe_max=LIMITI_TABELLE["righe_max"], cella_max=LIMITI_TABELLE["cella_max"]),
+        tabelle=[TabellaPDF(**t) for t in tabelle],
+        completezza=completezza,
     )
     return testo_completo, fatto.model_dump(mode="json")
 
@@ -930,19 +1009,26 @@ def analizza_pdf(percorso: str, nome_file: str, ocr: ConfigOCR | None = None) ->
     # Se il PDF contiene "ZONA ESENTE DA SALDATURA", "TOLLERANZE GENERALI", "PESO kG" o "SCALA"
     trovati_cad = [t for t in TERMINI_CARTIGLIO_CAD if t in testo_norm]
     codice, rev = separa_codice_rev(nome_senza_ext)
+    # La distinta (GP-3): i termini sul testo piegato, le righe che somigliano a un codice e le righe delle tabelle
+    # riconosciute. Se c'e', in un DISEGNO diventa l'evidenza tabellare (il disegno d'assieme con l'elenco degli
+    # elementi resta un disegno, direttiva 21 §5.2), altrimenti fa la distinta (regola 4).
+    tabellare = evidenza_tabellare(testo_completo, testo_pdf)
 
     if trovati_cad:
         # «cartiglio» e' la fonte del TIPO (i termini del cartiglio nel testo); codice e rev sono il nome del
         # file, e `fonti` lo dice (P16)
         log.info("Riconosciuto cartiglio CAD 2D in %s: codice=%s rev=%s (termini: %s)", nome_file, codice, rev, trovati_cad)
+        dettagli = {"cartiglio": True, "termini_trovati": trovati_cad, "testo_pdf": testo_pdf,
+                    "fonti": fonti_pdf("termini_pdf", codice, rev)}
+        if tabellare:
+            dettagli["evidenza_tabellare"] = tabellare
         return {
             "tipo_proposto": "disegno_2d",
             "codice": codice,
             "rev": rev,
             "confidenza": 95,
             "fonte": "cartiglio",
-            "dettagli": {"cartiglio": True, "termini_trovati": trovati_cad, "testo_pdf": testo_pdf,
-                         "fonti": fonti_pdf("termini_pdf", codice, rev)},
+            "dettagli": dettagli,
         }
 
     # 3. Capitolato / specifica tecnica: parla di requisiti, non di un pezzo.
@@ -959,18 +1045,32 @@ def analizza_pdf(percorso: str, nome_file: str, ocr: ConfigOCR | None = None) ->
                          "fonti": fonti_pdf("termini_pdf", "", "")},
         }
 
-    # 4. Distinta del cliente: un elenco di codici con quantita'.
-    trovati_dist = [t for t in TERMINI_DISTINTA if t in testo_norm]
-    if len(trovati_dist) >= 2 and conta_righe_codice(testo_completo) >= 5:
-        log.info("Riconosciuta distinta cliente in %s (termini: %s)", nome_file, trovati_dist)
+    # 4. Distinta del cliente: un elenco di codici con quantita'. Con i segni di un disegno (la scala in un'altra
+    #    lingua, il campo del numero del disegno nel cartiglio) e' invece un disegno con evidenza tabellare: un
+    #    disegno d'assieme non diventa «solo una distinta» (direttiva 21 §5.2).
+    if tabellare:
+        segni = segni_di_disegno(testo_norm, testo_pdf)
+        if segni:
+            log.info("Riconosciuto disegno con tabella in %s (segni: %s; termini: %s)", nome_file, segni,
+                     tabellare["termini"])
+            return {
+                "tipo_proposto": "disegno_2d",
+                "codice": codice,
+                "rev": rev,
+                "confidenza": 80,
+                "fonte": "cartiglio",
+                "dettagli": {"cartiglio": True, "segni_disegno": segni, "evidenza_tabellare": tabellare,
+                             "testo_pdf": testo_pdf, "fonti": fonti_pdf("termini_pdf", codice, rev)},
+            }
+        log.info("Riconosciuta distinta cliente in %s (termini: %s)", nome_file, tabellare["termini"])
         return {
             "tipo_proposto": "distinta_cliente",
             "codice": "",
             "rev": "",
             "confidenza": 75,
             "fonte": "cartiglio",
-            "dettagli": {"distinta": True, "termini_trovati": trovati_dist, "testo_pdf": testo_pdf,
-                         "fonti": fonti_pdf("termini_pdf", "", "")},
+            "dettagli": {"distinta": True, "termini_trovati": tabellare["termini"], "evidenza_tabellare": tabellare,
+                         "testo_pdf": testo_pdf, "fonti": fonti_pdf("termini_pdf", "", "")},
         }
 
     # 5. Nessun contenuto riconosciuto. Il codice nel nome NON basta a dire che e' un disegno: e'
@@ -994,6 +1094,30 @@ def conta_righe_codice(testo: str) -> int:
         if RE_RIGA_DISTINTA.search(riga):
             n += 1
     return n
+
+
+def evidenza_tabellare(testo_completo: str, testo_pdf: dict) -> dict | None:
+    """L'evidenza di una distinta nel testo (GP-3): almeno due termini della distinta sul testo piegato, e almeno 5
+    righe che somigliano a una voce (codice e quantita') oppure RIGHE_TABELLA_DISTINTA righe di una tabella
+    riconosciuta. None se non c'e'. Dice che c'e' una tabella di componenti, non che cosa sia il documento."""
+    termini = termini_distinta(piega(testo_completo))
+    if len(termini) < 2:
+        return None
+    righe_codice = conta_righe_codice(testo_completo)
+    righe_tabella = sum(1 for t in testo_pdf.get("tabelle", []) for r in t["righe"] if not r["continuazione"])
+    if righe_codice < 5 and righe_tabella < RIGHE_TABELLA_DISTINTA:
+        return None
+    return {"termini": termini, "righe_codice": righe_codice, "righe_tabella": righe_tabella}
+
+
+def segni_di_disegno(testo_norm: str, testo_pdf: dict) -> list[str]:
+    """I segni di un disegno che i termini del cartiglio non vedono: la scala in un'altra lingua (parola intera, sul
+    testo piegato) e i campi del cartiglio della scala, del numero del disegno, del riferimento 3D."""
+    piegato = piega(testo_norm)
+    segni = [t for t in TERMINI_SEGNI_DISEGNO if re.search(r"(?<![A-Z0-9])" + t + r"(?![A-Z0-9])", piegato)]
+    segni += sorted({"campo:" + c["etichetta"] for c in testo_pdf.get("cartiglio", [])
+                     if c["etichetta"] in CAMPI_SEGNI_DISEGNO})
+    return segni
 
 
 def analizza_step(percorso: str, nome_file: str) -> dict:

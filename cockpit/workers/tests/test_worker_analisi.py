@@ -333,13 +333,16 @@ def test_pdf_porta_il_testo_per_frammenti(tmp_path):
     ne' il testo intero, e l'OCR non serviva. Il codice in testa resta quello del nome, e `fonti` lo dice.
 
     Riscritta per lo Smistamento (giro 4, fase 4.6): prima fissava la versione 1 del testo; adesso la sottoversione
-    del worker di oggi, la 2 (VERSIONE_TESTO_PDF), che il server riconosce (worker.VersioneTestoPDF)."""
+    del worker di oggi, la 2 (VERSIONE_TESTO_PDF), che il server riconosce (worker.VersioneTestoPDF).
+
+    Riscritta per GP-3 (direttiva 21): la sottoversione di oggi e' la 3 (tabelle e completezza); il cartiglio si
+    legge come nella 2."""
     p = pdf_con_cartiglio(tmp_path, "7120010_1.pdf")
     res = analizza_file(p, "7120010_1.pdf")
     assert res["tipo_proposto"] == "disegno_2d", res
     t = res["dettagli"]["testo_pdf"]
     ModelloTestoPDF.model_validate(t)  # la forma e' quella del contratto
-    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 2 and t["estraibile"] is True
+    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 3 and t["estraibile"] is True
     assert t["pagine"] == 1 and t["pagine_lette"] == 1 and t["troncato"] is False
     assert t["formato_pagina1"] == [842.0, 595.0]
     bd = frammenti(t, "basso_destra")
@@ -359,7 +362,10 @@ def test_pdf_porta_il_testo_per_frammenti(tmp_path):
                            "frammento_max": TESTO_PDF_FRAMMENTO_MAX, "caratteri_max": TESTO_PDF_CARATTERI_MAX,
                            "campi_max": TESTO_PDF_CAMPI_MAX, "ocr_soglia_pagina": OCR_SOGLIA_PAGINA,
                            "ocr_soglia_cartiglio": OCR_SOGLIA_CARTIGLIO, "ocr_pagine_max": OCR_PAGINE_MAX,
-                           "ocr_tempo_max_s": 60, "ocr_dpi": 300}
+                           "ocr_tempo_max_s": 60, "ocr_dpi": 300,
+                           # GP-3: i tetti delle tabelle viaggiano con il fatto
+                           "tabelle_pagine_max": worker_analisi.TABELLE_PAGINE_MAX, "tabelle_max": 20, "righe_max": 400,
+                           "cella_max": 200}
     # nessun codice nel fatto: ne' fra le chiavi del testo ne' fra quelle dei frammenti e dei campi
     assert not VIETATI_NEL_TESTO & set(t)
     assert all(set(f) == {"pagina", "zona", "fonte", "testo", "riquadro", "confidenza"} for f in t["frammenti"])
@@ -467,7 +473,7 @@ def test_etichetta_bilingue_da_il_valore(tmp_path):
     ])
     t = analizza_file(p, "bilingue.pdf")["dettagli"]["testo_pdf"]
     ModelloTestoPDF.model_validate(t)
-    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 2
+    assert t["versione"] == worker_analisi.VERSIONE_TESTO_PDF == 3  # riscritta per GP-3: era la 2
     titoli = campi_di(t, "titolo")
     assert ("titolo", "DENOMINAZIONE / NAME", "STAFFA ACME") in titoli, titoli
     assert ("titolo", "DENOMINAZIONE/NAME", "PIASTRA ACME") in titoli, titoli

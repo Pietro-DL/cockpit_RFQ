@@ -95,6 +95,11 @@ var tipiAnnidati = map[string]any{
 	"MetadatiPDF":         MetadatiPDF{},
 	"LimitiTestoPDF":      LimitiTestoPDF{},
 	"LimitiTestoDXF":      LimitiTestoDXF{},
+	"TabellaPDF":          TabellaPDF{},
+	"ColonnaTabella":      ColonnaTabella{},
+	"RigaTabella":         RigaTabella{},
+	"CellaTabella":        CellaTabella{},
+	"CompletezzaPDF":      CompletezzaPDF{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -729,10 +734,24 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 		OCRFallito, OCRScaduto, OCRIlleggibile)
 	vuole("etichette del cartiglio", enum(def("CampoCartiglio"), "etichetta"), CampoNumeroDisegno, CampoCodice,
 		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale, CampoParticolareSimile, CampoRiferimento3D)
-	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go
-	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 2 {
-		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d (la fase 4.6 porta la 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF)
+	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go. Riscritta per
+	// GP-3: la 3 porta le tabelle; il cartiglio resta quello della 2 (VersioneCartiglioPDF).
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 3 || VersioneCartiglioPDF != 2 {
+		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d/%d (GP-3 porta la 3, cartiglio della 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF, VersioneCartiglioPDF)
 	}
+	// GP-3: le tabelle e la completezza. Le voci chiuse (ruoli, verso, stato) sono quelle delle costanti Go, e le
+	// righe non portano codici: valori grezzi con le colonne.
+	controlla("TabellaPDF", def("TabellaPDF"), []string{"pagina", "indice", "verso", "riquadro_intestazione", "colonne", "righe"})
+	controlla("ColonnaTabella", def("ColonnaTabella"), []string{"indice", "intestazione", "ruolo", "omessa", "riquadro"})
+	controlla("RigaTabella", def("RigaTabella"), []string{"indice", "riquadro", "continuazione", "celle"})
+	controlla("CellaTabella", def("CellaTabella"), []string{"colonna", "intestazione", "ruolo", "valore", "riquadro", "omessa", "sorgente"})
+	controlla("CompletezzaPDF", def("CompletezzaPDF"), []string{"stato", "pagine", "pagine_lette", "pagine_senza_testo", "righe_troncate", "motivo"})
+	ruoli := []string{RuoloNessuno, RuoloPosizione, RuoloLivello, RuoloCodice, RuoloDescrizione, RuoloQuantita, RuoloUnita,
+		RuoloMateriale, RuoloRevisione, RuoloDocumento, RuoloNota}
+	vuole("ruolo di una colonna", enum(def("ColonnaTabella"), "ruolo"), ruoli...)
+	vuole("ruolo di una cella", enum(def("CellaTabella"), "ruolo"), ruoli...)
+	vuole("verso di una tabella", enum(def("TabellaPDF"), "verso"), VersoSotto, VersoSopra)
+	vuole("stato della completezza", enum(def("CompletezzaPDF"), "stato"), CompletezzaCompleta, CompletezzaParziale, CompletezzaNonLeggibile)
 	// lo stesso, dalla parte del Go: i campi sono quelli e non altri
 	for nome, campi := range map[string]int{"FrammentoPDF": 6, "CampoCartiglio": 8, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
@@ -812,8 +831,11 @@ func TestDecodificaTestoPDF(t *testing.T) {
 			{"etichetta": "titolo", "letta": "DENOMINAZIONE / NAME", "valore": "STAFFA ACME", "pagina": 1, "zona": "basso_destra", "fonte": "nativo"}],
 		"ocr": {"stato": "non_necessario"}}}`)
 	tp, ok = DecodificaTestoPDF(v2)
-	if !ok || tp.Versione != VersioneTestoPDF || len(tp.Cartiglio) != 3 {
-		t.Fatalf("il testo della sottoversione 2 non si decodifica: %v %+v", ok, tp)
+	if !ok || tp.Versione != VersioneCartiglioPDF || len(tp.Cartiglio) != 3 || CartiglioPDFDiPrima(tp) {
+		t.Fatalf("il testo della sottoversione 2 non si decodifica, o il suo cartiglio passa per «di prima»: %v %+v", ok, tp)
+	}
+	if tp.Tabelle != nil || tp.Completezza != nil {
+		t.Errorf("una 2 non ha tabelle ne' completezza, e non si inventano: %+v %+v", tp.Tabelle, tp.Completezza)
 	}
 	if c := tp.Cartiglio[1]; c.Etichetta != CampoParticolareSimile || c.Valore != "7120012" || c.Letta != "PARTICOLARE SIMILE / SIMILAR PART" ||
 		len(c.Riquadro) != 4 {
@@ -958,5 +980,55 @@ func TestDecodificaTestoDXF(t *testing.T) {
 				t.Error("un DXF senza il testo di oggi va rianalizzato")
 			}
 		})
+	}
+}
+
+// GP-3 (direttiva 21 §5.1-5.2). La sottoversione 3 porta le tabelle (righe con colonne, valori grezzi, riquadri) e la
+// completezza della lettura: con lo stato «parziale» il server dice «verifica incompleta», non «codice assente». Il
+// cartiglio di una 3 non e' di prima, e una 2 si riaccoda per le tabelle senza che il suo cartiglio lo diventi.
+func TestDecodificaTestoPDFV3Tabelle(t *testing.T) {
+	v3 := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": true, "pagine": 2, "pagine_lette": 2, "caratteri": 900,
+		"tabelle": [{"pagina": 1, "indice": 1, "verso": "sotto", "riquadro_intestazione": [48, 470, 553, 482],
+			"colonne": [{"indice": 0, "intestazione": "Item", "ruolo": "posizione", "omessa": false, "riquadro": [48, 470, 64, 482]},
+			            {"indice": 1, "intestazione": "Material", "ruolo": "materiale", "riquadro": [91, 470, 119, 482]},
+			            {"indice": 2, "intestazione": "Qty", "ruolo": "quantita", "riquadro": [318, 470, 341, 482]}],
+			"righe": [{"indice": 1, "riquadro": [48, 505, 374, 517], "continuazione": false, "celle": [
+				{"colonna": 0, "intestazione": "Item", "ruolo": "posizione", "valore": "0010", "riquadro": [48, 505, 72, 517]},
+				{"colonna": 1, "intestazione": "Material", "ruolo": "materiale", "valore": "ACME1001", "riquadro": [91, 505, 145, 517]},
+				{"colonna": 2, "intestazione": "Qty", "ruolo": "quantita", "valore": "200 PC", "riquadro": [338, 505, 374, 517], "campo_del_futuro": 1}]},
+			          {"indice": 2, "riquadro": [147, 517, 177, 529], "continuazione": true, "celle": [
+				{"colonna": 1, "intestazione": "Material", "ruolo": "materiale", "valore": "LOS 40", "sorgente": []}]}]}],
+		"completezza": {"stato": "parziale", "pagine": 40, "pagine_lette": 30, "pagine_senza_testo": 0, "righe_troncate": false,
+			"motivo": "lette 30 pagine su 40 (tetto 30)"},
+		"limiti": {"tabelle_pagine_max": 30, "tabelle_max": 20, "righe_max": 400, "cella_max": 200}}}`)
+	tp, ok := DecodificaTestoPDF(v3)
+	if !ok || tp.Versione != VersioneTestoPDF || CartiglioPDFDiPrima(tp) {
+		t.Fatalf("la 3 non si decodifica: %v %+v", ok, tp)
+	}
+	if len(tp.Tabelle) != 1 || tp.Tabelle[0].Verso != VersoSotto || len(tp.Tabelle[0].Colonne) != 3 || len(tp.Tabelle[0].Righe) != 2 {
+		t.Fatalf("tabella letta male: %+v", tp.Tabelle)
+	}
+	r := tp.Tabelle[0].Righe
+	if r[0].Continuazione || len(r[0].Celle) != 3 || r[0].Celle[1].Valore != "ACME1001" || r[0].Celle[2].Ruolo != RuoloQuantita ||
+		r[0].Celle[2].Valore != "200 PC" || !reflect.DeepEqual(r[0].Celle[0].Riquadro, []float64{48, 505, 72, 517}) {
+		t.Errorf("riga letta male: %+v", r[0])
+	}
+	if !r[1].Continuazione || r[1].Celle[0].Valore != "LOS 40" {
+		t.Errorf("la continuazione e' una riga a se', segnata: %+v", r[1])
+	}
+	if tp.Completezza == nil || tp.Completezza.Stato != CompletezzaParziale || tp.Completezza.Pagine != 40 || tp.Completezza.PagineLette != 30 {
+		t.Errorf("completezza letta male: %+v", tp.Completezza)
+	}
+	if tp.Limiti.TabellePagineMax != 30 || tp.Limiti.RigheMax != 400 || tp.Limiti.CellaMax != 200 || tp.Limiti.TabelleMax != 20 {
+		t.Errorf("i tetti delle tabelle non sono arrivati con il fatto: %+v", tp.Limiti)
+	}
+	// la soglia del cartiglio: una 1 e' di prima, una 2 e una 3 no
+	for v, diPrima := range map[int]bool{1: true, 2: false, 3: false} {
+		if CartiglioPDFDiPrima(&TestoPDF{Versione: v}) != diPrima {
+			t.Errorf("sottoversione %d: cartiglio di prima = %v, atteso %v", v, !diPrima, diPrima)
+		}
+	}
+	if CartiglioPDFDiPrima(nil) {
+		t.Error("un testo che non c'e' non ha un cartiglio di prima")
 	}
 }

@@ -660,7 +660,24 @@ const (
 // dell'analizzatore non cambia (domanda 21 del giro 4 senza risposta), e cosi' non decade niente di quello che e'
 // legato alla chiave dei fatti. La fase 4.12 (l'elenco particolari) usera' la stessa sottoversione: un solo
 // pacchetto della postazione, una sola rianalisi.
-const VersioneTestoPDF = 2
+//
+// La 3 (GP-3, direttiva 21 §5.1-5.2) aggiunge le tabelle (TabellaPDF: righe con colonne, valori grezzi e riquadri,
+// da qualunque PDF con testo nativo e un'intestazione riconoscibile) e la loro completezza (CompletezzaPDF), e il
+// worker confronta i termini della distinta senza dieresi. Il cartiglio si legge come nella 2: per questo la soglia
+// del cartiglio «di prima» e' VersioneCartiglioPDF, non questa. «Rianalizza» riaccoda i PDF della 2 per le tabelle
+// (classificazione.TestoPDFDaRileggere), senza declassarne il cartiglio.
+const VersioneTestoPDF = 3
+
+// VersioneCartiglioPDF e' la sottoversione piu' vecchia il cui cartiglio si legge come quello di oggi (fase 4.6: la
+// 2). Un testo con una sottoversione minore ha il cartiglio «di prima» (classificazione.testoDiPrima,
+// estrazione.contenutoPDF): chiavi e indizi, mai il codice del file. Si separa da VersioneTestoPDF dalla 3, che
+// aggiunge le tabelle e non cambia il cartiglio.
+const VersioneCartiglioPDF = 2
+
+// CartiglioPDFDiPrima dice se il cartiglio di questo testo e' stato letto con le regole di prima della fase 4.6.
+func CartiglioPDFDiPrima(t *TestoPDF) bool {
+	return t != nil && t.Versione < VersioneCartiglioPDF
+}
 
 // TestoPDF è la lettura strutturata del testo di un PDF, dentro `RisultatoAnalisi.dettagli["testo_pdf"]`
 // dall'analizzatore 4 (addendum A5.13.8, decisioni del 27/09 «ter»).
@@ -687,6 +704,95 @@ type TestoPDF struct {
 	Metadati       MetadatiPDF      `json:"metadati"`
 	OCR            OCRPDF           `json:"ocr"`
 	Limiti         LimitiTestoPDF   `json:"limiti"`
+	// Dalla sottoversione 3 (GP-3): le tabelle e la completezza della loro lettura. In un testo della 2 mancano:
+	// Tabelle e' nil e Completezza e' nil, e nil non vuol dire «nessuna tabella» ne' «letto tutto».
+	Tabelle     []TabellaPDF    `json:"tabelle"`
+	Completezza *CompletezzaPDF `json:"completezza"`
+}
+
+// I ruoli tipici di una colonna (ColonnaTabella.Ruolo, CellaTabella.Ruolo; workers/colonne.py): un aiuto di lettura,
+// non un'interpretazione. RuoloNessuno = nessun ruolo riconosciuto, l'intestazione resta.
+const (
+	RuoloNessuno     = ""
+	RuoloPosizione   = "posizione"
+	RuoloLivello     = "livello"
+	RuoloCodice      = "codice"
+	RuoloDescrizione = "descrizione"
+	RuoloQuantita    = "quantita"
+	RuoloUnita       = "unita"
+	RuoloMateriale   = "materiale"
+	RuoloRevisione   = "revisione"
+	RuoloDocumento   = "documento"
+	RuoloNota        = "nota"
+)
+
+// Dove stanno le righe di una tabella rispetto all'intestazione (TabellaPDF.Verso).
+const (
+	VersoSotto = "sotto"
+	VersoSopra = "sopra"
+)
+
+// Gli stati della completezza delle tabelle di un PDF (CompletezzaPDF.Stato).
+const (
+	CompletezzaCompleta     = "completa"      // tutte le pagine lette, tutte con testo nativo, nessun tetto
+	CompletezzaParziale     = "parziale"      // pagine oltre il tetto o senza testo nativo, righe troncate (Motivo)
+	CompletezzaNonLeggibile = "non_leggibile" // nessun testo nativo nelle pagine lette
+)
+
+// TabellaPDF e' una tabella riconosciuta dalla sua intestazione su una pagina (workers/tabelle_testo.py). Il worker
+// estrae le righe e non dice che cosa siano: prodotti richiesti, componenti o menzioni lo decide il server con il
+// profilo del cliente (PM-35R). Riquadri in punti sulla pagina vista, come i frammenti.
+type TabellaPDF struct {
+	Pagina int `json:"pagina"`
+	Indice int `json:"indice"`
+	// Verso: le righe stanno sotto l'intestazione (VersoSotto: un modulo, una distinta) o sopra (VersoSopra: l'elenco
+	// particolari di un disegno, con l'intestazione appoggiata al cartiglio); numerate dall'intestazione in fuori.
+	Verso                string           `json:"verso"`
+	RiquadroIntestazione []float64        `json:"riquadro_intestazione"`
+	Colonne              []ColonnaTabella `json:"colonne"`
+	Righe                []RigaTabella    `json:"righe"`
+}
+
+// ColonnaTabella: l'intestazione com'e' scritta, il ruolo tipico, il riquadro. Omessa: una colonna personale
+// (disegnato, controllato, firma): i suoi valori non viaggiano.
+type ColonnaTabella struct {
+	Indice       int       `json:"indice"`
+	Intestazione string    `json:"intestazione"`
+	Ruolo        string    `json:"ruolo"`
+	Omessa       bool      `json:"omessa"`
+	Riquadro     []float64 `json:"riquadro"`
+}
+
+// RigaTabella: una riga di dati. Continuazione: senza la cella della posizione (o del codice, se manca la colonna
+// della posizione), di solito il seguito della riga sopra; mai fusa dal worker.
+type RigaTabella struct {
+	Indice        int            `json:"indice"`
+	Riquadro      []float64      `json:"riquadro"`
+	Continuazione bool           `json:"continuazione"`
+	Celle         []CellaTabella `json:"celle"`
+}
+
+// CellaTabella: il valore grezzo di una colonna in una riga, con il riquadro. Sorgente: gli offset delle entita' nel
+// file (righe d'elenco dei DWG); vuota per i PDF.
+type CellaTabella struct {
+	Colonna      int       `json:"colonna"`
+	Intestazione string    `json:"intestazione"`
+	Ruolo        string    `json:"ruolo"`
+	Valore       string    `json:"valore"`
+	Riquadro     []float64 `json:"riquadro"`
+	Omessa       bool      `json:"omessa"`
+	Sorgente     []int64   `json:"sorgente"`
+}
+
+// CompletezzaPDF dice fin dove le tabelle coprono il documento: con Stato diverso da CompletezzaCompleta il server dice
+// «verifica incompleta», non «codice assente» (direttiva 21 §5.2).
+type CompletezzaPDF struct {
+	Stato            string `json:"stato"`
+	Pagine           int    `json:"pagine"`
+	PagineLette      int    `json:"pagine_lette"`
+	PagineSenzaTesto int    `json:"pagine_senza_testo"`
+	RigheTroncate    bool   `json:"righe_troncate"`
+	Motivo           string `json:"motivo"`
 }
 
 // FrammentoPDF è un pezzo di testo con il suo posto: un blocco del file (o dell'OCR) dentro una zona. La
@@ -758,6 +864,11 @@ type LimitiTestoPDF struct {
 	OCRPagineMax       int `json:"ocr_pagine_max"`
 	OCRTempoMaxS       int `json:"ocr_tempo_max_s"`
 	OCRDpi             int `json:"ocr_dpi"`
+	// dalla sottoversione 3: i tetti delle tabelle
+	TabellePagineMax int `json:"tabelle_pagine_max"`
+	TabelleMax       int `json:"tabelle_max"`
+	RigheMax         int `json:"righe_max"`
+	CellaMax         int `json:"cella_max"`
 }
 
 // DecodificaTestoPDF estrae la lettura del testo dai dettagli di un'analisi.

@@ -288,8 +288,10 @@ func TestLaSottoversioneVecchiaSiRilegge(t *testing.T) {
 	testo := func(versione int, estraibile bool) json.RawMessage {
 		return json.RawMessage(fmt.Sprintf(`{"testo_pdf": {"versione": %d, "estraibile": %v, "frammenti": []}}`, versione, estraibile))
 	}
-	if worker.VersioneTestoPDF != 2 {
-		t.Errorf("la sottoversione del testo della fase 4.6 e' la 2: %d", worker.VersioneTestoPDF)
+	// Riscritta per GP-3 (direttiva 21): la sottoversione di oggi e' la 3 (le tabelle); il cartiglio e' quello della 2
+	// (worker.VersioneCartiglioPDF). Una 2 si rilegge per le tabelle, e il suo cartiglio non e' di prima.
+	if worker.VersioneTestoPDF != 3 || worker.VersioneCartiglioPDF != 2 {
+		t.Errorf("GP-3: testo 3, cartiglio 2: %d, %d", worker.VersioneTestoPDF, worker.VersioneCartiglioPDF)
 	}
 	casi := []struct {
 		nome    string
@@ -299,6 +301,7 @@ func TestLaSottoversioneVecchiaSiRilegge(t *testing.T) {
 	}{
 		{"sottoversione 1, letto", testo(1, true), TestoLetto, true},
 		{"sottoversione 1, senza testo", testo(1, false), TestoAssente, true},
+		{"sottoversione 2 (cartiglio di oggi, senza tabelle)", testo(2, true), TestoLetto, true},
 		{"sottoversione di oggi", testo(worker.VersioneTestoPDF, true), TestoLetto, false},
 		{"sottoversione di oggi, senza testo", testo(worker.VersioneTestoPDF, false), TestoAssente, false},
 		{"una sottoversione piu' nuova", testo(worker.VersioneTestoPDF+1, true), TestoLetto, false},
@@ -312,6 +315,10 @@ func TestLaSottoversioneVecchiaSiRilegge(t *testing.T) {
 		if r := TestoPDFDaRileggere(c.fatti); r != c.rileggi {
 			t.Errorf("%s: da rileggere %v, atteso %v", c.nome, r, c.rileggi)
 		}
+	}
+	// il cartiglio della 2 non e' di prima: la lettura non lo declassa (LetturaTesto.DaRileggere falso)
+	if testoDiPrima(&worker.TestoPDF{Versione: 2}) || !testoDiPrima(&worker.TestoPDF{Versione: 1}) {
+		t.Error("la soglia del cartiglio di prima e' la 2 (worker.VersioneCartiglioPDF)")
 	}
 }
 

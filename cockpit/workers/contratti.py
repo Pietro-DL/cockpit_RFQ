@@ -536,6 +536,77 @@ class LimitiTestoPDF(Base):
     ocr_pagine_max: int = 0         # pagine intere lette con l'OCR al massimo
     ocr_tempo_max_s: int = 0        # secondi di OCR al massimo, per file
     ocr_dpi: int = 0                # risoluzione dell'immagine data al motore
+    # dalla sottoversione 3 (GP-3): i tetti delle tabelle
+    tabelle_pagine_max: int = 0     # pagine in cui si cercano le tabelle al massimo
+    tabelle_max: int = 0            # tabelle nel fatto
+    righe_max: int = 0              # righe di dati di tutte le tabelle insieme
+    cella_max: int = 0              # caratteri del valore di una cella
+
+
+# Il ruolo tipico di una colonna (workers/colonne.py): un aiuto di lettura, non un'interpretazione. "" = nessuno.
+RuoloColonna = Literal["", "posizione", "livello", "codice", "descrizione", "quantita", "unita", "materiale", "revisione",
+                       "documento", "nota"]
+
+
+class ColonnaTabella(Base):
+    """Una colonna di una tabella: l'intestazione com'e' scritta, il suo ruolo tipico e il riquadro dell'intestazione.
+    `omessa`: una colonna personale (chi ha disegnato, controllato, firmato): i suoi valori non viaggiano."""
+    indice: int
+    intestazione: str = ""
+    ruolo: RuoloColonna = ""
+    omessa: bool = False
+    riquadro: list[float] = Field(default_factory=list)
+
+
+class CellaTabella(Base):
+    """Una cella di una riga: la colonna (indice, intestazione, ruolo ripetuti per chi legge la riga da sola), il valore
+    GREZZO (le parole della cella, da sinistra a destra) e il riquadro. `sorgente`: gli offset delle entita' nel file da
+    cui viene il valore (righe d'elenco dei DWG); vuoto per i PDF, dove vale il riquadro."""
+    colonna: int
+    intestazione: str = ""
+    ruolo: RuoloColonna = ""
+    valore: str = ""
+    riquadro: list[float] = Field(default_factory=list)
+    omessa: bool = False
+    sorgente: list[int] = Field(default_factory=list)
+
+
+class RigaTabella(Base):
+    """Una riga di dati, in ordine dall'intestazione in fuori. `continuazione`: la riga non ha la cella della posizione
+    (o, se la tabella non ha la colonna della posizione, quella del codice), o ce l'ha senza nessuna cifra: di solito
+    prosegue la riga prima (una descrizione su due righe). Si riporta com'e', mai fusa."""
+    indice: int
+    riquadro: list[float] = Field(default_factory=list)
+    continuazione: bool = False
+    celle: list[CellaTabella] = Field(default_factory=list)
+
+
+class TabellaPDF(Base):
+    """Una tabella riconosciuta dalla sua intestazione (workers/tabelle_testo.py), su una pagina. Il worker ESTRAE le
+    righe e non dice che cosa siano (prodotti richiesti, componenti, menzioni): lo decide il server (PM-35R).
+    `verso`: dove stanno le righe rispetto all'intestazione (`sotto` in un modulo o in una distinta, `sopra`
+    nell'elenco particolari di un disegno, con l'intestazione appoggiata al cartiglio); le righe sono numerate
+    dall'intestazione in fuori."""
+    pagina: int
+    indice: int
+    verso: Literal["sotto", "sopra"] = "sotto"
+    riquadro_intestazione: list[float] = Field(default_factory=list)
+    colonne: list[ColonnaTabella] = Field(default_factory=list)
+    righe: list[RigaTabella] = Field(default_factory=list)
+
+
+class CompletezzaPDF(Base):
+    """Fin dove la lettura delle tabelle copre il documento, perche' il server possa dire «verifica incompleta» e non
+    «codice assente» (direttiva 21 §5.2). `stato`: `completa` (tutte le pagine lette, tutte con testo nativo, nessun
+    tetto raggiunto), `parziale` (pagine oltre il tetto, pagine senza testo nativo, righe o celle troncate: `motivo`),
+    `non_leggibile` (nessun testo nativo nelle pagine lette). `pagine_senza_testo` conta le pagine lette con meno di
+    `ocr_soglia_pagina` caratteri nativi: li' una tabella non si vede."""
+    stato: Literal["completa", "parziale", "non_leggibile"] = "non_leggibile"
+    pagine: int = 0
+    pagine_lette: int = 0
+    pagine_senza_testo: int = 0
+    righe_troncate: bool = False
+    motivo: str = ""
 
 
 class TestoPDF(Base):
@@ -552,8 +623,11 @@ class TestoPDF(Base):
     `pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]
     della pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la
     sottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette
-    bilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6)."""
-    versione: int = 2
+    bilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6). La 3
+    (GP-3, direttiva 21) aggiunge le `tabelle` (righe con le colonne e i riquadri, cercate fino a
+    `limiti.tabelle_pagine_max` pagine) e la `completezza` di quella lettura; il cartiglio si legge come nella 2, e i
+    termini della distinta si confrontano senza dieresi (QUANTITY, MENGE, POSITION, STÜCKLISTE)."""
+    versione: int = 3
     estraibile: bool = False
     pagine: int = 0
     pagine_lette: int = 0
@@ -565,6 +639,8 @@ class TestoPDF(Base):
     metadati: MetadatiPDF = Field(default_factory=MetadatiPDF)
     ocr: OCRPDF = Field(default_factory=OCRPDF)
     limiti: LimitiTestoPDF = Field(default_factory=LimitiTestoPDF)
+    tabelle: list[TabellaPDF] = Field(default_factory=list)
+    completezza: CompletezzaPDF = Field(default_factory=CompletezzaPDF)
 
 
 # ---------------------------------------------------------------- testo dei DXF (K4)
