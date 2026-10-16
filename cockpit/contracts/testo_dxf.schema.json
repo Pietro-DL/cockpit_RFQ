@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "AmbiguoOCR": {
+      "description": "Un carattere di un testo letto con l'OCR che appartiene a una classe di caratteri facili da scambiare (0/O/o,\n1/I/l, 5/S, 8/B, 2/Z): la posizione nel testo, il carattere letto e le alternative. Segnalato, MAI corretto.",
+      "properties": {
+        "posizione": {
+          "title": "Posizione",
+          "type": "integer"
+        },
+        "letto": {
+          "title": "Letto",
+          "type": "string"
+        },
+        "alternative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternative",
+          "type": "array"
+        }
+      },
+      "required": [
+        "posizione",
+        "letto"
+      ],
+      "title": "AmbiguoOCR",
+      "type": "object"
+    },
     "CampoCartiglio": {
       "description": "Un campo del probabile cartiglio della pagina 1, come etichetta -> valore: «DISEGNO N.» -> «7120010».\n\n`etichetta` e' la voce riconosciuta fra le etichette tipiche di un cartiglio (numero del disegno, codice,\nrevisione, titolo, scala, materiale e, dalla sottoversione 2, il particolare simile), `letta` e' com'e'\nscritta nel file (con la gemella inglese dopo la barra: «DENOMINAZIONE / NAME»), `valore` e' il testo GREZZO\nche le sta accanto (a destra sulla stessa riga, o nella riga sotto): nessuna regola di codice del cliente,\nche resta al server (per il particolare simile: una nota, mai il codice del file). `riquadro` e' quello del\nvalore; `zona` e' quella dell'etichetta.\n\nK4: lo stesso campo porta il cartiglio di un DXF (TestoDXF), e c'e' la voce `riferimento_3d`: «ref.3D doc. /\nRef.3D Dok.», il documento 3D della stessa parte (un dato del cartiglio, mai il codice del file). Nel testo dei\nPDF la voce si riconosce senza cambiare la sottoversione.",
       "properties": {
@@ -68,6 +94,13 @@
           ],
           "default": null,
           "title": "Confidenza"
+        },
+        "ambigui": {
+          "items": {
+            "$ref": "#/$defs/AmbiguoOCR"
+          },
+          "title": "Ambigui",
+          "type": "array"
         }
       },
       "required": [
@@ -98,16 +131,26 @@
           "default": 0,
           "title": "Campi Max",
           "type": "integer"
+        },
+        "profondita_max": {
+          "default": 0,
+          "title": "Profondita Max",
+          "type": "integer"
+        },
+        "inserti_max": {
+          "default": 0,
+          "title": "Inserti Max",
+          "type": "integer"
         }
       },
       "title": "LimitiTestoDXF",
       "type": "object"
     }
   },
-  "description": "Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli[\"testo_dxf\"]` (K4).\n\n`esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un\nfile che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si\nsono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto\naltrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,\n`annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'\nvero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del\ncartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,\ncon la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di\nquesto oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il\nserver lo rianalizza con «Rianalizza».",
+  "description": "Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli[\"testo_dxf\"]` (K4).\n\n`esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un\nfile che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si\nsono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto\naltrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,\n`annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'\nvero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del\ncartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,\ncon la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di\nquesto oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il\nserver lo rianalizza con «Rianalizza».\n\nLa 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente (trasformazione composta, profondita'\nmassima, guardia sui cicli, budget) e gli INSERT ruotati (la regola del cartiglio nel sistema del blocco).\n`annidati` sono gli INSERT dentro un blocco NON seguiti; `annidati_seguiti` quelli seguiti; `oltre_profondita` e\n`cicli` perche' non si sono seguiti; `specchiati` i testi dei blocchi specchiati (non usati per il cartiglio).\n`parziale` e' vero quando qualcosa non e' stato letto (anche un tetto, `troncato`), con i motivi in `motivo`.",
   "properties": {
     "versione": {
-      "default": 1,
+      "default": 2,
       "title": "Versione",
       "type": "integer"
     },
@@ -159,6 +202,31 @@
     },
     "limiti": {
       "$ref": "#/$defs/LimitiTestoDXF"
+    },
+    "annidati_seguiti": {
+      "default": 0,
+      "title": "Annidati Seguiti",
+      "type": "integer"
+    },
+    "oltre_profondita": {
+      "default": 0,
+      "title": "Oltre Profondita",
+      "type": "integer"
+    },
+    "cicli": {
+      "default": 0,
+      "title": "Cicli",
+      "type": "integer"
+    },
+    "specchiati": {
+      "default": 0,
+      "title": "Specchiati",
+      "type": "integer"
+    },
+    "parziale": {
+      "default": false,
+      "title": "Parziale",
+      "type": "boolean"
     }
   },
   "title": "TestoDXF",

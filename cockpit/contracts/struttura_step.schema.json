@@ -1,5 +1,66 @@
 {
   "$defs": {
+    "GeometriaSTEP": {
+      "description": "Il riassunto della geometria di un nodo (struttura v4), DIAGNOSTICA e mai motivo di rimozione: quanti solidi\n(MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve\n(GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua\nforma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante\nse ne sono raggiunte; `vuota` quando non c'e' nessun elemento geometrico (solo posizionamenti, o nessuna\nrappresentazione). Un nodo vuoto con dei figli e' un contenitore CAD: resta un nodo.",
+      "properties": {
+        "solidi": {
+          "default": 0,
+          "title": "Solidi",
+          "type": "integer"
+        },
+        "superfici": {
+          "default": 0,
+          "title": "Superfici",
+          "type": "integer"
+        },
+        "curve": {
+          "default": 0,
+          "title": "Curve",
+          "type": "integer"
+        },
+        "mappati": {
+          "default": 0,
+          "title": "Mappati",
+          "type": "integer"
+        },
+        "rappresentazioni": {
+          "default": 0,
+          "title": "Rappresentazioni",
+          "type": "integer"
+        },
+        "vuota": {
+          "default": true,
+          "title": "Vuota",
+          "type": "boolean"
+        }
+      },
+      "title": "GeometriaSTEP",
+      "type": "object"
+    },
+    "IstanzaSTEP": {
+      "description": "Un'occorrenza NAUO di una relazione: il riferimento, l'id e il nome d'istanza (grezzi).",
+      "properties": {
+        "rif": {
+          "title": "Rif",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "title": "Id",
+          "type": "string"
+        },
+        "nome": {
+          "default": "",
+          "title": "Nome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rif"
+      ],
+      "title": "IstanzaSTEP",
+      "type": "object"
+    },
     "LimitiSTEP": {
       "description": "Fin dove si e' letto, e contro quale tetto ci si e' fermati.\n\nI tetti viaggiano insieme al risultato: un albero parziale va spiegato con il limite che era in\nvigore QUANDO e' stato letto, non con quello che si trova oggi nella configurazione.",
       "properties": {
@@ -43,7 +104,7 @@
       "type": "object"
     },
     "NodoSTEP": {
-      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).",
+      "description": "Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.\n\nNiente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente\ndella richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).\nv4: `geometria`, il riassunto della geometria (diagnostica); None in una struttura di prima.",
       "properties": {
         "chiave": {
           "title": "Chiave",
@@ -72,6 +133,17 @@
           "additionalProperties": true,
           "title": "Evidenza",
           "type": "object"
+        },
+        "geometria": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeometriaSTEP"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -82,7 +154,7 @@
       "type": "object"
     },
     "RelazioneSTEP": {
-      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1).",
+      "description": "«Il nodo padre contiene il nodo figlio, qta volte.»\n\nE' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due\nnodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui\npadre e figlio non possono stare sulla riga del nodo (A1.1). v4: `istanze`, le prime occorrenze con il\nloro id e nome d'istanza (al piu' 20, come le righe dell'evidenza).",
       "properties": {
         "padre": {
           "title": "Padre",
@@ -101,6 +173,13 @@
           "additionalProperties": true,
           "title": "Evidenza",
           "type": "object"
+        },
+        "istanze": {
+          "items": {
+            "$ref": "#/$defs/IstanzaSTEP"
+          },
+          "title": "Istanze",
+          "type": "array"
         }
       },
       "required": [
@@ -138,10 +217,10 @@
       "type": "object"
     }
   },
-  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'.",
+  "description": "Il grafo letto da un file STEP, dentro `RisultatoAnalisi.dettagli[\"struttura\"]`.\n\n`versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici\nnei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere\n`nodi[].codice` mai piu'. La 4 (GP-3, direttiva 21 §5.3) aggiunge la geometria per nodo, i nomi d'istanza\ndelle NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto,\nnessuna occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti\nsenza definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie.",
   "properties": {
     "versione": {
-      "default": 3,
+      "default": 4,
       "title": "Versione",
       "type": "integer"
     },
@@ -183,6 +262,22 @@
     },
     "limiti": {
       "$ref": "#/$defs/LimitiSTEP"
+    },
+    "stato": {
+      "default": "non_estraibile",
+      "enum": [
+        "valida",
+        "parziale",
+        "assente",
+        "non_estraibile"
+      ],
+      "title": "Stato",
+      "type": "string"
+    },
+    "motivo_stato": {
+      "default": "",
+      "title": "Motivo Stato",
+      "type": "string"
     }
   },
   "title": "StrutturaSTEP",

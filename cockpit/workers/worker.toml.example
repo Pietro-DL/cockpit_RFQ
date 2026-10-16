@@ -134,6 +134,9 @@ consenti_invio = false
 # ocr_lingua   = "ita+eng"      # le lingue di Tesseract (devono esserci in tessdata)
 # ocr_dpi      = 300            # risoluzione dell'immagine data a Tesseract
 # ocr_tessdata = ''             # cartella tessdata, se Tesseract non la trova da solo (o TESSDATA_PREFIX)
+# ocr_tesseract = ''            # GP-3: tesseract.exe da riga di comando (confidenza per parola); se vuoto, PATH o
+#                               # l'installazione predefinita; serve con TUTTE le lingue di ocr_lingua, altrimenti si
+#                               # prova l'OCR di PyMuPDF (senza confidenza), e se manca anche quello «non disponibile»
 #
 # Con il pacchetto della pagina Postazioni queste righe NON si scrivono qui: il pacchetto riscrive il
 # worker.toml da zero e le perderebbe. Si dichiarano sul server, nella [[postazione]] di questo PC nel
@@ -141,4 +144,6 @@ consenti_invio = false
 #
 # Nota: i fatti si conservano per contenuto, versione e configurazione del SERVER. Un PDF analizzato da un
 # worker senza Tesseract resta con «OCR non disponibile» anche dopo aver installato Tesseract, finche' non
-# cambia la versione dell'analizzatore: installarlo vale per i PDF che arrivano dopo.
+# cambia la versione dell'analizzatore: installarlo vale per i PDF che arrivano dopo. GP-3: il server sa
+# riconoscere quei PDF (worker.TestoPDFAttendeOCR); rileggerli quando la postazione ha l'OCR e' un gesto del
+# server, non di questo file.

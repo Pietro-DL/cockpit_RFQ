@@ -33,7 +33,13 @@ import time
 
 log = logging.getLogger("worker-analisi")
 
-VERSIONE_STRUTTURA = 3
+# Versione 4 (GP-3, direttiva 21 §5.3): DIAGNOSTICA, mai rimozioni. Per nodo il riassunto della geometria raggiunta
+# dalle sue rappresentazioni (solidi, superfici, curve, elementi mappati, rappresentazioni: `vuota` quando non c'e'
+# niente oltre ai riferimenti di posizionamento); per relazione i nomi d'istanza delle NAUO (id e nome); per il file lo
+# `stato` della struttura: `non_estraibile` (non e' Part 21, lettura fallita), `assente` (letto, nessuna occorrenza
+# d'assieme: NON vuol dire «pezzo unico»), `parziale` (un tetto, occorrenze non risolte, prodotti senza definizione),
+# `valida`. Un nodo senza solido resta un nodo: un contenitore CAD puo' rappresentare un sottoassieme.
+VERSIONE_STRUTTURA = 4
 
 # Limiti: un file enorme non deve ne' far fallire il job ne' tenere il worker mezz'ora. Ciò che si è
 # letto vale, il resto si dichiara troncato (§5.4 del piano).
@@ -61,7 +67,11 @@ MAX_TESTO = 200
 
 # Filtro veloce sulle righe: se una riga non contiene nessuno di questi pezzi di testo non puo'
 # contenere niente che serva, e non viene nemmeno ricomposta. In uno STEP vero salta il 99,9% del file.
-ENTITA_UTILI = ("PRODUCT", "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "FILE_SCHEMA")
+ENTITA_UTILI = ("PRODUCT", "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "FILE_SCHEMA",
+                # v4: la geometria per nodo, solo i nomi delle entita' che la riassumono
+                "SHAPE_REPRESENTATION", "SHAPE_DEFINITION_REPRESENTATION", "REPRESENTATION_RELATIONSHIP",
+                "MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS", "FACETED_BREP", "SURFACE_MODEL", "GEOMETRIC_CURVE_SET",
+                "GEOMETRIC_SET", "MAPPED_ITEM")
 
 # Le entita' che servono davvero, con i sottotipi che gli esportatori usano al loro posto. Sono nomi
 # ESATTI e non prefissi: `PRODUCT_DEFINITION_SHAPE` comincia per PRODUCT_DEFINITION ma il suo terzo
@@ -74,7 +84,43 @@ ENTITA = {
     "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE": "PRODUCT_DEFINITION_FORMATION",
     "NEXT_ASSEMBLY_USAGE_OCCURRENCE": "NEXT_ASSEMBLY_USAGE_OCCURRENCE",
     "FILE_SCHEMA": "FILE_SCHEMA",
+    # v4: la catena prodotto -> forma -> rappresentazione -> elementi geometrici
+    "PRODUCT_DEFINITION_SHAPE": "PRODUCT_DEFINITION_SHAPE",
+    "SHAPE_DEFINITION_REPRESENTATION": "SHAPE_DEFINITION_REPRESENTATION",
+    "SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "ADVANCED_BREP_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "MANIFOLD_SURFACE_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "FACETED_BREP_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "EDGE_BASED_WIREFRAME_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "SHELL_BASED_WIREFRAME_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "TESSELLATED_SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
+    "SHAPE_REPRESENTATION_RELATIONSHIP": "REPRESENTATION_RELATIONSHIP",
+    "REPRESENTATION_RELATIONSHIP": "REPRESENTATION_RELATIONSHIP",
+    "MANIFOLD_SOLID_BREP": "GEOMETRIA",
+    "BREP_WITH_VOIDS": "GEOMETRIA",
+    "FACETED_BREP": "GEOMETRIA",
+    "SHELL_BASED_SURFACE_MODEL": "GEOMETRIA",
+    "FACE_BASED_SURFACE_MODEL": "GEOMETRIA",
+    "GEOMETRIC_CURVE_SET": "GEOMETRIA",
+    "GEOMETRIC_SET": "GEOMETRIA",
+    "MAPPED_ITEM": "GEOMETRIA",
 }
+
+# Il genere di un elemento geometrico, per il riassunto per nodo (v4).
+GENERE_GEOMETRIA = {
+    "MANIFOLD_SOLID_BREP": "solidi", "BREP_WITH_VOIDS": "solidi", "FACETED_BREP": "solidi",
+    "SHELL_BASED_SURFACE_MODEL": "superfici", "FACE_BASED_SURFACE_MODEL": "superfici",
+    "GEOMETRIC_CURVE_SET": "curve", "GEOMETRIC_SET": "curve",
+    "MAPPED_ITEM": "mappati",
+}
+# Quante relazioni fra rappresentazioni (senza trasformazione) si seguono da quella di un prodotto.
+SALTI_RAPPRESENTAZIONE = 4
+ISTANZE_MAX = 20  # nomi d'istanza conservati per relazione, come le righe NAUO
+
+# Gli stati della struttura (v4).
+STATO_VALIDA, STATO_PARZIALE, STATO_ASSENTE, STATO_NON_ESTRAIBILE = "valida", "parziale", "assente", "non_estraibile"
 
 # Nomi convenzionali dei protocolli applicativi: FILE_SCHEMA porta il nome lungo, la schermata mostra
 # quello corto. Se non e' fra questi si conserva il nome lungo, che e' comunque un fatto.
@@ -141,15 +187,40 @@ def leggi_struttura(percorso: str, limiti: dict | None = None) -> dict:
             "motivo": "",
         },
     }
+    s["stato"] = STATO_NON_ESTRAIBILE
+    s["motivo_stato"] = ""
     inizio = time.monotonic()
     try:
-        return _leggi(percorso, lim, s)
+        _leggi(percorso, lim, s)
+        _stato(s)
+        return s
     except Exception as e:                                  # noqa: BLE001 — l'analisi non deve morire qui
         log.warning("struttura STEP non letta per %s: %s", percorso, e)
         s["avvisi"].append(f"struttura non letta: {type(e).__name__}: {e}"[:MAX_TESTO])
+        s["stato"], s["motivo_stato"] = STATO_NON_ESTRAIBILE, f"lettura fallita: {type(e).__name__}"[:MAX_TESTO]
         return s
     finally:
         s["limiti"]["tempo_s"] = round(time.monotonic() - inizio, 3)
+
+
+def _stato(s: dict) -> None:
+    """Lo stato della struttura (v4), dai fatti gia' letti e mai dal nome del file. `assente` non vuol dire «pezzo
+    unico»: dice solo che nel file non c'e' nessuna occorrenza d'assieme."""
+    if s.get("_non_part21"):
+        s["stato"], s["motivo_stato"] = STATO_NON_ESTRAIBILE, "non e' un file STEP Part 21"
+    elif s["limiti"]["troncato"]:
+        s["stato"], s["motivo_stato"] = STATO_PARZIALE, f"lettura fermata sul tetto «{s['limiti']['motivo']}»"
+    elif not s["relazioni"]:
+        s["stato"] = STATO_ASSENTE
+        s["motivo_stato"] = (f"{len(s['nodi'])} PRODUCT e nessuna occorrenza d'assieme (NAUO): struttura assente, che "
+                             "non dice se il file e' un pezzo unico") if s["nodi"] else "nessun PRODUCT nel file"
+    elif s["scarti"]["occorrenze_non_risolte"] or s["scarti"]["prodotti_senza_definizione"]:
+        s["stato"] = STATO_PARZIALE
+        s["motivo_stato"] = (f"{s['scarti']['occorrenze_non_risolte']} occorrenze non risolte, "
+                             f"{s['scarti']['prodotti_senza_definizione']} PRODUCT senza definizione")
+    else:
+        s["stato"], s["motivo_stato"] = STATO_VALIDA, ""
+    s.pop("_non_part21", None)
 
 
 def _leggi(percorso: str, lim: dict, s: dict) -> dict:
@@ -160,12 +231,15 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
         s["limiti"]["byte_letti"] = len(prima)
         if "ISO-10303-21" not in prima.upper():
             s["avvisi"].append("non e' un file STEP Part 21")
+            s["_non_part21"] = True
             return s
 
         prodotti: dict[str, tuple[str, str, str]] = {}      # #ref → (id, name, description)
         formazioni: dict[str, tuple[str, str]] = {}         # #ref → (rev, #ref del prodotto)
         definizioni: dict[str, str] = {}                    # #ref → #ref della formazione
         nauo: list[tuple[str, str, str]] = []               # (#ref, #ref pd padre, #ref pd figlio)
+        istanze: dict[str, tuple[str, str]] = {}            # v4: #ref NAUO → (id, nome) dell'istanza
+        geo = _Geometria()                                  # v4: la catena della geometria
         troncati = 0
         scaduto = time.monotonic() + float(lim["tempo_max_s"])
 
@@ -205,6 +279,13 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
                     _tronca(s, "occorrenze",
                             f"oltre {int(lim['occorrenze_max'])} occorrenze: lette le prime")
                     break
+                id_ist, t1 = _testo(argomenti[0])
+                nome_ist, t2 = _testo(argomenti[1])
+                troncati += t1 + t2
+                istanze[ref] = (id_ist, nome_ist)
+            elif nome in ("PRODUCT_DEFINITION_SHAPE", "SHAPE_DEFINITION_REPRESENTATION", "SHAPE_REPRESENTATION",
+                          "REPRESENTATION_RELATIONSHIP", "GEOMETRIA"):
+                geo.aggiungi(nome, ref, argomenti, testo)
             # Il tempo si guarda anche qui, e non solo dentro `_istanze`: un esportatore che scrive
             # tutto il file su una riga sola non fa mai girare il controllo per righe, e l'unico
             # momento in cui si torna a passare di qua e' a ogni istanza che quella riga produce.
@@ -223,12 +304,81 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
         s["avvisi"].append("lettura fermata prima di qualsiasi PRODUCT" if s["limiti"]["troncato"]
                            else "nessun PRODUCT nel file")
         return s
-    _componi(s, prodotti, formazioni, definizioni, nauo)
+    _componi(s, prodotti, formazioni, definizioni, nauo, istanze, geo)
     return s
 
 
-def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo: list) -> None:
-    """Da entita' sciolte a grafo: un nodo per PRODUCT raggiunto, una relazione per coppia."""
+class _Geometria:
+    """La catena della geometria (v4): forma del prodotto -> rappresentazione -> elementi, con le relazioni fra
+    rappresentazioni SENZA trasformazione (quelle con la trasformazione mettono un pezzo dentro un assieme: non sono
+    la geometria del padre). Si leggono solo i nomi delle entita' e i riferimenti, mai la geometria vera."""
+
+    def __init__(self):
+        self.forme: dict[str, str] = {}                    # #PDS -> #PD
+        self.sdr: list[tuple[str, str]] = []                # (#PDS, #SR)
+        self.elementi: dict[str, list[str]] = {}            # #SR -> [#elementi]
+        self.legami: dict[str, set[str]] = {}               # #SR <-> #SR (senza trasformazione)
+        self.genere: dict[str, str] = {}                    # #elemento -> solidi | superfici | curve | mappati
+
+    def aggiungi(self, nome: str, ref: str, argomenti: list[str], testo: str) -> None:
+        if not ref:
+            return
+        if nome == "PRODUCT_DEFINITION_SHAPE" and len(argomenti) >= 3:
+            self.forme[ref] = _riferimento(argomenti[2])
+        elif nome == "SHAPE_DEFINITION_REPRESENTATION" and len(argomenti) >= 2:
+            self.sdr.append((_riferimento(argomenti[0]), _riferimento(argomenti[1])))
+        elif nome == "SHAPE_REPRESENTATION" and len(argomenti) >= 2:
+            a = argomenti[1].strip()
+            self.elementi[ref] = [x for x in (_riferimento(v) for v in _argomenti(a[1:-1])) if x] \
+                if a.startswith("(") and a.endswith(")") else []
+        elif nome == "REPRESENTATION_RELATIONSHIP" and len(argomenti) >= 4:
+            if "WITH_TRANSFORMATION" in testo.upper():
+                return                                      # un posizionamento d'assieme, non la geometria del padre
+            a, b = _riferimento(argomenti[2]), _riferimento(argomenti[3])
+            if a and b:
+                self.legami.setdefault(a, set()).add(b)
+                self.legami.setdefault(b, set()).add(a)
+        elif nome == "GEOMETRIA":
+            m = _ENTITA.search(testo)
+            g = GENERE_GEOMETRIA.get(m.group(1).upper()) if m else None
+            if g:
+                self.genere[ref] = g
+
+    def per_definizione(self) -> dict[str, list[str]]:
+        """#PD -> le rappresentazioni direttamente legate alla sua forma."""
+        out: dict[str, list[str]] = {}
+        for pds, sr in self.sdr:
+            pd = self.forme.get(pds)
+            if pd and sr:
+                out.setdefault(pd, []).append(sr)
+        return out
+
+    def riassunto(self, rappresentazioni: list[str]) -> dict:
+        """Il riassunto della geometria raggiunta dalle rappresentazioni (e dalle loro legate senza trasformazione)."""
+        visti, frontiera = set(rappresentazioni), list(rappresentazioni)
+        for _ in range(SALTI_RAPPRESENTAZIONE):
+            nuovi = [b for a in frontiera for b in self.legami.get(a, ()) if b not in visti]
+            visti.update(nuovi)
+            frontiera = nuovi
+        conti = {"solidi": 0, "superfici": 0, "curve": 0, "mappati": 0}
+        elementi = set()
+        for r in visti:
+            elementi.update(self.elementi.get(r, ()))
+        for e in elementi:
+            g = self.genere.get(e)
+            if g:
+                conti[g] += 1
+        rapp = sum(1 for r in visti if r in self.elementi)
+        return {**conti, "rappresentazioni": rapp, "vuota": not any(conti.values())}
+
+
+def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo: list, istanze: dict | None = None,
+             geo: _Geometria | None = None) -> None:
+    """Da entita' sciolte a grafo: un nodo per PRODUCT raggiunto, una relazione per coppia. v4: la geometria per nodo
+    (da tutte le sue definizioni) e i nomi d'istanza delle NAUO per relazione."""
+    istanze = istanze or {}
+    geo = geo or _Geometria()
+    rapp_di = geo.per_definizione()
     # Un PRODUCT diventa un nodo solo se una PRODUCT_DEFINITION arriva fino a lui: e' la definizione
     # che lo mette nel modello. Un PRODUCT orfano e' un residuo dell'esportatore.
     per_prodotto: dict[str, dict] = {}
@@ -269,6 +419,7 @@ def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo:
             "descrizione_grezza": descrizione,
             "rev_grezza": v["revisioni"][0] if v["revisioni"] else "",
             "evidenza": evidenza,
+            "geometria": geo.riassunto([r for d in v["definizioni"] for r in rapp_di.get(d, ())]),
         })
 
     coppie: dict[tuple[str, str], dict] = {}
@@ -299,7 +450,10 @@ def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo:
         evidenza = {"entita": "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "righe": c["righe"]}
         if c["qta"] > len(c["righe"]):
             evidenza["altre"] = c["qta"] - len(c["righe"])
-        s["relazioni"].append({"padre": padre, "figlio": figlio, "qta": c["qta"], "evidenza": evidenza})
+        ist = [{"rif": r, "id": istanze.get(r, ("", ""))[0], "nome": istanze.get(r, ("", ""))[1]}
+               for r in c["righe"][:ISTANZE_MAX]]
+        s["relazioni"].append({"padre": padre, "figlio": figlio, "qta": c["qta"], "evidenza": evidenza,
+                               "istanze": ist})
 
     con_padre = {f for _, f in coppie}
     s["radici"] = [n["chiave"] for n in s["nodi"] if n["chiave"] not in con_padre]

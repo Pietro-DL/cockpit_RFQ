@@ -72,7 +72,8 @@ def campi(fatto):
 
 def test_il_cartiglio_nei_blocchi_da_codice_documento_revisione_e_riferimento_3d():
     f = leggi_testo_dxf_da_byte(dxf(cartiglio_acme(), [insert("CARTIGLIO_A", 584, 10), insert("CARTIGLIO_B", 584, 28)]))
-    assert f["versione"] == VERSIONE_TESTO_DXF == 1
+    assert f["versione"] == VERSIONE_TESTO_DXF == 2  # riscritta per GP-3: la v2 segue gli INSERT annidati
+    assert f["parziale"] is False and f["annidati"] == 0
     assert f["esito"] == DXF_LETTO and f["versione_dxf"] == "AC1014" and f["codifica"] == "cp1252"
     assert campi(f) == {("codice", "ACME1001"), ("numero_disegno", "ACME2001"), ("revisione", "00"),
                         ("riferimento_3d", "ACME3001")}
@@ -122,28 +123,74 @@ def test_insert_scalato_e_con_la_base_spostata():
     assert c["riquadro"][0] == 202.0 and c["riquadro"][1] == 53.5 and c["riquadro"][3] == 60.5
 
 
-def test_un_insert_ruotato_non_si_segue_e_il_fatto_lo_dice():
-    """Ruotato di 90° o di 180°, «sotto» non e' piu' sotto: il blocco non si segue (la regola prenderebbe un altro
-    testo per il valore), e il fatto lo dice nel motivo, con l'esito «letto». Un giro intero non e' una rotazione."""
+def test_un_insert_ruotato_si_segue_nel_sistema_del_blocco():
+    """Riscritta per GP-3 (v2): prima un INSERT ruotato non si seguiva. Adesso si segue, e la regola del cartiglio
+    lavora nel sistema del blocco: ruotato di 90°, 180°, -90° o 30° il valore resta «sotto» l'etichetta nel blocco, e
+    il riquadro e' quello del testo riportato nel disegno. Un giro intero non e' una rotazione."""
     righe = blocco("G", mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1003", 7))
-    for rot in (90.0, 180.0, -90.0):
+    for rot in (90.0, 180.0, -90.0, 30.0, 360.0):
         f = leggi_testo_dxf_da_byte(dxf([righe], [insert("G", 100, 100, rot=rot)]))
-        assert f["esito"] == DXF_LETTO and f["testi"] == 0 and f["cartiglio"] == [], rot
-        assert f["motivo"].startswith("1 INSERT ruotati non seguiti"), (rot, f["motivo"])
+        assert f["esito"] == DXF_LETTO and f["testi"] == 2 and campi(f) == {("codice", "ACME1003")}, rot
+        assert f["motivo"] == "" and f["parziale"] is False, (rot, f["motivo"])
         ModelloTestoDXF(**f)
-    f = leggi_testo_dxf_da_byte(dxf([righe], [insert("G", 100, 100, rot=360.0)]))
-    assert campi(f) == {("codice", "ACME1003")} and f["motivo"] == ""
-    # un INSERT ruotato di un blocco senza testi non toglie niente, e non si dice
-    vuoto = blocco("V", [])
-    f = leggi_testo_dxf_da_byte(dxf([righe, vuoto], [insert("G", 0, 0), insert("V", 0, 0, rot=90.0)]))
-    assert campi(f) == {("codice", "ACME1003")} and f["motivo"] == ""
+    # a 90°: il riquadro locale [1, 4, 17.8, 7.5] diventa x in [100-7.5, 100-4], y in [100+1, 100+17.8]
+    f = leggi_testo_dxf_da_byte(dxf([righe], [insert("G", 100, 100, rot=90.0)]))
+    assert [round(v, 1) for v in f["cartiglio"][0]["riquadro"]] == [92.5, 101.0, 96.0, 117.8]
 
 
-def test_un_insert_dentro_un_blocco_non_si_segue_e_si_conta():
+def test_un_blocco_specchiato_non_fa_cartiglio_e_si_dice():
+    righe = blocco("G", mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1003", 7))
+    f = leggi_testo_dxf_da_byte(dxf([righe], [insert("G", 100, 100, sx=-1.0)]))
+    assert f["cartiglio"] == [] and f["specchiati"] == 2 and f["parziale"] is True and "specchiati" in f["motivo"]
+
+
+def test_gli_insert_annidati_si_seguono_con_la_trasformazione_composta():
+    """Riscritta per GP-3 (v2): prima un INSERT dentro un blocco si contava soltanto. Adesso si segue, con le
+    trasformazioni composte: ESTERNO a (100, 50) scalato 2, e dentro INTERNO a (10, 0) ruotato di 90°."""
     interno = blocco("INTERNO", mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1004", 7))
     esterno = blocco("ESTERNO", insert("INTERNO", 0, 0))
     f = leggi_testo_dxf_da_byte(dxf([interno, esterno], [insert("ESTERNO", 0, 0)]))
-    assert f["annidati"] == 1 and f["cartiglio"] == []
+    assert campi(f) == {("codice", "ACME1004")} and f["annidati_seguiti"] == 1 and f["annidati"] == 0
+    assert not f["parziale"]
+    esterno = blocco("ESTERNO", insert("INTERNO", 10, 0, rot=90.0))
+    f = leggi_testo_dxf_da_byte(dxf([interno, esterno], [insert("ESTERNO", 100, 50, 2.0, 2.0)]))
+    assert campi(f) == {("codice", "ACME1004")}
+    # locale [1, 4, 17.8, 7.5] -> ruotato 90° e spostato di (10, 0): x [2.5, 6], y [1, 17.8] -> x2 + (100, 50)
+    assert [round(v, 1) for v in f["cartiglio"][0]["riquadro"]] == [105.0, 52.0, 112.0, 85.6]
+
+
+def test_quattro_livelli_di_insert_come_il_cartiglio_che_ha_portato_alla_v2():
+    """Il codice in un MTEXT di un blocco raggiunto con quattro INSERT annidati: si legge."""
+    fondo = blocco("L4", mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1010", 7))
+    catena = [fondo] + [blocco(f"L{k}", insert(f"L{k + 1}", 5.0 * k, 2.0)) for k in (3, 2, 1)]
+    f = leggi_testo_dxf_da_byte(dxf(catena, [insert("L1", 0, 0)]))
+    assert campi(f) == {("codice", "ACME1010")} and f["annidati_seguiti"] == 3 and not f["parziale"]
+
+
+def test_profondita_massima_e_cicli():
+    """Oltre profondita_max livelli non si scende (si conta, il fatto e' parziale); un blocco che rientra in se'
+    stesso non fa girare all'infinito (si conta come ciclo)."""
+    fondo = blocco("B10", mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1011", 7))
+    catena = [fondo] + [blocco(f"B{k}", insert(f"B{k + 1}", 0, 0)) for k in range(1, 10)]
+    f = leggi_testo_dxf_da_byte(dxf(catena, [insert("B1", 0, 0)]))
+    assert f["cartiglio"] == [] and f["oltre_profondita"] == 1 and f["parziale"] is True
+    assert f["limiti"]["profondita_max"] == 8 and "livelli" in f["motivo"]
+    f = leggi_testo_dxf_da_byte(dxf(catena, [insert("B1", 0, 0)]), limiti={"profondita_max": 12})
+    assert campi(f) == {("codice", "ACME1011")} and not f["parziale"]
+    a = blocco("A", insert("B", 0, 0) + mtext(0, 10, 1.5, "part no./Mat. Nr.") + mtext(1, 4, 3.5, "ACME1012", 7))
+    b = blocco("B", insert("A", 0, 0))
+    f = leggi_testo_dxf_da_byte(dxf([a, b], [insert("A", 0, 0)]))
+    assert f["cicli"] >= 1 and f["parziale"] is True and ("codice", "ACME1012") in campi(f)
+    ModelloTestoDXF(**f)
+
+
+def test_il_budget_degli_insert_ferma_le_ripetizioni():
+    """Un blocco ripetuto dentro un blocco ripetuto: il budget degli INSERT visitati ferma la crescita."""
+    foglia = blocco("F", text(0, 0, 1.0, "x"))
+    medio = blocco("M", sum((insert("F", k, 0) for k in range(50)), []))
+    alto = blocco("A", sum((insert("M", 0, k) for k in range(50)), []))
+    f = leggi_testo_dxf_da_byte(dxf([foglia, medio, alto], [insert("A", 0, 0)]), limiti={"inserti_max": 100})
+    assert f["troncato"] and f["parziale"] and f["testi"] < 100
 
 
 def test_i_testi_nelle_entities_e_il_text_centrato():
@@ -236,7 +283,7 @@ def test_la_lettura_non_tiene_piu_di_un_multiplo_di_testi_max():
     dati = dxf(quote, molti)
     letti = _leggi_entita(iter(dati.decode("cp1252").splitlines(keepends=True)), FATTORE_LETTI * 5)
     assert letti.pieno and len(letti.entita) == FATTORE_LETTI * 5
-    assert len(letti.blocchi) + sum(len(b["testi"]) for b in letti.blocchi.values()) == FATTORE_LETTI * 5
+    assert len(letti.blocchi) + sum(len(b["elementi"]) for b in letti.blocchi.values()) == FATTORE_LETTI * 5
     f = leggi_testo_dxf_da_byte(dati, limiti={"testi_max": 5})
     assert f["troncato"] and f["testi"] == 5
     # sotto il tetto niente e' troncato
@@ -263,7 +310,7 @@ def test_i_limiti_dichiarati():
     assert piccolo["troncato"]
     f = leggi_testo_dxf_da_byte(dxf(cartiglio_acme(), [insert("CARTIGLIO_A", 0, 0)]))
     assert not f["troncato"] and f["limiti"] == {"byte_max": 64 * 1024 * 1024, "testi_max": 5000, "testo_max": 512,
-                                                  "campi_max": 24}
+                                                  "campi_max": 24, "profondita_max": 8, "inserti_max": 20000}
 
 
 def test_le_etichette_riconosciute():
@@ -319,4 +366,5 @@ def test_nei_pdf_il_riferimento_3d_e_un_etichetta_e_doc_no_no():
     parole = [Parola(0, 0, 10, 2, w) for w in ("ref.3D", "doc./Ref.3D", "Dok.", "ACME3001")]
     assert etichetta_a(parole, 0) == ("riferimento_3d", 3)
     assert etichetta_a([Parola(0, 0, 10, 2, w) for w in ("doc.", "no./Dok.", "Nr.")], 0) is None
-    assert VERSIONE_TESTO_PDF == 2
+    # riscritta per GP-3: la sottoversione del testo e' la 3 (le tabelle), il cartiglio e' quello della 2
+    assert VERSIONE_TESTO_PDF == 3

@@ -25,10 +25,15 @@ import pymupdf
 from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, ContenutoIncompleto, ErroreHTTP,
                             ImprontaSbagliata, cadenza_battito, carica_config, configura_log, diagnosi,
                             leggi_marcatore_arresto, nome_worker, riporta_risultato)
-from contratti import (OCRPDF, CampoCartiglio, FrammentoPDF, Job, LimitiTestoPDF, MetadatiPDF,
-                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TestoDXF, TestoPDF)
+from colonne import piega
+from contratti import (OCRPDF, CampoCartiglio, CompletezzaPDF, FoglioDati, FrammentoPDF, Job, LimitiTestoPDF,
+                       MetadatiPDF, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDWG,
+                       TestoDXF, TestoPDF)
+from dwg_testo import leggi_testo_dwg
 from dxf_testo import leggi_testo_dxf
+from foglio_dati import ha_intestazione_di_distinta, leggi_foglio
 from step_struttura import leggi_struttura
+from tabelle_testo import LIMITI_TABELLE, trova_tabelle
 
 log = logging.getLogger("worker-analisi")
 
@@ -73,7 +78,10 @@ TERMINI_CAPITOLATO = [
     "QUALITY REQUIREMENTS",
 ]
 
-# Distinta del cliente: l'intestazione di una tabella di codici con quantita'.
+# Distinta del cliente: l'intestazione di una tabella di codici con quantita'. Si confrontano sul testo PIEGATO
+# (colonne.piega: maiuscolo, senza dieresi ne' accenti): «Materialstückliste» contiene STUCKLISTE, «QUANTITÀ»
+# QUANTITA. GP-3 (direttiva 21 §5.2): QUANTITY, MENGE, POSITION e STUECKLISTE, perche' le distinte di un ERP in
+# inglese e in tedesco ne avevano uno solo (BILL OF MATERIAL) o nessuno (la dieresi non si confrontava).
 TERMINI_DISTINTA = [
     "DISTINTA BASE",
     "DISTINTA MATERIALI",
@@ -81,10 +89,35 @@ TERMINI_DISTINTA = [
     "PARTS LIST",
     "ELENCO PARTI",
     "STUCKLISTE",
+    "STUECKLISTE",
     "POS.",
     "Q.TA",
     "QUANTITA",
+    "QUANTITY",
+    "MENGE",
+    "POSITION",
 ]
+# Come prima, un termine si cerca come pezzo del testo («MATERIALSTUCKLISTE» contiene STUCKLISTE); POSITION e MENGE
+# solo come parole intere, perche' come pezzi stanno in COMPOSITION, DISPOSITION, MENGENLEHRE.
+_TERMINI_A_PAROLA = {"POSITION", "MENGE"}
+_RE_TERMINI_DISTINTA = [(t, re.compile((r"(?<![A-Z0-9])" + re.escape(t) + r"(?![A-Z0-9])") if t in _TERMINI_A_PAROLA
+                                       else re.escape(t)))
+                        for t in TERMINI_DISTINTA]
+
+
+def termini_distinta(testo_piegato: str) -> list[str]:
+    """I termini della distinta nel testo gia' piegato (colonne.piega)."""
+    return [t for t, r in _RE_TERMINI_DISTINTA if r.search(testo_piegato)]
+
+# I segni di un DISEGNO che non si vedono nei termini del cartiglio (SCALA e' gia' li'): la scala in inglese, in
+# tedesco, in francese. Servono solo a non degradare a distinta un disegno d'assieme con la tabella degli elementi
+# (direttiva 21 §5.2): con questi segni, e i termini della distinta, il file e' un disegno «con evidenza
+# tabellare». Contano anche i campi del cartiglio della scala, del numero del disegno e del riferimento 3D.
+TERMINI_SEGNI_DISEGNO = ["SCALE", "MASSSTAB", "ECHELLE"]
+CAMPI_SEGNI_DISEGNO = {"scala", "numero_disegno", "riferimento_3d"}
+# Quante righe di una tabella riconosciuta (non continuazioni) bastano, con due termini, per una distinta: la
+# tabella ha gia' un'intestazione con la posizione o la quantita', che e' piu' di una riga «che somiglia a un codice».
+RIGHE_TABELLA_DISTINTA = 2
 
 # Una riga di distinta: qualcosa che sembra un codice, e poi un numero che sembra una quantita'.
 RE_RIGA_DISTINTA = re.compile(r"\b[A-Z0-9][A-Z0-9._\-/]{4,}\b[^\n]{0,40}?\b\d{1,4}(?:[.,]\d{1,3})?\b")
@@ -153,8 +186,15 @@ def separa_codice_rev(nome_base: str) -> tuple[str, str]:
 # DESCRIZIONE QTA») non e' un campo. Con la
 # sottoversione nuova il server riconosce i PDF letti prima, e «Rianalizza» li rilegge. La fase 4.12 (l'elenco
 # particolari) usera' la stessa: un solo pacchetto della postazione, una sola rianalisi.
-VERSIONE_TESTO_PDF = 2
+#
+# La 3 (GP-3, direttiva 21 §5.1-5.2) aggiunge le TABELLE (tabelle_testo: righe con le colonne e i riquadri, da
+# qualunque PDF con testo nativo e un'intestazione riconoscibile, fino a TABELLE_PAGINE_MAX pagine) e la loro
+# COMPLETEZZA (pagine lette, pagine senza testo, righe troncate), e i termini della distinta piegati (senza
+# dieresi). Il cartiglio si legge come nella 2: il server lo sa (worker.VersioneCartiglioPDF) e non declassa i
+# cartigli della 2; «Rianalizza» rilegge i PDF della 2 per le tabelle.
+VERSIONE_TESTO_PDF = 3
 TESTO_PDF_PAGINE_MAX = 11        # le pagine lette: le stesse che si scorrevano gia' per i termini
+TABELLE_PAGINE_MAX = 30          # le pagine in cui si cercano le tabelle (una richiesta o una distinta lunga)
 TESTO_PDF_FRAMMENTI_MAX = 200    # frammenti nel fatto
 TESTO_PDF_FRAMMENTO_MAX = 512    # caratteri di un frammento
 TESTO_PDF_CARATTERI_MAX = 16384  # caratteri di tutti i frammenti insieme
@@ -249,10 +289,27 @@ def confidenza_media(parole: list[Parola]) -> float | None:
     return round(sum(c) / len(c), 1)
 
 
+# GP-3 (G-8.6): i caratteri che l'OCR scambia facilmente. Nei testi letti con l'OCR ogni carattere di queste classi si
+# segnala (`ambigui`: posizione, letto, alternative), senza correggerlo: niente sostituzione silenziosa B/8 o 0/O.
+CLASSI_AMBIGUE = ("0Oo", "1Il", "5S", "8B", "2Z")
+_AMBIGUO = {c: [x for x in classe if x != c] for classe in CLASSI_AMBIGUE for c in classe}
+AMBIGUI_MAX = 20       # caratteri ambigui segnalati per frammento o campo
+PAROLE_OCR_MAX = 60    # parole OCR con la loro confidenza per frammento
+
+
+def ambigui(testo: str) -> list[dict]:
+    """I caratteri ambigui per l'OCR nel testo, con la posizione e le alternative (CLASSI_AMBIGUE)."""
+    return [{"posizione": i, "letto": c, "alternative": _AMBIGUO[c]} for i, c in enumerate(testo)
+            if c in _AMBIGUO][:AMBIGUI_MAX]
+
+
 def componi_frammenti(parole: list[Parola], pagina: int, fonte: str, zona_di) -> list[dict]:
     """I frammenti di una pagina: un frammento per blocco del file (o dell'OCR) e per zona, con le righe del
     blocco nell'ordine del file e il riquadro delle sue parole. Un blocco a cavallo del bordo della zona in
-    basso a destra diventa due frammenti, cosi' nessuna parola del cartiglio finisce fuori dalla zona."""
+    basso a destra diventa due frammenti, cosi' nessuna parola del cartiglio finisce fuori dalla zona.
+
+    GP-3 (G-8.6): un frammento dell'OCR porta anche le sue parole con la confidenza di ciascuna (quando il motore la
+    da') e i caratteri ambigui del testo; uno nativo no."""
     gruppi: dict[tuple[str, int], list[Parola]] = {}
     for p in parole:
         gruppi.setdefault((zona_di(p), p.blocco), []).append(p)
@@ -264,8 +321,13 @@ def componi_frammenti(parole: list[Parola], pagina: int, fonte: str, zona_di) ->
         testo = normalizza_testo("\n".join(" ".join(q.testo for q in sorted(r, key=lambda q: q.n))
                                            for _, r in sorted(righe.items())))
         if testo:
-            out.append({"pagina": pagina, "zona": zona, "fonte": fonte, "testo": testo,
-                        "riquadro": riquadro(ps), "confidenza": confidenza_media(ps)})
+            f = {"pagina": pagina, "zona": zona, "fonte": fonte, "testo": testo,
+                 "riquadro": riquadro(ps), "confidenza": confidenza_media(ps)}
+            if fonte == "ocr":
+                f["parole"] = [{"testo": q.testo[:TESTO_PDF_VALORE_MAX], "confidenza": q.confidenza,
+                                "riquadro": riquadro([q])} for q in ps[:PAROLE_OCR_MAX]]
+                f["ambigui"] = ambigui(testo)
+            out.append(f)
     return out
 
 
@@ -553,9 +615,12 @@ def campi_cartiglio(parole: list[Parola], zona, fonte: str) -> list[dict]:
                 valore = []  # il segnaposto del modello: il campo e' vuoto
             testo = " ".join(p.testo for p in valore).strip()[:TESTO_PDF_VALORE_MAX]
             if testo:
-                out.append({"etichetta": campo, "letta": " ".join(p.testo for p in et), "valore": testo,
-                            "pagina": 1, "zona": ZONA_BASSO_DESTRA if in_zona(et[0], zona) else ZONA_PAGINA,
-                            "fonte": fonte, "riquadro": riquadro(valore), "confidenza": confidenza_media(valore)})
+                c = {"etichetta": campo, "letta": " ".join(p.testo for p in et), "valore": testo,
+                     "pagina": 1, "zona": ZONA_BASSO_DESTRA if in_zona(et[0], zona) else ZONA_PAGINA,
+                     "fonte": fonte, "riquadro": riquadro(valore), "confidenza": confidenza_media(valore)}
+                if fonte == "ocr":
+                    c["ambigui"] = ambigui(testo)
+                out.append(c)
             i += n
     return out
 
@@ -582,17 +647,103 @@ class MotoreTesseract:
                     for x0, y0, x1, y1, w, b, r, n in p.get_text("words")]
 
 
+class MotoreTesseractTSV:
+    """GP-3 (G-8.6): Tesseract da riga di comando con l'uscita TSV, per avere la CONFIDENZA parola per parola (l'OCR
+    di PyMuPDF non la da'). L'immagine della sola zona (alla risoluzione data) passa da stdin, il TSV torna da stdout;
+    nessun file temporaneo, un tempo massimo per passaggio. Le parole si riportano sulla pagina vista, in punti.
+
+    `esegui` e' il modo di lanciare il processo (subprocess.run), sostituibile nelle prove: su questa postazione di
+    sviluppo Tesseract non ha la lingua italiana, e le prove reali sono NON ESEGUITE."""
+    nome = "tesseract (tsv)"
+
+    def __init__(self, eseguibile: str, lingua: str, dpi: int, tempo_s: float = 30.0, esegui=None):
+        self.eseguibile, self.lingua, self.dpi, self.tempo_s = eseguibile, lingua, dpi, tempo_s
+        self.esegui = esegui or _esegui_processo
+
+    @staticmethod
+    def parole_da_tsv(tsv: str, clip, dpi: int) -> list[Parola]:
+        """Le parole (livello 5) di un TSV di Tesseract, con la confidenza 0-100, riportate da pixel a punti nella
+        zona `clip` della pagina vista. Le righe senza testo o con la confidenza -1 non sono parole."""
+        out: list[Parola] = []
+        scala = 72.0 / dpi
+        righe = tsv.splitlines()
+        if not righe:
+            return out
+        testa = righe[0].split("\t")
+        try:
+            k = {n: testa.index(n) for n in ("level", "block_num", "par_num", "line_num", "word_num", "left", "top",
+                                              "width", "height", "conf", "text")}
+        except ValueError:
+            return out
+        for r in righe[1:]:
+            c = r.split("\t")
+            if len(c) < len(testa) or c[k["level"]] != "5":
+                continue
+            testo = c[k["text"]]
+            try:
+                conf = float(c[k["conf"]])
+                x, y, w, h = (float(c[k[n]]) for n in ("left", "top", "width", "height"))
+                blocco, par, linea, n = (int(c[k[q]]) for q in ("block_num", "par_num", "line_num", "word_num"))
+            except ValueError:
+                continue
+            if not testo.strip() or conf < 0:
+                continue
+            out.append(Parola(clip.x0 + x * scala, clip.y0 + y * scala, clip.x0 + (x + w) * scala,
+                              clip.y0 + (y + h) * scala, testo, blocco, par * 1000 + linea, n, conf))
+        return out
+
+    def leggi(self, pag, clip) -> list[Parola]:
+        pix = pag.get_pixmap(dpi=self.dpi, clip=clip)
+        png = pix.tobytes("png")
+        r = self.esegui([self.eseguibile, "stdin", "stdout", "-l", self.lingua, "--psm", "11", "tsv"], png, self.tempo_s)
+        if r.returncode != 0:
+            raise RuntimeError(f"tesseract uscito con {r.returncode}: {r.stderr[:200]!r}")
+        return self.parole_da_tsv(r.stdout.decode("utf-8", errors="replace"), clip, self.dpi)
+
+
+def _esegui_processo(argomenti: list[str], ingresso: bytes | None, tempo_s: float):
+    import subprocess
+    return subprocess.run(argomenti, input=ingresso, capture_output=True, timeout=tempo_s, check=False)
+
+
+def trova_tesseract(eseguibile: str, lingua: str, esegui=None) -> tuple[str, str]:
+    """(percorso dell'eseguibile, "") se Tesseract c'e' con TUTTE le lingue chieste («ita+eng»), altrimenti ("",
+    perche' no). L'eseguibile: quello configurato, quello nel PATH, quello dell'installazione predefinita."""
+    import shutil
+    esegui = esegui or _esegui_processo
+    candidati = [eseguibile] if eseguibile else []
+    candidati += [shutil.which("tesseract") or "", r"C:\Program Files\Tesseract-OCR\tesseract.exe"]
+    for exe in candidati:
+        if not exe or not os.path.isfile(exe):
+            continue
+        try:
+            r = esegui([exe, "--list-langs"], None, 15.0)
+        except Exception as e:  # noqa: BLE001 — l'eseguibile non parte: non c'e'
+            return "", f"Tesseract non avviabile ({type(e).__name__})"
+        lingue = {x.strip() for x in (r.stdout + r.stderr).decode("utf-8", errors="replace").splitlines()}
+        mancano = [x for x in lingua.split("+") if x not in lingue]
+        if mancano:
+            return "", f"Tesseract senza le lingue {', '.join(mancano)}"
+        return exe, ""
+    return "", "Tesseract non trovato (configurazione, PATH, installazione predefinita)"
+
+
 class ConfigOCR:
     """Come si fa l'OCR su questa postazione: `[analisi] ocr` di worker.toml («automatico», il default: se il
     testo nativo non basta e Tesseract c'e'; «spento»: mai), la lingua, la risoluzione, la cartella tessdata.
 
     Il motore si cerca la prima volta che serve (pymupdf.get_tessdata lancia un processo) e l'esito si
-    ricorda. `motore` e `orologio` si possono passare per le prove (un motore finto, un tempo finto)."""
+    ricorda. `motore` e `orologio` si possono passare per le prove (un motore finto, un tempo finto).
+
+    GP-3 (G-8.6): prima si cerca Tesseract da riga di comando con le lingue chieste (MotoreTesseractTSV, che da' la
+    confidenza parola per parola), poi l'OCR di PyMuPDF; senza nessuno dei due, `non_disponibile` con i motivi."""
 
     def __init__(self, modo: str = "automatico", lingua: str = OCR_LINGUA, dpi: int = OCR_DPI, tessdata: str = "",
-                 tempo_max_s: float = OCR_TEMPO_MAX_S, motore=None, orologio=time.monotonic):
+                 tempo_max_s: float = OCR_TEMPO_MAX_S, motore=None, orologio=time.monotonic, tesseract: str = "",
+                 esegui=None):
         self.modo, self.lingua, self.dpi, self.tessdata = modo, lingua, dpi, tessdata
         self.tempo_max_s, self.motore, self.orologio = tempo_max_s, motore, orologio
+        self.tesseract, self.esegui = tesseract, esegui
         self._pronto: tuple[object | None, str] | None = None
 
     def motore_pronto(self) -> tuple[object | None, str]:
@@ -600,11 +751,16 @@ class ConfigOCR:
         if self.motore is not None:
             return self.motore, ""
         if self._pronto is None:
+            exe, perche_tsv = trova_tesseract(self.tesseract, self.lingua, self.esegui)
+            if exe:
+                self._pronto = (MotoreTesseractTSV(exe, self.lingua, self.dpi, esegui=self.esegui), "")
+                return self._pronto
             try:
                 td = pymupdf.get_tessdata(self.tessdata or None)
                 self._pronto = (MotoreTesseract(self.lingua, self.dpi, td), "")
             except Exception as e:  # noqa: BLE001 — qualunque motivo, il motore non c'e'
-                self._pronto = (None, f"Tesseract non disponibile su questa postazione ({type(e).__name__}: {e})"[:300])
+                self._pronto = (None, f"Tesseract non disponibile su questa postazione ({perche_tsv}; "
+                                      f"{type(e).__name__}: {e})"[:300])
         return self._pronto
 
 
@@ -616,7 +772,8 @@ def ocr_da_config(cfg: dict) -> ConfigOCR:
         log.warning("ocr = %r non e' un valore previsto (automatico, spento): vale «automatico»", cfg.get("ocr"))
         modo = "automatico"
     return ConfigOCR(modo=modo, lingua=str(cfg.get("ocr_lingua") or OCR_LINGUA),
-                     dpi=int(cfg.get("ocr_dpi") or OCR_DPI), tessdata=str(cfg.get("ocr_tessdata") or ""))
+                     dpi=int(cfg.get("ocr_dpi") or OCR_DPI), tessdata=str(cfg.get("ocr_tessdata") or ""),
+                     tesseract=str(cfg.get("ocr_tesseract") or ""))
 
 
 # La configurazione dell'OCR di questo processo: WorkerAnalisi la sostituisce con quella del suo worker.toml.
@@ -750,12 +907,54 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
     ocr = ocr or OCR_PREDEFINITO
     testo_completo = ""
     pagine: list[tuple] = []  # (vista, parole, caratteri nativi) di ogni pagina letta
+    tabelle: list[dict] = []
+    tab_troncate = False
+    tab_pagine = 0            # pagine in cui si sono cercate le tabelle
+    senza_testo = 0           # pagine lette (per le tabelle) senza testo nativo
+    caratteri_tab = 0
     for i, pag in enumerate(doc):
-        if i >= TESTO_PDF_PAGINE_MAX:  # non serve scorrere oltre
+        if i >= max(TESTO_PDF_PAGINE_MAX, TABELLE_PAGINE_MAX):  # non serve scorrere oltre
             break
-        grezzo = pag.get_text()
-        testo_completo += grezzo + "\n"
-        pagine.append((pag.rect, parole_native(pag), len(normalizza_testo(grezzo))))
+        if i < TESTO_PDF_PAGINE_MAX:
+            grezzo = pag.get_text()
+            testo_completo += grezzo + "\n"
+            parole = parole_native(pag)
+            car = len(normalizza_testo(grezzo))
+            pagine.append((pag.rect, parole, car))
+        else:
+            parole = parole_native(pag)
+            car = len(normalizza_testo(" ".join(p.testo for p in parole)))
+        if i < TABELLE_PAGINE_MAX:
+            tab_pagine += 1
+            caratteri_tab += car
+            if car < OCR_SOGLIA_PAGINA:
+                senza_testo += 1
+            try:
+                trovate, fermo = trova_tabelle(parole, i + 1, gia=sum(len(t["righe"]) for t in tabelle))
+            except Exception as e:  # noqa: BLE001 — una tabella che non si legge non fa fallire il testo
+                log.warning("tabelle non lette a pagina %d: %s", i + 1, e)
+                trovate, fermo = [], True
+            tabelle += trovate
+            tab_troncate = tab_troncate or fermo
+    if len(tabelle) > LIMITI_TABELLE["tabelle_max"]:
+        tabelle, tab_troncate = tabelle[:LIMITI_TABELLE["tabelle_max"]], True
+    in_fondo = sorted({t["pagina"] for t in tabelle if t.pop("_fino_in_fondo", False) and t["pagina"] < tab_pagine})
+    for k, t in enumerate(tabelle):
+        t["indice"] = k + 1
+    motivi = []
+    if in_fondo:
+        motivi.append(f"tabelle che arrivano in fondo alla pagina {', '.join(map(str, in_fondo))}: le righe della pagina "
+                      "dopo senza intestazione non si leggono")
+    if doc.page_count > tab_pagine:
+        motivi.append(f"lette {tab_pagine} pagine su {doc.page_count} (tetto {TABELLE_PAGINE_MAX})")
+    if senza_testo:
+        motivi.append(f"{senza_testo} pagine lette senza testo nativo: una tabella li' non si vede")
+    if tab_troncate:
+        motivi.append("righe, celle o tabelle oltre i tetti")
+    completezza = CompletezzaPDF(
+        stato="non_leggibile" if caratteri_tab == 0 else ("parziale" if motivi else "completa"),
+        pagine=doc.page_count, pagine_lette=tab_pagine, pagine_senza_testo=senza_testo,
+        righe_troncate=tab_troncate, motivo="; ".join(motivi)[:300])
 
     zona1 = zona_basso_destra(pagine[0][0]) if pagine else None
 
@@ -812,6 +1011,8 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
         tetto = min(TESTO_PDF_FRAMMENTO_MAX, resto)
         if len(f["testo"]) > tetto:
             f["testo"], troncato = f["testo"][:tetto], True
+            if "ambigui" in f:
+                f["ambigui"] = [a for a in f["ambigui"] if a["posizione"] < tetto]
         frammenti.append(f)
         resto -= len(f["testo"])
     visti, unici = set(), []
@@ -846,7 +1047,11 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
                               frammento_max=TESTO_PDF_FRAMMENTO_MAX, caratteri_max=TESTO_PDF_CARATTERI_MAX,
                               campi_max=TESTO_PDF_CAMPI_MAX, ocr_soglia_pagina=OCR_SOGLIA_PAGINA,
                               ocr_soglia_cartiglio=OCR_SOGLIA_CARTIGLIO, ocr_pagine_max=OCR_PAGINE_MAX,
-                              ocr_tempo_max_s=int(ocr.tempo_max_s), ocr_dpi=ocr.dpi),
+                              ocr_tempo_max_s=int(ocr.tempo_max_s), ocr_dpi=ocr.dpi,
+                              tabelle_pagine_max=TABELLE_PAGINE_MAX, tabelle_max=LIMITI_TABELLE["tabelle_max"],
+                              righe_max=LIMITI_TABELLE["righe_max"], cella_max=LIMITI_TABELLE["cella_max"]),
+        tabelle=[TabellaPDF(**t) for t in tabelle],
+        completezza=completezza,
     )
     return testo_completo, fatto.model_dump(mode="json")
 
@@ -930,19 +1135,26 @@ def analizza_pdf(percorso: str, nome_file: str, ocr: ConfigOCR | None = None) ->
     # Se il PDF contiene "ZONA ESENTE DA SALDATURA", "TOLLERANZE GENERALI", "PESO kG" o "SCALA"
     trovati_cad = [t for t in TERMINI_CARTIGLIO_CAD if t in testo_norm]
     codice, rev = separa_codice_rev(nome_senza_ext)
+    # La distinta (GP-3): i termini sul testo piegato, le righe che somigliano a un codice e le righe delle tabelle
+    # riconosciute. Se c'e', in un DISEGNO diventa l'evidenza tabellare (il disegno d'assieme con l'elenco degli
+    # elementi resta un disegno, direttiva 21 §5.2), altrimenti fa la distinta (regola 4).
+    tabellare = evidenza_tabellare(testo_completo, testo_pdf)
 
     if trovati_cad:
         # «cartiglio» e' la fonte del TIPO (i termini del cartiglio nel testo); codice e rev sono il nome del
         # file, e `fonti` lo dice (P16)
         log.info("Riconosciuto cartiglio CAD 2D in %s: codice=%s rev=%s (termini: %s)", nome_file, codice, rev, trovati_cad)
+        dettagli = {"cartiglio": True, "termini_trovati": trovati_cad, "testo_pdf": testo_pdf,
+                    "fonti": fonti_pdf("termini_pdf", codice, rev)}
+        if tabellare:
+            dettagli["evidenza_tabellare"] = tabellare
         return {
             "tipo_proposto": "disegno_2d",
             "codice": codice,
             "rev": rev,
             "confidenza": 95,
             "fonte": "cartiglio",
-            "dettagli": {"cartiglio": True, "termini_trovati": trovati_cad, "testo_pdf": testo_pdf,
-                         "fonti": fonti_pdf("termini_pdf", codice, rev)},
+            "dettagli": dettagli,
         }
 
     # 3. Capitolato / specifica tecnica: parla di requisiti, non di un pezzo.
@@ -959,18 +1171,32 @@ def analizza_pdf(percorso: str, nome_file: str, ocr: ConfigOCR | None = None) ->
                          "fonti": fonti_pdf("termini_pdf", "", "")},
         }
 
-    # 4. Distinta del cliente: un elenco di codici con quantita'.
-    trovati_dist = [t for t in TERMINI_DISTINTA if t in testo_norm]
-    if len(trovati_dist) >= 2 and conta_righe_codice(testo_completo) >= 5:
-        log.info("Riconosciuta distinta cliente in %s (termini: %s)", nome_file, trovati_dist)
+    # 4. Distinta del cliente: un elenco di codici con quantita'. Con i segni di un disegno (la scala in un'altra
+    #    lingua, il campo del numero del disegno nel cartiglio) e' invece un disegno con evidenza tabellare: un
+    #    disegno d'assieme non diventa «solo una distinta» (direttiva 21 §5.2).
+    if tabellare:
+        segni = segni_di_disegno(testo_norm, testo_pdf)
+        if segni:
+            log.info("Riconosciuto disegno con tabella in %s (segni: %s; termini: %s)", nome_file, segni,
+                     tabellare["termini"])
+            return {
+                "tipo_proposto": "disegno_2d",
+                "codice": codice,
+                "rev": rev,
+                "confidenza": 80,
+                "fonte": "cartiglio",
+                "dettagli": {"cartiglio": True, "segni_disegno": segni, "evidenza_tabellare": tabellare,
+                             "testo_pdf": testo_pdf, "fonti": fonti_pdf("termini_pdf", codice, rev)},
+            }
+        log.info("Riconosciuta distinta cliente in %s (termini: %s)", nome_file, tabellare["termini"])
         return {
             "tipo_proposto": "distinta_cliente",
             "codice": "",
             "rev": "",
             "confidenza": 75,
             "fonte": "cartiglio",
-            "dettagli": {"distinta": True, "termini_trovati": trovati_dist, "testo_pdf": testo_pdf,
-                         "fonti": fonti_pdf("termini_pdf", "", "")},
+            "dettagli": {"distinta": True, "termini_trovati": tabellare["termini"], "evidenza_tabellare": tabellare,
+                         "testo_pdf": testo_pdf, "fonti": fonti_pdf("termini_pdf", "", "")},
         }
 
     # 5. Nessun contenuto riconosciuto. Il codice nel nome NON basta a dire che e' un disegno: e'
@@ -994,6 +1220,30 @@ def conta_righe_codice(testo: str) -> int:
         if RE_RIGA_DISTINTA.search(riga):
             n += 1
     return n
+
+
+def evidenza_tabellare(testo_completo: str, testo_pdf: dict) -> dict | None:
+    """L'evidenza di una distinta nel testo (GP-3): almeno due termini della distinta sul testo piegato, e almeno 5
+    righe che somigliano a una voce (codice e quantita') oppure RIGHE_TABELLA_DISTINTA righe di una tabella
+    riconosciuta. None se non c'e'. Dice che c'e' una tabella di componenti, non che cosa sia il documento."""
+    termini = termini_distinta(piega(testo_completo))
+    if len(termini) < 2:
+        return None
+    righe_codice = conta_righe_codice(testo_completo)
+    righe_tabella = sum(1 for t in testo_pdf.get("tabelle", []) for r in t["righe"] if not r["continuazione"])
+    if righe_codice < 5 and righe_tabella < RIGHE_TABELLA_DISTINTA:
+        return None
+    return {"termini": termini, "righe_codice": righe_codice, "righe_tabella": righe_tabella}
+
+
+def segni_di_disegno(testo_norm: str, testo_pdf: dict) -> list[str]:
+    """I segni di un disegno che i termini del cartiglio non vedono: la scala in un'altra lingua (parola intera, sul
+    testo piegato) e i campi del cartiglio della scala, del numero del disegno, del riferimento 3D."""
+    piegato = piega(testo_norm)
+    segni = [t for t in TERMINI_SEGNI_DISEGNO if re.search(r"(?<![A-Z0-9])" + t + r"(?![A-Z0-9])", piegato)]
+    segni += sorted({"campo:" + c["etichetta"] for c in testo_pdf.get("cartiglio", [])
+                     if c["etichetta"] in CAMPI_SEGNI_DISEGNO})
+    return segni
 
 
 def analizza_step(percorso: str, nome_file: str) -> dict:
@@ -1089,7 +1339,9 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "dettagli": {"testo_dxf": TestoDXF(**leggi_testo_dxf(path_staging)).model_dump(mode="json")},
         }
     if ext == "dwg":
-        # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone.
+        # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone. GP-3 (G-8.4): il testo di un R11/R12
+        # (dwg_testo: cartiglio con la sorgente nel file, righe dell'elenco); le altre versioni sono «non_supportato»
+        # con la versione letta, un file che non e' un DWG «non_letto». Mai un job fallito.
         codice, rev = separa_codice_rev(Path(nome_file).stem)
         return {
             "tipo_proposto": "disegno_2d",
@@ -1097,7 +1349,7 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "rev": rev,
             "confidenza": 80 if codice else 60,
             "fonte": "nome_file" if codice else "estensione",
-            "dettagli": {},
+            "dettagli": {"testo_dwg": TestoDWG(**leggi_testo_dwg(path_staging)).model_dump(mode="json")},
         }
     if ext in ("tif", "tiff"):
         # Un'immagine scansionata puo' essere un disegno, ma anche un capitolato fotocopiato o un
@@ -1111,14 +1363,19 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "fonte": "nome_file" if codice else "estensione",
             "dettagli": {"nota": "immagine non letta: serve OCR"},
         }
-    if ext in ("xls", "xlsx", "csv"):
+    if ext in ("xls", "xlsx", "xlsm", "csv"):
+        # GP-3 (G-8.2): le celle del foglio (foglio_dati), con il testo esatto, il tipo, la formula, lo stile e i
+        # collegamenti ridotti. Il tipo resta «commerciale» come prima, salvo un'intestazione di distinta (quantita' e
+        # posizione o codice) fra le intestazioni candidate: allora e' una distinta del cliente, come un PDF.
+        fatto = FoglioDati(**leggi_foglio(path_staging, nome_file)).model_dump(mode="json")
+        distinta = ha_intestazione_di_distinta(fatto["intestazioni_candidate"])
         return {
-            "tipo_proposto": "commerciale",
+            "tipo_proposto": "distinta_cliente" if distinta else "commerciale",
             "codice": "",
             "rev": "",
-            "confidenza": 60,
-            "fonte": "estensione",
-            "dettagli": {},
+            "confidenza": 70 if distinta else 60,
+            "fonte": "cartiglio" if distinta else "estensione",
+            "dettagli": {"foglio_dati": fatto},
         }
 
     codice, rev = separa_codice_rev(Path(nome_file).stem)

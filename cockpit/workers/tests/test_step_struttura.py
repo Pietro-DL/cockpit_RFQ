@@ -86,7 +86,8 @@ def test_la_struttura_non_porta_codici(tmp_path):
     s = leggi_struttura(percorso)
     nodo = s["nodi"][0]
     assert "codice" not in nodo and "rev" not in nodo, nodo
-    assert set(nodo) == {"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza"}
+    assert set(nodo) == {"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza",
+                         "geometria"}  # riscritta per GP-3: la v4 porta il riassunto della geometria, non codici
     # il nome resta com'e' scritto: niente maiuscole forzate, niente suffissi tolti
     assert nodo["nome_grezzo"] == "77722757_B"
 
@@ -439,7 +440,7 @@ def test_un_assieme_letto_per_intero_ha_gli_scarti_a_zero(tmp_path):
         ("B", "77720517", "77720517", "", ""),
     ], [("A", "B"), ("A", "B")])
     s = leggi_struttura(percorso)
-    assert s["versione"] == 3 == VERSIONE_STRUTTURA
+    assert s["versione"] == 4 == VERSIONE_STRUTTURA  # riscritta per GP-3 (v4)
     assert s["scarti"] == SCARTI_ZERO
     assert s["avvisi"] == []
 
@@ -490,7 +491,7 @@ def test_gli_scarti_ci_sono_anche_quando_la_lettura_non_riesce(tmp_path):
     finto = tmp_path / "finto.step"
     finto.write_bytes(b"%PDF-1.4\n")
     for s in (leggi_struttura(str(finto)), leggi_struttura(str(tmp_path / "non-c-e.step"))):
-        assert s["versione"] == 3
+        assert s["versione"] == 4  # riscritta per GP-3 (v4)
         assert set(s["scarti"]) == set(SCARTI_ZERO)
         assert s["avvisi"], "una lettura fallita deve dirlo"
 
@@ -500,4 +501,4 @@ def test_gli_scarti_sono_quelli_del_contratto(tmp_path):
     percorso, _ = scrivi_step(tmp_path, "p.step", [("A", "P", "P", "", "")])
     s = leggi_struttura(percorso)
     assert set(s["scarti"]) == set(ScartiSTEP.model_fields)
-    assert StrutturaSTEP.model_validate(s).versione == 3
+    assert StrutturaSTEP.model_validate(s).versione == 4  # riscritta per GP-3 (v4)

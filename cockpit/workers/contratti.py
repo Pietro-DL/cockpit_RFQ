@@ -363,17 +363,41 @@ class PayloadAnalizzaAllegato(Base):
     parametri: dict = Field(default_factory=dict)
 
 
+class GeometriaSTEP(Base):
+    """Il riassunto della geometria di un nodo (struttura v4), DIAGNOSTICA e mai motivo di rimozione: quanti solidi
+    (MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve
+    (GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua
+    forma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante
+    se ne sono raggiunte; `vuota` quando non c'e' nessun elemento geometrico (solo posizionamenti, o nessuna
+    rappresentazione). Un nodo vuoto con dei figli e' un contenitore CAD: resta un nodo."""
+    solidi: int = 0
+    superfici: int = 0
+    curve: int = 0
+    mappati: int = 0
+    rappresentazioni: int = 0
+    vuota: bool = True
+
+
+class IstanzaSTEP(Base):
+    """Un'occorrenza NAUO di una relazione: il riferimento, l'id e il nome d'istanza (grezzi)."""
+    rif: str
+    id: str = ""
+    nome: str = ""
+
+
 class NodoSTEP(Base):
     """Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.
 
     Niente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente
-    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2)."""
+    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).
+    v4: `geometria`, il riassunto della geometria (diagnostica); None in una struttura di prima."""
     chiave: str
     id_grezzo: str = ""
     nome_grezzo: str
     descrizione_grezza: str = ""
     rev_grezza: str = ""
     evidenza: dict = Field(default_factory=dict)
+    geometria: GeometriaSTEP | None = None
 
 
 class RelazioneSTEP(Base):
@@ -381,11 +405,13 @@ class RelazioneSTEP(Base):
 
     E' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due
     nodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui
-    padre e figlio non possono stare sulla riga del nodo (A1.1)."""
+    padre e figlio non possono stare sulla riga del nodo (A1.1). v4: `istanze`, le prime occorrenze con il
+    loro id e nome d'istanza (al piu' 20, come le righe dell'evidenza)."""
     padre: str
     figlio: str
     qta: int = 1
     evidenza: dict = Field(default_factory=dict)
+    istanze: list[IstanzaSTEP] = Field(default_factory=list)
 
 
 class LimitiSTEP(Base):
@@ -419,8 +445,11 @@ class StrutturaSTEP(Base):
 
     `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
     nei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere
-    `nodi[].codice` mai piu'."""
-    versione: int = 3
+    `nodi[].codice` mai piu'. La 4 (GP-3, direttiva 21 §5.3) aggiunge la geometria per nodo, i nomi d'istanza
+    delle NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto,
+    nessuna occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti
+    senza definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie."""
+    versione: int = 4
     schema_step: str = Field(default="", alias="schema")
     radici: list[str] = Field(default_factory=list)
     nodi: list[NodoSTEP] = Field(default_factory=list)
@@ -428,6 +457,8 @@ class StrutturaSTEP(Base):
     avvisi: list[str] = Field(default_factory=list)
     scarti: ScartiSTEP = Field(default_factory=ScartiSTEP)
     limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
+    stato: Literal["valida", "parziale", "assente", "non_estraibile"] = "non_estraibile"
+    motivo_stato: str = ""
 
 
 # ---------------------------------------------------------------- testo dei PDF (Smistamento F9)
@@ -445,6 +476,21 @@ ZonaPDF = Literal["basso_destra", "pagina"]
 FonteTestoPDF = Literal["nativo", "ocr"]
 
 
+class AmbiguoOCR(Base):
+    """Un carattere di un testo letto con l'OCR che appartiene a una classe di caratteri facili da scambiare (0/O/o,
+    1/I/l, 5/S, 8/B, 2/Z): la posizione nel testo, il carattere letto e le alternative. Segnalato, MAI corretto."""
+    posizione: int
+    letto: str
+    alternative: list[str] = Field(default_factory=list)
+
+
+class ParolaOCR(Base):
+    """Una parola letta con l'OCR, con la confidenza 0-100 del motore (None se il motore non la da') e il riquadro."""
+    testo: str = ""
+    confidenza: float | None = None
+    riquadro: list[float] = Field(default_factory=list)
+
+
 class FrammentoPDF(Base):
     """Un pezzo di testo del PDF con il suo posto: un blocco del file (o dell'OCR) dentro una zona.
 
@@ -459,6 +505,9 @@ class FrammentoPDF(Base):
     testo: str = ""
     riquadro: list[float] = Field(default_factory=list)
     confidenza: float | None = None
+    # GP-3 (G-8.6), solo per la fonte `ocr`: le parole con la loro confidenza (al piu' 60) e i caratteri ambigui
+    parole: list[ParolaOCR] = Field(default_factory=list)
+    ambigui: list[AmbiguoOCR] = Field(default_factory=list)
 
 
 class CampoCartiglio(Base):
@@ -483,6 +532,8 @@ class CampoCartiglio(Base):
     fonte: FonteTestoPDF = "nativo"
     riquadro: list[float] = Field(default_factory=list)
     confidenza: float | None = None
+    # GP-3 (G-8.6), solo per la fonte `ocr`: i caratteri ambigui del valore (mai corretti)
+    ambigui: list[AmbiguoOCR] = Field(default_factory=list)
 
 
 class TentativoOCR(Base):
@@ -536,6 +587,77 @@ class LimitiTestoPDF(Base):
     ocr_pagine_max: int = 0         # pagine intere lette con l'OCR al massimo
     ocr_tempo_max_s: int = 0        # secondi di OCR al massimo, per file
     ocr_dpi: int = 0                # risoluzione dell'immagine data al motore
+    # dalla sottoversione 3 (GP-3): i tetti delle tabelle
+    tabelle_pagine_max: int = 0     # pagine in cui si cercano le tabelle al massimo
+    tabelle_max: int = 0            # tabelle nel fatto
+    righe_max: int = 0              # righe di dati di tutte le tabelle insieme
+    cella_max: int = 0              # caratteri del valore di una cella
+
+
+# Il ruolo tipico di una colonna (workers/colonne.py): un aiuto di lettura, non un'interpretazione. "" = nessuno.
+RuoloColonna = Literal["", "posizione", "livello", "codice", "descrizione", "quantita", "unita", "materiale", "revisione",
+                       "documento", "nota"]
+
+
+class ColonnaTabella(Base):
+    """Una colonna di una tabella: l'intestazione com'e' scritta, il suo ruolo tipico e il riquadro dell'intestazione.
+    `omessa`: una colonna personale (chi ha disegnato, controllato, firmato): i suoi valori non viaggiano."""
+    indice: int
+    intestazione: str = ""
+    ruolo: RuoloColonna = ""
+    omessa: bool = False
+    riquadro: list[float] = Field(default_factory=list)
+
+
+class CellaTabella(Base):
+    """Una cella di una riga: la colonna (indice, intestazione, ruolo ripetuti per chi legge la riga da sola), il valore
+    GREZZO (le parole della cella, da sinistra a destra) e il riquadro. `sorgente`: gli offset delle entita' nel file da
+    cui viene il valore (righe d'elenco dei DWG); vuoto per i PDF, dove vale il riquadro."""
+    colonna: int
+    intestazione: str = ""
+    ruolo: RuoloColonna = ""
+    valore: str = ""
+    riquadro: list[float] = Field(default_factory=list)
+    omessa: bool = False
+    sorgente: list[int] = Field(default_factory=list)
+
+
+class RigaTabella(Base):
+    """Una riga di dati, in ordine dall'intestazione in fuori. `continuazione`: la riga non ha la cella della posizione
+    (o, se la tabella non ha la colonna della posizione, quella del codice), o ce l'ha senza nessuna cifra: di solito
+    prosegue la riga prima (una descrizione su due righe). Si riporta com'e', mai fusa."""
+    indice: int
+    riquadro: list[float] = Field(default_factory=list)
+    continuazione: bool = False
+    celle: list[CellaTabella] = Field(default_factory=list)
+
+
+class TabellaPDF(Base):
+    """Una tabella riconosciuta dalla sua intestazione (workers/tabelle_testo.py), su una pagina. Il worker ESTRAE le
+    righe e non dice che cosa siano (prodotti richiesti, componenti, menzioni): lo decide il server (PM-35R).
+    `verso`: dove stanno le righe rispetto all'intestazione (`sotto` in un modulo o in una distinta, `sopra`
+    nell'elenco particolari di un disegno, con l'intestazione appoggiata al cartiglio); le righe sono numerate
+    dall'intestazione in fuori."""
+    pagina: int
+    indice: int
+    verso: Literal["sotto", "sopra"] = "sotto"
+    riquadro_intestazione: list[float] = Field(default_factory=list)
+    colonne: list[ColonnaTabella] = Field(default_factory=list)
+    righe: list[RigaTabella] = Field(default_factory=list)
+
+
+class CompletezzaPDF(Base):
+    """Fin dove la lettura delle tabelle copre il documento, perche' il server possa dire «verifica incompleta» e non
+    «codice assente» (direttiva 21 §5.2). `stato`: `completa` (tutte le pagine lette, tutte con testo nativo, nessun
+    tetto raggiunto), `parziale` (pagine oltre il tetto, pagine senza testo nativo, righe o celle troncate: `motivo`),
+    `non_leggibile` (nessun testo nativo nelle pagine lette). `pagine_senza_testo` conta le pagine lette con meno di
+    `ocr_soglia_pagina` caratteri nativi: li' una tabella non si vede."""
+    stato: Literal["completa", "parziale", "non_leggibile"] = "non_leggibile"
+    pagine: int = 0
+    pagine_lette: int = 0
+    pagine_senza_testo: int = 0
+    righe_troncate: bool = False
+    motivo: str = ""
 
 
 class TestoPDF(Base):
@@ -552,8 +674,11 @@ class TestoPDF(Base):
     `pagine_lette < pagine` dice che non si e' letto fino in fondo. `formato_pagina1` e' [larghezza, altezza]
     della pagina 1 vista, per leggere i riquadri. `versione` e' quella della forma di questo oggetto (la
     sottoversione del testo, non la versione dell'analizzatore): la 2 legge il cartiglio con le etichette
-    bilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6)."""
-    versione: int = 2
+    bilingui, il particolare simile e l'intestazione delle tabelle che non e' un campo (giro 4, fase 4.6). La 3
+    (GP-3, direttiva 21) aggiunge le `tabelle` (righe con le colonne e i riquadri, cercate fino a
+    `limiti.tabelle_pagine_max` pagine) e la `completezza` di quella lettura; il cartiglio si legge come nella 2, e i
+    termini della distinta si confrontano senza dieresi (QUANTITY, MENGE, POSITION, STÜCKLISTE)."""
+    versione: int = 3
     estraibile: bool = False
     pagine: int = 0
     pagine_lette: int = 0
@@ -565,6 +690,8 @@ class TestoPDF(Base):
     metadati: MetadatiPDF = Field(default_factory=MetadatiPDF)
     ocr: OCRPDF = Field(default_factory=OCRPDF)
     limiti: LimitiTestoPDF = Field(default_factory=LimitiTestoPDF)
+    tabelle: list[TabellaPDF] = Field(default_factory=list)
+    completezza: CompletezzaPDF = Field(default_factory=CompletezzaPDF)
 
 
 # ---------------------------------------------------------------- testo dei DXF (K4)
@@ -580,6 +707,8 @@ class LimitiTestoDXF(Base):
     testi_max: int = 0   # testi risolti (dopo gli INSERT) al massimo
     testo_max: int = 0   # caratteri conservati di un testo
     campi_max: int = 0   # campi del cartiglio
+    profondita_max: int = 0  # dalla v2: livelli di INSERT seguiti
+    inserti_max: int = 0     # dalla v2: INSERT visitati al massimo
 
 
 class TestoDXF(Base):
@@ -594,8 +723,14 @@ class TestoDXF(Base):
     cartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,
     con la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di
     questo oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il
-    server lo rianalizza con «Rianalizza»."""
-    versione: int = 1
+    server lo rianalizza con «Rianalizza».
+
+    La 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente (trasformazione composta, profondita'
+    massima, guardia sui cicli, budget) e gli INSERT ruotati (la regola del cartiglio nel sistema del blocco).
+    `annidati` sono gli INSERT dentro un blocco NON seguiti; `annidati_seguiti` quelli seguiti; `oltre_profondita` e
+    `cicli` perche' non si sono seguiti; `specchiati` i testi dei blocchi specchiati (non usati per il cartiglio).
+    `parziale` e' vero quando qualcosa non e' stato letto (anche un tetto, `troncato`), con i motivi in `motivo`."""
+    versione: int = 2
     esito: Literal["letto", "non_letto"] = "letto"
     motivo: str = ""
     versione_dxf: str = ""
@@ -605,6 +740,178 @@ class TestoDXF(Base):
     troncato: bool = False
     cartiglio: list[CampoCartiglio] = Field(default_factory=list)
     limiti: LimitiTestoDXF = Field(default_factory=LimitiTestoDXF)
+    annidati_seguiti: int = 0
+    oltre_profondita: int = 0
+    cicli: int = 0
+    specchiati: int = 0
+    parziale: bool = False
+
+
+# ---------------------------------------------------------------- testo dei DWG R12 (GP-3, G-8.4)
+
+
+class SorgenteDWG(Base):
+    """Da dove viene un campo nel file DWG: l'offset dell'entita' del valore (e di quella dell'etichetta), la sezione
+    (ENTITIES, BLOCKS, EXTRA), il blocco che la contiene e il tipo d'entita' (TEXT, ATTRIB)."""
+    offset_entita: int = -1
+    sezione: str = ""
+    blocco: str = ""
+    tipo_entita: str = ""
+    offset_etichetta: int = -1
+
+
+class CampoCartiglioDWG(CampoCartiglio):
+    """Un campo del cartiglio di un DWG: come CampoCartiglio (riquadro del valore in unita' del disegno, y verso
+    l'alto), con la sorgente nel file."""
+    sorgente: SorgenteDWG = Field(default_factory=SorgenteDWG)
+
+
+class LimitiTestoDWG(Base):
+    byte_max: int = 0
+    entita_max: int = 0
+    testi_max: int = 0
+    testo_max: int = 0
+    campi_max: int = 0
+    profondita_max: int = 0
+    inserti_max: int = 0
+    righe_max: int = 0
+
+
+class TestoDWG(Base):
+    """Il testo di un DWG, dentro `RisultatoAnalisi.dettagli["testo_dwg"]` (workers/dwg_testo.py).
+
+    `esito`: `letto` (R11/R12, AC1009: un cartiglio vuoto e' una risposta), `non_supportato` (un'altra versione DWG:
+    `versione_dwg` la dice, `motivo` spiega), `non_letto` (non e' un DWG, o la lettura e' fallita: `motivo`). Mai un
+    successo vuoto. Come TestoDXF: solo i campi del cartiglio riconosciuti (con la sorgente nel file) e le righe delle
+    tabelle riconosciute (`tabelle`, la stessa forma delle tabelle dei PDF con i riquadri in unita' del disegno, y verso
+    l'alto, e in ogni cella gli offset delle entita' in `sorgente`); mai gli altri testi. `non_decodificate`: entita' di
+    testo o INSERT la cui lunghezza non torna (non si indovinano); `parziale` e' vero quando qualcosa non e' stato
+    letto, con i motivi."""
+    versione: int = 1
+    esito: Literal["letto", "non_supportato", "non_letto"] = "letto"
+    motivo: str = ""
+    versione_dwg: str = ""
+    codifica: str = ""
+    entita: int = 0
+    testi: int = 0
+    cancellate_ignorate: int = 0
+    non_decodificate: int = 0
+    con_dati_estesi: int = 0
+    annidati: int = 0
+    annidati_seguiti: int = 0
+    oltre_profondita: int = 0
+    cicli: int = 0
+    specchiati: int = 0
+    troncato: bool = False
+    parziale: bool = False
+    cartiglio: list[CampoCartiglioDWG] = Field(default_factory=list)
+    tabelle: list[TabellaPDF] = Field(default_factory=list)
+    limiti: LimitiTestoDWG = Field(default_factory=LimitiTestoDWG)
+
+
+# ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
+#
+# Le celle di un foglio XLSX/XLSM, SpreadsheetML o CSV (workers/foglio_dati.py), con il testo ESATTO del file, il tipo,
+# la formula separata dal valore memorizzato, lo stile che puo' portare uno stato e i collegamenti ridotti a nome ed
+# estensione. Nessuna interpretazione: «rosso = obsoleto» lo dice una regola del cliente sul server.
+
+
+class StileCella(Base):
+    """Lo stile di una cella, solo se porta qualcosa rispetto al predefinito. `colore_font` e `riempimento`: ARGB
+    («FFFF0000») quando il file lo dice o la tavolozza lo risolve, altrimenti «theme:N[:tinta]» o «indexed:N»; `apice`:
+    il testo era scritto con l'apostrofo iniziale (quotePrefix); `formato_numero`: il codice del formato («00000»,
+    «@», «0.00»), vuoto per il generale."""
+    colore_font: str = ""
+    grassetto: bool = False
+    corsivo: bool = False
+    barrato: bool = False
+    sottolineato: bool = False
+    riempimento: str = ""
+    apice: bool = False
+    formato_numero: str = ""
+
+
+class CollegamentoCella(Base):
+    """Il collegamento di una cella, ridotto: il tipo e il nome del file con l'estensione. Mai cartelle, host o
+    indirizzi di posta, e mai seguito."""
+    tipo: Literal["relativo", "assoluto", "url", "interno", "posta"] = "relativo"
+    nome_base: str = ""
+    estensione: str = ""
+
+
+class CellaFoglio(Base):
+    """Una cella non vuota. `tipo` e' quello del valore memorizzato: s (testo), n (numero), b, d, e (errore). `grezzo`
+    e' il testo come sta nel file: la stringa intera (zeri iniziali e spazi compresi), il numero come e' scritto (non
+    riformattato). `da_formula`: la cella ha una formula (`formula` e' il suo testo, vuoto per le formule condivise
+    che non lo ripetono) e `grezzo` e' il valore che il file aveva memorizzato, non ricalcolato. `stile` e' l'indice in
+    FoglioDati.stili (None: lo stile predefinito, niente di notevole)."""
+    foglio: int
+    ind: str
+    r: int
+    c: int
+    tipo: Literal["s", "n", "b", "d", "e"] = "s"
+    grezzo: str = ""
+    formula: str = ""
+    da_formula: bool = False
+    stile: int | None = None
+    collegamento: CollegamentoCella | None = None
+
+
+class FoglioInfo(Base):
+    """Un foglio della cartella: posizione, nome, visibilita', dimensione dichiarata, celle lette e celle unite."""
+    indice: int
+    nome: str = ""
+    stato: Literal["visibile", "nascosto", "molto_nascosto"] = "visibile"
+    dimensione: str = ""
+    celle: int = 0
+    unite: list[str] = Field(default_factory=list)
+    troncato: bool = False
+
+
+class ColonnaFoglio(Base):
+    c: int
+    ind: str = ""
+    testo: str = ""
+    ruolo: RuoloColonna = ""
+
+
+class IntestazioneFoglio(Base):
+    """Una riga candidata intestazione (nomi di colonna con un ruolo tipico, workers/colonne.py): un aiuto di lettura."""
+    foglio: int
+    riga: int
+    colonne: list[ColonnaFoglio] = Field(default_factory=list)
+
+
+class LimitiFoglio(Base):
+    byte_max: int = 0
+    parte_max: int = 0
+    rapporto_max: int = 0
+    fogli_max: int = 0
+    celle_max: int = 0
+    testo_max: int = 0
+    unite_max: int = 0
+
+
+class FoglioDati(Base):
+    """Il fatto `foglio_dati` (RisultatoAnalisi.dettagli["foglio_dati"]). `esito`: `letto`, `parziale` (un tetto
+    raggiunto: `motivo`, `troncato`), `non_supportato` (BIFF di Excel 97-2003, HTML, una cartella cifrata: il limite e'
+    dichiarato, non nascosto), `non_letto` (il file non si legge: `motivo`). `formato` viene dai byte, non
+    dall'estensione. `sha256` e' la versione della cartella: due versioni dello stesso file sono due fatti. Le macro non
+    si eseguono (`macro_presenti`) e i collegamenti esterni non si seguono (`collegamenti_esterni`)."""
+    versione: int = 1
+    esito: Literal["letto", "parziale", "non_supportato", "non_letto"] = "letto"
+    motivo: str = ""
+    formato: Literal["xlsx", "xlsm", "xls_xml", "xls_biff", "csv", "html", "xml", "sconosciuto"] = "sconosciuto"
+    sha256: str = ""
+    codifica: str = ""
+    fogli: list[FoglioInfo] = Field(default_factory=list)
+    celle: list[CellaFoglio] = Field(default_factory=list)
+    stili: list[StileCella] = Field(default_factory=list)
+    intestazioni_candidate: list[IntestazioneFoglio] = Field(default_factory=list)
+    macro_presenti: bool = False
+    collegamenti_esterni: int = 0
+    troncato: bool = False
+    limiti: LimitiFoglio = Field(default_factory=LimitiFoglio)
 
 
 class RisultatoAnalisi(Base):
@@ -647,4 +954,6 @@ CONTRATTI = {
     "struttura_step": StrutturaSTEP,
     "testo_pdf": TestoPDF,
     "testo_dxf": TestoDXF,
+    "foglio_dati": FoglioDati,
+    "testo_dwg": TestoDWG,
 }

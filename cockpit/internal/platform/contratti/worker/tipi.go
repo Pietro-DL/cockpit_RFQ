@@ -523,6 +523,61 @@ type StrutturaSTEP struct {
 	// Scarti c'è dalla versione 3 (A4.4, D35); in una v2 manca, ed è nil.
 	Scarti *ScartiSTEP `json:"scarti"`
 	Limiti LimitiSTEP  `json:"limiti"`
+	// Dalla versione 4 (GP-3, direttiva 21 §5.3): lo stato della struttura (Struttura…) e il suo motivo. In una
+	// struttura di prima è "": lo stato non si deduce, si rilegge (StrutturaDaRileggere).
+	Stato       string `json:"stato"`
+	MotivoStato string `json:"motivo_stato"`
+}
+
+// VersioneStruttura è la versione della forma di `struttura` che il worker di oggi scrive (StrutturaSTEP.Versione). La
+// 4 (GP-3) aggiunge la geometria per nodo (diagnostica), i nomi d'istanza delle NAUO e lo stato della struttura.
+const VersioneStruttura = 4
+
+// Gli stati della struttura di uno STEP (StrutturaSTEP.Stato, dalla v4). StrutturaAssente NON vuol dire «pezzo unico»:
+// dice che nel file non c'è nessuna occorrenza d'assieme. Sono diagnostica: nessun nodo si toglie per questo.
+const (
+	StrutturaValida        = "valida"
+	StrutturaParziale      = "parziale"       // un tetto, occorrenze non risolte, prodotti senza definizione
+	StrutturaAssente       = "assente"        // letta, nessuna NAUO
+	StrutturaNonEstraibile = "non_estraibile" // non Part 21, lettura fallita
+)
+
+// GeometriaSTEP è il riassunto della geometria di un nodo (v4), dalle rappresentazioni della sua forma e da quelle
+// legate senza trasformazione: diagnostica, MAI motivo di rimozione. Vuota: nessun elemento geometrico (solo
+// posizionamenti, o nessuna rappresentazione); un nodo vuoto con figli è un contenitore CAD.
+type GeometriaSTEP struct {
+	Solidi           int  `json:"solidi"`
+	Superfici        int  `json:"superfici"`
+	Curve            int  `json:"curve"`
+	Mappati          int  `json:"mappati"`
+	Rappresentazioni int  `json:"rappresentazioni"`
+	Vuota            bool `json:"vuota"`
+}
+
+// IstanzaSTEP: un'occorrenza NAUO di una relazione, con l'id e il nome d'istanza grezzi (v4).
+type IstanzaSTEP struct {
+	Rif  string `json:"rif"`
+	ID   string `json:"id"`
+	Nome string `json:"nome"`
+}
+
+// StrutturaDaRileggere dice se «Rianalizza» deve riaccodare uno STEP con questi fatti dell'analizzatore corrente: la
+// struttura manca o è di una versione di prima di VersioneStruttura (la geometria per nodo e lo stato non ci sono).
+// Fino a GP-3 gli STEP si rileggevano solo con una versione nuova dell'analizzatore; l'idoneità per estensione (stp,
+// step) è del chiamante (fascicolo, da estendere: consegna al core).
+func StrutturaDaRileggere(fatti json.RawMessage) bool {
+	if len(fatti) == 0 {
+		return true
+	}
+	var involucro struct {
+		Struttura *struct {
+			Versione int `json:"versione"`
+		} `json:"struttura"`
+	}
+	if err := json.Unmarshal(fatti, &involucro); err != nil || involucro.Struttura == nil {
+		return true
+	}
+	return involucro.Struttura.Versione < VersioneStruttura
 }
 
 // ScartiSTEP: che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3).
@@ -548,6 +603,8 @@ type NodoSTEP struct {
 	DescrizioneGrezza string         `json:"descrizione_grezza"` // PRODUCT.description, terzo
 	RevGrezza         string         `json:"rev_grezza"`         // PRODUCT_DEFINITION_FORMATION.id
 	Evidenza          map[string]any `json:"evidenza"`           // entità e righe da cui viene
+	// Geometria: il riassunto della geometria (v4, diagnostica); nil in una struttura di prima.
+	Geometria *GeometriaSTEP `json:"geometria"`
 }
 
 // RelazioneSTEP: «il nodo padre contiene il nodo figlio, Qta volte».
@@ -559,6 +616,8 @@ type RelazioneSTEP struct {
 	Figlio   string         `json:"figlio"`
 	Qta      int            `json:"qta"`
 	Evidenza map[string]any `json:"evidenza"`
+	// Istanze: le prime occorrenze con id e nome d'istanza (v4, al più 20); vuota in una struttura di prima.
+	Istanze []IstanzaSTEP `json:"istanze"`
 }
 
 // LimitiSTEP dice fin dove si è letto. `Troncato` vero significa che il grafo è PARZIALE: la
@@ -660,7 +719,24 @@ const (
 // dell'analizzatore non cambia (domanda 21 del giro 4 senza risposta), e cosi' non decade niente di quello che e'
 // legato alla chiave dei fatti. La fase 4.12 (l'elenco particolari) usera' la stessa sottoversione: un solo
 // pacchetto della postazione, una sola rianalisi.
-const VersioneTestoPDF = 2
+//
+// La 3 (GP-3, direttiva 21 §5.1-5.2) aggiunge le tabelle (TabellaPDF: righe con colonne, valori grezzi e riquadri,
+// da qualunque PDF con testo nativo e un'intestazione riconoscibile) e la loro completezza (CompletezzaPDF), e il
+// worker confronta i termini della distinta senza dieresi. Il cartiglio si legge come nella 2: per questo la soglia
+// del cartiglio «di prima» e' VersioneCartiglioPDF, non questa. «Rianalizza» riaccoda i PDF della 2 per le tabelle
+// (classificazione.TestoPDFDaRileggere), senza declassarne il cartiglio.
+const VersioneTestoPDF = 3
+
+// VersioneCartiglioPDF e' la sottoversione piu' vecchia il cui cartiglio si legge come quello di oggi (fase 4.6: la
+// 2). Un testo con una sottoversione minore ha il cartiglio «di prima» (classificazione.testoDiPrima,
+// estrazione.contenutoPDF): chiavi e indizi, mai il codice del file. Si separa da VersioneTestoPDF dalla 3, che
+// aggiunge le tabelle e non cambia il cartiglio.
+const VersioneCartiglioPDF = 2
+
+// CartiglioPDFDiPrima dice se il cartiglio di questo testo e' stato letto con le regole di prima della fase 4.6.
+func CartiglioPDFDiPrima(t *TestoPDF) bool {
+	return t != nil && t.Versione < VersioneCartiglioPDF
+}
 
 // TestoPDF è la lettura strutturata del testo di un PDF, dentro `RisultatoAnalisi.dettagli["testo_pdf"]`
 // dall'analizzatore 4 (addendum A5.13.8, decisioni del 27/09 «ter»).
@@ -687,6 +763,95 @@ type TestoPDF struct {
 	Metadati       MetadatiPDF      `json:"metadati"`
 	OCR            OCRPDF           `json:"ocr"`
 	Limiti         LimitiTestoPDF   `json:"limiti"`
+	// Dalla sottoversione 3 (GP-3): le tabelle e la completezza della loro lettura. In un testo della 2 mancano:
+	// Tabelle e' nil e Completezza e' nil, e nil non vuol dire «nessuna tabella» ne' «letto tutto».
+	Tabelle     []TabellaPDF    `json:"tabelle"`
+	Completezza *CompletezzaPDF `json:"completezza"`
+}
+
+// I ruoli tipici di una colonna (ColonnaTabella.Ruolo, CellaTabella.Ruolo; workers/colonne.py): un aiuto di lettura,
+// non un'interpretazione. RuoloNessuno = nessun ruolo riconosciuto, l'intestazione resta.
+const (
+	RuoloNessuno     = ""
+	RuoloPosizione   = "posizione"
+	RuoloLivello     = "livello"
+	RuoloCodice      = "codice"
+	RuoloDescrizione = "descrizione"
+	RuoloQuantita    = "quantita"
+	RuoloUnita       = "unita"
+	RuoloMateriale   = "materiale"
+	RuoloRevisione   = "revisione"
+	RuoloDocumento   = "documento"
+	RuoloNota        = "nota"
+)
+
+// Dove stanno le righe di una tabella rispetto all'intestazione (TabellaPDF.Verso).
+const (
+	VersoSotto = "sotto"
+	VersoSopra = "sopra"
+)
+
+// Gli stati della completezza delle tabelle di un PDF (CompletezzaPDF.Stato).
+const (
+	CompletezzaCompleta     = "completa"      // tutte le pagine lette, tutte con testo nativo, nessun tetto
+	CompletezzaParziale     = "parziale"      // pagine oltre il tetto o senza testo nativo, righe troncate (Motivo)
+	CompletezzaNonLeggibile = "non_leggibile" // nessun testo nativo nelle pagine lette
+)
+
+// TabellaPDF e' una tabella riconosciuta dalla sua intestazione su una pagina (workers/tabelle_testo.py). Il worker
+// estrae le righe e non dice che cosa siano: prodotti richiesti, componenti o menzioni lo decide il server con il
+// profilo del cliente (PM-35R). Riquadri in punti sulla pagina vista, come i frammenti.
+type TabellaPDF struct {
+	Pagina int `json:"pagina"`
+	Indice int `json:"indice"`
+	// Verso: le righe stanno sotto l'intestazione (VersoSotto: un modulo, una distinta) o sopra (VersoSopra: l'elenco
+	// particolari di un disegno, con l'intestazione appoggiata al cartiglio); numerate dall'intestazione in fuori.
+	Verso                string           `json:"verso"`
+	RiquadroIntestazione []float64        `json:"riquadro_intestazione"`
+	Colonne              []ColonnaTabella `json:"colonne"`
+	Righe                []RigaTabella    `json:"righe"`
+}
+
+// ColonnaTabella: l'intestazione com'e' scritta, il ruolo tipico, il riquadro. Omessa: una colonna personale
+// (disegnato, controllato, firma): i suoi valori non viaggiano.
+type ColonnaTabella struct {
+	Indice       int       `json:"indice"`
+	Intestazione string    `json:"intestazione"`
+	Ruolo        string    `json:"ruolo"`
+	Omessa       bool      `json:"omessa"`
+	Riquadro     []float64 `json:"riquadro"`
+}
+
+// RigaTabella: una riga di dati. Continuazione: senza la cella della posizione (o del codice, se manca la colonna
+// della posizione), di solito il seguito della riga sopra; mai fusa dal worker.
+type RigaTabella struct {
+	Indice        int            `json:"indice"`
+	Riquadro      []float64      `json:"riquadro"`
+	Continuazione bool           `json:"continuazione"`
+	Celle         []CellaTabella `json:"celle"`
+}
+
+// CellaTabella: il valore grezzo di una colonna in una riga, con il riquadro. Sorgente: gli offset delle entita' nel
+// file (righe d'elenco dei DWG); vuota per i PDF.
+type CellaTabella struct {
+	Colonna      int       `json:"colonna"`
+	Intestazione string    `json:"intestazione"`
+	Ruolo        string    `json:"ruolo"`
+	Valore       string    `json:"valore"`
+	Riquadro     []float64 `json:"riquadro"`
+	Omessa       bool      `json:"omessa"`
+	Sorgente     []int64   `json:"sorgente"`
+}
+
+// CompletezzaPDF dice fin dove le tabelle coprono il documento: con Stato diverso da CompletezzaCompleta il server dice
+// «verifica incompleta», non «codice assente» (direttiva 21 §5.2).
+type CompletezzaPDF struct {
+	Stato            string `json:"stato"`
+	Pagine           int    `json:"pagine"`
+	PagineLette      int    `json:"pagine_lette"`
+	PagineSenzaTesto int    `json:"pagine_senza_testo"`
+	RigheTroncate    bool   `json:"righe_troncate"`
+	Motivo           string `json:"motivo"`
 }
 
 // FrammentoPDF è un pezzo di testo con il suo posto: un blocco del file (o dell'OCR) dentro una zona. La
@@ -698,6 +863,25 @@ type FrammentoPDF struct {
 	Testo      string    `json:"testo"`
 	Riquadro   []float64 `json:"riquadro"`
 	Confidenza *float64  `json:"confidenza"`
+	// GP-3 (G-8.6), solo per la fonte ocr: le parole con la confidenza di ciascuna e i caratteri ambigui del testo
+	Parole  []ParolaOCR  `json:"parole"`
+	Ambigui []AmbiguoOCR `json:"ambigui"`
+}
+
+// ParolaOCR è una parola letta con l'OCR: il testo, la confidenza 0–100 del motore (nil se non la dà), il riquadro.
+type ParolaOCR struct {
+	Testo      string    `json:"testo"`
+	Confidenza *float64  `json:"confidenza"`
+	Riquadro   []float64 `json:"riquadro"`
+}
+
+// AmbiguoOCR è un carattere di un testo OCR che appartiene a una classe facile da scambiare (0/O/o, 1/I/l, 5/S, 8/B,
+// 2/Z): la posizione nel testo (in caratteri), il carattere letto e le alternative. Il worker lo segnala e non lo
+// corregge: la tolleranza vale solo con la provenienza ocr, e mai come conferma.
+type AmbiguoOCR struct {
+	Posizione   int      `json:"posizione"`
+	Letto       string   `json:"letto"`
+	Alternative []string `json:"alternative"`
 }
 
 // CampoCartiglio è un campo del probabile cartiglio della pagina 1, come etichetta → valore («DISEGNO N.» →
@@ -713,6 +897,25 @@ type CampoCartiglio struct {
 	Fonte      string    `json:"fonte"`
 	Riquadro   []float64 `json:"riquadro"`
 	Confidenza *float64  `json:"confidenza"`
+	// GP-3 (G-8.6), solo per la fonte ocr: i caratteri ambigui del valore (mai corretti)
+	Ambigui []AmbiguoOCR `json:"ambigui"`
+}
+
+// TestoPDFAttendeOCR dice se un PDF letto senza motore OCR (OCR «non_disponibile» con dei passaggi saltati) va
+// rianalizzato quando la postazione del worker dichiara l'OCR disponibile (GP-3, G-8.6). Prima nessun predicato lo
+// diceva: un PDF letto senza motore restava così per sempre. Chi sa se l'OCR adesso c'è è il chiamante (la presenza
+// della postazione): qui si dice solo che il fatto lo aspetta.
+func TestoPDFAttendeOCR(fatti json.RawMessage) bool {
+	t, ok := DecodificaTestoPDF(fatti)
+	if !ok || t.OCR.Stato != OCRNonDisponibile {
+		return false
+	}
+	for _, p := range t.OCR.Tentativi {
+		if p.Esito == "saltato" {
+			return true
+		}
+	}
+	return false
 }
 
 // OCRPDF è quello che ha fatto l'OCR selettivo: lo stato (OCR…), il motivo di quello che non è andato, il
@@ -758,6 +961,11 @@ type LimitiTestoPDF struct {
 	OCRPagineMax       int `json:"ocr_pagine_max"`
 	OCRTempoMaxS       int `json:"ocr_tempo_max_s"`
 	OCRDpi             int `json:"ocr_dpi"`
+	// dalla sottoversione 3: i tetti delle tabelle
+	TabellePagineMax int `json:"tabelle_pagine_max"`
+	TabelleMax       int `json:"tabelle_max"`
+	RigheMax         int `json:"righe_max"`
+	CellaMax         int `json:"cella_max"`
 }
 
 // DecodificaTestoPDF estrae la lettura del testo dai dettagli di un'analisi.
@@ -796,7 +1004,12 @@ const (
 // versione dell'analizzatore). Un DXF con i fatti correnti senza `testo_dxf`, o con una versione di prima, si
 // riaccoda con «Rianalizza» (fascicolo.AccodaPdfDaRileggere, TestoDXFDaRileggere), come i PDF della sottoversione
 // di prima: la versione dell'analizzatore non cambia.
-const VersioneTestoDXF = 1
+//
+// La 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente, con la trasformazione composta, la
+// profondità massima e la guardia sui cicli, e segue anche gli INSERT ruotati (la regola del cartiglio nel sistema del
+// blocco). Annidati sono da qui gli INSERT dentro un blocco NON seguiti; AnnidatiSeguiti, OltreProfondita, Cicli e
+// Specchiati dicono il resto, e Parziale è vero quando qualcosa non è stato letto.
+const VersioneTestoDXF = 2
 
 // TestoDXF è la lettura del testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli["testo_dxf"]` (K4,
 // workers/dxf_testo.py). Come TestoPDF sono FATTI, senza codici: solo i campi del cartiglio che il worker riconosce
@@ -815,6 +1028,12 @@ type TestoDXF struct {
 	Troncato    bool             `json:"troncato"`
 	Cartiglio   []CampoCartiglio `json:"cartiglio"`
 	Limiti      LimitiTestoDXF   `json:"limiti"`
+	// dalla v2 (GP-3): i conti degli INSERT e la parzialità; in una v1 sono zero e falso
+	AnnidatiSeguiti int  `json:"annidati_seguiti"`
+	OltreProfondita int  `json:"oltre_profondita"`
+	Cicli           int  `json:"cicli"`
+	Specchiati      int  `json:"specchiati"`
+	Parziale        bool `json:"parziale"`
 }
 
 // LimitiTestoDXF: i tetti in vigore QUANDO il DXF è stato letto (come LimitiTestoPDF).
@@ -823,6 +1042,9 @@ type LimitiTestoDXF struct {
 	TestiMax int `json:"testi_max"`
 	TestoMax int `json:"testo_max"`
 	CampiMax int `json:"campi_max"`
+	// dalla v2: i livelli di INSERT seguiti e gli INSERT visitati al massimo
+	ProfonditaMax int `json:"profondita_max"`
+	InsertiMax    int `json:"inserti_max"`
 }
 
 // DecodificaTestoDXF estrae la lettura del testo di un DXF dai dettagli di un'analisi, come DecodificaTestoPDF: falso
@@ -846,10 +1068,239 @@ func DecodificaTestoDXF(dettagli json.RawMessage) (*TestoDXF, bool) {
 }
 
 // TestoDXFDaRileggere dice se «Rianalizza» deve riaccodare un DXF con questi fatti dell'analizzatore corrente: il
-// testo non c'è (un worker di prima del K4) o è di una versione di prima di VersioneTestoDXF.
+// testo non c'è (un worker di prima del K4) o è stato LETTO con una versione di prima di VersioneTestoDXF. GP-3: un DXF
+// non letto (binario, non ASCII) di una versione di prima no: la v2 lo legge allo stesso modo, e rileggerlo non
+// cambia la risposta.
 func TestoDXFDaRileggere(fatti json.RawMessage) bool {
 	t, ok := DecodificaTestoDXF(fatti)
-	return !ok || t.Versione < VersioneTestoDXF
+	return !ok || (t.Versione < VersioneTestoDXF && t.Esito == DXFLetto)
+}
+
+// ---------------------------------------------------------------- testo dei DWG R12 (GP-3, G-8.4)
+
+// Gli esiti della lettura di un DWG (TestoDWG.Esito).
+const (
+	DWGLetto         = "letto"          // R11/R12 (AC1009): un cartiglio vuoto è una risposta
+	DWGNonSupportato = "non_supportato" // un'altra versione DWG (VersioneDWG la dice): limite dichiarato
+	DWGNonLetto      = "non_letto"      // non è un DWG, o la lettura è fallita (Motivo)
+)
+
+// VersioneTestoDWG è la versione della forma di `testo_dwg` che il worker di oggi scrive. Un DWG analizzato prima ha i
+// dettagli vuoti: TestoDWGDaRileggere lo riaccoda.
+const VersioneTestoDWG = 1
+
+// TestoDWG è il testo di un DWG (workers/dwg_testo.py): come TestoDXF, solo i campi del cartiglio riconosciuti (con la
+// sorgente nel file) e le righe delle tabelle riconosciute (la forma di TabellaPDF, riquadri in unità del disegno con
+// la y verso l'alto, offset delle entità in CellaTabella.Sorgente), mai gli altri testi. NonDecodificate: entità di
+// testo o INSERT la cui lunghezza non torna, mai indovinate; Parziale con i motivi.
+type TestoDWG struct {
+	Versione           int                 `json:"versione"`
+	Esito              string              `json:"esito"`
+	Motivo             string              `json:"motivo"`
+	VersioneDWG        string              `json:"versione_dwg"`
+	Codifica           string              `json:"codifica"`
+	Entita             int                 `json:"entita"`
+	Testi              int                 `json:"testi"`
+	CancellateIgnorate int                 `json:"cancellate_ignorate"`
+	NonDecodificate    int                 `json:"non_decodificate"`
+	ConDatiEstesi      int                 `json:"con_dati_estesi"`
+	Annidati           int                 `json:"annidati"`
+	AnnidatiSeguiti    int                 `json:"annidati_seguiti"`
+	OltreProfondita    int                 `json:"oltre_profondita"`
+	Cicli              int                 `json:"cicli"`
+	Specchiati         int                 `json:"specchiati"`
+	Troncato           bool                `json:"troncato"`
+	Parziale           bool                `json:"parziale"`
+	Cartiglio          []CampoCartiglioDWG `json:"cartiglio"`
+	Tabelle            []TabellaPDF        `json:"tabelle"`
+	Limiti             LimitiTestoDWG      `json:"limiti"`
+}
+
+// CampoCartiglioDWG è un CampoCartiglio con la sorgente nel file DWG.
+type CampoCartiglioDWG struct {
+	CampoCartiglio
+	Sorgente SorgenteDWG `json:"sorgente"`
+}
+
+// SorgenteDWG: l'offset dell'entità del valore (e di quella dell'etichetta) nel file, la sezione (ENTITIES, BLOCKS,
+// EXTRA), il blocco che la contiene e il tipo d'entità (TEXT, ATTRIB). -1 = non noto.
+type SorgenteDWG struct {
+	OffsetEntita    int64  `json:"offset_entita"`
+	Sezione         string `json:"sezione"`
+	Blocco          string `json:"blocco"`
+	TipoEntita      string `json:"tipo_entita"`
+	OffsetEtichetta int64  `json:"offset_etichetta"`
+}
+
+// LimitiTestoDWG: i tetti in vigore quando il DWG è stato letto.
+type LimitiTestoDWG struct {
+	ByteMax       int `json:"byte_max"`
+	EntitaMax     int `json:"entita_max"`
+	TestiMax      int `json:"testi_max"`
+	TestoMax      int `json:"testo_max"`
+	CampiMax      int `json:"campi_max"`
+	ProfonditaMax int `json:"profondita_max"`
+	InsertiMax    int `json:"inserti_max"`
+	RigheMax      int `json:"righe_max"`
+}
+
+// DecodificaTestoDWG estrae `testo_dwg` dai dettagli di un'analisi: falso quando manca (un DWG analizzato prima di GP-3
+// ha i dettagli vuoti) o la versione è sconosciuta (< 1). Un DWG non supportato si decodifica: è una risposta.
+func DecodificaTestoDWG(dettagli json.RawMessage) (*TestoDWG, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Testo *TestoDWG `json:"testo_dwg"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Testo == nil || involucro.Testo.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Testo, true
+}
+
+// TestoDWGDaRileggere dice se «Rianalizza» deve riaccodare un DWG con questi fatti dell'analizzatore corrente: il testo
+// non c'è (un DWG analizzato prima di GP-3) o è di una versione di prima. Un DWG non supportato della versione di oggi
+// no: rileggerlo non cambia la risposta. L'idoneità per estensione (dwg) è del chiamante (fascicolo, da estendere:
+// consegna al core).
+func TestoDWGDaRileggere(fatti json.RawMessage) bool {
+	t, ok := DecodificaTestoDWG(fatti)
+	return !ok || t.Versione < VersioneTestoDWG
+}
+
+// ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
+
+// Gli esiti della lettura di un foglio (FoglioDati.Esito).
+const (
+	FoglioLetto         = "letto"
+	FoglioParziale      = "parziale"       // un tetto raggiunto: Motivo, Troncato
+	FoglioNonSupportato = "non_supportato" // BIFF di Excel 97-2003, HTML, cartella cifrata: limite dichiarato
+	FoglioNonLetto      = "non_letto"      // il file non si legge (Motivo)
+)
+
+// VersioneFoglioDati e' la versione della forma di `foglio_dati` che il worker di oggi scrive. Un foglio (xls, xlsx,
+// xlsm, csv) analizzato prima ha i dettagli vuoti: FoglioDatiDaRileggere lo riaccoda.
+const VersioneFoglioDati = 1
+
+// FoglioDati e' il fatto `foglio_dati` (workers/foglio_dati.py): le celle non vuote con il testo ESATTO del file, il
+// tipo del valore memorizzato, la formula separata, lo stile che puo' portare uno stato (indice in Stili) e il
+// collegamento ridotto a nome ed estensione. Nessuna interpretazione: «rosso = obsoleto» lo dice una regola del
+// cliente. Sha256 e' la versione della cartella: due versioni dello stesso file sono due fatti.
+type FoglioDati struct {
+	Versione              int                  `json:"versione"`
+	Esito                 string               `json:"esito"`
+	Motivo                string               `json:"motivo"`
+	Formato               string               `json:"formato"`
+	Sha256                string               `json:"sha256"`
+	Codifica              string               `json:"codifica"`
+	Fogli                 []FoglioInfo         `json:"fogli"`
+	Celle                 []CellaFoglio        `json:"celle"`
+	Stili                 []StileCella         `json:"stili"`
+	IntestazioniCandidate []IntestazioneFoglio `json:"intestazioni_candidate"`
+	MacroPresenti         bool                 `json:"macro_presenti"`
+	CollegamentiEsterni   int                  `json:"collegamenti_esterni"`
+	Troncato              bool                 `json:"troncato"`
+	Limiti                LimitiFoglio         `json:"limiti"`
+}
+
+// FoglioInfo: un foglio della cartella (posizione, nome, visibilita', dimensione dichiarata, celle lette, unite).
+type FoglioInfo struct {
+	Indice     int      `json:"indice"`
+	Nome       string   `json:"nome"`
+	Stato      string   `json:"stato"` // visibile | nascosto | molto_nascosto
+	Dimensione string   `json:"dimensione"`
+	Celle      int      `json:"celle"`
+	Unite      []string `json:"unite"`
+	Troncato   bool     `json:"troncato"`
+}
+
+// CellaFoglio: una cella non vuota. Tipo del valore memorizzato: s, n, b, d, e. Grezzo e' il testo come sta nel file
+// (zeri iniziali e spazi compresi; il numero come e' scritto). DaFormula con Formula (vuota per una formula condivisa
+// che non la ripete): Grezzo e' il valore memorizzato, non ricalcolato. Stile e' l'indice in FoglioDati.Stili (nil:
+// predefinito).
+type CellaFoglio struct {
+	Foglio       int                `json:"foglio"`
+	Ind          string             `json:"ind"`
+	R            int                `json:"r"`
+	C            int                `json:"c"`
+	Tipo         string             `json:"tipo"`
+	Grezzo       string             `json:"grezzo"`
+	Formula      string             `json:"formula"`
+	DaFormula    bool               `json:"da_formula"`
+	Stile        *int               `json:"stile"`
+	Collegamento *CollegamentoCella `json:"collegamento"`
+}
+
+// StileCella: lo stile che puo' portare uno stato. ColoreFont e Riempimento: ARGB («FFFF0000») o «theme:N[:tinta]» o
+// «indexed:N»; Apice: l'apostrofo iniziale (quotePrefix); FormatoNumero: il codice del formato, vuoto per il generale.
+type StileCella struct {
+	ColoreFont    string `json:"colore_font"`
+	Grassetto     bool   `json:"grassetto"`
+	Corsivo       bool   `json:"corsivo"`
+	Barrato       bool   `json:"barrato"`
+	Sottolineato  bool   `json:"sottolineato"`
+	Riempimento   string `json:"riempimento"`
+	Apice         bool   `json:"apice"`
+	FormatoNumero string `json:"formato_numero"`
+}
+
+// CollegamentoCella: il tipo (relativo, assoluto, url, interno, posta) e il nome del file con l'estensione; mai
+// cartelle, host o indirizzi, e mai seguito.
+type CollegamentoCella struct {
+	Tipo       string `json:"tipo"`
+	NomeBase   string `json:"nome_base"`
+	Estensione string `json:"estensione"`
+}
+
+// IntestazioneFoglio: una riga candidata intestazione (nomi di colonna con un ruolo tipico): un aiuto di lettura.
+type IntestazioneFoglio struct {
+	Foglio  int             `json:"foglio"`
+	Riga    int             `json:"riga"`
+	Colonne []ColonnaFoglio `json:"colonne"`
+}
+
+// ColonnaFoglio: una cella dell'intestazione candidata, con il ruolo tipico (Ruolo…).
+type ColonnaFoglio struct {
+	C     int    `json:"c"`
+	Ind   string `json:"ind"`
+	Testo string `json:"testo"`
+	Ruolo string `json:"ruolo"`
+}
+
+// LimitiFoglio: i tetti in vigore quando il foglio e' stato letto.
+type LimitiFoglio struct {
+	ByteMax     int `json:"byte_max"`
+	ParteMax    int `json:"parte_max"`
+	RapportoMax int `json:"rapporto_max"`
+	FogliMax    int `json:"fogli_max"`
+	CelleMax    int `json:"celle_max"`
+	TestoMax    int `json:"testo_max"`
+	UniteMax    int `json:"unite_max"`
+}
+
+// DecodificaFoglioDati estrae il fatto `foglio_dati` dai dettagli di un'analisi: falso quando manca (un foglio
+// analizzato prima di GP-3 ha i dettagli vuoti) o la versione e' sconosciuta (< 1). Un BIFF non supportato si
+// decodifica: e' una risposta. Tollera i campi sconosciuti.
+func DecodificaFoglioDati(dettagli json.RawMessage) (*FoglioDati, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Foglio *FoglioDati `json:"foglio_dati"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Foglio == nil || involucro.Foglio.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Foglio, true
+}
+
+// FoglioDatiDaRileggere dice se «Rianalizza» deve riaccodare un foglio (xls, xlsx, xlsm, csv) con questi fatti
+// dell'analizzatore corrente: il fatto manca o e' di una versione di prima di VersioneFoglioDati. Un foglio non
+// supportato (BIFF) no: e' una risposta, che una rilettura non cambia. L'idoneita' per estensione e' del chiamante
+// (fascicolo.AccodaPdfDaRileggere, da estendere: consegna al core).
+func FoglioDatiDaRileggere(fatti json.RawMessage) bool {
+	f, ok := DecodificaFoglioDati(fatti)
+	return !ok || f.Versione < VersioneFoglioDati
 }
 
 // ---------------------------------------------------------------- healthz

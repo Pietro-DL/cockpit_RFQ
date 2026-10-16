@@ -67,6 +67,8 @@ var tipiContratto = map[string]any{
 	"struttura_step":            StrutturaSTEP{},
 	"testo_pdf":                 TestoPDF{},
 	"testo_dxf":                 TestoDXF{},
+	"foglio_dati":               FoglioDati{},
+	"testo_dwg":                 TestoDWG{},
 }
 
 // tipiAnnidati: i modelli che compaiono dentro gli altri come $ref. Il nome del tipo Go e il nome
@@ -95,6 +97,25 @@ var tipiAnnidati = map[string]any{
 	"MetadatiPDF":         MetadatiPDF{},
 	"LimitiTestoPDF":      LimitiTestoPDF{},
 	"LimitiTestoDXF":      LimitiTestoDXF{},
+	"TabellaPDF":          TabellaPDF{},
+	"ColonnaTabella":      ColonnaTabella{},
+	"RigaTabella":         RigaTabella{},
+	"CellaTabella":        CellaTabella{},
+	"CompletezzaPDF":      CompletezzaPDF{},
+	"FoglioInfo":          FoglioInfo{},
+	"CellaFoglio":         CellaFoglio{},
+	"StileCella":          StileCella{},
+	"CollegamentoCella":   CollegamentoCella{},
+	"IntestazioneFoglio":  IntestazioneFoglio{},
+	"ColonnaFoglio":       ColonnaFoglio{},
+	"LimitiFoglio":        LimitiFoglio{},
+	"CampoCartiglioDWG":   CampoCartiglioDWG{},
+	"SorgenteDWG":         SorgenteDWG{},
+	"LimitiTestoDWG":      LimitiTestoDWG{},
+	"GeometriaSTEP":       GeometriaSTEP{},
+	"IstanzaSTEP":         IstanzaSTEP{},
+	"ParolaOCR":           ParolaOCR{},
+	"AmbiguoOCR":          AmbiguoOCR{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -529,15 +550,67 @@ func TestLaStrutturaNonPortaCodici(t *testing.T) {
 			t.Errorf("il nodo dello STEP dichiara %q: la classificazione è del server, non del worker", vietato)
 		}
 	}
-	for _, atteso := range []string{"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza"} {
+	// riscritta per GP-3: la v4 aggiunge `geometria` (un riassunto diagnostico, non una classificazione)
+	for _, atteso := range []string{"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza", "geometria"} {
 		if _, c := campi[atteso]; !c {
 			t.Errorf("il nodo dello STEP non dichiara %q", atteso)
 		}
 	}
 	// lo stesso, dalla parte del Go: i campi del tipo sono quelli e non altri
 	var n NodoSTEP
-	if reflect.TypeOf(n).NumField() != 6 {
-		t.Errorf("NodoSTEP ha %d campi, attesi 6", reflect.TypeOf(n).NumField())
+	if reflect.TypeOf(n).NumField() != 7 {
+		t.Errorf("NodoSTEP ha %d campi, attesi 7", reflect.TypeOf(n).NumField())
+	}
+	// GP-3: nessuna voce di «rimozione» o di giudizio nel riassunto della geometria; lo stato e' una voce chiusa
+	geo := proprieta(defs["GeometriaSTEP"].(map[string]any))
+	for _, vietato := range []string{"feature", "da_rimuovere", "mono_pezzo", "pezzo_unico"} {
+		if _, c := geo[vietato]; c {
+			t.Errorf("la geometria dichiara %q: e' diagnostica, non un giudizio", vietato)
+		}
+	}
+	got := formaSchema(proprieta(s)["stato"]).valori
+	sort.Strings(got)
+	want := []string{StrutturaAssente, StrutturaNonEstraibile, StrutturaParziale, StrutturaValida}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stato della struttura: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneStruttura || VersioneStruttura != 4 {
+		t.Errorf("versione della struttura: schema %v, Go %d", proprieta(s)["versione"]["default"], VersioneStruttura)
+	}
+}
+
+// GP-3 (direttiva 21 §5.3). La v4 porta la geometria per nodo, i nomi d'istanza e lo stato; una v3 si legge ancora
+// (stato "", geometria nil: non si inventano) e si rilegge (StrutturaDaRileggere).
+func TestStrutturaV4(t *testing.T) {
+	v4 := json.RawMessage(`{"struttura": {"versione": 4, "schema": "AP214", "radici": ["#10"],
+		"nodi": [{"chiave": "#10", "nome_grezzo": "ACME-ASM", "evidenza": {}, "geometria": {"solidi": 0, "rappresentazioni": 1, "vuota": true}},
+		         {"chiave": "#20", "nome_grezzo": "ACME-P1", "evidenza": {}, "geometria": {"solidi": 1, "rappresentazioni": 2, "vuota": false}}],
+		"relazioni": [{"padre": "#10", "figlio": "#20", "qta": 2, "evidenza": {},
+			"istanze": [{"rif": "#80", "id": "NAUO1", "nome": "ACME-P1:1"}, {"rif": "#81", "id": "NAUO2", "nome": "ACME-P1:2"}]}],
+		"avvisi": [], "scarti": {}, "limiti": {}, "stato": "valida", "motivo_stato": ""}}`)
+	st, ok := DecodificaStruttura(v4)
+	if !ok || st.Stato != StrutturaValida || len(st.Nodi) != 2 || st.Nodi[0].Geometria == nil || !st.Nodi[0].Geometria.Vuota {
+		t.Fatalf("v4 letta male: %v %+v", ok, st)
+	}
+	if g := st.Nodi[1].Geometria; g.Solidi != 1 || g.Rappresentazioni != 2 || g.Vuota {
+		t.Errorf("geometria letta male: %+v", g)
+	}
+	if r := st.Relazioni[0]; len(r.Istanze) != 2 || r.Istanze[1] != (IstanzaSTEP{Rif: "#81", ID: "NAUO2", Nome: "ACME-P1:2"}) {
+		t.Errorf("istanze lette male: %+v", r.Istanze)
+	}
+	if StrutturaDaRileggere(v4) {
+		t.Error("una v4 non si rilegge")
+	}
+	v3 := json.RawMessage(`{"struttura": {"versione": 3, "radici": [], "nodi": [{"chiave": "#1", "nome_grezzo": "X"}], "relazioni": []}}`)
+	st, ok = DecodificaStruttura(v3)
+	if !ok || st.Stato != "" || st.Nodi[0].Geometria != nil || !StrutturaDaRileggere(v3) {
+		t.Errorf("una v3 si legge (senza stato ne' geometria inventati) e si rilegge: %v %+v", ok, st)
+	}
+	for _, d := range []json.RawMessage{json.RawMessage(``), json.RawMessage(`{"product_step": "X"}`), json.RawMessage(`rotto`)} {
+		if !StrutturaDaRileggere(d) {
+			t.Errorf("senza struttura si rilegge: %s", d)
+		}
 	}
 }
 
@@ -729,12 +802,26 @@ func TestIlTestoDelPdfNonPortaCodici(t *testing.T) {
 		OCRFallito, OCRScaduto, OCRIlleggibile)
 	vuole("etichette del cartiglio", enum(def("CampoCartiglio"), "etichetta"), CampoNumeroDisegno, CampoCodice,
 		CampoRevisione, CampoTitolo, CampoScala, CampoMateriale, CampoParticolareSimile, CampoRiferimento3D)
-	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go
-	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 2 {
-		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d (la fase 4.6 porta la 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF)
+	// la sottoversione del testo: quella del worker di oggi (il default dello schema) e' quella del Go. Riscritta per
+	// GP-3: la 3 porta le tabelle; il cartiglio resta quello della 2 (VersioneCartiglioPDF).
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoPDF || VersioneTestoPDF != 3 || VersioneCartiglioPDF != 2 {
+		t.Errorf("la sottoversione del testo: lo schema dice %v, il Go conosce %d/%d (GP-3 porta la 3, cartiglio della 2)", proprieta(s)["versione"]["default"], VersioneTestoPDF, VersioneCartiglioPDF)
 	}
+	// GP-3: le tabelle e la completezza. Le voci chiuse (ruoli, verso, stato) sono quelle delle costanti Go, e le
+	// righe non portano codici: valori grezzi con le colonne.
+	controlla("TabellaPDF", def("TabellaPDF"), []string{"pagina", "indice", "verso", "riquadro_intestazione", "colonne", "righe"})
+	controlla("ColonnaTabella", def("ColonnaTabella"), []string{"indice", "intestazione", "ruolo", "omessa", "riquadro"})
+	controlla("RigaTabella", def("RigaTabella"), []string{"indice", "riquadro", "continuazione", "celle"})
+	controlla("CellaTabella", def("CellaTabella"), []string{"colonna", "intestazione", "ruolo", "valore", "riquadro", "omessa", "sorgente"})
+	controlla("CompletezzaPDF", def("CompletezzaPDF"), []string{"stato", "pagine", "pagine_lette", "pagine_senza_testo", "righe_troncate", "motivo"})
+	ruoli := []string{RuoloNessuno, RuoloPosizione, RuoloLivello, RuoloCodice, RuoloDescrizione, RuoloQuantita, RuoloUnita,
+		RuoloMateriale, RuoloRevisione, RuoloDocumento, RuoloNota}
+	vuole("ruolo di una colonna", enum(def("ColonnaTabella"), "ruolo"), ruoli...)
+	vuole("ruolo di una cella", enum(def("CellaTabella"), "ruolo"), ruoli...)
+	vuole("verso di una tabella", enum(def("TabellaPDF"), "verso"), VersoSotto, VersoSopra)
+	vuole("stato della completezza", enum(def("CompletezzaPDF"), "stato"), CompletezzaCompleta, CompletezzaParziale, CompletezzaNonLeggibile)
 	// lo stesso, dalla parte del Go: i campi sono quelli e non altri
-	for nome, campi := range map[string]int{"FrammentoPDF": 6, "CampoCartiglio": 8, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
+	for nome, campi := range map[string]int{"FrammentoPDF": 8, "CampoCartiglio": 9, "MetadatiPDF": 5, "OCRPDF": 4, "TentativoOCR": 6} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
 			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
 		}
@@ -812,8 +899,11 @@ func TestDecodificaTestoPDF(t *testing.T) {
 			{"etichetta": "titolo", "letta": "DENOMINAZIONE / NAME", "valore": "STAFFA ACME", "pagina": 1, "zona": "basso_destra", "fonte": "nativo"}],
 		"ocr": {"stato": "non_necessario"}}}`)
 	tp, ok = DecodificaTestoPDF(v2)
-	if !ok || tp.Versione != VersioneTestoPDF || len(tp.Cartiglio) != 3 {
-		t.Fatalf("il testo della sottoversione 2 non si decodifica: %v %+v", ok, tp)
+	if !ok || tp.Versione != VersioneCartiglioPDF || len(tp.Cartiglio) != 3 || CartiglioPDFDiPrima(tp) {
+		t.Fatalf("il testo della sottoversione 2 non si decodifica, o il suo cartiglio passa per «di prima»: %v %+v", ok, tp)
+	}
+	if tp.Tabelle != nil || tp.Completezza != nil {
+		t.Errorf("una 2 non ha tabelle ne' completezza, e non si inventano: %+v %+v", tp.Tabelle, tp.Completezza)
 	}
 	if c := tp.Cartiglio[1]; c.Etichetta != CampoParticolareSimile || c.Valore != "7120012" || c.Letta != "PARTICOLARE SIMILE / SIMILAR PART" ||
 		len(c.Riquadro) != 4 {
@@ -891,16 +981,23 @@ func TestIlTestoDelDxfNonPortaCodici(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("etichette del cartiglio del DXF: lo schema dice %v, il Go conosce %v", got, want)
 	}
-	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoDXF || VersioneTestoDXF != 1 {
+	// Riscritta per GP-3: la v2 segue gli INSERT annidati e porta i conti (annidati_seguiti, oltre_profondita, cicli,
+	// specchiati) e `parziale`; i limiti la profondita' e gli INSERT visitati.
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoDXF || VersioneTestoDXF != 2 {
 		t.Errorf("la versione del testo del DXF: lo schema dice %v, il Go conosce %d", proprieta(s)["versione"]["default"], VersioneTestoDXF)
 	}
-	for nome, campi := range map[string]int{"LimitiTestoDXF": 4, "CampoCartiglio": 8} {
+	for _, a := range []string{"annidati_seguiti", "oltre_profondita", "cicli", "specchiati", "parziale"} {
+		if _, c := proprieta(s)[a]; !c {
+			t.Errorf("TestoDXF v2 non dichiara %q", a)
+		}
+	}
+	for nome, campi := range map[string]int{"LimitiTestoDXF": 6, "CampoCartiglio": 9} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
 			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
 		}
 	}
-	if n := reflect.TypeOf(TestoDXF{}).NumField(); n != 10 {
-		t.Errorf("TestoDXF ha %d campi, attesi 10", n)
+	if n := reflect.TypeOf(TestoDXF{}).NumField(); n != 15 {
+		t.Errorf("TestoDXF ha %d campi, attesi 15", n)
 	}
 }
 
@@ -920,7 +1017,7 @@ func TestDecodificaTestoDXF(t *testing.T) {
 	if !ok {
 		t.Fatal("testo del DXF non decodificato")
 	}
-	if td.Versione != VersioneTestoDXF || td.Esito != DXFLetto || td.VersioneDXF != "AC1014" || td.Codifica != "cp1252" ||
+	if td.Versione != 1 || td.Esito != DXFLetto || td.VersioneDXF != "AC1014" || td.Codifica != "cp1252" ||
 		td.Testi != 12 || td.Troncato || len(td.Cartiglio) != 2 {
 		t.Errorf("testo del DXF letto male: %+v", td)
 	}
@@ -931,13 +1028,25 @@ func TestDecodificaTestoDXF(t *testing.T) {
 	if td.Limiti != (LimitiTestoDXF{ByteMax: 67108864, TestiMax: 5000, TestoMax: 512, CampiMax: 24}) {
 		t.Errorf("i limiti non sono arrivati con il fatto: %+v", td.Limiti)
 	}
-	if TestoDXFDaRileggere(letto) {
-		t.Error("un DXF letto con la versione di oggi non si rianalizza")
+	// Riscritta per GP-3: un testo v1 letto si decodifica ancora, ma si rilegge (la v2 segue gli INSERT annidati)
+	if !TestoDXFDaRileggere(letto) {
+		t.Error("un DXF letto con la v1 si rianalizza: la v2 segue gli INSERT annidati")
+	}
+	v2 := json.RawMessage(`{"testo_dxf": {"versione": 2, "esito": "letto", "testi": 40, "annidati": 1, "annidati_seguiti": 3,
+		"oltre_profondita": 1, "cicli": 0, "specchiati": 0, "troncato": false, "parziale": true,
+		"motivo": "1 INSERT oltre 8 livelli non seguiti", "cartiglio": [],
+		"limiti": {"byte_max": 67108864, "testi_max": 5000, "testo_max": 512, "campi_max": 24, "profondita_max": 8, "inserti_max": 20000}}}`)
+	if td, ok := DecodificaTestoDXF(v2); !ok || !td.Parziale || td.AnnidatiSeguiti != 3 || td.OltreProfondita != 1 ||
+		td.Limiti.ProfonditaMax != 8 || td.Limiti.InsertiMax != 20000 || TestoDXFDaRileggere(v2) {
+		t.Errorf("la v2 letta male, o riaccodata: %v %+v", ok, td)
 	}
 
-	binario := json.RawMessage(`{"testo_dxf": {"versione": 1, "esito": "non_letto", "motivo": "DXF binario", "cartiglio": []}}`)
-	if td, ok := DecodificaTestoDXF(binario); !ok || td.Esito != DXFNonLetto || TestoDXFDaRileggere(binario) {
-		t.Errorf("un DXF binario e' una risposta, non un fatto da rileggere: %v %+v", ok, td)
+	// un DXF binario e' una risposta, in tutte e due le versioni: la v2 non lo legge diversamente
+	for _, v := range []int{1, 2} {
+		binario := json.RawMessage(fmt.Sprintf(`{"testo_dxf": {"versione": %d, "esito": "non_letto", "motivo": "DXF binario", "cartiglio": []}}`, v))
+		if td, ok := DecodificaTestoDXF(binario); !ok || td.Esito != DXFNonLetto || TestoDXFDaRileggere(binario) {
+			t.Errorf("un DXF binario e' una risposta, non un fatto da rileggere: %v %+v", ok, td)
+		}
 	}
 
 	casi := map[string]json.RawMessage{
@@ -958,5 +1067,226 @@ func TestDecodificaTestoDXF(t *testing.T) {
 				t.Error("un DXF senza il testo di oggi va rianalizzato")
 			}
 		})
+	}
+}
+
+// GP-3 (direttiva 21 §5.1-5.2). La sottoversione 3 porta le tabelle (righe con colonne, valori grezzi, riquadri) e la
+// completezza della lettura: con lo stato «parziale» il server dice «verifica incompleta», non «codice assente». Il
+// cartiglio di una 3 non e' di prima, e una 2 si riaccoda per le tabelle senza che il suo cartiglio lo diventi.
+func TestDecodificaTestoPDFV3Tabelle(t *testing.T) {
+	v3 := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": true, "pagine": 2, "pagine_lette": 2, "caratteri": 900,
+		"tabelle": [{"pagina": 1, "indice": 1, "verso": "sotto", "riquadro_intestazione": [48, 470, 553, 482],
+			"colonne": [{"indice": 0, "intestazione": "Item", "ruolo": "posizione", "omessa": false, "riquadro": [48, 470, 64, 482]},
+			            {"indice": 1, "intestazione": "Material", "ruolo": "materiale", "riquadro": [91, 470, 119, 482]},
+			            {"indice": 2, "intestazione": "Qty", "ruolo": "quantita", "riquadro": [318, 470, 341, 482]}],
+			"righe": [{"indice": 1, "riquadro": [48, 505, 374, 517], "continuazione": false, "celle": [
+				{"colonna": 0, "intestazione": "Item", "ruolo": "posizione", "valore": "0010", "riquadro": [48, 505, 72, 517]},
+				{"colonna": 1, "intestazione": "Material", "ruolo": "materiale", "valore": "ACME1001", "riquadro": [91, 505, 145, 517]},
+				{"colonna": 2, "intestazione": "Qty", "ruolo": "quantita", "valore": "200 PC", "riquadro": [338, 505, 374, 517], "campo_del_futuro": 1}]},
+			          {"indice": 2, "riquadro": [147, 517, 177, 529], "continuazione": true, "celle": [
+				{"colonna": 1, "intestazione": "Material", "ruolo": "materiale", "valore": "LOS 40", "sorgente": []}]}]}],
+		"completezza": {"stato": "parziale", "pagine": 40, "pagine_lette": 30, "pagine_senza_testo": 0, "righe_troncate": false,
+			"motivo": "lette 30 pagine su 40 (tetto 30)"},
+		"limiti": {"tabelle_pagine_max": 30, "tabelle_max": 20, "righe_max": 400, "cella_max": 200}}}`)
+	tp, ok := DecodificaTestoPDF(v3)
+	if !ok || tp.Versione != VersioneTestoPDF || CartiglioPDFDiPrima(tp) {
+		t.Fatalf("la 3 non si decodifica: %v %+v", ok, tp)
+	}
+	if len(tp.Tabelle) != 1 || tp.Tabelle[0].Verso != VersoSotto || len(tp.Tabelle[0].Colonne) != 3 || len(tp.Tabelle[0].Righe) != 2 {
+		t.Fatalf("tabella letta male: %+v", tp.Tabelle)
+	}
+	r := tp.Tabelle[0].Righe
+	if r[0].Continuazione || len(r[0].Celle) != 3 || r[0].Celle[1].Valore != "ACME1001" || r[0].Celle[2].Ruolo != RuoloQuantita ||
+		r[0].Celle[2].Valore != "200 PC" || !reflect.DeepEqual(r[0].Celle[0].Riquadro, []float64{48, 505, 72, 517}) {
+		t.Errorf("riga letta male: %+v", r[0])
+	}
+	if !r[1].Continuazione || r[1].Celle[0].Valore != "LOS 40" {
+		t.Errorf("la continuazione e' una riga a se', segnata: %+v", r[1])
+	}
+	if tp.Completezza == nil || tp.Completezza.Stato != CompletezzaParziale || tp.Completezza.Pagine != 40 || tp.Completezza.PagineLette != 30 {
+		t.Errorf("completezza letta male: %+v", tp.Completezza)
+	}
+	if tp.Limiti.TabellePagineMax != 30 || tp.Limiti.RigheMax != 400 || tp.Limiti.CellaMax != 200 || tp.Limiti.TabelleMax != 20 {
+		t.Errorf("i tetti delle tabelle non sono arrivati con il fatto: %+v", tp.Limiti)
+	}
+	// la soglia del cartiglio: una 1 e' di prima, una 2 e una 3 no
+	for v, diPrima := range map[int]bool{1: true, 2: false, 3: false} {
+		if CartiglioPDFDiPrima(&TestoPDF{Versione: v}) != diPrima {
+			t.Errorf("sottoversione %d: cartiglio di prima = %v, atteso %v", v, !diPrima, diPrima)
+		}
+	}
+	if CartiglioPDFDiPrima(nil) {
+		t.Error("un testo che non c'e' non ha un cartiglio di prima")
+	}
+}
+
+// GP-3 (G-8.6). L'OCR con la confidenza parola per parola e i caratteri ambigui (segnalati, mai corretti); un PDF letto
+// senza motore, con dei passaggi saltati, aspetta l'OCR (TestoPDFAttendeOCR); uno che non ne aveva bisogno, o letto con
+// l'OCR, no.
+func TestOCRConConfidenzaEAmbigui(t *testing.T) {
+	letto := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": false, "pagine": 1, "pagine_lette": 1,
+		"frammenti": [{"pagina": 1, "zona": "basso_destra", "fonte": "ocr", "testo": "DWG NO. 1650B0", "confidenza": 71.5,
+			"parole": [{"testo": "1650B0", "confidenza": 58.0, "riquadro": [600, 500, 640, 510]}],
+			"ambigui": [{"posizione": 8, "letto": "1", "alternative": ["I", "l"]}, {"posizione": 12, "letto": "B", "alternative": ["8"]}]}],
+		"cartiglio": [{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "1650B0", "fonte": "ocr", "zona": "basso_destra",
+			"ambigui": [{"posizione": 4, "letto": "B", "alternative": ["8"]}]}],
+		"ocr": {"stato": "eseguito", "motore": "tesseract (tsv)"}}}`)
+	tp, ok := DecodificaTestoPDF(letto)
+	if !ok || len(tp.Frammenti) != 1 || len(tp.Frammenti[0].Parole) != 1 || *tp.Frammenti[0].Parole[0].Confidenza != 58.0 {
+		t.Fatalf("parole OCR lette male: %v %+v", ok, tp)
+	}
+	if a := tp.Cartiglio[0].Ambigui; len(a) != 1 || a[0].Letto != "B" || a[0].Alternative[0] != "8" || tp.Cartiglio[0].Valore != "1650B0" {
+		t.Errorf("ambigui letti male, o il valore corretto: %+v", tp.Cartiglio[0])
+	}
+	if TestoPDFAttendeOCR(letto) {
+		t.Error("un PDF letto con l'OCR non aspetta l'OCR")
+	}
+	senza := json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": false, "ocr": {"stato": "non_disponibile",
+		"motivo": "Tesseract senza le lingue ita", "tentativi": [{"pagina": 1, "zona": "pagina", "esito": "saltato"}]}}}`)
+	if !TestoPDFAttendeOCR(senza) {
+		t.Error("un PDF letto senza motore, con dei passaggi saltati, aspetta l'OCR")
+	}
+	for nome, d := range map[string]json.RawMessage{
+		"OCR non necessario": json.RawMessage(`{"testo_pdf": {"versione": 3, "estraibile": true, "ocr": {"stato": "non_necessario"}}}`),
+		"OCR spento":         json.RawMessage(`{"testo_pdf": {"versione": 3, "ocr": {"stato": "spento", "tentativi": [{"esito": "saltato"}]}}}`),
+		"senza testo":        json.RawMessage(`{"errore_pdf": "rotto"}`),
+	} {
+		if TestoPDFAttendeOCR(d) {
+			t.Errorf("%s: non aspetta l'OCR", nome)
+		}
+	}
+}
+
+// GP-3 (G-8.4). Il testo di un DWG R12: gli esiti chiusi sono quelli delle costanti Go; i campi del cartiglio hanno la
+// sorgente nel file e le stesse voci del DXF; le tabelle hanno la forma di quelle dei PDF; un DWG non supportato e' una
+// risposta (non si rilegge), un DWG analizzato prima (dettagli vuoti) si rilegge.
+func TestTestoDWG(t *testing.T) {
+	s := leggiSchema(t, "testo_dwg")
+	got := formaSchema(proprieta(s)["esito"]).valori
+	sort.Strings(got)
+	want := []string{DWGLetto, DWGNonLetto, DWGNonSupportato}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("esito del DWG: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	defs, _ := s["$defs"].(map[string]any)
+	campo, _ := defs["CampoCartiglioDWG"].(map[string]any)
+	got = formaSchema(proprieta(campo)["etichetta"]).valori
+	sort.Strings(got)
+	want = []string{CampoNumeroDisegno, CampoCodice, CampoRevisione, CampoTitolo, CampoScala, CampoMateriale,
+		CampoParticolareSimile, CampoRiferimento3D}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("etichette del cartiglio del DWG: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	for _, v := range []string{"codice", "codici", "testo", "frammenti"} {
+		if _, c := proprieta(s)[v]; c {
+			t.Errorf("TestoDWG dichiara %q: gli altri testi del disegno non viaggiano", v)
+		}
+	}
+	letto := json.RawMessage(`{"testo_dwg": {"versione": 1, "esito": "letto", "versione_dwg": "AC1009", "codifica": "cp1252",
+		"entita": 300, "testi": 120, "annidati_seguiti": 2, "parziale": false,
+		"cartiglio": [{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "ACME1001", "pagina": 1, "zona": "pagina",
+			"fonte": "nativo", "riquadro": [1, 2, 3, 4], "sorgente": {"offset_entita": 6284, "sezione": "ENTITIES", "blocco": "",
+			"tipo_entita": "TEXT", "offset_etichetta": 6200}},
+			{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "ACME2001", "pagina": 1, "zona": "pagina", "fonte": "nativo",
+			"sorgente": {"offset_entita": 6400}}],
+		"tabelle": [{"pagina": 1, "indice": 1, "verso": "sopra", "colonne": [{"indice": 0, "intestazione": "POS.", "ruolo": "posizione"}],
+			"righe": [{"indice": 1, "celle": [{"colonna": 0, "intestazione": "POS.", "ruolo": "posizione", "valore": "1", "sorgente": [7000]}]}]}],
+		"limiti": {"entita_max": 500000, "righe_max": 400}}}`)
+	d, ok := DecodificaTestoDWG(letto)
+	if !ok || d.Esito != DWGLetto || d.VersioneDWG != "AC1009" || len(d.Cartiglio) != 2 || d.AnnidatiSeguiti != 2 {
+		t.Fatalf("DWG letto male: %v %+v", ok, d)
+	}
+	if c := d.Cartiglio[0]; c.Etichetta != CampoNumeroDisegno || c.Valore != "ACME1001" || c.Sorgente.OffsetEntita != 6284 ||
+		c.Sorgente.OffsetEtichetta != 6200 || c.Sorgente.TipoEntita != "TEXT" || len(c.Riquadro) != 4 {
+		t.Errorf("campo del DWG letto male: %+v", c)
+	}
+	if d.Cartiglio[1].Valore != "ACME2001" {
+		t.Errorf("il secondo numero impilato si perde: %+v", d.Cartiglio)
+	}
+	if len(d.Tabelle) != 1 || d.Tabelle[0].Verso != VersoSopra || d.Tabelle[0].Righe[0].Celle[0].Sorgente[0] != 7000 {
+		t.Errorf("tabella del DWG letta male: %+v", d.Tabelle)
+	}
+	if d.Limiti.EntitaMax != 500000 || TestoDWGDaRileggere(letto) {
+		t.Errorf("limiti letti male o DWG di oggi riaccodato: %+v", d.Limiti)
+	}
+	ns := json.RawMessage(`{"testo_dwg": {"versione": 1, "esito": "non_supportato", "versione_dwg": "AC1015", "motivo": "DWG 2000"}}`)
+	if d, ok := DecodificaTestoDWG(ns); !ok || d.Esito != DWGNonSupportato || d.VersioneDWG != "AC1015" || TestoDWGDaRileggere(ns) {
+		t.Errorf("un DWG non supportato e' una risposta: %v %+v", ok, d)
+	}
+	for nome, f := range map[string]json.RawMessage{
+		"DWG di prima": json.RawMessage(`{"esito": {"tipo_proposto": "disegno_2d"}}`),
+		"versione 0":   json.RawMessage(`{"testo_dwg": {"versione": 0}}`),
+		"vuoti":        json.RawMessage(``),
+	} {
+		if _, ok := DecodificaTestoDWG(f); ok || !TestoDWGDaRileggere(f) {
+			t.Errorf("%s: va riletto", nome)
+		}
+	}
+}
+
+// GP-3 (G-8.2). Il foglio di calcolo: celle con il testo esatto (i due spazi restano), il tipo, la formula separata dal
+// valore memorizzato, lo stile per indice (il rosso e l'apostrofo che portano uno stato), il collegamento ridotto. Le
+// voci chiuse sono quelle delle costanti Go; un BIFF non supportato e' una risposta, non un fatto da rileggere; un
+// foglio analizzato prima (dettagli vuoti) si rilegge.
+func TestFoglioDati(t *testing.T) {
+	s := leggiSchema(t, "foglio_dati")
+	got := formaSchema(proprieta(s)["esito"]).valori
+	sort.Strings(got)
+	want := []string{FoglioLetto, FoglioNonLetto, FoglioNonSupportato, FoglioParziale}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("esito del foglio: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneFoglioDati {
+		t.Errorf("versione del foglio: schema %v, Go %d", proprieta(s)["versione"]["default"], VersioneFoglioDati)
+	}
+	defs, _ := s["$defs"].(map[string]any)
+	cella, _ := defs["CellaFoglio"].(map[string]any)
+	for _, vietato := range []string{"codice", "codici", "famiglia", "obsoleto", "stato_riga"} {
+		if _, c := proprieta(cella)[vietato]; c {
+			t.Errorf("la cella dichiara %q: l'interpretazione e' del server", vietato)
+		}
+	}
+	letto := json.RawMessage(`{"foglio_dati": {"versione": 1, "esito": "letto", "formato": "xlsx", "sha256": "ab12",
+		"fogli": [{"indice": 0, "nome": "Sheet1", "stato": "visibile", "dimensione": "B1:K15", "celle": 3, "unite": ["A1:C1"]}],
+		"celle": [{"foglio": 0, "ind": "D9", "r": 9, "c": 4, "tipo": "s", "grezzo": "1  ACME117Z", "stile": null},
+		          {"foglio": 0, "ind": "E9", "r": 9, "c": 5, "tipo": "s", "grezzo": "ACME.0741GT", "stile": 0},
+		          {"foglio": 0, "ind": "G9", "r": 9, "c": 7, "tipo": "n", "grezzo": "42", "formula": "SUM(A1:A2)", "da_formula": true,
+		           "collegamento": {"tipo": "relativo", "nome_base": "ACME.pdf", "estensione": "pdf"}}],
+		"stili": [{"colore_font": "FFFF0000", "apice": true}],
+		"intestazioni_candidate": [{"foglio": 0, "riga": 2, "colonne": [{"c": 4, "ind": "D2", "testo": "SUPPLIER PN", "ruolo": "codice"}]}],
+		"limiti": {"celle_max": 10000}, "campo_del_futuro": 1}}`)
+	f, ok := DecodificaFoglioDati(letto)
+	if !ok || f.Esito != FoglioLetto || len(f.Celle) != 3 || f.Celle[0].Grezzo != "1  ACME117Z" || f.Celle[0].Stile != nil {
+		t.Fatalf("foglio letto male: %v %+v", ok, f)
+	}
+	if f.Celle[1].Stile == nil || *f.Celle[1].Stile != 0 || f.Stili[*f.Celle[1].Stile].ColoreFont != "FFFF0000" || !f.Stili[0].Apice {
+		t.Errorf("lo stile per indice letto male: %+v %+v", f.Celle[1], f.Stili)
+	}
+	if !f.Celle[2].DaFormula || f.Celle[2].Formula != "SUM(A1:A2)" || f.Celle[2].Grezzo != "42" || f.Celle[2].Collegamento.NomeBase != "ACME.pdf" {
+		t.Errorf("formula e collegamento letti male: %+v", f.Celle[2])
+	}
+	if f.IntestazioniCandidate[0].Colonne[0].Ruolo != RuoloCodice || f.Fogli[0].Unite[0] != "A1:C1" || f.Limiti.CelleMax != 10000 {
+		t.Errorf("intestazioni, fogli o limiti letti male: %+v", f)
+	}
+	if FoglioDatiDaRileggere(letto) {
+		t.Error("un foglio letto con la versione di oggi non si rilegge")
+	}
+	biff := json.RawMessage(`{"foglio_dati": {"versione": 1, "esito": "non_supportato", "formato": "xls_biff", "motivo": "BIFF"}}`)
+	if f, ok := DecodificaFoglioDati(biff); !ok || f.Esito != FoglioNonSupportato || FoglioDatiDaRileggere(biff) {
+		t.Errorf("un BIFF non supportato e' una risposta: %v %+v", ok, f)
+	}
+	for nome, d := range map[string]json.RawMessage{
+		"foglio di prima": json.RawMessage(`{"esito": {"tipo_proposto": "commerciale"}}`),
+		"versione 0":      json.RawMessage(`{"foglio_dati": {"versione": 0}}`),
+		"nullo":           json.RawMessage(`{"foglio_dati": null}`),
+		"vuoti":           json.RawMessage(``),
+		"rotti":           json.RawMessage(`non json`),
+	} {
+		if _, ok := DecodificaFoglioDati(d); ok || !FoglioDatiDaRileggere(d) {
+			t.Errorf("%s: va riletto, non decodificato", nome)
+		}
 	}
 }
