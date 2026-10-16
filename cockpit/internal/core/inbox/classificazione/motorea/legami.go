@@ -147,6 +147,11 @@ func (m *Motore) coperture(l *legameCompilato, sel evidenze.Selettore, testo str
 				}
 			}
 		case grammatica.PezzoLettura:
+			// Due forme della stessa famiglia che leggono lo stesso tratto con la stessa base sono la stessa lettura: ne
+			// resta una, quella di una forma che legge anche fuori dal legame (così la lettura coincide con quella della
+			// scansione libera), altrimenti la prima in ordine di forma.
+			scelte := map[string]LetturaForma{}
+			var ordine []string
 			for _, p := range m.piani[sel] {
 				if !contiene(pz.Famiglie, p.famiglia) || !p.attivoNelLegame(sel, a) {
 					continue
@@ -155,6 +160,18 @@ func (m *Motore) coperture(l *legameCompilato, sel evidenze.Selettore, testo str
 				if !ok {
 					continue
 				}
+				k := fmt.Sprintf("%s\x00%d\x00%s", lf.Famiglia, lf.Intervallo.Fine, lf.Base.Normalizzata)
+				prima, gia := scelte[k]
+				switch {
+				case !gia:
+					scelte[k] = lf
+					ordine = append(ordine, k)
+				case m.forme[chiaveForma(prima.Famiglia, prima.Forma)].condizione == condSoloLegame && p.condizione != condSoloLegame:
+					scelte[k] = lf
+				}
+			}
+			for _, k := range ordine {
+				lf := scelte[k]
 				cerca(i+1, lf.Intervallo.Fine, append(acc, elementoCopertura{ruolo: pz.Ruolo, lettura: lf}))
 			}
 		}

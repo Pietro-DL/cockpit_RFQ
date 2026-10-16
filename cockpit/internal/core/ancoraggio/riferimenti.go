@@ -2,6 +2,7 @@ package ancoraggio
 
 import (
 	"promatec/cockpit/internal/core/inbox/classificazione/motorea"
+	"promatec/cockpit/internal/core/registro/regole/grammatica"
 )
 
 // GP-1 (addendum «contesto partner», §6): l'ancoraggio dei riferimenti dei partner e la regola «richiede
@@ -35,28 +36,26 @@ func (a *ancoratore) sostegniDaRiferimentoRadice(t ProdottoRichiesto, ident []mo
 	return out
 }
 
-// richiedeAbbinamento: senza candidati, il file è pertinente ma non associabile da solo (addendum §6, regole 3-4):
-//   - ha solo riferimenti (nessuna identità propria letta), oppure solo varianti;
-//   - oppure una sua lettura qualunque (anche una menzione nel testo del disegno) ha il namespace e una base
-//     compatibile con un prodotto richiesto: citare il prodotto è un indizio di pertinenza, non una prova d'identità
-//     (direttiva 21 §5.3).
-//
-// Lo dice solo per un file che altrimenti avrebbe un esito fuori richiesta o non determinabile senza motivo
-// specifico: chi chiama lo mette prima di quei casi, dopo quelli con candidati.
-func (a *ancoratore) richiedeAbbinamento(f FileInterpretato, ident []motorea.LetturaCodice) bool {
+// soloRiferimentiOVarianti (addendum §6, regola 3): senza candidati, il file ha solo riferimenti di un partner
+// (nessuna identità propria letta) oppure solo varianti di una tavola comune: è pertinente ma non associabile da solo.
+// Chi chiama lo mette dopo i casi con candidati e prima di «nessuna lettura»; i motivi dello scenario restano.
+func soloRiferimentiOVarianti(f FileInterpretato, ident []motorea.LetturaCodice) bool {
 	_, riferimenti := DividiRiferimenti(f.Interpretazione.Letture)
-	if len(ident) == 0 && len(riferimenti) > 0 {
-		return true
+	if len(ident) == 0 {
+		return len(riferimenti) > 0
 	}
-	if len(ident) > 0 {
-		soloVarianti := true
-		for _, l := range ident {
-			soloVarianti = soloVarianti && l.Ruolo == "variante"
-		}
-		if soloVarianti {
-			return true
+	for _, l := range ident {
+		if l.Ruolo != grammatica.RuoloLetturaVariante {
+			return false
 		}
 	}
+	return true
+}
+
+// citaUnTarget (addendum §6, regola 4; direttiva 21 §5.3): una lettura del file che non è un'identità (una menzione nel
+// testo, un attributo) ha il namespace, il marcatore compatibile e una base compatibile con un prodotto richiesto.
+// Citare il prodotto è un indizio di pertinenza, non una prova d'identità: vale solo al posto di «fuori richiesta».
+func (a *ancoratore) citaUnTarget(f FileInterpretato) bool {
 	// La citazione conta solo per le letture che non sono un'identità del file (menzioni nel testo, attributi): una
 	// lettura d'identità con un altro marcatore è un'altra identità (T-B4-30), e resta con il suo esito.
 	for _, l := range f.Interpretazione.Letture {

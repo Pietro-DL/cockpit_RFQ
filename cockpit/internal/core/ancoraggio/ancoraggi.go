@@ -875,9 +875,10 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 		af.Collocazione = CollocazioneRadice
 	case livelli[LivelloComponente]:
 		af.Collocazione = CollocazioneFiglio
-	case a.richiedeAbbinamento(f, ident):
+	case soloRiferimentiOVarianti(f, ident):
 		af.Collocazione = CollocazioneNonDeterminabile
 		af.Motivi = append(af.Motivi, MotivoAncoraggioRichiedeAbbinamento)
+		af.Motivi = append(af.Motivi, a.motiviNonD...)
 	case len(ident) == 0:
 		af.Collocazione = CollocazioneNonDeterminabile
 		af.Motivi = append(af.Motivi, MotivoAncoraggioNessunaLettura)
@@ -889,6 +890,11 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 		// L8 (notte 14/10): le identità del file sono tutte in namespace che nessun target e nessun nodo usa.
 		af.Collocazione = CollocazioneNonDeterminabile
 		af.Motivi = append(af.Motivi, MotivoAncoraggioNamespaceNonConfrontabile)
+	case a.citaUnTarget(f):
+		// GP-1 (addendum §6 regola 4; direttiva 21 §5.3): il file cita un prodotto richiesto, quindi non è fuori
+		// richiesta; è pertinente ma non associabile da solo.
+		af.Collocazione = CollocazioneNonDeterminabile
+		af.Motivi = append(af.Motivi, MotivoAncoraggioRichiedeAbbinamento)
 	default:
 		af.Collocazione = CollocazioneFuoriRichiesta
 	}

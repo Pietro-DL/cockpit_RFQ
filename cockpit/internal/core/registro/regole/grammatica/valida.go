@@ -423,6 +423,11 @@ func (v *validatore) famiglia(f FamigliaCodice, p string) {
 		}
 	}
 	for i, fo := range f.Forme {
+		// GP-1: la forma solo_legame di un emittente legge solo dentro un legame di un cliente: i suoi esempi stanno
+		// negli esempi dei legami del cliente, che la compilazione verifica con il partner composto.
+		if v.emittente && fo.Stato == StatoSoloLegame {
+			continue
+		}
 		if attive[fo.ID] && !v.haEsempioPositivo(f.ID, fo.ID) && !esempioPositivoDiLegame(v.legamiG, f.ID, fo.ID) {
 			v.obbligatorio(elemento(p+".forme", fo.ID, i), "un esempio positivo della forma attiva")
 		}
