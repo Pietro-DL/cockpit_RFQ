@@ -68,6 +68,7 @@ var tipiContratto = map[string]any{
 	"testo_pdf":                 TestoPDF{},
 	"testo_dxf":                 TestoDXF{},
 	"foglio_dati":               FoglioDati{},
+	"testo_dwg":                 TestoDWG{},
 }
 
 // tipiAnnidati: i modelli che compaiono dentro gli altri come $ref. Il nome del tipo Go e il nome
@@ -108,6 +109,9 @@ var tipiAnnidati = map[string]any{
 	"IntestazioneFoglio":  IntestazioneFoglio{},
 	"ColonnaFoglio":       ColonnaFoglio{},
 	"LimitiFoglio":        LimitiFoglio{},
+	"CampoCartiglioDWG":   CampoCartiglioDWG{},
+	"SorgenteDWG":         SorgenteDWG{},
+	"LimitiTestoDWG":      LimitiTestoDWG{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -1057,6 +1061,75 @@ func TestDecodificaTestoPDFV3Tabelle(t *testing.T) {
 	}
 	if CartiglioPDFDiPrima(nil) {
 		t.Error("un testo che non c'e' non ha un cartiglio di prima")
+	}
+}
+
+// GP-3 (G-8.4). Il testo di un DWG R12: gli esiti chiusi sono quelli delle costanti Go; i campi del cartiglio hanno la
+// sorgente nel file e le stesse voci del DXF; le tabelle hanno la forma di quelle dei PDF; un DWG non supportato e' una
+// risposta (non si rilegge), un DWG analizzato prima (dettagli vuoti) si rilegge.
+func TestTestoDWG(t *testing.T) {
+	s := leggiSchema(t, "testo_dwg")
+	got := formaSchema(proprieta(s)["esito"]).valori
+	sort.Strings(got)
+	want := []string{DWGLetto, DWGNonLetto, DWGNonSupportato}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("esito del DWG: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	defs, _ := s["$defs"].(map[string]any)
+	campo, _ := defs["CampoCartiglioDWG"].(map[string]any)
+	got = formaSchema(proprieta(campo)["etichetta"]).valori
+	sort.Strings(got)
+	want = []string{CampoNumeroDisegno, CampoCodice, CampoRevisione, CampoTitolo, CampoScala, CampoMateriale,
+		CampoParticolareSimile, CampoRiferimento3D}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("etichette del cartiglio del DWG: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	for _, v := range []string{"codice", "codici", "testo", "frammenti"} {
+		if _, c := proprieta(s)[v]; c {
+			t.Errorf("TestoDWG dichiara %q: gli altri testi del disegno non viaggiano", v)
+		}
+	}
+	letto := json.RawMessage(`{"testo_dwg": {"versione": 1, "esito": "letto", "versione_dwg": "AC1009", "codifica": "cp1252",
+		"entita": 300, "testi": 120, "annidati_seguiti": 2, "parziale": false,
+		"cartiglio": [{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "ACME1001", "pagina": 1, "zona": "pagina",
+			"fonte": "nativo", "riquadro": [1, 2, 3, 4], "sorgente": {"offset_entita": 6284, "sezione": "ENTITIES", "blocco": "",
+			"tipo_entita": "TEXT", "offset_etichetta": 6200}},
+			{"etichetta": "numero_disegno", "letta": "DWG NO.", "valore": "ACME2001", "pagina": 1, "zona": "pagina", "fonte": "nativo",
+			"sorgente": {"offset_entita": 6400}}],
+		"tabelle": [{"pagina": 1, "indice": 1, "verso": "sopra", "colonne": [{"indice": 0, "intestazione": "POS.", "ruolo": "posizione"}],
+			"righe": [{"indice": 1, "celle": [{"colonna": 0, "intestazione": "POS.", "ruolo": "posizione", "valore": "1", "sorgente": [7000]}]}]}],
+		"limiti": {"entita_max": 500000, "righe_max": 400}}}`)
+	d, ok := DecodificaTestoDWG(letto)
+	if !ok || d.Esito != DWGLetto || d.VersioneDWG != "AC1009" || len(d.Cartiglio) != 2 || d.AnnidatiSeguiti != 2 {
+		t.Fatalf("DWG letto male: %v %+v", ok, d)
+	}
+	if c := d.Cartiglio[0]; c.Etichetta != CampoNumeroDisegno || c.Valore != "ACME1001" || c.Sorgente.OffsetEntita != 6284 ||
+		c.Sorgente.OffsetEtichetta != 6200 || c.Sorgente.TipoEntita != "TEXT" || len(c.Riquadro) != 4 {
+		t.Errorf("campo del DWG letto male: %+v", c)
+	}
+	if d.Cartiglio[1].Valore != "ACME2001" {
+		t.Errorf("il secondo numero impilato si perde: %+v", d.Cartiglio)
+	}
+	if len(d.Tabelle) != 1 || d.Tabelle[0].Verso != VersoSopra || d.Tabelle[0].Righe[0].Celle[0].Sorgente[0] != 7000 {
+		t.Errorf("tabella del DWG letta male: %+v", d.Tabelle)
+	}
+	if d.Limiti.EntitaMax != 500000 || TestoDWGDaRileggere(letto) {
+		t.Errorf("limiti letti male o DWG di oggi riaccodato: %+v", d.Limiti)
+	}
+	ns := json.RawMessage(`{"testo_dwg": {"versione": 1, "esito": "non_supportato", "versione_dwg": "AC1015", "motivo": "DWG 2000"}}`)
+	if d, ok := DecodificaTestoDWG(ns); !ok || d.Esito != DWGNonSupportato || d.VersioneDWG != "AC1015" || TestoDWGDaRileggere(ns) {
+		t.Errorf("un DWG non supportato e' una risposta: %v %+v", ok, d)
+	}
+	for nome, f := range map[string]json.RawMessage{
+		"DWG di prima": json.RawMessage(`{"esito": {"tipo_proposto": "disegno_2d"}}`),
+		"versione 0":   json.RawMessage(`{"testo_dwg": {"versione": 0}}`),
+		"vuoti":        json.RawMessage(``),
+	} {
+		if _, ok := DecodificaTestoDWG(f); ok || !TestoDWGDaRileggere(f) {
+			t.Errorf("%s: va riletto", nome)
+		}
 	}
 }
 

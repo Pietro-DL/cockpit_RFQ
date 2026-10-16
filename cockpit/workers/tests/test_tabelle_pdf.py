@@ -208,6 +208,20 @@ def test_completezza_con_pagine_oltre_il_tetto_e_senza_testo(tmp_path):
     assert analizza_file(p, "muta.pdf", SPENTO)["dettagli"]["testo_pdf"]["completezza"]["stato"] == "non_leggibile"
 
 
+def test_una_tabella_che_arriva_in_fondo_alla_pagina_rende_parziale(tmp_path):
+    """Le righe arrivano fino all'ultima riga della pagina 1 e c'e' una pagina 2 senza intestazione: le righe di la'
+    non si leggono, e la completezza lo dice (mai «completa» con righe forse mancanti)."""
+    s = [(48, 100, "Item", 9), (91, 100, "Material", 9), (318, 100, "Qty", 9)]
+    for k in range(5):
+        s += [(48, 130 + 14 * k, f"00{k + 1}0", 9), (91, 130 + 14 * k, f"ACME800{k}", 9), (330, 130 + 14 * k, "4", 9)]
+    seguito = [(48, 60, "0060", 9), (91, 60, "ACME8005", 9), (330, 60, "4", 9)]
+    p = pdf(tmp_path, "lunga.pdf", [s, seguito], larghezza=595, altezza=842)
+    c = analizza_file(p, "lunga.pdf", SPENTO)["dettagli"]["testo_pdf"]["completezza"]
+    assert c["stato"] == "parziale" and "in fondo alla pagina 1" in c["motivo"], c
+    p = pdf(tmp_path, "una.pdf", [s], larghezza=595, altezza=842)
+    assert analizza_file(p, "una.pdf", SPENTO)["dettagli"]["testo_pdf"]["completezza"]["stato"] == "completa"
+
+
 def test_le_colonne_personali_non_portano_il_valore(tmp_path):
     s = [(40, 100, "POS.", 8), (80, 100, "CODICE", 8), (200, 100, "Q.TA", 8), (260, 100, "DISEGNATO", 8),
          (40, 114, "1", 8), (80, 114, "ACME1234", 8), (205, 114, "3", 8), (260, 114, "Mario Rossi", 8)]

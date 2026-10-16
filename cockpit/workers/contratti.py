@@ -696,6 +696,68 @@ class TestoDXF(Base):
     parziale: bool = False
 
 
+# ---------------------------------------------------------------- testo dei DWG R12 (GP-3, G-8.4)
+
+
+class SorgenteDWG(Base):
+    """Da dove viene un campo nel file DWG: l'offset dell'entita' del valore (e di quella dell'etichetta), la sezione
+    (ENTITIES, BLOCKS, EXTRA), il blocco che la contiene e il tipo d'entita' (TEXT, ATTRIB)."""
+    offset_entita: int = -1
+    sezione: str = ""
+    blocco: str = ""
+    tipo_entita: str = ""
+    offset_etichetta: int = -1
+
+
+class CampoCartiglioDWG(CampoCartiglio):
+    """Un campo del cartiglio di un DWG: come CampoCartiglio (riquadro del valore in unita' del disegno, y verso
+    l'alto), con la sorgente nel file."""
+    sorgente: SorgenteDWG = Field(default_factory=SorgenteDWG)
+
+
+class LimitiTestoDWG(Base):
+    byte_max: int = 0
+    entita_max: int = 0
+    testi_max: int = 0
+    testo_max: int = 0
+    campi_max: int = 0
+    profondita_max: int = 0
+    inserti_max: int = 0
+    righe_max: int = 0
+
+
+class TestoDWG(Base):
+    """Il testo di un DWG, dentro `RisultatoAnalisi.dettagli["testo_dwg"]` (workers/dwg_testo.py).
+
+    `esito`: `letto` (R11/R12, AC1009: un cartiglio vuoto e' una risposta), `non_supportato` (un'altra versione DWG:
+    `versione_dwg` la dice, `motivo` spiega), `non_letto` (non e' un DWG, o la lettura e' fallita: `motivo`). Mai un
+    successo vuoto. Come TestoDXF: solo i campi del cartiglio riconosciuti (con la sorgente nel file) e le righe delle
+    tabelle riconosciute (`tabelle`, la stessa forma delle tabelle dei PDF con i riquadri in unita' del disegno, y verso
+    l'alto, e in ogni cella gli offset delle entita' in `sorgente`); mai gli altri testi. `non_decodificate`: entita' di
+    testo o INSERT la cui lunghezza non torna (non si indovinano); `parziale` e' vero quando qualcosa non e' stato
+    letto, con i motivi."""
+    versione: int = 1
+    esito: Literal["letto", "non_supportato", "non_letto"] = "letto"
+    motivo: str = ""
+    versione_dwg: str = ""
+    codifica: str = ""
+    entita: int = 0
+    testi: int = 0
+    cancellate_ignorate: int = 0
+    non_decodificate: int = 0
+    con_dati_estesi: int = 0
+    annidati: int = 0
+    annidati_seguiti: int = 0
+    oltre_profondita: int = 0
+    cicli: int = 0
+    specchiati: int = 0
+    troncato: bool = False
+    parziale: bool = False
+    cartiglio: list[CampoCartiglioDWG] = Field(default_factory=list)
+    tabelle: list[TabellaPDF] = Field(default_factory=list)
+    limiti: LimitiTestoDWG = Field(default_factory=LimitiTestoDWG)
+
+
 # ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
 #
 # Le celle di un foglio XLSX/XLSM, SpreadsheetML o CSV (workers/foglio_dati.py), con il testo ESATTO del file, il tipo,
@@ -842,4 +904,5 @@ CONTRATTI = {
     "testo_pdf": TestoPDF,
     "testo_dxf": TestoDXF,
     "foglio_dati": FoglioDati,
+    "testo_dwg": TestoDWG,
 }

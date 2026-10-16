@@ -979,6 +979,98 @@ func TestoDXFDaRileggere(fatti json.RawMessage) bool {
 	return !ok || (t.Versione < VersioneTestoDXF && t.Esito == DXFLetto)
 }
 
+// ---------------------------------------------------------------- testo dei DWG R12 (GP-3, G-8.4)
+
+// Gli esiti della lettura di un DWG (TestoDWG.Esito).
+const (
+	DWGLetto         = "letto"          // R11/R12 (AC1009): un cartiglio vuoto è una risposta
+	DWGNonSupportato = "non_supportato" // un'altra versione DWG (VersioneDWG la dice): limite dichiarato
+	DWGNonLetto      = "non_letto"      // non è un DWG, o la lettura è fallita (Motivo)
+)
+
+// VersioneTestoDWG è la versione della forma di `testo_dwg` che il worker di oggi scrive. Un DWG analizzato prima ha i
+// dettagli vuoti: TestoDWGDaRileggere lo riaccoda.
+const VersioneTestoDWG = 1
+
+// TestoDWG è il testo di un DWG (workers/dwg_testo.py): come TestoDXF, solo i campi del cartiglio riconosciuti (con la
+// sorgente nel file) e le righe delle tabelle riconosciute (la forma di TabellaPDF, riquadri in unità del disegno con
+// la y verso l'alto, offset delle entità in CellaTabella.Sorgente), mai gli altri testi. NonDecodificate: entità di
+// testo o INSERT la cui lunghezza non torna, mai indovinate; Parziale con i motivi.
+type TestoDWG struct {
+	Versione           int                 `json:"versione"`
+	Esito              string              `json:"esito"`
+	Motivo             string              `json:"motivo"`
+	VersioneDWG        string              `json:"versione_dwg"`
+	Codifica           string              `json:"codifica"`
+	Entita             int                 `json:"entita"`
+	Testi              int                 `json:"testi"`
+	CancellateIgnorate int                 `json:"cancellate_ignorate"`
+	NonDecodificate    int                 `json:"non_decodificate"`
+	ConDatiEstesi      int                 `json:"con_dati_estesi"`
+	Annidati           int                 `json:"annidati"`
+	AnnidatiSeguiti    int                 `json:"annidati_seguiti"`
+	OltreProfondita    int                 `json:"oltre_profondita"`
+	Cicli              int                 `json:"cicli"`
+	Specchiati         int                 `json:"specchiati"`
+	Troncato           bool                `json:"troncato"`
+	Parziale           bool                `json:"parziale"`
+	Cartiglio          []CampoCartiglioDWG `json:"cartiglio"`
+	Tabelle            []TabellaPDF        `json:"tabelle"`
+	Limiti             LimitiTestoDWG      `json:"limiti"`
+}
+
+// CampoCartiglioDWG è un CampoCartiglio con la sorgente nel file DWG.
+type CampoCartiglioDWG struct {
+	CampoCartiglio
+	Sorgente SorgenteDWG `json:"sorgente"`
+}
+
+// SorgenteDWG: l'offset dell'entità del valore (e di quella dell'etichetta) nel file, la sezione (ENTITIES, BLOCKS,
+// EXTRA), il blocco che la contiene e il tipo d'entità (TEXT, ATTRIB). -1 = non noto.
+type SorgenteDWG struct {
+	OffsetEntita    int64  `json:"offset_entita"`
+	Sezione         string `json:"sezione"`
+	Blocco          string `json:"blocco"`
+	TipoEntita      string `json:"tipo_entita"`
+	OffsetEtichetta int64  `json:"offset_etichetta"`
+}
+
+// LimitiTestoDWG: i tetti in vigore quando il DWG è stato letto.
+type LimitiTestoDWG struct {
+	ByteMax       int `json:"byte_max"`
+	EntitaMax     int `json:"entita_max"`
+	TestiMax      int `json:"testi_max"`
+	TestoMax      int `json:"testo_max"`
+	CampiMax      int `json:"campi_max"`
+	ProfonditaMax int `json:"profondita_max"`
+	InsertiMax    int `json:"inserti_max"`
+	RigheMax      int `json:"righe_max"`
+}
+
+// DecodificaTestoDWG estrae `testo_dwg` dai dettagli di un'analisi: falso quando manca (un DWG analizzato prima di GP-3
+// ha i dettagli vuoti) o la versione è sconosciuta (< 1). Un DWG non supportato si decodifica: è una risposta.
+func DecodificaTestoDWG(dettagli json.RawMessage) (*TestoDWG, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Testo *TestoDWG `json:"testo_dwg"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Testo == nil || involucro.Testo.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Testo, true
+}
+
+// TestoDWGDaRileggere dice se «Rianalizza» deve riaccodare un DWG con questi fatti dell'analizzatore corrente: il testo
+// non c'è (un DWG analizzato prima di GP-3) o è di una versione di prima. Un DWG non supportato della versione di oggi
+// no: rileggerlo non cambia la risposta. L'idoneità per estensione (dwg) è del chiamante (fascicolo, da estendere:
+// consegna al core).
+func TestoDWGDaRileggere(fatti json.RawMessage) bool {
+	t, ok := DecodificaTestoDWG(fatti)
+	return !ok || t.Versione < VersioneTestoDWG
+}
+
 // ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
 
 // Gli esiti della lettura di un foglio (FoglioDati.Esito).

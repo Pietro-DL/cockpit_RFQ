@@ -595,15 +595,40 @@ def _valore_sotto(i: int, testi: list[Testo], etichette: dict[int, str]) -> Test
     return migliore
 
 
+def _impilati(et: Testo, v: Testo, testi: list[Testo], etichette: dict[int, str], massimo: int = 5) -> list[Testo]:
+    """I valori impilati sotto il valore `v` nella stessa cella: la stessa colonna (inizio entro un'altezza), la stessa
+    altezza (entro un quinto), uno sotto l'altro a meno di due altezze e mezza, che non sono etichette; un testo alto
+    come l'etichetta in mezzo (l'etichetta della cella sotto) ferma la pila. Una tavola comune a due disegni ha due
+    numeri sotto la stessa etichetta: si riportano tutti e due, mai uno scelto."""
+    out: list[Testo] = []
+    ultimo = v
+    while len(out) < massimo:
+        sotto = [t for j, t in enumerate(testi) if j not in etichette and t is not ultimo and t.spazio == v.spazio
+                 and abs(t.x0 - v.x0) <= v.h and abs(t.h - v.h) <= 0.2 * v.h
+                 and 0 < ultimo.cy - t.cy <= 2.5 * v.h and t.testo != ultimo.testo
+                 and any(c.isalnum() for c in t.testo)]
+        if not sotto:
+            break
+        cand = max(sotto, key=lambda t: t.cy)
+        if any(t.spazio == v.spazio and abs(t.h - et.h) <= 0.25 * et.h and cand.cy < t.cy < ultimo.cy
+               and abs(t.x0 - v.x0) <= 2 * v.h for t in testi):
+            break
+        ultimo = cand
+        out.append(ultimo)
+    return out
+
+
 def campi_del_cartiglio(testi: list[Testo], campi_max: int, voci: dict[str, set[str]] | None = None,
-                        origini: bool = False) -> tuple[list[dict], bool]:
+                        origini: bool = False, impilati: tuple[str, ...] = ()) -> tuple[list[dict], bool]:
     """I campi riconosciuti, come i CampoCartiglio del testo dei PDF: etichetta (la voce), letta (com'e' scritta),
     valore (il testo grezzo sotto), riquadro del valore [x0, y0, x1, y1] in unita' del disegno con y verso
     l'alto (stimato). In ordine di posizione: dall'alto in basso, da sinistra a destra, gruppo per gruppo.
 
     v2: la regola vale dentro ogni gruppo (stesso spazio, stessa rotazione composta), nel sistema del gruppo; i testi
     dei gruppi specchiati non si usano. `voci` e' il vocabolario delle etichette (quello del DXF se manca); con
-    `origini` ogni campo porta anche `_origine_valore` e `_origine_etichetta` (Testo.origine), per il lettore DWG."""
+    `origini` ogni campo porta anche `_origine_valore` e `_origine_etichetta` (Testo.origine), per il lettore DWG; per
+    le voci in `impilati` si riportano anche i valori impilati sotto il primo nella stessa cella (_impilati), ognuno
+    come un campo suo (il DXF non lo chiede: il suo fatto resta quello di prima)."""
     usabili = [t for t in testi if not (isinstance(t.spazio, tuple) and t.spazio[2])]
     etichette = {i: c for i, t in enumerate(usabili) if (c := etichetta_di(t.testo, voci)) is not None}
     scelti: list[tuple[Testo, str, Testo]] = []
@@ -621,6 +646,8 @@ def campi_del_cartiglio(testi: list[Testo], campi_max: int, voci: dict[str, set[
         v = _valore_sotto(i, usabili, etichette)
         if v is not None:
             scelti.append((et, campo, v))
+            if campo in impilati:
+                scelti += [(et, campo, t) for t in _impilati(et, v, usabili, etichette)]
     scelti.sort(key=lambda x: (x[0].spazio, -x[0].cy, x[0].x0, x[1]))
     out: list[dict] = []
     visti = set()

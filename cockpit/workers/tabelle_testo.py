@@ -97,20 +97,37 @@ def _celle_intestazione(riga: list) -> list[list]:
 def intestazione(riga: list) -> list[dict] | None:
     """Le colonne, se la riga e' un'intestazione (docstring del modulo); None altrimenti."""
     celle = _celle_intestazione(riga)
+    # una frase lunga senza ruolo sulla stessa riga (una dicitura del cartiglio accanto all'elenco) non e' il nome di
+    # una colonna: si toglie, e la tabella resta quella delle colonne vere
+    celle = [c for c in celle if len(" ".join(w.testo for w in c)) <= 30 and len(" ".join(w.testo for w in c).split()) <= 4]
     if len(celle) < 2:
         return None
     testi = [" ".join(w.testo for w in c) for c in celle]
     if any(ha_cifre(t) for t in testi):
         return None
     ruoli = [ruolo_colonna(t) for t in testi]
+    # due colonne della posizione: la seconda e' ambigua («POS. ... N.»: il numero dei pezzi?) e resta senza ruolo
+    if ruoli.count(POSIZIONE) > 1:
+        primo = ruoli.index(POSIZIONE)
+        ruoli = [r if r != POSIZIONE or k == primo else "" for k, r in enumerate(ruoli)]
     distinti = {r for r in ruoli if r}
     if len(distinti) < 2:
         return None
     if not (POSIZIONE in distinti or QUANTITA in distinti or {CODICE, DESCRIZIONE} <= distinti):
         return None
     return [{"indice": i, "intestazione": t, "ruolo": r, "personale": colonna_personale(t),
-             "x0": min(w.x0 for w in c), "x1": max(w.x1 for w in c),
+             "x0": min(w.x0 for w in c), "x1": max(w.x1 for w in c), "h": max(_h(w) for w in c),
              "riquadro": _riquadro(c)} for i, (c, t, r) in enumerate(zip(celle, testi, ruoli))]
+
+
+def _limiti_x(colonne: list[dict]) -> tuple[float, float]:
+    """Fin dove a sinistra e a destra una parola appartiene ancora alla tabella: oltre la prima e l'ultima colonna di
+    piu' di uno spazio tipico fra colonne (e di almeno tre altezze) sta un altro testo (il cartiglio accanto, una
+    vista del disegno)."""
+    spazi = sorted(b["x0"] - a["x1"] for a, b in zip(colonne, colonne[1:]) if b["x0"] > a["x1"])
+    g = spazi[len(spazi) // 2] if spazi else 0.0
+    m = max(g, 3 * max(c["h"] for c in colonne))
+    return colonne[0]["x0"] - m, colonne[-1]["x1"] + m
 
 
 def _riquadro(parole: list) -> list[float]:
@@ -209,15 +226,22 @@ def _leggi_righe(righe: list[list], da: int, verso: int, colonne: list[dict], cy
     """Le righe di dati da righe[da] nel verso dato (+1 sotto, -1 sopra), con le regole di fine del modulo. Restituisce
     le righe, se c'e' stato un troncamento e l'indice dove ci si e' fermati."""
     confini = _confini(colonne)
+    sx, dx = _limiti_x(colonne)
     ultima_cy = cy0
     passo_min: float | None = None
     dati: list[dict] = []
     tronca = False
     j = da
     while 0 <= j < len(righe):
-        r = righe[j]
-        if intestazione(r) is not None:
+        if intestazione(righe[j]) is not None:
             break
+        # le parole fuori dalla larghezza della tabella, o molto piu' piccole dell'intestazione, non sono sue (il
+        # cartiglio accanto, una vista): una riga che ha solo quelle si salta, senza contarla e senza spostare l'ultima
+        # riga vista
+        r = [p for p in righe[j] if p.x1 >= sx and p.x0 <= dx and _h(p) >= 0.55 * h_testa]
+        if not r:
+            j += verso
+            continue
         cy = sum(_cy(p) for p in r) / len(r)
         passo = abs(cy - ultima_cy)
         soglia = 5 * h_testa if passo_min is None else max(2.5 * passo_min, 2 * h_testa)
@@ -285,6 +309,9 @@ def trova_tabelle(parole: list, pagina: int, limiti: dict | None = None, gia: in
         if any(not d["continuazione"] for d in dati):
             righe_tot += len(dati)
             tabelle.append({"pagina": pagina, "indice": len(tabelle) + 1, "verso": verso,
+                            # le righe sotto arrivano fino all'ultima riga della pagina: la tabella puo' continuare
+                            # nella pagina dopo, senza intestazione (chi chiama lo dice nella completezza)
+                            "_fino_in_fondo": verso == "sotto" and fine >= len(righe),
                             "riquadro_intestazione": _riquadro(testa),
                             "colonne": [{"indice": c["indice"], "intestazione": c["intestazione"], "ruolo": c["ruolo"],
                                          "omessa": c["personale"], "riquadro": c["riquadro"]} for c in colonne],

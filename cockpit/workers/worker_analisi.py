@@ -27,8 +27,9 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Con
                             leggi_marcatore_arresto, nome_worker, riporta_risultato)
 from colonne import piega
 from contratti import (OCRPDF, CampoCartiglio, CompletezzaPDF, FoglioDati, FrammentoPDF, Job, LimitiTestoPDF,
-                       MetadatiPDF, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDXF,
-                       TestoPDF)
+                       MetadatiPDF, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDWG,
+                       TestoDXF, TestoPDF)
+from dwg_testo import leggi_testo_dwg
 from dxf_testo import leggi_testo_dxf
 from foglio_dati import ha_intestazione_di_distinta, leggi_foglio
 from step_struttura import leggi_struttura
@@ -820,9 +821,13 @@ def leggi_testo_pdf(doc, ocr: ConfigOCR | None = None) -> tuple[str, dict]:
             tab_troncate = tab_troncate or fermo
     if len(tabelle) > LIMITI_TABELLE["tabelle_max"]:
         tabelle, tab_troncate = tabelle[:LIMITI_TABELLE["tabelle_max"]], True
+    in_fondo = sorted({t["pagina"] for t in tabelle if t.pop("_fino_in_fondo", False) and t["pagina"] < tab_pagine})
     for k, t in enumerate(tabelle):
         t["indice"] = k + 1
     motivi = []
+    if in_fondo:
+        motivi.append(f"tabelle che arrivano in fondo alla pagina {', '.join(map(str, in_fondo))}: le righe della pagina "
+                      "dopo senza intestazione non si leggono")
     if doc.page_count > tab_pagine:
         motivi.append(f"lette {tab_pagine} pagine su {doc.page_count} (tetto {TABELLE_PAGINE_MAX})")
     if senza_testo:
@@ -1215,7 +1220,9 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "dettagli": {"testo_dxf": TestoDXF(**leggi_testo_dxf(path_staging)).model_dump(mode="json")},
         }
     if ext == "dwg":
-        # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone.
+        # Un DWG e' un file CAD: l'estensione lo dice davvero, non lo suppone. GP-3 (G-8.4): il testo di un R11/R12
+        # (dwg_testo: cartiglio con la sorgente nel file, righe dell'elenco); le altre versioni sono «non_supportato»
+        # con la versione letta, un file che non e' un DWG «non_letto». Mai un job fallito.
         codice, rev = separa_codice_rev(Path(nome_file).stem)
         return {
             "tipo_proposto": "disegno_2d",
@@ -1223,7 +1230,7 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "rev": rev,
             "confidenza": 80 if codice else 60,
             "fonte": "nome_file" if codice else "estensione",
-            "dettagli": {},
+            "dettagli": {"testo_dwg": TestoDWG(**leggi_testo_dwg(path_staging)).model_dump(mode="json")},
         }
     if ext in ("tif", "tiff"):
         # Un'immagine scansionata puo' essere un disegno, ma anche un capitolato fotocopiato o un

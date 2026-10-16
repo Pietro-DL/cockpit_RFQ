@@ -1,0 +1,466 @@
+{
+  "$defs": {
+    "CampoCartiglioDWG": {
+      "description": "Un campo del cartiglio di un DWG: come CampoCartiglio (riquadro del valore in unita' del disegno, y verso\nl'alto), con la sorgente nel file.",
+      "properties": {
+        "etichetta": {
+          "enum": [
+            "numero_disegno",
+            "codice",
+            "revisione",
+            "titolo",
+            "scala",
+            "materiale",
+            "particolare_simile",
+            "riferimento_3d"
+          ],
+          "title": "Etichetta",
+          "type": "string"
+        },
+        "letta": {
+          "default": "",
+          "title": "Letta",
+          "type": "string"
+        },
+        "valore": {
+          "default": "",
+          "title": "Valore",
+          "type": "string"
+        },
+        "pagina": {
+          "default": 1,
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "zona": {
+          "default": "pagina",
+          "enum": [
+            "basso_destra",
+            "pagina"
+          ],
+          "title": "Zona",
+          "type": "string"
+        },
+        "fonte": {
+          "default": "nativo",
+          "enum": [
+            "nativo",
+            "ocr"
+          ],
+          "title": "Fonte",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "confidenza": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidenza"
+        },
+        "sorgente": {
+          "$ref": "#/$defs/SorgenteDWG"
+        }
+      },
+      "required": [
+        "etichetta"
+      ],
+      "title": "CampoCartiglioDWG",
+      "type": "object"
+    },
+    "CellaTabella": {
+      "description": "Una cella di una riga: la colonna (indice, intestazione, ruolo ripetuti per chi legge la riga da sola), il valore\nGREZZO (le parole della cella, da sinistra a destra) e il riquadro. `sorgente`: gli offset delle entita' nel file da\ncui viene il valore (righe d'elenco dei DWG); vuoto per i PDF, dove vale il riquadro.",
+      "properties": {
+        "colonna": {
+          "title": "Colonna",
+          "type": "integer"
+        },
+        "intestazione": {
+          "default": "",
+          "title": "Intestazione",
+          "type": "string"
+        },
+        "ruolo": {
+          "default": "",
+          "enum": [
+            "",
+            "posizione",
+            "livello",
+            "codice",
+            "descrizione",
+            "quantita",
+            "unita",
+            "materiale",
+            "revisione",
+            "documento",
+            "nota"
+          ],
+          "title": "Ruolo",
+          "type": "string"
+        },
+        "valore": {
+          "default": "",
+          "title": "Valore",
+          "type": "string"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "omessa": {
+          "default": false,
+          "title": "Omessa",
+          "type": "boolean"
+        },
+        "sorgente": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Sorgente",
+          "type": "array"
+        }
+      },
+      "required": [
+        "colonna"
+      ],
+      "title": "CellaTabella",
+      "type": "object"
+    },
+    "ColonnaTabella": {
+      "description": "Una colonna di una tabella: l'intestazione com'e' scritta, il suo ruolo tipico e il riquadro dell'intestazione.\n`omessa`: una colonna personale (chi ha disegnato, controllato, firmato): i suoi valori non viaggiano.",
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "intestazione": {
+          "default": "",
+          "title": "Intestazione",
+          "type": "string"
+        },
+        "ruolo": {
+          "default": "",
+          "enum": [
+            "",
+            "posizione",
+            "livello",
+            "codice",
+            "descrizione",
+            "quantita",
+            "unita",
+            "materiale",
+            "revisione",
+            "documento",
+            "nota"
+          ],
+          "title": "Ruolo",
+          "type": "string"
+        },
+        "omessa": {
+          "default": false,
+          "title": "Omessa",
+          "type": "boolean"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        }
+      },
+      "required": [
+        "indice"
+      ],
+      "title": "ColonnaTabella",
+      "type": "object"
+    },
+    "LimitiTestoDWG": {
+      "properties": {
+        "byte_max": {
+          "default": 0,
+          "title": "Byte Max",
+          "type": "integer"
+        },
+        "entita_max": {
+          "default": 0,
+          "title": "Entita Max",
+          "type": "integer"
+        },
+        "testi_max": {
+          "default": 0,
+          "title": "Testi Max",
+          "type": "integer"
+        },
+        "testo_max": {
+          "default": 0,
+          "title": "Testo Max",
+          "type": "integer"
+        },
+        "campi_max": {
+          "default": 0,
+          "title": "Campi Max",
+          "type": "integer"
+        },
+        "profondita_max": {
+          "default": 0,
+          "title": "Profondita Max",
+          "type": "integer"
+        },
+        "inserti_max": {
+          "default": 0,
+          "title": "Inserti Max",
+          "type": "integer"
+        },
+        "righe_max": {
+          "default": 0,
+          "title": "Righe Max",
+          "type": "integer"
+        }
+      },
+      "title": "LimitiTestoDWG",
+      "type": "object"
+    },
+    "RigaTabella": {
+      "description": "Una riga di dati, in ordine dall'intestazione in fuori. `continuazione`: la riga non ha la cella della posizione\n(o, se la tabella non ha la colonna della posizione, quella del codice), o ce l'ha senza nessuna cifra: di solito\nprosegue la riga prima (una descrizione su due righe). Si riporta com'e', mai fusa.",
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "riquadro": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro",
+          "type": "array"
+        },
+        "continuazione": {
+          "default": false,
+          "title": "Continuazione",
+          "type": "boolean"
+        },
+        "celle": {
+          "items": {
+            "$ref": "#/$defs/CellaTabella"
+          },
+          "title": "Celle",
+          "type": "array"
+        }
+      },
+      "required": [
+        "indice"
+      ],
+      "title": "RigaTabella",
+      "type": "object"
+    },
+    "SorgenteDWG": {
+      "description": "Da dove viene un campo nel file DWG: l'offset dell'entita' del valore (e di quella dell'etichetta), la sezione\n(ENTITIES, BLOCKS, EXTRA), il blocco che la contiene e il tipo d'entita' (TEXT, ATTRIB).",
+      "properties": {
+        "offset_entita": {
+          "default": -1,
+          "title": "Offset Entita",
+          "type": "integer"
+        },
+        "sezione": {
+          "default": "",
+          "title": "Sezione",
+          "type": "string"
+        },
+        "blocco": {
+          "default": "",
+          "title": "Blocco",
+          "type": "string"
+        },
+        "tipo_entita": {
+          "default": "",
+          "title": "Tipo Entita",
+          "type": "string"
+        },
+        "offset_etichetta": {
+          "default": -1,
+          "title": "Offset Etichetta",
+          "type": "integer"
+        }
+      },
+      "title": "SorgenteDWG",
+      "type": "object"
+    },
+    "TabellaPDF": {
+      "description": "Una tabella riconosciuta dalla sua intestazione (workers/tabelle_testo.py), su una pagina. Il worker ESTRAE le\nrighe e non dice che cosa siano (prodotti richiesti, componenti, menzioni): lo decide il server (PM-35R).\n`verso`: dove stanno le righe rispetto all'intestazione (`sotto` in un modulo o in una distinta, `sopra`\nnell'elenco particolari di un disegno, con l'intestazione appoggiata al cartiglio); le righe sono numerate\ndall'intestazione in fuori.",
+      "properties": {
+        "pagina": {
+          "title": "Pagina",
+          "type": "integer"
+        },
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "verso": {
+          "default": "sotto",
+          "enum": [
+            "sotto",
+            "sopra"
+          ],
+          "title": "Verso",
+          "type": "string"
+        },
+        "riquadro_intestazione": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Riquadro Intestazione",
+          "type": "array"
+        },
+        "colonne": {
+          "items": {
+            "$ref": "#/$defs/ColonnaTabella"
+          },
+          "title": "Colonne",
+          "type": "array"
+        },
+        "righe": {
+          "items": {
+            "$ref": "#/$defs/RigaTabella"
+          },
+          "title": "Righe",
+          "type": "array"
+        }
+      },
+      "required": [
+        "pagina",
+        "indice"
+      ],
+      "title": "TabellaPDF",
+      "type": "object"
+    }
+  },
+  "description": "Il testo di un DWG, dentro `RisultatoAnalisi.dettagli[\"testo_dwg\"]` (workers/dwg_testo.py).\n\n`esito`: `letto` (R11/R12, AC1009: un cartiglio vuoto e' una risposta), `non_supportato` (un'altra versione DWG:\n`versione_dwg` la dice, `motivo` spiega), `non_letto` (non e' un DWG, o la lettura e' fallita: `motivo`). Mai un\nsuccesso vuoto. Come TestoDXF: solo i campi del cartiglio riconosciuti (con la sorgente nel file) e le righe delle\ntabelle riconosciute (`tabelle`, la stessa forma delle tabelle dei PDF con i riquadri in unita' del disegno, y verso\nl'alto, e in ogni cella gli offset delle entita' in `sorgente`); mai gli altri testi. `non_decodificate`: entita' di\ntesto o INSERT la cui lunghezza non torna (non si indovinano); `parziale` e' vero quando qualcosa non e' stato\nletto, con i motivi.",
+  "properties": {
+    "versione": {
+      "default": 1,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "esito": {
+      "default": "letto",
+      "enum": [
+        "letto",
+        "non_supportato",
+        "non_letto"
+      ],
+      "title": "Esito",
+      "type": "string"
+    },
+    "motivo": {
+      "default": "",
+      "title": "Motivo",
+      "type": "string"
+    },
+    "versione_dwg": {
+      "default": "",
+      "title": "Versione Dwg",
+      "type": "string"
+    },
+    "codifica": {
+      "default": "",
+      "title": "Codifica",
+      "type": "string"
+    },
+    "entita": {
+      "default": 0,
+      "title": "Entita",
+      "type": "integer"
+    },
+    "testi": {
+      "default": 0,
+      "title": "Testi",
+      "type": "integer"
+    },
+    "cancellate_ignorate": {
+      "default": 0,
+      "title": "Cancellate Ignorate",
+      "type": "integer"
+    },
+    "non_decodificate": {
+      "default": 0,
+      "title": "Non Decodificate",
+      "type": "integer"
+    },
+    "con_dati_estesi": {
+      "default": 0,
+      "title": "Con Dati Estesi",
+      "type": "integer"
+    },
+    "annidati": {
+      "default": 0,
+      "title": "Annidati",
+      "type": "integer"
+    },
+    "annidati_seguiti": {
+      "default": 0,
+      "title": "Annidati Seguiti",
+      "type": "integer"
+    },
+    "oltre_profondita": {
+      "default": 0,
+      "title": "Oltre Profondita",
+      "type": "integer"
+    },
+    "cicli": {
+      "default": 0,
+      "title": "Cicli",
+      "type": "integer"
+    },
+    "specchiati": {
+      "default": 0,
+      "title": "Specchiati",
+      "type": "integer"
+    },
+    "troncato": {
+      "default": false,
+      "title": "Troncato",
+      "type": "boolean"
+    },
+    "parziale": {
+      "default": false,
+      "title": "Parziale",
+      "type": "boolean"
+    },
+    "cartiglio": {
+      "items": {
+        "$ref": "#/$defs/CampoCartiglioDWG"
+      },
+      "title": "Cartiglio",
+      "type": "array"
+    },
+    "tabelle": {
+      "items": {
+        "$ref": "#/$defs/TabellaPDF"
+      },
+      "title": "Tabelle",
+      "type": "array"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiTestoDWG"
+    }
+  },
+  "title": "TestoDWG",
+  "type": "object",
+  "$id": "cockpit/testo_dwg"
+}
