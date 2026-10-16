@@ -23,6 +23,32 @@ type InsiemeRegole struct {
 	// GP-1: gli emittenti partner dell'indice, compilati e verificati da soli, per ID; e quelli scartati.
 	Emittenti         map[string]*Motore
 	EmittentiScartati map[string][]evidenze.Diagnostica
+	// Contesti (GP-1, banco/QA): i contesti di lavorazione dichiarati, già letti; la valutazione applica quello il cui
+	// campo rfq è l'ID del thread (ContestoDelThread). Vuoto: nessun contesto, come prima.
+	Contesti []ContestoLavorazione
+}
+
+// ContestoDelThread: il contesto dichiarato per il thread (campo rfq uguale all'ID del thread), o nil. Due contesti
+// per lo stesso thread: nessuno, e la diagnostica lo dice (non si sceglie).
+func (r InsiemeRegole) ContestoDelThread(thread uuid.UUID) (*ContestoLavorazione, []evidenze.Diagnostica) {
+	var trovati []*ContestoLavorazione
+	for i := range r.Contesti {
+		if strings.EqualFold(r.Contesti[i].RFQ, thread.String()) {
+			trovati = append(trovati, &r.Contesti[i])
+		}
+	}
+	switch len(trovati) {
+	case 0:
+		return nil, nil
+	case 1:
+		return trovati[0], nil
+	}
+	ids := []string{thread.String()}
+	for _, c := range trovati {
+		ids = append(ids, c.ID)
+	}
+	return nil, []evidenze.Diagnostica{{Codice: CodiceContestoNonValido, Gravita: evidenze.GravitaAvviso, Natura: evidenze.NaturaContratto,
+		Messaggio: "più contesti di lavorazione per lo stesso thread: nessuno si applica", Rif: ids}}
 }
 
 // CompilaInsieme compila le grammatiche dell'indice, ciascuna con NuovoSnapshot e CompilaVerificato e con i

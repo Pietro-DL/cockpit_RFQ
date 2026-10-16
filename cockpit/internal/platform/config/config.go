@@ -141,6 +141,10 @@ func vuole(b *bool) bool { return b != nil && *b }
 type MotoreA struct {
 	Anteprima bool   `toml:"anteprima"` // assente = false
 	Regole    string `toml:"regole"`    // l'indice di grammatiche, casi e limiti; relativo alla cartella di questo file
+	// Contesti (GP-1, direttiva 21 §1, solo banco/QA): il manifest dei contesti di lavorazione, {"contesti": [{"file",
+	// "sha256"}]}, relativo alla cartella di questo file. Facoltativo: senza, nessun contesto, come prima. Il Tab 1
+	// del workspace lo sostituirà.
+	Contesti string `toml:"contesti"`
 }
 
 // Agente: l'analisi semantica dei messaggi (checkpoint 3R §9).
@@ -665,6 +669,9 @@ func CaricaConRete(percorso string, rete Rete) (*Config, error) {
 		c.Server.LogFile = assoluto(dir, c.Server.LogFile)
 	}
 	c.MotoreA.Regole = assoluto(dir, c.MotoreA.Regole)
+	if c.MotoreA.Contesti != "" {
+		c.MotoreA.Contesti = assoluto(dir, c.MotoreA.Contesti)
+	}
 	if err := rete.applica(&c.Server); err != nil {
 		return nil, err
 	}

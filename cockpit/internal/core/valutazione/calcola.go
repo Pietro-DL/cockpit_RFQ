@@ -110,6 +110,7 @@ func esitoDelThread(f fotorfq.Fotografia, t fotorfq.Thread, r *motorea.InsiemeRe
 	m, motivo, diag := motoreDel(f, r, t.ClienteID)
 	if m != nil {
 		et.HashSnapshot = m.Snapshot().Hash
+		m, diag = conContestoDelThread(r, m, t.ID, diag)
 	}
 	v, col, err := valutaThread(f, t, m, in.CasoDelThread(t.ID))
 	if err != nil {
@@ -174,6 +175,26 @@ func motoreDel(f fotorfq.Fotografia, r *motorea.InsiemeRegole, cliente uuid.UUID
 		return nil, MotivoThreadGrammaticaScartata, d
 	}
 	return nil, MotivoThreadSenzaGrammatica, d
+}
+
+// conContestoDelThread (GP-1): il motore con il contesto di lavorazione dichiarato per il thread, se c'è. Un contesto
+// che non si risolve (cliente diverso, contratto non valido) non si applica: la valutazione va avanti senza, con
+// l'errore fra le diagnostiche (mai in silenzio). Gli avvisi della risoluzione (un partner non caricabile, un modello
+// assente) passano nelle diagnostiche del thread; i documenti del perimetro saranno parziali.
+func conContestoDelThread(r *motorea.InsiemeRegole, m *motorea.Motore, thread uuid.UUID, diag []evidenze.Diagnostica) (*motorea.Motore, []evidenze.Diagnostica) {
+	if r == nil || len(r.Contesti) == 0 {
+		return m, diag
+	}
+	c, d := r.ContestoDelThread(thread)
+	diag = append(diag, d...)
+	if c == nil {
+		return m, diag
+	}
+	rc, d2, err := motorea.RisolviContesto(m, *c, nil)
+	if err != nil {
+		return m, append(diag, diagnosticheDellErrore(err, "contesto["+c.ID+"]", thread.String())...)
+	}
+	return m.ConContesto(rc), append(diag, d2...)
 }
 
 // ragioneSociale: la ragione sociale del cliente nella fotografia; "" se il cliente non c'è (allora MotoreDi la dice

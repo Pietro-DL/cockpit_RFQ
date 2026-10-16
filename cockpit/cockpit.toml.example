@@ -483,6 +483,16 @@ caselle = []                    # indirizzi su cui l'analisi e' permessa; vuoto 
 # trova questa sezione parte lo stesso, e la segnala nel log come voce sconosciuta.
 anteprima = false
 # regole = 'C:\Cockpit\motore_a\indice_motore_a.json'
+#
+# CONTESTI DI LAVORAZIONE (facoltativo, solo banco e QA; direttiva 21 del 16/10): un manifest
+#   {"contesti": [{"file": "<nome>.contesto.json", "sha256": "<sha256 del file>"}]}
+# con i file nella sua stessa cartella. Ogni contesto vale per un thread (il suo campo "rfq" è l'ID del thread) e
+# dichiara i partner attivi (con l'hash della loro grammatica), il perimetro dei file (sha256 e nome ricevuto), come
+# sono codificati i campi e quali modelli di accoppiamento valgono. Senza `contesti`, nessun contesto: il motore legge
+# come prima. Uno sha256 diverso o un file che non si legge: il log lo dice e non si applica nessun contesto.
+# ORDINE: prima il cockpit.exe nuovo, poi un indice con la voce "emittenti": un cockpit.exe di prima rifiuta l'intero
+# indice che la contiene (nessuna regola per nessun cliente).
+# contesti = 'C:\Cockpit\motore_a\contesti\contesti.json'
 
 # ---------------------------------------------------------------------------
 # UTENTI (voce 6.9): chi entra e che cosa può fare.

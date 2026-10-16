@@ -77,6 +77,17 @@ func leggiRegoleMotoreA(indice string) (regoleLette, error) {
 			r.Grammatiche[v.File] = b
 		}
 	}
+	// GP-1: anche le grammatiche degli emittenti partner, con le stesse regole (lo sha256 lo controlla CompilaInsieme).
+	for _, e := range ind.Emittenti {
+		nome, ok := nomeLocale(e.File)
+		if !ok {
+			r.Fuori = append(r.Fuori, e.File)
+			continue
+		}
+		if b, err := root.ReadFile(nome); err == nil {
+			r.Grammatiche[e.File] = b
+		}
+	}
 	if c := ind.Casi; c != nil {
 		r.Casi.File = c.File
 		if nome, ok := nomeLocale(c.File); !ok {
@@ -133,6 +144,18 @@ func preparaMotoreA(cfg config.MotoreA, log *slog.Logger) motorea_web.Regole {
 		log.Error("anteprima motore A accesa senza regole: l'indice non attiva nessuna grammatica",
 			"stato", out.Stato, "indice", cfg.Regole, "err", err)
 		return out
+	}
+	// GP-1 (banco/QA): i contesti di lavorazione dichiarati nel manifest, con lo sha256 di ogni file. Un manifest che
+	// non si legge, o un contesto con lo sha256 diverso o non valido, si dice nel log e non si applica: le regole
+	// restano.
+	if cfg.Contesti != "" {
+		cs, err := leggiContestiMotoreA(cfg.Contesti)
+		if err != nil {
+			log.Warn("anteprima motore A: contesti di lavorazione non letti (le regole restano, nessun contesto)", "contesti", cfg.Contesti, "err", err)
+		} else {
+			ins.Contesti = cs
+			log.Info("anteprima motore A: contesti di lavorazione", "contesti", cfg.Contesti, "numero", len(cs))
+		}
 	}
 	out.Insieme = &ins
 	out.Attivi, out.Scartati = attiviEScartati(ins)
