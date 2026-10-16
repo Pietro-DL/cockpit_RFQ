@@ -163,7 +163,7 @@ def test_uno_step_porta_la_struttura_nei_dettagli(tmp_path):
     res = analizza_file(percorso, "77722757.step")
     assert res["tipo_proposto"] == "cad_3d"
     struttura = res["dettagli"]["struttura"]
-    assert struttura["versione"] == 3
+    assert struttura["versione"] == 4  # riscritta per GP-3: la struttura v4
     assert struttura["scarti"] == {"prodotti_senza_definizione": 0, "occorrenze_non_risolte": 0,
                                    "occorrenze_su_se_stesse": 0, "testi_troncati": 0}
     assert [n["chiave"] for n in struttura["nodi"]] == [rif["A"], rif["B"]]

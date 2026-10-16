@@ -523,6 +523,61 @@ type StrutturaSTEP struct {
 	// Scarti c'è dalla versione 3 (A4.4, D35); in una v2 manca, ed è nil.
 	Scarti *ScartiSTEP `json:"scarti"`
 	Limiti LimitiSTEP  `json:"limiti"`
+	// Dalla versione 4 (GP-3, direttiva 21 §5.3): lo stato della struttura (Struttura…) e il suo motivo. In una
+	// struttura di prima è "": lo stato non si deduce, si rilegge (StrutturaDaRileggere).
+	Stato       string `json:"stato"`
+	MotivoStato string `json:"motivo_stato"`
+}
+
+// VersioneStruttura è la versione della forma di `struttura` che il worker di oggi scrive (StrutturaSTEP.Versione). La
+// 4 (GP-3) aggiunge la geometria per nodo (diagnostica), i nomi d'istanza delle NAUO e lo stato della struttura.
+const VersioneStruttura = 4
+
+// Gli stati della struttura di uno STEP (StrutturaSTEP.Stato, dalla v4). StrutturaAssente NON vuol dire «pezzo unico»:
+// dice che nel file non c'è nessuna occorrenza d'assieme. Sono diagnostica: nessun nodo si toglie per questo.
+const (
+	StrutturaValida        = "valida"
+	StrutturaParziale      = "parziale"       // un tetto, occorrenze non risolte, prodotti senza definizione
+	StrutturaAssente       = "assente"        // letta, nessuna NAUO
+	StrutturaNonEstraibile = "non_estraibile" // non Part 21, lettura fallita
+)
+
+// GeometriaSTEP è il riassunto della geometria di un nodo (v4), dalle rappresentazioni della sua forma e da quelle
+// legate senza trasformazione: diagnostica, MAI motivo di rimozione. Vuota: nessun elemento geometrico (solo
+// posizionamenti, o nessuna rappresentazione); un nodo vuoto con figli è un contenitore CAD.
+type GeometriaSTEP struct {
+	Solidi           int  `json:"solidi"`
+	Superfici        int  `json:"superfici"`
+	Curve            int  `json:"curve"`
+	Mappati          int  `json:"mappati"`
+	Rappresentazioni int  `json:"rappresentazioni"`
+	Vuota            bool `json:"vuota"`
+}
+
+// IstanzaSTEP: un'occorrenza NAUO di una relazione, con l'id e il nome d'istanza grezzi (v4).
+type IstanzaSTEP struct {
+	Rif  string `json:"rif"`
+	ID   string `json:"id"`
+	Nome string `json:"nome"`
+}
+
+// StrutturaDaRileggere dice se «Rianalizza» deve riaccodare uno STEP con questi fatti dell'analizzatore corrente: la
+// struttura manca o è di una versione di prima di VersioneStruttura (la geometria per nodo e lo stato non ci sono).
+// Fino a GP-3 gli STEP si rileggevano solo con una versione nuova dell'analizzatore; l'idoneità per estensione (stp,
+// step) è del chiamante (fascicolo, da estendere: consegna al core).
+func StrutturaDaRileggere(fatti json.RawMessage) bool {
+	if len(fatti) == 0 {
+		return true
+	}
+	var involucro struct {
+		Struttura *struct {
+			Versione int `json:"versione"`
+		} `json:"struttura"`
+	}
+	if err := json.Unmarshal(fatti, &involucro); err != nil || involucro.Struttura == nil {
+		return true
+	}
+	return involucro.Struttura.Versione < VersioneStruttura
 }
 
 // ScartiSTEP: che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3).
@@ -548,6 +603,8 @@ type NodoSTEP struct {
 	DescrizioneGrezza string         `json:"descrizione_grezza"` // PRODUCT.description, terzo
 	RevGrezza         string         `json:"rev_grezza"`         // PRODUCT_DEFINITION_FORMATION.id
 	Evidenza          map[string]any `json:"evidenza"`           // entità e righe da cui viene
+	// Geometria: il riassunto della geometria (v4, diagnostica); nil in una struttura di prima.
+	Geometria *GeometriaSTEP `json:"geometria"`
 }
 
 // RelazioneSTEP: «il nodo padre contiene il nodo figlio, Qta volte».
@@ -559,6 +616,8 @@ type RelazioneSTEP struct {
 	Figlio   string         `json:"figlio"`
 	Qta      int            `json:"qta"`
 	Evidenza map[string]any `json:"evidenza"`
+	// Istanze: le prime occorrenze con id e nome d'istanza (v4, al più 20); vuota in una struttura di prima.
+	Istanze []IstanzaSTEP `json:"istanze"`
 }
 
 // LimitiSTEP dice fin dove si è letto. `Troncato` vero significa che il grafo è PARZIALE: la

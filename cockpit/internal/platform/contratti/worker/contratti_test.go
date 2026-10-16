@@ -112,6 +112,8 @@ var tipiAnnidati = map[string]any{
 	"CampoCartiglioDWG":   CampoCartiglioDWG{},
 	"SorgenteDWG":         SorgenteDWG{},
 	"LimitiTestoDWG":      LimitiTestoDWG{},
+	"GeometriaSTEP":       GeometriaSTEP{},
+	"IstanzaSTEP":         IstanzaSTEP{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -546,15 +548,67 @@ func TestLaStrutturaNonPortaCodici(t *testing.T) {
 			t.Errorf("il nodo dello STEP dichiara %q: la classificazione è del server, non del worker", vietato)
 		}
 	}
-	for _, atteso := range []string{"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza"} {
+	// riscritta per GP-3: la v4 aggiunge `geometria` (un riassunto diagnostico, non una classificazione)
+	for _, atteso := range []string{"chiave", "id_grezzo", "nome_grezzo", "descrizione_grezza", "rev_grezza", "evidenza", "geometria"} {
 		if _, c := campi[atteso]; !c {
 			t.Errorf("il nodo dello STEP non dichiara %q", atteso)
 		}
 	}
 	// lo stesso, dalla parte del Go: i campi del tipo sono quelli e non altri
 	var n NodoSTEP
-	if reflect.TypeOf(n).NumField() != 6 {
-		t.Errorf("NodoSTEP ha %d campi, attesi 6", reflect.TypeOf(n).NumField())
+	if reflect.TypeOf(n).NumField() != 7 {
+		t.Errorf("NodoSTEP ha %d campi, attesi 7", reflect.TypeOf(n).NumField())
+	}
+	// GP-3: nessuna voce di «rimozione» o di giudizio nel riassunto della geometria; lo stato e' una voce chiusa
+	geo := proprieta(defs["GeometriaSTEP"].(map[string]any))
+	for _, vietato := range []string{"feature", "da_rimuovere", "mono_pezzo", "pezzo_unico"} {
+		if _, c := geo[vietato]; c {
+			t.Errorf("la geometria dichiara %q: e' diagnostica, non un giudizio", vietato)
+		}
+	}
+	got := formaSchema(proprieta(s)["stato"]).valori
+	sort.Strings(got)
+	want := []string{StrutturaAssente, StrutturaNonEstraibile, StrutturaParziale, StrutturaValida}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stato della struttura: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneStruttura || VersioneStruttura != 4 {
+		t.Errorf("versione della struttura: schema %v, Go %d", proprieta(s)["versione"]["default"], VersioneStruttura)
+	}
+}
+
+// GP-3 (direttiva 21 §5.3). La v4 porta la geometria per nodo, i nomi d'istanza e lo stato; una v3 si legge ancora
+// (stato "", geometria nil: non si inventano) e si rilegge (StrutturaDaRileggere).
+func TestStrutturaV4(t *testing.T) {
+	v4 := json.RawMessage(`{"struttura": {"versione": 4, "schema": "AP214", "radici": ["#10"],
+		"nodi": [{"chiave": "#10", "nome_grezzo": "ACME-ASM", "evidenza": {}, "geometria": {"solidi": 0, "rappresentazioni": 1, "vuota": true}},
+		         {"chiave": "#20", "nome_grezzo": "ACME-P1", "evidenza": {}, "geometria": {"solidi": 1, "rappresentazioni": 2, "vuota": false}}],
+		"relazioni": [{"padre": "#10", "figlio": "#20", "qta": 2, "evidenza": {},
+			"istanze": [{"rif": "#80", "id": "NAUO1", "nome": "ACME-P1:1"}, {"rif": "#81", "id": "NAUO2", "nome": "ACME-P1:2"}]}],
+		"avvisi": [], "scarti": {}, "limiti": {}, "stato": "valida", "motivo_stato": ""}}`)
+	st, ok := DecodificaStruttura(v4)
+	if !ok || st.Stato != StrutturaValida || len(st.Nodi) != 2 || st.Nodi[0].Geometria == nil || !st.Nodi[0].Geometria.Vuota {
+		t.Fatalf("v4 letta male: %v %+v", ok, st)
+	}
+	if g := st.Nodi[1].Geometria; g.Solidi != 1 || g.Rappresentazioni != 2 || g.Vuota {
+		t.Errorf("geometria letta male: %+v", g)
+	}
+	if r := st.Relazioni[0]; len(r.Istanze) != 2 || r.Istanze[1] != (IstanzaSTEP{Rif: "#81", ID: "NAUO2", Nome: "ACME-P1:2"}) {
+		t.Errorf("istanze lette male: %+v", r.Istanze)
+	}
+	if StrutturaDaRileggere(v4) {
+		t.Error("una v4 non si rilegge")
+	}
+	v3 := json.RawMessage(`{"struttura": {"versione": 3, "radici": [], "nodi": [{"chiave": "#1", "nome_grezzo": "X"}], "relazioni": []}}`)
+	st, ok = DecodificaStruttura(v3)
+	if !ok || st.Stato != "" || st.Nodi[0].Geometria != nil || !StrutturaDaRileggere(v3) {
+		t.Errorf("una v3 si legge (senza stato ne' geometria inventati) e si rilegge: %v %+v", ok, st)
+	}
+	for _, d := range []json.RawMessage{json.RawMessage(``), json.RawMessage(`{"product_step": "X"}`), json.RawMessage(`rotto`)} {
+		if !StrutturaDaRileggere(d) {
+			t.Errorf("senza struttura si rilegge: %s", d)
+		}
 	}
 }
 

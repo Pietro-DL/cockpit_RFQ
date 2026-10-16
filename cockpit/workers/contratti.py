@@ -363,17 +363,41 @@ class PayloadAnalizzaAllegato(Base):
     parametri: dict = Field(default_factory=dict)
 
 
+class GeometriaSTEP(Base):
+    """Il riassunto della geometria di un nodo (struttura v4), DIAGNOSTICA e mai motivo di rimozione: quanti solidi
+    (MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, FACETED_BREP), superfici (SHELL/FACE_BASED_SURFACE_MODEL), curve
+    (GEOMETRIC_CURVE_SET, GEOMETRIC_SET) ed elementi mappati (MAPPED_ITEM) stanno nelle rappresentazioni della sua
+    forma, seguite anche attraverso le relazioni fra rappresentazioni senza trasformazione; `rappresentazioni` quante
+    se ne sono raggiunte; `vuota` quando non c'e' nessun elemento geometrico (solo posizionamenti, o nessuna
+    rappresentazione). Un nodo vuoto con dei figli e' un contenitore CAD: resta un nodo."""
+    solidi: int = 0
+    superfici: int = 0
+    curve: int = 0
+    mappati: int = 0
+    rappresentazioni: int = 0
+    vuota: bool = True
+
+
+class IstanzaSTEP(Base):
+    """Un'occorrenza NAUO di una relazione: il riferimento, l'id e il nome d'istanza (grezzi)."""
+    rif: str
+    id: str = ""
+    nome: str = ""
+
+
 class NodoSTEP(Base):
     """Un PRODUCT del file, con i suoi attributi GREZZI e l'evidenza di dove stanno.
 
     Niente `codice` e niente `rev`: separare un codice da un nome dipende dalle regole del cliente
-    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2)."""
+    della richiesta, e il cliente il worker non lo conosce. Lo fa il server (addendum B8, A1.2).
+    v4: `geometria`, il riassunto della geometria (diagnostica); None in una struttura di prima."""
     chiave: str
     id_grezzo: str = ""
     nome_grezzo: str
     descrizione_grezza: str = ""
     rev_grezza: str = ""
     evidenza: dict = Field(default_factory=dict)
+    geometria: GeometriaSTEP | None = None
 
 
 class RelazioneSTEP(Base):
@@ -381,11 +405,13 @@ class RelazioneSTEP(Base):
 
     E' una riga per COPPIA, non per occorrenza: due NEXT_ASSEMBLY_USAGE_OCCURRENCE fra gli stessi due
     nodi sono una relazione con qta 2. Un nodo con due padri da' due relazioni, ed e' il caso per cui
-    padre e figlio non possono stare sulla riga del nodo (A1.1)."""
+    padre e figlio non possono stare sulla riga del nodo (A1.1). v4: `istanze`, le prime occorrenze con il
+    loro id e nome d'istanza (al piu' 20, come le righe dell'evidenza)."""
     padre: str
     figlio: str
     qta: int = 1
     evidenza: dict = Field(default_factory=dict)
+    istanze: list[IstanzaSTEP] = Field(default_factory=list)
 
 
 class LimitiSTEP(Base):
@@ -419,8 +445,11 @@ class StrutturaSTEP(Base):
 
     `versione` e' quella della FORMA di questo oggetto, non dell'analizzatore: la 1 portava i codici
     nei nodi, la 2 porta i grezzi, la 3 aggiunge gli `scarti` in numeri. Il server non deve leggere
-    `nodi[].codice` mai piu'."""
-    versione: int = 3
+    `nodi[].codice` mai piu'. La 4 (GP-3, direttiva 21 §5.3) aggiunge la geometria per nodo, i nomi d'istanza
+    delle NAUO e lo `stato` della struttura: `non_estraibile` (non Part 21, lettura fallita), `assente` (letto,
+    nessuna occorrenza d'assieme: NON vuol dire «pezzo unico»), `parziale` (tetto, occorrenze non risolte, prodotti
+    senza definizione), `valida`; `motivo_stato` lo spiega. Tutto diagnostica: nessun nodo si toglie."""
+    versione: int = 4
     schema_step: str = Field(default="", alias="schema")
     radici: list[str] = Field(default_factory=list)
     nodi: list[NodoSTEP] = Field(default_factory=list)
@@ -428,6 +457,8 @@ class StrutturaSTEP(Base):
     avvisi: list[str] = Field(default_factory=list)
     scarti: ScartiSTEP = Field(default_factory=ScartiSTEP)
     limiti: LimitiSTEP = Field(default_factory=LimitiSTEP)
+    stato: Literal["valida", "parziale", "assente", "non_estraibile"] = "non_estraibile"
+    motivo_stato: str = ""
 
 
 # ---------------------------------------------------------------- testo dei PDF (Smistamento F9)
