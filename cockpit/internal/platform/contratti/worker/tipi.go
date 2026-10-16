@@ -963,6 +963,141 @@ func TestoDXFDaRileggere(fatti json.RawMessage) bool {
 	return !ok || t.Versione < VersioneTestoDXF
 }
 
+// ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
+
+// Gli esiti della lettura di un foglio (FoglioDati.Esito).
+const (
+	FoglioLetto         = "letto"
+	FoglioParziale      = "parziale"       // un tetto raggiunto: Motivo, Troncato
+	FoglioNonSupportato = "non_supportato" // BIFF di Excel 97-2003, HTML, cartella cifrata: limite dichiarato
+	FoglioNonLetto      = "non_letto"      // il file non si legge (Motivo)
+)
+
+// VersioneFoglioDati e' la versione della forma di `foglio_dati` che il worker di oggi scrive. Un foglio (xls, xlsx,
+// xlsm, csv) analizzato prima ha i dettagli vuoti: FoglioDatiDaRileggere lo riaccoda.
+const VersioneFoglioDati = 1
+
+// FoglioDati e' il fatto `foglio_dati` (workers/foglio_dati.py): le celle non vuote con il testo ESATTO del file, il
+// tipo del valore memorizzato, la formula separata, lo stile che puo' portare uno stato (indice in Stili) e il
+// collegamento ridotto a nome ed estensione. Nessuna interpretazione: «rosso = obsoleto» lo dice una regola del
+// cliente. Sha256 e' la versione della cartella: due versioni dello stesso file sono due fatti.
+type FoglioDati struct {
+	Versione              int                  `json:"versione"`
+	Esito                 string               `json:"esito"`
+	Motivo                string               `json:"motivo"`
+	Formato               string               `json:"formato"`
+	Sha256                string               `json:"sha256"`
+	Codifica              string               `json:"codifica"`
+	Fogli                 []FoglioInfo         `json:"fogli"`
+	Celle                 []CellaFoglio        `json:"celle"`
+	Stili                 []StileCella         `json:"stili"`
+	IntestazioniCandidate []IntestazioneFoglio `json:"intestazioni_candidate"`
+	MacroPresenti         bool                 `json:"macro_presenti"`
+	CollegamentiEsterni   int                  `json:"collegamenti_esterni"`
+	Troncato              bool                 `json:"troncato"`
+	Limiti                LimitiFoglio         `json:"limiti"`
+}
+
+// FoglioInfo: un foglio della cartella (posizione, nome, visibilita', dimensione dichiarata, celle lette, unite).
+type FoglioInfo struct {
+	Indice     int      `json:"indice"`
+	Nome       string   `json:"nome"`
+	Stato      string   `json:"stato"` // visibile | nascosto | molto_nascosto
+	Dimensione string   `json:"dimensione"`
+	Celle      int      `json:"celle"`
+	Unite      []string `json:"unite"`
+	Troncato   bool     `json:"troncato"`
+}
+
+// CellaFoglio: una cella non vuota. Tipo del valore memorizzato: s, n, b, d, e. Grezzo e' il testo come sta nel file
+// (zeri iniziali e spazi compresi; il numero come e' scritto). DaFormula con Formula (vuota per una formula condivisa
+// che non la ripete): Grezzo e' il valore memorizzato, non ricalcolato. Stile e' l'indice in FoglioDati.Stili (nil:
+// predefinito).
+type CellaFoglio struct {
+	Foglio       int                `json:"foglio"`
+	Ind          string             `json:"ind"`
+	R            int                `json:"r"`
+	C            int                `json:"c"`
+	Tipo         string             `json:"tipo"`
+	Grezzo       string             `json:"grezzo"`
+	Formula      string             `json:"formula"`
+	DaFormula    bool               `json:"da_formula"`
+	Stile        *int               `json:"stile"`
+	Collegamento *CollegamentoCella `json:"collegamento"`
+}
+
+// StileCella: lo stile che puo' portare uno stato. ColoreFont e Riempimento: ARGB («FFFF0000») o «theme:N[:tinta]» o
+// «indexed:N»; Apice: l'apostrofo iniziale (quotePrefix); FormatoNumero: il codice del formato, vuoto per il generale.
+type StileCella struct {
+	ColoreFont    string `json:"colore_font"`
+	Grassetto     bool   `json:"grassetto"`
+	Corsivo       bool   `json:"corsivo"`
+	Barrato       bool   `json:"barrato"`
+	Sottolineato  bool   `json:"sottolineato"`
+	Riempimento   string `json:"riempimento"`
+	Apice         bool   `json:"apice"`
+	FormatoNumero string `json:"formato_numero"`
+}
+
+// CollegamentoCella: il tipo (relativo, assoluto, url, interno, posta) e il nome del file con l'estensione; mai
+// cartelle, host o indirizzi, e mai seguito.
+type CollegamentoCella struct {
+	Tipo       string `json:"tipo"`
+	NomeBase   string `json:"nome_base"`
+	Estensione string `json:"estensione"`
+}
+
+// IntestazioneFoglio: una riga candidata intestazione (nomi di colonna con un ruolo tipico): un aiuto di lettura.
+type IntestazioneFoglio struct {
+	Foglio  int             `json:"foglio"`
+	Riga    int             `json:"riga"`
+	Colonne []ColonnaFoglio `json:"colonne"`
+}
+
+// ColonnaFoglio: una cella dell'intestazione candidata, con il ruolo tipico (Ruolo…).
+type ColonnaFoglio struct {
+	C     int    `json:"c"`
+	Ind   string `json:"ind"`
+	Testo string `json:"testo"`
+	Ruolo string `json:"ruolo"`
+}
+
+// LimitiFoglio: i tetti in vigore quando il foglio e' stato letto.
+type LimitiFoglio struct {
+	ByteMax     int `json:"byte_max"`
+	ParteMax    int `json:"parte_max"`
+	RapportoMax int `json:"rapporto_max"`
+	FogliMax    int `json:"fogli_max"`
+	CelleMax    int `json:"celle_max"`
+	TestoMax    int `json:"testo_max"`
+	UniteMax    int `json:"unite_max"`
+}
+
+// DecodificaFoglioDati estrae il fatto `foglio_dati` dai dettagli di un'analisi: falso quando manca (un foglio
+// analizzato prima di GP-3 ha i dettagli vuoti) o la versione e' sconosciuta (< 1). Un BIFF non supportato si
+// decodifica: e' una risposta. Tollera i campi sconosciuti.
+func DecodificaFoglioDati(dettagli json.RawMessage) (*FoglioDati, bool) {
+	if len(dettagli) == 0 {
+		return nil, false
+	}
+	var involucro struct {
+		Foglio *FoglioDati `json:"foglio_dati"`
+	}
+	if err := json.Unmarshal(dettagli, &involucro); err != nil || involucro.Foglio == nil || involucro.Foglio.Versione < 1 {
+		return nil, false
+	}
+	return involucro.Foglio, true
+}
+
+// FoglioDatiDaRileggere dice se «Rianalizza» deve riaccodare un foglio (xls, xlsx, xlsm, csv) con questi fatti
+// dell'analizzatore corrente: il fatto manca o e' di una versione di prima di VersioneFoglioDati. Un foglio non
+// supportato (BIFF) no: e' una risposta, che una rilettura non cambia. L'idoneita' per estensione e' del chiamante
+// (fascicolo.AccodaPdfDaRileggere, da estendere: consegna al core).
+func FoglioDatiDaRileggere(fatti json.RawMessage) bool {
+	f, ok := DecodificaFoglioDati(fatti)
+	return !ok || f.Versione < VersioneFoglioDati
+}
+
 // ---------------------------------------------------------------- healthz
 
 type Salute struct {

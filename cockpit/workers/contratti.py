@@ -683,6 +683,111 @@ class TestoDXF(Base):
     limiti: LimitiTestoDXF = Field(default_factory=LimitiTestoDXF)
 
 
+# ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)
+#
+# Le celle di un foglio XLSX/XLSM, SpreadsheetML o CSV (workers/foglio_dati.py), con il testo ESATTO del file, il tipo,
+# la formula separata dal valore memorizzato, lo stile che puo' portare uno stato e i collegamenti ridotti a nome ed
+# estensione. Nessuna interpretazione: «rosso = obsoleto» lo dice una regola del cliente sul server.
+
+
+class StileCella(Base):
+    """Lo stile di una cella, solo se porta qualcosa rispetto al predefinito. `colore_font` e `riempimento`: ARGB
+    («FFFF0000») quando il file lo dice o la tavolozza lo risolve, altrimenti «theme:N[:tinta]» o «indexed:N»; `apice`:
+    il testo era scritto con l'apostrofo iniziale (quotePrefix); `formato_numero`: il codice del formato («00000»,
+    «@», «0.00»), vuoto per il generale."""
+    colore_font: str = ""
+    grassetto: bool = False
+    corsivo: bool = False
+    barrato: bool = False
+    sottolineato: bool = False
+    riempimento: str = ""
+    apice: bool = False
+    formato_numero: str = ""
+
+
+class CollegamentoCella(Base):
+    """Il collegamento di una cella, ridotto: il tipo e il nome del file con l'estensione. Mai cartelle, host o
+    indirizzi di posta, e mai seguito."""
+    tipo: Literal["relativo", "assoluto", "url", "interno", "posta"] = "relativo"
+    nome_base: str = ""
+    estensione: str = ""
+
+
+class CellaFoglio(Base):
+    """Una cella non vuota. `tipo` e' quello del valore memorizzato: s (testo), n (numero), b, d, e (errore). `grezzo`
+    e' il testo come sta nel file: la stringa intera (zeri iniziali e spazi compresi), il numero come e' scritto (non
+    riformattato). `da_formula`: la cella ha una formula (`formula` e' il suo testo, vuoto per le formule condivise
+    che non lo ripetono) e `grezzo` e' il valore che il file aveva memorizzato, non ricalcolato. `stile` e' l'indice in
+    FoglioDati.stili (None: lo stile predefinito, niente di notevole)."""
+    foglio: int
+    ind: str
+    r: int
+    c: int
+    tipo: Literal["s", "n", "b", "d", "e"] = "s"
+    grezzo: str = ""
+    formula: str = ""
+    da_formula: bool = False
+    stile: int | None = None
+    collegamento: CollegamentoCella | None = None
+
+
+class FoglioInfo(Base):
+    """Un foglio della cartella: posizione, nome, visibilita', dimensione dichiarata, celle lette e celle unite."""
+    indice: int
+    nome: str = ""
+    stato: Literal["visibile", "nascosto", "molto_nascosto"] = "visibile"
+    dimensione: str = ""
+    celle: int = 0
+    unite: list[str] = Field(default_factory=list)
+    troncato: bool = False
+
+
+class ColonnaFoglio(Base):
+    c: int
+    ind: str = ""
+    testo: str = ""
+    ruolo: RuoloColonna = ""
+
+
+class IntestazioneFoglio(Base):
+    """Una riga candidata intestazione (nomi di colonna con un ruolo tipico, workers/colonne.py): un aiuto di lettura."""
+    foglio: int
+    riga: int
+    colonne: list[ColonnaFoglio] = Field(default_factory=list)
+
+
+class LimitiFoglio(Base):
+    byte_max: int = 0
+    parte_max: int = 0
+    rapporto_max: int = 0
+    fogli_max: int = 0
+    celle_max: int = 0
+    testo_max: int = 0
+    unite_max: int = 0
+
+
+class FoglioDati(Base):
+    """Il fatto `foglio_dati` (RisultatoAnalisi.dettagli["foglio_dati"]). `esito`: `letto`, `parziale` (un tetto
+    raggiunto: `motivo`, `troncato`), `non_supportato` (BIFF di Excel 97-2003, HTML, una cartella cifrata: il limite e'
+    dichiarato, non nascosto), `non_letto` (il file non si legge: `motivo`). `formato` viene dai byte, non
+    dall'estensione. `sha256` e' la versione della cartella: due versioni dello stesso file sono due fatti. Le macro non
+    si eseguono (`macro_presenti`) e i collegamenti esterni non si seguono (`collegamenti_esterni`)."""
+    versione: int = 1
+    esito: Literal["letto", "parziale", "non_supportato", "non_letto"] = "letto"
+    motivo: str = ""
+    formato: Literal["xlsx", "xlsm", "xls_xml", "xls_biff", "csv", "html", "xml", "sconosciuto"] = "sconosciuto"
+    sha256: str = ""
+    codifica: str = ""
+    fogli: list[FoglioInfo] = Field(default_factory=list)
+    celle: list[CellaFoglio] = Field(default_factory=list)
+    stili: list[StileCella] = Field(default_factory=list)
+    intestazioni_candidate: list[IntestazioneFoglio] = Field(default_factory=list)
+    macro_presenti: bool = False
+    collegamenti_esterni: int = 0
+    troncato: bool = False
+    limiti: LimitiFoglio = Field(default_factory=LimitiFoglio)
+
+
 class RisultatoAnalisi(Base):
     allegato_id: UUID
     tipo_proposto: str
@@ -723,4 +828,5 @@ CONTRATTI = {
     "struttura_step": StrutturaSTEP,
     "testo_pdf": TestoPDF,
     "testo_dxf": TestoDXF,
+    "foglio_dati": FoglioDati,
 }

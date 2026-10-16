@@ -26,9 +26,11 @@ from cockpit_client import (ERRORI_RETE, ArrestoRichiesto, Battito, Cockpit, Con
                             ImprontaSbagliata, cadenza_battito, carica_config, configura_log, diagnosi,
                             leggi_marcatore_arresto, nome_worker, riporta_risultato)
 from colonne import piega
-from contratti import (OCRPDF, CampoCartiglio, CompletezzaPDF, FrammentoPDF, Job, LimitiTestoPDF, MetadatiPDF,
-                       PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDXF, TestoPDF)
+from contratti import (OCRPDF, CampoCartiglio, CompletezzaPDF, FoglioDati, FrammentoPDF, Job, LimitiTestoPDF,
+                       MetadatiPDF, PayloadAnalizzaAllegato, RisultatoAnalisi, RisultatoRichiesta, TabellaPDF, TestoDXF,
+                       TestoPDF)
 from dxf_testo import leggi_testo_dxf
+from foglio_dati import ha_intestazione_di_distinta, leggi_foglio
 from step_struttura import leggi_struttura
 from tabelle_testo import LIMITI_TABELLE, trova_tabelle
 
@@ -1235,14 +1237,19 @@ def analizza_file(path_staging: str, nome_file: str, ocr: ConfigOCR | None = Non
             "fonte": "nome_file" if codice else "estensione",
             "dettagli": {"nota": "immagine non letta: serve OCR"},
         }
-    if ext in ("xls", "xlsx", "csv"):
+    if ext in ("xls", "xlsx", "xlsm", "csv"):
+        # GP-3 (G-8.2): le celle del foglio (foglio_dati), con il testo esatto, il tipo, la formula, lo stile e i
+        # collegamenti ridotti. Il tipo resta «commerciale» come prima, salvo un'intestazione di distinta (quantita' e
+        # posizione o codice) fra le intestazioni candidate: allora e' una distinta del cliente, come un PDF.
+        fatto = FoglioDati(**leggi_foglio(path_staging, nome_file)).model_dump(mode="json")
+        distinta = ha_intestazione_di_distinta(fatto["intestazioni_candidate"])
         return {
-            "tipo_proposto": "commerciale",
+            "tipo_proposto": "distinta_cliente" if distinta else "commerciale",
             "codice": "",
             "rev": "",
-            "confidenza": 60,
-            "fonte": "estensione",
-            "dettagli": {},
+            "confidenza": 70 if distinta else 60,
+            "fonte": "cartiglio" if distinta else "estensione",
+            "dettagli": {"foglio_dati": fatto},
         }
 
     codice, rev = separa_codice_rev(Path(nome_file).stem)

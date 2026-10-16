@@ -67,6 +67,7 @@ var tipiContratto = map[string]any{
 	"struttura_step":            StrutturaSTEP{},
 	"testo_pdf":                 TestoPDF{},
 	"testo_dxf":                 TestoDXF{},
+	"foglio_dati":               FoglioDati{},
 }
 
 // tipiAnnidati: i modelli che compaiono dentro gli altri come $ref. Il nome del tipo Go e il nome
@@ -100,6 +101,13 @@ var tipiAnnidati = map[string]any{
 	"RigaTabella":         RigaTabella{},
 	"CellaTabella":        CellaTabella{},
 	"CompletezzaPDF":      CompletezzaPDF{},
+	"FoglioInfo":          FoglioInfo{},
+	"CellaFoglio":         CellaFoglio{},
+	"StileCella":          StileCella{},
+	"CollegamentoCella":   CollegamentoCella{},
+	"IntestazioneFoglio":  IntestazioneFoglio{},
+	"ColonnaFoglio":       ColonnaFoglio{},
+	"LimitiFoglio":        LimitiFoglio{},
 }
 
 const cartellaContratti = "../../../../contracts"
@@ -1030,5 +1038,70 @@ func TestDecodificaTestoPDFV3Tabelle(t *testing.T) {
 	}
 	if CartiglioPDFDiPrima(nil) {
 		t.Error("un testo che non c'e' non ha un cartiglio di prima")
+	}
+}
+
+// GP-3 (G-8.2). Il foglio di calcolo: celle con il testo esatto (i due spazi restano), il tipo, la formula separata dal
+// valore memorizzato, lo stile per indice (il rosso e l'apostrofo che portano uno stato), il collegamento ridotto. Le
+// voci chiuse sono quelle delle costanti Go; un BIFF non supportato e' una risposta, non un fatto da rileggere; un
+// foglio analizzato prima (dettagli vuoti) si rilegge.
+func TestFoglioDati(t *testing.T) {
+	s := leggiSchema(t, "foglio_dati")
+	got := formaSchema(proprieta(s)["esito"]).valori
+	sort.Strings(got)
+	want := []string{FoglioLetto, FoglioNonLetto, FoglioNonSupportato, FoglioParziale}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("esito del foglio: lo schema dice %v, il Go conosce %v", got, want)
+	}
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneFoglioDati {
+		t.Errorf("versione del foglio: schema %v, Go %d", proprieta(s)["versione"]["default"], VersioneFoglioDati)
+	}
+	defs, _ := s["$defs"].(map[string]any)
+	cella, _ := defs["CellaFoglio"].(map[string]any)
+	for _, vietato := range []string{"codice", "codici", "famiglia", "obsoleto", "stato_riga"} {
+		if _, c := proprieta(cella)[vietato]; c {
+			t.Errorf("la cella dichiara %q: l'interpretazione e' del server", vietato)
+		}
+	}
+	letto := json.RawMessage(`{"foglio_dati": {"versione": 1, "esito": "letto", "formato": "xlsx", "sha256": "ab12",
+		"fogli": [{"indice": 0, "nome": "Sheet1", "stato": "visibile", "dimensione": "B1:K15", "celle": 3, "unite": ["A1:C1"]}],
+		"celle": [{"foglio": 0, "ind": "D9", "r": 9, "c": 4, "tipo": "s", "grezzo": "1  ACME117Z", "stile": null},
+		          {"foglio": 0, "ind": "E9", "r": 9, "c": 5, "tipo": "s", "grezzo": "ACME.0741GT", "stile": 0},
+		          {"foglio": 0, "ind": "G9", "r": 9, "c": 7, "tipo": "n", "grezzo": "42", "formula": "SUM(A1:A2)", "da_formula": true,
+		           "collegamento": {"tipo": "relativo", "nome_base": "ACME.pdf", "estensione": "pdf"}}],
+		"stili": [{"colore_font": "FFFF0000", "apice": true}],
+		"intestazioni_candidate": [{"foglio": 0, "riga": 2, "colonne": [{"c": 4, "ind": "D2", "testo": "SUPPLIER PN", "ruolo": "codice"}]}],
+		"limiti": {"celle_max": 10000}, "campo_del_futuro": 1}}`)
+	f, ok := DecodificaFoglioDati(letto)
+	if !ok || f.Esito != FoglioLetto || len(f.Celle) != 3 || f.Celle[0].Grezzo != "1  ACME117Z" || f.Celle[0].Stile != nil {
+		t.Fatalf("foglio letto male: %v %+v", ok, f)
+	}
+	if f.Celle[1].Stile == nil || *f.Celle[1].Stile != 0 || f.Stili[*f.Celle[1].Stile].ColoreFont != "FFFF0000" || !f.Stili[0].Apice {
+		t.Errorf("lo stile per indice letto male: %+v %+v", f.Celle[1], f.Stili)
+	}
+	if !f.Celle[2].DaFormula || f.Celle[2].Formula != "SUM(A1:A2)" || f.Celle[2].Grezzo != "42" || f.Celle[2].Collegamento.NomeBase != "ACME.pdf" {
+		t.Errorf("formula e collegamento letti male: %+v", f.Celle[2])
+	}
+	if f.IntestazioniCandidate[0].Colonne[0].Ruolo != RuoloCodice || f.Fogli[0].Unite[0] != "A1:C1" || f.Limiti.CelleMax != 10000 {
+		t.Errorf("intestazioni, fogli o limiti letti male: %+v", f)
+	}
+	if FoglioDatiDaRileggere(letto) {
+		t.Error("un foglio letto con la versione di oggi non si rilegge")
+	}
+	biff := json.RawMessage(`{"foglio_dati": {"versione": 1, "esito": "non_supportato", "formato": "xls_biff", "motivo": "BIFF"}}`)
+	if f, ok := DecodificaFoglioDati(biff); !ok || f.Esito != FoglioNonSupportato || FoglioDatiDaRileggere(biff) {
+		t.Errorf("un BIFF non supportato e' una risposta: %v %+v", ok, f)
+	}
+	for nome, d := range map[string]json.RawMessage{
+		"foglio di prima": json.RawMessage(`{"esito": {"tipo_proposto": "commerciale"}}`),
+		"versione 0":      json.RawMessage(`{"foglio_dati": {"versione": 0}}`),
+		"nullo":           json.RawMessage(`{"foglio_dati": null}`),
+		"vuoti":           json.RawMessage(``),
+		"rotti":           json.RawMessage(`non json`),
+	} {
+		if _, ok := DecodificaFoglioDati(d); ok || !FoglioDatiDaRileggere(d) {
+			t.Errorf("%s: va riletto, non decodificato", nome)
+		}
 	}
 }

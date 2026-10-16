@@ -1,0 +1,416 @@
+{
+  "$defs": {
+    "CellaFoglio": {
+      "description": "Una cella non vuota. `tipo` e' quello del valore memorizzato: s (testo), n (numero), b, d, e (errore). `grezzo`\ne' il testo come sta nel file: la stringa intera (zeri iniziali e spazi compresi), il numero come e' scritto (non\nriformattato). `da_formula`: la cella ha una formula (`formula` e' il suo testo, vuoto per le formule condivise\nche non lo ripetono) e `grezzo` e' il valore che il file aveva memorizzato, non ricalcolato. `stile` e' l'indice in\nFoglioDati.stili (None: lo stile predefinito, niente di notevole).",
+      "properties": {
+        "foglio": {
+          "title": "Foglio",
+          "type": "integer"
+        },
+        "ind": {
+          "title": "Ind",
+          "type": "string"
+        },
+        "r": {
+          "title": "R",
+          "type": "integer"
+        },
+        "c": {
+          "title": "C",
+          "type": "integer"
+        },
+        "tipo": {
+          "default": "s",
+          "enum": [
+            "s",
+            "n",
+            "b",
+            "d",
+            "e"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        },
+        "grezzo": {
+          "default": "",
+          "title": "Grezzo",
+          "type": "string"
+        },
+        "formula": {
+          "default": "",
+          "title": "Formula",
+          "type": "string"
+        },
+        "da_formula": {
+          "default": false,
+          "title": "Da Formula",
+          "type": "boolean"
+        },
+        "stile": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stile"
+        },
+        "collegamento": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CollegamentoCella"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "foglio",
+        "ind",
+        "r",
+        "c"
+      ],
+      "title": "CellaFoglio",
+      "type": "object"
+    },
+    "CollegamentoCella": {
+      "description": "Il collegamento di una cella, ridotto: il tipo e il nome del file con l'estensione. Mai cartelle, host o\nindirizzi di posta, e mai seguito.",
+      "properties": {
+        "tipo": {
+          "default": "relativo",
+          "enum": [
+            "relativo",
+            "assoluto",
+            "url",
+            "interno",
+            "posta"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        },
+        "nome_base": {
+          "default": "",
+          "title": "Nome Base",
+          "type": "string"
+        },
+        "estensione": {
+          "default": "",
+          "title": "Estensione",
+          "type": "string"
+        }
+      },
+      "title": "CollegamentoCella",
+      "type": "object"
+    },
+    "ColonnaFoglio": {
+      "properties": {
+        "c": {
+          "title": "C",
+          "type": "integer"
+        },
+        "ind": {
+          "default": "",
+          "title": "Ind",
+          "type": "string"
+        },
+        "testo": {
+          "default": "",
+          "title": "Testo",
+          "type": "string"
+        },
+        "ruolo": {
+          "default": "",
+          "enum": [
+            "",
+            "posizione",
+            "livello",
+            "codice",
+            "descrizione",
+            "quantita",
+            "unita",
+            "materiale",
+            "revisione",
+            "documento",
+            "nota"
+          ],
+          "title": "Ruolo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "c"
+      ],
+      "title": "ColonnaFoglio",
+      "type": "object"
+    },
+    "FoglioInfo": {
+      "description": "Un foglio della cartella: posizione, nome, visibilita', dimensione dichiarata, celle lette e celle unite.",
+      "properties": {
+        "indice": {
+          "title": "Indice",
+          "type": "integer"
+        },
+        "nome": {
+          "default": "",
+          "title": "Nome",
+          "type": "string"
+        },
+        "stato": {
+          "default": "visibile",
+          "enum": [
+            "visibile",
+            "nascosto",
+            "molto_nascosto"
+          ],
+          "title": "Stato",
+          "type": "string"
+        },
+        "dimensione": {
+          "default": "",
+          "title": "Dimensione",
+          "type": "string"
+        },
+        "celle": {
+          "default": 0,
+          "title": "Celle",
+          "type": "integer"
+        },
+        "unite": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unite",
+          "type": "array"
+        },
+        "troncato": {
+          "default": false,
+          "title": "Troncato",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "indice"
+      ],
+      "title": "FoglioInfo",
+      "type": "object"
+    },
+    "IntestazioneFoglio": {
+      "description": "Una riga candidata intestazione (nomi di colonna con un ruolo tipico, workers/colonne.py): un aiuto di lettura.",
+      "properties": {
+        "foglio": {
+          "title": "Foglio",
+          "type": "integer"
+        },
+        "riga": {
+          "title": "Riga",
+          "type": "integer"
+        },
+        "colonne": {
+          "items": {
+            "$ref": "#/$defs/ColonnaFoglio"
+          },
+          "title": "Colonne",
+          "type": "array"
+        }
+      },
+      "required": [
+        "foglio",
+        "riga"
+      ],
+      "title": "IntestazioneFoglio",
+      "type": "object"
+    },
+    "LimitiFoglio": {
+      "properties": {
+        "byte_max": {
+          "default": 0,
+          "title": "Byte Max",
+          "type": "integer"
+        },
+        "parte_max": {
+          "default": 0,
+          "title": "Parte Max",
+          "type": "integer"
+        },
+        "rapporto_max": {
+          "default": 0,
+          "title": "Rapporto Max",
+          "type": "integer"
+        },
+        "fogli_max": {
+          "default": 0,
+          "title": "Fogli Max",
+          "type": "integer"
+        },
+        "celle_max": {
+          "default": 0,
+          "title": "Celle Max",
+          "type": "integer"
+        },
+        "testo_max": {
+          "default": 0,
+          "title": "Testo Max",
+          "type": "integer"
+        },
+        "unite_max": {
+          "default": 0,
+          "title": "Unite Max",
+          "type": "integer"
+        }
+      },
+      "title": "LimitiFoglio",
+      "type": "object"
+    },
+    "StileCella": {
+      "description": "Lo stile di una cella, solo se porta qualcosa rispetto al predefinito. `colore_font` e `riempimento`: ARGB\n(«FFFF0000») quando il file lo dice o la tavolozza lo risolve, altrimenti «theme:N[:tinta]» o «indexed:N»; `apice`:\nil testo era scritto con l'apostrofo iniziale (quotePrefix); `formato_numero`: il codice del formato («00000»,\n«@», «0.00»), vuoto per il generale.",
+      "properties": {
+        "colore_font": {
+          "default": "",
+          "title": "Colore Font",
+          "type": "string"
+        },
+        "grassetto": {
+          "default": false,
+          "title": "Grassetto",
+          "type": "boolean"
+        },
+        "corsivo": {
+          "default": false,
+          "title": "Corsivo",
+          "type": "boolean"
+        },
+        "barrato": {
+          "default": false,
+          "title": "Barrato",
+          "type": "boolean"
+        },
+        "sottolineato": {
+          "default": false,
+          "title": "Sottolineato",
+          "type": "boolean"
+        },
+        "riempimento": {
+          "default": "",
+          "title": "Riempimento",
+          "type": "string"
+        },
+        "apice": {
+          "default": false,
+          "title": "Apice",
+          "type": "boolean"
+        },
+        "formato_numero": {
+          "default": "",
+          "title": "Formato Numero",
+          "type": "string"
+        }
+      },
+      "title": "StileCella",
+      "type": "object"
+    }
+  },
+  "description": "Il fatto `foglio_dati` (RisultatoAnalisi.dettagli[\"foglio_dati\"]). `esito`: `letto`, `parziale` (un tetto\nraggiunto: `motivo`, `troncato`), `non_supportato` (BIFF di Excel 97-2003, HTML, una cartella cifrata: il limite e'\ndichiarato, non nascosto), `non_letto` (il file non si legge: `motivo`). `formato` viene dai byte, non\ndall'estensione. `sha256` e' la versione della cartella: due versioni dello stesso file sono due fatti. Le macro non\nsi eseguono (`macro_presenti`) e i collegamenti esterni non si seguono (`collegamenti_esterni`).",
+  "properties": {
+    "versione": {
+      "default": 1,
+      "title": "Versione",
+      "type": "integer"
+    },
+    "esito": {
+      "default": "letto",
+      "enum": [
+        "letto",
+        "parziale",
+        "non_supportato",
+        "non_letto"
+      ],
+      "title": "Esito",
+      "type": "string"
+    },
+    "motivo": {
+      "default": "",
+      "title": "Motivo",
+      "type": "string"
+    },
+    "formato": {
+      "default": "sconosciuto",
+      "enum": [
+        "xlsx",
+        "xlsm",
+        "xls_xml",
+        "xls_biff",
+        "csv",
+        "html",
+        "xml",
+        "sconosciuto"
+      ],
+      "title": "Formato",
+      "type": "string"
+    },
+    "sha256": {
+      "default": "",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "codifica": {
+      "default": "",
+      "title": "Codifica",
+      "type": "string"
+    },
+    "fogli": {
+      "items": {
+        "$ref": "#/$defs/FoglioInfo"
+      },
+      "title": "Fogli",
+      "type": "array"
+    },
+    "celle": {
+      "items": {
+        "$ref": "#/$defs/CellaFoglio"
+      },
+      "title": "Celle",
+      "type": "array"
+    },
+    "stili": {
+      "items": {
+        "$ref": "#/$defs/StileCella"
+      },
+      "title": "Stili",
+      "type": "array"
+    },
+    "intestazioni_candidate": {
+      "items": {
+        "$ref": "#/$defs/IntestazioneFoglio"
+      },
+      "title": "Intestazioni Candidate",
+      "type": "array"
+    },
+    "macro_presenti": {
+      "default": false,
+      "title": "Macro Presenti",
+      "type": "boolean"
+    },
+    "collegamenti_esterni": {
+      "default": 0,
+      "title": "Collegamenti Esterni",
+      "type": "integer"
+    },
+    "troncato": {
+      "default": false,
+      "title": "Troncato",
+      "type": "boolean"
+    },
+    "limiti": {
+      "$ref": "#/$defs/LimitiFoglio"
+    }
+  },
+  "title": "FoglioDati",
+  "type": "object",
+  "$id": "cockpit/foglio_dati"
+}
