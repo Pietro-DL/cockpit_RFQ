@@ -533,6 +533,7 @@ var etichette = map[string]map[string]string{
 	// template. Campi: GruppoDisegni2D.RegolaPrimario.
 	"regola_primario": {
 		"corrente":      "corrente",
+		"tipo_disegno":  "è un disegno", // PM-43 A (16/10)
 		"compatibilita": "compatibilità",
 		"formato":       "formato",
 		"recente":       "più recente",

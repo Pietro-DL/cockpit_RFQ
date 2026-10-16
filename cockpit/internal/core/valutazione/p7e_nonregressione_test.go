@@ -20,6 +20,10 @@
 //     impronta, che hanno fra gli ingressi l'ID delle interpretazioni. Il contenuto resta confrontato per intero.
 //   - da K4 (ancoraggio-2) la versione del servizio negli stessi esiti (versione_servizio): le equivalenze del cartiglio
 //     non cambiano niente nelle scene ACME, che non leggono cartiglio.riferimento_3d.
+//   - da GP-1 (16/10, addendum «contesto partner» §0) le versioni dell'interpretazione, motorea-2 e risultato 2, con lo
+//     stesso trattamento del router: in ogni interpretazione versione_algoritmo e versione_risultato. Prova che il resto
+//     non cambia: con le due costanti riportate a motorea-1 e 1 il test passa senza nessuna differenza nuova (scene ACME
+//     senza contesto, senza partner e senza legami).
 //
 // Tutto il resto deve restare uguale: stato, assi, motivi, autorità, l'impronta del prodotto (R90), i nodi senza il tipo,
 // i previsti e le altre voci della completezza, gli ancoraggi, lo smistamento, il fascicolo. Una differenza è una
@@ -37,6 +41,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -451,6 +456,14 @@ func normalizzaP7e(v any) {
 			x["versione_router"] = "router"
 			delete(x, "id")
 			delete(x, "impronta")
+			// GP-1 (16/10): motorea-2 e risultato 2, nell'identità dell'interpretazione come il router. Il «prima» ha solo
+			// le impronte, calcolate con motorea-1 e 1: si riportano a quei valori (i numeri sono json.Number).
+			if v, ok := x["versione_algoritmo"]; ok && v == motorea.VersioneAlgoritmo {
+				x["versione_algoritmo"] = "motorea-1"
+			}
+			if v, ok := x["versione_risultato"].(json.Number); ok && v.String() == strconv.Itoa(motorea.VersioneRisultato) {
+				x["versione_risultato"] = json.Number("1")
+			}
 		}
 		if _, ok := x["hash_ingresso"]; ok {
 			delete(x, "hash_ingresso")

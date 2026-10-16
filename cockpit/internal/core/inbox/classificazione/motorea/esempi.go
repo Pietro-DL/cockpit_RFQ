@@ -55,6 +55,9 @@ func (c *compilazione) verificaEsempio(f grammatica.FamigliaCodice, e grammatica
 		if la.Forma != "" && !c.abbassate[chiaveForma(fam, la.Forma)] {
 			return []evidenze.Diagnostica{nonVerificato(p, e.ID, fmt.Sprintf("attende la forma %s/%s, che non entra nel motore", fam, la.Forma))}
 		}
+		if pf := c.m.forme[chiaveForma(fam, la.Forma)]; la.Forma != "" && pf != nil && pf.condizione == condSoloLegame {
+			return []evidenze.Diagnostica{nonVerificato(p, e.ID, fmt.Sprintf("attende la forma %s/%s, che legge solo dentro un legame: la verificano gli esempi del legame", fam, la.Forma))}
+		}
 		// Una lettura attesa senza forma, di un'altra famiglia che sul selettore ha solo forme o revisioni fuori
 		// dal motore: come per la famiglia dell'esempio (sotto), non si verifica.
 		if k := chiaveSelettore(fam, e.Selettore); la.Forma == "" && fam != f.ID && !c.attive[k] && c.dichiarate[k] {
@@ -76,8 +79,18 @@ func (c *compilazione) verificaEsempio(f grammatica.FamigliaCodice, e grammatica
 		}}
 	}
 
-	// Le letture prodotte: forme e revisioni in campo separato, del motore intero.
-	forme, dr := c.m.Riconosci(sel, e.Testo)
+	// Le letture prodotte: forme e revisioni in campo separato, del motore intero. Con un'attivazione (GP-1)
+	// leggono anche le forme contestuali e quelle dei partner dell'attivazione, come in un contesto dichiarato.
+	var att *attivazione
+	if e.Attivazione != nil {
+		for _, pid := range e.Attivazione.Partner {
+			if _, ok := c.m.partner[pid]; !ok {
+				return []evidenze.Diagnostica{nonVerificato(p, e.ID, fmt.Sprintf("l'attivazione cita il partner %q, che non è entrato nel motore", pid))}
+			}
+		}
+		att = attivazioneDiEsempio(*e.Attivazione, sel)
+	}
+	forme, dr := c.m.riconosciCon(sel, e.Testo, att)
 	var diag []evidenze.Diagnostica
 	for _, d := range dr {
 		if d.Codice == grammatica.CodiceLimiteSuperato {

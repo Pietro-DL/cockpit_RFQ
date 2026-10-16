@@ -209,20 +209,21 @@ func impronteSenzaTabelle(t *testing.T) (letture, interpretazione, impronta stri
 	return hex.EncodeToString(s1[:]), hex.EncodeToString(s2[:]), r.Impronta
 }
 
-// TestClassiJSONComePrima: senza tabelle delle classi il JSON delle letture e dell'interpretazione, e l'impronta, sono
-// byte per byte quelli del codice di prima (aabe52c): Classe ha omitempty, e nessuna versione del motore cambia
-// (VersioneAlgoritmo, VersioneRisultato).
+// TestClassiJSONComePrima: senza tabelle delle classi il JSON delle letture è byte per byte quello del codice di prima
+// (aabe52c): Classe ha omitempty, e dal 16/10 anche Emittente, HashEmittente e Ruolo (GP-1). L'interpretazione e la
+// sua impronta cambiano solo perché cambiano le versioni (motorea-2, risultato 2: GP-1, addendum §0): i valori di
+// prima erano interpretazione 223ab91f… e impronta fb98a20e….
 func TestClassiJSONComePrima(t *testing.T) {
 	const (
 		lettureprima         = "e488212178a72f18d794ac26cf3ab2a220095f149f761b601412a3dd84575799"
-		interpretazioneprima = "223ab91f71ca73c2b573b4a8d9154731c05bb4eaa28387b21f117445c5ee0d42"
-		improntaprima        = "fb98a20e29d8e13d82229f615bbe1cdc39c4b7ba9c377c05a364c2fc3f709ada"
+		interpretazioneprima = "b0c8ad6aecc5b6495d31b80281891d7165c3e11c0da9f263361d18b34cef9ea9"
+		improntaprima        = "c22bf03f3f839f735ef4f822ff292fbc637bf60fa1a5017f07c78047c9e826ef"
 	)
 	l, i, imp := impronteSenzaTabelle(t)
 	if l != lettureprima || i != interpretazioneprima || imp != improntaprima {
 		t.Fatalf("senza tabelle il JSON è cambiato: letture %s, interpretazione %s, impronta %s", l, i, imp)
 	}
-	if VersioneAlgoritmo != "motorea-1" || VersioneRisultato != 1 {
+	if VersioneAlgoritmo != "motorea-2" || VersioneRisultato != 2 {
 		t.Fatalf("versioni del motore cambiate: %q %d", VersioneAlgoritmo, VersioneRisultato)
 	}
 }

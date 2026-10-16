@@ -313,6 +313,7 @@ type Disegno2D struct {
 // alternativi. "" con un 2D solo: nessuna scelta.
 const (
 	RegolaPrimarioCorrente      = "corrente"
+	RegolaPrimarioTipoDisegno   = "tipo_disegno" // PM-43 A [U] (16/10): un documento che non è un disegno non batte mai un disegno
 	RegolaPrimarioCompatibilita = "compatibilita"
 	RegolaPrimarioFormato       = "formato"
 	RegolaPrimarioRecente       = "recente"
@@ -406,6 +407,15 @@ var criteriPrimario = []struct {
 }{
 	{RegolaPrimarioCorrente, func(d Disegno2D) int {
 		if d.Provenienza == ancoraggio.OrigineConfermato && d.Corrente {
+			return 1
+		}
+		return 0
+	}},
+	// PM-43 A [U] (registro §2.7-bis): «un documento il cui tipo non è "disegno" non batte mai un disegno; la
+	// compatibilità del codice vale solo fra disegni». Un 2D con il tipo registrato viene prima di uno che è un 2D solo
+	// per il formato (tipo da determinare: una distinta, un elenco, un PDF qualunque); il codice letto conta dopo.
+	{RegolaPrimarioTipoDisegno, func(d Disegno2D) int {
+		if d.Riconoscimento2D == Riconoscimento2DTipoRegistrato {
 			return 1
 		}
 		return 0

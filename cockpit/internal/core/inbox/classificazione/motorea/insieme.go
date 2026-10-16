@@ -19,6 +19,10 @@ type InsiemeRegole struct {
 	ImprontaIndice string                  // sha256 del canonico dell'indice: copre anche i limiti
 	Motori         map[uuid.UUID]*Motore
 	Scartati       map[uuid.UUID][]evidenze.Diagnostica
+
+	// GP-1: gli emittenti partner dell'indice, compilati e verificati da soli, per ID; e quelli scartati.
+	Emittenti         map[string]*Motore
+	EmittentiScartati map[string][]evidenze.Diagnostica
 }
 
 // CompilaInsieme compila le grammatiche dell'indice, ciascuna con NuovoSnapshot e CompilaVerificato e con i
@@ -35,9 +39,11 @@ type InsiemeRegole struct {
 // costruito a mano).
 func CompilaInsieme(ind grammatica.IndiceRegole, contenuti map[string][]byte) (InsiemeRegole, []evidenze.Diagnostica, error) {
 	r := InsiemeRegole{
-		Indice:   ind,
-		Motori:   map[uuid.UUID]*Motore{},
-		Scartati: map[uuid.UUID][]evidenze.Diagnostica{},
+		Indice:            ind,
+		Motori:            map[uuid.UUID]*Motore{},
+		Scartati:          map[uuid.UUID][]evidenze.Diagnostica{},
+		Emittenti:         map[string]*Motore{},
+		EmittentiScartati: map[string][]evidenze.Diagnostica{},
 	}
 	if d := indiceNonValido(ind); len(d) > 0 {
 		return r, d, &evidenze.ErroreContratto{Diagnostiche: d}
@@ -55,8 +61,20 @@ func CompilaInsieme(ind grammatica.IndiceRegole, contenuti map[string][]byte) (I
 	r.ImprontaIndice = impronta
 
 	var tutte []evidenze.Diagnostica
+	// GP-1: prima gli emittenti, ciascuno da solo con i suoi esempi; poi i clienti, con i partner che dichiarano.
+	caricati := map[string]PartnerCaricato{}
+	for i, e := range ind.Emittenti {
+		m, d := compilaEmittente(fmt.Sprintf("emittenti[%d]", i), e, ind.Limiti, contenuti)
+		tutte = append(tutte, d...)
+		if m != nil {
+			r.Emittenti[e.ID] = m
+			caricati[e.ID] = PartnerCaricato{Snapshot: m.snap}
+		} else {
+			r.EmittentiScartati[e.ID] = d
+		}
+	}
 	for i, v := range ind.Grammatiche {
-		m, d := compilaVoce(fmt.Sprintf("grammatiche[%d]", i), v, ind.Limiti, contenuti)
+		m, d := compilaVoceConPartner(fmt.Sprintf("grammatiche[%d]", i), v, ind.Limiti, contenuti, caricati)
 		tutte = append(tutte, d...)
 		if m != nil {
 			r.Motori[v.ClienteID] = m
@@ -71,6 +89,7 @@ func CompilaInsieme(ind grammatica.IndiceRegole, contenuti map[string][]byte) (I
 // attiva.
 func indiceNonValido(ind grammatica.IndiceRegole) []evidenze.Diagnostica {
 	d := ind.Limiti.Valida()
+	d = append(d, grammatica.ValidaEmittentiIndice(ind.Emittenti)...)
 	var visti []uuid.UUID
 	for i, v := range ind.Grammatiche {
 		for _, c := range visti {
@@ -91,8 +110,41 @@ func indiceNonValido(ind grammatica.IndiceRegole) []evidenze.Diagnostica {
 	return d
 }
 
+// compilaEmittente: il motore di un emittente dell'indice, compilato e verificato da solo, o nil con il motivo dello
+// scarto (GP-1). Le stesse regole di un cliente: file presente, sha256 dell'indice, grammatica valida, e l'ID
+// dell'emittente del file uguale a quello della voce.
+func compilaEmittente(p string, e grammatica.VoceEmittente, lim grammatica.Limiti, contenuti map[string][]byte) (*Motore, []evidenze.Diagnostica) {
+	raw, ok := contenuti[e.File]
+	if !ok {
+		return nil, []evidenze.Diagnostica{{Codice: CodiceRegoleFileAssente, Gravita: evidenze.GravitaErrore, Natura: evidenze.NaturaContratto,
+			Percorso: p + ".file", Messaggio: "il file dell'emittente indicato dall'indice non c'è: i clienti che lo dichiarano restano attivi senza di lui", Rif: []string{e.ID}}}
+	}
+	if !strings.EqualFold(jsoncanonico.Impronta(raw), e.Sha256) {
+		return nil, []evidenze.Diagnostica{{Codice: CodiceRegoleSha256Discorde, Gravita: evidenze.GravitaErrore, Natura: evidenze.NaturaContratto,
+			Percorso: p + ".sha256", Messaggio: "lo sha256 del file dell'emittente è diverso da quello dell'indice: l'emittente è scartato (R29 d)", Rif: []string{e.ID}}}
+	}
+	s, err := grammatica.NuovoSnapshot(raw, lim)
+	if err != nil {
+		return nil, scartata(p, e.ID, err, nil)
+	}
+	if s.EmittenteID != e.ID {
+		return nil, []evidenze.Diagnostica{{Codice: CodiceRegoleClienteDiscorde, Gravita: evidenze.GravitaErrore, Natura: evidenze.NaturaContratto,
+			Percorso: p + ".id", Messaggio: "il file non è la grammatica di questo emittente (emittente.id diverso, o una grammatica di cliente): scartato", Rif: []string{e.ID, s.EmittenteID}}}
+	}
+	m, d, err := CompilaVerificato(s, lim)
+	if err != nil {
+		return nil, scartata(p, e.ID, err, d)
+	}
+	return m, d
+}
+
 // compilaVoce: il motore di un cliente dell'indice, o nil con il motivo dello scarto.
 func compilaVoce(p string, v grammatica.VoceIndice, lim grammatica.Limiti, contenuti map[string][]byte) (*Motore, []evidenze.Diagnostica) {
+	return compilaVoceConPartner(p, v, lim, contenuti, nil)
+}
+
+// compilaVoceConPartner: come compilaVoce, con gli emittenti già compilati (GP-1).
+func compilaVoceConPartner(p string, v grammatica.VoceIndice, lim grammatica.Limiti, contenuti map[string][]byte, caricati map[string]PartnerCaricato) (*Motore, []evidenze.Diagnostica) {
 	cliente := v.ClienteID.String()
 	raw, ok := contenuti[v.File]
 	if !ok {
@@ -130,7 +182,7 @@ func compilaVoce(p string, v grammatica.VoceIndice, lim grammatica.Limiti, conte
 			Rif:       []string{cliente, s.ClienteID.String()},
 		}}
 	}
-	m, d, err := CompilaVerificato(s, lim)
+	m, d, err := CompilaVerificatoConPartner(s, lim, caricati)
 	if err != nil {
 		return nil, scartata(p, cliente, err, d)
 	}

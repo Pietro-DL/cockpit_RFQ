@@ -37,6 +37,14 @@ type pianoForma struct {
 	gruppi                     []gruppo
 	scrittura                  []parteScritta // le parti come le legge il compositore (componi.go, A1c B3; R63 B)
 	classi                     *tabellaClassi // la tabella delle classi della famiglia, condivisa dalle sue forme; nil senza
+
+	// GP-1 (partner.go).
+	condizione      condizione // quando legge: sempre, contestuale, partner, solo legame
+	emittente       string     // l'emittente della forma; vuoto per il cliente
+	hashEmittente   string     // l'hash della grammatica dell'emittente
+	estensioni      []string   // il filtro facoltativo su nome_file
+	funzioneMassima Funzione   // G-7: vuota = nessun tetto
+	segnalaSuffissi bool       // G-5: un suffisso attaccato e non letto toglie la completezza
 }
 
 // tabellaClassi: la tabella delle classi di una famiglia abbassata (grammatica.TabellaClassi, 14/10): il segmento e le
@@ -299,16 +307,19 @@ func segmentiDellaForma(b grammatica.Base, fo grammatica.FormaCodice) []grammati
 func compilaForma(r regoleFamiglia, fo grammatica.FormaCodice) (*pianoForma, error) {
 	f := r.f
 	p := &pianoForma{
-		famiglia:     f.ID,
-		namespace:    f.Namespace,
-		forma:        fo.ID,
-		categorie:    f.Categorie,
-		classi:       r.classi,
-		completa:     fo.Completa,
-		mancanti:     fo.SegmentiMancanti,
-		maiuscolo:    f.Base.Normalizza == grammatica.NormalizzaMaiuscolo,
-		confinePrima: f.Base.ConfinePrima,
-		confineDopo:  f.Base.ConfineDopo,
+		famiglia:        f.ID,
+		namespace:       f.Namespace,
+		forma:           fo.ID,
+		categorie:       f.Categorie,
+		classi:          r.classi,
+		completa:        fo.Completa,
+		mancanti:        fo.SegmentiMancanti,
+		maiuscolo:       f.Base.Normalizza == grammatica.NormalizzaMaiuscolo,
+		confinePrima:    f.Base.ConfinePrima,
+		confineDopo:     f.Base.ConfineDopo,
+		estensioni:      fo.Estensioni,
+		funzioneMassima: Funzione(fo.FunzioneMassima),
+		segnalaSuffissi: fo.SuffissiIgnoti == grammatica.SuffissiIgnotiSegnala,
 	}
 	if fo.ConfinePrima != nil {
 		p.confinePrima = *fo.ConfinePrima
@@ -425,7 +436,17 @@ func (c *costruttore) parti(r regoleFamiglia, parti []grammatica.Parte, segmenti
 			c.scrivi(alternativa(pt.Letterali))
 		case grammatica.TipoParteMarcatore:
 			c.apri(gruppo{op: opMarcatore, padre: -1})
-			c.scrivi(alternativa(pt.Letterali))
+			if pt.Pattern != "" {
+				// G-5: un qualificatore previsto ma non elencato valore per valore; il pattern è già verificato
+				// (VerificaPattern: niente gruppi, ancore, ripetizioni illimitate), con le maiuscole della base.
+				pp, err := c.patternBase(pt.Pattern)
+				if err != nil {
+					return err
+				}
+				c.scrivi("(?:" + pp + ")")
+			} else {
+				c.scrivi(alternativa(pt.Letterali))
+			}
 			c.chiudi()
 		case grammatica.TipoParteToken:
 			c.apri(gruppo{op: opToken, padre: -1})

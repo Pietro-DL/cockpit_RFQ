@@ -9,7 +9,10 @@ import (
 
 // VersioneRisultato: lo schema del JSON di Interpretazione (5.6.1). Cambia con un commit che lo dichiara, e la
 // prova del pacchetto che lo fissa si riscrive.
-const VersioneRisultato = 1
+//
+// 2 (GP-1, 16/10): LetturaForma.Emittente e HashEmittente, LetturaCodice.Ruolo, Interpretazione.ContestoID e
+// ImprontaContesto, RelazioneSemantica con LetturaSorgente, Modello e Stato; relazioni tipizzate dai legami.
+const VersioneRisultato = 2
 
 // Interpretazione: il risultato di Interpreta (parte 1 §7.3; par.3.3.4). È tutta in memoria e non si salva in
 // A1. Ogni elenco è in ordine di ID, le diagnostiche per (codice, percorso, riferimenti): due esecuzioni sugli
@@ -29,7 +32,10 @@ type Interpretazione struct {
 	ImprontaLimiti    string                 `json:"impronta_limiti"` // sha256 del canonico dei limiti usati, valori e versione (R43 B)
 	VersioneRisultato int                    `json:"versione_risultato"`
 	ImprontaUso       string                 `json:"impronta_uso"`
-	Stato             string                 `json:"stato"` // completa | parziale | non_disponibile; «completa» con zero letture non è un PDF illeggibile
+	ContestoID        string                 `json:"contesto_id,omitempty"`       // GP-1: il contesto che ha toccato il documento
+	ImprontaContesto  string                 `json:"impronta_contesto,omitempty"` // GP-1: entra nell'ID
+	AutoreDocumento   string                 `json:"autore_documento,omitempty"`  // GP-1: chi ha fatto il documento (dichiarato nel contesto), distinto dall'emittente dei codici
+	Stato             string                 `json:"stato"`                       // completa | parziale | non_disponibile; «completa» con zero letture non è un PDF illeggibile
 	Letture           []LetturaCodice        `json:"letture,omitempty"`
 	Attributi         []AttributoLetto       `json:"attributi,omitempty"`
 	Relazioni         []RelazioneSemantica   `json:"relazioni,omitempty"`
@@ -76,6 +82,7 @@ type LetturaCodice struct {
 	Trasformazioni []Trasformazione       `json:"trasformazioni,omitempty"`
 	Qualita        string                 `json:"qualita"` // completa | parziale | da_verificare
 	Motivi         []string               `json:"motivi,omitempty"`
+	Ruolo          string                 `json:"ruolo,omitempty"` // GP-1: vuoto = primaria; riferimento | variante (da un legame)
 }
 
 // Le qualità di una lettura (5.4.6 punto 8).
@@ -129,6 +136,11 @@ type RelazioneSemantica struct {
 	Riconoscimento   string   `json:"riconoscimento"` // famiglia/forma che l'ha riconosciuta
 	LettureBersaglio []string `json:"letture_bersaglio"`
 	Evidenze         []string `json:"evidenze,omitempty"`
+
+	// GP-1: le relazioni dei legami (legami.go). Sempre proposte, mai una fusione di identità.
+	LetturaSorgente string `json:"lettura_sorgente,omitempty"`
+	Modello         string `json:"modello,omitempty"`
+	Stato           string `json:"stato,omitempty"`
 }
 
 // RelazioneSimile: il tipo della relazione che dà la riga 12 del router.

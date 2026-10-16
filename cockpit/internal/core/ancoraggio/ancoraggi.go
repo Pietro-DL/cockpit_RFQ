@@ -114,9 +114,13 @@ const (
 	MotivoAncoraggioNamespaceNonConfrontabile = "namespace_non_confrontabile"
 	MotivoAncoraggioLivelliDiversi            = "livelli_diversi"
 	MotivoAncoraggioIdentitaDiscordanti       = "identita_discordanti"
-	MotivoAncoraggioRevisioniDiscordanti      = "revisioni_discordanti"
-	MotivoAncoraggioCompletamentiMultipli     = "completamenti_multipli"
-	MotivoAncoraggioCandidatiMultipli         = "candidati_multipli"
+	// MotivoAncoraggioRichiedeAbbinamento (GP-1, addendum §6, regole 3-4; direttiva 21 §5.3): il file ha solo
+	// riferimenti o varianti senza nodo corrispondente, oppure il suo contenuto cita un prodotto richiesto, e non ha
+	// candidati: è pertinente ma non associabile da solo. Mai fuori richiesta; l'abbinamento lo fa l'operatore.
+	MotivoAncoraggioRichiedeAbbinamento   = "richiede_abbinamento"
+	MotivoAncoraggioRevisioniDiscordanti  = "revisioni_discordanti"
+	MotivoAncoraggioCompletamentiMultipli = "completamenti_multipli"
+	MotivoAncoraggioCandidatiMultipli     = "candidati_multipli"
 )
 
 // I motivi di un candidato (CandidatoAncoraggio.Motivo): la base di un'identità del file è quella del target, o
@@ -132,6 +136,10 @@ const (
 	MotivoCandidatoRadiceScelta         = "radice_scelta"
 	MotivoCandidatoRadiceDiRiserva      = "radice_di_riserva"
 	MotivoCandidatoEquivalenzaCartiglio = "equivalenza_cartiglio"
+	// MotivoCandidatoRiferimentoPartner (GP-1): l'identità del file coincide con un riferimento di un partner letto
+	// sul nodo (per esempio il disegno del fornitore scritto nell'id della radice): candidato proposto, mai un'identità
+	// del nodo.
+	MotivoCandidatoRiferimentoPartner = "riferimento_partner"
 )
 
 // Le dimensioni di un candidato (DimensioneCompatibilita.Dimensione; 6.4.5 regola 4), più le due della compatibilità
@@ -370,15 +378,18 @@ func ProponiAncoraggi(file []FileInterpretato, target []ProdottoRichiesto, ctx C
 // ancoratore: i target, le strutture dei target con i loro indici, le identità raggiungibili, i motivi dello scenario.
 // Le mappe servono solo a cercare, mai a scorrere.
 type ancoratore struct {
-	target     []ProdottoRichiesto
-	autorita   map[string]Autorita
-	strutture  []StrutturaProdotto
-	file       map[uuid.UUID]StrutturaFile
-	letture    map[uuid.UUID]map[string][]motorea.LetturaCodice // per allegato e nodo
-	padri      []map[string][]ArcoProposto                      // per struttura: figlio → archi entranti
-	identita   []*identitaRaggiungibile
-	motiviNonD []string        // i motivi dello scenario che impediscono fuori_richiesta
-	namespace  map[string]bool // i namespace che si confrontano: dei target e delle letture dei nodi delle loro strutture (L8)
+	target    []ProdottoRichiesto
+	autorita  map[string]Autorita
+	strutture []StrutturaProdotto
+	file      map[uuid.UUID]StrutturaFile
+	letture   map[uuid.UUID]map[string][]motorea.LetturaCodice // per allegato e nodo; senza i riferimenti (GP-1)
+	// riferimenti: le letture con il ruolo riferimento dei nodi (GP-1), per allegato e nodo: non sono identità del nodo,
+	// ma danno candidati proposti (motivo riferimento_partner) e non entrano nei namespace che si confrontano.
+	riferimenti map[uuid.UUID]map[string][]motorea.LetturaCodice
+	padri       []map[string][]ArcoProposto // per struttura: figlio → archi entranti
+	identita    []*identitaRaggiungibile
+	motiviNonD  []string        // i motivi dello scenario che impediscono fuori_richiesta
+	namespace   map[string]bool // i namespace che si confrontano: dei target e delle letture dei nodi delle loro strutture (L8)
 	// le equivalenze del cartiglio del thread (K4), per chiave del codice della parte (chiaveEquivalenza); mai fra i
 	// namespace che si confrontano
 	equivalenze map[string]*equivalenza
@@ -391,6 +402,7 @@ type identitaRaggiungibile struct {
 	baseLetta                  motorea.BaseLetta
 	revisione                  *motorea.RevisioneLetta
 	nodi                       []nodoRaggiungibile
+	riferimento                bool // GP-1: l'identità viene dai riferimenti dei nodi, non dalle loro identità
 }
 
 // nodoRaggiungibile: un nodo di una struttura con la sua lettura d'identità.
@@ -402,7 +414,8 @@ type nodoRaggiungibile struct {
 
 func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutture []StrutturaProdotto) *ancoratore {
 	a := &ancoratore{autorita: map[string]Autorita{}, strutture: strutture, file: map[uuid.UUID]StrutturaFile{},
-		letture: map[uuid.UUID]map[string][]motorea.LetturaCodice{}, namespace: map[string]bool{}}
+		letture: map[uuid.UUID]map[string][]motorea.LetturaCodice{}, namespace: map[string]bool{},
+		riferimenti: map[uuid.UUID]map[string][]motorea.LetturaCodice{}}
 	a.target = append([]ProdottoRichiesto(nil), target...)
 	sort.SliceStable(a.target, func(i, j int) bool { return a.target[i].Rif < a.target[j].Rif })
 	for _, t := range a.target {
@@ -411,12 +424,18 @@ func nuovoAncoratore(target []ProdottoRichiesto, ctx ContestoStrutturale, strutt
 	for _, s := range ctx.Strutture {
 		a.file[s.AllegatoID] = s
 		perNodo := map[string][]motorea.LetturaCodice{}
+		rifNodo := map[string][]motorea.LetturaCodice{}
 		for _, n := range s.Nodi {
-			l := append([]motorea.LetturaCodice(nil), n.Letture...)
+			l, r := DividiRiferimenti(n.Letture)
 			sort.SliceStable(l, func(i, j int) bool { return l[i].ID < l[j].ID })
+			sort.SliceStable(r, func(i, j int) bool { return r[i].ID < r[j].ID })
 			perNodo[n.Rif] = l
+			if len(r) > 0 {
+				rifNodo[n.Rif] = r
+			}
 		}
 		a.letture[s.AllegatoID] = perNodo
+		a.riferimenti[s.AllegatoID] = rifNodo
 	}
 	for i := range strutture {
 		p := map[string][]ArcoProposto{}
@@ -506,6 +525,24 @@ func radiceProdotto(s StrutturaProdotto) bool {
 // diverse senza equivalenza dichiarata, sono identità distinte; una formazione STEP non divide (D1). Un file con un
 // altro marcatore scritto si abbina lo stesso ai nodi senza marcatore del gruppo (senzaMarcatore).
 func (a *ancoratore) identitaRaggiungibili() {
+	a.identita = a.costruisciIdentita(a.letture)
+	// GP-1: i riferimenti dei nodi danno identità a parte, con il flag: un file che le sostiene è un candidato proposto
+	// con il motivo riferimento_partner, mai un'identità del nodo.
+	for _, g := range a.costruisciIdentita(a.riferimenti) {
+		g.riferimento = true
+		a.identita = append(a.identita, g)
+	}
+	sort.SliceStable(a.identita, func(i, j int) bool {
+		if a.identita[i].riferimento != a.identita[j].riferimento {
+			return !a.identita[i].riferimento
+		}
+		return a.identita[i].rif() < a.identita[j].rif()
+	})
+}
+
+// costruisciIdentita: le identità raggiungibili dalle letture dei nodi della fonte data (identità o riferimenti).
+func (a *ancoratore) costruisciIdentita(fonte map[uuid.UUID]map[string][]motorea.LetturaCodice) []*identitaRaggiungibile {
+	var out []*identitaRaggiungibile
 	type secchio struct {
 		nodi []nodoRaggiungibile
 	}
@@ -516,7 +553,7 @@ func (a *ancoratore) identitaRaggiungibili() {
 			if n.Rif == s.Radice && radiceProdotto(s) {
 				continue
 			}
-			for _, l := range a.letture[s.AllegatoID][n.Rif] {
+			for _, l := range fonte[s.AllegatoID][n.Rif] {
 				k := l.Forma.Namespace + "\x00" + l.Forma.Base.Normalizzata
 				b, ok := perChiave[k]
 				if !ok {
@@ -553,10 +590,25 @@ func (a *ancoratore) identitaRaggiungibili() {
 			perMarcatore[""] = senzaMarcatore
 		}
 		for _, m := range marcatori {
-			a.identita = append(a.identita, classiDiRevisione(perMarcatore[m], m)...)
+			out = append(out, classiDiRevisione(perMarcatore[m], m)...)
 		}
 	}
-	sort.SliceStable(a.identita, func(i, j int) bool { return a.identita[i].rif() < a.identita[j].rif() })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].rif() < out[j].rif() })
+	return out
+}
+
+// DividiRiferimenti (GP-1): le letture d'identità (primarie e varianti) e quelle con il ruolo riferimento. Un
+// riferimento non è mai un'identità e non entra nel controllo delle discordanze (addendum §5-§6; T-E1-07 resta sulle
+// primarie).
+func DividiRiferimenti(letture []motorea.LetturaCodice) (identita, riferimenti []motorea.LetturaCodice) {
+	for _, l := range letture {
+		if l.Ruolo == grammatica.RuoloLetturaRiferimento {
+			riferimenti = append(riferimenti, l)
+			continue
+		}
+		identita = append(identita, l)
+	}
+	return identita, riferimenti
 }
 
 // classiDiRevisione divide i nodi di un namespace, una base e un marcatore per revisione letta.
@@ -610,7 +662,7 @@ func (g *identitaRaggiungibile) senzaMarcatore() *identitaRaggiungibile {
 	if len(nodi) == 0 {
 		return nil
 	}
-	return &identitaRaggiungibile{namespace: g.namespace, base: g.base, baseLetta: g.baseLetta, revisione: g.revisione, nodi: nodi}
+	return &identitaRaggiungibile{namespace: g.namespace, base: g.base, baseLetta: g.baseLetta, revisione: g.revisione, nodi: nodi, riferimento: g.riferimento}
 }
 
 func nuovaIdentita(x nodoRaggiungibile, marcatore string, r *motorea.RevisioneLetta) *identitaRaggiungibile {
@@ -692,6 +744,7 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 	var identita []identitaCandidata
 	for _, t := range a.target {
 		var sost, scelta []sostegno
+		rif := a.sostegniDaRiferimentoRadice(t, ident) // GP-1: il riferimento del partner sulla radice del prodotto
 		for _, l := range ident {
 			if !haRuolo(l.RuoliCandidati, grammatica.RuoloProdotto) {
 				// La radice di riserva (passo 3 bis) non è un nodo da componente (radiceProdotto): una lettura con il solo
@@ -722,6 +775,11 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 		}
 		if len(sost) > 0 || len(scelta) > 0 {
 			candidati = append(candidati, a.candidatoProdotto(t, sost, scelta))
+			identita = append(identita, identitaCandidata{livello: LivelloProdotto, namespace: t.Namespace, base: t.Base.Normalizzata})
+		} else if len(rif) > 0 {
+			c := a.candidatoProdotto(t, nil, rif)
+			c.Motivo = MotivoCandidatoRiferimentoPartner
+			candidati = append(candidati, c)
 			identita = append(identita, identitaCandidata{livello: LivelloProdotto, namespace: t.Namespace, base: t.Base.Normalizzata})
 		}
 	}
@@ -754,7 +812,14 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 			if x.g == nil || len(x.sost) == 0 {
 				continue
 			}
-			candidati = append(candidati, a.candidatoComponente(x.g, x.sost))
+			if x.g.riferimento && diretti[x.g] {
+				continue // il file sostiene già il nodo con la sua identità: il riferimento non aggiunge un candidato
+			}
+			cc := a.candidatoComponente(x.g, x.sost)
+			if x.g.riferimento {
+				cc.Motivo = MotivoCandidatoRiferimentoPartner
+			}
+			candidati = append(candidati, cc)
 			identita = append(identita, x.g.candidata())
 			diretti[g] = true
 		}
@@ -810,6 +875,9 @@ func (a *ancoratore) ancora(f FileInterpretato) AncoraggioFile {
 		af.Collocazione = CollocazioneRadice
 	case livelli[LivelloComponente]:
 		af.Collocazione = CollocazioneFiglio
+	case a.richiedeAbbinamento(f, ident):
+		af.Collocazione = CollocazioneNonDeterminabile
+		af.Motivi = append(af.Motivi, MotivoAncoraggioRichiedeAbbinamento)
 	case len(ident) == 0:
 		af.Collocazione = CollocazioneNonDeterminabile
 		af.Motivi = append(af.Motivi, MotivoAncoraggioNessunaLettura)
@@ -1155,11 +1223,13 @@ func motiviAmbiguita(c []identitaCandidata, ident []motorea.LetturaCodice) []str
 
 // ---- le identità del file ----
 
-// lettureIdentita: le letture d'identità di un file, quelle con la funzione identita_file, in ordine di ID.
+// lettureIdentita: le letture d'identità di un file, quelle con la funzione identita_file, in ordine di ID. Da GP-1
+// senza i riferimenti (ruolo riferimento): un riferimento non è un'identità del file; le varianti sì, e non discordano
+// fra loro (discordantiFra).
 func lettureIdentita(r motorea.Interpretazione) []motorea.LetturaCodice {
 	var out []motorea.LetturaCodice
 	for _, l := range r.Letture {
-		if l.Funzione == motorea.FunzIdentitaFile {
+		if l.Funzione == motorea.FunzIdentitaFile && l.Ruolo != grammatica.RuoloLetturaRiferimento {
 			out = append(out, l)
 		}
 	}
@@ -1250,6 +1320,9 @@ func discordantiFra(l []motorea.LetturaCodice) bool {
 			x, y := l[i], l[j]
 			if x.UnitaID == y.UnitaID && x.Occorrenza.Inizio < y.Occorrenza.Fine && y.Occorrenza.Inizio < x.Occorrenza.Fine {
 				continue
+			}
+			if x.Ruolo == grammatica.RuoloLetturaVariante && y.Ruolo == grammatica.RuoloLetturaVariante {
+				continue // GP-1: varianti della stessa tavola (legame): nessuna discordanza, nessuna scelta (PM-20R [U])
 			}
 			if motorea.ConfrontaBasi(x.Forma.Base, y.Forma.Base) == motorea.CompatibilitaDiscordante || !marcatoriCompatibili(marcatoreDi(x.Forma), marcatoreDi(y.Forma)) ||
 				confrontaRevisioni(x.Forma.Revisione, y.Forma.Revisione) == motorea.CompatibilitaDiscordante {

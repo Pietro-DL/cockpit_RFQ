@@ -23,6 +23,11 @@ type IndiceRegole struct {
 	Limiti         Limiti       `json:"limiti"` // obbligatorio: LeggiIndice lo controlla con Limiti.Valida (R43 B)
 	Grammatiche    []VoceIndice `json:"grammatiche"`
 	Casi           *FileIndice  `json:"casi,omitempty"` // il file degli ingressi dei casi (A1c; R48 A)
+
+	// Emittenti (GP-1): le grammatiche dei partner, senza cliente. Facoltativo: senza, il canonico e l'impronta
+	// dell'indice sono quelli di prima. Un binario anteriore a GP-1 rifiuta l'intero indice che le contiene
+	// (decodifica stretta): prima il binario, poi l'indice.
+	Emittenti []VoceEmittente `json:"emittenti,omitempty"`
 }
 
 // VoceIndice: il legame di un cliente con il suo file di regole. Il file dichiara a sua volta il suo
@@ -87,10 +92,34 @@ func LeggiIndice(raw []byte) (IndiceRegole, error) {
 	if ix.Casi != nil {
 		out = append(out, fileObbligatorio("casi", ix.Casi.File, ix.Casi.Sha256)...)
 	}
+	out = append(out, ValidaEmittentiIndice(ix.Emittenti)...)
 	if len(out) > 0 {
 		return IndiceRegole{}, &evidenze.ErroreContratto{Diagnostiche: out}
 	}
 	return ix, nil
+}
+
+// ValidaEmittentiIndice: ID non vuoti e unici, file e sha256 presenti (GP-1). Un errore qui rende non valido
+// l'indice, come un cliente ripetuto: quale grammatica valga per un emittente non si decide.
+func ValidaEmittentiIndice(es []VoceEmittente) []evidenze.Diagnostica {
+	var out []evidenze.Diagnostica
+	var visti []string
+	for i, e := range es {
+		p := fmt.Sprintf("emittenti[%d]", i)
+		switch {
+		case strings.TrimSpace(e.ID) == "":
+			out = append(out, evidenze.Diagnostica{Codice: CodiceCampoObbligatorio, Gravita: evidenze.GravitaErrore,
+				Natura: evidenze.NaturaContratto, Percorso: p + ".id", Messaggio: "manca l'ID dell'emittente"})
+		case in(e.ID, visti):
+			out = append(out, evidenze.Diagnostica{Codice: CodiceRegoleClienteRipetuto, Gravita: evidenze.GravitaErrore,
+				Natura: evidenze.NaturaContratto, Percorso: p + ".id",
+				Messaggio: "l'emittente compare due volte nell'indice: quale grammatica valga non si decide", Rif: []string{e.ID}})
+		default:
+			visti = append(visti, e.ID)
+		}
+		out = append(out, fileObbligatorio(p, e.File, e.Sha256)...)
+	}
+	return out
 }
 
 func fileObbligatorio(p, file, sha string) []evidenze.Diagnostica {

@@ -499,7 +499,7 @@ func (x *disegniThread) daValutare(v voceDisegno, componente uuid.UUID) DisegnoD
 		Disponibile: anteprimaDisponibile(d.Formato, d.MotivoValidita)}
 
 	in := DisegnoDaValutare{Disegno: d}
-	in.Fonti = append(in.Fonti, fonteCartiglio(d.Cartiglio, cont), x.fonteStepEntita(v, componente), fonteNome(x.m, nome))
+	in.Fonti = append(in.Fonti, fonteCartiglio(d.Cartiglio, cont), x.fonteStepEntita(v, componente), fonteNome(x.m, nome, cont))
 	if doc := v.documento; doc != nil {
 		in.Fonti = append(in.Fonti, x.fonteDocumento(doc, d.Registrata))
 		in.DiscordanzaVista = x.revDiversaDellaVista(*doc.ComponenteID, doc.ID)
@@ -664,14 +664,36 @@ func fonteCartiglio(stato string, c contenutoLetto) FonteDelDisegno {
 // fonteNome: il nome del file come fonte (E1R §5.2, punto 3): le letture del nome con la grammatica del cliente, sul
 // selettore nome_file (motorea.Riconosci), con la stessa regola delle letture del cartiglio (identitaDaLetture). La
 // coppia è il nome com'è (T-B4-22).
-func fonteNome(m *motorea.Motore, nome string) FonteDelDisegno {
+func fonteNome(m *motorea.Motore, nome string, cont contenutoLetto) FonteDelDisegno {
 	f := FonteDelDisegno{Revisione: EvidenzaRevisione{Fonte: FonteEvidenzaNomeFile, Motivo: MotivoEvidenzaNomeNonLetto},
 		Coppia: ancoraggio.EvidenzaDa(FonteEvidenzaNomeFile, nome)}
 	sel, err := evidenze.LeggiSelettore(selettoreNomeFile)
 	if m == nil || err != nil || strings.TrimSpace(nome) == "" {
 		return f
 	}
-	letture, _ := m.Riconosci(sel, nome)
+	// GP-1: le letture del nome vengono dall'interpretazione del documento quando c'è, che porta il contesto di
+	// lavorazione (partner, legami); i riferimenti di un legame non sono l'identità del disegno. Senza interpretazione,
+	// le forme attive del cliente come prima.
+	// Vale solo se l'unità nome_file dell'interpretazione ha proprio questo nome: il nome di un documento confermato
+	// può essere diverso da quello dell'allegato da cui si legge il contenuto.
+	var letture []motorea.LetturaForma
+	stessoNome := false
+	if cont.ok && cont.interp.ID != "" {
+		for _, u := range cont.doc.Unita {
+			if u.Selettore == sel && u.Testo == nome {
+				stessoNome = true
+				identita, _ := ancoraggio.DividiRiferimenti(cont.interp.Letture)
+				for _, l := range identita {
+					if l.UnitaID == u.ID {
+						letture = append(letture, l.Forma)
+					}
+				}
+			}
+		}
+	}
+	if !stessoNome {
+		letture, _ = m.Riconosci(sel, nome)
+	}
 	scelta, discordanti, valori, grezzi := identitaDaLetture(letture)
 	if scelta == nil {
 		return f

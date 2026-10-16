@@ -102,6 +102,9 @@ var spiegazioni = map[string]voceSpiegazione{
 	// WP-A (notte 14/10): il motivo della guardia su fuori_richiesta
 	"namespace_non_confrontabile": {"codice di un'altra famiglia",
 		"Il codice letto dal file è di una famiglia di codici che non compare fra i prodotti della RFQ (per esempio un numero di disegno contro un numero di materiale): il motore non può dire che il file è fuori richiesta."},
+	// GP-1 (16/10, addendum «contesto partner» §6)
+	"richiede_abbinamento": {"richiede abbinamento",
+		"Il file è pertinente ma il motore non lo sa associare da solo: ha solo riferimenti di un fornitore o più varianti, oppure il suo contenuto cita un prodotto richiesto. Non è fuori richiesta: l'abbinamento lo fai tu."},
 }
 
 // Spiega: la spiegazione di un codice dell'ancoraggio (una diagnostica «ancoraggio.<caso>» o un motivo di file, con o

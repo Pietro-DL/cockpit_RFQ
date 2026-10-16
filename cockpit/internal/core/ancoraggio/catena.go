@@ -317,7 +317,10 @@ func ChiaveCodiceProposto(bundleID, letturaID string) string { return bundleID +
 // rivisto, T-B4-30), vale la precedenza di sempre, il campo id, poi l'ID minore; se due non la danno, nessuna si
 // sceglie (letture_discordanti); senza letture, nessuna_lettura. Il confronto è a due a due: «A», nessun marcatore e
 // «B» sono discordanti, perché «A» e «B» lo sono.
-func letturaDelNodo(letture []motorea.LetturaCodice) (*motorea.LetturaCodice, string) {
+func letturaDelNodo(tutte []motorea.LetturaCodice) (*motorea.LetturaCodice, string) {
+	// GP-1: i riferimenti (ruolo riferimento, da un legame sull'id) non sono l'identità del nodo e non discordano con
+	// la primaria. Due primarie incompatibili restano discordanti anche in namespace diversi (T-E1-07).
+	letture, _ := DividiRiferimenti(tutte)
 	if len(letture) == 0 {
 		return nil, MotivoLetturaAssente
 	}
@@ -594,9 +597,16 @@ func compatibilitaMarcatori(a, b string) motorea.Compatibilita {
 
 // conMarcatore: la compatibilità delle basi corretta con la regola del marcatore: due basi compatibili con due
 // marcatori scritti e diversi sono discordanti (R86, T-B4-30). Un altro esito delle basi resta com'è.
+//
+// G-4 (direttiva 21 §4.3, PM-09/PM-18): due basi uguali con il marcatore scritto da una parte sola sono
+// compatibili in parte anche qui, nella struttura e nella fonte, non solo nella dimensione del marcatore del file:
+// lo STEP senza finitura (o senza la Z) è geometricamente compatibile, non lo stesso articolo finito.
 func conMarcatore(basi motorea.Compatibilita, a, b string) motorea.Compatibilita {
 	if compatibile(basi) && !marcatoriCompatibili(a, b) {
 		return motorea.CompatibilitaDiscordante
+	}
+	if basi == motorea.CompatibilitaUguale && compatibilitaMarcatori(a, b) == motorea.CompatibilitaParziale {
+		return motorea.CompatibilitaParziale
 	}
 	return basi
 }

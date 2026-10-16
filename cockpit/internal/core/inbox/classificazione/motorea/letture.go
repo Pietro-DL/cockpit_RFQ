@@ -30,6 +30,11 @@ type LetturaForma struct {
 	Categorie                  []grammatica.Categoria // della famiglia, più quella della voce della tabella delle classi
 	Stato                      string                 // completa | parziale | discordante | da_verificare
 	Classe                     *ClasseLetta           `json:"Classe,omitempty"` // la voce della tabella delle classi; nil senza
+
+	// GP-1: l'emittente della forma (vuoto = il cliente) e l'hash della sua grammatica. Con omitempty, come
+	// Classe: una lettura del cliente resta byte per byte quella di prima.
+	Emittente     string `json:"Emittente,omitempty"`
+	HashEmittente string `json:"HashEmittente,omitempty"`
 }
 
 // ClasseLetta: la voce della tabella delle classi della famiglia (grammatica.TabellaClassi; decisione dell'utente del
@@ -135,6 +140,9 @@ func (p *pianoForma) lettura(sel evidenze.Selettore, testo string, inizio int, l
 		Forma:     p.forma,
 		Selettore: sel,
 		Categorie: copiaCategorie(p.categorie),
+	}
+	if p.condizione == condPartner || p.condizione == condSoloLegame && p.emittente != "" {
+		l.Emittente, l.HashEmittente = p.emittente, p.hashEmittente
 	}
 	m := match{testo: testo, inizio: inizio, loc: loc}
 	var codice []string

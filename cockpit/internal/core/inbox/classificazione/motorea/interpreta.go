@@ -75,13 +75,32 @@ func (m *Motore) Interpreta(doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegm
 	}
 
 	it := nuovoInterprete(m, doc, uso)
+	it.att = m.contesto.attivazionePer(doc) // GP-1: nil senza contesto o fuori dal perimetro
 	it.leggi()
 	it.deduplica()
+	it.legami()
 	it.alternative()
 	it.idNomeDiscordi()
 	it.attributi()
 	it.copertura()
 	it.pertinenza()
+	contestoID, improntaC, autore := "", "", ""
+	if it.att != nil {
+		contestoID, improntaC = m.contesto.ID, m.contesto.Impronta
+		autore = it.att.autore
+		if incompleto, cosa := m.contesto.incompleto(); incompleto {
+			// Un partner o un modello dichiarato e non caricabile: mai un esito completo (direttiva 21 §6).
+			it.limite = true
+			it.diag = append(it.diag, evidenze.Diagnostica{
+				Codice:    CodiceContestoPartnerNonCaricabile,
+				Gravita:   evidenze.GravitaAvviso,
+				Natura:    evidenze.NaturaDati,
+				Percorso:  "contesto[" + m.contesto.ID + "]",
+				Messaggio: "il contesto attiva partner o modelli che il motore non ha: l'interpretazione del documento è parziale",
+				Rif:       cosa,
+			})
+		}
+	}
 
 	r := Interpretazione{
 		BundleID:          doc.BundleID,
@@ -93,9 +112,13 @@ func (m *Motore) Interpreta(doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegm
 		ImprontaLimiti:    improntaL,
 		VersioneRisultato: VersioneRisultato,
 		ImprontaUso:       improntaU,
+		ContestoID:        contestoID,
+		ImprontaContesto:  improntaC,
+		AutoreDocumento:   autore,
 		Stato:             it.stato(),
 		Letture:           it.letture,
 		Attributi:         it.attr,
+		Relazioni:         it.relazioni,
 		Diagnostiche:      it.diag,
 	}
 	return chiudiInterpretazione(r)
@@ -122,12 +145,17 @@ type identita struct {
 	VersioneLimiti    string `json:"versione_limiti"`
 	ImprontaLimiti    string `json:"impronta_limiti"`
 	ImprontaUso       string `json:"impronta_uso"`
+	ImprontaContesto  string `json:"impronta_contesto,omitempty"` // GP-1: solo se un contesto ha toccato il documento
 }
 
 // chiudiInterpretazione mette ogni elenco in ordine canonico e calcola ID e Impronta (punto 17).
 func chiudiInterpretazione(r Interpretazione) (Interpretazione, error) {
 	sort.SliceStable(r.Letture, func(i, j int) bool { return r.Letture[i].ID < r.Letture[j].ID })
 	sort.SliceStable(r.Attributi, func(i, j int) bool { return r.Attributi[i].ID < r.Attributi[j].ID })
+	sort.SliceStable(r.Relazioni, func(i, j int) bool { return r.Relazioni[i].ID < r.Relazioni[j].ID })
+	if len(r.Relazioni) == 0 {
+		r.Relazioni = nil
+	}
 	sort.SliceStable(r.Diagnostiche, func(i, j int) bool {
 		return chiaveDiagnostica(r.Diagnostiche[i]) < chiaveDiagnostica(r.Diagnostiche[j])
 	})
@@ -150,6 +178,7 @@ func chiudiInterpretazione(r Interpretazione) (Interpretazione, error) {
 		VersioneLimiti:    r.VersioneLimiti,
 		ImprontaLimiti:    r.ImprontaLimiti,
 		ImprontaUso:       r.ImprontaUso,
+		ImprontaContesto:  r.ImprontaContesto,
 	})
 	if err != nil {
 		return Interpretazione{}, fmt.Errorf("motorea: identità dell'interpretazione: %w", err)
@@ -220,6 +249,9 @@ type interprete struct {
 	// pertinenzaIgnota: i segmenti (o le unità senza segmento) da cui vengono richieste con l'uso non noto o non
 	// confermato (daConfermare).
 	pertinenzaIgnota []string
+
+	att       *attivazione         // GP-1: l'attivazione del contesto per il documento; nil senza
+	relazioni []RelazioneSemantica // GP-1: le relazioni proposte dai legami
 }
 
 func nuovoInterprete(m *Motore, doc evidenze.DocumentoEvidenze, uso evidenze.UsoSegmenti) *interprete {
@@ -336,7 +368,8 @@ func regoleDa(g grammatica.Grammatica) regoleDiInterpretazione {
 func (it *interprete) leggi() {
 	massimo := it.m.lim.MaxLettureDocumento
 	for _, u := range it.unita {
-		forme, d := it.m.Riconosci(u.Selettore, u.Testo)
+		forme, d := it.m.riconosciCon(u.Selettore, u.Testo, it.att)
+		it.ombre(u) // GP-1: una codifica dichiarata contraddetta resta visibile
 		tagliata := false
 		for _, x := range d {
 			// Le diagnostiche del riconoscimento passano avanti con l'unità fra i riferimenti.
@@ -382,6 +415,11 @@ func (it *interprete) lettura(u evidenze.UnitaEvidenza, f LetturaForma) LetturaC
 	// «riconoscimento» è un candidato, e vale come da valutare (E2).
 	seg, usoSeg, origine := it.usoDi(u)
 	funz, motivo := Instrada(Instradamento{Selettore: u.Selettore, Uso: usoSeg, Origine: origine})
+	// G-7: la funzione massima della forma. La funzione del router non la supera mai; il motivo lo dice.
+	if p := it.m.forme[chiaveForma(f.Famiglia, f.Forma)]; p != nil && p.funzioneMassima != "" && rangoFunzione(funz) > rangoFunzione(p.funzioneMassima) {
+		motivo += "; funzione limitata a «" + string(p.funzioneMassima) + "» dalla forma (funzione_massima)"
+		funz = p.funzioneMassima
+	}
 	l.Funzione, l.Uso, l.OrigineUso = funz, usoSeg, origine
 	l.RuoliCandidati, l.MotivoRuoli = intersecaRuoli(it.regole.ruoli[f.Famiglia], funz)
 	l.Motivi = []string{motivo}
@@ -421,6 +459,21 @@ func (it *interprete) lettura(u evidenze.UnitaEvidenza, f LetturaForma) LetturaC
 	if u.Qualita.Metodo == metodoOCR {
 		l.Qualita = QualitaDaVerificare
 		l.Motivi = append(l.Motivi, motivoFonteOCR)
+	}
+	// G-5: un suffisso attaccato e non letto non sparisce (direttiva 21 §4.3): la lettura resta, da verificare.
+	if p := it.m.forme[chiaveForma(f.Famiglia, f.Forma)]; p != nil && p.segnalaSuffissi {
+		if suf := suffissoNonLetto(u, f.Intervallo.Fine); suf != "" {
+			l.Qualita = QualitaDaVerificare
+			l.Motivi = append(l.Motivi, "suffisso non letto: «"+suf+"»")
+			it.diag = append(it.diag, evidenze.Diagnostica{
+				Codice:    CodiceMotoreSuffissoNonLetto,
+				Gravita:   evidenze.GravitaAvviso,
+				Natura:    evidenze.NaturaDati,
+				Percorso:  "letture[" + l.ID + "]",
+				Messaggio: "dopo la lettura il testo continua con «" + suf + "», che la forma non legge: la lettura non è completa e il suffisso non si toglie",
+				Rif:       []string{l.ID, u.ID},
+			})
+		}
 	}
 	if u.Selettore.Contesto == evidenze.ContestoCartiglio && u.Posizione.PDF != nil && u.Posizione.PDF.Zona == zonaPagina {
 		l.Motivi = append(l.Motivi, motivoFuoriZona)
@@ -893,7 +946,7 @@ func (it *interprete) copertura() {
 	perSelettore := map[evidenze.Selettore][]string{}
 	var ordine []evidenze.Selettore
 	for _, u := range it.unita {
-		if len(it.m.piani[u.Selettore]) > 0 || len(it.m.revisioniCampo[u.Selettore]) > 0 {
+		if it.selettoreLetto(u.Selettore) || len(it.m.revisioniCampo[u.Selettore]) > 0 {
 			continue
 		}
 		if _, ok := perSelettore[u.Selettore]; !ok {
@@ -912,6 +965,24 @@ func (it *interprete) copertura() {
 			Rif:       perSelettore[s],
 		})
 	}
+}
+
+// selettoreLetto: sul selettore c'è almeno un piano che legge con l'attivazione del documento (GP-1), o un legame
+// ammesso. Senza attivazione sono i piani delle forme attive del cliente, come prima.
+func (it *interprete) selettoreLetto(sel evidenze.Selettore) bool {
+	for _, p := range it.m.piani[sel] {
+		if p.attivo(sel, it.att) {
+			return true
+		}
+	}
+	if it.att != nil {
+		for _, l := range it.m.legami {
+			if it.att.modelli[l.id] && l.selettori[sel] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pertinenza: una nota per segmento da cui vengono richieste con la pertinenza non nota o non confermata (riga 2

@@ -20,7 +20,6 @@ package motorea
 
 import (
 	"fmt"
-	"sort"
 
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 	"promatec/cockpit/internal/core/registro/regole/grammatica"
@@ -29,7 +28,10 @@ import (
 // VersioneAlgoritmo: riconoscimento (A1a) e interpretazione (A1b). VersioneRouter e VersioneRisultato
 // nascono con il router in A1b (R23). Le versioni degli algoritmi sono costanti del codice; quella dei limiti
 // no: la dichiara l'indice (R43 B).
-const VersioneAlgoritmo = "motorea-1"
+//
+// motorea-2 (GP-1, 16/10): piani con una condizione (forme contestuali, partner, solo legame), contesto di
+// lavorazione, legami sul testo intero, funzione massima, marcatore a pattern, suffisso non letto (G-5).
+const VersioneAlgoritmo = "motorea-2"
 
 // Motore: le regole compilate di un cliente. Lo costruisce solo CompilaVerificato; verifica degli esempi,
 // banco e anteprima lo usano nello stesso modo: non c'è un secondo motore.
@@ -48,6 +50,12 @@ type Motore struct {
 	piani          map[evidenze.Selettore][]*pianoForma     // in ordine di (famiglia, forma)
 	revisioniCampo map[evidenze.Selettore][]*pianoRevisione // le revisioni in campo separato (D-07)
 	regole         regoleDiInterpretazione                  // ruoli, revisioni riservate, quantità attive (A1b)
+
+	// GP-1 (partner.go, legami.go, contesto.go).
+	forme    map[string]*pianoForma      // famiglia/forma → piano, per la funzione massima e i rapporti
+	partner  map[string]partnerCompilato // gli emittenti dichiarati ed entrati, per ID
+	legami   []*legameCompilato          // in ordine di ID
+	contesto *ContestoRisolto            // nil senza contesto (ConContesto)
 }
 
 // CompilaVerificato valida lo snapshot con i limiti ricevuti, compila una volta ogni coppia (famiglia, forma)
@@ -62,6 +70,15 @@ type Motore struct {
 // Le diagnostiche, in un ordine fisso: quelle della validazione (avvisi e note: capacità riservate, forme
 // riservate, riserve), poi quelle della compilazione, poi quelle degli esempi, famiglia per famiglia.
 func CompilaVerificato(s grammatica.SnapshotRegole, lim grammatica.Limiti) (*Motore, []evidenze.Diagnostica, error) {
+	return CompilaVerificatoConPartner(s, lim, nil)
+}
+
+// CompilaVerificatoConPartner: come CompilaVerificato, con le grammatiche degli emittenti già compilate e
+// verificate da sole (GP-1). Le forme dei partner dichiarati entrano con la condizione «partner» sui soli
+// selettori della dichiarazione; i legami attivi entrano dopo, con le famiglie risolte; gli esempi del cliente
+// senza attivazione si verificano come prima (partner e forme contestuali spenti), quelli con un'attivazione e
+// quelli dei legami con l'attivazione dichiarata. Un partner che manca o non entra non scarta il cliente.
+func CompilaVerificatoConPartner(s grammatica.SnapshotRegole, lim grammatica.Limiti, caricati map[string]PartnerCaricato) (*Motore, []evidenze.Diagnostica, error) {
 	// La forma canonica anche qui: famiglie, forme ed esempi in ordine di ID, qualunque sia lo snapshot
 	// ricevuto (A1a-DET).
 	g := grammatica.Normalizza(s.Grammatica)
@@ -78,6 +95,8 @@ func CompilaVerificato(s grammatica.SnapshotRegole, lim grammatica.Limiti) (*Mot
 			piani:          map[evidenze.Selettore][]*pianoForma{},
 			revisioniCampo: map[evidenze.Selettore][]*pianoRevisione{},
 			regole:         regoleDa(g),
+			forme:          map[string]*pianoForma{},
+			partner:        map[string]partnerCompilato{},
 		},
 		abbassate:  map[string]bool{},
 		dichiarate: map[string]bool{},
@@ -88,7 +107,15 @@ func CompilaVerificato(s grammatica.SnapshotRegole, lim grammatica.Limiti) (*Mot
 	if conErrori(diag) {
 		return nil, diag, &evidenze.ErroreContratto{Diagnostiche: diag}
 	}
+	if len(g.Partner) > 0 {
+		diag = append(diag, c.componiPartner(caricati)...)
+	}
+	diag = append(diag, c.componiLegami()...)
+	if conErrori(diag) {
+		return nil, diag, &evidenze.ErroreContratto{Diagnostiche: diag}
+	}
 	diag = append(diag, c.verificaEsempi()...)
+	diag = append(diag, c.verificaLegami()...)
 	if conErrori(diag) {
 		return nil, diag, &evidenze.ErroreContratto{Diagnostiche: diag}
 	}
@@ -112,42 +139,10 @@ func (m *Motore) Riconosci(sel evidenze.Selettore, testo string) ([]LetturaForma
 	if m == nil {
 		return nil, nil
 	}
-	piani := m.piani[sel]
-	if len(piani) == 0 {
-		return nil, nil
-	}
-	var diag []evidenze.Diagnostica
-	if _, superato := fineInizi(testo, m.lim); superato {
-		diag = append(diag, diagnosticaByte(len(testo), m.lim.MaxByteUnita))
-	}
-	var letture []LetturaForma
-	troppe := false
-	for _, p := range piani {
-		l, d := scandisci(p, sel, testo, m.lim)
-		letture = append(letture, l...)
-		if len(d) > 0 {
-			troppe = true
-		}
-	}
-	sort.SliceStable(letture, func(i, j int) bool { return primaDi(letture[i], letture[j]) })
-	// Ogni piano si ferma alle sue prime max_letture_per_unita letture, in ordine di inizio: le prime nell'ordine
-	// complessivo sono quindi tutte qui, e il taglio è esatto.
-	letture, tagliate := tagliaLetture(letture, m.lim)
-	if troppe || tagliate {
-		diag = append(diag, diagnosticaLetture(m.lim.MaxLetturePerUnita))
-	}
-	for _, l := range letture {
-		if l.Revisione != nil && l.Revisione.Stato == StatoRevisioneNonInterpretabile {
-			diag = append(diag, evidenze.Diagnostica{
-				Codice:    CodiceRevisioneDaVerificare,
-				Gravita:   evidenze.GravitaAvviso,
-				Natura:    evidenze.NaturaDati,
-				Messaggio: fmt.Sprintf("lettura %s/%s in [%d,%d): token di revisione sospeso, conservato senza valore; da verificare (D5)", l.Famiglia, l.Forma, l.Intervallo.Inizio, l.Intervallo.Fine),
-				Rif:       []string{l.Revisione.Regola},
-			})
-		}
-	}
-	return letture, diag
+	// Senza attivazione leggono solo le forme attive del cliente (GP-1): è la lettura di prima. Ogni piano si
+	// ferma alle sue prime max_letture_per_unita letture, in ordine di inizio: le prime nell'ordine complessivo
+	// sono quindi tutte lì, e il taglio è esatto (riconosciCon).
+	return m.riconosciCon(sel, testo, nil)
 }
 
 // primaDi: l'ordine delle letture, (inizio, fine, famiglia, forma).
@@ -275,7 +270,7 @@ func (c *compilazione) abbassa() []evidenze.Diagnostica {
 			for _, s := range fo.Selettori {
 				c.dichiarate[chiaveSelettore(f.ID, s)] = true
 			}
-			if fo.Stato != grammatica.StatoAttiva || !grammatica.ProiezioneAttiva(fo, f.Base) {
+			if !grammatica.FormaCompilabile(fo.Stato) || !grammatica.ProiezioneAttiva(fo, f.Base) {
 				continue // la diagnosi l'ha già data Valida
 			}
 			if d, ok := c.partiAttive(r, riservate, fo); !ok {
@@ -299,7 +294,18 @@ func (c *compilazione) abbassa() []evidenze.Diagnostica {
 				diag = append(diag, nonCompila(percorsoForma(f.ID, fo.ID), fo.ID, err))
 				continue
 			}
+			switch fo.Stato {
+			case grammatica.StatoContestuale:
+				p.condizione = condContestuale
+			case grammatica.StatoSoloLegame:
+				p.condizione = condSoloLegame
+			}
+			if c.g.Emittente != nil {
+				p.emittente = c.g.Emittente.ID // il motore di un emittente da solo: le sue forme attive leggono sempre
+				p.hashEmittente = c.m.snap.Hash
+			}
 			c.abbassate[chiaveForma(f.ID, fo.ID)] = true
+			c.m.forme[chiaveForma(f.ID, fo.ID)] = p
 			for _, sel := range selettori {
 				c.m.piani[sel] = append(c.m.piani[sel], p)
 				c.attive[chiaveSelettore(f.ID, sel.String())] = true

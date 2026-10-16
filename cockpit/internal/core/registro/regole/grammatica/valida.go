@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"promatec/cockpit/internal/core/estrazione/evidenze"
 )
 
@@ -63,6 +61,9 @@ type validatore struct {
 	out      []evidenze.Diagnostica
 	famiglie map[string]*FamigliaCodice // per ID: solo per cercare, mai per scorrere
 	elenco   []FamigliaCodice           // nell'ordine del file
+
+	emittente bool            // GP-1: la grammatica è di un emittente partner
+	legamiG   []ModelloLegame // GP-1: per la regola 15 delle forme solo_legame
 }
 
 // errore aggiunge un errore di contratto; il codice è sempre una costante di codici_diagnostica.go.
@@ -250,13 +251,10 @@ func (v *validatore) grammatica(g Grammatica) {
 			Messaggio: fmt.Sprintf("versione_schema %d: questo codice sa leggere solo la %d; nessuna attivazione", g.VersioneSchema, VersioneSchema),
 		})
 	}
-	if g.Cliente.ID == uuid.Nil {
-		v.obbligatorio("cliente.id", "l'UUID del cliente: il legame è per UUID, mai per nome")
-	}
-	if strings.TrimSpace(g.Cliente.RagioneSociale) == "" {
-		v.obbligatorio("cliente.ragione_sociale", "la ragione sociale, che serve da controllo contro quella del DB")
-	}
+	v.soggetto(g) // cliente o emittente (GP-1, partner.go)
 	v.profilo(g.Profilo)
+	v.emittente = g.Emittente != nil
+	v.legamiG = g.Legami
 
 	v.famiglie = map[string]*FamigliaCodice{}
 	v.elenco = g.Famiglie
@@ -287,6 +285,8 @@ func (v *validatore) grammatica(g Grammatica) {
 		v.qualificatori(g.Qualificatori)
 	}
 	v.quantita(g.Quantita)
+	v.partner(g.Partner)
+	v.legami(g.Legami)
 }
 
 func (v *validatore) profilo(p Profilo) {
@@ -418,9 +418,12 @@ func (v *validatore) famiglia(f FamigliaCodice, p string) {
 	v.ids(p+".esempi", esIDs)
 	for i, e := range f.Esempi {
 		v.esempio(e, f.ID, elemento(p+".esempi", e.ID, i))
+		if e.Attivazione != nil {
+			v.attivazione(elemento(p+".esempi", e.ID, i)+".attivazione", *e.Attivazione)
+		}
 	}
 	for i, fo := range f.Forme {
-		if attive[fo.ID] && !v.haEsempioPositivo(f.ID, fo.ID) {
+		if attive[fo.ID] && !v.haEsempioPositivo(f.ID, fo.ID) && !esempioPositivoDiLegame(v.legamiG, f.ID, fo.ID) {
 			v.obbligatorio(elemento(p+".forme", fo.ID, i), "un esempio positivo della forma attiva")
 		}
 	}
@@ -625,7 +628,12 @@ func (v *validatore) decorazioni(ds []Decorazione, p string) {
 // riservata.
 func (v *validatore) forma(fo FormaCodice, f FamigliaCodice, r regoleFamiglia, p string) bool {
 	attiva := v.selettori(p+".selettori", fo.Selettori) > 0
-	if v.enum(p+".stato", "stato della forma", fo.Stato, stati) {
+	ammessi := statiForma
+	if v.emittente {
+		ammessi = statiFormaEmittente // un emittente è sempre condizionato dal contesto: «contestuale» non dice niente in più
+	}
+	v.estensioniEFunzione(fo, p)
+	if v.enum(p+".stato", "stato della forma", fo.Stato, ammessi) {
 		if fo.Stato == StatoRiservata {
 			attiva = false
 			v.aggiungi(evidenze.Diagnostica{
@@ -741,6 +749,19 @@ func (v *validatore) parte(pt Parte, p string, interna bool) bool {
 	conLetterali := pt.Tipo == TipoParteSeparatore || pt.Tipo == TipoParteMarcatore || pt.Tipo == TipoParteToken
 	if !conRif && pt.Rif != "" {
 		v.nonAmmesso(p+".rif", fmt.Sprintf("una parte %s non ha rif", pt.Tipo))
+	}
+	// GP-1 (G-5): un marcatore può avere un pattern limitato al posto dei letterali, per un qualificatore previsto
+	// ma non elencato valore per valore (per esempio «S» e quattro cifre). Mai tutti e due.
+	if pt.Pattern != "" {
+		switch {
+		case pt.Tipo != TipoParteMarcatore:
+			v.nonAmmesso(p+".pattern", fmt.Sprintf("il pattern di una parte vale solo per un marcatore, non per %s", pt.Tipo))
+		case len(pt.Letterali) > 0:
+			v.nonAmmesso(p, "letterali e pattern del marcatore sono alternativi")
+		default:
+			v.pattern(p+".pattern", pt.Pattern)
+		}
+		conLetterali = false
 	}
 	if conLetterali {
 		if len(pt.Letterali) == 0 {
@@ -884,6 +905,9 @@ func (v *validatore) esempio(e EsempioCodice, famiglia, p string) {
 		if l.Famiglia != "" {
 			fam = l.Famiglia
 			if _, ok := v.famiglie[fam]; !ok {
+				if e.Attivazione != nil && len(e.Attivazione.Partner) > 0 {
+					continue // una famiglia di un partner dell'attivazione: la controlla motorea, che conosce i partner (GP-1)
+				}
 				v.errore(evidenze.Diagnostica{Codice: CodiceRiferimentoPendente, Percorso: pl + ".famiglia", Messaggio: fmt.Sprintf("nessuna famiglia %q nel file", fam)})
 				continue
 			}

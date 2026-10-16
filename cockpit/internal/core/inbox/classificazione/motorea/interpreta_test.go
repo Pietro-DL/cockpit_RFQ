@@ -269,6 +269,28 @@ func controllaInterpretazione(t *testing.T, doc evidenze.DocumentoEvidenze, r In
 		}
 	}
 	for _, rel := range r.Relazioni {
+		if rel.Modello != "" {
+			// GP-1: una relazione di un legame è proposta, ha le prove (l'unità coperta) e le sue letture stanno su
+			// quell'unità; le letture bersaglio hanno un ruolo (riferimento o variante), la sorgente nessuno.
+			if rel.Stato != StatoRelazioneProposta || len(rel.Evidenze) != 1 {
+				t.Errorf("relazione di legame %s: stato %q, evidenze %v", rel.ID, rel.Stato, rel.Evidenze)
+			}
+			ids := append([]string{rel.LetturaSorgente}, rel.LettureBersaglio...)
+			for i, lid := range ids {
+				if lid == "" {
+					continue // varianti_nel_documento non ha sorgente
+				}
+				l, ok := letture[lid]
+				if !ok || (len(rel.Evidenze) == 1 && l.UnitaID != rel.Evidenze[0]) {
+					t.Errorf("relazione di legame %s: lettura %s assente o di un'altra unità", rel.ID, lid)
+					continue
+				}
+				if (i == 0) != (l.Ruolo == "") {
+					t.Errorf("relazione di legame %s: la lettura %s ha il ruolo %q", rel.ID, lid, l.Ruolo)
+				}
+			}
+			continue
+		}
 		for _, lid := range rel.LettureBersaglio {
 			if l, ok := letture[lid]; !ok || l.Funzione != FunzRelazione {
 				t.Errorf("relazione %s da una lettura che non ha la funzione relazione: %s", rel.ID, lid)

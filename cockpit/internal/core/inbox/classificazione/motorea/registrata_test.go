@@ -242,7 +242,7 @@ func TestRegistrataDeterministica(t *testing.T) {
 // stati e i sei motivi, distinti; la firma del metodo e i campi della RevisioneRegistrata, con i tag JSON.
 func TestRegistrataCostantiEFirme(t *testing.T) {
 	if VersioneRevisioneRegistrata != "revisione-registrata-1" || VersioneRevisioneRegistrata == VersioneAlgoritmo ||
-		VersioneRevisioneRegistrata == VersioneComposizione || VersioneAlgoritmo != "motorea-1" || VersioneComposizione != "composizione-1" {
+		VersioneRevisioneRegistrata == VersioneComposizione || VersioneAlgoritmo != "motorea-2" || VersioneComposizione != "composizione-1" {
 		t.Errorf("versioni %q %q %q", VersioneRevisioneRegistrata, VersioneAlgoritmo, VersioneComposizione)
 	}
 	stati := map[string]string{

@@ -19,6 +19,7 @@ import (
 // grammatica: sarebbe un ciclo.
 type SnapshotRegole struct {
 	ClienteID                  uuid.UUID
+	EmittenteID                string // GP-1: l'ID dell'emittente di una grammatica partner; vuoto per un cliente
 	VersioneSchema             int
 	VersioneCanonicalizzazione string                 // jsoncanonico.Versione
 	VersioneLimiti             string                 // la versione_limiti dell'indice con cui è stato validato
@@ -61,8 +62,13 @@ func NuovoSnapshot(raw []byte, lim Limiti) (SnapshotRegole, error) {
 			Messaggio: "forma canonica della grammatica: " + err.Error(),
 		}}}
 	}
+	emittente := ""
+	if n.Emittente != nil {
+		emittente = n.Emittente.ID
+	}
 	return SnapshotRegole{
 		ClienteID:                  n.Cliente.ID,
+		EmittenteID:                emittente,
 		VersioneSchema:             n.VersioneSchema,
 		VersioneCanonicalizzazione: jsoncanonico.Versione,
 		VersioneLimiti:             lim.Versione,
@@ -123,7 +129,58 @@ func Normalizza(g Grammatica) Grammatica {
 	sort.SliceStable(n.Qualificatori, func(i, j int) bool { return n.Qualificatori[i].ID < n.Qualificatori[j].ID })
 
 	n.Quantita = normalizzaQuantita(g.Quantita)
+
+	// GP-1: emittente, partner e legami. Senza, restano nil e il canonico è quello di prima.
+	if g.Emittente != nil {
+		e := *g.Emittente
+		n.Emittente = &e
+	}
+	n.Partner = nil
+	for _, p := range g.Partner {
+		p.Selettori = insieme(p.Selettori)
+		p.Famiglie = insieme(p.Famiglie)
+		n.Partner = append(n.Partner, p)
+	}
+	sort.SliceStable(n.Partner, func(i, j int) bool { return n.Partner[i].Emittente < n.Partner[j].Emittente })
+	n.Legami = nil
+	for _, l := range g.Legami {
+		l.Selettori = insieme(l.Selettori)
+		var schema []PezzoLegame
+		for _, pz := range l.Schema { // l'ordine dei pezzi conta
+			pz.Famiglie = insieme(pz.Famiglie)
+			pz.Letterali = insieme(pz.Letterali)
+			schema = append(schema, pz)
+		}
+		l.Schema = schema
+		var esempi []EsempioLegame
+		for _, e := range l.Esempi {
+			e.Attivazione = normalizzaAttivazione(e.Attivazione)
+			e.Atteso.Letture = normalizzaLetture(e.Atteso.Letture)
+			esempi = append(esempi, e)
+		}
+		sort.SliceStable(esempi, func(i, j int) bool { return esempi[i].ID < esempi[j].ID })
+		l.Esempi = esempi
+		n.Legami = append(n.Legami, l)
+	}
+	sort.SliceStable(n.Legami, func(i, j int) bool { return n.Legami[i].ID < n.Legami[j].ID })
 	return n
+}
+
+func normalizzaAttivazione(a AttivazioneEsempio) AttivazioneEsempio {
+	a.Partner = insieme(a.Partner)
+	a.Modelli = insieme(a.Modelli)
+	return a
+}
+
+func normalizzaLetture(ls []LetturaAttesa) []LetturaAttesa {
+	var letture []LetturaAttesa
+	for _, l := range ls {
+		l.Mancanti = copia(l.Mancanti)
+		l.Affissi = copia(l.Affissi)
+		l.Decorazioni = copia(l.Decorazioni)
+		letture = append(letture, l)
+	}
+	return letture
 }
 
 func normalizzaFamiglia(f FamigliaCodice) FamigliaCodice {
@@ -147,6 +204,7 @@ func normalizzaFamiglia(f FamigliaCodice) FamigliaCodice {
 		fo.Selettori = insieme(fo.Selettori)
 		fo.SegmentiMancanti = copia(fo.SegmentiMancanti)
 		fo.Parti = normalizzaParti(fo.Parti)
+		fo.Estensioni = insieme(fo.Estensioni)
 		if fo.ConfinePrima != nil {
 			c := *fo.ConfinePrima
 			fo.ConfinePrima = &c
@@ -216,14 +274,11 @@ func normalizzaParti(ps []Parte) []Parte {
 func normalizzaEsempi(es []EsempioCodice) []EsempioCodice {
 	var out []EsempioCodice
 	for _, e := range es {
-		var letture []LetturaAttesa
-		for _, l := range e.Atteso.Letture {
-			l.Mancanti = copia(l.Mancanti)
-			l.Affissi = copia(l.Affissi)
-			l.Decorazioni = copia(l.Decorazioni)
-			letture = append(letture, l)
+		e.Atteso.Letture = normalizzaLetture(e.Atteso.Letture)
+		if e.Attivazione != nil {
+			a := normalizzaAttivazione(*e.Attivazione)
+			e.Attivazione = &a
 		}
-		e.Atteso.Letture = letture
 		out = append(out, e)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].ID < out[j].ID })

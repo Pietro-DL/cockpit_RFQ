@@ -1262,8 +1262,9 @@ func TestLaRegolaUnicaDelMarcatore(t *testing.T) {
 		e := ancoraA(t, []ancoraggio.FileInterpretato{f}, []ancoraggio.ProdottoRichiesto{conA}, ancoraggio.ContestoStrutturale{Strutture: []ancoraggio.StrutturaFile{s},
 			CodiciProposti: codiciProposti(m, s), Confermato: []ancoraggio.ComponenteDeciso{k},
 			Decise: []ancoraggio.RigaDecisaLegacy{rigaDecisa(uidS(0x852), idFileC, shaFileC, "#3", ancoraggio.StatoRigaConfermata, uuidP(idC3), uuidP(idUtente))}})
-		if c := unico(t, e, f.AllegatoID); dimensione(c, ancoraggio.DimensioneCodiceConfermato, ancoraggio.RifComponente(idC3)) != motorea.CompatibilitaUguale {
-			t.Errorf("il codice confermato senza marcatore resta compatibile: %+v", c.Dimensioni)
+		// G-4 (direttiva 21 §4.3, 16/10): compatibile, ma in parte: il marcatore è scritto da una parte sola.
+		if c := unico(t, e, f.AllegatoID); dimensione(c, ancoraggio.DimensioneCodiceConfermato, ancoraggio.RifComponente(idC3)) != motorea.CompatibilitaParziale {
+			t.Errorf("il codice confermato senza marcatore resta compatibile, in parte (G-4): %+v", c.Dimensioni)
 		}
 	})
 	t.Run("T-B4-30 le radici candidate", func(t *testing.T) {
@@ -1271,8 +1272,9 @@ func TestLaRegolaUnicaDelMarcatore(t *testing.T) {
 		if st, _ := proponiS(t, []ancoraggio.ProdottoRichiesto{conB}, ctx); len(st) != 0 {
 			t.Errorf("un target con la B non ha come radice candidata un nodo con la A: %+v", st)
 		}
-		if st, _ := proponiS(t, []ancoraggio.ProdottoRichiesto{senzaM}, ctx); len(st) != 1 || st[0].Compatibilita != motorea.CompatibilitaUguale {
-			t.Errorf("un target senza marcatore ha la radice con la A: %+v", st)
+		// G-4 (direttiva 21 §4.3, 16/10): la radice con la A è candidata, ma compatibile in parte anche nella struttura.
+		if st, _ := proponiS(t, []ancoraggio.ProdottoRichiesto{senzaM}, ctx); len(st) != 1 || st[0].Compatibilita != motorea.CompatibilitaParziale {
+			t.Errorf("un target senza marcatore ha la radice con la A, compatibile in parte (G-4): %+v", st)
 		}
 	})
 }

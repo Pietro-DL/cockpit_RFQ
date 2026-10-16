@@ -149,8 +149,8 @@ func TestDeterminismoMoltiRiconoscimenti(t *testing.T) {
 // TestDeterminismoVersioneAlgoritmo fissa la versione dell'algoritmo di riconoscimento (par.4.6.1).
 // Cambiarla vuol dire riscrivere questa prova con il titolo «Riscritta per …».
 func TestDeterminismoVersioneAlgoritmo(t *testing.T) {
-	if VersioneAlgoritmo != "motorea-1" {
-		t.Errorf("VersioneAlgoritmo = %q, attesa motorea-1", VersioneAlgoritmo)
+	if VersioneAlgoritmo != "motorea-2" {
+		t.Errorf("VersioneAlgoritmo = %q, attesa motorea-2 (GP-1, 16/10)", VersioneAlgoritmo)
 	}
 }
 

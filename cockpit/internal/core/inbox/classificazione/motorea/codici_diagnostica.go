@@ -118,3 +118,51 @@ const (
 	// decimali (da 1 a 6): il grezzo resta, nessun valore (R28 a).
 	CodiceQuantitaNonInterpretabile = "quantita.non_interpretabile"
 )
+
+// I codici nati con GP-1 (addendum «contesto partner», 16/10).
+const (
+	// CodicePartnerNonComposto — avviso, contratto. Un partner dichiarato dal cliente non entra nel suo motore
+	// (assente, in deriva di hash, con un ID di famiglia o un namespace in comune): il cliente resta attivo
+	// senza di lui.
+	CodicePartnerNonComposto = "partner.non_composto"
+
+	// CodiceLegameNonComposto — avviso, contratto. Un legame cita una famiglia che non c'è (neanche fra i
+	// partner entrati): non entra nel motore.
+	CodiceLegameNonComposto = "legame.non_composto"
+
+	// CodiceLegameEsempio — errore, contratto. Un esempio di un legame non dà ciò che attende.
+	CodiceLegameEsempio = "grammatica.esempio_legame"
+
+	// CodiceContestoNonValido — errore, contratto. Il contesto di lavorazione non rispetta il contratto (versione,
+	// cliente, codifiche, perimetro): non si applica.
+	CodiceContestoNonValido = "contesto.non_valido"
+
+	// CodiceContestoPartnerNonCaricabile — avviso, dati. Il contesto attiva un partner che il motore del cliente
+	// non ha (non dichiarato, non caricato, hash diverso): l'interpretazione dei documenti del perimetro è
+	// parziale, mai falsamente completa.
+	CodiceContestoPartnerNonCaricabile = "contesto.partner_non_caricabile"
+
+	// CodiceContestoModelloNonDisponibile — avviso, dati. Il contesto ammette un legame che il motore non ha:
+	// l'interpretazione dei documenti del perimetro è parziale.
+	CodiceContestoModelloNonDisponibile = "contesto.modello_non_disponibile"
+
+	// CodiceContestoNonAttivo — nota, dati. Il contesto è «proposto» o «revocato»: si mostra e non attiva
+	// niente.
+	CodiceContestoNonAttivo = "contesto.non_attivo"
+
+	// CodiceMotoreLegameIncompleto — nota, dati. Un legame ammesso comincia a coprire il testo e si ferma prima
+	// della fine: nessuna relazione, nessuna lettura solo_legame. Il messaggio dice dove.
+	CodiceMotoreLegameIncompleto = "motore.legame_incompleto"
+
+	// CodiceMotoreLegameAmbiguo — avviso, dati. Il testo si copre per intero in più modi diversi: nessun ruolo e
+	// nessuna relazione si scelgono.
+	CodiceMotoreLegameAmbiguo = "motore.legame_ambiguo"
+
+	// CodiceMotoreSuffissoNonLetto — avviso, dati (G-5). Dopo la lettura il testo continua con un suffisso che la
+	// forma non legge: la lettura non è completa e il suffisso non sparisce.
+	CodiceMotoreSuffissoNonLetto = "motore.suffisso_non_letto"
+
+	// CodiceContestoCodificaContraddetta — avviso, dati. Il contesto dichiara un campo codificato da un emittente, ma
+	// le forme dell'altro vi leggono codici: le letture restano in ombra (non entrano) e la diagnostica le elenca.
+	CodiceContestoCodificaContraddetta = "contesto.codifica_contraddetta"
+)

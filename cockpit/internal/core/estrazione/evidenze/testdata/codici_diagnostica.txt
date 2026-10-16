@@ -132,3 +132,14 @@ valutazione.messaggio_fuori_rfq_senza_caso
 valutazione.contesto_discorde
 bom.tipo_finito_fuori_target
 bom.tipo_finito_target_non_determinato
+partner.non_composto
+legame.non_composto
+grammatica.esempio_legame
+contesto.non_valido
+contesto.partner_non_caricabile
+contesto.modello_non_disponibile
+contesto.non_attivo
+motore.legame_incompleto
+motore.legame_ambiguo
+motore.suffisso_non_letto
+contesto.codifica_contraddetta

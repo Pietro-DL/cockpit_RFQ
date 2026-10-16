@@ -332,8 +332,8 @@ func TestComponiCostantiDelContratto(t *testing.T) {
 			t.Errorf("motivo %q, il contratto dice %q", k, v)
 		}
 	}
-	if VersioneComposizione != "composizione-1" || VersioneComposizione == VersioneAlgoritmo || VersioneAlgoritmo != "motorea-1" {
-		t.Errorf("VersioneComposizione %q, VersioneAlgoritmo %q: attese composizione-1 e motorea-1", VersioneComposizione, VersioneAlgoritmo)
+	if VersioneComposizione != "composizione-1" || VersioneComposizione == VersioneAlgoritmo || VersioneAlgoritmo != "motorea-2" {
+		t.Errorf("VersioneComposizione %q, VersioneAlgoritmo %q: attese composizione-1 e motorea-2 (GP-1)", VersioneComposizione, VersioneAlgoritmo)
 	}
 	s, err := evidenze.LeggiSelettore("cartiglio.codice")
 	if err != nil || s != selettoreCartiglioCodice {
@@ -356,9 +356,10 @@ func TestComponiNessunCampoCambiatoNelleLetture(t *testing.T) {
 	}
 	attesi := map[string][]string{
 		"LetturaForma": {"Famiglia", "Namespace", "Forma", "Selettore", "Originale", "Intervallo", "CodiceRichiesto", "Base",
-			"Marcatore", "Token", "Etichetta", "Affissi", "Revisione", "Decorazioni", "Ripetizioni", "Categorie", "Stato", "Classe"},
+			"Marcatore", "Token", "Etichetta", "Affissi", "Revisione", "Decorazioni", "Ripetizioni", "Categorie", "Stato", "Classe",
+			"Emittente", "HashEmittente"}, // GP-1 (16/10): omitempty, una lettura del cliente ha il JSON di prima
 		"LetturaCodice": {"ID", "UnitaID", "AltreUnita", "Occorrenza", "Assoluto", "Forma", "Funzione", "Uso", "OrigineUso",
-			"RuoliCandidati", "MotivoRuoli", "Categorie", "Trasformazioni", "Qualita", "Motivi"},
+			"RuoliCandidati", "MotivoRuoli", "Categorie", "Trasformazioni", "Qualita", "Motivi", "Ruolo"}, // GP-1: omitempty
 		"CodiceComposto": {"Testo", "Famiglia", "Forma", "Motivo"},
 	}
 	for nome, v := range map[string]any{"LetturaForma": LetturaForma{}, "LetturaCodice": LetturaCodice{}, "CodiceComposto": CodiceComposto{}} {

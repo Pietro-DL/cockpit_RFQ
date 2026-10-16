@@ -30,6 +30,11 @@ type Grammatica struct {
 	RiferimentiRFQ []RegolaRiferimento     `json:"riferimenti_rfq,omitempty"`        // parte 1 §7.1; senza fixture restano riservati (R20 c)
 	Qualificatori  []QualificatoreTestuale `json:"qualificatori_testuali,omitempty"` // riservati in A1: diagnosi di capacità non supportata
 	Quantita       []QuantitaTabellare     `json:"quantita_tabellare,omitempty"`     // la colonna della quantità nelle tabelle della mail (quantita.go; R28 a): senza, canonico e hash di prima
+
+	// GP-1 (addendum contesto partner, 16/10): tre campi facoltativi; senza, canonico e hash di prima (partner.go).
+	Emittente *EmittenteGrammatica   `json:"emittente,omitempty"` // al posto di cliente: la grammatica di un emittente partner
+	Partner   []DichiarazionePartner `json:"partner,omitempty"`   // i partner ammissibili; l'attivazione la dà il contesto
+	Legami    []ModelloLegame        `json:"legami,omitempty"`    // i modelli di accoppiamento sul testo intero
 }
 
 // ClienteGrammatica: il legame esplicito con il cliente, per UUID (v3 §10.5). La ragione sociale serve solo
@@ -126,6 +131,9 @@ type FormaCodice struct {
 	Parti            []Parte        `json:"parti"`                       // l'ordine conta e resta nel canonico
 	ConfinePrima     *ClasseConfine `json:"confine_prima,omitempty"`     // sostituisce quello della base
 	ConfineDopo      *ClasseConfine `json:"confine_dopo,omitempty"`
+	Estensioni       []string       `json:"estensioni,omitempty"`       // GP-1: solo su nome_file, i nomi con queste estensioni (senza il punto, maiuscole indifferenti)
+	FunzioneMassima  string         `json:"funzione_massima,omitempty"` // GP-1 (G-7): la funzione del router non la supera
+	SuffissiIgnoti   string         `json:"suffissi_ignoti,omitempty"`  // GP-1 (G-5): «segnala»: un suffisso attaccato e non letto toglie la completezza
 }
 
 // Parte: un pezzo di una forma, nell'ordine in cui compare nel testo.
@@ -143,6 +151,7 @@ type Parte struct {
 	Rif       string   `json:"rif,omitempty"`       // l'ID della regola (etichetta, affisso, revisione, decorazione)
 	Letterali []string `json:"letterali,omitempty"` // per separatore, marcatore e token: alternative letterali
 	Rimando   string   `json:"rimando,omitempty"`   // solo per token: «Q1» (domanda aperta) o «D10» (decisione)
+	Pattern   string   `json:"pattern,omitempty"`   // GP-1 (G-5): solo per marcatore, in alternativa ai letterali; limitato come i segmenti
 	Min       int      `json:"min"`
 	Max       int      `json:"max"`
 }
@@ -257,6 +266,10 @@ type EsempioCodice struct {
 	Selettore string        `json:"selettore"`
 	Testo     string        `json:"testo"`
 	Atteso    AttesoEsempio `json:"atteso"`
+
+	// Attivazione (GP-1): l'esempio si verifica con questi partner, questa codifica del campo e questi modelli,
+	// come in un contesto dichiarato. Senza, si verifica senza contesto: partner e forme contestuali spenti.
+	Attivazione *AttivazioneEsempio `json:"attivazione,omitempty"`
 }
 
 // AttesoEsempio: l'insieme esatto delle letture attese, oppure nessuna lettura.
@@ -270,6 +283,7 @@ type AttesoEsempio struct {
 // decorazioni attesi. I campi vuoti non si controllano. Per un esempio su un selettore che ha solo regole di
 // revisione in campo separato, Forma è vuota e Revisione è il valore atteso (D-07).
 type LetturaAttesa struct {
+	Ruolo       string   `json:"ruolo,omitempty"` // GP-1: solo negli esempi dei legami (primaria | riferimento | variante)
 	Famiglia    string   `json:"famiglia,omitempty"`
 	Forma       string   `json:"forma,omitempty"`
 	Base        string   `json:"base,omitempty"`
