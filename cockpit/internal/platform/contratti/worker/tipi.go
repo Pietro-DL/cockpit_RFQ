@@ -907,7 +907,12 @@ const (
 // versione dell'analizzatore). Un DXF con i fatti correnti senza `testo_dxf`, o con una versione di prima, si
 // riaccoda con «Rianalizza» (fascicolo.AccodaPdfDaRileggere, TestoDXFDaRileggere), come i PDF della sottoversione
 // di prima: la versione dell'analizzatore non cambia.
-const VersioneTestoDXF = 1
+//
+// La 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente, con la trasformazione composta, la
+// profondità massima e la guardia sui cicli, e segue anche gli INSERT ruotati (la regola del cartiglio nel sistema del
+// blocco). Annidati sono da qui gli INSERT dentro un blocco NON seguiti; AnnidatiSeguiti, OltreProfondita, Cicli e
+// Specchiati dicono il resto, e Parziale è vero quando qualcosa non è stato letto.
+const VersioneTestoDXF = 2
 
 // TestoDXF è la lettura del testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli["testo_dxf"]` (K4,
 // workers/dxf_testo.py). Come TestoPDF sono FATTI, senza codici: solo i campi del cartiglio che il worker riconosce
@@ -926,6 +931,12 @@ type TestoDXF struct {
 	Troncato    bool             `json:"troncato"`
 	Cartiglio   []CampoCartiglio `json:"cartiglio"`
 	Limiti      LimitiTestoDXF   `json:"limiti"`
+	// dalla v2 (GP-3): i conti degli INSERT e la parzialità; in una v1 sono zero e falso
+	AnnidatiSeguiti int  `json:"annidati_seguiti"`
+	OltreProfondita int  `json:"oltre_profondita"`
+	Cicli           int  `json:"cicli"`
+	Specchiati      int  `json:"specchiati"`
+	Parziale        bool `json:"parziale"`
 }
 
 // LimitiTestoDXF: i tetti in vigore QUANDO il DXF è stato letto (come LimitiTestoPDF).
@@ -934,6 +945,9 @@ type LimitiTestoDXF struct {
 	TestiMax int `json:"testi_max"`
 	TestoMax int `json:"testo_max"`
 	CampiMax int `json:"campi_max"`
+	// dalla v2: i livelli di INSERT seguiti e gli INSERT visitati al massimo
+	ProfonditaMax int `json:"profondita_max"`
+	InsertiMax    int `json:"inserti_max"`
 }
 
 // DecodificaTestoDXF estrae la lettura del testo di un DXF dai dettagli di un'analisi, come DecodificaTestoPDF: falso
@@ -957,10 +971,12 @@ func DecodificaTestoDXF(dettagli json.RawMessage) (*TestoDXF, bool) {
 }
 
 // TestoDXFDaRileggere dice se «Rianalizza» deve riaccodare un DXF con questi fatti dell'analizzatore corrente: il
-// testo non c'è (un worker di prima del K4) o è di una versione di prima di VersioneTestoDXF.
+// testo non c'è (un worker di prima del K4) o è stato LETTO con una versione di prima di VersioneTestoDXF. GP-3: un DXF
+// non letto (binario, non ASCII) di una versione di prima no: la v2 lo legge allo stesso modo, e rileggerlo non
+// cambia la risposta.
 func TestoDXFDaRileggere(fatti json.RawMessage) bool {
 	t, ok := DecodificaTestoDXF(fatti)
-	return !ok || t.Versione < VersioneTestoDXF
+	return !ok || (t.Versione < VersioneTestoDXF && t.Esito == DXFLetto)
 }
 
 // ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)

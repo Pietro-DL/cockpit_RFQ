@@ -98,16 +98,26 @@
           "default": 0,
           "title": "Campi Max",
           "type": "integer"
+        },
+        "profondita_max": {
+          "default": 0,
+          "title": "Profondita Max",
+          "type": "integer"
+        },
+        "inserti_max": {
+          "default": 0,
+          "title": "Inserti Max",
+          "type": "integer"
         }
       },
       "title": "LimitiTestoDXF",
       "type": "object"
     }
   },
-  "description": "Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli[\"testo_dxf\"]` (K4).\n\n`esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un\nfile che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si\nsono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto\naltrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,\n`annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'\nvero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del\ncartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,\ncon la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di\nquesto oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il\nserver lo rianalizza con «Rianalizza».",
+  "description": "Il testo di un DXF ASCII, dentro `RisultatoAnalisi.dettagli[\"testo_dxf\"]` (K4).\n\n`esito`: `letto` (il file si e' letto: un cartiglio vuoto e' una risposta), `non_letto` (un DXF binario, un\nfile che non e' un DXF ASCII, un errore di lettura: `motivo`). Con `letto`, `motivo` dice i testi che non si\nsono letti per una ragione che non e' un tetto (gli INSERT ruotati, che non si seguono), ed e' vuoto\naltrimenti. `versione_dxf` e' $ACADVER, `codifica` quella usata per il testo; `testi` sono i testi risolti,\n`annidati` gli INSERT dentro un blocco che non si seguono (i loro testi non sono stati letti). `troncato` e'\nvero quando ci si e' fermati a un limite (anche il tetto degli elementi tenuti durante la lettura). I campi del\ncartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,\ncon la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di\nquesto oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il\nserver lo rianalizza con «Rianalizza».\n\nLa 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente (trasformazione composta, profondita'\nmassima, guardia sui cicli, budget) e gli INSERT ruotati (la regola del cartiglio nel sistema del blocco).\n`annidati` sono gli INSERT dentro un blocco NON seguiti; `annidati_seguiti` quelli seguiti; `oltre_profondita` e\n`cicli` perche' non si sono seguiti; `specchiati` i testi dei blocchi specchiati (non usati per il cartiglio).\n`parziale` e' vero quando qualcosa non e' stato letto (anche un tetto, `troncato`), con i motivi in `motivo`.",
   "properties": {
     "versione": {
-      "default": 1,
+      "default": 2,
       "title": "Versione",
       "type": "integer"
     },
@@ -159,6 +169,31 @@
     },
     "limiti": {
       "$ref": "#/$defs/LimitiTestoDXF"
+    },
+    "annidati_seguiti": {
+      "default": 0,
+      "title": "Annidati Seguiti",
+      "type": "integer"
+    },
+    "oltre_profondita": {
+      "default": 0,
+      "title": "Oltre Profondita",
+      "type": "integer"
+    },
+    "cicli": {
+      "default": 0,
+      "title": "Cicli",
+      "type": "integer"
+    },
+    "specchiati": {
+      "default": 0,
+      "title": "Specchiati",
+      "type": "integer"
+    },
+    "parziale": {
+      "default": false,
+      "title": "Parziale",
+      "type": "boolean"
     }
   },
   "title": "TestoDXF",

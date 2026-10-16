@@ -72,7 +72,8 @@ func (c *documento) dxfNonLetto(motivo, messaggio string) {
 }
 
 // testoDXF mappa un testo letto.
-//   - Troncato: il cartiglio è parziale, dxf.troncato, la fonte è parziale.
+//   - Troncato, o Parziale (v2: INSERT oltre la profondità, cicli, blocchi specchiati): il cartiglio è parziale,
+//     dxf.troncato, la fonte è parziale.
 //   - Gli INSERT annidati dentro un blocco, che il worker conta e non segue, non peggiorano niente da soli: sui
 //     DXF veri ci sono anche quando il cartiglio è letto per intero (gruppi di geometria). Si dicono nei messaggi
 //     di dxf.troncato e di dxf.senza_cartiglio, dove possono spiegare un campo che manca. Lo stesso per il Motivo di
@@ -89,8 +90,14 @@ func (c *documento) testoDXF(t *worker.TestoDXF) {
 		annidati += "; " + t.Motivo
 	}
 	switch {
-	case t.Troncato:
+	case t.Troncato || t.Parziale:
+		// GP-3: dalla v2 il worker segue gli INSERT annidati e dice `parziale` anche senza un tetto (INSERT oltre la
+		// profondità massima, cicli, blocchi specchiati), con i motivi in Motivo. Un fatto v1 non ha Parziale: per lui
+		// il ramo è quello di prima, byte per byte.
 		motivo := "il worker si è fermato su un suo tetto (byte, testi, campi)" + annidati
+		if !t.Troncato {
+			motivo = "lettura parziale del worker" + annidati
+		}
 		c.capacita(capCartiglio, statoParziale, motivo)
 		c.peggiora(statoParziale)
 		c.diagnostica(evidenze.Diagnostica{

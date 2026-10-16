@@ -172,6 +172,12 @@ func TestUnDXFNonLettoNonEUnDXFSenzaCodici(t *testing.T) {
 			CodiceDXFTroncato, statoParziale, "1 INSERT ruotati", statoParziale, 4},
 		{"ruotati con il cartiglio", testoDXFACME("1", "letto", motivoRuotatiACME, "false", "0", cartiglioDXFACME()),
 			"", statoDisponibile, "", statoDisponibile, 4},
+		// GP-3: la v2 dice `parziale` anche senza un tetto (INSERT oltre la profondità, cicli, blocchi specchiati)
+		{"v2 parziale senza tetto", strings.Replace(testoDXFACME("2", "letto", "1 INSERT oltre 8 livelli non seguiti", "false", "1", cartiglioDXFACME()),
+			`"troncato":false`, `"troncato":false,"parziale":true,"oltre_profondita":1`, 1),
+			CodiceDXFTroncato, statoParziale, "lettura parziale", statoParziale, 4},
+		{"v2 completa", testoDXFACME("2", "letto", "", "false", "0", cartiglioDXFACME()),
+			"", statoDisponibile, "", statoDisponibile, 4},
 	} {
 		t.Run(c.nome, func(t *testing.T) {
 			d := dxfACME(t, "ACME7000200.dxf", c.payload)

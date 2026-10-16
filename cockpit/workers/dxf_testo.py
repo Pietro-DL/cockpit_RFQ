@@ -38,11 +38,14 @@ Limiti e tagli, dichiarati nel fatto:
   - si risolvono al piu' testi_max testi e si conservano testo_max caratteri per testo; gia' durante la lettura
     si tengono al piu' FATTORE_LETTI * testi_max testi e INSERT delle ENTITIES e altrettanti testi e blocchi dei
     BLOCKS (la memoria non cresce con il file): oltre, la lettura e' troncata;
-  - un INSERT dentro un blocco (il secondo livello di annidamento) non si segue: si conta in `annidati`;
-  - la rotazione propria dei testi non si considera (i cartigli sono orizzontali). Un INSERT ruotato (non di un
-    giro intero) non si segue: con il blocco girato «sotto» non e' piu' sotto, e la regola prenderebbe un altro
-    testo per il valore. I suoi testi non sono letti, e il fatto lo dice nel `motivo` (con l'esito «letto»);
-    la scala e la base dell'INSERT si applicano alle posizioni;
+  - v2: gli INSERT dentro un blocco si seguono ricorsivamente, con la trasformazione affine composta di ogni livello
+    (base del blocco, scala, rotazione, punto d'inserimento), fino a profondita_max livelli (8), con la guardia sui
+    cicli (un blocco gia' sul cammino non si rientra) e i tetti dei testi e degli INSERT visitati. Quello che non si
+    segue si conta (`annidati`, `oltre_profondita`, `cicli`) e il fatto e' `parziale`, con i motivi;
+  - la rotazione propria dei testi non si considera (i cartigli sono orizzontali). Un INSERT ruotato si segue (v2): i
+    suoi testi stanno nel gruppo della loro rotazione composta, e la regola del cartiglio lavora nel sistema di quel
+    gruppo (le coordinate del disegno ruotate indietro), cosi' «sotto» resta «sotto» nel blocco. Un blocco
+    specchiato (scala negativa) non si usa per il cartiglio: i suoi testi si contano in `specchiati`;
   - un DXF ASCII senza testi e senza blocchi e' letto (con il cartiglio vuoto) se si e' vista almeno una SECTION
     o la coppia di fine (0, EOF); senza nessuna delle due il file non sembra un DXF ASCII.
 
@@ -58,13 +61,21 @@ import re
 
 log = logging.getLogger("worker-analisi")
 
-VERSIONE_TESTO_DXF = 1
+# v2 (GP-3, direttiva 21 §5.1): gli INSERT annidati si seguono ricorsivamente, con la trasformazione composta, la
+# profondita' massima, la guardia sui cicli e i budget; gli INSERT ruotati si seguono (la regola del cartiglio vale nel
+# sistema del blocco); il fatto dice i conti e `parziale`.
+VERSIONE_TESTO_DXF = 2
+
+# Fin dove si seguono gli INSERT annidati: il caso che ha portato alla v2 ne aveva 4.
+PROFONDITA_MAX = 8
 
 LIMITI_DEFAULT = {
     "byte_max": 64 * 1024 * 1024,  # byte del file letti al massimo
     "testi_max": 5000,             # testi risolti (dopo gli INSERT) al massimo
     "testo_max": 512,              # caratteri conservati di un testo
     "campi_max": 24,               # campi del cartiglio nel fatto
+    "profondita_max": PROFONDITA_MAX,  # livelli di INSERT seguiti
+    "inserti_max": 20000,          # INSERT visitati in tutto (un blocco ripetuto dentro un blocco ripetuto...)
 }
 # Quanti elementi si tengono durante la lettura, in multipli di testi_max: testi e INSERT delle ENTITIES da una
 # parte, testi e blocchi dei BLOCKS dall'altra (le quote di un disegno sono blocchi con un testo ciascuno).
@@ -208,12 +219,15 @@ def _coppie(righe):
 
 
 class _Entita:
-    __slots__ = ("tipo", "g", "testo")
+    """Un'entita' letta: il tipo, i gruppi che servono (come stringhe, con i codici DXF) e il testo. `origine` e' da dove
+    viene nel file, per chi lo sa dire (il lettore DWG: offset, sezione, blocco); None per il DXF."""
+    __slots__ = ("tipo", "g", "testo", "origine")
 
     def __init__(self, tipo: str):
         self.tipo = tipo
         self.g: dict[str, str] = {}
         self.testo: list[str] = []  # i gruppi 3 e poi 1, nell'ordine del file
+        self.origine: dict | None = None
 
     def aggiungi(self, codice: str, valore: str) -> None:
         if codice not in _GRUPPI[self.tipo]:
@@ -258,7 +272,7 @@ def _leggi_entita(righe, massimo: int) -> _Letti:
     for codice, valore in _coppie(righe):
         if codice == "0":
             if cur is not None and cur.tipo == "BLOCK":
-                blocco = {"base": (_num(cur.g, "10"), _num(cur.g, "20")), "testi": [], "annidati": 0}
+                blocco = {"base": (_num(cur.g, "10"), _num(cur.g, "20")), "elementi": [], "annidati": 0}
                 nome = cur.g.get("2", "")
                 if nome in blocchi:
                     blocco = None  # un nome ripetuto: vale il primo blocco, i testi di questo non servono
@@ -274,10 +288,11 @@ def _leggi_entita(righe, massimo: int) -> _Letti:
                     else:
                         letti.pieno = True
                 elif sezione == "BLOCKS" and blocco is not None:
+                    # v2: anche gli INSERT di un blocco si tengono (si seguono, risolvi_testi), nell'ordine del file
                     if cur.tipo == "INSERT":
                         blocco["annidati"] += 1
-                    elif nei_blocchi < massimo:
-                        blocco["testi"].append(cur)
+                    if nei_blocchi < massimo:
+                        blocco["elementi"].append(cur)
                         nei_blocchi += 1
                     else:
                         letti.pieno = True
@@ -309,12 +324,31 @@ def _leggi_entita(righe, massimo: int) -> _Letti:
 
 
 class Testo:
-    """Un testo risolto nelle coordinate del disegno: l'inizio stimato (x0), il centro verticale (cy), l'altezza,
-    la larghezza stimata, il testo pulito e lo spazio (0 modello, 1 carta)."""
-    __slots__ = ("x0", "cy", "h", "w", "testo", "spazio")
+    """Un testo risolto: l'inizio stimato (x0), il centro verticale (cy), l'altezza, la larghezza stimata, il testo
+    pulito e lo spazio.
 
-    def __init__(self, x0: float, cy: float, h: float, w: float, testo: str, spazio: int):
+    v2 (INSERT annidati): x0 e cy sono nel sistema del suo GRUPPO, cioe' le coordinate del disegno ruotate indietro
+    della rotazione composta degli INSERT che lo portano (`rot`, in gradi): la regola del cartiglio («il valore sta
+    sotto l'etichetta») vale cosi' nel sistema locale del blocco anche quando il blocco e' inserito ruotato. `spazio`
+    e' il gruppo: (0 modello / 1 carta, rotazione in gradi interi, specchiato). Con rotazione 0 le coordinate sono
+    quelle del disegno, come nella v1. `origine` e' da dove viene il testo nel file (DWG), None altrimenti."""
+    __slots__ = ("x0", "cy", "h", "w", "testo", "spazio", "rot", "origine")
+
+    def __init__(self, x0: float, cy: float, h: float, w: float, testo: str, spazio, rot: float = 0.0,
+                 origine: dict | None = None):
         self.x0, self.cy, self.h, self.w, self.testo, self.spazio = x0, cy, h, w, testo, spazio
+        self.rot, self.origine = rot, origine
+
+    def riquadro(self) -> list[float]:
+        """Il riquadro stimato [x0, y0, x1, y1] nelle coordinate del DISEGNO (y verso l'alto): con rotazione 0 e' quello
+        della v1; ruotato, e' il rettangolo che contiene il testo riportato nel disegno."""
+        x0, y0, x1, y1 = self.x0, self.cy - self.h / 2, self.x0 + self.w, self.cy + self.h / 2
+        if not self.rot:
+            return [round(x0, 2), round(y0, 2), round(x1, 2), round(y1, 2)]
+        co, si = math.cos(math.radians(self.rot)), math.sin(math.radians(self.rot))
+        punti = [(x * co - y * si, x * si + y * co) for x, y in ((x0, y0), (x1, y0), (x0, y1), (x1, y1))]
+        return [round(min(p[0] for p in punti), 2), round(min(p[1] for p in punti), 2),
+                round(max(p[0] for p in punti), 2), round(max(p[1] for p in punti), 2)]
 
 
 def _ancora(e: _Entita, testo: str) -> tuple[float, float, float, float]:
@@ -345,21 +379,28 @@ def _ancora(e: _Entita, testo: str) -> tuple[float, float, float, float]:
     return x0, cy, h, w
 
 
-def _trasformazione(ins: _Entita, base: tuple[float, float]):
-    """La funzione che porta un punto del blocco nel disegno: meno la base del blocco, la scala (41, 42), la
-    rotazione (50, in gradi) e il punto d'inserimento (10, 20). Con la scala verticale delle altezze."""
+IDENTITA = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)  # (a, b, c, d, tx, ty): X = a*x + b*y + tx, Y = c*x + d*y + ty
+
+
+def trasformazione_insert(ins: _Entita, base: tuple[float, float]) -> tuple:
+    """La trasformazione affine di un INSERT, da un punto del blocco a un punto del sistema che lo contiene: meno la
+    base del blocco, la scala (41, 42), la rotazione (50, in gradi) e il punto d'inserimento (10, 20)."""
     g = ins.g
     sx, sy = _num(g, "41", 1.0) or 1.0, _num(g, "42", 1.0) or 1.0
     rot = math.radians(_num(g, "50"))
     co, si = math.cos(rot), math.sin(rot)
     px, py = _num(g, "10"), _num(g, "20")
     bx, by = base
+    a, b, c, d = sx * co, -sy * si, sx * si, sy * co
+    return (a, b, c, d, px - (a * bx + b * by), py - (c * bx + d * by))
 
-    def porta(x: float, y: float) -> tuple[float, float]:
-        lx, ly = (x - bx) * sx, (y - by) * sy
-        return px + lx * co - ly * si, py + lx * si + ly * co
 
-    return porta, abs(sx), abs(sy)
+def componi(m: tuple, t: tuple) -> tuple:
+    """m dopo t: prima la trasformazione dell'INSERT interno (t), poi quella di chi lo contiene (m)."""
+    ma, mb, mc, md, mx, my = m
+    ta, tb, tc, td, tx, ty = t
+    return (ma * ta + mb * tc, ma * tb + mb * td, mc * ta + md * tc, mc * tb + md * td,
+            ma * tx + mb * ty + mx, mc * tx + md * ty + my)
 
 
 def ruotato(ins: _Entita) -> bool:
@@ -368,47 +409,97 @@ def ruotato(ins: _Entita) -> bool:
     return min(r, 360.0 - r) > ROTAZIONE_TOLLERATA
 
 
-def risolvi_testi(entita: list, blocchi: dict, lim: dict) -> tuple[list[Testo], int, int, bool]:
-    """I testi del disegno, nell'ordine del file: quelli delle ENTITIES e quelli dei blocchi richiamati con un
-    INSERT (un livello) non ruotato. Restituisce anche gli INSERT annidati non seguiti, gli INSERT ruotati non
-    seguiti (di un blocco con dei testi) e se ci si e' fermati a testi_max."""
-    out: list[Testo] = []
-    annidati = 0
-    ruotati = 0
-    tmax, cmax = int(lim["testi_max"]), int(lim["testo_max"])
+class Risolti:
+    """Che cosa ha dato la risoluzione dei testi: i testi e i conti degli INSERT (v2)."""
+    __slots__ = ("testi", "annidati", "annidati_seguiti", "oltre_profondita", "cicli", "specchiati", "fermo",
+                 "motivi")
 
-    def aggiungi(e: _Entita, porta=None, scx: float = 1.0, scy: float = 1.0, spazio: int = 0) -> bool:
-        if len(out) >= tmax:
+    def __init__(self):
+        self.testi: list[Testo] = []
+        self.annidati = 0           # INSERT dentro un blocco NON seguiti (profondita', ciclo, tetto)
+        self.annidati_seguiti = 0   # INSERT dentro un blocco seguiti
+        self.oltre_profondita = 0   # INSERT non seguiti perche' oltre profondita_max
+        self.cicli = 0              # INSERT non seguiti perche' il blocco e' gia' sul cammino
+        self.specchiati = 0         # testi in un sistema specchiato: la regola del cartiglio non li usa
+        self.fermo = False          # tetto dei testi o degli INSERT raggiunto
+        self.motivi: list[str] = []
+
+
+def risolvi_testi(entita: list, blocchi: dict, lim: dict) -> Risolti:
+    """I testi del disegno, nell'ordine del file: quelli delle ENTITIES e quelli dei blocchi richiamati con un INSERT,
+    seguiti RICORSIVAMENTE (v2) con la trasformazione affine composta di ogni livello (punto d'inserimento, scala,
+    rotazione), fino a profondita_max livelli, con la guardia sui cicli (un blocco gia' sul cammino non si rientra) e i
+    budget dei testi e degli INSERT visitati. Un INSERT ruotato si segue: i suoi testi vanno nel gruppo della loro
+    rotazione composta (Testo). MINSERT: la prima istanza."""
+    r = Risolti()
+    tmax, cmax = int(lim["testi_max"]), int(lim["testo_max"])
+    pmax = int(lim.get("profondita_max", PROFONDITA_MAX))
+    imax = int(lim.get("inserti_max", FATTORE_LETTI * tmax))
+    visitati = [0]
+
+    def aggiungi(e: _Entita, m: tuple, spazio: int) -> bool:
+        if len(r.testi) >= tmax:
+            r.fermo = True
             return False
         testo = e.scritto()[:cmax]
         if not testo:
             return True
         x0, cy, h, w = _ancora(e, testo)
-        if porta is not None:
-            x0, cy = porta(x0, cy)
-            h, w = h * scy, w * scx
-        out.append(Testo(x0, cy, h, w, testo, spazio))
+        a, b, c, d, tx, ty = m
+        X, Y = a * x0 + b * cy + tx, c * x0 + d * cy + ty
+        rot = math.degrees(math.atan2(c, a))
+        gradi = int(round(rot)) % 360
+        specchiato = a * d - b * c < 0
+        if gradi:
+            co, si = math.cos(math.radians(gradi)), math.sin(math.radians(gradi))
+            X, Y = X * co + Y * si, -X * si + Y * co
+        r.testi.append(Testo(X, Y, h * math.hypot(b, d), w * math.hypot(a, c), testo, (spazio, gradi, specchiato),
+                             float(gradi), e.origine))
+        if specchiato:
+            r.specchiati += 1
         return True
 
-    for e in entita:
-        spazio = _intero(e.g, "67")
-        if e.tipo in _TESTI:
-            if not aggiungi(e, spazio=spazio):
-                return out, annidati, ruotati, True
-            continue
-        b = blocchi.get(e.g.get("2", ""))
-        if b is None:
-            continue
-        if ruotato(e):
-            if b["testi"]:
-                ruotati += 1
-            continue
-        annidati += b["annidati"]
-        porta, scx, scy = _trasformazione(e, b["base"])
-        for t in b["testi"]:
-            if not aggiungi(t, porta, scx, scy, spazio):
-                return out, annidati, ruotati, True
-    return out, annidati, ruotati, False
+    def visita(elementi: list, m: tuple, spazio_padre: int | None, profondita: int, cammino: frozenset) -> bool:
+        for e in elementi:
+            spazio = _intero(e.g, "67") if spazio_padre is None else spazio_padre
+            if e.tipo in _TESTI:
+                if not aggiungi(e, m, spazio):
+                    return False
+                continue
+            if e.tipo != "INSERT":
+                continue
+            nome = e.g.get("2", "")
+            b = blocchi.get(nome)
+            if b is None:
+                continue
+            if nome in cammino:
+                r.cicli += 1
+                r.annidati += profondita > 0
+                continue
+            if profondita >= pmax:
+                r.oltre_profondita += 1
+                r.annidati += 1
+                continue
+            if visitati[0] >= imax:
+                r.fermo = True
+                r.annidati += profondita > 0
+                return False
+            visitati[0] += 1
+            if profondita > 0:
+                r.annidati_seguiti += 1
+            if not visita(b["elementi"], componi(m, trasformazione_insert(e, b["base"])), spazio, profondita + 1,
+                          cammino | {nome}):
+                return False
+        return True
+
+    visita(entita, IDENTITA, None, 0, frozenset())
+    if r.oltre_profondita:
+        r.motivi.append(f"{r.oltre_profondita} INSERT oltre {pmax} livelli non seguiti")
+    if r.cicli:
+        r.motivi.append(f"{r.cicli} INSERT che rientrano in un blocco gia' sul cammino (ciclo) non seguiti")
+    if r.specchiati:
+        r.motivi.append(f"{r.specchiati} testi in blocchi specchiati: la regola del cartiglio non li usa")
+    return r
 
 
 def _norm(testo: str) -> list[str]:
@@ -427,12 +518,13 @@ _COLONNA_QUANTITA = {"Q.TY", "QTY", "QTY.", "Q.TA", "Q.TÀ", "Q.TA'", "QTA", "QT
 _COLONNA_POSIZIONE_BREVE = {"N.", "N°", "NR", "NR.", "RIF", "RIF."}
 
 
-def etichetta_di(testo: str) -> str | None:
-    """La voce di cui il testo intero e' l'etichetta, o None."""
+def etichetta_di(testo: str, voci: dict[str, set[str]] | None = None) -> str | None:
+    """La voce di cui il testo intero e' l'etichetta, o None. `voci` e' il vocabolario (voce -> scritte senza spazi in
+    maiuscolo): quello del DXF se manca (il lettore DWG ne passa uno suo)."""
     pezzi = _norm(testo)
     if not pezzi or len(pezzi) > 2:
         return None
-    for campo, scritte in _VOCI.items():
+    for campo, scritte in (voci or _VOCI).items():
         if all(p in scritte for p in pezzi):
             return campo
     return None
@@ -503,39 +595,48 @@ def _valore_sotto(i: int, testi: list[Testo], etichette: dict[int, str]) -> Test
     return migliore
 
 
-def campi_del_cartiglio(testi: list[Testo], campi_max: int) -> tuple[list[dict], bool]:
+def campi_del_cartiglio(testi: list[Testo], campi_max: int, voci: dict[str, set[str]] | None = None,
+                        origini: bool = False) -> tuple[list[dict], bool]:
     """I campi riconosciuti, come i CampoCartiglio del testo dei PDF: etichetta (la voce), letta (com'e' scritta),
     valore (il testo grezzo sotto), riquadro del valore [x0, y0, x1, y1] in unita' del disegno con y verso
-    l'alto (stimato). In ordine di posizione: dall'alto in basso, da sinistra a destra."""
-    etichette = {i: c for i, t in enumerate(testi) if (c := etichetta_di(t.testo)) is not None}
+    l'alto (stimato). In ordine di posizione: dall'alto in basso, da sinistra a destra, gruppo per gruppo.
+
+    v2: la regola vale dentro ogni gruppo (stesso spazio, stessa rotazione composta), nel sistema del gruppo; i testi
+    dei gruppi specchiati non si usano. `voci` e' il vocabolario delle etichette (quello del DXF se manca); con
+    `origini` ogni campo porta anche `_origine_valore` e `_origine_etichetta` (Testo.origine), per il lettore DWG."""
+    usabili = [t for t in testi if not (isinstance(t.spazio, tuple) and t.spazio[2])]
+    etichette = {i: c for i, t in enumerate(usabili) if (c := etichetta_di(t.testo, voci)) is not None}
     scelti: list[tuple[Testo, str, Testo]] = []
     for i, campo in etichette.items():
-        et = testi[i]
-        if intestazione_tabella(riga_vista(et, testi)):
+        et = usabili[i]
+        if intestazione_tabella(riga_vista(et, usabili)):
             continue  # il nome di una colonna dell'elenco particolari, non un'etichetta del cartiglio
         if campo == "revisione":
             # la revisione della riga del numero del disegno: l'etichetta riconosciuta piu' vicina a sinistra
-            riga = [(testi[j].x0, c) for j, c in etichette.items()
-                    if c != "revisione" and testi[j].spazio == et.spazio and testi[j].x0 < et.x0
-                    and abs(testi[j].cy - et.cy) <= et.h / 2]
+            riga = [(usabili[j].x0, c) for j, c in etichette.items()
+                    if c != "revisione" and usabili[j].spazio == et.spazio and usabili[j].x0 < et.x0
+                    and abs(usabili[j].cy - et.cy) <= et.h / 2]
             if not riga or max(riga)[1] != "numero_disegno":
                 continue
-        v = _valore_sotto(i, testi, etichette)
+        v = _valore_sotto(i, usabili, etichette)
         if v is not None:
             scelti.append((et, campo, v))
     scelti.sort(key=lambda x: (x[0].spazio, -x[0].cy, x[0].x0, x[1]))
     out: list[dict] = []
     visti = set()
     for et, campo, v in scelti:
-        riq = [round(v.x0, 2), round(v.cy - v.h / 2, 2), round(v.x0 + v.w, 2), round(v.cy + v.h / 2, 2)]
+        riq = v.riquadro()
         chiave = (campo, v.testo, tuple(riq))
         if chiave in visti:
             continue
         visti.add(chiave)
         if len(out) >= campi_max:
             return out, True
-        out.append({"etichetta": campo, "letta": et.testo, "valore": v.testo[:VALORE_MAX], "pagina": 1,
-                    "zona": "pagina", "fonte": "nativo", "riquadro": riq, "confidenza": None})
+        campo_d = {"etichetta": campo, "letta": et.testo, "valore": v.testo[:VALORE_MAX], "pagina": 1,
+                   "zona": "pagina", "fonte": "nativo", "riquadro": riq, "confidenza": None}
+        if origini:
+            campo_d["_origine_valore"], campo_d["_origine_etichetta"] = v.origine, et.origine
+        out.append(campo_d)
     return out, False
 
 
@@ -548,19 +649,36 @@ def _fatto(lim: dict, esito: str, motivo: str = "", **altro) -> dict:
         "codifica": "",
         "testi": 0,
         "annidati": 0,
+        "annidati_seguiti": 0,
+        "oltre_profondita": 0,
+        "cicli": 0,
+        "specchiati": 0,
         "troncato": False,
+        "parziale": False,
         "cartiglio": [],
-        "limiti": {k: int(lim[k]) for k in ("byte_max", "testi_max", "testo_max", "campi_max")},
+        "limiti": {k: int(lim[k]) for k in ("byte_max", "testi_max", "testo_max", "campi_max", "profondita_max",
+                                            "inserti_max")},
     }
     f.update(altro)
     return f
 
 
-def leggi_testo_dxf_da_byte(dati: bytes, limiti: dict | None = None, troncato: bool = False) -> dict:
-    """Il fatto `testo_dxf` di un contenuto DXF. Non alza mai: un DXF binario, un file che non e' un DXF ASCII o
-    un errore di lettura sono un ESITO («non_letto», con il motivo), e il tipo lo dice comunque l'estensione."""
+def _limiti(limiti: dict | None) -> dict:
     lim = dict(LIMITI_DEFAULT)
     lim.update(limiti or {})
+    lim.setdefault("profondita_max", PROFONDITA_MAX)
+    lim.setdefault("inserti_max", FATTORE_LETTI * int(lim["testi_max"]))
+    return lim
+
+
+def leggi_testo_dxf_da_byte(dati: bytes, limiti: dict | None = None, troncato: bool = False) -> dict:
+    """Il fatto `testo_dxf` di un contenuto DXF. Non alza mai: un DXF binario, un file che non e' un DXF ASCII o
+    un errore di lettura sono un ESITO («non_letto», con il motivo), e il tipo lo dice comunque l'estensione.
+
+    v2: `parziale` e' vero quando qualcosa non e' stato letto (un tetto: `troncato`; INSERT oltre profondita_max o
+    in un ciclo; testi in blocchi specchiati), con i motivi in `motivo`. Un cartiglio vuoto di una lettura parziale non
+    e' un DXF «senza cartiglio»."""
+    lim = _limiti(limiti)
     if dati.startswith(FIRMA_BINARIA):
         return _fatto(lim, DXF_NON_LETTO, "DXF binario: si leggono solo i DXF ASCII")
     if len(dati) > lim["byte_max"]:
@@ -572,23 +690,24 @@ def leggi_testo_dxf_da_byte(dati: bytes, limiti: dict | None = None, troncato: b
         if not letti.entita and not letti.blocchi and not letti.dxf:
             return _fatto(lim, DXF_NON_LETTO, "nessuna entita' e nessuna SECTION: non sembra un DXF ASCII",
                           versione_dxf=versione, codifica=codifica, troncato=troncato)
-        testi, annidati, ruotati, fermo = risolvi_testi(letti.entita, letti.blocchi, lim)
-        campi, pieno = campi_del_cartiglio(testi, int(lim["campi_max"]))
+        r = risolvi_testi(letti.entita, letti.blocchi, lim)
+        campi, pieno = campi_del_cartiglio(r.testi, int(lim["campi_max"]))
     except Exception as e:  # noqa: BLE001 — una lettura fallita e' un esito, mai un job fallito
         log.warning("lettura DXF fallita: %s", e)
         return _fatto(lim, DXF_NON_LETTO, f"lettura fallita: {type(e).__name__}: {e}"[:300])
-    motivo = ""
-    if ruotati:
-        motivo = (f"{ruotati} INSERT ruotati non seguiti: i testi dei loro blocchi non sono letti (la regola del "
-                  "cartiglio vale per i blocchi diritti)")
-    return _fatto(lim, DXF_LETTO, motivo, versione_dxf=versione, codifica=codifica, testi=len(testi),
-                  annidati=annidati, troncato=troncato or letti.pieno or fermo or pieno, cartiglio=campi)
+    tronc = troncato or letti.pieno or r.fermo or pieno
+    motivi = list(r.motivi)
+    if tronc:
+        motivi.insert(0, "fermato su un tetto (byte, testi, INSERT o campi)")
+    return _fatto(lim, DXF_LETTO, "; ".join(motivi)[:300], versione_dxf=versione, codifica=codifica,
+                  testi=len(r.testi), annidati=r.annidati, annidati_seguiti=r.annidati_seguiti,
+                  oltre_profondita=r.oltre_profondita, cicli=r.cicli, specchiati=r.specchiati, troncato=tronc,
+                  parziale=bool(tronc or r.oltre_profondita or r.cicli or r.specchiati), cartiglio=campi)
 
 
 def leggi_testo_dxf(percorso: str, limiti: dict | None = None) -> dict:
     """Il fatto `testo_dxf` del file: al piu' byte_max byte (oltre, `troncato`). Non alza mai."""
-    lim = dict(LIMITI_DEFAULT)
-    lim.update(limiti or {})
+    lim = _limiti(limiti)
     try:
         with open(percorso, "rb") as f:
             dati = f.read(int(lim["byte_max"]) + 1)

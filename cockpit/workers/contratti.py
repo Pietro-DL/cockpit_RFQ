@@ -656,6 +656,8 @@ class LimitiTestoDXF(Base):
     testi_max: int = 0   # testi risolti (dopo gli INSERT) al massimo
     testo_max: int = 0   # caratteri conservati di un testo
     campi_max: int = 0   # campi del cartiglio
+    profondita_max: int = 0  # dalla v2: livelli di INSERT seguiti
+    inserti_max: int = 0     # dalla v2: INSERT visitati al massimo
 
 
 class TestoDXF(Base):
@@ -670,8 +672,14 @@ class TestoDXF(Base):
     cartiglio hanno `zona: pagina`, `fonte: nativo`, `pagina: 1` e il riquadro del valore in unita' del disegno,
     con la y verso l'alto (stimato dall'altezza e dal numero dei caratteri). `versione` e' quella della forma di
     questo oggetto, non la versione dell'analizzatore: un DXF senza `testo_dxf`, o di una versione di prima, il
-    server lo rianalizza con «Rianalizza»."""
-    versione: int = 1
+    server lo rianalizza con «Rianalizza».
+
+    La 2 (GP-3, direttiva 21 §5.1) segue gli INSERT annidati ricorsivamente (trasformazione composta, profondita'
+    massima, guardia sui cicli, budget) e gli INSERT ruotati (la regola del cartiglio nel sistema del blocco).
+    `annidati` sono gli INSERT dentro un blocco NON seguiti; `annidati_seguiti` quelli seguiti; `oltre_profondita` e
+    `cicli` perche' non si sono seguiti; `specchiati` i testi dei blocchi specchiati (non usati per il cartiglio).
+    `parziale` e' vero quando qualcosa non e' stato letto (anche un tetto, `troncato`), con i motivi in `motivo`."""
+    versione: int = 2
     esito: Literal["letto", "non_letto"] = "letto"
     motivo: str = ""
     versione_dxf: str = ""
@@ -681,6 +689,11 @@ class TestoDXF(Base):
     troncato: bool = False
     cartiglio: list[CampoCartiglio] = Field(default_factory=list)
     limiti: LimitiTestoDXF = Field(default_factory=LimitiTestoDXF)
+    annidati_seguiti: int = 0
+    oltre_profondita: int = 0
+    cicli: int = 0
+    specchiati: int = 0
+    parziale: bool = False
 
 
 # ---------------------------------------------------------------- fogli di calcolo (GP-3, G-8.2)

@@ -921,16 +921,23 @@ func TestIlTestoDelDxfNonPortaCodici(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("etichette del cartiglio del DXF: lo schema dice %v, il Go conosce %v", got, want)
 	}
-	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoDXF || VersioneTestoDXF != 1 {
+	// Riscritta per GP-3: la v2 segue gli INSERT annidati e porta i conti (annidati_seguiti, oltre_profondita, cicli,
+	// specchiati) e `parziale`; i limiti la profondita' e gli INSERT visitati.
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneTestoDXF || VersioneTestoDXF != 2 {
 		t.Errorf("la versione del testo del DXF: lo schema dice %v, il Go conosce %d", proprieta(s)["versione"]["default"], VersioneTestoDXF)
 	}
-	for nome, campi := range map[string]int{"LimitiTestoDXF": 4, "CampoCartiglio": 8} {
+	for _, a := range []string{"annidati_seguiti", "oltre_profondita", "cicli", "specchiati", "parziale"} {
+		if _, c := proprieta(s)[a]; !c {
+			t.Errorf("TestoDXF v2 non dichiara %q", a)
+		}
+	}
+	for nome, campi := range map[string]int{"LimitiTestoDXF": 6, "CampoCartiglio": 8} {
 		if n := reflect.TypeOf(tipiAnnidati[nome]).NumField(); n != campi {
 			t.Errorf("%s ha %d campi, attesi %d", nome, n, campi)
 		}
 	}
-	if n := reflect.TypeOf(TestoDXF{}).NumField(); n != 10 {
-		t.Errorf("TestoDXF ha %d campi, attesi 10", n)
+	if n := reflect.TypeOf(TestoDXF{}).NumField(); n != 15 {
+		t.Errorf("TestoDXF ha %d campi, attesi 15", n)
 	}
 }
 
@@ -950,7 +957,7 @@ func TestDecodificaTestoDXF(t *testing.T) {
 	if !ok {
 		t.Fatal("testo del DXF non decodificato")
 	}
-	if td.Versione != VersioneTestoDXF || td.Esito != DXFLetto || td.VersioneDXF != "AC1014" || td.Codifica != "cp1252" ||
+	if td.Versione != 1 || td.Esito != DXFLetto || td.VersioneDXF != "AC1014" || td.Codifica != "cp1252" ||
 		td.Testi != 12 || td.Troncato || len(td.Cartiglio) != 2 {
 		t.Errorf("testo del DXF letto male: %+v", td)
 	}
@@ -961,13 +968,25 @@ func TestDecodificaTestoDXF(t *testing.T) {
 	if td.Limiti != (LimitiTestoDXF{ByteMax: 67108864, TestiMax: 5000, TestoMax: 512, CampiMax: 24}) {
 		t.Errorf("i limiti non sono arrivati con il fatto: %+v", td.Limiti)
 	}
-	if TestoDXFDaRileggere(letto) {
-		t.Error("un DXF letto con la versione di oggi non si rianalizza")
+	// Riscritta per GP-3: un testo v1 letto si decodifica ancora, ma si rilegge (la v2 segue gli INSERT annidati)
+	if !TestoDXFDaRileggere(letto) {
+		t.Error("un DXF letto con la v1 si rianalizza: la v2 segue gli INSERT annidati")
+	}
+	v2 := json.RawMessage(`{"testo_dxf": {"versione": 2, "esito": "letto", "testi": 40, "annidati": 1, "annidati_seguiti": 3,
+		"oltre_profondita": 1, "cicli": 0, "specchiati": 0, "troncato": false, "parziale": true,
+		"motivo": "1 INSERT oltre 8 livelli non seguiti", "cartiglio": [],
+		"limiti": {"byte_max": 67108864, "testi_max": 5000, "testo_max": 512, "campi_max": 24, "profondita_max": 8, "inserti_max": 20000}}}`)
+	if td, ok := DecodificaTestoDXF(v2); !ok || !td.Parziale || td.AnnidatiSeguiti != 3 || td.OltreProfondita != 1 ||
+		td.Limiti.ProfonditaMax != 8 || td.Limiti.InsertiMax != 20000 || TestoDXFDaRileggere(v2) {
+		t.Errorf("la v2 letta male, o riaccodata: %v %+v", ok, td)
 	}
 
-	binario := json.RawMessage(`{"testo_dxf": {"versione": 1, "esito": "non_letto", "motivo": "DXF binario", "cartiglio": []}}`)
-	if td, ok := DecodificaTestoDXF(binario); !ok || td.Esito != DXFNonLetto || TestoDXFDaRileggere(binario) {
-		t.Errorf("un DXF binario e' una risposta, non un fatto da rileggere: %v %+v", ok, td)
+	// un DXF binario e' una risposta, in tutte e due le versioni: la v2 non lo legge diversamente
+	for _, v := range []int{1, 2} {
+		binario := json.RawMessage(fmt.Sprintf(`{"testo_dxf": {"versione": %d, "esito": "non_letto", "motivo": "DXF binario", "cartiglio": []}}`, v))
+		if td, ok := DecodificaTestoDXF(binario); !ok || td.Esito != DXFNonLetto || TestoDXFDaRileggere(binario) {
+			t.Errorf("un DXF binario e' una risposta, non un fatto da rileggere: %v %+v", ok, td)
+		}
 	}
 
 	casi := map[string]json.RawMessage{
