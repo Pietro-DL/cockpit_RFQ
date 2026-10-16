@@ -227,6 +227,11 @@ func (it *interprete) legami() {
 		if !it.lette[u.ID] {
 			continue // un'unità tagliata da un limite non si accoppia
 		}
+		// La nota del legame incompleto esce una volta per unità, e solo se nessun legame l'ha coperta: un nome coperto da
+		// un modello non è «incompleto» per un altro modello che non lo riguarda.
+		coperta := false
+		var incompleti []string
+		piuLontano := 0
 		for _, l := range it.m.legami {
 			if !a.modelli[l.id] || !l.selettori[u.Selettore] {
 				continue
@@ -235,7 +240,9 @@ func (it *interprete) legami() {
 			switch {
 			case len(cps) == 1 && !troncato:
 				it.applicaCopertura(u, l, cps[0])
+				coperta = true
 			case len(cps) > 1 || troncato:
+				coperta = true
 				var vie []string
 				for _, cp := range cps {
 					vie = append(vie, cp.chiave())
@@ -245,10 +252,14 @@ func (it *interprete) legami() {
 					Percorso: "unita[" + u.ID + "]", Messaggio: fmt.Sprintf("il legame %s copre il testo in %d modi (troncato: %v): nessun ruolo e nessuna relazione si scelgono", l.id, len(cps), troncato),
 					Rif: append([]string{l.id, u.ID}, vie...)})
 			case lontano > 0:
-				it.diag = append(it.diag, evidenze.Diagnostica{Codice: CodiceMotoreLegameIncompleto, Gravita: evidenze.GravitaNota, Natura: evidenze.NaturaDati,
-					Percorso: "unita[" + u.ID + "]", Messaggio: fmt.Sprintf("il legame %s copre il testo fino al byte %d di %d e si ferma: nessuna relazione, nessuna lettura solo_legame", l.id, lontano, len(u.Testo)),
-					Rif: []string{l.id, u.ID}})
+				incompleti = append(incompleti, l.id)
+				piuLontano = max(piuLontano, lontano)
 			}
+		}
+		if !coperta && len(incompleti) > 0 {
+			it.diag = append(it.diag, evidenze.Diagnostica{Codice: CodiceMotoreLegameIncompleto, Gravita: evidenze.GravitaNota, Natura: evidenze.NaturaDati,
+				Percorso: "unita[" + u.ID + "]", Messaggio: fmt.Sprintf("i legami %s coprono il testo al più fino al byte %d di %d e si fermano: nessuna relazione, nessuna lettura solo_legame", strings.Join(incompleti, ", "), piuLontano, len(u.Testo)),
+				Rif: append(incompleti, u.ID)})
 		}
 	}
 }
