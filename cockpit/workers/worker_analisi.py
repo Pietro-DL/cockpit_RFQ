@@ -702,8 +702,12 @@ class MotoreTesseractTSV:
 
 
 def _esegui_processo(argomenti: list[str], ingresso: bytes | None, tempo_s: float):
+    # Il worker gira con pythonw, senza console: su Windows ogni programma da console lanciato da qui (tesseract.exe,
+    # una volta per zona) aprirebbe una finestra sua, che compare e si chiude a ogni passaggio. CREATE_NO_WINDOW la
+    # toglie; l'uscita arriva lo stesso dalle pipe.
     import subprocess
-    return subprocess.run(argomenti, input=ingresso, capture_output=True, timeout=tempo_s, check=False)
+    opzioni = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    return subprocess.run(argomenti, input=ingresso, capture_output=True, timeout=tempo_s, check=False, **opzioni)
 
 
 def trova_tesseract(eseguibile: str, lingua: str, esegui=None) -> tuple[str, str]:

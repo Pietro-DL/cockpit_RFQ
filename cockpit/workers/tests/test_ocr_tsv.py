@@ -113,3 +113,24 @@ def test_l_ocr_porta_parole_e_ambigui_nel_fatto(tmp_path):
     assert {a["posizione"] for a in campo[0]["ambigui"]} == {0, 2, 3, 4, 5}
     # i frammenti nativi non portano parole OCR ne' ambigui
     assert all(f["parole"] == [] and f["ambigui"] == [] for f in t["frammenti"] if f["fonte"] == "nativo")
+
+
+def test_tesseract_parte_senza_finestra(monkeypatch):
+    # Il worker gira con pythonw: senza CREATE_NO_WINDOW ogni tesseract.exe apre una console che lampeggia.
+    import os
+    import subprocess
+
+    import worker_analisi
+    visti = {}
+
+    def finto_run(argomenti, **kw):
+        visti.update(kw)
+        return esito(b"ok")
+
+    monkeypatch.setattr(subprocess, "run", finto_run)
+    worker_analisi._esegui_processo(["tesseract", "--list-langs"], None, 5.0)
+    if os.name == "nt":
+        assert visti["creationflags"] & subprocess.CREATE_NO_WINDOW
+    else:
+        assert "creationflags" not in visti
+    assert visti["capture_output"] is True
