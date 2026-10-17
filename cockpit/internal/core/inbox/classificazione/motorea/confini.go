@@ -16,19 +16,24 @@ import (
 //     token («ACME-030P7120100 00 IN_WORK.stp»);
 //   - parola_ascii_o_punto_cifra: come parola_ascii, e nemmeno «.» seguito da una cifra. Solo a destra (la
 //     validazione lo vieta a sinistra): la forma parziale non deve leggere dentro la forma completa
-//     («9.123.4567» dentro «9.123.4567.3», A-C07).
+//     («9.123.4567» dentro «9.123.4567.3», A-C07);
+//   - alnum_ascii_o_trattino: in più niente «-» U+002D. Dal 17/10 (LS-03 A, addendum D-05), ai due lati. Serve
+//     dove il trattino continua una forma più lunga della stessa famiglia: senza, la forma corta «<base>--»
+//     leggerebbe l'inizio del nome della forma lunga «<base>---…» (ACME: «12345678--» dentro
+//     «12345678---7-ARC_12345678--»).
 //
 // Il confine sinistro lo controlla il motore in Go sul testo intero, perché la ricerca su testo[i:] non vede
 // la runa prima (T4). Il destro lo scrive il compilatore in fondo alla regex, fuori dalla lettura; lo stesso
 // controllo in Go serve ad allungare una lettura (scansione.go). Le lettere e le cifre fuori dall'ASCII, lo
 // spazio non separabile e gli altri spazi sono confini per tutte le classi: le classi sono solo ASCII (T3,
-// T10). Una classe nuova è una modifica del contratto, con un commit dichiarato (4.10 n.2).
+// T10). Per lo stesso motivo i trattini fuori dall'ASCII («—», «–», «‐», «−») non sono vietati dalla classe
+// _o_trattino. Una classe nuova è una modifica del contratto, con un commit dichiarato (4.10 n.2).
 
-// classeNota: la classe è una delle quattro del contratto.
+// classeNota: la classe è una delle cinque del contratto.
 func classeNota(c grammatica.ClasseConfine) bool {
 	switch c {
 	case grammatica.ConfineAlnumASCII, grammatica.ConfineParolaASCII, grammatica.ConfineAlnumASCIIOSpazio,
-		grammatica.ConfineParolaASCIIOPuntoCifra:
+		grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino:
 		return true
 	}
 	return false
@@ -46,6 +51,8 @@ func frammentoDestro(c grammatica.ClasseConfine) (string, bool) {
 		return `(?:[^ 0-9A-Za-z]|\z)`, true
 	case grammatica.ConfineParolaASCIIOPuntoCifra:
 		return `(?:[^.0-9A-Z_a-z]|\.[^0-9]|\.\z|\z)`, true
+	case grammatica.ConfineAlnumASCIIOTrattino:
+		return `(?:[^\-0-9A-Za-z]|\z)`, true
 	}
 	return "", false
 }
@@ -59,6 +66,8 @@ func vietataAccanto(c grammatica.ClasseConfine, r rune) bool {
 		return alnum || r == '_'
 	case grammatica.ConfineAlnumASCIIOSpazio:
 		return alnum || r == ' '
+	case grammatica.ConfineAlnumASCIIOTrattino:
+		return alnum || r == '-'
 	}
 	return alnum
 }
