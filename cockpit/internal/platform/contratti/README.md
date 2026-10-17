@@ -45,6 +45,9 @@ markmap:
     - `PayloadAnalizzaAllegato`, `RisultatoAnalisi`
     - e quelli dei job del server: `PayloadEstraiArchivio`, `PayloadCopiaNAS`, `PayloadCreaCartellaThread`, `PayloadAnalizzaMessaggioAI`
   - **la struttura STEP:** `StrutturaSTEP`, `NodoSTEP`, `RelazioneSTEP`, `ScartiSTEP`, `LimitiSTEP`, `DecodificaStruttura`
+    - LS-01: `VersioneStruttura` (la forma accettata, 3), `VersioneDiagnostica` (1: geometria, istanze, stato),
+      `VersioneStrutturaGP3` (la 4 ritirata), `DiagnosticaSTEP` (la porta per chi legge la diagnostica),
+      `StrutturaDaRileggere` (il predicato di «Rianalizza»)
   - `TolleranzaFuturo` / `NelFuturo`
   - `Salute` (`/healthz`)
 - **`worker/protocollo.go`** — responsabilità:
@@ -70,6 +73,10 @@ markmap:
 - **`StrutturaSTEP`, `DecodificaStruttura`**
   - Chi lo usa: `core/rfq/fascicolo`, `transport/web`, `transport/workerapi`; dal giro 5 (A1b) `core/estrazione`,
     l'adattatore STEP del motore A
+- **`StrutturaDaRileggere`, `VersioneStruttura`, `VersioneDiagnostica`**
+  - Chi lo usa: `core/rfq/fascicolo` (`AccodaStepDaRileggere`, solo dal gesto «Rianalizza»), `transport/workerapi`
+    (gli avvisi nel log, con il worker: per una forma diversa da `VersioneStruttura`, e per la forma 3 con il campo
+    `versione_diagnostica` assente o 0, la riga che dice anche l'attesa, `VersioneDiagnostica`); LS-01
 - **`TestoPDF`, `DecodificaTestoPDF`**
   - Chi lo usa: `core/inbox/classificazione` (`testoDelPDF`); dal giro 5 (A1b) `core/estrazione`, l'adattatore PDF
     del motore A
@@ -90,6 +97,13 @@ markmap:
 - Un campo sconosciuto in arrivo si ignora (compatibilità in avanti).
 - Una struttura STEP di versione < 2 non si legge:
   - i codici scritti dal worker nella v1 non entrano.
+- La versione della forma della struttura è una sola (LS-01): `VERSIONE_STRUTTURA` del worker Python, il default dello
+  schema, `VersioneStruttura`, `valutazione.VersioneStrutturaStep` e il letterale di `struttura_motivo_parziale` nella
+  migrazione che la definisce per ultima.
+  - lo verificano `valutazione/versione_struttura_test.go` (L1) e, con il worker vero e il database,
+    `transport/workerapi/ls01_struttura_db_test.go` (L4).
+  - La diagnostica ha un numero suo (`versione_diagnostica`, default 0 = nessuna): non cambia mai `versione`, e la
+    completezza non la guarda.
 - Nessun percorso del disco del server nei payload verso i worker (`PayloadAnalizzaAllegato`, `RisultatoStage`):
   - i byte viaggiano con le rotte dei contenuti.
 
@@ -127,6 +141,9 @@ markmap:
   - K4
 - **`TestLaStrutturaNonPortaCodici`, `TestDecodificaStrutturaTolleraCampiSconosciuti`, `TestUnaStrutturaTroncataDiceControQualeTetto`, `TestUnaStrutturaVecchiaNonSiLegge`, `TestLaStrutturaV3PortaGliScartiInNumeri`**
   - `StrutturaSTEP` v2/v3 e `DecodificaStruttura`
+- **`TestStrutturaV3ConDiagnostica`** (LS-01; prima `TestStrutturaV4`)
+  - la v3 con la diagnostica 1 si legge intera e non si rilegge; la v3 senza diagnostica non si rilegge; la v4 di GP-3,
+    una v5, una v2 e i fatti senza struttura si rileggono; una diagnostica di un'altra versione si ignora
 
 ### Che cosa non si confronta
 
@@ -138,6 +155,8 @@ markmap:
 ## Stato dell'implementazione
 
 - **Completo** fino a B8.5 (struttura STEP v3 con gli scarti).
+- **LS-01** (17/10/2026): la diagnostica di GP-3 (geometria, istanze, stato) viaggia nella forma 3 con
+  `versione_diagnostica` = 1; la forma 4 di GP-3 è ritirata (`VersioneStrutturaGP3`) e si rilegge con «Rianalizza».
 - **In attesa:**
   - `PayloadSpostaCartella` / `RisultatoSposta` sono nel contratto
     - ma il server non accoda mai un `sposta_in_cartella`.

@@ -29,11 +29,11 @@ import (
 	"promatec/cockpit/internal/core/inbox/ingest"
 	"promatec/cockpit/internal/core/registro/regole"
 	"promatec/cockpit/internal/core/rfq/fascicolo"
-	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/coda"
 	"promatec/cockpit/internal/platform/contratti/worker"
 	"promatec/cockpit/internal/platform/db"
 	"promatec/cockpit/internal/platform/rete"
+	"promatec/cockpit/internal/platform/storage/archivio"
 	"promatec/cockpit/internal/platform/storage/nas"
 	"promatec/cockpit/internal/platform/storage/staging"
 )
@@ -923,6 +923,29 @@ func (s *Server) applicaRisultato(ctx context.Context, q *db.Queries, j *db.Job,
 			if err := s.propostaDaAnalisi(ctx, q, al, classificazione.Esito{Tipo: string(tipo), Fonte: string(fonte)}, dett,
 				classificazione.DaAnalisi); err != nil {
 				return err
+			}
+		}
+		// LS-01: una struttura STEP scritta da un worker non aggiornato si tiene lo stesso, ma chi guarda la pagina non
+		// vede che il rimedio sta sulla postazione: il log lo dice, con il worker che l'ha scritta (flotta mista) e il
+		// file. Due casi, due righe, tutte e due con «worker non aggiornato»:
+		//   - una forma che il server non accetta per la completezza (in pratica la v4 di una postazione rimasta al
+		//     worker di GP-3; una v2 di un worker ancora piu' vecchio): la 0020 la dice parziale, ed e' il lato che non
+		//     concede; dopo l'aggiornamento della postazione la rilegge «Rianalizza»;
+		//   - la forma 3 senza versione_diagnostica (una postazione rimasta a un worker di prima di GP-3): la lettura
+		//     vale e «Rianalizza» non la rilegge (worker.StrutturaDaRileggere), ma la diagnostica (geometria, istanze,
+		//     stato) non c'e', e senza questa riga mancherebbe in silenzio.
+		if st, ok := worker.DecodificaStruttura(dett); ok {
+			switch {
+			case st.Versione != worker.VersioneStruttura:
+				s.Log.Warn("struttura STEP in una forma che il server non accetta: worker non aggiornato, la lettura resta parziale; "+
+					"aggiornare il pacchetto della postazione, poi «Rianalizza»",
+					"worker", j.WorkerID.String, "allegato", a.AllegatoID, "file", a.NomeFile, "versione", st.Versione,
+					"accettata", worker.VersioneStruttura)
+			case st.VersioneDiagnostica == 0:
+				s.Log.Warn("struttura STEP senza diagnostica: worker non aggiornato (di prima di GP-3); la lettura vale e "+
+					"«Rianalizza» non la rilegge, ma geometria, istanze e stato mancano; aggiornare il pacchetto della postazione",
+					"worker", j.WorkerID.String, "allegato", a.AllegatoID, "file", a.NomeFile, "versione", st.Versione,
+					"versione_diagnostica", st.VersioneDiagnostica, "attesa", worker.VersioneDiagnostica)
 			}
 		}
 		// La STRUTTURA di uno STEP diventa proposte in ogni RFQ che ha quel file, ciascuna con le regole

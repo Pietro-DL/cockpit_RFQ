@@ -133,7 +133,7 @@ markmap:
   - Schermata: l'editor a nodi
 - **Fascicolo: preparazione e avanzamento**
   - File: `fascicolo_preparazione.go`
-  - Schermata: preparazione all'apertura e poll
+  - Schermata: la preparazione (la POST che la pagina manda aprendosi, solo per chi scrive: accoda e basta) e il poll
 - **Fascicolo: Importa dal NAS**
   - File: `fascicolo_nas.go`
   - Schermata: il cassetto NAS
@@ -1413,7 +1413,10 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   dei codici e bozze.
   - Il testo di ogni messaggio è quello del pannello dell'Inbox: `messaggioThread.Corpo` da `lettura.Presenta`, disegnato
     con `corpo_messaggio`; l'oggetto con `oggettoVisibile`.
-- Rileggere gli STEP all'apertura.
+- Aprirsi senza scrivere niente (Smistamento F1, R8: nessuna GET scrive), per nessun ruolo. Per chi scrive la pagina
+  manda da sola la preparazione (`POST …/fascicolo/prepara`, `auto=1`), che accoda e basta: vedi il modulo della
+  preparazione del Fascicolo. Gli STEP già analizzati si rileggono solo con il gesto «Rianalizza» e quando la RFQ nasce
+  o un messaggio vi si aggancia (`triage.go:preparaDopoLaDecisione`).
 - Eseguire i gesti in una transazione ciascuno, rispondendo con la pagina o con la schermata del Fascicolo.
 
 ### Non appartiene qui
@@ -1433,7 +1436,9 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   - `riprovaCopie`, `rimettiInCoda`, `esitoCopie`, `caricaThread`
 - **`proposte.go`**
   - `registraProposte`, `gesto`/`gestoPoi` (tutto o niente, «Niente è cambiato: …»), `idDa`
-  - `rianalizza` (fino a `MaxAccodatiSuRichiesta` = 20), `rileggiAllApertura`
+  - `rianalizza` (fino a `MaxAccodatiSuRichiesta` = 20: chiama `fascicolo.RianalizzaRfq`, e ne è il solo chiamante), `fraseRianalisi`
+    (LS-01: gli STEP da rileggere contati a parte, senza un perché; «Riscarica, poi di nuovo Rianalizza» per quelli non
+    più in staging)
   - accetta/scarta per nodo, relazione, file o sottoalbero, rimozione
   - `gestoConDomanda`: per `relazione/accetta` e `file/{aid}/accetta` (campo `assieme`, ripetuto), la conferma
     contestuale del cambio di tipo (A1d P4, D-K6-01 = A [U], direttiva 12 §6)
@@ -1472,15 +1477,18 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   - `documento`, `v_fascicolo`, `bozza`, `componente`, `nas_anomalia`;
   - messaggi con presenze e allegati (il corpo solo per la presentazione); `fascicolo.CandidatiDellaRfq`.
 - **Scritture:**
-  - all'apertura `fascicolo.RianalizzaRfq`, in una transazione sua, se `[analisi]` è configurata;
-  - i gesti tramite le funzioni di `core/rfq/fascicolo`, in una transazione;
+  - all'apertura nessuna: `GET /thread/{id}` legge e basta (`TestAprireLaRfqNonRileggeGliStepEIGestiRispondonoConLaPagina`);
+  - i gesti tramite le funzioni di `core/rfq/fascicolo`, in una transazione; «Rianalizza» con `fascicolo.RianalizzaRfq`
+    (se `[analisi]` è configurata), solo su richiesta;
   - `riprova-copie`: `coda.AccodaCopia` per ogni documento `in_coda` o `errore`.
 
 ### Flussi principali
 
 1. **Apertura.**
-   - `rileggiAllApertura`: se fallisce la pagina si apre comunque e il log lo dice.
-   - Poi `caricaThread` e `rendi`.
+   - `caricaThread` e `rendi`: niente si scrive, niente si rilegge.
+   - Per chi scrive, `thread.html` porta la POST della preparazione (`hx-trigger="load"`, `auto=1`, `hx-swap="none"`):
+     `fascicolo.PreparaFile` e `fascicolo.AccodaAnalisiMancantiDaSola` accodano download, estrazioni e analisi
+     mancanti, senza rileggere gli STEP già analizzati (modulo della preparazione del Fascicolo).
 2. **Gesto.**
    - `gestoPoi`: transazione → funzione di dominio → commit, oppure rollback con la spiegazione (`spiegaErrore`).
    - Risposta con `threadFrammento`: la pagina della RFQ, oppure i pannelli del Fascicolo se `HX-Current-URL` è quello
@@ -1509,7 +1517,10 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
   - `templates_test.go`,
   - `corpo_test.go` (il corpo in `thread_corpo`).
 - **L4**
-  - `b85_db_test.go`: rilettura all'apertura, gesti che rispondono con la pagina, scelte.
+  - `b85_db_test.go`: aprire la RFQ non scrive e non rilegge gli STEP (la preparazione accoda, «Rianalizza» rilegge),
+    gesti che rispondono con la pagina, scelte.
+  - `ls01_rianalizza_db_test.go` (LS-01): le frasi vere di «Rianalizza» su uno STEP letto nella forma 4 di GP-3, nello
+    staging e non più nello staging, prima e dopo il risultato del worker corretto.
   - `b86_db_test.go`: pannello dei codici.
   - `copie_db_test.go`, `copieerrore_db_test.go`, `copieparziali_db_test.go`, `chiavecopia_db_test.go`.
   - `integrita_db_test.go`: la RFQ dice che un suo documento è segnalato.
@@ -1519,7 +1530,8 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 
 - Completo.
 - La rotta della richiesta a un fornitore resta senza form (vedi il modulo Richieste ai fornitori).
-- L'apertura rilegge gli STEP e scrive anche quando la pagina la apre un utente in consultazione.
+- Fino a B8.7b l'apertura rileggeva gli STEP e scriveva anche per un utente in consultazione; dallo Smistamento F1 (R8)
+  non scrive per nessuno.
 
 ### Dove intervenire
 
@@ -1734,8 +1746,9 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 - Tutte `autenticato`; le GET le apre anche `consultazione`.
 - **`GET /thread/{id}/fascicolo`**
   - Gestore: `fascicoloPagina`
-  - Risposta: la pagina, o `fasc_corpo`. Prima: per operatore o superiore `preparaFascicolo`, per `consultazione`
-    `rileggiAllApertura`
+  - Risposta: la pagina, o `fasc_corpo`. Non scrive niente, per nessun ruolo (Smistamento F1, R8): per chi scrive la
+    pagina porta la POST della preparazione (`POST …/fascicolo/prepara`, `hx-trigger="load"`, `auto=1`), per
+    `consultazione` no (e la stessa POST gli risponde 403)
 - **`GET …/fascicolo/parti`**
   - Gestore: `fascicoloParti` → `rispondiFascicolo`
   - Risposta: `fasc_parti`, con `HX-Push-Url` dello stato
@@ -1815,7 +1828,9 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 - Ogni richiesta ricarica tutta la schermata (più di 20 query e un `os.Stat` per allegato; provato con cento allegati
   sotto il secondo).
 - Nessun visore 3D: per STEP e DXF si mostra il riepilogo dell'analisi.
-- Per `consultazione` l'apertura rilegge comunque gli STEP e può accodare analisi.
+- Fino a B8.7b, per `consultazione` l'apertura rileggeva comunque gli STEP e poteva accodare analisi; dallo Smistamento
+  F1 (R8) la GET non scrive per nessuno, e chi consulta non manda la preparazione (`TestNessunaGetScrive`,
+  `TestAprireIlFascicoloLoPreparaPerChiLavora`).
 
 ### Dove intervenire
 
@@ -2097,18 +2112,27 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 
 ### Scopo
 
-- Aprire il Fascicolo lo prepara;
+- Aprire il Fascicolo (o la pagina della RFQ, o la Distinta) lo fa preparare a chi scrive: la GET non scrive niente
+  (Smistamento F1, R8), e la pagina manda da sola la POST della preparazione;
 - finché c'è lavoro sui file, la testata lo dice e la pagina si aggiorna da sola.
 
 ### Flusso
 
-- `preparaFascicolo` parte dalla GET della pagina, per operatore o superiore, in tre transazioni separate i cui errori
-  vanno solo nel log (`inTransazione`):
-  - `fascicolo.AssicuraProdottiDellaRichiesta`;
-  - `fascicolo.PreparaFile` (con `Analizzatore`, `maxCaricamentoEffettivo()`, `MaxPreparatiPerApertura` = 20 e
-    `rileggiFatti` = `Pipeline.DopoCaricamento`);
-  - `rileggiAllApertura`.
-- `triage.go:preparaDopoLaDecisione` usa le stesse costanti e gli stessi aiuti.
+- `prepara` (`POST /thread/{id}/fascicolo/prepara`): la pagina la manda al caricamento solo a chi scrive
+  (`hx-trigger="load"`, `auto=1`), con il bottone «Prepara i file» di riserva; chi consulta riceve 403.
+  - `preparaFile`, in una transazione sola (tutto o niente):
+    - `fascicolo.PreparaFile` (con `Analizzatore`, `maxCaricamentoEffettivo()`, `MaxPreparatiPerApertura` = 20 e
+      `rileggiFatti` = `Pipeline.DopoCaricamento`);
+    - poi, con quello che resta del limite, `fascicolo.AccodaAnalisiMancantiDaSola`: gli STEP senza i fatti
+      dell'analizzatore corrente, senza riprovare da sola un'analisi fallita.
+  - Accoda e basta: non fa i prodotti della richiesta (li fa il triage), non rilegge gli STEP già analizzati e non
+    riaccoda gli STEP da rileggere né i PDF (lo fa solo «Rianalizza», `fascicolo.RianalizzaRfq`).
+  - Risposte: 204 per quella automatica che non ha messo in moto niente, non è riuscita o viene dalla pagina della RFQ;
+    con htmx l'avviso e i pannelli; senza htmx un 303, o la pagina intera con l'avviso se non è riuscita
+    (`preparazioneNonRiuscita`).
+- `triage.go:preparaDopoLaDecisione` usa le stesse costanti e `fascicolo.PreparaFile` (senza rilettura dei fatti), con
+  `fascicolo.AssicuraProdottiDellaRichiesta` e `fascicolo.RileggiStepDellaRfq`: è, con «Rianalizza», la sola strada
+  che rilegge gli STEP già analizzati.
 - `GET …/fascicolo/avanzamento?firma=…&giro=…` (tutti; non scrive):
   - lo stato viene da `HX-Current-URL`;
   - `firmaDi` riassume componenti, proposte, versione bloccata, file, completezza, piano e lavoro;

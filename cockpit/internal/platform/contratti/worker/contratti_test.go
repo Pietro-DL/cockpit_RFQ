@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -575,42 +576,107 @@ func TestLaStrutturaNonPortaCodici(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("stato della struttura: lo schema dice %v, il Go conosce %v", got, want)
 	}
-	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneStruttura || VersioneStruttura != 4 {
+	// riscritta per LS-01: la forma pubblicata è quella che il server accetta (la 3, come la 0020 e la gerarchia), e la
+	// diagnostica ha il suo numero. Il default dello schema per la diagnostica è 0, «nessuna»: i fatti dei worker di
+	// prima di GP-3 non la portano, e non vanno scambiati per una diagnostica 1.
+	if d, _ := proprieta(s)["versione"]["default"].(float64); int(d) != VersioneStruttura || VersioneStruttura != 3 {
 		t.Errorf("versione della struttura: schema %v, Go %d", proprieta(s)["versione"]["default"], VersioneStruttura)
+	}
+	if d, ok := proprieta(s)["versione_diagnostica"]["default"].(float64); !ok || int(d) != 0 || VersioneDiagnostica != 1 {
+		t.Errorf("versione della diagnostica: default dello schema %v (atteso 0), Go %d (atteso 1)",
+			proprieta(s)["versione_diagnostica"]["default"], VersioneDiagnostica)
+	}
+	if VersioneStrutturaGP3 == VersioneStruttura {
+		t.Errorf("la forma ritirata di GP-3 (%d) non può essere quella che il server accetta", VersioneStrutturaGP3)
 	}
 }
 
-// GP-3 (direttiva 21 §5.3). La v4 porta la geometria per nodo, i nomi d'istanza e lo stato; una v3 si legge ancora
-// (stato "", geometria nil: non si inventano) e si rilegge (StrutturaDaRileggere).
-func TestStrutturaV4(t *testing.T) {
-	v4 := json.RawMessage(`{"struttura": {"versione": 4, "schema": "AP214", "radici": ["#10"],
+// LS-01 (17/10/2026; prima TestStrutturaV4, GP-3). La struttura v3 con la diagnostica 1 è quella del worker di oggi: si
+// decodifica con geometria, istanze e stato (nessun campo perso, nessun rifiuto) e non si rilegge. Una v3 senza
+// diagnostica (worker di prima di GP-3) si legge senza diagnostica inventata e non si rilegge: la sua completezza è
+// giusta. La v4 di GP-3 si legge (i campi non si perdono) ma la sua diagnostica non è dichiarata, e si rilegge; come la
+// v5 di un worker sconosciuto, la v2 e i fatti senza struttura. Una diagnostica di un'altra versione si ignora, e non fa
+// rileggere: la completezza non la guarda.
+func TestStrutturaV3ConDiagnostica(t *testing.T) {
+	struttura := func(versione, diagnostica string) json.RawMessage {
+		campo := ""
+		if diagnostica != "" {
+			campo = `"versione_diagnostica": ` + diagnostica + `, `
+		}
+		return json.RawMessage(`{"struttura": {"versione": ` + versione + `, ` + campo + `"schema": "AP214", "radici": ["#10"],
 		"nodi": [{"chiave": "#10", "nome_grezzo": "ACME-ASM", "evidenza": {}, "geometria": {"solidi": 0, "rappresentazioni": 1, "vuota": true}},
 		         {"chiave": "#20", "nome_grezzo": "ACME-P1", "evidenza": {}, "geometria": {"solidi": 1, "rappresentazioni": 2, "vuota": false}}],
 		"relazioni": [{"padre": "#10", "figlio": "#20", "qta": 2, "evidenza": {},
 			"istanze": [{"rif": "#80", "id": "NAUO1", "nome": "ACME-P1:1"}, {"rif": "#81", "id": "NAUO2", "nome": "ACME-P1:2"}]}],
 		"avvisi": [], "scarti": {}, "limiti": {}, "stato": "valida", "motivo_stato": ""}}`)
-	st, ok := DecodificaStruttura(v4)
-	if !ok || st.Stato != StrutturaValida || len(st.Nodi) != 2 || st.Nodi[0].Geometria == nil || !st.Nodi[0].Geometria.Vuota {
-		t.Fatalf("v4 letta male: %v %+v", ok, st)
 	}
-	if g := st.Nodi[1].Geometria; g.Solidi != 1 || g.Rappresentazioni != 2 || g.Vuota {
-		t.Errorf("geometria letta male: %+v", g)
-	}
-	if r := st.Relazioni[0]; len(r.Istanze) != 2 || r.Istanze[1] != (IstanzaSTEP{Rif: "#81", ID: "NAUO2", Nome: "ACME-P1:2"}) {
-		t.Errorf("istanze lette male: %+v", r.Istanze)
-	}
-	if StrutturaDaRileggere(v4) {
-		t.Error("una v4 non si rilegge")
-	}
-	v3 := json.RawMessage(`{"struttura": {"versione": 3, "radici": [], "nodi": [{"chiave": "#1", "nome_grezzo": "X"}], "relazioni": []}}`)
-	st, ok = DecodificaStruttura(v3)
-	if !ok || st.Stato != "" || st.Nodi[0].Geometria != nil || !StrutturaDaRileggere(v3) {
-		t.Errorf("una v3 si legge (senza stato ne' geometria inventati) e si rilegge: %v %+v", ok, st)
-	}
-	for _, d := range []json.RawMessage{json.RawMessage(``), json.RawMessage(`{"product_step": "X"}`), json.RawMessage(`rotto`)} {
-		if !StrutturaDaRileggere(d) {
-			t.Errorf("senza struttura si rilegge: %s", d)
+	letta := func(t *testing.T, nome string, d json.RawMessage) *StrutturaSTEP {
+		t.Helper()
+		st, ok := DecodificaStruttura(d)
+		if !ok {
+			t.Fatalf("%s: la struttura non si decodifica", nome)
 		}
+		// i campi diagnostici arrivano tutti, qualunque sia il numero: chi decide se usarli è DiagnosticaSTEP
+		if st.Stato != StrutturaValida || len(st.Nodi) != 2 || st.Nodi[0].Geometria == nil || !st.Nodi[0].Geometria.Vuota {
+			t.Fatalf("%s: letta male: %+v", nome, st)
+		}
+		if g := st.Nodi[1].Geometria; g.Solidi != 1 || g.Rappresentazioni != 2 || g.Vuota {
+			t.Errorf("%s: geometria letta male: %+v", nome, g)
+		}
+		if r := st.Relazioni[0]; len(r.Istanze) != 2 || r.Istanze[1] != (IstanzaSTEP{Rif: "#81", ID: "NAUO2", Nome: "ACME-P1:2"}) {
+			t.Errorf("%s: istanze lette male: %+v", nome, r.Istanze)
+		}
+		return st
+	}
+	casi := []struct {
+		nome                 string
+		versione, diagnosi   string
+		versioneDiagnostica  int
+		diagnosticaLeggibile bool
+		daRileggere          bool
+	}{
+		{"v3 con la diagnostica 1: il worker di oggi", "3", "1", 1, true, false},
+		{"v3 con una diagnostica futura: si ignora, non si rilegge", "3", "2", 2, false, false},
+		{"v4 di GP-3: i campi ci sono, il numero no; si rilegge", "4", "", 0, false, true},
+		{"v5 sconosciuta, con la diagnostica 1: si rilegge", "5", "1", 1, true, true},
+	}
+	for _, c := range casi {
+		t.Run(c.nome, func(t *testing.T) {
+			d := struttura(c.versione, c.diagnosi)
+			st := letta(t, c.nome, d)
+			if st.VersioneDiagnostica != c.versioneDiagnostica || DiagnosticaSTEP(st) != c.diagnosticaLeggibile {
+				t.Errorf("diagnostica %d (leggibile %v), attesa %d (%v)", st.VersioneDiagnostica, DiagnosticaSTEP(st),
+					c.versioneDiagnostica, c.diagnosticaLeggibile)
+			}
+			if StrutturaDaRileggere(d) != c.daRileggere {
+				t.Errorf("da rileggere %v, atteso %v", StrutturaDaRileggere(d), c.daRileggere)
+			}
+		})
+	}
+	if VersioneStrutturaGP3 != 4 || !StrutturaDaRileggere(struttura(strconv.Itoa(VersioneStrutturaGP3), "")) {
+		t.Errorf("la forma ritirata di GP-3 è la 4 e si rilegge")
+	}
+
+	// una v3 senza diagnostica (un worker di prima di GP-3): si legge senza stato né geometria inventati, e non si
+	// rilegge (prima di LS-01 il predicato l'avrebbe riaccodata, con tutte le v3: la rianalisi di massa che LS-01 evita)
+	v3 := json.RawMessage(`{"struttura": {"versione": 3, "radici": [], "nodi": [{"chiave": "#1", "nome_grezzo": "X"}], "relazioni": []}}`)
+	st, ok := DecodificaStruttura(v3)
+	if !ok || st.Stato != "" || st.Nodi[0].Geometria != nil || st.VersioneDiagnostica != 0 || DiagnosticaSTEP(st) || StrutturaDaRileggere(v3) {
+		t.Errorf("una v3 senza diagnostica si legge (senza diagnostica inventata) e non si rilegge: %v %+v", ok, st)
+	}
+	// una v2 si legge ancora (propone le aggiunte) ma si rilegge
+	if v2 := json.RawMessage(`{"struttura": {"versione": 2, "radici": [], "nodi": [], "relazioni": []}}`); !StrutturaDaRileggere(v2) {
+		t.Error("una v2 si rilegge")
+	}
+	// fatti di uno STEP senza struttura, o che non si decodificano: un'anomalia, si rilegge
+	for _, d := range []json.RawMessage{json.RawMessage(``), json.RawMessage(`{"product_step": "X"}`), json.RawMessage(`rotto`),
+		json.RawMessage(`{"struttura": {"nodi": []}}`), json.RawMessage(`{"struttura": {"versione": 1, "nodi": []}}`)} {
+		if !StrutturaDaRileggere(d) {
+			t.Errorf("senza una struttura accettata si rilegge: %s", d)
+		}
+	}
+	if DiagnosticaSTEP(nil) {
+		t.Error("nessuna struttura, nessuna diagnostica")
 	}
 }
 

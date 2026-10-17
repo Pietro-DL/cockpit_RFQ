@@ -217,7 +217,9 @@ markmap:
 
 - `routes_rfq.go:registraRFQ`
 - **`GET /thread/{id}`**
-  - Effetto: la pagina della RFQ; all'apertura rilegge gli STEP (`RianalizzaRfq`, fino a 5 accodati)
+  - Effetto: la pagina della RFQ; non scrive niente (Smistamento F1, R8). Per chi scrive la pagina manda da sola la
+    preparazione (`POST /thread/{id}/fascicolo/prepara`), che accoda e basta; gli STEP si rileggono con «Rianalizza»
+    (`POST …/fascicolo/rianalizza`, `RianalizzaRfq`)
   - Gestore: `thread.go:thread`
 - **`POST /thread/{id}/riprova-copie`**
   - Effetto: riaccoda `copia_nas` per i documenti in coda

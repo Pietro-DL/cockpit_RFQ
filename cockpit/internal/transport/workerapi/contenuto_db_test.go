@@ -348,6 +348,11 @@ func TestE2EIlWorkerAnalisiVeroLeggeLaStrutturaDiUnoStep(t *testing.T) {
 	if st.Versione != 3 || st.Schema != "AP214" {
 		t.Errorf("versione=%d schema=%q", st.Versione, st.Schema)
 	}
+	// LS-01: la forma 3 che il server accetta, con la diagnostica numerata a parte (GP-3 scriveva la 4 e questa prova,
+	// non eseguita allora, sarebbe stata rossa)
+	if st.Versione != worker.VersioneStruttura || st.VersioneDiagnostica != worker.VersioneDiagnostica || !worker.DiagnosticaSTEP(st) {
+		t.Errorf("versione=%d diagnostica=%d, attese %d e %d", st.Versione, st.VersioneDiagnostica, worker.VersioneStruttura, worker.VersioneDiagnostica)
+	}
 	// v3 (B8.5): gli scarti arrivano in numeri, anche quando sono tutti zero
 	if st.Scarti == nil || *st.Scarti != (worker.ScartiSTEP{}) {
 		t.Errorf("scarti = %+v, attesi presenti e tutti zero", st.Scarti)

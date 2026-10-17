@@ -26,6 +26,14 @@
 # scompattato altrove. Se invece riceve 401, il token di questo file non è più quello del server —
 # di solito perché il pacchetto è stato rigenerato: se ne scarica uno nuovo. Dal blocco 2 il log del
 # worker distingue i casi: un 401 dice «credenziale rifiutata» e non «server non raggiungibile».
+#
+# Quando il server si aggiorna, il pacchetto si rigenera e si reinstalla su OGNI postazione che ha un
+# worker di analisi: i file del worker arrivano dal server. LS-01 (17/10/2026) ne è l'esempio: il worker
+# di GP-3 scriveva la struttura degli STEP nella forma 4, che il server non accetta, e una postazione
+# rimasta a quel worker continua a scriverla anche dopo l'aggiornamento del server. Il server lo dice nel
+# suo log, con il worker («worker non aggiornato»); lo dice anche per una postazione rimasta a un worker di
+# prima di GP-3, che scrive la forma 3 senza la diagnostica. In questo file non cambia niente: cambia solo
+# il pacchetto (vedi cockpit.toml.example, [analisi]).
 
 server_url     = "http://127.0.0.1:8080"
 # server_url   = "https://cockpit.azienda:8443"

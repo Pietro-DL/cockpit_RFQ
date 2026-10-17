@@ -105,8 +105,18 @@ markmap:
   - `componenteConSuffisso`
   - `tagliaNota` / `maxNota` (le note delle proposte stanno in `varchar(200)`)
 - **`rianalisi.go`**
-  - `RianalizzaRfq` (rilegge gli STEP che hanno i fatti correnti, accoda gli altri fino a un limite)
-  - `MaxAccodatiPerApertura`, `inStaging`
+  - `RianalizzaRfq`, il gesto «Rianalizza» (rilegge gli STEP che hanno i fatti correnti, accoda gli altri fino al
+    limite che il chiamante passa; poi gli STEP da rileggere e i PDF/DXF letti da un analizzatore precedente, con
+    quello che resta del limite)
+  - `RileggiStepDellaRfq` (anche alla nascita della RFQ e all'aggancio), `AccodaAnalisiMancanti`,
+    `AccodaAnalisiMancantiDaSola` (la preparazione: accoda e basta, non riprova un'analisi fallita), `Rianalisi`,
+    `inStaging`
+- **`rianalisi_step.go`** (LS-01, 17/10/2026)
+  - `AccodaStepDaRileggere`: riaccoda gli STEP i cui fatti correnti hanno la struttura in una forma che il server non
+    accetta (`worker.StrutturaDaRileggere`: in pratica la v4 del worker di GP-3), e solo quelli; per contenuto, prima
+    i compatibili con un prodotto, contati a parte (`Rianalisi.Step*`). Solo dal gesto «Rianalizza», mai dalla
+    preparazione: nessuna rianalisi in massa parte da sola. Uno STEP da rileggere non più in staging si riprende con
+    «Riscarica» e poi di nuovo «Rianalizza»: «Riscarica» da solo riapplica i fatti presenti (dopoStaging)
 - **`candidati.go`**
   - `Unisci` (pura: evidenze per `upper(codice)`, forte o debole, revisioni viste, situazione e gesto)
   - `CandidatiDellaRfq`, `AggiungiDaCodice`, `NomeTipo`, `TipiDaCodice`
@@ -137,9 +147,16 @@ markmap:
 - **`ApplicaStruttura`, `MotoreDellaRfq`**
   - Chi lo chiama:
     - `transport/workerapi/workerapi.go` (`applicaFattiEsistenti`, `strutturaNelleRfq`, `motoreDelFile`)
-    - qui dentro `RianalizzaRfq` e `rileggiLoStep`
+    - qui dentro `RileggiStepDellaRfq` (quindi `RianalizzaRfq`) e `rileggiLoStep`
 - **`RianalizzaRfq`**
-  - Chi lo chiama: `transport/web/proposte.go` (`rianalizza`; `rileggiAllApertura` con `MaxAccodatiPerApertura`)
+  - Chi lo chiama: `transport/web/proposte.go` (`rianalizza`, il gesto «Rianalizza»: è il suo solo chiamante, e
+    con lui `AccodaStepDaRileggere` e `AccodaPdfDaRileggere`). Aprire una pagina non lo chiama (Smistamento F1, R8:
+    nessuna GET scrive); la vecchia `rileggiAllApertura` non c'è più.
+- **`RileggiStepDellaRfq`**
+  - Chi lo chiama: `RianalizzaRfq` e `transport/web/triage.go:preparaDopoLaDecisione` (nuova RFQ, aggancio)
+- **`AccodaAnalisiMancantiDaSola`**
+  - Chi lo chiama: `transport/web/fascicolo_preparazione.go:preparaFile` (la POST `…/fascicolo/prepara` che la pagina
+    manda aprendosi, solo per chi scrive: accoda e basta)
 - **`AccettaNodo`, `ScartaNodo`, `CodiceDelNodo`, `AccettaRelazione`, `ScartaRelazione`, `AccettaSottoalbero`, `AccettaFile`, `AccettaRimozione`, `ScartaRimozione`**
   - Chi lo chiama:
     - `transport/web/proposte.go`
@@ -161,8 +178,9 @@ markmap:
   - Chi lo chiama: `transport/web/fascicolo_pagina.go`, `fascicolo_conferma.go`, `fascicolo_documenti.go`, `fascicolo_dettaglio.go`
 - **`AssicuraProdottiDellaRichiesta`, `PreparaFile`**
   - Chi lo chiama:
-    - `transport/web/fascicolo_preparazione.go:preparaFascicolo` (all'apertura)
-    - e `triage.go:preparaDopoLaDecisione` (nuova RFQ, aggancio)
+    - `PreparaFile`: `transport/web/fascicolo_preparazione.go:preparaFile` (la POST della preparazione, che la pagina
+      manda aprendosi solo per chi scrive; la GET non scrive)
+    - tutti e due: `triage.go:preparaDopoLaDecisione` (nuova RFQ, aggancio)
 - **`LavoroInCorso`, `NuovoAlbero`, `LeggiGate`, `DifferenzeWorking`, `EtichettaStep`, `Step`, costanti `Step*`**
   - Chi lo chiama: `transport/web/fascicolo_pagina.go`, `fascicolo_bom.go`, `fascicolo_editor.go`
 - **`WorkingBloccata`**
@@ -256,14 +274,16 @@ markmap:
 
 ### Disco
 
-- Solo lettura: `inStaging` (`os.Stat`) dice se il contenuto di un allegato è ancora nello staging (`RianalizzaRfq`, `PreparaFile`, `LeggiIngressoPiano`).
+- Solo lettura: `inStaging` (`os.Stat`) dice se il contenuto di un allegato è ancora nello staging (`AccodaAnalisiMancanti`, `AccodaStepDaRileggere`, `AccodaPdfDaRileggere`, `PreparaFile`, `LeggiIngressoPiano`).
 - Nessuna scrittura su disco o sul NAS.
 
 ## Flussi principali
 
 ### Dai fatti di uno STEP alle proposte
 
-- `ApplicaStruttura`, a ogni risultato dell'analisi, a ogni riuso dei fatti, a ogni apertura della RFQ con `RianalizzaRfq`:
+- `ApplicaStruttura`, a ogni risultato dell'analisi, a ogni riuso dei fatti, e con `RileggiStepDellaRfq` quando la RFQ
+  nasce o un messaggio vi si aggancia e al gesto «Rianalizza» (`RianalizzaRfq`); mai all'apertura di una pagina
+  (Smistamento F1, R8):
   1. nessuna chiave `struttura` nei fatti o nessuno sha256 → niente; un file fuori dal flusso (`FileNelFlusso`) →
      niente, con `FuoriFlusso`;
      - `MotivoParziale` dice se la lettura è completa;
@@ -331,18 +351,24 @@ markmap:
 
 ### All'apertura del Fascicolo e alla nascita della RFQ
 
-- `transport/web`:
-  - `AssicuraProdottiDellaRichiesta`
-    - ogni identificativo confermato da una persona diventa un componente radice `finito`, se nella RFQ non c'è già un componente con quel codice, anche archiviato;
-    - con la BOM congelata niente
-  - → `PreparaFile`
+- Aprire una pagina (`transport/web`, GET) non scrive niente, per nessun ruolo (Smistamento F1, R8): legge, fra
+  l'altro, il piano (`LeggiPianoFascicolo`).
+  - un errore del database in `MotoreDellaRfq` ferma il piano: senza i suffissi del cliente proporrebbe «X» accanto a «X_PRT»;
+  - regole scritte male non sono un errore, restano fuori
+- La preparazione è la POST `…/fascicolo/prepara` che la pagina manda aprendosi, solo per chi scrive, e accoda e basta:
+  - `PreparaFile`
     - download degli allegati utili, archivi fermi all'estrazione, file fermi all'analisi o alla rilettura dei fatti già calcolati;
     - un job fallito con la stessa chiave non si riaccoda;
     - un allegato il cui messaggio non è in nessuna casella attiva va fra i `Saltati`, un altro errore di `coda.CopiaPerDownload` ferma la preparazione
-  - → `RianalizzaRfq`
-  - → `LeggiPianoFascicolo`
-    - un errore del database in `MotoreDellaRfq` ferma il piano: senza i suffissi del cliente proporrebbe «X» accanto a «X_PRT»;
-    - regole scritte male non sono un errore, restano fuori
+  - → `AccodaAnalisiMancantiDaSola`, con quello che resta del limite: gli STEP senza i fatti correnti, senza riprovare
+    da sola un'analisi fallita. Non rilegge gli STEP già analizzati e non riaccoda gli STEP da rileggere né i PDF:
+    nessuna rianalisi parte da sola (la fa solo «Rianalizza», `RianalizzaRfq`).
+- Alla nascita della RFQ e all'aggancio (POST del triage, `preparaDopoLaDecisione`):
+  - `AssicuraProdottiDellaRichiesta`
+    - ogni codice della richiesta confermato da una persona in quel gesto (scelta 6) diventa un componente radice `finito`, se nella RFQ non c'è già un componente con quel codice, anche archiviato;
+    - con la BOM congelata niente
+  - → `PreparaFile` (senza la rilettura dei fatti)
+  - → `RileggiStepDellaRfq`: gli STEP analizzati prima dell'aggancio ricevono le loro proposte in questa RFQ
 - «Conferma Fascicolo» (in `transport/web/fascicolo_conferma.go`) ricalcola il piano nella sua transazione e conferma solo se `Firma` è quella che l'operatore aveva davanti.
 
 ### Congelare e rivedere
@@ -476,6 +502,11 @@ markmap:
     - `gesti_db_test.go` per il codice scritto a mano e l'ordine dei lucchetti,
     - L1 `gesti_test.go` per la quantità a 32 bit, il `Rifiuto` condiviso e il 40P01;
   - e nel browser (L7) da `fascicolo_browser_test.go` e `fascicolo_v3_browser_test.go`.
+- `AccodaStepDaRileggere` e la sua parte di `RianalizzaRfq` (LS-01) sono provati in L4 da
+  `transport/workerapi/ls01_struttura_db_test.go` (P-10: la riaccodatura mirata, lo staging, la flotta mista, «Riscarica»;
+  P-10b: per contenuto, la copia nello staging, i compatibili prima, il limite condiviso con le analisi mancanti e i
+  PDF), con i risultati che passano per la strada vera del server (`applicaRisultato`, `dopoStaging`); le frasi del
+  gesto da `transport/web/ls01_rianalizza_db_test.go`.
 
 ## Stato dell'implementazione
 
@@ -498,8 +529,9 @@ markmap:
   - quindi la mappa `inArrivo` resta vuota e un file che va a un nodo proposto aspetta l'editor (`DaStep` con `DomandaComponente`).
   - Il ramo «struttura pronta» del piano e il suo uso in `transport/web/fascicolo_conferma.go` non scattano più.
 - **Limiti noti**:
-  - `AssicuraProdottiDellaRichiesta` gira a ogni apertura e guarda solo `identificativo_thread`:
-    - un prodotto della richiesta tolto con `RimuoviComponente`, o il cui codice è stato corretto (`transport/web/fascicolo.go:correggiCodiceComponente` non aggiorna l'identificativo), rinasce con il codice della richiesta come radice `finito` senza figli.
+  - `AssicuraProdottiDellaRichiesta` gira solo alla nascita della RFQ e all'aggancio, con i codici confermati in quel
+    gesto (scelta 6; mai all'apertura di una pagina), e guarda solo `identificativo_thread`:
+    - un prodotto della richiesta tolto con `RimuoviComponente`, o il cui codice è stato corretto (`transport/web/fascicolo.go:correggiCodiceComponente` non aggiorna l'identificativo), rinasce con il codice della richiesta come radice `finito` senza figli se un gesto conferma di nuovo quel codice.
     - Un prodotto archiviato invece non rinasce.
   - Sempre lì, il componente esistente si cerca solo per codice esatto (`GetComponentePerCodice`), senza gli alias dei suffissi decorativi:
     - con «X_PRT» nato prima della regola, il codice della richiesta «X» fa nascere un secondo componente.

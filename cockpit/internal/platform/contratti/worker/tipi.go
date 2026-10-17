@@ -511,9 +511,17 @@ type RisultatoAnalisi struct {
 // dalle famiglie del cliente, che il worker non conosce. La `versione` dice proprio questo — la 1
 // portava i codici scritti dal worker, la 2 porta i grezzi, la 3 aggiunge gli scarti in numeri — e il
 // Go non deve leggere `nodi[].codice` mai più (addendum B8, A1.2 e A1.6.3).
+//
+// LS-01 (17/10/2026): la diagnostica (geometria, istanze, stato) ha un numero suo, VersioneDiagnostica, e non cambia
+// più `versione`, che resta la forma accettata per la completezza (VersioneStruttura).
 type StrutturaSTEP struct {
-	Versione int    `json:"versione"`
-	Schema   string `json:"schema"` // AP214, AP203, AP242… da FILE_SCHEMA; "" se non leggibile
+	Versione int `json:"versione"`
+	// VersioneDiagnostica: la versione del blocco diagnostico (Geometria dei nodi, Istanze delle relazioni, Stato e
+	// MotivoStato), un numero esplicito e non la presenza di un campo (direttiva 21 §5-§6; LS-01). 0 = nessuna
+	// diagnostica (un worker di prima di GP-3, oppure la v4 di GP-3, che i campi li porta ma senza il numero). La
+	// completezza non la guarda; chi legge la diagnostica passa da DiagnosticaSTEP.
+	VersioneDiagnostica int    `json:"versione_diagnostica"`
+	Schema              string `json:"schema"` // AP214, AP203, AP242… da FILE_SCHEMA; "" se non leggibile
 	// Radici: i nodi senza padre nel file. Un file di sola parte ne ha uno; un file con due assiemi
 	// ne ha due, e non si sceglie per conto di nessuno quale sia «il» prodotto.
 	Radici    []string        `json:"radici"`
@@ -523,18 +531,39 @@ type StrutturaSTEP struct {
 	// Scarti c'è dalla versione 3 (A4.4, D35); in una v2 manca, ed è nil.
 	Scarti *ScartiSTEP `json:"scarti"`
 	Limiti LimitiSTEP  `json:"limiti"`
-	// Dalla versione 4 (GP-3, direttiva 21 §5.3): lo stato della struttura (Struttura…) e il suo motivo. In una
-	// struttura di prima è "": lo stato non si deduce, si rilegge (StrutturaDaRileggere).
+	// Dalla diagnostica 1 (GP-3, direttiva 21 §5.3; fino a LS-01 scritta con la versione 4): lo stato della struttura
+	// (Struttura…) e il suo motivo. In una struttura senza diagnostica è "": lo stato non si deduce. È diagnostica:
+	// meno severo della 0020 (non guarda le radici multiple né i testi troncati), non dice mai «completa».
 	Stato       string `json:"stato"`
 	MotivoStato string `json:"motivo_stato"`
 }
 
-// VersioneStruttura è la versione della forma di `struttura` che il worker di oggi scrive (StrutturaSTEP.Versione). La
-// 4 (GP-3) aggiunge la geometria per nodo (diagnostica), i nomi d'istanza delle NAUO e lo stato della struttura.
-const VersioneStruttura = 4
+// VersioneStruttura è la versione della FORMA di `struttura` (StrutturaSTEP.Versione) che il server accetta e che il
+// worker di oggi scrive: la 3 (addendum B8, A4.4, D35: gli scarti in numeri). È la stessa che vogliono la funzione SQL
+// della completezza (struttura_motivo_parziale, 0020_bom_versioni.sql: «IS DISTINCT FROM '3'») e la gerarchia del
+// Motore A (valutazione.VersioneStrutturaStep): le tre cambiano insieme, o la catena si rompe come in GP-3. Lo
+// verificano una prova senza database (valutazione/versione_struttura_test.go: la costante del worker Python, questa,
+// la gerarchia e il testo delle migrazioni) e una con il worker vero (workerapi, TestLS01…).
+//
+// LS-01 (17/10/2026): GP-3 (e565cc8) l'aveva alzata a 4 per aggiungere la diagnostica, e da allora ogni STEP letto
+// era «parziale» per la 0020. La diagnostica ha adesso il suo numero (VersioneDiagnostica), e questa è tornata la 3.
+const VersioneStruttura = 3
 
-// Gli stati della struttura di uno STEP (StrutturaSTEP.Stato, dalla v4). StrutturaAssente NON vuol dire «pezzo unico»:
-// dice che nel file non c'è nessuna occorrenza d'assieme. Sono diagnostica: nessun nodo si toglie per questo.
+// VersioneDiagnostica è la versione del blocco diagnostico che il worker di oggi scrive
+// (StrutturaSTEP.VersioneDiagnostica): la 1 è la diagnostica di GP-3 (direttiva 21 §5.3), cioè la geometria per nodo, i
+// nomi d'istanza delle NAUO e lo stato della struttura. Una diagnostica nuova alza questo numero e non
+// VersioneStruttura: nessuna migrazione, nessun effetto sulla completezza.
+const VersioneDiagnostica = 1
+
+// VersioneStrutturaGP3 è la forma ritirata: la 4 che il worker di GP-3 scriveva (e565cc8, fino a LS-01), con la stessa
+// diagnostica di oggi ma un numero di forma che il server non accetta. Fatti così si leggono (DecodificaStruttura non li
+// rifiuta e non perde i campi), si dicono «parziali» (0020) e si rileggono con «Rianalizza» (StrutturaDaRileggere). Non
+// la scrive più nessun worker aggiornato; una postazione non aggiornata sì.
+const VersioneStrutturaGP3 = 4
+
+// Gli stati della struttura di uno STEP (StrutturaSTEP.Stato, dalla diagnostica 1). StrutturaAssente NON vuol dire
+// «pezzo unico»: dice che nel file non c'è nessuna occorrenza d'assieme. Sono diagnostica: nessun nodo si toglie per
+// questo.
 const (
 	StrutturaValida        = "valida"
 	StrutturaParziale      = "parziale"       // un tetto, occorrenze non risolte, prodotti senza definizione
@@ -542,8 +571,8 @@ const (
 	StrutturaNonEstraibile = "non_estraibile" // non Part 21, lettura fallita
 )
 
-// GeometriaSTEP è il riassunto della geometria di un nodo (v4), dalle rappresentazioni della sua forma e da quelle
-// legate senza trasformazione: diagnostica, MAI motivo di rimozione. Vuota: nessun elemento geometrico (solo
+// GeometriaSTEP è il riassunto della geometria di un nodo (diagnostica 1), dalle rappresentazioni della sua forma e da
+// quelle legate senza trasformazione: diagnostica, MAI motivo di rimozione. Vuota: nessun elemento geometrico (solo
 // posizionamenti, o nessuna rappresentazione); un nodo vuoto con figli è un contenitore CAD.
 type GeometriaSTEP struct {
 	Solidi           int  `json:"solidi"`
@@ -554,17 +583,28 @@ type GeometriaSTEP struct {
 	Vuota            bool `json:"vuota"`
 }
 
-// IstanzaSTEP: un'occorrenza NAUO di una relazione, con l'id e il nome d'istanza grezzi (v4).
+// IstanzaSTEP: un'occorrenza NAUO di una relazione, con l'id e il nome d'istanza grezzi (diagnostica 1).
 type IstanzaSTEP struct {
 	Rif  string `json:"rif"`
 	ID   string `json:"id"`
 	Nome string `json:"nome"`
 }
 
-// StrutturaDaRileggere dice se «Rianalizza» deve riaccodare uno STEP con questi fatti dell'analizzatore corrente: la
-// struttura manca o è di una versione di prima di VersioneStruttura (la geometria per nodo e lo stato non ci sono).
-// Fino a GP-3 gli STEP si rileggevano solo con una versione nuova dell'analizzatore; l'idoneità per estensione (stp,
-// step) è del chiamante (fascicolo, da estendere: consegna al core).
+// StrutturaDaRileggere dice se «Rianalizza» deve riaccodare uno STEP con questi fatti dell'analizzatore corrente (LS-01;
+// la chiama fascicolo.AccodaStepDaRileggere, solo dal gesto): vero se la struttura manca o non si decodifica (un'anomalia:
+// si rilegge), oppure se la sua forma non è quella che il server accetta, cioè Versione diversa da VersioneStruttura (in
+// pratica la 4 di GP-3, VersioneStrutturaGP3, scritta da una postazione non aggiornata). Una v3 non si rilegge, con o
+// senza diagnostica: la sua completezza è giusta, e la diagnostica non la legge ancora nessuno (LS-02 decide dal nome
+// dei nodi, non dalla geometria); una v3 senza diagnostica arrivata da un worker di prima di GP-3 la segnala il log
+// del server, con il worker (workerapi, applicaRisultato). Il criterio è un numero esplicito, mai la presenza di un
+// campo (direttiva 21 §5-§6). L'idoneità per estensione (stp, step) è del chiamante.
+//
+// Il vero non ha un perché solo: la v4 di GP-3 e una v2 vengono da un worker non aggiornato, una versione sconosciuta
+// no, e una struttura assente o che non si decodifica è un'anomalia. Chi lo dice a una persona (la frase del gesto)
+// non nomina la causa; il worker lo nomina il log.
+//
+// Prima di LS-01 diceva «Versione < VersioneStruttura» e non aveva chiamanti: con la 4 avrebbe riaccodato tutte le v3
+// dei worker di prima (la rianalisi di massa che il percorso A evita), con la 3 non avrebbe visto le v4.
 func StrutturaDaRileggere(fatti json.RawMessage) bool {
 	if len(fatti) == 0 {
 		return true
@@ -577,7 +617,16 @@ func StrutturaDaRileggere(fatti json.RawMessage) bool {
 	if err := json.Unmarshal(fatti, &involucro); err != nil || involucro.Struttura == nil {
 		return true
 	}
-	return involucro.Struttura.Versione < VersioneStruttura
+	return involucro.Struttura.Versione != VersioneStruttura
+}
+
+// DiagnosticaSTEP dice se la diagnostica della struttura (Geometria dei nodi, Istanze delle relazioni, Stato e
+// MotivoStato) è quella che questo server sa leggere: la porta unica per chi la leggerà (LS-01). Con un'altra versione, o
+// senza il numero (i fatti di prima di GP-3, e la v4 di GP-3 che i campi li porta senza dichiararli), la diagnostica si
+// ignora, e chi legge lo dice («diagnostica non supportata»): non si indovina dalla presenza dei campi. Non dice niente
+// della completezza, che decide solo la 0020.
+func DiagnosticaSTEP(st *StrutturaSTEP) bool {
+	return st != nil && st.VersioneDiagnostica == VersioneDiagnostica
 }
 
 // ScartiSTEP: che cosa il lettore ha visto e lasciato fuori, in numeri (struttura v3).
@@ -603,7 +652,7 @@ type NodoSTEP struct {
 	DescrizioneGrezza string         `json:"descrizione_grezza"` // PRODUCT.description, terzo
 	RevGrezza         string         `json:"rev_grezza"`         // PRODUCT_DEFINITION_FORMATION.id
 	Evidenza          map[string]any `json:"evidenza"`           // entità e righe da cui viene
-	// Geometria: il riassunto della geometria (v4, diagnostica); nil in una struttura di prima.
+	// Geometria: il riassunto della geometria (diagnostica 1); nil in una struttura senza diagnostica.
 	Geometria *GeometriaSTEP `json:"geometria"`
 }
 
@@ -616,7 +665,8 @@ type RelazioneSTEP struct {
 	Figlio   string         `json:"figlio"`
 	Qta      int            `json:"qta"`
 	Evidenza map[string]any `json:"evidenza"`
-	// Istanze: le prime occorrenze con id e nome d'istanza (v4, al più 20); vuota in una struttura di prima.
+	// Istanze: le prime occorrenze con id e nome d'istanza (diagnostica 1, al più 20); vuota in una struttura senza
+	// diagnostica.
 	Istanze []IstanzaSTEP `json:"istanze"`
 }
 

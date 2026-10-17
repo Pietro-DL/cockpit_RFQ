@@ -24,6 +24,13 @@ Versione 3 (addendum B8, A4.4, D35): quello che il lettore ha scartato si conta 
 `scarti`, oltre che nelle frasi di `avvisi`. Sul server una MANCANZA diventa una proposta di rimozione
 solo se la lettura e' completa, e decidere una cancellazione confrontando frasi sarebbe fragile: un
 avviso riscritto meglio cambierebbe il giudizio. Le frasi restano, per la schermata.
+
+Versione 3 con diagnostica 1 (LS-01, 17/10/2026). GP-3 aveva portato la forma a `versione: 4` per aggiungere la
+geometria per nodo, i nomi d'istanza e lo stato; ma la 4 sul server non la accetta nessuno (la funzione SQL della
+completezza, `struttura_motivo_parziale` della 0020, e la gerarchia del Motore A vogliono la 3), e ogni STEP letto
+risultava «parziale». `versione` e' tornata la forma che il server accetta, la 3; i campi diagnostici restano
+identici, con un numero tutto loro, `versione_diagnostica` (oggi la 1), che dice chi li puo' leggere. Una
+diagnostica nuova alza `versione_diagnostica`, mai `versione`.
 """
 from __future__ import annotations
 
@@ -33,13 +40,25 @@ import time
 
 log = logging.getLogger("worker-analisi")
 
-# Versione 4 (GP-3, direttiva 21 §5.3): DIAGNOSTICA, mai rimozioni. Per nodo il riassunto della geometria raggiunta
+# La versione della FORMA della struttura (StrutturaSTEP.versione; Go: worker.VersioneStruttura): quella che il server
+# accetta per la completezza. La funzione SQL struttura_motivo_parziale della 0020 (riga 662) e la gerarchia del Motore A
+# (valutazione.VersioneStrutturaStep) vogliono la 3, che porta gli scarti in numeri (addendum B8, A4.4, D35). LS-01: GP-3
+# l'aveva alzata a 4 per la diagnostica, e il server ha preso per «parziale» ogni STEP letto; la diagnostica ha adesso il
+# suo numero (VERSIONE_DIAGNOSTICA) e questa resta la 3. Cambiarla vuol dire cambiare insieme SQL, gerarchia e worker:
+# le prove della catena (valutazione/versione_struttura_test.go, workerapi TestLS01...) diventano rosse subito.
+VERSIONE_STRUTTURA = 3
+
+# La versione del blocco DIAGNOSTICO (StrutturaSTEP.versione_diagnostica; Go: worker.VersioneDiagnostica): un numero
+# esplicito, non la presenza di un campo (direttiva 21 §5-§6). La 1 e' la diagnostica di GP-3 (direttiva 21 §5.3), che
+# fino a LS-01 si scriveva come «versione 4». DIAGNOSTICA, mai rimozioni: per nodo il riassunto della geometria raggiunta
 # dalle sue rappresentazioni (solidi, superfici, curve, elementi mappati, rappresentazioni: `vuota` quando non c'e'
 # niente oltre ai riferimenti di posizionamento); per relazione i nomi d'istanza delle NAUO (id e nome); per il file lo
 # `stato` della struttura: `non_estraibile` (non e' Part 21, lettura fallita), `assente` (letto, nessuna occorrenza
 # d'assieme: NON vuol dire «pezzo unico»), `parziale` (un tetto, occorrenze non risolte, prodotti senza definizione),
-# `valida`. Un nodo senza solido resta un nodo: un contenitore CAD puo' rappresentare un sottoassieme.
-VERSIONE_STRUTTURA = 4
+# `valida`. Un nodo senza solido resta un nodo: un contenitore CAD puo' rappresentare un sottoassieme. La completezza la
+# decide solo la 0020: lo `stato` e' meno severo (non guarda le radici multiple ne' i testi troncati). Una diagnostica
+# nuova alza questo numero, mai VERSIONE_STRUTTURA.
+VERSIONE_DIAGNOSTICA = 1
 
 # Limiti: un file enorme non deve ne' far fallire il job ne' tenere il worker mezz'ora. Ciò che si è
 # letto vale, il resto si dichiara troncato (§5.4 del piano).
@@ -68,7 +87,7 @@ MAX_TESTO = 200
 # Filtro veloce sulle righe: se una riga non contiene nessuno di questi pezzi di testo non puo'
 # contenere niente che serva, e non viene nemmeno ricomposta. In uno STEP vero salta il 99,9% del file.
 ENTITA_UTILI = ("PRODUCT", "NEXT_ASSEMBLY_USAGE_OCCURRENCE", "FILE_SCHEMA",
-                # v4: la geometria per nodo, solo i nomi delle entita' che la riassumono
+                # diagnostica 1: la geometria per nodo, solo i nomi delle entita' che la riassumono
                 "SHAPE_REPRESENTATION", "SHAPE_DEFINITION_REPRESENTATION", "REPRESENTATION_RELATIONSHIP",
                 "MANIFOLD_SOLID_BREP", "BREP_WITH_VOIDS", "FACETED_BREP", "SURFACE_MODEL", "GEOMETRIC_CURVE_SET",
                 "GEOMETRIC_SET", "MAPPED_ITEM")
@@ -84,7 +103,7 @@ ENTITA = {
     "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE": "PRODUCT_DEFINITION_FORMATION",
     "NEXT_ASSEMBLY_USAGE_OCCURRENCE": "NEXT_ASSEMBLY_USAGE_OCCURRENCE",
     "FILE_SCHEMA": "FILE_SCHEMA",
-    # v4: la catena prodotto -> forma -> rappresentazione -> elementi geometrici
+    # diagnostica 1: la catena prodotto -> forma -> rappresentazione -> elementi geometrici
     "PRODUCT_DEFINITION_SHAPE": "PRODUCT_DEFINITION_SHAPE",
     "SHAPE_DEFINITION_REPRESENTATION": "SHAPE_DEFINITION_REPRESENTATION",
     "SHAPE_REPRESENTATION": "SHAPE_REPRESENTATION",
@@ -108,7 +127,7 @@ ENTITA = {
     "MAPPED_ITEM": "GEOMETRIA",
 }
 
-# Il genere di un elemento geometrico, per il riassunto per nodo (v4).
+# Il genere di un elemento geometrico, per il riassunto per nodo (diagnostica 1).
 GENERE_GEOMETRIA = {
     "MANIFOLD_SOLID_BREP": "solidi", "BREP_WITH_VOIDS": "solidi", "FACETED_BREP": "solidi",
     "SHELL_BASED_SURFACE_MODEL": "superfici", "FACE_BASED_SURFACE_MODEL": "superfici",
@@ -119,7 +138,7 @@ GENERE_GEOMETRIA = {
 SALTI_RAPPRESENTAZIONE = 4
 ISTANZE_MAX = 20  # nomi d'istanza conservati per relazione, come le righe NAUO
 
-# Gli stati della struttura (v4).
+# Gli stati della struttura (diagnostica 1).
 STATO_VALIDA, STATO_PARZIALE, STATO_ASSENTE, STATO_NON_ESTRAIBILE = "valida", "parziale", "assente", "non_estraibile"
 
 # Nomi convenzionali dei protocolli applicativi: FILE_SCHEMA porta il nome lungo, la schermata mostra
@@ -153,6 +172,8 @@ def leggi_struttura(percorso: str, limiti: dict | None = None) -> dict:
     lim.update(limiti or {})
     s = {
         "versione": VERSIONE_STRUTTURA,
+        # in ogni esito, anche in una lettura fallita: dice quale diagnostica porta questo oggetto (LS-01)
+        "versione_diagnostica": VERSIONE_DIAGNOSTICA,
         "schema": "",
         "radici": [],
         "nodi": [],
@@ -204,8 +225,8 @@ def leggi_struttura(percorso: str, limiti: dict | None = None) -> dict:
 
 
 def _stato(s: dict) -> None:
-    """Lo stato della struttura (v4), dai fatti gia' letti e mai dal nome del file. `assente` non vuol dire «pezzo
-    unico»: dice solo che nel file non c'e' nessuna occorrenza d'assieme."""
+    """Lo stato della struttura (diagnostica 1), dai fatti gia' letti e mai dal nome del file. `assente` non vuol
+    dire «pezzo unico»: dice solo che nel file non c'e' nessuna occorrenza d'assieme."""
     if s.get("_non_part21"):
         s["stato"], s["motivo_stato"] = STATO_NON_ESTRAIBILE, "non e' un file STEP Part 21"
     elif s["limiti"]["troncato"]:
@@ -238,8 +259,8 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
         formazioni: dict[str, tuple[str, str]] = {}         # #ref → (rev, #ref del prodotto)
         definizioni: dict[str, str] = {}                    # #ref → #ref della formazione
         nauo: list[tuple[str, str, str]] = []               # (#ref, #ref pd padre, #ref pd figlio)
-        istanze: dict[str, tuple[str, str]] = {}            # v4: #ref NAUO → (id, nome) dell'istanza
-        geo = _Geometria()                                  # v4: la catena della geometria
+        istanze: dict[str, tuple[str, str]] = {}            # diagnostica 1: #ref NAUO → (id, nome) dell'istanza
+        geo = _Geometria()                                  # diagnostica 1: la catena della geometria
         troncati = 0
         scaduto = time.monotonic() + float(lim["tempo_max_s"])
 
@@ -309,9 +330,10 @@ def _leggi(percorso: str, lim: dict, s: dict) -> dict:
 
 
 class _Geometria:
-    """La catena della geometria (v4): forma del prodotto -> rappresentazione -> elementi, con le relazioni fra
-    rappresentazioni SENZA trasformazione (quelle con la trasformazione mettono un pezzo dentro un assieme: non sono
-    la geometria del padre). Si leggono solo i nomi delle entita' e i riferimenti, mai la geometria vera."""
+    """La catena della geometria (diagnostica 1): forma del prodotto -> rappresentazione -> elementi, con le
+    relazioni fra rappresentazioni SENZA trasformazione (quelle con la trasformazione mettono un pezzo dentro un
+    assieme: non sono la geometria del padre). Si leggono solo i nomi delle entita' e i riferimenti, mai la geometria
+    vera."""
 
     def __init__(self):
         self.forme: dict[str, str] = {}                    # #PDS -> #PD
@@ -374,8 +396,8 @@ class _Geometria:
 
 def _componi(s: dict, prodotti: dict, formazioni: dict, definizioni: dict, nauo: list, istanze: dict | None = None,
              geo: _Geometria | None = None) -> None:
-    """Da entita' sciolte a grafo: un nodo per PRODUCT raggiunto, una relazione per coppia. v4: la geometria per nodo
-    (da tutte le sue definizioni) e i nomi d'istanza delle NAUO per relazione."""
+    """Da entita' sciolte a grafo: un nodo per PRODUCT raggiunto, una relazione per coppia. Diagnostica 1: la
+    geometria per nodo (da tutte le sue definizioni) e i nomi d'istanza delle NAUO per relazione."""
     istanze = istanze or {}
     geo = geo or _Geometria()
     rapp_di = geo.per_definizione()
