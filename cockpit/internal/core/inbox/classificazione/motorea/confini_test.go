@@ -1,6 +1,7 @@
 package motorea
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -10,8 +11,8 @@ import (
 // L1 — i confini del codice (A1a-CNF pubblica; piano A, par.4.4.5 e 4.7.2; v3 §1.5, §7.4; T2-T5, T13-T15;
 // D-05, R25 f): codici accanto ad altri codici e a separatori, codice dopo le cifre di un prefisso, due basi
 // in un nome di pacchetto, offset in byte con accenti, emoji e spazio non separabile accanto, nessuna lettura
-// dentro una parola, e le quattro classi di confine, ognuna con il caso che la giustifica e con la lettura in
-// più che darebbe la grammatica senza la classe.
+// dentro una parola, e le cinque classi di confine (la quinta, alnum_ascii_o_trattino, dal 17/10: LS-03 A),
+// ognuna con il caso che la giustifica e con la lettura in più che darebbe la grammatica senza la classe.
 //
 // I clienti di questi test sono inventati: il repository è pubblico, e le famiglie di codice dei clienti veri
 // sono un dato dell'azienda. Le grammatiche sono quelle ACME di sintetiche_test.go.
@@ -240,6 +241,198 @@ func TestConfiniClasseParolaASCIIOPuntoCifra(t *testing.T) {
 		}
 	}
 	compilaErrore(t, grammaticaACME(g), grammatica.CodiceConfineNonAmmesso)
+}
+
+// famTrattino: acme-trattino (LS-03 A, 17/10). Base di otto cifre; la forma «documento» con il suffisso
+// «---7-ARC_<base>--» (token «7» conservato, Q1; la base ripetuta, D2) e la forma «breve» «<base>--», con il
+// confine sinistro parola_ascii e il destro alnum_ascii_o_trattino. Senza i due confini la forma breve
+// leggerebbe la base all'inizio del nome della forma documento e dentro «ARC_<base>--» (R25 f). Codici, sigle e
+// nomi sono inventati: riproducono il meccanismo (un «-» dopo «<base>--», la base ripetuta dopo «_»), non la
+// convenzione di un cliente.
+func famTrattino() grammatica.FamigliaCodice {
+	breve := forma("breve", sel("nome_file"), pBase(), pSep("--"))
+	breve.ConfinePrima = classe(grammatica.ConfineParolaASCII)
+	breve.ConfineDopo = classe(grammatica.ConfineAlnumASCIIOTrattino)
+	return grammatica.FamigliaCodice{
+		ID: "acme-trattino", Namespace: "acme-trattino",
+		Ruoli: []grammatica.Ruolo{grammatica.RuoloProdotto, grammatica.RuoloComponente},
+		Base:  base(segPattern("codice", "[0-9]{8}", "")),
+		Forme: []grammatica.FormaCodice{
+			forma("documento", sel("nome_file"), pBase(), pRif(grammatica.TipoParteDecorazione, "doc", 1)),
+			breve,
+		},
+		Decorazioni: []grammatica.Decorazione{{ID: "doc", Tipo: grammatica.TipoDecorazioneSuffissoDocumento, Selettori: sel("nome_file"),
+			Parti: []grammatica.Parte{pSep("---"), pToken("Q1", "7"), pSep("-ARC_"), pRipetizione(), pSep("--")}}},
+		Esempi: []grammatica.EsempioCodice{
+			positivo("e-documento", "nome_file", "12345678---7-ARC_12345678--.pdf",
+				grammatica.LetturaAttesa{Forma: "documento", Base: "12345678"}),
+			positivo("e-breve", "nome_file", "12345678--.pdf", grammatica.LetturaAttesa{Forma: "breve", Base: "12345678"}),
+			negativo("n-breve-tre-trattini", "nome_file", "12345678---.pdf"),
+		},
+	}
+}
+
+// TestConfiniClasseAlnumASCIIOTrattino: con il confine destro alnum_ascii_o_trattino (e parola_ascii a
+// sinistra) la forma breve legge «<base>--» quando dopo non c'è una lettera, una cifra o un «-» ASCII, e non
+// legge niente dentro il nome della forma documento, che legge solo la sua forma. «_», gli spazi, la
+// punteggiatura, i trattini fuori dall'ASCII e la fine del testo sono confini. Senza una delle due classi la
+// forma breve collide con la documento sull'esempio e la grammatica non si attiva (R25 f).
+func TestConfiniClasseAlnumASCIIOTrattino(t *testing.T) {
+	m, _ := compilaBene(t, grammaticaACME(famTrattino()))
+	casi := []struct {
+		testo, forma, letta string // forma vuota: nessuna lettura
+	}{
+		{"12345678--", "breve", "12345678--"}, // la fine del testo è un confine
+		{"12345678--.pdf", "breve", "12345678--"},
+		{"12345678-- (copia)", "breve", "12345678--"},
+		{"12345678-- (copia).pdf", "breve", "12345678--"},
+		{"12345678--(1).pdf", "breve", "12345678--"},
+		{"(12345678--).pdf", "breve", "12345678--"},
+		{"12345678--_rev.pdf", "breve", "12345678--"}, // «_» non è vietato da questa classe
+		{"12345678--—x.pdf", "breve", "12345678--"},   // trattino lungo U+2014: fuori dall'ASCII
+		{"12345678--‐x.pdf", "breve", "12345678--"},   // trattino U+2010: fuori dall'ASCII
+		{"12345678--èx.pdf", "breve", "12345678--"},   // lettera fuori dall'ASCII (T3, T10)
+		{"12345678-- x.pdf", "breve", "12345678--"},
+		{"12345678---7-ARC_12345678--", "documento", "12345678---7-ARC_12345678--"},
+		{"12345678---7-ARC_12345678--.pdf", "documento", "12345678---7-ARC_12345678--"},
+		{"12345678---.pdf", "", ""}, // un terzo trattino: la forma breve non legge l'inizio di una più lunga
+		{"12345678----.pdf", "", ""},
+		{"12345678--A", "", ""}, // lettera ASCII dopo
+		{"12345678--a.pdf", "", ""},
+		{"12345678--7.pdf", "", ""}, // cifra ASCII dopo
+		{"X12345678--", "", ""},     // lettera ASCII prima (parola_ascii)
+		{"_12345678--.pdf", "", ""}, // «_» prima (parola_ascii)
+		{"012345678--", "", ""},     // nove cifre: nessuna lettura dentro il numero
+		{"123456789--", "", ""},
+		{"12345678-.pdf", "", ""}, // un trattino solo: non è la forma
+	}
+	for _, c := range casi {
+		letture, _ := riconosci(t, m, "nome_file", c.testo)
+		if c.forma == "" {
+			if len(letture) != 0 {
+				t.Errorf("%q: nessuna lettura attesa, trovate %s", c.testo, riassunto(letture))
+			}
+			continue
+		}
+		if len(letture) != 1 || letture[0].Famiglia != "acme-trattino" || letture[0].Forma != c.forma ||
+			letture[0].Originale != c.letta || letture[0].Base.Normalizzata != "12345678" {
+			t.Errorf("%q: attesa una lettura acme-trattino/%s %q, trovate %s", c.testo, c.forma, c.letta, riassunto(letture))
+		}
+	}
+
+	// Senza la classe a destra (o con parola_ascii) la forma breve legge «<base>--» all'inizio del nome della
+	// forma documento; senza parola_ascii a sinistra legge «ARC_<base>--». Tutti e due i casi sono una
+	// collisione sull'esempio della forma documento.
+	for _, v := range []struct {
+		nome   string
+		cambia func(*grammatica.FormaCodice)
+	}{
+		{"senza la classe a destra", func(f *grammatica.FormaCodice) { f.ConfineDopo = nil }},
+		{"parola_ascii a destra", func(f *grammatica.FormaCodice) { f.ConfineDopo = classe(grammatica.ConfineParolaASCII) }},
+		{"senza parola_ascii a sinistra", func(f *grammatica.FormaCodice) { f.ConfinePrima = nil }},
+	} {
+		t.Run(v.nome, func(t *testing.T) {
+			f := famTrattino()
+			for i := range f.Forme {
+				if f.Forme[i].ID == "breve" {
+					v.cambia(&f.Forme[i])
+				}
+			}
+			compilaErrore(t, grammaticaACME(f), CodiceFormaCollisioneEsempi)
+		})
+	}
+}
+
+// TestConfiniClasseAlnumASCIIOTrattinoASinistra: la classe vale anche come confine sinistro (non è fra le
+// classi solo a destra): vieta lettere, cifre e «-» ASCII prima del codice e ammette «_», gli spazi, la
+// punteggiatura e i trattini fuori dall'ASCII; l'inizio del testo è un confine.
+func TestConfiniClasseAlnumASCIIOTrattinoASinistra(t *testing.T) {
+	breve := forma("breve", sel("nome_file"), pBase(), pSep("--"))
+	breve.ConfinePrima = classe(grammatica.ConfineAlnumASCIIOTrattino)
+	breve.ConfineDopo = classe(grammatica.ConfineAlnumASCIIOTrattino)
+	f := grammatica.FamigliaCodice{
+		ID: "acme-trattino-sinistro", Namespace: "acme-trattino",
+		Ruoli: []grammatica.Ruolo{grammatica.RuoloProdotto, grammatica.RuoloComponente},
+		Base:  base(segPattern("codice", "[0-9]{8}", "")),
+		Forme: []grammatica.FormaCodice{breve},
+		Esempi: []grammatica.EsempioCodice{
+			positivo("e-breve", "nome_file", "12345678--.pdf", grammatica.LetturaAttesa{Forma: "breve", Base: "12345678"}),
+			negativo("n-trattino-prima", "nome_file", "-12345678--.pdf"),
+		},
+	}
+	m, _ := compilaBene(t, grammaticaACME(f))
+	for _, c := range []struct {
+		testo  string
+		inizio int // -1: nessuna lettura
+	}{
+		{"12345678--.pdf", 0},
+		{"_12345678--.pdf", 1},
+		{" 12345678--.pdf", 1},
+		{"(12345678--).pdf", 1},
+		{"x.12345678--.pdf", 2},
+		{"—12345678--.pdf", len("—")},
+		{"‐12345678--.pdf", len("‐")},
+		{"-12345678--.pdf", -1},
+		{"--12345678--.pdf", -1},
+		{"A12345678--.pdf", -1},
+		{"012345678--.pdf", -1},
+	} {
+		letture, _ := riconosci(t, m, "nome_file", c.testo)
+		if c.inizio < 0 {
+			if len(letture) != 0 {
+				t.Errorf("%q: nessuna lettura attesa, trovate %s", c.testo, riassunto(letture))
+			}
+			continue
+		}
+		if len(letture) != 1 || letture[0].Forma != "breve" || letture[0].Intervallo.Inizio != c.inizio ||
+			letture[0].Intervallo.Fine != c.inizio+len("12345678--") {
+			t.Errorf("%q: attesa la lettura breve in [%d,%d), trovate %s", c.testo, c.inizio, c.inizio+len("12345678--"), riassunto(letture))
+		}
+	}
+	// I due controlli in Go, ai bordi: l'inizio del testo è un confine, il «-» ASCII no, «—» sì.
+	tr := grammatica.ConfineAlnumASCIIOTrattino
+	if !confineSinistro(tr, "12345678", 0) || confineSinistro(tr, "-1", 1) || !confineSinistro(tr, "—1", len("—")) {
+		t.Error("confine sinistro della classe alnum_ascii_o_trattino sbagliato")
+	}
+	if !confineDestro(tr, "1", 1) || confineDestro(tr, "1-", 1) || !confineDestro(tr, "1—", 1) {
+		t.Error("confine destro della classe alnum_ascii_o_trattino sbagliato")
+	}
+}
+
+// TestConfiniRegexEGoConcordano: per ogni classe la regex del confine destro (frammentoDestro, in fondo alla
+// regex del piano) e il controllo in Go (confineDestro, che allunga le letture) dicono la stessa cosa sugli
+// stessi caratteri, anche fuori dall'ASCII, alla fine del testo e su un byte UTF-8 non valido. Una classe
+// fuori dal contratto non è nota al motore.
+func TestConfiniRegexEGoConcordano(t *testing.T) {
+	classi := []grammatica.ClasseConfine{grammatica.ConfineAlnumASCII, grammatica.ConfineParolaASCII,
+		grammatica.ConfineAlnumASCIIOSpazio, grammatica.ConfineParolaASCIIOPuntoCifra, grammatica.ConfineAlnumASCIIOTrattino}
+	dopo := []string{"", "-", "--", "-x", "—", "–", "‐", "−", " ", " ", "\t", "\n", ".", ".5", ".x", "(", ")", "_",
+		"$", "/", "A", "z", "0", "9", "è", "😀", "\xff"}
+	for _, c := range classi {
+		if !classeNota(c) {
+			t.Errorf("classe %s non nota al motore", c)
+		}
+		fr, ok := frammentoDestro(c)
+		if !ok {
+			t.Fatalf("classe %s senza regex del confine destro", c)
+		}
+		re := regexp.MustCompile(`\A` + fr)
+		for _, d := range dopo {
+			if r, g := re.MatchString(d), confineDestro(c, d, 0); r != g {
+				t.Errorf("classe %s, dopo il codice %q: la regex dice %v, il controllo in Go %v", c, d, r, g)
+			}
+		}
+	}
+	// La tabella della classe nuova, scritta una seconda volta per non fidarsi della sola concordanza.
+	vietati := map[string]bool{"-": true, "--": true, "-x": true, "A": true, "z": true, "0": true, "9": true}
+	for _, d := range dopo {
+		if confineDestro(grammatica.ConfineAlnumASCIIOTrattino, d, 0) == vietati[d] {
+			t.Errorf("alnum_ascii_o_trattino, dopo il codice %q: vietato %v", d, vietati[d])
+		}
+	}
+	if _, ok := frammentoDestro("alnum_ascii_o_trattini"); ok || classeNota("alnum_ascii_o_trattini") {
+		t.Error("una classe fuori dal contratto è nota al motore")
+	}
 }
 
 // TestConfiniLetturePerPianoAInizidiversi: le letture dello stesso piano che cominciano in punti diversi

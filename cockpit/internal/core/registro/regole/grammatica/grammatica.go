@@ -105,9 +105,13 @@ type Base struct {
 //   - "parola_ascii": né lettera, né cifra ASCII, né «_»;
 //   - "alnum_ascii_o_spazio": né lettera, né cifra ASCII, né spazio U+0020;
 //   - "parola_ascii_o_punto_cifra": come parola_ascii, e nemmeno «.» seguito da una cifra (solo a destra: la
-//     forma parziale non deve leggere dentro una forma completa).
+//     forma parziale non deve leggere dentro una forma completa);
+//   - "alnum_ascii_o_trattino": né lettera, né cifra ASCII, né «-» U+002D (dal 17/10, LS-03 A: la forma corta
+//     «<base>--» non deve leggere l'inizio di «<base>---…»). Vale ai due lati.
 //
-// Le classi servono a evitare le letture annidate della stessa famiglia (R25 f, D-05).
+// Inizio e fine del testo sono confini per tutte le classi; le lettere, le cifre e i trattini fuori dall'ASCII
+// non sono vietati da nessuna (le classi sono solo ASCII). Le classi servono a evitare le letture annidate
+// della stessa famiglia (R25 f, D-05).
 type ClasseConfine string
 
 // SegmentoBase: un pezzo della base, letterale o pattern RE2 limitato. Il pattern non ha gruppi, ancore,

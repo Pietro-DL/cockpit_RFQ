@@ -370,6 +370,46 @@ func TestA1aValidaRegoleDelContratto(t *testing.T) {
 	}
 }
 
+// TestA1aConfineAlnumASCIIOTrattino (addendum D-05 del 17/10, LS-03 A): la quinta classe di confine è
+// nell'elenco chiuso, in fondo, e vale ai due lati, nella base e nella forma; un nome vicino resta fuori elenco
+// (contratto.enum_ignoto), senza ripieghi. È anche ciò che vede un binario di prima, che ha solo le quattro
+// classi: per lui la classe nuova è un nome vicino.
+func TestA1aConfineAlnumASCIIOTrattino(t *testing.T) {
+	atteso := "alnum_ascii,parola_ascii,alnum_ascii_o_spazio,parola_ascii_o_punto_cifra,alnum_ascii_o_trattino"
+	if got := strings.Join(classiConfine, ","); got != atteso {
+		t.Fatalf("classi di confine %s, attese %s: l'elenco è chiuso e una classe nuova è un addendum del contratto", got, atteso)
+	}
+	if in(string(ConfineAlnumASCIIOTrattino), classiSoloADestra) {
+		t.Fatal("alnum_ascii_o_trattino vale ai due lati, non solo a destra")
+	}
+	validi := []struct {
+		nome         string
+		sostituzioni []string
+	}{
+		{"a sinistra nella base", []string{`"confine_prima": "parola_ascii"`, `"confine_prima": "alnum_ascii_o_trattino"`}},
+		{"a destra nella base", []string{`"confine_dopo": "parola_ascii"}`, `"confine_dopo": "alnum_ascii_o_trattino"}`}},
+		{"a destra nella forma", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`, `"confine_dopo": "alnum_ascii_o_trattino"`}},
+		{"ai due lati nella forma", []string{`"confine_dopo": "parola_ascii_o_punto_cifra"`,
+			`"confine_prima": "alnum_ascii_o_trattino", "confine_dopo": "alnum_ascii_o_trattino"`}},
+	}
+	for _, c := range validi {
+		t.Run(c.nome, func(t *testing.T) {
+			if e := errori(diagnosiDi(t, variante(t, c.sostituzioni...), limitiACME())); len(e) > 0 {
+				t.Fatalf("errori inattesi:%s", elenca(e))
+			}
+		})
+	}
+	for _, nome := range []string{"alnum_ascii_o_trattini", "Alnum_ascii_o_trattino", "alnum_ascii_o_meno", "alnum_ascii_o_trattino "} {
+		t.Run("fuori elenco "+nome, func(t *testing.T) {
+			ds := diagnosiDi(t, variante(t, `"confine_prima": "parola_ascii"`, `"confine_prima": "`+nome+`"`), limitiACME())
+			d := richiedi(t, ds, CodiceEnumIgnoto, "famiglie_codice[acme-punti].base.confine_prima")
+			if d.Gravita != evidenze.GravitaErrore {
+				t.Fatalf("%s con gravità %s, atteso errore", d.Codice, d.Gravita)
+			}
+		})
+	}
+}
+
 // TestA1aValidaSenzaRipieghiNeDoppiSensi: una revisione in campo separato senza forte e debole (D-06 per il
 // token, D-07 per l'esempio) è valida; il selettore «storia» è attivo come gli altri (R48 A); una famiglia
 // con sole forme riservate è ammessa, senza esempi positivi obbligatori.
