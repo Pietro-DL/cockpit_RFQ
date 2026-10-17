@@ -152,7 +152,9 @@ func fraseRianalisi(ri fascicolo.Rianalisi) string {
 	// worker.StrutturaDaRileggere): non sono analisi mancanti, e la frase lo dice a parte. Non dice perché: lo stesso
 	// numero conta la v4 di un worker di GP-3, una v2 di un worker di prima, una versione sconosciuta, una struttura
 	// assente o che non si decodifica, e un perché solo («letta da un worker non aggiornato») sarebbe falso per qualcuno.
-	// Chi l'ha scritta lo dice il log del server, con il worker (workerapi, applicaRisultato).
+	// Il log del server (workerapi, applicaRisultato) dice il perché, con il worker che l'ha scritta, solo per una
+	// struttura che si decodifica (dalla 2: la v4, la v2, una versione oltre la 4); per una struttura assente, che non si
+	// decodifica o v1 non scrive niente.
 	if ri.StepRiaccodati > 0 {
 		parti = append(parti, conta(ri.StepRiaccodati, "STEP accodato", "STEP accodati")+" per rileggerne la struttura")
 	}

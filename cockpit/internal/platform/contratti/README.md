@@ -73,10 +73,13 @@ markmap:
 - **`StrutturaSTEP`, `DecodificaStruttura`**
   - Chi lo usa: `core/rfq/fascicolo`, `transport/web`, `transport/workerapi`; dal giro 5 (A1b) `core/estrazione`,
     l'adattatore STEP del motore A
-- **`StrutturaDaRileggere`, `VersioneStruttura`, `VersioneDiagnostica`**
+- **`StrutturaDaRileggere`, `VersioneStruttura`, `VersioneDiagnostica`, `VersioneStrutturaGP3`**
   - Chi lo usa: `core/rfq/fascicolo` (`AccodaStepDaRileggere`, solo dal gesto «Rianalizza»), `transport/workerapi`
-    (gli avvisi nel log, con il worker: per una forma diversa da `VersioneStruttura`, e per la forma 3 con il campo
-    `versione_diagnostica` assente o 0, la riga che dice anche l'attesa, `VersioneDiagnostica`); LS-01
+    (gli avvisi nel log, con il worker, solo per una struttura che `DecodificaStruttura` legge, cioè dalla 2: per una
+    forma diversa da `VersioneStruttura`, con il perché secondo la versione — «worker non aggiornato» per la 4,
+    `VersioneStrutturaGP3`, e per la 2, una versione che il server non conosce oltre la 4 —, e per la forma 3 con il
+    campo `versione_diagnostica` assente o 0, la riga che dice anche l'attesa, `VersioneDiagnostica`; una struttura
+    assente, che non si decodifica o v1 non dà righe); LS-01
 - **`TestoPDF`, `DecodificaTestoPDF`**
   - Chi lo usa: `core/inbox/classificazione` (`testoDelPDF`); dal giro 5 (A1b) `core/estrazione`, l'adattatore PDF
     del motore A

@@ -23,7 +23,9 @@
 //     contenuto anche con più copie, la copia nello staging preferita, i compatibili prima quando c'è il limite, il
 //     limite residuo condiviso con le analisi mancanti e con i PDF.
 //   - TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata (correzioni dei verificatori): il log del server, con il
-//     worker, per la forma non accettata e per la forma 3 senza versione_diagnostica (un worker di prima di GP-3).
+//     worker, per la forma non accettata, con il perché esatto («worker non aggiornato» per la v4 di GP-3 e per la v2,
+//     un worker più nuovo del server o dati anomali per una v5), e per la forma 3 senza versione_diagnostica (un worker
+//     di prima di GP-3).
 //
 // Gli STEP, i codici e i nomi sono inventati (ACME, 712xxxx): il repository è pubblico.
 
@@ -429,10 +431,11 @@ func TestLS01UscitaVeraDelWorkerAttraversaLaCatena(t *testing.T) {
 // strutturaACME: i dettagli di uno STEP nella forma del worker, radice #10 e due figli, per le prove della riaccodatura.
 // forma: "oggi" (versione 3 e diagnostica 1, il worker corretto), "gp3" (versione 4 con i campi della diagnostica ma
 // senza il numero, il worker di GP-3), "prima" (versione 3 senza diagnostica, un worker di prima di GP-3), "v2" (la
-// forma senza gli scarti in numeri, un worker di prima di B8.5).
+// forma senza gli scarti in numeri, un worker di prima di B8.5), "v5" (una versione che il server non conosce, con la
+// diagnostica 1: un worker più nuovo del server).
 func strutturaACME(t *testing.T, codici [3]string, forma string) json.RawMessage {
 	t.Helper()
-	diagnostica := forma == "oggi" || forma == "gp3"
+	diagnostica := forma == "oggi" || forma == "gp3" || forma == "v5"
 	nodi := []map[string]any{}
 	for i, c := range codici {
 		n := map[string]any{"chiave": "#" + strconv.Itoa(10*(i+1)), "id_grezzo": c, "nome_grezzo": c, "descrizione_grezza": "ACME",
@@ -463,6 +466,9 @@ func strutturaACME(t *testing.T, codici [3]string, forma string) json.RawMessage
 	case "v2":
 		s["versione"] = 2
 		delete(s, "scarti")
+	case "v5":
+		s["versione"], s["versione_diagnostica"] = worker.VersioneStrutturaGP3+1, worker.VersioneDiagnostica
+		s["stato"], s["motivo_stato"] = worker.StrutturaValida, ""
 	default:
 		t.Fatalf("forma %q sconosciuta", forma)
 	}
@@ -473,11 +479,15 @@ func strutturaACME(t *testing.T, codici [3]string, forma string) json.RawMessage
 	return raw
 }
 
-// Le due righe del log del server per una struttura STEP scritta da un worker non aggiornato (workerapi.go,
-// applicaRisultato): l'inizio del messaggio, che le distingue. Tutte e due dicono anche «worker non aggiornato».
+// Le righe del log del server per una struttura STEP in una forma che il server non accetta o senza la diagnostica
+// (workerapi.go, applicaRisultato): l'inizio del messaggio, che le distingue (avviso…), e il perché (causa…). La forma
+// non accettata ha un perché per versione: causaNonAggiornato per la v4 di GP-3 e per la v2, causaSconosciuta per una
+// versione oltre la 4. La riga della forma 3 senza diagnostica dice causaNonAggiornato.
 const (
-	avvisoForma       = "struttura STEP in una forma che il server non accetta"
-	avvisoDiagnostica = "struttura STEP senza diagnostica"
+	avvisoForma        = "struttura STEP in una forma che il server non accetta"
+	avvisoDiagnostica  = "struttura STEP senza diagnostica"
+	causaNonAggiornato = "worker non aggiornato"
+	causaSconosciuta   = "una versione che il server non conosce (un worker più nuovo del server, o dati anomali)"
 )
 
 // analisiPendenti: i job di analisi con una chiave, pronti o in corso, con la loro priorità (i risultati scritti dal
@@ -919,12 +929,14 @@ func TestLS01RianalizzaPerContenutoConIlLimiteCondiviso(t *testing.T) {
 }
 
 // TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata (correzioni dei verificatori di LS-01, punto 3; flotta mista):
-// il server scrive nel log, con il worker, il file e l'allegato, ogni struttura STEP che arriva da un worker non
-// aggiornato. Due righe distinte, tutte e due con «worker non aggiornato»:
-//   - la forma che il server non accetta (la v4 di GP-3, una v2 di prima di B8.5): la lettura resta parziale, e
-//     «Rianalizza» la rilegge;
-//   - la forma 3 senza versione_diagnostica (un worker di prima di GP-3): la lettura vale e non si rilegge, ma la
-//     diagnostica (geometria, istanze, stato) manca, e senza la riga si perderebbe in silenzio.
+// il server scrive nel log, con il worker, il file e l'allegato, ogni struttura STEP in una forma che non accetta o
+// senza la diagnostica, con il perché vero. Due righe distinte:
+//   - la forma che il server non accetta: la lettura resta parziale, e «Rianalizza» la rilegge. Il perché secondo la
+//     versione: «worker non aggiornato» per la v4 di GP-3 e per una v2 di prima di B8.5, ciascuna con il suo; per una
+//     v5, una versione che il server non conosce, «un worker più nuovo del server, o dati anomali», e mai «worker non
+//     aggiornato», che manderebbe ad aggiornare una postazione che non è indietro (correzioni del verificatore);
+//   - la forma 3 senza versione_diagnostica (un worker di prima di GP-3), con «worker non aggiornato»: la lettura vale
+//     e non si rilegge, ma la diagnostica (geometria, istanze, stato) manca, e senza la riga si perderebbe in silenzio.
 //
 // La forma del worker di oggi e i fatti senza struttura (un PDF) non scrivono niente.
 func TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata(t *testing.T) {
@@ -941,15 +953,21 @@ func TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata(t *testing.T) {
 	casi := []struct {
 		nome, file, workerID string
 		risultato            worker.RisultatoAnalisi
-		forma, diagnostica   int  // le righe attese: forma non accettata, forma 3 senza diagnostica
-		daRileggere          bool // per uno STEP: worker.StrutturaDaRileggere sui fatti scritti
+		forma, diagnostica   int    // le righe attese: forma non accettata, forma 3 senza diagnostica
+		perche               string // il perché che la riga deve dire ("" senza righe)
+		daRileggere          bool   // per uno STEP: worker.StrutturaDaRileggere sui fatti scritti
 	}{
-		{"il worker di oggi: niente", "7121400.stp", "analisi@PC-NUOVO", step("712140", "oggi"), 0, 0, false},
-		{"un worker di prima di GP-3: la riga della diagnostica", "7121500.stp", "analisi@PC-PRIMA", step("712150", "prima"), 0, 1, false},
-		{"il worker di GP-3: la riga della forma", "7121600.stp", "analisi@PC-GP3", step("712160", "gp3"), 1, 0, true},
-		{"un worker di prima di B8.5, la v2: la riga della forma", "7121700.stp", "analisi@PC-B8", step("712170", "v2"), 1, 0, true},
+		{"il worker di oggi: niente", "7121400.stp", "analisi@PC-NUOVO", step("712140", "oggi"), 0, 0, "", false},
+		{"un worker di prima di GP-3: la riga della diagnostica", "7121500.stp", "analisi@PC-PRIMA", step("712150", "prima"), 0, 1,
+			causaNonAggiornato + " (di prima di GP-3)", false},
+		{"il worker di GP-3: la riga della forma", "7121600.stp", "analisi@PC-GP3", step("712160", "gp3"), 1, 0,
+			causaNonAggiornato + " (la forma 4 del worker di GP-3)", true},
+		{"un worker di prima di B8.5, la v2: la riga della forma", "7121700.stp", "analisi@PC-B8", step("712170", "v2"), 1, 0,
+			causaNonAggiornato + " (una forma di prima di B8.5)", true},
+		{"una versione che il server non conosce, la 5: la riga della forma, senza «worker non aggiornato»", "7121900.stp",
+			"analisi@PC-FUTURO", step("712190", "v5"), 1, 0, causaSconosciuta, true},
 		{"un PDF, senza struttura: niente", "7121800.pdf", "analisi@PC-PRIMA", worker.RisultatoAnalisi{TipoProposto: "disegno_2d",
-			Codice: "7121800", Confidenza: 95, Fonte: "cartiglio", Dettagli: dettagliDisegno(t)}, 0, 0, false},
+			Codice: "7121800", Confidenza: 95, Fonte: "cartiglio", Dettagli: dettagliDisegno(t)}, 0, 0, "", false},
 	}
 	for _, c := range casi {
 		t.Run(c.nome, func(t *testing.T) {
@@ -970,9 +988,16 @@ func TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata(t *testing.T) {
 					diagnostica, c.diagnostica, righe)
 			}
 			if c.forma+c.diagnostica > 0 {
-				for _, deve := range []string{"worker non aggiornato", "worker=" + c.workerID, "file=" + c.file, "allegato=" + a.AllegatoID.String()} {
+				for _, deve := range []string{c.perche, "worker=" + c.workerID, "file=" + c.file, "allegato=" + a.AllegatoID.String()} {
 					if !strings.Contains(righe, deve) {
 						t.Errorf("la riga non dice %q:\n%s", deve, righe)
+					}
+				}
+				// un perché solo: una versione sconosciuta non manda ad aggiornare la postazione, e una postazione rimasta
+				// indietro non diventa «dati anomali»
+				for _, altro := range []string{causaNonAggiornato, causaSconosciuta} {
+					if !strings.HasPrefix(c.perche, altro) && strings.Contains(righe, altro) {
+						t.Errorf("la riga dice anche %q, che qui non è il perché:\n%s", altro, righe)
 					}
 				}
 			}

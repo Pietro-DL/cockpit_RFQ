@@ -71,7 +71,7 @@ markmap:
   - Il sync registra gli allegati come fatto, con una proposta dal solo nome.
   - Lo **staging** del server — una cartella di lavoro, non il NAS — si riempie invece anche da solo:
     - con `[staging].automatico` gli allegati dei mittenti riconosciuti scendono appena il messaggio entra,
-    - e quando nasce o si aggancia una RFQ, o se ne apre il Fascicolo, i suoi file utili si scaricano, si estraggono e si analizzano (preparazione automatica, B8.7b).
+    - e quando nasce o si aggancia una RFQ, o chi è almeno `operatore` ne apre la pagina, la Distinta o il Fascicolo (la pagina lo chiede da sola con una POST: aprirla non scrive niente), i suoi file utili si scaricano, si estraggono e si analizzano (preparazione automatica, B8.7b).
   - Nella cartella della RFQ sul NAS un file arriva solo con la conferma di una persona.
 
 ## I rami del repository
@@ -470,7 +470,7 @@ markmap:
 - **`admin`** apre tutto quello dell'operatore **più** *Anagrafica* (clienti, fornitori, convenzioni, import), *Postazioni* (e quindi il pacchetto dei worker), *Coda job*, *Integrità NAS*, *Scarti*
 - **`tecnico`**: oggi quanto l'operatore; esiste da adesso perché le azioni della fattibilità e dell'albero saranno sue
 - **`consultazione`**: nessun metodo che scrive (POST), in nessuna schermata.
-  - Alcune letture hanno però effetti automatici anche per lei: la prima apertura dell'Inbox accoda un aggiornamento, l'apertura di una RFQ rilegge i suoi STEP (la preparazione del Fascicolo invece parte solo per chi è almeno `operatore`)
+  - Alcune letture hanno però effetti automatici anche per lei: la prima apertura dell'Inbox accoda un aggiornamento, e l'anteprima di un documento sul NAS può aprire un'anomalia. Aprire una RFQ (la pagina, la Distinta o il Fascicolo) invece non scrive niente, per nessun ruolo: la preparazione dei file è una POST che la pagina manda da sola, e solo per chi è almeno `operatore`
 - **Almeno uno deve essere `admin`**, e il server **non parte** senza:
   - il pacchetto dei worker lo genera solo lui, e senza nessuno che possa aprire *Postazioni* non si aggiunge più un PC.
   - Anche un ruolo scritto male ferma l'avvio invece di diventare `operatore` in silenzio, e dice quale utente e quali parole sono ammesse.
@@ -1118,7 +1118,7 @@ markmap:
 - Da «Da validare» si fa **Censisci come fornitore / cliente** con l'indirizzo e il dominio già scritti:
   - al salvataggio i messaggi non ancora decisi con lo stesso indirizzo o dominio vengono ricalcolati (quadrante, controparte, proposta);
   - le decisioni prese non si toccano.
-- I file della RFQ si preparano da soli (download in staging, estrazione, analisi) quando la RFQ nasce, quando le si aggancia una mail e quando se ne apre il Fascicolo;
+- I file della RFQ si preparano da soli (download in staging, estrazione, analisi) quando la RFQ nasce, quando le si aggancia una mail e quando chi è almeno `operatore` ne apre la pagina, la Distinta o il Fascicolo (la pagina lo chiede da sola con una POST: aprirla non scrive niente);
 - nel **Fascicolo** si costruisce la distinta e si confermano i file, con «Conferma Fascicolo» o con «✓ Conferma» sul singolo file:
   - solo allora diventano documenti copiati nella cartella della RFQ, con la verifica dell'hash.
 - Restano manuali **Apri in Outlook**, **Segna letto** e **Rispondi**, che prepara una bozza: l'invio non è mai automatico.
@@ -1312,10 +1312,11 @@ markmap:
   - Per portarlo al codice senza suffisso si usa «Correggi il codice».
   - Le regole dei suffissi: al più 10, ognuno comincia con `_`, `-` o `.`, da 3 a 12 caratteri, senza spazi, e mai nella forma di una revisione.
 - **La preparazione** (B8.7b).
-  - Quando nasce una RFQ, quando le si aggancia una mail e quando se ne apre il Fascicolo (per chi è almeno `operatore`),
-    - i codici prodotto confermati della richiesta diventano prodotti finiti della BOM,
+  - Quando nasce una RFQ e quando le si aggancia una mail,
+    - i codici prodotto della richiesta confermati in quel gesto diventano prodotti finiti della BOM,
     - e fino a 20 file utili per volta si scaricano nello staging, si estraggono (gli archivi) e si analizzano;
     - un file già analizzato non si rianalizza.
+  - Aprire la pagina della RFQ, la Distinta o il Fascicolo non scrive niente, per nessun ruolo: per chi è almeno `operatore` la pagina manda da sola una POST che accoda il lavoro che manca ai file (download, estrazioni, analisi, fino a 20 per volta) e completa i file fermi nello staging che hanno già i fatti, senza prodotti e senza rianalizzare.
   - Finché c'è lavoro in corso la schermata si aggiorna da sola.
   - Niente di tutto questo tocca il NAS.
 - **«Conferma Fascicolo»**.

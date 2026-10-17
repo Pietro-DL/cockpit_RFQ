@@ -269,7 +269,9 @@ markmap:
 
 - `fascicolo_rotte.go:registraFascicolo`
 - **`GET /thread/{id}/fascicolo`**
-  - Effetto: la schermata (lo stato è l'indirizzo); per chi è almeno `operatore` prima prepara il Fascicolo (B8.7b)
+  - Effetto: la schermata (lo stato è l'indirizzo); non scrive niente, per nessun ruolo (Smistamento F1, R8). Per chi è
+    almeno `operatore` la pagina manda da sola la preparazione (B8.7b: `POST …/fascicolo/prepara`, `auto=1`), che
+    accoda download, estrazioni e analisi mancanti e completa i file fermi nello staging che hanno già i fatti (li riapplica, senza rianalizzarli)
 - **`GET …/fascicolo/parti` · `/anteprima` · `/vista`**
   - Effetto: i pannelli fuori banda, il pannello di destra, la sola area centrale; non scrivono
 - **`POST …/componente/{cid}/modifica` · `/collega` · `/scollega` · `/sposta`**
@@ -454,9 +456,14 @@ markmap:
 - e tutto ciò che scrivono i package di `core` chiamati dai gestori.
 - Alcune letture hanno effetti:
   - la prima apertura dell'Inbox accoda un aggiornamento
-  - `GET /thread/{id}` rilegge gli STEP
-  - `GET /thread/{id}/fascicolo` prepara il Fascicolo (per chi è almeno `operatore`)
   - l'anteprima può aprire un'anomalia.
+- `GET /thread/{id}` e `GET /thread/{id}/fascicolo` invece non scrivono niente oltre alla sessione di chi guarda, per
+  nessun ruolo (Smistamento F1, R8):
+  - per chi è almeno `operatore` la pagina manda da sola la preparazione (`POST …/fascicolo/prepara`, `auto=1`), che
+    accoda download, estrazioni e analisi mancanti e completa i file fermi nello staging che hanno già i fatti (li riapplica, senza rianalizzarli);
+  - tutti gli STEP già analizzati della RFQ si rileggono insieme solo con «Rianalizza» e quando la RFQ nasce o un
+    messaggio vi si aggancia; un singolo STEP si riapplica anche dopo un gesto che lo riguarda (autorizzazione, revoca,
+    accettazione di nodi o del file).
 
 ## Test
 

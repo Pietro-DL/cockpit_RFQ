@@ -599,9 +599,12 @@ type IstanzaSTEP struct {
 // del server, con il worker (workerapi, applicaRisultato). Il criterio è un numero esplicito, mai la presenza di un
 // campo (direttiva 21 §5-§6). L'idoneità per estensione (stp, step) è del chiamante.
 //
-// Il vero non ha un perché solo: la v4 di GP-3 e una v2 vengono da un worker non aggiornato, una versione sconosciuta
-// no, e una struttura assente o che non si decodifica è un'anomalia. Chi lo dice a una persona (la frase del gesto)
-// non nomina la causa; il worker lo nomina il log.
+// Il vero non ha un perché solo: la v4 di GP-3 e una v2 vengono da un worker non aggiornato, una versione oltre la 4 da
+// un worker più nuovo del server o da dati anomali, e una struttura assente o che non si decodifica è un'anomalia. Chi
+// lo dice a una persona (la frase del gesto) non nomina la causa. Il log del server (workerapi, applicaRisultato) la
+// nomina, con il worker, solo per le strutture che DecodificaStruttura legge, cioè dalla 2: la v4, la v2 e una
+// versione oltre la 4, ciascuna con il suo perché. Per una struttura assente, che non si decodifica o v1 il log non
+// scrive niente.
 //
 // Prima di LS-01 diceva «Versione < VersioneStruttura» e non aveva chiamanti: con la 4 avrebbe riaccodato tutte le v3
 // dei worker di prima (la rianalisi di massa che il percorso A evita), con la 3 non avrebbe visto le v4.

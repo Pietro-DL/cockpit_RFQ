@@ -15,9 +15,11 @@ import (
 //
 // LS-01: anche gli STEP riaccodati perché la loro struttura è in una forma che il server non accetta (in pratica la v4 di
 // un worker di GP-3), contati a parte dalle analisi mancanti, dopo di loro e prima dei PDF. Correzioni dei verificatori:
-// la frase non dice perché (lo stesso numero conta anche una v2, una struttura assente o che non si decodifica, e «letta
-// da un worker non aggiornato» sarebbe falso per qualcuno: lo dice il log, con il worker); e per uno STEP da rileggere
-// non più in staging dice «Riscarica, poi di nuovo Rianalizza», perché «Riscarica» da solo riapplica i fatti presenti.
+// la frase non dice perché (lo stesso numero conta anche una v2, una versione oltre la 4, una struttura assente o che non
+// si decodifica, e «letta da un worker non aggiornato» sarebbe falso per qualcuno; il log del server dice il perché, con
+// il worker, solo per una struttura che si decodifica, non per una assente, che non si decodifica o v1); e per uno STEP
+// da rileggere non più in staging dice «Riscarica, poi di nuovo Rianalizza», perché «Riscarica» da solo riapplica i
+// fatti presenti.
 // Lo STEP riletto con i fatti correnti è la frase che il gesto dava su uno STEP v4 prima di LS-01, e che dà dopo la
 // rilettura (le frasi del gesto vero sono in ls01_rianalizza_db_test.go).
 func TestLaFraseDellaRianalisiDiceIPdf(t *testing.T) {

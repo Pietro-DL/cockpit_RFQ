@@ -96,7 +96,7 @@ markmap:
     prima era `propostaDelDocumento`, la D16)
 - **`rimozioni.go`**
   - `AggiornaRimozioni` (solo dallo STEP strutturale letto per intero)
-  - `AggiornaTutteLeRimozioni`, `rileggiLoStep`
+  - `AggiornaTutteLeRimozioni`
 - **`decisioni.go`**
   - `AccettaNodo`, `AccettaRelazione`, `AccettaSottoalbero`, `AccettaFile`, `ScartaNodo`, `ScartaRelazione`, `CodiceDelNodo`, `AccettaRimozione`, `ScartaRimozione`
   - A1d P4 (B2.11; D-K6-01 = A [U], direttiva 12 §6): `DecisioneTipo{Assiemi}`, `AccettaRelazioneDecisa`, `AccettaSottoalberoDeciso`, `AccettaFileDeciso`; un particolare non diventa assieme da solo: senza dichiarazione il gesto risponde con `RichiestaConversione` (componente, codice, figlio, `Domanda`), non scrive niente, ed e' anche un `Rifiuto` per chi non sa chiedere la conferma
@@ -147,7 +147,9 @@ markmap:
 - **`ApplicaStruttura`, `MotoreDellaRfq`**
   - Chi lo chiama:
     - `transport/workerapi/workerapi.go` (`applicaFattiEsistenti`, `strutturaNelleRfq`, `motoreDelFile`)
-    - qui dentro `RileggiStepDellaRfq` (quindi `RianalizzaRfq`) e `rileggiLoStep`
+    - qui dentro `RileggiStepDellaRfq` (quindi `RianalizzaRfq`), `rileggiIlContenuto` (`autorizzazione.go`: dopo
+      un'autorizzazione, una revoca, una riattivazione o un cambio di tipo) e `rileggiIlFile` (`decisioni.go`: dopo
+      `AccettaNodo`, `AccettaSottoalbero` e `AccettaFile`, anche nelle forme `…Deciso`)
 - **`RianalizzaRfq`**
   - Chi lo chiama: `transport/web/proposte.go` (`rianalizza`, il gesto «Rianalizza»: è il suo solo chiamante, e
     con lui `AccodaStepDaRileggere` e `AccodaPdfDaRileggere`). Aprire una pagina non lo chiama (Smistamento F1, R8:

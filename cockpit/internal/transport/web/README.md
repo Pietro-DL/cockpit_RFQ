@@ -2153,7 +2153,8 @@ Diagnosi UI del 14/10 (G1, G2, G4). Sola presentazione e gesti esistenti: nessun
 
 ### Stato dell'implementazione
 
-- La GET della pagina scrive (preparazione).
+- La GET della pagina non scrive, per nessun ruolo (Smistamento F1, R8): la preparazione è la POST che la pagina manda
+  da sola solo a chi scrive (`auto=1`), con il bottone «Prepara i file» di riserva.
 - Ogni poll ricarica tutta la schermata.
 
 ### Dove intervenire
