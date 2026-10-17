@@ -116,7 +116,8 @@ func idDa(v, cosa string) (uuid.UUID, error) {
 // rianalizza: POST /thread/{id}/fascicolo/rianalizza. Rilegge gli STEP che hanno i fatti correnti e
 // accoda gli altri, fino a MaxAccodatiSuRichiesta: le due meta' di RianalizzaRfq insieme. E' il solo gesto
 // che rilegge gli STEP a richiesta; aprire una pagina non lo fa piu' (Smistamento F1, R8). Ed e' il solo che
-// fa rileggere i PDF letti da un analizzatore precedente (F9, analizzatore 4): nessuna rianalisi parte da sola.
+// fa rileggere i PDF letti da un analizzatore precedente (F9, analizzatore 4) e gli STEP con la struttura in una forma
+// che il server non accetta (LS-01: in pratica la v4 di GP-3): nessuna rianalisi parte da sola.
 func (s *Server) rianalizza(w http.ResponseWriter, r *http.Request) {
 	s.gesto(w, r, func(ctx context.Context, q *db.Queries, thread, _ uuid.UUID) (string, error) {
 		if s.Analizzatore.Versione == 0 {
@@ -146,6 +147,29 @@ func fraseRianalisi(ri fascicolo.Rianalisi) string {
 	}
 	if ri.SenzaStaging > 0 {
 		parti = append(parti, conta(ri.SenzaStaging, "STEP non più in staging", "STEP non più in staging")+" (Riscarica)")
+	}
+	// gli STEP i cui fatti correnti hanno la struttura in una forma che il server non accetta (LS-01,
+	// worker.StrutturaDaRileggere): non sono analisi mancanti, e la frase lo dice a parte. Non dice perché: lo stesso
+	// numero conta la v4 di un worker di GP-3, una v2 di un worker di prima, una versione sconosciuta, una struttura
+	// assente o che non si decodifica, e un perché solo («letta da un worker non aggiornato») sarebbe falso per qualcuno.
+	// Il log del server (workerapi, applicaRisultato) dice il perché, con il worker che l'ha scritta, solo per una
+	// struttura che si decodifica (dalla 2: la v4, la v2, una versione oltre la 4); per una struttura assente, che non si
+	// decodifica o v1 non scrive niente.
+	if ri.StepRiaccodati > 0 {
+		parti = append(parti, conta(ri.StepRiaccodati, "STEP accodato", "STEP accodati")+" per rileggerne la struttura")
+	}
+	if ri.StepGiaInCoda > 0 {
+		parti = append(parti, conta(ri.StepGiaInCoda, "STEP già in coda", "STEP già in coda")+" per rileggerne la struttura")
+	}
+	if ri.StepRimandati > 0 {
+		parti = append(parti, conta(ri.StepRimandati, "STEP da rileggere rimandato", "STEP da rileggere rimandati")+" al prossimo giro")
+	}
+	// «Riscarica» da solo non basta: i fatti da rileggere stanno sotto la chiave corrente, e quando il file torna nello
+	// staging dopoStaging → AccodaAnalisi si ferma ai fatti presenti e applicaFattiEsistenti li riapplica com'erano. Lo
+	// STEP si rilegge con un nuovo «Rianalizza», che lo trova di nuovo nello staging.
+	if ri.StepSenzaStaging > 0 {
+		parti = append(parti, conta(ri.StepSenzaStaging, "STEP da rileggere non più in staging", "STEP da rileggere non più in staging")+
+			" (Riscarica, poi di nuovo Rianalizza)")
 	}
 	// i PDF letti da un analizzatore precedente (F9): si dice di quali file si parla
 	if ri.PdfAccodati > 0 {

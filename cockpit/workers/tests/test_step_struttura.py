@@ -14,7 +14,7 @@ diventa rosso.
 """
 from __future__ import annotations
 
-from step_struttura import VERSIONE_STRUTTURA, leggi_struttura
+from step_struttura import VERSIONE_DIAGNOSTICA, VERSIONE_STRUTTURA, leggi_struttura
 
 INTESTAZIONE = """ISO-10303-21;
 HEADER;
@@ -440,7 +440,9 @@ def test_un_assieme_letto_per_intero_ha_gli_scarti_a_zero(tmp_path):
         ("B", "77720517", "77720517", "", ""),
     ], [("A", "B"), ("A", "B")])
     s = leggi_struttura(percorso)
-    assert s["versione"] == 4 == VERSIONE_STRUTTURA  # riscritta per GP-3 (v4)
+    # riscritta per LS-01: la forma torna la 3 (quella che il server accetta), la diagnostica ha il suo numero
+    assert s["versione"] == 3 == VERSIONE_STRUTTURA
+    assert s["versione_diagnostica"] == 1 == VERSIONE_DIAGNOSTICA
     assert s["scarti"] == SCARTI_ZERO
     assert s["avvisi"] == []
 
@@ -491,7 +493,7 @@ def test_gli_scarti_ci_sono_anche_quando_la_lettura_non_riesce(tmp_path):
     finto = tmp_path / "finto.step"
     finto.write_bytes(b"%PDF-1.4\n")
     for s in (leggi_struttura(str(finto)), leggi_struttura(str(tmp_path / "non-c-e.step"))):
-        assert s["versione"] == 4  # riscritta per GP-3 (v4)
+        assert s["versione"] == 3 and s["versione_diagnostica"] == 1  # riscritta per LS-01
         assert set(s["scarti"]) == set(SCARTI_ZERO)
         assert s["avvisi"], "una lettura fallita deve dirlo"
 
@@ -501,4 +503,5 @@ def test_gli_scarti_sono_quelli_del_contratto(tmp_path):
     percorso, _ = scrivi_step(tmp_path, "p.step", [("A", "P", "P", "", "")])
     s = leggi_struttura(percorso)
     assert set(s["scarti"]) == set(ScartiSTEP.model_fields)
-    assert StrutturaSTEP.model_validate(s).versione == 4  # riscritta per GP-3 (v4)
+    letta = StrutturaSTEP.model_validate(s)
+    assert (letta.versione, letta.versione_diagnostica) == (3, 1)  # riscritta per LS-01

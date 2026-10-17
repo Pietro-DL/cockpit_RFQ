@@ -396,6 +396,32 @@ cache_gg = 30
 # In piu', dalla 1 o dalla 2: la lettura v3 completa di uno STEP puo' proporre quantita' diverse e
 # rimozioni dalla BOM che le letture di prima non proponevano (una lettura v2 propone soltanto aggiunte).
 # Sono proposte, e le decide una persona: la rianalisi non cambia la BOM da sola.
+#
+# LS-01 (17/10/2026): la STRUTTURA degli STEP torna nella forma 3, e questa versione NON cambia. Il worker di
+# GP-3 scriveva `struttura.versione = 4` (con la diagnostica della geometria, dei nomi d'istanza e dello
+# stato), una forma che il server non accetta per la completezza (la funzione SQL della 0020): ogni STEP letto
+# da quel worker risulta «parziale», con il motivo «struttura v4: gli scarti non sono numerati, serve la
+# rianalisi v3». Il worker corretto scrive di nuovo la 3, con la diagnostica numerata a parte
+# (`versione_diagnostica = 1`). I fatti v4 gia' scritti stanno sotto la chiave di oggi: non li riprende la
+# preparazione, li riaccoda solo «Rianalizza». In ordine:
+#   1. il server nuovo, con questa versione invariata (4). Il worker viaggia dentro cockpit.exe;
+#   2. il pacchetto della postazione rigenerato e reinstallato su TUTTE le postazioni che hanno un worker di
+#      analisi. Una postazione rimasta indietro (flotta mista) la dice il log del server, con il worker; le due
+#      righe dicono «worker non aggiornato»:
+#      - rimasta al worker di GP-3, riscrive la v4: il server la tiene e la dice parziale («struttura STEP in
+#        una forma che il server non accetta»);
+#      - rimasta a un worker di prima di GP-3, scrive la 3 senza `versione_diagnostica`: la lettura vale e non
+#        si rilegge, ma la diagnostica manca («struttura STEP senza diagnostica»);
+#   3. «Rianalizza» su ogni RFQ con STEP (POST /thread/{id}/fascicolo/rianalizza): riaccoda, pochi alla volta,
+#      gli STEP la cui struttura non e' nella forma 3 (in pratica quelli letti in v4), e solo quelli («N STEP
+#      accodati per rileggerne la struttura»). Uno STEP non piu' in staging («… da rileggere non più in staging
+#      (Riscarica, poi di nuovo Rianalizza)») si riprende con «Riscarica» e poi di nuovo «Rianalizza»:
+#      «Riscarica» da solo riapplica i fatti v4, che stanno sotto la chiave di oggi, e non li rilegge. Con un
+#      nuovo azzera-dati si rianalizza tutto comunque.
+# Le deroghe strutturali date su una lettura v4 decadono con la rianalisi (e' un'altra analisi): se la lettura
+# nuova e' ancora parziale, la deroga si da' di nuovo guardando il motivo nuovo. Non congelare nessuna BOM
+# prima della fine del passo 3. Con la lettura completa possono comparire proposte di quantita' e di rimozione
+# prima sospese: sono proposte, le decide una persona.
 versione = 4
 
 [analisi.parametri]

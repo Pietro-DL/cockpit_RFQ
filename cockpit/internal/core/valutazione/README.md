@@ -470,6 +470,18 @@ markmap:
     `confronto.codice_registrato_non_leggibile`, `valutazione.messaggio_fuori_rfq_senza_caso` (R-63 della revisione di
     V1); dopo le risposte del 07/10, `valutazione.contesto_discorde` (R106 B, precisata); da D-P7e-1 (11/10)
     `bom.tipo_finito_fuori_target` e `bom.tipo_finito_target_non_determinato`.
+- **`gerarchia_step.go`** (P4, passo B3.4) — responsabilità:
+  - `GerarchiaStep` con i quattro valori, l'ingresso `AnalisiStruttura` (già letto dal chiamante: niente database) e la
+    regola pura `GerarchiaStepDi`, dai numeri della struttura e non dal testo del motivo parziale, che resta intatto;
+    `Scarti` è la somma dei tre contatori che la 0020 guarda (non le occorrenze su se stesse);
+  - `VersioneStrutturaStep` (3), la sola versione della struttura che la regola legge (un'altra dà `non_analizzabile`).
+    **Vincolo (LS-01):** deve coincidere con il letterale di `struttura_motivo_parziale` nell'ultima migrazione che la
+    definisce (oggi la 0020), con `worker.VersioneStruttura` e con `VERSIONE_STRUTTURA` del worker Python: le quattro
+    cambiano insieme, o ogni STEP diventa «parziale» come con la v4 di GP-3. Il pacchetto non importa il contratto del
+    worker (`core/estrazione/evidenze/dipendenze_test.go`), quindi il legame lo tiene una prova,
+    `versione_struttura_test.go`; la versione della diagnostica (`worker.VersioneDiagnostica`) non tocca questo numero.
+  - Non ha ancora chiamanti di produzione (l'innesto B3.5): la prova L4 della catena (`transport/workerapi`,
+    `ls01_struttura_db_test.go`) usa un costruttore di prova dichiarato di `AnalisiStruttura`.
 
 ## Entry point
 
@@ -1232,6 +1244,14 @@ markmap:
   del finito con lo STEP strutturale; i campi in `disegni_test.go` ed `esito_test.go`).
 - **`scena_emendamenti_test.go`** (P7e) — gli aiuti: le scene della candidata, della BOM senza STEP, del componente
   accanto, dei due prodotti; l'impronta degli assi del prodotto (si compila anche con il codice di prima di P7e).
+- **`versione_struttura_test.go`** (LS-01, 17/10/2026) — L1, senza database — il vincolo di `VersioneStrutturaStep`:
+  `TestLS01LaVersioneDellaStrutturaEUnaSola` confronta la costante del worker Python (`VERSIONE_STRUTTURA` e
+  `VERSIONE_DIAGNOSTICA` in `workers/step_struttura.py`), il contratto Go (`worker.VersioneStruttura`,
+  `worker.VersioneDiagnostica`), la gerarchia e il letterale della versione nell'ultima definizione SQL di
+  `struttura_motivo_parziale`, e dice quale dei quattro si è mosso da solo; `TestLS01LaGerarchiaNonLeggeLaFormaRitirata`:
+  con i numeri di una lettura completa la forma 3 è `riconosciuta`, la 4 di GP-3, una versione sconosciuta e la v2 sono
+  `non_analizzabile`. È l'unico file di prova del pacchetto che importa il contratto del worker (in un pacchetto di prova
+  esterno). La catena con il worker vero e il database è in `transport/workerapi/ls01_struttura_db_test.go`.
 - G1, G2 e MOTORE-SENZA-LLM in `core/estrazione/evidenze/dipendenze_test.go`; i codici nell'elenco d'oro (A1a-CAT,
   A1c-L1-32) in `core/estrazione/evidenze/codici_diagnostica_test.go`.
 - I clienti delle prove sono inventati (ACME). I test stanno nel ramo `-qa`.

@@ -305,7 +305,21 @@ markmap:
    - `Canonico`
    - `codiceRevSicuri`
    - `RevisioneProponibile`
-6. `strutturaNelleRfq`: se i dettagli hanno una struttura STEP, proposte di nodi, archi e rimozioni in ogni RFQ
+6. LS-01 (17/10/2026), l'avviso nel log per una struttura STEP in una forma che il server non accetta o senza la
+   diagnostica (flotta mista), con il worker del job, l'allegato e il file; la struttura si tiene comunque. Solo per
+   una struttura che `worker.DecodificaStruttura` legge, cioè dalla versione 2: una struttura assente, che non si
+   decodifica o v1 non dà righe (la riaccoda lo stesso «Rianalizza»). Due righe:
+   - «struttura STEP in una forma che il server non accetta»: `versione` diversa da `worker.VersioneStruttura`; la
+     0020 la dice parziale, e la rilegge «Rianalizza» (`fascicolo.AccodaStepDaRileggere`). Il perché secondo la
+     versione, uno per riga:
+     - la 4 (`worker.VersioneStrutturaGP3`, una postazione rimasta al worker di GP-3) e la 2 (un worker di prima di
+       B8.5): «worker non aggiornato», e il rimedio è il pacchetto della postazione;
+     - oltre la 4: «una versione che il server non conosce (un worker più nuovo del server, o dati anomali)», senza
+       «worker non aggiornato»: aggiornare il pacchetto della postazione non sarebbe il rimedio;
+   - «struttura STEP senza diagnostica»: la forma 3 senza `versione_diagnostica` (un worker di prima di GP-3), con
+     «worker non aggiornato»: la lettura vale e non si rilegge, ma geometria, istanze e stato mancano.
+   - Sta qui e non in `strutturaNelleRfq` perché qui il job, e quindi il worker, è noto.
+7. `strutturaNelleRfq`: se i dettagli hanno una struttura STEP, proposte di nodi, archi e rimozioni in ogni RFQ
    con quel contenuto, con il motore del cliente di ciascuna.
 
 - Nessuna riga della BOM cambia.
@@ -477,6 +491,19 @@ markmap:
   - **`b85_db_test.go`**
     - la struttura di uno STEP diventa proposte in ogni RFQ;
     - E2E con il worker vero
+  - **`ls01_struttura_db_test.go`** (LS-01, 17/10/2026)
+    - `TestLS01UscitaVeraDelWorkerAttraversaLaCatena` (P-06): l'uscita del worker vero su uno STEP sintetico per DTO,
+      SQL della 0020, `v_step_prodotto`, proposte, fotografia del Motore A, estrazione, ancoraggio e gerarchia;
+      completa con la forma 3, parziale con la v4 di GP-3, con una versione sconosciuta e con dati incompleti;
+    - `TestLS01RianalizzaRiaccodaSoloGliStepLettiInUnaFormaNonAccettata` (P-10): «Rianalizza» riaccoda solo la forma
+      non accettata, idempotente, con il limite e lo staging; la deroga decade; la flotta mista nel log; «Riscarica» da
+      solo non rilegge (`dopoStaging` riapplica i fatti presenti), un nuovo «Rianalizza» sì;
+    - `TestLS01RianalizzaPerContenutoConIlLimiteCondiviso` (P-10b): una riaccodatura per contenuto con più copie, la
+      copia nello staging, i compatibili prima con il limite, il limite condiviso con le analisi mancanti e i PDF;
+    - `TestLS01IlLogNominaIlWorkerDiOgniStrutturaNonAggiornata`: le due righe del log (forma non accettata, forma 3
+      senza diagnostica) con il worker, il file e l'allegato, e il perché esatto della forma non accettata («worker non
+      aggiornato» per la v4 di GP-3 e per la v2, un worker più nuovo del server o dati anomali per una v5, mai tutti e
+      due); niente per la forma di oggi e per un PDF
   - **`a4_db_test.go`**
     - uno STEP nuovo non modifica la BOM
   - **`copertura_db_test.go`**
@@ -512,7 +539,7 @@ markmap:
   - estrazione come job (4A),
   - fatti per contenuto e loro riuso (1.12, B8.0),
   - contenuto scaricabile dal worker analisi remoto e guardia sulle misure (7C.1),
-  - struttura STEP nelle RFQ (B8.5),
+  - struttura STEP nelle RFQ (B8.5), con l'avviso nel log per la struttura di un worker non aggiornato (LS-01),
   - caricamento interno (B8.7),
   - suffissi decorativi (Fascicolo v3),
   - ingest legato alla credenziale e al job del tentativo.

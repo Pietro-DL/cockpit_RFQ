@@ -1,4 +1,8 @@
-"""GP-3, sotto-blocco 5 (direttiva 21 §5.3): struttura STEP v4, DIAGNOSTICA della geometria e stato della struttura.
+"""GP-3, sotto-blocco 5 (direttiva 21 §5.3): DIAGNOSTICA della geometria e stato della struttura STEP.
+
+Il nome del file e' quello di GP-3, quando questa diagnostica si scriveva come «struttura v4». Da LS-01 (17/10/2026) la
+forma e' di nuovo la 3, quella che il server accetta per la completezza, e la diagnostica ha il suo numero esplicito,
+`versione_diagnostica` = 1: le prove qui sotto fissano anche questo, in ogni esito della lettura.
 
 STEP COSTRUITI qui, con nomi ACME inventati: un assieme senza geometria propria, un pezzo con il solido raggiunto
 attraverso una relazione fra rappresentazioni, un nodo «saldatura» con la sola terna di riferimento, e il
@@ -11,7 +15,7 @@ valida, e «assente» non e' mai «pezzo unico».
 from __future__ import annotations
 
 from contratti import StrutturaSTEP
-from step_struttura import VERSIONE_STRUTTURA, leggi_struttura
+from step_struttura import VERSIONE_DIAGNOSTICA, VERSIONE_STRUTTURA, leggi_struttura
 
 TESTA = ("ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('x','2026-01-01',(''),(''),'','','');\n"
          "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\nENDSEC;\nDATA;\n")
@@ -63,7 +67,9 @@ def nodo(s: dict, chiave: str) -> dict:
 def test_geometria_per_nodo_e_nomi_d_istanza(tmp_path):
     s = leggi_struttura(scrivi(tmp_path, assieme_acme()))
     StrutturaSTEP.model_validate(s)
-    assert s["versione"] == VERSIONE_STRUTTURA == 4 and s["stato"] == "valida" and s["motivo_stato"] == ""
+    # riscritta per LS-01: la forma 3, la diagnostica 1 (prima: «versione 4»)
+    assert s["versione"] == VERSIONE_STRUTTURA == 3 and s["versione_diagnostica"] == VERSIONE_DIAGNOSTICA == 1
+    assert s["stato"] == "valida" and s["motivo_stato"] == ""
     asm, p1, sald = nodo(s, "#10"), nodo(s, "#20"), nodo(s, "#30")
     # il solido del pezzo si raggiunge attraverso la relazione SENZA trasformazione
     assert p1["geometria"] == {"solidi": 1, "superfici": 0, "curve": 0, "mappati": 0, "rappresentazioni": 2,
@@ -109,3 +115,43 @@ def test_superfici_curve_e_mappati(tmp_path):
          "#90=SHELL_BASED_SURFACE_MODEL('',(#5));\n#91=GEOMETRIC_CURVE_SET('',(#6));\n#92=MAPPED_ITEM('',#7,#8);\n" + CODA)
     g = leggi_struttura(scrivi(tmp_path, t))["nodi"][0]["geometria"]
     assert (g["superfici"], g["curve"], g["mappati"], g["solidi"], g["vuota"]) == (1, 1, 1, 0, False)
+
+
+# ---------------------------------------------------------------- LS-01 (17/10/2026)
+#
+# GP-3 scriveva questa diagnostica con `versione: 4`, e la funzione SQL della completezza (0020) accetta solo la 3:
+# ogni STEP letto risultava «parziale». Le due prove qui sotto fissano il produttore: la forma che il server accetta,
+# con la diagnostica numerata a parte, in OGNI esito della lettura (anche fallita o troncata); e i due numeri uguali ai
+# default del contratto pubblicato, che le prove Go confrontano con worker.VersioneStruttura, con la gerarchia del Motore
+# A e con il testo della 0020 (valutazione/versione_struttura_test.go).
+
+
+def test_ls01_la_forma_e_quella_che_il_server_accetta_in_ogni_esito(tmp_path):
+    esiti = {
+        "valida": leggi_struttura(scrivi(tmp_path, assieme_acme(), "valida.stp")),
+        "assente": leggi_struttura(scrivi(tmp_path, assieme_acme(con_nauo=False), "assente.stp")),
+        "parziale per un tetto": leggi_struttura(scrivi(tmp_path, assieme_acme(), "tetto.stp"), {"occorrenze_max": 1}),
+        "parziale per un'occorrenza": leggi_struttura(
+            scrivi(tmp_path, assieme_acme().replace("#12,#32,$)", "#12,#999,$)"), "rotto.stp")),
+        "non Part 21": leggi_struttura(scrivi(tmp_path, "non sono uno STEP\n", "no.stp")),
+        "lettura fallita": leggi_struttura(str(tmp_path / "manca.stp")),
+    }
+    for nome, s in esiti.items():
+        assert (s["versione"], s["versione_diagnostica"]) == (3, 1), nome
+        letta = StrutturaSTEP.model_validate(s)
+        assert (letta.versione, letta.versione_diagnostica) == (3, 1), nome
+    # lo stato resta diagnostica e cambia con l'esito; la versione no: a dire «parziale» per il server sono i numeri
+    # della forma 3 (avvisi, limiti, scarti, radici, relazioni), letti dalla 0020, mai un numero di versione diverso
+    assert [esiti[k]["stato"] for k in esiti] == ["valida", "assente", "parziale", "parziale", "non_estraibile",
+                                                   "non_estraibile"]
+
+
+def test_ls01_i_numeri_del_worker_sono_quelli_del_contratto():
+    # la forma scritta dal worker e' il default del contratto pubblicato (contracts/struttura_step.schema.json)
+    assert StrutturaSTEP.model_fields["versione"].default == VERSIONE_STRUTTURA == 3
+    # il default della diagnostica nel contratto e' 0, «nessuna»: i fatti dei worker di prima di GP-3 non la portano,
+    # e chi legge non deve scambiarli per una diagnostica 1
+    assert StrutturaSTEP.model_fields["versione_diagnostica"].default == 0 < VERSIONE_DIAGNOSTICA == 1
+    # una struttura senza il campo (un worker di prima di GP-3) si legge con la diagnostica 0
+    vecchia = StrutturaSTEP.model_validate({"versione": 3, "nodi": [{"chiave": "#1", "nome_grezzo": "ACME"}]})
+    assert vecchia.versione_diagnostica == 0 and vecchia.nodi[0].geometria is None
