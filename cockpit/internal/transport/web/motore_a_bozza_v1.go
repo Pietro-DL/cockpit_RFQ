@@ -580,3 +580,15 @@ func testoErroreF8(err error) string {
 	}
 	return t
 }
+
+// fileStep dice se un file e' uno STEP (estensione stp o step; senza estensione registrata, il nome): «Conferma la fonte»
+// scrive la storia della fonte STEP del prodotto solo per un CAD 3D che e' uno STEP (EM §2.4; PM23 R-24; allegati.go).
+func fileStep(estensione, nome string) bool {
+	e := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(estensione), "."))
+	if e == "" {
+		if i := strings.LastIndex(nome, "."); i >= 0 {
+			e = strings.ToLower(nome[i+1:])
+		}
+	}
+	return e == "stp" || e == "step"
+}

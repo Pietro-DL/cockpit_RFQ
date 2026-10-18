@@ -188,7 +188,8 @@ markmap:
 - I codici: `statoDelCodiceV1` e l'elenco unico `CodiciServerBozzaV1` (T-05, provato contro i cataloghi del ponte); un
   errore non previsto e' 500 con un testo generico (il dettaglio nel log).
 - Prove: `motore_a_bozza_v1_test.go` (L1: flag, ruoli, rotte montate, codici, T-05, T-12, T-12b),
-  `motore_a_bozza_v1_db_test.go` (L4: T-04 con il guscio della pagina, R2/R3/R11 via HTTP, T-12 meta' L4, T-15).
+  `motore_a_bozza_v1_db_test.go` (L4: T-04 con il guscio della pagina, R2/R3/R11 via HTTP, T-12 meta' L4, T-15,
+  «Conferma la fonte» di R-24).
 
 ### Le rotte (A1d-P2)
 

@@ -447,6 +447,9 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	// conferma di un allegato. Adesso la decide chi assegna, con un gesto suo.
 	codiceTxt := ptxt(codice)
 	assegnato := ""
+	// V1 (EM §2.3, §2.4, §9.10; PM23 R-24): il prodotto, quando il documento e' uno STEP del finito: «Conferma la fonte»
+	// scrive la sua riga della storia della fonte
+	var fonteDi uuid.UUID
 	if comp.Valid {
 		c, err := q.GetComponente(ctx, comp.UUID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -458,6 +461,9 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 		// il messaggio per l'operatore; chi impedisce l'aggancio e' la FK (thread, componente, codice)
 		if c.ThreadID != t.ThreadID {
 			return "", fmt.Errorf("il componente %s non è di questa RFQ", c.Codice)
+		}
+		if c.Tipo == db.TipoComponenteFinito && tipo == db.TipoDocumentoCad3d && fileStep(a.Estensione.String, a.NomeFile) {
+			fonteDi = c.ComponenteID
 		}
 		if codice, err = codiceDaComponente(codice, c, correggi); err != nil {
 			return "", err
@@ -520,12 +526,20 @@ func (s *Server) confermaProposta(ctx context.Context, q *db.Queries, u *db.Uten
 	if _, err := q.DecidiProposta(ctx, db.DecidiPropostaParams{PropostaID: p.PropostaID, Stato: db.StatoPropostaConfermata, DecisoDa: uuid.NullUUID{UUID: u.UtenteID, Valid: true}}); err != nil {
 		return "", err
 	}
+	if fonteDi != uuid.Nil {
+		if _, err := fascicolo.ScriviFonteProdotto(ctx, q, fascicolo.EventoFonte{Thread: t.ThreadID, Prodotto: fonteDi, Documento: d.DocumentoID,
+			Allegato: a.AllegatoID, Sha256: a.Sha256.String, Azione: fascicolo.FonteConfermaDocumento, Autore: u.UtenteID}); err != nil {
+			return "", err
+		}
+	}
 	componente := " Senza componente: codice e percorso restano questi finché non lo si assegna."
 	if assegnato != "" {
 		revisione, err := applicaScelta(ctx, q, t.ThreadID, d.DocumentoID, scelta, u.UtenteID)
 		if err != nil {
 			return "", err
 		}
+		// con la sostituzione dello STEP autorizzato e la risposta «sì» la riga «autorizzazione» del file nuovo la scrive
+		// DichiaraStrutturale, che Sostituisci chiama (EM §2.4; terzo giro su O-01, OT-01)
 		componente = " Assegnato al componente " + assegnato + "." + revisione
 	}
 	if _, err := coda.AccodaCopia(ctx, q, d.DocumentoID); err != nil {

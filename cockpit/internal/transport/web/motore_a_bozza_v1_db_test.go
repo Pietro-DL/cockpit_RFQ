@@ -10,7 +10,8 @@
 //     bozza o versione formato 2 nasce;
 //   - R3: 409 con la versione superata, 200 con quella corrente;
 //   - R11: gli stati di F8 in attesa diventano eseguito, risolto_da riallinea;
-//   - T-15: nessun percorso (C:\, \\) nelle risposte JSON.
+//   - T-15: nessun percorso (C:\, \\) nelle risposte JSON;
+//   - R-24, «Conferma la fonte»: la riga conferma_documento della storia della fonte del prodotto.
 // Le rotte si montano qui accanto a Registra finche' registraMotoreA non le monta (richiesta nel resoconto della corsia).
 // Dati inventati: ACME, codici 712xxxx.
 
@@ -20,6 +21,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -297,5 +301,59 @@ func TestBozzaV1SalvaAbbandonaERiallineaViaHTTP(t *testing.T) {
 	op := operatore(b)
 	if resp, _ := op.chiediJSON(http.MethodPost, base+"/riallinea", `{}`); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("R11 dell'operatore: %d", resp.StatusCode)
+	}
+}
+
+// R-24, «Conferma la fonte» (EM §2.4, §9.10): la conferma di uno STEP del finito scrive conferma_documento con il documento
+// nella storia della fonte del prodotto, nella transazione dell'atto; lo STEP di un sottoassieme e il PDF del finito no.
+// (Con la sostituzione dello STEP autorizzato e «sì» la riga autorizzazione la scrive DichiaraStrutturale, che Sostituisci
+// chiama: la prova e' in core/rfq/fascicolo, TestV1AutorizzaERevocaScrivonoLaStoriaDellaFonte.)
+func TestV1ConfermaLaFonteScriveLaStoriaDellaFonte(t *testing.T) {
+	b := preparaBancoWeb(t)
+	cliente := b.clienteDiProva("ACMEF", "Acme S.p.A.", "acmef.example")
+	thread := uuidSQL(t, b, `INSERT INTO thread_offerta (cliente_id, canale, data_inizio, oggetto, cartella_relativa, priorita)
+		VALUES ($1, 'outlook', now(), 'RFQ fonte', 'ACMEF\WIP\2026 10 18 fonte', 1) RETURNING thread_id`, cliente)
+	msg := b.messaggioIn("FONTE-V1")
+	if _, err := b.pool.Exec(b.ctx, `UPDATE messaggio SET thread_id = $2 WHERE messaggio_id = $1`, msg, thread); err != nil {
+		t.Fatal(err)
+	}
+	fp := uuidSQL(t, b, `SELECT utente_id FROM utente WHERE sigla = 'FP'`)
+	prodotto := uuidSQL(t, b, `INSERT INTO componente (thread_id, codice, tipo, confermato_da) VALUES ($1, '7120001', 'finito', $2) RETURNING componente_id`, thread, fp)
+	sotto := uuidSQL(t, b, `INSERT INTO componente (thread_id, codice, tipo, confermato_da) VALUES ($1, '7120010', 'sottoassieme', $2) RETURNING componente_id`, thread, fp)
+	proposta := func(i int, nome, est, sha string, tipo db.TipoDocumento, codice string, comp uuid.UUID) (uuid.UUID, uuid.UUID) {
+		t.Helper()
+		percorso := filepath.Join(t.TempDir(), nome)
+		if err := os.WriteFile(percorso, []byte("contenuto di prova di "+nome), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		all := uuidSQL(t, b, `INSERT INTO allegato (messaggio_id, indice, nome_file, estensione, natura, origine, bytes, sha256, path_staging, stato, ricevuto_il)
+			VALUES ($1, $2, $3, $4, 'file', 'outlook', 30, $5, $6, 'analizzato', now()) RETURNING allegato_id`, msg, i, nome, est, sha, percorso)
+		p := uuidSQL(t, b, `INSERT INTO documento_proposta (allegato_id, thread_id, tipo_proposto, codice, componente_id, confidenza, fonte)
+			VALUES ($1, $2, $3, $4, $5, 90, 'nome_file') RETURNING proposta_id`, all, thread, tipo, codice, comp)
+		return all, p
+	}
+	op := operatore(b)
+	conferma := func(p uuid.UUID) {
+		t.Helper()
+		_, html := op.fai(http.MethodPost, "/proposta/"+p.String()+"/conferma", url.Values{}, true)
+		if !strings.Contains(leggibile(html), "Confermato") {
+			t.Fatalf("conferma della proposta %s:\n%s", p, estrai(html, "avviso"))
+		}
+	}
+	shaStep := strings.Repeat("e", 64)
+	aStep, pStep := proposta(1, "7120001.stp", "stp", shaStep, db.TipoDocumentoCad3d, "7120001", prodotto)
+	conferma(pStep)
+	doc := uuidSQL(t, b, `SELECT documento_id FROM documento WHERE thread_id = $1 AND sha256 = $2`, thread, shaStep)
+	if n := contaSQL(t, b, `SELECT count(*) FROM fonte_step_evento WHERE thread_id = $1 AND prodotto_id = $2 AND ruolo = 'prodotto'
+		AND azione = 'conferma_documento' AND documento_id = $3 AND allegato_id = $4 AND sha256 = $5 AND autore_id = $6`,
+		thread, prodotto, doc, aStep, shaStep, fp); n != 1 {
+		t.Fatalf("conferma_documento dello STEP del finito: %d righe", n)
+	}
+	_, pSotto := proposta(2, "7120010.stp", "stp", strings.Repeat("f", 64), db.TipoDocumentoCad3d, "7120010", sotto)
+	conferma(pSotto)
+	_, pPdf := proposta(3, "7120001.pdf", "pdf", strings.Repeat("d", 64), db.TipoDocumentoDisegno2d, "7120001", prodotto)
+	conferma(pPdf)
+	if n := contaSQL(t, b, `SELECT count(*) FROM fonte_step_evento WHERE thread_id = $1`, thread); n != 1 {
+		t.Fatalf("righe della storia della fonte dopo lo STEP del sottoassieme e il PDF: %d, attesa una", n)
 	}
 }
